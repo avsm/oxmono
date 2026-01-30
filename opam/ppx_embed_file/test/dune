@@ -1,0 +1,6 @@
+(library
+ (name ppx_embed_test)
+ (libraries core)
+ (preprocessor_deps hello_world.txt)
+ (preprocess
+  (pps ppx_jane ppx_embed_file)))

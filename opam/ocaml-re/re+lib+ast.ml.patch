@@ -1,0 +1,32 @@
+--- a/lib/ast.ml
++++ b/lib/ast.ml
+@@ -1,9 +1,10 @@
+ open Import
+ 
+-type ('a, _) ast =
++type ('a, _) ast : immutable_data with 'a =
+   | Alternative : 'a list -> ('a, [> `Uncased ]) ast
+   | No_case : 'a -> ('a, [> `Cased ]) ast
+   | Case : 'a -> ('a, [> `Cased ]) ast
++[@@unsafe_allow_any_mode_crossing]
+ 
+ let dyn_of_ast f =
+   let open Dyn in
+@@ -46,7 +47,7 @@ let rec dyn_of_cset =
+   | Cast c -> variant "Cast" [ dyn_of_ast dyn_of_cset c ]
+ ;;
+ 
+-type ('a, 'case) gen =
++type ('a, 'case) gen : immutable_data with 'a =
+   | Set of 'a
+   | Ast of (('a, 'case) gen, 'case) ast
+   | Sequence of ('a, 'case) gen list
+@@ -245,7 +246,7 @@ module Export = struct
+   let str s : t =
+     let l = ref [] in
+     for i = String.length s - 1 downto 0 do
+-      l := char s.[i] :: !l
++      l := (char s.[i] : t) :: !l
+     done;
+     seq !l
+   ;;

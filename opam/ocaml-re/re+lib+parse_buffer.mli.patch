@@ -1,0 +1,10 @@
+--- a/lib/parse_buffer.mli
++++ b/lib/parse_buffer.mli
+@@ -1,4 +1,6 @@
+-type t
++@@ portable
++
++type t : mutable_data
+ 
+ exception Parse_error
+ 

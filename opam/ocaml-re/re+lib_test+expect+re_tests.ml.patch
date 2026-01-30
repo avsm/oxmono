@@ -1,0 +1,33 @@
+--- /dev/null
++++ b/lib_test/expect/re_tests.ml
+@@ -0,0 +1,30 @@
++
++
++module Import = Import
++module Test_186 = Test_186
++module Test_alternation = Test_alternation
++module Test_automata = Test_automata
++module Test_bit_vector = Test_bit_vector
++module Test_category = Test_category
++module Test_color = Test_color
++module Test_csets = Test_csets
++module Test_emacs = Test_emacs
++module Test_glob = Test_glob
++module Test_group = Test_group
++module Test_hashset = Test_hashset
++module Test_iter = Test_iter
++module Test_mark = Test_mark
++module Test_partial = Test_partial
++module Test_pcre = Test_pcre
++module Test_pcre_288 = Test_pcre_288
++module Test_pcre_split = Test_pcre_split
++module Test_perl = Test_perl
++module Test_posix = Test_posix
++module Test_re = Test_re
++module Test_replace = Test_replace
++module Test_repn = Test_repn
++module Test_split = Test_split
++module Test_str = Test_str
++module Test_stream = Test_stream
++module Test_validation = Test_validation
++module Test_view = Test_view

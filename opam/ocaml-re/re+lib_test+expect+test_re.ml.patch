@@ -1,0 +1,59 @@
+--- a/lib_test/expect/test_re.ml
++++ b/lib_test/expect/test_re.ml
+@@ -328,3 +328,56 @@ let%expect_test "witness" =
+   t eol;
+   [%expect {| |}]
+ ;;
++
++let%expect_test "exec_partial consistency with execp" =
++  let open Base in
++  let open Expect_test_helpers_base in
++  let test_exec_partial re input =
++    let compiled = compile re in
++    let execp = execp compiled input
++    and exec_partial = exec_partial compiled input
++    and exec_partial_detailed = exec_partial_detailed compiled input in
++    match
++      Bool.equal execp
++        (match exec_partial with
++         | `Full -> true
++         | `Mismatch | `Partial -> false)
++      &&
++      Bool.equal execp
++        (match exec_partial_detailed with
++         | `Full _ -> true
++         | `Mismatch | `Partial _ -> false)
++    with
++    | true -> print_s [%message "consistent"]
++    | false ->
++      print_cr ~cr:CR_soon [%message
++        "inconsistent"
++          (execp : bool)
++          (exec_partial : [ `Full | `Mismatch | `Partial ])
++          (exec_partial_detailed : [ `Full of _ | `Mismatch | `Partial of _ ])]
++  in
++
++  test_exec_partial (Re.Pcre.re ".*") "a";
++  [%expect {| consistent |}];
++
++  test_exec_partial (Re.Pcre.re ".*") "";
++  [%expect {| consistent |}];
++
++  test_exec_partial (Re.Pcre.re ".*") "hello world";
++  [%expect {| consistent |}];
++
++  test_exec_partial (str "hello") "hello";
++  [%expect {| consistent |}];
++
++  test_exec_partial (opt (char 'a')) "";
++  [%expect {| consistent |}];
++
++  test_exec_partial (opt (char 'a')) "a";
++  [%expect {| consistent |}];
++
++  test_exec_partial (str "hello") "he";
++  [%expect {| consistent |}];
++
++  test_exec_partial (str "hello") "goodbye";
++  [%expect {| consistent |}];
++;;

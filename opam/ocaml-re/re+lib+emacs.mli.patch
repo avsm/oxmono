@@ -1,0 +1,8 @@
+--- a/lib/emacs.mli
++++ b/lib/emacs.mli
+@@ -1,3 +1,5 @@
++@@ portable
++
+ (*
+    RE - A regular expression library
+ 

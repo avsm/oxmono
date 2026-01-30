@@ -1,0 +1,151 @@
+--- a/lib/compile.ml
++++ b/lib/compile.ml
+@@ -2,7 +2,7 @@ open Import
+ 
+ let rec iter n f v = if Int.equal n 0 then v else iter (n - 1) f (f v)
+ 
+-module Idx : sig
++module Idx : sig @@ portable
+   type t [@@immediate]
+ 
+   val unknown : t
+@@ -54,8 +54,8 @@ type state_info =
+    color. For performance reason, to avoid an indirection, we manually
+    unbox the transition table: we allocate a single array, with the
+    state information at index 0, followed by the transitions. *)
+-module State : sig
+-  type t
++module State : sig @@ portable
++  type t : mutable_data
+ 
+   val make : ncol:int -> state_info -> t
+   val make_break : state_info -> t
+@@ -64,7 +64,7 @@ module State : sig
+   val set_transition : t -> color:Cset.c -> t -> unit
+   val is_unknown_transition : t -> color:Cset.c -> bool
+ end = struct
+-  type t = Table of t array [@@unboxed]
++  type t : mutable_data = Table of t array [@@unboxed]
+ 
+   (* Thread-safety:
+      We store the state information at index 0. For other elements
+@@ -93,7 +93,7 @@ end = struct
+   let unknown_state = dummy { idx = Idx.unknown; final = []; desc = Automata.State.dummy }
+ 
+   let make ~ncol state =
+-    let st = Table (Array.make (ncol + 1) unknown_state) in
++    let st = Table (Array.make (ncol + 1) (Stdlib.Obj.magic_uncontended unknown_state)) in
+     set_info st state;
+     st
+   ;;
+@@ -102,7 +102,7 @@ end = struct
+ end
+ 
+ (* Automata (compiled regular expression) *)
+-type re =
++type re : immutable_data =
+   { initial : Automata.expr
+   ; (* The whole regular expression *)
+     mutable initial_states : (Category.t * State.t) list
+@@ -126,6 +126,8 @@ type re =
+   ; (* Number of groups in the regular expression *)
+     mutex : Mutex.t
+   }
++(* See "thread-safety" comment below. *)
++[@@unsafe_allow_any_mode_crossing]
+ 
+ (* Thread-safety:
+    We use double-checked locking to access field [initial_states]. The
+@@ -151,7 +153,7 @@ module Positions = struct
+       mutable length : int
+     }
+ 
+-  let empty = { positions = [||]; length = 0 }
++  let get_empty () = { positions = [||]; length = 0 }
+   let length t = t.length
+   let unsafe_set t idx pos = Array.unsafe_set t.positions idx pos
+ 
+@@ -181,7 +183,7 @@ module Positions = struct
+          always checking whether it is large enough before modifying it. *)
+       let length = Automata.Working_area.index_count re.tbl + 1 in
+       { positions = Array.make length 0; length })
+-    else empty
++    else get_empty ()
+   ;;
+ end
+ 
+@@ -414,22 +416,32 @@ let make_match_str re positions ~len ~gr
+     scan_str re positions s initial_state ~pos ~last ~groups
+   in
+   let state_info = State.get_info st in
+-  if Idx.is_break state_info.idx || (partial && not groups)
++  if Idx.is_break state_info.idx
+   then Automata.State.status re.mutex state_info.desc
+-  else if partial && groups
+-  then (
+-    match Automata.State.status re.mutex state_info.desc with
+-    | (Match _ | Failed) as status -> status
+-    | Running ->
+-      (* This could be because it's still not fully matched, or it
+-         could be that because we need to run special end of input
+-         checks. *)
+-      (match final_boundary_check re positions ~last ~slen s state_info ~groups with
+-       | Match _ as status -> status
+-       | Failed | Running ->
+-         (* A failure here just means that we need more data, i.e.
+-            it's a partial match. *)
+-         Running))
++  else if partial
++  then if groups
++    then (
++      match Automata.State.status re.mutex state_info.desc with
++      | (Match _ | Failed) as status -> status
++      | Running ->
++        (* This could be because it's still not fully matched, or it
++           could be that because we need to run special end of input
++           checks. *)
++        (match final_boundary_check re positions ~last ~slen s state_info ~groups with
++         | Match _ as status -> status
++         | Failed | Running ->
++           (* A failure here just means that we need more data, i.e.
++              it's a partial match. *)
++           Running))
++    else (
++      match Automata.State.status re.mutex state_info.desc with
++      | Running as status when last = slen ->
++        (* For partial matching at end of input, check if we can transition to a
++           match *)
++        (match final_boundary_check re positions ~last ~slen s state_info ~groups with
++         | Match _ as status -> status
++         | Failed | Running -> status)
++      | (Match _ | Running | Failed) as status -> status)
+   else final_boundary_check re positions ~last ~slen s state_info ~groups
+ ;;
+ 
+@@ -466,7 +478,7 @@ module Stream = struct
+   let finalize t s ~pos ~len =
+     (* TODO bound checks? *)
+     let last = pos + len in
+-    let state = scan_str t.re Positions.empty s t.state ~last ~pos ~groups:false in
++    let state = scan_str t.re (Positions.get_empty ()) s t.state ~last ~pos ~groups:false in
+     let info = State.get_info state in
+     match
+       let _idx, res =
+@@ -630,7 +642,7 @@ let match_str_no_bounds ~groups ~partial
+ let match_str_p re s ~pos ~len =
+   if pos < 0 || len < -1 || pos + len > String.length s
+   then invalid_arg "Re.exec: out of bounds";
+-  match make_match_str re Positions.empty ~len ~groups:false ~partial:false s ~pos with
++  match make_match_str re (Positions.get_empty ()) ~len ~groups:false ~partial:false s ~pos with
+   | Match _ -> true
+   | _ -> false
+ ;;
+@@ -812,7 +824,7 @@ let compile_1 regexp =
+     ; greedy = `Greedy
+     ; pos = ref A.Mark.start
+     ; names = ref []
+-    ; cache = ref Cset.CSetMap.empty
++    ; cache = ref (Stdlib.Obj.magic_uncontended Cset.CSetMap.empty)
+     ; colors
+     }
+   in

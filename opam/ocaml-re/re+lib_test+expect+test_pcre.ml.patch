@@ -1,0 +1,64 @@
+--- a/lib_test/expect/test_pcre.ml
++++ b/lib_test/expect/test_pcre.ml
+@@ -103,3 +103,61 @@ let%expect_test "quote" =
+   Printf.printf "%S\n" b;
+   [%expect {xxx| "$()*+.?[\\^{|" |xxx}]
+ ;;
++
++let%expect_test "exec_partial consistency for PCRE patterns" =
++  let open Base in
++  let open Expect_test_helpers_base in
++  let test_partial_and_execp_consistency pattern input =
++    let re = Re.compile (Re.Pcre.re pattern) in
++    let execp = Re.execp re input in
++    let exec_partial = Re.exec_partial re input in
++    let exec_partial_as_bool =
++      match exec_partial with
++      | `Full -> true
++      | `Partial | `Mismatch -> false
++    in
++    match Bool.equal execp exec_partial_as_bool with
++    | true -> print_s [%message "consistent"]
++    | false ->
++      print_cr ~cr:CR_soon [%message
++        "inconsistent"
++          (execp : bool)
++          (exec_partial : [ `Full | `Partial | `Mismatch ])]
++  in
++
++  test_partial_and_execp_consistency ".*" "a";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency ".*" "";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency ".*" "hello world";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency ".+" "a";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency ".+" "hello";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency "a?" "";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency "a?" "a";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency "a*" "";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency "a*" "aaa";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency "hello" "hello";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency "hello" "he";
++  [%expect {| consistent |}];
++
++  test_partial_and_execp_consistency ".+" "";
++  [%expect {| consistent |}];
++;;

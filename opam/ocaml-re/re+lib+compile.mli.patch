@@ -1,0 +1,23 @@
+--- a/lib/compile.mli
++++ b/lib/compile.mli
+@@ -1,7 +1,9 @@
+-type re
++@@ portable
++
++type re : immutable_data
+ 
+ module Stream : sig
+-  type t
++  type t : mutable_data
+ 
+   type 'a feed =
+     | Ok of 'a
+@@ -13,7 +15,7 @@ module Stream : sig
+ 
+   module Group : sig
+     type stream := t
+-    type t
++    type t : mutable_data
+ 
+     module Match : sig
+       type t

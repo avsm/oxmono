@@ -1,0 +1,88 @@
+--- a/lib_test/expect/test_partial.ml
++++ b/lib_test/expect/test_partial.ml
+@@ -19,9 +19,9 @@ let%expect_test "partial matches" =
+   [%expect {| `Partial |}];
+   (* exec_partial 3 should be `Full *)
+   t (str "hello") "hello";
+-  [%expect {| `Partial |}];
++  [%expect {| `Full |}];
+   t (whole_string (str "hello")) "hello";
+-  [%expect {| `Partial |}];
++  [%expect {| `Full |}];
+   t (whole_string (str "hello")) "goodbye";
+   [%expect {| `Mismatch |}];
+   t (str "hello") "";
+@@ -29,7 +29,47 @@ let%expect_test "partial matches" =
+   t (str "") "hello";
+   [%expect {| `Full |}];
+   t (whole_string (str "hello")) "";
+-  [%expect {| `Partial |}]
++  [%expect {| `Partial |}];
++
++  (* PCRE .* patterns *)
++  t (Re.Pcre.re ".*") "a";
++  [%expect {| `Full |}];
++  t (Re.Pcre.re ".*") "";
++  [%expect {| `Full |}];
++  t (Re.Pcre.re ".*") "hello world";
++  [%expect {| `Full |}];
++
++  (* .+ patterns *)
++  t (Re.Pcre.re ".+") "";
++  [%expect {| `Partial |}];
++  t (Re.Pcre.re ".+") "a";
++  [%expect {| `Full |}];
++  t (Re.Pcre.re ".+") "hello";
++  [%expect {| `Full |}];
++
++  (* Optional patterns *)
++  t (opt (char 'a')) "";
++  [%expect {| `Full |}];
++  t (opt (char 'a')) "a";
++  [%expect {| `Full |}];
++  t (opt (str "hello")) "";
++  [%expect {| `Full |}];
++  t (opt (str "hello")) "hello";
++  [%expect {| `Full |}];
++
++  (* Repetition patterns *)
++  t (rep (char 'a')) "";
++  [%expect {| `Full |}];
++  t (rep (char 'a')) "a";
++  [%expect {| `Full |}];
++  t (rep (char 'a')) "aaa";
++  [%expect {| `Full |}];
++
++  (* Alternative patterns *)
++  t (alt [str "hello"; str "world"]) "hello";
++  [%expect {| `Full |}];
++  t (alt [str "hello"; str "world"]) "world";
++  [%expect {| `Full |}];
+ ;;
+ 
+ let t = exec_partial_detailed
+@@ -65,5 +105,23 @@ let%expect_test "partial detailed" =
+   t ~pos:1 (seq [ not_boundary; str "b" ]) "ab";
+   [%expect {| `Full [|1,2,"b"|] |}];
+   t (seq [ group (str "a"); rep any; group (str "b") ]) ".acb.";
+-  [%expect {| `Full [|1,4,"acb";1,2,"a";3,4,"b"|] |}]
++  [%expect {| `Full [|1,4,"acb";1,2,"a";3,4,"b"|] |}];
++
++  (* PCRE .* patterns *)
++  t (Re.Pcre.re ".*") "a";
++  [%expect {| `Full [|0,1,"a"|] |}];
++  t (Re.Pcre.re ".*") "";
++  [%expect {| `Full [|0,0,""|] |}];
++
++  (* Optional patterns *)
++  t (opt (char 'a')) "";
++  [%expect {| `Full [|0,0,""|] |}];
++  t (opt (char 'a')) "a";
++  [%expect {| `Full [|0,1,"a"|] |}];
++
++  (* Repetition patterns *)
++  t (rep (char 'a')) "";
++  [%expect {| `Full [|0,0,""|] |}];
++  t (rep (char 'a')) "aaa";
++  [%expect {| `Full [|0,3,"aaa"|] |}];
+ ;;

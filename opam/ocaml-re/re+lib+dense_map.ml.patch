@@ -1,0 +1,13 @@
+--- a/lib/dense_map.ml
++++ b/lib/dense_map.ml
+@@ -1,4 +1,7 @@
+-let make ~size ~f =
+-  let cache = Array.init size f in
+-  fun i -> cache.(i)
++open Import
++
++let make : ('a : value mod contended portable). size:int -> f:(int -> 'a) -> (int -> 'a) @ portable =
++  fun ~size ~f ->
++  let cache = Iarray.unsafe_of_array__promise_no_mutation (Array.init size f) in
++  fun i -> cache.:(i)
+ ;;

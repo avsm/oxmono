@@ -1,0 +1,17 @@
+--- a/lib/group.mli
++++ b/lib/group.mli
+@@ -1,3 +1,5 @@
++@@ portable
++
+ (** Information about groups in a match. *)
+ 
+ (** Result of a successful match. *)
+@@ -44,7 +46,7 @@ val nb_groups : t -> int
+ val pp : t Fmt.t
+ 
+ module Offset : sig
+-  type t
++  type t : immediate
+ 
+   val is_present : t -> bool
+   val get_no_check : t -> int

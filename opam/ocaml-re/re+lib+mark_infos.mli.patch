@@ -1,0 +1,20 @@
+--- a/lib/mark_infos.mli
++++ b/lib/mark_infos.mli
+@@ -1,5 +1,7 @@
++@@ portable
++
+ (** store mark information for groups in an array *)
+-type t
++type t : immutable_data
+ 
+ val make : (int * int) list -> t
+ val offset : t -> int -> (int * int) option
+@@ -7,7 +9,7 @@ val test : t -> int -> bool
+ val iteri : t -> f:(int -> int -> int -> unit) -> unit
+ 
+ module Offset : sig
+-  type t
++  type t : immediate
+ 
+   val is_present : t -> bool
+   val get_no_check : t -> int

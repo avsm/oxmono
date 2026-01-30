@@ -1,0 +1,10 @@
+(library
+ (name re)
+ (synopsis "Pure OCaml regular expression library")
+ (libraries seq)
+ (public_name re))
+
+(copy_files#
+ (enabled_if
+  (< %{ocaml_version} 5))
+ (files fake/*))

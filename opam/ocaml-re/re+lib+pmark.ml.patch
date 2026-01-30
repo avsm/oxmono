@@ -1,0 +1,26 @@
+--- a/lib/pmark.ml
++++ b/lib/pmark.ml
+@@ -3,20 +3,15 @@ module Pmark = struct
+ 
+   let equal (x : int) (y : int) = x = y
+   let compare (x : int) (y : int) = compare x y
+-  let r = ref 0
+-
+-  let gen () =
+-    incr r;
+-    !r
+-  ;;
+-
++  let r = Atomic.make 0
++  let gen () = Atomic.fetch_and_add r 1
+   let pp = Format.pp_print_int
+ end
+ 
+ include Pmark
+ 
+ module Set = struct
+-  module Set = Set.Make (Pmark)
++  module Set = Set.MakePortable (Pmark)
+ 
+   let[@warning "-32"] to_list x =
+     let open Set in

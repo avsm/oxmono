@@ -1,0 +1,16 @@
+--- a/lib/view.mli
++++ b/lib/view.mli
+@@ -1,10 +1,12 @@
++@@ portable
++
+ (** A view of the top-level of a regex. This type is unstable and may change *)
+ 
+ module Cset : sig
+   type t = Cset.t
+ 
+   module Range : sig
+-    type t
++    type t : immutable_data
+ 
+     val first : t -> Char.t
+     val last : t -> Char.t

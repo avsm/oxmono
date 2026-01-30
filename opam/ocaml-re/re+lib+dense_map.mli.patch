@@ -1,0 +1,7 @@
+--- a/lib/dense_map.mli
++++ b/lib/dense_map.mli
+@@ -1 +1,3 @@
+-val make : size:int -> f:(int -> 'a) -> int -> 'a
++@@ portable
++
++val make : ('a : value mod contended portable). size:int -> f:(int -> 'a) -> (int -> 'a) @ portable

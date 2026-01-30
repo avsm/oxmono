@@ -1,0 +1,15 @@
+--- a/lib/category.mli
++++ b/lib/category.mli
+@@ -1,9 +1,11 @@
++@@ portable
++
+ (** Categories represent the various kinds of characters that can be tested
+     by look-ahead and look-behind operations.
+ 
+     This is more restricted than Cset, but faster. *)
+ 
+-type t [@@immediate]
++type t : immediate
+ 
+ val ( ++ ) : t -> t -> t
+ val from_char : char -> t

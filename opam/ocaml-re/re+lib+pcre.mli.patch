@@ -1,0 +1,8 @@
+--- a/lib/pcre.mli
++++ b/lib/pcre.mli
+@@ -1,3 +1,5 @@
++@@ portable
++
+ (** NOTE: Only a subset of the PCRE spec is supported *)
+ 
+ exception Parse_error

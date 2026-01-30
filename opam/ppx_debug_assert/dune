@@ -1,0 +1,13 @@
+(library
+ (name ppx_debug_assert)
+ (public_name ppx_debug_assert)
+ (kind ppx_rewriter)
+ (libraries ppxlib)
+ (preprocess
+  (pps ppxlib.metaquot)))
+
+(rule
+ (targets build_env.ml)
+ (deps)
+ (action
+  (bash "echo \"let unsafe_accesses_are_checked = true\" > %{targets}")))

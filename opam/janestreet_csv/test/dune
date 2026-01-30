@@ -1,0 +1,7 @@
+(library
+ (name csv_tool_tests)
+ (libraries async core csv_tool_lib csvfields.csvlib dedent delimited_parsing
+   expect_test_helpers_async expect_test_helpers_core
+   patdiff.expect_test_patdiff re core_unix.time_float_unix)
+ (preprocess
+  (pps ppx_jane)))

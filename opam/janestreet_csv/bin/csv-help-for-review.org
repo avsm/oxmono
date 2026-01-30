@@ -1,0 +1,628 @@
+* csv.exe
+
+: CSV tool
+:
+:   csv.exe SUBCOMMAND
+:
+: === subcommands ===
+:
+:   add-column                 . add a new column to a csv
+:   cat                        . concatenate multiple CSV files into one
+:   change-separator           . Changes the delimiter, respecting quoting
+:   count-rows                 . print the number of rows of data (excluding
+:                                header) in a csv
+:   cut                        . cut for csv files
+:   cut2                       . cut for csv files (deprecated)
+:   destructure                . Convert from structured string formats of OCaml
+:                                types to simpler formats
+:   diff                       . diff for csv files
+:   enhead                     . Add the given column headers to a csv
+:   fields                     . list csv field names
+:   grep                       . grep in csv fields (using the re2 regular
+:                                expression engine), while keeping the header
+:   grid                       . grid based on specified column, start time, stop
+:                                time and span
+:   id                         . transfer input to output, canonicalising quoting
+:   join                       . join for csv files
+:   merge                      . concatenate multiple CSV files into one
+:   of-sexp                    . of sexp
+:   pop                        . filter to rows which have certain fields fully
+:                                populated
+:   pp                         . pretty printer for csv files (alias for pretty
+:                                subcommand)
+:   pretty                     . pretty printer for csv files
+:   sort                       . stably sort a csv file on a given column(s)
+:   sum                        . sum columns (use 0 for a cell if Float.of_string
+:                                fails). All rows must have the same length
+:   sum-group                  . sum a csv file, grouping by specified fields,
+:                                producing a new csv file
+:   to-ascii-table             . print a csv as an ascii-table
+:   to-html-table              . print a csv as an HTML table
+:   to-pipe-table              . print a csv as a pipe-delimited table
+:   to-sexp                    . to sexp
+:   transpose                  . transpose csv rows to columns for easier
+:                                command-line viewing
+:   unpop                      . filter to rows which do not have certain fields
+:                                fully populated
+:   validate                   . raise if the csv has ragged rows
+:   version                    . print version information
+:   help                       . explain a given subcommand (perhaps recursively)
+
+** version
+
+: print version information
+:
+:   csv.exe version
+:
+: === flags ===
+:
+:   [-build-info]              . print build info for this build
+:   [-version]                 . print the version of this build
+:   [-help], -?                . print this help text and exit
+
+** add-column
+
+: add a new column to a csv
+:
+:   csv.exe add-column [FILENAME]
+:
+: === flags ===
+:
+:   -column _                  . name of new column
+:   [-after COLUMN]            . insert new column after this column (defaults to
+:                                end)
+:   [-allow-duplicate-column]  . continue even if the new column's name is already
+:                                in use
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-value _]                 . value of new column (defaults to blank)
+:   [-help], -?                . print this help text and exit
+
+** cat
+
+: concatenate multiple CSV files into one
+:
+:   csv.exe cat [FILENAME ...]
+:
+: === flags ===
+:
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** change-separator
+
+: Changes the delimiter, respecting quoting
+:
+:   csv.exe change-separator [FILE]
+:
+: === flags ===
+:
+:   -output-separator CHAR     . separator desired in output
+:   [-input-separator CHAR]    . separator expected in input
+:   [-help], -?                . print this help text and exit
+
+** count-rows
+
+: print the number of rows of data (excluding header) in a csv
+:
+:   csv.exe count-rows [FILENAME]
+:
+: === flags ===
+:
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** cut
+
+: cut for csv files
+:
+:   csv.exe cut [FILE ...]
+:
+: === flags ===
+:
+:   [-fields _], --fields      . named fields to extract, comma separated
+:   [-no-headers]              . treat every row as data; interpret [-fields] as
+:                                zero-based indices
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sh], -suppress-header, --suppress-header
+:                              . keep the header row from appearing in the output
+:   [-v], --invert-match       . exclude specified fields rather than extract them
+:   [-help], -?                . print this help text and exit
+
+** cut2
+
+: cut for csv files (deprecated)
+:
+:   csv.exe cut2 [FILE ...]
+:
+: === flags ===
+:
+:   [-fields _], --fields      . named fields to extract, comma separated
+:   [-no-headers]              . treat every row as data; interpret [-fields] as
+:                                zero-based indices
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sh], -suppress-header, --suppress-header
+:                              . keep the header row from appearing in the output
+:   [-v], --invert-match       . exclude specified fields rather than extract them
+:   [-help], -?                . print this help text and exit
+
+** destructure
+
+: Convert from structured string formats of OCaml types to simpler formats
+:
+:   csv.exe destructure SUBCOMMAND
+:
+: === subcommands ===
+:
+:   percent                    . Convert percentage values like 3x or 25bp into
+:                                multipliers like 3 or 0.0025.
+:   span                       . Convert Time_ns.Span.t into a number
+:   time                       . Convert Time_ns.t, including the
+:                                list-of-two-atoms sexp format, into a simpler
+:                                format
+:   unit                       . Replace () with the empty string
+:   help                       . explain a given subcommand (perhaps recursively)
+
+*** percent
+
+: Convert percentage values like 3x or 25bp into multipliers like 3 or 0.0025.
+:
+:   csv.exe destructure percent [FILENAME]
+:
+: === flags ===
+:
+:   [-fields field,...], --fields
+:                              . Fields to convert (default: all of them)
+:   [-on-error ACTION]         . What to do if a named field doesn’t have the
+:                                expected type (default: skip) (can be: fail,
+:                                only-fail-if-nonempty, skip)
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+*** span
+
+: Convert Time_ns.Span.t into a number
+:
+:   csv.exe destructure span [FILENAME]
+:
+: === flags ===
+:
+:   [-fields field,...], --fields
+:                              . Fields to convert (default: all of them)
+:   [-on-error ACTION]         . What to do if a named field doesn’t have the
+:                                expected type (default: skip) (can be: fail,
+:                                only-fail-if-nonempty, skip)
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-unit _]                  . The units to convert the span into (default:
+:                                second) (can be: day, hour, minute, ms, ns,
+:                                second, us)
+:   [-help], -?                . print this help text and exit
+
+*** time
+
+: Convert Time_ns.t, including the list-of-two-atoms sexp format, into a simpler format
+:
+:   csv.exe destructure time [FILENAME]
+:
+: === flags ===
+:
+:   [-fields field,...], --fields
+:                              . Fields to convert (default: all of them)
+:   [-on-error ACTION]         . What to do if a named field doesn’t have the
+:                                expected type (default: skip) (can be: fail,
+:                                only-fail-if-nonempty, skip)
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-to-iso8601-utc]          . Show "epoch + 1ns" as
+:                                "1970-01-01T00:00:00.000000001Z" (default)
+:   [-to-unix-fractional-seconds]
+:                              . Show "epoch + 1ns" as "0.000000001"
+:   [-to-unix-ns], -to-unix-nanos
+:                              . Show "epoch + 1ns" as "1"
+:   [-to-unix-seconds]         . Show "epoch + 1ns" as "0"
+:   [-to-utc]                  . Show "epoch + 1ns" as "1970-01-01
+:                                00:00:00.000000001Z"
+:   [-help], -?                . print this help text and exit
+
+*** unit
+
+: Replace () with the empty string
+:
+:   csv.exe destructure unit [FILENAME]
+:
+: === flags ===
+:
+:   [-fields field,...], --fields
+:                              . Fields to convert (default: all of them)
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** diff
+
+: diff for csv files
+:
+:   csv.exe diff FILE1 FILE2
+:
+: === flags ===
+:
+:   -k SPEC                    . comma-separated list of fields comprising the key
+:   [-nh], -no-header, --no-header
+:                              . do not treat the first row as a header row
+:   [-help], -?                . print this help text and exit
+
+** enhead
+
+: Add the given column headers to a csv
+:
+:   csv.exe enhead COLUMN-HEADER [COLUMN-HEADER ...]
+:
+: === flags ===
+:
+:   [-file FILE]               . read a files instead of stdin
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** fields
+
+: list csv field names
+:
+:   csv.exe fields [FILE ...]
+:
+: === flags ===
+:
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** grep
+
+: grep in csv fields (using the re2 regular expression engine), while keeping the header
+:
+:   csv.exe grep [FILENAME]
+:
+: === flags ===
+:
+:   -regexp <regexp>, --regexp . regexp to search for (re2 style)
+:   [-always-print-header]     . print headers even if no rows match
+:   [-grep-fields _], --grep-fields
+:                              . comma separated fieldnames to grep in, defaults
+:                                to all
+:   [-invert-match], -v        . Invert the sense of matching, to select
+:                                non-matching lines.
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-skip-lines <nr-of-lines>], --skip-lines
+:                              . drop this many lines from the beginning of the
+:                                input
+:   [-help], -?                . print this help text and exit
+
+** grid
+
+: grid based on specified column, start time, stop time and span
+:
+:   csv.exe grid [FILENAME]
+:
+: === flags ===
+:
+:   -start <time>, --start     . time to start grid
+:   -step <span>, --step       . time span for grid step
+:   -stop <time>, --stop       . time to stop grid
+:   -time-field <field>, --time-field
+:                              . field with times for snapping to grid
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** id
+
+: transfer input to output, canonicalising quoting
+:
+:   csv.exe id [FILENAME]
+:
+: === flags ===
+:
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sh], -suppress-header, --suppress-header
+:                              . keep the header row from appearing in the output
+:   [-help], -?                . print this help text and exit
+
+** join
+
+: join for csv files
+:
+:   csv.exe join [FILE ...]
+:
+: === flags ===
+:
+:   [-field FIELD] ...         . field(s) on which to join
+:   [-join _]                  . as in SQL (default: inner) (can be: full, inner,
+:                                left)
+:   [-keys-need-not-occur-in-all-files]
+:                              . deprecated alias for -join full
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** merge
+
+: concatenate multiple CSV files into one
+:
+:   csv.exe merge [FILENAME ...]
+:
+: === flags ===
+:
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** of-sexp
+
+: of sexp
+:
+:   csv.exe of-sexp
+:
+: === flags ===
+:
+:   [-nh], -no-header, --no-header
+:                              . do not treat the first row as a header row
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** pop
+
+: filter to rows which have certain fields fully populated
+:
+:   csv.exe pop [FILE]
+:
+: === flags ===
+:
+:   [-fields _], --fields      . named fields required to count as fully
+:                                populated, comma separated
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sh], -suppress-header, --suppress-header
+:                              . keep the header row from appearing in the output
+:   [-v], --invert-match       . exclude specified fields rather than extract them
+:   [-help], -?                . print this help text and exit
+
+** pp
+
+: pretty printer for csv files (alias for pretty subcommand)
+:
+:   csv.exe pp [FILE]
+:
+: === flags ===
+:
+:   [-s NUM]                   . how far apart to space out columns (default: '2')
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sh], -suppress-header, --suppress-header
+:                              . keep the header row from appearing in the output
+:   [-help], -?                . print this help text and exit
+
+** pretty
+
+: pretty printer for csv files
+:
+:   csv.exe pretty [FILE]
+:
+: === flags ===
+:
+:   [-s NUM]                   . how far apart to space out columns (default: '2')
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sh], -suppress-header, --suppress-header
+:                              . keep the header row from appearing in the output
+:   [-help], -?                . print this help text and exit
+
+** sort
+
+: stably sort a csv file on a given column(s)
+:
+:   csv.exe sort [FILENAME]
+:
+: === flags ===
+:
+:   [-field _], -f, --field    . named fields to sort on, comma separated
+:                                (outermost sort first; sorted on all fields if
+:                                omitted)
+:   [-field-types _], --field-types
+:                              . field type for sorting (default: infer) (can be
+:                                comma-separated values: bytes, float, infer, int,
+:                                natsort, span, string, time) (default: "")
+:   [-no-headers]              . treat every row as data; interpret [-fields] as
+:                                zero-based indices
+:   [-reverse-fields _], --reverse-fields
+:                              . fields for which to reverse the sort order
+:   [-reverse], --reverse      . reverse sorting order
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** sum
+
+: sum columns (use 0 for a cell if Float.of_string fails). All rows must have the same length
+:
+:   csv.exe sum [FILENAME]
+:
+: === flags ===
+:
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** sum-group
+
+: sum a csv file, grouping by specified fields, producing a new csv file
+:
+:   csv.exe sum-group INPUT-CSV [INPUT-CSV ...]
+:
+: Fold over a csv file, creating a new csv file containing
+: key, and value fields, where the input is grouped by key
+: fields, then values are aggregated in one of a few
+: different ways.  E.g.,
+:
+: $ csv sum-group          \
+:   -key     apple         \
+:   -key     orange        \
+:   -sum-pos price         \
+:   -sum-neg price         \
+:   -sum     price         \
+:   -count   supplier      \
+:   - <<EOF | csv pretty
+: apple,orange,supplier,price
+: fuji,navel,dole,1.5
+: red delicious,navel,dole,-1.5
+: fuji,navel,sysco,0.1
+: EOF
+:
+:                orange
+:                |      price_sum-neg
+:                |        |  price_sum-pos
+:                |        |     |  supplier_count
+: apple          |        |     |  |  price_sum
+: |              |        |     |  |     |
+: fuji           navel  1.6     0  2   1.6
+: red delicious  navel    0  -1.5  1  -1.5
+:
+: === flags ===
+:
+:   [-count _] ...             . Count how many unique strings are in this column
+:   [-key _] ...               . group by these fields
+:   [-list _] ...              . List of all unique values in this column,
+:                                separated by semicolons
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sum _] ...               . Sum of column
+:   [-sum-neg _] ...           . Sum of all negative values in this column,
+:                                ignoring positives
+:   [-sum-pos _] ...           . Sum of all positive values in this column,
+:                                ignoring negatives
+:   [-help], -?                . print this help text and exit
+
+** to-ascii-table
+
+: print a csv as an ascii-table
+:
+:   csv.exe to-ascii-table [FILENAME]
+:
+: === flags ===
+:
+:   [-limit-width-to _]        . maximum column width in output
+:   [-prefer-split-on-spaces BOOL]
+:                              . prefer splitting lines on spaces rather than
+:                                mid-word (default: true)
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** to-html-table
+
+: print a csv as an HTML table
+:
+:   csv.exe to-html-table [FILENAME]
+:
+: === flags ===
+:
+:   [-border], --border        . Visible borders in HTML output
+:   [-nh], -no-header, --no-header
+:                              . do not treat the first row as a header row
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sh], -suppress-header, --suppress-header
+:                              . keep the header row from appearing in the output
+:   [-table _] ..., --table    . Table attribute(s) in HTML output (e.g.
+:                                "align=center")
+:   [-td _] ..., --td          . Table cell attribute(s) in HTML output (e.g.
+:                                "align=center")
+:   [-th _] ..., --th          . Table header attribute(s) in HTML output (e.g.
+:                                "align=center")
+:   [-tr _] ..., --tr          . Table row attribute(s) in HTML output (e.g.
+:                                "align=center")
+:   [-unescaped-html]          . if input file contains HTML snippets, don't
+:                                escape them and include as-is
+:   [-help], -?                . print this help text and exit
+
+** to-pipe-table
+
+: print a csv as a pipe-delimited table
+:
+:   csv.exe to-pipe-table [FILENAME]
+:
+: === flags ===
+:
+:   [-nh], -no-header, --no-header
+:                              . do not treat the first row as a header row
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sh], -suppress-header, --suppress-header
+:                              . keep the header row from appearing in the output
+:   [-help], -?                . print this help text and exit
+
+** to-sexp
+
+: to sexp
+:
+:   csv.exe to-sexp
+:
+: === flags ===
+:
+:   [-nh], -no-header, --no-header
+:                              . do not treat the first row as a header row
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-utf8]                    . emit the output with utf8 encoding
+:   [-help], -?                . print this help text and exit
+
+** transpose
+
+: transpose csv rows to columns for easier command-line viewing
+:
+:   csv.exe transpose [FILENAME]
+:
+: === flags ===
+:
+:   [-one-row-at-a-time]       . transpose one row at a time. Output will have
+:                                ROWS*COLS number of rows.
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit
+
+** unpop
+
+: filter to rows which do not have certain fields fully populated
+:
+:   csv.exe unpop [FILE]
+:
+: === flags ===
+:
+:   [-fields _], --fields      . named fields required to count as fully
+:                                populated, comma separated
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-sh], -suppress-header, --suppress-header
+:                              . keep the header row from appearing in the output
+:   [-v], --invert-match       . exclude specified fields rather than extract them
+:   [-help], -?                . print this help text and exit
+
+** validate
+
+: raise if the csv has ragged rows
+:
+:   csv.exe validate [FILENAME]
+:
+: === flags ===
+:
+:   [-sep CHAR], -d, -delim, --sep
+:                              . csv separator (default: ',')
+:   [-help], -?                . print this help text and exit

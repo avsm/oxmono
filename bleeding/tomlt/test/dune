@@ -1,0 +1,15 @@
+(test
+ (name test_tomlt)
+ (libraries tomlt tomlt.bytesrw alcotest unix))
+
+(test
+ (name test_codec)
+ (libraries tomlt tomlt.bytesrw alcotest unix))
+
+(executable
+ (name test_debug)
+ (libraries tomlt tomlt.bytesrw unix))
+
+(executable
+ (name cookbook)
+ (libraries tomlt tomlt.bytesrw unix))

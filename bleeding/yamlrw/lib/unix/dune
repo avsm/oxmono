@@ -1,0 +1,4 @@
+(library
+ (name yamlrw_unix)
+ (public_name yamlrw-unix)
+ (libraries yamlrw bytesrw))

@@ -1,0 +1,5 @@
+code: |
+  def hello():
+      print("Hello")
+      if True:
+          return 42

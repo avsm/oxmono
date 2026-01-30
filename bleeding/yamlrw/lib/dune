@@ -1,0 +1,35 @@
+(library
+ (name yamlrw)
+ (public_name yamlrw)
+ (libraries bytesrw)
+ (modules
+  ; Core types
+  position
+  span
+  error
+  encoding
+  scalar_style
+  layout_style
+  chomping
+  char_class
+  quoting
+  ; Streaming
+  input
+  token
+  scanner
+  event
+  parser
+  emitter
+  ; Value types
+  tag
+  value
+  scalar
+  sequence
+  mapping
+  yaml
+  document
+  ; Conversion
+  loader
+  serialize
+  ; Main module
+  yamlrw))

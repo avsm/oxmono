@@ -1,0 +1,19 @@
+(executable
+ (name feed_example)
+ (modules feed_example)
+ (libraries jsonfeed))
+
+(executable
+ (name feed_parser)
+ (modules feed_parser)
+ (libraries jsonfeed))
+
+(executable
+ (name feed_validator)
+ (modules feed_validator)
+ (libraries jsonfeed))
+
+(executable
+ (name feed_echo)
+ (modules feed_echo)
+ (libraries jsonfeed))

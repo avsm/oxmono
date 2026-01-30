@@ -1,0 +1,4 @@
+(library
+ (name frontmatter_eio)
+ (public_name frontmatter-eio)
+ (libraries frontmatter eio))

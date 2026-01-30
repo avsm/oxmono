@@ -1,0 +1,10 @@
+# Test 4: Empty documents
+---
+# Empty document (implicitly null)
+---
+key: value
+---
+# Another empty document
+---
+- item1
+- item2

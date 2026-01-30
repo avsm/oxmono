@@ -1,0 +1,30 @@
+(lang dune 3.21)
+(name tomlt)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-tomlt))
+
+(package
+ (name tomlt)
+ (synopsis "TOML 1.1 codec library for OCaml")
+ (description
+  "Tomlt is a type-safe TOML 1.1 codec library for OCaml, providing
+bidirectional encoding and decoding using a combinator-based approach
+inspired by Jsont. The core library provides value types and codec
+combinators. Subpackages provide I/O support:
+- tomlt.bytesrw: Streaming parser/encoder using Bytesrw
+- tomlt.eio: Eio integration with system clock
+- tomlt.unix: Unix I/O with system clock
+- tomlt.jsont: Jsont codecs for toml-test JSON format")
+ (depends
+  (ocaml (>= 4.14.0))
+  (ptime (>= 1.0.0))
+  (bytesrw (>= 0.1.0))
+  (uutf (>= 1.0.0))
+  (eio (>= 1.0))
+  (jsont (>= 0.1))
+  (alcotest :with-test)))

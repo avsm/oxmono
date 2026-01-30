@@ -1,0 +1,2 @@
+original: &num 42
+copy: *num

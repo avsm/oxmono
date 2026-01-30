@@ -1,0 +1,47 @@
+when:
+  - event: ["push", "pull_request"]
+    branch: ["main"]
+
+engine: nixery
+
+dependencies:
+  nixpkgs:
+    - shell
+    - stdenv
+    - findutils
+    - binutils
+    - libunwind
+    - ncurses
+    - opam
+    - git
+    - gawk
+    - gnupatch
+    - gnum4
+    - gnumake
+    - gnutar
+    - gnused
+    - gnugrep
+    - diffutils
+    - gzip
+    - bzip2
+    - gcc
+    - ocaml
+    - pkg-config
+
+steps:
+  - name: opam
+    command: |
+       opam init --disable-sandboxing -any
+  - name: switch
+    command: |
+       opam install . --confirm-level=unsafe-yes --deps-only -t
+  - name: build
+    command: |
+       opam exec -- dune build --verbose
+  - name: test
+    command: |
+       opam exec -- dune runtest --verbose
+  - name: doc
+    command: |
+       opam install -y odoc
+       opam exec -- dune build @doc

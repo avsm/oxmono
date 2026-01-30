@@ -1,0 +1,7 @@
+(library
+ (name peer_tube)
+ (public_name peertube)
+ (libraries openapi jsont jsont.bytesrw requests ptime eio)
+ (wrapped true))
+
+(include dune.inc)

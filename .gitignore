@@ -1,3 +1,4 @@
 _build
 .cache
 .*.swp
+third_party

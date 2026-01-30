@@ -1,0 +1,10 @@
+# Test 2: %YAML 1.1 directive
+%YAML 1.1
+---
+version: "1.1"
+content: This document uses YAML 1.1
+booleans:
+  - yes
+  - no
+  - on
+  - off

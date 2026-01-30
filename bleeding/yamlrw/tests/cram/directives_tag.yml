@@ -1,0 +1,10 @@
+# Test 3: %TAG directive with custom prefix
+%YAML 1.2
+%TAG !custom! tag:example.com,2025:
+---
+shape: !custom!circle
+  radius: 5
+  color: red
+point: !custom!point
+  x: 10
+  y: 20

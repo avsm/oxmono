@@ -1,0 +1,10 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Feed with invalid hub",
+  "hubs": [
+    {
+      "type": "WebSub"
+    }
+  ],
+  "items": []
+}

@@ -1,0 +1,21 @@
+(lang dune 3.21)
+(name bytesrw-eio)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-bytesrw-eio))
+
+(package
+ (name bytesrw-eio)
+ (synopsis "Bytesrw readers and writers for Eio")
+ (description "Provides Bytesrw.Bytes.Reader and Writer adapters for Eio Flows")
+ (depends
+  (ocaml (>= 5.0))
+  (bytesrw (>= 0.2))
+  (eio (>= 1.0))
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))
+  (eio_main :with-test)))

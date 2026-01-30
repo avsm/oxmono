@@ -1,0 +1,9 @@
+(lang dune 3.21)
+
+(env
+ (dev
+  (ocamlopt_flags (:standard -zero-alloc-check none)))
+ (release
+  (ocamlopt_flags (:standard -zero-alloc-check none)))
+ (release-check
+  (ocamlopt_flags (:standard -zero-alloc-check default))))

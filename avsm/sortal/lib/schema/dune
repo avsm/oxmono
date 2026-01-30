@@ -1,0 +1,4 @@
+(library
+ (public_name sortal.schema)
+ (name sortal_schema)
+ (libraries jsont jsont.bytesrw yamlt bytesrw fmt ptime ptime.clock.os))

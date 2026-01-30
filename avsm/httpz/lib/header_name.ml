@@ -98,8 +98,6 @@ let canonical = function
   | Other -> "(unknown)"
 ;;
 
-let to_string (local_ _buf) t = canonical t
-
 let lowercase = function
   | Cache_control -> "cache-control"
   | Connection -> "connection"
@@ -273,6 +271,5 @@ let of_span (local_ buf) (sp : Span.t) : t =
 ;;
 
 let pp fmt t =
-  let name = to_string (Base_bigstring.create 0) t in
-  Stdlib.Format.fprintf fmt "%s" name
+  Stdlib.Format.fprintf fmt "%s" (canonical t)
 ;;

@@ -36,9 +36,23 @@ let rec find_string buf (headers : t list @ local) name = exclave_
     if matches then Some hdr else find_string buf rest name
 ;;
 
+let to_string_pair buf t =
+  let name =
+    match t.name with
+    | Name.Other -> Span.to_string buf t.name_span
+    | known -> Name.canonical known
+  in
+  let value = Span.to_string buf t.value in
+  (name, value)
+;;
+
+let to_string_pairs buf headers =
+  List.map headers ~f:(to_string_pair buf)
+;;
+
 let pp_with_buf buf fmt t =
   Stdlib.Format.fprintf fmt "%s: %s"
-    (Name.to_string buf t.name)
+    (Name.canonical t.name)
     (Span.to_string buf t.value)
 ;;
 

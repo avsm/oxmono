@@ -1,0 +1,57 @@
+(lang dune 3.21)
+(name yamlrw)
+
+(generate_opam_files true)
+
+(using directory-targets 0.1)
+(using mdx 0.4)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-yamlrw))
+
+(package
+ (name yamlrw)
+ (synopsis "Pure OCaml YAML 1.2 parser and emitter")
+ (description "\
+Yamlrw is a pure OCaml implementation of YAML 1.2 parsing and emission. \
+It provides both a high-level JSON-compatible interface for simple data interchange \
+and a lower-level streaming API for fine-grained control over parsing and emission. \
+The library works on all OCaml platforms without C dependencies.")
+ (depends
+  (ocaml (>= 4.14.0))
+  bytesrw
+  cmdliner
+  (odoc :with-doc)
+  (mdx :with-doc)
+  (jsonm :with-test)
+  (alcotest :with-test)
+  (crowbar :with-test)))
+
+(package
+ (name yamlrw-unix)
+ (synopsis "Unix I/O for Yamlrw")
+ (description "\
+Unix file and channel operations for Yamlrw. \
+Provides convenient functions for reading and writing YAML files using Unix I/O.")
+ (depends
+  (ocaml (>= 4.14.0))
+  yamlrw
+  bytesrw
+  (odoc :with-doc)))
+
+(package
+ (name yamlrw-eio)
+ (synopsis "Eio support for Yamlrw")
+ (description "\
+Eio-based streaming I/O for Yamlrw. \
+Provides efficient async YAML parsing and emission using the Eio effects-based concurrency library. \
+Requires OCaml 5.0 or later.")
+ (depends
+  (ocaml (>= 5.0.0))
+  yamlrw
+  bytesrw-eio
+  (eio (>= 1.1))
+  (eio_main :with-test)
+  (odoc :with-doc)))

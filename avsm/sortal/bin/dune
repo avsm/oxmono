@@ -1,0 +1,15 @@
+(executable
+ (name sortal_cli)
+ (public_name sortal)
+ (libraries
+  sortal
+  sortal.schema
+  eio
+  eio_main
+  xdge
+  cmdliner
+  logs
+  logs.cli
+  logs.fmt
+  fmt
+  fmt.tty))

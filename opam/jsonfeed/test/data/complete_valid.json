@@ -1,0 +1,30 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Complete Feed",
+  "home_page_url": "https://example.com",
+  "feed_url": "https://example.com/feed.json",
+  "description": "A complete test feed",
+  "user_comment": "Test comment",
+  "next_url": "https://example.com/feed2.json",
+  "icon": "https://example.com/icon.png",
+  "favicon": "https://example.com/favicon.ico",
+  "authors": [
+    {
+      "name": "Test Author",
+      "url": "https://example.com/author",
+      "avatar": "https://example.com/avatar.png"
+    }
+  ],
+  "language": "en-US",
+  "expired": false,
+  "items": [
+    {
+      "id": "https://example.com/item1",
+      "content_html": "<p>Test content</p>",
+      "title": "Test Item",
+      "url": "https://example.com/item1.html",
+      "date_published": "2024-01-01T12:00:00Z",
+      "tags": ["test", "example"]
+    }
+  ]
+}

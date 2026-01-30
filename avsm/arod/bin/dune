@@ -1,0 +1,18 @@
+(executable
+ (name main)
+ (public_name arod)
+ (package arod)
+ (libraries
+  arod
+  arod.server
+  bushel
+  bushel.eio
+  eio_main
+  unix
+  cmdliner
+  logs
+  logs.fmt
+  logs.cli
+  fmt
+  fmt.tty
+  fmt.cli))

@@ -1,0 +1,10 @@
+(lang dune 3.21)
+
+; AFL instrumentation profile for fuzz testing
+; Usage:
+;   dune build --profile=afl @fuzz-afl
+;   afl-fuzz -m none -i fuzz/input -o _fuzz -- _build/default/fuzz/fuzz_afl.exe @@
+;
+(env
+ (afl
+  (ocamlopt_flags (:standard -afl-instrument))))

@@ -1,0 +1,19 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Mixed Content Feed",
+  "items": [
+    {
+      "id": "https://example.com/html",
+      "content_html": "<p>HTML only</p>"
+    },
+    {
+      "id": "https://example.com/text",
+      "content_text": "Text only"
+    },
+    {
+      "id": "https://example.com/both",
+      "content_html": "<p>HTML version</p>",
+      "content_text": "Text version"
+    }
+  ]
+}

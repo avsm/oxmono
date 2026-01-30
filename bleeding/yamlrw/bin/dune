@@ -1,0 +1,5 @@
+(executable
+ (name yamlcat)
+ (package yamlrw)
+ (libraries cmdliner yamlrw)
+ (public_name yamlcat))

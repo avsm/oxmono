@@ -1,0 +1,8 @@
+description = "HTML generation combinators for OCaml"
+version = "0.2.0"
+requires = ""
+archive(byte) = "htmlit.cma"
+archive(native) = "htmlit.cmxa"
+plugin(byte) = "htmlit.cma"
+plugin(native) = "htmlit.cmxs"
+exists_if = "htmlit.cma htmlit.cmxa"

@@ -1,0 +1,11 @@
+(executable
+ (name toml_test_decoder)
+ (libraries tomlt tomlt.bytesrw unix))
+
+(executable
+ (name toml_test_encoder)
+ (libraries tomlt tomlt.bytesrw unix))
+
+(executable
+ (name run_tests)
+ (libraries tomlt tomlt.bytesrw unix))

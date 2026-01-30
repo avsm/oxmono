@@ -1,0 +1,2 @@
+anchor: &anc hello
+alias: *anc

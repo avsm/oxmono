@@ -1,0 +1,15 @@
+(library
+ (name bushel)
+ (public_name bushel)
+ (libraries
+  frontmatter
+  cmarkit
+  jsont
+  jsont.bytesrw
+  ptime
+  re
+  uri
+  fmt
+  yamlrw
+  sortal.schema
+  srcsetter))

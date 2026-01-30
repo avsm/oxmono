@@ -1,0 +1,46 @@
+; Test executables for the full YAML test suite
+
+(executable
+ (name run_all_tests)
+ (modules run_all_tests)
+ (libraries yamlrw test_suite_lib))
+
+; Unit tests using Alcotest
+(test
+ (name test_yamlrw)
+ (modules test_yamlrw)
+ (libraries yamlrw alcotest))
+
+(executable
+ (name run_all_tests_eio)
+ (modules run_all_tests_eio)
+ (libraries yamlrw test_suite_lib_eio eio_main))
+
+; Alias to run the full YAML test suite and generate HTML report
+; Requires yaml-test-suite to be cloned to tests/yaml-test-suite
+
+(rule
+ (alias yaml-test-suite)
+ (deps
+  (source_tree yaml-test-suite))
+ (targets yaml-test-results.html)
+ (action
+  (run
+   %{exe:run_all_tests.exe}
+   --test-suite-path
+   %{workspace_root}/tests/yaml-test-suite
+   --html
+   yaml-test-results.html)))
+
+(rule
+ (alias yaml-test-suite-eio)
+ (deps
+  (source_tree yaml-test-suite))
+ (targets yaml-test-results-eio.html)
+ (action
+  (run
+   %{exe:run_all_tests_eio.exe}
+   --test-suite-path
+   %{workspace_root}/tests/yaml-test-suite
+   --html
+   yaml-test-results-eio.html)))

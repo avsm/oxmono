@@ -1,0 +1,10 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Feed with item missing content",
+  "items": [
+    {
+      "id": "https://example.com/nocontent",
+      "title": "Item without content"
+    }
+  ]
+}

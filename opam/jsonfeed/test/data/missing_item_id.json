@@ -1,0 +1,9 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Feed with item missing ID",
+  "items": [
+    {
+      "content_html": "<p>Item without id</p>"
+    }
+  ]
+}

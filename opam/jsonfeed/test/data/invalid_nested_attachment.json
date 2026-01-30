@@ -1,0 +1,16 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Feed with invalid attachment",
+  "items": [
+    {
+      "id": "https://example.com/item1",
+      "content_html": "<p>Test</p>",
+      "attachments": [
+        {
+          "url": "https://example.com/file.mp3",
+          "mime_type": 12345
+        }
+      ]
+    }
+  ]
+}

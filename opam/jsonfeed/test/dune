@@ -1,0 +1,18 @@
+(test
+ (name test_jsonfeed)
+ (libraries jsonfeed alcotest str))
+
+(test
+ (name test_serialization)
+ (modules test_serialization)
+ (libraries jsonfeed))
+
+(executable
+ (name test_location_errors)
+ (modules test_location_errors)
+ (libraries jsonfeed))
+
+(cram
+ (deps
+  test_location_errors.exe
+  (glob_files data/*.json)))

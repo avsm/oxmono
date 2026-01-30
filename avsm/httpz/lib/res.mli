@@ -54,6 +54,9 @@ type status =
 (** Get numeric status code. *)
 val status_code : status -> int
 
+(** Parse status from numeric code. Returns [None] for unknown codes. *)
+val status_of_int : int -> status option
+
 (** Get reason phrase. *)
 val status_reason : status -> string
 
@@ -69,13 +72,13 @@ val pp_status : Stdlib.Format.formatter -> status -> unit
 val write_status_line : Base_bigstring.t -> off:int16# -> status -> Version.t -> int16#
 
 (** Write "Name: Value\r\n" at offset using string name. Returns new offset. *)
-val write_header : Base_bigstring.t -> off:int16# -> string -> string -> int16#
+val write_header : Base_bigstring.t -> off:int16# -> local_ string -> local_ string -> int16#
 
 (** Write header with integer value using string name. Returns new offset. *)
-val write_header_int : Base_bigstring.t -> off:int16# -> string -> int -> int16#
+val write_header_int : Base_bigstring.t -> off:int16# -> local_ string -> int -> int16#
 
 (** Write "Name: Value\r\n" using typed header name. Returns new offset. *)
-val write_header_name : Base_bigstring.t -> off:int16# -> Header_name.t -> string -> int16#
+val write_header_name : Base_bigstring.t -> off:int16# -> Header_name.t -> local_ string -> int16#
 
 (** Write header with integer value using typed header name. Returns new offset. *)
 val write_header_name_int : Base_bigstring.t -> off:int16# -> Header_name.t -> int -> int16#

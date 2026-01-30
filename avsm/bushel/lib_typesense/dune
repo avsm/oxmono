@@ -1,0 +1,4 @@
+(library
+ (name bushel_typesense)
+ (public_name bushel.typesense)
+ (libraries bushel jsont jsont.bytesrw ptime sortal.schema typesense typesense.auth logs))

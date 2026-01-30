@@ -1,0 +1,155 @@
+# Edge cases test file for YAML parsing
+
+# Case 1: Keys with colons (must be quoted)
+"key:with:colons": value
+"http://example.com": url_as_key
+"time:12:30": time_value
+
+# Case 2: Values starting with indicators (must be quoted or escaped)
+indicator_square: "[this starts with bracket]"
+indicator_curly: "{this starts with brace}"
+indicator_star: "*this starts with star"
+indicator_amp: "&this starts with ampersand"
+indicator_question: "?this starts with question"
+indicator_pipe: "|this starts with pipe"
+indicator_gt: ">this starts with gt"
+indicator_dash: "-this starts with dash"
+indicator_hash: "#this starts with hash"
+
+# Case 3: Special string values that look like other types
+string_true: "true"
+string_false: "false"
+string_null: "null"
+string_number: "123"
+string_float: "45.67"
+string_yes: "yes"
+string_no: "no"
+
+# Case 4: Actual special values
+bool_true: true
+bool_false: false
+null_value: null
+null_tilde: ~
+number_int: 123
+number_float: 45.67
+number_exp: 1.23e4
+number_hex: 0x1F
+number_oct: 0o17
+
+# Case 5: Empty values
+empty_string: ""
+empty_list: []
+empty_map: {}
+null_implicit:
+
+# Case 6: Very long lines
+very_long_key: "This is a very long value that contains a lot of text to test how the parser handles long lines. It should be able to handle lines that are much longer than typical lines in most YAML files. This continues for quite a while to make sure we test the boundaries of reasonable line lengths. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+
+very_long_literal: |
+  This is a very long literal block that should preserve all the whitespace and newlines exactly as written. It can contain very long lines that go on and on and on without breaking. This tests whether the parser can handle long content in literal blocks properly. Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+
+# Case 7: Unicode and special characters
+unicode_emoji: "Hello 🌍 World 🚀"
+unicode_chars: "Héllo Wörld 你好 مرحبا"
+unicode_key_🔑: unicode_value
+escaped_chars: "Line1\nLine2\tTabbed"
+
+# Case 8: Nested empty structures
+nested_empty:
+  level1: {}
+  level2:
+    inner: []
+  level3:
+    inner:
+      deep: null
+
+# Case 9: Complex keys (flow collections as keys)
+? [complex, key]
+: complex_value
+? {nested: key}
+: another_value
+
+# Case 10: Multi-line keys and values
+? |
+  This is a multi-line
+  key using literal block
+: |
+  This is a multi-line
+  value using literal block
+
+# Case 11: Quoted strings with escape sequences
+single_quoted: 'It''s a single-quoted string with doubled quotes'
+double_quoted: "It's a \"double-quoted\" string with escapes"
+backslash: "Path\\to\\file"
+newline_escape: "First line\nSecond line"
+
+# Case 12: Anchors and aliases at edge positions
+anchor_list: &anchor_ref
+  - item1
+  - item2
+  - item3
+
+alias_usage: *anchor_ref
+
+nested_anchor:
+  data: &nested_ref
+    key: value
+  reference: *nested_ref
+
+# Case 13: Mixed flow and block styles
+mixed_style:
+  block_key:
+    - flow_in_block: [1, 2, 3]
+    - another: {a: 1, b: 2}
+  flow_key: {block_in_flow:
+    - item1
+    - item2}
+
+# Case 14: Trailing commas in flow (typically invalid in YAML)
+# flow_trailing: [1, 2, 3,]  # This would be invalid
+
+# Case 15: Strings that need quoting
+needs_quote_1: "value with # in it"
+needs_quote_2: "value with: colon"
+needs_quote_3: "value with @ at sign"
+needs_quote_4: "value with ` backtick"
+
+# Case 16: Multiple documents separator (not starting a new document)
+not_doc_separator: "--- this is just a string value"
+
+# Case 17: Extremely nested structures
+deeply_nested:
+  l1:
+    l2:
+      l3:
+        l4:
+          l5:
+            l6:
+              l7:
+                l8:
+                  l9:
+                    l10: "deep value"
+
+# Case 18: Large sequence
+large_sequence:
+  - item_001
+  - item_002
+  - item_003
+  - item_004
+  - item_005
+  - item_006
+  - item_007
+  - item_008
+  - item_009
+  - item_010
+
+# Case 19: Keys and values with only whitespace differences
+" key": "value with leading space in key"
+"key ": "value with trailing space in key"
+"  spaced  ": "  spaced  "
+
+# Case 20: Binary-looking values
+binary_string: "0b101010"
+hex_string: "0xDEADBEEF"
+
+# End of edge cases test file

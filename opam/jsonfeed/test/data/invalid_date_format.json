@@ -1,0 +1,11 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Feed with invalid date",
+  "items": [
+    {
+      "id": "https://example.com/item1",
+      "content_html": "<p>Test</p>",
+      "date_published": "not-a-valid-date"
+    }
+  ]
+}

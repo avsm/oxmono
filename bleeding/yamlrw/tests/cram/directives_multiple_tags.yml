@@ -1,0 +1,15 @@
+# Test 4: Multiple TAG directives
+%YAML 1.2
+%TAG !e! tag:example.com,2025:
+%TAG !app! tag:myapp.org,2025:types:
+%TAG !geo! tag:geography.net,2025:shapes:
+---
+user: !e!person
+  name: Alice
+  age: 30
+location: !geo!coordinates
+  lat: 40.7128
+  lon: -74.0060
+config: !app!settings
+  debug: true
+  timeout: 30

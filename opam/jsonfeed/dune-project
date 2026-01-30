@@ -1,0 +1,29 @@
+(lang dune 3.18)
+
+(name jsonfeed)
+(version v1.1.0)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(homepage "https://tangled.sh/@anil.recoil.org/ocaml-jsonfeed")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(bug_reports "https://tangled.sh/@anil.recoil.org/ocaml-jsonfeed")
+(maintenance_intent "(latest)")
+
+(package
+ (name jsonfeed)
+ (synopsis "JSON Feed format parser and serializer for OCaml")
+ (description
+  "This library implements the JSON Feed specification (version 1.1) \
+   for OCaml. JSON Feed is a syndication format similar to RSS and Atom, \
+   but using JSON instead of XML. The library provides type-safe parsing \
+   and serialization using Jsonm and Ptime.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (jsont (>= 0.2.0))
+  (ptime (>= 1.2.0))
+  bytesrw
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.5.0)))))

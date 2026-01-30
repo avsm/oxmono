@@ -1,0 +1,24 @@
+(library
+ (name bushel_sync)
+ (public_name bushel.sync)
+ (libraries
+  bushel
+  bushel.config
+  bushel.typesense
+  eio
+  unix
+  jsont
+  jsont.bytesrw
+  astring
+  re
+  uri
+  ptime
+  logs
+  fmt
+  sortal.schema
+  sortal
+  srcsetter-cmd
+  requests
+  peertube
+  typesense
+  typesense.auth))

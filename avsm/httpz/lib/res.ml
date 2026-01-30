@@ -88,6 +88,49 @@ let status_code = function
   | Http_version_not_supported -> 505
 ;;
 
+let status_of_int = function
+  | 100 -> Some Continue
+  | 101 -> Some Switching_protocols
+  | 200 -> Some Success
+  | 201 -> Some Created
+  | 202 -> Some Accepted
+  | 204 -> Some No_content
+  | 206 -> Some Partial_content
+  | 301 -> Some Moved_permanently
+  | 302 -> Some Found
+  | 303 -> Some See_other
+  | 304 -> Some Not_modified
+  | 307 -> Some Temporary_redirect
+  | 308 -> Some Permanent_redirect
+  | 400 -> Some Bad_request
+  | 401 -> Some Unauthorized
+  | 403 -> Some Forbidden
+  | 404 -> Some Not_found
+  | 405 -> Some Method_not_allowed
+  | 406 -> Some Not_acceptable
+  | 408 -> Some Request_timeout
+  | 409 -> Some Conflict
+  | 410 -> Some Gone
+  | 411 -> Some Length_required
+  | 412 -> Some Precondition_failed
+  | 413 -> Some Payload_too_large
+  | 414 -> Some Uri_too_long
+  | 415 -> Some Unsupported_media_type
+  | 416 -> Some Range_not_satisfiable
+  | 417 -> Some Expectation_failed
+  | 422 -> Some Unprocessable_entity
+  | 426 -> Some Upgrade_required
+  | 428 -> Some Precondition_required
+  | 429 -> Some Too_many_requests
+  | 500 -> Some Internal_server_error
+  | 501 -> Some Not_implemented
+  | 502 -> Some Bad_gateway
+  | 503 -> Some Service_unavailable
+  | 504 -> Some Gateway_timeout
+  | 505 -> Some Http_version_not_supported
+  | _ -> None
+;;
+
 let status_reason = function
   | Continue -> "Continue"
   | Switching_protocols -> "Switching Protocols"
@@ -143,7 +186,7 @@ let write_status_line dst ~off status version =
   Buf_write.crlf dst ~off
 ;;
 
-let write_header dst ~off name value =
+let write_header dst ~off (local_ name) (local_ value) =
   let off = Buf_write.string dst ~off name in
   let off = Buf_write.char dst ~off ':' in
   let off = Buf_write.char dst ~off ' ' in
@@ -151,7 +194,7 @@ let write_header dst ~off name value =
   Buf_write.crlf dst ~off
 ;;
 
-let write_header_int dst ~off name value =
+let write_header_int dst ~off (local_ name) value =
   let off = Buf_write.string dst ~off name in
   let off = Buf_write.char dst ~off ':' in
   let off = Buf_write.char dst ~off ' ' in
@@ -159,7 +202,7 @@ let write_header_int dst ~off name value =
   Buf_write.crlf dst ~off
 ;;
 
-let write_header_name dst ~off name value =
+let write_header_name dst ~off name (local_ value) =
   write_header dst ~off (Header_name.canonical name) value
 ;;
 

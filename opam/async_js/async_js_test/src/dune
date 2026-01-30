@@ -1,0 +1,15 @@
+(library
+ (foreign_stubs
+  (language c)
+  (names c_stubs))
+ (name async_js_test)
+ (public_name async_js.async_test)
+ (libraries async_js async_kernel bonsai_test_handle_garbage_collector
+   ppx_expect.config_types js_of_ocaml)
+ (js_of_ocaml
+  (javascript_files ./runtime.js))
+ (preprocess
+  (pps ppx_jane))
+ (wasm_of_ocaml
+  (javascript_files ./runtime.js)
+  (wasm_files runtime.wat)))

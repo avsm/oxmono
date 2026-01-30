@@ -1,0 +1,6 @@
+(library
+ (name pipe_with_writer_error)
+ (public_name pipe_with_writer_error)
+ (libraries core async_kernel)
+ (preprocess
+  (pps ppx_jane)))

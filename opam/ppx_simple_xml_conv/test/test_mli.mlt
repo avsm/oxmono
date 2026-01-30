@@ -1,0 +1,339 @@
+open! Core;;
+
+#verbose true
+
+module Xml_of : sig
+  type t [@@deriving xml_of]
+end = struct
+  type t = (int[@xml.leaf "a"]) [@@deriving xml_of]
+end
+
+[%%expect
+  {|
+module Xml_of : sig type t val xml_of_t : t -> Simple_xml.element end
+|}]
+
+module Xml_of : sig
+  type 'a t [@@deriving xml_of]
+end = struct
+  type _ t = (int[@xml.leaf "a"]) [@@deriving xml_of]
+end
+
+[%%expect
+  {|
+module Xml_of :
+  sig
+    type 'a t
+    val xml_of_t : ('a -> Simple_xml.element) -> 'a t -> Simple_xml.element
+  end
+|}]
+
+module Xml_of : sig
+  type ('a, 'b) t [@@deriving xml_of]
+end = struct
+  type (_, _) t = (int[@xml.leaf "a"]) [@@deriving xml_of]
+end
+
+[%%expect
+  {|
+module Xml_of :
+  sig
+    type ('a, 'b) t
+    val xml_of_t :
+      ('a -> Simple_xml.element) ->
+      ('b -> Simple_xml.element) -> ('a, 'b) t -> Simple_xml.element
+  end
+|}]
+
+module Of_xml : sig
+  type t [@@deriving of_xml]
+end = struct
+  type t = (int[@xml.leaf "a"]) [@@deriving of_xml]
+end
+
+[%%expect
+  {|
+module Of_xml :
+  sig
+    type t
+    val t_of_xml_description : t Ppx_simple_xml_conv_lib.Of_xml.t
+    val t_of_xml : Simple_xml.element -> t
+  end
+|}]
+
+module Of_xml : sig
+  type 'a t [@@deriving of_xml]
+end = struct
+  type _ t = (int[@xml.leaf "a"]) [@@deriving of_xml]
+end
+
+[%%expect
+  {|
+module Of_xml :
+  sig
+    type 'a t
+    val t_of_xml_description :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'a t Ppx_simple_xml_conv_lib.Of_xml.t
+    val t_of_xml :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t -> Simple_xml.element -> 'a t
+  end
+|}]
+
+module Of_xml : sig
+  type ('a, 'b) t [@@deriving of_xml]
+end = struct
+  type (_, _) t = (int[@xml.leaf "a"]) [@@deriving of_xml]
+end
+
+[%%expect
+  {|
+module Of_xml :
+  sig
+    type ('a, 'b) t
+    val t_of_xml_description :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'b Ppx_simple_xml_conv_lib.Of_xml.t ->
+      ('a, 'b) t Ppx_simple_xml_conv_lib.Of_xml.t
+    val t_of_xml :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'b Ppx_simple_xml_conv_lib.Of_xml.t -> Simple_xml.element -> ('a, 'b) t
+  end
+|}]
+
+module Xml : sig
+  type t [@@deriving xml]
+end = struct
+  type t = (int[@xml.leaf "a"]) [@@deriving xml]
+end
+
+[%%expect
+  {|
+module Xml :
+  sig
+    type t
+    val xml_of_t : t -> Simple_xml.element
+    val t_of_xml_description : t Ppx_simple_xml_conv_lib.Of_xml.t
+    val t_of_xml : Simple_xml.element -> t
+  end
+|}]
+
+module Xml : sig
+  type 'a t [@@deriving xml]
+end = struct
+  type _ t = (int[@xml.leaf "a"]) [@@deriving xml]
+end
+
+[%%expect
+  {|
+module Xml :
+  sig
+    type 'a t
+    val xml_of_t : ('a -> Simple_xml.element) -> 'a t -> Simple_xml.element
+    val t_of_xml_description :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'a t Ppx_simple_xml_conv_lib.Of_xml.t
+    val t_of_xml :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t -> Simple_xml.element -> 'a t
+  end
+|}]
+
+module Xml : sig
+  type ('a, 'b) t [@@deriving xml]
+end = struct
+  type (_, _) t = (int[@xml.leaf "a"]) [@@deriving xml]
+end
+
+[%%expect
+  {|
+module Xml :
+  sig
+    type ('a, 'b) t
+    val xml_of_t :
+      ('a -> Simple_xml.element) ->
+      ('b -> Simple_xml.element) -> ('a, 'b) t -> Simple_xml.element
+    val t_of_xml_description :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'b Ppx_simple_xml_conv_lib.Of_xml.t ->
+      ('a, 'b) t Ppx_simple_xml_conv_lib.Of_xml.t
+    val t_of_xml :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'b Ppx_simple_xml_conv_lib.Of_xml.t -> Simple_xml.element -> ('a, 'b) t
+  end
+|}]
+
+module Inlined_of_xml : sig
+  type t [@@deriving of_xml ~inlined]
+end = struct
+  [@@@ocaml.warning "-69"]
+
+  type t = { a : (int[@xml.leaf "a"]) } [@@deriving of_xml ~inlined]
+end
+
+[%%expect
+  {|
+module Inlined_of_xml :
+  sig
+    type t
+    val t_of_xml_inlined : t Ppx_simple_xml_conv_lib.Of_xml.inlined
+  end
+|}]
+
+module Inlined_of_xml : sig
+  type 'a t [@@deriving of_xml ~inlined]
+end = struct
+  [@@@ocaml.warning "-69"]
+
+  type _ t = { a : (int[@xml.leaf "a"]) } [@@deriving of_xml ~inlined]
+end
+
+[%%expect
+  {|
+module Inlined_of_xml :
+  sig
+    type 'a t
+    val t_of_xml_inlined :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'a t Ppx_simple_xml_conv_lib.Of_xml.inlined
+  end
+|}]
+
+module Inlined_of_xml : sig
+  type ('a, 'b) t [@@deriving of_xml ~inlined]
+end = struct
+  [@@@ocaml.warning "-69"]
+
+  type (_, _) t = { a : (int[@xml.leaf "a"]) } [@@deriving of_xml ~inlined]
+end
+
+[%%expect
+  {|
+module Inlined_of_xml :
+  sig
+    type ('a, 'b) t
+    val t_of_xml_inlined :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'b Ppx_simple_xml_conv_lib.Of_xml.t ->
+      ('a, 'b) t Ppx_simple_xml_conv_lib.Of_xml.inlined
+  end
+|}]
+
+module Inlined_xml_of : sig
+  type t [@@deriving xml_of ~inlined]
+end = struct
+  [@@@ocaml.warning "-69"]
+
+  type t = { a : (int[@xml.leaf "a"]) } [@@deriving xml_of ~inlined]
+end
+
+[%%expect
+  {|
+module Inlined_xml_of :
+  sig
+    type t
+    val inlined_xml_of_t : t Ppx_simple_xml_conv_lib.To_xml.inlined
+  end
+|}]
+
+module Inlined_xml_of : sig
+  type 'a t [@@deriving xml_of ~inlined]
+end = struct
+  [@@@ocaml.warning "-69"]
+
+  type _ t = { a : (int[@xml.leaf "a"]) } [@@deriving xml_of ~inlined]
+end
+
+[%%expect
+  {|
+module Inlined_xml_of :
+  sig
+    type 'a t
+    val inlined_xml_of_t :
+      ('a -> Simple_xml.element) ->
+      'a t Ppx_simple_xml_conv_lib.To_xml.inlined
+  end
+|}]
+
+module Inlined_xml_of : sig
+  type ('a, 'b) t [@@deriving xml_of ~inlined]
+end = struct
+  [@@@ocaml.warning "-69"]
+
+  type (_, _) t = { a : (int[@xml.leaf "a"]) } [@@deriving xml_of ~inlined]
+end
+
+[%%expect
+  {|
+module Inlined_xml_of :
+  sig
+    type ('a, 'b) t
+    val inlined_xml_of_t :
+      ('a -> Simple_xml.element) ->
+      ('b -> Simple_xml.element) ->
+      ('a, 'b) t Ppx_simple_xml_conv_lib.To_xml.inlined
+  end
+|}]
+
+module Inlined_xml : sig
+  type t [@@deriving xml ~inlined]
+end = struct
+  [@@@ocaml.warning "-69"]
+
+  type t = { a : (int[@xml.leaf "a"]) } [@@deriving xml ~inlined]
+end
+
+[%%expect
+  {|
+module Inlined_xml :
+  sig
+    type t
+    val inlined_xml_of_t : t Ppx_simple_xml_conv_lib.To_xml.inlined
+    val t_of_xml_inlined : t Ppx_simple_xml_conv_lib.Of_xml.inlined
+  end
+|}]
+
+module Inlined_xml : sig
+  type 'a t [@@deriving xml ~inlined]
+end = struct
+  [@@@ocaml.warning "-69"]
+
+  type _ t = { a : (int[@xml.leaf "a"]) } [@@deriving xml ~inlined]
+end
+
+[%%expect
+  {|
+module Inlined_xml :
+  sig
+    type 'a t
+    val inlined_xml_of_t :
+      ('a -> Simple_xml.element) ->
+      'a t Ppx_simple_xml_conv_lib.To_xml.inlined
+    val t_of_xml_inlined :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'a t Ppx_simple_xml_conv_lib.Of_xml.inlined
+  end
+|}]
+
+module Inlined_xml : sig
+  type ('a, 'b) t [@@deriving xml ~inlined]
+end = struct
+  [@@@ocaml.warning "-69"]
+
+  type (_, _) t = { a : (int[@xml.leaf "a"]) } [@@deriving xml ~inlined]
+end
+
+[%%expect
+  {|
+module Inlined_xml :
+  sig
+    type ('a, 'b) t
+    val inlined_xml_of_t :
+      ('a -> Simple_xml.element) ->
+      ('b -> Simple_xml.element) ->
+      ('a, 'b) t Ppx_simple_xml_conv_lib.To_xml.inlined
+    val t_of_xml_inlined :
+      'a Ppx_simple_xml_conv_lib.Of_xml.t ->
+      'b Ppx_simple_xml_conv_lib.Of_xml.t ->
+      ('a, 'b) t Ppx_simple_xml_conv_lib.Of_xml.inlined
+  end
+|}]

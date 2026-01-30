@@ -1,0 +1,5 @@
+(library
+ (name ppx_simple_xml_conv_test)
+ (libraries core expect_test_helpers_core simple_xml core_unix.time_ns_unix)
+ (preprocess
+  (pps ppx_jane ppx_simple_xml_conv)))

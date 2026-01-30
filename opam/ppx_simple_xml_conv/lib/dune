@@ -1,0 +1,6 @@
+(library
+ (name ppx_simple_xml_conv_lib)
+ (public_name ppx_simple_xml_conv.lib)
+ (libraries core simple_xml xmlm)
+ (preprocess
+  (pps ppx_jane)))

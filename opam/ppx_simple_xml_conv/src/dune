@@ -1,0 +1,7 @@
+(library
+ (name ppx_simple_xml_conv)
+ (public_name ppx_simple_xml_conv)
+ (kind ppx_deriver)
+ (libraries ppx_simple_xml_conv_expander ppxlib)
+ (preprocess
+  (pps ppx_js_style)))

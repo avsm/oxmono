@@ -1,0 +1,7 @@
+#+TITLE: PPX Helpers
+
+
+ This library contains miscellaneous helper functions and utilities for writing
+ PPXes. We do not intend to upstream the functionality in this library to
+ ppxlib at this time, because e.g. it is specific to the needs of the
+ ppx_template ecosystem.

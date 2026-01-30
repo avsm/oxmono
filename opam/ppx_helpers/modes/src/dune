@@ -1,0 +1,5 @@
+(library
+ (name modes_lib)
+ (public_name ppx_helpers.modes_lib)
+ (libraries sexplib0)
+ (preprocess no_preprocessing))

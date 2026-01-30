@@ -26,10 +26,10 @@
 
 (** {1 Error Types} *)
 
-type error =
-  | Punycode_error of Punycode.error
-      (** Error during Punycode encoding/decoding. See {!Punycode.error} for
-          details. *)
+type error_reason =
+  | Punycode_error of Punycode.error_reason
+      (** Error during Punycode encoding/decoding. See {!Punycode.error_reason}
+          for details. *)
   | Invalid_label of string
       (** Label violates IDNA constraints. The string describes the violation.
           See
@@ -49,11 +49,14 @@ type error =
            Section 4.2}, the result of encoding must decode back to the original
           input. *)
 
-val pp_error : Format.formatter -> error -> unit
-(** [pp_error fmt e] pretty-prints an error. *)
+exception Error of error_reason
+(** Exception raised for all IDNA processing errors. *)
 
-val error_to_string : error -> string
-(** [error_to_string e] converts an error to a human-readable string. *)
+val pp_error_reason : Format.formatter -> error_reason -> unit
+(** [pp_error_reason fmt e] pretty-prints an error. *)
+
+val error_reason_to_string : error_reason -> string
+(** [error_reason_to_string e] converts an error to a human-readable string. *)
 
 (** {1 Constants} *)
 
@@ -77,7 +80,7 @@ val to_ascii :
   ?use_std3_rules:bool ->
   ?transitional:bool ->
   string ->
-  (string, error) result
+  string
 (** [to_ascii domain] converts an internationalized domain name to ASCII.
 
     Implements the ToASCII operation from
@@ -106,22 +109,22 @@ val to_ascii :
        4.2.3.2} (default: false)
     - [transitional]: Use IDNA 2003 transitional processing (default: false)
 
+    @raise Error on conversion failure.
+
     Example:
     {[
       to_ascii "münchen.example.com"
-      (* = Ok "xn--mnchen-3ya.example.com" *)
+      (* = "xn--mnchen-3ya.example.com" *)
     ]} *)
 
-val label_to_ascii :
-  ?check_hyphens:bool ->
-  ?use_std3_rules:bool ->
-  string ->
-  (string, error) result
+val label_to_ascii : ?check_hyphens:bool -> ?use_std3_rules:bool -> string -> string
 (** [label_to_ascii label] converts a single label to ASCII.
 
     This implements the core ToASCII operation for one label, as described in
     {{:https://datatracker.ietf.org/doc/html/rfc5891#section-4.1}RFC 5891
-     Section 4.1}. *)
+     Section 4.1}.
+
+    @raise Error on conversion failure. *)
 
 (** {1 ToUnicode Operation}
 
@@ -131,7 +134,7 @@ val label_to_ascii :
     {{:https://datatracker.ietf.org/doc/html/rfc5891#section-4.2} RFC 5891
      Section 4.2} for the complete ToUnicode specification. *)
 
-val to_unicode : string -> (string, error) result
+val to_unicode : string -> string
 (** [to_unicode domain] converts an ACE domain name to Unicode.
 
     Implements the ToUnicode operation from
@@ -143,18 +146,22 @@ val to_unicode : string -> (string, error) result
     {{:https://datatracker.ietf.org/doc/html/rfc3492#section-6.2}RFC 3492
      Section 6.2} 2. Otherwise, pass through unchanged
 
+    @raise Error on decoding failure.
+
     Example:
     {[
       to_unicode "xn--mnchen-3ya.example.com"
-      (* = Ok "münchen.example.com" *)
+      (* = "münchen.example.com" *)
     ]} *)
 
-val label_to_unicode : string -> (string, error) result
+val label_to_unicode : string -> string
 (** [label_to_unicode label] converts a single ACE label to Unicode.
 
     This implements the core ToUnicode operation for one label, as described in
     {{:https://datatracker.ietf.org/doc/html/rfc5891#section-4.2}RFC 5891
-     Section 4.2}. *)
+     Section 4.2}.
+
+    @raise Error on decoding failure. *)
 
 (** {1 Domain Name Integration}
 
@@ -168,25 +175,28 @@ val domain_to_ascii :
   ?check_hyphens:bool ->
   ?use_std3_rules:bool ->
   [ `raw ] Domain_name.t ->
-  ([ `raw ] Domain_name.t, error) result
+  [ `raw ] Domain_name.t
 (** [domain_to_ascii domain] converts a domain name to ASCII form.
 
     Applies {!to_ascii} to the string representation and returns the result as a
     [Domain_name.t].
 
+    @raise Error on conversion failure.
+
     Example:
     {[
       let d = Domain_name.of_string_exn "münchen.example.com" in
       domain_to_ascii d
-      (* = Ok (Domain_name.of_string_exn "xn--mnchen-3ya.example.com") *)
+      (* = Domain_name.of_string_exn "xn--mnchen-3ya.example.com" *)
     ]} *)
 
-val domain_to_unicode :
-  [ `raw ] Domain_name.t -> ([ `raw ] Domain_name.t, error) result
+val domain_to_unicode : [ `raw ] Domain_name.t -> [ `raw ] Domain_name.t
 (** [domain_to_unicode domain] converts a domain name to Unicode form.
 
     Applies {!to_unicode} to the string representation and returns the result as
-    a [Domain_name.t]. *)
+    a [Domain_name.t].
+
+    @raise Error on decoding failure. *)
 
 (** {1 Validation} *)
 

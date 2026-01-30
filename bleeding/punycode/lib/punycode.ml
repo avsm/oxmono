@@ -30,7 +30,7 @@ let pp_position fmt pos =
 
 (* {1 Error Types} *)
 
-type error =
+type error_reason =
   | Overflow of position
   | Invalid_character of position * Uchar.t
   | Invalid_digit of position * char
@@ -39,7 +39,7 @@ type error =
   | Label_too_long of int
   | Empty_label
 
-let pp_error fmt = function
+let pp_error_reason fmt = function
   | Overflow pos ->
       Format.fprintf fmt "arithmetic overflow at %a" pp_position pos
   | Invalid_character (pos, u) ->
@@ -57,17 +57,23 @@ let pp_error fmt = function
         max_label_length
   | Empty_label -> Format.fprintf fmt "empty label"
 
-let error_to_string err = Format.asprintf "%a" pp_error err
+exception Error of error_reason
+
+let () = Printexc.register_printer (function
+  | Error reason -> Some (Format.asprintf "Punycode.Error: %a" pp_error_reason reason)
+  | _ -> None)
+
+let error_reason_to_string reason = Format.asprintf "%a" pp_error_reason reason
 
 (* {1 Error Constructors} *)
 
-let overflow pos = Error (Overflow pos)
-let invalid_character pos u = Error (Invalid_character (pos, u))
-let invalid_digit pos c = Error (Invalid_digit (pos, c))
-let unexpected_end pos = Error (Unexpected_end pos)
-let _invalid_utf8 pos = Error (Invalid_utf8 pos)
-let label_too_long len = Error (Label_too_long len)
-let empty_label = Error Empty_label
+let overflow pos = raise (Error (Overflow pos))
+let invalid_character pos u = raise (Error (Invalid_character (pos, u)))
+let invalid_digit pos c = raise (Error (Invalid_digit (pos, c)))
+let unexpected_end pos = raise (Error (Unexpected_end pos))
+let invalid_utf8 pos = raise (Error (Invalid_utf8 pos))
+let label_too_long len = raise (Error (Label_too_long len))
+let empty_label () = raise (Error Empty_label)
 
 (* {1 Case Flags} *)
 
@@ -134,9 +140,9 @@ let adapt ~delta ~numpoints ~firsttime =
 let max_int_value = max_int
 
 let safe_mul_add a b c pos =
-  if c = 0 then Ok a
+  if c = 0 then a
   else if b > (max_int_value - a) / c then overflow pos
-  else Ok (a + (b * c))
+  else a + (b * c)
 
 (* {1 UTF-8 to Code Points Conversion} *)
 
@@ -145,8 +151,7 @@ let utf8_to_codepoints s =
   let acc = ref [] in
   let byte_offset = ref 0 in
   let char_index = ref 0 in
-  let error = ref None in
-  while !byte_offset < len && !error = None do
+  while !byte_offset < len do
     let pos = { byte_offset = !byte_offset; char_index = !char_index } in
     let dec = String.get_utf_8_uchar s !byte_offset in
     if Uchar.utf_decode_is_valid dec then begin
@@ -154,13 +159,9 @@ let utf8_to_codepoints s =
       byte_offset := !byte_offset + Uchar.utf_decode_length dec;
       incr char_index
     end
-    else begin
-      error := Some (Invalid_utf8 pos)
-    end
+    else invalid_utf8 pos
   done;
-  match !error with
-  | Some e -> Error e
-  | None -> Ok (Array.of_list (List.rev !acc))
+  Array.of_list (List.rev !acc)
 
 (* {1 Code Points to UTF-8 Conversion} *)
 
@@ -173,7 +174,7 @@ let codepoints_to_utf8 codepoints =
 
 let encode_impl codepoints case_flags =
   let input_length = Array.length codepoints in
-  if input_length = 0 then Ok ""
+  if input_length = 0 then ""
   else begin
     let output = Buffer.create (input_length * 2) in
 
@@ -210,9 +211,7 @@ let encode_impl codepoints case_flags =
     let delta = ref 0 in
     let bias = ref initial_bias in
 
-    let result = ref (Ok ()) in
-
-    while !h < input_length && !result = Ok () do
+    while !h < input_length do
       (* Find minimum code point >= n *)
       let m =
         Array.fold_left
@@ -224,68 +223,61 @@ let encode_impl codepoints case_flags =
 
       (* Increase delta to advance state to <m, 0> *)
       let pos = { byte_offset = 0; char_index = !h } in
-      match safe_mul_add !delta (m - !n) (!h + 1) pos with
-      | Error e -> result := Error e
-      | Ok new_delta ->
-          delta := new_delta;
-          n := m;
+      delta := safe_mul_add !delta (m - !n) (!h + 1) pos;
+      n := m;
 
-          (* Process each code point *)
-          let j = ref 0 in
-          while !j < input_length && !result = Ok () do
-            let cp = Uchar.to_int codepoints.(!j) in
-            let pos = { byte_offset = 0; char_index = !j } in
+      (* Process each code point *)
+      for j = 0 to input_length - 1 do
+        let cp = Uchar.to_int codepoints.(j) in
+        let pos = { byte_offset = 0; char_index = j } in
 
-            if cp < !n then begin
-              incr delta;
-              if !delta = 0 then (* Overflow *)
-                result := overflow pos
+        if cp < !n then begin
+          incr delta;
+          if !delta = 0 then (* Overflow *)
+            overflow pos
+        end
+        else if cp = !n then begin
+          (* Encode delta as variable-length integer *)
+          let q = ref !delta in
+          let k = ref base in
+          let done_encoding = ref false in
+
+          while not !done_encoding do
+            let t =
+              if !k <= !bias then tmin
+              else if !k >= !bias + tmax then tmax
+              else !k - !bias
+            in
+            if !q < t then begin
+              (* Output final digit *)
+              let case =
+                match case_flags with
+                | Some flags -> flags.(j)
+                | None -> Lowercase
+              in
+              Buffer.add_char output (encode_digit !q case);
+              done_encoding := true
             end
-            else if cp = !n then begin
-              (* Encode delta as variable-length integer *)
-              let q = ref !delta in
-              let k = ref base in
-              let done_encoding = ref false in
-
-              while not !done_encoding do
-                let t =
-                  if !k <= !bias then tmin
-                  else if !k >= !bias + tmax then tmax
-                  else !k - !bias
-                in
-                if !q < t then begin
-                  (* Output final digit *)
-                  let case =
-                    match case_flags with
-                    | Some flags -> flags.(!j)
-                    | None -> Lowercase
-                  in
-                  Buffer.add_char output (encode_digit !q case);
-                  done_encoding := true
-                end
-                else begin
-                  (* Output intermediate digit and continue *)
-                  let digit = t + ((!q - t) mod (base - t)) in
-                  Buffer.add_char output (encode_digit digit Lowercase);
-                  q := (!q - t) / (base - t);
-                  k := !k + base
-                end
-              done;
-
-              bias := adapt ~delta:!delta ~numpoints:(!h + 1) ~firsttime:(!h = b);
-              delta := 0;
-              incr h
-            end;
-            incr j
+            else begin
+              (* Output intermediate digit and continue *)
+              let digit = t + ((!q - t) mod (base - t)) in
+              Buffer.add_char output (encode_digit digit Lowercase);
+              q := (!q - t) / (base - t);
+              k := !k + base
+            end
           done;
 
-          incr delta;
-          incr n
+          bias := adapt ~delta:!delta ~numpoints:(!h + 1) ~firsttime:(!h = b);
+          delta := 0;
+          incr h
+        end
+      done;
+
+      incr delta;
+      incr n
     done;
 
-    match !result with
-    | Error e -> Error e
-    | Ok () -> Ok (Buffer.contents output)
+    Buffer.contents output
   end
 
 let encode codepoints = encode_impl codepoints None
@@ -299,7 +291,7 @@ let encode_with_case codepoints case_flags =
 
 let decode_impl input =
   let input_length = String.length input in
-  if input_length = 0 then Ok ([||], [||])
+  if input_length = 0 then ([||], [||])
   else begin
     (* Find last delimiter *)
     let b = Option.value ~default:0 (String.rindex_opt input delimiter) in
@@ -307,178 +299,153 @@ let decode_impl input =
     (* Copy basic code points and extract case flags *)
     let output = ref [] in
     let case_output = ref [] in
-    let error = ref None in
 
     for j = 0 to b - 1 do
-      if !error = None then begin
-        let c = input.[j] in
-        let pos = { byte_offset = j; char_index = j } in
-        let code = Char.code c in
-        if code >= 0x80 then
-          error := Some (Invalid_character (pos, Uchar.of_int code))
+      let c = input.[j] in
+      let pos = { byte_offset = j; char_index = j } in
+      let code = Char.code c in
+      if code >= 0x80 then
+        invalid_character pos (Uchar.of_int code)
+      else begin
+        output := Uchar.of_int code :: !output;
+        case_output :=
+          (if is_flagged c then Uppercase else Lowercase) :: !case_output
+      end
+    done;
+
+    let output = ref (Array.of_list (List.rev !output)) in
+    let case_output = ref (Array.of_list (List.rev !case_output)) in
+
+    (* Main decoding loop *)
+    let n = ref initial_n in
+    let i = ref 0 in
+    let bias = ref initial_bias in
+    let in_pos = ref (if b > 0 then b + 1 else 0) in
+
+    while !in_pos < input_length do
+      let oldi = !i in
+      let w = ref 1 in
+      let k = ref base in
+      let done_decoding = ref false in
+
+      while not !done_decoding do
+        let pos =
+          { byte_offset = !in_pos; char_index = Array.length !output }
+        in
+
+        if !in_pos >= input_length then
+          unexpected_end pos
         else begin
-          output := Uchar.of_int code :: !output;
-          case_output :=
-            (if is_flagged c then Uppercase else Lowercase) :: !case_output
+          let c = input.[!in_pos] in
+          incr in_pos;
+
+          match decode_digit c with
+          | None -> invalid_digit pos c
+          | Some digit ->
+              (* i = i + digit * w, with overflow check *)
+              i := safe_mul_add !i digit !w pos;
+
+              let t =
+                if !k <= !bias then tmin
+                else if !k >= !bias + tmax then tmax
+                else !k - !bias
+              in
+
+              if digit < t then
+                (* Record case flag from this final digit *)
+                done_decoding := true
+              else begin
+                (* w = w * (base - t), with overflow check *)
+                let base_minus_t = base - t in
+                if !w > max_int_value / base_minus_t then
+                  overflow pos
+                else begin
+                  w := !w * base_minus_t;
+                  k := !k + base
+                end
+              end
+        end
+      done;
+
+      let out_len = Array.length !output in
+      bias :=
+        adapt ~delta:(!i - oldi) ~numpoints:(out_len + 1)
+          ~firsttime:(oldi = 0);
+
+      let pos = { byte_offset = !in_pos - 1; char_index = out_len } in
+
+      (* n = n + i / (out_len + 1), with overflow check *)
+      let increment = !i / (out_len + 1) in
+      if increment > max_int_value - !n then overflow pos
+      else begin
+        n := !n + increment;
+        i := !i mod (out_len + 1);
+
+        (* Validate that n is a valid Unicode scalar value *)
+        if not (Uchar.is_valid !n) then
+          invalid_character pos Uchar.rep
+        else begin
+          (* Insert n at position i *)
+          let new_output = Array.make (out_len + 1) (Uchar.of_int 0) in
+          let new_case = Array.make (out_len + 1) Lowercase in
+
+          for j = 0 to !i - 1 do
+            new_output.(j) <- !output.(j);
+            new_case.(j) <- !case_output.(j)
+          done;
+          new_output.(!i) <- Uchar.of_int !n;
+          (* Case flag from final digit of this delta *)
+          new_case.(!i) <-
+            (if !in_pos > 0 && is_flagged input.[!in_pos - 1] then
+               Uppercase
+             else Lowercase);
+          for j = !i to out_len - 1 do
+            new_output.(j + 1) <- !output.(j);
+            new_case.(j + 1) <- !case_output.(j)
+          done;
+
+          output := new_output;
+          case_output := new_case;
+          incr i
         end
       end
     done;
 
-    match !error with
-    | Some e -> Error e
-    | None -> (
-        let output = ref (Array.of_list (List.rev !output)) in
-        let case_output = ref (Array.of_list (List.rev !case_output)) in
-
-        (* Main decoding loop *)
-        let n = ref initial_n in
-        let i = ref 0 in
-        let bias = ref initial_bias in
-        let in_pos = ref (if b > 0 then b + 1 else 0) in
-        let result = ref (Ok ()) in
-
-        while !in_pos < input_length && !result = Ok () do
-          let oldi = !i in
-          let w = ref 1 in
-          let k = ref base in
-          let done_decoding = ref false in
-
-          while (not !done_decoding) && !result = Ok () do
-            let pos =
-              { byte_offset = !in_pos; char_index = Array.length !output }
-            in
-
-            if !in_pos >= input_length then begin
-              result := unexpected_end pos;
-              done_decoding := true
-            end
-            else begin
-              let c = input.[!in_pos] in
-              incr in_pos;
-
-              match decode_digit c with
-              | None ->
-                  result := invalid_digit pos c;
-                  done_decoding := true
-              | Some digit -> (
-                  (* i = i + digit * w, with overflow check *)
-                  match safe_mul_add !i digit !w pos with
-                  | Error e ->
-                      result := Error e;
-                      done_decoding := true
-                  | Ok new_i ->
-                      i := new_i;
-
-                      let t =
-                        if !k <= !bias then tmin
-                        else if !k >= !bias + tmax then tmax
-                        else !k - !bias
-                      in
-
-                      if digit < t then begin
-                        (* Record case flag from this final digit *)
-                        done_decoding := true
-                      end
-                      else begin
-                        (* w = w * (base - t), with overflow check *)
-                        let base_minus_t = base - t in
-                        if !w > max_int_value / base_minus_t then begin
-                          result := overflow pos;
-                          done_decoding := true
-                        end
-                        else begin
-                          w := !w * base_minus_t;
-                          k := !k + base
-                        end
-                      end)
-            end
-          done;
-
-          if !result = Ok () then begin
-            let out_len = Array.length !output in
-            bias :=
-              adapt ~delta:(!i - oldi) ~numpoints:(out_len + 1)
-                ~firsttime:(oldi = 0);
-
-            let pos = { byte_offset = !in_pos - 1; char_index = out_len } in
-
-            (* n = n + i / (out_len + 1), with overflow check *)
-            let increment = !i / (out_len + 1) in
-            if increment > max_int_value - !n then result := overflow pos
-            else begin
-              n := !n + increment;
-              i := !i mod (out_len + 1);
-
-              (* Validate that n is a valid Unicode scalar value *)
-              if not (Uchar.is_valid !n) then
-                result := invalid_character pos Uchar.rep
-              else begin
-                (* Insert n at position i *)
-                let new_output = Array.make (out_len + 1) (Uchar.of_int 0) in
-                let new_case = Array.make (out_len + 1) Lowercase in
-
-                for j = 0 to !i - 1 do
-                  new_output.(j) <- !output.(j);
-                  new_case.(j) <- !case_output.(j)
-                done;
-                new_output.(!i) <- Uchar.of_int !n;
-                (* Case flag from final digit of this delta *)
-                new_case.(!i) <-
-                  (if !in_pos > 0 && is_flagged input.[!in_pos - 1] then
-                     Uppercase
-                   else Lowercase);
-                for j = !i to out_len - 1 do
-                  new_output.(j + 1) <- !output.(j);
-                  new_case.(j + 1) <- !case_output.(j)
-                done;
-
-                output := new_output;
-                case_output := new_case;
-                incr i
-              end
-            end
-          end
-        done;
-
-        match !result with
-        | Error e -> Error e
-        | Ok () -> Ok (!output, !case_output))
+    (!output, !case_output)
   end
 
-let decode input = Result.map fst (decode_impl input)
+let decode input = fst (decode_impl input)
 let decode_with_case input = decode_impl input
 
 (* {1 UTF-8 String Operations} *)
 
 let encode_utf8 s =
-  let open Result.Syntax in
-  let* codepoints = utf8_to_codepoints s in
+  let codepoints = utf8_to_codepoints s in
   encode codepoints
 
 let decode_utf8 punycode =
-  let open Result.Syntax in
-  let+ codepoints = decode punycode in
+  let codepoints = decode punycode in
   codepoints_to_utf8 codepoints
 
 (* {1 Domain Label Operations} *)
 
 let encode_label label =
-  if String.length label = 0 then empty_label
+  if String.length label = 0 then empty_label ()
   else if is_ascii_string label then begin
     (* All ASCII - return as-is, but check length *)
     let len = String.length label in
-    if len > max_label_length then label_too_long len else Ok label
+    if len > max_label_length then label_too_long len else label
   end
-  else
+  else begin
     (* Has non-ASCII - encode with Punycode *)
-    let open Result.Syntax in
-    let* encoded = encode_utf8 label in
+    let encoded = encode_utf8 label in
     let result = ace_prefix ^ encoded in
     let len = String.length result in
-    if len > max_label_length then label_too_long len else Ok result
+    if len > max_label_length then label_too_long len else result
+  end
 
 let decode_label label =
-  if String.length label = 0 then empty_label
+  if String.length label = 0 then empty_label ()
   else if has_ace_prefix label then begin
     (* Remove ACE prefix and decode *)
     let punycode = String.sub label 4 (String.length label - 4) in
@@ -486,8 +453,8 @@ let decode_label label =
   end
   else begin
     (* No ACE prefix - validate and return *)
-    if is_ascii_string label then Ok label
+    if is_ascii_string label then label
     else
       (* Has non-ASCII but no ACE prefix - return as-is *)
-      Ok label
+      label
   end

@@ -38,7 +38,7 @@ val pp_position : Format.formatter -> position -> unit
 
 (** {1 Error Types} *)
 
-type error =
+type error_reason =
   | Overflow of position
       (** Arithmetic overflow during encode/decode. This can occur with very
           long strings or extreme Unicode code point values. See
@@ -66,11 +66,14 @@ type error =
           is the actual length. *)
   | Empty_label  (** Empty label is not valid for encoding. *)
 
-val pp_error : Format.formatter -> error -> unit
-(** [pp_error fmt e] pretty-prints an error with position information. *)
+exception Error of error_reason
+(** Exception raised for all Punycode encoding/decoding errors. *)
 
-val error_to_string : error -> string
-(** [error_to_string e] converts an error to a human-readable string. *)
+val pp_error_reason : Format.formatter -> error_reason -> unit
+(** [pp_error_reason fmt e] pretty-prints an error with position information. *)
+
+val error_reason_to_string : error_reason -> string
+(** [error_reason_to_string e] converts an error to a human-readable string. *)
 
 (** {1 Constants}
 
@@ -108,7 +111,7 @@ type case_flag =
      6}. They operate on arrays of Unicode code points ([Uchar.t array]). The
     encoded output is a plain ASCII string without the ACE prefix. *)
 
-val encode : Uchar.t array -> (string, error) result
+val encode : Uchar.t array -> string
 (** [encode codepoints] encodes an array of Unicode code points to a Punycode
     ASCII string.
 
@@ -124,13 +127,15 @@ val encode : Uchar.t array -> (string, error) result
     using the generalized variable-length integer representation from
     {{:https://datatracker.ietf.org/doc/html/rfc3492#section-3.3}Section 3.3}
 
+    @raise Error on encoding failure (overflow, etc.)
+
     Example:
     {[
       encode [| Uchar.of_int 0x4ED6; Uchar.of_int 0x4EEC; ... |]
-      (* = Ok "ihqwcrb4cv8a8dqg056pqjye" *)
+      (* = "ihqwcrb4cv8a8dqg056pqjye" *)
     ]} *)
 
-val decode : string -> (Uchar.t array, error) result
+val decode : string -> Uchar.t array
 (** [decode punycode] decodes a Punycode ASCII string to an array of Unicode
     code points.
 
@@ -144,10 +149,12 @@ val decode : string -> (Uchar.t array, error) result
      5}: "A decoder MUST recognize the letters in both uppercase and lowercase
     forms".
 
+    @raise Error on decoding failure (invalid digit, unexpected end, etc.)
+
     Example:
     {[
       decode "ihqwcrb4cv8a8dqg056pqjye"
-      (* = Ok [| U+4ED6; U+4EEC; U+4E3A; ... |] (Chinese simplified) *)
+      (* = [| U+4ED6; U+4EEC; U+4E3A; ... |] (Chinese simplified) *)
     ]} *)
 
 (** {1 Mixed-Case Annotation}
@@ -156,8 +163,7 @@ val decode : string -> (Uchar.t array, error) result
     {{:https://datatracker.ietf.org/doc/html/rfc3492#appendix-A}RFC 3492
      Appendix A}. *)
 
-val encode_with_case :
-  Uchar.t array -> case_flag array -> (string, error) result
+val encode_with_case : Uchar.t array -> case_flag array -> string
 (** [encode_with_case codepoints case_flags] encodes with case annotation.
 
     Per
@@ -169,43 +175,50 @@ val encode_with_case :
 
     The [case_flags] array must have the same length as [codepoints].
 
-    @raise Invalid_argument if array lengths don't match. *)
+    @raise Invalid_argument if array lengths don't match.
+    @raise Error on encoding failure. *)
 
-val decode_with_case : string -> (Uchar.t array * case_flag array, error) result
+val decode_with_case : string -> Uchar.t array * case_flag array
 (** [decode_with_case punycode] decodes and extracts case annotations.
 
     Per
     {{:https://datatracker.ietf.org/doc/html/rfc3492#appendix-A}RFC 3492
      Appendix A}, returns both the decoded code points and an array of case
     flags indicating the suggested case for each character based on the
-    uppercase/lowercase form of the encoding digits. *)
+    uppercase/lowercase form of the encoding digits.
+
+    @raise Error on decoding failure. *)
 
 (** {1 UTF-8 String Operations}
 
     Convenience functions that work directly with UTF-8 encoded OCaml strings.
     These combine UTF-8 decoding/encoding with the core Punycode operations. *)
 
-val encode_utf8 : string -> (string, error) result
+val encode_utf8 : string -> string
 (** [encode_utf8 s] encodes a UTF-8 string to Punycode (no ACE prefix).
 
     This is equivalent to decoding [s] from UTF-8 to code points, then calling
     {!encode}.
 
+    @raise Error on encoding failure.
+
     Example:
     {[
       encode_utf8 "münchen"
-      (* = Ok "mnchen-3ya" *)
+      (* = "mnchen-3ya" *)
     ]} *)
 
-val decode_utf8 : string -> (string, error) result
+val decode_utf8 : string -> string
 (** [decode_utf8 punycode] decodes Punycode to a UTF-8 string (no ACE prefix).
 
     This is equivalent to calling {!decode} then encoding the result as UTF-8.
 
+    @raise Error on decoding failure.
+
     Example:
     {[
       decode_utf8 "mnchen-3ya"
-      (* = Ok "münchen" *)
+      (* = "münchen" *)
     ]} *)
 
 (** {1 Domain Label Operations}
@@ -214,7 +227,7 @@ val decode_utf8 : string -> (string, error) result
     length limits per
     {{:https://datatracker.ietf.org/doc/html/rfc1035}RFC 1035}. *)
 
-val encode_label : string -> (string, error) result
+val encode_label : string -> string
 (** [encode_label label] encodes a domain label for use in DNS.
 
     If the label contains only ASCII characters, it is returned unchanged.
@@ -223,28 +236,31 @@ val encode_label : string -> (string, error) result
     {{:https://datatracker.ietf.org/doc/html/rfc3492#section-5} RFC 3492 Section
      5}.
 
-    Returns {!Error} {!Label_too_long} if the result exceeds 63 bytes.
+    @raise Error with {!Label_too_long} if the result exceeds 63 bytes.
+    @raise Error with {!Empty_label} if the label is empty.
 
     Example:
     {[
       encode_label "münchen"
-        (* = Ok "xn--mnchen-3ya" *)
+        (* = "xn--mnchen-3ya" *)
         encode_label "example"
-      (* = Ok "example" *)
+      (* = "example" *)
     ]} *)
 
-val decode_label : string -> (string, error) result
+val decode_label : string -> string
 (** [decode_label label] decodes a domain label.
 
     If the label starts with the ACE prefix ("xn--", case-insensitive), it is
     Punycode-decoded. Otherwise, it is returned unchanged.
 
+    @raise Error on decoding failure.
+
     Example:
     {[
       decode_label "xn--mnchen-3ya"
-        (* = Ok "münchen" *)
+        (* = "münchen" *)
         decode_label "example"
-      (* = Ok "example" *)
+      (* = "example" *)
     ]} *)
 
 (** {1 Validation}

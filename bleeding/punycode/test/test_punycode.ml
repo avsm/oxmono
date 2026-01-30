@@ -26,33 +26,34 @@ let codepoints_of_string s =
 
 (* Test result helper *)
 let check_encode_ok expected input =
-  match Punycode.encode input with
-  | Ok result -> check string "encode" expected result
-  | Error e -> fail (Format.asprintf "encode failed: %a" Punycode.pp_error e)
+  try
+    let result = Punycode.encode input in
+    check string "encode" expected result
+  with Punycode.Error e ->
+    fail (Format.asprintf "encode failed: %a" Punycode.pp_error_reason e)
 
 let check_decode_ok expected input =
-  match Punycode.decode input with
-  | Ok result ->
-      let expected_arr = codepoints_of_hex_list expected in
-      check int "length" (Array.length expected_arr) (Array.length result);
-      Array.iteri
-        (fun i u ->
-          check int
-            (Printf.sprintf "char %d" i)
-            (Uchar.to_int expected_arr.(i))
-            (Uchar.to_int u))
-        result
-  | Error e -> fail (Format.asprintf "decode failed: %a" Punycode.pp_error e)
+  try
+    let result = Punycode.decode input in
+    let expected_arr = codepoints_of_hex_list expected in
+    check int "length" (Array.length expected_arr) (Array.length result);
+    Array.iteri
+      (fun i u ->
+        check int
+          (Printf.sprintf "char %d" i)
+          (Uchar.to_int expected_arr.(i))
+          (Uchar.to_int u))
+      result
+  with Punycode.Error e ->
+    fail (Format.asprintf "decode failed: %a" Punycode.pp_error_reason e)
 
 let check_utf8_roundtrip s =
-  match Punycode.encode_utf8 s with
-  | Error e ->
-      fail (Format.asprintf "encode_utf8 failed: %a" Punycode.pp_error e)
-  | Ok encoded -> (
-      match Punycode.decode_utf8 encoded with
-      | Error e ->
-          fail (Format.asprintf "decode_utf8 failed: %a" Punycode.pp_error e)
-      | Ok decoded -> check string "roundtrip" s decoded)
+  try
+    let encoded = Punycode.encode_utf8 s in
+    let decoded = Punycode.decode_utf8 encoded in
+    check string "roundtrip" s decoded
+  with Punycode.Error e ->
+    fail (Format.asprintf "roundtrip failed: %a" Punycode.pp_error_reason e)
 
 (* RFC 3492 Section 7.1 Test Vectors *)
 
@@ -604,82 +605,86 @@ let test_utf8_roundtrip_emoji () = check_utf8_roundtrip "hello👋world"
 
 (* Label encoding tests *)
 let test_label_encode_ascii () =
-  match Punycode.encode_label "example" with
-  | Ok result -> check string "ascii passthrough" "example" result
-  | Error e ->
-      fail (Format.asprintf "encode_label failed: %a" Punycode.pp_error e)
+  try
+    let result = Punycode.encode_label "example" in
+    check string "ascii passthrough" "example" result
+  with Punycode.Error e ->
+    fail (Format.asprintf "encode_label failed: %a" Punycode.pp_error_reason e)
 
 let test_label_encode_german () =
-  match Punycode.encode_label "münchen" with
-  | Ok result -> check string "german label" "xn--mnchen-3ya" result
-  | Error e ->
-      fail (Format.asprintf "encode_label failed: %a" Punycode.pp_error e)
+  try
+    let result = Punycode.encode_label "münchen" in
+    check string "german label" "xn--mnchen-3ya" result
+  with Punycode.Error e ->
+    fail (Format.asprintf "encode_label failed: %a" Punycode.pp_error_reason e)
 
 let test_label_decode_german () =
-  match Punycode.decode_label "xn--mnchen-3ya" with
-  | Ok result -> check string "german decode" "münchen" result
-  | Error e ->
-      fail (Format.asprintf "decode_label failed: %a" Punycode.pp_error e)
+  try
+    let result = Punycode.decode_label "xn--mnchen-3ya" in
+    check string "german decode" "münchen" result
+  with Punycode.Error e ->
+    fail (Format.asprintf "decode_label failed: %a" Punycode.pp_error_reason e)
 
 (* IDNA tests *)
 let test_idna_to_ascii_simple () =
-  match Punycode_idna.to_ascii "münchen.example.com" with
-  | Ok result ->
-      check string "idna to_ascii" "xn--mnchen-3ya.example.com" result
-  | Error e ->
-      fail (Format.asprintf "to_ascii failed: %a" Punycode_idna.pp_error e)
+  try
+    let result = Punycode_idna.to_ascii "münchen.example.com" in
+    check string "idna to_ascii" "xn--mnchen-3ya.example.com" result
+  with Punycode_idna.Error e ->
+    fail (Format.asprintf "to_ascii failed: %a" Punycode_idna.pp_error_reason e)
 
 let test_idna_to_unicode_simple () =
-  match Punycode_idna.to_unicode "xn--mnchen-3ya.example.com" with
-  | Ok result -> check string "idna to_unicode" "münchen.example.com" result
-  | Error e ->
-      fail (Format.asprintf "to_unicode failed: %a" Punycode_idna.pp_error e)
+  try
+    let result = Punycode_idna.to_unicode "xn--mnchen-3ya.example.com" in
+    check string "idna to_unicode" "münchen.example.com" result
+  with Punycode_idna.Error e ->
+    fail (Format.asprintf "to_unicode failed: %a" Punycode_idna.pp_error_reason e)
 
 let test_idna_roundtrip () =
   let original = "münchen.example.com" in
-  match Punycode_idna.to_ascii original with
-  | Error e ->
-      fail (Format.asprintf "to_ascii failed: %a" Punycode_idna.pp_error e)
-  | Ok ascii -> (
-      match Punycode_idna.to_unicode ascii with
-      | Error e ->
-          fail
-            (Format.asprintf "to_unicode failed: %a" Punycode_idna.pp_error e)
-      | Ok unicode -> check string "idna roundtrip" original unicode)
+  try
+    let ascii = Punycode_idna.to_ascii original in
+    let unicode = Punycode_idna.to_unicode ascii in
+    check string "idna roundtrip" original unicode
+  with Punycode_idna.Error e ->
+    fail (Format.asprintf "roundtrip failed: %a" Punycode_idna.pp_error_reason e)
 
 let test_idna_all_ascii () =
-  match Punycode_idna.to_ascii "www.example.com" with
-  | Ok result -> check string "all ascii passthrough" "www.example.com" result
-  | Error e ->
-      fail (Format.asprintf "to_ascii failed: %a" Punycode_idna.pp_error e)
+  try
+    let result = Punycode_idna.to_ascii "www.example.com" in
+    check string "all ascii passthrough" "www.example.com" result
+  with Punycode_idna.Error e ->
+    fail (Format.asprintf "to_ascii failed: %a" Punycode_idna.pp_error_reason e)
 
 let test_idna_mixed_labels () =
-  match Punycode_idna.to_ascii "日本語.example.com" with
-  | Ok result ->
-      (* Check that result starts with xn-- and ends with .example.com *)
-      check bool "has ace prefix" true (Punycode.has_ace_prefix result);
-      check bool "ends with example.com" true
-        (String.length result > 12
-        && String.sub result (String.length result - 12) 12 = ".example.com")
-  | Error e ->
-      fail (Format.asprintf "to_ascii failed: %a" Punycode_idna.pp_error e)
+  try
+    let result = Punycode_idna.to_ascii "日本語.example.com" in
+    (* Check that result starts with xn-- and ends with .example.com *)
+    check bool "has ace prefix" true (Punycode.has_ace_prefix result);
+    check bool "ends with example.com" true
+      (String.length result > 12
+      && String.sub result (String.length result - 12) 12 = ".example.com")
+  with Punycode_idna.Error e ->
+    fail (Format.asprintf "to_ascii failed: %a" Punycode_idna.pp_error_reason e)
 
 (* Case annotation tests *)
 let test_case_annotation_decode () =
   (* RFC example: uppercase letters indicate case flags *)
-  match Punycode.decode_with_case "MajiKoi5-783gue6qz075azm5e" with
-  | Ok (codepoints, case_flags) ->
-      check int "codepoints length"
-        (List.length example_p_codepoints)
-        (Array.length codepoints);
-      check int "case_flags length" (Array.length codepoints)
-        (Array.length case_flags);
-      (* M should be uppercase *)
-      check bool "M uppercase" true (case_flags.(0) = Punycode.Uppercase);
-      (* a should be lowercase *)
-      check bool "a lowercase" true (case_flags.(1) = Punycode.Lowercase)
-  | Error e ->
-      fail (Format.asprintf "decode_with_case failed: %a" Punycode.pp_error e)
+  try
+    let codepoints, case_flags =
+      Punycode.decode_with_case "MajiKoi5-783gue6qz075azm5e"
+    in
+    check int "codepoints length"
+      (List.length example_p_codepoints)
+      (Array.length codepoints);
+    check int "case_flags length" (Array.length codepoints)
+      (Array.length case_flags);
+    (* M should be uppercase *)
+    check bool "M uppercase" true (case_flags.(0) = Punycode.Uppercase);
+    (* a should be lowercase *)
+    check bool "a lowercase" true (case_flags.(1) = Punycode.Lowercase)
+  with Punycode.Error e ->
+    fail (Format.asprintf "decode_with_case failed: %a" Punycode.pp_error_reason e)
 
 let test_case_annotation_encode () =
   let codepoints = codepoints_of_hex_list [ 0x0061; 0x0062; 0x0063 ] in
@@ -687,48 +692,61 @@ let test_case_annotation_encode () =
   let case_flags =
     [| Punycode.Uppercase; Punycode.Lowercase; Punycode.Uppercase |]
   in
-  match Punycode.encode_with_case codepoints case_flags with
-  | Ok result ->
-      (* Should encode as "AbC-" (basic code points with case annotation) *)
-      check string "case encoded" "AbC-" result
-  | Error e ->
-      fail (Format.asprintf "encode_with_case failed: %a" Punycode.pp_error e)
+  try
+    let result = Punycode.encode_with_case codepoints case_flags in
+    (* Should encode as "AbC-" (basic code points with case annotation) *)
+    check string "case encoded" "AbC-" result
+  with Punycode.Error e ->
+    fail (Format.asprintf "encode_with_case failed: %a" Punycode.pp_error_reason e)
 
 (* Edge case tests *)
 let test_empty_input () =
-  match Punycode.encode [||] with
-  | Ok result -> check string "empty encode" "" result
-  | Error _ -> fail "empty encode should succeed"
+  try
+    let result = Punycode.encode [||] in
+    check string "empty encode" "" result
+  with Punycode.Error _ -> fail "empty encode should succeed"
 
 let test_empty_decode () =
-  match Punycode.decode "" with
-  | Ok result -> check int "empty decode length" 0 (Array.length result)
-  | Error _ -> fail "empty decode should succeed"
+  try
+    let result = Punycode.decode "" in
+    check int "empty decode length" 0 (Array.length result)
+  with Punycode.Error _ -> fail "empty decode should succeed"
 
 let test_pure_ascii () =
   let input = codepoints_of_string "hello" in
-  match Punycode.encode input with
-  | Ok result -> check string "pure ascii" "hello-" result
-  | Error e -> fail (Format.asprintf "encode failed: %a" Punycode.pp_error e)
+  try
+    let result = Punycode.encode input in
+    check string "pure ascii" "hello-" result
+  with Punycode.Error e ->
+    fail (Format.asprintf "encode failed: %a" Punycode.pp_error_reason e)
 
 let test_invalid_digit () =
-  match Punycode.decode "hello!" with
-  | Ok _ -> fail "should fail on invalid digit"
-  | Error (Punycode.Invalid_digit _) -> ()
-  | Error e -> fail (Format.asprintf "wrong error type: %a" Punycode.pp_error e)
+  try
+    ignore (Punycode.decode "hello!");
+    fail "should fail on invalid digit"
+  with
+  | Punycode.Error (Punycode.Invalid_digit _) -> ()
+  | Punycode.Error e ->
+      fail (Format.asprintf "wrong error type: %a" Punycode.pp_error_reason e)
 
 let test_label_too_long () =
   let long_label = String.make 100 'a' in
-  match Punycode.encode_label long_label with
-  | Ok _ -> fail "should fail on long label"
-  | Error (Punycode.Label_too_long _) -> ()
-  | Error e -> fail (Format.asprintf "wrong error type: %a" Punycode.pp_error e)
+  try
+    ignore (Punycode.encode_label long_label);
+    fail "should fail on long label"
+  with
+  | Punycode.Error (Punycode.Label_too_long _) -> ()
+  | Punycode.Error e ->
+      fail (Format.asprintf "wrong error type: %a" Punycode.pp_error_reason e)
 
 let test_empty_label () =
-  match Punycode.encode_label "" with
-  | Ok _ -> fail "should fail on empty label"
-  | Error Punycode.Empty_label -> ()
-  | Error e -> fail (Format.asprintf "wrong error type: %a" Punycode.pp_error e)
+  try
+    ignore (Punycode.encode_label "");
+    fail "should fail on empty label"
+  with
+  | Punycode.Error Punycode.Empty_label -> ()
+  | Punycode.Error e ->
+      fail (Format.asprintf "wrong error type: %a" Punycode.pp_error_reason e)
 
 (* Validation tests *)
 let test_is_basic () =

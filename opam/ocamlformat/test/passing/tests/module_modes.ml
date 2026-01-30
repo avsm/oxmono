@@ -1,0 +1,169 @@
+(* bindings *)
+
+module M : sig
+  type t
+end @ m = M
+
+module M : S @ m = M
+
+module M @ m = M
+
+module M : sig
+  type t
+end @ m = M
+[@@a]
+
+module M : S @ m = M
+[@@a]
+
+module M @ m = M
+[@@a]
+
+module[@a] M : sig
+  type t
+end @ m = M
+
+module[@a] M : S @ m = M
+
+module[@a] M @ m = M
+
+(* expressions *)
+
+let () =
+  let module M : sig
+      type t
+    end @ m = M
+  in
+  ()
+
+let () =
+  let module M : S @ m = M in
+  ()
+
+let () =
+  let module M @ m = M in
+  ()
+
+(* test comment preservation *)
+
+module M (* 01 *) : (* 02 *) sig (* 03 *)
+  type t
+end (* 04 *) @ (* 05 *) m (* 06 *) = (* 07 *) M (* 08 *)
+
+module M (* 09 *) : (* 10 *) S (* 11 *) @ (* 12 *) m (* 13 *) = (* 14 *) M (* 15 *)
+
+module M (* 16 *) @ (* 17 *) m (* 18 *) = (* 19 *) M (* 20 *)
+
+let () =
+  let module (* 21 *) M (* 22 *) : (* 23 *) sig (* 24 *)
+      type t
+    end (* 25 *) @ (* 26 *) m (* 27 *) = (* 28 *) M (* 29 *)
+  in
+  ()
+
+let () =
+  let module (* 30 *) M (* 31 *) : (* 32 *) S (* 33 *) @ (* 34 *) m (* 35 *) =
+    (* 36 *) M (* 37 *)
+  in
+  ()
+
+let () =
+  let module (* 38 *) M (* 39 *) @ (* 40 *) m (* 41 *) = (* 42 *) M (* 43 *) in
+  ()
+
+(* test mode on ident *)
+
+module (M @ foo) = struct end
+
+module (M @ foo) : S = struct end
+
+(* No functor args: [bar] should move onto [M] *)
+
+module (M @ foo) @ bar = struct end
+
+module (M @ foo) : S @ bar = struct end
+
+module (F @ foo) () = struct end
+
+module (F @ foo) () : S = struct end
+
+(* There are functor args: [bar] is not allowed to move *)
+
+module (F @ foo) () @ bar = struct end
+
+module (F @ foo) () : S @ bar = struct end
+
+module rec (M @ foo) : S @ bar = struct end
+and (N @ foo) : S @ bar = struct end
+
+module rec (F @ foo) () : S @ bar = struct end
+and (G @ foo) () : S @ bar = struct end
+
+(* attributes *)
+
+module[@a] (M @ foo) = struct end
+
+module[@a] (M @ foo) : S = struct end
+
+module[@a] (M @ foo) @ bar = struct end
+
+module[@a] (M @ foo) : S @ bar = struct end
+
+module[@a] (F @ foo) () = struct end
+
+module[@a] (F @ foo) () : S = struct end
+
+module[@a] (F @ foo) () @ bar = struct end
+
+module[@a] (F @ foo) () : S @ bar = struct end
+
+module rec (M @ foo) = (struct end : S @ bar) [@a]
+and (N @ foo) = (struct end : S @ bar) [@a]
+
+module rec (F @ foo) () = (struct end : S @ bar) [@a]
+and (G @ foo) () = (struct end : S @ bar) [@a]
+
+module rec (M @ foo) : S @ bar = (struct end [@a])
+and (N @ foo) : S @ bar = (struct end [@a])
+
+module rec (F @ foo) () : S @ bar = (struct end [@a])
+and (G @ foo) () : S @ bar = (struct end [@a])
+
+let () =
+  let module (M @ foo) = struct end in ()
+
+let () =
+  let module (M @ foo) : S = struct end in ()
+
+let () =
+  let module (M @ foo) @ bar = struct end in ()
+
+let () =
+  let module (M @ foo) : S @ bar = struct end in ()
+
+let () =
+  let module (F @ foo) () = struct end in ()
+
+let () =
+  let module (F @ foo) () : S = struct end in ()
+
+let () =
+  let module (F @ foo) () @ bar = struct end in ()
+
+let () =
+  let module (F @ foo) () : S @ bar = struct end in ()
+
+(* comments *)
+
+module rec (* 44 *) ( (* 45 *) F (* 46 *) @ (* 47 *) foo (* 48 *)) (* 49 *) () (* 50 *)
+  : (* 51 *) S (* 52 *) @ (* 53 *) bar (* 54 *) = (* 55 *) (struct (* 55 *) end (* 56 *)
+    [@a]) (* 57 *)
+and (* 58 *) (G (* 59 *) @ (* 60 *) foo (* 61 *)) (* 62 *) () (* 63 *)
+  : (* 64 *) S (* 65 *) @ (* 66 *) bar (* 67 *) = (* 68 *) (struct (* 69 *) end (* 70 *)
+    [@a]) (* 71 *)
+
+module (* 72 *) ( (* 73 *) M (* 74 *) @ (* 75 *) foo (* 76 *)) (* 77 *) @ (* 78 *) bar
+  (* 79 *) = (* 80 *) struct (* 81 *) end (* 82 *)
+
+module (* 83 *) ( (* 84 *) M (* 85 *) @ (* 86 *) foo (* 87 *)) (* 88 *)
+  : (* 89 *) S (* 90 *) @ (* 91 *) bar (* 92 *) = (* 93 *) struct (* 94 *) end (* 95 *)

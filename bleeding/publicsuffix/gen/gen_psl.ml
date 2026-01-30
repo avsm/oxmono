@@ -82,9 +82,8 @@ let parse_line section line =
       |> List.rev
       |> List.filter (fun s -> s <> "")
       |> List.map (fun label ->
-          match Punycode.encode_label label with
-          | Ok encoded -> String.lowercase_ascii encoded
-          | Error _ -> String.lowercase_ascii label)
+          try String.lowercase_ascii (Punycode.encode_label label)
+          with Punycode.Error _ -> String.lowercase_ascii label)
     in
     if labels = [] then None else Some { labels; rule_type; section }
 

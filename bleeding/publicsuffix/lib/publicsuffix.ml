@@ -152,10 +152,13 @@ let normalize_domain domain =
     if domain = "" then Error Empty_domain
     else
       (* Convert IDN to ASCII (Punycode) *)
-      match Punycode_idna.to_ascii domain with
-      | Error e ->
-          let msg = Format.asprintf "%a" Punycode_idna.pp_error e in
+      match
+        try Ok (Punycode_idna.to_ascii domain)
+        with Punycode_idna.Error e ->
+          let msg = Format.asprintf "%a" Punycode_idna.pp_error_reason e in
           Error (Punycode_error msg)
+      with
+      | Error e -> Error e
       | Ok ascii_domain ->
           (* Convert to lowercase and split into labels *)
           let ascii_lower = String.lowercase_ascii ascii_domain in

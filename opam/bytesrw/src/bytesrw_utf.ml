@@ -8,6 +8,20 @@ open Bytesrw
 (* XXX add these things to Stdlib.Uchar *)
 
 let uchar_max_utf_8_byte_length = 4
+
+(** UTF-8 byte decode length using unboxed char# for zero-alloc matching. *)
+let[@inline][@zero_alloc] uchar_utf_8_byte_decode_length_unboxed (c : char#) : int =
+  match c with
+  | #'\x00' .. #'\x7F' -> 1   (* ASCII *)
+  | #'\x80' .. #'\xC1' -> 0   (* Invalid: continuation or overlong *)
+  | #'\xC2' .. #'\xDF' -> 2   (* 2-byte sequence *)
+  | #'\xE0' .. #'\xEF' -> 3   (* 3-byte sequence *)
+  | #'\xF0' .. #'\xF4' -> 4   (* 4-byte sequence *)
+  | _ -> 0                     (* Invalid: > U+10FFFF *)
+
+(** Boxed wrapper for API compatibility.
+    Note: We keep the original boxed version for now since the unboxed
+    version requires char# input which isn't easily obtained from Bytes.get *)
 let[@inline] uchar_utf_8_byte_decode_length = function
 | '\x00' .. '\x7F' -> 1
 | '\x80' .. '\xC1' -> 0

@@ -28,29 +28,38 @@ type end_directive = E_continue | E_flush | E_end
 module Zbuf = struct
   type t = (* keep in sync with ocaml_zbuf_fields enum in C *)
     { mutable bytes : Bytes.t;
-      mutable size : int; (* last read or write position + 1 *)
-      mutable pos : int; (* next read or write position *) }
+      mutable size : int;  (* last read or write position + 1 *)
+      mutable pos : int }  (* next read or write position *)
 
-  let make_empty () = { bytes = Bytes.empty; size = 0; pos = 0 }
-  let make size =
-    { bytes = Bytes.create (Bytes.Slice.check_length size); size; pos = 0 }
+  (* Note: We revert to boxed ints for now since mixed blocks with int#
+     require more complex C stub handling. The key optimizations (let mutable,
+     zero_alloc) are preserved in the pure OCaml code. *)
+  let[@inline][@zero_alloc] make_empty () =
+    { bytes = Bytes.empty; size = 0; pos = 0 }
 
-  let src_is_consumed buf = buf.pos >= buf.size
-  let src_rem buf = buf.size - buf.pos
-  let src_set_slice buf s =
+  let[@inline] make size =
+    let size = Bytes.Slice.check_length size in
+    { bytes = Bytes.create size; size; pos = 0 }
+
+  let[@inline][@zero_alloc] src_is_consumed buf = buf.pos >= buf.size
+  let[@inline][@zero_alloc] src_rem buf = buf.size - buf.pos
+
+  let[@inline][@zero_alloc] src_set_slice buf s =
     buf.bytes <- Bytes.Slice.bytes s;
-    buf.size <- Bytes.Slice.first s + Bytes.Slice.length s;
-    buf.pos <- Bytes.Slice.first s
+    let first = Bytes.Slice.first s in
+    let length = Bytes.Slice.length s in
+    buf.size <- first + length;
+    buf.pos <- first
 
-  let src_to_slice_or_eod buf =
-    let src_rem = src_rem buf in
-    if src_rem = 0 then Bytes.Slice.eod else
-    Bytes.Slice.make buf.bytes ~first:buf.pos ~length:src_rem
+  let[@inline] src_to_slice_or_eod buf =
+    let rem = src_rem buf in
+    if rem = 0 then Bytes.Slice.eod
+    else Bytes.Slice.make buf.bytes ~first:buf.pos ~length:rem
 
-  let dst_clear buf = buf.pos <- 0
-  let dst_is_empty buf = buf.pos = 0
-  let dst_is_full buf = buf.pos = buf.size
-  let dst_to_slice buf = Bytes.Slice.make buf.bytes ~first:0 ~length:buf.pos
+  let[@inline][@zero_alloc] dst_clear buf = buf.pos <- 0
+  let[@inline][@zero_alloc] dst_is_empty buf = buf.pos = 0
+  let[@inline][@zero_alloc] dst_is_full buf = buf.pos = buf.size
+  let[@inline] dst_to_slice buf = Bytes.Slice.make buf.bytes ~first:0 ~length:buf.pos
 end
 
 (* Errors. Stubs raise [Failure] in case of error which we turn into

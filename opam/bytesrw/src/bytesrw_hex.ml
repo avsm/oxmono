@@ -7,26 +7,34 @@
 
 let strf = Printf.sprintf
 
-let to_binary_string' h = (* raises Failure *)
-  let hex_value s i = match s.[i] with
-  | '0' .. '9' as c -> Char.code c - 0x30
-  | 'A' .. 'F' as c -> 10 + (Char.code c - 0x41)
-  | 'a' .. 'f' as c -> 10 + (Char.code c - 0x61)
-  | c -> failwith (strf "%d: %C is not an ASCII hexadecimal digit" i c)
-  in
-  match String.length h with
-  | len when len mod 2 <> 0 -> failwith "Missing final hex digit"
-  | len ->
-      let rec loop max s i h k = match i > max with
-      | true -> Bytes.unsafe_to_string s
-      | false ->
-          let hi = hex_value h k and lo = hex_value h (k + 1) in
-          Bytes.set s i (Char.chr @@ (hi lsl 4) lor lo);
-          loop max s (i + 1) h (k + 2)
-      in
-      let s_len = len / 2 in
-      let s = Bytes.create s_len in
-      loop (s_len - 1) s 0 h 0
+let[@inline][@zero_alloc] hex_value_unsafe c =
+  match c with
+  | '0' .. '9' -> Char.code c - 0x30
+  | 'A' .. 'F' -> Char.code c - 0x41 + 10
+  | 'a' .. 'f' -> Char.code c - 0x61 + 10
+  | _ -> -1
+
+let[@inline] hex_value_exn s i =
+  let c = String.unsafe_get s i in
+  let v = hex_value_unsafe c in
+  if v < 0 then failwith (strf "%d: %C is not an ASCII hexadecimal digit" i c);
+  v
+
+let to_binary_string' h =
+  let len = String.length h in
+  if len mod 2 <> 0 then failwith "Missing final hex digit";
+  let s_len = len / 2 in
+  let s = Bytes.create s_len in
+  let mutable i = 0 in
+  let mutable k = 0 in
+  while i < s_len do
+    let hi = hex_value_exn h k in
+    let lo = hex_value_exn h (k + 1) in
+    Bytes.unsafe_set s i (Char.unsafe_chr ((hi lsl 4) lor lo));
+    i <- i + 1;
+    k <- k + 2
+  done;
+  Bytes.unsafe_to_string s
 
 let err_len ~exp ~fnd =
   strf "Expected %d ASCII hexadecimal digits but found %d characters" exp fnd
@@ -43,10 +51,29 @@ let to_binary_string ?length hex =
   | Failure e -> Error e
 
 let pp_binary_string ppf s =
-  for i = 0 to String.length s - 1
-  do Format.fprintf ppf "%02x" (Char.code (s.[i])) done
+  let len = String.length s in
+  let mutable i = 0 in
+  while i < len do
+    Format.fprintf ppf "%02x" (Char.code (String.unsafe_get s i));
+    i <- i + 1
+  done
 
-let of_binary_string s = Format.asprintf "%a" pp_binary_string s
+(* Lookup table for fast hex conversion *)
+let hex_chars = "0123456789abcdef"
+
+let of_binary_string s =
+  let len = String.length s in
+  let result = Bytes.create (len * 2) in
+  let mutable i = 0 in
+  let mutable j = 0 in
+  while i < len do
+    let b = Char.code (String.unsafe_get s i) in
+    Bytes.unsafe_set result j (String.unsafe_get hex_chars (b lsr 4));
+    Bytes.unsafe_set result (j + 1) (String.unsafe_get hex_chars (b land 0x0f));
+    i <- i + 1;
+    j <- j + 2
+  done;
+  Bytes.unsafe_to_string result
 
 let check_binary_string_length ~length s =
   let len = String.length s in

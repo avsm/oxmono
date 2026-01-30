@@ -1,0 +1,222 @@
+[%%org
+  {|
+#+TITLE: JSON extraction with ~Of_json~
+
+This library provides an applicative interface for extracting values from JSON
+objects with an emphasis on readability and error handling, particularly with
+nested values. It expects to parse values of type ~Jsonaf.t~.
+
+A typical use case:
+|}]
+;;
+
+#verbose true
+
+open Core
+
+module Species = struct
+  type t =
+    | Capybara
+    | Dog
+    | Cat
+  [@@deriving of_string]
+end
+
+module Kg = struct
+  type t = Bignum.t
+
+  let of_string = Bignum.of_string
+end
+
+module Years = struct
+  type t = int
+
+  let of_int = Fn.id
+end
+
+module Animal = struct
+  type t =
+    { weight : Kg.t
+    ; age : Years.t
+    ; species : Species.t
+    ; name : string
+    }
+
+  let of_json =
+    [%map_open.Of_json
+      let weight = "weight" @. number @> Kg.of_string
+      and age = "age" @. int @> Years.of_int
+      and species = "species" @. string @> Species.of_string
+      and name = "name" @. string in
+      { weight; age; species; name }]
+  ;;
+end
+
+[%%expect
+  {|
+module Species :
+  sig type t = Capybara | Dog | Cat val of_string : string -> t end
+module Kg : sig type t = Bignum.t val of_string : string -> t end
+module Years : sig type t = int val of_int : 'a -> 'a end
+module Animal :
+  sig
+    type t = {
+      weight : Kg.t;
+      age : int;
+      species : Species.t;
+      name : string;
+    }
+    val of_json : t Of_json.t
+  end
+|}]
+
+[%%org
+  {|
+See ~src/helpers.mli~ for documentation on the API. This module is opened when
+you use ~Let_syntax~ with ~map_open~ or ~bind_open~. We can use this module as follows:
+|}]
+
+let order =
+  Jsonaf.parse
+    {|
+      {
+        "weight": 42.31,
+        "age": 2,
+        "species": "Capybara",
+        "name": "John Smith"
+      }
+    |}
+  |> Or_error.ok_exn
+  |> Animal.of_json
+;;
+
+[%%expect
+  {|
+val order : Animal.t =
+  {Animal.weight = 42.31; age = 2; species = Species.Capybara;
+   name = "John Smith"}
+|}]
+
+[%%org
+  {|
+Note that errors provide context for where the parsing went wrong.
+|}]
+
+let order =
+  Jsonaf.parse
+    {|
+    {
+      "weight": 5.1234,
+      "age": 5,
+      "species": "Mr. Whiskers",
+      "name": "Cat"
+    }
+    |}
+  |> Or_error.ok_exn
+  |> Animal.of_json
+;;
+
+[%%expect
+  {|
+Exception:
+(helpers.ml.Of_json_conv_failed
+  ("Of_json failed to convert"
+    ("README.Species.of_string: invalid string" (value "Mr. Whiskers"))
+    ("json context [1]" (String "Mr. Whiskers"))
+    ("json context [0], at key [species]"
+      (Object
+        ((weight (Number 5.1234)) (age (Number 5))
+          (species (String "Mr. Whiskers")) (name (String Cat)))))))
+|}]
+
+[%%org
+  {|
+A popular pattern in some JSON APIs is to use mixed-type arrays to pack information more
+densly, particularly in websockets where there is no compression. You can use
+~Array_as_tuple~ to parse information.
+|}]
+;;
+
+#verbose false
+
+module Websocket_animal = struct
+  type t = Animal.t
+
+  let of_json =
+    let open Of_json in
+    tuple
+      Array_as_tuple.(
+        let%map weight = shift @@ number @> Kg.of_string
+        and age = shift @@ int @> Years.of_int
+        and species = shift @@ string @> Species.of_string
+        and name = shift @@ string in
+        { Animal.weight; age; species; name })
+  ;;
+end
+;;
+
+#verbose true
+
+let order =
+  Jsonaf.parse {| [12.34, 7, "Dog", "Fluffy"] |}
+  |> Or_error.ok_exn
+  |> Websocket_animal.of_json
+;;
+
+[%%expect
+  {|
+val order : Websocket_animal.t =
+  {Animal.weight = 12.34; age = 7; species = Species.Dog; name = "Fluffy"}
+|}]
+
+[%%org
+  {|
+If the remote API adds extra values to the array, your parse will fail because they were
+ignored. If this is not important for your app, you can use ~drop_rest~.
+|}]
+
+let parse_array of_json =
+  Jsonaf.parse {| [100, "hello", true, "extra value!"] |} |> Or_error.ok_exn |> of_json
+;;
+
+let result =
+  parse_array
+  @@
+  let open Of_json in
+  tuple
+    Array_as_tuple.(
+      let%map a = shift int
+      and b = shift string
+      and c = shift bool in
+      a, b, c)
+;;
+
+[%%expect
+  {|
+val parse_array : (Jsonaf_kernel.t -> 'a) -> 'a = <fun>
+Exception:
+(helpers.ml.Of_json_conv_failed
+  ("Of_json failed to convert"
+    ("array_as_tuple has unparsed elements"
+      (elems ((String "extra value!"))))
+    ("json context [0]"
+      (Array ((Number 100) (String hello) True (String "extra value!"))))))
+|}]
+
+let result =
+  parse_array
+  @@
+  let open Of_json in
+  tuple
+    Array_as_tuple.(
+      let%map a = shift int
+      and b = shift string
+      and c = shift bool
+      and () = drop_rest in
+      a, b, c)
+;;
+
+[%%expect
+  {|
+val result : int * string * bool = (100, "hello", true)
+|}]

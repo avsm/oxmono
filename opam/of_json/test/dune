@@ -1,0 +1,5 @@
+(library
+ (name of_json_tests)
+ (libraries core expect_test_helpers_core of_json)
+ (preprocess
+  (pps ppx_jane)))

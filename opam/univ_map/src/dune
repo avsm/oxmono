@@ -1,0 +1,6 @@
+(library
+ (name univ_map)
+ (public_name univ_map)
+ (libraries base ppx_inline_test.runtime-lib)
+ (preprocess
+  (pps ppx_base ppx_here ppx_sexp_message ppx_sexp_value)))

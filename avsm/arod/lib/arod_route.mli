@@ -3,21 +3,17 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Framework-agnostic HTTP routing
+(** httpz-native HTTP routing
 
-    This module provides a pure routing abstraction that is independent of any
-    specific HTTP server implementation. Routes are defined using a typed
-    pattern DSL and pure handler functions that take requests and return
-    responses. *)
+    This module provides an HTTP routing abstraction built directly on httpz
+    types. Routes are defined using a typed pattern DSL and pure handler
+    functions that take requests and return responses. *)
 
-(** HTTP methods. *)
-type meth = [ `GET | `POST | `PUT | `DELETE | `HEAD | `OPTIONS ]
+(** HTTP methods (alias for {!Httpz.Method.t}). *)
+type meth = Httpz.Method.t
 
 val meth_to_string : meth -> string
 (** [meth_to_string m] returns the string representation of method [m]. *)
-
-val meth_of_string : string -> meth option
-(** [meth_of_string s] parses an HTTP method from string [s]. *)
 
 (** HTTP requests. *)
 module Request : sig
@@ -79,18 +75,19 @@ module Response : sig
   val plain : string -> t
   (** [plain content] creates a plain text response. *)
 
-  val redirect : code:int -> location:string -> t
-  (** [redirect ~code ~location] creates a redirect response. *)
+  val redirect : status:Httpz.Res.status -> location:string -> t
+  (** [redirect ~status ~location] creates a redirect response.
+      Use [Httpz.Res.Moved_permanently], [Httpz.Res.Found], etc. *)
 
   val not_found : t
   (** [not_found] is a 404 Not Found response. *)
 
-  val raw : status:int -> headers:(string * string) list -> string -> t
+  val raw : status:Httpz.Res.status -> headers:(string * string) list -> string -> t
   (** [raw ~status ~headers body] creates a response with explicit status,
       headers, and body. *)
 
-  val status : t -> int
-  (** [status resp] returns the HTTP status code. *)
+  val status : t -> Httpz.Res.status
+  (** [status resp] returns the HTTP status. *)
 
   val headers : t -> (string * string) list
   (** [headers resp] returns the response headers. *)

@@ -54,6 +54,9 @@ type status =
 (** Get numeric status code. *)
 val status_code : status -> int
 
+(** Parse status from numeric code. Returns [None] for unknown codes. *)
+val status_of_int : int -> status option
+
 (** Get reason phrase. *)
 val status_reason : status -> string
 

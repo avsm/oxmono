@@ -10,6 +10,7 @@
   cmarkit
   tomlt
   tomlt.bytesrw
+  httpz
   uri
   ptime
   ptime.clock.os

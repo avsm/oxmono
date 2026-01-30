@@ -3,26 +3,11 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Framework-agnostic HTTP routing *)
+(** httpz-native HTTP routing *)
 
-type meth = [ `GET | `POST | `PUT | `DELETE | `HEAD | `OPTIONS ]
+type meth = Httpz.Method.t
 
-let meth_to_string = function
-  | `GET -> "GET"
-  | `POST -> "POST"
-  | `PUT -> "PUT"
-  | `DELETE -> "DELETE"
-  | `HEAD -> "HEAD"
-  | `OPTIONS -> "OPTIONS"
-
-let meth_of_string = function
-  | "GET" -> Some `GET
-  | "POST" -> Some `POST
-  | "PUT" -> Some `PUT
-  | "DELETE" -> Some `DELETE
-  | "HEAD" -> Some `HEAD
-  | "OPTIONS" -> Some `OPTIONS
-  | _ -> None
+let meth_to_string = Httpz.Method.to_string
 
 module Request = struct
   type t = {
@@ -70,50 +55,50 @@ end
 
 module Response = struct
   type t = {
-    status : int;
+    status : Httpz.Res.status;
     headers : (string * string) list;
     body : string;
   }
 
   let html content =
     {
-      status = 200;
+      status = Httpz.Res.Success;
       headers = [ ("content-type", "text/html; charset=utf-8") ];
       body = content;
     }
 
   let json content =
     {
-      status = 200;
+      status = Httpz.Res.Success;
       headers = [ ("content-type", "application/json; charset=utf-8") ];
       body = content;
     }
 
   let xml content =
     {
-      status = 200;
+      status = Httpz.Res.Success;
       headers = [ ("content-type", "application/xml") ];
       body = content;
     }
 
   let atom content =
     {
-      status = 200;
+      status = Httpz.Res.Success;
       headers = [ ("content-type", "application/atom+xml; charset=utf-8") ];
       body = content;
     }
 
   let plain content =
     {
-      status = 200;
+      status = Httpz.Res.Success;
       headers = [ ("content-type", "text/plain") ];
       body = content;
     }
 
-  let redirect ~code ~location =
-    { status = code; headers = [ ("Location", location) ]; body = "" }
+  let redirect ~status ~location =
+    { status; headers = [ ("Location", location) ]; body = "" }
 
-  let not_found = { status = 404; headers = []; body = "Not Found" }
+  let not_found = { status = Httpz.Res.Not_found; headers = []; body = "Not Found" }
   let raw ~status ~headers body = { status; headers; body }
   let status t = t.status
   let headers t = t.headers
@@ -183,13 +168,13 @@ type t =
     }
       -> t
 
-let get pattern handler = Route { meth = `GET; pattern; handler }
-let post pattern handler = Route { meth = `POST; pattern; handler }
+let get pattern handler = Route { meth = Httpz.Method.Get; pattern; handler }
+let post pattern handler = Route { meth = Httpz.Method.Post; pattern; handler }
 let route meth pattern handler = Route { meth; pattern; handler }
 
 (* Simple exact segment matching without GADTs *)
-let get_ segments handler = ExactRoute { meth = `GET; segments; handler }
-let post_ segments handler = ExactRoute { meth = `POST; segments; handler }
+let get_ segments handler = ExactRoute { meth = Httpz.Method.Get; segments; handler }
+let post_ segments handler = ExactRoute { meth = Httpz.Method.Post; segments; handler }
 
 module Routes = struct
   type route = t

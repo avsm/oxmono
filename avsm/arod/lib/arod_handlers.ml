@@ -77,7 +77,7 @@ let static_file ~dir path _req =
       let content = really_input_string ic len in
       close_in ic;
       let mime = mime_type_of_path file_path in
-      Arod_route.Response.raw ~status:200
+      Arod_route.Response.raw ~status:Httpz.Res.Success
         ~headers:[ ("content-type", mime) ]
         content
     end
@@ -187,7 +187,7 @@ let content ((), slug) req =
 (** {1 Legacy Handlers} *)
 
 let news_redirect ((), slug) _req =
-  Arod_route.Response.redirect ~code:301 ~location:("/notes/" ^ slug)
+  Arod_route.Response.redirect ~status:Httpz.Res.Moved_permanently ~location:("/notes/" ^ slug)
 
 let wiki = entries_handler ~extra_tags:[] ~types:[ `Paper; `Note; `Video; `Idea; `Project ]
 

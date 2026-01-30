@@ -37,19 +37,7 @@ let parse_target target =
   | None -> (target, [])
   | Some (path, query_str) -> (path, parse_query_string query_str)
 
-(** Convert httpz method to arod method *)
-let meth_of_httpz = function
-  | Httpz.Method.Get -> `GET
-  | Httpz.Method.Post -> `POST
-  | Httpz.Method.Put -> `PUT
-  | Httpz.Method.Delete -> `DELETE
-  | Httpz.Method.Head -> `HEAD
-  | Httpz.Method.Options -> `OPTIONS
-  | Httpz.Method.Connect -> `GET (* fallback *)
-  | Httpz.Method.Trace -> `GET (* fallback *)
-  | Httpz.Method.Patch -> `POST (* fallback *)
-
-(** Convert httpz headers to arod headers (must be called in local scope) *)
+(** Convert httpz headers to string pairs (works with local header list) *)
 let convert_headers buf headers =
   let rec loop acc = function
     | [] -> acc
@@ -65,60 +53,17 @@ let convert_headers buf headers =
   loop [] headers
 
 (** Convert httpz request to arod request (headers must already be converted) *)
-let request_of_httpz buf (req : Httpz.Req.t) converted_headers =
-  let meth = meth_of_httpz req.#meth in
+let request_of_httpz buf (req : Httpz.Req.t) string_headers =
+  let meth = req.#meth in
   let target = Httpz.Span.to_string buf req.#target in
   let path, query = parse_target target in
-  Arod.Route.Request.create ~meth ~path ~query ~headers:converted_headers
+  Arod.Route.Request.create ~meth ~path ~query ~headers:string_headers
 
 (** {1 Response Writing} *)
 
-(** Convert integer status code to httpz status *)
-let httpz_status_of_int = function
-  | 100 -> Httpz.Res.Continue
-  | 101 -> Httpz.Res.Switching_protocols
-  | 200 -> Httpz.Res.Success
-  | 201 -> Httpz.Res.Created
-  | 202 -> Httpz.Res.Accepted
-  | 204 -> Httpz.Res.No_content
-  | 206 -> Httpz.Res.Partial_content
-  | 301 -> Httpz.Res.Moved_permanently
-  | 302 -> Httpz.Res.Found
-  | 303 -> Httpz.Res.See_other
-  | 304 -> Httpz.Res.Not_modified
-  | 307 -> Httpz.Res.Temporary_redirect
-  | 308 -> Httpz.Res.Permanent_redirect
-  | 400 -> Httpz.Res.Bad_request
-  | 401 -> Httpz.Res.Unauthorized
-  | 403 -> Httpz.Res.Forbidden
-  | 404 -> Httpz.Res.Not_found
-  | 405 -> Httpz.Res.Method_not_allowed
-  | 406 -> Httpz.Res.Not_acceptable
-  | 408 -> Httpz.Res.Request_timeout
-  | 409 -> Httpz.Res.Conflict
-  | 410 -> Httpz.Res.Gone
-  | 411 -> Httpz.Res.Length_required
-  | 412 -> Httpz.Res.Precondition_failed
-  | 413 -> Httpz.Res.Payload_too_large
-  | 414 -> Httpz.Res.Uri_too_long
-  | 415 -> Httpz.Res.Unsupported_media_type
-  | 416 -> Httpz.Res.Range_not_satisfiable
-  | 417 -> Httpz.Res.Expectation_failed
-  | 422 -> Httpz.Res.Unprocessable_entity
-  | 426 -> Httpz.Res.Upgrade_required
-  | 428 -> Httpz.Res.Precondition_required
-  | 429 -> Httpz.Res.Too_many_requests
-  | 500 -> Httpz.Res.Internal_server_error
-  | 501 -> Httpz.Res.Not_implemented
-  | 502 -> Httpz.Res.Bad_gateway
-  | 503 -> Httpz.Res.Service_unavailable
-  | 504 -> Httpz.Res.Gateway_timeout
-  | 505 -> Httpz.Res.Http_version_not_supported
-  | _ -> Httpz.Res.Internal_server_error (* fallback for unknown codes *)
-
 (** Write response headers to buffer, returns header length and body *)
 let write_response buf ~off ~keep_alive version resp =
-  let status = httpz_status_of_int (Arod.Route.Response.status resp) in
+  let status = Arod.Route.Response.status resp in
   let off = Httpz.Res.write_status_line buf ~off status version in
   (* Write headers using a recursive loop to handle int16# *)
   let rec write_headers off = function
@@ -220,10 +165,9 @@ let handle_request conn ~routes ~memo_cache ~memoized_paths =
   let version = req.#version in
   match status with
   | Httpz.Buf_read.Complete ->
-      (* Convert headers first while they're in local scope *)
-      let converted_headers = convert_headers buf headers in
-      (* Convert to arod request *)
-      let arod_req = request_of_httpz buf req converted_headers in
+      (* Convert headers while in local scope, then build arod request *)
+      let string_headers = convert_headers buf headers in
+      let arod_req = request_of_httpz buf req string_headers in
       let path = Arod.Route.Request.path arod_req in
       (* Dispatch with optional memoization *)
       let dispatch_fn =
@@ -245,9 +189,9 @@ let handle_request conn ~routes ~memo_cache ~memoized_paths =
       let resp = dispatch_fn arod_req in
       (* Log request *)
       Log.info (fun m ->
-          m "%s %s - %d"
-            (Arod.Route.meth_to_string (Arod.Route.Request.meth arod_req))
-            path (Arod.Route.Response.status resp));
+          m "%s %s - %s"
+            (Httpz.Method.to_string (Arod.Route.Request.meth arod_req))
+            path (Httpz.Res.status_to_string (Arod.Route.Response.status resp)));
       (* Write response *)
       conn.keep_alive <- req.#keep_alive;
       let header_len, body =

@@ -1,0 +1,8 @@
+(executables
+ (modes byte exe)
+ (names gen)
+ (libraries compiler-libs.common str)
+ (link_flags -linkall)
+ (preprocess no_preprocessing))
+
+(ocamllex mapper)

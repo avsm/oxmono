@@ -1,0 +1,891 @@
+module Atomic = Basement.Portable_atomic
+
+module Test_result = struct
+  type t =
+    | Success
+    | Failure
+    | Error
+
+  let to_exit_code = function
+    | Success -> 0
+    | Failure -> 2
+    | Error -> 1
+  ;;
+
+  let to_string = function
+    | Success -> "success"
+    | Failure -> "failure"
+    | Error -> "error"
+  ;;
+
+  let combine t1 t2 =
+    match t1, t2 with
+    | Success, Success -> Success
+    | Error, _ | _, Error -> Error
+    | Failure, _ | _, Failure -> Failure
+  ;;
+
+  let combine_all ts = List.fold_left combine Success ts
+end
+
+type descr = string
+
+let already_initialized = Atomic.make false
+let test_modules_ran = ref 0
+let test_modules_failed = ref 0
+let tests_ran = ref 0
+let tests_failed = ref 0
+let dynamic_lib : string option ref = ref None
+
+type filename = string
+type line_number = int
+type start_pos = int
+type end_pos = int
+type config = (module Inline_test_config.S)
+
+type 'a test_function_args =
+  config:config
+  -> descr:descr Lazy.t
+  -> tags:string list
+  -> filename:filename
+  -> line_number:line_number
+  -> start_pos:start_pos
+  -> end_pos:end_pos
+  -> 'a
+
+module Tag_predicate = struct
+  type t =
+    { required_tags : string list
+    ; dropped_tags : string list
+    }
+
+  let initial = { required_tags = []; dropped_tags = [ "disabled" ] }
+
+  let drop t tag =
+    { dropped_tags = tag :: t.dropped_tags
+    ; required_tags = List.filter (( <> ) tag) t.required_tags
+    }
+  ;;
+
+  let require t tag =
+    { dropped_tags = List.filter (( <> ) tag) t.dropped_tags
+    ; required_tags = tag :: t.required_tags
+    }
+  ;;
+
+  let entire_module_disabled t ~partial_tags:tags =
+    List.exists (fun dropped -> List.mem dropped tags) t.dropped_tags
+  ;;
+
+  let disabled t ~complete_tags:tags =
+    List.exists (fun req -> not (List.mem req tags)) t.required_tags
+    || List.exists (fun dropped -> List.mem dropped tags) t.dropped_tags
+  ;;
+end
+
+module Where_to_list = struct
+  type t =
+    | Stdout
+    | File of string
+end
+
+type which_tests =
+  { libname : string
+  ; only_test_location : (filename * line_number option * bool Atomic.t) list
+  ; name_filter : string list
+  ; which_tags : Tag_predicate.t
+  }
+
+type test_mode =
+  { which_tests : which_tests
+  ; what_to_do : [ `Run_partition of string option | `List_partitions of Where_to_list.t ]
+  }
+
+let force_drop =
+  try
+    ignore (Sys.getenv "FORCE_DROP_INLINE_TEST" : string);
+    true
+  with
+  | Not_found -> false
+;;
+
+module Action : sig @@ portable
+  type t =
+    [ `Ignore
+    | `Test_mode of test_mode
+    ]
+
+  val get : unit -> t
+  val set : t -> unit
+end = struct
+  type t =
+    [ `Ignore
+    | `Test_mode of test_mode
+    ]
+
+  let action : t Atomic.t = Atomic.make `Ignore
+
+  let get () =
+    (* This is useful when compiling to javascript. Js_of_ocaml can statically evaluate
+       [Sys.getenv "FORCE_DROP_INLINE_TEST"] and inline the result ([`Ignore]) whenever
+       [get ()] is called. Unit tests can then be treated as deadcode since the argument
+       [f] of the [test] function below is never used. *)
+    if force_drop then `Ignore else Atomic.get action
+  ;;
+
+  let set v = Atomic.set action v
+end
+
+module Partition : sig
+  val found_test : unit -> unit
+  val set_current : string -> unit
+  val is_current : string option -> bool
+  val all : unit -> string list
+end = struct
+  let all = Hashtbl.create 23
+  let current = ref ""
+  let set_current x = current := x
+
+  let found_test () =
+    if !current <> "" && not (Hashtbl.mem all !current) then Hashtbl.add all !current ()
+  ;;
+
+  let is_current = function
+    | None -> true
+    | Some p -> p = !current
+  ;;
+
+  let all () = List.sort String.compare (Hashtbl.fold (fun k () acc -> k :: acc) all [])
+end
+
+module Module_context = struct
+  module T = struct
+    type one_module =
+      { descr : string
+      ; tags : string list
+      }
+
+    type t = one_module list
+
+    let descr t = List.map (fun m -> m.descr) t
+    let tags t = List.concat (List.map (fun m -> m.tags) t)
+  end
+
+  let current : T.t ref = ref []
+
+  let with_ ~descr ~tags f =
+    let prev = !current in
+    current := { T.descr; tags } :: prev;
+    try
+      let x = f () in
+      current := prev;
+      x
+    with
+    | e ->
+      current := prev;
+      raise e
+  ;;
+
+  let current_descr () = T.descr !current
+  let current_tags () = T.tags !current
+end
+
+let verbose_output_channel = Atomic.make None
+let strict = Atomic.make false
+let show_counts = Atomic.make false
+let list_test_names = Atomic.make false
+let delayed_errors = ref []
+let stop_on_error = Atomic.make false
+let log = Atomic.make None
+let use_color = Atomic.make true
+let in_place = Atomic.make false
+let diff_command = Atomic.make None
+let source_tree_root = Atomic.make None
+let diff_path_prefix = Atomic.make None
+
+let opt_printf ch fmt =
+  let formatter =
+    match ch with
+    | None -> Format.make_formatter (fun _ _ _ -> ()) (fun () -> ())
+    | Some ch -> Format.formatter_of_out_channel ch
+  in
+  Format.fprintf formatter fmt
+;;
+
+let displayed_descr descr filename line start_pos end_pos =
+  let descr : string = Lazy.force descr in
+  Printf.sprintf
+    "File %S, line %d, characters %d-%d%s"
+    filename
+    line
+    start_pos
+    end_pos
+    (if descr = "" then "" else ": " ^ descr)
+;;
+
+let parse_descr str =
+  try
+    Some
+      (Scanf.sscanf
+         str
+         " File %S , line %d , characters %d - %d %!"
+         (fun file line _start_pos _end_pos -> file, Some line))
+  with
+  | _ ->
+    (try
+       Some (Scanf.sscanf str " File %S , line %d %!" (fun file line -> file, Some line))
+     with
+     | _ ->
+       (try Some (Scanf.sscanf str " File %S %!" (fun file -> file, None)) with
+        | _ -> None))
+;;
+
+let parse_argv ?current args =
+  match args with
+  | name
+    :: "inline-test-runner" (* when we see this argument, we switch to test mode *)
+    :: lib
+    :: rest ->
+    (* initialization should only occur once *)
+    if Atomic.exchange already_initialized true
+    then
+      raise
+        (Arg.Bad
+           "The inline test runner can only be initialized once, and has already been \
+            initialized.");
+    let tests = ref [] in
+    let list_partitions = (ref None : Where_to_list.t option ref) in
+    let partition = ref None in
+    let tag_predicate = ref Tag_predicate.initial in
+    let name_filter = ref [] in
+    Arg.parse_argv
+      ?current
+      (Array.of_list (name :: rest))
+      (Arg.align
+         [ ( "-list-test-names"
+           , Arg.Unit
+               (fun () ->
+                 Atomic.set list_test_names true;
+                 Atomic.set verbose_output_channel (Some stdout))
+           , " Do not run tests but show what would have been run" )
+         ; ( "-list-partitions"
+           , Arg.Unit (fun () -> list_partitions := Some Stdout)
+           , " Lists all the partitions that contain at least one test or test_module" )
+         ; ( "-list-partitions-into-file"
+           , Arg.String (fun file -> list_partitions := Some (File file))
+           , " Lists all the partitions that contain at least one test or test_module \
+              into FILE" )
+         ; ( "-partition"
+           , Arg.String (fun i -> partition := Some i)
+           , " Only run the tests in the given partition" )
+         ; ( "-verbose"
+           , Arg.Unit (fun () -> Atomic.set verbose_output_channel (Some stdout))
+           , " Show the tests as they run" )
+         ; ( "-verbose-to-stderr"
+           , Arg.Unit (fun () -> Atomic.set verbose_output_channel (Some stderr))
+           , " Show the tests on stderr as they run" )
+         ; ( "-stop-on-error"
+           , Arg.Unit (fun () -> Atomic.set stop_on_error true)
+           , " Run tests only up to the first error (doesn't work for expect tests)" )
+         ; ( "-strict"
+           , Arg.Unit (fun () -> Atomic.set strict true)
+           , " End with an error if no tests were run" )
+         ; ( "-show-counts"
+           , Arg.Unit (fun () -> Atomic.set show_counts true)
+           , " Show the number of tests ran" )
+         ; ( "-log"
+           , Arg.Unit
+               (fun () ->
+                 (try Sys.remove "inline_tests.log" with
+                  | _ -> ());
+                 Atomic.set log (Some (open_out "inline_tests.log")))
+           , " Log the tests run in inline_tests.log" )
+         ; ( "-drop-tag"
+           , Arg.String (fun s -> tag_predicate := Tag_predicate.drop !tag_predicate s)
+           , "tag Only run tests not tagged with [tag] (overrides previous -require-tag)"
+           )
+         ; ( "-require-tag"
+           , Arg.String (fun s -> tag_predicate := Tag_predicate.require !tag_predicate s)
+           , "tag Only run tests tagged with [tag] (overrides previous -drop-tag)" )
+         ; ( "-matching"
+           , Arg.String (fun s -> name_filter := s :: !name_filter)
+           , "substring Only run tests whose names contain the given substring" )
+         ; ( "-only-test"
+           , Arg.String
+               (fun s ->
+                 let filename, index =
+                   match parse_descr s with
+                   | Some (file, index) -> file, index
+                   | None ->
+                     if String.contains s ':'
+                     then (
+                       let i = String.index s ':' in
+                       let filename = String.sub s 0 i in
+                       let index_string =
+                         String.sub s (i + 1) (String.length s - i - 1)
+                       in
+                       let index =
+                         try int_of_string index_string with
+                         | Failure _ ->
+                           raise
+                             (Arg.Bad
+                                (Printf.sprintf
+                                   "Argument %s doesn't fit the format \
+                                    filename[:line_number]\n\
+                                    %!"
+                                   s))
+                       in
+                       filename, Some index)
+                     else s, None
+                 in
+                 tests := (filename, index, Atomic.make false) :: !tests)
+           , "location Run only the tests specified by all the -only-test options.\n\
+             \                      Locations can be one of these forms:\n\
+             \                      - file.ml\n\
+             \                      - file.ml:line_number\n\
+             \                      - File \"file.ml\"\n\
+             \                      - File \"file.ml\", line 23\n\
+             \                      - File \"file.ml\", line 23, characters 2-3" )
+         ; ( "-no-color"
+           , Arg.Unit (fun () -> Atomic.set use_color false)
+           , " Summarize tests without using color" )
+         ; ( "-in-place"
+           , Arg.Unit (fun () -> Atomic.set in_place true)
+           , " Update expect tests in place" )
+         ; ( "-diff-cmd"
+           , Arg.String (fun s -> Atomic.set diff_command (Some s))
+           , " Diff command for tests that require diffing (use - to disable diffing)" )
+         ; ( "-source-tree-root"
+           , Arg.String (fun s -> Atomic.set source_tree_root (Some s))
+           , " Path to the root of the source tree" )
+         ; ( "-diff-path-prefix"
+           , Arg.String (fun s -> Atomic.set diff_path_prefix (Some s))
+           , " Prefix to prepend to filepaths in test output" )
+         ])
+      (fun anon ->
+        raise
+          (Arg.Bad (Printf.sprintf "%s: unexpected anonymous argument %s\n%!" name anon)))
+      (Printf.sprintf "%s %s %s [args]" name "inline-test-runner" lib);
+    Action.set
+      (`Test_mode
+        { which_tests =
+            { libname = lib
+            ; only_test_location = !tests
+            ; which_tags = !tag_predicate
+            ; name_filter = !name_filter
+            }
+        ; what_to_do =
+            (match !list_partitions with
+             | Some where_to_list -> `List_partitions where_to_list
+             | None -> `Run_partition !partition)
+        })
+  | _ -> ()
+;;
+
+let () =
+  if Base.Exported_for_specific_uses.am_testing
+  then (
+    try parse_argv (Array.to_list Sys.argv) with
+    | Arg.Bad msg ->
+      Printf.eprintf "%s" msg;
+      exit 1
+    | Arg.Help msg ->
+      Printf.printf "%s" msg;
+      exit 0)
+;;
+
+let init args =
+  let current = ref 0 in
+  try
+    parse_argv ~current args;
+    Ok None
+  with
+  | Arg.Bad msg -> Error msg
+  | Arg.Help msg -> Ok (Some msg)
+;;
+
+let am_test_runner () =
+  match Action.get () with
+  | `Test_mode _ -> true
+  | `Ignore -> false
+;;
+
+let am_running_env_var =
+  (* for approximate compatibility, given that the variable is not exactly equivalent to
+     what PPX_INLINE_TEST_LIB_AM_RUNNING_INLINE_TEST used to be *)
+  "TESTING_FRAMEWORK"
+;;
+
+(* This value is deprecated in principle, in favor of Core.am_running_test, so we're going
+   to live with the ugly pattern match. *)
+let am_running =
+  match Sys.getenv "PPX_INLINE_TEST_LIB_AM_RUNNING_INLINE_TEST" with
+  | (_ : string) ->
+    true (* for compatibility with people setting this variable directly *)
+  | exception Not_found ->
+    (match Sys.getenv am_running_env_var with
+     | "inline-test" -> true
+     | exception Not_found -> false
+     | _ -> false)
+;;
+
+let testing () =
+  if am_test_runner ()
+  then `Testing `Am_test_runner
+  else if am_running
+  then `Testing `Am_child_of_test_runner
+  else `Not_testing
+;;
+
+(* This function returns an int63 representing the number of nanos since some (fixed)
+   baseline. On unix, this baseline will be the unix epoch, and in javascript, the
+   baseline will be "program initialization time." Regardless, it's always safe to
+   subtract two values and use the diff, which is all that ppx_inline_test_lib uses it
+   for. *)
+let timestamp_ns () = Time_now.nanosecond_counter_for_timing ()
+
+let where_to_cut_backtrace =
+  lazy
+    (Base.String.Search_pattern.create
+       (__MODULE__ ^ "." ^ "time_without_resetting_random_seeds"))
+;;
+
+let time_without_resetting_random_seeds f =
+  let before_ns = timestamp_ns () in
+  let res =
+    (* To avoid noise in backtraces, we do two things.
+
+       We use [where_to_cut_backtrace] above to remove the stack frames for the current
+       function and any function it gets inlined into, as it's not of any interest to the
+       user, since it's not talking about their test but instead talking about the
+       ppx_inline_test machinery.
+
+       We also avoid inserting any code between the [f] that comes from the user's file
+       and grabbing the backtrace from its exceptions (no wrapping of [f] with high order
+       functions like Exn.protect, or (fun () -> f (); true)). *)
+    try Ok (f ()) with
+    | exn -> Error (exn, Printexc.get_backtrace ())
+  in
+  let time_sec = Base.Int63.(timestamp_ns () - before_ns |> to_float) /. 1e9 in
+  res, time_sec
+;;
+
+(* If we wanted to be precise with modes, we would wrap each of these states in a
+   [Basement.Capsule.Data.t] with an aliased [Basement.Capsule.Key.t] to allow global
+   shared access to them. We need to use mode magic below anyways, though, so we avoid the
+   redundant complexity. *)
+
+let saved_caml_random_state =
+  Base.Portable_lazy.from_fun (fun () -> Stdlib.Random.State.make [| 100; 200; 300 |])
+;;
+
+let saved_base_random_state =
+  Base.Portable_lazy.from_fun (fun () -> Base.Random.State.make [| 111; 222; 333 |])
+;;
+
+let time_and_reset_random_seeds f =
+  let caml_random_state = Stdlib.Random.get_state () in
+  let base_random_state = Base.Random.State.copy Base.Random.State.default in
+  Stdlib.Random.set_state
+    (Base.Portable_lazy.force saved_caml_random_state
+     (* SAFETY: [set_state] only reads its argument; it'd be nice to use shared but stdlib
+        doesn't yet. *)
+     |> Basement.Stdlib_shim.Obj.magic_uncontended);
+  Base.Random.set_state
+    (Base.Portable_lazy.force saved_base_random_state
+     (* SAFETY: [set_state] only reads its argument; it'd be nice to use shared but Base
+        doesn't yet. *)
+     |> Basement.Stdlib_shim.Obj.magic_uncontended);
+  let result = time_without_resetting_random_seeds f in
+  Stdlib.Random.set_state caml_random_state;
+  Base.Random.set_state base_random_state;
+  result
+;;
+
+let string_of_module_descr () =
+  String.concat
+    ""
+    (List.map
+       (fun s -> "  in TES" ^ "T_MODULE at " ^ String.uncapitalize_ascii s ^ "\n")
+       (Module_context.current_descr ()))
+;;
+
+let position_match def_filename def_line_number l =
+  List.exists
+    (fun (filename, line_number_opt, used) ->
+      let position_start = String.length def_filename - String.length filename in
+      let found =
+        position_start >= 0
+        &&
+        let end_of_def_filename =
+          String.sub def_filename position_start (String.length filename)
+        in
+        end_of_def_filename = filename
+        && (position_start = 0 || def_filename.[position_start - 1] = '/')
+        &&
+        match line_number_opt with
+        | None -> true
+        | Some line_number -> def_line_number = line_number
+      in
+      if found then Atomic.set used true;
+      found)
+    l
+;;
+
+let name_filter_match ~name_filter descr =
+  match name_filter with
+  | [] -> true
+  | _ :: _ ->
+    List.exists (fun substring -> Base.String.is_substring ~substring descr) name_filter
+;;
+
+let print_delayed_errors () =
+  match List.rev !delayed_errors with
+  | [] -> ()
+  | _ :: _ as delayed_errors ->
+    Printf.eprintf "\n%s\n%!" (String.make 70 '=');
+    List.iter (fun message -> Printf.eprintf "%s%!" message) delayed_errors
+;;
+
+let eprintf_or_delay fmt =
+  Printf.ksprintf
+    (fun s ->
+      (match Atomic.get verbose_output_channel with
+       | Some _ -> delayed_errors := s :: !delayed_errors
+       | None -> Printf.eprintf "%s%!" s);
+      if Atomic.get stop_on_error
+      then (
+        print_delayed_errors ();
+        exit 2))
+    fmt
+;;
+
+let add_hooks ((module C) : config) f () =
+  C.pre_test_hook ();
+  f ()
+;;
+
+let hum_backtrace backtrace =
+  let open Base in
+  backtrace
+  |> String.split_lines
+  |> List.take_while ~f:(fun str ->
+    not (String.Search_pattern.matches (force where_to_cut_backtrace) str))
+  |> List.map ~f:(fun str -> "  " ^ str ^ "\n")
+  |> String.concat
+;;
+
+let[@inline never] test_inner
+  ~config
+  ~descr
+  ~tags
+  ~filename:def_filename
+  ~line_number:def_line_number
+  ~start_pos
+  ~end_pos
+  f
+  bool_of_f
+  =
+  match Action.get () with
+  | `Ignore -> ()
+  | `Test_mode
+      { which_tests = { libname; only_test_location; which_tags; name_filter }
+      ; what_to_do
+      } ->
+    let f = add_hooks config f in
+    let descr =
+      lazy (displayed_descr descr def_filename def_line_number start_pos end_pos)
+    in
+    let complete_tags = tags @ Module_context.current_tags () in
+    let should_run =
+      Some libname = !dynamic_lib
+      && (match only_test_location with
+          | [] -> true
+          | _ :: _ -> position_match def_filename def_line_number only_test_location)
+      && (not (Tag_predicate.disabled which_tags ~complete_tags))
+      && name_filter_match ~name_filter (Lazy.force descr)
+    in
+    if should_run
+    then (
+      match what_to_do with
+      | `List_partitions _ -> Partition.found_test ()
+      | `Run_partition partition ->
+        if Partition.is_current partition
+        then (
+          let descr = Lazy.force descr in
+          incr tests_ran;
+          opt_printf (Atomic.get log) "%s\n%s" descr (string_of_module_descr ());
+          opt_printf (Atomic.get verbose_output_channel) "%s%!" descr;
+          let result, time_sec =
+            if Atomic.get list_test_names
+            then Ok true, 0.0
+            else (
+              (* See [time_without_resetting_random_seeds] for why we use [bool_of_f]
+                 rather have the caller wrap [f] to adjust its return value. *)
+              let res, time_sec = time_and_reset_random_seeds f in
+              Result.map bool_of_f res, time_sec)
+          in
+          (* If Atomic.get list_test_names, this is is a harmless zero. *)
+          opt_printf (Atomic.get verbose_output_channel) " (%.3f sec)\n%!" time_sec;
+          match result with
+          | Ok true -> ()
+          | Ok false ->
+            incr tests_failed;
+            eprintf_or_delay "%s is false.\n%s\n%!" descr (string_of_module_descr ())
+          | Error (exn, backtrace) ->
+            incr tests_failed;
+            let backtrace = hum_backtrace backtrace in
+            let exn_str = Sexplib0.Sexp_conv.printexc_prefer_sexp exn in
+            let sep = if String.contains exn_str '\n' then "\n" else " " in
+            eprintf_or_delay
+              "%s threw%s%s.\n%s%s\n%!"
+              descr
+              sep
+              exn_str
+              backtrace
+              (string_of_module_descr ())))
+;;
+
+let set_lib_and_partition static_lib partition =
+  match !dynamic_lib with
+  | Some _ ->
+    (* possible if the interface is used explicitly or if we happen to dynlink something
+       that contain tests *)
+    ()
+  | None ->
+    dynamic_lib := Some static_lib;
+    (match Action.get () with
+     | `Ignore -> ()
+     | `Test_mode { which_tests; what_to_do } ->
+       if which_tests.libname = static_lib
+       then (
+         let requires_partition =
+           match what_to_do with
+           | `List_partitions _ | `Run_partition (Some _) -> true
+           | `Run_partition None -> false
+         in
+         if partition = "" && requires_partition
+         then
+           failwith
+             "ppx_inline_test: cannot use -list-partition or -partition without \
+              specifying a partition at preprocessing time"
+         else Partition.set_current partition))
+;;
+
+let unset_lib static_lib =
+  match !dynamic_lib with
+  | None ->
+    (* not giving an error, because when some annoying people put pa_ounit in their list
+       of preprocessors, pa_ounit is set up twice and we have two calls to unset_lib at
+       the end of the file, and the second one comes in this branch *)
+    ()
+  | Some lib -> if lib = static_lib then dynamic_lib := None
+;;
+
+let test ~config ~descr ~tags ~filename ~line_number ~start_pos ~end_pos f =
+  test_inner ~config ~descr ~tags ~filename ~line_number ~start_pos ~end_pos f (fun b ->
+    b)
+;;
+
+let test_unit ~config ~descr ~tags ~filename ~line_number ~start_pos ~end_pos f =
+  test_inner ~config ~descr ~tags ~filename ~line_number ~start_pos ~end_pos f (fun () ->
+    true)
+;;
+
+let[@inline never] test_module
+  ~config
+  ~descr
+  ~tags
+  ~filename:def_filename
+  ~line_number:def_line_number
+  ~start_pos
+  ~end_pos
+  f
+  =
+  match Action.get () with
+  | `Ignore -> ()
+  | `Test_mode
+      { which_tests = { libname; only_test_location = _; name_filter = _; which_tags }
+      ; what_to_do
+      } ->
+    let f = add_hooks config f in
+    let descr () = displayed_descr descr def_filename def_line_number start_pos end_pos in
+    let partial_tags = tags @ Module_context.current_tags () in
+    let should_run =
+      Some libname = !dynamic_lib
+      (* If, no matter what tags a test defines, we certainly will drop all tests within
+         this module, then don't run the module at all. This means people can write things
+         like the following without breaking the 32-bit build: module%test
+         [@tags "64-bits-only"] _ = struct let i = Int64.to_int_exn .... end We don't
+         shortcut based on position, as we can't tell what positions the inner tests will
+         have. *)
+      && not (Tag_predicate.entire_module_disabled which_tags ~partial_tags)
+    in
+    if should_run
+    then (
+      match what_to_do with
+      | `List_partitions _ -> Partition.found_test ()
+      | `Run_partition partition ->
+        if Partition.is_current partition
+        then (
+          incr test_modules_ran;
+          let descr = descr () in
+          match
+            Module_context.with_ ~descr ~tags (fun () ->
+              (* We do not reset random states upon entering [module%test].
+
+                 Con: Code in test modules can accidentally depend on top-level random
+                 state effects.
+
+                 Pros: (1) We don't reset to the same seed on entering a [module%test] and
+                 then a [let%test] inside that module, which could lead to accidentally
+                 randomly generating the same values in some test. (2) Moving code into
+                 and out of [module%test] does not change its random seed.
+              *)
+              time_without_resetting_random_seeds f)
+          with
+          | Ok (), _ -> ()
+          | Error (exn, backtrace), _ ->
+            incr test_modules_failed;
+            let backtrace = hum_backtrace backtrace in
+            let exn_str = Sexplib0.Sexp_conv.printexc_prefer_sexp exn in
+            let sep = if String.contains exn_str '\n' then "\n" else " " in
+            eprintf_or_delay
+              ("TES" ^^ "T_MODULE at %s threw%s%s.\n%s%s\n%!")
+              (String.uncapitalize_ascii descr)
+              sep
+              exn_str
+              backtrace
+              (string_of_module_descr ())))
+;;
+
+let summarize () =
+  match Action.get () with
+  | `Ignore ->
+    if Sys.argv <> [||] && Filename.basename Sys.argv.(0) = "inline_tests_runner.exe"
+    then
+      Printf.eprintf
+        "inline_tests_runner.exe is not supposed to be run by hand, you \n\
+         should run the inline_tests_runner script instead.\n\
+         %!"
+    else
+      Printf.eprintf
+        "You are doing something unexpected with the tests. No tests have \n\
+         been run. You should use the inline_tests_runner script to run \n\
+         tests.\n\
+         %!";
+    Test_result.Error
+  | `Test_mode { which_tests = _; what_to_do = `List_partitions where_to_list } ->
+    let with_out_channel f =
+      match where_to_list with
+      | Stdout -> f stdout
+      | File file ->
+        (* Not passing Open_creat ensures that the file we are supposed to write to exists *)
+        open_out_gen [ Open_wronly; Open_text ] 0 file
+        |> Base.Exn.protectx ~f ~finally:close_out
+    in
+    with_out_channel (fun fout ->
+      List.iter (Printf.fprintf fout "%s\n") (Partition.all ()));
+    Test_result.Success
+  | `Test_mode { what_to_do = `Run_partition _; which_tests } ->
+    (match Atomic.get log with
+     | None -> ()
+     | Some ch -> close_out ch);
+    print_delayed_errors ();
+    (match !tests_failed, !test_modules_failed with
+     | 0, 0 ->
+       if Atomic.get show_counts
+       then
+         Printf.eprintf
+           "%d tests ran, %d test_modules ran\n%!"
+           !tests_ran
+           !test_modules_ran;
+       let errors =
+         let unused_tests =
+           List.filter
+             (fun (_, _, used) -> not (Atomic.get used))
+             which_tests.only_test_location
+         in
+         match unused_tests with
+         | [] -> None
+         | _ :: _ -> Some unused_tests
+       in
+       (match errors with
+        | Some tests ->
+          Printf.eprintf
+            "ppx_inline_test error: the following -only-test flags matched nothing:";
+          List.iter
+            (fun (filename, line_number_opt, _) ->
+              match line_number_opt with
+              | None -> Printf.eprintf " %s" filename
+              | Some line_number -> Printf.eprintf " %s:%d" filename line_number)
+            tests;
+          Printf.eprintf ".\n%!";
+          Test_result.Error
+        | None ->
+          if !tests_ran = 0 && Atomic.get strict
+          then (
+            Printf.eprintf "ppx_inline_test error: no tests have been run.\n%!";
+            Test_result.Error)
+          else Test_result.Success)
+     | count, count_test_modules ->
+       Printf.eprintf
+         "FAILED %d / %d tests%s\n%!"
+         count
+         !tests_ran
+         (if count_test_modules = 0
+          then ""
+          else Printf.sprintf (", %d TES" ^^ "T_MODULES") count_test_modules);
+       Test_result.Failure)
+;;
+
+let assert_test_configs_initialized config =
+  if not (Atomic.get already_initialized)
+  then
+    Printf.sprintf
+      "ppx_inline_test error: attempted to access the [%s] config before [init] was \
+       called"
+      config
+    |> failwith
+;;
+
+let verbose () =
+  assert_test_configs_initialized "verbose";
+  Option.is_some (Atomic.get verbose_output_channel)
+;;
+
+let use_color () =
+  assert_test_configs_initialized "use_color";
+  Atomic.get use_color
+;;
+
+let in_place () =
+  assert_test_configs_initialized "in_place";
+  Atomic.get in_place
+;;
+
+let diff_command () =
+  assert_test_configs_initialized "diff_command";
+  Atomic.get diff_command
+;;
+
+let diff_path_prefix () =
+  assert_test_configs_initialized "diff_path_prefix";
+  Atomic.get diff_path_prefix
+;;
+
+let source_tree_root () =
+  assert_test_configs_initialized "source_tree_root";
+  Atomic.get source_tree_root
+;;
+
+let evaluators = ref [ summarize ]
+let add_evaluator ~f = evaluators := f :: !evaluators
+
+let evaluate_exit_status () =
+  List.map (fun f -> f ()) (List.rev !evaluators)
+  |> Test_result.combine_all
+  |> Test_result.to_exit_code
+;;
+
+let exit () = evaluate_exit_status () |> exit

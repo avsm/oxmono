@@ -1,0 +1,3 @@
+(executable
+ (name translate_entities)
+ (libraries yojson))

@@ -1,0 +1,3 @@
+(library
+ (name test_support)
+ (libraries markup ounit2))

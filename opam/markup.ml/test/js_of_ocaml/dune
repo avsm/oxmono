@@ -1,0 +1,4 @@
+(executable
+ (name test_js_of_ocaml)
+ (modes js)
+ (libraries markup markup-lwt))

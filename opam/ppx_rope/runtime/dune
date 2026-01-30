@@ -1,0 +1,5 @@
+(library
+ (name ppx_rope_runtime)
+ (public_name ppx_rope.runtime)
+ (libraries ppx_string.runtime jane_rope)
+ (preprocess no_preprocessing))

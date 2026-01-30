@@ -1,0 +1,6 @@
+(library
+ (name hardcaml_axi)
+ (public_name hardcaml_axi)
+ (libraries base core hardcaml hardcaml_circuits hardcaml_handshake stdio)
+ (preprocess
+  (pps ppx_hardcaml ppx_jane)))

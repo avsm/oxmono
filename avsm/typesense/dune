@@ -1,0 +1,7 @@
+(library
+ (name typesense)
+ (public_name typesense)
+ (libraries openapi jsont jsont.bytesrw requests ptime eio)
+ (wrapped true))
+
+(include dune.inc)

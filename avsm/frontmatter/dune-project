@@ -1,0 +1,35 @@
+(lang dune 3.21)
+(name frontmatter)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-frontmatter))
+
+(package
+ (name frontmatter)
+ (synopsis "Parse YAML frontmatter from Markdown files")
+ (description
+  "A library for parsing YAML frontmatter (Jekyll-format) from Markdown files.
+   Supports extracting structured metadata and body content from files with
+   YAML headers delimited by '---' markers.")
+ (depends
+  (ocaml (>= 5.2))
+  (yamlrw (>= 0.3))
+  (yamlt (>= 0.1))
+  (jsont (>= 0.1))
+  (ptime (>= 1.2))
+  (odoc :with-doc)))
+
+(package
+ (name frontmatter-eio)
+ (synopsis "Eio file I/O support for frontmatter")
+ (description
+  "Eio-based file operations for reading frontmatter files from disk.")
+ (depends
+  (ocaml (>= 5.2))
+  (frontmatter (= :version))
+  (eio (>= 1.2))
+  (odoc :with-doc)))

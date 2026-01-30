@@ -1,0 +1,46 @@
+(lang dune 3.21)
+(name bushel)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-bushel))
+
+(package
+ (name bushel)
+ (synopsis "Personal knowledge base and research entry management")
+ (description
+  "Bushel is a library for managing structured research entries including
+   notes, papers, projects, ideas, videos, and contacts. It provides typed
+   access to markdown files with YAML frontmatter and supports link graphs,
+   markdown processing with custom extensions, and search integration.
+   Right now this is a fairly specific workflow used by Anil Madhavapeddy,
+   but it may generalise in the future.
+
+   Subpackages:
+   - bushel.eio: Eio-based directory loading
+   - bushel.config: XDG-compliant TOML configuration
+   - bushel.sync: Sync pipeline for images and thumbnails
+   - bushel.typesense: Typesense search integration")
+ (depends
+  (ocaml (>= 5.2))
+  (frontmatter (>= 0.1))
+  (frontmatter-eio (>= 0.1))
+  (cmarkit (>= 0.3))
+  (jsont (>= 0.1))
+  bytesrw
+  (ptime (>= 1.2))
+  (re (>= 1.11))
+  (uri (>= 4.4))
+  (fmt (>= 0.9))
+  (eio (>= 1.2))
+  (tomlt (>= 0.1))
+  (typesense (>= 0.1))
+  (astring (>= 0.8))
+  (logs (>= 0.7))
+  yamlrw
+  cmdliner
+  eio_main
+  (odoc :with-doc)))

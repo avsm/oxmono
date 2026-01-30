@@ -1,0 +1,34 @@
+(lang dune 3.21)
+(name sortal)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/sortal))
+
+(package
+ (name sortal)
+ (synopsis "Contact metadata management with XDG storage and versioned schemas")
+ (description
+  "Sortal provides contact metadata management with versioned schemas,
+   XDG-compliant storage, git versioning, and CLI tools.
+
+   The library is split into two components:
+   - sortal.schema: Versioned data types with minimal dependencies
+   - sortal: Core library with storage, git integration, and CLI support")
+ (depends
+  (ocaml (>= 5.1.0))
+  eio
+  eio_main
+  xdge
+  jsont
+  ptime
+  yamlt
+  bytesrw
+  fmt
+  cmdliner
+  logs
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))))

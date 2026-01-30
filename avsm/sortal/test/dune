@@ -1,0 +1,7 @@
+(test
+ (name test_sortal)
+ (libraries sortal eio eio_main jsont jsont.bytesrw))
+
+(test
+ (name test_schema)
+ (libraries sortal.schema jsont jsont.bytesrw))

@@ -1,0 +1,16 @@
+(executable
+ (name main)
+ (public_name typesense-cli)
+ (libraries
+  typesense
+  typesense.auth
+  openapi
+  requests
+  jsont
+  jsont.bytesrw
+  uri
+  eio
+  eio_main
+  fmt
+  fmt.tty
+  cmdliner))

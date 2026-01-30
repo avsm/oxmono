@@ -1,0 +1,15 @@
+(executable
+ (name main)
+ (public_name bushel)
+ (libraries
+  bushel
+  bushel.eio
+  bushel.config
+  bushel.sync
+  cmdliner
+  eio_main
+  logs
+  logs.cli
+  logs.fmt
+  fmt.tty
+  fmt.cli))

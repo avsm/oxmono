@@ -1,0 +1,4 @@
+(library
+ (name bushel_config)
+ (public_name bushel.config)
+ (libraries tomlt tomlt.bytesrw unix fmt))

@@ -1,0 +1,17 @@
+(library
+ (public_name sortal)
+ (name sortal)
+ (libraries
+  sortal.schema
+  eio
+  eio.core
+  eio_main
+  xdge
+  jsont
+  jsont.bytesrw
+  yamlt
+  bytesrw
+  fmt
+  cmdliner
+  logs
+  str))

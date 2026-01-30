@@ -1,0 +1,4 @@
+(library
+ (name zotero_translation)
+ (public_name zotero-translation)
+ (libraries requests jsont jsont.bytesrw uri astring fpath fmt logs))

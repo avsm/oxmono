@@ -1,0 +1,6 @@
+(library
+ (name concurrent_in_thread)
+ (public_name concurrent.in_thread)
+ (libraries await await.blocking base concurrent threads)
+ (preprocess
+  (pps ppx_debug_assert ppx_jane)))

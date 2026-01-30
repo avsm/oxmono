@@ -1,0 +1,6 @@
+(library
+ (name concurrent)
+ (public_name concurrent)
+ (libraries await base portable)
+ (preprocess
+  (pps ppx_jane)))

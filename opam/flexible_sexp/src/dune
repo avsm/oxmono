@@ -1,0 +1,6 @@
+(library
+ (name flexible_sexp)
+ (public_name flexible_sexp)
+ (libraries basement core string_dict)
+ (preprocess
+  (pps ppx_jane -dont-apply=sexp_message)))

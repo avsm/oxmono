@@ -1,0 +1,5 @@
+(executables
+ (modes byte exe)
+ (names test)
+ (preprocess
+  (pps ppx_let)))

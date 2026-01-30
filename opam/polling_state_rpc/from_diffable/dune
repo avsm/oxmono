@@ -1,0 +1,6 @@
+(library
+ (name diffable_polling_state_rpc_response)
+ (public_name polling_state_rpc.diffable_polling_state_rpc_response)
+ (libraries core ppx_diff.diffable polling_state_rpc)
+ (preprocess
+  (pps ppx_jane)))

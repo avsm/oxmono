@@ -1,0 +1,7 @@
+(library
+ (name polling_state_rpc)
+ (public_name polling_state_rpc)
+ (libraries async_kernel async_rpc_kernel babel core_kernel.bus core
+   async_kernel.eager_deferred)
+ (preprocess
+  (pps ppx_jane)))

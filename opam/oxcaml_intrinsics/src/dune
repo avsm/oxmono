@@ -1,0 +1,6 @@
+(library
+ (name oxcaml_intrinsics)
+ (public_name oxcaml_intrinsics)
+ (libraries ocaml_intrinsics)
+ (preprocess
+  (pps ppx_jane -compare-require-explicit-locality)))

@@ -1,0 +1,12 @@
+(library
+ (name uTop)
+ (public_name utop)
+ (wrapped false)
+ (modes byte)
+ (libraries compiler-libs.toplevel findlib.top lambda-term logs.lwt threads
+   xdg zed)
+ (preprocess
+  (action
+   (run %{bin:cppo} -V OCAML:%{ocaml_version} %{input-file}))))
+
+(ocamllex uTop_lexer)

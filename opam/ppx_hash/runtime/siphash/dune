@@ -1,0 +1,7 @@
+(library
+ (foreign_stubs
+  (language c)
+  (names siphash))
+ (name siphash_lib)
+ (libraries base)
+ (preprocess no_preprocessing))

@@ -1,0 +1,7 @@
+(library
+ (public_name ppx_quick_test.config)
+ (name ppx_quick_test_config)
+ (libraries core expect_test_helpers_core.expect_test_helpers_base
+   ppx_quick_test_runtime_lib)
+ (preprocess
+  (pps ppx_sexp_message ppx_sexp_conv ppx_jane)))

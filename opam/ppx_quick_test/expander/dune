@@ -1,0 +1,8 @@
+(library
+ (name ppx_quick_test_expander)
+ (public_name ppx_quick_test.expander)
+ (libraries core ppx_helpers ppx_here.expander ppx_inline_test
+   base_quickcheck.ppx_quickcheck ppx_sexp_conv ppxlib ppxlib.stdppx
+   ppxlib_jane)
+ (preprocess
+  (pps ppxlib.metaquot ppx_jane)))

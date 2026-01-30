@@ -1,0 +1,60 @@
+let () = fun%portable () -> ()
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: %portable: expected [lazy] or [let rec], got: function expression
+|}]
+
+let () =
+  let%portable x = 1 in
+  x
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: %portable: expected [let rec], got: nonrecursive [let]
+|}]
+
+module%portable _ = struct end
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: %portable: expected [let rec], got: module definition
+|}]
+
+let%portable x = 1
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: %portable: expected [let rec], got: nonrecursive [let]
+|}]
+
+let%portable rec x, y = 1, 2
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: %portable: expected an identifier, possibly with type constraint; got:
+       tuple pattern
+|}]
+
+let%portable rec x = 1 :: x
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: %portable: expected a [fun], [function], or [lazy%portable] (possibly
+       with type constraint); got: variant constructor expression
+|}]
+
+let%portable rec x @ local = ()
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: %portable: modes on bindings are not supported
+|}]

@@ -1,0 +1,8 @@
+(library
+ (name ppx_portable)
+ (public_name ppx_portable)
+ (kind ppx_rewriter)
+ (libraries ppxlib ppxlib_jane ppxlib.stdppx)
+ (ppx_runtime_libraries ppx_portable.runtime)
+ (preprocess
+  (pps ppx_js_style ppxlib.metaquot)))

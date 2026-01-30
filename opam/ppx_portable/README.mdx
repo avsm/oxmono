@@ -1,0 +1,94 @@
+ppx_portable
+============
+
+This preprocessor helps write portable code, particularly `Portable_lazy.t` values.
+Adding it to your jbuild makes the features below available, like so:
+```
+(library (
+  (name my-lib)
+  (libraries (async base core))
+  (preprocess (pps (ppx_jane ppx_portable)))))
+
+;; add the preprocessor here ^^^^^^^^^^^^
+```
+
+# `lazy%portable`
+
+Rather than writing `Portable_lazy.from_fun (fun () -> do_something ())`, you can write
+`lazy%portable (do_something ())`.
+
+```ocaml
+# open Core
+# let p = lazy%portable (print_endline "Running."; 5)
+val p : int Basement.Portable_lazy.t = <abstr>
+# Portable_lazy.force p
+Running.
+- : int = 5
+# Portable_lazy.force p
+- : int = 5
+```
+
+# `let%portable rec`
+
+You can also use `lazy%portable` in a `let rec` by using `let%portable rec`. This works
+much like using `lazy` in a regular `let rec`:
+
+```ocaml
+# type p = P of p Portable_lazy.t
+type p = P of p Portable_lazy.t
+# let%portable rec p = lazy%portable (P p)
+val p : p Portable_lazy.t = <abstr>
+# let P p' = Portable_lazy.force p
+val p' : p Portable_lazy.t = <abstr>
+# let P p'' = Portable_lazy.force p'
+val p'' : p Portable_lazy.t = <abstr>
+# phys_equal p' p''
+- : bool = true
+```
+
+You can use `let%portable rec` with mutual recursion as well. The bodies of `let%portable
+rec` definitions must be `lazy%portable`, `fun`, or `function` expressions, or custom
+types as described below. The patterns must be single identifiers, optionally with a type
+constraint. You can define polymorphic functions this way.
+
+## Custom types
+
+You can use `let%portable rec` with any type that can be created from a `Portable_lazy.t`
+without forcing it. Just annotate the relevant definitions with `[@@portable.custom f]`,
+where `f` is the conversion function. The `@@portable.custom` can be shortened to
+`@@custom` when that attribute name is unambiguous.
+
+Here is an example type that can be constructed from a portable lazy value.
+```ocaml
+module Portable_sequence : sig
+  type 'a t : value mod contended portable
+
+  val create : (unit -> 'a * 'a t) @ portable -> 'a t
+  val map : 'a t -> f:('a -> 'b) @ portable -> 'b t
+  val of_portable_lazy : 'a t Portable_lazy.t -> 'a t
+  val take : 'a t -> int -> 'a list
+end = struct
+  type 'a t = { force : unit -> 'a * 'a t @@ portable }
+
+  let create force = { force }
+  let of_portable_lazy p = { force = fun () -> (Portable_lazy.force p).force () }
+  let rec map t ~f = { force = fun () -> let x, t = t.force () in f x, map t ~f }
+
+  let[@tail_mod_cons] rec take t n =
+    if n <= 0 then [] else let x, t = t.force () in x :: take t (n - 1)
+end
+```
+
+Here is how to use `let%portable rec` to construct the type above.
+```ocaml
+# let%portable rec from0 =
+    Portable_sequence.create (fun () -> 0, from1)
+    [@@custom Portable_sequence.of_portable_lazy]
+  and from1 =
+    Portable_sequence.map from0 ~f:Int.succ
+    [@@custom Portable_sequence.of_portable_lazy]
+val from0 : int Portable_sequence.t = <abstr>
+val from1 : int Portable_sequence.t = <abstr>
+# Portable_sequence.take from0 10
+- : int list = [0; 1; 2; 3; 4; 5; 6; 7; 8; 9]
+```

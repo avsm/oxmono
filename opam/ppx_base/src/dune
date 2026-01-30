@@ -1,0 +1,7 @@
+(library
+ (name ppx_base)
+ (public_name ppx_base)
+ (kind ppx_rewriter)
+ (libraries ppxlib ppx_cold ppx_sexp_conv ppx_compare ppx_enumerate
+   ppx_globalize ppx_hash ppx_shorthand ppx_template)
+ (preprocess no_preprocessing))

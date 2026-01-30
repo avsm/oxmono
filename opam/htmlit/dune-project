@@ -1,0 +1,6 @@
+(lang dune 3.21)
+(name htmlit)
+
+(package
+ (name htmlit)
+ (synopsis "HTML generation combinators for OCaml"))

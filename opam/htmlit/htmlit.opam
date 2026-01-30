@@ -18,10 +18,11 @@ doc: "https://erratique.ch/software/htmlit/doc"
 bug-reports: "https://github.com/dbuenzli/htmlit/issues"
 depends: [
   "ocaml" {>= "4.14.0"}
-  "ocamlfind" {build}
-  "ocamlbuild" {build}
-  "topkg" {build & >= "1.1.0"}
+  "dune" {>= "1.4"}
 ]
-build: ["ocaml" "pkg/pkg.ml" "build" "--dev-pkg" "%{dev}%"]
+build: [
+  ["dune" "subst"] {dev}
+  ["dune" "build" "-p" name "-j" jobs]
+]
 dev-repo: "git+https://erratique.ch/repos/htmlit.git"
 x-maintenance-intent: ["(latest)"]

@@ -1,0 +1,418 @@
+open Base
+open Ppxlib
+open Ast_builder.Default
+
+let raise_errorf ~loc fmt =
+  Location.raise_errorf ~loc (Stdlib.( ^^ ) "ppx_bin_shape: " fmt)
+;;
+
+let loc_string loc ~hide_loc =
+  let loc_expr =
+    if hide_loc
+    then [%expr "<hidden>"]
+    else Ppx_here_expander.lift_position_as_string ~loc
+  in
+  [%expr Bin_prot.Shape.Location.of_string [%e loc_expr]]
+;;
+
+let app_list ~loc (func : expression) (args : expression list) =
+  [%expr [%e func] [%e elist ~loc args]]
+;;
+
+let curry_app_list ~loc (func : expression) (args : expression list) =
+  List.fold_left args ~init:func ~f:(fun acc arg -> [%expr [%e acc] [%e arg]])
+;;
+
+let bin_shape_ tname = "bin_shape_" ^ Ppx_helpers.mangle_unboxed tname
+let bin_shape_lid ~loc id = unapplied_type_constr_conv ~loc id ~f:bin_shape_
+
+let shape_tid ~loc ~(tname : string) =
+  [%expr
+    Bin_prot.Shape.Tid.of_string [%e estring ~loc (Ppx_helpers.mangle_unboxed tname)]]
+;;
+
+let shape_vid ~loc ~(tvar : string) =
+  [%expr Bin_prot.Shape.Vid.of_string [%e estring ~loc tvar]]
+;;
+
+let shape_rec_app ~loc ~(tname : string) =
+  [%expr Bin_prot.Shape.rec_app [%e shape_tid ~loc ~tname]]
+;;
+
+let shape_top_app ~loc ~(tname : string) =
+  [%expr Bin_prot.Shape.top_app _group [%e shape_tid ~loc ~tname]]
+;;
+
+let shape_tuple ~loc (exps : expression list) =
+  [%expr Bin_prot.Shape.tuple [%e elist ~loc exps]]
+;;
+
+let shape_unboxed_tuple ~loc (exps : expression list) =
+  [%expr Bin_prot.Shape.unboxed_tuple [%e elist ~loc exps]]
+;;
+
+let shape_record ~loc (xs : (string * expression) list) =
+  [%expr
+    Bin_prot.Shape.record
+      [%e elist ~loc (List.map xs ~f:(fun (s, e) -> [%expr [%e estring ~loc s], [%e e]]))]]
+;;
+
+let shape_variant ~loc (xs : (string * expression list) list) =
+  [%expr
+    Bin_prot.Shape.variant
+      [%e
+        elist
+          ~loc
+          (List.map xs ~f:(fun (s, es) -> [%expr [%e estring ~loc s], [%e elist ~loc es]]))]]
+;;
+
+let shape_poly_variant ~loc ~hide_loc (xs : expression list) =
+  [%expr Bin_prot.Shape.poly_variant [%e loc_string loc ~hide_loc] [%e elist ~loc xs]]
+;;
+
+type string_literal_or_other_expression =
+  | String_literal of string
+  | Other_expression of expression
+
+let string_literal f s = f (String_literal s)
+let other_expression f e = f (Other_expression e)
+
+let shape_annotate ~loc ~name (x : expression) =
+  let name =
+    match name with
+    | Other_expression e -> e
+    | String_literal s -> [%expr Bin_prot.Shape.Uuid.of_string [%e estring ~loc s]]
+  in
+  [%expr Bin_prot.Shape.annotate [%e name] [%e x]]
+;;
+
+let shape_basetype ~loc ~uuid (xs : expression list) =
+  let uuid =
+    match uuid with
+    | Other_expression e -> e
+    | String_literal s -> [%expr Bin_prot.Shape.Uuid.of_string [%e estring ~loc s]]
+  in
+  app_list ~loc [%expr Bin_prot.Shape.basetype [%e uuid]] xs
+;;
+
+module Context : sig
+  type t
+
+  val create : type_declaration list -> t
+  val is_local : t -> tname:string -> bool
+
+  (* which names are defined in the local group *)
+end = struct
+  type t = { tds : type_declaration list }
+
+  let create tds = { tds }
+
+  let is_local t ~tname =
+    List.exists t.tds ~f:(fun td -> String.equal tname td.ptype_name.txt)
+  ;;
+end
+
+let expr_error ~loc msg =
+  pexp_extension
+    ~loc
+    (Location.Error.to_extension (Location.Error.createf ~loc "ppx_bin_shape: %s" msg))
+;;
+
+let expr_errorf ~loc = Printf.ksprintf (fun msg -> expr_error ~loc msg)
+
+let of_type
+  : allow_free_vars:bool -> hide_loc:bool -> context:Context.t -> core_type -> expression
+  =
+  fun ~allow_free_vars ~hide_loc ~context ->
+  let rec traverse_row ~loc ~typ_for_error (row : row_field) : expression =
+    match row.prf_desc with
+    | Rtag (_, true, _ :: _) | Rtag (_, false, _ :: _ :: _) ->
+      expr_errorf
+        ~loc
+        "unsupported '&' in row_field: %s"
+        (string_of_core_type typ_for_error)
+    | Rtag ({ txt; _ }, true, []) ->
+      [%expr Bin_prot.Shape.constr [%e estring ~loc txt] None]
+    | Rtag ({ txt; _ }, false, [ t ]) ->
+      [%expr Bin_prot.Shape.constr [%e estring ~loc txt] (Some [%e traverse t])]
+    | Rtag (_, false, []) -> expr_error ~loc "impossible row_type: Rtag (_,_,false,[])"
+    | Rinherit t ->
+      [%expr
+        Bin_prot.Shape.inherit_
+          [%e loc_string { t.ptyp_loc with loc_ghost = true } ~hide_loc]
+          [%e traverse t]]
+  and traverse typ =
+    let loc = { typ.ptyp_loc with loc_ghost = true } in
+    match Ppxlib_jane.Shim.Core_type_desc.of_parsetree typ.ptyp_desc with
+    | Ptyp_constr (lid, typs) ->
+      let args = List.map typs ~f:traverse in
+      (match
+         match lid.txt with
+         | Lident tname -> if Context.is_local context ~tname then Some tname else None
+         | _ -> None
+       with
+       | Some tname -> app_list ~loc (shape_rec_app ~loc ~tname) args
+       | None -> curry_app_list ~loc (bin_shape_lid ~loc lid) args)
+    | Ptyp_tuple labeled_typs ->
+      shape_tuple ~loc (List.map labeled_typs ~f:(fun (_, typ) -> traverse typ))
+    | Ptyp_unboxed_tuple labeled_typs ->
+      shape_unboxed_tuple ~loc (List.map labeled_typs ~f:(fun (_, typ) -> traverse typ))
+    | Ptyp_var (tvar, _) ->
+      if allow_free_vars
+      then
+        [%expr Bin_prot.Shape.var [%e loc_string loc ~hide_loc] [%e shape_vid ~loc ~tvar]]
+      else expr_errorf ~loc "unexpected free type variable: '%s" tvar
+    | Ptyp_variant (rows, _, None) ->
+      shape_poly_variant
+        ~loc
+        ~hide_loc
+        (List.map rows ~f:(fun row -> traverse_row ~loc ~typ_for_error:typ row))
+    | _ -> expr_errorf ~loc "unsupported type: %s" (string_of_core_type typ)
+  in
+  traverse
+;;
+
+let tvars_of_def (td : type_declaration)
+  : (string list, [ `Non_tvar of location ]) Result.t
+  =
+  let tvars, non_tvars =
+    List.partition_map td.ptype_params ~f:(fun (typ, _variance) ->
+      let loc = typ.ptyp_loc in
+      match Ppxlib_jane.Shim.Core_type.of_parsetree typ with
+      | { ptyp_desc = Ptyp_var (tvar, _); _ } -> First tvar
+      | _ -> Second (`Non_tvar loc))
+  in
+  match non_tvars with
+  | `Non_tvar loc :: _ -> Error (`Non_tvar loc)
+  | [] -> Ok tvars
+;;
+
+module Structure : sig
+  val gen : (structure, rec_flag * type_declaration list) Deriving.Generator.t
+end = struct
+  let of_type = of_type ~allow_free_vars:true
+
+  let of_label_decs ~loc ~hide_loc ~context lds =
+    shape_record
+      ~loc
+      (List.map lds ~f:(fun ld -> ld.pld_name.txt, of_type ~hide_loc ~context ld.pld_type))
+  ;;
+
+  let of_kind ~loc ~hide_loc ~context (k : type_kind) : expression option =
+    match Ppxlib_jane.Shim.Type_kind.of_parsetree k with
+    | Ptype_record lds | Ptype_record_unboxed_product lds ->
+      Some (of_label_decs ~loc ~hide_loc ~context lds)
+    | Ptype_variant cds ->
+      Some
+        (shape_variant
+           ~loc
+           (List.map cds ~f:(fun cd ->
+              ( cd.pcd_name.txt
+              , match cd.pcd_args with
+                | Pcstr_tuple args ->
+                  List.map args ~f:(fun arg ->
+                    Ppxlib_jane.Shim.Pcstr_tuple_arg.to_core_type arg
+                    |> of_type ~hide_loc ~context)
+                | Pcstr_record lds -> [ of_label_decs ~loc ~hide_loc ~context lds ] ))))
+    | Ptype_abstract -> None
+    | Ptype_open -> Some (expr_errorf ~loc "open types not supported")
+  ;;
+
+  let expr_of_td ~loc ~hide_loc ~context (td : type_declaration) : expression option =
+    let expr =
+      match of_kind ~loc ~hide_loc ~context td.ptype_kind with
+      | Some e -> Some e
+      | None ->
+        (* abstract type *)
+        (match td.ptype_manifest with
+         | None ->
+           (* A fully abstract type is usually intended to represent an empty type
+              (0-constructor variant). *)
+           Some (shape_variant ~loc [])
+         | Some manifest -> Some (of_type ~hide_loc ~context manifest))
+    in
+    expr
+  ;;
+
+  let gen =
+    Deriving.Generator.make
+      Deriving.Args.(
+        empty
+        +> arg
+             "annotate"
+             (map ~f:string_literal (estring __) ||| map ~f:other_expression __)
+        +> arg
+             "annotate_provisionally"
+             (map ~f:string_literal (estring __) ||| map ~f:other_expression __)
+        +> arg
+             "basetype"
+             (map ~f:string_literal (estring __) ||| map ~f:other_expression __)
+        +> flag "hide_locations"
+        +> flag "unboxed"
+        +> flag "portable")
+      (fun ~loc
+        ~path:_
+        (rec_flag, tds)
+        annotation_opt
+        annotation_provisionally_opt
+        basetype_opt
+        hide_loc
+        unboxed
+        portable ->
+        let tds = Ppx_helpers.with_implicit_unboxed_records ~loc ~unboxed tds in
+        let tds = List.map tds ~f:name_type_params_in_td in
+        let context =
+          match rec_flag with
+          | Recursive -> Context.create tds
+          | Nonrecursive -> Context.create []
+        in
+        let mk_pat mk_ =
+          let pats =
+            List.map tds ~f:(fun td ->
+              let { Location.loc; txt = tname } = td.ptype_name in
+              let name = mk_ tname in
+              ppat_var ~loc (Loc.make name ~loc))
+          in
+          ppat_tuple ~loc pats
+        in
+        let () =
+          match annotation_provisionally_opt with
+          | Some _ ->
+            raise_errorf
+              ~loc
+              "[~annotate_provisionally] was renamed to [~annotate]. Please use that."
+          | None -> ()
+        in
+        let () =
+          match annotation_opt, basetype_opt with
+          | Some _, Some _ ->
+            raise_errorf
+              ~loc
+              "cannot write both [bin_shape ~annotate] and [bin_shape ~basetype]"
+          | _ -> ()
+        in
+        let annotate_f : expression -> expression =
+          match annotation_opt with
+          | None -> fun e -> e
+          | Some name ->
+            (match tds with
+             | [] | _ :: _ :: _ ->
+               fun _e ->
+                 expr_errorf ~loc "unexpected [~annotate] on multi type-declaration"
+             | [ _ ] -> shape_annotate ~loc ~name)
+        in
+        let tagged_schemes =
+          List.filter_map tds ~f:(fun td ->
+            let { Location.loc; txt = tname } = td.ptype_name in
+            let body_opt = expr_of_td ~loc ~hide_loc ~context td in
+            match body_opt with
+            | None -> None
+            | Some body ->
+              (match tvars_of_def td with
+               | Error (`Non_tvar loc) ->
+                 Some (expr_errorf ~loc "unexpected non-tvar in type params")
+               | Ok tvars ->
+                 let formals = List.map tvars ~f:(fun tvar -> shape_vid ~loc ~tvar) in
+                 [%expr [%e shape_tid ~loc ~tname], [%e elist ~loc formals], [%e body]]
+                 |> fun x -> Some x))
+        in
+        let mk_exprs mk_init =
+          let exprs =
+            List.map tds ~f:(fun td ->
+              let { Location.loc; txt = tname } = td.ptype_name in
+              match tvars_of_def td with
+              | Error (`Non_tvar loc) ->
+                expr_errorf ~loc "unexpected non-tvar in type params"
+              | Ok tvars ->
+                let args = List.map tvars ~f:(fun tvar -> evar ~loc tvar) in
+                List.fold_right tvars ~init:(mk_init ~tname ~args) ~f:(fun tvar acc ->
+                  [%expr fun [%p pvar ~loc tvar] -> [%e acc]]))
+          in
+          [%expr [%e pexp_tuple ~loc exprs]]
+        in
+        let expr =
+          match basetype_opt with
+          | Some uuid ->
+            (match tds with
+             | [] | _ :: _ :: _ ->
+               expr_errorf ~loc "unexpected [~basetype] on multi type-declaration"
+             | [ _ ] -> mk_exprs (fun ~tname:_ ~args -> shape_basetype ~loc ~uuid args))
+          | None ->
+            [%expr
+              let _group =
+                Bin_prot.Shape.group
+                  [%e loc_string loc ~hide_loc]
+                  [%e elist ~loc tagged_schemes]
+              in
+              [%e
+                mk_exprs (fun ~tname ~args ->
+                  annotate_f (app_list ~loc (shape_top_app ~loc ~tname) args))]]
+        in
+        let bindings =
+          [ Ppxlib_jane.Ast_builder.Default.value_binding
+              ~loc
+              ~pat:(mk_pat bin_shape_)
+              ~expr
+              ~modes:(if portable then [ { txt = Mode "portable"; loc } ] else [])
+          ]
+        in
+        let structure = [ pstr_value ~loc Nonrecursive bindings ] in
+        structure)
+  ;;
+end
+
+module Signature : sig
+  val gen : (signature_item list, rec_flag * type_declaration list) Deriving.Generator.t
+end = struct
+  let of_td td ~portable : signature_item =
+    let td = name_type_params_in_td td in
+    let { Location.loc; txt = tname } = td.ptype_name in
+    let name = bin_shape_ tname in
+    match tvars_of_def td with
+    | Error (`Non_tvar loc) ->
+      psig_extension
+        ~loc
+        (Location.Error.to_extension
+           (Location.Error.createf ~loc "%s" "unexpected non-tvar in type params"))
+        []
+    | Ok tvars ->
+      let type_ =
+        List.fold_left tvars ~init:[%type: Bin_prot.Shape.t] ~f:(fun acc _ ->
+          [%type: Bin_prot.Shape.t -> [%t acc]])
+      in
+      psig_value
+        ~loc
+        (Ppxlib_jane.Ast_builder.Default.value_description
+           ~loc
+           ~name:(Loc.make name ~loc)
+           ~type_
+           ~modalities:
+             (if portable then Ppxlib_jane.Shim.Modalities.portable ~loc else [])
+           ~prim:[])
+  ;;
+
+  let gen =
+    Deriving.Generator.make
+      Deriving.Args.(empty +> flag "unboxed" +> flag "portable")
+      (fun ~loc ~path:_ (_rec_flag, tds) unboxed portable ->
+        List.map
+          (Ppx_helpers.with_implicit_unboxed_records ~loc ~unboxed tds)
+          ~f:(of_td ~portable))
+  ;;
+end
+
+let str_gen = Structure.gen
+let sig_gen = Signature.gen
+
+let shape_extension ~loc:_ ~hide_loc typ =
+  let context = Context.create [] in
+  let allow_free_vars = false in
+  of_type ~allow_free_vars ~hide_loc ~context typ
+;;
+
+let digest_extension ~loc ~hide_loc typ =
+  let loc = { loc with loc_ghost = true } in
+  [%expr
+    Bin_prot.Shape.Digest.to_hex
+      (Bin_prot.Shape.eval_to_digest [%e shape_extension ~loc ~hide_loc typ])]
+;;

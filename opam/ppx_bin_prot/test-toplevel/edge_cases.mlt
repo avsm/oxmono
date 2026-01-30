@@ -1,0 +1,37 @@
+module Empty_variant : sig
+  type t = | [@@deriving bin_io]
+end = struct
+  type t = | [@@deriving bin_io]
+end
+
+[%%expect {| |}]
+
+module Empty_polymorphic_variant : sig
+  type t = private [> ] [@@deriving bin_io]
+end = struct
+  type t = private [> ] [@@deriving bin_io]
+end
+
+[%%expect {| |}]
+
+module Bin_size_refers_to_wrong_polymorphic_variant = struct
+  include struct
+    type foo = [ `old_foo ] [@@deriving bin_write]
+  end
+
+  type nonrec foo = [ `new_foo ]
+
+  and bar =
+    [ foo
+    | `bar
+    ]
+  [@@deriving bin_write]
+end
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: This expression has type [> `new_foo ]
+       but an expression was expected of type [< `old_foo ]
+       The second variant type does not allow tag(s) `new_foo
+|}]

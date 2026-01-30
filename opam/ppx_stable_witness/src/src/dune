@@ -1,0 +1,8 @@
+(library
+ (name ppx_stable_witness)
+ (public_name ppx_stable_witness)
+ (kind ppx_deriver)
+ (ppx_runtime_libraries ppx_stable_witness.runtime)
+ (libraries base ppxlib ppxlib_jane)
+ (preprocess
+  (pps ppxlib.metaquot)))

@@ -1,0 +1,7 @@
+(executables
+ (modes byte exe)
+ (names compare_sexplib_and_parsexp)
+ (libraries core sexplib core_unix.command_unix parsexp parsexp_io
+   core_unix.sys_unix)
+ (preprocess
+  (pps ppx_jane)))

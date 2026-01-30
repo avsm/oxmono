@@ -41,7 +41,7 @@ module Bytes = struct
       { bytes : Bytes.t; first : int; length : int }
 
     let eod = { bytes = Bytes.empty; first = 0; length = 0 }
-    let[@inline][@zero_alloc] is_eod s = s == eod
+    let[@inline][@zero_alloc] is_eod (s @ local) = s == eod
 
     let[@inline] make bytes ~first ~length =
       let len = Bytes.length bytes in
@@ -56,9 +56,9 @@ module Bytes = struct
       if length = 0 then eod else { bytes; first; length }
 
     let[@inline][@zero_alloc] bytes s = s.bytes
-    let[@inline][@zero_alloc] first s = s.first
-    let[@inline][@zero_alloc] last s = s.first + s.length - 1
-    let[@inline][@zero_alloc] length s = s.length
+    let[@inline][@zero_alloc] first (s @ local) = s.first
+    let[@inline][@zero_alloc] last (s @ local) = s.first + s.length - 1
+    let[@inline][@zero_alloc] length (s @ local) = s.length
 
     let copy ~tight s =
       if s.length = 0 then eod else
@@ -66,7 +66,7 @@ module Bytes = struct
       let bytes = Bytes.sub s.bytes s.first s.length in
       { bytes; first = 0; length = s.length}
 
-    let[@zero_alloc] compare s0 s1 =
+    let[@zero_alloc] compare (s0 @ local) (s1 @ local) =
       let len0 = s0.length and len1 = s1.length in
       let len_cmp = Int.compare len0 len1 in
       if len_cmp <> 0 then len_cmp else begin
@@ -84,7 +84,7 @@ module Bytes = struct
         cmp
       end
 
-    let[@inline][@zero_alloc] equal s0 s1 = compare s0 s1 = 0
+    let[@inline][@zero_alloc] equal (s0 @ local) (s1 @ local) = compare s0 s1 = 0
 
     (* Breaking slices *)
 
@@ -284,9 +284,9 @@ module Bytes = struct
 
     let read_eod () = Slice.eod
     let empty ?pos ?slice_length () = make ?pos ?slice_length read_eod
-    let[@inline][@zero_alloc] pos r = r.pos
-    let[@inline][@zero_alloc] read_length r = r.pos
-    let[@inline][@zero_alloc] slice_length r = r.slice_length
+    let[@inline][@zero_alloc] pos (r @ local) = r.pos
+    let[@inline][@zero_alloc] read_length (r @ local) = r.pos
+    let[@inline][@zero_alloc] slice_length (r @ local) = r.slice_length
     let error fmt r ?pos e =
       let pos = match pos with
       | None -> r.pos | Some p when p < 0 -> r.pos + p | Some p -> p
@@ -630,9 +630,9 @@ module Bytes = struct
     let make ?(pos = 0) ?(slice_length = Slice.default_length) write =
       { pos; slice_length = Slice.check_length slice_length; write }
 
-    let[@inline][@zero_alloc] pos w = w.pos
-    let[@inline][@zero_alloc] slice_length w = w.slice_length
-    let[@inline][@zero_alloc] written_length w = w.pos
+    let[@inline][@zero_alloc] pos (w @ local) = w.pos
+    let[@inline][@zero_alloc] slice_length (w @ local) = w.slice_length
+    let[@inline][@zero_alloc] written_length (w @ local) = w.pos
     let ignore ?pos ?slice_length () = make ?pos ?slice_length (fun s -> ())
     let error fmt w ?pos e =
       let pos = match pos with

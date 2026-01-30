@@ -1,0 +1,4 @@
+(library
+ (name tomlt_eio)
+ (public_name tomlt.eio)
+ (libraries tomlt tomlt.bytesrw eio bytesrw ptime.clock.os))

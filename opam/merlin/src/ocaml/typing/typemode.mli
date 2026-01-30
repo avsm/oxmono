@@ -1,0 +1,57 @@
+(** Interpret mode syntax as mode annotation, where axes can be left unspecified *)
+val transl_mode_annots : Parsetree.modes -> Mode.Alloc.Const.Option.t
+
+val untransl_mode_annots : Mode.Alloc.Const.Option.t -> Parsetree.modes
+
+(** Interpret mode syntax as alloc mode (on arrow types), where axes are set to
+    legacy if unspecified *)
+val transl_alloc_mode : Parsetree.modes -> Mode.Alloc.Const.t
+
+(** Interpret mode syntax as modalities. Modalities occuring at different places
+    requires different levels of maturity. Also takes the mutability and
+    attributes on the field and insert mutable-implied modalities accordingly.
+    *)
+val transl_modalities :
+  maturity:Language_extension.maturity ->
+  Types.mutability ->
+  Parsetree.modalities ->
+  Mode.Modality.Const.t
+
+val let_mutable_modalities : Mode.Modality.Const.t
+
+(** The (default) modalities for an atomic mutable field *)
+val atomic_mutable_modalities : Mode.Modality.Const.t
+
+val untransl_modality : Mode.Modality.atom -> Parsetree.modality Location.loc
+
+(** Un-interpret modalities back to parsetree. Takes the mutability and
+    attributes on the field and remove mutable-implied modalities accordingly.
+    *)
+val untransl_modalities :
+  Types.mutability -> Mode.Modality.Const.t -> Parsetree.modalities
+
+(** Interpret a mod-bounds. *)
+val transl_mod_bounds : Parsetree.modes -> Types.Jkind_mod_bounds.t
+
+val untransl_mod_bounds : Types.Jkind_mod_bounds.t -> Parsetree.modes
+
+val idx_expected_modalities : mut:bool -> Mode.Modality.Const.t
+
+(* Merlin-only: Expose this so it can be used by syntax_doc.ml *)
+module Mode_axis_pair : sig
+  type t = P : 'a Mode.Alloc.Axis.t * 'a -> t
+
+  val of_string : string -> t
+end
+
+module Modality_axis_pair : sig
+  type t = P : 'a Mode.Modality.Axis.t * 'a -> t
+
+  val of_string : string -> t
+end
+
+module Modifier_axis_pair : sig
+  type t = P : 'a Jkind_axis.Axis.t * 'a -> t
+
+  val of_string : string -> t
+end

@@ -1,0 +1,12 @@
+(library
+ (foreign_stubs
+  (language c)
+  (names pam_stubs))
+ (name pam)
+ (public_name pam)
+ (libraries core)
+ (library_flags -ccopt -O2)
+ (c_library_flags :standard -lpam)
+ (virtual_deps conf-pam)
+ (preprocess
+  (pps ppx_jane)))

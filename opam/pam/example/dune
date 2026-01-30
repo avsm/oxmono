@@ -1,0 +1,6 @@
+(executables
+ (modes byte exe)
+ (names simple)
+ (libraries core_unix.command_unix core core_unix pam)
+ (preprocess
+  (pps ppx_jane)))

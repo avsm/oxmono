@@ -1,0 +1,1295 @@
+open! Base
+include Sexp_pretty_intf
+module Sexp = Sexplib.Sexp
+module Config = Config
+open Config
+
+module Sexp_impl = struct
+  module type S = sig
+    val must_escape : string -> bool
+    val mach_maybe_esc_str : string -> string
+    val esc_str : string -> string
+  end
+
+  let get conf : (module S) =
+    match conf.encoding with
+    | Ascii -> (module Sexplib.Pre_sexp)
+    | Utf8 -> (module Base.Sexp.Utf8.Pretty_printing_helpers_private)
+  ;;
+
+  let must_escape conf =
+    let (module Sexp_impl) = get conf in
+    Sexp_impl.must_escape
+  ;;
+
+  let mach_maybe_esc_str conf =
+    let (module Sexp_impl) = get conf in
+    Sexp_impl.mach_maybe_esc_str
+  ;;
+
+  let esc_str conf =
+    let (module Sexp_impl) = get conf in
+    Sexp_impl.esc_str
+  ;;
+
+  let minimal_escaping conf at =
+    let body =
+      match conf.encoding with
+      | Ascii ->
+        String.concat_map at ~f:(fun char ->
+          match char with
+          | '"' | '\\' -> String.of_char '\\' ^ String.of_char char
+          | ' ' | '\t' | '\n' -> String.of_char char
+          | _ -> if Char.is_print char then String.of_char char else Char.escaped char)
+      | Utf8 ->
+        String.Utf8.of_string at
+        |> String.Utf8.to_list
+        |> List.concat_map ~f:(fun char ->
+          match Uchar.to_char char with
+          | Some ('"' | '\\') -> [ Uchar.of_char '\\'; char ]
+          | _ -> [ char ])
+        |> String.Utf8.of_list
+        |> String.Utf8.to_string
+    in
+    String.concat [ "\""; body; "\"" ]
+  ;;
+end
+
+module W = Parsexp.Cst
+
+module Format = struct
+  include Stdlib.Format
+
+  let pp_arrayi sep pp fmt array =
+    Array.iteri array ~f:(fun i x ->
+      if i > 0 then fprintf fmt sep;
+      pp i fmt x)
+  ;;
+
+  let pp_list sep pp fmt list =
+    List.iteri list ~f:(fun i x ->
+      if i > 0 then fprintf fmt sep;
+      pp fmt x)
+  ;;
+end
+
+type comment_kind =
+  | Sexp_comment
+  | Line_comment
+
+type content_kind =
+  | Sexp
+  | Comment of comment_kind
+
+type state = { content_kind : content_kind }
+
+let start_state = { content_kind = Sexp }
+let split = Portable_lazy.from_fun (fun () -> Re.Pcre.regexp "[ \t]+")
+
+let color_to_code = function
+  | Black -> 30
+  | Red -> 31
+  | Green -> 32
+  | Yellow -> 33
+  | Blue -> 34
+  | Magenta -> 35
+  | Cyan -> 36
+  | White -> 37
+  | BrightBlack -> 90
+  | BrightRed -> 91
+  | BrightGreen -> 92
+  | BrightYellow -> 93
+  | BrightBlue -> 94
+  | BrightMagenta -> 95
+  | BrightCyan -> 96
+  | BrightWhite -> 97
+  | Default -> 39
+;;
+
+let rainbow_open_tag conf tag =
+  let args = Re.Pcre.split ~rex:(Portable_lazy.force split) tag in
+  let color_count = Iarray.length conf.color_scheme in
+  match args with
+  | [ "d"; n ] ->
+    let i = Int.of_string n in
+    "["
+    ^ Int.to_string
+        (color_to_code
+           (if i < 0 || color_count < 1
+            then Default
+            else conf.color_scheme.:(i % color_count)))
+    ^ "m"
+  (* Printing out comments. *)
+  | [ "c"; _ ] ->
+    (match conf.comments with
+     | Print (_, Some clr, _) -> "[" ^ Int.to_string (color_to_code clr) ^ "m"
+     | _ -> "")
+  | _ -> tag
+;;
+
+let rainbow_tags conf =
+  { Format.mark_open_stag =
+      (function
+        | Format.String_tag tag -> rainbow_open_tag conf tag
+        | _ -> "")
+  ; Format.mark_close_stag =
+      (fun _ ->
+        match conf.comments with
+        | Print (_, Some _clr, _) -> ""
+        | _ -> "")
+  ; Format.print_open_stag = ignore
+  ; Format.print_close_stag = ignore
+  }
+;;
+
+(* Opens n parentheses, starting at level depth. *)
+let open_parens conf state ~depth fmt n =
+  match conf.paren_coloring, state.content_kind, conf.comments with
+  (* Overrides the option not to color parentheses. *)
+  | _, Comment _, Print (_, Some _, _) ->
+    for i = depth to depth + n - 1 do
+      Format.fprintf fmt "@{<c %d>(@}" i
+    done
+  | true, Sexp, _ ->
+    for i = depth to depth + n - 1 do
+      Format.fprintf fmt "@{<d %d>(@}" i
+    done
+  | _, _, _ ->
+    for _ = depth to depth + n - 1 do
+      Format.fprintf fmt "("
+    done
+;;
+
+(* Closes n parentheses, starting at level depth+(n-1) to depth. *)
+let close_parens conf state ~depth fmt n =
+  (* Overrides the option not to color parentheses. *)
+  match conf.paren_coloring, state.content_kind, conf.comments with
+  | _, Comment _, Print (_, Some _, _) ->
+    for i = depth + (n - 1) downto depth do
+      Format.fprintf fmt "@{<c %d>)@}" i
+    done
+  | true, Sexp, _ ->
+    for i = depth + (n - 1) downto depth do
+      Format.fprintf fmt "@{<d %d>)@}" i
+    done
+  | _, _, _ ->
+    for _ = depth + (n - 1) downto depth do
+      Format.fprintf fmt ")"
+    done
+;;
+
+let must_escape conf = function
+  | "\\" -> false
+  | string -> Sexp_impl.must_escape conf string
+;;
+
+let atom_escape conf at =
+  match conf.atom_printing with
+  | Escaped | Interpreted -> Sexp_impl.mach_maybe_esc_str conf at
+  | Minimal_escaping ->
+    if Sexp_impl.must_escape conf at then Sexp_impl.minimal_escaping conf at else at
+;;
+
+let atom_printing_len conf at =
+  let s = atom_escape conf at in
+  if String.for_all s ~f:Char.is_print then Some (String.length s) else None
+;;
+
+let atom_printing_len_exn conf at =
+  match atom_printing_len conf at with
+  | Some len -> len
+  | None ->
+    raise_s
+      (Sexp.List [ Atom "Sexp_pretty.atom_printing_len_exn: invalid input"; Atom at ])
+;;
+
+let pp_atom conf state ~depth ~len index fmt at =
+  let at =
+    match state.content_kind with
+    | Comment Line_comment ->
+      (* we never need to escape a line comment *)
+      at
+    | Sexp | Comment Sexp_comment ->
+      if must_escape conf at
+      then (
+        match conf.atom_printing with
+        | Escaped | Interpreted -> Sexp_impl.esc_str conf at
+        | Minimal_escaping -> Sexp_impl.minimal_escaping conf at)
+      else at
+  in
+  let should_be_colored =
+    match conf.atom_coloring with
+    | Color_none -> false
+    | Color_first threshold -> Int.equal index 0 && len <= threshold
+    | Color_all -> true
+  in
+  match state.content_kind with
+  | Comment _ ->
+    (match conf.comments with
+     | Drop -> assert false
+     | Print (_, Some _, _) -> Format.fprintf fmt "@{<c %d>%s@}" depth at
+     | Print (_, None, _) -> Format.fprintf fmt "%s" at)
+  | Sexp ->
+    if should_be_colored
+    then Format.fprintf fmt "@{<d %d>%s@}" depth at
+    else Format.fprintf fmt "%s" at
+;;
+
+let pp_associated_comments conf ~depth fmt associated_comments =
+  if not (List.is_empty associated_comments)
+  then (
+    Format.fprintf fmt " ";
+    Format.pp_open_vbox fmt 0;
+    List.iteri associated_comments ~f:(fun i comment ->
+      if i > 0 then Format.pp_print_break fmt 0 0;
+      pp_atom conf { content_kind = Comment Line_comment } ~depth ~len:1 0 fmt comment);
+    Format.pp_close_box fmt ())
+;;
+
+module Normalize = struct
+  type t =
+    | Sexp of sexp * string list
+    | Comment of comment
+  [@@deriving sexp]
+
+  and comment =
+    | Line_comment of string
+    | Block_comment of int * string list
+    | Sexp_comment of comment list * sexp
+
+  and sexp =
+    | Atom of string
+    | List of t list
+
+  let block_comment =
+    Portable_lazy.from_fun (fun () ->
+      Re.(
+        seq
+          [ str "#|"
+          ; group (seq [ group (rep (set "\t ")); rep (alt [ char '\n'; any ]) ])
+          ; str "|#"
+          ]
+        |> compile))
+  ;;
+
+  let word_split = Portable_lazy.from_fun (fun () -> Re.Pcre.regexp "[ \n\t]+")
+  let trailing = Portable_lazy.from_fun (fun () -> Re.Pcre.regexp "(.*\\b)[ \t]*$")
+  let tab_size = 2
+
+  type match_dimension =
+    | Horizontal
+    | Vertical
+
+  let match_block_comment comment =
+    Re.exec_opt (Portable_lazy.force block_comment) comment
+  ;;
+
+  let is_block_comment comment = Option.is_some (match_block_comment comment)
+
+  let grab_comments pos list =
+    let rec loop dimension acc (pos : Parsexp.Positions.pos) = function
+      | [] -> acc, []
+      | W.Sexp _ :: _ as list -> acc, list
+      | (W.Comment (W.Plain_comment { loc = cpos; comment = content }) as comment) :: rest
+        ->
+        if (match dimension with
+            | Horizontal -> pos.line = cpos.start_pos.line
+            | Vertical -> pos.col = cpos.start_pos.col)
+           && not (is_block_comment content)
+        then loop Vertical (content :: acc) cpos.start_pos rest
+        else acc, comment :: rest
+      | W.Comment (W.Sexp_comment _) :: _ as list -> acc, list
+    in
+    let rev_comments, rest = loop Horizontal [] pos list in
+    List.rev rev_comments, rest
+  ;;
+
+  let rec pre_process_atom conf pos atom =
+    match conf.atom_printing with
+    | Escaped | Minimal_escaping -> `Atom atom
+    | Interpreted ->
+      Option.value
+        ~default:(`Atom atom)
+        (Option.try_with (fun () ->
+           match Parsexp.Many_cst.parse_string_exn atom with
+           (* Perhaps normalized the atom, but nothing more to do. *)
+           | [ W.Sexp (W.Atom { unescaped = None; _ }) ] -> `Atom atom
+           (* Nested atom, try again. *)
+           | [ W.Sexp (W.Atom { atom = inner_atom; unescaped = Some source; _ }) ] ->
+             if String.equal inner_atom source
+             then `Atom atom (* avoid an infinite loop of reinterpreting the atom *)
+             else (
+               match pre_process_atom conf pos inner_atom with
+               | `Atom _ -> `Atom atom
+               (* original atom is better since it contains original spacing which will be
+                  stripped off by pre_process_atom *)
+               | `List lst -> `List lst)
+           (* Parsed one whole sexp, bubble it up. *)
+           | [ W.Sexp (W.List { elements = list; _ }) ] -> `List list
+           (* It would cause problems if we parsed a comment in the case the atom is a
+              commented out sexp. We will be conservative here and we won't parse the
+              comment.
+           *)
+           | [ W.Comment _ ] -> `Atom atom
+           (* Results in an empty. We keep the original. *)
+           | [] -> `Atom atom
+           (* Parsed a list of multiple sexps. It could either be spliced into the current
+              list, or put into a new Sexp list. At the moment, they are put into separate
+              lists.
+           *)
+           (* If needed, we could traverse [sexps] and adjust positions so that they
+              corespond to the respective positions in the original file. Also, we could
+              calculate the end position of this list correctly.
+           *)
+           | sexps
+             when List.for_all sexps ~f:(function
+                    | W.Sexp (W.Atom _) -> true
+                    | _ -> false) -> (* we parsed a plain string *) `Atom atom
+           | sexps ->
+             (* If atom was created by failwiths or structural_sexp, it would looks like
+                this: "human-readable message followed by (potentially (long and (ugly
+                sexp)))"
+
+                We will try to preserve human-readable part by concatenating all sequences
+                of top-level atoms into singe atom *)
+             let break a b =
+               match a, b with
+               | W.Sexp (W.Atom _), W.Sexp (W.Atom _) -> false
+               | _ -> true
+             in
+             let concatenate_atoms lst =
+               List.group ~break lst
+               |> List.map ~f:(function
+                 | W.Sexp (W.Atom { loc; _ }) :: _ as atoms ->
+                   let get_atom_contents = function
+                     | W.Sexp (W.Atom { atom = a; _ }) -> a
+                     | _ -> assert false
+                     (* List.group guarantees that we have only Atoms here *)
+                   in
+                   let atom_contents =
+                     List.map ~f:get_atom_contents atoms |> String.concat ~sep:" "
+                   in
+                   let escaped_atom_contents =
+                     Sexp_impl.mach_maybe_esc_str conf atom_contents
+                   in
+                   [ W.Sexp
+                       (W.Atom
+                          { loc
+                          ; atom = atom_contents
+                          ; unescaped = Some escaped_atom_contents
+                          })
+                   ]
+                 | W.Sexp (W.List _) :: _ as lists -> lists
+                 | W.Comment _ :: _ as comments -> comments
+                 | [] -> [] (* cant really happen *))
+               |> List.concat
+             in
+             `List (concatenate_atoms sexps)))
+  ;;
+
+  let pre_process_block_comment style comment =
+    match style with
+    | Conservative_print -> String.split comment ~on:'\n'
+    | Pretty_print ->
+      String.strip comment
+      |> Re.Pcre.split ~rex:(Portable_lazy.force word_split)
+      |> List.map ~f:(fun line ->
+        match Re.exec_opt (Portable_lazy.force trailing) line with
+        | Some groups -> Re.Group.get groups 0
+        | None -> line)
+      |> List.filter ~f:(fun s -> String.length s > 0)
+  ;;
+
+  let get_size string =
+    String.count string ~f:(fun c -> Char.equal c ' ')
+    + (String.count string ~f:(fun c -> Char.equal c '\t') * tab_size)
+  ;;
+
+  exception Drop_exn
+
+  (* Converts to t, does initial pre-processing - interprets/escapes atoms,
+     reorders/drops/normalizes comments.
+  *)
+  let rec of_sexp_or_comment conf : W.t_or_comment -> t = function
+    | W.Comment comment -> Comment (of_comment conf comment)
+    | W.Sexp sexp -> Sexp (of_sexp conf sexp, [])
+
+  and of_sexp (conf : Config.t) : W.t -> sexp = function
+    | W.Atom { loc; atom; _ } ->
+      (match pre_process_atom conf loc atom with
+       | `Atom atom -> Atom atom
+       | `List list -> of_sexp_or_comment_list conf list)
+    | W.List { elements; _ } -> of_sexp_or_comment_list conf elements
+
+  and of_sexp_or_comment_list (conf : Config.t) : W.t_or_comment list -> sexp =
+    fun list ->
+    match conf.comments with
+    | Drop ->
+      List
+        (List.filter_map list ~f:(fun el ->
+           match of_sexp_or_comment conf el with
+           | t -> Some t
+           | exception Drop_exn -> None))
+    | Print _ ->
+      (* Re-orders comments to have comment that belong to a sexp before it, not after. If
+         [conf.sticky_comments = Same_line], it ties the comments to the sexp instead *)
+      let rec reorder acc = function
+        | [] -> acc
+        | W.Sexp (W.Atom { loc; _ } as sexp) :: rest ->
+          reorder_comments acc loc.end_pos sexp rest
+        | W.Sexp (W.List { loc; _ } as sexp) :: rest ->
+          reorder_comments acc loc.end_pos sexp rest
+        | W.Comment comment :: rest ->
+          reorder (Comment (of_comment conf comment) :: acc) rest
+      and reorder_comments acc pos sexp rest =
+        let comments, rest = grab_comments pos rest in
+        let sexp = of_sexp conf sexp in
+        let with_comments init =
+          List.fold comments ~init ~f:(fun acc comment ->
+            Comment (Line_comment comment) :: acc)
+        in
+        match conf.sticky_comments with
+        | Same_line -> reorder (Sexp (sexp, comments) :: acc) rest
+        | Before -> reorder (Sexp (sexp, []) :: with_comments acc) rest
+        | After -> reorder (with_comments (Sexp (sexp, []) :: acc)) rest
+      in
+      List (reorder [] list |> List.rev)
+
+  and of_comment (conf : Config.t) : W.comment -> comment = function
+    | W.Plain_comment { comment; _ } ->
+      (match conf.comments with
+       | Drop -> raise Drop_exn
+       | Print (indent, _, style) ->
+         (match match_block_comment comment with
+          | Some group ->
+            let indent =
+              match indent with
+              | Auto_indent_comment -> get_size (Re.Group.get group 2) + 2
+              | Indent_comment i -> i
+            in
+            let text = pre_process_block_comment style (Re.Group.get group 1) in
+            Block_comment (indent, text)
+          | None -> Line_comment comment))
+    | W.Sexp_comment { comments; sexp; _ } ->
+      (match conf.comments with
+       | Drop -> raise Drop_exn
+       | Print _ ->
+         let comm_list = List.map comments ~f:(fun comment -> of_comment conf comment) in
+         let sexp = of_sexp conf sexp in
+         Sexp_comment (comm_list, sexp))
+  ;;
+end
+
+module Print = struct
+  module N = Normalize
+
+  (* [associated_comments] are line comments correspond to a sexp that are expected to be
+     printed on the same line *)
+  type associated_comments = string list
+  type forces_breakline = bool
+
+  type opened =
+    | Opened
+    | Closed
+
+  type 'a tree =
+    | Node of 'a tree list
+    | Leaf of 'a
+
+  (* Also contains the first atom list. *)
+  type shape = (int * string) tree
+
+  type t =
+    | Sexp of sexp * associated_comments
+    | Comment of comment
+
+  and comment =
+    | Line_comment of string
+    | Block_comment of int * string list (*=Does not contain the #| |#*)
+    | Sexp_comment of (comment list * forces_breakline) * sexp
+
+  and sexp =
+    | Atom of string
+    (* With leading atoms. *)
+    | List of string array * t_or_aligned array * forces_breakline
+    (* Sexp is a tree - List, Aligned, or Singleton *)
+    | Singleton of string array * int * sexp * forces_breakline
+
+  and t_or_aligned =
+    | Aligned of aligned
+    | T of t
+
+  and aligned = (shape * associated_comments) * line array
+
+  and line =
+    | Atom_line of string tree * associated_comments
+    | Comment_line of comment
+
+  (* Unwraps singleton lists. *)
+  let unwrap sexp =
+    let rec inner level = function
+      | N.List [ N.Sexp ((N.List _ as sexp_list), []) ] -> inner (level + 1) sexp_list
+      | N.List _ as sexp_list -> level + 1, sexp_list
+      | N.Atom _ as atom -> level, atom
+    in
+    inner 0 sexp
+  ;;
+
+  let maybe_singleton conf (t_list : Normalize.t list) =
+    match conf.singleton_limit with
+    | Singleton_limit (Atom_threshold max_at, Character_threshold max_char) ->
+      let rec maybe_singleton_inner ~atom_count ~char_count acc = function
+        | [] -> None
+        | N.Sexp (N.Atom atom, []) :: tl ->
+          let char_count = char_count + String.length atom in
+          if atom_count = max_at || char_count > max_char
+          then None
+          else
+            maybe_singleton_inner
+              (atom :: acc)
+              tl
+              ~atom_count:(atom_count + 1)
+              ~char_count
+        | [ N.Sexp ((N.List _ as list), []) ] ->
+          let level, list = unwrap list in
+          Some (Array.of_list_rev acc, level, list)
+        | N.Comment _ :: _ -> None
+        | _ -> None
+      in
+      maybe_singleton_inner ~atom_count:0 ~char_count:0 [] t_list
+  ;;
+
+  let forces_breakline_atom ~conf atom =
+    match conf.atom_printing with
+    | Escaped | Interpreted -> false
+    | Minimal_escaping -> String.mem atom '\n'
+  ;;
+
+  let forces_breakline_sexp ~conf = function
+    | Atom atom -> forces_breakline_atom ~conf atom
+    | List (_, _, forces) -> forces
+    | Singleton (_, _, _, forces) -> forces
+  ;;
+
+  let forces_breakline_comment ~conf = function
+    | Line_comment _ -> true
+    | Block_comment _ -> false
+    | Sexp_comment ((_, comm_force), sexp) ->
+      comm_force || forces_breakline_sexp ~conf sexp
+  ;;
+
+  let forces_breakline ~conf = function
+    | Sexp (sexp, []) -> forces_breakline_sexp ~conf sexp
+    | Sexp (_, _ :: _) -> true
+    | Comment comment -> forces_breakline_comment ~conf comment
+  ;;
+
+  let forces_breakline_aligned_or_t ~conf = function
+    | Aligned _ -> true
+    | T t -> forces_breakline ~conf t
+  ;;
+
+  exception Cant_align
+
+  (* Check that the shape is the same and returns a new shape with updated sizes of tabs. *)
+  let try_check_shape conf shape =
+    let rec try_check_shape_inner shape t =
+      match shape, t with
+      | Leaf (len, at), N.Sexp (N.Atom at2, []) ->
+        (match atom_printing_len conf at2 with
+         | Some at2_len -> Leaf (max len at2_len, at), Leaf at2
+         | None -> raise Cant_align)
+      | Node shape_list, N.Sexp (N.List sexp_list, []) ->
+        (match
+           List.unzip (List.map2_exn shape_list sexp_list ~f:try_check_shape_inner)
+         with
+         | shape_list, atom_list -> Node shape_list, Node atom_list
+         | exception Invalid_argument _ -> raise Cant_align)
+      | _, _ -> raise Cant_align
+    in
+    function
+    | N.Comment (N.Line_comment comment) ->
+      Some (shape, Comment_line (Line_comment comment))
+    | N.Comment (N.Block_comment (n, list)) ->
+      Some (shape, Comment_line (Block_comment (n, list)))
+    | N.Comment (N.Sexp_comment _) -> None
+    | N.Sexp (sexp, associated_comments) ->
+      (match try_check_shape_inner shape (N.Sexp (sexp, [])) with
+       | shape_list, atom_list ->
+         Some (shape_list, Atom_line (atom_list, associated_comments))
+       | exception Cant_align -> None)
+  ;;
+
+  let get_shape conf ~atom_thresh ~char_thresh ~depth_thresh list =
+    let rec get_shape_from_list ~depth ~atom_count ~char_count list_acc = function
+      | [] -> List.rev list_acc, atom_count, char_count
+      | hd :: tl ->
+        let shape, atom_count, char_count =
+          get_shape_inner hd ~depth ~atom_count ~char_count
+        in
+        get_shape_from_list (shape :: list_acc) tl ~depth ~atom_count ~char_count
+    and get_shape_inner ~depth ~atom_count ~char_count t =
+      (* Breached the depth threshold. *)
+      if depth > depth_thresh then raise Cant_align;
+      match t with
+      | N.Comment _ -> raise Cant_align
+      | N.Sexp (N.List list, []) ->
+        let shape_list, atom_count, char_count =
+          get_shape_from_list [] list ~depth:(depth + 1) ~atom_count ~char_count
+        in
+        Node shape_list, atom_count, char_count
+      | N.Sexp (N.Atom atom, []) ->
+        (match atom_printing_len conf atom with
+         | Some atom_len ->
+           let char_count = char_count + atom_len in
+           if atom_count < atom_thresh && char_count <= char_thresh
+           then
+             Leaf (atom_len, atom), atom_count + 1, char_count
+             (* Breached the number of atoms threshold or the number of characters
+                threshold. *)
+           else raise Cant_align
+         | None -> raise Cant_align)
+      | N.Sexp (_, _ :: _) -> raise Cant_align
+    in
+    try
+      match get_shape_from_list [] list ~depth:1 ~atom_count:0 ~char_count:0 with
+      | shape_list, _, _ -> Some (Node shape_list)
+    with
+    | Cant_align -> None
+  ;;
+
+  let rec shape_size = function
+    | Leaf (len, _) -> len
+    | Node list ->
+      List.fold_left list ~init:0 ~f:(fun len shape -> len + shape_size shape)
+  ;;
+
+  let find_alignable conf shape ~char_thresh list =
+    let rec find_alignable shape res_acc = function
+      | [] -> shape, Array.of_list_rev res_acc, []
+      | hd :: tl ->
+        (match try_check_shape conf shape hd with
+         | None -> shape, Array.of_list_rev res_acc, hd :: tl
+         | Some (new_shape, res) ->
+           if shape_size new_shape <= char_thresh
+           then
+             find_alignable new_shape (res :: res_acc) tl
+             (* Breached the number of characters threshold. *)
+           else shape, Array.of_list_rev res_acc, hd :: tl)
+    in
+    find_alignable shape [] list
+  ;;
+
+  exception Too_many_atoms
+
+  let get_leading_atoms conf (list : Normalize.t list) =
+    match conf.leading_threshold with
+    | Atom_threshold leading_atom_threshold, Character_threshold leading_char_threshold ->
+      let rec get_leading_atoms_inner acc ~atom_count ~char_count = function
+        | [] -> Array.of_list_rev acc, []
+        | N.Sexp (N.Atom atom, []) :: tl as list ->
+          (match forces_breakline_atom ~conf atom with
+           | true -> Array.of_list_rev acc, list
+           | false ->
+             let char_count = char_count + String.length atom in
+             if atom_count = leading_atom_threshold || char_count > leading_char_threshold
+                (* Breached the threshold for number of leading atoms. *)
+             then raise Too_many_atoms
+             else
+               get_leading_atoms_inner
+                 (atom :: acc)
+                 tl
+                 ~atom_count:(atom_count + 1)
+                 ~char_count)
+        | list -> Array.of_list_rev acc, list
+      in
+      (try get_leading_atoms_inner [] ~atom_count:0 ~char_count:0 list with
+       | Too_many_atoms -> [||], list)
+  ;;
+
+  let preprocess conf (t : Normalize.t) : t =
+    let rec preprocess_t = function
+      | N.Comment comment -> Comment (preprocess_comment comment)
+      | N.Sexp (sexp, associated_comments) ->
+        Sexp (preprocess_sexp sexp, associated_comments)
+    and preprocess_sexp = function
+      | N.Atom atom -> Atom atom
+      | N.List list ->
+        (match maybe_singleton conf list with
+         | Some (atoms, lvl, sexp) ->
+           let proc_sexp = preprocess_sexp sexp in
+           Singleton (atoms, lvl, proc_sexp, forces_breakline_sexp ~conf proc_sexp)
+         | None ->
+           let leading_atoms, rest = get_leading_atoms conf list in
+           let aligned_or_t =
+             match conf.data_alignment with
+             | Data_not_aligned ->
+               Array.of_list_map rest ~f:(fun el -> T (preprocess_t el))
+             | Data_aligned
+                 ( _
+                 , Atom_threshold atom_thresh
+                 , Character_threshold char_thresh
+                 , Depth_threshold depth_thresh ) ->
+               try_align rest ~atom_thresh ~char_thresh ~depth_thresh
+           in
+           List
+             ( leading_atoms
+             , aligned_or_t
+             , Array.exists aligned_or_t ~f:(forces_breakline_aligned_or_t ~conf) ))
+    and preprocess_comment = function
+      | N.Line_comment comment -> Line_comment comment
+      | N.Block_comment (i, comment) -> Block_comment (i, comment)
+      | N.Sexp_comment (comment_list, sexp) ->
+        let proc_comment_list = List.map comment_list ~f:preprocess_comment in
+        let proc_sexp = preprocess_sexp sexp in
+        let comm_force =
+          List.exists proc_comment_list ~f:(forces_breakline_comment ~conf)
+        in
+        Sexp_comment ((proc_comment_list, comm_force), proc_sexp)
+    and try_align ~atom_thresh ~char_thresh ~depth_thresh list =
+      let rec try_align_inner acc = function
+        | [] -> Array.of_list_rev acc
+        | [ last ] -> Array.of_list_rev (T (preprocess_t last) :: acc)
+        | (N.Comment _ as comment) :: tl ->
+          try_align_inner (T (preprocess_t comment) :: acc) tl
+        | N.Sexp ((N.Atom _ as sexp), associated_comments) :: tl ->
+          try_align_inner (T (Sexp (preprocess_sexp sexp, associated_comments)) :: acc) tl
+        | N.Sexp ((N.List list as sexp), associated_comments) :: tl ->
+          let shape = get_shape conf list ~atom_thresh ~char_thresh ~depth_thresh in
+          (match shape with
+           | None ->
+             try_align_inner
+               (T (Sexp (preprocess_sexp sexp, associated_comments)) :: acc)
+               tl
+           | Some shape ->
+             let shape, aligned, rest = find_alignable conf shape tl ~char_thresh in
+             if Array.exists aligned ~f:(function
+                  | Atom_line _ -> true
+                  | _ -> false)
+             then
+               try_align_inner
+                 (Aligned ((shape, associated_comments), aligned) :: acc)
+                 rest
+             else
+               try_align_inner
+                 (T (Sexp (preprocess_sexp sexp, associated_comments)) :: acc)
+                 tl)
+      in
+      try_align_inner [] list
+    in
+    preprocess_t t
+  ;;
+
+  let set_up_tabulation conf state parens_aligned shape depth fmt =
+    let rec set_up_markers ~depth ~index : shape -> int = function
+      | Leaf (tab, at) ->
+        Format.pp_set_tab fmt ();
+        pp_atom conf state ~depth ~len:1 index fmt at;
+        (* Spaces that should still be printed *)
+        tab - atom_printing_len_exn conf at
+      | Node shape_list ->
+        Format.pp_set_tab fmt ();
+        open_parens conf state ~depth:(depth + 1) fmt 1;
+        let trailing_spaces =
+          List.foldi shape_list ~init:0 ~f:(fun i previous_spaces el ->
+            for _ = 1 to previous_spaces do
+              Format.fprintf fmt " "
+            done;
+            if i > 0 then Format.fprintf fmt " ";
+            set_up_markers ~depth:(depth + 1) ~index:i el)
+        in
+        if parens_aligned
+        then (
+          for _ = 1 to trailing_spaces do
+            Format.fprintf fmt " "
+          done;
+          Format.pp_set_tab fmt ();
+          close_parens conf state ~depth:(depth + 1) fmt 1;
+          0)
+        else (
+          close_parens conf state ~depth:(depth + 1) fmt 1;
+          trailing_spaces)
+    in
+    ignore (set_up_markers ~depth ~index:0 shape : int)
+  ;;
+
+  (* The closing paren goes on a new line, or the last element forces a breakline. *)
+  let newline_at_end conf sexp =
+    match conf.closing_parens with
+    | New_line -> true
+    | Same_line ->
+      (match sexp with
+       | List (_, list, true) ->
+         (not (Array.is_empty list))
+         &&
+           (match Array.last_exn list with
+           | Aligned (_, line_list) ->
+             (* Would not create an [Aligned] with an empty [line_list] *)
+             (match Array.last_exn line_list with
+              | Comment_line (Line_comment _) | Atom_line (_, _ :: _) -> true
+              | Comment_line (Block_comment _ | Sexp_comment _) | Atom_line (_, []) ->
+                false)
+           | T (Comment (Line_comment _) | Sexp (_, _ :: _)) -> true
+           | T (Comment (Block_comment _ | Sexp_comment _) | Sexp (_, [])) -> false)
+       | List (_, _, false) | Atom _ | Singleton _ -> false)
+  ;;
+
+  let rec pp_t conf state ?(opened = Closed) ?(len = 1) depth ?(index = 0) fmt = function
+    | Sexp (sexp, associated_comments) ->
+      pp_sexp conf state ~opened depth ~index ~len fmt sexp;
+      pp_associated_comments conf ~depth fmt associated_comments
+    | Comment comment -> pp_comment conf state depth ~index fmt comment
+
+  and pp_sexp conf state ~opened ?(len = 1) depth ~index fmt = function
+    | Atom at -> pp_atom conf state ~depth ~len index fmt at
+    | List (leading, list, forces_breakline) as sexp_list ->
+      let print_leading len fmt leading =
+        Format.fprintf
+          fmt
+          "@[<hv>%a@]"
+          (Format.pp_arrayi "@ " (pp_atom conf state ~depth:(depth + 1) ~len))
+          leading
+      in
+      let print_rest off fmt rest =
+        Format.pp_arrayi
+          "@ "
+          (fun i fmt el ->
+            pp_t_or_aligned
+              conf
+              state
+              (depth + 1)
+              ~index:(i + off)
+              ~len:(Array.length rest)
+              fmt
+              el)
+          fmt
+          rest
+      in
+      let print_opened fmt leading rest =
+        let leading_len = Array.length leading in
+        let leading_is_not_empty = leading_len > 0 in
+        let rest_is_not_empty = not (Array.is_empty rest) in
+        if leading_is_not_empty then print_leading leading_len fmt leading;
+        if leading_is_not_empty && rest_is_not_empty then Format.pp_print_space fmt ();
+        if rest_is_not_empty then print_rest leading_len fmt rest
+      in
+      let print_closed print leading rest =
+        let leading_len = Array.length leading in
+        let leading_not_empty = leading_len > 0 in
+        let rest_not_empty = not (Array.is_empty rest) in
+        let same_line_rest =
+          match conf.opening_parens with
+          | New_line -> false
+          | Same_line -> rest_not_empty && not leading_not_empty
+        in
+        print
+          (if same_line_rest then 1 else conf.indent)
+          (fun fmt () -> open_parens conf state ~depth:(depth + 1) fmt 1)
+          ()
+          (fun fmt (leading, rest) ->
+            if leading_not_empty then print_leading leading_len fmt leading;
+            (* Close the leading atom block. *)
+            Format.pp_close_box fmt ();
+            if rest_not_empty
+            then
+              if leading_not_empty
+              then Format.pp_print_space fmt ()
+              else if not same_line_rest
+              then Format.pp_print_cut fmt ();
+            if rest_not_empty then print_rest leading_len fmt rest)
+          (leading, rest)
+          (fun fmt () -> close_parens conf state ~depth:(depth + 1) fmt 1)
+          ()
+      in
+      (match leading, list, forces_breakline, opened, newline_at_end conf sexp_list with
+       | [||], [||], _, Closed, _ ->
+         open_parens conf state ~depth:(depth + 1) fmt 1;
+         close_parens conf state ~depth:(depth + 1) fmt 1
+       | leading, rest, false, Opened, _ ->
+         Format.pp_open_hvbox fmt 0;
+         print_opened fmt leading rest;
+         Format.pp_close_box fmt ()
+       | leading, rest, true, Opened, _ -> print_opened fmt leading rest
+       | leading, rest, true, Closed, true ->
+         (* There must be something in the list, if it forces a breakline *)
+         print_closed (Format.fprintf fmt "@[<v %d>@[<h>%a%a@]@,%a") leading rest
+       | leading, rest, true, Closed, false ->
+         (* There must be something in the list, if it forces a breakline *)
+         print_closed (Format.fprintf fmt "@[<v %d>@[<h>%a%a@]%a") leading rest
+       | leading, rest, false, Closed, true ->
+         print_closed
+           (Format.fprintf fmt "@[<h>@[<hv>@[<hv %d>@[<h>%a%a@]@,@]%a@]")
+           leading
+           rest
+       | leading, rest, false, Closed, false ->
+         print_closed
+           (Format.fprintf fmt "@[<h>@[<hv>@[<hv %d>@[<h>%a%a@]@]%a@]")
+           leading
+           rest)
+    | Singleton (atoms, d, sexp, forces_breakline) ->
+      let print_opened printer atoms =
+        printer
+          conf.indent
+          (Format.pp_arrayi
+             "@ "
+             (pp_atom conf state ~depth:(depth + 1) ~len:(Array.length atoms)))
+          atoms
+          (open_parens conf state ~depth:(depth + 2))
+          d
+          (pp_sexp conf state ~opened:Opened (depth + d) ~index:0 ~len:1)
+          sexp
+          (close_parens conf state ~depth:(depth + 2))
+          d
+      in
+      let print_closed printer atoms =
+        printer
+          conf.indent
+          (open_parens conf state ~depth:(depth + 1))
+          1
+          (fun fmt -> function
+            | [||] -> ()
+            | atoms ->
+              Format.pp_arrayi
+                "@ "
+                (pp_atom conf state ~depth:(depth + 1) ~len:(Array.length atoms))
+                fmt
+                atoms;
+              Format.pp_print_space fmt ())
+          atoms
+          (open_parens conf state ~depth:(depth + 2))
+          d
+          (pp_sexp conf state ~opened:Opened (depth + d) ~len:1 ~index:0)
+          sexp
+          (close_parens conf state ~depth:(depth + 1))
+          (d + 1)
+      in
+      (match atoms, forces_breakline, opened, newline_at_end conf sexp with
+       | [||], _, Opened, _ -> assert false
+       | atoms, true, Closed, true ->
+         print_closed (Format.fprintf fmt "@[<v %d>@[<h>%a%a%a@]@,%a@]@,%a") atoms
+       | atoms, true, Closed, false ->
+         print_closed (Format.fprintf fmt "@[<v %d>@[<h>%a%a%a@]@,%a@]%a") atoms
+       | atoms, false, Closed, true ->
+         print_closed
+           (Format.fprintf fmt "@[<h>@[<hv>@[<hv %d>@[<h>%a%a%a@]@,%a@]@,@]%a@]")
+           atoms
+       | atoms, false, Closed, false ->
+         print_closed
+           (Format.fprintf fmt "@[<h>@[<hv>@[<hv %d>@[<h>%a%a%a@]@,%a@]@]%a@]")
+           atoms
+       | atoms, true, Opened, true ->
+         print_opened (Format.fprintf fmt "@[<v %d>@[<h>%a@ %a@]@,%a@]@,%a") atoms
+       | atoms, true, Opened, false ->
+         print_opened (Format.fprintf fmt "@[<v %d>@[<h>%a@ %a@]@,%a@]%a") atoms
+       | atoms, false, Opened, true ->
+         print_opened
+           (Format.fprintf fmt "@[<h>@[<hv>@[<hv %d>@[<h>%a@ %a@]@,%a@]@,@]%a@]")
+           atoms
+       | atoms, false, Opened, false ->
+         print_opened
+           (Format.fprintf fmt "@[<h>@[<hv>@[<hv %d>@[<h>%a@ %a@]@,%a@]@]%a@]")
+           atoms)
+
+  and pp_t_or_aligned conf state depth ~len ~index fmt = function
+    | T t -> pp_t conf state ~len depth ~index fmt t
+    | Aligned ((shape, associated_comments), line_list) ->
+      pp_aligned conf state depth fmt shape associated_comments line_list
+
+  and pp_comment conf state depth ~index fmt comment =
+    match conf.comments with
+    | Drop -> assert false
+    | _ ->
+      ();
+      (match comment with
+       | Line_comment comment ->
+         pp_atom
+           conf
+           { content_kind = Comment Line_comment }
+           ~depth
+           ~len:1
+           index
+           fmt
+           comment
+       | Block_comment (indent, comment_list) ->
+         (match conf.comments with
+          | Drop -> assert false (* Would have dropped the comment at pre-processing. *)
+          | Print (_, color, Conservative_print) ->
+            let f =
+              match color with
+              | Some _ -> Format.fprintf fmt "@{<c %d>@[<h>#|%a|#@]@}"
+              (* This is an ugly hack not to print anything if colors are disabled. The
+                 opening tag works fine, as it checks whether or not anything should be
+                 printed. The closing one doesn't (it can't have any arguments, which is
+                 bad).
+              *)
+              | None -> Format.fprintf fmt "@{<c %d}@[<h>#|%a|#@]"
+            in
+            f
+              depth
+              (fun fmt comment_list ->
+                Format.pp_list
+                  "@."
+                  (fun fmt comm -> Format.fprintf fmt "%s" comm)
+                  fmt
+                  comment_list)
+              comment_list
+          | Print (_, color, Pretty_print) ->
+            let f =
+              match color with
+              | Some _ ->
+                Format.fprintf
+                  fmt
+                  "@{<c %d>@[<h>@[<hv>@[<hv %d>#|%a@[<hov>%a@]@]@ @]|#@]@}"
+              | None ->
+                Format.fprintf fmt "@{<c %d>@[<h>@[<hv>@[<hv %d>#|%a@[<hov>%a@]@]@ @]|#@]"
+            in
+            f
+              depth
+              indent
+              (fun fmt spaces -> Format.pp_print_break fmt spaces 0)
+              (if indent > 2 && not (List.is_empty comment_list) then indent - 2 else 0)
+              (fun fmt comment_list ->
+                Format.pp_list "@ " Format.pp_print_string fmt comment_list)
+              comment_list)
+       | Sexp_comment ((comments, _), sexp) ->
+         (match conf.comments with
+          | Drop -> assert false
+          | Print (_, Some _, _) -> Format.fprintf fmt "@{<c %d>#;@}@ " depth
+          | Print (_, None, _) -> Format.fprintf fmt "#;@ ");
+         List.iteri comments ~f:(fun i comm ->
+           pp_comment conf state depth ~index:i fmt comm);
+         if not (List.is_empty comments) then Format.pp_print_space fmt ();
+         pp_sexp
+           conf
+           { content_kind = Comment Sexp_comment }
+           ~opened:Closed
+           depth
+           ~index
+           fmt
+           sexp)
+
+  and pp_aligned conf state depth fmt shape associated_comments align_list =
+    let parens_aligned =
+      match conf.data_alignment with
+      | Data_aligned (Parens_alignment a, _, _, _) -> a
+      | _ -> assert false
+    in
+    let rec print_aligned ~depth index = function
+      | Leaf at ->
+        Format.pp_print_tab fmt ();
+        pp_atom conf state ~depth ~len:1 index fmt at
+      | Node list ->
+        Format.pp_print_tab fmt ();
+        open_parens conf state ~depth:(depth + 1) fmt 1;
+        List.iteri list ~f:(print_aligned ~depth:(depth + 1));
+        if parens_aligned then Format.pp_print_tab fmt ();
+        close_parens conf state ~depth:(depth + 1) fmt 1
+    in
+    let print_aligned_or_comment index = function
+      (* Comments on a separate line for now. *)
+      | Comment_line comm ->
+        Format.pp_print_cut fmt ();
+        pp_comment conf state depth ~index fmt comm
+      | Atom_line (line, associated_comments) ->
+        Format.pp_print_cut fmt ();
+        print_aligned ~depth 0 line;
+        pp_associated_comments conf ~depth fmt associated_comments
+    in
+    Format.pp_open_tbox fmt ();
+    set_up_tabulation conf state parens_aligned shape depth fmt;
+    pp_associated_comments conf ~depth fmt associated_comments;
+    Array.iteri align_list ~f:print_aligned_or_comment;
+    Format.pp_close_tbox fmt ()
+  ;;
+
+  let pp_sexp_rainbow_toplevel conf fmt sexp =
+    let t = Normalize.of_sexp_or_comment conf sexp in
+    let aligned = preprocess conf t in
+    Format.fprintf
+      fmt
+      "@[<v>%a@]@."
+      (pp_t conf start_state ~opened:Closed 0 ~index:0)
+      aligned
+  ;;
+end
+
+let setup conf fmt =
+  Format.pp_set_formatter_stag_functions fmt (rainbow_tags conf);
+  Format.pp_set_tags fmt true
+;;
+
+let run ~next conf fmt =
+  setup conf fmt;
+  let rec loop prints_newline =
+    match next () with
+    | None -> ()
+    | Some t_or_comment ->
+      (match conf.comments, t_or_comment with
+       | Drop, W.Comment _ -> loop prints_newline
+       | Print _, W.Comment _ ->
+         (match prints_newline, conf.separator with
+          | true, Empty_line -> Format.pp_print_break fmt 0 0
+          | false, _ | _, No_separator -> ());
+         Print.pp_sexp_rainbow_toplevel conf fmt t_or_comment;
+         loop false
+       | _, W.Sexp _ ->
+         (match prints_newline, conf.separator with
+          | true, Empty_line -> Format.pp_print_break fmt 0 0
+          | false, _ | _, No_separator -> ());
+         Print.pp_sexp_rainbow_toplevel conf fmt t_or_comment;
+         loop true)
+  in
+  Format.pp_open_vbox fmt 0;
+  loop false;
+  if conf.paren_coloring then (* Reset all formatting *)
+                           Format.pp_print_string fmt "[0m";
+  Format.pp_close_box fmt ();
+  Format.pp_print_flush fmt ()
+;;
+
+let dummy_pos = Parsexp.Positions.beginning_of_file
+let dummy_range = { Parsexp.Positions.start_pos = dummy_pos; end_pos = dummy_pos }
+
+let rec sexp_to_sexp_or_comment conf = function
+  | Sexp.Atom at ->
+    let fmt_at = Some (Sexp_impl.mach_maybe_esc_str conf at) in
+    W.Sexp (W.Atom { loc = dummy_range; atom = at; unescaped = fmt_at })
+  | Sexp.List list ->
+    W.Sexp
+      (W.List
+         { loc = dummy_range; elements = List.map list ~f:(sexp_to_sexp_or_comment conf) })
+;;
+
+module Make (M : sig
+  @@ portable
+    type t
+
+    val to_sexp_or_comment : Config.t -> t -> Parsexp.Cst.t_or_comment
+  end) : sig
+  @@ portable
+  include S with type sexp := M.t
+end = struct
+  type 'a writer = Config.t -> 'a -> M.t -> unit
+
+  let pp_formatter conf fmt sexp =
+    let t_or_comment = M.to_sexp_or_comment conf sexp in
+    let next =
+      let stop = ref false in
+      fun () ->
+        if !stop
+        then None
+        else (
+          stop := true;
+          Some t_or_comment)
+    in
+    run ~next conf fmt
+  ;;
+
+  let pp_formatter' ~next conf fmt =
+    run
+      ~next:(fun () ->
+        match next () with
+        | None -> None
+        | Some s -> Some (M.to_sexp_or_comment conf s))
+      conf
+      fmt
+  ;;
+
+  let pp_buffer conf buffer sexp =
+    pp_formatter conf (Format.formatter_of_buffer buffer) sexp
+  ;;
+
+  let pp_out_channel conf oc sexp =
+    pp_formatter conf (Format.formatter_of_out_channel oc) sexp
+  ;;
+
+  let pp_blit conf blit sexp =
+    let formatter =
+      Format.make_formatter (fun buf pos len -> blit buf ~pos ~len) ignore
+    in
+    pp_formatter conf formatter sexp
+  ;;
+
+  let pretty_string conf sexp =
+    let buffer = Buffer.create 16 in
+    pp_buffer conf buffer sexp;
+    Buffer.contents buffer
+  ;;
+
+  let sexp_to_string =
+    let config = Portable_lazy.from_fun (fun () -> Config.create ~color:false ()) in
+    fun sexp -> pretty_string (Portable_lazy.force config) sexp
+  ;;
+end
+
+include Make (struct
+    type t = Sexp.t
+
+    let to_sexp_or_comment = sexp_to_sexp_or_comment
+  end)
+
+module Parsexp_cst = Make (struct
+    type t = W.t_or_comment
+
+    let to_sexp_or_comment (_ : Config.t) = Fn.id
+  end)
+
+let sexp_with_layout_to_sexp_or_comment sexp_with_layout_or_comment =
+  let convert_pos (pos : Sexplib.Sexp.With_layout.pos) : Parsexp.Positions.pos =
+    { line = pos.row; col = pos.col; offset = 0 }
+  in
+  let atom_end_position ~(pos : Sexplib.Sexp.With_layout.pos) ~atom ~unescaped =
+    convert_pos
+      (match unescaped with
+       | None -> { pos with col = pos.col + String.length atom }
+       | Some quoted_string ->
+         String.fold quoted_string ~init:pos ~f:(fun pos char ->
+           match char with
+           | '\n' -> { row = pos.row + 1; col = 0 }
+           | _ -> { pos with col = pos.col + 1 }))
+  in
+  let convert_range (pos : Sexplib.Sexp.With_layout.pos) ~len : Parsexp.Positions.range =
+    let start_pos = convert_pos pos in
+    { start_pos
+    ; end_pos =
+        { start_pos with col = start_pos.col + len; offset = start_pos.offset + len }
+    }
+  in
+  let rec convert_sexp_or_comment
+    : Sexplib.Sexp.With_layout.t_or_comment -> W.t_or_comment
+    = function
+    | Sexp s -> W.Sexp (convert_sexp s)
+    | Comment comment -> W.Comment (convert_comment comment)
+  and convert_comment : Sexplib.Sexp.With_layout.comment -> W.comment = function
+    | Plain_comment (pos, comment) ->
+      W.Plain_comment { loc = convert_range pos ~len:(String.length comment); comment }
+    | Sexp_comment (pos, comments, sexp) ->
+      W.Sexp_comment
+        { hash_semi_pos = convert_pos pos
+        ; comments = List.map comments ~f:convert_comment
+        ; sexp = convert_sexp sexp
+        }
+  and convert_sexp : Sexplib.Sexp.With_layout.t -> W.t = function
+    | Atom (pos, atom, unescaped) ->
+      W.Atom
+        { loc =
+            { start_pos = convert_pos pos
+            ; end_pos = atom_end_position ~pos ~atom ~unescaped
+            }
+        ; atom
+        ; unescaped
+        }
+    | List (start_pos, elements, end_pos) ->
+      W.List
+        { loc = { start_pos = convert_pos start_pos; end_pos = convert_pos end_pos }
+        ; elements = List.map elements ~f:convert_sexp_or_comment
+        }
+  in
+  convert_sexp_or_comment sexp_with_layout_or_comment
+;;
+
+module Sexp_with_layout = Make (struct
+    type t = Sexplib.Sexp.With_layout.t_or_comment
+
+    let to_sexp_or_comment (_ : Config.t) = sexp_with_layout_to_sexp_or_comment
+  end)

@@ -1,0 +1,6 @@
+(executables
+ (modes byte exe)
+ (names lsp)
+ (libraries core_unix.command_unix lsp_proof_of_concept)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,8 @@
+(library
+ (name lsp_rpc)
+ (public_name lsp_rpc)
+ (libraries async core_kernel.bus core lsp jsonrpc core_unix.signal_unix
+   yojson)
+ (flags :standard -alert -private_lsp_library)
+ (preprocess
+  (pps ppx_yojson_conv ppx_jane)))

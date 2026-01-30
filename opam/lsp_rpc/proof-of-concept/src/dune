@@ -1,0 +1,7 @@
+(library
+ (name lsp_proof_of_concept)
+ (public_name lsp_rpc.proof_of_concept)
+ (libraries async core lsp lsp_rpc core_unix.time_float_unix utf_offset_conv
+   yojson)
+ (preprocess
+  (pps ppx_jane)))

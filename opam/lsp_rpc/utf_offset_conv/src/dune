@@ -1,0 +1,6 @@
+(library
+ (name utf_offset_conv)
+ (public_name lsp_rpc.utf_offset_conv)
+ (libraries core)
+ (preprocess
+  (pps ppx_jane)))

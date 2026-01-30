@@ -1,0 +1,6 @@
+(executables
+ (modes byte exe)
+ (names dump_trace identify subsample flamegraph hotspots strip_names)
+ (libraries memtrace unix)
+ (preprocess
+  (pps ppx_jane)))

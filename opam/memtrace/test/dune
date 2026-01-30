@@ -1,0 +1,60 @@
+(executables
+ (modes byte exe)
+ (names test copy trace geom_sampler fork)
+ (libraries memtrace unix)
+ (preprocess
+  (pps ppx_jane)))
+
+(rule
+ (deps test.exe)
+ (action
+  (run ./test.exe))
+ (alias runtest))
+
+(rule
+ (deps trace.exe)
+ (action
+  (run ./trace.exe))
+ (alias runtest))
+
+(rule
+ (deps fork.exe)
+ (action
+  (run ./fork.exe))
+ (alias runtest))
+
+(rule
+ (deps geom_sampler.exe geom_sampler.expected)
+ (action
+  (bash "diff geom_sampler.expected <(./geom_sampler.exe)"))
+ (alias runtest))
+
+(rule
+ (targets ocamlopt.ctf.copy)
+ (deps copy.exe ocamlopt.ctf)
+ (action
+  (run ./copy.exe ocamlopt.ctf ocamlopt.ctf.copy)))
+
+(rule
+ (targets ocamlopt.ctf.txt)
+ (deps ../bin/dump_trace.exe ocamlopt.ctf)
+ (action
+  (bash "../bin/dump_trace.exe ocamlopt.ctf > ocamlopt.ctf.txt")))
+
+(rule
+ (targets ocamlopt.ctf.copy.txt)
+ (deps ../bin/dump_trace.exe ocamlopt.ctf.copy)
+ (action
+  (bash "../bin/dump_trace.exe ocamlopt.ctf.copy > ocamlopt.ctf.copy.txt")))
+
+(rule
+ (deps ocamlopt.ctf.txt ocamlopt.ctf.copy.txt)
+ (action
+  (bash "diff -u ocamlopt.ctf.txt ocamlopt.ctf.copy.txt"))
+ (alias runtest))
+
+(rule
+ (deps ocamlopt.ctf ocamlopt.ctf.copy)
+ (action
+  (bash "cmp ocamlopt.ctf ocamlopt.ctf.copy"))
+ (alias runtest))

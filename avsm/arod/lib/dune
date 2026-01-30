@@ -1,0 +1,21 @@
+(library
+ (name arod)
+ (public_name arod)
+ (libraries
+  bushel
+  bushel.eio
+  sortal.schema
+  srcsetter
+  htmlit
+  cmarkit
+  tomlt
+  tomlt.bytesrw
+  uri
+  ptime
+  ptime.clock.os
+  syndic
+  jsonfeed
+  ezjsonm
+  sitemap
+  unix
+  fmt))

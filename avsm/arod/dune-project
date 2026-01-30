@@ -1,0 +1,34 @@
+(lang dune 3.21)
+(name arod)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/arod))
+
+(package
+ (name arod)
+ (synopsis "Webserver for Bushel content")
+ (description
+  "Arod is a tiny_httpd-based webserver that serves Bushel content
+   (notes, papers, projects, ideas, videos) as a website. It uses
+   TOML configuration for easy deployment and includes support for
+   responsive images, syntax highlighting, and feeds.")
+ (depends
+  (ocaml (>= 5.2))
+  (bushel (>= 0.1))
+  (tiny_httpd (>= 0.17))
+  (htmlit (>= 0.1))
+  (cmarkit (>= 0.3))
+  (uri (>= 4.4))
+  (ptime (>= 1.2))
+  (fmt (>= 0.9))
+  (tomlt (>= 0.1))
+  (eio (>= 1.2))
+  eio_main
+  cmdliner
+  logs
+  unix
+  (odoc :with-doc)))

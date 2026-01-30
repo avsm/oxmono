@@ -1,0 +1,8 @@
+(library
+ (foreign_stubs
+  (language c)
+  (names stubs))
+ (name async_rpc_kernel_bench)
+ (preprocess
+  (pps ppx_jane))
+ (libraries async async.async_rpc async_rpc_kernel core_kernel.bus core))

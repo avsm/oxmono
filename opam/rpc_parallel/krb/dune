@@ -1,0 +1,5 @@
+(library
+ (name rpc_parallel_krb_public)
+ (libraries async core core_unix krb rpc_parallel)
+ (preprocess
+  (pps ppx_jane)))

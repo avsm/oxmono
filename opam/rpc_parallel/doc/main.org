@@ -1,0 +1,99 @@
+#+TITLE: Rpc_parallel
+
+=Rpc_parallel= is a library that uses processes to achieve
+parallelism. Because of the garbage collector and async locks,
+thread-level parallelism in OCaml is not achievable.
+
+The library works by spawning processes that start rpc servers. The
+spawned process is running /proc/self/exe (i.e. the same executable as
+the running process). Communication between a "master" and a "worker"
+involves sending rpc queries and receiving rpc responses. The "worker"
+already has the code to do computation because it is running the same
+binary!
+
+* Getting started
+
+If you are looking for an entry point into the library, take a look at the
+sum_worker.ml example in lib/rpc_parallel/public/expect_test. This is a test that
+demonstrates how to spawn a worker and run a function on it. A lot of the other
+examples are used to test specific aspects of the library, so they might not be
+as useful as a source of documentation.
+
+* Backends
+
+There are two backends for Rpc_parallel: the unauthenticated and kerberized
+backends, available in the rpc_parallel_unauthenticated and rpc_parallel_krb
+libraries respectively. They provide identical functionality, except that the
+unauthenticated library uses unencrypted RPCs and the kerberized library uses
+kerberized RPCs. The kerberized library only allows connections between masters
+and workers that have the same kerberos principal to ensure that your cluster is
+not connected to by other users.
+
+When using Rpc_parallel, you will mostly use functions and modules from the
+rpc_parallel library. However, to initialize the library, you will need to
+either implement your own Backend module (not recommended unless you have
+special needs) or use the initialization functions in rpc_parallel_krb
+(recommended) or rpc_parallel_unauthenticated (unkerberized, "legacy") which
+handle producing a Backend module for you.
+
+* Mental Model
+
+- =Worker.t= identifies a worker rpc server
+- =spawn= (=serve=) starts a worker rpc server in another process (the same
+  process)
+- =client= connects to a worker rpc server
+- =run= dispatches on a connection to a worker rpc server
+
+* Top-level
+
+It is highly recommended for =Rpc_parallel.start_app= and =Rpc_parallel.Make=
+calls to be top-level. But the real requirements are:
+
+1) The master's state is initialized before any calls to =spawn=. This will be
+   achieved either by =Rpc_parallel.start_app= or
+   =Rpc_parallel.Expert.start_master_server_exn=.
+
+2) Spawned workers (runs of your executable with a certain environment variable
+   set) must start running as a worker. This will be achieved either by
+   =Rpc_parallel.start_app= or =Rpc_parallel.Expert.worker_command=.
+
+3) Spawned workers must be able to find their function implementations when they
+   start running as a worker. These implementations are gathered on the
+   application of the =Rpc_parallel.Make= functor. So that masters and workers
+   agree on certain generated ids, all of the worker implementations must be
+   defined in all code paths leading up to =start_app=,
+   =start_master_server_exn=, or =worker_command=, and they should be defined in
+   the same order.
+
+* Monitoring your workers
+
+Uncaught exceptions in workers will always result in the worker
+calling =Shutdown.shutdown=. The master can be notified of these
+exceptions in multiple ways:
+
+- If the exception occured in a function implementation =f= before =f= is
+  determined, the exception will be returned back to the caller. E.g. the caller
+  of =spawn= or =run= will get an =Error.t= describing the exception.
+
+- If the exception occured after =f= is determined, =on_failure exn= will be
+  called (in =Monitor.current ()= at the time of =spawn=) in the spawning
+  process.
+
+- If =redirect_stderr= specifies a file, the worker will also write its
+  exception to that file before shutting down.
+
+* Dealing with long async cycles
+
+Long async cycles can cause the connections to your workers to close.
+If you are using =~shutdown_on:Disconnect= (which is recommended!),
+then this connection closing will result in your worker shutting down.
+
+You can bump the =max_message_size=, =heartbeat_config=, and
+=handshake_timeout= settings that are used for all rpc communication.
+These settings are determined by (in descending order of preference):
+
+1) The environment variable =RPC_PARALLEL_RPC_SETTINGS= (see
+   =Rpc_settings= in =lib/rpc_parallel/src/parallel.ml= for how to
+   construct a value)
+2) Arguments supplied to =start_app= or =Expert.start_master_server_exn=
+3) The defaults supplied by the =Rpc= library

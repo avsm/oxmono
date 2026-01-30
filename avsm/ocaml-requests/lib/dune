@@ -1,0 +1,11 @@
+(library
+ (name requests)
+ (public_name requests)
+ (wrapped false)
+ (libraries
+  requests_core requests_parsing requests_h1 requests_h2 requests_features
+  eio eio.unix jsont jsont.bytesrw base64 cookeio cookeio.jar xdge logs
+  ptime ptime.clock.os cmdliner mirage-crypto mirage-crypto-rng
+  mirage-crypto-rng.unix mirage-crypto-ec mirage-crypto-pk eqaf tls tls-eio
+  ca-certs domain-name cstruct optint conpool decompress.de decompress.zl
+  decompress.gz bigstringaf magic-mime digestif))

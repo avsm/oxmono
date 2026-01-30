@@ -1,0 +1,13 @@
+(test
+ (name test_cookeio)
+ (libraries
+  cookeio
+  cookeio_jar
+  alcotest
+  eio
+  eio.unix
+  eio_main
+  eio.mock
+  ptime
+  str)
+ (deps cookies.txt))

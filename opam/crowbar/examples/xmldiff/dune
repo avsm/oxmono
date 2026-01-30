@@ -1,0 +1,4 @@
+; disabled because of xmldiff compat issues
+;(test
+; (name test_xmldiff)
+; (libraries xmldiff crowbar))

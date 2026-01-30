@@ -1,0 +1,7 @@
+(library
+ (name requests_features)
+ (public_name requests.features)
+ (wrapped false)
+ (libraries requests_core requests_parsing requests_h1 mirage-crypto mirage-crypto-ec
+  mirage-crypto-pk mirage-crypto-rng tls tls-eio ca-certs base64 digestif
+  eqaf conpool domain-name ptime.clock.os))

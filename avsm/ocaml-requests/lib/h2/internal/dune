@@ -1,0 +1,5 @@
+(library
+ (name requests_h2_internal)
+ (public_name requests.h2-internal)
+ (wrapped false)
+ (libraries cstruct))

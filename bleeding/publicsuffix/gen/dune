@@ -1,0 +1,14 @@
+(executable
+ (name gen_psl)
+ (modules gen_psl)
+ (libraries str punycode))
+
+(rule
+ (targets publicsuffix_data.ml)
+ (deps
+  (:dat ../data/public_suffix_list.dat)
+  (:gen gen_psl.exe))
+ (action
+  (with-stdout-to
+   %{targets}
+   (run %{gen} %{dat}))))

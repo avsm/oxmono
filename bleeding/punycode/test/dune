@@ -1,0 +1,4 @@
+(test
+ (name test_punycode)
+ (libraries punycode punycode.idna alcotest)
+ (modules test_punycode))

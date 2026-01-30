@@ -1,0 +1,10 @@
+(executable
+ (name xdg_example)
+ (libraries xdge eio_main cmdliner fmt))
+
+(executable
+ (name test_paths)
+ (libraries xdge eio eio_main))
+
+(cram
+ (deps xdg_example.exe test_paths.exe))

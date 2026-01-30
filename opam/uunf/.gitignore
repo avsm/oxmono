@@ -1,0 +1,11 @@
+_b0
+_build
+support/ucd.xml
+test/NormalizationTest.txt
+tmp
+*.native
+*.byte
+*.install
+*~
+\.\#*
+\#*#

@@ -1,0 +1,16 @@
+description = "Unicode text normalization for OCaml"
+version = "%%VERSION_NUM%%"
+requires = ""
+archive(byte) = "uunf.cma"
+archive(native) = "uunf.cmxa"
+plugin(byte) = "uunf.cma"
+plugin(native) = "uunf.cmxs"
+exists_if = "uunf.cma uunf.cmxa"
+
+package "string" (
+  description = "The uunf.string library (deprecated)"
+  version = "%%VERSION_NUM%%"
+  requires = "uunf"
+  exports = "uunf"
+  warning = "Deprecated, use the uunf library."
+)

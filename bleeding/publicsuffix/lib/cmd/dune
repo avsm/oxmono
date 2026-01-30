@@ -1,0 +1,4 @@
+(library
+ (name publicsuffix_cmd)
+ (public_name publicsuffix.cmd)
+ (libraries publicsuffix cmdliner))

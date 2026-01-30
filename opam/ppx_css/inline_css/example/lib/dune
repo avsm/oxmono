@@ -1,0 +1,9 @@
+(library
+ (name inline_css_example_lib)
+ (libraries core inline_css js_of_ocaml)
+ (preprocess
+  (pps ppx_css ppx_jane)))
+
+(alias
+ (name default)
+ (deps inline_css_example_lib.ml.pp inline_css_example_lib.mli.pp))

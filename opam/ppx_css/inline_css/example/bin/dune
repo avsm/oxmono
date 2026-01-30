@@ -1,0 +1,16 @@
+(executables
+ (modes byte exe)
+ (names make_css)
+ (libraries core inline_css inline_css_example_lib js_of_ocaml re)
+ (preprocess
+  (pps ppx_jane)))
+
+(rule
+ (targets style.css)
+ (deps make_css.bc.js)
+ (action
+  (bash "node %{deps} > %{targets}")))
+
+(alias
+ (name default)
+ (deps style.css))

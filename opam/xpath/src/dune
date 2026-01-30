@@ -1,0 +1,6 @@
+(library
+ (name xpath)
+ (public_name xpath)
+ (libraries angstrom core simple_xml)
+ (preprocess
+  (pps ppx_jane)))

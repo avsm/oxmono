@@ -1,0 +1,5 @@
+(library
+ (name xpath_tests)
+ (libraries core simple_xml xpath)
+ (preprocess
+  (pps ppx_jane)))

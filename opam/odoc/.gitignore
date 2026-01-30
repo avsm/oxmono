@@ -1,0 +1,44 @@
+# Odoc driver output.
+_odoc
+_html
+_indexes
+_mlds
+
+# Dune output.
+_build
+*.install
+*.merlin
+
+# Editor config
+.vscode
+
+# Bisect_ppx output.
+_coverage/
+
+# For local experiments.
+scratch/
+
+# opam v2
+_opam/
+
+# Esy outputs
+_release
+_esy
+
+# Generated docs
+docs/
+
+# Duniverse
+astring/
+cmdliner/
+cppo/
+dune-local/
+fmt/
+fpath/
+ocaml-re/
+result/
+tyxml/
+uutf/
+
+# Mac things
+.DS_Store

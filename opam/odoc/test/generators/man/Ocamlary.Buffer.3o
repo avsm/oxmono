@@ -1,0 +1,17 @@
+
+.TH Buffer 3 "" "Odoc" "OCaml Library"
+.SH Name
+Ocamlary\.Buffer
+.SH Synopsis
+.sp 
+.in 2
+\fBModule Ocamlary\.Buffer\fR
+.in 
+.sp 
+.fi 
+References are resolved after everything, so {!Buffer\.t} won't resolve\.
+.nf 
+.SH Documentation
+.sp 
+.nf 
+\f[CB]val\fR f : int \f[CB]\->\fR unit

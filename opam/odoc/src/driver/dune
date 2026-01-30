@@ -1,0 +1,18 @@
+(library
+ (public_name odoc-driver)
+ (name odoc_driver_lib)
+ (preprocess
+  (pps ppx_sexp_conv))
+ (libraries
+  cmdliner
+  bos
+  progress
+  fpath
+  yojson
+  findlib
+  opam-format
+  logs
+  logs.fmt
+  eio_main
+  sexplib
+  odoc_utils))

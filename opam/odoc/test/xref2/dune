@@ -1,0 +1,70 @@
+(executable
+ (name compile)
+ (modules compile)
+ (libraries fpath))
+
+(env
+ (_
+  (binaries
+   (../odoc_print/odoc_print.exe as odoc_print)
+   (./compile.exe as compile))))
+
+(cram
+ (package odoc)
+ (deps %{bin:odoc} %{bin:odoc_print} %{bin:compile}))
+
+(cram
+ (applies_to module_type_of_size hidden_modules)
+ (enabled_if
+  (>= %{ocaml_version} 4.04.0)))
+
+; 4.06.0 and above
+
+(cram
+ (applies_to deep_substitution)
+ (enabled_if
+  (>= %{ocaml_version} 4.06.0)))
+
+; 4.07.0 and above
+
+(cram
+ (applies_to github_issue_944)
+ (enabled_if
+  (>= %{ocaml_version} 4.07.0)))
+
+; 4.08.0 and above
+
+(cram
+ (applies_to
+  github_issue_587
+  shadow
+  shadow2
+  shadow4
+  shadow5
+  js_stack_overflow
+  expansion
+  github_issue_1066
+  include_module_type_of_preamble)
+ (enabled_if
+  (>= %{ocaml_version} 4.08.0)))
+
+; 4.13.0 and above
+
+(cram
+ (applies_to github_issue_793)
+ (enabled_if
+  (>= %{ocaml_version} 4.13.0)))
+
+; 4.14.0 and above
+
+(cram
+ (applies_to lookup_def shadow3 to_remove_test)
+ (enabled_if
+  (>= %{ocaml_version} 4.14.0)))
+
+; Disable the big_search_path test, as it had too many false positive in CI.
+; Kept for reference until the test is integrated in a benchmark. (TODO)
+
+(cram
+ (applies_to big_search_path)
+ (enabled_if false))

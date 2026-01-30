@@ -1,0 +1,64 @@
+
+.TH Alerts 3 "" "Odoc" "OCaml Library"
+.SH Name
+Alerts
+.SH Synopsis
+.sp 
+.in 2
+\fBModule Alerts\fR
+.in 
+.sp 
+.SH Documentation
+.sp 
+.nf 
+\f[CB]val\fR a : int
+.fi 
+.br 
+.ti +2
+@deprecated: a
+.nf 
+.sp 
+\f[CB]val\fR b : int
+.fi 
+.br 
+.ti +2
+@deprecated: b\.
+.nf 
+.sp 
+\f[CB]val\fR c : int
+.fi 
+.br 
+.ti +2
+@deprecated: 
+.nf 
+.sp 
+\f[CB]module\fR Top1 : \f[CB]sig\fR \.\.\. \f[CB]end\fR
+.sp 
+\f[CB]val\fR d : int
+.fi 
+.br 
+.ti +2
+@deprecated: A deprecated alert d
+.nf 
+.sp 
+\f[CB]val\fR d2 : int
+.fi 
+.br 
+.ti +2
+@deprecated: 
+.nf 
+.sp 
+\f[CB]val\fR e : int
+.fi 
+.br 
+.ti +2
+@alert: e an alert
+.nf 
+.sp 
+\f[CB]val\fR f : int
+.fi 
+.br 
+.ti +2
+@alert: f
+.nf 
+

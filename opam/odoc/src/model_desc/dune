@@ -1,0 +1,8 @@
+(library
+ (name odoc_model_desc)
+ (public_name odoc.model_desc)
+ (libraries odoc_model)
+ (instrumentation
+  (backend landmarks --auto))
+ (instrumentation
+  (backend bisect_ppx)))

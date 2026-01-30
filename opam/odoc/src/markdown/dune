@@ -1,0 +1,5 @@
+(executable
+ (public_name odoc-md)
+ (name odoc_md)
+ (package odoc-md)
+ (libraries cmarkit odoc.model odoc.odoc cmdliner))

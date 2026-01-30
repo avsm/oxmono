@@ -1,0 +1,20 @@
+(env
+ (_
+  (binaries
+   (../odoc_print/odoc_print.exe as odoc_print))))
+
+(cram
+ (package odoc)
+ (deps
+  (package odoc)
+  %{bin:odoc_print}))
+
+(cram
+ (applies_to json_expansion_with_sources)
+ (enabled_if
+  (> %{ocaml_version} 4.14.0)))
+
+(cram
+ (applies_to html_support_files)
+ (enabled_if
+  (> %{ocaml_version} 4.14.0)))

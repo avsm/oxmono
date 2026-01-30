@@ -1,0 +1,42 @@
+(library
+ (name odoc_odoc)
+ (public_name odoc.odoc)
+ (libraries
+  compiler-libs.common
+  fpath
+  odoc_html
+  odoc_html_support_files
+  odoc_latex
+  odoc_loader
+  odoc_manpage
+  odoc_model
+  odoc_json_index
+  odoc_xref2
+  odoc_occurrences
+  tyxml
+  unix)
+ (instrumentation
+  (backend landmarks --auto))
+ (instrumentation
+  (backend bisect_ppx)))
+
+(rule
+ (targets classify.ml)
+ (deps
+  (:x classify.cppo.ml))
+ (action
+  (chdir
+   %{workspace_root}
+   (run %{bin:cppo} -V OCAML:%{ocaml_version} %{x} -o %{targets}))))
+
+(rule
+ (targets extract_code.ml)
+ (deps
+  (:x extract_code.cppo.ml))
+ (action
+  (chdir
+   %{workspace_root}
+   (run %{bin:cppo} -V OCAML:%{ocaml_version} %{x} -o %{targets}))))
+
+(documentation
+ (package odoc))

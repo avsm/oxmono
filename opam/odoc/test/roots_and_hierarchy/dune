@@ -1,0 +1,8 @@
+(env
+ (_
+  (binaries
+   (../odoc_print/print_index.exe as print_index))))
+
+(cram
+ (package odoc)
+ (deps %{bin:odoc} %{bin:print_index}))

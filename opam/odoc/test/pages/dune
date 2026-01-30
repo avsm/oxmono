@@ -1,0 +1,15 @@
+(env
+ (_
+  (binaries
+   (../odoc_print/odoc_print.exe as odoc_print))))
+
+(cram
+ (package odoc)
+ (enabled_if
+  (>= %{ocaml_version} 4.04.1))
+ (deps %{bin:odoc} %{bin:odoc_print}))
+
+(cram
+ (applies_to medias)
+ (enabled_if
+  (>= %{ocaml_version} 4.07.0)))

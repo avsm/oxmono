@@ -1,0 +1,13 @@
+(rule
+ (copy ../../odoc_print/type_desc_to_yojson.ml type_desc_to_yojson.ml))
+
+(library
+ (name odoc_model_semantics_test)
+ (package odoc)
+ (optional)
+ (inline_tests)
+ (enabled_if
+  (>= %{ocaml_version} 4.04.1))
+ (preprocess
+  (pps ppx_expect))
+ (libraries sexplib0 odoc_model odoc_model_desc yojson))

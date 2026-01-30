@@ -1,0 +1,9 @@
+(executable
+ (name main)
+ (package odoc)
+ (public_name odoc)
+ (libraries cmdliner odoc_model odoc_odoc)
+ (instrumentation
+  (backend landmarks --auto))
+ (instrumentation
+  (backend bisect_ppx)))

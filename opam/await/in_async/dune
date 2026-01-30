@@ -1,0 +1,6 @@
+(library
+ (name await_in_async)
+ (public_name await.in_async)
+ (libraries async await_kernel core handled_effect portable)
+ (preprocess
+  (pps ppx_jane)))

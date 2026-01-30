@@ -1,0 +1,9 @@
+(library
+ (foreign_stubs
+  (language c)
+  (names await_blocking_stubs))
+ (name await_blocking)
+ (public_name await.blocking)
+ (libraries await_kernel base basement capsule0.blocking_sync portable.kernel)
+ (preprocess
+  (pps ppx_jane ppx_fuelproof)))

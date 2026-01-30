@@ -1,0 +1,6 @@
+(library
+ (name await_capsule)
+ (public_name await.capsule)
+ (libraries await_kernel await_sync base portable.kernel)
+ (preprocess
+  (pps ppx_template)))

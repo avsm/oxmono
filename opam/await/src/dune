@@ -1,0 +1,6 @@
+(library
+ (name await)
+ (public_name await)
+ (libraries await_capsule await_kernel await_sync)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,6 @@
+(library
+ (name await_kernel)
+ (public_name await.kernel)
+ (libraries base portable.kernel)
+ (preprocess
+  (pps ppx_jane ppx_fuelproof)))

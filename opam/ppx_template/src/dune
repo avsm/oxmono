@@ -1,0 +1,7 @@
+(library
+ (name ppx_template)
+ (public_name ppx_template)
+ (kind ppx_rewriter)
+ (libraries ppx_template_expander ppxlib ppxlib_jane ppxlib.stdppx)
+ (preprocess
+  (pps ppxlib.metaquot)))

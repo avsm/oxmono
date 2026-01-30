@@ -1,0 +1,5 @@
+(library
+ (name ppx_template_test)
+ (libraries ppx_template_test_common)
+ (preprocess
+  (pps ppx_template ppx_disable_unused_warnings ppx_compare ppx_sexp_conv)))

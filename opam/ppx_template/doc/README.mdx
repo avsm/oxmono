@@ -1,0 +1,1446 @@
+# ppx_template
+
+<!--
+set up mdx
+
+```ocaml
+# open Core;;
+```
+-->
+
+# Overview
+
+`ppx_template` emulates polymorphism by generating multiple copies of a given binding for
+different parameters. The ppx is particularly used to support polymorphism over kinds,
+modes/modalities, and allocation behavior, all of which the OxCaml team has plans to
+support first class in the compiler at some point in the future, but are not currently
+available.
+
+## Basic client usage
+
+To invoke `ppx_template` as a client of a library, you just need to add the corresponding
+attribute to request a particular version of a function. For example, suppose you want
+to filter over a list of `bits64` values; then, you would invoke `(List.filter [@kind bits64])`.
+Similarly, if you wanted to extract the contents of a local option, you would invoke
+`(Option.value [@mode local])`. In cases where a function is templated over multiple
+parameters, you might need to provide more arguments to the attributes, or even use
+multiple attributes (e.g. `(List.fold [@kind bits32 bits64] [@mode local global])` will give
+you a fold function that consumes a `local` list of `bits32`s, and produces a
+`global` value of kind `bits64`).
+
+A few other examples of ways you might invoke a templated value:
+```ocaml
+(* Convert a locally allocated [string array] to a stack allocated sexp *)
+let stack_sexp_of_string_array arr = exclave_
+  (Array.sexp_of_t [@alloc stack]) (String.sexp_of_t [@alloc stack]) arr
+;;
+
+(* Make a comparator over some type that allows sets of strings to be portable *)
+module My_type = struct
+  module T = struct
+    type t = Box of string
+    [@@deriving compare, sexp]
+  end
+
+  (* The template annotation here invokes a version of [Comparable.Make] that requires
+     [t] to have certain properties, and that the required functions are all portable. *)
+  include Comparable.Make [@mode portable] (T)
+end
+
+(* Write a type that contains a list of [bits32]s *)
+type ('a : bits32) my_list = { elts : ('a List.t [@kind bits32]) }
+```
+
+To see what template instances are available for a given value, you can check its
+declaration:
+```ocaml
+(* The [%template] just enables the ppx to traverse over its payload, but doesn't
+   actually have its own meaningful effect. *)
+module type%template T = sig
+  (* An identity function over various kinds *)
+  val id : ('a : k). 'a -> 'a
+  [@@kind k = (float32, float64, bits32, bits64)]
+
+  (* Some ppxes know about templates and provide their own ways of invoking
+     templates *)
+  type t [@@deriving sexp ~stackify]
+
+  (* equivalently: *)
+  val t_of_sexp : Sexp.t -> t
+  val sexp_of_t : t @ m -> Sexp.t @ m
+  [@@alloc _ @ m = (heap @ global, stack @ local)]
+
+  (* When multiple items are being templated over the same parameters, you can
+     avoid repetition by using a toplevel attribute, which applies to all items
+     below it (for more details on [.default], read "## Attributes" below) *)
+  [@@@mode.default p = (nonportable, portable)]
+
+  val construct_tuple : 'a @ p -> 'b @ p -> ('a * 'b) @ p
+  val tuple_fst : ('a * 'b) @ p -> 'a @ p
+  val tuple_snd : ('a * 'b) @ p -> 'b @ p
+end
+```
+
+## Basic library usage
+
+The invocations to define your own templated values are a bit more complicated, and
+you're encouraged to read the rest of this document to get an intuition for how the
+template language works. If you're just looking for a basic guide on how to read
+existing templates, though, then here's a few examples:
+```ocaml
+module%template T : T = struct
+  (* An identity function over various kinds *)
+  let id (type a : k) (x : a) = x
+  [@@kind k = (float32, float64, bits32, bits64)]
+
+  type t = string * bool
+
+  let sexp_of_t ((string, bool) @ m) =
+    (Sexp.List
+        (* Template variables often need to be threaded to other templated values *)
+      [ (String.sexp_of_t [@alloc a]) string
+      ; (Bool.sexp_of_t [@alloc a]) bool
+      ]
+    (* There are some special attributes that affect templating behavior based on
+       the current template instance *)
+    ) [@exclave_if_stack a]
+  [@@alloc a @ m = (heap @ global, stack @ local)]
+  (* [[@@alloc]] attributes allow you to have correlated template variables over
+     allocation behavior and its corresponding mode *)
+
+  let t_of_sexp _ = failwith "unimplemented"
+
+  (* The [_] symbol is often used to ignore the parameter when it can be inferred by the
+     type-checker *)
+  [@@@mode.default _ = (nonportable, portable)]
+
+  let construct_tuple a b = (a, b)
+  let tuple_fst (a, _) = a
+  let tuple_snd (_, b) = b
+end
+```
+
+# Syntax
+
+`ppx_template` is implemented using various extensions-points and attributes.
+
+## Extension points
+
+The `[%template ...]` extension point, which does not actually itself affect the code,
+enables `ppx_template` on the contained code. The extension point typically shows up in
+shorthand form, e.g. as
+`module%template T = struct ... end` or `let%template f x = ...`; this enables the ppx
+for the attached AST node:
+
+```ocaml
+module T1 : sig
+  (* long-hand extension point in signature (notice colon) *)
+  [%%template:
+  val id : ('a : k). 'a -> 'a
+  [@@kind k = (float32, float64, bits32, bits64)]]
+
+  (* short-hand extension on [val] *)
+  val%template id : ('a : k). 'a -> 'a
+  [@@kind k = (float32, float64, bits32, bits64)]
+end = struct
+  (* long-hand extension point in structure (notice no colon) *)
+  [%%template
+  let id x = x
+  [@@kind k = (float32, float64, bits32, bits64)]]
+
+  (* short-hand extension on [let] *)
+  let%template id x = x
+  [@@kind k = (float32, float64, bits32, bits64)]
+end
+
+(* short-hand extension on entire module *)
+module%template T2 : sig
+  val id : ('a : k). 'a -> 'a
+  [@@kind k = (float32, float64, bits32, bits64)]
+end = struct
+  let id x = x
+  [@@kind k = (float32, float64, bits32, bits64)]
+end
+```
+
+There is also a `module%template.portable` extension point; see [below](#template-portable)
+for details.
+
+## Attributes
+
+### Poly
+
+Attached poly-attributes (`[@@kind ...]`, `[@@kind_set ...]`, `[@@mode ...]`,
+`[@@modality ...]`, `[@@alloc ...]`, and `[@@synchro ...]`) can appear on structure/signature
+items; these attributes produce multiple copies of the attached template item, updating each
+instance's AST based on the specified bindings. Additionally, these attributes mangle the
+instance's name (e.g. function name or module name) based on the requested bindings so that the
+desired template instance can be picked out by name (see [below](#mangling)):
+
+```ocaml
+module%template T_templated : sig
+  val id : ('a : k). 'a @ m -> 'a @ m
+  [@@kind k = (bits32, bits64)]
+  [@@mode m = (local, global)]
+end = struct
+  let id x = x
+  [@@kind k = (bits32, bits64)]
+  [@@mode m = (local, global)]
+end
+
+(* expands to *)
+
+module T_expanded : sig
+  val id__bits32 : ('a : bits32). 'a @ local -> 'a @ local
+  val id__bits32__global : ('a : bits32). 'a @ global -> 'a @ global
+  val id__bits64 : ('a : bits64). 'a @ local -> 'a @ local
+  val id__bits64__global : ('a : bits64). 'a @ global -> 'a @ global
+end = struct
+  let id__bits32 x = x
+  and id__bits32__global x = x
+  and id__bits64 x = x
+  and id__bits64__global x = x
+end
+```
+
+Floating poly-attributes (`[@@@kind ...]`, `[@@@mode ...]`, etc. and `[@@@kind.default ...]`,
+`[@@@mode.default ...]` etc.) can appear as a structure/signature item; these attributes
+act as their corresponding attached poly-attributes, templating all subsequent items in the
+same (shallow) lexical scope. The `.default` modifier controls whether name mangling happens
+(no mangling when omitted, mangling when present). You generally *always* want to use
+`.default`, and we intend to make that the default behavior in the future.
+
+<details>
+<summary>Expand example</summary>
+
+```ocaml
+module%template T_floating_default = struct
+  [@@@kind.default k = (bits32, bits64)]
+
+  type ('a : k) t = { x : 'a }
+
+  [@@@mode.default p = (nonportable, portable)]
+
+  let wrap (x @ p) = { x }
+  let unwrap ({ x } @ p) = x
+end
+
+(* is equivalent to *)
+
+module%template T_floating = struct
+  (* note no [.default] *)
+  [@@@kind k = (bits32, bits64)]
+
+  type ('a : k) t = { x : 'a }
+  [@@kind k = k]
+
+  [@@@mode p = (nonportable, portable)]
+
+  let wrap (x @ p) = { x }
+  [@@kind k = k]
+  [@@mode p = p]
+
+  let unwrap ({ x } @ p) = x
+  [@@kind k = k]
+  [@@mode p = p]
+end
+
+(* expands to *)
+
+module%template T_attached = struct
+  (* floating attributes introduce a scope so that, e.g., [open]s don't bleed into later templates *)
+  include struct
+    type ('a : k) t = { x : 'a }
+    [@@kind k = bits32]
+
+    include struct
+      let wrap (x @ p) = { x }
+      [@@kind k = bits32]
+      [@@mode p = nonportable]
+
+      let unwrap ({ x } @ p) = x
+      [@@kind k = bits32]
+      [@@mode p = nonportable]
+    end
+
+    include struct
+      let wrap (x @ p) = { x }
+      [@@kind k = bits32]
+      [@@mode p = portable]
+
+      let unwrap ({ x } @ p) = x
+      [@@kind k = bits32]
+      [@@mode p = portable]
+    end
+  end
+
+  include struct
+    type ('a : k) t = { x : 'a }
+    [@@kind k = bits64]
+
+    include struct
+      let wrap (x @ p) = { x }
+      [@@kind k = bits64]
+      [@@mode p = nonportable]
+
+      let unwrap ({ x } @ p) = x
+      [@@kind k = bits64]
+      [@@mode p = nonportable]
+    end
+
+    include struct
+      let wrap (x @ p) = { x }
+      [@@kind k = bits64]
+      [@@mode p = portable]
+
+      let unwrap ({ x } @ p) = x
+      [@@kind k = bits64]
+      [@@mode p = portable]
+    end
+  end
+end
+
+(* is equivalent to *)
+
+module T_expanded = struct
+  type ('a : bits32) t__bits32 = { x : 'a }
+
+  let wrap__bits32 (x @ nonportable) = { x }
+  let unwrap__bits32 ({ x } @ nonportable) = x
+  let wrap__bits32__portable (x @ portable) = { x }
+  let unwrap__bits32__portable ({ x } @ portable) = x
+
+  type ('a : bits64) t__bits64 = { x : 'a }
+
+  let wrap__bits64 (x @ nonportable) = { x }
+  let unwrap__bits64 ({ x } @ nonportable) = x
+  let wrap__bits64__portable (x @ portable) = { x }
+  let unwrap__bits64__portable ({ x } @ portable) = x
+end
+```
+</details>
+
+Though the right hand side of poly bindings is most often a list of
+singleton expressions, it can actually be any ppx\_template expression
+that evaluates to a set. For example:
+
+```ocaml
+# let%template id (x : (_ : k)) = x [@@kind k = (value, value & (value, bits64))]
+val id : 'a -> 'a = <fun>
+val id__'value_value' : ('a : value & value). 'a -> 'a = <fun>
+val id__'value_bits64' : ('a : value & bits64). 'a -> 'a = <fun>
+```
+
+Here, the set `(value, value & (value, bits64))` evaluates to the set
+`(value, value & value, value & bits64)`, and so we get three versions of `id`.
+
+For more information about the semantics of sets in kind expressions, see
+[kind sets](#kind-sets).
+
+### Mono
+
+Mono-attributes (`[@kind ...]`, `[@kind_set ...]`, `[@mode ...]`, `[@modality ...]`,
+`[@alloc ...]`, and `[@synchro ...]`) can appear attached to identifiers in expression,
+type, module expression, and module type positions. Mono-attributes have the effect of
+mangling the attached identifier to the name corresponding to the requested template
+instance. This helps with readability, as well as avoiding dependence on the particular
+mangling mechanism `ppx_template` uses as this can change in the future.
+
+```ocaml
+let%template flip (type (a : k) (b : k) (c : k)) (f : (a -> b -> c) @ p) = fun x y -> f y x
+[@@mode p = (nonportable, portable)]
+[@@kind k = (bits32, bits64)]
+
+type t : bits32
+let my_flip (f : t -> t -> t) = (flip [@mode portable] [@kind bits32]) f
+```
+
+Notice that the mono-attributes are not required to be within a `%template` node.
+
+### Define
+
+Define-attributes (currently only `[@@@kind_set.define]`) can be used
+to introduce a name for a first-class set of the underlying value.
+This name can then be used in e.g. `[@@kind_set]` poly and mono
+attributes and on the right hand side of `[@@kind]` poly attributes.
+
+For example:
+```ocaml
+# [%%template
+  [@@@kind_set.define all = (value, value & (bits64, bits32))]
+
+  module [@kind_set ks = (value, all)] T1 = struct
+    type ('a : k) t [@@kind k = ks]
+  end]
+module T1 : sig type 'a t end
+module T1__''all'' :
+  sig
+    type 'a t
+    and ('a : value & bits64) t__'value_bits64'
+    and ('a : value & bits32) t__'value_bits32'
+  end
+```
+
+The bound name is only available in the current lexical scope. It
+can't be re-used in a manner that inspects its contents in a different
+`%template` block or in a different file.
+
+```ocaml
+# let%template id (x : (_ : k)) = x [@@kind k = all]
+Line 1, characters 27-28:
+Error: Unknown layout all
+```
+
+However, that name can (and should) still be used in `mono` attributes
+to reference identifiers templated over kind sets, even in other files.
+
+```ocaml
+# module T1' = struct
+    include T1 [@kind_set all]
+  end
+module T1' :
+  sig
+    type 'a t = 'a T1__''all''.t
+    and ('a : value & bits64) t__'value_bits64' =
+        'a T1__''all''.t__'value_bits64'
+    and ('a : value & bits32) t__'value_bits32' =
+        'a T1__''all''.t__'value_bits32'
+  end
+```
+
+The reason for this is that the mangling scheme for sets mangles
+identifiers using the names of relevant sets, and not canonical
+representations of their contents. In fact, attempting to monomorphize
+by an explicit set produces an error:
+
+```ocaml
+# module T1' = struct
+    include T1 [@kind_set (value, value & (bits64, bits32))]
+  end
+Line 2, characters 27-60:
+Error: ([%template]
+        ("Type mismatch" (kind expression)
+         (value
+          (Comma_separated value (Product value (Comma_separated bits64
+       bits32))))
+         ("expected type" Kind) ("expected sets" singleton)
+         (hint "unions not allowed in mono attributes")))
+```
+
+### With
+
+The `[@with: ...]` attribute can be attached to module types to leverage familiar
+`ppx_template` features for generating families of `with` constraints.
+
+Consider the module type
+
+```ocaml
+module type%template S = sig
+  module Elt : sig
+    type ('a : k) t : k [@@kind k = base]
+  end
+
+  [@@@kind.default k = base]
+
+  type ('a : k, 'b : any) t_with_phantom
+
+  val singleton
+    : ('a : k).
+    ('a Elt.t[@kind k]) -> (('a, 'b) t_with_phantom[@kind k])
+end
+```
+
+Suppose we wish to bind `('a, _) t_with_phantom` with the corresponding `'a List.t`
+for all `k`s and substitute `'a Elt.t` with `'a`. `[@with:]` lets us write:
+
+```ocaml
+# module type S' = S
+  [@with:
+    type ('a : k, 'b : any) t_with_phantom = ('a List.t[@kind k])
+    [@@kind k = base]
+
+    module Elt : sig
+      type ('a : k) t := 'a [@@kind k = base]
+    end]
+module type S' =
+  sig
+    module Elt : sig end
+    type ('a : bits64, 'b : any) t_with_phantom__bits64 = 'a List.t__bits64
+    val singleton__bits64 : ('a : bits64) 'b. 'a -> 'a List.t__bits64
+    type ('a : bits32, 'b : any) t_with_phantom__bits32 = 'a List.t__bits32
+    val singleton__bits32 : ('a : bits32) 'b. 'a -> 'a List.t__bits32
+    type ('a : word, 'b : any) t_with_phantom__word = 'a List.t__word
+    val singleton__word : ('a : word) 'b. 'a -> 'a List.t__word
+    type ('a : float64, 'b : any) t_with_phantom__float64 =
+        'a List.t__float64
+    val singleton__float64 : ('a : float64) 'b. 'a -> 'a List.t__float64
+    type ('a : float32, 'b : any) t_with_phantom__float32 =
+        'a List.t__float32
+    val singleton__float32 : ('a : float32) 'b. 'a -> 'a List.t__float32
+    type ('a, 'b : any) t_with_phantom = 'a list
+    val singleton : 'a -> 'a list
+  end
+```
+
+Note that the `type ('a : k) t := 'a` inside `module Elt : sig ... end` becomes a
+`with type ('a : k) Elt.t := 'a` constraint.
+
+Module and module type bindings and substitutions inside `[@with:]`
+similarly turn into the corresponding signature constraints.
+
+Other signature items present in a `[@with:]` have no
+constraint-related meaning and result in an error:
+
+```ocaml
+module type S' = S [@with: val singleton : unit [@@kind k = base]]
+```
+```mdx-error
+Line 1, characters 28-66:
+Error: Invalid [@template.with] payload:
+       signature can only contain type, module, and module type bindings
+```
+
+### Misc
+
+The `[@@alloc ...]` and `[@@synchro ...]` poly-attributes have some additional supported
+syntax, and there are a few other attributes that interact with particular axes
+(`[@exclave_if_local ...]`, `[@exclave_if_stack ...]`, `[@zero_alloc_if_local ...]`, and
+`[@zero_alloc_if_stack ...]`). More details on these can be found in sections below.
+
+## Attribute payloads
+
+Poly-attributes contain a comma-separated list of bindings of the form `lhs = rhs`, where `lhs`
+is a template variable and `rhs` is a list of values to instantiate the template with (written as a tuple):
+
+```ocaml
+let%template f x = x
+[@@kind k1 = (value, bits32, bits64), k2 = (value, bits32, bits64)]
+[@@mode m1 = (local, global), m2 = (portable, nonportable)]
+```
+
+Mono-attributes contain a space-separated list of values that invoke the requested template.
+Within each mono-attribute, the order matters (e.g. if there are multiple mode template variables),
+but the order of neither the mono-attributes nor the poly-attributes matters:
+
+```ocaml
+let%template apply (type a b (c : k)) (f : a @ ma -> b @ mb -> c) x y = f x y
+[@@mode ma = (contended, uncontended), mb = (contended, uncontended)]
+[@@kind k = (bits32, bits64)]
+
+type a
+type b
+type c : bits32
+
+let my_apply (f : a @ contended -> b @ uncontended -> c)
+    : a @ contended -> b @ uncontended -> c =
+  (apply [@kind bits32] [@mode contended uncontended]) f
+;;
+```
+
+For poly-attributes, a form of punning is available in cases where all you want is name mangling;
+just write the poly-attribute with a payload like the corresponding mono-attribute payload you
+would use to invoke a template:
+
+```ocaml
+module%template T_punned = struct
+  [@@@kind ka = (bits32, bits64), kb = (bits32, bits64)]
+
+  type ('a : ka, 'b : kb) t = { a : 'a; b : 'b }
+  [@@kind ka kb]
+
+  let wrap a b = { a; b }
+  [@@kind ka kb]
+
+  let unwrap_a { a; b = _ } = a
+  [@@kind ka kb]
+
+  let unwrap_b { a = _; b } = b
+  [@@kind ka kb]
+end
+
+(* is equivalent to *)
+
+module%template T_expanded = struct
+  [@@@kind ka = (bits32, bits64), kb = (bits32, bits64)]
+
+  type ('a : ka, 'b : kb) t = { a : 'a; b : 'b }
+  [@@kind ka = ka, kb = kb]
+
+  let wrap a b = { a; b }
+  [@@kind ka = ka, kb = kb]
+
+  let unwrap_a { a; b = _ } = a
+  [@@kind ka = ka, kb = kb]
+
+  let unwrap_b { a = _; b } = b
+  [@@kind ka = ka, kb = kb]
+end
+```
+
+# Axes
+
+Templating acts on a few different axes; each supported axis is designed around some future
+compiler feature that will enable first-class support for the corresonding polymorphism.
+Template variables are namespaced by axis.
+
+## Kind polymorphism
+
+The `[@@kind ...]` and related attributes can be used to template over kinds. In the future,
+kind polymorphism will be supported via static computation: functions which can be
+beta-reduced once at compile time by kind variable substitution will be compiled once for
+each kind to which they are applied.
+
+The currently supported shapes of kinds are:
+
+* kind-abbreviations: `[@@kind k = (bits32, bits64, value)]`
+* kind-products: `[@@kind k = (value, value & value, (value & value) & value)]`
+* mode-modifiers: `[@@kind k = (value, value mod portable)]`
+
+Kind-abbreviations can be other kind-template variables, and mode-modifiers can be other
+modality-template variables.
+
+Due to a limitation in `ppx_template` syntax, right-nested products (e.g.
+`value & (value & value)`) cannot be written the same way as other kinds. Instead, one
+must use the special syntax `(_ : (_ : value & (value & value)))`. In general, any
+supported kind may be written in this form, i.e. `(_ : (_ : <kind>))`.
+
+We additionally support a special shape of kind in `ppx_template` that has no
+corresponding OxCaml syntax:
+
+* kind-coercions: `[@kind k or value_or_null]`
+
+The kind `k1 or k2` evaluates to `k2` when `k1` is known to be a subkind of `k2`, and `k1`
+otherwise. This is useful for invoking templates that use more general kinds from
+functions that template over more specific kinds. For example, consider the function
+`foo`, which is templated over `value_or_null` and `float64` for each argument:
+
+```ocaml
+let%template foo (type (a : k1) (b : k2)) (_x : a) (_y : b) =
+  (* do some stuff *)
+  ()
+[@@kind k1 = (value_or_null, float64), k2 = (value_or_null, float64)]
+```
+
+If `bar` is templated over `value` and `float64`, it can't straightforwardly invoke `foo`'s
+templating:
+
+```ocaml
+let%template bar (type (a : k1) (b : k2)) (x : a) (y : b) =
+  (foo[@kind k1 k2]) x y;
+  (* do some stuff *)
+  ()
+[@@kind k1 = (value, float64), k2 = (value, float64)]
+```
+```mdx-error
+Line 2, characters 6-9:
+Error: Unbound value foo__value__float64
+```
+
+With kind coercions, we can use the more general `value_or_null` version of the function
+even from a `value` template.
+```ocaml
+let%template bar (type (a : k1) (b : k2)) (x : a) (y : b) =
+  (foo[@kind (k1 or value_or_null) (k2 or value_or_null)]) x y;
+  (* do some stuff *)
+  ()
+[@@kind k1 = (value, float64), k2 = (value, float64)]
+```
+
+Currently, only non-product kinds that do not involve with bounds are allowed on the right
+hand side of a coercion.
+
+### Kind sets
+
+The `[@@kind_set ...]` and related attributes are further useful for
+defining and operating on sets of kinds, especially in the context of
+similar interfaces that care about different universes of kinds.
+Consider the following simple interface:
+
+```ocaml
+module type Monad = sig
+  type 'a t
+
+  val return : 'a -> 'a t
+  val bind : 'a t -> ('a -> 'b t) -> 'b t
+end
+```
+
+Now suppose we wish to make a version of `Monad` that supports both
+`value` and `bits64` elements. We can write:
+```ocaml
+# [%%template
+  [@@@kind_set.define all = (value, bits64)]
+
+  module type [@kind_set ks = (value, all)] Monad = sig
+    [%%template:
+    [@@@kind.default k = ks]
+
+    type ('a : k) t
+
+    val return : ('a : k). 'a -> ('a t[@kind k])]
+
+    val bind
+      : ('a : ka) ('b : kb).
+      ('a t[@kind ka]) -> ('a -> ('b t[@kind kb])) -> ('b t[@kind kb])
+    [@@kind ka = ks, kb = ks]
+  end]
+module type Monad =
+  sig
+    type 'a t
+    val return : 'a -> 'a t
+    val bind : 'a t -> ('a -> 'b t) -> 'b t
+  end
+module type Monad__''all'' =
+  sig
+    type 'a t
+    val return : 'a -> 'a t
+    type ('a : bits64) t__bits64
+    val return__bits64 : ('a : bits64). 'a -> 'a t__bits64
+    val bind : 'a t -> ('a -> 'b t) -> 'b t
+    val bind__value__bits64 :
+      'a ('b : bits64). 'a t -> ('a -> 'b t__bits64) -> 'b t__bits64
+    val bind__bits64__value :
+      ('a : bits64) 'b. 'a t__bits64 -> ('a -> 'b t) -> 'b t
+    val bind__bits64__bits64 :
+      ('a : bits64) ('b : bits64).
+        'a t__bits64 -> ('a -> 'b t__bits64) -> 'b t__bits64
+  end
+```
+
+This gives us both our regular `Monad` interface, and a new `Monad
+[@kind_set all]` interface that we can use for monads additionally
+supporting `bits64`.
+
+In kind set expressions, kind sets are allowed anywhere kinds are (in
+fact, kinds are just treated as implicit singleton sets).
+
+* union: `,` acts as a union, so `[@@kind k = (value, (bits64, bits32))]`
+  is the same as `[@@kind k = (value, bits64, bits32)]`. The kinds like
+  `value` are implicitly treated as singleton sets.
+* kind-products: `&` distributes over both arguments, so e.g.
+  `[@@kind k = ((value, bits64) & (bits32, word))]` is the same as
+  `[@@kind k = (value & bits32, value & word, bits64 & bits32, bits64 & word)]`.
+* mode-modifiers: `mod` distributes over the kind argument, so e.g.
+  `[@@kind k = (value, bits64) mod global]` is the same as
+  `[@@kind k = (value mod global, bits64 mod global)]`.
+
+The following named kind sets are included in the initial scope:
+
+* `base_non_value = (bits64, bits32, word, float64, float32)`
+* `value_with_imm = (value, immediate, immediate64)`
+* `value_or_null_with_imm = (value_or_null, immediate, immediate64)`
+* `base = (base_non_value, value)`
+* `base_with_imm = (base_non_value, value_with_imm)`
+* `base_or_null = (base_non_value, value_or_null)`
+* `base_or_null_with_imm = (base_non_value, value_or_null_with_imm)`
+
+For more on defining custom named kind sets, see the section on the
+[define attribute](#define).
+
+## Mode polymorphism
+
+The `[@@mode ...]` and related attributes can be use to template over modes. In the future,
+mode-polymorphism will be supported as a first-class type-system feature.
+
+We also support an additional attribute, `[@exclave_if_local m ~reasons:[...]]`, where `m`
+is a mode-template variable (or concrete mode) expected to evaluate to either `local` or
+`global`. This attribute may only be attached to expressions. When generating bindings,
+the ppx will check if `m = local` and, if so, wrap the expression in an `exclave_`.
+
+This conditional exclave will become unnecessary with future language features, but can
+be used to emulate them for now. To this end, you must specify one of a fixed set of
+scenarios. This is done using an optional labelled argument `~reasons`. A proper
+application's syntax looks like: `[@exclave_if_local m ~reasons:[ May_return_local ]]`.
+
+The following reasons are supported:
+
+* `May_return_local` -- used when mode-polymorphically returning a value which might be `@ local`.
+  * This usually applies when a higher-order function calls a function passed as an
+    argument and that may return a stack-allocated value.
+  * If this function itself stack-allocates a value (and [Will_return_unboxed] does not
+    apply), `[@exclave_if_stack]` might be the right choice instead.
+* `May_return_regional` -- used when returning something in the parent's region (i.e. a
+  component of one the current function's arguments).
+  * In future terms, `May_return_regional` is used when returning `@ regional`.
+* `Will_return_unboxed` -- used when a function currently stack allocates a data type
+  (e.g. `option`), but in the future it will use an unboxed data type instead (e.g.
+  `option#`).
+  * May be combined with `May_return_regional` if the (future-unboxed) data type is
+    constructed using parts of the function's arguments.
+
+Currently, the only legal combination of two reasons is
+`[@exclave_if_local m ~reasons:[ May_return_regional; Will_return_unboxed ]]`.
+
+We additionally permit `[@exclave_if_local]` to appear without a reason on two classes of
+expression where we can syntactically identify that they will be supported:
+
+* "Pure" syntactic allocations, such as tuples, records, or arrays
+  * Corresponds to `Will_return_unboxed` (though consider `@exclave_if_stack`).
+* Tailcalls involving only bound identifiers
+  * Corresponds to `May_return_local` or `May_return_regional`.
+
+It is preferrable to provide an explicit reason instead.
+
+Additionally, the `[@@zero_alloc_if_local m args...]` can be attached to any places the
+`[@zero_alloc]` attribute can be attached. If `m = local`, then the attribute is replaced
+with `[@zero_alloc args...]`, and otherwise it is removed. This feature is morally deprecated
+in favor of `[@zero_alloc_if_stack]` (see [Alloc polymorphism](#alloc-polymorphism)).
+
+## Modality polymorphism
+
+The `[@@modality ...]` and related attributes can be used to template over modalities.
+In the future, first-class support for modality-polymorphism will be available in a limited
+way once we have first-class modalities (e.g. `val f : ('a @@ global * 'b) @ local -> 'a`).
+
+## Alloc polymorphism
+
+While mode polymorphism enables you to annotate functions and values with modes, it doesn't
+allow you to vary the compilation behavior of a function depending on the mode;
+this is sometimes referred to *ad-hoc* polymorphism. In particular, consider the functions
+
+```ocaml
+let rec map : f:('a -> 'b) -> 'a list -> 'b list =
+  fun ~f list ->
+  match list with
+  | [] -> []
+  | hd :: tl -> f hd :: map ~f tl
+;;
+
+let rec map_stack : f:('a -> 'b @ local) -> 'a list -> 'b list @ local =
+  fun ~f list -> exclave_
+  match list with
+  | [] -> []
+  | hd :: tl -> stack_ (f hd :: map_stack ~f tl)
+;;
+```
+
+Both of these map functions take a `global` argument, but `map` returns a list on the heap,
+while `map_stack` returns a list on the stack. This requires two different compilations, which
+will not natively be supported by mode polymorphism in the future. If you try to write this using
+ppx-template's mode polymorphism, you'll get an (intentional) error:
+
+```ocaml
+let%template rec map : f:('a -> 'b @ m) -> 'a list -> 'b list @ m =
+  fun ~f list ->
+  (match list with
+   | [] -> []
+   | hd :: tl -> f hd :: (map [@mode m]) ~f tl)
+  [@exclave_if_local m]
+[@@mode m = (local, global)]
+;;
+```
+```mdx-error
+Lines 3-5, characters 5-50:
+Error: [%template]: exclave_if_local is only allowed on: tailcalls; syntactic
+       allocations (e.g. tuples) consisting entirely of identifiers, record
+       fields, and/or constants; or when given a nonempty ~reasons argument.
+```
+
+Instead, you can use alloc polymorphism:
+
+```ocaml
+let%template rec map : f:('a -> 'b @ m) -> 'a list -> 'b list @ m =
+  fun ~f list ->
+  (match list with
+   | [] -> []
+   | hd :: tl -> f hd :: (map [@alloc a]) ~f tl)
+  [@exclave_if_stack a]
+[@@alloc a @ m = (heap_global, stack_local)]
+;;
+```
+
+This will eventually be natively supported via first-class allocators, where users will
+be able to provide a value to the function that describes *how* to allocate a value.
+
+In the example, `[@@alloc a @ m = (heap_global, stack_local)]` means vary `a` and `m` *together* over
+`(heap * global), (stack * local)`. You can also omit the `@ m` on the lhs (e.g. `[@@alloc a = (heap, stack)]`),
+or use `a @ m` on the rhs (e.g. `[@@alloc a @ m = (heap @ global, stack @ local)]`).
+Punning is additionally supported as `[@@alloc a]`:
+
+```ocaml
+[%%template
+open struct
+  (* omit [@ m] *)
+  [@@@alloc a = (heap, stack)]
+
+  let f x = x [@exclave_if_stack a]
+  [@@alloc a] (* punning *)
+end
+
+open struct
+  [@@@alloc a @ m = (heap_global, stack_local)]
+  (* Use [a @ m] on the rhs *)
+  [@@@alloc a' @ m' = (heap_global, a @ m)]
+
+  let f x = x [@exclave_if_stack a]
+end
+
+module type T = sig
+  val f : 'a @ m -> 'a @ m
+  [@@alloc _ @ m = (heap_global, stack_local)]
+  (* You can use [_] to ignore a template variable; this will still mangle the duplicate [f] and
+     mangle the name, but makes it clear that the alloc variable isn't used. *)
+end
+]
+```
+
+As with mode-polymorphism, the `[@@zero_alloc_if_stack a args...]` attribute conditionally
+attaches a `[@@zero_alloc args...]` attribute to a syntax node when `a = stack`. This is the
+preferred attribute over `[@@zero_alloc_if_local]` as conditionally being zero-alloc is
+a property of allocation behavior, not of modes.
+
+## Conditional synchronization
+
+It is sometimes useful to be able to abstract over whether or not an operation requires
+synchronized operations depending on the contention of the input. This generally will
+involve different mode behaviors depending on the particular synchronization behavior.
+In the future, some runtime witness (e.g. a modular implicit) will carry information
+about what synchronization to use, and we will need some kind of mode polymorphism
+and/or abstract modes.
+
+To enable polymorphism over synchronization now, we include a `synchro` axis as part of
+`ppx_template`, which can take on values `sync` (for "synchronized") and `unsync`
+(for "unsynchronized"), with the default being `unsync`. Like the `alloc` axis, these
+values don't directly correspond to any particular part of the OCaml ast, and are just
+used by some libraries to enable polymorphism over their synchronization behavior.
+
+The motivating example for adding this is
+`Portable_kernel.Subatomic`,
+which allows synchronized operations over `shared` values and unsynchronized operations
+over `uncontended` values.
+
+
+
+## Tuples
+
+It is occasionally useful to have two template variables correlated rather than templating over the full
+cartesian product of their ranges. You can do this via tuple templates:
+
+```ocaml
+[%%template
+module Delay : sig
+type 'a t = unit -> 'a
+
+val return : ('a : value mod c). 'a @ p -> 'a t @ p
+end = struct
+type 'a t = unit -> 'a
+
+let return x () = x
+end
+[@@mode (p, c) = ((nonportable, uncontended), (portable, contended))]]
+
+(* resulting bindings are referenced by the first element of the tuple only *)
+
+module _ = Delay [@mode nonportable]
+module _ = Delay [@mode portable]
+```
+
+For axis (besides `alloc`), the pattern and expressions can both be either elements of that axis, or a tuple
+of elements of that axis. We do not support nested tuples.
+
+## Aliasing across axes
+
+In general, using the same template identifier to refer to values from two different
+template axes is a footgun. For this reason, we explicitly error when attempting to bind a
+value to an identifier if that identifier is already bound in the environment to a value
+from a different namespace. These errors can also help spot other accidental mis-uses:
+
+```ocaml
+[%%template
+[@@@alloc m @ a = heap_global]
+
+let id (x @ m) = x [@@mode m = (local, m)]]
+```
+```mdx-error
+Line 4, characters 30-44:
+Error: shadowing variables from a different namespace is prohibited
+       attempting to bind
+         identifier 'm'
+         in namespace '(Mode Locality)'
+       but it is already bound
+         in namespace 'Alloc'
+         to the value 'heap'
+         and when fully expanded '(heap)'
+```
+
+Each axis above broadly gets its own namespace, with a few caveats:
+
+* Sets and singletons occupy different namespaces; so for example,
+  using `k` to refer both to a set of kinds and to its elements will
+  produce an error
+```ocaml
+[%%template
+[@@@kind_set k = base]
+[@@@kind.default k = k]
+
+let id (x : (_ : k)) = x]
+```
+```mdx-error
+Line 3, characters 20-25:
+Error: shadowing variables from a different namespace is prohibited
+       attempting to bind
+         identifier 'k'
+         in namespace 'Kind'
+       but it is already bound
+         in namespace '(Set Kind)'
+         to the value 'base'
+         and when fully expanded '(bits64 bits32 word float64 float32 value)'
+```
+
+* Each modal sub-axis gets its own namespace; so for example, using `m`
+  for both locality-related modes and portability-related modes in the
+  same scope will produce an error
+```ocaml
+[%%template
+[@@@mode m = (global, local)]
+[@@@mode.default m = (portable, nonportable)]
+
+let id (x @ m) = x]
+```
+```mdx-error
+Line 3, characters 20-47:
+Error: shadowing variables from a different namespace is prohibited
+       attempting to bind
+         identifier 'm'
+         in namespace '(Mode Portability)'
+       but it is already bound
+         in namespace '(Mode Locality)'
+         to the value 'global'
+         and when fully expanded '(global)'
+```
+
+* However, we permit aliasing between modes and modalities that are on the
+  same modal axis. This is important, among other things, for the
+  `[%template.portable]` extension described [below](#template-portable).
+```ocaml
+# [%%template
+  [@@@modality m = (portable, nonportable)]
+  [@@@mode.default m]
+
+  let id (x @ m) @ m = x]
+val id__portable : 'a @ portable -> 'a @ portable = <fun>
+val id : 'a -> 'a = <fun>
+```
+
+# The [%template.portable] extension {#template-portable}
+
+<!--
+Module types for the examples below
+
+```ocaml
+module type S1 = sig end
+module type S2 = sig end
+module type S3 = sig end
+
+module%template.portable Other_f1 (_ : S1) = struct end
+module%template.portable Other_f2 (_ : S2) = struct end
+```
+-->
+
+A very common pattern for functors in common-libraries is to want a functor templated over the
+portability of the input and output modules:
+
+```ocaml
+(* before templating *)
+module F_untemplated (T1 : S1) (T2 : S2) : S3 = struct
+  (* ... *)
+end
+
+(* templating without shorthand *)
+module%template [@modality p = (nonportable, portable)] F_long_hand
+    (T1 : sig include S1 @@ p end)
+    (T2 : sig include S2 @@ p end)
+  : sig include S3 @@ p end = struct
+  (* ... *)
+end
+```
+
+This is sufficiently common that we added a short-hand for it:
+
+```ocaml
+module%template.portable F_short_hand (T1 : S1) (T2 : S2) : S3 = struct
+  (* ... *)
+end
+```
+
+In structures, if you still want a name for `p` (e.g. to invoke other functors),
+you can write:
+
+```ocaml
+module%template.portable [@modality p] F (T1 : S1) (T2 : S2) : S3 = struct
+  include Other_f1 [@modality p] (T1)
+  include Other_f2 [@modality p] (T2)
+end
+```
+
+# Mangling
+
+**WE DO NOT GUARANTEE STABILITY OF THE MANGLING ALGORITHM AT THIS TIME.**
+
+Identifier mangling involves taking the base identifier and appending parts for each
+template value used in the template instance. Each axis has a set of defaults:
+
+* kind: `value`
+* mode: `global`, `nonportable`, `uncontended`, `aliased`
+* modality: `local`, `nonportable`, `uncontended`, `unique`
+* alloc: `heap`
+
+If all template values along a given axis are defaults, then the axis is omitted from
+mangling. Within an axis with any non-default values, template values are mangled in
+order they appear syntactically. The axes are canonically ordered: kind, mode, modality,
+alloc. For the `[@@alloc a @ m = ...]` attribute, only the alloc-template variable is
+used for mangling.
+
+For identifier template values (i.e. all modes, modalities, alloc, and kind-abbreviations),
+the mangle part is just `__identifier`, e.g. `__portable` or `__bits32`. For kind-products
+and mode-modifiers, we use single quotes for grouping, e.g. `__'value_value'` for `value & value`
+and `__'value_mod_portable'` for `value mod portable`. This has a chance of having
+collisions, but these are rare in practice and just produce compile-time errors from ppx-template.
+
+# Tricks and short hands
+
+One may find themselves needing to "lift" OCaml constructs not generated via this ppx to
+have a mangled name compatible with the ppx. We strongly encourage users to do this via
+the ppx, rather than mangling names themselves, as this may be brittle or even incorrect.
+
+Instead, a trick for this is to write a binding which is polymorphic over exactly one
+kind - for example, to bind `Float` and `Float__float64` modules, one might write:
+
+```ocaml
+module%template [@kind _ = value] Float = Float (* alternatively, [@@kind _ = value] *)
+module%template [@kind _ = float64] Float = Float_u
+```
+
+Here, `_` indicates that a given kind variable is unused in the body of the binding. In
+these cases, you might prefer to use punning to avoid the extra syntax clutter:
+
+```ocaml
+module%template [@kind value] Float = Float (* alternatively, [@@kind value] *)
+module%template [@kind float64] Float = Float_u
+```
+
+Extending this idea, one could even use a kind-polymorphic module binding to generate
+kind-polymorphic bindings for many functions at once, as a kind of functor over kinds:
+
+```ocaml
+module%template [@kind k = (value, float64)] Make = struct
+  open Float [@kind k]
+
+  let[@kind k] of_string = of_string
+  let[@kind k] to_string = to_string
+
+  (* .. *)
+end
+
+include%template Make [@kind value]
+include%template Make [@kind float64]
+```
+
+This too is common enough that we provide a shorthand:
+
+```ocaml
+include%template [@kind k = (value, float64)] struct
+  open Float [@kind k]
+
+  let[@kind k] of_string = of_string
+  let[@kind k] to_string = to_string
+
+  (* .. *)
+end
+```
+
+## Type and module substitutions
+
+Type substitutions (using `:=`) are generally supported, but can sometimes get dropped due
+to scoping issues. In particular, `ppx_template` may wrap certain constructs inside a
+`include sig ... end`, and type substitutions are only visible to the immediately
+enclosing signature. For example, these are fine:
+
+```ocaml
+module type%template A = sig
+  [@@@kind.default k = (bits64, float64)]
+
+  type ('a : k) t := 'a
+  type nonrec 'a t = 'a t [@kind k]
+end
+
+module type B = sig
+  type%template ('a : k) t := 'a [@@kind k = (bits64, float64)]
+  type%template nonrec 'a t = 'a t [@kind k] [@@kind k = (bits64, float64)]
+end
+```
+
+But this is not:
+
+```ocaml
+module type C = sig
+  [%%template:
+  [@@@kind.default k = (bits64, float64)]
+
+  type ('a : k) t := 'a]
+
+  type%template nonrec 'a t = 'a t [@kind k] [@@kind k = (bits64, float64)]
+end
+```
+```mdx-error
+Line 7, characters 36-37:
+Error: Unbound type constructor t__bits64
+```
+
+Module type substitutions are supported, but are constrained by the same limitation
+described above. These are fine:
+
+```ocaml
+module type%template A = sig
+  [@@@kind.default k = (bits64, float64)]
+
+  module type S := sig end
+  module type S = S [@kind k]
+end
+
+module type B = sig
+  module type%template S := sig end [@@kind k = (bits64, float64)]
+  module type%template S = S [@kind k] [@@kind k = (bits64, float64)]
+end
+```
+
+But this is not:
+
+```ocaml
+module type C = sig
+  [%%template:
+  [@@@kind.default k = (bits64, float64)]
+
+  module type S := sig end]
+
+  module type%template S = S [@kind k] [@@kind k = (bits64, float64)]
+end
+```
+```mdx-error
+Line 7, characters 30-31:
+Error: Unbound module type S__bits64
+```
+
+Module substitutions are not supported due to missing support for attributes in the
+necessary locations.
+
+## Type variables vs. locally abstract types
+
+The ppx may behave unexpectedly when using type variables in `let` bindings. Take, for
+example, the following identity function template:
+
+```ocaml
+let%template[@kind k = (value, float64)] f (x : ('a : k)) : 'a = x
+```
+```mdx-error
+Line 1, characters 49-57:
+Error: This type ('a : float64) should be an instance of type ('a0 : value)
+       The layout of 'a is value
+         because of the annotation on the type variable 'a.
+       But the layout of 'a must overlap with float64
+         because of the annotation on the type variable 'a.
+```
+
+Due to the way that type variables unify across function declarations in the same block,
+this currently leads to an error.
+
+To fix this, it's recommended you use locally abstract types instead of type variables
+when ranging over multiple kinds:
+
+```ocaml
+let%template[@kind k = (value, float64)] f (type (a : k)) (x : a) : a = x
+```
+
+# Expert
+
+The following features are available for specific uses in common libraries, but are
+currently not considered sufficiently mature or principled for broader use. Consult a
+common libs dev if you feel yourself reaching for one of these features.
+
+
+## `default_if_multiple`
+
+
+We sometimes template an interface in a way that uses `ppx_template` to simulate two
+similar planned compiler features:
+
+- abstract kinds: the interface is instantiated by several modules, each of which is
+  monomorphic with respect to some kind `k`, but those `k`s can be different between each
+  other.
+- kind polymorphism: the interface is instantiated by modules where each module supports
+  every operation for each of several kinds.
+
+Consider again the `Monad` interface we templated over [kind sets](#kind-sets). Here is
+the original untemplated version:
+
+```ocaml
+module type Monad = sig
+  type 'a t
+
+  val return : 'a -> 'a t
+  val bind : 'a t -> ('a -> 'b t) -> 'b t
+end
+```
+
+Now, suppose that in addition to creating a version of the interface whose implementations
+support operations on _both_ `value` and `bits64` types, we wished to also add a version
+of the interface for monads that only support `bits64` types. We might be inclined to
+write, as before:
+
+```ocaml
+[%%template
+  [@@@kind_set.define all = (value, bits64)]
+
+  module type [@kind_set ks = (value, bits64, all)] Monad = sig
+    [%%template:
+    [@@@kind.default k = ks]
+
+    type ('a : k) t
+
+    val return : ('a : k). 'a -> ('a t[@kind k])]
+
+    val bind
+      : ('a : ka) ('b : kb).
+      ('a t[@kind ka]) -> ('a -> ('b t[@kind kb])) -> ('b t[@kind kb])
+    [@@kind ka = ks, kb = ks]
+  end]
+```
+
+But now every function in the `bits64` version of the interface requires templating:
+
+```ocaml
+module Opt64 : Monad [@kind_set bits64] = struct
+  type ('a : bits64) t =
+    | Some of 'a
+    | None
+
+  let return x = Some x
+
+  let bind x f =
+    match x with
+    | Some x -> f x
+    | None -> None
+end
+```
+```mdx-error
+Lines 1-12, characters 43-6:
+Error: Signature mismatch:
+       Modules do not match:
+         sig
+           type ('a : bits64) t = Some of 'a | None
+           val return : ('a : bits64). 'a -> 'a t
+           val bind :
+             ('a : bits64) ('b : bits64). 'a t -> ('a -> 'b t) -> 'b t
+         end
+       is not included in
+         Monad__''bits64''
+       The type t__bits64 is required but not provided
+       The value return__bits64 is required but not provided
+       The value bind__bits64__bits64 is required but not provided
+```
+
+If we did change our implementation to satisfy `Monad [@kind_set64]`, clients would need
+to refer to `bind` as `bind [@kind bits64 bits64]`, even though there is only one `bind`
+function.
+
+As a workaround for cases like these, we support a floating attribute
+`[@@@kind.default_if_multiple]`. This attribute behaves
+
+- like `[@@@kind.default]` when the RHS of the binding contains several kinds (indicating
+  that `ppx_template` is here imitating kind polymorphism and we plan to generate several
+  versions of each function with different mangled names)
+- like `[@@@kind]` when the RHS of the binding contains just one kind (indicating that
+  `ppx_template` is here imitating an abstract kind, and we plan to generate just one
+  version of each function without needing to mangle).
+
+Notice that this approach makes it difficult to generically refer back to a previous item
+`v` that was (possibly) templated via `default_if_multiple`. This is because, if `ks` has
+multiple elements, the item we want is invoked `v [@kind k]`, and if `ks` has just one
+element, it is invoked `v` (and `v [@kind k]` for `k <> value` will mangle to the wrong
+identifier). Fortunately, this restriction is not so limiting because:
+
+- it is not possible to refer to a previous `val` in a signature
+- `type`s can be destructively substituted by eventual concrete clients later using
+  [polymorphic with](#with), so it's fine to use the conventional always-mangling
+  attributes (even if we would ultimately like to end up with unmangled types in some
+  cases).
+
+As an example we can write:
+
+```ocaml
+# [%%template
+    [@@@kind_set.define all = (value, bits64)]
+
+    module type [@kind_set ks = (value, bits64, all)] Monad = sig
+      type ('a : k) t [@@kind k = ks]
+
+      [@@@kind.default_if_multiple ka = ks]
+
+      val return : ('a : ka). 'a -> ('a t[@kind ka])
+
+      [@@@kind.default_if_multiple kb = ks]
+
+      val bind
+        : ('a : ka) ('b : kb).
+        ('a t[@kind ka]) -> ('a -> ('b t[@kind kb])) -> ('b t[@kind kb])
+    end]
+module type Monad =
+  sig
+    type 'a t
+    val return : 'a -> 'a t
+    val bind : 'a t -> ('a -> 'b t) -> 'b t
+  end
+module type Monad__''bits64'' =
+  sig
+    type ('a : bits64) t__bits64
+    val return : ('a : bits64). 'a -> 'a t__bits64
+    val bind :
+      ('a : bits64) ('b : bits64).
+        'a t__bits64 -> ('a -> 'b t__bits64) -> 'b t__bits64
+  end
+module type Monad__''all'' =
+  sig
+    type 'a t
+    and ('a : bits64) t__bits64
+    val return : 'a -> 'a t
+    val bind : 'a t -> ('a -> 'b t) -> 'b t
+    val bind__value__bits64 :
+      'a ('b : bits64). 'a t -> ('a -> 'b t__bits64) -> 'b t__bits64
+    val return__bits64 : ('a : bits64). 'a -> 'a t__bits64
+    val bind__bits64__value :
+      ('a : bits64) 'b. 'a t__bits64 -> ('a -> 'b t) -> 'b t
+    val bind__bits64__bits64 :
+      ('a : bits64) ('b : bits64).
+        'a t__bits64 -> ('a -> 'b t__bits64) -> 'b t__bits64
+  end
+```
+
+Now we can implement a `bits64` monad without needing to mangle any of the function names.
+Note the destructive substitution of `t [@kind bits64]` to replace it with the more
+desirable `t`.
+
+```ocaml
+module Opt64 : sig
+  [%%template:
+  [@@@kind k = bits64]
+
+  type ('a : k) t
+
+  include Monad [@kind_set k] [@with: type ('a : k) t := 'a t [@@kind k]]]
+end = struct
+  type ('a : bits64) t =
+    | Some of 'a
+    | None
+
+  let return x = Some x
+
+  let bind x f =
+    match x with
+    | Some x -> f x
+    | None -> None
+end
+```
+
+# Further examples
+
+See the [unboxed_float_example](unboxed_float_example.mdx) for a more thorough example.

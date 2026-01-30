@@ -1,0 +1,206 @@
+#verbose true
+
+(* Demonstrate the behavior of name mangling, in particular with respect to the
+   default/legacy modes.
+
+   Also ensures that we notice changes to mangling; while we don't guarantee stability,
+   it's still worth avoiding accidental changes. *)
+
+let%template[@mode
+              c = (uncontended, contended)
+              , g = (global, local)
+              , p = (nonportable, portable)] id
+  : 'a. 'a @ c g p -> 'a @ c g p
+  =
+  fun x -> x
+;;
+
+[%%expect
+  {|
+val id : 'a -> 'a = <fun>
+val id__portable : 'a @ portable -> 'a @ portable = <fun>
+val id__local : 'a @ local -> 'a @ local = <fun>
+val id__local__portable : 'a @ local portable -> 'a @ local portable = <fun>
+val id__contended : 'a @ contended -> 'a @ contended = <fun>
+val id__portable__contended :
+  'a @ portable contended -> 'a @ portable contended = <fun>
+val id__local__contended : 'a @ local contended -> 'a @ local contended =
+  <fun>
+val id__local__portable__contended :
+  'a @ local portable contended -> 'a @ local portable contended = <fun>
+|}]
+
+(* Demonstrate the behavior of name mangling, in particular with respect to the
+   default/legacy modalities.
+
+   Also ensures that we notice changes to mangling; while we don't guarantee stability,
+   it's still worth avoiding accidental changes. *)
+
+module%template
+  [@modality
+    c = (uncontended, contended), g = (global, local), p = (nonportable, portable)] M =
+struct
+  type 'a t = { x : 'a @@ c g p }
+end
+
+[%%expect
+  {|
+module M__global : sig type 'a t = { x : 'a @@ global; } end
+module M__global__portable :
+  sig type 'a t = { x : 'a @@ global portable; } end
+module M : sig type 'a t = { x : 'a; } end
+module M__portable : sig type 'a t = { x : 'a @@ portable; } end
+module M__global__contended :
+  sig type 'a t = { x : 'a @@ global contended; } end
+module M__global__portable__contended :
+  sig type 'a t = { x : 'a @@ global portable contended; } end
+module M__contended : sig type 'a t = { x : 'a @@ contended; } end
+module M__portable__contended :
+  sig type 'a t = { x : 'a @@ portable contended; } end
+|}]
+
+open%template struct
+  [@@@mode.default m = local]
+
+  let mangle = 1
+  let[@mode] no_mangle = (mangle [@mode m])
+end
+
+[%%expect
+  {|
+val mangle__local : int = 1
+val no_mangle : int = 1
+|}]
+
+module M : sig
+  val%template id : ('a : k). 'a -> 'a [@@kind k = (value, float64)]
+end = struct
+  let%template[@kind k = (value, float64)] id x = x
+end
+
+[%%expect
+  {|
+module M :
+  sig val id : 'a -> 'a val id__float64 : ('a : float64). 'a -> 'a end
+|}]
+
+let () =
+  let (_ : string) = M.id "test" in
+  let (_ : float#) = (M.id [@kind float64]) #3. in
+  ()
+;;
+
+module M' : sig
+  val%template id : ('a : k). 'a -> 'a [@@kind k = (value_or_null, bits32)]
+end = struct
+  let%template[@kind k = (value_or_null, bits32)] id x = x
+end
+
+[%%expect
+  {|
+module M' :
+  sig val id : 'a -> 'a val id__bits32 : ('a : bits32). 'a -> 'a end
+|}]
+
+let () =
+  let (_ : int or_null) = M'.id Null in
+  let (_ : int32#) = (M'.id [@kind bits32]) #2l in
+  ()
+;;
+
+module Err : sig
+  val%template id : ('a : k). 'a -> 'a [@@kind k = (value, value_or_null)]
+end = struct
+  let%template[@kind k = (value, value_or_null)] id x = x
+end
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Variable id is bound several times in this matching
+|}]
+
+module Workaround : sig
+  val%template id : ('a : k). 'a -> 'a [@@kind k = (value, value_or_null mod maybe_null)]
+end = struct
+  let%template[@kind k = (value, value_or_null mod maybe_null)] id x = x
+end
+
+[%%expect
+  {|
+module Workaround :
+  sig val id : 'a -> 'a val id__'value_or_null_mod_maybe_null' : 'a -> 'a end
+|}]
+
+module Weird : sig
+  val id : 'a -> 'a
+end = struct
+  let id x = x
+end
+
+let%template this_mangles_but_doesn't_type_check =
+  (Weird.id [@kind value_or_null]) Basement.Or_null_shim.Null
+;;
+
+[%%expect
+  {|
+module Weird : sig val id : 'a -> 'a end
+
+Line _, characters _-_:
+Error: This expression has type 'a or_null
+       but an expression was expected of type ('b : value)
+       The kind of 'a or_null is value_or_null mod everything with 'a
+         because it is the primitive type or_null.
+       But the kind of 'a or_null must be a subkind of value
+         because of the definition of id at file "mangling.mlt", line 139, characters 2-19.
+|}]
+
+let%template access_and_visibility_mangling : ('i : immediate). 'i @ a -> 'i @ v =
+  fun i -> i
+[@@mode a = (read_write, read, immutable), v = (stateful, observing, stateless)]
+;;
+
+[%%expect
+  {|
+val access_and_visibility_mangling : ('i : immediate). 'i -> 'i = <fun>
+val access_and_visibility_mangling__observing :
+  ('i : immediate). 'i -> 'i @ observing = <fun>
+val access_and_visibility_mangling__stateless :
+  ('i : immediate). 'i -> 'i @ stateless = <fun>
+val access_and_visibility_mangling__read : ('i : immediate). 'i @ read -> 'i =
+  <fun>
+val access_and_visibility_mangling__observing__read :
+  ('i : immediate). 'i @ read -> 'i @ observing = <fun>
+val access_and_visibility_mangling__stateless__read :
+  ('i : immediate). 'i @ read -> 'i @ stateless = <fun>
+val access_and_visibility_mangling__immutable :
+  ('i : immediate). 'i @ immutable -> 'i = <fun>
+val access_and_visibility_mangling__observing__immutable :
+  ('i : immediate). 'i @ immutable -> 'i @ observing = <fun>
+val access_and_visibility_mangling__stateless__immutable :
+  ('i : immediate). 'i @ immutable -> 'i @ stateless = <fun>
+|}]
+
+
+(* We stably sort mode variables by axis when mangling, so if two variables range over
+   multiple axes, it's possible for us to generate the same function name twice. *)
+
+let%template bad_mode_variables : 'a. 'a @ m -> 'b @ n -> unit = fun _ _ -> ()
+[@@mode m = (local, read), n = (read, local)]
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Variable bad_mode_variables__local__read is bound several times in this matching
+|}]
+
+let x = 0
+let%template y = (x [@kind k or value]) [@@kind k = (immediate, value)]
+
+[%%expect
+  {|
+val x : int = 0
+val y__immediate : int = 0
+val y : int = 0
+|}]

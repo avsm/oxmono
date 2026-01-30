@@ -1,0 +1,5 @@
+(library
+ (name ppx_template_inline_test)
+ (libraries ppx_template_test_common)
+ (preprocess
+  (pps ppx_jane)))

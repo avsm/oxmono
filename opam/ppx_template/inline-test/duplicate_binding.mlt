@@ -1,0 +1,82 @@
+#verbose true
+
+module type%template [@kind x = (value, bits64)] S = sig
+  type t
+
+  val ignore : ('a : k) -> unit [@@kind k = (value, x)]
+  val ignore_both : t -> unit
+end
+
+[%%expect
+  {|
+module type S =
+  sig type t val ignore : 'a -> unit val ignore_both : t -> unit end
+module type S__bits64 =
+  sig
+    type t
+    val ignore : 'a -> unit
+    val ignore__bits64 : ('a : bits64). 'a -> unit
+    val ignore_both : t -> unit
+  end
+|}]
+
+module%template [@kind x = (value, bits64)] M : S [@kind x] = struct
+  type t =
+    { i : int
+    ; x : ('a : x). 'a
+    }
+
+  let[@kind k = (value, x)] ignore (_ : (_ : k)) = ()
+
+  let ignore_both { i; x } =
+    ignore i;
+    (ignore [@kind x]) x
+  ;;
+end
+
+[%%expect
+  {|
+module M : S
+module M__bits64 : S__bits64
+|}]
+
+module type%template [@mode x = (local, global)] S = sig
+  type t
+
+  val call : string @ m -> t -> unit [@@mode m = (local, x)]
+  val call_both : string @ x -> string @ local -> t -> unit
+end
+
+[%%expect
+  {|
+module type S__local =
+  sig
+    type t
+    val call__local : string @ local -> t -> unit
+    val call_both : string @ local -> string @ local -> t -> unit
+  end
+module type S =
+  sig
+    type t
+    val call__local : string @ local -> t -> unit
+    val call : string -> t -> unit
+    val call_both : string -> string @ local -> t -> unit
+  end
+|}]
+
+module%template [@mode x = (local, global)] M : S [@mode x] = struct
+  type t = string @ local -> unit
+
+  let[@mode m = (local, x)] call (s @ m) t = t s
+
+  let call_both (s1 @ x) (s2 @ local) t =
+    (call [@mode x]) s1 t;
+    (call [@mode local]) s2 t
+  ;;
+end
+
+[%%expect
+  {|
+module M__local : S__local
+module M : S
+|}]

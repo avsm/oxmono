@@ -1,0 +1,314 @@
+# ppx_streamable
+
+Overview
+----------
+
+`ppx_streamable` is a deriving ppx that makes it easy to define types
+that are compatible with the `Streamable.S` and `Streamable.S_rpc`
+interfaces, while avoiding the boilerplate and tedium of writing out
+the `Streamable.Of_*` functors by hand.
+
+You can can think of `Streamable` as the runtime library counterpart
+of `ppx_streamable`.
+
+Basic Usage
+-------------
+
+<!--
+Preliminary opens
+```ocaml
+open Core
+```
+-->
+First, we add the following clause to our `jbuild`, within the `library` stanza:
+
+```
+(preprocess (
+    pps (
+      ppx_jane
+      ;; others you may already have...
+      ppx_streamable)))
+```
+
+We can then decorate our type `t` with `[@@deriving streamable]` which
+will make it compatible with the `Streamable.S` interface. We must
+also provide a `~version` argument, which specifies which functor
+versions we will use. Namely, the argument `~version:n` means we use
+the functors defined within `Streamable.Stable.Vn`.
+
+```ocaml
+module T = struct
+  type t =
+    { foo : int
+    ; bar : float Or_error.t
+    ; qux : bool String.Map.t
+    }
+  [@@deriving streamable ~version:1]
+end
+
+(* Verify that [T] satisfies [Streamable.S]. *)
+module _ : Streamable.S with type t = T.t = T
+```
+
+If we instead want our type to satisfy the `Streamable.S_rpc`
+interface, we can add the `~rpc` argument.
+
+```ocaml
+module T_rpc = struct
+  type t =
+    { foo : int
+    ; bar : float Or_error.t
+    ; qux : bool String.Map.t
+    }
+  [@@deriving streamable ~rpc ~version:1]
+end
+
+(* Verify that [T_rpc] satisfies [Streamable.S_rpc]. *)
+module _ : Streamable.S_rpc with type t = T_rpc.t = T_rpc
+```
+
+That's it!
+
+Atomic Serialization
+------------------------
+
+If we want to serialize our entire type atomically, we can add the
+`~atomic` argument.
+
+```ocaml
+module T_atomic = struct
+  type t =
+    { foo : int
+    ; bar : float Or_error.t
+    ; qux : bool String.Map.t
+    }
+  [@@deriving bin_io, streamable ~atomic ~rpc ~version:1]
+end
+
+(* Verify that [T_atomic] satisfies [Streamable.S_rpc]. *)
+module _ : Streamable.S_rpc with type t = T_atomic.t = T_atomic
+```
+
+Note that this requires that the type derives `bin_io` (and `sexp`, if
+`~rpc` is not provided) *before* it derives `streamable`, since the
+latter uses definitions from the former when invoking the `Streamable`
+functors.
+
+The ppx can also be added to a type in a signature, in order to assert
+that the type conforms to either the `Streamable.S` or
+`Streamable.S_rpc` interface.
+
+```ocaml
+module type S = sig
+  type t [@@deriving streamable]
+end
+
+module type S_rpc = sig
+  type t [@@deriving streamable ~rpc]
+end
+
+module _ : S = T
+module _ : S_rpc = T_rpc
+```
+
+Parameterized Types
+-----------------------
+
+We can also use `ppx_streamable` on parameterized types. Doing so produces a
+`Make_streamable` functor which accepts streamable implementations of type parameters to
+produce a streamable module.
+
+```ocaml
+module T_parameterized = struct
+  type 'a t = 'a option list [@@deriving streamable ~version:1]
+end
+
+(* Verify that [T_parameterized] has the expected interface. *)
+module _ : sig
+  type 'a t
+
+  module Make_streamable (A : Streamable.S) : Streamable.S with type t = A.t t
+end = T_parameterized
+```
+
+You can then use this parameterized type in other types that use `ppx_streamable` in a way
+that composes nicely.
+
+```ocaml
+module T_concrete = struct
+  type t = int T_parameterized.t [@@deriving streamable ~version:1]
+end
+
+module _ : S with type t = int T_parameterized.t = T_concrete
+```
+
+Attributes
+------------
+
+### `[@streamable.atomic]`
+By default, a type of the form `Module.Path.t` that appears anywhere
+within the type `t` will be expected to satisfy either the
+`Streamable.S` or `Streamable.S_rpc` interface.
+
+```ocaml
+module Foo = struct
+  type t = int * string [@@deriving bin_io, sexp]
+end
+```
+
+```ocaml
+module T_without_atomic = struct
+  type t =
+    { foo : Foo.t (* [Foo.t] is expected to satisfy [Streamable.S], which it does not. *)
+    ; bar : float Or_error.t
+    ; qux : bool String.Map.t
+    }
+  [@@deriving streamable ~version:1]
+end
+```
+```mdx-error
+Lines 2-7, characters 5-39:
+Error: This application of the functor Streamable.Stable.V1.Of_tuple3 is ill-typed.
+       These arguments:
+         Foo
+         Streamable.Stable.V1.Of_result(Streamable.Stable.V1.Of_atomic(Core.Float))(Streamable.Stable.V1.Of_atomic(Core.Error.Stable.V2))
+         Streamable.Stable.V1.Of_map(Core.String)(Streamable.Stable.V1.Of_atomic(Core.Bool))
+       do not match these parameters:
+         functor (A : Streamable__Main_intf.S) (B : Streamable__Main_intf.S)
+         (C : Streamable__Main_intf.S) -> ...
+       1. Modules do not match:
+            Foo :
+            sig
+              type t = int * string
+              val bin_shape_t : Bin_shape.t
+              val bin_size_t : t Bin_prot.Size.sizer
+              val bin_write_t : t Bin_prot.Write.writer
+              val bin_writer_t : t Bin_prot.Type_class.writer
+              val __bin_read_t__ : t Bin_prot.Read.vtag_reader
+              val bin_read_t : t Bin_prot.Read.reader
+              val bin_reader_t : t Bin_prot.Reader.t
+              val bin_t : t Bin_prot.Type_class.t
+              val t_of_sexp : Sexp.t -> t
+              val sexp_of_t : t -> Sexp.t
+            end
+          is not included in
+            Streamable__Main_intf.S
+          The module Intermediate is required but not provided
+          File "module_type.ml", lines 88-97, characters 2-5:
+            Expected declaration
+          The value to_parts is required but not provided
+          File "module_type.ml", line 99, characters 2-52:
+            Expected declaration
+          The value finalize is required but not provided
+          File "module_type.ml", line 100, characters 2-36:
+            Expected declaration
+       2. Module Streamable.Stable.V1.Of_result(Streamable.Stable.V1.Of_atomic(Core.Float))(Streamable.Stable.V1.Of_atomic(Core.Error.Stable.V2)) matches the expected module type
+            Streamable__Main_intf.S
+       3. Module Streamable.Stable.V1.Of_map(Core.String)(Streamable.Stable.V1.Of_atomic(Core.Bool)) matches the expected module type
+            Streamable__Main_intf.S
+```
+
+However, one can force the type to be treated as an atomically
+streamable value by annotating it with the `[@streamable.atomic]`
+attribute.
+
+```ocaml
+module T_with_atomic_field = struct
+  type t =
+    { foo : (Foo.t[@streamable.atomic])
+    ; bar : float Or_error.t
+    ; qux : bool String.Map.t
+    }
+  [@@deriving streamable ~version:1]
+end
+
+(* Verify that [T_with_atomic_field] satisfies [Streamable.S]. *)
+module _ : Streamable.S with type t = T_with_atomic_field.t = T_with_atomic_field
+```
+
+### `[@streamable.map_with_atomic_values]`
+
+By default, `Map` types are streamed using the `Of_map` functor, which recursively streams
+both keys and values. However, when you know that the values are small enough to be
+serialized atomically, you can use the `[@streamable.map_with_atomic_values]` attribute to
+use the `Of_map_with_atomic_values` functor instead which can be more performant.
+
+Migrating from Hand-Written Functors to `ppx_streamable`
+----------------------------------------------------------------------
+
+In case you'd like to migrate an existing project that uses
+hand-written functors to use `ppx_streamable` instead, you should keep
+in mind that compilation is not always sufficient for runtime
+correctness, because the different versions of the `Streamable`
+functors use different intermediate representations when performing
+(de)serialization.
+
+If you've made a type streamable by...
+
+1. using the unstable `Streamable.*` functors, or
+
+2. using the `Streamable.Stable.Vn.*` functors where `n` is the
+latest top-level version available, or
+
+3. using the `Streamable.Stable.*.Vn` functors where `n` is the latest
+version available for each individual functor
+
+...then it is safe to swap out the hand-written functors in favor of
+`ppx_streamable` with the latest `~version` argument.
+
+If you've used any `Streamable.Stable.*.Vm` functors where `m` is not
+the latest version available for that individual functor, then you
+should first check whether there is a top-level `Streamable.Stable.Vk`
+module that matches the same versions that you use. If so, then it is
+safe to use `ppx_streamable` with the `~version:k` argument (this is
+also true if you've used the `Streamable.Stable.Vk.*` functors).
+
+Else, you may just need to bump your stable type and use
+`ppx_streamable` on the latest version.
+
+You may also find it helpful to use `[@@deriving_inline streamable]
+[@@@end]` and accept the corrected output in order to inspect what the
+ppx generates, so that you can verify whether the changes are safe.
+
+Supported Types
+-------------------
+
+The ppx currently supports the following types, and produces the
+corresponding `Streamable.Of_*` functor call:
+
+| type                                     | functor                                                        |
+-------------------------------------------|----------------------------------------------------------------|
+| `'a Fqueue.t`                            | `Streamable.Of_fqueue`                                         |
+| `'a B.Table.t` or `('b, 'a) Hashtbl.t`   | `Streamable.Of_hashtbl`                                        |
+| `'a list` or `'a List.t`                 | `Streamable.Of_list`                                           |
+| `'a B.Map.t` or `('b, 'a, 'c) Map.t`     | `Streamable.Of_map`<sup>[1](#footnote1)</sup>                  |
+| `'a Nonempty_list.t`                     | `Streamable.Of_nonempty_list`                                  |
+| `'a option` or `'a Option.t`             | `Streamable.Of_option`                                         |
+| `'a Or_error.t`                          | `Streamable.Of_result` (with `Core.Error.Stable.Vn.t` as the error type) |
+| `'a <primitive>`                         | `Streamable.Of_atomic (<Primitive>)`                           |
+| `<record>`                               | `Streamable.Of_streamable (Streamable.Of_tupleN (...))`<sup>[2](#footnote2)</sup>  |
+| `('a, 'b) result` or `('a, 'b) Result.t` | `Streamable.Of_result`                                         |
+| `a Sequence.t`                           | `Streamable.Of_sequence`                                       |
+| `A.Set.t`                                | `Streamable.Of_set`                                            |
+| `(a1 * ... * an)`                        | `Streamable.Of_tupleN`                                         |
+| `<variant>`                              | `Streamable.Of_streamable (Streamable.Of_variantN (...))`<sup>[3](#footnote3)</sup> |
+
+There are values of N past which `Streamable.Of_tuple{N}` and
+`Streamable.Of_variant{N}` do not exist.  In those situations, we nest
+calls to these functors that serialize wide tuples/variants as nested
+tuples/variants so that we are not limited to small tuples/variants.
+
+Footnotes
+-----------
+<a name="footnote1">1</a>: If the `[@streamable.map_with_atomic_values]` attribute is
+specified, then `Streamable.Of_map_with_atomic_values` will be used instead.
+
+<a name="footnote2">2</a>: If the record only contains one field then
+we omit the `Streamable.Of_tuple` part and directly convert to and
+from the singleton field's type using `Streamable.Of_streamable`.
+
+<a name="footnote3">3</a>: If the variant only contains one
+constructor then we omit the `Streamable.Of_variantN` part and
+directly convert to and from the singleton constructor's type using
+`Streamable.Of_streamable`.  Variants with zero constructors are also
+supported.

@@ -1,0 +1,7 @@
+(library
+ (name streamable)
+ (public_name streamable)
+ (libraries async_kernel async_rpc_kernel bin_prot.shape core
+   core_kernel.total_map)
+ (preprocess
+  (pps ppx_jane)))

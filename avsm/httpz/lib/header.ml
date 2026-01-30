@@ -52,7 +52,7 @@ let to_string_pairs buf headers =
 
 let pp_with_buf buf fmt t =
   Stdlib.Format.fprintf fmt "%s: %s"
-    (Name.to_string buf t.name)
+    (Name.canonical t.name)
     (Span.to_string buf t.value)
 ;;
 

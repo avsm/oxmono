@@ -28,12 +28,8 @@ let config_file =
   let doc = "Path to config file (default: ~/.config/arod/config.toml)." in
   Arg.(value & opt (some file) None & info [ "c"; "config" ] ~docv:"FILE" ~doc)
 
-let memo_ttl =
-  let doc = "TTL in seconds for memoized routes (default: 300.0)." in
-  Arg.(value & opt float 300.0 & info [ "memo-ttl" ] ~docv:"SECONDS" ~doc)
-
 let serve_cmd =
-  let run () config_file memo_ttl =
+  let run () config_file =
     let cfg = Arod.Config.load_or_default ?path:config_file () in
     Log.info (fun m -> m "Starting Arod server...");
     Log.info (fun m -> m "Config:@.%a" Arod.Config.pp cfg);
@@ -50,18 +46,16 @@ let serve_cmd =
           (List.length (Arod.Model.ideas ()))
           (List.length (Arod.Model.videos ()))
           (List.length (Arod.Model.images ())));
-    (* Create memoization cache *)
-    let memo_cache = Arod.Memo.create ~ttl:memo_ttl () in
     (* Get all routes *)
     let routes = Arod.Handlers.all_routes cfg in
     (* Run the server *)
     Eio.Switch.run @@ fun sw ->
-    Arod_server.run ~sw ~net ~config:cfg ~memo_cache routes;
+    Arod_server.run ~sw ~net ~config:cfg routes;
     0
   in
   let doc = "Start the Arod webserver." in
   let info = Cmd.info "serve" ~doc in
-  Cmd.v info Term.(const run $ logging_t $ config_file $ memo_ttl)
+  Cmd.v info Term.(const run $ logging_t $ config_file)
 
 let init_cmd =
   let run () =

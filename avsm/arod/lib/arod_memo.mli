@@ -28,11 +28,6 @@ val clear : 'a t -> unit
 val stats : 'a t -> int * int
 (** [stats cache] returns [(hits, misses)] statistics. *)
 
-val memoize :
-  Arod_route.Response.t t ->
-  (Arod_route.Request.t -> Arod_route.Response.t) ->
-  Arod_route.Request.t ->
-  Arod_route.Response.t
-(** [memoize cache handler] wraps [handler] to cache responses by the
-    request's [cache_key]. Cached responses are returned directly; cache misses
-    invoke the handler and store the result. *)
+val memoize : 'a t -> string -> (unit -> 'a) -> 'a
+(** [memoize cache key f] returns a cached value for [key] if present and not
+    expired, otherwise calls [f ()] and caches the result. *)

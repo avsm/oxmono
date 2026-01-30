@@ -1,4 +1,4 @@
 (library
  (name arod_server)
  (public_name arod.server)
- (libraries arod base httpz eio logs unix))
+ (libraries arod base httpz httpz.eio eio logs unix))

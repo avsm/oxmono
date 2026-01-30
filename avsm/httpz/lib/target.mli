@@ -4,20 +4,24 @@
     (the path and query string) without heap allocation. All results
     are returned as spans referencing the original buffer.
 
+    The {!parse} function strips the leading slash from paths, so
+    "/foo/bar" becomes "foo/bar" in the returned path span.
+
     Functions that may fail return unboxed tuples [#(success, result)]
     instead of [option] to avoid allocation. *)
 
 (** Parsed target components - unboxed record with span references. *)
 type t =
-  #{ path : Span.t       (** Path portion, e.g., "/foo/bar" *)
+  #{ path : Span.t       (** Path without leading slash, e.g., "foo/bar" *)
    ; query : Span.t      (** Query portion excluding '?', e.g., "a=1&b=2" *)
    }
 
 (** Parse target span into path and query components.
+    The leading slash is stripped from the path in a single pass.
     Zero allocation - returns unboxed record with span references. *)
 val parse : local_ Base_bigstring.t -> Span.t -> t
 
-(** Get the path span. *)
+(** Get the path span (without leading slash). *)
 val path : t -> Span.t
 
 (** Get the query span (empty if no query string). *)
@@ -32,22 +36,15 @@ val has_query : t -> bool
     Functions return unboxed tuples to avoid option allocation. *)
 
 (** Match a literal path segment. Returns [#(matched, remaining_path)].
-    If [matched] is [false], [remaining_path] is undefined.
-    The path should not have a leading slash. *)
+    If [matched] is [false], [remaining_path] is undefined. *)
 val match_segment : local_ Base_bigstring.t -> Span.t -> string -> #(bool * Span.t)
 
 (** Match any path segment (parameter capture). Returns [#(matched, segment, remaining)].
     If [matched] is [false], [segment] and [remaining] are undefined. *)
 val match_param : local_ Base_bigstring.t -> Span.t -> #(bool * Span.t * Span.t)
 
-(** Check if path is empty or just trailing slash. *)
-val path_is_empty : local_ Base_bigstring.t -> Span.t -> bool
-
-(** Skip leading slash from path. *)
-val skip_leading_slash : local_ Base_bigstring.t -> Span.t -> Span.t
-
-(** Count path segments (for validation). *)
-val count_segments : local_ Base_bigstring.t -> Span.t -> int
+(** Check if path span is empty (complete match). *)
+val is_empty : Span.t -> bool
 
 (** {1 Query Parameter Lookup}
 

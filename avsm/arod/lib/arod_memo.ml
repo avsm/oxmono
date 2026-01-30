@@ -45,11 +45,10 @@ let clear cache =
 
 let stats cache = (cache.hits, cache.misses)
 
-let memoize cache handler req =
-  let key = Arod_route.Request.cache_key req in
+let memoize cache key handler =
   match get cache ~key with
   | Some response -> response
   | None ->
-      let response = handler req in
+      let response = handler () in
       set cache ~key response;
       response

@@ -6,6 +6,7 @@
 (** Pure route handlers for arod *)
 
 open Arod_entries
+module R = Httpz.Route
 
 (** {1 Query Information} *)
 
@@ -15,18 +16,18 @@ type query_info = Arod_entries.query_info = {
   show_all : bool;
 }
 
-let query_info_of_request req : query_info =
+let query_info_of_ctx ctx : query_info =
   let tags =
-    Arod_route.Request.query_params req "t"
+    R.query_params ctx "t"
     |> List.map Arod_model.Tags.of_string
   in
   let min =
-    match Arod_route.Request.query_param req "min" with
+    match R.query_param ctx "min" with
     | None -> 25
     | Some v -> ( try int_of_string v with _ -> 25 )
   in
   let show_all =
-    match Arod_route.Request.query_param req "all" with
+    match R.query_param ctx "all" with
     | None -> false
     | Some _ -> true
   in
@@ -35,13 +36,6 @@ let query_info_of_request req : query_info =
 (** {1 Response Helpers} *)
 
 let to_page el = Htmlit.El.to_string ~doctype:true el
-
-let html_response content = Arod_route.Response.html content
-let json_response content = Arod_route.Response.json content
-let atom_response content = Arod_route.Response.atom content
-let xml_response content = Arod_route.Response.xml content
-let plain_response content = Arod_route.Response.plain content
-let not_found_response = Arod_route.Response.not_found
 
 (** {1 File Serving} *)
 
@@ -63,7 +57,7 @@ let mime_type_of_path path =
   else if String.ends_with ~suffix:".bib" path then "application/x-bibtex"
   else "application/octet-stream"
 
-let static_file ~dir path _req =
+let static_file ~dir path _ctx respond =
   let clean_path =
     let parts = String.split_on_char '/' path in
     let safe_parts = List.filter (fun s -> s <> ".." && s <> ".") parts in
@@ -77,117 +71,115 @@ let static_file ~dir path _req =
       let content = really_input_string ic len in
       close_in ic;
       let mime = mime_type_of_path file_path in
-      Arod_route.Response.raw ~status:Httpz.Res.Success
-        ~headers:[ ("content-type", mime) ]
-        content
+      R.respond_string respond ~status:Httpz.Res.Success ~headers:[(Httpz.Header_name.Content_type, mime)] content
     end
-    else not_found_response
-  with _ -> not_found_response
+    else R.not_found respond
+  with _ -> R.not_found respond
 
 (** {1 Entry Handlers} *)
 
-let entries_handler ~extra_tags ~types req =
-  let q = query_info_of_request req in
+let entries_handler ~extra_tags ~types ctx respond =
+  let q = query_info_of_ctx ctx in
   let all_tags =
     Arod_model.concat_tags q.tags (List.map Arod_model.Tags.of_string extra_tags)
   in
-  html_response
+  R.html respond
     (to_page
        (view_entries ~show_all:q.show_all ~tags:all_tags ~min:q.min ~types
           (entries_of_req ~extra_tags ~types { tags = q.tags; min = q.min; show_all = q.show_all })))
 
-let feed_handler ~types req =
-  let q = query_info_of_request req in
-  html_response
+let feed_handler ~types ctx respond =
+  let q = query_info_of_ctx ctx in
+  R.html respond
     (to_page
        (view_news ~show_all:q.show_all ~tags:q.tags ~min:q.min ~types
           (feed_of_req ~types { tags = q.tags; min = q.min; show_all = q.show_all })))
 
-let feed_handler_with_tags ~extra_tags ~types req =
-  let q = query_info_of_request req in
+let feed_handler_with_tags ~extra_tags ~types ctx respond =
+  let q = query_info_of_ctx ctx in
   let tags =
     Arod_model.concat_tags q.tags (List.map Arod_model.Tags.of_string extra_tags)
   in
   let q' = { tags; min = q.min; show_all = q.show_all } in
-  html_response
+  R.html respond
     (to_page
        (view_news ~show_all:q'.show_all ~tags:q'.tags ~min:q'.min ~types
           (feed_of_req ~types q')))
 
 (** {1 Content Handlers} *)
 
-let index req =
-  let q = query_info_of_request req in
+let index ctx respond =
+  let q = query_info_of_ctx ctx in
   match Arod_model.lookup "index" with
-  | None -> not_found_response
+  | None -> R.not_found respond
   | Some ent ->
-      html_response (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
 
 let papers = entries_handler ~extra_tags:[] ~types:[ `Paper ]
 
-let paper cfg ((), slug) req =
-  let q = query_info_of_request req in
+let paper cfg slug ctx respond =
+  let q = query_info_of_ctx ctx in
   match slug with
   | slug when String.ends_with ~suffix:".pdf" slug ->
-      static_file ~dir:cfg.Arod_config.paths.static_dir ("papers/" ^ slug) req
+      static_file ~dir:cfg.Arod_config.paths.static_dir ("papers/" ^ slug) ctx respond
   | slug when String.ends_with ~suffix:".bib" slug ->
       let paper_slug = Filename.chop_extension slug in
       ( match Arod_model.lookup paper_slug with
-      | Some (`Paper p) -> plain_response (Arod_model.Paper.bib p)
-      | _ -> not_found_response )
+      | Some (`Paper p) -> R.plain respond (Arod_model.Paper.bib p)
+      | _ -> R.not_found respond )
   | _ -> (
       match Arod_model.lookup slug with
-      | None -> not_found_response
+      | None -> R.not_found respond
       | Some ent ->
-          html_response (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent)) )
+          R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent)) )
 
 let notes = feed_handler_with_tags ~extra_tags:[] ~types:[ `Note ]
 
-let note ((), slug) req =
-  let q = query_info_of_request req in
+let note slug ctx respond =
+  let q = query_info_of_ctx ctx in
   match Arod_model.lookup slug with
-  | None -> not_found_response
+  | None -> R.not_found respond
   | Some ent ->
-      html_response (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
 
-let ideas _req = html_response (to_page (Arod_ideas.view_ideas_by_project ()))
+let ideas _ctx respond = R.html respond (to_page (Arod_ideas.view_ideas_by_project ()))
 
-let idea ((), slug) req =
-  let q = query_info_of_request req in
+let idea slug ctx respond =
+  let q = query_info_of_ctx ctx in
   match Arod_model.lookup slug with
-  | None -> not_found_response
+  | None -> R.not_found respond
   | Some ent ->
-      html_response (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
 
-let projects _req = html_response (to_page (Arod_projects.view_projects_timeline ()))
+let projects _ctx respond = R.html respond (to_page (Arod_projects.view_projects_timeline ()))
 
-let project ((), slug) req =
-  let q = query_info_of_request req in
+let project slug ctx respond =
+  let q = query_info_of_ctx ctx in
   match Arod_model.lookup slug with
-  | None -> not_found_response
+  | None -> R.not_found respond
   | Some ent ->
-      html_response (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
 
 let videos = feed_handler_with_tags ~extra_tags:[] ~types:[ `Video ]
 
-let video ((), slug) req =
-  let q = query_info_of_request req in
+let video slug ctx respond =
+  let q = query_info_of_ctx ctx in
   match Arod_model.lookup slug with
-  | None -> not_found_response
+  | None -> R.not_found respond
   | Some ent ->
-      html_response (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
 
-let content ((), slug) req =
-  let q = query_info_of_request req in
+let content slug ctx respond =
+  let q = query_info_of_ctx ctx in
   match Arod_model.lookup slug with
-  | None -> not_found_response
+  | None -> R.not_found respond
   | Some ent ->
-      html_response (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
 
 (** {1 Legacy Handlers} *)
 
-let news_redirect ((), slug) _req =
-  Arod_route.Response.redirect ~status:Httpz.Res.Moved_permanently ~location:("/notes/" ^ slug)
+let news_redirect slug _ctx respond =
+  R.redirect respond ~status:Httpz.Res.Moved_permanently ~location:("/notes/" ^ slug)
 
 let wiki = entries_handler ~extra_tags:[] ~types:[ `Paper; `Note; `Video; `Idea; `Project ]
 
@@ -195,9 +187,9 @@ let news = feed_handler ~types:[ `Note ]
 
 (** {1 Feed Handlers} *)
 
-let atom_uri req =
-  let path = Arod_route.Request.path req in
-  let query = Arod_route.Request.query req in
+let atom_uri ctx =
+  let path = R.path ctx in
+  let query = R.query ctx in
   if query = [] then path
   else
     let query_string =
@@ -205,32 +197,32 @@ let atom_uri req =
     in
     path ^ "?" ^ query_string
 
-let atom_feed cfg req =
-  let q = query_info_of_request req in
+let atom_feed cfg ctx respond =
+  let q = query_info_of_ctx ctx in
   let feed = feed_of_req ~types:[] { tags = q.tags; min = q.min; show_all = q.show_all } in
-  let ur = atom_uri req in
+  let ur = atom_uri ctx in
   let s = Arod_feed.feed_string cfg ur feed in
-  atom_response s
+  R.atom respond s
 
-let json_feed cfg req =
-  let q = query_info_of_request req in
+let json_feed cfg ctx respond =
+  let q = query_info_of_ctx ctx in
   let feed = feed_of_req ~types:[] { tags = q.tags; min = q.min; show_all = q.show_all } in
   let s = Arod_jsonfeed.feed_string cfg "/feed.json" feed in
-  json_response s
+  R.json respond s
 
-let perma_atom cfg _req =
+let perma_atom cfg _ctx respond =
   let feed = perma_feed_of_req () in
   let s = Arod_feed.feed_string cfg "/perma.xml" feed in
-  atom_response s
+  R.atom respond s
 
-let perma_json cfg _req =
+let perma_json cfg _ctx respond =
   let feed = perma_feed_of_req () in
   let s = Arod_jsonfeed.feed_string cfg "/perma.json" feed in
-  json_response s
+  R.json respond s
 
 (** {1 Utility Handlers} *)
 
-let sitemap cfg _req =
+let sitemap cfg _ctx respond =
   let all_feed =
     Arod_model.all_entries ()
     |> List.sort Arod_model.Entry.compare
@@ -242,38 +234,38 @@ let sitemap cfg _req =
     Sitemap.v ~lastmod loc
   in
   let sitemap_xml = List.map url_of_entry all_feed |> Sitemap.output in
-  xml_response sitemap_xml
+  R.xml respond sitemap_xml
 
-let bushel_graph _req = html_response (to_page (Arod_page.bushel_graph ()))
+let bushel_graph _ctx respond = R.html respond (to_page (Arod_page.bushel_graph ()))
 
-let bushel_graph_data _req =
+let bushel_graph_data _ctx respond =
   let entries = Arod_model.get_entries () in
   match Bushel.Link_graph.get_graph () with
-  | None -> json_response {|{"error": "Link graph not initialized"}|}
+  | None -> R.json respond {|{"error": "Link graph not initialized"}|}
   | Some graph ->
       let json = Bushel.Link_graph.to_json graph entries in
-      json_response (Ezjsonm.value_to_string json)
+      R.json respond (Ezjsonm.value_to_string json)
 
-let pagination_api req =
+let pagination_api ctx respond =
   try
     let collection_type =
-      match Arod_route.Request.query_param req "collection" with
+      match R.query_param ctx "collection" with
       | Some t -> t
       | None -> failwith "Missing collection parameter"
     in
     let offset =
-      match Arod_route.Request.query_param req "offset" with
+      match R.query_param ctx "offset" with
       | Some o -> int_of_string o
       | None -> 0
     in
     let limit =
-      match Arod_route.Request.query_param req "limit" with
+      match R.query_param ctx "limit" with
       | Some l -> int_of_string l
       | None -> 25
     in
-    let type_strings = Arod_route.Request.query_params req "type" in
+    let type_strings = R.query_params ctx "type" in
     let types = List.filter_map entry_type_of_string type_strings in
-    let q = query_info_of_request req in
+    let q = query_info_of_ctx ctx in
     let q' = { tags = q.tags; min = q.min; show_all = q.show_all } in
     let html =
       match collection_type with
@@ -310,26 +302,26 @@ let pagination_api req =
           ("has_more", `Bool has_more);
         ]
     in
-    json_response (Ezjsonm.to_string json)
+    R.json respond (Ezjsonm.to_string json)
   with e ->
     let error_json = `O [ ("error", `String (Printexc.to_string e)) ] in
-    json_response (Ezjsonm.to_string error_json)
+    R.json respond (Ezjsonm.to_string error_json)
 
-let well_known cfg ((), key) _req =
+let well_known cfg key _ctx respond =
   match
     List.find_opt (fun e -> e.Arod_config.key = key) cfg.Arod_config.well_known
   with
-  | Some entry -> plain_response entry.value
-  | None -> not_found_response
+  | Some entry -> R.plain respond entry.value
+  | None -> R.not_found respond
 
-let robots_txt cfg req =
-  static_file ~dir:cfg.Arod_config.paths.assets_dir "robots.txt" req
+let robots_txt cfg ctx respond =
+  static_file ~dir:cfg.Arod_config.paths.assets_dir "robots.txt" ctx respond
 
 (** {1 Route Collection} *)
 
 let all_routes cfg =
-  let open Arod_route in
-  Routes.of_list
+  let open R in
+  of_list
     [
       (* Index routes *)
       get_ [] index;
@@ -349,34 +341,34 @@ let all_routes cfg =
       (* Sitemap *)
       get_ [ "sitemap.xml" ] (sitemap cfg);
       (* Papers *)
-      get (exact "papers" @/ param) (paper cfg);
-      get (exact "papers" @/ param @/ exact "") (fun ((), (slug, ())) -> paper cfg ((), slug));
+      get ("papers" **> seg) (paper cfg);
+      get ("papers" **> seg <** "") (paper cfg);
       get_ [ "papers" ] papers;
       get_ [ "papers"; "" ] papers;
       (* Ideas *)
-      get (exact "ideas" @/ param) idea;
-      get (exact "ideas" @/ param @/ exact "") (fun ((), (slug, ())) -> idea ((), slug));
+      get ("ideas" **> seg) idea;
+      get ("ideas" **> seg <** "") idea;
       get_ [ "ideas" ] ideas;
       get_ [ "ideas"; "" ] ideas;
       (* Notes *)
-      get (exact "notes" @/ param) note;
-      get (exact "notes" @/ param @/ exact "") (fun ((), (slug, ())) -> note ((), slug));
+      get ("notes" **> seg) note;
+      get ("notes" **> seg <** "") note;
       get_ [ "notes" ] notes;
       get_ [ "notes"; "" ] notes;
       (* Videos/Talks *)
-      get (exact "videos" @/ param) video;
-      get (exact "videos" @/ param @/ exact "") (fun ((), (slug, ())) -> video ((), slug));
+      get ("videos" **> seg) video;
+      get ("videos" **> seg <** "") video;
       get_ [ "talks" ] videos;
       get_ [ "talks"; "" ] videos;
       get_ [ "videos" ] videos;
       get_ [ "videos"; "" ] videos;
       (* Projects *)
-      get (exact "projects" @/ param) project;
-      get (exact "projects" @/ param @/ exact "") (fun ((), (slug, ())) -> project ((), slug));
+      get ("projects" **> seg) project;
+      get ("projects" **> seg <** "") project;
       get_ [ "projects" ] projects;
       get_ [ "projects"; "" ] projects;
       (* Legacy news redirect *)
-      get (exact "news" @/ param) news_redirect;
+      get ("news" **> seg) news_redirect;
       (* Wiki/News legacy *)
       get_ [ "wiki" ] wiki;
       get_ [ "news" ] news;
@@ -387,11 +379,11 @@ let all_routes cfg =
       get_ [ "bushel"; "" ] bushel_graph;
       get_ [ "bushel"; "graph.json" ] bushel_graph_data;
       (* Well-known endpoints *)
-      get (exact ".well-known" @/ param) (well_known cfg);
+      get (".well-known" **> seg) (well_known cfg);
       (* Robots.txt *)
       get_ [ "robots.txt" ] (robots_txt cfg);
       (* Static files *)
-      get (exact "assets" @/ rest) (fun ((), path) -> static_file ~dir:cfg.paths.assets_dir path);
-      get (exact "images" @/ rest) (fun ((), path) -> static_file ~dir:cfg.paths.images_dir path);
-      get (exact "static" @/ rest) (fun ((), path) -> static_file ~dir:cfg.paths.static_dir path);
+      get ("assets" **> tail) (fun path -> static_file ~dir:cfg.paths.assets_dir path);
+      get ("images" **> tail) (fun path -> static_file ~dir:cfg.paths.images_dir path);
+      get ("static" **> tail) (fun path -> static_file ~dir:cfg.paths.static_dir path);
     ]

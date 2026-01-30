@@ -52,6 +52,7 @@ module Header_name = Header_name
 module Header = Header
 module Req = Req
 module Target = Target
+module Route = Route
 module Chunk = Chunk
 module Res = Res
 module Etag = Etag

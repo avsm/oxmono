@@ -14,7 +14,7 @@ val char : Base_bigstring.t -> off:int16# -> char -> int16#
 val char_u : Base_bigstring.t -> off:int16# -> char# -> int16#
 
 (** Write a string. Returns [off + String.length s]. *)
-val string : Base_bigstring.t -> off:int16# -> string -> int16#
+val string : Base_bigstring.t -> off:int16# -> local_ string -> int16#
 
 (** Write CRLF ([\r\n]). Returns [off + 2]. *)
 val crlf : Base_bigstring.t -> off:int16# -> int16#

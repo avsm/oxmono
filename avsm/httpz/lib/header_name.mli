@@ -54,10 +54,6 @@ type t =
     Use this for response writing when you don't need buffer access. *)
 val canonical : t -> string
 
-(** Canonical display name for headers. Returns ["(unknown)"] for [Other].
-    @deprecated Use {!canonical} instead - the buffer parameter is unused. *)
-val to_string : local_ Base_bigstring.t -> t -> string
-
 (** Lowercase canonical name for known headers. Returns [""] for [Other]. *)
 val lowercase : t -> string
 

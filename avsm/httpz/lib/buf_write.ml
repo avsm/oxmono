@@ -21,7 +21,7 @@ let[@inline] char_u dst ~(off : int16#) (c : char#) =
   add16 off (i16 1)
 ;;
 
-let[@inline] string dst ~(off : int16#) s =
+let[@inline] string dst ~(off : int16#) (local_ s) =
   let len = String.length s in
   let off_int = to_int off in
   for i = 0 to len - 1 do

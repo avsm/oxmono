@@ -186,7 +186,7 @@ let write_status_line dst ~off status version =
   Buf_write.crlf dst ~off
 ;;
 
-let write_header dst ~off name value =
+let write_header dst ~off (local_ name) (local_ value) =
   let off = Buf_write.string dst ~off name in
   let off = Buf_write.char dst ~off ':' in
   let off = Buf_write.char dst ~off ' ' in
@@ -194,7 +194,7 @@ let write_header dst ~off name value =
   Buf_write.crlf dst ~off
 ;;
 
-let write_header_int dst ~off name value =
+let write_header_int dst ~off (local_ name) value =
   let off = Buf_write.string dst ~off name in
   let off = Buf_write.char dst ~off ':' in
   let off = Buf_write.char dst ~off ' ' in
@@ -202,7 +202,7 @@ let write_header_int dst ~off name value =
   Buf_write.crlf dst ~off
 ;;
 
-let write_header_name dst ~off name value =
+let write_header_name dst ~off name (local_ value) =
   write_header dst ~off (Header_name.canonical name) value
 ;;
 

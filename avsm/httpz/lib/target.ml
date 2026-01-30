@@ -6,114 +6,124 @@ module I16 = Stdlib_stable.Int16_u
 
 let[@inline] i16 x = I16.of_int x
 
-(** Parsed target components - all spans, no allocation. *)
+(** Parsed target with path (no leading slash) and query. *)
 type t =
-  #{ path : Span.t       (** Path portion, e.g., "/foo/bar" *)
-   ; query : Span.t      (** Query portion excluding '?', e.g., "a=1&b=2" *)
+  #{ path : Span.t       (** Path without leading slash *)
+   ; query : Span.t      (** Query without '?' *)
    }
 
-(** Parse target span into path and query components.
-    Zero allocation - returns unboxed record with span references. *)
-let[@inline] parse (local_ buf) (target : Span.t) : t =
-  let #(path, query) = Span.split_on_char buf target '?' in
-  #{ path; query }
-;;
-
-(** Get the path span. *)
-let[@inline] path (t : t) = t.#path
-
-(** Get the query span (empty if no query string). *)
-let[@inline] query (t : t) = t.#query
-
-(** Check if target has a query string. *)
-let[@inline] has_query (t : t) = not (Span.is_empty t.#query)
-
-(** {1 Path Segment Matching}
-
-    Match path segments against expected patterns without allocation.
-    Functions return unboxed tuples #(success, result_span) to avoid allocation. *)
-
-(** Empty span sentinel for failed matches. *)
+(** Empty span sentinel. *)
 let empty_span : Span.t = Span.make ~off:(i16 0) ~len:(i16 0)
 
-(** Match a literal path segment. Returns #(matched, remaining_path).
-    If matched is false, remaining_path is undefined.
-    The path should not have a leading slash. *)
-let[@inline] match_segment (local_ buf) (path : Span.t) (expected : string) : #(bool * Span.t) =
-  if Span.is_empty path
-  then #(false, empty_span)
+(** Parse target into path (without leading slash) and query.
+    Single pass, zero allocation. *)
+let[@inline] parse (local_ buf) (target : Span.t) : t =
+  let toff = Span.off target in
+  let tlen = Span.len target in
+  if tlen = 0 then #{ path = empty_span; query = empty_span }
   else
-    let #(seg, rest) = Span.split_on_char buf path '/' in
-    if Span.equal buf seg expected
-    then #(true, rest)
-    else #(false, empty_span)
+    (* Skip leading slash if present *)
+    let path_start, path_max_len =
+      if Char.equal (Base_bigstring.unsafe_get buf toff) '/' then
+        (toff + 1, tlen - 1)
+      else
+        (toff, tlen)
+    in
+    (* Find '?' to split path and query *)
+    let mutable i = 0 in
+    let mutable found = -1 in
+    while found < 0 && i < path_max_len do
+      if Char.equal (Base_bigstring.unsafe_get buf (path_start + i)) '?' then
+        found <- i
+      else
+        i <- i + 1
+    done;
+    if found < 0 then
+      (* No query string *)
+      #{ path = Span.make ~off:(i16 path_start) ~len:(i16 path_max_len)
+       ; query = empty_span
+       }
+    else
+      (* Split at '?' *)
+      let path = Span.make ~off:(i16 path_start) ~len:(i16 found) in
+      let query_start = path_start + found + 1 in
+      let query_len = path_max_len - found - 1 in
+      let query = Span.make ~off:(i16 query_start) ~len:(i16 query_len) in
+      #{ path; query }
 ;;
 
-(** Match any path segment (parameter capture). Returns #(matched, segment, remaining).
-    If matched is false, segment and remaining are undefined. *)
-let[@inline] match_param (local_ buf) (path : Span.t) : #(bool * Span.t * Span.t) =
-  if Span.is_empty path
-  then #(false, empty_span, empty_span)
+let[@inline] path (t : t) = t.#path
+let[@inline] query (t : t) = t.#query
+let[@inline] has_query (t : t) = Span.len t.#query > 0
+
+(** {1 Path Segment Matching} *)
+
+(** Match literal segment. Returns #(matched, remaining). *)
+let[@inline] match_segment (local_ buf) (path : Span.t) (expected : string) : #(bool * Span.t) =
+  let plen = Span.len path in
+  if plen = 0 then #(false, empty_span)
   else
-    let #(seg, rest) = Span.split_on_char buf path '/' in
+    let poff = Span.off path in
+    let elen = String.length expected in
+    (* Find next '/' *)
+    let mutable i = 0 in
+    while i < plen && not (Char.equal (Base_bigstring.unsafe_get buf (poff + i)) '/') do
+      i <- i + 1
+    done;
+    (* Check if segment matches *)
+    if i <> elen then #(false, empty_span)
+    else if Base_bigstring.memcmp_string buf ~pos1:poff expected ~pos2:0 ~len:elen <> 0 then
+      #(false, empty_span)
+    else
+      (* Skip the '/' separator if present *)
+      let rest_off = if i < plen then poff + i + 1 else poff + i in
+      let rest_len = if i < plen then plen - i - 1 else 0 in
+      #(true, Span.make ~off:(i16 rest_off) ~len:(i16 rest_len))
+;;
+
+(** Match any segment (capture). Returns #(matched, segment, remaining). *)
+let[@inline] match_param (local_ buf) (path : Span.t) : #(bool * Span.t * Span.t) =
+  let plen = Span.len path in
+  if plen = 0 then #(false, empty_span, empty_span)
+  else
+    let poff = Span.off path in
+    (* Find next '/' *)
+    let mutable i = 0 in
+    while i < plen && not (Char.equal (Base_bigstring.unsafe_get buf (poff + i)) '/') do
+      i <- i + 1
+    done;
+    let seg = Span.make ~off:(i16 poff) ~len:(i16 i) in
+    let rest_off = if i < plen then poff + i + 1 else poff + i in
+    let rest_len = if i < plen then plen - i - 1 else 0 in
+    let rest = Span.make ~off:(i16 rest_off) ~len:(i16 rest_len) in
     #(true, seg, rest)
 ;;
 
-(** Check if path is empty or just trailing slash. *)
-let[@inline] path_is_empty (local_ buf) (path : Span.t) : bool =
-  Span.is_empty path || (Span.len path = 1 && Span.starts_with buf path '/')
-;;
+(** Check if path is empty (complete match). *)
+let[@inline] is_empty (path : Span.t) : bool = Span.len path = 0
 
-(** Skip leading slash from path. *)
-let[@inline] skip_leading_slash (local_ buf) (path : Span.t) : Span.t =
-  Span.skip_char buf path '/'
-;;
+(** {1 Query Parameter Lookup} *)
 
-(** Count path segments (for validation). *)
-let count_segments (local_ buf) (path : Span.t) : int =
-  let path = skip_leading_slash buf path in
-  if Span.is_empty path then 0
-  else
-    let mutable count = 1 in
-    let mutable remaining = path in
-    while not (Span.is_empty remaining) do
-      let #(_, rest) = Span.split_on_char buf remaining '/' in
-      if not (Span.is_empty rest) then count <- count + 1;
-      remaining <- rest
-    done;
-    count
-;;
-
-(** {1 Query Parameter Lookup}
-
-    Look up query parameters without full iteration. *)
-
-(** Find query parameter by name. Returns #(found, value_span).
-    If found is false, value_span is undefined. *)
+(** Find query parameter by name. Returns #(found, value_span). *)
 let rec find_query_param (local_ buf) (query : Span.t) (name : string) : #(bool * Span.t) =
-  if Span.is_empty query
-  then #(false, empty_span)
+  if Span.is_empty query then #(false, empty_span)
   else
     let #(pair, rest) = Span.split_on_char buf query '&' in
     let #(key, value) = Span.split_on_char buf pair '=' in
-    if Span.equal buf key name
-    then #(true, value)
+    if Span.equal buf key name then #(true, value)
     else find_query_param buf rest name
 ;;
 
-(** Fold over all query parameters.
-    [f acc key_span value_span] is called for each parameter. *)
+(** Fold over query parameters. *)
 let rec fold_query_params (local_ buf) (query : Span.t) ~init ~f =
-  if Span.is_empty query
-  then init
+  if Span.is_empty query then init
   else
     let #(pair, rest) = Span.split_on_char buf query '&' in
     let #(key, value) = Span.split_on_char buf pair '=' in
-    let acc = f init key value in
-    fold_query_params buf rest ~init:acc ~f
+    fold_query_params buf rest ~init:(f init key value) ~f
 ;;
 
-(** Convert query parameters to string pairs. Allocates. *)
+(** Convert query to string pairs (allocates). *)
 let query_to_string_pairs (local_ buf) (query : Span.t) : (string * string) list =
   fold_query_params buf query ~init:[] ~f:(fun acc key value ->
       (Span.to_string buf key, Span.to_string buf value) :: acc)

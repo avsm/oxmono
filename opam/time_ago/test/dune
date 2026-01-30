@@ -1,0 +1,5 @@
+(library
+ (name time_ago_test)
+ (libraries core time_ago)
+ (preprocess
+  (pps ppx_jane)))

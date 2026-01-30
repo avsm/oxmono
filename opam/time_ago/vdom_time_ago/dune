@@ -1,0 +1,6 @@
+(library
+ (name vdom_time_ago)
+ (public_name time_ago.vdom)
+ (preprocess
+  (pps js_of_ocaml-ppx ppx_jane))
+ (libraries async_kernel core incr_dom js_of_ocaml time_ago))

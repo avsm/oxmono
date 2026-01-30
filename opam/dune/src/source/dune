@@ -1,0 +1,22 @@
+(library
+ (name source)
+ (libraries
+  dune_config
+  dune_config_file
+  dune_console
+  dune_digest
+  dune_engine
+  dune_glob
+  dune_lang
+  dune_pkg
+  re
+  dune_rpc_private
+  dune_trace
+  dune_util
+  dune_vcs
+  memo
+  ocaml_config
+  predicate_lang
+  stdune
+  unix)
+ (synopsis "Internal Dune library, do not use!"))

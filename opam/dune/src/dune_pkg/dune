@@ -1,0 +1,25 @@
+(library
+ (name dune_pkg)
+ (synopsis "[Internal] Dune's packaging support")
+ (foreign_stubs
+  (names md5_stubs)
+  (language c))
+ (libraries
+  stdune
+  lmdb
+  fiber
+  fiber_util
+  dune_engine
+  dune_util
+  dune_trace
+  dune_lang
+  dune_console
+  dune_digest
+  re
+  dune_vcs
+  dune_config
+  opam_format
+  build_info
+  sat
+  unix
+  xdg))

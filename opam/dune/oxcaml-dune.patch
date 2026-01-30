@@ -1,0 +1,74 @@
+diff --git a/otherlibs/configurator/src/v1.ml b/otherlibs/configurator/src/v1.ml
+index 45fda5fed..67eb7c003 100644
+--- a/otherlibs/configurator/src/v1.ml
++++ b/otherlibs/configurator/src/v1.ml
+@@ -134,13 +134,13 @@ module Process = struct
+     let prog_command_line = command_line prog args in
+     logf t "run: %s" prog_command_line;
+     let n = gen_id t in
+-    let create_process =
++    let create_process stdin stdout stderr =
+       let args = Array.of_list (prog :: args) in
+       match env with
+-      | None -> Unix.create_process prog args
++      | None -> Unix.create_process prog args stdin stdout stderr
+       | Some env ->
+         let env = Array.of_list env in
+-        Unix.create_process_env prog args env
++        Unix.create_process_env prog args env stdin stdout stderr
+     in
+     let stdout_fn = t.dest_dir ^/ sprintf "stdout-%d" n in
+     let stderr_fn = t.dest_dir ^/ sprintf "stderr-%d" n in
+@@ -795,7 +795,7 @@ let main ?(args = []) ~name f =
+     let t =
+       create_from_inside_dune
+         ~dest_dir:!dest_dir
+-        ~log:(if !verbose then prerr_endline else log)
++        ~log:(if !verbose then fun s -> prerr_endline s else fun s -> log s)
+         ~build_dir
+         ~name
+     in
+diff --git a/otherlibs/stdune/src/fpath.ml b/otherlibs/stdune/src/fpath.ml
+index b8ddb7045..5bdac1b68 100644
+--- a/otherlibs/stdune/src/fpath.ml
++++ b/otherlibs/stdune/src/fpath.ml
+@@ -128,7 +128,7 @@ let win32_unlink fn =
+        retry_loop 30)
+ ;;
+
+-let unlink_exn = if Stdlib.Sys.win32 then win32_unlink else Unix.unlink
++let unlink_exn = if Stdlib.Sys.win32 then win32_unlink else fun s -> Unix.unlink s
+
+ type unlink_status =
+   | Success
+diff --git a/src/csexp_rpc/csexp_rpc.ml b/src/csexp_rpc/csexp_rpc.ml
+index 1d5c53651..8548f5393 100644
+--- a/src/csexp_rpc/csexp_rpc.ml
++++ b/src/csexp_rpc/csexp_rpc.ml
+@@ -235,10 +235,10 @@ module Session = struct
+
+   external send : Unix.file_descr -> Bytes.t -> int -> int -> int = "dune_send"
+
+-  let write t b =
++  let write fd bytes pos len =
+     match Platform.OS.value with
+-    | Linux -> send t b
+-    | _ -> Unix.single_write t b
++    | Linux -> send fd bytes pos len
++    | _ -> Unix.single_write fd bytes pos len
+   ;;
+
+   let rec csexp_write_loop fd out_buf token =
+diff --git a/src/dune_trace/dune_trace.ml b/src/dune_trace/dune_trace.ml
+index 43f4ef219..b40def399 100644
+--- a/src/dune_trace/dune_trace.ml
++++ b/src/dune_trace/dune_trace.ml
+@@ -47,7 +47,7 @@ let global () = !global
+ let create dst =
+   let print =
+     match dst with
+-    | Out out -> Stdlib.output_string out
++    | Out out -> fun s -> Stdlib.output_string out s
+     | Custom c -> c.write
+   in
+   let close =

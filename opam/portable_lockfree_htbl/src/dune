@@ -1,0 +1,6 @@
+(library
+ (name portable_lockfree_htbl)
+ (public_name portable_lockfree_htbl)
+ (libraries base portable.kernel threads)
+ (preprocess
+  (pps ppx_fuelproof ppx_jane)))

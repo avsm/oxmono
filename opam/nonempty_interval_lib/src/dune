@@ -1,0 +1,6 @@
+(library
+ (name nonempty_interval_lib)
+ (public_name nonempty_interval_lib)
+ (libraries core core_unix.interval_lib)
+ (preprocess
+  (pps ppx_jane)))

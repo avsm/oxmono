@@ -1,0 +1,6 @@
+(library
+ (name n_ary_test)
+ (public_name n_ary.test)
+ (libraries base expect_test_helpers_core.expect_test_helpers_base n_ary)
+ (preprocess
+  (pps ppx_jane)))

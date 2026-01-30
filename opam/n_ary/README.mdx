@@ -1,0 +1,257 @@
+N_ary
+=====
+
+Provides `N`-ary datatypes and operations.
+
+```ocaml
+open Base
+open N_ary
+```
+
+# What `N_ary` is
+
+The `N_ary` library generalizes over the number of variant cases,
+tuple parts, arguments, and other things the OCaml type system does
+not allow first-class abstraction over. It's a handy answer to
+questions like "do we have `Either.t` but for three types?" or "why
+do we have `List.partition3_map` but not `List.partition4_map`?"
+
+For now, `N_ary` generalizes enumerations, variants, tuples, and list
+operations to values of `N` in the range 2 to 16, inclusive. Over time
+we may add more functionality or a larger range, although compilation
+times are something like `O(N^3)` in the maximum supported `N`, so it
+will never get too much larger.
+
+# What `N_ary` is not
+
+The datatypes in this library are largely useful for glue code, but
+not for more long-term or ubiquitous data representations. If your
+debug log shows a transition from `Case2 [ 19; 20; 21 ]` to `Case4
+"janestreet.com"`, those labels are not particularly self-documenting.
+Instead, these types should persist for long enough to shuffle data
+around, and then it can be put in a more semantically meaningful type.
+
+For this reason, datatypes in `N_ary` do not derive `of_sexp` or
+`bin_io`, and do not provide stable serializations. If you need these
+things, you should probably use a different data type.
+
+# Datatypes
+
+Currently, we provide enumeration, variant, and tuple types.
+
+## Enumerations
+
+The modules `Enum2` through `Enum16` define enumeration types with
+the appropriate number of constructors, which we call _cases_.
+
+```ocaml
+type t = Enum3.t =
+  | Case0
+  | Case1
+  | Case2
+```
+
+Enumeration modules define constants:
+
+```ocaml
+# Enum3.case0
+- : t = N_ary.Enum3.Case0
+```
+
+Enumeration modules define predicates:
+
+```ocaml
+# Enum3.is_case1 Case1
+- : bool = true
+# Enum3.is_case1 Case2
+- : bool = false
+```
+
+Enumeration modules also define conversions to and from `int`:
+
+```ocaml
+# Enum3.to_int Case2
+- : int = 2
+# Enum3.of_int_exn 2
+- : t = N_ary.Enum3.Case2
+```
+
+## Variants
+
+The modules `Variant2` through `Variant16` define variant types with
+the appropriate number of type parameters and constructors, which we
+call _cases_.
+
+```ocaml
+type ('a, 'b, 'c) t = ('a, 'b, 'c) Variant3.t =
+  | Case0 of 'a
+  | Case1 of 'b
+  | Case2 of 'c
+```
+
+Variant modules define constructors:
+
+```ocaml
+# Variant3.case0 "hello"
+- : (string, 'a, 'b) t = N_ary.Variant3.Case0 "hello"
+```
+
+Variant modules define predicates:
+
+```ocaml
+# Variant3.is_case1 (Case0 "hello")
+- : bool = false
+# Variant3.is_case1 (Case1 [ "good"; "bye" ])
+- : bool = true
+```
+
+Variant modules define accessors:
+
+```ocaml
+# Variant3.get_case2 (Case1 `A)
+- : 'a option = Base.Option.None
+# Variant3.get_case2 (Case2 `B)
+- : [> `B ] option = Base.Option.Some `B
+```
+
+Variant modules define a `map` function over all cases:
+
+```ocaml
+# let f = Variant3.map ~f0:Int.succ ~f1:List.rev ~f2:String.uppercase
+val f : (int, 'a list, string) t -> (int, 'a list, string) t = <fun>
+# f (Case0 100)
+- : (int, 'a list, string) t = N_ary.Variant3.Case0 101
+# f (Case2 "lorem ipsum")
+- : (int, 'a list, string) t = N_ary.Variant3.Case2 "LOREM IPSUM"
+```
+
+Variant modules define `map_case*` functions for each case:
+
+```ocaml
+# Variant3.map_case0 ~f:Int.succ (Case0 100)
+- : (int, 'a, 'b) t = N_ary.Variant3.Case0 101
+# Variant3.map_case0 ~f:Int.succ (Case2 "lorem ipsum")
+- : (int, 'a, string) t = N_ary.Variant3.Case2 "lorem ipsum"
+```
+
+## Tuples
+
+Modules `Tuple2` through `Tuple16` define tuple types with appropriate
+numbers of type parameters and values, which we call _parts_.
+
+```ocaml
+type ('a, 'b, 'c) t = ('a, 'b, 'c) Tuple3.t
+  constraint ('a, 'b, 'c) t = 'a * 'b * 'c
+```
+
+Tuple modules define constructors:
+
+```ocaml
+# Tuple3.create 1 2 3
+- : (int, int, int) t = (1, 2, 3)
+```
+
+Tuple modules define accesssors:
+
+```ocaml
+# Tuple3.part0 ('a', 'b', 'c')
+- : char = 'a'
+```
+
+Tuple modules define functional updaters:
+
+```ocaml
+# Tuple3.set_part1 ('a', 'b', 'c') 'B'
+- : (char, char, char) t = ('a', 'B', 'c')
+```
+
+Tuple modules define a `map` function over all parts:
+
+```ocaml
+# Tuple3.map ("one", "two", "three")
+    ~f0:String.lowercase
+    ~f1:String.capitalize
+    ~f2:String.uppercase
+- : (string, string, string) t = ("one", "Two", "THREE")
+```
+
+Tuple modules define `map_part*` functions for each part:
+
+```ocaml
+# Tuple3.map_part1 ~f:String.uppercase ("one", "two", "three")
+- : (string, string, string) t = ("one", "TWO", "three")
+```
+
+# Operations
+
+`N_ary` provides generalized operations on lists.
+
+## Lists
+
+The modules `List2` through `List16` provide versions of the
+`partition`, `unzip`, `zip`, `map`, and `iter` operations that produce
+or consume the appropriate number of lists.
+
+### Partition
+
+_N_-ary partitions generalize `List.partition_tf` and `List.partition_map`.
+
+```ocaml
+# List3.partition_enum (String.to_list "abc123.!?") ~f:(function
+    | 'a' .. 'z' | 'A' .. 'Z' -> Case0
+    | '0' .. '9' -> Case1
+    | _ -> Case2)
+- : char list * char list * char list =
+(['a'; 'b'; 'c'], ['1'; '2'; '3'], ['.'; '!'; '?'])
+# List3.partition_map (String.to_list "ABCdef123") ~f:(function
+    | 'A' .. 'Z' as c -> Case0 (Char.lowercase c)
+    | 'a' .. 'z' as c -> Case1 (Char.uppercase c)
+    | c -> Case2 c)
+- : char list * char list * char list =
+(['a'; 'b'; 'c'], ['D'; 'E'; 'F'], ['1'; '2'; '3'])
+```
+
+### Zip and Unzip
+
+_N_-ary zip and unzip operate on _N_ lists and _N_-ary tuples.
+
+```ocaml
+# List3.unzip [ (1, 2, 3); (4, 5, 6) ]
+- : int list * int list * int list = ([1; 4], [2; 5], [3; 6])
+# List3.zip_exn [ 1; 4 ] [ 2; 5 ] [ 3; 6 ]
+- : (int * int * int) list = [(1, 2, 3); (4, 5, 6)]
+```
+
+### Map
+
+_N_-ary map operates on _N_ lists at a time.
+
+```ocaml
+# List3.map_exn [ 100; 200 ] [ 30; 40 ] [ 5; 6 ] ~f:(fun a b c -> a + b + c)
+- : int list = [135; 246]
+# List3.mapi [] [ 1 ] [ 2; 3 ] ~f:(fun _ _ _ -> assert false)
+- : 'a list List.Or_unequal_lengths.t =
+Base.List.Or_unequal_lengths.Unequal_lengths
+```
+
+### Iter
+
+_N_-ary iteration operates on _N_ lists at a time.
+
+It is worth noting that side effects in `~f` behave differently in
+`iter` than `iter_exn`. The former checks for unequal lengths up front;
+the latter iterates first, and only raises at the end. This distinction
+applies to all `map*` and `iter*` functions. See the relevant `.mli` files
+for details.
+
+```ocaml
+# List3.iter_exn [ 1; 2 ] [ 3; 4 ] [ 5; 6; 7 ] ~f:(fun x y z ->
+    Stdio.printf "%d%d%d\n%!" x y z)
+135
+246
+Exception: "N_ary.List3.iter_exn: lists have unequal lengths"
+# List3.iter [ 1; 2 ] [ 3; 4 ] [ 5; 6; 7 ] ~f:(fun x y z ->
+    Stdio.printf "%d%d%d\n%!" x y z)
+- : unit List.Or_unequal_lengths.t =
+Base.List.Or_unequal_lengths.Unequal_lengths
+```

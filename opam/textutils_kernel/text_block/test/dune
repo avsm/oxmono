@@ -1,0 +1,6 @@
+(library
+ (name textutils_test)
+ (libraries async core expect_test_helpers_async expect_test_helpers_core
+   text_block)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,6 @@
+(library
+ (name big_percent_test)
+ (libraries big_percent bignum core expect_test_helpers_core
+   sexp_grammar_validation)
+ (preprocess
+  (pps ppx_jane)))

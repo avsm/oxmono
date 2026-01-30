@@ -1,0 +1,6 @@
+(library
+ (name big_percent)
+ (public_name big_percent)
+ (libraries bignum core)
+ (preprocess
+  (pps ppx_jane)))

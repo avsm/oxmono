@@ -1,0 +1,5 @@
+(library
+ (name moption_test)
+ (libraries core expect_test_helpers_core moption)
+ (preprocess
+  (pps ppx_jane)))

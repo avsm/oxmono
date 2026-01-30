@@ -1,0 +1,5 @@
+(library
+ (name timing_wheel_test)
+ (libraries core expect_test_helpers_core timing_wheel)
+ (preprocess
+  (pps ppx_jane)))

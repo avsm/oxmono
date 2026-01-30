@@ -1,0 +1,5 @@
+(library
+ (name uopt_core_test)
+ (libraries core uopt_core)
+ (preprocess
+  (pps ppx_jane)))

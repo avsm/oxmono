@@ -1,0 +1,5 @@
+(library
+ (name uuid_test)
+ (libraries core expect_test_helpers_core uuid)
+ (preprocess
+  (pps ppx_jane)))

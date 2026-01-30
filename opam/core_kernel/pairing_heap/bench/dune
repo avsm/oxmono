@@ -1,0 +1,5 @@
+(library
+ (name pairing_heap_bench)
+ (libraries core pairing_heap)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,5 @@
+(library
+ (name weak_pointer_test)
+ (libraries core expect_test_helpers_core weak_pointer)
+ (preprocess
+  (pps ppx_jane)))

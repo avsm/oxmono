@@ -1,0 +1,5 @@
+(library
+ (name weak_hashtbl_test)
+ (libraries core expect_test_helpers_core weak_hashtbl)
+ (preprocess
+  (pps ppx_jane)))

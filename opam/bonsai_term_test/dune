@@ -1,0 +1,7 @@
+(library
+ (name bonsai_term_test)
+ (public_name bonsai_term_test)
+ (libraries patdiff.ansi_text bonsai bonsai_term bonsai_test core
+   notty-community re)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))

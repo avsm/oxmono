@@ -1,0 +1,36 @@
+opam-version: "2.0"
+maintainer: "Jane Street developers"
+authors: ["Jane Street Group, LLC"]
+homepage: "https://github.com/janestreet/bonsai_term_test"
+bug-reports: "https://github.com/janestreet/bonsai_term_test/issues"
+dev-repo: "git+https://github.com/janestreet/bonsai_term_test.git"
+doc: "https://ocaml.janestreet.com/ocaml-core/latest/doc/bonsai_term_test/index.html"
+license: "MIT"
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+]
+depends: [
+  "ocaml" {>= "5.1.0"}
+  "async"
+  "bonsai"
+  "bonsai_term"
+  "bonsai_term_components"
+  "bonsai_test"
+  "core"
+  "expect_test_helpers_core"
+  "expectable"
+  "notty_async"
+  "patdiff"
+  "ppx_jane"
+  "ppx_quick_test"
+  "ppx_with"
+  "dune"                     {>= "3.17.0"}
+  "notty-community"          {= "0.2.4+ox"}
+  "re"                       {= "1.14.0+ox"}
+]
+available: arch != "arm32" & arch != "x86_32"
+synopsis: "A library for building dynamic terminal apps, using bonsai"
+description: "
+Bonsai_term is a library for building reusable TUI componetns and apps inside an
+    Incremental-style UI framework such as Bonsai_web, Incr_dom or React.
+"

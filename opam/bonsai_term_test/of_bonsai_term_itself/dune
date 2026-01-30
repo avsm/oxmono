@@ -1,0 +1,7 @@
+(library
+ (name bonsai_term_test_of_bonsai_term_itself)
+ (public_name bonsai_term_test.tests_of_bonsai_term_itself)
+ (libraries bonsai bonsai_term bonsai_term_test bonsai_test
+   bonsai_term_components.catppuccin core expect_test_helpers_core expectable)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai ppx_quick_test)))

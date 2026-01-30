@@ -1,0 +1,18 @@
+(executables
+ (modes byte exe)
+ (names test)
+ (ocamlopt_flags :standard -O3)
+ (preprocess
+  (pps ppx_jane)))
+
+(rule
+ (targets test.output)
+ (deps ../test_attach.exe test.exe)
+ (action
+  (bash "../test_attach.exe test.exe > %{targets}")))
+
+(rule
+ (deps test.expected test.output)
+ (action
+  (bash "diff -u test.expected test.output"))
+ (alias runtest))

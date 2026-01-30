@@ -1,0 +1,7 @@
+(library
+ (name tracing_destinations_unix)
+ (public_name tracing.tracing_destinations_unix)
+ (preprocess
+  (pps ppx_jane))
+ (libraries core core_unix core_kernel.iobuf core_unix.iobuf_unix
+   tracing_zero))

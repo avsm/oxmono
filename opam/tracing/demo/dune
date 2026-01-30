@@ -1,0 +1,5 @@
+(library
+ (name tracing_demo)
+ (libraries core tracing tracing_zero)
+ (preprocess
+  (pps ppx_jane)))

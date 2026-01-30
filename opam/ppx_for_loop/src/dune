@@ -1,0 +1,8 @@
+(library
+ (name ppx_for_loop)
+ (public_name ppx_for_loop)
+ (kind ppx_rewriter)
+ (libraries base ppxlib ppxlib_jane)
+ (preprocess
+  (pps ppxlib.metaquot))
+ (ppx_runtime_libraries unboxed.int32_u unboxed.int64_u unboxed.nativeint_u))

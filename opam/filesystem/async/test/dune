@@ -1,0 +1,5 @@
+(library
+ (name filesystem_async_test)
+ (libraries async core filesystem filesystem_test)
+ (preprocess
+  (pps ppx_jane)))

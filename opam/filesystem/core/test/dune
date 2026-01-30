@@ -1,0 +1,6 @@
+(library
+ (name filesystem_core_test)
+ (libraries async core expect_test_helpers_async expect_test_helpers_core
+   filesystem filesystem_test)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,6 @@
+(library
+ (name filesystem_types)
+ (public_name filesystem.types)
+ (libraries core core_unix file_path core_unix.time_ns_unix)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,6 @@
+(library
+ (name filesystem)
+ (public_name filesystem)
+ (libraries core file_path filesystem_types)
+ (preprocess
+  (pps ppx_jane)))

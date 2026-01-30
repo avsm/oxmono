@@ -1,0 +1,8 @@
+(library
+ (name filesystem_test)
+ (libraries async core core_unix expect_test_helpers_async
+   expect_test_helpers_core patdiff.expect_test_patdiff file_path filesystem
+   filesystem_async filesystem_core filesystem_types core_unix.sys_unix
+   core_unix.time_ns_unix)
+ (preprocess
+  (pps ppx_jane)))

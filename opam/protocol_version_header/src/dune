@@ -1,0 +1,6 @@
+(library
+ (name protocol_version_header)
+ (public_name protocol_version_header)
+ (libraries core ppx_stable_witness.stable_witness)
+ (preprocess
+  (pps ppx_jane)))

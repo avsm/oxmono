@@ -1,0 +1,7 @@
+(library
+ (name hardcaml_hobby_boards_demos_nexys_a7_100t)
+ (libraries core hardcaml hardcaml_hobby_boards_hardcaml_risc_v
+   hardcaml_hobby_boards_kernel hardcaml_risc_v_hart hardcaml_waveterm
+   jane_rope)
+ (preprocess
+  (pps ppx_hardcaml ppx_jane)))

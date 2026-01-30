@@ -1,0 +1,10 @@
+(library
+ (name hardcaml_hobby_boards_hardcaml_risc_v_test)
+ (libraries async async_unix core hardcaml hardcaml_axi
+   hardcaml_hobby_boards_hardcaml_risc_v hardcaml_hobby_boards_kernel
+   hardcaml_io_controller hardcaml_io_controller_test
+   hardcaml_io_framework_test hardcaml_memory_controller hardcaml_risc_v_hart
+   hardcaml_risc_v_test hardcaml_step_testbench hardcaml_test_harness
+   hardcaml_waveterm)
+ (preprocess
+  (pps ppx_jane ppx_hardcaml ppx_expect)))

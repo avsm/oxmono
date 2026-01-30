@@ -1,0 +1,4 @@
+Populate this directory with Declarations-$VERSION.yaml files to be used by
+gen.exe. Declarations files can be obtained by compiling PyTorch from source
+using the branch for $VERSION from the official GitHub repo:
+https://github.com/pytorch/pytorch

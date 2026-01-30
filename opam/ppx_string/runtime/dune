@@ -1,0 +1,6 @@
+(library
+ (name ppx_string_runtime)
+ (public_name ppx_string.runtime)
+ (libraries base)
+ (preprocess
+  (pps ppx_template)))

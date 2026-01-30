@@ -1,0 +1,257 @@
+ppx_string
+==========
+
+<!--
+```ocaml
+# open Core;;
+```
+-->
+
+This extension provides a syntax for string interpolation. Here is an example of
+its features:
+
+```ocaml
+let script_remotely (user : string) (host : string) (port : int) (script : string) =
+  [%string "ssh %{user}@%{host} -p %{port#Int} %{Sys.quote script}"]
+;;
+```
+
+```ocaml
+# script_remotely "jane-doe" "workstation-1" 22 {|echo "use ppx_string to interpolate"|}
+- : string =
+"ssh jane-doe@workstation-1 -p 22 'echo \"use ppx_string to interpolate\"'"
+```
+
+The above function is equivalent to:
+
+```ocaml
+let script_remotely (user : string) (host : string) (port : int) (script : string) =
+  String.concat
+    [ "ssh "
+    ; user
+    ; "@"
+    ; host
+    ; " -p "
+    ; Int.to_string port
+    ; " "
+    ; Sys.quote script
+    ]
+;;
+```
+
+`ppx_string` also works with the shorthand string extension syntax:
+
+```ocaml
+let script_remotely (user : string) (host : string) (port : int) (script : string) =
+  {%string|ssh %{user}@%{host} -p %{port#Int} %{Sys.quote script}|}
+;;
+```
+
+Compared to `Printf.sprintf`:
+
+```ocaml
+let script_remotely (user : string) (host : string) (port : int) (script : string) =
+  sprintf "ssh %s@%s -p %d %s" user host port (Sys.quote script)
+;;
+```
+
+Having the values inline instead of after the format string can make it easier
+to understand the resulting string, and avoids the potential mistake of passing
+arguments in the wrong order. This is truer the more format arguments there are.
+On the other hand, some things are much easier with printf: pad numbers with
+zeroes, pad strings on the right, display floats in a specific formats, etc.
+
+Compared to manually writing something like `String.concat` version above,
+`ppx_string` is shorter and can oftentimes be less error-prone (it's really easy
+to forget whitespace after `ssh` or around `-p` in the explicit `String.concat`
+version).
+
+## Interpolation syntax
+
+<style>
+table th:first-of-type { width: 30%; }
+</style>
+
+| Syntax                | Meaning                                                                          |
+| --------------------- | -------------------------------------------------------------------------------- |
+| `%{expr}`             | Directly insert the `string` expression `expr`                                   |
+| `%{expr#Mod}`         | Insert the result of converting `expr` to a `string` via `Mod.to_string`         |
+| `%{expr#Mod:int_expr}`| Left-pad `Mod.to_string expr` to a width of at least `int_expr`                  |
+| `%{expr#:int_expr}`   | Left-pad the `string` expression `expr` to a width of at least `int_expr` spaces |
+
+To emit the literal sequence `%{`, you can escape it as follows:
+
+```ocaml
+# {%string|%{"%{"}|}
+- : string = "%{"
+```
+
+To pad strings with spaces on the left, add an integer expression after a colon:
+
+```ocaml
+# let term_width = 60 in
+  let items =
+    [ "jane-doe", "workstation-1", 22, {|echo "use ppx_string to interpolate"|}
+    ; "root", "workstation-1", 8080, {|echo "it can even pad"|}
+    ]
+  in
+  List.map items ~f:(fun (col1, col2, col3, col4) ->
+    {%string|%{col1#:term_width / 6}%{col2#:term_width/4}%{col3#Int:8} %{col4}|})
+- : string list =
+["  jane-doe  workstation-1      22 echo \"use ppx_string to interpolate\"";
+ "      root  workstation-1    8080 echo \"it can even pad\""]
+```
+is equivalent to:
+
+```ocaml
+# let pad str len =
+    let pad_len = max 0 (len - String.length str) in
+    let padding = String.make pad_len ' ' in
+    padding ^ str
+  in
+  let term_width = 60 in
+  let items =
+    [ "jane-doe", "workstation-1", 22, {|echo "use ppx_string to interpolate"|}
+    ; "root", "box-42", 8080, {|echo "it can even pad"|}
+    ]
+  in
+  List.map items ~f:(fun (col1, col2, col3, col4) ->
+    String.concat
+      [ pad col1 (term_width / 6)
+      ; pad col2 (term_width / 4)
+      ; pad (Int.to_string col3) 8
+      ; " "
+      ; col4
+      ])
+- : string list =
+["  jane-doe  workstation-1      22 echo \"use ppx_string to interpolate\"";
+ "      root         box-42    8080 echo \"it can even pad\""]
+```
+(note that the pad length can be dynamic, as with the format string `"%*s"`)
+
+## Interacting with and producing local strings
+
+### Consuming `local` strings (works by default!)
+
+`ppx_string` can consume `local` expressions in interpolated components:
+
+```ocaml
+# let module Local_string = struct
+    type t = { box : string }
+
+    let to_string ({ box } @ local) = box
+  end
+  in
+  let f (s : string @ local) (ls : Local_string.t @ local) =
+    {%string|concatenated %{s} and boxed %{ls#Local_string}|}
+  in
+  f "a" { box = "b" }
+- : string = "concatenated a and boxed b"
+```
+
+The resulting concatenation is still allocated on the heap and available
+`@ global`:
+
+```ocaml
+# let assert_global : 'a @ global -> 'a @ global = fun x -> x in
+  let local_ s = "this input is local" in
+  assert_global {%string|the result is global, even though %{s}|}
+- : string = "the result is global, even though this input is local"
+```
+
+It is safe to return the result of the concatenation globally even if
+it has local components because we anyways allocate a new string for
+the contents of the concatenation, effectively "globalizing" any component.
+Globalizing in this way only incurs an additional cost in the case
+where the contents of the `[%string]` are a single interpolated
+component: in this case we need to globalize the component, when we
+otherwise could have returned it directly.
+
+For example:
+
+```ocaml
+# let local_ s = "this input is local" in
+  {%string|%{s}|}
+- : string = "this input is local"
+```
+
+effectively translates to
+
+```ocaml
+# let local_ s = "this input is local" in
+  String.globalize s
+- : string = "this input is local"
+```
+
+rather than
+
+```ocaml
+# let local_ s = "this input is local" in
+  Fn.id s
+Line 2, characters 3-10:
+Error: This value is local but is expected to be global.
+```
+
+Before `ppx_string` supported `local` inputs, a singleton interpolated
+expression was simply returned without globalizing, as in the latter example.
+The legacy behavior --- where inputs to the concatenation are accepted
+`@ global` and singleton inputs are returned as-is, without
+globalizing --- is still available via the `[%string.global]` extension:
+
+```ocaml
+# let s = "no globalization occurs (trust me)" in
+  {%string.global|%{s}|}
+- : string = "no globalization occurs (trust me)"
+# let local_ s = "this input is local" in
+  {%string.global|%{s}|}
+Line 2, characters 7-8:
+Error: This value is local but is expected to be global.
+```
+
+### Producing stack-allocated strings
+
+`[%string.stack]` lets you write the concatenation to a stack-allocated string. It
+translates the `%{expr#Mod}` syntax into `(Mod.to_string [@alloc stack]) expr` (note the
+`[@alloc stack]`), so the intermediate results are also stack-allocated. You can see that
+this allows the example below to be `[@@zero_alloc]`:
+
+```ocaml
+module String_opt : sig
+  type t = string option
+
+  val%template to_string : t @ m -> string @ m
+  [@@zero_alloc] [@@alloc __ @ m = (heap_global, stack_local)]
+end = struct
+  type t = string option
+
+  let%template to_string (t @ m) =
+    (Option.value [@mode m]) t ~default:"<None>" [@exclave_if_stack a]
+  [@@zero_alloc] [@@alloc a @ m = (heap_global, stack_local)]
+end
+
+let recent_logins (success : String_opt.t @ local) (failure : String_opt.t @ local)
+  = exclave_
+  {%string.stack|Recent logins: Success %{success#String_opt}, Failure %{failure#String_opt}|}
+[@@zero_alloc]
+```
+
+### Interoperating with templates
+
+`ppx_string` also defines a `[%string.alloc]` extension point that allows
+[`ppx_template`](%{root}/ppx/ppx_template/doc/README.mdx) allocators to determine where
+the resulting string is allocated. `[%string.alloc] [@alloc stack]` is equivalent to
+`[%string.stack]`, and `[%string.alloc] [@alloc heap]` is equivalent to `[%string.global]`
+(we plan to rename this to `[%string.heap]` soon). For example, we can template our
+`recent_logins` function to have the choice of producing the string either on the heap or
+on the stack:
+
+```ocaml
+# let%template recent_logins (success : String_opt.t @ m) (failure : String_opt.t @ m) =
+    {%string.alloc|Recent logins: Success %{success#String_opt}, Failure %{failure#String_opt}|}
+    [@alloc a] [@exclave_if_stack a]
+  [@@zero_alloc_if_stack a] [@@alloc a @ m = (heap_global, stack_local)]
+val recent_logins : String_opt.t -> String_opt.t -> string = <fun>
+val recent_logins__stack :
+  String_opt.t @ local -> String_opt.t @ local -> string @ local
+  [@@zero_alloc] = <fun>
+```

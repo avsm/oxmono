@@ -1,0 +1,9 @@
+(library
+ (name portable_ws_deque_test)
+ (libraries await await.blocking base concurrent concurrent.in_thread core
+   expect_test_helpers_core.expect_test_helpers_base
+   core_kernel.nonempty_list portable portable.test_helpers portable_ws_deque
+   threads)
+ (preprocess
+  (pps ppx_assert ppx_compare ppx_expect ppx_quick_test ppx_sexp_message
+    ppx_sexp_value ppx_with)))

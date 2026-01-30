@@ -1,0 +1,5 @@
+(library
+ (name portable_ws_deque)
+ (public_name portable_ws_deque)
+ (libraries base basement portable.common portable.kernel uopt)
+ (preprocess no_preprocessing))

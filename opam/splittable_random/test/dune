@@ -1,0 +1,5 @@
+(library
+ (name splittable_random_test)
+ (libraries base core expect_test_helpers_core splittable_random)
+ (preprocess
+  (pps ppx_jane)))

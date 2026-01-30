@@ -1,0 +1,7 @@
+(library
+ (name ppx_bonsai)
+ (public_name bonsai.ppx_bonsai)
+ (libraries ppx_bonsai_expander ppx_let.expander ppxlib)
+ (preprocess
+  (pps ppxlib.metaquot))
+ (kind ppx_deriver))

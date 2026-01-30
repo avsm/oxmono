@@ -1,0 +1,218 @@
+#print_line_numbers true
+
+open! Core
+open! Bonsai
+open Bonsai.Let_syntax
+
+type t =
+  | A of int
+  | B of int
+  | C of t list
+
+let _component t (local_ _graph) =
+  match%sub t with
+  | A x ->
+    let%arr x in
+    x
+  | B x ->
+    let%arr x in
+    x
+  | C l ->
+    let%arr l in
+    let _ = l in
+    Bonsai.return 1.0
+;;
+
+[%%expect
+  {xxx|
+Line 20, characters 4-66:
+Error: This expression has type float Bonsai.t Bonsai.t
+       but an expression was expected of type int Bonsai.t
+       Type float Bonsai.t is not compatible with type int
+|xxx}]
+
+let _more_basic_component t (local_ _graph) =
+  match%sub Bonsai.return false with
+  | false ->
+    (* An int! *)
+    Bonsai.return 1
+  | true ->
+    (* A float! *)
+    Bonsai.return 1.0
+;;
+
+(* This one is fine! *)
+
+[%%expect
+  {|
+Line 41, characters 4-21:
+Error: This expression has type float Bonsai.t
+       but an expression was expected of type int Bonsai.t
+       Type float is not compatible with type int
+|}]
+
+let _more_basic_component t (local_ _graph) =
+  match%sub Bonsai.return false with
+  | false ->
+    (* An int! *)
+    Bonsai.return 1
+  | true ->
+    (* A float! *)
+    Bonsai.return (Bonsai.return 1)
+;;
+
+(* This one is also fine! (error points to a useful location) *)
+[%%expect
+  {|
+Line 61, characters 4-35:
+Error: This expression has type int Bonsai.t Bonsai.t
+       but an expression was expected of type int Bonsai.t
+       Type int Bonsai.t is not compatible with type int
+|}]
+
+(* . errors *)
+let component (local_ _graph) =
+  let a : (unit, Nothing.t) Result.t Bonsai.t = Bonsai.return (Ok ()) in
+  match%sub a with
+  | Ok () -> Bonsai.return ()
+  | Error _ -> .
+;;
+
+[%%expect {| |}]
+
+let component (local_ _graph) =
+  let a : (unit, unit) Result.t Bonsai.t = Bonsai.return (Ok ()) in
+  match%sub a with
+  | Ok () -> Bonsai.return ()
+  | Error _ -> .
+;;
+
+[%%expect
+  {|
+Line 87, characters 4-11:
+Error: This match case could not be refuted.
+       Here is an example of a value that would reach it: Error ()
+|}]
+
+(* not ideal to have this error, but can easily write match%arr instead *)
+let component (never : unit -> Nothing.t Bonsai.t) (local_ _graph) =
+  match%sub never () with
+  | _ -> .
+;;
+
+[%%expect
+  {|
+Line 100, characters 9-10:
+Error: Unreachable expression was reached
+|}]
+
+(* Regression tests: match%sub with when clause *)
+
+(* single case: *)
+
+let _component (local_ _graph) =
+  match%sub Bonsai.return 0 with
+  | n when n > 5 -> Bonsai.return ()
+;;
+
+[%%expect {| |}]
+
+let _component (local_ _graph) =
+  match%sub Bonsai.return 0 with
+  | _ when n > 5 -> Bonsai.return ()
+;;
+
+(* BUG: should be disallowed *)
+[%%expect {| |}]
+
+let _component (local_ _graph) =
+  match%sub Bonsai.return 0 with
+  | n when true -> Bonsai.return ()
+;;
+
+[%%expect
+  {|
+Line 130, characters 4-5:
+Error (warning 27 [unused-var-strict]): unused variable n.
+|}]
+
+(* multi case: *)
+
+let _component (local_ _graph) =
+  match%sub Bonsai.return 0 with
+  | n when n > 5 -> Bonsai.return ()
+  | _ -> Bonsai.return ()
+;;
+
+[%%expect {| |}]
+
+let _component (local_ _graph) =
+  match%sub Bonsai.return 0 with
+  | _ when n > 5 -> Bonsai.return ()
+  | _ -> Bonsai.return ()
+;;
+
+[%%expect
+  {|
+Line 151, characters 11-12:
+Error: Unbound value n
+|}]
+
+let _component (local_ _graph) =
+  match%sub Bonsai.return 0 with
+  | n when true -> Bonsai.return ()
+  | _ -> Bonsai.return ()
+;;
+
+[%%expect
+  {|
+Line 163, characters 4-5:
+Error (warning 26 [unused-var]): unused variable n.
+|}]
+
+let _component (local_ _graph) =
+  match%sub Bonsai.return (0, 1) with
+  | m, n when n > 5 -> m
+  | _ -> Bonsai.return 0
+;;
+
+[%%expect {| |}]
+
+(* Redundant case warning *)
+
+let _component (local_ _graph) =
+  let module Foo = struct
+    type t =
+      | A
+      | B
+  end
+  in
+  let _b = Foo.B in
+  let a = Bonsai.return Foo.A in
+  match%sub a with
+  | A | B -> Bonsai.return ()
+  | A -> Bonsai.return ()
+;;
+
+[%%expect
+  {|
+Line 194, characters 4-5:
+Error (warning 11 [redundant-case]): this match case is unused.
+|}]
+
+let _component (local_ _graph) =
+  let module Foo = struct
+    type t =
+      | A
+      | B
+  end
+  in
+  let _b = Foo.B in
+  let a = Bonsai.return Foo.A in
+  match%sub a with
+  | A -> Bonsai.return ()
+  | A | B -> Bonsai.return ()
+;;
+
+(* BUG: We expect the second A to be marked as redundant. *)
+[%%expect {| |}]

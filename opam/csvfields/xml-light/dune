@@ -1,0 +1,11 @@
+(library
+ (name xml_light)
+ (public_name csvfields.xml-light)
+ (libraries)
+ (flags :standard -w -3)
+ (modules dtd dtd0 types xml xmlParser xml_lexer xml_parser xml_light)
+ (preprocess no_preprocessing))
+
+(ocamllex xml_lexer)
+
+(ocamlyacc xml_parser)

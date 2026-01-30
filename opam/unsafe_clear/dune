@@ -1,0 +1,6 @@
+(library
+ (name unsafe_clear)
+ (public_name unsafe_clear)
+ (libraries base)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,6 @@
+(library
+ (name unsafe_clear_test)
+ (public_name unsafe_clear.test)
+ (libraries core expect_test_helpers_core unsafe_clear)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,6 @@
+(library
+ (name capsule_expert)
+ (public_name capsule0.expert)
+ (libraries basement)
+ (preprocess
+  (pps ppx_template)))

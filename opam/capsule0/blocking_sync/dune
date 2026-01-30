@@ -1,0 +1,5 @@
+(library
+ (name capsule_blocking_sync)
+ (public_name capsule0.blocking_sync)
+ (libraries basement capsule_expert)
+ (preprocess no_preprocessing))

@@ -1,0 +1,5 @@
+(library
+ (name lru_cache_test)
+ (libraries core expect_test_helpers_core lru_cache)
+ (preprocess
+  (pps ppx_jane)))

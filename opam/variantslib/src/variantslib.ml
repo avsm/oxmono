@@ -1,0 +1,1 @@
+module Variant = Base.Variant

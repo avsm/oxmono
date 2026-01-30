@@ -1,0 +1,6 @@
+a: &a [x, y, z]
+b: &b [*a, *a]
+c: &c [*b, *b]
+d: &d [*c, *c]
+e: &e [*d, *d]
+result: *e

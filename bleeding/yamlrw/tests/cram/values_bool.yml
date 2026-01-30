@@ -1,0 +1,82 @@
+# Boolean value test cases for YAML 1.2
+# Note: YAML 1.2 only recognizes 'true' and 'false' as booleans
+# Other values like yes/no, on/off are treated as strings in 1.2
+
+# Standard YAML 1.2 booleans (lowercase)
+bool_true: true
+bool_false: false
+
+# Capitalized forms (should be strings in YAML 1.2)
+capitalized_true: True
+capitalized_false: False
+
+# YAML 1.1 style booleans (should be strings in YAML 1.2)
+yes_value: yes
+no_value: no
+Yes_value: Yes
+No_value: No
+YES_value: YES
+NO_value: NO
+
+# On/Off style (should be strings in YAML 1.2)
+on_value: on
+off_value: off
+On_value: On
+Off_value: Off
+ON_value: ON
+OFF_value: OFF
+
+# Booleans in sequences
+bool_sequence:
+  - true
+  - false
+  - yes
+  - no
+  - on
+  - off
+
+# Booleans in flow style
+flow_bools: [true, false, yes, no]
+
+# Booleans in mappings
+bool_mapping:
+  active: true
+  disabled: false
+  enabled: yes
+  stopped: no
+
+# String literals that should NOT be parsed as booleans
+quoted_bools:
+  quoted_true: "true"
+  quoted_false: "false"
+  quoted_yes: "yes"
+  quoted_no: "no"
+  single_true: 'true'
+  single_false: 'false'
+
+# Nested boolean values
+nested_bools:
+  settings:
+    debug: true
+    verbose: false
+    legacy_yes: yes
+    legacy_no: no
+  flags:
+    - true
+    - false
+    - on
+    - off
+
+# Mixed case variations
+mixed_case:
+  TRUE: TRUE
+  FALSE: FALSE
+  TrUe: TrUe
+  FaLsE: FaLsE
+
+# Boolean-like strings that should remain strings
+bool_like_strings:
+  truthy: truely
+  falsy: falsetto
+  yes_sir: yessir
+  no_way: noway

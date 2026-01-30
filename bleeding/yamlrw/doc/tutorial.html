@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>tutorial (tutorial)</title><meta charset="utf-8"/><link rel="stylesheet" href="odoc.css"/><meta name="generator" content="odoc 3.1.0"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script></head><body class="odoc"><nav class="odoc-nav"><a href="index.html">Up</a> – <a href="index.html">Index</a> &#x00BB; tutorial</nav><header class="odoc-preamble"><h1 id="yaml-tutorial"><a href="#yaml-tutorial" class="anchor"></a>YAML Tutorial</h1><p>This tutorial introduces YAML (YAML Ain't Markup Language) and demonstrates the <code>yamlrw</code> OCaml library through interactive examples. We'll start with the basics and work up to advanced features like anchors, aliases, and streaming.</p></header><div class="odoc-tocs"><nav class="odoc-toc odoc-local-toc"><ul><li><a href="#what-is-yaml?">What is YAML?</a><ul><li><a href="#yaml-vs-json">YAML vs JSON</a></li></ul></li><li><a href="#setup">Setup</a></li><li><a href="#basic-parsing">Basic Parsing</a><ul><li><a href="#boolean-values">Boolean Values</a></li><li><a href="#strings">Strings</a></li></ul></li><li><a href="#mappings-(objects)">Mappings (Objects)</a><ul><li><a href="#nested-mappings">Nested Mappings</a></li><li><a href="#accessing-values">Accessing Values</a></li></ul></li><li><a href="#sequences-(arrays)">Sequences (Arrays)</a><ul><li><a href="#sequences-of-mappings">Sequences of Mappings</a></li><li><a href="#accessing-sequence-elements">Accessing Sequence Elements</a></li></ul></li><li><a href="#serialization">Serialization</a><ul><li><a href="#constructing-values">Constructing Values</a></li><li><a href="#controlling-output-style">Controlling Output Style</a></li></ul></li><li><a href="#full-yaml-representation">Full YAML Representation</a><ul><li><a href="#scalars-with-metadata">Scalars with Metadata</a></li></ul></li><li><a href="#anchors-and-aliases">Anchors and Aliases</a><ul><li><a href="#parsing-with-aliases">Parsing with Aliases</a></li><li><a href="#preserving-aliases">Preserving Aliases</a></li></ul></li><li><a href="#multi-line-strings">Multi-line Strings</a><ul><li><a href="#literal-block-scalar">Literal Block Scalar</a></li><li><a href="#folded-block-scalar">Folded Block Scalar</a></li></ul></li><li><a href="#multiple-documents">Multiple Documents</a><ul><li><a href="#working-with-documents">Working with Documents</a></li><li><a href="#serializing-multiple-documents">Serializing Multiple Documents</a></li></ul></li><li><a href="#streaming-api">Streaming API</a><ul><li><a href="#building-yaml-with-events">Building YAML with Events</a></li></ul></li><li><a href="#error-handling">Error Handling</a><ul><li><a href="#type-errors">Type Errors</a></li></ul></li><li><a href="#common-patterns">Common Patterns</a><ul><li><a href="#configuration-files">Configuration Files</a></li><li><a href="#working-with-lists">Working with Lists</a></li><li><a href="#transforming-data">Transforming Data</a></li></ul></li><li><a href="#summary">Summary</a></li></ul></nav></div><div class="odoc-content"><h2 id="what-is-yaml?"><a href="#what-is-yaml?" class="anchor"></a>What is YAML?</h2><p>YAML is a human-readable data serialization format. It's commonly used for configuration files, data exchange, and anywhere you need structured data that humans will read and edit.</p><p>YAML is designed to be more readable than JSON or XML:</p><ul><li>No curly braces or brackets required for simple structures</li><li>Indentation defines structure (like Python)</li><li>Comments are supported</li><li>Multiple data types are recognized automatically</li></ul><h3 id="yaml-vs-json"><a href="#yaml-vs-json" class="anchor"></a>YAML vs JSON</h3><p>YAML is a superset of JSON - any valid JSON is also valid YAML. However, YAML offers additional features:</p><pre>JSON:                          YAML:
+{                              name: Alice
+  &quot;name&quot;: &quot;Alice&quot;,             age: 30
+  &quot;age&quot;: 30,                   active: true
+  &quot;active&quot;: true
+}</pre><p>The YAML version is cleaner for humans to read and write.</p><h2 id="setup"><a href="#setup" class="anchor"></a>Setup</h2><p>First, let's set up our environment. The library is loaded with:</p><pre class="language-ocaml"><code># open Yamlrw;;</code></pre><h2 id="basic-parsing"><a href="#basic-parsing" class="anchor"></a>Basic Parsing</h2><p>The simplest way to parse YAML is with <code>Yamlrw.of_string</code>:</p><pre class="language-ocaml"><code># let simple = of_string &quot;hello&quot;;;
+val simple : value = `String &quot;hello&quot;</code></pre><p>YAML automatically recognizes different data types:</p><pre class="language-ocaml"><code># of_string &quot;42&quot;;;
+- : value = `Float 42.
+# of_string &quot;3.14&quot;;;
+- : value = `Float 3.14
+# of_string &quot;true&quot;;;
+- : value = `Bool true
+# of_string &quot;null&quot;;;
+- : value = `Null</code></pre><p>Note that integers are stored as floats in the JSON-compatible <code>Yamlrw.value</code> type, matching the behavior of JSON parsers.</p><h3 id="boolean-values"><a href="#boolean-values" class="anchor"></a>Boolean Values</h3><p>YAML recognizes many forms of boolean values:</p><pre class="language-ocaml"><code># of_string &quot;yes&quot;;;
+- : value = `Bool true
+# of_string &quot;no&quot;;;
+- : value = `Bool false
+# of_string &quot;on&quot;;;
+- : value = `Bool true
+# of_string &quot;off&quot;;;
+- : value = `Bool false</code></pre><h3 id="strings"><a href="#strings" class="anchor"></a>Strings</h3><p>Strings can be plain, single-quoted, or double-quoted:</p><pre class="language-ocaml"><code># of_string &quot;plain text&quot;;;
+- : value = `String &quot;plain text&quot;
+# of_string &quot;'single quoted'&quot;;;
+- : value = `String &quot;single quoted&quot;
+# of_string {|&quot;double quoted&quot;|};;
+- : value = `String &quot;double quoted&quot;</code></pre><p>Quoting is useful when your string looks like another type:</p><pre class="language-ocaml"><code># of_string &quot;'123'&quot;;;
+- : value = `String &quot;123&quot;
+# of_string &quot;'true'&quot;;;
+- : value = `String &quot;true&quot;</code></pre><h2 id="mappings-(objects)"><a href="#mappings-(objects)" class="anchor"></a>Mappings (Objects)</h2><p>YAML mappings associate keys with values. In the JSON-compatible representation, these become association lists:</p><pre class="language-ocaml"><code># of_string &quot;name: Alice\nage: 30&quot;;;
+- : value = `O [(&quot;name&quot;, `String &quot;Alice&quot;); (&quot;age&quot;, `Float 30.)]</code></pre><p>Keys and values are separated by a colon and space. Each key-value pair goes on its own line.</p><h3 id="nested-mappings"><a href="#nested-mappings" class="anchor"></a>Nested Mappings</h3><p>Indentation creates nested structures:</p><pre class="language-ocaml"><code># let nested = of_string {|
+database:
+  host: localhost
+  port: 5432
+  credentials:
+    user: admin
+    pass: secret
+|};;
+val nested : value =
+  `O
+    [(&quot;database&quot;,
+      `O
+        [(&quot;host&quot;, `String &quot;localhost&quot;); (&quot;port&quot;, `Float 5432.);
+         (&quot;credentials&quot;,
+          `O [(&quot;user&quot;, `String &quot;admin&quot;); (&quot;pass&quot;, `String &quot;secret&quot;)])])]</code></pre><h3 id="accessing-values"><a href="#accessing-values" class="anchor"></a>Accessing Values</h3><p>Use the <code>Yamlrw.Util</code> module to navigate and extract values:</p><pre class="language-ocaml"><code># let db = Util.get &quot;database&quot; nested;;
+val db : Util.t =
+  `O
+    [(&quot;host&quot;, `String &quot;localhost&quot;); (&quot;port&quot;, `Float 5432.);
+     (&quot;credentials&quot;,
+      `O [(&quot;user&quot;, `String &quot;admin&quot;); (&quot;pass&quot;, `String &quot;secret&quot;)])]
+# Util.get_string (Util.get &quot;host&quot; db);;
+- : string = &quot;localhost&quot;
+# Util.get_int (Util.get &quot;port&quot; db);;
+- : int = 5432</code></pre><p>For nested access, use <code>Yamlrw.Util.get_path</code>:</p><pre class="language-ocaml"><code># Util.get_path [&quot;database&quot;; &quot;credentials&quot;; &quot;user&quot;] nested;;
+- : Util.t option = Some (`String &quot;admin&quot;)
+# Util.get_path_exn [&quot;database&quot;; &quot;port&quot;] nested;;
+- : Util.t = `Float 5432.</code></pre><h2 id="sequences-(arrays)"><a href="#sequences-(arrays)" class="anchor"></a>Sequences (Arrays)</h2><p>YAML sequences are written as bulleted lists:</p><pre class="language-ocaml"><code># of_string {|
+- apple
+- banana
+- cherry
+|};;
+- : value = `A [`String &quot;apple&quot;; `String &quot;banana&quot;; `String &quot;cherry&quot;]</code></pre><p>Or using flow style (like JSON arrays):</p><pre class="language-ocaml"><code># of_string &quot;[1, 2, 3]&quot;;;
+- : value = `A [`Float 1.; `Float 2.; `Float 3.]</code></pre><h3 id="sequences-of-mappings"><a href="#sequences-of-mappings" class="anchor"></a>Sequences of Mappings</h3><p>A common pattern is a list of objects:</p><pre class="language-ocaml"><code># let users = of_string {|
+- name: Alice
+  role: admin
+- name: Bob
+  role: user
+|};;
+val users : value =
+  `A
+    [`O [(&quot;name&quot;, `String &quot;Alice&quot;); (&quot;role&quot;, `String &quot;admin&quot;)];
+     `O [(&quot;name&quot;, `String &quot;Bob&quot;); (&quot;role&quot;, `String &quot;user&quot;)]]</code></pre><h3 id="accessing-sequence-elements"><a href="#accessing-sequence-elements" class="anchor"></a>Accessing Sequence Elements</h3><pre class="language-ocaml"><code># Util.nth 0 users;;
+- : Util.t option =
+Some (`O [(&quot;name&quot;, `String &quot;Alice&quot;); (&quot;role&quot;, `String &quot;admin&quot;)])
+# match Util.nth 0 users with
+  | Some user -&gt; Util.get_string (Util.get &quot;name&quot; user)
+  | None -&gt; &quot;not found&quot;;;
+- : string = &quot;Alice&quot;</code></pre><h2 id="serialization"><a href="#serialization" class="anchor"></a>Serialization</h2><p>Convert OCaml values back to YAML strings with <code>Yamlrw.to_string</code>:</p><pre class="language-ocaml"><code># let data = `O [
+    (&quot;name&quot;, `String &quot;Bob&quot;);
+    (&quot;active&quot;, `Bool true);
+    (&quot;score&quot;, `Float 95.5)
+  ];;
+val data :
+  [&gt; `O of
+       (string * [&gt; `Bool of bool | `Float of float | `String of string ])
+       list ] =
+  `O
+    [(&quot;name&quot;, `String &quot;Bob&quot;); (&quot;active&quot;, `Bool true); (&quot;score&quot;, `Float 95.5)]
+# print_string (to_string data);;
+name: Bob
+active: true
+score: 95.5
+- : unit = ()</code></pre><h3 id="constructing-values"><a href="#constructing-values" class="anchor"></a>Constructing Values</h3><p>Use <code>Yamlrw.Util</code> constructors for cleaner code:</p><pre class="language-ocaml"><code># let config = Util.obj [
+    &quot;server&quot;, Util.obj [
+      &quot;host&quot;, Util.string &quot;0.0.0.0&quot;;
+      &quot;port&quot;, Util.int 8080
+    ];
+    &quot;debug&quot;, Util.bool true;
+    &quot;tags&quot;, Util.strings [&quot;api&quot;; &quot;v2&quot;]
+  ];;
+val config : Value.t =
+  `O
+    [(&quot;server&quot;, `O [(&quot;host&quot;, `String &quot;0.0.0.0&quot;); (&quot;port&quot;, `Float 8080.)]);
+     (&quot;debug&quot;, `Bool true); (&quot;tags&quot;, `A [`String &quot;api&quot;; `String &quot;v2&quot;])]
+# print_string (to_string config);;
+server:
+  host: 0.0.0.0
+  port: 8080
+debug: true
+tags:
+  - api
+  - v2
+- : unit = ()</code></pre><h3 id="controlling-output-style"><a href="#controlling-output-style" class="anchor"></a>Controlling Output Style</h3><p>You can control the output format with style options:</p><pre class="language-ocaml"><code># print_string (to_string ~layout_style:`Flow config);;
+{server: {host: 0.0.0.0, port: 8080}, debug: true, tags: [api, v2</code></pre><ul><li>: unit = ()</li></ul><p>Scalar styles control how strings are written:</p><pre class="language-ocaml"><code># print_string (to_string ~scalar_style:`Double_quoted (Util.string &quot;hello&quot;));;
+hello
+- : unit = ()
+# print_string (to_string ~scalar_style:`Single_quoted (Util.string &quot;hello&quot;));;
+hello
+- : unit = ()</code></pre><h2 id="full-yaml-representation"><a href="#full-yaml-representation" class="anchor"></a>Full YAML Representation</h2><p>The <code>Yamlrw.value</code> type is convenient but loses some YAML-specific information. For full fidelity, use the <code>Yamlrw.yaml</code> type:</p><pre class="language-ocaml"><code># let full = yaml_of_string ~resolve_aliases:false &quot;hello&quot;;;
+val full : yaml = `Scalar &lt;abstr&gt;</code></pre><p>The <code>Yamlrw.yaml</code> type preserves:</p><ul><li>Scalar styles (plain, quoted, literal, folded)</li><li>Anchors and aliases</li><li>Type tags</li><li>Collection styles (block vs flow)</li></ul><h3 id="scalars-with-metadata"><a href="#scalars-with-metadata" class="anchor"></a>Scalars with Metadata</h3><pre class="language-ocaml"><code># let s = yaml_of_string ~resolve_aliases:false &quot;'quoted string'&quot;;;
+val s : yaml = `Scalar &lt;abstr&gt;
+# match s with
+  | `Scalar sc -&gt; Scalar.value sc, Scalar.style sc
+  | _ -&gt; &quot;&quot;, `Any;;
+- : string * Scalar_style.t = (&quot;quoted string&quot;, `Single_quoted)</code></pre><h2 id="anchors-and-aliases"><a href="#anchors-and-aliases" class="anchor"></a>Anchors and Aliases</h2><p>YAML supports node reuse through anchors (<code>&amp;name</code>) and aliases (<code>*name</code>). This is powerful for avoiding repetition:</p><pre>defaults: &amp;defaults
+  timeout: 30
+  retries: 3
+
+production:
+  &lt;&lt;: *defaults
+  host: prod.example.com
+
+staging:
+  &lt;&lt;: *defaults
+  host: stage.example.com</pre><h3 id="parsing-with-aliases"><a href="#parsing-with-aliases" class="anchor"></a>Parsing with Aliases</h3><p>By default, <code>Yamlrw.of_string</code> resolves aliases:</p><pre class="language-ocaml"><code># let yaml_with_alias = {|
+base: &amp;base
+  x: 1
+  y: 2
+derived:
+  &lt;&lt;: *base
+  z: 3
+|};;
+val yaml_with_alias : string =
+  &quot;\nbase: &amp;base\n  x: 1\n  y: 2\nderived:\n  &lt;&lt;: *base\n  z: 3\n&quot;
+# of_string yaml_with_alias;;
+- : value =
+`O
+  [(&quot;base&quot;, `O [(&quot;x&quot;, `Float 1.); (&quot;y&quot;, `Float 2.)]);
+   (&quot;derived&quot;, `O [(&quot;x&quot;, `Float 1.); (&quot;y&quot;, `Float 2.); (&quot;z&quot;, `Float 3.)])]</code></pre><h3 id="preserving-aliases"><a href="#preserving-aliases" class="anchor"></a>Preserving Aliases</h3><p>To preserve the alias structure, use <code>Yamlrw.yaml_of_string</code> with <code>~resolve_aliases:false</code>:</p><pre class="language-ocaml"><code># let y = yaml_of_string ~resolve_aliases:false {|
+item: &amp;ref
+  name: shared
+copy: *ref
+|};;
+val y : yaml =
+  `O
+    &lt;abstr&gt;</code></pre><h2 id="multi-line-strings"><a href="#multi-line-strings" class="anchor"></a>Multi-line Strings</h2><p>YAML has special syntax for multi-line strings:</p><h3 id="literal-block-scalar"><a href="#literal-block-scalar" class="anchor"></a>Literal Block Scalar</h3><p>The <code>|</code> indicator preserves newlines exactly:</p><pre class="language-ocaml"><code># of_string {|
+description: |
+  This is a
+  multi-line
+  string.
+|};;
+- : value = `O [(&quot;description&quot;, `String &quot;This is a\nmulti-line\nstring.\n&quot;)]</code></pre><h3 id="folded-block-scalar"><a href="#folded-block-scalar" class="anchor"></a>Folded Block Scalar</h3><p>The <code>&gt;</code> indicator folds newlines into spaces:</p><pre class="language-ocaml"><code># of_string {|
+description: &gt;
+  This is a
+  single line
+  when folded.
+|};;
+- : value = `O [(&quot;description&quot;, `String &quot;This is a single line when folded.\n&quot;)]</code></pre><h2 id="multiple-documents"><a href="#multiple-documents" class="anchor"></a>Multiple Documents</h2><p>A YAML stream can contain multiple documents separated by <code>---</code>:</p><pre class="language-ocaml"><code># let docs = documents_of_string {|
+---
+name: first
+---
+name: second
+...
+|};;
+val docs : document list = [&lt;abstr&gt;; &lt;abstr&gt;]
+# List.length docs;;
+- : int = 2</code></pre><p>The <code>---</code> marker starts a document, and <code>...</code> optionally ends it.</p><h3 id="working-with-documents"><a href="#working-with-documents" class="anchor"></a>Working with Documents</h3><p>Each document has metadata and a root value:</p><pre class="language-ocaml"><code># List.map (fun d -&gt; Document.root d) docs;;
+- : Yaml.t option list =
+[Some (`O &lt;abstr&gt;); Some (`O &lt;abstr&gt;)]</code></pre><h3 id="serializing-multiple-documents"><a href="#serializing-multiple-documents" class="anchor"></a>Serializing Multiple Documents</h3><pre class="language-ocaml"><code># let doc1 = Document.make (Some (of_json (Util.obj [&quot;x&quot;, Util.int 1])));;
+val doc1 : Document.t =
+  {Document.version = None; tags = []; root = Some (`O &lt;abstr&gt;);
+   implicit_start = true; implicit_end = true}
+# let doc2 = Document.make (Some (of_json (Util.obj [&quot;x&quot;, Util.int 2])));;
+val doc2 : Document.t =
+  {Document.version = None; tags = []; root = Some (`O &lt;abstr&gt;);
+   implicit_start = true; implicit_end = true}
+# print_string (documents_to_string [doc1; doc2]);;
+x: 1
+---
+x: 2
+- : unit = ()</code></pre><h2 id="streaming-api"><a href="#streaming-api" class="anchor"></a>Streaming API</h2><p>For large files or fine-grained control, use the streaming API:</p><pre class="language-ocaml"><code># let parser = Stream.parser &quot;key: value&quot;;;
+val parser : Stream.parser = &lt;abstr&gt;</code></pre><p>Iterate over events:</p><pre class="language-ocaml"><code># Stream.iter (fun event _ _ -&gt;
+    Format.printf &quot;%a@.&quot; Event.pp event
+  ) parser;;
+stream-start(UTF-8)
+document-start(version=none, implicit=true)
+mapping-start(anchor=none, tag=none, implicit=true, style=block)
+scalar(anchor=none, tag=none, style=plain, value=&quot;key&quot;)
+scalar(anchor=none, tag=none, style=plain, value=&quot;value&quot;)
+mapping-end
+document-end(implicit=true)
+stream-end
+- : unit = ()</code></pre><h3 id="building-yaml-with-events"><a href="#building-yaml-with-events" class="anchor"></a>Building YAML with Events</h3><p>You can also emit YAML by sending events:</p><pre class="language-ocaml"><code># let emitter = Stream.emitter ();;
+val emitter : Stream.emitter = &lt;abstr&gt;
+# Stream.stream_start emitter `Utf8;;
+- : unit = ()
+# Stream.document_start emitter ();;
+- : unit = ()
+# Stream.mapping_start emitter ();;
+- : unit = ()
+# Stream.scalar emitter &quot;greeting&quot;;;
+- : unit = ()
+# Stream.scalar emitter &quot;Hello, World!&quot;;;
+- : unit = ()
+# Stream.mapping_end emitter;;
+- : unit = ()
+# Stream.document_end emitter ();;
+- : unit = ()
+# Stream.stream_end emitter;;
+- : unit = ()
+# print_string (Stream.contents emitter);;
+greeting: Hello, World!
+- : unit = ()</code></pre><h2 id="error-handling"><a href="#error-handling" class="anchor"></a>Error Handling</h2><p>Parse errors raise <code>Yamlrw.Yamlrw_error</code>:</p><pre class="language-ocaml"><code># try
+    ignore (of_string &quot;key: [unclosed&quot;);
+    &quot;ok&quot;
+  with Yamlrw_error e -&gt;
+    Error.to_string e;;
+- : string = &quot;expected sequence end ']' at line 1, columns 15-15&quot;</code></pre><h3 id="type-errors"><a href="#type-errors" class="anchor"></a>Type Errors</h3><p>The <code>Yamlrw.Util</code> module raises <code>Yamlrw.Util.Type_error</code> for type mismatches:</p><pre class="language-ocaml"><code># try
+    ignore (Util.get_string (`Float 42.));
+    &quot;ok&quot;
+  with Util.Type_error (expected, actual) -&gt;
+    Printf.sprintf &quot;expected %s, got %s&quot; expected (Value.type_name actual);;
+- : string = &quot;expected string, got float&quot;</code></pre><h2 id="common-patterns"><a href="#common-patterns" class="anchor"></a>Common Patterns</h2><h3 id="configuration-files"><a href="#configuration-files" class="anchor"></a>Configuration Files</h3><p>A typical configuration file pattern:</p><pre class="language-ocaml"><code># let config_yaml = {|
+app:
+  name: myapp
+  version: 1.0.0
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  ssl: true
+
+database:
+  url: postgres://localhost/mydb
+  pool_size: 10
+|};;
+val config_yaml : string =
+  &quot;app:\n  name: myapp\n  version: 1.0.0\n\nserver:\n  host: 0.0.0.0\n  port: 8080\n  ssl: true\n\ndatabase:\n  url: postgres://localhost/mydb\n  pool_size: 10\n&quot;
+# let config = of_string config_yaml;;
+val config : value =
+  `O
+    [(&quot;app&quot;, `O [(&quot;name&quot;, `String &quot;myapp&quot;); (&quot;version&quot;, `Float 1.)]);
+     (&quot;server&quot;,
+      `O
+        [(&quot;host&quot;, `String &quot;0.0.0.0&quot;); (&quot;port&quot;, `Float 8080.);
+         (&quot;ssl&quot;, `Bool true)]);
+     (&quot;database&quot;,
+      `O
+        [(&quot;url&quot;, `String &quot;postgres://localhost/mydb&quot;);
+         (&quot;pool_size&quot;, `Float 10.)])]
+# let server = Util.get &quot;server&quot; config;;
+val server : Util.t =
+  `O
+    [(&quot;host&quot;, `String &quot;0.0.0.0&quot;); (&quot;port&quot;, `Float 8080.); (&quot;ssl&quot;, `Bool true)]
+# let host = Util.to_string ~default:&quot;localhost&quot; (Util.get &quot;host&quot; server);;
+val host : string = &quot;0.0.0.0&quot;
+# let port = Util.to_int ~default:80 (Util.get &quot;port&quot; server);;
+val port : int = 8080</code></pre><h3 id="working-with-lists"><a href="#working-with-lists" class="anchor"></a>Working with Lists</h3><p>Processing lists of items:</p><pre class="language-ocaml"><code># let items_yaml = {|
+items:
+  - id: 1
+    name: Widget
+    price: 9.99
+  - id: 2
+    name: Gadget
+    price: 19.99
+  - id: 3
+    name: Gizmo
+    price: 29.99
+|};;
+val items_yaml : string =
+  &quot;items:\n  - id: 1\n    name: Widget\n    price: 9.99\n  - id: 2\n    name: Gadget\n    price: 19.99\n  - id: 3\n    name: Gizmo\n    price: 29.99\n&quot;
+# let items = Util.get_list (Util.get &quot;items&quot; (of_string items_yaml));;
+val items : Util.t list =
+  [`O [(&quot;id&quot;, `Float 1.); (&quot;name&quot;, `String &quot;Widget&quot;); (&quot;price&quot;, `Float 9.99)];
+   `O [(&quot;id&quot;, `Float 2.); (&quot;name&quot;, `String &quot;Gadget&quot;); (&quot;price&quot;, `Float 19.99)];
+   `O [(&quot;id&quot;, `Float 3.); (&quot;name&quot;, `String &quot;Gizmo&quot;); (&quot;price&quot;, `Float 29.99)]]
+# let names = List.map (fun item -&gt;
+    Util.get_string (Util.get &quot;name&quot; item)
+  ) items;;
+val names : string list = [&quot;Widget&quot;; &quot;Gadget&quot;; &quot;Gizmo&quot;]
+# let total = List.fold_left (fun acc item -&gt;
+    acc +. Util.get_float (Util.get &quot;price&quot; item)
+  ) 0. items;;
+val total : float = 59.97</code></pre><h3 id="transforming-data"><a href="#transforming-data" class="anchor"></a>Transforming Data</h3><p>Modifying YAML structures:</p><pre class="language-ocaml"><code># let original = of_string &quot;name: Alice\nstatus: active&quot;;;
+val original : value =
+  `O [(&quot;name&quot;, `String &quot;Alice&quot;); (&quot;status&quot;, `String &quot;active&quot;)]
+# let updated = Util.update &quot;status&quot; (Util.string &quot;inactive&quot;) original;;
+val updated : Value.t =
+  `O [(&quot;name&quot;, `String &quot;Alice&quot;); (&quot;status&quot;, `String &quot;inactive&quot;)]
+# let with_timestamp = Util.update &quot;updated_at&quot; (Util.string &quot;2024-01-01&quot;) updated;;
+val with_timestamp : Value.t =
+  `O
+    [(&quot;name&quot;, `String &quot;Alice&quot;); (&quot;status&quot;, `String &quot;inactive&quot;);
+     (&quot;updated_at&quot;, `String &quot;2024-01-01&quot;)]
+# print_string (to_string with_timestamp);;
+name: Alice
+status: inactive
+updated_at: 2024-01-01
+- : unit = ()</code></pre><h2 id="summary"><a href="#summary" class="anchor"></a>Summary</h2><p>The <code>yamlrw</code> library provides:</p><ol><li><b>Simple parsing</b>: <code>Yamlrw.of_string</code> for JSON-compatible values</li><li><b>Full fidelity</b>: <code>Yamlrw.yaml_of_string</code> preserves all YAML metadata</li><li><b>Easy serialization</b>: <code>Yamlrw.to_string</code> with style options</li><li><b>Navigation</b>: <code>Yamlrw.Util</code> module for accessing and modifying values</li><li><b>Multi-document</b>: <code>Yamlrw.documents_of_string</code> for YAML streams</li><li><b>Streaming</b>: <code>Yamlrw.Stream</code> module for event-based processing</li></ol><p>Key types:</p><ul><li><code>Yamlrw.value</code> - JSON-compatible representation (<code>`Null</code>, <code>`Bool</code>, <code>`Float</code>, <code>`String</code>, <code>`A</code>, <code>`O</code>)</li><li><code>Yamlrw.yaml</code> - Full YAML with scalars, anchors, aliases, and metadata</li><li><code>Yamlrw.document</code> - A complete document with directives</li></ul><p>For more details, see the <span class="xref-unresolved" title="Yamlrw">API reference</span>.</p></div></body></html>

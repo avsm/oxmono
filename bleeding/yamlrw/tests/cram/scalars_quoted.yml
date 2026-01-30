@@ -1,0 +1,81 @@
+# Quoted scalars - single and double quoted strings
+---
+# Single-quoted strings
+single_simple: 'hello world'
+single_with_double: 'He said "hello"'
+single_escaped_quote: 'It''s a single quote: ''example'''
+single_multiline: 'This is a
+  multi-line single
+  quoted string'
+
+# Double-quoted strings
+double_simple: "hello world"
+double_with_single: "It's easy"
+double_escaped_quote: "She said \"hello\""
+
+# Escape sequences in double-quoted strings
+escaped_newline: "Line one\nLine two\nLine three"
+escaped_tab: "Column1\tColumn2\tColumn3"
+escaped_backslash: "Path: C:\\Users\\Name"
+escaped_carriage: "Before\rAfter"
+escaped_bell: "Bell\a"
+escaped_backspace: "Back\b"
+escaped_formfeed: "Form\f"
+escaped_vertical: "Vertical\vtab"
+
+# Unicode escapes
+unicode_16bit: "Snowman: \u2603"
+unicode_32bit: "Emoji: \U0001F600"
+unicode_hex: "Null byte: \x00"
+
+# Empty strings
+empty_single: ''
+empty_double: ""
+
+# Strings that would be interpreted as other types if unquoted
+string_true: "true"
+string_false: "false"
+string_null: "null"
+string_number: "123"
+string_float: "45.67"
+string_octal: "0o755"
+string_hex: "0xFF"
+
+# Special YAML characters that need quoting
+starts_with_at: "@username"
+starts_with_backtick: "`command`"
+starts_with_ampersand: "&reference"
+starts_with_asterisk: "*alias"
+starts_with_exclamation: "!tag"
+starts_with_pipe: "|literal"
+starts_with_gt: ">folded"
+starts_with_percent: "%directive"
+
+# Flow indicators that need quoting
+with_brackets: "[not a list]"
+with_braces: "{not: a map}"
+with_comma: "a, b, c"
+with_colon_space: "key: value"
+
+# Quoted strings preserve leading/trailing whitespace
+leading_space: "  spaces before"
+trailing_space: "spaces after  "
+both_spaces: "  spaces both  "
+
+# Multi-line quoted strings
+double_multiline: "This is a string
+  that spans multiple
+  lines with escaped newlines."
+
+single_fold: 'This single quoted
+  string will fold
+  lines into spaces.'
+
+# Complex escape sequences
+complex_escapes: "Tab:\t Newline:\n Quote:\" Backslash:\\ Unicode:\u0041"
+
+# Edge cases
+only_spaces_single: '   '
+only_spaces_double: "   "
+only_newlines: "\n\n\n"
+mixed_quotes: "She said 'it''s a beautiful day'"

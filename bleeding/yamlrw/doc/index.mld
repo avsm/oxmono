@@ -1,0 +1,53 @@
+{0 Yamlrw}
+
+Yamlrw is a pure OCaml implementation of YAML 1.2 parsing and emission.
+
+{1 Getting Started}
+
+See the {{!page-tutorial}Tutorial} for an introduction to YAML and the
+library.
+
+{1 API Reference}
+
+{!modules:
+Yamlrw
+}
+
+{1 Installation}
+
+Install with opam:
+
+{v
+opam install yamlrw
+v}
+
+For Unix file I/O:
+
+{v
+opam install yamlrw-unix
+v}
+
+For Eio async support (OCaml 5.0+):
+
+{v
+opam install yamlrw-eio
+v}
+
+{1 Quick Example}
+
+{[
+open Yamlrw
+
+(* Parse YAML *)
+let config = of_string {|
+server:
+  host: localhost
+  port: 8080
+|}
+
+(* Access values *)
+let host = Util.(get_string (get "host" (get "server" config)))
+
+(* Serialize to YAML *)
+let yaml_string = to_string config
+]}

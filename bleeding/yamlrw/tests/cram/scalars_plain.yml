@@ -1,0 +1,60 @@
+# Plain scalars - no quotes needed
+---
+# Simple words
+simple_word: hello
+single_character: x
+number_like: 123
+boolean_like: true
+null_like: null
+
+# Multi-word values (no special meaning characters)
+sentence: this is a plain scalar
+phrase: plain scalars can have spaces
+
+# Numbers and special values that remain strings in context
+age: 42
+pi: 3.14159
+negative: -273
+scientific: 1.23e-4
+hex_like: 0x1A2B
+octal_like: 0o755
+
+# Special characters that are valid in plain scalars
+with_colon: "value: with colon needs quotes in value"
+with_comma: "commas, need quotes in flow context"
+with_hash: "# needs quotes if starting with hash"
+hyphen_start: "- needs quotes if starting like list"
+question_start: "? needs quotes if starting like mapping key"
+
+# Plain scalars with valid special characters
+email: user@example.com
+url: http://example.com/path
+path: /usr/local/bin
+ratio: 16:9
+version: v1.2.3
+
+# Multi-line plain scalars (line folding)
+# Newlines become spaces, blank lines become newlines
+folded_plain: This is a long
+  plain scalar that spans
+  multiple lines and will
+  be folded into a single line
+  with spaces.
+
+another_folded: First paragraph
+  continues here and here.
+
+  Second paragraph after blank line.
+  Also continues.
+
+# Trailing and leading spaces are trimmed in plain scalars
+spaces_trimmed:   value with spaces
+
+# Plain scalars can contain most punctuation
+punctuation: Hello, world! How are you? I'm fine.
+symbols: $100 & 50% off @ store #1
+math: 2+2=4 and 3*3=9
+
+# Empty plain scalar (becomes null)
+empty_implicit:
+explicit_empty: ""

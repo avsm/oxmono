@@ -1,0 +1,55 @@
+# Null value test cases for YAML 1.2
+
+# Explicit null keyword
+explicit_null: null
+
+# Tilde shorthand for null
+tilde_null: ~
+
+# Empty value (implicit null)
+empty_null:
+
+# Null in flow style
+flow_null: [null, ~, ]
+
+# Null in sequences
+sequence_nulls:
+  - null
+  - ~
+  -
+  - explicit: null
+  - tilde: ~
+  - empty:
+
+# Null in mappings
+mapping_nulls:
+  key1: null
+  key2: ~
+  key3:
+
+# Null as key
+null: "null key with string value"
+~: "tilde key with string value"
+
+# Mixed null values in nested structures
+nested:
+  level1:
+    null_value: null
+    tilde_value: ~
+    empty_value:
+    list:
+      - null
+      - ~
+      -
+      - some_value
+    map:
+      a: null
+      b: ~
+      c:
+
+# String literals that contain "null" (should NOT be parsed as null)
+string_nulls:
+  quoted_null: "null"
+  quoted_tilde: "~"
+  null_in_string: "this is null"
+  word_null: 'null'

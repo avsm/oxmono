@@ -1,0 +1,15 @@
+# Test 2: Three documents with different content types
+---
+# First document: mapping
+name: John Doe
+age: 30
+city: New York
+---
+# Second document: sequence
+- apple
+- banana
+- orange
+- grape
+---
+# Third document: scalar
+This is a plain scalar document

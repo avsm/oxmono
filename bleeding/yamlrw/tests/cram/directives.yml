@@ -1,0 +1,8 @@
+# YAML directive tests
+
+# Test 1: %YAML 1.2 directive
+%YAML 1.2
+---
+version: "1.2"
+content: This document uses YAML 1.2
+...

@@ -1,0 +1,67 @@
+; Fuzz testing with Crowbar
+;
+; Quick check (runs all tests with random inputs):
+;   dune build @fuzz
+;   -- or --
+;   dune exec fuzz/fuzz.exe
+;
+; With AFL instrumentation for thorough fuzzing:
+;   dune build --profile=afl @fuzz-afl   # build the fuzzer
+;   dune build --profile=afl @run-afl    # run afl-fuzz (interactive)
+;
+; Note: AFL profile requires an OCaml compiler with AFL support:
+;   opam switch create ./afl ocaml-variants.5.2.0+options ocaml-option-afl
+
+(executable
+ (name fuzz)
+ (libraries crowbar yamlrw)
+ (modules
+  fuzz
+  fuzz_common
+  fuzz_encoding
+  fuzz_chomping
+  fuzz_tag
+  fuzz_value
+  fuzz_yamlrw
+  fuzz_emitter))
+
+; Standalone AFL fuzzer for targeted parser testing
+; This is a simpler executable that directly reads input and exercises the parser
+; Best used with AFL instrumentation for finding parser bugs
+
+(executable
+ (name fuzz_afl)
+ (libraries yamlrw)
+ (modules fuzz_afl))
+
+; Alias to run Crowbar fuzz tests (quick check mode)
+(rule
+ (alias fuzz)
+ (deps
+  (source_tree input))
+ (action
+  (run %{exe:fuzz.exe})))
+
+; Alias to build AFL-instrumented fuzzer
+; Use with: dune build --profile=afl @fuzz-afl
+(rule
+ (alias fuzz-afl)
+ (deps
+  (source_tree input)
+  fuzz_afl.exe)
+ (action
+  (echo "AFL fuzzer built. To run: dune exec --profile=afl @run-afl\n")))
+
+; Alias to run AFL fuzzer
+; Use with: dune build --profile=afl @run-afl
+; Set AFL_TIMEOUT to control duration in seconds (default: 300 = 5 minutes)
+; Example: AFL_TIMEOUT=3600 dune build --profile=afl @run-afl  # 1 hour
+(rule
+ (alias run-afl)
+ (deps
+  (source_tree input)
+  fuzz_afl.exe)
+ (action
+  (setenv AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES 1
+   (setenv AFL_SKIP_CPUFREQ 1
+    (run afl-fuzz -V %{env:AFL_TIMEOUT=300} -m none -i input -o %{workspace_root}/_fuzz -- ./%{exe:fuzz_afl.exe} @@)))))

@@ -1,0 +1,11 @@
+# Single document variations
+
+# Test 1: Implicit document (no markers)
+key1: value1
+key2: value2
+nested:
+  inner: data
+list:
+  - item1
+  - item2
+  - item3

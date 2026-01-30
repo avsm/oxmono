@@ -1,0 +1,4 @@
+(cram
+ (deps
+  (package yamlrw)
+  (glob_files *.yml)))

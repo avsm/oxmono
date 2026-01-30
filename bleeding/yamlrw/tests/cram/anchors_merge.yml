@@ -1,0 +1,194 @@
+# Merge Key Test Cases
+# Tests YAML 1.1 merge key (<<) functionality
+# Note: Merge keys are a YAML 1.1 feature and may not be supported in YAML 1.2
+
+# Test 1: Basic merge key
+---
+defaults: &defaults
+  timeout: 30
+  retries: 3
+  verbose: false
+
+production:
+  <<: *defaults
+  environment: production
+# Expected: production should have timeout, retries, verbose from defaults, plus environment
+
+# Test 2: Override after merge
+---
+base: &base
+  color: red
+  size: medium
+  weight: 100
+
+custom:
+  <<: *base
+  color: blue
+  shape: circle
+# Expected: custom should have size and weight from base, but color should be blue, and add shape
+
+# Test 3: Merging multiple anchors
+---
+connection: &connection
+  host: localhost
+  port: 8080
+
+authentication: &auth
+  username: admin
+  password: secret
+
+server:
+  <<: [*connection, *auth]
+  ssl: true
+# Expected: server should have host, port, username, password, and ssl
+
+# Test 4: Multiple merges with override
+---
+defaults: &defaults
+  timeout: 30
+  retries: 3
+
+advanced: &advanced
+  cache: true
+  pool_size: 10
+
+config:
+  <<: [*defaults, *advanced]
+  timeout: 60
+  custom: value
+# Expected: config should have all fields from both anchors, with timeout overridden to 60
+
+# Test 5: Nested merge
+---
+base_style: &base_style
+  font: Arial
+  size: 12
+
+heading_defaults: &heading
+  <<: *base_style
+  weight: bold
+
+main_heading:
+  <<: *heading
+  size: 18
+  color: navy
+# Expected: main_heading should inherit from heading (which inherits from base_style) with overrides
+
+# Test 6: Merge in sequence context
+---
+common: &common
+  enabled: true
+  log_level: info
+
+services:
+  - name: web
+    <<: *common
+    port: 80
+  - name: api
+    <<: *common
+    port: 3000
+  - name: worker
+    <<: *common
+    threads: 4
+# Expected: each service should have enabled and log_level, plus their specific fields
+
+# Test 7: Empty merge (edge case)
+---
+empty: &empty {}
+
+config:
+  <<: *empty
+  key: value
+# Expected: config should just have key: value
+
+# Test 8: Merge with nested structures
+---
+metadata: &metadata
+  created: 2023-01-01
+  author: Admin
+  tags:
+    - v1
+    - stable
+
+document:
+  <<: *metadata
+  title: Important Document
+  content: Some content here
+# Expected: document should have all metadata fields plus title and content
+
+# Test 9: Chain of merges
+---
+level1: &l1
+  a: 1
+  b: 2
+
+level2: &l2
+  <<: *l1
+  c: 3
+
+level3:
+  <<: *l2
+  d: 4
+# Expected: level3 should have a, b, c, and d
+
+# Test 10: Merge with conflicting keys
+---
+first: &first
+  name: First
+  value: 100
+  priority: low
+
+second: &second
+  name: Second
+  value: 200
+  category: important
+
+combined:
+  <<: [*first, *second]
+  name: Combined
+# Expected: later merges and direct assignments take precedence
+
+# Test 11: Merge preserving types
+---
+numbers: &numbers
+  count: 42
+  ratio: 3.14
+  active: true
+
+derived:
+  <<: *numbers
+  label: Test
+# Expected: types should be preserved (int, float, bool)
+
+# Test 12: Complex real-world example
+---
+db_defaults: &db_defaults
+  pool_size: 5
+  timeout: 30
+  ssl: false
+
+cache_defaults: &cache_defaults
+  ttl: 3600
+  max_size: 1000
+
+development:
+  database:
+    <<: *db_defaults
+    host: localhost
+    name: dev_db
+  cache:
+    <<: *cache_defaults
+    backend: memory
+
+production:
+  database:
+    <<: *db_defaults
+    host: prod.example.com
+    name: prod_db
+    ssl: true
+    pool_size: 20
+  cache:
+    <<: *cache_defaults
+    backend: redis
+    ttl: 7200
+# Expected: each environment should inherit defaults with environment-specific overrides

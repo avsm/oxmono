@@ -1,0 +1,6 @@
+(library
+ (name stored_reversed_test)
+ (public_name stored_reversed.test)
+ (libraries core stored_reversed)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,6 @@
+(library
+ (name stored_reversed)
+ (public_name stored_reversed)
+ (libraries core)
+ (preprocess
+  (pps ppx_jane)))

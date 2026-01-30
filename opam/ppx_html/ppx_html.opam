@@ -1,0 +1,35 @@
+opam-version: "2.0"
+maintainer: "Jane Street developers"
+authors: ["Jane Street Group, LLC"]
+homepage: "https://github.com/janestreet/ppx_html"
+bug-reports: "https://github.com/janestreet/ppx_html/issues"
+dev-repo: "git+https://github.com/janestreet/ppx_html.git"
+doc: "https://ocaml.janestreet.com/ocaml-core/latest/doc/ppx_html/index.html"
+license: "MIT"
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+]
+depends: [
+  "ocaml" {>= "5.1.0"}
+  "base"
+  "bonsai"
+  "bonsai_web"
+  "core"
+  "core_kernel"
+  "expect_test_helpers_core"
+  "expectable"
+  "patdiff"
+  "ppx_css"
+  "ppx_jane"
+  "virtual_dom"
+  "angstrom"                 {>= "0.15.0"}
+  "dune"                     {>= "3.17.0"}
+  "js_of_ocaml-ppx"          {= "6.0.1+ox"}
+  "ocaml-compiler-libs"      {= "v0.17.0+ox"}
+  "ppxlib"                   {= "0.33.0+ox"}
+]
+available: arch != "arm32" & arch != "x86_32"
+synopsis: "PPX_HTML is a way of constructing Vdom.Node.t's using HTML syntax."
+description: "
+PPX_HTML is a way of constructing Vdom.Node.t's using HTML syntax.
+"

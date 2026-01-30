@@ -1,0 +1,7 @@
+(library
+ (name test_ppx_html)
+ (public_name ppx_html.test)
+ (libraries core expect_test_helpers_core patdiff.expect_test_patdiff
+   expectable ppx_html_expander ppx_html_syntax ppxlib)
+ (preprocess
+  (pps ppx_jane)))

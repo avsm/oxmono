@@ -1,0 +1,7 @@
+(library
+ (name ppx_html_syntax)
+ (public_name ppx_html.syntax)
+ (libraries angstrom core ocaml-compiler-libs.common compiler-libs.common
+   ppxlib core_kernel.reversed_list)
+ (preprocess
+  (pps ppx_jane ppxlib.traverse)))

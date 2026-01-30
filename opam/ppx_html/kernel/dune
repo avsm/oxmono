@@ -1,0 +1,8 @@
+(library
+ (name ppx_html_kernel)
+ (public_name ppx_html.kernel)
+ (kind ppx_rewriter)
+ (libraries core ppx_html_expander ppxlib)
+ (ppx_runtime_libraries ppx_html.runtime)
+ (preprocess
+  (pps ppx_jane)))

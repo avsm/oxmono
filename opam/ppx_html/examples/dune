@@ -1,0 +1,6 @@
+(library
+ (name ppx_html_examples)
+ (public_name ppx_html.examples)
+ (preprocess
+  (pps ppx_jane js_of_ocaml-ppx bonsai.ppx_bonsai ppx_css ppx_html))
+ (libraries bonsai bonsai_web core virtual_dom.css_gen))

@@ -1,0 +1,6 @@
+(library
+ (name ppx_html_runtime)
+ (public_name ppx_html.runtime)
+ (libraries base)
+ (preprocess
+  (pps ppx_jane)))

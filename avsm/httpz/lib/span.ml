@@ -121,6 +121,63 @@ let[@inline] parse_int64_limited (local_ buf) (sp : t) ~(max_value : int64#) : #
   )
 ;;
 
+(* {1 Span Utilities} *)
+
+(** Check if span is empty. *)
+let[@inline] is_empty (sp : t) = to_int sp.#len = 0
+
+(** Create a sub-span starting at relative offset with given length. *)
+let[@inline] sub (sp : t) ~pos ~len : t =
+  #{ off = I16.add sp.#off (of_int pos); len = of_int len }
+
+(** Find first occurrence of character in span. Returns -1 if not found. *)
+let[@inline] find_char (local_ buf) (sp : t) (c : char) : int =
+  let sp_off = off sp in
+  let sp_len = len sp in
+  let mutable i = 0 in
+  let mutable found = -1 in
+  while found = -1 && i < sp_len do
+    if Char.equal (Base_bigstring.unsafe_get buf (sp_off + i)) c
+    then found <- i
+    else i <- i + 1
+  done;
+  found
+;;
+
+(** Check if span starts with given character. *)
+let[@inline] starts_with (local_ buf) (sp : t) (c : char) : bool =
+  len sp > 0 && Char.equal (Base_bigstring.unsafe_get buf (off sp)) c
+;;
+
+(** Skip leading character if present, return new span. *)
+let[@inline] skip_char (local_ buf) (sp : t) (c : char) : t =
+  if starts_with buf sp c
+  then #{ off = I16.add sp.#off (of_int 1); len = I16.sub sp.#len (of_int 1) }
+  else sp
+;;
+
+(** Split span at first occurrence of character.
+    Returns unboxed tuple #(before, after) where after excludes the separator.
+    If not found, returns #(sp, empty_span). *)
+let[@inline] split_on_char (local_ buf) (sp : t) (c : char) : #(t * t) =
+  let pos = find_char buf sp c in
+  if pos < 0
+  then
+    let empty = #{ off = I16.add sp.#off sp.#len; len = of_int 0 } in
+    #(sp, empty)
+  else
+    let before = #{ off = sp.#off; len = of_int pos } in
+    let after_off = I16.add sp.#off (of_int (pos + 1)) in
+    let after_len = I16.sub sp.#len (of_int (pos + 1)) in
+    let after = #{ off = after_off; len = after_len } in
+    #(before, after)
+;;
+
+(** Get character at position in span. No bounds checking. *)
+let[@inline] unsafe_get (local_ buf) (sp : t) (pos : int) : char =
+  Base_bigstring.unsafe_get buf (off sp + pos)
+;;
+
 let to_string (local_ buf) (sp : t) = Base_bigstring.To_string.sub buf ~pos:(off sp) ~len:(len sp)
 let to_bytes (local_ buf) (sp : t) = Base_bigstring.To_bytes.sub buf ~pos:(off sp) ~len:(len sp)
 

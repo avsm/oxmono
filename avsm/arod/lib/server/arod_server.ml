@@ -19,23 +19,7 @@ let to_int = Httpz.Buf_write.to_int
 (** Response buffer size - 64KB for headers *)
 let response_buffer_size = 65536
 
-(** {1 Request Conversion} *)
-
-(** Parse query parameters from a query string *)
-let parse_query_string query_str =
-  if String.length query_str = 0 then []
-  else
-    let pairs = String.split query_str ~on:'&' in
-    List.filter_map pairs ~f:(fun pair ->
-        match String.lsplit2 pair ~on:'=' with
-        | None -> Some (pair, "")
-        | Some (key, value) -> Some (key, value))
-
-(** Parse target into path and query parameters *)
-let parse_target target =
-  match String.lsplit2 target ~on:'?' with
-  | None -> (target, [])
-  | Some (path, query_str) -> (path, parse_query_string query_str)
+(** {1 Header Conversion} *)
 
 (** Convert httpz headers to string pairs (works with local header list) *)
 let convert_headers buf headers =
@@ -51,13 +35,6 @@ let convert_headers buf headers =
         loop ((name, value) :: acc) rest
   in
   loop [] headers
-
-(** Convert httpz request to arod request (headers must already be converted) *)
-let request_of_httpz buf (req : Httpz.Req.t) string_headers =
-  let meth = req.#meth in
-  let target = Httpz.Span.to_string buf req.#target in
-  let path, query = parse_target target in
-  Arod.Route.Request.create ~meth ~path ~query ~headers:string_headers
 
 (** {1 Response Writing} *)
 
@@ -165,33 +142,38 @@ let handle_request conn ~routes ~memo_cache ~memoized_paths =
   let version = req.#version in
   match status with
   | Httpz.Buf_read.Complete ->
-      (* Convert headers while in local scope, then build arod request *)
+      (* Convert headers (needed by handlers regardless of route) *)
       let string_headers = convert_headers buf headers in
-      let arod_req = request_of_httpz buf req string_headers in
-      let path = Arod.Route.Request.path arod_req in
-      (* Dispatch with optional memoization *)
-      let dispatch_fn =
-        match memo_cache with
-        | Some cache when should_memoize path memoized_paths ->
-            fun req ->
-              Arod.Memo.memoize cache
-                (fun r ->
-                  match Arod.Route.Routes.dispatch routes r with
-                  | Some resp -> resp
-                  | None -> Arod.Route.Response.not_found)
-                req
-        | _ -> (
-            fun req ->
-              match Arod.Route.Routes.dispatch routes req with
-              | Some resp -> resp
-              | None -> Arod.Route.Response.not_found)
+      let target = req.#target in
+      let meth = req.#meth in
+      (* Use span-based dispatch for zero-allocation route matching *)
+      let resp =
+        match Arod.Route.Routes.dispatch_span buf ~meth ~target ~headers:string_headers routes with
+        | Some resp -> resp
+        | None -> Arod.Route.Response.not_found
       in
-      let resp = dispatch_fn arod_req in
+      (* Get path for logging (only allocates here) *)
+      let path_str = Httpz.Span.to_string buf (Httpz.Target.path (Httpz.Target.parse buf target)) in
+      (* Handle memoization for expensive paths *)
+      let resp =
+        match memo_cache with
+        | Some cache when should_memoize path_str memoized_paths ->
+            (* For memoized routes, we need the full request for cache key *)
+            let query_pairs = Httpz.Target.query_to_string_pairs buf (Httpz.Target.query (Httpz.Target.parse buf target)) in
+            let arod_req = Arod.Route.Request.create ~meth ~path:path_str ~query:query_pairs ~headers:string_headers in
+            Arod.Memo.memoize cache
+              (fun r ->
+                match Arod.Route.Routes.dispatch routes r with
+                | Some resp -> resp
+                | None -> Arod.Route.Response.not_found)
+              arod_req
+        | _ -> resp
+      in
       (* Log request *)
       Log.info (fun m ->
           m "%s %s - %s"
-            (Httpz.Method.to_string (Arod.Route.Request.meth arod_req))
-            path (Httpz.Res.status_to_string (Arod.Route.Response.status resp)));
+            (Httpz.Method.to_string meth)
+            path_str (Httpz.Res.status_to_string (Arod.Route.Response.status resp)));
       (* Write response *)
       conn.keep_alive <- req.#keep_alive;
       let header_len, body =

@@ -10,6 +10,7 @@ module Version = Version
 module Header_name = Header_name
 module Header = Header
 module Req = Req
+module Target = Target
 module Chunk = Chunk
 module Res = Res
 module Parser = Parser

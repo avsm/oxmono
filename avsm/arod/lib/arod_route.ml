@@ -150,6 +150,46 @@ let rec match_pattern : type a. a pattern -> string list -> a match_result =
           | Match (v2, final) -> Match ((v1, v2), final)))
   | _ -> NoMatch
 
+(** {2 Span-Based Pattern Matching}
+
+    Match patterns against path spans without allocating intermediate strings.
+    Captured parameters are converted to strings only on successful match. *)
+
+(** Span-based match result. Keeps captured values as spans. *)
+type 'a span_result =
+  | SpanOk of 'a * Httpz.Span.t  (* captured, remaining path *)
+  | SpanFail
+
+(** Match pattern against path span. Returns captured values as spans where applicable.
+    For Param and Rest patterns, the captured value type is Httpz.Span.t.
+    The caller must convert to string after successful match. *)
+let rec match_pattern_span : type a. Httpz.buffer -> a pattern -> Httpz.Span.t -> a span_result =
+ fun buf pattern path ->
+  match pattern with
+  | Root ->
+      if Httpz.Target.path_is_empty buf path
+      then SpanOk ((), Httpz.Span.make ~off:(Httpz.Span.of_int 0) ~len:(Httpz.Span.of_int 0))
+      else SpanFail
+  | Exact s ->
+      let #(matched, rest) = Httpz.Target.match_segment buf path s in
+      if matched then SpanOk ((), rest) else SpanFail
+  | Param ->
+      let #(matched, seg, rest) = Httpz.Target.match_param buf path in
+      if matched then SpanOk (Httpz.Span.to_string buf seg, rest) else SpanFail
+  | Rest ->
+      SpanOk (Httpz.Span.to_string buf path, Httpz.Span.make ~off:(Httpz.Span.of_int 0) ~len:(Httpz.Span.of_int 0))
+  | Compose (p1, p2) -> (
+      match match_pattern_span buf p1 path with
+      | SpanFail -> SpanFail
+      | SpanOk (v1, remaining) -> (
+          match match_pattern_span buf p2 remaining with
+          | SpanFail -> SpanFail
+          | SpanOk (v2, final) -> SpanOk ((v1, v2), final)))
+
+(** Check if path span ends cleanly (empty or just trailing slash). *)
+let span_match_complete buf path =
+  Httpz.Target.path_is_empty buf path
+
 type handler = Request.t -> Response.t
 type 'a param_handler = 'a -> Request.t -> Response.t
 
@@ -217,4 +257,59 @@ module Routes = struct
     List.find_map (fun route -> try_route route req) routes
 
   let fold f routes acc = List.fold_right f routes acc
+
+  (** {2 Span-Based Dispatch}
+
+      Zero-allocation route matching using httpz spans.
+      Only allocates strings when a route matches and needs captured params. *)
+
+  (** Match exact segments against path span without allocation. *)
+  let match_exact_segments buf segments path =
+    let rec loop segs path =
+      match segs with
+      | [] -> Httpz.Target.path_is_empty buf path
+      | seg :: rest ->
+          let #(matched, remaining) = Httpz.Target.match_segment buf path seg in
+          if matched then loop rest remaining else false
+    in
+    loop segments path
+
+  (** Try to match a route against the path span. Only builds Request.t on match. *)
+  let try_route_span buf meth target headers route =
+    match route with
+    | Route { meth = route_meth; pattern; handler } ->
+        if meth <> route_meth then None
+        else
+          let parsed = Httpz.Target.parse buf target in
+          let path = Httpz.Target.skip_leading_slash buf (Httpz.Target.path parsed) in
+          (match match_pattern_span buf pattern path with
+          | SpanOk (params, remaining) when span_match_complete buf remaining ->
+              (* Only now do we build the full request *)
+              let path_str = Httpz.Span.to_string buf (Httpz.Target.path parsed) in
+              let query_pairs = Httpz.Target.query_to_string_pairs buf (Httpz.Target.query parsed) in
+              let req = Request.create ~meth ~path:path_str ~query:query_pairs ~headers in
+              Some (handler params req)
+          | _ -> None)
+    | ExactRoute { meth = route_meth; segments; handler } ->
+        if meth <> route_meth then None
+        else
+          let parsed = Httpz.Target.parse buf target in
+          let path = Httpz.Target.skip_leading_slash buf (Httpz.Target.path parsed) in
+          if match_exact_segments buf segments path then
+            let path_str = Httpz.Span.to_string buf (Httpz.Target.path parsed) in
+            let query_pairs = Httpz.Target.query_to_string_pairs buf (Httpz.Target.query parsed) in
+            let req = Request.create ~meth ~path:path_str ~query:query_pairs ~headers in
+            Some (handler req)
+          else
+            None
+
+  (** Dispatch using span-based matching.
+      [buf] is the httpz buffer containing the request.
+      [meth] is the HTTP method.
+      [target] is the target span (path + query).
+      [headers] are the pre-converted headers (string pairs).
+
+      This avoids allocating path strings and query parameters unless a route matches. *)
+  let dispatch_span buf ~meth ~target ~headers routes =
+    List.find_map (fun route -> try_route_span buf meth target headers route) routes
 end

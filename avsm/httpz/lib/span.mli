@@ -44,6 +44,33 @@ val parse_int64 : local_ Base_bigstring.t -> t -> int64#
     - overflow_flag: [true] if value exceeds [max_value] or has too many digits *)
 val parse_int64_limited : local_ Base_bigstring.t -> t -> max_value:int64# -> #(int64# * bool)
 
+(** {1 Span Utilities} *)
+
+(** Check if span is empty. *)
+val is_empty : t -> bool
+
+(** Create a sub-span starting at relative offset with given length. *)
+val sub : t -> pos:int -> len:int -> t
+
+(** Find first occurrence of character in span. Returns [-1] if not found. *)
+val find_char : local_ Base_bigstring.t -> t -> char -> int
+
+(** Check if span starts with given character. *)
+val starts_with : local_ Base_bigstring.t -> t -> char -> bool
+
+(** Skip leading character if present, return new span. *)
+val skip_char : local_ Base_bigstring.t -> t -> char -> t
+
+(** Split span at first occurrence of character.
+    Returns unboxed tuple [#(before, after)] where [after] excludes the separator.
+    If not found, returns [#(sp, empty_span)]. *)
+val split_on_char : local_ Base_bigstring.t -> t -> char -> #(t * t)
+
+(** Get character at position in span. No bounds checking. *)
+val unsafe_get : local_ Base_bigstring.t -> t -> int -> char
+
+(** {1 String Conversion} *)
+
 (** Copy span to string. Allocates. *)
 val to_string : local_ Base_bigstring.t -> t -> string
 

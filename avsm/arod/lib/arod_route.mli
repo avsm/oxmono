@@ -169,6 +169,25 @@ module Routes : sig
   (** [dispatch routes req] attempts to find a matching route and invoke its
       handler. Returns [None] if no route matches. *)
 
+  val dispatch_span :
+    Httpz.buffer ->
+    meth:Httpz.Method.t ->
+    target:Httpz.Span.t ->
+    headers:(string * string) list ->
+    t ->
+    Response.t option
+  (** [dispatch_span buf ~meth ~target ~headers routes] performs zero-allocation
+      route matching using httpz spans.
+
+      This avoids allocating path strings and query parameters unless a route
+      matches. Only on successful match are the path and query converted to
+      strings for the handler.
+
+      [buf] is the httpz buffer containing the request.
+      [meth] is the HTTP method.
+      [target] is the target span (path + query).
+      [headers] are the pre-converted headers (string pairs). *)
+
   val fold : (route -> 'a -> 'a) -> t -> 'a -> 'a
   (** [fold f routes acc] folds over all routes in the collection. *)
 end

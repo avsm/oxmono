@@ -1,0 +1,6 @@
+(library
+ (name bonsai_test_computation_report)
+ (public_name bonsai_test.computation_report)
+ (libraries bonsai bonsai_test bonsai_test_shared_for_testing_bonsai core)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))

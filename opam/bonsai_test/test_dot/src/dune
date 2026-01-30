@@ -1,0 +1,7 @@
+(library
+ (name bonsai_test_dot)
+ (public_name bonsai_test.dot)
+ (libraries async bonsai bonsai.proc bonsai_test base.composition_infix core
+   expect_test_helpers_core incr_map core_unix.sys_unix)
+ (preprocess
+  (pps ppx_jane ppx_pattern_bind bonsai.ppx_bonsai)))

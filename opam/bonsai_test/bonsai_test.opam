@@ -1,0 +1,40 @@
+opam-version: "2.0"
+maintainer: "Jane Street developers"
+authors: ["Jane Street Group, LLC"]
+homepage: "https://github.com/janestreet/bonsai_test"
+bug-reports: "https://github.com/janestreet/bonsai_test/issues"
+dev-repo: "git+https://github.com/janestreet/bonsai_test.git"
+doc: "https://ocaml.janestreet.com/ocaml-core/latest/doc/bonsai_test/index.html"
+license: "MIT"
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+]
+depends: [
+  "ocaml" {>= "5.1.0"}
+  "async"
+  "async_js"
+  "base"
+  "bonsai"
+  "bonsai_concrete"
+  "core"
+  "core_unix"
+  "expect_test_helpers_core"
+  "expectable"
+  "incr_map"
+  "incremental"
+  "ocaml-embed-file"
+  "patdiff"
+  "ppx_expect"
+  "ppx_jane"
+  "ppx_pattern_bind"
+  "ppx_quick_test"
+  "virtual_dom"
+  "dune"                     {>= "3.17.0"}
+  "re"                       {= "1.14.0+ox"}
+]
+available: arch != "arm32" & arch != "x86_32"
+synopsis: "A library for testing Bonsai state machines."
+description: "
+Bonsai is a library for building composable state machines. This libary
+    provides testing capabilities.
+"

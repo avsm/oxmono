@@ -1,0 +1,5 @@
+(library
+ (name bonsai_test_clock_every_dynamic)
+ (libraries bonsai bonsai_test core)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai ppx_quick_test)))

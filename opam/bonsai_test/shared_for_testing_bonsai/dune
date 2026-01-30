@@ -1,0 +1,7 @@
+(library
+ (name bonsai_test_shared_for_testing_bonsai)
+ (public_name bonsai_test.shared_for_testing_bonsai)
+ (libraries bonsai bonsai.bench_scenario bonsai.proc bonsai_test core
+   incr_map.erase_key)
+ (preprocess
+  (pps ppx_jane ppx_pattern_bind bonsai.ppx_bonsai ppx_quick_test)))

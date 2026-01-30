@@ -1,0 +1,46 @@
+name: OxCaml
+
+on: [push, pull_request]
+
+env:
+  DUNE_CACHE_ROOT: ${{ github.workspace }}/.cache
+  DUNE_CACHE_STORAGE_MODE: hardlink
+  DUNE_CACHE: enabled
+
+jobs:
+  tests:
+    name: Tests
+
+    strategy:
+      fail-fast: false
+      matrix:
+        ocaml-version: ["ocaml-variants.5.2.0+ox,dune"]
+        operating-system: [macos-latest, ubuntu-latest]
+
+    runs-on: ${{ matrix.operating-system }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Restore Dune cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache
+          key: dune-cache-${{ matrix.operating-system }}
+          restore-keys: |
+            dune-cache-${{ matrix.operating-system }}-
+
+      - name: Use OCaml ${{ matrix.ocaml-version }}
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ${{ matrix.ocaml-version }}
+          opam-repositories: |
+            default: https://github.com/ocaml/opam-repository.git
+            ox: git+https://github.com/oxcaml/opam-repository.git
+
+      - name: Dune build
+        run: opam exec -- dune build --profile=release @install
+
+      - name: Debug
+        run : find _build/install/default/bin

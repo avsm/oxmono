@@ -1,0 +1,11 @@
+(library
+ (foreign_stubs
+  (language c)
+  (names netsnmp_mib_stub netsnmp_helper_fun netsnmp_error_helper
+    netsnmp_sess_stub netsnmp_pdu_stub netsnmp_stubs_mutex)
+  (flags :standard))
+ (name netsnmp_raw)
+ (public_name netsnmp.raw)
+ (c_library_flags :standard -lnetsnmp)
+ (preprocess
+  (pps ppx_jane -compare-require-explicit-locality)))

@@ -1,0 +1,3 @@
+(alias
+ (name mdx-deps)
+ (deps example_for_mdx_intf.ml))

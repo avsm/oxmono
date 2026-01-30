@@ -1,0 +1,317 @@
+open Core;;
+
+#verbose true
+
+(* NOTE: An empty record is a syntax error, so these cannot be tested here. *)
+
+(* EXPRESSIONS *)
+let (Ppx_anonymous_record_internal__don't_match_on_this_manually int :
+      ([ `a ], int) Ppx_anonymous_record_runtime.Anonymous_record.t)
+  =
+  [%anon { a = 1 }]
+;;
+
+[%%expect
+  {|
+val int : int = 1
+|}]
+
+(* Malformed field names *)
+let (Ppx_anonymous_record_internal__don't_match_on_this_manually int :
+      ([ `a ], int) Ppx_anonymous_record_runtime.Anonymous_record.t)
+  =
+  [%anon { b = 1 }]
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: This expression has type
+         ([ `b ], int) Ppx_anonymous_record_runtime.Anonymous_record.t
+       but an expression was expected of type
+         ([ `a ], int) Ppx_anonymous_record_runtime.Anonymous_record.t
+       These two variant types have no intersection
+|}]
+
+let (Ppx_anonymous_record_internal__don't_match_on_this_manually ints :
+      ([ `b ] * [ `a ], int * int) Ppx_anonymous_record_runtime.Anonymous_record.t)
+  =
+  [%anon { a = 1; b = 1 }]
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: This expression has type
+         ([ `a ] * [ `b ], int * int)
+         Ppx_anonymous_record_runtime.Anonymous_record.t
+       but an expression was expected of type
+         ([ `b ] * [ `a ], int * int)
+         Ppx_anonymous_record_runtime.Anonymous_record.t
+       These two variant types have no intersection
+|}]
+
+let (Ppx_anonymous_record_internal__don't_match_on_this_manually int :
+      ([ `a ], int) Ppx_anonymous_record_runtime.Anonymous_record.t)
+  =
+  [%anon { E.t = 1 }]
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (record field names are expected to conform to normal record field name constraints. Malformed field name: E.t).
+|}]
+
+(* Duplicate field names *)
+let (Ppx_anonymous_record_internal__don't_match_on_this_manually ints :
+      ([ `a ] * [ `a ], int * int) Ppx_anonymous_record_runtime.Anonymous_record.t)
+  =
+  [%anon { a = 1; a = 2 }]
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (record field names must be unique. Duplicate field name: a).
+|}]
+
+(* Malformed expressions *)
+let (Ppx_anonymous_record_internal__don't_match_on_this_manually int :
+      ([ `a ], int) Ppx_anonymous_record_runtime.Anonymous_record.t)
+  =
+  [%anon 1]
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (you can only use it with a single record).
+|}]
+
+let (Ppx_anonymous_record_internal__don't_match_on_this_manually ints :
+      ([ `a ], int * int) Ppx_anonymous_record_runtime.Anonymous_record.t)
+  =
+  [%anon 1, 2]
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (you can only use it with a single record).
+|}]
+
+let (Ppx_anonymous_record_internal__don't_match_on_this_manually int :
+      ([ `a ], int) Ppx_anonymous_record_runtime.Anonymous_record.t)
+  =
+  [%anon [ { a = 1 } ]]
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (you can only use it with a single record).
+|}]
+
+(* The pattern analog of this example is not syntactically valid and therefore omitted. *)
+let (Ppx_anonymous_record_internal__don't_match_on_this_manually ints :
+      ([ `a ] * [ `a ], int * int) Ppx_anonymous_record_runtime.Anonymous_record.t)
+  =
+  [%anon { a = 1 } { a = 1 }]
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (you can only use it with a single record).
+|}]
+
+(* PATTERNS *)
+let [%anon? { a }] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create 1
+   : ([ `a ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+val a : int = 1
+|}]
+
+(* Malformed field names *)
+let [%anon? { b = 1 }] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create 1
+   : ([ `a ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: This expression has type
+         ([ `a ], int) Ppx_anonymous_record_runtime.Anonymous_record.t
+       but an expression was expected of type
+         ([ `b ], int) Ppx_anonymous_record_runtime.Anonymous_record.t
+       These two variant types have no intersection
+|}]
+
+let [%anon? { a = 1; b = 1 }] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create (1, 2)
+   : ([ `b ] * [ `a ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: This expression has type
+         ([ `b ] * [ `a ], int * int)
+         Ppx_anonymous_record_runtime.Anonymous_record.t
+       but an expression was expected of type
+         ([ `a ] * [ `b ], int * int)
+         Ppx_anonymous_record_runtime.Anonymous_record.t
+       These two variant types have no intersection
+|}]
+
+let [%anon? { E.t = 1 }] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create 1
+   : ([ `a ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (record field names are expected to conform to normal record field name constraints. Malformed field name: E.t).
+|}]
+
+(* Duplicate field names *)
+let [%anon? { a; a }] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create (1, 2)
+   : ([ `a ] * [ `a ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (record field names must be unique. Duplicate field name: a).
+|}]
+
+let [%anon? { a; a = a' }] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create (1, 2)
+   : ([ `a ] * [ `a ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (record field names must be unique. Duplicate field name: a).
+|}]
+
+(* Malformed patterns *)
+
+let [%anon? { a; _ }] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create (1, 2)
+   : ([ `a ] * [ `b ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: This expression has type
+         ([ `a ] * [ `b ], int * int)
+         Ppx_anonymous_record_runtime.Anonymous_record.t
+       but an expression was expected of type
+         ([ `a ], 'a) Ppx_anonymous_record_runtime.Anonymous_record.t
+       Type [ `a ] * [ `b ] is not compatible with type [ `a ]
+|}]
+
+let [%anon? a] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create 1
+   : ([ `a ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (you can only use it with a single record).
+|}]
+
+let [%anon? a, b] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create 1
+   : ([ `a ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (you can only use it with a single record).
+|}]
+
+let [%anon? [ { a } ]] =
+  (Ppx_anonymous_record_runtime.Anonymous_record.Private.create 1
+   : ([ `a ], _) Ppx_anonymous_record_runtime.Anonymous_record.t)
+;;
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (you can only use it with a single record).
+|}]
+
+(* CORE TYPES *)
+
+let a : [%anon { a : int }] = [%anon { a = 1 }]
+
+[%%expect
+  {|
+val a : ([ `a ], int) Ppx_anonymous_record_runtime.Anonymous_record.t =
+  <unknown constructor>
+|}]
+
+(* Malformed field names *)
+let a : [%anon { E.t : int }] = [%anon { a = 1 }]
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (record field names are expected to conform to normal record field name constraints. Malformed field name: E.t).
+|}]
+
+(* No constraint raises *)
+let a : [%anon { a }] = [%anon { a = 1 }]
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (record fields must be constrained to a type).
+|}]
+
+(* Values assignment raises *)
+let a : [%anon { a = (x : int) }] = [%anon { a = 1 }]
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (records fields cannot be assigned a value when defining a core type).
+|}]
+
+let a : [%anon { a : int = 1 }] = [%anon { a = 1 }]
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unsupported use of `ppx_anonymous_record' (records fields cannot be assigned a value when defining a core type).
+|}]
+
+type t = [%anon { a : int }] [@@deriving sexp_of]
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unbound value Ppx_anonymous_record_runtime.Anonymous_record.sexp_of_t
+|}]
+
+type t = [%anon { a : int }] [@@deriving of_sexp]
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Unbound value Ppx_anonymous_record_runtime.Anonymous_record.t_of_sexp
+|}]

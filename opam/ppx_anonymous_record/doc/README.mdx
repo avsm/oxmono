@@ -1,0 +1,98 @@
+# ppx_anonymous_record
+
+`ppx_anonymous_record` is a ppx expander that expands anonymous records into (typed)
+tuples. The purpose is to:
+
+1. write safer code by (effectively) labelling tuples;
+2. not have to define a new record type for every intermediate tuple you handle.
+
+Example
+-------
+
+This ppx is best explained by an example. This example is somewhat contrived, but say you
+have a list of integers and you want to (a) sum over its elements and (b) sum over the
+absolute value of its elements. The normal way to do this might be:
+
+<!-- $MDX file=example_for_mdx_intf.ml,part=example-1 -->
+```ocaml
+let two_kinds_of_sums ints =
+  let init = 0, 0 in
+  List.fold ints ~init ~f:(fun (normal_sum, absolute_value_sum) elem ->
+    let normal_sum         = elem + normal_sum             in
+    let absolute_value_sum = abs elem + absolute_value_sum in
+    normal_sum, absolute_value_sum)
+;;
+```
+
+A possible failure case is swapping the order of the tuple, which the compiler cannot
+prevent:
+
+<!-- $MDX file=example_for_mdx_intf.ml,part=example-1-failure -->
+```ocaml
+let diff =
+  let absolute_value_sum, normal_sum = two_kinds_of_sums [ 1; -1; 2; -3; 5 ] in
+  absolute_value_sum - normal_sum
+;;
+```
+
+The correct answer here should be 8, but `diff` returns -8.
+
+With `ppx_anonymous_record`, you can write:
+<!-- $MDX file=example_for_mdx_intf.ml,part=example-2 -->
+```ocaml
+let two_kinds_of_sums ints =
+  let init = [%anon { normal_sum = 0; absolute_value_sum = 0 }] in
+  List.fold ints ~init ~f:(fun [%anon? { normal_sum; absolute_value_sum }] elem ->
+    let normal_sum         = elem + normal_sum             in
+    let absolute_value_sum = abs elem + absolute_value_sum in
+    [%anon { normal_sum; absolute_value_sum }])
+;;
+```
+
+The type of the returned anonymous record uses an internal runtime library, so you cannot
+mistake one field for another.
+
+This value can be unpacked by again using the ppx:
+
+<!-- $MDX file=example_for_mdx_intf.ml,part=example-2-success -->
+```ocaml
+let diff =
+  let [%anon? { normal_sum; absolute_value_sum }] =
+    two_kinds_of_sums [ 1; -1; 2; -3; 5 ]
+  in
+  absolute_value_sum - normal_sum
+;;
+```
+
+Almost records
+------------------
+Anonymous records *almost* behave like normal records. Pattern matching and defining
+expressions over fields can be done in any order, and fields can be aliased or ignored:
+
+<!-- $MDX file=example_for_mdx_intf.ml,part=example-2-almost-a-record -->
+```ocaml
+let diff =
+  let [%anon? { absolute_value_sum = _; normal_sum = sum }] =
+    two_kinds_of_sums [ 1; -1; 2; -3; 5 ]
+  in
+  sum
+;;
+```
+
+However, multiple fields cannot be ignored at once and fields cannot be accessed using
+`value.field` syntax.
+
+`[%anon.local _]` can be used to allocate anonymous records locally.
+
+Signatures
+----------
+
+Finally, the ppx can be used in signatures and module interfaces:
+
+```ocaml skip
+val two_kinds_of_sums
+  :  int list
+  -> [%anon { normal_sum : int; absolute_value_sum : int }]
+```
+
+So anonymous records can be used across files.

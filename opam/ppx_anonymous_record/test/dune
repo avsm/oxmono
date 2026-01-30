@@ -1,0 +1,6 @@
+(library
+ (name ppx_anonymous_record_tests)
+ (libraries core expect_test_helpers_core)
+ (ppx_runtime_libraries ppx_anonymous_record.runtime)
+ (preprocess
+  (pps ppx_anonymous_record ppx_jane)))

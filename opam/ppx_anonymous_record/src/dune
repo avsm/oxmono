@@ -1,0 +1,8 @@
+(library
+ (name ppx_anonymous_record)
+ (public_name ppx_anonymous_record)
+ (kind ppx_rewriter)
+ (libraries base ppxlib ppxlib_jane)
+ (ppx_runtime_libraries ppx_anonymous_record.runtime)
+ (preprocess
+  (pps ppx_string)))

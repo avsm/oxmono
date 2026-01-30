@@ -1,0 +1,6 @@
+(library
+ (name current_exe)
+ (public_name current_exe)
+ (libraries core core_unix)
+ (preprocess
+  (pps ppx_jane)))

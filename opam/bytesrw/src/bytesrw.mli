@@ -97,7 +97,7 @@ module Bytes : sig
     (** [length s] is the byte length of the byte range of [s]. This returns [0]
         only on {!eod}. *)
 
-    val copy : tight:bool -> t -> t
+    val copy : tight:bool -> t @ local -> t
     (** [copy ~tight s] is a copy of [s]. If [tight] is [true], the
         copy contains only the bytes in the range of [s]. If not the
         whole [bytes s] is copied. *)
@@ -206,20 +206,20 @@ module Bytes : sig
     val of_string_or_eod : ?first:int -> ?last:int -> string -> t
     (** [of_string_or_eod] is [of_bytes_or_eod (Bytes.of_string s)]. *)
 
-    val to_bytes : t -> bytes
+    val to_bytes : t @ local -> bytes
     (** [to_bytes t] copies the range of [s] to a new [bytes] value. *)
 
-    val to_bigbytes : t ->
+    val to_bigbytes : t @ local ->
       (int, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
     (** [to_bigbytes t] copies the range of [s] to a new bigbytes value. *)
 
-    val to_string : t -> string
+    val to_string : t @ local -> string
     (** [to_string s] copies the range of [s] to a new [string] value. *)
 
-    val add_to_buffer : Buffer.t -> t -> unit
+    val add_to_buffer : Buffer.t -> t @ local -> unit
     (** [add_to_buffer b s] adds the byte range of [s] to [b]. *)
 
-    val output_to_out_channel : Out_channel.t -> t -> unit
+    val output_to_out_channel : Out_channel.t -> t @ local -> unit
     (** [output_to_out_channel oc s] outputs the byte range of [s] to
         [oc]. {b Warning.} Make sure the channel is in
         {{!Out_channel.set_binary_mode}binary mode}. For example by
@@ -227,12 +227,12 @@ module Bytes : sig
 
     (** {1:format Formatting and inspecting} *)
 
-    val pp : Format.formatter -> t -> unit
+    val pp : Format.formatter -> t @ local -> unit
     (** [pp] formats a slice for inspection. This formats
         the range specification and at most the first four bytes of
         the buffer in hex. *)
 
-    val pp' : ?head:int -> ?hex:bool -> unit -> Format.formatter -> t -> unit
+    val pp' : ?head:int -> ?hex:bool -> unit -> Format.formatter -> t @ local -> unit
     (** [pp'] is like {!pp} but prints raw bytes if [hex] is [false]
         (defaults to [true]) and prints at most [head] initial bytes
         (defaults to [4], use (-1) to format all the bytes). *)
@@ -640,7 +640,7 @@ module Bytes : sig
         if a slice other than {!Slice.eod} is written after
         a {!Slice.eod} was written. *)
 
-    val write : t -> Slice.t -> unit
+    val write : t -> Slice.t @ local -> unit
     (** [write w s] writes the slice [s] on [w]. The slice [s] must remain
         {{!Slice.validity}valid for reading} until the function
         returns.
@@ -652,12 +652,12 @@ module Bytes : sig
     (** [write_eod w] is [write w Slice.eod]. Only {!Slice.eod}
         can be written on [w] aftewards. *)
 
-    val write_bytes : t -> bytes -> unit
+    val write_bytes : t -> bytes @ local -> unit
     (** [write_bytes w b] writes the bytes [b] on [w] in
         {!slice_length} slices, except perhaps the last one. The bytes
         of [b] must not change until the function returns. *)
 
-    val write_string : t -> string -> unit
+    val write_string : t -> string @ local -> unit
     (** [write_string] is like {!write_bytes} but writes a string. *)
 
     val write_reader : eod:bool -> t -> Reader.t -> unit

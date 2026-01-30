@@ -60,9 +60,9 @@ module Bytes = struct
     let[@inline][@zero_alloc] last (s @ local) = s.first + s.length - 1
     let[@inline][@zero_alloc] length (s @ local) = s.length
 
-    let copy ~tight s =
+    let copy ~tight (s @ local) =
       if s.length = 0 then eod else
-      if not tight then { s with bytes = Bytes.copy s.bytes } else
+      if not tight then { bytes = Bytes.copy s.bytes; first = s.first; length = s.length } else
       let bytes = Bytes.sub s.bytes s.first s.length in
       { bytes; first = 0; length = s.length}
 
@@ -170,45 +170,50 @@ module Bytes = struct
       (* We could tighten the string here. *)
       of_bytes_or_eod ?first ?last (Bytes.of_string s)
 
-    let to_bytes s = Bytes.sub s.bytes s.first s.length
-    let to_string s = Bytes.sub_string s.bytes s.first s.length
-    let to_bigbytes s =
+    let to_bytes (s @ local) = Bytes.sub s.bytes s.first s.length
+    let to_string (s @ local) = Bytes.sub_string s.bytes s.first s.length
+    let to_bigbytes (s @ local) =
       (* This should use blits. *)
+      let len = s.length and first = s.first and bytes = s.bytes in
       Bigarray.Array1.init Bigarray.Int8_unsigned Bigarray.c_layout
-        s.length (fun i -> Bytes.get_uint8 s.bytes (s.first + i))
+        len (fun i -> Bytes.get_uint8 bytes (first + i))
 
-    let add_to_buffer b s = Buffer.add_subbytes b s.bytes s.first s.length
-    let output_to_out_channel oc s =
+    let add_to_buffer b (s @ local) = Buffer.add_subbytes b s.bytes s.first s.length
+    let output_to_out_channel oc (s @ local) =
       let b = Bytes.unsafe_to_string s.bytes in
       Out_channel.output_substring oc b s.first s.length
 
     (* Formatting *)
 
-    let pp_meta ppf s =
+    let pp_meta ppf (s @ local) =
       Format.fprintf ppf "@[[%04d;%04d]@ len:%04d@]"
         s.first (s.first + s.length - 1) s.length
 
-    let pp_full ~hex ppf s =
-      let pp_bytes ppf s=
+    let pp_full ~hex ppf (s @ local) =
+      let first = s.first and len = s.length and bytes = s.bytes in
+      let pp_bytes ppf () =
         if not hex
-        then Bytesrw_fmt.pp_raw ~first:s.first ~len:s.length ppf s.bytes
-        else Bytesrw_fmt.pp_hex ~addr:true ~ascii:true ~start:s.first
-            ~len:s.length () ppf s.bytes
+        then Bytesrw_fmt.pp_raw ~first ~len ppf bytes
+        else Bytesrw_fmt.pp_hex ~addr:true ~ascii:true ~start:first
+            ~len () ppf bytes
       in
-      Format.fprintf ppf "@[<v>%a@,%a@]" pp_meta s pp_bytes s
+      Format.fprintf ppf "@[<v>@[[%04d;%04d]@ len:%04d@]@,%a@]"
+        first (first + len - 1) len pp_bytes ()
 
-    let pp_head ~hex c ppf s =
+    let pp_head ~hex c ppf (s @ local) =
+      let first = s.first and len = s.length and bytes = s.bytes in
       let pp_head =
         Bytesrw_fmt.(if hex then pp_head_hex else pp_head_raw)
-          c ~first:s.first ~len:s.length
+          c ~first ~len
       in
-      Format.fprintf ppf "@[%a %a@]" pp_meta s pp_head s.bytes
+      Format.fprintf ppf "@[@[[%04d;%04d]@ len:%04d@] %a@]"
+        first (first + len - 1) len pp_head bytes
 
-    let pp' ?(head = 4) ?(hex = true) () ppf s =
+    let pp' ?(head = 4) ?(hex = true) () ppf (s @ local) =
       if is_eod s then Format.pp_print_string ppf "<eod>" else
       if head = -1 then pp_full ~hex ppf s else pp_head ~hex head ppf s
 
-    let pp = pp' ()
+    let pp ppf (s @ local) = pp' () ppf s
 
     let tracer ?(pp = pp) ?(ppf = Format.err_formatter)  ~id s =
       Format.fprintf ppf "@[[%3s]: @[%a@]@]@." id pp s
@@ -642,17 +647,17 @@ module Bytes = struct
 
     (* Writing *)
 
-    let write_only_eod s =
+    let write_only_eod (s @ local) =
       if Slice.is_eod s then () else invalid_arg "slice written after eod"
 
-    let write w slice =
+    let write w (slice @ local) =
       let write = w.write in
       let n = Slice.length slice in
       (if n = 0 then w.write <- write_only_eod);
       w.pos <- w.pos + n; write slice
 
     let write_eod w = write w Slice.eod
-    let write_bytes w b =
+    let write_bytes w (b @ local) =
       let blen = Bytes.length b in
       let slice_length = Int.min w.slice_length blen in
       let mutable offset = 0 in
@@ -662,7 +667,7 @@ module Bytes = struct
         offset <- offset + len
       done
 
-    let write_string w s =
+    let write_string w (s @ local) =
       (* Unsafe is ok: the writer is not supposed to mutate the bytes. *)
       write_bytes w (Bytes.unsafe_of_string s)
 

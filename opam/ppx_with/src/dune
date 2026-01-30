@@ -1,0 +1,7 @@
+(library
+ (public_name ppx_with)
+ (name ppx_with)
+ (kind ppx_rewriter)
+ (libraries base ppxlib ppxlib_jane)
+ (preprocess
+  (pps ppxlib.metaquot)))

@@ -1,0 +1,6 @@
+(library
+ (name sexp_string_quickcheck)
+ (libraries core parsexp)
+ (public_name sexp_string_quickcheck)
+ (preprocess
+  (pps ppx_jane)))

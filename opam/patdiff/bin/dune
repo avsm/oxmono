@@ -1,0 +1,20 @@
+(executables
+ (modes byte exe)
+ (names main)
+ (libraries core_unix.command_unix core core_unix core_unix.filename_unix
+   patdiff re core_unix.sys_unix)
+ (preprocess
+  (pps ppx_jane)))
+
+(install
+ (section bin)
+ (files
+  (main.exe as patdiff)
+  patdiff-git-wrapper))
+
+(rule
+ (alias default)
+ (deps
+  (glob_files patdiff-git-wrapper))
+ (action
+  (bash "%{bin:shellcheck} -x patdiff-git-wrapper")))

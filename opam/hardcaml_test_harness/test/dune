@@ -1,0 +1,6 @@
+(library
+ (name hardcaml_step_test_harness_test)
+ (libraries core hardcaml hardcaml_step_testbench hardcaml_test_harness
+   hardcaml_waveterm stdio core_unix.sys_unix)
+ (preprocess
+  (pps ppx_hardcaml ppx_jane)))

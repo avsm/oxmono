@@ -1,0 +1,8 @@
+(library
+ (name hardcaml_test_harness)
+ (public_name hardcaml_test_harness)
+ (libraries core hardcaml_step_testbench.digital_components
+   expect_test_helpers_core.expect_test_helpers_base hardcaml
+   hardcaml_step_testbench hardcaml_waveterm)
+ (preprocess
+  (pps ppx_jane ppx_hardcaml)))

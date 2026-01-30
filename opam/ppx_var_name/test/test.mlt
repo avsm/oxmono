@@ -1,0 +1,390 @@
+(* Basic tests *)
+
+let my_var = [%var_name] in
+print_endline my_var
+
+[%%expect
+  {|
+my_var
+|}]
+;;
+
+let my_var = [%Var_name] in
+print_endline my_var
+
+[%%expect
+  {|
+My_var
+|}]
+;;
+
+let my_var = [%VAR_NAME] in
+print_endline my_var
+
+[%%expect
+  {|
+MY_VAR
+|}]
+;;
+
+let my_var = [%var_dash_name] in
+print_endline my_var
+
+[%%expect
+  {|
+my-var
+|}]
+;;
+
+(* Nested lets *)
+
+let outer =
+  let inner = [%Var_name] in
+  print_endline inner;
+  [%Var_name]
+in
+print_endline outer
+
+[%%expect
+  {|
+Inner
+Outer
+|}]
+;;
+
+(* let ... and *)
+
+let first = [%Var_name]
+and second = [%Var_name] in
+print_endline first;
+print_endline second
+
+[%%expect
+  {|
+First
+Second
+|}]
+;;
+
+(* Tuple lets *)
+
+let first, second = [%Var_name], [%Var_name] in
+print_endline first;
+print_endline second
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: ppx_var_name: Unable to determine what [%Var_name] should resolve to.
+|}]
+;;
+
+(* Monad Let_syntax *)
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%map my_var = return [%Var_name] in
+print_endline my_var
+
+[%%expect
+  {|
+My_var
+|}]
+;;
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%bind my_var = return [%Var_name] in
+print_endline my_var;
+return ()
+
+[%%expect
+  {|
+My_var
+|}]
+;;
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%map_open my_var = return [%Var_name] in
+print_endline my_var
+
+[%%expect
+  {|
+My_var
+|}]
+;;
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%bind_open my_var = return [%Var_name] in
+print_endline my_var;
+return ()
+
+[%%expect
+  {|
+My_var
+|}]
+;;
+
+(* let%map_open *)
+let%map_open.Ppx_var_name_test.Monad my_var = return [%Var_name] in
+print_endline my_var
+
+[%%expect
+  {|
+My_var
+|}]
+;;
+
+(* Monad let ... and *)
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%map first = return [%Var_name]
+and second = return [%Var_name] in
+print_endline first;
+print_endline second
+
+[%%expect
+  {|
+First
+Second
+|}]
+;;
+
+[%map_open.Ppx_var_name_test.Monad
+  let first = return [%Var_name]
+  and second = return [%Var_name] in
+  print_endline first;
+  print_endline second]
+
+[%%expect
+  {|
+First
+Second
+|}]
+;;
+
+(* MapN *)
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%mapn first = [%Var_name]
+and second = [%Var_name]
+and third = [%Var_name] in
+print_endline first;
+print_endline second;
+print_endline third
+
+[%%expect
+  {|
+First
+Second
+Third
+|}]
+;;
+
+(* Monad Tuple lets *)
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%map first, second = return [%Var_name] in
+print_endline first;
+print_endline second
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: ppx_var_name: Unable to determine what [%Var_name] should resolve to.
+|}]
+;;
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%map first, second = return ([%Var_name], [%Var_name])
+and third = return [%Var_name] in
+print_endline first;
+print_endline second;
+print_endline third
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: ppx_var_name: Unable to determine what [%Var_name] should resolve to.
+|}]
+;;
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%map _first, _second = return ((), ())
+and third = return [%Var_name] in
+print_endline third
+
+[%%expect
+  {|
+Third
+|}]
+;;
+
+let open Ppx_var_name_test.Monad.Let_syntax in
+let%map first = return [%Var_name]
+and _second, _third = return ((), ())
+and fourth = return [%Var_name]
+and fifth = return [%Var_name]
+and _sixth, _seventh = return ((), ()) in
+print_endline first;
+print_endline fourth;
+print_endline fifth
+
+[%%expect
+  {|
+First
+Fourth
+Fifth
+|}]
+
+(* Module_name *)
+module Foo_Bar = struct
+  let first = [%Module_name]
+  let second = [%MODULE_NAME]
+  let third = [%module_name]
+  let fourth = [%module_dash_name]
+end
+
+let () =
+  print_endline Foo_Bar.first;
+  print_endline Foo_Bar.second;
+  print_endline Foo_Bar.third;
+  print_endline Foo_Bar.fourth
+;;
+
+[%%expect
+  {|
+Foo_Bar
+FOO_BAR
+foo_bar
+foo-bar
+|}]
+
+(* Nested module names *)
+module Outer = struct
+  module Inner = struct
+    let name = [%Module_name]
+  end
+
+  let name = [%Module_name]
+end
+
+let () =
+  print_endline Outer.Inner.name;
+  print_endline Outer.name
+;;
+
+[%%expect
+  {|
+Inner
+Outer
+|}]
+
+(* Var_name and Module_name interleaved *)
+
+module Foo_bar = struct
+  let first = [%Module_name]
+  let second = [%var_name]
+
+  let third =
+    let my_name = [%var_name] in
+    my_name
+  ;;
+
+  let fourth = [%Module_name] ^ "." ^ [%var_name]
+end
+
+let () =
+  print_endline Foo_bar.first;
+  print_endline Foo_bar.second;
+  print_endline Foo_bar.third;
+  print_endline Foo_bar.fourth
+;;
+
+[%%expect
+  {|
+Foo_bar
+second
+my_name
+Foo_bar.fourth
+|}]
+
+(* Module from filename *)
+
+let () =
+  let first = [%Module_name] in
+  print_endline first
+;;
+
+[%%expect
+  {|
+Test
+|}]
+;;
+
+(* Optional prefix *)
+
+let first = [%var_name.var_name] in
+let second = [%var_name.var_dash_name] in
+print_endline first;
+print_endline second
+
+[%%expect
+  {|
+first
+second
+|}]
+
+module Foo_Bar = struct
+  let first = [%var_name.module_name]
+  let second = [%var_name.module_dash_name]
+end
+
+let () =
+  print_endline Foo_Bar.first;
+  print_endline Foo_Bar.second
+;;
+
+[%%expect
+  {|
+foo_bar
+foo-bar
+|}]
+;;
+
+let first = [%var_name.Var_name] in
+print_endline first
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Extension var_name doesn't expect a path argument
+|}]
+;;
+
+let first = [%var_name.VAR_NAME] in
+print_endline first
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Extension var_name doesn't expect a path argument
+|}]
+
+module Foo_Bar = struct
+  let first = [%var_name.Module_name]
+end
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Extension var_name doesn't expect a path argument
+|}]
+
+module Foo_Bar = struct
+  let first = [%var_name.MODULE_NAME]
+end
+
+[%%expect
+  {|
+Line _, characters _-_:
+Error: Extension var_name doesn't expect a path argument
+|}]

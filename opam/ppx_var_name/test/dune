@@ -1,0 +1,4 @@
+(library
+ (name ppx_var_name_test)
+ (preprocess
+  (pps ppx_jane)))

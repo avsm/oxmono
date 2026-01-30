@@ -1,0 +1,5 @@
+(library
+ (name bidirectional_map_interfaces)
+ (libraries base base_quickcheck)
+ (preprocess
+  (pps ppx_base)))

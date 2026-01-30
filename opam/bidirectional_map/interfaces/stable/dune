@@ -1,0 +1,5 @@
+(library
+ (name bidirectional_map_interfaces_stable)
+ (libraries bidirectional_map_interfaces bin_prot.shape core
+   ppx_stable_witness.stable_witness)
+ (preprocess no_preprocessing))

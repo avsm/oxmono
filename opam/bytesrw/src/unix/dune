@@ -1,0 +1,6 @@
+(library
+ (name bytesrw_unix)
+ (public_name bytesrw.unix)
+ (libraries bytesrw unix)
+ (modules bytesrw_unix)
+ (wrapped false))

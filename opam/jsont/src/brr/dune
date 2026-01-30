@@ -1,0 +1,7 @@
+(library
+ (name jsont_brr)
+ (public_name jsont.brr)
+ (optional)
+ (libraries jsont brr)
+ (modules jsont_brr)
+ (wrapped false))

@@ -1,0 +1,16 @@
+(library
+ (name bytesrw_tls)
+ (public_name bytesrw.tls)
+ (optional)
+ (libraries bytesrw bytesrw_crypto)
+ (modules bytesrw_tls__mbedtls bytesrw_tls)
+ (foreign_stubs
+  (language c)
+  (names bytesrw_tls__mbedtls_stubs)
+  (flags (:standard (:include c_flags.sexp))))
+ (c_library_flags (:include c_library_flags.sexp))
+ (wrapped false))
+
+(rule
+ (targets c_flags.sexp c_library_flags.sexp)
+ (action (run ./config/discover.exe)))

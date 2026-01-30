@@ -1,0 +1,16 @@
+(library
+ (name bytesrw_zlib)
+ (public_name bytesrw.zlib)
+ (optional)
+ (libraries bytesrw)
+ (modules bytesrw_zlib)
+ (foreign_stubs
+  (language c)
+  (names bytesrw_zlib_stubs)
+  (flags (:standard (:include c_flags.sexp))))
+ (c_library_flags (:include c_library_flags.sexp))
+ (wrapped false))
+
+(rule
+ (targets c_flags.sexp c_library_flags.sexp)
+ (action (run ./config/discover.exe)))

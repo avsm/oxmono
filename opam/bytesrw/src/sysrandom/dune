@@ -1,0 +1,9 @@
+(library
+ (name bytesrw_sysrandom)
+ (public_name bytesrw.sysrandom)
+ (libraries bytesrw)
+ (modules bytesrw_sysrandom)
+ (foreign_stubs
+  (language c)
+  (names bytesrw_sysrandom_stubs))
+ (wrapped false))

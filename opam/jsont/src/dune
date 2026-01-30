@@ -1,0 +1,5 @@
+(library
+ (name jsont)
+ (public_name jsont)
+ (modules jsont_base jsont)
+ (wrapped false))

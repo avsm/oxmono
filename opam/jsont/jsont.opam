@@ -1,0 +1,49 @@
+version: "0.2.0"
+opam-version: "2.0"
+name: "jsont"
+synopsis: "Declarative JSON data manipulation for OCaml"
+description: """\
+Jsont is an OCaml library for declarative JSON data manipulation. It
+provides:
+
+- Combinators for describing JSON data using the OCaml values of your
+  choice. The descriptions can be used by generic functions to
+  decode, encode, query and update JSON data without having to
+  construct a generic JSON representation.
+- A JSON codec with optional text location tracking and layout
+  preservation. The codec is compatible with effect-based concurrency.
+
+The descriptions are independent from the codec and can be used by
+third-party processors or codecs.
+
+Jsont is distributed under the ISC license. It has no dependencies.
+The codec is optional and depends on the [`bytesrw`] library. The JavaScript
+support is optional and depends on the [`brr`] library.
+
+Homepage: <https://erratique.ch/software/jsont/>
+
+[`bytesrw`]: https://erratique.ch/software/bytesrw
+[`brr`]: https://erratique.ch/software/brr"""
+maintainer: "Daniel Bünzli <daniel.buenzl i@erratique.ch>"
+authors: "The jsont programmers"
+license: "ISC"
+tags: ["json" "codec" "org:erratique"]
+homepage: "https://erratique.ch/software/jsont"
+doc: "https://erratique.ch/software/jsont/doc"
+bug-reports: "https://github.com/dbuenzli/jsont/issues"
+depends: [
+  "ocaml" {>= "4.14.0"}
+  "dune" {>= "3.0"}
+]
+depopts: ["brr" "bytesrw"]
+conflicts: [
+  "brr" {< "0.0.6"}
+]
+build: [
+  ["dune" "subst"] {dev}
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+  ["dune" "build" "@doc" "-p" name "-j" jobs] {with-doc}
+]
+dev-repo: "git+https://erratique.ch/repos/jsont.git"
+x-maintenance-intent: ["(latest)"]

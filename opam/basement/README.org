@@ -1,0 +1,10 @@
+#+TITLE: Basement
+
+This library contains a number of modules, mostly for multi-domain / parallel
+programming, which belong in Base but which have to be defined outside of Base
+to avoid circular dependency issues. The eventual plan is to resolve those
+circular dependency issues and merge this library into Base.
+
+In general, you should not depend on Basement directly outside of libraries
+which cannot otherwise depend on Base - instead, depend on Base and use the
+reexports of the modules from this library.

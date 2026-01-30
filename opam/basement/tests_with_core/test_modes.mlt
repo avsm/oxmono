@@ -1,0 +1,6 @@
+open Basement
+
+(* mode wrappers aren't unconditionally or_null. *)
+type _t = int Stdlib_shim.Modes.Portable.t or_null
+
+[%%expect {| |}]

@@ -1,0 +1,5 @@
+(library
+ (name basement_bench)
+ (libraries basement)
+ (preprocess
+  (pps ppx_bench)))

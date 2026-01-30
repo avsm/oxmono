@@ -1,0 +1,7 @@
+(library
+ (name basement_multicore_test)
+ (libraries await await.sync base capsule concurrent concurrent.in_thread
+   expect_test_helpers_core.expect_test_helpers_base portable.test_helpers
+   threads)
+ (preprocess
+  (pps ppx_jane ppx_with)))

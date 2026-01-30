@@ -1,0 +1,26 @@
+(library
+ (foreign_stubs
+  (language c)
+  (names blocking_sync dynamic stubs))
+ (name basement)
+ (public_name basement)
+ (ocamlopt_flags
+  :standard
+  (:include ocamlopt-flags))
+ (libraries)
+ (preprocess no_preprocessing)
+ (lint
+  (pps ppx_base ppx_base_internal ppx_base_lint -check-doc-comments
+    -type-conv-keep-w32=both -raise-on-lint-error
+    -apply=js_style,base_lint,deriving))
+ (js_of_ocaml
+  (javascript_files runtime.js))
+ (wasm_of_ocaml
+  (javascript_files runtime.js)
+  (wasm_files runtime.wat)))
+
+(rule
+ (targets ocamlopt-flags)
+ (deps)
+ (action
+  (bash "echo '(-O3 -flambda2-inline-max-depth 10)' > ocamlopt-flags")))

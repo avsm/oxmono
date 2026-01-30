@@ -1,0 +1,5 @@
+(library
+ (name disable_focus_example_lib)
+ (libraries async_kernel core incr_dom)
+ (preprocess
+  (pps ppx_jane)))

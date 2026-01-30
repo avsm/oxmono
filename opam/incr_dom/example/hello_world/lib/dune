@@ -1,0 +1,5 @@
+(library
+ (name hello_world_example_lib)
+ (libraries async_kernel core incr_dom)
+ (preprocess
+  (pps ppx_jane)))

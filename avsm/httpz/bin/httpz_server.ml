@@ -17,7 +17,8 @@ let response_buffer_size = 65536
 type conn_state =
   { reader : Reader.t
   ; writer : Writer.t
-  ; read_buf : Httpz.buffer
+  ; read_buf : Httpz.buffer  (* bytes for parsing *)
+  ; read_bigbuf : Bigstring.t  (* bigstring for Async I/O *)
   ; write_buf : Httpz.buffer
   ; mutable read_len : int
   ; mutable keep_alive : bool
@@ -30,9 +31,9 @@ type conn_state =
 let create_conn reader writer =
   { reader
   ; writer
-  ; read_buf = Httpz.create_buffer ()
-  ; write_buf =
-      Bigarray.Array1.create Bigarray.char Bigarray.c_layout response_buffer_size
+  ; read_buf = Bytes.create Httpz.buffer_size
+  ; read_bigbuf = Bigstring.create Httpz.buffer_size
+  ; write_buf = Bytes.create response_buffer_size
   ; read_len = 0
   ; keep_alive = true
   ; ranges = Array.create ~len:(to_int Httpz.Range.max_ranges) Httpz.Range.empty
@@ -141,7 +142,7 @@ let send_error conn status message version =
   let off = Httpz.Res.write_content_length buf ~off (String.length message) in
   let off = write_common_headers buf ~off ~keep_alive:conn.keep_alive in
   let off = Httpz.Res.write_crlf buf ~off in
-  Writer.write_bigstring conn.writer buf ~pos:0 ~len:(to_int off);
+  Writer.write_bytes conn.writer buf ~pos:0 ~len:(to_int off);
   Writer.write conn.writer message;
   Writer.flushed conn.writer
 ;;
@@ -218,13 +219,13 @@ let send_file_with_meta conn ~file_path ~meta ~(req_headers : request_headers) ~
   (* Check conditional GET: If-None-Match *)
   if check_if_none_match etag req_headers.if_none_match then (
     let off = write_not_modified_headers conn ~off:(i16 0) etag mtime version in
-    Writer.write_bigstring conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
+    Writer.write_bytes conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
     Writer.flushed conn.writer
   )
   else if req_headers.range_count = 0 then (
     (* Full content response - no range requested *)
     let off = write_file_headers conn ~off:(i16 0) Httpz.Res.Success content_type size etag mtime version in
-    Writer.write_bigstring conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
+    Writer.write_bytes conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
     (* Stream file contents *)
     let%bind fd = Unix.openfile file_path ~mode:[`Rdonly] in
     let%bind () = Writer.transfer conn.writer
@@ -245,7 +246,7 @@ let send_file_with_meta conn ~file_path ~meta ~(req_headers : request_headers) ~
       | Httpz.Range.Full_content ->
         (* Treat as full content *)
         let off = write_file_headers conn ~off:(i16 0) Httpz.Res.Success content_type size etag mtime version in
-        Writer.write_bigstring conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
+        Writer.write_bytes conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
         let%bind fd = Unix.openfile file_path ~mode:[`Rdonly] in
         let%bind () = Writer.transfer conn.writer
           (Reader.pipe (Reader.create fd))
@@ -256,7 +257,7 @@ let send_file_with_meta conn ~file_path ~meta ~(req_headers : request_headers) ~
         (* 416 Range Not Satisfiable *)
         conn.keep_alive <- false;
         let off = write_range_not_satisfiable conn ~off:(i16 0) size version in
-        Writer.write_bigstring conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
+        Writer.write_bytes conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
         Writer.flushed conn.writer
       | Httpz.Range.Single_range | Httpz.Range.Multiple_ranges ->
         (* 206 Partial Content - serve first range *)
@@ -266,7 +267,7 @@ let send_file_with_meta conn ~file_path ~meta ~(req_headers : request_headers) ~
         let range_len = Int64.(end_ - start + 1L) in
         let len = Int64.to_int_exn range_len in
         let off = write_partial_headers conn ~off:(i16 0) content_type ~start ~end_ ~total:size etag mtime version in
-        Writer.write_bigstring conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
+        Writer.write_bytes conn.writer conn.write_buf ~pos:0 ~len:(to_int off);
         (* Read the specific byte range *)
         let%bind contents = In_thread.run (fun () ->
           let fd = Core_unix.openfile file_path ~mode:[Core_unix.O_RDONLY] in
@@ -334,11 +335,14 @@ let read_more conn =
   then return `Buffer_full
   else (
     let available = Httpz.buffer_size - conn.read_len in
-    let bss = Bigsubstring.create conn.read_buf ~pos:conn.read_len ~len:available in
+    let bss = Bigsubstring.create conn.read_bigbuf ~pos:conn.read_len ~len:available in
     let%map result = Reader.read_bigsubstring conn.reader bss in
     match result with
     | `Eof -> `Eof
     | `Ok n ->
+      (* Copy from bigstring to bytes for parsing *)
+      Bigstring.To_bytes.blit ~src:conn.read_bigbuf ~src_pos:conn.read_len
+        ~dst:conn.read_buf ~dst_pos:conn.read_len ~len:n;
       conn.read_len <- conn.read_len + n;
       `Ok n)
 ;;
@@ -347,13 +351,10 @@ let read_more conn =
 let shift_buffer conn consumed =
   if consumed > 0 && consumed < conn.read_len
   then (
-    for i = 0 to conn.read_len - consumed - 1 do
-      Bigarray.Array1.set
-        conn.read_buf
-        i
-        (Bigarray.Array1.get conn.read_buf (consumed + i))
-    done;
-    conn.read_len <- conn.read_len - consumed)
+    let remaining = conn.read_len - consumed in
+    Bytes.blit ~src:conn.read_buf ~src_pos:consumed ~dst:conn.read_buf ~dst_pos:0 ~len:remaining;
+    Bigstring.blit ~src:conn.read_bigbuf ~src_pos:consumed ~dst:conn.read_bigbuf ~dst_pos:0 ~len:remaining;
+    conn.read_len <- remaining)
   else if consumed >= conn.read_len
   then conn.read_len <- 0
 ;;

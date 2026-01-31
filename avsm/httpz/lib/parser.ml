@@ -3,12 +3,28 @@
 open Base
 
 module I16 = Stdlib_stable.Int16_u
+module I32 = Int32_u
+module I64 = Stdlib_upstream_compatible.Int64_u
 
 (* Re-export exception from Err for backwards compatibility *)
 exception Parse_error = Err.Parse_error
 
 (* Parser state - unboxed record, position threaded explicitly *)
-type pstate = #{ buf : Base_bigstring.t; len : int16# }
+type pstate = #{ buf : bytes; len : int16# }
+
+(* Method constants as unboxed int32# for zero-alloc comparison (little-endian) *)
+(* 3-byte methods: read 4 bytes, mask with 0x00FFFFFF *)
+let get_int32 : int32# = I32.of_int32 0x00544547l  (* "GET" masked *)
+let put_int32 : int32# = I32.of_int32 0x00545550l  (* "PUT" masked *)
+let method_3byte_mask : int32# = I32.of_int32 0x00FFFFFFl
+
+(* 4-byte methods: compare directly *)
+let post_int32 : int32# = I32.of_int32 0x54534F50l (* "POST" *)
+let head_int32 : int32# = I32.of_int32 0x44414548l (* "HEAD" *)
+
+(* HTTP version as unboxed int64# for zero-alloc comparison (little-endian) *)
+let http11_int64 : int64# = I64.of_int64 0x312E312F50545448L (* "HTTP/1.1" *)
+let http10_int64 : int64# = I64.of_int64 0x302E312F50545448L (* "HTTP/1.0" *)
 
 (* int16# arithmetic helpers *)
 let[@inline always] add16 a b = I16.add a b
@@ -118,25 +134,35 @@ let[@inline] token st ~(pos : int16#) : #(Span.t * int16#) =
 let[@inline] ows st ~(pos : int16#) : int16# =
   skip_while Buf_read.is_space st ~pos
 
-(* Parse HTTP version: HTTP/1.0 or HTTP/1.1 *)
+(* Parse HTTP version: HTTP/1.0 or HTTP/1.1 - uses unboxed int64# for zero-alloc comparison *)
 let[@inline] http_version st ~(pos : int16#) : #(Version.t * int16#) =
-  let pos = string "HTTP/1." st ~pos in
-  let #(minor, pos) = satisfy (fun c -> Buf_read.( =. ) c #'0' || Buf_read.( =. ) c #'1') st ~pos in
-  let v = if Buf_read.( =. ) minor #'1' then Version.Http_1_1 else Version.Http_1_0 in
-  #(v, pos)
+  Err.partial_when (to_int (remaining st ~pos) < 8);
+  let v64 : int64# = I64.of_int64 (Bytes.unsafe_get_int64 st.#buf (to_int pos)) in
+  let new_pos = add16 pos (i16 8) in
+  let version =
+    if I64.equal v64 http11_int64 then Version.Http_1_1
+    else if I64.equal v64 http10_int64 then Version.Http_1_0
+    else Err.fail Err.Invalid_version
+  in
+  #(version, new_pos)
 
-(* Parse method from token span *)
+(* Parse method from token span - uses unboxed int32# for zero-alloc comparison *)
 let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
   let #(sp, pos) = token st ~pos in
   let len = Span.len sp in
+  let off = Span.off sp in
   let meth = match len with
   | 3 ->
-    if Span.equal st.#buf sp "GET" then Method.Get
-    else if Span.equal st.#buf sp "PUT" then Method.Put
+    (* Read 4 bytes, mask to 3, compare as unboxed int32# *)
+    let v : int32# = I32.bit_and (I32.of_int32 (Bytes.unsafe_get_int32 st.#buf off)) method_3byte_mask in
+    if I32.equal v get_int32 then Method.Get
+    else if I32.equal v put_int32 then Method.Put
     else Err.fail Err.Invalid_method
   | 4 ->
-    if Span.equal st.#buf sp "POST" then Method.Post
-    else if Span.equal st.#buf sp "HEAD" then Method.Head
+    (* Read 4 bytes, compare directly as unboxed int32# *)
+    let v : int32# = I32.of_int32 (Bytes.unsafe_get_int32 st.#buf off) in
+    if I32.equal v post_int32 then Method.Post
+    else if I32.equal v head_int32 then Method.Head
     else Err.fail Err.Invalid_method
   | 5 ->
     if Span.equal st.#buf sp "PATCH" then Method.Patch

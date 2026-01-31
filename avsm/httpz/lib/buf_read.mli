@@ -23,14 +23,11 @@ val status_to_string : status -> string
 (** Pretty-print status. *)
 val pp_status : Stdlib.Format.formatter -> status -> unit
 
-(** Maximum buffer size: 32KB. *)
+(** Required buffer size: 32KB. Callers must allocate buffers of this size. *)
 val buffer_size : int
 
 (** Maximum headers per request. *)
 val max_headers : int16#
-
-(** Create a new 32KB buffer. *)
-val create : unit -> Base_bigstring.t
 
 (** Convert int to int16#. *)
 val i16 : int -> int16#
@@ -39,7 +36,7 @@ val i16 : int -> int16#
 val to_int : int16# -> int
 
 (** Get character at int16# position (unchecked). *)
-val peek : local_ Base_bigstring.t -> int16# -> char#
+val peek : local_ bytes -> int16# -> char#
 
 (** Unboxed char equality. *)
 val ( =. ) : char# -> char# -> bool
@@ -57,10 +54,10 @@ val is_space : char# -> bool
 val to_lower : char# -> char#
 
 (** Find CRLF sequence starting at [pos]. Returns position of CR or [-1] as int16# if not found. *)
-val find_crlf : local_ Base_bigstring.t -> pos:int16# -> len:int16# -> int16#
+val find_crlf : local_ bytes -> pos:int16# -> len:int16# -> int16#
 
 (** Pretty-print buffer. *)
-val pp : Stdlib.Format.formatter -> Base_bigstring.t -> unit
+val pp : Stdlib.Format.formatter -> bytes -> unit
 
 (** {2 Security Limits} *)
 
@@ -77,7 +74,7 @@ val default_limits : limits
 
 (** Detect bare CR (CR not followed by LF) - RFC 7230 Section 3.5.
     Used to prevent HTTP request smuggling attacks. *)
-val has_bare_cr : local_ Base_bigstring.t -> pos:int16# -> len:int16# -> bool
+val has_bare_cr : local_ bytes -> pos:int16# -> len:int16# -> bool
 
 (** Check if a value contains CRLF injection attempt. *)
-val has_crlf_injection : local_ Base_bigstring.t -> pos:int16# -> len:int16# -> bool
+val has_crlf_injection : local_ bytes -> pos:int16# -> len:int16# -> bool

@@ -27,17 +27,26 @@ let[@inline] len16 (sp : t) = sp.#len
 let[@inline] off (sp : t) = to_int sp.#off
 let[@inline] len (sp : t) = to_int sp.#len
 
-let[@inline] equal (local_ buf) (sp : t) s =
+let[@inline] equal (local_ buf : bytes) (sp : t) s =
   let slen = String.length s in
   let sp_len = len sp in
   if sp_len <> slen
   then false
-  else Base_bigstring.memcmp_string buf ~pos1:(off sp) s ~pos2:0 ~len:slen = 0
+  else (
+    let sp_off = off sp in
+    let mutable i = 0 in
+    let mutable eq = true in
+    while eq && i < slen do
+      if not (Char.equal (Bytes.unsafe_get buf (sp_off + i)) (String.unsafe_get s i))
+      then eq <- false
+      else i <- i + 1
+    done;
+    eq)
 ;;
 
 (* Case-insensitive comparison working with int bytes directly.
    Assumes s is lowercase (all call sites use lowercase constants). *)
-let[@inline] equal_caseless (local_ buf) (sp : t) s =
+let[@inline] equal_caseless (local_ buf : bytes) (sp : t) s =
   let slen = String.length s in
   let sp_len = len sp in
   if sp_len <> slen
@@ -47,7 +56,7 @@ let[@inline] equal_caseless (local_ buf) (sp : t) s =
     let mutable eq = true in
     let sp_off = off sp in
     while eq && i < slen do
-      let b1 = Char.to_int (Base_bigstring.unsafe_get buf (sp_off + i)) in
+      let b1 = Char.to_int (Bytes.unsafe_get buf (sp_off + i)) in
       let b2 = Char.to_int (String.unsafe_get s i) in
       (* Fast case-insensitive: lowercase b1 if uppercase letter, compare to b2 *)
       let lower_b1 = if b1 >= 65 && b1 <= 90 then b1 + 32 else b1 in
@@ -131,13 +140,13 @@ let[@inline] sub (sp : t) ~pos ~len : t =
   #{ off = I16.add sp.#off (of_int pos); len = of_int len }
 
 (** Find first occurrence of character in span. Returns -1 if not found. *)
-let[@inline] find_char (local_ buf) (sp : t) (c : char) : int =
+let[@inline] find_char (local_ buf : bytes) (sp : t) (c : char) : int =
   let sp_off = off sp in
   let sp_len = len sp in
   let mutable i = 0 in
   let mutable found = -1 in
   while found = -1 && i < sp_len do
-    if Char.equal (Base_bigstring.unsafe_get buf (sp_off + i)) c
+    if Char.equal (Bytes.unsafe_get buf (sp_off + i)) c
     then found <- i
     else i <- i + 1
   done;
@@ -145,12 +154,12 @@ let[@inline] find_char (local_ buf) (sp : t) (c : char) : int =
 ;;
 
 (** Check if span starts with given character. *)
-let[@inline] starts_with (local_ buf) (sp : t) (c : char) : bool =
-  len sp > 0 && Char.equal (Base_bigstring.unsafe_get buf (off sp)) c
+let[@inline] starts_with (local_ buf : bytes) (sp : t) (c : char) : bool =
+  len sp > 0 && Char.equal (Bytes.unsafe_get buf (off sp)) c
 ;;
 
 (** Skip leading character if present, return new span. *)
-let[@inline] skip_char (local_ buf) (sp : t) (c : char) : t =
+let[@inline] skip_char (local_ buf : bytes) (sp : t) (c : char) : t =
   if starts_with buf sp c
   then #{ off = I16.add sp.#off (of_int 1); len = I16.sub sp.#len (of_int 1) }
   else sp
@@ -159,7 +168,7 @@ let[@inline] skip_char (local_ buf) (sp : t) (c : char) : t =
 (** Split span at first occurrence of character.
     Returns unboxed tuple #(before, after) where after excludes the separator.
     If not found, returns #(sp, empty_span). *)
-let[@inline] split_on_char (local_ buf) (sp : t) (c : char) : #(t * t) =
+let[@inline] split_on_char (local_ buf : bytes) (sp : t) (c : char) : #(t * t) =
   let pos = find_char buf sp c in
   if pos < 0
   then
@@ -174,14 +183,30 @@ let[@inline] split_on_char (local_ buf) (sp : t) (c : char) : #(t * t) =
 ;;
 
 (** Get character at position in span. No bounds checking. *)
-let[@inline] unsafe_get (local_ buf) (sp : t) (pos : int) : char =
-  Base_bigstring.unsafe_get buf (off sp + pos)
+let[@inline] unsafe_get (local_ buf : bytes) (sp : t) (pos : int) : char =
+  Bytes.unsafe_get buf (off sp + pos)
 ;;
 
-let to_string (local_ buf) (sp : t) = Base_bigstring.To_string.sub buf ~pos:(off sp) ~len:(len sp)
-let to_bytes (local_ buf) (sp : t) = Base_bigstring.To_bytes.sub buf ~pos:(off sp) ~len:(len sp)
+(* Copy span contents to string. The exclave_ annotation allows result to escape local region. *)
+let to_string (local_ buf : bytes) (sp : t) : string =
+  let sp_off = off sp in
+  let sp_len = len sp in
+  let dst = Bytes.create sp_len in
+  for i = 0 to sp_len - 1 do
+    Bytes.unsafe_set dst i (Bytes.unsafe_get buf (sp_off + i))
+  done;
+  Bytes.unsafe_to_string ~no_mutation_while_string_reachable:dst
 
-let pp_with_buf (local_ buf) fmt (sp : t) =
+let to_bytes (local_ buf : bytes) (sp : t) : bytes =
+  let sp_off = off sp in
+  let sp_len = len sp in
+  let dst = Bytes.create sp_len in
+  for i = 0 to sp_len - 1 do
+    Bytes.unsafe_set dst i (Bytes.unsafe_get buf (sp_off + i))
+  done;
+  dst
+
+let pp_with_buf (local_ buf : bytes) fmt (sp : t) =
   Stdlib.Format.fprintf fmt "%s" (to_string buf sp)
 ;;
 

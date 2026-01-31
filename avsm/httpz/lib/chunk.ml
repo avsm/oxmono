@@ -52,7 +52,7 @@ let default_max_chunk_size = 16777216
    - size: parsed chunk size (or 0 if overflow)
    - end_pos: position after hex digits
    - overflow: true if size exceeds max or too many digits *)
-let[@inline] parse_hex_size_limited buf ~off ~len ~max_size =
+let[@inline] parse_hex_size_limited (buf : bytes) ~off ~len ~max_size =
   let module P = Buf_read in
   let mutable pos = off in
   let mutable size = 0 in
@@ -84,7 +84,7 @@ let[@inline] parse_hex_size_limited buf ~off ~len ~max_size =
 
 
 (* Skip to CRLF after chunk size (handles optional chunk extensions) *)
-let[@inline] skip_to_crlf buf ~pos ~len =
+let[@inline] skip_to_crlf (buf : bytes) ~pos ~len =
   let module P = Buf_read in
   let mutable p = pos in
   while p < len && P.(P.peek buf (i16 p) <>. #'\r') do
@@ -94,20 +94,20 @@ let[@inline] skip_to_crlf buf ~pos ~len =
 ;;
 
 (* Check for CRLF at position *)
-let[@inline] is_crlf buf pos =
+let[@inline] is_crlf (buf : bytes) pos =
   let module P = Buf_read in
   P.(P.peek buf (i16 pos) =. #'\r') && P.(P.peek buf (i16 (pos + 1)) =. #'\n')
 ;;
 
 (* Handle final (zero-size) chunk *)
-let[@inline] parse_final_chunk buf ~data_off ~len =
+let[@inline] parse_final_chunk (buf : bytes) ~data_off ~len =
   if data_off + 1 >= len then #(Partial, empty)
   else if is_crlf buf data_off then #(Done, #{ data_off = i16 data_off; data_len = i16 0; next_off = i16 (data_off + 2) })
   else #(Done, #{ data_off = i16 data_off; data_len = i16 0; next_off = i16 data_off })
 ;;
 
 (* Handle data chunk with given size *)
-let[@inline] parse_data_chunk buf ~data_off ~size ~len =
+let[@inline] parse_data_chunk (buf : bytes) ~data_off ~size ~len =
   let module P = Buf_read in
   let data_end = data_off + size in
   if data_end + 1 >= len then #(Partial, empty)
@@ -117,7 +117,7 @@ let[@inline] parse_data_chunk buf ~data_off ~size ~len =
 ;;
 
 (* Parse chunk with configurable size limit - returns Chunk_too_large on overflow *)
-let parse_with_limit buf ~(off : int16#) ~(len : int16#) ~max_chunk_size =
+let parse_with_limit (buf : bytes) ~(off : int16#) ~(len : int16#) ~max_chunk_size =
   let module P = Buf_read in
   let off = to_int off in
   let len = to_int len in
@@ -138,7 +138,7 @@ let parse_with_limit buf ~(off : int16#) ~(len : int16#) ~max_chunk_size =
 ;;
 
 (* Parse chunk without size limit - for backwards compatibility *)
-let parse buf ~(off : int16#) ~(len : int16#) =
+let parse (buf : bytes) ~(off : int16#) ~(len : int16#) =
   parse_with_limit buf ~off ~len ~max_chunk_size:Int.max_value
 ;;
 
@@ -188,7 +188,7 @@ let is_forbidden_trailer = function
 ;;
 
 (* Parse a single trailer header, similar to httpz.ml:parse_header *)
-let[@inline] parse_trailer_header buf ~pos ~len =
+let[@inline] parse_trailer_header (buf : bytes) ~pos ~len =
   let module P = Buf_read in
   let mutable colon_pos = pos in
   while colon_pos < len && P.is_token_char (P.peek buf (i16 colon_pos)) do
@@ -218,7 +218,7 @@ let[@inline] parse_trailer_header buf ~pos ~len =
 ;;
 
 (* Parse trailer headers after final chunk *)
-let rec parse_trailers_loop buf ~pos ~len ~count ~acc ~max_header_count = exclave_
+let rec parse_trailers_loop (buf : bytes) ~pos ~len ~count ~acc ~max_header_count = exclave_
   let module P = Buf_read in
   if pos + 1 >= len then
     #(Trailer_partial, i16 pos, acc)
@@ -247,6 +247,6 @@ let rec parse_trailers_loop buf ~pos ~len ~count ~acc ~max_header_count = exclav
         parse_trailers_loop buf ~pos:(to_int new_pos) ~len ~count:(count + 1) ~acc:(hdr :: acc) ~max_header_count
 ;;
 
-let parse_trailers buf ~(off : int16#) ~(len : int16#) ~(max_header_count : int16#) = exclave_
+let parse_trailers (buf : bytes) ~(off : int16#) ~(len : int16#) ~(max_header_count : int16#) = exclave_
   parse_trailers_loop buf ~pos:(to_int off) ~len:(to_int len) ~count:0 ~acc:[] ~max_header_count:(to_int max_header_count)
 ;;

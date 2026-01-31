@@ -148,7 +148,7 @@ let lowercase = function
 ;;
 
 (* Parse header name from span. TODO: replace with a DFA *)
-let of_span (local_ buf) (sp : Span.t) : t =
+let of_span (local_ buf : bytes) (sp : Span.t) : t =
   match Span.len sp with
   | 3 ->
     if Span.equal_caseless buf sp "age"

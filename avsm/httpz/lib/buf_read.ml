@@ -48,9 +48,8 @@ let max_headers : int16# = i16 32
 module Char_u = Stdlib_stable.Char_u
 let[@inline always] char_u c = Char_u.of_char c
 
-let create () = Base_bigstring.create buffer_size
-let[@inline always] peek (local_ buf) (pos : int16#) : char# =
-  char_u (Base_bigstring.unsafe_get buf (to_int pos))
+let[@inline always] peek (local_ buf : bytes) (pos : int16#) : char# =
+  char_u (Bytes.unsafe_get buf (to_int pos))
 let[@inline always] ( =. ) (a : char#) (b : char#) = Char_u.equal a b
 let[@inline always] ( <>. ) (a : char#) (b : char#) = not (Char_u.equal a b)
 
@@ -74,7 +73,10 @@ let[@inline always] to_lower (c : char#) : char# =
   | _ -> c
 ;;
 
-let find_crlf (local_ buf) ~(pos : int16#) ~(len : int16#) : int16# =
+(* CRLF as int16: little-endian 0x0A0D = '\n' << 8 | '\r' *)
+let crlf_int16 = 0x0A0D
+
+let find_crlf (local_ buf : bytes) ~(pos : int16#) ~(len : int16#) : int16# =
   let pos = to_int pos in
   let len = to_int len in
   if len - pos < 2
@@ -82,17 +84,12 @@ let find_crlf (local_ buf) ~(pos : int16#) ~(len : int16#) : int16# =
   else (
     let mutable p = pos in
     let mutable found = false in
-    while (not found) && p + 1 < len do
-      let search_pos = p in
-      let search_len = len - p in
-      let cr_pos = Base_bigstring.unsafe_find buf '\r' ~pos:search_pos ~len:search_len in
-      if cr_pos < 0 || cr_pos >= len - 1
-      then p <- len
-      else if Char.equal (Base_bigstring.unsafe_get buf (cr_pos + 1)) '\n'
-      then (
-        p <- cr_pos;
-        found <- true)
-      else p <- cr_pos + 1
+    let last_check = len - 2 in
+    while (not found) && p <= last_check do
+      (* Read 2 bytes at once and compare to CRLF constant *)
+      if Bytes.unsafe_get_int16 buf p = crlf_int16
+      then found <- true
+      else p <- p + 1
     done;
     if found then i16 p else i16 (-1))
 ;;
@@ -116,7 +113,7 @@ let default_limits =
 
 (* Detect bare CR (CR not followed by LF) - RFC 7230 Section 3.5
    Used to prevent HTTP request smuggling attacks *)
-let[@inline] has_bare_cr (local_ buf) ~(pos : int16#) ~(len : int16#) =
+let[@inline] has_bare_cr (local_ buf : bytes) ~(pos : int16#) ~(len : int16#) =
   let pos = to_int pos in
   let len = to_int len in
   let end_pos = pos + len in
@@ -135,7 +132,7 @@ let[@inline] has_bare_cr (local_ buf) ~(pos : int16#) ~(len : int16#) =
 ;;
 
 (* Check if a value contains CRLF injection attempt *)
-let[@inline] has_crlf_injection (local_ buf) ~(pos : int16#) ~(len : int16#) =
+let[@inline] has_crlf_injection (local_ buf : bytes) ~(pos : int16#) ~(len : int16#) =
   let pos = to_int pos in
   let len = to_int len in
   let end_pos = pos + len in

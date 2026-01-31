@@ -55,7 +55,7 @@ let body_bytes_needed ~(len : int16#) (req : t @ local) : int16# =
     | Some (_, body_end, false) -> i16 (body_end - to_int len)
 ;;
 
-let pp_with_buf buf fmt (req : t) =
+let pp_with_buf (buf : bytes) fmt (req : t) =
   Stdlib.Format.fprintf fmt "%s %s %s"
     (Method.to_string req.#meth)
     (Span.to_string buf req.#target)

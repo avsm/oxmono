@@ -58,7 +58,7 @@ val canonical : t -> string
 val lowercase : t -> string
 
 (** Parse header name from span. *)
-val of_span : local_ Base_bigstring.t -> Span.t -> t
+val of_span : local_ bytes -> Span.t -> t
 
 (** Pretty-print header name. *)
 val pp : Stdlib.Format.formatter -> t -> unit

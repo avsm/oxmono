@@ -83,7 +83,7 @@ type eval_result =
     - ["bytes=9500-"] -> open range, byte 9500 to end
     - ["bytes=0-0,-1"] -> multiple ranges *)
 val parse
-  :  local_ Base_bigstring.t
+  :  local_ bytes
   -> Span.t
   -> byte_range array
   -> #(parse_status * int16#)
@@ -120,16 +120,16 @@ val resolve_range
 (** {1 Response Writing} *)
 
 (** Write [Accept-Ranges: bytes\r\n] header. Returns new offset. *)
-val write_accept_ranges : Base_bigstring.t -> off:int16# -> int16#
+val write_accept_ranges : bytes -> off:int16# -> int16#
 
 (** Write [Accept-Ranges: none\r\n] header. Returns new offset. *)
-val write_accept_ranges_none : Base_bigstring.t -> off:int16# -> int16#
+val write_accept_ranges_none : bytes -> off:int16# -> int16#
 
 (** Write [Content-Range: bytes start-end/total\r\n] header.
     Use for 206 Partial Content responses.
     Returns new offset. *)
 val write_content_range
-  :  Base_bigstring.t
+  :  bytes
   -> off:int16#
   -> start:int64#
   -> end_:int64#
@@ -139,7 +139,7 @@ val write_content_range
 (** Write Content-Range header from resolved range.
     Returns new offset. *)
 val write_content_range_resolved
-  :  Base_bigstring.t
+  :  bytes
   -> off:int16#
   -> resolved
   -> total:int64#
@@ -149,7 +149,7 @@ val write_content_range_resolved
     Use for 416 Range Not Satisfiable responses.
     Returns new offset. *)
 val write_content_range_unsatisfiable
-  :  Base_bigstring.t
+  :  bytes
   -> off:int16#
   -> total:int64#
   -> int16#
@@ -158,11 +158,11 @@ val write_content_range_unsatisfiable
 
 (** Write multipart boundary line: [--boundary\r\n].
     Returns new offset. *)
-val write_multipart_boundary : Base_bigstring.t -> off:int16# -> boundary:string -> int16#
+val write_multipart_boundary : bytes -> off:int16# -> boundary:string -> int16#
 
 (** Write final multipart boundary: [--boundary--\r\n].
     Returns new offset. *)
-val write_multipart_final : Base_bigstring.t -> off:int16# -> boundary:string -> int16#
+val write_multipart_final : bytes -> off:int16# -> boundary:string -> int16#
 
 (** Generate a random boundary string suitable for multipart responses. *)
 val generate_boundary : unit -> string

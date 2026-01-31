@@ -19,7 +19,7 @@ type t =
 (** Parse target span into path and query components.
     The leading slash is stripped from the path in a single pass.
     Zero allocation - returns unboxed record with span references. *)
-val parse : local_ Base_bigstring.t -> Span.t -> t
+val parse : local_ bytes -> Span.t -> t
 
 (** Get the path span (without leading slash). *)
 val path : t -> Span.t
@@ -37,11 +37,11 @@ val has_query : t -> bool
 
 (** Match a literal path segment. Returns [#(matched, remaining_path)].
     If [matched] is [false], [remaining_path] is undefined. *)
-val match_segment : local_ Base_bigstring.t -> Span.t -> string -> #(bool * Span.t)
+val match_segment : local_ bytes -> Span.t -> string -> #(bool * Span.t)
 
 (** Match any path segment (parameter capture). Returns [#(matched, segment, remaining)].
     If [matched] is [false], [segment] and [remaining] are undefined. *)
-val match_param : local_ Base_bigstring.t -> Span.t -> #(bool * Span.t * Span.t)
+val match_param : local_ bytes -> Span.t -> #(bool * Span.t * Span.t)
 
 (** Check if path span is empty (complete match). *)
 val is_empty : Span.t -> bool
@@ -52,16 +52,16 @@ val is_empty : Span.t -> bool
 
 (** Find query parameter by name. Returns [#(found, value_span)].
     If [found] is [false], [value_span] is undefined. *)
-val find_query_param : local_ Base_bigstring.t -> Span.t -> string -> #(bool * Span.t)
+val find_query_param : local_ bytes -> Span.t -> string -> #(bool * Span.t)
 
 (** Fold over all query parameters.
     [f acc key_span value_span] is called for each parameter. *)
 val fold_query_params :
-  local_ Base_bigstring.t ->
+  local_ bytes ->
   Span.t ->
   init:'a ->
   f:('a -> Span.t -> Span.t -> 'a) ->
   'a
 
 (** Convert query parameters to string pairs. Allocates. *)
-val query_to_string_pairs : local_ Base_bigstring.t -> Span.t -> (string * string) list
+val query_to_string_pairs : local_ bytes -> Span.t -> (string * string) list

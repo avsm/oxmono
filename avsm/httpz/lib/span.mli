@@ -29,20 +29,20 @@ val off : t -> int
 val len : t -> int
 
 (** Case-sensitive comparison with string. *)
-val equal : local_ Base_bigstring.t -> t -> string -> bool
+val equal : local_ bytes -> t -> string -> bool
 
 (** Case-insensitive comparison with string. *)
-val equal_caseless : local_ Base_bigstring.t -> t -> string -> bool
+val equal_caseless : local_ bytes -> t -> string -> bool
 
 (** Parse decimal integer from span. Returns [-1L] on error.
     Note: This does NOT check for overflow. Use [parse_int64_limited] for security. *)
-val parse_int64 : local_ Base_bigstring.t -> t -> int64#
+val parse_int64 : local_ bytes -> t -> int64#
 
 (** Parse decimal integer from span with overflow protection and maximum value limit.
     Returns unboxed tuple: [#(value, overflow_flag)]
     - value: parsed value or [-1L] if empty/invalid
     - overflow_flag: [true] if value exceeds [max_value] or has too many digits *)
-val parse_int64_limited : local_ Base_bigstring.t -> t -> max_value:int64# -> #(int64# * bool)
+val parse_int64_limited : local_ bytes -> t -> max_value:int64# -> #(int64# * bool)
 
 (** {1 Span Utilities} *)
 
@@ -53,32 +53,32 @@ val is_empty : t -> bool
 val sub : t -> pos:int -> len:int -> t
 
 (** Find first occurrence of character in span. Returns [-1] if not found. *)
-val find_char : local_ Base_bigstring.t -> t -> char -> int
+val find_char : local_ bytes -> t -> char -> int
 
 (** Check if span starts with given character. *)
-val starts_with : local_ Base_bigstring.t -> t -> char -> bool
+val starts_with : local_ bytes -> t -> char -> bool
 
 (** Skip leading character if present, return new span. *)
-val skip_char : local_ Base_bigstring.t -> t -> char -> t
+val skip_char : local_ bytes -> t -> char -> t
 
 (** Split span at first occurrence of character.
     Returns unboxed tuple [#(before, after)] where [after] excludes the separator.
     If not found, returns [#(sp, empty_span)]. *)
-val split_on_char : local_ Base_bigstring.t -> t -> char -> #(t * t)
+val split_on_char : local_ bytes -> t -> char -> #(t * t)
 
 (** Get character at position in span. No bounds checking. *)
-val unsafe_get : local_ Base_bigstring.t -> t -> int -> char
+val unsafe_get : local_ bytes -> t -> int -> char
 
 (** {1 String Conversion} *)
 
 (** Copy span to string. Allocates. *)
-val to_string : local_ Base_bigstring.t -> t -> string
+val to_string : local_ bytes -> t -> string
 
 (** Copy span to bytes. Allocates. *)
-val to_bytes : local_ Base_bigstring.t -> t -> bytes
+val to_bytes : local_ bytes -> t -> bytes
 
 (** Pretty-print span contents using buffer. *)
-val pp_with_buf : local_ Base_bigstring.t -> Stdlib.Format.formatter -> t -> unit
+val pp_with_buf : local_ bytes -> Stdlib.Format.formatter -> t -> unit
 
 (** Pretty-print span structure (offset and length). *)
 val pp : Stdlib.Format.formatter -> t -> unit

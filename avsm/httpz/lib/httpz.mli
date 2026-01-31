@@ -1,7 +1,8 @@
 (** Httpz - Stack-allocated HTTP/1.1 request parser for OxCaml.
 
-    Parses HTTP/1.1 requests from a 32KB bigarray buffer, returning results entirely on
-    the caller's stack. No heap allocation during parsing, no mutable state.
+    Parses HTTP/1.1 requests from a caller-provided bytes buffer, returning results
+    entirely on the caller's stack. No heap allocation during parsing, no mutable state.
+    Buffer allocation is the caller's responsibility - this library never allocates buffers.
 
     {2 Security Features}
 
@@ -14,7 +15,8 @@
     {2 Usage}
 
     {[
-      let buf = Httpz.create_buffer () in
+      (* Caller allocates buffer - httpz never allocates *)
+      let buf = Bytes.create Httpz.buffer_size in
       let len = read_from_socket buf in
       let #(status, req, headers) = Httpz.parse buf ~len ~limits:Httpz.default_limits in
       match status with
@@ -61,7 +63,8 @@ module Range = Range
 
 (** {1 Constants} *)
 
-(** Maximum buffer size: 32KB. *)
+(** Required buffer size: 32KB. Callers must allocate buffers of this size
+    using [Bytes.create Httpz.buffer_size]. This library never allocates buffers. *)
 val buffer_size : int
 
 (** Maximum headers per request. *)
@@ -72,7 +75,10 @@ val default_limits : Buf_read.limits
 
 (** {1 Types} *)
 
-type buffer = Base_bigstring.t
+(** Buffer for reading data into and parsing. Callers allocate with
+    [Bytes.create Httpz.buffer_size] - this library never allocates buffers. *)
+type buffer = bytes
+
 type span = Span.t
 type method_ = Method.t
 type version = Version.t
@@ -85,11 +91,6 @@ type chunk_status = Chunk.status
 type trailer_status = Chunk.trailer_status
 type chunk = Chunk.t
 type res_status = Res.status
-
-(** {1 Buffer} *)
-
-(** Create a new 32KB buffer. *)
-val create_buffer : unit -> buffer
 
 (** {1 Parsing} *)
 

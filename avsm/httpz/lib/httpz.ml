@@ -20,7 +20,8 @@ module Etag = Etag
 module Date = Date
 module Range = Range
 
-type buffer = Base_bigstring.t
+(* Buffer type: bytes for reading, writing, and parsing *)
+type buffer = bytes
 type span = Span.t
 type method_ = Method.t
 type version = Version.t
@@ -37,7 +38,6 @@ type res_status = Res.status
 let buffer_size = Buf_read.buffer_size
 let max_headers = Buf_read.max_headers
 let default_limits = Buf_read.default_limits
-let create_buffer = Buf_read.create
 
 (* Parsing implementation using Parser combinators *)
 
@@ -171,7 +171,7 @@ let rec parse_headers_loop (pst : Parser.pstate) ~pos ~acc (st : header_state) ~
 
 (* Parse HTTP request with configurable limits and full RFC 7230 validation.
    Uses Parser combinators for cleaner, more maintainable parsing. *)
-let parse buf ~(len : int16#) ~limits = exclave_
+let parse (buf : buffer) ~(len : int16#) ~limits = exclave_
   let open Buf_read in
   if to_int len > buffer_size || gt16 len limits.#max_header_size then
     error_result Headers_too_large

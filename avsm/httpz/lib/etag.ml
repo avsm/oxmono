@@ -33,8 +33,8 @@ let parse (local_ buf) (sp : Span.t) : #(status * t) =
   let len = Span.len sp in
   if len < 2 then #(Invalid, empty)  (* Minimum: "" *)
   else
-    let c0 = Base_bigstring.unsafe_get buf off in
-    let c1 = Base_bigstring.unsafe_get buf (off + 1) in
+    let c0 = Bytes.unsafe_get buf off in
+    let c1 = Bytes.unsafe_get buf (off + 1) in
     (* Check for weak indicator W/ *)
     let weak, quote_start =
       if Char.equal c0 'W' && Char.equal c1 '/' && len >= 4 then
@@ -45,8 +45,8 @@ let parse (local_ buf) (sp : Span.t) : #(status * t) =
     let remaining = len - (quote_start - off) in
     if remaining < 2 then #(Invalid, empty)
     else
-      let first = Base_bigstring.unsafe_get buf quote_start in
-      let last = Base_bigstring.unsafe_get buf (quote_start + remaining - 1) in
+      let first = Bytes.unsafe_get buf quote_start in
+      let last = Bytes.unsafe_get buf (quote_start + remaining - 1) in
       if Char.equal first '"' && Char.equal last '"' then
         let tag_off = quote_start + 1 in
         let tag_len = remaining - 2 in
@@ -55,8 +55,14 @@ let parse (local_ buf) (sp : Span.t) : #(status * t) =
         #(Invalid, empty)
 ;;
 
-let to_string (local_ buf) (etag : t) : string =
-  Base_bigstring.To_string.sub buf ~pos:(to_int etag.#off) ~len:(to_int etag.#len)
+let to_string (local_ buf : bytes) (etag : t) : string =
+  let sp_off = to_int etag.#off in
+  let sp_len = to_int etag.#len in
+  let dst = Bytes.create sp_len in
+  for i = 0 to sp_len - 1 do
+    Bytes.unsafe_set dst i (Bytes.unsafe_get buf (sp_off + i))
+  done;
+  Bytes.unsafe_to_string ~no_mutation_while_string_reachable:dst
 ;;
 
 (* If-Match / If-None-Match parsing *)
@@ -69,7 +75,7 @@ type match_condition =
 let[@inline] skip_ows buf ~pos ~len =
   let mutable p = pos in
   while p < len && (
-    let c = Base_bigstring.unsafe_get buf p in
+    let c = Bytes.unsafe_get buf p in
     Char.equal c ' ' || Char.equal c '\t'
   ) do
     p <- p + 1
@@ -85,7 +91,7 @@ let parse_match_header (local_ buf) (sp : Span.t) (tags : t array) : #(match_con
   (* Skip leading whitespace *)
   let start = skip_ows buf ~pos:off ~len:end_pos in
   if start >= end_pos then #(Empty, i16 0)
-  else if Char.equal (Base_bigstring.unsafe_get buf start) '*' then
+  else if Char.equal (Bytes.unsafe_get buf start) '*' then
     (* Check it's just "*" possibly with trailing whitespace *)
     let after_star = skip_ows buf ~pos:(start + 1) ~len:end_pos in
     if after_star >= end_pos then #(Any, i16 0) else #(Empty, i16 0)
@@ -103,15 +109,15 @@ let parse_match_header (local_ buf) (sp : Span.t) (tags : t array) : #(match_con
         let tag_start = pos in
         let mutable tag_end = pos in
         let mutable in_quote = false in
-        while tag_end < end_pos && (in_quote || not (Char.equal (Base_bigstring.unsafe_get buf tag_end) ',')) do
-          if Char.equal (Base_bigstring.unsafe_get buf tag_end) '"' then
+        while tag_end < end_pos && (in_quote || not (Char.equal (Bytes.unsafe_get buf tag_end) ',')) do
+          if Char.equal (Bytes.unsafe_get buf tag_end) '"' then
             in_quote <- not in_quote;
           tag_end <- tag_end + 1
         done;
         (* Trim trailing whitespace from tag *)
         let mutable trimmed_end = tag_end in
         while trimmed_end > tag_start && (
-          let c = Base_bigstring.unsafe_get buf (trimmed_end - 1) in
+          let c = Bytes.unsafe_get buf (trimmed_end - 1) in
           Char.equal c ' ' || Char.equal c '\t'
         ) do
           trimmed_end <- trimmed_end - 1
@@ -124,7 +130,7 @@ let parse_match_header (local_ buf) (sp : Span.t) (tags : t array) : #(match_con
           count <- count + 1
         | Invalid -> ());
         (* Skip comma if present *)
-        if tag_end < end_pos && Char.equal (Base_bigstring.unsafe_get buf tag_end) ',' then
+        if tag_end < end_pos && Char.equal (Bytes.unsafe_get buf tag_end) ',' then
           pos <- tag_end + 1
         else
           pos <- tag_end
@@ -132,22 +138,34 @@ let parse_match_header (local_ buf) (sp : Span.t) (tags : t array) : #(match_con
     if count > 0 then #(Tags, i16 count) else #(Empty, i16 0)
 ;;
 
+(* Manual string comparison at two offsets *)
+let[@inline] compare_at_offsets (local_ buf : bytes) ~pos1 ~pos2 ~len =
+  let mutable i = 0 in
+  let mutable eq = true in
+  while eq && i < len do
+    if not (Char.equal (Bytes.unsafe_get buf (pos1 + i)) (Bytes.unsafe_get buf (pos2 + i)))
+    then eq <- false
+    else i <- i + 1
+  done;
+  eq
+;;
+
 (* Strong comparison: both must be strong, tags must match exactly *)
-let strong_match (local_ buf) (a : t) (b : t) : bool =
+let strong_match (local_ buf : bytes) (a : t) (b : t) : bool =
   if a.#weak || b.#weak then false
   else
     let a_len = to_int a.#len in
     let b_len = to_int b.#len in
     if a_len <> b_len then false
-    else Base_bigstring.memcmp buf ~pos1:(to_int a.#off) buf ~pos2:(to_int b.#off) ~len:a_len = 0
+    else compare_at_offsets buf ~pos1:(to_int a.#off) ~pos2:(to_int b.#off) ~len:a_len
 ;;
 
 (* Weak comparison: only tags must match, ignore weak indicator *)
-let weak_match (local_ buf) (a : t) (b : t) : bool =
+let weak_match (local_ buf : bytes) (a : t) (b : t) : bool =
   let a_len = to_int a.#len in
   let b_len = to_int b.#len in
   if a_len <> b_len then false
-  else Base_bigstring.memcmp buf ~pos1:(to_int a.#off) buf ~pos2:(to_int b.#off) ~len:a_len = 0
+  else compare_at_offsets buf ~pos1:(to_int a.#off) ~pos2:(to_int b.#off) ~len:a_len
 ;;
 
 let matches_any_weak (local_ buf) (etag : t) (tags : t array) ~(count : int16#) : bool =
@@ -178,7 +196,7 @@ let matches_any_strong (local_ buf) (etag : t) (tags : t array) ~(count : int16#
 
 (* Response writing *)
 
-let write_etag dst ~off (etag : t) (local_ src_buf) =
+let write_etag dst ~off (etag : t) (local_ src_buf : bytes) =
   (* ETag: [W/]"tag"\r\n *)
   let off = Buf_write.string dst ~off "ETag: " in
   let off = if etag.#weak then Buf_write.string dst ~off "W/" else off in
@@ -188,7 +206,7 @@ let write_etag dst ~off (etag : t) (local_ src_buf) =
   let tag_len = to_int etag.#len in
   let off_int = Buf_write.to_int off in
   for i = 0 to tag_len - 1 do
-    Bigarray.Array1.unsafe_set dst (off_int + i) (Base_bigstring.unsafe_get src_buf (tag_off + i))
+    Bytes.unsafe_set dst (off_int + i) (Bytes.unsafe_get src_buf (tag_off + i))
   done;
   let off = Buf_write.i16 (off_int + tag_len) in
   let off = Buf_write.char dst ~off '"' in

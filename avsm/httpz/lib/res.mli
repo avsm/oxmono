@@ -1,6 +1,6 @@
 (** HTTP response writing utilities.
 
-    All write functions operate on bigstrings (Base_bigstring.t) for zero-copy
+    All write functions operate on bigstrings (bytes) for zero-copy
     I/O with Async's Writer.write_bigstring. Uses int16# offsets throughout. *)
 
 (** HTTP response status codes per
@@ -69,29 +69,29 @@ val pp_status : Stdlib.Format.formatter -> status -> unit
 (** {2 Response Writers} *)
 
 (** Write "HTTP/1.x CODE Reason\r\n" at offset. Returns new offset. *)
-val write_status_line : Base_bigstring.t -> off:int16# -> status -> Version.t -> int16#
+val write_status_line : bytes -> off:int16# -> status -> Version.t -> int16#
 
 (** Write "Name: Value\r\n" at offset using string name. Returns new offset. *)
-val write_header : Base_bigstring.t -> off:int16# -> local_ string -> local_ string -> int16#
+val write_header : bytes -> off:int16# -> local_ string -> local_ string -> int16#
 
 (** Write header with integer value using string name. Returns new offset. *)
-val write_header_int : Base_bigstring.t -> off:int16# -> local_ string -> int -> int16#
+val write_header_int : bytes -> off:int16# -> local_ string -> int -> int16#
 
 (** Write "Name: Value\r\n" using typed header name. Returns new offset. *)
-val write_header_name : Base_bigstring.t -> off:int16# -> Header_name.t -> local_ string -> int16#
+val write_header_name : bytes -> off:int16# -> Header_name.t -> local_ string -> int16#
 
 (** Write header with integer value using typed header name. Returns new offset. *)
-val write_header_name_int : Base_bigstring.t -> off:int16# -> Header_name.t -> int -> int16#
+val write_header_name_int : bytes -> off:int16# -> Header_name.t -> int -> int16#
 
 (** Write "\r\n". Returns new offset. *)
-val write_crlf : Base_bigstring.t -> off:int16# -> int16#
+val write_crlf : bytes -> off:int16# -> int16#
 
 (** Write "Content-Length: N\r\n". Returns new offset. *)
-val write_content_length : Base_bigstring.t -> off:int16# -> int -> int16#
+val write_content_length : bytes -> off:int16# -> int -> int16#
 
 (** Write "Connection: keep-alive\r\n" or "Connection: close\r\n".
     Returns new offset. *)
-val write_connection : Base_bigstring.t -> off:int16# -> keep_alive:bool -> int16#
+val write_connection : bytes -> off:int16# -> keep_alive:bool -> int16#
 
 (** {2 Chunked Transfer Encoding}
 
@@ -100,15 +100,15 @@ val write_connection : Base_bigstring.t -> off:int16# -> keep_alive:bool -> int1
     Use when response body length is unknown at the time headers are sent. *)
 
 (** Write "Transfer-Encoding: chunked\r\n". Returns new offset. *)
-val write_transfer_encoding_chunked : Base_bigstring.t -> off:int16# -> int16#
+val write_transfer_encoding_chunked : bytes -> off:int16# -> int16#
 
 (** Write chunk header "<hex-size>\r\n". Returns new offset.
     Call before writing chunk data. *)
-val write_chunk_header : Base_bigstring.t -> off:int16# -> size:int -> int16#
+val write_chunk_header : bytes -> off:int16# -> size:int -> int16#
 
 (** Write chunk footer "\r\n" after chunk data. Returns new offset. *)
-val write_chunk_footer : Base_bigstring.t -> off:int16# -> int16#
+val write_chunk_footer : bytes -> off:int16# -> int16#
 
 (** Write final chunk "0\r\n\r\n". Returns new offset.
     Call after all data chunks to signal end of body. *)
-val write_final_chunk : Base_bigstring.t -> off:int16# -> int16#
+val write_final_chunk : bytes -> off:int16# -> int16#

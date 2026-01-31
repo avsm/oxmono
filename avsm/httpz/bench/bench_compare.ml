@@ -153,14 +153,14 @@ let large_request =
    ============================================ *)
 
 module Httpz_bench = struct
-  let httpz_buf = Httpz.create_buffer ()
+  let httpz_buf = Bytes.create Httpz.buffer_size
   let limits = Httpz.default_limits
   let i16 = Httpz.Buf_read.i16
 
   let copy_to_buffer s =
     let len = String.length s in
     for i = 0 to len - 1 do
-      Bigarray.Array1.set httpz_buf i (String.get s i)
+      Bytes.set httpz_buf i (String.get s i)
     done;
     len
   ;;

@@ -30,12 +30,12 @@ val default_max_chunk_size : int
 (** Parse a single chunk starting at [off] with size limit. Buffer contains [len] bytes total.
     Returns chunk info and status. For [Complete], use [next_off] to parse the next chunk.
     For [Done], parsing is complete. Returns [Chunk_too_large] if size exceeds limit. *)
-val parse_with_limit : Base_bigstring.t -> off:int16# -> len:int16# -> max_chunk_size:int -> #(status * t)
+val parse_with_limit : bytes -> off:int16# -> len:int16# -> max_chunk_size:int -> #(status * t)
 
 (** Parse a single chunk starting at [off]. Buffer contains [len] bytes total. Returns
     chunk info and status. For [Complete], use [next_off] to parse the next chunk. For
     [Done], parsing is complete. No size limit checking. *)
-val parse : Base_bigstring.t -> off:int16# -> len:int16# -> #(status * t)
+val parse : bytes -> off:int16# -> len:int16# -> #(status * t)
 
 (** Pretty-print chunk. *)
 val pp : Stdlib.Format.formatter -> t -> unit
@@ -67,7 +67,7 @@ val is_forbidden_trailer : Header_name.t -> bool
     from the final chunk. Returns status, new offset, and parsed headers.
     Forbidden trailer headers are silently ignored per RFC 7230. *)
 val parse_trailers
-  :  Base_bigstring.t
+  :  bytes
   -> off:int16#
   -> len:int16#
   -> max_header_count:int16#

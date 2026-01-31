@@ -37,7 +37,7 @@ type status =
     Accepts all three formats (IMF-fixdate, RFC 850, asctime).
     Returns (status, timestamp) where timestamp is Unix seconds since epoch.
     Only valid if status = Valid. *)
-val parse : local_ Base_bigstring.t -> Span.t -> #(status * float#)
+val parse : local_ bytes -> Span.t -> #(status * float#)
 
 (** {1 Formatting} *)
 
@@ -48,17 +48,17 @@ val format : float# -> string
 (** {1 Response Writing} *)
 
 (** Write [Date: <timestamp>\r\n] header. Returns new offset. *)
-val write_date_header : Base_bigstring.t -> off:int16# -> float# -> int16#
+val write_date_header : bytes -> off:int16# -> float# -> int16#
 
 (** Write [Last-Modified: <timestamp>\r\n] header. Returns new offset. *)
-val write_last_modified : Base_bigstring.t -> off:int16# -> float# -> int16#
+val write_last_modified : bytes -> off:int16# -> float# -> int16#
 
 (** Write [Expires: <timestamp>\r\n] header. Returns new offset. *)
-val write_expires : Base_bigstring.t -> off:int16# -> float# -> int16#
+val write_expires : bytes -> off:int16# -> float# -> int16#
 
 (** Write formatted HTTP-date at offset (no header name, no CRLF).
     Returns new offset. Used internally by header writers. *)
-val write_http_date : Base_bigstring.t -> off:int16# -> float# -> int16#
+val write_http_date : bytes -> off:int16# -> float# -> int16#
 
 (** {2 Comparison Helpers} *)
 

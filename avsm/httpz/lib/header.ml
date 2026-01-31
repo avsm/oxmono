@@ -22,7 +22,7 @@ let rec find (headers : t list @ local) name = exclave_
     if matches then Some hdr else find rest name
 ;;
 
-let rec find_string buf (headers : t list @ local) name = exclave_
+let rec find_string (buf : bytes) (headers : t list @ local) name = exclave_
   match headers with
   | [] -> None
   | hdr :: rest ->
@@ -36,7 +36,7 @@ let rec find_string buf (headers : t list @ local) name = exclave_
     if matches then Some hdr else find_string buf rest name
 ;;
 
-let to_string_pair buf t =
+let to_string_pair (buf : bytes) t =
   let name =
     match t.name with
     | Name.Other -> Span.to_string buf t.name_span
@@ -46,11 +46,11 @@ let to_string_pair buf t =
   (name, value)
 ;;
 
-let to_string_pairs buf headers =
+let to_string_pairs (buf : bytes) headers =
   List.map headers ~f:(to_string_pair buf)
 ;;
 
-let pp_with_buf buf fmt t =
+let pp_with_buf (buf : bytes) fmt t =
   Stdlib.Format.fprintf fmt "%s: %s"
     (Name.canonical t.name)
     (Span.to_string buf t.value)

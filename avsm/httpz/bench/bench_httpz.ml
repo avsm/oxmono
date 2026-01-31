@@ -70,11 +70,11 @@ If-Modified-Since: Mon, 01 Jan 2024 00:00:00 GMT
 
 (* Benchmark helpers *)
 
-(* Helper to copy string into httpz bigarray buffer *)
+(* Helper to copy string into httpz bytes buffer *)
 let copy_to_httpz_buffer buf data =
   let len = String.length data in
   for i = 0 to len - 1 do
-    Bigarray.Array1.set buf i (String.get data i)
+    Bytes.set buf i (String.get data i)
   done;
   len
 ;;
@@ -116,13 +116,13 @@ let just_parse_httpz buf len =
 ;;
 
 (* Httpz parsing benchmarks *)
-let httpz_buf = Httpz.create_buffer ()
+let httpz_buf = Bytes.create Httpz.buffer_size
 let minimal_len = String.length minimal_request
 
 (* Pre-populate buffer for parse-only test *)
 let () =
   for i = 0 to minimal_len - 1 do
-    Bigarray.Array1.set httpz_buf i (String.get minimal_request i)
+    Bytes.set httpz_buf i (String.get minimal_request i)
   done
 ;;
 
@@ -155,7 +155,7 @@ let httpz_parsing_benchmarks =
 
 (* Httpz header lookup benchmarks *)
 let httpz_header_benchmarks =
-  let buf = Httpz.create_buffer () in
+  let buf = Bytes.create Httpz.buffer_size in
   let len = i16 (copy_to_httpz_buffer buf browser_request) in
   [ Bench.Test.create ~name:"httpz_parse_and_find_host" (fun () ->
       let #(_status, _req, headers) = Httpz.parse buf ~len ~limits in
@@ -173,7 +173,7 @@ let httpz_header_benchmarks =
 
 (* Httpz body handling benchmarks *)
 let httpz_body_benchmarks =
-  let buf = Httpz.create_buffer () in
+  let buf = Bytes.create Httpz.buffer_size in
   [ Bench.Test.create ~name:"httpz_body_100B" (fun () ->
       let len = i16 (copy_to_httpz_buffer buf request_body_100) in
       let #(_status, req, _headers) = Httpz.parse buf ~len ~limits in
@@ -194,7 +194,7 @@ let httpz_body_benchmarks =
 
 (* Httpz response serialization benchmarks *)
 let httpz_serialize_benchmarks =
-  let response_buf = Base_bigstring.create 4096 in
+  let response_buf = Bytes.create 4096 in
   [ Bench.Test.create ~name:"httpz_write_status_line" (fun () ->
       ignore
         (Httpz.Res.write_status_line
@@ -220,7 +220,7 @@ let httpz_serialize_benchmarks =
 
 (* Httpz throughput benchmarks *)
 let httpz_throughput_benchmarks =
-  let buf = Httpz.create_buffer () in
+  let buf = Bytes.create Httpz.buffer_size in
   let iterations = 1000 in
   [ Bench.Test.create ~name:"httpz_1k_simple" (fun () ->
       for _ = 1 to iterations do

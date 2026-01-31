@@ -20,4 +20,4 @@
   date
   range
   httpz)
- (libraries base base_bigstring stdlib_stable stdlib_upstream_compatible unix))
+ (libraries base base_bigstring stdlib_stable stdlib_upstream_compatible unboxed.int32_u unix))

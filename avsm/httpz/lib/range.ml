@@ -55,7 +55,7 @@ type eval_result =
 let[@inline] skip_ws buf ~pos ~len =
   let mutable p = pos in
   while p < len && (
-    let c = Base_bigstring.unsafe_get buf p in
+    let c = Bytes.unsafe_get buf p in
     Char.equal c ' ' || Char.equal c '\t'
   ) do
     p <- p + 1
@@ -70,7 +70,7 @@ let[@inline] parse_int64 buf ~pos ~len =
   let mutable acc = 0L in
   let mutable valid = true in
   while valid && p < len do
-    let c = Base_bigstring.unsafe_get buf p in
+    let c = Bytes.unsafe_get buf p in
     if Char.is_digit c then (
       let digit = Int64.of_int (Char.to_int c - 48) in
       acc <- Int64.(acc * 10L + digit);
@@ -86,7 +86,7 @@ let[@inline] parse_range_spec buf ~pos ~len =
   let pos = skip_ws buf ~pos ~len in
   if pos >= len then #(false, empty, pos)
   else
-    let c = Base_bigstring.unsafe_get buf pos in
+    let c = Bytes.unsafe_get buf pos in
     if Char.equal c '-' then
       (* Suffix range: -500 *)
       let #(suffix, end_pos, valid) = parse_int64 buf ~pos:(pos + 1) ~len in
@@ -99,12 +99,12 @@ let[@inline] parse_range_spec buf ~pos ~len =
       let #(start, after_start, valid) = parse_int64 buf ~pos ~len in
       if not valid then #(false, empty, after_start)
       else if after_start >= len then #(false, empty, after_start)
-      else if not (Char.equal (Base_bigstring.unsafe_get buf after_start) '-') then
+      else if not (Char.equal (Bytes.unsafe_get buf after_start) '-') then
         #(false, empty, after_start)
       else
         let after_dash = after_start + 1 in
         if after_dash >= len || (
-          let c = Base_bigstring.unsafe_get buf after_dash in
+          let c = Bytes.unsafe_get buf after_dash in
           Char.equal c ',' || Char.equal c ' ' || Char.equal c '\t'
         ) then
           (* Open range: start- *)
@@ -123,7 +123,7 @@ let parse_region (local_ buf) ~off ~len (ranges : byte_range array) : #(parse_st
   let end_pos = off + len in
   (* Look for "=" to split unit and ranges *)
   let mutable eq_pos = off in
-  while eq_pos < end_pos && not (Char.equal (Base_bigstring.unsafe_get buf eq_pos) '=') do
+  while eq_pos < end_pos && not (Char.equal (Bytes.unsafe_get buf eq_pos) '=') do
     eq_pos <- eq_pos + 1
   done;
   if eq_pos >= end_pos then #(Invalid, i16 0)
@@ -133,11 +133,11 @@ let parse_region (local_ buf) ~off ~len (ranges : byte_range array) : #(parse_st
     if unit_len <> 5 then #(Invalid, i16 0)
     else
       let is_bytes =
-        let c0 = Base_bigstring.unsafe_get buf off in
-        let c1 = Base_bigstring.unsafe_get buf (off + 1) in
-        let c2 = Base_bigstring.unsafe_get buf (off + 2) in
-        let c3 = Base_bigstring.unsafe_get buf (off + 3) in
-        let c4 = Base_bigstring.unsafe_get buf (off + 4) in
+        let c0 = Bytes.unsafe_get buf off in
+        let c1 = Bytes.unsafe_get buf (off + 1) in
+        let c2 = Bytes.unsafe_get buf (off + 2) in
+        let c3 = Bytes.unsafe_get buf (off + 3) in
+        let c4 = Bytes.unsafe_get buf (off + 4) in
         (Char.equal c0 'b' || Char.equal c0 'B') &&
         (Char.equal c1 'y' || Char.equal c1 'Y') &&
         (Char.equal c2 't' || Char.equal c2 'T') &&
@@ -162,7 +162,7 @@ let parse_region (local_ buf) ~off ~len (ranges : byte_range array) : #(parse_st
             );
             pos <- skip_ws buf ~pos:after_range ~len:end_pos;
             if pos < end_pos then
-              if Char.equal (Base_bigstring.unsafe_get buf pos) ',' then
+              if Char.equal (Bytes.unsafe_get buf pos) ',' then
                 pos <- pos + 1
               else
                 valid <- false
@@ -177,13 +177,9 @@ let parse (local_ buf) (sp : Span.t) (ranges : byte_range array) : #(parse_statu
 
 (* Parse Range header from string - creates local buffer *)
 let parse_string (s : string) (ranges : byte_range array) : #(parse_status * int16#) =
-  let len = String.length s in
-  let local_ buf = Base_bigstring.create len in
-  for i = 0 to len - 1 do
-    Base_bigstring.unsafe_set buf i (String.unsafe_get s i)
-  done;
-  (* Bind result to prevent tail call - local buf must stay in scope *)
-  let #(status, count) = parse_region buf ~off:0 ~len ranges in
+  (* Convert string to bytes for parsing *)
+  let buf = Bytes.of_string s in
+  let #(status, count) = parse_region buf ~off:0 ~len:(String.length s) ranges in
   #(status, count)
 ;;
 

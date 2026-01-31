@@ -31,7 +31,7 @@ type body =
   | String of string
   | Bigstring of { buf : Base_bigstring.t; off : int; len : int }
   | Stream of { length : int option; iter : (string -> unit) -> unit }
-(** Response body - immediate or streaming. *)
+(** Response body - immediate or streaming. Bigstring variant uses Base_bigstring.t for zero-copy file serving. *)
 
 (** {1 Response Headers}
 
@@ -197,7 +197,7 @@ val of_list : route list -> t
 (** {1 Dispatch} *)
 
 val dispatch :
-  Base_bigstring.t ->
+  bytes ->
   meth:Method.t ->
   target:Span.t ->
   headers:local_ Header.t list ->

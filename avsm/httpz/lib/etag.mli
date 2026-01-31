@@ -39,13 +39,13 @@ type status =
 (** Parse a single ETag value from a span.
     Accepts formats: ["xyzzy"], [W/"xyzzy"], [""]
     Returns status and tag (tag is only valid if status = Valid). *)
-val parse : local_ Base_bigstring.t -> Span.t -> #(status * t)
+val parse : local_ bytes -> Span.t -> #(status * t)
 
 (** Empty/invalid ETag constant. *)
 val empty : t
 
 (** Parse ETag to string (allocates). Useful for storage/comparison. *)
-val to_string : local_ Base_bigstring.t -> t -> string
+val to_string : local_ bytes -> t -> string
 
 (** {2 If-Match / If-None-Match Parsing} *)
 
@@ -63,7 +63,7 @@ val max_tags : int16#
     Tags are stored in the provided array (up to [max_tags]).
     Returns (condition, count) where count is number of tags if Tags. *)
 val parse_match_header
-  :  local_ Base_bigstring.t
+  :  local_ bytes
   -> Span.t
   -> t array
   -> #(match_condition * int16#)
@@ -73,30 +73,30 @@ val parse_match_header
 (** Strong comparison per RFC 7232 Section 2.3.2.
     Two entity-tags are equivalent if both are not weak and their
     opaque-tags match character-by-character. *)
-val strong_match : local_ Base_bigstring.t -> t -> t -> bool
+val strong_match : local_ bytes -> t -> t -> bool
 
 (** Weak comparison per RFC 7232 Section 2.3.2.
     Two entity-tags are equivalent if their opaque-tags match
     character-by-character, regardless of either or both being weak. *)
-val weak_match : local_ Base_bigstring.t -> t -> t -> bool
+val weak_match : local_ bytes -> t -> t -> bool
 
 (** Check if an etag matches any in array (weak comparison).
     [count] is the number of valid tags in the array. *)
-val matches_any_weak : local_ Base_bigstring.t -> t -> t array -> count:int16# -> bool
+val matches_any_weak : local_ bytes -> t -> t array -> count:int16# -> bool
 
 (** Check if an etag matches any in array (strong comparison).
     [count] is the number of valid tags in the array. *)
-val matches_any_strong : local_ Base_bigstring.t -> t -> t array -> count:int16# -> bool
+val matches_any_strong : local_ bytes -> t -> t array -> count:int16# -> bool
 
 (** {2 Response Writing} *)
 
 (** Write ETag header: [ETag: "tag"\r\n] or [ETag: W/"tag"\r\n].
     Returns new offset. *)
-val write_etag : Base_bigstring.t -> off:int16# -> t -> local_ Base_bigstring.t -> int16#
+val write_etag : bytes -> off:int16# -> t -> local_ bytes -> int16#
 
 (** Write ETag header from string value.
     Returns new offset. *)
-val write_etag_string : Base_bigstring.t -> off:int16# -> weak:bool -> string -> int16#
+val write_etag_string : bytes -> off:int16# -> weak:bool -> string -> int16#
 
 (** Pretty-print etag. *)
-val pp : local_ Base_bigstring.t -> Stdlib.Format.formatter -> t -> unit
+val pp : local_ bytes -> Stdlib.Format.formatter -> t -> unit

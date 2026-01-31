@@ -42,18 +42,23 @@ let response_buffer_size = 65536
 
 type 'a conn = {
   flow : 'a Eio.Net.stream_socket;
-  read_buf : Httpz.buffer;
-  write_buf : Httpz.buffer;
+  read_buf : bytes;
+  write_buf : bytes;
+  read_cs : Cstruct.t;   (* Cstruct view of read_buf for Eio *)
+  write_cs : Cstruct.t;  (* Cstruct view of write_buf for Eio *)
   mutable read_len : int;
   mutable keep_alive : bool;
 }
 
 let create_conn flow =
+  let read_buf = Bytes.create Httpz.buffer_size in
+  let write_buf = Bytes.create response_buffer_size in
   {
     flow;
-    read_buf = Httpz.create_buffer ();
-    write_buf =
-      Bigarray.Array1.create Bigarray.char Bigarray.c_layout response_buffer_size;
+    read_buf;
+    write_buf;
+    read_cs = Cstruct.of_bytes read_buf;
+    write_cs = Cstruct.of_bytes write_buf;
     read_len = 0;
     keep_alive = true;
   }
@@ -68,13 +73,13 @@ let make_respond conn ~keep_alive version ~status ~(local_ headers) body =
   | Httpz.Route.Empty ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:(Some 0) version ~status ~headers in
-      Eio.Flow.write conn.flow [Cstruct.of_bigarray buf ~off:0 ~len:header_len]
+      Eio.Flow.write conn.flow [Cstruct.sub conn.write_cs 0 header_len]
 
   | Httpz.Route.String body_str ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:(Some (String.length body_str)) version ~status ~headers in
       Eio.Flow.write conn.flow [
-        Cstruct.of_bigarray buf ~off:0 ~len:header_len;
+        Cstruct.sub conn.write_cs 0 header_len;
         Cstruct.of_string body_str;
       ]
 
@@ -82,14 +87,14 @@ let make_respond conn ~keep_alive version ~status ~(local_ headers) body =
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:(Some len) version ~status ~headers in
       Eio.Flow.write conn.flow [
-        Cstruct.of_bigarray buf ~off:0 ~len:header_len;
+        Cstruct.sub conn.write_cs 0 header_len;
         Cstruct.of_bigarray body_buf ~off ~len;
       ]
 
   | Httpz.Route.Stream { length; iter } ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:length version ~status ~headers in
-      Eio.Flow.write conn.flow [Cstruct.of_bigarray buf ~off:0 ~len:header_len];
+      Eio.Flow.write conn.flow [Cstruct.sub conn.write_cs 0 header_len];
       (* Stream chunks - if no content-length, use chunked encoding *)
       match length with
       | Some _ ->
@@ -121,7 +126,7 @@ let send_error conn status message version =
   let header_len = to_int off in
   Eio.Flow.write conn.flow
     [
-      Cstruct.of_bigarray conn.write_buf ~off:0 ~len:header_len;
+      Cstruct.sub conn.write_cs 0 header_len;
       Cstruct.of_string message;
     ]
 
@@ -132,7 +137,7 @@ let read_more conn =
   if conn.read_len >= Httpz.buffer_size then `Buffer_full
   else
     let available = Httpz.buffer_size - conn.read_len in
-    let cs = Cstruct.of_bigarray conn.read_buf ~off:conn.read_len ~len:available in
+    let cs = Cstruct.sub conn.read_cs conn.read_len available in
     match Eio.Flow.single_read conn.flow cs with
     | n ->
         conn.read_len <- conn.read_len + n;
@@ -142,10 +147,7 @@ let read_more conn =
 (** Shift buffer contents to remove processed data *)
 let shift_buffer conn consumed =
   if consumed > 0 && consumed < conn.read_len then begin
-    for i = 0 to conn.read_len - consumed - 1 do
-      Bigarray.Array1.set conn.read_buf i
-        (Bigarray.Array1.get conn.read_buf (consumed + i))
-    done;
+    Bytes.blit ~src:conn.read_buf ~src_pos:consumed ~dst:conn.read_buf ~dst_pos:0 ~len:(conn.read_len - consumed);
     conn.read_len <- conn.read_len - consumed
   end
   else if consumed >= conn.read_len then conn.read_len <- 0
@@ -154,6 +156,7 @@ let shift_buffer conn consumed =
 
 (** Handle one request. Returns `Continue, `Close, or `Need_more *)
 let handle_request conn ~routes ~on_request =
+  (* Create string view of bytes for parsing *)
   let buf = conn.read_buf in
   let len = conn.read_len in
   let len16 = i16 len in

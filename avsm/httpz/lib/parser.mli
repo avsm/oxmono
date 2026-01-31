@@ -8,12 +8,12 @@ exception Parse_error of Buf_read.status
 
 (** Parser state - unboxed record holding buffer and length.
     Position is threaded explicitly through functions. *)
-type pstate = #{ buf : Base_bigstring.t; len : int16# }
+type pstate = #{ buf : bytes; len : int16# }
 
 (** {1 Core Functions} *)
 
 (** Create parser state from buffer and length *)
-val make : Base_bigstring.t -> len:int16# -> pstate
+val make : bytes -> len:int16# -> pstate
 
 (** Remaining bytes at position *)
 val remaining : pstate -> pos:int16# -> int16#

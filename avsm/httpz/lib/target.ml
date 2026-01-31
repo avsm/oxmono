@@ -17,14 +17,14 @@ let empty_span : Span.t = Span.make ~off:(i16 0) ~len:(i16 0)
 
 (** Parse target into path (without leading slash) and query.
     Single pass, zero allocation. *)
-let[@inline] parse (local_ buf) (target : Span.t) : t =
+let[@inline] parse (local_ buf : bytes) (target : Span.t) : t =
   let toff = Span.off target in
   let tlen = Span.len target in
   if tlen = 0 then #{ path = empty_span; query = empty_span }
   else
     (* Skip leading slash if present *)
     let path_start, path_max_len =
-      if Char.equal (Base_bigstring.unsafe_get buf toff) '/' then
+      if Char.equal (Bytes.unsafe_get buf toff) '/' then
         (toff + 1, tlen - 1)
       else
         (toff, tlen)
@@ -33,7 +33,7 @@ let[@inline] parse (local_ buf) (target : Span.t) : t =
     let mutable i = 0 in
     let mutable found = -1 in
     while found < 0 && i < path_max_len do
-      if Char.equal (Base_bigstring.unsafe_get buf (path_start + i)) '?' then
+      if Char.equal (Bytes.unsafe_get buf (path_start + i)) '?' then
         found <- i
       else
         i <- i + 1
@@ -59,7 +59,7 @@ let[@inline] has_query (t : t) = Span.len t.#query > 0
 (** {1 Path Segment Matching} *)
 
 (** Match literal segment. Returns #(matched, remaining). *)
-let[@inline] match_segment (local_ buf) (path : Span.t) (expected : string) : #(bool * Span.t) =
+let[@inline] match_segment (local_ buf : bytes) (path : Span.t) (expected : string) : #(bool * Span.t) =
   let plen = Span.len path in
   if plen = 0 then #(false, empty_span)
   else
@@ -67,29 +67,37 @@ let[@inline] match_segment (local_ buf) (path : Span.t) (expected : string) : #(
     let elen = String.length expected in
     (* Find next '/' *)
     let mutable i = 0 in
-    while i < plen && not (Char.equal (Base_bigstring.unsafe_get buf (poff + i)) '/') do
+    while i < plen && not (Char.equal (Bytes.unsafe_get buf (poff + i)) '/') do
       i <- i + 1
     done;
     (* Check if segment matches *)
     if i <> elen then #(false, empty_span)
-    else if Base_bigstring.memcmp_string buf ~pos1:poff expected ~pos2:0 ~len:elen <> 0 then
-      #(false, empty_span)
-    else
-      (* Skip the '/' separator if present *)
-      let rest_off = if i < plen then poff + i + 1 else poff + i in
-      let rest_len = if i < plen then plen - i - 1 else 0 in
-      #(true, Span.make ~off:(i16 rest_off) ~len:(i16 rest_len))
+    else (
+      (* Manual char-by-char comparison *)
+      let mutable j = 0 in
+      let mutable eq = true in
+      while eq && j < elen do
+        if not (Char.equal (Bytes.unsafe_get buf (poff + j)) (String.unsafe_get expected j))
+        then eq <- false
+        else j <- j + 1
+      done;
+      if not eq then #(false, empty_span)
+      else
+        (* Skip the '/' separator if present *)
+        let rest_off = if i < plen then poff + i + 1 else poff + i in
+        let rest_len = if i < plen then plen - i - 1 else 0 in
+        #(true, Span.make ~off:(i16 rest_off) ~len:(i16 rest_len)))
 ;;
 
 (** Match any segment (capture). Returns #(matched, segment, remaining). *)
-let[@inline] match_param (local_ buf) (path : Span.t) : #(bool * Span.t * Span.t) =
+let[@inline] match_param (local_ buf : bytes) (path : Span.t) : #(bool * Span.t * Span.t) =
   let plen = Span.len path in
   if plen = 0 then #(false, empty_span, empty_span)
   else
     let poff = Span.off path in
     (* Find next '/' *)
     let mutable i = 0 in
-    while i < plen && not (Char.equal (Base_bigstring.unsafe_get buf (poff + i)) '/') do
+    while i < plen && not (Char.equal (Bytes.unsafe_get buf (poff + i)) '/') do
       i <- i + 1
     done;
     let seg = Span.make ~off:(i16 poff) ~len:(i16 i) in
@@ -105,7 +113,7 @@ let[@inline] is_empty (path : Span.t) : bool = Span.len path = 0
 (** {1 Query Parameter Lookup} *)
 
 (** Find query parameter by name. Returns #(found, value_span). *)
-let rec find_query_param (local_ buf) (query : Span.t) (name : string) : #(bool * Span.t) =
+let rec find_query_param (local_ buf : bytes) (query : Span.t) (name : string) : #(bool * Span.t) =
   if Span.is_empty query then #(false, empty_span)
   else
     let #(pair, rest) = Span.split_on_char buf query '&' in
@@ -115,7 +123,7 @@ let rec find_query_param (local_ buf) (query : Span.t) (name : string) : #(bool 
 ;;
 
 (** Fold over query parameters. *)
-let rec fold_query_params (local_ buf) (query : Span.t) ~init ~f =
+let rec fold_query_params (local_ buf : bytes) (query : Span.t) ~init ~f =
   if Span.is_empty query then init
   else
     let #(pair, rest) = Span.split_on_char buf query '&' in
@@ -124,7 +132,7 @@ let rec fold_query_params (local_ buf) (query : Span.t) ~init ~f =
 ;;
 
 (** Convert query to string pairs (allocates). *)
-let query_to_string_pairs (local_ buf) (query : Span.t) : (string * string) list =
+let query_to_string_pairs (local_ buf : bytes) (query : Span.t) : (string * string) list =
   fold_query_params buf query ~init:[] ~f:(fun acc key value ->
       (Span.to_string buf key, Span.to_string buf value) :: acc)
   |> List.rev

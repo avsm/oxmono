@@ -78,7 +78,7 @@ let[@inline] respond_bigstring (local_ respond) ~status ?(local_ headers = []) b
     Minimal context passed to handlers for path/query access. *)
 
 type ctx = {
-  buf : Base_bigstring.t;
+  buf : bytes;
   path : Span.t;
   query : Span.t;
 }
@@ -125,7 +125,7 @@ let h0 = H0
 let[@inline] ( +> ) name rest = H (name, rest)
 
 (** Find header value by name in local list. *)
-let rec find_header_value buf (local_ headers : Header.t list) name : string option =
+let rec find_header_value (buf : bytes) (local_ headers : Header.t list) name : string option =
   match headers with
   | [] -> None
   | h :: rest ->
@@ -134,7 +134,7 @@ let rec find_header_value buf (local_ headers : Header.t list) name : string opt
       else find_header_value buf rest name
 
 (** Extract required headers from local header list. Only extracts what's needed. *)
-let rec extract_headers : type h. Base_bigstring.t -> local_ Header.t list -> h hdr -> h =
+let rec extract_headers : type h. bytes -> local_ Header.t list -> h hdr -> h =
   fun buf headers spec ->
     match spec with
     | H0 -> ()
@@ -171,14 +171,14 @@ exception No_match
 (** Match result: captures and remaining path offset/length. *)
 type 'a match_result = { cap : 'a; rest_off : int; rest_len : int }
 
-let rec match_lits buf segs path =
+let rec match_lits (buf : bytes) segs path =
   match segs with
   | [] -> { cap = (); rest_off = Span.off path; rest_len = Span.len path }
   | s :: rest ->
       let #(ok, remaining) = Target.match_segment buf path s in
       if ok then match_lits buf rest remaining else raise No_match
 
-let rec match_pat : type a. Base_bigstring.t -> a pat -> Span.t -> a match_result =
+let rec match_pat : type a. bytes -> a pat -> Span.t -> a match_result =
   fun buf pat path ->
     match pat with
     | Root ->
@@ -266,7 +266,7 @@ let of_list rs = rs
     The respond function is passed through to the handler for direct response writing. *)
 
 (** Try matching a single route. Returns true if matched. *)
-let[@inline] try_route buf ctx (local_ headers : Header.t list) (Pat { meth = route_meth; pat; hdr; handler }) req_meth ~respond =
+let[@inline] try_route (buf : bytes) ctx (local_ headers : Header.t list) (Pat { meth = route_meth; pat; hdr; handler }) req_meth ~respond =
   if not (Poly.equal req_meth route_meth) then false
   else
     try
@@ -279,7 +279,7 @@ let[@inline] try_route buf ctx (local_ headers : Header.t list) (Pat { meth = ro
       else false
     with No_match -> false
 
-let rec dispatch_loop buf ctx (local_ headers) meth ~respond = function
+let rec dispatch_loop (buf : bytes) ctx (local_ headers) meth ~respond = function
   | [] -> false
   | route :: rest ->
       if try_route buf ctx headers route meth ~respond then true
@@ -289,7 +289,7 @@ let rec dispatch_loop buf ctx (local_ headers) meth ~respond = function
     Zero-copy: headers are only extracted for routes that need them.
     [respond] is called by the handler to write the response directly.
     Returns true if a route matched, false otherwise. *)
-let[@inline] dispatch buf ~meth ~target ~(local_ headers : Header.t list) t ~respond =
+let[@inline] dispatch (buf : bytes) ~meth ~target ~(local_ headers : Header.t list) t ~respond =
   let parsed = Target.parse buf target in
   let path = Target.path parsed in
   let query = Target.query parsed in

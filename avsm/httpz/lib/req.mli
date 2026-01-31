@@ -28,7 +28,7 @@ val body_span : len:int16# -> t @ local -> Span.t
 val body_bytes_needed : len:int16# -> t @ local -> int16#
 
 (** Pretty-print request line using buffer (shows actual values). *)
-val pp_with_buf : Base_bigstring.t -> Stdlib.Format.formatter -> t -> unit
+val pp_with_buf : bytes -> Stdlib.Format.formatter -> t -> unit
 
 (** Pretty-print request structure. *)
 val pp : Stdlib.Format.formatter -> t -> unit

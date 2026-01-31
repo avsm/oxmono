@@ -1,2 +1,2 @@
 (vendored_dirs opam)
-(data_only_dirs third_party)
+(data_only_dirs third_party sources)

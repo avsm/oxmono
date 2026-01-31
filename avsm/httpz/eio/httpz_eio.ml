@@ -41,23 +41,19 @@ let response_buffer_size = 65536
 
 type 'a conn = {
   flow : 'a Eio.Net.stream_socket;
-  read_buf : bytes;
-  write_buf : bytes;
-  read_cs : Cstruct.t;   (* Cstruct view of read_buf for Eio *)
-  write_cs : Cstruct.t;  (* Cstruct view of write_buf for Eio *)
+  read_buf : bytes;     (* For httpz parser *)
+  write_buf : bytes;    (* For httpz response writer *)
+  read_cs : Cstruct.t;  (* For Eio reading - separate buffer, we blit to read_buf *)
   mutable read_len : int;
   mutable keep_alive : bool;
 }
 
 let create_conn flow =
-  let read_buf = Bytes.create Httpz.buffer_size in
-  let write_buf = Bytes.create response_buffer_size in
   {
     flow;
-    read_buf;
-    write_buf;
-    read_cs = Cstruct.of_bytes read_buf;
-    write_cs = Cstruct.of_bytes write_buf;
+    read_buf = Bytes.create Httpz.buffer_size;
+    write_buf = Bytes.create response_buffer_size;
+    read_cs = Cstruct.create Httpz.buffer_size;
     read_len = 0;
     keep_alive = true;
   }
@@ -72,13 +68,14 @@ let make_respond conn ~keep_alive version ~status ~headers body =
   | Httpz_server.Route.Empty ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:(Some 0) version ~status ~headers in
-      Eio.Flow.write conn.flow [Cstruct.sub conn.write_cs 0 header_len]
+      (* Create cstruct from bytes - this copies, but we need the headers we just wrote *)
+      Eio.Flow.write conn.flow [Cstruct.of_bytes conn.write_buf ~off:0 ~len:header_len]
 
   | Httpz_server.Route.String body_str ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:(Some (String.length body_str)) version ~status ~headers in
       Eio.Flow.write conn.flow [
-        Cstruct.sub conn.write_cs 0 header_len;
+        Cstruct.of_bytes conn.write_buf ~off:0 ~len:header_len;
         Cstruct.of_string body_str;
       ]
 
@@ -86,14 +83,14 @@ let make_respond conn ~keep_alive version ~status ~headers body =
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:(Some len) version ~status ~headers in
       Eio.Flow.write conn.flow [
-        Cstruct.sub conn.write_cs 0 header_len;
+        Cstruct.of_bytes conn.write_buf ~off:0 ~len:header_len;
         Cstruct.of_bigarray body_buf ~off ~len;
       ]
 
   | Httpz_server.Route.Stream { length; iter } ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:length version ~status ~headers in
-      Eio.Flow.write conn.flow [Cstruct.sub conn.write_cs 0 header_len];
+      Eio.Flow.write conn.flow [Cstruct.of_bytes conn.write_buf ~off:0 ~len:header_len];
       (* Stream chunks - if no content-length, use chunked encoding *)
       match length with
       | Some _ ->
@@ -125,7 +122,7 @@ let send_error conn status message version =
   let header_len = to_int off in
   Eio.Flow.write conn.flow
     [
-      Cstruct.sub conn.write_cs 0 header_len;
+      Cstruct.of_bytes conn.write_buf ~off:0 ~len:header_len;
       Cstruct.of_string message;
     ]
 
@@ -139,6 +136,8 @@ let read_more conn =
     let cs = Cstruct.sub conn.read_cs conn.read_len available in
     match Eio.Flow.single_read conn.flow cs with
     | n ->
+        (* Blit from cstruct to bytes so httpz parser can access it *)
+        Cstruct.blit_to_bytes cs 0 conn.read_buf conn.read_len n;
         conn.read_len <- conn.read_len + n;
         `Ok n
     | exception End_of_file -> `Eof

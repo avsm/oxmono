@@ -5,48 +5,40 @@ open Base
 module I16 = Stdlib_stable.Int16_u
 let[@inline] i16 x = I16.of_int x
 
-(** Parsed target with path (no leading slash) and query. *)
+(** Parsed target with path and query. *)
 type t =
-  #{ path : Span.t       (** Path without leading slash *)
+  #{ path : Span.t       (** Path including leading slash *)
    ; query : Span.t      (** Query without '?' *)
    }
 
 (** Empty span sentinel. *)
 let empty_span : Span.t = Span.make ~off:(i16 0) ~len:(i16 0)
 
-(** Parse target into path (without leading slash) and query.
-    Single pass, zero allocation. *)
+(** Parse target into path and query. Single pass, zero allocation. *)
 let[@inline] parse (local_ buf : bytes) (target : Span.t) : t =
   let toff = Span.off target in
   let tlen = Span.len target in
   if tlen = 0 then #{ path = empty_span; query = empty_span }
   else
-    (* Skip leading slash if present *)
-    let path_start, path_max_len =
-      if Char.equal (Bytes.unsafe_get buf toff) '/' then
-        (toff + 1, tlen - 1)
-      else
-        (toff, tlen)
-    in
     (* Find '?' to split path and query *)
     let mutable i = 0 in
     let mutable found = -1 in
-    while found < 0 && i < path_max_len do
-      if Char.equal (Bytes.unsafe_get buf (path_start + i)) '?' then
+    while found < 0 && i < tlen do
+      if Char.equal (Bytes.unsafe_get buf (toff + i)) '?' then
         found <- i
       else
         i <- i + 1
     done;
     if found < 0 then
-      (* No query string *)
-      #{ path = Span.make ~off:(i16 path_start) ~len:(i16 path_max_len)
+      (* No query string - entire target is the path *)
+      #{ path = target
        ; query = empty_span
        }
     else
       (* Split at '?' *)
-      let path = Span.make ~off:(i16 path_start) ~len:(i16 found) in
-      let query_start = path_start + found + 1 in
-      let query_len = path_max_len - found - 1 in
+      let path = Span.make ~off:(i16 toff) ~len:(i16 found) in
+      let query_start = toff + found + 1 in
+      let query_len = tlen - found - 1 in
       let query = Span.make ~off:(i16 query_start) ~len:(i16 query_len) in
       #{ path; query }
 ;;

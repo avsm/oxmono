@@ -282,33 +282,33 @@ module Router = struct
         else try_routes rest meth req_headers segments ctx respond
 
   (** Dispatch by walking trie with find_child - no list allocation *)
-  let rec dispatch_walk trie meth (local_ req_headers) segments ctx (local_ respond) =
+  let rec dispatch_walk trie meth (local_ req_headers) segments all_segments ctx (local_ respond) =
     let node = Trie.datum trie |> Option.value ~default:empty_node in
-    (* Try catchalls at this node (capture all remaining) *)
+    (* Try catchalls at this node - use all_segments so pattern can match from root *)
     match Map.find node.catchalls meth with
-    | Some routes when try_routes routes meth req_headers segments ctx respond -> true
+    | Some routes when try_routes routes meth req_headers all_segments ctx respond -> true
     | _ ->
     match segments with
     | [] ->
         (* End of path - try exact handlers *)
         (match Map.find node.handlers meth with
-         | Some routes -> try_routes routes meth req_headers segments ctx respond
+         | Some routes -> try_routes routes meth req_headers all_segments ctx respond
          | None -> false)
     | seg :: rest ->
         (* Try literal child first (most specific) *)
         let found = match Trie.find_child trie seg with
-          | Some child -> dispatch_walk child meth req_headers rest ctx respond
+          | Some child -> dispatch_walk child meth req_headers rest all_segments ctx respond
           | None -> false
         in
         if found then true
         else
           (* Try wildcard routes at this node *)
           match Map.find node.wildcards meth with
-          | Some routes -> try_routes routes meth req_headers segments ctx respond
+          | Some routes -> try_routes routes meth req_headers all_segments ctx respond
           | None -> false
 
   let[@inline] dispatch t ~meth ~(local_ headers) ~segments ~ctx ~(local_ respond) =
-    dispatch_walk t meth headers segments ctx respond
+    dispatch_walk t meth headers segments segments ctx respond
 end
 
 (** {1 Public Interface} *)

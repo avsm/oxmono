@@ -100,21 +100,24 @@ let[@inline] ( / ) s rest = Lit (s, rest)
 let[@inline] seg rest = Seg rest
 let tail = Tail
 
-(** {2 Pattern Matching} *)
+(** {2 Pattern Matching}
 
-let rec match_pat : type a. a pat -> string list -> (a * string list) option =
+    Uses exception for mismatch - avoids Option boxing on the hot path. *)
+
+exception No_match
+
+let rec match_pat : type a. a pat -> string list -> a * string list =
   fun pat segments ->
     match pat, segments with
-    | End, segs -> Some ((), segs)
+    | End, segs -> ((), segs)
     | Lit (expected, rest), seg :: segs when String.equal expected seg ->
         match_pat rest segs
-    | Lit _, _ -> None
+    | Lit _, _ -> Stdlib.raise_notrace No_match
     | Seg rest, seg :: segs ->
-        (match match_pat rest segs with
-         | Some (captures, remaining) -> Some ((seg, captures), remaining)
-         | None -> None)
-    | Seg _, [] -> None
-    | Tail, segs -> Some (segs, [])
+        let captures, remaining = match_pat rest segs in
+        (seg, captures), remaining
+    | Seg _, [] -> Stdlib.raise_notrace No_match
+    | Tail, segs -> (segs, [])
 
 (** {1 Header Requirements} *)
 
@@ -263,12 +266,13 @@ module Router = struct
   let[@inline] try_route (Route { meth = route_meth; pat; hdr; handler })
       meth (local_ req_headers) segments ctx (local_ respond) =
     if not (Poly.equal meth route_meth) then false
-    else match match_pat pat segments with
-      | None -> false
-      | Some (captures, _remaining) ->
+    else
+      match match_pat pat segments with
+      | captures, _remaining ->
           let h = extract_headers ctx.buf req_headers hdr in
           handler captures h ctx respond;
           true
+      | exception No_match -> false
 
   let rec try_routes routes meth (local_ req_headers) segments ctx (local_ respond) =
     match routes with

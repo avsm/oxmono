@@ -115,24 +115,17 @@ val split_on_char : local_ bytes -> t -> char -> #(t * t)
 
 (** {1 Integer Parsing} *)
 
-val parse_int64 : local_ bytes -> t -> int64#
-(** [parse_int64 buf span] parses a decimal integer from [span].
-    Returns [-1L] on error (empty span or non-digit character).
-
-    {b Warning:} Does NOT check for overflow. Use {!parse_int64_limited}
-    for untrusted input. *)
-
-val parse_int64_limited : local_ bytes -> t -> max_value:int64# -> #(int64# * bool)
-(** [parse_int64_limited buf span ~max_value] parses a decimal integer
-    with overflow protection.
+val parse_int64 : local_ bytes -> t -> #(int64# * bool)
+(** [parse_int64 buf span] parses a decimal integer from [span] with
+    overflow protection.
 
     Returns [#(value, overflow)] where:
     - [value]: The parsed value, or [-1L] if empty/invalid
-    - [overflow]: [true] if the value exceeds [max_value] or parsing failed
+    - [overflow]: [true] if the value overflows int64
 
     {[
-      let #(len, overflow) = Span.parse_int64_limited buf cl_span ~max_value:max_cl in
-      if overflow then reject_request ()
+      let #(len, overflow) = Span.parse_int64 buf cl_span in
+      if overflow || I64.compare len max_cl > 0 then reject_request ()
     ]} *)
 
 (** {1 String Conversion} *)

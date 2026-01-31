@@ -63,22 +63,32 @@ let[@inline] skip_ws buf ~pos ~len =
   p
 ;;
 
-(* Parse a non-negative int64, returns (value, end_pos, valid) *)
+(* Parse a non-negative int64 with overflow protection.
+   Returns (value, end_pos, valid) where valid=false on overflow or no digits. *)
 let[@inline] parse_int64 buf ~pos ~len =
   let start = pos in
   let mutable p = pos in
   let mutable acc = 0L in
   let mutable valid = true in
+  let mutable overflow = false in
   while valid && p < len do
     let c = Bytes.unsafe_get buf p in
     if Char.is_digit c then (
       let digit = Int64.of_int (Char.to_int c - 48) in
-      acc <- Int64.(acc * 10L + digit);
-      p <- p + 1
+      let new_acc = Int64.(acc * 10L + digit) in
+      if Int64.(new_acc < acc) then (
+        overflow <- true;
+        valid <- false
+      ) else (
+        acc <- new_acc;
+        p <- p + 1
+      )
     ) else
       valid <- false
   done;
-  if p > start then #(acc, p, true) else #(0L, pos, false)
+  if overflow then #(0L, p, false)
+  else if p > start then #(acc, p, true)
+  else #(0L, pos, false)
 ;;
 
 (* Parse a single range-spec *)

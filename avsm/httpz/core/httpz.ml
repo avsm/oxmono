@@ -135,10 +135,9 @@ let rec parse_headers_loop (pst : Parser.pstate) ~pos ~acc (st : header_state) ~
     match name with
     | Header_name.Content_length ->
       Err.when_ st.#has_te Err.Ambiguous_framing;
-      let #(parsed_len, overflow) =
-        Span.parse_int64_limited pst.#buf value_span ~max_value:limits.#max_content_length
-      in
-      Err.when_ overflow Err.Content_length_overflow;
+      let #(parsed_len, overflow) = Span.parse_int64 pst.#buf value_span in
+      Err.when_ (overflow || I64.compare parsed_len limits.#max_content_length > 0)
+        Err.Content_length_overflow;
       parse_headers_loop pst ~pos ~acc ~limits
         #{ st with count = next_count; content_len = parsed_len; has_cl = true }
     | Header_name.Transfer_encoding ->

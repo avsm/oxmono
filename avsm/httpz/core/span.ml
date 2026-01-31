@@ -71,34 +71,11 @@ let[@inline] equal_caseless (local_ buf : bytes) (sp : t) s =
     eq)
 ;;
 
-(* Parse int64 from span - returns -1L for empty/invalid values.
-   Note: This does NOT check for overflow. Use parse_int64_limited for security. *)
-let[@inline] parse_int64 (local_ buf) (sp : t) : int64# =
-  let sp_len = len sp in
-  if sp_len = 0
-  then minus_one_i64
-  else (
-    let mutable acc : int64# = #0L in
-    let mutable i = 0 in
-    let mutable valid = true in
-    let sp_off = off sp in
-    while valid && i < sp_len do
-      let c = Buf_read.peek buf (I16.of_int (sp_off + i)) in
-      match c with
-      | #'0' .. #'9' ->
-        let digit = I64.of_int (Char_u.code c - 48) in
-        acc <- I64.add (I64.mul acc #10L) digit;
-        i <- i + 1
-      | _ -> valid <- false
-    done;
-    if i = 0 then minus_one_i64 else acc)
-;;
-
-(* Parse int64 with overflow protection and maximum value limit.
+(* Parse int64 from span with overflow protection.
    Returns unboxed tuple: #(value, overflow_flag)
    - value: parsed value or -1L if empty/invalid
-   - overflow_flag: true if value exceeds max_value or has too many digits *)
-let[@inline] parse_int64_limited (local_ buf) (sp : t) ~(max_value : int64#) : #(int64# * bool) =
+   - overflow: true if value overflows int64 *)
+let[@inline] parse_int64 (local_ buf) (sp : t) : #(int64# * bool) =
   let sp_len = len sp in
   if sp_len = 0 then #(minus_one_i64, false)
   else if sp_len > 19 then #(minus_one_i64, true)  (* int64 max is 19 digits *)
@@ -113,13 +90,9 @@ let[@inline] parse_int64_limited (local_ buf) (sp : t) ~(max_value : int64#) : #
       match c with
       | #'0' .. #'9' ->
         let digit = I64.of_int (Char_u.code c - 48) in
-        (* Check for multiplication overflow before multiplying *)
         let new_acc = I64.add (I64.mul acc #10L) digit in
         if I64.compare new_acc acc < 0 then (
-          (* Overflow occurred during multiplication *)
-          overflow <- true;
-          valid <- false
-        ) else if I64.compare new_acc max_value > 0 then (
+          (* Overflow occurred *)
           overflow <- true;
           valid <- false
         ) else (

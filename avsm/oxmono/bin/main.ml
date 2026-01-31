@@ -581,11 +581,150 @@ let changes_cmd =
   let info = Cmd.info "changes" ~doc in
   Cmd.v info Term.(const run $ logging_t $ package_name $ force)
 
+(** {1 Readme Command} *)
+
+(** Load all changes from changes/ directory *)
+let load_all_changes ~fs changes_dir =
+  let files = Eio.Path.read_dir Eio.Path.(fs / changes_dir) in
+  let json_files = List.filter (fun f -> Filename.check_suffix f ".json") files in
+  List.filter_map (fun filename ->
+    let path = Filename.concat changes_dir filename in
+    let content = Eio.Path.load Eio.Path.(fs / path) in
+    match Jsont_bytesrw.decode_string Oxmono.Changes.jsont content with
+    | Ok changes -> Some changes
+    | Error err ->
+      Log.warn (fun m -> m "Failed to parse %s: %s" filename err);
+      None
+  ) json_files
+
+(** Generate the Packages section as markdown tables grouped by type *)
+let generate_status_markdown changes =
+  let buf = Buffer.create 8192 in
+  Buffer.add_string buf "# Packages\n\n";
+
+  (* Group by change_type *)
+  let by_type = Hashtbl.create 16 in
+  List.iter (fun c ->
+    let ct = Oxmono.Changes.change_type c in
+    let existing = Hashtbl.find_opt by_type ct |> Option.value ~default:[] in
+    Hashtbl.replace by_type ct (c :: existing)
+  ) changes;
+
+  (* Section order and titles *)
+  let sections = [
+    Oxmono.Changes.Oxcaml, "OxCaml Extensions", "Packages using OxCaml features (unboxed types, stack allocation, modes, etc.)";
+    Oxmono.Changes.Dune_port, "Dune Ports", "Packages with dune build support added";
+    Oxmono.Changes.New_feature, "New Features", "Packages with new features not in upstream";
+    Oxmono.Changes.Bugfix, "Bug Fixes", "Packages with bug fixes not yet in upstream";
+    Oxmono.Changes.Compatibility, "Compatibility", "Packages with monorepo compatibility changes";
+    Oxmono.Changes.Build_fix, "Build Fixes", "Packages with build system fixes";
+    Oxmono.Changes.Mixed, "Mixed", "Packages with multiple types of changes";
+    Oxmono.Changes.Janestreet, "JaneStreet", "Packages from github.com/janestreet or github.com/oxcaml (unmodified)";
+    Oxmono.Changes.Unchanged, "Unchanged", "Packages with no modifications from upstream";
+  ] in
+
+  let render_table pkgs =
+    Buffer.add_string buf "| Package | Summary | Details |\n";
+    Buffer.add_string buf "|---------|---------|--------|\n";
+    let sorted = List.sort (fun a b ->
+      String.compare (Oxmono.Changes.name a) (Oxmono.Changes.name b)
+    ) pkgs in
+    List.iter (fun c ->
+      let name = Oxmono.Changes.name c in
+      let summary = Oxmono.Changes.summary c |> Option.value ~default:"" in
+      let details = Oxmono.Changes.details c in
+      let details_col = match details with
+        | None -> ""
+        | Some d ->
+          let escaped = d
+            |> String.split_on_char '|' |> String.concat "\\|"
+            |> String.split_on_char '\n' |> String.concat "<br>"
+          in
+          Printf.sprintf "<details><summary>▶</summary><br>%s</details>" escaped
+      in
+      Buffer.add_string buf (Printf.sprintf "| %s | %s | %s |\n" name summary details_col)
+    ) sorted
+  in
+
+  List.iter (fun (ct, title, desc) ->
+    match Hashtbl.find_opt by_type ct with
+    | None | Some [] -> ()
+    | Some pkgs ->
+      Buffer.add_string buf (Printf.sprintf "## %s\n\n%s\n\n" title desc);
+      render_table pkgs;
+      Buffer.add_string buf "\n"
+  ) sections;
+
+  Buffer.contents buf
+
+(** Remove Packages/Status section from markdown - returns content before the section *)
+let remove_packages_section content =
+  (* Simple approach: find "# Packages" or "## Status" and truncate there *)
+  let lines = String.split_on_char '\n' content in
+  let rec find_section acc = function
+    | [] -> String.concat "\n" (List.rev acc)
+    | line :: rest ->
+      let trimmed = String.trim line in
+      if trimmed = "# Packages" || trimmed = "## Status" then
+        String.concat "\n" (List.rev acc)
+      else
+        find_section (line :: acc) rest
+  in
+  find_section [] lines
+
+let readme_cmd =
+  let run () =
+    Eio_main.run @@ fun env ->
+    let open Result_syntax in
+    let fs = Eio.Stdenv.fs env in
+    let cwd = Eio.Stdenv.cwd env in
+    let root = Eio.Path.native_exn cwd in
+    let changes_dir = Filename.concat root "changes" in
+    let readme_path = Filename.concat root "README.md" in
+    run_result @@
+    let* () =
+      if not (Sys.file_exists changes_dir && Sys.is_directory changes_dir) then
+        Error "changes/ directory does not exist. Run 'oxmono changes' first."
+      else Ok ()
+    in
+    (* Load all changes *)
+    let changes = load_all_changes ~fs changes_dir in
+    if changes = [] then begin
+      Log.app (fun m -> m "No changes files found in changes/");
+      Ok 0
+    end else begin
+      Log.app (fun m -> m "Loaded %d package changes" (List.length changes));
+      (* Generate status section *)
+      let status_md = generate_status_markdown changes in
+      (* Read existing README or create new *)
+      let existing_content =
+        if Sys.file_exists readme_path then
+          Some (Eio.Path.load Eio.Path.(fs / readme_path))
+        else None
+      in
+      let final_content = match existing_content with
+        | None ->
+          (* No README, create with just status *)
+          Printf.sprintf "# OxCaml Monorepo\n\n%s" status_md
+        | Some content ->
+          (* Remove existing Packages/Status section and append new one *)
+          let before_md = remove_packages_section content in
+          String.trim before_md ^ "\n\n" ^ status_md
+      in
+      Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(fs / readme_path) final_content;
+      Log.app (fun m -> m "Updated README.md with Status section");
+      Ok 0
+    end
+  in
+  let doc = "Update README.md with Status section from changes/" in
+  let info = Cmd.info "readme" ~doc in
+  Cmd.v info Term.(const run $ logging_t)
+
 (** {1 Main} *)
 
 let main_cmd =
   let doc = "Package source management for the OxCaml monorepo" in
   let info = Cmd.info "oxmono" ~version:"0.1.0" ~doc in
-  Cmd.group info [add_cmd; sync_cmd; diff_cmd; list_cmd; changes_cmd]
+  Cmd.group info [add_cmd; sync_cmd; diff_cmd; list_cmd; changes_cmd; readme_cmd]
 
 let () = exit (Cmd.eval' main_cmd)

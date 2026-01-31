@@ -1,0 +1,6 @@
+{
+  "git_commit": "b4fa4530f7150aa4b6d239f72fef392077bb19b3",
+  "change_type": "dune-port",
+  "summary": "Add dune build support replacing ocamlbuild/topkg build system",
+  "details": "- Added `dune-project` file with lang dune 3.21 and package definition\n- Added root `dune` file with compiler flags (`-g -bin-annot -safe-string`) matching original ocamlbuild configuration\n- Added `src/dune` defining the library with `(wrapped false)` to maintain API compatibility\n- Added `test/dune` for building the example executable\n- Renamed `opam` to `htmlit.opam` (standard dune convention)\n- Updated opam dependencies: replaced `ocamlfind`, `ocamlbuild`, and `topkg` with just `dune`\n- Changed build command from `ocaml pkg/pkg.ml build` to standard dune build commands"
+}

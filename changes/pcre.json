@@ -1,0 +1,6 @@
+{
+  "git_commit": "bb6feb48c223ceca988961fcd4e83a4b5468b57e",
+  "change_type": "unchanged",
+  "summary": "No changes between upstream and local version of pcre package",
+  "details": "- Package `pcre` is identical to the upstream pristine version\n- No modifications have been made to this package in the monorepo"
+}

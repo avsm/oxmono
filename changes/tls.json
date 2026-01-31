@@ -1,0 +1,6 @@
+{
+  "git_commit": "bb6feb48c223ceca988961fcd4e83a4b5468b57e",
+  "change_type": "unchanged",
+  "summary": "No changes between upstream and local version of the tls package",
+  "details": "- The `tls` package is identical to its upstream pristine version\n- No modifications, patches, or local changes have been applied"
+}

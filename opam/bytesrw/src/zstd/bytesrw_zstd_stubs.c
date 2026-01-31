@@ -110,7 +110,7 @@ CAMLprim value ocaml_bytesrw_ZSTD_DCtx_loadDictionary(value dctx, value s)
 CAMLprim value ocaml_bytesrw_ZSTD_decompressStream
 (value dctx, value src, value dst)
 {
-  ZSTD_DCtx *ctx = ZSTD_DCtx_val (dctx);
+  ZSTD_DCtx *ctx = ZSTD_DCtx_val(dctx);
   ZSTD_inBuffer bsrc;
   bsrc.src = Bytes_val (Field (src, ocaml_zbuf_bytes));
   bsrc.size = Long_val (Field (src, ocaml_zbuf_size));

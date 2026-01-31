@@ -1,10 +1,8 @@
-(* route.ml - Segment-based HTTP routing with Base_trie
+(* route.ml - Trie-based HTTP routing
 
-   Design principles:
-   1. Parse path to segment list once at dispatch entry
-   2. Walk trie by segments using find_child (no list copying)
-   3. Local headers and stack-allocated response tuples
-   4. Inline hot paths
+   The trie matches literal path segments. At each node we store routes
+   whose literal prefix ends there. Pattern matching handles the suffix
+   (wildcards, tails) against remaining segments.
 *)
 
 open Base
@@ -84,9 +82,7 @@ let query_params ctx name =
 
 let[@inline] query ctx = Httpz.Target.query_to_string_pairs ctx.buf ctx.query
 
-(** {1 Path Patterns}
-
-    Patterns match against segment lists. The type parameter encodes captures. *)
+(** {1 Path Patterns} *)
 
 type _ pat =
   | End : unit pat
@@ -100,24 +96,29 @@ let[@inline] ( / ) s rest = Lit (s, rest)
 let[@inline] seg rest = Seg rest
 let tail = Tail
 
+(** Extract literal prefix from pattern, return (prefix, suffix). *)
+let rec split_pat : type a. a pat -> string list * a pat = function
+  | Lit (s, rest) ->
+      let prefix, suffix = split_pat rest in
+      (s :: prefix, suffix)
+  | pat -> ([], pat)
+
 (** {2 Pattern Matching}
 
-    Uses exception for mismatch - avoids Option boxing on the hot path. *)
+    Match the non-literal suffix of a pattern against segments.
+    Called after trie walk has consumed the literal prefix. *)
 
 exception No_match
 
-let rec match_pat : type a. a pat -> string list -> a * string list =
+let rec match_suffix : type a. a pat -> string list -> a =
   fun pat segments ->
     match pat, segments with
-    | End, segs -> ((), segs)
-    | Lit (expected, rest), seg :: segs when String.equal expected seg ->
-        match_pat rest segs
-    | Lit _, _ -> Stdlib.raise_notrace No_match
-    | Seg rest, seg :: segs ->
-        let captures, remaining = match_pat rest segs in
-        (seg, captures), remaining
+    | End, [] -> ()
+    | End, _ -> Stdlib.raise_notrace No_match
+    | Lit _, _ -> Stdlib.raise_notrace No_match  (* Lits should be consumed by trie *)
+    | Seg rest, seg :: segs -> (seg, match_suffix rest segs)
     | Seg _, [] -> Stdlib.raise_notrace No_match
-    | Tail, segs -> (segs, [])
+    | Tail, segs -> segs
 
 (** {1 Header Requirements} *)
 
@@ -202,129 +203,83 @@ let[@inline] post_ segments handler =
   Route { meth = Httpz.Method.Post; pat = lits_to_pat segments; hdr = H0;
           handler = fun () () ctx respond -> handler ctx respond }
 
-(** {1 Trie-Based Dispatch}
-
-    Routes indexed by literal prefix using Base_trie.
-    Dispatch walks trie via find_child - no list copying. *)
+(** {1 Trie-Based Router} *)
 
 module Path_trie = Trie.Of_list(String)
 
-module Router = struct
-  module Meth = struct
-    module T = struct
-      type t = Httpz.Method.t
-      let compare = Poly.compare
-      let sexp_of_t m = Sexp.Atom (Httpz.Method.to_string m)
-    end
-    include T
-    include Comparator.Make(T)
-  end
+(** At each trie node: routes whose literal prefix ends here, indexed by suffix type. *)
+type node = {
+  exact : route list;   (* suffix = End *)
+  wild : route list;    (* suffix = Seg _ *)
+  catch : route list;   (* suffix = Tail *)
+}
 
-  type node_data = {
-    handlers : route list Map.M(Meth).t;
-    wildcards : route list Map.M(Meth).t;
-    catchalls : route list Map.M(Meth).t;
-  }
+let empty_node = { exact = []; wild = []; catch = [] }
 
-  let empty_node = {
-    handlers = Map.empty (module Meth);
-    wildcards = Map.empty (module Meth);
-    catchalls = Map.empty (module Meth);
-  }
+type t = node Path_trie.t
 
-  type t = node_data Path_trie.t
+let empty : t = Trie.empty Path_trie.Keychain.keychainable
 
-  let create () = Trie.empty Path_trie.Keychain.keychainable
+let add (Route { pat; _ } as route) t =
+  let prefix, suffix = split_pat pat in
+  Trie.update t prefix ~f:(fun node_opt ->
+    let node = Option.value node_opt ~default:empty_node in
+    match suffix with
+    | End -> { node with exact = route :: node.exact }
+    | Seg _ -> { node with wild = route :: node.wild }
+    | Tail -> { node with catch = route :: node.catch }
+    | Lit _ -> node)  (* shouldn't happen after split_pat *)
 
-  (** Extract literal prefix and terminator from pattern *)
-  let rec literal_prefix : type a. a pat -> string list * [`End | `Seg | `Tail] = function
-    | End -> [], `End
-    | Lit (s, rest) ->
-        let prefix, term = literal_prefix rest in
-        s :: prefix, term
-    | Seg _ -> [], `Seg
-    | Tail -> [], `Tail
+let of_list routes =
+  List.fold routes ~init:empty ~f:(fun t r -> add r t)
 
-  let add_to_map meth route map =
-    Map.update map meth ~f:(function
-      | None -> [route]
-      | Some routes -> route :: routes)
+(** {2 Dispatch} *)
 
-  let add (Route { meth; pat; _ } as route) t =
-    let prefix, terminator = literal_prefix pat in
-    Trie.update t prefix ~f:(fun data_opt ->
-      let data = Option.value data_opt ~default:empty_node in
-      match terminator with
-      | `End -> { data with handlers = add_to_map meth route data.handlers }
-      | `Seg -> { data with wildcards = add_to_map meth route data.wildcards }
-      | `Tail -> { data with catchalls = add_to_map meth route data.catchalls })
+let[@inline] try_route (Route { meth = route_meth; pat; hdr; handler })
+    meth (local_ req_headers) segments ctx (local_ respond) =
+  if not (Poly.equal meth route_meth) then false
+  else
+    let _prefix, suffix = split_pat pat in
+    match match_suffix suffix segments with
+    | captures ->
+        let h = extract_headers ctx.buf req_headers hdr in
+        handler captures h ctx respond;
+        true
+    | exception No_match -> false
 
-  let of_routes routes =
-    List.fold routes ~init:(create ()) ~f:(fun t r -> add r t)
+let rec try_routes routes meth (local_ req_headers) segments ctx (local_ respond) =
+  match routes with
+  | [] -> false
+  | r :: rest ->
+      if try_route r meth req_headers segments ctx respond then true
+      else try_routes rest meth req_headers segments ctx respond
 
-  (** Try a single route against remaining segments *)
-  let[@inline] try_route (Route { meth = route_meth; pat; hdr; handler })
-      meth (local_ req_headers) segments ctx (local_ respond) =
-    if not (Poly.equal meth route_meth) then false
-    else
-      match match_pat pat segments with
-      | captures, _remaining ->
-          let h = extract_headers ctx.buf req_headers hdr in
-          handler captures h ctx respond;
-          true
-      | exception No_match -> false
-
-  let rec try_routes routes meth (local_ req_headers) segments ctx (local_ respond) =
-    match routes with
-    | [] -> false
-    | r :: rest ->
-        if try_route r meth req_headers segments ctx respond then true
-        else try_routes rest meth req_headers segments ctx respond
-
-  (** Dispatch by walking trie with find_child - no list allocation *)
-  let rec dispatch_walk trie meth (local_ req_headers) segments all_segments ctx (local_ respond) =
-    let node = Trie.datum trie |> Option.value ~default:empty_node in
-    (* Try catchalls at this node - use all_segments so pattern can match from root *)
-    match Map.find node.catchalls meth with
-    | Some routes when try_routes routes meth req_headers all_segments ctx respond -> true
-    | _ ->
-    match segments with
+(** Walk trie matching segments, try routes at each node. *)
+let rec dispatch_walk trie meth (local_ req_headers) segments ctx (local_ respond) =
+  let node = Trie.datum trie |> Option.value ~default:empty_node in
+  (* Try catchalls first - they match any remaining path *)
+  if try_routes node.catch meth req_headers segments ctx respond then true
+  else match segments with
     | [] ->
-        (* End of path - try exact handlers *)
-        (match Map.find node.handlers meth with
-         | Some routes -> try_routes routes meth req_headers all_segments ctx respond
-         | None -> false)
+        (* End of path - try exact matches *)
+        try_routes node.exact meth req_headers segments ctx respond
     | seg :: rest ->
-        (* Try literal child first (most specific) *)
+        (* Try descending into trie for literal match *)
         let found = match Trie.find_child trie seg with
-          | Some child -> dispatch_walk child meth req_headers rest all_segments ctx respond
+          | Some child -> dispatch_walk child meth req_headers rest ctx respond
           | None -> false
         in
         if found then true
         else
           (* Try wildcard routes at this node *)
-          match Map.find node.wildcards meth with
-          | Some routes -> try_routes routes meth req_headers all_segments ctx respond
-          | None -> false
-
-  let[@inline] dispatch t ~meth ~(local_ headers) ~segments ~ctx ~(local_ respond) =
-    dispatch_walk t meth headers segments segments ctx respond
-end
-
-(** {1 Public Interface} *)
-
-type t = Router.t
-
-let of_list routes = Router.of_routes routes
-let empty = Router.create ()
-let add route t = Router.add route t
+          try_routes node.wild meth req_headers segments ctx respond
 
 let parse_segments path =
   String.split path ~on:'/'
   |> List.filter ~f:(fun s -> not (String.is_empty s))
 
-let dispatch buf ~meth ~(target : Httpz.Target.t) ~(local_ headers : Httpz.Header.t list) t ~(local_ respond) =
+let dispatch buf ~meth ~(target : Httpz.Target.t) ~(local_ headers : Httpz.Header.t list) (t : t) ~(local_ respond) =
   let path_str = Httpz.Span.to_string buf (Httpz.Target.path target) in
   let segments = parse_segments path_str in
   let ctx = { buf; segments; query = Httpz.Target.query target } in
-  Router.dispatch t ~meth ~headers ~segments ~ctx ~respond
+  dispatch_walk t meth headers segments ctx respond

@@ -1,0 +1,4 @@
+(library
+ (name oxmono)
+ (public_name oxmono)
+ (libraries yamlrw opam-file-format eio eio.unix logs fmt))

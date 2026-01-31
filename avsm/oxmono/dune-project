@@ -1,0 +1,26 @@
+(lang dune 3.21)
+(name oxmono)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(package
+ (name oxmono)
+ (synopsis "Package source management for the OxCaml monorepo")
+ (description
+  "oxmono is a CLI tool to manage package sources for the OxCaml monorepo.
+   It can lookup packages in opam repositories, sync sources from upstream,
+   and compare local changes against pristine upstream copies.")
+ (depends
+  (ocaml (>= 5.2))
+  (yamlrw (>= 0.1))
+  (opam-file-format (>= 2.1))
+  (eio (>= 1.2))
+  eio_main
+  cmdliner
+  (logs (>= 0.7))
+  (fmt (>= 0.9))
+  (odoc :with-doc)))

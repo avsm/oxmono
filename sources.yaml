@@ -1,0 +1,1717 @@
+packages:
+  iomux:
+    archive:
+      url: 'https://github.com/ocaml-multicore/ocaml-iomux/releases/download/v0.4/iomux-0.4.tbz'
+      checksum: sha256=1e393fae559476848c5c70525076b11070e806a549eebae084b046a9772bab35
+  x509:
+    archive:
+      url: 'https://github.com/mirleft/ocaml-x509/releases/download/v1.0.6/x509-1.0.6.tbz'
+      checksum: sha256=fc816ae2c65e8b42fa60d90a507b2140495e28d095ad37b27e4c268ae3c00d6c
+  uunf:
+    archive:
+      url: 'https://erratique.ch/software/uunf/releases/uunf-17.0.0.tbz'
+      checksum: sha512=1ec4d7229bb473ab2dd146ec732c8c70f357f73211e71d32625cd2410a35766e684bbeb1bd4e186b7403d4af8d597d46b7ccf58b23ae95aac32a96c0b4321691
+  tls:
+    archive:
+      url: 'https://github.com/mirleft/ocaml-tls/releases/download/v2.0.3/tls-2.0.3.tbz'
+      checksum: sha256=d7159ba745f3da2e73844353f020fdbc767393882b47565f8b61b941c351c3d7
+  syndic:
+    archive:
+      url: 'https://github.com/Cumulus/Syndic/releases/download/v1.7.0/syndic-1.7.0.tbz'
+      checksum: sha256=7c4526ccc5159640b8782e2fc20bba33ba7191f8a1f743991bcee474c59f8003
+  sitemap:
+    archive:
+      url: 'https://github.com/avsm/ocaml-sitemap/releases/download/v1.0/sitemap-1.0.tbz'
+      checksum: sha256=392b297bfebcbcc19ef929190d1796401e9d09371127cf2ab32be53a569dc510
+  pcre:
+    archive:
+      url: 'https://github.com/mmottl/pcre-ocaml/releases/download/8.0.5/pcre-8.0.5.tbz'
+      checksum: sha256=ed9bcf88d781767ad6a7c0480aff09d5889f2fc500dda0d1620a1786d4e44490
+  opam-core:
+    archive:
+      url: 'https://github.com/ocaml/opam/archive/refs/tags/2.5.0.tar.gz'
+      checksum: md5=79d057547b7114e31334bc4f556bc541
+  ohex:
+    archive:
+      url: 'https://github.com/ocaml/opam-source-archives/raw/main/ohex-0.2.0.tar.gz'
+      checksum: md5=77f2cbe75b9efd528a2b3478a8d4f3d4
+  ocurl:
+    archive:
+      url: 'https://ygrek.org/p/release/ocurl/ocurl-0.9.2.tar.gz'
+      checksum: md5=8a4149c6cfa79dabdfde24f308ad1f0c
+  uring:
+    archive:
+      url: 'https://github.com/ocaml-multicore/ocaml-uring/releases/download/v2.7.0/uring-2.7.0.tbz'
+      checksum: sha256=99e3e2ebf4d7b7182d2d82f21d101d9d17207a574256051a3d8f8c6574b30ba5
+  uri:
+    archive:
+      url: 'https://github.com/mirage/ocaml-uri/releases/download/v4.4.0/uri-4.4.0.tbz'
+      checksum: sha256=cdabaf6ef5cd2161e59cc7b74c6e4a68ecb80a9f4e96002e338e1b6bf17adec4
+  sha:
+    archive:
+      url: 'https://github.com/djs55/ocaml-sha/releases/download/v1.15.4/sha-1.15.4.tbz'
+      checksum: sha256=6de5b12139b1999ce9df4cc78a5a31886c2a547c9d448bf2853f8b53bcf1f1b1
+  re:
+    archive:
+      url: 'https://github.com/ocaml/ocaml-re/archive/refs/tags/1.14.0.tar.gz'
+      checksum: md5=03f4a83100cb9229a796b85c698076e1
+  magic-mime:
+    archive:
+      url: 'https://github.com/mirage/ocaml-magic-mime/releases/download/v1.3.1/magic-mime-1.3.1.tbz'
+      checksum: sha256=e0234d03625dba1efac58e57e387672d75a5e9a621ff49acfe0f609c00f13b08
+  ocaml-lsp-server:
+    archive:
+      url: 'https://github.com/ocaml/ocaml-lsp/releases/download/1.25.0/lsp-1.25.0.tbz'
+      checksum: sha256=e315d2bef3f89709ad2570846927996e54ff8dafce251188816ab97cef21f020
+  ipaddr:
+    archive:
+      url: 'https://github.com/mirage/ocaml-ipaddr/releases/download/v5.6.1/ipaddr-5.6.1.tbz'
+      checksum: sha256=1e617df8abd45843c823e9be75267d27426cb578661cf25622d50b25ae14a319
+  integers:
+    archive:
+      url: 'https://github.com/yallop/ocaml-integers/archive/0.7.0.tar.gz'
+      checksum: sha256=8bb517fa9a1818246eb8c4ce34ee1489fbebb4b92defa3a25d13cab8d23ec685
+  inotify:
+    archive:
+      url: 'https://github.com/whitequark/ocaml-inotify/releases/download/v2.6/inotify-2.6.tbz'
+      checksum: sha256=1d103e7dd32fddd0f1201b2d2f6c5b762548277bc173beef7b072f30ea89ccc4
+  hex:
+    archive:
+      url: 'https://github.com/mirage/ocaml-hex/releases/download/v1.5.0/hex-1.5.0.tbz'
+      checksum: sha256=2e67eeca1b03049307a30831b5cd694bcb2d3e7f2a6b4fb597fbdb647351b4dc
+  ctypes:
+    archive:
+      url: 'https://github.com/yallop/ocaml-ctypes/archive/refs/tags/0.24.0.tar.gz'
+      checksum: sha256=249c5604c8554659761a7282db4ad200aa8c0fdc408cdb53102bd70feeb51955
+  cstruct:
+    archive:
+      url: 'https://github.com/mirage/ocaml-cstruct/releases/download/v6.2.0/cstruct-6.2.0.tbz'
+      checksum: sha256=9a78073392580e8349148fa3ab4b1b2e989dc9d30d07401b04c96b7c60f03e62
+  crunch:
+    archive:
+      url: 'https://github.com/mirage/ocaml-crunch/releases/download/v4.0.0/crunch-4.0.0.tbz'
+      checksum: sha256=939b8d1129ed6c634cb0f9ccc6f6d44aa1703cd05ce6091f2ee2a0162944b89b
+  conduit:
+    archive:
+      url: 'https://github.com/mirage/ocaml-conduit/releases/download/v8.0.0/conduit-8.0.0.tbz'
+      checksum: sha256=0a63d910865b5473893a170cda51f61388f488ecf4c4b2ed7fe9ec4e2cf66f61
+  cohttp:
+    archive:
+      url: 'https://github.com/mirage/ocaml-cohttp/releases/download/v6.2.1/cohttp-6.2.1.tbz'
+      checksum: sha256=65080247763442d1dc3cd90678b8233b798772f036ac81cd1eaade1f5d66a65f
+  base64:
+    archive:
+      url: 'https://github.com/mirage/ocaml-base64/releases/download/v3.5.2/base64-3.5.2.tbz'
+      checksum: sha256=b3f5ce301aa72c7032ef90be2332d72ff3962922c00ee2aec6bcade187a2f59b
+  mirage-crypto:
+    archive:
+      url: 'https://github.com/mirage/mirage-crypto/releases/download/v2.0.2/mirage-crypto-2.0.2.tbz'
+      checksum: sha256=739a9d39f34027fbc93557f87c5cac4190a52bddadff72f212faa803d6215874
+  markup:
+    archive:
+      url: 'https://github.com/aantron/markup.ml/archive/1.0.3.tar.gz'
+      checksum: sha256=9526fd06a0afc37d7ae6e2528787142d52b124238ffb0e7e8e83bdd383806eb5
+  kdf:
+    archive:
+      url: 'https://github.com/robur-coop/kdf/releases/download/v1.0.0/kdf-1.0.0.tbz'
+      checksum: sha256=d161582b0efe66d958dd6b8c9c21068e9f6454ce218377d6cf87823dec62e0ce
+  jsont:
+    archive:
+      url: 'https://erratique.ch/software/jsont/releases/jsont-0.2.0.tbz'
+      checksum: sha512=6206f73a66cb170b560a72e58f70b9fb2c20397b9ab819dceba49b6602b9b79e47ba307e6910e61ca4694555c66fdcd7a17490afb99548e8f43845a5a88913e7
+  jsonfeed:
+    archive:
+      url: 'https://tangled.org/@anil.recoil.org/ocaml-jsonfeed/tags/f1ab140451f0a8d1ceccfe8ac208c907d34f1765/download/jsonfeed-1.1.0.tbz'
+      checksum: md5=43c68cd44bd4d9b9617601f72dce9ecf
+  htmlit:
+    archive:
+      url: 'https://erratique.ch/software/htmlit/releases/htmlit-0.2.0.tbz'
+      checksum: sha512=f331ce05cd53c865356af4d133d6a37b25057526dd07a0eaea55dcfbef731587318d8b789792cf34a670efc7ee703d5ad23a89ab1c54f2740bba81c5cc826216
+  gmap:
+    archive:
+      url: 'https://github.com/hannesm/gmap/releases/download/0.3.0/gmap-0.3.0.tbz'
+      checksum: sha256=04dd9e6226ac8f8fb4ccb6021048702e34a482fb9c1d240d3852829529507c1c
+  eqaf:
+    archive:
+      url: 'https://github.com/mirage/eqaf/releases/download/v0.10/eqaf-0.10.tbz'
+      checksum: sha256=67d1369c57c4d2d14a10d02632d45e355224abeb98aec08979c0bae5843092ee
+  digestif:
+    archive:
+      url: 'https://github.com/mirage/digestif/releases/download/v1.3.0/digestif-1.3.0.tbz'
+      checksum: sha256=9a6cdcb332539c87f4723fc3bd73626b2675a7b1161fdf0fed309186ce18f427
+  crowbar:
+    archive:
+      url: 'https://github.com/stedolan/crowbar/archive/v0.2.2.tar.gz'
+      checksum: sha256=debd1345ac0116232390af64552d15948b5dc7200e287730235f7ff42098f3c5
+  ca-certs:
+    archive:
+      url: 'https://github.com/mirage/ca-certs/releases/download/v1.0.1/ca-certs-1.0.1.tbz'
+      checksum: sha256=d3cd7c8f548baecef208d425877a811d898ec7d1d9c4bdea6f78652c7c8361cc
+  bytesrw:
+    archive:
+      url: 'https://erratique.ch/software/bytesrw/releases/bytesrw-0.3.0.tbz'
+      checksum: sha512=388858b0db210a62a16f56655746fdfadbc64b22c2abb5ed5a12b2872e4f8c34f045cdb953a5dda9b92f0003c7f9f34d70fa5b5bb19fd32fb6121bbaeb7ceba0
+  binaryen:
+    archive:
+      url: 'https://github.com/grain-lang/binaryen.ml/releases/download/v0.34.0/binaryen-archive-v0.34.0.tar.gz'
+      checksum: md5=815e6b4fee4b5a3d7d6c14ff2a621d5f
+  asn1-combinators:
+    archive:
+      url: 'https://github.com/mirleft/ocaml-asn1-combinators/releases/download/v0.3.2/asn1-combinators-0.3.2.tbz'
+      checksum: sha256=2b26985f6e2722073dcd9f84355bd6757e12643b5a48e30b3c07ff7cfb0d8a7f
+  afl-persistent:
+    archive:
+      url: 'https://github.com/stedolan/ocaml-afl-persistent/archive/refs/tags/v1.4.tar.gz'
+      checksum: md5=4791d637ade0269ddb348d231e643bb0
+  zarith:
+    archive:
+      url: 'https://github.com/ocaml/Zarith/archive/release-1.14.tar.gz'
+      checksum: sha256=5db9dcbd939153942a08581fabd846d0f3f2b8c67fe68b855127e0472d4d1859
+  zstandard:
+    archive:
+      url: 'https://github.com/janestreet/zstandard/archive/4aaf5d09c2eb8649dd0fb90ad0277098fcf5f22b.tar.gz'
+      checksum: sha256=762d4df5c3c6fd70829754607769334cb3b12e95cf02c43791051e8dc9c1f52e
+  zed:
+    archive:
+      url: 'https://github.com/ocaml-community/zed/archive/refs/tags/3.2.3.tar.gz'
+      checksum: sha512=637f75129550f6459417549d44bed16bdc62721d2e9e0c6bb5bfab30c5bc6478de15faece8c091b56f238375cb79a7bc176375400e543120bb31d7ea626b7c5b
+  zarith_stubs_js:
+    archive:
+      url: 'https://github.com/janestreet/zarith_stubs_js/archive/207a20bece3f632e5a7461f9d92c91078171705e.tar.gz'
+      checksum: sha256=c2f5f3906b962b195e60b1c138a302b5c43d186046167a5b9372a5615f634b66
+  yojson:
+    archive:
+      url: 'https://github.com/ocaml-community/yojson/releases/download/2.2.2/yojson-2.2.2.tbz'
+      checksum: sha256=9abfad8c9a79d4723ad2f6448e669c1e68dbfc87cc54a1b7c064b0c90912c595
+  xpath:
+    archive:
+      url: 'https://github.com/janestreet/xpath/archive/95356d9627b52b12e68ae3f73fa8066d6a8a50cc.tar.gz'
+      checksum: sha256=d3afc57b82bec17c71a68d0684d6ae65ab304aad948dfe5f5ddba90a78be46d9
+  xmlm:
+    archive:
+      url: 'https://erratique.ch/software/xmlm/releases/xmlm-1.4.0.tbz'
+      checksum: sha512=69f6112e6466952256d670fe1751fe4ae79e20d50f018ece1709eb2240cb1b00968ac7cee110771e0617a38ebc1cdb43e9d146471ce66ac1b176e4a1660531eb
+  virtual_dom:
+    archive:
+      url: 'https://github.com/janestreet/virtual_dom/archive/8d0db31728b19da995fab5d4477c0d648c9ea15f.tar.gz'
+      checksum: sha256=29568188c6cfd00c66aedacdbad4cc1a56a955e119123a23a645bf493e1c4f44
+  versioned_polling_state_rpc:
+    archive:
+      url: 'https://github.com/janestreet/versioned_polling_state_rpc/archive/6cf5bb26601ade1c85aa01056fce3701e5e0e144.tar.gz'
+      checksum: sha256=5aa11721023de01b096d2b84500ce3d05b3278f72dacdd7b677e53f5233efd47
+  vec:
+    archive:
+      url: 'https://github.com/janestreet/vec/archive/ecf8276dda42a70885b4531077165db6bf539ed0.tar.gz'
+      checksum: sha256=c53ae2fc0ab12f491b8f7c9103727e3badb7923bc814a009134cc128165b4a84
+  vcaml:
+    archive:
+      url: 'https://github.com/janestreet/vcaml/archive/7b36392e236926dc47a17dae008087cb518fa7e6.tar.gz'
+      checksum: sha256=c8f12a30a96d179bfdcabc1a27e40c301f29d9ae9d8fe5cd54042e7cbf662482
+  variantslib:
+    archive:
+      url: 'https://github.com/janestreet/variantslib/archive/a45b37d3197e7a2268076c29412b417776919e58.tar.gz'
+      checksum: sha256=ea28ec982f54e0000f37508546fde08c64edd34c5afc60ecd912a2c6f2e1c4cb
+  uutf:
+    archive:
+      url: 'https://erratique.ch/software/uutf/releases/uutf-1.0.3.tbz'
+      checksum: sha512=50cc4486021da46fb08156e9daec0d57b4ca469b07309c508d5a9a41e9dbcf1f32dec2ed7be027326544453dcaf9c2534919395fd826dc7768efc6cc4bfcc9f8
+  uuseg:
+    archive:
+      url: 'https://erratique.ch/software/uuseg/releases/uuseg-16.0.0.tbz'
+      checksum: sha512=355139aee2a72baddf3d811e522948456147546ee946b6eca20f57711865770d4b8d32ea01a7338b8e6cdedb4423ee65cee387704bb9c0c057bcbd65012679b8
+  uucp:
+    archive:
+      url: 'https://erratique.ch/software/uucp/releases/uucp-16.0.0.tbz'
+      checksum: sha512=5c06d8cadb2b011b1e4ac52e14732044f6ab8e9c11e1184950ff8629b26bd173f1264247623a635b8aa4033e287bfe42d709994f19a3d79f7cbfd20158aa4992
+  utop:
+    archive:
+      url: 'https://github.com/oxcaml/utop/archive/81c591c1fd3f378efceab4939aaca9e321a9c4f9.tar.gz'
+      checksum: sha256=dff3e14b4d99d48757d7e886f69450e802cae5d8d54fd0681631230e71e42953
+  username_kernel:
+    archive:
+      url: 'https://github.com/janestreet/username_kernel/archive/ac5b4e6dab379f35eadca0e7171783ad318ebacb.tar.gz'
+      checksum: sha256=53ce06fa42f7306f704e0ea728dd056d5a32909d1d4f35a538a9b03975b7070c
+  uri_parsing:
+    archive:
+      url: 'https://github.com/janestreet/uri_parsing/archive/b67be029c20b2d35502d41ef378018203a7729b8.tar.gz'
+      checksum: sha256=788d72b22c175a9066fa4dd93c08aa95e3fb47f4551f62129641d3ee1be1b910
+  uopt:
+    archive:
+      url: 'https://github.com/janestreet/uopt/archive/6656136cf6d69f483db2945f873434f25fc61e7c.tar.gz'
+      checksum: sha256=2b8ce74a288d67bd1e84641ff17248d5abbc9084f56ded163e88fbdb407dd975
+  unsafe_clear:
+    archive:
+      url: 'https://github.com/janestreet/unsafe_clear/archive/a9e22373493446aa66de421e84cbb20e0a80b47b.tar.gz'
+      checksum: sha256=68c3798ba8eec017f62af2fef7a9d6e5f7f8c262de8f7ee10b0195d4269b6e68
+  univ_map:
+    archive:
+      url: 'https://github.com/janestreet/univ_map/archive/2782d482aff2235818b3a0ec14add927d5fb5be1.tar.gz'
+      checksum: sha256=21db58870a7bf073b4cc42b8a4b1b6fb993042f32fb7e259eaf211086edc2ed1
+  unique:
+    archive:
+      url: 'https://github.com/janestreet/unique/archive/10b634e770d6fc85d2d8b410f7040fec657aca45.tar.gz'
+      checksum: sha256=48494dae96fe218f1da5bb239052000f11d9c1e0671bfa31596035828386f08d
+  unboxed_datatypes:
+    archive:
+      url: 'https://github.com/janestreet/unboxed_datatypes/archive/160be410901cc3014cabb75b8cbfca96b9e6c89f.tar.gz'
+      checksum: sha256=018463e3fd556f3e547895aa6be58e47db8e93e52e6ee5a44f2b8f0b94cb8851
+  unboxed:
+    archive:
+      url: 'https://github.com/janestreet/unboxed/archive/ff3189fa49ad04086bbc111cb4937a75c7f09e8d.tar.gz'
+      checksum: sha256=0c3524aa3046fbfbdda33593fd8f456d97c18bd680eaa198617e90544002b3f9
+  uchar:
+    archive:
+      url: 'https://github.com/ocaml/uchar/releases/download/v0.0.2/uchar-0.0.2.tbz'
+      checksum: sha256=47397f316cbe76234af53c74a1f9452154ba3bdb54fced5caac959f50f575af0
+  tyxml:
+    archive:
+      url: 'https://github.com/ocsigen/tyxml/releases/download/4.6.0/tyxml-4.6.0.tbz'
+      checksum: sha256=bfeb673c6b4e120a4eca4c48448add47dc3f8d02c2b40f63ffdccc4e91c902dd
+  typerep:
+    archive:
+      url: 'https://github.com/janestreet/typerep/archive/455d06b9f9bb1bc1526073a7c413e7b2df38fc87.tar.gz'
+      checksum: sha256=516126d01866b93d529fc671cd8438dedaab291329bc923f6f77bca25b2b36ae
+  trie:
+    archive:
+      url: 'https://github.com/kandu/trie/archive/1.0.0.tar.gz'
+      checksum: sha256=c2f8054ea44216e6a3a961b28f7630e0e3dbfbd1b504ae741be230cbe32498ea
+  tracing:
+    archive:
+      url: 'https://github.com/janestreet/tracing/archive/84575d7424ed8a81ae2ca37244e5ae1cf1a75cb8.tar.gz'
+      checksum: sha256=05b4d62aaebf8fe48ed8d2b6366d93f7f95575b49f8f6c07dd60865c0662ed98
+  torch:
+    archive:
+      url: 'https://github.com/janestreet/torch/archive/c2ff1a6e8957d6d5d53ba4cb65b4ad9aaed2d899.tar.gz'
+      checksum: sha256=dd3f60228136e6086dfa2f4b316180681fc4fa2d1a35ca7f578d7c18b695678e
+  topological_sort:
+    archive:
+      url: 'https://github.com/janestreet/topological_sort/archive/cee464cbfd88a8f6c21f8f7312744c8dd76f46d9.tar.gz'
+      checksum: sha256=96afdf00452d4b33bdd7a4e8bca2f2e046eab113c5aed5375d61d0de39b067ee
+  toplevel_expect_test:
+    archive:
+      url: 'https://github.com/janestreet/toplevel_expect_test/archive/d263c3ae089aa6e226657db2c92bc071a2d86de3.tar.gz'
+      checksum: sha256=a22ce13f9083b5c95fa71afbb9d2e66707d5df4409351c5504b1e54442c2f453
+  toplevel_backend:
+    archive:
+      url: 'https://github.com/janestreet/toplevel_backend/archive/7cab812a6c1dd34575acfb413994cc8f43c9ab0f.tar.gz'
+      checksum: sha256=9079a3861e989cbcad689623f4068b1393b201812262ac545dd378d08edd3692
+  toplayer:
+    archive:
+      url: 'https://github.com/janestreet/toplayer/archive/620dcade97e0b20cd99941c4f5f4f2d554064231.tar.gz'
+      checksum: sha256=67e3d92e4e7a586023d48503317afd1bd41e28009159101dae7d77b3115d9b23
+  topkg:
+    archive:
+      url: 'https://erratique.ch/software/topkg/releases/topkg-1.0.8.tbz'
+      checksum: sha512=4b632b60137852bb72ff9c8cdc2e16ac5ece6473569e50963fef9c1e800a0933a516bea1107b04011645afa4a1e78893c82dbce0aa8de2970d4d6c6d0dd2fe02
+  timezone:
+    archive:
+      url: 'https://github.com/janestreet/timezone/archive/c9124c1ecde1ecfb560e05d81cc27dfc92449d80.tar.gz'
+      checksum: sha256=d53793a16b23bfa5eb5c238bfec7d5a68fc278548a5af6fc9ff8c416e1946f3d
+  time_now:
+    archive:
+      url: 'https://github.com/janestreet/time_now/archive/97677726d51ec340d9db4f79986bb12ecf66a57e.tar.gz'
+      checksum: sha256=99ee93b98ad0c9255ddbb31c62a0dbc94c528774485839b0758b2381c55e92b0
+  time_ago:
+    archive:
+      url: 'https://github.com/janestreet/time_ago/archive/c8b57fe557b5e1f4f0001d6ea0162be23bb74987.tar.gz'
+      checksum: sha256=ee48af9809b23fd55be7980df45f44fb018b6e31d4344a3ad32b207b86eee22f
+  tilde_f:
+    archive:
+      url: 'https://github.com/janestreet/tilde_f/archive/f1f7a83f9c2fd0613516a217d70f261b65ffa638.tar.gz'
+      checksum: sha256=231334da90288199878376b90966016d789b94993835ff3e1e9989d211c0f1a8
+  thread-table:
+    archive:
+      url: 'https://github.com/ocaml-multicore/thread-table/releases/download/1.0.0/thread-table-1.0.0.tbz'
+      checksum: sha256=a48cd88463597df9442c4baa69ccc06091ca77ba71e438d3609fbae0f3b81ddd
+  textutils_kernel:
+    archive:
+      url: 'https://github.com/janestreet/textutils_kernel/archive/64cf1be6368ecd26066f81b4dd6f5cfcd7a7c914.tar.gz'
+      checksum: sha256=9266345f3e34a29c132161f1b9d3df8e27866270d9364a6f62e9aa13b4e3d3ed
+  textutils:
+    archive:
+      url: 'https://github.com/janestreet/textutils/archive/cebeec9453668fff10002f45c13cf0ae916e47de.tar.gz'
+      checksum: sha256=81b26547621f5ff149ad5131c5c76fd316d09eaac23a7a20ca4f8750441ee8e3
+  testable_timeout:
+    archive:
+      url: 'https://github.com/janestreet/testable_timeout/archive/efc0caa78352cc20c1cc7a90561d41e29657b727.tar.gz'
+      checksum: sha256=04eb58120c064b871ebcc049a54242028eb45d3b1ec87591345c47b58a84abff
+  swhid_core:
+    archive:
+      url: 'https://github.com/OCamlPro/swhid_core/archive/refs/tags/0.1.tar.gz'
+      checksum: sha256=8718b4eb97c9f0acd6d9162a9efa2f6af82474a0bd186f622fda3294f773bccf
+  stringext:
+    archive:
+      url: 'https://github.com/rgrinberg/stringext/releases/download/1.6.0/stringext-1.6.0.tbz'
+      checksum: sha256=db41f5d52e9eab17615f110b899dfeb27dd7e7f89cd35ae43827c5119db206ea
+  string_dict:
+    archive:
+      url: 'https://github.com/janestreet/string_dict/archive/71333fb03e64f837e294b14998d88061f522a808.tar.gz'
+      checksum: sha256=265d3a91963158358096736ff4475e102a4925130d4ed3cd9765fc5cf6b58800
+  streamable:
+    archive:
+      url: 'https://github.com/janestreet/streamable/archive/01a58e0a54288747c12848a2378ce9c3f3f4576b.tar.gz'
+      checksum: sha256=489b8f908e3143b7f12df1d9853dde8c2b93f3964fac9d0303e9dfb26f6cc0b0
+  stored_reversed:
+    archive:
+      url: 'https://github.com/janestreet/stored_reversed/archive/04cba281561f43bd8f4267ddd46834ebc11fb88e.tar.gz'
+      checksum: sha256=2889d967fc3667df823e221aadb3e7e360e163c98f509b224189863cc324e3a3
+  stdlib-shims:
+    archive:
+      url: 'https://github.com/ocaml/stdlib-shims/releases/download/0.3.0/stdlib-shims-0.3.0.tbz'
+      checksum: sha256=babf72d3917b86f707885f0c5528e36c63fccb698f4b46cf2bab5c7ccdd6d84a
+  stdio:
+    archive:
+      url: 'https://github.com/janestreet/stdio/archive/4051f477c3f366a0516c92c2219074a69c0a3f3e.tar.gz'
+      checksum: sha256=66072b43fbcbccb700662f46b4aa2c12828960aaa8e19a35ac4db859f7771a21
+  splittable_random:
+    archive:
+      url: 'https://github.com/janestreet/splittable_random/archive/4845f096604992ccd28b6ddb7a2c21d6a412c54c.tar.gz'
+      checksum: sha256=4c395381387385a3c3b6f89d8b1a4428a19b2c4b77eb014d11a7cac56a1ba16d
+  splay_tree:
+    archive:
+      url: 'https://github.com/janestreet/splay_tree/archive/7b594d058db2ad3a5e6bfde46f285d0c4bc08e14.tar.gz'
+      checksum: sha256=a35662624ad342ac23f2831142a0c450ca7db7c079646f921728b09833a4d373
+  spawn:
+    archive:
+      url: 'https://github.com/janestreet/spawn/archive/e24c5102490d51c50f5e77798250d95eb680a5d2.tar.gz'
+      checksum: sha256=62211a654c7885f49886422c884070a6be6b4f5d54cfc592126e7296c505ff8b
+  simple_xml:
+    archive:
+      url: 'https://github.com/janestreet/simple_xml/archive/0948ffa9e96ffb98dbd1f92fb451f6d37acba40f.tar.gz'
+      checksum: sha256=55746b957d6f415e4a0aa596137459b94b01c2d93ccb36982238b30a4f7be7e1
+  shexp:
+    archive:
+      url: 'https://github.com/janestreet/shexp/archive/0623664096ef41f34a8534d572ce3041c98f2820.tar.gz'
+      checksum: sha256=7e944f33bbd1fe2e27f21c1bb2e6464aaf7910efcd11cae098cae795821644f3
+  shell:
+    archive:
+      url: 'https://github.com/janestreet/shell/archive/d49f939ca2d8412dd7ca4f7f3ba012139b056e4b.tar.gz'
+      checksum: sha256=07da9a14f933bbac1f2e37dc9e7975ae23575545bf903aa8cbc21ae5ecbbefd0
+  sexplib0:
+    archive:
+      url: 'https://github.com/janestreet/sexplib0/archive/90faa35aee9d85883ec1ee1ee4c2ba3ba9bc6796.tar.gz'
+      checksum: sha256=0d2d14603b9812959e82b99d37c2d9cceb3b1d4dac0d3af6b0376d736e8c5e35
+  sexplib:
+    archive:
+      url: 'https://github.com/janestreet/sexplib/archive/7e8d9d53effd434f689593bb5331eedd051edb17.tar.gz'
+      checksum: sha256=c5c227fe3d99dc16f102a18c00fe9a0f5534e21a02fa25418094bfa7fbd05c91
+  sexp_type:
+    archive:
+      url: 'https://github.com/janestreet/sexp_type/archive/56a326fa9c5d6a3c4cf2247c1273e9c321c9a415.tar.gz'
+      checksum: sha256=21231bb9aa4f063b8767170d2fef29efc2a13d6d2732b175ebc29fd7ee5b09cc
+  sexp_string_quickcheck:
+    archive:
+      url: 'https://github.com/janestreet/sexp_string_quickcheck/archive/8be61287228201b7868916091716e0e346572014.tar.gz'
+      checksum: sha256=03697ab19e6e114d038e410816e5a3f949feeb19f33c6290a68b2689617bc82f
+  sexp_select:
+    archive:
+      url: 'https://github.com/janestreet/sexp_select/archive/087fa42aa31e9d2725ba5b54c3ac6880d1540031.tar.gz'
+      checksum: sha256=4ec90b56240e607108f5a255e344cd51defc98e815950e1ba117b5597b72076e
+  sexp_pretty:
+    archive:
+      url: 'https://github.com/janestreet/sexp_pretty/archive/590ddd865badce965fd77d7b26f49ea64f333f28.tar.gz'
+      checksum: sha256=7a0c9d7e4aee771ddfce0d5fc99f0b64db016ce09adce038170cf71305c6d6d6
+  sexp_macro:
+    archive:
+      url: 'https://github.com/janestreet/sexp_macro/archive/5d70dd25066ad1ad71a9e40c52e5b2641eeb5705.tar.gz'
+      checksum: sha256=8f140a6c8fba4ecce0c4af3a26b8f1f8e1845c1acb3cf83545f057be6724d877
+  sexp_grammar:
+    archive:
+      url: 'https://github.com/janestreet/sexp_grammar/archive/c177567be7450a271bea3fc9eb0bfaf2ac44e6c3.tar.gz'
+      checksum: sha256=d90007cd890b3ce57cf139a9e3d692636559bb4f0fe9f98e6a4e8ae82f119c38
+  sexp_diff:
+    archive:
+      url: 'https://github.com/janestreet/sexp_diff/archive/bf7616b6d6efe27c515e8a82c309aca61bb9e0f8.tar.gz'
+      checksum: sha256=3eb1c6a68c4b79dcc041f531c9c8912bf3fb314d4185ce8285d4da8f9074c55f
+  sexp:
+    archive:
+      url: 'https://github.com/janestreet/sexp/archive/27affd1ee777733e37da333f223de3a5a74c76ef.tar.gz'
+      checksum: sha256=af427d04b2d329552eb84f463d28bad1183a2091e239a03fd119c8cc26a5a052
+  sequencer_table:
+    archive:
+      url: 'https://github.com/janestreet/sequencer_table/archive/ad6711a0441f0a21e66d347ab39770402b50f2ac.tar.gz'
+      checksum: sha256=db8eef6f4a1ba01be353546b998c5c62b11d9d41204b6368320e668064167ca5
+  semantic_version:
+    archive:
+      url: 'https://github.com/janestreet/semantic_version/archive/f3ab0e465d7665beb74aeeb7c043a5f1dea677b1.tar.gz'
+      checksum: sha256=a5c028b9d10c3d55aea6f5f3b5998b126eaa311c3e48b261cc4da3d61e01ffef
+  sedlex:
+    archive:
+      url: 'https://github.com/ocaml-community/sedlex/archive/refs/tags/v3.6.tar.gz'
+      checksum: md5=ad2d0ec91d20171d3a7161a0cc0c2e6a
+  rresult:
+    archive:
+      url: 'https://erratique.ch/software/rresult/releases/rresult-0.7.0.tbz'
+      checksum: sha512=f1bb631c986996388e9686d49d5ae4d8aaf14034f6865c62a88fb58c48ce19ad2eb785327d69ca27c032f835984e0bd2efd969b415438628a31f3e84ec4551d3
+  rpc_parallel:
+    archive:
+      url: 'https://github.com/janestreet/rpc_parallel/archive/710f0265f945856f2240ac9f0753d391319be2c3.tar.gz'
+      checksum: sha256=8d9a2de048ccdf3f4ecc96416fb497475c694dc3c557f607e55a87ee7eef6a12
+  result:
+    archive:
+      url: 'https://github.com/janestreet/result/releases/download/1.5/result-1.5.tbz'
+      checksum: sha256=7c3a5e238558f4c1a4f5acca816bc705a0e12f68dc0005c61ddbf2e6cab8ee32
+  resource_cache:
+    archive:
+      url: 'https://github.com/janestreet/resource_cache/archive/3f713a8a9c0d9e00bf27418c5fe61bc906829cb1.tar.gz'
+      checksum: sha256=5adf29f080627da508abb7f7af9a9ffe05108dd5363957b07a3c943b3e1034df
+  regex_parser_intf:
+    archive:
+      url: 'https://github.com/janestreet/regex_parser_intf/archive/6bbbf60cf02c414da2b64f8a5abab2d80e504bba.tar.gz'
+      checksum: sha256=433280c485711f2961cf41fd07542347712e1ef353b4d98eb4f8823eff251f90
+  redis-async:
+    archive:
+      url: 'https://github.com/janestreet/redis-async/archive/96bf3340c74a0329044e9ffceda55eb0f61b71c7.tar.gz'
+      checksum: sha256=805542daf9a431433cd62d9b47eb8ebc75c5ebd90202fb7cf89da9c0d5b92203
+  record_builder:
+    archive:
+      url: 'https://github.com/janestreet/record_builder/archive/a971d7ab234998b622084a44adf0c8dd24b92c93.tar.gz'
+      checksum: sha256=37c1230c95fda516033c48f12b3e7bc602d756b539dbaf4ec38638713baabf4d
+  react:
+    archive:
+      url: 'https://erratique.ch/software/react/releases/react-1.2.2.tbz'
+      checksum: sha512=18cdd544d484222ba02db6bd9351571516532e7a1c107b59bbe39193837298f5c745eab6754f8bc6ff125b387be7018c6d6e6ac99f91925a5e4f53af688522b1
+  re2:
+    archive:
+      url: 'https://github.com/janestreet/re2/archive/729549119764c4a8a95d90f873c30ff8bb973d61.tar.gz'
+      checksum: sha256=1ff83f6af78aa4dfcc7c5117a7284598784203872df19052e0b68262def37733
+  re_parser:
+    archive:
+      url: 'https://github.com/janestreet/re_parser/archive/9b8bf5d4bb3954686c938eaf84f0286cdeeea5dc.tar.gz'
+      checksum: sha256=cf29a6bc74c2cd789e5a0f984b01e434cc7688bcec404aae8b98a120b61f6265
+  ptime:
+    archive:
+      url: 'https://erratique.ch/software/ptime/releases/ptime-1.2.0.tbz'
+      checksum: sha512=b0c3240dd9e777a5e60b5269eb2e312fc644d29ef55e257d2f2538c03bf62274173ed36e13858c44d2dbee8fe375c9c483e705706e4aa5b3b5c4609ca6324a5c
+  psq:
+    archive:
+      url: 'https://github.com/pqwy/psq/releases/download/v0.2.1/psq-0.2.1.tbz'
+      checksum: sha256=42005f533eabe74b1799ee32b8905654cd66a22bed4af2bd266b28d8462cd344
+  protocol_version_header:
+    archive:
+      url: 'https://github.com/janestreet/protocol_version_header/archive/01c11451931ff72df0e2287421713f5800057cb0.tar.gz'
+      checksum: sha256=2899f4d9e1f05d46d6536f8f2a47dbd2c8f1d58652ee5ded83e2a17ff7eb6fd2
+  progress:
+    archive:
+      url: 'https://github.com/craigfe/progress/releases/download/0.5.0/progress-0.5.0.tbz'
+      checksum: sha256=7f87f0597363928c45ba859ae5a1430f6aa3c29e251ff1a53cf786ed0e045961
+  profunctor:
+    archive:
+      url: 'https://github.com/janestreet/profunctor/archive/54c9451803c62b84a6416b116ae5e28e074db3dc.tar.gz'
+      checksum: sha256=21c7770c55816348c2143cb069778e0b4c96abc598056bbaf2e22f6fd4c7c021
+  ppxlib_jane:
+    archive:
+      url: 'https://github.com/janestreet/ppxlib_jane/archive/2ef9c6356041bc74895c99f43d997f3a690050b0.tar.gz'
+      checksum: sha256=8144635b21c33f31b0ff0e708a95c2f60e4ff2609039965486d495c909088e5f
+  ppxlib:
+    archive:
+      url: 'https://github.com/ocaml-ppx/ppxlib/archive/1f788de67fd04d7e608376ac26ee57deeeb93fdd.tar.gz'
+      checksum: sha256=54afd640f863c2f39a6c844f6ceff63c8796e865da7db6d49c60019516fc00d4
+  ppx_yojson_conv_lib:
+    archive:
+      url: 'https://github.com/janestreet/ppx_yojson_conv_lib/archive/7b7e3b3ea30e12bfd9df408f3958f48141af6a32.tar.gz'
+      checksum: sha256=187b10ec22bc03052d7bef072829a893698853f1656696ff9740195ff3bcf78f
+  ppx_yojson_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_yojson_conv/archive/0586db659761a612ee941dd49657dcc60432d938.tar.gz'
+      checksum: sha256=ae98ef1c85c77dfe11997e95332463702cc7c57330dd8faf80c1825266494d31
+  ppx_xml_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_xml_conv/archive/76f9eac1e136fecb81bbf23efd7a7ccfa2dd9e6b.tar.gz'
+      checksum: sha256=08b4e17f80f0f8abb8014f589c49eeba7f2d4b8207fe9b00d5df10ce0bc3e46c
+  ppx_with:
+    archive:
+      url: 'https://github.com/janestreet/ppx_with/archive/048a3f548f75b05d924ce9c6a3e5157648ffe708.tar.gz'
+      checksum: sha256=d1f0540d46d74b92a149d235af37b716ad5224f14cb840850e7c569a9aca2358
+  ppx_variants_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_variants_conv/archive/e7b6a76ba7968adaa358faecec1b18bcf5e0dd88.tar.gz'
+      checksum: sha256=0c1259b7d0fa159e93f43f6c8c65398455e55f3861eaacc13a973806d2145ea8
+  ppx_var_name:
+    archive:
+      url: 'https://github.com/janestreet/ppx_var_name/archive/1c26fe5da3038ef577cbd7b51a839e5f251981ee.tar.gz'
+      checksum: sha256=f5b3da3dae540e2c456d08ef4383eb873bf77085cd288d642ae2a341564fea3a
+  ppx_typerep_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_typerep_conv/archive/0e0b91c53bc13f1a40abf34db412b8cf4c793f59.tar.gz'
+      checksum: sha256=3ce8128385ac834b09cfcb8f4858cd3d5681163d11dfc615298fcd83b971aac1
+  ppx_typed_fields:
+    archive:
+      url: 'https://github.com/janestreet/ppx_typed_fields/archive/c7e0fa1d76ecf10411c9dad5935c2d93e4f70c10.tar.gz'
+      checksum: sha256=28ed119f6444204ff1638e5d732cbb12e1caea9e6a8d821b7d6aeb0e732df502
+  ppx_tydi:
+    archive:
+      url: 'https://github.com/janestreet/ppx_tydi/archive/7bde5775cb3aa03a55fe29b29eb235e7ad647ede.tar.gz'
+      checksum: sha256=b6ddf08de8108215aeb2c97813c8ab8ae5eb0180105fa18d5e357ef325b57045
+  ppx_template:
+    archive:
+      url: 'https://github.com/janestreet/ppx_template/archive/588665c75d2d732e12b489ee13caff2d23728d38.tar.gz'
+      checksum: sha256=65c7b8283907318ac5a27de695399d755aaadca11178d6b762d9aac4791343e6
+  ppx_string_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_string_conv/archive/e32d1ab34ac1e54d2dcebf5e7a71976f8ea5ad07.tar.gz'
+      checksum: sha256=73383789236ee4166e35f363303c67eeed0c8ce2460bcd976f1b22954a3d4673
+  ppx_string:
+    archive:
+      url: 'https://github.com/janestreet/ppx_string/archive/501b14c052dd4ea1c5040909f2cd41b376ffe042.tar.gz'
+      checksum: sha256=4227d1481c27bd69c2f25c9991e96a95f1fa5539b926f80c9fe39ac6726af210
+  ppx_stable_witness:
+    archive:
+      url: 'https://github.com/janestreet/ppx_stable_witness/archive/270a1304af4365e6aab0161f4da799455da5a862.tar.gz'
+      checksum: sha256=18561e8425d3c6a403f33a9402482493f760dbd71fbc83b3e1550b67d68eec2a
+  ppx_stable:
+    archive:
+      url: 'https://github.com/janestreet/ppx_stable/archive/db0c934cefb17222e070a858d2bd308ca220cd96.tar.gz'
+      checksum: sha256=95bbda88c29be70d4865a31d4ea06a804796a195ea2c7fe05c04006b78b760c5
+  ppx_simple_xml_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_simple_xml_conv/archive/b90648e69bf6cebf42189eb1f76455b376bef55d.tar.gz'
+      checksum: sha256=a33a7aa7a7109096c59953017ced57640028e4c04ff7b6a474ec6fe2b59c356c
+  ppx_shorthand:
+    archive:
+      url: 'https://github.com/janestreet/ppx_shorthand/archive/75e5bd45556fcda037237f30c5d7c706c81f7451.tar.gz'
+      checksum: sha256=b1bce34ea3a528a6465146d5f0b06958857811fea5bfd63627a315b309ef61a2
+  ppx_sexp_value:
+    archive:
+      url: 'https://github.com/janestreet/ppx_sexp_value/archive/15db3a1769e4d6bb66206bd44030a089471a4b13.tar.gz'
+      checksum: sha256=e4c4e5b2af9b29a78dc5feb197606bd8a156f1d87e10549561f9e36b40cbece3
+  ppx_sexp_message:
+    archive:
+      url: 'https://github.com/janestreet/ppx_sexp_message/archive/b0595e930cdb0b08c5aa7dde5ed631231d73594c.tar.gz'
+      checksum: sha256=1168e9dcd0b74937b68d20a485aa50538f75e4ae6411529e81233c17e3b5f829
+  ppx_sexp_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_sexp_conv/archive/198ef6394b5831d8c7f211f4faa16b7047886038.tar.gz'
+      checksum: sha256=132d5c01b7d0220ef21322e66ee1ad3ee7a97f370138f904205981a471812840
+  ppx_rope:
+    archive:
+      url: 'https://github.com/janestreet/ppx_rope/archive/4258bf5ccb13529753ba7cd21666a9100fbae12b.tar.gz'
+      checksum: sha256=dae2e753dfa98b39decb8fc865f24127c2d034d817d353ff62329820d055bd19
+  ppx_quick_test:
+    archive:
+      url: 'https://github.com/janestreet/ppx_quick_test/archive/52b66cfb7bf29573a5b9a186b6d87dbb78d7dcde.tar.gz'
+      checksum: sha256=8384c7f8141ba22e7433bf463fd389e5ec3fb1c95d30f8a9bf091433fa8ee65e
+  ppx_portable:
+    archive:
+      url: 'https://github.com/janestreet/ppx_portable/archive/e0eafeebbddbd449990fb45f23faf41511f7531e.tar.gz'
+      checksum: sha256=d7037fe334dd0fcfa1a0cd44ef143207bb832ae4d167cc809b91e45875c8351b
+  ppx_pipebang:
+    archive:
+      url: 'https://github.com/janestreet/ppx_pipebang/archive/9c7e039b185823d8dbf24edde58cf80c7e93cab8.tar.gz'
+      checksum: sha256=65ef7fd700856d270bd408ed3cebfcaea065813bb2dcdba616502d4b6a4206a2
+  ppx_pattern_bind:
+    archive:
+      url: 'https://github.com/janestreet/ppx_pattern_bind/archive/80f2c83c73e38d2f37429d06708c10746c7ea6a9.tar.gz'
+      checksum: sha256=086a35f1746f54a28f0f00e099e47e0e748110ed33a62cf46e3da1d5147dafb5
+  ppx_optional:
+    archive:
+      url: 'https://github.com/janestreet/ppx_optional/archive/5dcbffa051893af40cce35d00e9f7b07cab3a8b4.tar.gz'
+      checksum: sha256=0be7f8058dca7da504bc800650ce07e1b5955c0a41d24327e6bdddfbca693f29
+  ppx_optcomp:
+    archive:
+      url: 'https://github.com/janestreet/ppx_optcomp/archive/28338f3057e4a8199ae3890b88d6654972fb336b.tar.gz'
+      checksum: sha256=d8cfddcc3198588d4cc4a80d638adefc29cf8c3fbb6d0af857dd25b83d211bcd
+  ppx_module_timer:
+    archive:
+      url: 'https://github.com/janestreet/ppx_module_timer/archive/446135cf30592a8c6749862b4386514b6adfcdf8.tar.gz'
+      checksum: sha256=72351b0d37b4ab8a3833266aa0318ef5e22a6dc3e50eeac0be376aa87f975e7c
+  ppx_log:
+    archive:
+      url: 'https://github.com/janestreet/ppx_log/archive/ef30528f5103578d6cce9eb27a79bed764eec5db.tar.gz'
+      checksum: sha256=1720b917b2f09b87d637a1ad824fb8a7062c38f884544ba469e7bd69a85ede45
+  ppx_let:
+    archive:
+      url: 'https://github.com/janestreet/ppx_let/archive/6934a4f768573b62db8e8b526a4994cd90745980.tar.gz'
+      checksum: sha256=807e53245e4927b43d604a883b9c917237b04e048769a53e248f31cac1b483cf
+  ppx_jsonaf_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_jsonaf_conv/archive/8af499477d935b933cacf10d8623cdbc7c0fd085.tar.gz'
+      checksum: sha256=1df25399803d3e67a7d20f0261e5ac39297cd7a8cd69bda944a90b3463bb5d7d
+  ppx_js_style:
+    archive:
+      url: 'https://github.com/janestreet/ppx_js_style/archive/c02f4ca377f3c199d481d5dd0d92ae0f0cf088e6.tar.gz'
+      checksum: sha256=9a66aedc7b96983d3250b66f3acc7577f5b892d3f03855a8fec106da0a320462
+  ppx_jane:
+    archive:
+      url: 'https://github.com/janestreet/ppx_jane/archive/c45c9c988af916cf9a0415b4cc69e6ddc5bb9cad.tar.gz'
+      checksum: sha256=b258a98c8c0bb1f11769cd9944d2ef58fea1536287a1c62d1d2a1e32a91c6072
+  ppx_int63_literal:
+    archive:
+      url: 'https://github.com/janestreet/ppx_int63_literal/archive/6c33205aad493a2f1dfecb06e10fe41430c5736e.tar.gz'
+      checksum: sha256=e010dd5cd9d48bb23c47f491cbd30677eb1678f465dd1fad288efa0580eb96b7
+  ppx_inline_test:
+    archive:
+      url: 'https://github.com/janestreet/ppx_inline_test/archive/f738af6a43decbc53dd4d2ea876ac2529ff8a6e2.tar.gz'
+      checksum: sha256=eb01fbe6f3bb8ed58d0b5c30091647607189856a6635ce02a025abb86f9a351b
+  ppx_ignore_instrumentation:
+    archive:
+      url: 'https://github.com/janestreet/ppx_ignore_instrumentation/archive/f6dcd0ae603c940ad5dcd4772bb3c1de7b6f49a8.tar.gz'
+      checksum: sha256=48c89d07c21096a25d6f687696b89aaf60abe3eb6b2b4a46e70abf92d6c1b581
+  ppx_html:
+    archive:
+      url: 'https://github.com/janestreet/ppx_html/archive/589edcdf7a3f716de5d1a256d3445877ed0df793.tar.gz'
+      checksum: sha256=725aee02151f7beec170b8d2e092376399dd9140c6fe2add9efbe92d86915121
+  ppx_here:
+    archive:
+      url: 'https://github.com/janestreet/ppx_here/archive/08a96612a91bacc21061e5f42236d7e86b0f70f8.tar.gz'
+      checksum: sha256=ad04cee6ce719a2dd72e64e52812f2f852ee56ee528b02df0fb4cf9819b26f3e
+  ppx_helpers:
+    archive:
+      url: 'https://github.com/janestreet/ppx_helpers/archive/2434f81f2c86ca616550c1af29be42fe8d11491f.tar.gz'
+      checksum: sha256=692a94ba050b118bf26a5b28bbf336adcfb00ef43ab37cd3c110bd19789d8092
+  ppx_hash:
+    archive:
+      url: 'https://github.com/janestreet/ppx_hash/archive/463c6ea7cc9769f54953d979d63c11e3d5f59a2b.tar.gz'
+      checksum: sha256=9c375676390594fd00cba8d70db34cb894c3d98f5bb2d06451e0b7c5f412d13d
+  ppx_hardcaml:
+    archive:
+      url: 'https://github.com/janestreet/ppx_hardcaml/archive/b88bac198180358e62d756b81cf1959be1c20cd8.tar.gz'
+      checksum: sha256=9bd0f4c87fb0e2d1937a27008d9903fc972edb4e736fd27f5567e01445e75366
+  ppx_globalize:
+    archive:
+      url: 'https://github.com/janestreet/ppx_globalize/archive/8830cc2037018149141bbfb0e454002820ea332c.tar.gz'
+      checksum: sha256=84845e3f44b88a4f7c91f73a2793cae5a967b3c7c78aaecdc7314efcf5e9080e
+  ppx_fuelproof:
+    archive:
+      url: 'https://github.com/janestreet/ppx_fuelproof/archive/4f76d726f76cc17f585bf665852cf8743c5386f3.tar.gz'
+      checksum: sha256=2347dbda68071097ef73a39cae92313f0d43295cc4aabeae901f4672dcb229fe
+  ppx_for_loop:
+    archive:
+      url: 'https://github.com/janestreet/ppx_for_loop/archive/71683a3b5558545cc148de016366e794ea27c9ea.tar.gz'
+      checksum: sha256=fd39cd17e68ed60acefe1895d59493f460d53f8649c4c56e339acb861dcad3a2
+  ppx_fixed_literal:
+    archive:
+      url: 'https://github.com/janestreet/ppx_fixed_literal/archive/a91895d1d93ed498508554e80a4ce1d862d813b4.tar.gz'
+      checksum: sha256=a7195951cdf46685b6120d129c1e5849339e46c5e7f44156d21b7fbb775b4153
+  ppx_fields_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_fields_conv/archive/5b615e95cb2bb7df5307d01329b04ad8b8b598f7.tar.gz'
+      checksum: sha256=676451b22be3a994d8fb9a42853184b71134e947b3cceb8ba8e03f388abd1d43
+  ppx_expect:
+    archive:
+      url: 'https://github.com/janestreet/ppx_expect/archive/720407288749a49accf9821594eebd5c7caaadeb.tar.gz'
+      checksum: sha256=e2266c7d5c5fb9373143861f8f1a9665c0d0f3ca69140226ea3cd643f857039a
+  ppx_enumerate:
+    archive:
+      url: 'https://github.com/janestreet/ppx_enumerate/archive/ee4e084591a04f73b9d244f8f3957a7a3ec3457f.tar.gz'
+      checksum: sha256=f7157b624ff6b0c7de1539efaa0b2244656fcc2e51da78e5b5afc5e6ac9f537a
+  ppx_embed_file:
+    archive:
+      url: 'https://github.com/janestreet/ppx_embed_file/archive/1722c3ed76ea9bb965317764f1a1ec7dc29172ee.tar.gz'
+      checksum: sha256=af3ab16ce419ecd9875d63f0c8dee65de508a0dec416a8f1e4e4452994e824b5
+  ppx_disable_unused_warnings:
+    archive:
+      url: 'https://github.com/janestreet/ppx_disable_unused_warnings/archive/6de0c3174a1a03db4867686d80b3142191cc51e7.tar.gz'
+      checksum: sha256=a4771daf48e2d81bdfa844534c288ac00d273aabc7e46cefd7d26813f4183f9d
+  ppx_diff:
+    archive:
+      url: 'https://github.com/janestreet/ppx_diff/archive/c0fcae322455daec64eddf351478c7829c021cf1.tar.gz'
+      checksum: sha256=6762322f5a67a396977c7b6e2aa9d10863b6cfd325f98261be36cfe924c9f9e9
+  ppx_deriving:
+    git:
+      url: 'git+https://github.com/patricoferris/ppx_deriving.git#4cb09f54ff13e525804852190bfed8abb9267014'
+      commit: HEAD
+  ppx_derivers:
+    archive:
+      url: 'https://github.com/ocaml-ppx/ppx_derivers/archive/1.2.1.tar.gz'
+      checksum: sha256=b6595ee187dea792b31fc54a0e1524ab1e48bc6068d3066c45215a138cc73b95
+  ppx_derive_at_runtime:
+    archive:
+      url: 'https://github.com/janestreet/ppx_derive_at_runtime/archive/77bc71fe61310071321df7006dc90fb18d9dc553.tar.gz'
+      checksum: sha256=941143a84a150158b350549f9001645ca801132c92fbbbfadcc29a9e552375da
+  ppx_demo:
+    archive:
+      url: 'https://github.com/janestreet/ppx_demo/archive/5ba35a61ec0e13697736224ea380c72937876e52.tar.gz'
+      checksum: sha256=dae44a5fcfabc05c7e036e54b3cefbec0325dfd1fae816e99fcbdadb5fde8fbd
+  ppx_debug_assert:
+    archive:
+      url: 'https://github.com/janestreet/ppx_debug_assert/archive/ac599cd3999e64b206382dc7d1ed15feceb6fbc1.tar.gz'
+      checksum: sha256=f11c4e58135c257b6393de379c81fc848776d4bf414b81cd8608887e8e8bef28
+  ppx_custom_printf:
+    archive:
+      url: 'https://github.com/janestreet/ppx_custom_printf/archive/7b748cf711c3a79dc4cd49be36b271eb5b6ed190.tar.gz'
+      checksum: sha256=96f284119b0edff2f852a18e86237cca4a7bdde4057c0b51410a94fe9693919a
+  ppx_csv_conv:
+    archive:
+      url: 'https://github.com/janestreet/ppx_csv_conv/archive/6ac0bafe566760235c21ee87e14b839e4af49ddf.tar.gz'
+      checksum: sha256=26e7417dc5ee21b6b209c83dfa2e170dd38f2d43b01c7fdfff6dec8e919d8d1b
+  ppx_css:
+    archive:
+      url: 'https://github.com/janestreet/ppx_css/archive/65f2d182468a97e39741f3c6dbe710a416fd9a0e.tar.gz'
+      checksum: sha256=7c6a7cda759d23e5015e9d23e6900b901668c6bad7f97864bf100193d9c893ab
+  ppx_conv_func:
+    archive:
+      url: 'https://github.com/janestreet/ppx_conv_func/archive/c2bacdc33c799b005d1a719f71055e5bb17d62f0.tar.gz'
+      checksum: sha256=9d3d9b32219cd5afedfdc17de8362e6e7e1905cad192854070d4bddee85013f9
+  ppx_compare:
+    archive:
+      url: 'https://github.com/janestreet/ppx_compare/archive/4699b16c95c810d44a777ee0b9a8405d87c1eaae.tar.gz'
+      checksum: sha256=460966eb5f9fea2b7970552e03893c7d126fa0af5bd9f4f3d4c856b1210b4fbb
+  ppx_cold:
+    archive:
+      url: 'https://github.com/janestreet/ppx_cold/archive/af39a96a1f3786cc3cc569c4400ec24cf811ea77.tar.gz'
+      checksum: sha256=9e7b93c29d2779c2be69b93862a1c1eab6a848bb003a2354778b14fdc162b6d1
+  ppx_box:
+    archive:
+      url: 'https://github.com/janestreet/ppx_box/archive/17592a10db1880d154bb5f0d189cf8766e44ee15.tar.gz'
+      checksum: sha256=39e7cdfe03b08296031c512294eea522969e77b9ec060fa86d17f6cfcd9aed6f
+  ppx_blob:
+    archive:
+      url: 'https://github.com/johnwhitington/ppx_blob/releases/download/0.9.0/ppx_blob-0.9.0.tbz'
+      checksum: sha256=f115e90a5f1075cedc9d930ab91271f8670ece4dee10dc1147ab39b8afb570e4
+  ppx_bin_prot:
+    archive:
+      url: 'https://github.com/janestreet/ppx_bin_prot/archive/8ac9310c8ebe6b9b116f8949ee7266f384e4ee91.tar.gz'
+      checksum: sha256=84943e31988f0825a106c01ccd9320f57c42b28c6258e55331e082120680bc1d
+  ppx_bench:
+    archive:
+      url: 'https://github.com/janestreet/ppx_bench/archive/76e5c387b4ff7f23f224c2981ed18ec9d867b18f.tar.gz'
+      checksum: sha256=e3f3bc884340a7213d2556b39270e0d16c85bdec0d7fe3c8dc24ce63cd82ae9d
+  ppx_base:
+    archive:
+      url: 'https://github.com/janestreet/ppx_base/archive/71200b6e9fdef483e04f13adcc1b75a232e8e6b1.tar.gz'
+      checksum: sha256=69a84c7ba7541ff4373cfabedac54b7a05942a9276d764657b9f55d9708fcbc4
+  ppx_assert:
+    archive:
+      url: 'https://github.com/janestreet/ppx_assert/archive/18565f989c36f964a88a11aea04ce432331860e7.tar.gz'
+      checksum: sha256=00f47eb547874baf5f1830c6a7999b283e40315471bec1908b0ff2f0a6b124cf
+  ppx_array_base:
+    archive:
+      url: 'https://github.com/janestreet/ppx_array_base/archive/aedb5bbc200280143d4382a7ac2679567e97c850.tar.gz'
+      checksum: sha256=76d67e2d18d6e0951ac54cb477f72750c08832d12cbdac133b13f63d2417d724
+  ppx_array:
+    archive:
+      url: 'https://github.com/janestreet/ppx_array/archive/02b57597b07263e7edd3a18b663ee3027887ce4a.tar.gz'
+      checksum: sha256=630c65a46ddd94bab91cab2c2c92e4b5f6e0e9c8fd9226020f1296988cbffec3
+  ppx_anonymous_record:
+    archive:
+      url: 'https://github.com/janestreet/ppx_anonymous_record/archive/a7b7b6429b2cb981b36c3853660d10f45f7811d9.tar.gz'
+      checksum: sha256=232580e08a8038fef3f4008146026b0618641c5a3fda0b3e040b1314464e2995
+  ppx_accessor:
+    archive:
+      url: 'https://github.com/janestreet/ppx_accessor/archive/f34d9d39e961575e2600bc767ed3f98a9ef41d7f.tar.gz'
+      checksum: sha256=a7e0766e8162c2940a2c03908c3a20338e3c240b25642eb0679bed43769fe888
+  pp:
+    archive:
+      url: 'https://github.com/ocaml-dune/pp/releases/download/2.0.0/pp-2.0.0.tbz'
+      checksum: sha256=8651351518b092b4a2def4e08171c276152f92fb6a84a8b19b6b929ccdb44419
+  postgres_async:
+    archive:
+      url: 'https://github.com/janestreet/postgres_async/archive/515bb146a7f0a8e61dbfa3e23b8ce54bca3cf4e8.tar.gz'
+      checksum: sha256=a56cac7ec248049e462f061741f517728c9cf8f52898b248f9471205824468cc
+  posixat:
+    archive:
+      url: 'https://github.com/janestreet/posixat/archive/3bf4fb74f6f93060efc5373c14624d29a42fdcc0.tar.gz'
+      checksum: sha256=6b307ca5af64fb63e2c076b2165ccc146d5e2d6a690106c439c60fd6a52c904a
+  portable_ws_deque:
+    archive:
+      url: 'https://github.com/janestreet/portable_ws_deque/archive/e53e7a54a71b7cd55825cab1eb001f0c7180f54a.tar.gz'
+      checksum: sha256=0b8deed205a01a2ebe254fb4c51fd917b6b7beb2c6c8fd28071ea8e10baca65d
+  portable_lockfree_htbl:
+    archive:
+      url: 'https://github.com/janestreet/portable_lockfree_htbl/archive/f9f385a3d289e970ca23ca2f9a54a195f51af48f.tar.gz'
+      checksum: sha256=ea41f6d8b739dc09ab354b2f8df84c5ea097f958c019795c8184273156804a46
+  portable:
+    archive:
+      url: 'https://github.com/janestreet/portable/archive/6b861a5bb372a375a838a52e42792cbe2f570486.tar.gz'
+      checksum: sha256=02d90dead7f0aa50041701c9259b7d630ac76508f5214974e17e3eda758b097d
+  polling_state_rpc:
+    archive:
+      url: 'https://github.com/janestreet/polling_state_rpc/archive/aef90a2c0cef464a3bc29495144fe63b4367b53e.tar.gz'
+      checksum: sha256=b76476710131ad50e1c3b4368a90ae1f478fc929035e3d13b0e7d2899cae7da7
+  pipe_with_writer_error:
+    archive:
+      url: 'https://github.com/janestreet/pipe_with_writer_error/archive/e8c4baf5785141441bcecbf45c0376d6ff8f28e2.tar.gz'
+      checksum: sha256=19b528f2c71d830e9b46d469f52101ffb28d0e06216799ecff7950c8e8fb697d
+  pending_or_error:
+    archive:
+      url: 'https://github.com/janestreet/pending_or_error/archive/8c33410fdaf9939175f3112c2483a7af0c993f8b.tar.gz'
+      checksum: sha256=067433945339a48c7c2a07c42514e8ab1199b8a2c31bf911166c31c728a30937
+  patience_diff:
+    archive:
+      url: 'https://github.com/janestreet/patience_diff/archive/c1e93497dccd03db2ecd684e505b53733f3f8f96.tar.gz'
+      checksum: sha256=4c698f93e169d3894fd5f4da57f4b148f0d7b295eeea4fb02c8a77a3479436da
+  patdiff:
+    archive:
+      url: 'https://github.com/janestreet/patdiff/archive/5605e0b6ef8a41aa2d932f22778682396f6ea942.tar.gz'
+      checksum: sha256=3e1f4d3286066d1487bf5c32826fd051c837bb3ff6af99d23291d943d250a7ea
+  patch:
+    archive:
+      url: 'https://github.com/hannesm/patch/releases/download/v3.1.0/patch-3.1.0.tbz'
+      checksum: sha256=63d9e820295dd257f32efbfde171f1bc940c0c83aae1ed5a501bb57970d52294
+  parsexp_symbolic_automaton:
+    archive:
+      url: 'https://github.com/janestreet/parsexp_symbolic_automaton/archive/2f420d18f1dcb157673575a1e3a8dbd50dc66156.tar.gz'
+      checksum: sha256=26549640adee912f0b99da643dad4f61fca8f418a66b33f9d1bd28e02b0d4475
+  parsexp_prefix:
+    archive:
+      url: 'https://github.com/janestreet/parsexp_prefix/archive/f3fdb8f992d9bbb8c211d2a2b4702d879bb0d312.tar.gz'
+      checksum: sha256=32f62346d08f7cc0b3b231b831b279d53ef615931d1f5e0f568ce15ff4634ef2
+  parsexp_io:
+    archive:
+      url: 'https://github.com/janestreet/parsexp_io/archive/ab2c1eb5bf929c063a8408eae9a52968e9a6a271.tar.gz'
+      checksum: sha256=4135cc68f3525a40e16e6f668275a418bc0d1e98886852502c714563ff0a9a0f
+  parsexp:
+    archive:
+      url: 'https://github.com/janestreet/parsexp/archive/b8255bde3bade682a5b960958b9ce392513ede4e.tar.gz'
+      checksum: sha256=e57b04822d7247e0324e3ec0bf82bcffdab577c7ec57d1aa84a2ef35630d577e
+  parallel:
+    archive:
+      url: 'https://github.com/janestreet/parallel/archive/e488373bb887e8cce4dab95bb23ec5d2f41d4f17.tar.gz'
+      checksum: sha256=7b0f3180d7640a9418241c24d3e6616451ed494635e323c871c3dc46b44c0d8f
+  pam:
+    archive:
+      url: 'https://github.com/janestreet/pam/archive/6b3eeba8cb36f14b6aafc0de3937d492b5f80608.tar.gz'
+      checksum: sha256=438c78570a3bf94e2e1467ab641426c3cee87d3e4b1c23ffcf1cf75687ecfe36
+  oxcaml_intrinsics:
+    archive:
+      url: 'https://github.com/janestreet/oxcaml_intrinsics/archive/337f51447a57ea45145ddca3219c42f7768e0646.tar.gz'
+      checksum: sha256=1b6bea0aedd684f392cf83de73ae98cf0e4ff8a7f3b42ed5674f98391265983e
+  owee:
+    archive:
+      url: 'https://github.com/let-def/owee/releases/download/v0.8/owee-0.8.tbz'
+      checksum: sha256=064f6245f5995d5d2f4f1f9c6d2992e2fdbe3dde328216baec7cfabd4857940d
+  ordinal_abbreviation:
+    archive:
+      url: 'https://github.com/janestreet/ordinal_abbreviation/archive/bbadff8179fbcaa7d24a44b2be90b233e44c789c.tar.gz'
+      checksum: sha256=3c15946950c3e4ded40cb9daaf30c678b2d4f5baccca48d09c433435c388c70f
+  optint:
+    archive:
+      url: 'https://github.com/mirage/optint/releases/download/v0.3.0/optint-0.3.0.tbz'
+      checksum: sha256=295cff2c134b0385b13ba81d5005d9f841ba40d4a502aed10c997f239ef1147b
+  opam-file-format:
+    archive:
+      url: 'https://github.com/ocaml/opam-file-format/releases/download/2.2.0/opam-file-format-2.2.0.tar.gz'
+      checksum: md5=5b65ea84fa2e60e89c2c9f2ca3203e31
+  oklab:
+    archive:
+      url: 'https://github.com/janestreet/oklab/archive/c49739c773a4d1575a66497f1b90ce48396fd076.tar.gz'
+      checksum: sha256=141fb2c8fa39ebab17e95ebfb272789b1c766ebdf0b0fa3d2472198fb8b16dbb
+  of_json:
+    archive:
+      url: 'https://github.com/janestreet/of_json/archive/8d8a49c59205a5e3cb22f8f7066cfd9fc3033197.tar.gz'
+      checksum: sha256=1310ab9054565992ac9a797b2cbee974f80d779661c1faa12c97308653edcc1a
+  odoc:
+    git:
+      url: 'git+https://github.com/oxcaml/odoc.git#97e1daecb432d33a7137d525f7a554f203073a95'
+      commit: HEAD
+  ocplib-endian:
+    archive:
+      url: 'https://github.com/OCamlPro/ocplib-endian/archive/refs/tags/1.2.tar.gz'
+      checksum: md5=8d5492eeb7c6815ade72a7415ea30949
+  ocp-indent:
+    archive:
+      url: 'https://github.com/OCamlPro/ocp-indent/releases/download/1.9.0/ocp-indent-1.9.0.tbz'
+      checksum: sha256=da4ff552f9fc230d7c07f64a8ef89295907bf8d3c581132f05dcf0dd87a172b3
+  ocamlgraph:
+    archive:
+      url: 'https://github.com/backtracking/ocamlgraph/releases/download/2.0.0/ocamlgraph-2.0.0.tbz'
+      checksum: sha256=20fe267797de5322088a4dfb52389b2ea051787952a8a4f6ed70fcb697482609
+  ocamlformat:
+    archive:
+      url: 'https://github.com/oxcaml/ocamlformat/archive/a6f113c6211de01c8188e95ca5fc5fe8d78fb992.tar.gz'
+      checksum: sha256=3f251df04145372d68b8f3f592572761e7db68e382355828479c9baf3bb60a5f
+  ocamlfind:
+    archive:
+      url: 'https://github.com/ocaml/ocamlfind/archive/refs/tags/findlib-1.9.8.tar.gz'
+      checksum: md5=ca770e5806032a96131b670f6e07f146
+  ocamlbuild:
+    archive:
+      url: 'https://github.com/ocaml/ocamlbuild/archive/refs/tags/0.15.0.tar.gz'
+      checksum: sha512=c8311a9a78491bf759eb27153d6ba4692d27cd935759a145f96a8ba8f3c2e97cef54e7d654ed1c2c07c74f60482a4fef5224e26d0f04450e69cdcb9418c762d3
+  ocaml-version:
+    archive:
+      url: 'https://github.com/ocurrent/ocaml-version/releases/download/v4.0.3/ocaml-version-4.0.3.tbz'
+      checksum: md5=6a8cce4bd5b60149ca4302ce587bff94
+  ocaml-syntax-shims:
+    archive:
+      url: 'https://github.com/ocaml-ppx/ocaml-syntax-shims/releases/download/1.0.0/ocaml-syntax-shims-1.0.0.tbz'
+      checksum: sha256=89b2e193e90a0c168b6ec5ddf6fef09033681bdcb64e11913c97440a2722e8c8
+  ocaml-probes:
+    archive:
+      url: 'https://github.com/janestreet/ocaml-probes/archive/2ebf332b7e4cd276f33b97002b92bddaf9643c70.tar.gz'
+      checksum: sha256=ca9cb3fb7611f74f8aa24f383119cd1938d61d330094a17dfc05ad3479f1a5d4
+  ocaml-embed-file:
+    archive:
+      url: 'https://github.com/janestreet/ocaml-embed-file/archive/4492e12c318d209372dec79777cd16bdbb838fe1.tar.gz'
+      checksum: sha256=1a3a8b29e3c804aef3fb471c49f05c40e24fadd9f053ab9a4b10ebc5974be98f
+  ocaml-compiler-libs:
+    archive:
+      url: 'https://github.com/janestreet/ocaml-compiler-libs/archive/refs/tags/v0.17.0.tar.gz'
+      checksum: md5=aaf66efea8752475c25a942443579b41
+  ocaml_simd:
+    archive:
+      url: 'https://github.com/janestreet/ocaml_simd/archive/68b1760e4fcef5b0f3a7a0cf50145b2d18e59218.tar.gz'
+      checksum: sha256=f92331175158b3231e975424d0ccbf732fb9cc34684f95259daebec3932bfb0a
+  ocaml_openapi_generator:
+    archive:
+      url: 'https://github.com/janestreet/ocaml_openapi_generator/archive/455192195876b9e8696aa4fa9daf943386dec854.tar.gz'
+      checksum: sha256=12bd2f8d7679eaa0a7f1fd856fc2a47977e935b0ea59cf781029a904fd49c75c
+  ocaml_intrinsics_kernel:
+    archive:
+      url: 'https://github.com/janestreet/ocaml_intrinsics_kernel/archive/c11521aa497cd9818b3e2851f94036c92c2e7eb1.tar.gz'
+      checksum: sha256=726da1173882de8d86b166857fd915f6c42cbfca610b9ac9f1b33e1e4c3cad08
+  ocaml_intrinsics:
+    archive:
+      url: 'https://github.com/janestreet/ocaml_intrinsics/archive/1769a55cdad0a9dc0e8622948d7e851d5e81422a.tar.gz'
+      checksum: sha256=0119940ec083dd2765d15f1a8e8c23367d2ff595b6725f6965d942c54d1e38aa
+  numeric_string:
+    archive:
+      url: 'https://github.com/janestreet/numeric_string/archive/176be089ef9ba4b667497f251af61b2d4321d686.tar.gz'
+      checksum: sha256=2d60246e1569803567b98e9d73d3b2adbc3a3c2047cbbefe4e199021af63e4be
+  num:
+    archive:
+      url: 'https://github.com/ocaml/num/archive/refs/tags/v1.6.tar.gz'
+      checksum: sha256=b5cce325449aac746d5ca963d84688a627cca5b38d41e636cf71c68b60495b3e
+  notty-community:
+    archive:
+      url: 'https://github.com/ocaml-community/notty-community/releases/download/v0.2.4/notty-community-0.2.4.tar.gz'
+      checksum: md5=b8cb51edb37d28d9d53e98ac52848677
+  notty_async:
+    archive:
+      url: 'https://github.com/janestreet/notty_async/archive/3a733accedbcb8343a224fba41a467eca79dc6aa.tar.gz'
+      checksum: sha256=ce69882089cb1b2f84258b123baae759ef10e33031186b2e36d7b31f22ec9094
+  nonempty_interval_lib:
+    archive:
+      url: 'https://github.com/janestreet/nonempty_interval_lib/archive/3a9cad8a4249f3197078b208c64fd1dd774477bc.tar.gz'
+      checksum: sha256=661bd8f849fa89e1d36d9c50c54bc691d94aa9ca7e40a4336deb1e2793e5203f
+  netsnmp:
+    archive:
+      url: 'https://github.com/janestreet/netsnmp/archive/0cd2beb3501cf8caa6a4a73a4c4c783e96d4725e.tar.gz'
+      checksum: sha256=d4367268834d5b680947b4dd0bba05b670d69d7ce7560d65ea731401c3cb7955
+  n_ary:
+    archive:
+      url: 'https://github.com/janestreet/n_ary/archive/1e073bd16b599ed10a5ff32e12ade76c8513c3b5.tar.gz'
+      checksum: sha256=fd7e7734122a574437f560327b3863e966a7f53394257bd9d16fd0e488b51452
+  mtime:
+    archive:
+      url: 'https://erratique.ch/software/mtime/releases/mtime-2.1.0.tbz'
+      checksum: sha512=a6619f1a3f1a5b32b7a9a067b939f94e6c66244eb90762d41f2cb1c9af852dd7d270fedb20e2b9b61875d52ba46e24af6ebf5950d1284b0b75b2fd2c380d9af3
+  mlt_parser:
+    archive:
+      url: 'https://github.com/janestreet/mlt_parser/archive/092a3efce9ec5278710a4ed66e21caa4e1f98a36.tar.gz'
+      checksum: sha256=580fc3a79665470e6272411d18f1e3820309d0269cc8e3d868efedf51625441a
+  mew_vi:
+    archive:
+      url: 'https://github.com/kandu/mew_vi/archive/0.5.0.tar.gz'
+      checksum: sha256=a692fa7cdcc9e80fd9387c4f61677776b9fc15f9f7175b4220fcd1a73d1bafda
+  mew:
+    archive:
+      url: 'https://github.com/kandu/mew/archive/0.1.0.tar.gz'
+      checksum: sha256=64d38ceb52ef574cb314bdd693f7e4a9c9e483e80a58595db22f2df76a8a59e6
+  merlin:
+    archive:
+      url: 'https://github.com/oxcaml/merlin/archive/aaa0efaa313d28746105da47d11e2a049e7c74d9.tar.gz'
+      checksum: sha256=f7b76956485c97f17829c7f9aa8a99ba0d5956b0f0cbcde48b5180c80727bc8a
+  menhir:
+    archive:
+      url: 'https://gitlab.inria.fr/fpottier/menhir/-/archive/20250912/archive.tar.gz'
+      checksum: md5=b8f83df02226419f99e49f1b637dcb11
+  memtrace_viewer:
+    archive:
+      url: 'https://github.com/janestreet/memtrace_viewer/archive/20d66fb5b51b739979cfd4a79226af218f981f2a.tar.gz'
+      checksum: sha256=402477434d2471529f1a80917259f5e5a517f859f957d9cc62e376892bc6e842
+  memtrace:
+    archive:
+      url: 'https://github.com/janestreet/memtrace/archive/0a77c6b76cadde796e366d8e8d4a4a8864e76717.tar.gz'
+      checksum: sha256=fff821af1c319dcd029f8d4bf17281e9fbc9ee99f99475b5fd10ce307e98c27b
+  mdx:
+    archive:
+      url: 'https://github.com/oxcaml/mdx/archive/d711549bc1d735a1995c271c12011a937cce6917.tar.gz'
+      checksum: sha256=2691db9a75fd1c53e218e26f62bb87cc3d1fa0b2bd3526c7bd57e7b68d3c2146
+  maybe_pushback:
+    archive:
+      url: 'https://github.com/janestreet/maybe_pushback/archive/d1fea96d335a5d48f6c6e704b6f744909428bd64.tar.gz'
+      checksum: sha256=94e93b3110dcfa11a3acf09505b0e7f20fc6eef0177d7635476187d3f6853624
+  man_in_the_middle_debugger:
+    archive:
+      url: 'https://github.com/janestreet/man_in_the_middle_debugger/archive/16d68fc7e189a1dc0741aea0de085ed3a48f06e6.tar.gz'
+      checksum: sha256=4719fd9702ba005376ab793a3f9a45c3b30d46d7a8a85a2ef45df35014243c02
+  lwt-dllist:
+    archive:
+      url: 'https://github.com/mirage/lwt-dllist/releases/download/v1.1.0/lwt-dllist-1.1.0.tbz'
+      checksum: sha256=b0200651e37eaa24f027177bc01e266db43da48aa18146973d1d18336c325d69
+  lwt:
+    archive:
+      url: 'https://github.com/ocsigen/lwt/archive/refs/tags/6.0.0.tar.gz'
+      checksum: md5=8bfdd7b36a40fc715c48b3a9edccf324
+  lsp_rpc:
+    archive:
+      url: 'https://github.com/janestreet/lsp_rpc/archive/a1c96874a08d61ea72665b1ef35e327868bf6feb.tar.gz'
+      checksum: sha256=93e1a6946baa832852b3acedb0b4b43a036a9806e35bb3849b4c6a9148b527f7
+  logs:
+    archive:
+      url: 'https://erratique.ch/software/logs/releases/logs-0.9.0.tbz'
+      checksum: sha512=b75fb28e83f33461b06b5c9b60972c4a9a9a1599d637b4a0c7b1e86a87f34fe5361e817cb31f42ad7e7cbb822473b28fab9f58a02870eb189ebe88dae8e045ff
+  line-up-words:
+    archive:
+      url: 'https://github.com/janestreet/line-up-words/archive/b7647ad89d97e27ddb5e08f364447f8a3eec56d6.tar.gz'
+      checksum: sha256=2521b43394eeb5fd82b1c4ca9cc1f8e8ed5e642fc7f8106543f7aabcd07b162c
+  legacy_diffable:
+    archive:
+      url: 'https://github.com/janestreet/legacy_diffable/archive/05f1ad3ee14c081f8677963b480d13781853fed3.tar.gz'
+      checksum: sha256=f67c690e33823aa73bb7df52902cef48bcd68f0e45e31bf9d4a855885a06b79e
+  lambdasoup:
+    archive:
+      url: 'https://github.com/aantron/lambdasoup/archive/1.1.1.tar.gz'
+      checksum: sha256=05d97f38e534a431176ed8d3dbe6dfb7bdcf7770109193c5a69dff53e38f10fe
+  lambda-term:
+    archive:
+      url: 'https://github.com/ocaml-community/lambda-term/archive/refs/tags/3.3.3.tar.gz'
+      checksum: sha512=34be68128d82b7219a963ca7442948842fc26ff9dbd3be9eb76092be3a4cf7cb19bad043fdeed7f5607178375c472dc51c6eebea82145541836e7883320d342c
+  jst-config:
+    archive:
+      url: 'https://github.com/janestreet/jst-config/archive/941356366fe690b5a7f180f82beb2195eb60db95.tar.gz'
+      checksum: sha256=d41898c4758449ba6790da54c52411285d4171bcebaf5aba24ede74db1791045
+  jsonm:
+    archive:
+      url: 'https://erratique.ch/software/jsonm/releases/jsonm-1.0.2.tbz'
+      checksum: sha512=0072f5c31080202ed1cb996a8530d72c882723f26b597f784441033f59338ba8c0cbabf901794d5b1ae749a54af4d7ebf7b47987db43488c7f6ac7fe191a042f
+  jsonaf:
+    archive:
+      url: 'https://github.com/janestreet/jsonaf/archive/18927e1bce41129e8fa1f123e59ed41a2afb56a0.tar.gz'
+      checksum: sha256=3055457af3a3505f9cc21d5f14618a9e8bc54a25cfa08f1370af3956fe9ade88
+  js_of_ocaml_patches:
+    archive:
+      url: 'https://github.com/janestreet/js_of_ocaml_patches/archive/819a91d68d79edc040db68043a58d0cceacececc.tar.gz'
+      checksum: sha256=de6c67c56f22079874b61c96d3645fd346ca8edc1588eef3613da654084d0540
+  js_of_ocaml:
+    archive:
+      url: 'https://github.com/ocsigen/js_of_ocaml/archive/246df644334aa97103d1051aec128337ea1868f9.tar.gz'
+      checksum: sha256=c43572970512140facf02a30f16d4b34c10d55326bbd3d3c125bc2e549ef4ab8
+  jingoo:
+    archive:
+      url: 'https://github.com/tategakibunko/jingoo/archive/v1.4.4.tar.gz'
+      checksum: sha256=55b865ca92beed2458fd0ac0fee5d67424721eaccc327671a73c26d9e00678e1
+  janestreet_shims:
+    archive:
+      url: 'https://github.com/janestreet/janestreet_shims/archive/eee32518a68d8f0e579a5348d7e2bae1a2e19eee.tar.gz'
+      checksum: sha256=b80046d706645450677d5870e0b3b1dd277769e099f01e16f6cafd1307ddecf7
+  janestreet_lru_cache:
+    archive:
+      url: 'https://github.com/janestreet/janestreet_lru_cache/archive/be6da36708a04b63f9d5aaf74fb691976936a6f4.tar.gz'
+      checksum: sha256=bb836e161ffbabfaa0b286faf0288089ef1da7fa59066068e0844c9fbb3c252b
+  janestreet_csv:
+    archive:
+      url: 'https://github.com/janestreet/janestreet_csv/archive/ee7082188fd913229521ef550a83df0feaa535e9.tar.gz'
+      checksum: sha256=ef042f468efa7afe87126dae6c1b1acfd8a3881101985a6251673c7b2f803bc3
+  janestreet_cpuid:
+    archive:
+      url: 'https://github.com/janestreet/janestreet_cpuid/archive/b108becee13455824a7c4f21d70b6531760f66ed.tar.gz'
+      checksum: sha256=3caf11523daa511ddb960b61b35ef046dc0112a288d12dcec9a1d98c99fa7f91
+  jane-street-headers:
+    archive:
+      url: 'https://github.com/janestreet/jane-street-headers/archive/6ebdb46e6220e39a4873da27f2450ac5e03d1c18.tar.gz'
+      checksum: sha256=5c6d6aa2c428145ff890f5b7d3ae961e86aef0cb33b85ff39ba9e86bde58e063
+  jane_rope:
+    archive:
+      url: 'https://github.com/janestreet/jane_rope/archive/5172281e5b427b68055b52d2b8e85c80549f7599.tar.gz'
+      checksum: sha256=0d1153439c0a647e5d3f82d36a2d37b4248d87b2f6bef26603dc2e25c7148ab5
+  int_repr:
+    archive:
+      url: 'https://github.com/janestreet/int_repr/archive/719df480253ce5083caf8ba5f18b2966a930cba6.tar.gz'
+      checksum: sha256=4f5d66f5503986df2dfb44dc3cc942dc43e53eaf2e83e29179a9750b78553170
+  insertion_ordered_map:
+    archive:
+      url: 'https://github.com/janestreet/insertion_ordered_map/archive/267b8ddff822ffd2d476ee52694d3e646d3ddd5d.tar.gz'
+      checksum: sha256=dada3d8913e47084a32820d5d3093178d066486a5fe277543137c3f56e5e4767
+  indentation_buffer:
+    archive:
+      url: 'https://github.com/janestreet/indentation_buffer/archive/315e2df196add95d96da7e7db3e5f075484bd784.tar.gz'
+      checksum: sha256=734955514a08e1b43d1c905061e54f47bcbbe95f04f1e1373b0dbf7f5db0b7c2
+  incremental:
+    archive:
+      url: 'https://github.com/janestreet/incremental/archive/424a9a0f34060f541c76bbfe648bb17a56c159b4.tar.gz'
+      checksum: sha256=b547d421a09b68f4f39c6979de0af29afb097ba6c6308943113903f50528feb0
+  incr_select:
+    archive:
+      url: 'https://github.com/janestreet/incr_select/archive/15e2ca8619604dc185ca55afffbb9fa8807b6150.tar.gz'
+      checksum: sha256=f54097fe6faeac4125c51e767a7e877c581241408d58c33490b85a83000af92a
+  incr_map:
+    archive:
+      url: 'https://github.com/janestreet/incr_map/archive/be2860f46b97faea54aab43ce5a23d055520df98.tar.gz'
+      checksum: sha256=1a71fb2c8093ea48e83035443f8bfc92319d5cffbb86e9681fcf9f349a02b331
+  incr_dom_sexp_form:
+    archive:
+      url: 'https://github.com/janestreet/incr_dom_sexp_form/archive/964b8fcac1b1d684823242af90bee7e0b7b2ffbb.tar.gz'
+      checksum: sha256=afd79e01fd1251fbf8b4eaaec1007f425215c77cfd0016f1bbb9c700aa70ae50
+  incr_dom_partial_render:
+    archive:
+      url: 'https://github.com/janestreet/incr_dom_partial_render/archive/081c1901c6e93655f04be60d0e329bbe09e0ca39.tar.gz'
+      checksum: sha256=ce4737ea692623b5ec8c48da9024da9f4961a07c0516bab47e07c3142ae272b1
+  incr_dom_interactive:
+    archive:
+      url: 'https://github.com/janestreet/incr_dom_interactive/archive/88c56c5fd47fa01d26aaa1e96dfdb443158ae522.tar.gz'
+      checksum: sha256=d9983f53b359d8736413e2491a764b67336c36ad5ecc0038dced6ede6d266717
+  incr_dom:
+    archive:
+      url: 'https://github.com/janestreet/incr_dom/archive/297ca80141b36478beccb172d0126e74dafbd5d5.tar.gz'
+      checksum: sha256=9cf8fd1793f9163c84c5fd7b8d240a6a706a4573164867e9cfab052a1fe3a99b
+  httpaf:
+    archive:
+      url: 'https://github.com/inhabitedtype/httpaf/archive/0.7.1.tar.gz'
+      checksum: sha256=ea2e97f4e2a4b03931be232113f503b2fb402e1726a57f6d2b0cd6091ced6aa5
+  hmap:
+    archive:
+      url: 'http://erratique.ch/software/hmap/releases/hmap-0.8.1.tbz'
+      checksum: sha256=6a00db1b12b6f55e1b2419f206fdfbaa669e14b51c78f8ac3cffa0a58897be83
+  higher_kinded:
+    archive:
+      url: 'https://github.com/janestreet/higher_kinded/archive/0da2294dc7bd7b5f6e077e1996fa917377dbc564.tar.gz'
+      checksum: sha256=a5e9471a17ba89904f6c9956a7c54c019d7aa818e266f3204438254a7d9e820f
+  hg_lib:
+    archive:
+      url: 'https://github.com/janestreet/hg_lib/archive/8480fd01ae0baca13415e7fdf46c4d46f3651e68.tar.gz'
+      checksum: sha256=76eca8805f1c701c7ad056e2203ab8665058058bf9339384f9156f566245f45a
+  hex_encode:
+    archive:
+      url: 'https://github.com/janestreet/hex_encode/archive/eab428b9a381c4979ca83f8c2afeeaa6b5a90d69.tar.gz'
+      checksum: sha256=baad09e091abf9ec0c4515772aea7739f85d7e88250517718a9eb17b4adace8f
+  heterogeneous_list:
+    archive:
+      url: 'https://github.com/janestreet/heterogeneous_list/archive/d1cadf6c36bb157ac4d97cb096b61f97e29cb41c.tar.gz'
+      checksum: sha256=fca993d6ecf9f03d7b7cc98c2259c9017ddc0e541cc711d349484523b751d448
+  hardcaml_xilinx_reports:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_xilinx_reports/archive/9914c85ac34cfb466940434a1c015ec6a456e5ea.tar.gz'
+      checksum: sha256=ff0b5efbc5a214eb491a8242b911a38c71299bef668496a9512e7cd5a93fb3eb
+  hardcaml_xilinx_components:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_xilinx_components/archive/31d2206d993514f7bc0305d2c12f6e5b6734678d.tar.gz'
+      checksum: sha256=8eadefffa0e7a47d1a716e359a1163fd76098f7ab2fa01a4b4a60bccf2c668ca
+  hardcaml_xilinx:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_xilinx/archive/cc7ae800d6d6e163559c32d88f28c402b7447183.tar.gz'
+      checksum: sha256=cb59668e5faf21276a78621a60519b0cfee3e1fd568ef4950e815962ebe0a3ed
+  hardcaml_waveterm:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_waveterm/archive/dbdfd90218e964d4342662df0654add32d813ca6.tar.gz'
+      checksum: sha256=61dd1ac9ac26d67edd0372a7a4aa5a26db7025f3f81aa7a9cc8c6e6c2d1640fd
+  hardcaml_verilator:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_verilator/archive/c80e823840b3384f5f9a944bf99804ab1b3667cc.tar.gz'
+      checksum: sha256=e47589b9333fd0ae46ef7f3e6fce8a8eac59c7939cc9019cd01473bc71dacf94
+  hardcaml_verify:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_verify/archive/0ce09d397aced1ff7cfac6b2011e0503f8b18d99.tar.gz'
+      checksum: sha256=c7fdbc42e6a82de38413fecc494618ce1ad1eeb60c6d0e1bc0401272053d3e4c
+  hardcaml_test_harness:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_test_harness/archive/c8cd6aa253c6c59a0e53570b8885cc32c17ff912.tar.gz'
+      checksum: sha256=8e00dc84dac48eee29e0cc883893df03b3c079eea568cd343b2592e5e0be716b
+  hardcaml_template_project:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_template_project/archive/f27e421f20ff3c35b36d183199442c5260e5a4c7.tar.gz'
+      checksum: sha256=15a1014d827169d7c3603f2c78ab4c53ed44c964caad0fba071483326bac2767
+  hardcaml_step_testbench:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_step_testbench/archive/2fc83c01a466ab9b1ab5a7e5c40ef359b61328b4.tar.gz'
+      checksum: sha256=c1e3c08b121a33ca19cd7d36fdf489f9bfc36b19649958b00759ed225d4b499d
+  hardcaml_of_verilog:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_of_verilog/archive/33da0eae9c227f50b10b950709e6285b925083f0.tar.gz'
+      checksum: sha256=275b334e54a50f29ddbed89d1f875d3c61486749294f08657c50c5b6e1be80c5
+  hardcaml_hobby_boards_kernel:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_hobby_boards_kernel/archive/f8e2eef97c3895c650eb85afeef0e81abf25c74c.tar.gz'
+      checksum: sha256=8240ffc5a0fa2d25011f2b30fe5e343bc410f4659ac25b552e77b03bc3631392
+  hardcaml_hobby_boards_demos:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_hobby_boards_demos/archive/d5c97c85767d883061b1e1bb1435834f456f7378.tar.gz'
+      checksum: sha256=e7d1ea7025d804b53bd8b24082982bfbf6d7768ecaf701cda20ae59b11b3f713
+  hardcaml_handshake:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_handshake/archive/46e3360035b3ae369a76a5250fe4308d8b4db031.tar.gz'
+      checksum: sha256=5126e274519eb4624859a8e1e533a36225ec27a9432019bceeb41fb5d6274f17
+  hardcaml_fixed_point:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_fixed_point/archive/67bf3e6ee2c3a12e7895f7776604223b663b7d91.tar.gz'
+      checksum: sha256=f6c6b9197133cea17cb77369ec9fc65a45ef0c1402b92236a70f3debb4af425e
+  hardcaml_event_driven_sim:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_event_driven_sim/archive/58848a3739ca8a1d20953db7e7288f0cc5229404.tar.gz'
+      checksum: sha256=baf634a1b6e1a0de21348e464a63856c083c060ac660e565aeb674f9760e2403
+  hardcaml_circuits:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_circuits/archive/d8fc9e35b86280187b735e794aef572e943459f8.tar.gz'
+      checksum: sha256=a6afbe2ffb5b496380a41dc189a754faf9da4c5cb226099aaa3d7790ec5ba745
+  hardcaml_c:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_c/archive/22ee680583016da96c04777e9ab94656b6c4e114.tar.gz'
+      checksum: sha256=44b87d8823464f650a6db21b7b43133f5f9e4e94ed1635cd38c948dad5062dff
+  hardcaml_axi:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml_axi/archive/9d846a2917e41a6fd8fab0d08c094ee7ba2e6c13.tar.gz'
+      checksum: sha256=810b8d2ed3b07082fb72cbec153ac8ac77f3c6398955a1701fa238ff19bf6e2b
+  hardcaml:
+    archive:
+      url: 'https://github.com/janestreet/hardcaml/archive/17f5d1895ab0cd8f0bf7ab9bdc20430480143f45.tar.gz'
+      checksum: sha256=073929ddf2f300c390b02b624276f5cb1f7218a9eafdc2f78bfc6a66fcfc0968
+  handled_effect:
+    archive:
+      url: 'https://github.com/janestreet/handled_effect/archive/a44d0d892546484cf0624c1f5687bc6694284488.tar.gz'
+      checksum: sha256=d16c3c4d04415eca15b544ca8c775ae959ba684a3a3017b2fbe98d7e92867fc2
+  gen_js_api:
+    archive:
+      url: 'https://github.com/LexiFi/gen_js_api/archive/refs/tags/v1.1.2.tar.gz'
+      checksum: md5=58ab892f1702400247d692f44215b365
+  gen:
+    archive:
+      url: 'https://github.com/c-cube/gen/archive/v1.1.tar.gz'
+      checksum: md5=fa8066511b693815fe659fd022f4c6bc
+  fzf:
+    archive:
+      url: 'https://github.com/janestreet/fzf/archive/ec2ea69e1917bcd02e43d4ccba312e69f6d4b833.tar.gz'
+      checksum: sha256=807b9b9e881e58bc494ade689ff51d9f959a74147b4666aa345622e44d00cc89
+  fuzzy_match:
+    archive:
+      url: 'https://github.com/janestreet/fuzzy_match/archive/10b348e98bb59f391f9aa297445dedec7ce26375.tar.gz'
+      checksum: sha256=f3fb760c280c5b00003f4b1a9dfadf5699e20516d719a7cf1df07245fba03864
+  fpath:
+    archive:
+      url: 'https://erratique.ch/software/fpath/releases/fpath-0.7.3.tbz'
+      checksum: sha256=12b08ff192d037d9b6d69e9ca19d1d385184f20b3237c27231e437ac81ace70f
+  font_awesome_icons:
+    archive:
+      url: 'https://github.com/janestreet/font_awesome_icons/archive/e04a72b484c2fed9b9a869d3661e2911a8b53105.tar.gz'
+      checksum: sha256=223e03bd10c1626001f2d1d7e13608dbb7f75fb4718990dfd37b2df6ed0aa541
+  fmt:
+    archive:
+      url: 'https://erratique.ch/software/fmt/releases/fmt-0.10.0.tbz'
+      checksum: sha512=26d7f2002f0f1d605c08129ec09d487a8c37d764b77370e56b869fd94fe6bc903f808159ab7b79e85c2e2b6263ee5fa7df66f9f9625bdf0e726e8a92a9056258
+  float_array:
+    archive:
+      url: 'https://github.com/janestreet/float_array/archive/211ca6611f1b8357e2aa65f5083928c34923d2fb.tar.gz'
+      checksum: sha256=b9f11ba8f975f9f7cd8be22cf81120db3fdaf13c776bebce000d6725a94f353d
+  flexible_sexp:
+    archive:
+      url: 'https://github.com/janestreet/flexible_sexp/archive/3bcd1816b598ad8d2a9931f3d5e280eb7d693b3a.tar.gz'
+      checksum: sha256=777238fc916f564dde4ca5c813ac8049e7e4903d4f530e248b6e9e2ea6b3905c
+  fix:
+    archive:
+      url: 'https://gitlab.inria.fr/fpottier/fix/-/archive/20250919/archive.tar.gz'
+      checksum: md5=af7099d1cf24654bd379953b8e3d063f
+  filesystem:
+    archive:
+      url: 'https://github.com/janestreet/filesystem/archive/1bf2fa21e795fd1965c290398cdd202cceccc21d.tar.gz'
+      checksum: sha256=d9d7f687368c7a77b9d305fb9e30713476f7c039b1e0b6dc60a50a80e7b2cba4
+  file_path:
+    archive:
+      url: 'https://github.com/janestreet/file_path/archive/16bfa3c24eea74a881102d523a0eab50f73c3acb.tar.gz'
+      checksum: sha256=1bb8bd10c47e0caaec15844c38c2b4c4a16a42d55879b745fadf1cd2f01fa4c2
+  fieldslib:
+    archive:
+      url: 'https://github.com/janestreet/fieldslib/archive/fc60e31c92745f571f3e914d88a234be9172b2e1.tar.gz'
+      checksum: sha256=39e4e1480a9a4996f3ceb708f20fcb888f69b990a9c9ab5a662922e77cbb8f8d
+  fiber:
+    archive:
+      url: 'https://github.com/ocaml-dune/fiber/releases/download/3.7.0/fiber-lwt-3.7.0.tbz'
+      checksum: sha256=8648a15ae93fe6942999ce36887429a3913b62829c4714e520cc0e7a1c3b9682
+  faraday:
+    archive:
+      url: 'https://github.com/inhabitedtype/faraday/archive/0.8.2.tar.gz'
+      checksum: sha256=720ea90b39fd3ea7de6e8722330a25514e67306e94d4af41ad48d8a7cfa035c6
+  ezjsonm:
+    archive:
+      url: 'https://github.com/mirage/ezjsonm/releases/download/v1.3.0/ezjsonm-1.3.0.tbz'
+      checksum: sha256=08633e0f0e767a8ae81935ca7e74f1693b85a79c4502d568eedff5170f0cd77b
+  expectree:
+    archive:
+      url: 'https://github.com/janestreet/expectree/archive/790f2ff226f4d950a30818dece9420df49466fea.tar.gz'
+      checksum: sha256=369d4359001bf91403566e5910ac67431a56a1d93dece824496db5501776368e
+  expectable:
+    archive:
+      url: 'https://github.com/janestreet/expectable/archive/bac7527fb2ebfef9d2db6705d40574bc3b2f230f.tar.gz'
+      checksum: sha256=7a322d1a95c479f299ce3d59debc85bb64165ffbf9bf95d109d3881bedb1b6e0
+  expect_test_helpers_core:
+    archive:
+      url: 'https://github.com/janestreet/expect_test_helpers_core/archive/6571d7b391e7426e818890e10d98a52db17ad7dd.tar.gz'
+      checksum: sha256=e1f9b3a4aa3e654543d36269458055e6d08cb1f11dca70d7be1969c8464aa384
+  expect_test_helpers_async:
+    archive:
+      url: 'https://github.com/janestreet/expect_test_helpers_async/archive/de9e5ae7e8603a7270933693dcee2b9703efaea2.tar.gz'
+      checksum: sha256=5a40d6a7ff929d2d8a7627eebec507519832f4e1be541716518221ab3a51fe5b
+  env_config:
+    archive:
+      url: 'https://github.com/janestreet/env_config/archive/811b0e8a8100cf90f23852f6b8adb84e51a70049.tar.gz'
+      checksum: sha256=a8e9ec1062fcc295df1b13d88ac35d90fe419acfe1b329f44d7fd98f5d673666
+  email_message:
+    archive:
+      url: 'https://github.com/janestreet/email_message/archive/b7ff20af8c0113c283ab2b95ab3f672614635268.tar.gz'
+      checksum: sha256=941da82ebf4a56bcf0c1b6b9dcd74f6aebcebfb91c46561a425aa60172113751
+  either:
+    archive:
+      url: 'https://github.com/mirage/either/releases/download/1.0.0/either-1.0.0.tbz'
+      checksum: sha256=bf674de3312dee7b7215f07df1e8a96eb3d679164b8a918cdd95b8d97e505884
+  eio:
+    git:
+      url: 'git+https://github.com/oxcaml/eio.git#7de26f5331f1e7aac1c086a5ebe849dd940b5c3e'
+      commit: HEAD
+  ecaml:
+    archive:
+      url: 'https://github.com/janestreet/ecaml/archive/bc0d0086888d25a2ac02a9a133196dbf623e24b8.tar.gz'
+      checksum: sha256=2235ae10c0b3bf4c10793bf56cabf11e86bb69e945963bae01e3896088582e5c
+  dune-compiledb:
+    archive:
+      url: 'https://github.com/edwintorok/dune-compiledb/releases/download/0.6.0/dune-compiledb-0.6.0.tbz'
+      checksum: sha256=f5e74fd4c2af89df731f53832d8388592d44fed9f50d6d82ba8f71ea1e8ff9ff
+  dune:
+    archive:
+      url: 'https://github.com/ocaml/dune/releases/download/3.21.0/dune-3.21.0.tbz'
+      checksum: sha256=e76d4d89368a0a70025193aeaf4f7c5b54031dba3f59bf9d2af1971dc0eceddd
+  domain-name:
+    archive:
+      url: 'https://github.com/hannesm/domain-name/releases/download/v0.5.0/domain-name-0.5.0.tbz'
+      checksum: sha256=9ec7ae2c22772c150b84cfa3f21d9bf25fae14a796f31e20df52d86f46499d89
+  domain-local-await:
+    archive:
+      url: 'https://github.com/ocaml-multicore/domain-local-await/releases/download/1.0.1/domain-local-await-1.0.1.tbz'
+      checksum: sha256=2952113c53cb07e2b054b2dc86ce72939131dab8207c8f3139adb23e64cdfa6f
+  delimited_parsing:
+    archive:
+      url: 'https://github.com/janestreet/delimited_parsing/archive/ba408f900ca9828800d61bcc279b76b6ce73c860.tar.gz'
+      checksum: sha256=db11bb771d68361418f6f058c58732746d80d0ae8fb3bbe139de0e5b9acd0c56
+  dedent:
+    archive:
+      url: 'https://github.com/janestreet/dedent/archive/4fdebe7292600a1fb48f31dab218b8ff23f1798a.tar.gz'
+      checksum: sha256=17de1fe4e0b4ab56ada6a200a9fc6b0c98d0c1a436e89678fa984c00ad282392
+  decompress:
+    archive:
+      url: 'https://github.com/mirage/decompress/releases/download/v1.5.3/decompress-1.5.3.tbz'
+      checksum: sha256=f91e6978beff3fcb61440d32f7c99c99f1e8654b4fb18408741d36035373ac60
+  current_exe:
+    archive:
+      url: 'https://github.com/janestreet/current_exe/archive/5ac74ca30a836551b741abab3d5491099e57526a.tar.gz'
+      checksum: sha256=76ce3e62506d36e0d96e96720532714d47aa2f370d0100d883eaaba678e0a23b
+  curl_async:
+    archive:
+      url: 'https://github.com/janestreet/curl_async/archive/27254841c195e5c3a232c7fb51bf5c9f2632aaa1.tar.gz'
+      checksum: sha256=6c334e40e7a5df5bbff5e8bd5dd74f9f03c453ae420ca5333c7f4050869078bf
+  csvfields:
+    archive:
+      url: 'https://github.com/janestreet/csvfields/archive/97e1c19942d124f806bae28dc0e7bc355efd5d41.tar.gz'
+      checksum: sha256=8c02bd0551085f324f0642431036f350e459cea196e691c7e137d12162e3fd7b
+  csexp:
+    archive:
+      url: 'https://github.com/ocaml-dune/csexp/releases/download/1.5.2/csexp-1.5.2.tbz'
+      checksum: sha256=1a14dd04bb4379a41990248550628c77913a9c07f3c35c1370b6960e697787ff
+  cryptokit:
+    archive:
+      url: 'https://github.com/xavierleroy/cryptokit/archive/release1161.tar.gz'
+      checksum: md5=18591fc3f467bc33681be2cede36b8f1
+  cppo:
+    archive:
+      url: 'https://github.com/ocaml-community/cppo/archive/v1.8.0.tar.gz'
+      checksum: md5=a197cb393b84f6b30e0ff55080ac429b
+  core_unix:
+    archive:
+      url: 'https://github.com/janestreet/core_unix/archive/a1fae2c21efc2b95a6a0010c790d13ff166bd5e9.tar.gz'
+      checksum: sha256=a440af91ca6fd25f2360d7f6728905d4fb5c461424f9e9d49f8633e399cf7807
+  core_profiler:
+    archive:
+      url: 'https://github.com/janestreet/core_profiler/archive/b9fd487c2351cf87928e40a361b2e535a175a3e4.tar.gz'
+      checksum: sha256=78234aad5d2066a16407465b641b5d6003c35989a3352bd8abbd36c9e5bcf48a
+  core_kernel:
+    archive:
+      url: 'https://github.com/janestreet/core_kernel/archive/fcf988e35ba046633e0219d4f2bad0075cdd35e0.tar.gz'
+      checksum: sha256=39d637a48fef68966051b11edb81aa591dfa9dc21305218e017f306f5a58e80b
+  core_extended:
+    archive:
+      url: 'https://github.com/janestreet/core_extended/archive/c6c51294f63a507b731076905751ea22868ceebd.tar.gz'
+      checksum: sha256=faee04e9c57abf622ebb352d656782aa694b67ab1bcd2bb21d2f7bc1ac9b6931
+  core_bench:
+    archive:
+      url: 'https://github.com/janestreet/core_bench/archive/44ede7accf4febc10d772f7eed6a55a103c9fce6.tar.gz'
+      checksum: sha256=e20d6645cf8a35717aa7c34b81b0e8622a099e75cbdcbbb5ef2ffdebc4383af5
+  core:
+    archive:
+      url: 'https://github.com/janestreet/core/archive/289df0f3902b0b2d5b43edb1e03b51bf8bacf68f.tar.gz'
+      checksum: sha256=b668eefa67ae1e612bca02d6a868420ead5df511c1ac9edbd5378d80ab77f3f8
+  content_security_policy:
+    archive:
+      url: 'https://github.com/janestreet/content_security_policy/archive/0ab7f24774f8eacafefcd327cb34386bbfb86342.tar.gz'
+      checksum: sha256=745445e31b519f0d9d72e5ab11e5e29b8a48b3a51165e9eec4aeae1221f16ae7
+  concurrent:
+    archive:
+      url: 'https://github.com/janestreet/concurrent/archive/12a47ed4e77e04eafb6e21e29e0731446f3abdc4.tar.gz'
+      checksum: sha256=ffe5880360f5c312269ccb9776450ebc10e9ab07b4a0c9050b41397585d33ef9
+  command_rpc:
+    archive:
+      url: 'https://github.com/janestreet/command_rpc/archive/61b9d5b6a5a8e620108b6eb06d9997b361a605f1.tar.gz'
+      checksum: sha256=1a1f50e0b3b08b9ff216f45f3dc45aef85df77cf0bfc54fb17ceae3487863f00
+  command_nodejs:
+    archive:
+      url: 'https://github.com/janestreet/command_nodejs/archive/7cfdac43876fc419e1052f02ee33d2e041ca7790.tar.gz'
+      checksum: sha256=90173b07b5a78d610abac6689261e512a85726305eccf472710a92cd2cfa03fa
+  cohttp_static_handler:
+    archive:
+      url: 'https://github.com/janestreet/cohttp_static_handler/archive/7b67985746122654b54062b74825dded600074d4.tar.gz'
+      checksum: sha256=6729fdbf9e76d73dc86e953096d14934ceeb75022cf2000d9d1217a1f0977c0a
+  cohttp_async_websocket:
+    archive:
+      url: 'https://github.com/janestreet/cohttp_async_websocket/archive/5736c0d51fd58cce7ef8de5b4aacf8cdd2665306.tar.gz'
+      checksum: sha256=96fb52c97a15086d661428db1eaffb19e7d62ba6b8de4edcc670ad8fb43b6959
+  codicons:
+    archive:
+      url: 'https://github.com/janestreet/codicons/archive/cccaa6bd7f824f33820fdc1ed3c9b1284be5eeb0.tar.gz'
+      checksum: sha256=196441e04b013060c04ab5e8b6cccaca5c59811f7f2a45202900e15bc657877b
+  cmdliner:
+    archive:
+      url: 'https://erratique.ch/software/cmdliner/releases/cmdliner-1.3.0.tbz'
+      checksum: sha512=4c46bc334444ff772637deae2f5ba03645d7a1b7db523470a1246acfce79b971c764d964cbb02388639b3161b279700d9ade95da550446fb32aa4849c8a8f283
+  cmarkit:
+    archive:
+      url: 'https://erratique.ch/software/cmarkit/releases/cmarkit-0.3.0.tbz'
+      checksum: sha512=42fa920e84f2b7d45f5cf1251d3308daa7becff2590f7ce84186cb22335415b02cc9bc44179095bf0d37624fb5a0e66d1c96fcc1b12f1106f567247a71c79039
+  checkseum:
+    archive:
+      url: 'https://github.com/mirage/checkseum/releases/download/v0.5.2/checkseum-0.5.2.tbz'
+      checksum: sha256=9e5e4fd4405cb4a8b4df00877543251833e08a6499ef42ccb8dba582df0dafc8
+  capsule0:
+    archive:
+      url: 'https://github.com/janestreet/capsule0/archive/29ff62934fe0b3945104896b4291490be6bd45f9.tar.gz'
+      checksum: sha256=88d679df7d0ea40d4f1ff4bc78e51fd2d55b7ef8438072b022f733714909cd01
+  capsule:
+    archive:
+      url: 'https://github.com/janestreet/capsule/archive/a243dd7ec5e75913ccd705e221e8a11654d015b6.tar.gz'
+      checksum: sha256=2c7752be03f5c11c69e8eec1880d79359e51c806724548394c24f07958f0d819
+  capitalization:
+    archive:
+      url: 'https://github.com/janestreet/capitalization/archive/4ef9e45dd71f703fe755eb056dcdcdc9a3f9bc38.tar.gz'
+      checksum: sha256=3475da2f9c78ea14fb3372ab804eecf11ac623a967711d3abbcabea576da8a75
+  camlp-streams:
+    archive:
+      url: 'https://github.com/ocaml/camlp-streams/archive/v5.0.1.tar.gz'
+      checksum: md5=afc874b25f7a1f13e8f5cfc1182b51a7
+  brr:
+    archive:
+      url: 'https://erratique.ch/software/brr/releases/brr-0.0.7.tbz'
+      checksum: sha512=4b3d42eb6a32c1d6f1c5ef003f5311b5029156b31f6e51af098b695c769699e0304b66afd2dd574ecf1084e095bbbc4eac552daab083766cd81ed2f1d9897d51
+  bos:
+    archive:
+      url: 'https://erratique.ch/software/bos/releases/bos-0.2.1.tbz'
+      checksum: sha512=8daeb8a4c2dd1f2460f6274ada19f4f1b6ebe875ff83a938c93418ce0e6bdb74b8afc5c9a7d410c1c9df2dad030e4fa276b6ed2da580639484e8b5bc92610b1d
+  bonsai_web_test:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_web_test/archive/1c471cd7624fa2969d9979a9be399c2882867878.tar.gz'
+      checksum: sha256=de5b9e0eeb5178090ac468725f5f4abbd0875fd2b7b5768fa547a9c3c1f6ef27
+  bonsai_web_components:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_web_components/archive/a235dcdf57e917d8239880c507ece3118221fca3.tar.gz'
+      checksum: sha256=5ee5070e2f0b1933e6654334ee67575db5b06bb74a0f36681cad0b41d9cfeba0
+  bonsai_web:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_web/archive/c7bb660fa18f64c29b1e0007f8f5892c10ffb9d4.tar.gz'
+      checksum: sha256=c81fe787337326fabc1f1afc6eac706f4a6710e46c1c314378f5a9328b969aea
+  bonsai_test:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_test/archive/d2ad1471850632a810f51a898efc9a82df41cd54.tar.gz'
+      checksum: sha256=3e306ddee0b8f7ecd5165c0beb8daebbc34bf034f733dfc443462ac0727f9e5f
+  bonsai_term_test:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_term_test/archive/d9138b1d63b831ff9b59a6a7e2758e929c64f645.tar.gz'
+      checksum: sha256=b4778240127faa6e6033e81170b85cd24e68a113d606c69cfc8b79e224e2f91c
+  bonsai_term_examples:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_term_examples/archive/eecc004ae45d4908cffa635140bc09344aafa1f8.tar.gz'
+      checksum: sha256=c8dcb78e6967a80ef59de9aed5d57b41c7f145228f6393420bccbe35941d7fcc
+  bonsai_term_components:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_term_components/archive/2e5c7a65ee32ea7aa8f97b3db82075154e982240.tar.gz'
+      checksum: sha256=6a86369ddbe291a02a15e6007042d2bcf901d153258798bfa1f63320f2467898
+  bonsai_term:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_term/archive/16fe87483ae031399c144ef39bb4683894ce46ae.tar.gz'
+      checksum: sha256=e2feebe4e78e08fc3926790c2332046247ce1837d1929f8a2ca8ed05fd061f03
+  bonsai_examples:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_examples/archive/af1da14d506af63acf63baeee13409120f64c585.tar.gz'
+      checksum: sha256=3788679b284e35e3008024c55ca912e91505aab7850c623e3c04f78292e93e0c
+  bonsai_concrete:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_concrete/archive/1180bf8e2cb47050e77f15aa61e0b7d6a0652d03.tar.gz'
+      checksum: sha256=d84b05589346122236c1373ecb73acec4da436542c687bb7339474d53bbab51b
+  bonsai_bench:
+    archive:
+      url: 'https://github.com/janestreet/bonsai_bench/archive/61e2ce22d400ff4b628bb3207072cf5d5f3fb851.tar.gz'
+      checksum: sha256=6cd7d881eee203c86a1a141250cbb1bbab627de2dc3081030cba075aa2d93d12
+  bonsai:
+    archive:
+      url: 'https://github.com/janestreet/bonsai/archive/a75776e1d66b841b0f40eb740f4999ad06ba212d.tar.gz'
+      checksum: sha256=ae75a24dc83c10502824f89082bf8d24467a0859d31896d8343d8ec6fbd0e3db
+  bitset:
+    archive:
+      url: 'https://github.com/janestreet/bitset/archive/acc6ff76e272a0d2d432f09462145197f44121ea.tar.gz'
+      checksum: sha256=8f1a0feafd4cb2a6dcfe00d41ee454cd3c8080c579c9d1bc7e07a6254947b2ef
+  bin_prot:
+    archive:
+      url: 'https://github.com/janestreet/bin_prot/archive/f8ee9c5c0a255b73a29b3a1a89cf1fbf00254db3.tar.gz'
+      checksum: sha256=c9206c902bbd168a5b4dfda87483c3d0bcff550e2bdeb3a6898ce1f4d9c2448f
+  bigstringaf:
+    archive:
+      url: 'https://github.com/inhabitedtype/bigstringaf/archive/0.10.0.tar.gz'
+      checksum: md5=be0a44416840852777651150757a0a3b
+  bignum:
+    archive:
+      url: 'https://github.com/janestreet/bignum/archive/18586616948564e7cd4ca38227f1ade65bcb375c.tar.gz'
+      checksum: sha256=3720651e03622f63876fee6444effde5fdcd5a457f65e06d82080aff78fdfa6c
+  bigdecimal:
+    archive:
+      url: 'https://github.com/janestreet/bigdecimal/archive/2729da9055d028112edb52d780507023d3b41dd1.tar.gz'
+      checksum: sha256=1ea7b73b26eaf63c76417c2b50bda113f0380b85641d880ee4b09b1432a35bba
+  bigarray-compat:
+    archive:
+      url: 'https://github.com/mirage/bigarray-compat/releases/download/v1.1.0/bigarray-compat-1.1.0.tbz'
+      checksum: sha256=434469a48d5c84e80d621b13d95eb067f8138c1650a1fd5ae6009a19b93718d5
+  big_percent:
+    archive:
+      url: 'https://github.com/janestreet/big_percent/archive/7ec515f67249bfdb1dbc91c00135cad8a6d7456d.tar.gz'
+      checksum: sha256=de434e44779921beb1028c39147ed3f6bac876fac1a64eca009ff21a62d36ce1
+  bidirectional_map:
+    archive:
+      url: 'https://github.com/janestreet/bidirectional_map/archive/57f45eb007eba7b6b5430af78ce5a03cbfc19caa.tar.gz'
+      checksum: sha256=4c042b82eab7bf24323d294c462c856c53a621d8848cad6d21bcec50da4cbd10
+  basement:
+    archive:
+      url: 'https://github.com/janestreet/basement/archive/78477726453172cf4b9e65751fba3377186a38e2.tar.gz'
+      checksum: sha256=7d0d024d8865bbc4229223120db6bb051dc3effc4ef71050d65201cb9a177df0
+  base_trie:
+    archive:
+      url: 'https://github.com/janestreet/base_trie/archive/b54f34afa4b72fb935c8d42129851f369ca80e4e.tar.gz'
+      checksum: sha256=24f7d91cee004bb08e9e4cfa0f760cc906f06eb4b3efb4d3c660902f92d12776
+  base_quickcheck:
+    archive:
+      url: 'https://github.com/janestreet/base_quickcheck/archive/d9944b7b49349bb4fa5c7b76e2c35e836950129b.tar.gz'
+      checksum: sha256=ea7dcdf298990daf9d9502f36d4dd981481c13203ede0c13b9ae2238f0541c45
+  base_bigstring:
+    archive:
+      url: 'https://github.com/janestreet/base_bigstring/archive/1d71bcaeb074ee348895661e04f9e8d5116b2cad.tar.gz'
+      checksum: sha256=33858a9afef91160239536a379b841a8ceeac916a9f8aec75c4ec84fed2fbdc7
+  base:
+    archive:
+      url: 'https://github.com/janestreet/base/archive/8c52a725ed0cdfda1fff7180fc0684bdf67cb6a9.tar.gz'
+      checksum: sha256=654f8605304bec9e80b16b65724c41d135caeb693e94973e9fddb8e1c5166698
+  backoff:
+    archive:
+      url: 'https://github.com/ocaml-multicore/backoff/releases/download/0.1.1/backoff-0.1.1.tbz'
+      checksum: sha256=00bea311b227b1bc0a55879da4dce38b1fd8447b4e4e2cf193a6953737ac9f03
+  babel:
+    archive:
+      url: 'https://github.com/janestreet/babel/archive/b8349b0c4663d44d05702b11e034998e61de6589.tar.gz'
+      checksum: sha256=32027b3998641831d3624dd3eb1cee0f28f9cf0249e885d20e8f12a3cfb8d15a
+  await:
+    archive:
+      url: 'https://github.com/janestreet/await/archive/19c663468dd0dcda0198bb5281f597b363bd16b6.tar.gz'
+      checksum: sha256=c3514b7c941a38b6e3f9af65080008e84fb3f06f15950ec3dc212eba5295a91d
+  async_websocket:
+    archive:
+      url: 'https://github.com/janestreet/async_websocket/archive/1270812af09586c67137b2cb01aa9463d882ec93.tar.gz'
+      checksum: sha256=68438bca69902013893840739539a2d82595fdcaeaa06411d83267d8d75deaf2
+  async_unix:
+    archive:
+      url: 'https://github.com/janestreet/async_unix/archive/fa4a0f5d97e2dac979c0336feda0c6b9314aa77b.tar.gz'
+      checksum: sha256=528fa219fc15dc6031936dfbad99d66722e783e5c96410f504dbed0f95382129
+  async_udp:
+    archive:
+      url: 'https://github.com/janestreet/async_udp/archive/848757ffa009738a25d6ab0fa9ff0aa245990307.tar.gz'
+      checksum: sha256=3ca43f35cdc64f144de352868d0906521e8df23f8bdf5dca24a1cb44f00dba20
+  async_ssl:
+    archive:
+      url: 'https://github.com/janestreet/async_ssl/archive/c4f08a3c1b72b67a4ad1b2fc9b43679972040d83.tar.gz'
+      checksum: sha256=1b158c069eadb993529a0baed6705ce0dc903489647732a9e1b9923ba35595b0
+  async_smtp:
+    archive:
+      url: 'https://github.com/janestreet/async_smtp/archive/01b9419d7df582701876feb8e25c7ec3812ef909.tar.gz'
+      checksum: sha256=844a13db2b8c28decb14fb83cc0d4191dab774529cec7a09a9d6b438e4e4cb53
+  async_shell:
+    archive:
+      url: 'https://github.com/janestreet/async_shell/archive/8051d5eb16d744dd4c5d5a9e03d1615f6392c38d.tar.gz'
+      checksum: sha256=866dc0b8dc04b4b8fde68ed765927d1d83858f60a7b4bd2df33b87189622d830
+  async_sendfile:
+    archive:
+      url: 'https://github.com/janestreet/async_sendfile/archive/2fad0596d1eb507f4034b29546e754ff51d8f682.tar.gz'
+      checksum: sha256=c224b2fdb024c3e329394d541b004a7ffc4a00c2c883c039386ed66d91665f96
+  async_rpc_websocket:
+    archive:
+      url: 'https://github.com/janestreet/async_rpc_websocket/archive/082163771379fa2c35876fcb9835bf2858c5cde5.tar.gz'
+      checksum: sha256=c9aa1f1e35cf6311d7c2f947f8d34d755795283d14116bdf721240128edaa5f1
+  async_rpc_kernel:
+    archive:
+      url: 'https://github.com/janestreet/async_rpc_kernel/archive/e9800d165d601ec25c3ac900118e971de077664a.tar.gz'
+      checksum: sha256=9048e3c2bab5f25858262a71201172ed5204161cf5268b70e437413a4bfa5ee9
+  async_log:
+    archive:
+      url: 'https://github.com/janestreet/async_log/archive/6fece69935b3baf8efac5483664161fd947d5029.tar.gz'
+      checksum: sha256=81de3ec2acdc93da2135fd85a671e02d3c300b277655fcd795d4670c78bdb8b4
+  async_kernel:
+    archive:
+      url: 'https://github.com/janestreet/async_kernel/archive/282543c5c3a802ecf0416fcf901cec40e16040c6.tar.gz'
+      checksum: sha256=867f676da141c8636d00668bcde954a786bbae879d98c75f092920982df02c32
+  async_js:
+    archive:
+      url: 'https://github.com/janestreet/async_js/archive/e0239697f364382738e23c2fb5bee1337d672b99.tar.gz'
+      checksum: sha256=4abe5f4835e84ceb82f466051308ed353541b5e1613b6a11e944beecaebf73ed
+  async_iterator:
+    archive:
+      url: 'https://github.com/janestreet/async_iterator/archive/dcfb7439e5791f1928f4e975224bbce1c607839c.tar.gz'
+      checksum: sha256=1185e0d2586e43eda8a77297e07e055bd84cc9ddbe50046bf540cf96dcc57cbf
+  async_interactive:
+    archive:
+      url: 'https://github.com/janestreet/async_interactive/archive/71051bb613f0c484dde4a38229514741994e1947.tar.gz'
+      checksum: sha256=003ff321e545d8c8c222bce0e3bcd45ac6a66cbc11e4f4d642de85cc88ddd2aa
+  async_inotify:
+    archive:
+      url: 'https://github.com/janestreet/async_inotify/archive/d4d1eae8ed16141941c935de2e988093e78e86b7.tar.gz'
+      checksum: sha256=339b1f8940bb43575aaa233fd236f48e65d37bbef51cd0f9c5bfd04684c1c708
+  async_find:
+    archive:
+      url: 'https://github.com/janestreet/async_find/archive/da858174b611ebc58bb1d92d852ce2196550cb7e.tar.gz'
+      checksum: sha256=521aec16fea2fd9fc640ef107b76e65df4c20f4287599268c876fda42a7d8258
+  async_extra:
+    archive:
+      url: 'https://github.com/janestreet/async_extra/archive/5f59ed0e395d9713b7f4912cb519cd6d9dc1f480.tar.gz'
+      checksum: sha256=5446d1aaf5f8abb38eee904a7195412338ece8a4cffcd73f9a3941f65f0a758b
+  async_durable:
+    archive:
+      url: 'https://github.com/janestreet/async_durable/archive/c59fd431e48cf39fc4e0b3e05a6255410d1c3abc.tar.gz'
+      checksum: sha256=46e001900671de81eda1d69aec24e6a5e7e636c8ec598cbea1b8bb106b8516a6
+  async:
+    archive:
+      url: 'https://github.com/janestreet/async/archive/1d16be9d4e91aaebeba320aca2b7fbe71a0fce40.tar.gz'
+      checksum: sha256=01d374dff25d427d19e96c9b724ad47e63561fc27f1eedde55fab2d789056724
+  astring:
+    archive:
+      url: 'https://erratique.ch/software/astring/releases/astring-0.8.5.tbz'
+      checksum: sha256=865692630c07c3ab87c66cdfc2734c0fdfc9c34a57f8e89ffec7c7d15e7a70fa
+  angstrom:
+    archive:
+      url: 'https://github.com/inhabitedtype/angstrom/archive/0.16.1.tar.gz'
+      checksum: md5=a9e096b4b2b8e4e3bb17d472bbccaad0
+  am_running_how_js:
+    archive:
+      url: 'https://github.com/janestreet/am_running_how_js/archive/e120ec8cc48e39b85a10c668990baabe241c88ab.tar.gz'
+      checksum: sha256=667a0eaefde2341b056b3ca91ea2be303ddc501dcb6aaa2d0d6da28db9bd3184
+  alcotest:
+    archive:
+      url: 'https://github.com/mirage/alcotest/releases/download/1.9.0/alcotest-1.9.0.tbz'
+      checksum: sha256=e2387136ca854df2b4152139dd4d4b3953a646e804948073dedfe0a232f08a15
+  accessor_core:
+    archive:
+      url: 'https://github.com/janestreet/accessor_core/archive/f32d29e387f8c4e6d366daa2cc6ddaf04b019e57.tar.gz'
+      checksum: sha256=635552baefd38b2b75593f81860498ebb2c68352e6504a332c9e276e60367305
+  accessor_base:
+    archive:
+      url: 'https://github.com/janestreet/accessor_base/archive/bb1f5af0599a02f87595ca7290d45ad15dfff8f6.tar.gz'
+      checksum: sha256=7a2078b8a6d3f074916bc4a82ce15357c01ffbaa33cdb75f4fdf0c40f9a3c9a5
+  accessor_async:
+    archive:
+      url: 'https://github.com/janestreet/accessor_async/archive/5b1484303951b5cc08125c385edc0b31b9cf861a.tar.gz'
+      checksum: sha256=23f216bf93cb81b6c003dabab6e5ef451cc707557c73e5345d85ef0cc009f479
+  accessor:
+    archive:
+      url: 'https://github.com/janestreet/accessor/archive/e2222303e22664e8a9e411016be28658a544530c.tar.gz'
+      checksum: sha256=4630b11e381840737b9fdd8fd48b78d595faec1e4d620149ea26962a8c7062f2
+  abstract_algebra:
+    archive:
+      url: 'https://github.com/janestreet/abstract_algebra/archive/3345e6290cc4ce2a8756e7cc284e3ba45ca34e78.tar.gz'
+      checksum: sha256=ec3bd7b8dd53b3be87622413f45af067d0c0e2100e1cc62f5f8a6115a2d5585e

@@ -3,6 +3,9 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
+(* Use Base.Bytes for local-aware operations *)
+module Local_bytes = Base.Bytes
+
 module Bytes = struct
   include Bytes
 
@@ -49,6 +52,12 @@ module Bytes = struct
       then err_invalid ~first ~length ~len;
       { bytes; first; length }
 
+    let[@inline] make_local (bytes @ local) ~first ~length = exclave_
+      let len = Local_bytes.length bytes in
+      if not (0 <= first && 0 < length && first + length <= len)
+      then err_invalid ~first ~length ~len;
+      { bytes; first; length }
+
     let make_or_eod bytes ~first ~length =
       let len = Bytes.length bytes in
       if not (0 <= first && 0 <= length && first + length <= len)
@@ -62,8 +71,8 @@ module Bytes = struct
 
     let copy ~tight (s @ local) =
       if s.length = 0 then eod else
-      if not tight then { bytes = Bytes.copy s.bytes; first = s.first; length = s.length } else
-      let bytes = Bytes.sub s.bytes s.first s.length in
+      if not tight then { bytes = Local_bytes.copy s.bytes; first = s.first; length = s.length } else
+      let bytes = Local_bytes.sub s.bytes ~pos:s.first ~len:s.length in
       { bytes; first = 0; length = s.length}
 
     let[@zero_alloc] compare (s0 @ local) (s1 @ local) =
@@ -170,18 +179,24 @@ module Bytes = struct
       (* We could tighten the string here. *)
       of_bytes_or_eod ?first ?last (Bytes.of_string s)
 
-    let to_bytes (s @ local) = Bytes.sub s.bytes s.first s.length
-    let to_string (s @ local) = Bytes.sub_string s.bytes s.first s.length
+    let to_bytes (s @ local) = Local_bytes.sub s.bytes ~pos:s.first ~len:s.length
+    let to_string (s @ local) = Local_bytes.To_string.sub s.bytes ~pos:s.first ~len:s.length
     let to_bigbytes (s @ local) =
       (* This should use blits. *)
       let len = s.length and first = s.first and bytes = s.bytes in
-      Bigarray.Array1.init Bigarray.Int8_unsigned Bigarray.c_layout
-        len (fun i -> Bytes.get_uint8 bytes (first + i))
+      let ba = Bigarray.Array1.create Bigarray.Int8_unsigned Bigarray.c_layout len in
+      for i = 0 to len - 1 do
+        Bigarray.Array1.set ba i (Local_bytes.get bytes (first + i) |> Char.code)
+      done;
+      ba
 
-    let add_to_buffer b (s @ local) = Buffer.add_subbytes b s.bytes s.first s.length
+    let add_to_buffer b (s @ local) =
+      let bytes = s.bytes and first = s.first and len = s.length in
+      for i = 0 to len - 1 do
+        Buffer.add_char b (Local_bytes.get bytes (first + i))
+      done
     let output_to_out_channel oc (s @ local) =
-      let b = Bytes.unsafe_to_string s.bytes in
-      Out_channel.output_substring oc b s.first s.length
+      Out_channel.output_string oc (to_string s)
 
     (* Formatting *)
 
@@ -189,7 +204,7 @@ module Bytes = struct
       Format.fprintf ppf "@[[%04d;%04d]@ len:%04d@]"
         s.first (s.first + s.length - 1) s.length
 
-    let pp_full ~hex ppf (s @ local) =
+    let pp_full ~hex ppf s =
       let first = s.first and len = s.length and bytes = s.bytes in
       let pp_bytes ppf () =
         if not hex
@@ -200,7 +215,7 @@ module Bytes = struct
       Format.fprintf ppf "@[<v>@[[%04d;%04d]@ len:%04d@]@,%a@]"
         first (first + len - 1) len pp_bytes ()
 
-    let pp_head ~hex c ppf (s @ local) =
+    let pp_head ~hex c ppf s =
       let first = s.first and len = s.length and bytes = s.bytes in
       let pp_head =
         Bytesrw_fmt.(if hex then pp_head_hex else pp_head_raw)
@@ -209,11 +224,11 @@ module Bytes = struct
       Format.fprintf ppf "@[@[[%04d;%04d]@ len:%04d@] %a@]"
         first (first + len - 1) len pp_head bytes
 
-    let pp' ?(head = 4) ?(hex = true) () ppf (s @ local) =
+    let pp' ?(head = 4) ?(hex = true) () ppf s =
       if is_eod s then Format.pp_print_string ppf "<eod>" else
       if head = -1 then pp_full ~hex ppf s else pp_head ~hex head ppf s
 
-    let pp ppf (s @ local) = pp' () ppf s
+    let pp ppf s = pp' () ppf s
 
     let tracer ?(pp = pp) ?(ppf = Format.err_formatter)  ~id s =
       Format.fprintf ppf "@[[%3s]: @[%a@]@]@." id pp s
@@ -638,7 +653,7 @@ module Bytes = struct
     let[@inline][@zero_alloc] pos (w @ local) = w.pos
     let[@inline][@zero_alloc] slice_length (w @ local) = w.slice_length
     let[@inline][@zero_alloc] written_length (w @ local) = w.pos
-    let ignore ?pos ?slice_length () = make ?pos ?slice_length (fun s -> ())
+    let ignore ?pos ?slice_length () = make ?pos ?slice_length (fun _ -> ())
     let error fmt w ?pos e =
       let pos = match pos with
       | None -> w.pos | Some p when p < 0 -> w.pos + p | Some p -> p
@@ -647,17 +662,17 @@ module Bytes = struct
 
     (* Writing *)
 
-    let write_only_eod (s @ local) =
+    let write_only_eod s =
       if Slice.is_eod s then () else invalid_arg "slice written after eod"
 
-    let write w (slice @ local) =
+    let write w slice =
       let write = w.write in
       let n = Slice.length slice in
       (if n = 0 then w.write <- write_only_eod);
       w.pos <- w.pos + n; write slice
 
     let write_eod w = write w Slice.eod
-    let write_bytes w (b @ local) =
+    let write_bytes w b =
       let blen = Bytes.length b in
       let slice_length = Int.min w.slice_length blen in
       let mutable offset = 0 in
@@ -667,7 +682,7 @@ module Bytes = struct
         offset <- offset + len
       done
 
-    let write_string w (s @ local) =
+    let write_string w s =
       (* Unsafe is ok: the writer is not supposed to mutate the bytes. *)
       write_bytes w (Bytes.unsafe_of_string s)
 

@@ -1,5 +1,6 @@
 (library
  (name bytesrw)
  (public_name bytesrw)
+ (libraries base)
  (modules bytesrw_fmt bytesrw bytesrw_utf bytesrw_hex)
  (wrapped false))

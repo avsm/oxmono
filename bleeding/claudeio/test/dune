@@ -1,0 +1,107 @@
+(library
+ (name test_json_utils)
+ (modules test_json_utils)
+ (libraries jsont jsont.bytesrw))
+
+; Consolidated unit test suite using alcotest
+
+(test
+ (name test_claude)
+ (modules test_claude)
+ (libraries claude alcotest jsont.bytesrw))
+
+(executable
+ (name camel_jokes)
+ (modules camel_jokes)
+ (libraries claude eio_main cmdliner logs logs.fmt fmt.tty fmt.cli logs.cli))
+
+(executable
+ (name permission_demo)
+ (modules permission_demo)
+ (libraries
+  test_json_utils
+  claude
+  eio_main
+  cmdliner
+  logs
+  logs.fmt
+  fmt.tty
+  fmt.cli
+  logs.cli))
+
+(executable
+ (name discovery_demo)
+ (modules discovery_demo)
+ (libraries claude eio_main cmdliner logs logs.fmt fmt.tty fmt.cli logs.cli))
+
+(executable
+ (name simulated_permissions)
+ (modules simulated_permissions)
+ (libraries claude eio_main cmdliner logs logs.fmt fmt.tty fmt.cli logs.cli))
+
+(executable
+ (name test_permissions)
+ (modules test_permissions)
+ (libraries claude eio_main cmdliner logs logs.fmt fmt.tty fmt.cli logs.cli))
+
+(executable
+ (name simple_permission_test)
+ (modules simple_permission_test)
+ (libraries
+  test_json_utils
+  claude
+  eio_main
+  cmdliner
+  logs
+  logs.fmt
+  fmt.tty
+  fmt.cli
+  logs.cli))
+
+(executable
+ (name hooks_example)
+ (modules hooks_example)
+ (libraries
+  test_json_utils
+  claude
+  eio_main
+  cmdliner
+  logs
+  logs.fmt
+  fmt.tty
+  fmt.cli
+  logs.cli))
+
+(executable
+ (name dynamic_control_demo)
+ (modules dynamic_control_demo)
+ (libraries claude eio_main cmdliner logs logs.fmt fmt.tty fmt.cli logs.cli))
+
+(executable
+ (name advanced_config_demo)
+ (modules advanced_config_demo)
+ (libraries claude eio_main logs logs.fmt fmt.tty))
+
+(executable
+ (name structured_output_demo)
+ (modules structured_output_demo)
+ (flags
+  (:standard -w -33))
+ (libraries test_json_utils claude eio_main logs logs.fmt fmt.tty))
+
+(executable
+ (name structured_output_simple)
+ (modules structured_output_simple)
+ (flags
+  (:standard -w -33))
+ (libraries test_json_utils claude eio_main logs logs.fmt fmt.tty))
+
+(executable
+ (name test_incoming)
+ (modules test_incoming)
+ (libraries claude jsont.bytesrw))
+
+(executable
+ (name test_structured_error)
+ (modules test_structured_error)
+ (libraries claude eio_main jsont.bytesrw))

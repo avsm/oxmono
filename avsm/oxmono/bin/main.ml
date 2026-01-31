@@ -381,6 +381,22 @@ let analyze_package ~env ~fs ~root ~wt_path ~changes_dir ~git_commit ~force ~sou
       if not should_analyze then
         Skipped
       else begin
+        (* Check if diff is empty first to avoid invoking Claude unnecessarily.
+           diff returns exit code 0 when no differences, 1 when differences exist.
+           Use run_with_output to capture and discard the diff output. *)
+        let has_differences =
+          match Oxmono.Process.run_with_output ~env ["diff"; "-q"; "-r"; pristine_dir; modified_dir] with
+          | Ok _ -> false  (* Exit 0 = no differences *)
+          | Error (`Exit_code 1) -> true  (* Exit 1 = has differences *)
+          | Error _ -> true  (* On other errors, assume differences and let Claude try *)
+        in
+        if not has_differences then begin
+          Log.app (fun m -> m "[%s] No differences, skipping Claude" package_name);
+          let changes = Oxmono.Changes.make ~name:package_name ~git_commit
+            ~change_type:Oxmono.Changes.Unchanged () in
+          write_changes_json ~fs ~changes_file changes;
+          Analyzed { change_type = Oxmono.Changes.Unchanged; summary = None }
+        end else begin
         (* Build prompt for Claude - tell it to diff the directories itself *)
         let prompt =
           Printf.sprintf {|Analyze the differences between the upstream pristine version and the local modified version of the OCaml package "%s".
@@ -388,6 +404,8 @@ let analyze_package ~env ~fs ~root ~wt_path ~changes_dir ~git_commit ~force ~sou
 Directory paths:
 - Pristine upstream: %s
 - Modified local: %s
+
+IMPORTANT: Only run commands that operate on these two directories. Do not access files or run commands outside of these paths.
 
 To see the differences, run: diff -ruN %s %s
 
@@ -412,18 +430,16 @@ Respond with ONLY the JSON object matching the schema.|} package_name pristine_d
         in
         Log.app (fun m -> m "[%s] Analyzing with Claude..." package_name);
         (* Create a temp directory for Claude session to avoid polluting the main directory *)
-        let temp_dir = Filename.concat (Filename.get_temp_dir_name ())
-          (Printf.sprintf "oxmono-claude-%s-%d" package_name (Random.int 1000000))
-        in
-        Sys.mkdir temp_dir 0o755;
-        (* Configure Claude with structured output and temp working directory *)
+        let temp_dir = Filename.temp_dir ("oxmono-" ^ package_name) "" in
+        (* Configure Claude with structured output, plan mode (read-only), and temp working directory *)
         let output_format = Claude.Proto.Structured_output.of_json_schema Oxmono.Changes.json_schema in
         let options =
           Claude.Options.default
           |> Claude.Options.with_output_format output_format
+          |> Claude.Options.with_permission_mode Claude.Permissions.Mode.Plan
           |> Claude.Options.with_permission_callback auto_allow_callback
           |> Claude.Options.with_max_turns 5
-          |> Claude.Options.with_cwd Eio.Path.(fs / temp_dir)
+          |> Claude.Options.with_cwd Eio.Path.(fs / root)
         in
         (* Run Claude *)
         let process_mgr = Eio.Stdenv.process_mgr env in
@@ -432,14 +448,37 @@ Respond with ONLY the JSON object matching the schema.|} package_name pristine_d
         Eio.Switch.run (fun sw ->
           let client = Claude.Client.create ~sw ~process_mgr ~clock ~options () in
           Claude.Client.query client prompt;
-          let responses = Claude.Client.receive_all client in
-          List.iter (function
-            | Claude.Response.Complete result ->
-              structured_output := Claude.Response.Complete.structured_output result
-            | Claude.Response.Error err ->
-              Log.err (fun m -> m "[%s] Claude error: %s" package_name (Claude.Response.Error.message err))
-            | _ -> ()
-          ) responses
+          let responses = Claude.Client.receive client in
+          let rec process seq =
+            match seq () with
+            | Seq.Nil -> ()
+            | Seq.Cons (response, rest) ->
+              match response with
+              | Claude.Response.Tool_use tool ->
+                let tool_name = Claude.Response.Tool_use.name tool in
+                let input = Claude.Response.Tool_use.input tool in
+                let get = Claude.Tool_input.get_string input in
+                let detail = match tool_name with
+                  | "Bash" -> get "command"
+                  | "Read" -> get "file_path"
+                  | "Glob" -> get "pattern"
+                  | "Grep" -> get "pattern"
+                  | "Edit" | "Write" -> get "file_path"
+                  | _ -> None
+                in
+                Log.app (fun m -> m "[%s] %s%s" package_name tool_name
+                  (match detail with Some d -> ": " ^ d | None -> ""));
+                process rest
+              | Claude.Response.Complete result ->
+                (* Stop after Complete to avoid hanging *)
+                structured_output := Claude.Response.Complete.structured_output result
+              | Claude.Response.Error err ->
+                Log.err (fun m -> m "[%s] Claude error: %s" package_name (Claude.Response.Error.message err));
+                process rest
+              | _ ->
+                process rest
+          in
+          process responses
         );
         (* Clean up temp directory *)
         (try
@@ -464,6 +503,7 @@ Respond with ONLY the JSON object matching the schema.|} package_name pristine_d
               (Oxmono.Changes.change_type_to_string change_type)
               (match summary with Some s -> " - " ^ s | None -> ""));
             Analyzed { change_type; summary })
+        end
       end
     end
 

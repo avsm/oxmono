@@ -1,0 +1,7 @@
+{
+  "name": "conduit",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Remove test SSL configuration file for monorepo compatibility",
+  "details": "- Deleted `tests/conduit-lwt-unix/server.conf` - an OpenSSL configuration file used for generating test certificates\n- The file contained certificate request settings for localhost testing with TLS\n- Removal likely simplifies test infrastructure or avoids certificate generation dependencies in the monorepo"
+}

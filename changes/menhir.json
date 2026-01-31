@@ -1,0 +1,7 @@
+{
+  "name": "menhir",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Monorepo compatibility changes: add opam file, remove documentation and editor files",
+  "details": "- Added `opam` file with package metadata for monorepo integration (version 20250912, dependencies on menhirLib, menhirSdk, menhirCST)\n- Removed `doc/manual.html` (large generated HTML documentation not needed in monorepo)\n- Removed `src/.merlin` (editor helper file with build paths, not needed in monorepo)"
+}

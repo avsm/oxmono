@@ -1,0 +1,7 @@
+{
+  "name": "backoff",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Add runtime5 detection for Domain module compatibility with OCaml 4.x",
+  "details": "- Add `%runtime5` external to detect OCaml 5 runtime at startup\n- Create conditional `cpu_relax` function that is a no-op on OCaml 4.x\n- Create conditional `recommended_domain_count` function returning 1 on OCaml 4.x\n- Replace direct `Domain.cpu_relax` and `Domain.recommended_domain_count` calls with the conditional versions\n- Add `@@ portable` annotation to the `.mli` file\n- Include patch file documenting the changes"
+}

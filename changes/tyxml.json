@@ -1,0 +1,7 @@
+{
+  "name": "tyxml",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Remove seq library dependency since it's now part of OCaml stdlib",
+  "details": "- Remove `seq` from library dependencies in `lib/dune` since the `Seq` module is part of the OCaml standard library in OCaml 4.07+"
+}

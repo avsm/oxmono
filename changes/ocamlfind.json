@@ -1,0 +1,7 @@
+{
+  "name": "ocamlfind",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Add dune build support with OxCaml compatibility fix for topfind type annotations",
+  "details": "- Add `dune-project` and dune build files for findlib library and ocamlfind executable\n- Add `findlib.opam` and `ocamlfind.opam` for dune-based package management\n- Add `tools/discover.ml` for dune-configurator-based configuration (replaces autoconf)\n- Add `tools/extract_args/` executable for extracting OCaml compiler arguments\n- Add META files for standard library packages (bigarray, bytes, compiler-libs, dynlink, raw_spacetime, stdlib, str, threads, unix, runtime_events)\n- Add toplevel scripts `topfind_rd0.p` and `topfind_rd1.p` with native toplevel support\n- Fix in `topfind.ml.in`: change `ignore` to explicit eta-expanded function `fun _ -> ()` for OxCaml compatibility (avoids type inference issues with `ignore`'s polymorphic type)"
+}

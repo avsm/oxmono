@@ -1,0 +1,7 @@
+{
+  "name": "binaryen",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "build-fix",
+  "summary": "Different codebases: pristine is grain-lang/binaryen.ml OCaml bindings, local is upstream WebAssembly/binaryen C++ tools with opam packaging",
+  "details": "- **Pristine (./sources/binaryen)**: OCaml bindings for Binaryen from grain-lang/binaryen.ml\n  - Uses dune build system with OCaml FFI stubs\n  - Package name: `binaryen` (OCaml library)\n  - Depends on `libbinaryen` C library\n- **Local (./opam/binaryen)**: Full upstream WebAssembly/binaryen C++ toolchain\n  - Package name in opam: `binaryen-bin` (provides wasm-opt, wasm-metadce, wasm-merge binaries)\n  - Uses cmake/ninja build system via opam\n  - Contains full C++ source (~35MB diff due to entirely different codebase)\n- These appear to be **completely different packages** with similar names that serve complementary purposes"
+}

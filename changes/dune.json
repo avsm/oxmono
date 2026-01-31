@@ -1,0 +1,7 @@
+{
+  "name": "dune",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Eta-expand partially applied functions for OxCaml compiler compatibility",
+  "details": "- **v1.ml (configurator)**: Eta-expand `create_process` function to take explicit `stdin`, `stdout`, `stderr` arguments instead of partial application of `Unix.create_process` and `Unix.create_process_env`\n- **v1.ml (configurator)**: Wrap `prerr_endline` and `log` in lambdas (`fun s -> prerr_endline s`) instead of using them as bare function values\n- **fpath.ml (stdune)**: Eta-expand `Unix.unlink` to `fun s -> Unix.unlink s` instead of direct function reference\n- **csexp_rpc.ml**: Rename parameters from `t b` to `fd bytes pos len` and eta-expand `send` and `Unix.single_write` calls\n- **dune_trace.ml**: Wrap `Stdlib.output_string out` in a lambda (`fun s -> Stdlib.output_string out s`)\n- **oxcaml-dune.patch**: Added patch file documenting all the above changes\n- **boot/dune.install**: Removed (cleanup)"
+}

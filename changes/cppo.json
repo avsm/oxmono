@@ -1,0 +1,7 @@
+{
+  "name": "cppo",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Add opam package metadata file for monorepo integration",
+  "details": "- Added `opam` file with package metadata (version 1.8.0, BSD-3-Clause license)\n- Specifies dependencies: ocaml (>= 4.02.3), dune (>= 2.0), base-unix\n- Includes build instructions for dune with test and doc targets\n- Upstream already has dune-project, so dune support is not new"
+}

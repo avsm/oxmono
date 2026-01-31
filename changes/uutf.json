@@ -1,0 +1,7 @@
+{
+  "name": "uutf",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "mixed",
+  "summary": "Add dune build support and OxCaml portability/locality annotations for data-race-free parallelism.",
+  "details": "- **Dune port**: Added dune-project, src/dune, doc/dune, test/dune; removed B0.ml, BRZO, _tags, pkg/META, pkg/pkg.ml, src/uutf.mllib\n- **OxCaml portability**: Added `@@ portable` annotation to uutf.mli header\n- **OxCaml contended arrays**: Added `magic_uncontended` external function to safely access the immutable `utf_8_len` array in a portable/contended-safe manner\n- **OxCaml locality**: Changed `'a folder` type to use `local_` function types (`'a -> local_ (int -> [...] -> 'a)`) for stack allocation optimization\n- **OxCaml compatibility**: Replaced `Bytes.empty` with `Bytes.create 0` in multiple locations (eoi, src, decoder, encoder functions) for OxCaml compatibility\n- **Test rename**: Renamed test/test.ml to test/test_uutf.ml for dune conventions"
+}

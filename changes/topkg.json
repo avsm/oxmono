@@ -1,0 +1,7 @@
+{
+  "name": "topkg",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Remove redundant function declarations from interface to fix OCaml compatibility",
+  "details": "- Removed `val trim : string -> string` declaration from `topkg_string.mli`\n- Removed `val uppercase_ascii : string -> string` declaration from `topkg_string.mli`\n- Both functions are still available via `include module type of String`, so this removes redundant re-declarations\n- Includes a patch file documenting the interface changes\n- This appears to fix compatibility issues where these re-declarations may conflict with the standard library's String module in newer OCaml versions"
+}

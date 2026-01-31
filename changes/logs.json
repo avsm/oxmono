@@ -1,0 +1,7 @@
+{
+  "name": "logs",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Add dune build support for logs and all sub-libraries",
+  "details": "- Add `dune-project` file with dune 3.20 and package name\n- Add `dune` files for all libraries:\n  - `src/dune` for the core `logs` library\n  - `src/fmt/dune` for `logs.fmt` (with install stanza for `logs_fmt_top_init.ml`)\n  - `src/browser/dune` for `logs.browser` (optional, depends on js_of_ocaml-compiler.runtime)\n  - `src/cli/dune` for `logs.cli` (depends on cmdliner)\n  - `src/lwt/dune` for `logs.lwt` (optional, depends on lwt)\n  - `src/threaded/dune` for `logs.threaded` (optional, depends on threads)\n  - `src/top/dune` for `logs.top` (with install stanza for `logs_top_init.ml`)\n- Add `doc/dune` for documentation\n- Add `logs.opam` file (moved from `opam`)\n- Remove legacy build files: `B0.ml`, `BRZO`, `_tags`, `pkg/META`, `pkg/pkg.ml`, `src/logs.mllib`"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "alcotest",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Fix partial application to use explicit parameter for compatibility with stricter typing",
+  "details": "- Modified `length_utf8` function in `alcotest_stdlib_ext.ml` to use explicit parameter `t` instead of point-free style\n- Changed from `let length_utf8 = Uutf.String.fold_utf_8 ...` to `let length_utf8 t = Uutf.String.fold_utf_8 ... t`\n- Includes a patch file (`local-restriction.patch`) documenting the change"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "mtime",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Port from ocamlbuild/topkg to dune build system with reorganized directory structure.",
+  "details": "- Removed ocamlbuild files: `B0.ml`, `BRZO`, `_tags`, `myocamlbuild.ml`, `pkg/pkg.ml`, `pkg/META`, `.mllib`, `.clib` files\n- Added dune build files: `dune-project`, `src/dune`, `src/top/dune`, `src-clock/dune`, `test/dune`, `doc/dune`\n- Renamed opam file from `opam` to `mtime.opam`\n- Reorganized clock library sources from `src/clock/` to `src-clock/` directory\n- Added `Mtime_clock.mli` interface files to both `src/` and `src-clock/` directories\n- Created virtual library `mtime.clock` in `src/dune` with actual implementation `mtime.clock.os` in `src-clock/`\n- Tests marked as optional due to b0 library dependency not being available"
+}

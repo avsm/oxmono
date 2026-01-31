@@ -1,0 +1,7 @@
+{
+  "name": "gen",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Remove seq library dependency and delete unused qtest/benchmark infrastructure",
+  "details": "- Remove `(libraries seq)` dependency from `src/dune` - the `seq` module is now part of the OCaml standard library\n- Delete `bench/.merlin` file (legacy editor support file)\n- Delete `qtest/Makefile` and `qtest/dune` (test infrastructure not needed in monorepo)"
+}

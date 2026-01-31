@@ -1,0 +1,7 @@
+{
+  "name": "ptime",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Add dune build support, replacing ocamlbuild/topkg build system",
+  "details": "- Add `dune-project` file with dune 3.20 language version\n- Add `src/dune` for main ptime library with `ptime_top_init.ml` install rule\n- Add `src/clock/dune` for ptime.clock library with C stubs, js_of_ocaml runtime, and deprecated ptime.clock.os alias\n- Add `src/top/dune` for ptime.top library with compiler-libs.toplevel dependency\n- Add `doc/dune` for documentation\n- Move `opam` to `ptime.opam` (dune naming convention)\n- Remove ocamlbuild files: `B0.ml`, `BRZO`, `_tags`, `myocamlbuild.ml`, `pkg/pkg.ml`, `pkg/META`\n- Remove `src/ptime.mllib`"
+}

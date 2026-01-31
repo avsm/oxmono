@@ -1,0 +1,7 @@
+{
+  "name": "afl-persistent",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "build-fix",
+  "summary": "Fix config.sh to return to original directory instead of root after cleanup",
+  "details": "- Modified `config.sh` to save the current directory before creating a temp directory\n- Changed `cd /` to `cd \"$curdir\"` after cleanup, returning to the original working directory instead of the root filesystem\n- Added `config.patch` file containing the same fix as a patch for reference"
+}

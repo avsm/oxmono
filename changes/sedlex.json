@@ -1,0 +1,7 @@
+{
+  "name": "sedlex",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Adapt ppx_sedlex for OxCaml/ppxlib_jane AST changes with labeled tuples and ghost location handling",
+  "details": "- **Labeled tuple support**: Updated `Ppat_tuple` pattern matching to handle the new OxCaml AST format with labeled tuples (`([None, p0; None, p1], Closed)`) using `Ppxlib_jane.as_unlabeled_tuple`\n- **Function construction**: Replaced `Ast_helper.Exp.fun_` with `Ppxlib_jane.Ast_builder.Default.add_fun_param` for OxCaml compatibility\n- **Ghost location handling**: Added `loc_ghoster` AST traverser to mark generated code locations as ghost, preventing spurious source location issues in generated code\n- **Removed `.merlin` file**: Deleted obsolete Merlin configuration file\n- **Included patch file**: Added `sedlex+syntax+ppx_sedlex.ml.patch` documenting the changes"
+}

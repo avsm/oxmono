@@ -1,0 +1,7 @@
+{
+  "name": "lwt",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Compatibility fixes for OxCaml compiler's modified AST representation and type system",
+  "details": "- **PPX AST compatibility fixes in `ppx_lwt.ml`**:\n  - Updated `Ppat_constraint` pattern to handle extra parameter: `(p,_)` → `(p,_,_)`\n  - Updated `Pexp_let` pattern for extra parameter: `(Nonrecursive, ...)` → `(_, Nonrecursive, ...)`\n  - Changed `pexp_function_cases` to `pexp_function` (5 occurrences) to match modified ppxlib API\n- **Unix socket functions in `lwt_unix.cppo.ml`**:\n  - Changed 4 socket operations (`recv`, `send`, `recvfrom`, `sendto`) from value-level conditionals to inline function definitions to work around type system differences\n- Includes `oxcaml.patch` file documenting all the changes"
+}

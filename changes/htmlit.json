@@ -1,0 +1,7 @@
+{
+  "name": "htmlit",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Add dune build support, replacing ocamlbuild/topkg build system.",
+  "details": "- Add `dune-project` with lang dune 3.21 and package definition\n- Add root `dune` file with compiler flags matching ocamlbuild settings (-g -bin-annot -safe-string)\n- Add `src/dune` defining the htmlit library with `(wrapped false)`\n- Add `test/dune` for the example executable\n- Replace `opam` with `htmlit.opam`, updating build dependencies from ocamlfind/ocamlbuild/topkg to dune"
+}

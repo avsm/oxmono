@@ -597,8 +597,31 @@ let load_all_changes ~fs changes_dir =
       None
   ) json_files
 
+(** Get package version from opam file *)
+let get_package_version ~root name =
+  (* Try opam/<name>/<name>.opam first, then opam/<name>/opam *)
+  let try_paths = [
+    Filename.concat root (Printf.sprintf "opam/%s/%s.opam" name name);
+    Filename.concat root (Printf.sprintf "opam/%s/opam" name);
+  ] in
+  let version_re = Re.Pcre.regexp {|^version:\s*"([^"]+)"|} in
+  List.find_map (fun path ->
+    if Sys.file_exists path then
+      let ic = open_in path in
+      let rec find_version () =
+        match input_line ic with
+        | line ->
+          (match Re.exec_opt version_re line with
+          | Some groups -> close_in ic; Some (Re.Group.get groups 1)
+          | None -> find_version ())
+        | exception End_of_file -> close_in ic; None
+      in
+      find_version ()
+    else None
+  ) try_paths
+
 (** Generate the Packages section as markdown tables grouped by type *)
-let generate_status_markdown changes =
+let generate_status_markdown ~root changes =
   let buf = Buffer.create 8192 in
   Buffer.add_string buf "# Packages\n\n";
 
@@ -623,6 +646,13 @@ let generate_status_markdown changes =
     Oxmono.Changes.Unchanged, "Unchanged", "Packages with no modifications from upstream";
   ] in
 
+  (* Format package name with version *)
+  let name_with_version name =
+    match get_package_version ~root name with
+    | Some v -> Printf.sprintf "%s (%s)" name v
+    | None -> name
+  in
+
   let render_table pkgs =
     Buffer.add_string buf "| Package | Summary | Details |\n";
     Buffer.add_string buf "|---------|---------|--------|\n";
@@ -631,6 +661,7 @@ let generate_status_markdown changes =
     ) pkgs in
     List.iter (fun c ->
       let name = Oxmono.Changes.name c in
+      let display_name = name_with_version name in
       let summary = Oxmono.Changes.summary c |> Option.value ~default:"" in
       let details = Oxmono.Changes.details c in
       let details_col = match details with
@@ -642,8 +673,17 @@ let generate_status_markdown changes =
           in
           Printf.sprintf "<details><summary>▶</summary><br>%s</details>" escaped
       in
-      Buffer.add_string buf (Printf.sprintf "| %s | %s | %s |\n" name summary details_col)
+      Buffer.add_string buf (Printf.sprintf "| %s | %s | %s |\n" display_name summary details_col)
     ) sorted
+  in
+
+  let render_list pkgs =
+    let sorted = List.sort (fun a b ->
+      String.compare (Oxmono.Changes.name a) (Oxmono.Changes.name b)
+    ) pkgs in
+    let names = List.map (fun c -> name_with_version (Oxmono.Changes.name c)) sorted in
+    Buffer.add_string buf (String.concat ", " names);
+    Buffer.add_string buf "\n"
   in
 
   List.iter (fun (ct, title, desc) ->
@@ -651,7 +691,11 @@ let generate_status_markdown changes =
     | None | Some [] -> ()
     | Some pkgs ->
       Buffer.add_string buf (Printf.sprintf "## %s\n\n%s\n\n" title desc);
-      render_table pkgs;
+      (* Use comma-separated list for JaneStreet and Unchanged, table for others *)
+      if ct = Oxmono.Changes.Janestreet || ct = Oxmono.Changes.Unchanged then
+        render_list pkgs
+      else
+        render_table pkgs;
       Buffer.add_string buf "\n"
   ) sections;
 
@@ -695,7 +739,7 @@ let readme_cmd =
     end else begin
       Log.app (fun m -> m "Loaded %d package changes" (List.length changes));
       (* Generate status section *)
-      let status_md = generate_status_markdown changes in
+      let status_md = generate_status_markdown ~root changes in
       (* Read existing README or create new *)
       let existing_content =
         if Sys.file_exists readme_path then

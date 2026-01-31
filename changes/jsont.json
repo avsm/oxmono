@@ -1,0 +1,7 @@
+{
+  "name": "jsont",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Port from ocamlbuild/topkg to dune build system",
+  "details": "- Remove B0.ml build description file\n- Remove _tags ocamlbuild configuration\n- Remove pkg/META and pkg/pkg.ml topkg packaging files\n- Remove .mllib files (jsont.mllib, jsont_brr.mllib, jsont_bytesrw.mllib)\n- Add dune-project file with lang dune 3.20\n- Add dune files for main library (src/dune), brr sublib (src/brr/dune), bytesrw sublib (src/bytesrw/dune)\n- Add doc/dune for documentation\n- Update jsont.opam to use dune build commands instead of topkg\n- Remove cmdliner from depopts (was only used for the jsont tool which is not included)"
+}

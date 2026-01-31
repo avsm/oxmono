@@ -1,0 +1,7 @@
+{
+  "name": "cmarkit",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Port from ocamlbuild/topkg/b0 to dune build system",
+  "details": "- Add `dune-project` file with dune 3.20 and package name\n- Add `src/dune` with library definition (unwrapped, public_name cmarkit)\n- Add `src/tool/dune` for the optional cmarkit executable (requires cmdliner)\n- Add `doc/dune` for documentation\n- Move `opam` file to standard `cmarkit.opam` location\n- Remove B0.ml build configuration\n- Remove pkg/pkg.ml topkg build script\n- Remove pkg/META file (dune generates this)\n- Remove src/cmarkit.mllib (replaced by dune library definition)\n- Remove _tags and BRZO ocamlbuild configuration files"
+}

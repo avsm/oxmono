@@ -1,0 +1,7 @@
+{
+  "name": "hmap",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Port from ocamlbuild/topkg to dune build system",
+  "details": "- Remove ocamlbuild files: `_tags`, `pkg/pkg.ml`, `pkg/META`, `src/hmap.mllib`\n- Remove legacy odoc files: `doc/api.odocl`, `doc/dev.odocl`\n- Remove old opam 1.2 format `opam` file\n- Add `dune-project` with lang dune 3.20\n- Add `src/dune` library definition (unwrapped)\n- Add `test/dune` with executable and runtest alias\n- Add `hmap.opam` in opam 2.0 format with dune build commands\n- Update OCaml version requirement from 4.02.0 to 4.08.0"
+}

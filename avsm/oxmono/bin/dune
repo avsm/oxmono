@@ -1,4 +1,4 @@
 (executable
  (name main)
  (public_name oxmono)
- (libraries oxmono claude eio_main cmdliner logs logs.cli logs.fmt fmt fmt.cli fmt.tty jsont.bytesrw cmarkit))
+ (libraries oxmono claude eio_main cmdliner logs logs.cli logs.fmt fmt fmt.cli fmt.tty jsont.bytesrw cmarkit re))

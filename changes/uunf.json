@@ -1,0 +1,7 @@
+{
+  "name": "uunf",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Port from ocamlbuild/topkg to dune build system",
+  "details": "- Add `dune-project` file with dune 3.20 language version\n- Add `src/dune` library definition (public_name uunf, wrapped false, suppresses warning 32)\n- Replace `opam` file with `uunf.opam` using dune build command\n- Update homepage to dune-universe fork in opam metadata\n- Remove ocamlbuild, topkg, and uucd dependencies from opam\n- Replace hardcoded version strings with `%%VERSION%%` placeholders in README.md, doc/index.mld, pkg/META, and test/unftrip.ml\n- Add development files: `.gitignore`, `.merlin`, `.ocp-indent`"
+}

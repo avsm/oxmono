@@ -1,0 +1,7 @@
+{
+  "name": "jsonm",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Add dune build support, removing ocamlbuild/topkg infrastructure.",
+  "details": "- Added `dune-project` with lang dune 3.20\n- Added `src/dune` library definition with uutf dependency\n- Added `test/dune` with executables (jsontrip, test, examples, jtree) and runtest rule\n- Added `doc/dune` for documentation\n- Renamed `opam` to `jsonm.opam` (standard dune convention)\n- Removed ocamlbuild files: `_tags`, `src/jsonm.mllib`, `pkg/pkg.ml`, `pkg/META`\n- Removed B0 build system files: `B0.ml`, `BRZO`"
+}

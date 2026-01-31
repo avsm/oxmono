@@ -1,0 +1,7 @@
+{
+  "name": "ocamlbuild",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "build-fix",
+  "summary": "Fix for-pack tag propagation to .ml/.mli files and add directory-specific build rules",
+  "details": "- **Makefile changes**: Replace generic `%.cmo` and `%.cmi` rules with directory-specific rules for `src/`, `bin/`, and `plugin-lib/` directories. The `src/` directory rules include `-for-pack Ocamlbuild_pack` flag\n- **configuration.ml changes**: Add logic to propagate `for-pack(...)` tags from `.cmx` files to corresponding `.ml` and `.mli` files, ensuring pack-related tags are applied during bytecode compilation\n- **flambda2.patch**: Included patch file documenting these changes (appears to be for flambda2 compatibility)\n- **.depend file removed**: The dependency file was removed from the modified version"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "hex",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Remove obsolete .merlin file for cleaner monorepo integration",
+  "details": "- Removed `.merlin` file (obsolete editor configuration from pre-dune era)\n- No code changes; all source files remain identical to upstream"
+}

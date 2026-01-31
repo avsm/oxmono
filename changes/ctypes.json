@@ -1,0 +1,7 @@
+{
+  "name": "ctypes",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "compatibility",
+  "summary": "Downgrade to version 0.23.0 with bigarray-compat for older OCaml support and dune 2.9 compatibility",
+  "details": "- **Version downgrade**: From 0.24.0 to 0.23.0, removing features that require OCaml 4.07+\n- **OCaml version support**: Lowered minimum OCaml version from 4.07.0 to 4.03.0\n- **Dune version**: Downgraded from dune 3.9 to dune 2.9\n- **Bigarray compatibility**: Replaced all `Bigarray` references with `Bigarray_compat` for older OCaml support\n- **Added dependencies**: `bigarray-compat` (runtime), `stdlib-shims` (tests)\n- **Removed upstream features**: \n  - Removed passability bypass for incomplete types in function pointers (`@->` and `returning` overrides in cstubs_structs.ml)\n  - Removed `new_chorse_as_animal` test function and related funptr test types\n- **Build system changes**:\n  - Changed `build_if` to `enabled_if` with tuareg dune file for fts example\n  - Added `--promote-install-files=false` and separate install step for opam\n  - Removed warning flags `-67-69`\n- **CI changes**: Added OCaml 4.03-4.06 to test matrix, removed 5.3.0, downgraded setup-ocaml to v2\n- **OxCaml patch**: Includes a `bigarray.patch` file suggesting an `@ immutable` mode annotation for `bigarray_kind` function"
+}

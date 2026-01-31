@@ -1,0 +1,7 @@
+{
+  "name": "js_of_ocaml",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "oxcaml",
+  "summary": "Add OxCaml unboxed types support including Float32, Null, and mixed blocks, plus OCaml 5.x API compatibility",
+  "details": "- **Float32 support**: Add `Float32` constant type for unboxed float32 values with proper parsing, printing, and code generation\n- **Null value support**: Add `Null` constant type with `%is_null` primitive for null-aware code\n- **Unboxed type constants**: Handle `Const_unboxed_float`, `Const_unboxed_float32`, `Const_unboxed_int32`, `Const_unboxed_int64`, `Const_unboxed_nativeint`\n- **Untagged integer types**: Support `Const_int8`, `Const_int16`, `Const_untagged_int8`, `Const_untagged_int16`, `Const_untagged_char`\n- **Mixed blocks**: Handle `Const_mixed_block`, `Const_float_block`, and `MAKE_FAUX_MIXEDBLOCK` opcode\n- **Async exception handling**: Wrap main entry points with `Sys.with_async_exns`\n- **OCaml 5.x API updates**: Use `Cmo_format.compilation_unit_descr`, `Compilation_unit` module APIs, `Ident.is_global`, `Import_info.t`\n- **Runtime improvements**: Float32Array-based float32 operations, `caml_create_file` fallback for file system\n- **Reserved words**: Add `Float32Array` to JavaScript reserved words"
+}

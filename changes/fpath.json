@@ -1,0 +1,7 @@
+{
+  "name": "fpath",
+  "git_commit": "ca087e398f28a83d5ac0c1f41bf194412dcbd5ba",
+  "change_type": "dune-port",
+  "summary": "Add dune build support replacing ocamlbuild/topkg build system",
+  "details": "- Added `dune-project` file with dune 3.20 language version\n- Added `src/dune` defining the main `fpath` library with astring dependency\n- Added `src/top/dune` for the toplevel support library (`fpath.top`)\n- Added `test/dune` with test executable using b0.testing\n- Added `doc/dune` for documentation\n- Renamed `opam` to `fpath.opam` (standard dune convention)\n- Removed ocamlbuild files: `_tags`, `pkg/pkg.ml`, `pkg/META`\n- Removed `.mllib` files: `src/fpath.mllib`, `src/fpath_top.mllib`"
+}

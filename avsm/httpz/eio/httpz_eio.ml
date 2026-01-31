@@ -16,7 +16,7 @@ let[@inline] to_int x = I16.to_int x
 
 (** Write response headers to buffer using typed Header_name.t.
     Returns header length. *)
-let rec write_headers_loop buf off (local_ headers : Httpz.Route.resp_header list) =
+let rec write_headers_loop buf off (local_ headers : Httpz_server.Route.resp_header list) =
   match headers with
   | [] -> off
   | (name, value) :: rest ->
@@ -24,7 +24,7 @@ let rec write_headers_loop buf off (local_ headers : Httpz.Route.resp_header lis
       write_headers_loop buf off rest
 
 let write_response_headers buf ~off ~keep_alive ~content_length version ~status
-    ~(local_ headers : Httpz.Route.resp_header list) =
+    ~(local_ headers : Httpz_server.Route.resp_header list) =
   let off = Httpz.Res.write_status_line buf ~off status version in
   let off = write_headers_loop buf off headers in
   let off = match content_length with
@@ -70,12 +70,12 @@ let create_conn flow =
 let make_respond conn ~keep_alive version ~status ~(local_ headers) body =
   let buf = conn.write_buf in
   match body with
-  | Httpz.Route.Empty ->
+  | Httpz_server.Route.Empty ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:(Some 0) version ~status ~headers in
       Eio.Flow.write conn.flow [Cstruct.sub conn.write_cs 0 header_len]
 
-  | Httpz.Route.String body_str ->
+  | Httpz_server.Route.String body_str ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:(Some (String.length body_str)) version ~status ~headers in
       Eio.Flow.write conn.flow [
@@ -83,7 +83,7 @@ let make_respond conn ~keep_alive version ~status ~(local_ headers) body =
         Cstruct.of_string body_str;
       ]
 
-  | Httpz.Route.Bigstring { buf = body_buf; off; len } ->
+  | Httpz_server.Route.Bigstring { buf = body_buf; off; len } ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:(Some len) version ~status ~headers in
       Eio.Flow.write conn.flow [
@@ -91,7 +91,7 @@ let make_respond conn ~keep_alive version ~status ~(local_ headers) body =
         Cstruct.of_bigarray body_buf ~off ~len;
       ]
 
-  | Httpz.Route.Stream { length; iter } ->
+  | Httpz_server.Route.Stream { length; iter } ->
       let header_len = write_response_headers buf ~off:(i16 0) ~keep_alive
         ~content_length:length version ~status ~headers in
       Eio.Flow.write conn.flow [Cstruct.sub conn.write_cs 0 header_len];
@@ -182,10 +182,10 @@ let handle_request conn ~routes ~on_request =
         make_respond conn ~keep_alive:conn.keep_alive version ~status ~headers body
       in
       (* Dispatch - respond is called directly by handler *)
-      let matched = Httpz.Route.dispatch buf ~meth ~target ~headers routes ~respond in
+      let matched = Httpz_server.Route.dispatch buf ~meth ~target ~headers routes ~respond in
       if not matched then begin
         logged_status := Httpz.Res.Not_found;
-        Httpz.Route.not_found respond
+        Httpz_server.Route.not_found respond
       end;
       (* Call request callback for logging etc *)
       on_request ~meth ~path:path_str ~status:!logged_status;

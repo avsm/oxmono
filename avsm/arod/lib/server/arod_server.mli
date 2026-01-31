@@ -14,7 +14,7 @@ val run :
   sw:Eio.Switch.t ->
   net:_ Eio.Net.t ->
   config:Arod.Config.t ->
-  Httpz.Route.t ->
+  Httpz_server.Route.t ->
   unit
 (** [run ~sw ~net ~config routes] starts the httpz + Eio server with
     the given routes.

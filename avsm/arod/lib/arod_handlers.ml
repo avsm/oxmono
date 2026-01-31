@@ -6,7 +6,7 @@
 (** Pure route handlers for arod *)
 
 open Arod_entries
-module R = Httpz.Route
+module R = Httpz_server.Route
 
 (** {1 Query Information} *)
 

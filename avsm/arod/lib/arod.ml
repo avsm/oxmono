@@ -61,7 +61,7 @@ module Richdata = Arod_richdata
 module Html = Arod_html
 (** Legacy HTML generation (for compatibility). *)
 
-module Route = Httpz.Route
+module Route = Httpz_server.Route
 (** HTTP routing (re-exported from httpz). *)
 
 module Memo = Arod_memo

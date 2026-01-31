@@ -8,6 +8,7 @@
 *)
 
 open Base
+open Httpz
 
 module I16 = Stdlib_stable.Int16_u
 

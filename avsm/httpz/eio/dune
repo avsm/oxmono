@@ -1,4 +1,4 @@
 (library
  (name httpz_eio)
  (public_name httpz.eio)
- (libraries httpz eio base))
+ (libraries httpz httpz.server eio base))

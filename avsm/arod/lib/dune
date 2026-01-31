@@ -11,6 +11,7 @@
   tomlt
   tomlt.bytesrw
   httpz
+  httpz.server
   uri
   ptime
   ptime.clock.os

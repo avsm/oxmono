@@ -10,21 +10,6 @@
     directly. The handlers are designed to be reusable across different
     HTTP server implementations with zero response record allocation. *)
 
-(** {1 Query Information}
-
-    Query parameters extracted from requests for filtering and pagination. *)
-
-type query_info = {
-  tags : Arod_model.Tags.t list;  (** Tag filters from ?t= parameters *)
-  min : int;  (** Minimum items to show, from ?min= parameter (default 25) *)
-  show_all : bool;  (** Whether to show all items, from ?all parameter *)
-}
-(** Query information extracted from a request. *)
-
-val query_info_of_ctx : Httpz_server.Route.ctx -> query_info
-(** [query_info_of_ctx ctx] extracts tag filters, min count, and show_all
-    flag from context query parameters. *)
-
 (** {1 Content Handlers}
 
     Handlers for individual content pages and listings.

@@ -782,8 +782,7 @@ let entry_href ?title ?(tag="h2") ent =
 
 (** {1 Tags Metadata} *)
 
-let tags_meta ?extra ?link ?(tags=[]) ?date ?backlinks_content ent =
-  let tags = List.map Arod_model.Tags.of_string tags in
+let tags_meta ?extra ?link ?date ?backlinks_content ent =
   let link_el = match link with
     | None -> El.a ~at:[At.href (Arod_model.Entry.site_url ent)] [El.txt "#"]
     | Some l -> El.a ~at:[At.href l] [El.txt "#"]
@@ -850,7 +849,7 @@ let tags_meta ?extra ?link ?(tags=[]) ?date ?backlinks_content ent =
     | None -> sections
   in
 
-  let all_tags = Arod_model.concat_tags tags (Arod_model.tags_of_ent ent) in
+  let all_tags = Arod_model.tags_of_ent ent in
   let sections = match all_tags with
     | [] -> sections
     | tags ->

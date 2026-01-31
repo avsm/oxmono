@@ -194,29 +194,3 @@ let md_to_html ?renderer md =
 let tags_of_ent ent =
   Entry.tags_of_ent (get_entries ()) ent
 
-let concat_tags tags1 tags2 =
-  List.sort_uniq compare (tags1 @ tags2)
-
-(** Count tags across all entries *)
-let count_tags_for_ents entries =
-  let counts = Hashtbl.create 32 in
-  List.iter (fun ent ->
-    let tags = Entry.tags_of_ent (get_entries ()) ent in
-    List.iter (fun tag ->
-      let current = Hashtbl.find_opt counts tag |> Option.value ~default:0 in
-      Hashtbl.replace counts tag (current + 1)
-    ) tags
-  ) entries;
-  counts
-
-(** Get category tags with counts for the header navigation *)
-let cats () =
-  let entries = all_entries () in
-  let counts = count_tags_for_ents entries in
-  Hashtbl.fold (fun k v acc ->
-    match k with
-    | `Set "videos" -> acc  (* Skip videos, use talks instead *)
-    | `Set _ -> (k, v) :: acc
-    | _ -> acc
-  ) counts []
-  |> List.sort (fun (a, _) (b, _) -> compare (Tags.to_string a) (Tags.to_string b))

@@ -8,31 +8,6 @@
 open Arod_entries
 module R = Httpz_server.Route
 
-(** {1 Query Information} *)
-
-type query_info = Arod_entries.query_info = {
-  tags : Arod_model.Tags.t list;
-  min : int;
-  show_all : bool;
-}
-
-let query_info_of_ctx ctx : query_info =
-  let tags =
-    R.query_params ctx "t"
-    |> List.map Arod_model.Tags.of_string
-  in
-  let min =
-    match R.query_param ctx "min" with
-    | None -> 25
-    | Some v -> ( try int_of_string v with _ -> 25 )
-  in
-  let show_all =
-    match R.query_param ctx "all" with
-    | None -> false
-    | Some _ -> true
-  in
-  { tags; min; show_all }
-
 (** {1 Response Helpers} *)
 
 let to_page el = Htmlit.El.to_string ~doctype:true el
@@ -78,50 +53,25 @@ let static_file ~dir path _ctx respond =
 
 (** {1 Entry Handlers} *)
 
-let entries_handler ~extra_tags ~types ctx respond =
-  let q = query_info_of_ctx ctx in
-  let all_tags =
-    Arod_model.concat_tags q.tags (List.map Arod_model.Tags.of_string extra_tags)
-  in
-  R.html respond
-    (to_page
-       (view_entries ~show_all:q.show_all ~tags:all_tags ~min:q.min ~types
-          (entries_of_req ~extra_tags ~types { tags = q.tags; min = q.min; show_all = q.show_all })))
+let entries_handler ~types _ctx respond =
+  R.html respond (to_page (view_entries ~types))
 
-let feed_handler ~types ctx respond =
-  let q = query_info_of_ctx ctx in
-  R.html respond
-    (to_page
-       (view_news ~show_all:q.show_all ~tags:q.tags ~min:q.min ~types
-          (feed_of_req ~types { tags = q.tags; min = q.min; show_all = q.show_all })))
-
-let feed_handler_with_tags ~extra_tags ~types ctx respond =
-  let q = query_info_of_ctx ctx in
-  let tags =
-    Arod_model.concat_tags q.tags (List.map Arod_model.Tags.of_string extra_tags)
-  in
-  let q' = { tags; min = q.min; show_all = q.show_all } in
-  R.html respond
-    (to_page
-       (view_news ~show_all:q'.show_all ~tags:q'.tags ~min:q'.min ~types
-          (feed_of_req ~types q')))
+let feed_handler ~types _ctx respond =
+  R.html respond (to_page (view_news ~types))
 
 (** {1 Content Handlers} *)
 
-let index ctx respond =
-  let q = query_info_of_ctx ctx in
+let index _ctx respond =
   match Arod_model.lookup "index" with
   | None -> R.not_found respond
-  | Some ent ->
-      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+  | Some ent -> R.html respond (to_page (view_one ent))
 
-let papers = entries_handler ~extra_tags:[] ~types:[ `Paper ]
+let papers = entries_handler ~types:[ `Paper ]
 
-let paper cfg slug ctx respond =
-  let q = query_info_of_ctx ctx in
+let paper cfg slug _ctx respond =
   match slug with
   | slug when String.ends_with ~suffix:".pdf" slug ->
-      static_file ~dir:cfg.Arod_config.paths.static_dir ("papers/" ^ slug) ctx respond
+      static_file ~dir:cfg.Arod_config.paths.static_dir ("papers/" ^ slug) _ctx respond
   | slug when String.ends_with ~suffix:".bib" slug ->
       let paper_slug = Filename.chop_extension slug in
       ( match Arod_model.lookup paper_slug with
@@ -130,83 +80,60 @@ let paper cfg slug ctx respond =
   | _ -> (
       match Arod_model.lookup slug with
       | None -> R.not_found respond
-      | Some ent ->
-          R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent)) )
+      | Some ent -> R.html respond (to_page (view_one ent)) )
 
-let notes = feed_handler_with_tags ~extra_tags:[] ~types:[ `Note ]
+let notes = feed_handler ~types:[ `Note ]
 
-let note slug ctx respond =
-  let q = query_info_of_ctx ctx in
+let note slug _ctx respond =
   match Arod_model.lookup slug with
   | None -> R.not_found respond
-  | Some ent ->
-      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+  | Some ent -> R.html respond (to_page (view_one ent))
 
 let ideas _ctx respond = R.html respond (to_page (Arod_ideas.view_ideas_by_project ()))
 
-let idea slug ctx respond =
-  let q = query_info_of_ctx ctx in
+let idea slug _ctx respond =
   match Arod_model.lookup slug with
   | None -> R.not_found respond
-  | Some ent ->
-      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+  | Some ent -> R.html respond (to_page (view_one ent))
 
 let projects _ctx respond = R.html respond (to_page (Arod_projects.view_projects_timeline ()))
 
-let project slug ctx respond =
-  let q = query_info_of_ctx ctx in
+let project slug _ctx respond =
   match Arod_model.lookup slug with
   | None -> R.not_found respond
-  | Some ent ->
-      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+  | Some ent -> R.html respond (to_page (view_one ent))
 
-let videos = feed_handler_with_tags ~extra_tags:[] ~types:[ `Video ]
+let videos = feed_handler ~types:[ `Video ]
 
-let video slug ctx respond =
-  let q = query_info_of_ctx ctx in
+let video slug _ctx respond =
   match Arod_model.lookup slug with
   | None -> R.not_found respond
-  | Some ent ->
-      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+  | Some ent -> R.html respond (to_page (view_one ent))
 
-let content slug ctx respond =
-  let q = query_info_of_ctx ctx in
+let content slug _ctx respond =
   match Arod_model.lookup slug with
   | None -> R.not_found respond
-  | Some ent ->
-      R.html respond (to_page (view_one { tags = q.tags; min = q.min; show_all = q.show_all } ent))
+  | Some ent -> R.html respond (to_page (view_one ent))
 
 (** {1 Legacy Handlers} *)
 
 let news_redirect slug _ctx respond =
   R.redirect respond ~status:Httpz.Res.Moved_permanently ~location:("/notes/" ^ slug)
 
-let wiki = entries_handler ~extra_tags:[] ~types:[ `Paper; `Note; `Video; `Idea; `Project ]
+let wiki = entries_handler ~types:[ `Paper; `Note; `Video; `Idea; `Project ]
 
 let news = feed_handler ~types:[ `Note ]
 
 (** {1 Feed Handlers} *)
 
-let atom_uri ctx =
-  let path = R.path ctx in
-  let query = R.query ctx in
-  if query = [] then path
-  else
-    let query_string =
-      String.concat "&" (List.map (fun (k, v) -> k ^ "=" ^ v) query)
-    in
-    path ^ "?" ^ query_string
-
 let atom_feed cfg ctx respond =
-  let q = query_info_of_ctx ctx in
-  let feed = feed_of_req ~types:[] { tags = q.tags; min = q.min; show_all = q.show_all } in
-  let ur = atom_uri ctx in
-  let s = Arod_feed.feed_string cfg ur feed in
+  let feed = get_entries ~types:[] in
+  let path = R.path ctx in
+  let s = Arod_feed.feed_string cfg path feed in
   R.atom respond s
 
-let json_feed cfg ctx respond =
-  let q = query_info_of_ctx ctx in
-  let feed = feed_of_req ~types:[] { tags = q.tags; min = q.min; show_all = q.show_all } in
+let json_feed cfg _ctx respond =
+  let feed = get_entries ~types:[] in
   let s = Arod_jsonfeed.feed_string cfg "/feed.json" feed in
   R.json respond s
 
@@ -265,32 +192,20 @@ let pagination_api ctx respond =
     in
     let type_strings = R.query_params ctx "type" in
     let types = List.filter_map entry_type_of_string type_strings in
-    let q = query_info_of_ctx ctx in
-    let q' = { tags = q.tags; min = q.min; show_all = q.show_all } in
-    let html =
-      match collection_type with
-      | "feed" ->
-          let all_feed = feed_of_req ~types q' in
-          let total = List.length all_feed in
-          let feed_slice =
-            all_feed
-            |> (fun l -> List.filteri (fun i _ -> i >= offset) l)
-            |> (fun l -> List.filteri (fun i _ -> i < limit) l)
-          in
-          let has_more = offset + List.length feed_slice < total in
-          (render_feeds_html feed_slice, total, has_more)
-      | "entries" ->
-          let all_ents = entries_of_req ~extra_tags:[] ~types q' in
-          let total = List.length all_ents in
-          let ents_slice =
-            all_ents
-            |> (fun l -> List.filteri (fun i _ -> i >= offset) l)
-            |> (fun l -> List.filteri (fun i _ -> i < limit) l)
-          in
-          let has_more = offset + List.length ents_slice < total in
-          (render_entries_html ents_slice, total, has_more)
+    let all_items = get_entries ~types in
+    let total = List.length all_items in
+    let slice =
+      all_items
+      |> (fun l -> List.filteri (fun i _ -> i >= offset) l)
+      |> (fun l -> List.filteri (fun i _ -> i < limit) l)
+    in
+    let has_more = offset + List.length slice < total in
+    let render_fn = match collection_type with
+      | "feed" -> render_feeds_html
+      | "entries" -> render_entries_html
       | _ -> failwith "Invalid collection type"
     in
+    let html = (render_fn slice, total, has_more) in
     let rendered_html, total, has_more = html in
     let json =
       `O

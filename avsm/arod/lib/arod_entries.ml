@@ -101,12 +101,6 @@ let render_one_entry ent =
   | `Video v -> Arod_videos.one_video_full v, El.splice []
   | `Project p -> Arod_projects.one_project_full p, El.splice []
 
-type query_info = {
-  tags: Arod_model.Tags.t list;
-  min: int;
-  show_all: bool;
-}
-
 let sort_of_ent ent =
   match ent with
   | `Paper p -> (match Arod_model.Paper.bibtype p with
@@ -136,17 +130,47 @@ let take n l =
 let feed_title_link ent =
   El.a ~at:[href (Arod_model.Entry.site_url ent)] [El.txt (Arod_model.Entry.title ent)]
 
-let tags_heading tags =
-  Arod_view.map_and Arod_model.Tags.to_raw_string tags
+let entry_matches_type types ent =
+  if types = [] then true
+  else
+    List.exists (fun typ ->
+      match typ, ent with
+      | `Paper, `Paper _ -> true
+      | `Note, `Note _ -> true
+      | `Video, `Video _ -> true
+      | `Idea, `Idea _ -> true
+      | `Project, `Project _ -> true
+      | _ -> false
+    ) types
 
-let view_news ~show_all ~tags ~min:_ ~types feed =
-  let feed' =
-    match show_all, List.length feed with
-    | false, n when n > 25 -> take 25 feed
-    | false, _ -> feed
-    | true, _ -> feed
+let get_entries ~types =
+  let filterent = entry_matches_type types in
+  let select ent =
+    let only_talks = function
+      | `Video { Arod_model.Video.talk; _ } -> talk
+      | _ -> true
+    in
+    let not_index_page = function
+      | `Note { Arod_model.Note.index_page; _ } -> not index_page
+      | _ -> true
+    in
+    only_talks ent && not_index_page ent
   in
-  let title = "News " ^ (match tags with [] -> "" | tags -> " about " ^ (tags_heading tags)) in
+  Arod_model.all_entries ()
+  |> List.filter (fun ent -> select ent && filterent ent)
+  |> List.sort Arod_model.Entry.compare
+  |> List.rev
+
+let perma_feed_of_req () =
+  Arod_model.all_entries ()
+  |> List.filter (function `Note n -> Arod_model.Note.perma n | _ -> false)
+  |> List.sort Arod_model.Entry.compare
+  |> List.rev
+
+let view_news ~types =
+  let feed = get_entries ~types in
+  let feed' = if List.length feed > 25 then take 25 feed else feed in
+  let title = "News" in
   let description = Printf.sprintf "Showing %d news item(s)" (List.length feed') in
   let main_content =
     let rec intersperse_hr = function
@@ -157,14 +181,12 @@ let view_news ~show_all ~tags ~min:_ ~types feed =
     intersperse_hr feed' in
   let page_footer = El.splice [footer] in
   let pagination_attrs =
-    let tags_str = String.concat "," (List.map Arod_model.Tags.to_raw_string tags) in
     let types_str = String.concat "," (List.map entry_type_to_string types) in
     [
       At.v "data-pagination" "true";
       At.v "data-collection-type" "feed";
       At.v "data-total-count" (string_of_int (List.length feed));
       At.v "data-current-count" (string_of_int (List.length feed'));
-      At.v "data-tags" tags_str;
       At.v "data-types" types_str;
     ]
   in
@@ -195,14 +217,10 @@ let render_feeds_html feeds =
   let html_elements = El.hr () :: intersperse_hr feeds in
   El.to_string ~doctype:false (El.splice html_elements)
 
-let view_entries ~show_all ~tags ~min:_ ~types ents =
-  let ents' =
-    match show_all, List.length ents with
-    | false, n when n > 25 -> take 25 ents
-    | false, _ -> ents
-    | true, _ -> ents
-  in
-  let title = String.capitalize_ascii (tags_heading tags ^ (if tags <> [] then " " else "")) in
+let view_entries ~types =
+  let ents = get_entries ~types in
+  let ents' = if List.length ents > 25 then take 25 ents else ents in
+  let title = "Entries" in
   let description = Printf.sprintf "Showing %d item(s)" (List.length ents') in
   let main_content =
     let rendered = List.map render_entry ents' in
@@ -215,14 +233,12 @@ let view_entries ~show_all ~tags ~min:_ ~types ents =
   in
   let page_footer = El.splice [footer] in
   let pagination_attrs =
-    let tags_str = String.concat "," (List.map Arod_model.Tags.to_raw_string tags) in
     let types_str = String.concat "," (List.map entry_type_to_string types) in
     [
       At.v "data-pagination" "true";
       At.v "data-collection-type" "entries";
       At.v "data-total-count" (string_of_int (List.length ents));
       At.v "data-current-count" (string_of_int (List.length ents'));
-      At.v "data-tags" tags_str;
       At.v "data-types" types_str;
     ]
   in
@@ -236,7 +252,7 @@ let view_entries ~show_all ~tags ~min:_ ~types ents =
 
 let breadcrumbs cfg l = ("Home", cfg.Arod_config.site.base_url ^ "/") :: l
 
-let view_one _q ent =
+let view_one ent =
   let cfg = Arod_model.get_config () in
   let entries = Arod_model.get_entries () in
   let title = Arod_model.Entry.title ent in
@@ -311,96 +327,3 @@ let view_one _q ent =
   in
   Arod_page.page ~image ~title ~jsonld ?standardsite ~page_content ~page_footer ~description ()
 
-let filter_fn query_tags item_tags =
-  let item_sets, item_text = List.partition (function `Set _ -> true | _ -> false) item_tags in
-  let query_sets, query_text = List.partition (function `Set _ -> true | _ -> false) query_tags in
-  let test_set seta setb =
-    match setb with
-    | [] -> true
-    | setb -> List.exists (fun tag -> List.mem tag seta) setb
-  in
-  (test_set item_sets query_sets) &&
-  (test_set item_text query_text)
-
-let entry_matches_type types ent =
-  if types = [] then true
-  else
-    List.exists (fun typ ->
-      match typ, ent with
-      | `Paper, `Paper _ -> true
-      | `Note, `Note _ -> true
-      | `Video, `Video _ -> true
-      | `Idea, `Idea _ -> true
-      | `Project, `Project _ -> true
-      | _ -> false
-    ) types
-
-let feed_of_req ~types q =
-  let entries = Arod_model.get_entries () in
-  let filterent = entry_matches_type types in
-  let select ent =
-    let only_talks = function
-      | `Video { Arod_model.Video.talk; _ } -> talk
-      | _ -> true
-    in
-    let not_index_page = function
-      | `Note { Arod_model.Note.index_page; _ } -> not index_page
-      | _ -> true
-    in
-    only_talks ent && not_index_page ent
-  in
-  let all_entries = Arod_model.all_entries () in
-  match q.tags with
-  | [] ->
-    all_entries
-    |> List.filter (fun ent -> select ent && filterent ent)
-    |> List.sort Arod_model.Entry.compare
-    |> List.rev
-  | t ->
-    all_entries
-    |> List.filter (fun ent ->
-      select ent && filterent ent && filter_fn t (Arod_model.Entry.tags_of_ent entries ent))
-    |> List.sort Arod_model.Entry.compare
-    |> List.rev
-
-let perma_feed_of_req () =
-  let filterent ent =
-    match ent with
-    | `Note n -> Arod_model.Note.perma n
-    | _ -> false
-  in
-  let all_entries = Arod_model.all_entries () in
-  all_entries
-  |> List.filter filterent
-  |> List.sort Arod_model.Entry.compare
-  |> List.rev
-
-let entries_of_req ~extra_tags ~types q =
-  let entries = Arod_model.get_entries () in
-  let tags = Arod_model.concat_tags q.tags (List.map Arod_model.Tags.of_string extra_tags) in
-  let q = { q with tags } in
-  let filterent = entry_matches_type types in
-  let select ent =
-    let only_talks = function
-      | `Video { Arod_model.Video.talk; _ } -> talk
-      | _ -> true
-    in
-    let not_index_page = function
-      | `Note { Arod_model.Note.index_page; _ } -> not index_page
-      | _ -> true
-    in
-    only_talks ent && not_index_page ent
-  in
-  let all_entries = Arod_model.all_entries () in
-  match q.tags with
-  | [] ->
-    all_entries
-    |> List.filter (fun ent -> select ent && filterent ent)
-    |> List.sort Arod_model.Entry.compare
-    |> List.rev
-  | ts ->
-    all_entries
-    |> List.filter (fun ent ->
-      select ent && filterent ent && filter_fn ts (Arod_model.Entry.tags_of_ent entries ent))
-    |> List.sort Arod_model.Entry.compare
-    |> List.rev

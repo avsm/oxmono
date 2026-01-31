@@ -20,7 +20,6 @@ let content c = At.content c
 let loading l = At.v "loading" l
 let sizes s = At.v "sizes" s
 let srcset s = At.v "srcset" s
-let data_tag t = At.v "data-tag" t
 let frameborder f = At.v "frameborder" f
 let allowfullscreen = At.v "allowfullscreen" ""
 let sandbox s = At.v "sandbox" s
@@ -127,106 +126,7 @@ let img ?cl ?(alt_text="") ?(title_text="") img_ent =
   | _ ->
     El.img ~at:(At.alt alt_text :: At.title title_text :: attrs) ()
 
-(** {1 Tag Rendering} *)
-
-let render_tag ?active tag_value =
-  let active_cl = match active with Some true -> " tag-active" | _ -> "" in
-
-  let icon, text =
-    match tag_value with
-    | `Slug t ->
-      (match Arod_model.lookup t with
-       | Some ent ->
-         let icon_name = match ent with
-           | `Paper _ -> Some "paper.svg"
-           | `Note _ -> Some "note.svg"
-           | `Project _ -> Some "project.svg"
-           | `Idea _ -> Some "idea.svg"
-           | `Video _ -> Some "video.svg"
-         in
-         icon_name, Arod_model.Entry.slug ent
-       | None -> None, t)
-    | `Set slug ->
-      let icon_name = match slug with
-        | "papers" -> Some "paper.svg"
-        | "notes" -> Some "note.svg"
-        | "projects" -> Some "project.svg"
-        | "ideas" -> Some "idea.svg"
-        | "videos" | "talks" -> Some "video.svg"
-        | _ -> None
-      in
-      icon_name, slug
-    | _ -> None, Arod_model.Tags.to_string tag_value
-  in
-
-  let t = Arod_model.Tags.to_string tag_value in
-  let icon_el = match icon with
-    | None -> El.splice []
-    | Some icon_name ->
-      El.img ~at:[
-        alt "icon";
-        class_ "hide-mobile inline-icon";
-        src (Printf.sprintf "/assets/%s" icon_name)
-      ] ()
-  in
-
-  El.span ~at:[
-    data_tag t;
-    class_ ("tag-label" ^ active_cl)
-  ] [icon_el; El.txt text]
-
-let render_tags tags =
-  let filtered_tags = List.filter (function
-    | `Text _ | `Set _ -> true
-    | _ -> false
-  ) tags in
-  El.splice ~sep:(El.txt " ") (List.map render_tag filtered_tags)
-
 (** {1 Entry Rendering} *)
-
-let entry_href ?title_override ?(tag="h2") ent =
-  let title_text = match title_override with
-    | None -> Arod_model.Entry.title ent
-    | Some t -> t
-  in
-
-  match ent with
-  | `Note { Arod_model.Note.index_page = true; _ } -> El.splice []
-  | _ ->
-    let h_fn = match tag with
-      | "h1" -> El.h1
-      | "h2" -> El.h2
-      | "h3" -> El.h3
-      | "h4" -> El.h4
-      | _ -> El.h2
-    in
-    h_fn [
-      El.a ~at:[href (Arod_model.Entry.site_url ent)] [El.txt title_text];
-      El.span ~at:[class_ "title-date"] [
-        El.txt " / ";
-        El.txt (ptime_date ~with_d:false (Arod_model.Entry.date ent))
-      ]
-    ]
-
-let tags_meta ?link ?(tags=[]) ?date ent =
-  let tags = List.map Arod_model.Tags.of_string tags in
-  let link_el = match link with
-    | None -> El.a ~at:[href (Arod_model.Entry.site_url ent)] [El.txt "#"]
-    | Some l -> El.a ~at:[href l] [El.txt "#"]
-  in
-
-  let date_str = ptime_date ~with_d:true
-    (match date with None -> Arod_model.Entry.date ent | Some d -> d) in
-
-  El.div ~at:[class_ "note-meta"] [
-    link_el;
-    El.txt " ";
-    El.txt date_str;
-    El.txt "  ";
-    El.span ~at:[class_ "tags"] [
-      render_tags (Arod_model.concat_tags tags (Arod_model.tags_of_ent ent))
-    ]
-  ]
 
 let full_body ent =
   El.unsafe_raw (Arod_model.md_to_html (Arod_model.Entry.body ent))

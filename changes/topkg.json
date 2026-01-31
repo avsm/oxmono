@@ -1,9 +1,0 @@
-{
-  "name": "topkg",
-  "git_commit": "2b73bdb730bf1e4a1e51b9c7311e73b31c0d98f1",
-  "change_types": [
-    "compatibility"
-  ],
-  "summary": "Remove redundant string function declarations that shadow stdlib String module",
-  "details": "- Remove `val trim : string -> string` declaration from `topkg_string.mli` (already available via `include module type of String`)\n- Remove `val uppercase_ascii : string -> string` declaration (already available via `include module type of String`)\n- These declarations were redundant since the file includes `module type of String`, and removing them avoids shadowing warnings or conflicts with newer OCaml stdlib versions"
-}

@@ -1,9 +1,7 @@
 {
   "name": "cohttp",
-  "git_commit": "2b73bdb730bf1e4a1e51b9c7311e73b31c0d98f1",
+  "git_commit": "ac686050a98770191d6edbc15e8bcd9be1dc9d4a",
   "change_types": [
-    "compatibility"
-  ],
-  "summary": "Local version pinned to 6.0.0~beta2 for monorepo compatibility, removing newer proxy features and API changes from upstream 6.2.1",
-  "details": "- **Version pinned to 6.0.0~beta2**: Upstream is at 6.2.1; local uses older stable API\n- **Proxy support removed**: Upstream's `Cohttp.Proxy.Forward` module, `Connection_cache.Make_proxy`, `Connection_cache.Make_tunnel`, and client proxy examples are not present\n- **Request/Response types differ**: Local exposes `encoding` and `scheme` fields directly in record types with deprecation warnings; upstream computes encoding from headers\n- **Client API changes**: `Body.is_empty` returns `bool Deferred.t` (awaitable) vs upstream's synchronous `[ `True | `False | `Unknown ]`\n- **Dependency downgrades**: Uses `mirage-crypto-rng-eio` instead of `mirage-crypto-rng.unix`, older `conduit-*` versions (5.x vs 7.x+), `ounit` instead of `ounit2`, older `alcotest` without version constraints\n- **cohttp-eio changes**: Simpler client without proxy support, different server response type (tuple vs opaque `writer -> unit`)\n- **cohttp-mirage changes**: Requires additional `PCLOCK` functor parameter for `Client.Make` and `Net.Make`\n- **`flush` parameter**: Many functions use optional `?flush` parameter vs required `~flush` in upstream\n- **Error handling**: Uses `Lwt.fail`/`Lwt.fail_with` instead of `raise`/`failwith` for proper Lwt error propagation\n- **Removed features**: `Connection.create_tunnel`, `Net.tunnel`, `Net.connect_client`, `Client.close_finished`, `Response.Error` module"
+    "unchanged"
+  ]
 }

@@ -299,10 +299,6 @@ packages:
     archive:
       url: 'https://github.com/janestreet/toplayer/archive/620dcade97e0b20cd99941c4f5f4f2d554064231.tar.gz'
       checksum: sha256=67e3d92e4e7a586023d48503317afd1bd41e28009159101dae7d77b3115d9b23
-  topkg:
-    archive:
-      url: 'https://erratique.ch/software/topkg/releases/topkg-1.0.8.tbz'
-      checksum: sha512=4b632b60137852bb72ff9c8cdc2e16ac5ece6473569e50963fef9c1e800a0933a516bea1107b04011645afa4a1e78893c82dbce0aa8de2970d4d6c6d0dd2fe02
   timezone:
     archive:
       url: 'https://github.com/janestreet/timezone/archive/c9124c1ecde1ecfb560e05d81cc27dfc92449d80.tar.gz'
@@ -915,10 +911,6 @@ packages:
     archive:
       url: 'https://github.com/ocaml/ocamlfind/archive/refs/tags/findlib-1.9.8.tar.gz'
       checksum: md5=ca770e5806032a96131b670f6e07f146
-  ocamlbuild:
-    archive:
-      url: 'https://github.com/ocaml/ocamlbuild/archive/refs/tags/0.15.0.tar.gz'
-      checksum: sha512=c8311a9a78491bf759eb27153d6ba4692d27cd935759a145f96a8ba8f3c2e97cef54e7d654ed1c2c07c74f60482a4fef5224e26d0f04450e69cdcb9418c762d3
   ocaml-version:
     archive:
       url: 'https://github.com/ocurrent/ocaml-version/releases/download/v4.0.3/ocaml-version-4.0.3.tbz'

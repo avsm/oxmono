@@ -1,10 +1,7 @@
 {
   "name": "ctypes",
-  "git_commit": "2b73bdb730bf1e4a1e51b9c7311e73b31c0d98f1",
+  "git_commit": "ac686050a98770191d6edbc15e8bcd9be1dc9d4a",
   "change_types": [
-    "compatibility",
-    "oxcaml"
-  ],
-  "summary": "Downgrade to version 0.23.0 with bigarray-compat for older OCaml support and add OxCaml immutable mode annotation",
-  "details": "- **Version downgrade**: From 0.24.0 to 0.23.0 (removes 0.24.0 changes from CHANGES.md)\n- **OCaml version compatibility**: Lower minimum OCaml from 4.07.0 to 4.03.0\n- **Dune version**: Lower from dune 3.9 to dune 2.9\n- **Bigarray compatibility**: Replace all `Bigarray` module references with `Bigarray_compat` for older OCaml compatibility, add `bigarray-compat` dependency\n- **OxCaml annotation**: Add `@ immutable` mode annotation to `bigarray_kind` function parameter in `ctypes_memory.ml` (line 310)\n- **Build system fixes**: Add `--promote-install-files=false` and separate `dune install` step in opam files\n- **CI changes**: Downgrade setup-ocaml from v3 to v2, add OCaml 4.03-4.06 to test matrix, remove 5.3 tests\n- **Removed upstream features**: Remove passability bypass for incomplete types in function pointers (`cstubs_structs.ml`), remove `new_chorse_as_animal` test function\n- **Test fixes**: Add `stdlib-shims` dependency for tests, use dune `enabled_if` instead of `build_if` for fts example\n- **Removed warnings**: Remove `-w -67-69` from dev flags in root dune file"
+    "unchanged"
+  ]
 }

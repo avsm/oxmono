@@ -76,20 +76,6 @@ Packages using OxCaml features (unboxed types, stack allocation, modes, etc.)
   
   - **Compatibility**: Add `Base` library dependency for `Base.Bytes` with local-aware operations (`Local_bytes.length`, `Local_bytes.copy`, `Local_bytes.sub`, `Local_bytes.To_string.sub`)
   </details>
-- **ctypes**: Downgrade to version 0.23.0 with bigarray-compat for older OCaml support and add OxCaml immutable mode annotation
-  <details><summary>Details</summary>
-
-  - **Version downgrade**: From 0.24.0 to 0.23.0 (removes 0.24.0 changes from CHANGES.md)
-  - **OCaml version compatibility**: Lower minimum OCaml from 4.07.0 to 4.03.0
-  - **Dune version**: Lower from dune 3.9 to dune 2.9
-  - **Bigarray compatibility**: Replace all `Bigarray` module references with `Bigarray_compat` for older OCaml compatibility, add `bigarray-compat` dependency
-  - **OxCaml annotation**: Add `@ immutable` mode annotation to `bigarray_kind` function parameter in `ctypes_memory.ml` (line 310)
-  - **Build system fixes**: Add `--promote-install-files=false` and separate `dune install` step in opam files
-  - **CI changes**: Downgrade setup-ocaml from v3 to v2, add OCaml 4.03-4.06 to test matrix, remove 5.3 tests
-  - **Removed upstream features**: Remove passability bypass for incomplete types in function pointers (`cstubs_structs.ml`), remove `new_chorse_as_animal` test function
-  - **Test fixes**: Add `stdlib-shims` dependency for tests, use dune `enabled_if` instead of `build_if` for fts example
-  - **Removed warnings**: Remove `-w -67-69` from dev flags in root dune file
-  </details>
 - **dune (3.21.0)**: Fix partial application issues for OxCaml mode compliance and remove boot install file.
   <details><summary>Details</summary>
 
@@ -557,20 +543,6 @@ Packages with monorepo compatibility changes
   - This change works around locality/mode inference issues where the eta-reduced form causes type errors in OxCaml's stricter mode system
   - Includes a `local-restriction.patch` file documenting the change
   </details>
-- **cohttp (6.0.0~beta2)**: Local version pinned to 6.0.0~beta2 for monorepo compatibility, removing newer proxy features and API changes from upstream 6.2.1
-  <details><summary>Details</summary>
-
-  - **Version pinned to 6.0.0~beta2**: Upstream is at 6.2.1; local uses older stable API
-  - **Proxy support removed**: Upstream's `Cohttp.Proxy.Forward` module, `Connection_cache.Make_proxy`, `Connection_cache.Make_tunnel`, and client proxy examples are not present
-  - **Request/Response types differ**: Local exposes `encoding` and `scheme` fields directly in record types with deprecation warnings; upstream computes encoding from headers
-  - **Client API changes**: `Body.is_empty` returns `bool Deferred.t` (awaitable) vs upstream's synchronous `[ `True | `False | `Unknown ]`
-  - **Dependency downgrades**: Uses `mirage-crypto-rng-eio` instead of `mirage-crypto-rng.unix`, older `conduit-*` versions (5.x vs 7.x+), `ounit` instead of `ounit2`, older `alcotest` without version constraints
-  - **cohttp-eio changes**: Simpler client without proxy support, different server response type (tuple vs opaque `writer -> unit`)
-  - **cohttp-mirage changes**: Requires additional `PCLOCK` functor parameter for `Client.Make` and `Net.Make`
-  - **`flush` parameter**: Many functions use optional `?flush` parameter vs required `~flush` in upstream
-  - **Error handling**: Uses `Lwt.fail`/`Lwt.fail_with` instead of `raise`/`failwith` for proper Lwt error propagation
-  - **Removed features**: `Connection.create_tunnel`, `Net.tunnel`, `Net.connect_client`, `Client.close_finished`, `Response.Error` module
-  </details>
 - **conduit (8.0.0)**: Remove SSL test configuration file for monorepo compatibility
   <details><summary>Details</summary>
 
@@ -621,7 +593,7 @@ Packages with monorepo compatibility changes
   - Apply `loc_ghoster` transformation to all PPX-generated expressions and structures to avoid spurious location warnings
   - Include patch file documenting all modifications
   </details>
-- **topkg (1.0.8)**: Remove redundant string function declarations that shadow stdlib String module
+- **topkg**: Remove redundant string function declarations that shadow stdlib String module
   <details><summary>Details</summary>
 
   - Remove `val trim : string -> string` declaration from `topkg_string.mli` (already available via `include module type of String`)
@@ -656,5 +628,5 @@ abstract_algebra, accessor, accessor_async, accessor_base, accessor_core, am_run
 
 Packages with no modifications from upstream
 
-angstrom (0.16.1), asn1-combinators (0.3.2), base64 (3.5.2), bigarray-compat (1.1.0), bigstringaf (0.10.0), ca-certs (1.0.1), camlp-streams, checkseum (0.5.2), cmdliner (1.3.0), cppo (1.8.0), crowbar, crunch (4.0.0), cryptokit, csexp (1.5.2), cstruct (6.2.0), decompress (1.5.3), digestif (1.3.0), domain-local-await (1.0.1), domain-name (0.5.0), dune-compiledb (0.6.0), either (1.0.0), eqaf (0.10), ezjsonm (1.3.0), faraday (0.8.2), fiber (3.7.0), fix, gmap (0.3.0), hex (1.5.0), httpaf (0.7.1), inotify (2.6), integers, iomux (0.4), ipaddr (5.6.1), jsonfeed (1.1.0), kdf (1.0.0), lambda-term (3.2.0), lambdasoup, lwt-dllist (1.1.0), magic-mime (1.3.1), markup, mew, mew_vi, mirage-crypto (2.0.2), num (1.7~dev), ocaml-syntax-shims (1.0.0), ocaml-version, ocamlgraph (2.0.0), ocp-indent (1.9.0), ocplib-endian, ohex, opam, opam-file-format (2.2.0), optint (0.3.0), owee (0.8), patch (3.1.0), pcre (8.0.5), pp (2.0.0), ppx_blob (0.9.0), ppx_derivers, progress (0.5.0), sha (1.15.4), sitemap (1.0), stdlib-shims (0.3.0), stringext (1.6.0), swhid_core, syndic (1.7.0), thread-table (1.0.0), tls (2.0.3), trie, uchar, uri (4.4.0), uring (2.7.0), x509 (1.0.6), yojson (2.2.2), zed
+angstrom (0.16.1), asn1-combinators (0.3.2), base64 (3.5.2), bigarray-compat (1.1.0), bigstringaf (0.10.0), ca-certs (1.0.1), camlp-streams, checkseum (0.5.2), cmdliner (1.3.0), cohttp (6.2.1), cppo (1.8.0), crowbar, crunch (4.0.0), cryptokit, csexp (1.5.2), cstruct (6.2.0), ctypes, decompress (1.5.3), digestif (1.3.0), domain-local-await (1.0.1), domain-name (0.5.0), dune-compiledb (0.6.0), either (1.0.0), eqaf (0.10), ezjsonm (1.3.0), faraday (0.8.2), fiber (3.7.0), fix, gmap (0.3.0), hex (1.5.0), httpaf (0.7.1), inotify (2.6), integers, iomux (0.4), ipaddr (5.6.1), jsonfeed (1.1.0), kdf (1.0.0), lambda-term (3.2.0), lambdasoup, lwt-dllist (1.1.0), magic-mime (1.3.1), markup, mew, mew_vi, mirage-crypto (2.0.2), num (1.7~dev), ocaml-syntax-shims (1.0.0), ocaml-version, ocamlgraph (2.0.0), ocp-indent (1.9.0), ocplib-endian, ohex, opam, opam-file-format (2.2.0), optint (0.3.0), owee (0.8), patch (3.1.0), pcre (8.0.5), pp (2.0.0), ppx_blob (0.9.0), ppx_derivers, progress (0.5.0), sha (1.15.4), sitemap (1.0), stdlib-shims (0.3.0), stringext (1.6.0), swhid_core, syndic (1.7.0), thread-table (1.0.0), tls (2.0.3), trie, uchar, uri (4.4.0), uring (2.7.0), x509 (1.0.6), yojson (2.2.2), zed
 

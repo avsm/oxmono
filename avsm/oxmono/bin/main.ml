@@ -397,36 +397,18 @@ let analyze_package ~env ~fs ~root ~wt_path ~changes_dir ~git_commit ~force pack
     if not should_analyze then
       Skipped
     else begin
-      (* Get diff output - capture it even when diff returns exit code 1 *)
-      let diff_output =
-        match Oxmono.Process.run_with_output ~env
-          ["sh"; "-c"; Printf.sprintf "diff -ruN %s %s || true"
-            (Filename.quote pristine_dir) (Filename.quote modified_dir)] with
-        | Ok output -> output
-        | Error _ -> ""
-      in
-      let diff_is_empty = String.trim diff_output = "" in
-      (* Build prompt for Claude *)
+      (* Build prompt for Claude - tell it to diff the directories itself *)
       let prompt =
-        if diff_is_empty then
-          Printf.sprintf {|The package "%s" has no differences between the upstream pristine version and the local modified version.
+        Printf.sprintf {|Analyze the differences between the upstream pristine version and the local modified version of the OCaml package "%s".
 
-Please analyze this and provide a structured response with:
-- git_commit: "%s"
-- change_type: "unchanged"
-- summary: A brief statement that there are no changes
-- details: A brief markdown note that this package is identical to upstream
-
-Respond with ONLY the JSON object matching the schema.|} package_name git_commit
-        else
-          Printf.sprintf {|Analyze the following diff between the upstream pristine version and the local modified version of the OCaml package "%s".
-
-The diff shows changes from:
+Directory paths:
 - Pristine upstream: %s
 - Modified local: %s
 
+To see the differences, run: diff -ruN %s %s
+
 Please categorize and summarize the changes. The change_type should be one of:
-- "unchanged": No meaningful differences
+- "unchanged": No meaningful differences (empty diff)
 - "dune-port": Main change is adding dune build support
 - "oxcaml": Uses OxCaml features like unboxed types, stack allocation, or data-race-free parallelism
 - "new-feature": Adds new features not in upstream
@@ -441,13 +423,7 @@ Provide:
 - summary: A single sentence summary (e.g., "Add dune support" or "Use OxCaml unboxed types for performance")
 - details: Longer markdown with bullet points detailing specific changes
 
-Here is the diff:
-
-```diff
-%s
-```
-
-Respond with ONLY the JSON object matching the schema.|} package_name pristine_dir modified_dir git_commit diff_output
+Respond with ONLY the JSON object matching the schema.|} package_name pristine_dir modified_dir pristine_dir modified_dir git_commit
       in
       Log.app (fun m -> m "[%s] Analyzing with Claude..." package_name);
       (* Configure Claude with structured output *)
@@ -456,7 +432,7 @@ Respond with ONLY the JSON object matching the schema.|} package_name pristine_d
         Claude.Options.default
         |> Claude.Options.with_output_format output_format
         |> Claude.Options.with_permission_callback auto_allow_callback
-        |> Claude.Options.with_max_turns 1
+        |> Claude.Options.with_max_turns 5
       in
       (* Run Claude *)
       let process_mgr = Eio.Stdenv.process_mgr env in

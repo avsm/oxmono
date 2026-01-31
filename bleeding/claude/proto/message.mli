@@ -106,7 +106,8 @@ module System : sig
 
       System messages use a discriminated union on the "subtype" field:
       - "init": Session initialization with session_id, model, cwd
-      - "error": Error messages with error string *)
+      - "error": Error messages with error string
+      - "status": Status updates like "compacting" *)
 
   type init = {
     session_id : string option;
@@ -119,7 +120,15 @@ module System : sig
   type error = { error : string; unknown : Unknown.t }
   (** Error message fields. *)
 
-  type t = Init of init | Error of error
+  type status = {
+    status : string;
+    status_session_id : string option;
+    uuid : string option;
+    unknown : Unknown.t;
+  }
+  (** Status message fields. *)
+
+  type t = Init of init | Error of error | Status of status
 
   val jsont : t Jsont.t
   (** [jsont] is the Jsont codec for system messages. *)
@@ -132,10 +141,13 @@ module System : sig
   val error : error:string -> t
   (** [error ~error] creates an error message. *)
 
+  val status : status:string -> ?session_id:string -> ?uuid:string -> unit -> t
+  (** [status ~status ?session_id ?uuid ()] creates a status message. *)
+
   (** {2 Accessors} *)
 
   val session_id : t -> string option
-  (** [session_id t] returns session_id from Init, None otherwise. *)
+  (** [session_id t] returns session_id from Init or Status, None otherwise. *)
 
   val model : t -> string option
   (** [model t] returns model from Init, None otherwise. *)
@@ -145,6 +157,12 @@ module System : sig
 
   val error_msg : t -> string option
   (** [error_msg t] returns error from Error, None otherwise. *)
+
+  val status_value : t -> string option
+  (** [status_value t] returns status from Status, None otherwise. *)
+
+  val uuid : t -> string option
+  (** [uuid t] returns uuid from Status, None otherwise. *)
 
   val unknown : t -> Unknown.t
   (** [unknown t] returns the unknown fields. *)

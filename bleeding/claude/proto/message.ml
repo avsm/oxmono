@@ -154,20 +154,42 @@ module System = struct
   }
 
   type error = { error : string; unknown : Unknown.t }
-  type t = Init of init | Error of error
+
+  type status = {
+    status : string;
+    status_session_id : string option;
+    uuid : string option;
+    unknown : Unknown.t;
+  }
+
+  type t = Init of init | Error of error | Status of status
 
   (* Accessors *)
-  let session_id = function Init i -> i.session_id | _ -> None
+  let session_id = function
+    | Init i -> i.session_id
+    | Status s -> s.status_session_id
+    | _ -> None
+
   let model = function Init i -> i.model | _ -> None
   let cwd = function Init i -> i.cwd | _ -> None
   let error_msg = function Error e -> Some e.error | _ -> None
-  let unknown = function Init i -> i.unknown | Error e -> e.unknown
+  let status_value = function Status s -> Some s.status | _ -> None
+  let uuid = function Status s -> s.uuid | _ -> None
+
+  let unknown = function
+    | Init i -> i.unknown
+    | Error e -> e.unknown
+    | Status s -> s.unknown
 
   (* Constructors *)
   let init ?session_id ?model ?cwd () =
     Init { session_id; model; cwd; unknown = Unknown.empty }
 
   let error ~error = Error { error; unknown = Unknown.empty }
+
+  let status ~status ?session_id ?uuid () =
+    Status
+      { status; status_session_id = session_id; uuid; unknown = Unknown.empty }
 
   (* Individual record codecs *)
   let init_jsont : init Jsont.t =
@@ -191,6 +213,21 @@ module System = struct
         r.unknown)
     |> Jsont.Object.finish
 
+  let status_jsont : status Jsont.t =
+    let make st session_id uuid unknown : status =
+      { status = Option.value ~default:"" st; status_session_id = session_id; uuid; unknown }
+    in
+    Jsont.Object.map ~kind:"SystemStatus" make
+    |> Jsont.Object.opt_mem "status" Jsont.string ~enc:(fun (r : status) ->
+        Some r.status)
+    |> Jsont.Object.opt_mem "session_id" Jsont.string ~enc:(fun (r : status) ->
+        r.status_session_id)
+    |> Jsont.Object.opt_mem "uuid" Jsont.string ~enc:(fun (r : status) ->
+        r.uuid)
+    |> Jsont.Object.keep_unknown Unknown.mems ~enc:(fun (r : status) ->
+        r.unknown)
+    |> Jsont.Object.finish
+
   (* Main codec using case_mem for "subtype" discriminator *)
   let jsont : t Jsont.t =
     let case_init =
@@ -199,11 +236,17 @@ module System = struct
     let case_error =
       Jsont.Object.Case.map "error" error_jsont ~dec:(fun v -> Error v)
     in
+    let case_status =
+      Jsont.Object.Case.map "status" status_jsont ~dec:(fun v -> Status v)
+    in
     let enc_case = function
       | Init v -> Jsont.Object.Case.value case_init v
       | Error v -> Jsont.Object.Case.value case_error v
+      | Status v -> Jsont.Object.Case.value case_status v
     in
-    let cases = Jsont.Object.Case.[ make case_init; make case_error ] in
+    let cases =
+      Jsont.Object.Case.[ make case_init; make case_error; make case_status ]
+    in
     Jsont.Object.map ~kind:"System" Fun.id
     |> Jsont.Object.case_mem "subtype" Jsont.string ~enc:Fun.id ~enc_case cases
          ~tag_to_string:Fun.id ~tag_compare:String.compare

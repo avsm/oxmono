@@ -1,26 +1,51 @@
-This OxCaml monorepo is intended to be a standalone repository which contains a
-fully Dune-buildable set of packages for working with OxCaml. These packages
-include not only the Jane Street released libraries, but also community
-libraries that have be adapted to work with OxCaml's extensions.
+# Oxmono: An OxCaml monorepo with batteries included
+
+This OxCaml monorepo is a standalone repository which contains a fully
+Dune-buildable set of packages for working with [OxCaml](https://oxcaml.org).
+These packages include not only the Jane Street released libraries, but also
+community libraries that have be [adapted](#packages) to work with OxCaml's
+extensions.
 
 In some cases, these are mechanical changes like porting to Dune from other
-build systems, but in other cases we also do larger-scale changes to type
-signatures in order to take advantage of OxCaml's extensions like stack
-allocation, unboxed types or data-race parallel freedom.
+build systems, but we also do larger-scale changes to type signatures in order
+to take advantage of OxCaml's extensions like stack allocation, unboxed types
+or data-race parallel freedom. You can see the [set of available packages
+below](#packages).
 
 As such, this repository is an unstable moving target, but should provide a
-convenient basis for use in open source infrastructure.
+convenient basis for use in open source infrastructure. We're using it in the
+[Energy and Environment Group](https://www.cst.cam.ac.uk/research/eeg) to deploy
+systems infrastructure for planetary computing, and also for personal projects
+like [Anil's website](https://anil.recoil.org). The purpose is to 'eat our own dogfood'
+and get familiar with using OxCaml for real projects outside of Jane Street's walls.
+
+This repository is maintained using its own `oxmono` tool that's part of the
+repository, with Claude helping to analyze changes and generate documentation.
+The workflow is designed to be self-documenting: when packages are updated, the
+tooling automatically categorizes modifications and regenerates the package
+listings below. You should be able to use it yourself for your own projects
+easily enough if you are up for a bit of [maintenance](#maintenance).
 
 ## Usage
 
-All you need is the OxCaml compiler (i.e. via an opam switch) and a recent Dune
-and then everything else in here will build as a dune switch.
+All you need to get started is the OxCaml compiler (i.e. via an opam switch)
+and a recent Dune and then everything else in here will build as a dune switch.
+Install [opam](https://opam.ocaml.org) and:
 
-The majority of repos are hidden behind a `(vendored_dirs)` directive which
+```
+opam init
+opam switch create 5.2.0+ox --repos ox=git+https://github.com/oxcaml/opam-repository.git,default
+```
+
+The majority of packages are hidden behind a `(vendored_dirs)` directive which
 means that they will only be compiled if there is a dependency on them from a
-package in the workspace.
+package in the workspace. We put packages that were originally upstream into the
+[opam/](/opam) directory, and the [bleeding/](/bleeding) repository for
+work-in-progress new libraries, and user-specific directories like [avsm/](/avsm)
+for binaries that are deployed.
 
-To setup a devcontainer:
+To setup a devcontainer so you can run this in a sandboxed environment with Claude
+available, just do:
 
 ```
 # initial setup or update
@@ -34,6 +59,71 @@ npx @devcontainers/cli exec --workspace-folder . bash -l
 I'm sticking my own oxcaml code into `avsm/` to leave room for other users
 to also contribute. This is a fluid repository so get in touch if you're
 using it so I know to not break your usecase.
+
+## Maintenance
+
+This repository uses a two-directory model: `sources/` contains pristine
+upstream code (it is actually a git worktree to the `sources` branch in this
+repository), while `opam/` contains the OxCaml-adapted versions. The `oxmono`
+CLI tool manages synchronization and analysis.
+
+> **Note:** If `oxmono` isn't globally installed, prefix commands with `dune
+> exec --` to run it directly from the monorepo (e.g., `dune exec -- oxmono
+> diff dune`).
+
+### How do I add a new package?
+
+```bash
+# Ensure the package is installed in your current opam switch
+opam install <package-name>
+
+# Add it to the monorepo
+oxmono add <package-name>
+```
+
+This fetches the source, records it in `sources.yaml`, and commits the pristine copy to the `sources/` directory.
+
+### How do I update a package from upstream?
+
+Edit `sources.yaml` to update the git commit or archive URL, then:
+
+```bash
+oxmono sync <package-name>
+```
+
+This fetches the new version into `sources/`. You then manually merge changes into `opam/` as needed.
+
+### How do I see what modifications were made to a package?
+
+```bash
+oxmono diff <package-name>
+```
+
+This shows the diff between `sources/<package>` (pristine upstream) and `opam/<package>` (local modifications).
+
+### How do I understand why a package was modified?
+
+Each package has analysis metadata in `changes/<package>.json`. To regenerate this after making changes:
+
+```bash
+oxmono changes <package-name>
+```
+
+This analyzes the diff and categorizes the changes (OxCaml extensions, dune port, compatibility fix, etc.). The README's package listings are generated from these files:
+
+```bash
+oxmono readme
+```
+
+### What's the relationship between sources/ and opam/?
+
+| Directory | Purpose |
+|-----------|---------|
+| `sources/` | Pristine upstream copies (read-only reference) |
+| `opam/` | Modified packages with OxCaml adaptations (what gets built) |
+| `changes/` | JSON metadata describing modifications |
+
+Only `opam/` is compiled by dune. The `sources/` directory exists purely for diff analysis and tracking upstream.
 
 # Packages
 

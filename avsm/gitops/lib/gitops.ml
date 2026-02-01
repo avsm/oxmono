@@ -152,3 +152,90 @@ let current_branch t ~repo =
   match run_git_output t ~repo ["rev-parse"; "--abbrev-ref"; "HEAD"] with
   | Ok branch -> Some (String.trim branch)
   | Error _ -> None
+
+(** {1 Mutating Operations} *)
+
+(** These log in dry-run mode instead of executing *)
+
+let log_dry_run args =
+  Log.info (fun m -> m "Would run: git %s" (String.concat " " args))
+
+let init t ~repo =
+  let args = ["init"] in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:"initializing repository" args
+
+let fetch t ~repo ~remote =
+  let args = ["fetch"; remote] in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:(Printf.sprintf "fetching from %s" remote) args
+
+let pull t ~repo ~remote =
+  let args = ["pull"; remote] in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:(Printf.sprintf "pulling from %s" remote) args
+
+let merge t ~repo ~ref_ =
+  let args = ["merge"; ref_] in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:(Printf.sprintf "merging %s" ref_) args
+
+let add t ~repo ~paths =
+  let args = "add" :: paths in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:"staging files" args
+
+let add_all t ~repo =
+  let args = ["add"; "-A"] in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:"staging all changes" args
+
+let commit t ~repo ~msg =
+  let args = ["commit"; "-m"; msg] in
+  if t.dry_run then log_dry_run args
+  else begin
+    match run_git_raw t ~repo args with
+    | Ok () -> ()
+    | Error (Exit_code 1) ->
+        (* Exit code 1 often means nothing to commit *)
+        Log.debug (fun m -> m "Nothing to commit")
+    | Error err ->
+        raise_git_error ~context:"committing changes" err
+  end
+
+let push t ~repo ~remote =
+  let args = ["push"; remote] in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:(Printf.sprintf "pushing to %s" remote) args
+
+let push_set_upstream t ~repo ~remote ~branch =
+  let args = ["push"; "-u"; remote; branch] in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:(Printf.sprintf "pushing to %s (set upstream)" remote) args
+
+let remote_add t ~repo ~name ~url =
+  let args = ["remote"; "add"; name; url] in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:(Printf.sprintf "adding remote %s" name) args
+
+let remote_set_url t ~repo ~name ~url =
+  let args = ["remote"; "set-url"; name; url] in
+  if t.dry_run then log_dry_run args
+  else run_git t ~repo ~context:(Printf.sprintf "setting URL for remote %s" name) args
+
+let clone t ~url ~target =
+  let target_str = Eio.Path.native_exn target in
+  let args = ["clone"; url; target_str] in
+  if t.dry_run then
+    Log.info (fun m -> m "Would run: git %s" (String.concat " " args))
+  else begin
+    Eio.Switch.run @@ fun sw ->
+    let mgr = t.env#process_mgr in
+    let cmd = "git" :: args in
+    Log.debug (fun m -> m "Running: %s" (String.concat " " cmd));
+    let proc = Eio.Process.spawn ~sw mgr cmd in
+    match Eio.Process.await proc with
+    | `Exited 0 -> ()
+    | `Exited n -> raise_git_error ~context:(Printf.sprintf "cloning %s" url) (Exit_code n)
+    | `Signaled n -> raise_git_error ~context:(Printf.sprintf "cloning %s" url) (Signaled n)
+  end

@@ -239,3 +239,134 @@ let clone t ~url ~target =
     | `Exited n -> raise_git_error ~context:(Printf.sprintf "cloning %s" url) (Exit_code n)
     | `Signaled n -> raise_git_error ~context:(Printf.sprintf "cloning %s" url) (Signaled n)
   end
+
+(** {1 Sync} *)
+
+module Sync = struct
+  (** {2 Configuration} *)
+
+  module Config = struct
+    type t = {
+      remote : string;
+      branch : string;
+      auto_commit : bool;
+      commit_message : string;
+    }
+
+    let default = {
+      remote = "";
+      branch = "main";
+      auto_commit = true;
+      commit_message = "sync";
+    }
+
+    let codec =
+      let open Tomlt in
+      let open Tomlt.Table in
+      obj (fun remote branch auto_commit commit_message ->
+        { remote; branch; auto_commit; commit_message })
+      |> mem "remote" string ~dec_absent:default.remote ~enc:(fun t -> t.remote)
+      |> mem "branch" string ~dec_absent:default.branch ~enc:(fun t -> t.branch)
+      |> mem "auto_commit" bool ~dec_absent:default.auto_commit ~enc:(fun t -> t.auto_commit)
+      |> mem "commit_message" string ~dec_absent:default.commit_message ~enc:(fun t -> t.commit_message)
+      |> finish
+
+    let pp ppf t =
+      Fmt.pf ppf "@[<v>remote: %s@,branch: %s@,auto_commit: %b@,commit_message: %s@]"
+        t.remote t.branch t.auto_commit t.commit_message
+  end
+
+  (** {2 Sync Result} *)
+
+  type result = {
+    pulled : bool;
+    pushed : bool;
+  }
+
+  let pp_result ppf r =
+    Fmt.pf ppf "pulled=%b pushed=%b" r.pulled r.pushed
+
+  (** {2 Run Sync} *)
+
+  let run t ~config ~repo =
+    let open Config in
+    Log.info (fun m -> m "Syncing %s with %s"
+      (Eio.Path.native_exn repo) config.remote);
+
+    (* Ensure repo exists *)
+    if not (is_repo t ~repo) then begin
+      Log.info (fun m -> m "Initializing git repository");
+      init t ~repo
+    end;
+
+    (* Ensure remote is configured *)
+    begin match remote_url t ~repo ~remote:"origin" with
+    | None ->
+        Log.info (fun m -> m "Adding remote origin -> %s" config.remote);
+        remote_add t ~repo ~name:"origin" ~url:config.remote
+    | Some url when url <> config.remote ->
+        Log.warn (fun m -> m "Updating remote URL: %s -> %s" url config.remote);
+        remote_set_url t ~repo ~name:"origin" ~url:config.remote
+    | Some _ -> ()
+    end;
+
+    (* Fetch from remote *)
+    Log.info (fun m -> m "Fetching from origin");
+    (try fetch t ~repo ~remote:"origin" with
+     | Eio.Io (Git (Exit_code 128), _) ->
+         (* Remote might not exist yet, that's OK for first push *)
+         Log.debug (fun m -> m "Fetch failed (remote may not exist yet)"));
+
+    (* Check if we need to pull *)
+    let remote_ref = Printf.sprintf "origin/%s" config.branch in
+    let local_head = rev_parse_opt t ~repo "HEAD" in
+    let remote_head = rev_parse_opt t ~repo remote_ref in
+
+    let pulled = match local_head, remote_head with
+      | Some local, Some remote when local <> remote ->
+          Log.info (fun m -> m "Merging %s" remote_ref);
+          merge t ~repo ~ref_:remote_ref;
+          true
+      | None, Some _ ->
+          (* No local commits, remote exists - this shouldn't happen normally *)
+          Log.info (fun m -> m "Merging %s" remote_ref);
+          merge t ~repo ~ref_:remote_ref;
+          true
+      | _, None ->
+          Log.debug (fun m -> m "No remote branch yet");
+          false
+      | Some local, Some remote when local = remote ->
+          Log.debug (fun m -> m "Already up to date");
+          false
+      | _ -> false
+    in
+
+    (* Auto-commit local changes *)
+    if config.auto_commit then begin
+      match status t ~repo with
+      | `Dirty ->
+          Log.info (fun m -> m "Committing local changes");
+          add_all t ~repo;
+          commit t ~repo ~msg:config.commit_message
+      | `Clean ->
+          Log.debug (fun m -> m "Working tree clean")
+    end;
+
+    (* Push *)
+    let current_head = rev_parse_opt t ~repo "HEAD" in
+    let pushed = match current_head, remote_head with
+      | Some current, Some remote when current <> remote ->
+          Log.info (fun m -> m "Pushing to origin");
+          push t ~repo ~remote:"origin";
+          true
+      | Some _, None ->
+          Log.info (fun m -> m "Pushing to origin (first push)");
+          push_set_upstream t ~repo ~remote:"origin" ~branch:config.branch;
+          true
+      | _ ->
+          Log.debug (fun m -> m "Nothing to push");
+          false
+    in
+
+    { pulled; pushed }
+end

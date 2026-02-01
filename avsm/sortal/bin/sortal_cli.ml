@@ -220,6 +220,125 @@ let () =
     Cmd.v Sortal.Cmd.remove_url_info term
   in
 
+  (* Config command *)
+  let config_cmd =
+    let term =
+      let open Term.Syntax in
+      let+ _ = xdg_term
+      and+ log_level = Logs_cli.level () in
+      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
+      Logs.set_level log_level;
+      match Sortal_config.load () with
+      | Error e -> Printf.eprintf "Config error: %s\n" e; 1
+      | Ok config ->
+        Printf.printf "Config file: %s\n" (Sortal_config.config_file ());
+        Printf.printf "\n";
+        Fmt.pr "%a\n" Sortal_config.pp config;
+        0
+    in
+    let info = Cmd.info "config" ~doc:"Show current configuration." in
+    Cmd.v info term
+  in
+
+  (* Init config command *)
+  let init_config_cmd =
+    let force =
+      let doc = "Overwrite existing config file." in
+      Arg.(value & flag & info ["force"; "f"] ~doc)
+    in
+    let term =
+      let open Term.Syntax in
+      let+ _ = xdg_term
+      and+ force = force
+      and+ log_level = Logs_cli.level () in
+      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
+      Logs.set_level log_level;
+      match Sortal_config.write_default_config ~force () with
+      | Error e ->
+        Printf.eprintf "%s\n" e;
+        1
+      | Ok path ->
+        Printf.printf "Created config file: %s\n" path;
+        Printf.printf "\nEdit this file to configure:\n";
+        Printf.printf "  - Git sync remote URL\n";
+        Printf.printf "  - Branch name and commit message\n";
+        0
+    in
+    let doc = "Initialize a default configuration file." in
+    let man = [
+      `S Manpage.s_description;
+      `P "Creates a default config.toml file at ~/.config/sortal/config.toml";
+      `P "The generated file includes comments explaining each option.";
+      `P "Use --force to overwrite an existing config file.";
+    ] in
+    let info = Cmd.info "init" ~doc ~man in
+    Cmd.v info term
+  in
+
+  (* Git sync command *)
+  let git_sync_cmd =
+    let term =
+      let open Term.Syntax in
+      let+ (xdg, _) = xdg_term
+      and+ dry_run = Gitops.Sync.Cmd.dry_run_term
+      and+ remote_override = Gitops.Sync.Cmd.remote_term
+      and+ log_level = Logs_cli.level () in
+      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
+      Logs.set_level log_level;
+      match Sortal_config.load () with
+      | Error e -> Printf.eprintf "Config error: %s\n" e; 1
+      | Ok config ->
+        let data_dir = Xdge.data_dir xdg |> Eio.Path.native_exn in
+
+        (* Check if sync is configured *)
+        let sync_config = match remote_override with
+          | Some r -> { config.Sortal_config.sync with Gitops.Sync.Config.remote = r }
+          | None -> config.Sortal_config.sync
+        in
+
+        if sync_config.Gitops.Sync.Config.remote = "" then begin
+          Printf.eprintf "Error: No sync remote configured.\n";
+          Printf.eprintf "Add to ~/.config/sortal/config.toml:\n";
+          Printf.eprintf "  [sync]\n";
+          Printf.eprintf "  remote = \"ssh://server/path/to/repo.git\"\n";
+          Printf.eprintf "\nOr use --remote URL\n";
+          1
+        end else begin
+          let git = Gitops.v ~dry_run env in
+          let repo = Eio.Path.(env#fs / data_dir) in
+
+          Printf.printf "%s sortal data with %s\n"
+            (if dry_run then "Would sync" else "Syncing")
+            sync_config.Gitops.Sync.Config.remote;
+
+          let result = Gitops.Sync.run git ~config:sync_config ~repo in
+
+          if result.pulled then
+            Printf.printf "Pulled changes from remote\n";
+          if result.pushed then
+            Printf.printf "Pushed changes to remote\n";
+          if not result.pulled && not result.pushed then
+            Printf.printf "Already in sync\n";
+          0
+        end
+    in
+    let doc = "Sync sortal data with remote git repository." in
+    let man = [
+      `S Manpage.s_description;
+      `P "Synchronizes your sortal data directory with a remote git repository.";
+      `P "Configure the remote in ~/.config/sortal/config.toml:";
+      `Pre "  [sync]\n  remote = \"ssh://server/path/to/sortal.git\"";
+      `P "The sync process:";
+      `P "1. Fetches from the remote repository";
+      `P "2. Merges any remote changes";
+      `P "3. Commits local changes (if auto_commit is enabled)";
+      `P "4. Pushes to the remote";
+      `P "Use $(b,--dry-run) to preview what would happen.";
+    ] in
+    let info = Cmd.info "git-sync" ~doc ~man in
+    Cmd.v info term
+  in
+
   let default_term =
     let open Term.Syntax in
     let+ _ = xdg_term
@@ -236,6 +355,9 @@ let () =
     stats_cmd;
     sync_cmd;
     git_init_cmd;
+    git_sync_cmd;
+    init_config_cmd;
+    config_cmd;
     add_cmd;
     delete_cmd;
     add_email_cmd;

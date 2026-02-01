@@ -4,6 +4,7 @@
  (libraries
   sortal
   sortal.schema
+  sortal.config
   eio
   eio_main
   xdge
@@ -12,4 +13,5 @@
   logs.cli
   logs.fmt
   fmt
-  fmt.tty))
+  fmt.tty
+  gitops))

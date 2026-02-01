@@ -239,11 +239,14 @@ let init
         config_tuple
       )
       else
+	(* When no config is provided, default to searching in ocaml_stdlib.
+	   This allows finding standard library packages (stdlib, unix, etc.)
+	   in OCaml 5+ which ships META files in the stdlib directory. *)
 	( ocamlc_default, ocamlopt_default, ocamlcp_default, ocamloptp_default,
 	  ocamlmklib_default,
 	  ocamlmktop_default, ocamldep_default, ocamlbrowser_default,
 	  ocamldoc_default,
-	  [],
+	  [Findlib_config.ocaml_stdlib],
 	  "",
           "none",
 	  Findlib_config.ocaml_stdlib,

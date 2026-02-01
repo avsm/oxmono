@@ -11,7 +11,9 @@ let () =
     let ocaml_version = C.ocaml_config_var_exn c "version" in
     let ocaml_major = int_of_string (String.sub ocaml_version 0 (String.index ocaml_version '.')) in
     let ocaml_has_meta_files = if ocaml_major >= 5 then "true" else "false" in
-    let config_file = Filename.concat prefix "findlib.conf" in
+    (* For duniverse builds, set config_file to "" so findlib doesn't require
+       an external config file. Dune handles all package paths directly. *)
+    let config_file = "" in
     (* Write findlib_config.ml *)
     C.Flags.write_lines "findlib_config.ml" [ Printf.sprintf {|
 let config_file = lazy %S;;

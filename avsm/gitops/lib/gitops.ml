@@ -112,3 +112,43 @@ let run_git_for_output t ~repo ~context args =
   match run_git_output t ~repo args with
   | Ok output -> output
   | Error err -> raise_git_error ~context err
+
+(** {1 Query Operations} *)
+
+(** These always execute, even in dry-run mode, since control flow may depend on results *)
+
+let is_repo t ~repo =
+  let git_dir = Eio.Path.(repo / ".git") in
+  match Eio.Path.stat ~follow:false git_dir with
+  | _ -> true
+  | exception Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> false
+
+let rev_parse t ~repo ref_ =
+  run_git_for_output t ~repo ~context:(Printf.sprintf "rev-parse %s" ref_)
+    ["rev-parse"; ref_]
+
+let rev_parse_opt t ~repo ref_ =
+  match run_git_output t ~repo ["rev-parse"; "--verify"; "--quiet"; ref_] with
+  | Ok output -> Some (String.trim output)
+  | Error _ -> None
+
+let status t ~repo =
+  match run_git_output t ~repo ["status"; "--porcelain"] with
+  | Ok "" -> `Clean
+  | Ok _ -> `Dirty
+  | Error _ -> `Dirty  (* Conservative: assume dirty on error *)
+
+let remote_url t ~repo ~remote =
+  match run_git_output t ~repo ["remote"; "get-url"; remote] with
+  | Ok url -> Some (String.trim url)
+  | Error _ -> None
+
+let branch_exists t ~repo branch =
+  match run_git_output t ~repo ["rev-parse"; "--verify"; "--quiet"; "refs/heads/" ^ branch] with
+  | Ok _ -> true
+  | Error _ -> false
+
+let current_branch t ~repo =
+  match run_git_output t ~repo ["rev-parse"; "--abbrev-ref"; "HEAD"] with
+  | Ok branch -> Some (String.trim branch)
+  | Error _ -> None

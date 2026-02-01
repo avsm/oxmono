@@ -59,8 +59,8 @@ let note_ld ~author ?(images=[]) (c:MN.t) =
   | None -> x
   | Some (_,u) -> ("significantLink", `String u) :: x
 
-let paper_ld (p:MP.t) =
-  let authors = MP.authors p |> List.filter_map Arod_model.lookup_by_name in
+let paper_ld ~ctx (p:MP.t) =
+  let authors = MP.authors p |> List.filter_map (Arod_ctx.lookup_by_name ctx) in
   [
     "@context", `String "https://schema.org";
     "@type", `String "ScholarlyArticle";
@@ -73,8 +73,8 @@ let paper_ld (p:MP.t) =
     "author", `A (List.map json_of_contact authors)
   ]
 
-let generic_ld cfg e =
-  let me = match Arod_model.lookup_by_handle cfg.Arod_config.site.author_handle with
+let generic_ld ~ctx cfg e =
+  let me = match Arod_ctx.lookup_by_handle ctx cfg.Arod_config.site.author_handle with
     | Some c -> c
     | None -> failwith "Author not found"
   in
@@ -86,15 +86,15 @@ let generic_ld cfg e =
     "abstract", `String (Option.value ~default:"" @@ Bushel.Entry.synopsis e)
   ]
 
-let entry_ld cfg e =
-  let me = match Arod_model.lookup_by_handle cfg.Arod_config.site.author_handle with
+let entry_ld ~ctx cfg e =
+  let me = match Arod_ctx.lookup_by_handle ctx cfg.Arod_config.site.author_handle with
     | Some c -> c
     | None -> failwith "Author not found"
   in
   match e with
   | `Note n -> note_ld ~author:me n
-  | `Paper p -> paper_ld p
-  | _ -> generic_ld cfg e
+  | `Paper p -> paper_ld ~ctx p
+  | _ -> generic_ld ~ctx cfg e
 
 let breadcrumb_of_ent cfg ent =
   ("Home", cfg.Arod_config.site.base_url ^ "/") ::
@@ -107,13 +107,13 @@ let breadcrumb_of_ent cfg ent =
   ) ::
   [Bushel.Entry.title ent, ""]
 
-let json_of_entry cfg ent =
-  jsonld @@ entry_ld cfg ent
+let json_of_entry ~ctx cfg ent =
+  jsonld @@ entry_ld ~ctx cfg ent
 
-let json_of_feed cfg feed =
+let json_of_feed ~ctx cfg feed =
   match feed with
   | `Note (n, e) ->
-    let me = match Arod_model.lookup_by_handle cfg.Arod_config.site.author_handle with
+    let me = match Arod_ctx.lookup_by_handle ctx cfg.Arod_config.site.author_handle with
       | Some c -> c
       | None -> failwith "Author not found"
     in
@@ -124,7 +124,7 @@ let json_of_feed cfg feed =
       "image", `A [];
       "datePublished", `String (date @@ MN.datetime n);
       "author", `A [json_of_contact me];
-      "mainEntity", `O (entry_ld cfg e)
+      "mainEntity", `O (entry_ld ~ctx cfg e)
     ] in
     jsonld note_with_ent_ld
-  | `Entry e -> jsonld @@ entry_ld cfg e
+  | `Entry e -> jsonld @@ entry_ld ~ctx cfg e

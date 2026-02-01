@@ -82,8 +82,8 @@ let search_modal =
     ]
   ]
 
-let page ?(image="/assets/imagetitle-default.jpg") ?(jsonld="") ?standardsite ?(page_footer=El.splice []) ~title ~description ~page_content:content () =
-  let cfg = Arod_model.get_config () in
+let page ~ctx ?(image="/assets/imagetitle-default.jpg") ?(jsonld="") ?standardsite ?(page_footer=El.splice []) ~title ~description ~page_content:content () =
+  let cfg = Arod_ctx.config ctx in
   let page_title = if title = "" then cfg.site.name else title in
 
   let head_els = [
@@ -177,7 +177,7 @@ let page ?(image="/assets/imagetitle-default.jpg") ?(jsonld="") ?standardsite ?(
 
   El.page ~lang:"en" ~title:page_title ~more_head:(El.splice head_els) body_el
 
-let bushel_graph () =
+let bushel_graph ~ctx () =
   let title = "Bushel Link Graph" in
   let description = "Interactive force-directed graph visualization of links and backlinks in the Bushel dataset" in
 
@@ -297,4 +297,4 @@ function initGraph(graphData) {
 |}]
   ] in
 
-  page ~title ~description ~page_content:graph_html ~page_footer:Arod_footer.footer ()
+  page ~ctx ~title ~description ~page_content:graph_html ~page_footer:Arod_footer.footer ()

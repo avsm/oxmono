@@ -5,11 +5,12 @@
 
 (** JSON feed generation for Arod webserver *)
 
-module E = Arod_model.Entry
-module N = Arod_model.Note
+module E = Bushel.Entry
+module N = Bushel.Note
 module C = Sortal_schema.Contact
-module P = Arod_model.Paper
+module P = Bushel.Paper
 module J = Jsonfeed
+module Img = Srcsetter
 
 let form_uri cfg path = cfg.Arod_config.site.base_url ^ path
 
@@ -22,7 +23,7 @@ let author cfg c =
   let avatar = Some (form_uri cfg "/images/anil-headshot.webp") in
   Jsonfeed.Author.create ?name:(Some name) ?url ?avatar ()
 
-let item_of_note cfg note =
+let item_of_note ~ctx cfg note =
   let e = `Note note in
   let id = match N.doi note with
     | Some doi ->
@@ -45,17 +46,18 @@ let item_of_note cfg note =
   let date_modified = N.datetime note in
   let tags = N.tags note in
 
-  let base_html = Arod_view.md_to_atom_html note.N.body in
+  let base_html = Arod_md.to_atom_html ~ctx note.N.body in
 
   let is_perma = N.perma note in
   let has_doi = match N.doi note with Some _ -> true | None -> false in
   let html_with_refs =
     if is_perma || has_doi then
-      let me = match Arod_model.lookup_by_handle cfg.Arod_config.site.author_handle with
+      let me = match Arod_ctx.lookup_by_handle ctx cfg.Arod_config.site.author_handle with
         | Some c -> c
         | None -> failwith "Author not found"
       in
-      let references = Bushel.Md.note_references (Arod_model.get_entries ()) me note in
+      let entries = Arod_ctx.entries ctx in
+      let references = Bushel.Md.note_references entries me note in
       if List.length references > 0 then
         let refs_html =
           let ref_items = List.map (fun (doi, citation, _) ->
@@ -84,16 +86,15 @@ let item_of_note cfg note =
   let image = match note.N.titleimage with
     | Some img_slug ->
       (try
-        let entries = Arod_model.get_entries () in
+        let entries = Arod_ctx.entries ctx in
         (match E.lookup_image entries img_slug with
          | Some img_ent ->
            let target_width = 1280 in
-           let open Arod_model.Img in
-           let variants = MS.bindings img_ent.variants in
+           let variants = Img.MS.bindings img_ent.Img.variants in
            let best_variant =
              match variants with
              | [] ->
-               Printf.sprintf "%s.webp" (Filename.chop_extension (origin img_ent))
+               Printf.sprintf "%s.webp" (Filename.chop_extension (Img.origin img_ent))
              | _ ->
                let sorted = List.sort (fun (_f1,(w1,_h1)) (_f2,(w2,_h2)) ->
                  let diff1 = abs (w1 - target_width) in
@@ -112,7 +113,7 @@ let item_of_note cfg note =
 
   let attachments = match N.slug_ent note with
     | Some slug ->
-      (match Arod_model.lookup slug with
+      (match Arod_ctx.lookup ctx slug with
        | Some (`Paper p) ->
          let slug = P.slug p in
          let pdf_path = Filename.concat cfg.Arod_config.paths.static_dir
@@ -133,11 +134,12 @@ let item_of_note cfg note =
   in
 
   let references =
-    let me = match Arod_model.lookup_by_handle cfg.Arod_config.site.author_handle with
+    let me = match Arod_ctx.lookup_by_handle ctx cfg.Arod_config.site.author_handle with
       | Some c -> c
       | None -> failwith "Author not found"
     in
-    Bushel.Md.note_references (Arod_model.get_entries ()) me note
+    let entries = Arod_ctx.entries ctx in
+    Bushel.Md.note_references entries me note
     |> List.map (fun (doi, _citation, ref_source) ->
       let doi_url = Printf.sprintf "https://doi.org/%s" doi in
       let cito = match ref_source with
@@ -149,52 +151,30 @@ let item_of_note cfg note =
     )
   in
 
-  let json_author = author cfg (Arod_model.lookup_by_handle cfg.site.author_handle |> Option.get) in
+  let json_author = author cfg (Arod_ctx.lookup_by_handle ctx cfg.site.author_handle |> Option.get) in
 
   Jsonfeed.Item.create
-    ~id
-    ~content
-    ~url
-    ?external_url
-    ?image
-    ?summary
-    ~title
-    ~date_published
-    ~date_modified
-    ~authors:[json_author]
-    ~tags
-    ~attachments
-    ~references
-    ()
+    ~id ~content ~url ?external_url ?image ?summary ~title
+    ~date_published ~date_modified ~authors:[json_author] ~tags ~attachments ~references ()
 
-let item_of_entry cfg (e:Arod_model.Entry.entry) =
+let item_of_entry ~ctx cfg (e:E.entry) =
   match e with
-  | `Note n -> Some (item_of_note cfg n)
+  | `Note n -> Some (item_of_note ~ctx cfg n)
   | _ -> None
 
-let feed cfg uri entries =
+let feed ~ctx cfg uri entries =
   let title = cfg.Arod_config.site.name ^ "'s feed" in
   let home_page_url = cfg.site.base_url in
   let feed_url = form_uri cfg uri in
   let icon = cfg.site.base_url ^ "/assets/favicon.ico" in
-  let json_author = author cfg (Arod_model.lookup_by_handle cfg.site.author_handle |> Option.get) in
+  let json_author = author cfg (Arod_ctx.lookup_by_handle ctx cfg.site.author_handle |> Option.get) in
   let authors = [json_author] in
   let language = "en-US" in
+  let items = List.filter_map (item_of_entry ~ctx cfg) entries in
+  Jsonfeed.create ~title ~home_page_url ~feed_url ~icon ~authors ~language ~items ()
 
-  let items = List.filter_map (item_of_entry cfg) entries in
-
-  Jsonfeed.create
-    ~title
-    ~home_page_url
-    ~feed_url
-    ~icon
-    ~authors
-    ~language
-    ~items
-    ()
-
-let feed_string cfg uri entries =
-  let f = feed cfg uri entries in
+let feed_string ~ctx cfg uri entries =
+  let f = feed ~ctx cfg uri entries in
   match Jsonfeed.to_string f with
   | Ok s -> s
   | Error e ->

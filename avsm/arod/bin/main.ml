@@ -37,17 +37,20 @@ let serve_cmd =
     let fs = Eio.Stdenv.fs env in
     let net = Eio.Stdenv.net env in
     Log.info (fun m -> m "Loading entries from %s" cfg.paths.data_dir);
-    let _entries = Arod.Model.init ~cfg fs in
+    (* Create context (loads Bushel entries) *)
+    let ctx = Arod.Ctx.create ~config:cfg fs in
     Log.info (fun m ->
         m "Loaded %d notes, %d papers, %d projects, %d ideas, %d videos, %d images"
-          (List.length (Arod.Model.notes ()))
-          (List.length (Arod.Model.papers ()))
-          (List.length (Arod.Model.projects ()))
-          (List.length (Arod.Model.ideas ()))
-          (List.length (Arod.Model.videos ()))
-          (List.length (Arod.Model.images ())));
-    (* Get all routes *)
-    let routes = Arod.Handlers.all_routes cfg in
+          (List.length (Arod.Ctx.notes ctx))
+          (List.length (Arod.Ctx.papers ctx))
+          (List.length (Arod.Ctx.projects ctx))
+          (List.length (Arod.Ctx.ideas ctx))
+          (List.length (Arod.Ctx.videos ctx))
+          (List.length (Arod.Ctx.images ctx)));
+    (* Create cache with 5 minute TTL *)
+    let cache = Arod.Cache.create ~ttl:300.0 in
+    (* Get all routes with ctx and cache *)
+    let routes = Arod.Handlers.all_routes ~ctx ~cache in
     (* Run the server *)
     Eio.Switch.run @@ fun sw ->
     Arod_server.run ~sw ~net ~config:cfg routes;

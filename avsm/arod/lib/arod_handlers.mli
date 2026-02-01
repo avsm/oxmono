@@ -3,106 +3,24 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Pure route handlers for arod
+(** Pure route handlers for arod using context-based state.
 
-    This module contains all the HTTP route handlers as pure functions that
-    use the CPS-style [Httpz_server.Route.respond] function to write responses
-    directly. The handlers are designed to be reusable across different
-    HTTP server implementations with zero response record allocation. *)
+    This module contains all the HTTP route handlers. Handlers take a context
+    ([Arod_ctx.t]) and cache ([Arod_cache.t]) and use the CPS-style
+    [Httpz_server.Route.respond] function to write responses directly.
 
-(** {1 Content Handlers}
-
-    Handlers for individual content pages and listings.
-    All handlers take a [respond] function for direct response writing. *)
-
-val index : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for the index/home page. *)
-
-val papers : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for the papers listing page. *)
-
-val paper : Arod_config.t -> string -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** [paper cfg slug ctx respond] handles individual paper pages or PDF/bib downloads. *)
-
-val notes : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for the notes listing page. *)
-
-val note : string -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** [note slug ctx respond] handles individual note pages. *)
-
-val ideas : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for the ideas listing page. *)
-
-val idea : string -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** [idea slug ctx respond] handles individual idea pages. *)
-
-val projects : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for the projects listing page. *)
-
-val project : string -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** [project slug ctx respond] handles individual project pages. *)
-
-val videos : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for the videos/talks listing page. *)
-
-val video : string -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** [video slug ctx respond] handles individual video pages. *)
-
-val content : string -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** [content slug ctx respond] generic content handler that looks up any entry by slug. *)
-
-(** {1 Legacy Handlers} *)
-
-val news_redirect : string -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** [news_redirect slug ctx respond] redirects /news/slug to /notes/slug. *)
-
-val wiki : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for legacy /wiki endpoint. *)
-
-val news : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for legacy /news endpoint. *)
-
-(** {1 Feed Handlers} *)
-
-val atom_feed : Arod_config.t -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for Atom feed generation. *)
-
-val json_feed : Arod_config.t -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for JSON feed generation. *)
-
-val perma_atom : Arod_config.t -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for permanent/archival Atom feed. *)
-
-val perma_json : Arod_config.t -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for permanent/archival JSON feed. *)
-
-(** {1 Utility Handlers} *)
-
-val sitemap : Arod_config.t -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for sitemap.xml generation. *)
-
-val bushel_graph : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for the Bushel link graph visualization page. *)
-
-val bushel_graph_data : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for the Bushel link graph JSON data. *)
-
-val pagination_api : Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for the pagination API endpoint. *)
-
-val well_known : Arod_config.t -> string -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** [well_known cfg key ctx respond] handles .well-known/[key] endpoints. *)
-
-val robots_txt : Arod_config.t -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** Handler for robots.txt. *)
-
-(** {1 Static File Serving} *)
-
-val static_file : dir:string -> string -> Httpz_server.Route.ctx -> Httpz_server.Route.respond -> unit
-(** [static_file ~dir path ctx respond] serves a file from [dir]/[path] with
-    appropriate MIME type. Calls [respond] with 404 if file not found. *)
+    Content routes are cached for performance. Static file routes and
+    dynamic query-dependent routes bypass the cache. *)
 
 (** {1 Route Collection} *)
 
-val all_routes : Arod_config.t -> Httpz_server.Route.t
-(** [all_routes cfg] returns all routes for the arod application. *)
+val all_routes : ctx:Arod_ctx.t -> cache:Arod_cache.t -> Httpz_server.Route.t
+(** [all_routes ~ctx ~cache] returns all routes for the arod application.
+    Content routes use the cache for memoization. *)
+
+(** {1 Static File Serving} *)
+
+val static_file : dir:string -> string -> Httpz_server.Route.ctx ->
+  Httpz_server.Route.respond -> unit
+(** [static_file ~dir path ctx respond] serves a file from [dir]/[path] with
+    appropriate MIME type. Calls [respond] with 404 if file not found. *)

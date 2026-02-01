@@ -1,0 +1,16 @@
+(library
+ (name tangled)
+ (public_name tangled)
+ (libraries
+  xrpc-auth
+  atp-xrpc
+  atp-lexicon-atproto
+  atp-lexicon-tangled
+  jsont
+  jsont.bytesrw
+  fmt
+  eio
+  ptime
+  ptime.clock.os
+  tomlt.eio
+  xdge))

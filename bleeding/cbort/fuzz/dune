@@ -1,0 +1,30 @@
+; Crowbar fuzz testing for CBOR roundtripping
+;
+; To run fuzz tests (requires crowbar):
+;   opam install crowbar
+;   dune exec fuzz/fuzz_cbort.exe
+;
+; For AFL-based fuzzing:
+;   dune exec fuzz/fuzz_cbort.exe -- --fuzz
+;   afl-fuzz -i fuzz/corpus -o fuzz/findings -- ./_build/default/fuzz/fuzz_cbort.exe @@
+;
+; To generate seed corpus:
+;   dune exec fuzz/gen_corpus.exe
+
+(executable
+ (name fuzz_cbort)
+ (modules fuzz_cbort)
+ (libraries cbort bytesrw crowbar))
+
+(executable
+ (name gen_corpus)
+ (modules gen_corpus)
+ (libraries unix))
+
+(rule
+ (alias fuzz)
+ (deps
+  fuzz_cbort.exe
+  (source_tree corpus))
+ (action
+  (run %{exe:fuzz_cbort.exe})))

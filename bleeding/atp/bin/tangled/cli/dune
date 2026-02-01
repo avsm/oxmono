@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name tangled)
+ (package tangled)
+ (libraries tangled xrpc-auth cmdliner eio_main fmt fmt.tty xdge tomlt.eio))

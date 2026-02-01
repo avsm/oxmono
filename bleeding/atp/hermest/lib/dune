@@ -1,0 +1,4 @@
+(library
+ (name hermest)
+ (public_name hermest)
+ (libraries jsont jsont.bytesrw))

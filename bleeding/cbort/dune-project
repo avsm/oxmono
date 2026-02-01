@@ -1,0 +1,23 @@
+(lang dune 3.21)
+(name cbort)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-cbort))
+
+(package
+ (name cbort)
+ (synopsis "Native CBOR codec with type-safe combinators")
+ (description
+  "Type-safe CBOR (RFC 8949) encoding and decoding using a combinator-based
+   approach. Define codecs once and use them for both encoding and decoding
+   OCaml values to and from CBOR binary format.")
+ (depends
+  (ocaml (>= 5.1))
+  (bytesrw (>= 0.2))
+  (zarith (>= 1.12))
+  (odoc :with-doc)
+  (crowbar (and (>= 0.2) :with-test))))

@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name hermest)
+ (package hermest-cli)
+ (libraries hermest jsont.bytesrw cmdliner))

@@ -1,4 +1,8 @@
 packages:
+  multibase:
+    archive:
+      url: 'https://github.com/patricoferris/ocaml-multibase/releases/download/v0.1.0/multibase-0.1.0.tbz'
+      checksum: "sha256=b46509dd92fef15d2b78a4c831fa7c2caeef17e454f621711a2700dd82a15a95\"\n\"sha512=28fcd03934e4de642bf1afaff9cb1e2563345b014601dcbb3e2bfefae8b88b2cda9c738e970bf339bd87bcab7b0b26cfc89bd71585a6ade00ac7ac0a7d92b504"
   iomux:
     archive:
       url: 'https://github.com/ocaml-multicore/ocaml-iomux/releases/download/v0.4/iomux-0.4.tbz'

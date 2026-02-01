@@ -1,0 +1,25 @@
+; Generated library definition (promoted from hermest output)
+
+(include dune.inc)
+
+; Code generation rule - regenerates OCaml from JSON lexicons
+; Run: dune build @hermest-tangled to regenerate and promote
+
+(rule
+ (alias hermest-tangled)
+ (mode
+  (promote (until-clean)))
+ (deps
+  (source_tree json))
+ (targets dune.inc atp_lexicon_tangled.ml atp_lexicon_tangled.mli)
+ (action
+  (run
+   %{bin:hermest}
+   generate
+   json
+   -o
+   .
+   -m
+   Atp_lexicon_tangled
+   -p
+   atp-lexicon-tangled)))

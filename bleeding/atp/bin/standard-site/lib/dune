@@ -1,0 +1,13 @@
+(library
+ (name standard_site)
+ (public_name standard-site)
+ (libraries
+  xrpc-auth
+  atp-xrpc
+  atp-lexicon-atproto
+  atp-lexicon-standard-site
+  jsont
+  fmt
+  eio
+  ptime
+  ptime.clock.os))

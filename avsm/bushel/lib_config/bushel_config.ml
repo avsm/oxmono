@@ -43,6 +43,9 @@ type t = {
 
   (* Zotero *)
   zotero_translation_server : string;
+
+  (* Git sync *)
+  sync : Gitops.Sync.Config.t;
 }
 
 (** {1 XDG Paths} *)
@@ -80,6 +83,7 @@ let default () =
     typesense_api_key_file = Filename.concat (config_dir ()) "typesense-key";
     openai_api_key_file = Filename.concat (config_dir ()) "openai-key";
     zotero_translation_server = "http://localhost:1969";
+    sync = Gitops.Sync.Config.default;
   }
 
 (** {1 Path Helpers} *)
@@ -185,7 +189,7 @@ let zotero_codec ~default =
 let config_codec =
   let default = default () in
   let open Tomlt.Table in
-  obj (fun data_dir images papers immich peertube typesense zotero ->
+  obj (fun data_dir images papers immich peertube typesense zotero sync ->
     let (remote_host, remote_user, remote_source_dir, local_source_dir,
          local_output_dir, paper_thumbs_subdir, contact_faces_subdir,
          video_thumbs_subdir) = images in
@@ -209,6 +213,7 @@ let config_codec =
       typesense_api_key_file = expand_path typesense_api_key_file;
       openai_api_key_file = expand_path openai_api_key_file;
       zotero_translation_server = zotero;
+      sync;
     })
   |> mem "data" (data_codec ~default) ~dec_absent:default.data_dir
        ~enc:(fun c -> c.data_dir)
@@ -236,6 +241,9 @@ let config_codec =
   |> mem "zotero" (zotero_codec ~default)
        ~dec_absent:default.zotero_translation_server
        ~enc:(fun c -> c.zotero_translation_server)
+  |> mem "sync" Gitops.Sync.Config.codec
+       ~dec_absent:Gitops.Sync.Config.default
+       ~enc:(fun c -> c.sync)
   |> finish
 
 (** {1 Loading} *)
@@ -303,6 +311,7 @@ let pp ppf t =
   pf ppf "  peertube servers: %d@," (List.length t.peertube_servers);
   pf ppf "  typesense: %s@," t.typesense_endpoint;
   pf ppf "  zotero: %s@," t.zotero_translation_server;
+  pf ppf "  sync remote: %s@," t.sync.Gitops.Sync.Config.remote;
   pf ppf "@]"
 
 (** {1 Default Config Generation} *)
@@ -366,6 +375,14 @@ openai_key_file = "%s/.config/bushel/openai-key"
 # Run locally: docker run -p 1969:1969 zotero/translation-server
 [zotero]
 translation_server = "http://localhost:1969"
+
+# Git sync configuration
+# Sync your bushel data to a remote git repository
+[sync]
+remote = ""
+branch = "main"
+auto_commit = true
+commit_message = "sync"
 |} home user home home home home home home
 
 let write_default_config ?(force=false) () =

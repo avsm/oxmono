@@ -47,6 +47,12 @@
 
     [zotero]
     translation_server = "http://localhost:1969"
+
+    [sync]
+    remote = "ssh://server/path/to/bushel.git"
+    branch = "main"
+    auto_commit = true
+    commit_message = "sync"
     v}
 *)
 
@@ -76,6 +82,7 @@ type t = {
   typesense_api_key_file : string;
   openai_api_key_file : string;
   zotero_translation_server : string;
+  sync : Gitops.Sync.Config.t;
 }
 (** Complete bushel configuration. *)
 

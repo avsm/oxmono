@@ -70,6 +70,11 @@ let init t =
             run_git t ["commit"; "--allow-empty"; "-m"; msg]
   end
 
+(* Auto-initialize git repo if not already initialized *)
+let ensure_initialized t =
+  if is_initialized t then Ok ()
+  else init t
+
 (* Helper to commit a file with a message *)
 let commit_file t filename msg =
   match run_git t ["add"; filename] with
@@ -98,10 +103,10 @@ let save t contact =
   (* Save to store *)
   Sortal_store.save t.store contact;
 
-  (* Commit to git *)
-  if not (is_initialized t) then
-    Ok ()
-  else
+  (* Commit to git (auto-init if needed) *)
+  match ensure_initialized t with
+  | Error _ as e -> e
+  | Ok () ->
     let msg = if is_new then
       Printf.sprintf "Add contact @%s (%s)" handle name
     else
@@ -119,10 +124,10 @@ let delete t handle =
       (* Delete from store *)
       Sortal_store.delete t.store handle;
 
-      (* Commit deletion to git *)
-      if not (is_initialized t) then
-        Ok ()
-      else
+      (* Commit deletion to git (auto-init if needed) *)
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let msg = Printf.sprintf "Delete contact @%s (%s)" handle name in
         commit_deletion t filename msg
 
@@ -130,9 +135,9 @@ let update_contact t handle f ~msg =
   match Sortal_store.update_contact t.store handle f with
   | Error _ as e -> e
   | Ok () ->
-      if not (is_initialized t) then
-        Ok ()
-      else
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
@@ -142,9 +147,9 @@ let add_email t handle (email : Contact.email) =
   match Sortal_store.add_email t.store handle email with
   | Error _ as e -> e
   | Ok () ->
-      if not (is_initialized t) then
-        Ok ()
-      else
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
@@ -153,9 +158,9 @@ let remove_email t handle address =
   match Sortal_store.remove_email t.store handle address with
   | Error _ as e -> e
   | Ok () ->
-      if not (is_initialized t) then
-        Ok ()
-      else
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
@@ -169,9 +174,9 @@ let add_service t handle (service : Contact.service) =
   match Sortal_store.add_service t.store handle service with
   | Error _ as e -> e
   | Ok () ->
-      if not (is_initialized t) then
-        Ok ()
-      else
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
@@ -180,9 +185,9 @@ let remove_service t handle url =
   match Sortal_store.remove_service t.store handle url with
   | Error _ as e -> e
   | Ok () ->
-      if not (is_initialized t) then
-        Ok ()
-      else
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
@@ -192,9 +197,9 @@ let add_organization t handle (org : Contact.organization) =
   match Sortal_store.add_organization t.store handle org with
   | Error _ as e -> e
   | Ok () ->
-      if not (is_initialized t) then
-        Ok ()
-      else
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
@@ -203,9 +208,9 @@ let remove_organization t handle name =
   match Sortal_store.remove_organization t.store handle name with
   | Error _ as e -> e
   | Ok () ->
-      if not (is_initialized t) then
-        Ok ()
-      else
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
@@ -215,9 +220,9 @@ let add_url t handle (url_entry : Contact.url_entry) =
   match Sortal_store.add_url t.store handle url_entry with
   | Error _ as e -> e
   | Ok () ->
-      if not (is_initialized t) then
-        Ok ()
-      else
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
@@ -226,8 +231,8 @@ let remove_url t handle url =
   match Sortal_store.remove_url t.store handle url with
   | Error _ as e -> e
   | Ok () ->
-      if not (is_initialized t) then
-        Ok ()
-      else
+      match ensure_initialized t with
+      | Error _ as e -> e
+      | Ok () ->
         let filename = handle ^ ".yaml" in
         commit_file t filename msg

@@ -1,0 +1,4 @@
+(library
+ (name gitops)
+ (public_name gitops)
+ (libraries eio eio_main tomlt cmdliner logs fmt))

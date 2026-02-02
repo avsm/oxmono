@@ -1,0 +1,4 @@
+(test
+ (name test_brotli)
+ (libraries brotli brotli.bytesrw alcotest)
+ (modules test_brotli))

@@ -1,0 +1,7 @@
+(library
+ (name brotli)
+ (public_name brotli)
+ (modules brotli brotli_decode brotli_encode bit_reader bit_writer
+          huffman context transform dictionary prefix constants lz77 dict_match
+          block_split optimal)
+ (ocamlopt_flags (:standard -O3 -unbox-closures -unbox-closures-factor 20)))

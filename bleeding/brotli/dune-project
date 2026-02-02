@@ -1,0 +1,21 @@
+(lang dune 3.21)
+(name brotli)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-brotli))
+
+(package
+ (name brotli)
+ (synopsis "Pure OCaml implementation of Brotli compression")
+ (description
+  "A pure OCaml implementation of the Brotli compression format (RFC 7932).
+When the optional bytesrw dependency is installed, the brotli.bytesrw
+sublibrary provides streaming-style compression and decompression.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (alcotest (and :with-test (>= 1.7.0))))
+ (depopts bytesrw))

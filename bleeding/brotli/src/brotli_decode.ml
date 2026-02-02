@@ -26,16 +26,16 @@ let error_to_string = function
 let distance_short_code_index_offset = [| 3; 2; 1; 0; 3; 3; 3; 3; 3; 3; 2; 2; 2; 2; 2; 2 |]
 let distance_short_code_value_offset = [| 0; 0; 0; 0; -1; 1; -2; 2; -3; 3; -1; 1; -2; 2; -3; 3 |]
 
-(* Static Huffman code for code length code lengths *)
+(* Static Huffman code for code length code lengths - packed format: (value lsl 8) lor bits *)
 let code_length_huff = [|
-  { Huffman.bits = 2; value = 0 }; { Huffman.bits = 2; value = 4 };
-  { Huffman.bits = 2; value = 3 }; { Huffman.bits = 3; value = 2 };
-  { Huffman.bits = 2; value = 0 }; { Huffman.bits = 2; value = 4 };
-  { Huffman.bits = 2; value = 3 }; { Huffman.bits = 4; value = 1 };
-  { Huffman.bits = 2; value = 0 }; { Huffman.bits = 2; value = 4 };
-  { Huffman.bits = 2; value = 3 }; { Huffman.bits = 3; value = 2 };
-  { Huffman.bits = 2; value = 0 }; { Huffman.bits = 2; value = 4 };
-  { Huffman.bits = 2; value = 3 }; { Huffman.bits = 4; value = 5 };
+  (* bits=2, value=0 *) 0x002; (* bits=2, value=4 *) 0x402;
+  (* bits=2, value=3 *) 0x302; (* bits=3, value=2 *) 0x203;
+  (* bits=2, value=0 *) 0x002; (* bits=2, value=4 *) 0x402;
+  (* bits=2, value=3 *) 0x302; (* bits=4, value=1 *) 0x104;
+  (* bits=2, value=0 *) 0x002; (* bits=2, value=4 *) 0x402;
+  (* bits=2, value=3 *) 0x302; (* bits=3, value=2 *) 0x203;
+  (* bits=2, value=0 *) 0x002; (* bits=2, value=4 *) 0x402;
+  (* bits=2, value=3 *) 0x302; (* bits=4, value=5 *) 0x504;
 |]
 
 (* Decode window bits from stream header *)
@@ -211,8 +211,9 @@ let read_huffman_code_with_bits alphabet_size root_bits br =
       if !space > 0 then begin
         let code_len_idx = Constants.code_length_code_order.(i) in
         let p = Bit_reader.peek_bits br 4 in
-        Bit_reader.skip_bits br code_length_huff.(p).bits;
-        let v = code_length_huff.(p).value in
+        let entry = code_length_huff.(p) in
+        Bit_reader.skip_bits br (entry land 0xFF);
+        let v = entry lsr 8 in
         code_length_code_lengths.(code_len_idx) <- v;
         if v <> 0 then begin
           space := !space - (32 lsr v);

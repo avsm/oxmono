@@ -16,8 +16,9 @@ let int_of_mode = function
   | UTF8 -> 2
   | SIGNED -> 3
 
-(* The master lookup table - all context modes combined *)
-let lookup = [|
+(* The master lookup table - all context modes combined
+   Source data as int array, converted to Bytes for compact storage *)
+let lookup_data = [|
   (* CONTEXT_UTF8, last byte (offset 0) *)
   (* ASCII range *)
   0;  0;  0;  0;  0;  0;  0;  0;  0;  4;  4;  0;  0;  4;  0;  0;
@@ -151,20 +152,39 @@ let lookup = [|
   0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0;
 |]
 
-(* Offsets into lookup table for each mode *)
-let lookup_offsets = [|
-  (* LSB6 *)  1024; 1536;
-  (* MSB6 *)  1280; 1536;
-  (* UTF8 *)     0;  256;
-  (* SIGNED *) 768;  512;
-|]
+(* Convert lookup_data to Bytes for compact storage (1 byte per value instead of 8) *)
+let lookup : bytes =
+  let n = Array.length lookup_data in
+  let b = Bytes.create n in
+  for i = 0 to n - 1 do
+    Bytes.unsafe_set b i (Char.chr lookup_data.(i))
+  done;
+  b
 
-(* Get context ID from previous two bytes *)
+(* Offsets into lookup table for each mode - stored as int8# for compact access *)
+let lookup_offset1 : int8# array =
+  let open struct
+    let i n = Oxcaml_arrays.int_to_int8 n
+  end in
+  [| i 4; i 5; i 0; i 3 |]  (* offset1 / 256: LSB6=4, MSB6=5, UTF8=0, SIGNED=3 *)
+
+let lookup_offset2 : int8# array =
+  let open struct
+    let i n = Oxcaml_arrays.int_to_int8 n
+  end in
+  [| i 6; i 6; i 1; i 2 |]  (* offset2 / 256: LSB6=6, MSB6=6, UTF8=1, SIGNED=2 *)
+
+(* Get context ID from previous two bytes
+   Optimization: Uses Bytes lookup (1 byte per entry) and int8# offset arrays.
+   The lor combines two 6-bit values into the final context ID. *)
 let[@inline] get_context mode ~prev_byte1 ~prev_byte2 =
   let mode_idx = int_of_mode mode in
-  let offset1 = lookup_offsets.(mode_idx * 2) in
-  let offset2 = lookup_offsets.(mode_idx * 2 + 1) in
-  lookup.(offset1 + prev_byte1) lor lookup.(offset2 + prev_byte2)
+  (* Get offsets from int8# arrays - values are offset/256, multiply by 256 = lsl 8 *)
+  let off1 = Oxcaml_arrays.int8_to_int (Oxcaml_arrays.unsafe_get lookup_offset1 mode_idx) lsl 8 in
+  let off2 = Oxcaml_arrays.int8_to_int (Oxcaml_arrays.unsafe_get lookup_offset2 mode_idx) lsl 8 in
+  let v1 = Char.code (Bytes.unsafe_get lookup (off1 + prev_byte1)) in
+  let v2 = Char.code (Bytes.unsafe_get lookup (off2 + prev_byte2)) in
+  v1 lor v2
 
 (* Distance context based on copy length *)
 let[@inline] distance_context copy_length =

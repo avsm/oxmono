@@ -9,6 +9,22 @@ let max_match = 258
 let window_bits = 22
 let max_backward_distance = (1 lsl window_bits) - 16
 
+(* Sentinel value for uninitialized hash/chain entries.
+   We use -1 represented as nativeint# for unboxed arrays. *)
+let invalid_pos : nativeint# = Nativeint_u.of_int (-1)
+
+(* Helper to create a nativeint# array filled with a value *)
+let make_nativeint_u_array len (v : nativeint#) : nativeint# array =
+  let arr = Nativeint_u.Array.create_uninitialized ~len in
+  for i = 0 to len - 1 do
+    Nativeint_u.Array.set arr i v
+  done;
+  arr
+
+(* Array accessors for nativeint# arrays *)
+let[@inline always] na_get (arr : nativeint# array) idx = Nativeint_u.Array.get arr idx
+let[@inline always] na_set (arr : nativeint# array) idx v = Nativeint_u.Array.set arr idx v
+
 (* Scoring constants from brotli-c (hash.h) *)
 let brotli_literal_byte_score = 135
 let brotli_distance_bit_penalty = 30
@@ -442,8 +458,9 @@ let get_literal_spree_length quality =
    Matches brotli-c FindLongestMatch: first checks distance cache (short codes),
    then searches hash chain/bucket.
    chain_table_base is the base offset used for chain_table indexing.
+   Uses unboxed nativeint# arrays for hash_table and chain_table for better performance.
    Returns (len, dist, code) or (0, 0, -1) if no match found *)
-let find_best_chain_match src pos src_end hash_table chain_table chain_table_base ring
+let find_best_chain_match src pos src_end (hash_table : nativeint# array) (chain_table : nativeint# array) chain_table_base ring
     ~num_last_distances_to_check ~max_chain_depth =
   if pos + min_match > src_end then (0, 0, -1)
   else begin
@@ -477,13 +494,15 @@ let find_best_chain_match src pos src_end hash_table chain_table chain_table_bas
 
     (* Second: search hash chain for more matches *)
     let h = hash4 src pos in
-    let chain_pos = ref hash_table.(h) in
+    (* Use mutable for unboxed chain position to avoid ref boxing *)
+    let mutable chain_pos_u : nativeint# = na_get hash_table h in
     let chain_count = ref 0 in
 
-    while !chain_pos >= 0 && !chain_count < max_chain_depth do
-      let distance = pos - !chain_pos in
+    while Nativeint_u.(chain_pos_u >= #0n) && !chain_count < max_chain_depth do
+      let chain_pos = Nativeint_u.to_int_trunc chain_pos_u in
+      let distance = pos - chain_pos in
       if distance > 0 && distance <= max_backward_distance then begin
-        let match_len = find_match_length src !chain_pos pos src_end in
+        let match_len = find_match_length src chain_pos pos src_end in
         if match_len >= min_match then begin
           let dist_code = find_short_code ring distance in
           let score = score_match match_len distance dist_code in
@@ -496,11 +515,11 @@ let find_best_chain_match src pos src_end hash_table chain_table chain_table_bas
         end
       end;
       (* Follow the chain - index relative to base *)
-      let chain_idx = !chain_pos - chain_table_base in
-      if chain_idx >= 0 && chain_idx < Array.length chain_table then
-        chain_pos := chain_table.(chain_idx)
+      let chain_idx = chain_pos - chain_table_base in
+      if chain_idx >= 0 && chain_idx < Nativeint_u.Array.length chain_table then
+        chain_pos_u <- na_get chain_table chain_idx
       else
-        chain_pos := -1;
+        chain_pos_u <- invalid_pos;
       incr chain_count
     done;
 
@@ -510,13 +529,14 @@ let find_best_chain_match src pos src_end hash_table chain_table chain_table_bas
       (0, 0, -1)
   end
 
-(* Update hash chain. chain_table_base is the base offset for indexing. *)
-let update_hash_chain src pos hash_table chain_table chain_table_base =
+(* Update hash chain. chain_table_base is the base offset for indexing.
+   Uses unboxed nativeint# arrays for hash_table and chain_table. *)
+let update_hash_chain src pos (hash_table : nativeint# array) (chain_table : nativeint# array) chain_table_base =
   let chain_idx = pos - chain_table_base in
-  if chain_idx >= 0 && chain_idx < Array.length chain_table && pos + min_match <= Bytes.length src then begin
+  if chain_idx >= 0 && chain_idx < Nativeint_u.Array.length chain_table && pos + min_match <= Bytes.length src then begin
     let h = hash4 src pos in
-    chain_table.(chain_idx) <- hash_table.(h);
-    hash_table.(h) <- pos
+    na_set chain_table chain_idx (na_get hash_table h);
+    na_set hash_table h (Nativeint_u.of_int pos)
   end
 
 (* Generate commands with LZ77 matching, dictionary matching, and distance ring buffer.
@@ -526,11 +546,12 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
     [Literals { start = src_pos; len = src_len }]
   else begin
     let commands = ref [] in
-    let hash_table = Array.make hash_size (-1) in
+    (* Hash table uses unboxed nativeint# for better performance in hot path *)
+    let hash_table : nativeint# array = make_nativeint_u_array hash_size invalid_pos in
     (* Chain table for quality 4+ - each position stores prev position with same hash.
-       The table is indexed relative to src_pos. *)
-    let chain_table =
-      if quality >= 4 then Array.make src_len (-1)
+       The table is indexed relative to src_pos. Uses unboxed nativeint# for performance. *)
+    let chain_table : nativeint# array =
+      if quality >= 4 then make_nativeint_u_array src_len invalid_pos
       else [||]  (* Not used for lower qualities *)
     in
     let chain_table_base = src_pos in  (* Base offset for chain_table indexing *)
@@ -569,7 +590,7 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
           if quality >= 4 then
             update_hash_chain src !pos hash_table chain_table chain_table_base
           else
-            hash_table.(hash4 src !pos) <- !pos
+            na_set hash_table (hash4 src !pos) (Nativeint_u.of_int !pos)
         end;
         incr pos;
         incr literal_spree
@@ -583,8 +604,9 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
         else begin
           (* Q2-3: Simple hash lookup with bucket sweep *)
           let h = hash4 src !pos in
-          let prev = hash_table.(h) in
-          hash_table.(h) <- !pos;
+          let prev_u : nativeint# = na_get hash_table h in
+          let prev = Nativeint_u.to_int_trunc prev_u in
+          na_set hash_table h (Nativeint_u.of_int !pos);
           (* Also check distance cache first *)
           let (slen, sdist, scode) = try_short_code_match ~num_to_check:num_last_distances_to_check
             src !pos src_end ring in
@@ -700,7 +722,7 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
               if quality >= 4 then
                 update_hash_chain src (!pos + i) hash_table chain_table chain_table_base
               else
-                hash_table.(hash4 src (!pos + i)) <- !pos + i
+                na_set hash_table (hash4 src (!pos + i)) (Nativeint_u.of_int (!pos + i))
             end
           done;
 

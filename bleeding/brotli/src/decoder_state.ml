@@ -8,7 +8,7 @@ let max_block_types = 256
 let max_literal_trees = 256
 let max_distance_trees = 256
 let max_context_map_size = max_block_types lsl 6  (* 16384 *)
-let huffman_slab_size = 131072  (* 128KB - enough for all tables in a meta-block *)
+let huffman_slab_size = 0  (* UNUSED: brotli_decode.ml allocates tables directly *)
 
 (* Decoder scratch buffers - allocated once, reused across meta-blocks.
    Mixed block: boxed fields first, unboxed nativeint# fields at the end. *)
@@ -100,7 +100,7 @@ let create () = {
   code_lengths = Array.make max_alphabet_size 0;
   code_length_code_lengths = Array.make Constants.code_length_codes 0;
 
-  huffman_slab = Array.make huffman_slab_size 0;
+  huffman_slab = [||];  (* UNUSED: brotli_decode.ml allocates tables directly *)
 
   num_block_types = Array.make 3 1;
   block_type = Array.make 3 0;

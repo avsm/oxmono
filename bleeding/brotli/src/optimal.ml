@@ -17,6 +17,22 @@ let hash_bits = 17
 let hash_size = 1 lsl hash_bits
 let max_tree_search_depth = 64  (* For H10 binary tree hasher *)
 
+(* Sentinel value for uninitialized hash/chain entries.
+   We use -1 represented as nativeint# for unboxed arrays. *)
+let invalid_pos : nativeint# = Nativeint_u.of_int (-1)
+
+(* Helper to create a nativeint# array filled with a value *)
+let make_nativeint_u_array len (v : nativeint#) : nativeint# array =
+  let arr = Nativeint_u.Array.create_uninitialized ~len in
+  for i = 0 to len - 1 do
+    Nativeint_u.Array.set arr i v
+  done;
+  arr
+
+(* Array accessors for nativeint# arrays *)
+let[@inline always] na_get (arr : nativeint# array) idx = Nativeint_u.Array.get arr idx
+let[@inline always] na_set (arr : nativeint# array) idx v = Nativeint_u.Array.set arr idx v
+
 (* Distance cache index and offset from brotli-c backward_references_hq.c *)
 let distance_cache_index = [| 0; 1; 2; 3; 0; 0; 0; 0; 0; 0; 1; 1; 1; 1; 1; 1 |]
 let distance_cache_offset = [| 0; 0; 0; 0; -1; 1; -2; 2; -3; 3; -1; 1; -2; 2; -3; 3 |]
@@ -358,8 +374,9 @@ type backward_match = {
   bm_len_code : int;
 }
 
-(* Find all matches at a position, sorted by length *)
-let find_all_matches src pos src_end hash_table chain_table chain_base max_distance =
+(* Find all matches at a position, sorted by length.
+   Uses unboxed nativeint# arrays for hash_table and chain_table for better performance. *)
+let find_all_matches src pos src_end (hash_table : nativeint# array) (chain_table : nativeint# array) chain_base max_distance =
   if pos + min_match > src_end then []
   else begin
     let matches = ref [] in
@@ -367,23 +384,25 @@ let find_all_matches src pos src_end hash_table chain_table chain_base max_dista
 
     (* Search hash chain *)
     let h = hash4 src pos in
-    let chain_pos = ref hash_table.(h) in
+    (* Use mutable for unboxed chain position to avoid ref boxing *)
+    let mutable chain_pos_u : nativeint# = na_get hash_table h in
     let chain_count = ref 0 in
 
-    while !chain_pos >= 0 && !chain_count < max_tree_search_depth do
-      let distance = pos - !chain_pos in
+    while Nativeint_u.(chain_pos_u >= #0n) && !chain_count < max_tree_search_depth do
+      let chain_pos = Nativeint_u.to_int_trunc chain_pos_u in
+      let distance = pos - chain_pos in
       if distance > 0 && distance <= max_distance then begin
-        let match_len = find_match_length src !chain_pos pos src_end in
+        let match_len = find_match_length src chain_pos pos src_end in
         if match_len > !best_len then begin
           best_len := match_len;
           matches := { bm_distance = distance; bm_length = match_len; bm_len_code = match_len } :: !matches
         end
       end;
-      let chain_idx = !chain_pos - chain_base in
-      if chain_idx >= 0 && chain_idx < Array.length chain_table then
-        chain_pos := chain_table.(chain_idx)
+      let chain_idx = chain_pos - chain_base in
+      if chain_idx >= 0 && chain_idx < Nativeint_u.Array.length chain_table then
+        chain_pos_u <- na_get chain_table chain_idx
       else
-        chain_pos := -1;
+        chain_pos_u <- invalid_pos;
       incr chain_count
     done;
 
@@ -647,9 +666,9 @@ let zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
   (* Initialize cost model from literal costs (first pass) *)
   let model = init_cost_model_from_literals src src_pos num_bytes in
 
-  (* Hash table and chain *)
-  let hash_table = Array.make hash_size (-1) in
-  let chain_table = Array.make num_bytes (-1) in
+  (* Hash table and chain - use unboxed nativeint# for better performance *)
+  let hash_table : nativeint# array = make_nativeint_u_array hash_size invalid_pos in
+  let chain_table : nativeint# array = make_nativeint_u_array num_bytes invalid_pos in
   let chain_base = src_pos in
 
   (* Initialize queue *)
@@ -665,9 +684,9 @@ let zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
     if pos + min_match <= src_pos + num_bytes then begin
       let h = hash4 src pos in
       let chain_idx = !i in
-      if chain_idx < Array.length chain_table then
-        chain_table.(chain_idx) <- hash_table.(h);
-      hash_table.(h) <- pos
+      if chain_idx < Nativeint_u.Array.length chain_table then
+        na_set chain_table chain_idx (na_get hash_table h);
+      na_set hash_table h (Nativeint_u.of_int pos)
     end;
 
     (* Find all matches *)
@@ -797,9 +816,9 @@ let hq_zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
   let max_zopfli_len = max_zopfli_len_quality_11 in
   let max_iters = max_zopfli_candidates_q11 in
 
-  (* Pre-compute all matches *)
-  let hash_table = Array.make hash_size (-1) in
-  let chain_table = Array.make num_bytes (-1) in
+  (* Pre-compute all matches - use unboxed nativeint# arrays for better performance *)
+  let hash_table : nativeint# array = make_nativeint_u_array hash_size invalid_pos in
+  let chain_table : nativeint# array = make_nativeint_u_array num_bytes invalid_pos in
   let chain_base = src_pos in
   let all_matches = Array.make num_bytes [||] in
   let num_matches_arr = Array.make num_bytes 0 in
@@ -811,8 +830,8 @@ let hq_zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
     (* Update hash *)
     if pos + min_match <= src_pos + num_bytes then begin
       let h = hash4 src pos in
-      chain_table.(i) <- hash_table.(h);
-      hash_table.(h) <- pos
+      na_set chain_table i (na_get hash_table h);
+      na_set hash_table h (Nativeint_u.of_int pos)
     end;
 
     let matches = find_all_matches src pos (src_pos + num_bytes)

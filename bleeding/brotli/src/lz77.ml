@@ -355,7 +355,7 @@ let[@inline always] log2_floor_nonzero v =
    score = SCORE_BASE + LITERAL_BYTE_SCORE * copy_length
            - DISTANCE_BIT_PENALTY * Log2FloorNonZero(backward_reference_offset)
    This prefers longer matches and shorter distances. *)
-let backward_reference_score copy_len backward_distance =
+let[@inline always] backward_reference_score copy_len backward_distance =
   brotli_score_base +
   brotli_literal_byte_score * copy_len -
   brotli_distance_bit_penalty * (log2_floor_nonzero backward_distance)
@@ -363,17 +363,17 @@ let backward_reference_score copy_len backward_distance =
 (* BackwardReferenceScoreUsingLastDistance from brotli-c (hash.h line 121-124):
    score = LITERAL_BYTE_SCORE * copy_length + SCORE_BASE + 15
    Short code 0 (last distance) gets a bonus. *)
-let backward_reference_score_using_last_distance copy_len =
+let[@inline always] backward_reference_score_using_last_distance copy_len =
   brotli_literal_byte_score * copy_len + brotli_score_base + 15
 
 (* BackwardReferencePenaltyUsingLastDistance from brotli-c (hash.h line 127-129):
    Penalty for short codes 1-15 (not 0): 39 + lookup(distance_short_code)
    The magic constant 0x1CA10 encodes penalties: codes 1-3 get 0, 4-5 get 2, etc. *)
-let backward_reference_penalty_using_last_distance distance_short_code =
+let[@inline always] backward_reference_penalty_using_last_distance distance_short_code =
   39 + ((0x1CA10 lsr (distance_short_code land 0xE)) land 0xE)
 
 (* Score function matching brotli-c exactly *)
-let score_match copy_len distance dist_code =
+let[@inline always] score_match copy_len distance dist_code =
   if dist_code = 0 then
     (* Last distance - use special scoring with bonus *)
     backward_reference_score_using_last_distance copy_len
@@ -391,7 +391,7 @@ let insert_length_offset = [|
 |]
 
 (* Get insert length code *)
-let get_insert_code length =
+let[@inline always] get_insert_code length =
   let rec find i =
     if i >= 23 then 23
     else if length < insert_length_offset.(i + 1) then i
@@ -400,7 +400,7 @@ let get_insert_code length =
   find 0
 
 (* Get max copy_len that fits with a given insert_len *)
-let max_copy_len_for_insert insert_len =
+let[@inline always] max_copy_len_for_insert insert_len =
   let insert_code = get_insert_code insert_len in
   if insert_code >= 16 then 9 else max_match
 
@@ -556,10 +556,10 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
     in
     let chain_table_base = src_pos in  (* Base offset for chain_table indexing *)
     let ring = create_dist_ring () in
-    let pos = ref src_pos in
+    let mutable pos = src_pos in
     let src_end = src_pos + src_len in
-    let pending_start = ref src_pos in
-    let output_pos = ref 0 in
+    let mutable pending_start = src_pos in
+    let mutable output_pos = 0 in
     let max_chain_depth = get_max_chain_depth quality in
     let num_last_distances_to_check = get_num_last_distances_to_check quality in
 
@@ -567,53 +567,53 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
     let lazy_match_cost = if quality >= 4 then 175 else 0 in
 
     (* Literal spree skip optimization - track consecutive literals without matches *)
-    let literal_spree = ref 0 in
+    let mutable literal_spree = 0 in
     let spree_length = get_literal_spree_length quality in
     let use_spree_skip = quality >= 2 && quality <= 9 in
 
-    while !pos < src_end - min_match do
+    while pos < src_end - min_match do
       (* Determine if we should skip this position due to literal spree *)
       let skip_this_position =
-        if use_spree_skip && !literal_spree >= spree_length then begin
+        if use_spree_skip && literal_spree >= spree_length then begin
           (* In sparse search mode - skip based on spree level *)
-          let stride = if !literal_spree >= spree_length * 4 then 16 else 8 in
-          let relative_pos = !pos - !pending_start in
+          let stride = if literal_spree >= spree_length * 4 then 16 else 8 in
+          let relative_pos = pos - pending_start in
           relative_pos mod stride <> 0
         end else false
       in
 
       if skip_this_position then begin
         (* Still update hash table but with reduced frequency *)
-        let hash_update_stride = if !literal_spree >= spree_length * 4 then 4 else 2 in
-        let relative_pos = !pos - !pending_start in
+        let hash_update_stride = if literal_spree >= spree_length * 4 then 4 else 2 in
+        let relative_pos = pos - pending_start in
         if relative_pos mod hash_update_stride = 0 then begin
           if quality >= 4 then
-            update_hash_chain src !pos hash_table chain_table chain_table_base
+            update_hash_chain src pos hash_table chain_table chain_table_base
           else
-            na_set hash_table (hash4 src !pos) (Nativeint_u.of_int !pos)
+            na_set hash_table (hash4 src pos) (Nativeint_u.of_int pos)
         end;
-        incr pos;
-        incr literal_spree
+        pos <- pos + 1;
+        literal_spree <- literal_spree + 1
       end else begin
       (* Find best match at current position - returns (len, dist, code) tuple.
          len=0 means no match found, dist_code=-1 means no short code. *)
       let (hash_len, hash_dist, hash_code) =
         if quality >= 4 then
-          find_best_chain_match src !pos src_end hash_table chain_table chain_table_base ring
+          find_best_chain_match src pos src_end hash_table chain_table chain_table_base ring
             ~num_last_distances_to_check ~max_chain_depth
         else begin
           (* Q2-3: Simple hash lookup with bucket sweep *)
-          let h = hash4 src !pos in
+          let h = hash4 src pos in
           let prev_u : nativeint# = na_get hash_table h in
           let prev = Nativeint_u.to_int_trunc prev_u in
-          na_set hash_table h (Nativeint_u.of_int !pos);
+          na_set hash_table h (Nativeint_u.of_int pos);
           (* Also check distance cache first *)
           let (slen, sdist, scode) = try_short_code_match ~num_to_check:num_last_distances_to_check
-            src !pos src_end ring in
-          if prev >= src_pos && !pos - prev <= max_backward_distance then begin
-            let match_len = find_match_length src prev !pos src_end in
+            src pos src_end ring in
+          if prev >= src_pos && pos - prev <= max_backward_distance then begin
+            let match_len = find_match_length src prev pos src_end in
             if match_len >= min_match then begin
-              let distance = !pos - prev in
+              let distance = pos - prev in
               let dist_code = find_short_code ring distance in
               (* Pick best between short code match and hash match *)
               if slen >= min_match then begin
@@ -637,14 +637,14 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
 
       (* Update hash chain for quality 4+ *)
       if quality >= 4 then
-        update_hash_chain src !pos hash_table chain_table chain_table_base;
+        update_hash_chain src pos hash_table chain_table chain_table_base;
 
       (* Try dictionary match if enabled *)
       let (dict_len, dict_dist) =
         if use_dict then begin
-          let pending_lits = !pos - !pending_start in
-          let current_output_pos = !output_pos + pending_lits in
-          match Dict_match.find_match src !pos src_end max_backward_distance ~current_output_pos with
+          let pending_lits = pos - pending_start in
+          let current_output_pos = output_pos + pending_lits in
+          match Dict_match.find_match src pos src_end max_backward_distance ~current_output_pos with
           | Some (len, dist) -> (len, dist)
           | None -> (0, 0)
         end
@@ -673,10 +673,10 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
       if match_len >= min_match then begin
         (* Lazy matching for quality 4+: check if delaying gives better match *)
         let use_match =
-          if quality >= 4 && !pos + 1 < src_end - min_match && match_len < max_match then begin
+          if quality >= 4 && pos + 1 < src_end - min_match && match_len < max_match then begin
             (* Update hash for next position *)
-            update_hash_chain src (!pos + 1) hash_table chain_table chain_table_base;
-            let (next_len, next_dist, next_code) = find_best_chain_match src (!pos + 1) src_end
+            update_hash_chain src (pos + 1) hash_table chain_table chain_table_base;
+            let (next_len, next_dist, next_code) = find_best_chain_match src (pos + 1) src_end
               hash_table chain_table chain_table_base ring
               ~num_last_distances_to_check ~max_chain_depth in
             if next_len >= min_match then begin
@@ -684,7 +684,7 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
               let next_score = score_match next_len next_dist next_code - lazy_match_cost in
               if next_score > curr_score then begin
                 (* Skip current position, emit literal *)
-                incr pos;
+                pos <- pos + 1;
                 false  (* Don't use current match *)
               end else
                 true
@@ -695,19 +695,19 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
         in
 
         if use_match then begin
-          let lit_len = !pos - !pending_start in
+          let lit_len = pos - pending_start in
           let max_copy = max_copy_len_for_insert lit_len in
           let copy_len = min match_len max_copy in
 
           commands := InsertCopy {
-            lit_start = !pending_start;
+            lit_start = pending_start;
             lit_len;
             copy_len;
             distance;
             dist_code;
           } :: !commands;
 
-          output_pos := !output_pos + lit_len + copy_len;
+          output_pos <- output_pos + lit_len + copy_len;
 
           (* Don't update ring for dist_code=0 (reusing last distance) *)
           if dist_code <> 0 then push_distance ring distance;
@@ -718,30 +718,30 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
             else if quality >= 4 then min (copy_len - 1) 8
             else min (copy_len - 1) 2 in
           for i = 1 to hash_update_count do
-            if !pos + i < src_end - min_match then begin
+            if pos + i < src_end - min_match then begin
               if quality >= 4 then
-                update_hash_chain src (!pos + i) hash_table chain_table chain_table_base
+                update_hash_chain src (pos + i) hash_table chain_table chain_table_base
               else
-                na_set hash_table (hash4 src (!pos + i)) (Nativeint_u.of_int (!pos + i))
+                na_set hash_table (hash4 src (pos + i)) (Nativeint_u.of_int (pos + i))
             end
           done;
 
-          pos := !pos + copy_len;
-          pending_start := !pos;
+          pos <- pos + copy_len;
+          pending_start <- pos;
           (* Reset literal spree counter on match *)
-          literal_spree := 0
+          literal_spree <- 0
         end else
           (* Lazy match chose to skip, position already incremented *)
-          incr literal_spree
+          literal_spree <- literal_spree + 1
       end else begin
-        incr pos;
-        incr literal_spree
+        pos <- pos + 1;
+        literal_spree <- literal_spree + 1
       end
       end (* end of else begin for skip_this_position *)
     done;
 
-    if !pending_start < src_end then
-      commands := Literals { start = !pending_start; len = src_end - !pending_start } :: !commands;
+    if pending_start < src_end then
+      commands := Literals { start = pending_start; len = src_end - pending_start } :: !commands;
 
     List.rev !commands
   end

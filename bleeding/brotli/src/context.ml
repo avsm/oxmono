@@ -3,7 +3,7 @@
 (* Context modes *)
 type mode = LSB6 | MSB6 | UTF8 | SIGNED
 
-let mode_of_int = function
+let[@inline always] mode_of_int = function
   | 0 -> LSB6
   | 1 -> MSB6
   | 2 -> UTF8
@@ -177,7 +177,7 @@ let lookup_offset2 : int8# array =
 (* Get context ID from previous two bytes
    Optimization: Uses Bytes lookup (1 byte per entry) and int8# offset arrays.
    The lor combines two 6-bit values into the final context ID. *)
-let[@inline] get_context mode ~prev_byte1 ~prev_byte2 =
+let[@inline always] get_context mode ~prev_byte1 ~prev_byte2 =
   let mode_idx = int_of_mode mode in
   (* Get offsets from int8# arrays - values are offset/256, multiply by 256 = lsl 8 *)
   let off1 = Oxcaml_arrays.int8_to_int (Oxcaml_arrays.unsafe_get lookup_offset1 mode_idx) lsl 8 in
@@ -187,5 +187,5 @@ let[@inline] get_context mode ~prev_byte1 ~prev_byte2 =
   v1 lor v2
 
 (* Distance context based on copy length *)
-let[@inline] distance_context copy_length =
+let[@inline always] distance_context copy_length =
   if copy_length > 4 then 3 else copy_length - 2

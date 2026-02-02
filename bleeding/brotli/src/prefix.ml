@@ -60,19 +60,19 @@ let copy_length_prefix = [|
 |]
 
 (* Decode a block length from prefix code *)
-let[@inline] decode_block_length br code =
+let[@inline always] decode_block_length br code =
   let p = block_length_prefix.(code) in
   if p.nbits = 0 then p.offset
   else p.offset + Bit_reader.read_bits br p.nbits
 
 (* Decode insert length from prefix code *)
-let[@inline] decode_insert_length br code =
+let[@inline always] decode_insert_length br code =
   let p = insert_length_prefix.(code) in
   if p.nbits = 0 then p.offset
   else p.offset + Bit_reader.read_bits br p.nbits
 
 (* Decode copy length from prefix code *)
-let[@inline] decode_copy_length br code =
+let[@inline always] decode_copy_length br code =
   let p = copy_length_prefix.(code) in
   if p.nbits = 0 then p.offset
   else p.offset + Bit_reader.read_bits br p.nbits

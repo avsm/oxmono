@@ -50,17 +50,17 @@ module Simd_copy = struct
     let src_pos = dst_pos - 2 in
     let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
     let pattern = I8x16.shuffle ~pattern:shuffle_mask_2 src_vec in
-    let remaining = ref copy_length in
-    let pos = ref dst_pos in
-    while !remaining >= 16 do
-      I8x16.Bytes.unsafe_set dst ~byte:!pos pattern;
-      pos := !pos + 16;
-      remaining := !remaining - 16
+    let mutable remaining = copy_length in
+    let mutable pos = dst_pos in
+    while remaining >= 16 do
+      I8x16.Bytes.unsafe_set dst ~byte:pos pattern;
+      pos <- pos + 16;
+      remaining <- remaining - 16
     done;
     (* Handle remaining bytes *)
-    if !remaining > 0 then begin
-      for i = 0 to !remaining - 1 do
-        Bytes.unsafe_set dst (!pos + i) (Bytes.unsafe_get dst (src_pos + (i land 1)))
+    if remaining > 0 then begin
+      for i = 0 to remaining - 1 do
+        Bytes.unsafe_set dst (pos + i) (Bytes.unsafe_get dst (src_pos + (i land 1)))
       done
     end
 
@@ -69,16 +69,16 @@ module Simd_copy = struct
     let src_pos = dst_pos - 4 in
     let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
     let pattern = I8x16.shuffle ~pattern:shuffle_mask_4 src_vec in
-    let remaining = ref copy_length in
-    let pos = ref dst_pos in
-    while !remaining >= 16 do
-      I8x16.Bytes.unsafe_set dst ~byte:!pos pattern;
-      pos := !pos + 16;
-      remaining := !remaining - 16
+    let mutable remaining = copy_length in
+    let mutable pos = dst_pos in
+    while remaining >= 16 do
+      I8x16.Bytes.unsafe_set dst ~byte:pos pattern;
+      pos <- pos + 16;
+      remaining <- remaining - 16
     done;
-    if !remaining > 0 then begin
-      for i = 0 to !remaining - 1 do
-        Bytes.unsafe_set dst (!pos + i) (Bytes.unsafe_get dst (src_pos + (i land 3)))
+    if remaining > 0 then begin
+      for i = 0 to remaining - 1 do
+        Bytes.unsafe_set dst (pos + i) (Bytes.unsafe_get dst (src_pos + (i land 3)))
       done
     end
 
@@ -87,16 +87,16 @@ module Simd_copy = struct
     let src_pos = dst_pos - 8 in
     let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
     let pattern = I8x16.shuffle ~pattern:shuffle_mask_8 src_vec in
-    let remaining = ref copy_length in
-    let pos = ref dst_pos in
-    while !remaining >= 16 do
-      I8x16.Bytes.unsafe_set dst ~byte:!pos pattern;
-      pos := !pos + 16;
-      remaining := !remaining - 16
+    let mutable remaining = copy_length in
+    let mutable pos = dst_pos in
+    while remaining >= 16 do
+      I8x16.Bytes.unsafe_set dst ~byte:pos pattern;
+      pos <- pos + 16;
+      remaining <- remaining - 16
     done;
-    if !remaining > 0 then begin
-      for i = 0 to !remaining - 1 do
-        Bytes.unsafe_set dst (!pos + i) (Bytes.unsafe_get dst (src_pos + (i land 7)))
+    if remaining > 0 then begin
+      for i = 0 to remaining - 1 do
+        Bytes.unsafe_set dst (pos + i) (Bytes.unsafe_get dst (src_pos + (i land 7)))
       done
     end
 
@@ -104,16 +104,16 @@ module Simd_copy = struct
   let[@inline always] copy_distance_16 dst dst_pos copy_length =
     let src_pos = dst_pos - 16 in
     let pattern = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
-    let remaining = ref copy_length in
-    let pos = ref dst_pos in
-    while !remaining >= 16 do
-      I8x16.Bytes.unsafe_set dst ~byte:!pos pattern;
-      pos := !pos + 16;
-      remaining := !remaining - 16
+    let mutable remaining = copy_length in
+    let mutable pos = dst_pos in
+    while remaining >= 16 do
+      I8x16.Bytes.unsafe_set dst ~byte:pos pattern;
+      pos <- pos + 16;
+      remaining <- remaining - 16
     done;
-    if !remaining > 0 then begin
-      for i = 0 to !remaining - 1 do
-        Bytes.unsafe_set dst (!pos + i) (Bytes.unsafe_get dst (src_pos + i))
+    if remaining > 0 then begin
+      for i = 0 to remaining - 1 do
+        Bytes.unsafe_set dst (pos + i) (Bytes.unsafe_get dst (src_pos + i))
       done
     end
 
@@ -469,23 +469,22 @@ let decode_block_type max_block_type table block_type_rb block_type_rb_idx br =
 (* Main decompression function *)
 let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
   let br = Bit_reader.create ~src ~pos:src_pos ~len:src_len in
-  let pos = ref dst_pos in
-  let max_backward_distance = ref 0 in
+  let mutable pos = dst_pos in
 
   (* Distance ring buffer *)
   let dist_rb = [| 16; 15; 11; 4 |] in
-  let dist_rb_idx = ref 0 in
+  let mutable dist_rb_idx = 0 in
 
   (* Decode window bits *)
   let window_bits = decode_window_bits br in
-  max_backward_distance := (1 lsl window_bits) - Constants.window_gap;
+  let max_backward_distance = (1 lsl window_bits) - Constants.window_gap in
 
-  let input_end = ref false in
+  let mutable input_end = false in
 
-  while not !input_end do
+  while not input_end do
     (* Decode meta-block header *)
     let header = decode_meta_block_length br in
-    input_end := header.input_end;
+    input_end <- header.input_end;
 
     if header.is_metadata then begin
       (* Skip metadata block *)
@@ -497,12 +496,12 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
     else if header.meta_block_length > 0 then begin
       if header.is_uncompressed then begin
         (* Uncompressed block *)
-        Bit_reader.copy_bytes br ~dst ~dst_pos:!pos ~len:header.meta_block_length;
-        pos := !pos + header.meta_block_length
+        Bit_reader.copy_bytes br ~dst ~dst_pos:pos ~len:header.meta_block_length;
+        pos <- pos + header.meta_block_length
       end
       else begin
         (* Compressed block *)
-        let meta_block_remaining = ref header.meta_block_length in
+        let mutable meta_block_remaining = header.meta_block_length in
 
         (* Decode block type counts and trees *)
         let num_block_types = Array.make 3 1 in
@@ -552,12 +551,12 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
           read_huffman_code num_distance_codes br) in
 
         (* Main decode loop *)
-        let context_map_slice = ref 0 in
-        let dist_context_map_slice = ref 0 in
-        let context_mode = ref context_modes.(block_type.(0)) in
+        let mutable context_map_slice = 0 in
+        let mutable dist_context_map_slice = 0 in
+        let mutable context_mode = context_modes.(block_type.(0)) in
         let huff_tree_command = ref command_trees.(0) in
 
-        while !meta_block_remaining > 0 do
+        while meta_block_remaining > 0 do
           (* Check/update command block *)
           if block_length.(1) = 0 then begin
             block_type.(1) <- decode_block_type num_block_types.(1)
@@ -570,7 +569,7 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
           (* Read command code *)
           let cmd_code = Huffman.read_symbol_10 !huff_tree_command br in
           let range_idx = cmd_code lsr 6 in
-          let distance_code = ref (if range_idx >= 2 then -1 else 0) in
+          let mutable distance_code = if range_idx >= 2 then -1 else 0 in
           let range_idx = if range_idx >= 2 then range_idx - 2 else range_idx in
 
           (* Decode insert and copy lengths *)
@@ -580,78 +579,76 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
           let copy_length = Prefix.decode_copy_length br copy_code in
 
           (* Get context bytes *)
-          let prev_byte1 = if !pos > dst_pos then Char.code (Bytes.get dst (!pos - 1)) else 0 in
-          let prev_byte2 = if !pos > dst_pos + 1 then Char.code (Bytes.get dst (!pos - 2)) else 0 in
-          let prev_byte1 = ref prev_byte1 in
-          let prev_byte2 = ref prev_byte2 in
+          let mutable prev_byte1 = if pos > dst_pos then Char.code (Bytes.get dst (pos - 1)) else 0 in
+          let mutable prev_byte2 = if pos > dst_pos + 1 then Char.code (Bytes.get dst (pos - 2)) else 0 in
 
           (* Insert literals - with speculative batching optimization *)
           (* When block_length.(0) > 0, we can decode that many literals without
              checking for block boundary on each iteration *)
-          let insert_remaining = ref insert_length in
-          while !insert_remaining > 0 do
+          let mutable insert_remaining = insert_length in
+          while insert_remaining > 0 do
             (* Check if we need to switch literal block type *)
             if block_length.(0) = 0 then begin
               block_type.(0) <- decode_block_type num_block_types.(0)
                 block_type_trees.(0) block_type_rb.(0) block_type_rb_idx.(0) br;
               block_length.(0) <- read_block_length block_len_trees.(0) br;
-              context_map_slice := block_type.(0) lsl Constants.literal_context_bits;
-              context_mode := context_modes.(block_type.(0))
+              context_map_slice <- block_type.(0) lsl Constants.literal_context_bits;
+              context_mode <- context_modes.(block_type.(0))
             end;
             (* Batch decode: process min(remaining, block_length) literals without block checks *)
-            let batch_size = min !insert_remaining block_length.(0) in
+            let batch_size = min insert_remaining block_length.(0) in
             (* Check output buffer has room for entire batch *)
-            if !pos + batch_size > Bytes.length dst then
+            if pos + batch_size > Bytes.length dst then
               raise (Brotli_error Output_overrun);
             (* Fast inner loop: no block boundary checks needed *)
             for _ = 0 to batch_size - 1 do
-              let context = Context.get_context (Context.mode_of_int (!context_mode lsr 1))
-                ~prev_byte1:!prev_byte1 ~prev_byte2:!prev_byte2 in
-              let tree_idx = literal_context_map.(!context_map_slice + context) in
-              prev_byte2 := !prev_byte1;
+              let context = Context.get_context (Context.mode_of_int (context_mode lsr 1))
+                ~prev_byte1 ~prev_byte2 in
+              let tree_idx = literal_context_map.(context_map_slice + context) in
+              prev_byte2 <- prev_byte1;
               let literal = Huffman.read_symbol_8 literal_trees.(tree_idx) br in
-              prev_byte1 := literal;
-              Bytes.set dst !pos (Char.chr literal);
-              incr pos
+              prev_byte1 <- literal;
+              Bytes.set dst pos (Char.chr literal);
+              pos <- pos + 1
             done;
             block_length.(0) <- block_length.(0) - batch_size;
-            insert_remaining := !insert_remaining - batch_size
+            insert_remaining <- insert_remaining - batch_size
           done;
 
-          meta_block_remaining := !meta_block_remaining - insert_length;
-          if !meta_block_remaining <= 0 then
+          meta_block_remaining <- meta_block_remaining - insert_length;
+          if meta_block_remaining <= 0 then
             ()  (* Break from loop *)
           else begin
             (* Decode distance if needed *)
-            if !distance_code < 0 then begin
+            if distance_code < 0 then begin
               if block_length.(2) = 0 then begin
                 block_type.(2) <- decode_block_type num_block_types.(2)
                   block_type_trees.(2) block_type_rb.(2) block_type_rb_idx.(2) br;
                 block_length.(2) <- read_block_length block_len_trees.(2) br;
-                dist_context_map_slice := block_type.(2) lsl Constants.distance_context_bits
+                dist_context_map_slice <- block_type.(2) lsl Constants.distance_context_bits
               end;
               block_length.(2) <- block_length.(2) - 1;
               let context = Context.distance_context copy_length in
-              let tree_idx = dist_context_map.(!dist_context_map_slice + context) in
-              distance_code := Huffman.read_symbol_8 distance_trees.(tree_idx) br;
+              let tree_idx = dist_context_map.(dist_context_map_slice + context) in
+              distance_code <- Huffman.read_symbol_8 distance_trees.(tree_idx) br;
 
-              if !distance_code >= num_direct_distance_codes then begin
-                distance_code := !distance_code - num_direct_distance_codes;
-                let postfix = !distance_code land distance_postfix_mask in
-                distance_code := !distance_code lsr distance_postfix_bits;
-                let nbits = (!distance_code lsr 1) + 1 in
-                let offset = ((2 + (!distance_code land 1)) lsl nbits) - 4 in
-                distance_code := num_direct_distance_codes +
+              if distance_code >= num_direct_distance_codes then begin
+                distance_code <- distance_code - num_direct_distance_codes;
+                let postfix = distance_code land distance_postfix_mask in
+                distance_code <- distance_code lsr distance_postfix_bits;
+                let nbits = (distance_code lsr 1) + 1 in
+                let offset = ((2 + (distance_code land 1)) lsl nbits) - 4 in
+                distance_code <- num_direct_distance_codes +
                   ((offset + Bit_reader.read_bits br nbits) lsl distance_postfix_bits) + postfix
               end
             end;
 
             (* Convert distance code to actual distance *)
-            let distance = translate_short_codes !distance_code dist_rb !dist_rb_idx in
+            let distance = translate_short_codes distance_code dist_rb dist_rb_idx in
             if distance < 0 then
               raise (Brotli_error Invalid_distance);
 
-            let max_distance = min !max_backward_distance (!pos - dst_pos) in
+            let max_distance = min max_backward_distance (pos - dst_pos) in
 
             if distance > max_distance then begin
               (* Dictionary reference *)
@@ -663,13 +660,13 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
                 let word_idx = word_id land mask in
                 let transform_idx = word_id lsr shift in
                 if transform_idx < Transform.num_transforms then begin
-                  if !pos + copy_length > Bytes.length dst then
+                  if pos + copy_length > Bytes.length dst then
                     raise (Brotli_error Output_overrun);
                   let length = Transform.transform_dictionary_word
-                    ~dst ~dst_pos:!pos ~word_index:word_idx
+                    ~dst ~dst_pos:pos ~word_index:word_idx
                     ~word_length:copy_length ~transform_id:transform_idx in
-                  pos := !pos + length;
-                  meta_block_remaining := !meta_block_remaining - length
+                  pos <- pos + length;
+                  meta_block_remaining <- meta_block_remaining - length
                 end
                 else
                   raise (Brotli_error Invalid_backward_reference)
@@ -679,33 +676,33 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
             end
             else begin
               (* Regular backward reference *)
-              if !distance_code > 0 then begin
-                dist_rb.(!dist_rb_idx land 3) <- distance;
-                incr dist_rb_idx
+              if distance_code > 0 then begin
+                dist_rb.(dist_rb_idx land 3) <- distance;
+                dist_rb_idx <- dist_rb_idx + 1
               end;
 
-              if copy_length > !meta_block_remaining then
+              if copy_length > meta_block_remaining then
                 raise (Brotli_error Invalid_backward_reference);
 
-              if !pos + copy_length > Bytes.length dst then
+              if pos + copy_length > Bytes.length dst then
                 raise (Brotli_error Output_overrun);
 
               (* Optimized copy: use blit when distance >= copy_length *)
               if distance >= copy_length then begin
-                Bytes.blit dst (!pos - distance) dst !pos copy_length;
-                pos := !pos + copy_length;
-                meta_block_remaining := !meta_block_remaining - copy_length
+                Bytes.blit dst (pos - distance) dst pos copy_length;
+                pos <- pos + copy_length;
+                meta_block_remaining <- meta_block_remaining - copy_length
               end else begin
                 (* Overlapping copy - use SIMD for small distances (1-16) *)
-                if Simd_copy.copy_overlapping dst !pos distance copy_length then begin
-                  pos := !pos + copy_length;
-                  meta_block_remaining := !meta_block_remaining - copy_length
+                if Simd_copy.copy_overlapping dst pos distance copy_length then begin
+                  pos <- pos + copy_length;
+                  meta_block_remaining <- meta_block_remaining - copy_length
                 end else begin
                   (* Fallback: byte-by-byte for distances > 16 *)
                   for _ = 0 to copy_length - 1 do
-                    Bytes.set dst !pos (Bytes.get dst (!pos - distance));
-                    incr pos;
-                    decr meta_block_remaining
+                    Bytes.set dst pos (Bytes.get dst (pos - distance));
+                    pos <- pos + 1;
+                    meta_block_remaining <- meta_block_remaining - 1
                   done
                 end
               end
@@ -716,4 +713,4 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
     end
   done;
 
-  !pos - dst_pos
+  pos - dst_pos

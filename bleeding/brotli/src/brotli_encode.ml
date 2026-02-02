@@ -17,7 +17,7 @@ let insert_length_offset = [|
 |]
 
 (* Get insert length code *)
-let get_insert_code length =
+let[@inline always] get_insert_code length =
   let rec find i =
     if i >= 23 then 23
     else if length < insert_length_offset.(i + 1) then i
@@ -26,7 +26,7 @@ let get_insert_code length =
   find 0
 
 (* Get copy length code *)
-let get_copy_code length =
+let[@inline always] get_copy_code length =
   let copy_length_offset = [|
     2; 3; 4; 5; 6; 7; 8; 9; 10; 12; 14; 18; 22; 30; 38; 54; 70; 102; 134; 198; 326; 582; 1094; 2118
   |] in
@@ -53,13 +53,13 @@ let copy_range_lut = [| 0; 8; 0; 8; 16; 0; 16; 8; 16 |]
    IMPORTANT: Only dist_code=Some 0 can use implicit distance (range_idx 0-1).
    For all other short codes (1-15), we must use explicit distance (range_idx >= 2).
 *)
-let get_command_code insert_code copy_code use_implicit_distance =
-  let found = ref None in
+exception Found_cmd of int
 
-  (* Only use range_idx 0-1 for implicit distance code 0 *)
-  if use_implicit_distance then begin
-    for r = 0 to 1 do
-      if !found = None then begin
+let get_command_code insert_code copy_code use_implicit_distance =
+  try
+    (* Only use range_idx 0-1 for implicit distance code 0 *)
+    if use_implicit_distance then begin
+      for r = 0 to 1 do
         let insert_base = insert_range_lut.(r) in
         let copy_base = copy_range_lut.(r) in
         let insert_delta = insert_code - insert_base in
@@ -67,37 +67,30 @@ let get_command_code insert_code copy_code use_implicit_distance =
         if insert_delta >= 0 && insert_delta < 8 &&
            copy_delta >= 0 && copy_delta < 8 then begin
           let cmd_code = (r lsl 6) lor (insert_delta lsl 3) lor copy_delta in
-          found := Some cmd_code
+          raise (Found_cmd cmd_code)
         end
-      end
-    done
-  end;
+      done
+    end;
 
-  (* Use range_idx 2-8 for explicit distance (including short codes 0-15) *)
-  if !found = None then begin
+    (* Use range_idx 2-8 for explicit distance (including short codes 0-15) *)
     for r = 2 to 8 do
-      if !found = None then begin
-        let adjusted_r = r - 2 in
-        let insert_base = insert_range_lut.(adjusted_r) in
-        let copy_base = copy_range_lut.(adjusted_r) in
-        let insert_delta = insert_code - insert_base in
-        let copy_delta = copy_code - copy_base in
-        if insert_delta >= 0 && insert_delta < 8 &&
-           copy_delta >= 0 && copy_delta < 8 then begin
-          let cmd_code = (r lsl 6) lor (insert_delta lsl 3) lor copy_delta in
-          found := Some cmd_code
-        end
+      let adjusted_r = r - 2 in
+      let insert_base = insert_range_lut.(adjusted_r) in
+      let copy_base = copy_range_lut.(adjusted_r) in
+      let insert_delta = insert_code - insert_base in
+      let copy_delta = copy_code - copy_base in
+      if insert_delta >= 0 && insert_delta < 8 &&
+         copy_delta >= 0 && copy_delta < 8 then begin
+        let cmd_code = (r lsl 6) lor (insert_delta lsl 3) lor copy_delta in
+        raise (Found_cmd cmd_code)
       end
-    done
-  end;
+    done;
 
-  match !found with
-  | Some cmd_code -> cmd_code
-  | None ->
     (* Fallback - shouldn't happen if LZ77 limits copy_len properly *)
     let insert_delta = min insert_code 7 in
     let copy_delta = min copy_code 7 in
     (2 lsl 6) lor (insert_delta lsl 3) lor copy_delta
+  with Found_cmd cmd_code -> cmd_code
 
 (* Encode window bits *)
 let encode_window_bits bw =
@@ -129,7 +122,7 @@ let write_uncompressed_block bw src src_pos length =
   Bit_writer.copy_bytes bw ~src ~src_pos ~len:length
 
 (* Count bits needed to represent values 0 to n-1 (ceiling of log2(n)) *)
-let count_bits n =
+let[@inline always] count_bits n =
   if n <= 1 then 0
   else
     let rec count v b = if v = 0 then b else count (v lsr 1) (b + 1) in
@@ -225,7 +218,7 @@ let build_codes lengths =
   end
 
 (* Reverse bits for canonical Huffman *)
-let reverse_bits v n =
+let[@inline always] reverse_bits v n =
   let r = ref 0 in
   let v = ref v in
   for _ = 0 to n - 1 do
@@ -235,7 +228,7 @@ let reverse_bits v n =
   !r
 
 (* Write a Huffman symbol *)
-let write_symbol bw codes lengths sym =
+let[@inline always] write_symbol bw codes lengths sym =
   let len = lengths.(sym) in
   if len > 0 then
     Bit_writer.write_bits bw len (reverse_bits codes.(sym) len)
@@ -466,7 +459,7 @@ let copy_length_offset = [|
 |]
 
 (* Encode distance for NPOSTFIX=0, NDIRECT=0 *)
-let encode_distance distance =
+let[@inline always] encode_distance distance =
   if distance < 1 then
     (16, 1, 0)
   else begin
@@ -490,7 +483,8 @@ let encode_distance distance =
 let current_quality = ref 1
 
 (* Prepared command type for single-pass encoding.
-   Stores all precomputed values to avoid recomputing during encoding pass. *)
+   Stores all precomputed values to avoid recomputing during encoding pass.
+   OPTIMIZED: Uses indices into source and shared tree_ids buffer instead of per-command arrays. *)
 type prepared_cmd_context = {
   cmd_code: int;
   insert_code: int;
@@ -498,21 +492,40 @@ type prepared_cmd_context = {
   range_idx: int;
   insert_extra: int;
   copy_extra: int;
-  (* Literals stored with their tree assignments *)
-  literals: (int * int) array;  (* (byte_value, tree_id) pairs *)
+  (* Literals reference ranges in source and tree_ids buffer *)
+  lit_src_start: int;  (* Start index in source buffer *)
+  lit_len: int;        (* Number of literals *)
+  tree_ids_start: int; (* Start index in shared tree_ids buffer *)
   (* Distance info for InsertCopy *)
   dist_info: (int * int * int * int) option;  (* (dist_tree, dist_code, nbits, extra) *)
 }
 
+(* Prepared command type for simple encoding without context (quality < 5).
+   Uses indices into source buffer instead of per-command arrays. *)
+type prepared_cmd_simple = {
+  s_cmd_code: int;
+  s_insert_code: int;
+  s_copy_code: int;
+  s_insert_extra: int;
+  s_copy_extra: int;
+  s_lit_start: int;   (* Start index in source buffer *)
+  s_lit_len: int;     (* Number of literals *)
+  s_dist_info: (int * int * int) option;  (* (dist_code_val, nbits, extra) *)
+}
+
 (* Write a compressed block with context modeling for quality >= 5 *)
-(* OPTIMIZED: Single-pass frequency counting - literals are read once during preparation *)
-let write_compressed_block_with_context bw src _src_pos _src_len is_last context_mode context_map num_lit_trees num_dist_trees dist_context_map commands =
+(* OPTIMIZED: Single-pass frequency counting with shared tree_ids buffer - no per-command array allocations *)
+let write_compressed_block_with_context bw src _src_pos src_len is_last context_mode context_map num_lit_trees num_dist_trees dist_context_map commands =
   let num_distance_codes = 16 + 48 in
 
   (* Initialize frequency arrays *)
   let lit_freqs = Array.init num_lit_trees (fun _ -> Array.make 256 0) in
   let cmd_freq = Array.make 704 0 in
   let dist_freqs = Array.init num_dist_trees (fun _ -> Array.make num_distance_codes 0) in
+
+  (* Shared buffer for tree IDs - allocated once, sized to fit all literals *)
+  let tree_ids = Array.make src_len 0 in
+  let tree_ids_pos = ref 0 in
 
   (* Track previous bytes for context calculation *)
   let prev1 = ref 0 in
@@ -526,22 +539,24 @@ let write_compressed_block_with_context bw src _src_pos _src_len is_last context
       (min dist_code_val (num_distance_codes - 1), nbits, extra)
   in
 
-  (* SINGLE PASS: Prepare commands, count frequencies, and extract literals *)
+  (* SINGLE PASS: Prepare commands, count frequencies, store tree IDs in shared buffer *)
   let total_len = ref 0 in
   let prepared_commands = List.map (fun cmd ->
     match cmd with
     | Lz77.Literals { start; len } ->
       total_len := !total_len + len;
-      (* Extract literals with their tree assignments *)
-      let literals = Array.init len (fun idx ->
+      let tree_start = !tree_ids_pos in
+      (* Count frequencies and store tree IDs - read literals from source *)
+      for idx = 0 to len - 1 do
         let c = Char.code (Bytes.get src (start + idx)) in
         let ctx_id = Context.get_context context_mode ~prev_byte1:!prev1 ~prev_byte2:!prev2 in
         let tree_id = context_map.(ctx_id) in
         lit_freqs.(tree_id).(c) <- lit_freqs.(tree_id).(c) + 1;
+        tree_ids.(!tree_ids_pos) <- tree_id;
+        incr tree_ids_pos;
         prev2 := !prev1;
-        prev1 := c;
-        (c, tree_id)
-      ) in
+        prev1 := c
+      done;
       let insert_code = get_insert_code len in
       let copy_code = 0 in
       let cmd_code = get_command_code insert_code copy_code false in
@@ -555,21 +570,23 @@ let write_compressed_block_with_context bw src _src_pos _src_len is_last context
       {
         cmd_code; insert_code; copy_code; range_idx;
         insert_extra; copy_extra = 0;
-        literals;
+        lit_src_start = start; lit_len = len; tree_ids_start = tree_start;
         dist_info = None;  (* Literals command uses implicit dist 0 *)
       }
     | Lz77.InsertCopy { lit_start; lit_len; copy_len; distance; dist_code } ->
       total_len := !total_len + lit_len + copy_len;
-      (* Extract literals with their tree assignments *)
-      let literals = Array.init lit_len (fun idx ->
+      let tree_start = !tree_ids_pos in
+      (* Count frequencies and store tree IDs - read literals from source *)
+      for idx = 0 to lit_len - 1 do
         let c = Char.code (Bytes.get src (lit_start + idx)) in
         let ctx_id = Context.get_context context_mode ~prev_byte1:!prev1 ~prev_byte2:!prev2 in
         let tree_id = context_map.(ctx_id) in
         lit_freqs.(tree_id).(c) <- lit_freqs.(tree_id).(c) + 1;
+        tree_ids.(!tree_ids_pos) <- tree_id;
+        incr tree_ids_pos;
         prev2 := !prev1;
-        prev1 := c;
-        (c, tree_id)
-      ) in
+        prev1 := c
+      done;
       let insert_code = get_insert_code lit_len in
       let copy_code = get_copy_code copy_len in
       let use_implicit = dist_code = 0 in
@@ -591,7 +608,7 @@ let write_compressed_block_with_context bw src _src_pos _src_len is_last context
       {
         cmd_code; insert_code; copy_code; range_idx;
         insert_extra; copy_extra;
-        literals;
+        lit_src_start = lit_start; lit_len; tree_ids_start = tree_start;
         dist_info;
       }
   ) commands in
@@ -644,7 +661,7 @@ let write_compressed_block_with_context bw src _src_pos _src_len is_last context
     write_huffman_code bw dist_lengths_arr.(i) num_distance_codes
   done;
 
-  (* ENCODING PASS: Use prepared commands - no source data re-read needed *)
+  (* ENCODING PASS: Read literals from source using stored indices *)
   let num_cmd_symbols = count_used_symbols cmd_freq in
 
   List.iter (fun pcmd ->
@@ -657,12 +674,14 @@ let write_compressed_block_with_context bw src _src_pos _src_len is_last context
     (* Write copy extra bits if this is an InsertCopy *)
     if pcmd.copy_code > 0 && copy_length_n_bits.(pcmd.copy_code) > 0 then
       Bit_writer.write_bits bw copy_length_n_bits.(pcmd.copy_code) pcmd.copy_extra;
-    (* Write literals using stored byte values and tree assignments *)
-    Array.iter (fun (c, tree_id) ->
+    (* Write literals by reading from source and looking up tree_id from shared buffer *)
+    for i = 0 to pcmd.lit_len - 1 do
+      let c = Char.code (Bytes.get src (pcmd.lit_src_start + i)) in
+      let tree_id = tree_ids.(pcmd.tree_ids_start + i) in
       let num_symbols = count_used_symbols lit_freqs.(tree_id) in
       if num_symbols > 1 then
         write_symbol bw lit_codes_arr.(tree_id) lit_lengths_arr.(tree_id) c
-    ) pcmd.literals;
+    done;
     (* Write distance info if present *)
     match pcmd.dist_info with
     | Some (dist_tree, dist_code_val, nbits, extra) ->
@@ -712,7 +731,7 @@ let write_compressed_block bw src src_pos src_len is_last =
       context_mode context_map num_lit_trees num_dist_trees dist_context_map commands
   end else begin
     (* Simple encoding for quality < 5 *)
-    (* OPTIMIZED: Single-pass frequency counting - literals are read once during preparation *)
+    (* OPTIMIZED: Uses indices into source buffer instead of per-command arrays *)
 
     (* Initialize frequency arrays *)
     let lit_freq = Array.make 256 0 in
@@ -720,22 +739,17 @@ let write_compressed_block bw src src_pos src_len is_last =
     let num_distance_codes = 16 + 48 in
     let dist_freq = Array.make num_distance_codes 0 in
 
-    (* Prepared command type for single-pass encoding (simpler version without context) *)
-    (* Stores: cmd_code, insert_code, copy_code, range_idx, insert_extra, copy_extra,
-       literals (byte values), dist_info (code_val, nbits, extra) option *)
-
-    (* SINGLE PASS: Prepare commands, count frequencies, and extract literals *)
+    (* SINGLE PASS: Prepare commands with indices, count frequencies by reading source once *)
     let total_len = ref 0 in
     let prepared_commands = List.map (fun cmd ->
       match cmd with
       | Lz77.Literals { start; len } ->
         total_len := !total_len + len;
-        (* Extract literal bytes and count frequencies *)
-        let literals = Array.init len (fun idx ->
+        (* Count literal frequencies by reading from source *)
+        for idx = 0 to len - 1 do
           let c = Char.code (Bytes.get src (start + idx)) in
-          lit_freq.(c) <- lit_freq.(c) + 1;
-          c
-        ) in
+          lit_freq.(c) <- lit_freq.(c) + 1
+        done;
         let insert_code = get_insert_code len in
         let copy_code = 0 in
         let cmd_code = get_command_code insert_code copy_code false in
@@ -743,15 +757,16 @@ let write_compressed_block bw src src_pos src_len is_last =
         dist_freq.(0) <- dist_freq.(0) + 1;
         let insert_extra = if insert_length_n_bits.(insert_code) > 0
           then len - insert_length_offset.(insert_code) else 0 in
-        (cmd_code, insert_code, copy_code, insert_extra, 0, literals, None)
+        { s_cmd_code = cmd_code; s_insert_code = insert_code; s_copy_code = copy_code;
+          s_insert_extra = insert_extra; s_copy_extra = 0;
+          s_lit_start = start; s_lit_len = len; s_dist_info = None }
       | Lz77.InsertCopy { lit_start; lit_len; copy_len; distance; dist_code } ->
         total_len := !total_len + lit_len + copy_len;
-        (* Extract literal bytes and count frequencies *)
-        let literals = Array.init lit_len (fun idx ->
+        (* Count literal frequencies by reading from source *)
+        for idx = 0 to lit_len - 1 do
           let c = Char.code (Bytes.get src (lit_start + idx)) in
-          lit_freq.(c) <- lit_freq.(c) + 1;
-          c
-        ) in
+          lit_freq.(c) <- lit_freq.(c) + 1
+        done;
         let insert_code = get_insert_code lit_len in
         let copy_code = get_copy_code copy_len in
         let use_implicit = dist_code = 0 in
@@ -775,7 +790,9 @@ let write_compressed_block bw src src_pos src_len is_last =
           then lit_len - insert_length_offset.(insert_code) else 0 in
         let copy_extra = if copy_length_n_bits.(copy_code) > 0
           then copy_len - copy_length_offset.(copy_code) else 0 in
-        (cmd_code, insert_code, copy_code, insert_extra, copy_extra, literals, dist_info)
+        { s_cmd_code = cmd_code; s_insert_code = insert_code; s_copy_code = copy_code;
+          s_insert_extra = insert_extra; s_copy_extra = copy_extra;
+          s_lit_start = lit_start; s_lit_len = lit_len; s_dist_info = dist_info }
     ) commands in
 
     (* Build Huffman codes *)
@@ -812,26 +829,29 @@ let write_compressed_block bw src src_pos src_len is_last =
     write_huffman_code bw cmd_lengths 704;
     write_huffman_code bw dist_lengths num_distance_codes;
 
-    (* ENCODING PASS: Use prepared commands - no source data re-read needed *)
+    (* ENCODING PASS: Read literals from source using stored indices *)
     let num_lit_symbols = count_used_symbols lit_freq in
     let num_cmd_symbols = count_used_symbols cmd_freq in
     let num_dist_symbols = count_used_symbols dist_freq in
 
-    List.iter (fun (cmd_code, insert_code, copy_code, insert_extra, copy_extra, literals, dist_info) ->
+    List.iter (fun pcmd ->
       (* Write command code *)
       if num_cmd_symbols > 1 then
-        write_symbol bw cmd_codes cmd_lengths cmd_code;
+        write_symbol bw cmd_codes cmd_lengths pcmd.s_cmd_code;
       (* Write insert extra bits *)
-      if insert_length_n_bits.(insert_code) > 0 then
-        Bit_writer.write_bits bw insert_length_n_bits.(insert_code) insert_extra;
+      if insert_length_n_bits.(pcmd.s_insert_code) > 0 then
+        Bit_writer.write_bits bw insert_length_n_bits.(pcmd.s_insert_code) pcmd.s_insert_extra;
       (* Write copy extra bits if this is an InsertCopy *)
-      if copy_code > 0 && copy_length_n_bits.(copy_code) > 0 then
-        Bit_writer.write_bits bw copy_length_n_bits.(copy_code) copy_extra;
-      (* Write literals using stored byte values *)
+      if pcmd.s_copy_code > 0 && copy_length_n_bits.(pcmd.s_copy_code) > 0 then
+        Bit_writer.write_bits bw copy_length_n_bits.(pcmd.s_copy_code) pcmd.s_copy_extra;
+      (* Write literals by reading from source *)
       if num_lit_symbols > 1 then
-        Array.iter (fun c -> write_symbol bw lit_codes lit_lengths c) literals;
+        for i = 0 to pcmd.s_lit_len - 1 do
+          let c = Char.code (Bytes.get src (pcmd.s_lit_start + i)) in
+          write_symbol bw lit_codes lit_lengths c
+        done;
       (* Write distance info if present *)
-      match dist_info with
+      match pcmd.s_dist_info with
       | Some (dist_code_val, nbits, extra) ->
         if num_dist_symbols > 1 then
           write_symbol bw dist_codes dist_lengths dist_code_val;
@@ -842,7 +862,7 @@ let write_compressed_block bw src src_pos src_len is_last =
   end
 
 (* Write a compressed block with only literals *)
-(* OPTIMIZED: Single-pass frequency counting - literals are read once *)
+(* OPTIMIZED: No per-command array allocation - reads from source directly *)
 let write_literals_only_block bw src src_pos src_len is_last =
   write_meta_block_header bw src_len is_last false;
   Bit_writer.write_bits bw 1 0;
@@ -854,13 +874,12 @@ let write_literals_only_block bw src src_pos src_len is_last =
   Bit_writer.write_bits bw 1 0;
   Bit_writer.write_bits bw 1 0;
 
-  (* SINGLE PASS: Extract literals and count frequencies simultaneously *)
+  (* Count frequencies by reading from source *)
   let lit_freq = Array.make 256 0 in
-  let literals = Array.init src_len (fun i ->
+  for i = 0 to src_len - 1 do
     let c = Char.code (Bytes.get src (src_pos + i)) in
-    lit_freq.(c) <- lit_freq.(c) + 1;
-    c
-  ) in
+    lit_freq.(c) <- lit_freq.(c) + 1
+  done;
   let num_lit_symbols = count_used_symbols lit_freq in
   let lit_lengths = build_valid_code_lengths lit_freq 15 in
   let lit_codes = build_codes lit_lengths in
@@ -886,9 +905,12 @@ let write_literals_only_block bw src src_pos src_len is_last =
     Bit_writer.write_bits bw insert_length_n_bits.(insert_code) extra
   end;
 
-  (* ENCODING PASS: Use stored literals - no source data re-read needed *)
+  (* ENCODING PASS: Read literals from source *)
   if num_lit_symbols > 1 then
-    Array.iter (fun c -> write_symbol bw lit_codes lit_lengths c) literals
+    for i = 0 to src_len - 1 do
+      let c = Char.code (Bytes.get src (src_pos + i)) in
+      write_symbol bw lit_codes lit_lengths c
+    done
 
 (* Main compression function *)
 let compress_into ?(quality=1) ~src ~src_pos ~src_len ~dst ~dst_pos () =

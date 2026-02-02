@@ -4,28 +4,18 @@ open Base
 
 module I16 = Stdlib_stable.Int16_u
 module I32 = Int32_u
-module I64 = Int64_u
+module I64 = Stdlib_upstream_compatible.Int64_u
 
 exception Parse_error = Err.Parse_error
 
 type pstate = #{ buf : bytes; len : int16# }
 
-(* Method constants as unboxed int32#/int64# for zero-alloc comparison (little-endian) *)
+(* Method constants as unboxed int32# for zero-alloc comparison (little-endian) *)
 let get_int32 : int32# = I32.of_int32 0x00544547l  (* "GET" masked *)
 let put_int32 : int32# = I32.of_int32 0x00545550l  (* "PUT" masked *)
 let method_3byte_mask : int32# = I32.of_int32 0x00FFFFFFl
 let post_int32 : int32# = I32.of_int32 0x54534F50l (* "POST" *)
 let head_int32 : int32# = I32.of_int32 0x44414548l (* "HEAD" *)
-
-(* 5+ char methods use int64# comparison *)
-let method_5byte_mask : int64# = I64.of_int64 0x000000FFFFFFFFFFL
-let method_6byte_mask : int64# = I64.of_int64 0x0000FFFFFFFFFFFFL
-let method_7byte_mask : int64# = I64.of_int64 0x00FFFFFFFFFFFFFFL
-let patch_int64 : int64# = I64.of_int64 0x0000004843544150L   (* "PATCH" *)
-let trace_int64 : int64# = I64.of_int64 0x0000004543415254L   (* "TRACE" *)
-let delete_int64 : int64# = I64.of_int64 0x00004554454C4544L  (* "DELETE" *)
-let options_int64 : int64# = I64.of_int64 0x00534E4F4954504FL (* "OPTIONS" *)
-let connect_int64 : int64# = I64.of_int64 0x005443454E4E4F43L (* "CONNECT" *)
 
 (* HTTP version as unboxed int64# for zero-alloc comparison (little-endian) *)
 let http11_int64 : int64# = I64.of_int64 0x312E312F50545448L (* "HTTP/1.1" *)
@@ -107,18 +97,15 @@ let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
     else if I32.equal v head_int32 then Method.Head
     else Err.fail Err.Invalid_method
   | 5 ->
-    let v : int64# = I64.bit_and (I64.of_int64 (Bytes.unsafe_get_int64 st.#buf off)) method_5byte_mask in
-    if I64.equal v patch_int64 then Method.Patch
-    else if I64.equal v trace_int64 then Method.Trace
+    if Span.equal st.#buf sp "PATCH" then Method.Patch
+    else if Span.equal st.#buf sp "TRACE" then Method.Trace
     else Err.fail Err.Invalid_method
   | 6 ->
-    let v : int64# = I64.bit_and (I64.of_int64 (Bytes.unsafe_get_int64 st.#buf off)) method_6byte_mask in
-    if I64.equal v delete_int64 then Method.Delete
+    if Span.equal st.#buf sp "DELETE" then Method.Delete
     else Err.fail Err.Invalid_method
   | 7 ->
-    let v : int64# = I64.bit_and (I64.of_int64 (Bytes.unsafe_get_int64 st.#buf off)) method_7byte_mask in
-    if I64.equal v options_int64 then Method.Options
-    else if I64.equal v connect_int64 then Method.Connect
+    if Span.equal st.#buf sp "OPTIONS" then Method.Options
+    else if Span.equal st.#buf sp "CONNECT" then Method.Connect
     else Err.fail Err.Invalid_method
   | _ -> Err.fail Err.Invalid_method
   in

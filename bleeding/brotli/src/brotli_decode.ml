@@ -1,5 +1,148 @@
 (* Brotli decompression implementation (RFC 7932) *)
 
+(* ==========================================================================
+   SIMD-accelerated overlapping copy for backward references with small distances
+   ==========================================================================
+   For small distances (1-16 bytes), SIMD pattern fill is much faster than
+   byte-by-byte copying. We create a 16-byte repeating pattern and write
+   it using SIMD stores.
+
+   Distance 1: Fill with a single byte (Bytes.unsafe_fill)
+   Distance 2-16: Create pattern by replicating the source bytes using
+                  SIMD shuffle to extend to 16 bytes and store
+   ========================================================================== *)
+
+module Simd_copy = struct
+  module I8x16 = Ocaml_simd_sse.Int8x16
+
+  (* SIMD-accelerated overlapping copy for backward references.
+
+     The key insight is that when the pattern length (distance) divides 16,
+     we can create a single 16-byte pattern and repeat it. This works because
+     the pattern tiles exactly into 16-byte chunks.
+
+     For distances that don't divide 16, the pattern doesn't tile evenly,
+     so we'd need to rotate the pattern on each write. For simplicity,
+     we only SIMD-optimize distances 1, 2, 4, 8, and 16. *)
+
+  (* Distance 2: pattern [0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1] *)
+  let shuffle_mask_2 = I8x16.const
+    #0s #1s #0s #1s #0s #1s #0s #1s
+    #0s #1s #0s #1s #0s #1s #0s #1s
+
+  (* Distance 4: pattern [0,1,2,3,0,1,2,3,0,1,2,3,0,1,2,3] *)
+  let shuffle_mask_4 = I8x16.const
+    #0s #1s #2s #3s #0s #1s #2s #3s
+    #0s #1s #2s #3s #0s #1s #2s #3s
+
+  (* Distance 8: pattern [0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7] *)
+  let shuffle_mask_8 = I8x16.const
+    #0s #1s #2s #3s #4s #5s #6s #7s
+    #0s #1s #2s #3s #4s #5s #6s #7s
+
+  (* Copy with distance 1: fill with a single repeated byte *)
+  let[@inline always] copy_distance_1 dst dst_pos copy_length =
+    let byte_val = Bytes.unsafe_get dst (dst_pos - 1) in
+    Bytes.unsafe_fill dst dst_pos copy_length byte_val
+
+  (* Copy with distance 2: SIMD pattern fill *)
+  let[@inline always] copy_distance_2 dst dst_pos copy_length =
+    let src_pos = dst_pos - 2 in
+    let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+    let pattern = I8x16.shuffle ~pattern:shuffle_mask_2 src_vec in
+    let remaining = ref copy_length in
+    let pos = ref dst_pos in
+    while !remaining >= 16 do
+      I8x16.Bytes.unsafe_set dst ~byte:!pos pattern;
+      pos := !pos + 16;
+      remaining := !remaining - 16
+    done;
+    (* Handle remaining bytes *)
+    if !remaining > 0 then begin
+      for i = 0 to !remaining - 1 do
+        Bytes.unsafe_set dst (!pos + i) (Bytes.unsafe_get dst (src_pos + (i land 1)))
+      done
+    end
+
+  (* Copy with distance 4: SIMD pattern fill *)
+  let[@inline always] copy_distance_4 dst dst_pos copy_length =
+    let src_pos = dst_pos - 4 in
+    let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+    let pattern = I8x16.shuffle ~pattern:shuffle_mask_4 src_vec in
+    let remaining = ref copy_length in
+    let pos = ref dst_pos in
+    while !remaining >= 16 do
+      I8x16.Bytes.unsafe_set dst ~byte:!pos pattern;
+      pos := !pos + 16;
+      remaining := !remaining - 16
+    done;
+    if !remaining > 0 then begin
+      for i = 0 to !remaining - 1 do
+        Bytes.unsafe_set dst (!pos + i) (Bytes.unsafe_get dst (src_pos + (i land 3)))
+      done
+    end
+
+  (* Copy with distance 8: SIMD pattern fill *)
+  let[@inline always] copy_distance_8 dst dst_pos copy_length =
+    let src_pos = dst_pos - 8 in
+    let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+    let pattern = I8x16.shuffle ~pattern:shuffle_mask_8 src_vec in
+    let remaining = ref copy_length in
+    let pos = ref dst_pos in
+    while !remaining >= 16 do
+      I8x16.Bytes.unsafe_set dst ~byte:!pos pattern;
+      pos := !pos + 16;
+      remaining := !remaining - 16
+    done;
+    if !remaining > 0 then begin
+      for i = 0 to !remaining - 1 do
+        Bytes.unsafe_set dst (!pos + i) (Bytes.unsafe_get dst (src_pos + (i land 7)))
+      done
+    end
+
+  (* Copy with distance 16: load 16 bytes and repeat *)
+  let[@inline always] copy_distance_16 dst dst_pos copy_length =
+    let src_pos = dst_pos - 16 in
+    let pattern = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+    let remaining = ref copy_length in
+    let pos = ref dst_pos in
+    while !remaining >= 16 do
+      I8x16.Bytes.unsafe_set dst ~byte:!pos pattern;
+      pos := !pos + 16;
+      remaining := !remaining - 16
+    done;
+    if !remaining > 0 then begin
+      for i = 0 to !remaining - 1 do
+        Bytes.unsafe_set dst (!pos + i) (Bytes.unsafe_get dst (src_pos + i))
+      done
+    end
+
+  (* Main entry point: SIMD-accelerated overlapping copy for small distances.
+     Returns true if SIMD copy was used, false if caller should use fallback.
+
+     Only optimizes distances 1, 2, 4, 8, 16 where the pattern tiles exactly
+     into 16-byte chunks. Other distances fall back to byte-by-byte copy. *)
+  let[@inline always] copy_overlapping dst dst_pos distance copy_length =
+    match distance with
+    | 1 ->
+      copy_distance_1 dst dst_pos copy_length;
+      true
+    | 2 ->
+      copy_distance_2 dst dst_pos copy_length;
+      true
+    | 4 ->
+      copy_distance_4 dst dst_pos copy_length;
+      true
+    | 8 ->
+      copy_distance_8 dst dst_pos copy_length;
+      true
+    | 16 ->
+      copy_distance_16 dst dst_pos copy_length;
+      true
+    | _ ->
+      false
+end
+
 type error =
   | Invalid_stream_header
   | Invalid_meta_block_header
@@ -553,12 +696,18 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
                 pos := !pos + copy_length;
                 meta_block_remaining := !meta_block_remaining - copy_length
               end else begin
-                (* Overlapping copy - must do byte by byte *)
-                for _ = 0 to copy_length - 1 do
-                  Bytes.set dst !pos (Bytes.get dst (!pos - distance));
-                  incr pos;
-                  decr meta_block_remaining
-                done
+                (* Overlapping copy - use SIMD for small distances (1-16) *)
+                if Simd_copy.copy_overlapping dst !pos distance copy_length then begin
+                  pos := !pos + copy_length;
+                  meta_block_remaining := !meta_block_remaining - copy_length
+                end else begin
+                  (* Fallback: byte-by-byte for distances > 16 *)
+                  for _ = 0 to copy_length - 1 do
+                    Bytes.set dst !pos (Bytes.get dst (!pos - distance));
+                    incr pos;
+                    decr meta_block_remaining
+                  done
+                end
               end
             end
           end

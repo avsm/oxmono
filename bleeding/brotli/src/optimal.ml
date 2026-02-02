@@ -47,6 +47,17 @@ let[@inline always] fast_log2 v =
     let rec log2_floor v acc = if v <= 1 then acc else log2_floor (v lsr 1) (acc + 1) in
     float_of_int (log2_floor v 0)
 
+(* Pre-computed command cost array - allocated once at module init *)
+let precomputed_cost_cmd : float array =
+  Array.init 704 (fun i -> fast_log2 (11 + i))
+
+(* Pre-computed distance cost array - allocated once at module init *)
+let precomputed_cost_dist : float array =
+  Array.init 544 (fun i -> fast_log2 (20 + i))
+
+(* Pre-computed minimum command cost *)
+let precomputed_min_cost_cmd = fast_log2 11
+
 (* ============================================================
    Cost Model (ZopfliCostModel from brotli-c)
    ============================================================ *)
@@ -242,14 +253,12 @@ let init_cost_model_from_literals src src_pos num_bytes =
   (* Use sliding window for accurate per-position literal cost estimation *)
   let literal_costs = estimate_literal_costs_sliding_window src src_pos num_bytes in
 
-  (* Command costs: FastLog2(11 + cmd_code) *)
-  let cost_cmd = Array.init 704 (fun i -> fast_log2 (11 + i)) in
-  let min_cost_cmd = fast_log2 11 in
-
-  (* Distance costs: FastLog2(20 + dist_code) *)
-  let cost_dist = Array.init 544 (fun i -> fast_log2 (20 + i)) in
-
-  { cost_cmd; cost_dist; literal_costs; min_cost_cmd; num_bytes }
+  (* Use pre-computed cost arrays to avoid allocation *)
+  { cost_cmd = precomputed_cost_cmd;
+    cost_dist = precomputed_cost_dist;
+    literal_costs;
+    min_cost_cmd = precomputed_min_cost_cmd;
+    num_bytes }
 
 (* Initialize cost model from command histograms (second pass for Q11) *)
 let init_cost_model_from_histograms src src_pos num_bytes
@@ -272,25 +281,38 @@ let init_cost_model_from_histograms src src_pos num_bytes
 
   { cost_cmd; cost_dist; literal_costs; min_cost_cmd; num_bytes }
 
-let get_literal_cost model from_pos to_pos =
+let[@inline always] get_literal_cost model from_pos to_pos =
   model.literal_costs.(to_pos) -. model.literal_costs.(from_pos)
 
-let get_command_cost model cmd_code =
+let[@inline always] get_command_cost model cmd_code =
   if cmd_code < 704 then model.cost_cmd.(cmd_code) else 20.0
 
-let get_distance_cost model dist_code =
+let[@inline always] get_distance_cost model dist_code =
   if dist_code < 544 then model.cost_dist.(dist_code) else 20.0
 
 (* ============================================================
    StartPosQueue - maintains 8 best starting positions
+   Optimized: Inline distance cache fields to avoid array allocation
    ============================================================ *)
 
 type pos_data = {
   pos : int;
-  distance_cache : int array;
+  (* Inline distance cache to avoid allocation *)
+  dc0 : int;
+  dc1 : int;
+  dc2 : int;
+  dc3 : int;
   costdiff : float;
   cost : float;
 }
+
+(* Helper to get distance cache value by index *)
+let[@inline always] pos_data_get_dc posdata idx =
+  match idx with
+  | 0 -> posdata.dc0
+  | 1 -> posdata.dc1
+  | 2 -> posdata.dc2
+  | _ -> posdata.dc3
 
 type start_pos_queue = {
   mutable q : pos_data array;
@@ -298,10 +320,10 @@ type start_pos_queue = {
 }
 
 let create_start_pos_queue () =
-  let empty = { pos = 0; distance_cache = [|16;15;11;4|]; costdiff = infinity; cost = infinity } in
+  let empty = { pos = 0; dc0 = 16; dc1 = 15; dc2 = 11; dc3 = 4; costdiff = infinity; cost = infinity } in
   { q = Array.make 8 empty; idx = 0 }
 
-let start_pos_queue_size queue =
+let[@inline always] start_pos_queue_size queue =
   min queue.idx 8
 
 let start_pos_queue_push queue posdata =
@@ -321,7 +343,7 @@ let start_pos_queue_push queue posdata =
     end
   done
 
-let start_pos_queue_at queue k =
+let[@inline always] start_pos_queue_at queue k =
   queue.q.((k - queue.idx) land 7)
 
 (* ============================================================
@@ -339,15 +361,15 @@ type zopfli_node = {
 let create_zopfli_node () =
   { length = 1; distance = 0; dcode_insert_length = 0; cost = infinity; shortcut = 0 }
 
-let zopfli_node_copy_length node = node.length land 0x1FFFFFF
-let zopfli_node_copy_distance node = node.distance
-let zopfli_node_insert_length node = node.dcode_insert_length land 0x7FFFFFF
-let zopfli_node_distance_code node =
+let[@inline always] zopfli_node_copy_length node = node.length land 0x1FFFFFF
+let[@inline always] zopfli_node_copy_distance node = node.distance
+let[@inline always] zopfli_node_insert_length node = node.dcode_insert_length land 0x7FFFFFF
+let[@inline always] zopfli_node_distance_code node =
   let short_code = node.dcode_insert_length lsr 27 in
   if short_code = 0 then zopfli_node_copy_distance node + 16 - 1
   else short_code - 1
 
-let zopfli_node_command_length node =
+let[@inline always] zopfli_node_command_length node =
   zopfli_node_copy_length node + zopfli_node_insert_length node
 
 (* ============================================================
@@ -374,28 +396,40 @@ type backward_match = {
   bm_len_code : int;
 }
 
+(* Pre-allocated match buffer to avoid repeated allocation in hot path.
+   Max depth is max_tree_search_depth (64), but we typically find fewer matches. *)
+let match_buffer_size = max_tree_search_depth
+let match_buffer_dist = Array.make match_buffer_size 0
+let match_buffer_len = Array.make match_buffer_size 0
+
 (* Find all matches at a position, sorted by length.
-   Uses unboxed nativeint# arrays for hash_table and chain_table for better performance. *)
+   Uses unboxed nativeint# arrays for hash_table and chain_table for better performance.
+   Optimized: Uses pre-allocated arrays instead of list to reduce allocations. *)
 let find_all_matches src pos src_end (hash_table : nativeint# array) (chain_table : nativeint# array) chain_base max_distance =
   if pos + min_match > src_end then []
   else begin
-    let matches = ref [] in
-    let best_len = ref (min_match - 1) in
+    let mutable match_count = 0 in
+    let mutable best_len = min_match - 1 in
 
     (* Search hash chain *)
     let h = hash4 src pos in
     (* Use mutable for unboxed chain position to avoid ref boxing *)
     let mutable chain_pos_u : nativeint# = na_get hash_table h in
-    let chain_count = ref 0 in
+    let mutable chain_count = 0 in
 
-    while Nativeint_u.(chain_pos_u >= #0n) && !chain_count < max_tree_search_depth do
+    while Nativeint_u.(chain_pos_u >= #0n) && chain_count < max_tree_search_depth do
       let chain_pos = Nativeint_u.to_int_trunc chain_pos_u in
       let distance = pos - chain_pos in
       if distance > 0 && distance <= max_distance then begin
         let match_len = find_match_length src chain_pos pos src_end in
-        if match_len > !best_len then begin
-          best_len := match_len;
-          matches := { bm_distance = distance; bm_length = match_len; bm_len_code = match_len } :: !matches
+        if match_len > best_len then begin
+          best_len <- match_len;
+          (* Store in pre-allocated buffer *)
+          if match_count < match_buffer_size then begin
+            match_buffer_dist.(match_count) <- distance;
+            match_buffer_len.(match_count) <- match_len;
+            match_count <- match_count + 1
+          end
         end
       end;
       let chain_idx = chain_pos - chain_base in
@@ -403,18 +437,37 @@ let find_all_matches src pos src_end (hash_table : nativeint# array) (chain_tabl
         chain_pos_u <- na_get chain_table chain_idx
       else
         chain_pos_u <- invalid_pos;
-      incr chain_count
+      chain_count <- chain_count + 1
     done;
 
-    (* Sort by length ascending *)
-    List.sort (fun a b -> compare a.bm_length b.bm_length) !matches
+    (* Convert to list and sort by length ascending.
+       Note: matches are already mostly sorted by length (descending) due to how
+       the hash chain stores positions, so sorting should be fast. *)
+    if match_count = 0 then []
+    else begin
+      (* Build list in reverse (smallest first) since matches are stored largest-first *)
+      let matches = ref [] in
+      for i = 0 to match_count - 1 do
+        matches := { bm_distance = match_buffer_dist.(i);
+                     bm_length = match_buffer_len.(i);
+                     bm_len_code = match_buffer_len.(i) } :: !matches
+      done;
+      (* Simple insertion sort - fast for small arrays and already mostly sorted *)
+      List.sort (fun a b -> compare a.bm_length b.bm_length) !matches
+    end
   end
 
 (* ============================================================
    Insert/Copy length encoding (from brotli-c prefix.h)
    ============================================================ *)
 
-let get_insert_length_code insert_len =
+(* Pre-computed insert extra bits table *)
+let kInsertExtraBits = [| 0;0;0;0;0;0;1;1;2;2;3;3;4;4;5;5;6;7;8;9;10;12;14;24 |]
+
+(* Pre-computed copy extra bits table *)
+let kCopyExtraBits = [| 0;0;0;0;0;0;0;0;1;1;2;2;3;3;4;4;5;5;6;7;8;9;10;24 |]
+
+let[@inline always] get_insert_length_code insert_len =
   if insert_len < 6 then insert_len
   else if insert_len < 130 then
     let nbits = Lz77.log2_floor_nonzero (insert_len - 2) - 1 in
@@ -425,7 +478,7 @@ let get_insert_length_code insert_len =
   else if insert_len < 22594 then 22
   else 23
 
-let get_copy_length_code copy_len =
+let[@inline always] get_copy_length_code copy_len =
   if copy_len < 10 then copy_len - 2
   else if copy_len < 134 then
     let nbits = Lz77.log2_floor_nonzero (copy_len - 6) - 1 in
@@ -434,15 +487,13 @@ let get_copy_length_code copy_len =
     Lz77.log2_floor_nonzero (copy_len - 70) + 12
   else 23
 
-let get_insert_extra insert_code =
-  let kInsertExtraBits = [| 0;0;0;0;0;0;1;1;2;2;3;3;4;4;5;5;6;7;8;9;10;12;14;24 |] in
+let[@inline always] get_insert_extra insert_code =
   if insert_code < 24 then kInsertExtraBits.(insert_code) else 24
 
-let get_copy_extra copy_code =
-  let kCopyExtraBits = [| 0;0;0;0;0;0;0;0;1;1;2;2;3;3;4;4;5;5;6;7;8;9;10;24 |] in
+let[@inline always] get_copy_extra copy_code =
   if copy_code < 24 then kCopyExtraBits.(copy_code) else 24
 
-let combine_length_codes inscode copycode use_last_distance =
+let[@inline always] combine_length_codes inscode copycode use_last_distance =
   let inscode64 = (inscode land 0x7) lor ((inscode land 0x18) lsl 2) in
   let copycode64 = (copycode land 0x7) lor ((copycode land 0x18) lsl 3) in
   let c = (copycode64 land 0x38) lor inscode64 in
@@ -454,7 +505,7 @@ let combine_length_codes inscode copycode use_last_distance =
    Distance encoding
    ============================================================ *)
 
-let prefix_encode_copy_distance dist_code =
+let[@inline always] prefix_encode_copy_distance dist_code =
   if dist_code < 16 then (dist_code, 0, 0)
   else begin
     let dist = dist_code - 15 in
@@ -505,7 +556,7 @@ let compute_distance_shortcut block_start pos max_backward_limit nodes =
   end
 
 (* Update Zopfli node with new values *)
-let update_zopfli_node nodes pos start len len_code dist short_code cost =
+let[@inline always] update_zopfli_node nodes pos start len len_code dist short_code cost =
   let node = nodes.(pos + len) in
   node.length <- len lor ((len + 9 - len_code) lsl 25);
   node.distance <- dist;
@@ -536,7 +587,10 @@ let evaluate_node block_start pos max_backward_limit starting_dist_cache model q
     let dist_cache = compute_distance_cache pos starting_dist_cache nodes in
     let posdata = {
       pos;
-      distance_cache = dist_cache;
+      dc0 = dist_cache.(0);
+      dc1 = dist_cache.(1);
+      dc2 = dist_cache.(2);
+      dc3 = dist_cache.(3);
       costdiff = node_cost -. get_literal_cost model 0 pos;
       cost = node_cost;
     } in
@@ -574,7 +628,7 @@ let update_nodes num_bytes block_start pos src src_pos model
     for j = 0 to 15 do
       if !best_len < max_len then begin
         let idx = distance_cache_index.(j) in
-        let backward = posdata.distance_cache.(idx) + distance_cache_offset.(j) in
+        let backward = pos_data_get_dc posdata idx + distance_cache_offset.(j) in
         if backward > 0 && backward <= max_distance_here then begin
           let prev_ix = cur_ix - backward in
           let match_len = find_match_length src prev_ix (src_pos + pos) (src_pos + num_bytes) in

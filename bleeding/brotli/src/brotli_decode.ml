@@ -122,7 +122,7 @@ let read_huffman_code_lengths code_length_code_lengths num_symbols code_lengths 
       ~alphabet_size:Constants.code_length_codes ~root_bits:5 in
 
   while !symbol < num_symbols && !space > 0 do
-    let code_len = Huffman.read_symbol table 5 br in
+    let code_len = Huffman.read_symbol_5 table br in
     if code_len < Constants.repeat_previous_code_length then begin
       repeat := 0;
       code_lengths.(!symbol) <- code_len;
@@ -236,7 +236,7 @@ let read_huffman_code alphabet_size br =
 
 (* Read block length *)
 let read_block_length table br =
-  let code = Huffman.read_symbol table Constants.huffman_max_table_bits br in
+  let code = Huffman.read_symbol_8 table br in
   Prefix.decode_block_length br code
 
 (* Translate distance short codes *)
@@ -277,7 +277,7 @@ let decode_context_map context_map_size br =
 
     let i = ref 0 in
     while !i < context_map_size do
-      let code = Huffman.read_symbol table Constants.huffman_max_table_bits br in
+      let code = Huffman.read_symbol_8 table br in
       if code = 0 then begin
         context_map.(!i) <- 0;
         incr i
@@ -305,7 +305,7 @@ let decode_context_map context_map_size br =
 
 (* Decode block type *)
 let decode_block_type max_block_type table block_type_rb block_type_rb_idx br =
-  let type_code = Huffman.read_symbol table Constants.huffman_max_table_bits br in
+  let type_code = Huffman.read_symbol_8 table br in
   let block_type =
     if type_code = 0 then
       block_type_rb.((!block_type_rb_idx) land 1)
@@ -424,7 +424,7 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
           block_length.(1) <- block_length.(1) - 1;
 
           (* Read command code *)
-          let cmd_code = Huffman.read_symbol !huff_tree_command Constants.huffman_max_command_table_bits br in
+          let cmd_code = Huffman.read_symbol_10 !huff_tree_command br in
           let range_idx = cmd_code lsr 6 in
           let distance_code = ref (if range_idx >= 2 then -1 else 0) in
           let range_idx = if range_idx >= 2 then range_idx - 2 else range_idx in
@@ -441,8 +441,12 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
           let prev_byte1 = ref prev_byte1 in
           let prev_byte2 = ref prev_byte2 in
 
-          (* Insert literals *)
-          for _ = 0 to insert_length - 1 do
+          (* Insert literals - with speculative batching optimization *)
+          (* When block_length.(0) > 0, we can decode that many literals without
+             checking for block boundary on each iteration *)
+          let insert_remaining = ref insert_length in
+          while !insert_remaining > 0 do
+            (* Check if we need to switch literal block type *)
             if block_length.(0) = 0 then begin
               block_type.(0) <- decode_block_type num_block_types.(0)
                 block_type_trees.(0) block_type_rb.(0) block_type_rb_idx.(0) br;
@@ -450,17 +454,24 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
               context_map_slice := block_type.(0) lsl Constants.literal_context_bits;
               context_mode := context_modes.(block_type.(0))
             end;
-            let context = Context.get_context (Context.mode_of_int (!context_mode lsr 1))
-              ~prev_byte1:!prev_byte1 ~prev_byte2:!prev_byte2 in
-            let tree_idx = literal_context_map.(!context_map_slice + context) in
-            block_length.(0) <- block_length.(0) - 1;
-            prev_byte2 := !prev_byte1;
-            let literal = Huffman.read_symbol literal_trees.(tree_idx) Constants.huffman_max_table_bits br in
-            prev_byte1 := literal;
-            if !pos >= Bytes.length dst then
+            (* Batch decode: process min(remaining, block_length) literals without block checks *)
+            let batch_size = min !insert_remaining block_length.(0) in
+            (* Check output buffer has room for entire batch *)
+            if !pos + batch_size > Bytes.length dst then
               raise (Brotli_error Output_overrun);
-            Bytes.set dst !pos (Char.chr literal);
-            incr pos
+            (* Fast inner loop: no block boundary checks needed *)
+            for _ = 0 to batch_size - 1 do
+              let context = Context.get_context (Context.mode_of_int (!context_mode lsr 1))
+                ~prev_byte1:!prev_byte1 ~prev_byte2:!prev_byte2 in
+              let tree_idx = literal_context_map.(!context_map_slice + context) in
+              prev_byte2 := !prev_byte1;
+              let literal = Huffman.read_symbol_8 literal_trees.(tree_idx) br in
+              prev_byte1 := literal;
+              Bytes.set dst !pos (Char.chr literal);
+              incr pos
+            done;
+            block_length.(0) <- block_length.(0) - batch_size;
+            insert_remaining := !insert_remaining - batch_size
           done;
 
           meta_block_remaining := !meta_block_remaining - insert_length;
@@ -478,7 +489,7 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
               block_length.(2) <- block_length.(2) - 1;
               let context = Context.distance_context copy_length in
               let tree_idx = dist_context_map.(!dist_context_map_slice + context) in
-              distance_code := Huffman.read_symbol distance_trees.(tree_idx) Constants.huffman_max_table_bits br;
+              distance_code := Huffman.read_symbol_8 distance_trees.(tree_idx) br;
 
               if !distance_code >= num_direct_distance_codes then begin
                 distance_code := !distance_code - num_direct_distance_codes;

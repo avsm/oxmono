@@ -151,14 +151,184 @@ type command =
 let[@inline always] hash4 src pos =
   Constants.hash4_bytes src pos hash_bits
 
-(* Find match length *)
-let[@inline always] find_match_length src a b limit =
-  let len = ref 0 in
-  let max_len = min max_match (limit - b) in
-  while !len < max_len && Bytes.get src (a + !len) = Bytes.get src (b + !len) do
-    incr len
+(* ==========================================================================
+   Match Length Optimization
+   ==========================================================================
+   This module provides optimized match length calculation using:
+
+   1. SIMD (SSE2) - Compares 16 bytes at a time using:
+      - pcmpeqb: Parallel comparison of 16 bytes
+      - pmovmskb: Extract comparison results to a 16-bit mask
+      - tzcnt/lookup: Find first differing byte position
+
+   2. 64-bit word comparison - Fallback for remaining bytes:
+      - Compares 8 bytes at a time using Bytes.get_int64_le
+      - Uses XOR + count trailing zeros to find first difference
+
+   3. Byte-by-byte - Final cleanup for last few bytes
+
+   Expected speedup: 4-8x for match finding on large inputs compared to
+   the naive byte-by-byte implementation.
+   ========================================================================== *)
+
+(* Count trailing zeros in a 16-bit value using a lookup table *)
+(* This is used for SIMD movemask results *)
+let trailing_zeros_table_16 =
+  (* Table: for each byte value (0-255), count trailing zeros *)
+  let tbl = Array.make 256 8 in
+  for i = 1 to 255 do
+    let count = ref 0 in
+    let v = ref i in
+    while !v land 1 = 0 do
+      incr count;
+      v := !v lsr 1
+    done;
+    tbl.(i) <- !count
   done;
-  !len
+  tbl
+
+let[@inline always] count_trailing_zeros_16 x =
+  if x = 0 then 16
+  else
+    let low = x land 0xFF in
+    if low <> 0 then trailing_zeros_table_16.(low)
+    else 8 + trailing_zeros_table_16.((x lsr 8) land 0xFF)
+
+(* Count trailing zeros in a 64-bit value (portable implementation) *)
+let[@inline always] count_trailing_zeros64 (x : int64) =
+  if Int64.equal x 0L then 64
+  else
+    let count = ref 0 in
+    let v = ref x in
+    (* Binary search approach for efficiency *)
+    if Int64.equal (Int64.logand !v 0xFFFFFFFFL) 0L then begin
+      v := Int64.shift_right_logical !v 32;
+      count := 32
+    end;
+    if Int64.equal (Int64.logand !v 0xFFFFL) 0L then begin
+      v := Int64.shift_right_logical !v 16;
+      count := !count + 16
+    end;
+    if Int64.equal (Int64.logand !v 0xFFL) 0L then begin
+      v := Int64.shift_right_logical !v 8;
+      count := !count + 8
+    end;
+    if Int64.equal (Int64.logand !v 0xFL) 0L then begin
+      v := Int64.shift_right_logical !v 4;
+      count := !count + 4
+    end;
+    if Int64.equal (Int64.logand !v 0x3L) 0L then begin
+      v := Int64.shift_right_logical !v 2;
+      count := !count + 2
+    end;
+    if Int64.equal (Int64.logand !v 0x1L) 0L then
+      count := !count + 1;
+    !count
+
+(* SIMD-accelerated match length finding using SSE2
+   Compares 16 bytes at a time using pcmpeqb + pmovmskb
+   Falls back to 64-bit comparison for remainder *)
+module Simd_match = struct
+  module I8x16 = Ocaml_simd_sse.Int8x16
+
+  (* Find first differing position using SIMD comparison.
+     Returns 16 if all bytes match, otherwise the index of first mismatch. *)
+  let[@inline always] find_first_diff_16 src a b =
+    let v1 = I8x16.Bytes.unsafe_get src ~byte:a in
+    let v2 = I8x16.Bytes.unsafe_get src ~byte:b in
+    (* Compare bytes: equal bytes become 0xFF, different become 0x00 *)
+    let eq_mask = I8x16.equal v1 v2 in
+    (* Convert to bit mask: bit i is set if byte i matched (returns int64#) *)
+    let mask_unboxed = I8x16.movemask eq_mask in
+    (* Convert to regular int - safe since movemask only uses lower 16 bits *)
+    let mask = Int64_u.to_int_trunc mask_unboxed in
+    (* We want to find first 0 bit (first mismatch) *)
+    (* Invert: 1 bits are now mismatches *)
+    let inverted = (lnot mask) land 0xFFFF in
+    if inverted = 0 then
+      16  (* All matched *)
+    else
+      (* Count trailing zeros = position of first mismatch *)
+      count_trailing_zeros_16 inverted
+
+  (* Main SIMD-accelerated match length finder *)
+  let[@inline always] find_match_length src a b limit =
+    let max_len = min max_match (limit - b) in
+    if max_len < 4 then 0  (* Minimum match length check *)
+    else begin
+      let len = ref 0 in
+      let continue = ref true in
+      (* Process 16 bytes at a time with SIMD *)
+      while !continue && !len + 16 <= max_len do
+        let diff_pos = find_first_diff_16 src (a + !len) (b + !len) in
+        if diff_pos < 16 then begin
+          (* Found mismatch, compute total length *)
+          len := !len + diff_pos;
+          if !len > max_len then len := max_len;
+          continue := false  (* Exit loop *)
+        end else
+          len := !len + 16
+      done;
+      if !continue then begin
+        (* Handle remainder with 64-bit comparisons *)
+        while !continue && !len + 8 <= max_len do
+          let w1 = Bytes.get_int64_le src (a + !len) in
+          let w2 = Bytes.get_int64_le src (b + !len) in
+          if Int64.equal w1 w2 then
+            len := !len + 8
+          else begin
+            (* Find first differing byte in the 64-bit word *)
+            let diff = Int64.logxor w1 w2 in
+            let diff_byte_pos = count_trailing_zeros64 diff / 8 in
+            len := !len + diff_byte_pos;
+            if !len > max_len then len := max_len;
+            continue := false
+          end
+        done
+      end;
+      (* Final byte-by-byte for last few bytes *)
+      while !len < max_len && Bytes.get src (a + !len) = Bytes.get src (b + !len) do
+        incr len
+      done;
+      !len
+    end
+end
+
+(* 64-bit word comparison fallback (portable, no SIMD required) *)
+module Word64_match = struct
+  (* Find match length using 64-bit word comparisons *)
+  let[@inline always] find_match_length src a b limit =
+    let max_len = min max_match (limit - b) in
+    if max_len < 4 then 0
+    else begin
+      let len = ref 0 in
+      let continue = ref true in
+      (* Process 8 bytes at a time *)
+      while !continue && !len + 8 <= max_len do
+        let w1 = Bytes.get_int64_le src (a + !len) in
+        let w2 = Bytes.get_int64_le src (b + !len) in
+        if Int64.equal w1 w2 then
+          len := !len + 8
+        else begin
+          (* Find first differing byte position *)
+          let diff = Int64.logxor w1 w2 in
+          let diff_byte_pos = count_trailing_zeros64 diff / 8 in
+          len := !len + diff_byte_pos;
+          if !len > max_len then len := max_len;
+          continue := false
+        end
+      done;
+      (* Handle remaining bytes *)
+      while !len < max_len && Bytes.get src (a + !len) = Bytes.get src (b + !len) do
+        incr len
+      done;
+      !len
+    end
+end
+
+(* Use SIMD version by default - it provides the best performance *)
+let[@inline always] find_match_length src a b limit =
+  Simd_match.find_match_length src a b limit
 
 (* Log2 floor for non-zero values - matches brotli-c Log2FloorNonZero *)
 let[@inline always] log2_floor_nonzero v =

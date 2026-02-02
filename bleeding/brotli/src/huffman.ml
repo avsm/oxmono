@@ -139,8 +139,12 @@ let build_table ~code_lengths ~alphabet_size ~root_bits =
     Array.sub root_table 0 !total_size
   end
 
-(* Read a symbol from the bit stream using the Huffman table *)
-let[@inline] read_symbol table root_bits br =
+(* Read a symbol from the bit stream using the Huffman table.
+   This is the hot path for Huffman decoding - we provide specialized
+   versions for common root_bits values to avoid the variable shift overhead. *)
+
+(* Generic version for uncommon root_bits values *)
+let[@inline always] read_symbol table root_bits br =
   let bits = Bit_reader.peek_bits br 15 in
   let initial_idx = bits land ((1 lsl root_bits) - 1) in
   let entry = table.(initial_idx) in
@@ -154,6 +158,60 @@ let[@inline] read_symbol table root_bits br =
     Bit_reader.skip_bits br root_bits;
     let extra_bits = entry.bits - root_bits in
     let idx2 = (bits lsr root_bits) land ((1 lsl extra_bits) - 1) in
+    let entry2 = table.(initial_idx + entry.value + idx2) in
+    Bit_reader.skip_bits br entry2.bits;
+    entry2.value
+  end
+
+(* Specialized version for root_bits = 8 (literals, block types, context maps) *)
+let[@inline always] read_symbol_8 table br =
+  let bits = Bit_reader.peek_bits br 15 in
+  let initial_idx = bits land 0xFF in  (* (1 lsl 8) - 1 = 255 *)
+  let entry = table.(initial_idx) in
+  if entry.bits <= 8 then begin
+    Bit_reader.skip_bits br entry.bits;
+    entry.value
+  end
+  else begin
+    Bit_reader.skip_bits br 8;
+    let extra_bits = entry.bits - 8 in
+    let idx2 = (bits lsr 8) land ((1 lsl extra_bits) - 1) in
+    let entry2 = table.(initial_idx + entry.value + idx2) in
+    Bit_reader.skip_bits br entry2.bits;
+    entry2.value
+  end
+
+(* Specialized version for root_bits = 10 (commands) *)
+let[@inline always] read_symbol_10 table br =
+  let bits = Bit_reader.peek_bits br 15 in
+  let initial_idx = bits land 0x3FF in  (* (1 lsl 10) - 1 = 1023 *)
+  let entry = table.(initial_idx) in
+  if entry.bits <= 10 then begin
+    Bit_reader.skip_bits br entry.bits;
+    entry.value
+  end
+  else begin
+    Bit_reader.skip_bits br 10;
+    let extra_bits = entry.bits - 10 in
+    let idx2 = (bits lsr 10) land ((1 lsl extra_bits) - 1) in
+    let entry2 = table.(initial_idx + entry.value + idx2) in
+    Bit_reader.skip_bits br entry2.bits;
+    entry2.value
+  end
+
+(* Specialized version for root_bits = 5 (code length codes) *)
+let[@inline always] read_symbol_5 table br =
+  let bits = Bit_reader.peek_bits br 15 in
+  let initial_idx = bits land 0x1F in  (* (1 lsl 5) - 1 = 31 *)
+  let entry = table.(initial_idx) in
+  if entry.bits <= 5 then begin
+    Bit_reader.skip_bits br entry.bits;
+    entry.value
+  end
+  else begin
+    Bit_reader.skip_bits br 5;
+    let extra_bits = entry.bits - 5 in
+    let idx2 = (bits lsr 5) land ((1 lsl extra_bits) - 1) in
     let entry2 = table.(initial_idx + entry.value + idx2) in
     Bit_reader.skip_bits br entry2.bits;
     entry2.value

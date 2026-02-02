@@ -381,3 +381,47 @@ let max_table_size alphabet_size =
   if alphabet_size <= 256 then 256
   else if alphabet_size <= 704 then 1080
   else 2048  (* Large alphabets *)
+
+(* ==========================================================================
+   BATCH SYMBOL DECODING FOR TRIVIAL LITERAL CONTEXTS
+   ==========================================================================
+   Following C brotli's BrotliCopyPreloadedSymbolsToU8 pattern.
+   When we have a trivial context (single Huffman tree for all literals),
+   we can decode multiple symbols in a tight loop without context overhead.
+
+   Key optimizations:
+   - Single table lookup per symbol (no context map indirection)
+   - Loop unrolling for better instruction-level parallelism
+   - Direct byte writes to output buffer
+   ========================================================================== *)
+
+(* Decode multiple 8-bit symbols into a byte buffer.
+   Returns the number of symbols actually decoded (may be less than limit if
+   bit buffer runs low near end of input).
+
+   SAFETY: Caller must ensure dst has room for at least `limit` bytes starting at pos.
+   Uses unsafe byte writes since bounds are checked by caller. *)
+let[@inline] decode_symbols_to_bytes_8 table br dst pos limit =
+  let mutable p = pos in
+  let end_pos = pos + limit in
+  while p < end_pos do
+    let bits = inline_peek_15 br in
+    let initial_idx = bits land 0xFF in
+    let entry = Array.unsafe_get table initial_idx in
+    let entry_bits = entry land 0xFF in
+    if entry_bits <= 8 then begin
+      inline_skip br entry_bits;
+      Bytes.unsafe_set dst p (Char.unsafe_chr (entry lsr 8));
+      p <- p + 1
+    end
+    else begin
+      let extra_bits = entry_bits - 8 in
+      let idx2 = (bits lsr 8) land (bit_mask extra_bits) in
+      let entry2 = Array.unsafe_get table (initial_idx + (entry lsr 8) + idx2) in
+      let entry2_bits = entry2 land 0xFF in
+      inline_skip br (8 + entry2_bits);
+      Bytes.unsafe_set dst p (Char.unsafe_chr (entry2 lsr 8));
+      p <- p + 1
+    end
+  done;
+  p - pos

@@ -189,3 +189,44 @@ let[@inline always] get_context mode ~prev_byte1 ~prev_byte2 =
 (* Distance context based on copy length *)
 let[@inline always] distance_context copy_length =
   if copy_length > 4 then 3 else copy_length - 2
+
+(* ==========================================================================
+   OPTIMIZED CONTEXT LOOKUP FOR DECODER HOT PATH
+   ==========================================================================
+   Following C brotli's approach: use a pre-computed "context_lut" pointer
+   that combines mode-specific offset into a single base.
+
+   The C brotli macro: BROTLI_CONTEXT(P1, P2, LUT) = LUT[P1] | (LUT+256)[P2]
+
+   We provide:
+   1. get_context_lut: mode_int -> (offset1, offset2) - called once per block switch
+   2. get_context_fast: inline context computation using precomputed offsets
+   ========================================================================== *)
+
+(* Context lookup table offsets indexed by mode (0=LSB6, 1=MSB6, 2=UTF8, 3=SIGNED)
+   Returns (offset1 * 256, offset2 * 256) to avoid multiplication in hot path *)
+let context_lut_offsets = [|
+  (* LSB6: offset1=4*256=1024, offset2=6*256=1536 *)
+  (1024, 1536);
+  (* MSB6: offset1=5*256=1280, offset2=6*256=1536 *)
+  (1280, 1536);
+  (* UTF8: offset1=0*256=0, offset2=1*256=256 *)
+  (0, 256);
+  (* SIGNED: offset1=3*256=768, offset2=2*256=512 *)
+  (768, 512);
+|]
+
+(* Get context lookup offsets for a mode. Called once when block type changes.
+   mode_int is context_mode value from decoder (0-3 for LSB6/MSB6/UTF8/SIGNED) *)
+let[@inline always] get_context_lut mode_int =
+  Array.unsafe_get context_lut_offsets (mode_int land 3)
+
+(* Fast context computation using precomputed offsets.
+   This is the hot path version - avoids mode_of_int/int_of_mode overhead.
+
+   SAFETY: offset1 and offset2 are always valid table indices (0-1536 range),
+   prev_byte1 and prev_byte2 are 0-255, so all lookups are within the 1792-byte table. *)
+let[@inline always] get_context_fast ~offset1 ~offset2 ~prev_byte1 ~prev_byte2 =
+  let v1 = Char.code (Bytes.unsafe_get lookup (offset1 + prev_byte1)) in
+  let v2 = Char.code (Bytes.unsafe_get lookup (offset2 + prev_byte2)) in
+  v1 lor v2

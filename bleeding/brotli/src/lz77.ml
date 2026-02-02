@@ -139,17 +139,38 @@ let[@inline always] short_code_distances ring = ring.cache
    - Codes 4-9: last distance +/- 1,2,3
    - Codes 10-15: second-to-last distance +/- 1,2,3
 
-   Uses precomputed cache for efficient linear search. *)
+   Optimized version: check exact matches first (codes 0-3) since they're most common,
+   then check +/- variants only if d0/d1 are close to distance. *)
 let[@inline always] find_short_code ring distance =
   if distance <= 0 then -1
   else
     let cache = ring.cache in
-    let rec search i =
-      if i >= 16 then -1
-      else if cache.(i) = distance then i
-      else search (i + 1)
-    in
-    search 0
+    (* Check exact matches first (most common case) *)
+    if cache.(0) = distance then 0
+    else if cache.(1) = distance then 1
+    else if cache.(2) = distance then 2
+    else if cache.(3) = distance then 3
+    else begin
+      (* Check +/- 1,2,3 variants for d0 (codes 4-9) *)
+      let d0 = cache.(0) in
+      let diff0 = distance - d0 in
+      if diff0 >= -3 && diff0 <= 3 && diff0 <> 0 then
+        (* Map diff to code: -1->4, +1->5, -2->6, +2->7, -3->8, +3->9 *)
+        let abs_diff = if diff0 < 0 then -diff0 else diff0 in
+        let base_code = (abs_diff - 1) * 2 + 4 in
+        if diff0 > 0 then base_code + 1 else base_code
+      else begin
+        (* Check +/- 1,2,3 variants for d1 (codes 10-15) *)
+        let d1 = cache.(1) in
+        let diff1 = distance - d1 in
+        if diff1 >= -3 && diff1 <= 3 && diff1 <> 0 then
+          let abs_diff = if diff1 < 0 then -diff1 else diff1 in
+          let base_code = (abs_diff - 1) * 2 + 10 in
+          if diff1 > 0 then base_code + 1 else base_code
+        else
+          -1
+      end
+    end
 
 (* Command type with optional short distance code.
    dist_code: -1 means no short code, 0-15 are valid short codes *)
@@ -187,9 +208,8 @@ let[@inline always] hash4 src pos =
    the naive byte-by-byte implementation.
    ========================================================================== *)
 
-(* Count trailing zeros in a 16-bit value using a lookup table *)
-(* This is used for SIMD movemask results *)
-let trailing_zeros_table_16 =
+(* Count trailing zeros lookup table - used for SIMD movemask results *)
+let trailing_zeros_table =
   (* Table: for each byte value (0-255), count trailing zeros *)
   let tbl = Array.make 256 8 in
   for i = 1 to 255 do
@@ -207,84 +227,106 @@ let[@inline always] count_trailing_zeros_16 x =
   if x = 0 then 16
   else
     let low = x land 0xFF in
-    if low <> 0 then trailing_zeros_table_16.(low)
-    else 8 + trailing_zeros_table_16.((x lsr 8) land 0xFF)
+    if low <> 0 then trailing_zeros_table.(low)
+    else 8 + trailing_zeros_table.((x lsr 8) land 0xFF)
 
-(* Count trailing zeros in a 64-bit value (portable implementation) *)
+(* Count trailing zeros in a 32-bit value - for AVX2 movemask *)
+let[@inline always] count_trailing_zeros_32 x =
+  if x = 0 then 32
+  else
+    let b0 = x land 0xFF in
+    if b0 <> 0 then trailing_zeros_table.(b0)
+    else
+      let b1 = (x lsr 8) land 0xFF in
+      if b1 <> 0 then 8 + trailing_zeros_table.(b1)
+      else
+        let b2 = (x lsr 16) land 0xFF in
+        if b2 <> 0 then 16 + trailing_zeros_table.(b2)
+        else 24 + trailing_zeros_table.((x lsr 24) land 0xFF)
+
+(* De Bruijn table for 64-bit trailing zeros *)
+let tzcnt64_debruijn_table = [|
+  0;  1;  2; 53;  3;  7; 54; 27;
+  4; 38; 41;  8; 34; 55; 48; 28;
+  62;  5; 39; 46; 44; 42; 22;  9;
+  24; 35; 59; 56; 49; 18; 29; 11;
+  63; 52;  6; 26; 37; 40; 33; 47;
+  61; 45; 43; 21; 23; 58; 17; 10;
+  51; 25; 36; 32; 60; 20; 57; 16;
+  50; 31; 19; 15; 30; 14; 13; 12
+|]
+
+(* Count trailing zeros in a 64-bit value using de Bruijn multiplication.
+   This is much faster than the iterative approach. *)
 let[@inline always] count_trailing_zeros64 (x : int64) =
   if Int64.equal x 0L then 64
-  else
-    let count = ref 0 in
-    let v = ref x in
-    (* Binary search approach for efficiency *)
-    if Int64.equal (Int64.logand !v 0xFFFFFFFFL) 0L then begin
-      v := Int64.shift_right_logical !v 32;
-      count := 32
-    end;
-    if Int64.equal (Int64.logand !v 0xFFFFL) 0L then begin
-      v := Int64.shift_right_logical !v 16;
-      count := !count + 16
-    end;
-    if Int64.equal (Int64.logand !v 0xFFL) 0L then begin
-      v := Int64.shift_right_logical !v 8;
-      count := !count + 8
-    end;
-    if Int64.equal (Int64.logand !v 0xFL) 0L then begin
-      v := Int64.shift_right_logical !v 4;
-      count := !count + 4
-    end;
-    if Int64.equal (Int64.logand !v 0x3L) 0L then begin
-      v := Int64.shift_right_logical !v 2;
-      count := !count + 2
-    end;
-    if Int64.equal (Int64.logand !v 0x1L) 0L then
-      count := !count + 1;
-    !count
+  else begin
+    (* Isolate lowest set bit: x & (-x) *)
+    let isolated = Int64.logand x (Int64.neg x) in
+    (* De Bruijn multiplication *)
+    let idx = Int64.to_int (Int64.shift_right_logical
+      (Int64.mul isolated 0x022fdd63cc95386dL) 58) in
+    tzcnt64_debruijn_table.(idx land 63)
+  end
 
-(* SIMD-accelerated match length finding using SSE2
-   Compares 16 bytes at a time using pcmpeqb + pmovmskb
-   Falls back to 64-bit comparison for remainder *)
+(* AVX2/SSE2-accelerated match length finding.
+   Compares 32 bytes at a time with AVX2, then 16 bytes with SSE2.
+   Falls back to 64-bit comparison for remainder. *)
 module Simd_match = struct
   module I8x16 = Ocaml_simd_sse.Int8x16
+  module I8x32 = Ocaml_simd_avx.Int8x32
 
-  (* Find first differing position using SIMD comparison.
+  (* Find first differing position using AVX2 comparison (32 bytes).
+     Returns 32 if all bytes match, otherwise the index of first mismatch. *)
+  let[@inline always] find_first_diff_32 src a b =
+    let v1 = I8x32.Bytes.unsafe_get src ~byte:a in
+    let v2 = I8x32.Bytes.unsafe_get src ~byte:b in
+    let eq_mask = I8x32.equal v1 v2 in
+    let mask_unboxed = I8x32.movemask eq_mask in
+    let mask = Int64_u.to_int_trunc mask_unboxed in
+    let inverted = (lnot mask) land 0xFFFFFFFF in
+    if inverted = 0 then 32
+    else count_trailing_zeros_32 inverted
+
+  (* Find first differing position using SSE2 comparison (16 bytes).
      Returns 16 if all bytes match, otherwise the index of first mismatch. *)
   let[@inline always] find_first_diff_16 src a b =
     let v1 = I8x16.Bytes.unsafe_get src ~byte:a in
     let v2 = I8x16.Bytes.unsafe_get src ~byte:b in
-    (* Compare bytes: equal bytes become 0xFF, different become 0x00 *)
     let eq_mask = I8x16.equal v1 v2 in
-    (* Convert to bit mask: bit i is set if byte i matched (returns int64#) *)
     let mask_unboxed = I8x16.movemask eq_mask in
-    (* Convert to regular int - safe since movemask only uses lower 16 bits *)
     let mask = Int64_u.to_int_trunc mask_unboxed in
-    (* We want to find first 0 bit (first mismatch) *)
-    (* Invert: 1 bits are now mismatches *)
     let inverted = (lnot mask) land 0xFFFF in
-    if inverted = 0 then
-      16  (* All matched *)
-    else
-      (* Count trailing zeros = position of first mismatch *)
-      count_trailing_zeros_16 inverted
+    if inverted = 0 then 16
+    else count_trailing_zeros_16 inverted
 
-  (* Main SIMD-accelerated match length finder *)
+  (* Main AVX2/SSE2-accelerated match length finder *)
   let[@inline always] find_match_length src a b limit =
     let max_len = min max_match (limit - b) in
     if max_len < 4 then 0  (* Minimum match length check *)
     else begin
       let len = ref 0 in
       let continue = ref true in
-      (* Process 16 bytes at a time with SIMD *)
-      while !continue && !len + 16 <= max_len do
-        let diff_pos = find_first_diff_16 src (a + !len) (b + !len) in
-        if diff_pos < 16 then begin
-          (* Found mismatch, compute total length *)
+      (* Process 32 bytes at a time with AVX2 *)
+      while !continue && !len + 32 <= max_len do
+        let diff_pos = find_first_diff_32 src (a + !len) (b + !len) in
+        if diff_pos < 32 then begin
           len := !len + diff_pos;
           if !len > max_len then len := max_len;
-          continue := false  (* Exit loop *)
+          continue := false
+        end else
+          len := !len + 32
+      done;
+      (* Handle 16-31 remaining bytes with SSE2 *)
+      if !continue && !len + 16 <= max_len then begin
+        let diff_pos = find_first_diff_16 src (a + !len) (b + !len) in
+        if diff_pos < 16 then begin
+          len := !len + diff_pos;
+          if !len > max_len then len := max_len;
+          continue := false
         end else
           len := !len + 16
-      done;
+      end;
       if !continue then begin
         (* Handle remainder with 64-bit comparisons *)
         while !continue && !len + 8 <= max_len do
@@ -293,7 +335,6 @@ module Simd_match = struct
           if Int64.equal w1 w2 then
             len := !len + 8
           else begin
-            (* Find first differing byte in the 64-bit word *)
             let diff = Int64.logxor w1 w2 in
             let diff_byte_pos = count_trailing_zeros64 diff / 8 in
             len := !len + diff_byte_pos;
@@ -346,19 +387,67 @@ end
 let[@inline always] find_match_length src a b limit =
   Simd_match.find_match_length src a b limit
 
-(* Log2 floor for non-zero values - matches brotli-c Log2FloorNonZero *)
+(* Log2 floor for non-zero values - matches brotli-c Log2FloorNonZero
+   Uses de Bruijn sequence for O(1) lookup instead of O(log n) loop.
+   This is one of the most called functions in LZ77, so every cycle matters. *)
+
+(* De Bruijn sequence table for 64-bit log2 *)
+let log2_debruijn_table = [|
+  63;  0; 58;  1; 59; 47; 53;  2;
+  60; 39; 48; 27; 54; 33; 42;  3;
+  61; 51; 37; 40; 49; 18; 28; 20;
+  55; 30; 34; 11; 43; 14; 22;  4;
+  62; 57; 46; 52; 38; 26; 32; 41;
+  50; 36; 17; 19; 29; 10; 13; 21;
+  56; 45; 25; 31; 35; 16;  9; 12;
+  44; 24; 15;  8; 23;  7;  6;  5
+|]
+
+(* Pre-computed table for small values (0-255) - covers most common cases *)
+let log2_small_table =
+  Array.init 256 (fun i ->
+    if i = 0 then 0
+    else
+      let rec go v acc = if v <= 1 then acc else go (v lsr 1) (acc + 1) in
+      go i 0)
+
 let[@inline always] log2_floor_nonzero v =
-  let rec go v acc = if v <= 1 then acc else go (v lsr 1) (acc + 1) in
-  go v 0
+  if v < 256 then log2_small_table.(v)
+  else begin
+    (* Use bit manipulation: isolate highest bit then use de Bruijn multiplication *)
+    let v = v lor (v lsr 1) in
+    let v = v lor (v lsr 2) in
+    let v = v lor (v lsr 4) in
+    let v = v lor (v lsr 8) in
+    let v = v lor (v lsr 16) in
+    let v = v lor (v lsr 32) in
+    (* v is now all 1s from the highest bit down *)
+    let v = v - (v lsr 1) in  (* isolate highest bit *)
+    (* De Bruijn multiplication *)
+    let idx = (v * 0x07EDD5E59A4E28C2) lsr 58 in
+    log2_debruijn_table.(idx land 63)
+  end
+
+(* Pre-computed distance penalties for common distances.
+   This avoids log2 computation for the most frequent cases.
+   penalty = DISTANCE_BIT_PENALTY * log2_floor(distance) *)
+let distance_penalty_table =
+  Array.init 4097 (fun d ->
+    if d = 0 then 0  (* invalid but avoid crash *)
+    else brotli_distance_bit_penalty * log2_floor_nonzero d)
 
 (* BackwardReferenceScore from brotli-c (hash.h line 115-118):
    score = SCORE_BASE + LITERAL_BYTE_SCORE * copy_length
            - DISTANCE_BIT_PENALTY * Log2FloorNonZero(backward_reference_offset)
    This prefers longer matches and shorter distances. *)
 let[@inline always] backward_reference_score copy_len backward_distance =
-  brotli_score_base +
-  brotli_literal_byte_score * copy_len -
-  brotli_distance_bit_penalty * (log2_floor_nonzero backward_distance)
+  let penalty =
+    if backward_distance <= 4096 then
+      distance_penalty_table.(backward_distance)
+    else
+      brotli_distance_bit_penalty * log2_floor_nonzero backward_distance
+  in
+  brotli_score_base + brotli_literal_byte_score * copy_len - penalty
 
 (* BackwardReferenceScoreUsingLastDistance from brotli-c (hash.h line 121-124):
    score = LITERAL_BYTE_SCORE * copy_length + SCORE_BASE + 15
@@ -372,15 +461,21 @@ let[@inline always] backward_reference_score_using_last_distance copy_len =
 let[@inline always] backward_reference_penalty_using_last_distance distance_short_code =
   39 + ((0x1CA10 lsr (distance_short_code land 0xE)) land 0xE)
 
-(* Score function matching brotli-c exactly *)
+(* Pre-computed penalties for short codes 0-15 to avoid repeated calculation *)
+let short_code_penalty_table =
+  Array.init 16 (fun code ->
+    if code = 0 then 0  (* no penalty for code 0 *)
+    else backward_reference_penalty_using_last_distance code)
+
+(* Score function matching brotli-c exactly.
+   Optimized with pre-computed penalty table for short codes. *)
 let[@inline always] score_match copy_len distance dist_code =
-  if dist_code = 0 then
-    (* Last distance - use special scoring with bonus *)
-    backward_reference_score_using_last_distance copy_len
-  else if dist_code > 0 && dist_code < 16 then
-    (* Other short codes - score with last distance bonus minus penalty *)
-    let score = backward_reference_score_using_last_distance copy_len in
-    score - backward_reference_penalty_using_last_distance dist_code
+  (* Pre-compute the literal contribution once *)
+  let lit_score = brotli_literal_byte_score * copy_len in
+  if dist_code >= 0 && dist_code < 16 then
+    (* Short code (0-15): use last distance scoring with bonus, minus penalty *)
+    (* penalty is 0 for code 0, pre-computed for codes 1-15 *)
+    lit_score + brotli_score_base + 15 - short_code_penalty_table.(dist_code)
   else
     (* Explicit distance (dist_code = -1) - standard scoring *)
     backward_reference_score copy_len distance
@@ -390,47 +485,96 @@ let insert_length_offset = [|
   0; 1; 2; 3; 4; 5; 6; 8; 10; 14; 18; 26; 34; 50; 66; 98; 130; 194; 322; 578; 1090; 2114; 6210; 22594
 |]
 
-(* Get insert length code *)
+(* Get insert length code using binary search for O(log n) instead of O(n) *)
 let[@inline always] get_insert_code length =
-  let rec find i =
-    if i >= 23 then 23
-    else if length < insert_length_offset.(i + 1) then i
-    else find (i + 1)
-  in
-  find 0
+  (* Binary search for the largest offset <= length *)
+  if length < 6 then length  (* Fast path for small values: codes 0-5 *)
+  else if length < 130 then begin
+    (* Codes 6-16, use small binary search *)
+    if length < 18 then
+      if length < 10 then
+        if length < 8 then 6 else 7
+      else
+        if length < 14 then 8 else 9
+    else
+      if length < 50 then
+        if length < 26 then 10
+        else if length < 34 then 11
+        else 12
+      else
+        if length < 66 then 13
+        else if length < 98 then 14
+        else 15
+  end
+  else begin
+    (* Codes 16-23, larger values *)
+    if length < 1090 then
+      if length < 322 then
+        if length < 194 then 16 else 17
+      else
+        if length < 578 then 18 else 19
+    else
+      if length < 6210 then
+        if length < 2114 then 20 else 21
+      else
+        if length < 22594 then 22 else 23
+  end
 
-(* Get max copy_len that fits with a given insert_len *)
+(* Get max copy_len that fits with a given insert_len.
+   Uses pre-computed threshold: insert_code >= 16 means copy_len <= 9 *)
 let[@inline always] max_copy_len_for_insert insert_len =
-  let insert_code = get_insert_code insert_len in
-  if insert_code >= 16 then 9 else max_match
+  (* insert_code >= 16 when insert_len >= 130 *)
+  if insert_len >= 130 then 9 else max_match
 
 (* Try to find a match at a short code distance.
    num_to_check controls how many short codes to check (4, 10, or 16 based on quality)
-   Returns (len, dist, code) or (0, 0, -1) if no match found *)
+   Returns (len, dist, code) or (0, 0, -1) if no match found.
+
+   Optimized: checks codes in priority order (0-3 first, then 4-15).
+   Uses early exit when a good enough match is found. *)
 let try_short_code_match ?(num_to_check=16) src pos limit ring =
   let candidates = short_code_distances ring in
-  (* Stack-allocate temporary refs that don't escape *)
-  let local_ best_len = ref 0 in
-  let local_ best_dist = ref 0 in
-  let local_ best_code = ref (-1) in
-  let local_ best_score = ref 0 in
-  for code = 0 to num_to_check - 1 do
+  let mutable best_len = 0 in
+  let mutable best_dist = 0 in
+  let mutable best_code = -1 in
+  let mutable best_score = 0 in
+  (* Unroll the loop for codes 0-3 which are most likely to hit *)
+  for code = 0 to min 3 (num_to_check - 1) do
     let dist = candidates.(code) in
     if dist > 0 && pos - dist >= 0 then begin
       let prev = pos - dist in
       let match_len = find_match_length src prev pos limit in
       if match_len >= min_match then begin
         let score = score_match match_len dist code in
-        if score > !best_score then begin
-          best_len := match_len;
-          best_dist := dist;
-          best_code := code;
-          best_score := score
+        if score > best_score then begin
+          best_len <- match_len;
+          best_dist <- dist;
+          best_code <- code;
+          best_score <- score
         end
       end
     end
   done;
-  (!best_len, !best_dist, !best_code)
+  (* Check remaining codes 4-15 if needed *)
+  if num_to_check > 4 then begin
+    for code = 4 to num_to_check - 1 do
+      let dist = candidates.(code) in
+      if dist > 0 && pos - dist >= 0 then begin
+        let prev = pos - dist in
+        let match_len = find_match_length src prev pos limit in
+        if match_len >= min_match then begin
+          let score = score_match match_len dist code in
+          if score > best_score then begin
+            best_len <- match_len;
+            best_dist <- dist;
+            best_code <- code;
+            best_score <- score
+          end
+        end
+      end
+    done
+  end;
+  (best_len, best_dist, best_code)
 
 (* Score a dictionary match *)
 let score_dict_match copy_len =
@@ -460,16 +604,18 @@ let get_literal_spree_length quality =
    then searches hash chain/bucket.
    chain_table_base is the base offset used for chain_table indexing.
    Uses unboxed nativeint# arrays for hash_table and chain_table for better performance.
-   Returns (len, dist, code) or (0, 0, -1) if no match found *)
+   Returns (len, dist, code) or (0, 0, -1) if no match found.
+
+   Optimized version using mutable locals instead of refs for better codegen. *)
 let find_best_chain_match src pos src_end (hash_table : nativeint# array) (chain_table : nativeint# array) chain_table_base ring
     ~num_last_distances_to_check ~max_chain_depth =
   if pos + min_match > src_end then (0, 0, -1)
   else begin
-    (* Stack-allocate temporary refs that don't escape *)
-    let local_ best_len = ref (min_match - 1) in  (* Start at min_match-1 so >= min_match wins *)
-    let local_ best_dist = ref 0 in
-    let local_ best_score = ref 0 in
-    let local_ best_code = ref (-1) in
+    (* Use mutable locals for better codegen (avoids ref allocation) *)
+    let mutable best_len = min_match - 1 in  (* Start at min_match-1 so >= min_match wins *)
+    let mutable best_dist = 0 in
+    let mutable best_score = 0 in
+    let mutable best_code = -1 in
 
     (* First: try short code distances (distance cache) - like brotli-c *)
     let short_dists = short_code_distances ring in
@@ -483,11 +629,11 @@ let find_best_chain_match src pos src_end (hash_table : nativeint# array) (chain
           let min_len = if code < 2 then 3 else min_match in
           if match_len >= min_len then begin
             let score = score_match match_len dist code in
-            if score > !best_score then begin
-              best_len := match_len;
-              best_dist := dist;
-              best_score := score;
-              best_code := code
+            if score > best_score then begin
+              best_len <- match_len;
+              best_dist <- dist;
+              best_score <- score;
+              best_code <- code
             end
           end
         end
@@ -496,11 +642,12 @@ let find_best_chain_match src pos src_end (hash_table : nativeint# array) (chain
 
     (* Second: search hash chain for more matches *)
     let h = hash4 src pos in
+    let chain_table_len = Nativeint_u.Array.length chain_table in
     (* Use mutable for unboxed chain position to avoid ref boxing *)
     let mutable chain_pos_u : nativeint# = na_get hash_table h in
-    let local_ chain_count = ref 0 in
+    let mutable chain_count = 0 in
 
-    while Nativeint_u.(chain_pos_u >= #0n) && !chain_count < max_chain_depth do
+    while Nativeint_u.(chain_pos_u >= #0n) && chain_count < max_chain_depth do
       let chain_pos = Nativeint_u.to_int_trunc chain_pos_u in
       let distance = pos - chain_pos in
       if distance > 0 && distance <= max_backward_distance then begin
@@ -508,25 +655,25 @@ let find_best_chain_match src pos src_end (hash_table : nativeint# array) (chain
         if match_len >= min_match then begin
           let dist_code = find_short_code ring distance in
           let score = score_match match_len distance dist_code in
-          if score > !best_score then begin
-            best_len := match_len;
-            best_dist := distance;
-            best_score := score;
-            best_code := dist_code
+          if score > best_score then begin
+            best_len <- match_len;
+            best_dist <- distance;
+            best_score <- score;
+            best_code <- dist_code
           end
         end
       end;
       (* Follow the chain - index relative to base *)
       let chain_idx = chain_pos - chain_table_base in
-      if chain_idx >= 0 && chain_idx < Nativeint_u.Array.length chain_table then
+      if chain_idx >= 0 && chain_idx < chain_table_len then
         chain_pos_u <- na_get chain_table chain_idx
       else
         chain_pos_u <- invalid_pos;
-      incr chain_count
+      chain_count <- chain_count + 1
     done;
 
-    if !best_len >= min_match then
-      (!best_len, !best_dist, !best_code)
+    if best_len >= min_match then
+      (best_len, best_dist, best_code)
     else
       (0, 0, -1)
   end

@@ -3,40 +3,62 @@
 (* ==========================================================================
    SIMD-accelerated overlapping copy for backward references with small distances
    ==========================================================================
-   For small distances (1-16 bytes), SIMD pattern fill is much faster than
-   byte-by-byte copying. We create a 16-byte repeating pattern and write
-   it using SIMD stores.
+   For small distances (1-32 bytes), SIMD pattern fill is much faster than
+   byte-by-byte copying. We create a repeating pattern and write it using
+   SIMD stores.
 
    Distance 1: Fill with a single byte (Bytes.unsafe_fill)
-   Distance 2-16: Create pattern by replicating the source bytes using
-                  SIMD shuffle to extend to 16 bytes and store
+   Distance 2-32: Create pattern by replicating the source bytes using
+                  SIMD shuffle to extend and store
+
+   AVX2 Support:
+   - For distances 1,2,4,8,16,32 we use AVX2 256-bit writes for better throughput
+   - For large copy lengths, AVX2 provides 2x bandwidth vs SSE2
    ========================================================================== *)
 
 module Simd_copy = struct
   module I8x16 = Ocaml_simd_sse.Int8x16
+  module I8x32 = Ocaml_simd_avx.Int8x32
 
   (* SIMD-accelerated overlapping copy for backward references.
 
-     The key insight is that when the pattern length (distance) divides 16,
-     we can create a single 16-byte pattern and repeat it. This works because
-     the pattern tiles exactly into 16-byte chunks.
+     The key insight is that when the pattern length (distance) divides the
+     vector width, we can create a single pattern and repeat it. This works
+     because the pattern tiles exactly into vector-sized chunks.
 
-     For distances that don't divide 16, the pattern doesn't tile evenly,
-     so we'd need to rotate the pattern on each write. For simplicity,
-     we only SIMD-optimize distances 1, 2, 4, 8, and 16. *)
+     For distances that don't divide the vector width evenly, the pattern
+     doesn't tile, so we'd need to rotate on each write. For simplicity,
+     we only SIMD-optimize distances that divide 32: 1, 2, 4, 8, 16, 32. *)
 
-  (* Distance 2: pattern [0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1] *)
+  (* SSE2 shuffle masks for 16-byte patterns *)
   let shuffle_mask_2 = I8x16.const
     #0s #1s #0s #1s #0s #1s #0s #1s
     #0s #1s #0s #1s #0s #1s #0s #1s
 
-  (* Distance 4: pattern [0,1,2,3,0,1,2,3,0,1,2,3,0,1,2,3] *)
   let shuffle_mask_4 = I8x16.const
     #0s #1s #2s #3s #0s #1s #2s #3s
     #0s #1s #2s #3s #0s #1s #2s #3s
 
-  (* Distance 8: pattern [0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7] *)
   let shuffle_mask_8 = I8x16.const
+    #0s #1s #2s #3s #4s #5s #6s #7s
+    #0s #1s #2s #3s #4s #5s #6s #7s
+
+  (* AVX2 shuffle masks for 32-byte patterns (lane-wise) *)
+  let shuffle_mask_2_avx = I8x32.const
+    #0s #1s #0s #1s #0s #1s #0s #1s
+    #0s #1s #0s #1s #0s #1s #0s #1s
+    #0s #1s #0s #1s #0s #1s #0s #1s
+    #0s #1s #0s #1s #0s #1s #0s #1s
+
+  let shuffle_mask_4_avx = I8x32.const
+    #0s #1s #2s #3s #0s #1s #2s #3s
+    #0s #1s #2s #3s #0s #1s #2s #3s
+    #0s #1s #2s #3s #0s #1s #2s #3s
+    #0s #1s #2s #3s #0s #1s #2s #3s
+
+  let shuffle_mask_8_avx = I8x32.const
+    #0s #1s #2s #3s #4s #5s #6s #7s
+    #0s #1s #2s #3s #4s #5s #6s #7s
     #0s #1s #2s #3s #4s #5s #6s #7s
     #0s #1s #2s #3s #4s #5s #6s #7s
 
@@ -45,18 +67,31 @@ module Simd_copy = struct
     let byte_val = Bytes.unsafe_get dst (dst_pos - 1) in
     Bytes.unsafe_fill dst dst_pos copy_length byte_val
 
-  (* Copy with distance 2: SIMD pattern fill *)
+  (* Copy with distance 2: SIMD pattern fill (AVX2 + SSE2) *)
   let[@inline always] copy_distance_2 dst dst_pos copy_length =
     let src_pos = dst_pos - 2 in
-    let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
-    let pattern = I8x16.shuffle ~pattern:shuffle_mask_2 src_vec in
     let mutable remaining = copy_length in
     let mutable pos = dst_pos in
-    while remaining >= 16 do
+    (* Use AVX2 for bulk of the copy *)
+    if remaining >= 32 then begin
+      let src_vec_16 = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+      (* Extend 16-byte pattern to 32 bytes by setting both lanes *)
+      let pattern_16 = I8x16.shuffle ~pattern:shuffle_mask_2 src_vec_16 in
+      let pattern_32 = I8x32.set_lanes pattern_16 pattern_16 in
+      while remaining >= 32 do
+        I8x32.Bytes.unsafe_set dst ~byte:pos pattern_32;
+        pos <- pos + 32;
+        remaining <- remaining - 32
+      done
+    end;
+    (* Handle 16-31 remaining bytes with SSE2 *)
+    if remaining >= 16 then begin
+      let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+      let pattern = I8x16.shuffle ~pattern:shuffle_mask_2 src_vec in
       I8x16.Bytes.unsafe_set dst ~byte:pos pattern;
       pos <- pos + 16;
       remaining <- remaining - 16
-    done;
+    end;
     (* Handle remaining bytes *)
     if remaining > 0 then begin
       for i = 0 to remaining - 1 do
@@ -64,53 +99,105 @@ module Simd_copy = struct
       done
     end
 
-  (* Copy with distance 4: SIMD pattern fill *)
+  (* Copy with distance 4: SIMD pattern fill (AVX2 + SSE2) *)
   let[@inline always] copy_distance_4 dst dst_pos copy_length =
     let src_pos = dst_pos - 4 in
-    let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
-    let pattern = I8x16.shuffle ~pattern:shuffle_mask_4 src_vec in
     let mutable remaining = copy_length in
     let mutable pos = dst_pos in
-    while remaining >= 16 do
+    if remaining >= 32 then begin
+      let src_vec_16 = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+      let pattern_16 = I8x16.shuffle ~pattern:shuffle_mask_4 src_vec_16 in
+      let pattern_32 = I8x32.set_lanes pattern_16 pattern_16 in
+      while remaining >= 32 do
+        I8x32.Bytes.unsafe_set dst ~byte:pos pattern_32;
+        pos <- pos + 32;
+        remaining <- remaining - 32
+      done
+    end;
+    if remaining >= 16 then begin
+      let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+      let pattern = I8x16.shuffle ~pattern:shuffle_mask_4 src_vec in
       I8x16.Bytes.unsafe_set dst ~byte:pos pattern;
       pos <- pos + 16;
       remaining <- remaining - 16
-    done;
+    end;
     if remaining > 0 then begin
       for i = 0 to remaining - 1 do
         Bytes.unsafe_set dst (pos + i) (Bytes.unsafe_get dst (src_pos + (i land 3)))
       done
     end
 
-  (* Copy with distance 8: SIMD pattern fill *)
+  (* Copy with distance 8: SIMD pattern fill (AVX2 + SSE2) *)
   let[@inline always] copy_distance_8 dst dst_pos copy_length =
     let src_pos = dst_pos - 8 in
-    let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
-    let pattern = I8x16.shuffle ~pattern:shuffle_mask_8 src_vec in
     let mutable remaining = copy_length in
     let mutable pos = dst_pos in
-    while remaining >= 16 do
+    if remaining >= 32 then begin
+      let src_vec_16 = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+      let pattern_16 = I8x16.shuffle ~pattern:shuffle_mask_8 src_vec_16 in
+      let pattern_32 = I8x32.set_lanes pattern_16 pattern_16 in
+      while remaining >= 32 do
+        I8x32.Bytes.unsafe_set dst ~byte:pos pattern_32;
+        pos <- pos + 32;
+        remaining <- remaining - 32
+      done
+    end;
+    if remaining >= 16 then begin
+      let src_vec = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+      let pattern = I8x16.shuffle ~pattern:shuffle_mask_8 src_vec in
       I8x16.Bytes.unsafe_set dst ~byte:pos pattern;
       pos <- pos + 16;
       remaining <- remaining - 16
-    done;
+    end;
     if remaining > 0 then begin
       for i = 0 to remaining - 1 do
         Bytes.unsafe_set dst (pos + i) (Bytes.unsafe_get dst (src_pos + (i land 7)))
       done
     end
 
-  (* Copy with distance 16: load 16 bytes and repeat *)
+  (* Copy with distance 16: load 16 bytes and repeat (AVX2 + SSE2) *)
   let[@inline always] copy_distance_16 dst dst_pos copy_length =
     let src_pos = dst_pos - 16 in
-    let pattern = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+    let pattern_16 = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
     let mutable remaining = copy_length in
     let mutable pos = dst_pos in
-    while remaining >= 16 do
-      I8x16.Bytes.unsafe_set dst ~byte:pos pattern;
+    if remaining >= 32 then begin
+      let pattern_32 = I8x32.set_lanes pattern_16 pattern_16 in
+      while remaining >= 32 do
+        I8x32.Bytes.unsafe_set dst ~byte:pos pattern_32;
+        pos <- pos + 32;
+        remaining <- remaining - 32
+      done
+    end;
+    if remaining >= 16 then begin
+      I8x16.Bytes.unsafe_set dst ~byte:pos pattern_16;
       pos <- pos + 16;
       remaining <- remaining - 16
+    end;
+    if remaining > 0 then begin
+      for i = 0 to remaining - 1 do
+        Bytes.unsafe_set dst (pos + i) (Bytes.unsafe_get dst (src_pos + i))
+      done
+    end
+
+  (* Copy with distance 32: load 32 bytes with AVX2 and repeat *)
+  let[@inline always] copy_distance_32 dst dst_pos copy_length =
+    let src_pos = dst_pos - 32 in
+    let pattern_32 = I8x32.Bytes.unsafe_get dst ~byte:src_pos in
+    let mutable remaining = copy_length in
+    let mutable pos = dst_pos in
+    while remaining >= 32 do
+      I8x32.Bytes.unsafe_set dst ~byte:pos pattern_32;
+      pos <- pos + 32;
+      remaining <- remaining - 32
     done;
+    (* Handle remaining bytes with SSE2 or byte-by-byte *)
+    if remaining >= 16 then begin
+      let pattern_16 = I8x16.Bytes.unsafe_get dst ~byte:src_pos in
+      I8x16.Bytes.unsafe_set dst ~byte:pos pattern_16;
+      pos <- pos + 16;
+      remaining <- remaining - 16
+    end;
     if remaining > 0 then begin
       for i = 0 to remaining - 1 do
         Bytes.unsafe_set dst (pos + i) (Bytes.unsafe_get dst (src_pos + i))
@@ -120,8 +207,8 @@ module Simd_copy = struct
   (* Main entry point: SIMD-accelerated overlapping copy for small distances.
      Returns true if SIMD copy was used, false if caller should use fallback.
 
-     Only optimizes distances 1, 2, 4, 8, 16 where the pattern tiles exactly
-     into 16-byte chunks. Other distances fall back to byte-by-byte copy. *)
+     Optimizes distances 1, 2, 4, 8, 16, 32 where the pattern tiles exactly
+     into vector-sized chunks. Other distances fall back to byte-by-byte copy. *)
   let[@inline always] copy_overlapping dst dst_pos distance copy_length =
     match distance with
     | 1 ->
@@ -138,6 +225,9 @@ module Simd_copy = struct
       true
     | 16 ->
       copy_distance_16 dst dst_pos copy_length;
+      true
+    | 32 ->
+      copy_distance_32 dst dst_pos copy_length;
       true
     | _ ->
       false
@@ -550,10 +640,44 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
         let distance_trees = Array.init num_dist_trees (fun _ ->
           read_huffman_code num_distance_codes br) in
 
+        (* ====================================================================
+           TRIVIAL LITERAL CONTEXT DETECTION (following C brotli approach)
+           ====================================================================
+           When all 64 context entries for a block type map to the same tree,
+           we can skip the context lookup entirely and use that single tree.
+           This is a significant optimization for many real-world files. *)
+        let trivial_literal_contexts =
+          let bits = Array.make ((num_block_types.(0) + 31) / 32) 0 in
+          for i = 0 to num_block_types.(0) - 1 do
+            let offset = i lsl Constants.literal_context_bits in
+            let sample = literal_context_map.(offset) in
+            let mutable all_same = true in
+            let mutable j = 1 in
+            while all_same && j < 64 do
+              if literal_context_map.(offset + j) <> sample then
+                all_same <- false;
+              j <- j + 1
+            done;
+            if all_same then
+              bits.(i lsr 5) <- bits.(i lsr 5) lor (1 lsl (i land 31))
+          done;
+          bits
+        in
+        (* Check if a block type has trivial literal context *)
+        let[@inline always] is_trivial_context block_type =
+          let word = Array.unsafe_get trivial_literal_contexts (block_type lsr 5) in
+          (word lsr (block_type land 31)) land 1 = 1
+        in
+
         (* Main decode loop *)
         let mutable context_map_slice = 0 in
         let mutable dist_context_map_slice = 0 in
         let mutable context_mode = context_modes.(block_type.(0)) in
+        (* Precompute context LUT offsets for fast context lookup *)
+        let mutable context_lut = Context.get_context_lut (context_mode lsr 1) in
+        (* Track trivial context state and cached tree for fast path *)
+        let mutable trivial_context = is_trivial_context block_type.(0) in
+        let literal_htree = ref literal_trees.(literal_context_map.(context_map_slice)) in
         let huff_tree_command = ref command_trees.(0) in
 
         while meta_block_remaining > 0 do
@@ -582,9 +706,15 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
           let mutable prev_byte1 = if pos > dst_pos then Char.code (Bytes.get dst (pos - 1)) else 0 in
           let mutable prev_byte2 = if pos > dst_pos + 1 then Char.code (Bytes.get dst (pos - 2)) else 0 in
 
-          (* Insert literals - with speculative batching optimization *)
-          (* When block_length.(0) > 0, we can decode that many literals without
-             checking for block boundary on each iteration *)
+          (* ================================================================
+             OPTIMIZED LITERAL DECODING LOOP
+             ================================================================
+             Two-path optimization following C brotli:
+             1. TRIVIAL PATH: When all context entries map to same tree,
+                skip context lookup entirely and decode directly.
+             2. CONTEXT PATH: Use precomputed LUT offsets to inline context
+                lookup, avoiding mode_of_int/int_of_mode overhead.
+             ================================================================ *)
           let mutable insert_remaining = insert_length in
           while insert_remaining > 0 do
             (* Check if we need to switch literal block type *)
@@ -593,31 +723,56 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
                 block_type_trees.(0) block_type_rb.(0) block_type_rb_idx.(0) br;
               block_length.(0) <- read_block_length block_len_trees.(0) br;
               context_map_slice <- block_type.(0) lsl Constants.literal_context_bits;
-              context_mode <- context_modes.(block_type.(0))
+              context_mode <- context_modes.(block_type.(0));
+              (* Update trivial context flag and cached tree *)
+              trivial_context <- is_trivial_context block_type.(0);
+              literal_htree := literal_trees.(literal_context_map.(context_map_slice));
+              (* Update context LUT for non-trivial path *)
+              context_lut <- Context.get_context_lut (context_mode lsr 1)
             end;
             (* Batch decode: process min(remaining, block_length) literals without block checks *)
             let batch_size = min insert_remaining block_length.(0) in
             (* Check output buffer has room for entire batch *)
             if pos + batch_size > Bytes.length dst then
               raise (Brotli_error Output_overrun);
-            (* Fast inner loop: no block boundary checks needed.
-               SAFETY: bounds verified above with `if pos + batch_size > Bytes.length dst`
-               so all writes in this loop are within bounds. Array accesses use indices
-               derived from context (0-63) and context_map_slice which are always valid. *)
-            for _ = 0 to batch_size - 1 do
-              let context = Context.get_context (Context.mode_of_int (context_mode lsr 1))
-                ~prev_byte1 ~prev_byte2 in
-              (* SAFETY: context is 0-63, context_map_slice is block_type * 64,
-                 literal_context_map size is num_block_types * 64 *)
-              let tree_idx = Array.unsafe_get literal_context_map (context_map_slice + context) in
-              prev_byte2 <- prev_byte1;
-              (* SAFETY: tree_idx is validated during context map decoding *)
-              let literal = Huffman.read_symbol_8 (Array.unsafe_get literal_trees tree_idx) br in
-              prev_byte1 <- literal;
-              (* SAFETY: pos < pos + batch_size <= Bytes.length dst verified above *)
-              Bytes.unsafe_set dst pos (Char.chr literal);
-              pos <- pos + 1
-            done;
+
+            (* ============================================================
+               FAST PATH: Trivial literal context
+               ============================================================
+               When all 64 context entries map to the same tree, we skip
+               context computation entirely. Use batch decode for maximum
+               throughput - this writes directly to the output buffer. *)
+            if trivial_context then begin
+              let _decoded = Huffman.decode_symbols_to_bytes_8 !literal_htree br dst pos batch_size in
+              pos <- pos + batch_size;
+              (* Update prev_bytes for next batch (only last 2 matter) *)
+              if batch_size >= 2 then begin
+                prev_byte1 <- Char.code (Bytes.unsafe_get dst (pos - 1));
+                prev_byte2 <- Char.code (Bytes.unsafe_get dst (pos - 2))
+              end else if batch_size = 1 then begin
+                prev_byte2 <- prev_byte1;
+                prev_byte1 <- Char.code (Bytes.unsafe_get dst (pos - 1))
+              end
+            end
+            (* ============================================================
+               CONTEXT PATH: Non-trivial literal context
+               ============================================================
+               Use precomputed LUT offsets for fast context lookup.
+               Inline the context computation to avoid function call overhead. *)
+            else begin
+              let offset1, offset2 = context_lut in
+              for _ = 0 to batch_size - 1 do
+                (* Inline context lookup: BROTLI_CONTEXT(p1, p2, lut) *)
+                let context = Context.get_context_fast ~offset1 ~offset2
+                  ~prev_byte1 ~prev_byte2 in
+                let tree_idx = Array.unsafe_get literal_context_map (context_map_slice + context) in
+                let literal = Huffman.read_symbol_8 (Array.unsafe_get literal_trees tree_idx) br in
+                prev_byte2 <- prev_byte1;
+                prev_byte1 <- literal;
+                Bytes.unsafe_set dst pos (Char.chr literal);
+                pos <- pos + 1
+              done
+            end;
             block_length.(0) <- block_length.(0) - batch_size;
             insert_remaining <- insert_remaining - batch_size
           done;

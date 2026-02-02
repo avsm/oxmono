@@ -409,10 +409,11 @@ let[@inline always] max_copy_len_for_insert insert_len =
    Returns (len, dist, code) or (0, 0, -1) if no match found *)
 let try_short_code_match ?(num_to_check=16) src pos limit ring =
   let candidates = short_code_distances ring in
-  let best_len = ref 0 in
-  let best_dist = ref 0 in
-  let best_code = ref (-1) in
-  let best_score = ref 0 in
+  (* Stack-allocate temporary refs that don't escape *)
+  let local_ best_len = ref 0 in
+  let local_ best_dist = ref 0 in
+  let local_ best_code = ref (-1) in
+  let local_ best_score = ref 0 in
   for code = 0 to num_to_check - 1 do
     let dist = candidates.(code) in
     if dist > 0 && pos - dist >= 0 then begin
@@ -464,10 +465,11 @@ let find_best_chain_match src pos src_end (hash_table : nativeint# array) (chain
     ~num_last_distances_to_check ~max_chain_depth =
   if pos + min_match > src_end then (0, 0, -1)
   else begin
-    let best_len = ref (min_match - 1) in  (* Start at min_match-1 so >= min_match wins *)
-    let best_dist = ref 0 in
-    let best_score = ref 0 in
-    let best_code = ref (-1) in
+    (* Stack-allocate temporary refs that don't escape *)
+    let local_ best_len = ref (min_match - 1) in  (* Start at min_match-1 so >= min_match wins *)
+    let local_ best_dist = ref 0 in
+    let local_ best_score = ref 0 in
+    let local_ best_code = ref (-1) in
 
     (* First: try short code distances (distance cache) - like brotli-c *)
     let short_dists = short_code_distances ring in
@@ -496,7 +498,7 @@ let find_best_chain_match src pos src_end (hash_table : nativeint# array) (chain
     let h = hash4 src pos in
     (* Use mutable for unboxed chain position to avoid ref boxing *)
     let mutable chain_pos_u : nativeint# = na_get hash_table h in
-    let chain_count = ref 0 in
+    let local_ chain_count = ref 0 in
 
     while Nativeint_u.(chain_pos_u >= #0n) && !chain_count < max_chain_depth do
       let chain_pos = Nativeint_u.to_int_trunc chain_pos_u in

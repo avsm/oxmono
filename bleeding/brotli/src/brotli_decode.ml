@@ -600,15 +600,22 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
             (* Check output buffer has room for entire batch *)
             if pos + batch_size > Bytes.length dst then
               raise (Brotli_error Output_overrun);
-            (* Fast inner loop: no block boundary checks needed *)
+            (* Fast inner loop: no block boundary checks needed.
+               SAFETY: bounds verified above with `if pos + batch_size > Bytes.length dst`
+               so all writes in this loop are within bounds. Array accesses use indices
+               derived from context (0-63) and context_map_slice which are always valid. *)
             for _ = 0 to batch_size - 1 do
               let context = Context.get_context (Context.mode_of_int (context_mode lsr 1))
                 ~prev_byte1 ~prev_byte2 in
-              let tree_idx = literal_context_map.(context_map_slice + context) in
+              (* SAFETY: context is 0-63, context_map_slice is block_type * 64,
+                 literal_context_map size is num_block_types * 64 *)
+              let tree_idx = Array.unsafe_get literal_context_map (context_map_slice + context) in
               prev_byte2 <- prev_byte1;
-              let literal = Huffman.read_symbol_8 literal_trees.(tree_idx) br in
+              (* SAFETY: tree_idx is validated during context map decoding *)
+              let literal = Huffman.read_symbol_8 (Array.unsafe_get literal_trees tree_idx) br in
               prev_byte1 <- literal;
-              Bytes.set dst pos (Char.chr literal);
+              (* SAFETY: pos < pos + batch_size <= Bytes.length dst verified above *)
+              Bytes.unsafe_set dst pos (Char.chr literal);
               pos <- pos + 1
             done;
             block_length.(0) <- block_length.(0) - batch_size;
@@ -698,9 +705,12 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
                   pos <- pos + copy_length;
                   meta_block_remaining <- meta_block_remaining - copy_length
                 end else begin
-                  (* Fallback: byte-by-byte for distances > 16 *)
+                  (* Fallback: byte-by-byte for distances > 16.
+                     SAFETY: bounds verified above with:
+                     - `if pos + copy_length > Bytes.length dst` check
+                     - `distance <= max_distance <= pos - dst_pos` ensures pos - distance >= dst_pos >= 0 *)
                   for _ = 0 to copy_length - 1 do
-                    Bytes.set dst pos (Bytes.get dst (pos - distance));
+                    Bytes.unsafe_set dst pos (Bytes.unsafe_get dst (pos - distance));
                     pos <- pos + 1;
                     meta_block_remaining <- meta_block_remaining - 1
                   done

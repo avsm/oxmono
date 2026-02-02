@@ -154,6 +154,7 @@ let write_code_length_symbol bw len =
 let build_valid_code_lengths freqs max_len =
   let n = Array.length freqs in
   let lengths = Array.make n 0 in
+  (* Note: symbols ref captures into closure, cannot be local *)
   let symbols = ref [] in
   for i = n - 1 downto 0 do
     if freqs.(i) > 0 then
@@ -170,6 +171,7 @@ let build_valid_code_lengths freqs max_len =
     let sorted = List.sort (fun (f1, _) (f2, _) -> compare f2 f1) !symbols in
     let bits_needed = count_bits num_symbols in
     let base_len = min max_len (max bits_needed 1) in
+    (* Note: these refs are captured by closure, cannot be local *)
     let len_to_use = ref base_len in
     while (1 lsl !len_to_use) < num_symbols && !len_to_use < max_len do
       incr len_to_use
@@ -199,10 +201,12 @@ let build_codes lengths =
   let max_len = Array.fold_left max 0 lengths in
   if max_len = 0 then codes
   else begin
+    (* Note: bl_count captured by Array.iter closure, cannot be local *)
     let bl_count = Array.make (max_len + 1) 0 in
     Array.iter (fun l -> if l > 0 then bl_count.(l) <- bl_count.(l) + 1) lengths;
-    let next_code = Array.make (max_len + 1) 0 in
-    let code = ref 0 in
+    (* Stack-allocate temporary arrays and refs used only in for loops *)
+    let local_ next_code = Array.make (max_len + 1) 0 in
+    let local_ code = ref 0 in
     for bits = 1 to max_len do
       code := (!code + bl_count.(bits - 1)) lsl 1;
       next_code.(bits) <- !code
@@ -219,8 +223,9 @@ let build_codes lengths =
 
 (* Reverse bits for canonical Huffman *)
 let[@inline always] reverse_bits v n =
-  let r = ref 0 in
-  let v = ref v in
+  (* Stack-allocate temporary refs that don't escape *)
+  let local_ r = ref 0 in
+  let local_ v = ref v in
   for _ = 0 to n - 1 do
     r := (!r lsl 1) lor (!v land 1);
     v := !v lsr 1
@@ -242,7 +247,8 @@ let emit_zeros_rle symbols_ref extras_ref total_ref run_len =
       incr total_ref
     done
   end else begin
-    let reps = ref (run_len - 3) in
+    (* Stack-allocate temporary ref that doesn't escape *)
+    let local_ reps = ref (run_len - 3) in
     let rec build acc_codes acc_extras =
       let e = !reps land 7 in
       reps := !reps lsr 3;
@@ -262,7 +268,8 @@ let emit_zeros_rle symbols_ref extras_ref total_ref run_len =
   end
 
 let emit_nonzero_rle symbols_ref extras_ref total_ref run_len prev_value_ref value =
-  let to_write = ref run_len in
+  (* Stack-allocate temporary ref that doesn't escape *)
+  let local_ to_write = ref run_len in
   if !prev_value_ref <> value then begin
     symbols_ref := value :: !symbols_ref;
     extras_ref := 0 :: !extras_ref;
@@ -277,7 +284,8 @@ let emit_nonzero_rle symbols_ref extras_ref total_ref run_len prev_value_ref val
     done;
     total_ref := !total_ref + !to_write
   end else begin
-    let reps = ref (!to_write - 3) in
+    (* Stack-allocate temporary ref that doesn't escape *)
+    let local_ reps = ref (!to_write - 3) in
     let rec build acc_codes acc_extras =
       let e = !reps land 3 in
       reps := !reps lsr 2;
@@ -297,11 +305,12 @@ let emit_nonzero_rle symbols_ref extras_ref total_ref run_len prev_value_ref val
   end
 
 let generate_rle_sequence lengths num_symbols =
+  (* Note: these refs are passed to helper functions, cannot be local *)
   let symbols = ref [] in
   let extras = ref [] in
   let prev_value = ref 8 in
   let total = ref 0 in
-  let i = ref 0 in
+  let local_ i = ref 0 in
   while !i < num_symbols do
     let value = if !i < Array.length lengths then lengths.(!i) else 0 in
     let run_start = !i in
@@ -321,16 +330,18 @@ let generate_rle_sequence lengths num_symbols =
 
 (* Write complex prefix code with RLE encoding *)
 let write_complex_prefix_code bw lengths alphabet_size =
-  let last_nonzero = ref (-1) in
+  (* Stack-allocate temporary ref that doesn't escape *)
+  let local_ last_nonzero = ref (-1) in
   for i = 0 to min (alphabet_size - 1) (Array.length lengths - 1) do
     if lengths.(i) > 0 then last_nonzero := i
   done;
   let num_symbols = !last_nonzero + 1 in
   let (rle_symbols, rle_extra) = generate_rle_sequence lengths num_symbols in
+  (* Note: cl_histogram captured by Array.iter closure, cannot be local *)
   let cl_histogram = Array.make Constants.code_length_codes 0 in
   Array.iter (fun sym -> cl_histogram.(sym) <- cl_histogram.(sym) + 1) rle_symbols;
   let cl_depths = build_valid_code_lengths cl_histogram Constants.huffman_max_code_length_code_length in
-  let num_codes = ref 0 in
+  let local_ num_codes = ref 0 in
   for i = 0 to Constants.code_length_codes - 1 do
     if cl_histogram.(i) > 0 then incr num_codes
   done;
@@ -341,7 +352,7 @@ let write_complex_prefix_code bw lengths alphabet_size =
       else 2
     else 0
   in
-  let codes_to_store = ref Constants.code_length_codes in
+  let local_ codes_to_store = ref Constants.code_length_codes in
   if !num_codes > 1 then begin
     while !codes_to_store > 0 &&
           cl_depths.(Constants.code_length_code_order.(!codes_to_store - 1)) = 0 do
@@ -349,7 +360,7 @@ let write_complex_prefix_code bw lengths alphabet_size =
     done
   end;
   Bit_writer.write_bits bw 2 skip_some;
-  let space = ref 32 in
+  let local_ space = ref 32 in
   for i = skip_some to !codes_to_store - 1 do
     if !space > 0 then begin
       let idx = Constants.code_length_code_order.(i) in
@@ -372,7 +383,8 @@ let write_complex_prefix_code bw lengths alphabet_size =
 
 (* Write Huffman code definition - choose simple or complex *)
 let write_huffman_code bw lengths alphabet_size =
-  let symbols = ref [] in
+  (* Stack-allocate temporary ref that doesn't escape *)
+  let local_ symbols = ref [] in
   for i = 0 to min (alphabet_size - 1) (Array.length lengths - 1) do
     if i < Array.length lengths && lengths.(i) > 0 then
       symbols := (i, lengths.(i)) :: !symbols
@@ -392,6 +404,7 @@ let write_huffman_code bw lengths alphabet_size =
 
 (* Count used symbols in frequency array *)
 let count_used_symbols freqs =
+  (* Note: count captured by Array.iter closure, cannot be local *)
   let count = ref 0 in
   Array.iter (fun f -> if f > 0 then incr count) freqs;
   !count
@@ -426,6 +439,7 @@ let write_context_map bw context_map num_trees =
 
     (* With RLEMAX=0, alphabet size is just num_trees, symbols are values directly *)
     let map_len = Array.length context_map in
+    (* Note: freq is passed to count_used_symbols, cannot be local *)
     let freq = Array.make num_trees 0 in
     for i = 0 to map_len - 1 do
       freq.(context_map.(i)) <- freq.(context_map.(i)) + 1
@@ -464,8 +478,9 @@ let[@inline always] encode_distance distance =
     (16, 1, 0)
   else begin
     let d = distance - 1 in
-    let nbits = ref 1 in
-    let range_start = ref 0 in
+    (* Stack-allocate temporary refs that don't escape *)
+    let local_ nbits = ref 1 in
+    let local_ range_start = ref 0 in
     while d >= !range_start + (1 lsl (!nbits + 1)) && !nbits < 24 do
       range_start := !range_start + (1 lsl (!nbits + 1));
       incr nbits

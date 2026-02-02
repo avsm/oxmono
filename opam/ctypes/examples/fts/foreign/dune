@@ -1,7 +1,0 @@
-(test
- (name fts_cmd)
- (enabled_if
-  (= %{os_type} Unix))
- (libraries ctypes-foreign)
- (package ctypes-foreign)
- (action (progn)))

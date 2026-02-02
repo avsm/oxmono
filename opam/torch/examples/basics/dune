@@ -1,6 +1,0 @@
-(executables
- (modes byte exe)
- (names basics)
- (libraries stdio torch)
- (preprocess
-  (pps ppx_jane)))

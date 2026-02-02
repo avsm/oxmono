@@ -81,7 +81,7 @@ let searchable_type_of_constructor args res =
   match args with
   | TypeDecl.Constructor.Tuple args -> begin
       match args with
-      | _ :: _ :: _ -> TypeExpr.(Arrow (None, Tuple (List.map (fun x -> (None, x)) args), res))
+      | _ :: _ :: _ -> TypeExpr.(Arrow (None, Tuple args, res))
       | [ arg ] -> TypeExpr.(Arrow (None, arg, res))
       | _ -> res
     end
@@ -119,10 +119,6 @@ let convert_kind ~db (Odoc_index.Entry.{ kind; _ } as entry) =
       let typ = searchable_type_of_record parent_type type_ in
       let typ = Db_writer.type_of_odoc ~db typ in
       Entry.Kind.Field typ
-  | UnboxedField { mutable_ = _; parent_type; type_ } ->
-      let typ = searchable_type_of_record parent_type type_ in
-      let typ = Db_writer.type_of_odoc ~db typ in
-      Entry.Kind.Field typ
   | Doc -> Doc
   | Dir -> Doc
   | Page _ -> Doc
@@ -150,7 +146,7 @@ let rec categorize id =
   | `Root _ | `Page _ | `LeafPage _ -> `definition
   | `ModuleType _ -> `declaration
   | `Parameter _ -> `ignore (* redundant with indexed signature *)
-  | ( `InstanceVariable _ | `Method _ | `Field _ | `UnboxedField _ | `Result _ | `Label _ | `Type _
+  | ( `InstanceVariable _ | `Method _ | `Field _ | `Result _ | `Label _ | `Type _
     | `Exception _ | `Class _ | `ClassType _ | `Value _ | `Constructor _ | `Extension _
     | `ExtensionDecl _ | `Module _ ) as x ->
       let parent = Identifier.label_parent { id with iv = x } in

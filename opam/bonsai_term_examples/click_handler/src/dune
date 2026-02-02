@@ -1,7 +1,0 @@
-(library
- (name bonsai_term_click_handler_example)
- (public_name bonsai_term_examples.click_handler)
- (libraries async bonsai bonsai_term bonsai_term_components.catppuccin
-   bonsai_term_components.click_handler core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

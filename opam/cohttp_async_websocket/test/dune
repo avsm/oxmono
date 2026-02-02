@@ -1,6 +1,0 @@
-(library
- (name cohttp_async_websocket_test)
- (libraries async cohttp cohttp-async cohttp_async_websocket core uri
-   async_websocket)
- (preprocess
-  (pps ppx_jane)))

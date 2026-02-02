@@ -1,8 +1,0 @@
-(library
- (name bonsai_term_scroller_example)
- (public_name bonsai_term_examples.scroller)
- (libraries async bonsai_term bonsai_term_components.scroller core)
- (preprocessor_deps
-   %{workspace_root}/lib/bonsai_term/scroller/src/bonsai_tui_scroller.mli)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai ppx_embed_file)))

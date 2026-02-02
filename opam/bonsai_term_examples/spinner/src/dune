@@ -1,7 +1,0 @@
-(library
- (name bonsai_term_spinner_example)
- (public_name bonsai_term_examples.spinner)
- (libraries async bonsai bonsai_term bonsai_term_components.spinner
-   bonsai_term_components.catppuccin core_unix.command_unix core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

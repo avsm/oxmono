@@ -1,6 +1,0 @@
-(library
- (name bonsai_term_tagging_example)
- (public_name bonsai_term_examples.tagging)
- (libraries async bonsai bonsai_term core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

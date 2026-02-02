@@ -1,1 +1,0 @@
-module Feature_test_multispool = Feature_test_multispool

@@ -1,6 +1,0 @@
-(library
- (name bonsai_term_capybara_example)
- (public_name bonsai_term_examples.capybara)
- (libraries async bonsai bonsai_term core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

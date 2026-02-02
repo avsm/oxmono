@@ -1,5 +1,0 @@
-(library
- (name torch_local_iterators)
- (libraries core)
- (preprocess
-  (pps ppx_jane)))

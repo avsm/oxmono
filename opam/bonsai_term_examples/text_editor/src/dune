@@ -1,8 +1,0 @@
-(library
- (name bonsai_term_text_editor_example)
- (public_name bonsai_term_examples.text_editor)
- (libraries async bonsai_term bonsai_term_components.catppuccin
-   bonsai_term_components.click_handler bonsai_term_components.text_editor
-   core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

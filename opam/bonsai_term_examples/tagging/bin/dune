@@ -1,7 +1,0 @@
-(executables
- (modes byte exe)
- (names main)
- (public_names bonsai_term_tagging_example)
- (libraries bonsai_term_tagging_example core_unix.command_unix core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

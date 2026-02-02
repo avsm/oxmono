@@ -1,7 +1,0 @@
-(library
- (name rpc_websocket)
- (public_name async_rpc_websocket)
- (preprocess
-  (pps ppx_jane))
- (libraries async async_rpc_kernel cohttp cohttp-async cohttp_async_websocket
-   conduit-async core uri async_websocket))

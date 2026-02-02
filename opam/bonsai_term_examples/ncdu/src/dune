@@ -1,7 +1,0 @@
-(library
- (name bonsai_term_ncdu_example)
- (public_name bonsai_term_examples.ncdu)
- (libraries async bonsai bonsai_term bonsai_term_components.catppuccin
-   bonsai_term_components.ncdu core_unix.command_unix core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

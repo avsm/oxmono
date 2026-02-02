@@ -1,8 +1,0 @@
-(executables
- (modes byte exe)
- (names main)
- (public_names pomodoro_timer_example)
- (libraries async bonsai_term bonsai_term_pomodoro_timer_example
-   core_unix.command_unix core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

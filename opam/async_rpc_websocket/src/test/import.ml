@@ -1,1 +1,0 @@
-include Core.No_polymorphic_compare

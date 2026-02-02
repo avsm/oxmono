@@ -1,6 +1,0 @@
-(library
- (name bonsai_term_bar_chart_process_info_example)
- (public_name bonsai_term_examples.bar_chart_process_info)
- (libraries async bonsai bonsai_term bonsai_term_components.bar_chart core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

@@ -1,7 +1,0 @@
-(library
- (name zed)
- (public_name zed)
- (wrapped false)
- (flags
-  (:standard -safe-string))
- (libraries react result uchar uutf uucp uuseg))

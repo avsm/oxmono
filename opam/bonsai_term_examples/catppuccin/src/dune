@@ -1,6 +1,0 @@
-(library
- (name bonsai_term_catppuccin_example)
- (public_name bonsai_term_examples.catppuccin)
- (libraries async bonsai bonsai_term bonsai_term_components.catppuccin core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

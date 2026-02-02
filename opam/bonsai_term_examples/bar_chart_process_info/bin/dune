@@ -1,8 +1,0 @@
-(executables
- (modes byte exe)
- (names main)
- (public_names bonsai_term_bar_chart_process_info_example)
- (libraries bonsai_term_bar_chart_process_info_example core_unix.command_unix
-   core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

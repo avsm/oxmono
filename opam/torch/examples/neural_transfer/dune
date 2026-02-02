@@ -1,6 +1,0 @@
-(executables
- (modes byte exe)
- (names neural_transfer)
- (libraries stdio torch torch_vision unix)
- (preprocess
-  (pps ppx_jane)))

@@ -1,6 +1,0 @@
-(library
- (name bonsai_term_responsive_dimensions_example)
- (public_name bonsai_term_examples.responsive_dimensions)
- (libraries async bonsai bonsai_term bonsai_term_components.catppuccin core)
- (preprocess
-  (pps ppx_jane bonsai.ppx_bonsai)))

@@ -1,4 +1,0 @@
-(* Wrapping an empty sig *)
-module Foo
-    (A : FOO)
-    (B : FOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO) : sig end

@@ -42,21 +42,58 @@ let get_bucket_sweep quality =
 (* Distance ring buffer for short distance codes *)
 type dist_ring = {
   mutable distances : int array;  (* Last 4 distances *)
+  mutable cache : int array;      (* 16-entry precomputed short code distances *)
   mutable idx : int;              (* Current index *)
 }
 
-let create_dist_ring () = {
-  distances = [| 16; 15; 11; 4 |];  (* Initial values per RFC 7932 *)
-  idx = 0;
-}
+let[@inline always] get_last_distance_raw distances idx n =
+  (* n=0: last, n=1: second-to-last, etc. *)
+  distances.((idx - 1 - n) land 3)
+
+(* Update the 16-entry cache with precomputed short code distances.
+   Called after each push_distance to keep cache in sync. *)
+let update_cache ring =
+  let d0 = get_last_distance_raw ring.distances ring.idx 0 in
+  let d1 = get_last_distance_raw ring.distances ring.idx 1 in
+  let d2 = get_last_distance_raw ring.distances ring.idx 2 in
+  let d3 = get_last_distance_raw ring.distances ring.idx 3 in
+  (* Codes 0-3: exact matches to last 4 distances *)
+  ring.cache.(0) <- d0;
+  ring.cache.(1) <- d1;
+  ring.cache.(2) <- d2;
+  ring.cache.(3) <- d3;
+  (* Codes 4-9: last distance +/- 1,2,3 *)
+  ring.cache.(4) <- d0 - 1;
+  ring.cache.(5) <- d0 + 1;
+  ring.cache.(6) <- d0 - 2;
+  ring.cache.(7) <- d0 + 2;
+  ring.cache.(8) <- d0 - 3;
+  ring.cache.(9) <- d0 + 3;
+  (* Codes 10-15: second-to-last distance +/- 1,2,3 *)
+  ring.cache.(10) <- d1 - 1;
+  ring.cache.(11) <- d1 + 1;
+  ring.cache.(12) <- d1 - 2;
+  ring.cache.(13) <- d1 + 2;
+  ring.cache.(14) <- d1 - 3;
+  ring.cache.(15) <- d1 + 3
+
+let create_dist_ring () =
+  let ring = {
+    distances = [| 16; 15; 11; 4 |];  (* Initial values per RFC 7932 *)
+    cache = Array.make 16 0;
+    idx = 0;
+  } in
+  update_cache ring;
+  ring
 
 let push_distance ring dist =
   ring.distances.(ring.idx land 3) <- dist;
-  ring.idx <- ring.idx + 1
+  ring.idx <- ring.idx + 1;
+  update_cache ring
 
 let get_last_distance ring n =
   (* n=0: last, n=1: second-to-last, etc. *)
-  ring.distances.((ring.idx - 1 - n) land 3)
+  get_last_distance_raw ring.distances ring.idx n
 
 (* Short distance codes (0-15) per RFC 7932:
    0: last distance
@@ -75,60 +112,28 @@ let get_last_distance ring n =
    13: second-to-last + 2
    14: second-to-last - 3
    15: second-to-last + 3
-*)
-let short_code_distances ring =
-  let last = get_last_distance ring 0 in
-  let second = get_last_distance ring 1 in
-  [|
-    get_last_distance ring 0;  (* 0 *)
-    get_last_distance ring 1;  (* 1 *)
-    get_last_distance ring 2;  (* 2 *)
-    get_last_distance ring 3;  (* 3 *)
-    last - 1;                  (* 4 *)
-    last + 1;                  (* 5 *)
-    last - 2;                  (* 6 *)
-    last + 2;                  (* 7 *)
-    last - 3;                  (* 8 *)
-    last + 3;                  (* 9 *)
-    second - 1;                (* 10 *)
-    second + 1;                (* 11 *)
-    second - 2;                (* 12 *)
-    second + 2;                (* 13 *)
-    second - 3;                (* 14 *)
-    second + 3;                (* 15 *)
-  |]
+
+   Returns the precomputed cache directly (do not mutate). *)
+let[@inline always] short_code_distances ring = ring.cache
 
 (* Find short distance code for a distance. Returns -1 if no short code applies.
 
    Short code mapping (RFC 7932):
    - Codes 0-3: exact match to last 4 distances
    - Codes 4-9: last distance +/- 1,2,3
-   - Codes 10-15: second-to-last distance +/- 1,2,3 *)
-let find_short_code ring distance =
+   - Codes 10-15: second-to-last distance +/- 1,2,3
+
+   Uses precomputed cache for efficient linear search. *)
+let[@inline always] find_short_code ring distance =
   if distance <= 0 then -1
   else
-    let last = get_last_distance ring 0 in
-    let second = get_last_distance ring 1 in
-    (* Check codes 0-3 (exact matches to last 4 distances) first *)
-    if distance = last then 0
-    else if distance = get_last_distance ring 1 then 1
-    else if distance = get_last_distance ring 2 then 2
-    else if distance = get_last_distance ring 3 then 3
-    (* Check codes 4-9 (last +/- 1,2,3) *)
-    else if last > 1 && distance = last - 1 then 4
-    else if distance = last + 1 then 5
-    else if last > 2 && distance = last - 2 then 6
-    else if distance = last + 2 then 7
-    else if last > 3 && distance = last - 3 then 8
-    else if distance = last + 3 then 9
-    (* Check codes 10-15 (second +/- 1,2,3) *)
-    else if second > 1 && distance = second - 1 then 10
-    else if distance = second + 1 then 11
-    else if second > 2 && distance = second - 2 then 12
-    else if distance = second + 2 then 13
-    else if second > 3 && distance = second - 3 then 14
-    else if distance = second + 3 then 15
-    else -1
+    let cache = ring.cache in
+    let rec search i =
+      if i >= 16 then -1
+      else if cache.(i) = distance then i
+      else search (i + 1)
+    in
+    search 0
 
 (* Command type with optional short distance code.
    dist_code: -1 means no short code, 0-15 are valid short codes *)

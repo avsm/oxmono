@@ -202,11 +202,8 @@ let[@inline always] fill_bit_window t =
     let next_pos = Nativeint_u.to_int_trunc t.bit_next_pos in
     let src_len = Nativeint_u.to_int_trunc t.src_len in
     if next_pos + 4 <= src_len then begin
-      let b0 = Char.code (Bytes.unsafe_get t.src next_pos) in
-      let b1 = Char.code (Bytes.unsafe_get t.src (next_pos + 1)) in
-      let b2 = Char.code (Bytes.unsafe_get t.src (next_pos + 2)) in
-      let b3 = Char.code (Bytes.unsafe_get t.src (next_pos + 3)) in
-      let new_bits = b0 lor (b1 lsl 8) lor (b2 lsl 16) lor (b3 lsl 24) in
+      (* Use native 32-bit load instead of byte-by-byte loading *)
+      let new_bits = Int32.to_int (Bytes.get_int32_le t.src next_pos) land 0xFFFFFFFF in
       let bit_val = Nativeint_u.to_int_trunc t.bit_val in
       t.bit_val <- Nativeint_u.of_int (bit_val lor (new_bits lsl bit_pos));
       t.bit_pos <- Nativeint_u.of_int (bit_pos + 32);

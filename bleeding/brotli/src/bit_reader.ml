@@ -47,9 +47,14 @@ let[@inline] peek_bits t n_bits =
     let bit_offset = t.bit_pos in
     let byte_pos = t.byte_pos in
     let bits_needed = n_bits + bit_offset in
-    (* Optimized path for reading up to 24 bits (most common) *)
-    if bits_needed <= 24 && byte_pos + 2 < t.src_len then begin
-      (* Read 3 bytes at once *)
+    (* Fast path: use native 32-bit load when we have 4+ bytes available *)
+    (* On 64-bit OCaml, Int32.to_int is safe since OCaml int is 63 bits *)
+    if byte_pos + 4 <= t.src_len then begin
+      let combined = Int32.to_int (Bytes.get_int32_le t.src byte_pos) land 0xFFFFFFFF in
+      (combined lsr bit_offset) land bit_mask n_bits
+    end
+    (* Medium path: 3 bytes available, can still handle up to 24 bits *)
+    else if bits_needed <= 24 && byte_pos + 2 < t.src_len then begin
       let b0 = Char.code (Bytes.unsafe_get t.src byte_pos) in
       let b1 = Char.code (Bytes.unsafe_get t.src (byte_pos + 1)) in
       let b2 = Char.code (Bytes.unsafe_get t.src (byte_pos + 2)) in
@@ -57,7 +62,7 @@ let[@inline] peek_bits t n_bits =
       (combined lsr bit_offset) land bit_mask n_bits
     end
     else begin
-      (* Fallback for edge cases and larger reads *)
+      (* Fallback for edge cases near end of input *)
       let result = ref 0 in
       let bytes_shift = ref 0 in
       let buf_pos = ref byte_pos in

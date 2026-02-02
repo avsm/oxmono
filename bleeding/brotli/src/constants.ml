@@ -94,19 +94,13 @@ let[@inline always] fast_log2 v =
 (* Hash a 4-byte sequence from a bytes buffer.
    Returns a hash value with the specified number of bits. *)
 let[@inline always] hash4_bytes src pos bits =
-  let b0 = Char.code (Bytes.unsafe_get src pos) in
-  let b1 = Char.code (Bytes.unsafe_get src (pos + 1)) in
-  let b2 = Char.code (Bytes.unsafe_get src (pos + 2)) in
-  let b3 = Char.code (Bytes.unsafe_get src (pos + 3)) in
-  let v = b0 lor (b1 lsl 8) lor (b2 lsl 16) lor (b3 lsl 24) in
+  (* Use native 32-bit load instead of byte-by-byte loading *)
+  let v = Int32.to_int (Bytes.get_int32_le src pos) land 0xFFFFFFFF in
   ((v * hash_multiplier) land 0xFFFFFFFF) lsr (32 - bits)
 
 (* Hash a 4-byte sequence from a string.
    Returns a hash value with the specified number of bits. *)
 let[@inline always] hash4_string s pos bits =
-  let b0 = Char.code (String.unsafe_get s pos) in
-  let b1 = Char.code (String.unsafe_get s (pos + 1)) in
-  let b2 = Char.code (String.unsafe_get s (pos + 2)) in
-  let b3 = Char.code (String.unsafe_get s (pos + 3)) in
-  let v = b0 lor (b1 lsl 8) lor (b2 lsl 16) lor (b3 lsl 24) in
+  (* Use native 32-bit load instead of byte-by-byte loading *)
+  let v = Int32.to_int (String.get_int32_le s pos) land 0xFFFFFFFF in
   ((v * hash_multiplier) land 0xFFFFFFFF) lsr (32 - bits)

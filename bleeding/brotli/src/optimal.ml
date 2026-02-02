@@ -339,11 +339,8 @@ let zopfli_node_command_length node =
    ============================================================ *)
 
 let[@inline always] hash4 src pos =
-  let b0 = Char.code (Bytes.unsafe_get src pos) in
-  let b1 = Char.code (Bytes.unsafe_get src (pos + 1)) in
-  let b2 = Char.code (Bytes.unsafe_get src (pos + 2)) in
-  let b3 = Char.code (Bytes.unsafe_get src (pos + 3)) in
-  let v = b0 lor (b1 lsl 8) lor (b2 lsl 16) lor (b3 lsl 24) in
+  (* Use native 32-bit load instead of byte-by-byte loading *)
+  let v = Int32.to_int (Bytes.get_int32_le src pos) land 0xFFFFFFFF in
   ((v * 0x1e35a7bd) land 0xFFFFFFFF) lsr (32 - hash_bits)
 
 let[@inline always] find_match_length src a b limit =

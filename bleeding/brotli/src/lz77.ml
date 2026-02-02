@@ -98,48 +98,47 @@ let short_code_distances ring =
     second + 3;                (* 15 *)
   |]
 
-(* Find short distance code for a distance, or None if not found.
-   Returns the code that requires the fewest extra bits (codes 0-3 are best).
+(* Find short distance code for a distance. Returns -1 if no short code applies.
 
    Short code mapping (RFC 7932):
    - Codes 0-3: exact match to last 4 distances
    - Codes 4-9: last distance +/- 1,2,3
    - Codes 10-15: second-to-last distance +/- 1,2,3 *)
 let find_short_code ring distance =
-  if distance <= 0 then None
+  if distance <= 0 then -1
   else
     let last = get_last_distance ring 0 in
     let second = get_last_distance ring 1 in
-    (* Build candidate distances for each short code *)
-    let candidates = [|
-      last;                                         (* 0 *)
-      get_last_distance ring 1;                     (* 1 *)
-      get_last_distance ring 2;                     (* 2 *)
-      get_last_distance ring 3;                     (* 3 *)
-      (if last > 1 then last - 1 else -1);          (* 4 *)
-      last + 1;                                     (* 5 *)
-      (if last > 2 then last - 2 else -1);          (* 6 *)
-      last + 2;                                     (* 7 *)
-      (if last > 3 then last - 3 else -1);          (* 8 *)
-      last + 3;                                     (* 9 *)
-      (if second > 1 then second - 1 else -1);      (* 10 *)
-      second + 1;                                   (* 11 *)
-      (if second > 2 then second - 2 else -1);      (* 12 *)
-      second + 2;                                   (* 13 *)
-      (if second > 3 then second - 3 else -1);      (* 14 *)
-      second + 3;                                   (* 15 *)
-    |] in
-    (* Find first matching code (lower codes are more efficient) *)
-    Array.find_index (fun c -> c = distance) candidates
+    (* Check codes 0-3 (exact matches to last 4 distances) first *)
+    if distance = last then 0
+    else if distance = get_last_distance ring 1 then 1
+    else if distance = get_last_distance ring 2 then 2
+    else if distance = get_last_distance ring 3 then 3
+    (* Check codes 4-9 (last +/- 1,2,3) *)
+    else if last > 1 && distance = last - 1 then 4
+    else if distance = last + 1 then 5
+    else if last > 2 && distance = last - 2 then 6
+    else if distance = last + 2 then 7
+    else if last > 3 && distance = last - 3 then 8
+    else if distance = last + 3 then 9
+    (* Check codes 10-15 (second +/- 1,2,3) *)
+    else if second > 1 && distance = second - 1 then 10
+    else if distance = second + 1 then 11
+    else if second > 2 && distance = second - 2 then 12
+    else if distance = second + 2 then 13
+    else if second > 3 && distance = second - 3 then 14
+    else if distance = second + 3 then 15
+    else -1
 
-(* Command type with optional short distance code *)
+(* Command type with optional short distance code.
+   dist_code: -1 means no short code, 0-15 are valid short codes *)
 type command =
   | InsertCopy of {
       lit_start: int;
       lit_len: int;
       copy_len: int;
       distance: int;
-      dist_code: int option;  (* Some code for short codes 0-15, None for explicit *)
+      dist_code: int;  (* -1 = no short code, 0-15 = valid short code *)
     }
   | Literals of { start: int; len: int }
 
@@ -184,16 +183,15 @@ let backward_reference_penalty_using_last_distance distance_short_code =
 
 (* Score function matching brotli-c exactly *)
 let score_match copy_len distance dist_code =
-  match dist_code with
-  | Some 0 ->
+  if dist_code = 0 then
     (* Last distance - use special scoring with bonus *)
     backward_reference_score_using_last_distance copy_len
-  | Some code when code < 16 ->
+  else if dist_code > 0 && dist_code < 16 then
     (* Other short codes - score with last distance bonus minus penalty *)
     let score = backward_reference_score_using_last_distance copy_len in
-    score - backward_reference_penalty_using_last_distance code
-  | _ ->
-    (* Explicit distance - standard scoring *)
+    score - backward_reference_penalty_using_last_distance dist_code
+  else
+    (* Explicit distance (dist_code = -1) - standard scoring *)
     backward_reference_score copy_len distance
 
 (* Insert length code tables *)
@@ -216,10 +214,13 @@ let max_copy_len_for_insert insert_len =
   if insert_code >= 16 then 9 else max_match
 
 (* Try to find a match at a short code distance.
-   num_to_check controls how many short codes to check (4, 10, or 16 based on quality) *)
+   num_to_check controls how many short codes to check (4, 10, or 16 based on quality)
+   Returns (len, dist, code) or (0, 0, -1) if no match found *)
 let try_short_code_match ?(num_to_check=16) src pos limit ring =
   let candidates = short_code_distances ring in
-  let best = ref None in
+  let best_len = ref 0 in
+  let best_dist = ref 0 in
+  let best_code = ref (-1) in
   let best_score = ref 0 in
   for code = 0 to num_to_check - 1 do
     let dist = candidates.(code) in
@@ -227,15 +228,17 @@ let try_short_code_match ?(num_to_check=16) src pos limit ring =
       let prev = pos - dist in
       let match_len = find_match_length src prev pos limit in
       if match_len >= min_match then begin
-        let score = score_match match_len dist (Some code) in
+        let score = score_match match_len dist code in
         if score > !best_score then begin
-          best := Some (match_len, dist, code);
+          best_len := match_len;
+          best_dist := dist;
+          best_code := code;
           best_score := score
         end
       end
     end
   done;
-  !best
+  (!best_len, !best_dist, !best_code)
 
 (* Score a dictionary match *)
 let score_dict_match copy_len =
@@ -263,15 +266,16 @@ let get_literal_spree_length quality =
 (* Find best match using hash chain for higher quality levels.
    Matches brotli-c FindLongestMatch: first checks distance cache (short codes),
    then searches hash chain/bucket.
-   chain_table_base is the base offset used for chain_table indexing. *)
+   chain_table_base is the base offset used for chain_table indexing.
+   Returns (len, dist, code) or (0, 0, -1) if no match found *)
 let find_best_chain_match src pos src_end hash_table chain_table chain_table_base ring
     ~num_last_distances_to_check ~max_chain_depth =
-  if pos + min_match > src_end then None
+  if pos + min_match > src_end then (0, 0, -1)
   else begin
     let best_len = ref (min_match - 1) in  (* Start at min_match-1 so >= min_match wins *)
     let best_dist = ref 0 in
     let best_score = ref 0 in
-    let best_code = ref None in
+    let best_code = ref (-1) in
 
     (* First: try short code distances (distance cache) - like brotli-c *)
     let short_dists = short_code_distances ring in
@@ -284,12 +288,12 @@ let find_best_chain_match src pos src_end hash_table chain_table chain_table_bas
           (* brotli-c accepts len >= 3 for codes 0-1, >= 4 otherwise *)
           let min_len = if code < 2 then 3 else min_match in
           if match_len >= min_len then begin
-            let score = score_match match_len dist (Some code) in
+            let score = score_match match_len dist code in
             if score > !best_score then begin
               best_len := match_len;
               best_dist := dist;
               best_score := score;
-              best_code := Some code
+              best_code := code
             end
           end
         end
@@ -326,9 +330,9 @@ let find_best_chain_match src pos src_end hash_table chain_table chain_table_bas
     done;
 
     if !best_len >= min_match then
-      Some (!best_len, !best_dist, !best_code)
+      (!best_len, !best_dist, !best_code)
     else
-      None
+      (0, 0, -1)
   end
 
 (* Update hash chain. chain_table_base is the base offset for indexing. *)
@@ -395,8 +399,9 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
         incr pos;
         incr literal_spree
       end else begin
-      (* Find best match at current position *)
-      let hash_match =
+      (* Find best match at current position - returns (len, dist, code) tuple.
+         len=0 means no match found, dist_code=-1 means no short code. *)
+      let (hash_len, hash_dist, hash_code) =
         if quality >= 4 then
           find_best_chain_match src !pos src_end hash_table chain_table chain_table_base ring
             ~num_last_distances_to_check ~max_chain_depth
@@ -406,30 +411,30 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
           let prev = hash_table.(h) in
           hash_table.(h) <- !pos;
           (* Also check distance cache first *)
-          let short_match = try_short_code_match ~num_to_check:num_last_distances_to_check
+          let (slen, sdist, scode) = try_short_code_match ~num_to_check:num_last_distances_to_check
             src !pos src_end ring in
-          let hash_result =
-            if prev >= src_pos && !pos - prev <= max_backward_distance then begin
-              let match_len = find_match_length src prev !pos src_end in
-              if match_len >= min_match then
-                let distance = !pos - prev in
-                let dist_code = find_short_code ring distance in
-                Some (match_len, distance, dist_code)
-              else
-                None
-            end
+          if prev >= src_pos && !pos - prev <= max_backward_distance then begin
+            let match_len = find_match_length src prev !pos src_end in
+            if match_len >= min_match then begin
+              let distance = !pos - prev in
+              let dist_code = find_short_code ring distance in
+              (* Pick best between short code match and hash match *)
+              if slen >= min_match then begin
+                let s_score = score_match slen sdist scode in
+                let h_score = score_match match_len distance dist_code in
+                if s_score >= h_score then (slen, sdist, scode)
+                else (match_len, distance, dist_code)
+              end else
+                (match_len, distance, dist_code)
+            end else if slen >= min_match then
+              (slen, sdist, scode)
             else
-              None
-          in
-          (* Pick best between short code match and hash match *)
-          match short_match, hash_result with
-          | None, r -> r
-          | Some (len, dist, code), None -> Some (len, dist, Some code)
-          | Some (slen, sdist, scode), Some (hlen, hdist, hcode) ->
-            let s_score = score_match slen sdist (Some scode) in
-            let h_score = score_match hlen hdist hcode in
-            if s_score >= h_score then Some (slen, sdist, Some scode)
-            else Some (hlen, hdist, hcode)
+              (0, 0, -1)
+          end
+          else if slen >= min_match then
+            (slen, sdist, scode)
+          else
+            (0, 0, -1)
         end
       in
 
@@ -438,60 +443,61 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
         update_hash_chain src !pos hash_table chain_table chain_table_base;
 
       (* Try dictionary match if enabled *)
-      let dict_match =
+      let (dict_len, dict_dist) =
         if use_dict then begin
           let pending_lits = !pos - !pending_start in
           let current_output_pos = !output_pos + pending_lits in
-          Dict_match.find_match src !pos src_end max_backward_distance ~current_output_pos
+          match Dict_match.find_match src !pos src_end max_backward_distance ~current_output_pos with
+          | Some (len, dist) -> (len, dist)
+          | None -> (0, 0)
         end
         else
-          None
+          (0, 0)
       in
 
       (* Choose the best match based on score *)
-      let best_match =
-        match hash_match, dict_match with
-        | None, None -> None
-        | Some m, None -> Some m
-        | None, Some (dict_len, dict_dist) ->
-          Some (dict_len, dict_dist, None)
-        | Some (lz_len, lz_dist, lz_code), Some (dict_len, dict_dist) ->
-          let lz_score = score_match lz_len lz_dist lz_code in
+      let (match_len, distance, dist_code) =
+        if hash_len >= min_match && dict_len > 0 then begin
+          let lz_score = score_match hash_len hash_dist hash_code in
           let dict_score = score_dict_match dict_len in
           if dict_score > lz_score then
-            Some (dict_len, dict_dist, None)
+            (dict_len, dict_dist, -1)
           else
-            Some (lz_len, lz_dist, lz_code)
+            (hash_len, hash_dist, hash_code)
+        end
+        else if hash_len >= min_match then
+          (hash_len, hash_dist, hash_code)
+        else if dict_len > 0 then
+          (dict_len, dict_dist, -1)
+        else
+          (0, 0, -1)
       in
 
-      match best_match with
-      | Some (match_len, distance, dist_code) ->
+      if match_len >= min_match then begin
         (* Lazy matching for quality 4+: check if delaying gives better match *)
-        let final_match =
+        let use_match =
           if quality >= 4 && !pos + 1 < src_end - min_match && match_len < max_match then begin
             (* Update hash for next position *)
             update_hash_chain src (!pos + 1) hash_table chain_table chain_table_base;
-            let next_match = find_best_chain_match src (!pos + 1) src_end
+            let (next_len, next_dist, next_code) = find_best_chain_match src (!pos + 1) src_end
               hash_table chain_table chain_table_base ring
               ~num_last_distances_to_check ~max_chain_depth in
-            match next_match with
-            | Some (next_len, next_dist, next_code) ->
+            if next_len >= min_match then begin
               let curr_score = score_match match_len distance dist_code in
               let next_score = score_match next_len next_dist next_code - lazy_match_cost in
               if next_score > curr_score then begin
                 (* Skip current position, emit literal *)
                 incr pos;
-                pending_start := !pending_start;  (* Keep pending_start *)
-                None  (* Signal to continue loop *)
+                false  (* Don't use current match *)
               end else
-                Some (match_len, distance, dist_code)
-            | None -> Some (match_len, distance, dist_code)
+                true
+            end else
+              true
           end else
-            Some (match_len, distance, dist_code)
+            true
         in
 
-        (match final_match with
-        | Some (match_len, distance, dist_code) ->
+        if use_match then begin
           let lit_len = !pos - !pending_start in
           let max_copy = max_copy_len_for_insert lit_len in
           let copy_len = min match_len max_copy in
@@ -506,9 +512,8 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
 
           output_pos := !output_pos + lit_len + copy_len;
 
-          (match dist_code with
-           | Some 0 -> ()
-           | _ -> push_distance ring distance);
+          (* Don't update ring for dist_code=0 (reusing last distance) *)
+          if dist_code <> 0 then push_distance ring distance;
 
           (* Update hash for all positions in the match for better chain coverage *)
           let hash_update_count =
@@ -528,12 +533,13 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
           pending_start := !pos;
           (* Reset literal spree counter on match *)
           literal_spree := 0
-        | None ->
+        end else
           (* Lazy match chose to skip, position already incremented *)
-          incr literal_spree)
-      | None ->
+          incr literal_spree
+      end else begin
         incr pos;
         incr literal_spree
+      end
       end (* end of else begin for skip_this_position *)
     done;
 

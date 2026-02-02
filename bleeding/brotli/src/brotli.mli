@@ -208,7 +208,7 @@ module Debug : sig
         lit_len: int;     (** Number of literal bytes to insert *)
         copy_len: int;    (** Number of bytes to copy from back-reference *)
         distance: int;    (** Back-reference distance in bytes *)
-        dist_code: int option;  (** Short distance code [0]-[15] if used *)
+        dist_code: int;   (** Short distance code: -1=none, 0-15=short code *)
       }
     | Literals of { start: int; len: int }
   (** LZ77 command representation.

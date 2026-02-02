@@ -505,9 +505,8 @@ let write_compressed_block_with_context bw src _src_pos _src_len is_last context
 
   (* Helper to get distance code value *)
   let get_dist_code_val dist_code distance =
-    match dist_code with
-    | Some code -> code
-    | None ->
+    if dist_code >= 0 then dist_code
+    else
       let dist_code_val, _, _ = encode_distance distance in
       min dist_code_val (num_distance_codes - 1)
   in
@@ -542,7 +541,7 @@ let write_compressed_block_with_context bw src _src_pos _src_len is_last context
       done;
       let insert_code = get_insert_code lit_len in
       let copy_code = get_copy_code copy_len in
-      let use_implicit = dist_code = Some 0 in
+      let use_implicit = dist_code = 0 in
       let cmd_code = get_command_code insert_code copy_code use_implicit in
       let range_idx = cmd_code lsr 6 in
       cmd_freq.(cmd_code) <- cmd_freq.(cmd_code) + 1;
@@ -640,7 +639,7 @@ let write_compressed_block_with_context bw src _src_pos _src_len is_last context
     | Lz77.InsertCopy { lit_start; lit_len; copy_len; distance; dist_code } ->
       let insert_code = get_insert_code lit_len in
       let copy_code = get_copy_code copy_len in
-      let use_implicit = dist_code = Some 0 in
+      let use_implicit = dist_code = 0 in
       let cmd_code = get_command_code insert_code copy_code use_implicit in
       let range_idx = cmd_code lsr 6 in
       if num_cmd_symbols > 1 then
@@ -667,16 +666,16 @@ let write_compressed_block_with_context bw src _src_pos _src_len is_last context
         let dist_ctx = Context.distance_context copy_len in
         let dist_tree = dist_context_map.(dist_ctx) in
         let num_dist_symbols = count_used_symbols dist_freqs.(dist_tree) in
-        match dist_code with
-        | Some code ->
+        if dist_code >= 0 then begin
           if num_dist_symbols > 1 then
-            write_symbol bw dist_codes_arr.(dist_tree) dist_lengths_arr.(dist_tree) code
-        | None ->
+            write_symbol bw dist_codes_arr.(dist_tree) dist_lengths_arr.(dist_tree) dist_code
+        end else begin
           let dist_code_val, nbits, extra = encode_distance distance in
           if num_dist_symbols > 1 then
             write_symbol bw dist_codes_arr.(dist_tree) dist_lengths_arr.(dist_tree) dist_code_val;
           if nbits > 0 then
             Bit_writer.write_bits bw nbits extra
+        end
       end
   ) commands
 
@@ -746,21 +745,22 @@ let write_compressed_block bw src src_pos src_len is_last =
         done;
         let insert_code = get_insert_code lit_len in
         let copy_code = get_copy_code copy_len in
-        (* Only dist_code=Some 0 can use implicit distance (range_idx 0-1) *)
-        let use_implicit = dist_code = Some 0 in
+        (* Only dist_code=0 can use implicit distance (range_idx 0-1) *)
+        let use_implicit = dist_code = 0 in
         let cmd_code = get_command_code insert_code copy_code use_implicit in
         let range_idx = cmd_code lsr 6 in
         cmd_freq.(cmd_code) <- cmd_freq.(cmd_code) + 1;
         (* Count distance code if range_idx >= 2 (explicit distance) *)
         if range_idx >= 2 then begin
-          match dist_code with
-          | Some code -> dist_freq.(code) <- dist_freq.(code) + 1
-          | None ->
+          if dist_code >= 0 then
+            dist_freq.(dist_code) <- dist_freq.(dist_code) + 1
+          else begin
             let dist_code_val, _, _ = encode_distance distance in
             if dist_code_val < num_distance_codes then
               dist_freq.(dist_code_val) <- dist_freq.(dist_code_val) + 1
             else
               dist_freq.(num_distance_codes - 1) <- dist_freq.(num_distance_codes - 1) + 1
+          end
         end
         (* For range_idx 0-1, distance code 0 is implicit, don't count *)
     ) commands;
@@ -833,8 +833,8 @@ let write_compressed_block bw src src_pos src_len is_last =
       | Lz77.InsertCopy { lit_start; lit_len; copy_len; distance; dist_code } ->
         let insert_code = get_insert_code lit_len in
         let copy_code = get_copy_code copy_len in
-        (* Only dist_code=Some 0 can use implicit distance (range_idx 0-1) *)
-        let use_implicit = dist_code = Some 0 in
+        (* Only dist_code=0 can use implicit distance (range_idx 0-1) *)
+        let use_implicit = dist_code = 0 in
         let cmd_code = get_command_code insert_code copy_code use_implicit in
         let range_idx = cmd_code lsr 6 in
         if num_cmd_symbols > 1 then
@@ -857,17 +857,17 @@ let write_compressed_block bw src src_pos src_len is_last =
            For range_idx 0-1 (command codes 0-127), the decoder uses implicit distance code 0
            and does NOT read from the stream. For range_idx >= 2, we must write the distance code. *)
         if range_idx >= 2 then begin
-          match dist_code with
-          | Some code ->
+          if dist_code >= 0 then begin
             (* Short codes 0-15 - just write the code, no extra bits *)
             if num_dist_symbols > 1 then
-              write_symbol bw dist_codes dist_lengths code
-          | None ->
+              write_symbol bw dist_codes dist_lengths dist_code
+          end else begin
             let dist_code_val, nbits, extra = encode_distance distance in
             if num_dist_symbols > 1 then
               write_symbol bw dist_codes dist_lengths dist_code_val;
             if nbits > 0 then
               Bit_writer.write_bits bw nbits extra
+          end
         end
         (* For range_idx 0-1, distance code 0 is implicit, don't write anything *)
     ) commands
@@ -1037,7 +1037,7 @@ let streaming_bytes_written encoder =
 
 (* Re-export command type for Debug module *)
 type command = Lz77.command =
-  | InsertCopy of { lit_start: int; lit_len: int; copy_len: int; distance: int; dist_code: int option }
+  | InsertCopy of { lit_start: int; lit_len: int; copy_len: int; distance: int; dist_code: int }
   | Literals of { start: int; len: int }
 
 let generate_commands src src_pos src_len =

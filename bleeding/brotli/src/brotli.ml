@@ -84,7 +84,7 @@ let max_window_bits = 22
 (* Debug module for testing *)
 module Debug = struct
   type command = Brotli_encode.command =
-    | InsertCopy of { lit_start: int; lit_len: int; copy_len: int; distance: int; dist_code: int option }
+    | InsertCopy of { lit_start: int; lit_len: int; copy_len: int; distance: int; dist_code: int }
     | Literals of { start: int; len: int }
 
   let generate_commands src src_pos src_len =

@@ -931,10 +931,10 @@ let zopfli_create_commands num_bytes src_pos nodes =
     let copy_start = end_pos - copy_len in
     let lit_len = copy_start - !pending_lit_start in
 
-    (* Determine short code *)
+    (* Determine short code: -1 = no short code, 0-15 = valid short code *)
     let short_code =
-      if dist_code < 16 then Some dist_code
-      else None
+      if dist_code < 16 then dist_code
+      else -1
     in
 
     commands := Lz77.InsertCopy {
@@ -946,9 +946,7 @@ let zopfli_create_commands num_bytes src_pos nodes =
     } :: !commands;
 
     (* Update ring buffer *)
-    (match short_code with
-     | Some 0 -> ()
-     | _ -> Lz77.push_distance ring distance);
+    if short_code <> 0 then Lz77.push_distance ring distance;
 
     pending_lit_start := end_pos
   ) !path;

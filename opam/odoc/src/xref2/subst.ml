@@ -446,7 +446,11 @@ let rec resolved_signature_fragment :
       let p =
         match resolved_module_type_path t p with
         | Not_replaced p -> p
-        | Replaced _ -> assert false
+        | Replaced _ ->
+            (* The module type path was replaced by an expression. We can't keep
+               it as a resolved fragment, so raise Invalidated to trigger
+               unresolving. This can happen with OxCaml mode types. *)
+            raise Invalidated
       in
       `Root (`ModuleType p)
   | `Root (`Module p) -> `Root (`Module (resolved_module_path t p))
@@ -488,7 +492,11 @@ and resolved_type_fragment : t -> Cfrag.resolved_type -> Cfrag.resolved_type =
 let rec signature_fragment : t -> Cfrag.signature -> Cfrag.signature =
  fun t r ->
   match r with
-  | `Resolved f -> `Resolved (resolved_signature_fragment t f)
+  | `Resolved f -> (
+      try `Resolved (resolved_signature_fragment t f)
+      with Invalidated ->
+        let frag' = Cfrag.unresolve_signature f in
+        signature_fragment t frag')
   | `Dot (sg, n) -> `Dot (signature_fragment t sg, n)
   | `Root -> `Root
 

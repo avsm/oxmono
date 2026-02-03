@@ -1,3 +1,13 @@
+# Unreleased
+
+### Added
+- Allow persistent latex macros in HTML/KaTeX backend (@dlesbre, #1391)
+- `markdown-generate` command now accepts multiple `.odocl` files in a single
+  invocation, eliminating the need for shell scripting (@davesnx, #1387)
+
+### Fixed
+- Fix compile-time crashing bugs #930 and #1385 (@jonludlam, #1400)
+
 # 3.1.0
 
 ### Added
@@ -6,9 +16,6 @@
 - New arguments to LaTeX generator, --shorten-beyond-depth and
   --remove-functor-arg-link (@Octachron, #1337)
 - New experimental markdown generator (@davesnx, #1341)
-- `markdown-generate` command now accepts multiple `.odocl` files in a single
-  invocation, eliminating the need for shell scripting (@davesnx)
-- Allow persistent latex macros in HTML/KaTeX backend (@dlesbre, #1391)
 
 ### Changed
 - Remove cmdliner compatibility layer, no longer needed (@dbuenzli, #1328)

@@ -1,3 +1,0 @@
-(install
- (files odoc-config.sexp)
- (section doc))

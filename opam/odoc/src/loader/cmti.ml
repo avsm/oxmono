@@ -874,7 +874,13 @@ and read_include env parent incl =
   let container = (parent : Identifier.Signature.t :> Identifier.LabelParent.t) in
   let doc, status = Doc_attr.attached ~warnings_tag:env.warnings_tag Odoc_model.Semantics.Expect_status container incl.incl_attributes in
   let content, shadowed = Cmi.read_signature_noenv env parent (Odoc_model.Compat.signature incl.incl_type) in
-  let expr = read_module_type env parent container incl.incl_mod in
+  (* Use a synthetic parent for the include's module type expression to avoid
+     identifier conflicts with items in the enclosing signature. Items inside
+     the include expression (like TypeSubstitutions) will get identifiers under
+     this synthetic parent, which won't clash with the real parent's items. *)
+  let include_parent = Identifier.fresh_include_parent parent in
+  let include_container = (include_parent :> Identifier.LabelParent.t) in
+  let expr = read_module_type env include_parent include_container incl.incl_mod in
   let umty = Odoc_model.Lang.umty_of_mty expr in 
   let expansion = { content; shadowed; } in
 #if defined OXCAML

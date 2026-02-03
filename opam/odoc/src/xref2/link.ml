@@ -772,7 +772,7 @@ and handle_fragments env id sg subs =
   List.fold_left
     (fun (sg_res, subs) lsub ->
       match (sg_res, lsub) with
-      | Result.Ok sg, ModuleEq (frag, decl) ->
+      | Ok sg, ModuleEq (frag, decl) ->
           let frag' =
             match frag with
             | `Resolved f ->
@@ -1132,7 +1132,11 @@ and type_expression : Env.t -> Id.Signature.t -> _ -> _ =
         ( lbl,
           type_expression env parent visited t1,
           type_expression env parent visited t2 )
-  | Tuple ts -> Tuple (List.map (fun (l, t) -> l, type_expression env parent visited t) ts)
+  | Tuple ts ->
+      Tuple
+        (List.map
+           (fun (lbl, ty) -> (lbl, type_expression env parent visited ty))
+           ts)
   | Unboxed_tuple ts ->
     Unboxed_tuple (List.map (fun (l, t) -> l, type_expression env parent visited t) ts)
   | Constr (path', ts') -> (
@@ -1198,6 +1202,8 @@ and type_expression : Env.t -> Id.Signature.t -> _ -> _ =
             Class (`Resolved p, ts)
         | _ -> Class (path', ts))
   | Poly (strs, t) -> Poly (strs, type_expression env parent visited t)
+  | Quote t -> Quote (type_expression env parent visited t)
+  | Splice t -> Splice (type_expression env parent visited t)
   | Package p -> Package (type_expression_package env parent visited p)
 
 let link ~filename x y =

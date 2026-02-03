@@ -21,7 +21,7 @@ module Source_loc_jane = struct
 
   let of_location (build_dir : string) (loc: Location.t) =
     let { Location.loc_start ; _ } = loc in
-    let { pos_fname ; pos_lnum ; _ } = loc_start in
+    let { Lexing.pos_fname ; pos_lnum ; _ } = loc_start in
     { filename = build_dir ^ "/" ^ pos_fname ; line_number = pos_lnum }
 end
 
@@ -261,7 +261,7 @@ and TypeDecl : sig
       | Extensible
   end
 
-  type variance = Pos | Neg
+  type variance = Pos | Neg | Bivariant
 
   type param_desc = Any | Var of string
 
@@ -481,6 +481,8 @@ and TypeExpr : sig
     | Object of TypeExpr.Object.t
     | Class of Path.ClassType.t * t list
     | Poly of string list * t
+    | Quote of t
+    | Splice of t
     | Package of TypeExpr.Package.t
 end =
   TypeExpr

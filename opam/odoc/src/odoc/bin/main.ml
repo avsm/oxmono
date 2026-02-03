@@ -4,6 +4,7 @@
    output the result to. *)
 
 open Odoc_utils
+open ResultMonad
 module List = ListLabels
 open Odoc_odoc
 open Cmdliner
@@ -37,7 +38,7 @@ let convert_directory ?(create = false) () : Fs.Directory.t Arg.conv =
 let convert_fpath =
   let parse inp =
     match Arg.(conv_parser file) inp with
-    | Ok s -> Result.Ok (Fs.File.of_string s)
+    | Ok s -> Ok (Fs.File.of_string s)
     | Error _ as e -> e
   and print = Fpath.pp in
   Arg.conv (parse, print)
@@ -45,7 +46,7 @@ let convert_fpath =
 let convert_named_root =
   let parse inp =
     match String.cuts inp ~sep:":" with
-    | [ s1; s2 ] -> Result.Ok (s1, Fs.Directory.of_string s2)
+    | [ s1; s2 ] -> Ok (s1, Fs.Directory.of_string s2)
     | _ -> Error (`Msg "")
   in
   let print ppf (s, t) =
@@ -54,7 +55,7 @@ let convert_named_root =
   Arg.conv (parse, print)
 
 let handle_error = function
-  | Result.Ok () -> ()
+  | Ok () -> ()
   | Error (`Cli_error msg) ->
       Printf.eprintf "%s\n%!" msg;
       exit 2
@@ -86,7 +87,7 @@ module Antichain = struct
             rest
           && check rest
     in
-    if check l then Result.Ok ()
+    if check l then Ok ()
     else
       let msg =
         Format.sprintf "Paths given to all %s options must be disjoint" opt
@@ -225,7 +226,6 @@ end = struct
   let compile hidden directories resolve_fwd_refs dst output_dir package_opt
       parent_name_opt parent_id_opt open_modules children input warnings_options
       unique_id short_title =
-    let open Or_error in
     let _ =
       match unique_id with
       | Some id -> Odoc_model.Names.set_unique_ident id
@@ -476,8 +476,6 @@ module Compile_impl = struct
 end
 
 module Indexing = struct
-  open Or_error
-
   let output_file ~dst marshall =
     match (dst, marshall) with
     | Some file, `JSON
@@ -578,8 +576,6 @@ module Indexing = struct
 end
 
 module Sidebar = struct
-  open Or_error
-
   let output_file ~dst marshall =
     match (dst, marshall) with
     | Some file, `JSON when not (Fpath.has_ext "json" (Fpath.v file)) ->
@@ -668,8 +664,6 @@ end = struct
     match output_file with
     | Some file -> Fs.File.of_string file
     | None -> Fs.File.(set_ext ".odocl" input)
-
-  open Or_error
 
   (** Find the package/library name the output is part of *)
   let find_root_of_input l o =
@@ -870,6 +864,10 @@ end = struct
     let doc = "Input file." in
     Arg.(required & pos 0 (some file) None & info ~doc ~docv:"FILE.odocl" [])
 
+  let input_odocl_list =
+    let doc = "Input file(s)." in
+    Arg.(non_empty & pos_all file [] & info ~doc ~docv:"FILE.odocl" [])
+
   module Process = struct
     let process extra _hidden directories output_dir syntax input_file
         warnings_options =
@@ -908,11 +906,16 @@ end = struct
   let process ~docs = Process.(cmd, info ~docs)
 
   module Generate = struct
-    let generate extra _hidden output_dir syntax extra_suffix input_file
+    let generate extra _hidden output_dir syntax extra_suffix input_files
         warnings_options sidebar =
-      let file = Fs.File.of_string input_file in
-      Rendering.generate_odoc ~renderer:R.renderer ~warnings_options ~syntax
-        ~output:output_dir ~extra_suffix ~sidebar extra file
+      let process_file input_file =
+        let file = Fs.File.of_string input_file in
+        Rendering.generate_odoc ~renderer:R.renderer ~warnings_options ~syntax
+          ~output:output_dir ~extra_suffix ~sidebar extra file
+      in
+      List.fold_left
+        ~f:(fun acc input_file -> acc >>= fun () -> process_file input_file)
+        ~init:(Ok ()) input_files
 
     let sidebar =
       let doc = "A .odoc-index file, used eg to generate the sidebar." in
@@ -933,11 +936,12 @@ end = struct
       Term.(
         const handle_error
         $ (const generate $ R.extra_args $ hidden $ dst ~create:true () $ syntax
-         $ extra_suffix $ input_odocl $ warnings_options $ sidebar))
+         $ extra_suffix $ input_odocl_list $ warnings_options $ sidebar))
 
     let info ~docs =
       let doc =
-        Format.sprintf "Generate %s files from a $(i,.odocl)." R.renderer.name
+        Format.sprintf "Generate %s files from one or more $(i,.odocl) files."
+          R.renderer.name
       in
       Cmd.info ~docs ~doc (R.renderer.name ^ "-generate")
   end
@@ -1273,7 +1277,7 @@ module Odoc_html_args = struct
     let convert_remap =
       let parse inp =
         match String.cut ~sep:":" inp with
-        | Some (orig, mapped) -> Result.Ok (orig, mapped)
+        | Some (orig, mapped) -> Ok (orig, mapped)
         | _ -> Error (`Msg "Map must be of the form '<orig>:https://...'")
       and print fmt (orig, mapped) = Format.fprintf fmt "%s:%s" orig mapped in
       Arg.conv (parse, print)
@@ -1313,6 +1317,18 @@ module Odoc_html_args = struct
 end
 
 module Odoc_html = Make_renderer (Odoc_html_args)
+
+module Odoc_markdown_cmd = Make_renderer (struct
+  type args = Odoc_markdown.Config.t
+
+  let render config _sidebar page = Odoc_markdown.Generator.render ~config page
+
+  let filepath config url = Odoc_markdown.Generator.filepath ~config url
+
+  let extra_args =
+    Term.const { Odoc_markdown.Config.root_url = None; allow_html = true }
+  let renderer = { Odoc_document.Renderer.name = "markdown"; render; filepath }
+end)
 
 module Odoc_html_url : sig
   val cmd : unit Term.t
@@ -1410,9 +1426,25 @@ module Odoc_latex = Make_renderer (struct
     let doc = "Include children at the end of the page." in
     Arg.(value & opt bool true & info ~docv:"BOOL" ~doc [ "with-children" ])
 
+  let shorten_beyond_depth =
+    let doc = "Shorten items beyond the given depth." in
+    Arg.(
+      value
+      & opt (some' int) None
+      & info ~docv:"INT" ~doc [ "shorten-beyond-depth" ])
+
+  let remove_functor_arg_link =
+    let doc = "Remove link to functor argument." in
+    Arg.(
+      value & opt bool false
+      & info ~docv:"BOOL" ~doc [ "remove-functor-arg-link" ])
+
   let extra_args =
-    let f with_children = { Latex.with_children } in
-    Term.(const f $ with_children)
+    let f with_children shorten_beyond_depth remove_functor_arg_link =
+      { Latex.with_children; shorten_beyond_depth; remove_functor_arg_link }
+    in
+    Term.(
+      const f $ with_children $ shorten_beyond_depth $ remove_functor_arg_link)
 end)
 
 module Depends = struct
@@ -1475,7 +1507,6 @@ module Depends = struct
       | Some p -> Format.fprintf pp "%a/" fmt_page p
 
     let list_dependencies input_file =
-      let open Or_error in
       Depends.for_rendering_step (Fs.Directory.of_string input_file)
       >>= fun depends ->
       List.iter depends ~f:(fun (root : Odoc_model.Root.t) ->
@@ -1559,8 +1590,6 @@ module Targets = struct
 end
 
 module Occurrences = struct
-  open Or_error
-
   let dst_of_string s =
     let f = Fs.File.of_string s in
     if not (Fs.File.has_ext ".odoc-occurrences" f) then
@@ -1568,9 +1597,9 @@ module Occurrences = struct
     else Ok f
 
   module Count = struct
-    let count directories dst revision warnings_options include_hidden =
+    let count directories dst warnings_options include_hidden =
       dst_of_string dst >>= fun dst ->
-      Occurrences.count ~dst ~warnings_options ~revision directories include_hidden
+      Occurrences.count ~dst ~warnings_options directories include_hidden
 
     let cmd =
       let dst =
@@ -1579,13 +1608,6 @@ module Occurrences = struct
           required
           & opt (some string) None
           & info ~docs ~docv:"PATH" ~doc [ "o" ])
-      in
-      let revision =
-        let doc = "Current hg revision id" in
-        Arg.(
-          value & opt (some string) None
-          & info ~docs ~doc ["revision"]
-        )
       in
       let include_hidden =
         let doc = "Include hidden identifiers in the table" in
@@ -1603,7 +1625,7 @@ module Occurrences = struct
       in
       Term.(
         const handle_error
-        $ (const count $ input $ dst $ revision $ warnings_options $ include_hidden))
+        $ (const count $ input $ dst $ warnings_options $ include_hidden))
 
     let info ~docs =
       let doc =
@@ -1614,7 +1636,7 @@ module Occurrences = struct
       Cmd.info "count-occurrences" ~docs ~doc
   end
   module Aggregate = struct
-    let index dst files file_list warnings_options =
+    let index dst files file_list strip_path warnings_options =
       match (files, file_list) with
       | [], [] ->
           Error
@@ -1623,7 +1645,8 @@ module Occurrences = struct
                 to odoc aggregate-occurrences")
       | _ ->
           dst_of_string dst >>= fun dst ->
-          Occurrences.aggregate ~dst ~warnings_options files file_list
+          Occurrences.aggregate ~dst ~warnings_options ~strip_path files
+            file_list
 
     let cmd =
       let dst =
@@ -1646,9 +1669,14 @@ module Occurrences = struct
         let doc = "file created with count-occurrences" in
         Arg.(value & pos_all convert_fpath [] & info ~doc ~docv:"FILE" [])
       in
+      let strip_path =
+        let doc = "Strip package/version information from paths" in
+        Arg.(value & flag & info ~doc [ "strip-path" ])
+      in
       Term.(
         const handle_error
-        $ (const index $ dst $ inputs $ inputs_in_file $ warnings_options))
+        $ (const index $ dst $ inputs $ inputs_in_file $ strip_path
+         $ warnings_options))
 
     let info ~docs =
       let doc = "Aggregate hashtables created with odoc count-occurrences." in
@@ -1659,7 +1687,6 @@ end
 module Odoc_error = struct
   let errors input =
     let open Odoc_odoc in
-    let open Or_error in
     let input = Fs.File.of_string input in
     Odoc_file.load input >>= fun unit ->
     Odoc_model.Error.print_errors unit.warnings;
@@ -1762,6 +1789,9 @@ let () =
          Compile_impl.(cmd, info ~docs:section_pipeline);
          Indexing.(cmd, info ~docs:section_pipeline);
          Sidebar.(cmd, info ~docs:section_pipeline);
+         Odoc_markdown_cmd.generate ~docs:section_generators;
+         Odoc_markdown_cmd.generate_source ~docs:section_generators;
+         Odoc_markdown_cmd.targets ~docs:section_support;
          Odoc_manpage.generate ~docs:section_generators;
          Odoc_latex.generate ~docs:section_generators;
          Odoc_html_url.(cmd, info ~docs:section_support);

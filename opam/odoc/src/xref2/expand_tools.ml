@@ -25,7 +25,7 @@ let handle_expansion env id expansion =
         (env', Subst.module_type_expr subst expr)
   in
   let rec expand id env expansion :
-      (Env.t * Component.ModuleType.simple_expansion, _) Result.result =
+      (Env.t * Component.ModuleType.simple_expansion, _) result =
     match expansion with
     | Tools.Signature sg ->
         Ok
@@ -57,7 +57,7 @@ let rec type_expr map t =
   | Alias (t, s) ->
       if List.mem_assoc s map then raise Clash else Alias (type_expr map t, s)
   | Arrow (l, t1, t2) -> Arrow (l, type_expr map t1, type_expr map t2)
-  | Tuple ts -> Tuple (List.map (fun (l, t) -> l, type_expr map t) ts)
+  | Tuple ts -> Tuple (List.map (fun (l, ty) -> (l, type_expr map ty)) ts)
   | Unboxed_tuple ts -> Unboxed_tuple (List.map (fun (l, t) -> l, type_expr map t) ts)
   | Constr (p, ts) -> Constr (p, List.map (type_expr map) ts)
   | Polymorphic_variant pv -> Polymorphic_variant (polymorphic_variant map pv)
@@ -65,6 +65,8 @@ let rec type_expr map t =
   | Class (path, ts) -> Class (path, List.map (type_expr map) ts)
   | Poly (s, t) -> Poly (s, type_expr map t)
   | Package p -> Package (package map p)
+  | Quote t -> Quote (type_expr map t)
+  | Splice t -> Splice (type_expr map t)
 
 and polymorphic_variant map pv =
   let open Lang.TypeExpr.Polymorphic_variant in

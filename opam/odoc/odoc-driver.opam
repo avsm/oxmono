@@ -5,7 +5,6 @@ homepage: "https://github.com/ocaml/odoc"
 doc: "https://ocaml.github.io/odoc/"
 bug-reports: "https://github.com/ocaml/odoc/issues"
 license: "ISC"
-flags: [ avoid-version ]
 
 maintainer: [
   "Daniel Bünzli <daniel.buenzli@erratique.ch>"
@@ -36,10 +35,10 @@ documentation for installed packages.
 depends: [
   "ocaml" {>= "5.1.0"}
   "odoc" {= version}
-  "dune" {>= "3.7.0"}
+  "dune" {>= "3.21.0"}
   "odoc-md"
   "bos"
-  "fpath"
+  "fpath" {>= "0.7.3"}
   "yojson" {>= "2.0.0"}
   "ocamlfind"
   "opam-format" {>= "2.1.0"}

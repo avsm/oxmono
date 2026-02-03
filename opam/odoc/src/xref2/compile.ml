@@ -917,7 +917,9 @@ and type_expression : Env.t -> Id.LabelParent.t -> _ -> _ =
   | Var _ | Any -> texpr
   | Alias (t, str) -> Alias (type_expression env parent t, str)
   | Arrow (lbl, t1, t2) -> handle_arrow env parent lbl t1 t2
-  | Tuple ts -> Tuple (List.map (fun (l, t) -> l, type_expression env parent t) ts)
+  | Tuple ts ->
+      Tuple
+        (List.map (fun (lbl, ty) -> (lbl, type_expression env parent ty)) ts)
   | Unboxed_tuple ts ->
     Unboxed_tuple (List.map (fun (l, t) -> l, type_expression env parent t) ts)
   | Constr (path, ts') -> (
@@ -945,6 +947,8 @@ and type_expression : Env.t -> Id.LabelParent.t -> _ -> _ =
           Class (`Resolved p, ts')
       | _ -> Class (path, ts'))
   | Poly (strs, t) -> Poly (strs, type_expression env parent t)
+  | Quote t -> Quote (type_expression env parent t)
+  | Splice t -> Splice (type_expression env parent t)
   | Package p -> Package (type_expression_package env parent p)
 
 let compile ~filename env compilation_unit =

@@ -168,7 +168,9 @@ type t = {
   ids : ElementsById.t;
       (** Elements mapped by their identifier. Queried with {!find_by_id}. *)
   ambiguous_labels : Component.Element.label amb_err Identifier.Maps.Label.t;
-  ambiguous_unboxed_labels : Component.Element.label amb_err Identifier.Maps.Label.t;
+  ambiguous_unboxed_labels :
+    Component.Element.label amb_err Identifier.Maps.Label.t;
+      [@warning "-unused-field"]
   resolver : resolver option;
   recorder : recorder option;
   warnings_tags : string list;
@@ -284,7 +286,9 @@ let add_docs (docs : Comment.docs) env =
     (fun env -> function
       | { Location_.value = `Heading (attrs, id, text); location } ->
           let label = Ident.Of_Identifier.label id in
-          add_label id { Component.Label.attrs; label; text; location } env ~unboxed:false
+          add_label id
+            { Component.Label.attrs; label; text; location }
+            env ~unboxed:false
       | _ -> env)
     env docs.elements
 
@@ -496,7 +500,7 @@ type 'a scope = {
   root : string -> t -> 'a option;
 }
 
-type 'a maybe_ambiguous = ('a, [ 'a amb_err | `Not_found ]) Result.t
+type 'a maybe_ambiguous = ('a, [ 'a amb_err | `Not_found ]) result
 
 let make_scope ?(root = fun _ _ -> None) ?check
     (filter : _ -> ([< Component.Element.any ] as 'a) option) : 'a scope =
@@ -520,12 +524,10 @@ let lookup_by_name scope name env =
   with
   | ([ x ] as results), Some c -> (
       record_lookup_results env results;
-      match c env x with
-      | Some (`Ambiguous _ as e) -> Result.Error e
-      | None -> Result.Ok x)
+      match c env x with Some (`Ambiguous _ as e) -> Error e | None -> Ok x)
   | ([ x ] as results), None ->
       record_lookup_results env results;
-      Result.Ok x
+      Ok x
   | (x :: tl as results), _ ->
       record_lookup_results env results;
       Error (`Ambiguous (x, tl))
@@ -645,7 +647,9 @@ let s_field : Component.Element.field scope =
   make_scope (function #Component.Element.field as r -> Some r | _ -> None)
 
 let s_unboxed_field : Component.Element.unboxed_field scope =
-  make_scope (function #Component.Element.unboxed_field as r -> Some r | _ -> None)
+  make_scope (function
+    | #Component.Element.unboxed_field as r -> Some r
+    | _ -> None)
 
 let s_label_parent : Component.Element.label_parent scope =
   make_scope ~root:lookup_page_or_root_module_fallback (function

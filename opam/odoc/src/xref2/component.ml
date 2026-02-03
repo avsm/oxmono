@@ -130,6 +130,8 @@ and TypeExpr : sig
     | Object of TypeExpr.Object.t
     | Class of Cpath.class_type * t list
     | Poly of string list * t
+    | Quote of t
+    | Splice of t
     | Package of TypeExpr.Package.t
 end =
   TypeExpr
@@ -1052,7 +1054,7 @@ module Fmt = struct
   and type_decl_constructor_arg c ppf =
     let open TypeDecl.Constructor in
     function
-    | Tuple ts -> type_tuple c ppf ts
+    | Tuple ts -> type_constructor_params c ppf ts
     | Record fs -> type_decl_fields c ppf fs
 
   and type_decl_field c ppf t =
@@ -1071,13 +1073,18 @@ module Fmt = struct
   and type_decl_unboxed_fields c ppf fs =
     fpf ppf "#{ %a }" (fpp_list "; " "%a" (type_decl_unboxed_field c)) fs
 
-  and type_tuple c ppf ts = fpp_list " * " "%a" (type_expr c) ppf ts
+  and type_constructor_params c ppf ts =
+    fpp_list " * " "%a" (type_expr c) ppf ts
 
   and type_param ppf t =
     let desc =
       match t.Odoc_model.Lang.TypeDecl.desc with Any -> "_" | Var n -> n
     and variance =
-      match t.variance with Some Pos -> "+" | Some Neg -> "-" | None -> ""
+      match t.variance with
+      | Some Pos -> "+"
+      | Some Neg -> "-"
+      | Some Bivariant -> "+-"
+      | None -> ""
     and injectivity = if t.injectivity then "!" else "" in
     Format.fprintf ppf "%s%s%s" variance injectivity desc
 
@@ -1136,18 +1143,17 @@ module Fmt = struct
         Format.fprintf ppf "%a * %a" (type_expr c) t (type_expr_list c) ts
     | [] -> ()
 
-  and labeled_type_expr_list c ppf l =
-    let label ppf lbl =
-      match lbl with
-        None -> ()
-      | Some lbl -> Format.fprintf ppf "%s:" lbl
-    in
+  and type_labeled_tuple c ppf l =
     match l with
-    | [ lbl, t ] -> Format.fprintf ppf "%a%a" label lbl (type_expr c) t
-    | (lbl, t) :: ts ->
-      Format.fprintf ppf "%a%a * %a"
-        label lbl (type_expr c) t (labeled_type_expr_list c) ts
+    | [ t ] -> with_label c ppf t
+    | t :: ts ->
+        Format.fprintf ppf "%a * %a" (with_label c) t (type_labeled_tuple c) ts
     | [] -> ()
+
+  and with_label c ppf (l, ty) =
+    match l with
+    | None -> type_expr c ppf ty
+    | Some lbl -> Format.fprintf ppf "%s:%a" lbl (type_expr c) ty
 
   and type_object _c ppf _o = Format.fprintf ppf "(object)"
 
@@ -1184,8 +1190,8 @@ module Fmt = struct
     | Arrow (l, t1, t2) ->
         Format.fprintf ppf "%a(%a) -> %a" type_expr_label l (type_expr c) t1
           (type_expr c) t2
-    | Tuple ts -> Format.fprintf ppf "(%a)" (labeled_type_expr_list c) ts
-    | Unboxed_tuple ts -> Format.fprintf ppf "#(%a)" (labeled_type_expr_list c) ts
+    | Tuple ts -> Format.fprintf ppf "(%a)" (type_labeled_tuple c) ts
+    | Unboxed_tuple ts -> Format.fprintf ppf "#(%a)" (type_labeled_tuple c) ts
     | Constr (p, args) -> (
         match args with
         | [] -> Format.fprintf ppf "%a" (type_path c) p
@@ -1199,6 +1205,8 @@ module Fmt = struct
     | Object x -> type_object c ppf x
     | Class (x, y) -> type_class c ppf (x, y)
     | Poly (_ss, _t) -> Format.fprintf ppf "(poly)"
+    | Quote t -> Format.fprintf ppf "(quote %a)" (type_expr c) t
+    | Splice t -> Format.fprintf ppf "(splice %a)" (type_expr c) t
     | Package x -> type_package c ppf x
 
   and resolved_module_path :
@@ -2329,7 +2337,9 @@ module Of_Lang = struct
         Constr (type_path ident_map p, List.map (type_expression ident_map) xs)
     | Arrow (lbl, t1, t2) ->
         Arrow (lbl, type_expression ident_map t1, type_expression ident_map t2)
-    | Tuple ts -> Tuple (List.map (fun (l, t) -> l, type_expression ident_map t) ts)
+    | Tuple ts ->
+        Tuple
+          (List.map (fun (lbl, ty) -> (lbl, type_expression ident_map ty)) ts)
     | Unboxed_tuple ts ->
         Unboxed_tuple (List.map (fun (l, t) -> l, type_expression ident_map t) ts)
     | Polymorphic_variant v ->
@@ -2340,6 +2350,8 @@ module Of_Lang = struct
         Class
           (class_type_path ident_map p, List.map (type_expression ident_map) ts)
     | Object o -> Object (type_object ident_map o)
+    | Quote t -> Quote (type_expression ident_map t)
+    | Splice t -> Splice (type_expression ident_map t)
     | Package p -> Package (type_package ident_map p)
 
   and module_decl ident_map m =

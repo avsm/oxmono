@@ -123,7 +123,8 @@ let rec substitute_vars vars t =
   | Alias (t, str) -> Alias (substitute_vars vars t, str)
   | Arrow (lbl, t1, t2) ->
       Arrow (lbl, substitute_vars vars t1, substitute_vars vars t2)
-  | Tuple ts -> Tuple (List.map (fun (l, t) -> l, substitute_vars vars t) ts)
+  | Tuple ts ->
+      Tuple (List.map (fun (lbl, ty) -> (lbl, substitute_vars vars ty)) ts)
   | Unboxed_tuple ts ->
     Unboxed_tuple (List.map (fun (l, t) -> l, substitute_vars vars t) ts)
   | Constr (p, ts) -> Constr (p, List.map (substitute_vars vars) ts)
@@ -132,6 +133,8 @@ let rec substitute_vars vars t =
   | Object o -> Object (substitute_vars_type_object vars o)
   | Class (p, ts) -> Class (p, List.map (substitute_vars vars) ts)
   | Poly (strs, ts) -> Poly (strs, substitute_vars vars ts)
+  | Quote t -> Quote (substitute_vars vars t)
+  | Splice t -> Splice (substitute_vars vars t)
   | Package p -> Package (substitute_vars_package vars p)
 
 and substitute_vars_package vars p =
@@ -550,7 +553,7 @@ and type_expr s t =
   | Any -> Any
   | Alias (t, str) -> Alias (type_expr s t, str)
   | Arrow (lbl, t1, t2) -> Arrow (lbl, type_expr s t1, type_expr s t2)
-  | Tuple ts -> Tuple (List.map (fun (l, t) -> l, type_expr s t) ts)
+  | Tuple ts -> Tuple (List.map (fun (lbl, ty) -> (lbl, type_expr s ty)) ts)
   | Unboxed_tuple ts -> Unboxed_tuple (List.map (fun (l, t) -> l, type_expr s t) ts)
   | Constr (p, ts) -> (
       match type_path s p with
@@ -567,6 +570,8 @@ and type_expr s t =
   | Object o -> Object (type_object s o)
   | Class (p, ts) -> Class (class_type_path s p, List.map (type_expr s) ts)
   | Poly (strs, ts) -> Poly (strs, type_expr s ts)
+  | Quote t -> Quote (type_expr s t)
+  | Splice t -> Splice (type_expr s t)
   | Package p -> Package (type_package s p)
 
 and simple_expansion :

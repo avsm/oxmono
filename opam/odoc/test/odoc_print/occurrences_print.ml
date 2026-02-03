@@ -1,13 +1,17 @@
+open Odoc_utils
+
 module H = Hashtbl.Make (Odoc_model.Paths.Identifier)
 
 let run inp =
-  let inp = Fpath.v inp in
-  let htbl = Odoc_occurrences.from_file inp in
+  let htbl : Odoc_occurrences.Table.t = Io_utils.unmarshal inp in
   Odoc_occurrences.Table.iter
     (fun id { Odoc_occurrences.Table.direct; indirect; _ } ->
+      let id =
+        String.concat ~sep:"." (Odoc_model.Paths.Identifier.fullname id)
+      in
       Format.printf "%s was used directly %d times and indirectly %d times\n" id
         direct indirect)
-    htbl.table
+    htbl
 
 open Cmdliner
 

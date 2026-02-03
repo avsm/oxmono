@@ -7,9 +7,8 @@ license: "MIT"
 homepage: "https://github.com/ocaml/odoc"
 doc: "https://ocaml.github.io/odoc/"
 bug-reports: "https://github.com/ocaml/odoc/issues"
-flags: [ avoid-version ]
 depends: [
-  "dune" {>= "3.7"}
+  "dune" {>= "3.21"}
   "ocaml" {>= "4.0.8"}
   "odoc" {= version}
   "base64" {>= "3.5.1"}
@@ -25,7 +24,6 @@ depends: [
   "tyxml" {>= "4.6.0"}
   "result" {>= "1.5"}
   "odig" {with-test}
-  "base" {with-test & = "v0.16.3"}
   "alcotest" {with-test}
 ]
 depopts: [

@@ -1,61 +1,51 @@
-# Unreleased
+# 3.1.0
 
-### Added
-
-- Added support for (local) images in the latex backend (@Octachron, #1297)
-- Added a `header` field to the json output (@panglesd, #1314)
-- Added an `extract-code` subcommand to extract code blocks from mld files
-  (@panglesd, #1326)
+### Added
+- Exposed sherlodoc libraries for use in other projects (@jonludlam, #1349)
+- OCaml 5.4.0 support (@Octachron, #1355)
+- New arguments to LaTeX generator, --shorten-beyond-depth and
+  --remove-functor-arg-link (@Octachron, #1337)
+- New experimental markdown generator (@davesnx, #1341)
+- `markdown-generate` command now accepts multiple `.odocl` files in a single
+  invocation, eliminating the need for shell scripting (@davesnx)
+- Allow persistent latex macros in HTML/KaTeX backend (@dlesbre, #1391)
 
 ### Changed
-
-- Drop support for OCaml < 4.08 (@jonludlam, #1300)
-- Added suport for overriding tmp directories in odoc_driver_monorepo
-  (@jonludlam, #1304)
-- Remove `--suppress-warnings` argument in favour of `--warnings-tag`
-  which is more friendly for caching and voodoo (@jonludlam, #1304)
-- Filter out warnings coming from linking implementations (@jonludlam, #1319)
-- Output warnings coming from the `compile` phase in the driver (@jonludlam, #1323)
-- Changed the rules for code block and verbatim content (@panglesd, #1317)
-- Store raw content in verbatim and code block, and expose a function to process
-  it (@panglesd, #1325)
 - Remove cmdliner compatibility layer, no longer needed (@dbuenzli, #1328)
+- Drop support for OCaml < 4.08 (@jonludlam, #1300)
+- Allow referencing libraries from package added in `odoc-config.sexp`
+  (@panglesd, #1343)
+- Use full path in heading labels in LaTeX backend (@octachron, #1332)
+- Separate page from anchor in LaTeX labels to prevent collisions (@Octachron,
+  #1337)
 
 ### Fixed
+- Fix bug in parsing META files when there are no dependencies (@jonludlam, #1352)
+- Fix #1335 - incorrect rendering when on medium screen size with no global
+  sidebar (@lukemaurer, #1361)
+- Fixed generation of occurrences for docs CI (@jonludlam, #1362)
+- Partial fix for #1369 - ensure that we never create a link to a hidden page
+  (@jonludlam, #1370)
 
-- Fix bug causing stack overflow in odoc_driver_monorepo (@jonludlam, #1304)
-- Fix backtrace on invalid input in compile-deps (@jonludlam, #1313)
-- Fix bug in our CSS hitting verbatim blocks in tags (@jonludlam, #1312)
-- Fix poor behaviour when running odoc_driver with unknown or missing packages
-  (@jonludlam, #1311)
-- Fix incomplete handling of `--suppress-warnings` (now `--warnings-tag`)
-  (@jonludlam, #1304)
-- Fix bug in odoc_driver_voodoo related to virtual libraries (@jonludlam, #1309)
-- Fix issue #610 where `odoc html-fragment` wasn't rendering headings correctly
-  (@jonludlam, #1306)
-- Fix bug in `odoc classify` when there are archives that can't be co-linked
-  (@jonludlam, #1310)
-
-# 3.0.0~beta1
+# 3.0.0
 
 ### Highlight
 
-- Hierarchical documentation (@jonludlam, @panglesd, @Julow)
-  Pages can now be organized in a directory tree structure.
-  Relative and absolute references are added:
-  `{!./other_page.label}`, `{!//other_page}`.
+- Hierarchical documentation (@jonludlam, @panglesd, @Julow). Pages can now be
+  organized in a directory tree structure. Relative and absolute references
+  are added: `{!./other_page.label}`, `{!//other_page}`.
 
-- Improved sidebar and breadcrumbs navigation (@panglesd, @gpetiot)
-  The documentation pages and the libraries of the entire package are shown on
-  the left sidebar.
+- Improved sidebar and breadcrumbs navigation (@panglesd, @gpetiot). The
+  documentation pages and the libraries of the entire package are shown on the
+  left sidebar.
 
-- Added support for images, videos, audio and other assets
-  The syntax is `{image!/reference/to/asset}` or `{image:URL}` for images.
-  The syntax for `{video...}` and `{audio...}` is the same.
-  (@panglesd, @EmileTrotignon, #1170, #1171, #1184, #1185)
+- Added support for images, videos, audio and other assets. The syntax is
+  `{image!/reference/to/asset}` or `{image:URL}` for images. The syntax for
+  `{video...}` and `{audio...}` is the same. (@panglesd, @EmileTrotignon,
+  #1170, #1171, #1184, #1185)
 
-- Search using Sherlodoc (@panglesd, @EmileTrotignon, @Julow)
-  A new search bar that supports full-text and type-based search.
+- Search using Sherlodoc (@panglesd, @EmileTrotignon, @Julow). A new search
+  bar that supports full-text and type-based search.
 
 ### Added
 
@@ -70,32 +60,40 @@
   `{!/otherpackage/page}`, `{!/otherpackage/Module.t}`.
 
 - Option to remap links to other packages to ocaml.org or other site.
-  See the `--remap` option of the driver or the `--remap-file` option of `odoc html-generate`.
-  (@jonludlam, #1189, #1248)
+  See the `--remap` option of the driver or the `--remap-file` option of
+  `odoc html-generate`. (@jonludlam, #1189, #1248)
 
 - Option to compute occurrences of use of each identifiers
   The commands `aggregate-occurrences` and `count-occurrences` are added.
   (@panglesd, #976, #1076, #1206)
 
+- Added an `extract-code` subcommand to extract code blocks from mld/mli files
+  (@panglesd, #1326)
+
 - Added the `odoc classify` command (@jonludlam, #1121)
   Helps driver detecting which modules belong to which libraries.
-- Added `--suppress-warnings` to the CLI to remove warnings from a unit, even
-  if they end up being raised in another unit through expansion
+- Added `--warnings-tag` options to the CLI to silence warnings from a unit,
+  even if they end up being raised in another unit through expansion
   (@jonludlam, #1260)
 - Add clock emoji before `@since` tag (@yawaramin, #1089)
-- Navigation for the search bar : use '/' to enter search, up and down arrows to
-  select a result, and enter to follow the selected link. (@EmileTrotignon, #1088)
-- Fix a big gap between the preamble and the content of a page (@EmileTrotignon, #1147)
-- Add a marshalled search index consumable by sherlodoc (@EmileTrotignon, @panglesd, #1084)
+- Navigation for the search bar : use '/' to enter search, up and down arrows
+  to select a result, and enter to follow the selected link. (@EmileTrotignon,
+  #1088)
+- Fix a big gap between the preamble and the content of a page
+  (@EmileTrotignon, #1147)
+- Add a marshalled search index consumable by sherlodoc (@EmileTrotignon,
+  @panglesd, #1084)
 - Allow referencing of polymorphic constructors in polymorphic variant type
   aliases (@panglesd, #1115)
 - Added a home icon in the breacrumbs (@panglesd, #1251)
   It can be disabled with a CLI option.
-- Add a frontmatter syntax for mld pages (@panglesd, #1187, #1193, #1243, #1246, #1251)
-  Allows to specify the title of a page, the order of sub-pages and other
-  behaviors in the sidebar.
+- Add a frontmatter syntax for mld pages (@panglesd, #1187, #1193, #1243,
+  #1246, #1251) Allows to specify the title of a page, the order of sub-pages
+  and other behaviors in the sidebar.
 - Added `odoc-md` to process standalone Markdown pages (@jonludlam, #1234)
-- Added CSS selectors to style version and and nav links when they appear within page titles, as produced by odig (@katrinafyi, #1290)
+- Added CSS selectors to style version and and nav links when they appear
+  within page titles, as produced by odig (@katrinafyi, #1290)
+- Added support for (local) images in the latex backend (@Octachron, #1297)
 
 ### Changed
 
@@ -129,6 +127,11 @@
 - Overhaul of module-type-of expansions and shadowing code (@jonludlam, #1081)
 - Output file paths and labels in the man and latex backends changed to avoid
   name clashes (@Julow, #1191)
+- Added a `header` field to the json output (@panglesd, #1314)
+- Changed indentation rules for code block and verbatim content (@panglesd,
+  #1317)
+- odoc-parser: Store raw content in verbatim and code block, and expose a
+  function to process it (@panglesd, #1325)
 
 ### Fixed
 
@@ -149,6 +152,10 @@
 - Add missing parentheses in 'val (let*) : ...' (@Julow, #1268)
 - Fix syntax highlighting not working for very large files
   (@jonludlam, @Julow, #1277)
+- Fix backtrace on invalid input in compile-deps (@jonludlam, #1313)
+- Fix bug in our CSS hitting verbatim blocks in tags (@jonludlam, #1312)
+- Fix issue #610 where `odoc html-fragment` wasn't rendering headings correctly
+  (@jonludlam, #1306)
 
 # 2.4.4
 
@@ -177,7 +184,7 @@
 ### Fixed
 
 - Fix issues #1066 and #1095 with extended opens (@jonludlam, #1082, #1100)
- 
+
 # 2.4.1
 
 ### Fixed

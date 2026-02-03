@@ -1028,7 +1028,8 @@ and type_expr map (parent : Identifier.LabelParent.t) (t : Component.TypeExpr.t)
     | Alias (t, str) -> Alias (type_expr map parent t, str)
     | Arrow (lbl, t1, t2) ->
         Arrow (lbl, type_expr map parent t1, type_expr map parent t2)
-    | Tuple ts -> Tuple (List.map (fun (l, t) -> l, type_expr map parent t) ts)
+    | Tuple ts ->
+        Tuple (List.map (fun (lbl, ty) -> (lbl, type_expr map parent ty)) ts)
     | Unboxed_tuple ts ->
       Unboxed_tuple (List.map (fun (l, t) -> l, type_expr map parent t) ts)
     | Constr (path, ts) ->
@@ -1041,6 +1042,8 @@ and type_expr map (parent : Identifier.LabelParent.t) (t : Component.TypeExpr.t)
     | Class (p, ts) ->
         Class (Path.class_type map p, List.map (type_expr map parent) ts)
     | Poly (strs, t) -> Poly (strs, type_expr map parent t)
+    | Quote t -> Quote (type_expr map parent t)
+    | Splice t -> Splice (type_expr map parent t)
     | Package p -> Package (type_expr_package map parent p)
   with e ->
     let bt = Printexc.get_backtrace () in

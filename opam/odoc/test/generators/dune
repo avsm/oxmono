@@ -5,16 +5,18 @@
   (glob_files cases/*)
   (glob_files html/*.targets)
   (glob_files latex/*.targets)
-  (glob_files man/*.targets))
+  (glob_files man/*.targets)
+  (glob_files markdown/*.targets))
  (package odoc)
  (enabled_if
   (>= %{ocaml_version} 4.04))
  (action
   (with-stdout-to
-   link.dune.inc.gen
-   (pipe-stdout
-    (run gen_rules/gen_rules.exe)
-    (run dune format-dune-file)))))
+   link.dune.inc.gen.raw
+   (run gen_rules/gen_rules.exe))))
+
+(rule
+ (format-dune-file link.dune.inc.gen.raw link.dune.inc.gen))
 
 (rule
  (alias runtest)

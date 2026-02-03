@@ -493,7 +493,7 @@ Here is some Python code:
 Code blocks may have arbitrary metadata associated with them. This metadata is
 used, for example, for selecting code blocks when extracting them from a source file via the
 [odoc extract-code] command. The metadata may also be used by other tools that
-operate on code blocks, for example, {{!https://github.com/realworldocaml/mdx}mdx}.
+operate on code blocks, for example, {{:https://github.com/realworldocaml/mdx}mdx}.
 
 The metadata follows immediately after the language header, and is a list of tags and bindings, separated by whitespace. Tags are simple
 keywords, and bindings are key-value pairs separated by an equals sign. If whitespace
@@ -1123,7 +1123,7 @@ As an example, here is [odoc]'s configuration file:
 v}
 
 This file applies to all pages and all modules of all libraries in a package. With this config file, the
-modules of the [fmt] library, and the pages of the [odoc-driver], [cmdliner] and [odig] packages can be
+modules of the [fmt] library, and the {e modules and pages} of the [odoc-driver], [cmdliner] and [odig] packages can be
 linked to via the following syntax:
 
 {v

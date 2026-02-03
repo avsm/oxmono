@@ -1304,7 +1304,6 @@ body.odoc:has( .odoc-search) .odoc-toc {
       "sidebar    preamble"
       "sidebar    content";
   }
-  /* FIXME: This will probably get a better fix upstream */
   body.odoc:not(:has(> .odoc-tocs .odoc-global-toc)) {
     grid-template-areas:
     "search-bar nav"
@@ -1339,7 +1338,6 @@ body.odoc:has( .odoc-search) .odoc-toc {
       "toc-global";
     grid-template-columns: 1fr;
   }
-  /* FIXME: This will probably get a better fix upstream */
   body.odoc:not(:has(> .odoc-tocs .odoc-global-toc)) {
     grid-template-areas:
       "search-bar"

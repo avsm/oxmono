@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Odoc_utils
 open Odoc_model.Names
 module Location = Odoc_model.Location_
 module Paths = Odoc_model.Paths
@@ -76,7 +77,7 @@ let mk_heading ?(level = 1) ?label text =
     rest is inserted into [items]. *)
 let prepare_preamble comment items =
   let preamble, first_comment =
-    Utils.split_at
+    List.split_at
       ~f:(function
         | { Odoc_model.Location_.value = `Heading _; _ } -> true | _ -> false)
       comment
@@ -187,8 +188,11 @@ module Make (Syntax : SYNTAX) = struct
       let open Fragment in
       let id = Resolved.identifier (fragment :> Resolved.t) in
       let txt = render_resolved_fragment (fragment :> Resolved.t) in
-      let href = Url.from_identifier ~stop_before:false id in
-      resolved href [ inline @@ Text txt ]
+      match id with
+      | Some id ->
+          let href = Url.from_identifier ~stop_before:false id in
+          resolved href [ inline @@ Text txt ]
+      | None -> unresolved [ inline @@ Text txt ]
 
     let from_fragment : Fragment.leaf -> text = function
       | `Resolved r
@@ -213,7 +217,7 @@ module Make (Syntax : SYNTAX) = struct
         let in_bound x = min (max x 0) (String.length src) in
         let a = in_bound a and b = in_bound b in
         let a, b = (min a b, max a b) in
-        String.sub src a (b - a)
+        String.with_range src ~first:a ~len:(b - a)
       in
       let plain_code = function
         | "" -> []
@@ -358,7 +362,7 @@ module Make (Syntax : SYNTAX) = struct
            | Open -> O.txt "[> " ++ elements ++ O.txt " ]"
            | Closed [] -> O.txt "[< " ++ elements ++ O.txt " ]"
            | Closed lst ->
-               let constrs = String.concat " " lst in
+               let constrs = String.concat ~sep:" " lst in
                O.txt "[< " ++ elements ++ O.txt (" " ^ constrs ^ " ]"))
 
     and te_object (t : Odoc_model.Lang.TypeExpr.Object.t) =
@@ -424,12 +428,16 @@ module Make (Syntax : SYNTAX) = struct
 
     and type_expr ?(needs_parentheses = false) (t : Odoc_model.Lang.TypeExpr.t)
         =
+      let enclose_parens_if_needed res =
+        if needs_parentheses then enclose ~l:"(" res ~r:")" else res
+      in
       match t with
       | Var s -> type_var (Syntax.Type.var_prefix ^ s)
       | Any -> type_var Syntax.Type.any
       | Alias (te, alias) ->
-          type_expr ~needs_parentheses:true te
-          ++ O.txt " " ++ O.keyword "as" ++ O.txt " '" ++ O.txt alias
+          enclose_parens_if_needed
+            (type_expr ~needs_parentheses:true te
+            ++ O.txt " " ++ O.keyword "as" ++ O.txt " '" ++ O.txt alias)
       | Arrow (None, src, dst) ->
           let res =
             O.span
@@ -470,7 +478,11 @@ module Make (Syntax : SYNTAX) = struct
           format_type_path ~delim:`brackets args
             (Link.from_path (path :> Paths.Path.t))
       | Poly (polyvars, t) ->
-          O.txt ("'" ^ String.concat " '" polyvars ^ ". ") ++ type_expr t
+          O.txt ("'" ^ String.concat ~sep:" '" polyvars ^ ". ") ++ type_expr t
+      | Quote t ->
+          O.span (O.txt "<[ " ++ O.box_hv (type_expr t) ++ O.txt " ]>")
+      | Splice t ->
+          O.span (O.txt "$" ++ type_expr ~needs_parentheses:true t)
       | Package pkg ->
           enclose ~l:"(" ~r:")"
             (O.keyword "module" ++ O.txt " "
@@ -798,7 +810,7 @@ module Make (Syntax : SYNTAX) = struct
         | Closed [] ->
             (O.documentedSrc (O.txt "[< "), O.documentedSrc (O.txt " ]"))
         | Closed lst ->
-            let constrs = String.concat " " lst in
+            let constrs = String.concat ~sep:" " lst in
             ( O.documentedSrc (O.txt "[< "),
               O.documentedSrc (O.txt (" " ^ constrs ^ " ]")) )
       in
@@ -822,16 +834,17 @@ module Make (Syntax : SYNTAX) = struct
           | None -> desc
           | Some Odoc_model.Lang.TypeDecl.Pos -> "+" :: desc
           | Some Odoc_model.Lang.TypeDecl.Neg -> "-" :: desc
+          | Some Odoc_model.Lang.TypeDecl.Bivariant -> "+" :: "-" :: desc
         in
         let final = if injectivity then "!" :: var_desc else var_desc in
-        String.concat "" final
+        String.concat ~sep:"" final
       in
       O.txt
         (match params with
         | [] -> ""
         | [ x ] -> format_param x |> Syntax.Type.handle_format_params
         | lst -> (
-            let params = String.concat ", " (List.map format_param lst) in
+            let params = String.concat ~sep:", " (List.map format_param lst) in
             (match delim with `parens -> "(" | `brackets -> "[")
             ^ params
             ^ match delim with `parens -> ")" | `brackets -> "]"))
@@ -1129,7 +1142,7 @@ module Make (Syntax : SYNTAX) = struct
             | Constraint cst -> continue @@ constraint_ cst
             | Comment `Stop ->
                 let rest =
-                  Utils.skip_until rest ~p:(function
+                  List.skip_until rest ~p:(function
                     | Lang.ClassSignature.Comment `Stop -> true
                     | _ -> false)
                 in
@@ -1320,7 +1333,7 @@ module Make (Syntax : SYNTAX) = struct
                 loop rest (List.rev_append items acc_items)
             | Comment `Stop ->
                 let rest =
-                  Utils.skip_until rest ~p:(function
+                  List.skip_until rest ~p:(function
                     | Lang.Signature.Comment `Stop -> true
                     | _ -> false)
                 in
@@ -1428,18 +1441,19 @@ module Make (Syntax : SYNTAX) = struct
       | Some params, sg ->
           let sg_doc, content = signature sg in
           let params =
-            Utils.flatmap params ~f:(fun arg ->
-                let content = functor_parameter arg in
-                let attr = [ "parameter" ] in
-                let anchor =
-                  Some
-                    (Url.Anchor.from_identifier (arg.id :> Paths.Identifier.t))
-                in
-                let doc = [] in
-                [
-                  Item.Declaration
-                    { content; anchor; attr; doc; source_anchor = None };
-                ])
+            let decl_of_arg arg =
+              let content = functor_parameter arg in
+              let attr = [ "parameter" ] in
+              let anchor =
+                Some (Url.Anchor.from_identifier (arg.id :> Paths.Identifier.t))
+              in
+              let doc = [] in
+              [
+                Item.Declaration
+                  { content; anchor; attr; doc; source_anchor = None };
+              ]
+            in
+            List.concat_map decl_of_arg params
           in
           let prelude = mk_heading ~label:"parameters" "Parameters" :: params
           and content = mk_heading ~label:"signature" "Signature" :: content in

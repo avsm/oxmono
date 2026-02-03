@@ -363,7 +363,8 @@ and typedecl_representation =
 
 and typedecl_variance =
   let open Lang.TypeDecl in
-  Variant (function Pos -> C0 "Pos" | Neg -> C0 "Neg")
+  Variant
+    (function Pos -> C0 "Pos" | Neg -> C0 "Neg" | Bivariant -> C0 "Bivariant")
 
 and typedecl_param_desc =
   let open Lang.TypeDecl in
@@ -665,6 +666,8 @@ and typeexpr_t =
     | Class (x1, x2) ->
         C ("Class", ((x1 :> Paths.Path.t), x2), Pair (path, List typeexpr_t))
     | Poly (x1, x2) -> C ("Poly", (x1, x2), Pair (List string, typeexpr_t))
+    | Quote x -> C ("Quote", x, typeexpr_t)
+    | Splice x -> C ("Splice", x, typeexpr_t)
     | Package x -> C ("Package", x, typeexpr_package))
 
 (** {3 Compilation_unit} *)

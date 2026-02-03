@@ -12,12 +12,10 @@ homepage: "https://github.com/ocaml/odoc"
 bug-reports: "https://github.com/ocaml/odoc/issues"
 dev-repo: "git+https://github.com/ocaml/odoc.git"
 doc: "https://ocaml.github.io/odoc/odoc_parser"
-flags: [ avoid-version ]
 depends: [
-  "dune" {>= "3.7"}
-  "ocaml" {>= "4.08.0" & < "5.4"}
+  "dune" {>= "3.21"}
+  "ocaml" {>= "4.08.0" & < "5.5"}
   "astring"
-  "result"
   "camlp-streams"
   "ppx_expect" {with-test}
   "sexplib0" {with-test}

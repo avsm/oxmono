@@ -7,39 +7,41 @@ let min_match = Lz77.min_match
 (* Number of literal contexts *)
 let num_literal_contexts = 64
 
-(* Insert length code tables *)
-let insert_length_n_bits = [|
-  0; 0; 0; 0; 0; 0; 1; 1; 2; 2; 3; 3; 4; 4; 5; 5; 6; 7; 8; 9; 10; 12; 14; 24
+(* Insert length code tables - small values fit in int8# *)
+let insert_length_n_bits : int8# array = [|
+  #0s; #0s; #0s; #0s; #0s; #0s; #1s; #1s; #2s; #2s; #3s; #3s; #4s; #4s; #5s; #5s; #6s; #7s; #8s; #9s; #10s; #12s; #14s; #24s
 |]
 
-let insert_length_offset = [|
-  0; 1; 2; 3; 4; 5; 6; 8; 10; 14; 18; 26; 34; 50; 66; 98; 130; 194; 322; 578; 1090; 2114; 6210; 22594
-|]
+(* Insert length offsets - values up to 22594, need nativeint# for compact storage *)
+let insert_length_offset : nativeint# array =
+  [| #0n; #1n; #2n; #3n; #4n; #5n; #6n; #8n; #10n; #14n; #18n; #26n; #34n; #50n; #66n; #98n; #130n; #194n; #322n; #578n; #1090n; #2114n; #6210n; #22594n |]
 
-(* Get insert length code *)
-let[@inline always] get_insert_code length =
-  let rec find i =
-    if i >= 23 then 23
-    else if length < insert_length_offset.(i + 1) then i
-    else find (i + 1)
-  in
-  find 0
+(* Helper functions for unboxed array access *)
+let[@inline always] get_insert_n_bits idx =
+  Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get insert_length_n_bits idx)
+
+let[@inline always] get_insert_offset idx =
+  Nativeint_u.to_int_trunc (Oxcaml_arrays.unsafe_get insert_length_offset idx)
+
+(* Get insert length code - use optimized binary search from Lz77 *)
+let[@inline always] get_insert_code length = Lz77.get_insert_code length
+
+(* Copy length offsets - values up to 2118, need nativeint# *)
+let copy_length_offset : nativeint# array =
+  [| #2n; #3n; #4n; #5n; #6n; #7n; #8n; #9n; #10n; #12n; #14n; #18n; #22n; #30n; #38n; #54n; #70n; #102n; #134n; #198n; #326n; #582n; #1094n; #2118n |]
 
 (* Get copy length code *)
 let[@inline always] get_copy_code length =
-  let copy_length_offset = [|
-    2; 3; 4; 5; 6; 7; 8; 9; 10; 12; 14; 18; 22; 30; 38; 54; 70; 102; 134; 198; 326; 582; 1094; 2118
-  |] in
   let rec find i =
     if i >= 23 then 23
-    else if length < copy_length_offset.(i + 1) then i
+    else if length < Nativeint_u.to_int_trunc (Oxcaml_arrays.unsafe_get copy_length_offset (i + 1)) then i
     else find (i + 1)
   in
   find 0
 
-(* Command code lookup tables from RFC 7932 *)
-let insert_range_lut = [| 0; 0; 8; 8; 0; 16; 8; 16; 16 |]
-let copy_range_lut = [| 0; 8; 0; 8; 16; 0; 16; 8; 16 |]
+(* Command code lookup tables from RFC 7932 - values 0-16 fit in int8# *)
+let insert_range_lut : int8# array = [| #0s; #0s; #8s; #8s; #0s; #16s; #8s; #16s; #16s |]
+let copy_range_lut : int8# array = [| #0s; #8s; #0s; #8s; #16s; #0s; #16s; #8s; #16s |]
 
 (* Build command code from insert_code and copy_code.
    use_implicit_distance: true ONLY for distance code 0 (last distance)
@@ -53,44 +55,41 @@ let copy_range_lut = [| 0; 8; 0; 8; 16; 0; 16; 8; 16 |]
    IMPORTANT: Only dist_code=Some 0 can use implicit distance (range_idx 0-1).
    For all other short codes (1-15), we must use explicit distance (range_idx >= 2).
 *)
-exception Found_cmd of int
+
+(* Try to find a command code in the given range. Returns -1 if not found. *)
+let[@inline always] try_find_cmd_in_range insert_code copy_code range_start range_end =
+  let mutable result = -1 in
+  let mutable r = range_start in
+  while r <= range_end && result < 0 do
+    let adjusted_r = if range_start >= 2 then r - 2 else r in
+    let insert_base = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get insert_range_lut adjusted_r) in
+    let copy_base = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get copy_range_lut adjusted_r) in
+    let insert_delta = insert_code - insert_base in
+    let copy_delta = copy_code - copy_base in
+    if insert_delta >= 0 && insert_delta < 8 &&
+       copy_delta >= 0 && copy_delta < 8 then
+      result <- (r lsl 6) lor (insert_delta lsl 3) lor copy_delta;
+    r <- r + 1
+  done;
+  result
 
 let get_command_code insert_code copy_code use_implicit_distance =
-  try
-    (* Only use range_idx 0-1 for implicit distance code 0 *)
-    if use_implicit_distance then begin
-      for r = 0 to 1 do
-        let insert_base = insert_range_lut.(r) in
-        let copy_base = copy_range_lut.(r) in
-        let insert_delta = insert_code - insert_base in
-        let copy_delta = copy_code - copy_base in
-        if insert_delta >= 0 && insert_delta < 8 &&
-           copy_delta >= 0 && copy_delta < 8 then begin
-          let cmd_code = (r lsl 6) lor (insert_delta lsl 3) lor copy_delta in
-          raise (Found_cmd cmd_code)
-        end
-      done
-    end;
-
-    (* Use range_idx 2-8 for explicit distance (including short codes 0-15) *)
-    for r = 2 to 8 do
-      let adjusted_r = r - 2 in
-      let insert_base = insert_range_lut.(adjusted_r) in
-      let copy_base = copy_range_lut.(adjusted_r) in
-      let insert_delta = insert_code - insert_base in
-      let copy_delta = copy_code - copy_base in
-      if insert_delta >= 0 && insert_delta < 8 &&
-         copy_delta >= 0 && copy_delta < 8 then begin
-        let cmd_code = (r lsl 6) lor (insert_delta lsl 3) lor copy_delta in
-        raise (Found_cmd cmd_code)
-      end
-    done;
-
-    (* Fallback - shouldn't happen if LZ77 limits copy_len properly *)
-    let insert_delta = min insert_code 7 in
-    let copy_delta = min copy_code 7 in
-    (2 lsl 6) lor (insert_delta lsl 3) lor copy_delta
-  with Found_cmd cmd_code -> cmd_code
+  (* Try range_idx 0-1 for implicit distance code 0 *)
+  let cmd = if use_implicit_distance then
+    try_find_cmd_in_range insert_code copy_code 0 1
+  else -1 in
+  if cmd >= 0 then cmd
+  else begin
+    (* Try range_idx 2-8 for explicit distance *)
+    let cmd = try_find_cmd_in_range insert_code copy_code 2 8 in
+    if cmd >= 0 then cmd
+    else begin
+      (* Fallback - shouldn't happen if LZ77 limits copy_len properly *)
+      let insert_delta = min insert_code 7 in
+      let copy_delta = min copy_code 7 in
+      (2 lsl 6) lor (insert_delta lsl 3) lor copy_delta
+    end
+  end
 
 (* Encode window bits *)
 let encode_window_bits bw =
@@ -346,16 +345,16 @@ let write_complex_prefix_code bw lengths alphabet_size =
     if cl_histogram.(i) > 0 then incr num_codes
   done;
   let skip_some =
-    if cl_depths.(Constants.code_length_code_order.(0)) = 0 &&
-       cl_depths.(Constants.code_length_code_order.(1)) = 0 then
-      if cl_depths.(Constants.code_length_code_order.(2)) = 0 then 3
+    if cl_depths.(Constants.get_code_length_code_order(0)) = 0 &&
+       cl_depths.(Constants.get_code_length_code_order(1)) = 0 then
+      if cl_depths.(Constants.get_code_length_code_order(2)) = 0 then 3
       else 2
     else 0
   in
   let local_ codes_to_store = ref Constants.code_length_codes in
   if !num_codes > 1 then begin
     while !codes_to_store > 0 &&
-          cl_depths.(Constants.code_length_code_order.(!codes_to_store - 1)) = 0 do
+          cl_depths.(Constants.get_code_length_code_order(!codes_to_store - 1)) = 0 do
       decr codes_to_store
     done
   end;
@@ -363,7 +362,7 @@ let write_complex_prefix_code bw lengths alphabet_size =
   let local_ space = ref 32 in
   for i = skip_some to !codes_to_store - 1 do
     if !space > 0 then begin
-      let idx = Constants.code_length_code_order.(i) in
+      let idx = Constants.get_code_length_code_order(i) in
       let l = cl_depths.(idx) in
       write_code_length_symbol bw l;
       if l <> 0 then
@@ -463,14 +462,19 @@ let write_context_map bw context_map num_trees =
     Bit_writer.write_bits bw 1 0
   end
 
-(* Copy length extra bits table *)
-let copy_length_n_bits = [|
-  0; 0; 0; 0; 0; 0; 0; 0; 1; 1; 2; 2; 3; 3; 4; 4; 5; 5; 6; 7; 8; 9; 10; 24
+(* Copy length extra bits table - values 0-24 fit in int8# *)
+let copy_length_n_bits : int8# array = [|
+  #0s; #0s; #0s; #0s; #0s; #0s; #0s; #0s; #1s; #1s; #2s; #2s; #3s; #3s; #4s; #4s; #5s; #5s; #6s; #7s; #8s; #9s; #10s; #24s
 |]
 
-let copy_length_offset = [|
-  2; 3; 4; 5; 6; 7; 8; 9; 10; 12; 14; 18; 22; 30; 38; 54; 70; 102; 134; 198; 326; 582; 1094; 2118
-|]
+(* copy_length_offset is defined earlier in the file as nativeint# array *)
+
+(* Helper functions for unboxed array access *)
+let[@inline always] get_copy_n_bits idx =
+  Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get copy_length_n_bits idx)
+
+let[@inline always] get_copy_offset idx =
+  Nativeint_u.to_int_trunc (Oxcaml_arrays.unsafe_get copy_length_offset idx)
 
 (* Encode distance for NPOSTFIX=0, NDIRECT=0 *)
 let[@inline always] encode_distance distance =
@@ -580,8 +584,8 @@ let write_compressed_block_with_context bw src _src_pos src_len is_last context_
       (* Literals command always has range_idx >= 2, needs distance *)
       let dist_tree = dist_context_map.(0) in
       dist_freqs.(dist_tree).(0) <- dist_freqs.(dist_tree).(0) + 1;
-      let insert_extra = if insert_length_n_bits.(insert_code) > 0
-        then len - insert_length_offset.(insert_code) else 0 in
+      let insert_extra = if get_insert_n_bits (insert_code) > 0
+        then len - get_insert_offset (insert_code) else 0 in
       {
         cmd_code; insert_code; copy_code; range_idx;
         insert_extra; copy_extra = 0;
@@ -616,10 +620,10 @@ let write_compressed_block_with_context bw src _src_pos src_len is_last context_
         dist_freqs.(dist_tree).(code_val) <- dist_freqs.(dist_tree).(code_val) + 1;
         Some (dist_tree, code_val, nbits, extra)
       end else None in
-      let insert_extra = if insert_length_n_bits.(insert_code) > 0
-        then lit_len - insert_length_offset.(insert_code) else 0 in
-      let copy_extra = if copy_length_n_bits.(copy_code) > 0
-        then copy_len - copy_length_offset.(copy_code) else 0 in
+      let insert_extra = if get_insert_n_bits (insert_code) > 0
+        then lit_len - get_insert_offset (insert_code) else 0 in
+      let copy_extra = if get_copy_n_bits (copy_code) > 0
+        then copy_len - get_copy_offset (copy_code) else 0 in
       {
         cmd_code; insert_code; copy_code; range_idx;
         insert_extra; copy_extra;
@@ -684,11 +688,11 @@ let write_compressed_block_with_context bw src _src_pos src_len is_last context_
     if num_cmd_symbols > 1 then
       write_symbol bw cmd_codes cmd_lengths pcmd.cmd_code;
     (* Write insert extra bits *)
-    if insert_length_n_bits.(pcmd.insert_code) > 0 then
-      Bit_writer.write_bits bw insert_length_n_bits.(pcmd.insert_code) pcmd.insert_extra;
+    if get_insert_n_bits (pcmd.insert_code) > 0 then
+      Bit_writer.write_bits bw (get_insert_n_bits pcmd.insert_code) pcmd.insert_extra;
     (* Write copy extra bits if this is an InsertCopy *)
-    if pcmd.copy_code > 0 && copy_length_n_bits.(pcmd.copy_code) > 0 then
-      Bit_writer.write_bits bw copy_length_n_bits.(pcmd.copy_code) pcmd.copy_extra;
+    if pcmd.copy_code > 0 && get_copy_n_bits (pcmd.copy_code) > 0 then
+      Bit_writer.write_bits bw (get_copy_n_bits pcmd.copy_code) pcmd.copy_extra;
     (* Write literals by reading from source and looking up tree_id from shared buffer *)
     for i = 0 to pcmd.lit_len - 1 do
       let c = Char.code (Bytes.get src (pcmd.lit_src_start + i)) in
@@ -770,8 +774,8 @@ let write_compressed_block bw src src_pos src_len is_last =
         let cmd_code = get_command_code insert_code copy_code false in
         cmd_freq.(cmd_code) <- cmd_freq.(cmd_code) + 1;
         dist_freq.(0) <- dist_freq.(0) + 1;
-        let insert_extra = if insert_length_n_bits.(insert_code) > 0
-          then len - insert_length_offset.(insert_code) else 0 in
+        let insert_extra = if get_insert_n_bits (insert_code) > 0
+          then len - get_insert_offset (insert_code) else 0 in
         { s_cmd_code = cmd_code; s_insert_code = insert_code; s_copy_code = copy_code;
           s_insert_extra = insert_extra; s_copy_extra = 0;
           s_lit_start = start; s_lit_len = len; s_dist_info = None }
@@ -801,10 +805,10 @@ let write_compressed_block bw src src_pos src_len is_last =
             Some (dist_code_val, nbits, extra)
           end
         end else None in
-        let insert_extra = if insert_length_n_bits.(insert_code) > 0
-          then lit_len - insert_length_offset.(insert_code) else 0 in
-        let copy_extra = if copy_length_n_bits.(copy_code) > 0
-          then copy_len - copy_length_offset.(copy_code) else 0 in
+        let insert_extra = if get_insert_n_bits (insert_code) > 0
+          then lit_len - get_insert_offset (insert_code) else 0 in
+        let copy_extra = if get_copy_n_bits (copy_code) > 0
+          then copy_len - get_copy_offset (copy_code) else 0 in
         { s_cmd_code = cmd_code; s_insert_code = insert_code; s_copy_code = copy_code;
           s_insert_extra = insert_extra; s_copy_extra = copy_extra;
           s_lit_start = lit_start; s_lit_len = lit_len; s_dist_info = dist_info }
@@ -854,11 +858,11 @@ let write_compressed_block bw src src_pos src_len is_last =
       if num_cmd_symbols > 1 then
         write_symbol bw cmd_codes cmd_lengths pcmd.s_cmd_code;
       (* Write insert extra bits *)
-      if insert_length_n_bits.(pcmd.s_insert_code) > 0 then
-        Bit_writer.write_bits bw insert_length_n_bits.(pcmd.s_insert_code) pcmd.s_insert_extra;
+      if get_insert_n_bits (pcmd.s_insert_code) > 0 then
+        Bit_writer.write_bits bw (get_insert_n_bits pcmd.s_insert_code) pcmd.s_insert_extra;
       (* Write copy extra bits if this is an InsertCopy *)
-      if pcmd.s_copy_code > 0 && copy_length_n_bits.(pcmd.s_copy_code) > 0 then
-        Bit_writer.write_bits bw copy_length_n_bits.(pcmd.s_copy_code) pcmd.s_copy_extra;
+      if pcmd.s_copy_code > 0 && get_copy_n_bits (pcmd.s_copy_code) > 0 then
+        Bit_writer.write_bits bw (get_copy_n_bits pcmd.s_copy_code) pcmd.s_copy_extra;
       (* Write literals by reading from source *)
       if num_lit_symbols > 1 then
         for i = 0 to pcmd.s_lit_len - 1 do
@@ -915,9 +919,9 @@ let write_literals_only_block bw src src_pos src_len is_last =
   write_huffman_code bw cmd_lengths 704;
   write_huffman_code bw dist_lengths num_distance_codes;
 
-  if insert_length_n_bits.(insert_code) > 0 then begin
-    let extra = src_len - insert_length_offset.(insert_code) in
-    Bit_writer.write_bits bw insert_length_n_bits.(insert_code) extra
+  if get_insert_n_bits (insert_code) > 0 then begin
+    let extra = src_len - get_insert_offset (insert_code) in
+    Bit_writer.write_bits bw (get_insert_n_bits insert_code) extra
   end;
 
   (* ENCODING PASS: Read literals from source *)

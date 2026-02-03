@@ -9,7 +9,7 @@ let max_match = 258
 let window_bits = 22
 let max_backward_distance = (1 lsl window_bits) - 16
 
-(* Module aliases for unboxed operations *)
+(* Module alias for int16 unboxed operations *)
 module I16 = Stdlib_stable.Int16_u
 
 (* Sentinel value for uninitialized hash/chain entries.

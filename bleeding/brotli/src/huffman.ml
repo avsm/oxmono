@@ -9,6 +9,8 @@
    On 64-bit OCaml, each entry uses 8 bytes (int) instead of 24 bytes (record with 2 ints).
 *)
 
+module I16 = Stdlib_stable.Int16_u
+
 let max_length = 15
 
 (* A Huffman code entry - kept for API compatibility with existing code *)
@@ -55,25 +57,34 @@ let replicate_value table base step table_end code =
   in
   loop (base + table_end - step)
 
-(* Calculate the width of the next 2nd level table *)
+(* Calculate the width of the next 2nd level table.
+   This determines how many extra bits beyond root_bits we need for symbols
+   starting at the given length. We scan forward through code lengths,
+   tracking how much space remains in the subtable. *)
 let next_table_bit_size count length root_bits =
-  let left = ref (1 lsl (length - root_bits)) in
-  let len = ref length in
-  while !len < max_length do
-    left := !left - count.(!len);
-    if !left <= 0 then
-      len := max_length  (* Break *)
+  let mutable left = 1 lsl (length - root_bits) in
+  let mutable len = length in
+  let mutable done_ = false in
+  while not done_ && len < max_length do
+    left <- left - count.(len);
+    if left <= 0 then
+      done_ <- true  (* Break - current len is the answer *)
     else begin
-      incr len;
-      left := !left lsl 1
+      len <- len + 1;
+      left <- left lsl 1
     end
   done;
-  !len - root_bits
+  len - root_bits
 
-(* Build a packed Huffman lookup table from code lengths *)
+(* Helper to create an int16# array *)
+let[@inline always] make_int16_array len : int16# array =
+  Base.Array.create ~len #0S
+
+(* Build a packed Huffman lookup table from code lengths - uses mutable locals *)
 let build_table ~code_lengths ~alphabet_size ~root_bits =
   let count = Array.make (max_length + 1) 0 in
-  let offset = Array.make (max_length + 1) 0 in
+  (* Use int16# array for offset - values are at most alphabet_size (704) *)
+  let offset : int16# array = make_int16_array (max_length + 1) in
   let sorted_symbols = Array.make alphabet_size 0 in
 
   (* Build histogram of code lengths *)
@@ -83,82 +94,84 @@ let build_table ~code_lengths ~alphabet_size ~root_bits =
   done;
 
   (* Generate offsets into sorted symbol table by code length *)
-  offset.(1) <- 0;
+  Oxcaml_arrays.unsafe_set offset 1 #0S;
   for length = 1 to max_length - 1 do
-    offset.(length + 1) <- offset.(length) + count.(length)
+    let prev = I16.to_int (Oxcaml_arrays.unsafe_get offset length) in
+    Oxcaml_arrays.unsafe_set offset (length + 1) (I16.of_int (prev + count.(length)))
   done;
 
   (* Sort symbols by length, by symbol order within each length *)
   for symbol = 0 to alphabet_size - 1 do
     let length = code_lengths.(symbol) in
     if length <> 0 then begin
-      sorted_symbols.(offset.(length)) <- symbol;
-      offset.(length) <- offset.(length) + 1
+      let off = I16.to_int (Oxcaml_arrays.unsafe_get offset length) in
+      sorted_symbols.(off) <- symbol;
+      Oxcaml_arrays.unsafe_set offset length (I16.of_int (off + 1))
     end
   done;
 
-  let table_bits = ref root_bits in
-  let table_size = ref (1 lsl !table_bits) in
-  let total_size = ref !table_size in
+  let mutable table_bits = root_bits in
+  let mutable table_size = 1 lsl table_bits in
+  let mutable total_size = table_size in
 
   (* Pre-allocate table with maximum possible size *)
-  let max_table_size = !table_size * 4 in  (* Conservative estimate *)
+  let max_table_size = table_size * 4 in  (* Conservative estimate *)
   let root_table = Array.make max_table_size 0 in
 
   (* Special case: code with only one value *)
-  if offset.(max_length) = 1 then begin
+  if I16.to_int (Oxcaml_arrays.unsafe_get offset max_length) = 1 then begin
     let entry = pack_entry ~bits:0 ~value:(sorted_symbols.(0) land 0xFFFF) in
-    for key = 0 to !total_size - 1 do
+    for key = 0 to total_size - 1 do
       root_table.(key) <- entry
     done;
-    Array.sub root_table 0 !total_size
+    Array.sub root_table 0 total_size
   end
   else begin
-    let table = ref 0 in
-    let key = ref 0 in
-    let symbol = ref 0 in
-    let step = ref 2 in
+    let mutable table = 0 in
+    let mutable key = 0 in
+    let mutable symbol = 0 in
+    let mutable step = 2 in
 
     (* Fill in root table *)
     for length = 1 to root_bits do
       while count.(length) > 0 do
-        let entry = pack_entry ~bits:(length land 0xFF) ~value:(sorted_symbols.(!symbol) land 0xFFFF) in
-        incr symbol;
-        replicate_value root_table (!table + !key) !step !table_size entry;
-        key := get_next_key !key length;
+        let entry = pack_entry ~bits:(length land 0xFF) ~value:(sorted_symbols.(symbol) land 0xFFFF) in
+        symbol <- symbol + 1;
+        replicate_value root_table (table + key) step table_size entry;
+        key <- get_next_key key length;
         count.(length) <- count.(length) - 1
       done;
-      step := !step lsl 1
+      step <- step lsl 1
     done;
 
     (* Fill in 2nd level tables and add pointers to root table *)
-    let mask = !total_size - 1 in
-    let low = ref (-1) in
-    step := 2;
+    let mask = total_size - 1 in
+    let mutable low = -1 in
+    step <- 2;
     let start_table = 0 in
 
     for length = root_bits + 1 to max_length do
       while count.(length) > 0 do
-        if (!key land mask) <> !low then begin
-          table := !table + !table_size;
-          table_bits := next_table_bit_size count length root_bits;
-          table_size := 1 lsl !table_bits;
-          total_size := !total_size + !table_size;
-          low := !key land mask;
-          root_table.(start_table + !low) <- pack_entry
-            ~bits:((!table_bits + root_bits) land 0xFF)
-            ~value:((!table - start_table - !low) land 0xFFFF)
+        if (key land mask) <> low then begin
+          table <- table + table_size;
+          table_bits <- next_table_bit_size count length root_bits;
+          table_size <- 1 lsl table_bits;
+          total_size <- total_size + table_size;
+          low <- key land mask;
+          root_table.(start_table + low) <- pack_entry
+            ~bits:((table_bits + root_bits) land 0xFF)
+            ~value:((table - start_table - low) land 0xFFFF)
         end;
-        let entry = pack_entry ~bits:((length - root_bits) land 0xFF) ~value:(sorted_symbols.(!symbol) land 0xFFFF) in
-        incr symbol;
-        replicate_value root_table (!table + (!key lsr root_bits)) !step !table_size entry;
-        key := get_next_key !key length;
+        let entry = pack_entry ~bits:((length - root_bits) land 0xFF) ~value:(sorted_symbols.(symbol) land 0xFFFF) in
+        symbol <- symbol + 1;
+        replicate_value root_table (table + (key lsr root_bits)) step table_size entry;
+        key <- get_next_key key length;
         count.(length) <- count.(length) - 1
       done;
-      step := !step lsl 1
+      step <- step lsl 1
     done;
 
-    Array.sub root_table 0 !total_size
+    Array.sub root_table 0 total_size
   end
 
 (* Read a symbol from the bit stream using a packed Huffman table.
@@ -176,29 +189,36 @@ let build_table ~code_lengths ~alphabet_size ~root_bits =
 (* Inline bit mask computation - matches Bit_reader.bit_mask *)
 let[@inline always] bit_mask n = (1 lsl n) - 1
 
+(* Module aliases for unboxed type conversions in inlined bit reader *)
+module I8 = Stdlib_stable.Int8_u
+module Ni = Nativeint_u
+
 (* Inline fill_bit_window - CRITICAL: fully inlined to avoid function call overhead.
-   This is called for every Huffman symbol decode (millions of times per MB). *)
+   This is called for every Huffman symbol decode (millions of times per MB).
+   Uses unboxed types matching Bit_reader.t's internal representation. *)
 let[@inline always] inline_fill br =
-  if br.Bit_reader.bit_pos <= 32 then begin
+  let bp = I8.to_int br.Bit_reader.bit_pos in
+  if bp <= 32 then begin
     let next_pos = br.Bit_reader.next_pos in
     let src_len = br.Bit_reader.src_len in
     if next_pos + 4 <= src_len then begin
       let new_bits = Int32.to_int (Bytes.get_int32_le br.Bit_reader.src next_pos) land 0xFFFFFFFF in
-      br.Bit_reader.val_ <- br.Bit_reader.val_ lor (new_bits lsl br.Bit_reader.bit_pos);
-      br.Bit_reader.bit_pos <- br.Bit_reader.bit_pos + 32;
+      let v = Ni.to_int_trunc br.Bit_reader.val_ in
+      br.Bit_reader.val_ <- Ni.of_int (v lor (new_bits lsl bp));
+      br.Bit_reader.bit_pos <- I8.of_int (bp + 32);
       br.Bit_reader.next_pos <- next_pos + 4
     end else begin
-      let mutable bp = br.Bit_reader.bit_pos in
+      let mutable bp = bp in
       let mutable np = next_pos in
-      let mutable v = br.Bit_reader.val_ in
+      let mutable v = Ni.to_int_trunc br.Bit_reader.val_ in
       while bp <= 56 && np < src_len do
         let b = Char.code (Bytes.unsafe_get br.Bit_reader.src np) in
         v <- v lor (b lsl bp);
         bp <- bp + 8;
         np <- np + 1
       done;
-      br.Bit_reader.val_ <- v;
-      br.Bit_reader.bit_pos <- bp;
+      br.Bit_reader.val_ <- Ni.of_int v;
+      br.Bit_reader.bit_pos <- I8.of_int bp;
       br.Bit_reader.next_pos <- np
     end
   end
@@ -206,13 +226,13 @@ let[@inline always] inline_fill br =
 (* Inline peek_bits for 15 bits - the hot path.
    Uses the accumulator-based bit reader design with fully inlined fill. *)
 let[@inline always] inline_peek_15 br =
-  if br.Bit_reader.bit_pos < 15 then inline_fill br;
-  br.Bit_reader.val_ land 0x7FFF
+  if I8.to_int br.Bit_reader.bit_pos < 15 then inline_fill br;
+  Ni.to_int_trunc br.Bit_reader.val_ land 0x7FFF
 
 (* Inline skip_bits - consume bits from the accumulator *)
 let[@inline always] inline_skip br n_bits =
-  br.Bit_reader.val_ <- br.Bit_reader.val_ lsr n_bits;
-  br.Bit_reader.bit_pos <- br.Bit_reader.bit_pos - n_bits
+  br.Bit_reader.val_ <- Ni.of_int (Ni.to_int_trunc br.Bit_reader.val_ lsr n_bits);
+  br.Bit_reader.bit_pos <- I8.of_int (I8.to_int br.Bit_reader.bit_pos - n_bits)
 
 (* Specialized version for root_bits = 8 (literals, block types, context maps).
    This is the most critical hot path - called for every literal byte.
@@ -369,11 +389,11 @@ let build_simple_table symbols num_symbols =
   | _ ->
     raise Invalid_huffman_tree
 
-(* Maximum table sizes for different alphabet sizes *)
-let max_table_sizes = [|
-  256; 402; 436; 468; 500; 534; 566; 598;
-  630; 662; 694; 726; 758; 790; 822; 854;
-  886; 918; 950; 982; 1014; 1046; 1078; 1080
+(* Maximum table sizes for different alphabet sizes - values up to 1080 *)
+let max_table_sizes : nativeint# array = [|
+  #256n; #402n; #436n; #468n; #500n; #534n; #566n; #598n;
+  #630n; #662n; #694n; #726n; #758n; #790n; #822n; #854n;
+  #886n; #918n; #950n; #982n; #1014n; #1046n; #1078n; #1080n
 |]
 
 (* Get maximum table size for a given alphabet size *)

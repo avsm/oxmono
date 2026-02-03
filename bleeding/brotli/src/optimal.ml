@@ -2,6 +2,9 @@
    This implements Zopfli-like optimal matching using dynamic programming,
    matching the brotli-c reference implementation in backward_references_hq.c *)
 
+(* Module aliases for unboxed operations *)
+module Nu = Stdlib_upstream_compatible.Nativeint_u
+
 (* Configuration constants from brotli-c quality.h *)
 let max_zopfli_len_quality_10 = 150
 let max_zopfli_len_quality_11 = 325
@@ -33,9 +36,12 @@ let make_nativeint_u_array len (v : nativeint#) : nativeint# array =
 let[@inline always] na_get (arr : nativeint# array) idx = Nativeint_u.Array.get arr idx
 let[@inline always] na_set (arr : nativeint# array) idx v = Nativeint_u.Array.set arr idx v
 
-(* Distance cache index and offset from brotli-c backward_references_hq.c *)
-let distance_cache_index = [| 0; 1; 2; 3; 0; 0; 0; 0; 0; 0; 1; 1; 1; 1; 1; 1 |]
-let distance_cache_offset = [| 0; 0; 0; 0; -1; 1; -2; 2; -3; 3; -1; 1; -2; 2; -3; 3 |]
+(* Distance cache index and offset from brotli-c backward_references_hq.c
+   Packed as int8# arrays for compact storage (1 byte per element) *)
+let distance_cache_index : int8# array =
+  [| #0s; #1s; #2s; #3s; #0s; #0s; #0s; #0s; #0s; #0s; #1s; #1s; #1s; #1s; #1s; #1s |]
+let distance_cache_offset : int8# array =
+  [| #0s; #0s; #0s; #0s; -#1s; #1s; -#2s; #2s; -#3s; #3s; -#1s; #1s; -#2s; #2s; -#3s; #3s |]
 
 (* Infinity for cost comparison *)
 let infinity = max_float
@@ -115,19 +121,23 @@ let utf8_position last_byte current_byte max_utf8 =
 (* Detect if data is mostly UTF-8 and determine histogram level
    Returns 0 for ASCII, 1 for 2-byte UTF-8, 2 for 3-byte UTF-8 *)
 let decide_utf8_level src src_pos len =
-  let counts = Array.make 3 0 in
-  let last_c = ref 0 in
+  (* Use local unboxed nativeint# array for zero-alloc counting *)
+  let local_ counts : nativeint# array = (Core.Array.init [@kind word]) 3 ~f:(fun _ -> #0n) in
+  let mutable last_c = 0 in
   for i = 0 to min 2000 len - 1 do
     let c = Char.code (Bytes.get src (src_pos + i)) in
-    let utf8_pos = utf8_position !last_c c 2 in
-    counts.(utf8_pos) <- counts.(utf8_pos) + 1;
-    last_c := c
+    let utf8_pos = utf8_position last_c c 2 in
+    let cur = Core.Array.unsafe_get counts utf8_pos in
+    Core.Array.unsafe_set counts utf8_pos (Nu.add cur #1n);
+    last_c <- c
   done;
   (* Use 3-byte histograms if >500 third-position bytes,
      2-byte if >25 second/third position bytes combined,
      otherwise single histogram *)
-  if counts.(2) < 500 then begin
-    if counts.(1) + counts.(2) < 25 then 0
+  let c2 = Nu.to_int (Core.Array.unsafe_get counts 2) in
+  let c1 = Nu.to_int (Core.Array.unsafe_get counts 1) in
+  if c2 < 500 then begin
+    if c1 + c2 < 25 then 0
     else 1
   end else 2
 
@@ -142,27 +152,34 @@ let estimate_literal_costs_sliding_window src src_pos num_bytes =
     let max_utf8 = decide_utf8_level src src_pos num_bytes in
 
     if max_utf8 > 0 then begin
-      (* UTF-8 mode: use position-aware histograms *)
+      (* UTF-8 mode: use position-aware histograms
+         Flattened into single local unboxed array for better performance.
+         Layout: [hist0: 256 elements][hist1: 256 elements][hist2: 256 elements] *)
       let window_half = 495 in  (* Smaller window for UTF-8 from brotli-c *)
-      let num_histograms = max_utf8 + 1 in
-      let histograms = Array.init num_histograms (fun _ -> Array.make 256 0) in
-      let in_window_utf8 = Array.make num_histograms 0 in
+      let local_ histograms : nativeint# array = (Core.Array.init [@kind word]) 768 ~f:(fun _ -> #0n) in
+      (* Use mutable locals for window counts (max 3 histograms) *)
+      let mutable in_win0 = 0 in
+      let mutable in_win1 = 0 in
+      let mutable in_win2 = 0 in
 
       (* Bootstrap histograms *)
       let initial_window = min window_half num_bytes in
-      let last_c = ref 0 in
-      let utf8_pos = ref 0 in
+      let mutable last_c = 0 in
+      let mutable utf8_pos_var = 0 in
       for i = 0 to initial_window - 1 do
         let c = Char.code (Bytes.get src (src_pos + i)) in
-        histograms.(!utf8_pos).(c) <- histograms.(!utf8_pos).(c) + 1;
-        in_window_utf8.(!utf8_pos) <- in_window_utf8.(!utf8_pos) + 1;
-        utf8_pos := utf8_position !last_c c max_utf8;
-        last_c := c
+        let idx = (utf8_pos_var lsl 8) + c in
+        let cur = Core.Array.unsafe_get histograms idx in
+        Core.Array.unsafe_set histograms idx (Nu.add cur #1n);
+        (* Inline increment of in_win for correct histogram *)
+        (match utf8_pos_var with 0 -> in_win0 <- in_win0 + 1 | 1 -> in_win1 <- in_win1 + 1 | _ -> in_win2 <- in_win2 + 1);
+        utf8_pos_var <- utf8_position last_c c max_utf8;
+        last_c <- c
       done;
 
       costs.(0) <- 0.0;
-      let prev1 = ref 0 in
-      let prev2 = ref 0 in
+      let mutable prev1 = 0 in
+      let mutable prev2 = 0 in
       for i = 0 to num_bytes - 1 do
         (* Slide window: remove byte from past *)
         if i >= window_half then begin
@@ -172,8 +189,10 @@ let estimate_literal_costs_sliding_window src src_pos num_bytes =
             else Char.code (Bytes.get src (src_pos + i - window_half - 2)) in
           let utf8_pos2 = utf8_position past_last past_c max_utf8 in
           let remove_c = Char.code (Bytes.get src (src_pos + i - window_half)) in
-          histograms.(utf8_pos2).(remove_c) <- histograms.(utf8_pos2).(remove_c) - 1;
-          in_window_utf8.(utf8_pos2) <- in_window_utf8.(utf8_pos2) - 1
+          let idx = (utf8_pos2 lsl 8) + remove_c in
+          let cur = Core.Array.unsafe_get histograms idx in
+          Core.Array.unsafe_set histograms idx (Nu.sub cur #1n);
+          (match utf8_pos2 with 0 -> in_win0 <- in_win0 - 1 | 1 -> in_win1 <- in_win1 - 1 | _ -> in_win2 <- in_win2 - 1)
         end;
         (* Slide window: add byte from future *)
         if i + window_half < num_bytes then begin
@@ -181,15 +200,18 @@ let estimate_literal_costs_sliding_window src src_pos num_bytes =
           let fut_last = Char.code (Bytes.get src (src_pos + i + window_half - 2)) in
           let utf8_pos2 = utf8_position fut_last fut_c max_utf8 in
           let add_c = Char.code (Bytes.get src (src_pos + i + window_half)) in
-          histograms.(utf8_pos2).(add_c) <- histograms.(utf8_pos2).(add_c) + 1;
-          in_window_utf8.(utf8_pos2) <- in_window_utf8.(utf8_pos2) + 1
+          let idx = (utf8_pos2 lsl 8) + add_c in
+          let cur = Core.Array.unsafe_get histograms idx in
+          Core.Array.unsafe_set histograms idx (Nu.add cur #1n);
+          (match utf8_pos2 with 0 -> in_win0 <- in_win0 + 1 | 1 -> in_win1 <- in_win1 + 1 | _ -> in_win2 <- in_win2 + 1)
         end;
 
         (* Calculate cost for current byte using UTF-8 position *)
         let c = Char.code (Bytes.get src (src_pos + i)) in
-        let utf8_pos = utf8_position !prev2 !prev1 max_utf8 in
-        let histo = max 1 histograms.(utf8_pos).(c) in
-        let in_win = max 1 in_window_utf8.(utf8_pos) in
+        let utf8_pos = utf8_position prev2 prev1 max_utf8 in
+        let idx = (utf8_pos lsl 8) + c in
+        let histo = max 1 (Nu.to_int (Core.Array.unsafe_get histograms idx)) in
+        let in_win = max 1 (match utf8_pos with 0 -> in_win0 | 1 -> in_win1 | _ -> in_win2) in
         let lit_cost = fast_log2 in_win -. fast_log2 histo +. 0.02905 in
         let lit_cost = if lit_cost < 1.0 then lit_cost *. 0.5 +. 0.5 else lit_cost in
         let prologue_length = 2000 in
@@ -199,42 +221,45 @@ let estimate_literal_costs_sliding_window src src_pos num_bytes =
           else lit_cost
         in
         costs.(i + 1) <- costs.(i) +. lit_cost;
-        prev2 := !prev1;
-        prev1 := c
+        prev2 <- prev1;
+        prev1 <- c
       done;
       costs
     end else begin
-      (* Binary/ASCII mode: single histogram *)
+      (* Binary/ASCII mode: single histogram with local unboxed array *)
       let window_half = 2000 in  (* Larger window for non-UTF-8 *)
-      let histogram = Array.make 256 0 in
+      let local_ histogram : nativeint# array = (Core.Array.init [@kind word]) 256 ~f:(fun _ -> #0n) in
 
       (* Bootstrap histogram for first window_half bytes *)
       let initial_window = min window_half num_bytes in
       for i = 0 to initial_window - 1 do
         let c = Char.code (Bytes.get src (src_pos + i)) in
-        histogram.(c) <- histogram.(c) + 1
+        let cur = Core.Array.unsafe_get histogram c in
+        Core.Array.unsafe_set histogram c (Nu.add cur #1n)
       done;
-      let in_window = ref initial_window in
+      let mutable in_window = initial_window in
 
       costs.(0) <- 0.0;
       for i = 0 to num_bytes - 1 do
         (* Slide window: remove byte from past *)
         if i >= window_half then begin
           let old_c = Char.code (Bytes.get src (src_pos + i - window_half)) in
-          histogram.(old_c) <- histogram.(old_c) - 1;
-          decr in_window
+          let cur = Core.Array.unsafe_get histogram old_c in
+          Core.Array.unsafe_set histogram old_c (Nu.sub cur #1n);
+          in_window <- in_window - 1
         end;
         (* Slide window: add byte from future *)
         if i + window_half < num_bytes then begin
           let new_c = Char.code (Bytes.get src (src_pos + i + window_half)) in
-          histogram.(new_c) <- histogram.(new_c) + 1;
-          incr in_window
+          let cur = Core.Array.unsafe_get histogram new_c in
+          Core.Array.unsafe_set histogram new_c (Nu.add cur #1n);
+          in_window <- in_window + 1
         end;
 
         (* Calculate cost for current byte *)
         let c = Char.code (Bytes.get src (src_pos + i)) in
-        let histo = max 1 histogram.(c) in
-        let lit_cost = fast_log2 !in_window -. fast_log2 histo +. 0.029 in
+        let histo = max 1 (Nu.to_int (Core.Array.unsafe_get histogram c)) in
+        let lit_cost = fast_log2 in_window -. fast_log2 histo +. 0.029 in
         let lit_cost = if lit_cost < 1.0 then lit_cost *. 0.5 +. 0.5 else lit_cost in
         let prologue_length = 2000 in
         let lit_cost =
@@ -292,27 +317,20 @@ let[@inline always] get_distance_cost model dist_code =
 
 (* ============================================================
    StartPosQueue - maintains 8 best starting positions
-   Optimized: Inline distance cache fields to avoid array allocation
+   Uses unboxed nativeint# array for distance cache
    ============================================================ *)
 
 type pos_data = {
   pos : int;
-  (* Inline distance cache to avoid allocation *)
-  dc0 : int;
-  dc1 : int;
-  dc2 : int;
-  dc3 : int;
+  (* Distance cache as unboxed nativeint# array *)
+  dist_cache : nativeint# array;
   costdiff : float;
   cost : float;
 }
 
 (* Helper to get distance cache value by index *)
 let[@inline always] pos_data_get_dc posdata idx =
-  match idx with
-  | 0 -> posdata.dc0
-  | 1 -> posdata.dc1
-  | 2 -> posdata.dc2
-  | _ -> posdata.dc3
+  Nu.to_int (na_get posdata.dist_cache idx)
 
 type start_pos_queue = {
   mutable q : pos_data array;
@@ -320,7 +338,12 @@ type start_pos_queue = {
 }
 
 let create_start_pos_queue () =
-  let empty = { pos = 0; dc0 = 16; dc1 = 15; dc2 = 11; dc3 = 4; costdiff = infinity; cost = infinity } in
+  let default_cache = make_nativeint_u_array 4 #0n in
+  na_set default_cache 0 (Nu.of_int 16);
+  na_set default_cache 1 (Nu.of_int 15);
+  na_set default_cache 2 (Nu.of_int 11);
+  na_set default_cache 3 (Nu.of_int 4);
+  let empty = { pos = 0; dist_cache = default_cache; costdiff = infinity; cost = infinity } in
   { q = Array.make 8 empty; idx = 0 }
 
 let[@inline always] start_pos_queue_size queue =
@@ -382,12 +405,12 @@ let[@inline always] hash4 src pos =
   ((v * 0x1e35a7bd) land 0xFFFFFFFF) lsr (32 - hash_bits)
 
 let[@inline always] find_match_length src a b limit =
-  let len = ref 0 in
+  let mutable len = 0 in
   let max_len = min max_match (limit - b) in
-  while !len < max_len && Bytes.get src (a + !len) = Bytes.get src (b + !len) do
-    incr len
+  while len < max_len && Bytes.get src (a + len) = Bytes.get src (b + len) do
+    len <- len + 1
   done;
-  !len
+  len
 
 (* Backward match structure *)
 type backward_match = {
@@ -397,10 +420,11 @@ type backward_match = {
 }
 
 (* Pre-allocated match buffer to avoid repeated allocation in hot path.
-   Max depth is max_tree_search_depth (64), but we typically find fewer matches. *)
+   Max depth is max_tree_search_depth (64), but we typically find fewer matches.
+   Using unboxed nativeint# arrays for better performance. *)
 let match_buffer_size = max_tree_search_depth
-let match_buffer_dist = Array.make match_buffer_size 0
-let match_buffer_len = Array.make match_buffer_size 0
+let match_buffer_dist : nativeint# array = make_nativeint_u_array match_buffer_size #0n
+let match_buffer_len : nativeint# array = make_nativeint_u_array match_buffer_size #0n
 
 (* Find all matches at a position, sorted by length.
    Uses unboxed nativeint# arrays for hash_table and chain_table for better performance.
@@ -424,10 +448,10 @@ let find_all_matches src pos src_end (hash_table : nativeint# array) (chain_tabl
         let match_len = find_match_length src chain_pos pos src_end in
         if match_len > best_len then begin
           best_len <- match_len;
-          (* Store in pre-allocated buffer *)
+          (* Store in pre-allocated unboxed buffer *)
           if match_count < match_buffer_size then begin
-            match_buffer_dist.(match_count) <- distance;
-            match_buffer_len.(match_count) <- match_len;
+            na_set match_buffer_dist match_count (Nu.of_int distance);
+            na_set match_buffer_len match_count (Nu.of_int match_len);
             match_count <- match_count + 1
           end
         end
@@ -448,9 +472,11 @@ let find_all_matches src pos src_end (hash_table : nativeint# array) (chain_tabl
       (* Build list in reverse (smallest first) since matches are stored largest-first *)
       let matches = ref [] in
       for i = 0 to match_count - 1 do
-        matches := { bm_distance = match_buffer_dist.(i);
-                     bm_length = match_buffer_len.(i);
-                     bm_len_code = match_buffer_len.(i) } :: !matches
+        let dist = Nu.to_int (na_get match_buffer_dist i) in
+        let len = Nu.to_int (na_get match_buffer_len i) in
+        matches := { bm_distance = dist;
+                     bm_length = len;
+                     bm_len_code = len } :: !matches
       done;
       (* Simple insertion sort - fast for small arrays and already mostly sorted *)
       List.sort (fun a b -> compare a.bm_length b.bm_length) !matches
@@ -461,11 +487,11 @@ let find_all_matches src pos src_end (hash_table : nativeint# array) (chain_tabl
    Insert/Copy length encoding (from brotli-c prefix.h)
    ============================================================ *)
 
-(* Pre-computed insert extra bits table *)
-let kInsertExtraBits = [| 0;0;0;0;0;0;1;1;2;2;3;3;4;4;5;5;6;7;8;9;10;12;14;24 |]
+(* Pre-computed insert extra bits table - values 0-24 fit in int8# *)
+let kInsertExtraBits : int8# array = [| #0s;#0s;#0s;#0s;#0s;#0s;#1s;#1s;#2s;#2s;#3s;#3s;#4s;#4s;#5s;#5s;#6s;#7s;#8s;#9s;#10s;#12s;#14s;#24s |]
 
-(* Pre-computed copy extra bits table *)
-let kCopyExtraBits = [| 0;0;0;0;0;0;0;0;1;1;2;2;3;3;4;4;5;5;6;7;8;9;10;24 |]
+(* Pre-computed copy extra bits table - values 0-24 fit in int8# *)
+let kCopyExtraBits : int8# array = [| #0s;#0s;#0s;#0s;#0s;#0s;#0s;#0s;#1s;#1s;#2s;#2s;#3s;#3s;#4s;#4s;#5s;#5s;#6s;#7s;#8s;#9s;#10s;#24s |]
 
 let[@inline always] get_insert_length_code insert_len =
   if insert_len < 6 then insert_len
@@ -488,10 +514,10 @@ let[@inline always] get_copy_length_code copy_len =
   else 23
 
 let[@inline always] get_insert_extra insert_code =
-  if insert_code < 24 then kInsertExtraBits.(insert_code) else 24
+  if insert_code < 24 then Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get kInsertExtraBits insert_code) else 24
 
 let[@inline always] get_copy_extra copy_code =
-  if copy_code < 24 then kCopyExtraBits.(copy_code) else 24
+  if copy_code < 24 then Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get kCopyExtraBits copy_code) else 24
 
 let[@inline always] combine_length_codes inscode copycode use_last_distance =
   let inscode64 = (inscode land 0x7) lor ((inscode land 0x18) lsl 2) in
@@ -520,22 +546,24 @@ let[@inline always] prefix_encode_copy_distance dist_code =
    Main Zopfli DP Algorithm
    ============================================================ *)
 
-(* Compute distance cache at a position from the DP path *)
-let compute_distance_cache pos starting_dist_cache nodes =
-  let dist_cache = Array.make 4 0 in
-  let idx = ref 0 in
-  let p = ref nodes.(pos).shortcut in
-  while !idx < 4 && !p > 0 do
-    let node = nodes.(!p) in
+(* Compute distance cache at a position from the DP path.
+   Returns unboxed nativeint# array with 4 distance values. *)
+let compute_distance_cache pos starting_dist_cache nodes : nativeint# array =
+  (* Use unboxed nativeint# array - distances can be up to 2^22 *)
+  let dist_cache : nativeint# array = make_nativeint_u_array 4 #0n in
+  let mutable idx = 0 in
+  let mutable p = nodes.(pos).shortcut in
+  while idx < 4 && p > 0 do
+    let node = nodes.(p) in
     let c_len = zopfli_node_copy_length node in
     let i_len = zopfli_node_insert_length node in
     let dist = zopfli_node_copy_distance node in
-    dist_cache.(!idx) <- dist;
-    incr idx;
-    p := nodes.(!p - c_len - i_len).shortcut
+    na_set dist_cache idx (Nu.of_int dist);
+    idx <- idx + 1;
+    p <- nodes.(p - c_len - i_len).shortcut
   done;
-  for i = !idx to 3 do
-    dist_cache.(i) <- starting_dist_cache.(i - !idx)
+  for i = idx to 3 do
+    na_set dist_cache i (Nu.of_int starting_dist_cache.(i - idx))
   done;
   dist_cache
 
@@ -565,19 +593,19 @@ let[@inline always] update_zopfli_node nodes pos start len len_code dist short_c
 
 (* Compute minimum copy length that can improve cost *)
 let compute_minimum_copy_length start_cost nodes num_bytes pos =
-  let min_cost = ref start_cost in
-  let len = ref 2 in
-  let next_len_bucket = ref 4 in
-  let next_len_offset = ref 10 in
-  while pos + !len <= num_bytes && nodes.(pos + !len).cost <= !min_cost do
-    incr len;
-    if !len = !next_len_offset then begin
-      min_cost := !min_cost +. 1.0;
-      next_len_offset := !next_len_offset + !next_len_bucket;
-      next_len_bucket := !next_len_bucket * 2
+  let mutable min_cost = start_cost in
+  let mutable len = 2 in
+  let mutable next_len_bucket = 4 in
+  let mutable next_len_offset = 10 in
+  while pos + len <= num_bytes && nodes.(pos + len).cost <= min_cost do
+    len <- len + 1;
+    if len = next_len_offset then begin
+      min_cost <- min_cost +. 1.0;
+      next_len_offset <- next_len_offset + next_len_bucket;
+      next_len_bucket <- next_len_bucket * 2
     end
   done;
-  !len
+  len
 
 (* Evaluate node and push to queue if eligible *)
 let evaluate_node block_start pos max_backward_limit starting_dist_cache model queue nodes =
@@ -587,10 +615,7 @@ let evaluate_node block_start pos max_backward_limit starting_dist_cache model q
     let dist_cache = compute_distance_cache pos starting_dist_cache nodes in
     let posdata = {
       pos;
-      dc0 = dist_cache.(0);
-      dc1 = dist_cache.(1);
-      dc2 = dist_cache.(2);
-      dc3 = dist_cache.(3);
+      dist_cache;
       costdiff = node_cost -. get_literal_cost model 0 pos;
       cost = node_cost;
     } in
@@ -604,7 +629,7 @@ let update_nodes num_bytes block_start pos src src_pos model
   let cur_ix = block_start + pos in
   let max_distance_here = min cur_ix max_backward_limit in
   let max_len = num_bytes - pos in
-  let result = ref 0 in
+  let mutable result = 0 in
 
   evaluate_node block_start pos max_backward_limit starting_dist_cache model queue nodes;
 
@@ -624,17 +649,18 @@ let update_nodes num_bytes block_start pos src src_pos model
                     get_literal_cost model 0 pos in
 
     (* Check distance cache matches first *)
-    let best_len = ref (min_len - 1) in
+    let mutable best_len = min_len - 1 in
     for j = 0 to 15 do
-      if !best_len < max_len then begin
-        let idx = distance_cache_index.(j) in
-        let backward = pos_data_get_dc posdata idx + distance_cache_offset.(j) in
+      if best_len < max_len then begin
+        let idx = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get distance_cache_index j) in
+        let cache_off = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get distance_cache_offset j) in
+        let backward = pos_data_get_dc posdata idx + cache_off in
         if backward > 0 && backward <= max_distance_here then begin
           let prev_ix = cur_ix - backward in
           let match_len = find_match_length src prev_ix (src_pos + pos) (src_pos + num_bytes) in
           if match_len >= 2 then begin
             let dist_cost = base_cost +. get_distance_cost model j in
-            for l = !best_len + 1 to match_len do
+            for l = best_len + 1 to match_len do
               let copycode = get_copy_length_code l in
               let cmdcode = combine_length_codes inscode copycode (j = 0) in
               let cost = (if cmdcode < 128 then base_cost else dist_cost) +.
@@ -642,9 +668,9 @@ let update_nodes num_bytes block_start pos src src_pos model
                          get_command_cost model cmdcode in
               if cost < nodes.(pos + l).cost then begin
                 update_zopfli_node nodes pos start l l backward (j + 1) cost;
-                result := max !result l
+                result <- max result l
               end;
-              best_len := l
+              best_len <- l
             done
           end
         end
@@ -654,7 +680,7 @@ let update_nodes num_bytes block_start pos src src_pos model
     (* For iterations >= 2, only look at distance cache matches *)
     if k < 2 then begin
       (* Loop through all matches *)
-      let len = ref min_len in
+      let mutable len = min_len in
       for j = 0 to num_matches - 1 do
         let m = matches.(j) in
         let dist = m.bm_distance in
@@ -665,43 +691,43 @@ let update_nodes num_bytes block_start pos src src_pos model
         let max_match_len = m.bm_length in
 
         (* For long matches or dictionary, try only max length *)
-        if !len < max_match_len && max_match_len > max_zopfli_len then
-          len := max_match_len;
+        if len < max_match_len && max_match_len > max_zopfli_len then
+          len <- max_match_len;
 
-        while !len <= max_match_len do
+        while len <= max_match_len do
           let len_code = m.bm_len_code in
           let copycode = get_copy_length_code len_code in
           let cmdcode = combine_length_codes inscode copycode false in
           let cost = dist_cost +. float_of_int (get_copy_extra copycode) +.
                      get_command_cost model cmdcode in
-          if cost < nodes.(pos + !len).cost then begin
-            update_zopfli_node nodes pos start !len len_code dist 0 cost;
-            result := max !result !len
+          if cost < nodes.(pos + len).cost then begin
+            update_zopfli_node nodes pos start len len_code dist 0 cost;
+            result <- max result len
           end;
-          incr len
+          len <- len + 1
         done
       done
     end
   done;
-  !result
+  result
 
 (* Compute shortest path from nodes *)
 let compute_shortest_path_from_nodes num_bytes nodes =
-  let index = ref num_bytes in
-  let num_commands = ref 0 in
+  let mutable index = num_bytes in
+  let mutable num_commands = 0 in
   (* Find the actual end position *)
-  while zopfli_node_insert_length nodes.(!index) = 0 &&
-        nodes.(!index).length = 1 && !index > 0 do
-    decr index
+  while zopfli_node_insert_length nodes.(index) = 0 &&
+        nodes.(index).length = 1 && index > 0 do
+    index <- index - 1
   done;
-  nodes.(!index).shortcut <- max_int;  (* Mark as end *)
-  while !index > 0 do
-    let len = zopfli_node_command_length nodes.(!index) in
-    index := !index - len;
-    nodes.(!index).shortcut <- len;  (* Use shortcut to store next length *)
-    incr num_commands
+  nodes.(index).shortcut <- max_int;  (* Mark as end *)
+  while index > 0 do
+    let len = zopfli_node_command_length nodes.(index) in
+    index <- index - len;
+    nodes.(index).shortcut <- len;  (* Use shortcut to store next length *)
+    num_commands <- num_commands + 1
   done;
-  !num_commands
+  num_commands
 
 (* ============================================================
    Main Zopfli function for Q10
@@ -729,15 +755,15 @@ let zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
   let queue = create_start_pos_queue () in
 
   (* Main DP loop *)
-  let i = ref 0 in
-  while !i + min_match - 1 < num_bytes do
-    let pos = src_pos + !i in
+  let mutable i = 0 in
+  while i + min_match - 1 < num_bytes do
+    let pos = src_pos + i in
     let max_distance_here = min pos max_backward_limit in
 
     (* Update hash table *)
     if pos + min_match <= src_pos + num_bytes then begin
       let h = hash4 src pos in
-      let chain_idx = !i in
+      let chain_idx = i in
       if chain_idx < Nativeint_u.Array.length chain_table then
         na_set chain_table chain_idx (na_get hash_table h);
       na_set hash_table h (Nativeint_u.of_int pos)
@@ -761,7 +787,7 @@ let zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
       end else 0
     in
 
-    let update_skip = update_nodes num_bytes src_pos !i src src_pos model
+    let update_skip = update_nodes num_bytes src_pos i src src_pos model
       max_backward_limit starting_dist_cache
       (if skip > 0 then 1 else num_matches) matches_arr queue nodes
       max_zopfli_len max_iters in
@@ -770,14 +796,14 @@ let zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
     let skip = max skip actual_skip in
 
     if skip > 1 then begin
-      let skip_remaining = ref (skip - 1) in
-      while !skip_remaining > 0 && !i + min_match - 1 < num_bytes do
-        incr i;
-        evaluate_node src_pos !i max_backward_limit starting_dist_cache model queue nodes;
-        decr skip_remaining
+      let mutable skip_remaining = skip - 1 in
+      while skip_remaining > 0 && i + min_match - 1 < num_bytes do
+        i <- i + 1;
+        evaluate_node src_pos i max_backward_limit starting_dist_cache model queue nodes;
+        skip_remaining <- skip_remaining - 1
       done
     end;
-    incr i
+    i <- i + 1
   done;
 
   (nodes, compute_shortest_path_from_nodes num_bytes nodes)
@@ -875,7 +901,8 @@ let hq_zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
   let chain_table : nativeint# array = make_nativeint_u_array num_bytes invalid_pos in
   let chain_base = src_pos in
   let all_matches = Array.make num_bytes [||] in
-  let num_matches_arr = Array.make num_bytes 0 in
+  (* Use unboxed nativeint# array for match counts *)
+  let num_matches_arr : nativeint# array = make_nativeint_u_array num_bytes #0n in
 
   for i = 0 to num_bytes - min_match do
     let pos = src_pos + i in
@@ -892,7 +919,7 @@ let hq_zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
       hash_table chain_table chain_base max_distance_here in
     let matches_arr = Array.of_list matches in
     all_matches.(i) <- matches_arr;
-    num_matches_arr.(i) <- Array.length matches_arr;
+    na_set num_matches_arr i (Nu.of_int (Array.length matches_arr));
 
     (* Skip after very long match *)
     if Array.length matches_arr > 0 then begin
@@ -901,7 +928,7 @@ let hq_zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
         let skip = last.bm_length - 1 in
         for j = 1 to min skip (num_bytes - min_match - i) do
           all_matches.(i + j) <- [||];
-          num_matches_arr.(i + j) <- 0
+          na_set num_matches_arr (i + j) #0n
         done
       end
     end
@@ -937,24 +964,24 @@ let hq_zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
     let queue = create_start_pos_queue () in
 
     (* Main DP loop *)
-    let i = ref 0 in
-    while !i + min_match - 1 < num_bytes do
-      let skip = update_nodes num_bytes src_pos !i src src_pos model
+    let mutable i = 0 in
+    while i + min_match - 1 < num_bytes do
+      let skip = update_nodes num_bytes src_pos i src src_pos model
         max_backward_limit starting_dist_cache
-        num_matches_arr.(!i) all_matches.(!i) queue nodes
+        (Nu.to_int (na_get num_matches_arr i)) all_matches.(i) queue nodes
         max_zopfli_len max_iters in
 
       let skip = if skip < brotli_long_copy_quick_step then 0 else skip in
 
       if skip > 1 then begin
-        let skip_remaining = ref (skip - 1) in
-        while !skip_remaining > 0 && !i + min_match - 1 < num_bytes do
-          incr i;
-          evaluate_node src_pos !i max_backward_limit starting_dist_cache model queue nodes;
-          decr skip_remaining
+        let mutable skip_remaining = skip - 1 in
+        while skip_remaining > 0 && i + min_match - 1 < num_bytes do
+          i <- i + 1;
+          evaluate_node src_pos i max_backward_limit starting_dist_cache model queue nodes;
+          skip_remaining <- skip_remaining - 1
         done
       end;
-      incr i
+      i <- i + 1
     done;
 
     (* Save first pass nodes for histogram building *)

@@ -2,6 +2,9 @@
    Pre-allocates all scratch buffers to enable zero-allocation decoding.
    Uses OxCaml unboxed nativeint# fields for hot-path scalar state. *)
 
+(* Module alias for unboxed nativeint operations *)
+module Nu = Stdlib_upstream_compatible.Nativeint_u
+
 (* Maximum sizes based on Brotli spec *)
 let max_alphabet_size = 704  (* max for command symbols *)
 let max_block_types = 256
@@ -9,6 +12,14 @@ let max_literal_trees = 256
 let max_distance_trees = 256
 let max_context_map_size = max_block_types lsl 6  (* 16384 *)
 let huffman_slab_size = 0  (* UNUSED: brotli_decode.ml allocates tables directly *)
+
+(* Helper to create a nativeint# array filled with zeros *)
+let make_nativeint_u_array len : nativeint# array =
+  let arr = Nativeint_u.Array.create_uninitialized ~len in
+  for i = 0 to len - 1 do
+    Nativeint_u.Array.set arr i #0n
+  done;
+  arr
 
 (* Decoder scratch buffers - allocated once, reused across meta-blocks.
    Mixed block: boxed fields first, unboxed nativeint# fields at the end. *)
@@ -182,18 +193,19 @@ let reset_block_state t =
 
 (* Bit reader operations on decoder state - CRITICAL HOT PATH *)
 
-let bit_masks = [|
-  0x0; 0x1; 0x3; 0x7;
-  0xF; 0x1F; 0x3F; 0x7F;
-  0xFF; 0x1FF; 0x3FF; 0x7FF;
-  0xFFF; 0x1FFF; 0x3FFF; 0x7FFF;
-  0xFFFF; 0x1FFFF; 0x3FFFF; 0x7FFFF;
-  0xFFFFF; 0x1FFFFF; 0x3FFFFF; 0x7FFFFF;
-  0xFFFFFF; 0x1FFFFFF;
+(* Pre-computed bit masks for 0-24 bits - nativeint# for unboxed access *)
+let bit_masks : nativeint# array = [|
+  #0x0n; #0x1n; #0x3n; #0x7n;
+  #0xFn; #0x1Fn; #0x3Fn; #0x7Fn;
+  #0xFFn; #0x1FFn; #0x3FFn; #0x7FFn;
+  #0xFFFn; #0x1FFFn; #0x3FFFn; #0x7FFFn;
+  #0xFFFFn; #0x1FFFFn; #0x3FFFFn; #0x7FFFFn;
+  #0xFFFFFn; #0x1FFFFFn; #0x3FFFFFn; #0x7FFFFFn;
+  #0xFFFFFFn; #0x1FFFFFFn
 |]
 
 let[@inline always] bit_mask n =
-  if n <= 24 then Array.unsafe_get bit_masks n
+  if n <= 24 then Nativeint_u.to_int_trunc (Oxcaml_arrays.unsafe_get bit_masks n)
   else (1 lsl n) - 1
 
 let[@inline always] fill_bit_window t =

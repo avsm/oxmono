@@ -184,23 +184,11 @@ let[@inline always] find_short_code ring distance =
       end
     end
 
-(* Match result record for stack allocation.
-   Using a record with mutable fields allows the caller to pass a pre-allocated
-   buffer, avoiding tuple allocation in hot paths. *)
-type match_result = {
-  mutable mr_len: int;
-  mutable mr_dist: int;
-  mutable mr_code: int;  (* -1 = no short code, 0-15 = valid short code *)
-}
+(* Match result as unboxed labeled tuple for zero-allocation returns. *)
+type match_result = #(mr_len: int * mr_dist: int * mr_code: int)
 
-(* Create a match result initialized to "no match" *)
-let[@inline always] make_match_result () = { mr_len = 0; mr_dist = 0; mr_code = -1 }
-
-(* Reset a match result to "no match" *)
-let[@inline always] reset_match_result (r : match_result) =
-  r.mr_len <- 0;
-  r.mr_dist <- 0;
-  r.mr_code <- -1
+(* No match sentinel value *)
+let[@inline always] no_match () : match_result = #(~mr_len:0, ~mr_dist:0, ~mr_code:(-1))
 
 (* Command type with optional short distance code.
    dist_code: -1 means no short code, 0-15 are valid short codes *)
@@ -592,11 +580,11 @@ let[@inline always] max_copy_len_for_insert insert_len =
 
 (* Try to find a match at a short code distance.
    num_to_check controls how many short codes to check (4, 10, or 16 based on quality)
-   Writes result to the provided match_result record (avoids tuple allocation).
+   Returns local unboxed labeled tuple (avoids heap allocation).
 
    Optimized: checks codes in priority order (0-3 first, then 4-15).
    Uses early exit when a good enough match is found. *)
-let try_short_code_match_into ?(num_to_check=16) src pos limit ring (result : match_result) =
+let[@inline always] try_short_code_match ?(num_to_check=16) src pos limit ring =
   let candidates = short_code_distances ring in
   let mutable best_len = 0 in
   let mutable best_dist_n : nativeint# = #0n in
@@ -641,15 +629,7 @@ let try_short_code_match_into ?(num_to_check=16) src pos limit ring (result : ma
       end
     done
   end;
-  result.mr_len <- best_len;
-  result.mr_dist <- Nu.to_int best_dist_n;
-  result.mr_code <- best_code
-
-(* Legacy wrapper for compatibility - allocates tuple *)
-let try_short_code_match ?(num_to_check=16) src pos limit ring =
-  let result = make_match_result () in
-  try_short_code_match_into ~num_to_check src pos limit ring result;
-  (result.mr_len, result.mr_dist, result.mr_code)
+  #(~mr_len:best_len, ~mr_dist:(Nu.to_int best_dist_n), ~mr_code:best_code)
 
 (* Score a dictionary match *)
 let score_dict_match copy_len =
@@ -679,16 +659,13 @@ let get_literal_spree_length quality =
    then searches hash chain/bucket.
    chain_table_base is the base offset used for chain_table indexing.
    Uses unboxed nativeint# arrays for hash_table and chain_table for better performance.
-   Writes result to provided match_result record (avoids tuple allocation).
+   Returns local unboxed labeled tuple (avoids heap allocation).
 
    Optimized version using mutable locals instead of refs for better codegen. *)
-let find_best_chain_match_into src pos src_end (hash_table : nativeint# array) (chain_table : nativeint# array) chain_table_base ring
-    ~num_last_distances_to_check ~max_chain_depth (result : match_result) =
-  if pos + min_match > src_end then begin
-    result.mr_len <- 0;
-    result.mr_dist <- 0;
-    result.mr_code <- -1
-  end
+let[@inline always] find_best_chain_match src pos src_end (hash_table : nativeint# array) (chain_table : nativeint# array) chain_table_base ring
+    ~num_last_distances_to_check ~max_chain_depth =
+  if pos + min_match > src_end then
+    no_match ()
   else begin
     (* Use mutable locals for better codegen (avoids ref allocation) *)
     let mutable best_len = min_match - 1 in  (* Start at min_match-1 so >= min_match wins *)
@@ -754,24 +731,11 @@ let find_best_chain_match_into src pos src_end (hash_table : nativeint# array) (
       chain_count <- chain_count + 1
     done;
 
-    if best_len >= min_match then begin
-      result.mr_len <- best_len;
-      result.mr_dist <- best_dist;
-      result.mr_code <- best_code
-    end else begin
-      result.mr_len <- 0;
-      result.mr_dist <- 0;
-      result.mr_code <- -1
-    end
+    if best_len >= min_match then
+      #(~mr_len:best_len, ~mr_dist:best_dist, ~mr_code:best_code)
+    else
+      no_match ()
   end
-
-(* Legacy wrapper for compatibility - allocates tuple *)
-let find_best_chain_match src pos src_end hash_table chain_table chain_table_base ring
-    ~num_last_distances_to_check ~max_chain_depth =
-  let result = make_match_result () in
-  find_best_chain_match_into src pos src_end hash_table chain_table chain_table_base ring
-    ~num_last_distances_to_check ~max_chain_depth result;
-  (result.mr_len, result.mr_dist, result.mr_code)
 
 (* Update hash chain. chain_table_base is the base offset for indexing.
    Uses unboxed nativeint# arrays for hash_table and chain_table. *)
@@ -819,10 +783,10 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
     let spree_length = get_literal_spree_length quality in
     let use_spree_skip = quality >= 2 && quality <= 9 in
 
-    (* Pre-allocated match result buffers to avoid tuple allocation in hot loop *)
-    let hash_result = make_match_result () in
-    let short_result = make_match_result () in
-    let next_result = make_match_result () in
+    (* Mutable locals to hold current match result - avoids tuple allocation *)
+    let mutable hash_len = 0 in
+    let mutable hash_dist = 0 in
+    let mutable hash_code = -1 in
 
     while pos < src_end - min_match do
       (* Determine if we should skip this position due to literal spree *)
@@ -848,23 +812,27 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
         pos <- pos + 1;
         literal_spree <- literal_spree + 1
       end else begin
-      (* Find best match at current position using pre-allocated result buffer.
+      (* Find best match at current position using local unboxed tuples.
          mr_len=0 means no match found, mr_code=-1 means no short code. *)
-      if quality >= 4 then
-        find_best_chain_match_into src pos src_end hash_table chain_table chain_table_base ring
-          ~num_last_distances_to_check ~max_chain_depth hash_result
-      else begin
+      if quality >= 4 then begin
+        let #(~mr_len, ~mr_dist, ~mr_code) =
+          find_best_chain_match src pos src_end hash_table chain_table chain_table_base ring
+            ~num_last_distances_to_check ~max_chain_depth
+        in
+        hash_len <- mr_len;
+        hash_dist <- mr_dist;
+        hash_code <- mr_code
+      end else begin
         (* Q2-3: Simple hash lookup with bucket sweep *)
         let h = hash4 src pos in
         let prev_u : nativeint# = na_get hash_table h in
         let prev = Nativeint_u.to_int_trunc prev_u in
         na_set hash_table h (Nativeint_u.of_int pos);
         (* Also check distance cache first *)
-        try_short_code_match_into ~num_to_check:num_last_distances_to_check
-          src pos src_end ring short_result;
-        let slen = short_result.mr_len in
-        let sdist = short_result.mr_dist in
-        let scode = short_result.mr_code in
+        let #(~mr_len:slen, ~mr_dist:sdist, ~mr_code:scode) =
+          try_short_code_match ~num_to_check:num_last_distances_to_check
+            src pos src_end ring
+        in
         if prev >= src_pos && pos - prev <= max_backward_distance then begin
           let match_len = find_match_length src prev pos src_end in
           if match_len >= min_match then begin
@@ -875,43 +843,39 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
               let s_score = score_match slen sdist scode in
               let h_score = score_match match_len distance dist_code in
               if s_score >= h_score then begin
-                hash_result.mr_len <- slen;
-                hash_result.mr_dist <- sdist;
-                hash_result.mr_code <- scode
+                hash_len <- slen;
+                hash_dist <- sdist;
+                hash_code <- scode
               end else begin
-                hash_result.mr_len <- match_len;
-                hash_result.mr_dist <- distance;
-                hash_result.mr_code <- dist_code
+                hash_len <- match_len;
+                hash_dist <- distance;
+                hash_code <- dist_code
               end
             end else begin
-              hash_result.mr_len <- match_len;
-              hash_result.mr_dist <- distance;
-              hash_result.mr_code <- dist_code
+              hash_len <- match_len;
+              hash_dist <- distance;
+              hash_code <- dist_code
             end
           end else if slen >= min_match then begin
-            hash_result.mr_len <- slen;
-            hash_result.mr_dist <- sdist;
-            hash_result.mr_code <- scode
+            hash_len <- slen;
+            hash_dist <- sdist;
+            hash_code <- scode
           end else begin
-            hash_result.mr_len <- 0;
-            hash_result.mr_dist <- 0;
-            hash_result.mr_code <- -1
+            hash_len <- 0;
+            hash_dist <- 0;
+            hash_code <- -1
           end
         end
         else if slen >= min_match then begin
-          hash_result.mr_len <- slen;
-          hash_result.mr_dist <- sdist;
-          hash_result.mr_code <- scode
+          hash_len <- slen;
+          hash_dist <- sdist;
+          hash_code <- scode
         end else begin
-          hash_result.mr_len <- 0;
-          hash_result.mr_dist <- 0;
-          hash_result.mr_code <- -1
+          hash_len <- 0;
+          hash_dist <- 0;
+          hash_code <- -1
         end
       end;
-
-      let hash_len = hash_result.mr_len in
-      let hash_dist = hash_result.mr_dist in
-      let hash_code = hash_result.mr_code in
 
       (* Update hash chain for quality 4+ *)
       if quality >= 4 then
@@ -964,12 +928,14 @@ let generate_commands ?(use_dict=false) ?(quality=2) src src_pos src_len =
           if quality >= 4 && pos + 1 < src_end - min_match && match_len < max_match then begin
             (* Update hash for next position *)
             update_hash_chain src (pos + 1) hash_table chain_table chain_table_base;
-            find_best_chain_match_into src (pos + 1) src_end
-              hash_table chain_table chain_table_base ring
-              ~num_last_distances_to_check ~max_chain_depth next_result;
-            if next_result.mr_len >= min_match then begin
+            let #(~mr_len:next_len, ~mr_dist:next_dist, ~mr_code:next_code) =
+              find_best_chain_match src (pos + 1) src_end
+                hash_table chain_table chain_table_base ring
+                ~num_last_distances_to_check ~max_chain_depth
+            in
+            if next_len >= min_match then begin
               let curr_score = score_match match_len distance dist_code in
-              let next_score = score_match next_result.mr_len next_result.mr_dist next_result.mr_code - lazy_match_cost in
+              let next_score = score_match next_len next_dist next_code - lazy_match_cost in
               if next_score > curr_score then begin
                 (* Skip current position, emit literal *)
                 pos <- pos + 1;

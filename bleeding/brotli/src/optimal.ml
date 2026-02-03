@@ -4,6 +4,7 @@
 
 (* Module aliases for unboxed operations *)
 module Nu = Stdlib_upstream_compatible.Nativeint_u
+module F64 = Stdlib_upstream_compatible.Float_u
 
 (* Configuration constants from brotli-c quality.h *)
 let max_zopfli_len_quality_10 = 150
@@ -46,55 +47,72 @@ let distance_cache_offset : int8# array =
 (* Infinity for cost comparison *)
 let infinity = max_float
 
-(* Fast log2 approximation matching brotli-c FastLog2 *)
+(* Fast log2 approximation matching brotli-c FastLog2 - returns boxed for compatibility *)
 let[@inline always] fast_log2 v =
   if v <= 0 then 0.0
   else
     let rec log2_floor v acc = if v <= 1 then acc else log2_floor (v lsr 1) (acc + 1) in
     float_of_int (log2_floor v 0)
 
+(* Fast log2 that returns unboxed float# *)
+let[@inline always] fast_log2_u v : float# =
+  if v <= 0 then #0.0
+  else
+    let rec log2_floor v acc = if v <= 1 then acc else log2_floor (v lsr 1) (acc + 1) in
+    F64.of_int (log2_floor v 0)
+
 (* Pre-computed command cost array - allocated once at module init *)
-let precomputed_cost_cmd : float array =
-  Array.init 704 (fun i -> fast_log2 (11 + i))
+let precomputed_cost_cmd : float# array =
+  (Core.Array.init [@kind float64]) 704 ~f:(fun i -> fast_log2_u (11 + i))
 
 (* Pre-computed distance cost array - allocated once at module init *)
-let precomputed_cost_dist : float array =
-  Array.init 544 (fun i -> fast_log2 (20 + i))
+let precomputed_cost_dist : float# array =
+  (Core.Array.init [@kind float64]) 544 ~f:(fun i -> fast_log2_u (20 + i))
 
 (* Pre-computed minimum command cost *)
-let precomputed_min_cost_cmd = fast_log2 11
+let precomputed_min_cost_cmd : float# = fast_log2_u 11
 
 (* ============================================================
    Cost Model (ZopfliCostModel from brotli-c)
    ============================================================ *)
 
 type cost_model = {
-  (* Cost arrays *)
-  cost_cmd : float array;           (* Command code costs *)
-  cost_dist : float array;          (* Distance code costs *)
-  literal_costs : float array;      (* Cumulative literal costs *)
-  min_cost_cmd : float;             (* Minimum command cost *)
+  (* Cost arrays - unboxed float# for better performance *)
+  cost_cmd : float# array;           (* Command code costs *)
+  cost_dist : float# array;          (* Distance code costs *)
+  literal_costs : float# array;      (* Cumulative literal costs *)
+  min_cost_cmd : float#;             (* Minimum command cost *)
   num_bytes : int;
 }
 
 (* SetCost from brotli-c: calculate Shannon entropy costs from histogram *)
-let set_cost histogram histogram_size is_literal =
-  let cost = Array.make histogram_size 0.0 in
-  let sum = Array.fold_left (+) 0 histogram in
+let set_cost histogram histogram_size is_literal : float# array =
+  let cost : float# array = (Core.Array.init [@kind float64]) histogram_size ~f:(fun _ -> #0.0) in
+  let mutable sum = 0 in
+  for i = 0 to histogram_size - 1 do
+    sum <- sum + histogram.(i)
+  done;
   if sum = 0 then cost
   else begin
-    let log2sum = fast_log2 sum in
+    let log2sum = fast_log2_u sum in
     let missing_symbol_sum =
       if is_literal then sum
-      else sum + (Array.fold_left (fun acc h -> if h = 0 then acc + 1 else acc) 0 histogram)
+      else begin
+        let mutable zeros = 0 in
+        for i = 0 to histogram_size - 1 do
+          if histogram.(i) = 0 then zeros <- zeros + 1
+        done;
+        sum + zeros
+      end
     in
-    let missing_symbol_cost = (fast_log2 missing_symbol_sum) +. 2.0 in
+    let missing_symbol_cost = F64.add (fast_log2_u missing_symbol_sum) #2.0 in
     for i = 0 to histogram_size - 1 do
       if histogram.(i) = 0 then
-        cost.(i) <- missing_symbol_cost
+        Core.Array.unsafe_set cost i missing_symbol_cost
       else begin
         (* Shannon bits: log2(sum) - log2(count) *)
-        cost.(i) <- max 1.0 (log2sum -. fast_log2 histogram.(i))
+        let v = F64.sub log2sum (fast_log2_u histogram.(i)) in
+        Core.Array.unsafe_set cost i (F64.max #1.0 v)
       end
     done;
     cost
@@ -145,8 +163,8 @@ let decide_utf8_level src src_pos len =
    Uses a sliding window to estimate per-position literal costs based on
    local byte frequency distribution. For UTF-8 text, uses position-aware
    histograms for better cost estimation. *)
-let estimate_literal_costs_sliding_window src src_pos num_bytes =
-  let costs = Array.make (num_bytes + 2) 0.0 in
+let estimate_literal_costs_sliding_window src src_pos num_bytes : float# array =
+  let costs : float# array = (Core.Array.init [@kind float64]) (num_bytes + 2) ~f:(fun _ -> #0.0) in
   if num_bytes = 0 then costs
   else begin
     let max_utf8 = decide_utf8_level src src_pos num_bytes in
@@ -177,9 +195,10 @@ let estimate_literal_costs_sliding_window src src_pos num_bytes =
         last_c <- c
       done;
 
-      costs.(0) <- 0.0;
+      Core.Array.unsafe_set costs 0 #0.0;
       let mutable prev1 = 0 in
       let mutable prev2 = 0 in
+      let mutable cumulative_cost : float# = #0.0 in
       for i = 0 to num_bytes - 1 do
         (* Slide window: remove byte from past *)
         if i >= window_half then begin
@@ -220,7 +239,8 @@ let estimate_literal_costs_sliding_window src src_pos num_bytes =
             lit_cost +. 0.35 +. 0.35 /. float_of_int prologue_length *. float_of_int i
           else lit_cost
         in
-        costs.(i + 1) <- costs.(i) +. lit_cost;
+        cumulative_cost <- F64.add cumulative_cost (F64.of_float lit_cost);
+        Core.Array.unsafe_set costs (i + 1) cumulative_cost;
         prev2 <- prev1;
         prev1 <- c
       done;
@@ -239,7 +259,8 @@ let estimate_literal_costs_sliding_window src src_pos num_bytes =
       done;
       let mutable in_window = initial_window in
 
-      costs.(0) <- 0.0;
+      Core.Array.unsafe_set costs 0 #0.0;
+      let mutable cumulative_cost : float# = #0.0 in
       for i = 0 to num_bytes - 1 do
         (* Slide window: remove byte from past *)
         if i >= window_half then begin
@@ -267,7 +288,8 @@ let estimate_literal_costs_sliding_window src src_pos num_bytes =
             lit_cost +. 0.35 +. 0.35 /. float_of_int prologue_length *. float_of_int i
           else lit_cost
         in
-        costs.(i + 1) <- costs.(i) +. lit_cost
+        cumulative_cost <- F64.add cumulative_cost (F64.of_float lit_cost);
+        Core.Array.unsafe_set costs (i + 1) cumulative_cost
       done;
       costs
     end
@@ -290,30 +312,37 @@ let init_cost_model_from_histograms src src_pos num_bytes
     ~lit_histogram ~cmd_histogram ~dist_histogram =
   (* Literal costs from histogram *)
   let lit_costs = set_cost lit_histogram 256 true in
-  let literal_costs = Array.make (num_bytes + 2) 0.0 in
-  literal_costs.(0) <- 0.0;
+  let literal_costs : float# array = (Core.Array.init [@kind float64]) (num_bytes + 2) ~f:(fun _ -> #0.0) in
+  Core.Array.unsafe_set literal_costs 0 #0.0;
+  let mutable cumulative : float# = #0.0 in
   for i = 0 to num_bytes - 1 do
     let c = Char.code (Bytes.get src (src_pos + i)) in
-    literal_costs.(i + 1) <- literal_costs.(i) +. lit_costs.(c)
+    cumulative <- F64.add cumulative (Core.Array.unsafe_get lit_costs c);
+    Core.Array.unsafe_set literal_costs (i + 1) cumulative
   done;
 
   (* Command costs from histogram *)
   let cost_cmd = set_cost cmd_histogram 704 false in
-  let min_cost_cmd = Array.fold_left min infinity cost_cmd in
+  let mutable min_cost : float# = F64.of_float infinity in
+  for i = 0 to 703 do
+    let v = Core.Array.unsafe_get cost_cmd i in
+    if F64.compare v min_cost < 0 then min_cost <- v
+  done;
 
   (* Distance costs from histogram *)
   let cost_dist = set_cost dist_histogram 544 false in
 
-  { cost_cmd; cost_dist; literal_costs; min_cost_cmd; num_bytes }
+  { cost_cmd; cost_dist; literal_costs; min_cost_cmd = min_cost; num_bytes }
 
-let[@inline always] get_literal_cost model from_pos to_pos =
-  model.literal_costs.(to_pos) -. model.literal_costs.(from_pos)
+let[@inline always] get_literal_cost model from_pos to_pos : float# =
+  F64.sub (Core.Array.unsafe_get model.literal_costs to_pos)
+          (Core.Array.unsafe_get model.literal_costs from_pos)
 
-let[@inline always] get_command_cost model cmd_code =
-  if cmd_code < 704 then model.cost_cmd.(cmd_code) else 20.0
+let[@inline always] get_command_cost model cmd_code : float# =
+  if cmd_code < 704 then Core.Array.unsafe_get model.cost_cmd cmd_code else #20.0
 
-let[@inline always] get_distance_cost model dist_code =
-  if dist_code < 544 then model.cost_dist.(dist_code) else 20.0
+let[@inline always] get_distance_cost model dist_code : float# =
+  if dist_code < 544 then Core.Array.unsafe_get model.cost_dist dist_code else #20.0
 
 (* ============================================================
    StartPosQueue - maintains 8 best starting positions
@@ -324,8 +353,8 @@ type pos_data = {
   pos : int;
   (* Distance cache as unboxed nativeint# array *)
   dist_cache : nativeint# array;
-  costdiff : float;
-  cost : float;
+  costdiff : float#;
+  cost : float#;
 }
 
 (* Helper to get distance cache value by index *)
@@ -337,13 +366,15 @@ type start_pos_queue = {
   mutable idx : int;
 }
 
+let infinity_u : float# = F64.of_float infinity
+
 let create_start_pos_queue () =
   let default_cache = make_nativeint_u_array 4 #0n in
   na_set default_cache 0 (Nu.of_int 16);
   na_set default_cache 1 (Nu.of_int 15);
   na_set default_cache 2 (Nu.of_int 11);
   na_set default_cache 3 (Nu.of_int 4);
-  let empty = { pos = 0; dist_cache = default_cache; costdiff = infinity; cost = infinity } in
+  let empty = { pos = 0; dist_cache = default_cache; costdiff = infinity_u; cost = infinity_u } in
   { q = Array.make 8 empty; idx = 0 }
 
 let[@inline always] start_pos_queue_size queue =
@@ -359,7 +390,7 @@ let start_pos_queue_push queue posdata =
   for i = 1 to len - 1 do
     let idx1 = (offset + i - 1) land 7 in
     let idx2 = (offset + i) land 7 in
-    if q.(idx1).costdiff > q.(idx2).costdiff then begin
+    if F64.compare q.(idx1).costdiff q.(idx2).costdiff > 0 then begin
       let tmp = q.(idx1) in
       q.(idx1) <- q.(idx2);
       q.(idx2) <- tmp
@@ -377,12 +408,12 @@ type zopfli_node = {
   mutable length : int;           (* Copy length (lower 25 bits) + len_code modifier *)
   mutable distance : int;         (* Copy distance *)
   mutable dcode_insert_length : int; (* Short code (upper 5 bits) + insert length *)
-  mutable cost : float;           (* Cost or next pointer *)
+  mutable cost : float#;          (* Cost or next pointer - unboxed *)
   mutable shortcut : int;         (* Shortcut for distance cache computation *)
 }
 
 let create_zopfli_node () =
-  { length = 1; distance = 0; dcode_insert_length = 0; cost = infinity; shortcut = 0 }
+  { length = 1; distance = 0; dcode_insert_length = 0; cost = infinity_u; shortcut = 0 }
 
 let[@inline always] zopfli_node_copy_length node = node.length land 0x1FFFFFF
 let[@inline always] zopfli_node_copy_distance node = node.distance
@@ -592,15 +623,15 @@ let[@inline always] update_zopfli_node nodes pos start len len_code dist short_c
   node.cost <- cost
 
 (* Compute minimum copy length that can improve cost *)
-let compute_minimum_copy_length start_cost nodes num_bytes pos =
-  let mutable min_cost = start_cost in
+let compute_minimum_copy_length (start_cost : float#) nodes num_bytes pos =
+  let mutable min_cost : float# = start_cost in
   let mutable len = 2 in
   let mutable next_len_bucket = 4 in
   let mutable next_len_offset = 10 in
-  while pos + len <= num_bytes && nodes.(pos + len).cost <= min_cost do
+  while pos + len <= num_bytes && F64.compare nodes.(pos + len).cost min_cost <= 0 do
     len <- len + 1;
     if len = next_len_offset then begin
-      min_cost <- min_cost +. 1.0;
+      min_cost <- F64.add min_cost #1.0;
       next_len_offset <- next_len_offset + next_len_bucket;
       next_len_bucket <- next_len_bucket * 2
     end
@@ -611,12 +642,12 @@ let compute_minimum_copy_length start_cost nodes num_bytes pos =
 let evaluate_node block_start pos max_backward_limit starting_dist_cache model queue nodes =
   let node_cost = nodes.(pos).cost in
   nodes.(pos).shortcut <- compute_distance_shortcut block_start pos max_backward_limit nodes;
-  if node_cost <= get_literal_cost model 0 pos then begin
+  if F64.compare node_cost (get_literal_cost model 0 pos) <= 0 then begin
     let dist_cache = compute_distance_cache pos starting_dist_cache nodes in
     let posdata = {
       pos;
       dist_cache;
-      costdiff = node_cost -. get_literal_cost model 0 pos;
+      costdiff = F64.sub node_cost (get_literal_cost model 0 pos);
       cost = node_cost;
     } in
     start_pos_queue_push queue posdata
@@ -635,7 +666,7 @@ let update_nodes num_bytes block_start pos src src_pos model
 
   (* Compute minimum copy length based on best queue entry *)
   let posdata0 = start_pos_queue_at queue 0 in
-  let min_cost = posdata0.cost +. model.min_cost_cmd +. get_literal_cost model posdata0.pos pos in
+  let min_cost = F64.add (F64.add posdata0.cost model.min_cost_cmd) (get_literal_cost model posdata0.pos pos) in
   let min_len = compute_minimum_copy_length min_cost nodes num_bytes pos in
 
   (* Go over starting positions in order of increasing cost difference *)
@@ -645,8 +676,8 @@ let update_nodes num_bytes block_start pos src src_pos model
     let start = posdata.pos in
     let inscode = get_insert_length_code (pos - start) in
     let start_costdiff = posdata.costdiff in
-    let base_cost = start_costdiff +. float_of_int (get_insert_extra inscode) +.
-                    get_literal_cost model 0 pos in
+    let base_cost = F64.add (F64.add start_costdiff (F64.of_int (get_insert_extra inscode)))
+                            (get_literal_cost model 0 pos) in
 
     (* Check distance cache matches first *)
     let mutable best_len = min_len - 1 in
@@ -659,14 +690,14 @@ let update_nodes num_bytes block_start pos src src_pos model
           let prev_ix = cur_ix - backward in
           let match_len = find_match_length src prev_ix (src_pos + pos) (src_pos + num_bytes) in
           if match_len >= 2 then begin
-            let dist_cost = base_cost +. get_distance_cost model j in
+            let dist_cost = F64.add base_cost (get_distance_cost model j) in
             for l = best_len + 1 to match_len do
               let copycode = get_copy_length_code l in
               let cmdcode = combine_length_codes inscode copycode (j = 0) in
-              let cost = (if cmdcode < 128 then base_cost else dist_cost) +.
-                         float_of_int (get_copy_extra copycode) +.
-                         get_command_cost model cmdcode in
-              if cost < nodes.(pos + l).cost then begin
+              let cost = F64.add (F64.add (if cmdcode < 128 then base_cost else dist_cost)
+                                          (F64.of_int (get_copy_extra copycode)))
+                                 (get_command_cost model cmdcode) in
+              if F64.compare cost nodes.(pos + l).cost < 0 then begin
                 update_zopfli_node nodes pos start l l backward (j + 1) cost;
                 result <- max result l
               end;
@@ -686,8 +717,8 @@ let update_nodes num_bytes block_start pos src src_pos model
         let dist = m.bm_distance in
         let dist_code = dist + 16 - 1 in  (* Add 16 short codes *)
         let (dist_symbol, distnumextra, _) = prefix_encode_copy_distance dist_code in
-        let dist_cost = base_cost +. float_of_int distnumextra +.
-                        get_distance_cost model dist_symbol in
+        let dist_cost = F64.add (F64.add base_cost (F64.of_int distnumextra))
+                                (get_distance_cost model dist_symbol) in
         let max_match_len = m.bm_length in
 
         (* For long matches or dictionary, try only max length *)
@@ -698,9 +729,9 @@ let update_nodes num_bytes block_start pos src src_pos model
           let len_code = m.bm_len_code in
           let copycode = get_copy_length_code len_code in
           let cmdcode = combine_length_codes inscode copycode false in
-          let cost = dist_cost +. float_of_int (get_copy_extra copycode) +.
-                     get_command_cost model cmdcode in
-          if cost < nodes.(pos + len).cost then begin
+          let cost = F64.add (F64.add dist_cost (F64.of_int (get_copy_extra copycode)))
+                             (get_command_cost model cmdcode) in
+          if F64.compare cost nodes.(pos + len).cost < 0 then begin
             update_zopfli_node nodes pos start len len_code dist 0 cost;
             result <- max result len
           end;
@@ -741,7 +772,7 @@ let zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
   (* Initialize nodes *)
   let nodes = Array.init (num_bytes + 1) (fun _ -> create_zopfli_node ()) in
   nodes.(0).length <- 0;
-  nodes.(0).cost <- 0.0;
+  nodes.(0).cost <- #0.0;
 
   (* Initialize cost model from literal costs (first pass) *)
   let model = init_cost_model_from_literals src src_pos num_bytes in
@@ -942,7 +973,7 @@ let hq_zopfli_compute_shortest_path src src_pos num_bytes starting_dist_cache =
   for iteration = 0 to 1 do
     let nodes = Array.init (num_bytes + 1) (fun _ -> create_zopfli_node ()) in
     nodes.(0).length <- 0;
-    nodes.(0).cost <- 0.0;
+    nodes.(0).cost <- #0.0;
 
     let model =
       if iteration = 0 then

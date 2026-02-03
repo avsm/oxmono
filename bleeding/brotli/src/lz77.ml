@@ -9,6 +9,9 @@ let max_match = 258
 let window_bits = 22
 let max_backward_distance = (1 lsl window_bits) - 16
 
+(* Module aliases for unboxed operations *)
+module I16 = Stdlib_stable.Int16_u
+
 (* Sentinel value for uninitialized hash/chain entries.
    We use -1 represented as nativeint# for unboxed arrays. *)
 let invalid_pos : nativeint# = Nativeint_u.of_int (-1)
@@ -485,11 +488,14 @@ let[@inline always] log2_floor_nonzero v =
 
 (* Pre-computed distance penalties for common distances.
    This avoids log2 computation for the most frequent cases.
-   penalty = DISTANCE_BIT_PENALTY * log2_floor(distance) *)
-let distance_penalty_table =
-  Array.init 4097 (fun d ->
-    if d = 0 then 0  (* invalid but avoid crash *)
-    else brotli_distance_bit_penalty * log2_floor_nonzero d)
+   penalty = DISTANCE_BIT_PENALTY * log2_floor(distance)
+   Max value is 30 * 12 = 360, fits in int16#. *)
+let distance_penalty_table : int16# array =
+  let arr = Base.Array.create ~len:4097 #0S in
+  for d = 1 to 4096 do
+    Oxcaml_arrays.unsafe_set arr d (I16.of_int (brotli_distance_bit_penalty * log2_floor_nonzero d))
+  done;
+  arr
 
 (* BackwardReferenceScore from brotli-c (hash.h line 115-118):
    score = SCORE_BASE + LITERAL_BYTE_SCORE * copy_length
@@ -498,7 +504,7 @@ let distance_penalty_table =
 let[@inline always] backward_reference_score copy_len backward_distance =
   let penalty =
     if backward_distance <= 4096 then
-      distance_penalty_table.(backward_distance)
+      I16.to_int (Oxcaml_arrays.unsafe_get distance_penalty_table backward_distance)
     else
       brotli_distance_bit_penalty * log2_floor_nonzero backward_distance
   in

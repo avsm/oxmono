@@ -384,39 +384,35 @@ let write_complex_prefix_code bw lengths alphabet_size =
 let write_huffman_code bw lengths alphabet_size =
   (* Stack-allocate temporary ref that doesn't escape *)
   let local_ symbols = ref [] in
-  for i = 0 to min (alphabet_size - 1) (Array.length lengths - 1) do
-    if i < Array.length lengths && lengths.(i) > 0 then
+  let limit = min (alphabet_size - 1) (Array.length lengths - 1) in
+  for i = 0 to limit do
+    if lengths.(i) > 0 then
       symbols := (i, lengths.(i)) :: !symbols
   done;
   let sorted = List.sort (fun (s1, l1) (s2, l2) ->
-    let c = compare l1 l2 in
-    if c <> 0 then c else compare s1 s2
+    match compare l1 l2 with
+    | 0 -> compare s1 s2
+    | c -> c
   ) !symbols in
   let symbols = Array.of_list (List.map fst sorted) in
-  let num_symbols = Array.length symbols in
-  if num_symbols = 0 then
-    write_simple_prefix_code bw [|0|] alphabet_size
-  else if num_symbols <= 4 then
-    write_simple_prefix_code bw symbols alphabet_size
-  else
-    write_complex_prefix_code bw lengths alphabet_size
+  match Array.length symbols with
+  | 0 -> write_simple_prefix_code bw [|0|] alphabet_size
+  | n when n <= 4 -> write_simple_prefix_code bw symbols alphabet_size
+  | _ -> write_complex_prefix_code bw lengths alphabet_size
 
 (* Count used symbols in frequency array *)
 let count_used_symbols freqs =
-  (* Note: count captured by Array.iter closure, cannot be local *)
-  let count = ref 0 in
-  Array.iter (fun f -> if f > 0 then incr count) freqs;
-  !count
+  Array.fold_left (fun acc f -> if f > 0 then acc + 1 else acc) 0 freqs
 
 (* Write context map using RLE and IMTF encoding *)
 (* Encode a variable length uint8 (matches decode_var_len_uint8 in decoder) *)
 let write_var_len_uint8 bw n =
-  if n = 0 then
-    Bit_writer.write_bits bw 1 0
-  else if n = 1 then begin
+  match n with
+  | 0 -> Bit_writer.write_bits bw 1 0
+  | 1 ->
     Bit_writer.write_bits bw 1 1;
     Bit_writer.write_bits bw 3 0  (* nbits = 0 means value 1 *)
-  end else begin
+  | _ ->
     Bit_writer.write_bits bw 1 1;
     (* Find nbits such that (1 << nbits) <= n < (1 << (nbits + 1)) *)
     let rec find_nbits nb =
@@ -426,7 +422,6 @@ let write_var_len_uint8 bw n =
     let nbits = find_nbits 1 in
     Bit_writer.write_bits bw 3 nbits;
     Bit_writer.write_bits bw nbits (n - (1 lsl nbits))
-  end
 
 let write_context_map bw context_map num_trees =
   (* Write NTREES - 1 using variable length encoding *)

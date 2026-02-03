@@ -255,20 +255,23 @@ let error_to_string = function
   | Truncated_input -> "Truncated input"
   | Output_overrun -> "Output buffer overrun"
 
-(* Distance short code lookup tables *)
-let distance_short_code_index_offset = [| 3; 2; 1; 0; 3; 3; 3; 3; 3; 3; 2; 2; 2; 2; 2; 2 |]
-let distance_short_code_value_offset = [| 0; 0; 0; 0; -1; 1; -2; 2; -3; 3; -1; 1; -2; 2; -3; 3 |]
+(* Distance short code lookup tables - packed as int8# arrays (1 byte per element) *)
+let distance_short_code_index_offset : int8# array =
+  [| #3s; #2s; #1s; #0s; #3s; #3s; #3s; #3s; #3s; #3s; #2s; #2s; #2s; #2s; #2s; #2s |]
+let distance_short_code_value_offset : int8# array =
+  [| #0s; #0s; #0s; #0s; -#1s; #1s; -#2s; #2s; -#3s; #3s; -#1s; #1s; -#2s; #2s; -#3s; #3s |]
 
-(* Static Huffman code for code length code lengths - packed format: (value lsl 8) lor bits *)
-let code_length_huff = [|
-  (* bits=2, value=0 *) 0x002; (* bits=2, value=4 *) 0x402;
-  (* bits=2, value=3 *) 0x302; (* bits=3, value=2 *) 0x203;
-  (* bits=2, value=0 *) 0x002; (* bits=2, value=4 *) 0x402;
-  (* bits=2, value=3 *) 0x302; (* bits=4, value=1 *) 0x104;
-  (* bits=2, value=0 *) 0x002; (* bits=2, value=4 *) 0x402;
-  (* bits=2, value=3 *) 0x302; (* bits=3, value=2 *) 0x203;
-  (* bits=2, value=0 *) 0x002; (* bits=2, value=4 *) 0x402;
-  (* bits=2, value=3 *) 0x302; (* bits=4, value=5 *) 0x504;
+(* Static Huffman code for code length code lengths - packed format: (value lsl 8) lor bits
+   Uses nativeint# array for unboxed access. Values range 0x002-0x504. *)
+let code_length_huff : nativeint# array = [|
+  (* bits=2, value=0 *) #0x002n; (* bits=2, value=4 *) #0x402n;
+  (* bits=2, value=3 *) #0x302n; (* bits=3, value=2 *) #0x203n;
+  (* bits=2, value=0 *) #0x002n; (* bits=2, value=4 *) #0x402n;
+  (* bits=2, value=3 *) #0x302n; (* bits=4, value=1 *) #0x104n;
+  (* bits=2, value=0 *) #0x002n; (* bits=2, value=4 *) #0x402n;
+  (* bits=2, value=3 *) #0x302n; (* bits=3, value=2 *) #0x203n;
+  (* bits=2, value=0 *) #0x002n; (* bits=2, value=4 *) #0x402n;
+  (* bits=2, value=3 *) #0x302n; (* bits=4, value=5 *) #0x504n
 |]
 
 (* Decode window bits from stream header *)
@@ -286,12 +289,12 @@ let decode_window_bits br =
 
 (* Decode a variable length uint8 (0-255) *)
 let decode_var_len_uint8 br =
-  if Bit_reader.read_bits br 1 = 1 then begin
-    let nbits = Bit_reader.read_bits br 3 in
-    if nbits = 0 then 1
-    else Bit_reader.read_bits br nbits + (1 lsl nbits)
-  end
-  else 0
+  match Bit_reader.read_bits br 1 with
+  | 0 -> 0
+  | _ ->
+    match Bit_reader.read_bits br 3 with
+    | 0 -> 1
+    | nbits -> Bit_reader.read_bits br nbits + (1 lsl nbits)
 
 (* Meta-block header *)
 type meta_block_header = {
@@ -301,7 +304,7 @@ type meta_block_header = {
   is_metadata : bool;
 }
 
-(* Decode meta-block length *)
+(* Decode meta-block length - uses mutable locals to avoid ref allocation *)
 let decode_meta_block_length br =
   let input_end = Bit_reader.read_bits br 1 = 1 in
   if input_end && Bit_reader.read_bits br 1 = 1 then
@@ -316,146 +319,145 @@ let decode_meta_block_length br =
       if size_bytes = 0 then
         { meta_block_length = 0; input_end; is_uncompressed = false; is_metadata = true }
       else begin
-        let length = ref 0 in
+        let mutable length = 0 in
         for i = 0 to size_bytes - 1 do
           let next_byte = Bit_reader.read_bits br 8 in
           if i + 1 = size_bytes && size_bytes > 1 && next_byte = 0 then
             raise (Brotli_error Invalid_meta_block_header);
-          length := !length lor (next_byte lsl (i * 8))
+          length <- length lor (next_byte lsl (i * 8))
         done;
-        { meta_block_length = !length + 1; input_end; is_uncompressed = false; is_metadata = true }
+        { meta_block_length = length + 1; input_end; is_uncompressed = false; is_metadata = true }
       end
     end
     else begin
-      let length = ref 0 in
+      let mutable length = 0 in
       for i = 0 to size_nibbles - 1 do
         let next_nibble = Bit_reader.read_bits br 4 in
         if i + 1 = size_nibbles && size_nibbles > 4 && next_nibble = 0 then
           raise (Brotli_error Invalid_meta_block_header);
-        length := !length lor (next_nibble lsl (i * 4))
+        length <- length lor (next_nibble lsl (i * 4))
       done;
       let is_uncompressed =
         if not input_end then Bit_reader.read_bits br 1 = 1
         else false
       in
-      { meta_block_length = !length + 1; input_end; is_uncompressed; is_metadata = false }
+      { meta_block_length = length + 1; input_end; is_uncompressed; is_metadata = false }
     end
   end
 
-(* Read Huffman code lengths *)
+(* Read Huffman code lengths - uses mutable locals to avoid ref allocation *)
 let read_huffman_code_lengths code_length_code_lengths num_symbols code_lengths br =
-  let symbol = ref 0 in
-  let prev_code_len = ref 8 in
-  let repeat = ref 0 in
-  let repeat_code_len = ref 0 in
-  let space = ref 32768 in
+  let mutable symbol = 0 in
+  let mutable prev_code_len = 8 in
+  let mutable repeat = 0 in
+  let mutable repeat_code_len = 0 in
+  let mutable space = 32768 in
 
   (* Build table for code length codes *)
   let table = Huffman.build_table ~code_lengths:code_length_code_lengths
       ~alphabet_size:Constants.code_length_codes ~root_bits:5 in
 
-  while !symbol < num_symbols && !space > 0 do
+  while symbol < num_symbols && space > 0 do
     let code_len = Huffman.read_symbol_5 table br in
     if code_len < Constants.repeat_previous_code_length then begin
-      repeat := 0;
-      code_lengths.(!symbol) <- code_len;
-      incr symbol;
+      repeat <- 0;
+      code_lengths.(symbol) <- code_len;
+      symbol <- symbol + 1;
       if code_len <> 0 then begin
-        prev_code_len := code_len;
-        space := !space - (0x8000 lsr code_len)
+        prev_code_len <- code_len;
+        space <- space - (0x8000 lsr code_len)
       end
     end
     else begin
       let extra_bits = code_len - 14 in
-      let new_len = if code_len = Constants.repeat_previous_code_length then !prev_code_len else 0 in
-      if !repeat_code_len <> new_len then begin
-        repeat := 0;
-        repeat_code_len := new_len
+      let new_len = if code_len = Constants.repeat_previous_code_length then prev_code_len else 0 in
+      if repeat_code_len <> new_len then begin
+        repeat <- 0;
+        repeat_code_len <- new_len
       end;
-      let old_repeat = !repeat in
-      if !repeat > 0 then
-        repeat := (!repeat - 2) lsl extra_bits;
-      repeat := !repeat + Bit_reader.read_bits br extra_bits + 3;
-      let repeat_delta = !repeat - old_repeat in
-      if !symbol + repeat_delta > num_symbols then
+      let old_repeat = repeat in
+      if repeat > 0 then
+        repeat <- (repeat - 2) lsl extra_bits;
+      repeat <- repeat + Bit_reader.read_bits br extra_bits + 3;
+      let repeat_delta = repeat - old_repeat in
+      if symbol + repeat_delta > num_symbols then
         raise (Brotli_error Invalid_huffman_code);
       for _ = 0 to repeat_delta - 1 do
-        code_lengths.(!symbol) <- !repeat_code_len;
-        incr symbol
+        code_lengths.(symbol) <- repeat_code_len;
+        symbol <- symbol + 1
       done;
-      if !repeat_code_len <> 0 then
-        space := !space - (repeat_delta lsl (15 - !repeat_code_len))
+      if repeat_code_len <> 0 then
+        space <- space - (repeat_delta lsl (15 - repeat_code_len))
     end
   done;
 
-  if !space <> 0 then
+  if space <> 0 then
     raise (Brotli_error Invalid_huffman_code);
 
-  for i = !symbol to num_symbols - 1 do
+  for i = symbol to num_symbols - 1 do
     code_lengths.(i) <- 0
   done
 
-(* Read a Huffman code from the stream *)
+(* Read a Huffman code from the stream - uses mutable locals *)
 let read_huffman_code_with_bits alphabet_size root_bits br =
   let code_lengths = Array.make alphabet_size 0 in
   let simple_code_or_skip = Bit_reader.read_bits br 2 in
 
   if simple_code_or_skip = 1 then begin
     (* Simple prefix code *)
-    let max_bits = ref 0 in
-    let max_bits_counter = ref (alphabet_size - 1) in
-    while !max_bits_counter > 0 do
-      max_bits_counter := !max_bits_counter lsr 1;
-      incr max_bits
+    let mutable max_bits = 0 in
+    let mutable max_bits_counter = alphabet_size - 1 in
+    while max_bits_counter > 0 do
+      max_bits_counter <- max_bits_counter lsr 1;
+      max_bits <- max_bits + 1
     done;
 
     let symbols = Array.make 4 0 in
     let num_symbols = Bit_reader.read_bits br 2 + 1 in
 
     for i = 0 to num_symbols - 1 do
-      symbols.(i) <- Bit_reader.read_bits br !max_bits mod alphabet_size;
+      symbols.(i) <- Bit_reader.read_bits br max_bits mod alphabet_size;
       code_lengths.(symbols.(i)) <- 2
     done;
     code_lengths.(symbols.(0)) <- 1;
 
-    if num_symbols = 2 then begin
+    (match num_symbols with
+    | 2 ->
       if symbols.(0) = symbols.(1) then
         raise (Brotli_error Invalid_huffman_code);
       code_lengths.(symbols.(1)) <- 1
-    end
-    else if num_symbols = 4 then begin
+    | 4 ->
       if Bit_reader.read_bits br 1 = 1 then begin
         code_lengths.(symbols.(2)) <- 3;
         code_lengths.(symbols.(3)) <- 3
-      end
-      else
+      end else
         code_lengths.(symbols.(0)) <- 2
-    end;
+    | _ -> ());
 
     Huffman.build_table ~code_lengths ~alphabet_size ~root_bits
   end
   else begin
     (* Complex prefix code *)
     let code_length_code_lengths = Array.make Constants.code_length_codes 0 in
-    let space = ref 32 in
-    let num_codes = ref 0 in
+    let mutable space = 32 in
+    let mutable num_codes = 0 in
 
     for i = simple_code_or_skip to Constants.code_length_codes - 1 do
-      if !space > 0 then begin
-        let code_len_idx = Constants.code_length_code_order.(i) in
+      if space > 0 then begin
+        let code_len_idx = Constants.get_code_length_code_order(i) in
         let p = Bit_reader.peek_bits br 4 in
-        let entry = code_length_huff.(p) in
+        let entry = Nativeint_u.to_int_trunc (Oxcaml_arrays.unsafe_get code_length_huff p) in
         Bit_reader.skip_bits br (entry land 0xFF);
         let v = entry lsr 8 in
         code_length_code_lengths.(code_len_idx) <- v;
         if v <> 0 then begin
-          space := !space - (32 lsr v);
-          incr num_codes
+          space <- space - (32 lsr v);
+          num_codes <- num_codes + 1
         end
       end
     done;
 
-    if !num_codes <> 1 && !space <> 0 then
+    if num_codes <> 1 && space <> 0 then
       raise (Brotli_error Invalid_huffman_code);
 
     read_huffman_code_lengths code_length_code_lengths alphabet_size code_lengths br;
@@ -476,8 +478,10 @@ let read_block_length table br =
 (* Translate distance short codes *)
 let translate_short_codes code dist_rb dist_rb_idx =
   if code < Constants.num_distance_short_codes then begin
-    let index = (dist_rb_idx + distance_short_code_index_offset.(code)) land 3 in
-    dist_rb.(index) + distance_short_code_value_offset.(code)
+    let idx_off = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get distance_short_code_index_offset code) in
+    let val_off = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get distance_short_code_value_offset code) in
+    let index = (dist_rb_idx + idx_off) land 3 in
+    dist_rb.(index) + val_off
   end
   else
     code - Constants.num_distance_short_codes + 1
@@ -509,25 +513,25 @@ let decode_context_map context_map_size br =
     let max_rle_prefix = if use_rle then Bit_reader.read_bits br 4 + 1 else 0 in
     let table = read_huffman_code (num_trees + max_rle_prefix) br in
 
-    let i = ref 0 in
-    while !i < context_map_size do
+    let mutable i = 0 in
+    while i < context_map_size do
       let code = Huffman.read_symbol_8 table br in
       if code = 0 then begin
-        context_map.(!i) <- 0;
-        incr i
+        context_map.(i) <- 0;
+        i <- i + 1
       end
       else if code <= max_rle_prefix then begin
         let reps = (1 lsl code) + Bit_reader.read_bits br code in
         for _ = 0 to reps - 1 do
-          if !i >= context_map_size then
+          if i >= context_map_size then
             raise (Brotli_error Invalid_context_map);
-          context_map.(!i) <- 0;
-          incr i
+          context_map.(i) <- 0;
+          i <- i + 1
         done
       end
       else begin
-        context_map.(!i) <- code - max_rle_prefix;
-        incr i
+        context_map.(i) <- code - max_rle_prefix;
+        i <- i + 1
       end
     done;
 
@@ -540,18 +544,12 @@ let decode_context_map context_map_size br =
 (* Decode block type *)
 let decode_block_type max_block_type table block_type_rb block_type_rb_idx br =
   let type_code = Huffman.read_symbol_8 table br in
-  let block_type =
-    if type_code = 0 then
-      block_type_rb.((!block_type_rb_idx) land 1)
-    else if type_code = 1 then
-      block_type_rb.(((!block_type_rb_idx) - 1) land 1) + 1
-    else
-      type_code - 2
+  let block_type = match type_code with
+    | 0 -> block_type_rb.((!block_type_rb_idx) land 1)
+    | 1 -> block_type_rb.(((!block_type_rb_idx) - 1) land 1) + 1
+    | _ -> type_code - 2
   in
-  let block_type =
-    if block_type >= max_block_type then block_type - max_block_type
-    else block_type
-  in
+  let block_type = block_type mod max_block_type in
   block_type_rb.((!block_type_rb_idx) land 1) <- block_type;
   incr block_type_rb_idx;
   block_type
@@ -677,8 +675,8 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
         let mutable context_lut = Context.get_context_lut (context_mode lsr 1) in
         (* Track trivial context state and cached tree for fast path *)
         let mutable trivial_context = is_trivial_context block_type.(0) in
-        let literal_htree = ref literal_trees.(literal_context_map.(context_map_slice)) in
-        let huff_tree_command = ref command_trees.(0) in
+        let mutable literal_htree = literal_trees.(literal_context_map.(context_map_slice)) in
+        let mutable huff_tree_command = command_trees.(0) in
 
         while meta_block_remaining > 0 do
           (* Check/update command block *)
@@ -686,19 +684,19 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
             block_type.(1) <- decode_block_type num_block_types.(1)
               block_type_trees.(1) block_type_rb.(1) block_type_rb_idx.(1) br;
             block_length.(1) <- read_block_length block_len_trees.(1) br;
-            huff_tree_command := command_trees.(block_type.(1))
+            huff_tree_command <- command_trees.(block_type.(1))
           end;
           block_length.(1) <- block_length.(1) - 1;
 
           (* Read command code *)
-          let cmd_code = Huffman.read_symbol_10 !huff_tree_command br in
+          let cmd_code = Huffman.read_symbol_10 huff_tree_command br in
           let range_idx = cmd_code lsr 6 in
           let mutable distance_code = if range_idx >= 2 then -1 else 0 in
           let range_idx = if range_idx >= 2 then range_idx - 2 else range_idx in
 
           (* Decode insert and copy lengths *)
-          let insert_code = Prefix.insert_range_lut.(range_idx) + ((cmd_code lsr 3) land 7) in
-          let copy_code = Prefix.copy_range_lut.(range_idx) + (cmd_code land 7) in
+          let insert_code = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get Prefix.insert_range_lut range_idx) + ((cmd_code lsr 3) land 7) in
+          let copy_code = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get Prefix.copy_range_lut range_idx) + (cmd_code land 7) in
           let insert_length = Prefix.decode_insert_length br insert_code in
           let copy_length = Prefix.decode_copy_length br copy_code in
 
@@ -726,7 +724,7 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
               context_mode <- context_modes.(block_type.(0));
               (* Update trivial context flag and cached tree *)
               trivial_context <- is_trivial_context block_type.(0);
-              literal_htree := literal_trees.(literal_context_map.(context_map_slice));
+              literal_htree <- literal_trees.(literal_context_map.(context_map_slice));
               (* Update context LUT for non-trivial path *)
               context_lut <- Context.get_context_lut (context_mode lsr 1)
             end;
@@ -743,7 +741,7 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
                context computation entirely. Use batch decode for maximum
                throughput - this writes directly to the output buffer. *)
             if trivial_context then begin
-              let _decoded = Huffman.decode_symbols_to_bytes_8 !literal_htree br dst pos batch_size in
+              let _decoded = Huffman.decode_symbols_to_bytes_8 literal_htree br dst pos batch_size in
               pos <- pos + batch_size;
               (* Update prev_bytes for next batch (only last 2 matter) *)
               if batch_size >= 2 then begin
@@ -817,7 +815,7 @@ let decompress_into ~src ~src_pos ~src_len ~dst ~dst_pos =
               if copy_length >= Constants.min_dictionary_word_length &&
                  copy_length <= Constants.max_dictionary_word_length then begin
                 let word_id = distance - max_distance - 1 in
-                let shift = Dictionary.size_bits_by_length.(copy_length) in
+                let shift = Dictionary.get_size_bits_by_length copy_length in
                 let mask = (1 lsl shift) - 1 in
                 let word_idx = word_id land mask in
                 let transform_idx = word_id lsr shift in

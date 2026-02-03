@@ -122,19 +122,13 @@ let set_cost histogram histogram_size is_literal : float# array =
    Returns the expected position within a UTF-8 multi-byte sequence.
    0 = single byte or first byte, 1 = second byte, 2 = third byte *)
 let utf8_position last_byte current_byte max_utf8 =
-  if current_byte < 128 then
-    0  (* ASCII - next one is byte 1 again *)
-  else if current_byte >= 192 then
-    (* Start of multi-byte sequence *)
-    min 1 max_utf8
-  else begin
+  match current_byte with
+  | b when b < 128 -> 0  (* ASCII - next one is byte 1 again *)
+  | b when b >= 192 -> min 1 max_utf8  (* Start of multi-byte sequence *)
+  | _ ->
     (* Continuation byte - check last byte to determine position *)
-    if last_byte < 0xE0 then
-      0  (* Completed two-byte sequence *)
-    else
-      (* Third byte of three-byte sequence *)
-      min 2 max_utf8
-  end
+    if last_byte < 0xE0 then 0  (* Completed two-byte sequence *)
+    else min 2 max_utf8  (* Third byte of three-byte sequence *)
 
 (* Detect if data is mostly UTF-8 and determine histogram level
    Returns 0 for ASCII, 1 for 2-byte UTF-8, 2 for 3-byte UTF-8 *)

@@ -2368,7 +2368,7 @@ let apply_inner_substs env (sg : Component.Signature.t) : Component.Signature.t
         in
         match fragmap env subst { sg with items = rest } with
         | Ok sg' -> sg'.items
-        | Error _ -> failwith "error")
+        | Error _ -> rest)
     | Component.Signature.ModuleSubstitution (id, modsubst) :: rest -> (
         let subst =
           Component.ModuleType.ModuleSubst
@@ -2391,7 +2391,7 @@ let apply_inner_substs env (sg : Component.Signature.t) : Component.Signature.t
         in
         match fragmap env subst { sg with items = rest } with
         | Ok sg' -> sg'.items
-        | Error _ -> failwith "error")
+        | Error _ -> rest)
     | Component.Signature.ModuleTypeSubstitution (id, modtypesubst) :: rest -> (
         let subst =
           Component.ModuleType.ModuleTypeSubst
@@ -2412,7 +2412,7 @@ let apply_inner_substs env (sg : Component.Signature.t) : Component.Signature.t
         in
         match fragmap env subst { sg with items = rest } with
         | Ok sg' -> sg'.items
-        | Error _ -> failwith "error")
+        | Error _ -> rest)
     | x :: rest -> x :: inner rest
     | [] -> []
   in

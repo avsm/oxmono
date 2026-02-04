@@ -706,6 +706,7 @@ and include_decl : Env.t -> Id.Signature.t -> Include.decl -> Include.decl =
     | Signature _ -> true
     | With (_, expr) -> is_elidable_with_u expr
     | TypeOf _ -> false
+    | Strengthen (expr, _, _) -> is_elidable_with_u expr
   in
   match decl with
   | ModuleType expr when is_elidable_with_u expr -> ModuleType expr

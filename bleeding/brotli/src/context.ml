@@ -152,7 +152,7 @@ let lookup_data = [|
   0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0;
 |]
 
-(* Convert lookup_data to Bytes for compact storage (1 byte per value instead of 8) *)
+(* Convert lookup_data to bytes for compact storage (1 byte per value instead of 8) *)
 let lookup : bytes =
   let n = Array.length lookup_data in
   let b = Bytes.create n in
@@ -161,18 +161,13 @@ let lookup : bytes =
   done;
   b
 
-(* Offsets into lookup table for each mode - stored as int8# for compact access *)
+(* Offsets into lookup table for each mode - stored as int8# for compact access
+   Values are offset/256, so range is 0-6, easily fits in int8# *)
 let lookup_offset1 : int8# array =
-  let open struct
-    let i n = Oxcaml_arrays.int_to_int8 n
-  end in
-  [| i 4; i 5; i 0; i 3 |]  (* offset1 / 256: LSB6=4, MSB6=5, UTF8=0, SIGNED=3 *)
+  [| #4s; #5s; #0s; #3s |]  (* offset1 / 256: LSB6=4, MSB6=5, UTF8=0, SIGNED=3 *)
 
 let lookup_offset2 : int8# array =
-  let open struct
-    let i n = Oxcaml_arrays.int_to_int8 n
-  end in
-  [| i 6; i 6; i 1; i 2 |]  (* offset2 / 256: LSB6=6, MSB6=6, UTF8=1, SIGNED=2 *)
+  [| #6s; #6s; #1s; #2s |]  (* offset2 / 256: LSB6=6, MSB6=6, UTF8=1, SIGNED=2 *)
 
 (* Get context ID from previous two bytes
    Optimization: Uses Bytes lookup (1 byte per entry) and int8# offset arrays.
@@ -180,8 +175,8 @@ let lookup_offset2 : int8# array =
 let[@inline always] get_context mode ~prev_byte1 ~prev_byte2 =
   let mode_idx = int_of_mode mode in
   (* Get offsets from int8# arrays - values are offset/256, multiply by 256 = lsl 8 *)
-  let off1 = Oxcaml_arrays.int8_to_int (Oxcaml_arrays.unsafe_get lookup_offset1 mode_idx) lsl 8 in
-  let off2 = Oxcaml_arrays.int8_to_int (Oxcaml_arrays.unsafe_get lookup_offset2 mode_idx) lsl 8 in
+  let off1 = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get lookup_offset1 mode_idx) lsl 8 in
+  let off2 = Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get lookup_offset2 mode_idx) lsl 8 in
   let v1 = Char.code (Bytes.unsafe_get lookup (off1 + prev_byte1)) in
   let v2 = Char.code (Bytes.unsafe_get lookup (off2 + prev_byte2)) in
   v1 lor v2

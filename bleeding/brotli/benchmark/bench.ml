@@ -32,8 +32,8 @@ let time_it name iterations f =
   Printf.printf "%s: %.3f ms/iter (total %.3f s for %d iterations)\n%!"
     name (elapsed *. 1000.0 /. float_of_int iterations) elapsed iterations
 
-let bench_compress ?(quality=4) data iterations =
-  time_it (Printf.sprintf "Compress (quality=%d, %d bytes)" quality (String.length data))
+let bench_compress ?(quality=Brotli.Q4) data iterations =
+  time_it (Printf.sprintf "Compress (quality=%d, %d bytes)" (Brotli.quality_to_int quality) (String.length data))
     iterations (fun () ->
       Brotli.compress ~quality data
     )
@@ -48,8 +48,8 @@ let bench_decompress compressed original_size iterations =
         ~dst ~dst_pos:0)
     )
 
-let bench_roundtrip ?(quality=4) data iterations =
-  time_it (Printf.sprintf "Roundtrip (quality=%d, %d bytes)" quality (String.length data))
+let bench_roundtrip ?(quality=Brotli.Q4) data iterations =
+  time_it (Printf.sprintf "Roundtrip (quality=%d, %d bytes)" (Brotli.quality_to_int quality) (String.length data))
     iterations (fun () ->
       let compressed = Brotli.compress ~quality data in
       let dst = Bytes.create (String.length data * 2) in
@@ -69,8 +69,8 @@ let () =
   print_endline "--- Text-like data ---";
   List.iter2 (fun size iters ->
     let data = text_like_data size in
-    bench_compress ~quality:4 data iters;
-    let compressed = Brotli.compress ~quality:4 data in
+    bench_compress ~quality:Brotli.Q4 data iters;
+    let compressed = Brotli.compress ~quality:Brotli.Q4 data in
     Printf.printf "  Compression ratio: %.2f%%\n"
       (100.0 *. float_of_int (String.length compressed) /. float_of_int size);
     bench_decompress compressed size (iters * 5);  (* Decompress is faster, run more *)
@@ -80,8 +80,8 @@ let () =
   print_endline "--- Repetitive data ---";
   List.iter2 (fun size iters ->
     let data = repetitive_data size in
-    bench_compress ~quality:4 data iters;
-    let compressed = Brotli.compress ~quality:4 data in
+    bench_compress ~quality:Brotli.Q4 data iters;
+    let compressed = Brotli.compress ~quality:Brotli.Q4 data in
     Printf.printf "  Compression ratio: %.2f%%\n"
       (100.0 *. float_of_int (String.length compressed) /. float_of_int size);
     bench_decompress compressed size (iters * 5);
@@ -91,8 +91,8 @@ let () =
   print_endline "--- Random data ---";
   List.iter2 (fun size iters ->
     let data = random_data size in
-    bench_compress ~quality:4 data iters;
-    let compressed = Brotli.compress ~quality:4 data in
+    bench_compress ~quality:Brotli.Q4 data iters;
+    let compressed = Brotli.compress ~quality:Brotli.Q4 data in
     Printf.printf "  Compression ratio: %.2f%%\n"
       (100.0 *. float_of_int (String.length compressed) /. float_of_int size);
     bench_decompress compressed size (iters * 5);

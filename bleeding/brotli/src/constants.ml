@@ -64,10 +64,14 @@ let huffman_max_code_length_code_length = 5
 let huffman_max_table_bits = 8  (* Root table size for literals *)
 let huffman_max_command_table_bits = 10  (* Root table size for commands *)
 
-(* Code length code order (RFC 7932 section 3.5) *)
-let code_length_code_order = [|
-  1; 2; 3; 4; 0; 5; 17; 6; 16; 7; 8; 9; 10; 11; 12; 13; 14; 15
-|]
+(* Code length code order (RFC 7932 section 3.5)
+   Using int8# array for compact storage (1 byte per element instead of 8) *)
+let code_length_code_order : int8# array =
+  [| #1s; #2s; #3s; #4s; #0s; #5s; #17s; #6s; #16s; #7s; #8s; #9s; #10s; #11s; #12s; #13s; #14s; #15s |]
+
+(* Helper to get code length code order element as int *)
+let[@inline always] get_code_length_code_order idx =
+  Stdlib_stable.Int8_u.to_int (Oxcaml_arrays.unsafe_get code_length_code_order idx)
 
 (* Minimum dictionary word length *)
 let min_dictionary_word_length = 4

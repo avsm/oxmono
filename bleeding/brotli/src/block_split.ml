@@ -23,15 +23,15 @@ let entropy_bits hist =
   else begin
     let total = float_of_int hist.total in
     let log2 = log 2.0 in
-    let bits = ref 0.0 in
+    let mutable bits = 0.0 in
     for i = 0 to Array.length hist.data - 1 do
       let count = hist.data.(i) in
       if count > 0 then begin
         let p = float_of_int count /. total in
-        bits := !bits -. (float_of_int count) *. (log p /. log2)
+        bits <- bits -. (float_of_int count) *. (log p /. log2)
       end
     done;
-    !bits
+    bits
   end
 
 (* Combined cost model: entropy + Huffman code overhead *)
@@ -84,26 +84,26 @@ let find_split_points_simple src src_pos src_len =
     let hist1 = create_histogram 256 in
     let hist2 = create_histogram 256 in
 
-    let pos = ref (src_pos + window_size) in
-    while !pos < src_pos + src_len - window_size do
+    let mutable pos = src_pos + window_size in
+    while pos < src_pos + src_len - window_size do
       (* Build histogram for window before position *)
       clear_histogram hist1;
-      for i = !pos - window_size to !pos - 1 do
+      for i = pos - window_size to pos - 1 do
         add_sample hist1 (Char.code (Bytes.get src i))
       done;
 
       (* Build histogram for window after position *)
       clear_histogram hist2;
-      for i = !pos to min (!pos + window_size - 1) (src_pos + src_len - 1) do
+      for i = pos to min (pos + window_size - 1) (src_pos + src_len - 1) do
         add_sample hist2 (Char.code (Bytes.get src i))
       done;
 
       (* Calculate cost delta - higher = better split point *)
       let delta = split_cost_delta hist1 hist2 in
       if delta > 50.0 then (* Threshold for significant change *)
-        points := { position = !pos; score = delta } :: !points;
+        points := { position = pos; score = delta } :: !points;
 
-      pos := !pos + stride
+      pos <- pos + stride
     done;
 
     (* Sort by score and filter to keep only best split points *)
@@ -197,13 +197,13 @@ let find_blocks_dp src src_pos src_len num_histograms =
     (* Main DP loop *)
     for byte_ix = 0 to src_len - 1 do
       let sym = Char.code (Bytes.get src (src_pos + byte_ix)) in
-      let min_cost = ref infinity in
+      let mutable min_cost = infinity in
 
       (* Update costs for each histogram *)
       for h = 0 to num_histograms - 1 do
         cost.(h) <- cost.(h) +. insert_cost.(sym).(h);
-        if cost.(h) < !min_cost then begin
-          min_cost := cost.(h);
+        if cost.(h) < min_cost then begin
+          min_cost <- cost.(h);
           block_id.(byte_ix) <- h
         end
       done;
@@ -216,7 +216,7 @@ let find_blocks_dp src src_pos src_len num_histograms =
       in
 
       for h = 0 to num_histograms - 1 do
-        cost.(h) <- cost.(h) -. !min_cost;
+        cost.(h) <- cost.(h) -. min_cost;
         if cost.(h) >= block_switch_cost then begin
           cost.(h) <- block_switch_cost;
           switch_signal.(byte_ix).(h) <- true
@@ -225,11 +225,11 @@ let find_blocks_dp src src_pos src_len num_histograms =
     done;
 
     (* Traceback: find block boundaries *)
-    let cur_id = ref block_id.(src_len - 1) in
+    let mutable cur_id = block_id.(src_len - 1) in
     for byte_ix = src_len - 2 downto 0 do
-      if switch_signal.(byte_ix).(!cur_id) then
-        cur_id := block_id.(byte_ix);
-      block_id.(byte_ix) <- !cur_id
+      if switch_signal.(byte_ix).(cur_id) then
+        cur_id <- block_id.(byte_ix);
+      block_id.(byte_ix) <- cur_id
     done;
 
     block_id
@@ -303,12 +303,12 @@ let find_split_points_dp src src_pos src_len max_splits =
 
       (* Find best number of splits for the full input *)
       let last_pos = n - 1 in
-      let best_k = ref 0 in
-      let best_cost = ref dp.(last_pos).(0) in
+      let mutable best_k = 0 in
+      let mutable best_cost = dp.(last_pos).(0) in
       for k = 1 to max_k do
-        if dp.(last_pos).(k) < !best_cost then begin
-          best_cost := dp.(last_pos).(k);
-          best_k := k
+        if dp.(last_pos).(k) < best_cost then begin
+          best_cost <- dp.(last_pos).(k);
+          best_k <- k
         end
       done;
 
@@ -323,7 +323,7 @@ let find_split_points_dp src src_pos src_len max_splits =
           end
         end
       in
-      backtrack last_pos !best_k;
+      backtrack last_pos best_k;
 
       !splits
     end
@@ -351,14 +351,14 @@ let score_context_mode mode src src_pos src_len =
     let histograms = Array.init num_contexts (fun _ -> create_histogram 256) in
 
     (* Populate histograms *)
-    let prev1 = ref 0 in
-    let prev2 = ref 0 in
+    let mutable prev1 = 0 in
+    let mutable prev2 = 0 in
     for i = 0 to src_len - 1 do
       let byte = Char.code (Bytes.get src (src_pos + i)) in
-      let context_id = Context.get_context mode ~prev_byte1:!prev1 ~prev_byte2:!prev2 in
+      let context_id = Context.get_context mode ~prev_byte1:prev1 ~prev_byte2:prev2 in
       add_sample histograms.(context_id) byte;
-      prev2 := !prev1;
-      prev1 := byte
+      prev2 <- prev1;
+      prev1 <- byte
     done;
 
     (* Calculate total bits needed with this context mode *)
@@ -374,16 +374,17 @@ let choose_context_mode src src_pos src_len =
     Context.LSB6 (* Default for small blocks *)
   else begin
     let modes = [| Context.LSB6; Context.MSB6; Context.UTF8; Context.SIGNED |] in
-    let best_mode = ref Context.LSB6 in
-    let best_score = ref neg_infinity in
-    Array.iter (fun mode ->
+    let mutable best_mode = Context.LSB6 in
+    let mutable best_score = neg_infinity in
+    for i = 0 to Array.length modes - 1 do
+      let mode = modes.(i) in
       let score = score_context_mode mode src src_pos src_len in
-      if score > !best_score then begin
-        best_score := score;
-        best_mode := mode
+      if score > best_score then begin
+        best_score <- score;
+        best_mode <- mode
       end
-    ) modes;
-    !best_mode
+    done;
+    best_mode
   end
 
 (* Cluster histograms to reduce number of Huffman trees needed *)
@@ -398,7 +399,7 @@ let histogram_distance h1 h2 =
   else begin
     let t1 = float_of_int h1.total in
     let t2 = float_of_int h2.total in
-    let dist = ref 0.0 in
+    let mutable dist = 0.0 in
     for i = 0 to Array.length h1.data - 1 do
       let c1 = float_of_int h1.data.(i) in
       let c2 = float_of_int h2.data.(i) in
@@ -407,11 +408,11 @@ let histogram_distance h1 h2 =
         let p2 = c2 /. t2 in
         let avg = (p1 +. p2) /. 2.0 in
         (* Jensen-Shannon divergence *)
-        dist := !dist +. c1 *. (log (p1 /. avg)) +. c2 *. (log (p2 /. avg))
+        dist <- dist +. c1 *. (log (p1 /. avg)) +. c2 *. (log (p2 /. avg))
       end else if c1 > 0.0 || c2 > 0.0 then
-        dist := !dist +. 10.0 (* Penalty for mismatched symbols *)
+        dist <- dist +. 10.0 (* Penalty for mismatched symbols *)
     done;
-    !dist
+    dist
   end
 
 (* Cluster context histograms using greedy agglomerative clustering *)
@@ -426,39 +427,39 @@ let cluster_histograms histograms max_clusters =
       { members = [i]; histogram = histograms.(i) }
     ) in
     let active = Array.make n true in
-    let num_active = ref n in
+    let mutable num_active = n in
 
     (* Merge until we have max_clusters *)
-    while !num_active > max_clusters do
+    while num_active > max_clusters do
       (* Find the two closest clusters *)
-      let best_i = ref (-1) in
-      let best_j = ref (-1) in
-      let best_dist = ref infinity in
+      let mutable best_i = -1 in
+      let mutable best_j = -1 in
+      let mutable best_dist = infinity in
 
       for i = 0 to n - 1 do
         if active.(i) then
           for j = i + 1 to n - 1 do
             if active.(j) then begin
               let dist = histogram_distance clusters.(i).histogram clusters.(j).histogram in
-              if dist < !best_dist then begin
-                best_dist := dist;
-                best_i := i;
-                best_j := j
+              if dist < best_dist then begin
+                best_dist <- dist;
+                best_i <- i;
+                best_j <- j
               end
             end
           done
       done;
 
       (* Merge best_j into best_i *)
-      if !best_i >= 0 && !best_j >= 0 then begin
-        clusters.(!best_i).members <- clusters.(!best_j).members @ clusters.(!best_i).members;
-        clusters.(!best_i).histogram <- combine_histograms
-          clusters.(!best_i).histogram
-          clusters.(!best_j).histogram;
-        active.(!best_j) <- false;
-        decr num_active
+      if best_i >= 0 && best_j >= 0 then begin
+        clusters.(best_i).members <- clusters.(best_j).members @ clusters.(best_i).members;
+        clusters.(best_i).histogram <- combine_histograms
+          clusters.(best_i).histogram
+          clusters.(best_j).histogram;
+        active.(best_j) <- false;
+        num_active <- num_active - 1
       end else
-        num_active := 0 (* Shouldn't happen, but exit loop *)
+        num_active <- 0 (* Shouldn't happen, but exit loop *)
     done;
 
     (* Build context map: context_id -> cluster_id *)
@@ -481,14 +482,14 @@ let build_literal_context_map mode src src_pos src_len max_trees =
   (* Build per-context histograms *)
   let histograms = Array.init num_contexts (fun _ -> create_histogram 256) in
 
-  let prev1 = ref 0 in
-  let prev2 = ref 0 in
+  let mutable prev1 = 0 in
+  let mutable prev2 = 0 in
   for i = 0 to src_len - 1 do
     let byte = Char.code (Bytes.get src (src_pos + i)) in
-    let context_id = Context.get_context mode ~prev_byte1:!prev1 ~prev_byte2:!prev2 in
+    let context_id = Context.get_context mode ~prev_byte1:prev1 ~prev_byte2:prev2 in
     add_sample histograms.(context_id) byte;
-    prev2 := !prev1;
-    prev1 := byte
+    prev2 <- prev1;
+    prev1 <- byte
   done;
 
   (* Cluster histograms *)

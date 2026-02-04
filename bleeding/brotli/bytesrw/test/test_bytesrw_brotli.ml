@@ -9,18 +9,16 @@ let test_compress_reads_empty () =
   (* Compressed empty input should still produce some output (header) *)
   Alcotest.(check bool) "non-empty output" true (String.length result > 0);
   (* Decompress to verify *)
-  match Brotli.decompress result with
-  | Ok s -> Alcotest.(check string) "roundtrip" "" s
-  | Error e -> Alcotest.fail e
+  let s = Brotli.decompress result in
+  Alcotest.(check string) "roundtrip" "" s
 
 let test_compress_reads_simple () =
   let input = "Hello, World!" in
   let r = Bytes.Reader.of_string input in
   let cr = Bytesrw_brotli.compress_reads () r in
   let compressed = Bytes.Reader.to_string cr in
-  match Brotli.decompress compressed with
-  | Ok s -> Alcotest.(check string) "roundtrip" input s
-  | Error e -> Alcotest.fail e
+  let s = Brotli.decompress compressed in
+  Alcotest.(check string) "roundtrip" input s
 
 let test_decompress_reads_simple () =
   let input = "Hello, World!" in
@@ -47,9 +45,8 @@ let test_compress_writes_simple () =
   Bytes.Writer.write_string cw input;
   Bytes.Writer.write_eod cw;
   let compressed = Buffer.contents b in
-  match Brotli.decompress compressed with
-  | Ok s -> Alcotest.(check string) "roundtrip" input s
-  | Error e -> Alcotest.fail e
+  let s = Brotli.decompress compressed in
+  Alcotest.(check string) "roundtrip" input s
 
 let test_decompress_writes_simple () =
   let input = "Hello, World!" in
@@ -106,8 +103,8 @@ let test_quality_levels () =
     let cr = Bytesrw_brotli.compress_reads ~quality () r in
     let dr = Bytesrw_brotli.decompress_reads () cr in
     let result = Bytes.Reader.to_string dr in
-    Alcotest.(check string) (Printf.sprintf "quality %d" quality) input result
-  ) [1; 2; 3]
+    Alcotest.(check string) (Printf.sprintf "quality %d" (Brotli.quality_to_int quality)) input result
+  ) [Brotli.Q1; Brotli.Q2; Brotli.Q3]
 
 (* Brotli-C compatibility tests *)
 

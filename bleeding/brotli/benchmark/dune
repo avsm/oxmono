@@ -1,8 +1,15 @@
 (executable
  (name bench)
- (libraries brotli unix))
+ (libraries brotli unix)
+ (ocamlopt_flags (:standard -O3)))
 
 (executable
- (name core_bench_brotli)
- (libraries brotli core core_unix.command_unix core_bench)
+ (name compare)
+ (libraries brotli unix)
+ (ocamlopt_flags (:standard -O3)))
+
+(executable
+ (name test_template)
+ (libraries core stdlib_upstream_compatible)
+ (preprocess (pps ppx_template))
  (ocamlopt_flags (:standard -O3)))

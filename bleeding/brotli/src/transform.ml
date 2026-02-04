@@ -185,19 +185,19 @@ let apply_transform dst dst_pos word word_offset word_length transform_id =
   let actual_word_len = word_length - skip - omit_last in
   let actual_word_len = max 0 actual_word_len in
 
-  let idx = ref dst_pos in
+  let mutable idx = dst_pos in
 
   (* Write prefix *)
   for i = 0 to String.length prefix - 1 do
-    Bytes.set dst !idx prefix.[i];
-    incr idx
+    Bytes.set dst idx prefix.[i];
+    idx <- idx + 1
   done;
 
   (* Write word (possibly skipped and/or truncated) *)
   let word_start = word_offset + skip in
   for i = 0 to actual_word_len - 1 do
-    Bytes.set dst !idx (String.get word (word_start + i));
-    incr idx
+    Bytes.set dst idx (String.get word (word_start + i));
+    idx <- idx + 1
   done;
 
   (* Apply uppercase transformations *)
@@ -207,26 +207,26 @@ let apply_transform dst dst_pos word word_offset word_length transform_id =
       if actual_word_len > 0 then
         ignore (to_upper_case dst uppercase_start)
     | UppercaseAll ->
-      let remaining = ref actual_word_len in
-      let pos = ref uppercase_start in
-      while !remaining > 0 do
-        let step = to_upper_case dst !pos in
-        pos := !pos + step;
-        remaining := !remaining - step
+      let mutable remaining = actual_word_len in
+      let mutable pos = uppercase_start in
+      while remaining > 0 do
+        let step = to_upper_case dst pos in
+        pos <- pos + step;
+        remaining <- remaining - step
       done
     | _ -> ()
   end;
 
   (* Write suffix *)
   for i = 0 to String.length suffix - 1 do
-    Bytes.set dst !idx suffix.[i];
-    incr idx
+    Bytes.set dst idx suffix.[i];
+    idx <- idx + 1
   done;
 
-  !idx - dst_pos
+  idx - dst_pos
 
 (* Transform a dictionary word in place *)
 let transform_dictionary_word ~dst ~dst_pos ~word_index ~word_length ~transform_id =
   let word = Dictionary.data in
-  let word_offset = Dictionary.offset_by_length.(word_length) + word_index * word_length in
+  let word_offset = Dictionary.get_offset_by_length word_length + word_index * word_length in
   apply_transform dst dst_pos word word_offset word_length transform_id

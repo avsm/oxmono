@@ -61,12 +61,12 @@ let replicate_value table base step table_end code =
    This determines how many extra bits beyond root_bits we need for symbols
    starting at the given length. We scan forward through code lengths,
    tracking how much space remains in the subtable. *)
-let next_table_bit_size count length root_bits =
+let next_table_bit_size (count : int16# array) length root_bits =
   let mutable left = 1 lsl (length - root_bits) in
   let mutable len = length in
   let mutable done_ = false in
   while not done_ && len < max_length do
-    left <- left - count.(len);
+    left <- left - I16.to_int (Oxcaml_arrays.unsafe_get count len);
     if left <= 0 then
       done_ <- true  (* Break - current len is the answer *)
     else begin
@@ -82,31 +82,33 @@ let[@inline always] make_int16_array len : int16# array =
 
 (* Build a packed Huffman lookup table from code lengths - uses mutable locals *)
 let build_table ~code_lengths ~alphabet_size ~root_bits =
-  let count = Array.make (max_length + 1) 0 in
-  (* Use int16# array for offset - values are at most alphabet_size (704) *)
+  (* Use int16# arrays - count values ≤ alphabet_size (704), symbols ≤ 703 *)
+  let count : int16# array = make_int16_array (max_length + 1) in
   let offset : int16# array = make_int16_array (max_length + 1) in
-  let sorted_symbols = Array.make alphabet_size 0 in
+  let sorted_symbols : int16# array = make_int16_array alphabet_size in
 
   (* Build histogram of code lengths *)
   for symbol = 0 to alphabet_size - 1 do
     let len = code_lengths.(symbol) in
-    count.(len) <- count.(len) + 1
+    let cur = Oxcaml_arrays.unsafe_get count len in
+    Oxcaml_arrays.unsafe_set count len (I16.add cur #1S)
   done;
 
   (* Generate offsets into sorted symbol table by code length *)
   Oxcaml_arrays.unsafe_set offset 1 #0S;
   for length = 1 to max_length - 1 do
-    let prev = I16.to_int (Oxcaml_arrays.unsafe_get offset length) in
-    Oxcaml_arrays.unsafe_set offset (length + 1) (I16.of_int (prev + count.(length)))
+    let prev = Oxcaml_arrays.unsafe_get offset length in
+    let cnt = Oxcaml_arrays.unsafe_get count length in
+    Oxcaml_arrays.unsafe_set offset (length + 1) (I16.add prev cnt)
   done;
 
   (* Sort symbols by length, by symbol order within each length *)
   for symbol = 0 to alphabet_size - 1 do
     let length = code_lengths.(symbol) in
     if length <> 0 then begin
-      let off = I16.to_int (Oxcaml_arrays.unsafe_get offset length) in
-      sorted_symbols.(off) <- symbol;
-      Oxcaml_arrays.unsafe_set offset length (I16.of_int (off + 1))
+      let off = Oxcaml_arrays.unsafe_get offset length in
+      Oxcaml_arrays.unsafe_set sorted_symbols (I16.to_int off) (I16.of_int symbol);
+      Oxcaml_arrays.unsafe_set offset length (I16.add off #1S)
     end
   done;
 
@@ -120,7 +122,8 @@ let build_table ~code_lengths ~alphabet_size ~root_bits =
 
   (* Special case: code with only one value *)
   if I16.to_int (Oxcaml_arrays.unsafe_get offset max_length) = 1 then begin
-    let entry = pack_entry ~bits:0 ~value:(sorted_symbols.(0) land 0xFFFF) in
+    let sym0 = I16.to_int (Oxcaml_arrays.unsafe_get sorted_symbols 0) in
+    let entry = pack_entry ~bits:0 ~value:(sym0 land 0xFFFF) in
     for key = 0 to total_size - 1 do
       root_table.(key) <- entry
     done;
@@ -134,12 +137,14 @@ let build_table ~code_lengths ~alphabet_size ~root_bits =
 
     (* Fill in root table *)
     for length = 1 to root_bits do
-      while count.(length) > 0 do
-        let entry = pack_entry ~bits:(length land 0xFF) ~value:(sorted_symbols.(symbol) land 0xFFFF) in
+      while I16.to_int (Oxcaml_arrays.unsafe_get count length) > 0 do
+        let sym = I16.to_int (Oxcaml_arrays.unsafe_get sorted_symbols symbol) in
+        let entry = pack_entry ~bits:(length land 0xFF) ~value:(sym land 0xFFFF) in
         symbol <- symbol + 1;
         replicate_value root_table (table + key) step table_size entry;
         key <- get_next_key key length;
-        count.(length) <- count.(length) - 1
+        let cur = Oxcaml_arrays.unsafe_get count length in
+        Oxcaml_arrays.unsafe_set count length (I16.sub cur #1S)
       done;
       step <- step lsl 1
     done;
@@ -151,7 +156,7 @@ let build_table ~code_lengths ~alphabet_size ~root_bits =
     let start_table = 0 in
 
     for length = root_bits + 1 to max_length do
-      while count.(length) > 0 do
+      while I16.to_int (Oxcaml_arrays.unsafe_get count length) > 0 do
         if (key land mask) <> low then begin
           table <- table + table_size;
           table_bits <- next_table_bit_size count length root_bits;
@@ -162,11 +167,13 @@ let build_table ~code_lengths ~alphabet_size ~root_bits =
             ~bits:((table_bits + root_bits) land 0xFF)
             ~value:((table - start_table - low) land 0xFFFF)
         end;
-        let entry = pack_entry ~bits:((length - root_bits) land 0xFF) ~value:(sorted_symbols.(symbol) land 0xFFFF) in
+        let sym = I16.to_int (Oxcaml_arrays.unsafe_get sorted_symbols symbol) in
+        let entry = pack_entry ~bits:((length - root_bits) land 0xFF) ~value:(sym land 0xFFFF) in
         symbol <- symbol + 1;
         replicate_value root_table (table + (key lsr root_bits)) step table_size entry;
         key <- get_next_key key length;
-        count.(length) <- count.(length) - 1
+        let cur = Oxcaml_arrays.unsafe_get count length in
+        Oxcaml_arrays.unsafe_set count length (I16.sub cur #1S)
       done;
       step <- step lsl 1
     done;

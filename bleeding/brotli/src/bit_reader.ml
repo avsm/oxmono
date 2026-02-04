@@ -16,56 +16,65 @@
    4. All field accesses inline - no function call overhead
 *)
 
+(* Use unboxed types for mutable fields to avoid tagging overhead.
+   bit_pos is always 0-64, so int8# suffices.
+   val_ holds up to 64 bits of accumulated data - use nativeint#.
+   next_pos is a byte position - keep as int since it's already efficient.
+   Mixed blocks store unboxed fields inline without allocation. *)
 type t = {
   src : bytes;
   src_len : int;
-  mutable next_pos : int;     (* Next byte position to read from *)
-  mutable val_ : int;         (* Accumulator with pre-fetched bits (low bits are next to read) *)
-  mutable bit_pos : int;      (* Number of valid bits in val_ *)
+  mutable next_pos : int;         (* Next byte position to read from *)
+  mutable val_ : nativeint#;      (* Accumulator with pre-fetched bits - unboxed *)
+  mutable bit_pos : int8#;        (* Number of valid bits in val_ (0-64) - unboxed int8 *)
 }
 
 exception End_of_input
 
+(* Module aliases for unboxed type operations *)
+module I8 = Stdlib_stable.Int8_u
+module Ni = Nativeint_u
+
 (* Pre-computed bit masks for 0-32 bits - avoids (1 lsl n) - 1 computation.
-   On 64-bit OCaml, int is 63 bits, so we can safely mask up to 62 bits. *)
-let bit_masks = [|
-  0x0; 0x1; 0x3; 0x7;
-  0xF; 0x1F; 0x3F; 0x7F;
-  0xFF; 0x1FF; 0x3FF; 0x7FF;
-  0xFFF; 0x1FFF; 0x3FFF; 0x7FFF;
-  0xFFFF; 0x1FFFF; 0x3FFFF; 0x7FFFF;
-  0xFFFFF; 0x1FFFFF; 0x3FFFFF; 0x7FFFFF;
-  0xFFFFFF; 0x1FFFFFF; 0x3FFFFFF; 0x7FFFFFF;
-  0xFFFFFFF; 0x1FFFFFFF; 0x3FFFFFFF; 0x7FFFFFFF;
-  0xFFFFFFFF;
+   Uses nativeint# array for unboxed storage. *)
+let bit_masks : nativeint# array = [|
+  #0x0n; #0x1n; #0x3n; #0x7n;
+  #0xFn; #0x1Fn; #0x3Fn; #0x7Fn;
+  #0xFFn; #0x1FFn; #0x3FFn; #0x7FFn;
+  #0xFFFn; #0x1FFFn; #0x3FFFn; #0x7FFFn;
+  #0xFFFFn; #0x1FFFFn; #0x3FFFFn; #0x7FFFFn;
+  #0xFFFFFn; #0x1FFFFFn; #0x3FFFFFn; #0x7FFFFFn;
+  #0xFFFFFFn; #0x1FFFFFFn; #0x3FFFFFFn; #0x7FFFFFFn;
+  #0xFFFFFFFn; #0x1FFFFFFFn; #0x3FFFFFFFn; #0x7FFFFFFFn;
+  #0xFFFFFFFFn
 |]
 
 (* Bit mask for n bits - uses lookup table for all common cases (0-32) *)
 let[@inline always] bit_mask n =
-  if n <= 32 then Array.unsafe_get bit_masks n
+  if n <= 32 then Ni.to_int_trunc (Oxcaml_arrays.unsafe_get bit_masks n)
   else (1 lsl n) - 1
 
 let create ~src ~pos ~len =
-  { src; src_len = pos + len; next_pos = pos; val_ = 0; bit_pos = 0 }
+  { src; src_len = pos + len; next_pos = pos; val_ = #0n; bit_pos = #0s }
 
 let create_from_string s =
   create ~src:(Bytes.unsafe_of_string s) ~pos:0 ~len:(String.length s)
 
 let reset t =
   t.next_pos <- 0;
-  t.val_ <- 0;
-  t.bit_pos <- 0
+  t.val_ <- #0n;
+  t.bit_pos <- #0s
 
 let[@inline always] position t =
   (* Position in bits = bytes consumed * 8 - bits still in accumulator *)
-  (t.next_pos * 8) - t.bit_pos
+  t.next_pos * 8 - I8.to_int t.bit_pos
 
 let[@inline always] bytes_remaining t =
-  let total_bits = (t.src_len - t.next_pos) * 8 + t.bit_pos in
+  let total_bits = (t.src_len - t.next_pos) * 8 + I8.to_int t.bit_pos in
   (total_bits + 7) / 8
 
 let[@inline always] has_more t =
-  t.bit_pos > 0 || t.next_pos < t.src_len
+  I8.to_int t.bit_pos > 0 || t.next_pos < t.src_len
 
 (* Fill the bit window - CRITICAL HOT PATH
    Refills accumulator when it has <= 32 bits.
@@ -76,7 +85,8 @@ let[@inline always] has_more t =
    we can have at most 32 + 32 = 64 bits, which fits in 63-bit OCaml int since
    we never actually have all 64 bits set simultaneously. *)
 let[@inline always] fill_bit_window t =
-  if t.bit_pos <= 32 then begin
+  let bp = I8.to_int t.bit_pos in
+  if bp <= 32 then begin
     let next_pos = t.next_pos in
     let src_len = t.src_len in
     (* Fast path: 4 bytes available - use 32-bit native load *)
@@ -85,23 +95,24 @@ let[@inline always] fill_bit_window t =
          Int32.to_int on 64-bit OCaml preserves all 32 bits.
          The land 0xFFFFFFFF ensures we have an unsigned value. *)
       let new_bits = Int32.to_int (Bytes.get_int32_le t.src next_pos) land 0xFFFFFFFF in
-      t.val_ <- t.val_ lor (new_bits lsl t.bit_pos);
-      t.bit_pos <- t.bit_pos + 32;
+      let v = Ni.to_int_trunc t.val_ in
+      t.val_ <- Ni.of_int (v lor (new_bits lsl bp));
+      t.bit_pos <- I8.of_int (bp + 32);
       t.next_pos <- next_pos + 4
     end
     (* Slow path: near end of input, load byte by byte *)
     else begin
-      let mutable bp = t.bit_pos in
+      let mutable bp = bp in
       let mutable np = next_pos in
-      let mutable v = t.val_ in
+      let mutable v = Ni.to_int_trunc t.val_ in
       while bp <= 56 && np < src_len do
         let b = Char.code (Bytes.unsafe_get t.src np) in
         v <- v lor (b lsl bp);
         bp <- bp + 8;
         np <- np + 1
       done;
-      t.val_ <- v;
-      t.bit_pos <- bp;
+      t.val_ <- Ni.of_int v;
+      t.bit_pos <- I8.of_int bp;
       t.next_pos <- np
     end
   end
@@ -109,41 +120,45 @@ let[@inline always] fill_bit_window t =
 (* Peek n bits without consuming - HOT PATH
    Ensures accumulator has enough bits, then masks the value. *)
 let[@inline always] peek_bits t n_bits =
-  if t.bit_pos < n_bits then fill_bit_window t;
-  t.val_ land bit_mask n_bits
+  if I8.to_int t.bit_pos < n_bits then fill_bit_window t;
+  Ni.to_int_trunc t.val_ land bit_mask n_bits
 
 (* Skip n bits without reading value - HOT PATH
    Simply shifts the accumulator and decrements the count. *)
 let[@inline always] skip_bits t n_bits =
-  t.val_ <- t.val_ lsr n_bits;
-  t.bit_pos <- t.bit_pos - n_bits
+  t.val_ <- Ni.of_int (Ni.to_int_trunc t.val_ lsr n_bits);
+  t.bit_pos <- I8.of_int (I8.to_int t.bit_pos - n_bits)
 
 (* Read n bits and advance - HOT PATH
    This is the most called function in the entire decoder.
    Combines peek and skip into a single operation. *)
 let[@inline always] read_bits t n_bits =
-  if t.bit_pos < n_bits then fill_bit_window t;
-  let value = t.val_ land bit_mask n_bits in
-  t.val_ <- t.val_ lsr n_bits;
-  t.bit_pos <- t.bit_pos - n_bits;
+  let bp = I8.to_int t.bit_pos in
+  if bp < n_bits then fill_bit_window t;
+  let v = Ni.to_int_trunc t.val_ in
+  let value = v land bit_mask n_bits in
+  t.val_ <- Ni.of_int (v lsr n_bits);
+  t.bit_pos <- I8.of_int (I8.to_int t.bit_pos - n_bits);
   value
 
 (* Read a single bit - HOT PATH
    Specialized version that avoids the mask lookup. *)
 let[@inline always] read_bit t =
-  if t.bit_pos < 1 then fill_bit_window t;
-  let value = t.val_ land 1 in
-  t.val_ <- t.val_ lsr 1;
-  t.bit_pos <- t.bit_pos - 1;
+  if I8.to_int t.bit_pos < 1 then fill_bit_window t;
+  let v = Ni.to_int_trunc t.val_ in
+  let value = v land 1 in
+  t.val_ <- Ni.of_int (v lsr 1);
+  t.bit_pos <- I8.of_int (I8.to_int t.bit_pos - 1);
   value
 
 (* Align to next byte boundary by discarding partial byte bits from accumulator.
    After this call, bit_pos will be a multiple of 8. *)
 let[@inline] align_to_byte t =
-  let extra = t.bit_pos land 7 in
+  let bp = I8.to_int t.bit_pos in
+  let extra = bp land 7 in
   if extra <> 0 then begin
-    t.val_ <- t.val_ lsr extra;
-    t.bit_pos <- t.bit_pos - extra
+    t.val_ <- Ni.of_int (Ni.to_int_trunc t.val_ lsr extra);
+    t.bit_pos <- I8.of_int (bp - extra)
   end
 
 (* Copy n bytes to destination buffer.
@@ -154,14 +169,18 @@ let copy_bytes t ~dst ~dst_pos ~len =
   if len > 0 then begin
     let mutable copied = 0 in
     let mutable dpos = dst_pos in
+    let mutable bp = I8.to_int t.bit_pos in
+    let mutable v = Ni.to_int_trunc t.val_ in
     (* First drain bytes from accumulator *)
-    while t.bit_pos >= 8 && copied < len do
-      Bytes.unsafe_set dst dpos (Char.unsafe_chr (t.val_ land 0xFF));
-      t.val_ <- t.val_ lsr 8;
-      t.bit_pos <- t.bit_pos - 8;
+    while bp >= 8 && copied < len do
+      Bytes.unsafe_set dst dpos (Char.unsafe_chr (v land 0xFF));
+      v <- v lsr 8;
+      bp <- bp - 8;
       dpos <- dpos + 1;
       copied <- copied + 1
     done;
+    t.val_ <- Ni.of_int v;
+    t.bit_pos <- I8.of_int bp;
     (* Then copy remaining directly from source *)
     let remaining = len - copied in
     if remaining > 0 then begin
@@ -174,7 +193,7 @@ let copy_bytes t ~dst ~dst_pos ~len =
 
 (* Check if we have enough bits remaining (including those in accumulator and source) *)
 let[@inline always] check_bits t n_bits =
-  let total_bits = (t.src_len - t.next_pos) * 8 + t.bit_pos in
+  let total_bits = (t.src_len - t.next_pos) * 8 + I8.to_int t.bit_pos in
   total_bits >= n_bits
 
 (* Get byte at position for compatibility - returns 0 past end.

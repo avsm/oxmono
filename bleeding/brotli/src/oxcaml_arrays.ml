@@ -11,7 +11,3 @@ external[@layout_poly] unsafe_set : ('a : any mod separable). 'a array -> int ->
 
 (* Length *)
 external[@layout_poly] length : ('a : any mod separable). 'a array -> int = "%array_length"
-
-(* Conversion primitives for unboxed small numbers *)
-external int8_to_int : int8# -> int = "%int_of_int8#"
-external int_to_int8 : int -> int8# = "%int8#_of_int"

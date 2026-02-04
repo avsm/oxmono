@@ -28,11 +28,11 @@ let writer_error = Bytes.Writer.error format_error
 
 let default_slice_length = 65536  (* 64KB *)
 
-type quality = int
-let default_quality = 1
-let no_compression = 0
-let best_speed = 1
-let best_compression = 11
+type quality = Brotli.quality
+let default_quality = Brotli.Q1
+let no_compression = Brotli.Q0
+let best_speed = Brotli.Q1
+let best_compression = Brotli.Q11
 
 (* Decompress reads - buffers entire input, decompresses, then emits slices *)
 

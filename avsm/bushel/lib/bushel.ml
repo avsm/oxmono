@@ -87,5 +87,8 @@ module Types = Bushel_types
 module Doi_entry = Bushel_doi_entry
 (** DOI entries resolved from external sources. *)
 
+module Reference = Bushel_reference
+(** Structured reference types for citations. *)
+
 module Util = Bushel_util
 (** Utility functions (word counting, text processing). *)

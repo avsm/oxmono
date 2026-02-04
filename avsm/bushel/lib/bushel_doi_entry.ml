@@ -96,3 +96,55 @@ let find_by_url entries url =
   List.find_opt (fun entry ->
     not entry.ignore && List.mem url entry.source_urls
   ) entries
+
+(** {1 YAML Serialization (Write)} *)
+
+(** Convert status to YAML fields *)
+let status_to_yaml = function
+  | Resolved -> []
+  | Failed err -> [("error", `String err)]
+
+(** Convert a DOI entry to YAML *)
+let to_yaml t =
+  let base = [
+    ("doi", `String t.doi);
+    ("resolved_at", `String t.resolved_at);
+  ] in
+  let source_url_field = match t.source_urls with
+    | [] -> []
+    | [url] -> [("source_url", `String url)]
+    | urls -> [("source_urls", `A (List.map (fun u -> `String u) urls))]
+  in
+  let status_fields = status_to_yaml t.status in
+  let metadata = if t.status <> Resolved then [] else [
+    ("title", `String t.title);
+    ("authors", `A (List.map (fun a -> `String a) t.authors));
+    ("year", `Float (float_of_int t.year));
+    ("bibtype", `String t.bibtype);
+    ("publisher", `String t.publisher);
+  ] in
+  let ignore_field = if t.ignore then [("ignore", `Bool true)] else [] in
+  `O (base @ source_url_field @ status_fields @ metadata @ ignore_field)
+
+(** Convert entries to YAML string *)
+let to_yaml_string entries =
+  Yamlrw.to_string (`A (List.map to_yaml entries))
+
+(** Load DOI entries from file *)
+let load_file path =
+  try In_channel.(with_open_bin path input_all) |> of_yaml_string
+  with _ -> []
+
+(** Save DOI entries to file *)
+let save_file path entries =
+  Out_channel.with_open_bin path (fun oc ->
+    output_string oc (to_yaml_string entries))
+
+(** Merge entries, preserving existing by DOI *)
+let merge_entries existing new_entries =
+  let tbl = Hashtbl.create (List.length existing) in
+  List.iter (fun e -> Hashtbl.replace tbl e.doi e) existing;
+  List.iter (fun e ->
+    if not (Hashtbl.mem tbl e.doi) then Hashtbl.add tbl e.doi e
+  ) new_entries;
+  Hashtbl.to_seq_values tbl |> List.of_seq

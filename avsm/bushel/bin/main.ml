@@ -813,6 +813,55 @@ let git_sync_cmd =
     $ Gitops.Sync.Cmd.dry_run_term
     $ Gitops.Sync.Cmd.remote_term)
 
+(** {1 References Command} *)
+
+let references_cmd =
+  let slug_arg =
+    Arg.(required & pos 0 (some string) None &
+         info [] ~docv:"SLUG" ~doc:"Note slug to extract references from")
+  in
+  let format_arg =
+    Arg.(value & opt string "text" &
+         info ["f"; "format"] ~docv:"FORMAT" ~doc:"Output: text, json, yaml")
+  in
+  let author_arg =
+    Arg.(value & opt string "avsm" &
+         info ["a"; "author"] ~docv:"HANDLE" ~doc:"Default author handle")
+  in
+  let run () config_file data_dir slug format author_handle =
+    match load_config config_file with
+    | Error e -> Printf.eprintf "Config error: %s\n" e; 1
+    | Ok config ->
+      let data_dir = get_data_dir config data_dir in
+      with_entries data_dir @@ fun _env entries ->
+      match Bushel.Entry.lookup entries slug with
+      | None -> Printf.eprintf "Entry not found: %s\n" slug; 1
+      | Some (`Note note) ->
+        let contacts = Bushel.Entry.contacts entries in
+        (match List.find_opt (fun c ->
+          Sortal_schema.Contact.handle c = author_handle
+        ) contacts with
+        | None -> Printf.eprintf "Author not found: %s\n" author_handle; 1
+        | Some author ->
+          let refs = Bushel.Reference.of_note ~entries ~default_author:author note in
+          (match format with
+           | "json" ->
+             print_endline (Jsont_bytesrw.encode_string Bushel.Reference.list_jsont refs
+                           |> Result.value ~default:"[]")
+           | "yaml" -> print_string (Bushel.Reference.to_yaml_string refs)
+           | _ ->
+             if refs = [] then Printf.printf "No references for %s\n" slug
+             else List.iteri (fun i r ->
+               Printf.printf "%d. %s\n   DOI: https://doi.org/%s\n   Source: %s\n\n"
+                 (i+1) r.Bushel.Reference.citation r.doi
+                 (Bushel.Reference.source_to_string r.source)
+             ) refs);
+          0)
+      | Some _ -> Printf.eprintf "%s is not a note\n" slug; 1
+  in
+  Cmd.v (Cmd.info "references" ~doc:"Extract references from a note")
+    Term.(const run $ logging_t $ config_file $ data_dir $ slug_arg $ format_arg $ author_arg)
+
 (** {1 Main Command Group} *)
 
 let main_cmd =
@@ -835,6 +884,7 @@ let main_cmd =
     stats_cmd;
     show_cmd;
     render_cmd;
+    references_cmd;
     sync_cmd;
     git_sync_cmd;
     paper_add_cmd;

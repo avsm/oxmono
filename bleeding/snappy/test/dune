@@ -1,0 +1,5 @@
+(test
+ (name test_snappy)
+ (libraries snappy alcotest)
+ (deps
+  (glob_files testdata/*)))

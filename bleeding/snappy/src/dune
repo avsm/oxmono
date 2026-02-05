@@ -1,0 +1,5 @@
+(library
+ (name snappy)
+ (public_name snappy)
+ (modules snappy)
+ (ocamlopt_flags (:standard -O3 -unbox-closures -unbox-closures-factor 20)))

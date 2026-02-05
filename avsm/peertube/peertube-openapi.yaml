@@ -9115,6 +9115,7 @@ components:
             - $ref: '#/components/schemas/NSFWFlag'
         nsfwSummary:
           type: string
+          nullable: true
           description: "**PeerTube >= 7.2** More information about the sensitive content of the video"
         waitTranscoding:
           type: boolean

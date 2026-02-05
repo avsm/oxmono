@@ -932,13 +932,13 @@ module VideoPrivacySet = struct
   module Types = struct
     module T = struct
       (** privacy id of the video (see [/videos/privacies](#operation/getVideoPrivacyPolicies)) *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1027,13 +1027,13 @@ module VideoPlaylistTypeSet = struct
   module Types = struct
     module T = struct
       (** The video playlist type (Regular = `1`, Watch Later = `2`) *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1069,13 +1069,13 @@ module VideoPlaylistPrivacySet = struct
   module Types = struct
     module T = struct
       (** Video playlist privacy policy (see [/video-playlists/privacies](#operation/getPlaylistPrivacyPolicies)) *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1265,13 +1265,13 @@ module VideoCommentsPolicySet = struct
   module Types = struct
     module T = struct
       (** Comments policy of the video (Enabled = `1`, Disabled = `2`, Requires Approval = `3`) *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1414,13 +1414,13 @@ module VideoChannelCollaboratorState = struct
         - `1`: Pending
         - `2`: Accepted
        *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1434,13 +1434,13 @@ module VideoChannelActivityTarget = struct
         - CHANNEL_SYNC: 4,
         - VIDEO_IMPORT: 5
        *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1460,13 +1460,13 @@ module VideoChannelActivityAction = struct
         - REMOVE_CHANNEL_OWNERSHIP: 10
         - CREATE_CHANNEL_OWNERSHIP: 11
        *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1561,13 +1561,13 @@ module UserRole = struct
   module Types = struct
     module T = struct
       (** The user role (Admin = `0`, Moderator = `1`, User = `2`) *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1608,13 +1608,13 @@ module UserImportState = struct
         - `3`: Completed
         - `4`: Errored
        *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1652,13 +1652,13 @@ module UserExportState = struct
         - `3`: Completed
         - `4`: Errored
        *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -1666,13 +1666,13 @@ module UserAdminFlags = struct
   module Types = struct
     module T = struct
       (** Admin flags for the user (None = `0`, Bypass video blocklist = `1`) *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -2327,13 +2327,13 @@ module RunnerJobState = struct
         - `7` Parent had an error
         - `8` Parent has been cancelled
        *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -3598,13 +3598,13 @@ module Nsfwflag = struct
       - `1` VIOLENT
       - `2` EXPLICIT_SEX
        *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -3792,13 +3792,13 @@ module NewFeatureInfo = struct
       
         - `1` CHANNEL_COLLABORATION
        *)
-      type t = string
+      type t = int
     end
   end
   
   module Type = struct
     include Types.Type
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -3956,13 +3956,13 @@ module LiveVideoLatencyMode = struct
   module Types = struct
     module T = struct
       (** The live latency mode (Default = `1`, High latency = `2`, Small Latency = `3`) *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -4657,13 +4657,13 @@ module FileStorage = struct
         - `0` File system
         - `1` Object storage
        *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 
@@ -6040,7 +6040,8 @@ module Video = struct
       |> Jsont.Object.opt_mem "name" (Openapi.Runtime.validated_string ~min_length:3 ~max_length:120 Jsont.string) ~enc:(fun r -> r.name)
       |> Jsont.Object.opt_mem "nsfw" Jsont.bool ~enc:(fun r -> r.nsfw)
       |> Jsont.Object.opt_mem "nsfwFlags" Nsfwflag.T.jsont ~enc:(fun r -> r.nsfw_flags)
-      |> Jsont.Object.opt_mem "nsfwSummary" Jsont.string ~enc:(fun r -> r.nsfw_summary)
+      |> Jsont.Object.mem "nsfwSummary" Openapi.Runtime.nullable_string
+           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.nsfw_summary)
       |> Jsont.Object.mem "originallyPublishedAt" Openapi.Runtime.nullable_ptime
            ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.originally_published_at)
       |> Jsont.Object.opt_mem "previewPath" Jsont.string ~enc:(fun r -> r.preview_path)
@@ -6835,7 +6836,7 @@ module Notification = struct
       
         - `22` MY_VIDEO_TRANSCRIPTION_GENERATED
        *)
-      type t = string
+      type t = int
     end
   
     module T = struct
@@ -6858,7 +6859,7 @@ module Notification = struct
   
   module Type = struct
     include Types.Type
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
   
   module T = struct
@@ -7721,7 +7722,8 @@ module VideoDetails = struct
       |> Jsont.Object.opt_mem "name" (Openapi.Runtime.validated_string ~min_length:3 ~max_length:120 Jsont.string) ~enc:(fun r -> r.name)
       |> Jsont.Object.opt_mem "nsfw" Jsont.bool ~enc:(fun r -> r.nsfw)
       |> Jsont.Object.opt_mem "nsfwFlags" Nsfwflag.T.jsont ~enc:(fun r -> r.nsfw_flags)
-      |> Jsont.Object.opt_mem "nsfwSummary" Jsont.string ~enc:(fun r -> r.nsfw_summary)
+      |> Jsont.Object.mem "nsfwSummary" Openapi.Runtime.nullable_string
+           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.nsfw_summary)
       |> Jsont.Object.mem "originallyPublishedAt" Openapi.Runtime.nullable_ptime
            ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.originally_published_at)
       |> Jsont.Object.opt_mem "previewPath" Jsont.string ~enc:(fun r -> r.preview_path)
@@ -15040,13 +15042,13 @@ module AbuseStateSet = struct
   module Types = struct
     module T = struct
       (** The abuse state (Pending = `1`, Rejected = `2`, Accepted = `3`) *)
-      type t = string
+      type t = int
     end
   end
   
   module T = struct
     include Types.T
-    let jsont = Jsont.string
+    let jsont = Jsont.int
   end
 end
 

@@ -516,7 +516,7 @@ end
 module VideoPrivacySet : sig
   module T : sig
     (** privacy id of the video (see [/videos/privacies](#operation/getVideoPrivacyPolicies)) *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -571,7 +571,7 @@ end
 module VideoPlaylistTypeSet : sig
   module T : sig
     (** The video playlist type (Regular = `1`, Watch Later = `2`) *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -595,7 +595,7 @@ end
 module VideoPlaylistPrivacySet : sig
   module T : sig
     (** Video playlist privacy policy (see [/video-playlists/privacies](#operation/getPlaylistPrivacyPolicies)) *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -717,7 +717,7 @@ end
 module VideoCommentsPolicySet : sig
   module T : sig
     (** Comments policy of the video (Enabled = `1`, Disabled = `2`, Requires Approval = `3`) *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -798,7 +798,7 @@ module VideoChannelCollaboratorState : sig
       - `1`: Pending
       - `2`: Accepted
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -813,7 +813,7 @@ module VideoChannelActivityTarget : sig
       - CHANNEL_SYNC: 4,
       - VIDEO_IMPORT: 5
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -834,7 +834,7 @@ module VideoChannelActivityAction : sig
       - REMOVE_CHANNEL_OWNERSHIP: 10
       - CREATE_CHANNEL_OWNERSHIP: 11
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -901,7 +901,7 @@ end
 module UserRole : sig
   module T : sig
     (** The user role (Admin = `0`, Moderator = `1`, User = `2`) *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -935,7 +935,7 @@ module UserImportState : sig
       - `3`: Completed
       - `4`: Errored
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -965,7 +965,7 @@ module UserExportState : sig
       - `3`: Completed
       - `4`: Errored
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -974,7 +974,7 @@ end
 module UserAdminFlags : sig
   module T : sig
     (** Admin flags for the user (None = `0`, Bypass video blocklist = `1`) *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -1372,7 +1372,7 @@ module RunnerJobState : sig
       - `7` Parent had an error
       - `8` Parent has been cancelled
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -2045,7 +2045,7 @@ module Nsfwflag : sig
     - `1` VIOLENT
     - `2` EXPLICIT_SEX
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -2191,7 +2191,7 @@ module NewFeatureInfo : sig
     
       - `1` CHANNEL_COLLABORATION
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -2289,7 +2289,7 @@ end
 module LiveVideoLatencyMode : sig
   module T : sig
     (** The live latency mode (Default = `1`, High latency = `2`, Small Latency = `3`) *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -2681,7 +2681,7 @@ module FileStorage : sig
       - `0` File system
       - `1` Object storage
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -4087,7 +4087,7 @@ module Notification : sig
     
       - `22` MY_VIDEO_TRANSCRIPTION_GENERATED
      *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end
@@ -6214,7 +6214,7 @@ end
 module AbuseStateSet : sig
   module T : sig
     (** The abuse state (Pending = `1`, Rejected = `2`, Accepted = `3`) *)
-    type t = string
+    type t = int
     
     val jsont : t Jsont.t
   end

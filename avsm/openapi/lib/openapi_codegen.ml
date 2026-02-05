@@ -389,6 +389,7 @@ type schema_info = {
   fields : field_info list;
   is_enum : bool;
   enum_variants : (string * string) list;  (* ocaml_name, json_value *)
+  enum_base_type : string;  (* "string" or "int" for enum schemas *)
   description : string option;
   is_recursive : bool;  (* true if schema references itself *)
   is_union : bool;  (** true if this is a oneOf/anyOf schema *)
@@ -819,6 +820,11 @@ let analyze_schema ~(components : Spec.components option) (name : string) (schem
   let expanded = expand_schema ~components schema in
   let prefix, suffix = Name.split_schema_name name in
   let is_enum = Option.is_some expanded.enum in
+  (* Determine the base type for enums - integer enums should use int, not string *)
+  let enum_base_type = match expanded.type_ with
+    | Some "integer" -> "int"
+    | _ -> "string"
+  in
   let enum_variants = match expanded.enum with
     | Some values ->
         List.filter_map (fun json ->
@@ -856,7 +862,7 @@ let analyze_schema ~(components : Spec.components option) (name : string) (schem
   let deps = find_schema_dependencies expanded in
   let is_recursive = List.mem name deps in
   { original_name = name; prefix; suffix; schema = expanded; fields; is_enum; enum_variants;
-    description = expanded.description; is_recursive; is_union; union_info }
+    enum_base_type; description = expanded.description; is_recursive; is_union; union_info }
 
 (** {1 Operation Processing} *)
 
@@ -1082,8 +1088,9 @@ let build_module_tree (schemas : schema_info list) (operations : operation_info 
 
 let gen_enum_impl (schema : schema_info) : string =
   let doc = format_doc schema.description in
+  let jsont_base = jsont_of_base_type schema.enum_base_type in
   if schema.enum_variants = [] then
-    Printf.sprintf "%stype t = string\n\nlet jsont = Jsont.string" doc
+    Printf.sprintf "%stype t = %s\n\nlet jsont = %s" doc schema.enum_base_type jsont_base
   else
     let type_def = Printf.sprintf "%stype t = [\n%s\n]" doc
       (String.concat "\n" (List.map (fun (v, _) -> "  | `" ^ v) schema.enum_variants))
@@ -1107,7 +1114,7 @@ let jsont : t Jsont.t =
 let gen_enum_intf (schema : schema_info) : string =
   let doc = format_doc schema.description in
   if schema.enum_variants = [] then
-    Printf.sprintf "%stype t = string\n\nval jsont : t Jsont.t" doc
+    Printf.sprintf "%stype t = %s\n\nval jsont : t Jsont.t" doc schema.enum_base_type
   else
     let type_def = Printf.sprintf "%stype t = [\n%s\n]" doc
       (String.concat "\n" (List.map (fun (v, _) -> "  | `" ^ v) schema.enum_variants))
@@ -1814,7 +1821,7 @@ let gen_operation_intf ~current_prefix (op : operation_info) : string =
 let gen_enum_type_only (schema : schema_info) : string =
   let doc = format_doc schema.description in
   if schema.enum_variants = [] then
-    Printf.sprintf "%stype t = string" doc
+    Printf.sprintf "%stype t = %s" doc schema.enum_base_type
   else
     Printf.sprintf "%stype t = [\n%s\n]" doc
       (String.concat "\n" (List.map (fun (v, _) -> "  | `" ^ v) schema.enum_variants))
@@ -1892,8 +1899,9 @@ let gen_type_only_submodule ~current_prefix (schema : schema_info) : string =
 (** Generate codec content for an enum schema (includes Types.X) *)
 let gen_enum_codec_only (schema : schema_info) : string =
   let suffix_mod = Name.to_module_name schema.suffix in
+  let jsont_base = jsont_of_base_type schema.enum_base_type in
   if schema.enum_variants = [] then
-    Printf.sprintf "include Types.%s\nlet jsont = Jsont.string" suffix_mod
+    Printf.sprintf "include Types.%s\nlet jsont = %s" suffix_mod jsont_base
   else
     let dec_cases = String.concat "\n" (List.map (fun (v, raw) ->
       Printf.sprintf "      | %S -> `%s" raw v

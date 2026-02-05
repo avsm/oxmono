@@ -1,0 +1,14 @@
+(test
+ (name test_brotli)
+ (libraries brotli brotli.bytesrw alcotest)
+ (modules test_brotli))
+
+(executable
+ (name test_debug)
+ (libraries brotli)
+ (modules test_debug))
+
+(executable
+ (name test_unboxed_array)
+ (libraries base unboxed.int64_u)
+ (modules test_unboxed_array))

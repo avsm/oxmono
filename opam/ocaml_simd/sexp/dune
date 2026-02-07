@@ -1,4 +1,5 @@
 (library
+ (enabled_if (= %{architecture} amd64))
  (name simd_sexp)
  (public_name ocaml_simd.sexp)
  (modes native)

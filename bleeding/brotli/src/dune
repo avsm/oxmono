@@ -1,9 +1,15 @@
 (library
  (name brotli)
  (public_name brotli)
- (libraries base core stdlib_upstream_compatible ocaml_simd.sse ocaml_simd.avx unboxed.int64_u unboxed.nativeint_u)
+ (libraries base core stdlib_upstream_compatible unboxed.int64_u unboxed.nativeint_u
+  (select match_impl.ml from
+   (ocaml_simd.sse ocaml_simd.avx -> match_impl.simd.ml)
+   (                               -> match_impl.portable.ml))
+  (select copy_impl.ml from
+   (ocaml_simd.sse ocaml_simd.avx -> copy_impl.simd.ml)
+   (                               -> copy_impl.portable.ml)))
  (modules brotli brotli_decode brotli_encode bit_reader bit_writer
           huffman context transform dictionary prefix constants lz77 dict_match
-          block_split optimal oxcaml_arrays)
+          block_split optimal oxcaml_arrays match_impl copy_impl)
  (preprocess (pps ppx_template))
  (ocamlopt_flags (:standard -O3 -unbox-closures -unbox-closures-factor 20)))

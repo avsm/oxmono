@@ -1,0 +1,49 @@
+(executable
+ (name basic_queries)
+ (modules basic_queries)
+ (libraries chdb))
+
+(executable
+ (name data_formats)
+ (modules data_formats)
+ (libraries chdb))
+
+(executable
+ (name table_ops)
+ (modules table_ops)
+ (libraries chdb))
+
+(executable
+ (name aggregations)
+ (modules aggregations)
+ (libraries chdb))
+
+(executable
+ (name streaming)
+ (modules streaming)
+ (libraries chdb))
+
+(executable
+ (name zero_copy)
+ (modules zero_copy)
+ (libraries chdb))
+
+(executable
+ (name error_handling)
+ (modules error_handling)
+ (libraries chdb))
+
+(executable
+ (name input_formats)
+ (modules input_formats)
+ (libraries chdb))
+
+(executable
+ (name domain_safe)
+ (modules domain_safe)
+ (libraries chdb threads.posix))
+
+(cram
+ (deps basic_queries.exe data_formats.exe table_ops.exe
+       aggregations.exe streaming.exe zero_copy.exe
+       error_handling.exe input_formats.exe domain_safe.exe))

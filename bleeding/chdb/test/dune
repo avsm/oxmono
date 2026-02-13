@@ -1,0 +1,10 @@
+(test
+ (name test_chdb)
+ (modules test_chdb)
+ (libraries chdb base alcotest))
+
+(test
+ (name test_file_queries)
+ (modules test_file_queries)
+ (deps (glob_files data/*))
+ (libraries chdb alcotest))

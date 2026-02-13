@@ -1,0 +1,12 @@
+{"order_id": 1001, "user_id": 1, "product_id": 1, "quantity": 2, "date": "2024-01-10"}
+{"order_id": 1002, "user_id": 2, "product_id": 3, "quantity": 5, "date": "2024-01-11"}
+{"order_id": 1003, "user_id": 1, "product_id": 5, "quantity": 1, "date": "2024-01-11"}
+{"order_id": 1004, "user_id": 3, "product_id": 2, "quantity": 3, "date": "2024-01-12"}
+{"order_id": 1005, "user_id": 4, "product_id": 7, "quantity": 1, "date": "2024-01-12"}
+{"order_id": 1006, "user_id": 2, "product_id": 6, "quantity": 10, "date": "2024-01-13"}
+{"order_id": 1007, "user_id": 5, "product_id": 1, "quantity": 4, "date": "2024-01-13"}
+{"order_id": 1008, "user_id": 3, "product_id": 4, "quantity": 2, "date": "2024-01-14"}
+{"order_id": 1009, "user_id": 1, "product_id": 8, "quantity": 1, "date": "2024-01-14"}
+{"order_id": 1010, "user_id": 4, "product_id": 9, "quantity": 1, "date": "2024-01-15"}
+{"order_id": 1011, "user_id": 5, "product_id": 3, "quantity": 8, "date": "2024-01-15"}
+{"order_id": 1012, "user_id": 2, "product_id": 10, "quantity": 2, "date": "2024-01-15"}

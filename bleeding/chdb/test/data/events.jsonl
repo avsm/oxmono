@@ -1,0 +1,15 @@
+{"ts": "2024-01-15 09:00:00", "user_id": 1, "action": "login", "duration_ms": 0}
+{"ts": "2024-01-15 09:05:00", "user_id": 1, "action": "page_view", "duration_ms": 1200}
+{"ts": "2024-01-15 09:10:00", "user_id": 2, "action": "login", "duration_ms": 0}
+{"ts": "2024-01-15 09:12:00", "user_id": 1, "action": "page_view", "duration_ms": 3400}
+{"ts": "2024-01-15 09:15:00", "user_id": 2, "action": "page_view", "duration_ms": 800}
+{"ts": "2024-01-15 09:20:00", "user_id": 3, "action": "login", "duration_ms": 0}
+{"ts": "2024-01-15 09:25:00", "user_id": 3, "action": "purchase", "duration_ms": 5600}
+{"ts": "2024-01-15 09:30:00", "user_id": 1, "action": "purchase", "duration_ms": 4200}
+{"ts": "2024-01-15 09:35:00", "user_id": 2, "action": "logout", "duration_ms": 0}
+{"ts": "2024-01-15 09:40:00", "user_id": 4, "action": "login", "duration_ms": 0}
+{"ts": "2024-01-15 09:45:00", "user_id": 4, "action": "page_view", "duration_ms": 2100}
+{"ts": "2024-01-15 09:50:00", "user_id": 3, "action": "logout", "duration_ms": 0}
+{"ts": "2024-01-15 10:00:00", "user_id": 1, "action": "logout", "duration_ms": 0}
+{"ts": "2024-01-15 10:05:00", "user_id": 4, "action": "purchase", "duration_ms": 3800}
+{"ts": "2024-01-15 10:10:00", "user_id": 4, "action": "logout", "duration_ms": 0}

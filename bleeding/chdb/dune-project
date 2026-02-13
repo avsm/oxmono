@@ -1,0 +1,24 @@
+(lang dune 3.21)
+(name chdb)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(package
+ (name chdb)
+ (synopsis "High-performance ClickHouse embedded bindings for OxCaml")
+ (description
+  "Zero-copy OCaml bindings to chdb (ClickHouse Embedded Database).
+Provides connection management, query execution with multiple output
+formats, zero-copy result access via Bigstring, streaming queries,
+and unboxed statistics access.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (dune (>= 3.0))
+  base
+  base_bigstring
+  capsule0
+  (alcotest (and :with-test (>= 1.7.0)))))

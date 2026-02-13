@@ -1,0 +1,15 @@
+(library
+ (name chdb)
+ (public_name chdb)
+ (libraries base base_bigstring capsule0.expert capsule0.blocking_sync)
+ (modules chdb chdb_error chdb_format chdb_raw chdb_stats
+          chdb_result chdb_connection chdb_query chdb_stream
+          chdb_binary chdb_safe)
+ (foreign_stubs
+  (language c)
+  (names chdb_stubs)
+  (flags (:standard -I/usr/local/include)))
+ (c_library_flags (-L/usr/local/lib -lchdb -Wl,-rpath,/usr/local/lib))
+ (ocamlopt_flags (:standard -O3
+  -unbox-closures
+  -unbox-closures-factor 20)))

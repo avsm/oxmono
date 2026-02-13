@@ -1,0 +1,5 @@
+(executable
+ (name bench_chdb)
+ (modules bench_chdb)
+ (libraries chdb unix)
+ (ocamlopt_flags (:standard -O3)))

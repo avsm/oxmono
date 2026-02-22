@@ -1,0 +1,7 @@
+(include_subdirs unqualified)
+
+(library
+ (name zarr)
+ (public_name zarr)
+ (libraries yojson decompress.zl decompress.gz checkseum optint bigarray zstd)
+ (preprocess no_preprocessing))

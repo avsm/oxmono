@@ -1,0 +1,10 @@
+(test
+ (name test_runner)
+ (libraries
+   zarr
+   zarr_sync
+   alcotest
+   qcheck
+   qcheck-alcotest)
+ (deps
+   (source_tree fixtures)))

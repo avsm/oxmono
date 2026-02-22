@@ -1,0 +1,4 @@
+(test
+ (name test_blosc)
+ (package zarr-blosc)
+ (libraries zarr zarr_blosc alcotest))

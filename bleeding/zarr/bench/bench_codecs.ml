@@ -22,22 +22,22 @@ let random_bytes n =
   buf
 
 let random_int32_array shape =
-  let arr = Ndarray.create Int32 shape in
-  let n = Ndarray.numel arr in
-  let dims = Ndarray.shape arr in
+  let arr = Chunk_data.create_zero Dtype.Int32 shape in
+  let n = Chunk_data.numel arr in
+  let dims = Chunk_data.shape arr in
   for i = 0 to n - 1 do
-    let idx = Ndarray.offset_to_index dims i in
-    Ndarray.set arr idx (`Int32 (Random.int32 Int32.max_int))
+    let idx = Chunk_data.offset_to_index dims i in
+    Chunk_data.set arr idx (`Int32 (Random.int32 Int32.max_int))
   done;
   arr
 
 let random_float64_array shape =
-  let arr = Ndarray.create Float64 shape in
-  let n = Ndarray.numel arr in
-  let dims = Ndarray.shape arr in
+  let arr = Chunk_data.create_zero Dtype.Float64 shape in
+  let n = Chunk_data.numel arr in
+  let dims = Chunk_data.shape arr in
   for i = 0 to n - 1 do
-    let idx = Ndarray.offset_to_index dims i in
-    Ndarray.set arr idx (`Float (Random.float 1000.0))
+    let idx = Chunk_data.offset_to_index dims i in
+    Chunk_data.set arr idx (`Float (Random.float 1000.0))
   done;
   arr
 
@@ -50,7 +50,7 @@ let bench_bytes_codec () =
   let arr_medium = random_int32_array [|500; 500|] in
   let arr_large = random_int32_array [|1000; 1000|] in
 
-  let codec = Codecs.Bytes_codec.create Little in
+  let codec = Codec_bytes.create Dtype.Little in
 
   time_it "bytes encode 100x100 int32" 1000 (fun () -> codec.encode arr_small);
   time_it "bytes encode 500x500 int32" 100 (fun () -> codec.encode arr_medium);
@@ -61,11 +61,11 @@ let bench_bytes_codec () =
   let encoded_large = codec.encode arr_large in
 
   time_it "bytes decode 100x100 int32" 1000 (fun () ->
-    codec.decode [|100; 100|] Int32 encoded_small);
+    codec.decode [|100; 100|] Dtype.Int32 encoded_small);
   time_it "bytes decode 500x500 int32" 100 (fun () ->
-    codec.decode [|500; 500|] Int32 encoded_medium);
+    codec.decode [|500; 500|] Dtype.Int32 encoded_medium);
   time_it "bytes decode 1000x1000 int32" 10 (fun () ->
-    codec.decode [|1000; 1000|] Int32 encoded_large)
+    codec.decode [|1000; 1000|] Dtype.Int32 encoded_large)
 
 let bench_gzip_codec () =
   Printf.printf "\n=== Gzip Codec ===\n";
@@ -74,7 +74,7 @@ let bench_gzip_codec () =
   let data_10k = random_bytes 10240 in
   let data_100k = random_bytes 102400 in
 
-  let codec = Codecs.Gzip.create 6 in
+  let codec = Codec_gzip.create 6 in
 
   time_it "gzip encode 1KB" 1000 (fun () -> codec.encode data_1k);
   time_it "gzip encode 10KB" 100 (fun () -> codec.encode data_10k);
@@ -100,17 +100,17 @@ let bench_crc32c_codec () =
   let data_10k = random_bytes 10240 in
   let data_100k = random_bytes 102400 in
 
-  time_it "crc32c encode 1KB" 10000 (fun () -> Codecs.Crc32c.encode data_1k);
-  time_it "crc32c encode 10KB" 1000 (fun () -> Codecs.Crc32c.encode data_10k);
-  time_it "crc32c encode 100KB" 100 (fun () -> Codecs.Crc32c.encode data_100k);
+  time_it "crc32c encode 1KB" 10000 (fun () -> Codec_crc32c.encode data_1k);
+  time_it "crc32c encode 10KB" 1000 (fun () -> Codec_crc32c.encode data_10k);
+  time_it "crc32c encode 100KB" 100 (fun () -> Codec_crc32c.encode data_100k);
 
-  let encoded_1k = Codecs.Crc32c.encode data_1k in
-  let encoded_10k = Codecs.Crc32c.encode data_10k in
-  let encoded_100k = Codecs.Crc32c.encode data_100k in
+  let encoded_1k = Codec_crc32c.encode data_1k in
+  let encoded_10k = Codec_crc32c.encode data_10k in
+  let encoded_100k = Codec_crc32c.encode data_100k in
 
-  time_it "crc32c decode 1KB" 10000 (fun () -> ignore (Codecs.Crc32c.decode encoded_1k));
-  time_it "crc32c decode 10KB" 1000 (fun () -> ignore (Codecs.Crc32c.decode encoded_10k));
-  time_it "crc32c decode 100KB" 100 (fun () -> ignore (Codecs.Crc32c.decode encoded_100k))
+  time_it "crc32c decode 1KB" 10000 (fun () -> ignore (Codec_crc32c.decode encoded_1k));
+  time_it "crc32c decode 10KB" 1000 (fun () -> ignore (Codec_crc32c.decode encoded_10k));
+  time_it "crc32c decode 100KB" 100 (fun () -> ignore (Codec_crc32c.decode encoded_100k))
 
 let bench_transpose_codec () =
   Printf.printf "\n=== Transpose Codec ===\n";
@@ -118,8 +118,8 @@ let bench_transpose_codec () =
   let arr_2d = random_int32_array [|100; 100|] in
   let arr_3d = random_int32_array [|50; 50; 50|] in
 
-  let codec_2d = Codecs.Transpose.create [|1; 0|] in
-  let codec_3d = Codecs.Transpose.create [|2; 0; 1|] in
+  let codec_2d = Codec_transpose.create [|1; 0|] in
+  let codec_3d = Codec_transpose.create [|2; 0; 1|] in
 
   time_it "transpose 2D 100x100" 100 (fun () -> codec_2d.encode arr_2d);
   time_it "transpose 3D 50x50x50" 10 (fun () -> codec_3d.encode arr_3d);
@@ -138,7 +138,7 @@ let bench_codec_chain () =
   let arr = random_float64_array [|100; 100|] in
 
   (* Bytes only *)
-  (match Codec.build_chain [Bytes { endian = Some Little }] Float64 [|100; 100|] with
+  (match Codec.build_chain_default [Bytes { endian = Some Little }] Float64 [|100; 100|] with
    | Error _ -> Printf.printf "Failed to build bytes chain\n"
    | Ok chain ->
      time_it "chain: bytes only encode" 1000 (fun () -> Codec.encode chain arr);
@@ -147,7 +147,7 @@ let bench_codec_chain () =
        ignore (Codec.decode chain [|100; 100|] Float64 encoded)));
 
   (* Bytes + gzip *)
-  (match Codec.build_chain [Bytes { endian = Some Little }; Gzip { level = 5 }] Float64 [|100; 100|] with
+  (match Codec.build_chain_default [Bytes { endian = Some Little }; Gzip { level = 5 }] Float64 [|100; 100|] with
    | Error _ -> Printf.printf "Failed to build bytes+gzip chain\n"
    | Ok chain ->
      time_it "chain: bytes+gzip encode" 100 (fun () -> Codec.encode chain arr);

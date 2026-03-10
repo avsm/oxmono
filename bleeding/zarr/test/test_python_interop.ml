@@ -12,9 +12,6 @@ module StdArray = Array
 open Zarr
 open Zarr_sync
 
-(* Module aliases for nested types *)
-module D = Zarr.Ztypes.Dtype
-
 let fixtures_dir = "fixtures/python"
 
 let fixture_exists name =
@@ -34,14 +31,13 @@ let test_read_simple_float64 () =
 
   let store = Filesystem_store.create (Filename.concat fixtures_dir "simple_float64") in
   match Filesystem_array.open_ store ~path:"" with
-  | Error e ->
-    let msg = match e with `Not_found s -> s | _ -> "error" in
+  | Error msg ->
     fail ("should open array: " ^ msg)
   | Ok arr ->
     (* Verify metadata *)
     let meta = Filesystem_array.metadata arr in
     check (Alcotest.array Alcotest.int) "shape" [|100; 100|] meta.shape;
-    (match meta.data_type with D.Float64 -> () | _ -> fail "expected float64");
+    (match meta.data_type with Dtype.Float64 -> () | _ -> fail "expected float64");
 
     (* Verify data - element at [5][5] should be 5*100+5 = 505 *)
     match Filesystem_array.get arr [|5; 5|] with
@@ -60,8 +56,8 @@ let test_read_simple_int32 () =
     check (Alcotest.array Alcotest.int) "shape" [|50; 50|] meta.shape;
 
     (* Read a slice *)
-    let data = Filesystem_array.get_slice arr [Zarr.Range (0, 10); Zarr.Range (0, 10)] in
-    check (Alcotest.array Alcotest.int) "slice shape" [|10; 10|] (Ndarray.shape data)
+    let data = Filesystem_array.get_slice arr [Slice.Range (0, 10); Slice.Range (0, 10)] in
+    check (Alcotest.array Alcotest.int) "slice shape" [|10; 10|] (Chunk_data.shape data)
 
 let test_read_with_gzip () =
   skip_if_no_fixtures ();
@@ -88,11 +84,11 @@ let test_read_sharded () =
     check (Alcotest.array Alcotest.int) "shape" [|256; 256|] meta.shape;
 
     (* Read a single inner chunk *)
-    let data = Filesystem_array.get_slice arr [Zarr.Range (0, 16); Zarr.Range (0, 16)] in
-    check (Alcotest.array Alcotest.int) "inner chunk shape" [|16; 16|] (Ndarray.shape data);
+    let data = Filesystem_array.get_slice arr [Slice.Range (0, 16); Slice.Range (0, 16)] in
+    check (Alcotest.array Alcotest.int) "inner chunk shape" [|16; 16|] (Chunk_data.shape data);
 
     (* Verify first element *)
-    match Ndarray.get data [|0; 0|] with
+    match Chunk_data.get data [|0; 0|] with
     | `Int32 v -> check int32 "first element" 0l v
     | _ -> fail "expected int32"
 
@@ -108,8 +104,8 @@ let test_read_multidimensional () =
     check int "ndim" 3 (StdArray.length meta.shape);
 
     (* Read a slice *)
-    let data = Filesystem_array.get_slice arr [Zarr.Range (0, 5); Zarr.Range (0, 5); Zarr.Range (0, 5)] in
-    check int "slice ndim" 3 (StdArray.length (Ndarray.shape data))
+    let data = Filesystem_array.get_slice arr [Slice.Range (0, 5); Slice.Range (0, 5); Slice.Range (0, 5)] in
+    check int "slice ndim" 3 (StdArray.length (Chunk_data.shape data))
 
 let test_read_with_fill_value () =
   skip_if_no_fixtures ();

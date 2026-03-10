@@ -8,10 +8,6 @@ module StdArray = Array
 open Zarr
 open Qcheck_generators
 
-(* Module aliases for nested types *)
-module D = Zarr.Ztypes.Dtype
-module E = Zarr.Ztypes.Endianness
-
 (** {2 Data Type Property Tests} *)
 
 let test_dtype_roundtrip =
@@ -19,17 +15,17 @@ let test_dtype_roundtrip =
     ~name:"dtype to_string/of_string roundtrip"
     dtype_arb_pp
     (fun dtype ->
-      let s = Data_type.to_string dtype in
-      match Data_type.of_string s with
-      | Ok dt -> dt = dtype
-      | Error _ -> false)
+      let s = Dtype.to_string dtype in
+      match Dtype.of_string s with
+      | Some dt -> dt = dtype
+      | None -> false)
 
 let test_dtype_size_positive =
   Test.make ~count:100
     ~name:"dtype size is positive"
     dtype_arb_pp
     (fun dtype ->
-      Data_type.size dtype > 0)
+      Dtype.byte_size dtype > 0)
 
 (** {2 Codec Property Tests} *)
 
@@ -38,19 +34,19 @@ let test_bytes_codec_roundtrip =
     ~name:"bytes codec roundtrip"
     (triple dtype_arb_pp small_shape_arb_pp endian_arb)
     (fun (dtype, shape, endian) ->
-      let arr = Ndarray.create dtype shape in
-      let codec = Codecs.Bytes_codec.create endian in
+      let arr = Chunk_data.create_zero dtype shape in
+      let codec = Codec_bytes.create endian in
       let encoded = codec.encode arr in
       let decoded = codec.decode shape dtype encoded in
-      Ndarray.shape decoded = shape)
+      Chunk_data.shape decoded = shape)
 
 let test_crc32c_roundtrip =
   Test.make ~count:500
     ~name:"crc32c codec roundtrip"
     bytes_arb
     (fun input ->
-      let encoded = Codecs.Crc32c.encode input in
-      match Codecs.Crc32c.decode encoded with
+      let encoded = Codec_crc32c.encode input in
+      match Codec_crc32c.decode encoded with
       | Ok decoded -> Bytes.equal input decoded
       | Error _ -> false)
 
@@ -61,11 +57,11 @@ let test_crc32c_detect_corruption =
     (fun (input, corrupt_pos) ->
       if Bytes.length input < 1 then true
       else begin
-        let encoded = Codecs.Crc32c.encode input in
+        let encoded = Codec_crc32c.encode input in
         let pos = corrupt_pos mod (Bytes.length encoded) in
         let original = Bytes.get encoded pos in
         Bytes.set encoded pos (Char.chr ((Char.code original + 1) mod 256));
-        match Codecs.Crc32c.decode encoded with
+        match Codec_crc32c.decode encoded with
         | Ok decoded -> Bytes.equal input decoded  (* No actual corruption if same *)
         | Error `Checksum_mismatch -> true
         | Error _ -> false
@@ -76,29 +72,29 @@ let test_gzip_roundtrip =
     ~name:"gzip codec roundtrip"
     (pair bytes_arb gzip_level_arb)
     (fun (input, level) ->
-      let codec = Codecs.Gzip.create level in
+      let codec = Codec_gzip.create level in
       let compressed = codec.encode input in
       match codec.decode compressed with
       | Ok decompressed -> Bytes.equal input decompressed
       | Error _ -> Bytes.length input = 0)  (* Empty might fail *)
 
-(** {2 Ndarray Property Tests} *)
+(** {2 Chunk_data Property Tests} *)
 
 let test_ndarray_shape_preserved =
   Test.make ~count:200
-    ~name:"ndarray shape preserved after creation"
+    ~name:"chunk_data shape preserved after creation"
     (pair dtype_arb_pp small_shape_arb_pp)
     (fun (dtype, shape) ->
-      let arr = Ndarray.create dtype shape in
-      Ndarray.shape arr = shape)
+      let arr = Chunk_data.create_zero dtype shape in
+      Chunk_data.shape arr = shape)
 
 let test_ndarray_numel =
   Test.make ~count:200
-    ~name:"ndarray numel equals product of shape"
+    ~name:"chunk_data numel equals product of shape"
     small_shape_arb_pp
     (fun shape ->
-      let arr = Ndarray.create D.Int32 shape in
-      Ndarray.numel arr = StdArray.fold_left ( * ) 1 shape)
+      let arr = Chunk_data.create_zero Dtype.Int32 shape in
+      Chunk_data.numel arr = StdArray.fold_left ( * ) 1 shape)
 
 (** {2 Chunk Grid Property Tests} *)
 
@@ -113,7 +109,7 @@ let test_chunk_grid_num_chunks =
       let ndim = min (StdArray.length array_shape) (StdArray.length chunk_shape) in
       let array_shape = StdArray.sub array_shape 0 ndim in
       let chunk_shape = StdArray.sub chunk_shape 0 ndim in
-      let grid = Zarr.Regular { chunk_shape } in
+      let grid = Chunk_grid.Regular { chunk_shape } in
       let num = Chunk_grid.num_chunks grid array_shape in
       StdArray.for_all2 (fun nc as_ -> nc * (StdArray.get chunk_shape 0) >= as_ || nc >= 1)
         num array_shape)
@@ -130,7 +126,7 @@ let test_metadata_json_roundtrip =
       let shape = StdArray.sub shape 0 ndim in
       let chunks = StdArray.sub chunks 0 ndim in
       let meta = Metadata.create_array_metadata
-        ~shape ~chunks ~dtype:D.Int32 () in
+        ~shape ~chunks ~dtype:Dtype.Int32 () in
       let json = Metadata.array_to_json meta in
       match Metadata.array_of_json json with
       | Ok meta2 -> meta.shape = meta2.shape
@@ -151,7 +147,7 @@ let test_gzip_decode_fuzz =
     ~name:"gzip decode doesn't crash on random input"
     bytes_arb
     (fun b ->
-      let codec = Codecs.Gzip.create 6 in
+      let codec = Codec_gzip.create 6 in
       let _ = codec.decode b in
       true)
 
@@ -160,7 +156,7 @@ let test_crc32c_decode_fuzz =
     ~name:"crc32c decode doesn't crash on random input"
     bytes_arb
     (fun b ->
-      let _ = Codecs.Crc32c.decode b in
+      let _ = Codec_crc32c.decode b in
       true)
 
 (** All QCheck tests *)

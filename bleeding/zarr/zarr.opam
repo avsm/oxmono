@@ -10,12 +10,12 @@ license: "MIT"
 homepage: "https://github.com/mtelvers/ocaml-zarr"
 bug-reports: "https://github.com/mtelvers/ocaml-zarr/issues"
 depends: [
-  "ocaml" {>= "5.1"}
+  "ocaml" {>= "5.2"}
   "dune" {>= "3.0" & >= "3.0"}
-  "yojson" {>= "2.0"}
+  "jsont" {>= "0.1"}
+  "bytesrw" {>= "0.1"}
   "decompress" {>= "1.5"}
-  "checkseum" {>= "0.5"}
-  "optint" {>= "0.3"}
+  "base" {>= "0.17"}
   "zstd" {>= "0.4"}
   "alcotest" {with-test}
   "qcheck" {with-test}

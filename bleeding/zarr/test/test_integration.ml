@@ -4,12 +4,18 @@ open Alcotest
 open Zarr
 open Zarr_sync
 
+let none = Jsont.Meta.none
+let jstr s = Jsont.String (s, none)
+let jfloat f = Jsont.Number (f, none)
+let jobj ms = Jsont.Object (ms, none)
+let jmem n v : Jsont.mem = ((n, none), v)
+
 let test_end_to_end_memory () =
   let store = Memory_store.create () in
 
   (* Create root group *)
   (match Memory_group.create store ~path:""
-    ~attributes:(Some (`Assoc [("description", `String "Test hierarchy")])) () with
+    ~attributes:(jobj [jmem "description" (jstr "Test hierarchy")]) () with
   | Error _ -> fail "should create root"
   | Ok _ -> ());
 
@@ -23,43 +29,43 @@ let test_end_to_end_memory () =
     ~path:"data/temperatures"
     ~shape:[|365; 24|]  (* Days x Hours *)
     ~chunks:[|30; 24|]
-    ~dtype:Float32
-    ~fill_value:NaN
-    ~codecs:[Bytes { endian = Some Little }; Gzip { level = 5 }]
+    ~dtype:Dtype.Float32
+    ~fill_value:Fill.NaN
+    ~codecs:[Codec.Bytes { endian = Some Dtype.Little }; Codec.Gzip { level = 5 }]
     () with
   | Error _ -> fail "should create temperatures array"
   | Ok arr ->
     (* Write some data *)
-    let data = Ndarray.create Float32 [|30; 24|] in
+    let data = Chunk_data.create_zero Dtype.Float32 [|30; 24|] in
     for i = 0 to 29 do
       for j = 0 to 23 do
-        Ndarray.set data [|i; j|] (`Float (20.0 +. Float.of_int i *. 0.1 +. Float.of_int j *. 0.05))
+        Chunk_data.set data [|i; j|] (`Float (20.0 +. Float.of_int i *. 0.1 +. Float.of_int j *. 0.05))
       done
     done;
-    Memory_array.set_slice arr [Range (0, 30); Range (0, 24)] data);
+    Memory_array.set_slice arr [Slice.Range (0, 30); Slice.Range (0, 24)] data);
 
   (* Create a 1D array *)
   (match Memory_array.create store
     ~path:"data/timestamps"
     ~shape:[|365|]
     ~chunks:[|100|]
-    ~dtype:Int64
-    ~fill_value:(Int 0L)
+    ~dtype:Dtype.Int64
+    ~fill_value:(Fill.Int 0L)
     () with
   | Error _ -> fail "should create timestamps array"
   | Ok arr ->
-    let data = Ndarray.create Int64 [|100|] in
+    let data = Chunk_data.create_zero Dtype.Int64 [|100|] in
     for i = 0 to 99 do
-      Ndarray.set data [|i|] (`Int64 (Int64.of_int (1609459200 + i * 86400)))
+      Chunk_data.set data [|i|] (`Int64 (Int64.of_int (1609459200 + i * 86400)))
     done;
-    Memory_array.set_slice arr [Range (0, 100)] data);
+    Memory_array.set_slice arr [Slice.Range (0, 100)] data);
 
   (* Create a group for metadata *)
   (match Memory_group.create store ~path:"metadata"
-    ~attributes:(Some (`Assoc [
-      ("units", `String "celsius");
-      ("location", `Assoc [("lat", `Float 51.5); ("lon", `Float (-0.1))]);
-    ])) () with
+    ~attributes:(jobj [
+      jmem "units" (jstr "celsius");
+      jmem "location" (jobj [jmem "lat" (jfloat 51.5); jmem "lon" (jfloat (-0.1))]);
+    ]) () with
   | Error _ -> fail "should create metadata group"
   | Ok _ -> ());
 
@@ -75,8 +81,8 @@ let test_end_to_end_memory () =
   match Memory_array.open_ store ~path:"data/temperatures" with
   | Error _ -> fail "should open temperatures"
   | Ok arr ->
-    let data = Memory_array.get_slice arr [Range (0, 5); Range (0, 5)] in
-    match Ndarray.get data [|0; 0|] with
+    let data = Memory_array.get_slice arr [Slice.Range (0, 5); Slice.Range (0, 5)] in
+    match Chunk_data.get data [|0; 0|] with
     | `Float f -> check (float 0.01) "first temp" 20.0 f
     | _ -> fail "expected float"
 
@@ -94,18 +100,18 @@ let test_end_to_end_filesystem () =
     ~path:"myarray"
     ~shape:[|100; 100|]
     ~chunks:[|20; 20|]
-    ~dtype:Float64
-    ~fill_value:(Float 0.0)
+    ~dtype:Dtype.Float64
+    ~fill_value:(Fill.Float 0.0)
     () with
   | Error _ -> fail "should create array"
   | Ok arr ->
-    let data = Ndarray.create Float64 [|20; 20|] in
+    let data = Chunk_data.create_zero Dtype.Float64 [|20; 20|] in
     for i = 0 to 19 do
       for j = 0 to 19 do
-        Ndarray.set data [|i; j|] (`Float (Float.of_int (i * 20 + j)))
+        Chunk_data.set data [|i; j|] (`Float (Float.of_int (i * 20 + j)))
       done
     done;
-    Filesystem_array.set_slice arr [Range (0, 20); Range (0, 20)] data);
+    Filesystem_array.set_slice arr [Slice.Range (0, 20); Slice.Range (0, 20)] data);
 
   (* Verify files exist on disk *)
   check bool "metadata exists" true
@@ -118,8 +124,8 @@ let test_end_to_end_filesystem () =
   (match Filesystem_array.open_ store2 ~path:"myarray" with
   | Error _ -> fail "should reopen array"
   | Ok arr ->
-    let data = Filesystem_array.get_slice arr [Range (0, 5); Range (0, 5)] in
-    match Ndarray.get data [|0; 0|] with
+    let data = Filesystem_array.get_slice arr [Slice.Range (0, 5); Slice.Range (0, 5)] in
+    match Chunk_data.get data [|0; 0|] with
     | `Float f -> check (float 0.001) "first value" 0.0 f
     | _ -> fail "expected float");
 
@@ -134,32 +140,32 @@ let test_large_array () =
     ~path:"large"
     ~shape:[|1000; 1000|]
     ~chunks:[|100; 100|]
-    ~dtype:Float32
-    ~fill_value:(Float 0.0)
-    ~codecs:[Bytes { endian = Some Little }]
+    ~dtype:Dtype.Float32
+    ~fill_value:(Fill.Float 0.0)
+    ~codecs:[Codec.Bytes { endian = Some Dtype.Little }]
     () with
   | Error _ -> fail "should create large array"
   | Ok arr ->
     (* Write to a few chunks *)
     for chunk_i = 0 to 2 do
       for chunk_j = 0 to 2 do
-        let data = Ndarray.create Float32 [|50; 50|] in
+        let data = Chunk_data.create_zero Dtype.Float32 [|50; 50|] in
         for i = 0 to 49 do
           for j = 0 to 49 do
-            Ndarray.set data [|i; j|] (`Float (Float.of_int (chunk_i * 1000 + chunk_j * 10 + i + j)))
+            Chunk_data.set data [|i; j|] (`Float (Float.of_int (chunk_i * 1000 + chunk_j * 10 + i + j)))
           done
         done;
         let start_i = chunk_i * 100 in
         let start_j = chunk_j * 100 in
         Memory_array.set_slice arr
-          [Range (start_i, start_i + 50); Range (start_j, start_j + 50)]
+          [Slice.Range (start_i, start_i + 50); Slice.Range (start_j, start_j + 50)]
           data
       done
     done;
 
     (* Read back *)
-    let data = Memory_array.get_slice arr [Range (50, 100); Range (50, 100)] in
-    check (array int) "read shape" [|50; 50|] (Ndarray.shape data)
+    let data = Memory_array.get_slice arr [Slice.Range (50, 100); Slice.Range (50, 100)] in
+    check (array int) "read shape" [|50; 50|] (Chunk_data.shape data)
 
 let test_various_dtypes () =
   let store = Memory_store.create () in
@@ -179,25 +185,25 @@ let test_various_dtypes () =
       get_check (Memory_array.get arr [|0|])
   in
 
-  test_dtype "bool" Bool (Bool false) (`Int 1)
-    (function `Int 1 -> () | _ -> fail "bool check");
+  test_dtype "bool" Dtype.Bool (Fill.Bool false) (`Bool true)
+    (function `Bool true -> () | _ -> fail "bool check");
 
-  test_dtype "int8" Int8 (Int 0L) (`Int (-42))
+  test_dtype "int8" Dtype.Int8 (Fill.Int 0L) (`Int (-42))
     (function `Int (-42) -> () | _ -> fail "int8 check");
 
-  test_dtype "uint8" Uint8 (Uint 0L) (`Int 200)
+  test_dtype "uint8" Dtype.Uint8 (Fill.Uint 0L) (`Int 200)
     (function `Int 200 -> () | _ -> fail "uint8 check");
 
-  test_dtype "int32" Int32 (Int 0L) (`Int32 12345l)
+  test_dtype "int32" Dtype.Int32 (Fill.Int 0L) (`Int32 12345l)
     (function `Int32 12345l -> () | _ -> fail "int32 check");
 
-  test_dtype "int64" Int64 (Int 0L) (`Int64 9876543210L)
+  test_dtype "int64" Dtype.Int64 (Fill.Int 0L) (`Int64 9876543210L)
     (function `Int64 9876543210L -> () | _ -> fail "int64 check");
 
-  test_dtype "float32" Float32 (Float 0.0) (`Float 3.14)
+  test_dtype "float32" Dtype.Float32 (Fill.Float 0.0) (`Float 3.14)
     (function `Float f when abs_float (f -. 3.14) < 0.01 -> () | _ -> fail "float32 check");
 
-  test_dtype "float64" Float64 (Float 0.0) (`Float 2.718281828)
+  test_dtype "float64" Dtype.Float64 (Fill.Float 0.0) (`Float 2.718281828)
     (function `Float f when abs_float (f -. 2.718281828) < 0.0001 -> () | _ -> fail "float64 check")
 
 let tests = [

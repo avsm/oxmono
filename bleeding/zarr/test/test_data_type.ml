@@ -3,110 +3,82 @@
 open Alcotest
 open Zarr
 
-(* Module aliases for nested types *)
-module D = Zarr.Ztypes.Dtype
-
 let dtype_testable = testable
-  (fun fmt dt -> Format.pp_print_string fmt (Data_type.to_string dt))
-  (=)
-
-let error_testable : Zarr.error testable = testable
-  (fun fmt e -> match e with
-    | `Unsupported_dtype s -> Format.fprintf fmt "`Unsupported_dtype %s" s
-    | `Invalid_metadata s -> Format.fprintf fmt "`Invalid_metadata %s" s
-    | `Codec_error s -> Format.fprintf fmt "`Codec_error %s" s
-    | `Store_error s -> Format.fprintf fmt "`Store_error %s" s
-    | `Not_found s -> Format.fprintf fmt "`Not_found %s" s
-    | `Invalid_slice s -> Format.fprintf fmt "`Invalid_slice %s" s
-    | `Checksum_mismatch -> Format.fprintf fmt "`Checksum_mismatch"
-    | `Invalid_chunk_coords s -> Format.fprintf fmt "`Invalid_chunk_coords %s" s
-    | `Shape_mismatch s -> Format.fprintf fmt "`Shape_mismatch %s" s)
+  (fun fmt dt -> Format.pp_print_string fmt (Dtype.to_string dt))
   (=)
 
 let test_dtype_size () =
-  check int "bool size" 1 (Data_type.size D.Bool);
-  check int "int8 size" 1 (Data_type.size D.Int8);
-  check int "int16 size" 2 (Data_type.size D.Int16);
-  check int "int32 size" 4 (Data_type.size D.Int32);
-  check int "int64 size" 8 (Data_type.size D.Int64);
-  check int "uint8 size" 1 (Data_type.size D.Uint8);
-  check int "uint16 size" 2 (Data_type.size D.Uint16);
-  check int "uint32 size" 4 (Data_type.size D.Uint32);
-  check int "uint64 size" 8 (Data_type.size D.Uint64);
-  check int "float16 size" 2 (Data_type.size D.Float16);
-  check int "float32 size" 4 (Data_type.size D.Float32);
-  check int "float64 size" 8 (Data_type.size D.Float64);
-  check int "complex64 size" 8 (Data_type.size D.Complex64);
-  check int "complex128 size" 16 (Data_type.size D.Complex128);
-  check int "raw8 size" 1 (Data_type.size (D.Raw 8));
-  check int "raw16 size" 2 (Data_type.size (D.Raw 16))
+  check int "bool size" 1 (Dtype.byte_size Bool);
+  check int "int8 size" 1 (Dtype.byte_size Int8);
+  check int "int16 size" 2 (Dtype.byte_size Int16);
+  check int "int32 size" 4 (Dtype.byte_size Int32);
+  check int "int64 size" 8 (Dtype.byte_size Int64);
+  check int "uint8 size" 1 (Dtype.byte_size Uint8);
+  check int "uint16 size" 2 (Dtype.byte_size Uint16);
+  check int "uint32 size" 4 (Dtype.byte_size Uint32);
+  check int "uint64 size" 8 (Dtype.byte_size Uint64);
+  check int "float32 size" 4 (Dtype.byte_size Float32);
+  check int "float64 size" 8 (Dtype.byte_size Float64);
+  check int "raw8 size" 1 (Dtype.byte_size (Raw 8));
+  check int "raw16 size" 2 (Dtype.byte_size (Raw 16))
 
 let test_dtype_of_string () =
-  check (result dtype_testable error_testable) "parse bool"
-    (Ok D.Bool) (Data_type.of_string "bool");
-  check (result dtype_testable error_testable) "parse int8"
-    (Ok D.Int8) (Data_type.of_string "int8");
-  check (result dtype_testable error_testable) "parse int16"
-    (Ok D.Int16) (Data_type.of_string "int16");
-  check (result dtype_testable error_testable) "parse int32"
-    (Ok D.Int32) (Data_type.of_string "int32");
-  check (result dtype_testable error_testable) "parse int64"
-    (Ok D.Int64) (Data_type.of_string "int64");
-  check (result dtype_testable error_testable) "parse uint8"
-    (Ok D.Uint8) (Data_type.of_string "uint8");
-  check (result dtype_testable error_testable) "parse uint16"
-    (Ok D.Uint16) (Data_type.of_string "uint16");
-  check (result dtype_testable error_testable) "parse uint32"
-    (Ok D.Uint32) (Data_type.of_string "uint32");
-  check (result dtype_testable error_testable) "parse uint64"
-    (Ok D.Uint64) (Data_type.of_string "uint64");
-  check (result dtype_testable error_testable) "parse float16"
-    (Ok D.Float16) (Data_type.of_string "float16");
-  check (result dtype_testable error_testable) "parse float32"
-    (Ok D.Float32) (Data_type.of_string "float32");
-  check (result dtype_testable error_testable) "parse float64"
-    (Ok D.Float64) (Data_type.of_string "float64");
-  check (result dtype_testable error_testable) "parse complex64"
-    (Ok D.Complex64) (Data_type.of_string "complex64");
-  check (result dtype_testable error_testable) "parse complex128"
-    (Ok D.Complex128) (Data_type.of_string "complex128");
-  check (result dtype_testable error_testable) "parse r8"
-    (Ok (D.Raw 8)) (Data_type.of_string "r8");
-  check (result dtype_testable error_testable) "parse r16"
-    (Ok (D.Raw 16)) (Data_type.of_string "r16")
+  check (option dtype_testable) "parse bool"
+    (Some Dtype.Bool) (Dtype.of_string "bool");
+  check (option dtype_testable) "parse int8"
+    (Some Dtype.Int8) (Dtype.of_string "int8");
+  check (option dtype_testable) "parse int16"
+    (Some Dtype.Int16) (Dtype.of_string "int16");
+  check (option dtype_testable) "parse int32"
+    (Some Dtype.Int32) (Dtype.of_string "int32");
+  check (option dtype_testable) "parse int64"
+    (Some Dtype.Int64) (Dtype.of_string "int64");
+  check (option dtype_testable) "parse uint8"
+    (Some Dtype.Uint8) (Dtype.of_string "uint8");
+  check (option dtype_testable) "parse uint16"
+    (Some Dtype.Uint16) (Dtype.of_string "uint16");
+  check (option dtype_testable) "parse uint32"
+    (Some Dtype.Uint32) (Dtype.of_string "uint32");
+  check (option dtype_testable) "parse uint64"
+    (Some Dtype.Uint64) (Dtype.of_string "uint64");
+  check (option dtype_testable) "parse float32"
+    (Some Dtype.Float32) (Dtype.of_string "float32");
+  check (option dtype_testable) "parse float64"
+    (Some Dtype.Float64) (Dtype.of_string "float64");
+  check (option dtype_testable) "parse r8"
+    (Some (Dtype.Raw 8)) (Dtype.of_string "r8");
+  check (option dtype_testable) "parse r16"
+    (Some (Dtype.Raw 16)) (Dtype.of_string "r16")
 
 let test_dtype_of_string_errors () =
-  check (result dtype_testable error_testable) "parse invalid"
-    (Error (`Unsupported_dtype "foo")) (Data_type.of_string "foo");
-  check (result dtype_testable error_testable) "parse r5"
-    (Error (`Unsupported_dtype "r5")) (Data_type.of_string "r5")
+  check (option dtype_testable) "parse invalid"
+    None (Dtype.of_string "foo");
+  check (option dtype_testable) "parse r5"
+    None (Dtype.of_string "r5")
 
 let test_dtype_to_string () =
-  check string "bool to_string" "bool" (Data_type.to_string D.Bool);
-  check string "int32 to_string" "int32" (Data_type.to_string D.Int32);
-  check string "float64 to_string" "float64" (Data_type.to_string D.Float64);
-  check string "complex128 to_string" "complex128" (Data_type.to_string D.Complex128);
-  check string "r8 to_string" "r8" (Data_type.to_string (D.Raw 8))
+  check string "bool to_string" "bool" (Dtype.to_string Bool);
+  check string "int32 to_string" "int32" (Dtype.to_string Int32);
+  check string "float64 to_string" "float64" (Dtype.to_string Float64);
+  check string "r8 to_string" "r8" (Dtype.to_string (Raw 8))
 
 let test_dtype_predicates () =
-  check bool "int32 is_integer" true (Data_type.is_integer D.Int32);
-  check bool "float64 is_integer" false (Data_type.is_integer D.Float64);
-  check bool "int32 is_signed" true (Data_type.is_signed_integer D.Int32);
-  check bool "uint32 is_signed" false (Data_type.is_signed_integer D.Uint32);
-  check bool "uint32 is_unsigned" true (Data_type.is_unsigned_integer D.Uint32);
-  check bool "int32 is_unsigned" false (Data_type.is_unsigned_integer D.Int32);
-  check bool "float32 is_float" true (Data_type.is_float D.Float32);
-  check bool "int32 is_float" false (Data_type.is_float D.Int32);
-  check bool "complex64 is_complex" true (Data_type.is_complex D.Complex64);
-  check bool "float64 is_complex" false (Data_type.is_complex D.Float64)
+  check bool "int32 is_integer" true (Dtype.is_integer Int32);
+  check bool "float64 is_integer" false (Dtype.is_integer Float64);
+  check bool "int32 is_signed" true (Dtype.is_signed Int32);
+  check bool "uint32 is_signed" false (Dtype.is_signed Uint32);
+  check bool "uint32 is_unsigned" true (Dtype.is_unsigned Uint32);
+  check bool "int32 is_unsigned" false (Dtype.is_unsigned Int32);
+  check bool "float32 is_float" true (Dtype.is_float Float32);
+  check bool "int32 is_float" false (Dtype.is_float Int32)
 
 let test_requires_endianness () =
-  check bool "bool no endian" false (Data_type.requires_endianness D.Bool);
-  check bool "int8 no endian" false (Data_type.requires_endianness D.Int8);
-  check bool "uint8 no endian" false (Data_type.requires_endianness D.Uint8);
-  check bool "int16 needs endian" true (Data_type.requires_endianness D.Int16);
-  check bool "int32 needs endian" true (Data_type.requires_endianness D.Int32);
-  check bool "float64 needs endian" true (Data_type.requires_endianness D.Float64)
+  check bool "bool no endian" false (Dtype.requires_endianness Bool);
+  check bool "int8 no endian" false (Dtype.requires_endianness Int8);
+  check bool "uint8 no endian" false (Dtype.requires_endianness Uint8);
+  check bool "int16 needs endian" true (Dtype.requires_endianness Int16);
+  check bool "int32 needs endian" true (Dtype.requires_endianness Int32);
+  check bool "float64 needs endian" true (Dtype.requires_endianness Float64)
 
 let tests = [
   "size", `Quick, test_dtype_size;

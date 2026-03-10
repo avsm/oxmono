@@ -3,8 +3,11 @@
 open Alcotest
 open Zarr_sync
 
-(* Module aliases for nested types *)
-module D = Zarr.Ztypes.Dtype
+let none = Jsont.Meta.none
+let jstr s = Jsont.String (s, none)
+let jint i = Jsont.Number (float_of_int i, none)
+let jobj ms = Jsont.Object (ms, none)
+let jmem n v : Jsont.mem = ((n, none), v)
 
 let test_create_group () =
   let store = Memory_store.create () in
@@ -29,19 +32,18 @@ let test_open_group () =
 let test_group_not_found () =
   let store = Memory_store.create () in
   match Memory_group.open_ store ~path:"nonexistent" with
-  | Error (`Not_found _) -> ()
-  | Error _ -> fail "wrong error type"
+  | Error _ -> ()
   | Ok _ -> fail "should not find group"
 
 let test_group_attributes () =
   let store = Memory_store.create () in
   match Memory_group.create store ~path:"mygroup"
-    ~attributes:(Some (`Assoc [("foo", `String "bar")])) () with
+    ~attributes:(jobj [jmem "foo" (jstr "bar")]) () with
   | Error _ -> fail "should create group"
   | Ok group ->
     let attrs = Memory_group.attrs group in
     match attrs with
-    | `Assoc [("foo", `String "bar")] -> ()
+    | Jsont.Object ([(("foo", _), Jsont.String ("bar", _))], _) -> ()
     | _ -> fail "wrong attributes"
 
 let test_group_set_attributes () =
@@ -49,14 +51,14 @@ let test_group_set_attributes () =
   match Memory_group.create store ~path:"mygroup" () with
   | Error _ -> fail "should create group"
   | Ok group ->
-    Memory_group.set_attrs group (`Assoc [("key", `Int 42)]);
+    Memory_group.set_attrs group (jobj [jmem "key" (jint 42)]);
     (* Reopen and check *)
     match Memory_group.open_ store ~path:"mygroup" with
     | Error _ -> fail "should open group"
     | Ok group2 ->
       let attrs = Memory_group.attrs group2 in
       match attrs with
-      | `Assoc [("key", `Int 42)] -> ()
+      | Jsont.Object ([(("key", _), Jsont.Number (42., _))], _) -> ()
       | _ -> fail "wrong attributes after set"
 
 let test_group_children () =
@@ -72,7 +74,7 @@ let test_group_children () =
     ~path:"parent/child_array"
     ~shape:[|10|]
     ~chunks:[|10|]
-    ~dtype:D.Int32
+    ~dtype:Zarr.Dtype.Int32
     () with
   | Error _ -> fail "should create child array"
   | Ok _ -> ());
@@ -103,7 +105,7 @@ let test_group_child_type () =
     ~path:"parent/arr"
     ~shape:[|10|]
     ~chunks:[|10|]
-    ~dtype:D.Int32
+    ~dtype:Zarr.Dtype.Int32
     () with
   | Error _ -> fail "should create child array"
   | Ok _ -> ());
@@ -139,7 +141,7 @@ let test_hierarchy_walk () =
   (match Memory_group.create store ~path:"group1" () with
   | Error _ -> fail "should create group1"
   | Ok _ -> ());
-  (match Memory_array.create store ~path:"group1/array1" ~shape:[|10|] ~chunks:[|10|] ~dtype:D.Int32 () with
+  (match Memory_array.create store ~path:"group1/array1" ~shape:[|10|] ~chunks:[|10|] ~dtype:Zarr.Dtype.Int32 () with
   | Error _ -> fail "should create array1"
   | Ok _ -> ());
 

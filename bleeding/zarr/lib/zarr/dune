@@ -3,5 +3,5 @@
 (library
  (name zarr)
  (public_name zarr)
- (libraries yojson decompress.zl decompress.gz checkseum optint bigarray zstd)
+ (libraries jsont jsont.bytesrw decompress.zl decompress.gz base zstd bigarray)
  (preprocess no_preprocessing))

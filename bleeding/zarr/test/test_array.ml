@@ -4,10 +4,10 @@ open Alcotest
 open Zarr
 open Zarr_sync
 
-(* Module aliases for nested types *)
-module D = Zarr.Ztypes.Dtype
-module E = Zarr.Ztypes.Endianness
-module FV = Zarr.Ztypes.Fill_value
+let none = Jsont.Meta.none
+let jstr s = Jsont.String (s, none)
+let jobj ms = Jsont.Object (ms, none)
+let jmem n v : Jsont.mem = ((n, none), v)
 
 let test_create_array () =
   let store = Memory_store.create () in
@@ -15,9 +15,9 @@ let test_create_array () =
     ~path:"test"
     ~shape:[|100; 100|]
     ~chunks:[|10; 10|]
-    ~dtype:D.Float64
-    ~fill_value:(FV.Float 0.0)
-    ~codecs:[Zarr.Bytes { endian = Some E.Little }]
+    ~dtype:Dtype.Float64
+    ~fill_value:(Fill.Float 0.0)
+    ~codecs:[Codec.Bytes { endian = Some Dtype.Little }]
     () with
   | Error _ -> fail "should create array"
   | Ok arr ->
@@ -33,7 +33,7 @@ let test_open_array () =
     ~path:"test"
     ~shape:[|50; 50|]
     ~chunks:[|10; 10|]
-    ~dtype:D.Int32
+    ~dtype:Dtype.Int32
     () with
   | Error _ -> fail "should create array"
   | Ok _ -> ());
@@ -49,8 +49,8 @@ let test_get_set_scalar () =
     ~path:"test"
     ~shape:[|10; 10|]
     ~chunks:[|5; 5|]
-    ~dtype:D.Int32
-    ~fill_value:(FV.Int 0L)
+    ~dtype:Dtype.Int32
+    ~fill_value:(Fill.Int 0L)
     () with
   | Error _ -> fail "should create array"
   | Ok arr ->
@@ -65,8 +65,8 @@ let test_fill_value () =
     ~path:"test"
     ~shape:[|10; 10|]
     ~chunks:[|5; 5|]
-    ~dtype:D.Float64
-    ~fill_value:FV.NaN
+    ~dtype:Dtype.Float64
+    ~fill_value:Fill.NaN
     () with
   | Error _ -> fail "should create array"
   | Ok arr ->
@@ -81,28 +81,28 @@ let test_get_set_slice () =
     ~path:"test"
     ~shape:[|20; 20|]
     ~chunks:[|5; 5|]
-    ~dtype:D.Int32
-    ~fill_value:(FV.Int 0L)
+    ~dtype:Dtype.Int32
+    ~fill_value:(Fill.Int 0L)
     () with
   | Error _ -> fail "should create array"
   | Ok arr ->
     (* Create a 5x5 array to write *)
-    let data = Ndarray.create D.Int32 [|5; 5|] in
+    let data = Chunk_data.create_zero Dtype.Int32 [|5; 5|] in
     for i = 0 to 4 do
       for j = 0 to 4 do
-        Ndarray.set data [|i; j|] (`Int32 (Int32.of_int (i * 5 + j)))
+        Chunk_data.set data [|i; j|] (`Int32 (Int32.of_int (i * 5 + j)))
       done
     done;
 
-    Memory_array.set_slice arr [Zarr.Range (0, 5); Zarr.Range (0, 5)] data;
+    Memory_array.set_slice arr [Slice.Range (0, 5); Slice.Range (0, 5)] data;
 
     (* Read back *)
-    let read_data = Memory_array.get_slice arr [Zarr.Range (0, 5); Zarr.Range (0, 5)] in
-    check (array int) "shape" [|5; 5|] (Ndarray.shape read_data);
+    let read_data = Memory_array.get_slice arr [Slice.Range (0, 5); Slice.Range (0, 5)] in
+    check (array int) "shape" [|5; 5|] (Chunk_data.shape read_data);
 
     for i = 0 to 4 do
       for j = 0 to 4 do
-        match Ndarray.get read_data [|i; j|] with
+        match Chunk_data.get read_data [|i; j|] with
         | `Int32 v ->
           check int32 (Printf.sprintf "element %d,%d" i j)
             (Int32.of_int (i * 5 + j)) v
@@ -116,26 +116,26 @@ let test_cross_chunk_slice () =
     ~path:"test"
     ~shape:[|20; 20|]
     ~chunks:[|5; 5|]
-    ~dtype:D.Int32
-    ~fill_value:(FV.Int 0L)
+    ~dtype:Dtype.Int32
+    ~fill_value:(Fill.Int 0L)
     () with
   | Error _ -> fail "should create array"
   | Ok arr ->
     (* Write across chunk boundaries *)
-    let data = Ndarray.create D.Int32 [|8; 8|] in
+    let data = Chunk_data.create_zero Dtype.Int32 [|8; 8|] in
     for i = 0 to 7 do
       for j = 0 to 7 do
-        Ndarray.set data [|i; j|] (`Int32 (Int32.of_int (i * 8 + j + 100)))
+        Chunk_data.set data [|i; j|] (`Int32 (Int32.of_int (i * 8 + j + 100)))
       done
     done;
 
-    Memory_array.set_slice arr [Zarr.Range (3, 11); Zarr.Range (3, 11)] data;
+    Memory_array.set_slice arr [Slice.Range (3, 11); Slice.Range (3, 11)] data;
 
     (* Read back *)
-    let read_data = Memory_array.get_slice arr [Zarr.Range (3, 11); Zarr.Range (3, 11)] in
+    let read_data = Memory_array.get_slice arr [Slice.Range (3, 11); Slice.Range (3, 11)] in
     for i = 0 to 7 do
       for j = 0 to 7 do
-        match Ndarray.get read_data [|i; j|] with
+        match Chunk_data.get read_data [|i; j|] with
         | `Int32 v ->
           check int32 (Printf.sprintf "element %d,%d" i j)
             (Int32.of_int (i * 8 + j + 100)) v
@@ -149,26 +149,26 @@ let test_array_with_gzip () =
     ~path:"test"
     ~shape:[|100; 100|]
     ~chunks:[|10; 10|]
-    ~dtype:D.Float64
-    ~codecs:[Zarr.Bytes { endian = Some E.Little }; Zarr.Gzip { level = 5 }]
+    ~dtype:Dtype.Float64
+    ~codecs:[Codec.Bytes { endian = Some Dtype.Little }; Codec.Gzip { level = 5 }]
     () with
   | Error _ -> fail "should create array"
   | Ok arr ->
     (* Write some data *)
-    let data = Ndarray.create D.Float64 [|10; 10|] in
+    let data = Chunk_data.create_zero Dtype.Float64 [|10; 10|] in
     for i = 0 to 9 do
       for j = 0 to 9 do
-        Ndarray.set data [|i; j|] (`Float (Float.of_int (i * 10 + j)))
+        Chunk_data.set data [|i; j|] (`Float (Float.of_int (i * 10 + j)))
       done
     done;
 
-    Memory_array.set_slice arr [Zarr.Range (0, 10); Zarr.Range (0, 10)] data;
+    Memory_array.set_slice arr [Slice.Range (0, 10); Slice.Range (0, 10)] data;
 
     (* Read back *)
-    let read_data = Memory_array.get_slice arr [Zarr.Range (0, 10); Zarr.Range (0, 10)] in
+    let read_data = Memory_array.get_slice arr [Slice.Range (0, 10); Slice.Range (0, 10)] in
     for i = 0 to 9 do
       for j = 0 to 9 do
-        match Ndarray.get read_data [|i; j|] with
+        match Chunk_data.get read_data [|i; j|] with
         | `Float v ->
           check (float 0.001) (Printf.sprintf "element %d,%d" i j)
             (Float.of_int (i * 10 + j)) v
@@ -182,18 +182,18 @@ let test_array_attributes () =
     ~path:"test"
     ~shape:[|10|]
     ~chunks:[|10|]
-    ~dtype:D.Int32
+    ~dtype:Dtype.Int32
     () with
   | Error _ -> fail "should create array"
   | Ok arr ->
-    Memory_array.set_attrs arr (`Assoc [("key", `String "value")]);
+    Memory_array.set_attrs arr (jobj [jmem "key" (jstr "value")]);
     (* Reopen and check *)
     match Memory_array.open_ store ~path:"test" with
     | Error _ -> fail "should open array"
     | Ok arr2 ->
       let attrs = Memory_array.attrs arr2 in
       match attrs with
-      | `Assoc [("key", `String "value")] -> ()
+      | Jsont.Object ([(("key", _), Jsont.String ("value", _))], _) -> ()
       | _ -> fail "wrong attributes"
 
 let tests = [

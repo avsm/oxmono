@@ -1,5 +1,8 @@
 (** Main test runner for Zarr tests *)
 
+(* Force Zarr module initialization to wire up codec chain builder *)
+let () = ignore Zarr.default_codecs
+
 let () =
   (* Convert QCheck tests to Alcotest format *)
   let qcheck_suite = List.map QCheck_alcotest.to_alcotest Test_qcheck.qcheck_tests in

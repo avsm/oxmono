@@ -4,17 +4,7 @@
 *)
 
 open Alcotest
-
-(* Alias for Fill_value module from fill_value.ml - BEFORE open Zarr *)
-module FV_mod = Zarr.Fill_value
-
 open Zarr
-
-(* Module aliases for nested types *)
-module D = Zarr.Ztypes.Dtype
-module E = Zarr.Ztypes.Endianness
-module FV = Zarr.Ztypes.Fill_value
-module S = Zarr.Ztypes.Separator
 
 (** {2 Metadata Compliance} *)
 
@@ -76,39 +66,30 @@ end
 module Fill_value_compliance = struct
   (* "NaN" string for float NaN *)
   let test_nan_encoding () =
-    let fv = FV_mod.of_json D.Float64 (`String "NaN") in
+    let fv = Fill.of_json Dtype.Float64 (Jsont.Json.string "NaN") in
     match fv with
-    | Ok FV.NaN -> ()
+    | Ok Fill.NaN -> ()
     | _ -> fail "should parse NaN"
 
   (* "Infinity" and "-Infinity" for infinities *)
   let test_infinity_encoding () =
-    (match FV_mod.of_json D.Float64 (`String "Infinity") with
-    | Ok FV.Infinity -> ()
+    (match Fill.of_json Dtype.Float64 (Jsont.Json.string "Infinity") with
+    | Ok Fill.Infinity -> ()
     | _ -> fail "should parse Infinity");
-    (match FV_mod.of_json D.Float64 (`String "-Infinity") with
-    | Ok FV.NegInfinity -> ()
+    (match Fill.of_json Dtype.Float64 (Jsont.Json.string "-Infinity") with
+    | Ok Fill.NegInfinity -> ()
     | _ -> fail "should parse -Infinity")
 
   (* Hex format for custom NaN patterns *)
   let test_hex_nan_encoding () =
-    match FV_mod.of_json D.Float32 (`String "0x7fc00001") with
-    | Ok (FV.Hex s) -> check string "hex" "0x7fc00001" s
+    match Fill.of_json Dtype.Float32 (Jsont.Json.string "0x7fc00001") with
+    | Ok (Fill.Hex s) -> check string "hex" "0x7fc00001" s
     | _ -> fail "should parse hex NaN"
-
-  (* Complex fill values as [real, imag] *)
-  let test_complex_fill_value () =
-    match FV_mod.of_json D.Complex64 (`List [`Float 1.0; `Float 2.0]) with
-    | Ok (FV.Complex (re, im)) ->
-      check (float 0.001) "real" 1.0 re;
-      check (float 0.001) "imag" 2.0 im
-    | _ -> fail "should parse complex"
 
   let tests = [
     "NaN encoding", `Quick, test_nan_encoding;
     "Infinity encoding", `Quick, test_infinity_encoding;
     "hex NaN encoding", `Quick, test_hex_nan_encoding;
-    "complex fill value", `Quick, test_complex_fill_value;
   ]
 end
 
@@ -117,14 +98,20 @@ end
 module Chunk_grid_compliance = struct
   (* "regular" chunk grid *)
   let test_regular_chunk_grid () =
-    let json = `Assoc [
-      ("name", `String "regular");
-      ("configuration", `Assoc [
-        ("chunk_shape", `List [`Int 10; `Int 20])
+    let none = Jsont.Meta.none in
+    let str s = Jsont.String (s, none) in
+    let int i = Jsont.Number (float_of_int i, none) in
+    let mem n v : Jsont.mem = ((n, none), v) in
+    let obj ms = Jsont.Object (ms, none) in
+    let arr es = Jsont.Array (es, none) in
+    let json = obj [
+      mem "name" (str "regular");
+      mem "configuration" (obj [
+        mem "chunk_shape" (arr [int 10; int 20])
       ])
     ] in
     match Chunk_grid.of_json json with
-    | Ok (Zarr.Regular { chunk_shape }) ->
+    | Ok (Chunk_grid.Regular { chunk_shape }) ->
       check (Alcotest.array Alcotest.int) "chunk_shape" [|10; 20|] chunk_shape
     | Error _ -> fail "should parse regular grid"
 
@@ -138,13 +125,13 @@ end
 module Chunk_key_compliance = struct
   (* "default" encoding with separator *)
   let test_default_encoding () =
-    let enc = Zarr.Default { separator = S.Slash } in
+    let enc = Chunk_key.Default { separator = Codec.Slash } in
     check string "encodes with c prefix" "c/1/2/3"
       (Chunk_key.encode enc [|1; 2; 3|])
 
   (* "v2" encoding without prefix *)
   let test_v2_encoding () =
-    let enc = Zarr.V2 { separator = S.Dot } in
+    let enc = Chunk_key.V2 { separator = Codec.Dot } in
     check string "encodes without c prefix" "1.2.3"
       (Chunk_key.encode enc [|1; 2; 3|])
 
@@ -160,7 +147,7 @@ module Sharding_compliance = struct
   (* "Empty inner chunks are denoted by setting both offset and nbytes to 2^64 - 1" *)
   let test_empty_chunk_marker () =
     check int64 "empty marker is 2^64-1 (as signed -1)"
-      Int64.minus_one Codecs.Sharding.empty_marker
+      Int64.minus_one Codec_sharding.empty_marker
 
   let tests = [
     "empty chunk marker", `Quick, test_empty_chunk_marker;
@@ -172,21 +159,21 @@ end
 module Codec_compliance = struct
   (* Bytes codec endianness *)
   let test_bytes_endianness () =
-    let arr = Ndarray.create D.Int32 [|2|] in
-    Ndarray.set arr [|0|] (`Int32 0x01020304l);
+    let arr = Chunk_data.create_zero Dtype.Int32 [|2|] in
+    Chunk_data.set arr [|0|] (`Int32 0x01020304l);
 
-    let codec_le = Codecs.Bytes_codec.create E.Little in
+    let codec_le = Codec_bytes.create Dtype.Little in
     let bytes_le = codec_le.encode arr in
     check int "LE first byte" 4 (Char.code (Bytes.get bytes_le 0));
 
-    let codec_be = Codecs.Bytes_codec.create E.Big in
+    let codec_be = Codec_bytes.create Dtype.Big in
     let bytes_be = codec_be.encode arr in
     check int "BE first byte" 1 (Char.code (Bytes.get bytes_be 0))
 
   (* CRC32C uses Castagnoli polynomial *)
   let test_crc32c_algorithm () =
     let input = Bytes.of_string "123456789" in
-    let encoded = Codecs.Crc32c.encode input in
+    let encoded = Codec_crc32c.encode input in
     let checksum = Bytes.get_int32_le encoded 9 in
     (* RFC 3720 / iSCSI test vector *)
     check int32 "CRC32C test vector" 0xe3069283l checksum
@@ -200,28 +187,27 @@ end
 (** {2 Data Type Compliance} *)
 
 module Data_type_compliance = struct
-  (* All required data types *)
-  let test_required_dtypes () =
-    let required = [
+  (* Supported data types (no float16, complex in this implementation) *)
+  let test_supported_dtypes () =
+    let supported = [
       "bool"; "int8"; "int16"; "int32"; "int64";
       "uint8"; "uint16"; "uint32"; "uint64";
-      "float16"; "float32"; "float64";
-      "complex64"; "complex128"
+      "float32"; "float64"
     ] in
     List.iter (fun name ->
-      match Data_type.of_string name with
-      | Ok _ -> ()
-      | Error _ -> fail ("should support " ^ name)
-    ) required
+      match Dtype.of_string name with
+      | Some _ -> ()
+      | None -> fail ("should support " ^ name)
+    ) supported
 
   (* Raw data types r* *)
   let test_raw_dtypes () =
-    check bool "r8" true (Result.is_ok (Data_type.of_string "r8"));
-    check bool "r16" true (Result.is_ok (Data_type.of_string "r16"));
-    check bool "r32" true (Result.is_ok (Data_type.of_string "r32"))
+    check bool "r8" true (Option.is_some (Dtype.of_string "r8"));
+    check bool "r16" true (Option.is_some (Dtype.of_string "r16"));
+    check bool "r32" true (Option.is_some (Dtype.of_string "r32"))
 
   let tests = [
-    "required dtypes", `Quick, test_required_dtypes;
+    "supported dtypes", `Quick, test_supported_dtypes;
     "raw dtypes", `Quick, test_raw_dtypes;
   ]
 end

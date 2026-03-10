@@ -3,6 +3,9 @@
 open Alcotest
 open Zarr_blosc
 
+(* Force Zarr module initialization *)
+let () = ignore Zarr.default_codecs
+
 let test_blosc_roundtrip () =
   let input = Bytes.of_string "Hello, World! This is some test data to compress with blosc." in
   let codec = Blosc.create
@@ -136,29 +139,27 @@ let test_blosc_shuffle_modes_string () =
 (* === Registry integration tests === *)
 
 let test_blosc_registered () =
-  check bool "blosc is registered" true (Zarr.Codec_registry.is_registered "blosc")
+  check bool "blosc is registered" true (Zarr.Codec.is_registered "blosc")
 
 let test_blosc_codec_in_chain () =
-  let module D = Zarr.Ztypes.Dtype in
-  let module E = Zarr.Ztypes.Endianness in
   let spec = Blosc.codec_spec ~cname:Blosc.LZ4 ~clevel:5
     ~shuffle:Blosc.NoShuffle ~typesize:4 ~blocksize:0 in
-  let codecs = [Zarr.Ztypes.Bytes { endian = Some E.Little }; spec] in
-  match Zarr.Codec.build_chain codecs D.Int32 [|10|] with
+  let codecs = [Zarr.Codec.Bytes { endian = Some Zarr.Dtype.Little }; spec] in
+  match Zarr.Codec.build_chain_default codecs Zarr.Dtype.Int32 [|10|] with
   | Error (`Codec_error msg) -> fail ("should build chain: " ^ msg)
   | Error _ -> fail "should build chain"
   | Ok chain ->
-    let arr = Zarr.Ndarray.create D.Int32 [|10|] in
+    let arr = Zarr.Chunk_data.create_zero Zarr.Dtype.Int32 [|10|] in
     for i = 0 to 9 do
-      Zarr.Ndarray.set arr [|i|] (`Int32 (Int32.of_int (i * 100)))
+      Zarr.Chunk_data.set arr [|i|] (`Int32 (Int32.of_int (i * 100)))
     done;
     let encoded = Zarr.Codec.encode chain arr in
-    match Zarr.Codec.decode chain [|10|] D.Int32 encoded with
+    match Zarr.Codec.decode chain [|10|] Zarr.Dtype.Int32 encoded with
     | Error (`Codec_error msg) -> fail ("decode failed: " ^ msg)
     | Error _ -> fail "decode failed"
     | Ok decoded ->
       for i = 0 to 9 do
-        match Zarr.Ndarray.get decoded [|i|] with
+        match Zarr.Chunk_data.get decoded [|i|] with
         | `Int32 v ->
           check int (Printf.sprintf "element %d" i) (i * 100) (Int32.to_int v)
         | _ -> fail "expected int32"
@@ -169,19 +170,26 @@ let test_blosc_json_roundtrip () =
     ~shuffle:Blosc.Shuffle ~typesize:4 ~blocksize:0 in
   let json = Zarr.Codec.spec_to_json spec in
   (* Check JSON structure *)
-  let open Yojson.Safe.Util in
-  let name = json |> member "name" |> to_string in
+  let find_member name = function
+    | Jsont.Object (mems, _) ->
+      (match List.find_opt (fun ((n, _), _) -> n = name) mems with
+       | Some (_, v) -> v | None -> Jsont.Null ((), Jsont.Meta.none))
+    | _ -> Jsont.Null ((), Jsont.Meta.none)
+  in
+  let to_str = function Jsont.String (s, _) -> s | _ -> failwith "expected string" in
+  let to_int_j = function Jsont.Number (f, _) -> int_of_float f | _ -> failwith "expected number" in
+  let name = json |> find_member "name" |> to_str in
   check string "codec name" "blosc" name;
-  let config = json |> member "configuration" in
-  let cname = config |> member "cname" |> to_string in
+  let config = json |> find_member "configuration" in
+  let cname = config |> find_member "cname" |> to_str in
   check string "compressor" "lz4" cname;
-  let clevel = config |> member "clevel" |> to_int in
+  let clevel = config |> find_member "clevel" |> to_int_j in
   check int "level" 5 clevel;
-  let shuffle = config |> member "shuffle" |> to_string in
+  let shuffle = config |> find_member "shuffle" |> to_str in
   check string "shuffle" "shuffle" shuffle;
-  let typesize = config |> member "typesize" |> to_int in
+  let typesize = config |> find_member "typesize" |> to_int_j in
   check int "typesize" 4 typesize;
-  let blocksize = config |> member "blocksize" |> to_int in
+  let blocksize = config |> find_member "blocksize" |> to_int_j in
   check int "blocksize" 0 blocksize;
   (* Parse it back *)
   match Zarr.Codec.specs_of_json [json] with
@@ -190,7 +198,7 @@ let test_blosc_json_roundtrip () =
   | Ok specs ->
     check int "one spec" 1 (List.length specs);
     match List.hd specs with
-    | Zarr.Ztypes.Extension { name = n; config = _ } ->
+    | Zarr.Codec.Extension { name = n; config = _ } ->
       check string "extension name" "blosc" n
     | _ -> fail "expected Extension variant"
 

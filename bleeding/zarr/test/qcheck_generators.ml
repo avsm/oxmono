@@ -7,18 +7,12 @@ module StdArray = Array
 
 open Zarr
 
-(* Module aliases for nested types *)
-module D = Zarr.Ztypes.Dtype
-module E = Zarr.Ztypes.Endianness
-module FV = Zarr.Ztypes.Fill_value
-
 (** Generate a random data type *)
-let dtype_gen = Gen.oneofl [
-  D.Bool; D.Int8; D.Int16; D.Int32; D.Int64;
-  D.Uint8; D.Uint16; D.Uint32; D.Uint64;
-  D.Float32; D.Float64
-  (* Omit Float16, Complex64, Complex128 for simpler testing *)
-] [@alert "-deprecated"]
+let dtype_gen = Gen.oneof_list [
+  Dtype.Bool; Dtype.Int8; Dtype.Int16; Dtype.Int32; Dtype.Int64;
+  Dtype.Uint8; Dtype.Uint16; Dtype.Uint32; Dtype.Uint64;
+  Dtype.Float32; Dtype.Float64
+]
 
 (** Generate a shape array (1-4 dimensions, reasonable sizes) *)
 let shape_gen = Gen.(
@@ -47,14 +41,14 @@ let chunk_shape_gen shape =
 (** Generate a fill value for a given dtype *)
 let fill_value_gen dtype = Gen.(
   match dtype with
-  | D.Bool -> map (fun b -> FV.Bool b) bool
-  | D.Int8 | D.Int16 | D.Int32 | D.Int64 ->
-    map (fun i -> FV.Int (Int64.of_int i)) ((-100) -- 100)
-  | D.Uint8 | D.Uint16 | D.Uint32 | D.Uint64 ->
-    map (fun i -> FV.Uint (Int64.of_int i)) (0 -- 200)
-  | D.Float32 | D.Float64 ->
-    map (fun f -> FV.Float f) (float_range (-1000.0) 1000.0)
-  | _ -> return (FV.Float 0.0)
+  | Dtype.Bool -> map (fun b -> Fill.Bool b) bool
+  | Dtype.Int8 | Dtype.Int16 | Dtype.Int32 | Dtype.Int64 ->
+    map (fun i -> Fill.Int (Int64.of_int i)) ((-100) -- 100)
+  | Dtype.Uint8 | Dtype.Uint16 | Dtype.Uint32 | Dtype.Uint64 ->
+    map (fun i -> Fill.Uint (Int64.of_int i)) (0 -- 200)
+  | Dtype.Float32 | Dtype.Float64 ->
+    map (fun f -> Fill.Float f) (float_range (-1000.0) 1000.0)
+  | _ -> return (Fill.Float 0.0)
 )
 
 (** Generate random bytes *)
@@ -65,7 +59,7 @@ let bytes_gen = Gen.(
 )
 
 (** Generate an endianness *)
-let endian_gen = Gen.oneofl [E.Little; E.Big] [@alert "-deprecated"]
+let endian_gen = Gen.oneof_list [Dtype.Little; Dtype.Big]
 
 (** Generate a gzip level *)
 let gzip_level_gen = Gen.(1 -- 9)
@@ -89,18 +83,18 @@ let endian_arb = make endian_gen
 let gzip_level_arb = make gzip_level_gen
 
 (** Print functions for better error messages *)
-let pp_dtype fmt dt = Format.pp_print_string fmt (Data_type.to_string dt)
+let pp_dtype fmt dt = Format.pp_print_string fmt (Dtype.to_string dt)
 
 let pp_shape fmt shape =
   Format.fprintf fmt "[|%s|]"
     (String.concat "; " (StdArray.to_list (StdArray.map string_of_int shape)))
 
 let pp_endian fmt = function
-  | E.Little -> Format.pp_print_string fmt "Little"
-  | E.Big -> Format.pp_print_string fmt "Big"
+  | Dtype.Little -> Format.pp_print_string fmt "Little"
+  | Dtype.Big -> Format.pp_print_string fmt "Big"
 
 (** Arbitrary with better printing *)
-let dtype_arb_pp = set_print (fun dt -> Data_type.to_string dt) dtype_arb
+let dtype_arb_pp = set_print (fun dt -> Dtype.to_string dt) dtype_arb
 
 let shape_arb_pp = set_print (fun shape ->
   "[|" ^ String.concat "; " (StdArray.to_list (StdArray.map string_of_int shape)) ^ "|]"

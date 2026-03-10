@@ -5,6 +5,8 @@
    zarr_sync
    alcotest
    qcheck
-   qcheck-alcotest)
+   qcheck-alcotest
+   jsont
+   jsont.bytesrw)
  (deps
    (source_tree fixtures)))

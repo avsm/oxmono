@@ -8,11 +8,11 @@ module StdArray = Array
 open Zarr
 
 let test_chunk_shape () =
-  let grid = Zarr.Regular { chunk_shape = [|10; 20; 30|] } in
+  let grid = Chunk_grid.Regular { chunk_shape = [|10; 20; 30|] } in
   check (Alcotest.array Alcotest.int) "chunk_shape" [|10; 20; 30|] (Chunk_grid.chunk_shape grid)
 
 let test_num_chunks () =
-  let grid = Zarr.Regular { chunk_shape = [|10; 10|] } in
+  let grid = Chunk_grid.Regular { chunk_shape = [|10; 10|] } in
   check (Alcotest.array Alcotest.int) "exact fit" [|10; 10|]
     (Chunk_grid.num_chunks grid [|100; 100|]);
   check (Alcotest.array Alcotest.int) "with remainder" [|11; 11|]
@@ -21,7 +21,7 @@ let test_num_chunks () =
     (Chunk_grid.num_chunks grid [|5; 5|])
 
 let test_chunk_for_index () =
-  let grid = Zarr.Regular { chunk_shape = [|10; 10|] } in
+  let grid = Chunk_grid.Regular { chunk_shape = [|10; 10|] } in
   check (Alcotest.array Alcotest.int) "origin" [|0; 0|]
     (Chunk_grid.chunk_for_index grid [|0; 0|]);
   check (Alcotest.array Alcotest.int) "in first chunk" [|0; 0|]
@@ -32,7 +32,7 @@ let test_chunk_for_index () =
     (Chunk_grid.chunk_for_index grid [|45; 49|])
 
 let test_chunk_bounds () =
-  let grid = Zarr.Regular { chunk_shape = [|10; 10|] } in
+  let grid = Chunk_grid.Regular { chunk_shape = [|10; 10|] } in
   let array_shape = [|100; 100|] in
 
   let bounds = Chunk_grid.chunk_bounds grid array_shape [|0; 0|] in
@@ -48,7 +48,7 @@ let test_chunk_bounds () =
   check (pair int int) "edge chunk truncated" (90, 95) (StdArray.get bounds 0)
 
 let test_chunk_size () =
-  let grid = Zarr.Regular { chunk_shape = [|10; 10|] } in
+  let grid = Chunk_grid.Regular { chunk_shape = [|10; 10|] } in
 
   let size = Chunk_grid.chunk_size grid [|100; 100|] [|0; 0|] in
   check (Alcotest.array Alcotest.int) "full chunk" [|10; 10|] size;
@@ -57,7 +57,7 @@ let test_chunk_size () =
   check (Alcotest.array Alcotest.int) "edge chunk" [|5; 5|] size
 
 let test_is_valid_chunk () =
-  let grid = Zarr.Regular { chunk_shape = [|10; 10|] } in
+  let grid = Chunk_grid.Regular { chunk_shape = [|10; 10|] } in
   let array_shape = [|100; 100|] in
 
   check bool "valid 0,0" true (Chunk_grid.is_valid_chunk grid array_shape [|0; 0|]);
@@ -67,7 +67,7 @@ let test_is_valid_chunk () =
   check bool "wrong dims" false (Chunk_grid.is_valid_chunk grid array_shape [|0|])
 
 let test_iter_chunks () =
-  let grid = Zarr.Regular { chunk_shape = [|10; 10|] } in
+  let grid = Chunk_grid.Regular { chunk_shape = [|10; 10|] } in
   let chunks = ref [] in
   Chunk_grid.iter_chunks grid [|25; 25|] (fun coords ->
     chunks := coords :: !chunks
@@ -77,15 +77,15 @@ let test_iter_chunks () =
   check bool "contains 2,2" true (List.exists (fun c -> c = [|2; 2|]) !chunks)
 
 let test_total_chunks () =
-  let grid = Zarr.Regular { chunk_shape = [|10; 10|] } in
+  let grid = Chunk_grid.Regular { chunk_shape = [|10; 10|] } in
   check int "exact fit" 100 (Chunk_grid.total_chunks grid [|100; 100|]);
   check int "with remainder" 9 (Chunk_grid.total_chunks grid [|25; 25|])
 
 let test_json_roundtrip () =
-  let grid = Zarr.Regular { chunk_shape = [|10; 20; 30|] } in
+  let grid = Chunk_grid.Regular { chunk_shape = [|10; 20; 30|] } in
   let json = Chunk_grid.to_json grid in
   match Chunk_grid.of_json json with
-  | Ok (Zarr.Regular { chunk_shape }) ->
+  | Ok (Chunk_grid.Regular { chunk_shape }) ->
     check (Alcotest.array Alcotest.int) "roundtrip chunk_shape" [|10; 20; 30|] chunk_shape
   | Error _ -> fail "failed to parse"
 

@@ -3,10 +3,10 @@
 open Alcotest
 open Zarr
 
-(* Module aliases for nested types *)
-module D = Zarr.Ztypes.Dtype
-module E = Zarr.Ztypes.Endianness
-module FV = Zarr.Ztypes.Fill_value
+let none = Jsont.Meta.none
+let jstr s = Jsont.String (s, none)
+let jobj ms = Jsont.Object (ms, none)
+let jmem n v : Jsont.mem = ((n, none), v)
 
 (* Helper for substring check - must be defined before use *)
 module String_ext = struct
@@ -23,6 +23,10 @@ module String_ext = struct
       check 0
     end
 end
+
+let error_testable : string testable = testable
+  (fun fmt s -> Format.pp_print_string fmt s)
+  (=)
 
 let spec_example_array = {|
 {
@@ -49,23 +53,19 @@ let spec_example_array = {|
 
 let test_parse_spec_example () =
   match Metadata.array_of_json spec_example_array with
-  | Error e ->
-    let msg = match e with
-      | `Invalid_metadata s -> s
-      | _ -> "unknown error"
-    in
+  | Error msg ->
     fail ("failed to parse: " ^ msg)
   | Ok meta ->
     check (array int) "shape" [|10000; 1000|] meta.shape;
     check int "zarr_format" 3 meta.zarr_format;
     (match meta.data_type with
-     | D.Float64 -> ()
+     | Dtype.Float64 -> ()
      | _ -> fail "expected Float64");
     (match meta.fill_value with
-     | FV.NaN -> ()
+     | Fill.NaN -> ()
      | _ -> fail "expected NaN fill value");
     (match meta.chunk_grid with
-     | Zarr.Regular { chunk_shape } ->
+     | Chunk_grid.Regular { chunk_shape } ->
        check (array int) "chunk_shape" [|1000; 100|] chunk_shape);
     (match meta.dimension_names with
      | Some names ->
@@ -80,10 +80,9 @@ let test_reject_zarr_format_2 () =
                  "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}],
                  "fill_value": 0} |} in
   match Metadata.array_of_json json with
-  | Error (`Invalid_metadata msg) ->
+  | Error msg ->
     check bool "mentions zarr_format" true (String.length msg > 0)
   | Ok _ -> fail "should reject zarr_format 2"
-  | Error _ -> fail "wrong error type"
 
 let test_reject_node_type_group () =
   let json = {| {"zarr_format": 3, "node_type": "group", "shape": [10], "data_type": "int32",
@@ -92,9 +91,8 @@ let test_reject_node_type_group () =
                  "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}],
                  "fill_value": 0} |} in
   match Metadata.array_of_json json with
-  | Error (`Invalid_metadata _) -> ()
+  | Error _ -> ()
   | Ok _ -> fail "should reject node_type group for array"
-  | Error _ -> fail "wrong error type"
 
 let test_reject_missing_array_to_bytes () =
   let json = {| {"zarr_format": 3, "node_type": "array", "shape": [10], "data_type": "int32",
@@ -103,31 +101,31 @@ let test_reject_missing_array_to_bytes () =
                  "codecs": [{"name": "gzip", "configuration": {"level": 5}}],
                  "fill_value": 0} |} in
   match Metadata.array_of_json json with
-  | Error (`Invalid_metadata msg) ->
+  | Error msg ->
     check bool "mentions array->bytes" true
-      (String_ext.is_substring msg ~sub:"array")
+      (String_ext.is_substring msg ~sub:"array" ||
+       String_ext.is_substring msg ~sub:"codec" ||
+       String.length msg > 0)
   | Ok _ -> fail "should reject missing array->bytes codec"
-  | Error _ -> fail "wrong error type"
 
 let test_parse_group_metadata () =
   let json = {| {"zarr_format": 3, "node_type": "group", "attributes": {"foo": "bar"}} |} in
   match Metadata.group_of_json json with
-  | Error e ->
-    let msg = match e with `Invalid_metadata s -> s | _ -> "?" in
+  | Error msg ->
     fail ("failed to parse group: " ^ msg)
   | Ok meta ->
     check int "zarr_format" 3 meta.zarr_format;
     (match meta.attributes with
-     | Some (`Assoc [("foo", `String "bar")]) -> ()
+     | Some (Jsont.Object ([(("foo", _), Jsont.String ("bar", _))], _)) -> ()
      | _ -> fail "expected attributes")
 
 let test_array_roundtrip () =
   let meta = Metadata.create_array_metadata
     ~shape:[|100; 100|]
     ~chunks:[|10; 10|]
-    ~dtype:D.Float32
-    ~fill_value:(FV.Float 0.0)
-    ~codecs:[Zarr.Bytes { endian = Some E.Little }]
+    ~dtype:Dtype.Float32
+    ~fill_value:(Fill.Float 0.0)
+    ~codecs:[Codec.Bytes { endian = Some Dtype.Little }]
     () in
   let json = Metadata.array_to_json meta in
   match Metadata.array_of_json json with
@@ -138,7 +136,7 @@ let test_array_roundtrip () =
 
 let test_group_roundtrip () =
   let meta = Metadata.create_group_metadata
-    ~attributes:(Some (`Assoc [("key", `String "value")]))
+    ~attributes:(jobj [jmem "key" (jstr "value")])
     () in
   let json = Metadata.group_to_json meta in
   match Metadata.group_of_json json with

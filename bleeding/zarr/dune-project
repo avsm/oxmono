@@ -21,12 +21,12 @@
  (description
   "A complete implementation of the Zarr v3.1 specification for chunked, compressed N-dimensional arrays. This core library provides types, codecs, and metadata handling with no I/O dependencies.")
  (depends
-  (ocaml (>= 5.1))
+  (ocaml (>= 5.2))
   (dune (>= 3.0))
-  (yojson (>= 2.0))
+  (jsont (>= 0.1))
+  (bytesrw (>= 0.1))
   (decompress (>= 1.5))
-  (checkseum (>= 0.5))
-  (optint (>= 0.3))
+  (base (>= 0.17))
   (zstd (>= 0.4))
   (alcotest :with-test)
   (qcheck :with-test)

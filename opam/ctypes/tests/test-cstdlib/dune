@@ -8,4 +8,5 @@
   ctypes-foreign
   test_cstdlib_stubs
   test_cstdlib_bindings
-  tests_common))
+  tests_common
+  stdlib-shims))

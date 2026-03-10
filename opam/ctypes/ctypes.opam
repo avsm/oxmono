@@ -26,10 +26,11 @@ homepage: "https://github.com/yallop/ocaml-ctypes"
 doc: "https://yallop.github.io/ocaml-ctypes/"
 bug-reports: "https://github.com/yallop/ocaml-ctypes/issues"
 depends: [
-  "dune" {>= "3.9"}
-  "ocaml" {>= "4.07.0"}
+  "dune" {>= "2.9"}
+  "ocaml" {>= "4.03.0"}
   "integers"
   "dune-configurator"
+  "bigarray-compat"
   "ounit2" {with-test}
   "conf-fts" {with-test & os != "win32"}
   "conf-pkg-config" {with-test}
@@ -44,10 +45,11 @@ build: [
     name
     "-j"
     jobs
+    "--promote-install-files=false"
     "@install"
     "@runtest" {with-test}
     "@doc" {with-doc}
   ]
+  ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/yallop/ocaml-ctypes.git"
-x-maintenance-intent: ["(any).(any).(latest)"]

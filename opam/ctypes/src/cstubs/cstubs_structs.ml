@@ -255,11 +255,6 @@ let gen_c () =
   let m =
     (module struct
       include Ctypes
-
-      (* bypass passability checks *)
-      let ( @-> ) f t = Ctypes_static.Function (f, t)
-      let returning v = Ctypes_static.Returns v
-
       open Ctypes_static
       let rec field' : type a s r. string -> s typ -> string -> a typ -> (a, r) field =
         fun structname s fname ftype -> match s with 

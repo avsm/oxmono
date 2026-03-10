@@ -17,16 +17,14 @@ let strip_whitespace = Str.(global_replace (regexp "[\r\n ]+") "")
 let equal_ignoring_whitespace l r =
   strip_whitespace l = strip_whitespace r
 
-let assert_printed_as ?name format expecteds typ =
- assert_equal true
-   (List.exists (equal_ignoring_whitespace (format ?name typ)) expecteds)
+let assert_printed_as ?name format expected typ =
+ assert_equal
+   ~cmp:equal_ignoring_whitespace 
+   ~printer:(fun s -> s)
+   expected (format ?name typ)
 
-let assert_typ_printed_as ?name e t =
-  assert_printed_as ?name string_of_typ [e] t
-let assert_typ_printed_as_one_of ?name es t =
-  assert_printed_as ?name string_of_typ es t
-let assert_fn_printed_as ?name e f =
-  assert_printed_as ?name string_of_fn [e] f
+let assert_typ_printed_as ?name e t = assert_printed_as ?name string_of_typ e t
+let assert_fn_printed_as ?name e f = assert_printed_as ?name string_of_fn e f
 
 
 (*
@@ -80,7 +78,7 @@ let test_atomic_printing _ =
     assert_typ_printed_as "unsigned char volatile"
       (volatile uchar);
 
-    assert_typ_printed_as_one_of ["_Bool"; "bool"]
+    assert_typ_printed_as "_Bool"
       bool;
 
     assert_typ_printed_as ~name:"g" "uint8_t g"
@@ -451,22 +449,22 @@ let test_ocaml_string_printing _ =
 let test_bigarray_signed_printing _ =
   begin
     assert_typ_printed_as "int8_t[1][3]"
-      (bigarray genarray [|1; 3|] Bigarray.int8_signed);
+      (bigarray genarray [|1; 3|] Bigarray_compat.int8_signed);
 
     assert_typ_printed_as "int16_t[3]"
-      (bigarray array1 3 Bigarray.int16_signed);
+      (bigarray array1 3 Bigarray_compat.int16_signed);
 
     assert_typ_printed_as "int32_t[5][6]"
-      (bigarray array2 (5, 6) Bigarray.int32);
+      (bigarray array2 (5, 6) Bigarray_compat.int32);
 
     assert_typ_printed_as "int64_t[7][8]"
-      (bigarray array2 (7, 8) Bigarray.int64);
+      (bigarray array2 (7, 8) Bigarray_compat.int64);
 
     assert_typ_printed_as "intnat[9][10]"
-      (bigarray array2 (9, 10) Bigarray.int);
+      (bigarray array2 (9, 10) Bigarray_compat.int);
 
     assert_typ_printed_as "intnat[13][14][15]"
-      (bigarray array3 (13, 14, 15) Bigarray.nativeint);
+      (bigarray array3 (13, 14, 15) Bigarray_compat.nativeint);
   end
 
 
@@ -478,10 +476,10 @@ let test_bigarray_unsigned_printing _ =
     "Unsigned bigarray elements currently indistinguishable from signed elements";
   begin
     assert_typ_printed_as "uint8_t[2]"
-      (bigarray array1 2 Bigarray.int8_unsigned);
+      (bigarray array1 2 Bigarray_compat.int8_unsigned);
 
     assert_typ_printed_as "uint16_t[4]"
-      (bigarray array1 4 Bigarray.int16_unsigned);
+      (bigarray array1 4 Bigarray_compat.int16_unsigned);
   end
 
 
@@ -491,16 +489,16 @@ let test_bigarray_unsigned_printing _ =
 let test_bigarray_float_printing _ =
   begin
     assert_typ_printed_as "float[10][100]"
-      (bigarray genarray [|10; 100|] Bigarray.float32);
+      (bigarray genarray [|10; 100|] Bigarray_compat.float32);
 
     assert_typ_printed_as "double[20][30][40]"
-      (bigarray genarray [|20; 30; 40|] Bigarray.float64);
+      (bigarray genarray [|20; 30; 40|] Bigarray_compat.float64);
 
     assert_typ_printed_as "float _Complex[16][17][18]"
-      (bigarray array3 (16, 17, 18) Bigarray.complex32);
+      (bigarray array3 (16, 17, 18) Bigarray_compat.complex32);
 
     assert_typ_printed_as "double _Complex[19][20][21]"
-      (bigarray array3 (19, 20, 21) Bigarray.complex64);
+      (bigarray array3 (19, 20, 21) Bigarray_compat.complex64);
   end
 
 

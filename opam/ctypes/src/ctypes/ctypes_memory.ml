@@ -297,7 +297,7 @@ let getf s field = !@(s @. field)
 
 let addr { structured } = structured
 
-open Bigarray
+open Bigarray_compat
 
 let _bigarray_start kind ba =
   let raw_address = Ctypes_bigarray.unsafe_address ba in
@@ -310,7 +310,7 @@ let bigarray_kind : type a b c d f l.
     ba_repr: f;
     bigarray: b;
     carray: c;
-    dims: d > bigarray_class -> b -> (a, f) Bigarray.kind =
+    dims: d > bigarray_class -> b @ immutable -> (a, f) Bigarray.kind =
   function
   | Genarray -> Genarray.kind
   | Array1 -> Array1.kind

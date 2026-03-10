@@ -1,0 +1,29 @@
+version: "0.1.0"
+opam-version: "2.0"
+maintainer: "anil@recoil.org"
+homepage: "https://github.com/avsm/blosc-ocaml"
+license: "BSD-3-Clause"
+authors: [ "Anil Madhavapeddy" ]
+tags: [ "clib:blosc" ]
+dev-repo: "git://github.com/avsm/blosc-ocaml.git"
+bug-reports: "https://github.com/avsm/blosc-ocaml/issues"
+build: [
+  ["dune" "subst"] {dev}
+  ["dune" "build" "-p" name "-j" jobs
+    "@install"
+    "@doc" {with-doc}
+    "@runtest" {with-test}]
+]
+depends: [
+  "ocaml" {>= "5.2"}
+  "dune" {>= "3.7"}
+  "conf-blosc"
+]
+synopsis: "Bindings to blosc meta-compression library"
+description: """
+Blosc is a high performance meta-compressor optimized for binary data,
+with integrated shuffling and support for multiple compression algorithms
+(LZ4, LZ4HC, BloscLZ, Zstd, Snappy, Zlib).
+
+This version uses direct C bindings with OxCaml optimizations for
+stack allocation (exclave_, local_) and unboxed values."""

@@ -188,8 +188,9 @@ let compact ~ctx note =
   let is_weeknote = Note.weeknote note in
   let is_perma = Note.perma note in
   let card_cls = "note-compact hover:bg-surface note-item h-entry px-1 py-1 md:px-2 md:py-1 md:pl-6"
-    ^ (if is_weeknote then " note-weeknote" else "")
-    ^ (if is_perma then " note-perma" else "") in
+    ^ (if is_weeknote then " note-weeknote"
+       else if is_perma then " note-perma"
+       else "") in
   let display_title = Note.title note in
   let ref_el = match Note.slug_ent note with
     | Some slug ->
@@ -206,10 +207,10 @@ let compact ~ctx note =
     | None -> El.void
   in
   let type_icon_el, icon_tooltip =
-    if is_perma then
-      I.outline ~cl:"opacity-40" ~size:14 I.bookmark_o, "Full post"
-    else if is_weeknote then
+    if is_weeknote then
       I.outline ~cl:"opacity-40" ~size:14 I.calendar_o, "Weekly"
+    else if is_perma then
+      I.outline ~cl:"opacity-40" ~size:14 I.bookmark_o, "Full post"
     else
       I.outline ~cl:"opacity-40" ~size:14 I.writing_o, "Quick post"
   in
@@ -226,9 +227,13 @@ let compact ~ctx note =
       El.time ~at:[At.class' "note-compact-meta shrink-0 text-[0.82rem] text-secondary whitespace-nowrap tabular-nums dt-published";
                    At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
         [El.txt date_str]];
-    (* Row 2: synopsis *)
+    (* Row 2: synopsis — weeknotes get smaller text since their titles are more descriptive *)
     (if synopsis <> "" then
-       El.div ~at:[At.class' "note-compact-synopsis text-[0.85rem] text-secondary leading-[1.4] mt-[0.1rem] p-summary"] [El.txt synopsis]
+       let synopsis_cls = if is_weeknote
+         then "note-compact-synopsis text-[0.74rem] text-secondary leading-[1.3] mt-[0.1rem] p-summary"
+         else "note-compact-synopsis text-[0.85rem] text-secondary leading-[1.4] mt-[0.1rem] p-summary"
+       in
+       El.div ~at:[At.class' synopsis_cls] [El.txt synopsis]
      else El.void);
     (* Row 3: slug_ent reference *)
     ref_el;

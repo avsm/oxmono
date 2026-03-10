@@ -153,7 +153,8 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       og_tag ~property:"og:url" ~content:page_url;
 
       (* Twitter Card *)
-      meta_tag ~name:"twitter:card" ~content:"summary";
+      meta_tag ~name:"twitter:card"
+        ~content:(if image <> None then "summary_large_image" else "summary");
       meta_tag ~name:"twitter:title" ~content:title;
       meta_tag ~name:"twitter:description" ~content:description;
 

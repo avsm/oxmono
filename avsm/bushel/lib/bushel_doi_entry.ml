@@ -97,6 +97,14 @@ let find_by_url entries url =
     not entry.ignore && List.mem url entry.source_urls
   ) entries
 
+(** Check if an entry has failed status *)
+let is_failed entry =
+  match entry.status with Failed _ -> true | Resolved -> false
+
+(** Remove failed entries so they can be retried *)
+let remove_failed entries =
+  List.filter (fun entry -> not (is_failed entry)) entries
+
 (** {1 YAML Serialization (Write)} *)
 
 (** Convert status to YAML fields *)

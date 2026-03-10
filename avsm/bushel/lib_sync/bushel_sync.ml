@@ -464,10 +464,19 @@ let sync_links ~dry_run ~sw ~env ~data_dir ~entries =
         message = Printf.sprintf "Links sync failed: %s" (Printexc.to_string e);
         details = [] }
 
-let sync_dois ~dry_run ~http ~data_dir ~config =
+let sync_dois ~dry_run ~retry_errors ~http ~data_dir ~config =
   let doi_file = Filename.concat data_dir "doi.yml" in
   let links_file = Filename.concat data_dir "links.yml" in
   let existing_dois = Bushel.Doi_entry.load_file doi_file in
+  let existing_dois =
+    if retry_errors then begin
+      let failed = List.filter Bushel.Doi_entry.is_failed existing_dois in
+      if failed <> [] then
+        Log.info (fun m -> m "Retrying %d previously failed DOI entries"
+          (List.length failed));
+      Bushel.Doi_entry.remove_failed existing_dois
+    end else existing_dois
+  in
   let links = Bushel.Link.load_links_file links_file in
 
   (* Extract DOI from doi.org URL *)
@@ -578,7 +587,7 @@ let sync_dois ~dry_run ~http ~data_dir ~config =
       ) resolved }
   end
 
-let run ~dry_run ~sw ~env ~data_dir ~config ~steps ~entries =
+let run ~dry_run ~retry_errors ~sw ~env ~data_dir ~config ~steps ~entries =
   let proc_mgr = Eio.Stdenv.process_mgr env in
   let fs = Eio.Stdenv.fs env in
   (* Create HTTP session for network requests *)
@@ -596,7 +605,7 @@ let run ~dry_run ~sw ~env ~data_dir ~config ~steps ~entries =
     | Faces -> sync_faces ~dry_run ~fs config entries
     | Videos -> sync_video_thumbnails ~dry_run ~http config entries
     | Links -> sync_links ~dry_run ~sw ~env ~data_dir ~entries
-    | Dois -> sync_dois ~dry_run ~http ~data_dir ~config
+    | Dois -> sync_dois ~dry_run ~retry_errors ~http ~data_dir ~config
   ) steps in
 
   (* Summary *)

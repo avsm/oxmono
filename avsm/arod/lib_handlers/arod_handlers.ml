@@ -561,6 +561,7 @@ let video ~ctx ~cache slug accept rctx (local_ respond) =
         let article = Htmlit.El.div [article_el; related] in
         let description = Bushel.Video.description v in
         let published = Bushel.Entry.date (`Video v) in
+        let datetime = Bushel.Entry.datetime (`Video v) in
         let cfg = Arod.Ctx.config ctx in
         let base_url = cfg.site.base_url in
         let image = match Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) (`Video v) with
@@ -569,7 +570,7 @@ let video ~ctx ~cache slug accept rctx (local_ respond) =
           Arod.Jsonld.video_jsonld
             ~base_url ~url:("/videos/" ^ slug)
             ~title:(Bushel.Video.title v) ~description
-            ~date:published ?image
+            ~datetime ?image
             ~embed_url:(Bushel.Video.url v)
             ~is_talk:(Bushel.Video.talk v) ();
           Arod.Jsonld.breadcrumb_jsonld ~base_url

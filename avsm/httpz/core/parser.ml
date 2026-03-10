@@ -17,6 +17,11 @@ let method_3byte_mask : int32# = I32.of_int32 0x00FFFFFFl
 let post_int32 : int32# = I32.of_int32 0x54534F50l (* "POST" *)
 let head_int32 : int32# = I32.of_int32 0x44414548l (* "HEAD" *)
 
+(* WebDAV 4-byte method constants (little-endian) *)
+let copy_int32 : int32# = I32.of_int32 0x59504F43l  (* "COPY" *)
+let lock_int32 : int32# = I32.of_int32 0x4B434F4Cl  (* "LOCK" *)
+let move_int32 : int32# = I32.of_int32 0x45564F4Dl  (* "MOVE" *)
+
 (* HTTP version as unboxed int64# for zero-alloc comparison (little-endian) *)
 let http11_int64 : int64# = I64.of_int64 0x312E312F50545448L (* "HTTP/1.1" *)
 let http10_int64 : int64# = I64.of_int64 0x302E312F50545448L (* "HTTP/1.0" *)
@@ -95,17 +100,30 @@ let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
     let v : int32# = I32.of_int32 (Bytes.unsafe_get_int32 st.#buf off) in
     if I32.equal v post_int32 then Method.Post
     else if I32.equal v head_int32 then Method.Head
+    (* WebDAV 4-byte methods — after standard methods *)
+    else if I32.equal v copy_int32 then Method.Copy
+    else if I32.equal v lock_int32 then Method.Lock
+    else if I32.equal v move_int32 then Method.Move
     else Err.fail Err.Invalid_method
   | 5 ->
     if Span.equal st.#buf sp "PATCH" then Method.Patch
     else if Span.equal st.#buf sp "TRACE" then Method.Trace
+    else if Span.equal st.#buf sp "MKCOL" then Method.Mkcol
     else Err.fail Err.Invalid_method
   | 6 ->
     if Span.equal st.#buf sp "DELETE" then Method.Delete
+    else if Span.equal st.#buf sp "REPORT" then Method.Report
+    else if Span.equal st.#buf sp "UNLOCK" then Method.Unlock
     else Err.fail Err.Invalid_method
   | 7 ->
     if Span.equal st.#buf sp "OPTIONS" then Method.Options
     else if Span.equal st.#buf sp "CONNECT" then Method.Connect
+    else Err.fail Err.Invalid_method
+  | 8 ->
+    if Span.equal st.#buf sp "PROPFIND" then Method.Propfind
+    else Err.fail Err.Invalid_method
+  | 9 ->
+    if Span.equal st.#buf sp "PROPPATCH" then Method.Proppatch
     else Err.fail Err.Invalid_method
   | _ -> Err.fail Err.Invalid_method
   in

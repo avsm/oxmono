@@ -294,8 +294,82 @@ let handle_request conn ~addr_str ~routes ~on_request =
           | Empty -> 0);
         make_respond conn ~is_head ~keep_alive:conn.keep_alive version ~status ~headers body
       in
+      (* Send 100 Continue if client expects it (RFC 7231 Section 5.1.1) *)
+      if req.#expect_continue then begin
+        let cont = "HTTP/1.1 100 Continue\r\n\r\n" in
+        Eio.Flow.write conn.flow [Cstruct.of_string cont]
+      end;
+      (* Read complete body before dispatch.
+         For Content-Length bodies: ensure all bytes are in buffer.
+         For chunked bodies: dechunk into the buffer. *)
+      let body_off_final = ref (to_int req.#body_off) in
+      let body_len_final = ref 0 in
+      if req.#is_chunked then begin
+        (* Dechunk into an accumulator buffer *)
+        let body_acc = Buffer.create 4096 in
+        let chunk_off = ref (to_int req.#body_off) in
+        let finished = ref false in
+        while not !finished do
+          let #(cstatus, chunk) =
+            Httpz.Chunk.parse buf ~off:(i16 !chunk_off) ~len:(i16 conn.read_len)
+          in
+          match cstatus with
+          | Httpz.Chunk.Complete ->
+            let doff = to_int chunk.#data_off in
+            let dlen = to_int chunk.#data_len in
+            Buffer.add_subbytes body_acc buf ~pos:doff ~len:dlen;
+            chunk_off := to_int chunk.#next_off
+          | Httpz.Chunk.Done ->
+            finished := true
+          | Httpz.Chunk.Partial ->
+            (* Need more data from the socket *)
+            begin match read_more conn with
+            | `Ok _ -> ()
+            | `Eof -> finished := true
+            | `Buffer_full ->
+              (* Shift consumed chunk data out to make room *)
+              let consumed = !chunk_off in
+              if consumed > 0 then begin
+                shift_buffer conn consumed;
+                chunk_off := 0
+              end;
+              begin match read_more conn with
+              | `Ok _ -> ()
+              | `Eof | `Buffer_full -> finished := true
+              end
+            end
+          | Httpz.Chunk.Malformed | Httpz.Chunk.Chunk_too_large ->
+            finished := true
+        done;
+        let body_str = Buffer.contents body_acc in
+        let blen = String.length body_str in
+        (* Write dechunked body into read_buf at body_off for zero-copy dispatch *)
+        let boff = to_int req.#body_off in
+        if boff + blen <= Bytes.length buf then begin
+          Stdlib.Bytes.blit_string body_str 0 buf boff blen;
+          conn.read_len <- boff + blen
+        end;
+        body_off_final := boff;
+        body_len_final := blen
+      end else begin
+        (* Content-Length body: ensure all bytes are read into buffer *)
+        let cl = Stdlib_upstream_compatible.Int64_u.to_int req.#content_length in
+        if cl > 0 then begin
+          let body_end = to_int req.#body_off + cl in
+          while conn.read_len < body_end do
+            match read_more conn with
+            | `Ok _ -> ()
+            | `Eof | `Buffer_full ->
+              conn.read_len <- body_end (* force exit *)
+          done;
+          body_off_final := to_int req.#body_off;
+          body_len_final := cl
+        end
+      end;
+      let body_span = Httpz.Span.make ~off:(i16 !body_off_final) ~len:(i16 !body_len_final) in
+      let body_content_length = Stdlib_upstream_compatible.Int64_u.of_int !body_len_final in
       (* Dispatch - respond is called directly by handler *)
-      let matched = Httpz_server.Route.dispatch buf ~meth ~target ~headers routes ~respond in
+      let matched = Httpz_server.Route.dispatch buf ~meth ~target ~body:body_span ~content_length:body_content_length ~headers routes ~respond in
       if not matched then begin
         conn.logged_status <- Httpz.Res.Not_found;
         Httpz_server.Route.not_found respond
@@ -312,8 +386,8 @@ let handle_request conn ~addr_str ~routes ~on_request =
         timestamp;
         response_body_size = conn.logged_body_size;
         duration_us };
-      (* Calculate consumed bytes *)
-      let body_span = Httpz.Req.body_span ~len:len16 req in
+      (* Calculate consumed bytes — body_span already accounts for
+         dechunked/fully-read body placement *)
       let body_span_len = Httpz.Span.len body_span in
       let body_span_off = Httpz.Span.off body_span in
       let consumed =

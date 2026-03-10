@@ -1,7 +1,9 @@
 (** HTTP request methods.
 
-    Represents the nine standard HTTP/1.1 methods defined in
-    {{:https://datatracker.ietf.org/doc/html/rfc7231#section-4}RFC 7231 Section 4}.
+    Represents the standard HTTP/1.1 methods defined in
+    {{:https://datatracker.ietf.org/doc/html/rfc7231#section-4}RFC 7231 Section 4}
+    and WebDAV methods from
+    {{:https://datatracker.ietf.org/doc/html/rfc4918}RFC 4918}.
 
     {2 Method Semantics}
 
@@ -11,24 +13,33 @@
     - {!Options}: Safe, cacheable
     - {!Patch}: Not safe, not idempotent, body expected
     - {!Connect}, {!Trace}: Special purpose
+    - {!Propfind}, {!Proppatch}, {!Mkcol}, {!Copy}, {!Move}, {!Lock}, {!Unlock}, {!Report}: WebDAV
 
     {2 Unknown Methods}
 
-    This library only accepts the standard methods. Custom or extension
-    methods will cause parsing to fail with {!Buf_read.Invalid_method}. *)
+    This library only accepts the standard and WebDAV methods. Custom or
+    extension methods will cause parsing to fail with {!Buf_read.Invalid_method}. *)
 
 (** {1 Types} *)
 
 type t =
-  | Get      (** GET - retrieve a resource *)
-  | Head     (** HEAD - retrieve headers only *)
-  | Post     (** POST - submit data for processing *)
-  | Put      (** PUT - replace a resource *)
-  | Delete   (** DELETE - remove a resource *)
-  | Connect  (** CONNECT - establish a tunnel *)
-  | Options  (** OPTIONS - describe communication options *)
-  | Trace    (** TRACE - echo the request *)
-  | Patch    (** PATCH - partial resource modification *)
+  | Get       (** GET - retrieve a resource *)
+  | Head      (** HEAD - retrieve headers only *)
+  | Post      (** POST - submit data for processing *)
+  | Put       (** PUT - replace a resource *)
+  | Delete    (** DELETE - remove a resource *)
+  | Connect   (** CONNECT - establish a tunnel *)
+  | Options   (** OPTIONS - describe communication options *)
+  | Trace     (** TRACE - echo the request *)
+  | Patch     (** PATCH - partial resource modification *)
+  | Propfind  (** PROPFIND - retrieve properties (RFC 4918) *)
+  | Proppatch (** PROPPATCH - set/remove properties (RFC 4918) *)
+  | Mkcol     (** MKCOL - create collection (RFC 4918) *)
+  | Copy      (** COPY - copy resource (RFC 4918) *)
+  | Move      (** MOVE - move resource (RFC 4918) *)
+  | Lock      (** LOCK - lock resource (RFC 4918) *)
+  | Unlock    (** UNLOCK - unlock resource (RFC 4918) *)
+  | Report    (** REPORT - run report (RFC 3253) *)
 (** HTTP request method. *)
 
 (** {1 Conversion} *)

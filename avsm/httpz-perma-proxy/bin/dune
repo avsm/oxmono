@@ -1,0 +1,4 @@
+(executable
+ (name main)
+ (public_name httpz-perma-proxy)
+ (libraries perma_cache httpz httpz.server httpz.eio requests cmdliner eio eio_main eio_posix))

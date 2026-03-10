@@ -86,6 +86,24 @@ val query_params : ctx -> string -> string list
 val query : ctx -> (string * string) list
 (** Get all query parameters. *)
 
+val body : ctx -> Httpz.Span.t
+(** [body ctx] returns the request body as an unboxed span into the parse buffer.
+    Zero-copy — no allocation until you call {!body_string}.
+    Returns a span with [len = 0] for no-body requests.
+    Returns a span with [len = -1] for chunked encoding. *)
+
+val body_string : ctx -> string option
+(** [body_string ctx] materializes the body as a string, or [None] if empty. *)
+
+val content_length : ctx -> int64#
+(** [content_length ctx] returns the Content-Length value, or [-1L] if absent. *)
+
+(** {2 Response Helpers - WebDAV} *)
+
+val xml_multistatus : local_ respond -> string -> unit
+(** [xml_multistatus respond xml] sends a 207 Multi-Status response
+    with [Content-Type: application/xml]. *)
+
 (** {2 Lazy Response Helpers}
 
     These variants skip body generation for HEAD requests. The thunk is only
@@ -151,6 +169,26 @@ val post_h1 : 'a pat -> Httpz.Header_name.t -> ('a -> string option -> ctx -> lo
 
 val route : Httpz.Method.t -> 'a pat -> 'h hdr -> ('a, 'h) handler -> route
 
+(** {2 WebDAV Route Constructors} *)
+
+val propfind : 'a pat -> ('a -> ctx -> local_ respond -> unit) -> route
+val proppatch : 'a pat -> ('a -> ctx -> local_ respond -> unit) -> route
+val mkcol : 'a pat -> ('a -> ctx -> local_ respond -> unit) -> route
+val report : 'a pat -> ('a -> ctx -> local_ respond -> unit) -> route
+val copy_ : 'a pat -> ('a -> ctx -> local_ respond -> unit) -> route
+val move_ : 'a pat -> ('a -> ctx -> local_ respond -> unit) -> route
+val lock : 'a pat -> ('a -> ctx -> local_ respond -> unit) -> route
+val unlock : 'a pat -> ('a -> ctx -> local_ respond -> unit) -> route
+
+val propfind_h : 'a pat -> 'h hdr -> ('a, 'h) handler -> route
+val proppatch_h : 'a pat -> 'h hdr -> ('a, 'h) handler -> route
+val mkcol_h : 'a pat -> 'h hdr -> ('a, 'h) handler -> route
+val report_h : 'a pat -> 'h hdr -> ('a, 'h) handler -> route
+val copy_h : 'a pat -> 'h hdr -> ('a, 'h) handler -> route
+val move_h : 'a pat -> 'h hdr -> ('a, 'h) handler -> route
+val lock_h : 'a pat -> 'h hdr -> ('a, 'h) handler -> route
+val unlock_h : 'a pat -> 'h hdr -> ('a, 'h) handler -> route
+
 (** {1 Route Collections} *)
 
 type t
@@ -165,9 +203,13 @@ val dispatch :
   bytes ->
   meth:Httpz.Method.t ->
   target:Httpz.Target.t ->
+  body:Httpz.Span.t ->
+  content_length:int64# ->
   headers:local_ Httpz.Header.t list ->
   t ->
   respond:local_ respond ->
   bool
-(** [dispatch buf ~meth ~target ~headers routes ~respond] dispatches a request.
-    Returns [true] if a route matched. *)
+(** [dispatch buf ~meth ~target ~body ~content_length ~headers routes ~respond]
+    dispatches a request. Returns [true] if a route matched.
+    [body] is an unboxed span referencing the request body in [buf] (zero-copy).
+    [content_length] is the Content-Length value or [-1L] if absent. *)

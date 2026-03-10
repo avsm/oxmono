@@ -300,11 +300,15 @@ let pull_cmd =
     let doc = "Show what commands would be run without executing them." in
     Arg.(value & flag & info ["dry-run"; "n"] ~doc)
   in
+  let retry_errors =
+    let doc = "Retry DOI and academic URL resolutions that previously failed." in
+    Arg.(value & flag & info ["retry-errors"] ~doc)
+  in
   let only =
     let doc = "Only run specific step (git, images, srcsetter, thumbs, faces, videos, links)." in
     Arg.(value & opt (some string) None & info ["only"] ~docv:"STEP" ~doc)
   in
-  let run () config_file data_dir dry_run only =
+  let run () config_file data_dir dry_run retry_errors only =
     match load_config config_file with
     | Error e -> Printf.eprintf "Config error: %s\n" e; 1
     | Ok config ->
@@ -332,7 +336,7 @@ let pull_cmd =
       ) steps;
       Printf.printf "\n";
 
-      let results = Bushel_sync.run ~dry_run ~sw ~env ~data_dir ~config ~steps ~entries in
+      let results = Bushel_sync.run ~dry_run ~retry_errors ~sw ~env ~data_dir ~config ~steps ~entries in
 
       Printf.printf "\nResults:\n";
       List.iter (fun r ->
@@ -362,9 +366,11 @@ let pull_cmd =
     `P "7. $(b,links) - Sync links with Karakeep bookmark service";
     `P "8. $(b,dois) - Resolve DOIs from links.yml via Zotero Translation Server";
     `P "Use $(b,--dry-run) to see what commands would be run without executing them.";
+    `P "Use $(b,--retry-errors) to retry DOI resolutions that previously failed \
+        (e.g., due to Zotero server being unavailable).";
   ] in
   let info = Cmd.info "pull" ~doc ~man in
-  Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ dry_run $ only)
+  Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ dry_run $ retry_errors $ only)
 
 (** {1 Paper Add Command} *)
 

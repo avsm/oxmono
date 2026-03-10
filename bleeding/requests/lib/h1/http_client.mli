@@ -61,6 +61,31 @@ val make_request :
     @param body Request body
     @param flow A two-way flow (TCP or TLS connection) *)
 
+val make_request_streaming :
+  ?limits:limits ->
+  sw:Eio.Switch.t ->
+  method_:Method.t ->
+  uri:Uri.t ->
+  headers:Headers.t ->
+  body:Body.t ->
+  _ Eio.Flow.two_way ->
+  int * Headers.t * [ `String of string
+                     | `Stream of Eio.Flow.source_ty Eio.Resource.t
+                     | `None ]
+(** Like {!make_request} but returns a streaming body instead of buffering
+    the entire response into memory.
+
+    The caller must fully consume the [`Stream] body before the connection's
+    switch closes, since the body reads from the underlying TCP flow.
+
+    @param limits Response size limits (default: {!default_limits})
+    @param sw Eio switch for resource management
+    @param method_ HTTP method
+    @param uri Request URI
+    @param headers Request headers
+    @param body Request body
+    @param flow A two-way flow (TCP or TLS connection) *)
+
 val make_request_decompress :
   ?limits:limits ->
   sw:Eio.Switch.t ->

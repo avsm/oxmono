@@ -162,6 +162,21 @@ let make_request ?(limits=default_limits) ~sw ~method_ ~uri ~headers ~body flow 
   let (_version, status, headers, body) = Http_read.response ~limits ~method_ buf_read in
   (status, headers, body)
 
+(** Make HTTP request returning a streaming body.
+    The caller must consume the body stream before the connection's switch closes. *)
+let make_request_streaming ?(limits=default_limits) ~sw ~method_ ~uri ~headers ~body flow =
+  Log.debug (fun m -> m "Making streaming %s request to %s" (Method.to_string method_) (Uri.to_string uri));
+
+  (* Write request using Buf_write *)
+  Http_write.write_and_flush flow (fun w ->
+    Http_write.request w ~sw ~method_ ~uri ~headers ~body
+  );
+
+  (* Read response using Buf_read — streaming variant *)
+  let buf_read = Http_read.of_flow flow ~max_size:max_int in
+  let resp = Http_read.response_stream ~limits ~method_ buf_read in
+  (resp.Http_read.status, resp.Http_read.headers, resp.Http_read.body)
+
 (** Make HTTP request with optional auto-decompression *)
 let make_request_decompress ?(limits=default_limits) ~sw ~method_ ~uri ~headers ~body ~auto_decompress flow =
   make_request ~limits ~sw ~method_ ~uri ~headers ~body flow

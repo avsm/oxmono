@@ -1,0 +1,3 @@
+(executable
+ (name webdavz_server)
+ (libraries httpz httpz.server httpz.eio httpz.webdav eio eio_main eio_posix base unix))

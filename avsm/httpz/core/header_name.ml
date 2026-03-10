@@ -48,6 +48,15 @@ type t =
   | Vary
   | X_correlation_id
   | X_cache
+  | Depth
+  | Destination
+  | Overwrite
+  | Lock_token
+  | Dav
+  | If
+  | Access_control_allow_origin
+  | Access_control_allow_methods
+  | Access_control_allow_headers
   | Other
 
 (* Canonical header name string for known headers, "(unknown)" for Other *)
@@ -99,6 +108,15 @@ let canonical = function
   | Vary -> "Vary"
   | X_correlation_id -> "X-Correlation-Id"
   | X_cache -> "X-Cache"
+  | Depth -> "Depth"
+  | Destination -> "Destination"
+  | Overwrite -> "Overwrite"
+  | Lock_token -> "Lock-Token"
+  | Dav -> "DAV"
+  | If -> "If"
+  | Access_control_allow_origin -> "Access-Control-Allow-Origin"
+  | Access_control_allow_methods -> "Access-Control-Allow-Methods"
+  | Access_control_allow_headers -> "Access-Control-Allow-Headers"
   | Other -> "(unknown)"
 ;;
 
@@ -150,17 +168,32 @@ let lowercase = function
   | Vary -> "vary"
   | X_correlation_id -> "x-correlation-id"
   | X_cache -> "x-cache"
+  | Depth -> "depth"
+  | Destination -> "destination"
+  | Overwrite -> "overwrite"
+  | Lock_token -> "lock-token"
+  | Dav -> "dav"
+  | If -> "if"
+  | Access_control_allow_origin -> "access-control-allow-origin"
+  | Access_control_allow_methods -> "access-control-allow-methods"
+  | Access_control_allow_headers -> "access-control-allow-headers"
   | Other -> ""
 ;;
 
 (* Parse header name from span. TODO: replace with a DFA *)
 let of_span (local_ buf : bytes) (sp : Span.t) : t =
   match Span.len sp with
+  | 2 ->
+    if Span.equal_caseless buf sp "if"
+    then If
+    else Other
   | 3 ->
     if Span.equal_caseless buf sp "age"
     then Age
     else if Span.equal_caseless buf sp "via"
     then Via
+    else if Span.equal_caseless buf sp "dav"
+    then Dav
     else Other
   | 4 ->
     if Span.equal_caseless buf sp "date"
@@ -177,6 +210,8 @@ let of_span (local_ buf : bytes) (sp : Span.t) : t =
     then Allow
     else if Span.equal_caseless buf sp "range"
     then Range
+    else if Span.equal_caseless buf sp "depth"
+    then Depth
     else Other
   | 6 ->
     if Span.equal_caseless buf sp "accept"
@@ -206,6 +241,10 @@ let of_span (local_ buf : bytes) (sp : Span.t) : t =
     else if Span.equal_caseless buf sp "location"
     then Location
     else Other
+  | 9 ->
+    if Span.equal_caseless buf sp "overwrite"
+    then Overwrite
+    else Other
   | 10 ->
     if Span.equal_caseless buf sp "connection"
     then Connection
@@ -213,8 +252,15 @@ let of_span (local_ buf : bytes) (sp : Span.t) : t =
     then Set_cookie
     else if Span.equal_caseless buf sp "user-agent"
     then User_agent
+    else if Span.equal_caseless buf sp "lock-token"
+    then Lock_token
     else Other
-  | 11 -> if Span.equal_caseless buf sp "retry-after" then Retry_after else Other
+  | 11 ->
+    if Span.equal_caseless buf sp "retry-after"
+    then Retry_after
+    else if Span.equal_caseless buf sp "destination"
+    then Destination
+    else Other
   | 12 ->
     if Span.equal_caseless buf sp "content-type"
     then Content_type
@@ -276,6 +322,16 @@ let of_span (local_ buf : bytes) (sp : Span.t) : t =
     then Content_disposition
     else if Span.equal_caseless buf sp "if-unmodified-since"
     then If_unmodified_since
+    else Other
+  | 27 ->
+    if Span.equal_caseless buf sp "access-control-allow-origin"
+    then Access_control_allow_origin
+    else Other
+  | 28 ->
+    if Span.equal_caseless buf sp "access-control-allow-methods"
+    then Access_control_allow_methods
+    else if Span.equal_caseless buf sp "access-control-allow-headers"
+    then Access_control_allow_headers
     else Other
   | _ -> Other
 ;;

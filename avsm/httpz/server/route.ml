@@ -65,6 +65,8 @@ type ctx = {
   meth : Httpz.Method.t;
   segments : string list;
   query : Httpz.Span.t;
+  body : Httpz.Span.t;
+  content_length : int64#;
 }
 
 let[@inline] meth ctx = ctx.meth
@@ -125,6 +127,22 @@ let query_params ctx name =
   |> List.rev
 
 let[@inline] query ctx = Httpz.Target.query_to_string_pairs ctx.buf ctx.query
+
+let[@inline] body ctx = ctx.body
+
+let[@inline] body_string ctx =
+  let sp = ctx.body in
+  if Httpz.Span.len sp > 0 then Some (Httpz.Span.to_string ctx.buf sp)
+  else None
+
+let[@inline] content_length ctx = ctx.content_length
+
+(** {2 Response Helpers - WebDAV} *)
+
+let[@inline] xml_multistatus (local_ respond) s =
+  respond ~status:Httpz.Res.Multi_status
+    ~headers:[(Httpz.Header_name.Content_type, "application/xml; charset=utf-8")]
+    (String s)
 
 (** {2 Lazy Response Helpers}
 
@@ -302,6 +320,49 @@ let[@inline] post_ segments handler =
   Route { meth = Httpz.Method.Post; pat = lits_to_pat segments; hdr = H0;
           handler = fun () () ctx respond -> handler ctx respond }
 
+(** {2 WebDAV Route Constructors} *)
+
+let[@inline] propfind pat handler =
+  Route { meth = Httpz.Method.Propfind; pat; hdr = H0;
+          handler = fun a () ctx respond -> handler a ctx respond }
+
+let[@inline] proppatch pat handler =
+  Route { meth = Httpz.Method.Proppatch; pat; hdr = H0;
+          handler = fun a () ctx respond -> handler a ctx respond }
+
+let[@inline] mkcol pat handler =
+  Route { meth = Httpz.Method.Mkcol; pat; hdr = H0;
+          handler = fun a () ctx respond -> handler a ctx respond }
+
+let[@inline] report pat handler =
+  Route { meth = Httpz.Method.Report; pat; hdr = H0;
+          handler = fun a () ctx respond -> handler a ctx respond }
+
+let[@inline] copy_ pat handler =
+  Route { meth = Httpz.Method.Copy; pat; hdr = H0;
+          handler = fun a () ctx respond -> handler a ctx respond }
+
+let[@inline] move_ pat handler =
+  Route { meth = Httpz.Method.Move; pat; hdr = H0;
+          handler = fun a () ctx respond -> handler a ctx respond }
+
+let[@inline] lock pat handler =
+  Route { meth = Httpz.Method.Lock; pat; hdr = H0;
+          handler = fun a () ctx respond -> handler a ctx respond }
+
+let[@inline] unlock pat handler =
+  Route { meth = Httpz.Method.Unlock; pat; hdr = H0;
+          handler = fun a () ctx respond -> handler a ctx respond }
+
+let[@inline] propfind_h pat hdr handler = Route { meth = Httpz.Method.Propfind; pat; hdr; handler }
+let[@inline] proppatch_h pat hdr handler = Route { meth = Httpz.Method.Proppatch; pat; hdr; handler }
+let[@inline] mkcol_h pat hdr handler = Route { meth = Httpz.Method.Mkcol; pat; hdr; handler }
+let[@inline] report_h pat hdr handler = Route { meth = Httpz.Method.Report; pat; hdr; handler }
+let[@inline] copy_h pat hdr handler = Route { meth = Httpz.Method.Copy; pat; hdr; handler }
+let[@inline] move_h pat hdr handler = Route { meth = Httpz.Method.Move; pat; hdr; handler }
+let[@inline] lock_h pat hdr handler = Route { meth = Httpz.Method.Lock; pat; hdr; handler }
+let[@inline] unlock_h pat hdr handler = Route { meth = Httpz.Method.Unlock; pat; hdr; handler }
+
 (** {1 Trie-Based Router} *)
 
 module Path_trie = Trie.Of_list(String)
@@ -382,8 +443,8 @@ let parse_segments path =
   String.split path ~on:'/'
   |> List.filter ~f:(fun s -> not (String.is_empty s))
 
-let dispatch buf ~meth ~(target : Httpz.Target.t) ~(local_ headers : Httpz.Header.t list) (t : t) ~(local_ respond) =
+let dispatch buf ~meth ~(target : Httpz.Target.t) ~(body : Httpz.Span.t) ~(content_length : int64#) ~(local_ headers : Httpz.Header.t list) (t : t) ~(local_ respond) =
   let path_str = Httpz.Span.to_string buf (Httpz.Target.path target) in
   let segments = parse_segments path_str in
-  let ctx = { buf; meth; segments; query = Httpz.Target.query target } in
+  let ctx = { buf; meth; segments; query = Httpz.Target.query target; body; content_length } in
   dispatch_walk t meth headers segments ctx respond

@@ -10,6 +10,14 @@ type t =
   | Options
   | Trace
   | Patch
+  | Propfind
+  | Proppatch
+  | Mkcol
+  | Copy
+  | Move
+  | Lock
+  | Unlock
+  | Report
 
 let to_string = function
   | Get -> "GET"
@@ -21,6 +29,14 @@ let to_string = function
   | Options -> "OPTIONS"
   | Trace -> "TRACE"
   | Patch -> "PATCH"
+  | Propfind -> "PROPFIND"
+  | Proppatch -> "PROPPATCH"
+  | Mkcol -> "MKCOL"
+  | Copy -> "COPY"
+  | Move -> "MOVE"
+  | Lock -> "LOCK"
+  | Unlock -> "UNLOCK"
+  | Report -> "REPORT"
 ;;
 
 let pp fmt t = Stdlib.Format.fprintf fmt "%s" (to_string t)

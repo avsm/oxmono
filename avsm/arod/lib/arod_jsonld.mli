@@ -29,8 +29,8 @@ val project_jsonld :
 
 val video_jsonld :
   base_url:string -> url:string -> title:string -> description:string ->
-  date:(int * int * int) -> ?image:string ->
-  ?embed_url:string -> ?is_talk:bool -> unit -> string
+  datetime:Ptime.t -> ?image:string ->
+  embed_url:string -> ?is_talk:bool -> unit -> string
 
 val profile_page_jsonld : ctx:Arod_ctx.t -> string
 

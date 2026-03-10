@@ -1,0 +1,4 @@
+(library
+ (name perma_cache)
+ (libraries jsont jsont.bytesrw cstruct eio httpz httpz.server requests
+            uri tls tls-eio domain-name ca-certs))

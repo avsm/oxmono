@@ -10,6 +10,7 @@ type status =
   | Accepted                (* 202 *)
   | No_content              (* 204 *)
   | Partial_content         (* 206 - for Range requests *)
+  | Multi_status            (* 207 - WebDAV multistatus *)
   (* 3xx Redirection *)
   | Moved_permanently       (* 301 *)
   | Found                   (* 302 *)
@@ -35,6 +36,8 @@ type status =
   | Range_not_satisfiable   (* 416 *)
   | Expectation_failed      (* 417 *)
   | Unprocessable_entity    (* 422 *)
+  | Locked                  (* 423 - WebDAV *)
+  | Failed_dependency       (* 424 - WebDAV *)
   | Upgrade_required        (* 426 *)
   | Precondition_required   (* 428 *)
   | Too_many_requests       (* 429 *)
@@ -45,6 +48,7 @@ type status =
   | Service_unavailable     (* 503 *)
   | Gateway_timeout         (* 504 *)
   | Http_version_not_supported (* 505 *)
+  | Insufficient_storage   (* 507 - WebDAV *)
 
 let status_code = function
   | Continue -> 100
@@ -54,6 +58,7 @@ let status_code = function
   | Accepted -> 202
   | No_content -> 204
   | Partial_content -> 206
+  | Multi_status -> 207
   | Moved_permanently -> 301
   | Found -> 302
   | See_other -> 303
@@ -77,6 +82,8 @@ let status_code = function
   | Range_not_satisfiable -> 416
   | Expectation_failed -> 417
   | Unprocessable_entity -> 422
+  | Locked -> 423
+  | Failed_dependency -> 424
   | Upgrade_required -> 426
   | Precondition_required -> 428
   | Too_many_requests -> 429
@@ -86,6 +93,7 @@ let status_code = function
   | Service_unavailable -> 503
   | Gateway_timeout -> 504
   | Http_version_not_supported -> 505
+  | Insufficient_storage -> 507
 ;;
 
 let status_of_int = function
@@ -96,6 +104,7 @@ let status_of_int = function
   | 202 -> Some Accepted
   | 204 -> Some No_content
   | 206 -> Some Partial_content
+  | 207 -> Some Multi_status
   | 301 -> Some Moved_permanently
   | 302 -> Some Found
   | 303 -> Some See_other
@@ -119,6 +128,8 @@ let status_of_int = function
   | 416 -> Some Range_not_satisfiable
   | 417 -> Some Expectation_failed
   | 422 -> Some Unprocessable_entity
+  | 423 -> Some Locked
+  | 424 -> Some Failed_dependency
   | 426 -> Some Upgrade_required
   | 428 -> Some Precondition_required
   | 429 -> Some Too_many_requests
@@ -128,6 +139,7 @@ let status_of_int = function
   | 503 -> Some Service_unavailable
   | 504 -> Some Gateway_timeout
   | 505 -> Some Http_version_not_supported
+  | 507 -> Some Insufficient_storage
   | _ -> None
 ;;
 
@@ -139,6 +151,7 @@ let status_reason = function
   | Accepted -> "Accepted"
   | No_content -> "No Content"
   | Partial_content -> "Partial Content"
+  | Multi_status -> "Multi-Status"
   | Moved_permanently -> "Moved Permanently"
   | Found -> "Found"
   | See_other -> "See Other"
@@ -162,6 +175,8 @@ let status_reason = function
   | Range_not_satisfiable -> "Range Not Satisfiable"
   | Expectation_failed -> "Expectation Failed"
   | Unprocessable_entity -> "Unprocessable Entity"
+  | Locked -> "Locked"
+  | Failed_dependency -> "Failed Dependency"
   | Upgrade_required -> "Upgrade Required"
   | Precondition_required -> "Precondition Required"
   | Too_many_requests -> "Too Many Requests"
@@ -171,6 +186,7 @@ let status_reason = function
   | Service_unavailable -> "Service Unavailable"
   | Gateway_timeout -> "Gateway Timeout"
   | Http_version_not_supported -> "HTTP Version Not Supported"
+  | Insufficient_storage -> "Insufficient Storage"
 ;;
 
 let status_to_string t = Stdlib.Printf.sprintf "%d %s" (status_code t) (status_reason t)

@@ -1,0 +1,36 @@
+opam-version: "2.0"
+name: "ppx_deriving_qcheck"
+version: "0.9"
+license: "BSD-2-Clause"
+synopsis: "PPX Deriver for QCheck"
+description: """
+QCheck is a QuickCheck inspired property-based testing library for OCaml.
+
+The `ppx_deriving_qcheck` package can automatically derive generators from type
+definitions. It can derive generators for both the `QCheck` and `QCheck2`
+modules."""
+
+maintainer: "valentin.chb@gmail.com"
+author: [ "the qcheck contributors" ]
+
+depends: [
+  "dune" {>= "2.8.0"}
+  "ocaml" {>= "4.08.0"}
+  "qcheck-core" {>= "0.90"}
+  "ppxlib" {>= "0.36.0"}
+  "ppx_deriving" {>= "6.1.0"}
+  "odoc" {with-doc}
+  "alcotest" {with-test & >= "1.4.0" }
+  "qcheck-alcotest" {with-test & >= "0.24"}
+]
+
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "build" "@doc" "-p" name "-j" jobs] {with-doc}
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]
+
+homepage: "https://github.com/c-cube/qcheck/"
+bug-reports: "https://github.com/c-cube/qcheck/issues"
+dev-repo: "git+https://github.com/c-cube/qcheck.git"
+x-maintenance-intent: ["(latest)"]

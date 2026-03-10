@@ -1,0 +1,36 @@
+opam-version: "2.0"
+maintainer: "simon.cruanes.2007@m4x.org"
+author: [ "the qcheck contributors" ]
+homepage: "https://github.com/c-cube/qcheck/"
+license: "BSD-2-Clause"
+synopsis: "Alcotest backend for QCheck"
+description: """
+QCheck is a QuickCheck inspired property-based testing library for OCaml.
+
+The `qcheck-alcotest` library provides an integration layer for `QCheck` onto
+https://github.com/mirage/alcotest[`alcotest`], allowing to run property-based
+tests in `alcotest`."""
+doc: ["http://c-cube.github.io/qcheck/"]
+version: "0.91"
+tags: [
+  "test"
+  "quickcheck"
+  "qcheck"
+  "alcotest"
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "build" "@doc" "-p" name "-j" jobs] {with-doc}
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]
+depends: [
+  "dune" { >= "2.8.0" }
+  "base-unix"
+  "qcheck-core" { = version }
+  "alcotest" {>= "1.2.0"}
+  "odoc" {with-doc}
+  "ocaml" {>= "4.08.0"}
+]
+dev-repo: "git+https://github.com/c-cube/qcheck.git"
+bug-reports: "https://github.com/c-cube/qcheck/issues"
+x-maintenance-intent: ["(latest)"]

@@ -1,0 +1,24 @@
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} true) (>= %{ocaml_version} 5)))
+ (action (copy QCheck_runner_test.expected.ocaml5.64 QCheck_runner_test.expected)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} false) (>= %{ocaml_version} 5)))
+ (action (copy QCheck_runner_test.expected.ocaml5.32 QCheck_runner_test.expected)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} true) (< %{ocaml_version} 5)))
+ (action (copy QCheck_runner_test.expected.ocaml4.64 QCheck_runner_test.expected)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} false) (< %{ocaml_version} 5)))
+ (action (copy QCheck_runner_test.expected.ocaml4.32 QCheck_runner_test.expected)))
+
+;; implicitly compared against QCheck_runner_test.expected
+(test
+ (enabled_if (= %{os_type} "Unix"))
+ (name QCheck_runner_test)
+ (modules QCheck_runner_test)
+ (package qcheck)
+ (libraries qcheck)
+ (action (with-accepted-exit-codes 1 (run ./%{test} --no-colors -s 1234))))

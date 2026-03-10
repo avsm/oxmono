@@ -1,0 +1,73 @@
+(library
+  (name QCheck_tests)
+  (modules QCheck_tests)
+  (libraries qcheck-core))
+
+(library
+  (name QCheck2_tests)
+  (modules QCheck2_tests)
+  (libraries qcheck-core))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} true) (>= %{ocaml_version} 5)))
+ (action (copy QCheck_expect_test.expected.ocaml5.64 QCheck_expect_test.expected)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} false) (>= %{ocaml_version} 5)))
+ (action (copy QCheck_expect_test.expected.ocaml5.32 QCheck_expect_test.expected)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} true) (< %{ocaml_version} 5)))
+ (action (copy QCheck_expect_test.expected.ocaml4.64 QCheck_expect_test.expected)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} false) (< %{ocaml_version} 5)))
+ (action (copy QCheck_expect_test.expected.ocaml4.32 QCheck_expect_test.expected)))
+
+;; implicitly compared against QCheck_expect_test.expected
+(test
+ (name QCheck_expect_test)
+ (modules QCheck_expect_test)
+ (package qcheck-core)
+ (libraries qcheck-core qcheck-core.runner QCheck_tests)
+ (action (run ./%{test} --no-colors -s 1234)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} true) (>= %{ocaml_version} 5)))
+ (action (copy QCheck2_expect_test.expected.ocaml5.64 QCheck2_expect_test.expected)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} false) (>= %{ocaml_version} 5)))
+ (action (copy QCheck2_expect_test.expected.ocaml5.32 QCheck2_expect_test.expected)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} true) (< %{ocaml_version} 5)))
+ (action (copy QCheck2_expect_test.expected.ocaml4.64 QCheck2_expect_test.expected)))
+
+(rule
+ (enabled_if (and (= %{arch_sixtyfour} false) (< %{ocaml_version} 5)))
+ (action (copy QCheck2_expect_test.expected.ocaml4.32 QCheck2_expect_test.expected)))
+
+;; implicitly compared against QCheck2_expect_test.expected
+(test
+ (name QCheck2_expect_test)
+ (modules QCheck2_expect_test)
+ (package qcheck-core)
+ (libraries qcheck-core qcheck-core.runner QCheck2_tests)
+ (action (run ./%{test} --no-colors -s 1234)))
+
+(tests
+  (names QCheck_unit_tests QCheck2_unit_tests)
+  (modules QCheck_unit_tests QCheck2_unit_tests)
+  (package qcheck-core)
+  (libraries qcheck-core alcotest))
+
+(executable
+  (name shrink_benchmark)
+  (modules shrink_benchmark)
+  (libraries qcheck-core qcheck-core.runner QCheck_tests QCheck2_tests))
+
+(executable
+  (name rng_independence)
+  (modules rng_independence)
+  (libraries qcheck-core qcheck-core.runner))

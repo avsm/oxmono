@@ -1,0 +1,40 @@
+opam-version: "2.0"
+maintainer: "simon.cruanes.2007@m4x.org"
+author: [ "the qcheck contributors" ]
+synopsis: "Compatibility package for QCheck"
+description: """
+QCheck is a QuickCheck inspired property-based testing library for OCaml.
+
+The `qcheck` library provides a compatibility API with older versions of QCheck,
+and depends upon both `qcheck-core` and `qcheck-ounit`.
+
+For fewer dependencies and new developments `qcheck-core` is recommended."""
+homepage: "https://github.com/c-cube/qcheck/"
+license: "BSD-2-Clause"
+doc: ["http://c-cube.github.io/qcheck/"]
+version: "0.91"
+tags: [
+  "test"
+  "property"
+  "quickcheck"
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "build" "@doc" "-p" name "-j" jobs] {with-doc}
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]
+depends: [
+  "dune" { >= "2.8.0" }
+  "base-unix"
+  "qcheck-core" { = version }
+  "qcheck-ounit" { = version }
+  "alcotest" {with-test & >= "1.2.0"}
+  "odoc" {with-doc}
+  "ocaml" {>= "4.08.0"}
+]
+dev-repo: "git+https://github.com/c-cube/qcheck.git"
+x-maintenance-intent: ["(latest)"]
+bug-reports: "https://github.com/c-cube/qcheck/issues"
+conflicts: [
+  "ounit" { < "2.0" }
+]

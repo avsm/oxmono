@@ -1,6 +1,5 @@
 (lang dune 3.7)
-(using ctypes 0.3)
 
 (name zstd)
-(version v0.4)
+(version v0.5)
 (implicit_transitive_deps false)

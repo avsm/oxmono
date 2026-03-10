@@ -1,4 +1,4 @@
-version: "0.4"
+version: "0.5"
 opam-version: "2.0"
 maintainer: "ygrek@autistici.org"
 homepage: "https://github.com/ygrek/ocaml-zstd"
@@ -16,10 +16,8 @@ build: [
     "@runtest" {with-test}]
 ]
 depends: [
-  "ocaml"
+  "ocaml" {>= "5.2"}
   "dune" {>= "3.7"}
-  "ctypes"
-  "integers"
   ("extlib" {with-test} | "extlib-compat" {with-test})
   "base-unix" {with-test}
   "conf-zstd"
@@ -28,4 +26,7 @@ synopsis: "Bindings to zstd compression library"
 description: """
 Zstd, short for Zstandard, is a fast lossless compression algorithm,
 targeting real-time compression scenarios at zlib-level compression ratio.
-See http://zstd.net/ for more info."""
+See http://zstd.net/ for more info.
+
+This version uses direct C bindings with OxCaml optimizations for
+stack allocation ([exclave_], [local_]) and unboxed values."""

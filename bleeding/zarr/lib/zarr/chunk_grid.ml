@@ -53,16 +53,14 @@ let total_chunks grid array_shape =
 (** {2 JSON serialization} *)
 
 let of_json (json : Jsont.json) =
-  try
-    let name = Json_util.(member "name" json |> to_string_exn) in
-    match name with
-    | "regular" ->
-      let config = Json_util.member "configuration" json in
-      let cs = Json_util.(member "chunk_shape" config |> to_list_exn)
-               |> List.map Json_util.to_int_exn |> Array.of_list in
-      Ok (Regular { chunk_shape = cs })
-    | _ -> Error ("unsupported chunk grid: " ^ name)
-  with Failure msg -> Error ("chunk grid JSON error: " ^ msg)
+  let name = Json_util.(member "name" json |> to_string_exn) in
+  match name with
+  | "regular" ->
+    let config = Json_util.member "configuration" json in
+    let cs = Json_util.(member "chunk_shape" config |> to_list_exn)
+             |> List.map Json_util.to_int_exn |> Array.of_list in
+    Regular { chunk_shape = cs }
+  | _ -> failwith ("unsupported chunk grid: " ^ name)
 
 let to_json (Regular c) =
   Json_util.(obj [mem "name" (str "regular");

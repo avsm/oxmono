@@ -26,10 +26,11 @@ type t =
 
 (** {2 Normalisation} *)
 
-val normalise : int -> t -> (int * int * int, string) result
+val normalise : int -> t -> int * int * int
 (** [normalise dim_size slice] resolves a slice specification to a
     concrete [(start, stop, step)] triple, handling negative indices
-    and bounds clamping. *)
+    and bounds clamping.
+    @raise Invalid_argument on out-of-bounds index or zero step. *)
 
 (** {2 Output Shape} *)
 

@@ -30,99 +30,86 @@ let test_read_simple_float64 () =
   skip_if_no_fixture "simple_float64";
 
   let store = Filesystem_store.create (Filename.concat fixtures_dir "simple_float64") in
-  match Filesystem_array.open_ store ~path:"" with
-  | Error msg ->
-    fail ("should open array: " ^ msg)
-  | Ok arr ->
-    (* Verify metadata *)
-    let meta = Filesystem_array.metadata arr in
-    check (Alcotest.array Alcotest.int) "shape" [|100; 100|] meta.shape;
-    (match meta.data_type with Dtype.Float64 -> () | _ -> fail "expected float64");
+  let arr = Filesystem_array.open_ store ~path:"" in
+  (* Verify metadata *)
+  let meta = Filesystem_array.metadata arr in
+  check (Alcotest.array Alcotest.int) "shape" [|100; 100|] meta.shape;
+  (match meta.data_type with Dtype.Float64 -> () | _ -> fail "expected float64");
 
-    (* Verify data - element at [5][5] should be 5*100+5 = 505 *)
-    match Filesystem_array.get arr [|5; 5|] with
-    | `Float f -> check (float 0.001) "element [5][5]" 505.0 f
-    | _ -> fail "expected float"
+  (* Verify data - element at [5][5] should be 5*100+5 = 505 *)
+  match Filesystem_array.get arr [|5; 5|] with
+  | `Float f -> check (float 0.001) "element [5][5]" 505.0 f
+  | _ -> fail "expected float"
 
 let test_read_simple_int32 () =
   skip_if_no_fixtures ();
   skip_if_no_fixture "simple_int32";
 
   let store = Filesystem_store.create (Filename.concat fixtures_dir "simple_int32") in
-  match Filesystem_array.open_ store ~path:"" with
-  | Error _ -> fail "should open array"
-  | Ok arr ->
-    let meta = Filesystem_array.metadata arr in
-    check (Alcotest.array Alcotest.int) "shape" [|50; 50|] meta.shape;
+  let arr = Filesystem_array.open_ store ~path:"" in
+  let meta = Filesystem_array.metadata arr in
+  check (Alcotest.array Alcotest.int) "shape" [|50; 50|] meta.shape;
 
-    (* Read a slice *)
-    let data = Filesystem_array.get_slice arr [Slice.Range (0, 10); Slice.Range (0, 10)] in
-    check (Alcotest.array Alcotest.int) "slice shape" [|10; 10|] (Chunk_data.shape data)
+  (* Read a slice *)
+  let data = Filesystem_array.get_slice arr [Slice.Range (0, 10); Slice.Range (0, 10)] in
+  check (Alcotest.array Alcotest.int) "slice shape" [|10; 10|] (Chunk_data.shape data)
 
 let test_read_with_gzip () =
   skip_if_no_fixtures ();
   skip_if_no_fixture "gzip_compressed";
 
   let store = Filesystem_store.create (Filename.concat fixtures_dir "gzip_compressed") in
-  match Filesystem_array.open_ store ~path:"" with
-  | Error _ -> fail "should open gzip array"
-  | Ok arr ->
-    (* Read some data *)
-    match Filesystem_array.get arr [|0; 0|] with
-    | `Float f -> check (float 0.001) "first element" 0.0 f
-    | _ -> fail "expected float"
+  let arr = Filesystem_array.open_ store ~path:"" in
+  (* Read some data *)
+  match Filesystem_array.get arr [|0; 0|] with
+  | `Float f -> check (float 0.001) "first element" 0.0 f
+  | _ -> fail "expected float"
 
 let test_read_sharded () =
   skip_if_no_fixtures ();
   skip_if_no_fixture "sharded_int32";
 
   let store = Filesystem_store.create (Filename.concat fixtures_dir "sharded_int32") in
-  match Filesystem_array.open_ store ~path:"" with
-  | Error _ -> fail "should open sharded array"
-  | Ok arr ->
-    let meta = Filesystem_array.metadata arr in
-    check (Alcotest.array Alcotest.int) "shape" [|256; 256|] meta.shape;
+  let arr = Filesystem_array.open_ store ~path:"" in
+  let meta = Filesystem_array.metadata arr in
+  check (Alcotest.array Alcotest.int) "shape" [|256; 256|] meta.shape;
 
-    (* Read a single inner chunk *)
-    let data = Filesystem_array.get_slice arr [Slice.Range (0, 16); Slice.Range (0, 16)] in
-    check (Alcotest.array Alcotest.int) "inner chunk shape" [|16; 16|] (Chunk_data.shape data);
+  (* Read a single inner chunk *)
+  let data = Filesystem_array.get_slice arr [Slice.Range (0, 16); Slice.Range (0, 16)] in
+  check (Alcotest.array Alcotest.int) "inner chunk shape" [|16; 16|] (Chunk_data.shape data);
 
-    (* Verify first element *)
-    match Chunk_data.get data [|0; 0|] with
-    | `Int32 v -> check int32 "first element" 0l v
-    | _ -> fail "expected int32"
+  (* Verify first element *)
+  match Chunk_data.get data [|0; 0|] with
+  | `Int32 v -> check int32 "first element" 0l v
+  | _ -> fail "expected int32"
 
 let test_read_multidimensional () =
   skip_if_no_fixtures ();
   skip_if_no_fixture "multidim_3d";
 
   let store = Filesystem_store.create (Filename.concat fixtures_dir "multidim_3d") in
-  match Filesystem_array.open_ store ~path:"" with
-  | Error _ -> fail "should open 3D array"
-  | Ok arr ->
-    let meta = Filesystem_array.metadata arr in
-    check int "ndim" 3 (StdArray.length meta.shape);
+  let arr = Filesystem_array.open_ store ~path:"" in
+  let meta = Filesystem_array.metadata arr in
+  check int "ndim" 3 (StdArray.length meta.shape);
 
-    (* Read a slice *)
-    let data = Filesystem_array.get_slice arr [Slice.Range (0, 5); Slice.Range (0, 5); Slice.Range (0, 5)] in
-    check int "slice ndim" 3 (StdArray.length (Chunk_data.shape data))
+  (* Read a slice *)
+  let data = Filesystem_array.get_slice arr [Slice.Range (0, 5); Slice.Range (0, 5); Slice.Range (0, 5)] in
+  check int "slice ndim" 3 (StdArray.length (Chunk_data.shape data))
 
 let test_read_with_fill_value () =
   skip_if_no_fixtures ();
   skip_if_no_fixture "sparse_with_fill";
 
   let store = Filesystem_store.create (Filename.concat fixtures_dir "sparse_with_fill") in
-  match Filesystem_array.open_ store ~path:"" with
-  | Error _ -> fail "should open sparse array"
-  | Ok arr ->
-    (* Read from unwritten region - should get fill value *)
-    let meta = Filesystem_array.metadata arr in
-    let last_dim = StdArray.get meta.shape 0 - 1 in
-    match Filesystem_array.get arr [|last_dim|] with
-    | `Float f ->
-      (* Check it's the fill value (NaN) *)
-      check bool "fill value is NaN" true (Float.is_nan f)
-    | _ -> fail "expected float"
+  let arr = Filesystem_array.open_ store ~path:"" in
+  (* Read from unwritten region - should get fill value *)
+  let meta = Filesystem_array.metadata arr in
+  let last_dim = StdArray.get meta.shape 0 - 1 in
+  match Filesystem_array.get arr [|last_dim|] with
+  | `Float f ->
+    (* Check it's the fill value (NaN) *)
+    check bool "fill value is NaN" true (Float.is_nan f)
+  | _ -> fail "expected float"
 
 let tests = [
   "read simple float64", `Quick, test_read_simple_float64;

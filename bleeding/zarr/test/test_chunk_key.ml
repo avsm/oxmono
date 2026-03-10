@@ -50,16 +50,14 @@ let test_json_roundtrip () =
   let enc = Chunk_key.Default { separator = Codec.Slash } in
   let json = Chunk_key.to_json enc in
   (match Chunk_key.of_json json with
-  | Ok (Chunk_key.Default { separator = Codec.Slash }) -> ()
-  | Ok _ -> fail "wrong encoding type"
-  | Error _ -> fail "failed to parse");
+  | Chunk_key.Default { separator = Codec.Slash } -> ()
+  | _ -> fail "wrong encoding type");
 
   let enc = Chunk_key.V2 { separator = Codec.Dot } in
   let json = Chunk_key.to_json enc in
   match Chunk_key.of_json json with
-  | Ok (Chunk_key.V2 { separator = Codec.Dot }) -> ()
-  | Ok _ -> fail "wrong encoding type"
-  | Error _ -> fail "failed to parse"
+  | Chunk_key.V2 { separator = Codec.Dot } -> ()
+  | _ -> fail "wrong encoding type"
 
 let tests = [
   "encode default", `Quick, test_encode_default;

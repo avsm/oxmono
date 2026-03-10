@@ -7,7 +7,8 @@
     Zarr v3.1 spec, "crc32c" codec}.  This is a {b bytes-to-bytes} codec.
 
     Uses the CRC32C polynomial [0x82F63B78] (Castagnoli) with a
-    pre-computed 256-entry lookup table.  Encodes by appending a 4-byte
+    pre-computed 256-entry lookup table using native [int] to avoid
+    [int32] boxing in the hot loop.  Encodes by appending a 4-byte
     little-endian unsigned checksum; decodes by verifying and stripping
     it.
 
@@ -16,15 +17,20 @@
 
     {b JSON config:} None (empty object or omitted). *)
 
-val compute : bytes -> int32
-(** [compute bytes] returns the CRC32C checksum of [bytes]. *)
+val compute : bytes -> int
+(** [compute bytes] returns the CRC32C checksum of [bytes] as a native
+    int (lower 32 bits). *)
+
+val compute_range : bytes -> int -> int -> int
+(** [compute_range bytes off len] computes CRC32C over a sub-range
+    without copying the bytes. *)
 
 val encode : bytes -> bytes
 (** [encode bytes] appends a 4-byte little-endian CRC32C checksum. *)
 
-val decode : bytes -> (bytes, [> `Checksum_mismatch ]) result
+val decode : bytes -> bytes
 (** [decode bytes] verifies and strips the 4-byte CRC32C checksum.
-    Returns [Error `Checksum_mismatch] if the stored checksum does not
+    @raise Zarr_codec.Checksum_mismatch if the stored checksum does not
     match the computed checksum. *)
 
 val create : unit -> Zarr_codec.bytes_to_bytes

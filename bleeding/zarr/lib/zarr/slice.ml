@@ -13,41 +13,41 @@ type t =
   | All
   | Stepped of int * int * int
 
-(** [normalise dim_size slice] returns [(start, stop, step)] or an error. *)
+(** [normalise dim_size slice] returns [(start, stop, step)].
+    @raise Invalid_argument on out-of-bounds index or zero step. *)
 let normalise dim_size = function
   | Index i ->
     let i = if i < 0 then dim_size + i else i in
     if i < 0 || i >= dim_size then
-      Error (Printf.sprintf "index %d out of bounds for size %d" i dim_size)
-    else Ok (i, i + 1, 1)
+      invalid_arg (Printf.sprintf "index %d out of bounds for size %d" i dim_size);
+    (i, i + 1, 1)
   | Range (start, stop) ->
     let start = max 0 (min dim_size (if start < 0 then dim_size + start else start)) in
     let stop = max 0 (min dim_size (if stop < 0 then dim_size + stop else stop)) in
     if start >= stop then
-      Error (Printf.sprintf "empty range [%d:%d)" start stop)
-    else Ok (start, stop, 1)
+      invalid_arg (Printf.sprintf "empty range [%d:%d)" start stop);
+    (start, stop, 1)
   | RangeFrom start ->
     let start = max 0 (min dim_size (if start < 0 then dim_size + start else start)) in
-    Ok (start, dim_size, 1)
+    (start, dim_size, 1)
   | RangeTo stop ->
     let stop = max 0 (min dim_size (if stop < 0 then dim_size + stop else stop)) in
-    Ok (0, stop, 1)
-  | All -> Ok (0, dim_size, 1)
+    (0, stop, 1)
+  | All -> (0, dim_size, 1)
   | Stepped (start, stop, step) ->
-    if step = 0 then Error "step cannot be zero"
-    else
-      let start = max 0 (min dim_size (if start < 0 then dim_size + start else start)) in
-      let stop = max 0 (min dim_size (if stop < 0 then dim_size + stop else stop)) in
-      Ok (start, stop, step)
+    if step = 0 then invalid_arg "step cannot be zero";
+    let start = max 0 (min dim_size (if start < 0 then dim_size + start else start)) in
+    let stop = max 0 (min dim_size (if stop < 0 then dim_size + stop else stop)) in
+    (start, stop, step)
 
 (** [output_shape shape slices] computes the shape of the slice result. *)
 let output_shape shape slices =
   List.mapi (fun i sl ->
     match normalise shape.(i) sl with
-    | Ok (start, stop, step) ->
+    | (start, stop, step) ->
       let size = (stop - start + abs step - 1) / abs step in
       if size > 0 then Some size else None
-    | Error _ -> None
+    | exception Invalid_argument _ -> None
   ) slices
   |> List.filter_map Fun.id
   |> Array.of_list
@@ -59,7 +59,7 @@ let iter shape slices ~f =
   let ndim = Array.length shape in
   let normalised = Array.init ndim (fun i ->
     let sl = if i < List.length slices then List.nth slices i else All in
-    match normalise shape.(i) sl with Ok b -> b | Error _ -> (0, 0, 1)
+    (try normalise shape.(i) sl with Invalid_argument _ -> (0, 0, 1))
   ) in
   let current = Array.map (fun (s, _, _) -> s) normalised in
   let output_idx = Array.make ndim 0 in
@@ -87,7 +87,7 @@ let chunks_for_slice shape chunk_shape slices =
   let result = ref [] in
   let normalised = Array.init ndim (fun i ->
     let sl = if i < List.length slices then List.nth slices i else All in
-    match normalise shape.(i) sl with Ok b -> b | Error _ -> (0, 0, 1)
+    (try normalise shape.(i) sl with Invalid_argument _ -> (0, 0, 1))
   ) in
   let chunk_ranges = Array.mapi (fun i (start, stop, _) ->
     let cs = chunk_shape.(i) in
@@ -119,7 +119,7 @@ let chunk_intersection shape chunk_shape chunk_coords slices =
     let chunk_end = min ((cc + 1) * cs) shape.(i) in
     let sl = if i < List.length slices then List.nth slices i else All in
     let (slice_start, slice_stop, step) =
-      match normalise shape.(i) sl with Ok b -> b | Error _ -> (0, shape.(i), 1) in
+      (try normalise shape.(i) sl with Invalid_argument _ -> (0, shape.(i), 1)) in
     let inter_start = max chunk_start slice_start in
     let inter_stop = min chunk_end slice_stop in
     if inter_start >= inter_stop then (0, 0, 0, 0)

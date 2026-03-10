@@ -3,5 +3,6 @@
 (library
  (name zarr)
  (public_name zarr)
- (libraries jsont jsont.bytesrw decompress.zl decompress.gz base zstd bigarray)
+ (libraries jsont jsont.bytesrw decompress.zl decompress.gz base zstd bigarray
+            stdlib_upstream_compatible)
  (preprocess no_preprocessing))

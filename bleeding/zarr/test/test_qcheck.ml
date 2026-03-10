@@ -46,9 +46,8 @@ let test_crc32c_roundtrip =
     bytes_arb
     (fun input ->
       let encoded = Codec_crc32c.encode input in
-      match Codec_crc32c.decode encoded with
-      | Ok decoded -> Bytes.equal input decoded
-      | Error _ -> false)
+      let decoded = Codec_crc32c.decode encoded in
+      Bytes.equal input decoded)
 
 let test_crc32c_detect_corruption =
   Test.make ~count:200
@@ -61,10 +60,10 @@ let test_crc32c_detect_corruption =
         let pos = corrupt_pos mod (Bytes.length encoded) in
         let original = Bytes.get encoded pos in
         Bytes.set encoded pos (Char.chr ((Char.code original + 1) mod 256));
-        match Codec_crc32c.decode encoded with
-        | Ok decoded -> Bytes.equal input decoded  (* No actual corruption if same *)
-        | Error `Checksum_mismatch -> true
-        | Error _ -> false
+        try
+          let decoded = Codec_crc32c.decode encoded in
+          Bytes.equal input decoded  (* No actual corruption if same *)
+        with Zarr.Codec.Checksum_mismatch -> true
       end)
 
 let test_gzip_roundtrip =
@@ -74,9 +73,8 @@ let test_gzip_roundtrip =
     (fun (input, level) ->
       let codec = Codec_gzip.create level in
       let compressed = codec.encode input in
-      match codec.decode compressed with
-      | Ok decompressed -> Bytes.equal input decompressed
-      | Error _ -> Bytes.length input = 0)  (* Empty might fail *)
+      let decompressed = codec.decode compressed in
+      Bytes.equal input decompressed)
 
 (** {2 Chunk_data Property Tests} *)
 
@@ -128,9 +126,8 @@ let test_metadata_json_roundtrip =
       let meta = Metadata.create_array_metadata
         ~shape ~chunks ~dtype:Dtype.Int32 () in
       let json = Metadata.array_to_json meta in
-      match Metadata.array_of_json json with
-      | Ok meta2 -> meta.shape = meta2.shape
-      | Error _ -> false)
+      let meta2 = Metadata.array_of_json json in
+      meta.shape = meta2.shape)
 
 (** {2 Fuzz Tests} *)
 
@@ -139,7 +136,7 @@ let test_metadata_fuzz =
     ~name:"metadata parsing doesn't crash on random input"
     (make Gen.string)
     (fun s ->
-      let _ = Metadata.array_of_json s in
+      (try ignore (Metadata.array_of_json s) with Failure _ -> ());
       true)  (* Any result is OK, just don't crash *)
 
 let test_gzip_decode_fuzz =
@@ -148,7 +145,7 @@ let test_gzip_decode_fuzz =
     bytes_arb
     (fun b ->
       let codec = Codec_gzip.create 6 in
-      let _ = codec.decode b in
+      (try ignore (codec.decode b) with _ -> ());
       true)
 
 let test_crc32c_decode_fuzz =
@@ -156,7 +153,7 @@ let test_crc32c_decode_fuzz =
     ~name:"crc32c decode doesn't crash on random input"
     bytes_arb
     (fun b ->
-      let _ = Codec_crc32c.decode b in
+      (try ignore (Codec_crc32c.decode b) with _ -> ());
       true)
 
 (** All QCheck tests *)

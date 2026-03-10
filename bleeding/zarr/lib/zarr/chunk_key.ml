@@ -81,9 +81,9 @@ let of_json json =
   let sep = match Json_util.(member "separator" config |> to_string_exn) with
     | "." -> Zarr_codec.Dot | _ -> Slash in
   match name with
-  | "default" -> Ok (Default { separator = sep })
-  | "v2" -> Ok (V2 { separator = sep })
-  | _ -> Error ("unsupported chunk key encoding: " ^ name)
+  | "default" -> Default { separator = sep }
+  | "v2" -> V2 { separator = sep }
+  | _ -> failwith ("unsupported chunk key encoding: " ^ name)
 
 let to_json = function
   | Default { separator } ->

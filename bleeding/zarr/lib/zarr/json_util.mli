@@ -82,8 +82,9 @@ val is_null : Jsont.json -> bool
 
 (** {2 String I/O} *)
 
-val of_string : string -> (Jsont.json, string) result
-(** [of_string s] parses a JSON string into a generic JSON value. *)
+val of_string : string -> Jsont.json
+(** [of_string s] parses a JSON string into a generic JSON value.
+    @raise Failure if the string is not valid JSON. *)
 
 val to_string : ?format:Jsont.format -> Jsont.json -> string
 (** [to_string json] serialises a JSON value to a string.

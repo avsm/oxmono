@@ -3,13 +3,6 @@
 open Alcotest
 open Zarr
 
-(* Helper to unwrap decode result *)
-let decode_ok chain shape dtype bytes =
-  match Codec.decode chain shape dtype bytes with
-  | Ok arr -> arr
-  | Error (`Codec_error msg) -> Alcotest.fail ("decode error: " ^ msg)
-  | Error `Checksum_mismatch -> Alcotest.fail "decode checksum mismatch"
-
 (* === Bytes codec tests === *)
 
 let test_bytes_little_endian_int32 () =
@@ -61,26 +54,25 @@ let test_crc32c_known_value () =
   let input = Bytes.of_string "123456789" in
   let with_checksum = Codec_crc32c.encode input in
   check int "length increased by 4" (Bytes.length input + 4) (Bytes.length with_checksum);
-  (* Verify checksum *)
-  let checksum = Bytes.get_int32_le with_checksum (Bytes.length input) in
-  check int32 "CRC32C of '123456789'" 0xe3069283l checksum
+  (* Verify checksum -- compute returns int, compare against expected value *)
+  let checksum = Codec_crc32c.compute input in
+  check int "CRC32C of '123456789'" 0xe3069283 checksum
 
 let test_crc32c_roundtrip () =
   let input = Bytes.of_string "Hello, World!" in
   let encoded = Codec_crc32c.encode input in
-  match Codec_crc32c.decode encoded with
-  | Ok decoded -> check bytes "roundtrip" input decoded
-  | Error _ -> fail "decode failed"
+  let decoded = Codec_crc32c.decode encoded in
+  check bytes "roundtrip" input decoded
 
 let test_crc32c_corruption () =
   let input = Bytes.of_string "Hello, World!" in
   let encoded = Codec_crc32c.encode input in
   (* Corrupt one byte *)
   Bytes.set encoded 5 'X';
-  match Codec_crc32c.decode encoded with
-  | Ok _ -> fail "should detect corruption"
-  | Error `Checksum_mismatch -> ()
-  | Error _ -> fail "wrong error type"
+  (try
+    ignore (Codec_crc32c.decode encoded);
+    fail "should detect corruption"
+  with Codec.Checksum_mismatch -> ())
 
 (* === Gzip codec tests === *)
 
@@ -90,17 +82,15 @@ let test_gzip_roundtrip () =
   let compressed = codec.encode input in
   (* Compressed should generally be smaller or at least not much larger *)
   check bool "compression works" true (Bytes.length compressed > 0);
-  match codec.decode compressed with
-  | Ok decompressed -> check bytes "roundtrip" input decompressed
-  | Error _ -> fail "decompress failed"
+  let decompressed = codec.decode compressed in
+  check bytes "roundtrip" input decompressed
 
 let test_gzip_empty () =
   let input = Bytes.empty in
   let codec = Codec_gzip.create 6 in
   let compressed = codec.encode input in
-  match codec.decode compressed with
-  | Ok decompressed -> check bytes "empty roundtrip" input decompressed
-  | Error _ -> fail "decompress empty failed"
+  let decompressed = codec.decode compressed in
+  check bytes "empty roundtrip" input decompressed
 
 let test_gzip_levels () =
   let input = Bytes.of_string (String.make 1000 'a') in
@@ -169,17 +159,15 @@ let test_zstd_roundtrip () =
   let codec = Codec_zstd.create 3 in
   let compressed = codec.encode input in
   check bool "compression works" true (Bytes.length compressed > 0);
-  match codec.decode compressed with
-  | Ok decompressed -> check bytes "roundtrip" input decompressed
-  | Error _ -> fail "decompress failed"
+  let decompressed = codec.decode compressed in
+  check bytes "roundtrip" input decompressed
 
 let test_zstd_empty () =
   let input = Bytes.empty in
   let codec = Codec_zstd.create 3 in
   let compressed = codec.encode input in
-  match codec.decode compressed with
-  | Ok decompressed -> check bytes "empty roundtrip" input decompressed
-  | Error _ -> fail "decompress empty failed"
+  let decompressed = codec.decode compressed in
+  check bytes "empty roundtrip" input decompressed
 
 let test_zstd_levels () =
   let input = Bytes.of_string (String.make 10000 'a') in
@@ -194,125 +182,115 @@ let test_zstd_large_data () =
   let input = Bytes.init 100000 (fun i -> Char.chr (i mod 256)) in
   let codec = Codec_zstd.create 3 in
   let compressed = codec.encode input in
-  match codec.decode compressed with
-  | Ok decompressed -> check bytes "large roundtrip" input decompressed
-  | Error _ -> fail "decompress large failed"
+  let decompressed = codec.decode compressed in
+  check bytes "large roundtrip" input decompressed
 
 let test_zstd_decode_invalid () =
   let input = Bytes.of_string "this is not valid zstd data" in
   let codec = Codec_zstd.create 3 in
-  match codec.decode input with
-  | Ok _ -> fail "should fail on invalid data"
-  | Error (`Codec_error _) -> ()
-  | Error _ -> fail "wrong error type"
+  (try
+    ignore (codec.decode input);
+    fail "should fail on invalid data"
+  with Codec.Codec_error _ -> ())
 
 (* === Codec chain tests === *)
 
 let test_codec_chain_bytes_only () =
-  match Codec.build_chain_default [Codec.Bytes { endian = Some Dtype.Little }] Dtype.Int32 [|10|] with
-  | Error (`Codec_error msg) -> fail ("should build: " ^ msg)
-  | Error _ -> fail "should build: unknown error"
-  | Ok chain ->
-    let arr = Chunk_data.create_zero Dtype.Int32 [|3|] in
-    Chunk_data.set arr [|0|] (`Int32 1l);
-    Chunk_data.set arr [|1|] (`Int32 2l);
-    Chunk_data.set arr [|2|] (`Int32 3l);
+  let chain = Codec.build_chain_default [Codec.Bytes { endian = Some Dtype.Little }] Dtype.Int32 [|10|] in
+  let arr = Chunk_data.create_zero Dtype.Int32 [|3|] in
+  Chunk_data.set arr [|0|] (`Int32 1l);
+  Chunk_data.set arr [|1|] (`Int32 2l);
+  Chunk_data.set arr [|2|] (`Int32 3l);
 
-    let encoded = Codec.encode chain arr in
-    let decoded = decode_ok chain [|3|] Dtype.Int32 encoded in
+  let encoded = Codec.encode chain arr in
+  let decoded = Codec.decode chain [|3|] Dtype.Int32 encoded in
 
-    check int "first" 1
-      (match Chunk_data.get decoded [|0|] with `Int32 i -> Int32.to_int i | _ -> -1);
-    check int "second" 2
-      (match Chunk_data.get decoded [|1|] with `Int32 i -> Int32.to_int i | _ -> -1);
-    check int "third" 3
-      (match Chunk_data.get decoded [|2|] with `Int32 i -> Int32.to_int i | _ -> -1)
+  check int "first" 1
+    (match Chunk_data.get decoded [|0|] with `Int32 i -> Int32.to_int i | _ -> -1);
+  check int "second" 2
+    (match Chunk_data.get decoded [|1|] with `Int32 i -> Int32.to_int i | _ -> -1);
+  check int "third" 3
+    (match Chunk_data.get decoded [|2|] with `Int32 i -> Int32.to_int i | _ -> -1)
 
 let test_codec_chain_with_gzip () =
-  match Codec.build_chain_default [Codec.Bytes { endian = Some Dtype.Little }; Codec.Gzip { level = 5 }] Dtype.Int32 [|10|] with
-  | Error _ -> fail "should build"
-  | Ok chain ->
-    let arr = Chunk_data.create_zero Dtype.Int32 [|100|] in
-    for i = 0 to 99 do
-      Chunk_data.set arr [|i|] (`Int32 (Int32.of_int i))
-    done;
+  let chain = Codec.build_chain_default [Codec.Bytes { endian = Some Dtype.Little }; Codec.Gzip { level = 5 }] Dtype.Int32 [|10|] in
+  let arr = Chunk_data.create_zero Dtype.Int32 [|100|] in
+  for i = 0 to 99 do
+    Chunk_data.set arr [|i|] (`Int32 (Int32.of_int i))
+  done;
 
-    let encoded = Codec.encode chain arr in
-    let decoded = decode_ok chain [|100|] Dtype.Int32 encoded in
+  let encoded = Codec.encode chain arr in
+  let decoded = Codec.decode chain [|100|] Dtype.Int32 encoded in
 
-    for i = 0 to 99 do
-      match Chunk_data.get decoded [|i|] with
-      | `Int32 v -> check int (Printf.sprintf "element %d" i) i (Int32.to_int v)
-      | _ -> fail "expected int32"
-    done
+  for i = 0 to 99 do
+    match Chunk_data.get decoded [|i|] with
+    | `Int32 v -> check int (Printf.sprintf "element %d" i) i (Int32.to_int v)
+    | _ -> fail "expected int32"
+  done
 
 let test_codec_chain_with_zstd () =
-  match Codec.build_chain_default [Codec.Bytes { endian = Some Dtype.Little }; Codec.Zstd { level = 3; checksum = false }] Dtype.Int32 [|10|] with
-  | Error _ -> fail "should build"
-  | Ok chain ->
-    let arr = Chunk_data.create_zero Dtype.Int32 [|100|] in
-    for i = 0 to 99 do
-      Chunk_data.set arr [|i|] (`Int32 (Int32.of_int i))
-    done;
+  let chain = Codec.build_chain_default [Codec.Bytes { endian = Some Dtype.Little }; Codec.Zstd { level = 3; checksum = false }] Dtype.Int32 [|10|] in
+  let arr = Chunk_data.create_zero Dtype.Int32 [|100|] in
+  for i = 0 to 99 do
+    Chunk_data.set arr [|i|] (`Int32 (Int32.of_int i))
+  done;
 
-    let encoded = Codec.encode chain arr in
-    let decoded = decode_ok chain [|100|] Dtype.Int32 encoded in
+  let encoded = Codec.encode chain arr in
+  let decoded = Codec.decode chain [|100|] Dtype.Int32 encoded in
 
-    for i = 0 to 99 do
-      match Chunk_data.get decoded [|i|] with
-      | `Int32 v -> check int (Printf.sprintf "element %d" i) i (Int32.to_int v)
-      | _ -> fail "expected int32"
-    done
+  for i = 0 to 99 do
+    match Chunk_data.get decoded [|i|] with
+    | `Int32 v -> check int (Printf.sprintf "element %d" i) i (Int32.to_int v)
+    | _ -> fail "expected int32"
+  done
 
 let test_codec_chain_no_array_to_bytes () =
-  match Codec.build_chain_default [Codec.Gzip { level = 5 }] Dtype.Int32 [|10|] with
-  | Error (`Codec_error _) -> ()
-  | Ok _ -> fail "should fail without array->bytes"
-  | Error _ -> fail "wrong error type"
+  (try
+    ignore (Codec.build_chain_default [Codec.Gzip { level = 5 }] Dtype.Int32 [|10|]);
+    fail "should fail without array->bytes"
+  with Codec.Codec_error _ -> ())
 
 (* === Chain ordering error tests === *)
 
 let test_codec_chain_a2a_after_a2b () =
   (* Transpose (a2a) after Bytes (a2b) should fail *)
-  match Codec.build_chain_default
-    [Codec.Bytes { endian = Some Dtype.Little }; Codec.Transpose { order = [|0|] }]
-    Dtype.Int32 [|10|] with
-  | Error (`Codec_error msg) ->
-    check bool "mentions ordering" true (String.length msg > 0)
-  | Ok _ -> fail "should fail: a2a after a2b"
-  | Error _ -> fail "wrong error type"
+  (try
+    ignore (Codec.build_chain_default
+      [Codec.Bytes { endian = Some Dtype.Little }; Codec.Transpose { order = [|0|] }]
+      Dtype.Int32 [|10|]);
+    fail "should fail: a2a after a2b"
+  with Codec.Codec_error msg ->
+    check bool "mentions ordering" true (String.length msg > 0))
 
 let test_codec_chain_multiple_a2b () =
   (* Two Bytes (a2b) codecs should fail *)
-  match Codec.build_chain_default
-    [Codec.Bytes { endian = Some Dtype.Little }; Codec.Bytes { endian = Some Dtype.Big }]
-    Dtype.Int32 [|10|] with
-  | Error (`Codec_error msg) ->
-    check bool "mentions ordering" true (String.length msg > 0)
-  | Ok _ -> fail "should fail: multiple a2b"
-  | Error _ -> fail "wrong error type"
+  (try
+    ignore (Codec.build_chain_default
+      [Codec.Bytes { endian = Some Dtype.Little }; Codec.Bytes { endian = Some Dtype.Big }]
+      Dtype.Int32 [|10|]);
+    fail "should fail: multiple a2b"
+  with Codec.Codec_error msg ->
+    check bool "mentions ordering" true (String.length msg > 0))
 
 let test_codec_chain_b2b_before_a2b () =
   (* Gzip (b2b) before Bytes (a2b) should fail *)
-  match Codec.build_chain_default
-    [Codec.Gzip { level = 5 }; Codec.Bytes { endian = Some Dtype.Little }]
-    Dtype.Int32 [|10|] with
-  | Error (`Codec_error msg) ->
-    check bool "mentions ordering" true (String.length msg > 0)
-  | Ok _ -> fail "should fail: b2b before a2b"
-  | Error _ -> fail "wrong error type"
+  (try
+    ignore (Codec.build_chain_default
+      [Codec.Gzip { level = 5 }; Codec.Bytes { endian = Some Dtype.Little }]
+      Dtype.Int32 [|10|]);
+    fail "should fail: b2b before a2b"
+  with Codec.Codec_error msg ->
+    check bool "mentions ordering" true (String.length msg > 0))
 
 (* === Decode error propagation tests === *)
 
 let test_decode_corrupt_gzip () =
-  match Codec.build_chain_default [Codec.Bytes { endian = Some Dtype.Little }; Codec.Gzip { level = 5 }] Dtype.Int32 [|10|] with
-  | Error _ -> fail "should build"
-  | Ok chain ->
-    let corrupt_data = Bytes.of_string "this is not valid gzip data at all!" in
-    match Codec.decode chain [|10|] Dtype.Int32 corrupt_data with
-    | Ok _ -> fail "should fail on corrupt gzip data"
-    | Error (`Codec_error _) -> ()
-    | Error _ -> fail "wrong error type"
+  let chain = Codec.build_chain_default [Codec.Bytes { endian = Some Dtype.Little }; Codec.Gzip { level = 5 }] Dtype.Int32 [|10|] in
+  let corrupt_data = Bytes.of_string "this is not valid gzip data at all!" in
+  (try
+    ignore (Codec.decode chain [|10|] Dtype.Int32 corrupt_data);
+    fail "should fail on corrupt gzip data"
+  with Codec.Codec_error _ -> ())
 
 let tests = [
   "bytes little endian int32", `Quick, test_bytes_little_endian_int32;

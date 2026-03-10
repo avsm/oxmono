@@ -17,21 +17,20 @@ let compress ~level input =
 
 let decompress input =
   let len = Bytes.length input in
-  if len = 0 then Ok Bytes.empty
+  if len = 0 then Bytes.empty
   else begin
-    try
-      let src = Bytes.unsafe_to_string input in
-      let orig =
-        try Zstd.get_decompressed_size src
-        with Zstd.Error _ -> len * 10
-      in
-      let dst = Bytes.create orig in
-      let n = Zstd.decompress_to orig src dst in
-      if n = orig then Ok dst
-      else Ok (Bytes.sub dst 0 n)
-    with
-    | Zstd.Error msg -> Error (`Codec_error ("zstd: " ^ msg))
-    | exn -> Error (`Codec_error ("zstd: " ^ Printexc.to_string exn))
+    let src = Bytes.unsafe_to_string input in
+    let orig =
+      try Zstd.get_decompressed_size src
+      with Zstd.Error _ -> len * 10
+    in
+    let dst = Bytes.create orig in
+    let n =
+      try Zstd.decompress_to orig src dst
+      with Zstd.Error msg -> raise (Zarr_codec.Codec_error ("zstd: " ^ msg))
+    in
+    if n = orig then dst
+    else Bytes.sub dst 0 n
   end
 
 (** [create level] builds a zstd codec at the given compression level (1-22). *)

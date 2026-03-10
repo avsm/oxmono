@@ -82,7 +82,9 @@ let is_null = function
 (** {2 String I/O} *)
 
 let of_string s =
-  Jsont_bytesrw.decode_string Jsont.json s
+  match Jsont_bytesrw.decode_string Jsont.json s with
+  | Ok json -> json
+  | Error e -> failwith e
 
 let to_string ?(format = Jsont.Minify) json =
   match Jsont_bytesrw.encode_string ~format Jsont.json json with

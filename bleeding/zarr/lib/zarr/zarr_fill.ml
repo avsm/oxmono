@@ -154,59 +154,57 @@ module Base64 = struct
     Bytes.to_string buf
 end
 
-(** [of_json dtype json] parses a fill value from JSON for the given data type. *)
+(** [of_json dtype json] parses a fill value from JSON for the given data type.
+    @raise Failure if the JSON value is not valid for [dtype]. *)
 let of_json dtype (json : Jsont.json) =
   match (dtype : Zarr_dtype.t), json with
-  | Bool, Jsont.Bool (b, _) -> Ok (Bool b)
-  | Bool, _ -> Error "fill_value for bool must be a boolean"
+  | Bool, Jsont.Bool (b, _) -> Bool b
+  | Bool, _ -> failwith "fill_value for bool must be a boolean"
   | (Int8 | Int16 | Int32 | Int64), Jsont.Number (f, _) ->
-    Ok (Int (Int64.of_float f))
+    Int (Int64.of_float f)
   | (Int8 | Int16 | Int32 | Int64), Jsont.String (s, _) ->
-    (try Ok (Int (Int64.of_string s))
-     with Failure _ -> Error ("invalid integer fill_value: " ^ s))
+    (try Int (Int64.of_string s)
+     with Failure _ -> failwith ("invalid integer fill_value: " ^ s))
   | (Uint8 | Uint16 | Uint32 | Uint64), Jsont.Number (f, _) when f >= 0.0 ->
-    Ok (Uint (Int64.of_float f))
+    Uint (Int64.of_float f)
   | (Uint8 | Uint16 | Uint32 | Uint64), Jsont.String (s, _) ->
-    (try Ok (Uint (Int64.of_string s))
-     with Failure _ -> Error ("invalid unsigned fill_value: " ^ s))
+    (try Uint (Int64.of_string s)
+     with Failure _ -> failwith ("invalid unsigned fill_value: " ^ s))
   | (Uint8 | Uint16 | Uint32 | Uint64), Jsont.Number (f, _) ->
-    Error (Printf.sprintf "negative fill_value %d for unsigned type"
-             (Float.to_int f))
-  | (Float32 | Float64), Jsont.Number (f, _) -> Ok (Float f)
-  | (Float32 | Float64), Jsont.String ("NaN", _) -> Ok NaN
-  | (Float32 | Float64), Jsont.String ("Infinity", _) -> Ok Infinity
-  | (Float32 | Float64), Jsont.String ("-Infinity", _) -> Ok NegInfinity
+    failwith (Printf.sprintf "negative fill_value %d for unsigned type"
+                (Float.to_int f))
+  | (Float32 | Float64), Jsont.Number (f, _) -> Float f
+  | (Float32 | Float64), Jsont.String ("NaN", _) -> NaN
+  | (Float32 | Float64), Jsont.String ("Infinity", _) -> Infinity
+  | (Float32 | Float64), Jsont.String ("-Infinity", _) -> NegInfinity
   | (Float32 | Float64), Jsont.String (s, _)
     when String.length s > 2 && String.sub s 0 2 = "0x" ->
-    Ok (Hex s)
+    Hex s
   | Raw bits, Jsont.String (s, _) ->
     let expected_len = bits / 8 in
     let decoded = Base64.decode_exn s in
     if String.length decoded = expected_len then
-      Ok (Raw (Bytes.of_string decoded))
+      Raw (Bytes.of_string decoded)
     else
-      Error (Printf.sprintf "fill_value for r%d must be %d bytes, got %d"
-               bits expected_len (String.length decoded))
+      failwith (Printf.sprintf "fill_value for r%d must be %d bytes, got %d"
+                  bits expected_len (String.length decoded))
   | Raw bits, Jsont.Array (bytes_list, _) ->
     let expected_len = bits / 8 in
-    (try
-       let buf = Bytes.create expected_len in
-       List.iteri (fun i json ->
-         match json with
-         | Jsont.Number (f, _) ->
-           let v = Float.to_int f in
-           if v >= 0 && v <= 255 then
-             Bytes.set buf i (Char.chr v)
-           else failwith "invalid byte"
-         | _ -> failwith "invalid byte"
-       ) bytes_list;
-       if List.length bytes_list = expected_len then Ok (Raw buf)
-       else failwith "wrong length"
-     with Failure msg ->
-       Error ("invalid fill_value for raw type: " ^ msg))
+    let buf = Bytes.create expected_len in
+    List.iteri (fun i json ->
+      match json with
+      | Jsont.Number (f, _) ->
+        let v = Float.to_int f in
+        if v >= 0 && v <= 255 then
+          Bytes.set buf i (Char.chr v)
+        else failwith "invalid byte"
+      | _ -> failwith "invalid byte"
+    ) bytes_list;
+    if List.length bytes_list = expected_len then Raw buf
+    else failwith "wrong length"
   | _, _ ->
-    Error (Printf.sprintf "invalid fill_value for %s"
-             (Zarr_dtype.to_string dtype))
+    failwith (Printf.sprintf "invalid fill_value for %s"
+                (Zarr_dtype.to_string dtype))
 
 (** [to_json fv] converts a fill value to its JSON representation. *)
 let to_json = function

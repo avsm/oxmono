@@ -4,13 +4,10 @@
     exactly one array-to-bytes, and bytes-to-bytes codecs.
     See Zarr v3.1 spec, "Codecs" section. *)
 
-(** {2 Error type} *)
+(** {2 Exceptions} *)
 
-type error =
-  [ `Codec_error of string
-  | `Checksum_mismatch ]
-
-type 'a result = ('a, error) Stdlib.result
+exception Codec_error of string
+exception Checksum_mismatch
 
 (** {2 Codec types} *)
 
@@ -29,10 +26,11 @@ type array_to_bytes = {
   decode : int array -> Zarr_dtype.t -> bytes -> Chunk_data.t;
 }
 
-(** Bytes-to-bytes codec: transforms raw bytes (e.g. compression, checksum). *)
+(** Bytes-to-bytes codec: transforms raw bytes (e.g. compression, checksum).
+    [decode] raises {!Codec_error} or {!Checksum_mismatch} on failure. *)
 type bytes_to_bytes = {
   encode : bytes -> bytes;
-  decode : bytes -> bytes result;
+  decode : bytes -> bytes;
   compute_encoded_size : int -> int option;
 }
 
@@ -57,7 +55,7 @@ type codec_class =
     so the core codec chain can construct them from metadata JSON. *)
 
 type codec_builder =
-  Jsont.json -> Zarr_dtype.t -> int array -> (codec_class, error) Stdlib.result
+  Jsont.json -> Zarr_dtype.t -> int array -> codec_class
 
 let registry : (string, codec_builder) Hashtbl.t = Hashtbl.create 16
 
@@ -106,7 +104,7 @@ type codec_spec =
     v3.1 spec requirement). *)
 let build_codec_ref :
   (codec_spec -> Zarr_dtype.t -> int array -> Zarr_fill.t ->
-   (codec_spec list -> Zarr_dtype.t -> int array -> Zarr_fill.t -> codec_chain result) ->
+   (codec_spec list -> Zarr_dtype.t -> int array -> Zarr_fill.t -> codec_chain) ->
    codec_class) ref =
   ref (fun _ _ _ _ _ -> failwith "codec builder not initialized")
 
@@ -116,39 +114,34 @@ let build_codec_ref :
     array-to-bytes, then 0+ bytes-to-bytes.
 
     @param fill_value The array fill value, needed by the sharding codec
-    to correctly fill uninitialised inner chunks during decode. *)
+    to correctly fill uninitialised inner chunks during decode.
+    @raise Codec_error if ordering is invalid or a codec fails to build. *)
 let rec build_chain specs dtype chunk_shape fill_value =
   let step (a2a, a2b, b2b, cur_shape) spec =
-    match (try Ok (!build_codec_ref spec dtype cur_shape fill_value build_chain)
-           with Failure msg -> Error msg) with
-    | Error msg ->
-      Error (`Codec_error ("failed to build codec: " ^ msg))
-    | Ok (ArrayToArray codec) ->
+    let cls = !build_codec_ref spec dtype cur_shape fill_value build_chain in
+    match cls with
+    | ArrayToArray codec ->
       if Option.is_some a2b then
-        Error (`Codec_error "array-to-array codec after array-to-bytes")
-      else
-        Ok (codec :: a2a, a2b, b2b, codec.compute_output_shape cur_shape)
-    | Ok (ArrayToBytes codec) ->
+        raise (Codec_error "array-to-array codec after array-to-bytes");
+      (codec :: a2a, a2b, b2b, codec.compute_output_shape cur_shape)
+    | ArrayToBytes codec ->
       if Option.is_some a2b then
-        Error (`Codec_error "multiple array-to-bytes codecs")
-      else
-        Ok (a2a, Some codec, b2b, cur_shape)
-    | Ok (BytesToBytes codec) ->
+        raise (Codec_error "multiple array-to-bytes codecs");
+      (a2a, Some codec, b2b, cur_shape)
+    | BytesToBytes codec ->
       if Option.is_none a2b then
-        Error (`Codec_error "bytes-to-bytes before array-to-bytes")
-      else
-        Ok (a2a, a2b, codec :: b2b, cur_shape)
+        raise (Codec_error "bytes-to-bytes before array-to-bytes");
+      (a2a, a2b, codec :: b2b, cur_shape)
   in
-  match List.fold_left (fun acc spec ->
-    match acc with Error _ -> acc | Ok a -> step a spec
-  ) (Ok ([], None, [], chunk_shape)) specs with
-  | Error e -> Error e
-  | Ok (_, None, _, _) ->
-    Error (`Codec_error "chain must contain exactly one array->bytes codec")
-  | Ok (a2a, Some a2b, b2b, _) ->
-    Ok { array_to_array = List.rev a2a;
-         array_to_bytes = a2b;
-         bytes_to_bytes = List.rev b2b }
+  let (a2a, a2b, b2b, _) =
+    List.fold_left step ([], None, [], chunk_shape) specs
+  in
+  match a2b with
+  | None -> raise (Codec_error "chain must contain exactly one array->bytes codec")
+  | Some a2b ->
+    { array_to_array = List.rev a2a;
+      array_to_bytes = a2b;
+      bytes_to_bytes = List.rev b2b }
 
 (** [build_chain_default specs dtype chunk_shape] is
     [build_chain specs dtype chunk_shape (Zarr_fill.default dtype)].
@@ -167,26 +160,17 @@ let encode (chain : codec_chain) arr =
     bytes chain.bytes_to_bytes
 
 (** [decode chain shape dtype bytes] decodes bytes through the codec chain.
-
-    @return [Error] if any codec in the chain fails. *)
+    @raise Codec_error if any codec in the chain fails.
+    @raise Checksum_mismatch if a checksum codec detects corruption. *)
 let decode (chain : codec_chain) shape dtype bytes =
-  try
-    let bytes = List.fold_right (fun (c : bytes_to_bytes) b ->
-      match c.decode b with
-      | Ok d -> d
-      | Error (`Codec_error msg) -> failwith msg
-      | Error `Checksum_mismatch -> failwith "checksum mismatch"
-    ) chain.bytes_to_bytes bytes in
-    let intermediate_shape = List.fold_left (fun s (c : array_to_array) ->
-      c.compute_output_shape s
-    ) shape chain.array_to_array in
-    let arr = chain.array_to_bytes.decode intermediate_shape dtype bytes in
-    let arr = List.fold_right (fun (c : array_to_array) a -> c.decode a)
-      chain.array_to_array arr in
-    Ok arr
-  with
-  | Failure msg -> Error (`Codec_error msg)
-  | exn -> Error (`Codec_error (Printexc.to_string exn))
+  let bytes = List.fold_right (fun (c : bytes_to_bytes) b -> c.decode b)
+    chain.bytes_to_bytes bytes in
+  let intermediate_shape = List.fold_left (fun s (c : array_to_array) ->
+    c.compute_output_shape s
+  ) shape chain.array_to_array in
+  let arr = chain.array_to_bytes.decode intermediate_shape dtype bytes in
+  List.fold_right (fun (c : array_to_array) a -> c.decode a)
+    chain.array_to_array arr
 
 (** {2 JSON serialization} *)
 
@@ -201,22 +185,22 @@ let rec specs_of_json json_list =
         | Some "big" -> Some Big
         | _ -> None
       in
-      Ok (Bytes { endian })
+      Bytes { endian }
     | "transpose" ->
       let order = Json_util.(member "order" config |> to_list_exn)
                   |> List.map Json_util.to_int_exn |> Array.of_list in
-      Ok (Transpose { order })
+      Transpose { order }
     | "gzip" ->
       let level = Json_util.(member "level" config |> to_int_opt)
                   |> Option.value ~default:5 in
-      Ok (Gzip { level })
+      Gzip { level }
     | "zstd" ->
       let level = Json_util.(member "level" config |> to_int_opt)
                   |> Option.value ~default:3 in
       let checksum = Json_util.(member "checksum" config |> to_bool_opt)
                      |> Option.value ~default:false in
-      Ok (Zstd { level; checksum })
-    | "crc32c" -> Ok Crc32c
+      Zstd { level; checksum }
+    | "crc32c" -> Crc32c
     | "sharding_indexed" ->
       let chunk_shape = Json_util.(member "chunk_shape" config |> to_list_exn)
                         |> List.map Json_util.to_int_exn |> Array.of_list in
@@ -226,26 +210,17 @@ let rec specs_of_json json_list =
         | Some "start" -> Start
         | _ -> End
       in
-      (match specs_of_json codecs_json, specs_of_json index_json with
-       | Ok codecs, Ok index_codecs ->
-         Ok (Sharding { chunk_shape; codecs; index_codecs; index_location })
-       | Error e, _ -> Error e
-       | _, Error e -> Error e)
+      let codecs = specs_of_json codecs_json in
+      let index_codecs = specs_of_json index_json in
+      Sharding { chunk_shape; codecs; index_codecs; index_location }
     | name ->
       if is_registered name then
         let config = if Json_util.is_null config then Json_util.(obj []) else config in
-        Ok (Extension { name; config })
+        Extension { name; config }
       else
-        Error (`Codec_error ("unsupported codec: " ^ name))
+        raise (Codec_error ("unsupported codec: " ^ name))
   in
-  let rec go acc = function
-    | [] -> Ok (List.rev acc)
-    | json :: rest ->
-      match parse_one json with
-      | Ok spec -> go (spec :: acc) rest
-      | Error e -> Error e
-  in
-  go [] json_list
+  List.map parse_one json_list
 
 let rec specs_to_json specs = List.map spec_to_json specs
 

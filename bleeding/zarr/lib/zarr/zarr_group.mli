@@ -30,13 +30,13 @@ module Make (S : STORE_OPS) : sig
   type nonrec t = S.t t
 
   val create :
-    store -> path:string -> ?attributes:Jsont.json -> unit ->
-    (t, string) result
+    store -> path:string -> ?attributes:Jsont.json -> unit -> t
   (** [create store ~path ?attributes ()] creates a new group at [path],
       writing its [zarr.json] metadata to the store. *)
 
-  val open_ : store -> path:string -> (t, string) result
-  (** [open_ store ~path] opens an existing group by reading its metadata. *)
+  val open_ : store -> path:string -> t
+  (** [open_ store ~path] opens an existing group by reading its metadata.
+      @raise Failure if the group is not found or metadata is invalid. *)
 
   val metadata : t -> Zarr_metadata.group_metadata
   val path : t -> string

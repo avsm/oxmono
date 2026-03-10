@@ -3,16 +3,37 @@
     See Zarr v3.1 spec, "sharding_indexed" codec. This is an array-to-bytes
     codec that splits an outer chunk into a grid of inner chunks, encodes
     each independently, and stores them with a binary index of
-    (offset, nbytes) pairs as uint64 little-endian values. *)
+    (offset, nbytes) pairs as uint64 little-endian values.
+
+    {b Optimisations:}
+    - Index entries use unboxed [int64#] fields (mixed blocks) to eliminate
+      per-entry boxing of the offset and nbytes values.
+    - Coordinate, start-offset, and shape arrays are pre-allocated once
+      outside the encode/decode loops and reused for each inner chunk,
+      avoiding 3×N array allocations per shard.
+    - [offset_to_index] is inlined to write directly into the pre-allocated
+      coordinate array. *)
+
+open Stdlib_upstream_compatible
 
 (** Sentinel marking an empty (uninitialised) inner chunk. *)
 let empty_marker = Int64.minus_one
 
-(** Shard index entry. *)
-type index_entry = { offset : int64; nbytes : int64 }
+(** Shard index entry with unboxed [int64#] fields.
+
+    Each entry is a mixed block: the record header is followed by the two
+    64-bit values stored flat, with no separate boxed [int64] allocation.
+    For a shard with [N] inner chunks, this saves [2×N] heap allocations
+    compared to the boxed representation. *)
+type index_entry = { offset : int64#; nbytes : int64# }
+
+let empty_entry =
+  { offset = Int64_u.of_int64 empty_marker;
+    nbytes = Int64_u.of_int64 empty_marker }
 
 let[@inline] is_empty e =
-  Int64.equal e.offset empty_marker && Int64.equal e.nbytes empty_marker
+  Int64_u.equal e.offset empty_entry.offset
+  && Int64_u.equal e.nbytes empty_entry.nbytes
 
 (** [inner_chunks_per_shard outer inner] returns chunks per dimension. *)
 let inner_chunks_per_shard outer inner =
@@ -33,8 +54,7 @@ let encode_full (chain : Zarr_codec.codec_chain) arr =
 (** Decode bytes through a full codec chain. *)
 let decode_full (chain : Zarr_codec.codec_chain) shape dtype bytes =
   let bytes = List.fold_right (fun (c : Zarr_codec.bytes_to_bytes) b ->
-    match c.decode b with Ok d -> d | Error _ -> failwith "shard decode"
-  ) chain.bytes_to_bytes bytes in
+    c.decode b) chain.bytes_to_bytes bytes in
   let intermediate = List.fold_left (fun s (c : Zarr_codec.array_to_array) ->
     c.compute_output_shape s) shape chain.array_to_array in
   let arr = chain.array_to_bytes.decode intermediate dtype bytes in
@@ -52,8 +72,8 @@ let encode_index entries index_chain =
   let shape = [| n * 2 |] in
   let chunk = Chunk_data.create_zero Zarr_dtype.Uint64 shape in
   Array.iteri (fun i e ->
-    Chunk_data.set_int64 chunk [| i * 2 |] e.offset;
-    Chunk_data.set_int64 chunk [| i * 2 + 1 |] e.nbytes
+    Chunk_data.set_int64 chunk [| i * 2 |] (Int64_u.to_int64 e.offset);
+    Chunk_data.set_int64 chunk [| i * 2 + 1 |] (Int64_u.to_int64 e.nbytes)
   ) entries;
   encode_full index_chain chunk
 
@@ -62,8 +82,19 @@ let decode_index bytes index_chain num =
   let shape = [| num * 2 |] in
   let chunk = decode_full index_chain shape Zarr_dtype.Uint64 bytes in
   Array.init num (fun i ->
-    { offset = Chunk_data.get_int64 chunk [| i * 2 |];
-      nbytes = Chunk_data.get_int64 chunk [| i * 2 + 1 |] })
+    { offset = Int64_u.of_int64 (Chunk_data.get_int64 chunk [| i * 2 |]);
+      nbytes = Int64_u.of_int64 (Chunk_data.get_int64 chunk [| i * 2 + 1 |]) })
+
+(** [inline_offset_to_index chunks_per_dim linear dst] writes the
+    multi-dimensional index for [linear] into the pre-allocated [dst]
+    array without allocating. *)
+let[@inline] inline_offset_to_index chunks_per_dim linear dst =
+  let ndim = Array.length chunks_per_dim in
+  let mutable remaining = linear in
+  for d = ndim - 1 downto 0 do
+    dst.(d) <- remaining mod chunks_per_dim.(d);
+    remaining <- remaining / chunks_per_dim.(d)
+  done
 
 (** [create ...] builds a sharding codec with pre-built codec chains.
 
@@ -78,38 +109,51 @@ let create ~outer_chunk_shape ~inner_chunk_shape
   let ndim = Array.length outer_chunk_shape in
   (* Precompute index size: num_inner * 16 bytes + codec overhead *)
   let index_size =
-    let empty = Array.make num_inner { offset = empty_marker; nbytes = empty_marker } in
+    let empty = Array.make num_inner empty_entry in
     Bytes.length (encode_index empty index_chain)
   in
 
   let encode arr =
     let encoded_chunks = Array.make num_inner Bytes.empty in
-    let index = Array.make num_inner { offset = empty_marker; nbytes = empty_marker } in
-    let mutable current_offset = 0L in
+    let index = Array.make num_inner empty_entry in
+    let mutable current_offset = Int64_u.of_int 0 in
+
+    (* Pre-allocate scratch arrays -- reused for every inner chunk *)
+    let coords = Array.make ndim 0 in
+    let inner_start = Array.make ndim 0 in
+    let actual_shape = Array.make ndim 0 in
+    let zero_off = Array.make ndim 0 in
 
     for i = 0 to num_inner - 1 do
-      (* Convert linear index to inner chunk coordinates *)
-      let coords = Chunk_data.offset_to_index chunks_per_dim i in
-      let inner_start = Array.mapi (fun d c -> c * inner_chunk_shape.(d)) coords in
-      let actual_shape = Array.mapi (fun d c ->
-        min inner_chunk_shape.(d) (outer_chunk_shape.(d) - c * inner_chunk_shape.(d))
-      ) coords in
+      (* Inline offset_to_index to avoid per-chunk array allocation *)
+      inline_offset_to_index chunks_per_dim i coords;
+      let mutable all_positive = true in
+      for d = 0 to ndim - 1 do
+        let c = coords.(d) in
+        inner_start.(d) <- c * inner_chunk_shape.(d);
+        let s = min inner_chunk_shape.(d)
+                    (outer_chunk_shape.(d) - c * inner_chunk_shape.(d)) in
+        actual_shape.(d) <- s;
+        if s <= 0 then all_positive <- false
+      done;
 
-      if Array.for_all (fun s -> s > 0) actual_shape then begin
+      if all_positive then begin
         let chunk = Chunk_data.create_zero dtype actual_shape in
-        (* Use blit for fast copy from shard to inner chunk *)
-        let zero_off = Array.make ndim 0 in
-        Chunk_data.blit ~src:arr ~src_off:inner_start ~dst:chunk ~dst_off:zero_off ~shape:actual_shape;
+        Chunk_data.blit ~src:arr ~src_off:inner_start ~dst:chunk
+          ~dst_off:zero_off ~shape:actual_shape;
         let encoded = encode_full inner_chain chunk in
-        let nb = Int64.of_int (Bytes.length encoded) in
+        let nb = Int64_u.of_int (Bytes.length encoded) in
         encoded_chunks.(i) <- encoded;
         index.(i) <- { offset = current_offset; nbytes = nb };
-        current_offset <- Int64.add current_offset nb
+        current_offset <- Int64_u.add current_offset nb;
+        (* Reset zero_off in case blit modified it (it shouldn't, but
+           be defensive) *)
+        for d = 0 to ndim - 1 do zero_off.(d) <- 0 done
       end
     done;
 
     let encoded_index = encode_index index index_chain in
-    let total_data = Int64.to_int current_offset in
+    let total_data = Int64_u.to_int current_offset in
     let shard_size = match index_location with
       | Zarr_codec.Start -> index_size + total_data
       | End -> total_data + index_size
@@ -133,9 +177,10 @@ let create ~outer_chunk_shape ~inner_chunk_shape
 
     (* Adjust offsets if index is at start *)
     if index_location = Start then begin
+      let index_size_u = Int64_u.of_int index_size in
       let adjusted = Array.map (fun e ->
         if is_empty e then e
-        else { e with offset = Int64.add e.offset (Int64.of_int index_size) }
+        else { e with offset = Int64_u.add e.offset index_size_u }
       ) index in
       let adj_encoded = encode_index adjusted index_chain in
       Bytes.blit adj_encoded 0 shard 0 index_size
@@ -156,25 +201,35 @@ let create ~outer_chunk_shape ~inner_chunk_shape
     in
     let result = Chunk_data.create dtype shape fill_value in
 
-    for i = 0 to num_inner - 1 do
-      let entry = if i < Array.length index then index.(i)
-        else { offset = empty_marker; nbytes = empty_marker } in
-      if not (is_empty entry) then begin
-        let coords = Chunk_data.offset_to_index chunks_per_dim i in
-        let inner_start = Array.mapi (fun d c -> c * inner_chunk_shape.(d)) coords in
-        let actual_shape = Array.mapi (fun d c ->
-          min inner_chunk_shape.(d) (shape.(d) - c * inner_chunk_shape.(d))
-        ) coords in
+    (* Pre-allocate scratch arrays -- reused for every inner chunk *)
+    let coords = Array.make ndim 0 in
+    let inner_start = Array.make ndim 0 in
+    let actual_shape = Array.make ndim 0 in
+    let zero_off = Array.make ndim 0 in
 
-        if Array.for_all (fun s -> s > 0) actual_shape then begin
-          let off = Int64.to_int entry.offset in
-          let nb = Int64.to_int entry.nbytes in
+    for i = 0 to num_inner - 1 do
+      let entry = if i < Array.length index then index.(i) else empty_entry in
+      if not (is_empty entry) then begin
+        inline_offset_to_index chunks_per_dim i coords;
+        let mutable all_positive = true in
+        for d = 0 to ndim - 1 do
+          let c = coords.(d) in
+          inner_start.(d) <- c * inner_chunk_shape.(d);
+          let s = min inner_chunk_shape.(d)
+                      (shape.(d) - c * inner_chunk_shape.(d)) in
+          actual_shape.(d) <- s;
+          if s <= 0 then all_positive <- false
+        done;
+
+        if all_positive then begin
+          let off = Int64_u.to_int entry.offset in
+          let nb = Int64_u.to_int entry.nbytes in
           if off >= 0 && off + nb <= shard_size then begin
             let chunk_bytes = Bytes.sub bytes off nb in
             let chunk = decode_full inner_chain actual_shape dtype chunk_bytes in
-            let zero_off = Array.make ndim 0 in
             Chunk_data.blit ~src:chunk ~src_off:zero_off ~dst:result
-              ~dst_off:inner_start ~shape:actual_shape
+              ~dst_off:inner_start ~shape:actual_shape;
+            for d = 0 to ndim - 1 do zero_off.(d) <- 0 done
           end
         end
       end

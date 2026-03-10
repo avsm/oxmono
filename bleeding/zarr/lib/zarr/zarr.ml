@@ -70,20 +70,12 @@ let () =
       let inner_chain = build_chain codecs dtype inner_shape fill_value in
       let index_fv = Zarr_fill.default Zarr_dtype.Uint64 in
       let index_chain = build_chain index_codecs Zarr_dtype.Uint64 [|num_inner * 2|] index_fv in
-      (match inner_chain, index_chain with
-       | Ok ic, Ok xc ->
-         Zarr_codec.ArrayToBytes (Codec_sharding.create
-           ~outer_chunk_shape:chunk_shape ~inner_chunk_shape:inner_shape
-           ~inner_chain:ic ~index_chain:xc ~index_location ~dtype ~fill_value)
-       | Error e, _ -> raise (Failure (match e with `Codec_error m -> m | _ -> "codec error"))
-       | _, Error e -> raise (Failure (match e with `Codec_error m -> m | _ -> "codec error")))
+      Zarr_codec.ArrayToBytes (Codec_sharding.create
+        ~outer_chunk_shape:chunk_shape ~inner_chunk_shape:inner_shape
+        ~inner_chain ~index_chain ~index_location ~dtype ~fill_value)
     | Extension { name; config } ->
       (match Zarr_codec.find_codec name with
-       | Some builder ->
-         (match builder config dtype chunk_shape with
-          | Ok c -> c
-          | Error (`Codec_error msg) -> raise (Failure ("extension '" ^ name ^ "': " ^ msg))
-          | Error _ -> raise (Failure ("extension '" ^ name ^ "' error")))
+       | Some builder -> builder config dtype chunk_shape
        | None -> raise (Failure ("unknown extension codec: " ^ name))))
 
 (** {2 Metadata} *)

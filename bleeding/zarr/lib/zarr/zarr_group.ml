@@ -26,16 +26,15 @@ module Make (S : STORE_OPS) = struct
     let metadata = Zarr_metadata.create_group_metadata ?attributes () in
     let meta_path = Chunk_key.metadata_path path in
     S.set store meta_path (Bytes.of_string (Zarr_metadata.group_to_json metadata));
-    Ok { store; path; metadata }
+    { store; path; metadata }
 
   let open_ store ~path =
     let meta_path = Chunk_key.metadata_path path in
     match S.get store meta_path with
-    | None -> Error ("group not found: " ^ path)
+    | None -> failwith ("group not found: " ^ path)
     | Some bytes ->
-      match Zarr_metadata.group_of_json (Bytes.to_string bytes) with
-      | Error e -> Error e
-      | Ok metadata -> Ok { store; path; metadata }
+      let metadata = Zarr_metadata.group_of_json (Bytes.to_string bytes) in
+      { store; path; metadata }
 
   let metadata g = g.metadata
   let path g = g.path
@@ -74,13 +73,11 @@ module Make (S : STORE_OPS) = struct
     | None -> None
     | Some bytes ->
       (try
-         match Json_util.of_string (Bytes.to_string bytes) with
-         | Error _ -> None
-         | Ok json ->
-           match Json_util.(member "node_type" json |> to_string_opt) with
-           | Some "array" -> Some `Array
-           | Some "group" -> Some `Group
-           | _ -> None
+         let json = Json_util.of_string (Bytes.to_string bytes) in
+         match Json_util.(member "node_type" json |> to_string_opt) with
+         | Some "array" -> Some `Array
+         | Some "group" -> Some `Group
+         | _ -> None
        with _ -> None)
 
   let attrs g = Option.value ~default:Json_util.null g.metadata.attributes
@@ -116,13 +113,11 @@ module Hierarchy = struct
           | None -> ()
           | Some bytes ->
             (try
-               match Json_util.of_string (Bytes.to_string bytes) with
-               | Error _ -> ()
-               | Ok json ->
-                 match Json_util.(member "node_type" json |> to_string_opt) with
-                 | Some "array" -> f node_path `Array
-                 | Some "group" -> f node_path `Group
-                 | _ -> ()
+               let json = Json_util.of_string (Bytes.to_string bytes) in
+               match Json_util.(member "node_type" json |> to_string_opt) with
+               | Some "array" -> f node_path `Array
+               | Some "group" -> f node_path `Group
+               | _ -> ()
              with _ -> ())
       ) all_keys
 

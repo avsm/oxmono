@@ -9,10 +9,10 @@ let shuffle_to_int = function
   | BitShuffle -> 2
 
 let shuffle_of_string = function
-  | "noshuffle" -> Ok NoShuffle
-  | "shuffle" -> Ok Shuffle
-  | "bitshuffle" -> Ok BitShuffle
-  | s -> Error (`Codec_error ("unknown shuffle mode: " ^ s))
+  | "noshuffle" -> NoShuffle
+  | "shuffle" -> Shuffle
+  | "bitshuffle" -> BitShuffle
+  | s -> raise (Zarr.Codec.Codec_error ("unknown shuffle mode: " ^ s))
 
 let shuffle_to_string = function
   | NoShuffle -> "noshuffle"
@@ -31,13 +31,13 @@ let compressor_to_string = function
   | Zlib -> "zlib"
 
 let compressor_of_string = function
-  | "lz4" -> Ok LZ4
-  | "lz4hc" -> Ok LZ4HC
-  | "blosclz" -> Ok BloscLZ
-  | "zstd" -> Ok Zstd
-  | "snappy" -> Ok Snappy
-  | "zlib" -> Ok Zlib
-  | s -> Error (`Codec_error ("unknown blosc compressor: " ^ s))
+  | "lz4" -> LZ4
+  | "lz4hc" -> LZ4HC
+  | "blosclz" -> BloscLZ
+  | "zstd" -> Zstd
+  | "snappy" -> Snappy
+  | "zlib" -> Zlib
+  | s -> raise (Zarr.Codec.Codec_error ("unknown blosc compressor: " ^ s))
 
 (** C stub bindings *)
 external blosc_compress_raw :
@@ -56,12 +56,12 @@ let compress ~cname ~clevel ~shuffle ~typesize ~blocksize input =
 
 (** Decompress bytes using blosc *)
 let decompress input =
-  if Bytes.length input = 0 then Ok Bytes.empty
+  if Bytes.length input = 0 then Bytes.empty
   else begin
-    try Ok (blosc_decompress_raw input)
+    try blosc_decompress_raw input
     with
-    | Failure msg -> Error (`Codec_error msg)
-    | exn -> Error (`Codec_error ("blosc decompress error: " ^ Printexc.to_string exn))
+    | Failure msg -> raise (Zarr.Codec.Codec_error msg)
+    | exn -> raise (Zarr.Codec.Codec_error ("blosc decompress error: " ^ Printexc.to_string exn))
   end
 
 (** Create a blosc codec with specified parameters *)
@@ -105,25 +105,20 @@ let to_int_opt = function
 
 (** Build a blosc codec from JSON configuration and dtype *)
 let build_from_json config _dtype _chunk_shape =
-  try
-    let cname_str = Option.bind (find_member "cname" config) to_string_opt
-                    |> Option.value ~default:"lz4" in
-    let clevel = Option.bind (find_member "clevel" config) to_int_opt
-                 |> Option.value ~default:5 in
-    let shuffle_str = Option.bind (find_member "shuffle" config) to_string_opt
-                      |> Option.value ~default:"noshuffle" in
-    let typesize = Option.bind (find_member "typesize" config) to_int_opt
-                   |> Option.value ~default:1 in
-    let blocksize = Option.bind (find_member "blocksize" config) to_int_opt
-                    |> Option.value ~default:0 in
-    match compressor_of_string cname_str, shuffle_of_string shuffle_str with
-    | Ok cname, Ok shuffle ->
-      let codec = create ~cname ~clevel ~shuffle ~typesize ~blocksize in
-      Ok (Zarr.Codec.BytesToBytes codec)
-    | Error e, _ -> Error e
-    | _, Error e -> Error e
-  with Failure msg ->
-    Error (`Codec_error ("blosc config error: " ^ msg))
+  let cname_str = Option.bind (find_member "cname" config) to_string_opt
+                  |> Option.value ~default:"lz4" in
+  let clevel = Option.bind (find_member "clevel" config) to_int_opt
+               |> Option.value ~default:5 in
+  let shuffle_str = Option.bind (find_member "shuffle" config) to_string_opt
+                    |> Option.value ~default:"noshuffle" in
+  let typesize = Option.bind (find_member "typesize" config) to_int_opt
+                 |> Option.value ~default:1 in
+  let blocksize = Option.bind (find_member "blocksize" config) to_int_opt
+                  |> Option.value ~default:0 in
+  let cname = compressor_of_string cname_str in
+  let shuffle = shuffle_of_string shuffle_str in
+  let codec = create ~cname ~clevel ~shuffle ~typesize ~blocksize in
+  Zarr.Codec.BytesToBytes codec
 
 (** Register the blosc codec with the codec registry *)
 let register () =

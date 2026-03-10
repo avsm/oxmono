@@ -21,7 +21,7 @@
       let store = Memory_store.create () in
       let arr = Memory_array.create store ~path:"data"
         ~shape:[|100; 100|] ~chunks:[|10; 10|] ~dtype:Zarr.Dtype.Float64
-        () |> Result.get_ok in
+        () in
 
       (* Write a slice *)
       let data = Chunk_data.create_zero Zarr.Dtype.Float64 [|5; 5|] in

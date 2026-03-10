@@ -49,7 +49,7 @@ type group_metadata = {
 
 (** {2 Validation} *)
 
-val validate_node_name : string -> (unit, string) result
+val validate_node_name : string -> unit
 (** [validate_node_name name] checks Zarr v3 node naming rules:
     - Must not be empty
     - Must not contain ['/']
@@ -58,18 +58,22 @@ val validate_node_name : string -> (unit, string) result
 
     {b Zarr v3.1 spec:} Node names should only contain ASCII [a-zA-Z0-9],
     [-], [_], [.].  Names should be NFKC-normalised and case-folded for
-    portable comparison. *)
+    portable comparison.
+
+    @raise Invalid_argument if the name violates naming rules. *)
 
 (** {2 Array Metadata} *)
 
-val array_of_json : string -> (array_metadata, string) result
+val array_of_json : string -> array_metadata
 (** [array_of_json json_string] parses array metadata from a JSON string.
 
     Validates:
     - [zarr_format = 3]
     - [node_type = "array"]
     - Codec chain contains at least one array-to-bytes codec
-    - All required fields are present and well-typed *)
+    - All required fields are present and well-typed
+
+    @raise Failure on invalid metadata. *)
 
 val array_to_json : array_metadata -> string
 (** [array_to_json m] serialises array metadata to a pretty-printed
@@ -89,9 +93,10 @@ val create_array_metadata :
 
 (** {2 Group Metadata} *)
 
-val group_of_json : string -> (group_metadata, string) result
+val group_of_json : string -> group_metadata
 (** [group_of_json json_string] parses group metadata from a JSON string.
-    Validates [zarr_format = 3] and [node_type = "group"]. *)
+    Validates [zarr_format = 3] and [node_type = "group"].
+    @raise Failure on invalid metadata. *)
 
 val group_to_json : group_metadata -> string
 (** [group_to_json m] serialises group metadata to a pretty-printed

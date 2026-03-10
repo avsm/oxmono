@@ -2,52 +2,63 @@
 
     See Zarr v3.1 spec, "crc32c" codec. This is a bytes-to-bytes codec.
     Appends a 4-byte little-endian CRC32C checksum on encode; verifies
-    and strips it on decode. *)
+    and strips it on decode.
 
-let polynomial = 0x82F63B78l
+    Uses native [int] for the CRC computation to avoid [int32] boxing
+    in the hot loop.  On 64-bit OCaml the 32-bit CRC values fit without
+    overflow. *)
 
-(** Pre-computed CRC32C lookup table (256 entries). *)
+let polynomial = 0x82F63B78
+
+(** Pre-computed CRC32C lookup table (256 entries, native int). *)
 let crc_table =
   Array.init 256 (fun i ->
-    let crc = ref (Int32.of_int i) in
+    let mutable crc = i in
     for _ = 0 to 7 do
-      if Int32.(logand !crc 1l <> 0l) then
-        crc := Int32.(logxor (shift_right_logical !crc 1) polynomial)
+      if crc land 1 <> 0 then
+        crc <- (crc lsr 1) lxor polynomial
       else
-        crc := Int32.shift_right_logical !crc 1
+        crc <- crc lsr 1
     done;
-    !crc)
+    crc)
 
-(** [compute bytes] returns the CRC32C checksum of [bytes]. *)
-let compute bytes =
-  let crc = ref Int32.minus_one in
-  for i = 0 to Bytes.length bytes - 1 do
+(** [compute bytes] returns the CRC32C checksum of [bytes] as a native int
+    (lower 32 bits). *)
+let[@inline] compute bytes =
+  let len = Bytes.length bytes in
+  let mutable crc = 0xFFFFFFFF in
+  for i = 0 to len - 1 do
     let byte = Char.code (Bytes.unsafe_get bytes i) in
-    let index = Int32.to_int (Int32.logand (Int32.logxor !crc (Int32.of_int byte)) 0xFFl) in
-    crc := Int32.logxor (Int32.shift_right_logical !crc 8) crc_table.(index)
+    crc <- (crc lsr 8) lxor Array.unsafe_get crc_table ((crc lxor byte) land 0xFF)
   done;
-  Int32.logxor !crc Int32.minus_one
+  crc lxor 0xFFFFFFFF
+
+(** [compute_range bytes off len] computes CRC32C over a sub-range
+    without copying. *)
+let[@inline] compute_range bytes off len =
+  let mutable crc = 0xFFFFFFFF in
+  for i = off to off + len - 1 do
+    let byte = Char.code (Bytes.unsafe_get bytes i) in
+    crc <- (crc lsr 8) lxor Array.unsafe_get crc_table ((crc lxor byte) land 0xFF)
+  done;
+  crc lxor 0xFFFFFFFF
 
 let encode bytes =
   let len = Bytes.length bytes in
   let crc = compute bytes in
   let result = Bytes.create (len + 4) in
   Bytes.blit bytes 0 result 0 len;
-  Bytes.set_int32_le result len crc;
+  Bytes.set_int32_le result len (Int32.of_int crc);
   result
 
 let decode bytes =
   let len = Bytes.length bytes in
-  if len < 4 then
-    Error `Checksum_mismatch
-  else begin
-    let data_len = len - 4 in
-    let data = Bytes.sub bytes 0 data_len in
-    let stored = Bytes.get_int32_le bytes data_len in
-    let computed = compute data in
-    if Int32.equal stored computed then Ok data
-    else Error `Checksum_mismatch
-  end
+  if len < 4 then raise Zarr_codec.Checksum_mismatch;
+  let data_len = len - 4 in
+  let stored = Int32.to_int (Bytes.get_int32_le bytes data_len) land 0xFFFFFFFF in
+  let computed = compute_range bytes 0 data_len in
+  if stored <> computed then raise Zarr_codec.Checksum_mismatch;
+  Bytes.sub bytes 0 data_len
 
 (** [create ()] builds a CRC32C checksum codec. *)
 let create () : Zarr_codec.bytes_to_bytes = {

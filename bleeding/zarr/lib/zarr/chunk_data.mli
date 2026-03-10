@@ -91,6 +91,30 @@ val set_int64 : t -> int array -> int64 -> unit
 val set_float32 : t -> int array -> float -> unit
 val set_float64 : t -> int array -> float -> unit
 
+(** {2 Unboxed Element Access}
+
+    Accessors that use OxCaml unboxed types ([int32#], [int64#], [float#])
+    to avoid boxing intermediates.  The entire get/set path stays in
+    registers, making these suitable for tight inner loops where boxing
+    overhead matters. *)
+
+val get_int32_u : t -> int array -> int32#
+val get_int64_u : t -> int array -> int64#
+val get_float32_u : t -> int array -> float#
+val get_float64_u : t -> int array -> float#
+
+val set_int32_u : t -> int array -> int32# -> unit
+val set_int64_u : t -> int array -> int64# -> unit
+val set_float32_u : t -> int array -> float# -> unit
+val set_float64_u : t -> int array -> float# -> unit
+
+(** {2 Direct Buffer Access} *)
+
+val buf : t -> bytes
+(** [buf t] returns the underlying byte buffer.  The caller must not
+    modify the buffer unless they accept the consequences.  Exposed for
+    zero-copy codec paths (e.g. CRC32C range computation). *)
+
 (** {2 Generic Element Access}
 
     Dtype-agnostic access returning tagged values.  Less efficient than

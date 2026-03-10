@@ -16,9 +16,8 @@ let test_blosc_roundtrip () =
     ~blocksize:0 in
   let compressed = codec.encode input in
   check bool "compression works" true (Bytes.length compressed > 0);
-  match codec.decode compressed with
-  | Ok decompressed -> check bytes "roundtrip" input decompressed
-  | Error _ -> fail "decompress failed"
+  let decompressed = codec.decode compressed in
+  check bytes "roundtrip" input decompressed
 
 let test_blosc_shuffle () =
   (* Create data with 4-byte integers - shuffle works well with typed data *)
@@ -34,9 +33,8 @@ let test_blosc_shuffle () =
     ~typesize:4
     ~blocksize:0 in
   let compressed = codec.encode input in
-  match codec.decode compressed with
-  | Ok decompressed -> check bytes "shuffle roundtrip" input decompressed
-  | Error _ -> fail "decompress failed"
+  let decompressed = codec.decode compressed in
+  check bytes "shuffle roundtrip" input decompressed
 
 let test_blosc_bitshuffle () =
   let n = 1000 in
@@ -51,9 +49,8 @@ let test_blosc_bitshuffle () =
     ~typesize:4
     ~blocksize:0 in
   let compressed = codec.encode input in
-  match codec.decode compressed with
-  | Ok decompressed -> check bytes "bitshuffle roundtrip" input decompressed
-  | Error _ -> fail "decompress failed"
+  let decompressed = codec.decode compressed in
+  check bytes "bitshuffle roundtrip" input decompressed
 
 let test_blosc_compressors () =
   let input = Bytes.init 10000 (fun i -> Char.chr (i mod 256)) in
@@ -72,13 +69,8 @@ let test_blosc_compressors () =
       ~typesize:1
       ~blocksize:0 in
     let compressed = codec.encode input in
-    match codec.decode compressed with
-    | Ok decompressed ->
-      check bytes (name ^ " roundtrip") input decompressed
-    | Error (`Codec_error msg) ->
-      fail (name ^ " decompress failed: " ^ msg)
-    | Error _ ->
-      fail (name ^ " decompress failed")
+    let decompressed = codec.decode compressed in
+    check bytes (name ^ " roundtrip") input decompressed
   ) compressors
 
 let test_blosc_levels () =
@@ -109,9 +101,8 @@ let test_blosc_large_data () =
     ~typesize:1
     ~blocksize:0 in
   let compressed = codec.encode input in
-  match codec.decode compressed with
-  | Ok decompressed -> check bytes "large roundtrip" input decompressed
-  | Error _ -> fail "decompress large failed"
+  let decompressed = codec.decode compressed in
+  check bytes "large roundtrip" input decompressed
 
 let test_blosc_decode_invalid () =
   let input = Bytes.of_string "this is not valid blosc data!!" in
@@ -121,17 +112,17 @@ let test_blosc_decode_invalid () =
     ~shuffle:Blosc.NoShuffle
     ~typesize:1
     ~blocksize:0 in
-  match codec.decode input with
-  | Ok _ -> fail "should fail on invalid data"
-  | Error _ -> ()
+  (try
+    let _ = codec.decode input in
+    fail "should fail on invalid data"
+  with Zarr.Codec.Codec_error _ -> ())
 
 let test_blosc_shuffle_modes_string () =
-  check (result (testable (fun fmt _ -> Format.pp_print_string fmt "<shuffle>") (fun _ _ -> true))
-    (testable (fun fmt _ -> Format.pp_print_string fmt "<error>") (fun _ _ -> true)))
-    "noshuffle" (Ok Blosc.NoShuffle) (Blosc.shuffle_of_string "noshuffle");
-  check (result (testable (fun fmt _ -> Format.pp_print_string fmt "<shuffle>") (fun _ _ -> true))
-    (testable (fun fmt _ -> Format.pp_print_string fmt "<error>") (fun _ _ -> true)))
-    "shuffle" (Ok Blosc.Shuffle) (Blosc.shuffle_of_string "shuffle");
+  let shuffle_testable = testable
+    (fun fmt _ -> Format.pp_print_string fmt "<shuffle>")
+    (fun _ _ -> true) in
+  check shuffle_testable "noshuffle" Blosc.NoShuffle (Blosc.shuffle_of_string "noshuffle");
+  check shuffle_testable "shuffle" Blosc.Shuffle (Blosc.shuffle_of_string "shuffle");
   check string "noshuffle to_string" "noshuffle" (Blosc.shuffle_to_string Blosc.NoShuffle);
   check string "shuffle to_string" "shuffle" (Blosc.shuffle_to_string Blosc.Shuffle);
   check string "bitshuffle to_string" "bitshuffle" (Blosc.shuffle_to_string Blosc.BitShuffle)
@@ -145,25 +136,19 @@ let test_blosc_codec_in_chain () =
   let spec = Blosc.codec_spec ~cname:Blosc.LZ4 ~clevel:5
     ~shuffle:Blosc.NoShuffle ~typesize:4 ~blocksize:0 in
   let codecs = [Zarr.Codec.Bytes { endian = Some Zarr.Dtype.Little }; spec] in
-  match Zarr.Codec.build_chain_default codecs Zarr.Dtype.Int32 [|10|] with
-  | Error (`Codec_error msg) -> fail ("should build chain: " ^ msg)
-  | Error _ -> fail "should build chain"
-  | Ok chain ->
-    let arr = Zarr.Chunk_data.create_zero Zarr.Dtype.Int32 [|10|] in
-    for i = 0 to 9 do
-      Zarr.Chunk_data.set arr [|i|] (`Int32 (Int32.of_int (i * 100)))
-    done;
-    let encoded = Zarr.Codec.encode chain arr in
-    match Zarr.Codec.decode chain [|10|] Zarr.Dtype.Int32 encoded with
-    | Error (`Codec_error msg) -> fail ("decode failed: " ^ msg)
-    | Error _ -> fail "decode failed"
-    | Ok decoded ->
-      for i = 0 to 9 do
-        match Zarr.Chunk_data.get decoded [|i|] with
-        | `Int32 v ->
-          check int (Printf.sprintf "element %d" i) (i * 100) (Int32.to_int v)
-        | _ -> fail "expected int32"
-      done
+  let chain = Zarr.Codec.build_chain_default codecs Zarr.Dtype.Int32 [|10|] in
+  let arr = Zarr.Chunk_data.create_zero Zarr.Dtype.Int32 [|10|] in
+  for i = 0 to 9 do
+    Zarr.Chunk_data.set arr [|i|] (`Int32 (Int32.of_int (i * 100)))
+  done;
+  let encoded = Zarr.Codec.encode chain arr in
+  let decoded = Zarr.Codec.decode chain [|10|] Zarr.Dtype.Int32 encoded in
+  for i = 0 to 9 do
+    match Zarr.Chunk_data.get decoded [|i|] with
+    | `Int32 v ->
+      check int (Printf.sprintf "element %d" i) (i * 100) (Int32.to_int v)
+    | _ -> fail "expected int32"
+  done
 
 let test_blosc_json_roundtrip () =
   let spec = Blosc.codec_spec ~cname:Blosc.LZ4 ~clevel:5
@@ -192,15 +177,12 @@ let test_blosc_json_roundtrip () =
   let blocksize = config |> find_member "blocksize" |> to_int_j in
   check int "blocksize" 0 blocksize;
   (* Parse it back *)
-  match Zarr.Codec.specs_of_json [json] with
-  | Error (`Codec_error msg) -> fail ("specs_of_json failed: " ^ msg)
-  | Error _ -> fail "specs_of_json failed"
-  | Ok specs ->
-    check int "one spec" 1 (List.length specs);
-    match List.hd specs with
-    | Zarr.Codec.Extension { name = n; config = _ } ->
-      check string "extension name" "blosc" n
-    | _ -> fail "expected Extension variant"
+  let specs = Zarr.Codec.specs_of_json [json] in
+  check int "one spec" 1 (List.length specs);
+  match List.hd specs with
+  | Zarr.Codec.Extension { name = n; config = _ } ->
+    check string "extension name" "blosc" n
+  | _ -> fail "expected Extension variant"
 
 let () =
   run "zarr-blosc" [

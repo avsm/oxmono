@@ -11,139 +11,105 @@ let jmem n v : Jsont.mem = ((n, none), v)
 
 let test_create_group () =
   let store = Memory_store.create () in
-  match Memory_group.create store ~path:"mygroup" () with
-  | Error _ -> fail "should create group"
-  | Ok group ->
-    check string "path" "mygroup" (Memory_group.path group);
-    check bool "metadata exists"
-      true (Memory_store.exists store "mygroup/zarr.json")
+  let group = Memory_group.create store ~path:"mygroup" () in
+  check string "path" "mygroup" (Memory_group.path group);
+  check bool "metadata exists"
+    true (Memory_store.exists store "mygroup/zarr.json")
 
 let test_open_group () =
   let store = Memory_store.create () in
-  (match Memory_group.create store ~path:"mygroup" () with
-  | Error _ -> fail "should create group"
-  | Ok _ -> ());
-
-  match Memory_group.open_ store ~path:"mygroup" with
-  | Error _ -> fail "should open group"
-  | Ok group ->
-    check string "path" "mygroup" (Memory_group.path group)
+  let _ = Memory_group.create store ~path:"mygroup" () in
+  let group = Memory_group.open_ store ~path:"mygroup" in
+  check string "path" "mygroup" (Memory_group.path group)
 
 let test_group_not_found () =
   let store = Memory_store.create () in
-  match Memory_group.open_ store ~path:"nonexistent" with
-  | Error _ -> ()
-  | Ok _ -> fail "should not find group"
+  (try
+    let _ = Memory_group.open_ store ~path:"nonexistent" in
+    fail "should not find group"
+  with Failure _ -> ())
 
 let test_group_attributes () =
   let store = Memory_store.create () in
-  match Memory_group.create store ~path:"mygroup"
-    ~attributes:(jobj [jmem "foo" (jstr "bar")]) () with
-  | Error _ -> fail "should create group"
-  | Ok group ->
-    let attrs = Memory_group.attrs group in
-    match attrs with
-    | Jsont.Object ([(("foo", _), Jsont.String ("bar", _))], _) -> ()
-    | _ -> fail "wrong attributes"
+  let group = Memory_group.create store ~path:"mygroup"
+    ~attributes:(jobj [jmem "foo" (jstr "bar")]) () in
+  let attrs = Memory_group.attrs group in
+  match attrs with
+  | Jsont.Object ([(("foo", _), Jsont.String ("bar", _))], _) -> ()
+  | _ -> fail "wrong attributes"
 
 let test_group_set_attributes () =
   let store = Memory_store.create () in
-  match Memory_group.create store ~path:"mygroup" () with
-  | Error _ -> fail "should create group"
-  | Ok group ->
-    Memory_group.set_attrs group (jobj [jmem "key" (jint 42)]);
-    (* Reopen and check *)
-    match Memory_group.open_ store ~path:"mygroup" with
-    | Error _ -> fail "should open group"
-    | Ok group2 ->
-      let attrs = Memory_group.attrs group2 in
-      match attrs with
-      | Jsont.Object ([(("key", _), Jsont.Number (42., _))], _) -> ()
-      | _ -> fail "wrong attributes after set"
+  let group = Memory_group.create store ~path:"mygroup" () in
+  Memory_group.set_attrs group (jobj [jmem "key" (jint 42)]);
+  (* Reopen and check *)
+  let group2 = Memory_group.open_ store ~path:"mygroup" in
+  let attrs = Memory_group.attrs group2 in
+  match attrs with
+  | Jsont.Object ([(("key", _), Jsont.Number (42., _))], _) -> ()
+  | _ -> fail "wrong attributes after set"
 
 let test_group_children () =
   let store = Memory_store.create () in
 
   (* Create parent group *)
-  (match Memory_group.create store ~path:"parent" () with
-  | Error _ -> fail "should create parent"
-  | Ok _ -> ());
+  let _ = Memory_group.create store ~path:"parent" () in
 
   (* Create child array *)
-  (match Memory_array.create store
+  let _ = Memory_array.create store
     ~path:"parent/child_array"
     ~shape:[|10|]
     ~chunks:[|10|]
     ~dtype:Zarr.Dtype.Int32
-    () with
-  | Error _ -> fail "should create child array"
-  | Ok _ -> ());
+    () in
 
   (* Create child group *)
-  (match Memory_group.create store ~path:"parent/child_group" () with
-  | Error _ -> fail "should create child group"
-  | Ok _ -> ());
+  let _ = Memory_group.create store ~path:"parent/child_group" () in
 
   (* List children *)
-  match Memory_group.open_ store ~path:"parent" with
-  | Error _ -> fail "should open parent"
-  | Ok group ->
-    let children = Memory_group.children group in
-    check bool "has child_array" true (List.mem "child_array" children);
-    check bool "has child_group" true (List.mem "child_group" children)
+  let group = Memory_group.open_ store ~path:"parent" in
+  let children = Memory_group.children group in
+  check bool "has child_array" true (List.mem "child_array" children);
+  check bool "has child_group" true (List.mem "child_group" children)
 
 let test_group_child_type () =
   let store = Memory_store.create () in
 
   (* Create parent group *)
-  (match Memory_group.create store ~path:"parent" () with
-  | Error _ -> fail "should create parent"
-  | Ok _ -> ());
+  let _ = Memory_group.create store ~path:"parent" () in
 
   (* Create child array *)
-  (match Memory_array.create store
+  let _ = Memory_array.create store
     ~path:"parent/arr"
     ~shape:[|10|]
     ~chunks:[|10|]
     ~dtype:Zarr.Dtype.Int32
-    () with
-  | Error _ -> fail "should create child array"
-  | Ok _ -> ());
+    () in
 
   (* Create child group *)
-  (match Memory_group.create store ~path:"parent/grp" () with
-  | Error _ -> fail "should create child group"
-  | Ok _ -> ());
+  let _ = Memory_group.create store ~path:"parent/grp" () in
 
-  match Memory_group.open_ store ~path:"parent" with
-  | Error _ -> fail "should open parent"
-  | Ok group ->
-    check (option (testable (fun fmt -> function
-      | `Array -> Format.pp_print_string fmt "Array"
-      | `Group -> Format.pp_print_string fmt "Group") (=)))
-      "arr is array" (Some `Array) (Memory_group.child_type group "arr");
-    check (option (testable (fun fmt -> function
-      | `Array -> Format.pp_print_string fmt "Array"
-      | `Group -> Format.pp_print_string fmt "Group") (=)))
-      "grp is group" (Some `Group) (Memory_group.child_type group "grp");
-    check (option (testable (fun fmt -> function
-      | `Array -> Format.pp_print_string fmt "Array"
-      | `Group -> Format.pp_print_string fmt "Group") (=)))
-      "nonexistent" None (Memory_group.child_type group "nonexistent")
+  let group = Memory_group.open_ store ~path:"parent" in
+  check (option (testable (fun fmt -> function
+    | `Array -> Format.pp_print_string fmt "Array"
+    | `Group -> Format.pp_print_string fmt "Group") (=)))
+    "arr is array" (Some `Array) (Memory_group.child_type group "arr");
+  check (option (testable (fun fmt -> function
+    | `Array -> Format.pp_print_string fmt "Array"
+    | `Group -> Format.pp_print_string fmt "Group") (=)))
+    "grp is group" (Some `Group) (Memory_group.child_type group "grp");
+  check (option (testable (fun fmt -> function
+    | `Array -> Format.pp_print_string fmt "Array"
+    | `Group -> Format.pp_print_string fmt "Group") (=)))
+    "nonexistent" None (Memory_group.child_type group "nonexistent")
 
 let test_hierarchy_walk () =
   let store = Memory_store.create () in
 
   (* Create a hierarchy *)
-  (match Memory_group.create store ~path:"" () with
-  | Error _ -> fail "should create root"
-  | Ok _ -> ());
-  (match Memory_group.create store ~path:"group1" () with
-  | Error _ -> fail "should create group1"
-  | Ok _ -> ());
-  (match Memory_array.create store ~path:"group1/array1" ~shape:[|10|] ~chunks:[|10|] ~dtype:Zarr.Dtype.Int32 () with
-  | Error _ -> fail "should create array1"
-  | Ok _ -> ());
+  let _ = Memory_group.create store ~path:"" () in
+  let _ = Memory_group.create store ~path:"group1" () in
+  let _ = Memory_array.create store ~path:"group1/array1" ~shape:[|10|] ~chunks:[|10|] ~dtype:Zarr.Dtype.Int32 () in
 
   let nodes = ref [] in
   Memory_hierarchy.walk store (fun path node_type ->
@@ -158,9 +124,7 @@ let test_hierarchy_walk () =
 let test_hierarchy_exists () =
   let store = Memory_store.create () in
 
-  (match Memory_group.create store ~path:"mygroup" () with
-  | Error _ -> fail "should create group"
-  | Ok _ -> ());
+  let _ = Memory_group.create store ~path:"mygroup" () in
 
   check bool "exists" true (Memory_hierarchy.exists store "mygroup");
   check bool "not exists" false (Memory_hierarchy.exists store "other")

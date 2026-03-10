@@ -66,6 +66,15 @@ let ndim t = Array.length t.shape
 let numel t = t.numel
 let byte_length t = Bytes.length t.buf
 
+open Stdlib_upstream_compatible
+
+(** {2 Direct buffer access} *)
+
+(** [buf t] returns the underlying byte buffer.  Callers must not modify
+    the buffer unless they know what they are doing.  Exposed for
+    zero-copy codec paths (e.g. CRC32C over a range). *)
+let buf t = t.buf
+
 (** {2 Bytes conversion}
 
     The internal representation uses native (little-endian on most platforms)
@@ -227,6 +236,38 @@ let[@inline] set_float32 t idx v =
 
 let[@inline] set_float64 t idx v =
   Bytes.set_int64_le t.buf (byte_offset t.strides idx) (Int64.bits_of_float v)
+
+(** {2 Unboxed element access}
+
+    Accessors that avoid boxing [int32], [int64], and [float] intermediates.
+    These use the OxCaml unboxed types ([int32#], [int64#], [float#]) so that
+    the entire get/set path stays in registers for tight inner loops. *)
+
+let[@inline] get_int32_u t idx : int32# =
+  Int32_u.of_int32 (Bytes.get_int32_le t.buf (byte_offset t.strides idx))
+
+let[@inline] get_int64_u t idx : int64# =
+  Int64_u.of_int64 (Bytes.get_int64_le t.buf (byte_offset t.strides idx))
+
+let[@inline] get_float32_u t idx : float# =
+  Float_u.of_float (Int32.float_of_bits (Bytes.get_int32_le t.buf (byte_offset t.strides idx)))
+
+let[@inline] get_float64_u t idx : float# =
+  Float_u.of_float (Int64.float_of_bits (Bytes.get_int64_le t.buf (byte_offset t.strides idx)))
+
+let[@inline] set_int32_u t idx (v : int32#) =
+  Bytes.set_int32_le t.buf (byte_offset t.strides idx) (Int32_u.to_int32 v)
+
+let[@inline] set_int64_u t idx (v : int64#) =
+  Bytes.set_int64_le t.buf (byte_offset t.strides idx) (Int64_u.to_int64 v)
+
+let[@inline] set_float32_u t idx (v : float#) =
+  Bytes.set_int32_le t.buf (byte_offset t.strides idx)
+    (Int32.bits_of_float (Float_u.to_float v))
+
+let[@inline] set_float64_u t idx (v : float#) =
+  Bytes.set_int64_le t.buf (byte_offset t.strides idx)
+    (Int64.bits_of_float (Float_u.to_float v))
 
 (** {2 Generic element access}
 

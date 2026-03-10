@@ -17,8 +17,8 @@ module Metadata_compliance = struct
                       "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
                       "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}],
                       "fill_value": 0} |} in
-    check bool "rejects v2"
-      true (Result.is_error (Metadata.array_of_json invalid))
+    (try ignore (Metadata.array_of_json invalid); fail "should reject v2"
+     with Failure _ -> ())
 
   (* "node_type... must be array here" *)
   let test_node_type_must_be_array () =
@@ -28,8 +28,8 @@ module Metadata_compliance = struct
                       "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
                       "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}],
                       "fill_value": 0} |} in
-    check bool "rejects group for array"
-      true (Result.is_error (Metadata.array_of_json invalid))
+    (try ignore (Metadata.array_of_json invalid); fail "should reject group for array"
+     with Failure _ -> ())
 
   (* "shape... An array of integers" *)
   let test_shape_must_be_integers () =
@@ -39,8 +39,8 @@ module Metadata_compliance = struct
                       "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
                       "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}],
                       "fill_value": 0} |} in
-    check bool "rejects float shape"
-      true (Result.is_error (Metadata.array_of_json invalid))
+    (try ignore (Metadata.array_of_json invalid); fail "should reject float shape"
+     with Failure _ -> ())
 
   (* "codecs MUST contain an array -> bytes codec" *)
   let test_codecs_must_have_array_to_bytes () =
@@ -50,8 +50,8 @@ module Metadata_compliance = struct
                     "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
                     "codecs": [{"name": "gzip", "configuration": {"level": 5}}],
                     "fill_value": 0} |} in
-    check bool "rejects missing array->bytes"
-      true (Result.is_error (Metadata.array_of_json no_a2b))
+    (try ignore (Metadata.array_of_json no_a2b); fail "should reject missing array->bytes"
+     with Failure _ -> ())
 
   let tests = [
     "zarr_format must be 3", `Quick, test_zarr_format_must_be_3;
@@ -68,22 +68,22 @@ module Fill_value_compliance = struct
   let test_nan_encoding () =
     let fv = Fill.of_json Dtype.Float64 (Jsont.Json.string "NaN") in
     match fv with
-    | Ok Fill.NaN -> ()
+    | Fill.NaN -> ()
     | _ -> fail "should parse NaN"
 
   (* "Infinity" and "-Infinity" for infinities *)
   let test_infinity_encoding () =
     (match Fill.of_json Dtype.Float64 (Jsont.Json.string "Infinity") with
-    | Ok Fill.Infinity -> ()
+    | Fill.Infinity -> ()
     | _ -> fail "should parse Infinity");
     (match Fill.of_json Dtype.Float64 (Jsont.Json.string "-Infinity") with
-    | Ok Fill.NegInfinity -> ()
+    | Fill.NegInfinity -> ()
     | _ -> fail "should parse -Infinity")
 
   (* Hex format for custom NaN patterns *)
   let test_hex_nan_encoding () =
     match Fill.of_json Dtype.Float32 (Jsont.Json.string "0x7fc00001") with
-    | Ok (Fill.Hex s) -> check string "hex" "0x7fc00001" s
+    | Fill.Hex s -> check string "hex" "0x7fc00001" s
     | _ -> fail "should parse hex NaN"
 
   let tests = [
@@ -110,10 +110,8 @@ module Chunk_grid_compliance = struct
         mem "chunk_shape" (arr [int 10; int 20])
       ])
     ] in
-    match Chunk_grid.of_json json with
-    | Ok (Chunk_grid.Regular { chunk_shape }) ->
-      check (Alcotest.array Alcotest.int) "chunk_shape" [|10; 20|] chunk_shape
-    | Error _ -> fail "should parse regular grid"
+    let (Chunk_grid.Regular { chunk_shape }) = Chunk_grid.of_json json in
+    check (Alcotest.array Alcotest.int) "chunk_shape" [|10; 20|] chunk_shape
 
   let tests = [
     "regular chunk grid", `Quick, test_regular_chunk_grid;

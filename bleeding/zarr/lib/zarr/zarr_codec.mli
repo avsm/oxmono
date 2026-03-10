@@ -15,13 +15,13 @@
     {b Decoding} proceeds right-to-left:
     {v bytes -> b2b[m] -> ... -> b2b[0] -> a2b -> a2a[n] -> ... -> a2a[0] -> chunk v} *)
 
-(** {2 Error type} *)
+(** {2 Exceptions} *)
 
-type error =
-  [ `Codec_error of string
-  | `Checksum_mismatch ]
+exception Codec_error of string
+(** Raised when a codec chain fails to build, encode, or decode. *)
 
-type 'a result = ('a, error) Stdlib.result
+exception Checksum_mismatch
+(** Raised when a checksum codec detects data corruption. *)
 
 (** {2 Codec types} *)
 
@@ -53,11 +53,13 @@ type array_to_bytes = {
     {b Zarr v3.1 spec:} "A bytes → bytes codec transforms a byte
     sequence to another byte sequence."
 
+    [decode] raises {!Codec_error} or {!Checksum_mismatch} on failure.
+
     [compute_encoded_size] returns [None] for variable-size codecs
     (compression) and [Some n] for fixed-overhead codecs (CRC32C). *)
 type bytes_to_bytes = {
   encode : bytes -> bytes;
-  decode : bytes -> bytes result;
+  decode : bytes -> bytes;
   compute_encoded_size : int -> int option;
 }
 
@@ -86,7 +88,7 @@ type codec_class =
     new codecs." *)
 
 type codec_builder =
-  Jsont.json -> Zarr_dtype.t -> int array -> (codec_class, error) Stdlib.result
+  Jsont.json -> Zarr_dtype.t -> int array -> codec_class
 
 val register_codec : string -> codec_builder -> unit
 (** [register_codec name builder] registers an extension codec. *)
@@ -133,12 +135,12 @@ type codec_spec =
 
 val build_codec_ref :
   (codec_spec -> Zarr_dtype.t -> int array -> Zarr_fill.t ->
-   (codec_spec list -> Zarr_dtype.t -> int array -> Zarr_fill.t -> codec_chain result) ->
+   (codec_spec list -> Zarr_dtype.t -> int array -> Zarr_fill.t -> codec_chain) ->
    codec_class) ref
 (** Forward reference for building individual codecs.
     Set at library initialisation time by [zarr.ml]. *)
 
-val build_chain : codec_spec list -> Zarr_dtype.t -> int array -> Zarr_fill.t -> codec_chain result
+val build_chain : codec_spec list -> Zarr_dtype.t -> int array -> Zarr_fill.t -> codec_chain
 (** [build_chain specs dtype chunk_shape fill_value] builds a validated
     codec chain from a list of codec specifications.
 
@@ -151,9 +153,9 @@ val build_chain : codec_spec list -> Zarr_dtype.t -> int array -> Zarr_fill.t ->
     needs it to correctly fill uninitialised inner chunks during decode
     (Zarr v3.1 spec: empty inner chunks use the array's fill value).
 
-    @return [Error] if ordering is invalid or a codec fails to build. *)
+    @raise Codec_error if ordering is invalid or a codec fails to build. *)
 
-val build_chain_default : codec_spec list -> Zarr_dtype.t -> int array -> codec_chain result
+val build_chain_default : codec_spec list -> Zarr_dtype.t -> int array -> codec_chain
 (** [build_chain_default specs dtype chunk_shape] is
     [build_chain specs dtype chunk_shape (Zarr_fill.default dtype)].
     Convenience wrapper for callers that use the default (zero) fill
@@ -167,16 +169,16 @@ val encode : codec_chain -> Chunk_data.t -> bytes
     The chunk passes through array-to-array codecs, then the
     array-to-bytes codec, then bytes-to-bytes codecs. *)
 
-val decode : codec_chain -> int array -> Zarr_dtype.t -> bytes -> Chunk_data.t result
+val decode : codec_chain -> int array -> Zarr_dtype.t -> bytes -> Chunk_data.t
 (** [decode chain shape dtype bytes] decodes bytes through the codec
     chain in reverse order.
 
-    @return [Error] if any codec in the chain fails (e.g. checksum
-    mismatch, decompression error). *)
+    @raise Codec_error if any codec in the chain fails.
+    @raise Checksum_mismatch if a checksum codec detects corruption. *)
 
 (** {2 JSON serialization} *)
 
-val specs_of_json : Jsont.json list -> (codec_spec list, error) Stdlib.result
+val specs_of_json : Jsont.json list -> codec_spec list
 (** [specs_of_json json_list] parses codec specifications from JSON.
 
     Recognises the following codec names:
@@ -186,7 +188,9 @@ val specs_of_json : Jsont.json list -> (codec_spec list, error) Stdlib.result
     - ["zstd"]: bytes-to-bytes, config: [\{"level": 1-22\}]
     - ["crc32c"]: bytes-to-bytes, no config
     - ["sharding_indexed"]: array-to-bytes, nested codecs
-    - Registered extension codecs *)
+    - Registered extension codecs
+
+    @raise Codec_error if an unsupported codec is encountered. *)
 
 val specs_to_json : codec_spec list -> Jsont.json list
 (** [specs_to_json specs] serialises codec specifications to JSON. *)

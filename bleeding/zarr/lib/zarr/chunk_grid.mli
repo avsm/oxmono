@@ -57,5 +57,7 @@ val total_chunks : t -> int array -> int
     JSON format:
     {v {"name": "regular", "configuration": {"chunk_shape": [d0, d1, ...]}} v} *)
 
-val of_json : Jsont.json -> (t, string) result
+val of_json : Jsont.json -> t
+(** @raise Failure if the JSON is not a valid chunk grid. *)
+
 val to_json : t -> Jsont.json

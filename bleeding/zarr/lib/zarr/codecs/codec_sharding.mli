@@ -24,7 +24,15 @@
     - Index codecs must be deterministic (recommended:
       [bytes(little) + crc32c]).
     - The index is encoded through the full index codec chain (including
-      the array-to-bytes codec), not just the bytes-to-bytes portion. *)
+      the array-to-bytes codec), not just the bytes-to-bytes portion.
+
+    {2 Optimisations}
+
+    - Index entries use unboxed [int64#] fields (mixed blocks) to avoid
+      per-entry boxing of offset and nbytes values.
+    - Coordinate, start-offset, and shape arrays are pre-allocated once
+      and reused across all inner chunks in encode/decode, eliminating
+      3×N array allocations per shard. *)
 
 val empty_marker : int64
 (** Sentinel value ([Int64.minus_one], i.e. [0xFFFFFFFFFFFFFFFF])

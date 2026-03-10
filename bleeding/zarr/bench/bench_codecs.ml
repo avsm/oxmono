@@ -138,22 +138,18 @@ let bench_codec_chain () =
   let arr = random_float64_array [|100; 100|] in
 
   (* Bytes only *)
-  (match Codec.build_chain_default [Bytes { endian = Some Little }] Float64 [|100; 100|] with
-   | Error _ -> Printf.printf "Failed to build bytes chain\n"
-   | Ok chain ->
-     time_it "chain: bytes only encode" 1000 (fun () -> Codec.encode chain arr);
-     let encoded = Codec.encode chain arr in
-     time_it "chain: bytes only decode" 1000 (fun () ->
-       ignore (Codec.decode chain [|100; 100|] Float64 encoded)));
+  let chain = Codec.build_chain_default [Bytes { endian = Some Little }] Float64 [|100; 100|] in
+  time_it "chain: bytes only encode" 1000 (fun () -> Codec.encode chain arr);
+  let encoded = Codec.encode chain arr in
+  time_it "chain: bytes only decode" 1000 (fun () ->
+    ignore (Codec.decode chain [|100; 100|] Float64 encoded));
 
   (* Bytes + gzip *)
-  (match Codec.build_chain_default [Bytes { endian = Some Little }; Gzip { level = 5 }] Float64 [|100; 100|] with
-   | Error _ -> Printf.printf "Failed to build bytes+gzip chain\n"
-   | Ok chain ->
-     time_it "chain: bytes+gzip encode" 100 (fun () -> Codec.encode chain arr);
-     let encoded = Codec.encode chain arr in
-     time_it "chain: bytes+gzip decode" 100 (fun () ->
-       ignore (Codec.decode chain [|100; 100|] Float64 encoded)))
+  let chain = Codec.build_chain_default [Bytes { endian = Some Little }; Gzip { level = 5 }] Float64 [|100; 100|] in
+  time_it "chain: bytes+gzip encode" 100 (fun () -> Codec.encode chain arr);
+  let encoded = Codec.encode chain arr in
+  time_it "chain: bytes+gzip decode" 100 (fun () ->
+    ignore (Codec.decode chain [|100; 100|] Float64 encoded))
 
 (** {2 Array Operation Benchmarks} *)
 
@@ -164,26 +160,23 @@ let bench_array_ops () =
 
   (* Create array *)
   time_it "create 1000x1000 array" 10 (fun () ->
-    match Zarr_sync.Memory_array.create store
+    let _ = Zarr_sync.Memory_array.create store
       ~path:"bench"
       ~shape:[|1000; 1000|]
       ~chunks:[|100; 100|]
       ~dtype:Float64
       ~fill_value:(Float 0.0)
-      () with
-    | Ok _ -> Zarr_sync.Memory_store.clear store
-    | Error _ -> ());
+      () in
+    Zarr_sync.Memory_store.clear store);
 
   (* Set up array for read/write tests *)
-  let arr = match Zarr_sync.Memory_array.create store
+  let arr = Zarr_sync.Memory_array.create store
     ~path:"bench"
     ~shape:[|1000; 1000|]
     ~chunks:[|100; 100|]
     ~dtype:Float64
     ~fill_value:(Float 0.0)
-    () with
-    | Ok a -> a
-    | Error _ -> failwith "Failed to create array"
+    ()
   in
 
   let data_100x100 = random_float64_array [|100; 100|] in

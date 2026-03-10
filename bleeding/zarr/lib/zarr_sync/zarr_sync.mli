@@ -72,9 +72,8 @@ module Memory_group : sig
   type t
 
   val create :
-    store -> path:string -> ?attributes:Jsont.json -> unit ->
-    (t, string) result
-  val open_ : store -> path:string -> (t, string) result
+    store -> path:string -> ?attributes:Jsont.json -> unit -> t
+  val open_ : store -> path:string -> t
   val metadata : t -> Zarr.Metadata.group_metadata
   val path : t -> string
   val children : t -> string list
@@ -91,9 +90,8 @@ module Filesystem_group : sig
   type t
 
   val create :
-    store -> path:string -> ?attributes:Jsont.json -> unit ->
-    (t, string) result
-  val open_ : store -> path:string -> (t, string) result
+    store -> path:string -> ?attributes:Jsont.json -> unit -> t
+  val open_ : store -> path:string -> t
   val metadata : t -> Zarr.Metadata.group_metadata
   val path : t -> string
   val children : t -> string list

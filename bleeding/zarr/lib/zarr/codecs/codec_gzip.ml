@@ -36,34 +36,30 @@ let compress ~level input =
 
 let decompress input =
   let input_len = Bytes.length input in
-  if input_len = 0 then Ok Bytes.empty
+  if input_len = 0 then Bytes.empty
   else begin
-    try
-      let output = Buffer.create (input_len * 4) in
-      let input_pos = ref 0 in
-      let refill (buf : bigstring) =
-        let available = input_len - !input_pos in
-        let buf_len = Bigarray.Array1.dim buf in
-        let len = min buf_len available in
-        for i = 0 to len - 1 do
-          Bigarray.Array1.unsafe_set buf i (Bytes.unsafe_get input (!input_pos + i))
-        done;
-        input_pos := !input_pos + len;
-        len
-      in
-      let flush (buf : bigstring) len =
-        for i = 0 to len - 1 do
-          Buffer.add_char output (Bigarray.Array1.unsafe_get buf i)
-        done
-      in
-      let i_buf = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0x1000 in
-      let o_buf = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0x1000 in
-      match Gz.Higher.uncompress ~refill ~flush i_buf o_buf with
-      | Ok _metadata -> Ok (Buffer.to_bytes output)
-      | Error (`Msg msg) -> Error (`Codec_error ("gzip: " ^ msg))
-    with
-    | Invalid_argument msg -> Error (`Codec_error ("gzip: " ^ msg))
-    | exn -> Error (`Codec_error ("gzip: " ^ Printexc.to_string exn))
+    let output = Buffer.create (input_len * 4) in
+    let input_pos = ref 0 in
+    let refill (buf : bigstring) =
+      let available = input_len - !input_pos in
+      let buf_len = Bigarray.Array1.dim buf in
+      let len = min buf_len available in
+      for i = 0 to len - 1 do
+        Bigarray.Array1.unsafe_set buf i (Bytes.unsafe_get input (!input_pos + i))
+      done;
+      input_pos := !input_pos + len;
+      len
+    in
+    let flush (buf : bigstring) len =
+      for i = 0 to len - 1 do
+        Buffer.add_char output (Bigarray.Array1.unsafe_get buf i)
+      done
+    in
+    let i_buf = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0x1000 in
+    let o_buf = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0x1000 in
+    match Gz.Higher.uncompress ~refill ~flush i_buf o_buf with
+    | Ok _metadata -> Buffer.to_bytes output
+    | Error (`Msg msg) -> raise (Zarr_codec.Codec_error ("gzip: " ^ msg))
   end
 
 (** [create level] builds a gzip codec at the given compression level (1-9). *)

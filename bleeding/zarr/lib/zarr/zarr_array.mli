@@ -49,19 +49,22 @@ module Make (S : STORE_OPS) : sig
   val create :
     store -> path:string -> shape:int array -> chunks:int array ->
     dtype:Zarr_dtype.t -> ?fill_value:Zarr_fill.t ->
-    ?codecs:Zarr_codec.codec_spec list -> unit ->
-    (t, string) result
+    ?codecs:Zarr_codec.codec_spec list -> unit -> t
   (** [create store ~path ~shape ~chunks ~dtype ()] creates a new array,
       writes its [zarr.json] metadata, and builds the codec chain.
 
       @param fill_value Default value for uninitialised regions.
         Defaults to zero/false for the data type.
       @param codecs Codec pipeline. Defaults to
-        [bytes \{ endian = Some Little \}]. *)
+        [bytes \{ endian = Some Little \}].
+      @raise Failure on invalid parameters.
+      @raise Zarr_codec.Codec_error on invalid codec chain. *)
 
-  val open_ : store -> path:string -> (t, string) result
+  val open_ : store -> path:string -> t
   (** [open_ store ~path] opens an existing array by reading its
-      [zarr.json] metadata and building the codec chain. *)
+      [zarr.json] metadata and building the codec chain.
+      @raise Failure if the array is not found or metadata is invalid.
+      @raise Zarr_codec.Codec_error on invalid codec chain. *)
 
   (** {3 Properties} *)
 

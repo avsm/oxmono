@@ -84,10 +84,8 @@ let test_total_chunks () =
 let test_json_roundtrip () =
   let grid = Chunk_grid.Regular { chunk_shape = [|10; 20; 30|] } in
   let json = Chunk_grid.to_json grid in
-  match Chunk_grid.of_json json with
-  | Ok (Chunk_grid.Regular { chunk_shape }) ->
-    check (Alcotest.array Alcotest.int) "roundtrip chunk_shape" [|10; 20; 30|] chunk_shape
-  | Error _ -> fail "failed to parse"
+  let (Chunk_grid.Regular { chunk_shape }) = Chunk_grid.of_json json in
+  check (Alcotest.array Alcotest.int) "roundtrip chunk_shape" [|10; 20; 30|] chunk_shape
 
 let tests = [
   "chunk_shape", `Quick, test_chunk_shape;

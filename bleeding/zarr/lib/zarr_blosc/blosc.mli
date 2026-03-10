@@ -17,9 +17,10 @@ type shuffle =
   | Shuffle     (** Byte-level shuffle (groups MSB, LSB, etc.) *)
   | BitShuffle  (** Bit-level shuffle (groups individual bits) *)
 
-val shuffle_of_string : string -> (shuffle, [> `Codec_error of string ]) result
+val shuffle_of_string : string -> shuffle
 (** [shuffle_of_string s] parses ["noshuffle"], ["shuffle"], or
-    ["bitshuffle"]. *)
+    ["bitshuffle"].
+    @raise Zarr.Codec.Codec_error on unknown shuffle mode. *)
 
 val shuffle_to_string : shuffle -> string
 (** [shuffle_to_string mode] returns the canonical string representation. *)
@@ -35,8 +36,9 @@ type compressor =
   | Snappy   (** Google Snappy *)
   | Zlib     (** zlib / deflate *)
 
-val compressor_of_string : string -> (compressor, [> `Codec_error of string ]) result
-(** [compressor_of_string s] parses a compressor name. *)
+val compressor_of_string : string -> compressor
+(** [compressor_of_string s] parses a compressor name.
+    @raise Zarr.Codec.Codec_error on unknown compressor. *)
 
 val compressor_to_string : compressor -> string
 (** [compressor_to_string c] returns the canonical name. *)
@@ -53,8 +55,9 @@ val compress :
     @param typesize Element size in bytes (used by shuffle).
     @param blocksize Internal block size (0 = auto). *)
 
-val decompress : bytes -> (bytes, [> `Codec_error of string ]) result
-(** [decompress input] decompresses blosc-compressed bytes. *)
+val decompress : bytes -> bytes
+(** [decompress input] decompresses blosc-compressed bytes.
+    @raise Zarr.Codec.Codec_error on decompression failure. *)
 
 (** {2 Zarr Integration} *)
 

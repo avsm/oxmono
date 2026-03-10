@@ -9,7 +9,7 @@ let test_sharding_empty_marker () =
 
 let test_sharding_basic () =
   let store = Memory_store.create () in
-  match Memory_array.create store
+  let arr = Memory_array.create store
     ~path:"test"
     ~shape:[|32; 32|]
     ~chunks:[|16; 16|]  (* Shard shape *)
@@ -23,36 +23,33 @@ let test_sharding_basic () =
         index_location = Codec.End;
       }
     ]
-    () with
-  | Error e ->
-    fail ("should create sharded array: " ^ e)
-  | Ok arr ->
-    (* Write some data *)
-    let data = Chunk_data.create_zero Dtype.Int32 [|8; 8|] in
-    for i = 0 to 7 do
-      for j = 0 to 7 do
-        Chunk_data.set data [|i; j|] (`Int32 (Int32.of_int (i * 8 + j)))
-      done
-    done;
-
-    Memory_array.set_slice arr [Slice.Range (0, 8); Slice.Range (0, 8)] data;
-
-    (* Read back *)
-    let read_data = Memory_array.get_slice arr [Slice.Range (0, 8); Slice.Range (0, 8)] in
-
-    for i = 0 to 7 do
-      for j = 0 to 7 do
-        match Chunk_data.get read_data [|i; j|] with
-        | `Int32 v ->
-          check int32 (Printf.sprintf "element %d,%d" i j)
-            (Int32.of_int (i * 8 + j)) v
-        | _ -> fail "expected int32"
-      done
+    () in
+  (* Write some data *)
+  let data = Chunk_data.create_zero Dtype.Int32 [|8; 8|] in
+  for i = 0 to 7 do
+    for j = 0 to 7 do
+      Chunk_data.set data [|i; j|] (`Int32 (Int32.of_int (i * 8 + j)))
     done
+  done;
+
+  Memory_array.set_slice arr [Slice.Range (0, 8); Slice.Range (0, 8)] data;
+
+  (* Read back *)
+  let read_data = Memory_array.get_slice arr [Slice.Range (0, 8); Slice.Range (0, 8)] in
+
+  for i = 0 to 7 do
+    for j = 0 to 7 do
+      match Chunk_data.get read_data [|i; j|] with
+      | `Int32 v ->
+        check int32 (Printf.sprintf "element %d,%d" i j)
+          (Int32.of_int (i * 8 + j)) v
+      | _ -> fail "expected int32"
+    done
+  done
 
 let test_sharding_with_crc32c () =
   let store = Memory_store.create () in
-  match Memory_array.create store
+  let arr = Memory_array.create store
     ~path:"test"
     ~shape:[|32; 32|]
     ~chunks:[|16; 16|]
@@ -66,33 +63,31 @@ let test_sharding_with_crc32c () =
         index_location = Codec.End;
       }
     ]
-    () with
-  | Error _ -> fail "should create sharded array with crc32c"
-  | Ok arr ->
-    let data = Chunk_data.create_zero Dtype.Float64 [|4; 4|] in
-    for i = 0 to 3 do
-      for j = 0 to 3 do
-        Chunk_data.set data [|i; j|] (`Float (Float.of_int i +. Float.of_int j *. 0.1))
-      done
-    done;
-
-    Memory_array.set_slice arr [Slice.Range (0, 4); Slice.Range (0, 4)] data;
-
-    let read_data = Memory_array.get_slice arr [Slice.Range (0, 4); Slice.Range (0, 4)] in
-
-    for i = 0 to 3 do
-      for j = 0 to 3 do
-        match Chunk_data.get read_data [|i; j|] with
-        | `Float v ->
-          check (float 0.001) (Printf.sprintf "element %d,%d" i j)
-            (Float.of_int i +. Float.of_int j *. 0.1) v
-        | _ -> fail "expected float"
-      done
+    () in
+  let data = Chunk_data.create_zero Dtype.Float64 [|4; 4|] in
+  for i = 0 to 3 do
+    for j = 0 to 3 do
+      Chunk_data.set data [|i; j|] (`Float (Float.of_int i +. Float.of_int j *. 0.1))
     done
+  done;
+
+  Memory_array.set_slice arr [Slice.Range (0, 4); Slice.Range (0, 4)] data;
+
+  let read_data = Memory_array.get_slice arr [Slice.Range (0, 4); Slice.Range (0, 4)] in
+
+  for i = 0 to 3 do
+    for j = 0 to 3 do
+      match Chunk_data.get read_data [|i; j|] with
+      | `Float v ->
+        check (float 0.001) (Printf.sprintf "element %d,%d" i j)
+          (Float.of_int i +. Float.of_int j *. 0.1) v
+      | _ -> fail "expected float"
+    done
+  done
 
 let test_sharding_index_start () =
   let store = Memory_store.create () in
-  match Memory_array.create store
+  let arr = Memory_array.create store
     ~path:"test"
     ~shape:[|16; 16|]
     ~chunks:[|16; 16|]
@@ -106,33 +101,31 @@ let test_sharding_index_start () =
         index_location = Codec.Start;
       }
     ]
-    () with
-  | Error _ -> fail "should create sharded array with index at start"
-  | Ok arr ->
-    let data = Chunk_data.create_zero Dtype.Int32 [|4; 4|] in
-    for i = 0 to 3 do
-      for j = 0 to 3 do
-        Chunk_data.set data [|i; j|] (`Int32 (Int32.of_int (i + j * 10)))
-      done
-    done;
-
-    Memory_array.set_slice arr [Slice.Range (0, 4); Slice.Range (0, 4)] data;
-
-    let read_data = Memory_array.get_slice arr [Slice.Range (0, 4); Slice.Range (0, 4)] in
-
-    for i = 0 to 3 do
-      for j = 0 to 3 do
-        match Chunk_data.get read_data [|i; j|] with
-        | `Int32 v ->
-          check int32 (Printf.sprintf "element %d,%d" i j)
-            (Int32.of_int (i + j * 10)) v
-        | _ -> fail "expected int32"
-      done
+    () in
+  let data = Chunk_data.create_zero Dtype.Int32 [|4; 4|] in
+  for i = 0 to 3 do
+    for j = 0 to 3 do
+      Chunk_data.set data [|i; j|] (`Int32 (Int32.of_int (i + j * 10)))
     done
+  done;
+
+  Memory_array.set_slice arr [Slice.Range (0, 4); Slice.Range (0, 4)] data;
+
+  let read_data = Memory_array.get_slice arr [Slice.Range (0, 4); Slice.Range (0, 4)] in
+
+  for i = 0 to 3 do
+    for j = 0 to 3 do
+      match Chunk_data.get read_data [|i; j|] with
+      | `Int32 v ->
+        check int32 (Printf.sprintf "element %d,%d" i j)
+          (Int32.of_int (i + j * 10)) v
+      | _ -> fail "expected int32"
+    done
+  done
 
 let test_sharding_3d () =
   let store = Memory_store.create () in
-  match Memory_array.create store
+  let arr = Memory_array.create store
     ~path:"test"
     ~shape:[|16; 16; 16|]
     ~chunks:[|8; 8; 8|]
@@ -146,33 +139,31 @@ let test_sharding_3d () =
         index_location = Codec.End;
       }
     ]
-    () with
-  | Error _ -> fail "should create 3D sharded array"
-  | Ok arr ->
-    let data = Chunk_data.create_zero Dtype.Int32 [|4; 4; 4|] in
-    for i = 0 to 3 do
-      for j = 0 to 3 do
-        for k = 0 to 3 do
-          Chunk_data.set data [|i; j; k|] (`Int32 (Int32.of_int (i * 100 + j * 10 + k)))
-        done
-      done
-    done;
-
-    Memory_array.set_slice arr [Slice.Range (0, 4); Slice.Range (0, 4); Slice.Range (0, 4)] data;
-
-    let read_data = Memory_array.get_slice arr [Slice.Range (0, 4); Slice.Range (0, 4); Slice.Range (0, 4)] in
-
-    for i = 0 to 3 do
-      for j = 0 to 3 do
-        for k = 0 to 3 do
-          match Chunk_data.get read_data [|i; j; k|] with
-          | `Int32 v ->
-            check int32 (Printf.sprintf "element %d,%d,%d" i j k)
-              (Int32.of_int (i * 100 + j * 10 + k)) v
-          | _ -> fail "expected int32"
-        done
+    () in
+  let data = Chunk_data.create_zero Dtype.Int32 [|4; 4; 4|] in
+  for i = 0 to 3 do
+    for j = 0 to 3 do
+      for k = 0 to 3 do
+        Chunk_data.set data [|i; j; k|] (`Int32 (Int32.of_int (i * 100 + j * 10 + k)))
       done
     done
+  done;
+
+  Memory_array.set_slice arr [Slice.Range (0, 4); Slice.Range (0, 4); Slice.Range (0, 4)] data;
+
+  let read_data = Memory_array.get_slice arr [Slice.Range (0, 4); Slice.Range (0, 4); Slice.Range (0, 4)] in
+
+  for i = 0 to 3 do
+    for j = 0 to 3 do
+      for k = 0 to 3 do
+        match Chunk_data.get read_data [|i; j; k|] with
+        | `Int32 v ->
+          check int32 (Printf.sprintf "element %d,%d,%d" i j k)
+            (Int32.of_int (i * 100 + j * 10 + k)) v
+        | _ -> fail "expected int32"
+      done
+    done
+  done
 
 let test_sharding_codec_spec_json () =
   let spec = Codec.Sharding {

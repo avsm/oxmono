@@ -29,27 +29,20 @@ module Make (S : STORE_OPS) = struct
       | Some c -> c | None -> [Zarr_codec.Bytes { endian = Some Little }] in
     let metadata = Zarr_metadata.create_array_metadata
       ~shape ~chunks ~dtype ~fill_value ~codecs () in
-    match Zarr_codec.build_chain codecs dtype chunks fill_value with
-    | Error (`Codec_error msg) -> Error msg
-    | Error _ -> Error "codec chain error"
-    | Ok codec_chain ->
-      let meta_path = Chunk_key.metadata_path path in
-      S.set store meta_path (Bytes.of_string (Zarr_metadata.array_to_json metadata));
-      Ok { store; path; metadata; codec_chain }
+    let codec_chain = Zarr_codec.build_chain codecs dtype chunks fill_value in
+    let meta_path = Chunk_key.metadata_path path in
+    S.set store meta_path (Bytes.of_string (Zarr_metadata.array_to_json metadata));
+    { store; path; metadata; codec_chain }
 
   let open_ store ~path =
     let meta_path = Chunk_key.metadata_path path in
     match S.get store meta_path with
-    | None -> Error ("array not found: " ^ path)
+    | None -> failwith ("array not found: " ^ path)
     | Some meta_bytes ->
-      match Zarr_metadata.array_of_json (Bytes.to_string meta_bytes) with
-      | Error e -> Error e
-      | Ok metadata ->
-        let chunks = Chunk_grid.chunk_shape metadata.chunk_grid in
-        match Zarr_codec.build_chain metadata.codecs metadata.data_type chunks metadata.fill_value with
-        | Error (`Codec_error msg) -> Error msg
-        | Error _ -> Error "codec chain error"
-        | Ok codec_chain -> Ok { store; path; metadata; codec_chain }
+      let metadata = Zarr_metadata.array_of_json (Bytes.to_string meta_bytes) in
+      let chunks = Chunk_grid.chunk_shape metadata.chunk_grid in
+      let codec_chain = Zarr_codec.build_chain metadata.codecs metadata.data_type chunks metadata.fill_value in
+      { store; path; metadata; codec_chain }
 
   let metadata arr = arr.metadata
   let shape arr = arr.metadata.shape
@@ -61,10 +54,7 @@ module Make (S : STORE_OPS) = struct
     let cs = Chunk_grid.chunk_size arr.metadata.chunk_grid arr.metadata.shape chunk_coords in
     match S.get arr.store key with
     | Some bytes ->
-      (match Zarr_codec.decode arr.codec_chain cs arr.metadata.data_type bytes with
-       | Ok chunk -> chunk
-       | Error (`Codec_error msg) -> failwith ("chunk decode: " ^ msg)
-       | Error _ -> failwith "chunk decode error")
+      Zarr_codec.decode arr.codec_chain cs arr.metadata.data_type bytes
     | None ->
       Chunk_data.create arr.metadata.data_type cs arr.metadata.fill_value
 

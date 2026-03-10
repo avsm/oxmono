@@ -51,5 +51,7 @@ val metadata_path : string -> string
     JSON format:
     {v {"name": "default"|"v2", "configuration": {"separator": "/"|"."}} v} *)
 
-val of_json : Jsont.json -> (encoding, string) result
+val of_json : Jsont.json -> encoding
+(** @raise Failure if the JSON is not a valid chunk key encoding. *)
+
 val to_json : encoding -> Jsont.json

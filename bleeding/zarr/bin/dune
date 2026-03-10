@@ -1,0 +1,5 @@
+(executable
+ (name zarr_meta)
+ (public_name zarr-meta)
+ (package zarr-eio)
+ (libraries zarr zarr_eio requests eio_main cmdliner fmt))

@@ -54,7 +54,7 @@ val fill_bytes : Zarr_dtype.t -> t -> bytes -> unit
 
 (** {2 JSON Serialization} *)
 
-val of_json : Zarr_dtype.t -> Jsont.json -> (t, string) result
+val of_json : Zarr_dtype.t -> Jsont.json -> t
 (** [of_json dtype json] parses a fill value from its JSON representation
     for the given data type.
 
@@ -65,7 +65,7 @@ val of_json : Zarr_dtype.t -> Jsont.json -> (t, string) result
       for float types
     - Base64 strings and integer arrays for raw types
 
-    @return [Error msg] if the JSON value is not valid for [dtype]. *)
+    @raise Failure if the JSON value is not valid for [dtype]. *)
 
 val to_json : t -> Jsont.json
 (** [to_json fv] converts a fill value to its JSON representation. *)

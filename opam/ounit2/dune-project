@@ -1,0 +1,5 @@
+(lang dune 3.0)
+(name ounit)
+(version v2.2.7)
+(explicit_js_mode)
+(formatting (enabled_for dune))

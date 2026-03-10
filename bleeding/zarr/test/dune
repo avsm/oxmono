@@ -1,0 +1,12 @@
+(test
+ (name test_runner)
+ (libraries
+   zarr
+   zarr_sync
+   alcotest
+   qcheck
+   qcheck-alcotest
+   jsont
+   jsont.bytesrw)
+ (deps
+   (source_tree fixtures)))

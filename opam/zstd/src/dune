@@ -1,0 +1,8 @@
+(library
+ (public_name zstd)
+ (modules zstd zstd_stubs)
+ (foreign_stubs
+  (language c)
+  (names zstd_stubs)
+  (flags :standard -O3))
+ (c_library_flags :standard -lzstd))

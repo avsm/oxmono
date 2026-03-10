@@ -1,0 +1,6 @@
+(library
+ (name zarr_blosc)
+ (public_name zarr-blosc)
+ (libraries zarr)
+ (foreign_stubs (language c) (names blosc_stubs))
+ (c_library_flags (-lblosc)))

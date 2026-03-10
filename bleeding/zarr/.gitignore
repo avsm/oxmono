@@ -1,0 +1,25 @@
+# OCaml build artifacts
+_build/
+*.install
+*.merlin
+
+# opam local switch
+_opam/
+
+# Editor files
+*~
+*.swp
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# External specs (separate git repo)
+zarr-specs/
+
+# Python virtual environment
+test/gen_fixtures/.venv/
+
+# Generated Python fixtures (regenerate with generate_fixtures.py)
+test/fixtures/python/

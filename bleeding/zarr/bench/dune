@@ -1,0 +1,5 @@
+(executable
+ (name bench_codecs)
+ (package zarr)
+ (public_name zarr-bench)
+ (libraries zarr zarr_sync unix))

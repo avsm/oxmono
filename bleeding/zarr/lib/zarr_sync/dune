@@ -1,0 +1,4 @@
+(library
+ (name zarr_sync)
+ (public_name zarr-sync)
+ (libraries zarr unix))

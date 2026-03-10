@@ -1,0 +1,8 @@
+(library
+ (public_name blosc)
+ (modules blosc blosc_stubs)
+ (foreign_stubs
+  (language c)
+  (names blosc_stubs)
+  (flags :standard -O3))
+ (c_library_flags :standard -lblosc))

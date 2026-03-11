@@ -1,3 +1,6 @@
-(executable
- (name test_duckdb)
- (libraries duckdb))
+(library
+ (name duckdb_test)
+ (inline_tests)
+ (libraries duckdb)
+ (preprocess
+  (pps ppx_expect)))

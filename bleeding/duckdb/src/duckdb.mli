@@ -28,6 +28,29 @@ val close : database -> unit
 val query : connection -> string -> result
 (** Execute a SQL query.  Raises {!Error} on failure. *)
 
+(** {1 Prepared statements} *)
+
+type stmt
+
+val prepare : connection -> string -> stmt
+(** Prepare a SQL statement.  Raises {!Error} on failure. *)
+
+val execute : stmt -> result
+(** Execute a prepared statement.  Raises {!Error} on failure. *)
+
+val bind_bool : stmt -> int -> bool -> unit
+val bind_int32 : stmt -> int -> int32 -> unit
+val bind_int64 : stmt -> int -> int64 -> unit
+val bind_double : stmt -> int -> float -> unit
+val bind_string : stmt -> int -> string -> unit
+val bind_blob : stmt -> int -> bytes -> unit
+val bind_null : stmt -> int -> unit
+val clear_bindings : stmt -> unit
+
+external param_count : stmt -> (int[@untagged])
+  = "caml_duckdb_nparams_bc" "caml_duckdb_nparams"
+[@@noalloc]
+
 (** {1 Result metadata — zero-alloc} *)
 
 external column_count : result -> (int[@untagged])
@@ -43,6 +66,51 @@ external rows_changed : result -> (int[@untagged])
 [@@noalloc]
 
 val column_name : result -> int -> string
+
+(** {1 Column types} *)
+
+module Type : sig
+  type t =
+    | Invalid
+    | Boolean
+    | Tinyint
+    | Smallint
+    | Integer
+    | Bigint
+    | UTinyint
+    | USmallint
+    | UInteger
+    | UBigint
+    | Float
+    | Double
+    | Timestamp
+    | Date
+    | Time
+    | Interval
+    | Hugeint
+    | Varchar
+    | Blob
+    | Decimal
+    | Timestamp_s
+    | Timestamp_ms
+    | Timestamp_ns
+    | Enum
+    | List
+    | Struct
+    | Map
+    | UUID
+    | Union
+    | Bit
+    | Time_tz
+    | Timestamp_tz
+    | UHugeint
+    | Array
+    | Unknown of int
+
+  val to_string : t -> string
+end
+
+val column_type : result -> int -> Type.t
 
 (** {1 Typed column access — unboxed, zero-alloc for numerics} *)
 
@@ -63,6 +131,71 @@ val value_string : result -> col:int -> row:int -> string
 external value_is_null : result -> (int[@untagged]) -> (int[@untagged]) -> bool
   = "caml_duckdb_value_is_null_bc" "caml_duckdb_value_is_null"
 [@@noalloc]
+
+(** {1 Data chunk API — columnar zero-copy access}
+
+    DuckDB stores query results as columnar chunks of up to 2048 rows.
+    The chunk API provides zero-copy access to the underlying memory
+    via Bigarray views. *)
+
+module Data_chunk : sig
+  type t
+  (** A data chunk.  GC-managed; destroyed by the finalizer. *)
+
+  val chunk_count : result -> int
+  (** Number of chunks in a result. *)
+
+  val get_chunk : result -> int -> t
+  (** Get a chunk by index.  Raises {!Error} on invalid index. *)
+
+  external size : t -> (int[@untagged])
+    = "caml_duckdb_chunk_get_size_bc" "caml_duckdb_chunk_get_size"
+  [@@noalloc]
+  (** Number of rows in this chunk. *)
+
+  external column_count : t -> (int[@untagged])
+    = "caml_duckdb_chunk_get_column_count_bc" "caml_duckdb_chunk_get_column_count"
+  [@@noalloc]
+  (** Number of columns in this chunk. *)
+end
+
+module Vector : sig
+  (** {2 Raw data access}
+
+      Returns a Bigarray view over DuckDB's internal memory.  The view
+      is valid only while the parent {!Data_chunk.t} is alive. *)
+
+  val data : Data_chunk.t -> col:int
+    -> (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+  (** Raw column data as a byte array.  Interpret by element size:
+      - INTEGER: 4 bytes per element
+      - BIGINT/DOUBLE/TIMESTAMP: 8 bytes per element
+      - VARCHAR: 16 bytes per element (duckdb_string_t) *)
+
+  val validity : Data_chunk.t -> col:int
+    -> (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t option
+  (** Validity bitmap.  [None] means all values are valid.
+      Each bit corresponds to a row: 1 = valid, 0 = null. *)
+
+  (** {2 Typed element access} *)
+
+  val get_string : Data_chunk.t -> col:int -> row:int -> string
+  (** Extract a string from a VARCHAR vector.  Copies the string. *)
+
+  (** {2 Null checking — zero-alloc} *)
+
+  external is_valid : Data_chunk.t -> (int[@untagged]) -> (int[@untagged]) -> bool
+    = "caml_duckdb_vector_is_valid_bc" "caml_duckdb_vector_is_valid"
+  [@@noalloc]
+  (** Check whether a row is valid (not null).  Zero-alloc. *)
+end
+
+(** {1 Constants} *)
+
+external vector_size : unit -> (int[@untagged])
+  = "caml_duckdb_vector_size_bc" "caml_duckdb_vector_size"
+[@@noalloc]
+(** The internal DuckDB vector size (typically 2048). *)
 
 (** {1 Library info} *)
 

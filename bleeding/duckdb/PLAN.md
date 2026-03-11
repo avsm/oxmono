@@ -1,8 +1,8 @@
 # DuckDB OxCaml Binding — Implementation Plan
 
-Status: Phase 0 (hello world) complete. Vendored amalgamation builds and
-links. Core open/connect/query/column-access works with GC-managed handles,
-structured exceptions, and unboxed numerics.
+Status: Phases 0–2 complete. Vendored amalgamation builds and links.
+Prepared statements, data chunk/vector API, column types all implemented
+with 14 ppx_expect tests passing.
 
 ## Architecture
 
@@ -59,7 +59,7 @@ DuckDB vector memory (C heap)
 - **No Bigarray↔Bytes copies** — Bigstring *is* the backing store, and
   unboxed accessors read directly from DuckDB's memory.
 
-## Phase 1: Prepared Statements
+## Phase 1: Prepared Statements ✅
 
 Prepared statements with typed parameter binding. Stmt holds a ref on its
 connection (which holds a ref on its db) via atomic refcounting.
@@ -98,7 +98,7 @@ val clear_bindings  : stmt -> unit
 val param_count     : stmt -> int
 ```
 
-## Phase 2: Data Chunk / Vector API (Columnar, Zero-Copy)
+## Phase 2: Data Chunk / Vector API (Columnar, Zero-Copy) ✅
 
 The high-performance path. DuckDB returns data in columnar chunks of
 2048 rows with flat arrays + validity bitmaps.
@@ -469,8 +469,8 @@ bleeding/duckdb/
 │       ├── dune                 ✅ done
 │       └── discover.ml          ✅ done
 ├── test/
-│   ├── dune                     ✅ done
-│   └── test_duckdb.ml           ✅ done (hello world passes)
+│   ├── dune                     ✅ done (ppx_expect)
+│   └── test_duckdb.ml           ✅ done (14 expect tests)
 ├── tools/
 │   ├── dune                     ○ phase 8
 │   ├── update_sources.ml        ○ phase 8

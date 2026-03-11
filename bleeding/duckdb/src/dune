@@ -1,0 +1,26 @@
+(copy_files ../vendor/duckdb_amalg.cpp)
+(copy_files ../vendor/duckdb.{h,hpp})
+
+(library
+ (name duckdb)
+ (foreign_stubs
+  (language c)
+  (names duckdb_stubs)
+  (flags (:standard) (:include c_flags.sexp)))
+ (foreign_archives duckdb_cxx)
+ (c_library_flags (:include c_library_flags.sexp)))
+
+(rule
+ (targets c_flags.sexp c_library_flags.sexp cxx_vendor_flags)
+ (action (run ./config/discover.exe)))
+
+(rule
+ (targets libduckdb_cxx%{ext_lib} dllduckdb_cxx%{ext_dll})
+ (deps duckdb_amalg%{ext_obj})
+ (action (run ocamlmklib -o duckdb_cxx %{deps})))
+
+(rule
+ (targets duckdb_amalg%{ext_obj})
+ (deps (:src duckdb_amalg.cpp) duckdb.hpp duckdb.h)
+ (action
+  (run %{cxx} %{read-lines:cxx_vendor_flags} -c -o %{targets} %{src})))

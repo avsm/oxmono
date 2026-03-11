@@ -448,3 +448,319 @@ let%expect_test "geometry prepared statement" =
     let g2 = Geometry.of_result r ~col:0 ~row:0 in
     Printf.printf "roundtrip=%s\n" (Geometry.to_wkt g2));
   [%expect {| roundtrip=POINT (99 -1.5) |}]
+
+(* ── Spatial API exercise tests ────────────────────────────────── *)
+
+let%expect_test "spatial — cast roundtrip all geometry types through DuckDB" =
+  with_db (fun conn ->
+    let wkts = [
+      "POINT (1.5 -2.5)";
+      "LINESTRING (0 0, 1 1, 2 0)";
+      "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0), (2 2, 8 2, 8 8, 2 8, 2 2))";
+      "MULTIPOINT (1 2, 3 4, 5 6)";
+      "MULTILINESTRING ((0 0, 1 1), (2 2, 3 3, 4 4))";
+      "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)), ((10 10, 20 10, 20 20, 10 10)))";
+      "GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))";
+    ] in
+    List.iter (fun wkt ->
+      let sql = Printf.sprintf "SELECT ('%s'::GEOMETRY)::VARCHAR" wkt in
+      let r = query conn sql in
+      let out = value_string r ~col:0 ~row:0 in
+      let g = Geometry.of_wkt out in
+      Printf.printf "%s\n" (Geometry.to_wkt g)
+    ) wkts);
+  [%expect {|
+    POINT (1.5 -2.5)
+    LINESTRING (0 0, 1 1, 2 0)
+    POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0), (2 2, 8 2, 8 8, 2 8, 2 2))
+    MULTIPOINT (1 2, 3 4, 5 6)
+    MULTILINESTRING ((0 0, 1 1), (2 2, 3 3, 4 4))
+    MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)), ((10 10, 20 10, 20 20, 10 10)))
+    GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1)) |}]
+
+let%expect_test "spatial — geometry equality and comparison" =
+  with_db (fun conn ->
+    let r = query conn
+      "SELECT 'POINT (1 2)'::GEOMETRY = 'POINT (1 2)'::GEOMETRY AS eq, \
+              'POINT (1 2)'::GEOMETRY = 'POINT (3 4)'::GEOMETRY AS neq" in
+    Printf.printf "eq=%Ld neq=%Ld\n"
+      (value_int64 r 0 0) (value_int64 r 1 0));
+  [%expect {| eq=1 neq=0 |}]
+
+let%expect_test "spatial — geometry null handling in SQL" =
+  with_db (fun conn ->
+    let r = query conn
+      "SELECT NULL::GEOMETRY IS NULL AS is_null, \
+              'POINT (0 0)'::GEOMETRY IS NOT NULL AS not_null" in
+    Printf.printf "is_null=%Ld not_null=%Ld\n"
+      (value_int64 r 0 0) (value_int64 r 1 0));
+  [%expect {| is_null=1 not_null=1 |}]
+
+let%expect_test "spatial — geometry table CRUD" =
+  with_db (fun conn ->
+    let _ = query conn "CREATE TABLE shapes (id INTEGER PRIMARY KEY, g GEOMETRY)" in
+    (* Insert *)
+    let _ = query conn
+      "INSERT INTO shapes VALUES \
+       (1, 'POINT (1 2)'::GEOMETRY), \
+       (2, 'LINESTRING (0 0, 5 5)'::GEOMETRY), \
+       (3, 'POLYGON ((0 0, 1 0, 1 1, 0 0))'::GEOMETRY)" in
+    (* Update *)
+    let _ = query conn
+      "UPDATE shapes SET g = 'POINT (10 20)'::GEOMETRY WHERE id = 1" in
+    (* Delete *)
+    let _ = query conn "DELETE FROM shapes WHERE id = 3" in
+    (* Read back *)
+    let r = query conn "SELECT id, g::VARCHAR FROM shapes ORDER BY id" in
+    for row = 0 to row_count r - 1 do
+      Printf.printf "%ld: %s\n"
+        (value_int32 r 0 row) (value_string r ~col:1 ~row)
+    done);
+  [%expect {|
+    1: POINT (10 20)
+    2: LINESTRING (0 0, 5 5)
+    |}]
+
+let%expect_test "spatial — geometry DISTINCT and GROUP BY" =
+  with_db (fun conn ->
+    let _ = query conn
+      "CREATE TABLE dups (g GEOMETRY)" in
+    let _ = query conn
+      "INSERT INTO dups VALUES \
+       ('POINT (1 2)'::GEOMETRY), \
+       ('POINT (1 2)'::GEOMETRY), \
+       ('POINT (3 4)'::GEOMETRY), \
+       ('LINESTRING (0 0, 1 1)'::GEOMETRY)" in
+    (* DISTINCT *)
+    let r = query conn
+      "SELECT DISTINCT g::VARCHAR FROM dups ORDER BY 1" in
+    Printf.printf "distinct:\n";
+    for row = 0 to row_count r - 1 do
+      Printf.printf "  %s\n" (value_string r ~col:0 ~row)
+    done;
+    (* GROUP BY with count *)
+    let r = query conn
+      "SELECT g::VARCHAR, COUNT(*) FROM dups GROUP BY g ORDER BY 2 DESC, 1" in
+    Printf.printf "group by:\n";
+    for row = 0 to row_count r - 1 do
+      Printf.printf "  %s count=%Ld\n"
+        (value_string r ~col:0 ~row) (value_int64 r 1 row)
+    done);
+  [%expect {|
+    distinct:
+      LINESTRING (0 0, 1 1)
+      POINT (1 2)
+      POINT (3 4)
+    group by:
+      POINT (1 2) count=2
+      LINESTRING (0 0, 1 1) count=1
+      POINT (3 4) count=1
+    |}]
+
+let%expect_test "spatial — geometry join via VARCHAR cast" =
+  with_db (fun conn ->
+    let _ = query conn "CREATE TABLE ga (id INT, g GEOMETRY)" in
+    let _ = query conn "CREATE TABLE gb (id INT, g GEOMETRY)" in
+    let _ = query conn
+      "INSERT INTO ga VALUES (1, 'POINT (1 2)'::GEOMETRY), (2, 'POINT (3 4)'::GEOMETRY)" in
+    let _ = query conn
+      "INSERT INTO gb VALUES (3, 'POINT (1 2)'::GEOMETRY), (4, 'POINT (5 6)'::GEOMETRY)" in
+    (* GEOMETRY has no hash function, so direct join returns 0 matches.
+       Workaround: join on VARCHAR cast *)
+    let r = query conn
+      "SELECT ga.id, gb.id, ga.g::VARCHAR \
+       FROM ga JOIN gb ON ga.g::VARCHAR = gb.g::VARCHAR" in
+    Printf.printf "matches=%d\n" (row_count r);
+    for row = 0 to row_count r - 1 do
+      Printf.printf "  ga.id=%ld gb.id=%ld g=%s\n"
+        (value_int32 r 0 row) (value_int32 r 1 row)
+        (value_string r ~col:2 ~row)
+    done);
+  [%expect {|
+    matches=1
+      ga.id=1 gb.id=3 g=POINT (1 2) |}]
+
+let%expect_test "spatial — geometry in subquery and CTE" =
+  with_db (fun conn ->
+    let r = query conn
+      "WITH pts AS ( \
+         SELECT 'POINT (1 2)'::GEOMETRY AS g \
+         UNION ALL \
+         SELECT 'POINT (3 4)'::GEOMETRY \
+       ) \
+       SELECT g::VARCHAR FROM pts WHERE g = 'POINT (3 4)'::GEOMETRY" in
+    Printf.printf "cte rows=%d val=%s\n"
+      (row_count r) (value_string r ~col:0 ~row:0));
+  [%expect {| cte rows=1 val=POINT (3 4) |}]
+
+let%expect_test "spatial — geometry CASE expression" =
+  with_db (fun conn ->
+    let r = query conn
+      "SELECT (CASE WHEN 1=1 THEN 'POINT (1 2)'::GEOMETRY \
+                    ELSE 'POINT (9 9)'::GEOMETRY END)::VARCHAR" in
+    Printf.printf "%s\n" (value_string r ~col:0 ~row:0));
+  [%expect {| POINT (1 2) |}]
+
+let%expect_test "spatial — geometry VARCHAR length varies by complexity" =
+  with_db (fun conn ->
+    (* Verify that more complex geometries have longer VARCHAR representations *)
+    let r = query conn
+      "SELECT length('POINT (1 2)'::GEOMETRY::VARCHAR) AS pt_len, \
+              length('LINESTRING (0 0, 1 1, 2 2)'::GEOMETRY::VARCHAR) AS ls_len, \
+              length('POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))'::GEOMETRY::VARCHAR) AS pg_len" in
+    let pt = value_int64 r 0 0 in
+    let ls = value_int64 r 1 0 in
+    let pg = value_int64 r 2 0 in
+    Printf.printf "pt=%Ld ls=%Ld pg=%Ld\n" pt ls pg;
+    Printf.printf "ls>pt=%b pg>ls=%b\n" (ls > pt) (pg > ls));
+  [%expect {|
+    pt=11 ls=26 pg=39
+    ls>pt=true pg>ls=true
+    |}]
+
+let%expect_test "spatial — bulk geometry insert and chunk access" =
+  with_db (fun conn ->
+    let _ = query conn "CREATE TABLE bulk_geo (id INTEGER, g GEOMETRY)" in
+    (* Insert 100 points *)
+    let _ = query conn
+      "INSERT INTO bulk_geo \
+       SELECT i, ('POINT (' || i || ' ' || (i*2) || ')')::GEOMETRY \
+       FROM range(100) t(i)" in
+    let r = query conn "SELECT COUNT(*) FROM bulk_geo" in
+    Printf.printf "count=%Ld\n" (value_int64 r 0 0);
+    (* Read back via chunks to exercise the data chunk path *)
+    let r = query conn "SELECT id, g::VARCHAR FROM bulk_geo ORDER BY id" in
+    let nchunks = Data_chunk.chunk_count r in
+    Printf.printf "chunks=%d total_rows=%d\n" nchunks (row_count r);
+    (* Verify first and last rows *)
+    let g0 = Geometry.of_wkt (value_string r ~col:1 ~row:0) in
+    let g99 = Geometry.of_wkt (value_string r ~col:1 ~row:99) in
+    Printf.printf "first=%s\n" (Geometry.to_wkt g0);
+    Printf.printf "last=%s\n" (Geometry.to_wkt g99));
+  [%expect {|
+    count=100
+    chunks=1 total_rows=100
+    first=POINT (0 0)
+    last=POINT (99 198)
+    |}]
+
+let%expect_test "spatial — mixed geometry types in one column" =
+  with_db (fun conn ->
+    let _ = query conn "CREATE TABLE mixed_geo (g GEOMETRY)" in
+    let geoms = [
+      Geometry.point 1.0 2.0;
+      Geometry.linestring Geometry.[{ x = 0.; y = 0. }; { x = 1.; y = 1. }];
+      Geometry.polygon Geometry.[[
+        { x = 0.; y = 0. }; { x = 1.; y = 0. };
+        { x = 1.; y = 1. }; { x = 0.; y = 0. }
+      ]];
+    ] in
+    List.iter (fun g ->
+      let sql = Printf.sprintf "INSERT INTO mixed_geo VALUES (%s)"
+        (Geometry.to_sql_literal g) in
+      let _ = query conn sql in ()
+    ) geoms;
+    let r = query conn "SELECT g::VARCHAR FROM mixed_geo" in
+    for row = 0 to row_count r - 1 do
+      let g = Geometry.of_result r ~col:0 ~row in
+      Printf.printf "%s: %s\n"
+        (Geometry.geom_type_to_string (Geometry.geom_type g))
+        (Geometry.to_wkt g)
+    done);
+  [%expect {|
+    POINT: POINT (1 2)
+    LINESTRING: LINESTRING (0 0, 1 1)
+    POLYGON: POLYGON ((0 0, 1 0, 1 1, 0 0))
+    |}]
+
+let%expect_test "spatial — geometry with NULL rows" =
+  with_db (fun conn ->
+    let _ = query conn "CREATE TABLE gnull (id INT, g GEOMETRY)" in
+    let _ = query conn
+      "INSERT INTO gnull VALUES \
+       (1, 'POINT (1 2)'::GEOMETRY), \
+       (2, NULL), \
+       (3, 'POINT (3 4)'::GEOMETRY)" in
+    let r = query conn "SELECT id, g::VARCHAR FROM gnull ORDER BY id" in
+    for row = 0 to row_count r - 1 do
+      let id = value_int32 r 0 row in
+      if value_is_null r 1 row then
+        Printf.printf "%ld: NULL\n" id
+      else begin
+        let g = Geometry.of_result r ~col:1 ~row in
+        Printf.printf "%ld: %s\n" id (Geometry.to_wkt g)
+      end
+    done);
+  [%expect {|
+    1: POINT (1 2)
+    2: NULL
+    3: POINT (3 4)
+    |}]
+
+let%expect_test "spatial — geometry persistence across connection" =
+  let db = open_database () in
+  let conn1 = connect db in
+  let _ = query conn1 "CREATE TABLE persist_geo (g GEOMETRY)" in
+  let _ = query conn1
+    "INSERT INTO persist_geo VALUES ('POINT (42 99)'::GEOMETRY)" in
+  (* New connection to same database *)
+  let conn2 = connect db in
+  let r = query conn2 "SELECT g::VARCHAR FROM persist_geo" in
+  Printf.printf "%s\n" (value_string r ~col:0 ~row:0);
+  close db;
+  [%expect {| POINT (42 99) |}]
+
+let%expect_test "spatial — large and small coordinate values" =
+  with_db (fun conn ->
+    (* Large integer-ish coords *)
+    let r = query conn
+      "SELECT ('POINT (99999 -88888)'::GEOMETRY)::VARCHAR" in
+    let g = Geometry.of_wkt (value_string r ~col:0 ~row:0) in
+    Printf.printf "%s\n" (Geometry.to_wkt g);
+    (* Fractional coords *)
+    let r = query conn
+      "SELECT ('POINT (1.23456 -9.87654)'::GEOMETRY)::VARCHAR" in
+    let g = Geometry.of_wkt (value_string r ~col:0 ~row:0) in
+    Printf.printf "%s\n" (Geometry.to_wkt g);
+    (* Very small values *)
+    let r = query conn
+      "SELECT ('POINT (0.000001 -0.000001)'::GEOMETRY)::VARCHAR" in
+    let g = Geometry.of_wkt (value_string r ~col:0 ~row:0) in
+    Printf.printf "%s\n" (Geometry.to_wkt g);
+    (* Negative coords *)
+    let r = query conn
+      "SELECT ('POINT (-180 -90)'::GEOMETRY)::VARCHAR" in
+    let g = Geometry.of_wkt (value_string r ~col:0 ~row:0) in
+    Printf.printf "%s\n" (Geometry.to_wkt g));
+  [%expect {|
+    POINT (99999 -88888)
+    POINT (1.23456 -9.87654)
+    POINT (1e-06 -1e-06)
+    POINT (-180 -90) |}]
+
+let%expect_test "spatial — nested geometry collection" =
+  with_db (fun conn ->
+    let wkt = "GEOMETRYCOLLECTION (GEOMETRYCOLLECTION (POINT (1 2), POINT (3 4)), LINESTRING (0 0, 1 1))" in
+    let r = query conn
+      (Printf.sprintf "SELECT ('%s'::GEOMETRY)::VARCHAR" wkt) in
+    let out = value_string r ~col:0 ~row:0 in
+    let g = Geometry.of_wkt out in
+    Printf.printf "%s\n" (Geometry.to_wkt g));
+  [%expect {| GEOMETRYCOLLECTION (GEOMETRYCOLLECTION (POINT (1 2), POINT (3 4)), LINESTRING (0 0, 1 1)) |}]
+
+let%expect_test "spatial — polygon with hole roundtrip through DuckDB" =
+  with_db (fun conn ->
+    let open Geometry in
+    let g = polygon [
+      (* outer ring *)
+      [{ x = 0.; y = 0. }; { x = 20.; y = 0. }; { x = 20.; y = 20. };
+       { x = 0.; y = 20. }; { x = 0.; y = 0. }];
+      (* hole *)
+      [{ x = 5.; y = 5. }; { x = 15.; y = 5. }; { x = 15.; y = 15. };
+       { x = 5.; y = 15. }; { x = 5.; y = 5. }];
+    ] in
+    let sql = Printf.sprintf "SELECT (%s)::VARCHAR" (to_sql_literal g) in
+    let r = query conn sql in
+    let g2 = of_wkt (value_string r ~col:0 ~row:0) in
+    Printf.printf "%s\n" (to_wkt g2));
+  [%expect {| POLYGON ((0 0, 20 0, 20 20, 0 20, 0 0), (5 5, 15 5, 15 15, 5 15, 5 5)) |}]

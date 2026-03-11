@@ -297,3 +297,154 @@ let%expect_test "blob binding" =
     let len = value_int64 r 0 0 in
     Printf.printf "blob length=%Ld\n" len);
   [%expect {| blob length=4 |}]
+
+(* ── Geometry module tests ─────────────────────────────────────── *)
+
+let%expect_test "geometry WKT roundtrip — point" =
+  let g = Geometry.point 1.5 2.5 in
+  let wkt = Geometry.to_wkt g in
+  Printf.printf "wkt=%s\n" wkt;
+  let g2 = Geometry.of_wkt wkt in
+  Printf.printf "roundtrip=%s\n" (Geometry.to_wkt g2);
+  Printf.printf "type=%s\n"
+    (Geometry.geom_type_to_string (Geometry.geom_type g));
+  [%expect {|
+    wkt=POINT (1.5 2.5)
+    roundtrip=POINT (1.5 2.5)
+    type=POINT |}]
+
+let%expect_test "geometry WKT roundtrip — linestring" =
+  let open Geometry in
+  let g = linestring [{ x = 0.0; y = 0.0 }; { x = 1.0; y = 1.0 };
+                       { x = 2.0; y = 3.0 }] in
+  let wkt = to_wkt g in
+  Printf.printf "wkt=%s\n" wkt;
+  let g2 = of_wkt wkt in
+  Printf.printf "roundtrip=%s\n" (to_wkt g2);
+  [%expect {|
+    wkt=LINESTRING (0 0, 1 1, 2 3)
+    roundtrip=LINESTRING (0 0, 1 1, 2 3) |}]
+
+let%expect_test "geometry WKT roundtrip — polygon" =
+  let open Geometry in
+  let g = polygon [
+    [{ x = 0.; y = 0. }; { x = 10.; y = 0. }; { x = 10.; y = 10. };
+     { x = 0.; y = 10. }; { x = 0.; y = 0. }]
+  ] in
+  let wkt = to_wkt g in
+  Printf.printf "wkt=%s\n" wkt;
+  let g2 = of_wkt wkt in
+  Printf.printf "roundtrip=%s\n" (to_wkt g2);
+  [%expect {|
+    wkt=POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+    roundtrip=POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0)) |}]
+
+let%expect_test "geometry WKT parse — multipoint" =
+  let g = Geometry.of_wkt "MULTIPOINT (1 2, 3 4, 5 6)" in
+  Printf.printf "type=%s\n"
+    (Geometry.geom_type_to_string (Geometry.geom_type g));
+  Printf.printf "wkt=%s\n" (Geometry.to_wkt g);
+  [%expect {|
+    type=MULTIPOINT
+    wkt=MULTIPOINT (1 2, 3 4, 5 6) |}]
+
+let%expect_test "geometry WKT parse — multilinestring" =
+  let g = Geometry.of_wkt
+    "MULTILINESTRING ((0 0, 1 1), (2 2, 3 3, 4 4))" in
+  Printf.printf "wkt=%s\n" (Geometry.to_wkt g);
+  [%expect {| wkt=MULTILINESTRING ((0 0, 1 1), (2 2, 3 3, 4 4)) |}]
+
+let%expect_test "geometry WKT parse — multipolygon" =
+  let g = Geometry.of_wkt
+    "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)), ((2 2, 3 2, 3 3, 2 2)))" in
+  Printf.printf "wkt=%s\n" (Geometry.to_wkt g);
+  [%expect {| wkt=MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)), ((2 2, 3 2, 3 3, 2 2))) |}]
+
+let%expect_test "geometry WKT parse — geometry collection" =
+  let g = Geometry.of_wkt
+    "GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))" in
+  Printf.printf "wkt=%s\n" (Geometry.to_wkt g);
+  Printf.printf "type=%s\n"
+    (Geometry.geom_type_to_string (Geometry.geom_type g));
+  [%expect {|
+    wkt=GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))
+    type=GEOMETRYCOLLECTION |}]
+
+let%expect_test "geometry WKT error" =
+  (try
+     let _ = Geometry.of_wkt "BOGUS (1 2)" in
+     print_string "unreachable"
+   with Error msg ->
+     Printf.printf "caught: %s\n" msg);
+  [%expect {| caught: WKT: unknown geometry type at position 0 |}]
+
+let%expect_test "geometry SQL literal" =
+  let g = Geometry.point 42.0 (-73.5) in
+  Printf.printf "sql=%s\n" (Geometry.to_sql_literal g);
+  [%expect {| sql='POINT (42 -73.5)'::GEOMETRY |}]
+
+let%expect_test "geometry with DuckDB — store and retrieve" =
+  with_db (fun conn ->
+    let _ = query conn "CREATE TABLE geo (id INTEGER, g GEOMETRY)" in
+    let _ = query conn
+      "INSERT INTO geo VALUES \
+       (1, 'POINT (1 2)'::GEOMETRY), \
+       (2, 'LINESTRING (0 0, 1 1, 2 2)'::GEOMETRY), \
+       (3, 'POLYGON ((0 0, 10 0, 10 10, 0 0))'::GEOMETRY)" in
+    (* Cast back to VARCHAR to read as WKT *)
+    let r = query conn
+      "SELECT id, g::VARCHAR AS wkt FROM geo ORDER BY id" in
+    for row = 0 to row_count r - 1 do
+      let id = value_int32 r 0 row in
+      let wkt = value_string r ~col:1 ~row in
+      let g = Geometry.of_wkt wkt in
+      Printf.printf "%ld: %s → %s\n" id
+        (Geometry.geom_type_to_string (Geometry.geom_type g))
+        (Geometry.to_wkt g)
+    done);
+  [%expect {|
+    1: POINT → POINT (1 2)
+    2: LINESTRING → LINESTRING (0 0, 1 1, 2 2)
+    3: POLYGON → POLYGON ((0 0, 10 0, 10 10, 0 0)) |}]
+
+let%expect_test "geometry with DuckDB — insert from OCaml" =
+  with_db (fun conn ->
+    let _ = query conn "CREATE TABLE geo2 (g GEOMETRY)" in
+    let pts = [
+      Geometry.point 10.0 20.0;
+      Geometry.point 30.0 40.0;
+    ] in
+    List.iter (fun g ->
+      let sql = Printf.sprintf
+        "INSERT INTO geo2 VALUES (%s)" (Geometry.to_sql_literal g) in
+      let _ = query conn sql in ()) pts;
+    let r = query conn "SELECT g::VARCHAR AS wkt FROM geo2" in
+    for row = 0 to row_count r - 1 do
+      let g = Geometry.of_result r ~col:0 ~row in
+      Printf.printf "%s\n" (Geometry.to_wkt g)
+    done);
+  [%expect {|
+    POINT (10 20)
+    POINT (30 40) |}]
+
+let%expect_test "geometry column type" =
+  with_db (fun conn ->
+    let _ = query conn "CREATE TABLE gt (g GEOMETRY)" in
+    let _ = query conn "INSERT INTO gt VALUES ('POINT (0 0)'::GEOMETRY)" in
+    let r = query conn "SELECT g FROM gt" in
+    Printf.printf "type=%s\n"
+      (Type.to_string (column_type r 0)));
+  [%expect {| type=INVALID |}]
+  (* DuckDB C API doesn't expose GEOMETRY type id yet; reports as INVALID *)
+
+let%expect_test "geometry prepared statement" =
+  with_db (fun conn ->
+    let _ = query conn "CREATE TABLE gp (g GEOMETRY)" in
+    let stmt = prepare conn "INSERT INTO gp VALUES ($1::GEOMETRY)" in
+    let g = Geometry.point 99.0 (-1.5) in
+    bind_string stmt 1 (Geometry.to_wkt g);
+    let _ = execute stmt in
+    let r = query conn "SELECT g::VARCHAR FROM gp" in
+    let g2 = Geometry.of_result r ~col:0 ~row:0 in
+    Printf.printf "roundtrip=%s\n" (Geometry.to_wkt g2));
+  [%expect {| roundtrip=POINT (99 -1.5) |}]

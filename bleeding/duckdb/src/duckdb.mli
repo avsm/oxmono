@@ -105,6 +105,7 @@ module Type : sig
     | Timestamp_tz
     | UHugeint
     | Array
+    | Geometry
     | Unknown of int
 
   val to_string : t -> string
@@ -196,6 +197,72 @@ external vector_size : unit -> (int[@untagged])
   = "caml_duckdb_vector_size_bc" "caml_duckdb_vector_size"
 [@@noalloc]
 (** The internal DuckDB vector size (typically 2048). *)
+
+(** {1 Extension loading} *)
+
+val install_extension : connection -> string -> unit
+(** [install_extension conn "spatial"] runs [INSTALL spatial]. *)
+
+val load_extension : connection -> string -> unit
+(** [load_extension conn "spatial"] runs [LOAD spatial]. *)
+
+(** {1 Geometry}
+
+    OCaml-native WKT parser/serializer for DuckDB's GEOMETRY type.
+    GEOMETRY is a core DuckDB type since v1.5.  WKT strings can be
+    cast to/from GEOMETRY in SQL.  The ST_* functions require the
+    spatial extension ([install_extension conn "spatial"]). *)
+
+module Geometry : sig
+  type geom_type =
+    | Point
+    | Linestring
+    | Polygon
+    | Multi_point
+    | Multi_linestring
+    | Multi_polygon
+    | Geometry_collection
+
+  type coord = { x : float; y : float }
+
+  type t =
+    | Point of coord
+    | Linestring of coord array
+    | Polygon of coord array array
+    | Multi_point of coord array
+    | Multi_linestring of coord array array
+    | Multi_polygon of coord array array array
+    | Geometry_collection of t list
+
+  (** {2 WKT conversion} *)
+
+  val to_wkt : t -> string
+  (** Serialize to Well-Known Text. *)
+
+  val of_wkt : string -> t
+  (** Parse Well-Known Text.  Raises {!Error} on invalid input. *)
+
+  (** {2 Constructors} *)
+
+  val point : float -> float -> t
+  val linestring : coord list -> t
+  val polygon : coord list list -> t
+
+  (** {2 Inspection} *)
+
+  val geom_type : t -> geom_type
+  val geom_type_to_string : geom_type -> string
+
+  (** {2 SQL integration} *)
+
+  val to_sql_literal : t -> string
+  (** Returns e.g. ['POINT (1 2)'::GEOMETRY] for use in SQL. *)
+
+  val of_result : result -> col:int -> row:int -> t
+  (** Extract a GEOMETRY value from a query result by parsing
+      the VARCHAR representation.  The query should cast the
+      column to VARCHAR: [SELECT g::VARCHAR FROM ...]. *)
+end
 
 (** {1 Library info} *)
 

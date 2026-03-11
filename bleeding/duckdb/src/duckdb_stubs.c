@@ -12,8 +12,6 @@
 
 #include "duckdb.h"
 
-/* ── Exception slots ───────────────────────────────────────────────── */
-
 static const value *exn_error = NULL;
 
 static inline void raise_duckdb_error(const char *msg) {
@@ -21,8 +19,6 @@ static inline void raise_duckdb_error(const char *msg) {
     exn_error = caml_named_value("Duckdb.Error");
   caml_raise_with_string(*exn_error, msg);
 }
-
-/* ── Database handle ───────────────────────────────────────────────── */
 
 typedef struct db_wrap {
   duckdb_database db;
@@ -49,8 +45,6 @@ static struct custom_operations db_ops = {
     custom_compare_ext_default,
     custom_fixed_length_default,
 };
-
-/* ── Connection handle ─────────────────────────────────────────────── */
 
 typedef struct conn_wrap {
   duckdb_connection conn;
@@ -82,8 +76,6 @@ static struct custom_operations conn_ops = {
     custom_fixed_length_default,
 };
 
-/* ── Result handle ─────────────────────────────────────────────────── */
-
 typedef struct result_wrap {
   duckdb_result result;
   int valid;
@@ -110,8 +102,6 @@ static struct custom_operations result_ops = {
     custom_compare_ext_default,
     custom_fixed_length_default,
 };
-
-/* ── Prepared statement handle ─────────────────────────────────────── */
 
 /* The stmt ref-counts the db_wrap to prevent the database from being freed
    while the prepared statement is alive. The connection's own finalizer
@@ -148,8 +138,6 @@ static struct custom_operations stmt_ops = {
     custom_fixed_length_default,
 };
 
-/* ── Data chunk handle ─────────────────────────────────────────────── */
-
 typedef struct chunk_wrap {
   duckdb_data_chunk chunk;
 } chunk_wrap;
@@ -176,15 +164,11 @@ static struct custom_operations chunk_ops = {
     custom_fixed_length_default,
 };
 
-/* ── Init ──────────────────────────────────────────────────────────── */
-
 CAMLprim value caml_duckdb_init(value v_unit) {
   (void)v_unit;
   exn_error = caml_named_value("Duckdb.Error");
   return Val_unit;
 }
-
-/* ── Database open / close ─────────────────────────────────────────── */
 
 CAMLprim value caml_duckdb_open(value v_path) {
   const char *path;
@@ -205,9 +189,8 @@ CAMLprim value caml_duckdb_open(value v_path) {
   caml_leave_blocking_section();
 
   if (rc == DuckDBError) {
-    value v_msg = caml_copy_string(err ? err : "duckdb_open failed");
-    if (err) duckdb_free(err);
-    raise_duckdb_error(String_val(v_msg));
+    const char *msg = err ? err : "duckdb_open failed";
+    raise_duckdb_error(msg);
   }
 
   dbw = caml_stat_alloc(sizeof(db_wrap));
@@ -227,8 +210,6 @@ CAMLprim value caml_duckdb_close(value v_db) {
   }
   return Val_unit;
 }
-
-/* ── Connection ────────────────────────────────────────────────────── */
 
 CAMLprim value caml_duckdb_connect(value v_db) {
   db_wrap *dbw = Db_wrap_val(v_db);
@@ -255,8 +236,6 @@ CAMLprim value caml_duckdb_connect(value v_db) {
   return v_res;
 }
 
-/* ── Query ─────────────────────────────────────────────────────────── */
-
 CAMLprim value caml_duckdb_query(value v_conn, value v_sql) {
   conn_wrap *cw = Conn_wrap_val(v_conn);
   const char *sql = String_val(v_sql);
@@ -276,10 +255,10 @@ CAMLprim value caml_duckdb_query(value v_conn, value v_sql) {
 
   if (rc == DuckDBError) {
     const char *err = duckdb_result_error(&rw->result);
-    value v_msg = caml_copy_string(err ? err : "query failed");
+    char *msg = strdup(err ? err : "query failed");
     duckdb_destroy_result(&rw->result);
     caml_stat_free(rw);
-    raise_duckdb_error(String_val(v_msg));
+    raise_duckdb_error(msg);
   }
 
   rw->valid = 1;
@@ -287,8 +266,6 @@ CAMLprim value caml_duckdb_query(value v_conn, value v_sql) {
   Result_wrap_val(v_res) = rw;
   return v_res;
 }
-
-/* ── Prepared statements ───────────────────────────────────────────── */
 
 CAMLprim value caml_duckdb_prepare(value v_conn, value v_sql) {
   conn_wrap *cw = Conn_wrap_val(v_conn);
@@ -304,12 +281,11 @@ CAMLprim value caml_duckdb_prepare(value v_conn, value v_sql) {
   rc = duckdb_prepare(cw->conn, sql, &ps);
   if (rc == DuckDBError) {
     const char *err = duckdb_prepare_error(ps);
-    value v_msg = caml_copy_string(err ? err : "prepare failed");
+    char *msg = strdup(err ? err : "prepare failed");
     duckdb_destroy_prepare(&ps);
-    raise_duckdb_error(String_val(v_msg));
+    raise_duckdb_error(msg);
   }
 
-  /* Ref-count the db so it stays alive */
   atomic_fetch_add(&cw->db->ref_count, 1);
 
   sw = caml_stat_alloc(sizeof(stmt_wrap2));
@@ -339,10 +315,10 @@ CAMLprim value caml_duckdb_execute_prepared(value v_stmt) {
 
   if (rc == DuckDBError) {
     const char *err = duckdb_result_error(&rw->result);
-    value v_msg = caml_copy_string(err ? err : "execute failed");
+    char *msg = strdup(err ? err : "execute failed");
     duckdb_destroy_result(&rw->result);
     caml_stat_free(rw);
-    raise_duckdb_error(String_val(v_msg));
+    raise_duckdb_error(msg);
   }
 
   rw->valid = 1;
@@ -350,8 +326,6 @@ CAMLprim value caml_duckdb_execute_prepared(value v_stmt) {
   Result_wrap_val(v_res) = rw;
   return v_res;
 }
-
-/* ── Bind functions ────────────────────────────────────────────────── */
 
 #define BIND_CHECK(sw) \
   if ((sw) == NULL || (sw)->stmt == NULL) \
@@ -361,47 +335,35 @@ CAMLprim value caml_duckdb_execute_prepared(value v_stmt) {
   if ((rc) == DuckDBError) \
     raise_duckdb_error("bind failed")
 
-void caml_duckdb_bind_bool(value v_stmt, intnat idx, value v_val) {
-  stmt_wrap2 *sw = Stmt_wrap_val(v_stmt);
-  BIND_CHECK(sw);
-  BIND_STATE_CHECK(duckdb_bind_boolean(sw->stmt, (idx_t)idx, Bool_val(v_val)));
-}
-
 CAMLprim value caml_duckdb_bind_bool_bc(value v_stmt, value v_idx, value v_val) {
-  caml_duckdb_bind_bool(v_stmt, Long_val(v_idx), v_val);
-  return Val_unit;
-}
-
-void caml_duckdb_bind_int32(value v_stmt, intnat idx, int32_t val) {
   stmt_wrap2 *sw = Stmt_wrap_val(v_stmt);
   BIND_CHECK(sw);
-  BIND_STATE_CHECK(duckdb_bind_int32(sw->stmt, (idx_t)idx, val));
+  BIND_STATE_CHECK(duckdb_bind_boolean(sw->stmt, (idx_t)Long_val(v_idx),
+                                        Bool_val(v_val)));
+  return Val_unit;
 }
 
 CAMLprim value caml_duckdb_bind_int32_bc(value v_stmt, value v_idx, value v_val) {
-  caml_duckdb_bind_int32(v_stmt, Long_val(v_idx), Int32_val(v_val));
-  return Val_unit;
-}
-
-void caml_duckdb_bind_int64(value v_stmt, intnat idx, int64_t val) {
   stmt_wrap2 *sw = Stmt_wrap_val(v_stmt);
   BIND_CHECK(sw);
-  BIND_STATE_CHECK(duckdb_bind_int64(sw->stmt, (idx_t)idx, val));
+  BIND_STATE_CHECK(duckdb_bind_int32(sw->stmt, (idx_t)Long_val(v_idx),
+                                      Int32_val(v_val)));
+  return Val_unit;
 }
 
 CAMLprim value caml_duckdb_bind_int64_bc(value v_stmt, value v_idx, value v_val) {
-  caml_duckdb_bind_int64(v_stmt, Long_val(v_idx), Int64_val(v_val));
+  stmt_wrap2 *sw = Stmt_wrap_val(v_stmt);
+  BIND_CHECK(sw);
+  BIND_STATE_CHECK(duckdb_bind_int64(sw->stmt, (idx_t)Long_val(v_idx),
+                                      Int64_val(v_val)));
   return Val_unit;
 }
 
-void caml_duckdb_bind_double(value v_stmt, intnat idx, double val) {
+CAMLprim value caml_duckdb_bind_double_bc(value v_stmt, value v_idx, value v_val) {
   stmt_wrap2 *sw = Stmt_wrap_val(v_stmt);
   BIND_CHECK(sw);
-  BIND_STATE_CHECK(duckdb_bind_double(sw->stmt, (idx_t)idx, val));
-}
-
-CAMLprim value caml_duckdb_bind_double_bc(value v_stmt, value v_idx, value v_val) {
-  caml_duckdb_bind_double(v_stmt, Long_val(v_idx), Double_val(v_val));
+  BIND_STATE_CHECK(duckdb_bind_double(sw->stmt, (idx_t)Long_val(v_idx),
+                                       Double_val(v_val)));
   return Val_unit;
 }
 
@@ -423,14 +385,10 @@ CAMLprim value caml_duckdb_bind_blob(value v_stmt, value v_idx, value v_val) {
   return Val_unit;
 }
 
-void caml_duckdb_bind_null(value v_stmt, intnat idx) {
+CAMLprim value caml_duckdb_bind_null_bc(value v_stmt, value v_idx) {
   stmt_wrap2 *sw = Stmt_wrap_val(v_stmt);
   BIND_CHECK(sw);
-  BIND_STATE_CHECK(duckdb_bind_null(sw->stmt, (idx_t)idx));
-}
-
-CAMLprim value caml_duckdb_bind_null_bc(value v_stmt, value v_idx) {
-  caml_duckdb_bind_null(v_stmt, Long_val(v_idx));
+  BIND_STATE_CHECK(duckdb_bind_null(sw->stmt, (idx_t)Long_val(v_idx)));
   return Val_unit;
 }
 
@@ -450,8 +408,6 @@ intnat caml_duckdb_nparams(value v_stmt) {
 CAMLprim value caml_duckdb_nparams_bc(value v_stmt) {
   return Val_long(caml_duckdb_nparams(v_stmt));
 }
-
-/* ── Result metadata — untagged/noalloc ────────────────────────────── */
 
 intnat caml_duckdb_column_count(value v_res) {
   result_wrap *rw = Result_wrap_val(v_res);
@@ -480,8 +436,6 @@ CAMLprim value caml_duckdb_rows_changed_bc(value v_res) {
   return Val_long(caml_duckdb_rows_changed(v_res));
 }
 
-/* ── Column name ───────────────────────────────────────────────────── */
-
 CAMLprim value caml_duckdb_column_name(value v_res, value v_col) {
   result_wrap *rw = Result_wrap_val(v_res);
   idx_t col = Long_val(v_col);
@@ -491,8 +445,6 @@ CAMLprim value caml_duckdb_column_name(value v_res, value v_col) {
   return caml_copy_string(name);
 }
 
-/* ── Column type ───────────────────────────────────────────────────── */
-
 intnat caml_duckdb_column_type(value v_res, intnat col) {
   result_wrap *rw = Result_wrap_val(v_res);
   return (intnat)duckdb_column_type(&rw->result, (idx_t)col);
@@ -501,8 +453,6 @@ intnat caml_duckdb_column_type(value v_res, intnat col) {
 CAMLprim value caml_duckdb_column_type_bc(value v_res, value v_col) {
   return Val_long(caml_duckdb_column_type(v_res, Long_val(v_col)));
 }
-
-/* ── Typed column access — unboxed/noalloc ─────────────────────────── */
 
 int64_t caml_duckdb_value_int64(value v_res, intnat col, intnat row) {
   result_wrap *rw = Result_wrap_val(v_res);
@@ -531,8 +481,6 @@ CAMLprim value caml_duckdb_value_int32_bc(value v_res, value v_col, value v_row)
   return caml_copy_int32(caml_duckdb_value_int32(v_res, Long_val(v_col), Long_val(v_row)));
 }
 
-/* ── String column value ───────────────────────────────────────────── */
-
 CAMLprim value caml_duckdb_value_string(value v_res, value v_col, value v_row) {
   result_wrap *rw = Result_wrap_val(v_res);
   idx_t col = Long_val(v_col);
@@ -546,8 +494,6 @@ CAMLprim value caml_duckdb_value_string(value v_res, value v_col, value v_row) {
   return v_str;
 }
 
-/* ── Null check — noalloc ──────────────────────────────────────────── */
-
 value caml_duckdb_value_is_null(value v_res, intnat col, intnat row) {
   result_wrap *rw = Result_wrap_val(v_res);
   return Val_bool(duckdb_value_is_null(&rw->result, (idx_t)col, (idx_t)row));
@@ -556,8 +502,6 @@ value caml_duckdb_value_is_null(value v_res, intnat col, intnat row) {
 CAMLprim value caml_duckdb_value_is_null_bc(value v_res, value v_col, value v_row) {
   return caml_duckdb_value_is_null(v_res, Long_val(v_col), Long_val(v_row));
 }
-
-/* ── Data chunk access ─────────────────────────────────────────────── */
 
 intnat caml_duckdb_result_chunk_count(value v_res) {
   result_wrap *rw = Result_wrap_val(v_res);
@@ -604,8 +548,6 @@ CAMLprim value caml_duckdb_chunk_get_column_count_bc(value v_chunk) {
   return Val_long(caml_duckdb_chunk_get_column_count(v_chunk));
 }
 
-/* ── Vector data as Bigstring (zero-copy) ──────────────────────────── */
-
 CAMLprim value caml_duckdb_vector_data(value v_chunk, value v_col) {
   chunk_wrap *cw = Chunk_wrap_val(v_chunk);
   idx_t col = Long_val(v_col);
@@ -624,30 +566,27 @@ CAMLprim value caml_duckdb_vector_data(value v_chunk, value v_col) {
                        1, data, &dim);
 }
 
-/* ── Vector validity as Bigstring (zero-copy) ──────────────────────── */
-
 CAMLprim value caml_duckdb_vector_validity(value v_chunk, value v_col) {
+  CAMLparam2(v_chunk, v_col);
+  CAMLlocal2(v_ba, v_some);
   chunk_wrap *cw = Chunk_wrap_val(v_chunk);
   idx_t col = Long_val(v_col);
   duckdb_vector vec = duckdb_data_chunk_get_vector(cw->chunk, col);
   uint64_t *validity = duckdb_vector_get_validity(vec);
 
   if (validity == NULL)
-    return Val_none;  /* all valid */
+    CAMLreturn(Val_none);  /* all valid */
 
   /* Validity is ceil(vector_size / 64) * 8 bytes */
   idx_t size = duckdb_data_chunk_get_size(cw->chunk);
   intnat dim = (intnat)(((size + 63) / 64) * 8);
 
-  value v_ba = caml_ba_alloc(CAML_BA_UINT8 | CAML_BA_C_LAYOUT | CAML_BA_EXTERNAL,
-                              1, validity, &dim);
-  /* Wrap in Some */
-  value v_some = caml_alloc_small(1, 0);
+  v_ba = caml_ba_alloc(CAML_BA_UINT8 | CAML_BA_C_LAYOUT | CAML_BA_EXTERNAL,
+                        1, validity, &dim);
+  v_some = caml_alloc_small(1, 0);
   Field(v_some, 0) = v_ba;
-  return v_some;
+  CAMLreturn(v_some);
 }
-
-/* ── Vector null check — noalloc ───────────────────────────────────── */
 
 value caml_duckdb_vector_is_valid(value v_chunk, intnat col, intnat row) {
   chunk_wrap *cw = Chunk_wrap_val(v_chunk);
@@ -662,8 +601,6 @@ CAMLprim value caml_duckdb_vector_is_valid_bc(value v_chunk, value v_col, value 
   return caml_duckdb_vector_is_valid(v_chunk, Long_val(v_col), Long_val(v_row));
 }
 
-/* ── Vector string element access ──────────────────────────────────── */
-
 CAMLprim value caml_duckdb_vector_get_string(value v_chunk, value v_col, value v_row) {
   chunk_wrap *cw = Chunk_wrap_val(v_chunk);
   idx_t col = Long_val(v_col);
@@ -676,14 +613,10 @@ CAMLprim value caml_duckdb_vector_get_string(value v_chunk, value v_col, value v
   return caml_alloc_initialized_string(len, data);
 }
 
-/* ── Library version ───────────────────────────────────────────────── */
-
 CAMLprim value caml_duckdb_library_version(value v_unit) {
   (void)v_unit;
   return caml_copy_string(duckdb_library_version());
 }
-
-/* ── Vector size constant ──────────────────────────────────────────── */
 
 intnat caml_duckdb_vector_size(value v_unit) {
   (void)v_unit;

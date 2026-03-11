@@ -30,21 +30,17 @@ type stmt
 external prepare : connection -> string -> stmt = "caml_duckdb_prepare"
 external execute : stmt -> result = "caml_duckdb_execute_prepared"
 
-external bind_bool_raw : stmt -> (int[@untagged]) -> bool -> unit
-  = "caml_duckdb_bind_bool_bc" "caml_duckdb_bind_bool"
-[@@noalloc]
+external bind_bool : stmt -> int -> bool -> unit
+  = "caml_duckdb_bind_bool_bc"
 
-external bind_int32_raw : stmt -> (int[@untagged]) -> (int32[@unboxed]) -> unit
-  = "caml_duckdb_bind_int32_bc" "caml_duckdb_bind_int32"
-[@@noalloc]
+external bind_int32 : stmt -> int -> int32 -> unit
+  = "caml_duckdb_bind_int32_bc"
 
-external bind_int64_raw : stmt -> (int[@untagged]) -> (int64[@unboxed]) -> unit
-  = "caml_duckdb_bind_int64_bc" "caml_duckdb_bind_int64"
-[@@noalloc]
+external bind_int64 : stmt -> int -> int64 -> unit
+  = "caml_duckdb_bind_int64_bc"
 
-external bind_double_raw : stmt -> (int[@untagged]) -> (float[@unboxed]) -> unit
-  = "caml_duckdb_bind_double_bc" "caml_duckdb_bind_double"
-[@@noalloc]
+external bind_double : stmt -> int -> float -> unit
+  = "caml_duckdb_bind_double_bc"
 
 external bind_string : stmt -> int -> string -> unit
   = "caml_duckdb_bind_string"
@@ -52,21 +48,14 @@ external bind_string : stmt -> int -> string -> unit
 external bind_blob : stmt -> int -> bytes -> unit
   = "caml_duckdb_bind_blob"
 
-external bind_null_raw : stmt -> (int[@untagged]) -> unit
-  = "caml_duckdb_bind_null_bc" "caml_duckdb_bind_null"
-[@@noalloc]
+external bind_null : stmt -> int -> unit
+  = "caml_duckdb_bind_null_bc"
 
 external clear_bindings : stmt -> unit = "caml_duckdb_clear_bindings"
 
 external param_count : stmt -> (int[@untagged])
   = "caml_duckdb_nparams_bc" "caml_duckdb_nparams"
 [@@noalloc]
-
-let bind_bool stmt idx v = bind_bool_raw stmt idx v
-let bind_int32 stmt idx v = bind_int32_raw stmt idx v
-let bind_int64 stmt idx v = bind_int64_raw stmt idx v
-let bind_double stmt idx v = bind_double_raw stmt idx v
-let bind_null stmt idx = bind_null_raw stmt idx
 
 (* ── Result metadata ─────────────────────────────────────────────── *)
 

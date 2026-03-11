@@ -23,7 +23,41 @@ vendor/duckdb.hpp            ← C++ header (included by amalgamation)
 - **Vendored build** — amalgamation compiled via dune rules + ocamlmklib
 - **Unboxed numerics** — `[@unboxed]` / `[@untagged]` / `[@@noalloc]`
 - **Blocking sections** — `caml_enter/leave_blocking_section` for queries
-- **Local allocation** — `caml_alloc_local` for compound returns (dates etc.)
+- **Local allocation** — `caml_alloc_local` for compound returns
+- **Depends on Base/Core** — for `Bigstring` unboxed access, `Iarray`, modes
+
+### Zero-copy data access strategy
+
+DuckDB stores columnar data as flat C arrays inside vectors (chunks of
+up to 2048 rows). The binding exposes these directly:
+
+```
+DuckDB vector memory (C heap)
+  ┌─────────────────────────────────┐
+  │ int64[0] │ int64[1] │ ... │    │  ← duckdb_vector_get_data()
+  └─────────────────────────────────┘
+       │
+       ▼  caml_ba_alloc (wraps pointer, no copy)
+  Bigstring.t  (Core.Bigstring = Bigarray.Array1.t char)
+       │
+       ▼  Bigstring.unsafe_get_int64_le_unboxed ~pos:(i*8)
+     int64#   ← zero-alloc, unboxed
+```
+
+- **Numeric vectors**: Wrap `duckdb_vector_get_data()` as a `Bigstring.t`.
+  Use `Bigstring.unsafe_get_{int32,int64,float}_le_unboxed` for
+  zero-alloc element access. No typed Bigarray intermediary needed —
+  Bigstring is the universal view.
+- **Validity masks**: `duckdb_vector_get_validity()` returns `uint64_t*`.
+  Wrap as Bigstring, extract bits with `unsafe_get_int64_le_unboxed`
+  and bit ops. Provide `[@zero_alloc]` `is_valid` helper.
+- **String vectors**: `duckdb_string_t` is 16 bytes per element
+  (inlined ≤12 bytes, or pointer+prefix). C stub extracts the string
+  data pointer and length, returns `string` (must copy for GC safety)
+  or `string @ local` (stack-allocated copy for transient use via
+  `Bigstring.get_string__local`).
+- **No Bigarray↔Bytes copies** — Bigstring *is* the backing store, and
+  unboxed accessors read directly from DuckDB's memory.
 
 ## Phase 1: Prepared Statements
 
@@ -64,114 +98,251 @@ val clear_bindings  : stmt -> unit
 val param_count     : stmt -> int
 ```
 
-## Phase 2: Data Chunk / Vector API (Columnar)
+## Phase 2: Data Chunk / Vector API (Columnar, Zero-Copy)
 
-The high-performance path. DuckDB's native interface returns data in
-columnar chunks of 2048 rows with flat arrays + validity bitmaps.
+The high-performance path. DuckDB returns data in columnar chunks of
+2048 rows with flat arrays + validity bitmaps.
+
+### DuckDB internal layout
+
+- `duckdb_vector_get_data()` → `void*` pointing to flat typed array
+- `duckdb_vector_get_validity()` → `uint64_t*` bitfield (NULL = all valid)
+- `duckdb_string_t`: 16-byte union, inline ≤12 chars or pointer
+- `duckdb_list_entry`: `{ offset: uint64; length: uint64 }`
 
 ### C stubs
 
 ```c
-// data_chunk_wrap: Custom_tag with finalizer
-caml_duckdb_result_chunk_count  : result -> int[@untagged]        [@@noalloc]
+// Data chunk: Custom_tag wrapping duckdb_data_chunk, refs result
+caml_duckdb_result_chunk_count  : result -> int[@untagged]           [@@noalloc]
 caml_duckdb_result_get_chunk    : result -> int[@untagged] -> data_chunk
-caml_duckdb_chunk_size          : data_chunk -> int[@untagged]    [@@noalloc]
-caml_duckdb_chunk_column_count  : data_chunk -> int[@untagged]    [@@noalloc]
+caml_duckdb_chunk_size          : data_chunk -> int[@untagged]       [@@noalloc]
+caml_duckdb_chunk_column_count  : data_chunk -> int[@untagged]       [@@noalloc]
 
-// Vector access — return Bigarray views (zero-copy)
-caml_duckdb_vector_int64_data   : data_chunk -> int[@untagged] -> int64 bigarray
-caml_duckdb_vector_float64_data : data_chunk -> int[@untagged] -> float bigarray
-caml_duckdb_vector_int32_data   : data_chunk -> int[@untagged] -> int32 bigarray
-caml_duckdb_vector_is_null      : data_chunk -> int[@untagged] -> int[@untagged] -> bool [@@noalloc]
+// Vector data as Bigstring (zero-copy wrap of duckdb_vector_get_data)
+// Uses caml_ba_alloc with CAML_BA_EXTERNAL to wrap the raw pointer.
+// The Bigstring does NOT own the memory — the data_chunk does.
+caml_duckdb_vector_data         : data_chunk -> int[@untagged] -> Bigstring.t
+caml_duckdb_vector_validity     : data_chunk -> int[@untagged] -> Bigstring.t option
+  // Returns None when validity is NULL (all values valid)
+
+// String vector element access (must copy — GC safety)
+caml_duckdb_vector_string       : data_chunk -> int[@untagged] -> int[@untagged] -> string
+caml_duckdb_vector_string_local : data_chunk -> int[@untagged] -> int[@untagged] -> string[@local]
+
+// Null check via validity bitmap (direct bit test in C)
+caml_duckdb_vector_is_valid     : data_chunk -> int[@untagged] -> int[@untagged] -> bool [@@noalloc]
 ```
 
 ### OCaml API
 
 ```ocaml
 module Data_chunk : sig
-  type t
-  val chunk_count : result -> int
-  val get_chunk   : result -> int -> t
-  val size        : t -> int
-  val column_count : t -> int
+  type t  (* GC-managed, refs result *)
+
+  val chunk_count   : result -> int
+  val get_chunk     : result -> int -> t
+  val size          : t -> int
+  val column_count  : t -> int
 end
 
 module Vector : sig
-  val get_int64_data  : Data_chunk.t -> int -> (int64, Bigarray.int64_elt, Bigarray.c_layout) Bigarray.Array1.t
-  val get_float64_data : Data_chunk.t -> int -> (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t
-  val get_int32_data  : Data_chunk.t -> int -> (int32, Bigarray.int32_elt, Bigarray.c_layout) Bigarray.Array1.t
-  val is_null         : Data_chunk.t -> col:int -> row:int -> bool
+  (** Raw column data as Bigstring — zero-copy view of DuckDB memory.
+      Valid only while the parent [Data_chunk.t] is alive. *)
+  val data : Data_chunk.t -> col:int -> Bigstring.t
+
+  (** Validity bitmap as Bigstring, or None if all values are valid. *)
+  val validity : Data_chunk.t -> col:int -> Bigstring.t option
+
+  (** {2 Typed unboxed element access}
+
+      These use [Bigstring.unsafe_get_*_unboxed] on the data view.
+      All are [[@zero_alloc]]. The [col] index selects the vector,
+      [row] is the element index within the chunk. *)
+
+  val[@zero_alloc] get_int32   : Data_chunk.t -> col:int -> row:int -> int32#
+  val[@zero_alloc] get_int64   : Data_chunk.t -> col:int -> row:int -> int64#
+  val[@zero_alloc] get_float64 : Data_chunk.t -> col:int -> row:int -> float#
+  val[@zero_alloc] get_float32 : Data_chunk.t -> col:int -> row:int -> float32#
+  val[@zero_alloc] get_int8    : Data_chunk.t -> col:int -> row:int -> int8#
+  val[@zero_alloc] get_int16   : Data_chunk.t -> col:int -> row:int -> int16#
+  val[@zero_alloc] get_bool    : Data_chunk.t -> col:int -> row:int -> bool
+
+  (** String access — copies bytes for GC safety *)
+  val get_string       : Data_chunk.t -> col:int -> row:int -> string
+  val get_string_local : Data_chunk.t -> col:int -> row:int -> string @ local
+
+  (** Null check — direct bit test, zero alloc *)
+  val[@zero_alloc] is_valid : Data_chunk.t -> col:int -> row:int -> bool
 end
+```
+
+### Implementation: zero-alloc element access
+
+The typed accessors are thin wrappers over Bigstring unboxed reads.
+For example:
+
+```ocaml
+(* In duckdb.ml — using Core.Bigstring unboxed accessors *)
+
+let[@zero_alloc] get_int64 chunk ~col ~row =
+  let bs = data chunk ~col in
+  Bigstring.unsafe_get_int64_le_unboxed bs ~pos:(row * 8)
+
+let[@zero_alloc] get_float64 chunk ~col ~row =
+  let bs = data chunk ~col in
+  Bigstring.unsafe_get_float_unboxed bs ~pos:(row * 8)
+
+let[@zero_alloc] get_int32 chunk ~col ~row =
+  let bs = data chunk ~col in
+  Bigstring.unsafe_get_int32_le_unboxed bs ~pos:(row * 4)
+
+let[@zero_alloc] get_int8 chunk ~col ~row =
+  let bs = data chunk ~col in
+  Int8_u.of_int_trunc (Char.to_int (Bigstring.unsafe_get bs (row)))
+
+let[@zero_alloc] is_valid chunk ~col ~row =
+  match validity chunk ~col with
+  | None -> true  (* NULL validity = all valid *)
+  | Some bs ->
+    let word = Bigstring.unsafe_get_int64_le_unboxed bs ~pos:((row / 64) * 8) in
+    Int64_u.logand word (Int64_u.shift_left #1L (row land 63)) <> #0L
 ```
 
 ### Usage pattern
 
 ```ocaml
 let sum_column result col =
-  let mutable total = 0.0 in
+  let mutable total = #0.0 in
   for i = 0 to Data_chunk.chunk_count result - 1 do
     let local_ chunk = Data_chunk.get_chunk result i in
-    let data = Vector.get_float64_data chunk col in
     let n = Data_chunk.size chunk in
     for j = 0 to n - 1 do
-      if not (Vector.is_null chunk ~col ~row:j) then
-        total <- total +. data.{j}
+      if Vector.is_valid chunk ~col ~row:j then
+        total <- Float_u.add total (Vector.get_float64 chunk ~col ~row:j)
     done
   done;
-  total
+  Float_u.to_float total
 ```
 
-## Phase 3: Local-Allocated Compound Types
+### Caching the Bigstring per-vector
+
+To avoid re-calling the C stub on every element access, provide a
+pre-bound vector type:
+
+```ocaml
+module Bound_vector : sig
+  type 'kind t  (* local-friendly, caches the Bigstring *)
+
+  type int32_vec
+  type int64_vec
+  type float64_vec
+
+  val bind_int32   : Data_chunk.t -> col:int -> int32_vec t
+  val bind_int64   : Data_chunk.t -> col:int -> int64_vec t
+  val bind_float64 : Data_chunk.t -> col:int -> float64_vec t
+
+  val[@zero_alloc] get_int32   : int32_vec t -> int -> int32#
+  val[@zero_alloc] get_int64   : int64_vec t -> int -> int64#
+  val[@zero_alloc] get_float64 : float64_vec t -> int -> float#
+  val[@zero_alloc] is_valid    : _ t -> int -> bool
+end
+```
+
+Usage:
+
+```ocaml
+let process_chunk chunk =
+  let v = Bound_vector.bind_float64 chunk ~col:0 in
+  let n = Data_chunk.size chunk in
+  let mutable sum = #0.0 in
+  for i = 0 to n - 1 do
+    if Bound_vector.is_valid v i then
+      sum <- Float_u.add sum (Bound_vector.get_float64 v i)
+  done;
+  Float_u.to_float sum
+```
+
+## Phase 3: Compound Types with Unboxed Fields
 
 Stack-allocate structured values returned from DuckDB for zero-heap-alloc
-access patterns.
+access patterns. Use mixed blocks with unboxed fields.
 
 ### Date / Time / Timestamp / Interval
 
-```c
-// Returns local_ record via caml_alloc_local
-caml_duckdb_value_date      : result -> int[@untagged] -> int[@untagged] -> date[@local]
-caml_duckdb_value_time      : result -> int[@untagged] -> int[@untagged] -> time[@local]
-caml_duckdb_value_timestamp : result -> int[@untagged] -> int[@untagged] -> timestamp[@local]
-caml_duckdb_value_interval  : result -> int[@untagged] -> int[@untagged] -> interval[@local]
+```ocaml
+(* Mixed blocks — unboxed numeric fields stored flat *)
+type date = { year : int; month : int; day : int }
+
+type time_of_day = {
+  hour : int; min : int; sec : int;
+  micros : int32#;  (* unboxed, avoids int64 boxing *)
+}
+
+type timestamp = {
+  date : date;       (* boxed sub-record *)
+  micros : int64#;   (* unboxed microseconds since epoch *)
+}
+
+type interval = {
+  months : int; days : int;
+  micros : int64#;   (* unboxed *)
+}
 ```
 
+For the chunk API, provide `[@zero_alloc]` access returning unboxed
+representations directly:
+
 ```ocaml
-type date      = { year : int; month : int; day : int }
-type time      = { hour : int; min : int; sec : int; micros : int }
-type timestamp = { date : date; time : time }
-type interval  = { months : int; days : int; micros : int64 }
+(* Raw unboxed access — zero alloc *)
+val[@zero_alloc] get_date_days     : Data_chunk.t -> col:int -> row:int -> int32#
+  (** Days since epoch as unboxed int32. Convert with [Date.of_days]. *)
+val[@zero_alloc] get_timestamp_us  : Data_chunk.t -> col:int -> row:int -> int64#
+  (** Microseconds since epoch as unboxed int64. *)
+val[@zero_alloc] get_time_us       : Data_chunk.t -> col:int -> row:int -> int64#
+  (** Microseconds since midnight as unboxed int64. *)
 
-external value_date : result -> (int[@untagged]) -> (int[@untagged]) -> (date[@local])
-  = "caml_duckdb_value_date_bc" "caml_duckdb_value_date"
-
-(* etc. *)
+(* Structured access — local-allocated *)
+val get_date      : Data_chunk.t -> col:int -> row:int -> date @ local
+val get_timestamp : Data_chunk.t -> col:int -> row:int -> timestamp @ local
+val get_interval  : Data_chunk.t -> col:int -> row:int -> interval @ local
 ```
 
-### Decimal (mixed block with unboxed fields)
+The local-allocated versions use `caml_alloc_local` in C to put the
+record on the caller's stack. Callers that need them to escape can
+`{ d with year = d.year }` to copy to heap.
+
+### Decimal
 
 ```ocaml
-type decimal = { width : int; scale : int; value : int64# }
+(* Unboxed record for zero-alloc decimal access *)
+type decimal = #{ width : int8#; scale : int8#; value : int64# }
+
+val[@zero_alloc] get_decimal : Data_chunk.t -> col:int -> row:int -> decimal
 ```
 
 ## Phase 4: Appender (Bulk Insert)
 
 ```ocaml
-type appender
+type appender  (* GC-managed with finalizer *)
 
 val appender_create  : connection -> ?schema:string -> table:string -> unit -> appender
-val appender_int32   : appender -> int32# -> unit
-val appender_int64   : appender -> int64 -> unit
-val appender_double  : appender -> float -> unit
-val appender_string  : appender -> string -> unit
-val appender_null    : appender -> unit
-val appender_bool    : appender -> bool -> unit
 val appender_end_row : appender -> unit
 val appender_flush   : appender -> unit
 val appender_close   : appender -> unit
-```
 
-All numeric appender functions should be `[@@noalloc]` with `[@unboxed]`/`[@untagged]`.
+(* Unboxed/noalloc append functions *)
+external appender_int8    : appender -> (int8#[@unboxed])    -> unit = ... [@@noalloc]
+external appender_int16   : appender -> (int16#[@unboxed])   -> unit = ... [@@noalloc]
+external appender_int32   : appender -> (int32#[@unboxed])   -> unit = ... [@@noalloc]
+external appender_int64   : appender -> (int64[@unboxed])    -> unit = ... [@@noalloc]
+external appender_float32 : appender -> (float32#[@unboxed]) -> unit = ... [@@noalloc]
+external appender_float64 : appender -> (float[@unboxed])    -> unit = ... [@@noalloc]
+external appender_bool    : appender -> bool                 -> unit = ... [@@noalloc]
+val appender_string  : appender -> string -> unit
+val appender_blob    : appender -> bytes -> unit
+val appender_null    : appender -> unit
+```
 
 ## Phase 5: Type System & Column Metadata
 
@@ -190,30 +361,33 @@ module Type : sig
 end
 
 module Logical_type : sig
-  type t
+  type t  (* GC-managed *)
   val column_logical_type : result -> int -> t
   val id : t -> Type.t
-  (* For decimals *)
   val decimal_width : t -> int
   val decimal_scale : t -> int
-  (* For lists/arrays *)
   val child_type : t -> t
-  (* For structs *)
   val member_count : t -> int
   val member_name  : t -> int -> string
   val member_type  : t -> int -> t
 end
 ```
 
+### Column names as iarray
+
+```ocaml
+(** Returns column names as an immutable array — single allocation,
+    then zero-cost access thereafter. *)
+val column_names : result -> string iarray
+```
+
 ## Phase 6: Configuration
 
 ```ocaml
 module Config : sig
-  type t
+  type t  (* GC-managed *)
   val create : unit -> t
   val set    : t -> string -> string -> unit  (** raises Error *)
-  val count  : unit -> int
-  val flag   : int -> string * string         (** name, description *)
 end
 
 val open_database_ext : ?path:string -> ?config:Config.t -> unit -> database

@@ -249,7 +249,7 @@ Use {!Yamlrw.Util} constructors for cleaner code:
     "debug", Util.bool true;
     "tags", Util.strings ["api"; "v2"]
   ];;
-val config : Value.t =
+val config : Util.t =
   `O
     [("server", `O [("host", `String "0.0.0.0"); ("port", `Float 8080.)]);
      ("debug", `Bool true); ("tags", `A [`String "api"; `String "v2"])]
@@ -615,10 +615,10 @@ Modifying YAML structures:
 val original : value =
   `O [("name", `String "Alice"); ("status", `String "active")]
 # let updated = Util.update "status" (Util.string "inactive") original;;
-val updated : Value.t =
+val updated : Util.t =
   `O [("name", `String "Alice"); ("status", `String "inactive")]
 # let with_timestamp = Util.update "updated_at" (Util.string "2024-01-01") updated;;
-val with_timestamp : Value.t =
+val with_timestamp : Util.t =
   `O
     [("name", `String "Alice"); ("status", `String "inactive");
      ("updated_at", `String "2024-01-01")]

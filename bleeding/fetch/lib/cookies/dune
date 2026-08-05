@@ -1,0 +1,4 @@
+(library
+ (name fetch_cookies)
+ (public_name fetch.cookies)
+ (libraries fetch eio http uri fmt ptime))

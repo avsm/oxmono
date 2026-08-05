@@ -1,0 +1,4 @@
+(library
+ (name fetch_curl)
+ (public_name fetch-curl)
+ (libraries fetch fetch.cookies eio eio.unix curl fmt))

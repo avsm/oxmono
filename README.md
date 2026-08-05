@@ -19,6 +19,10 @@ opam install dune
 for p in eio eio_main eio_posix eio_linux; do
   opam pin add -y $p.1.3+ox git+file://$HOME/src/git/avsm/eio#main
 done
+# mdx doc tests need the local mdx clone; the version must be 2.5.0+ox
+# to satisfy oxcaml-mdx-patches
+opam pin add -n -k git mdx.2.5.0+ox git+file://$HOME/src/git/realworldocaml/mdx#main
+opam install -y mdx
 opam install --deps-only ./avsm/*/*.opam ./bleeding/*/*.opam
 dune build --profile=release avsm/sortal avsm/bushel avsm/arod
 ```
@@ -45,8 +49,8 @@ currently be installed from opam on `oxcaml-compiler.5.2.0minus39`:
 These should be re-checked against the ox opam repository on each compiler
 upgrade and dropped once installable.
 
-`mdx` is likewise blocked on minus39, so the yamlrw doc tests are gated
-behind `%{lib-available:mdx.top}` rather than vendored.
+`mdx` from opam is likewise blocked on minus39, hence the local-clone pin
+in the setup steps above.
 
 - `ocaml-uri` — provides `uriz`, the OxCaml port of ocaml-uri used by
   httpz; not yet released to opam.

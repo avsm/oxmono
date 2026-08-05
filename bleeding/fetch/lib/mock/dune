@@ -1,0 +1,4 @@
+(library
+ (name fetch_mock)
+ (public_name fetch.mock)
+ (libraries fetch eio http fmt))

@@ -1,0 +1,5 @@
+(library
+ (name fetch_cohttp)
+ (public_name fetch-cohttp)
+ (libraries fetch fetch.cookies eio http uri cohttp-eio decompress.de
+   decompress.gz fmt))

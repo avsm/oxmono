@@ -1,4 +1,4 @@
 (library
  (name apubt)
  (public_name apubt)
- (libraries apubt_proto eio jsont jsont.bytesrw ptime.clock.os requests webfinger x509))
+ (libraries apubt_proto eio jsont jsont.bytesrw ptime.clock.os requests fetch-curl webfinger x509))

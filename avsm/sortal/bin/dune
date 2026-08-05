@@ -16,5 +16,5 @@
   logs.fmt
   fmt
   fmt.tty
-  requests
+  fetch-curl
   gitops))

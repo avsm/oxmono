@@ -15,7 +15,7 @@
     {[
       Eio_main.run @@ fun env ->
       Eio.Switch.run @@ fun sw ->
-      let session = Requests.create ~sw env in
+      let session = Fetch_curl.std ~sw env in
       let acct = Webfinger.Acct.of_string_exn "acct:user@example.com" in
       match Webfinger.query_acct session acct () with
       | Ok jrd ->
@@ -264,7 +264,7 @@ val host_of_resource : string -> (string, error) result
 (** {1 HTTP Client} *)
 
 val query :
-  Requests.t ->
+  _ Fetch.t ->
   resource:string ->
   ?rels:string list ->
   unit -> (Jrd.t, error) result
@@ -277,7 +277,7 @@ val query :
     - 404 means no information available *)
 
 val query_exn :
-  Requests.t ->
+  _ Fetch.t ->
   resource:string ->
   ?rels:string list ->
   unit -> Jrd.t
@@ -285,7 +285,7 @@ val query_exn :
     {!Webfinger_error} on failure. *)
 
 val query_acct :
-  Requests.t ->
+  _ Fetch.t ->
   Acct.t ->
   ?rels:string list ->
   unit -> (Jrd.t, error) result
@@ -295,7 +295,7 @@ val query_acct :
     the resource is a valid acct URI per RFC 7565. *)
 
 val query_acct_exn :
-  Requests.t ->
+  _ Fetch.t ->
   Acct.t ->
   ?rels:string list ->
   unit -> Jrd.t

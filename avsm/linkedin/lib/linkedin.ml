@@ -10,17 +10,23 @@ module Log = (val Logs.src_log src : Logs.LOG)
 let posts_url = "https://api.linkedin.com/rest/posts"
 let userinfo_url = "https://api.linkedin.com/v2/userinfo"
 
+(* Every endpoint this client speaks to; the token and the API-version
+   headers are scoped to it. *)
+let api_origin = "https://api.linkedin.com"
+
 type t = {
-  session : Requests.t;
+  session : Fetch.plain;
 }
 
 let create ~session ~access_token =
-  let session = Requests.set_auth session
-    (Requests.Auth.bearer ~token:access_token) in
-  let session = Requests.set_default_header session
-    "LinkedIn-Version" "202603" in
-  let session = Requests.set_default_header session
-    "X-Restli-Protocol-Version" "2.0.0" in
+  let session =
+    session
+    |> Fetch.with_credentials ~scope:[ api_origin ]
+         Fetch.Credential.[ Bearer (fun () -> access_token) ]
+    |> Fetch.with_headers ~scope:[ api_origin ]
+         Fetch.Header.[ raw "LinkedIn-Version" "202603";
+                        raw "X-Restli-Protocol-Version" "2.0.0" ]
+  in
   { session }
 
 (* JSON helpers using Jsont.Json constructors *)
@@ -71,9 +77,9 @@ type userinfo = {
 
 let userinfo t =
   Log.debug (fun m -> m "GET %s" userinfo_url);
-  let resp = Requests.get t.session userinfo_url in
-  let status = Requests.Response.status_code resp in
-  let body = Requests.Response.text resp in
+  Fetch.with_response t.session `GET userinfo_url @@ fun resp ->
+  let status = Fetch.status resp in
+  let body = Fetch.body resp |> Eio.Flow.read_all in
   Log.debug (fun m -> m "Response %d: %s" status body);
   if status < 200 || status >= 300 then
     failwith (Fmt.str "LinkedIn userinfo error (HTTP %d): %s" status body);
@@ -148,15 +154,15 @@ let article_body ~author ~url ?title ?description ?thumbnail
 let do_post t json =
   let body_str = J.encode json in
   Log.debug (fun m -> m "POST %s@.Body: %s" posts_url body_str);
-  let resp = Requests.post t.session
-    ~body:(Requests.Body.of_string Requests.Mime.json body_str)
-    posts_url
-  in
-  let status = Requests.Response.status_code resp in
-  let body = Requests.Response.text resp in
+  let headers = Fetch.Header.[ content_type, media "application/json" ] in
+  Fetch.with_response ~headers ~body:(Fetch.String body_str)
+    t.session `POST posts_url
+  @@ fun resp ->
+  let status = Fetch.status resp in
+  let body = Fetch.body resp |> Eio.Flow.read_all in
   Log.debug (fun m -> m "Response %d: %s" status body);
   if status = 201 then begin
-    let id = match Requests.Response.header_string "x-restli-id" resp with
+    let id = match Fetch.header (Fetch.Header.text "x-restli-id") resp with
       | Some id -> id
       | None -> "(created, no id returned)"
     in

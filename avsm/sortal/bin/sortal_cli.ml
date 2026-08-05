@@ -532,7 +532,7 @@ let () =
         let result = ref 0 in
         (try
           Eio.Switch.run @@ fun sw ->
-          let session = Requests.create ~sw env in
+          let session = Fetch_curl.std ~sw env in
           let feed_store = Sortal_feed.Store.create_from_xdg xdg in
           let failed = ref false in
           List.iter (fun (handle, feeds) ->

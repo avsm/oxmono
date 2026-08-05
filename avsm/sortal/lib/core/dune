@@ -18,4 +18,6 @@
   logs
   str
   requests
+  fetch
+  fetch-curl
   uri))

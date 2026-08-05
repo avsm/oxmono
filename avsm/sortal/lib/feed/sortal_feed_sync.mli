@@ -18,7 +18,7 @@ type sync_result = {
 }
 
 val sync_feed :
-  session:Requests.t ->
+  session:Fetch.plain ->
   store:Sortal_feed_store.t ->
   handle:string ->
   ?force:bool ->
@@ -26,7 +26,7 @@ val sync_feed :
   (sync_result, string) result
 
 val sync_all :
-  session:Requests.t ->
+  session:Fetch.plain ->
   store:Sortal_feed_store.t ->
   handle:string ->
   ?force:bool ->

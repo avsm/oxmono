@@ -129,9 +129,8 @@ let feed_post_run () dry_run entry_id text_override link_override scheduling mod
     Fmt.pr "--- END DRY RUN ---@]@."
   end else begin
     Eio.Switch.run @@ fun sw ->
-    let session = Requests.create ~sw env in
-    let session = Requests.set_auth session
-      (Requests.Auth.bearer ~token:cfg.buffer.api_key) in
+    let session =
+      Tessabot.Buffer.session ~sw ~token:cfg.buffer.api_key env in
     (* Get default org *)
     let org_id = match Tessabot.Buffer.list_organizations ~session with
       | Ok (org :: _) -> org.id
@@ -243,9 +242,7 @@ let buffer_orgs_run () =
   let cfg = Tessabot.Config.load_or_fail () in
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
-  let session = Requests.create ~sw env in
-  let session = Requests.set_auth session
-    (Requests.Auth.bearer ~token:cfg.buffer.api_key) in
+  let session = Tessabot.Buffer.session ~sw ~token:cfg.buffer.api_key env in
   match Tessabot.Buffer.list_organizations ~session with
   | Ok orgs ->
     Fmt.pr "@[<v>%d organization(s):@," (List.length orgs);
@@ -268,9 +265,7 @@ let buffer_channels_run () org_id =
   let cfg = Tessabot.Config.load_or_fail () in
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
-  let session = Requests.create ~sw env in
-  let session = Requests.set_auth session
-    (Requests.Auth.bearer ~token:cfg.buffer.api_key) in
+  let session = Tessabot.Buffer.session ~sw ~token:cfg.buffer.api_key env in
   match Tessabot.Buffer.list_channels ~session ~org_id with
   | Ok channels ->
     Fmt.pr "@[<v>%d channel(s):@," (List.length channels);
@@ -324,9 +319,8 @@ let buffer_post_run () dry_run channel_id service text link_attachment schedulin
     let cfg = Tessabot.Config.load_or_fail () in
     Eio_main.run @@ fun env ->
     Eio.Switch.run @@ fun sw ->
-    let session = Requests.create ~sw env in
-    let session = Requests.set_auth session
-      (Requests.Auth.bearer ~token:cfg.buffer.api_key) in
+    let session =
+      Tessabot.Buffer.session ~sw ~token:cfg.buffer.api_key env in
     match Tessabot.Buffer.create_post ~session input with
     | Ok result ->
       Fmt.pr "Post created: id=%s@." result.id

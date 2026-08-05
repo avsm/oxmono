@@ -16,7 +16,8 @@
  (depends
   (ocaml (>= 5.1.0))
   (eio (>= 1.0))
-  (requests (>= 0.1))
+  fetch
+  fetch-curl
   (jsont (>= 0.1))
   uri
   astring

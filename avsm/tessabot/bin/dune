@@ -9,7 +9,6 @@
   eio_main
   cmdliner
   xdge
-  requests
   logs
   logs.fmt
   logs.cli

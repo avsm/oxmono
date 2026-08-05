@@ -15,11 +15,11 @@ type t
 (** A Zotero Translation Server client. *)
 
 val create :
-  ?session:Requests.t ->
+  ?session:Fetch.plain ->
   sw:Eio.Switch.t ->
   < clock : _ Eio.Time.clock
-  ; net : _ Eio.Net.t
-  ; fs : Eio.Fs.dir_ty Eio.Path.t
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
   ; .. > ->
   base_url:string ->
   t
@@ -28,13 +28,14 @@ val create :
 
     @param session Optional existing HTTP session to reuse
     @param sw Eio switch for resource management
-    @param env Eio environment with clock, net, and fs capabilities
+    @param env Eio environment with the clocks and randomness [Fetch_curl.std]
+      needs
     @param base_url Base URL of the translation server (e.g., "http://localhost:1969") *)
 
 val base_url : t -> string
 (** [base_url t] returns the base URL of the translation server. *)
 
-val http_session : t -> Requests.t
+val http_session : t -> Fetch.plain
 (** [http_session t] returns the underlying HTTP session. *)
 
 (** {1 Export Formats} *)

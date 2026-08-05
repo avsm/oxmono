@@ -96,9 +96,10 @@ let resolve_atproto_did http_session atp_handle =
     (Uri.pct_encode atp_handle) in
   try
     Logs.info (fun m -> m "Resolving ATProto handle: %s" atp_handle);
-    let response = Requests.get http_session url in
-    if Requests.Response.ok response then begin
-      let body = Requests.Response.body response |> Eio.Flow.read_all in
+    Fetch.with_response http_session `GET url @@ fun response ->
+    let status = Fetch.status response in
+    if status >= 200 && status < 300 then begin
+      let body = Fetch.body response |> Eio.Flow.read_all in
       let did_jsont =
         let open Jsont in
         let open Jsont.Object in
@@ -114,7 +115,7 @@ let resolve_atproto_did http_session atp_handle =
         None
     end else begin
       Logs.warn (fun m -> m "DID resolution HTTP error for %s: %d"
-        atp_handle (Requests.Response.status_code response));
+        atp_handle status);
       None
     end
   with exn ->
@@ -154,6 +155,8 @@ let sync_cmd ~force () xdg env =
           immich_errors := 1
         | immich_client ->
         let api = Immich_auth.Client.client immich_client in
+        (* [Immich.session] still hands out a [Requests.t]; this block
+           moves to [Fetch] when immich itself is regenerated. *)
         let http_session = Immich.session api in
         let base_url = Immich.base_url api in
         let person_jsont =
@@ -255,7 +258,7 @@ let sync_cmd ~force () xdg env =
     Logs.app (fun m -> m "Resolving ATProto DIDs for %d contacts..."
       (List.length atproto_targets));
     Eio.Switch.run @@ fun sw ->
-    let session = Requests.create ~sw env in
+    let session = Fetch_curl.std ~sw env in
     List.iter (fun contact ->
       let handle = Contact.handle contact in
       match Contact.atproto contact with

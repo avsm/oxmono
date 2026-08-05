@@ -12,7 +12,8 @@ depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.2"}
   "sortal" {>= "0.1"}
-  "requests" {>= "0.1"}
+  "fetch"
+  "fetch-curl"
   "tomlt" {>= "0.1"}
   "xdge" {>= "0.1"}
   "jsont" {>= "0.1"}

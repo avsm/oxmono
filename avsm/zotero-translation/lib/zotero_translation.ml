@@ -3,7 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Zotero Translation Server Client - Eio/Requests implementation *)
+(** Zotero Translation Server Client - Eio/Fetch implementation *)
 
 module J = Jsont.Json
 
@@ -86,10 +86,10 @@ let format_of_string = function
   | _ -> None
 
 (* Session type *)
-type t = { session : Requests.t; base_url : string }
+type t = { session : Fetch.plain; base_url : string }
 
 let create ?session ~sw env ~base_url =
-  let session = Option.value session ~default:(Requests.create ~sw env) in
+  let session = Option.value session ~default:(Fetch_curl.std ~sw env) in
   { session; base_url }
 
 let base_url t = t.base_url
@@ -111,14 +111,23 @@ let export_endp base_uri = endpoint base_uri "export"
 let search_endp base_uri = endpoint base_uri "search"
 
 (* HTTP helpers *)
+
+(* [Fetch] has no [Response.ok]; 2xx is success. *)
+let ok response =
+  let status = Fetch.status response in
+  status >= 200 && status < 300
+
+let text response = Fetch.body response |> Eio.Flow.read_all
+
 let post_text_get_json t ~url ~body =
   Log.debug (fun m -> m "POST %s (text body)" url);
-  let headers = Requests.Headers.(empty |> content_type Requests.Mime.text) in
-  let response = Requests.post t.session url ~headers ~body:(Requests.Body.text body) in
-  let status = Requests.Response.status_code response in
-  if Requests.Response.ok response then begin
+  let headers = Fetch.Header.[ content_type, media "text/plain" ] in
+  Fetch.with_response ~headers ~body:(Fetch.String body) t.session `POST url
+  @@ fun response ->
+  let status = Fetch.status response in
+  if ok response then begin
     Log.debug (fun m -> m "Response: %d OK" status);
-    let body = Requests.Response.text response in
+    let body = text response in
     match Jsont_bytesrw.decode_string Jsont.json body with
     | Ok result -> result
     | Error e ->
@@ -126,27 +135,28 @@ let post_text_get_json t ~url ~body =
         failwith (Fmt.str "JSON parse error: %s" e)
   end
   else begin
-    let body = Requests.Response.text response in
+    let body = text response in
     Log.err (fun m -> m "API error %d: %s" status body);
     raise (Api_error (status, body))
   end
 
 let post_json_get_text t ~url ~json =
   Log.debug (fun m -> m "POST %s (JSON body)" url);
-  let headers = Requests.Headers.(empty |> content_type Requests.Mime.json) in
+  let headers = Fetch.Header.[ content_type, media "application/json" ] in
   let body_str =
     match Jsont_bytesrw.encode_string ~format:Jsont.Minify Jsont.json json with
     | Ok s -> s
     | Error e -> failwith (Fmt.str "JSON encode error: %s" e)
   in
-  let response = Requests.post t.session url ~headers ~body:(Requests.Body.text body_str) in
-  let status = Requests.Response.status_code response in
-  if Requests.Response.ok response then begin
+  Fetch.with_response ~headers ~body:(Fetch.String body_str) t.session `POST url
+  @@ fun response ->
+  let status = Fetch.status response in
+  if ok response then begin
     Log.debug (fun m -> m "Response: %d OK" status);
-    Requests.Response.text response
+    text response
   end
   else begin
-    let body = Requests.Response.text response in
+    let body = text response in
     Log.err (fun m -> m "API error %d: %s" status body);
     raise (Api_error (status, body))
   end

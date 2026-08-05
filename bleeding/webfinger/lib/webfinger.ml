@@ -302,10 +302,10 @@ let query session ~resource ?(rels = []) () =
   | Ok host ->
       let url = webfinger_url ~resource ~rels host in
       Log.info (fun m -> m "WebFinger query: %s" url);
-      let headers = Requests.Headers.empty |> Requests.Headers.set `Accept "application/jrd+json" in
-      let response = Requests.get session ~headers url in
-      let status = Requests.Response.status_code response in
-      let body = Eio.Flow.read_all (Requests.Response.body response) in
+      let headers = Fetch.Header.[ accept, [ pref "application/jrd+json" ] ] in
+      Fetch.with_response ~headers session `GET url @@ fun response ->
+      let status = Fetch.status response in
+      let body = Eio.Flow.read_all (Fetch.body response) in
       if status = 404 then Error Not_found
       else if status >= 400 then Error (Http_error { status; body })
       else Jrd.of_string body
@@ -320,10 +320,10 @@ let query_acct session acct ?(rels = []) () =
   let host = Acct.host acct in
   let url = webfinger_url ~resource ~rels host in
   Log.info (fun m -> m "WebFinger query: %s" url);
-  let headers = Requests.Headers.empty |> Requests.Headers.set `Accept "application/jrd+json" in
-  let response = Requests.get session ~headers url in
-  let status = Requests.Response.status_code response in
-  let body = Eio.Flow.read_all (Requests.Response.body response) in
+  let headers = Fetch.Header.[ accept, [ pref "application/jrd+json" ] ] in
+  Fetch.with_response ~headers session `GET url @@ fun response ->
+  let status = Fetch.status response in
+  let body = Eio.Flow.read_all (Fetch.body response) in
   if status = 404 then Error Not_found
   else if status >= 400 then Error (Http_error { status; body })
   else Jrd.of_string body

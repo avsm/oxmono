@@ -159,17 +159,22 @@ let channels_graphql org_id =
 
 (* HTTP helpers *)
 
+let session ~sw ~token env =
+  Fetch_curl.std ~sw env
+  |> Fetch.with_credentials ~scope:[ api_url ]
+       Fetch.Credential.[ Bearer (fun () -> token) ]
+
 let graphql_request ~session query variables =
   let body_str = Fmt.str {|{"query": "%s", "variables": %s}|}
     (escape_graphql_string query) variables
   in
   Log.debug (fun m -> m "POST %s@.Body: %s" api_url body_str);
-  let resp = Requests.post session
-    ~body:(Requests.Body.of_string Requests.Mime.json body_str)
-    api_url
-  in
-  let status = Requests.Response.status_code resp in
-  let body = Requests.Response.body resp |> Eio.Flow.read_all in
+  let headers = Fetch.Header.[ content_type, media "application/json" ] in
+  Fetch.with_response ~headers ~body:(Fetch.String body_str)
+    session `POST api_url
+  @@ fun resp ->
+  let status = Fetch.status resp in
+  let body = Fetch.body resp |> Eio.Flow.read_all in
   Log.debug (fun m -> m "Response %d: %s" status body);
   if status >= 200 && status < 300 then
     Ok body

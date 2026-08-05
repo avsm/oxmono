@@ -3,7 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** HTTP feed fetching via Requests.
+(** HTTP feed fetching via Fetch.
 
     Supports conditional GET with ETag and Last-Modified headers
     to avoid re-downloading unchanged feeds. *)
@@ -15,7 +15,7 @@ type fetch_result = {
 }
 
 val fetch :
-  session:Requests.t ->
+  session:Fetch.plain ->
   ?etag:string ->
   ?last_modified:string ->
   string ->

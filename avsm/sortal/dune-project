@@ -33,6 +33,8 @@
   syndic
   jsonfeed
   requests
+  fetch
+  fetch-curl
   xmlm
   uri
   (odoc :with-doc)

@@ -12,25 +12,31 @@ type fetch_result = {
 let fetch ~session ?etag ?last_modified url =
   try
     let headers =
-      let h = Requests.Headers.empty in
-      let h = match etag with
-        | Some e -> Requests.Headers.set_string "If-None-Match" e h
+      (* [Fetch.Header] shadows [etag] and [last_modified], so the
+         arguments are rebound before the local opens below. *)
+      let prev_etag = etag and prev_modified = last_modified in
+      let h = Fetch.Header.[] in
+      let h = match prev_etag with
+        (* The stored ETag is the value as received, quotes and all, so
+           it goes back out verbatim rather than through the [etags]
+           codec, which would normalise it. *)
+        | Some e -> Fetch.Header.(append h [ raw "If-None-Match" e ])
         | None -> h
       in
-      let h = match last_modified with
-        | Some lm -> Requests.Headers.set_string "If-Modified-Since" lm h
+      let h = match prev_modified with
+        | Some lm -> Fetch.Header.(append h [ if_modified_since, lm ])
         | None -> h
       in
       h
     in
-    let response = Requests.get session ~headers url in
-    let status = Requests.Response.status_code response in
+    Fetch.with_response ~headers session `GET url @@ fun response ->
+    let status = Fetch.status response in
     if status = 304 then
       Error `Not_modified
     else if status >= 200 && status < 300 then
-      let body = Requests.Response.text response in
-      let etag = Requests.Response.header_string "ETag" response in
-      let last_modified = Requests.Response.header_string "Last-Modified" response in
+      let body = Fetch.body response |> Eio.Flow.read_all in
+      let etag = Fetch.header (Fetch.Header.text "ETag") response in
+      let last_modified = Fetch.header Fetch.Header.last_modified response in
       Ok { body; etag; last_modified }
     else
       Error (`Error (Printf.sprintf "HTTP %d" status))

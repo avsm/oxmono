@@ -12,11 +12,11 @@
  (synopsis "LinkedIn API client for OCaml")
  (description
   "LinkedIn API client using the UGC Posts API (v2) for creating
-   text, article/link, and image shares. Uses the Requests HTTP
+   text, article/link, and image shares. Uses the Fetch HTTP
    library for connection management.")
  (depends
   (ocaml (>= 5.2))
-  (requests (>= 0.1))
+  fetch
   eio
   fmt
   logs

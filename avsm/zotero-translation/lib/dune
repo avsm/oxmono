@@ -1,4 +1,4 @@
 (library
  (name zotero_translation)
  (public_name zotero-translation)
- (libraries requests jsont jsont.bytesrw uri astring fpath fmt logs))
+ (libraries fetch fetch-curl jsont jsont.bytesrw uri astring fpath fmt logs))

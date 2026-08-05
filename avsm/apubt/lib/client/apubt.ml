@@ -86,6 +86,10 @@ end
 
 type t = T : {
   requests : Requests.t;
+  (* Shim: [Webfinger] has migrated to [Fetch] ahead of apubt, whose own
+     port is blocked on RFC 9421 signatures. A bare curl-backed client
+     serves the two webfinger lookups until the rest follows. *)
+  fetch : Fetch_curl.t;
   clock : _ Eio.Time.clock;
   signing : Signing.t option;
   user_agent : string;
@@ -102,8 +106,11 @@ let create ~sw ?signing ?(user_agent = "Apubt/0.1") ?(timeout = 30.0) env =
     |> Requests.Headers.add `User_agent user_agent
   in
   let requests = Requests.create ~sw ~default_headers ~timeout:timeout_config env in
+  let fetch =
+    Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+  in
   let clock = Eio.Stdenv.clock env in
-  T { requests; clock; signing; user_agent }
+  T { requests; fetch; clock; signing; user_agent }
 
 let user_agent (T t) = t.user_agent
 
@@ -242,7 +249,7 @@ module Webfinger = struct
       | Error e -> raise (E (Webfinger_error (Webfinger.error_to_string e)))
     in
     (* Use the webfinger library's query function *)
-    match Webfinger.query_acct t.requests acct_uri () with
+    match Webfinger.query_acct t.fetch acct_uri () with
     | Ok jrd -> jrd_of_webfinger jrd
     | Error e -> raise (E (Webfinger_error (Webfinger.error_to_string e)))
 
@@ -257,7 +264,7 @@ module Webfinger = struct
       | Ok a -> a
       | Error e -> raise (E (Webfinger_error (Webfinger.error_to_string e)))
     in
-    match Webfinger.query_acct t.requests acct_uri () with
+    match Webfinger.query_acct t.fetch acct_uri () with
     | Ok jrd -> jrd
     | Error e -> raise (E (Webfinger_error (Webfinger.error_to_string e)))
 

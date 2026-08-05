@@ -59,16 +59,27 @@ val channels_graphql : string -> string * string
 
 (** {1 API Calls} *)
 
+val session :
+  sw:Eio.Switch.t ->
+  token:string ->
+  < clock : _ Eio.Time.clock
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
+  ; .. > ->
+  Fetch.plain
+(** [session ~sw ~token env] is an HTTP client that presents [token] as a
+    bearer credential to the Buffer API, and to nothing else. *)
+
 val create_post :
-  session:Requests.t ->
+  session:Fetch.plain ->
   create_post_input ->
   (post_result, string) result
 
 val list_organizations :
-  session:Requests.t ->
+  session:Fetch.plain ->
   (organization list, string) result
 
 val list_channels :
-  session:Requests.t ->
+  session:Fetch.plain ->
   org_id:string ->
   (channel list, string) result

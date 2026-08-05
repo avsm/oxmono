@@ -20,7 +20,7 @@
 
     {[
       Eio.Switch.run @@ fun sw ->
-      let session = Requests.create ~sw env in
+      let session = Fetch_curl.std ~sw env in
       let li = Linkedin.create ~session ~access_token:"..." in
 
       (* Post as a person *)
@@ -46,7 +46,7 @@ type t
 
 (** {1 Creation} *)
 
-val create : session:Requests.t -> access_token:string -> t
+val create : session:_ Fetch.t -> access_token:string -> t
 (** [create ~session ~access_token] creates a LinkedIn API client.
     The [session] handles HTTP connections and the [access_token]
     is a valid OAuth 2.0 bearer token.

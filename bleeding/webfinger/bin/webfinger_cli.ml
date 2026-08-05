@@ -76,7 +76,7 @@ let pp_links_only ppf jrd =
 let run quiet resource rels json_output links_only =
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
-  let session = Requests.create ~sw env in
+  let session = Fetch_curl.std ~sw env in
   match Webfinger.query session ~resource ~rels () with
   | Error e ->
       if not quiet then Format.eprintf "Error: %a@." Webfinger.pp_error e;

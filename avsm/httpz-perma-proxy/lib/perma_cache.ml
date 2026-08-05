@@ -235,24 +235,22 @@ let find_map maps request_path =
   in
   try_maps maps
 
-(* Content-Range header parsing *)
+(* Upstream response helpers.
 
-let parse_content_range s =
-  (* Parse "bytes START-END/TOTAL" -> Some total *)
-  let prefix = "bytes " in
-  let prefix_len = String.length prefix in
-  if String.length s < prefix_len then None
-  else if String.sub s 0 prefix_len <> prefix then None
-  else begin
-    let rest = String.sub s prefix_len (String.length s - prefix_len) in
-    match String.index_opt rest '/' with
-    | None -> None
-    | Some slash_pos ->
-      let total_str = String.sub rest (slash_pos + 1)
-          (String.length rest - slash_pos - 1) in
-      if total_str = "*" then None
-      else int_of_string_opt total_str
-  end
+   Headers the proxy forwards or caches are kept as the verbatim strings
+   the origin sent; only the values the proxy reasons about numerically
+   go through a [Fetch.Header] codec. *)
+
+let header_string name resp = Http.Header.get (Fetch.headers resp) name
+
+let content_length_of resp =
+  Option.map Int64.to_int (Fetch.header Fetch.Header.content_length resp)
+
+(* The total representation length a 206 reports, from Content-Range. *)
+let complete_length_of resp =
+  match Fetch.header Fetch.Header.content_range resp with
+  | Some { complete_length = Some n; _ } -> Some (Int64.to_int n)
+  | Some _ | None -> None
 
 (* Map header name strings to Httpz.Header_name.t.
    Only headers in this list can be forwarded to clients, since
@@ -282,7 +280,7 @@ let filter_cacheable_headers resp_headers =
     | "accept-ranges" | "content-encoding" | "content-disposition"
     | "vary" -> Some (ln, value)
     | _ -> None)
-    (Requests.Headers.to_list resp_headers)
+    (Http.Header.to_list resp_headers)
 
 (* Build response headers from metadata *)
 
@@ -353,20 +351,20 @@ let handle_head ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~session ~cp ~upstream_url =
     { status = Httpz.Res.Success; resp_headers = headers;
       body = Httpz_route.Empty }
   | None ->
-    (* Fetch upstream HEAD — only cache .meta for 2xx *)
+    (* Fetch upstream HEAD — only cache .meta for 2xx.
+       [with_response] runs the exchange on its own switch: a HEAD has no
+       body to hand on, so the connection is released as it returns. *)
     (try
-       let resp = Requests.head session upstream_url in
-       let status_code = Requests.Response.status_code resp in
+       Fetch.with_response session `HEAD upstream_url @@ fun resp ->
+       let status_code = Fetch.status resp in
        let status = match Httpz.Res.status_of_int status_code with
          | Some s -> s
          | None -> Httpz.Res.Bad_gateway
        in
-       let ct = match Requests.Response.header_string "content-type" resp with
+       let ct = match header_string "content-type" resp with
          | Some s -> s | None -> "application/octet-stream" in
-       let cl = match Requests.Response.header_string "content-length" resp with
-         | Some s -> (match int_of_string_opt s with Some n -> n | None -> 0)
-         | None -> 0 in
-       let header_pairs = filter_cacheable_headers (Requests.Response.headers resp) in
+       let cl = match content_length_of resp with Some n -> n | None -> 0 in
+       let header_pairs = filter_cacheable_headers (Fetch.headers resp) in
        (* Only persist .meta for successful responses *)
        if status_code >= 200 && status_code < 300 then begin
          let meta = {
@@ -389,180 +387,75 @@ let handle_head ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~session ~cp ~upstream_url =
        { status = Httpz.Res.Bad_gateway; resp_headers = cors_headers;
          body = Httpz_route.String ("Upstream error: " ^ msg) })
 
-(* Upstream connection: keeps a reference to the raw socket for closing *)
-type upstream_conn = {
-  flow : Eio.Flow.two_way_ty Eio.Resource.t;
-  close : unit -> unit;
-}
-
-(* Connect to an upstream host, returning a two-way Eio flow and a close function.
-   The connection lives on the provided switch but can be closed early via close(). *)
-
-let connect_upstream ~sw ~(net : _ Eio.Net.t) ~host ~port ~is_https =
-  let addrs = Eio.Net.getaddrinfo_stream net host
-      ~service:(string_of_int port) in
-  let socket = match addrs with
-    | addr :: _ -> Eio.Net.connect ~sw net addr
-    | [] -> failwith ("DNS resolution failed for: " ^ host)
-  in
-  let close_socket () =
-    (try Eio.Resource.close socket with _ -> ())
-  in
-  if is_https then begin
-    let authenticator = match Ca_certs.authenticator () with
-      | Ok a -> a
-      | Error _ -> fun ?ip:_ ~host:_ _certs -> Ok None
-    in
-    let tls_config = match Tls.Config.client ~authenticator () with
-      | Ok c -> c
-      | Error (`Msg msg) -> failwith ("TLS config error: " ^ msg)
-    in
-    let host' = match Domain_name.of_string host with
-      | Ok dn -> (match Domain_name.host dn with Ok h -> Some h | Error _ -> None)
-      | Error _ -> None
-    in
-    let tls_flow = Tls_eio.client_of_flow tls_config ?host:host' socket in
-    let close () =
-      (try Eio.Resource.close tls_flow with _ -> ())
-    in
-    { flow = (tls_flow :> Eio.Flow.two_way_ty Eio.Resource.t); close }
-  end else
-    { flow = (socket :> Eio.Flow.two_way_ty Eio.Resource.t); close = close_socket }
-
-(* Parse a URL into (scheme, host, port, path) *)
-let parse_url url =
-  let uri = Uri.of_string url in
-  let scheme = Option.value (Uri.scheme uri) ~default:"https" in
-  let host = match Uri.host uri with Some h -> h | None -> failwith ("No host in URL: " ^ url) in
-  let is_https = scheme = "https" in
-  let port = match Uri.port uri with
-    | Some p -> p
-    | None -> if is_https then 443 else 80
-  in
-  let path = Uri.path_and_query uri in
-  (host, port, is_https, path, uri)
-
 (* Fetch full resource from upstream with streaming.
-   For 2xx responses, returns a Stream body that tees data to cache.
-   For non-2xx, buffers the (small) error body and returns String. *)
 
-(* Fetch full resource from upstream with streaming.
-   For 2xx responses, returns a Stream body that tees data to cache.
-   For non-2xx, buffers the (small) error body and returns String.
+   For 2xx responses, returns a [Stream] body that tees data to the cache
+   file as it goes; for non-2xx, buffers the (small) error body and
+   returns a [String].
 
-   The upstream connection is opened on the outer sw but closed explicitly
-   via conn.close after streaming completes (or immediately for non-2xx). *)
+   [Fetch.body] is already an [Eio.Flow.source], so the tee reads it
+   directly rather than driving a socket and a request writer by hand.
+   The exchange runs on the caller's [sw] rather than a
+   [Fetch.with_response] scope because the body flow outlives this
+   function: the [Stream] body is drained later, when httpz writes the
+   response. The backend retires the transfer as soon as the flow hits
+   end-of-file, which is what the tee loop below reads it to, so nothing
+   accumulates on a long-lived [sw] for a request that completes. *)
 
-let fetch_and_cache_streaming ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cp
+let fetch_and_cache_streaming ~sw ~session ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cp
     ~upstream_url ~verbose =
-  let (host, port, is_https, _path, uri) = parse_url upstream_url in
-  let conn = connect_upstream ~sw ~net ~host ~port ~is_https in
-  let no_body_limit = Requests.Response_limits.make
-      ~max_response_body_size:Int64.max_int () in
-  let (status_code, resp_headers, stream_body) =
-    Requests.Http_client.make_request_streaming
-      ~limits:no_body_limit
-      ~sw ~method_:`GET ~uri
-      ~headers:Requests.Headers.empty
-      ~body:Requests.Body.empty
-      conn.flow
-  in
+  let resp = Fetch.fetch ~sw session `GET upstream_url in
+  let status_code = Fetch.status resp in
   let content_type =
-    match Requests.Headers.get `Content_type resp_headers with
+    match header_string "content-type" resp with
     | Some ct -> ct
     | None -> "application/octet-stream"
   in
-  let content_length =
-    match Requests.Headers.get `Content_length resp_headers with
-    | Some cl -> (match int_of_string_opt cl with Some n -> Some n | None -> None)
-    | None -> None
-  in
-  let header_pairs = filter_cacheable_headers resp_headers in
+  let content_length = content_length_of resp in
+  let header_pairs = filter_cacheable_headers (Fetch.headers resp) in
+  let source = Fetch.body resp in
   if verbose then
     Printf.printf "    upstream status %d, content-length: %s\n%!"
       status_code
       (match content_length with Some n -> string_of_int n | None -> "unknown");
   if status_code >= 200 && status_code < 300 then begin
     (* 2xx: stream body, tee to cache file *)
-    let body = match stream_body with
-      | `Stream source ->
-        let total_written = ref 0 in
-        let iter write_chunk =
-          let buf = Cstruct.create 65536 in
-          Eio.Switch.run (fun file_sw ->
-            let cache_file = Eio.Path.open_out ~sw:file_sw ~create:(`If_missing 0o644)
-              Eio.Path.(fs / data_path cp) in
-            (try
-               while true do
-                 let n = Eio.Flow.single_read source buf in
-                 let chunk = Cstruct.to_string (Cstruct.sub buf 0 n) in
-                 Eio.File.pwrite_all cache_file
-                   ~file_offset:(Optint.Int63.of_int !total_written)
-                   [Cstruct.sub buf 0 n];
-                 total_written := !total_written + n;
-                 write_chunk chunk
-               done
-             with End_of_file -> ()));
-          (* cache_file closed by file_sw, close upstream connection *)
-          conn.close ();
-          if verbose then
-            Printf.printf "    streamed %d bytes\n%!" !total_written;
-          let meta = {
-            content_length = !total_written;
-            content_type;
-            headers = header_pairs;
-            ranges = [ { start = 0; stop = !total_written } ];
-            complete = true;
-            status_code;
-          } in
-          write_meta fs cp meta
-        in
-        Httpz_route.Stream { length = content_length; iter }
-      | `String s ->
-        conn.close ();
-        let body_len = String.length s in
-        write_data ~sw fs cp ~off:0 s;
-        let meta = {
-          content_length = body_len;
-          content_type;
-          headers = header_pairs;
-          ranges = [ { start = 0; stop = body_len } ];
-          complete = true;
-          status_code;
-        } in
-        write_meta fs cp meta;
-        Httpz_route.String s
-      | `None ->
-        conn.close ();
-        let meta = {
-          content_length = 0;
-          content_type;
-          headers = header_pairs;
-          ranges = [ { start = 0; stop = 0 } ];
-          complete = true;
-          status_code;
-        } in
-        write_meta fs cp meta;
-        Httpz_route.Empty
-    in
-    (content_type, body, status_code)
-  end else begin
-    (* Non-2xx: buffer small body, close connection, cache 4xx *)
-    let body_str = match stream_body with
-      | `Stream source ->
-        let buf = Buffer.create 4096 in
+    let total_written = ref 0 in
+    let iter write_chunk =
+      let buf = Cstruct.create 65536 in
+      Eio.Switch.run (fun file_sw ->
+        let cache_file = Eio.Path.open_out ~sw:file_sw ~create:(`If_missing 0o644)
+          Eio.Path.(fs / data_path cp) in
         (try
-           let tmp = Cstruct.create 4096 in
            while true do
-             let n = Eio.Flow.single_read source tmp in
-             Buffer.add_string buf (Cstruct.to_string (Cstruct.sub tmp 0 n))
-           done;
-           assert false
-         with End_of_file -> Buffer.contents buf)
-      | `String s -> s
-      | `None -> ""
+             let n = Eio.Flow.single_read source buf in
+             let chunk = Cstruct.sub buf 0 n in
+             Eio.File.pwrite_all cache_file
+               ~file_offset:(Optint.Int63.of_int !total_written)
+               [chunk];
+             total_written := !total_written + n;
+             write_chunk (Cstruct.to_string chunk)
+           done
+         with End_of_file -> ()));
+      (* cache_file closed by file_sw; the upstream transfer is retired by
+         the backend now that its body has reached end-of-file *)
+      if verbose then
+        Printf.printf "    streamed %d bytes\n%!" !total_written;
+      let meta = {
+        content_length = !total_written;
+        content_type;
+        headers = header_pairs;
+        ranges = [ { start = 0; stop = !total_written } ];
+        complete = true;
+        status_code;
+      } in
+      write_meta fs cp meta
     in
-    conn.close ();
+    (content_type, Httpz_route.Stream { length = content_length; iter },
+     status_code)
+  end else begin
+    (* Non-2xx: buffer the small body, cache 4xx negatively *)
+    let body_str = Eio.Flow.read_all source in
     if status_code >= 400 && status_code < 500 then begin
       let meta = {
         content_length = 0;
@@ -581,34 +474,26 @@ let fetch_and_cache_streaming ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cp
 
 let fetch_and_cache_range ~sw ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~session ~cp
     ~upstream_url ~range_start ~(range_end : int option) ~verbose =
-  let headers =
-    Requests.Headers.empty
-    |> Requests.Headers.range
-         ~start:(Int64.of_int range_start)
-         ?end_:(Option.map Int64.of_int range_end)
-         ()
+  let spec =
+    `Range (Int64.of_int range_start, Option.map Int64.of_int range_end)
   in
-  let resp = Requests.get session ~headers upstream_url in
-  let status_code = Requests.Response.status_code resp in
-  let body = Requests.Response.text resp in
+  let headers = Fetch.Header.[ range, bytes [ spec ] ] in
+  (* The whole ranged body is buffered here, so the exchange can live and
+     die inside [with_response]'s own switch. *)
+  Fetch.with_response ~headers session `GET upstream_url @@ fun resp ->
+  let status_code = Fetch.status resp in
+  let body = Eio.Flow.read_all (Fetch.body resp) in
   let body_len = String.length body in
   if verbose then
     Printf.printf "    range response: %d bytes (status %d)\n%!" body_len status_code;
   (* Determine the actual range we got *)
   let actual_start, actual_end, total_size =
     if status_code = 206 then begin
-      (* Parse Content-Range header *)
-      let total = match Requests.Response.header_string "content-range" resp with
-        | Some cr -> parse_content_range cr
-        | None -> None
-      in
-      let total_size = match total with
+      let total_size = match complete_length_of resp with
         | Some t -> t
         | None ->
           (* Fallback: use content-length from upstream or body length *)
-          match Requests.Response.header_string "content-length" resp with
-          | Some cl -> (match int_of_string_opt cl with Some n -> n | None -> body_len)
-          | None -> body_len
+          (match content_length_of resp with Some n -> n | None -> body_len)
       in
       (range_start, range_start + body_len, total_size)
     end else begin
@@ -617,11 +502,11 @@ let fetch_and_cache_range ~sw ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~session ~cp
     end
   in
   let content_type =
-    match Requests.Response.header_string "content-type" resp with
+    match header_string "content-type" resp with
     | Some ct -> ct
     | None -> "application/octet-stream"
   in
-  let header_pairs = filter_cacheable_headers (Requests.Response.headers resp) in
+  let header_pairs = filter_cacheable_headers (Fetch.headers resp) in
   (* Only cache 2xx responses *)
   if status_code >= 200 && status_code < 300 then begin
     write_data ~sw fs cp ~off:actual_start body;
@@ -647,7 +532,7 @@ let fetch_and_cache_range ~sw ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~session ~cp
 
 (* Main handler — returns a response tuple *)
 
-let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session ~maps
+let handle_request ~sw ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session ~maps
     ~verbose ~path ~is_head ~range_header =
   let meth = if is_head then "HEAD" else "GET" in
   let range_info = match range_header with
@@ -710,7 +595,8 @@ let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session
              Printf.printf "    cache MISS, fetching full (streaming)\n%!";
            (try
               let (content_type, body, status_code) =
-                fetch_and_cache_streaming ~sw ~net ~fs ~cp ~upstream_url ~verbose in
+                fetch_and_cache_streaming ~sw ~session ~fs ~cp ~upstream_url
+                  ~verbose in
               let status = match Httpz.Res.status_of_int status_code with
                 | Some s -> s
                 | None -> Httpz.Res.Bad_gateway

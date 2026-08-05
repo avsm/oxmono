@@ -26,7 +26,10 @@ let run port cache_dir verbose maps_strs =
   let fs = Eio.Stdenv.fs env in
   (try Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / cache_dir)
    with Eio.Io _ -> ());
-  let session = Requests.create ~sw env in
+  (* [Fetch_curl.v] rather than [std]: a caching proxy wants neither a
+     cookie jar nor retries, and [max_response] replaces the old
+     [Response_limits] that lifted the body-size cap for full fetches. *)
+  let session = Fetch_curl.v ~sw ~max_response:Int.max_int () in
   (* Build catch-all route *)
   let open Httpz_route in
   let routes = of_list [
@@ -34,9 +37,8 @@ let run port cache_dir verbose maps_strs =
       (fun segments (range_header, ()) ctx respond ->
         let path = "/" ^ String.concat "/" segments in
         let is_head = Httpz_route.is_head ctx in
-        let net = Eio.Stdenv.net env in
         let r = Perma_cache.handle_request
-          ~sw ~net ~fs ~cache_dir ~session ~maps ~verbose
+          ~sw ~fs ~cache_dir ~session ~maps ~verbose
           ~path ~is_head ~range_header in
         let _: unit = (respond ~status:r.status) ~headers:r.resp_headers r.body in
         ());

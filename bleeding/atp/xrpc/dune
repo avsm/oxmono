@@ -3,7 +3,9 @@
  (public_name atp-xrpc)
  (libraries
   atp
-  requests
+  fetch
+  fetch-curl
+  http
   jsont
   jsont.bytesrw
   jsonwt

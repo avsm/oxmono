@@ -1,4 +1,3 @@
 (library
  (name perma_cache)
- (libraries jsont jsont.bytesrw cstruct eio httpz httpz.route requests
-            uri tls tls-eio domain-name ca-certs))
+ (libraries jsont jsont.bytesrw cstruct eio http httpz httpz.route fetch))

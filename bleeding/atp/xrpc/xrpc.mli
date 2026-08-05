@@ -6,7 +6,7 @@
 (** XRPC client library for AT Protocol.
 
     This library provides an XRPC client for communicating with AT Protocol
-    Personal Data Servers (PDS). It uses the [requests] library for HTTP and
+    Personal Data Servers (PDS). It uses the [fetch] library for HTTP and
     [jsont] for JSON encoding/decoding.
 
     {2 Overview}

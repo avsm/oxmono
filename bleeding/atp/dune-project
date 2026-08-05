@@ -31,7 +31,9 @@
   "XRPC client library for communicating with AT Protocol Personal Data Servers (PDS). Provides query and procedure calls, session management with automatic JWT token refresh, and structured error handling integrated with Eio.")
  (depends
   (atp (= :version))
-  (requests (>= 0.1))
+  fetch
+  fetch-curl
+  http
   (jsont (>= 0.1))
   (jsonwt (>= 0.1))
   (ptime (>= 1.0))
@@ -47,6 +49,8 @@
  (depends
   (ocaml (>= 5.1))
   (atp-xrpc (= :version))
+  fetch
+  fetch-curl
   (jsont (>= 0.1))
   (eio (>= 1.0))
   (ptime (>= 1.0))
@@ -121,7 +125,9 @@
   "High-level library and command-line interface for interacting with Tangled decentralized git collaboration platform on AT Protocol.")
  (depends
   (ocaml (>= 5.1))
+  (xrpc-auth (= :version))
   (atp-xrpc (= :version))
+  fetch
   (atp-lexicon-tangled (= :version))
   (jsont (>= 0.1))
   (eio (>= 1.0))
@@ -158,7 +164,9 @@
   "High-level library and command-line interface for managing blogs and publications on AT Protocol using the Standard Site lexicons.")
  (depends
   (ocaml (>= 5.1))
+  (xrpc-auth (= :version))
   (atp-xrpc (= :version))
+  fetch
   (atp-lexicon-atproto (= :version))
   (atp-lexicon-standard-site (= :version))
   (jsont (>= 0.1))

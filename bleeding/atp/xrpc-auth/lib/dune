@@ -3,7 +3,8 @@
  (public_name xrpc-auth)
  (libraries
   atp-xrpc
-  requests
+  fetch
+  fetch-curl
   jsont
   jsont.bytesrw
   fmt

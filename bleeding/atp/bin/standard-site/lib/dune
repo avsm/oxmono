@@ -3,7 +3,7 @@
  (public_name standard-site)
  (libraries
   xrpc-auth
-  requests
+  fetch
   atp-xrpc
   atp-lexicon-atproto
   atp-lexicon-standard-site

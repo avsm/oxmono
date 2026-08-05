@@ -5,17 +5,18 @@
 
 type t = {
   service : string;
-  requests : Requests.t;
+  http : Fetch.plain;
   mutable session : Xrpc_types.session option;
   on_request : (t -> unit) option;
 }
 
-let create ~sw ~env ~service ?requests:requests_opt ?on_request () =
-  let requests = match requests_opt with
-    | Some r -> r
-    | None -> Requests.create ~sw env
+let create ~sw ~env ~service ?http ?on_request () =
+  let http =
+    match http with
+    | Some client -> Fetch.restrict client
+    | None -> Fetch_curl.std ~sw env
   in
-  { service; requests; session = None; on_request }
+  { service; http; session = None; on_request }
 
 let set_session t session = t.session <- Some session
 let clear_session t = t.session <- None
@@ -36,17 +37,23 @@ let build_url t nsid params =
       in
       base ^ "?" ^ query
 
-(* Headers with optional auth *)
-let build_headers t =
-  let headers =
-    Requests.Headers.empty |> Requests.Headers.set `Accept "application/json"
-  in
+let json_accept = Fetch.Header.[ accept, [ pref "application/json" ] ]
+let any_accept = Fetch.Header.[ accept, [ pref "*/*" ] ]
+
+(* Headers with optional auth.
+
+   The bearer token is a per-request header rather than a
+   [Fetch.Credential] attached to the client: a session comes and goes
+   over a client's life (and Tangled swaps in a short-lived service-auth
+   token aimed at a second host), whereas a credential is fixed at the
+   point the client is narrowed and would send [Authorization] even
+   before login. *)
+let build_headers t base =
   match t.session with
+  | None -> base
   | Some session ->
-      Requests.Headers.set `Authorization
-        ("Bearer " ^ session.access_jwt)
-        headers
-  | None -> headers
+      Fetch.Header.append base
+        Fetch.Header.[ authorization, `Bearer session.access_jwt ]
 
 (* Truncate body for error preview *)
 let body_preview ?(max_len = 100) body =
@@ -54,6 +61,9 @@ let body_preview ?(max_len = 100) body =
 
 (* Check if status indicates success *)
 let is_success status = status >= 200 && status < 300
+
+(* [Fetch] has no [Response.text]; the body is a flow. *)
+let response_text response = Eio.Flow.read_all (Fetch.body response)
 
 (* Parse XRPC error response *)
 let parse_error_response status body =
@@ -67,16 +77,16 @@ let parse_error_response status body =
 
 (* Raise error for non-success response *)
 let raise_on_error response =
-  let status = Requests.Response.status_code response in
+  let status = Fetch.status response in
   if not (is_success status) then begin
-    let body = Requests.Response.text response in
+    let body = response_text response in
     raise (Xrpc_error.err (parse_error_response status body))
   end
 
 (* Handle response, raising on error *)
 let handle_response ~decoder response =
   raise_on_error response;
-  let body = Requests.Response.text response in
+  let body = response_text response in
   match Jsont_bytesrw.decode_string decoder body with
   | Ok v -> v
   | Error e ->
@@ -84,13 +94,15 @@ let handle_response ~decoder response =
         (Xrpc_error.err
            (Parse_error { reason = e; body_preview = Some (body_preview body) }))
 
-(* Handle binary response *)
+(* Handle binary response. The content type is kept verbatim rather than
+   re-encoded through a codec, since callers hand it straight back to
+   whatever consumes the bytes. *)
 let handle_bytes_response response =
   raise_on_error response;
-  let body = Requests.Response.text response in
+  let body = response_text response in
   let content_type =
-    Option.fold ~none:"application/octet-stream" ~some:Requests.Mime.to_string
-      (Requests.Response.content_type response)
+    Option.value ~default:"application/octet-stream"
+      (Http.Header.get (Fetch.headers response) "content-type")
   in
   (body, content_type)
 
@@ -104,70 +116,78 @@ let with_network_error f =
   | exn ->
       raise (Xrpc_error.err (Network_error { reason = Printexc.to_string exn }))
 
-(* Encode input data to JSON body *)
+(* Encode input data to a JSON request body *)
 let encode_json_body input input_data =
   match (input, input_data) with
   | Some jsont, Some data ->
       Result.to_option (Jsont_bytesrw.encode_string jsont data)
-      |> Option.map (Requests.Body.of_string Requests.Mime.json)
+      |> Option.map (fun s -> Fetch.String s)
   | _ -> None
+
+let json_content_type = Fetch.Header.[ content_type, media "application/json" ]
+
+(* A caller-supplied content type is passed through verbatim rather than
+   parsed into a media type. [mime] is bound outside the local open,
+   which would otherwise shadow it with the [content_type] codec. *)
+let content_type_header mime = Fetch.Header.[ raw "Content-Type" mime ]
 
 let query t ~nsid ~params ~decoder =
   before_request t;
   let url = build_url t nsid params in
-  let headers = build_headers t in
+  let headers = build_headers t json_accept in
   with_network_error @@ fun () ->
-  Requests.get t.requests ~headers url |> handle_response ~decoder
+  Fetch.with_response ~headers t.http `GET url (handle_response ~decoder)
 
 let procedure t ~nsid ~params ~input ~input_data ~decoder =
   before_request t;
   let url = build_url t nsid params in
-  let headers = build_headers t in
   let body = encode_json_body input input_data in
-  with_network_error @@ fun () ->
-  let response =
+  let headers =
     match body with
-    | Some b -> Requests.post t.requests ~headers ~body:b url
-    | None -> Requests.post t.requests ~headers url
+    | Some _ -> Fetch.Header.append json_content_type (build_headers t json_accept)
+    | None -> build_headers t json_accept
   in
-  handle_response ~decoder response
+  let body = Option.value body ~default:Fetch.Empty in
+  with_network_error @@ fun () ->
+  Fetch.with_response ~headers ~body t.http `POST url (handle_response ~decoder)
 
 let procedure_blob t ~nsid ~params ~blob ~content_type ~decoder =
   before_request t;
   let url = build_url t nsid params in
-  let headers = build_headers t in
-  let body =
-    Requests.Body.of_string (Requests.Mime.of_string content_type) blob
+  let headers =
+    Fetch.Header.append (content_type_header content_type)
+      (build_headers t json_accept)
   in
   with_network_error @@ fun () ->
-  Requests.post t.requests ~headers ~body url |> handle_response ~decoder
+  Fetch.with_response ~headers ~body:(Fetch.String blob) t.http `POST url
+    (handle_response ~decoder)
 
 let query_bytes t ~nsid ~params =
   before_request t;
   let url = build_url t nsid params in
-  let headers = build_headers t |> Requests.Headers.set `Accept "*/*" in
+  let headers = build_headers t any_accept in
   with_network_error @@ fun () ->
-  Requests.get t.requests ~headers url |> handle_bytes_response
+  Fetch.with_response ~headers t.http `GET url handle_bytes_response
 
 let procedure_bytes t ~nsid ~params ~body ~content_type =
   before_request t;
   let url = build_url t nsid params in
-  let headers = build_headers t |> Requests.Headers.set `Accept "*/*" in
-  let req_body =
-    Option.map
-      (Requests.Body.of_string (Requests.Mime.of_string content_type))
-      body
+  let headers =
+    match body with
+    | Some _ ->
+        Fetch.Header.append (content_type_header content_type)
+          (build_headers t any_accept)
+    | None -> build_headers t any_accept
+  in
+  let body =
+    match body with Some b -> Fetch.String b | None -> Fetch.Empty
   in
   with_network_error @@ fun () ->
-  let response =
-    match req_body with
-    | Some b -> Requests.post t.requests ~headers ~body:b url
-    | None -> Requests.post t.requests ~headers url
-  in
-  let status = Requests.Response.status_code response in
+  Fetch.with_response ~headers ~body t.http `POST url @@ fun response ->
+  let status = Fetch.status response in
   match status with
   | 204 -> None
   | _ when is_success status -> Some (handle_bytes_response response)
   | _ ->
-      let body = Requests.Response.text response in
+      let body = response_text response in
       raise (Xrpc_error.err (parse_error_response status body))

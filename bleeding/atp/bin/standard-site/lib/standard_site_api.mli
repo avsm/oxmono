@@ -17,18 +17,19 @@ val create :
   sw:Eio.Switch.t ->
   env:
     < clock : _ Eio.Time.clock
-    ; net : _ Eio.Net.t
+    ; mono_clock : _ Eio.Time.Mono.t
+    ; secure_random : _ Eio.Flow.source
     ; fs : Eio.Fs.dir_ty Eio.Path.t
     ; .. > ->
   app_name:string ->
   ?profile:string ->
   pds:string ->
-  ?requests:Requests.t ->
+  ?http:_ Fetch.t ->
   unit ->
   t
-(** [create ~sw ~env ~app_name ?profile ~pds ?requests ()] creates a Standard
-    Site API client. If [requests] is provided, all HTTP activity reuses the
-    same connection pools. *)
+(** [create ~sw ~env ~app_name ?profile ~pds ?http ()] creates a Standard
+    Site API client. If [http] is provided, all HTTP activity reuses the
+    same connection pool. *)
 
 (** {1 Authentication} *)
 

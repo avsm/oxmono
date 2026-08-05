@@ -12,9 +12,9 @@ type t = {
   refresh_mutex : Eio.Mutex.t;
 }
 
-let create ~sw ~env ~service ?requests () =
+let create ~sw ~env ~service ?http () =
   let make_client ?on_request () =
-    Xrpc_client.create ~sw ~env ~service ?requests ?on_request ()
+    Xrpc_client.create ~sw ~env ~service ?http ?on_request ()
   in
   {
     service;

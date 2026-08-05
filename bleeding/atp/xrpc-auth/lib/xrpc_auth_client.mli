@@ -34,29 +34,31 @@ val create :
   sw:Eio.Switch.t ->
   env:
     < clock : _ Eio.Time.clock
-    ; net : _ Eio.Net.t
+    ; mono_clock : _ Eio.Time.Mono.t
+    ; secure_random : _ Eio.Flow.source
     ; fs : Eio.Fs.dir_ty Eio.Path.t
     ; .. > ->
   app_name:string ->
   ?profile:string ->
   pds:string ->
-  ?requests:Requests.t ->
+  ?http:_ Fetch.t ->
   unit ->
   t
-(** [create ~sw ~env ~app_name ?profile ~pds ?requests ()] creates a new
+(** [create ~sw ~env ~app_name ?profile ~pds ?http ()] creates a new
     authenticated client.
 
     Sessions are automatically saved to the profile directory when they are
     created or refreshed.
 
     @param sw Eio switch for resource management
-    @param env Eio environment capabilities
+    @param env Eio environment capabilities: a filesystem for the session
+      store, plus the clocks and randomness [Fetch_curl.std] needs
     @param app_name Application name for config directory
     @param profile Profile name (default: user's handle after login)
     @param pds Base URL of the PDS (e.g., ["https://bsky.social"])
-    @param requests
-      Optional shared HTTP session. If provided, all HTTP activity (including
-      auxiliary clients for other services) reuses the same connection pools. *)
+    @param http
+      Optional shared HTTP client. If provided, all HTTP activity (including
+      auxiliary clients for other services) reuses the same connection pool. *)
 
 (** {1 Authentication} *)
 

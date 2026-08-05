@@ -51,22 +51,24 @@ val create :
   sw:Eio.Switch.t ->
   env:
     < clock : _ Eio.Time.clock
-    ; net : _ Eio.Net.t
+    ; mono_clock : _ Eio.Time.Mono.t
+    ; secure_random : _ Eio.Flow.source
     ; fs : Eio.Fs.dir_ty Eio.Path.t
     ; .. > ->
   app_name:string ->
   ?profile:string ->
   pds:string ->
-  ?requests:Requests.t ->
+  ?http:_ Fetch.t ->
   unit ->
   t
-(** [create ~sw ~env ~app_name ?profile ~pds ?requests ()] creates a Tangled
+(** [create ~sw ~env ~app_name ?profile ~pds ?http ()] creates a Tangled
     API client.
 
     @param sw Eio switch for resource management
     @param env Eio environment capabilities
     @param app_name Application name for session storage
-    @param pds Base URL of the PDS (e.g., ["https://bsky.social"]) *)
+    @param pds Base URL of the PDS (e.g., ["https://bsky.social"])
+    @param http Optional shared HTTP client reused by every request *)
 
 (** {1 Authentication} *)
 

@@ -1,4 +1,5 @@
 (executable
  (name main)
  (public_name httpz-perma-proxy)
- (libraries perma_cache httpz httpz.route httpz.eio_server requests cmdliner eio eio_main eio_posix))
+ (libraries perma_cache httpz httpz.route httpz.eio_server fetch fetch-curl
+            cmdliner eio eio_main eio_posix))

@@ -6,7 +6,7 @@
 (** XRPC client for AT Protocol.
 
     This module provides the low-level XRPC client for making queries and
-    procedure calls to AT Protocol services. It uses the [requests] library for
+    procedure calls to AT Protocol services. It uses the [fetch] library for
     HTTP communication.
 
     {2 XRPC Overview}
@@ -52,22 +52,23 @@ val create :
   sw:Eio.Switch.t ->
   env:
     < clock : _ Eio.Time.clock
-    ; net : _ Eio.Net.t
-    ; fs : Eio.Fs.dir_ty Eio.Path.t
+    ; mono_clock : _ Eio.Time.Mono.t
+    ; secure_random : _ Eio.Flow.source
     ; .. > ->
   service:string ->
-  ?requests:Requests.t ->
+  ?http:_ Fetch.t ->
   ?on_request:(t -> unit) ->
   unit ->
   t
 (** [create ~sw ~env ~service ()] creates an XRPC client.
 
     @param sw Eio switch for resource management
-    @param env Eio environment with clock, network, and filesystem
+    @param env Eio environment with the clocks and randomness [Fetch_curl.std]
+      needs
     @param service Base URL of the PDS (e.g., ["https://bsky.social"])
-    @param requests
-      Optional shared HTTP session. If provided, the client reuses this session's
-      connection pools instead of creating new ones.
+    @param http
+      Optional shared HTTP client. If provided, the client reuses its
+      connection pool and policy instead of creating a new one.
     @param on_request
       Optional callback invoked before each request, useful for token refresh in
       credential managers *)

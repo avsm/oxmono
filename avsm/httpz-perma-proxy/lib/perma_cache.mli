@@ -97,22 +97,24 @@ type response = {
 
 val handle_request :
   sw:Eio.Switch.t ->
-  net:_ Eio.Net.t ->
   fs:Eio.Fs.dir_ty Eio.Path.t ->
   cache_dir:string ->
-  session:Requests.t ->
+  session:_ Fetch.t ->
   maps:url_map list ->
   verbose:bool ->
   path:string ->
   is_head:bool ->
   range_header:string option ->
   response
-(** [handle_request ~sw ~net ~fs ~cache_dir ~session ~maps ~verbose ~path
+(** [handle_request ~sw ~fs ~cache_dir ~session ~maps ~verbose ~path
     ~is_head ~range_header] handles an HTTP request by looking up the
     appropriate URL map, checking the cache, and fetching from upstream
     as needed.  Large fetches are streamed incrementally through the
     proxy (tee-ing to cache while forwarding to the client).
-    Returns a {!response} with CORS headers included. *)
+    Returns a {!response} with CORS headers included.
+
+    A streamed body borrows [sw]: it is read when the caller writes the
+    response out, so [sw] must still be live then. *)
 
 val cors_preflight_response : response
 (** Response for OPTIONS preflight requests with CORS headers. *)

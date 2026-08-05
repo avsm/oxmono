@@ -55,21 +55,22 @@ val create :
   sw:Eio.Switch.t ->
   env:
     < clock : _ Eio.Time.clock
-    ; net : _ Eio.Net.t
-    ; fs : Eio.Fs.dir_ty Eio.Path.t
+    ; mono_clock : _ Eio.Time.Mono.t
+    ; secure_random : _ Eio.Flow.source
     ; .. > ->
   service:string ->
-  ?requests:Requests.t ->
+  ?http:_ Fetch.t ->
   unit ->
   t
 (** [create ~sw ~env ~service ()] creates a credential manager.
 
     @param sw Eio switch for resource management
-    @param env Eio environment capabilities
+    @param env Eio environment with the clocks and randomness [Fetch_curl.std]
+      needs
     @param service Base URL of the PDS (e.g., ["https://bsky.social"])
-    @param requests
-      Optional shared HTTP session. If provided, all XRPC clients created by
-      this credential manager will reuse the same connection pools. *)
+    @param http
+      Optional shared HTTP client. If provided, all XRPC clients created by
+      this credential manager will reuse the same connection pool. *)
 
 (** {1 Callbacks} *)
 

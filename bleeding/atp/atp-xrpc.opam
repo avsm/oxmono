@@ -11,7 +11,9 @@ bug-reports: "https://tangled.org/anil.recoil.org/ocaml-atp/issues"
 depends: [
   "dune" {>= "3.21"}
   "atp" {= version}
-  "requests" {>= "0.1"}
+  "fetch"
+  "fetch-curl"
+  "http"
   "jsont" {>= "0.1"}
   "jsonwt" {>= "0.1"}
   "ptime" {>= "1.0"}

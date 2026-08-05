@@ -21,3 +21,22 @@ dune build --profile=release avsm/sortal avsm/bushel avsm/arod
 
 The primary deployment targets are the `sortal`, `bushel` and `arod`
 executables.
+
+## Vendored packages
+
+A small number of packages are vendored under [vendor/](vendor/) (declared
+via `(vendored_dirs vendor)` in the root `dune` file) because they cannot
+currently be installed from opam on `oxcaml-compiler.5.2.0minus39`:
+
+- `Zarith` — the dune-ported OxCaml build; opam's `zarith.1.14+ox` conflicts
+  with compilers newer than 5.2.0minus38, and `1.12+ox3` is too old for
+  mirage-crypto 2.x.
+- `mirage-crypto`, `tls`, `x509`, `ca-certs`, `asn1-combinators`, `kdf`,
+  `gmap` — the modern (2.x/1.x, cstruct-free) TLS stack requires
+  `zarith >= 1.13`, so it is transitively blocked from opam by the above.
+- `digestif` — upstream 1.3.x fails to compile under minus39's stricter
+  mode inference (in the pure-OCaml backend); the workspace build only
+  demands the C backend, which is fine.
+
+These should be re-checked against the ox opam repository on each compiler
+upgrade and dropped once installable.

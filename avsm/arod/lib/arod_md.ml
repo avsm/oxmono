@@ -271,7 +271,7 @@ let render_sidenote ~entries ~sidenotes c = function
     ] in
     if socials <> [] then begin
       Buffer.add_string html {|<span class="sn-contact-socials">|};
-      List.iter (Buffer.add_string html) socials;
+      List.iter (fun s -> Buffer.add_string html s) socials;
       Buffer.add_string html {|</span>|}
     end;
     Buffer.add_string html {|</span>|};

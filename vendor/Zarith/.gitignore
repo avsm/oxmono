@@ -1,0 +1,15 @@
+*.a
+*.lib
+*.cm?
+*.cmxa
+*.cmxs
+*.cmti
+*.exe
+*.byt
+*.o
+*.obj
+*.so
+*.dll
+Makefile.config
+depend
+zarith_version.ml

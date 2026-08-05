@@ -1,0 +1,16 @@
+(library
+ (name fetch_signature)
+ (public_name fetch-signature)
+ (libraries
+  fetch
+  eio
+  http
+  uri
+  logs
+  ptime
+  base64
+  eqaf
+  digestif
+  mirage-crypto
+  mirage-crypto-ec
+  mirage-crypto-pk))

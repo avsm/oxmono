@@ -1,0 +1,30 @@
+(test
+ (name test_signature)
+ (package fetch-signature)
+ (modules test_signature)
+ (libraries
+  fetch
+  fetch-signature
+  http
+  uri
+  alcotest
+  eio
+  eio_main
+  mirage-crypto-ec
+  mirage-crypto-rng.unix))
+
+(test
+ (name test_rfc9421_vectors)
+ (package fetch-signature)
+ (modules test_rfc9421_vectors)
+ (libraries
+  fetch-signature
+  http
+  uri
+  alcotest
+  base64
+  digestif
+  eio
+  eio_main
+  mirage-crypto-ec
+  mirage-crypto-rng.unix))

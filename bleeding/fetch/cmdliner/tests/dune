@@ -1,0 +1,4 @@
+(test
+ (name test_cmdliner)
+ (package fetch-cmdliner)
+ (libraries fetch fetch-cmdliner xdge cmdliner alcotest eio eio_main))

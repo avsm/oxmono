@@ -48,3 +48,40 @@
   (curl (>= 0.10.0))
   (eio_main (and (>= 1.3) :with-test))
   (mdx (and (>= 2.4.1) :with-test))))
+
+(package
+ (name fetch-signature)
+ (synopsis "RFC 9421 HTTP Message Signatures for fetch")
+ (description
+  "Cryptographic signing and verification of HTTP messages per RFC 9421, with RFC 9530 Content-Digest, over the header and URL types fetch already uses. Ed25519, ECDSA P-256/P-384, RSA-PSS, RSA-PKCS1 and HMAC keys are supported, and a middleware signs every request a client makes. The crypto dependencies live here rather than in the core fetch package.")
+ (depends
+  (fetch (= :version))
+  (http (>= 6.0.0))
+  (uri (>= 4.2.0))
+  (eio (>= 1.3))
+  (ptime (>= 1.0.0))
+  (logs (>= 0.7.0))
+  (base64 (>= 3.5.0))
+  (eqaf (>= 0.9))
+  (digestif (>= 1.2.0))
+  (mirage-crypto (>= 1.0.0))
+  (mirage-crypto-ec (>= 1.0.0))
+  (mirage-crypto-pk (>= 1.0.0))
+  (mirage-crypto-rng (and (>= 1.0.0) :with-test))
+  (alcotest (and (>= 1.7.0) :with-test))
+  (eio_main (and (>= 1.3) :with-test))))
+
+(package
+ (name fetch-cmdliner)
+ (synopsis "Command-line configuration for fetch clients")
+ (description
+  "A cmdliner term that turns the usual HTTP client flags (--timeout, --proxy, --max-retries, --no-verify-tls, --persist-cookies and the rest) plus their environment variables into a configured fetch-curl client, tracking which flag, variable or default supplied each value so that a command can print its resolved configuration.")
+ (depends
+  (fetch (= :version))
+  (fetch-curl (= :version))
+  (cmdliner (>= 1.3.0))
+  (xdge (>= 0.1.0))
+  (logs (>= 0.7.0))
+  (eio (>= 1.3))
+  (alcotest (and (>= 1.7.0) :with-test))
+  (eio_main (and (>= 1.3) :with-test))))

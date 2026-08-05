@@ -1,0 +1,4 @@
+(library
+ (name fetch_cmdliner)
+ (public_name fetch-cmdliner)
+ (libraries fetch fetch.cookies fetch-curl cmdliner xdge logs eio))

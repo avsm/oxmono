@@ -3,6 +3,15 @@
 Analysis of replacing `bleeding/requests` with `bleeding/fetch` (vendored from
 taposaur) as the HTTP client across the monorepo. Produced 2026-08-05.
 
+**STATUS: COMPLETE (2026-08-05).** All 14 consumers migrated and
+`bleeding/requests` deleted; see commits b744c14 through e68e244. The gaps
+below were closed by `fetch-signature` (RFC 9421, which also fixed a latent
+requests bug that broke apubt's signed delivery) and `fetch-cmdliner`
+(flag-compatible `Requests.Cmd` replacement). `conpool` and `cookeio` remain
+in-tree as standalone libraries with no consumers. Known inert flags:
+`--no-proxy`, and `--follow-redirects`/`--max-redirects` for generated
+openapi calls (fetch redirects are per-request, default 10 hops).
+
 ## Backend choice
 
 `fetch-curl` is the practical backend for oxmono2: it is the only one that

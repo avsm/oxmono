@@ -1,0 +1,20 @@
+(library
+ (name publicsuffix_data)
+ (public_name publicsuffix.data)
+ (modules publicsuffix_data))
+
+(rule
+ (deps
+  (:gen ../gen/gen_psl.exe)
+  (:dat ../data/public_suffix_list.dat))
+ (targets publicsuffix_data.ml)
+ (action
+  (with-stdout-to
+   %{targets}
+   (run %{gen} %{dat}))))
+
+(library
+ (name publicsuffix)
+ (public_name publicsuffix)
+ (libraries domain-name punycode.idna publicsuffix.data)
+ (modules publicsuffix))

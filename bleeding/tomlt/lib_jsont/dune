@@ -1,0 +1,4 @@
+(library
+ (name tomlt_jsont)
+ (public_name tomlt.jsont)
+ (libraries tomlt tomlt.bytesrw jsont jsont.bytesrw))

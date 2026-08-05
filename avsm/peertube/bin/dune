@@ -1,0 +1,14 @@
+(executable
+ (name main)
+ (public_name peertube)
+ (libraries
+  peertube
+  peertube_auth
+  openapi
+  requests
+  jsont
+  uri
+  eio
+  eio_main
+  fmt
+  cmdliner))

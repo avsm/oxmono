@@ -1,0 +1,5 @@
+(library
+ (name requests_h1)
+ (public_name requests.h1)
+ (wrapped false)
+ (libraries requests_core requests_parsing eio decompress.de decompress.zl decompress.gz bigstringaf))

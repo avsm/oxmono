@@ -1,0 +1,105 @@
+# Whitespace handling test file
+
+# Section 1: Different indentation levels (2 spaces)
+two_space_indent:
+  level1:
+    level2:
+      level3: value
+
+# Section 2: Four space indentation
+four_space_indent:
+    level1:
+        level2:
+            level3: value
+
+# Section 3: Mixed content with blank lines
+
+first_key: first_value
+
+
+second_key: second_value
+
+
+
+third_key: third_value
+
+# Section 4: Sequences with varying indentation
+sequence_2space:
+  - item1
+  - item2
+  - nested:
+      - nested_item1
+      - nested_item2
+
+sequence_4space:
+    - item1
+    - item2
+    - nested:
+        - nested_item1
+        - nested_item2
+
+# Section 5: Trailing whitespace (spaces after values - invisible but present)
+trailing_spaces: value
+another_key: another_value
+
+# Section 6: Leading whitespace preservation in literals
+literal_block: |
+  This is a literal block
+    with preserved indentation
+      including extra spaces
+  and blank lines
+
+  like this one above
+
+folded_block: >
+  This is a folded block
+  that will be folded into
+  a single line but preserves
+
+  paragraph breaks like above
+
+# Section 7: Whitespace in flow collections
+flow_with_spaces: [ item1 , item2 , item3 ]
+flow_tight: [item1,item2,item3]
+flow_map_spaces: { key1: value1 , key2: value2 }
+flow_map_tight: {key1:value1,key2:value2}
+
+# Section 8: Multiple consecutive blank lines between top-level keys
+key_before_blanks: value1
+
+
+
+
+key_after_blanks: value2
+
+# Section 9: Indentation in mappings
+mapping_indent:
+  key1: value1
+  key2: value2
+  nested:
+    nested_key1: nested_value1
+    nested_key2: nested_value2
+    deep_nested:
+      deep_key: deep_value
+
+# Section 10: Whitespace around colons and hyphens
+no_space_colon:value
+space_after_colon: value
+spaces_around: value
+- sequence_item_no_space
+  - nested_sequence
+
+# Section 11: Empty lines in sequences
+sequence_with_blanks:
+  - item1
+
+  - item2
+
+  - item3
+
+# Section 12: Whitespace-only mapping values (implicit null)
+explicit_null: null
+implicit_null:
+space_only:
+
+# End of whitespace test file

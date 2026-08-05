@@ -1,0 +1,11 @@
+# Netscape HTTP Cookie File
+# http://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file!  Do not edit.
+
+example.com	FALSE	/foo/	FALSE	0	cookie-1	v$1
+.example.com	TRUE	/foo/	FALSE	0	cookie-2	v$2
+example.com	FALSE	/foo/	FALSE	1257894000	cookie-3	v$3
+example.com	FALSE	/foo/	FALSE	1257894000	cookie-4	v$4
+example.com	FALSE	/foo/	TRUE	1257894000	cookie-5	v$5
+#HttpOnly_example.com	FALSE	/foo/	FALSE	1257894000	cookie-6	v$6
+#HttpOnly_.example.com	TRUE	/foo/	FALSE	1257894000	cookie-7	v$7

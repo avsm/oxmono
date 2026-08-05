@@ -1,0 +1,5 @@
+(test
+ (name test_bytesrw_brotli)
+ (enabled_if %{lib-available:bytesrw})
+ (libraries brotli.bytesrw brotli alcotest unix)
+ (modules test_bytesrw_brotli))

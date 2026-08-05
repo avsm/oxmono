@@ -1,0 +1,5 @@
+(library
+ (name sortal_discover)
+ (public_name sortal.discover)
+ (libraries sortal.feed sortal.schema claude eio fmt logs jsont
+            ptime ptime.clock.os syndic uri))

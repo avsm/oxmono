@@ -1,0 +1,21 @@
+(lang dune 3.21)
+(name publicsuffix)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-publicsuffix))
+
+(package
+ (name publicsuffix)
+ (synopsis "Public Suffix List implementation for OCaml")
+ (description
+  "Parse and query the Mozilla Public Suffix List (PSL) to determine public suffixes and registrable domains. Supports ICANN and private domain sections, wildcard rules, and exception rules per the PSL specification.")
+ (depends
+  (ocaml (>= 4.14.0))
+  (domain-name (>= 0.4.0))
+  punycode
+  (cmdliner (>= 1.3.0))
+  (alcotest :with-test)))

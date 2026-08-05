@@ -1,0 +1,5 @@
+(library
+ (name tomlt)
+ (public_name tomlt)
+ (modules tomlt toml toml_error)
+ (libraries ptime))

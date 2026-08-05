@@ -1,0 +1,4 @@
+value: &v 100
+first: *v
+second: *v
+third: *v

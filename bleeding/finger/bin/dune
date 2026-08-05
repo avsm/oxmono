@@ -1,0 +1,5 @@
+(executable
+ (name finger_cli)
+ (public_name finger-cli)
+ (package finger)
+ (libraries finger eio_main cmdliner logs logs.fmt logs.cli fmt fmt.tty fmt.cli))

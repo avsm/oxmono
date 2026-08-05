@@ -1,0 +1,4 @@
+(library
+ (name cookeio_jar)
+ (public_name cookeio.jar)
+ (libraries cookeio eio logs ptime unix ipaddr))

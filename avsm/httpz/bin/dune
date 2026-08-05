@@ -1,0 +1,7 @@
+(executable
+ (name httpz_server)
+ (public_name httpz_server)
+ (package httpz)
+ (libraries httpz core core_unix async async_unix)
+ (preprocess
+  (pps ppx_jane)))

@@ -1,0 +1,11 @@
+(test
+ (name test_jsonwt)
+ (libraries jsonwt alcotest))
+
+(test
+ (name test_cwt)
+ (libraries jsonwt alcotest ptime))
+
+(test
+ (name test_cbor)
+ (libraries jsonwt cbort alcotest bytesrw))

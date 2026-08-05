@@ -1,0 +1,7 @@
+(library
+ (name karakeep)
+ (public_name karakeep)
+ (libraries openapi jsont jsont.bytesrw requests ptime eio)
+ (wrapped true))
+
+(include dune.inc)

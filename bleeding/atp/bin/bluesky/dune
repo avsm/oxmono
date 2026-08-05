@@ -1,0 +1,17 @@
+(executable
+ (name bsky)
+ (public_name bsky)
+ (package bsky)
+ (libraries
+  atp
+  atp-xrpc
+  xrpc-auth
+  atp-lexicon-atproto
+  atp-lexicon-bsky
+  eio_main
+  cmdliner
+  jsont
+  jsont.bytesrw
+  fmt
+  fmt.tty
+  re))

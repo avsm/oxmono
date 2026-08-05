@@ -1,0 +1,22 @@
+(library
+ (name httpz)
+ (public_name httpz)
+ (modules
+  buf_read
+  buf_write
+  span
+  version
+  method
+  header_name
+  header
+  req
+  target
+  chunk
+  res
+  err
+  parser
+  etag
+  date
+  range
+  httpz)
+ (libraries base base_bigstring stdlib_stable stdlib_upstream_compatible unboxed.int32_u unix))

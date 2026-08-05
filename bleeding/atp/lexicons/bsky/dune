@@ -1,0 +1,25 @@
+; Generated library definition (promoted from hermest output)
+
+(include dune.inc)
+
+; Code generation rule - regenerates OCaml from JSON lexicons
+; Run: dune build @hermest-bsky to regenerate and promote
+
+(rule
+ (alias hermest-bsky)
+ (mode
+  (promote (until-clean)))
+ (deps
+  (source_tree json))
+ (targets dune.inc atp_lexicon_bsky.ml atp_lexicon_bsky.mli)
+ (action
+  (run
+   %{bin:hermest}
+   generate
+   json
+   -o
+   .
+   -m
+   Atp_lexicon_bsky
+   -p
+   atp-lexicon-bsky)))

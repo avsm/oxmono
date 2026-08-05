@@ -1,0 +1,9 @@
+(test
+ (name test_dagcbor_atproto)
+ (libraries atp))
+
+(test
+ (name test_syntax)
+ (libraries atp)
+ (deps
+  (glob_files ../../vendor/atproto/interop-test-files/syntax/*.txt)))

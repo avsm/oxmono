@@ -1,0 +1,7 @@
+(library
+ (name immich)
+ (public_name immich)
+ (libraries openapi jsont jsont.bytesrw requests ptime eio)
+ (wrapped true))
+
+(include dune.inc)

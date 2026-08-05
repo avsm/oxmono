@@ -1,0 +1,5 @@
+(library
+ (name arod_log)
+ (public_name arod.log)
+ (wrapped false)
+ (libraries sqlite3-eio httpz httpz.eio jsont jsont.bytesrw ptime base unix))

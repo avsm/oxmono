@@ -1,0 +1,6 @@
+(library
+ (name requests_core)
+ (public_name requests.core)
+ (wrapped false)
+ (libraries logs ptime eio jsont jsont.bytesrw cstruct bigstringaf magic-mime
+  base64 mirage-crypto-rng uri))

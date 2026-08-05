@@ -1,0 +1,5 @@
+(library
+ (name sortal_feed)
+ (public_name sortal.feed)
+ (libraries sortal.schema syndic jsonfeed requests
+            eio fmt logs ptime ptime.clock.os bytesrw uri jsont xmlm))

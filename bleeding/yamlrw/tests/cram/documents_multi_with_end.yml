@@ -1,0 +1,16 @@
+# Test 3: Documents with explicit end markers
+---
+first:
+  document: data1
+  value: 100
+...
+---
+second:
+  document: data2
+  value: 200
+...
+---
+third:
+  document: data3
+  value: 300
+...

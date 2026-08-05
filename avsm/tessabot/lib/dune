@@ -1,0 +1,19 @@
+(library
+ (name tessabot)
+ (public_name tessabot)
+ (libraries
+  sortal
+  sortal.schema
+  sortal.feed
+  requests
+  tomlt
+  tomlt.bytesrw
+  xdge
+  jsont
+  jsont.bytesrw
+  eio
+  fmt
+  logs
+  ptime
+  ptime.clock.os
+  uri))

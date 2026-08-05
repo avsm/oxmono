@@ -1,0 +1,4 @@
+(library
+ (name bytesrw_eio)
+ (public_name bytesrw-eio)
+ (libraries bytesrw eio))

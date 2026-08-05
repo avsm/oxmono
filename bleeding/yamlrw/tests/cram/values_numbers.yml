@@ -1,0 +1,120 @@
+# Numeric value test cases for YAML 1.2
+
+# Integers
+int_zero: 0
+int_positive: 42
+int_negative: -17
+int_large: 1000000
+int_with_underscores: 1_000_000
+
+# Octal notation (YAML 1.2 style with 0o prefix)
+octal_value: 0o14
+octal_zero: 0o0
+octal_large: 0o777
+
+# Hexadecimal notation
+hex_lowercase: 0x1a
+hex_uppercase: 0x1A
+hex_mixed: 0xDeadBeef
+hex_zero: 0x0
+
+# Floating point numbers
+float_simple: 3.14
+float_negative: -0.5
+float_zero: 0.0
+float_leading_dot: .5
+float_trailing_zero: 1.0
+
+# Scientific notation
+scientific_positive: 1.0e10
+scientific_negative: 1.5e-3
+scientific_uppercase: 2.5E+2
+scientific_no_sign: 3.0e5
+
+# Special floating point values
+positive_infinity: .inf
+negative_infinity: -.inf
+not_a_number: .nan
+infinity_upper: .Inf
+infinity_caps: .INF
+nan_upper: .NaN
+nan_caps: .NAN
+
+# Numbers in sequences
+number_sequence:
+  - 0
+  - 42
+  - -17
+  - 3.14
+  - 1.0e10
+  - .inf
+  - .nan
+
+# Numbers in flow style
+flow_numbers: [0, 42, -17, 3.14, 0x1A, 0o14]
+
+# Numbers in mappings
+number_mapping:
+  count: 100
+  price: 19.99
+  discount: -5.0
+  hex_color: 0xFF5733
+  octal_perms: 0o755
+  scientific: 6.022e23
+
+# String literals that look like numbers (quoted)
+quoted_numbers:
+  string_int: "42"
+  string_float: "3.14"
+  string_hex: "0x1A"
+  string_octal: "0o14"
+  string_inf: ".inf"
+  string_nan: ".nan"
+
+# Numeric strings that should remain strings
+numeric_strings:
+  phone: 555-1234
+  version: 1.2.3
+  code: 00123
+  leading_zero: 007
+  plus_sign: +123
+
+# Edge cases
+edge_cases:
+  min_int: -9223372036854775808
+  max_int: 9223372036854775807
+  very_small: 1.0e-100
+  very_large: 1.0e100
+  negative_zero: -0.0
+  positive_zero: +0.0
+
+# Nested numeric values
+nested_numbers:
+  coordinates:
+    x: 10.5
+    y: -20.3
+    z: 0.0
+  measurements:
+    - 1.1
+    - 2.2
+    - 3.3
+  stats:
+    count: 1000
+    average: 45.67
+    max: .inf
+    min: -.inf
+
+# YAML 1.1 style octals (no 0o prefix) - should be strings in YAML 1.2
+legacy_octal: 014
+
+# Binary notation (not part of YAML 1.2 core, but sometimes supported)
+# These should be treated as strings in strict YAML 1.2
+binary_like: 0b1010
+
+# Numbers with various formats
+format_tests:
+  no_decimal: 42
+  with_decimal: 42.0
+  leading_zero_decimal: 0.42
+  no_leading_digit: .42
+  trailing_decimal: 42.

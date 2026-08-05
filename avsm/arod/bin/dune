@@ -1,0 +1,30 @@
+(executable
+ (name main)
+ (public_name arod)
+ (package arod)
+ (libraries
+  arod
+  arod.handlers
+  arod.log
+  arod.search
+  arod.server
+  bushel
+  bushel.eio
+  cmarkit
+  finger
+  sortal.feed
+  standard-site
+  xrpc-auth
+  atp-lexicon-standard-site
+  ptime.clock
+  uri
+  eio_main
+  unix
+  cmdliner
+  xdge
+  logs
+  logs.fmt
+  logs.cli
+  fmt
+  fmt.tty
+  fmt.cli))

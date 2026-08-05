@@ -1,0 +1,1214 @@
+
+
+
+
+
+Independent Submission                                  A. Madhavapeddy
+Internet-Draft                                         23 February 2026
+Intended status: Informational
+Expires: 27 August 2026
+
+
+         Sortal: A Contact Metadata Format with Temporal Validity
+                     draft-madhavapeddy-sortal-00
+
+Abstract
+
+   This document defines Sortal, a data format for representing contact
+   metadata with temporal validity tracking.  Sortal provides a
+   versioned schema for representing persons and organisations, their
+   email addresses, affiliations, online service identities, web feed
+   subscriptions, and AT Protocol identities, each optionally bounded
+   by time ranges indicating periods of validity.
+
+   Contact records are serialised as YAML or JSON documents.  A
+   companion document [SORTAL-IMPL] describes storage, synchronisation,
+   and operational considerations for Sortal implementations.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 27 August 2026.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . .   3
+     1.1.  Motivation  . . . . . . . . . . . . . . . . . . . . . .   3
+     1.2.  Design Goals  . . . . . . . . . . . . . . . . . . . . .   3
+     1.3.  Conventions and Terminology . . . . . . . . . . . . . .   4
+   2.  Temporal Range  . . . . . . . . . . . . . . . . . . . . . .   4
+     2.1.  Date Representation . . . . . . . . . . . . . . . . . .   5
+     2.2.  Range Semantics . . . . . . . . . . . . . . . . . . . .   5
+     2.3.  Validity Testing  . . . . . . . . . . . . . . . . . . .   6
+     2.4.  Range Overlap . . . . . . . . . . . . . . . . . . . . .   6
+   3.  Contact Record  . . . . . . . . . . . . . . . . . . . . . .   7
+     3.1.  Top-Level Fields  . . . . . . . . . . . . . . . . . . .   7
+     3.2.  Contact Kind  . . . . . . . . . . . . . . . . . . . . .   8
+     3.3.  Handle  . . . . . . . . . . . . . . . . . . . . . . . .   9
+   4.  Email Object  . . . . . . . . . . . . . . . . . . . . . . .   9
+   5.  Organisation Object . . . . . . . . . . . . . . . . . . . .  10
+   6.  URL Entry Object  . . . . . . . . . . . . . . . . . . . . .  10
+   7.  Service Object  . . . . . . . . . . . . . . . . . . . . . .  11
+     7.1.  Service Kind  . . . . . . . . . . . . . . . . . . . . .  11
+     7.2.  ActivityPub Variants  . . . . . . . . . . . . . . . . .  12
+   8.  AT Protocol Object  . . . . . . . . . . . . . . . . . . . .  13
+     8.1.  AT Protocol Service . . . . . . . . . . . . . . . . . .  13
+   9.  Feed Object . . . . . . . . . . . . . . . . . . . . . . . .  14
+     9.1.  Feed Type . . . . . . . . . . . . . . . . . . . . . . .  14
+   10. Serialisation Format  . . . . . . . . . . . . . . . . . . .  15
+     10.1.  YAML Serialisation . . . . . . . . . . . . . . . . . .  15
+     10.2.  JSON Serialisation . . . . . . . . . . . . . . . . . .  15
+     10.3.  Encoding Rules . . . . . . . . . . . . . . . . . . . .  16
+     10.4.  Decoding Rules . . . . . . . . . . . . . . . . . . . .  16
+   11. Schema Versioning . . . . . . . . . . . . . . . . . . . . .  17
+     11.1.  Version Field  . . . . . . . . . . . . . . . . . . . .  17
+     11.2.  Evolution Policy . . . . . . . . . . . . . . . . . . .  17
+     11.3.  Forward Compatibility  . . . . . . . . . . . . . . . .  18
+   12. Examples  . . . . . . . . . . . . . . . . . . . . . . . . .  18
+     12.1.  Minimal Contact  . . . . . . . . . . . . . . . . . . .  18
+     12.2.  Full Contact with Temporal Data  . . . . . . . . . . .  18
+     12.3.  Organisation Contact . . . . . . . . . . . . . . . . .  20
+   13. Security Considerations . . . . . . . . . . . . . . . . . .  21
+   14. IANA Considerations . . . . . . . . . . . . . . . . . . . .  21
+   15. References  . . . . . . . . . . . . . . . . . . . . . . . .  22
+     15.1.  Normative References . . . . . . . . . . . . . . . . .  22
+     15.2.  Informative References . . . . . . . . . . . . . . . .  22
+   Appendix A.  JSON Schema  . . . . . . . . . . . . . . . . . . .  23
+   Appendix B.  ABNF for Service Kind Strings  . . . . . . . . . .  27
+   Appendix C.  Comparison with vCard  . . . . . . . . . . . . . .  28
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . .  28
+
+1.  Introduction
+
+1.1.  Motivation
+
+   Existing contact formats such as vCard [RFC6350] are designed
+   primarily for interchange and synchronisation between address book
+   applications.  They capture a snapshot of current contact information
+   but lack built-in mechanisms for tracking the temporal validity of
+   that information.
+
+   In practice, individuals change email addresses, move between
+   organisations, adopt and abandon online service identities, and
+   maintain web presences that evolve over time.  When managing a
+   contact database spanning years or decades, the ability to record
+   that a particular email address was valid only during a specific
+   employment period, or that a social media handle was active only
+   within a date range, becomes essential for accurate historical
+   queries and provenance tracking.
+
+   Sortal addresses this gap by defining a contact metadata format in
+   which every substantive field may carry an optional temporal range,
+   enabling queries such as "what was this person's email address in
+   2015?" or "which contacts were affiliated with this organisation
+   between 2010 and 2018?"
+
+   Additionally, Sortal provides first-class support for modern online
+   identities including ActivityPub services (Mastodon, Pixelfed,
+   PeerTube), AT Protocol identities (Bluesky, Tangled), web feed
+   subscriptions (Atom, RSS, JSON Feed), and ORCID identifiers, none
+   of which are well served by vCard's extension mechanisms.
+
+1.2.  Design Goals
+
+   The design of Sortal is guided by the following principles:
+
+   Human readability:  Contact records are serialised as YAML or JSON
+      documents that can be read and edited with any text editor.
+
+   Temporal first:  Every field that may change over time carries an
+      optional temporal range, making historical queries a fundamental
+      operation rather than an afterthought.
+
+   Versioned schema:  A version field in every record enables schema
+      evolution while maintaining backward compatibility.
+
+   Extensibility:  The format supports arbitrary service kinds, custom
+      AT Protocol service types, and unrecognised fields, allowing
+      adoption of new platforms without schema changes.
+
+   Minimal interchange assumptions:  The format defines data
+      representation without prescribing storage, transport, or
+      synchronisation mechanisms, which are addressed separately in
+      [SORTAL-IMPL].
+
+1.3.  Conventions and Terminology
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY",
+   and "OPTIONAL" in this document are to be interpreted as described
+   in BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in
+   all capitals, as shown here.
+
+   The following terms are used throughout this document:
+
+   Contact Record:  A single Sortal document representing a person or
+      organisation.
+
+   Handle:  A unique identifier string for a contact record.
+
+   Temporal Range:  A pair of optional dates defining a half-open
+      interval [from, until) during which a piece of information is
+      considered valid.
+
+2.  Temporal Range
+
+   The temporal range is the foundational mechanism enabling
+   time-bounded validity in Sortal.  It appears as an optional field
+   on emails, organisations, URLs, and services, allowing each to
+   carry an independent validity period.
+
+2.1.  Date Representation
+
+   Dates in Sortal are represented as ISO 8601 [ISO8601] calendar
+   dates.  Three levels of precision are supported:
+
+   *  Year only: "YYYY" (e.g., "2015").  Interpreted as January 1st of
+      that year.
+
+   *  Year and month: "YYYY-MM" (e.g., "2015-06").  Interpreted as the
+      1st of that month.
+
+   *  Full date: "YYYY-MM-DD" (e.g., "2015-06-15").
+
+   Implementations MUST accept all three forms on input.  On output,
+   implementations SHOULD use the full "YYYY-MM-DD" form for
+   unambiguous representation.
+
+   The year MUST be a four-digit positive integer.  The month MUST be
+   in the range 1-12.  The day MUST be in the range 1-31 and SHOULD
+   be valid for the given month and year.
+
+2.2.  Range Semantics
+
+   A temporal range consists of two optional date fields:
+
+   from:  The start date (inclusive).  If absent, the range extends
+      indefinitely into the past.
+
+   until:  The end date (exclusive).  If absent, the range extends
+      indefinitely into the future (i.e., is still current).
+
+   This defines a half-open interval [from, until).  The following
+   combinations are valid:
+
+   +----------+-----------+--------------------------------------------+
+   | from     | until     | Interpretation                             |
+   +----------+-----------+--------------------------------------------+
+   | absent   | absent    | Always valid (equivalent to no range)      |
+   | present  | absent    | Valid from the given date, still current    |
+   | absent   | present   | Valid until the given date (historical)     |
+   | present  | present   | Valid during the specified period           |
+   +----------+-----------+--------------------------------------------+
+
+   When an entire temporal range object is absent from a field (as
+   opposed to a range object with both fields absent), the field is
+   considered to have no temporal constraint and is always valid.
+
+2.3.  Validity Testing
+
+   A temporal range is valid at a given test date D if and only if all
+   of the following conditions hold:
+
+   1.  If "from" is present with value F, then D >= F.
+
+   2.  If "until" is present with value U, then D < U (strictly less
+       than, since "until" is exclusive).
+
+   If no range is associated with a field, the field is valid at all
+   dates.
+
+   Date comparison operates lexicographically on the (year, month, day)
+   triple.  Two dates are equal if and only if all three components are
+   equal.
+
+   The concept of "current" validity is defined as validity at the
+   current date as determined by the implementation's system clock.
+
+2.4.  Range Overlap
+
+   Two temporal ranges R1 and R2 overlap if and only if neither range
+   ends before the other begins.  Formally:
+
+   *  R1 starts before R2 ends: if R2.until is present with value U2,
+      then R1.from (if present with value F1) satisfies F1 < U2.  If
+      R1.from is absent, this condition holds trivially.  If R2.until
+      is absent, this condition holds trivially.
+
+   *  R2 starts before R1 ends: symmetrically, if R1.until is present
+      with value U1, then R2.from (if present with value F2) satisfies
+      F2 < U1.  Absent values satisfy the condition trivially.
+
+   Both conditions MUST hold for the ranges to overlap.  This test is
+   used by temporal filter operations to select records whose validity
+   periods intersect a query range.
+
+3.  Contact Record
+
+   A Sortal contact record is a structured document containing the
+   following categories of information:
+
+   *  Identity: handle, names, kind (person or organisation), icon,
+      and ORCID identifier.
+
+   *  Communication: email addresses, each with optional type,
+      temporal range, and contextual note.
+
+   *  Affiliation: organisation memberships, each with optional title,
+      department, temporal range, associated email, URL, and postal
+      address.
+
+   *  Web presence: URLs with optional labels and temporal ranges.
+
+   *  Online services: service identities (GitHub, ActivityPub
+      instances, etc.) with optional kind classification, username
+      handle, label, temporal range, and primary flag.
+
+   *  Decentralised identity: AT Protocol handle, DID, and associated
+      service endpoints.
+
+   *  Subscriptions: web feed subscriptions (Atom, RSS, JSON Feed, or
+      manually discovered).
+
+   All list-valued fields preserve insertion order.  The first element
+   in a list is considered the primary or preferred value unless a
+   more specific selection mechanism (such as the "primary" flag on
+   services) overrides this default.
+
+3.1.  Top-Level Fields
+
+   A contact record is a JSON/YAML object with the following fields:
+
+   version (integer, REQUIRED):  The schema version number.  For this
+      specification, the value MUST be 1.  Implementations MUST reject
+      records with unrecognised version numbers.
+
+   kind (string, OPTIONAL):  The contact kind.  See Section 3.2.
+      Defaults to "person" if absent.
+
+   handle (string, REQUIRED):  The unique identifier for this contact.
+      See Section 3.3.
+
+   names (array of strings, OPTIONAL):  Human-readable names for the
+      contact.  The first element is the primary display name.
+      Defaults to an empty array if absent.
+
+   emails (array of Email objects, OPTIONAL):  Email addresses
+      associated with this contact.  See Section 4.  Defaults to an
+      empty array if absent.
+
+   organizations (array of Organisation objects, OPTIONAL):
+      Organisational affiliations.  See Section 5.  Defaults to an
+      empty array if absent.
+
+   urls (array of URL Entry objects, OPTIONAL):  Web addresses.  See
+      Section 6.  Defaults to an empty array if absent.
+
+   services (array of Service objects, OPTIONAL):  Online service
+      identities.  See Section 7.  Defaults to an empty array if
+      absent.
+
+   icon (string, OPTIONAL):  A URL pointing to an avatar or profile
+      image for this contact.
+
+   thumbnail (string, OPTIONAL):  An implementation-defined reference
+      to a locally cached thumbnail image for this contact.
+
+   orcid (string, OPTIONAL):  An ORCID iD [ORCID] for the contact,
+      without the "https://orcid.org/" prefix (e.g., "0000-0002-
+      1825-0097").
+
+   feeds (array of Feed objects, OPTIONAL):  Web feed subscriptions.
+      See Section 9.  When absent (null/omitted), indicates no feed
+      information is available, which is distinct from an empty array
+      (which indicates feed information has been considered but none
+      are subscribed).
+
+   atproto (AT Protocol object, OPTIONAL):  AT Protocol identity.
+      See Section 8.
+
+   Implementations MUST preserve unrecognised fields when reading and
+   writing contact records to support forward compatibility (see
+   Section 11).
+
+3.2.  Contact Kind
+
+   The "kind" field classifies the contact as one of:
+
+   "person":  An individual human being.
+
+   "organization":  An organisation, company, institution, or other
+      collective entity.
+
+   String comparison for kind values MUST be case-insensitive.
+
+3.3.  Handle
+
+   The handle is a short, unique identifier string used as the primary
+   key for a contact record within a collection.
+
+   Handles MUST consist of lowercase ASCII letters and digits only.
+   Handles MUST NOT be empty.  Handles SHOULD be memorable and
+   derivable from the contact's name.
+
+   A RECOMMENDED algorithm for generating handles from full names is:
+
+   1.  Convert the full name to lowercase ASCII.
+
+   2.  Split the name on space characters into a list of words.
+
+   3.  Take the first character of each word except the last.
+
+   4.  Concatenate these initials with the full last word.
+
+   Examples:
+
+   *  "Jane Smith" -> "j" + "smith" = "jsmith"
+
+   *  "Anil Madhavapeddy" -> "a" + "m" + "madhavapeddy" =
+      "ammadhavapeddy"
+
+   *  "John David Smith" -> "j" + "d" + "smith" = "jdsmith"
+
+   Implementations MAY use any handle generation strategy as long as
+   the result conforms to the handle syntax defined above.
+
+4.  Email Object
+
+   An email object represents a single email address associated with
+   a contact, optionally bounded by a temporal range.
+
+   address (string, REQUIRED):  The email address.  SHOULD conform to
+      the "addr-spec" production of RFC 5322 [RFC5322].
+
+   type (string, OPTIONAL):  The email type.  One of:
+
+      "work":  A work or professional email address.
+
+      "personal":  A personal email address.
+
+      "other":  An email address that does not fit the above
+         categories.
+
+      String comparison MUST be case-insensitive.
+
+   range (Temporal Range object, OPTIONAL):  The period during which
+      this email address is or was valid.  See Section 2.
+
+   note (string, OPTIONAL):  A free-text note providing context for
+      this email address (e.g., "Used during PhD at MIT",
+      "NetApp position").
+
+5.  Organisation Object
+
+   An organisation object represents an affiliation between the contact
+   and an organisation, typically an employment or membership
+   relationship.
+
+   name (string, REQUIRED):  The name of the organisation.
+
+   title (string, OPTIONAL):  The contact's title or role within the
+      organisation (e.g., "Senior Researcher", "CTO").
+
+   department (string, OPTIONAL):  The department or division within
+      the organisation (e.g., "Computer Laboratory", "Engineering").
+
+   range (Temporal Range object, OPTIONAL):  The period of affiliation.
+      See Section 2.
+
+   email (string, OPTIONAL):  An email address associated with this
+      specific affiliation.  This is typically a work email that was
+      valid only during the period of affiliation.
+
+   url (string, OPTIONAL):  A URL associated with the contact's
+      presence at this organisation (e.g., a department profile page).
+
+   address (string, OPTIONAL):  A postal or physical address associated
+      with this affiliation.
+
+6.  URL Entry Object
+
+   A URL entry represents a web address associated with the contact.
+
+   url (string, REQUIRED):  The URL.  MUST be a valid URI as defined
+      by RFC 3986 [RFC3986].
+
+   label (string, OPTIONAL):  A human-readable label describing this
+      URL (e.g., "Personal website", "Research group page").
+
+   range (Temporal Range object, OPTIONAL):  The period during which
+      this URL is or was valid.  See Section 2.
+
+7.  Service Object
+
+   A service object represents an identity or account on an online
+   service or platform.
+
+   url (string, REQUIRED):  The URL of the service profile or account
+      page.  This is the primary identifier for the service entry.
+
+   kind (string, OPTIONAL):  The service kind classification.  See
+      Section 7.1.
+
+   handle (string, OPTIONAL):  The username or short handle on the
+      service (e.g., "avsm" on GitHub, "@user@instance.social" on
+      Mastodon).
+
+   label (string, OPTIONAL):  A human-readable description providing
+      context (e.g., "Work account", "Cambridge GitLab instance").
+
+   range (Temporal Range object, OPTIONAL):  The period during which
+      this service identity is or was active.  See Section 2.
+
+   primary (boolean, OPTIONAL):  Whether this is the primary service
+      of its kind for this contact.  Defaults to false.  At most one
+      service of each kind SHOULD be marked as primary.
+
+7.1.  Service Kind
+
+   The service kind classifies the type of online service.  The
+   following values are defined:
+
+   "github":  GitHub (https://github.com).
+
+   "git":  A generic git hosting service (GitLab, Gitea, Codeberg,
+      or similar).
+
+   "twitter":  Twitter/X (https://x.com).
+
+   "linkedin":  LinkedIn (https://linkedin.com).
+
+   "photo":  A photo sharing service (Immich, Flickr, Instagram, or
+      similar).
+
+   "activitypub" or "activitypub:VARIANT":  An ActivityPub-compatible
+      service.  See Section 7.2.
+
+   Any other string:  A custom service kind.  Implementations MUST
+      accept arbitrary strings as custom service kinds to allow
+      extensibility (e.g., "matrix", "zulip", "discourse", "threads").
+
+   String comparison for service kinds MUST be case-insensitive.
+
+   For the compound "activitypub:VARIANT" form, the colon separates
+   the protocol identifier from the variant.  If no colon is present,
+   "activitypub" alone defaults to the Mastodon variant.  Shorthand
+   forms "mastodon", "pixelfed", and "peertube" are also accepted as
+   aliases for their respective "activitypub:VARIANT" forms.
+
+7.2.  ActivityPub Variants
+
+   The following ActivityPub variants are defined:
+
+   "mastodon":  Mastodon (https://joinmastodon.org).
+
+   "pixelfed":  Pixelfed (https://pixelfed.org).
+
+   "peertube":  PeerTube (https://joinpeertube.org).
+
+   Any other string after "activitypub:" is treated as a custom
+   ActivityPub-compatible variant.
+
+   In serialised form, variants are encoded as "activitypub:VARIANT"
+   (e.g., "activitypub:mastodon", "activitypub:pixelfed").  On input,
+   the bare names "mastodon", "pixelfed", and "peertube" MUST be
+   accepted as equivalent to their prefixed forms.
+
+8.  AT Protocol Object
+
+   The AT Protocol object represents a contact's identity in the AT
+   Protocol ecosystem (Bluesky, Tangled, and other AT Protocol
+   services).
+
+   handle (string, REQUIRED):  The AT Protocol handle (e.g.,
+      "alice.bsky.social").
+
+   did (string, OPTIONAL):  The Decentralised Identifier (DID)
+      associated with this handle.  When absent, indicates the DID
+      has not yet been resolved.  When present, MUST be a valid DID
+      string as defined by the DID Core specification [DID-CORE].
+
+   services (array of AT Protocol Service objects, OPTIONAL):  The
+      AT Protocol services associated with this identity.  Defaults
+      to an empty array if absent.
+
+8.1.  AT Protocol Service
+
+   An AT Protocol service object identifies a specific service endpoint
+   associated with the AT Protocol identity.
+
+   type (string, REQUIRED):  The service type.  The following values
+      are defined:
+
+      "bluesky":  The Bluesky social network.
+
+      "tangled":  The Tangled service.
+
+      Any other string:  A custom AT Protocol service type.
+
+   url (string, REQUIRED):  The service endpoint URL (e.g.,
+      "https://bsky.app/profile/alice.bsky.social").
+
+9.  Feed Object
+
+   A feed object represents a web feed subscription associated with
+   a contact, typically pointing to the contact's blog, news feed, or
+   content stream.
+
+   type (string, REQUIRED):  The feed type.  See Section 9.1.
+
+   url (string, REQUIRED):  The feed URL.  For feed types "atom",
+      "rss", and "json", this is the URL of the feed document.  For
+      type "manual", this is the URL of a web page from which feed
+      content is to be discovered or extracted.
+
+   name (string, OPTIONAL):  A human-readable name for the feed
+      (e.g., "Blog", "Research Updates").
+
+   hint (string, OPTIONAL):  A hint string used by manual feed
+      discovery to guide content extraction.  Only meaningful for
+      feeds of type "manual".
+
+9.1.  Feed Type
+
+   The following feed types are defined:
+
+   "atom":  An Atom Syndication Format feed [RFC4287].
+
+   "rss":  An RSS 2.0 feed.
+
+   "json":  A JSON Feed (https://www.jsonfeed.org/).
+
+   "manual":  A feed whose content is discovered or extracted from a
+      web page by an external process rather than parsed from a
+      structured feed format.
+
+   String comparison for feed types MUST be case-insensitive.
+
+10.  Serialisation Format
+
+10.1.  YAML Serialisation
+
+   The canonical serialisation format for Sortal contact records is
+   YAML [YAML].  YAML is chosen for its human readability and
+   editability while maintaining structural equivalence with JSON.
+
+   A single contact record is serialised as a single YAML document
+   (optionally preceded by the "---" document start marker).
+
+   Example:
+
+     version: 1
+     kind: person
+     handle: jsmith
+     names:
+       - Jane Smith
+       - J. Smith
+     emails:
+       - address: jane@example.com
+         type: personal
+       - address: jane.smith@corp.example.com
+         type: work
+         range:
+           from: "2020-01-15"
+         note: Senior engineer position
+     organizations:
+       - name: Example Corp
+         title: Senior Engineer
+         range:
+           from: "2020-01-15"
+     urls:
+       - url: https://janesmith.example.com
+         label: Personal website
+     services:
+       - url: https://github.com/janesmith
+         kind: github
+         handle: janesmith
+         primary: true
+
+10.2.  JSON Serialisation
+
+   Sortal contact records MAY alternatively be serialised as JSON
+   [RFC8259].  The JSON representation is structurally identical to the
+   YAML representation; any valid Sortal YAML document MUST be
+   convertible to an equivalent JSON document and vice versa.
+
+   Implementations SHOULD support both YAML and JSON for input.
+   Implementations MAY choose either format for output, but YAML is
+   RECOMMENDED for human-facing uses.
+
+10.3.  Encoding Rules
+
+   When serialising a contact record, the following rules apply:
+
+   1.  The "version" field MUST always be present and set to the
+       integer 1.
+
+   2.  Optional fields with null/absent values SHOULD be omitted
+       entirely from the output rather than serialised as explicit
+       null values.
+
+   3.  Optional list fields that are empty arrays SHOULD be omitted
+       from the output.
+
+   4.  Boolean fields with a value of false SHOULD be omitted when
+       false is the default (e.g., the "primary" field on services).
+
+   5.  Temporal range objects where both "from" and "until" are absent
+       SHOULD be omitted.
+
+   6.  Date strings within temporal ranges MUST be encoded in the
+       "YYYY-MM-DD" format.
+
+   7.  The "kind" field SHOULD be omitted when the value is "person"
+       (the default).
+
+   8.  Enum string values (kind, email type, service kind, feed type)
+       SHOULD be serialised in lowercase.
+
+   9.  String values MUST be valid UTF-8.
+
+10.4.  Decoding Rules
+
+   When deserialising a contact record, the following rules apply:
+
+   1.  Implementations MUST check the "version" field first.  If the
+       version is not 1, the implementation MUST reject the document
+       (or delegate to an appropriate version-specific decoder).
+
+   2.  Absent optional fields MUST be treated as their documented
+       default values (null for scalar optionals, empty array for
+       list optionals).
+
+   3.  Enum string comparisons MUST be case-insensitive.
+
+   4.  Date strings MUST be parsed accepting all three precision
+       levels defined in Section 2.1.
+
+   5.  Unrecognised fields MUST be preserved (not discarded) to
+       support forward compatibility.
+
+   6.  The "primary" field on services defaults to false when absent.
+
+   7.  The "kind" field defaults to "person" when absent.
+
+11.  Schema Versioning
+
+11.1.  Version Field
+
+   Every contact record MUST contain a "version" field set to the
+   integer 1.  This field enables future schema evolution while
+   maintaining backward compatibility.
+
+11.2.  Evolution Policy
+
+   The following rules govern schema evolution:
+
+   *  New OPTIONAL fields MAY be added to the schema without
+      incrementing the version number.  This is the preferred
+      mechanism for extending the schema.
+
+   *  The version number MUST be incremented only if the semantics
+      of an existing field change in a way that is incompatible with
+      previous interpretations.
+
+   *  Fields MUST NOT be removed in a minor schema revision.
+      Deprecated fields SHOULD be documented as deprecated but
+      retained for backward compatibility.
+
+11.3.  Forward Compatibility
+
+   Implementations MUST preserve unrecognised fields when reading and
+   re-writing contact records.  This ensures that a newer schema
+   version's fields are not lost when processed by an implementation
+   that understands only an older schema version.
+
+   An implementation that encounters a version number it does not
+   support MUST reject the document with a clear error message rather
+   than silently discarding unrecognised fields.
+
+12.  Examples
+
+12.1.  Minimal Contact
+
+   The simplest valid contact record:
+
+     version: 1
+     handle: jdoe
+     names:
+       - John Doe
+
+12.2.  Full Contact with Temporal Data
+
+   A comprehensive example demonstrating temporal ranges across
+   multiple field types:
+
+     version: 1
+     kind: person
+     handle: jsmith
+     names:
+       - Jane Smith
+       - J. M. Smith
+     emails:
+       - address: jane@personal.example.com
+         type: personal
+       - address: jane.smith@university.example.edu
+         type: work
+         range:
+           from: "2012-09-01"
+           until: "2018-06-30"
+         note: PhD position
+       - address: jsmith@corp.example.com
+         type: work
+         range:
+           from: "2018-08-01"
+         note: Current industry position
+     organizations:
+       - name: University of Example
+         title: PhD Researcher
+         department: Computer Science
+         range:
+           from: "2012-09-01"
+           until: "2018-06-30"
+         email: jane.smith@university.example.edu
+         url: https://cs.university.example.edu/~jsmith
+       - name: Example Corp
+         title: Senior Engineer
+         department: Platform Engineering
+         range:
+           from: "2018-08-01"
+         email: jsmith@corp.example.com
+         url: https://corp.example.com/team/jsmith
+     urls:
+       - url: https://janesmith.example.com
+         label: Personal website
+       - url: https://cs.university.example.edu/~jsmith
+         label: Academic homepage
+         range:
+           from: "2012-09"
+           until: "2018-07"
+     services:
+       - url: https://github.com/jsmith
+         kind: github
+         handle: jsmith
+         primary: true
+       - url: https://mastodon.social/@jsmith
+         kind: activitypub:mastodon
+         handle: "@jsmith@mastodon.social"
+         primary: true
+       - url: https://gitlab.example.com/jsmith
+         kind: git
+         handle: jsmith
+         label: University GitLab
+         range:
+           from: "2012-09"
+           until: "2018-07"
+     orcid: "0000-0002-1825-0097"
+     icon: https://janesmith.example.com/avatar.jpg
+     feeds:
+       - type: atom
+         url: https://janesmith.example.com/feed.atom
+         name: Blog
+       - type: json
+         url: https://janesmith.example.com/feed.json
+         name: JSON Feed
+     atproto:
+       handle: jsmith.bsky.social
+       did: "did:plc:abc123def456"
+       services:
+         - type: bluesky
+           url: https://bsky.app/profile/jsmith.bsky.social
+
+12.3.  Organisation Contact
+
+   An example of an organisation-type contact:
+
+     version: 1
+     kind: organization
+     handle: examplecorp
+     names:
+       - Example Corporation
+       - ExampleCorp
+     emails:
+       - address: info@corp.example.com
+         type: work
+     urls:
+       - url: https://corp.example.com
+         label: Corporate website
+     services:
+       - url: https://github.com/examplecorp
+         kind: github
+         handle: examplecorp
+         primary: true
+     feeds:
+       - type: rss
+         url: https://corp.example.com/blog/rss.xml
+         name: Engineering Blog
+
+13.  Security Considerations
+
+   Sortal contact records may contain personally identifiable
+   information (PII) including email addresses, organisational
+   affiliations, and online service identities.  Implementations
+   SHOULD:
+
+   *  Protect contact records from unauthorised access using
+      appropriate access controls for the storage mechanism in use.
+
+   *  Encrypt contact data at rest when storing sensitive information.
+
+   *  Be cautious when processing URLs from contact records, as they
+      may point to malicious resources.  Implementations SHOULD NOT
+      automatically fetch URLs from untrusted contact records without
+      user consent.
+
+   *  Validate handle values before using them to construct identifiers,
+      file paths, or database keys.  Although the handle syntax
+      (lowercase ASCII letters and digits only) inherently prevents
+      injection attacks, implementations SHOULD validate handles
+      against the grammar defined in Section 3.3 before use.
+
+   *  Be aware that the "thumbnail" field, if present, may reference
+      external or local resources.  Implementations MUST NOT
+      interpret this field in a way that permits directory traversal
+      or access to resources outside the intended scope.
+
+14.  IANA Considerations
+
+   This document has no IANA actions.
+
+15.  References
+
+15.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in
+              RFC 2119 Key Words", BCP 14, RFC 8174,
+              DOI 10.17487/RFC8174, May 2017,
+              <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8259]  Bray, T., Ed., "The JavaScript Object Notation (JSON)
+              Data Interchange Format", STD 90, RFC 8259,
+              DOI 10.17487/RFC8259, December 2017,
+              <https://www.rfc-editor.org/info/rfc8259>.
+
+   [RFC3986]  Berners-Lee, T., Fielding, R., and L. Masinter,
+              "Uniform Resource Identifier (URI): Generic Syntax",
+              STD 66, RFC 3986, DOI 10.17487/RFC3986, January 2005,
+              <https://www.rfc-editor.org/info/rfc3986>.
+
+   [RFC5322]  Resnick, P., Ed., "Internet Message Format", RFC 5322,
+              DOI 10.17487/RFC5322, October 2008,
+              <https://www.rfc-editor.org/info/rfc5322>.
+
+   [ISO8601]  International Organization for Standardization,
+              "Date and time -- Representations for information
+              interchange", ISO 8601:2019, February 2019.
+
+   [YAML]     Ben-Kiki, O., Evans, C., and I. Net, "YAML Ain't
+              Markup Language (YAML) Version 1.2", October 2021,
+              <https://yaml.org/spec/1.2.2/>.
+
+15.2.  Informative References
+
+   [RFC4287]  Nottingham, M., Ed. and R. Sayre, Ed., "The Atom
+              Syndication Format", RFC 4287, DOI 10.17487/RFC4287,
+              December 2005,
+              <https://www.rfc-editor.org/info/rfc4287>.
+
+   [RFC6350]  Perreault, S., "vCard Format Specification", RFC 6350,
+              DOI 10.17487/RFC6350, August 2011,
+              <https://www.rfc-editor.org/info/rfc6350>.
+
+   [DID-CORE] Sporny, M., Longley, D., Sabadello, M., Reed, D.,
+              Steele, O., and C. Allen, "Decentralized Identifiers
+              (DIDs) v1.0", W3C Recommendation, July 2022,
+              <https://www.w3.org/TR/did-core/>.
+
+   [ORCID]    ORCID, "ORCID",
+              <https://orcid.org/>.
+
+   [SORTAL-IMPL]  Madhavapeddy, A., "Sortal: Implementation
+              Considerations", draft-madhavapeddy-sortal-impl-00,
+              February 2026.
+
+Appendix A.  JSON Schema
+
+   The following JSON Schema describes the structure of a Sortal
+   contact record for validation purposes.
+
+     {
+       "$schema": "https://json-schema.org/draft/2020-12/schema",
+       "title": "Sortal Contact Record",
+       "description": "A contact metadata record with temporal validity",
+       "type": "object",
+       "required": ["version", "handle"],
+       "properties": {
+         "version": {
+           "type": "integer",
+           "const": 1,
+           "description": "Schema version number"
+         },
+         "kind": {
+           "type": "string",
+           "enum": ["person", "organization"],
+           "default": "person",
+           "description": "Contact kind"
+         },
+         "handle": {
+           "type": "string",
+           "pattern": "^[a-z0-9]+$",
+           "minLength": 1,
+           "description": "Unique contact identifier"
+         },
+         "names": {
+           "type": "array",
+           "items": { "type": "string" },
+           "default": [],
+           "description": "Contact names, first is primary"
+         },
+         "emails": {
+           "type": "array",
+           "items": { "$ref": "#/$defs/email" },
+           "default": []
+         },
+         "organizations": {
+           "type": "array",
+           "items": { "$ref": "#/$defs/organization" },
+           "default": []
+         },
+         "urls": {
+           "type": "array",
+           "items": { "$ref": "#/$defs/url_entry" },
+           "default": []
+         },
+         "services": {
+           "type": "array",
+           "items": { "$ref": "#/$defs/service" },
+           "default": []
+         },
+         "icon": {
+           "type": "string",
+           "format": "uri",
+           "description": "Avatar/profile image URL"
+         },
+         "thumbnail": {
+           "type": "string",
+           "description": "Implementation-defined thumbnail reference"
+         },
+         "orcid": {
+           "type": "string",
+           "pattern": "^[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X]$",
+           "description": "ORCID iD"
+         },
+         "feeds": {
+           "type": "array",
+           "items": { "$ref": "#/$defs/feed" }
+         },
+         "atproto": { "$ref": "#/$defs/atproto" }
+       },
+       "additionalProperties": true,
+       "$defs": {
+         "date": {
+           "type": "string",
+           "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$",
+           "description": "ISO 8601 date (YYYY, YYYY-MM, or YYYY-MM-DD)"
+         },
+         "temporal_range": {
+           "type": "object",
+           "properties": {
+             "from": { "$ref": "#/$defs/date" },
+             "until": { "$ref": "#/$defs/date" }
+           },
+           "additionalProperties": false,
+           "description": "Half-open interval [from, until)"
+         },
+         "email": {
+           "type": "object",
+           "required": ["address"],
+           "properties": {
+             "address": {
+               "type": "string",
+               "format": "email"
+             },
+             "type": {
+               "type": "string",
+               "enum": ["work", "personal", "other"]
+             },
+             "range": { "$ref": "#/$defs/temporal_range" },
+             "note": { "type": "string" }
+           },
+           "additionalProperties": false
+         },
+         "organization": {
+           "type": "object",
+           "required": ["name"],
+           "properties": {
+             "name": { "type": "string" },
+             "title": { "type": "string" },
+             "department": { "type": "string" },
+             "range": { "$ref": "#/$defs/temporal_range" },
+             "email": { "type": "string", "format": "email" },
+             "url": { "type": "string", "format": "uri" },
+             "address": { "type": "string" }
+           },
+           "additionalProperties": false
+         },
+         "url_entry": {
+           "type": "object",
+           "required": ["url"],
+           "properties": {
+             "url": { "type": "string", "format": "uri" },
+             "label": { "type": "string" },
+             "range": { "$ref": "#/$defs/temporal_range" }
+           },
+           "additionalProperties": false
+         },
+         "service": {
+           "type": "object",
+           "required": ["url"],
+           "properties": {
+             "url": { "type": "string", "format": "uri" },
+             "kind": { "type": "string" },
+             "handle": { "type": "string" },
+             "label": { "type": "string" },
+             "range": { "$ref": "#/$defs/temporal_range" },
+             "primary": {
+               "type": "boolean",
+               "default": false
+             }
+           },
+           "additionalProperties": false
+         },
+         "atproto": {
+           "type": "object",
+           "required": ["handle"],
+           "properties": {
+             "handle": { "type": "string" },
+             "did": { "type": "string" },
+             "services": {
+               "type": "array",
+               "items": {
+                 "type": "object",
+                 "required": ["type", "url"],
+                 "properties": {
+                   "type": { "type": "string" },
+                   "url": {
+                     "type": "string",
+                     "format": "uri"
+                   }
+                 },
+                 "additionalProperties": false
+               },
+               "default": []
+             }
+           },
+           "additionalProperties": false
+         },
+         "feed": {
+           "type": "object",
+           "required": ["type", "url"],
+           "properties": {
+             "type": {
+               "type": "string",
+               "enum": ["atom", "rss", "json", "manual"]
+             },
+             "url": { "type": "string", "format": "uri" },
+             "name": { "type": "string" },
+             "hint": { "type": "string" }
+           },
+           "additionalProperties": false
+         }
+       }
+     }
+
+Appendix B.  ABNF for Service Kind Strings
+
+   The following ABNF [RFC5234] describes the syntax of service kind
+   strings:
+
+     service-kind    = builtin-kind / activitypub-kind / custom-kind
+
+     builtin-kind    = "github" / "git" / "twitter" /
+                       "linkedin" / "photo"
+
+     activitypub-kind = "activitypub" [ ":" ap-variant ]
+
+     ap-variant      = "mastodon" / "pixelfed" / "peertube" /
+                       1*( ALPHA / DIGIT / "-" / "_" )
+
+     ; Shorthand forms accepted on input:
+     ap-shorthand    = "mastodon" / "pixelfed" / "peertube"
+
+     custom-kind     = 1*( ALPHA / DIGIT / "-" / "_" )
+
+   When encoding, the canonical form "activitypub:VARIANT" SHOULD be
+   used for ActivityPub services.  When decoding, both the canonical
+   form and the shorthand forms MUST be accepted.
+
+Appendix C.  Comparison with vCard
+
+   Sortal addresses several limitations of vCard [RFC6350] for
+   long-lived contact databases:
+
+   Temporal validity:  vCard has no built-in mechanism for recording
+      that a field was valid only during a specific time period.  The
+      PREF parameter indicates preference but not temporal bounds.
+      Sortal's temporal ranges are a first-class concept applicable
+      to emails, organisations, URLs, and services.
+
+   Online services:  vCard's IMPP property and social media extensions
+      (RFC 4770, various vendor extensions) provide limited and
+      inconsistent support for modern platforms.  Sortal provides a
+      unified, extensible service model with typed kinds.
+
+   ActivityPub and AT Protocol:  vCard has no support for federated
+      social identities.  Sortal includes dedicated data structures
+      for ActivityPub and AT Protocol.
+
+   Feed subscriptions:  vCard has no mechanism for associating web
+      feed subscriptions with a contact.  Sortal includes a feed
+      object supporting Atom, RSS, JSON Feed, and manual discovery.
+
+   ORCID:  While vCard can store ORCID as a generic URL, Sortal
+      provides a dedicated field with appropriate semantics.
+
+   Sortal does not attempt to replace vCard for interchange between
+   address book applications.  Its design is optimised for rich
+   metadata and temporal tracking rather than for multi-party
+   synchronisation.
+
+Author's Address
+
+   Anil Madhavapeddy
+
+   Email: anil@recoil.org
+   URI:   https://avsm.org

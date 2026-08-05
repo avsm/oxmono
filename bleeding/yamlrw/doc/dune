@@ -1,0 +1,7 @@
+(mdx
+ (files tutorial.mld)
+ (libraries yamlrw))
+
+(documentation
+ (package yamlrw)
+ (mld_files index tutorial))

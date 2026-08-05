@@ -1,0 +1,14 @@
+(library
+ (name arod_component)
+ (public_name arod.component)
+ (libraries
+  htmlit
+  arod
+  bushel
+  sortal.schema
+  sortal.feed
+  srcsetter
+  ptime
+  ptime.clock.os
+  uri
+  fmt))

@@ -1,0 +1,15 @@
+; Crowbar fuzz testing for punycode
+;
+; To run: dune exec ocaml-punycode/fuzz/fuzz_punycode.exe
+; With AFL: afl-fuzz -i fuzz/corpus -o fuzz/findings -- ./_build/default/ocaml-punycode/fuzz/fuzz_punycode.exe @@
+
+(executable
+ (name fuzz_punycode)
+ (modules fuzz_punycode)
+ (libraries punycode crowbar))
+
+(rule
+ (alias fuzz)
+ (deps fuzz_punycode.exe)
+ (action
+  (run %{exe:fuzz_punycode.exe})))

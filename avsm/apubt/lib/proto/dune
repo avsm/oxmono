@@ -1,0 +1,4 @@
+(library
+ (name apubt_proto)
+ (public_name apubt.proto)
+ (libraries jsont uri))

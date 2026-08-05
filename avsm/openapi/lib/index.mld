@@ -1,0 +1,254 @@
+{0 OCaml OpenAPI}
+
+{1 Overview}
+
+[openapi] generates type-safe OCaml API clients from OpenAPI 3.x
+specifications. The generated code uses:
+
+- {b jsont} for JSON encoding/decoding
+- {b requests} for HTTP client (Eio-based)
+- {b ptime} for date-time handling
+
+{1 Installation}
+
+{[
+opam install openapi
+]}
+
+{1 Generating a Client}
+
+Use the [openapi-gen] CLI tool to generate OCaml code from an OpenAPI spec:
+
+{[
+# Basic generation
+openapi-gen generate spec.json -o ./my_api -n my_api
+
+# With dune regeneration rules
+openapi-gen generate spec.json -o ./my_api -n my_api --regen
+]}
+
+{2 CLI Options}
+
+{ul
+{- [-o], [--output] — Output directory for generated code (required)}
+{- [-n], [--name] — Package name for generated library (defaults to API title)}
+{- [--regen] — Include dune.inc rules for [dune build @gen --auto-promote]}}
+
+{1 Generated Code Structure}
+
+The generator produces a complete dune library:
+
+{[
+my_api/
+├── dune           # Library configuration (wrapped)
+├── dune.inc       # Regeneration rules (if --regen used)
+├── types.ml       # Type definitions with jsont codecs
+├── types.mli      # Type interfaces
+├── client.ml      # API client functions
+├── client.mli     # Client interface
+├── my_api.ml      # Main wrapped module
+└── my_api.mli     # Main module interface
+]}
+
+{1 Using Generated Code}
+
+{2 Accessing Types}
+
+All schema types are generated as modules within [Types]:
+
+{[
+(* Access a type *)
+let user : My_api.Types.User.t = {
+  id = 123;
+  name = "Alice";
+  email = Some "alice@example.com";
+}
+
+(* Encode to JSON *)
+let json = Jsont.encode My_api.Types.User.t_jsont user
+
+(* Decode from JSON *)
+let user' = Jsont.decode My_api.Types.User.t_jsont json
+]}
+
+{2 Making API Requests}
+
+Create a client and call API operations:
+
+{[
+let () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+
+  (* Create the client *)
+  let client = My_api.Client.create ~sw env
+    ~base_url:"https://api.example.com" in
+
+  (* Make a request - returns typed value *)
+  let user = My_api.Client.get_user ~id:"123" client () in
+  Printf.printf "User: %s\n" user.name
+
+  (* List endpoints return typed lists *)
+  let users = My_api.Client.list_users client () in
+  List.iter (fun u -> Printf.printf "- %s\n" u.name) users
+]}
+
+{2 Request Bodies}
+
+For POST/PUT/PATCH requests, pass the typed value directly:
+
+{[
+(* Create typed request body *)
+let new_user : My_api.Types.CreateUserDto.t = {
+  name = "Bob";
+  email = "bob@example.com";
+} in
+
+(* Pass as the body parameter - encoding is automatic *)
+let created = My_api.Client.create_user ~body:new_user client ()
+]}
+
+{1 Keeping Generated Code Updated}
+
+If you used [--regen], the generated [dune.inc] includes rules to regenerate
+the client when the spec changes:
+
+{[
+# Regenerate and promote changes
+dune build @gen --auto-promote
+]}
+
+This is useful for CI pipelines to ensure generated code stays in sync with
+the OpenAPI specification.
+
+{1 Library Modules}
+
+{2 Core Modules}
+
+{ul
+{- {!module:Openapi.Spec} — OpenAPI 3.x specification types with jsont codecs}
+{- {!module:Openapi.Codegen} — Code generation from spec to OCaml}
+{- {!module:Openapi.Runtime} — Runtime utilities for generated clients}}
+
+{2 Runtime Utilities}
+
+The {!module:Openapi.Runtime} module provides helpers used by generated code:
+
+{[
+(* Path template rendering *)
+Openapi.Runtime.Path.render
+  ~params:[("userId", "123"); ("postId", "456")]
+  "/users/{userId}/posts/{postId}"
+(* => "/users/123/posts/456" *)
+
+(* Query string encoding *)
+Openapi.Runtime.Query.encode [("page", "1"); ("limit", "10")]
+(* => "?page=1&limit=10" *)
+]}
+
+{1 Example: Immich API}
+
+Here's a complete example generating a client for the Immich photo server:
+
+{[
+# Generate the client
+openapi-gen generate immich-openapi-specs.json -o ./immich -n immich
+
+# In your code:
+let () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let client = Immich.Client.create ~sw env
+    ~base_url:"http://localhost:2283/api" in
+
+  (* List albums *)
+  let albums_json = Immich.Client.get_all_albums client () in
+
+  (* Get server info *)
+  let info = Immich.Client.get_server_info client () in
+  ...
+]}
+
+{1 Limitations}
+
+{2 Schema Generation}
+
+{ul
+{- {b oneOf/anyOf} — Union types are mapped to [Jsont.json]. Proper
+   implementation would generate OCaml variant types with discriminator-based
+   decoding. See {{:#union-types}Union Types} below for details.}
+{- {b allOf} — Composition schemas are mapped to [Jsont.json]. Proper
+   implementation would merge all referenced schemas into a single record type.}
+{- {b additionalProperties} — Dynamic object properties are parsed but not
+   used in code generation. Objects with [additionalProperties: true] become
+   [Jsont.json].}
+{- {b Recursive schemas} — Schemas that reference themselves are not fully
+   supported and may cause infinite loops during generation.}
+{- {b Nested $ref} — References to references are not resolved; only direct
+   schema references work.}}
+
+{2 Client Generation}
+
+{ul
+{- {b Error responses} — Error schemas (4xx, 5xx) are not generated. Errors
+   are raised as exceptions with the HTTP status code and body text.}
+{- {b Authentication} — Security schemes (apiKey, http, oauth2) are parsed
+   but not applied to requests. Add headers manually via the requests session.}
+{- {b Header parameters} — Header parameters are parsed but not included in
+   generated function signatures.}
+{- {b Cookie parameters} — Cookie parameters are parsed but not included in
+   generated functions.}
+{- {b Parameter references} — [$ref] in parameters are skipped; only inline
+   parameters are used.}}
+
+{2 Content Types}
+
+{ul
+{- {b File uploads} — [multipart/form-data] is not supported. Binary file
+   uploads require special handling not yet implemented.}
+{- {b XML} — Only [application/json] content types are supported.}
+{- {b Form encoding} — [application/x-www-form-urlencoded] is not supported.}}
+
+{2 Advanced Features}
+
+{ul
+{- {b Callbacks} — Webhook callbacks are parsed but no server code is
+   generated.}
+{- {b Links} — Response links are parsed but not used in code generation.}
+{- {b External references} — Only internal [$ref] pointers starting with
+   [#/] are supported. External file references are not resolved.}}
+
+{1:union-types Implementing Union Types}
+
+To properly support [oneOf]/[anyOf], the generator would need to:
+
+{ol
+{- Analyze schemas in the union to determine variant names}
+{- Use the [discriminator] property if present to determine the tag field}
+{- Generate an OCaml variant type with one constructor per schema}
+{- Generate a decoder that:
+   {ul
+   {- Reads the discriminator field if present}
+   {- Pattern matches to select the appropriate decoder}
+   {- Falls back to trying each decoder in order for anyOf}}}
+{- Generate an encoder that pattern matches on the variant}}
+
+Example of what generated code might look like:
+
+{[
+(* For oneOf with discriminator *)
+type pet =
+  | Dog of Dog.t
+  | Cat of Cat.t
+
+let pet_jsont : pet Jsont.t =
+  (* Read discriminator field "petType" to determine variant *)
+  ...
+]}
+
+{1 See Also}
+
+{ul
+{- {{:https://spec.openapis.org/oas/v3.0.3} OpenAPI 3.0 Specification}}
+{- {{:https://erratique.ch/software/jsont} jsont documentation}}
+{- {{:https://github.com/tarides/requests} requests library}}}

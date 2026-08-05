@@ -1,0 +1,4 @@
+(library
+ (name linkedin)
+ (public_name linkedin)
+ (libraries requests eio fmt logs uri jsont jsont.bytesrw bytesrw))

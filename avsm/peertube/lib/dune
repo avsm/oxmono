@@ -1,0 +1,20 @@
+(library
+ (name peertube_auth)
+ (public_name peertube.auth)
+ (libraries
+  peertube
+  openapi
+  requests
+  jsont
+  jsont.bytesrw
+  eio
+  eio_main
+  ptime
+  ptime.clock.os
+  fmt
+  fmt.tty
+  fmt.cli
+  logs
+  logs.fmt
+  logs.cli
+  cmdliner))

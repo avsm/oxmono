@@ -1,0 +1,352 @@
+module User = struct
+  type content = String of string | Blocks of Content_block.t list
+  type t = { content : content; unknown : Unknown.t }
+
+  let create_string s = { content = String s; unknown = Unknown.empty }
+
+  let create_blocks blocks =
+    { content = Blocks blocks; unknown = Unknown.empty }
+
+  let create_with_tool_result ~tool_use_id ~content ?is_error () =
+    let tool_result =
+      Content_block.tool_result ~tool_use_id ~content ?is_error ()
+    in
+    { content = Blocks [ tool_result ]; unknown = Unknown.empty }
+
+  let make content unknown = { content; unknown }
+  let content t = t.content
+  let unknown t = t.unknown
+
+  (* Decode content from json value *)
+  let decode_content json =
+    match json with
+    | Jsont.String (s, _) -> String s
+    | Jsont.Array (items, _) ->
+        let blocks =
+          List.map
+            (fun j ->
+              match Jsont.Json.decode Content_block.jsont j with
+              | Ok v -> v
+              | Error e -> invalid_arg ("Invalid content block: " ^ e))
+            items
+        in
+        Blocks blocks
+    | _ -> failwith "Content must be string or array"
+
+  (* Encode content to json value *)
+  let encode_content = function
+    | String s -> Jsont.String (s, Jsont.Meta.none)
+    | Blocks blocks ->
+        let jsons =
+          List.map
+            (fun b ->
+              match Jsont.Json.encode Content_block.jsont b with
+              | Ok json -> json
+              | Error e -> invalid_arg ("encode_content: " ^ e))
+            blocks
+        in
+        Jsont.Array (jsons, Jsont.Meta.none)
+
+  let jsont : t Jsont.t =
+    Jsont.Object.map ~kind:"User" (fun json_content unknown ->
+        let content = decode_content json_content in
+        make content unknown)
+    |> Jsont.Object.mem "content" Jsont.json ~enc:(fun t ->
+           encode_content (content t))
+    |> Jsont.Object.keep_unknown Jsont.json_mems ~enc:unknown
+    |> Jsont.Object.finish
+
+  (* Jsont codec for parsing incoming user messages from CLI *)
+  let incoming_jsont : t Jsont.t =
+    let message_jsont =
+      Jsont.Object.map ~kind:"UserMessage" (fun json_content ->
+          let content = decode_content json_content in
+          { content; unknown = Unknown.empty })
+      |> Jsont.Object.mem "content" Jsont.json ~enc:(fun t ->
+             encode_content (content t))
+      |> Jsont.Object.finish
+    in
+    Jsont.Object.map ~kind:"UserEnvelope" Fun.id
+    |> Jsont.Object.mem "message" message_jsont ~enc:Fun.id
+    |> Jsont.Object.finish
+end
+
+module Assistant = struct
+  type error =
+    [ `Authentication_failed
+    | `Billing_error
+    | `Rate_limit
+    | `Invalid_request
+    | `Server_error
+    | `Unknown ]
+
+  let error_jsont : error Jsont.t =
+    Jsont.enum
+      [
+        ("authentication_failed", `Authentication_failed);
+        ("billing_error", `Billing_error);
+        ("rate_limit", `Rate_limit);
+        ("invalid_request", `Invalid_request);
+        ("server_error", `Server_error);
+        ("unknown", `Unknown);
+      ]
+
+  type t = {
+    content : Content_block.t list;
+    model : string;
+    error : error option;
+    unknown : Unknown.t;
+  }
+
+  let create ~content ~model ?error () =
+    { content; model; error; unknown = Unknown.empty }
+
+  let make content model error unknown = { content; model; error; unknown }
+  let content t = t.content
+  let model t = t.model
+  let error t = t.error
+  let unknown t = t.unknown
+
+  let jsont : t Jsont.t =
+    Jsont.Object.map ~kind:"Assistant" make
+    |> Jsont.Object.mem "content" (Jsont.list Content_block.jsont) ~enc:content
+    |> Jsont.Object.mem "model" Jsont.string ~enc:model
+    |> Jsont.Object.opt_mem "error" error_jsont ~enc:error
+    |> Jsont.Object.keep_unknown Jsont.json_mems ~enc:unknown
+    |> Jsont.Object.finish
+
+  (* Jsont codec for parsing incoming assistant messages from CLI *)
+  let incoming_jsont : t Jsont.t =
+    Jsont.Object.map ~kind:"AssistantEnvelope" Fun.id
+    |> Jsont.Object.mem "message" jsont ~enc:Fun.id
+    |> Jsont.Object.finish
+end
+
+module System = struct
+  (** System messages as a discriminated union on "subtype" field *)
+
+  type init = {
+    session_id : string option;
+    model : string option;
+    cwd : string option;
+    unknown : Unknown.t;
+  }
+
+  type error = { error : string; unknown : Unknown.t }
+  type t = Init of init | Error of error
+
+  (* Accessors *)
+  let session_id = function Init i -> i.session_id | _ -> None
+  let model = function Init i -> i.model | _ -> None
+  let cwd = function Init i -> i.cwd | _ -> None
+  let error_msg = function Error e -> Some e.error | _ -> None
+  let unknown = function Init i -> i.unknown | Error e -> e.unknown
+
+  (* Constructors *)
+  let init ?session_id ?model ?cwd () =
+    Init { session_id; model; cwd; unknown = Unknown.empty }
+
+  let error ~error = Error { error; unknown = Unknown.empty }
+
+  (* Individual record codecs *)
+  let init_jsont : init Jsont.t =
+    let make session_id model cwd unknown : init =
+      { session_id; model; cwd; unknown }
+    in
+    Jsont.Object.map ~kind:"SystemInit" make
+    |> Jsont.Object.opt_mem "session_id" Jsont.string ~enc:(fun (r : init) ->
+           r.session_id)
+    |> Jsont.Object.opt_mem "model" Jsont.string ~enc:(fun (r : init) ->
+           r.model)
+    |> Jsont.Object.opt_mem "cwd" Jsont.string ~enc:(fun (r : init) -> r.cwd)
+    |> Jsont.Object.keep_unknown Jsont.json_mems ~enc:(fun (r : init) ->
+           r.unknown)
+    |> Jsont.Object.finish
+
+  let error_jsont : error Jsont.t =
+    let make err unknown : error = { error = err; unknown } in
+    Jsont.Object.map ~kind:"SystemError" make
+    |> Jsont.Object.mem "error" Jsont.string ~enc:(fun (r : error) -> r.error)
+    |> Jsont.Object.keep_unknown Jsont.json_mems ~enc:(fun (r : error) ->
+           r.unknown)
+    |> Jsont.Object.finish
+
+  (* Main codec using case_mem for "subtype" discriminator *)
+  let jsont : t Jsont.t =
+    let case_init =
+      Jsont.Object.Case.map "init" init_jsont ~dec:(fun v -> Init v)
+    in
+    let case_error =
+      Jsont.Object.Case.map "error" error_jsont ~dec:(fun v -> Error v)
+    in
+    let enc_case = function
+      | Init v -> Jsont.Object.Case.value case_init v
+      | Error v -> Jsont.Object.Case.value case_error v
+    in
+    let cases = Jsont.Object.Case.[ make case_init; make case_error ] in
+    Jsont.Object.map ~kind:"System" Fun.id
+    |> Jsont.Object.case_mem "subtype" Jsont.string ~enc:Fun.id ~enc_case cases
+         ~tag_to_string:Fun.id ~tag_compare:String.compare
+    |> Jsont.Object.finish
+end
+
+module Result = struct
+  module Usage = struct
+    type t = {
+      input_tokens : int option;
+      output_tokens : int option;
+      total_tokens : int option;
+      cache_creation_input_tokens : int option;
+      cache_read_input_tokens : int option;
+      unknown : Unknown.t;
+    }
+
+    let make input_tokens output_tokens total_tokens cache_creation_input_tokens
+        cache_read_input_tokens unknown =
+      {
+        input_tokens;
+        output_tokens;
+        total_tokens;
+        cache_creation_input_tokens;
+        cache_read_input_tokens;
+        unknown;
+      }
+
+    let create ?input_tokens ?output_tokens ?total_tokens
+        ?cache_creation_input_tokens ?cache_read_input_tokens () =
+      {
+        input_tokens;
+        output_tokens;
+        total_tokens;
+        cache_creation_input_tokens;
+        cache_read_input_tokens;
+        unknown = Unknown.empty;
+      }
+
+    let input_tokens t = t.input_tokens
+    let output_tokens t = t.output_tokens
+    let total_tokens t = t.total_tokens
+    let cache_creation_input_tokens t = t.cache_creation_input_tokens
+    let cache_read_input_tokens t = t.cache_read_input_tokens
+    let unknown t = t.unknown
+
+    let jsont : t Jsont.t =
+      Jsont.Object.map ~kind:"Usage" make
+      |> Jsont.Object.opt_mem "input_tokens" Jsont.int ~enc:input_tokens
+      |> Jsont.Object.opt_mem "output_tokens" Jsont.int ~enc:output_tokens
+      |> Jsont.Object.opt_mem "total_tokens" Jsont.int ~enc:total_tokens
+      |> Jsont.Object.opt_mem "cache_creation_input_tokens" Jsont.int
+           ~enc:cache_creation_input_tokens
+      |> Jsont.Object.opt_mem "cache_read_input_tokens" Jsont.int
+           ~enc:cache_read_input_tokens
+      |> Jsont.Object.keep_unknown Jsont.json_mems ~enc:unknown
+      |> Jsont.Object.finish
+  end
+
+  type t = {
+    subtype : string;
+    duration_ms : int;
+    duration_api_ms : int;
+    is_error : bool;
+    num_turns : int;
+    session_id : string;
+    total_cost_usd : float option;
+    usage : Usage.t option;
+    result : string option;
+    structured_output : Jsont.json option;
+    unknown : Unknown.t;
+  }
+
+  let create ~subtype ~duration_ms ~duration_api_ms ~is_error ~num_turns
+      ~session_id ?total_cost_usd ?usage ?result ?structured_output () =
+    {
+      subtype;
+      duration_ms;
+      duration_api_ms;
+      is_error;
+      num_turns;
+      session_id;
+      total_cost_usd;
+      usage;
+      result;
+      structured_output;
+      unknown = Unknown.empty;
+    }
+
+  let make subtype duration_ms duration_api_ms is_error num_turns session_id
+      total_cost_usd usage result structured_output unknown =
+    {
+      subtype;
+      duration_ms;
+      duration_api_ms;
+      is_error;
+      num_turns;
+      session_id;
+      total_cost_usd;
+      usage;
+      result;
+      structured_output;
+      unknown;
+    }
+
+  let subtype t = t.subtype
+  let duration_ms t = t.duration_ms
+  let duration_api_ms t = t.duration_api_ms
+  let is_error t = t.is_error
+  let num_turns t = t.num_turns
+  let session_id t = t.session_id
+  let total_cost_usd t = t.total_cost_usd
+  let usage t = t.usage
+  let result t = t.result
+  let structured_output t = t.structured_output
+  let unknown t = t.unknown
+
+  let jsont : t Jsont.t =
+    Jsont.Object.map ~kind:"Result" make
+    |> Jsont.Object.mem "subtype" Jsont.string ~enc:subtype
+    |> Jsont.Object.mem "duration_ms" Jsont.int ~enc:duration_ms
+    |> Jsont.Object.mem "duration_api_ms" Jsont.int ~enc:duration_api_ms
+    |> Jsont.Object.mem "is_error" Jsont.bool ~enc:is_error
+    |> Jsont.Object.mem "num_turns" Jsont.int ~enc:num_turns
+    |> Jsont.Object.mem "session_id" Jsont.string ~enc:session_id
+    |> Jsont.Object.opt_mem "total_cost_usd" Jsont.number ~enc:total_cost_usd
+    |> Jsont.Object.opt_mem "usage" Usage.jsont ~enc:usage
+    |> Jsont.Object.opt_mem "result" Jsont.string ~enc:result
+    |> Jsont.Object.opt_mem "structured_output" Jsont.json
+         ~enc:structured_output
+    |> Jsont.Object.keep_unknown Jsont.json_mems ~enc:unknown
+    |> Jsont.Object.finish
+end
+
+type t =
+  | User of User.t
+  | Assistant of Assistant.t
+  | System of System.t
+  | Result of Result.t
+
+(* Jsont codec for the main Message variant type.
+   Uses case_mem for discriminated union based on "type" field. *)
+let jsont : t Jsont.t =
+  let case_map kind obj dec = Jsont.Object.Case.map kind obj ~dec in
+  let case_user = case_map "user" User.incoming_jsont (fun v -> User v) in
+  let case_assistant =
+    case_map "assistant" Assistant.incoming_jsont (fun v -> Assistant v)
+  in
+  let case_system = case_map "system" System.jsont (fun v -> System v) in
+  let case_result = case_map "result" Result.jsont (fun v -> Result v) in
+  let enc_case = function
+    | User v -> Jsont.Object.Case.value case_user v
+    | Assistant v -> Jsont.Object.Case.value case_assistant v
+    | System v -> Jsont.Object.Case.value case_system v
+    | Result v -> Jsont.Object.Case.value case_result v
+  in
+  let cases =
+    Jsont.Object.Case.
+      [
+        make case_user; make case_assistant; make case_system; make case_result;
+      ]
+  in
+  Jsont.Object.map ~kind:"Message" Fun.id
+  |> Jsont.Object.case_mem "type" Jsont.string ~enc:Fun.id ~enc_case cases
+       ~tag_to_string:Fun.id ~tag_compare:String.compare
+  |> Jsont.Object.finish

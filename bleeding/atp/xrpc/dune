@@ -1,0 +1,14 @@
+(library
+ (name xrpc)
+ (public_name atp-xrpc)
+ (libraries
+  atp
+  requests
+  jsont
+  jsont.bytesrw
+  jsonwt
+  ptime
+  ptime.clock.os
+  fmt
+  eio
+  uri))

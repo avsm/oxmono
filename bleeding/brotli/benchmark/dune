@@ -1,0 +1,15 @@
+(executable
+ (name bench)
+ (libraries brotli unix)
+ (ocamlopt_flags (:standard -O3)))
+
+(executable
+ (name compare)
+ (libraries brotli unix)
+ (ocamlopt_flags (:standard -O3)))
+
+(executable
+ (name test_template)
+ (libraries core stdlib_upstream_compatible)
+ (preprocess (pps ppx_template))
+ (ocamlopt_flags (:standard -O3)))

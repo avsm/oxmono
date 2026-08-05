@@ -1,0 +1,4 @@
+(library
+ (name arod_search)
+ (public_name arod.search)
+ (libraries arod bushel sqlite3-eio ptime fmt))

@@ -1,0 +1,14 @@
+(library
+ (name atp)
+ (public_name atp)
+ (libraries
+  bytesrw
+  jsont
+  jsont.bytesrw
+  digestif
+  multibase
+  eio
+  fmt
+  unix
+  re
+  base64))

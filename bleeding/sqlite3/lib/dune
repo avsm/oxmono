@@ -1,0 +1,25 @@
+(copy_files ../vendor/sqlite3/sqlite3.{c,h})
+
+(library
+ (public_name sqlite3)
+ (foreign_stubs
+  (language c)
+  (names sqlite3_stubs)
+  (flags (:standard) (:include c_flags.sexp)))
+ (foreign_archives sqlite3_c)
+ (c_library_flags (:include c_library_flags.sexp)))
+
+(rule
+ (targets c_flags.sexp c_library_flags.sexp c_vendor_flags)
+ (action (run ./config/discover.exe)))
+
+(rule
+ (targets libsqlite3_c%{ext_lib} dllsqlite3_c%{ext_dll})
+ (deps sqlite3_amalg%{ext_obj})
+ (action (run ocamlmklib -o sqlite3_c %{deps})))
+
+(rule
+ (targets sqlite3_amalg%{ext_obj})
+ (deps (:c sqlite3.c) sqlite3.h)
+ (action
+  (run %{cc} %{read-lines:c_vendor_flags} -c -o %{targets} %{c})))

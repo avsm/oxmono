@@ -1,0 +1,23 @@
+(executable
+ (name main)
+ (public_name bushel)
+ (libraries
+  bushel
+  bushel.eio
+  bushel.config
+  bushel.sync
+  bushel.web
+  cmdliner
+  eio_main
+  httpz
+  httpz.server
+  httpz.eio
+  logs
+  logs.cli
+  logs.fmt
+  fmt.tty
+  fmt.cli
+  gitops
+  ptime
+  srcsetter
+  unix))

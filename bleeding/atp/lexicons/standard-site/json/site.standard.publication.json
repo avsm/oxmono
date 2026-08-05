@@ -1,0 +1,61 @@
+{
+  "lexicon": 1,
+  "id": "site.standard.publication",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "description": "A publication record representing a blog, website, or content platform. Publications serve as containers for documents and define the overall branding and settings.",
+      "record": {
+        "type": "object",
+        "required": ["url", "name"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Base publication url (ex: https://standard.site). The canonical document URL is formed by combining this value with the document path."
+          },
+          "icon": {
+            "type": "blob",
+            "maxSize": 1000000,
+            "accept": ["image/*"],
+            "description": "Square image to identify the publication. Should be at least 256x256."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 1280,
+            "maxGraphemes": 128,
+            "description": "Name of the publication."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 3000,
+            "maxGraphemes": 300,
+            "description": "Brief description of the publication."
+          },
+          "basicTheme": {
+            "type": "ref",
+            "ref": "site.standard.theme.basic",
+            "description": "Simplified publication theme for tools and apps to utilize when displaying content."
+          },
+          "preferences": {
+            "type": "ref",
+            "ref": "#preferences",
+            "description": "Object containing platform specific preferences (with a few shared properties)."
+          }
+        }
+      }
+    },
+    "preferences": {
+      "type": "object",
+      "description": "Platform-specific preferences for the publication, including discovery and visibility settings.",
+      "properties": {
+        "showInDiscover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Boolean which decides whether the publication should appear in discovery feeds."
+        }
+      }
+    }
+  }
+}

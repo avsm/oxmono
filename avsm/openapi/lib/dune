@@ -1,0 +1,7 @@
+(library
+ (name openapi)
+ (public_name openapi)
+ (libraries jsont jsont.bytesrw fmt logs ptime re))
+
+(documentation
+ (package openapi))

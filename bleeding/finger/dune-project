@@ -1,0 +1,26 @@
+(lang dune 3.21)
+(name finger)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-finger))
+
+(package
+ (name finger)
+ (synopsis "RFC 1288 Finger protocol library for OCaml with Eio")
+ (description
+  "An implementation of the Finger User Information Protocol (RFC 1288)
+   for OCaml using Eio for asynchronous I/O. Provides a query parser,
+   TCP client, and TCP server with a configurable handler function.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (dune (>= 3.0))
+  (eio (>= 1.0))
+  (eio_main (>= 1.0))
+  (logs (>= 0.7.0))
+  (fmt (>= 0.9.0))
+  (cmdliner (>= 1.2.0))
+  (odoc :with-doc)))

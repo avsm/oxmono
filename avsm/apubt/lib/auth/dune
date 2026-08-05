@@ -1,0 +1,18 @@
+(library
+ (name apub_auth)
+ (public_name apubt.auth)
+ (wrapped false)
+ (libraries
+  base64
+  cmdliner
+  digestif
+  eio
+  eio_main
+  fmt
+  jsont
+  jsont.bytesrw
+  mirage-crypto-rng
+  mirage-crypto-rng.unix
+  ptime.clock.os
+  requests
+  x509))

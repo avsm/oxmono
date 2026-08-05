@@ -1,0 +1,16 @@
+(executable
+ (name main)
+ (public_name standard-site)
+ (package standard-site)
+ (libraries
+  standard_site
+  xrpc-auth
+  atp-lexicon-standard-site
+  cmdliner
+  fmt
+  fmt.tty
+  eio
+  eio_main
+  ptime
+  ptime.clock.os
+  uri))

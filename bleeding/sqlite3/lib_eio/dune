@@ -1,0 +1,4 @@
+(library
+ (name sqlite3_eio)
+ (public_name sqlite3-eio)
+ (libraries sqlite3 eio eio.unix))

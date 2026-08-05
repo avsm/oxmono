@@ -1,0 +1,5 @@
+(library
+ (name requests_parsing)
+ (public_name requests.parsing)
+ (wrapped false)
+ (libraries requests_core ptime))

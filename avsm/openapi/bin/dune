@@ -1,0 +1,4 @@
+(executable
+ (name openapi_cli)
+ (public_name openapi-gen)
+ (libraries openapi yamlt cmdliner fmt logs logs.fmt fmt.tty unix))

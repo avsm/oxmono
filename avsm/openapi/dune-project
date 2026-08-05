@@ -1,0 +1,26 @@
+(lang dune 3.21)
+(name openapi)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-openapi))
+
+(package
+ (name openapi)
+ (synopsis "OpenAPI code generator for OCaml with requests and jsont")
+ (description
+  "Generate type-safe OCaml API clients from OpenAPI 3.x specifications.
+Uses the requests HTTP library and jsont for JSON codecs.")
+ (depends
+  (ocaml (>= 5.1.0))
+  jsont
+  bytesrw
+  fmt
+  logs
+  ptime
+  (cmdliner (>= 1.2.0))
+  (odoc :with-doc)
+  (alcotest :with-test)))

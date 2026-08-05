@@ -1,0 +1,9 @@
+(executable
+ (name stress_test)
+ (modules stress_test)
+ (libraries conpool eio eio_main unix))
+
+(rule
+ (alias runtest)
+ (deps stress_test.exe)
+ (action (run ./stress_test.exe --all -o stress_test_results.json)))

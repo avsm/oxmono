@@ -1,0 +1,20 @@
+(library
+ (name typesense_auth)
+ (public_name typesense.auth)
+ (libraries
+  typesense
+  openapi
+  requests
+  jsont
+  jsont.bytesrw
+  eio
+  eio_main
+  ptime
+  ptime.clock.os
+  fmt
+  fmt.tty
+  fmt.cli
+  logs
+  logs.fmt
+  logs.cli
+  cmdliner))

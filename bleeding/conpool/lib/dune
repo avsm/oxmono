@@ -1,0 +1,4 @@
+(library
+ (name conpool)
+ (public_name conpool)
+ (libraries eio eio.unix tls-eio logs fmt cmdliner))

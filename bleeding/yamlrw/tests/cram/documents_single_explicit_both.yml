@@ -1,0 +1,11 @@
+# Test 3: Explicit start and end (--- ... )
+---
+key1: value1
+key2: value2
+nested:
+  inner: data
+list:
+  - item1
+  - item2
+  - item3
+...

@@ -1,0 +1,71 @@
+{0 Tomlt}
+
+{1 TOML 1.1 Codec Library}
+
+Tomlt is a bidirectional codec library for {{:https://toml.io/en/v1.1.0}TOML 1.1}
+configuration files. It provides type-safe encoding and decoding between
+OCaml types and TOML values.
+
+{2 Quick Start}
+
+Define a codec for your configuration type:
+
+{[
+type config = { host : string; port : int; debug : bool }
+
+let config_codec =
+  Tomlt.(Table.(
+    obj (fun host port debug -> { host; port; debug })
+    |> mem "host" string ~enc:(fun c -> c.host)
+    |> mem "port" int ~enc:(fun c -> c.port)
+    |> mem "debug" bool ~enc:(fun c -> c.debug) ~dec_absent:false
+    |> finish
+  ))
+]}
+
+Parse and use it:
+
+{[
+let () =
+  match Tomlt_bytesrw.decode_string config_codec {|
+    host = "localhost"
+    port = 8080
+  |} with
+  | Ok config -> Printf.printf "Host: %s\n" config.host
+  | Error e -> prerr_endline (Toml.Error.to_string e)
+]}
+
+{2 Library Structure}
+
+- {!Tomlt.Toml} - Core TOML value types and operations
+- {!Tomlt} - Codec combinators for bidirectional TOML encoding/decoding
+- {!Tomlt_bytesrw} - Streaming parser and encoder
+- {!Tomlt_eio} - Eio-native I/O integration
+- {!Tomlt_unix} - Unix I/O integration
+- {!Tomlt_jsont} - JSON codec for toml-test format
+
+{2 Cookbook}
+
+The {{!page-cookbook}cookbook} provides patterns and recipes for common
+TOML scenarios:
+
+- {{!page-cookbook.config_files}Parsing configuration files}
+- {{!page-cookbook.optional_values}Optional and absent values}
+- {{!page-cookbook.datetimes}Working with datetimes}
+- {{!page-cookbook.arrays}Working with arrays}
+- {{!page-cookbook.tables}Nested tables and objects}
+- {{!page-cookbook.unknown_members}Unknown member handling}
+- {{!page-cookbook.validation}Validation and constraints}
+- {{!page-cookbook.roundtripping}Roundtripping TOML}
+- {{!page-cookbook.error_handling}Error handling}
+
+{2 Design}
+
+Tomlt is inspired by {{:https://erratique.ch/software/jsont}Jsont}'s approach
+to JSON codecs. Each codec ['a Tomlt.t] defines both:
+
+- A decoder: [Toml.t -> ('a, error) result]
+- An encoder: ['a -> Toml.t]
+
+Codecs compose through combinators, allowing complex types to be built
+from simple primitives while maintaining bidirectionality.

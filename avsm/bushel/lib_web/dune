@@ -1,0 +1,19 @@
+(library
+ (name bushel_web)
+ (public_name bushel.web)
+ (libraries
+  bushel
+  bushel.eio
+  bushel.config
+  tw
+  tw.html
+  httpz
+  httpz.server
+  httpz.eio
+  cmarkit
+  srcsetter
+  sortal.schema
+  ptime
+  eio
+  logs
+  fmt))

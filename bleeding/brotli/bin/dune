@@ -1,0 +1,6 @@
+(executable
+ (name brotli_cli)
+ (public_name brotli)
+ (package brotli)
+ (libraries brotli cmdliner)
+ (ocamlopt_flags (:standard -O3)))

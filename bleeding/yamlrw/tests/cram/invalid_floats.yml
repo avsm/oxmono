@@ -1,0 +1,40 @@
+# Test that invalid float representations are treated as strings
+# Per YAML spec, only .nan/.NaN/.NAN and .inf/.Inf/.INF (with dot) are valid
+
+# These should be floats (valid YAML float syntax)
+valid_nan: .nan
+valid_nan_title: .NaN
+valid_nan_upper: .NAN
+valid_inf: .inf
+valid_inf_title: .Inf
+valid_inf_upper: .INF
+valid_neg_inf: -.inf
+valid_neg_inf_title: -.Inf
+valid_neg_inf_upper: -.INF
+valid_pos_inf: +.inf
+
+# These should be STRINGS (invalid YAML float syntax, but OCaml float_of_string accepts them)
+# See: https://github.com/avsm/ocaml-yaml/issues/82
+invalid_nan: nan
+invalid_nan_title: NaN
+invalid_nan_upper: NAN
+invalid_inf: inf
+invalid_inf_title: Inf
+invalid_inf_upper: INF
+invalid_infinity: infinity
+invalid_infinity_title: Infinity
+invalid_infinity_upper: INFINITY
+invalid_neg_inf: -inf
+invalid_neg_infinity: -infinity
+invalid_pos_inf: +inf
+invalid_pos_infinity: +infinity
+
+# Quoted versions should always be strings
+quoted_nan: 'nan'
+quoted_inf: 'inf'
+quoted_infinity: 'infinity'
+
+# As mapping keys (yarn.lock use case)
+dependencies:
+  nan: 2.14.0
+  inf: 1.0.0

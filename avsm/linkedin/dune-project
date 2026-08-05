@@ -1,0 +1,26 @@
+(lang dune 3.21)
+(name linkedin)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(package
+ (name linkedin)
+ (synopsis "LinkedIn API client for OCaml")
+ (description
+  "LinkedIn API client using the UGC Posts API (v2) for creating
+   text, article/link, and image shares. Uses the Requests HTTP
+   library for connection management.")
+ (depends
+  (ocaml (>= 5.2))
+  (requests (>= 0.1))
+  eio
+  fmt
+  logs
+  uri
+  jsont
+  bytesrw
+  (odoc :with-doc)))

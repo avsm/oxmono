@@ -1,0 +1,192 @@
+# Block scalars - literal and folded styles
+---
+# Literal style (|) - preserves newlines
+literal_basic: |
+  Line one
+  Line two
+  Line three
+
+literal_with_indent: |
+  First line
+    Indented line
+      More indented
+    Back to second level
+  Back to first level
+
+# Folded style (>) - converts newlines to spaces
+folded_basic: >
+  This is a long paragraph
+  that will be folded into
+  a single line with the
+  newlines converted to spaces.
+
+folded_paragraph: >
+  First paragraph flows together
+  into a single line.
+
+  Second paragraph after blank line
+  also flows together.
+
+# Chomping indicators
+# Strip (-) - removes trailing newlines
+literal_strip: |-
+  No trailing newline
+
+
+literal_strip_multiple: |-
+  Text here
+
+
+folded_strip: >-
+  Folded text
+  with stripped
+  trailing newlines
+
+
+# Clip (default) - keeps single trailing newline
+literal_clip: |
+  One trailing newline
+
+
+literal_clip_explicit: |
+  This is the default behavior
+
+
+folded_clip: >
+  Folded with one
+  trailing newline
+
+
+# Keep (+) - preserves all trailing newlines
+literal_keep: |+
+  Keeps trailing newlines
+
+
+literal_keep_multiple: |+
+  Text here
+
+
+folded_keep: >+
+  Folded text
+  keeps trailing
+
+
+# Explicit indentation indicators
+literal_indent_2: |2
+    Two space indentation
+    is preserved here
+      Extra indent
+    Back to two
+
+literal_indent_4: |4
+      Four space base indent
+      Second line
+        Extra indent
+      Back to base
+
+folded_indent_2: >2
+    Text with two space
+    base indentation that
+    will be folded.
+
+folded_indent_3: >3
+     Three space indent
+     for this folded
+     text block.
+
+# Combinations of indicators
+literal_indent_strip: |2-
+    Indented by 2
+    No trailing newlines
+
+
+folded_indent_strip: >3-
+     Folded with indent
+     and stripped end
+
+
+literal_indent_keep: |2+
+    Indented by 2
+    Keeps trailing newlines
+
+
+folded_indent_keep: >4+
+      Folded indent 4
+      keeps all trailing
+
+
+# Empty block scalars
+empty_literal: |
+
+empty_folded: >
+
+# Block scalar with only newlines
+only_newlines_literal: |
+
+
+only_newlines_folded: >
+
+
+# Complex indentation patterns
+complex_literal: |
+  First level
+    Second level
+      Third level
+    Back to second
+  Back to first
+
+  New paragraph
+    With indent
+
+  Final paragraph
+
+complex_folded: >
+  This paragraph
+  flows together.
+
+  This is separate.
+    This line starts more indented
+    and continues.
+
+  Final thoughts here.
+
+# Special characters in block scalars
+special_chars_literal: |
+  Special: @#$%^&*()
+  Quotes: "double" 'single'
+  Brackets: [array] {object}
+  Symbols: | > & * ? : -
+
+special_chars_folded: >
+  All special chars are literal
+  in block scalars: []{}|>*&
+
+# Block scalars in sequences
+sequence_with_blocks:
+  - |
+    First item
+    literal block
+  - >
+    Second item
+    folded block
+  - |-
+    Third item
+    stripped
+  - |+
+    Fourth item
+    kept
+
+
+# Block scalars in nested mappings
+nested:
+  description: >
+    This is a folded
+    description that spans
+    multiple lines.
+  code: |
+    def hello():
+        print("Hello, World!")
+        return True
+  notes: |-
+    Final notes
+    with stripped end

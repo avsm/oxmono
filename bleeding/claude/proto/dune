@@ -1,0 +1,4 @@
+(library
+ (name proto)
+ (public_name claude.proto)
+ (libraries jsont))

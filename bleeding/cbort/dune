@@ -1,0 +1,6 @@
+; Root dune file
+
+; Ignore third_party directory (for fetched dependency sources)
+; Exclude specs (reference docs) from build
+
+(data_only_dirs third_party specs)

@@ -1,0 +1,21 @@
+(executable
+ (name main)
+ (public_name tessabot)
+ (package tessabot)
+ (libraries
+  tessabot
+  sortal
+  sortal.feed
+  eio_main
+  cmdliner
+  xdge
+  requests
+  logs
+  logs.fmt
+  logs.cli
+  fmt
+  fmt.tty
+  fmt.cli
+  ptime
+  ptime.clock.os
+  unix))

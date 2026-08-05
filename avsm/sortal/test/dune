@@ -1,0 +1,12 @@
+(test
+ (name test_sortal)
+ (libraries sortal eio eio_main jsont jsont.bytesrw))
+
+(test
+ (name test_schema)
+ (libraries sortal.schema jsont jsont.bytesrw))
+
+(test
+ (name test_feed)
+ (libraries sortal.feed sortal.schema eio eio_main syndic jsonfeed xmlm uri ptime))
+

@@ -1,0 +1,53 @@
+# Full line comment at the beginning
+# This is a YAML file testing comment handling
+
+# Comment before a mapping
+name: John Doe  # End of line comment after a scalar value
+age: 30  # Another end of line comment
+
+# Comment between mapping entries
+address:
+  # Comment inside nested mapping
+  street: 123 Main St  # End of line comment in nested value
+  city: Springfield
+  # Comment between nested entries
+  zip: 12345
+
+# Comment before sequence
+items:
+  - apple  # Comment after sequence item
+  - banana
+  # Comment between sequence items
+  - cherry
+  - date  # Last item comment
+
+# Comment before flow sequence
+flow_seq: [1, 2, 3]  # Comment after flow sequence
+
+# Comment before flow mapping
+flow_map: {key1: value1, key2: value2}  # Comment after flow mapping
+
+# Comments with various indentation levels
+nested:
+    # Indented comment level 1
+    level1:
+        # Indented comment level 2
+        level2:
+            # Indented comment level 3
+            value: deeply nested  # End comment at depth
+
+# Multiple consecutive comments
+# Line 1
+# Line 2
+# Line 3
+multi_comment_key: value
+
+# Comment with special characters: !@#$%^&*()
+special: "value with # hash inside quotes"
+
+# Empty value with comment
+empty_value:  # This key has no value (null)
+
+# Comment before document end
+final_key: final_value
+# Final comment at end of file

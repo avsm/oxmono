@@ -1,0 +1,31 @@
+(lang dune 3.20)
+
+(name xdge)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(homepage "https://tangled.sh/@anil.recoil.org/xdge")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(bug_reports "https://tangled.sh/@anil.recoil.org/xdge/issues")
+(maintenance_intent "(latest)")
+
+(package
+ (name xdge)
+ (synopsis "XDG Base Directory Specification support for Eio")
+ (description
+  "This library implements the XDG Base Directory Specification \
+   with Eio capabilities to provide safe access to configuration, \
+   data, cache, state, and runtime directories. The library exposes \
+   Cmdliner terms that allow for proper environment variable overrides \
+   and command-line flags.")
+ (depends
+  (ocaml (>= 5.1.0))
+  (eio (>= 1.1))
+  (cmdliner (>= 1.2.0))
+  fmt
+  xdg
+  (eio_main :with-test)
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))))

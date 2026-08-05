@@ -1,0 +1,105 @@
+open Alcotest
+
+let check = Test_helpers.check_handler_roundtrip (module Tw.Effects.Handler)
+
+let of_string_valid () =
+  (* Box shadow *)
+  check "shadow";
+  check "shadow-sm";
+  check "shadow-md";
+  check "shadow-lg";
+  check "shadow-xl";
+  check "shadow-2xl";
+  check "shadow-inner";
+  check "shadow-none";
+
+  (* Opacity *)
+  check "opacity-0";
+  check "opacity-5";
+  check "opacity-10";
+  check "opacity-25";
+  check "opacity-50";
+  check "opacity-75";
+  check "opacity-100";
+
+  (* Mix blend mode *)
+  check "mix-blend-normal";
+  check "mix-blend-multiply";
+  check "mix-blend-screen";
+  check "mix-blend-overlay"
+
+let test_ring_of_string_valid () =
+  check "ring";
+  check "ring-0";
+  check "ring-1";
+  check "ring-2";
+  check "ring-4";
+  check "ring-8";
+  check "ring-inset"
+
+let test_filters_css_generation () =
+  (* Spot-check a few filter/backdrop utilities *)
+  let open Tw in
+  let css =
+    Rules.to_css
+      [
+        Filters.blur;
+        Filters.backdrop_blur_lg;
+        Filters.backdrop_brightness 125;
+        Filters.backdrop_opacity 50;
+      ]
+    |> Css.to_string
+  in
+  Alcotest.check bool "has filter property" true
+    (Astring.String.is_infix ~affix:"filter:" css);
+  Alcotest.check bool "has backdrop-filter property" true
+    (Astring.String.is_infix ~affix:"backdrop-filter:" css)
+
+let of_string_invalid () =
+  (* Invalid effects values *)
+  let fail_maybe input =
+    let class_name = String.concat "-" input in
+    match Tw.Effects.Handler.of_class class_name with
+    | Ok _ -> fail ("Expected error for: " ^ class_name)
+    | Error _ -> ()
+  in
+
+  fail_maybe [ "shadow"; "3xl" ];
+  (* Invalid shadow size *)
+  fail_maybe [ "opacity"; "110" ];
+  (* Invalid opacity value *)
+  fail_maybe [ "mix"; "blend"; "invalid" ];
+  (* Invalid blend mode *)
+  fail_maybe [ "unknown" ]
+(* Unknown effects type *)
+
+let all_utilities () =
+  let open Tw in
+  [
+    shadow_sm;
+    shadow;
+    shadow_md;
+    shadow_lg;
+    shadow_none;
+    opacity 0;
+    opacity 50;
+    opacity 100;
+  ]
+
+let suborder_matches_tailwind () =
+  let shuffled = Test_helpers.shuffle (all_utilities ()) in
+
+  Test_helpers.check_ordering_matches
+    ~test_name:"effects suborder matches Tailwind" shuffled
+
+let tests =
+  [
+    test_case "effects of_string - valid values" `Quick of_string_valid;
+    test_case "effects of_string - invalid values" `Quick of_string_invalid;
+    test_case "ring of_string - valid values" `Quick test_ring_of_string_valid;
+    test_case "filters css generation" `Quick test_filters_css_generation;
+    test_case "effects suborder matches Tailwind" `Quick
+      suborder_matches_tailwind;
+  ]
+
+let suite = ("effects", tests)

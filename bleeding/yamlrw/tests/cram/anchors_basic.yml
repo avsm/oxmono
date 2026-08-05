@@ -1,0 +1,125 @@
+# Basic Anchor and Alias Test Cases
+# Tests fundamental anchor (&) and alias (*) functionality
+
+# Test 1: Simple scalar anchor and alias
+---
+scalar_anchor: &simple_scalar "Hello, World!"
+scalar_alias: *simple_scalar
+# Expected: both should have the value "Hello, World!"
+
+# Test 2: Numeric scalar anchor
+---
+original: &num 42
+copy: *num
+another_copy: *num
+# Expected: all three should have the value 42
+
+# Test 3: Sequence anchor and alias
+---
+original_list: &my_list
+  - apple
+  - banana
+  - cherry
+
+copied_list: *my_list
+# Expected: both lists should be identical
+
+# Test 4: Mapping anchor and alias
+---
+original_map: &person
+  name: Alice
+  age: 30
+  city: London
+
+copied_map: *person
+# Expected: both maps should be identical
+
+# Test 5: Multiple anchors in same document
+---
+defaults: &defaults
+  timeout: 30
+  retries: 3
+
+colors: &colors
+  - red
+  - green
+  - blue
+
+config:
+  settings: *defaults
+  palette: *colors
+# Expected: config.settings should have timeout and retries, config.palette should have the color list
+
+# Test 6: Nested structure with anchor
+---
+template: &template
+  metadata:
+    version: 1.0
+    author: John Doe
+  settings:
+    enabled: true
+    debug: false
+
+instance1: *template
+instance2: *template
+# Expected: both instances should be identical copies of template
+
+# Test 7: Anchor in sequence
+---
+items:
+  - &first_item
+    id: 1
+    name: First
+  - id: 2
+    name: Second
+  - *first_item
+# Expected: first and third items should be identical
+
+# Test 8: Multiple uses of same alias
+---
+shared_value: &shared 100
+calculations:
+  base: *shared
+  doubled: 200  # Just a value, not calculated
+  reference: *shared
+  another_ref: *shared
+# Expected: base, reference, and another_ref should all be 100
+
+# Test 9: Boolean anchor
+---
+feature_flag: &enabled true
+features:
+  login: *enabled
+  signup: *enabled
+  export: *enabled
+# Expected: all features should be true
+
+# Test 10: Null anchor
+---
+empty: &null_value ~
+values:
+  first: *null_value
+  second: *null_value
+# Expected: all should be null
+
+# Test 11: String with special characters
+---
+message: &msg |
+  This is a multi-line
+  message with some
+  special content!
+
+output1: *msg
+output2: *msg
+# Expected: both outputs should have the same multi-line string
+
+# Test 12: Anchor in mapping value
+---
+database:
+  primary: &db_config
+    host: localhost
+    port: 5432
+    ssl: true
+  replica: *db_config
+  backup: *db_config
+# Expected: primary, replica, and backup should all have identical configuration

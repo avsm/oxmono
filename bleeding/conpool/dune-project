@@ -1,0 +1,23 @@
+(lang dune 3.21)
+(name conpool)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-conpool))
+
+(package
+ (name conpool)
+ (synopsis "Protocol-agnostic TCP/IP connection pooling library for Eio")
+ (description "Conpool is a connection pooling library built on Eio.Pool that manages TCP connection lifecycles, validates connection health, and provides per-endpoint resource limiting for any TCP-based protocol (HTTP, Redis, PostgreSQL, etc.)")
+ (depends
+  (ocaml (>= 5.1.0))
+  (dune (>= 3.0))
+  eio
+  (tls-eio (>= 1.0))
+  logs
+  fmt
+  cmdliner
+  (odoc :with-doc)))

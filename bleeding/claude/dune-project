@@ -1,0 +1,25 @@
+(lang dune 3.21)
+(name claude)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-claudeio))
+
+(package
+ (name claude)
+ (synopsis "OCaml client library for Claude Code")
+ (description "An Eio-based OCaml library for interacting with the Claude CLI using JSON streaming")
+ (depends
+  (ocaml (>= 5.1.0))
+  eio
+  eio_main
+  fmt
+  logs
+  cmdliner
+  bytesrw
+  (jsont (>= 0.2.0))
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))))

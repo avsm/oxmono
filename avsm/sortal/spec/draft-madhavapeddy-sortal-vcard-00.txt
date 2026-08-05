@@ -1,0 +1,1205 @@
+
+
+
+
+Independent Submission                                  A. Madhavapeddy
+Internet-Draft                                         23 February 2026
+Intended status: Informational
+Expires: 27 August 2026
+
+
+  vCard Extensions for Temporal Validity, Feeds, and Modern Identities
+                draft-madhavapeddy-vcard-temporal-00
+
+Abstract
+
+   This document defines vCard [RFC6350] extensions that enable
+   temporal validity tracking on contact properties.  It introduces
+   the X-VALID-FROM and X-VALID-UNTIL parameters for expressing
+   half-open date intervals on properties such as EMAIL, ORG, TITLE,
+   URL, SOCIALPROFILE, and IMPP.  It also defines an X-FEED property
+   for web feed subscriptions, an X-ATPROTO property for AT Protocol
+   identities, and conventions for using the GROUP construct to
+   represent organisational affiliations with scoped contact
+   information.
+
+   These extensions enable a vCard to serve as a longitudinal record
+   of a contact's evolving identities, affiliations, and
+   communication addresses, supporting queries such as "what was this
+   person's email at a given date?" while remaining compatible with
+   existing CardDAV [RFC6352] servers and clients.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 27 August 2026.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . .   3
+     1.1.  Motivation  . . . . . . . . . . . . . . . . . . . . . .   3
+     1.2.  Relationship to Existing Standards  . . . . . . . . . .   4
+     1.3.  Conventions and Terminology . . . . . . . . . . . . . .   4
+   2.  Temporal Validity Parameters  . . . . . . . . . . . . . . .   5
+     2.1.  X-VALID-FROM Parameter  . . . . . . . . . . . . . . . .   5
+     2.2.  X-VALID-UNTIL Parameter . . . . . . . . . . . . . . . .   6
+     2.3.  Date Format . . . . . . . . . . . . . . . . . . . . . .   6
+     2.4.  Interval Semantics  . . . . . . . . . . . . . . . . . .   7
+     2.5.  Applicable Properties . . . . . . . . . . . . . . . . .   8
+     2.6.  Interaction with CREATED Parameter  . . . . . . . . . .   9
+     2.7.  Interaction with PREF Parameter . . . . . . . . . . . .   9
+   3.  Usage Patterns for Temporal Properties  . . . . . . . . . .  10
+     3.1.  EMAIL with Temporal Validity  . . . . . . . . . . . . .  10
+     3.2.  SOCIALPROFILE for Online Services . . . . . . . . . . .  11
+     3.3.  ORG, TITLE, and ROLE for Affiliations . . . . . . . . .  12
+     3.4.  URL for Web Presence  . . . . . . . . . . . . . . . . .  12
+     3.5.  IMPP for Messaging Services . . . . . . . . . . . . . .  13
+   4.  Organisation Affiliations via GROUP . . . . . . . . . . . .  13
+     4.1.  Grouping Convention . . . . . . . . . . . . . . . . . .  14
+     4.2.  Temporal Bounds on Affiliations . . . . . . . . . . . .  14
+     4.3.  Scoped Properties within Affiliations . . . . . . . . .  15
+   5.  New Property: X-FEED  . . . . . . . . . . . . . . . . . . .  16
+     5.1.  Purpose . . . . . . . . . . . . . . . . . . . . . . . .  16
+     5.2.  Why Not URL with MEDIATYPE? . . . . . . . . . . . . . .  16
+     5.3.  Value Type  . . . . . . . . . . . . . . . . . . . . . .  17
+     5.4.  Parameters  . . . . . . . . . . . . . . . . . . . . . .  17
+     5.5.  ABNF  . . . . . . . . . . . . . . . . . . . . . . . . .  17
+     5.6.  X-FEED-TYPE Parameter . . . . . . . . . . . . . . . . .  18
+     5.7.  Examples  . . . . . . . . . . . . . . . . . . . . . . .  18
+   6.  New Property: X-ATPROTO . . . . . . . . . . . . . . . . . .  19
+     6.1.  Purpose . . . . . . . . . . . . . . . . . . . . . . . .  19
+     6.2.  Value Type  . . . . . . . . . . . . . . . . . . . . . .  20
+     6.3.  Parameters  . . . . . . . . . . . . . . . . . . . . . .  20
+     6.4.  ABNF  . . . . . . . . . . . . . . . . . . . . . . . . .  21
+     6.5.  Handle Changes and Identity Continuity  . . . . . . . .  22
+     6.6.  Examples  . . . . . . . . . . . . . . . . . . . . . . .  23
+   7.  Temporal Query Semantics  . . . . . . . . . . . . . . . . .  21
+     7.1.  Validity at a Date  . . . . . . . . . . . . . . . . . .  21
+     7.2.  Current Validity  . . . . . . . . . . . . . . . . . . .  21
+     7.3.  Range Overlap . . . . . . . . . . . . . . . . . . . . .  22
+     7.4.  CardDAV Considerations  . . . . . . . . . . . . . . . .  22
+   8.  CardDAV Interoperability  . . . . . . . . . . . . . . . . .  22
+     8.1.  Server Compatibility  . . . . . . . . . . . . . . . . .  23
+     8.2.  Client Compatibility  . . . . . . . . . . . . . . . . .  23
+     8.3.  Round-Trip Preservation . . . . . . . . . . . . . . . .  23
+   9.  Examples  . . . . . . . . . . . . . . . . . . . . . . . . .  24
+     9.1.  Minimal Contact . . . . . . . . . . . . . . . . . . . .  24
+     9.2.  Academic Career History . . . . . . . . . . . . . . . .  24
+     9.3.  Organisation Contact  . . . . . . . . . . . . . . . . .  26
+   10. Security Considerations . . . . . . . . . . . . . . . . . .  26
+   11. IANA Considerations . . . . . . . . . . . . . . . . . . . .  27
+   12. References  . . . . . . . . . . . . . . . . . . . . . . . .  28
+     12.1.  Normative References . . . . . . . . . . . . . . . . .  28
+     12.2.  Informative References . . . . . . . . . . . . . . . .  28
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . .  29
+
+1.  Introduction
+
+1.1.  Motivation
+
+   vCard 4.0 [RFC6350] provides a rich vocabulary for representing
+   contact information, and CardDAV [RFC6352] provides a mature
+   synchronisation protocol built on WebDAV.  Recent extensions in
+   RFC 9554 [RFC9554] add SOCIALPROFILE, CREATED, SERVICE-TYPE, and
+   USERNAME, significantly improving support for modern online
+   identities.
+
+   However, the vCard ecosystem still lacks a mechanism for expressing
+   the temporal validity of individual properties.  The CREATED
+   parameter [RFC9554] records when a property was added to the vCard,
+   but there is no corresponding parameter to indicate when a property
+   ceased to be valid.  This prevents vCards from serving as
+   longitudinal records of a contact's history -- one cannot express
+   that an email address was valid only during a specific employment
+   period, or that a social media handle was active only within a date
+   range.
+
+   Consider an academic who moves between institutions over a career:
+   each position brings a new institutional email, a new departmental
+   web page, and new organisational affiliations -- yet the old ones
+   do not disappear, they merely become historical.  Today, a vCard
+   can only accumulate properties with no way to distinguish current
+   from former.  The same problem arises for professionals who change
+   employers, researchers who hold visiting positions, and anyone
+   whose online presence evolves over time.
+
+   This document fills that gap by defining two new parameters,
+   X-VALID-FROM and X-VALID-UNTIL, that may be applied to any vCard
+   property to express a half-open validity interval [from, until).
+   It also defines the X-FEED property for web feed subscriptions and
+   the X-ATPROTO property for AT Protocol identities, and specifies
+   conventions for using the vCard GROUP construct to represent rich
+   organisational affiliations.
+
+   Together, these extensions allow a vCard stored on any compliant
+   CardDAV server to carry a complete temporal history of a contact's
+   evolving identities and affiliations, while benefiting from
+   CardDAV's synchronisation, discovery, and broad client support.
+
+   All new properties and parameters defined in this document use the
+   X- prefix per RFC 6350 Section 6.10, as they have not yet been
+   registered with IANA.  Should these extensions achieve sufficient
+   adoption, the X- prefix may be dropped through the standard IANA
+   registration process described in Section 11.
+
+1.2.  Relationship to Existing Standards
+
+   This document builds on and is compatible with:
+
+   *  vCard 4.0 [RFC6350] -- the base contact format.
+
+   *  CardDAV [RFC6352] -- the storage and synchronisation protocol.
+
+   *  RFC 9554 [RFC9554] -- vCard extensions for JSContact, which
+      defines SOCIALPROFILE, SERVICE-TYPE, USERNAME, CREATED, and
+      PROP-ID.
+
+   *  RFC 9555 [RFC9555] -- the JSContact conversion specification,
+      enabling round-trip fidelity with JSON-based contact systems.
+
+   Properties and parameters defined in this document follow the
+   extension conventions of RFC 6350 Section 6.10 and the
+   registration procedures of RFC 6350 Section 10.2.  Where possible,
+   existing registered properties and parameters are reused rather
+   than defining new ones.
+
+1.3.  Conventions and Terminology
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY",
+   and "OPTIONAL" in this document are to be interpreted as described
+   in BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in
+   all capitals, as shown here.
+
+   Temporal Range:  A pair of optional dates defining a half-open
+      interval [from, until) during which a property value is
+      considered valid.
+
+   Current:  Valid at the present date, as determined by the
+      implementation's system clock.
+
+   Affiliation group:  A set of vCard properties sharing a common
+      GROUP prefix that together describe a single organisational
+      relationship.
+
+2.  Temporal Validity Parameters
+
+   This section defines two new vCard parameters that together
+   express a temporal validity interval on any property.
+
+2.1.  X-VALID-FROM Parameter
+
+   Parameter name:  X-VALID-FROM
+
+   Purpose:  Specifies the date from which a property value is
+      considered valid.
+
+   Description:  The X-VALID-FROM parameter records the start of a
+      property's validity period.  When present, the property value
+      SHOULD be considered valid only on or after the specified date.
+      When absent, the property has no lower temporal bound (it is
+      valid from the beginning of time, or its creation date is
+      unknown).
+
+   Format definition:
+
+     x-valid-from-param = "X-VALID-FROM" "=" param-date
+
+   Cardinality:  At most once per property instance.
+
+   Applicable to:  Any vCard property, though it is most meaningful
+      on properties that may change over time: EMAIL, TEL, ORG,
+      TITLE, ROLE, ADR, URL, IMPP, SOCIALPROFILE, NOTE, and
+      extension properties including X-FEED and X-ATPROTO.
+
+   Example:
+
+     EMAIL;TYPE=work;X-VALID-FROM=20200115:jane@corp.example.com
+
+2.2.  X-VALID-UNTIL Parameter
+
+   Parameter name:  X-VALID-UNTIL
+
+   Purpose:  Specifies the date until which a property value is
+      considered valid (exclusive).
+
+   Description:  The X-VALID-UNTIL parameter records the end of a
+      property's validity period.  The end date is exclusive: the
+      property value is valid on dates strictly before the specified
+      date.  When absent, the property has no upper temporal bound
+      (it is still current or its end date is unknown).
+
+   Format definition:
+
+     x-valid-until-param = "X-VALID-UNTIL" "=" param-date
+
+   Cardinality:  At most once per property instance.
+
+   Applicable to:  Same as X-VALID-FROM.
+
+   Example:
+
+     EMAIL;TYPE=work;X-VALID-FROM=20120901;X-VALID-UNTIL=20180630:
+      jane@university.example.edu
+
+2.3.  Date Format
+
+   Both X-VALID-FROM and X-VALID-UNTIL use the "param-date" format,
+   which supports three levels of precision:
+
+     param-date = date-full / date-year-month / date-year
+
+     date-full       = 4DIGIT 2DIGIT 2DIGIT    ; YYYYMMDD
+     date-year-month = 4DIGIT 2DIGIT            ; YYYYMM
+     date-year       = 4DIGIT                   ; YYYY
+
+   When only a year is specified, it is interpreted as January 1st
+   of that year.  When year and month are specified, it is interpreted
+   as the 1st of that month.
+
+   Implementations MUST accept all three forms on input.  On output,
+   implementations SHOULD use the full 8-digit YYYYMMDD form for
+   unambiguous representation.
+
+   This follows the reduced-accuracy date formats permitted by
+   vCard 4.0 for BDAY and ANNIVERSARY [RFC6350] Section 4.3.1.
+
+2.4.  Interval Semantics
+
+   The X-VALID-FROM and X-VALID-UNTIL parameters together define a
+   half-open interval [from, until):
+
+   *  A property is valid at date D if:
+
+      -  X-VALID-FROM is absent, OR D >= X-VALID-FROM
+
+      -  AND X-VALID-UNTIL is absent, OR D < X-VALID-UNTIL
+
+   *  When both parameters are absent, the property has no temporal
+      constraint and is considered always valid.
+
+   *  When only X-VALID-FROM is present, the property is valid from
+      that date onward (still current).
+
+   *  When only X-VALID-UNTIL is present, the property was valid up
+      to (but not including) that date (historical, start unknown).
+
+   *  When both are present, the property was valid during the
+      specified period.
+
+   The following table summarises the combinations:
+
+   +-------------+---------------+--------------------------------------+
+   | X-VALID-FROM| X-VALID-UNTIL | Interpretation                       |
+   +-------------+---------------+--------------------------------------+
+   | absent      | absent        | Always valid / no temporal info       |
+   | present     | absent        | Valid from date, still current        |
+   | absent      | present       | Valid until date (historical)         |
+   | present     | present       | Valid during specified period         |
+   +-------------+---------------+--------------------------------------+
+
+   Date comparison is numeric on the (year, month, day) triple.
+
+2.5.  Applicable Properties
+
+   The X-VALID-FROM and X-VALID-UNTIL parameters are designed to be
+   broadly applicable.  The following table lists the properties
+   where temporal validity is most useful, along with the typical
+   semantics:
+
+   +----------------+------------------------------------------------+
+   | Property       | Temporal Semantics                             |
+   +----------------+------------------------------------------------+
+   | EMAIL          | Period during which the address was active      |
+   | TEL            | Period during which the number was active       |
+   | ADR            | Period of residence or office occupancy         |
+   | ORG            | Period of affiliation with the organisation     |
+   | TITLE          | Period during which the title was held          |
+   | ROLE           | Period during which the role was held           |
+   | URL            | Period during which the URL was active          |
+   | IMPP           | Period of activity on the messaging service     |
+   | SOCIALPROFILE  | Period of activity on the social platform       |
+   | NOTE           | Period of relevance for the note content        |
+   | X-FEED         | Period of subscription (new property, Sec. 5)   |
+   | X-ATPROTO      | Period of activity (new property, Sec. 6)       |
+   +----------------+------------------------------------------------+
+
+   Implementations MAY apply X-VALID-FROM and X-VALID-UNTIL to other
+   properties not listed above.  Properties where temporal validity
+   is not meaningful (e.g., VERSION, UID, FN) SHOULD NOT carry
+   these parameters.
+
+2.6.  Interaction with CREATED Parameter
+
+   The CREATED parameter [RFC9554] records when a property was added
+   to the vCard.  X-VALID-FROM records when the property value became
+   true in the real world.  These are distinct concepts:
+
+   *  A contact's employment at a company may have started
+      (X-VALID-FROM) in 2015, but the ORG property may have been
+      added to the vCard (CREATED) in 2023 when the contact database
+      was built.
+
+   *  Conversely, a property may be created (CREATED) today for an
+      affiliation that is not yet active (X-VALID-FROM is a future
+      date).
+
+   Both parameters MAY appear on the same property without conflict.
+
+   When only CREATED is present and X-VALID-FROM is absent,
+   implementations SHOULD NOT infer that the creation date is the
+   validity start date unless there is external reason to do so.
+
+2.7.  Interaction with PREF Parameter
+
+   The PREF parameter [RFC6350] indicates preference among multiple
+   instances of the same property type.  Temporal validity adds a
+   time dimension to preference:
+
+   *  When selecting the "preferred" value of a property at a given
+      date, implementations SHOULD first filter to temporally valid
+      instances, then select by PREF among the valid set.
+
+   *  A property with PREF=1 but X-VALID-UNTIL in the past SHOULD
+      NOT be selected as preferred over a currently valid property
+      with PREF=2.
+
+   *  When no temporal parameters are present, PREF behaves as
+      defined in [RFC6350].
+
+3.  Usage Patterns for Temporal Properties
+
+   This section illustrates how existing vCard 4.0 and RFC 9554
+   properties are used with temporal validity parameters.  Each
+   subsection describes a common scenario motivating the use of
+   X-VALID-FROM and X-VALID-UNTIL.
+
+3.1.  EMAIL with Temporal Validity
+
+   People accumulate email addresses over time as they move between
+   institutions and employers.  Rather than deleting old addresses
+   (which may still be needed for historical correspondence lookup),
+   temporal parameters allow all addresses to coexist with clear
+   validity boundaries.
+
+   The TYPE parameter distinguishes work from personal addresses,
+   while X-VALID-FROM and X-VALID-UNTIL bound the active period:
+
+     EMAIL;TYPE=home:jane@personal.example.com
+     EMAIL;TYPE=work;X-VALID-FROM=20120901;X-VALID-UNTIL=20180630:
+      jane@university.example.edu
+     EMAIL;TYPE=work;X-VALID-FROM=20180801:
+      jsmith@corp.example.com
+
+   In the above example, a client asking "what is Jane's current work
+   email?" would filter to EMAIL properties with TYPE=work that are
+   valid today, yielding only the corporate address.
+
+   Annotations on individual email addresses can be provided using
+   the GROUP construct with X-ABLabel, following the convention
+   established by Apple's AddressBook:
+
+     work1.EMAIL;TYPE=work;X-VALID-FROM=20120901;
+      X-VALID-UNTIL=20180630:jane@university.example.edu
+     work1.X-ABLabel:PhD position
+
+3.2.  SOCIALPROFILE for Online Services
+
+   Online service accounts are often created, migrated, and
+   abandoned over time.  SOCIALPROFILE [RFC9554] with SERVICE-TYPE
+   and USERNAME provides the base representation; temporal parameters
+   add the lifecycle dimension.
+
+   The PREF parameter can indicate a preferred account within a
+   service type.  When multiple accounts of the same service exist
+   with different validity periods, temporal filtering determines
+   which is current:
+
+     SOCIALPROFILE;SERVICE-TYPE=GitHub;USERNAME=jsmith;PREF=1:
+      https://github.com/jsmith
+     SOCIALPROFILE;SERVICE-TYPE=Mastodon;USERNAME="@jsmith@mastodon
+      .social";PREF=1;X-VALID-FROM=20221015:
+      https://mastodon.social/@jsmith
+     SOCIALPROFILE;SERVICE-TYPE=Git;USERNAME=jsmith;
+      X-VALID-FROM=20120901;X-VALID-UNTIL=20180701:
+      https://gitlab.example.com/jsmith
+
+   In this example, the GitLab account was active only during a
+   university period and is now historical.  A client displaying
+   "current social profiles" would omit it.
+
+3.3.  ORG, TITLE, and ROLE for Affiliations
+
+   Employment and organisational affiliations are inherently temporal.
+   The ORG, TITLE, and ROLE properties gain significant utility when
+   combined with validity parameters.
+
+   For a single, unambiguous affiliation:
+
+     ORG;X-VALID-FROM=20180801:Example Corp;Platform Engineering
+     TITLE;X-VALID-FROM=20180801:Senior Engineer
+
+   For multiple concurrent or historical affiliations, the GROUP
+   construct MUST be used to associate related properties.  See
+   Section 4 for the full convention.
+
+3.4.  URL for Web Presence
+
+   Web pages associated with a contact may come and go -- academic
+   home pages are typically retired when a researcher leaves an
+   institution, personal domains may change, and project URLs may
+   be archived.  Temporal parameters capture this lifecycle:
+
+     url1.URL:https://janesmith.example.com
+     url1.X-ABLabel:Personal website
+     url2.URL;X-VALID-FROM=20120901;X-VALID-UNTIL=20180701:
+      https://cs.university.example.edu/~jsmith
+     url2.X-ABLabel:Academic homepage
+
+3.5.  IMPP for Messaging Services
+
+   Messaging services with URI schemes may be represented as IMPP
+   properties [RFC6350] with SERVICE-TYPE [RFC9554].  Temporal
+   parameters indicate when the account was active:
+
+     IMPP;SERVICE-TYPE=Matrix:matrix:@user:example.com
+     IMPP;SERVICE-TYPE=Zulip;X-VALID-FROM=20210301:
+      https://zulip.example.com/#narrow/user/12345
+
+   The choice between SOCIALPROFILE and IMPP is at the
+   implementation's discretion.  SOCIALPROFILE is RECOMMENDED for
+   public profile pages; IMPP is appropriate for messaging-oriented
+   services with URI schemes.
+
+4.  Organisation Affiliations via GROUP
+
+   A person's relationship with an organisation often involves
+   multiple associated properties: the organisation name, a job
+   title, a work email address, an office address, and a
+   departmental web page.  vCard has no compound structure to bundle
+   these together, but the GROUP construct can associate related
+   properties under a common prefix.
+
+   This section defines a convention for representing rich
+   organisational affiliations using GROUP, enabling clients to
+   display coherent affiliation records rather than disconnected
+   lists of properties.
+
+4.1.  Grouping Convention
+
+   An organisation affiliation is represented as a set of properties
+   sharing a GROUP prefix of the form "orgN" where N is a positive
+   integer.  The group MUST contain an ORG property and MAY contain
+   any of the following:
+
+   +--------------------+----------------------------------------------+
+   | Affiliated data    | Grouped vCard property                       |
+   +--------------------+----------------------------------------------+
+   | Organisation name  | ORG (first component)                        |
+   | Department         | ORG (second component)                       |
+   | Job title          | TITLE                                        |
+   | Work email         | EMAIL (scoped to this affiliation)           |
+   | Departmental URL   | URL (scoped to this affiliation)             |
+   | Office address     | ADR                                          |
+   | Affiliation start  | X-VALID-FROM on the ORG property             |
+   | Affiliation end    | X-VALID-UNTIL on the ORG property            |
+   +--------------------+----------------------------------------------+
+
+   All properties in the group SHOULD carry the same X-VALID-FROM
+   and X-VALID-UNTIL values as the ORG property to which they are
+   associated, unless the scoped property has a different (narrower)
+   validity period.
+
+4.2.  Temporal Bounds on Affiliations
+
+   The temporal validity of the affiliation as a whole is expressed
+   on the ORG property within the group.  Other properties in the
+   group inherit this temporal context:
+
+     org1.ORG;X-VALID-FROM=20120901;X-VALID-UNTIL=20180630:
+      University of Example;Computer Science
+     org1.TITLE;X-VALID-FROM=20120901;X-VALID-UNTIL=20180630:
+      PhD Researcher
+     org1.EMAIL;X-VALID-FROM=20120901;X-VALID-UNTIL=20180630:
+      jane@university.example.edu
+     org1.URL:https://cs.university.example.edu/~jsmith
+     org1.ADR:;;1 University Road;Cambridge;Cambridgeshire;CB2 1TN;UK
+
+   For a current affiliation (no end date):
+
+     org2.ORG;X-VALID-FROM=20180801:Example Corp;Platform Engineering
+     org2.TITLE;X-VALID-FROM=20180801:Senior Engineer
+     org2.EMAIL;X-VALID-FROM=20180801:jsmith@corp.example.com
+     org2.URL:https://corp.example.com/team/jsmith
+
+4.3.  Scoped Properties within Affiliations
+
+   Properties within an affiliation group are understood to be scoped
+   to that affiliation.  This resolves a longstanding ambiguity in
+   vCard where EMAIL, URL, and ADR properties with TYPE=work exist
+   as top-level properties without formal association to a specific
+   ORG.
+
+   For example, when a contact has two employment affiliations with
+   different work email addresses:
+
+     org1.ORG;X-VALID-FROM=20120901;X-VALID-UNTIL=20180630:University
+     org1.EMAIL:jane@university.example.edu
+     org2.ORG;X-VALID-FROM=20180801:Example Corp
+     org2.EMAIL:jsmith@corp.example.com
+
+   Each EMAIL is unambiguously associated with its respective
+   organisation, which vCard without GROUP cannot express.
+
+   Implementations that do not understand the GROUP-based affiliation
+   convention will still display all ORG, TITLE, EMAIL, and URL
+   properties normally, losing only the association between them.
+   This provides graceful degradation.
+
+5.  New Property: X-FEED
+
+5.1.  Purpose
+
+   The X-FEED property associates a web feed subscription with a
+   contact.  Many contacts -- individuals, organisations, and
+   projects -- publish content via web feeds (blogs, news, release
+   notes).  Storing feed URLs alongside other contact data allows
+   contact management applications to offer integrated content
+   tracking: a user can see not only a contact's email and social
+   profiles, but also their published writing.
+
+   This also enables a decentralised alternative to social media
+   follow graphs: rather than depending on a centralised platform to
+   track who publishes what, a user's address book becomes the social
+   graph and each contact's feeds provide the content stream.  A
+   collection of vCards with X-FEED properties can be exported to
+   OPML for import into any feed reader, bridging contact management
+   and content consumption.
+
+5.2.  Why Not URL with MEDIATYPE?
+
+   vCard's URL property supports a MEDIATYPE parameter [RFC6350],
+   which in principle could distinguish feed URLs from web pages:
+
+     URL;MEDIATYPE=application/atom+xml:
+      https://example.com/feed.atom
+
+   In practice, this approach is unreliable for several reasons:
+
+   *  Many web servers serve Atom feeds as "text/xml" or
+      "application/xml" rather than the correct
+      "application/atom+xml", and RSS feeds as "text/xml" rather
+      than "application/rss+xml".  A client cannot depend on the
+      MEDIATYPE matching the actual feed format.
+
+   *  JSON Feed has no registered IANA media type; it is typically
+      served as "application/json", which is indistinguishable from
+      any other JSON resource.
+
+   *  Existing vCard clients that display URL properties would show
+      feed URLs as clickable web links, which is misleading -- a
+      raw Atom XML document is not useful to open in a browser.
+
+   *  The URL property provides no way to distinguish feed format
+      (atom vs rss vs json) without fetching the resource and
+      inspecting its content.
+
+   A dedicated X-FEED property with an explicit X-FEED-TYPE parameter
+   avoids these problems and clearly signals to clients that the URL
+   is a machine-readable feed, not a human-readable web page.
+
+5.3.  Value Type
+
+   URI (default).  The URI points to a web feed document (for types
+   atom, rss, json) or a web page (for type manual).
+
+5.4.  Parameters
+
+   X-FEED-TYPE (Section 5.6):  REQUIRED.  Specifies the feed format.
+
+   LABEL [RFC6350]:  OPTIONAL.  A human-readable name for the feed.
+
+   PREF [RFC6350]:  OPTIONAL.  Preference among multiple feeds.
+
+   TYPE [RFC6350]:  OPTIONAL.  Standard type values (work, home).
+
+   X-FEED-HINT:  OPTIONAL.  A hint string for feed discovery when
+      the URL does not point directly to a feed document.  Only
+      meaningful when X-FEED-TYPE=manual.
+
+   Any other vCard parameter.
+
+5.5.  ABNF
+
+     x-feed       = "X-FEED" x-feed-param ":" URI
+     x-feed-param = ";" x-feed-type-param
+                    *(";" x-feed-other-param)
+     x-feed-other-param = label-param / pref-param / type-param /
+                          any-param
+
+5.6.  X-FEED-TYPE Parameter
+
+   Parameter name:  X-FEED-TYPE
+
+   Purpose:  Specifies the format of the web feed.
+
+   Format definition:
+
+     x-feed-type-param = "X-FEED-TYPE" "=" x-feed-type-value
+     x-feed-type-value = "atom" / "rss" / "json" / "manual" /
+                         iana-token / x-name
+
+   Values:
+
+   atom:  Atom Syndication Format [RFC4287].
+
+   rss:  RSS 2.0.
+
+   json:  JSON Feed (https://www.jsonfeed.org/).
+
+   manual:  Content discovered from a web page by an external
+      process.  When X-FEED-TYPE=manual, the X-FEED-HINT parameter
+      MAY provide guidance for content discovery (e.g., a CSS
+      selector or textual description of where to find content).
+
+   Comparison of values MUST be case-insensitive.
+
+5.7.  Examples
+
+     X-FEED;X-FEED-TYPE=atom;LABEL=Blog:
+      https://janesmith.example.com/feed.atom
+     X-FEED;X-FEED-TYPE=rss;LABEL="Engineering Blog":
+      https://corp.example.com/blog/rss.xml
+     X-FEED;X-FEED-TYPE=json:https://janesmith.example.com/feed.json
+     X-FEED;X-FEED-TYPE=manual;X-FEED-HINT="Look for Recent Posts":
+      https://legacy-site.example.com/
+
+6.  New Property: X-ATPROTO
+
+6.1.  Purpose
+
+   The X-ATPROTO property represents a contact's identity in the AT
+   Protocol ecosystem [AT-ARCH].  AT Protocol accounts have a
+   two-layer identity model:
+
+   *  A DID (Decentralised Identifier) [DID-CORE] that serves as
+      the permanent, cryptographically-rooted account identifier.
+      AT Protocol supports exactly two DID methods: "did:plc"
+      (self-authenticating operation logs with rotatable keys) and
+      "did:web" (based on HTTPS well-known endpoints, with no path
+      segments permitted) [AT-ARCH].
+
+   *  A handle that is a DNS hostname, bidirectionally validated
+      between the handle and the DID document.  Accounts have at
+      most one valid handle at a time, though handles can change.
+      The DID document references the handle via an "alsoKnownAs"
+      entry of the form "at://<handle>" [AT-ARCH].
+
+   Control of an AT Protocol account is rooted in control of the
+   DID over the full lifetime of the account [AT-ARCH].  The DID
+   resolves to a DID document containing cryptographic key material
+   (in the "verificationMethod" array, identified by the "#atproto"
+   fragment) and a reference to the Personal Data Server (PDS) that
+   hosts the account's data repository [AT-REPO].
+
+   While a Bluesky profile URL could be stored as a SOCIALPROFILE,
+   this would lose the structured relationship between handle, DID,
+   and service endpoints.  A single AT Protocol identity (one handle,
+   one DID) may have presence on multiple application services
+   (Bluesky for microblogging, Tangled for code collaboration), each
+   with its own URL but sharing the same underlying identity.  The
+   X-ATPROTO property captures this one-identity-many-services model.
+
+6.2.  Value Type
+
+   URI (default).  The URI SHOULD be an "at://" URI [AT-ARCH]
+   containing the account's DID:
+
+     at://did:plc:ewvi7nxzyoun6zhxrhs64oiz
+
+   When the DID is not known, an HTTPS profile URL MAY be used as
+   a fallback.
+
+6.3.  Parameters
+
+   USERNAME [RFC9554]:  RECOMMENDED.  The AT Protocol handle, which
+      is a DNS hostname (e.g., "alice.bsky.social").  Handles are
+      validated bidirectionally: the handle must resolve to the DID
+      via a DNS TXT record at "_atproto.<handle>" or an HTTPS
+      endpoint at "/.well-known/atproto-did", and the DID document
+      must reference the handle in its "alsoKnownAs" array
+      [AT-ARCH].  If handle validation has failed or the handle is
+      unknown, this parameter SHOULD be omitted or set to
+      "handle.invalid" (the AT Protocol pseudo-handle for
+      unvalidated identities).
+
+   X-ATPROTO-DID:  RECOMMENDED.  The account's DID string.  AT
+      Protocol supports two DID methods [AT-ARCH]:
+
+      *  "did:plc:<identifier>" -- a self-authenticating identifier
+         with rotatable keys, e.g., "did:plc:ewvi7nxzyoun6zhxrhs64oiz"
+
+      *  "did:web:<hostname>" -- an HTTPS-based identifier, e.g.,
+         "did:web:example.com" (no path segments permitted)
+
+      The DID is the permanent account identifier; the handle may
+      change but the DID persists.  Implementations SHOULD record
+      the DID when known, as it enables verification of account
+      continuity even when handles change.
+
+   SERVICE-TYPE [RFC9554]:  OPTIONAL.  The specific AT Protocol
+      application service.  Defined values: "Bluesky", "Tangled".
+      Additional values may be used as new AT Protocol application
+      services emerge.
+
+   PREF [RFC6350]:  OPTIONAL.  Preference among multiple X-ATPROTO
+      properties.
+
+   X-VALID-FROM, X-VALID-UNTIL:  OPTIONAL.  Temporal validity.
+
+   Any other vCard parameter.
+
+6.4.  ABNF
+
+     x-atproto       = "X-ATPROTO" x-atproto-param ":" URI
+     x-atproto-param = *(";" x-atproto-other-param)
+     x-atproto-other-param = username-param / service-type-param /
+                             "X-ATPROTO-DID" "=" param-value /
+                             pref-param / x-valid-from-param /
+                             x-valid-until-param / any-param
+
+   When a contact has multiple AT Protocol service endpoints, each
+   is represented as a separate X-ATPROTO property with a distinct
+   SERVICE-TYPE, sharing the same USERNAME (handle) and
+   X-ATPROTO-DID.  This reflects the AT Protocol architecture where
+   a single identity (DID + handle) participates in multiple
+   application services [AT-ARCH]:
+
+     X-ATPROTO;USERNAME=jsmith.bsky.social;SERVICE-TYPE=Bluesky;
+      X-ATPROTO-DID=did:plc:abc123def456:
+      at://did:plc:abc123def456
+     X-ATPROTO;USERNAME=jsmith.bsky.social;SERVICE-TYPE=Tangled;
+      X-ATPROTO-DID=did:plc:abc123def456:
+      https://tangled.sh/@jsmith.bsky.social
+
+6.5.  Handle Changes and Identity Continuity
+
+   AT Protocol handles can change (e.g., when a user moves to a
+   custom domain), but the DID persists across handle changes
+   [AT-ARCH].  When a contact's handle changes:
+
+   *  The USERNAME parameter SHOULD be updated to the new handle.
+
+   *  The X-ATPROTO-DID parameter SHOULD remain unchanged, as it
+      is the stable identifier.
+
+   *  Implementations MAY use X-VALID-FROM and X-VALID-UNTIL on
+      separate X-ATPROTO properties to record handle history:
+
+        X-ATPROTO;USERNAME=alice.bsky.social;SERVICE-TYPE=Bluesky;
+         X-ATPROTO-DID=did:plc:exampleabc123;
+         X-VALID-FROM=20230101;X-VALID-UNTIL=20250101:
+         at://did:plc:exampleabc123
+        X-ATPROTO;USERNAME=alice.example.com;SERVICE-TYPE=Bluesky;
+         X-ATPROTO-DID=did:plc:exampleabc123;
+         X-VALID-FROM=20250101:
+         at://did:plc:exampleabc123
+
+   *  Implementations that resolve DIDs SHOULD verify that the
+      handle and DID still validate bidirectionally.  If validation
+      fails, the USERNAME MAY be replaced with "handle.invalid".
+
+6.6.  Examples
+
+   A contact with Bluesky and Tangled, using at:// URI:
+
+     X-ATPROTO;USERNAME=alice.bsky.social;SERVICE-TYPE=Bluesky;
+      X-ATPROTO-DID=did:plc:exampleabc123def456:
+      at://did:plc:exampleabc123def456
+     X-ATPROTO;USERNAME=alice.bsky.social;SERVICE-TYPE=Tangled;
+      X-ATPROTO-DID=did:plc:exampleabc123def456:
+      https://tangled.sh/@alice.bsky.social
+
+   A contact using did:web with a custom domain:
+
+     X-ATPROTO;USERNAME=bob.example.com;SERVICE-TYPE=Bluesky;
+      X-ATPROTO-DID=did:web:bob.example.com:
+      at://did:web:bob.example.com
+
+   A contact whose DID has not yet been resolved:
+
+     X-ATPROTO;USERNAME=carol.bsky.social;SERVICE-TYPE=Bluesky:
+      https://bsky.app/profile/carol.bsky.social
+
+7.  Temporal Query Semantics
+
+   This section defines the algorithms that implementations SHOULD
+   use when evaluating temporal validity.  These are specified for
+   interoperability; the algorithms are intentionally simple.
+
+7.1.  Validity at a Date
+
+   A property P is valid at date D if and only if:
+
+   1.  If P has X-VALID-FROM with value F, then D >= F.
+
+   2.  If P has X-VALID-UNTIL with value U, then D < U (exclusive).
+
+   3.  If P has neither parameter, it is valid at all dates.
+
+   Date comparison operates on the normalised (year, month, day)
+   triple (see Section 2.3 for normalisation of partial dates).
+
+7.2.  Current Validity
+
+   A property is "currently valid" if it is valid at the current date
+   as determined by the implementation's system clock.
+
+   When selecting a preferred value from multiple instances of the
+   same property, implementations SHOULD:
+
+   1.  Filter to currently valid instances.
+
+   2.  Among those, select the instance with the lowest PREF value.
+
+   3.  If no currently valid instance exists, fall back to instances
+       with no temporal parameters.
+
+7.3.  Range Overlap
+
+   Two temporal ranges [F1, U1) and [F2, U2) overlap if and only if:
+
+   *  F1 < U2 (or F1 is absent, or U2 is absent)
+
+   *  AND F2 < U1 (or F2 is absent, or U1 is absent)
+
+   This is used for queries such as "find contacts affiliated with
+   organisation X during period [from, until)."
+
+7.4.  CardDAV Considerations
+
+   CardDAV's addressbook-query REPORT [RFC6352] supports text-match
+   and param-filter elements for querying property values and
+   parameter values.  A CardDAV server that supports param-filter
+   on X-VALID-FROM and X-VALID-UNTIL enables server-side temporal
+   queries.
+
+   However, many CardDAV servers do not support param-filter on
+   non-standard parameters.  In this case, temporal filtering MUST
+   be performed client-side after fetching the full vCard.
+
+   For efficient temporal queries on large contact collections,
+   implementations MAY maintain a local index of temporal ranges
+   derived from fetched vCards, using the WebDAV sync-token
+   mechanism [RFC6578] to keep the index current.
+
+8.  CardDAV Interoperability
+
+8.1.  Server Compatibility
+
+   The extensions defined in this document are designed for maximum
+   CardDAV server compatibility.  All new properties and parameters
+   use the X- prefix, which CardDAV servers are required to accept
+   and preserve:
+
+   *  X-VALID-FROM and X-VALID-UNTIL are vCard parameters.  CardDAV
+      servers MUST accept and preserve X- parameters on PUT
+      operations per RFC 6352 Section 6.3.2.3.
+
+   *  X-FEED and X-ATPROTO are new vCard properties using X- names.
+      CardDAV servers MUST accept and store X- properties per
+      RFC 6352 Section 6.3.2.3.
+
+   *  X-ABLabel, X-FEED-TYPE, X-FEED-HINT, and X-ATPROTO-DID all
+      use the X-name convention and are accepted by all conformant
+      CardDAV servers.
+
+   *  The GROUP construct is part of base vCard syntax and is
+      preserved by all CardDAV servers.
+
+   No server-side changes are required to store vCards using these
+   extensions.
+
+8.2.  Client Compatibility
+
+   Clients that do not understand these extensions will:
+
+   *  Ignore X-VALID-FROM and X-VALID-UNTIL parameters, displaying
+      properties without temporal context.  This is safe and provides
+      reasonable degradation.
+
+   *  Ignore X-FEED and X-ATPROTO properties entirely, as they are
+      unrecognised.  This means feed and AT Protocol data is not
+      displayed but is preserved for round-trip.
+
+   *  Display GROUP-associated properties individually without
+      visual grouping, losing the affiliation association but
+      displaying all data.
+
+   *  Display X-ABLabel values as custom labels (if the client
+      supports this common convention).
+
+8.3.  Round-Trip Preservation
+
+   CardDAV servers are required to preserve unrecognised properties
+   and parameters [RFC6352].  Therefore:
+
+   *  A vCard written by an aware client, stored on a CardDAV
+      server, and later read back by the same or another aware
+      client will retain all temporal and extended data.
+
+   *  A vCard edited by an unaware client will preserve the
+      extension parameters and properties (they are opaque to the
+      editing client), provided the client does not strip unknown
+      data -- which conformant implementations MUST NOT do.
+
+   *  JSContact conversion via RFC 9555 [RFC9555] will preserve
+      X-VALID-FROM, X-VALID-UNTIL, X-FEED, and X-ATPROTO as
+      vCardProps entries, enabling round-trip through JSContact-based
+      systems.
+
+9.  Examples
+
+9.1.  Minimal Contact
+
+     BEGIN:VCARD
+     VERSION:4.0
+     UID:urn:uuid:f47ac10b-58cc-4372-a567-0e02b2c3d479
+     FN:John Doe
+     END:VCARD
+
+9.2.  Academic Career History
+
+   This example illustrates a researcher who has moved between
+   institutions, accumulating email addresses, organisational
+   affiliations, social accounts, and web feeds over time.  The
+   temporal parameters allow a client to reconstruct the contact's
+   state at any point in their career.
+
+     BEGIN:VCARD
+     VERSION:4.0
+     UID:urn:uuid:550e8400-e29b-41d4-a716-446655440000
+     FN:Jane Smith
+     NICKNAME:J. M. Smith
+     EMAIL;TYPE=home:jane@personal.example.com
+     work1.EMAIL;TYPE=work;X-VALID-FROM=20120901;
+      X-VALID-UNTIL=20180630:jane.smith@university.example.edu
+     work1.X-ABLabel:PhD position
+     work2.EMAIL;TYPE=work;X-VALID-FROM=20180801:
+      jsmith@corp.example.com
+     work2.X-ABLabel:Current industry position
+     org1.ORG;X-VALID-FROM=20120901;X-VALID-UNTIL=20180630:
+      University of Example;Computer Science
+     org1.TITLE;X-VALID-FROM=20120901;X-VALID-UNTIL=20180630:
+      PhD Researcher
+     org1.EMAIL:jane.smith@university.example.edu
+     org1.URL:https://cs.university.example.edu/~jsmith
+     org2.ORG;X-VALID-FROM=20180801:Example Corp;Platform Engineering
+     org2.TITLE;X-VALID-FROM=20180801:Senior Engineer
+     org2.EMAIL:jsmith@corp.example.com
+     org2.URL:https://corp.example.com/team/jsmith
+     url1.URL:https://janesmith.example.com
+     url1.X-ABLabel:Personal website
+     URL;X-VALID-FROM=20120901;X-VALID-UNTIL=20180701:
+      https://cs.university.example.edu/~jsmith
+     SOCIALPROFILE;SERVICE-TYPE=GitHub;USERNAME=jsmith;PREF=1:
+      https://github.com/jsmith
+     SOCIALPROFILE;SERVICE-TYPE=Mastodon;
+      USERNAME="@jsmith@mastodon.social";PREF=1:
+      https://mastodon.social/@jsmith
+     svc1.SOCIALPROFILE;SERVICE-TYPE=Git;USERNAME=jsmith;
+      X-VALID-FROM=201209;X-VALID-UNTIL=201807:
+      https://gitlab.example.com/jsmith
+     svc1.X-ABLabel:University GitLab
+     SOCIALPROFILE;SERVICE-TYPE=ORCID:
+      https://orcid.org/0000-0002-1825-0097
+     PHOTO:https://janesmith.example.com/avatar.jpg
+     X-FEED;X-FEED-TYPE=atom;LABEL=Blog:
+      https://janesmith.example.com/feed.atom
+     X-FEED;X-FEED-TYPE=json;LABEL="JSON Feed":
+      https://janesmith.example.com/feed.json
+     X-ATPROTO;USERNAME=jsmith.bsky.social;SERVICE-TYPE=Bluesky;
+      X-ATPROTO-DID=did:plc:abc123def456:
+      at://did:plc:abc123def456
+     END:VCARD
+
+9.3.  Organisation Contact
+
+     BEGIN:VCARD
+     VERSION:4.0
+     KIND:org
+     UID:urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8
+     FN:Example Corporation
+     NICKNAME:ExampleCorp
+     EMAIL;TYPE=work:info@corp.example.com
+     url1.URL:https://corp.example.com
+     url1.X-ABLabel:Corporate website
+     SOCIALPROFILE;SERVICE-TYPE=GitHub;USERNAME=examplecorp;PREF=1:
+      https://github.com/examplecorp
+     X-FEED;X-FEED-TYPE=rss;LABEL="Engineering Blog":
+      https://corp.example.com/blog/rss.xml
+     END:VCARD
+
+10.  Security Considerations
+
+   The security considerations of vCard [RFC6350] and CardDAV
+   [RFC6352] apply.
+
+   X-VALID-FROM and X-VALID-UNTIL parameters expose additional
+   metadata about the temporal history of a contact's attributes.
+   This information may reveal employment timelines, address changes,
+   and account creation/deletion patterns.  Implementations SHOULD
+   apply the same access controls to temporal parameters as to the
+   properties they annotate.
+
+   The X-ATPROTO-DID parameter contains a Decentralised Identifier
+   that is the permanent, cryptographically-rooted account identifier
+   in the AT Protocol [AT-ARCH].  Unlike handles, which can change,
+   DIDs persist for the lifetime of the account and can be used for
+   cross-system correlation.  Implementations SHOULD treat DIDs as
+   sensitive identifiers.  Note that AT Protocol DIDs and their
+   associated data repositories are publicly resolvable by design
+   [AT-REPO]; the sensitivity here is in the aggregation of a DID
+   with other contact data in a vCard.
+
+   The X-FEED property contains URLs that an implementation may
+   automatically fetch.  Implementations MUST NOT fetch feed URLs
+   without user consent, as this could reveal the user's IP address
+   and reading habits to the feed publisher, and the feed content
+   may contain malicious payloads.
+
+11.  IANA Considerations
+
+   This document defines extensions using the X- prefix convention
+   of RFC 6350 Section 6.10 and does not currently request IANA
+   registration.  Should these extensions achieve adoption, the
+   authors intend to submit registration requests for the following
+   names (with the X- prefix removed) using the templates defined
+   in RFC 6350 Sections 10.2.3 and 10.2.4:
+
+   Parameters:
+
+   +------------------+------------------------------------------------+
+   | Current name     | Proposed registered name                       |
+   +------------------+------------------------------------------------+
+   | X-VALID-FROM     | VALID-FROM                                     |
+   | X-VALID-UNTIL    | VALID-UNTIL                                    |
+   | X-FEED-TYPE      | FEED-TYPE                                      |
+   | X-ATPROTO-DID    | ATPROTO-DID                                    |
+   +------------------+------------------------------------------------+
+
+   Properties:
+
+   +------------------+------------------------------------------------+
+   | Current name     | Proposed registered name                       |
+   +------------------+------------------------------------------------+
+   | X-FEED           | FEED                                           |
+   | X-ATPROTO        | ATPROTO                                        |
+   +------------------+------------------------------------------------+
+
+   Implementations SHOULD be prepared to accept both the X- prefixed
+   and unprefixed forms for forward compatibility.
+
+12.  References
+
+12.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in
+              RFC 2119 Key Words", BCP 14, RFC 8174,
+              DOI 10.17487/RFC8174, May 2017,
+              <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC6350]  Perreault, S., "vCard Format Specification", RFC 6350,
+              DOI 10.17487/RFC6350, August 2011,
+              <https://www.rfc-editor.org/info/rfc6350>.
+
+   [RFC6352]  Daboo, C., "CardDAV: vCard Extensions to Web
+              Distributed Authoring and Versioning (WebDAV)",
+              RFC 6352, DOI 10.17487/RFC6352, August 2011,
+              <https://www.rfc-editor.org/info/rfc6352>.
+
+   [RFC9554]  Stepanek, R. and M. Loffredo, "vCard Format Extensions
+              for JSContact", RFC 9554, DOI 10.17487/RFC9554,
+              May 2024,
+              <https://www.rfc-editor.org/info/rfc9554>.
+
+   [RFC3986]  Berners-Lee, T., Fielding, R., and L. Masinter,
+              "Uniform Resource Identifier (URI): Generic Syntax",
+              STD 66, RFC 3986, DOI 10.17487/RFC3986, January 2005,
+              <https://www.rfc-editor.org/info/rfc3986>.
+
+12.2.  Informative References
+
+   [RFC4287]  Nottingham, M., Ed. and R. Sayre, Ed., "The Atom
+              Syndication Format", RFC 4287, DOI 10.17487/RFC4287,
+              December 2005,
+              <https://www.rfc-editor.org/info/rfc4287>.
+
+   [RFC6578]  Daboo, C. and A. Quillaud, "Collection Synchronization
+              for Web Distributed Authoring and Versioning (WebDAV)",
+              RFC 6578, DOI 10.17487/RFC6578, March 2012,
+              <https://www.rfc-editor.org/info/rfc6578>.
+
+   [RFC9555]  Stepanek, R. and M. Loffredo, "JSContact: Converting
+              from and to vCard", RFC 9555, DOI 10.17487/RFC9555,
+              May 2024,
+              <https://www.rfc-editor.org/info/rfc9555>.
+
+   [DID-CORE] Sporny, M., Longley, D., Sabadello, M., Reed, D.,
+              Steele, O., and C. Allen, "Decentralized Identifiers
+              (DIDs) v1.0", W3C Recommendation, July 2022,
+              <https://www.w3.org/TR/did-core/>.
+
+   [AT-ARCH]  Newbold, B., "AT Protocol: Architecture Overview",
+              Internet-Draft draft-newbold-at-architecture-00,
+              February 2025,
+              <https://www.ietf.org/archive/id/
+              draft-newbold-at-architecture-00.txt>.
+
+   [AT-REPO]  Holmgren, D. and D. Doyon, "AT Protocol: Repository
+              Data Structure and Synchronization",
+              Internet-Draft draft-holmgren-at-repository-00,
+              February 2025,
+              <https://www.ietf.org/archive/id/
+              draft-holmgren-at-repository-00.txt>.
+
+   [VCARD-RSS] Rapado, N., "vCard + RSS as an Alternative to Social
+              Media", February 2024,
+              <https://nfraprado.net/post/vcard-rss-as-an-alternative-
+              to-social-media.html>.
+
+Author's Address
+
+   Anil Madhavapeddy
+
+   Email: anil@recoil.org
+   URI:   https://avsm.org

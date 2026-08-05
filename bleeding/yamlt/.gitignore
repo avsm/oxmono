@@ -1,0 +1,20 @@
+# OCaml build artifacts
+_build/
+*.install
+*.merlin
+
+# Third-party sources (fetch locally with opam source)
+third_party/
+
+# Symlinked dependencies
+ocaml-yamlrw
+
+# Editor and OS files
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# Opam local switch
+_opam/

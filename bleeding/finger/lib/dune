@@ -1,0 +1,4 @@
+(library
+ (name finger)
+ (public_name finger)
+ (libraries eio logs fmt))

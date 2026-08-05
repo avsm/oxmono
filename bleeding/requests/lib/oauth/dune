@@ -1,0 +1,16 @@
+(library
+ (name requests_oauth)
+ (public_name requests.oauth)
+ (libraries
+  requests
+  base64
+  digestif
+  eio
+  eqaf
+  jsont
+  jsont.bytesrw
+  logs
+  mirage-crypto-rng
+  ptime
+  ptime.clock.os)
+ (preprocess no_preprocessing))

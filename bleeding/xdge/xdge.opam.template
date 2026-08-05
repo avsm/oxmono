@@ -1,0 +1,6 @@
+build: [
+  [ "dune" "subst"                                ] {dev}
+  [ "dune" "build" "-p" name "-j" jobs "@install" ]
+  [ "dune" "build" "-p" name "-j" jobs "runtest"  ] {with-test & opam-version >= "2.2"}
+  [ "dune" "build" "-p" name "-j" jobs "@doc"     ] {with-doc}
+]

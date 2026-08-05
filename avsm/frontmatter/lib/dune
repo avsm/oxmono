@@ -1,0 +1,4 @@
+(library
+ (name frontmatter)
+ (public_name frontmatter)
+ (libraries yamlrw yamlt ptime))

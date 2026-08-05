@@ -1,0 +1,26 @@
+(lang dune 3.21)
+(name zotero-translation)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-zotero-translation))
+
+(package
+ (name zotero-translation)
+ (synopsis "API client to the Zotero translation server")
+ (description
+  "OCaml bindings to the Zotero Translation Server for DOI/URL resolution and bibliographic format export")
+ (depends
+  (ocaml (>= 5.1.0))
+  (eio (>= 1.0))
+  (requests (>= 0.1))
+  (jsont (>= 0.1))
+  uri
+  astring
+  fpath
+  fmt
+  logs
+  (odoc :with-doc)))

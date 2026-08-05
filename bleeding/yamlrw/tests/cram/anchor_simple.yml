@@ -1,0 +1,2 @@
+anchor: &anc value
+alias: *anc

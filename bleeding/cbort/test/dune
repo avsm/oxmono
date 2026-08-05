@@ -1,0 +1,5 @@
+(test
+ (name test_cbort)
+ (libraries cbort bytesrw zarith ohex)
+ (deps
+  (source_tree ../test-vectors)))

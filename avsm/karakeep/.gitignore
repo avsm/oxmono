@@ -1,0 +1,5 @@
+_build
+karakeep-src
+.karakeep-api
+.*.swp
+ocaml-requests

@@ -1,0 +1,18 @@
+# OCaml build artifacts
+_build/
+*.install
+*.merlin
+
+# Editor and OS files
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# Opam local switch
+_opam/
+
+# Symlinks to local dependencies (development only)
+conpool
+cookeio

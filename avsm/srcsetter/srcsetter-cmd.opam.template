@@ -1,0 +1,10 @@
+depexts: [
+  ["imagemagick"] {os-distribution = "homebrew"}
+  ["imagemagick"] {os-family = "debian"}
+  ["imagemagick"] {os-family = "fedora"}
+  ["imagemagick"] {os-family = "arch"}
+  ["imagemagick"] {os-family = "alpine"}
+]
+post-messages: [
+  "This package requires ImageMagick to be installed for image processing."
+]

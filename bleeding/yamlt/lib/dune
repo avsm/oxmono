@@ -1,0 +1,4 @@
+(library
+ (name yamlt)
+ (public_name yamlt)
+ (libraries yamlrw jsont bytesrw))

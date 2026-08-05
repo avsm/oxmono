@@ -1,0 +1,50 @@
+(lang dune 3.21)
+(name requests)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-requests))
+
+(package
+ (name requests)
+ (synopsis "Batteries included HTTPS client library for OCaml")
+ (description
+  "A modern HTTP(S) client library for OCaml with Eio support, providing \
+   a clean API for making web requests with automatic TLS/CA certificate handling. \
+   Inspired by the Python's requests library, this provides a simple, intuitive \
+   interface for HTTP operations.")
+ (depends
+  (ocaml (>= 5.1.0))
+  eio
+  tls
+  tls-eio
+  ca-certs
+  mirage-crypto
+  mirage-crypto-rng
+  mirage-crypto-ec
+  mirage-crypto-pk
+  eqaf
+  uri
+  jsont
+  bytesrw
+  bytesrw-eio
+  cookeio
+  xdge
+  ptime
+  cmdliner
+  digestif
+  base64
+  logs
+  domain-name
+  cstruct
+  optint
+  conpool
+  decompress
+  bigstringaf
+  magic-mime
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))
+  eio_main ))

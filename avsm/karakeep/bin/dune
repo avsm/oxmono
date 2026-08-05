@@ -1,0 +1,16 @@
+(executable
+ (name main)
+ (public_name okarakeep)
+ (package karakeep)
+ (libraries
+  karakeep
+  karakeep.auth
+  openapi
+  requests
+  jsont
+  jsont.bytesrw
+  eio
+  eio_main
+  fmt
+  fmt.tty
+  cmdliner))

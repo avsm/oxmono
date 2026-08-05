@@ -1,0 +1,103 @@
+# Test valid YAML float number formats
+
+# Basic decimal floats
+basic_positive: 3.14
+basic_negative: -3.14
+basic_zero: 0.0
+small_positive: 0.5
+small_negative: -0.5
+
+# Leading dot (no leading zero)
+leading_dot: .5
+leading_dot_negative: -.5
+leading_dot_positive: +.5
+leading_dot_long: .123456789
+
+# Trailing zeros
+trailing_zero: 1.0
+trailing_zeros: 1.00
+many_trailing: 3.14000
+
+# Scientific notation - lowercase e
+sci_positive: 1e10
+sci_negative: 1e-10
+sci_explicit_positive: 1e+10
+sci_with_decimal: 1.5e10
+sci_small: 6.022e23
+sci_tiny: 1.6e-19
+
+# Scientific notation - uppercase E
+sci_upper: 1E10
+sci_upper_negative: 1E-10
+sci_upper_explicit: 1E+10
+sci_upper_decimal: 2.5E8
+
+# Negative numbers with scientific notation
+neg_sci: -1e10
+neg_sci_negative_exp: -1e-10
+neg_sci_decimal: -3.14e5
+
+# Positive sign
+positive_sign: +3.14
+positive_sci: +1e10
+positive_small: +0.001
+
+# Large and small values
+very_large: 1e100
+very_small: 1e-100
+large_decimal: 999999999.999999
+small_decimal: 0.000000001
+
+# Edge cases
+negative_zero: -0.0
+positive_zero: +0.0
+one: 1.0
+minus_one: -1.0
+
+# Real-world examples
+pi: 3.14159265359
+euler: 2.71828182845
+golden_ratio: 1.61803398875
+planck: 6.62607015e-34
+avogadro: 6.02214076e23
+speed_of_light: 299792458.0
+gravitational_constant: 6.674e-11
+
+# Coordinates example
+coordinates:
+  latitude: 37.7749
+  longitude: -122.4194
+  altitude: 16.0
+
+# Financial examples
+prices:
+  item1: 19.99
+  item2: 0.99
+  discount: -5.00
+  tax_rate: 0.0825
+
+# Measurements
+measurements:
+  temperature_c: 23.5
+  temperature_f: 74.3
+  humidity: 0.65
+  pressure_hpa: 1013.25
+
+# Mixed in sequences
+float_sequence:
+  - 1.0
+  - -1.0
+  - 0.5
+  - -0.5
+  - 1e10
+  - 1e-10
+  - .5
+  - -.5
+
+# Integers that should stay as integers (for comparison)
+integers:
+  simple: 42
+  negative: -17
+  zero: 0
+  hex: 0x1A
+  octal: 0o14

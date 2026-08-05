@@ -1,0 +1,96 @@
+# Flow Style Collections Test File
+# Testing various flow-style collection structures
+
+# Simple flow sequence
+simple_flow_sequence: [apple, banana, cherry, date]
+
+# Simple flow mapping
+simple_flow_mapping: {name: John, age: 30, city: New York}
+
+# Nested flow sequences
+nested_flow_sequences: [[a, b, c], [1, 2, 3], [red, green, blue]]
+
+# Nested flow mappings
+nested_flow_mappings: {person: {name: Alice, age: 25}, contact: {email: alice@example.com, phone: 555-1234}}
+
+# Flow sequence with mappings
+flow_seq_with_maps: [{name: Alice, role: dev}, {name: Bob, role: ops}, {name: Charlie, role: qa}]
+
+# Flow mapping with sequences
+flow_map_with_seqs: {colors: [red, green, blue], sizes: [S, M, L], numbers: [1, 2, 3]}
+
+# Deeply nested flow collections
+deep_flow_nesting: {level1: {level2: {level3: {level4: [a, b, c]}}}}
+
+# Empty flow collections
+empty_flow: {empty_seq: [], empty_map: {}, both: [[], {}]}
+
+# Mixed flow and block - flow in block
+flow_in_block:
+  sequence: [1, 2, 3, 4, 5]
+  mapping: {a: 1, b: 2, c: 3}
+  nested:
+    items: [x, y, z]
+    config: {timeout: 30, retries: 3}
+
+# Mixed flow and block - block in flow
+block_in_flow: {
+  users: [
+    {name: Alice, tags: [dev, senior]},
+    {name: Bob, tags: [ops, junior]}
+  ]
+}
+
+# Complex mixed structure
+mixed_structure:
+  services:
+    - name: api
+      ports: [8080, 8443]
+      env: {DEBUG: true, LOG_LEVEL: info}
+    - name: db
+      ports: [5432]
+      env: {POSTGRES_DB: mydb, POSTGRES_USER: admin}
+  config: {version: 1.0, enabled: true}
+
+# Flow sequences with various types
+flow_types:
+  strings: [hello, world, foo, bar]
+  numbers: [1, 2, 3, 42, 100]
+  mixed: [string, 123, true, false, null]
+  quoted: ["with spaces", "special:chars", "commas, here"]
+
+# Flow mappings with various types
+flow_map_types: {
+  string: value,
+  number: 42,
+  boolean: true,
+  null_value: null,
+  float: 3.14
+}
+
+# Nested mixed collections
+nested_mixed:
+  - {id: 1, data: [a, b, c], meta: {type: first}}
+  - {id: 2, data: [d, e, f], meta: {type: second}}
+  - {id: 3, data: [g, h, i], meta: {type: third}}
+
+# Flow with multiline (should still be valid)
+multiline_flow:
+  long_sequence: [
+    item1,
+    item2,
+    item3,
+    item4
+  ]
+  long_mapping: {
+    key1: value1,
+    key2: value2,
+    key3: value3
+  }
+
+# Edge cases
+edge_cases:
+  single_item_seq: [alone]
+  single_item_map: {only: one}
+  nested_empty: [[], [{}], [{}, []]]
+  all_empty: [{}, [], {a: []}, {b: {}}]

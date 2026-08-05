@@ -1,0 +1,4 @@
+(library
+ (name webfinger)
+ (public_name webfinger)
+ (libraries jsont jsont.bytesrw uri eio requests logs))

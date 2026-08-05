@@ -1,0 +1,32 @@
+(lang dune 3.21)
+(name tessabot)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(package
+ (name tessabot)
+ (synopsis "Social media automation from sortal feeds")
+ (description
+  "Tessabot reads sortal contact feeds and provides CLI subcommands
+   for social media automation, including posting to Buffer via
+   their GraphQL API.")
+ (depends
+  (ocaml (>= 5.2))
+  (sortal (>= 0.1))
+  (requests (>= 0.1))
+  (tomlt (>= 0.1))
+  (xdge (>= 0.1))
+  (jsont (>= 0.1))
+  (eio (>= 1.2))
+  eio_main
+  cmdliner
+  fmt
+  logs
+  ptime
+  uri
+  unix
+  (odoc :with-doc)))

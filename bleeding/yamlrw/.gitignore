@@ -1,0 +1,21 @@
+# OCaml build artifacts
+_build/
+*.install
+*.merlin
+
+# Third-party sources (fetch locally with opam source)
+third_party/
+
+# YAML test suite (clone manually to tests/ for running test suite)
+tests/yaml-test-suite/
+
+# Editor and OS files
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# Opam local switch
+_opam/
+bytesrw-eio

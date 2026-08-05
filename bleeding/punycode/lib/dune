@@ -1,0 +1,11 @@
+(library
+ (name punycode)
+ (public_name punycode)
+ (modules punycode)
+ (libraries uutf))
+
+(library
+ (name punycode_idna)
+ (public_name punycode.idna)
+ (modules punycode_idna)
+ (libraries punycode uunf domain-name))

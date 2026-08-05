@@ -1,0 +1,1660 @@
+
+<!DOCTYPE html>
+
+
+
+
+
+
+
+<html data-bs-theme="auto" lang="en">
+    <head>
+        
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <title>
+            
+                RFC 1950 - ZLIB Compressed Data Format Specification version 3.3
+            
+        </title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link href="https://static.ietf.org/fonts/inter/import.css" rel="stylesheet">
+        <link href="https://static.ietf.org/fonts/noto-sans-mono/import.css" rel="stylesheet">
+        
+            <link rel="stylesheet" href="https://static.ietf.org/dt/12.54.0/ietf/css/document_html_referenced.css">
+            
+            <script type="module" crossorigin="" src="https://static.ietf.org/dt/12.54.0/assets/embedded-055c333d.js"></script>
+<link href="https://static.ietf.org/dt/12.54.0/assets/create-pinia-singleton-8312c5df.js" type="text/javascript" crossorigin="anonymous" rel="modulepreload" as="script" />
+<link href="https://static.ietf.org/dt/12.54.0/assets/Scrollbar-ad8c5330.js" type="text/javascript" crossorigin="anonymous" rel="modulepreload" as="script" />
+            <script src="https://static.ietf.org/dt/12.54.0/ietf/js/document_html.js"></script>
+            <script src="https://static.ietf.org/dt/12.54.0/ietf/js/theme.js"></script>
+        
+        <link rel="alternate" type="application/atom+xml" title="Document changes" href="/feed/document-changes/rfc1950/">
+        <meta name="description"
+            
+                content="ZLIB Compressed Data Format Specification version 3.3 (RFC 1950, )"
+            >
+        
+
+<link rel="apple-touch-icon"
+      sizes="180x180"
+      href="https://static.ietf.org/dt/12.54.0/ietf/images/ietf-logo-nor-180.png">
+<link rel="icon"
+      sizes="32x32"
+      href="https://static.ietf.org/dt/12.54.0/ietf/images/ietf-logo-nor-32.png">
+<link rel="icon"
+      sizes="16x16"
+      href="https://static.ietf.org/dt/12.54.0/ietf/images/ietf-logo-nor-16.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="mask-icon"
+      href="https://static.ietf.org/dt/12.54.0/ietf/images/ietf-logo-nor-mask.svg"
+      color="#ffffff">
+<meta name="msapplication-TileColor"
+      content="#ffffff">
+<meta name="theme-color"
+      content="#ffffff">
+        
+
+
+
+
+<meta property="og:title" content="RFC 1950: ZLIB Compressed Data Format Specification version 3.3">
+<meta property="og:url" content="https://datatracker.ietf.org/doc/html/rfc1950.txt">
+<link rel="canonical" href="https://datatracker.ietf.org/doc/html/rfc1950.txt">
+<meta property="og:site_name" content="IETF Datatracker">
+<meta property="og:description" content="This specification defines a lossless compressed data format. This memo provides information for the Internet community. This memo does not specify an Internet standard of any kind.">
+<meta property="og:type" content="article">
+
+<meta property="article:section" content="Individual Internet-Draft">
+
+<meta property="article:author" content="L. Peter Deutsch">
+<meta property="article:author" content="Jean-loup Gailly">
+
+
+
+        
+        <style>
+            
+            .diff-form .select2-selection__rendered {
+                direction: rtl;
+                text-align: left;
+            }
+        </style>
+    </head>
+    <body>
+        
+        <noscript><iframe class="status" title="Site status" src="/status/latest"></iframe></noscript>
+<div class="vue-embed" data-component="Status"></div>
+        <div class="btn-toolbar sidebar-toolbar position-fixed top-0 end-0 m-2 m-lg-3 d-print-none">
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm me-1 dropdown-toggle d-flex align-items-center"
+                    id="bd-theme" type="button" aria-expanded="false" data-bs-toggle="dropdown"
+                    aria-label="Toggle theme">
+                        <i class="theme-icon-active bi bi-circle-half"></i>
+                </button>
+
+                <ul class="dropdown-menu" aria-labelledby="bd-theme">
+                    <li>
+                        <button type="button" class="dropdown-item d-flex align-items-center"
+                            data-bs-theme-value="light" aria-pressed="false">
+                            <i class="me-2 opacity-50 theme-icon bi bi-sun-fill"></i>
+                            Light<i class="bi bi-check2 ms-auto d-none"></i>
+                        </button>
+                    </li>
+                    <li>
+                        <button type="button" class="dropdown-item d-flex align-items-center"
+                            data-bs-theme-value="dark" aria-pressed="false">
+                            <i class="me-2 opacity-50 theme-icon bi bi-moon-stars-fill"></i>
+                            Dark<i class="bi bi-check2 ms-auto d-none"></i>
+                        </button>
+                    </li>
+                    <li>
+                        <button type="button" class="dropdown-item d-flex align-items-center active"
+                            data-bs-theme-value="auto" aria-pressed="true">
+                            <i class="me-2 opacity-50 theme-icon bi bi-circle-half"></i>
+                            Auto<i class="bi bi-check2 ms-auto d-none"></i>
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm sidebar-toggle"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#sidebar"
+                    aria-expanded="true"
+                    aria-controls="sidebar"
+                    aria-label="Toggle metadata sidebar"
+                    title="Toggle metadata sidebar">
+            <i class="bi bi-arrow-bar-left sidebar-shown"></i>
+            <i class="bi bi-arrow-bar-right sidebar-collapsed"></i>
+            </button>
+        </div>
+        <nav class="navbar bg-light-subtle px-1 fixed-top d-print-none d-md-none">
+            <a class="nav-link ps-1"
+               href="/doc/rfc1950/">
+                
+                    RFC 1950
+                
+                <br class="d-sm-none">
+
+                <span class="ms-sm-3 badge rounded-pill badge-inf">
+                    
+                        Informational
+                    
+                </span>
+            </a>
+            <button class="navbar-toggler p-1"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#docinfo-collapse"
+                    aria-controls="docinfo-collapse"
+                    aria-expanded="false"
+                    aria-label="Show document information">
+                <span class="navbar-toggler-icon small"></span>
+            </button>
+            <div class="navbar-nav navbar-nav-scroll overscroll-none collapse pt-1" id="docinfo-collapse">
+                <div class="bg-light-subtle p-0">
+                    <table class="table table-sm table-borderless small">
+                        <tbody class="meta align-top">
+                            <tr>
+                                <th scope="row"></th>
+                                <th scope="row">Title</th>
+                                <td class="edit"></td>
+                                <td>ZLIB Compressed Data Format Specification version 3.3</td>
+                            </tr>
+                        </tbody>
+                        
+
+
+
+
+
+
+
+<tbody class="meta align-top ">
+    <tr>
+        <th scope="row">Document</th>
+        <th scope="row">Document type</th>
+        <td class="edit"></td>
+        <td>
+            
+
+
+
+
+
+<span class="text-success">RFC
+    
+    - Informational
+    
+</span>
+
+            
+                
+                    <br>May 1996
+                
+                <br>
+                
+                
+                    <a class="btn btn-sm btn-warning"
+                       title="Click to report an error in the document."
+                       href="https://www.rfc-editor.org/errata.php#reportnew"
+                       target="_blank">
+                        Report errata
+                    </a>
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                    <div>
+                        Was
+                        <a href="/doc/draft-deutsch-zlib-spec/03/">draft-deutsch-zlib-spec</a>
+                        (individual)
+                    </div>
+                
+            
+            
+            
+                
+
+
+
+
+    	
+        <div class="alert alert-warning small p-2 mt-2" role="alert">
+            This RFC is labeled as "Legacy"; it was published before a formal source was recorded.
+            This RFC is <strong>not endorsed by the IETF</strong> and has <strong>no formal standing</strong> in the
+            <a href="/doc/rfc2026/">IETF standards process</a>.
+        </div>
+    
+
+
+            
+        </td>
+    </tr>
+    
+        <tr>
+            <td></td>
+            <th scope="row">Select version</th>
+            <td class="edit"></td>
+            <td>
+                
+
+
+
+    <ul class="revision-list pagination pagination-sm text-center flex-wrap my-0">
+        
+            
+            
+                
+                    <li class="page-item">
+                        <a class="page-link"
+                        href="/doc/html/draft-deutsch-zlib-spec-03"
+                        rel="nofollow">
+                            03
+                        </a>
+                    </li>
+                
+            
+            
+            <li class="page-item rfc active">
+                <a class="page-link"
+                href="/doc/html/rfc1950">
+                    RFC 1950
+                </a>
+            </li>
+        
+    </ul>
+
+            </td>
+        </tr>
+        
+            <tr>
+                <td></td>
+                <th scope="row">Compare versions</th>
+                <td class="edit"></td>
+                <td>
+                    
+
+
+
+<form class="form-horizontal diff-form"
+      action="https://author-tools.ietf.org/iddiff"
+      method="get"
+      target="_blank">
+
+            <select class="form-select form-select-sm mb-1 select2-field"
+                    data-max-entries="1"
+                    data-width="resolve"
+                    data-allow-clear="false"
+                    data-minimum-input-length="0"
+                    aria-label="From revision"
+                    name="url1">
+                
+                    <option value="rfc1950">
+                        RFC 1950
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-03" selected>
+                        draft-deutsch-zlib-spec-03
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-02">
+                        draft-deutsch-zlib-spec-02
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-01">
+                        draft-deutsch-zlib-spec-01
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-00">
+                        draft-deutsch-zlib-spec-00
+                        
+                    </option>
+                
+                
+            </select>
+
+            <select class="form-select form-select-sm mb-1 select2-field"
+                    data-max-entries="1"
+                    data-width="resolve"
+                    data-allow-clear="false"
+                    data-minimum-input-length="0"
+                    aria-label="To revision"
+                    name="url2">
+                
+                    <option value="rfc1950" selected>
+                        RFC 1950
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-03">
+                        draft-deutsch-zlib-spec-03
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-02">
+                        draft-deutsch-zlib-spec-02
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-01">
+                        draft-deutsch-zlib-spec-01
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-00">
+                        draft-deutsch-zlib-spec-00
+                        
+                    </option>
+                
+                
+            </select>
+
+            <button type="submit"
+                    class="btn btn-primary btn-sm"
+                    value="--html"
+                    name="difftype">
+                Side-by-side
+            </button>
+            
+            <button type="submit"
+                    class="btn btn-primary btn-sm"
+                    value="--hwdiff"
+                    name="difftype">
+                Inline
+            </button>
+
+</form>
+                </td>
+            </tr>
+        
+    
+    <tr>
+        <td></td>
+        <th scope="row">Authors</th>
+        <td class="edit">
+            
+        </td>
+        <td>
+            
+            
+                <span ><a 
+           title="Datatracker profile of L. Peter Deutsch"
+            href="/person/ghost@aladdin.com" >L. Peter Deutsch</a> <a 
+               href="mailto:ghost%40aladdin.com"
+               aria-label="Compose email to ghost@aladdin.com"
+               title="Compose email to ghost@aladdin.com">
+                <i class="bi bi-envelope"></i></a></span>,
+            
+                <span ><a 
+           title="Datatracker profile of Jean-loup Gailly"
+            href="/person/gzip@prep.ai.mit.edu" >Jean-loup Gailly</a> <a 
+               href="mailto:gzip%40prep.ai.mit.edu"
+               aria-label="Compose email to gzip@prep.ai.mit.edu"
+               title="Compose email to gzip@prep.ai.mit.edu">
+                <i class="bi bi-envelope"></i></a></span>
+            
+            
+                <br>
+                <a class="btn btn-primary btn-sm mt-1" href="mailto:rfc1950@ietf.org?subject=rfc1950" title="Send email to the document authors">Email authors</a>
+            
+        </td>
+    </tr>
+    
+    
+    <tr>
+        <td></td>
+        <th scope="row">
+            RFC stream
+        </th>
+        <td class="edit">
+            
+        </td>
+        <td >
+            
+                
+                
+                    
+                        Legacy
+                    
+                
+                
+            
+        </td>
+    </tr>
+    
+    <tr>
+        <td></td>
+        <th scope="row">
+            Other formats
+        </th>
+        <td class="edit">
+        </td>
+        <td>
+            
+                
+    <div class="buttonlist">
+    
+        
+        <a class="btn btn-primary btn-sm"
+          
+          target="_blank"
+          href="https://www.rfc-editor.org/rfc/rfc1950.txt">
+            
+                <i class="bi bi-file-text"></i> txt
+            
+        </a>
+        
+    
+        
+        <a class="btn btn-primary btn-sm"
+          
+          target="_blank"
+          href="https://www.rfc-editor.org/rfc/rfc1950.html">
+            
+                <i class="bi bi-file-code"></i> html
+            
+        </a>
+        
+    
+        
+        <a class="btn btn-primary btn-sm"
+          
+            download="rfc1950.pdf"
+          
+         
+          target="_blank"
+          href="https://www.rfc-editor.org/rfc/rfc1950.pdf">
+            
+                <i class="bi bi-file-pdf"></i> pdf
+            
+        </a>
+        
+    
+        
+    
+        
+        <a class="btn btn-primary btn-sm"
+          
+          target="_blank"
+          href="/doc/rfc1950/bibtex/">
+            
+                <i class="bi bi-file-ruled"></i> bibtex
+            
+        </a>
+        
+    
+</div>
+
+            
+        </td>
+    </tr>
+    
+    
+        
+    
+</tbody>
+                        <tr>
+                            <th scope="row"></th>
+                            <th scope="row"></th>
+                            <td class="edit"></td>
+                            <td>
+                                <a class="btn btn-sm btn-warning mb-3"
+                                target="_blank"
+                                href="https://github.com/ietf-tools/datatracker/issues/new/choose">
+                                    Report a bug
+                                    <i class="bi bi-bug"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </nav>
+        <div class="row g-0">
+            <div class="col-md-9 d-flex justify-content-center lh-sm"
+                 data-bs-spy="scroll"
+                 data-bs-target="#toc-nav"
+                 data-bs-smooth-scroll="true"
+                 tabindex="0"
+                 id="content">
+                
+                    <div class="rfcmarkup">
+                        <br class="noprint">
+                        <!-- [html-validate-disable-block attr-quotes, void-style, element-permitted-content, heading-level -- FIXME: rfcmarkup/rfc2html generates HTML with issues] -->
+                        <div class="rfcmarkup"><pre>Network Working Group                                         P. Deutsch
+Request for Comments: 1950                           Aladdin Enterprises
+Category: Informational                                      J-L. Gailly
+                                                                Info-ZIP
+                                                                May 1996
+
+
+         <span class="h1">ZLIB Compressed Data Format Specification version 3.3</span>
+
+Status of This Memo
+
+   This memo provides information for the Internet community.  This memo
+   does not specify an Internet standard of any kind.  Distribution of
+   this memo is unlimited.
+
+IESG Note:
+
+   The IESG takes no position on the validity of any Intellectual
+   Property Rights statements contained in this document.
+
+Notices
+
+   Copyright (c) 1996 L. Peter Deutsch and Jean-Loup Gailly
+
+   Permission is granted to copy and distribute this document for any
+   purpose and without charge, including translations into other
+   languages and incorporation into compilations, provided that the
+   copyright notice and this notice are preserved, and that any
+   substantive changes or deletions from the original are clearly
+   marked.
+
+   A pointer to the latest version of this and related documentation in
+   HTML format can be found at the URL
+   &lt;<a href="ftp://ftp.uu.net/graphics/png/documents/zlib/zdoc-index.html">ftp://ftp.uu.net/graphics/png/documents/zlib/zdoc-index.html</a>&gt;.
+
+Abstract
+
+   This specification defines a lossless compressed data format.  The
+   data can be produced or consumed, even for an arbitrarily long
+   sequentially presented input data stream, using only an a priori
+   bounded amount of intermediate storage.  The format presently uses
+   the DEFLATE compression method but can be easily extended to use
+   other compression methods.  It can be implemented readily in a manner
+   not covered by patents.  This specification also defines the ADLER-32
+   checksum (an extension and improvement of the Fletcher checksum),
+   used for detection of data corruption, and provides an algorithm for
+   computing it.
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                      [Page 1]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-2" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+Table of Contents
+
+   <a href="#section-1">1</a>. Introduction ................................................... <a href="#page-2">2</a>
+      <a href="#section-1.1">1.1</a>. Purpose ................................................... <a href="#page-2">2</a>
+      <a href="#section-1.2">1.2</a>. Intended audience ......................................... <a href="#page-3">3</a>
+      <a href="#section-1.3">1.3</a>. Scope ..................................................... <a href="#page-3">3</a>
+      <a href="#section-1.4">1.4</a>. Compliance ................................................ <a href="#page-3">3</a>
+      <a href="#section-1.5">1.5</a>.  Definitions of terms and conventions used ................ <a href="#page-3">3</a>
+      <a href="#section-1.6">1.6</a>. Changes from previous versions ............................ <a href="#page-3">3</a>
+   <a href="#section-2">2</a>. Detailed specification ......................................... <a href="#page-3">3</a>
+      <a href="#section-2.1">2.1</a>. Overall conventions ....................................... <a href="#page-3">3</a>
+      <a href="#section-2.2">2.2</a>. Data format ............................................... <a href="#page-4">4</a>
+      <a href="#section-2.3">2.3</a>. Compliance ................................................ <a href="#page-7">7</a>
+   <a href="#section-3">3</a>. References ..................................................... <a href="#page-7">7</a>
+   <a href="#section-4">4</a>. Source code .................................................... <a href="#page-8">8</a>
+   <a href="#section-5">5</a>. Security Considerations ........................................ <a href="#page-8">8</a>
+   <a href="#section-6">6</a>. Acknowledgements ............................................... <a href="#page-8">8</a>
+   <a href="#section-7">7</a>. Authors&#x27; Addresses ............................................. <a href="#page-8">8</a>
+   <a href="#section-8">8</a>. Appendix: Rationale ............................................ <a href="#page-9">9</a>
+   <a href="#section-9">9</a>. Appendix: Sample code ..........................................<a href="#page-10">10</a>
+
+<span class="h2"><a class="selflink" id="section-1" href="#section-1">1</a>. Introduction</span>
+
+   1.1. Purpose
+
+      The purpose of this specification is to define a lossless
+      compressed data format that:
+
+          * Is independent of CPU type, operating system, file system,
+            and character set, and hence can be used for interchange;
+
+          * Can be produced or consumed, even for an arbitrarily long
+            sequentially presented input data stream, using only an a
+            priori bounded amount of intermediate storage, and hence can
+            be used in data communications or similar structures such as
+            Unix filters;
+
+          * Can use a number of different compression methods;
+
+          * Can be implemented readily in a manner not covered by
+            patents, and hence can be practiced freely.
+
+      The data format defined by this specification does not attempt to
+      allow random access to compressed data.
+
+
+
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                      [Page 2]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-3" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+   1.2. Intended audience
+
+      This specification is intended for use by implementors of software
+      to compress data into zlib format and/or decompress data from zlib
+      format.
+
+      The text of the specification assumes a basic background in
+      programming at the level of bits and other primitive data
+      representations.
+
+   1.3. Scope
+
+      The specification specifies a compressed data format that can be
+      used for in-memory compression of a sequence of arbitrary bytes.
+
+   1.4. Compliance
+
+      Unless otherwise indicated below, a compliant decompressor must be
+      able to accept and decompress any data set that conforms to all
+      the specifications presented here; a compliant compressor must
+      produce data sets that conform to all the specifications presented
+      here.
+
+   1.5.  Definitions of terms and conventions used
+
+      byte: 8 bits stored or transmitted as a unit (same as an octet).
+      (For this specification, a byte is exactly 8 bits, even on
+      machines which store a character on a number of bits different
+      from 8.) See below, for the numbering of bits within a byte.
+
+   1.6. Changes from previous versions
+
+      Version 3.1 was the first public release of this specification.
+      In version 3.2, some terminology was changed and the Adler-32
+      sample code was rewritten for clarity.  In version 3.3, the
+      support for a preset dictionary was introduced, and the
+      specification was converted to RFC style.
+
+<span class="h2"><a class="selflink" id="section-2" href="#section-2">2</a>. Detailed specification</span>
+
+   2.1. Overall conventions
+
+      In the diagrams below, a box like this:
+
+         +---+
+         |   | &lt;-- the vertical bars might be missing
+         +---+
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                      [Page 3]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-4" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+      represents one byte; a box like this:
+
+         +==============+
+         |              |
+         +==============+
+
+      represents a variable number of bytes.
+
+      Bytes stored within a computer do not have a &quot;bit order&quot;, since
+      they are always treated as a unit.  However, a byte considered as
+      an integer between 0 and 255 does have a most- and least-
+      significant bit, and since we write numbers with the most-
+      significant digit on the left, we also write bytes with the most-
+      significant bit on the left.  In the diagrams below, we number the
+      bits of a byte so that bit 0 is the least-significant bit, i.e.,
+      the bits are numbered:
+
+         +--------+
+         |76543210|
+         +--------+
+
+      Within a computer, a number may occupy multiple bytes.  All
+      multi-byte numbers in the format described here are stored with
+      the MOST-significant byte first (at the lower memory address).
+      For example, the decimal number 520 is stored as:
+
+             0     1
+         +--------+--------+
+         |00000010|00001000|
+         +--------+--------+
+          ^        ^
+          |        |
+          |        + less significant byte = 8
+          + more significant byte = 2 x 256
+
+   2.2. Data format
+
+      A zlib stream has the following structure:
+
+           0   1
+         +---+---+
+         |CMF|FLG|   (more--&gt;)
+         +---+---+
+
+
+
+
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                      [Page 4]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-5" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+      (if FLG.FDICT set)
+
+           0   1   2   3
+         +---+---+---+---+
+         |     DICTID    |   (more--&gt;)
+         +---+---+---+---+
+
+         +=====================+---+---+---+---+
+         |...compressed data...|    ADLER32    |
+         +=====================+---+---+---+---+
+
+      Any data which may appear after ADLER32 are not part of the zlib
+      stream.
+
+      CMF (Compression Method and flags)
+         This byte is divided into a 4-bit compression method and a 4-
+         bit information field depending on the compression method.
+
+            bits 0 to 3  CM     Compression method
+            bits 4 to 7  CINFO  Compression info
+
+      CM (Compression method)
+         This identifies the compression method used in the file. CM = 8
+         denotes the &quot;deflate&quot; compression method with a window size up
+         to 32K.  This is the method used by gzip and PNG (see
+         references [<a href="#ref-1" title="&quot;GZIP Compressed Data Format Specification&quot;">1</a>] and [<a href="#ref-2" title="&quot;PNG (Portable Network Graphics) specification&quot;">2</a>] in Chapter 3, below, for the reference
+         documents).  CM = 15 is reserved.  It might be used in a future
+         version of this specification to indicate the presence of an
+         extra field before the compressed data.
+
+      CINFO (Compression info)
+         For CM = 8, CINFO is the base-2 logarithm of the LZ77 window
+         size, minus eight (CINFO=7 indicates a 32K window size). Values
+         of CINFO above 7 are not allowed in this version of the
+         specification.  CINFO is not defined in this specification for
+         CM not equal to 8.
+
+      FLG (FLaGs)
+         This flag byte is divided as follows:
+
+            bits 0 to 4  FCHECK  (check bits for CMF and FLG)
+            bit  5       FDICT   (preset dictionary)
+            bits 6 to 7  FLEVEL  (compression level)
+
+         The FCHECK value must be such that CMF and FLG, when viewed as
+         a 16-bit unsigned integer stored in MSB order (CMF*256 + FLG),
+         is a multiple of 31.
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                      [Page 5]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-6" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+      FDICT (Preset dictionary)
+         If FDICT is set, a DICT dictionary identifier is present
+         immediately after the FLG byte. The dictionary is a sequence of
+         bytes which are initially fed to the compressor without
+         producing any compressed output. DICT is the Adler-32 checksum
+         of this sequence of bytes (see the definition of ADLER32
+         below).  The decompressor can use this identifier to determine
+         which dictionary has been used by the compressor.
+
+      FLEVEL (Compression level)
+         These flags are available for use by specific compression
+         methods.  The &quot;deflate&quot; method (CM = 8) sets these flags as
+         follows:
+
+            0 - compressor used fastest algorithm
+            1 - compressor used fast algorithm
+            2 - compressor used default algorithm
+            3 - compressor used maximum compression, slowest algorithm
+
+         The information in FLEVEL is not needed for decompression; it
+         is there to indicate if recompression might be worthwhile.
+
+      compressed data
+         For compression method 8, the compressed data is stored in the
+         deflate compressed data format as described in the document
+         &quot;DEFLATE Compressed Data Format Specification&quot; by L. Peter
+         Deutsch. (See reference [<a href="#ref-3" title="&quot;DEFLATE Compressed Data Format Specification&quot;">3</a>] in Chapter 3, below)
+
+         Other compressed data formats are not specified in this version
+         of the zlib specification.
+
+      ADLER32 (Adler-32 checksum)
+         This contains a checksum value of the uncompressed data
+         (excluding any dictionary data) computed according to Adler-32
+         algorithm. This algorithm is a 32-bit extension and improvement
+         of the Fletcher algorithm, used in the ITU-T X.224 / ISO 8073
+         standard. See references [<a href="#ref-4" title="&quot;An Arithmetic Checksum for Serial Transmissions,&quot;">4</a>] and [<a href="#ref-5" title="&quot;Checksum Algorithms,&quot;">5</a>] in Chapter 3, below)
+
+         Adler-32 is composed of two sums accumulated per byte: s1 is
+         the sum of all bytes, s2 is the sum of all s1 values. Both sums
+         are done modulo 65521. s1 is initialized to 1, s2 to zero.  The
+         Adler-32 checksum is stored as s2*65536 + s1 in most-
+         significant-byte first (network) order.
+
+
+
+
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                      [Page 6]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-7" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+   2.3. Compliance
+
+      A compliant compressor must produce streams with correct CMF, FLG
+      and ADLER32, but need not support preset dictionaries.  When the
+      zlib data format is used as part of another standard data format,
+      the compressor may use only preset dictionaries that are specified
+      by this other data format.  If this other format does not use the
+      preset dictionary feature, the compressor must not set the FDICT
+      flag.
+
+      A compliant decompressor must check CMF, FLG, and ADLER32, and
+      provide an error indication if any of these have incorrect values.
+      A compliant decompressor must give an error indication if CM is
+      not one of the values defined in this specification (only the
+      value 8 is permitted in this version), since another value could
+      indicate the presence of new features that would cause subsequent
+      data to be interpreted incorrectly.  A compliant decompressor must
+      give an error indication if FDICT is set and DICTID is not the
+      identifier of a known preset dictionary.  A decompressor may
+      ignore FLEVEL and still be compliant.  When the zlib data format
+      is being used as a part of another standard format, a compliant
+      decompressor must support all the preset dictionaries specified by
+      the other format. When the other format does not use the preset
+      dictionary feature, a compliant decompressor must reject any
+      stream in which the FDICT flag is set.
+
+<span class="h2"><a class="selflink" id="section-3" href="#section-3">3</a>. References</span>
+
+   [<a id="ref-1">1</a>] Deutsch, L.P.,&quot;GZIP Compressed Data Format Specification&quot;,
+       available in <a href="ftp://ftp.uu.net/pub/archiving/zip/doc/">ftp://ftp.uu.net/pub/archiving/zip/doc/</a>
+
+   [<a id="ref-2">2</a>] Thomas Boutell, &quot;PNG (Portable Network Graphics) specification&quot;,
+       available in <a href="ftp://ftp.uu.net/graphics/png/documents/">ftp://ftp.uu.net/graphics/png/documents/</a>
+
+   [<a id="ref-3">3</a>] Deutsch, L.P.,&quot;DEFLATE Compressed Data Format Specification&quot;,
+       available in <a href="ftp://ftp.uu.net/pub/archiving/zip/doc/">ftp://ftp.uu.net/pub/archiving/zip/doc/</a>
+
+   [<a id="ref-4">4</a>] Fletcher, J. G., &quot;An Arithmetic Checksum for Serial
+       Transmissions,&quot; IEEE Transactions on Communications, Vol. COM-30,
+       No. 1, January 1982, pp. 247-252.
+
+   [<a id="ref-5">5</a>] ITU-T Recommendation X.224, Annex D, &quot;Checksum Algorithms,&quot;
+       November, 1993, pp. 144, 145. (Available from
+       gopher://info.itu.ch). ITU-T X.244 is also the same as ISO 8073.
+
+
+
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                      [Page 7]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-8" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+<span class="h2"><a class="selflink" id="section-4" href="#section-4">4</a>. Source code</span>
+
+   Source code for a C language implementation of a &quot;zlib&quot; compliant
+   library is available at <a href="ftp://ftp.uu.net/pub/archiving/zip/zlib/">ftp://ftp.uu.net/pub/archiving/zip/zlib/</a>.
+
+<span class="h2"><a class="selflink" id="section-5" href="#section-5">5</a>. Security Considerations</span>
+
+   A decoder that fails to check the ADLER32 checksum value may be
+   subject to undetected data corruption.
+
+<span class="h2"><a class="selflink" id="section-6" href="#section-6">6</a>. Acknowledgements</span>
+
+   Trademarks cited in this document are the property of their
+   respective owners.
+
+   Jean-Loup Gailly and Mark Adler designed the zlib format and wrote
+   the related software described in this specification.  Glenn
+   Randers-Pehrson converted this document to RFC and HTML format.
+
+<span class="h2"><a class="selflink" id="section-7" href="#section-7">7</a>. Authors&#x27; Addresses</span>
+
+   L. Peter Deutsch
+   Aladdin Enterprises
+   203 Santa Margarita Ave.
+   Menlo Park, CA 94025
+
+   Phone: (415) 322-0103 (AM only)
+   FAX:   (415) 322-1734
+   EMail: &lt;ghost@aladdin.com&gt;
+
+
+   Jean-Loup Gailly
+
+   EMail: &lt;gzip@prep.ai.mit.edu&gt;
+
+   Questions about the technical content of this specification can be
+   sent by email to
+
+   Jean-Loup Gailly &lt;gzip@prep.ai.mit.edu&gt; and
+   Mark Adler &lt;madler@alumni.caltech.edu&gt;
+
+   Editorial comments on this specification can be sent by email to
+
+   L. Peter Deutsch &lt;ghost@aladdin.com&gt; and
+   Glenn Randers-Pehrson &lt;randeg@alumni.rpi.edu&gt;
+
+
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                      [Page 8]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-9" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+<span class="h2"><a class="selflink" id="section-8" href="#section-8">8</a>. Appendix: Rationale</span>
+
+   8.1. Preset dictionaries
+
+      A preset dictionary is specially useful to compress short input
+      sequences. The compressor can take advantage of the dictionary
+      context to encode the input in a more compact manner. The
+      decompressor can be initialized with the appropriate context by
+      virtually decompressing a compressed version of the dictionary
+      without producing any output. However for certain compression
+      algorithms such as the deflate algorithm this operation can be
+      achieved without actually performing any decompression.
+
+      The compressor and the decompressor must use exactly the same
+      dictionary. The dictionary may be fixed or may be chosen among a
+      certain number of predefined dictionaries, according to the kind
+      of input data. The decompressor can determine which dictionary has
+      been chosen by the compressor by checking the dictionary
+      identifier. This document does not specify the contents of
+      predefined dictionaries, since the optimal dictionaries are
+      application specific. Standard data formats using this feature of
+      the zlib specification must precisely define the allowed
+      dictionaries.
+
+   8.2. The Adler-32 algorithm
+
+      The Adler-32 algorithm is much faster than the CRC32 algorithm yet
+      still provides an extremely low probability of undetected errors.
+
+      The modulo on unsigned long accumulators can be delayed for 5552
+      bytes, so the modulo operation time is negligible.  If the bytes
+      are a, b, c, the second sum is 3a + 2b + c + 3, and so is position
+      and order sensitive, unlike the first sum, which is just a
+      checksum.  That 65521 is prime is important to avoid a possible
+      large class of two-byte errors that leave the check unchanged.
+      (The Fletcher checksum uses 255, which is not prime and which also
+      makes the Fletcher check insensitive to single byte changes 0 &lt;-&gt;
+      255.)
+
+      The sum s1 is initialized to 1 instead of zero to make the length
+      of the sequence part of s2, so that the length does not have to be
+      checked separately. (Any sequence of zeroes has a Fletcher
+      checksum of zero.)
+
+
+
+
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                      [Page 9]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-10" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+<span class="h2"><a class="selflink" id="section-9" href="#section-9">9</a>. Appendix: Sample code</span>
+
+   The following C code computes the Adler-32 checksum of a data buffer.
+   It is written for clarity, not for speed.  The sample code is in the
+   ANSI C programming language. Non C users may find it easier to read
+   with these hints:
+
+      &amp;      Bitwise AND operator.
+      &gt;&gt;     Bitwise right shift operator. When applied to an
+             unsigned quantity, as here, right shift inserts zero bit(s)
+             at the left.
+      &lt;&lt;     Bitwise left shift operator. Left shift inserts zero
+             bit(s) at the right.
+      ++     &quot;n++&quot; increments the variable n.
+      %      modulo operator: a % b is the remainder of a divided by b.
+
+      #define BASE 65521 /* largest prime smaller than 65536 */
+
+      /*
+         Update a running Adler-32 checksum with the bytes buf[0..len-1]
+       and return the updated checksum. The Adler-32 checksum should be
+       initialized to 1.
+
+       Usage example:
+
+         unsigned long adler = 1L;
+
+         while (read_buffer(buffer, length) != EOF) {
+           adler = update_adler32(adler, buffer, length);
+         }
+         if (adler != original_adler) error();
+      */
+      unsigned long update_adler32(unsigned long adler,
+         unsigned char *buf, int len)
+      {
+        unsigned long s1 = adler &amp; 0xffff;
+        unsigned long s2 = (adler &gt;&gt; 16) &amp; 0xffff;
+        int n;
+
+        for (n = 0; n &lt; len; n++) {
+          s1 = (s1 + buf[n]) % BASE;
+          s2 = (s2 + s1)     % BASE;
+        }
+        return (s2 &lt;&lt; 16) + s1;
+      }
+
+      /* Return the adler32 of the bytes buf[0..len-1] */
+
+
+
+
+<span class="grey">Deutsch &amp; Gailly             Informational                     [Page 10]</span></pre>
+<hr class='noprint'/><!--NewPage--><pre class='newpage'><span id="page-11" ></span>
+<span class="grey"><a href="/doc/html/rfc1950">RFC 1950</a>       ZLIB Compressed Data Format Specification        May 1996</span>
+
+
+      unsigned long adler32(unsigned char *buf, int len)
+      {
+        return update_adler32(1L, buf, len);
+      }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Deutsch &amp; Gailly             Informational                     [Page 11]
+</pre></div>
+                    </div>
+                
+            </div>
+            <div class="d-print-none col-md-3 bg-light-subtle collapse show" id="sidebar">
+                <div class="position-fixed border-start sidebar overflow-scroll overscroll-none no-scrollbar">
+                    <div class="d-flex flex-column vh-100 pt-2 pt-lg-3 ps-3 pl-md-2 pl-lg-3">
+                        <div>
+                            <a class="btn btn-primary btn-sm" href="/doc/rfc1950/">Datatracker</a>
+                            <p class="fw-bold pt-2">
+                                
+                                    RFC 1950
+                                
+                                <br>
+                                
+
+
+
+
+
+<span class="text-success">RFC
+    
+    - Informational
+    
+</span>
+
+                            </p>
+                        </div>
+                        
+                        <ul class="nav nav-tabs nav-fill small me-2" role="tablist">
+                            <li class="nav-item" role="presentation" title="Document information">
+                                <button class="nav-link px-2"
+                                        id="docinfo-tab"
+                                        data-bs-toggle="tab"
+                                        data-bs-target="#docinfo-tab-pane"
+                                        type="button"
+                                        role="tab"
+                                        aria-controls="docinfo-tab-pane"
+                                        aria-selected="true">
+                                    <i class="bi bi-info-circle"></i><span class="d-none d-md-block d-xl-inline ms-xl-1">Info</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation" title="Table of contents">
+                                <button class="nav-link px-2"
+                                        id="toc-tab"
+                                        data-bs-toggle="tab"
+                                        data-bs-target="#toc-tab-pane"
+                                        type="button"
+                                        role="tab"
+                                        aria-controls="toc-tab-pane"
+                                        aria-selected="false">
+                                    <i class="bi bi-list-ol"></i><span class="d-none d-md-block d-xl-inline ms-xl-1">Contents</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation" title="Preferences">
+                                <button class="nav-link px-2"
+                                        id="pref-tab"
+                                        data-bs-toggle="tab"
+                                        data-bs-target="#pref-tab-pane"
+                                        type="button"
+                                        role="tab"
+                                        aria-controls="pref-tab-pane"
+                                        aria-selected="false">
+                                    <i class="bi bi-gear"></i><span class="d-none d-md-block d-xl-inline ms-xl-1">Prefs</span>
+                                </button>
+                            </li>
+                        </ul>
+                        <div class="overflow-auto tab-content pt-2 me-2">
+                            <div class="tab-pane"
+                                 id="docinfo-tab-pane"
+                                 role="tabpanel"
+                                 aria-labelledby="docinfo-tab"
+                                 tabindex="0">
+                                <table class="table table-sm table-borderless">
+                                    
+
+
+
+
+
+
+
+<tbody class="meta align-top ">
+    <tr>
+        <th scope="row">Document</th>
+        <th scope="row">Document type</th>
+        <td class="edit"></td>
+        <td>
+            
+
+
+
+
+
+<span class="text-success">RFC
+    
+    - Informational
+    
+</span>
+
+            
+                
+                    <br>May 1996
+                
+                <br>
+                
+                
+                    <a class="btn btn-sm btn-warning"
+                       title="Click to report an error in the document."
+                       href="https://www.rfc-editor.org/errata.php#reportnew"
+                       target="_blank">
+                        Report errata
+                    </a>
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                    <div>
+                        Was
+                        <a href="/doc/draft-deutsch-zlib-spec/03/">draft-deutsch-zlib-spec</a>
+                        (individual)
+                    </div>
+                
+            
+            
+            
+                
+
+
+
+
+    	
+        <div class="alert alert-warning small p-2 mt-2" role="alert">
+            This RFC is labeled as "Legacy"; it was published before a formal source was recorded.
+            This RFC is <strong>not endorsed by the IETF</strong> and has <strong>no formal standing</strong> in the
+            <a href="/doc/rfc2026/">IETF standards process</a>.
+        </div>
+    
+
+
+            
+        </td>
+    </tr>
+    
+        <tr>
+            <td></td>
+            <th scope="row">Select version</th>
+            <td class="edit"></td>
+            <td>
+                
+
+
+
+    <ul class="revision-list pagination pagination-sm text-center flex-wrap my-0">
+        
+            
+            
+                
+                    <li class="page-item">
+                        <a class="page-link"
+                        href="/doc/html/draft-deutsch-zlib-spec-03"
+                        rel="nofollow">
+                            03
+                        </a>
+                    </li>
+                
+            
+            
+            <li class="page-item rfc active">
+                <a class="page-link"
+                href="/doc/html/rfc1950">
+                    RFC 1950
+                </a>
+            </li>
+        
+    </ul>
+
+            </td>
+        </tr>
+        
+            <tr>
+                <td></td>
+                <th scope="row">Compare versions</th>
+                <td class="edit"></td>
+                <td>
+                    
+
+
+
+<form class="form-horizontal diff-form"
+      action="https://author-tools.ietf.org/iddiff"
+      method="get"
+      target="_blank">
+
+            <select class="form-select form-select-sm mb-1 select2-field"
+                    data-max-entries="1"
+                    data-width="resolve"
+                    data-allow-clear="false"
+                    data-minimum-input-length="0"
+                    aria-label="From revision"
+                    name="url1">
+                
+                    <option value="rfc1950">
+                        RFC 1950
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-03" selected>
+                        draft-deutsch-zlib-spec-03
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-02">
+                        draft-deutsch-zlib-spec-02
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-01">
+                        draft-deutsch-zlib-spec-01
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-00">
+                        draft-deutsch-zlib-spec-00
+                        
+                    </option>
+                
+                
+            </select>
+
+            <select class="form-select form-select-sm mb-1 select2-field"
+                    data-max-entries="1"
+                    data-width="resolve"
+                    data-allow-clear="false"
+                    data-minimum-input-length="0"
+                    aria-label="To revision"
+                    name="url2">
+                
+                    <option value="rfc1950" selected>
+                        RFC 1950
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-03">
+                        draft-deutsch-zlib-spec-03
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-02">
+                        draft-deutsch-zlib-spec-02
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-01">
+                        draft-deutsch-zlib-spec-01
+                        
+                    </option>
+                
+                    <option value="draft-deutsch-zlib-spec-00">
+                        draft-deutsch-zlib-spec-00
+                        
+                    </option>
+                
+                
+            </select>
+
+            <button type="submit"
+                    class="btn btn-primary btn-sm"
+                    value="--html"
+                    name="difftype">
+                Side-by-side
+            </button>
+            
+            <button type="submit"
+                    class="btn btn-primary btn-sm"
+                    value="--hwdiff"
+                    name="difftype">
+                Inline
+            </button>
+
+</form>
+                </td>
+            </tr>
+        
+    
+    <tr>
+        <td></td>
+        <th scope="row">Authors</th>
+        <td class="edit">
+            
+        </td>
+        <td>
+            
+            
+                <span ><a 
+           title="Datatracker profile of L. Peter Deutsch"
+            href="/person/ghost@aladdin.com" >L. Peter Deutsch</a> <a 
+               href="mailto:ghost%40aladdin.com"
+               aria-label="Compose email to ghost@aladdin.com"
+               title="Compose email to ghost@aladdin.com">
+                <i class="bi bi-envelope"></i></a></span>,
+            
+                <span ><a 
+           title="Datatracker profile of Jean-loup Gailly"
+            href="/person/gzip@prep.ai.mit.edu" >Jean-loup Gailly</a> <a 
+               href="mailto:gzip%40prep.ai.mit.edu"
+               aria-label="Compose email to gzip@prep.ai.mit.edu"
+               title="Compose email to gzip@prep.ai.mit.edu">
+                <i class="bi bi-envelope"></i></a></span>
+            
+            
+                <br>
+                <a class="btn btn-primary btn-sm mt-1" href="mailto:rfc1950@ietf.org?subject=rfc1950" title="Send email to the document authors">Email authors</a>
+            
+        </td>
+    </tr>
+    
+    
+    <tr>
+        <td></td>
+        <th scope="row">
+            RFC stream
+        </th>
+        <td class="edit">
+            
+        </td>
+        <td >
+            
+                
+                
+                    
+                        Legacy
+                    
+                
+                
+            
+        </td>
+    </tr>
+    
+    <tr>
+        <td></td>
+        <th scope="row">
+            Other formats
+        </th>
+        <td class="edit">
+        </td>
+        <td>
+            
+                
+    <div class="buttonlist">
+    
+        
+        <a class="btn btn-primary btn-sm"
+          
+          target="_blank"
+          href="https://www.rfc-editor.org/rfc/rfc1950.txt">
+            
+                <i class="bi bi-file-text"></i> txt
+            
+        </a>
+        
+    
+        
+        <a class="btn btn-primary btn-sm"
+          
+          target="_blank"
+          href="https://www.rfc-editor.org/rfc/rfc1950.html">
+            
+                <i class="bi bi-file-code"></i> html
+            
+        </a>
+        
+    
+        
+        <a class="btn btn-primary btn-sm"
+          
+            download="rfc1950.pdf"
+          
+         
+          target="_blank"
+          href="https://www.rfc-editor.org/rfc/rfc1950.pdf">
+            
+                <i class="bi bi-file-pdf"></i> pdf
+            
+        </a>
+        
+    
+        
+    
+        
+        <a class="btn btn-primary btn-sm"
+          
+          target="_blank"
+          href="/doc/rfc1950/bibtex/">
+            
+                <i class="bi bi-file-ruled"></i> bibtex
+            
+        </a>
+        
+    
+</div>
+
+            
+        </td>
+    </tr>
+    
+    
+        
+    
+</tbody>
+                                </table>
+                                <a class="btn btn-sm btn-warning mb-3"
+                                target="_blank"
+                                href="https://github.com/ietf-tools/datatracker/issues/new/choose">
+                                    Report a datatracker bug
+                                    <i class="bi bi-bug"></i>
+                                </a>
+                            </div>
+                            <div class="tab-pane mb-5"
+                                 id="toc-tab-pane"
+                                 role="tabpanel"
+                                 aria-labelledby="toc-tab"
+                                 tabindex="0">
+                                <nav class="nav nav-pills flex-column small" id="toc-nav">
+                                </nav>
+                            </div>
+                            <div class="tab-pane mb-5 small"
+                                 id="pref-tab-pane"
+                                 role="tabpanel"
+                                 aria-labelledby="pref-tab"
+                                 tabindex="0">
+                                <label class="form-label fw-bold mb-2">Show sidebar by default</label>
+                                <div class="btn-group-vertical btn-group-sm d-flex" role="group">
+                                    <input type="radio" class="btn-check" name="sidebar" id="on-radio">
+                                    <label class="btn btn-outline-primary" for="on-radio">Yes</label>
+                                    <input type="radio" class="btn-check" name="sidebar" id="off-radio">
+                                    <label class="btn btn-outline-primary" for="off-radio">No</label>
+                                </div>
+                                <label class="form-label fw-bold mt-4 mb-2">Tab to show by default</label>
+                                <div class="btn-group-vertical btn-group-sm d-flex" role="group">
+                                    <input type="radio" class="btn-check" name="deftab" id="docinfo-radio">
+                                    <label class="btn btn-outline-primary" for="docinfo-radio">
+                                        <i class="bi bi-info-circle me-1"></i>Info
+                                    </label>
+                                    <input type="radio" class="btn-check" name="deftab" id="toc-radio">
+                                    <label class="btn btn-outline-primary" for="toc-radio">
+                                        <i class="bi bi-list-ol me-1"></i>Contents
+                                    </label>
+                                </div>
+                                <label class="form-label fw-bold mt-4 mb-2">HTMLization configuration</label>
+                                <div class="btn-group-vertical btn-group-sm d-flex" role="group">
+                                    <input type="radio" class="btn-check" name="htmlconf" id="txt-radio">
+                                    <label class="btn btn-outline-primary" for="txt-radio" title="This is the traditional HTMLization method.">
+                                        <i class="bi bi-badge-sd me-1"></i>HTMLize the plaintext
+                                    </label>
+                                    <input type="radio" class="btn-check" name="htmlconf" id="html-radio">
+                                    <label class="btn btn-outline-primary" for="html-radio" title="This is the modern HTMLization method.">
+                                        <i class="bi bi-badge-hd me-1"></i>Plaintextify the HTML
+                                    </label>
+                                </div>
+                                <label class="form-label fw-bold mt-4 mb-2" for="ptsize">Maximum font size</label>
+                                <input type="range" class="form-range" min="7" max="16" id="ptsize" oninput="ptdemo.value = ptsize.value">
+                                <label class="form-label fw-bold mt-4 mb-2">Page dependencies</label>
+                                <div class="btn-group-vertical btn-group-sm d-flex" role="group">
+                                    <input type="radio" class="btn-check" name="pagedeps" id="inline-radio">
+                                    <label class="btn btn-outline-primary" for="inline-radio" title="Generate larger, standalone web pages that do not require network access to render.">
+                                        <i class="bi bi-box me-1"></i>Inline
+                                    </label>
+                                    <input type="radio" class="btn-check" name="pagedeps" id="reference-radio">
+                                    <label class="btn btn-outline-primary" for="reference-radio" title="Generate regular web pages that require network access to render.">
+                                        <i class="bi bi-link-45deg me-1"></i>Reference
+                                    </label>
+                                </div>
+                                <label class="form-label fw-bold mt-4 mb-2">Citation links</label>
+                                <div class="btn-group-vertical btn-group-sm d-flex" role="group">
+                                    <input type="radio" class="btn-check" name="reflinks" id="refsection-radio">
+                                    <label class="btn btn-outline-primary" for="refsection-radio" title="Citation links go to the reference section.">
+                                        <i class="bi bi-arrow-clockwise"></i> Go to reference section
+                                    </label>
+                                    <input type="radio" class="btn-check" name="reflinks" id="citation-radio">
+                                    <label class="btn btn-outline-primary" for="citation-radio" title="Citation links go directly to the cited document.">
+                                        <i class="bi bi-link-45deg me-1"></i>Go to linked document
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    
+<script>
+  var _paq = window._paq || [];
+  
+  _paq.push(['disableCookies']);
+  _paq.push(['trackPageView']);
+  _paq.push(['enableLinkTracking']);
+  (function() {
+    var u="//analytics.ietf.org/";
+    _paq.push(['setTrackerUrl', u+'matomo.php']);
+    _paq.push(['setSiteId', 7]);
+    var d=document, g=d.createElement('script'), s=d.getElementsByTagName('script')[0];
+    g.type='text/javascript'; g.async=true; g.defer=true; g.src=u+'matomo.js'; s.parentNode.insertBefore(g,s);
+  })();
+</script>
+<noscript><p><img src="//analytics.ietf.org/matomo.php?idsite=7" style="border:0;" alt="" /></p></noscript>
+
+    </body>
+</html>

@@ -1,0 +1,4 @@
+(library
+ (name carddavz)
+ (public_name httpz.carddav)
+ (libraries httpz httpz.server httpz.webdav httpz.eio eio base))

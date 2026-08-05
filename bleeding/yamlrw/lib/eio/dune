@@ -1,0 +1,4 @@
+(library
+ (name yamlrw_eio)
+ (public_name yamlrw-eio)
+ (libraries yamlrw bytesrw-eio eio))

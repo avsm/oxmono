@@ -1,0 +1,10 @@
+(library
+ (name bushel_eio)
+ (public_name bushel.eio)
+ (libraries
+  bushel
+  frontmatter-eio
+  eio
+  logs
+  sortal
+  srcsetter))

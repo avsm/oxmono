@@ -1,0 +1,14 @@
+(library
+ (name test_suite_lib)
+ (modules
+  test_suite_loader_generic
+  test_suite_loader
+  tree_format
+  json_format
+  json_compare)
+ (libraries yamlrw jsonm))
+
+(library
+ (name test_suite_lib_eio)
+ (modules test_suite_loader_eio)
+ (libraries test_suite_lib eio))

@@ -1,0 +1,5 @@
+(library
+ (name requests_h2)
+ (public_name requests.h2)
+ (wrapped false)
+ (libraries requests_core requests_h2_internal requests_h1 eio cstruct optint bigstringaf tls ca-certs conpool logs))

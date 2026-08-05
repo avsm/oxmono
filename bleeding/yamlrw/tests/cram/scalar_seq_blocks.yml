@@ -1,0 +1,7 @@
+items:
+  - |
+    First item
+    multiline
+  - >
+    Second item
+    folded

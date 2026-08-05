@@ -1,0 +1,4 @@
+(executable
+ (name cookeiocat)
+ (public_name cookeiocat)
+ (libraries cookeio cookeio.jar eio_main ptime))

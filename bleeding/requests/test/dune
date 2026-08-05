@@ -1,0 +1,70 @@
+(executable
+ (name test_localhost)
+ (libraries requests conpool eio eio_main fmt fmt.tty logs logs.fmt mirage-crypto-rng.unix))
+
+(executable
+ (name test_simple)
+ (libraries requests conpool eio eio_main fmt fmt.tty logs logs.fmt mirage-crypto-rng.unix))
+
+(executable
+ (name test_one)
+ (libraries requests eio eio_main fmt fmt.tty logs logs.fmt mirage-crypto-rng.unix))
+
+(executable
+ (name test_simple_head)
+ (libraries requests eio eio_main fmt fmt.tty logs logs.fmt mirage-crypto-rng.unix))
+
+(executable
+ (name test_http_date)
+ (libraries requests eio eio_main alcotest fmt fmt.tty logs logs.fmt ptime))
+
+(executable
+ (name test_header_parsing)
+ (libraries requests alcotest fmt fmt.tty logs logs.fmt))
+
+(executable
+ (name test_websocket)
+ (libraries requests alcotest base64 fmt fmt.tty logs logs.fmt mirage-crypto-rng.unix))
+
+(executable
+ (name test_signature)
+ (libraries requests alcotest eio eio_main fmt fmt.tty logs logs.fmt mirage-crypto-rng.unix mirage-crypto-ec))
+
+(executable
+ (name test_rfc9421_vectors)
+ (libraries requests alcotest base64 digestif eio eio_main fmt fmt.tty logs logs.fmt mirage-crypto-rng.unix mirage-crypto-ec))
+
+(executable
+ (name test_oauth)
+ (libraries requests requests.oauth alcotest astring fmt fmt.tty logs logs.fmt mirage-crypto-rng.unix ptime ptime.clock.os))
+
+(executable
+ (name test_h2_types)
+ (libraries requests alcotest fmt fmt.tty logs logs.fmt))
+
+(executable
+ (name test_h2_frame)
+ (libraries requests alcotest cstruct fmt fmt.tty logs logs.fmt))
+
+(executable
+ (name test_h2_hpack)
+ (libraries requests alcotest cstruct fmt fmt.tty logs logs.fmt))
+
+(executable
+ (name test_h2_stream)
+ (libraries requests alcotest cstruct fmt fmt.tty logs logs.fmt))
+
+(executable
+ (name test_h2_connection)
+ (libraries requests alcotest cstruct fmt fmt.tty logs logs.fmt))
+
+(executable
+ (name test_h2_protocol)
+ (libraries requests alcotest cstruct fmt fmt.tty logs logs.fmt))
+
+(executable
+ (name test_h2_client)
+ (libraries requests alcotest cstruct fmt fmt.tty logs logs.fmt))
+
+(cram
+ (deps %{bin:ocurl}))

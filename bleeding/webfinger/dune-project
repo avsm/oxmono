@@ -1,0 +1,32 @@
+(lang dune 3.21)
+(name webfinger)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-webfinger))
+
+(package
+ (name webfinger)
+ (synopsis "RFC 7033 WebFinger and RFC 7565 acct URI scheme for OCaml")
+ (description
+  "A complete implementation of RFC 7033 (WebFinger) and RFC 7565 (acct URI scheme)
+   for discovering information about resources identified by URIs. Includes type-safe
+   JSON Resource Descriptor (JRD) encoding/decoding using jsont, an Eio-based HTTP
+   client using the requests library, and a command-line tool for WebFinger lookups.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (dune (>= 3.0))
+  (jsont (>= 0.1.0))
+  bytesrw
+  (eio (>= 1.0))
+  (eio_main (>= 1.0))
+  (requests (>= 0.1.0))
+  (uri (>= 4.0.0))
+  (cmdliner (>= 1.2.0))
+  (logs (>= 0.7.0))
+  (fmt (>= 0.9.0))
+  (odoc :with-doc)
+  (alcotest :with-test)))

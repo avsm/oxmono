@@ -1,0 +1,4 @@
+(executables
+ (public_names ocurl)
+ (names ocurl)
+ (libraries requests eio_main cmdliner logs logs.cli logs.fmt fmt.cli fmt.tty jsont jsont.bytesrw))

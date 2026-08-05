@@ -1,0 +1,101 @@
+# Timestamp value test cases for YAML 1.1
+# Note: YAML 1.2 does not have a timestamp type in the core schema
+# These are recognized in YAML 1.1 and some extended schemas
+
+# ISO 8601 date format (YYYY-MM-DD)
+date_simple: 2001-12-15
+date_earliest: 1970-01-01
+date_leap_year: 2020-02-29
+date_current: 2025-12-04
+
+# ISO 8601 datetime with timezone (UTC)
+datetime_utc: 2001-12-15T02:59:43.1Z
+datetime_utc_full: 2001-12-15T02:59:43.123456Z
+datetime_utc_no_frac: 2001-12-15T02:59:43Z
+
+# ISO 8601 datetime with timezone offset
+datetime_offset_pos: 2001-12-15T02:59:43.1+05:30
+datetime_offset_neg: 2001-12-15T02:59:43.1-05:00
+datetime_offset_hours: 2001-12-15T02:59:43+05
+
+# Spaced datetime format (YAML 1.1 style)
+datetime_spaced: 2001-12-14 21:59:43.10 -5
+datetime_spaced_utc: 2001-12-15 02:59:43.1 Z
+datetime_spaced_offset: 2001-12-14 21:59:43.10 -05:00
+
+# Datetime without fractional seconds
+datetime_no_frac: 2001-12-15T14:30:00Z
+
+# Date only (no time component)
+date_only: 2001-12-15
+
+# Various formats
+timestamp_formats:
+  iso_date: 2001-12-15
+  iso_datetime_z: 2001-12-15T02:59:43Z
+  iso_datetime_offset: 2001-12-15T02:59:43+00:00
+  spaced_datetime: 2001-12-14 21:59:43.10 -5
+  canonical: 2001-12-15T02:59:43.1Z
+
+# Timestamps in sequences
+timestamp_sequence:
+  - 2001-12-15
+  - 2001-12-15T02:59:43.1Z
+  - 2001-12-14 21:59:43.10 -5
+  - 2025-01-01T00:00:00Z
+
+# Timestamps in mappings
+events:
+  created: 2001-12-15T02:59:43.1Z
+  modified: 2001-12-16T10:30:00Z
+  published: 2001-12-14 21:59:43.10 -5
+
+# String literals that look like timestamps (quoted)
+quoted_timestamps:
+  string_date: "2001-12-15"
+  string_datetime: "2001-12-15T02:59:43.1Z"
+  string_spaced: "2001-12-14 21:59:43.10 -5"
+
+# Edge cases and variations
+edge_cases:
+  midnight: 2001-12-15T00:00:00Z
+  end_of_day: 2001-12-15T23:59:59Z
+  microseconds: 2001-12-15T02:59:43.123456Z
+  no_seconds: 2001-12-15T02:59Z
+  hour_only: 2001-12-15T02Z
+
+# Nested timestamp values
+nested_timestamps:
+  project:
+    start_date: 2001-12-15
+    milestones:
+      - date: 2001-12-20
+        time: 2001-12-20T14:00:00Z
+      - date: 2002-01-15
+        time: 2002-01-15T09:30:00-05:00
+    metadata:
+      created: 2001-12-14 21:59:43.10 -5
+      updated: 2001-12-15T02:59:43.1Z
+
+# Invalid timestamp formats (should be treated as strings)
+invalid_timestamps:
+  bad_date: 2001-13-45
+  bad_time: 2001-12-15T25:99:99Z
+  incomplete: 2001-12
+  no_leading_zero: 2001-1-5
+
+# Different timezone representations
+timezones:
+  utc_z: 2001-12-15T02:59:43Z
+  utc_offset: 2001-12-15T02:59:43+00:00
+  est: 2001-12-14T21:59:43-05:00
+  ist: 2001-12-15T08:29:43+05:30
+  jst: 2001-12-15T11:59:43+09:00
+
+# Historical and future dates
+date_range:
+  past: 1900-01-01
+  unix_epoch: 1970-01-01T00:00:00Z
+  y2k: 2000-01-01T00:00:00Z
+  present: 2025-12-04
+  future: 2099-12-31T23:59:59Z

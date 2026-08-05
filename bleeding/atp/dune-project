@@ -1,0 +1,169 @@
+(lang dune 3.21)
+(name atp)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-atp))
+
+(package
+ (name atp)
+ (synopsis "AT Protocol IPLD implementation for OCaml")
+ (description
+  "This library implements IPLD (InterPlanetary Linked Data) with specific support for the AT Protocol's data encoding conventions. It provides Content Identifiers (CID), DAG-CBOR encoding, Merkle Search Trees (MST), repository serialization (CAR format), and synchronization primitives.")
+ (depends
+  (ocaml (>= 5.1))
+  (bytesrw (>= 0.1))
+  (jsont (>= 0.1))
+  (digestif (>= 1.2))
+  (multibase (>= 0.1))
+  (eio (>= 1.0))
+  (base64 (>= 3.5))
+  (re (>= 1.0))
+  fmt))
+
+(package
+ (name atp-xrpc)
+ (synopsis "XRPC client for AT Protocol")
+ (description
+  "XRPC client library for communicating with AT Protocol Personal Data Servers (PDS). Provides query and procedure calls, session management with automatic JWT token refresh, and structured error handling integrated with Eio.")
+ (depends
+  (atp (= :version))
+  (requests (>= 0.1))
+  (jsont (>= 0.1))
+  (jsonwt (>= 0.1))
+  (ptime (>= 1.0))
+  (uri (>= 4.0))
+  (eio (>= 1.0))
+  fmt))
+
+(package
+ (name xrpc-auth)
+ (synopsis "Authentication helpers for AT Protocol CLIs")
+ (description
+  "Shared authentication library for AT Protocol CLI applications. Provides session persistence, credential management with automatic token refresh, and Cmdliner helpers for building auth commands.")
+ (depends
+  (ocaml (>= 5.1))
+  (atp-xrpc (= :version))
+  (jsont (>= 0.1))
+  (eio (>= 1.0))
+  (ptime (>= 1.0))
+  (cmdliner (>= 1.2))
+  eio_main
+  fmt))
+
+(package
+ (name hermest)
+ (synopsis "AT Protocol lexicon code generator for OCaml")
+ (description
+  "Hermest generates OCaml types and jsont codecs from AT Protocol lexicon JSON schemas. The generated code uses the atp library for IPLD primitives.")
+ (depends
+  (ocaml (>= 5.1))
+  (jsont (>= 0.1))
+  (bytesrw (>= 0.1))))
+
+(package
+ (name hermest-cli)
+ (synopsis "CLI for hermest lexicon code generator")
+ (description
+  "Command-line interface for generating OCaml code from AT Protocol lexicons.")
+ (depends
+  (ocaml (>= 5.1))
+  hermest
+  (cmdliner (>= 1.2))))
+
+(package
+ (name atp-lexicon-atproto)
+ (synopsis "AT Protocol core lexicon types for OCaml")
+ (description
+  "Generated OCaml types and jsont codecs for com.atproto.* lexicons.")
+ (depends
+  (ocaml (>= 5.1))
+  (atp (>= 0.1))
+  (jsont (>= 0.1))))
+
+(package
+ (name atp-lexicon-bsky)
+ (synopsis "Bluesky lexicon types for OCaml")
+ (description
+  "Generated OCaml types and jsont codecs for app.bsky.* lexicons.")
+ (depends
+  (ocaml (>= 5.1))
+  (atp (>= 0.1))
+  (jsont (>= 0.1))))
+
+(package
+ (name atp-lexicon-tangled)
+ (synopsis "Tangled.sh lexicon types for OCaml")
+ (description
+  "Generated OCaml types and jsont codecs for sh.tangled.* lexicons.")
+ (depends
+  (ocaml (>= 5.1))
+  (atp (>= 0.1))
+  (jsont (>= 0.1))))
+
+(package
+ (name atp-lexicon-standard-site)
+ (synopsis "Standard Site lexicon types for OCaml")
+ (description
+  "Generated OCaml types and jsont codecs for site.standard.* lexicons.")
+ (depends
+  (ocaml (>= 5.1))
+  (atp (>= 0.1))
+  (jsont (>= 0.1))))
+
+(package
+ (name tangled)
+ (synopsis "Tangled client library and CLI for AT Protocol")
+ (description
+  "High-level library and command-line interface for interacting with Tangled decentralized git collaboration platform on AT Protocol.")
+ (depends
+  (ocaml (>= 5.1))
+  (atp-xrpc (= :version))
+  (atp-lexicon-tangled (= :version))
+  (jsont (>= 0.1))
+  (eio (>= 1.0))
+  (ptime (>= 1.0))
+  (tomlt (>= 0.1))
+  (xdge (>= 0.1))
+  (cmdliner (>= 1.2))
+  eio_main
+  fmt))
+
+(package
+ (name bsky)
+ (synopsis "Bluesky client library and CLI")
+ (description
+  "Library and command-line interface for Bluesky using AT Protocol.")
+ (depends
+  (ocaml (>= 5.1))
+  (atp (= :version))
+  (atp-xrpc (= :version))
+  (atp-lexicon-atproto (= :version))
+  (atp-lexicon-bsky (= :version))
+  (cmdliner (>= 1.2))
+  (jsont (>= 0.1))
+  (tomlt (>= 0.1))
+  (xdge (>= 0.1))
+  (re (>= 1.0))
+  eio_main
+  fmt))
+
+(package
+ (name standard-site)
+ (synopsis "Standard Site client library and CLI for AT Protocol")
+ (description
+  "High-level library and command-line interface for managing blogs and publications on AT Protocol using the Standard Site lexicons.")
+ (depends
+  (ocaml (>= 5.1))
+  (atp-xrpc (= :version))
+  (atp-lexicon-atproto (= :version))
+  (atp-lexicon-standard-site (= :version))
+  (jsont (>= 0.1))
+  (eio (>= 1.0))
+  (ptime (>= 1.0))
+  (cmdliner (>= 1.2))
+  eio_main
+  fmt))

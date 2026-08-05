@@ -1,0 +1,35 @@
+(lang dune 3.21)
+(name jsonwt)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-jsonwt))
+
+(package
+ (name jsonwt)
+ (synopsis "JSON Web Token (JWT) and CBOR Web Token (CWT) for OCaml")
+ (description
+  "An implementation of RFC 7519 JSON Web Tokens (JWT) and RFC 8392
+   CBOR Web Tokens (CWT) for OCaml. Supports token parsing, validation,
+   and creation with HMAC, ECDSA (ES256/384/512), and EdDSA signature
+   algorithms. Includes JWK (RFC 7517) and COSE key support, plus
+   integrated CBOR codec for CWT serialization.")
+ (depends
+  (ocaml (>= 5.1))
+  (jsont (>= 0.2.0))
+  (bytesrw (>= 0.1.0))
+  (mirage-crypto (>= 1.0.0))
+  (mirage-crypto-pk (>= 1.0.0))
+  (mirage-crypto-ec (>= 1.0.0))
+  (mirage-crypto-rng (>= 1.0.0))
+  (digestif (>= 1.0.0))
+  (eqaf (>= 0.9))
+  (cstruct (>= 6.0.0))
+  (base64 (>= 3.0.0))
+  (ptime (>= 1.0.0))
+  cbort
+  (alcotest :with-test)
+  (odoc :with-doc)))

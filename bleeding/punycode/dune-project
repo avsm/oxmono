@@ -1,0 +1,25 @@
+(lang dune 3.21)
+(name punycode)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-punycode))
+
+(package
+ (name punycode)
+ (synopsis "RFC 3492 Punycode and IDNA implementation for OCaml")
+ (description
+  "A high-quality implementation of RFC 3492 (Punycode) with IDNA support.
+   Provides encoding and decoding of internationalized domain names,
+   with proper Unicode normalization and mixed-case annotation support.")
+ (depends
+  (ocaml (>= 5.4.0))
+  (dune (>= 3.0))
+  (uutf (>= 1.0.0))
+  (uunf (>= 15.0.0))
+  (domain-name (>= 0.4.0))
+  (odoc :with-doc)
+  (alcotest :with-test)))

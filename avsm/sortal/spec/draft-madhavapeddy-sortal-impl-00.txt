@@ -1,0 +1,603 @@
+
+
+
+
+
+Independent Submission                                  A. Madhavapeddy
+Internet-Draft                                         23 February 2026
+Intended status: Informational
+Expires: 27 August 2026
+
+
+                Sortal: Implementation Considerations
+                  draft-madhavapeddy-sortal-impl-00
+
+Abstract
+
+   This document describes implementation considerations for Sortal
+   [SORTAL], a contact metadata format with temporal validity tracking.
+   It covers filesystem-based storage using the XDG Base Directory
+   Specification, git-backed version control of contact records, feed
+   synchronisation, search and query operations, configuration, and
+   best practices for building conformant Sortal implementations.
+
+   This document is a companion to [SORTAL], which defines the core
+   data model and serialisation format.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 27 August 2026.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . .   3
+   2.  Conventions and Terminology . . . . . . . . . . . . . . . .   3
+   3.  Storage Model . . . . . . . . . . . . . . . . . . . . . . .   3
+     3.1.  Directory Layout  . . . . . . . . . . . . . . . . . . .   3
+     3.2.  File Naming . . . . . . . . . . . . . . . . . . . . . .   4
+     3.3.  File Permissions  . . . . . . . . . . . . . . . . . . .   4
+     3.4.  Thumbnails  . . . . . . . . . . . . . . . . . . . . . .   5
+   4.  Git-Backed Storage  . . . . . . . . . . . . . . . . . . . .   5
+     4.1.  Automatic Commits . . . . . . . . . . . . . . . . . . .   5
+     4.2.  Commit Message Format . . . . . . . . . . . . . . . . .   5
+     4.3.  Repository Initialisation . . . . . . . . . . . . . . .   6
+     4.4.  Remote Synchronisation  . . . . . . . . . . . . . . . .   7
+   5.  Operations  . . . . . . . . . . . . . . . . . . . . . . . .   7
+     5.1.  CRUD Operations . . . . . . . . . . . . . . . . . . . .   7
+     5.2.  Duplicate Detection . . . . . . . . . . . . . . . . . .   8
+     5.3.  Temporal Queries  . . . . . . . . . . . . . . . . . . .   8
+     5.4.  Search  . . . . . . . . . . . . . . . . . . . . . . . .   9
+       5.4.1.  Handle Lookup . . . . . . . . . . . . . . . . . . .   9
+       5.4.2.  Name Search . . . . . . . . . . . . . . . . . . . .   9
+       5.4.3.  Full-Text Search  . . . . . . . . . . . . . . . . .  10
+     5.5.  Best URL Resolution . . . . . . . . . . . . . . . . . .  10
+   6.  Feed Storage and Synchronisation  . . . . . . . . . . . . .  11
+     6.1.  Feed File Layout  . . . . . . . . . . . . . . . . . . .  11
+     6.2.  Native Format Storage . . . . . . . . . . . . . . . . .  11
+     6.3.  Feed Merge Strategies . . . . . . . . . . . . . . . . .  12
+     6.4.  Conditional Fetching  . . . . . . . . . . . . . . . . .  12
+   7.  Configuration . . . . . . . . . . . . . . . . . . . . . . .  12
+     7.1.  Configuration File  . . . . . . . . . . . . . . . . . .  12
+     7.2.  Sync Configuration  . . . . . . . . . . . . . . . . . .  13
+   8.  Security Considerations . . . . . . . . . . . . . . . . . .  13
+   9.  IANA Considerations . . . . . . . . . . . . . . . . . . . .  14
+   10. References  . . . . . . . . . . . . . . . . . . . . . . . .  15
+     10.1.  Normative References . . . . . . . . . . . . . . . . .  15
+     10.2.  Informative References . . . . . . . . . . . . . . . .  15
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . .  15
+
+1.  Introduction
+
+   This document provides implementation guidance for Sortal [SORTAL],
+   a contact metadata format with temporal validity tracking.  While
+   [SORTAL] defines the data model, serialisation format, and schema
+   versioning rules, this companion document addresses the practical
+   concerns of building a Sortal implementation:
+
+   *  How to store contact records on a filesystem using XDG
+      conventions.
+
+   *  How to provide automatic version control via git integration.
+
+   *  How to perform CRUD operations, temporal queries, and search.
+
+   *  How to store and synchronise web feed content.
+
+   *  How to configure a Sortal instance.
+
+   Conformance with this document is OPTIONAL.  Implementations MAY
+   use alternative storage mechanisms (databases, cloud storage, etc.)
+   as long as they correctly implement the data model defined in
+   [SORTAL].
+
+2.  Conventions and Terminology
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY",
+   and "OPTIONAL" in this document are to be interpreted as described
+   in BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in
+   all capitals, as shown here.
+
+   Store:  A directory containing contact record files and optional
+      associated data (thumbnails, feed caches).
+
+3.  Storage Model
+
+3.1.  Directory Layout
+
+   The RECOMMENDED storage model uses the XDG Base Directory
+   Specification [XDG] to determine storage locations.  The primary
+   data directory is:
+
+     $XDG_DATA_HOME/sortal/
+
+   If XDG_DATA_HOME is not set, it defaults to "$HOME/.local/share",
+   giving:
+
+     ~/.local/share/sortal/
+
+   The data directory contains:
+
+   *  Contact record files (*.yaml)
+
+   *  A thumbnails subdirectory (referenced by "thumbnail" fields in
+      contact records)
+
+   *  Per-contact feed cache directories (see Section 6)
+
+3.2.  File Naming
+
+   Each contact record is stored as a separate file named:
+
+     {handle}.yaml
+
+   Where {handle} is the contact's handle as defined in Section 3.3
+   of [SORTAL].  The handle serves as both the in-record identifier
+   and the filename stem, ensuring a one-to-one mapping between
+   records and files.
+
+   Implementations MUST ensure that handle values are valid filenames
+   on the target platform.  Since handles are restricted to lowercase
+   ASCII letters and digits, this constraint is satisfied on all common
+   filesystems.
+
+   Implementations MUST NOT store more than one contact record per
+   file.  Each file contains exactly one YAML document representing
+   a single contact.
+
+3.3.  File Permissions
+
+   Contact record files SHOULD be created with permissions 0644
+   (owner read/write, group and others read-only).  Implementations
+   MAY use more restrictive permissions (e.g., 0600) if the contact
+   data is considered sensitive.
+
+   The data directory itself SHOULD have permissions 0755 or 0700.
+
+3.4.  Thumbnails
+
+   The "thumbnail" field in a contact record is interpreted as a
+   relative path from the data directory root to a locally cached
+   image file.
+
+   Implementations SHOULD support at minimum PNG format for thumbnails.
+   If a thumbnail is available in a non-PNG format, implementations
+   MAY convert it to PNG and update the "thumbnail" field accordingly.
+
+   The "thumbnail" field MUST be a relative path.  Implementations
+   MUST reject paths containing ".." components or absolute paths to
+   prevent directory traversal.
+
+4.  Git-Backed Storage
+
+   Sortal implementations MAY provide automatic version control of
+   the data directory using git.  This is an OPTIONAL feature;
+   implementations without git integration are fully conformant with
+   [SORTAL].
+
+4.1.  Automatic Commits
+
+   When git-backed storage is enabled, each mutation operation
+   (create, update, delete of a contact or any sub-field) SHOULD
+   result in an automatic git commit to the data directory repository.
+
+   The git repository is rooted at the data directory
+   ($XDG_DATA_HOME/sortal/).  All contact YAML files and associated
+   data are tracked.
+
+4.2.  Commit Message Format
+
+   Automatic commits SHOULD use structured commit messages that
+   describe the operation performed.  The following formats are
+   RECOMMENDED:
+
+   Contact creation:
+
+     Add contact @{handle} ({primary_name})
+
+   Contact update (full record save):
+
+     Update contact @{handle} ({primary_name})
+
+   Contact deletion:
+
+     Delete contact @{handle} ({primary_name})
+
+   Field additions:
+
+     Update @{handle}: add {field_type} {value}
+
+   Field removals:
+
+     Update @{handle}: remove {field_type} {value}
+
+   Where:
+
+   *  {handle} is the contact's handle, prefixed with "@".
+
+   *  {primary_name} is the first element of the contact's names
+      array.
+
+   *  {field_type} is one of: "email", "service", "organization",
+      "URL".
+
+   *  {value} is a brief identifier for the added/removed item
+      (email address, service URL, organisation name, etc.).
+
+   Examples:
+
+     Add contact @jsmith (Jane Smith)
+     Update @jsmith: add email jsmith@corp.example.com
+     Update @jsmith: add organization Example Corp
+     Update @jsmith: remove service https://gitlab.old.example.com/js
+     Delete contact @oldhandle (Old Name)
+
+4.3.  Repository Initialisation
+
+   If the data directory does not contain a git repository when a
+   git-backed operation is first performed, the implementation SHOULD
+   automatically initialise a new git repository (equivalent to
+   "git init") before making the first commit.
+
+   Implementations SHOULD also provide an explicit initialisation
+   command, allowing users to set up the repository (and configure
+   remotes) before the first mutation.
+
+4.4.  Remote Synchronisation
+
+   Implementations MAY support push and pull operations to a
+   configured remote git repository.  When remote synchronisation is
+   supported:
+
+   *  Push and pull operations SHOULD use the configured remote URL
+      and branch from the configuration file (see Section 7.2).
+
+   *  Implementations SHOULD support dry-run modes for both push and
+      pull to allow users to preview changes.
+
+   *  Pull operations SHOULD handle merge conflicts gracefully.
+      Since each contact is a separate file, conflicts are typically
+      limited to concurrent edits of the same contact.
+
+   *  Implementations SHOULD use authenticated and encrypted transport
+      (e.g., SSH) for remote operations.
+
+5.  Operations
+
+   This section defines the abstract operations that Sortal
+   implementations SHOULD support.  The specific API surface is left
+   to implementors; this section describes the required semantics.
+
+5.1.  CRUD Operations
+
+   Create:  Add a new contact record.  The handle MUST be unique
+      within the store.  If a record with the given handle already
+      exists, the operation MUST fail or be treated as an update.
+
+   Read:  Retrieve a contact record by handle.  Returns the full
+      deserialised contact record, or an indication that no record
+      with the given handle exists.
+
+   Update:  Modify an existing contact record.  Field-level update
+      operations (add email, remove service, etc.) SHOULD be provided
+      in addition to whole-record replacement.
+
+   Delete:  Remove a contact record by handle.  The corresponding
+      file is deleted from the store.
+
+   List:  Enumerate all contact records in the store.  Implementations
+      enumerate *.yaml files in the data directory and deserialise
+      each one.
+
+5.2.  Duplicate Detection
+
+   For field-level update operations, implementations SHOULD check
+   for duplicates before adding new entries:
+
+   *  Email: duplicate detection by address string (exact match).
+
+   *  Service: duplicate detection by URL string (exact match).
+
+   *  Organisation: duplicate detection by the combination of name,
+      title, and department (all three must match).
+
+   *  URL: duplicate detection by URL string (exact match).
+
+   If a duplicate is detected, the operation SHOULD fail with an
+   appropriate error message rather than silently creating a duplicate
+   entry.
+
+5.3.  Temporal Queries
+
+   Implementations SHOULD support the following temporal query
+   operations, using the validity testing algorithm defined in
+   Section 2.3 of [SORTAL]:
+
+   Email at date:  Given a contact and a date, return the email
+      addresses valid at that date.  The first valid email is
+      considered the primary email at that date.
+
+   Current email:  Return the currently valid email addresses for a
+      contact.  Equivalent to "email at today's date".
+
+   Organisation at date:  Given a contact and a date, return the
+      organisation affiliation(s) valid at that date.
+
+   Current organisations:  Return all currently valid organisation
+      affiliations.
+
+   Services at date:  Given a contact and a date, return the service
+      identities active at that date.
+
+   Find by email at date:  Search all contacts for one with a
+      specific email address valid at a given date.
+
+   Find by organisation:  Search all contacts for those affiliated
+      with a named organisation, optionally filtered to a date range
+      using the range overlap algorithm from Section 2.4 of [SORTAL].
+      Organisation name matching SHOULD be case-insensitive substring
+      matching.
+
+   List active at date:  Return all contacts that have at least one
+      email, organisation, or URL valid at the given date.
+
+5.4.  Search
+
+5.4.1.  Handle Lookup
+
+   The most direct form of lookup is by exact handle match.  In the
+   filesystem storage model, this corresponds to reading the file
+   "{handle}.yaml" from the data directory.
+
+5.4.2.  Name Search
+
+   Name search finds contacts by matching against the names array.
+   Exact name search performs case-insensitive comparison of the
+   query against each name in each contact's names array.
+
+   If exactly one contact matches, it is returned.  If multiple
+   contacts match, the search is ambiguous and implementations SHOULD
+   signal an error rather than returning an arbitrary result.
+
+5.4.3.  Full-Text Search
+
+   Full-text search matches a query string against contact names
+   using the following priority cascade.  All comparisons are
+   case-insensitive:
+
+   1.  Exact match: equality with any name in the names array.
+
+   2.  Prefix match: any name starts with the query string.
+
+   3.  Substring match: any name contains the query string as a
+       contiguous substring.
+
+   4.  Word-prefix match: for multi-word names, any individual word
+       (split on spaces) starts with the query string.
+
+   A contact is included in results if it matches at any priority
+   level.  Results SHOULD be sorted lexicographically by handle.
+
+5.5.  Best URL Resolution
+
+   Implementations SHOULD provide a "best URL" function that returns
+   a single canonical URL for a contact, suitable for linking in user
+   interfaces.  The RECOMMENDED priority cascade is:
+
+   1.  The currently valid primary URL (from the urls array, using
+       temporal validity at the current date).
+
+   2.  The URL of the first currently valid service.
+
+   3.  A "mailto:" URI constructed from the current primary email
+       address.
+
+   4.  No URL available (return null/none).
+
+6.  Feed Storage and Synchronisation
+
+   Sortal implementations MAY support fetching and caching web feed
+   content for contacts that have feed subscriptions.
+
+6.1.  Feed File Layout
+
+   Feed content fetched for contacts is stored in per-contact
+   subdirectories within the data directory:
+
+     {handle}/{encoded_url}.{ext}
+
+   Where:
+
+   *  {handle} is the contact's handle.
+
+   *  {encoded_url} is the feed URL with characters unsuitable for
+      filenames replaced or percent-encoded.
+
+   *  {ext} is the file extension corresponding to the feed format:
+      ".xml" for Atom and RSS, ".json" for JSON Feed.
+
+6.2.  Native Format Storage
+
+   Feeds SHOULD be stored in their native format (Atom XML, RSS XML,
+   or JSON Feed JSON) to preserve fidelity.  This avoids lossy
+   conversion between formats and allows the original feed to be
+   re-parsed at any time.
+
+6.3.  Feed Merge Strategies
+
+   When synchronising feeds, implementations merge new entries with
+   previously stored content.  The following strategies are
+   RECOMMENDED:
+
+   *  Atom feeds: Merge entries by their Atom entry ID.  Entries with
+      the same ID are deduplicated, keeping the newer version.
+      Aggregation of multiple Atom feeds into one is supported.
+
+   *  RSS feeds: Overwrite the stored raw XML with the newly fetched
+      content, as RSS lacks a reliable entry-level identity mechanism
+      for merging.
+
+   *  JSON Feed: Merge items by their "id" field.  Items with the
+      same ID are deduplicated, keeping the newer version.
+
+6.4.  Conditional Fetching
+
+   Implementations SHOULD support HTTP conditional GET for feed
+   fetching, using the ETag and Last-Modified headers to avoid
+   re-downloading unchanged feeds.  When the server responds with
+   304 Not Modified, the implementation SHOULD skip the merge step.
+
+7.  Configuration
+
+7.1.  Configuration File
+
+   Sortal configuration is stored in a TOML [TOML] file at:
+
+     $XDG_CONFIG_HOME/sortal/config.toml
+
+   If XDG_CONFIG_HOME is not set, it defaults to "$HOME/.config",
+   giving:
+
+     ~/.config/sortal/config.toml
+
+   The configuration file is OPTIONAL.  If absent, implementations
+   MUST use sensible defaults for all settings.  Implementations
+   SHOULD provide a command to generate a default configuration file.
+
+7.2.  Sync Configuration
+
+   The [sync] section configures git remote synchronisation:
+
+   remote (string):  The URL of the remote git repository for push
+      and pull operations.
+
+   branch (string):  The branch name to use.  Default: "main".
+
+   auto_commit (boolean):  Whether to automatically commit changes
+      after each mutation.  Default: true.
+
+   commit_message (string):  Default commit message for bulk sync
+      operations.  Default: "sync".
+
+   Example:
+
+     [sync]
+     remote = "ssh://git.example.com/contacts.git"
+     branch = "main"
+     auto_commit = true
+     commit_message = "sync"
+
+8.  Security Considerations
+
+   In addition to the security considerations in [SORTAL], the
+   following implementation-specific concerns apply:
+
+   File permissions:  Implementations SHOULD restrict file permissions
+      on the data directory and contact files to prevent unauthorised
+      access.  The data directory SHOULD be readable and writable only
+      by the owner (0700) when storing sensitive contact information.
+
+   Path traversal:  The "thumbnail" field contains a relative path.
+      Implementations MUST validate that the resolved path falls
+      within the data directory.  Paths containing ".." components or
+      absolute paths MUST be rejected.
+
+   Handle validation:  Although handles are syntactically restricted
+      to lowercase ASCII letters and digits, implementations SHOULD
+      validate handles against this grammar before using them in
+      filesystem operations or shell commands to prevent injection
+      attacks.
+
+   Git history:  When git-backed storage is used with a remote
+      repository, the full history of contact changes (including
+      previously valid information such as old email addresses and
+      former affiliations) is preserved in the git history.  Users
+      should be aware that removing information from a contact record
+      does not remove it from the git history.  Implementations
+      SHOULD document this behaviour clearly.
+
+   Remote transport:  When synchronising with a remote git repository,
+      implementations SHOULD use authenticated and encrypted transport
+      (e.g., SSH, HTTPS with authentication) to protect contact data
+      in transit.
+
+   Feed fetching:  When fetching web feeds, implementations SHOULD:
+
+      *  Validate that feed URLs use HTTPS (or HTTP, with appropriate
+         warnings).
+
+      *  Set reasonable timeouts and size limits on HTTP requests to
+         prevent denial-of-service via malicious feed URLs.
+
+      *  Sanitise any feed content before rendering or further
+         processing, as feeds may contain malicious markup or scripts.
+
+9.  IANA Considerations
+
+   This document has no IANA actions.
+
+10.  References
+
+10.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in
+              RFC 2119 Key Words", BCP 14, RFC 8174,
+              DOI 10.17487/RFC8174, May 2017,
+              <https://www.rfc-editor.org/info/rfc8174>.
+
+   [SORTAL]   Madhavapeddy, A., "Sortal: A Contact Metadata Format
+              with Temporal Validity",
+              draft-madhavapeddy-sortal-00, February 2026.
+
+   [XDG]      freedesktop.org, "XDG Base Directory Specification",
+              Version 0.8, May 2021,
+              <https://specifications.freedesktop.org/basedir-spec/
+              basedir-spec-latest.html>.
+
+   [TOML]     Preston-Werner, T., "Tom's Obvious, Minimal Language",
+              Version 1.0.0, January 2021,
+              <https://toml.io/en/v1.0.0>.
+
+10.2.  Informative References
+
+   [RFC4287]  Nottingham, M., Ed. and R. Sayre, Ed., "The Atom
+              Syndication Format", RFC 4287, DOI 10.17487/RFC4287,
+              December 2005,
+              <https://www.rfc-editor.org/info/rfc4287>.
+
+Author's Address
+
+   Anil Madhavapeddy
+
+   Email: anil@recoil.org
+   URI:   https://avsm.org

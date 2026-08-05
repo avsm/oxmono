@@ -1,0 +1,12 @@
+(executable
+ (name bench_httpz)
+ (libraries httpz base core core_bench)
+ (preprocess
+  (pps ppx_jane)))
+
+; Comparative benchmark: httpz (OxCaml) vs httpe (Eio)
+; Uses simple timing + GC measurement (no core_bench to avoid Async/Eio conflict)
+
+(executable
+ (name bench_compare)
+ (libraries httpz httpe eio eio_main base))

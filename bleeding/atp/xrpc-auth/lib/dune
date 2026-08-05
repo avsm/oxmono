@@ -1,0 +1,14 @@
+(library
+ (name xrpc_auth)
+ (public_name xrpc-auth)
+ (libraries
+  atp-xrpc
+  requests
+  jsont
+  jsont.bytesrw
+  fmt
+  eio
+  eio_main
+  ptime
+  ptime.clock.os
+  cmdliner))

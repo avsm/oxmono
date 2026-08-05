@@ -1,0 +1,8 @@
+outer:
+  inner:
+    description: >
+      This is a folded
+      description.
+    code: |
+      def test():
+          return True

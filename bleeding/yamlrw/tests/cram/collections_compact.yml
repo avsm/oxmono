@@ -1,0 +1,198 @@
+# Compact Notation Collections Test File
+# Testing compact block notation and mixed styles
+
+# Compact nested mapping in sequence (most common form)
+compact_sequence:
+  - name: Alice
+    age: 25
+    city: Boston
+  - name: Bob
+    age: 30
+    city: Seattle
+  - name: Charlie
+    age: 35
+    city: Portland
+
+# Compact with nested structures
+compact_nested:
+  - id: 1
+    details:
+      type: admin
+      permissions:
+        - read
+        - write
+        - delete
+  - id: 2
+    details:
+      type: user
+      permissions:
+        - read
+
+# Multiple keys in same sequence entry with sub-structures
+compact_complex:
+  - key1: value1
+    key2: value2
+    nested:
+      sub1: val1
+      sub2: val2
+  - key1: value3
+    key2: value4
+    nested:
+      sub1: val3
+      sub2: val4
+
+# Compact block mappings with inline values
+users:
+  - username: alice
+    email: alice@example.com
+    active: true
+  - username: bob
+    email: bob@example.com
+    active: false
+
+# Compact with flow collections
+compact_with_flow:
+  - name: service1
+    ports: [8080, 8443]
+    env: {DEBUG: true, MODE: production}
+  - name: service2
+    ports: [3000]
+    env: {DEBUG: false, MODE: development}
+
+# Deeply nested compact notation
+deep_compact:
+  - category: electronics
+    items:
+      - name: laptop
+        specs:
+          cpu: Intel i7
+          ram: 16GB
+          storage: 512GB SSD
+      - name: phone
+        specs:
+          os: Android
+          ram: 8GB
+          storage: 256GB
+  - category: furniture
+    items:
+      - name: desk
+        dimensions:
+          width: 150cm
+          depth: 75cm
+          height: 75cm
+      - name: chair
+        dimensions:
+          width: 60cm
+          depth: 60cm
+          height: 120cm
+
+# Compact with mixed indentation styles
+mixed_compact:
+  databases:
+    - type: postgresql
+      connection:
+        host: localhost
+        port: 5432
+      credentials:
+        user: admin
+        password: secret
+    - type: mongodb
+      connection:
+        host: localhost
+        port: 27017
+      credentials:
+        user: root
+        password: root
+
+# Single-line compact entries
+single_line_compact:
+  - {name: Alice, age: 25, role: developer}
+  - {name: Bob, age: 30, role: designer}
+  - {name: Charlie, age: 35, role: manager}
+
+# Compact notation with sequences as values
+sequences_in_compact:
+  - title: Project A
+    members:
+      - Alice
+      - Bob
+      - Charlie
+    tags:
+      - urgent
+      - backend
+  - title: Project B
+    members:
+      - David
+      - Eve
+    tags:
+      - frontend
+      - design
+
+# Compact with empty values
+compact_with_empty:
+  - id: 1
+    data: []
+    meta: {}
+  - id: 2
+    data:
+      - item1
+    meta:
+      key: value
+
+# Compact notation with complex nesting
+compact_complex_nesting:
+  - level: 1
+    children:
+      - level: 2a
+        children:
+          - level: 3a
+            value: leaf1
+          - level: 3b
+            value: leaf2
+      - level: 2b
+        children:
+          - level: 3c
+            value: leaf3
+
+# Real-world example: API endpoints
+api_endpoints:
+  - path: /users
+    method: GET
+    auth: required
+    params:
+      - name: page
+        type: integer
+        default: 1
+      - name: limit
+        type: integer
+        default: 10
+  - path: /users/:id
+    method: GET
+    auth: required
+    params: []
+  - path: /users
+    method: POST
+    auth: required
+    body:
+      username: string
+      email: string
+      password: string
+
+# Compact with various data types
+compact_types:
+  - string_val: hello
+    number_val: 42
+    float_val: 3.14
+    bool_val: true
+    null_val: null
+  - string_val: world
+    number_val: 100
+    float_val: 2.71
+    bool_val: false
+    null_val: ~
+
+# Edge case: minimal compact notation
+minimal:
+  - a: 1
+  - b: 2
+  - c: 3

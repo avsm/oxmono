@@ -1,0 +1,103 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.pull",
+  "needsCbor": true,
+  "needsType": true,
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "target",
+          "title",
+          "patchBlob",
+          "createdAt"
+        ],
+        "properties": {
+          "target": {
+            "type": "ref",
+            "ref": "#target"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "patch": {
+            "type": "string",
+            "description": "(deprecated) use patchBlob instead"
+          },
+          "patchBlob": {
+            "type": "blob",
+            "accept": [
+              "text/x-patch"
+            ],
+            "description": "patch content"
+          },
+          "source": {
+            "type": "ref",
+            "ref": "#source"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "did"
+            }
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "at-uri"
+            }
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "repo",
+        "branch"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "branch": {
+          "type": "string"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "branch",
+        "sha"
+      ],
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "sha": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40
+        },
+        "repo": {
+          "type": "string",
+          "format": "at-uri"
+        }
+      }
+    }
+  }
+}

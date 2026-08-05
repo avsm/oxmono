@@ -1,0 +1,6 @@
+# Small "billion laughs" style YAML bomb for testing
+# Expands to 9^4 = 6561 nodes when aliases are resolved
+a: &a [1, 2, 3, 4, 5, 6, 7, 8, 9]
+b: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a]
+c: &c [*b, *b, *b, *b, *b, *b, *b, *b, *b]
+d: &d [*c, *c, *c, *c, *c, *c, *c, *c, *c]

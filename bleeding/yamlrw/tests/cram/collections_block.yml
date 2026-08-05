@@ -1,0 +1,126 @@
+# Block Style Collections Test File
+# Testing various block-style collection structures
+
+# Simple sequence
+simple_sequence:
+  - apple
+  - banana
+  - cherry
+  - date
+
+# Simple mapping
+simple_mapping:
+  name: John Doe
+  age: 30
+  city: New York
+  country: USA
+
+# Nested sequences
+nested_sequences:
+  - - alpha
+    - beta
+    - gamma
+  - - one
+    - two
+    - three
+  - - red
+    - green
+    - blue
+
+# Nested mappings
+nested_mappings:
+  person:
+    name: Alice
+    contact:
+      email: alice@example.com
+      phone: 555-1234
+    address:
+      street: 123 Main St
+      city: Boston
+
+# Mapping containing sequences
+mapping_with_sequences:
+  colors:
+    - red
+    - green
+    - blue
+  sizes:
+    - small
+    - medium
+    - large
+  numbers:
+    - 1
+    - 2
+    - 3
+
+# Sequence containing mappings
+sequence_with_mappings:
+  - name: Alice
+    age: 25
+    role: developer
+  - name: Bob
+    age: 30
+    role: designer
+  - name: Charlie
+    age: 35
+    role: manager
+
+# Deep nesting (4 levels)
+deep_nesting:
+  level1:
+    level2:
+      level3:
+        level4:
+          - deeply
+          - nested
+          - values
+        another_key: value
+      items:
+        - item1
+        - item2
+    metadata:
+      created: 2024-01-01
+      modified: 2024-12-04
+
+# Mixed complex structure
+complex_structure:
+  database:
+    connections:
+      - host: db1.example.com
+        port: 5432
+        credentials:
+          username: admin
+          password: secret
+      - host: db2.example.com
+        port: 5432
+        credentials:
+          username: readonly
+          password: public
+  services:
+    - name: api
+      endpoints:
+        - /users
+        - /posts
+        - /comments
+      config:
+        timeout: 30
+        retries: 3
+    - name: worker
+      tasks:
+        - email
+        - reports
+      config:
+        concurrency: 10
+
+# Empty sequences and mappings in block style
+empty_collections:
+  empty_sequence: []
+  empty_mapping: {}
+  sequence_with_empty:
+    - value1
+    - []
+    - value2
+  mapping_with_empty:
+    key1: value1
+    key2: {}
+    key3: value3

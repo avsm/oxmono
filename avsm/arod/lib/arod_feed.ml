@@ -1,0 +1,114 @@
+(*---------------------------------------------------------------------------
+  Copyright (c) 2025 Anil Madhavapeddy <anil@recoil.org>. All rights reserved.
+  SPDX-License-Identifier: ISC
+ ---------------------------------------------------------------------------*)
+
+(** Atom feed generation for Arod webserver *)
+
+module E = Bushel.Entry
+module N = Bushel.Note
+module C = Sortal_schema.Contact
+module X = Syndic.Atom
+
+let anil_copyright = "(c) 1998-2026 Anil Madhavapeddy, all rights reserved"
+
+let author c =
+  let uri = Option.map Uri.of_string (C.best_url c) in
+  let email = match C.emails c with e :: _ -> Some e.C.address | [] -> None in
+  {X.name=(C.name c); email; uri}
+
+let form_uri cfg path = Uri.of_string (cfg.Arod_config.site.base_url ^ path)
+
+let atom_id cfg e = form_uri cfg @@ E.site_url e
+
+let generator = {
+  X.version = Some "1.0";
+  uri = Some (Uri.of_string "https://github.com/avsm/bushel");
+  content = "Bushel"
+}
+
+let link cfg e =
+  let href = form_uri cfg @@ E.site_url e in
+  let rel = X.Alternate in
+  let type_media = None in
+  let title = E.title e in
+  let length = None in
+  let hreflang = None in
+  {X.href; rel; type_media; title; length; hreflang}
+
+let news_feed_link cfg =
+  let href = form_uri cfg "/news.xml" in
+  let rel = X.Self in
+  let type_media = None in
+  let title = cfg.Arod_config.site.name in
+  let length = None in
+  let hreflang = None in
+  {X.href; rel; type_media; title; length; hreflang}
+
+let ext_link ~title l =
+  let href = Uri.of_string l in
+  let rel = X.Alternate in
+  let type_media = None in
+  let title = title in
+  let length = None in
+  let hreflang = None in
+  [{X.href; rel; type_media; title; length; hreflang}]
+
+let atom_of_note ~ctx cfg ~author note =
+  let e = `Note note in
+  let id = atom_id cfg e in
+  let categories = List.map (fun tag -> X.category tag) (N.tags note) in
+  let rights : X.title = X.Text anil_copyright in
+  let source = None in
+  let title : X.title = X.Text note.N.title in
+  let published = N.origdate note in
+  let updated = N.datetime note in
+  let authors = author, [] in
+
+  let html_with_refs =
+    try
+      Arod_md.to_atom_html ~ctx note.N.body
+      |> Arod_md.with_feed_references ~ctx note
+    with Failure msg ->
+      failwith (Printf.sprintf "in note '%s': %s" note.N.title msg)
+  in
+
+  let html_base_uri = Some (Uri.of_string (cfg.site.base_url ^ "/")) in
+  let content, links =
+    match N.link note with
+    | `Local _ ->
+      let content = Some (X.Html (html_base_uri, html_with_refs)) in
+      let links = [link cfg e] in
+      content, links
+    | `Ext (_l,u) ->
+      let content = Some (X.Html (html_base_uri, html_with_refs)) in
+      let links = ext_link ~title:note.N.title u in
+      content, links
+  in
+  Syndic.Atom.entry
+    ~categories ~links ~published ~rights ?content
+    ?source ~title ~updated ~id ~authors ()
+
+let atom_of_entry ~ctx cfg ~author (e:E.entry) =
+  match e with
+  | `Note n -> Some (atom_of_note ~ctx cfg ~author n)
+  | _ -> None
+
+let feed ~ctx (cfg : Arod_config.t) uri entries =
+  try
+    let author = author @@ Arod_ctx.author_exn ctx in
+    let authors = [author] in
+    let icon = Uri.of_string (cfg.site.base_url ^ "/favicon.png") in
+    let links = [news_feed_link cfg] in
+    let atom_entries = List.filter_map (atom_of_entry ~ctx cfg ~author) entries in
+    let title : X.text_construct = X.Text (cfg.site.name ^ "'s feed") in
+    let updated = E.datetime (List.hd entries) in
+    let id = form_uri cfg uri in
+    let rights : X.title = X.Text anil_copyright in
+    X.feed ~id ~rights ~authors ~title ~updated ~icon ~links atom_entries
+  with exn -> Printexc.print_backtrace stdout; raise exn
+
+let feed_string ~ctx cfg uri f =
+  let buf = Buffer.create 1024 in
+  X.output (feed ~ctx cfg uri f) (`Buffer buf);
+  Buffer.contents buf

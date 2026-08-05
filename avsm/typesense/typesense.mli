@@ -7,14 +7,21 @@
 type t
 
 val create :
-  ?session:Requests.t ->
+  ?session:Fetch.plain ->
   sw:Eio.Switch.t ->
-  < net : _ Eio.Net.t ; fs : Eio.Fs.dir_ty Eio.Path.t ; clock : _ Eio.Time.clock ; .. > ->
+  < clock : _ Eio.Time.clock
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
+  ; .. > ->
   base_url:string ->
   t
+(** [create ?session ~sw env ~base_url] is a client rooted at [base_url].
+    [session] is the HTTP client to issue requests through, already carrying
+    whatever credentials and policy the caller wants; when it is omitted a
+    default {!Fetch_curl.std} stack is created under [sw]. *)
 
 val base_url : t -> string
-val session : t -> Requests.t
+val session : t -> Fetch.plain
 
 module VoiceQueryModelCollection : sig
   module Config : sig

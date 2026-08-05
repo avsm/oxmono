@@ -8,7 +8,8 @@ type t
 val login :
   sw:Eio.Switch.t ->
   env:< clock : _ Eio.Time.clock
-      ; net : _ Eio.Net.t
+      ; mono_clock : _ Eio.Time.Mono.t
+      ; secure_random : _ Eio.Flow.source
       ; fs : Eio.Fs.dir_ty Eio.Path.t
       ; .. > ->
   ?profile:string ->
@@ -20,7 +21,8 @@ val login :
 val resume :
   sw:Eio.Switch.t ->
   env:< clock : _ Eio.Time.clock
-      ; net : _ Eio.Net.t
+      ; mono_clock : _ Eio.Time.Mono.t
+      ; secure_random : _ Eio.Flow.source
       ; fs : Eio.Fs.dir_ty Eio.Path.t
       ; .. > ->
   ?profile:string ->

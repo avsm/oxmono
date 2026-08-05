@@ -3,6 +3,7 @@
  (public_name tessabot)
  (libraries
   sortal
+  astring
   sortal.schema
   sortal.feed
   fetch

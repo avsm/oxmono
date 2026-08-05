@@ -17,6 +17,7 @@
  (depends
   (ocaml (>= 5.2))
   (sortal (>= 0.1))
+  astring
   fetch
   fetch-curl
   (tomlt (>= 0.1))

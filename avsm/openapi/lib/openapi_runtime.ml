@@ -115,6 +115,20 @@ module Json = struct
   let encode_compact codec v =
     Jsont_bytesrw.encode_string ~format:Jsont.Minify codec v
 
+  (** Decode a JSON string through a codec, raising on error.
+      Used by generated clients on the success path. *)
+  let decode_exn (codec : 'a Jsont.t) (s : string) : 'a =
+    match Jsont_bytesrw.decode_string codec s with
+    | Ok v -> v
+    | Error e -> failwith e
+
+  (** Encode a value to a compact JSON string, raising on error.
+      Used by generated clients to build request bodies. *)
+  let encode_exn (codec : 'a Jsont.t) (v : 'a) : string =
+    match Jsont_bytesrw.encode_string ~format:Jsont.Minify codec v with
+    | Ok s -> s
+    | Error e -> failwith e
+
   (** Decode a Jsont.json value through a codec.
       Encodes to string then decodes - not optimal but works. *)
   let decode_json (codec : 'a Jsont.t) (json : Jsont.json) : ('a, string) result =

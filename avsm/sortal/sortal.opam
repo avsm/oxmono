@@ -29,7 +29,6 @@ depends: [
   "logs"
   "syndic"
   "jsonfeed"
-  "requests"
   "fetch"
   "fetch-curl"
   "xmlm"

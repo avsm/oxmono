@@ -17,25 +17,27 @@ let api_base_url base_url =
   in
   base ^ "/api/v1"
 
+(* The bearer token is scoped to the API root, and http:// endpoints (a
+   self-hosted instance on localhost, say) have to opt in to carrying it. *)
+let http_session ~sw ~env ~api_url ~api_key =
+  Fetch_curl.std ~sw env
+  |> Fetch.with_credentials ~scope:[ api_url ]
+       ~allow_insecure:(String.starts_with ~prefix:"http://" api_url)
+       Fetch.Credential.[ Bearer (fun () -> api_key) ]
+
 let create_with_session ~sw ~env ?profile ~session () =
   let fs = env#fs in
   let base_url = api_base_url (Session.base_url session) in
   let api_key = Session.api_key session in
-  let requests_session = Requests.create ~sw env in
-  let requests_session =
-    Requests.set_auth requests_session (Requests.Auth.bearer ~token:api_key)
-  in
-  let client = Karakeep.create ~session:requests_session ~sw env ~base_url in
+  let http = http_session ~sw ~env ~api_url:base_url ~api_key in
+  let client = Karakeep.create ~session:http ~sw env ~base_url in
   { client; session; fs; profile }
 
 let login ~sw ~env ?profile ~base_url ~api_key () =
   let fs = env#fs in
   let api_url = api_base_url base_url in
-  let requests_session = Requests.create ~sw env in
-  let requests_session =
-    Requests.set_auth requests_session (Requests.Auth.bearer ~token:api_key)
-  in
-  let client = Karakeep.create ~session:requests_session ~sw env ~base_url:api_url in
+  let http = http_session ~sw ~env ~api_url ~api_key in
+  let client = Karakeep.create ~session:http ~sw env ~base_url:api_url in
   (* Validate by calling whoami *)
   let _user = Karakeep.Client.get_users_me client () in
   let session = Session.create ~base_url ~api_key () in

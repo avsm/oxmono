@@ -10,33 +10,34 @@ type t = {
   profile : string option;
 }
 
-let create_with_session ~sw ~env ?requests_config ?profile ~session () =
+let is_ok status = status >= 200 && status < 300
+
+(* The API key is a credential rather than a default header: [with_headers]
+   would let it survive a cross-origin redirect and would not redact it in
+   traces. A Typesense server is commonly reached over plain http on
+   localhost, so insecure scopes are opted into from the URL's scheme. *)
+let http_session ~sw ~env ?http_config ~server_url ~api_key () =
+  let base = match http_config with
+    | Some config -> Fetch_cmdliner.create config env sw
+    | None -> Fetch_curl.std ~sw env
+  in
+  Fetch.with_credentials ~scope:[ server_url ]
+    ~allow_insecure:(String.starts_with ~prefix:"http://" server_url)
+    Fetch.Credential.[ Header ("X-TYPESENSE-API-KEY", fun _ -> api_key) ]
+    base
+
+let create_with_session ~sw ~env ?http_config ?profile ~session () =
   let fs = env#fs in
   let server_url = Session.server_url session in
   let api_key = Session.api_key session in
-  (* Create a Requests session, optionally from cmdliner config *)
-  let requests_session = match requests_config with
-    | Some config -> Requests.Cmd.create config env sw
-    | None -> Requests.create ~sw env
-  in
-  (* Set the X-TYPESENSE-API-KEY header *)
-  let requests_session =
-    Requests.set_default_header requests_session "X-TYPESENSE-API-KEY" api_key
-  in
-  let client = Typesense.create ~session:requests_session ~sw env ~base_url:server_url in
+  let http = http_session ~sw ~env ?http_config ~server_url ~api_key () in
+  let client = Typesense.create ~session:http ~sw env ~base_url:server_url in
   { client; session; fs; profile }
 
-let login ~sw ~env ?requests_config ?profile ~server_url ~api_key () =
+let login ~sw ~env ?http_config ?profile ~server_url ~api_key () =
   let fs = env#fs in
-  (* Create session with API key header *)
-  let requests_session = match requests_config with
-    | Some config -> Requests.Cmd.create config env sw
-    | None -> Requests.create ~sw env
-  in
-  let requests_session =
-    Requests.set_default_header requests_session "X-TYPESENSE-API-KEY" api_key
-  in
-  let client = Typesense.create ~session:requests_session ~sw env ~base_url:server_url in
+  let http = http_session ~sw ~env ?http_config ~server_url ~api_key () in
+  let client = Typesense.create ~session:http ~sw env ~base_url:server_url in
   (* Validate by calling the health endpoint *)
   let health = Typesense.Health.health client () in
   if not (Typesense.Health.Status.ok health) then
@@ -51,8 +52,8 @@ let login ~sw ~env ?requests_config ?profile ~server_url ~api_key () =
     Session.set_current_profile fs profile_name;
   { client; session; fs; profile }
 
-let resume ~sw ~env ?requests_config ?profile ~session () =
-  create_with_session ~sw ~env ?requests_config ?profile ~session ()
+let resume ~sw ~env ?http_config ?profile ~session () =
+  create_with_session ~sw ~env ?http_config ?profile ~session ()
 
 let logout t =
   Session.clear t.fs ?profile:t.profile ()
@@ -131,10 +132,16 @@ let import t ~collection ?(action = Upsert) ?(batch_size = 40)
     |> List.map (fun doc -> to_json_string Jsont.json doc)
     |> String.concat "\n"
   in
-  let response = Requests.post session ~body:(Requests.Body.text body) url in
-  if not (Requests.Response.ok response) then
-    failwith ("Import failed: " ^ string_of_int (Requests.Response.status_code response));
-  parse_jsonl import_result_jsont (Requests.Response.text response)
+  let status, text =
+    Fetch.with_response
+      ~headers:Fetch.Header.[ content_type, media "text/plain" ]
+      ~body:(Fetch.String body) session `POST url
+    @@ fun response ->
+    (Fetch.status response, Eio.Flow.read_all (Fetch.body response))
+  in
+  if not (is_ok status) then
+    failwith ("Import failed: " ^ string_of_int status);
+  parse_jsonl import_result_jsont text
 
 type export_params = {
   filter_by : string option;
@@ -163,10 +170,21 @@ let export t ~collection ?params () =
               p.exclude_fields;
           ]
   in
+  (* fetch takes a whole URL rather than [~params], so the query goes on
+     with Uri. *)
   let url =
-    base_url ^ "/collections/" ^ Uri.pct_encode collection ^ "/documents/export"
+    let u =
+      Uri.of_string
+        (base_url ^ "/collections/" ^ Uri.pct_encode collection
+       ^ "/documents/export")
+    in
+    Uri.to_string
+      (if query_params = [] then u else Uri.with_query' u query_params)
   in
-  let response = Requests.get session ~params:query_params url in
-  if not (Requests.Response.ok response) then
-    failwith ("Export failed: " ^ string_of_int (Requests.Response.status_code response));
-  parse_jsonl Jsont.json (Requests.Response.text response)
+  let status, text =
+    Fetch.with_response session `GET url @@ fun response ->
+    (Fetch.status response, Eio.Flow.read_all (Fetch.body response))
+  in
+  if not (is_ok status) then
+    failwith ("Export failed: " ^ string_of_int status);
+  parse_jsonl Jsont.json text

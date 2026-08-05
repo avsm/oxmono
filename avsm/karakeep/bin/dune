@@ -6,7 +6,8 @@
   karakeep
   karakeep.auth
   openapi
-  requests
+  fetch
+  fetch-curl
   jsont
   jsont.bytesrw
   eio

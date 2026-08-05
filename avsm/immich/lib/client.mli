@@ -50,17 +50,18 @@ type t
 val login_api_key :
   sw:Eio.Switch.t ->
   env:< clock : _ Eio.Time.clock
-      ; net : _ Eio.Net.t
+      ; mono_clock : _ Eio.Time.Mono.t
+      ; secure_random : _ Eio.Flow.source
       ; fs : Eio.Fs.dir_ty Eio.Path.t
       ; .. > ->
-  ?requests_config:Requests.Cmd.config ->
+  ?http_config:Fetch_cmdliner.config ->
   ?profile:string ->
   server_url:string ->
   api_key:string ->
   ?key_name:string ->
   unit ->
   t
-(** [login_api_key ~sw ~env ?requests_config ?profile ~server_url ~api_key ?key_name ()]
+(** [login_api_key ~sw ~env ?http_config ?profile ~server_url ~api_key ?key_name ()]
     authenticates using an API key. The API key is sent in the [x-api-key]
     header for all requests.
 
@@ -69,43 +70,45 @@ val login_api_key :
     provided, the client automatically discovers the API endpoint via
     [.well-known/immich].
 
-    @param requests_config Optional Requests.Cmd.config for HTTP settings
+    @param http_config Optional {!Fetch_cmdliner.config} for HTTP settings
     @param profile Profile name (default: "default")
     @param key_name Optional name for the API key (for display purposes) *)
 
 val login_password :
   sw:Eio.Switch.t ->
   env:< clock : _ Eio.Time.clock
-      ; net : _ Eio.Net.t
+      ; mono_clock : _ Eio.Time.Mono.t
+      ; secure_random : _ Eio.Flow.source
       ; fs : Eio.Fs.dir_ty Eio.Path.t
       ; .. > ->
-  ?requests_config:Requests.Cmd.config ->
+  ?http_config:Fetch_cmdliner.config ->
   ?profile:string ->
   server_url:string ->
   email:string ->
   password:string ->
   unit ->
   t
-(** [login_password ~sw ~env ?requests_config ?profile ~server_url ~email ~password ()]
+(** [login_password ~sw ~env ?http_config ?profile ~server_url ~email ~password ()]
     authenticates using email and password. Returns a JWT access token.
 
-    @param requests_config Optional Requests.Cmd.config for HTTP settings
+    @param http_config Optional {!Fetch_cmdliner.config} for HTTP settings
     @param profile Profile name (default: email address) *)
 
 val resume :
   sw:Eio.Switch.t ->
   env:< clock : _ Eio.Time.clock
-      ; net : _ Eio.Net.t
+      ; mono_clock : _ Eio.Time.Mono.t
+      ; secure_random : _ Eio.Flow.source
       ; fs : Eio.Fs.dir_ty Eio.Path.t
       ; .. > ->
-  ?requests_config:Requests.Cmd.config ->
+  ?http_config:Fetch_cmdliner.config ->
   ?profile:string ->
   session:Session.t ->
   unit ->
   t
-(** [resume ~sw ~env ?requests_config ?profile ~session ()] resumes from a saved session.
+(** [resume ~sw ~env ?http_config ?profile ~session ()] resumes from a saved session.
 
-    @param requests_config Optional Requests.Cmd.config for HTTP settings
+    @param http_config Optional {!Fetch_cmdliner.config} for HTTP settings
     @raise Failure if the JWT session is expired *)
 
 val logout : t -> unit
@@ -131,7 +134,7 @@ val is_valid : t -> bool
 
 (** {1 URL Resolution} *)
 
-val resolve_api_url : session:Requests.t -> string -> string
+val resolve_api_url : session:_ Fetch.t -> string -> string
 (** [resolve_api_url ~session base_url] resolves the actual API URL.
 
     If [base_url] already ends with [/api], returns it unchanged.

@@ -4,7 +4,9 @@
  (libraries
   immich
   openapi
-  requests
+  fetch
+  fetch-curl
+  fetch-cmdliner
   jsont
   jsont.bytesrw
   base64

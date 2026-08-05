@@ -4,7 +4,9 @@
  (libraries
   typesense
   openapi
-  requests
+  fetch
+  fetch-curl
+  fetch-cmdliner
   jsont
   jsont.bytesrw
   eio

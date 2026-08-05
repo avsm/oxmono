@@ -4,7 +4,8 @@
  (libraries
   karakeep
   openapi
-  requests
+  fetch
+  fetch-curl
   jsont
   jsont.bytesrw
   eio

@@ -1622,7 +1622,7 @@ let gen_operation_impl ~current_prefix (op : operation_info) : string =
   let query_args = List.map (fun (n, _, _, req) ->
     if req then Printf.sprintf "~%s" n else Printf.sprintf "?%s" n
   ) op.query_params in
-  (* DELETE and HEAD don't support body in the requests library *)
+  (* DELETE and HEAD don't support a body *)
   let method_supports_body = not (List.mem op.method_ ["DELETE"; "HEAD"; "OPTIONS"]) in
   let body_arg = match valid_body_ref, method_supports_body with
     | Some _, true -> ["~body"]
@@ -1651,25 +1651,32 @@ let gen_operation_impl ~current_prefix (op : operation_info) : string =
       Printf.sprintf "Openapi.Runtime.Query.encode (Stdlib.List.concat [%s])" (String.concat "; " parts)
   in
 
-  let method_lower = String.lowercase_ascii op.method_ in
   let body_codec = match valid_body_ref with
     | Some name -> format_jsont_ref ~current_prefix name
     | None -> "Jsont.json"
   in
-  (* DELETE and HEAD don't support body in the requests library *)
+  (* DELETE and HEAD don't support a body *)
   let method_supports_body' = not (List.mem op.method_ ["DELETE"; "HEAD"; "OPTIONS"]) in
-  let http_call = match valid_body_ref, method_supports_body' with
+  (* JSON request bodies are sent as a [Fetch.String] paired with an
+     explicit Content-Type cell; fetch has no body-with-mime constructor. *)
+  let json_headers = "~headers:Fetch.Header.[ content_type, media \"application/json\" ]" in
+  let request_args = match valid_body_ref, method_supports_body' with
     | Some _, true ->
-        Printf.sprintf "Requests.%s client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json %s body)) url"
-          method_lower body_codec
+        Printf.sprintf "%s ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn %s body))"
+          json_headers body_codec
     | Some _, false ->
         (* Method doesn't support body - ignore the body parameter *)
-        Printf.sprintf "Requests.%s client.session url" method_lower
+        ""
     | None, true when op.has_request_body ->
-        Printf.sprintf "Requests.%s client.session ~body:(Requests.Body.json body) url"
-          method_lower
-    | None, _ ->
-        Printf.sprintf "Requests.%s client.session url" method_lower
+        Printf.sprintf "%s ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Jsont.json body))"
+          json_headers
+    | None, _ -> ""
+  in
+  let http_call =
+    Printf.sprintf
+      "Fetch.with_response %sclient.session `%s url (fun response ->\n        (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))"
+      (if request_args = "" then "" else request_args ^ " ")
+      op.method_
   in
 
   let response_codec = match valid_response_ref with
@@ -1677,10 +1684,8 @@ let gen_operation_impl ~current_prefix (op : operation_info) : string =
     | None -> "Jsont.json"
   in
 
-  let decode = if response_codec = "Jsont.json" then
-    "Requests.Response.json response"
-  else
-    Printf.sprintf "Openapi.Runtime.Json.decode_json_exn %s (Requests.Response.json response)" response_codec
+  let decode =
+    Printf.sprintf "Openapi.Runtime.Json.decode_exn %s body" response_codec
   in
 
   (* Generate typed error parsing if we have error schemas *)
@@ -1695,8 +1700,7 @@ let gen_operation_impl ~current_prefix (op : operation_info) : string =
   let error_handling =
     if valid_error_responses = [] then
       (* No typed errors - simple error with parsed JSON fallback *)
-      {|let body = Requests.Response.text response in
-    let parsed_body =
+      {|let parsed_body =
       match Jsont_bytesrw.decode_string Jsont.json body with
       | Ok json -> Some (Openapi.Runtime.Json json)
       | Error _ -> Some (Openapi.Runtime.Raw body)
@@ -1705,7 +1709,7 @@ let gen_operation_impl ~current_prefix (op : operation_info) : string =
       operation = op_name;
       method_ = |} ^ Printf.sprintf "%S" op.method_ ^ {|;
       url;
-      status = Requests.Response.status_code response;
+      status;
       body;
       parsed_body;
     })|}
@@ -1713,15 +1717,13 @@ let gen_operation_impl ~current_prefix (op : operation_info) : string =
       (* Generate try-parse for each error type *)
       let parser_cases = List.map (fun (code, codec, ref_) ->
         Printf.sprintf {|      | %s ->
-          (match Openapi.Runtime.Json.decode_json %s (Requests.Response.json response) with
+          (match Openapi.Runtime.Json.decode %s body with
            | Ok v -> Some (Openapi.Runtime.Typed (%S, Openapi.Runtime.Json.encode_json %s v))
            | Error _ -> None)|}
           code codec ref_ codec
       ) valid_error_responses in
 
-      Printf.sprintf {|let body = Requests.Response.text response in
-    let status = Requests.Response.status_code response in
-    let parsed_body = match status with
+      Printf.sprintf {|let parsed_body = match status with
 %s
       | _ ->
           (match Jsont_bytesrw.decode_string Jsont.json body with
@@ -1745,13 +1747,14 @@ let gen_operation_impl ~current_prefix (op : operation_info) : string =
   let url_path = %s in
   let query = %s in
   let url = client.base_url ^ url_path ^ query in
-  let response =
-    try %s
+  let status, body =
+    try
+      %s
     with Eio.Io _ as ex ->
       let bt = Printexc.get_raw_backtrace () in
       Eio.Exn.reraise_with_context ex bt "calling %%s %%s" %S url
   in
-  if Requests.Response.ok response then
+  if status >= 200 && status < 300 then
     %s
   else
     %s|}
@@ -2245,14 +2248,14 @@ let generate_ml (spec : Spec.t) (package_name : string) : string =
 
   (* Generate top-level client type and functions *)
   let client_impl = {|type t = {
-  session : Requests.t;
+  session : Fetch.plain;
   base_url : string;
 }
 
 let create ?session ~sw env ~base_url =
   let session = match session with
     | Some s -> s
-    | None -> Requests.create ~sw env
+    | None -> Fetch_curl.std ~sw env
   in
   { session; base_url }
 
@@ -2333,14 +2336,21 @@ let generate_mli (spec : Spec.t) (package_name : string) : string =
   let client_intf = {|type t
 
 val create :
-  ?session:Requests.t ->
+  ?session:Fetch.plain ->
   sw:Eio.Switch.t ->
-  < net : _ Eio.Net.t ; fs : Eio.Fs.dir_ty Eio.Path.t ; clock : _ Eio.Time.clock ; .. > ->
+  < clock : _ Eio.Time.clock
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
+  ; .. > ->
   base_url:string ->
   t
+(** [create ?session ~sw env ~base_url] is a client rooted at [base_url].
+    [session] is the HTTP client to issue requests through, already carrying
+    whatever credentials and policy the caller wants; when it is omitted a
+    default {!Fetch_curl.std} stack is created under [sw]. *)
 
 val base_url : t -> string
-val session : t -> Requests.t|} in
+val session : t -> Fetch.plain|} in
 
   (* Generate prefix modules in dependency order, tracking forward references *)
   let rec gen_with_forward_refs remaining_modules acc =
@@ -2383,7 +2393,7 @@ let generate_dune (package_name : string) : string =
   Printf.sprintf {|(library
  (name %s)
  (public_name %s)
- (libraries openapi jsont jsont.bytesrw requests ptime eio)
+ (libraries openapi jsont jsont.bytesrw fetch fetch-curl ptime eio)
  (wrapped true))
 
 (include dune.inc)

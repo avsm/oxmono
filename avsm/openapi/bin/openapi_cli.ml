@@ -122,7 +122,7 @@ let generate_info =
     `P "Generates OCaml types and client code from an OpenAPI 3.x specification.";
     `P "The generated code uses:";
     `I ("$(b,jsont)", "for JSON encoding/decoding");
-    `I ("$(b,requests)", "for HTTP client (Eio-based)");
+    `I ("$(b,fetch)", "for HTTP client (Eio-based)");
     `I ("$(b,ptime)", "for date-time handling");
     `S Manpage.s_examples;
     `P "Generate client from local spec:";

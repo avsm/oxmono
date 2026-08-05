@@ -37,18 +37,26 @@ let output_arg =
 let collections_list_cmd env fs =
   let doc = "List all collections." in
   let info = Cmd.info "list" ~doc in
-  let action (style_renderer, level) requests_config profile =
-    Typesense_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
+  let action (style_renderer, level) http_config profile =
+    Typesense_auth.Cmd.setup_logging_with_config style_renderer level http_config;
     Typesense_auth.Error.wrap (fun () ->
-      Typesense_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+      Typesense_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
         let api = Typesense_auth.Client.client client in
         (* Use raw request since get_collections returns wrong type *)
         let session = Typesense.session api in
         let base_url = Typesense.base_url api in
-        let response = Requests.get session (base_url ^ "/collections") in
-        if not (Requests.Response.ok response) then
-          failwith ("Failed to list collections: " ^ string_of_int (Requests.Response.status_code response));
-        let json = Requests.Response.json response in
+        let status, text =
+          Fetch.with_response session `GET (base_url ^ "/collections")
+          @@ fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response))
+        in
+        if status < 200 || status >= 300 then
+          failwith ("Failed to list collections: " ^ string_of_int status);
+        let json =
+          match Jsont_bytesrw.decode_string Jsont.json text with
+          | Ok json -> json
+          | Error e -> failwith e
+        in
         match json with
         | Jsont.Array (items, _) ->
             if items = [] then
@@ -69,7 +77,7 @@ let collections_list_cmd env fs =
       ) env)
   in
   Cmd.v info
-    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.requests_config_term fs $ Typesense_auth.Cmd.profile_arg)
+    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.http_config_term fs $ Typesense_auth.Cmd.profile_arg)
 
 let collections_get_cmd env fs =
   let doc = "Get a collection by name." in
@@ -78,10 +86,10 @@ let collections_get_cmd env fs =
     let doc = "Collection name." in
     Arg.(required & pos 0 (some string) None & info [] ~docv:"NAME" ~doc)
   in
-  let action (style_renderer, level) requests_config profile name =
-    Typesense_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
+  let action (style_renderer, level) http_config profile name =
+    Typesense_auth.Cmd.setup_logging_with_config style_renderer level http_config;
     Typesense_auth.Error.wrap (fun () ->
-      Typesense_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+      Typesense_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
         let api = Typesense_auth.Client.client client in
         let collection = Typesense.Collection.get_collection api ~collection_name:name () in
         Fmt.pr "%a %a@." label_style "Name:" value_style (Typesense.Collection.Response.name collection);
@@ -97,7 +105,7 @@ let collections_get_cmd env fs =
       ) env)
   in
   Cmd.v info
-    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.requests_config_term fs $ Typesense_auth.Cmd.profile_arg $ name_arg)
+    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.http_config_term fs $ Typesense_auth.Cmd.profile_arg $ name_arg)
 
 let collections_delete_cmd env fs =
   let doc = "Delete a collection." in
@@ -106,17 +114,17 @@ let collections_delete_cmd env fs =
     let doc = "Collection name." in
     Arg.(required & pos 0 (some string) None & info [] ~docv:"NAME" ~doc)
   in
-  let action (style_renderer, level) requests_config profile name =
-    Typesense_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
+  let action (style_renderer, level) http_config profile name =
+    Typesense_auth.Cmd.setup_logging_with_config style_renderer level http_config;
     Typesense_auth.Error.wrap (fun () ->
-      Typesense_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+      Typesense_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
         let api = Typesense_auth.Client.client client in
         ignore (Typesense.Collection.delete_collection api ~collection_name:name ());
         Fmt.pr "%a Deleted collection: %a@." success_style "Success:" value_style name
       ) env)
   in
   Cmd.v info
-    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.requests_config_term fs $ Typesense_auth.Cmd.profile_arg $ name_arg)
+    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.http_config_term fs $ Typesense_auth.Cmd.profile_arg $ name_arg)
 
 let collections_cmd env fs =
   let doc = "Collection management commands." in
@@ -132,10 +140,10 @@ let collections_cmd env fs =
 let documents_get_cmd env fs =
   let doc = "Get a document by ID." in
   let info = Cmd.info "get" ~doc in
-  let action (style_renderer, level) requests_config profile collection id =
-    Typesense_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
+  let action (style_renderer, level) http_config profile collection id =
+    Typesense_auth.Cmd.setup_logging_with_config style_renderer level http_config;
     Typesense_auth.Error.wrap (fun () ->
-      Typesense_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+      Typesense_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
         let api = Typesense_auth.Client.client client in
         let doc = Typesense.Client.get_document api ~collection_name:collection ~document_id:id () in
         let json_str = match Jsont_bytesrw.encode_string ~format:Jsont.Indent Jsont.json doc with
@@ -146,22 +154,22 @@ let documents_get_cmd env fs =
       ) env)
   in
   Cmd.v info
-    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.requests_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ id_arg)
+    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.http_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ id_arg)
 
 let documents_delete_cmd env fs =
   let doc = "Delete a document by ID." in
   let info = Cmd.info "delete" ~doc in
-  let action (style_renderer, level) requests_config profile collection id =
-    Typesense_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
+  let action (style_renderer, level) http_config profile collection id =
+    Typesense_auth.Cmd.setup_logging_with_config style_renderer level http_config;
     Typesense_auth.Error.wrap (fun () ->
-      Typesense_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+      Typesense_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
         let api = Typesense_auth.Client.client client in
         ignore (Typesense.Client.delete_document api ~collection_name:collection ~document_id:id ());
         Fmt.pr "%a Deleted document %a from %a@." success_style "Success:" value_style id value_style collection
       ) env)
   in
   Cmd.v info
-    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.requests_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ id_arg)
+    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.http_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ id_arg)
 
 let documents_import_cmd env fs =
   let doc = "Import documents from JSONL file." in
@@ -171,10 +179,10 @@ let documents_import_cmd env fs =
     let actions = ["create", Typesense_auth.Client.Create; "upsert", Typesense_auth.Client.Upsert; "update", Typesense_auth.Client.Update; "emplace", Typesense_auth.Client.Emplace] in
     Arg.(value & opt (enum actions) Typesense_auth.Client.Upsert & info ["action"; "a"] ~docv:"ACTION" ~doc)
   in
-  let action (style_renderer, level) requests_config profile collection file action_type =
-    Typesense_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
+  let action (style_renderer, level) http_config profile collection file action_type =
+    Typesense_auth.Cmd.setup_logging_with_config style_renderer level http_config;
     Typesense_auth.Error.wrap (fun () ->
-      Typesense_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+      Typesense_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
         let file = match file with
           | Some f -> f
           | None -> failwith "Please specify --file"
@@ -204,7 +212,7 @@ let documents_import_cmd env fs =
       ) env)
   in
   Cmd.v info
-    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.requests_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ file_arg $ action_arg)
+    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.http_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ file_arg $ action_arg)
 
 let documents_export_cmd env fs =
   let doc = "Export documents to JSONL." in
@@ -213,10 +221,10 @@ let documents_export_cmd env fs =
     let doc = "Filter expression." in
     Arg.(value & opt (some string) None & info ["filter"] ~docv:"FILTER" ~doc)
   in
-  let action (style_renderer, level) requests_config profile collection output filter =
-    Typesense_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
+  let action (style_renderer, level) http_config profile collection output filter =
+    Typesense_auth.Cmd.setup_logging_with_config style_renderer level http_config;
     Typesense_auth.Error.wrap (fun () ->
-      Typesense_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+      Typesense_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
         let params = Typesense_auth.Client.export_params ?filter_by:filter () in
         let docs = Typesense_auth.Client.export client ~collection ~params () in
         let output_fn = match output with
@@ -239,7 +247,7 @@ let documents_export_cmd env fs =
       ) env)
   in
   Cmd.v info
-    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.requests_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ output_arg $ filter_arg)
+    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.http_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ output_arg $ filter_arg)
 
 let documents_cmd env fs =
   let doc = "Document operations." in
@@ -272,10 +280,10 @@ let search_cmd env fs =
     let doc = "Maximum number of results." in
     Arg.(value & opt int 10 & info ["limit"; "n"] ~docv:"NUM" ~doc)
   in
-  let action (style_renderer, level) requests_config profile collection query query_by filter limit =
-    Typesense_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
+  let action (style_renderer, level) http_config profile collection query query_by filter limit =
+    Typesense_auth.Cmd.setup_logging_with_config style_renderer level http_config;
     Typesense_auth.Error.wrap (fun () ->
-      Typesense_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+      Typesense_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
         let api = Typesense_auth.Client.client client in
         (* Build search_parameters query string *)
         let params = [
@@ -306,17 +314,17 @@ let search_cmd env fs =
       ) env)
   in
   Cmd.v info
-    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.requests_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ query_arg $ query_by_arg $ filter_arg $ limit_arg)
+    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.http_config_term fs $ Typesense_auth.Cmd.profile_arg $ collection_arg $ query_arg $ query_by_arg $ filter_arg $ limit_arg)
 
 (* Health command *)
 
 let health_cmd env fs =
   let doc = "Check server health." in
   let info = Cmd.info "health" ~doc in
-  let action (style_renderer, level) requests_config profile =
-    Typesense_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
+  let action (style_renderer, level) http_config profile =
+    Typesense_auth.Cmd.setup_logging_with_config style_renderer level http_config;
     Typesense_auth.Error.wrap (fun () ->
-      Typesense_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+      Typesense_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
         let api = Typesense_auth.Client.client client in
         let health = Typesense.Health.health api () in
         if Typesense.Health.Status.ok health then
@@ -326,7 +334,7 @@ let health_cmd env fs =
       ) env)
   in
   Cmd.v info
-    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.requests_config_term fs $ Typesense_auth.Cmd.profile_arg)
+    Term.(const action $ Typesense_auth.Cmd.setup_logging $ Typesense_auth.Cmd.http_config_term fs $ Typesense_auth.Cmd.profile_arg)
 
 (* Main *)
 

@@ -25,14 +25,14 @@ let password_arg =
   let doc = "Password for authentication. For security, prefer using the environment variable PEERTUBE_PASSWORD." in
   Arg.(value & opt (some string) None & info ["password"] ~docv:"PASS" ~doc)
 
-(* Requests config term *)
-let requests_config_term fs =
-  Requests.Cmd.config_term app_name fs
+(* HTTP client config term *)
+let http_config_term fs =
+  Fetch_cmdliner.config_term app_name fs
 
 (** {1 Login Command} *)
 
 let login_cmd env fs =
-  let login_action profile server_url username password requests_config =
+  let login_action profile server_url username password http_config =
     Error.wrap @@ fun () ->
     Eio.Switch.run @@ fun sw ->
     let password = match password with
@@ -42,14 +42,14 @@ let login_cmd env fs =
           | Some p -> p
           | None -> Error.fail "Password required. Use --password or set PEERTUBE_PASSWORD environment variable."
     in
-    let requests_config = Some requests_config in
-    let client = Client.login_password ~sw ~env ?requests_config ?profile ~server_url ~username ~password () in
+    let http_config = Some http_config in
+    let client = Client.login_password ~sw ~env ?http_config ?profile ~server_url ~username ~password () in
     Fmt.pr "@[<v>%a Logged in successfully@,%a@]@."
       Fmt.(styled (`Fg `Green) string) "[OK]"
       Session.pp (Client.session client);
     0
   in
-  let term = Term.(const login_action $ profile_arg $ server_url_arg $ username_arg $ password_arg $ requests_config_term fs) in
+  let term = Term.(const login_action $ profile_arg $ server_url_arg $ username_arg $ password_arg $ http_config_term fs) in
   let info = Cmd.info "login"
     ~doc:"Login to a PeerTube server"
     ~man:[
@@ -157,10 +157,10 @@ let auth_cmd env fs =
 
 (** [with_client ~sw ~env ~fs ?profile f] loads a session and creates a client,
     then calls [f] with the client. Exits with an error if not logged in. *)
-let with_client ~sw ~env ~fs ?requests_config ?profile f =
+let with_client ~sw ~env ~fs ?http_config ?profile f =
   match Session.load fs ?profile () with
   | None ->
       Error.fail "Not logged in. Use 'peertube auth login' first."
   | Some session ->
-      let client = Client.resume ~sw ~env ?requests_config ?profile ~session () in
+      let client = Client.resume ~sw ~env ?http_config ?profile ~session () in
       f client

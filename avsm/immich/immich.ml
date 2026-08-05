@@ -5,14 +5,14 @@
     @version 2.4.1 *)
 
 type t = {
-  session : Requests.t;
+  session : Fetch.plain;
   base_url : string;
 }
 
 let create ?session ~sw env ~base_url =
   let session = match session with
     | Some s -> s
-    | None -> Requests.create ~sw env
+    | None -> Fetch_curl.std ~sw env
   in
   { session; base_url }
 
@@ -250,16 +250,17 @@ module VersionCheckState = struct
     let url_path = "/server/version-check" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -269,7 +270,7 @@ module VersionCheckState = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -282,16 +283,17 @@ module VersionCheckState = struct
     let url_path = "/system-metadata/version-check-state" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -301,7 +303,7 @@ module VersionCheckState = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -394,16 +396,17 @@ module ValidateLibrary = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/libraries/{id}/validate" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -413,7 +416,7 @@ module ValidateLibrary = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -451,16 +454,17 @@ module ValidateAccessToken = struct
     let url_path = "/auth/validateToken" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -470,7 +474,7 @@ module ValidateAccessToken = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -748,16 +752,17 @@ module User = struct
     let url_path = "/users" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -767,7 +772,7 @@ module User = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -780,16 +785,17 @@ module User = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/users/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -799,7 +805,7 @@ module User = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1004,18 +1010,19 @@ module Partner = struct
   let get_partners ~direction client () =
     let op_name = "get_partners" in
     let url_path = "/partners" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.singleton ~key:"direction" ~value:direction]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.singleton ~key:"direction" ~value:direction]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1025,7 +1032,7 @@ module Partner = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1038,16 +1045,17 @@ module Partner = struct
     let url_path = "/partners" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1057,7 +1065,7 @@ module Partner = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1070,16 +1078,17 @@ module Partner = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/partners/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1089,7 +1098,7 @@ module Partner = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1102,16 +1111,17 @@ module Partner = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/partners/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1121,7 +1131,7 @@ module Partner = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1271,16 +1281,17 @@ module ServerStats = struct
     let url_path = "/server/statistics" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1290,7 +1301,7 @@ module ServerStats = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1471,18 +1482,19 @@ module TimeBuckets = struct
   let get_time_buckets ?album_id ?is_favorite ?is_trashed ?key ?order ?person_id ?slug ?tag_id ?user_id ?visibility ?with_coordinates ?with_partners ?with_stacked client () =
     let op_name = "get_time_buckets" in
     let url_path = "/timeline/buckets" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"order" ~value:order; Openapi.Runtime.Query.optional ~key:"personId" ~value:person_id; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug; Openapi.Runtime.Query.optional ~key:"tagId" ~value:tag_id; Openapi.Runtime.Query.optional ~key:"userId" ~value:user_id; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility; Openapi.Runtime.Query.optional ~key:"withCoordinates" ~value:with_coordinates; Openapi.Runtime.Query.optional ~key:"withPartners" ~value:with_partners; Openapi.Runtime.Query.optional ~key:"withStacked" ~value:with_stacked]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"order" ~value:order; Openapi.Runtime.Query.optional ~key:"personId" ~value:person_id; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug; Openapi.Runtime.Query.optional ~key:"tagId" ~value:tag_id; Openapi.Runtime.Query.optional ~key:"userId" ~value:user_id; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility; Openapi.Runtime.Query.optional ~key:"withCoordinates" ~value:with_coordinates; Openapi.Runtime.Query.optional ~key:"withPartners" ~value:with_partners; Openapi.Runtime.Query.optional ~key:"withStacked" ~value:with_stacked]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1492,7 +1504,7 @@ module TimeBuckets = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1554,16 +1566,17 @@ module Template = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("name", name)] "/admin/notifications/templates/{name}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1573,7 +1586,7 @@ module Template = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1756,16 +1769,17 @@ module Tag = struct
     let url_path = "/tags" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1775,7 +1789,7 @@ module Tag = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1788,16 +1802,17 @@ module Tag = struct
     let url_path = "/tags" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1807,7 +1822,7 @@ module Tag = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1820,16 +1835,17 @@ module Tag = struct
     let url_path = "/tags" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json TagUpsert.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn TagUpsert.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1839,7 +1855,7 @@ module Tag = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1852,16 +1868,17 @@ module Tag = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/tags/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1871,7 +1888,7 @@ module Tag = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1884,16 +1901,17 @@ module Tag = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/tags/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1903,7 +1921,7 @@ module Tag = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -1965,16 +1983,17 @@ module TagBulkAssets = struct
     let url_path = "/tags/assets" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -1984,7 +2003,7 @@ module TagBulkAssets = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -2121,16 +2140,17 @@ module SystemConfigTemplateStorageOption = struct
     let url_path = "/system-config/storage-template-options" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -2140,7 +2160,7 @@ module SystemConfigTemplateStorageOption = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -2339,16 +2359,17 @@ module TestEmail = struct
     let url_path = "/admin/notifications/test-email" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json SystemConfigSmtp.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn SystemConfigSmtp.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -2358,7 +2379,7 @@ module TestEmail = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -3345,16 +3366,17 @@ module SyncAck = struct
     let url_path = "/sync/ack" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -3364,7 +3386,7 @@ module SyncAck = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -3918,16 +3940,17 @@ module MaintenanceDetectInstall = struct
     let url_path = "/admin/maintenance/detect-install" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -3937,7 +3960,7 @@ module MaintenanceDetectInstall = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4335,16 +4358,17 @@ module Session = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/admin/users/{id}/sessions" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4354,7 +4378,7 @@ module Session = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4367,16 +4391,17 @@ module Session = struct
     let url_path = "/sessions" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4386,7 +4411,7 @@ module Session = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4399,16 +4424,17 @@ module Session = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/sessions/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4418,7 +4444,7 @@ module Session = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4484,16 +4510,17 @@ module SessionCreate = struct
     let url_path = "/sessions" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Session.CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Session.CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4503,7 +4530,7 @@ module SessionCreate = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4547,16 +4574,17 @@ module ServerVersionHistory = struct
     let url_path = "/server/version-history" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4566,7 +4594,7 @@ module ServerVersionHistory = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4610,16 +4638,17 @@ module ServerVersion = struct
     let url_path = "/server/version" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4629,7 +4658,7 @@ module ServerVersion = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4667,16 +4696,17 @@ module ServerTheme = struct
     let url_path = "/server/theme" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4686,7 +4716,7 @@ module ServerTheme = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4742,16 +4772,17 @@ module ServerStorage = struct
     let url_path = "/server/storage" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4761,7 +4792,7 @@ module ServerStorage = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4799,16 +4830,17 @@ module ServerPing = struct
     let url_path = "/server/ping" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Response.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Response.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4818,7 +4850,7 @@ module ServerPing = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4862,16 +4894,17 @@ module ServerMediaTypes = struct
     let url_path = "/server/media-types" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4881,7 +4914,7 @@ module ServerMediaTypes = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -4961,16 +4994,17 @@ module ServerFeatures = struct
     let url_path = "/server/features" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -4980,7 +5014,7 @@ module ServerFeatures = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -5048,16 +5082,17 @@ module ServerConfig = struct
     let url_path = "/server/config" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -5067,7 +5102,7 @@ module ServerConfig = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -5114,16 +5149,17 @@ module ServerApkLinks = struct
     let url_path = "/server/apk-links" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -5133,7 +5169,7 @@ module ServerApkLinks = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -5231,16 +5267,17 @@ module ServerAbout = struct
     let url_path = "/server/about" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -5250,7 +5287,7 @@ module ServerAbout = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -5411,16 +5448,17 @@ module ReverseGeocodingState = struct
     let url_path = "/system-metadata/reverse-geocoding-state" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -5430,7 +5468,7 @@ module ReverseGeocodingState = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -5563,18 +5601,19 @@ module Activity = struct
   let get_activities ~album_id ?asset_id ?level ?type_ ?user_id client () =
     let op_name = "get_activities" in
     let url_path = "/activities" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.singleton ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"assetId" ~value:asset_id; Openapi.Runtime.Query.optional ~key:"level" ~value:level; Openapi.Runtime.Query.optional ~key:"type" ~value:type_; Openapi.Runtime.Query.optional ~key:"userId" ~value:user_id]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.singleton ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"assetId" ~value:asset_id; Openapi.Runtime.Query.optional ~key:"level" ~value:level; Openapi.Runtime.Query.optional ~key:"type" ~value:type_; Openapi.Runtime.Query.optional ~key:"userId" ~value:user_id]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -5584,7 +5623,7 @@ module Activity = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -5597,16 +5636,17 @@ module Activity = struct
     let url_path = "/activities" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -5616,7 +5656,7 @@ module Activity = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -5868,16 +5908,17 @@ module Queue = struct
     let url_path = "/queues" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -5887,7 +5928,7 @@ module Queue = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -5900,16 +5941,17 @@ module Queue = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("name", name)] "/queues/{name}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -5919,7 +5961,7 @@ module Queue = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -5932,16 +5974,17 @@ module Queue = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("name", name)] "/queues/{name}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -5951,7 +5994,7 @@ module Queue = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6075,16 +6118,17 @@ module QueueResponseLegacy = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("name", name)] "/jobs/{name}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json QueueCommand.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn QueueCommand.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6094,7 +6138,7 @@ module QueueResponseLegacy = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6183,16 +6227,17 @@ module QueuesResponseLegacy = struct
     let url_path = "/jobs" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6202,7 +6247,7 @@ module QueuesResponseLegacy = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6344,16 +6389,17 @@ module PluginTrigger = struct
     let url_path = "/plugins/triggers" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6363,7 +6409,7 @@ module PluginTrigger = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6498,16 +6544,17 @@ module Workflow = struct
     let url_path = "/workflows" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6517,7 +6564,7 @@ module Workflow = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6530,16 +6577,17 @@ module Workflow = struct
     let url_path = "/workflows" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6549,7 +6597,7 @@ module Workflow = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6562,16 +6610,17 @@ module Workflow = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/workflows/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6581,7 +6630,7 @@ module Workflow = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6594,16 +6643,17 @@ module Workflow = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/workflows/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6613,7 +6663,7 @@ module Workflow = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6766,16 +6816,17 @@ module Plugin = struct
     let url_path = "/plugins" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6785,7 +6836,7 @@ module Plugin = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6798,16 +6849,17 @@ module Plugin = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/plugins/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6817,7 +6869,7 @@ module Plugin = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -6865,18 +6917,19 @@ module Places = struct
   let search_places ~name client () =
     let op_name = "search_places" in
     let url_path = "/search/places" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.singleton ~key:"name" ~value:name]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.singleton ~key:"name" ~value:name]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -6886,7 +6939,7 @@ module Places = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -7008,16 +7061,17 @@ module PersonStatistics = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/people/{id}/statistics" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -7027,7 +7081,7 @@ module PersonStatistics = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -7612,16 +7666,17 @@ module Apikey = struct
     let url_path = "/api-keys" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -7631,7 +7686,7 @@ module Apikey = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -7644,16 +7699,17 @@ module Apikey = struct
     let url_path = "/api-keys/me" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -7663,7 +7719,7 @@ module Apikey = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -7676,16 +7732,17 @@ module Apikey = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/api-keys/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -7695,7 +7752,7 @@ module Apikey = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -7708,16 +7765,17 @@ module Apikey = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/api-keys/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -7727,7 +7785,7 @@ module Apikey = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -7768,16 +7826,17 @@ module ApikeyCreate = struct
     let url_path = "/api-keys" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Apikey.CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Apikey.CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -7787,7 +7846,7 @@ module ApikeyCreate = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -7917,16 +7976,17 @@ module Onboarding = struct
     let url_path = "/users/me/onboarding" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -7936,7 +7996,7 @@ module Onboarding = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -7949,16 +8009,17 @@ module Onboarding = struct
     let url_path = "/users/me/onboarding" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -7968,7 +8029,7 @@ module Onboarding = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -8201,16 +8262,17 @@ module OauthAuthorize = struct
     let url_path = "/oauth/authorize" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json OauthConfig.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn OauthConfig.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -8220,7 +8282,7 @@ module OauthAuthorize = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -8466,16 +8528,17 @@ module Notification = struct
     let url_path = "/admin/notifications" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -8485,7 +8548,7 @@ module Notification = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -8496,18 +8559,19 @@ module Notification = struct
   let get_notifications ?id ?level ?type_ ?unread client () =
     let op_name = "get_notifications" in
     let url_path = "/notifications" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"id" ~value:id; Openapi.Runtime.Query.optional ~key:"level" ~value:level; Openapi.Runtime.Query.optional ~key:"type" ~value:type_; Openapi.Runtime.Query.optional ~key:"unread" ~value:unread]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"id" ~value:id; Openapi.Runtime.Query.optional ~key:"level" ~value:level; Openapi.Runtime.Query.optional ~key:"type" ~value:type_; Openapi.Runtime.Query.optional ~key:"unread" ~value:unread]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -8517,7 +8581,7 @@ module Notification = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -8530,16 +8594,17 @@ module Notification = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/notifications/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -8549,7 +8614,7 @@ module Notification = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -8562,16 +8627,17 @@ module Notification = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/notifications/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -8581,7 +8647,7 @@ module Notification = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -8720,18 +8786,19 @@ module MemoryStatistics = struct
   let memories_statistics ?for_ ?is_saved ?is_trashed ?order ?size ?type_ client () =
     let op_name = "memories_statistics" in
     let url_path = "/memories/statistics" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"for" ~value:for_; Openapi.Runtime.Query.optional ~key:"isSaved" ~value:is_saved; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"order" ~value:order; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"type" ~value:type_]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"for" ~value:for_; Openapi.Runtime.Query.optional ~key:"isSaved" ~value:is_saved; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"order" ~value:order; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"type" ~value:type_]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -8741,7 +8808,7 @@ module MemoryStatistics = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -8866,18 +8933,19 @@ module MapReverseGeocode = struct
   let reverse_geocode ~lat ~lon client () =
     let op_name = "reverse_geocode" in
     let url_path = "/map/reverse-geocode" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.singleton ~key:"lat" ~value:lat; Openapi.Runtime.Query.singleton ~key:"lon" ~value:lon]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.singleton ~key:"lat" ~value:lat; Openapi.Runtime.Query.singleton ~key:"lon" ~value:lon]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -8887,7 +8955,7 @@ module MapReverseGeocode = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -8941,18 +9009,19 @@ module MapMarker = struct
   let get_map_markers ?file_created_after ?file_created_before ?is_archived ?is_favorite ?with_partners ?with_shared_albums client () =
     let op_name = "get_map_markers" in
     let url_path = "/map/markers" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"fileCreatedAfter" ~value:file_created_after; Openapi.Runtime.Query.optional ~key:"fileCreatedBefore" ~value:file_created_before; Openapi.Runtime.Query.optional ~key:"isArchived" ~value:is_archived; Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"withPartners" ~value:with_partners; Openapi.Runtime.Query.optional ~key:"withSharedAlbums" ~value:with_shared_albums]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"fileCreatedAfter" ~value:file_created_after; Openapi.Runtime.Query.optional ~key:"fileCreatedBefore" ~value:file_created_before; Openapi.Runtime.Query.optional ~key:"isArchived" ~value:is_archived; Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"withPartners" ~value:with_partners; Openapi.Runtime.Query.optional ~key:"withSharedAlbums" ~value:with_shared_albums]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -8962,7 +9031,7 @@ module MapMarker = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9087,16 +9156,17 @@ module MaintenanceAuth = struct
     let url_path = "/admin/maintenance/login" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json MaintenanceLogin.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn MaintenanceLogin.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9106,7 +9176,7 @@ module MaintenanceAuth = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9215,16 +9285,17 @@ module MaintenanceStatus = struct
     let url_path = "/admin/maintenance/status" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9234,7 +9305,7 @@ module MaintenanceStatus = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9306,16 +9377,17 @@ module Logout = struct
     let url_path = "/auth/logout" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9325,7 +9397,7 @@ module Logout = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9412,16 +9484,17 @@ module Login = struct
     let url_path = "/auth/login" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json LoginCredential.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn LoginCredential.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9431,7 +9504,7 @@ module Login = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9444,16 +9517,17 @@ module Login = struct
     let url_path = "/oauth/callback" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json OauthCallback.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn OauthCallback.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9463,7 +9537,7 @@ module Login = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9600,16 +9674,17 @@ module License = struct
     let url_path = "/server/license" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9619,7 +9694,7 @@ module License = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9632,16 +9707,17 @@ module License = struct
     let url_path = "/server/license" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json LicenseKey.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn LicenseKey.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9651,7 +9727,7 @@ module License = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9664,16 +9740,17 @@ module License = struct
     let url_path = "/users/me/license" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9683,7 +9760,7 @@ module License = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9696,16 +9773,17 @@ module License = struct
     let url_path = "/users/me/license" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json LicenseKey.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn LicenseKey.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9715,7 +9793,7 @@ module License = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -9762,16 +9840,17 @@ module LibraryStats = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/libraries/{id}/statistics" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -9781,7 +9860,7 @@ module LibraryStats = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -10135,18 +10214,19 @@ module QueueJob = struct
   let get_queue_jobs ~name ?status client () =
     let op_name = "get_queue_jobs" in
     let url_path = Openapi.Runtime.Path.render ~params:[("name", name)] "/queues/{name}/jobs" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"status" ~value:status]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"status" ~value:status]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -10156,7 +10236,7 @@ module QueueJob = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -10708,18 +10788,19 @@ module Download = struct
   let get_download_info ?key ?slug ~body client () =
     let op_name = "get_download_info" in
     let url_path = "/download/info" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json DownloadInfo.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn DownloadInfo.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -10729,7 +10810,7 @@ module Download = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -10897,16 +10978,17 @@ module DatabaseBackupList = struct
     let url_path = "/admin/database-backups" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -10916,7 +10998,7 @@ module DatabaseBackupList = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11010,21 +11092,22 @@ module CreateProfileImage = struct
   (** Create user profile image
   
       Upload and set a new profile image for the current user. *)
-  let create_profile_image client () =
+  let create_profile_image ~body client () =
     let op_name = "create_profile_image" in
     let url_path = "/users/profile-image" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Jsont.json body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11034,7 +11117,7 @@ module CreateProfileImage = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11131,16 +11214,17 @@ module Library = struct
     let url_path = "/libraries" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11150,7 +11234,7 @@ module Library = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11163,16 +11247,17 @@ module Library = struct
     let url_path = "/libraries" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateLibrary.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateLibrary.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11182,7 +11267,7 @@ module Library = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11195,16 +11280,17 @@ module Library = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/libraries/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11214,7 +11300,7 @@ module Library = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11227,16 +11313,17 @@ module Library = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/libraries/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateLibrary.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateLibrary.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11246,7 +11333,7 @@ module Library = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11497,16 +11584,17 @@ module CheckExistingAssets = struct
     let url_path = "/assets/exist" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11516,7 +11604,7 @@ module CheckExistingAssets = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11730,18 +11818,19 @@ module UserAdmin = struct
   let search_users_admin ?id ?with_deleted client () =
     let op_name = "search_users_admin" in
     let url_path = "/admin/users" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"id" ~value:id; Openapi.Runtime.Query.optional ~key:"withDeleted" ~value:with_deleted]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"id" ~value:id; Openapi.Runtime.Query.optional ~key:"withDeleted" ~value:with_deleted]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11751,7 +11840,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11764,16 +11853,17 @@ module UserAdmin = struct
     let url_path = "/admin/users" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11783,7 +11873,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11796,16 +11886,17 @@ module UserAdmin = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/admin/users/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11815,7 +11906,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11828,16 +11919,17 @@ module UserAdmin = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/admin/users/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11847,7 +11939,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11860,16 +11952,17 @@ module UserAdmin = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/admin/users/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11879,7 +11972,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11892,16 +11985,17 @@ module UserAdmin = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/admin/users/{id}/restore" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11911,7 +12005,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11924,16 +12018,17 @@ module UserAdmin = struct
     let url_path = "/auth/admin-sign-up" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json SignUp.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn SignUp.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11943,7 +12038,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11956,16 +12051,17 @@ module UserAdmin = struct
     let url_path = "/auth/change-password" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json ChangePassword.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn ChangePassword.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -11975,7 +12071,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -11988,16 +12084,17 @@ module UserAdmin = struct
     let url_path = "/oauth/link" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json OauthCallback.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn OauthCallback.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12007,7 +12104,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12020,16 +12117,17 @@ module UserAdmin = struct
     let url_path = "/oauth/unlink" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12039,7 +12137,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12052,16 +12150,17 @@ module UserAdmin = struct
     let url_path = "/users/me" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12071,7 +12170,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12084,16 +12183,17 @@ module UserAdmin = struct
     let url_path = "/users/me" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UserUpdateMe.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UserUpdateMe.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12103,7 +12203,7 @@ module UserAdmin = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12212,16 +12312,17 @@ module Trash = struct
     let url_path = "/trash/empty" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12231,7 +12332,7 @@ module Trash = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12244,16 +12345,17 @@ module Trash = struct
     let url_path = "/trash/restore" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12263,7 +12365,7 @@ module Trash = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12276,16 +12378,17 @@ module Trash = struct
     let url_path = "/trash/restore/assets" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json BulkIds.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn BulkIds.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12295,7 +12398,7 @@ module Trash = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12389,18 +12492,19 @@ module AlbumsAddAssets = struct
   let add_assets_to_albums ?key ?slug ~body client () =
     let op_name = "add_assets_to_albums" in
     let url_path = "/albums/assets" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12410,7 +12514,7 @@ module AlbumsAddAssets = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12460,16 +12564,17 @@ module AuthStatus = struct
     let url_path = "/auth/status" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12479,7 +12584,7 @@ module AuthStatus = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12693,16 +12798,17 @@ module SystemConfig = struct
     let url_path = "/system-config" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12712,7 +12818,7 @@ module SystemConfig = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12725,16 +12831,17 @@ module SystemConfig = struct
     let url_path = "/system-config" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12744,7 +12851,7 @@ module SystemConfig = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12757,16 +12864,17 @@ module SystemConfig = struct
     let url_path = "/system-config/defaults" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12776,7 +12884,7 @@ module SystemConfig = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -12954,18 +13062,19 @@ module TimeBucketAsset = struct
   let get_time_bucket ?album_id ?is_favorite ?is_trashed ?key ?order ?person_id ?slug ?tag_id ~time_bucket ?user_id ?visibility ?with_coordinates ?with_partners ?with_stacked client () =
     let op_name = "get_time_bucket" in
     let url_path = "/timeline/bucket" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"order" ~value:order; Openapi.Runtime.Query.optional ~key:"personId" ~value:person_id; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug; Openapi.Runtime.Query.optional ~key:"tagId" ~value:tag_id; Openapi.Runtime.Query.singleton ~key:"timeBucket" ~value:time_bucket; Openapi.Runtime.Query.optional ~key:"userId" ~value:user_id; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility; Openapi.Runtime.Query.optional ~key:"withCoordinates" ~value:with_coordinates; Openapi.Runtime.Query.optional ~key:"withPartners" ~value:with_partners; Openapi.Runtime.Query.optional ~key:"withStacked" ~value:with_stacked]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"order" ~value:order; Openapi.Runtime.Query.optional ~key:"personId" ~value:person_id; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug; Openapi.Runtime.Query.optional ~key:"tagId" ~value:tag_id; Openapi.Runtime.Query.singleton ~key:"timeBucket" ~value:time_bucket; Openapi.Runtime.Query.optional ~key:"userId" ~value:user_id; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility; Openapi.Runtime.Query.optional ~key:"withCoordinates" ~value:with_coordinates; Openapi.Runtime.Query.optional ~key:"withPartners" ~value:with_partners; Openapi.Runtime.Query.optional ~key:"withStacked" ~value:with_stacked]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -12975,7 +13084,7 @@ module TimeBucketAsset = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -13306,16 +13415,17 @@ module SearchStatistics = struct
     let url_path = "/search/statistics" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json StatisticsSearch.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn StatisticsSearch.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -13325,7 +13435,7 @@ module SearchStatistics = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -13629,18 +13739,19 @@ module AssetStats = struct
   let get_user_statistics_admin ~id ?is_favorite ?is_trashed ?visibility client () =
     let op_name = "get_user_statistics_admin" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/admin/users/{id}/statistics" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -13650,7 +13761,7 @@ module AssetStats = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -13661,18 +13772,19 @@ module AssetStats = struct
   let get_asset_statistics ?is_favorite ?is_trashed ?visibility client () =
     let op_name = "get_asset_statistics" in
     let url_path = "/assets/statistics" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -13682,7 +13794,7 @@ module AssetStats = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -14106,16 +14218,17 @@ module AssetOcr = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/ocr" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -14125,7 +14238,7 @@ module AssetOcr = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -14222,16 +14335,17 @@ module AssetMetadata = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/metadata" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -14241,7 +14355,7 @@ module AssetMetadata = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -14254,16 +14368,17 @@ module AssetMetadata = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/metadata" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AssetMetadataUpsert.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AssetMetadataUpsert.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -14273,7 +14388,7 @@ module AssetMetadata = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -14286,16 +14401,17 @@ module AssetMetadata = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id); ("key", key)] "/assets/{id}/metadata/{key}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -14305,7 +14421,7 @@ module AssetMetadata = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -14419,21 +14535,22 @@ module AssetMedia = struct
   (** Upload asset
   
       Uploads a new asset to the server. *)
-  let upload_asset ?key ?slug client () =
+  let upload_asset ?key ?slug ~body client () =
     let op_name = "upload_asset" in
     let url_path = "/assets" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Jsont.json body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -14443,7 +14560,7 @@ module AssetMedia = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -14451,21 +14568,22 @@ module AssetMedia = struct
   (** Replace asset
   
       Replace the asset with new file, without changing its id. *)
-  let replace_asset ~id ?key ?slug client () =
+  let replace_asset ~id ?key ?slug ~body client () =
     let op_name = "replace_asset" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/original" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Jsont.json body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -14475,7 +14593,7 @@ module AssetMedia = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -14578,16 +14696,17 @@ module AssetMetadataBulk = struct
     let url_path = "/assets/metadata" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AssetMetadataBulkUpsert.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AssetMetadataBulkUpsert.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -14597,7 +14716,7 @@ module AssetMetadataBulk = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -14846,18 +14965,19 @@ module AssetIds = struct
   let add_shared_link_assets ~id ?key ?slug ~body client () =
     let op_name = "add_shared_link_assets" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/shared-links/{id}/assets" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -14867,7 +14987,7 @@ module AssetIds = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -14878,18 +14998,19 @@ module AssetIds = struct
   let remove_shared_link_assets ~id ?key ?slug client () =
     let op_name = "remove_shared_link_assets" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/shared-links/{id}/assets" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -14899,7 +15020,7 @@ module AssetIds = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15077,18 +15198,19 @@ module Asset = struct
   let get_random ?count client () =
     let op_name = "get_random" in
     let url_path = "/assets/random" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"count" ~value:count]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"count" ~value:count]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15098,7 +15220,7 @@ module Asset = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15109,18 +15231,19 @@ module Asset = struct
   let get_asset_info ~id ?key ?slug client () =
     let op_name = "get_asset_info" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15130,7 +15253,7 @@ module Asset = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15143,16 +15266,17 @@ module Asset = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateAsset.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateAsset.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15162,7 +15286,7 @@ module Asset = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15175,16 +15299,17 @@ module Asset = struct
     let url_path = "/search/cities" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15194,7 +15319,7 @@ module Asset = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15205,18 +15330,19 @@ module Asset = struct
   let search_large_assets ?album_ids ?city ?country ?created_after ?created_before ?device_id ?is_encoded ?is_favorite ?is_motion ?is_not_in_album ?is_offline ?lens_model ?library_id ?make ?min_file_size ?model ?ocr ?person_ids ?rating ?size ?state ?tag_ids ?taken_after ?taken_before ?trashed_after ?trashed_before ?type_ ?updated_after ?updated_before ?visibility ?with_deleted ?with_exif client () =
     let op_name = "search_large_assets" in
     let url_path = "/search/large-assets" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"albumIds" ~value:album_ids; Openapi.Runtime.Query.optional ~key:"city" ~value:city; Openapi.Runtime.Query.optional ~key:"country" ~value:country; Openapi.Runtime.Query.optional ~key:"createdAfter" ~value:created_after; Openapi.Runtime.Query.optional ~key:"createdBefore" ~value:created_before; Openapi.Runtime.Query.optional ~key:"deviceId" ~value:device_id; Openapi.Runtime.Query.optional ~key:"isEncoded" ~value:is_encoded; Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isMotion" ~value:is_motion; Openapi.Runtime.Query.optional ~key:"isNotInAlbum" ~value:is_not_in_album; Openapi.Runtime.Query.optional ~key:"isOffline" ~value:is_offline; Openapi.Runtime.Query.optional ~key:"lensModel" ~value:lens_model; Openapi.Runtime.Query.optional ~key:"libraryId" ~value:library_id; Openapi.Runtime.Query.optional ~key:"make" ~value:make; Openapi.Runtime.Query.optional ~key:"minFileSize" ~value:min_file_size; Openapi.Runtime.Query.optional ~key:"model" ~value:model; Openapi.Runtime.Query.optional ~key:"ocr" ~value:ocr; Openapi.Runtime.Query.optional ~key:"personIds" ~value:person_ids; Openapi.Runtime.Query.optional ~key:"rating" ~value:rating; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"state" ~value:state; Openapi.Runtime.Query.optional ~key:"tagIds" ~value:tag_ids; Openapi.Runtime.Query.optional ~key:"takenAfter" ~value:taken_after; Openapi.Runtime.Query.optional ~key:"takenBefore" ~value:taken_before; Openapi.Runtime.Query.optional ~key:"trashedAfter" ~value:trashed_after; Openapi.Runtime.Query.optional ~key:"trashedBefore" ~value:trashed_before; Openapi.Runtime.Query.optional ~key:"type" ~value:type_; Openapi.Runtime.Query.optional ~key:"updatedAfter" ~value:updated_after; Openapi.Runtime.Query.optional ~key:"updatedBefore" ~value:updated_before; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility; Openapi.Runtime.Query.optional ~key:"withDeleted" ~value:with_deleted; Openapi.Runtime.Query.optional ~key:"withExif" ~value:with_exif]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"albumIds" ~value:album_ids; Openapi.Runtime.Query.optional ~key:"city" ~value:city; Openapi.Runtime.Query.optional ~key:"country" ~value:country; Openapi.Runtime.Query.optional ~key:"createdAfter" ~value:created_after; Openapi.Runtime.Query.optional ~key:"createdBefore" ~value:created_before; Openapi.Runtime.Query.optional ~key:"deviceId" ~value:device_id; Openapi.Runtime.Query.optional ~key:"isEncoded" ~value:is_encoded; Openapi.Runtime.Query.optional ~key:"isFavorite" ~value:is_favorite; Openapi.Runtime.Query.optional ~key:"isMotion" ~value:is_motion; Openapi.Runtime.Query.optional ~key:"isNotInAlbum" ~value:is_not_in_album; Openapi.Runtime.Query.optional ~key:"isOffline" ~value:is_offline; Openapi.Runtime.Query.optional ~key:"lensModel" ~value:lens_model; Openapi.Runtime.Query.optional ~key:"libraryId" ~value:library_id; Openapi.Runtime.Query.optional ~key:"make" ~value:make; Openapi.Runtime.Query.optional ~key:"minFileSize" ~value:min_file_size; Openapi.Runtime.Query.optional ~key:"model" ~value:model; Openapi.Runtime.Query.optional ~key:"ocr" ~value:ocr; Openapi.Runtime.Query.optional ~key:"personIds" ~value:person_ids; Openapi.Runtime.Query.optional ~key:"rating" ~value:rating; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"state" ~value:state; Openapi.Runtime.Query.optional ~key:"tagIds" ~value:tag_ids; Openapi.Runtime.Query.optional ~key:"takenAfter" ~value:taken_after; Openapi.Runtime.Query.optional ~key:"takenBefore" ~value:taken_before; Openapi.Runtime.Query.optional ~key:"trashedAfter" ~value:trashed_after; Openapi.Runtime.Query.optional ~key:"trashedBefore" ~value:trashed_before; Openapi.Runtime.Query.optional ~key:"type" ~value:type_; Openapi.Runtime.Query.optional ~key:"updatedAfter" ~value:updated_after; Openapi.Runtime.Query.optional ~key:"updatedBefore" ~value:updated_before; Openapi.Runtime.Query.optional ~key:"visibility" ~value:visibility; Openapi.Runtime.Query.optional ~key:"withDeleted" ~value:with_deleted; Openapi.Runtime.Query.optional ~key:"withExif" ~value:with_exif]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15226,7 +15352,7 @@ module Asset = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15239,16 +15365,17 @@ module Asset = struct
     let url_path = "/search/random" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json RandomSearch.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn RandomSearch.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15258,7 +15385,7 @@ module Asset = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15271,16 +15398,17 @@ module Asset = struct
     let url_path = "/sync/full-sync" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AssetFullSync.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AssetFullSync.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15290,7 +15418,7 @@ module Asset = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15301,18 +15429,19 @@ module Asset = struct
   let get_assets_by_original_path ~path client () =
     let op_name = "get_assets_by_original_path" in
     let url_path = "/view/folder" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.singleton ~key:"path" ~value:path]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.singleton ~key:"path" ~value:path]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15322,7 +15451,7 @@ module Asset = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15406,18 +15535,19 @@ module Stack = struct
   let search_stacks ?primary_asset_id client () =
     let op_name = "search_stacks" in
     let url_path = "/stacks" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"primaryAssetId" ~value:primary_asset_id]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"primaryAssetId" ~value:primary_asset_id]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15427,7 +15557,7 @@ module Stack = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15440,16 +15570,17 @@ module Stack = struct
     let url_path = "/stacks" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15459,7 +15590,7 @@ module Stack = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15472,16 +15603,17 @@ module Stack = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/stacks/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15491,7 +15623,7 @@ module Stack = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15504,16 +15636,17 @@ module Stack = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/stacks/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15523,7 +15656,7 @@ module Stack = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15588,16 +15721,17 @@ module SearchExplore = struct
     let url_path = "/search/explore" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15607,7 +15741,7 @@ module SearchExplore = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15800,18 +15934,19 @@ module Memory = struct
   let search_memories ?for_ ?is_saved ?is_trashed ?order ?size ?type_ client () =
     let op_name = "search_memories" in
     let url_path = "/memories" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"for" ~value:for_; Openapi.Runtime.Query.optional ~key:"isSaved" ~value:is_saved; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"order" ~value:order; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"type" ~value:type_]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"for" ~value:for_; Openapi.Runtime.Query.optional ~key:"isSaved" ~value:is_saved; Openapi.Runtime.Query.optional ~key:"isTrashed" ~value:is_trashed; Openapi.Runtime.Query.optional ~key:"order" ~value:order; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"type" ~value:type_]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15821,7 +15956,7 @@ module Memory = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15834,16 +15969,17 @@ module Memory = struct
     let url_path = "/memories" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15853,7 +15989,7 @@ module Memory = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15866,16 +16002,17 @@ module Memory = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/memories/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15885,7 +16022,7 @@ module Memory = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -15898,16 +16035,17 @@ module Memory = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/memories/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -15917,7 +16055,7 @@ module Memory = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -16020,16 +16158,17 @@ module Duplicate = struct
     let url_path = "/duplicates" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -16039,7 +16178,7 @@ module Duplicate = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -16107,16 +16246,17 @@ module AssetDeltaSync = struct
     let url_path = "/sync/delta-sync" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -16126,7 +16266,7 @@ module AssetDeltaSync = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -16245,16 +16385,17 @@ module AssetEdits = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/edits" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -16264,7 +16405,7 @@ module AssetEdits = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -16277,16 +16418,17 @@ module AssetEdits = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/edits" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AssetEditActionList.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AssetEditActionList.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn Dto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Dto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -16296,7 +16438,7 @@ module AssetEdits = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -16567,16 +16709,17 @@ module AssetBulkUploadCheck = struct
     let url_path = "/assets/bulk-upload-check" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -16586,7 +16729,7 @@ module AssetBulkUploadCheck = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -16929,18 +17072,19 @@ module Album = struct
   let get_all_albums ?asset_id ?shared client () =
     let op_name = "get_all_albums" in
     let url_path = "/albums" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"assetId" ~value:asset_id; Openapi.Runtime.Query.optional ~key:"shared" ~value:shared]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"assetId" ~value:asset_id; Openapi.Runtime.Query.optional ~key:"shared" ~value:shared]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -16950,7 +17094,7 @@ module Album = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -16963,16 +17107,17 @@ module Album = struct
     let url_path = "/albums" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateAlbum.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateAlbum.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -16982,7 +17127,7 @@ module Album = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -16993,18 +17138,19 @@ module Album = struct
   let get_album_info ~id ?key ?slug ?without_assets client () =
     let op_name = "get_album_info" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/albums/{id}" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug; Openapi.Runtime.Query.optional ~key:"withoutAssets" ~value:without_assets]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug; Openapi.Runtime.Query.optional ~key:"withoutAssets" ~value:without_assets]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17014,7 +17160,7 @@ module Album = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17027,16 +17173,17 @@ module Album = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/albums/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.patch client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateAlbum.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateAlbum.Dto.jsont body)) client.session `PATCH url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PATCH" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17046,7 +17193,7 @@ module Album = struct
         operation = op_name;
         method_ = "PATCH";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17059,16 +17206,17 @@ module Album = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/albums/{id}/users" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AddUsers.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AddUsers.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17078,7 +17226,7 @@ module Album = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17234,18 +17382,19 @@ module SharedLink = struct
   let get_all_shared_links ?album_id ?id client () =
     let op_name = "get_all_shared_links" in
     let url_path = "/shared-links" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"id" ~value:id]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"id" ~value:id]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17255,7 +17404,7 @@ module SharedLink = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17268,16 +17417,17 @@ module SharedLink = struct
     let url_path = "/shared-links" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17287,7 +17437,7 @@ module SharedLink = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17298,18 +17448,19 @@ module SharedLink = struct
   let get_my_shared_link ?key ?password ?slug ?token client () =
     let op_name = "get_my_shared_link" in
     let url_path = "/shared-links/me" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"password" ~value:password; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug; Openapi.Runtime.Query.optional ~key:"token" ~value:token]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"password" ~value:password; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug; Openapi.Runtime.Query.optional ~key:"token" ~value:token]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17319,7 +17470,7 @@ module SharedLink = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17332,16 +17483,17 @@ module SharedLink = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/shared-links/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17351,7 +17503,7 @@ module SharedLink = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17364,16 +17516,17 @@ module SharedLink = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/shared-links/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.patch client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json SharedLinkEdit.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn SharedLinkEdit.Dto.jsont body)) client.session `PATCH url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PATCH" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17383,7 +17536,7 @@ module SharedLink = struct
         operation = op_name;
         method_ = "PATCH";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17458,16 +17611,17 @@ module Search = struct
     let url_path = "/search/metadata" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json MetadataSearch.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn MetadataSearch.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17477,7 +17631,7 @@ module Search = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17490,16 +17644,17 @@ module Search = struct
     let url_path = "/search/smart" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json SmartSearch.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn SmartSearch.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17509,7 +17664,7 @@ module Search = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17553,16 +17708,17 @@ module AlbumStatistics = struct
     let url_path = "/albums/statistics" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17572,7 +17728,7 @@ module AlbumStatistics = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17610,16 +17766,17 @@ module AdminOnboarding = struct
     let url_path = "/system-metadata/admin-onboarding" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn UpdateDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn UpdateDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17629,7 +17786,7 @@ module AdminOnboarding = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17668,18 +17825,19 @@ module ActivityStatistics = struct
   let get_activity_statistics ~album_id ?asset_id client () =
     let op_name = "get_activity_statistics" in
     let url_path = "/activities/statistics" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.singleton ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"assetId" ~value:asset_id]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.singleton ~key:"albumId" ~value:album_id; Openapi.Runtime.Query.optional ~key:"assetId" ~value:asset_id]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17689,7 +17847,7 @@ module ActivityStatistics = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17811,16 +17969,17 @@ module UserPreferences = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/admin/users/{id}/preferences" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17830,7 +17989,7 @@ module UserPreferences = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17843,16 +18002,17 @@ module UserPreferences = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/admin/users/{id}/preferences" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17862,7 +18022,7 @@ module UserPreferences = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17875,16 +18035,17 @@ module UserPreferences = struct
     let url_path = "/users/me/preferences" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17894,7 +18055,7 @@ module UserPreferences = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -17907,16 +18068,17 @@ module UserPreferences = struct
     let url_path = "/users/me/preferences" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -17926,7 +18088,7 @@ module UserPreferences = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18061,16 +18223,17 @@ module Person = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/faces/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Face.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Face.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18080,7 +18243,7 @@ module Person = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18093,16 +18256,17 @@ module Person = struct
     let url_path = "/people" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18112,7 +18276,7 @@ module Person = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18125,16 +18289,17 @@ module Person = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/people/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18144,7 +18309,7 @@ module Person = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18157,16 +18322,17 @@ module Person = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/people/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18176,7 +18342,7 @@ module Person = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18189,16 +18355,17 @@ module Person = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/people/{id}/reassign" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Jsont.json body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Jsont.json body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18208,7 +18375,7 @@ module Person = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18219,18 +18386,19 @@ module Person = struct
   let search_person ~name ?with_hidden client () =
     let op_name = "search_person" in
     let url_path = "/search/person" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.singleton ~key:"name" ~value:name; Openapi.Runtime.Query.optional ~key:"withHidden" ~value:with_hidden]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.singleton ~key:"name" ~value:name; Openapi.Runtime.Query.optional ~key:"withHidden" ~value:with_hidden]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18240,7 +18408,7 @@ module Person = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18357,18 +18525,19 @@ module People = struct
   let get_all_people ?closest_asset_id ?closest_person_id ?page ?size ?with_hidden client () =
     let op_name = "get_all_people" in
     let url_path = "/people" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"closestAssetId" ~value:closest_asset_id; Openapi.Runtime.Query.optional ~key:"closestPersonId" ~value:closest_person_id; Openapi.Runtime.Query.optional ~key:"page" ~value:page; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"withHidden" ~value:with_hidden]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"closestAssetId" ~value:closest_asset_id; Openapi.Runtime.Query.optional ~key:"closestPersonId" ~value:closest_person_id; Openapi.Runtime.Query.optional ~key:"page" ~value:page; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"withHidden" ~value:with_hidden]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18378,7 +18547,7 @@ module People = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18420,18 +18589,19 @@ module BulkId = struct
   let add_assets_to_album ~id ?key ?slug ~body client () =
     let op_name = "add_assets_to_album" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/albums/{id}/assets" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json BulkIds.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn BulkIds.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18441,7 +18611,7 @@ module BulkId = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18454,16 +18624,17 @@ module BulkId = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/albums/{id}/assets" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18473,7 +18644,7 @@ module BulkId = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18486,16 +18657,17 @@ module BulkId = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/memories/{id}/assets" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json BulkIds.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn BulkIds.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18505,7 +18677,7 @@ module BulkId = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18518,16 +18690,17 @@ module BulkId = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/memories/{id}/assets" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18537,7 +18710,7 @@ module BulkId = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18550,16 +18723,17 @@ module BulkId = struct
     let url_path = "/people" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json People.UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn People.UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18569,7 +18743,7 @@ module BulkId = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18582,16 +18756,17 @@ module BulkId = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/people/{id}/merge" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json MergePerson.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn MergePerson.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18601,7 +18776,7 @@ module BulkId = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18614,16 +18789,17 @@ module BulkId = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/tags/{id}/assets" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json BulkIds.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn BulkIds.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18633,7 +18809,7 @@ module BulkId = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18646,16 +18822,17 @@ module BulkId = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/tags/{id}/assets" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18665,7 +18842,7 @@ module BulkId = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18788,18 +18965,19 @@ module AssetFace = struct
   let get_faces ~id client () =
     let op_name = "get_faces" in
     let url_path = "/faces" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.singleton ~key:"id" ~value:id]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.singleton ~key:"id" ~value:id]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Openapi.Runtime.Json.decode_json_exn ResponseDto.jsont (Requests.Response.json response)
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn ResponseDto.jsont body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18809,7 +18987,7 @@ module AssetFace = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18824,16 +19002,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/activities/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18843,7 +19022,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18856,16 +19035,17 @@ module Client = struct
     let url_path = "/admin/auth/unlink-all" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18875,7 +19055,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18888,16 +19068,17 @@ module Client = struct
     let url_path = "/admin/database-backups" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18907,7 +19088,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18920,16 +19101,17 @@ module Client = struct
     let url_path = "/admin/database-backups/start-restore" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18939,7 +19121,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18947,21 +19129,22 @@ module Client = struct
   (** Upload database backup
   
       Uploads .sql/.sql.gz file to restore backup from *)
-  let upload_database_backup client () =
+  let upload_database_backup ~body client () =
     let op_name = "upload_database_backup" in
     let url_path = "/admin/database-backups/upload" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Jsont.json body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -18971,7 +19154,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -18984,16 +19167,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("filename", filename)] "/admin/database-backups/{filename}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19003,7 +19187,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19016,16 +19200,17 @@ module Client = struct
     let url_path = "/admin/maintenance" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json SetMaintenanceMode.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn SetMaintenanceMode.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19035,7 +19220,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19048,16 +19233,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/albums/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19067,7 +19253,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19080,16 +19266,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id); ("userId", user_id)] "/albums/{id}/user/{userId}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json UpdateAlbumUser.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn UpdateAlbumUser.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19099,7 +19286,7 @@ module Client = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19112,16 +19299,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id); ("userId", user_id)] "/albums/{id}/user/{userId}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19131,7 +19319,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19144,16 +19332,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/api-keys/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19163,7 +19352,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19176,16 +19365,17 @@ module Client = struct
     let url_path = "/assets" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AssetBulk.UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AssetBulk.UpdateDto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19195,7 +19385,7 @@ module Client = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19208,16 +19398,17 @@ module Client = struct
     let url_path = "/assets" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19227,7 +19418,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19240,16 +19431,17 @@ module Client = struct
     let url_path = "/assets/copy" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AssetCopy.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AssetCopy.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19259,7 +19451,7 @@ module Client = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19272,16 +19464,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("deviceId", device_id)] "/assets/device/{deviceId}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19291,7 +19484,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19304,16 +19497,17 @@ module Client = struct
     let url_path = "/assets/jobs" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AssetJobs.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AssetJobs.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19323,7 +19517,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19336,16 +19530,17 @@ module Client = struct
     let url_path = "/assets/metadata" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19355,7 +19550,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19368,16 +19563,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/edits" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19387,7 +19583,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19400,16 +19596,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id); ("key", key)] "/assets/{id}/metadata/{key}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19419,7 +19616,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19430,18 +19627,19 @@ module Client = struct
   let download_asset ~id ?edited ?key ?slug client () =
     let op_name = "download_asset" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/original" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"edited" ~value:edited; Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"edited" ~value:edited; Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19451,7 +19649,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19462,18 +19660,19 @@ module Client = struct
   let view_asset ~id ?edited ?key ?size ?slug client () =
     let op_name = "view_asset" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/thumbnail" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"edited" ~value:edited; Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"edited" ~value:edited; Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"size" ~value:size; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19483,7 +19682,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19494,18 +19693,19 @@ module Client = struct
   let play_asset_video ~id ?key ?slug client () =
     let op_name = "play_asset_video" in
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/assets/{id}/video/playback" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19515,7 +19715,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19528,16 +19728,17 @@ module Client = struct
     let url_path = "/auth/pin-code" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json PinCodeSetup.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn PinCodeSetup.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19547,7 +19748,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19560,16 +19761,17 @@ module Client = struct
     let url_path = "/auth/pin-code" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json PinCodeChange.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn PinCodeChange.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19579,7 +19781,7 @@ module Client = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19592,16 +19794,17 @@ module Client = struct
     let url_path = "/auth/pin-code" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19611,7 +19814,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19624,16 +19827,17 @@ module Client = struct
     let url_path = "/auth/session/lock" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19643,7 +19847,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19656,16 +19860,17 @@ module Client = struct
     let url_path = "/auth/session/unlock" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json SessionUnlock.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn SessionUnlock.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19675,7 +19880,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19686,18 +19891,19 @@ module Client = struct
   let download_archive ?key ?slug ~body client () =
     let op_name = "download_archive" in
     let url_path = "/download/archive" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"key" ~value:key; Openapi.Runtime.Query.optional ~key:"slug" ~value:slug]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AssetIds.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AssetIds.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19707,7 +19913,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19720,16 +19926,17 @@ module Client = struct
     let url_path = "/duplicates" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19739,7 +19946,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19752,16 +19959,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/duplicates/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19771,7 +19979,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19784,16 +19992,17 @@ module Client = struct
     let url_path = "/faces" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AssetFace.CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AssetFace.CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19803,7 +20012,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19816,16 +20025,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/faces/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19835,7 +20045,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19848,16 +20058,17 @@ module Client = struct
     let url_path = "/jobs" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json Job.CreateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn Job.CreateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19867,7 +20078,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19880,16 +20091,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/libraries/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19899,7 +20111,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19912,16 +20124,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/libraries/{id}/scan" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19931,7 +20144,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19944,16 +20157,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/memories/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19963,7 +20177,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -19976,16 +20190,17 @@ module Client = struct
     let url_path = "/notifications" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.put client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json NotificationUpdateAll.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn NotificationUpdateAll.Dto.jsont body)) client.session `PUT url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "PUT" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -19995,7 +20210,7 @@ module Client = struct
         operation = op_name;
         method_ = "PUT";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20008,16 +20223,17 @@ module Client = struct
     let url_path = "/notifications" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20027,7 +20243,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20040,16 +20256,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/notifications/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20059,7 +20276,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20072,16 +20289,17 @@ module Client = struct
     let url_path = "/oauth/mobile-redirect" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20091,7 +20309,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20104,16 +20322,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/partners/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20123,7 +20342,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20136,16 +20355,17 @@ module Client = struct
     let url_path = "/people" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20155,7 +20375,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20168,16 +20388,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/people/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20187,7 +20408,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20200,16 +20421,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/people/{id}/thumbnail" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20219,7 +20441,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20232,16 +20454,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("name", name)] "/queues/{name}/jobs" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20251,7 +20474,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20262,18 +20485,19 @@ module Client = struct
   let get_search_suggestions ?country ?include_null ?lens_model ?make ?model ?state ~type_ client () =
     let op_name = "get_search_suggestions" in
     let url_path = "/search/suggestions" in
-    let query = Openapi.Runtime.Query.encode (List.concat [Openapi.Runtime.Query.optional ~key:"country" ~value:country; Openapi.Runtime.Query.optional ~key:"includeNull" ~value:include_null; Openapi.Runtime.Query.optional ~key:"lensModel" ~value:lens_model; Openapi.Runtime.Query.optional ~key:"make" ~value:make; Openapi.Runtime.Query.optional ~key:"model" ~value:model; Openapi.Runtime.Query.optional ~key:"state" ~value:state; Openapi.Runtime.Query.singleton ~key:"type" ~value:type_]) in
+    let query = Openapi.Runtime.Query.encode (Stdlib.List.concat [Openapi.Runtime.Query.optional ~key:"country" ~value:country; Openapi.Runtime.Query.optional ~key:"includeNull" ~value:include_null; Openapi.Runtime.Query.optional ~key:"lensModel" ~value:lens_model; Openapi.Runtime.Query.optional ~key:"make" ~value:make; Openapi.Runtime.Query.optional ~key:"model" ~value:model; Openapi.Runtime.Query.optional ~key:"state" ~value:state; Openapi.Runtime.Query.singleton ~key:"type" ~value:type_]) in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20283,7 +20507,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20296,16 +20520,17 @@ module Client = struct
     let url_path = "/server/license" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20315,7 +20540,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20328,16 +20553,17 @@ module Client = struct
     let url_path = "/sessions" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20347,7 +20573,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20360,16 +20586,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/sessions/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20379,7 +20606,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20392,16 +20619,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/sessions/{id}/lock" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20411,7 +20639,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20424,16 +20652,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/shared-links/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20443,7 +20672,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20456,16 +20685,17 @@ module Client = struct
     let url_path = "/stacks" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20475,7 +20705,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20488,16 +20718,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/stacks/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20507,7 +20738,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20520,16 +20751,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("assetId", asset_id); ("id", id)] "/stacks/{id}/assets/{assetId}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20539,7 +20771,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20552,16 +20784,17 @@ module Client = struct
     let url_path = "/sync/ack" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json SyncAckSet.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn SyncAckSet.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20571,7 +20804,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20584,16 +20817,17 @@ module Client = struct
     let url_path = "/sync/ack" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20603,7 +20837,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20616,16 +20850,17 @@ module Client = struct
     let url_path = "/sync/stream" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json SyncStream.Dto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn SyncStream.Dto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20635,7 +20870,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20648,16 +20883,17 @@ module Client = struct
     let url_path = "/system-metadata/admin-onboarding" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.post client.session ~body:(Requests.Body.json (Openapi.Runtime.Json.encode_json AdminOnboarding.UpdateDto.jsont body)) url
+    let status, body =
+      try
+        Fetch.with_response ~headers:Fetch.Header.[ content_type, media "application/json" ] ~body:(Fetch.String (Openapi.Runtime.Json.encode_exn AdminOnboarding.UpdateDto.jsont body)) client.session `POST url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "POST" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20667,7 +20903,7 @@ module Client = struct
         operation = op_name;
         method_ = "POST";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20680,16 +20916,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/tags/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20699,7 +20936,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20712,16 +20949,17 @@ module Client = struct
     let url_path = "/users/me/license" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20731,7 +20969,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20744,16 +20982,17 @@ module Client = struct
     let url_path = "/users/me/onboarding" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20763,7 +21002,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20776,16 +21015,17 @@ module Client = struct
     let url_path = "/users/profile-image" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20795,7 +21035,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20808,16 +21048,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/users/{id}/profile-image" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20827,7 +21068,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20840,16 +21081,17 @@ module Client = struct
     let url_path = "/view/folder/unique-paths" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.get client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `GET url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "GET" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20859,7 +21101,7 @@ module Client = struct
         operation = op_name;
         method_ = "GET";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })
@@ -20872,16 +21114,17 @@ module Client = struct
     let url_path = Openapi.Runtime.Path.render ~params:[("id", id)] "/workflows/{id}" in
     let query = "" in
     let url = client.base_url ^ url_path ^ query in
-    let response =
-      try Requests.delete client.session url
+    let status, body =
+      try
+        Fetch.with_response client.session `DELETE url (fun response ->
+          (Fetch.status response, Eio.Flow.read_all (Fetch.body response)))
       with Eio.Io _ as ex ->
         let bt = Printexc.get_raw_backtrace () in
         Eio.Exn.reraise_with_context ex bt "calling %s %s" "DELETE" url
     in
-    if Requests.Response.ok response then
-      Requests.Response.json response
+    if status >= 200 && status < 300 then
+      Openapi.Runtime.Json.decode_exn Jsont.json body
     else
-      let body = Requests.Response.text response in
       let parsed_body =
         match Jsont_bytesrw.decode_string Jsont.json body with
         | Ok json -> Some (Openapi.Runtime.Json json)
@@ -20891,7 +21134,7 @@ module Client = struct
         operation = op_name;
         method_ = "DELETE";
         url;
-        status = Requests.Response.status_code response;
+        status;
         body;
         parsed_body;
       })

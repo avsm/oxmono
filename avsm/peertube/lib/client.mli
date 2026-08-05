@@ -15,15 +15,19 @@ type t
 
 (** {1 Authentication} *)
 
-(** [login_password ~sw ~env ?requests_config ?profile ~server_url ~username ~password ()]
+(** [login_password ~sw ~env ?http_config ?profile ~server_url ~username ~password ()]
     authenticates with username and password using OAuth2 password grant.
 
     The OAuth client credentials are automatically retrieved from the server.
     On success, the session is saved to disk. *)
 val login_password :
   sw:Eio.Switch.t ->
-  env:< clock : _ Eio.Time.clock; fs : Eio.Fs.dir_ty Eio.Path.t; net : _ Eio.Net.t; .. > ->
-  ?requests_config:Requests.Cmd.config ->
+  env:< clock : _ Eio.Time.clock
+      ; mono_clock : _ Eio.Time.Mono.t
+      ; secure_random : _ Eio.Flow.source
+      ; fs : Eio.Fs.dir_ty Eio.Path.t
+      ; .. > ->
+  ?http_config:Fetch_cmdliner.config ->
   ?profile:string ->
   server_url:string ->
   username:string ->
@@ -31,12 +35,16 @@ val login_password :
   unit ->
   t
 
-(** [resume ~sw ~env ?requests_config ?profile ~session ()] creates a client
+(** [resume ~sw ~env ?http_config ?profile ~session ()] creates a client
     from an existing session. *)
 val resume :
   sw:Eio.Switch.t ->
-  env:< clock : _ Eio.Time.clock; fs : Eio.Fs.dir_ty Eio.Path.t; net : _ Eio.Net.t; .. > ->
-  ?requests_config:Requests.Cmd.config ->
+  env:< clock : _ Eio.Time.clock
+      ; mono_clock : _ Eio.Time.Mono.t
+      ; secure_random : _ Eio.Flow.source
+      ; fs : Eio.Fs.dir_ty Eio.Path.t
+      ; .. > ->
+  ?http_config:Fetch_cmdliner.config ->
   ?profile:string ->
   session:Session.t ->
   unit ->

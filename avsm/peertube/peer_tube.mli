@@ -136,14 +136,21 @@ In addition, all routes serving ActivityPub are CORS-enabled for all origins.
 type t
 
 val create :
-  ?session:Requests.t ->
+  ?session:Fetch.plain ->
   sw:Eio.Switch.t ->
-  < net : _ Eio.Net.t ; fs : Eio.Fs.dir_ty Eio.Path.t ; clock : _ Eio.Time.clock ; .. > ->
+  < clock : _ Eio.Time.clock
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
+  ; .. > ->
   base_url:string ->
   t
+(** [create ?session ~sw env ~base_url] is a client rooted at [base_url].
+    [session] is the HTTP client to issue requests through, already carrying
+    whatever credentials and policy the caller wants; when it is omitted a
+    default {!Fetch_curl.std} stack is created under [sw]. *)
 
 val base_url : t -> string
-val session : t -> Requests.t
+val session : t -> Fetch.plain
 
 module VideosForXml : sig
   module T : sig
@@ -170,15 +177,15 @@ module VideoUpload : sig
   (** Import a video
   
       Import a torrent or magnetURI or HTTP resource (if enabled by the instance administrator) *)
-  val import_video : t -> unit -> Response.t
+  val import_video : body:Jsont.json -> t -> unit -> Response.t
   
   (** Create a live *)
-  val add_live : t -> unit -> Response.t
+  val add_live : body:Jsont.json -> t -> unit -> Response.t
   
   (** Upload a video
   
       Uses a single request to upload a video. *)
-  val upload_legacy : t -> unit -> Response.t
+  val upload_legacy : body:Jsont.json -> t -> unit -> Response.t
   
   (** Send chunk for the resumable upload of a video
   
@@ -187,7 +194,7 @@ module VideoUpload : sig
   not valid anymore and you need to initialize a new upload.
   
   *)
-  val upload_resumable : upload_id:string -> t -> unit -> Response.t
+  val upload_resumable : upload_id:string -> body:Jsont.json -> t -> unit -> Response.t
 end
 
 module VideoToken : sig
@@ -1562,7 +1569,7 @@ module RequestTwoFactor : sig
       Request two factor authentication for a user 
       @param id Entity id
   *)
-  val request_two_factor : id:string -> t -> unit -> Response.t
+  val request_two_factor : id:string -> body:Jsont.json -> t -> unit -> Response.t
 end
 
 module PredefinedAbuseReasons : sig
@@ -4308,13 +4315,13 @@ module CommentThreadPost : sig
   (** Create a thread 
       @param id The object id, uuid or short uuid
   *)
-  val post_api_v1_videos_comment_threads : id:string -> t -> unit -> Response.t
+  val post_api_v1_videos_comment_threads : id:string -> body:Jsont.json -> t -> unit -> Response.t
   
   (** Reply to a thread of a video 
       @param id The object id, uuid or short uuid
       @param comment_id The comment id
   *)
-  val post_api_v1_videos_comments : id:string -> comment_id:string -> t -> unit -> Response.t
+  val post_api_v1_videos_comments : id:string -> comment_id:string -> body:Jsont.json -> t -> unit -> Response.t
 end
 
 module CommentThread : sig
@@ -4720,12 +4727,12 @@ module Client : sig
   val get_abuses : ?id:string -> ?predefined_reason:string -> ?search:string -> ?state:string -> ?search_reporter:string -> ?search_reportee:string -> ?search_video:string -> ?search_video_channel:string -> ?video_is:string -> ?filter:string -> ?start:string -> ?count:string -> ?sort:string -> t -> unit -> Jsont.json
   
   (** Report an abuse *)
-  val post_api_v1_abuses : t -> unit -> Jsont.json
+  val post_api_v1_abuses : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update an abuse 
       @param abuse_id Abuse id
   *)
-  val put_api_v1_abuses : abuse_id:string -> t -> unit -> Jsont.json
+  val put_api_v1_abuses : abuse_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete an abuse 
       @param abuse_id Abuse id
@@ -4740,7 +4747,7 @@ module Client : sig
   (** Add message to an abuse 
       @param abuse_id Abuse id
   *)
-  val post_api_v1_abuses_messages : abuse_id:string -> t -> unit -> Jsont.json
+  val post_api_v1_abuses_messages : abuse_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete an abuse message 
       @param abuse_id Abuse id
@@ -4780,12 +4787,12 @@ module Client : sig
       **PeerTube >= 6.2** 
       @param account_name account name to update auto tag policies
   *)
-  val put_api_v1_automatic_tags_policies_accounts_comments : account_name:string -> t -> unit -> Jsont.json
+  val put_api_v1_automatic_tags_policies_accounts_comments : account_name:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update client language
   
       Set a cookie so that, the next time the client refreshes the HTML of the web interface, PeerTube will use the next language *)
-  val update_client_language : t -> unit -> Jsont.json
+  val update_client_language : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Set instance runtime configuration *)
   val put_custom_config : t -> unit -> Jsont.json
@@ -4797,22 +4804,22 @@ module Client : sig
   val delete_api_v1_config_instance_avatar : t -> unit -> Jsont.json
   
   (** Update instance avatar *)
-  val post_api_v1_config_instance_avatar_pick : t -> unit -> Jsont.json
+  val post_api_v1_config_instance_avatar_pick : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete instance banner *)
   val delete_api_v1_config_instance_banner : t -> unit -> Jsont.json
   
   (** Update instance banner *)
-  val post_api_v1_config_instance_banner_pick : t -> unit -> Jsont.json
+  val post_api_v1_config_instance_banner_pick : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete instance logo *)
   val delete_api_v1_config_instance_logo_logo_type : logo_type:string -> t -> unit -> Jsont.json
   
   (** Update instance logo *)
-  val post_api_v1_config_instance_logo_logo_type_pick : logo_type:string -> t -> unit -> Jsont.json
+  val post_api_v1_config_instance_logo_logo_type_pick : logo_type:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Set instance custom homepage *)
-  val put_api_v1_custom_pages_homepage_instance : t -> unit -> Jsont.json
+  val put_api_v1_custom_pages_homepage_instance : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Pause job queue *)
   val post_api_v1_jobs_pause : t -> unit -> Jsont.json
@@ -4835,13 +4842,13 @@ module Client : sig
   val post_api_v1_metrics_playback : body:PlaybackMetric.Create.t -> t -> unit -> Jsont.json
   
   (** Install a plugin *)
-  val add_plugin : t -> unit -> Jsont.json
+  val add_plugin : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Uninstall a plugin *)
-  val uninstall_plugin : t -> unit -> Jsont.json
+  val uninstall_plugin : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update a plugin *)
-  val update_plugin : t -> unit -> Jsont.json
+  val update_plugin : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Get a plugin's public settings 
       @param npm_name name of the plugin/theme on npmjs.com or in its package.json
@@ -4856,7 +4863,7 @@ module Client : sig
   (** Set a plugin's settings 
       @param npm_name name of the plugin/theme on npmjs.com or in its package.json
   *)
-  val put_api_v1_plugins_settings : npm_name:string -> t -> unit -> Jsont.json
+  val put_api_v1_plugins_settings : npm_name:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** List runners 
       @param start Offset used to paginate results
@@ -4876,7 +4883,7 @@ module Client : sig
   (** Request a new job
   
       API used by PeerTube runners *)
-  val post_api_v1_runners_jobs_request : t -> unit -> Jsont.json
+  val post_api_v1_runners_jobs_request : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete a job
   
@@ -4886,12 +4893,12 @@ module Client : sig
   (** Abort job
   
       API used by PeerTube runners *)
-  val post_api_v1_runners_jobs_abort : job_uuid:string -> t -> unit -> Jsont.json
+  val post_api_v1_runners_jobs_abort : job_uuid:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Accept job
   
       API used by PeerTube runners *)
-  val post_api_v1_runners_jobs_accept : job_uuid:string -> t -> unit -> Jsont.json
+  val post_api_v1_runners_jobs_accept : job_uuid:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Cancel a job *)
   val get_api_v1_runners_jobs_cancel : job_uuid:string -> t -> unit -> Jsont.json
@@ -4899,22 +4906,22 @@ module Client : sig
   (** Post job error
   
       API used by PeerTube runners *)
-  val post_api_v1_runners_jobs_error : job_uuid:string -> t -> unit -> Jsont.json
+  val post_api_v1_runners_jobs_error : job_uuid:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Post job success
   
       API used by PeerTube runners *)
-  val post_api_v1_runners_jobs_success : job_uuid:string -> t -> unit -> Jsont.json
+  val post_api_v1_runners_jobs_success : job_uuid:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update job
   
       API used by PeerTube runners *)
-  val post_api_v1_runners_jobs_update : job_uuid:string -> t -> unit -> Jsont.json
+  val post_api_v1_runners_jobs_update : job_uuid:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Register a new runner
   
       API used by PeerTube runners *)
-  val post_api_v1_runners_register : t -> unit -> Jsont.json
+  val post_api_v1_runners_register : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** List registration tokens 
       @param start Offset used to paginate results
@@ -4936,7 +4943,7 @@ module Client : sig
   (** Unregister a runner
   
       API used by PeerTube runners *)
-  val post_api_v1_runners_unregister : t -> unit -> Jsont.json
+  val post_api_v1_runners_unregister : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete a runner *)
   val delete_api_v1_runners : runner_id:string -> t -> unit -> Jsont.json
@@ -4972,7 +4979,7 @@ module Client : sig
   val get_api_v1_server_blocklist_accounts : ?start:string -> ?count:string -> ?sort:string -> t -> unit -> Jsont.json
   
   (** Block an account *)
-  val post_api_v1_server_blocklist_accounts : t -> unit -> Jsont.json
+  val post_api_v1_server_blocklist_accounts : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Unblock an account by its handle 
       @param account_name account to unblock, in the form `username@domain`
@@ -4987,7 +4994,7 @@ module Client : sig
   val get_api_v1_server_blocklist_servers : ?start:string -> ?count:string -> ?sort:string -> t -> unit -> Jsont.json
   
   (** Block a server *)
-  val post_api_v1_server_blocklist_servers : t -> unit -> Jsont.json
+  val post_api_v1_server_blocklist_servers : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Unblock a server by its domain 
       @param host server domain to unblock
@@ -5024,7 +5031,7 @@ module Client : sig
   val get_api_v1_server_following : ?state:string -> ?actor_type:string -> ?start:string -> ?count:string -> ?sort:string -> t -> unit -> Jsont.json
   
   (** Follow a list of actors (PeerTube instance, channel or account) *)
-  val post_api_v1_server_following : t -> unit -> Jsont.json
+  val post_api_v1_server_following : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Unfollow an actor (PeerTube instance, channel or account) 
       @param host_or_handle The hostOrHandle to unfollow
@@ -5038,7 +5045,7 @@ module Client : sig
   val send_client_log : body:SendClientLog.T.t -> t -> unit -> Jsont.json
   
   (** Mirror a video *)
-  val put_mirrored_video : t -> unit -> Jsont.json
+  val put_mirrored_video : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete a mirror done on a video 
       @param redundancy_id id of an existing redundancy on a video
@@ -5048,15 +5055,15 @@ module Client : sig
   (** Update a server redundancy policy 
       @param host server domain to mirror
   *)
-  val put_api_v1_server_redundancy : host:string -> t -> unit -> Jsont.json
+  val put_api_v1_server_redundancy : host:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Ask to reset password
   
       An email containing a reset password link *)
-  val post_api_v1_users_ask_reset_password : t -> unit -> Jsont.json
+  val post_api_v1_users_ask_reset_password : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Resend user verification link *)
-  val resend_email_to_verify_user : t -> unit -> Jsont.json
+  val resend_email_to_verify_user : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update my user information *)
   val put_user_info : body:UpdateMe.T.t -> t -> unit -> Jsont.json
@@ -5073,10 +5080,10 @@ module Client : sig
   val delete_api_v1_users_me_avatar : t -> unit -> Jsont.json
   
   (** Update my user avatar *)
-  val post_api_v1_users_me_avatar_pick : t -> unit -> Jsont.json
+  val post_api_v1_users_me_avatar_pick : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Clear video history *)
-  val post_api_v1_users_me_history_videos_remove : t -> unit -> Jsont.json
+  val post_api_v1_users_me_history_videos_remove : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete history element *)
   val delete_api_v1_users_me_history_videos : video_id:string -> t -> unit -> Jsont.json
@@ -5084,19 +5091,19 @@ module Client : sig
   (** Mark feature info as read
   
       **PeerTube >= v8.0.0 *)
-  val post_api_v1_users_me_new_feature_info_read : t -> unit -> Jsont.json
+  val post_api_v1_users_me_new_feature_info_read : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update my notification settings *)
   val put_api_v1_users_me_notification_settings : body:UserNotificationSettings.T.t -> t -> unit -> Jsont.json
   
   (** Mark notifications as read by their id *)
-  val post_api_v1_users_me_notifications_read : t -> unit -> Jsont.json
+  val post_api_v1_users_me_notifications_read : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Mark all my notification as read *)
   val post_api_v1_users_me_notifications_read_all : t -> unit -> Jsont.json
   
   (** Add subscription to my user *)
-  val post_api_v1_users_me_subscriptions : t -> unit -> Jsont.json
+  val post_api_v1_users_me_subscriptions : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Get if subscriptions exist for my user 
       @param uris list of uris to check if each is part of the user subscriptions
@@ -5142,7 +5149,7 @@ module Client : sig
   val list_registrations : ?start:string -> ?count:string -> ?search:string -> ?sort:string -> t -> unit -> Jsont.json
   
   (** Resend verification link to registration request email *)
-  val resend_email_to_verify_registration : t -> unit -> Jsont.json
+  val resend_email_to_verify_registration : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete registration
   
@@ -5168,7 +5175,7 @@ module Client : sig
    
       @param registration_id Registration ID
   *)
-  val verify_registration_email : registration_id:string -> t -> unit -> Jsont.json
+  val verify_registration_email : registration_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Logout
   
@@ -5178,7 +5185,7 @@ module Client : sig
   (** Login
   
       With your [client id and secret](#operation/getOAuthClient), you can retrieve an access and refresh tokens. *)
-  val get_oauth_token : t -> unit -> Jsont.json
+  val get_oauth_token : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Get a user 
       @param id Entity id
@@ -5199,7 +5206,7 @@ module Client : sig
   (** Reset password 
       @param id Entity id
   *)
-  val post_api_v1_users_reset_password : id:string -> t -> unit -> Jsont.json
+  val post_api_v1_users_reset_password : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** List token sessions 
       @param id Entity id
@@ -5217,14 +5224,14 @@ module Client : sig
       Confirm a two factor authentication request 
       @param id Entity id
   *)
-  val confirm_two_factor_request : id:string -> t -> unit -> Jsont.json
+  val confirm_two_factor_request : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Disable two factor auth
   
       Disable two factor authentication of a user 
       @param id Entity id
   *)
-  val disable_two_factor : id:string -> t -> unit -> Jsont.json
+  val disable_two_factor : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Verify a user
   
@@ -5234,7 +5241,7 @@ module Client : sig
    
       @param id Entity id
   *)
-  val verify_user : id:string -> t -> unit -> Jsont.json
+  val verify_user : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** List user exports
   
@@ -5248,7 +5255,7 @@ module Client : sig
       Request an archive of user data. An email is sent when the archive is ready. 
       @param user_id User id
   *)
-  val request_user_export : user_id:string -> t -> unit -> Jsont.json
+  val request_user_export : user_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete a user export
   
@@ -5273,7 +5280,7 @@ module Client : sig
   not valid anymore and you need to initialize a new upload.
   
   *)
-  val user_import_resumable : user_id:string -> upload_id:string -> t -> unit -> Jsont.json
+  val user_import_resumable : user_id:string -> upload_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Cancel the resumable user import
   
@@ -5326,7 +5333,7 @@ module Client : sig
   (** Update channel avatar 
       @param channel_handle The video channel handle
   *)
-  val post_api_v1_video_channels_avatar_pick : channel_handle:string -> t -> unit -> Jsont.json
+  val post_api_v1_video_channels_avatar_pick : channel_handle:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete channel banner 
       @param channel_handle The video channel handle
@@ -5336,7 +5343,7 @@ module Client : sig
   (** Update channel banner 
       @param channel_handle The video channel handle
   *)
-  val post_api_v1_video_channels_banner_pick : channel_handle:string -> t -> unit -> Jsont.json
+  val post_api_v1_video_channels_banner_pick : channel_handle:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** *List channel collaborators
   
@@ -5350,7 +5357,7 @@ module Client : sig
       **PeerTube >= 8.0**  Invite a local user to collaborate on the specified video channel. 
       @param channel_handle The video channel handle
   *)
-  val invite_video_channel_collaborator : channel_handle:string -> t -> unit -> Jsont.json
+  val invite_video_channel_collaborator : channel_handle:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Remove a channel collaborator
   
@@ -5403,7 +5410,7 @@ module Client : sig
   (** Reorder channel playlists 
       @param channel_handle The video channel handle
   *)
-  val reorder_video_playlists_of_channel : channel_handle:string -> t -> unit -> Jsont.json
+  val reorder_video_playlists_of_channel : channel_handle:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** List video playlists 
       @param start Offset used to paginate results
@@ -5415,7 +5422,7 @@ module Client : sig
   (** Create a video playlist
   
       If the video playlist is set as public, `videoChannelId` is mandatory. *)
-  val add_playlist : t -> unit -> Jsont.json
+  val add_playlist : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** List available playlist privacy policies *)
   val get_playlist_privacy_policies : t -> unit -> Jsont.json
@@ -5425,7 +5432,7 @@ module Client : sig
       If the video playlist is set as public, the playlist must have a assigned channel. 
       @param playlist_id Playlist id
   *)
-  val put_api_v1_video_playlists : playlist_id:string -> t -> unit -> Jsont.json
+  val put_api_v1_video_playlists : playlist_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete a video playlist 
       @param playlist_id Playlist id
@@ -5442,18 +5449,18 @@ module Client : sig
   (** Add a video in a playlist 
       @param playlist_id Playlist id
   *)
-  val add_video_playlist_video : playlist_id:string -> t -> unit -> Jsont.json
+  val add_video_playlist_video : playlist_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Reorder playlist elements 
       @param playlist_id Playlist id
   *)
-  val reorder_video_playlist : playlist_id:string -> t -> unit -> Jsont.json
+  val reorder_video_playlist : playlist_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update a playlist element 
       @param playlist_id Playlist id
       @param playlist_element_id Playlist element id
   *)
-  val put_video_playlist_video : playlist_id:string -> playlist_element_id:string -> t -> unit -> Jsont.json
+  val put_video_playlist_video : playlist_id:string -> playlist_element_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete an element from a playlist 
       @param playlist_id Playlist id
@@ -5561,7 +5568,7 @@ module Client : sig
   (** Update a video 
       @param id The object id, uuid or short uuid
   *)
-  val put_video : id:string -> t -> unit -> Jsont.json
+  val put_video : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete a video 
       @param id The object id, uuid or short uuid
@@ -5588,13 +5595,13 @@ module Client : sig
       **PeerTube >= 6.2** This feature has to be enabled by the administrator 
       @param id The object id, uuid or short uuid
   *)
-  val generate_video_caption : id:string -> t -> unit -> Jsont.json
+  val generate_video_caption : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Add or replace a video caption 
       @param id The object id, uuid or short uuid
       @param caption_language The caption language
   *)
-  val add_video_caption : id:string -> caption_language:string -> t -> unit -> Jsont.json
+  val add_video_caption : id:string -> caption_language:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete a video caption 
       @param id The object id, uuid or short uuid
@@ -5607,7 +5614,7 @@ module Client : sig
       **PeerTube >= 6.0** 
       @param id The object id, uuid or short uuid
   *)
-  val replace_video_chapters : id:string -> t -> unit -> Jsont.json
+  val replace_video_chapters : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete a comment or a reply 
       @param id The object id, uuid or short uuid
@@ -5631,7 +5638,7 @@ module Client : sig
   (** Request ownership change 
       @param id The object id, uuid or short uuid
   *)
-  val post_api_v1_videos_give_ownership : id:string -> t -> unit -> Jsont.json
+  val post_api_v1_videos_give_ownership : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete video HLS files 
       @param id The object id, uuid or short uuid
@@ -5653,14 +5660,14 @@ module Client : sig
       **PeerTube >= 8.0** 
       @param id The object id, uuid or short uuid
   *)
-  val add_video_password : id:string -> t -> unit -> Jsont.json
+  val add_video_password : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update video passwords
   
       **PeerTube >= 6.0** 
       @param id The object id, uuid or short uuid
   *)
-  val update_video_password_list : id:string -> t -> unit -> Jsont.json
+  val update_video_password_list : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete a video password
   
@@ -5673,7 +5680,7 @@ module Client : sig
   (** Like/dislike a video 
       @param id The object id, uuid or short uuid
   *)
-  val put_api_v1_videos_rate : id:string -> t -> unit -> Jsont.json
+  val put_api_v1_videos_rate : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete video source file 
       @param id The object id, uuid or short uuid
@@ -5695,7 +5702,7 @@ module Client : sig
   not valid anymore and you need to initialize a new upload.
   
   *)
-  val replace_video_source_resumable : id:string -> upload_id:string -> t -> unit -> Jsont.json
+  val replace_video_source_resumable : id:string -> upload_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Cancel the resumable replacement of a video
   
@@ -5719,12 +5726,12 @@ module Client : sig
       Create a task to edit a video  (cut, add intro/outro etc) 
       @param id The object id, uuid or short uuid
   *)
-  val post_api_v1_videos_studio_edit : id:string -> t -> unit -> Jsont.json
+  val post_api_v1_videos_studio_edit : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Create a transcoding job 
       @param id The object id, uuid or short uuid
   *)
-  val create_video_transcoding : id:string -> t -> unit -> Jsont.json
+  val create_video_transcoding : id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Notify user is watching a video
   
@@ -5750,14 +5757,14 @@ module Client : sig
   (** Add account watched words
   
       **PeerTube >= 6.2** *)
-  val post_api_v1_watched_words_accounts_lists : account_name:string -> t -> unit -> Jsont.json
+  val post_api_v1_watched_words_accounts_lists : account_name:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update account watched words
   
       **PeerTube >= 6.2** 
       @param list_id list of watched words to update
   *)
-  val put_api_v1_watched_words_accounts_lists : account_name:string -> list_id:string -> t -> unit -> Jsont.json
+  val put_api_v1_watched_words_accounts_lists : account_name:string -> list_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete account watched words
   
@@ -5774,14 +5781,14 @@ module Client : sig
   (** Add server watched words
   
       **PeerTube >= 6.2** *)
-  val post_api_v1_watched_words_server_lists : t -> unit -> Jsont.json
+  val post_api_v1_watched_words_server_lists : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Update server watched words
   
       **PeerTube >= 6.2** 
       @param list_id list of watched words to update
   *)
-  val put_api_v1_watched_words_server_lists : list_id:string -> t -> unit -> Jsont.json
+  val put_api_v1_watched_words_server_lists : list_id:string -> body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Delete server watched words
   

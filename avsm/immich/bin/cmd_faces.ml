@@ -15,9 +15,9 @@ let success_style = Fmt.(styled (`Fg `Green) string)
 
 (* Search for people by name *)
 
-let search_action ~requests_config ~profile ~name ~with_hidden env =
+let search_action ~http_config ~profile ~name ~with_hidden env =
   Immich_auth.Error.wrap (fun () ->
-    Immich_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+    Immich_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
       let api = Immich_auth.Client.client client in
       let session = Immich.session api in
       let base_url = Immich.base_url api in
@@ -27,11 +27,13 @@ let search_action ~requests_config ~profile ~name ~with_hidden env =
         (Uri.pct_encode name)
         (if with_hidden then "&withHidden=true" else "") in
       let url = base_url ^ "/people/search" ^ query in
-      let response = Requests.get session url in
-      if Requests.Response.ok response then begin
-        let json = Requests.Response.json response in
-        let people = Openapi.Runtime.Json.decode_json_exn
-          (Jsont.list Immich.Person.ResponseDto.jsont) json in
+      let status, text =
+        Fetch.with_response session `GET url @@ fun response ->
+        (Fetch.status response, Eio.Flow.read_all (Fetch.body response))
+      in
+      if status >= 200 && status < 300 then begin
+        let people = Openapi.Runtime.Json.decode_exn
+          (Jsont.list Immich.Person.ResponseDto.jsont) text in
         if people = [] then
           Fmt.pr "%a '%a'@."
             Fmt.(styled `Faint string) "No people found matching"
@@ -57,8 +59,8 @@ let search_action ~requests_config ~profile ~name ~with_hidden env =
           operation = "search_people";
           method_ = "GET";
           url;
-          status = Requests.Response.status_code response;
-          body = Requests.Response.text response;
+          status;
+          body = text;
           parsed_body = None;
         })
       end
@@ -76,11 +78,11 @@ let with_hidden_arg =
 let search_cmd env fs =
   let doc = "Search for people by name." in
   let info = Cmd.info "search" ~doc in
-  let search' (style_renderer, level) requests_config profile name with_hidden =
-    Immich_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
-    search_action ~requests_config ~profile ~name ~with_hidden env
+  let search' (style_renderer, level) http_config profile name with_hidden =
+    Immich_auth.Cmd.setup_logging_with_config style_renderer level http_config;
+    search_action ~http_config ~profile ~name ~with_hidden env
   in
-  Cmd.v info Term.(const search' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.requests_config_term fs $ Immich_auth.Cmd.profile_arg $ name_arg $ with_hidden_arg)
+  Cmd.v info Term.(const search' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.http_config_term fs $ Immich_auth.Cmd.profile_arg $ name_arg $ with_hidden_arg)
 
 (* Get person thumbnail *)
 
@@ -92,16 +94,19 @@ let person_id_arg =
   let doc = "Person ID." in
   Arg.(required & pos 0 (some string) None & info [] ~docv:"PERSON_ID" ~doc)
 
-let thumbnail_action ~requests_config ~profile ~person_id ~output env =
+let thumbnail_action ~http_config ~profile ~person_id ~output env =
   Immich_auth.Error.wrap (fun () ->
-    Immich_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+    Immich_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
       let api = Immich_auth.Client.client client in
       let session = Immich.session api in
       let base_url = Immich.base_url api in
       let url = Printf.sprintf "%s/people/%s/thumbnail" base_url person_id in
-      let response = Requests.get session url in
-      if Requests.Response.ok response then begin
-        let data = Requests.Response.text response in
+      (* A thumbnail is binary, so the body is read raw rather than decoded. *)
+      let status, data =
+        Fetch.with_response session `GET url @@ fun response ->
+        (Fetch.status response, Eio.Flow.read_all (Fetch.body response))
+      in
+      if status >= 200 && status < 300 then begin
         if output = "-" then
           print_string data
         else begin
@@ -117,8 +122,8 @@ let thumbnail_action ~requests_config ~profile ~person_id ~output env =
           operation = "get_person_thumbnail";
           method_ = "GET";
           url;
-          status = Requests.Response.status_code response;
-          body = Requests.Response.text response;
+          status;
+          body = data;
           parsed_body = None;
         })
       end
@@ -128,17 +133,17 @@ let thumbnail_action ~requests_config ~profile ~person_id ~output env =
 let thumbnail_cmd env fs =
   let doc = "Download a person's thumbnail image." in
   let info = Cmd.info "thumbnail" ~doc in
-  let thumbnail' (style_renderer, level) requests_config profile person_id output =
-    Immich_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
-    thumbnail_action ~requests_config ~profile ~person_id ~output env
+  let thumbnail' (style_renderer, level) http_config profile person_id output =
+    Immich_auth.Cmd.setup_logging_with_config style_renderer level http_config;
+    thumbnail_action ~http_config ~profile ~person_id ~output env
   in
-  Cmd.v info Term.(const thumbnail' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.requests_config_term fs $ Immich_auth.Cmd.profile_arg $ person_id_arg $ output_arg)
+  Cmd.v info Term.(const thumbnail' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.http_config_term fs $ Immich_auth.Cmd.profile_arg $ person_id_arg $ output_arg)
 
 (* List all people *)
 
-let list_action ~requests_config ~profile ~with_hidden env =
+let list_action ~http_config ~profile ~with_hidden env =
   Immich_auth.Error.wrap (fun () ->
-    Immich_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+    Immich_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
       let api = Immich_auth.Client.client client in
       let with_hidden_param = if with_hidden then Some "true" else None in
       let resp = Immich.People.get_all_people api ?with_hidden:with_hidden_param () in
@@ -169,11 +174,11 @@ let list_action ~requests_config ~profile ~with_hidden env =
 let list_cmd env fs =
   let doc = "List all people." in
   let info = Cmd.info "list" ~doc in
-  let list' (style_renderer, level) requests_config profile with_hidden =
-    Immich_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
-    list_action ~requests_config ~profile ~with_hidden env
+  let list' (style_renderer, level) http_config profile with_hidden =
+    Immich_auth.Cmd.setup_logging_with_config style_renderer level http_config;
+    list_action ~http_config ~profile ~with_hidden env
   in
-  Cmd.v info Term.(const list' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.requests_config_term fs $ Immich_auth.Cmd.profile_arg $ with_hidden_arg)
+  Cmd.v info Term.(const list' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.http_config_term fs $ Immich_auth.Cmd.profile_arg $ with_hidden_arg)
 
 (* Faces command group *)
 

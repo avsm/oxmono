@@ -4,7 +4,9 @@
  (libraries
   peertube
   openapi
-  requests
+  fetch
+  fetch-curl
+  fetch-cmdliner
   jsont
   jsont.bytesrw
   eio

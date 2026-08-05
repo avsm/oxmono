@@ -68,13 +68,13 @@ val setup_logging : (Fmt.style_renderer option * Logs.level option) Term.t
 val setup_logging_with_config :
   Fmt.style_renderer option ->
   Logs.level option ->
-  Requests.Cmd.config ->
+  Fetch_cmdliner.config ->
   unit
 (** [setup_logging_with_config style_renderer level config] sets up logging
-    with the given options. Extracts [--verbose-http] from the requests config.
+    with the given options. Extracts [--verbose-http] from the HTTP config.
     Call this at the start of command execution. *)
 
-val requests_config_term : Eio.Fs.dir_ty Eio.Path.t -> Requests.Cmd.config Term.t
+val http_config_term : Eio.Fs.dir_ty Eio.Path.t -> Fetch_cmdliner.config Term.t
 (** Term for HTTP request configuration (timeouts, retries, proxy, etc.). *)
 
 (** {1 Commands}
@@ -85,7 +85,8 @@ val requests_config_term : Eio.Fs.dir_ty Eio.Path.t -> Requests.Cmd.config Term.
 val auth_cmd :
   < fs : Eio.Fs.dir_ty Eio.Path.t
   ; clock : _ Eio.Time.clock
-  ; net : _ Eio.Net.t
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
   ; .. > ->
   Eio.Fs.dir_ty Eio.Path.t ->
   unit Cmd.t
@@ -103,17 +104,18 @@ val with_session :
     @param profile Profile to load (default: current profile) *)
 
 val with_client :
-  ?requests_config:Requests.Cmd.config ->
+  ?http_config:Fetch_cmdliner.config ->
   ?profile:string ->
   (Eio.Fs.dir_ty Eio.Path.t -> Client.t -> 'a) ->
   < fs : Eio.Fs.dir_ty Eio.Path.t
   ; clock : _ Eio.Time.clock
-  ; net : _ Eio.Net.t
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
   ; .. > ->
   'a
-(** [with_client ?requests_config ?profile f env] loads the session, creates a client, and calls
+(** [with_client ?http_config ?profile f env] loads the session, creates a client, and calls
     [f fs client]. Prints an error and exits if not logged in.
-    @param requests_config HTTP request configuration
+    @param http_config HTTP request configuration
     @param profile Profile to load (default: current profile) *)
 
 (** {1 Profile Configuration for External Programs}
@@ -135,7 +137,7 @@ val with_client :
           let open Immich_auth.Cmd.Profile_config in
           setup_logging config;
           Immich_auth.Cmd.with_client
-            ~requests_config:(requests_config config)
+            ~http_config:(http_config config)
             ?profile:(profile config)
             (fun _fs client ->
               let api = Immich_auth.Client.client client in
@@ -157,7 +159,7 @@ module Profile_config : sig
   val log_level : t -> Logs.level option
   (** Logging level. *)
 
-  val requests_config : t -> Requests.Cmd.config
+  val http_config : t -> Fetch_cmdliner.config
   (** HTTP request configuration. *)
 
   val profile : t -> string option

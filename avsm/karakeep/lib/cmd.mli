@@ -58,8 +58,9 @@ val with_client :
   ?profile:string ->
   (Client.t -> unit) ->
   < clock : _ Eio.Time.clock
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
   ; fs : Eio.Fs.dir_ty Eio.Path.t
-  ; net : _ Eio.Net.t
   ; .. > ->
   unit
 
@@ -67,7 +68,8 @@ val with_client :
 
 val auth_cmd :
   < clock : _ Eio.Time.clock
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
   ; fs : Eio.Fs.dir_ty Eio.Path.t
-  ; net : _ Eio.Net.t
   ; .. > ->
   unit Cmdliner.Cmd.t

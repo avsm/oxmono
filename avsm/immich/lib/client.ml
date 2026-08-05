@@ -10,6 +10,25 @@ type t = {
   profile : string option;
 }
 
+(* Credentials are scoped to the server they were issued for, and an
+   http:// server (a LAN instance, typically) has to opt in to carrying
+   them. The scope is the site root rather than the resolved API path so
+   that .well-known discovery is covered by it too. *)
+let allow_insecure url = String.starts_with ~prefix:"http://" url
+
+let base_client ~sw ~env ?http_config () =
+  match http_config with
+  | Some config -> Fetch_cmdliner.create config env sw
+  | None -> Fetch_curl.std ~sw env
+
+let with_bearer ~scope ~token t =
+  Fetch.with_credentials ~scope:[ scope ] ~allow_insecure:(allow_insecure scope)
+    Fetch.Credential.[ Bearer (fun () -> token) ] t
+
+let with_api_key ~scope ~key t =
+  Fetch.with_credentials ~scope:[ scope ] ~allow_insecure:(allow_insecure scope)
+    Fetch.Credential.[ Header ("x-api-key", fun _ -> key) ] t
+
 (* JSON type for .well-known/immich response *)
 let well_known_jsont =
   let api_obj =
@@ -40,10 +59,12 @@ let resolve_api_url ~session base_url =
     (* Try .well-known/immich discovery *)
     let well_known_url = base_url ^ "/.well-known/immich" in
     try
-      let response = Requests.get session well_known_url in
-      if Requests.Response.ok response then begin
-        let json = Requests.Response.json response in
-        let endpoint = Openapi.Runtime.Json.decode_json_exn well_known_jsont json in
+      let status, text =
+        Fetch.with_response session `GET well_known_url @@ fun response ->
+        (Fetch.status response, Eio.Flow.read_all (Fetch.body response))
+      in
+      if status >= 200 && status < 300 then begin
+        let endpoint = Openapi.Runtime.Json.decode_exn well_known_jsont text in
         (* Construct full API URL *)
         if String.starts_with ~prefix:"/" endpoint then
           base_url ^ endpoint
@@ -58,35 +79,34 @@ let resolve_api_url ~session base_url =
       base_url ^ "/api"
   end
 
-let create_with_session ~sw ~env ?requests_config ?profile ~session () =
+let create_with_session ~sw ~env ?http_config ?profile ~session () =
   let fs = env#fs in
   let server_url = Session.server_url session in
-  (* Create a Requests session, optionally from cmdliner config *)
-  let requests_session = match requests_config with
-    | Some config -> Requests.Cmd.create config env sw
-    | None -> Requests.create ~sw env
-  in
-  let requests_session =
+  let base = base_client ~sw ~env ?http_config () in
+  let http =
     match Session.auth session with
     | Session.Jwt { access_token; _ } ->
-        Requests.set_auth requests_session (Requests.Auth.bearer ~token:access_token)
-    | Session.Api_key { key; _ } ->
-        Requests.set_default_header requests_session "x-api-key" key
+        with_bearer ~scope:server_url ~token:access_token base
+    | Session.Api_key { key; _ } -> with_api_key ~scope:server_url ~key base
   in
-  let client = Immich.create ~session:requests_session ~sw env ~base_url:server_url in
+  let client = Immich.create ~session:http ~sw env ~base_url:server_url in
   { client; session; fs; profile }
 
-let login_api_key ~sw ~env ?requests_config ?profile ~server_url ~api_key ?key_name () =
+let login_api_key ~sw ~env ?http_config ?profile ~server_url ~api_key ?key_name () =
   let fs = env#fs in
-  (* Create session with API key header *)
-  let requests_session = match requests_config with
-    | Some config -> Requests.Cmd.create config env sw
-    | None -> Requests.create ~sw env
+  (* Scope the key to the site root so that it also travels on the
+     .well-known probe below, which runs before the API path is known. *)
+  let root =
+    if String.ends_with ~suffix:"/" server_url then
+      String.sub server_url 0 (String.length server_url - 1)
+    else server_url
   in
-  let requests_session = Requests.set_default_header requests_session "x-api-key" api_key in
+  let http =
+    base_client ~sw ~env ?http_config () |> with_api_key ~scope:root ~key:api_key
+  in
   (* Resolve the API URL from .well-known/immich if available *)
-  let server_url = resolve_api_url ~session:requests_session server_url in
-  let client = Immich.create ~session:requests_session ~sw env ~base_url:server_url in
+  let server_url = resolve_api_url ~session:http server_url in
+  let client = Immich.create ~session:http ~sw env ~base_url:server_url in
   (* Validate by calling the validate endpoint *)
   let resp = Immich.ValidateAccessToken.validate_access_token client () in
   if not (Immich.ValidateAccessToken.ResponseDto.auth_status resp) then
@@ -102,28 +122,24 @@ let login_api_key ~sw ~env ?requests_config ?profile ~server_url ~api_key ?key_n
     Session.set_current_profile fs profile_name;
   { client; session; fs; profile }
 
-let login_password ~sw ~env ?requests_config ?profile ~server_url ~email ~password () =
+let login_password ~sw ~env ?http_config ?profile ~server_url ~email ~password () =
   let fs = env#fs in
   (* Create session without auth first *)
-  let requests_session = match requests_config with
-    | Some config -> Requests.Cmd.create config env sw
-    | None -> Requests.create ~sw env
-  in
+  let anon = base_client ~sw ~env ?http_config () in
   (* Resolve the API URL from .well-known/immich if available *)
-  let server_url = resolve_api_url ~session:requests_session server_url in
-  let client = Immich.create ~session:requests_session ~sw env ~base_url:server_url in
+  let server_url = resolve_api_url ~session:anon server_url in
+  let client = Immich.create ~session:anon ~sw env ~base_url:server_url in
   (* Login using the API *)
   let body = Immich.LoginCredential.Dto.v ~email ~password () in
   let resp = Immich.Login.login client ~body () in
   let access_token = Immich.Login.ResponseDto.access_token resp in
   let user_id = Immich.Login.ResponseDto.user_id resp in
   (* Now create a new client with the auth token *)
-  let requests_session = match requests_config with
-    | Some config -> Requests.Cmd.create config env sw
-    | None -> Requests.create ~sw env
+  let http =
+    base_client ~sw ~env ?http_config ()
+    |> with_bearer ~scope:server_url ~token:access_token
   in
-  let requests_session = Requests.set_auth requests_session (Requests.Auth.bearer ~token:access_token) in
-  let client = Immich.create ~session:requests_session ~sw env ~base_url:server_url in
+  let client = Immich.create ~session:http ~sw env ~base_url:server_url in
   (* Create and save session *)
   let auth = Session.Jwt { access_token; user_id; email } in
   let session = Session.create ~server_url ~auth () in
@@ -135,7 +151,7 @@ let login_password ~sw ~env ?requests_config ?profile ~server_url ~email ~passwo
     Session.set_current_profile fs profile_name;
   { client; session; fs; profile }
 
-let resume ~sw ~env ?requests_config ?profile ~session () =
+let resume ~sw ~env ?http_config ?profile ~session () =
   (* Check if JWT is expired and refresh if needed *)
   let session =
     if Session.is_expired session then begin
@@ -147,7 +163,7 @@ let resume ~sw ~env ?requests_config ?profile ~session () =
     end
     else session
   in
-  create_with_session ~sw ~env ?requests_config ?profile ~session ()
+  create_with_session ~sw ~env ?http_config ?profile ~session ()
 
 let logout t =
   Session.clear t.fs ?profile:t.profile ()

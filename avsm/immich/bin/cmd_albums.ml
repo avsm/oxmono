@@ -14,9 +14,9 @@ let shared_style = Fmt.(styled (`Fg `Yellow) string)
 
 (* List albums - using low-level API since get_all_albums returns array but typed as single *)
 
-let list_action ~requests_config ~profile ~shared env =
+let list_action ~http_config ~profile ~shared env =
   Immich_auth.Error.wrap (fun () ->
-    Immich_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+    Immich_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
       let api = Immich_auth.Client.client client in
       let session = Immich.session api in
       let base_url = Immich.base_url api in
@@ -26,11 +26,13 @@ let list_action ~requests_config ~profile ~shared env =
         | Some false -> "?shared=false"
       in
       let url = base_url ^ "/albums" ^ query in
-      let response = Requests.get session url in
-      if Requests.Response.ok response then begin
-        let json = Requests.Response.json response in
-        let albums = Openapi.Runtime.Json.decode_json_exn
-          (Jsont.list Immich.Album.ResponseDto.jsont) json in
+      let status, text =
+        Fetch.with_response session `GET url @@ fun response ->
+        (Fetch.status response, Eio.Flow.read_all (Fetch.body response))
+      in
+      if status >= 200 && status < 300 then begin
+        let albums = Openapi.Runtime.Json.decode_exn
+          (Jsont.list Immich.Album.ResponseDto.jsont) text in
         if albums = [] then
           Fmt.pr "%a@." Fmt.(styled `Faint string) "No albums found."
         else begin
@@ -49,8 +51,8 @@ let list_action ~requests_config ~profile ~shared env =
           operation = "get_all_albums";
           method_ = "GET";
           url;
-          status = Requests.Response.status_code response;
-          body = Requests.Response.text response;
+          status;
+          body = text;
           parsed_body = None;
         })
       end
@@ -64,11 +66,11 @@ let shared_arg =
 let list_cmd env fs =
   let doc = "List all albums." in
   let info = Cmd.info "list" ~doc in
-  let list' (style_renderer, level) requests_config profile shared =
-    Immich_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
-    list_action ~requests_config ~profile ~shared env
+  let list' (style_renderer, level) http_config profile shared =
+    Immich_auth.Cmd.setup_logging_with_config style_renderer level http_config;
+    list_action ~http_config ~profile ~shared env
   in
-  Cmd.v info Term.(const list' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.requests_config_term fs $ Immich_auth.Cmd.profile_arg $ shared_arg)
+  Cmd.v info Term.(const list' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.http_config_term fs $ Immich_auth.Cmd.profile_arg $ shared_arg)
 
 (* Albums command group *)
 

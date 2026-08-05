@@ -155,8 +155,6 @@ let sync_cmd ~force () xdg env =
           immich_errors := 1
         | immich_client ->
         let api = Immich_auth.Client.client immich_client in
-        (* [Immich.session] still hands out a [Requests.t]; this block
-           moves to [Fetch] when immich itself is regenerated. *)
         let http_session = Immich.session api in
         let base_url = Immich.base_url api in
         let person_jsont =
@@ -181,9 +179,11 @@ let sync_cmd ~force () xdg env =
               let url = Printf.sprintf "%s/search/person?name=%s"
                 base_url encoded_name in
               try
-                let response = Requests.get http_session url in
-                if Requests.Response.ok response then begin
-                  let body = Requests.Response.body response |> Eio.Flow.read_all in
+                let status, body =
+                  Fetch.with_response http_session `GET url @@ fun response ->
+                  (Fetch.status response, Eio.Flow.read_all (Fetch.body response))
+                in
+                if status >= 200 && status < 300 then begin
                   match Jsont_bytesrw.decode_string people_jsont body with
                   | Error _ ->
                     Logs.info (fun m -> m "@%s: failed to parse Immich response" handle);
@@ -196,10 +196,13 @@ let sync_cmd ~force () xdg env =
                     let thumb_url = Printf.sprintf "%s/people/%s/thumbnail"
                       base_url person_id in
                     begin try
-                      let thumb_response = Requests.get http_session thumb_url in
-                      if Requests.Response.ok thumb_response then begin
-                        let thumb_data = Requests.Response.body thumb_response
-                          |> Eio.Flow.read_all in
+                      let thumb_status, thumb_data =
+                        Fetch.with_response http_session `GET thumb_url
+                        @@ fun thumb_response ->
+                        ( Fetch.status thumb_response,
+                          Eio.Flow.read_all (Fetch.body thumb_response) )
+                      in
+                      if thumb_status >= 200 && thumb_status < 300 then begin
                         let filename = handle ^ ".jpg" in
                         let output_path = Filename.concat
                           (Eio.Path.native_exn data_dir) filename in
@@ -212,7 +215,7 @@ let sync_cmd ~force () xdg env =
                         incr fetched
                       end else begin
                         Logs.warn (fun m -> m "@%s: thumbnail download failed (HTTP %d)"
-                          handle (Requests.Response.status_code thumb_response));
+                          handle thumb_status);
                         incr immich_errors
                       end
                     with exn ->
@@ -222,7 +225,7 @@ let sync_cmd ~force () xdg env =
                     end
                 end else begin
                   Logs.warn (fun m -> m "@%s: Immich search failed (HTTP %d)"
-                    handle (Requests.Response.status_code response));
+                    handle status);
                   incr immich_errors
                 end
               with exn ->

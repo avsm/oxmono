@@ -14,7 +14,9 @@ depends: [
   "openapi" {>= "0.4.0"}
   "eio" {>= "1.2"}
   "eio_main" {>= "1.2"}
-  "requests" {>= "0.3.1"}
+  "fetch"
+  "fetch-curl"
+  "fetch-cmdliner"
   "uri" {>= "4.4.0"}
   "jsont" {>= "0.2.0"}
   "bytesrw"

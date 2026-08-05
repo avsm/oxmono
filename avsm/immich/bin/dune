@@ -5,7 +5,9 @@
   immich
   immich_auth
   openapi
-  requests
+  fetch
+  fetch-curl
+  fetch-cmdliner
   jsont
   uri
   eio

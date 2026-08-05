@@ -5,7 +5,9 @@
   typesense
   typesense.auth
   openapi
-  requests
+  fetch
+  fetch-curl
+  fetch-cmdliner
   jsont
   jsont.bytesrw
   uri

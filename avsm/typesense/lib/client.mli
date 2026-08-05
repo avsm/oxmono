@@ -38,36 +38,38 @@ type t
 val login :
   sw:Eio.Switch.t ->
   env:< clock : _ Eio.Time.clock
-      ; net : _ Eio.Net.t
+      ; mono_clock : _ Eio.Time.Mono.t
+      ; secure_random : _ Eio.Flow.source
       ; fs : Eio.Fs.dir_ty Eio.Path.t
       ; .. > ->
-  ?requests_config:Requests.Cmd.config ->
+  ?http_config:Fetch_cmdliner.config ->
   ?profile:string ->
   server_url:string ->
   api_key:string ->
   unit ->
   t
-(** [login ~sw ~env ?requests_config ?profile ~server_url ~api_key ()]
+(** [login ~sw ~env ?http_config ?profile ~server_url ~api_key ()]
     authenticates using an API key. The API key is sent in the
     [X-TYPESENSE-API-KEY] header for all requests.
 
-    @param requests_config Optional Requests.Cmd.config for HTTP settings
+    @param http_config Optional {!Fetch_cmdliner.config} for HTTP settings
     @param profile Profile name (default: "default") *)
 
 val resume :
   sw:Eio.Switch.t ->
   env:< clock : _ Eio.Time.clock
-      ; net : _ Eio.Net.t
+      ; mono_clock : _ Eio.Time.Mono.t
+      ; secure_random : _ Eio.Flow.source
       ; fs : Eio.Fs.dir_ty Eio.Path.t
       ; .. > ->
-  ?requests_config:Requests.Cmd.config ->
+  ?http_config:Fetch_cmdliner.config ->
   ?profile:string ->
   session:Session.t ->
   unit ->
   t
-(** [resume ~sw ~env ?requests_config ?profile ~session ()] resumes from a saved session.
+(** [resume ~sw ~env ?http_config ?profile ~session ()] resumes from a saved session.
 
-    @param requests_config Optional Requests.Cmd.config for HTTP settings *)
+    @param http_config Optional {!Fetch_cmdliner.config} for HTTP settings *)
 
 val logout : t -> unit
 (** [logout t] clears the session from disk. *)

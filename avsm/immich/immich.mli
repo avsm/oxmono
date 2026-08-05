@@ -7,14 +7,21 @@
 type t
 
 val create :
-  ?session:Requests.t ->
+  ?session:Fetch.plain ->
   sw:Eio.Switch.t ->
-  < net : _ Eio.Net.t ; fs : Eio.Fs.dir_ty Eio.Path.t ; clock : _ Eio.Time.clock ; .. > ->
+  < clock : _ Eio.Time.clock
+  ; mono_clock : _ Eio.Time.Mono.t
+  ; secure_random : _ Eio.Flow.source
+  ; .. > ->
   base_url:string ->
   t
+(** [create ?session ~sw env ~base_url] is a client rooted at [base_url].
+    [session] is the HTTP client to issue requests through, already carrying
+    whatever credentials and policy the caller wants; when it is omitted a
+    default {!Fetch_curl.std} stack is created under [sw]. *)
 
 val base_url : t -> string
-val session : t -> Requests.t
+val session : t -> Fetch.plain
 
 module WorkflowFilterItem : sig
   module Dto : sig
@@ -4765,7 +4772,7 @@ module CreateProfileImage : sig
   (** Create user profile image
   
       Upload and set a new profile image for the current user. *)
-  val create_profile_image : t -> unit -> ResponseDto.t
+  val create_profile_image : body:Jsont.json -> t -> unit -> ResponseDto.t
 end
 
 module CreateLibrary : sig
@@ -6308,12 +6315,12 @@ module AssetMedia : sig
   (** Upload asset
   
       Uploads a new asset to the server. *)
-  val upload_asset : ?key:string -> ?slug:string -> t -> unit -> ResponseDto.t
+  val upload_asset : ?key:string -> ?slug:string -> body:Jsont.json -> t -> unit -> ResponseDto.t
   
   (** Replace asset
   
       Replace the asset with new file, without changing its id. *)
-  val replace_asset : id:string -> ?key:string -> ?slug:string -> t -> unit -> ResponseDto.t
+  val replace_asset : id:string -> ?key:string -> ?slug:string -> body:Jsont.json -> t -> unit -> ResponseDto.t
 end
 
 module AssetMetadataBulkUpsertItem : sig
@@ -8017,7 +8024,7 @@ module Client : sig
   (** Upload database backup
   
       Uploads .sql/.sql.gz file to restore backup from *)
-  val upload_database_backup : t -> unit -> Jsont.json
+  val upload_database_backup : body:Jsont.json -> t -> unit -> Jsont.json
   
   (** Download database backup
   

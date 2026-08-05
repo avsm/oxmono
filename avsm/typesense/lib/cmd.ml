@@ -38,13 +38,13 @@ let profile_arg =
   let doc = "Profile name (default: current profile)." in
   Arg.(value & opt (some string) None & info ["profile"; "P"] ~docv:"PROFILE" ~doc)
 
-(* Logging setup - takes requests_config to extract verbose_http *)
+(* Logging setup - takes http_config to extract verbose_http *)
 
-let setup_logging_with_config style_renderer level (requests_config : Requests.Cmd.config) =
+let setup_logging_with_config style_renderer level (http_config : Fetch_cmdliner.config) =
   Fmt_tty.setup_std_outputs ?style_renderer ();
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ());
-  Requests.Cmd.setup_log_sources ~verbose_http:requests_config.verbose_http.value level
+  Fetch_cmdliner.setup_log_sources ~verbose_http:http_config.verbose_http.value level
 
 let setup_logging_simple style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
@@ -56,10 +56,10 @@ let setup_logging =
   $ Fmt_cli.style_renderer ()
   $ Logs_cli.level ())
 
-(* Requests config term *)
+(* HTTP client config term *)
 
-let requests_config_term fs =
-  Requests.Cmd.config_term app_name fs
+let http_config_term fs =
+  Fetch_cmdliner.config_term app_name fs
 
 (* Session helper *)
 
@@ -79,10 +79,10 @@ let with_session ?profile f env =
       raise (Error.Exit_code 1)
   | Some session -> f fs session
 
-let with_client ?requests_config ?profile f env =
+let with_client ?http_config ?profile f env =
   with_session ?profile (fun fs session ->
     Eio.Switch.run @@ fun sw ->
-    let client = Client.resume ~sw ~env ?requests_config ?profile ~session () in
+    let client = Client.resume ~sw ~env ?http_config ?profile ~session () in
     f fs client
   ) env
 
@@ -92,28 +92,28 @@ module Profile_config = struct
   type t = {
     style_renderer : Fmt.style_renderer option;
     log_level : Logs.level option;
-    requests_config : Requests.Cmd.config;
+    http_config : Fetch_cmdliner.config;
     profile : string option;
   }
 
   let style_renderer t = t.style_renderer
   let log_level t = t.log_level
-  let requests_config t = t.requests_config
+  let http_config t = t.http_config
   let profile t = t.profile
 
   let setup_logging t =
-    setup_logging_with_config t.style_renderer t.log_level t.requests_config
+    setup_logging_with_config t.style_renderer t.log_level t.http_config
 end
 
 let profile_config_term fs =
   let make (sr, ll) rc p =
-    Profile_config.{ style_renderer = sr; log_level = ll; requests_config = rc; profile = p }
+    Profile_config.{ style_renderer = sr; log_level = ll; http_config = rc; profile = p }
   in
-  Term.(const make $ setup_logging $ requests_config_term fs $ profile_arg)
+  Term.(const make $ setup_logging $ http_config_term fs $ profile_arg)
 
 (* Login command *)
 
-let login_action ~requests_config ~server ~api_key ~profile env =
+let login_action ~http_config ~server ~api_key ~profile env =
   let api_key = match api_key with
     | Some k -> k
     | None ->
@@ -121,7 +121,7 @@ let login_action ~requests_config ~server ~api_key ~profile env =
         read_line ()
   in
   Eio.Switch.run @@ fun sw ->
-  let client = Client.login ~sw ~env ~requests_config ?profile ~server_url:server ~api_key () in
+  let client = Client.login ~sw ~env ~http_config ?profile ~server_url:server ~api_key () in
   let profile_name = Option.value ~default:Session.default_profile profile in
   Fmt.pr "%a Logged in to %a (profile: %a)@."
     success_style "Success:" value_style server profile_style profile_name;
@@ -130,13 +130,13 @@ let login_action ~requests_config ~server ~api_key ~profile env =
 let login_cmd env fs =
   let doc = "Login to a Typesense server." in
   let info = Cmd.info "login" ~doc in
-  let login' (style_renderer, level) requests_config server api_key profile =
-    setup_logging_with_config style_renderer level requests_config;
+  let login' (style_renderer, level) http_config server api_key profile =
+    setup_logging_with_config style_renderer level http_config;
     Error.wrap (fun () ->
-      login_action ~requests_config ~server ~api_key ~profile env)
+      login_action ~http_config ~server ~api_key ~profile env)
   in
   Cmd.v info
-    Term.(const login' $ setup_logging $ requests_config_term fs $ server_arg $ api_key_arg $ profile_arg)
+    Term.(const login' $ setup_logging $ http_config_term fs $ server_arg $ api_key_arg $ profile_arg)
 
 (* Logout command *)
 

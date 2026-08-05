@@ -20,7 +20,7 @@ let percent_style pct =
 
 (* Ping command - can work with or without auth *)
 
-let ping_action ~requests_config ~server ~profile env =
+let ping_action ~http_config ~server ~profile env =
   Immich_auth.Error.wrap (fun () ->
     Eio.Switch.run @@ fun sw ->
     let fs = env#fs in
@@ -40,8 +40,8 @@ let ping_action ~requests_config ~server ~profile env =
               Fmt.epr "Use --server or login first.@.";
               raise (Immich_auth.Error.Exit_code 1)
     in
-    (* Create session using requests config *)
-    let session = Requests.Cmd.create requests_config env sw in
+    (* Create the HTTP client from the shared --timeout/--proxy/... flags *)
+    let session = Fetch_cmdliner.create http_config env sw in
     (* Resolve the API URL from .well-known/immich if available *)
     let server_url = Immich_auth.Client.resolve_api_url ~session server_url in
     let client = Immich.create ~session ~sw env ~base_url:server_url in
@@ -52,17 +52,17 @@ let ping_action ~requests_config ~server ~profile env =
 let ping_cmd env fs =
   let doc = "Ping the Immich server." in
   let info = Cmd.info "ping" ~doc in
-  let ping' (style_renderer, level) requests_config server profile =
-    Immich_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
-    ping_action ~requests_config ~server ~profile env
+  let ping' (style_renderer, level) http_config server profile =
+    Immich_auth.Cmd.setup_logging_with_config style_renderer level http_config;
+    ping_action ~http_config ~server ~profile env
   in
-  Cmd.v info Term.(const ping' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.requests_config_term fs $ Immich_auth.Cmd.server_opt $ Immich_auth.Cmd.profile_arg)
+  Cmd.v info Term.(const ping' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.http_config_term fs $ Immich_auth.Cmd.server_opt $ Immich_auth.Cmd.profile_arg)
 
 (* Status command - requires auth *)
 
-let status_action ~requests_config ~profile env =
+let status_action ~http_config ~profile env =
   Immich_auth.Error.wrap (fun () ->
-    Immich_auth.Cmd.with_client ~requests_config ?profile (fun _fs client ->
+    Immich_auth.Cmd.with_client ~http_config ?profile (fun _fs client ->
       let api = Immich_auth.Client.client client in
       (* Get server version *)
       let version = Immich.ServerVersion.get_server_version api () in
@@ -93,11 +93,11 @@ let status_action ~requests_config ~profile env =
 let status_cmd env fs =
   let doc = "Show server status." in
   let info = Cmd.info "status" ~doc in
-  let status' (style_renderer, level) requests_config profile =
-    Immich_auth.Cmd.setup_logging_with_config style_renderer level requests_config;
-    status_action ~requests_config ~profile env
+  let status' (style_renderer, level) http_config profile =
+    Immich_auth.Cmd.setup_logging_with_config style_renderer level http_config;
+    status_action ~http_config ~profile env
   in
-  Cmd.v info Term.(const status' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.requests_config_term fs $ Immich_auth.Cmd.profile_arg)
+  Cmd.v info Term.(const status' $ Immich_auth.Cmd.setup_logging $ Immich_auth.Cmd.http_config_term fs $ Immich_auth.Cmd.profile_arg)
 
 (* Server command group *)
 

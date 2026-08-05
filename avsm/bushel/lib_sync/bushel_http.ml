@@ -3,27 +3,34 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** HTTP client using the requests library *)
+(** HTTP client using the fetch library *)
 
 let src = Logs.Src.create "bushel.http" ~doc:"HTTP client"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-type t = Requests.t
+type t = Fetch.plain
 
 let create ~sw env =
-  Requests.create ~sw ~follow_redirects:true env
+  (* fetch follows redirects by default (10 hops) *)
+  Fetch_curl.std ~sw env
+
+(* [Fetch] has no [Response.ok]; 2xx is success. *)
+let ok response =
+  let status = Fetch.status response in
+  status >= 200 && status < 300
+
+let read_body response =
+  if ok response then begin
+    let body = Fetch.body response |> Eio.Flow.read_all in
+    Ok body
+  end else begin
+    let status = Fetch.status response in
+    Error (Printf.sprintf "HTTP %d" status)
+  end
 
 let get ~http url =
   Log.debug (fun m -> m "GET %s" url);
-  try
-    let response = Requests.get http url in
-    if Requests.Response.ok response then begin
-      let body = Requests.Response.body response |> Eio.Flow.read_all in
-      Ok body
-    end else begin
-      let status = Requests.Response.status_code response in
-      Error (Printf.sprintf "HTTP %d" status)
-    end
+  try Fetch.with_response http `GET url read_body
   with exn ->
     Error (Printf.sprintf "Request failed: %s" (Printexc.to_string exn))
 
@@ -38,30 +45,19 @@ let get_with_header ~http ~header url =
         (name, value)
       | None -> (header, "")
     in
-    let headers = Requests.Headers.empty |> Requests.Headers.add_string name value in
-    let response = Requests.get http ~headers url in
-    if Requests.Response.ok response then begin
-      let body = Requests.Response.body response |> Eio.Flow.read_all in
-      Ok body
-    end else begin
-      let status = Requests.Response.status_code response in
-      Error (Printf.sprintf "HTTP %d" status)
-    end
+    (* [name] and [value] are rebound: [Fetch.Header] shadows [name]. *)
+    let hname = name and hvalue = value in
+    let headers = Fetch.Header.[ raw hname hvalue ] in
+    Fetch.with_response ~headers http `GET url read_body
   with exn ->
     Error (Printf.sprintf "Request failed: %s" (Printexc.to_string exn))
 
 let post ~http ~content_type ~body url =
   Log.debug (fun m -> m "POST %s" url);
   try
-    let mime = Requests.Mime.of_string content_type in
-    let body = Requests.Body.of_string mime body in
-    let response = Requests.post http ~body url in
-    if Requests.Response.ok response then begin
-      let body = Requests.Response.body response |> Eio.Flow.read_all in
-      Ok body
-    end else begin
-      let status = Requests.Response.status_code response in
-      Error (Printf.sprintf "HTTP %d" status)
-    end
+    let ct = content_type in
+    let headers = Fetch.Header.[ content_type, media ct ] in
+    let body = Fetch.String body in
+    Fetch.with_response ~headers ~body http `POST url read_body
   with exn ->
     Error (Printf.sprintf "Request failed: %s" (Printexc.to_string exn))

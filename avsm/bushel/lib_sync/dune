@@ -18,7 +18,8 @@
   sortal.schema
   sortal
   srcsetter-cmd
-  requests
+  fetch
+  fetch-curl
   peertube
   karakeep
   karakeep.auth))

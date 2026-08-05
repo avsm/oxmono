@@ -40,3 +40,6 @@ currently be installed from opam on `oxcaml-compiler.5.2.0minus39`:
 
 These should be re-checked against the ox opam repository on each compiler
 upgrade and dropped once installable.
+
+`mdx` is likewise blocked on minus39, so the yamlrw doc tests are gated
+behind `%{lib-available:mdx.top}` rather than vendored.

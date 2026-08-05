@@ -1,4 +1,8 @@
+; mdx is not installable on oxcaml-compiler.5.2.0minus39 (its +ox build
+; conflicts with compilers newer than minus38), so gate the doc tests on
+; library availability until a compatible mdx release appears.
 (mdx
+ (enabled_if %{lib-available:mdx.top})
  (files tutorial.mld)
  (libraries yamlrw))
 

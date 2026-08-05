@@ -1,7 +1,13 @@
 (executable
- (name httpz_server)
- (public_name httpz_server)
+ (name httpz_eio_server)
+ (public_name httpz-eio-server)
  (package httpz)
- (libraries httpz core core_unix async async_unix)
- (preprocess
-  (pps ppx_jane)))
+ (modules httpz_eio_server)
+ (libraries
+  httpz
+  httpz.route
+  httpz.eio_server
+  cmdliner
+  eio
+  eio_main
+  eio_posix))

@@ -43,14 +43,6 @@ let[@inline] char (c : char#) st ~(pos : int16#) : int16# =
   Err.malformed_when @@ Buf_read.( <>. ) (Buf_read.peek st.#buf pos) c;
   add16 pos one16
 
-let[@inline] take_while (f : char# -> bool) st ~(pos : int16#) : #(Span.t * int16#) =
-  let start = pos in
-  let mutable p = pos in
-  while not (at_end st ~pos:p) && f (Buf_read.peek st.#buf p) do
-    p <- add16 p one16
-  done;
-  #(Span.make ~off:start ~len:(sub16 p start), p)
-
 let[@inline] skip_while (f : char# -> bool) st ~(pos : int16#) : int16# =
   let mutable p = pos in
   while not (at_end st ~pos:p) && f (Buf_read.peek st.#buf p) do
@@ -67,10 +59,16 @@ let[@inline] crlf st ~(pos : int16#) : int16# =
 let[@inline] sp st ~(pos : int16#) : int16# =
   char #' ' st ~pos
 
+(* A token that reaches the end of the buffer has not met its delimiter, so
+   more of it may still arrive: "GE" is a prefix of "GET", not an unknown
+   method. Only a token stopped by a byte the caller can see is complete
+   enough to judge. *)
 let[@inline] token st ~(pos : int16#) : #(Span.t * int16#) =
-  let #(sp, pos) = take_while Buf_read.is_token_char st ~pos in
+  let stop = i16 (Buf_read.skip_token st.#buf ~pos:(to_int pos) ~limit:(to_int st.#len)) in
+  Err.partial_when (gte16 stop st.#len);
+  let sp = Span.make ~off:pos ~len:(sub16 stop pos) in
   Err.malformed_when (Span.len sp = 0);
-  #(sp, pos)
+  #(sp, stop)
 
 let[@inline] ows st ~(pos : int16#) : int16# =
   skip_while Buf_read.is_space st ~pos
@@ -129,21 +127,56 @@ let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
   in
   #(meth, pos)
 
-let[@inline] parse_target st ~(pos : int16#) : #(Span.t * int16#) =
-  let #(sp, pos) = take_while (fun c ->
-    Buf_read.( <>. ) c #' ' && Buf_read.( <>. ) c #'\r') st ~pos
-  in
-  Err.when_ (Span.len sp = 0) Err.Invalid_target;
-  #(sp, pos)
+(* [Scan.find_sp_or_cr] only finds where the target ends; it says nothing about
+   the bytes in between, which is how a control character or a truncated
+   percent-triplet would otherwise reach the router. {!Target.parse} checks
+   them against the RFC 3986 grammar and reports rather than raises, so the
+   rejection is made here.
 
-let[@inline] request_line st ~(pos : int16#) : #(Method.t * Span.t * Version.t * int16#) =
+   The split is returned along with the span. Every caller that dispatches on
+   a path or a query needs it, and it is already computed. *)
+(* RFC 9112 §3.2.3 confines authority-form to CONNECT, §3.2.4 confines
+   asterisk-form to OPTIONS, and §3.2 gives CONNECT no other form. Accepting a
+   form the method does not define lets a request mean one thing to httpz and
+   another to a proxy in front of it. *)
+let[@inline] form_allows (meth : Method.t) (form : Target.form) =
+  match form, meth with
+  | Target.Origin, Method.Connect | Target.Absolute, Method.Connect -> false
+  | Target.Origin, _ | Target.Absolute, _ -> true
+  | Target.Authority, Method.Connect -> true
+  | Target.Asterisk, Method.Options -> true
+  | (Target.Authority | Target.Asterisk | Target.Invalid), _ -> false
+;;
+
+let[@inline] parse_target st ~(pos : int16#) ~(meth : Method.t) ~(limits : Buf_read.limits)
+  : #(Span.t * Target.t * int16#)
+  =
+  let stop = i16 (Scan.find_sp_or_cr st.#buf ~pos:(to_int pos) ~limit:(to_int st.#len)) in
+  let sp = Span.make ~off:pos ~len:(sub16 stop pos) in
+  (* Bound the length first: the target is already over budget whether or not
+     the rest of it has arrived, so there is nothing to wait for. *)
+  Err.when_ (I16.compare (sub16 stop pos) limits.#max_target_length > 0) Err.Uri_too_long;
+  (* No SP or CR yet means the target is still arriving. A prefix of a valid
+     target need not itself be valid — "/a%4" is a truncated triplet, not a bad
+     one, and the empty prefix is not an empty target — so judging it here
+     would fail any request whose read split inside the request line. *)
+  Err.partial_when (gte16 stop st.#len);
+  Err.when_ (Span.len sp = 0) Err.Invalid_target;
+  let target = Target.parse st.#buf sp in
+  Err.when_ (not (Target.is_valid target)) Err.Invalid_target;
+  Err.when_ (not (form_allows meth (Target.form target))) Err.Invalid_target;
+  #(sp, target, stop)
+
+let[@inline] request_line st ~(pos : int16#) ~(limits : Buf_read.limits)
+  : #(Method.t * Span.t * Target.t * Version.t * int16#)
+  =
   let #(meth, pos) = parse_method st ~pos in
   let pos = sp st ~pos in
-  let #(target, pos) = parse_target st ~pos in
+  let #(target, target_parsed, pos) = parse_target st ~pos ~meth ~limits in
   let pos = sp st ~pos in
   let #(version, pos) = http_version st ~pos in
   let pos = crlf st ~pos in
-  #(meth, target, version, pos)
+  #(meth, target, target_parsed, version, pos)
 
 let[@inline] parse_header st ~(pos : int16#) : #(Header_name.t * Span.t * Span.t * int16# * bool) =
   let #(name_span, pos) = token st ~pos in
@@ -162,11 +195,13 @@ let[@inline] parse_header st ~(pos : int16#) : #(Header_name.t * Span.t * Span.t
   let name = Header_name.of_span st.#buf name_span in
   #(name, name_span, value_span, pos, has_bare_cr)
 
+(* A lone CR is the start of the terminating CRLF as readily as it is the start
+   of nothing at all, so fewer than two bytes is not an answer of [false] but
+   no answer yet. *)
 let[@inline] is_headers_end st ~(pos : int16#) : bool =
-  if to_int (sub16 st.#len pos) < 2 then false
-  else
-    Buf_read.( =. ) (Buf_read.peek st.#buf pos) #'\r' &&
-    Buf_read.( =. ) (Buf_read.peek st.#buf (add16 pos one16)) #'\n'
+  Err.partial_when (to_int (sub16 st.#len pos) < 2);
+  Buf_read.( =. ) (Buf_read.peek st.#buf pos) #'\r' &&
+  Buf_read.( =. ) (Buf_read.peek st.#buf (add16 pos one16)) #'\n'
 
 let[@inline] end_headers st ~(pos : int16#) : int16# =
   crlf st ~pos

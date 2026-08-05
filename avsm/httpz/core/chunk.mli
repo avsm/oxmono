@@ -45,10 +45,10 @@ type status =
   | Chunk_too_large  (** Chunk size exceeds configured limit *)
 (** Chunk parse status. *)
 
-val status_to_string : status -> string
+val status_to_string : status -> string @@ portable
 (** Convert status to string. *)
 
-val pp_status : Stdlib.Format.formatter -> status -> unit
+val pp_status : Stdlib.Format.formatter -> status -> unit @@ portable
 (** Pretty-print status. *)
 
 (** {2 Parsed Chunk} *)
@@ -62,15 +62,15 @@ type t =
 
 (** {2 Limits} *)
 
-val max_hex_digits : int16#
+val max_hex_digits : int16# @@ portable
 (** Maximum hex digits in chunk size (16 = 64-bit max). *)
 
-val default_max_chunk_size : int
+val default_max_chunk_size : int @@ portable
 (** Default maximum chunk size: 16MB. *)
 
 (** {2 Parse Functions} *)
 
-val parse : bytes -> off:int16# -> len:int16# -> #(status * t)
+val[@zero_alloc opt] parse : bytes -> off:int16# -> len:int16# -> #(status * t) @@ portable
 (** [parse buf ~off ~len] parses a chunk starting at [off].
 
     No size limit checking. Use {!parse_with_limit} for untrusted input.
@@ -82,12 +82,12 @@ val parse : bytes -> off:int16# -> len:int16# -> #(status * t)
     - For {!Partial}: Need more data
     - For {!Malformed}: Invalid encoding *)
 
-val parse_with_limit : bytes -> off:int16# -> len:int16# -> max_chunk_size:int -> #(status * t)
+val parse_with_limit : bytes -> off:int16# -> len:int16# -> max_chunk_size:int -> #(status * t) @@ portable
 (** [parse_with_limit buf ~off ~len ~max_chunk_size] parses with size limit.
 
     Returns {!Chunk_too_large} if chunk size exceeds [max_chunk_size]. *)
 
-val pp : Stdlib.Format.formatter -> t -> unit
+val pp : Stdlib.Format.formatter -> t -> unit @@ portable
 (** Pretty-print chunk. *)
 
 (** {1 Trailer Headers}
@@ -102,13 +102,13 @@ type trailer_status =
   | Trailer_bare_cr   (** Bare CR detected (security violation) *)
 (** Trailer parse status. *)
 
-val trailer_status_to_string : trailer_status -> string
+val trailer_status_to_string : trailer_status -> string @@ portable
 (** Convert trailer status to string. *)
 
-val pp_trailer_status : Stdlib.Format.formatter -> trailer_status -> unit
+val pp_trailer_status : Stdlib.Format.formatter -> trailer_status -> unit @@ portable
 (** Pretty-print trailer status. *)
 
-val is_forbidden_trailer : Header_name.t -> bool
+val is_forbidden_trailer : Header_name.t -> bool @@ portable
 (** [is_forbidden_trailer name] returns [true] if [name] is forbidden in trailers.
 
     Forbidden headers per RFC 7230 Section 4.1.2:
@@ -121,7 +121,7 @@ val parse_trailers
   -> off:int16#
   -> len:int16#
   -> max_header_count:int16#
-  -> #(trailer_status * int16# * Header.t list) @ local
+  -> #(trailer_status * int16# * Header.t list) @ local @@ portable
 (** [parse_trailers buf ~off ~len ~max_header_count] parses trailer headers.
 
     Call after {!parse} returns {!Done}, using the [next_off] from the

@@ -28,12 +28,12 @@ let run port cache_dir verbose maps_strs =
    with Eio.Io _ -> ());
   let session = Requests.create ~sw env in
   (* Build catch-all route *)
-  let open Httpz_server.Route in
+  let open Httpz_route in
   let routes = of_list [
     get_h tail (Httpz.Header_name.Range +> h0)
       (fun segments (range_header, ()) ctx respond ->
         let path = "/" ^ String.concat "/" segments in
-        let is_head = Httpz_server.Route.is_head ctx in
+        let is_head = Httpz_route.is_head ctx in
         let net = Eio.Stdenv.net env in
         let r = Perma_cache.handle_request
           ~sw ~net ~fs ~cache_dir ~session ~maps ~verbose
@@ -47,7 +47,7 @@ let run port cache_dir verbose maps_strs =
         let _: unit = (respond ~status:r.status) ~headers:r.resp_headers r.body in
         ())
   ] in
-  let on_request (local_ info : Httpz_eio.request_info) =
+  let on_request (local_ info : Httpz_eio_server.request_info) =
     let meth = Httpz.Method.to_string info.meth in
     let path = globalize info.path in
     let status = Httpz.Res.status_to_string info.status in
@@ -64,7 +64,7 @@ let run port cache_dir verbose maps_strs =
     ~on_error:(fun exn ->
       Printf.eprintf "Server error: %s\n%!" (Printexc.to_string exn))
     (fun flow addr ->
-      Httpz_eio.handle_client ~routes ~on_request ~on_error flow addr)
+      Httpz_eio_server.handle_client ~routes ~on_request ~on_error flow addr)
 
 let port_t =
   Arg.(value & opt int 9999 & info ["port"; "p"] ~doc:"Listen port (default: 9999)")

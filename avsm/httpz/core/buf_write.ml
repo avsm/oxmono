@@ -36,56 +36,94 @@ let[@inline] crlf dst ~(off : int16#) =
   add16 off (i16 2)
 ;;
 
-(* Count digits in a positive integer *)
+(* Digit count by comparison rather than a division loop. Content-Length and
+   header integers are almost always under 10^8, so the common cases cost at
+   most three compares. *)
 let[@inline] count_digits n =
-  let mutable temp = n in
-  let mutable digits = 0 in
-  while temp > 0 do
-    digits <- digits + 1;
-    temp <- temp / 10
-  done;
-  digits
-;;
-
-let int dst ~(off : int16#) n =
-  let off_int = to_int off in
-  if n = 0 then (
-    Bytes.unsafe_set dst off_int '0';
-    add16 off (i16 1)
-  ) else (
-    let digits = count_digits n in
-    let mutable p = off_int + digits - 1 in
-    let mutable remaining = n in
-    while remaining > 0 do
-      Bytes.unsafe_set dst p (Stdlib.Char.unsafe_chr (48 + Int.rem remaining 10));
-      remaining <- remaining / 10;
-      p <- p - 1
+  if n < 10
+  then 1
+  else if n < 10_000
+  then if n < 100 then 2 else if n < 1_000 then 3 else 4
+  else if n < 100_000_000
+  then
+    if n < 100_000
+    then 5
+    else if n < 1_000_000
+    then 6
+    else if n < 10_000_000
+    then 7
+    else 8
+  else (
+    let mutable temp = n / 100_000_000 in
+    let mutable digits = 8 in
+    while temp > 0 do
+      digits <- digits + 1;
+      temp <- temp / 10
     done;
-    add16 off (i16 digits)
-  )
+    digits)
 ;;
 
-let int64 dst ~(off : int16#) (n : int64#) =
+(* "00", "01", ... "99", so two digits are emitted per division. *)
+let digit_pairs =
+  String.init 200 ~f:(fun i ->
+    if i % 2 = 0
+    then Stdlib.Char.unsafe_chr (48 + (i / 2 / 10))
+    else Stdlib.Char.unsafe_chr (48 + (i / 2 % 10)))
+;;
+
+(* [n] must be non-negative, as documented in the interface. *)
+let[@inline] int dst ~(off : int16#) n =
   let off_int = to_int off in
-  let n = I64.to_int64 n in
-  if Int64.(n = 0L) then (
+  if n = 0
+  then (
+    Bytes.unsafe_set dst off_int '0';
+    add16 off (i16 1))
+  else (
+    let digits = count_digits n in
+    let mutable p = off_int + digits in
+    let mutable r = n in
+    while r >= 100 do
+      let q = r / 100 in
+      let idx = (r - (q * 100)) * 2 in
+      p <- p - 2;
+      Bytes.unsafe_set dst p (String.unsafe_get digit_pairs idx);
+      Bytes.unsafe_set dst (p + 1) (String.unsafe_get digit_pairs (idx + 1));
+      r <- q
+    done;
+    if r >= 10
+    then (
+      p <- p - 2;
+      Bytes.unsafe_set dst p (String.unsafe_get digit_pairs (r * 2));
+      Bytes.unsafe_set dst (p + 1) (String.unsafe_get digit_pairs ((r * 2) + 1)))
+    else (
+      p <- p - 1;
+      Bytes.unsafe_set dst p (Stdlib.Char.unsafe_chr (48 + r)));
+    add16 off (i16 digits))
+;;
+
+(* Stays in [int64#] throughout: routing this through boxed [Int64] costs two
+   24-byte boxes per digit, via Base's [%] and [/]. *)
+let[@zero_alloc] int64 dst ~(off : int16#) (n : int64#) =
+  let off_int = to_int off in
+  if I64.equal n #0L then (
     Bytes.unsafe_set dst off_int '0';
     add16 off (i16 1)
   ) else (
     (* Count digits *)
     let mutable temp = n in
     let mutable digits = 0 in
-    while Int64.(temp > 0L) do
+    while I64.compare temp #0L > 0 do
       digits <- digits + 1;
-      temp <- Int64.(temp / 10L)
+      temp <- I64.div temp #10L
     done;
     (* Write digits in reverse *)
     let mutable p = off_int + digits - 1 in
     let mutable remaining = n in
-    while Int64.(remaining > 0L) do
-      let digit = Int64.(remaining % 10L) |> Int64.to_int_exn in
+    while I64.compare remaining #0L > 0 do
+      let q = I64.div remaining #10L in
+      let digit = I64.to_int (I64.sub remaining (I64.mul q #10L)) in
       Bytes.unsafe_set dst p (Stdlib.Char.unsafe_chr (48 + digit));
-      remaining <- Int64.(remaining / 10L);
+      remaining <- q;
       p <- p - 1
     done;
     add16 off (i16 digits)

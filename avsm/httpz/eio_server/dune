@@ -1,0 +1,4 @@
+(library
+ (name httpz_eio_server)
+ (public_name httpz.eio_server)
+ (libraries httpz httpz.route eio base unix uriz))

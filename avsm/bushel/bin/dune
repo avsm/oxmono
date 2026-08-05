@@ -10,8 +10,8 @@
   cmdliner
   eio_main
   httpz
-  httpz.server
-  httpz.eio
+  httpz.route
+  httpz.eio_server
   logs
   logs.cli
   logs.fmt

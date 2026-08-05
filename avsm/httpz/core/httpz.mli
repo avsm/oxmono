@@ -7,8 +7,8 @@
 
     The library is split into three packages:
     - [httpz] (this package): Core protocol types, parsing, and response writing
-    - [httpz.server]: Server-side routing with zero-allocation dispatch
-    - [httpz.eio]: Eio-based connection handling
+    - [httpz.route]: Segment routing with zero-allocation trie dispatch
+    - [httpz.eio_server]: Eio connection handling and static file serving
 
     {2 Security}
 
@@ -80,9 +80,35 @@
     - [Connection]: Available as [req.#keep_alive]
     - [Expect]: Available as [req.#expect_continue]
 
-    This design eliminates header lookups for the most common operations. *)
+    This design eliminates header lookups for the most common operations.
+
+    {2 Modes}
+
+    Every export of this package and of [httpz.route] is [portable], so the
+    parser, the writers and the router may all be called from any domain. The
+    library holds no shared mutable state: its lookup tables are immutable and
+    every function works on the buffer the caller hands it. Running a server on
+    several domains therefore needs nothing beyond giving each domain its own
+    buffer.
+
+    Buffers themselves are not shared. A {!Span.t}, a {!Req.t} and a
+    {!Header.t} name offsets into one buffer and mean nothing without it, so
+    they belong to the domain that owns that buffer. Copy with
+    {!Span.to_string} to move a value across.
+
+    A route table built by [Httpz_route.of_list] cannot be captured by a
+    spawned closure: it holds handlers, and a closure does not cross domains.
+    Build one per domain. [httpz.eio_server] is not annotated, since Eio's own
+    interfaces are not.
+
+    Functions taking a callback ({!Target.fold_query_params}, {!Err.optional},
+    the [Httpz_route] handlers) leave that argument at the legacy mode, so a
+    caller in a portable context may pass any closure it can build there. *)
 
 (** {1 Core Modules} *)
+
+(** SIMD-accelerated byte-class scans over a parse buffer. *)
+module Scan = Scan
 
 (** Buffer reading primitives and parse status. *)
 module Buf_read = Buf_read
@@ -135,7 +161,7 @@ module Range = Range
 
 (** {1 Constants} *)
 
-val buffer_size : int
+val buffer_size : int @@ portable
 (** Required buffer size: 32KB.
 
     Callers must allocate buffers of at least this size. This library never
@@ -146,16 +172,17 @@ val buffer_size : int
       (* Use buf for parsing... *)
     ]} *)
 
-val max_headers : int16#
+val max_headers : int16# @@ portable
 (** Maximum number of headers per request (100). *)
 
-val default_limits : Buf_read.limits
+val default_limits : Buf_read.limits @@ portable
 (** Default security limits.
 
     - [max_content_length]: 100MB
     - [max_header_size]: 16KB
     - [max_header_count]: 100
-    - [max_chunk_size]: 16MB *)
+    - [max_chunk_size]: 16MB
+    - [max_target_length]: 8KB *)
 
 (** {1 Type Aliases}
 
@@ -179,7 +206,10 @@ type res_status = Res.status
 
 (** {1 Parsing} *)
 
-val parse : buffer -> len:int16# -> limits:limits -> #(Buf_read.status * Req.t * Header.t list) @ local
+val[@zero_alloc opt] parse :
+  buffer -> len:int16# -> limits:limits
+  -> #(Buf_read.status * Req.t * Header.t list) @ local
+  @@ portable
 (** [parse buf ~len ~limits] parses an HTTP/1.1 request from [buf].
 
     Returns an unboxed tuple [(status, req, headers)] where:
@@ -187,10 +217,20 @@ val parse : buffer -> len:int16# -> limits:limits -> #(Buf_read.status * Req.t *
     - [req]: Parsed request with cached content headers
     - [headers]: List of remaining headers (excludes Content-Length, etc.)
 
+    The request-target is validated against the RFC 3986 grammar here, so
+    [req.#path] and [req.#query] carry that split; a router should use them
+    rather than call {!Target.parse} again.
+
+    A target still arriving yields {!Buf_read.Partial}, never an error: a read
+    may split the request line anywhere, including inside a percent-triplet.
+
     The returned [req] and [headers] reference spans within [buf] - do not
     modify [buf] while using the parsed values.
 
     {b Security checks performed:}
+    - Request-target within [limits.max_target_length], else {!Buf_read.Uri_too_long}
+    - Request-target in a form its method admits: authority-form for CONNECT,
+      asterisk-form for OPTIONS (RFC 9112 §3.2)
     - Content-Length within [limits.max_content_length]
     - No bare CR in header values (smuggling prevention)
     - Rejects ambiguous framing (both Content-Length and Transfer-Encoding)

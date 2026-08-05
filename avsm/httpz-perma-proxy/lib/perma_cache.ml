@@ -328,8 +328,8 @@ let url_path_of_upstream upstream =
 
 type response = {
   status : Httpz.Res.status;
-  resp_headers : Httpz_server.Route.resp_header list;
-  body : Httpz_server.Route.body;
+  resp_headers : Httpz_route.resp_header list;
+  body : Httpz_route.body;
 }
 
 (* Handle HEAD requests *)
@@ -342,7 +342,7 @@ let handle_head ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~session ~cp ~upstream_url =
     let status = match Httpz.Res.status_of_int meta.status_code with
       | Some s -> s | None -> Httpz.Res.Not_found in
     { status; resp_headers = cors_headers;
-      body = Httpz_server.Route.Empty }
+      body = Httpz_route.Empty }
   | Some meta ->
     let headers =
       (Httpz.Header_name.Content_type, meta.content_type)
@@ -351,7 +351,7 @@ let handle_head ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~session ~cp ~upstream_url =
       :: cors_headers
     in
     { status = Httpz.Res.Success; resp_headers = headers;
-      body = Httpz_server.Route.Empty }
+      body = Httpz_route.Empty }
   | None ->
     (* Fetch upstream HEAD — only cache .meta for 2xx *)
     (try
@@ -382,12 +382,12 @@ let handle_head ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~session ~cp ~upstream_url =
          :: (Httpz.Header_name.Accept_ranges, "bytes")
          :: cors_headers
        in
-       { status; resp_headers = headers; body = Httpz_server.Route.Empty }
+       { status; resp_headers = headers; body = Httpz_route.Empty }
      with exn ->
        let msg = Printexc.to_string exn in
        Printf.eprintf "    upstream HEAD error: %s\n%!" msg;
        { status = Httpz.Res.Bad_gateway; resp_headers = cors_headers;
-         body = Httpz_server.Route.String ("Upstream error: " ^ msg) })
+         body = Httpz_route.String ("Upstream error: " ^ msg) })
 
 (* Upstream connection: keeps a reference to the raw socket for closing *)
 type upstream_conn = {
@@ -517,7 +517,7 @@ let fetch_and_cache_streaming ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cp
           } in
           write_meta fs cp meta
         in
-        Httpz_server.Route.Stream { length = content_length; iter }
+        Httpz_route.Stream { length = content_length; iter }
       | `String s ->
         conn.close ();
         let body_len = String.length s in
@@ -531,7 +531,7 @@ let fetch_and_cache_streaming ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cp
           status_code;
         } in
         write_meta fs cp meta;
-        Httpz_server.Route.String s
+        Httpz_route.String s
       | `None ->
         conn.close ();
         let meta = {
@@ -543,7 +543,7 @@ let fetch_and_cache_streaming ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cp
           status_code;
         } in
         write_meta fs cp meta;
-        Httpz_server.Route.Empty
+        Httpz_route.Empty
     in
     (content_type, body, status_code)
   end else begin
@@ -574,7 +574,7 @@ let fetch_and_cache_streaming ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cp
       } in
       write_meta fs cp meta
     end;
-    (content_type, Httpz_server.Route.String body_str, status_code)
+    (content_type, Httpz_route.String body_str, status_code)
   end
 
 (* Fetch a range from upstream *)
@@ -659,7 +659,7 @@ let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session
   | None ->
     Printf.printf "  no matching map\n%!";
     { status = Httpz.Res.Not_found; resp_headers = cors_headers;
-      body = Httpz_server.Route.String "Not Found" }
+      body = Httpz_route.String "Not Found" }
   | Some (map, suffix) ->
     let upstream_url = map.upstream ^ suffix in
     let upstream_path = url_path_of_upstream map.upstream in
@@ -692,7 +692,7 @@ let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session
              :: cors_headers
            in
            { status; resp_headers = headers;
-             body = Httpz_server.Route.Empty }
+             body = Httpz_route.Empty }
          | Some meta when meta.complete ->
            if verbose then
              Printf.printf "    cache HIT (complete, %d bytes)\n%!" meta.content_length;
@@ -704,7 +704,7 @@ let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session
              @ cors_headers
            in
            { status = Httpz.Res.Success; resp_headers = headers;
-             body = Httpz_server.Route.String body }
+             body = Httpz_route.String body }
          | _ ->
            if verbose then
              Printf.printf "    cache MISS, fetching full (streaming)\n%!";
@@ -725,13 +725,13 @@ let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session
               let msg = Printexc.to_string exn in
               Printf.eprintf "    upstream fetch error: %s\n%!" msg;
               { status = Httpz.Res.Bad_gateway; resp_headers = cors_headers;
-                body = Httpz_server.Route.String ("Upstream error: " ^ msg) }))
+                body = Httpz_route.String ("Upstream error: " ^ msg) }))
       | Some range_str ->
         (* Range GET *)
         (match parse_range_header range_str with
          | None ->
            { status = Httpz.Res.Bad_request; resp_headers = cors_headers;
-             body = Httpz_server.Route.String "Invalid Range header" }
+             body = Httpz_route.String "Invalid Range header" }
          | Some parsed_range ->
            let cached_meta = read_meta fs cp in
            (* Resolve suffix ranges to absolute offsets using cached size *)
@@ -782,7 +782,7 @@ let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session
                :: cors_headers
              in
              { status = Httpz.Res.Partial_content; resp_headers = headers;
-               body = Httpz_server.Route.String body }
+               body = Httpz_route.String body }
            end else begin
              if verbose then
                Printf.printf "    cache MISS (range %d-%s), fetching\n%!"
@@ -805,7 +805,7 @@ let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session
                    :: cors_headers
                  in
                  { status; resp_headers = headers;
-                   body = Httpz_server.Route.String body }
+                   body = Httpz_route.String body }
                end else if status_code >= 200 && status_code < 300 then begin
                  let content_range =
                    Printf.sprintf "bytes %d-%d/%d" actual_start
@@ -818,7 +818,7 @@ let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session
                    :: cors_headers
                  in
                  { status; resp_headers = headers;
-                   body = Httpz_server.Route.String body }
+                   body = Httpz_route.String body }
                end else begin
                  (* Non-2xx: pass through without caching *)
                  let headers =
@@ -826,16 +826,16 @@ let handle_request ~sw ~net ~(fs : Eio.Fs.dir_ty Eio.Path.t) ~cache_dir ~session
                    :: cors_headers
                  in
                  { status; resp_headers = headers;
-                   body = Httpz_server.Route.String body }
+                   body = Httpz_route.String body }
                end
              with exn ->
                let msg = Printexc.to_string exn in
                Printf.eprintf "    upstream range fetch error: %s\n%!" msg;
                { status = Httpz.Res.Bad_gateway; resp_headers = cors_headers;
-                 body = Httpz_server.Route.String ("Upstream error: " ^ msg) }
+                 body = Httpz_route.String ("Upstream error: " ^ msg) }
            end)
     end
 
 let cors_preflight_response =
   { status = Httpz.Res.No_content; resp_headers = cors_headers;
-    body = Httpz_server.Route.Empty }
+    body = Httpz_route.Empty }

@@ -24,7 +24,11 @@ type status =
   | Invalid_method
       (** Unknown HTTP method. *)
   | Invalid_target
-      (** Malformed request target. *)
+      (** Malformed request target: not one of the four RFC 9112 §3.2 forms,
+          outside the RFC 3986 grammar, or a form the method does not allow. *)
+  | Uri_too_long
+      (** Request target longer than {!limits.max_target_length}. Answer with
+          414. *)
   | Invalid_version
       (** Unrecognized HTTP version. *)
   | Invalid_header
@@ -52,10 +56,10 @@ type status =
           Per {{:https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.1}RFC 7230 Section 3.3.1}. *)
 (** HTTP request parse status. *)
 
-val status_to_string : status -> string
+val status_to_string : status -> string @@ portable
 (** [status_to_string status] returns a human-readable description. *)
 
-val pp_status : Stdlib.Format.formatter -> status -> unit
+val pp_status : Stdlib.Format.formatter -> status -> unit @@ portable
 (** Pretty-print status. *)
 
 (** {1 Security Limits} *)
@@ -70,6 +74,9 @@ type limits =
        (** Maximum number of headers allowed. *)
    ; max_chunk_size : int
        (** Maximum size of a single chunk in chunked encoding. *)
+   ; max_target_length : int16#
+       (** Maximum request-target length in bytes. Longer targets return
+           {!Uri_too_long} without waiting for the rest of the request. *)
    }
 (** Configurable security limits for HTTP parsing.
 
@@ -79,24 +86,26 @@ type limits =
         max_header_size = Buf_read.i16 8192;
         max_header_count = Buf_read.i16 50;
         max_chunk_size = 1_000_000;
+        max_target_length = Buf_read.i16 2048;
       }
     ]} *)
 
-val default_limits : limits
+val default_limits : limits @@ portable
 (** Default security limits:
     - [max_content_length]: 100MB ([#104857600L])
     - [max_header_size]: 16KB
     - [max_header_count]: 100
-    - [max_chunk_size]: 16MB *)
+    - [max_chunk_size]: 16MB
+    - [max_target_length]: 8KB *)
 
 (** {1 Buffer Constants} *)
 
-val buffer_size : int
+val buffer_size : int @@ portable
 (** Required buffer size: 32KB (32768 bytes).
 
     All parsing buffers must be at least this size. *)
 
-val max_headers : int16#
+val max_headers : int16# @@ portable
 (** Maximum headers per request: 100.
 
     The internal header list can hold this many headers. *)
@@ -106,7 +115,7 @@ val max_headers : int16#
     These functions are used internally by the parser. Most users
     won't need them directly. *)
 
-val find_crlf_check_bare_cr : local_ bytes -> pos:int16# -> len:int16# -> #(int16# * bool)
+val find_crlf_check_bare_cr : local_ bytes -> pos:int16# -> len:int16# -> #(int16# * bool) @@ portable
 (** [find_crlf_check_bare_cr buf ~pos ~len] finds CRLF and checks for bare CR.
 
     Returns [#(crlf_pos, has_bare_cr)] where:
@@ -116,43 +125,49 @@ val find_crlf_check_bare_cr : local_ bytes -> pos:int16# -> len:int16# -> #(int1
     Bare CR detection is required by RFC 7230 Section 3.5 to prevent
     HTTP request smuggling attacks. *)
 
-val i16 : int -> int16#
+val i16 : int -> int16# @@ portable
 (** [i16 n] converts [int] to [int16#]. *)
 
-val to_int : int16# -> int
+val to_int : int16# -> int @@ portable
 (** [to_int n] converts [int16#] to [int]. *)
 
-val peek : local_ bytes -> int16# -> char#
+val peek : local_ bytes -> int16# -> char# @@ portable
 (** [peek buf pos] returns the character at [pos] without bounds checking. *)
 
-val ( =. ) : char# -> char# -> bool
+val ( =. ) : char# -> char# -> bool @@ portable
 (** Unboxed character equality. *)
 
-val ( <>. ) : char# -> char# -> bool
+val ( <>. ) : char# -> char# -> bool @@ portable
 (** Unboxed character inequality. *)
 
-val is_token_char : char# -> bool
+val is_token_char : char# -> bool @@ portable
 (** [is_token_char c] returns [true] if [c] is valid in an HTTP token.
 
     Tokens are used for method names, header names, etc. per RFC 7230. *)
 
-val is_space : char# -> bool
+val skip_token : local_ bytes -> pos:int -> limit:int -> int @@ portable
+(** [skip_token buf ~pos ~limit] is the index of the first byte in
+    [\[pos, limit)] that is not accepted by {!is_token_char}, or [limit] if
+    every byte is. This is the table-driven form of the scan and is what the
+    parser uses; no bounds checking is performed. *)
+
+val is_space : char# -> bool @@ portable
 (** [is_space c] returns [true] if [c] is SP (space) or HTAB (tab). *)
 
-val is_digit : char# -> bool
+val is_digit : char# -> bool @@ portable
 (** [is_digit c] returns [true] if [c] is an ASCII digit 0-9. *)
 
-val digit_value : char# -> int
+val digit_value : char# -> int @@ portable
 (** [digit_value c] returns the numeric value 0-9 if [c] is a digit,
     or -1 if [c] is not a digit. *)
 
-val skip_ows : local_ bytes -> pos:int16# -> len:int16# -> int16#
+val skip_ows : local_ bytes -> pos:int16# -> len:int16# -> int16# @@ portable
 (** [skip_ows buf ~pos ~len] skips optional whitespace (SP/HTAB) starting
     at [pos] and returns the position of the first non-whitespace character.
     Returns [len] if only whitespace remains. *)
 
-val to_lower : char# -> char#
+val to_lower : char# -> char# @@ portable
 (** [to_lower c] converts ASCII uppercase to lowercase. *)
 
-val pp : Stdlib.Format.formatter -> bytes -> unit
+val pp : Stdlib.Format.formatter -> bytes -> unit @@ portable
 (** Pretty-print buffer contents. *)

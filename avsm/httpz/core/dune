@@ -2,6 +2,8 @@
  (name httpz)
  (public_name httpz)
  (modules
+  scan_portable
+  scan
   buf_read
   buf_write
   span
@@ -19,4 +21,16 @@
   date
   range
   httpz)
- (libraries base base_bigstring stdlib_stable stdlib_upstream_compatible unboxed.int32_u unix))
+ (libraries
+  base
+  base_bigstring
+  ocaml_intrinsics_kernel
+  stdlib_stable
+  stdlib_upstream_compatible
+  unboxed.int32_u
+  uriz
+  (select
+   scan.ml
+   from
+   (ocaml_simd.sse -> scan.simd.ml)
+   (-> scan.portable.ml))))

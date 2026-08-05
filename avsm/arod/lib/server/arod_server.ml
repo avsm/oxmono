@@ -21,7 +21,7 @@ let run ~sw:_ ~net ~config ~log routes =
   let socket = Eio.Net.listen net ~sw ~backlog:128 ~reuse_addr:true addr in
   Log.app (fun m ->
       m "Listening on http://%s:%d" config.server.host config.server.port);
-  let on_request (local_ info : Httpz_eio.request_info) =
+  let on_request (local_ info : Httpz_eio_server.request_info) =
     (* Extract values before Logs closure, which captures globally *)
     let meth_s = Httpz.Method.to_string info.meth in
     let path_s = Arod_log.globalize info.path in
@@ -36,4 +36,4 @@ let run ~sw:_ ~net ~config ~log routes =
     Log.err (fun m -> m "Connection error: %s" (Exn.to_string exn))
   in
   Eio.Net.run_server socket ~on_error (fun flow addr ->
-    Httpz_eio.handle_client ~routes ~on_request ~on_error flow addr)
+    Httpz_eio_server.handle_client ~routes ~on_request ~on_error flow addr)

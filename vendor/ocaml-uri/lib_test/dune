@@ -1,0 +1,5 @@
+(test
+ (name test_runner)
+ (package uriz)
+ (modules test_runner)
+ (libraries uriz ounit2))

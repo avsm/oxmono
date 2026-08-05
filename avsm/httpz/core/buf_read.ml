@@ -5,6 +5,7 @@ type status =
   | Partial
   | Invalid_method
   | Invalid_target
+  | Uri_too_long               (* Request-target longer than max_target_length *)
   | Invalid_version
   | Invalid_header
   | Headers_too_large
@@ -20,6 +21,7 @@ let status_to_string = function
   | Partial -> "Partial"
   | Invalid_method -> "Invalid_method"
   | Invalid_target -> "Invalid_target"
+  | Uri_too_long -> "Uri_too_long"
   | Invalid_version -> "Invalid_version"
   | Invalid_header -> "Invalid_header"
   | Headers_too_large -> "Headers_too_large"
@@ -53,12 +55,18 @@ let[@inline always] peek (local_ buf : bytes) (pos : int16#) : char# =
 let[@inline always] ( =. ) (a : char#) (b : char#) = Char_u.equal a b
 let[@inline always] ( <>. ) (a : char#) (b : char#) = not (Char_u.equal a b)
 
-let[@inline always] is_token_char (c : char#) =
-  match c with
-  | #'a' .. #'z' | #'A' .. #'Z' | #'0' .. #'9' -> true
-  | #'!' | #'#' | #'$' | #'%' | #'&' | #'\'' | #'*' | #'+' | #'-' | #'.' -> true
-  | #'^' | #'_' | #'`' | #'|' | #'~' -> true
-  | _ -> false
+(* Both defined in {!Scan_portable}, so that {!Scan} can vectorise
+   [skip_token] over the same character class and fall back to the scalar
+   table loop for the sub-16-byte tail. *)
+let[@inline always] is_token_char (c : char#) = Scan_portable.is_token_char c
+
+(* Index of the first byte in [pos, limit) that is not a token character, or
+   [limit] if there is none. No bounds checking is performed.
+
+   {!Scan.skip_token} dispatches to the scalar loop itself when fewer than
+   sixteen bytes remain. *)
+let[@inline always] skip_token (local_ buf : bytes) ~pos ~limit =
+  Scan.skip_token buf ~pos ~limit
 ;;
 
 let[@inline always] is_space (c : char#) =
@@ -98,7 +106,12 @@ let[@inline always] to_lower (c : char#) : char# =
 
 (* Find CRLF and check for bare CR in one pass.
    Returns #(crlf_pos, has_bare_cr) where crlf_pos is -1 if not found.
-   A bare CR is any CR not immediately followed by LF (RFC 7230 Section 3.5). *)
+   A bare CR is any CR not immediately followed by LF (RFC 7230 Section 3.5).
+
+   The scan between candidate CRs is delegated to {!Scan.find_cr}, which
+   examines sixteen bytes at a time. Each CR is then classified here: followed
+   by LF it ends the line, otherwise it is a bare CR and the search continues
+   past it. A CR in the final byte cannot be followed by LF, so it is bare. *)
 let find_crlf_check_bare_cr (local_ buf : bytes) ~(pos : int16#) ~(len : int16#)
   : #(int16# * bool) =
   let pos = to_int pos in
@@ -106,30 +119,29 @@ let find_crlf_check_bare_cr (local_ buf : bytes) ~(pos : int16#) ~(len : int16#)
   if len - pos < 2
   then #(i16 (-1), false)
   else (
-    let mutable p = pos in
-    let mutable found_crlf = false in
-    let mutable found_bare_cr = false in
     let last_check = len - 2 in
-    while (not found_crlf) && p <= last_check do
-      let c = peek buf (i16 p) in
-      if c =. #'\r' then (
-        (* Check if followed by LF *)
-        if peek buf (i16 (p + 1)) =. #'\n'
-        then found_crlf <- true  (* Valid CRLF - stop here *)
-        else (
-          found_bare_cr <- true;  (* Bare CR detected *)
-          p <- p + 1
-        )
-      ) else
-        p <- p + 1
+    let mutable p = pos in
+    let mutable crlf_pos = -1 in
+    let mutable found_bare_cr = false in
+    let mutable stop = false in
+    while not stop do
+      let cr = Scan.find_cr buf ~pos:p ~limit:len in
+      if cr >= len
+      then stop <- true (* no CR at all *)
+      else if cr > last_check
+      then (
+        (* CR is the last byte: nothing can follow it *)
+        found_bare_cr <- true;
+        stop <- true)
+      else if peek buf (i16 (cr + 1)) =. #'\n'
+      then (
+        crlf_pos <- cr;
+        stop <- true)
+      else (
+        found_bare_cr <- true;
+        p <- cr + 1)
     done;
-    (* Check final position for lone CR at end *)
-    if (not found_crlf) && (not found_bare_cr) && p = last_check + 1 && p < len then (
-      if peek buf (i16 p) =. #'\r' then
-        found_bare_cr <- true
-    );
-    let crlf_pos = if found_crlf then i16 p else i16 (-1) in
-    #(crlf_pos, found_bare_cr))
+    #(i16 crlf_pos, found_bare_cr))
 ;;
 
 let pp fmt _t = Stdlib.Format.fprintf fmt "<buffer %d bytes>" buffer_size
@@ -140,6 +152,7 @@ type limits =
    ; max_header_size : int16#     (* Default: 16KB - size of all headers combined *)
    ; max_header_count : int16#    (* Default: 100 *)
    ; max_chunk_size : int         (* Default: 16MB *)
+   ; max_target_length : int16#   (* Default: 8KB *)
    }
 
 let default_limits =
@@ -147,5 +160,6 @@ let default_limits =
    ; max_header_size = i16 16384       (* 16KB *)
    ; max_header_count = i16 100
    ; max_chunk_size = 16777216         (* 16MB *)
+   ; max_target_length = i16 8192      (* 8KB *)
    }
 

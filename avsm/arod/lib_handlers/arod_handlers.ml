@@ -5,7 +5,7 @@
 
 (** Pure route handlers for arod using context-based state *)
 
-module R = Httpz_server.Route
+module R = Httpz_route
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module C = Arod_component
@@ -106,7 +106,7 @@ let mime_type_of_path path =
   else if String.ends_with ~suffix:".webmanifest" path then "application/manifest+json"
   else "application/octet-stream"
 
-let static_file ~dir path rctx (local_ respond) =
+let static_file ~dir path (local_ rctx) (local_ respond) =
   match Eio.Path.load Eio.Path.(dir / path) with
   | content ->
     let mime = mime_type_of_path path in
@@ -116,7 +116,7 @@ let static_file ~dir path rctx (local_ respond) =
 
 (** {1 Embedded Asset Serving} *)
 
-let embedded_file path rctx (local_ respond) =
+let embedded_file path (local_ rctx) (local_ respond) =
   match Arod_assets.read path with
   | Some content ->
     let mime = mime_type_of_path path in
@@ -209,7 +209,7 @@ let negotiated ~cache ~key rctx accept ~html_fn ~md_fn (local_ respond) =
 
 (** {1 Cached Content Handlers} *)
 
-let index ~ctx ~cache accept rctx (local_ respond) =
+let index ~ctx ~cache accept (local_ rctx) (local_ respond) =
   let key = "/" in
   negotiated ~cache ~key rctx accept
     ~html_fn:(fun () ->
@@ -233,7 +233,7 @@ let index ~ctx ~cache accept rctx (local_ respond) =
     ~md_fn:(fun () -> C.Markdown_export.index_md ~ctx)
   respond
 
-let papers_list ~ctx ~cache accept rctx (local_ respond) =
+let papers_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
   let key = "/papers" in
   negotiated ~cache ~key rctx accept
     ~html_fn:(fun () ->
@@ -249,7 +249,7 @@ let papers_list ~ctx ~cache accept rctx (local_ respond) =
     ~md_fn:(fun () -> C.Markdown_export.papers_list_md ~ctx)
   respond
 
-let paper ~ctx ~cache ~papers_dir slug accept rctx (local_ respond) =
+let paper ~ctx ~cache ~papers_dir slug accept (local_ rctx) (local_ respond) =
   let cfg = Arod.Ctx.config ctx in
   match slug with
   | slug when String.ends_with ~suffix:".pdf" slug ->
@@ -328,7 +328,7 @@ let paper ~ctx ~cache ~papers_dir slug accept rctx (local_ respond) =
         | Some ent -> C.Markdown_export.entry_to_markdown ~ctx ent)
     respond
 
-let notes_list ~ctx ~cache accept rctx (local_ respond) =
+let notes_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
   let key = "/notes" in
   negotiated ~cache ~key rctx accept
     ~html_fn:(fun () ->
@@ -344,7 +344,7 @@ let notes_list ~ctx ~cache accept rctx (local_ respond) =
     ~md_fn:(fun () -> C.Markdown_export.notes_list_md ~ctx)
   respond
 
-let note ~ctx ~cache slug accept rctx (local_ respond) =
+let note ~ctx ~cache slug accept (local_ rctx) (local_ respond) =
   if String.ends_with ~suffix:".md" slug then
     let real_slug = Filename.chop_extension slug in
     match Arod.Ctx.lookup ctx real_slug with
@@ -405,7 +405,7 @@ let note ~ctx ~cache slug accept rctx (local_ respond) =
       | Some ent -> C.Markdown_export.entry_to_markdown ~ctx ent)
   respond
 
-let ideas_list ~ctx ~cache accept rctx (local_ respond) =
+let ideas_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
   let key = "/ideas" in
   negotiated ~cache ~key rctx accept
     ~html_fn:(fun () ->
@@ -421,7 +421,7 @@ let ideas_list ~ctx ~cache accept rctx (local_ respond) =
     ~md_fn:(fun () -> C.Markdown_export.ideas_list_md ~ctx)
   respond
 
-let idea ~ctx ~cache slug accept rctx (local_ respond) =
+let idea ~ctx ~cache slug accept (local_ rctx) (local_ respond) =
   if String.ends_with ~suffix:".md" slug then
     let real_slug = Filename.chop_extension slug in
     match Arod.Ctx.lookup ctx real_slug with
@@ -468,7 +468,7 @@ let idea ~ctx ~cache slug accept rctx (local_ respond) =
       | Some ent -> C.Markdown_export.entry_to_markdown ~ctx ent)
   respond
 
-let projects_list ~ctx ~cache accept rctx (local_ respond) =
+let projects_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
   let key = "/projects" in
   negotiated ~cache ~key rctx accept
     ~html_fn:(fun () ->
@@ -484,7 +484,7 @@ let projects_list ~ctx ~cache accept rctx (local_ respond) =
     ~md_fn:(fun () -> C.Markdown_export.projects_list_md ~ctx)
   respond
 
-let project ~ctx ~cache slug accept rctx (local_ respond) =
+let project ~ctx ~cache slug accept (local_ rctx) (local_ respond) =
   if String.ends_with ~suffix:".md" slug then
     let real_slug = Filename.chop_extension slug in
     match Arod.Ctx.lookup ctx real_slug with
@@ -527,7 +527,7 @@ let project ~ctx ~cache slug accept rctx (local_ respond) =
       | Some ent -> C.Markdown_export.entry_to_markdown ~ctx ent)
   respond
 
-let videos_list ~ctx ~cache accept rctx (local_ respond) =
+let videos_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
   let key = "/videos" in
   negotiated ~cache ~key rctx accept
     ~html_fn:(fun () ->
@@ -543,7 +543,7 @@ let videos_list ~ctx ~cache accept rctx (local_ respond) =
     ~md_fn:(fun () -> C.Markdown_export.videos_list_md ~ctx)
   respond
 
-let video ~ctx ~cache slug accept rctx (local_ respond) =
+let video ~ctx ~cache slug accept (local_ rctx) (local_ respond) =
   if String.ends_with ~suffix:".md" slug then
     let real_slug = Filename.chop_extension slug in
     match Arod.Ctx.lookup ctx real_slug with
@@ -588,7 +588,7 @@ let video ~ctx ~cache slug accept rctx (local_ respond) =
       | Some ent -> C.Markdown_export.entry_to_markdown ~ctx ent)
   respond
 
-let content ~ctx ~cache slug accept rctx (local_ respond) =
+let content ~ctx ~cache slug accept (local_ rctx) (local_ respond) =
   if String.ends_with ~suffix:".md" slug then
     let real_slug = Filename.chop_extension slug in
     match Arod.Ctx.lookup ctx real_slug with
@@ -614,7 +614,7 @@ let content ~ctx ~cache slug accept rctx (local_ respond) =
 let news_redirect slug _rctx (local_ respond) =
   R.redirect respond ~status:Httpz.Res.Moved_permanently ~location:("/notes/" ^ slug)
 
-let links_list ~ctx ~cache accept rctx (local_ respond) =
+let links_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
   let key = "/links" in
   negotiated ~cache ~key rctx accept
     ~html_fn:(fun () ->
@@ -623,7 +623,7 @@ let links_list ~ctx ~cache accept rctx (local_ respond) =
     ~md_fn:(fun () -> C.Markdown_export.links_list_md ~ctx)
   respond
 
-let network_page ~ctx ~cache accept rctx (local_ respond) =
+let network_page ~ctx ~cache accept (local_ rctx) (local_ respond) =
   let key = "/network" in
   negotiated ~cache ~key rctx accept
     ~html_fn:(fun () ->
@@ -672,7 +672,7 @@ let cached_json ~cache ~key rctx f (local_ respond) =
                    (Httpz.Header_name.X_cache, "miss")]
         (R.String json)
 
-let atom_feed ~ctx ~cache rctx (local_ respond) =
+let atom_feed ~ctx ~cache (local_ rctx) (local_ respond) =
   let path = R.path rctx in
   let key = "feed:" ^ path in
   cached_atom ~cache ~key rctx (fun () ->
@@ -681,7 +681,7 @@ let atom_feed ~ctx ~cache rctx (local_ respond) =
     Arod.Feed.feed_string ~ctx cfg path feed
   ) respond
 
-let json_feed ~ctx ~cache rctx (local_ respond) =
+let json_feed ~ctx ~cache (local_ rctx) (local_ respond) =
   let key = "feed:/feed.json" in
   cached_json ~cache ~key rctx (fun () ->
     let cfg = Arod.Ctx.config ctx in
@@ -689,7 +689,7 @@ let json_feed ~ctx ~cache rctx (local_ respond) =
     Arod.Jsonfeed.feed_string ~ctx cfg "/feed.json" feed
   ) respond
 
-let perma_atom ~ctx ~cache rctx (local_ respond) =
+let perma_atom ~ctx ~cache (local_ rctx) (local_ respond) =
   let key = "feed:/perma.xml" in
   cached_atom ~cache ~key rctx (fun () ->
     let cfg = Arod.Ctx.config ctx in
@@ -697,7 +697,7 @@ let perma_atom ~ctx ~cache rctx (local_ respond) =
     Arod.Feed.feed_string ~ctx cfg "/perma.xml" feed
   ) respond
 
-let perma_json ~ctx ~cache rctx (local_ respond) =
+let perma_json ~ctx ~cache (local_ rctx) (local_ respond) =
   let key = "feed:/perma.json" in
   cached_json ~cache ~key rctx (fun () ->
     let cfg = Arod.Ctx.config ctx in
@@ -707,7 +707,7 @@ let perma_json ~ctx ~cache rctx (local_ respond) =
 
 (** {1 Utility Handlers (Dynamic - not cached)} *)
 
-let sitemap ~ctx rctx (local_ respond) =
+let sitemap ~ctx (local_ rctx) (local_ respond) =
   R.xml_gen rctx respond (fun () ->
     let cfg = Arod.Ctx.config ctx in
     let all_feed =
@@ -723,7 +723,7 @@ let sitemap ~ctx rctx (local_ respond) =
     List.map url_of_entry all_feed |> Sitemap.output
   )
 
-let blogroll_opml ~ctx rctx (local_ respond) =
+let blogroll_opml ~ctx (local_ rctx) (local_ respond) =
   let module Contact = Sortal_schema.Contact in
   let module Feed = Sortal_schema.Feed in
   let contacts = Arod.Ctx.contacts ctx in
@@ -766,21 +766,25 @@ let slice_list offset limit l =
 
 let error_json msg = Ezjsonm.to_string (`O [ ("error", `String msg) ])
 
-let pagination_api ~ctx rctx (local_ respond) =
+let pagination_api ~ctx (local_ rctx) (local_ respond) =
+  (* json_gen's generator closure is global, so read the (local) route ctx
+     before entering it *)
+  let collection = R.query_param rctx "collection" in
+  let offset =
+    match R.query_param rctx "offset" with
+    | Some o -> (match int_of_string_opt o with Some n -> max 0 n | None -> 0)
+    | None -> 0
+  in
+  let limit =
+    match R.query_param rctx "limit" with
+    | Some l -> (match int_of_string_opt l with Some n -> min 100 (max 1 n) | None -> 25)
+    | None -> 25
+  in
+  let type_strings = R.query_params rctx "type" in
   R.json_gen rctx respond (fun () ->
-    match R.query_param rctx "collection" with
+    match collection with
     | None -> error_json "Missing collection parameter"
     | Some collection_type ->
-    let offset =
-      match R.query_param rctx "offset" with
-      | Some o -> (match int_of_string_opt o with Some n -> max 0 n | None -> 0)
-      | None -> 0
-    in
-    let limit =
-      match R.query_param rctx "limit" with
-      | Some l -> (match int_of_string_opt l with Some n -> min 100 (max 1 n) | None -> 25)
-      | None -> 25
-    in
     match collection_type with
     | "links" ->
       let all = C.Links.all_groups ~ctx in
@@ -819,7 +823,6 @@ let pagination_api ~ctx rctx (local_ respond) =
       in
       Ezjsonm.to_string json
     | ("feed" | "entries") as collection_type ->
-      let type_strings = R.query_params rctx "type" in
       let types = List.filter_map C.List_view.entry_type_of_string type_strings in
       let all_items = C.List_view.get_entries ~ctx ~types in
       let total = List.length all_items in
@@ -845,13 +848,13 @@ let pagination_api ~ctx rctx (local_ respond) =
     | _ -> error_json "Invalid collection type"
   )
 
-let well_known ~ctx key rctx (local_ respond) =
+let well_known ~ctx key (local_ rctx) (local_ respond) =
   let cfg = Arod.Ctx.config ctx in
   match List.find_opt (fun e -> e.Arod.Config.key = key) cfg.well_known with
   | Some entry -> R.plain_gen rctx respond (fun () -> entry.value)
   | None -> not_found respond
 
-let robots_txt ~ctx rctx (local_ respond) =
+let robots_txt ~ctx (local_ rctx) (local_ respond) =
   let cfg = Arod.Ctx.config ctx in
   R.plain_gen rctx respond (fun () ->
     Printf.sprintf "User-agent: *\nAllow: /\n\nSitemap: %s/sitemap.xml\n"
@@ -859,12 +862,14 @@ let robots_txt ~ctx rctx (local_ respond) =
 
 (** {1 Search API} *)
 
-let search_api ~ctx ~search rctx (local_ respond) =
+let search_api ~ctx ~search (local_ rctx) (local_ respond) =
+  (* json_gen's generator closure is global, so read the (local) route ctx
+     before entering it *)
+  let q = match R.query_param rctx "q" with Some q -> q | None -> "" in
+  let limit = match R.query_param rctx "limit" with
+    | Some l -> (match int_of_string_opt l with Some n -> min 100 (max 1 n) | None -> 20)
+    | None -> 20 in
   R.json_gen rctx respond (fun () ->
-    let q = match R.query_param rctx "q" with Some q -> q | None -> "" in
-    let limit = match R.query_param rctx "limit" with
-      | Some l -> (match int_of_string_opt l with Some n -> min 100 (max 1 n) | None -> 20)
-      | None -> 20 in
     Logs.info (fun m -> m "Search API: q=%S limit=%d" q limit);
     if q = "" then {|{"results":[]}|}
     else

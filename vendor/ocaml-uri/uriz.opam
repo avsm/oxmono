@@ -1,0 +1,30 @@
+opam-version: "2.0"
+name: "uriz"
+maintainer: "anil@recoil.org"
+authors: ["Anil Madhavapeddy" "David Sheets" "Rudi Grinberg"]
+license: "ISC"
+tags: ["url" "uri" "oxcaml" "org:mirage" "org:xapi-project"]
+homepage: "https://github.com/mirage/ocaml-uri"
+bug-reports: "https://github.com/mirage/ocaml-uri/issues"
+dev-repo: "git+https://github.com/mirage/ocaml-uri.git"
+doc: "https://mirage.github.io/ocaml-uri/"
+synopsis:
+  "OxCaml-native zero-allocation RFC 3986 URI library, derived from ocaml-uri"
+description: """
+uriz is an OxCaml-native implementation of the
+[RFC 3986](http://tools.ietf.org/html/rfc3986) URI specification, derived from
+[ocaml-uri](https://github.com/mirage/ocaml-uri).
+"""
+depends: [
+  "oxcaml-compiler" {>= "5.2.0minus39"}
+  "dune" {>= "3.0"}
+  "base"
+  "ppx_template"
+  "ounit2" {with-test & >= "1.0.2"}
+  "crowbar" {with-test & >= "0.2"}
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test & os != "macos"}
+]
+x-maintenance-intent: [ "(latest)" ]

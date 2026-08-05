@@ -101,7 +101,7 @@ let create ~sw path =
   );
   { db }
 
-let log_request t (local_ info : Httpz_eio.request_info) =
+let log_request t (local_ info : Httpz_eio_server.request_info) =
   (* Globalize all local string fields before binding to SQLite *)
   let timestamp = F64.to_float info.timestamp in
   let remote_addr = globalize info.remote_addr in

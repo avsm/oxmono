@@ -90,8 +90,8 @@ val find_map : url_map list -> string -> (url_map * string) option
 
 type response = {
   status : Httpz.Res.status;
-  resp_headers : Httpz_server.Route.resp_header list;
-  body : Httpz_server.Route.body;
+  resp_headers : Httpz_route.resp_header list;
+  body : Httpz_route.body;
 }
 (** Response data returned by {!handle_request}. *)
 

@@ -180,160 +180,108 @@ let lowercase = function
   | Other -> ""
 ;;
 
-(* Parse header name from span. TODO: replace with a DFA *)
+(* Parse header name from span.
+
+   Dispatch is on the pair of the name's length and its ASCII-folded first
+   byte, which the compiler turns into a switch. Across the table below that
+   pair leaves at most three candidates (only "content-*" at length 16), so
+   nearly every name costs a single {!Span.equal_caseless} - itself
+   word-at-a-time - rather than walking a chain of up to six. *)
 let of_span (local_ buf : bytes) (sp : Span.t) : t =
-  match Span.len sp with
-  | 2 ->
-    if Span.equal_caseless buf sp "if"
-    then If
-    else Other
-  | 3 ->
-    if Span.equal_caseless buf sp "age"
-    then Age
-    else if Span.equal_caseless buf sp "via"
-    then Via
-    else if Span.equal_caseless buf sp "dav"
-    then Dav
-    else Other
-  | 4 ->
-    if Span.equal_caseless buf sp "date"
-    then Date
-    else if Span.equal_caseless buf sp "etag"
-    then Etag
-    else if Span.equal_caseless buf sp "host"
-    then Host
-    else if Span.equal_caseless buf sp "vary"
-    then Vary
-    else Other
-  | 5 ->
-    if Span.equal_caseless buf sp "allow"
-    then Allow
-    else if Span.equal_caseless buf sp "range"
-    then Range
-    else if Span.equal_caseless buf sp "depth"
-    then Depth
-    else Other
-  | 6 ->
-    if Span.equal_caseless buf sp "accept"
-    then Accept
-    else if Span.equal_caseless buf sp "cookie"
-    then Cookie
-    else if Span.equal_caseless buf sp "expect"
-    then Expect
-    else if Span.equal_caseless buf sp "server"
-    then Server
-    else Other
-  | 7 ->
-    if Span.equal_caseless buf sp "expires"
-    then Expires
-    else if Span.equal_caseless buf sp "referer"
-    then Referer
-    else if Span.equal_caseless buf sp "upgrade"
-    then Upgrade
-    else if Span.equal_caseless buf sp "x-cache"
-    then X_cache
-    else Other
-  | 8 ->
-    if Span.equal_caseless buf sp "if-match"
-    then If_match
-    else if Span.equal_caseless buf sp "if-range"
-    then If_range
-    else if Span.equal_caseless buf sp "location"
-    then Location
-    else Other
-  | 9 ->
-    if Span.equal_caseless buf sp "overwrite"
-    then Overwrite
-    else Other
-  | 10 ->
-    if Span.equal_caseless buf sp "connection"
-    then Connection
-    else if Span.equal_caseless buf sp "set-cookie"
-    then Set_cookie
-    else if Span.equal_caseless buf sp "user-agent"
-    then User_agent
-    else if Span.equal_caseless buf sp "lock-token"
-    then Lock_token
-    else Other
-  | 11 ->
-    if Span.equal_caseless buf sp "retry-after"
-    then Retry_after
-    else if Span.equal_caseless buf sp "destination"
-    then Destination
-    else Other
-  | 12 ->
-    if Span.equal_caseless buf sp "content-type"
-    then Content_type
-    else if Span.equal_caseless buf sp "x-request-id"
-    then X_request_id
-    else Other
-  | 13 ->
-    if Span.equal_caseless buf sp "accept-ranges"
-    then Accept_ranges
-    else if Span.equal_caseless buf sp "authorization"
-    then Authorization
-    else if Span.equal_caseless buf sp "cache-control"
-    then Cache_control
-    else if Span.equal_caseless buf sp "content-range"
-    then Content_range
-    else if Span.equal_caseless buf sp "if-none-match"
-    then If_none_match
-    else if Span.equal_caseless buf sp "last-modified"
-    then Last_modified
-    else Other
-  | 14 ->
-    if Span.equal_caseless buf sp "accept-charset"
-    then Accept_charset
-    else if Span.equal_caseless buf sp "content-length"
-    then Content_length
-    else Other
-  | 15 ->
-    if Span.equal_caseless buf sp "accept-encoding"
-    then Accept_encoding
-    else if Span.equal_caseless buf sp "accept-language"
-    then Accept_language
-    else if Span.equal_caseless buf sp "x-forwarded-for"
-    then X_forwarded_for
-    else Other
-  | 16 ->
-    if Span.equal_caseless buf sp "content-encoding"
-    then Content_encoding
-    else if Span.equal_caseless buf sp "content-language"
-    then Content_language
-    else if Span.equal_caseless buf sp "content-location"
-    then Content_location
-    else if Span.equal_caseless buf sp "www-authenticate"
-    then Www_authenticate
-    else if Span.equal_caseless buf sp "x-forwarded-host"
-    then X_forwarded_host
-    else if Span.equal_caseless buf sp "x-correlation-id"
-    then X_correlation_id
-    else Other
-  | 17 ->
-    if Span.equal_caseless buf sp "if-modified-since"
-    then If_modified_since
-    else if Span.equal_caseless buf sp "transfer-encoding"
-    then Transfer_encoding
-    else if Span.equal_caseless buf sp "x-forwarded-proto"
-    then X_forwarded_proto
-    else Other
-  | 19 ->
-    if Span.equal_caseless buf sp "content-disposition"
-    then Content_disposition
-    else if Span.equal_caseless buf sp "if-unmodified-since"
-    then If_unmodified_since
-    else Other
-  | 27 ->
-    if Span.equal_caseless buf sp "access-control-allow-origin"
-    then Access_control_allow_origin
-    else Other
-  | 28 ->
-    if Span.equal_caseless buf sp "access-control-allow-methods"
-    then Access_control_allow_methods
-    else if Span.equal_caseless buf sp "access-control-allow-headers"
-    then Access_control_allow_headers
-    else Other
-  | _ -> Other
+  let n = Span.len sp in
+  if n < 2 || n > 28
+  then Other
+  else (
+    let c0 =
+      match Bytes.unsafe_get buf (Span.off sp) with
+      | 'A' .. 'Z' as c -> Char.unsafe_chr (Char.code c + 32)
+      | c -> c
+    in
+    let[@inline] eq lit = Span.equal_caseless buf sp lit in
+    match n, c0 with
+    | 2, 'i' -> if eq "if" then If else Other
+    | 3, 'a' -> if eq "age" then Age else Other
+    | 3, 'v' -> if eq "via" then Via else Other
+    | 3, 'd' -> if eq "dav" then Dav else Other
+    | 4, 'd' -> if eq "date" then Date else Other
+    | 4, 'e' -> if eq "etag" then Etag else Other
+    | 4, 'h' -> if eq "host" then Host else Other
+    | 4, 'v' -> if eq "vary" then Vary else Other
+    | 5, 'a' -> if eq "allow" then Allow else Other
+    | 5, 'r' -> if eq "range" then Range else Other
+    | 5, 'd' -> if eq "depth" then Depth else Other
+    | 6, 'a' -> if eq "accept" then Accept else Other
+    | 6, 'c' -> if eq "cookie" then Cookie else Other
+    | 6, 'e' -> if eq "expect" then Expect else Other
+    | 6, 's' -> if eq "server" then Server else Other
+    | 7, 'e' -> if eq "expires" then Expires else Other
+    | 7, 'r' -> if eq "referer" then Referer else Other
+    | 7, 'u' -> if eq "upgrade" then Upgrade else Other
+    | 7, 'x' -> if eq "x-cache" then X_cache else Other
+    | 8, 'i' ->
+      if eq "if-match" then If_match else if eq "if-range" then If_range else Other
+    | 8, 'l' -> if eq "location" then Location else Other
+    | 9, 'o' -> if eq "overwrite" then Overwrite else Other
+    | 10, 'c' -> if eq "connection" then Connection else Other
+    | 10, 's' -> if eq "set-cookie" then Set_cookie else Other
+    | 10, 'u' -> if eq "user-agent" then User_agent else Other
+    | 10, 'l' -> if eq "lock-token" then Lock_token else Other
+    | 11, 'r' -> if eq "retry-after" then Retry_after else Other
+    | 11, 'd' -> if eq "destination" then Destination else Other
+    | 12, 'c' -> if eq "content-type" then Content_type else Other
+    | 12, 'x' -> if eq "x-request-id" then X_request_id else Other
+    | 13, 'a' ->
+      if eq "accept-ranges"
+      then Accept_ranges
+      else if eq "authorization"
+      then Authorization
+      else Other
+    | 13, 'c' ->
+      if eq "cache-control"
+      then Cache_control
+      else if eq "content-range"
+      then Content_range
+      else Other
+    | 13, 'i' -> if eq "if-none-match" then If_none_match else Other
+    | 13, 'l' -> if eq "last-modified" then Last_modified else Other
+    | 14, 'a' -> if eq "accept-charset" then Accept_charset else Other
+    | 14, 'c' -> if eq "content-length" then Content_length else Other
+    | 15, 'a' ->
+      if eq "accept-encoding"
+      then Accept_encoding
+      else if eq "accept-language"
+      then Accept_language
+      else Other
+    | 15, 'x' -> if eq "x-forwarded-for" then X_forwarded_for else Other
+    | 16, 'c' ->
+      if eq "content-encoding"
+      then Content_encoding
+      else if eq "content-language"
+      then Content_language
+      else if eq "content-location"
+      then Content_location
+      else Other
+    | 16, 'w' -> if eq "www-authenticate" then Www_authenticate else Other
+    | 16, 'x' ->
+      if eq "x-forwarded-host"
+      then X_forwarded_host
+      else if eq "x-correlation-id"
+      then X_correlation_id
+      else Other
+    | 17, 'i' -> if eq "if-modified-since" then If_modified_since else Other
+    | 17, 't' -> if eq "transfer-encoding" then Transfer_encoding else Other
+    | 17, 'x' -> if eq "x-forwarded-proto" then X_forwarded_proto else Other
+    | 19, 'c' -> if eq "content-disposition" then Content_disposition else Other
+    | 19, 'i' -> if eq "if-unmodified-since" then If_unmodified_since else Other
+    | 27, 'a' ->
+      if eq "access-control-allow-origin" then Access_control_allow_origin else Other
+    | 28, 'a' ->
+      if eq "access-control-allow-methods"
+      then Access_control_allow_methods
+      else if eq "access-control-allow-headers"
+      then Access_control_allow_headers
+      else Other
+    | _, _ -> Other)
 ;;
 
 let pp fmt t =

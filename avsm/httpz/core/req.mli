@@ -22,6 +22,13 @@
     These headers are {b excluded} from the returned [headers] list since
     they're already in the request struct.
 
+    {2 Target}
+
+    {!path} and {!query} are the request-target already split, so a router
+    does not rescan it. {!Target.parse} on {!target} is still there for the
+    scheme, host and port of an absolute- or authority-form target, which no
+    origin server needs.
+
     {2 Body Access}
 
     Use {!body_span} to get the request body when it's fully available in
@@ -44,6 +51,14 @@ type t =
        (** HTTP method (GET, POST, etc.) *)
    ; target : Span.t
        (** Request target span (e.g., "/path?query") *)
+   ; path : Span.t
+       (** Path part of {!target}, including the leading slash. The parser
+           validates the target against the RFC 3986 grammar in order to
+           accept the request at all, so this is that split rather than a
+           second scan. *)
+   ; query : Span.t
+       (** Query part of {!target}, excluding the ['?']. Zero-length when the
+           target has no query. Not percent-decoded. *)
    ; version : Version.t
        (** HTTP version (1.0 or 1.1) *)
    ; body_off : int16#
@@ -66,7 +81,7 @@ type t =
 
 (** {1 Body Access} *)
 
-val body_in_buffer : len:int16# -> t @ local -> bool
+val body_in_buffer : len:int16# -> t @ local -> bool @@ portable
 (** [body_in_buffer ~len req] returns [true] if the complete body is
     available in the buffer.
 
@@ -84,7 +99,7 @@ val body_in_buffer : len:int16# -> t @ local -> bool
         handle_complete_body buf body
     ]} *)
 
-val body_span : len:int16# -> t @ local -> Span.t
+val body_span : len:int16# -> t @ local -> Span.t @@ portable
 (** [body_span ~len req] returns a span covering the request body.
 
     {b Precondition:} Only valid if {!body_in_buffer} returns [true].
@@ -99,7 +114,7 @@ val body_span : len:int16# -> t @ local -> Span.t
         process body_str
     ]} *)
 
-val body_bytes_needed : len:int16# -> t @ local -> int16#
+val body_bytes_needed : len:int16# -> t @ local -> int16# @@ portable
 (** [body_bytes_needed ~len req] returns how many more bytes are needed.
 
     Returns:
@@ -116,10 +131,10 @@ val body_bytes_needed : len:int16# -> t @ local -> int16#
 
 (** {1 Pretty Printing} *)
 
-val pp : Stdlib.Format.formatter -> t -> unit
+val pp : Stdlib.Format.formatter -> t -> unit @@ portable
 (** [pp fmt req] prints the request structure (offsets and flags). *)
 
-val pp_with_buf : bytes -> Stdlib.Format.formatter -> t -> unit
+val pp_with_buf : bytes -> Stdlib.Format.formatter -> t -> unit @@ portable
 (** [pp_with_buf buf fmt req] prints the request with actual values from [buf].
 
     Shows method, target path, version, and content headers. *)

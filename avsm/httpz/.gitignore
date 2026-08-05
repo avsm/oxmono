@@ -2,3 +2,4 @@ _build/
 *.install
 .*.swp
 .claude
+ocaml-uri

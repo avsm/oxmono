@@ -12,6 +12,8 @@ let[@inline always] to_int x = I16.to_int x
 type t =
   #{ meth : Method.t
    ; target : Span.t
+   ; path : Span.t
+   ; query : Span.t
    ; version : Version.t
    ; body_off : int16#
    ; content_length : int64#
@@ -20,39 +22,43 @@ type t =
    ; expect_continue : bool
    }
 
-(* Helper to get body length and end position for non-chunked requests.
-   Returns None if content_length <= 0, Some (body_len, body_end) otherwise. *)
-let[@inline] body_bounds ~(len : int16#) (req : t @ local) =
+(* Body length and end position for non-chunked requests. A negative
+   [body_len] stands in for "no body" (content_length <= 0); returning an
+   unboxed tuple rather than [Some (..., ..., ...)] keeps this off the heap,
+   since flambda2 unboxes the [option] but not the tuple inside it. *)
+let[@inline] body_bounds ~(len : int16#) (req : t @ local) : #(int * int * bool) =
   let cl = req.#content_length in
   let buf_len = to_int len in
-  if I64.compare cl #0L <= 0 then None
+  if I64.compare cl #0L <= 0 then #(-1, 0, false)
   else
     let body_len = I64.to_int cl in
     let body_end = to_int req.#body_off + body_len in
-    Some (body_len, body_end, body_end <= buf_len)
+    #(body_len, body_end, body_end <= buf_len)
 ;;
 
-let body_in_buffer ~(len : int16#) (req : t @ local) =
+let[@zero_alloc] body_in_buffer ~(len : int16#) (req : t @ local) =
   if req.#is_chunked then false
-  else match body_bounds ~len req with
-    | None -> true
-    | Some (_, _, in_buffer) -> in_buffer
+  else
+    let #(body_len, _, in_buffer) = body_bounds ~len req in
+    body_len < 0 || in_buffer
 ;;
 
-let body_span ~(len : int16#) (req : t @ local) =
+(* [opt]: this is zero-alloc only once [Span.make] is inlined, which the dev
+   profile's [-opaque] prevents. Checked in release/optimized builds. *)
+let[@zero_alloc opt] body_span ~(len : int16#) (req : t @ local) =
   if req.#is_chunked then Span.make ~off:(i16 0) ~len:(i16 (-1))
-  else match body_bounds ~len req with
-    | None -> Span.make ~off:req.#body_off ~len:(i16 0)
-    | Some (body_len, _, true) -> Span.make ~off:req.#body_off ~len:(i16 body_len)
-    | Some (_, _, false) -> Span.make ~off:(i16 0) ~len:(i16 (-1))
+  else
+    let #(body_len, _, in_buffer) = body_bounds ~len req in
+    if body_len < 0 then Span.make ~off:req.#body_off ~len:(i16 0)
+    else if in_buffer then Span.make ~off:req.#body_off ~len:(i16 body_len)
+    else Span.make ~off:(i16 0) ~len:(i16 (-1))
 ;;
 
-let body_bytes_needed ~(len : int16#) (req : t @ local) : int16# =
+let[@zero_alloc] body_bytes_needed ~(len : int16#) (req : t @ local) : int16# =
   if req.#is_chunked then i16 (-1)
-  else match body_bounds ~len req with
-    | None -> i16 0
-    | Some (_, _, true) -> i16 0
-    | Some (_, body_end, false) -> i16 (body_end - to_int len)
+  else
+    let #(body_len, body_end, in_buffer) = body_bounds ~len req in
+    if body_len < 0 || in_buffer then i16 0 else i16 (body_end - to_int len)
 ;;
 
 let pp_with_buf (buf : bytes) fmt (req : t) =

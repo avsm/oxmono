@@ -1,4 +1,0 @@
-(library
- (name webdavz)
- (public_name httpz.webdav)
- (libraries httpz httpz.server xmlm base unix))

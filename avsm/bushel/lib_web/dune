@@ -8,8 +8,8 @@
   tw
   tw.html
   httpz
-  httpz.server
-  httpz.eio
+  httpz.route
+  httpz.eio_server
   cmarkit
   srcsetter
   sortal.schema

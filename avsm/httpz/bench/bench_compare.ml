@@ -157,11 +157,12 @@ module Httpz_bench = struct
   let limits = Httpz.default_limits
   let i16 = Httpz.Buf_read.i16
 
+  (* Blit rather than a bounds-checked byte loop: at ~0.8ns/byte the loop was
+     roughly two thirds of the reported time for the large request, which hid
+     changes to the parser itself. *)
   let copy_to_buffer s =
     let len = String.length s in
-    for i = 0 to len - 1 do
-      Bytes.set httpz_buf i (String.get s i)
-    done;
+    Bytes.From_string.blit ~src:s ~src_pos:0 ~dst:httpz_buf ~dst_pos:0 ~len;
     len
   ;;
 

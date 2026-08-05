@@ -8,6 +8,11 @@
     All write functions operate on bytes buffers using [int16#] offsets
     and return the new offset after writing.
 
+    Offsets are signed 16-bit and must stay below 32768. Writes are unchecked:
+    an offset past that limit wraps negative and corrupts memory outside the
+    buffer. A larger buffer does not raise the limit; the caller must bound the
+    header block it emits.
+
     {2 Writing a Response}
 
     {[
@@ -75,24 +80,24 @@ type status =
 
 (** {2 Status Utilities} *)
 
-val status_code : status -> int
+val status_code : status -> int @@ portable
 (** [status_code status] returns the numeric code (e.g., 200, 404). *)
 
-val status_of_int : int -> status option
+val status_of_int : int -> status option @@ portable
 (** [status_of_int code] parses a status code. Returns [None] for unknown codes. *)
 
-val status_reason : status -> string
+val status_reason : status -> string @@ portable
 (** [status_reason status] returns the reason phrase (e.g., "OK", "Not Found"). *)
 
-val status_to_string : status -> string
+val status_to_string : status -> string @@ portable
 (** [status_to_string status] returns "CODE Reason" (e.g., "200 OK"). *)
 
-val pp_status : Stdlib.Format.formatter -> status -> unit
+val pp_status : Stdlib.Format.formatter -> status -> unit @@ portable
 (** Pretty-print status. *)
 
 (** {1 Response Line Writing} *)
 
-val write_status_line : bytes -> off:int16# -> status -> Version.t -> int16#
+val write_status_line : bytes -> off:int16# -> status -> Version.t -> int16# @@ portable
 (** [write_status_line buf ~off status version] writes the status line.
 
     Writes: [HTTP/1.x CODE Reason\r\n]
@@ -104,17 +109,17 @@ val write_status_line : bytes -> off:int16# -> status -> Version.t -> int16#
 
 (** {1 Header Writing} *)
 
-val write_header : bytes -> off:int16# -> local_ string -> local_ string -> int16#
+val write_header : bytes -> off:int16# -> local_ string -> local_ string -> int16# @@ portable
 (** [write_header buf ~off name value] writes a header line.
 
     Writes: [Name: Value\r\n] *)
 
-val write_header_int : bytes -> off:int16# -> local_ string -> int -> int16#
+val write_header_int : bytes -> off:int16# -> local_ string -> int -> int16# @@ portable
 (** [write_header_int buf ~off name value] writes a header with integer value.
 
     Writes: [Name: 123\r\n] *)
 
-val write_header_name : bytes -> off:int16# -> Header_name.t -> local_ string -> int16#
+val write_header_name : bytes -> off:int16# -> Header_name.t -> local_ string -> int16# @@ portable
 (** [write_header_name buf ~off name value] writes a header using typed name.
 
     Uses the canonical header name spelling:
@@ -123,23 +128,23 @@ val write_header_name : bytes -> off:int16# -> Header_name.t -> local_ string ->
       (* buf contains "Content-Type: text/html\r\n" *)
     ]} *)
 
-val write_header_name_int : bytes -> off:int16# -> Header_name.t -> int -> int16#
+val write_header_name_int : bytes -> off:int16# -> Header_name.t -> int -> int16# @@ portable
 (** [write_header_name_int buf ~off name value] writes header with typed name
     and integer value. *)
 
-val write_crlf : bytes -> off:int16# -> int16#
+val write_crlf : bytes -> off:int16# -> int16# @@ portable
 (** [write_crlf buf ~off] writes the empty line ending headers.
 
     Writes: [\r\n] *)
 
 (** {2 Common Headers} *)
 
-val write_content_length : bytes -> off:int16# -> int -> int16#
+val write_content_length : bytes -> off:int16# -> int -> int16# @@ portable
 (** [write_content_length buf ~off len] writes Content-Length header.
 
     Writes: [Content-Length: len\r\n] *)
 
-val write_connection : bytes -> off:int16# -> keep_alive:bool -> int16#
+val write_connection : bytes -> off:int16# -> keep_alive:bool -> int16# @@ portable
 (** [write_connection buf ~off ~keep_alive] writes Connection header.
 
     Writes: [Connection: keep-alive\r\n] or [Connection: close\r\n] *)
@@ -151,26 +156,26 @@ val write_connection : bytes -> off:int16# -> keep_alive:bool -> int16#
 
     Use when the response body length is not known in advance. *)
 
-val write_transfer_encoding_chunked : bytes -> off:int16# -> int16#
+val write_transfer_encoding_chunked : bytes -> off:int16# -> int16# @@ portable
 (** [write_transfer_encoding_chunked buf ~off] writes the TE header.
 
     Writes: [Transfer-Encoding: chunked\r\n] *)
 
-val write_chunk_header : bytes -> off:int16# -> size:int -> int16#
+val write_chunk_header : bytes -> off:int16# -> size:int -> int16# @@ portable
 (** [write_chunk_header buf ~off ~size] writes a chunk header.
 
     Writes: [<hex-size>\r\n]
 
     Call this before writing chunk data bytes. *)
 
-val write_chunk_footer : bytes -> off:int16# -> int16#
+val write_chunk_footer : bytes -> off:int16# -> int16# @@ portable
 (** [write_chunk_footer buf ~off] writes the chunk terminator.
 
     Writes: [\r\n]
 
     Call this after writing chunk data bytes. *)
 
-val write_final_chunk : bytes -> off:int16# -> int16#
+val write_final_chunk : bytes -> off:int16# -> int16# @@ portable
 (** [write_final_chunk buf ~off] writes the final (zero-length) chunk.
 
     Writes: [0\r\n\r\n]

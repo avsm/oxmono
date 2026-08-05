@@ -85,7 +85,12 @@ let[@inline] skip_ows buf ~pos ~len =
 ;;
 
 (* Parse comma-separated list of entity tags into array *)
-let parse_match_header (local_ buf) (sp : Span.t) (tags : t array) : #(match_condition * int16#) =
+let parse_match_header (local_ buf) (sp : Span.t) (local_ tags : t array)
+  : #(match_condition * int16#)
+  =
+  (* [tags] is written with [unsafe_set], so the loop below stops at the
+     shorter of [max_tags] and what the caller actually provided. *)
+  let capacity = Int.min (to_int max_tags) (Array.length tags) in
   let off = Span.off sp in
   let len = Span.len sp in
   let end_pos = off + len in
@@ -101,7 +106,7 @@ let parse_match_header (local_ buf) (sp : Span.t) (tags : t array) : #(match_con
     let mutable pos = start in
     let mutable count = 0 in
     let mutable valid = true in
-    while valid && pos < end_pos && count < to_int max_tags do
+    while valid && pos < end_pos && count < capacity do
       pos <- skip_ows buf ~pos ~len:end_pos;
       if pos >= end_pos then
         valid <- false

@@ -6,6 +6,7 @@ type status = Buf_read.status =
   | Partial
   | Invalid_method
   | Invalid_target
+  | Uri_too_long
   | Invalid_version
   | Invalid_header
   | Headers_too_large

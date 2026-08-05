@@ -8,40 +8,40 @@
 (** {1 Basic Writers} *)
 
 (** Write a single character. Returns [off + 1]. *)
-val char : bytes -> off:int16# -> char -> int16#
+val char : bytes -> off:int16# -> char -> int16# @@ portable
 
 (** Write an unboxed character. Returns [off + 1]. *)
-val char_u : bytes -> off:int16# -> char# -> int16#
+val char_u : bytes -> off:int16# -> char# -> int16# @@ portable
 
 (** Write a string. Returns [off + String.length s]. *)
-val string : bytes -> off:int16# -> local_ string -> int16#
+val string : bytes -> off:int16# -> local_ string -> int16# @@ portable
 
 (** Write CRLF ([\r\n]). Returns [off + 2]. *)
-val crlf : bytes -> off:int16# -> int16#
+val crlf : bytes -> off:int16# -> int16# @@ portable
 
 (** {1 Integer Writers} *)
 
 (** Write a non-negative integer in decimal. Returns new offset. *)
-val int : bytes -> off:int16# -> int -> int16#
+val[@zero_alloc opt] int : bytes -> off:int16# -> int -> int16# @@ portable
 
 (** Write an int64# in decimal. Returns new offset. *)
-val int64 : bytes -> off:int16# -> int64# -> int16#
+val[@zero_alloc opt] int64 : bytes -> off:int16# -> int64# -> int16# @@ portable
 
 (** Write a non-negative integer in lowercase hexadecimal. Returns new offset. *)
-val hex : bytes -> off:int16# -> int -> int16#
+val hex : bytes -> off:int16# -> int -> int16# @@ portable
 
 (** {1 Fixed-Width Writers} *)
 
 (** Write a 2-digit decimal number (zero-padded). Returns [off + 2]. *)
-val digit2 : bytes -> off:int16# -> int -> int16#
+val digit2 : bytes -> off:int16# -> int -> int16# @@ portable
 
 (** Write a 4-digit decimal number (zero-padded). Returns [off + 4]. *)
-val digit4 : bytes -> off:int16# -> int -> int16#
+val digit4 : bytes -> off:int16# -> int -> int16# @@ portable
 
 (** {1 Conversion Helpers} *)
 
 (** Convert int to int16#. *)
-val i16 : int -> int16#
+val i16 : int -> int16# @@ portable
 
 (** Convert int16# to int. *)
-val to_int : int16# -> int
+val to_int : int16# -> int @@ portable

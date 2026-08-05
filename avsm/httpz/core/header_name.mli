@@ -81,7 +81,7 @@ type t =
 
 (** {1 String Conversion} *)
 
-val canonical : t -> string
+val canonical : t -> string @@ portable
 (** [canonical name] returns the canonical display name.
 
     Returns the properly-cased header name for known headers
@@ -93,14 +93,14 @@ val canonical : t -> string
       Header_name.canonical Other         (* "(unknown)" *)
     ]} *)
 
-val lowercase : t -> string
+val lowercase : t -> string @@ portable
 (** [lowercase name] returns the lowercase header name.
 
     Returns [""] for {!Other}. Useful for HTTP/2 where headers are lowercase. *)
 
 (** {1 Parsing} *)
 
-val of_span : local_ bytes -> Span.t -> t
+val of_span : local_ bytes -> Span.t -> t @@ portable
 (** [of_span buf span] parses a header name from a buffer span.
 
     Returns the matching variant for known headers, or {!Other} for
@@ -108,5 +108,5 @@ val of_span : local_ bytes -> Span.t -> t
 
 (** {1 Pretty Printing} *)
 
-val pp : Stdlib.Format.formatter -> t -> unit
+val pp : Stdlib.Format.formatter -> t -> unit @@ portable
 (** Pretty-print header name. *)

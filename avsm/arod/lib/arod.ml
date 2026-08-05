@@ -42,7 +42,7 @@ module Jsonfeed = Arod_jsonfeed
 module Jsonld = Arod_jsonld
 (** Schema.org JSON-LD structured data generation. *)
 
-module Route = Httpz_server.Route
+module Route = Httpz_route
 (** HTTP routing (re-exported from httpz). *)
 
 (* Handlers are in the separate arod.handlers library to avoid

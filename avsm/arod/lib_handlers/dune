@@ -12,7 +12,7 @@
   srcsetter
   htmlit
   httpz
-  httpz.server
+  httpz.route
   eio
   ezjsonm
   sitemap

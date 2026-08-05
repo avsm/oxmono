@@ -1,0 +1,6 @@
+(library
+ (name uriz)
+ (public_name uriz)
+ (libraries base)
+ (preprocess (pps ppx_template))
+ (ocamlopt_flags (:standard -O3)))

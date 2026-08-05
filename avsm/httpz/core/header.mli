@@ -46,7 +46,7 @@ type t =
 
 (** {1 Lookup} *)
 
-val find : t list @ local -> Name.t -> t option @ local
+val find : t list @ local -> Name.t -> t option @ local @@ portable
 (** [find headers name] returns the first header with the given name.
 
     Only matches known headers (not {!Name.Other}). For custom headers,
@@ -58,7 +58,7 @@ val find : t list @ local -> Name.t -> t option @ local
       | None -> "application/octet-stream"
     ]} *)
 
-val find_string : bytes -> t list @ local -> string -> t option @ local
+val find_string : bytes -> t list @ local -> string -> t option @ local @@ portable
 (** [find_string buf headers name] finds a header by string name.
 
     Case-insensitive comparison. Works for both known and custom headers.
@@ -71,24 +71,24 @@ val find_string : bytes -> t list @ local -> string -> t option @ local
 
 (** {1 Conversion} *)
 
-val to_string_pair : bytes -> t -> string * string
+val to_string_pair : bytes -> t -> string * string @@ portable
 (** [to_string_pair buf hdr] converts a header to [(name, value)] strings.
 
     Allocates two strings. *)
 
-val to_string_pairs : bytes -> t list -> (string * string) list
+val to_string_pairs : bytes -> t list -> (string * string) list @@ portable
 (** [to_string_pairs buf headers] converts all headers to string pairs.
 
     Allocates a list and strings for each header. *)
 
-val to_string_pairs_local : bytes -> t list @ local -> (string * string) list
+val to_string_pairs_local : bytes -> t list @ local -> (string * string) list @@ portable
 (** [to_string_pairs_local buf headers] converts a local header list to
     heap-allocated string pairs. Accepts [@ local] headers from the parser. *)
 
 (** {1 Pretty Printing} *)
 
-val pp : Stdlib.Format.formatter -> t -> unit
+val pp : Stdlib.Format.formatter -> t -> unit @@ portable
 (** [pp fmt hdr] prints the header structure (name variant, spans). *)
 
-val pp_with_buf : bytes -> Stdlib.Format.formatter -> t -> unit
+val pp_with_buf : bytes -> Stdlib.Format.formatter -> t -> unit @@ portable
 (** [pp_with_buf buf fmt hdr] prints the header with actual name and value. *)

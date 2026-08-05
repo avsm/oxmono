@@ -70,12 +70,12 @@ If-Modified-Since: Mon, 01 Jan 2024 00:00:00 GMT
 
 (* Benchmark helpers *)
 
-(* Helper to copy string into httpz bytes buffer *)
+(* Helper to copy string into httpz bytes buffer. Blit rather than a
+   bounds-checked byte loop, which at ~0.8ns/byte otherwise dominates the
+   measurement for the larger requests. *)
 let copy_to_httpz_buffer buf data =
   let len = String.length data in
-  for i = 0 to len - 1 do
-    Bytes.set buf i (String.get data i)
-  done;
+  Bytes.From_string.blit ~src:data ~src_pos:0 ~dst:buf ~dst_pos:0 ~len;
   len
 ;;
 

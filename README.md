@@ -15,6 +15,10 @@ opam switch create . --no-install \
   --packages oxcaml-compiler.5.2.0minus39
 eval $(opam env)
 opam install dune
+# httpz needs the local eio fork (Eio.Path.open_subtree etc.)
+for p in eio eio_main eio_posix eio_linux; do
+  opam pin add -y $p.1.3+ox git+file://$HOME/src/git/avsm/eio#main
+done
 opam install --deps-only ./avsm/*/*.opam ./bleeding/*/*.opam
 dune build --profile=release avsm/sortal avsm/bushel avsm/arod
 ```
@@ -43,3 +47,11 @@ upgrade and dropped once installable.
 
 `mdx` is likewise blocked on minus39, so the yamlrw doc tests are gated
 behind `%{lib-available:mdx.top}` rather than vendored.
+
+- `ocaml-uri` — provides `uriz`, the OxCaml port of ocaml-uri used by
+  httpz; not yet released to opam.
+
+`avsm/httpz` tracks the standalone [avsm/httpz](https://github.com/avsm/httpz)
+repository (libraries `httpz`, `httpz.route`, `httpz.eio_server`), which
+replaced the older `httpz.server`/`httpz.eio` split. It requires the eio
+fork pinned above.

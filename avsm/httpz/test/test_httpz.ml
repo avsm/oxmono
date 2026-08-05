@@ -186,6 +186,7 @@ let test_content_length_overflow () =
                       ; max_header_size = i16 16384
                       ; max_header_count = i16 100
                       ; max_chunk_size = 16777216
+                      ; max_target_length = i16 8192
                       } in
   let request = "POST /upload HTTP/1.1\r\nHost: example.com\r\nContent-Length: 1000000\r\n\r\n" in
   let len = copy_to_buffer buf request in

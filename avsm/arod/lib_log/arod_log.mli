@@ -16,7 +16,7 @@ val globalize : string @ local -> string
 val db : t -> Sqlite3_eio.t
 (** [db t] returns the underlying SQLite database handle for read queries. *)
 
-val log_request : t -> Httpz_eio.request_info @ local -> unit
+val log_request : t -> Httpz_eio_server.request_info @ local -> unit
 (** [log_request t info] inserts a request log entry synchronously.
     Accepts the record as [@ local] — all values are extracted
     and bound to SQLite parameters before returning. *)

@@ -33,33 +33,33 @@ type t =
 
 (** {1 Construction} *)
 
-val make : off:int16# -> len:int16# -> t
+val make : off:int16# -> len:int16# -> t @@ portable
 (** [make ~off ~len] creates a span at the given offset and length. *)
 
 (** {1 Accessors} *)
 
-val off : t -> int
+val off : t -> int @@ portable
 (** [off span] returns the byte offset as a regular [int]. *)
 
-val len : t -> int
+val len : t -> int @@ portable
 (** [len span] returns the length as a regular [int]. *)
 
-val is_empty : t -> bool
+val is_empty : t -> bool @@ portable
 (** [is_empty span] returns [true] if [span.len = 0]. *)
 
 (** {1 Comparison} *)
 
-val equal : local_ bytes -> t -> string -> bool
+val equal : local_ bytes -> t -> string -> bool @@ portable
 (** [equal buf span s] returns [true] if the bytes at [span] in [buf]
     are exactly equal to string [s]. Case-sensitive. *)
 
-val equal_caseless : local_ bytes -> t -> string -> bool
+val equal_caseless : local_ bytes -> t -> string -> bool @@ portable
 (** [equal_caseless buf span s] returns [true] if the bytes at [span]
     in [buf] equal string [s], ignoring ASCII case. *)
 
 (** {1 Operations} *)
 
-val split_on_char : local_ bytes -> t -> char# -> #(t * t)
+val split_on_char : local_ bytes -> t -> char# -> #(t * t) @@ portable
 (** [split_on_char buf span c] splits [span] at the first occurrence of [c].
 
     Returns [#(before, after)] where [after] excludes the separator.
@@ -67,7 +67,7 @@ val split_on_char : local_ bytes -> t -> char# -> #(t * t)
 
 (** {1 Integer Parsing} *)
 
-val parse_int64 : local_ bytes -> t -> #(int64# * bool)
+val parse_int64 : local_ bytes -> t -> #(int64# * bool) @@ portable
 (** [parse_int64 buf span] parses a decimal integer with overflow protection.
 
     Returns [#(value, overflow)] where:
@@ -76,6 +76,6 @@ val parse_int64 : local_ bytes -> t -> #(int64# * bool)
 
 (** {1 String Conversion} *)
 
-val to_string : local_ bytes -> t -> string
+val to_string : local_ bytes -> t -> string @@ portable
 (** [to_string buf span] copies the span contents to a new string.
     This allocates - use span comparisons when possible. *)

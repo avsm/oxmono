@@ -44,7 +44,7 @@ type t =
 
 (** {1 Conversion} *)
 
-val to_string : t -> string
+val to_string : t -> string @@ portable
 (** [to_string meth] returns the uppercase method name.
 
     {[
@@ -54,5 +54,5 @@ val to_string : t -> string
 
 (** {1 Pretty Printing} *)
 
-val pp : Stdlib.Format.formatter -> t -> unit
+val pp : Stdlib.Format.formatter -> t -> unit @@ portable
 (** Pretty-print method. *)

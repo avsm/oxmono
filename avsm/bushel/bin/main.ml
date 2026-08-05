@@ -1010,7 +1010,7 @@ let serve_cmd =
       let addr = `Tcp (Eio.Net.Ipaddr.V4.any, port) in
       let socket = Eio.Net.listen net ~sw ~backlog:128 ~reuse_addr:true addr in
       Printf.printf "Bushel web UI at http://localhost:%d\n%!" port;
-      let on_request (local_ info : Httpz_eio.request_info) =
+      let on_request (local_ info : Httpz_eio_server.request_info) =
         let meth_s = Httpz.Method.to_string info.meth in
         let len = String.length info.path in
         let dst = Bytes.create len in
@@ -1023,7 +1023,7 @@ let serve_cmd =
         Logs.err (fun m -> m "Connection error: %s" (Printexc.to_string exn))
       in
       Eio.Net.run_server socket ~on_error (fun flow addr ->
-        Httpz_eio.handle_client ~routes ~on_request ~on_error flow addr)
+        Httpz_eio_server.handle_client ~routes ~on_request ~on_error flow addr)
   in
   let doc = "Browse the knowledge base in a web browser." in
   let man = [

@@ -8,7 +8,6 @@ module I64 = Stdlib_upstream_compatible.Int64_u
 let[@inline always] i16 x = I16.of_int x
 let[@inline always] to_i16 x = I16.to_int x
 let[@inline always] i64 x = I64.of_int64 x
-let[@inline always] to_i64 x = I64.to_int64 x
 
 (* Unboxed char helpers - use Buf_read's primitives *)
 let[@inline always] peek buf pos = Buf_read.peek buf (i16 pos)
@@ -67,18 +66,20 @@ let[@inline] skip_ws buf ~pos ~len =
 
 (* Parse a non-negative int64 with overflow protection.
    Returns (value, end_pos, valid) where valid=false on overflow or no digits. *)
+(* Accumulates in [int64#]: the boxed [Int64] version allocated a 24-byte box
+   per digit through Base's arithmetic, which is what made the whole Range
+   path allocate despite the interface's zero-allocation claim. *)
 let[@inline] parse_int64 buf ~pos ~len =
   let start = pos in
   let mutable p = pos in
-  let mutable acc = 0L in
+  let mutable acc : int64# = #0L in
   let mutable valid = true in
   let mutable overflow = false in
   while valid && p < len do
     let d = digit_value (peek buf p) in
     if d >= 0 then (
-      let digit = Int64.of_int d in
-      let new_acc = Int64.(acc * 10L + digit) in
-      if Int64.(new_acc < acc) then (
+      let new_acc = I64.add (I64.mul acc #10L) (I64.of_int d) in
+      if I64.compare new_acc acc < 0 then (
         overflow <- true;
         valid <- false
       ) else (
@@ -88,9 +89,9 @@ let[@inline] parse_int64 buf ~pos ~len =
     ) else
       valid <- false
   done;
-  if overflow then #(0L, p, false)
+  if overflow then #(#0L, p, false)
   else if p > start then #(acc, p, true)
-  else #(0L, pos, false)
+  else #(#0L, pos, false)
 ;;
 
 (* Parse a single range-spec *)
@@ -102,10 +103,10 @@ let[@inline] parse_range_spec buf ~pos ~len =
     if c =. #'-' then
       (* Suffix range: -500 *)
       let #(suffix, end_pos, valid) = parse_int64 buf ~pos:(pos + 1) ~len in
-      if (not valid) || Int64.(suffix = 0L) then
+      if (not valid) || I64.equal suffix #0L then
         #(false, empty, end_pos)
       else
-        #(true, #{ kind = kind_suffix; start = i64 suffix; end_ = i64 0L }, end_pos)
+        #(true, #{ kind = kind_suffix; start = suffix; end_ = #0L }, end_pos)
     else
       (* Start-end or start- *)
       let #(start, after_start, valid) = parse_int64 buf ~pos ~len in
@@ -120,14 +121,14 @@ let[@inline] parse_range_spec buf ~pos ~len =
           c =. #',' || c =. #' ' || c =. #'\t'
         ) then
           (* Open range: start- *)
-          #(true, #{ kind = kind_open; start = i64 start; end_ = i64 0L }, after_dash)
+          #(true, #{ kind = kind_open; start; end_ = #0L }, after_dash)
         else
           (* Closed range: start-end *)
           let #(end_val, end_pos, end_valid) = parse_int64 buf ~pos:after_dash ~len in
-          if (not end_valid) || Int64.(end_val < start) then
+          if (not end_valid) || I64.compare end_val start < 0 then
             #(false, empty, end_pos)
           else
-            #(true, #{ kind = kind_range; start = i64 start; end_ = i64 end_val }, end_pos)
+            #(true, #{ kind = kind_range; start; end_ = end_val }, end_pos)
 ;;
 
 (* Parse Range header into array - internal implementation working on buffer region *)
@@ -187,45 +188,46 @@ let parse (local_ buf) (sp : Span.t) (ranges : byte_range array) : #(parse_statu
   parse_region buf ~off:(Span.off sp) ~len:(Span.len sp) ranges
 ;;
 
-(* Parse Range header from string - creates local buffer *)
+(* Parse Range header from string. Sound only because [parse_region] is
+   read-only: it reaches [s] through [Buf_read.peek] and never writes. Any
+   future write into [buf] would corrupt an immutable string. *)
 let parse_string (s : string) (ranges : byte_range array) : #(parse_status * int16#) =
-  (* Convert string to bytes for parsing *)
-  let buf = Bytes.of_string s in
+  let buf = Stdlib.Bytes.unsafe_of_string s in
   let #(status, count) = parse_region buf ~off:0 ~len:(String.length s) ranges in
   #(status, count)
 ;;
 
 (* Resolve a single range *)
 let resolve_range (range : byte_range) ~(resource_length : int64#) : #(bool * resolved) =
-  let res_len = to_i64 resource_length in
-  if Int64.(res_len <= 0L) then #(false, empty_resolved)
+  let res_len = resource_length in
+  if I64.compare res_len #0L <= 0 then #(false, empty_resolved)
   else
     let kind = range.#kind in
-    let start_val = to_i64 range.#start in
-    let end_val = to_i64 range.#end_ in
+    let start_val = range.#start in
+    let end_val = range.#end_ in
+    let last = I64.sub res_len #1L in
     if kind = kind_range then
       (* Range: start-end *)
-      if Int64.(start_val >= res_len) then #(false, empty_resolved)
+      if I64.compare start_val res_len >= 0 then #(false, empty_resolved)
       else
-        let end_clamped = Int64.min end_val Int64.(res_len - 1L) in
-        let length = Int64.(end_clamped - start_val + 1L) in
-        #(true, #{ start = i64 start_val; end_ = i64 end_clamped; length = i64 length })
+        let end_clamped = if I64.compare end_val last < 0 then end_val else last in
+        let length = I64.add (I64.sub end_clamped start_val) #1L in
+        #(true, #{ start = start_val; end_ = end_clamped; length })
     else if kind = kind_suffix then
       (* Suffix: -N (last N bytes) *)
       let suffix = start_val in  (* stored in start field *)
-      if Int64.(suffix <= 0L) then #(false, empty_resolved)
+      if I64.compare suffix #0L <= 0 then #(false, empty_resolved)
       else
-        let start = Int64.max 0L Int64.(res_len - suffix) in
-        let end_ = Int64.(res_len - 1L) in
-        let length = Int64.(end_ - start + 1L) in
-        #(true, #{ start = i64 start; end_ = i64 end_; length = i64 length })
+        let from_end = I64.sub res_len suffix in
+        let start = if I64.compare from_end #0L > 0 then from_end else #0L in
+        let length = I64.add (I64.sub last start) #1L in
+        #(true, #{ start; end_ = last; length })
     else
       (* Open: start- *)
-      if Int64.(start_val >= res_len) then #(false, empty_resolved)
+      if I64.compare start_val res_len >= 0 then #(false, empty_resolved)
       else
-        let end_ = Int64.(res_len - 1L) in
-        let length = Int64.(end_ - start_val + 1L) in
-        #(true, #{ start = i64 start_val; end_ = i64 end_; length = i64 length })
+        let length = I64.add (I64.sub last start_val) #1L in
+        #(true, #{ start = start_val; end_ = last; length })
 ;;
 
 (* Evaluate ranges *)

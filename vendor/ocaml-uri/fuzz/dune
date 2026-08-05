@@ -1,0 +1,5 @@
+(test
+ (name fuzz)
+ (package uriz)
+ (libraries uriz crowbar)
+ (deps (source_tree input)))

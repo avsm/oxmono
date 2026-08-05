@@ -11,6 +11,7 @@ type status = Buf_read.status =
   | Partial
   | Invalid_method
   | Invalid_target
+  | Uri_too_long
   | Invalid_version
   | Invalid_header
   | Headers_too_large
@@ -29,41 +30,41 @@ exception Parse_error of status
 (** {1 Direct Fail Combinators} *)
 
 (** [fail status] raises [Parse_error status]. *)
-val fail : status -> 'a
+val fail : status -> 'a @@ portable
 
 (** [partial ()] raises [Parse_error Partial]. Use when more input is needed. *)
-val partial : unit -> 'a
+val partial : unit -> 'a @@ portable
 
 (** [malformed ()] raises [Parse_error Malformed]. Use for format violations. *)
-val malformed : unit -> 'a
+val malformed : unit -> 'a @@ portable
 
 (** {1 Conditional Raises (when condition is TRUE)} *)
 
 (** [when_ cond status] raises [Parse_error status] if [cond] is true. *)
-val when_ : bool -> status -> unit
+val when_ : bool -> status -> unit @@ portable
 
 (** [partial_when cond] raises [Parse_error Partial] if [cond] is true. *)
-val partial_when : bool -> unit
+val partial_when : bool -> unit @@ portable
 
 (** [malformed_when cond] raises [Parse_error Malformed] if [cond] is true. *)
-val malformed_when : bool -> unit
+val malformed_when : bool -> unit @@ portable
 
 (** {1 Guard Combinators (raise when condition is FALSE)} *)
 
 (** [guard cond status] raises [Parse_error status] if [cond] is false. *)
-val guard : bool -> status -> unit
+val guard : bool -> status -> unit @@ portable
 
 (** [partial_unless cond] raises [Parse_error Partial] if [cond] is false.
     Use for buffer boundary checks where you require more data. *)
-val partial_unless : bool -> unit
+val partial_unless : bool -> unit @@ portable
 
 (** [malformed_unless cond] raises [Parse_error Malformed] if [cond] is false.
     Use for validation checks where you require a condition to hold. *)
-val malformed_unless : bool -> unit
+val malformed_unless : bool -> unit @@ portable
 
 (** {1 Recovery Combinator} *)
 
 (** [optional ~save ~restore f] tries to run [f ()]. On success, returns
     the result wrapped with [Or_null.some]. On [Parse_error], restores state
     using [restore (save ())] and returns [Or_null.none]. *)
-val optional : save:(unit -> 'pos) -> restore:('pos -> unit) -> (unit -> 'a) -> 'a or_null
+val optional : save:(unit -> 'pos) -> restore:('pos -> unit) -> (unit -> 'a) -> 'a or_null @@ portable

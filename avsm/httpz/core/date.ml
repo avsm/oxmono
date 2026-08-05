@@ -3,6 +3,7 @@
 open Base
 
 module F64 = Stdlib_upstream_compatible.Float_u
+module Iarray = Stdlib_stable.Iarray
 module I16 = Stdlib_stable.Int16_u
 
 let[@inline always] f64 x = F64.of_float x
@@ -17,10 +18,6 @@ let ( =. ) = Buf_read.( =. )
 type status =
   | Valid
   | Invalid
-
-(* Day and month names for parsing and formatting *)
-let day_names = [| "Sun"; "Mon"; "Tue"; "Wed"; "Thu"; "Fri"; "Sat" |]
-let month_names = [| "Jan"; "Feb"; "Mar"; "Apr"; "May"; "Jun"; "Jul"; "Aug"; "Sep"; "Oct"; "Nov"; "Dec" |]
 
 (* Parse 2-digit number at position, returns (value, valid) *)
 let[@inline] parse_2digit buf pos =
@@ -107,7 +104,7 @@ let[@inline] parse_time buf pos =
 ;;
 
 (* Days in each month (non-leap year) *)
-let days_in_month = [| 31; 28; 31; 30; 31; 30; 31; 31; 30; 31; 30; 31 |]
+let days_in_month : int iarray = [: 31; 28; 31; 30; 31; 30; 31; 31; 30; 31; 30; 31 :]
 
 (* Check if year is leap year *)
 let[@inline] is_leap_year year =
@@ -124,7 +121,9 @@ let[@inline] days_to_year year =
 ;;
 
 (* Cumulative days before each month (0-indexed, non-leap year) *)
-let days_before_month = [| 0; 31; 59; 90; 120; 151; 181; 212; 243; 273; 304; 334 |]
+let days_before_month : int iarray =
+  [: 0; 31; 59; 90; 120; 151; 181; 212; 243; 273; 304; 334 :]
+;;
 
 (* Convert date components to Unix timestamp, returns (timestamp, valid) *)
 let to_timestamp ~year ~month ~day ~hour ~minute ~second =
@@ -133,14 +132,14 @@ let to_timestamp ~year ~month ~day ~hour ~minute ~second =
   else
     let max_day =
       if month = 1 && is_leap_year year then 29
-      else days_in_month.(month)
+      else Iarray.unsafe_get days_in_month month
     in
     if day < 1 || day > max_day then #(f64 0.0, false)
     else
       (* Calculate days since epoch using formula *)
       let days = days_to_year year in
       (* Add days for complete months in current year *)
-      let days = days + days_before_month.(month) in
+      let days = days + Iarray.unsafe_get days_before_month month in
       (* Add leap day if past February in a leap year *)
       let days = if month > 1 && is_leap_year year then days + 1 else days in
       (* Add days in current month (day is 1-indexed) *)
@@ -284,37 +283,92 @@ let parse (local_ buf) (sp : Span.t) : #(status * float#) =
     if valid then #(Valid, ts) else #(Invalid, f64 0.0)
 ;;
 
-(* Format timestamp as IMF-fixdate *)
-let format (timestamp : float#) : string =
-  (* Use Unix module to break down timestamp *)
-  let tm = Unix.gmtime (to_float timestamp) in
-  Stdlib.Printf.sprintf "%s, %02d %s %04d %02d:%02d:%02d GMT"
-    day_names.(tm.Unix.tm_wday)
-    tm.Unix.tm_mday
-    month_names.(tm.Unix.tm_mon)
-    (tm.Unix.tm_year + 1900)
-    tm.Unix.tm_hour
-    tm.Unix.tm_min
-    tm.Unix.tm_sec
+(* ----- IMF-fixdate formatting -----
+
+   [Unix.gmtime] allocates a [Unix.tm] record and costs an external call, and
+   [Printf.sprintf] pulls in the whole [CamlinternalFormat] machinery, for an
+   output that is 29 bytes of fixed layout. Both are replaced below by direct
+   writes driven by static tables and Howard Hinnant's [civil_from_days]. *)
+
+let day_table = "SunMonTueWedThuFriSat"
+let month_table = "JanFebMarAprMayJunJulAugSepOctNovDec"
+
+(* "00" "01" ... "99", so a two-digit field is two table reads. *)
+let digit_pairs =
+  String.init 200 ~f:(fun i ->
+    if i % 2 = 0
+    then Stdlib.Char.unsafe_chr (48 + (i / 2 / 10))
+    else Stdlib.Char.unsafe_chr (48 + (i / 2 % 10)))
 ;;
 
-(* Write HTTP-date at offset without header name *)
-let write_http_date dst ~off (timestamp : float#) =
-  let tm = Unix.gmtime (to_float timestamp) in
-  let off = Buf_write.string dst ~off day_names.(tm.Unix.tm_wday) in
-  let off = Buf_write.string dst ~off ", " in
-  let off = Buf_write.digit2 dst ~off tm.Unix.tm_mday in
-  let off = Buf_write.char dst ~off ' ' in
-  let off = Buf_write.string dst ~off month_names.(tm.Unix.tm_mon) in
-  let off = Buf_write.char dst ~off ' ' in
-  let off = Buf_write.digit4 dst ~off (tm.Unix.tm_year + 1900) in
-  let off = Buf_write.char dst ~off ' ' in
-  let off = Buf_write.digit2 dst ~off tm.Unix.tm_hour in
-  let off = Buf_write.char dst ~off ':' in
-  let off = Buf_write.digit2 dst ~off tm.Unix.tm_min in
-  let off = Buf_write.char dst ~off ':' in
-  let off = Buf_write.digit2 dst ~off tm.Unix.tm_sec in
-  Buf_write.string dst ~off " GMT"
+let[@inline always] put3 dst off (tab : string) idx =
+  Bytes.unsafe_set dst off (String.unsafe_get tab idx);
+  Bytes.unsafe_set dst (off + 1) (String.unsafe_get tab (idx + 1));
+  Bytes.unsafe_set dst (off + 2) (String.unsafe_get tab (idx + 2))
+;;
+
+let[@inline always] put2 dst off n =
+  Bytes.unsafe_set dst off (String.unsafe_get digit_pairs (n * 2));
+  Bytes.unsafe_set dst (off + 1) (String.unsafe_get digit_pairs ((n * 2) + 1))
+;;
+
+(* 0001-01-01 and 9999-12-31 as seconds from the epoch. The writes below index
+   [day_table] and [month_table] with [String.unsafe_get], so a timestamp that
+   drove the civil-from-days arithmetic out of range — or overflowed it — would
+   write outside the tables. [Unix.gmtime] raised on such input; clamping keeps
+   the same inputs safe without reintroducing the call. NaN and the infinities
+   convert to an unspecified [int], which the clamp also contains. *)
+let min_secs = -62_135_596_800
+let max_secs = 253_402_300_799
+
+let[@inline] write_http_date dst ~off (timestamp : float#) =
+  let secs = Stdlib.int_of_float (to_float timestamp) in
+  let secs = if secs < min_secs then min_secs else if secs > max_secs then max_secs else secs in
+  (* Floor division: [sod] must stay in [0, 86399] for pre-epoch timestamps. *)
+  let days = if secs >= 0 then secs / 86_400 else ((secs + 1) / 86_400) - 1 in
+  let sod = secs - (days * 86_400) in
+  let w = Stdlib.( mod ) (days + 4) 7 in
+  let wday = if w < 0 then w + 7 else w in
+  (* civil_from_days: shift the era to start in March so the leap day lands at
+     the end of the year and the month-length pattern becomes affine. *)
+  let z = days + 719_468 in
+  let era = (if z >= 0 then z else z - 146_096) / 146_097 in
+  let doe = z - (era * 146_097) in
+  let yoe = (doe - (doe / 1460) + (doe / 36_524) - (doe / 146_096)) / 365 in
+  let y = yoe + (era * 400) in
+  let doy = doe - ((365 * yoe) + (yoe / 4) - (yoe / 100)) in
+  let mp = ((5 * doy) + 2) / 153 in
+  let d = doy - (((153 * mp) + 2) / 5) + 1 in
+  let m = mp + if mp < 10 then 3 else -9 in
+  let y = if m <= 2 then y + 1 else y in
+  let o = Buf_write.to_int off in
+  put3 dst o day_table (wday * 3);
+  Bytes.unsafe_set dst (o + 3) ',';
+  Bytes.unsafe_set dst (o + 4) ' ';
+  put2 dst (o + 5) d;
+  Bytes.unsafe_set dst (o + 7) ' ';
+  put3 dst (o + 8) month_table ((m - 1) * 3);
+  Bytes.unsafe_set dst (o + 11) ' ';
+  put2 dst (o + 12) (y / 100);
+  put2 dst (o + 14) (Stdlib.( mod ) y 100);
+  Bytes.unsafe_set dst (o + 16) ' ';
+  put2 dst (o + 17) (sod / 3600);
+  Bytes.unsafe_set dst (o + 19) ':';
+  put2 dst (o + 20) (Stdlib.( mod ) (sod / 60) 60);
+  Bytes.unsafe_set dst (o + 22) ':';
+  put2 dst (o + 23) (Stdlib.( mod ) sod 60);
+  Bytes.unsafe_set dst (o + 25) ' ';
+  Bytes.unsafe_set dst (o + 26) 'G';
+  Bytes.unsafe_set dst (o + 27) 'M';
+  Bytes.unsafe_set dst (o + 28) 'T';
+  Buf_write.i16 (o + 29)
+;;
+
+(* Format timestamp as IMF-fixdate *)
+let format (timestamp : float#) : string =
+  let dst = Bytes.create 29 in
+  let _ : int16# = write_http_date dst ~off:(Buf_write.i16 0) timestamp in
+  Bytes.unsafe_to_string ~no_mutation_while_string_reachable:dst
 ;;
 
 let write_date_header dst ~off (timestamp : float#) =

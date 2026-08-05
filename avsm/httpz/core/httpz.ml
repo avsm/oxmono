@@ -2,6 +2,7 @@
 
 open Base
 
+module Scan = Scan
 module Buf_read = Buf_read
 module Buf_write = Buf_write
 module Span = Span
@@ -81,6 +82,8 @@ let[@inline] error_result status = exclave_
   #( status
    , #{ Req.meth = Method.Get
       ; target = Span.make ~off:(i16 0) ~len:(i16 0)
+      ; path = Span.make ~off:(i16 0) ~len:(i16 0)
+      ; query = Span.make ~off:(i16 0) ~len:(i16 0)
       ; version = Version.Http_1_1
       ; body_off = i16 0
       ; content_length = minus_one_i64
@@ -91,7 +94,7 @@ let[@inline] error_result status = exclave_
    , ([] : Header.t list) )
 
 (* Build successful request from parsed components and state *)
-let[@inline] build_request ~meth ~target ~version ~(body_off : int16#)
+let[@inline] build_request ~meth ~target ~target_parsed ~version ~(body_off : int16#)
     (st : header_state) ~headers = exclave_
   let keep_alive =
     match st.#conn with
@@ -102,6 +105,8 @@ let[@inline] build_request ~meth ~target ~version ~(body_off : int16#)
   let req =
     #{ Req.meth
      ; target
+     ; path = Target.path target_parsed
+     ; query = Target.query target_parsed
      ; version
      ; body_off
      ; content_length = st.#content_len
@@ -174,14 +179,16 @@ let parse (buf : buffer) ~(len : int16#) ~limits = exclave_
   else
     try
       let pst = Parser.make buf ~len in
-      let #(meth, target, version, pos) = Parser.request_line pst ~pos:(i16 0) in
+      let #(meth, target, target_parsed, version, pos) =
+        Parser.request_line pst ~pos:(i16 0) ~limits
+      in
       let #(body_off, st, headers) =
         parse_headers_loop pst ~pos ~acc:[] initial_header_state ~limits
       in
       (* Only missing Host header needs end-of-parse check *)
       match (version, st.#has_host) with
       | (Version.Http_1_1, false) -> error_result Missing_host_header
-      | _ -> build_request ~meth ~target ~version ~body_off st ~headers
+      | _ -> build_request ~meth ~target ~target_parsed ~version ~body_off st ~headers
     with Err.Parse_error status ->
       error_result status
 

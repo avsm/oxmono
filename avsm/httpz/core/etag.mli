@@ -39,13 +39,13 @@ type status =
 (** Parse a single ETag value from a span.
     Accepts formats: ["xyzzy"], [W/"xyzzy"], [""]
     Returns status and tag (tag is only valid if status = Valid). *)
-val parse : local_ bytes -> Span.t -> #(status * t)
+val[@zero_alloc opt] parse : local_ bytes -> Span.t -> #(status * t) @@ portable
 
 (** Empty/invalid ETag constant. *)
-val empty : t
+val empty : t @@ portable
 
 (** Parse ETag to string (allocates). Useful for storage/comparison. *)
-val to_string : local_ bytes -> t -> string
+val to_string : local_ bytes -> t -> string @@ portable
 
 (** {2 If-Match / If-None-Match Parsing} *)
 
@@ -56,47 +56,48 @@ type match_condition =
   | Empty         (** No valid tags found *)
 
 (** Maximum number of ETags that can be parsed from a header. *)
-val max_tags : int16#
+val max_tags : int16# @@ portable
 
 (** Parse If-Match or If-None-Match header value.
     Handles "*" and comma-separated lists of entity tags.
-    Tags are stored in the provided array (up to [max_tags]).
+    Tags are stored in the provided array, which may be stack-allocated. At
+    most [min max_tags (Array.length tags)] are kept; the rest are dropped.
     Returns (condition, count) where count is number of tags if Tags. *)
 val parse_match_header
   :  local_ bytes
   -> Span.t
-  -> t array
-  -> #(match_condition * int16#)
+  -> local_ t array
+  -> #(match_condition * int16#) @@ portable
 
 (** {2 Comparison Functions} *)
 
 (** Strong comparison per RFC 7232 Section 2.3.2.
     Two entity-tags are equivalent if both are not weak and their
     opaque-tags match character-by-character. *)
-val strong_match : local_ bytes -> t -> t -> bool
+val strong_match : local_ bytes -> t -> t -> bool @@ portable
 
 (** Weak comparison per RFC 7232 Section 2.3.2.
     Two entity-tags are equivalent if their opaque-tags match
     character-by-character, regardless of either or both being weak. *)
-val weak_match : local_ bytes -> t -> t -> bool
+val weak_match : local_ bytes -> t -> t -> bool @@ portable
 
 (** Check if an etag matches any in array (weak comparison).
     [count] is the number of valid tags in the array. *)
-val matches_any_weak : local_ bytes -> t -> t array -> count:int16# -> bool
+val matches_any_weak : local_ bytes -> t -> t array -> count:int16# -> bool @@ portable
 
 (** Check if an etag matches any in array (strong comparison).
     [count] is the number of valid tags in the array. *)
-val matches_any_strong : local_ bytes -> t -> t array -> count:int16# -> bool
+val matches_any_strong : local_ bytes -> t -> t array -> count:int16# -> bool @@ portable
 
 (** {2 Response Writing} *)
 
 (** Write ETag header: [ETag: "tag"\r\n] or [ETag: W/"tag"\r\n].
     Returns new offset. *)
-val write_etag : bytes -> off:int16# -> t -> local_ bytes -> int16#
+val write_etag : bytes -> off:int16# -> t -> local_ bytes -> int16# @@ portable
 
 (** Write ETag header from string value.
     Returns new offset. *)
-val write_etag_string : bytes -> off:int16# -> weak:bool -> string -> int16#
+val write_etag_string : bytes -> off:int16# -> weak:bool -> string -> int16# @@ portable
 
 (** Pretty-print etag. *)
-val pp : local_ bytes -> Stdlib.Format.formatter -> t -> unit
+val pp : local_ bytes -> Stdlib.Format.formatter -> t -> unit @@ portable

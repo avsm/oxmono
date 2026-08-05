@@ -32,24 +32,24 @@ type byte_range = private
    }
 
 (** Maximum number of ranges that can be parsed. *)
-val max_ranges : int16#
+val max_ranges : int16# @@ portable
 
 (** Empty byte_range for array initialization. *)
-val empty : byte_range
+val empty : byte_range @@ portable
 
 (** {2 Range Queries} *)
 
 (** Returns true if this is a standard range with explicit start and end.
     Example: [bytes=0-499] - access via [r.#start] and [r.#end_] *)
-val is_range : byte_range -> bool
+val is_range : byte_range -> bool @@ portable
 
 (** Returns true if this is a suffix range (last N bytes).
     Example: [bytes=-500] - suffix length stored in [r.#start] *)
-val is_suffix : byte_range -> bool
+val is_suffix : byte_range -> bool @@ portable
 
 (** Returns true if this is an open-ended range (start to EOF).
     Example: [bytes=9500-] - access start via [r.#start] *)
-val is_open : byte_range -> bool
+val is_open : byte_range -> bool @@ portable
 
 (** Parse status. *)
 type parse_status =
@@ -86,7 +86,7 @@ val parse
   :  local_ bytes
   -> Span.t
   -> byte_range array
-  -> #(parse_status * int16#)
+  -> #(parse_status * int16#) @@ portable
 
 (** Parse Range header from a string. Creates a local buffer internally.
     More ergonomic when you have the header value as a string.
@@ -95,7 +95,7 @@ val parse
       let #(status, count) = Range.parse_string "bytes=0-499" ranges in
       ...
     ]} *)
-val parse_string : string -> byte_range array -> #(parse_status * int16#)
+val parse_string : string -> byte_range array -> #(parse_status * int16#) @@ portable
 
 (** {1 Range Resolution} *)
 
@@ -108,22 +108,22 @@ val evaluate
   -> count:int16#
   -> resource_length:int64#
   -> resolved array
-  -> #(eval_result * int16#)
+  -> #(eval_result * int16#) @@ portable
 
 (** Resolve a single byte_range against resource length.
     Returns (valid, resolved) where valid indicates if range is satisfiable. *)
 val resolve_range
   :  byte_range
   -> resource_length:int64#
-  -> #(bool * resolved)
+  -> #(bool * resolved) @@ portable
 
 (** {1 Response Writing} *)
 
 (** Write [Accept-Ranges: bytes\r\n] header. Returns new offset. *)
-val write_accept_ranges : bytes -> off:int16# -> int16#
+val write_accept_ranges : bytes -> off:int16# -> int16# @@ portable
 
 (** Write [Accept-Ranges: none\r\n] header. Returns new offset. *)
-val write_accept_ranges_none : bytes -> off:int16# -> int16#
+val write_accept_ranges_none : bytes -> off:int16# -> int16# @@ portable
 
 (** Write [Content-Range: bytes start-end/total\r\n] header.
     Use for 206 Partial Content responses.
@@ -134,7 +134,7 @@ val write_content_range
   -> start:int64#
   -> end_:int64#
   -> total:int64#
-  -> int16#
+  -> int16# @@ portable
 
 (** Write Content-Range header from resolved range.
     Returns new offset. *)
@@ -143,7 +143,7 @@ val write_content_range_resolved
   -> off:int16#
   -> resolved
   -> total:int64#
-  -> int16#
+  -> int16# @@ portable
 
 (** Write [Content-Range: bytes * /total\r\n] header.
     Use for 416 Range Not Satisfiable responses.
@@ -152,20 +152,20 @@ val write_content_range_unsatisfiable
   :  bytes
   -> off:int16#
   -> total:int64#
-  -> int16#
+  -> int16# @@ portable
 
 (** {1 Multipart Helpers} *)
 
 (** Write multipart boundary line: [--boundary\r\n].
     Returns new offset. *)
-val write_multipart_boundary : bytes -> off:int16# -> boundary:string -> int16#
+val write_multipart_boundary : bytes -> off:int16# -> boundary:string -> int16# @@ portable
 
 (** Write final multipart boundary: [--boundary--\r\n].
     Returns new offset. *)
-val write_multipart_final : bytes -> off:int16# -> boundary:string -> int16#
+val write_multipart_final : bytes -> off:int16# -> boundary:string -> int16# @@ portable
 
 (** Generate a random boundary string suitable for multipart responses. *)
-val generate_boundary : unit -> string
+val generate_boundary : unit -> string @@ portable
 
 (** Empty resolved range constant. *)
-val empty_resolved : resolved
+val empty_resolved : resolved @@ portable

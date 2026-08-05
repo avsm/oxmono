@@ -5,7 +5,7 @@
 
 (** Bushel Web UI - dense debug-style knowledge base browser *)
 
-module R = Httpz_server.Route
+module R = Httpz_route
 module H = Tw_html
 module Entry = Bushel.Entry
 module Link_graph = Bushel.Link_graph

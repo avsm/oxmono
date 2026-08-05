@@ -33,12 +33,27 @@ type t =
 let empty = #{ data_off = i16 0; data_len = i16 0; next_off = i16 0 }
 
 (* Parse hex digit, returns -1 if invalid *)
-let[@inline] hex_digit_value (c : char#) =
+let[@inline] hex_digit_value_match (c : char#) =
   match c with
   | #'0' .. #'9' -> Char_u.code c - 48
   | #'a' .. #'f' -> Char_u.code c - 87
   | #'A' .. #'F' -> Char_u.code c - 55
   | _ -> -1
+;;
+
+(* One byte per code point, holding the hex value biased by one so that 0
+   means "not a hex digit". The match above compiles to a decision tree whose
+   branches depend on the input byte and so mispredict, exactly as for
+   [Scan_portable.tchar_table]. Derived from [hex_digit_value_match] so the
+   two cannot drift apart. *)
+let hex_table =
+  String.init 256 ~f:(fun i ->
+    Stdlib.Char.unsafe_chr
+      (hex_digit_value_match (Char_u.of_char (Char.of_int_exn i)) + 1))
+;;
+
+let[@inline] hex_digit_value (c : char#) =
+  Char.to_int (String.unsafe_get hex_table (Char_u.code c)) - 1
 ;;
 
 (* Maximum hex digits for chunk size (16 = 64-bit max) *)

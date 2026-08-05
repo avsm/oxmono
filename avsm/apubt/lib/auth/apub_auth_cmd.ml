@@ -122,11 +122,10 @@ let login_action ~app_name ~account ~profile env =
   Fmt.pr "Authenticating with %s...@." instance;
   (* Create HTTP client *)
   Eio.Switch.run @@ fun sw ->
-  let timeout_config = Requests.Timeout.create ~connect:30.0 ~read:30.0 () in
-  let requests = Requests.create ~sw ~timeout:timeout_config env in
+  let fetch = Fetch_curl.v ~sw ~timeout:30.0 ~connect_timeout:30.0 () in
   (* Step 1: Register OAuth app *)
   Fmt.pr "Registering OAuth app...@.";
-  let app = match Apub_mastodon_oauth.register_app requests ~instance with
+  let app = match Apub_mastodon_oauth.register_app fetch ~instance with
     | Ok app -> app
     | Error msg ->
         Fmt.epr "Error: %s@." msg;
@@ -151,7 +150,7 @@ let login_action ~app_name ~account ~profile env =
   end;
   (* Step 4: Exchange code for token *)
   Fmt.pr "Exchanging authorization code...@.";
-  let token = match Apub_mastodon_oauth.exchange_code requests
+  let token = match Apub_mastodon_oauth.exchange_code fetch
     ~instance
     ~client_id:app.client_id
     ~client_secret:app.client_secret
@@ -165,7 +164,7 @@ let login_action ~app_name ~account ~profile env =
   in
   (* Step 5: Verify credentials *)
   Fmt.pr "Verifying credentials...@.";
-  let account_info = match Apub_mastodon_oauth.verify_credentials requests
+  let account_info = match Apub_mastodon_oauth.verify_credentials fetch
     ~instance
     ~access_token:token.access_token
   with

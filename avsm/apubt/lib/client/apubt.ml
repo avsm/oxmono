@@ -5,6 +5,11 @@
 
 module Proto = Apubt_proto
 
+(* Wire-form headers, the shape [Fetch] and [Fetch_signature] exchange them
+   in. Bound here because this module defines its own [Http] submodule below,
+   which shadows the [Http] of the http library from then on. *)
+module Hdr = Http.Header
+
 module Error = struct
   type t =
     | Http_error of int * string
@@ -40,13 +45,13 @@ exception E of Error.t
 module Signing = struct
   type t = {
     key_id : string;
-    key : Requests.Signature.Key.t;
-    config : Requests.Signature.config;
+    key : Fetch_signature.Key.t;
+    config : Fetch_signature.config;
   }
 
   (** ActivityPub signing components: @method, @authority, @path, date, digest, content-type *)
   let activitypub_components =
-    Requests.Signature.Component.[
+    Fetch_signature.Component.[
       method_;
       authority;
       path;
@@ -56,7 +61,7 @@ module Signing = struct
     ]
 
   let create ~key_id ~key () =
-    let config = Requests.Signature.config
+    let config = Fetch_signature.config
       ~key
       ~keyid:key_id
       ~components:activitypub_components
@@ -68,7 +73,7 @@ module Signing = struct
     (* Parse PEM-encoded RSA private key *)
     match X509.Private_key.decode_pem pem with
     | Ok (`RSA priv) ->
-        let key = Requests.Signature.Key.rsa ~priv in
+        let key = Fetch_signature.Key.rsa ~priv in
         Ok (create ~key_id ~key ())
     | Ok _ ->
         Error "Only RSA keys are supported for ActivityPub signatures"
@@ -85,11 +90,7 @@ module Signing = struct
 end
 
 type t = T : {
-  requests : Requests.t;
-  (* Shim: [Webfinger] has migrated to [Fetch] ahead of apubt, whose own
-     port is blocked on RFC 9421 signatures. A bare curl-backed client
-     serves the two webfinger lookups until the rest follows. *)
-  fetch : Fetch_curl.t;
+  fetch : Fetch.plain;
   clock : _ Eio.Time.clock;
   signing : Signing.t option;
   user_agent : string;
@@ -99,54 +100,65 @@ let activitypub_accept =
   "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
 
 let create ~sw ?signing ?(user_agent = "Apubt/0.1") ?(timeout = 30.0) env =
-  let timeout_config = Requests.Timeout.create ~connect:timeout ~read:timeout () in
-  let default_headers =
-    Requests.Headers.empty
-    |> Requests.Headers.add `Accept activitypub_accept
-    |> Requests.Headers.add `User_agent user_agent
-  in
-  let requests = Requests.create ~sw ~default_headers ~timeout:timeout_config env in
   let fetch =
     Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+    (* [Accept] is a default a request may override, as NodeInfo discovery
+       does; the User-Agent is the backend's, set above. *)
+    |> Fetch.with_headers ~mode:`If_absent
+         Fetch.Header.[ raw "Accept" activitypub_accept ]
   in
   let clock = Eio.Stdenv.clock env in
-  T { requests; fetch; clock; signing; user_agent }
+  T { fetch; clock; signing; user_agent }
 
 let user_agent (T t) = t.user_agent
 
+let is_success status = status >= 200 && status < 300
+
 (* Internal: check HTTP response for errors *)
 let check_response resp =
-  let status = Requests.Response.status_code resp in
-  if status >= 200 && status < 300 then ()
+  let status = Fetch.status resp in
+  if is_success status then ()
   else if status = 404 then raise (E Not_found)
   else if status = 401 || status = 403 then raise (E Unauthorized)
   else if status = 429 then begin
     let retry_after =
-      Requests.Response.headers resp
-      |> Requests.Headers.get `Retry_after
-      |> Option.map float_of_string
+      match Fetch.header Fetch.Header.retry_after resp with
+      | Some (`Seconds s) -> Some (float_of_int s)
+      | Some (`Date _) | None -> None
     in
     raise (E (Rate_limited retry_after))
   end
   else begin
-    let body = Requests.Response.text resp in
+    let body = Eio.Flow.read_all (Fetch.body resp) in
     raise (E (Http_error (status, body)))
   end
+
+(* Internal: decode a fully drained response body *)
+let decode_json_exn jsont resp =
+  let body = Eio.Flow.read_all (Fetch.body resp) in
+  match Jsont_bytesrw.decode_string jsont body with
+  | Ok v -> v
+  | Error msg -> raise (E (Json_error msg))
 
 module Http = struct
   let get (T t) uri =
     let url = Uri.to_string uri in
-    let resp = Requests.get t.requests url in
+    Fetch.with_response t.fetch `GET url @@ fun resp ->
     check_response resp;
-    Requests.Response.json resp
+    decode_json_exn Jsont.json resp
 
   let get_typed (T t) jsont uri =
     let url = Uri.to_string uri in
-    let resp = Requests.get t.requests url in
+    Fetch.with_response t.fetch `GET url @@ fun resp ->
     check_response resp;
-    Requests.Response.jsonv jsont resp
+    decode_json_exn jsont resp
 
-  (* Internal: sign a POST request if signing is configured *)
+  (* Internal: sign a POST request if signing is configured.
+
+     Signing is per-request rather than a [Fetch_signature.Middleware.sign]
+     wrapper on the client: only POSTs are signed here, and the components
+     ActivityPub covers include [content-digest] and [content-type], which a
+     bodyless GET cannot resolve. *)
   let sign_post_request (T t) ~uri ~body ~headers =
     match t.signing with
     | None -> headers
@@ -154,16 +166,15 @@ module Http = struct
         (* Add Date header using the session clock *)
         let now_float = Eio.Time.now t.clock in
         let now = Ptime.of_float_s now_float |> Option.get in
-        let date_str = Requests.Headers.http_date_of_ptime now in
-        let headers = Requests.Headers.set `Date date_str headers in
+        let headers = Hdr.replace headers "date" (Fetch_signature.http_date now) in
         (* Create request context for signing *)
-        let ctx = Requests.Signature.Context.request
+        let ctx = Fetch_signature.Context.request
           ~method_:`POST
           ~uri
           ~headers
         in
         (* Sign with digest (adds Content-Digest header and signs) *)
-        match Requests.Signature.sign_with_digest
+        match Fetch_signature.sign_with_digest
           ~clock:t.clock
           ~config:signing.config
           ~context:ctx
@@ -173,7 +184,7 @@ module Http = struct
         with
         | Ok signed_headers -> signed_headers
         | Error err ->
-            let msg = Requests.Signature.sign_error_to_string err in
+            let msg = Fetch_signature.sign_error_to_string err in
             raise (E (Signature_error msg))
 
   (* Helper to encode JSON to string, raising on error *)
@@ -182,27 +193,24 @@ module Http = struct
     | Ok s -> s
     | Error msg -> raise (E (Json_error msg))
 
-  let post (T t as client) uri body =
+  (* Internal: signed POST of an already encoded ActivityPub document *)
+  let post_signed (T t as client) uri body_str =
     let url = Uri.to_string uri in
-    let body_str = encode_json_exn Jsont.json body in
     let headers =
-      Requests.Headers.empty
-      |> Requests.Headers.set `Content_type "application/activity+json"
+      Hdr.init_with "content-type" "application/activity+json"
     in
     let headers = sign_post_request client ~uri ~body:body_str ~headers in
-    let resp = Requests.post t.requests ~headers ~body:(Requests.Body.of_string Requests.Mime.json body_str) url in
-    check_response resp
+    Fetch.with_response
+      ~headers:(Fetch.Header.of_http headers)
+      ~body:(Fetch.String body_str)
+      t.fetch `POST url
+    @@ fun resp -> check_response resp
 
-  let post_typed (T t as client) jsont uri value =
-    let url = Uri.to_string uri in
-    let body_str = encode_json_exn jsont value in
-    let headers =
-      Requests.Headers.empty
-      |> Requests.Headers.set `Content_type "application/activity+json"
-    in
-    let headers = sign_post_request client ~uri ~body:body_str ~headers in
-    let resp = Requests.post t.requests ~headers ~body:(Requests.Body.of_string Requests.Mime.json body_str) url in
-    check_response resp
+  let post client uri body =
+    post_signed client uri (encode_json_exn Jsont.json body)
+
+  let post_typed client jsont uri value =
+    post_signed client uri (encode_json_exn jsont value)
 end
 
 module Webfinger = struct
@@ -349,13 +357,12 @@ module Nodeinfo = struct
   let fetch (T t) ~host =
     (* Step 1: Fetch the well-known nodeinfo discovery document *)
     let well_known_url = Printf.sprintf "https://%s/.well-known/nodeinfo" host in
-    let headers =
-      Requests.Headers.empty
-      |> Requests.Headers.add `Accept "application/json"
+    let headers = Fetch.Header.[ accept, [ pref "application/json" ] ] in
+    let well_known =
+      Fetch.with_response ~headers t.fetch `GET well_known_url @@ fun resp ->
+      check_response resp;
+      decode_json_exn Well_known.jsont resp
     in
-    let resp = Requests.get t.requests ~headers well_known_url in
-    check_response resp;
-    let well_known = Requests.Response.jsonv Well_known.jsont resp in
     (* Step 2: Find a link with rel containing "nodeinfo" and schema 2.0 or 2.1 *)
     let nodeinfo_href =
       List.find_map (fun (link : Well_known_link.t) ->
@@ -371,9 +378,9 @@ module Nodeinfo = struct
     | None -> raise (E (Json_error "No NodeInfo 2.0 or 2.1 link found in well-known response"))
     | Some href ->
         (* Step 3: Fetch the actual NodeInfo document *)
-        let resp = Requests.get t.requests ~headers href in
+        Fetch.with_response ~headers t.fetch `GET href @@ fun resp ->
         check_response resp;
-        Requests.Response.jsonv Proto.Nodeinfo.jsont resp
+        decode_json_exn Proto.Nodeinfo.jsont resp
 
   let software_name info =
     Proto.Nodeinfo.Software.name (Proto.Nodeinfo.software info)
@@ -542,10 +549,9 @@ module Inbox = struct
     (* Try to get shared inbox from instance actor endpoint *)
     let instance_actor_url = Printf.sprintf "https://%s/actor" host in
     try
-      let resp = Requests.get t.requests instance_actor_url in
-      if Requests.Response.status_code resp >= 200 &&
-         Requests.Response.status_code resp < 300 then begin
-        let actor = Requests.Response.jsonv Proto.Actor.jsont resp in
+      Fetch.with_response t.fetch `GET instance_actor_url @@ fun resp ->
+      if is_success (Fetch.status resp) then begin
+        let actor = decode_json_exn Proto.Actor.jsont resp in
         match Proto.Actor.endpoints actor with
         | Some endpoints ->
             Proto.Endpoints.shared_inbox endpoints

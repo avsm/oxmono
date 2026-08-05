@@ -2,4 +2,4 @@
  (name apub)
  (public_name apub)
  (package apubt)
- (libraries apubt apub_auth cmdliner eio_main fmt logs logs.cli logs.fmt fmt.cli fmt.tty requests))
+ (libraries apubt apub_auth cmdliner eio_main fmt logs logs.cli logs.fmt fmt.cli fmt.tty fetch-curl))

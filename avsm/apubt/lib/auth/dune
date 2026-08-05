@@ -14,5 +14,6 @@
   mirage-crypto-rng
   mirage-crypto-rng.unix
   ptime.clock.os
-  requests
+  fetch
+  fetch-curl
   x509))

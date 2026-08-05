@@ -72,7 +72,7 @@ type t
 
 (** HTTP signature configuration for authenticated requests.
 
-    Uses RFC 9421 HTTP Message Signatures via the Requests library.
+    Uses RFC 9421 HTTP Message Signatures via the [fetch-signature] library.
     ActivityPub typically uses RSA-SHA256 signatures.
 
     The following message components are signed:
@@ -88,13 +88,13 @@ module Signing : sig
 
   val create :
     key_id:string ->
-    key:Requests.Signature.Key.t ->
+    key:Fetch_signature.Key.t ->
     unit ->
     t
   (** [create ~key_id ~key ()] creates a signing configuration.
 
       @param key_id The key ID URI (typically actor URI + "#main-key")
-      @param key The cryptographic key from {!Requests.Signature.Key} *)
+      @param key The cryptographic key from {!Fetch_signature.Key} *)
 
   val from_pem :
     key_id:string ->
@@ -119,7 +119,7 @@ module Signing : sig
   val key_id : t -> string
   (** [key_id t] returns the key ID URI. *)
 
-  val key : t -> Requests.Signature.Key.t
+  val key : t -> Fetch_signature.Key.t
   (** [key t] returns the signing key. *)
 end
 
@@ -128,10 +128,7 @@ val create :
   ?signing:Signing.t ->
   ?user_agent:string ->
   ?timeout:float ->
-  < clock : _ Eio.Time.clock
-  ; net : _ Eio.Net.t
-  ; fs : Eio.Fs.dir_ty Eio.Path.t
-  ; .. > ->
+  < clock : _ Eio.Time.clock ; .. > ->
   t
 (** [create ~sw ?signing ?user_agent ?timeout env] creates an ActivityPub client.
 

@@ -15,8 +15,9 @@ depends: [
   "bytesrw"
   "eio" {>= "1.0"}
   "eio_main" {>= "1.0"}
-  "requests" {>= "0.1.0"}
+  "fetch"
   "fetch-curl"
+  "fetch-signature"
   "cmdliner" {>= "1.2.0"}
   "logs" {>= "0.7.0"}
   "fmt" {>= "0.9.0"}

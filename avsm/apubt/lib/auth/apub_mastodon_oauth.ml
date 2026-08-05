@@ -97,8 +97,15 @@ let instance_of_account account =
   | [_user; instance] -> Some instance
   | _ -> None
 
+(** Decode a fully drained response body, or report the failure *)
+let decode_body jsont resp =
+  let body = Eio.Flow.read_all (Fetch.body resp) in
+  match Jsont_bytesrw.decode_string jsont body with
+  | Ok v -> Ok v
+  | Error msg -> Error (Printf.sprintf "Malformed response: %s" msg)
+
 (** Register a new OAuth app with the instance *)
-let register_app requests ~instance =
+let register_app fetch ~instance =
   let url = Printf.sprintf "https://%s/api/v1/apps" instance in
   let params = [
     ("client_name", client_name);
@@ -106,13 +113,13 @@ let register_app requests ~instance =
     ("scopes", scopes);
     ("website", "https://github.com/avsm/apub");
   ] in
-  let body = Requests.Body.form params in
-  let resp = Requests.post requests ~body url in
-  let status = Requests.Response.status_code resp in
+  let headers, body = Fetch.Form.urlencoded params in
+  Fetch.with_response ~headers ~body fetch `POST url @@ fun resp ->
+  let status = Fetch.status resp in
   if status >= 200 && status < 300 then
-    Ok (Requests.Response.jsonv app_jsont resp)
+    decode_body app_jsont resp
   else
-    let body = Requests.Response.text resp in
+    let body = Eio.Flow.read_all (Fetch.body resp) in
     Error (Printf.sprintf "Failed to register app (HTTP %d): %s" status body)
 
 (** Build the authorization URL for the user to visit *)
@@ -132,7 +139,7 @@ let authorization_url ~instance ~client_id ~code_challenge =
   base ^ "?" ^ query
 
 (** Exchange authorization code for access token *)
-let exchange_code requests ~instance ~client_id ~client_secret ~code ~code_verifier =
+let exchange_code fetch ~instance ~client_id ~client_secret ~code ~code_verifier =
   let url = Printf.sprintf "https://%s/oauth/token" instance in
   let params = [
     ("grant_type", "authorization_code");
@@ -142,28 +149,30 @@ let exchange_code requests ~instance ~client_id ~client_secret ~code ~code_verif
     ("redirect_uri", redirect_uri);
     ("code_verifier", code_verifier);
   ] in
-  let body = Requests.Body.form params in
-  let resp = Requests.post requests ~body url in
-  let status = Requests.Response.status_code resp in
+  let headers, body = Fetch.Form.urlencoded params in
+  Fetch.with_response ~headers ~body fetch `POST url @@ fun resp ->
+  let status = Fetch.status resp in
   if status >= 200 && status < 300 then
-    Ok (Requests.Response.jsonv token_jsont resp)
+    decode_body token_jsont resp
   else
-    let body = Requests.Response.text resp in
+    let body = Eio.Flow.read_all (Fetch.body resp) in
     Error (Printf.sprintf "Failed to exchange code (HTTP %d): %s" status body)
 
 (** Verify credentials and get account info *)
-let verify_credentials requests ~instance ~access_token =
+let verify_credentials fetch ~instance ~access_token =
   let url = Printf.sprintf "https://%s/api/v1/accounts/verify_credentials" instance in
-  let headers =
-    Requests.Headers.empty
-    |> Requests.Headers.bearer access_token
+  let fetch =
+    Fetch.with_credentials
+      ~scope:[ Printf.sprintf "https://%s/" instance ]
+      Fetch.Credential.[ Bearer (fun () -> access_token) ]
+      fetch
   in
-  let resp = Requests.get requests ~headers url in
-  let status = Requests.Response.status_code resp in
+  Fetch.with_response fetch `GET url @@ fun resp ->
+  let status = Fetch.status resp in
   if status >= 200 && status < 300 then
-    Ok (Requests.Response.jsonv account_jsont resp)
+    decode_body account_jsont resp
   else
-    let body = Requests.Response.text resp in
+    let body = Eio.Flow.read_all (Fetch.body resp) in
     Error (Printf.sprintf "Failed to verify credentials (HTTP %d): %s" status body)
 
 (** Get the ActivityPub actor URI from a Mastodon account URL *)

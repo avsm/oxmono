@@ -58,25 +58,32 @@ let relationship_jsont =
   |> Jsont.Object.mem "requested" Jsont.bool ~enc:(fun r -> r.requested)
   |> Jsont.Object.finish
 
-(** Helper to create authenticated headers *)
-let auth_headers token =
-  Requests.Headers.empty
-  |> Requests.Headers.bearer token
+(** Bearer token scoped to the instance it belongs to. A credential is
+    dropped on a cross-origin redirect, which a per-request [Authorization]
+    header would not be. *)
+let authed fetch ~instance ~token =
+  Fetch.with_credentials
+    ~scope:[ Printf.sprintf "https://%s/" instance ]
+    Fetch.Credential.[ Bearer (fun () -> token) ]
+    fetch
 
 (** Check response and return error if not successful *)
 let check_response resp =
-  let status = Requests.Response.status_code resp in
+  let status = Fetch.status resp in
   if status >= 200 && status < 300 then
     Ok ()
   else
-    let body = Requests.Response.text resp in
+    let body = Eio.Flow.read_all (Fetch.body resp) in
     Error (Printf.sprintf "HTTP %d: %s" status body)
 
+(** Decode a fully drained response body *)
+let decode_body = Apub_mastodon_oauth.decode_body
+
 (** Post a new status *)
-let post_status requests ~instance ~token ~content
+let post_status fetch ~instance ~token ~content
     ?(visibility = Public) ?in_reply_to_id ?sensitive ?spoiler_text () =
   let url = Printf.sprintf "https://%s/api/v1/statuses" instance in
-  let headers = auth_headers token in
+  let fetch = authed fetch ~instance ~token in
   let params = [
     ("status", content);
     ("visibility", string_of_visibility visibility);
@@ -93,101 +100,81 @@ let post_status requests ~instance ~token ~content
     | Some text -> ("spoiler_text", text) :: params
     | None -> params
   in
-  let body = Requests.Body.form params in
-  let resp = Requests.post requests ~headers ~body url in
+  let headers, body = Fetch.Form.urlencoded params in
+  Fetch.with_response ~headers ~body fetch `POST url @@ fun resp ->
   match check_response resp with
   | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv status_jsont resp)
+  | Ok () -> decode_body status_jsont resp
+
+(** Internal: a bodyless POST decoding [jsont] from a successful response *)
+let post_action fetch ~instance ~token jsont url =
+  let fetch = authed fetch ~instance ~token in
+  Fetch.with_response fetch `POST url @@ fun resp ->
+  match check_response resp with
+  | Error e -> Error e
+  | Ok () -> decode_body jsont resp
+
+(** Internal: a GET decoding [jsont] from a successful response *)
+let get_action fetch ~instance ~token jsont url =
+  let fetch = authed fetch ~instance ~token in
+  Fetch.with_response fetch `GET url @@ fun resp ->
+  match check_response resp with
+  | Error e -> Error e
+  | Ok () -> decode_body jsont resp
 
 (** Favourite (like) a status *)
-let favourite requests ~instance ~token ~status_id =
-  let url = Printf.sprintf "https://%s/api/v1/statuses/%s/favourite" instance status_id in
-  let headers = auth_headers token in
-  let resp = Requests.post requests ~headers url in
-  match check_response resp with
-  | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv status_jsont resp)
+let favourite fetch ~instance ~token ~status_id =
+  Printf.sprintf "https://%s/api/v1/statuses/%s/favourite" instance status_id
+  |> post_action fetch ~instance ~token status_jsont
 
 (** Unfavourite a status *)
-let unfavourite requests ~instance ~token ~status_id =
-  let url = Printf.sprintf "https://%s/api/v1/statuses/%s/unfavourite" instance status_id in
-  let headers = auth_headers token in
-  let resp = Requests.post requests ~headers url in
-  match check_response resp with
-  | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv status_jsont resp)
+let unfavourite fetch ~instance ~token ~status_id =
+  Printf.sprintf "https://%s/api/v1/statuses/%s/unfavourite" instance status_id
+  |> post_action fetch ~instance ~token status_jsont
 
 (** Reblog (boost) a status *)
-let reblog requests ~instance ~token ~status_id =
-  let url = Printf.sprintf "https://%s/api/v1/statuses/%s/reblog" instance status_id in
-  let headers = auth_headers token in
-  let resp = Requests.post requests ~headers url in
-  match check_response resp with
-  | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv status_jsont resp)
+let reblog fetch ~instance ~token ~status_id =
+  Printf.sprintf "https://%s/api/v1/statuses/%s/reblog" instance status_id
+  |> post_action fetch ~instance ~token status_jsont
 
 (** Unreblog a status *)
-let unreblog requests ~instance ~token ~status_id =
-  let url = Printf.sprintf "https://%s/api/v1/statuses/%s/unreblog" instance status_id in
-  let headers = auth_headers token in
-  let resp = Requests.post requests ~headers url in
-  match check_response resp with
-  | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv status_jsont resp)
+let unreblog fetch ~instance ~token ~status_id =
+  Printf.sprintf "https://%s/api/v1/statuses/%s/unreblog" instance status_id
+  |> post_action fetch ~instance ~token status_jsont
 
 (** Follow an account by ID *)
-let follow requests ~instance ~token ~account_id =
-  let url = Printf.sprintf "https://%s/api/v1/accounts/%s/follow" instance account_id in
-  let headers = auth_headers token in
-  let resp = Requests.post requests ~headers url in
-  match check_response resp with
-  | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv relationship_jsont resp)
+let follow fetch ~instance ~token ~account_id =
+  Printf.sprintf "https://%s/api/v1/accounts/%s/follow" instance account_id
+  |> post_action fetch ~instance ~token relationship_jsont
 
 (** Unfollow an account by ID *)
-let unfollow requests ~instance ~token ~account_id =
-  let url = Printf.sprintf "https://%s/api/v1/accounts/%s/unfollow" instance account_id in
-  let headers = auth_headers token in
-  let resp = Requests.post requests ~headers url in
-  match check_response resp with
-  | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv relationship_jsont resp)
+let unfollow fetch ~instance ~token ~account_id =
+  Printf.sprintf "https://%s/api/v1/accounts/%s/unfollow" instance account_id
+  |> post_action fetch ~instance ~token relationship_jsont
 
 (** Look up an account by webfinger address (user@domain) *)
-let lookup_account requests ~instance ~token ~acct =
-  let url = Printf.sprintf "https://%s/api/v1/accounts/lookup?acct=%s"
-    instance (Uri.pct_encode acct) in
-  let headers = auth_headers token in
-  let resp = Requests.get requests ~headers url in
-  match check_response resp with
-  | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv Apub_mastodon_oauth.account_jsont resp)
+let lookup_account fetch ~instance ~token ~acct =
+  Printf.sprintf "https://%s/api/v1/accounts/lookup?acct=%s" instance
+    (Uri.pct_encode acct)
+  |> get_action fetch ~instance ~token Apub_mastodon_oauth.account_jsont
 
 (** Search for accounts *)
-let search_accounts requests ~instance ~token ~query ?(limit = 10) () =
-  let url = Printf.sprintf "https://%s/api/v1/accounts/search?q=%s&limit=%d"
-    instance (Uri.pct_encode query) limit in
-  let headers = auth_headers token in
-  let resp = Requests.get requests ~headers url in
-  match check_response resp with
-  | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv (Jsont.list Apub_mastodon_oauth.account_jsont) resp)
+let search_accounts fetch ~instance ~token ~query ?(limit = 10) () =
+  Printf.sprintf "https://%s/api/v1/accounts/search?q=%s&limit=%d" instance
+    (Uri.pct_encode query) limit
+  |> get_action fetch ~instance ~token
+       (Jsont.list Apub_mastodon_oauth.account_jsont)
 
 (** Get a status by ID *)
-let get_status requests ~instance ~token ~status_id =
-  let url = Printf.sprintf "https://%s/api/v1/statuses/%s" instance status_id in
-  let headers = auth_headers token in
-  let resp = Requests.get requests ~headers url in
-  match check_response resp with
-  | Error e -> Error e
-  | Ok () -> Ok (Requests.Response.jsonv status_jsont resp)
+let get_status fetch ~instance ~token ~status_id =
+  Printf.sprintf "https://%s/api/v1/statuses/%s" instance status_id
+  |> get_action fetch ~instance ~token status_jsont
 
 (** Delete a status *)
-let delete_status requests ~instance ~token ~status_id =
+let delete_status fetch ~instance ~token ~status_id =
   let url = Printf.sprintf "https://%s/api/v1/statuses/%s" instance status_id in
-  let headers = auth_headers token in
-  let resp = Requests.delete requests ~headers url in
-  check_response resp
+  let fetch = authed fetch ~instance ~token in
+  Fetch.with_response fetch `DELETE url @@ fun resp -> check_response resp
 
 (** Extract status ID from a Mastodon URL like https://instance/users/name/statuses/123
     or https://instance/@name/123 *)

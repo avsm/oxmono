@@ -376,11 +376,12 @@ module Post_cmd = struct
         (* Use Mastodon API if OAuth is available *)
         match creds.auth with
         | OAuth_auth { instance; token } ->
-            let timeout_config = Requests.Timeout.create ~connect:timeout ~read:timeout () in
-            let requests = Requests.create ~sw ~timeout:timeout_config env in
+            let fetch =
+              Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+            in
             let visibility = if followers_only then Apub_mastodon_api.Private else Apub_mastodon_api.Public in
             let spoiler_text = if sensitive then cw_summary else None in
-            (match Apub_mastodon_api.post_status requests ~instance ~token ~content
+            (match Apub_mastodon_api.post_status fetch ~instance ~token ~content
               ~visibility ?in_reply_to_id:reply_to ?sensitive:(if sensitive then Some true else None)
               ?spoiler_text () with
             | Ok status ->
@@ -448,12 +449,13 @@ module Follow_cmd = struct
         (* Use Mastodon API if OAuth is available *)
         match creds.auth with
         | OAuth_auth { instance; token } ->
-            let timeout_config = Requests.Timeout.create ~connect:timeout ~read:timeout () in
-            let requests = Requests.create ~sw ~timeout:timeout_config env in
+            let fetch =
+              Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+            in
             (* Look up the account first to get its ID *)
-            (match Apub_mastodon_api.lookup_account requests ~instance ~token ~acct:target with
+            (match Apub_mastodon_api.lookup_account fetch ~instance ~token ~acct:target with
             | Ok account ->
-                (match Apub_mastodon_api.follow requests ~instance ~token ~account_id:account.id with
+                (match Apub_mastodon_api.follow fetch ~instance ~token ~account_id:account.id with
                 | Ok rel ->
                     Fmt.pr "Follow request sent to: %s@." account.acct;
                     if rel.following then Fmt.pr "Status: Now following@."
@@ -523,12 +525,13 @@ module Like_cmd = struct
         (* Use Mastodon API if OAuth is available *)
         match creds.auth with
         | OAuth_auth { instance; token } ->
-            let timeout_config = Requests.Timeout.create ~connect:timeout ~read:timeout () in
-            let requests = Requests.create ~sw ~timeout:timeout_config env in
+            let fetch =
+              Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+            in
             (* Extract status ID from URL *)
             (match Apub_mastodon_api.status_id_of_url object_uri with
             | Some status_id ->
-                (match Apub_mastodon_api.favourite requests ~instance ~token ~status_id with
+                (match Apub_mastodon_api.favourite fetch ~instance ~token ~status_id with
                 | Ok status ->
                     Fmt.pr "Liked: %s@." status.uri;
                     `Ok ()
@@ -587,12 +590,13 @@ module Boost_cmd = struct
         (* Use Mastodon API if OAuth is available *)
         match creds.auth with
         | OAuth_auth { instance; token } ->
-            let timeout_config = Requests.Timeout.create ~connect:timeout ~read:timeout () in
-            let requests = Requests.create ~sw ~timeout:timeout_config env in
+            let fetch =
+              Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+            in
             (* Extract status ID from URL *)
             (match Apub_mastodon_api.status_id_of_url object_uri with
             | Some status_id ->
-                (match Apub_mastodon_api.reblog requests ~instance ~token ~status_id with
+                (match Apub_mastodon_api.reblog fetch ~instance ~token ~status_id with
                 | Ok status ->
                     Fmt.pr "Boosted: %s@." status.uri;
                     `Ok ()

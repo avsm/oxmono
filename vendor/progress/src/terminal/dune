@@ -1,0 +1,9 @@
+(library
+ (public_name terminal)
+ (name terminal)
+ (foreign_stubs
+  (language c)
+  (names terminal_stubs))
+ (libraries
+  (re_export terminal_ansi)
+  unix))

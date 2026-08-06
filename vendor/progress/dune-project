@@ -1,0 +1,9 @@
+(lang dune 2.7)
+(name progress)
+(version 0.5.0)
+(implicit_transitive_deps false)
+
+(source (github CraigFe/progress))
+(license MIT)
+(maintainers "Craig Ferguson <me@craigfe.io>")
+(authors "Craig Ferguson <me@craigfe.io>")

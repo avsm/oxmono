@@ -1,0 +1,4 @@
+(lang dune 2.9)
+(name multibase)
+(version v0.1.0)
+(using mdx 0.1)

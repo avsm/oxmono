@@ -1,4 +1,4 @@
 (library
  (name cookeio)
  (public_name cookeio)
- (libraries logs ptime ipaddr domain-name publicsuffix))
+ (libraries fmt ptime publicsuffix))

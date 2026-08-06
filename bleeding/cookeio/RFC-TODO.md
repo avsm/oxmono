@@ -1,169 +1,66 @@
-# RFC 6265 Compliance TODO
+# RFC 6265 Compliance
 
-This document tracks deviations from [RFC 6265](https://datatracker.ietf.org/doc/html/rfc6265) (HTTP State Management Mechanism) and missing features in ocaml-cookeio.
+This document tracks how ocaml-cookeio relates to
+[RFC 6265](https://datatracker.ietf.org/doc/html/rfc6265) (HTTP State
+Management Mechanism) and its successors.
 
-## High Priority
+## Implemented
 
-### 1. Public Suffix Validation (Section 5.3, Step 5)
+Client-side parsing and storage (`Cookeio.parse_set_cookie`, `Cookeio_jar`):
 
-**Status:** ✅ IMPLEMENTED
+- [x] Case-insensitive attribute name matching (§5.2)
+- [x] Leading dot removal and lowercasing of the Domain attribute (§5.2.3);
+      domains are canonical (lowercase, no leading dot) throughout
+- [x] The Domain attribute must domain-match the setting host (§5.3 step 6)
+- [x] Public suffix rejection unless the host is exactly the suffix
+      (§5.3 step 5, via the Mozilla Public Suffix List)
+- [x] Max-Age precedence over Expires regardless of order (§5.3 step 3),
+      resolved once at parse time into a single `expiry`
+- [x] Non-positive Max-Age is expired immediately, so the Max-Age=0
+      deletion idiom works even at the same clock tick (§5.2.2)
+- [x] Default path computation, also for empty or relative Path values
+      (§5.1.4 / §5.2.4)
+- [x] Cookie date parsing in the four sane-cookie-date shapes, with
+      RFC-conforming two-digit years — 0-69 are 20xx, 70-99 are 19xx
+      (§5.1.1)
+- [x] Host-only flag and exact-match domain behavior (§5.3 step 6)
+- [x] Domain matching with no suffix matching against IP literals (§5.1.3)
+- [x] Path matching (§5.1.4)
+- [x] Cookie header ordering: longer paths first, then earlier creation,
+      with a name tiebreak for same-tick cookies (§5.4 step 2)
+- [x] Creation-time preservation when a cookie is replaced (§5.3 step 12)
+- [x] Last-access updates on retrieval and eviction of expired cookies
+      (§5.4)
+- [x] Storage limits with LRU eviction: 4096 bytes name+value, 50 per
+      domain, 3000 total (§6.1)
 
-The RFC requires rejecting cookies with domains that are "public suffixes" (e.g., `.com`, `.co.uk`) to prevent domain-wide cookie attacks.
+Server-side (`Cookeio.parse_cookie_header`, `Cookeio.set_cookie_header`):
 
-**Implementation:**
-- Uses the `publicsuffix` library which embeds the Mozilla Public Suffix List at build time
-- Validates Domain attribute in `of_set_cookie_header` before creating the cookie
-- Rejects cookies where Domain is a public suffix (e.g., `.com`, `.co.uk`, `.github.io`)
-- Allows cookies where the request host exactly matches the public suffix domain
-- IP addresses bypass PSL validation (per RFC 6265 Section 5.1.3)
-- Cookies without Domain attribute (host-only) are always allowed
+- [x] Lenient Cookie header parsing into name-value pairs, repeated
+      names preserved in order (§4.2.2)
+- [x] Set-Cookie emission with IMF-fixdate Expires (§4.1.1) and the
+      Domain attribute omitted for host-only cookies (§4.1.2.3)
 
-**Security impact:** Prevents attackers from setting domain-wide cookies that would affect all sites under a TLD.
+Extensions:
 
----
+- [x] SameSite parsing and the SameSite=None-requires-Secure rule
+      (RFC 6265bis §5.4.7); a non-browser client has no site notion,
+      so matching does not consult it
+- [x] `__Secure-`/`__Host-` name prefixes: attribute rules at parse,
+      plaintext-channel refusal in the jar (RFC 6265bis §4.1.3)
+- [x] Refusal of plaintext cookies that would shadow a stored Secure
+      cookie (RFC 6265bis §5.5 step 13)
+- [x] The Partitioned attribute parsed, validated (requires Secure) and
+      round-tripped (CHIPS)
+- [x] Netscape cookies.txt persistence, curl-compatible including the
+      `#HttpOnly_` marking (de facto standard)
 
-## Medium Priority
+## Open
 
-### 2. IP Address Domain Matching (Section 5.1.3)
-
-**Status:** ✅ IMPLEMENTED
-
-The RFC specifies that domain suffix matching should only apply to host names, not IP addresses.
-
-**Implementation:**
-- Uses the `ipaddr` library to detect IPv4 and IPv6 addresses
-- IP addresses require exact match only (no suffix matching)
-- Hostnames continue to support subdomain matching when `host_only = false`
-
----
-
-### 3. Expires Header Date Format (Section 4.1.1)
-
-**Status:** Wrong format
-
-**Current behavior:** Outputs RFC3339 format (`2021-06-09T10:18:14+00:00`)
-
-**RFC requirement:** Use `rfc1123-date` format (`Wed, 09 Jun 2021 10:18:14 GMT`)
-
-**Location:** `cookeio.ml:447-448`
-
-**Fix:** Implement RFC1123 date formatting for Set-Cookie header output.
-
----
-
-### 4. Cookie Ordering in Header (Section 5.4, Step 2)
-
-**Status:** ✅ IMPLEMENTED
-
-When generating Cookie headers, cookies are sorted:
-1. Cookies with longer paths listed first
-2. Among equal-length paths, earlier creation-times listed first
-
-**Implementation:** `get_cookies` function in `cookeio_jar.ml` uses `compare_cookie_order` to sort cookies before returning them.
-
----
-
-### 5. Creation Time Preservation (Section 5.3, Step 11.3)
-
-**Status:** ✅ IMPLEMENTED
-
-When replacing an existing cookie (same name/domain/path), the creation-time of the old cookie is preserved.
-
-**Implementation:** `add_cookie` and `add_original` functions in `cookeio_jar.ml` use `preserve_creation_time` to retain the original creation time when updating an existing cookie.
-
----
-
-### 6. Default Path Computation (Section 5.1.4)
-
-**Status:** Not implemented (caller responsibility)
-
-The RFC specifies an algorithm for computing default path when Path attribute is absent:
-1. If uri-path is empty or doesn't start with `/`, return `/`
-2. If uri-path contains only one `/`, return `/`
-3. Return characters up to (but not including) the rightmost `/`
-
-**Suggestion:** Add `default_path : string -> string` helper function.
-
----
-
-## Low Priority
-
-### 7. Storage Limits (Section 6.1)
-
-**Status:** Not implemented
-
-RFC recommends minimum capabilities:
-- At least 4096 bytes per cookie
-- At least 50 cookies per domain
-- At least 3000 cookies total
-
-**Suggestion:** Add configurable limits with RFC-recommended defaults.
-
----
-
-### 8. Excess Cookie Eviction (Section 5.3)
-
-**Status:** Not implemented
-
-When storage limits are exceeded, evict in priority order:
-1. Expired cookies
-2. Cookies sharing domain with many others
-3. All cookies
-
-Tiebreaker: earliest `last-access-time` first (LRU).
-
----
-
-### 9. Two-Digit Year Parsing (Section 5.1.1)
-
-**Status:** Minor deviation
-
-**RFC specification:**
-- Years 70-99 → add 1900
-- Years 0-69 → add 2000
-
-**Current code** (`cookeio.ml:128-130`):
-```ocaml
-if year >= 0 && year <= 68 then year + 2000
-else if year >= 69 && year <= 99 then year + 1900
-```
-
-**Issue:** Year 69 is treated as 1969, but RFC says 70-99 get 1900, implying 69 should get 2000.
-
----
-
-## Compliant Features
-
-The following RFC requirements are correctly implemented:
-
-- [x] Case-insensitive attribute name matching (Section 5.2)
-- [x] Leading dot removal from Domain attribute (Section 5.2.3)
-- [x] Max-Age takes precedence over Expires (Section 5.3, Step 3)
-- [x] Secure flag handling (Section 5.2.5)
-- [x] HttpOnly flag handling (Section 5.2.6)
-- [x] Cookie date parsing with multiple format support (Section 5.1.1)
-- [x] Session vs persistent cookie distinction (Section 5.3)
-- [x] Last-access-time updates on retrieval (Section 5.4, Step 3)
-- [x] Host-only flag for domain matching (Section 5.3, Step 6)
-- [x] Path matching algorithm (Section 5.1.4)
-- [x] IP address domain matching - exact match only (Section 5.1.3)
-- [x] Cookie ordering in headers - longer paths first, then by creation time (Section 5.4, Step 2)
-- [x] Creation time preservation when replacing cookies (Section 5.3, Step 11.3)
-- [x] Public suffix validation - rejects cookies for TLDs like .com (Section 5.3, Step 5)
-
----
-
-## Extensions Beyond RFC 6265
-
-These features are implemented but not part of RFC 6265:
-
-| Feature | Specification |
-|---------|---------------|
-| SameSite | RFC 6265bis (draft) |
-| Partitioned | CHIPS proposal |
-| Mozilla format | De facto standard |
-
----
+- The jar does not partition its store by top-level site, so
+  Partitioned cookies are stored like ordinary ones (CHIPS).
+- The jar has no session-end notion; session cookies persist until
+  cleared, and are written to cookies.txt with expiry 0 as curl does.
 
 ## References
 

@@ -3,225 +3,72 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Cookie jar for storing and managing HTTP cookies.
+(** A client-side cookie jar: storage per
+    {{:https://datatracker.ietf.org/doc/html/rfc6265}RFC 6265} §5.3,
+    retrieval per §5.4, and persistence in the Netscape cookies.txt
+    format that curl reads and writes.
 
-    This module provides a complete cookie jar implementation following
-    {{:https://datatracker.ietf.org/doc/html/rfc6265} RFC 6265} while
-    integrating Eio for efficient asynchronous operations.
+    The jar is bounded as §6.1 expects: a cookie's name and value
+    together may not exceed 4096 bytes, and the jar holds at most 50
+    cookies per domain and 3000 in all, evicting the least recently used
+    when it is full. It also refuses, per RFC 6265bis, a plaintext
+    cookie that would shadow a stored [Secure] one, and a [__Secure-] or
+    [__Host-] cookie arriving over plaintext.
 
-    A cookie jar maintains a collection of cookies with automatic cleanup of
-    expired entries. It implements the standard browser behavior for cookie
-    storage, including:
-    - Automatic removal of expired cookies
-    - Domain and path-based cookie retrieval per
-      {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.4} Section 5.4}
-    - Delta tracking for Set-Cookie headers
-    - Mozilla format persistence for cross-tool compatibility
+    An HTTP client calls {!set} with each [Set-Cookie] value a response
+    carries and {!header_for} to build the [Cookie] header for a
+    request. Both take the request's canonical (lowercase) host, its
+    path, and whether the scheme is https. *)
 
-    @see <https://datatracker.ietf.org/doc/html/rfc6265> RFC 6265 - HTTP State Management Mechanism
-
-    {2 Standards and References}
-
-    This cookie jar implements the storage model from:
-
-    {ul
-    {- {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3}RFC 6265 Section 5.3} -
-       Storage Model - Cookie insertion, replacement, and expiration}
-    {- {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.4}RFC 6265 Section 5.4} -
-       The Cookie Header - Cookie retrieval and ordering}}
-
-    Key RFC 6265 requirements implemented:
-    {ul
-    {- Domain matching per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.1.3}Section 5.1.3}}
-    {- Path matching per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.1.4}Section 5.1.4}}
-    {- Cookie ordering per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.4}Section 5.4 Step 2}}
-    {- Creation time preservation per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3}Section 5.3 Step 11.3}}}
-
-    {2 Related Libraries}
-
-    {ul
-    {- {!Cookeio} - HTTP cookie parsing, validation, and serialization}
-    {- [Requests] - HTTP client that uses this jar for cookie persistence}
-    {- [Xdge] - XDG Base Directory support for cookie file paths}} *)
+[@@@ai_disclosure "ai-generated"]
+[@@@ai_model "claude-fable-5"]
+[@@@ai_provider "Anthropic"]
 
 type t
-(** Cookie jar for storing and managing cookies.
+(** A cookie store. All operations are safe to call from concurrent
+    fibers. *)
 
-    A cookie jar maintains a collection of cookies with automatic cleanup of
-    expired entries and enforcement of storage limits. It implements the
-    standard browser behavior for cookie storage per
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3}. *)
+val in_memory : clock:_ Eio.Time.clock -> unit -> t
+(** [in_memory ~clock ()] is an empty jar that is never written to
+    disk. *)
 
-(** {1 Cookie Jar Creation and Loading} *)
-
-val create : unit -> t
-(** Create an empty cookie jar. *)
-
-val load : clock:_ Eio.Time.clock -> Eio.Fs.dir_ty Eio.Path.t -> t
-(** Load cookies from Mozilla format file.
-
-    Loads cookies from a file in Mozilla format, using the provided clock to set
-    creation and last access times. Returns an empty jar if the file doesn't
-    exist or cannot be loaded. *)
-
-val save : Eio.Fs.dir_ty Eio.Path.t -> t -> unit
-(** Save cookies to Mozilla format file. *)
-
-(** {1 Cookie Jar Management} *)
-
-val add_cookie : t -> Cookeio.t -> unit
-(** Add a cookie to the jar.
-
-    The cookie is added to the delta, meaning it will appear in Set-Cookie
-    headers when calling {!delta}. If a cookie with the same name/domain/path
-    exists, it will be replaced per
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3}.
-
-    Per Section 5.3, Step 11.3, when replacing an existing cookie, the original
-    creation-time is preserved. This ensures stable cookie ordering per
-    Section 5.4, Step 2.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.3> RFC 6265 Section 5.3 - Storage Model *)
-
-val add_original : t -> Cookeio.t -> unit
-(** Add an original cookie to the jar.
-
-    Original cookies are those received from the client (via Cookie header).
-    They do not appear in the delta. This method should be used when loading
-    cookies from incoming HTTP requests.
-
-    Per Section 5.3, Step 11.3, when replacing an existing cookie, the original
-    creation-time is preserved.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.3> RFC 6265 Section 5.3 - Storage Model *)
-
-val delta : t -> Cookeio.t list
-(** Get cookies that need to be sent in Set-Cookie headers.
-
-    Returns cookies that have been added via {!add_cookie} and removal cookies
-    for original cookies that have been removed. Does not include original
-    cookies that were added via {!add_original}.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.1> RFC 6265 Section 4.1 - Set-Cookie *)
-
-val remove : t -> clock:_ Eio.Time.clock -> Cookeio.t -> unit
-(** Remove a cookie from the jar.
-
-    If an original cookie with the same name/domain/path exists, creates a
-    removal cookie (empty value, Max-Age=0, past expiration) that appears in the
-    delta. If only a delta cookie exists, simply removes it from the delta.
-
-    Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3},
-    cookies are removed by sending a Set-Cookie with an expiry date in the past.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.3> RFC 6265 Section 5.3 - Storage Model *)
-
-val get_cookies :
-  t ->
+val of_file :
   clock:_ Eio.Time.clock ->
-  domain:string ->
-  path:string ->
-  is_secure:bool ->
-  Cookeio.t list
-(** Get cookies applicable for a URL.
+  ?save:[ `On_change | `Manual ] ->
+  _ Eio.Path.t -> t
+(** [of_file ~clock path] is a jar backed by [path] in the Netscape
+    cookies.txt format, curl-compatible including its [#HttpOnly_]
+    line marking. The file is loaded if it exists and created on the
+    first save, and saves are atomic. [`On_change], the default, saves
+    after every change, while [`Manual] saves only on {!flush}. The jar
+    retains [path] and no other filesystem access. *)
 
-    Implements the cookie retrieval algorithm from
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.4}RFC 6265 Section 5.4}
-    for generating the Cookie header.
-
-    {3 Algorithm}
-
-    Per RFC 6265 Section 5.4, the user agent should:
-    1. Filter cookies by domain matching (Section 5.1.3)
-    2. Filter cookies by path matching (Section 5.1.4)
-    3. Filter out cookies with Secure attribute when request is non-secure
-    4. Filter out expired cookies
-    5. Sort remaining cookies (longer paths first, then by creation time)
-    6. Update last-access-time for retrieved cookies
-
-    This function implements all these steps, combining original and delta cookies
-    with delta taking precedence. Excludes:
-    - Removal cookies (empty value)
-    - Expired cookies (expiry-time in the past per Section 5.3)
-    - Secure cookies when [is_secure = false]
-
-    {3 Cookie Ordering}
-
-    Cookies are sorted per Section 5.4, Step 2:
-    - Cookies with longer paths are listed before cookies with shorter paths
-    - Among cookies with equal-length paths, cookies with earlier creation-times
-      are listed first
-
-    This ordering ensures more specific cookies take precedence.
-
-    {3 Matching Rules}
-
-    Domain matching follows {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.1.3} Section 5.1.3}:
-    - IP addresses require exact match only
-    - Hostnames support subdomain matching unless host-only flag is set
-
-    Path matching follows {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.1.4} Section 5.1.4}.
-
-    @param t Cookie jar
-    @param clock Clock for updating last-access-time
-    @param domain Request domain
-    @param path Request path
-    @param is_secure Whether the request is over a secure channel (HTTPS)
-    @return List of matching cookies, sorted per RFC 6265
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.3> RFC 6265 Section 5.3 - Storage Model (expiry)
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.4> RFC 6265 Section 5.4 - The Cookie Header *)
+val flush : t -> unit
+(** [flush t] writes [t] out now, and does nothing for an in-memory
+    jar. *)
 
 val clear : t -> unit
-(** Clear all cookies. *)
+(** [clear t] discards every cookie in [t]. *)
 
-val clear_expired : t -> clock:_ Eio.Time.clock -> unit
-(** Clear expired cookies.
+val set :
+  t -> host:string -> path:string -> https:bool -> string ->
+  (unit, string) result
+(** [set t ~host ~path ~https line] stores the [Set-Cookie] value
+    [line] as received by a request to [host] at [path] over https or
+    not, applying the parse rules of {!Cookeio.parse_set_cookie} and the
+    jar's own bounds and [Secure] rules. [Error reason] says why a value
+    was refused; per §5.2 the refusal is otherwise not an error, and the
+    jar is unchanged. *)
 
-    Removes cookies whose expiry-time is in the past per
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3}. *)
+val header_for : t -> host:string -> path:string -> https:bool -> string option
+(** [header_for t ~host ~path ~https] is the [Cookie] header value for a
+    request to [host] at [path], or [None] if no cookie matches. A
+    [Secure] cookie is only offered when [https]. Matched cookies have
+    their last-access time updated, and any expired cookie the lookup
+    passes is evicted (§5.4). *)
 
-val clear_session_cookies : t -> unit
-(** Clear session cookies.
-
-    Removes cookies that have no Expires or Max-Age attribute (session cookies).
-    Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3},
-    these cookies are normally removed when the user agent "session" ends. *)
-
-val count : t -> int
-(** Get the number of unique cookies in the jar. *)
-
-val get_all_cookies : t -> Cookeio.t list
-(** Get all cookies in the jar.
-
-    Returns all cookies including expired ones (for inspection/debugging).
-    Use {!get_cookies} with appropriate domain/path for filtered results that
-    exclude expired cookies, or call {!clear_expired} first. *)
-
-val is_empty : t -> bool
-(** Check if the jar is empty. *)
-
-(** {1 Pretty Printing} *)
+val cookies : t -> Cookeio.t list
+(** [cookies t] is a snapshot of every cookie in [t], for inspection. *)
 
 val pp : Format.formatter -> t -> unit
-(** Pretty print a cookie jar. *)
-
-(** {1 Mozilla Format} *)
-
-val to_mozilla_format : t -> string
-(** Serialize cookies in Mozilla/Netscape cookie format.
-
-    The Mozilla format uses tab-separated fields:
-    {[domain \t include_subdomains \t path \t secure \t expires \t name \t value]}
-
-    The [include_subdomains] field corresponds to the inverse of the
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} host-only-flag}
-    in RFC 6265. *)
-
-val from_mozilla_format : clock:_ Eio.Time.clock -> string -> t
-(** Parse Mozilla format cookies.
-
-    Creates a cookie jar from a string in Mozilla cookie format, using the
-    provided clock to set creation and last access times. The [include_subdomains]
-    field is mapped to the host-only-flag per
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3}. *)
+(** [pp ppf t] prints the jar's cookies for debugging. *)

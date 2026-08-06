@@ -3,536 +3,231 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Cookie management library for OCaml
+(** The cookie model of
+    {{:https://datatracker.ietf.org/doc/html/rfc6265}RFC 6265}, for both
+    sides of the protocol.
 
-    HTTP cookies are a mechanism defined in
-    {{:https://datatracker.ietf.org/doc/html/rfc6265} RFC 6265} that allows
-    "server side connections to store and retrieve information on the client
-    side." Originally designed to enable persistent client-side state for web
-    applications, cookies are essential for storing user preferences, session
-    data, shopping cart contents, and authentication tokens.
+    A client parses [Set-Cookie] with {!parse_set_cookie}, which applies
+    the storage rules of §5.2 and §5.3 (domain matching against the
+    setting host, the public-suffix check, default paths, [Max-Age]
+    precedence, and the name-prefix rules of
+    {{:https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis}RFC
+    6265bis}), then serializes stored cookies with {!cookie_header}.
+    Storage lives in {!Cookeio_jar}.
 
-    This library provides a complete cookie implementation following RFC 6265
-    while integrating Eio for efficient asynchronous operations.
+    A server parses [Cookie] with {!parse_cookie_header} and emits
+    [Set-Cookie] with {!set_cookie_header}.
 
-    {2 Cookie Format and Structure}
+    This module is pure: the current time arrives as a [Ptime.t]
+    argument. Domains are canonical throughout, meaning lowercase ASCII
+    with no leading dot. *)
 
-    Cookies are set via the Set-Cookie HTTP response header
-    ({{:https://datatracker.ietf.org/doc/html/rfc6265#section-4.1} Section 4.1})
-    with the basic format: [NAME=VALUE] with optional attributes including:
-    - [expires]: Cookie lifetime specification
-      ({{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.1} Section 5.2.1})
-    - [max-age]: Cookie lifetime in seconds
-      ({{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.2} Section 5.2.2})
-    - [domain]: Valid domains using tail matching
-      ({{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.3} Section 5.2.3})
-    - [path]: URL subset for cookie validity
-      ({{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.4} Section 5.2.4})
-    - [secure]: Transmission over secure channels only
-      ({{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.5} Section 5.2.5})
-    - [httponly]: Not accessible to JavaScript
-      ({{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.6} Section 5.2.6})
-    - [samesite]: Cross-site request behavior (RFC 6265bis)
-    - [partitioned]: CHIPS partitioned storage
+[@@@ai_disclosure "ai-generated"]
+[@@@ai_model "claude-fable-5"]
+[@@@ai_provider "Anthropic"]
 
-    {2 Domain and Path Matching}
-
-    The library implements standard domain and path matching rules from
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.1.3} Section 5.1.3}
-    and {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.1.4} Section 5.1.4}:
-    - Domain matching uses suffix matching for hostnames (e.g., "example.com"
-      matches "sub.example.com")
-    - IP addresses require exact match only
-    - Path matching requires exact match or prefix with "/" separator
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265> RFC 6265 - HTTP State Management Mechanism
-
-    {2 Standards and References}
-
-    This library implements and references the following IETF specifications:
-
-    {ul
-    {- {{:https://datatracker.ietf.org/doc/html/rfc6265}RFC 6265} -
-       HTTP State Management Mechanism (April 2011) - Primary specification}
-    {- {{:https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis}RFC 6265bis} -
-       Cookies: HTTP State Management Mechanism (Draft) - SameSite attribute and modern updates}
-    {- {{:https://datatracker.ietf.org/doc/html/rfc1034#section-3.5}RFC 1034 Section 3.5} -
-       Domain Names - Preferred Name Syntax for domain validation}
-    {- {{:https://datatracker.ietf.org/doc/html/rfc2616#section-2.2}RFC 2616 Section 2.2} -
-       HTTP/1.1 - Token syntax definition}
-    {- {{:https://datatracker.ietf.org/doc/html/rfc1123#section-5.2.14}RFC 1123 Section 5.2.14} -
-       Internet Host Requirements - Date format (rfc1123-date)}}
-
-    Additional standards:
-    {ul
-    {- {{:https://publicsuffix.org/}Mozilla Public Suffix List} - Registry
-       of public suffixes for cookie domain validation per RFC 6265 Section 5.3 Step 5}}
-
-    {2 Related Libraries}
-
-    {ul
-    {- [Publicsuffix] - Public Suffix List lookup used for domain validation}
-    {- [Cookeio_jar] - Cookie jar storage with persistence support}} *)
-
-(** {1 Types} *)
-
-module SameSite : sig
+module Same_site : sig
   type t = [ `Strict | `Lax | `None ]
-  (** Cookie same-site policy for controlling cross-site request behavior.
-
-      Defined in RFC 6265bis draft.
-
-      - [`Strict]: Cookie only sent for same-site requests, providing maximum
-        protection
-      - [`Lax]: Cookie sent for same-site requests and top-level navigation
-        (default for modern browsers)
-      - [`None]: Cookie sent for all cross-site requests (requires [secure]
-        flag per RFC 6265bis)
-
-      @see <https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.7> RFC 6265bis Section 5.4.7 - The SameSite Attribute *)
+  (** The [SameSite] attribute of RFC 6265bis §5.4.7. It is parsed and
+      stored; a non-browser client has no notion of a site, so matching
+      does not consult it. *)
 
   val equal : t -> t -> bool
-  (** Equality function for same-site values. *)
-
   val pp : Format.formatter -> t -> unit
-  (** Pretty printer for same-site values. *)
 end
 
-module Expiration : sig
-  type t = [ `Session | `DateTime of Ptime.t ]
-  (** Cookie expiration strategy.
-
-      Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3}:
-      - [`Session]: Session cookie that expires when user agent session ends
-        (persistent-flag = false)
-      - [`DateTime time]: Persistent cookie that expires at specific time
-        (persistent-flag = true)
-
-      @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.3> RFC 6265 Section 5.3 - Storage Model *)
-
-  val equal : t -> t -> bool
-  (** Equality function for expiration values. *)
-
-  val pp : Format.formatter -> t -> unit
-  (** Pretty printer for expiration values. *)
-end
+type expiry = [ `Session | `At of Ptime.t ]
+(** When a cookie expires. [Max-Age] takes precedence over [Expires]
+    whatever their order, per RFC 6265 §5.3 step 3, so this is resolved
+    once at parse time. *)
 
 type t
-(** HTTP Cookie representation with all standard attributes.
+(** A cookie. Cookies replace each other on name, domain and path, per
+    RFC 6265 §5.3 step 12. See {!same_identity}. *)
 
-    A cookie represents a name-value pair with associated metadata that controls
-    its scope, security, and lifetime. Per
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3},
-    cookies with the same [name], [domain], and [path] will overwrite each other
-    when stored.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.3> RFC 6265 Section 5.3 - Storage Model *)
-
-(** {1 Cookie Accessors} *)
+(** {1 Accessors} *)
 
 val domain : t -> string
-(** Get the domain of a cookie.
-
-    The domain is normalized per
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.3} RFC 6265 Section 5.2.3}
-    (leading dots removed). *)
+(** [domain c] is the canonical domain [c] is scoped to. *)
 
 val path : t -> string
-(** Get the path of a cookie.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.4> RFC 6265 Section 5.2.4 - The Path Attribute *)
+(** [path c] is the path prefix [c] is scoped to. *)
 
 val name : t -> string
-(** Get the name of a cookie. *)
+(** [name c] is [c]'s name. *)
 
 val value : t -> string
-(** Get the value of a cookie. *)
+(** [value c] is [c]'s value, verbatim, including any double-quote
+    wrapper it arrived with. See {!value_trimmed}. *)
 
 val value_trimmed : t -> string
-(** Get cookie value with surrounding double-quotes removed if they form a
-    matching pair.
-
-    Only removes quotes when both opening and closing quotes are present. The
-    raw value is always preserved in {!value}. This is useful for handling
-    quoted cookie values.
-
-    Examples:
-    - ["value"] → ["value"]
-    - ["\"value\""] → ["value"]
-    - ["\"value"] → ["\"value"] (no matching pair)
-    - ["\"val\"\""] → ["val\""] (removes outer pair only) *)
+(** [value_trimmed c] is {!value} with a surrounding pair of double
+    quotes removed, when both are present. The DQUOTE wrapper is part of
+    the RFC 6265 §4.1.1 grammar but not of the value. *)
 
 val secure : t -> bool
-(** Check if cookie has the Secure flag.
-
-    Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.5} RFC 6265 Section 5.2.5},
-    Secure cookies are only sent over HTTPS connections.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.5> RFC 6265 Section 5.2.5 - The Secure Attribute *)
+(** [secure c] is [true] if [c] may only be sent over https. *)
 
 val http_only : t -> bool
-(** Check if cookie has the HttpOnly flag.
-
-    Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.6} RFC 6265 Section 5.2.6},
-    HttpOnly cookies are not accessible to client-side scripts.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.6> RFC 6265 Section 5.2.6 - The HttpOnly Attribute *)
-
-val partitioned : t -> bool
-(** Check if cookie has the Partitioned attribute.
-
-    Partitioned cookies are part of CHIPS (Cookies Having Independent
-    Partitioned State) and are stored separately per top-level site, enabling
-    privacy-preserving third-party cookie functionality. Partitioned cookies
-    must always be Secure.
-
-    @see <https://developer.chrome.com/docs/privacy-sandbox/chips/> CHIPS - Cookies Having Independent Partitioned State *)
+(** [http_only c] is [true] if [c] carried the [HttpOnly] attribute. *)
 
 val host_only : t -> bool
-(** Check if cookie has the host-only flag set.
+(** [host_only c] is [true] if [c] had no [Domain] attribute, so it is
+    sent only to the host that set it (RFC 6265 §5.3 step 6). *)
 
-    Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3 Step 6}:
-    - If the Set-Cookie header included a Domain attribute, host-only-flag is
-      false and the cookie matches the domain and all subdomains.
-    - If no Domain attribute was present, host-only-flag is true and the cookie
-      only matches the exact request host.
+val partitioned : t -> bool
+(** [partitioned c] is [true] if [c] carried the [Partitioned] attribute
+    of {{:https://datatracker.ietf.org/doc/html/draft-cutler-httpbis-partitioned-cookies}CHIPS}.
+    A partitioned cookie is scoped to the top-level site it was set
+    under; a client that does not partition its store treats it as an
+    ordinary cookie. *)
 
-    Example:
-    - Cookie set on "example.com" with Domain=example.com: host_only=false,
-      matches example.com and sub.example.com
-    - Cookie set on "example.com" without Domain attribute: host_only=true,
-      matches only example.com, not sub.example.com
+val same_site : t -> Same_site.t option
+(** [same_site c] is [c]'s [SameSite] attribute, if it had one. *)
 
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.3> RFC 6265 Section 5.3 - Storage Model *)
-
-val expires : t -> Expiration.t option
-(** Get the expiration attribute if set.
-
-    Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.1} RFC 6265 Section 5.2.1}:
-    - [None]: No expiration specified (session cookie)
-    - [Some `Session]: Session cookie (expires when user agent session ends)
-    - [Some (`DateTime t)]: Expires at specific time [t]
-
-    Both [max_age] and [expires] can be present simultaneously. This library
-    stores both independently.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.1> RFC 6265 Section 5.2.1 - The Expires Attribute *)
-
-val max_age : t -> Ptime.Span.t option
-(** Get the max-age attribute if set.
-
-    Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.2} RFC 6265 Section 5.2.2},
-    Max-Age specifies the cookie lifetime in seconds. Both [max_age] and
-    [expires] can be present simultaneously. When both are present in a
-    Set-Cookie header, browsers prioritize [max_age] per
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} Section 5.3 Step 3}.
-
-    This library stores both independently and serializes both when present.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.2> RFC 6265 Section 5.2.2 - The Max-Age Attribute *)
-
-val same_site : t -> SameSite.t option
-(** Get the same-site policy of a cookie.
-
-    @see <https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.4.7> RFC 6265bis Section 5.4.7 - The SameSite Attribute *)
+val expiry : t -> expiry
+(** [expiry c] is when [c] expires. *)
 
 val creation_time : t -> Ptime.t
-(** Get the creation time of a cookie.
-
-    Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3},
-    this is set when the cookie is first received. *)
+(** [creation_time c] is when [c] was first stored. *)
 
 val last_access : t -> Ptime.t
-(** Get the last access time of a cookie.
+(** [last_access c] is when [c] was last sent. *)
 
-    Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3},
-    this is updated each time the cookie is retrieved for a request. *)
+(** {1 Construction} *)
 
-val make :
+val v :
   domain:string ->
   path:string ->
   name:string ->
   value:string ->
   ?secure:bool ->
   ?http_only:bool ->
-  ?expires:Expiration.t ->
-  ?max_age:Ptime.Span.t ->
-  ?same_site:SameSite.t ->
-  ?partitioned:bool ->
   ?host_only:bool ->
-  creation_time:Ptime.t ->
-  last_access:Ptime.t ->
-  unit ->
-  t
-(** Create a new cookie with the given attributes.
+  ?partitioned:bool ->
+  ?same_site:Same_site.t ->
+  expiry:expiry ->
+  now:Ptime.t ->
+  unit -> t
+(** [v ~domain ~path ~name ~value ~expiry ~now ()] is a cookie with
+    those fields. [domain] is lowercased and [now] stamps both times.
+    [host_only] defaults to [true], which is the safe direction. This is
+    for building a cookie by hand — a server minting one to emit, or a
+    jar loading a file. A cookie from the wire comes from
+    {!parse_set_cookie} instead, which enforces what this constructor
+    does not. *)
 
-    @param domain The cookie domain (will be normalized)
-    @param path The cookie path
-    @param name The cookie name
-    @param value The cookie value
-    @param secure If true, cookie only sent over HTTPS (default: false)
-    @param http_only If true, cookie not accessible to scripts (default: false)
-    @param expires Expiration time
-    @param max_age Lifetime in seconds
-    @param same_site Cross-site request policy
-    @param partitioned CHIPS partitioned storage (default: false)
-    @param host_only If true, exact domain match only (default: false). Per
-           {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3},
-           this should be true when no Domain attribute was present in the
-           Set-Cookie header.
-    @param creation_time When the cookie was created
-    @param last_access Last time the cookie was accessed
+val touch : now:Ptime.t -> t -> t
+(** [touch ~now c] is [c] with its last-access time set to [now]
+    (RFC 6265 §5.4 step 3). *)
 
-    Note: If [partitioned] is [true], the cookie must also be [secure]. Invalid
-    combinations will result in validation errors.
+val with_creation_time : Ptime.t -> t -> t
+(** [with_creation_time time c] is [c] created at [time]. A replacing
+    cookie inherits the time of the one it replaces, which keeps the
+    §5.4 ordering stable. *)
 
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.3> RFC 6265 Section 5.3 - Storage Model *)
+(** {1 Predicates} *)
 
-(** {1 RFC 6265 Validation}
+val is_expired : now:Ptime.t -> t -> bool
+(** [is_expired ~now c] is [true] if [c]'s expiry has passed. *)
 
-    Validation functions for cookie names, values, and attributes per
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.1} RFC 6265 Section 4.1.1}.
+val same_identity : t -> t -> bool
+(** [same_identity a b] is [true] if [a] and [b] share a name, domain
+    and path, so that one replaces the other. *)
 
-    These functions implement the syntactic requirements from RFC 6265 to ensure
-    cookies conform to the specification before being sent in HTTP headers.
-    All validation failures return detailed error messages citing the specific
-    RFC requirement that was violated.
+val domain_suffix_matches : sub:string -> string -> bool
+(** [domain_suffix_matches ~sub d] is [true] if [sub] domain-matches [d]
+    per RFC 6265 §5.1.3, that is if they are equal or [d] is a
+    dot-aligned suffix of [sub] and [sub] is not an IP literal. Both
+    must be canonical (lowercase). *)
 
-    {2 Validation Philosophy}
+val domain_matches : host:string -> t -> bool
+(** [domain_matches ~host c] is [true] if [c] should be sent to [host].
+    A host-only cookie needs an exact match. *)
 
-    Per RFC 6265 Section 4, there is an important distinction between:
-    - {b Server requirements} (Section 4.1): Strict syntax for generating Set-Cookie headers
-    - {b User agent requirements} (Section 5): Lenient parsing for receiving Set-Cookie headers
+val path_matches : request_path:string -> t -> bool
+(** [path_matches ~request_path c] is [true] if [c]'s path covers
+    [request_path] (RFC 6265 §5.1.4). *)
 
-    These validation functions enforce the {b server requirements}, ensuring that
-    cookies generated by this library conform to RFC 6265 syntax. When parsing
-    cookies from HTTP headers, the library may be more lenient to maximize
-    interoperability with non-compliant servers.
+val compare_order : t -> t -> int
+(** [compare_order a b] orders cookies for the [Cookie] header per
+    RFC 6265 §5.4 step 2, putting longer paths first, then earlier
+    creation times. Cookies made in the same tick are ordered by name,
+    so the result is reproducible. *)
 
-    {2 Character Set Requirements}
+val has_secure_prefix : string -> bool
+(** [has_secure_prefix name] is [true] if [name] carries the [__Secure-]
+    or [__Host-] prefix, matched case-insensitively per RFC 6265bis
+    §4.1.3. {!parse_set_cookie} enforces the attributes those prefixes
+    promise. Refusing one that arrives over plaintext is left to the
+    jar, which knows the request scheme. *)
 
-    RFC 6265 restricts cookies to US-ASCII characters with specific exclusions:
-    - Cookie names: RFC 2616 tokens (no CTLs, no separators)
-    - Cookie values: cookie-octet characters (0x21, 0x23-0x2B, 0x2D-0x3A, 0x3C-0x5B, 0x5D-0x7E)
-    - Domain values: RFC 1034 domain name syntax or IP addresses
-    - Path values: Any character except CTLs and semicolon
+(** {1 Syntax} *)
 
-    These functions return [Ok value] on success or [Error msg] with a detailed
-    explanation of why validation failed.
+val valid_name : string -> bool
+(** [valid_name n] is [true] if [n] is a non-empty RFC 2616 token, the
+    grammar RFC 6265 §4.1.1 requires of a cookie name. *)
 
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.1> RFC 6265 Section 4.1.1 - Syntax *)
+val valid_value : string -> bool
+(** [valid_value s] is [true] if [s] is cookie-octets per RFC 6265
+    §4.1.1, optionally in a DQUOTE wrapper, with spaces also allowed as
+    browsers accept them. A server should check this before emitting a
+    value with {!set_cookie_header}. *)
 
-module Validate : sig
-  val cookie_name : string -> (string, string) result
-  (** Validate a cookie name per RFC 6265.
+(** {1 The client side: Set-Cookie in, Cookie out} *)
 
-      Cookie names must be valid RFC 2616 tokens: one or more characters
-      excluding control characters and separators.
-
-      Per {{:https://datatracker.ietf.org/doc/html/rfc2616#section-2.2}RFC 2616 Section 2.2},
-      a token is defined as: one or more characters excluding control characters
-      and the following 19 separator characters: parentheses, angle brackets, at-sign,
-      comma, semicolon, colon, backslash, double-quote, forward slash, square brackets,
-      question mark, equals, curly braces, space, and horizontal tab.
-
-      This means tokens consist of visible ASCII characters (33-126) excluding
-      control characters (0-31, 127) and the separator characters listed above.
-
-      @param name The cookie name to validate
-      @return [Ok name] if valid, [Error message] with explanation if invalid
-
-      @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.1> RFC 6265 Section 4.1.1
-      @see <https://datatracker.ietf.org/doc/html/rfc2616#section-2.2> RFC 2616 Section 2.2 - Basic Rules *)
-
-  val cookie_value : string -> (string, string) result
-  (** Validate a cookie value per RFC 6265.
-
-      Cookie values must contain only cookie-octets, optionally wrapped in
-      double quotes. Invalid characters include: control characters, space,
-      double quote (except as wrapper), comma, semicolon, and backslash.
-
-      Per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.1}RFC 6265 Section 4.1.1},
-      cookie-value may be:
-      - Zero or more cookie-octet characters, or
-      - Double-quoted string containing cookie-octet characters
-
-      Where cookie-octet excludes: CTLs (0x00-0x1F, 0x7F), space (0x20),
-      double-quote (0x22), comma (0x2C), semicolon (0x3B), and backslash (0x5C).
-
-      Valid cookie-octet characters: 0x21, 0x23-0x2B, 0x2D-0x3A, 0x3C-0x5B, 0x5D-0x7E
-
-      @param value The cookie value to validate
-      @return [Ok value] if valid, [Error message] with explanation if invalid
-
-      @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.1> RFC 6265 Section 4.1.1 *)
-
-  val domain_value : string -> (string, string) result
-  (** Validate a domain attribute value.
-
-      Domain values must be either:
-      - A valid domain name per RFC 1034 Section 3.5
-      - A valid IPv4 address
-      - A valid IPv6 address
-
-      Per {{:https://datatracker.ietf.org/doc/html/rfc1034#section-3.5}RFC 1034 Section 3.5},
-      preferred domain name syntax requires:
-      - Labels separated by dots
-      - Labels must start with a letter
-      - Labels must end with a letter or digit
-      - Labels may contain letters, digits, and hyphens
-      - Labels are case-insensitive
-      - Total length limited to 255 octets
-
-      Leading dots are stripped per RFC 6265 Section 5.2.3 before validation.
-
-      @param domain The domain value to validate (leading dot is stripped first)
-      @return [Ok domain] if valid, [Error message] with explanation if invalid
-
-      @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.2.3> RFC 6265 Section 4.1.2.3
-      @see <https://datatracker.ietf.org/doc/html/rfc1034#section-3.5> RFC 1034 Section 3.5 *)
-
-  val path_value : string -> (string, string) result
-  (** Validate a path attribute value.
-
-      Per RFC 6265 Section 4.1.1, path-value may contain any CHAR except
-      control characters and semicolon.
-
-      @param path The path value to validate
-      @return [Ok path] if valid, [Error message] with explanation if invalid
-
-      @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.1> RFC 6265 Section 4.1.1 *)
-
-  val max_age : int -> (int, string) result
-  (** Validate a Max-Age attribute value.
-
-      Per RFC 6265 Section 4.1.1, max-age-av uses non-zero-digit *DIGIT.
-      However, per Section 5.2.2, user agents should treat values <= 0 as
-      "delete immediately". This function returns [Ok] for any integer since
-      the parsing code handles negative values by converting to 0.
-
-      @param seconds The Max-Age value in seconds
-      @return [Ok seconds] always (negative values are handled in parsing)
-
-      @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.1> RFC 6265 Section 4.1.1
-      @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.2> RFC 6265 Section 5.2.2 *)
-end
-
-(** {1 Cookie Creation and Parsing} *)
-
-val of_set_cookie_header :
-  now:(unit -> Ptime.t) ->
-  domain:string ->
+val parse_set_cookie :
+  now:Ptime.t ->
+  host:string ->
   path:string ->
   string ->
   (t, string) result
-(** Parse Set-Cookie response header value into a cookie.
+(** [parse_set_cookie ~now ~host ~path line] parses one [Set-Cookie]
+    value received by a request to [host] at [path], per RFC 6265 §5.2
+    and §5.3. [host] must be canonical (lowercase). It enforces that
 
-    Parses a Set-Cookie header following
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.2} RFC 6265 Section 5.2}:
-    - Basic format: [NAME=VALUE; attribute1; attribute2=value2]
-    - Supports all standard attributes: [expires], [max-age], [domain], [path],
-      [secure], [httponly], [samesite], [partitioned]
-    - Returns [Error msg] if parsing fails or cookie validation fails, with
-      a detailed explanation of what was invalid
-    - The [domain] and [path] parameters provide the request context for default
-      values
-    - The [now] parameter is used for calculating expiry times from [max-age]
-      attributes and setting creation/access times
+    - the name is a token and the value cookie-octets, with spaces
+      allowed as browsers do;
+    - a [Domain] attribute domain-matches [host] (§5.3 step 6) and is
+      not a public suffix unless [host] is exactly that suffix (step 5);
+    - [Max-Age] wins over [Expires], and a non-positive [Max-Age] means
+      the cookie has already expired;
+    - a missing or relative [Path] takes the §5.1.4 default path of
+      [path];
+    - a [__Secure-] or [__Host-] name carries the attributes §4.1.3
+      requires, [SameSite=None] carries [Secure], and so does
+      [Partitioned].
 
-    Validation rules applied:
-    - Cookie name must be a valid RFC 2616 token (no CTLs or separators)
-    - Cookie value must contain only valid cookie-octets
-    - Domain must be a valid domain name (RFC 1034) or IP address
-    - Path must not contain control characters or semicolons
-    - Max-Age must be non-negative
-    - [SameSite=None] requires the [Secure] flag to be set (RFC 6265bis)
-    - [Partitioned] requires the [Secure] flag to be set (CHIPS)
-    - Domain must not be a public suffix per
-      {{:https://datatracker.ietf.org/doc/html/rfc6265#section-5.3} RFC 6265 Section 5.3 Step 5}
-      (unless the request host exactly matches the domain). This uses the
-      {{:https://publicsuffix.org/list/} Mozilla Public Suffix List} to prevent
-      domain-wide cookie attacks.
+    [Error reason] gives a short reason for tracing. The header is
+    otherwise ignored, as §5.2 requires. *)
 
-    {3 Public Suffix Validation}
+val cookie_header : t list -> string
+(** [cookie_header cs] is the [Cookie] request header value for [cs],
+    such as ["a=1; b=2"] (RFC 6265 §4.2). [cs] should already be
+    filtered and sorted. *)
 
-    Cookies with Domain attributes that are public suffixes (e.g., [.com], [.co.uk],
-    [.github.io]) are rejected to prevent a malicious site from setting cookies
-    that would affect all sites under that TLD.
+(** {1 The server side: Cookie in, Set-Cookie out} *)
 
-    Examples:
-    - Request from [www.example.com], Domain=[.com] → rejected (public suffix)
-    - Request from [www.example.com], Domain=[.example.com] → allowed
-    - Request from [blogspot.com], Domain=[.blogspot.com] → allowed (request matches)
+val parse_cookie_header : string -> (string * string) list
+(** [parse_cookie_header line] is the name-value pairs of a [Cookie]
+    request header, in order. Parsing is lenient, as §4.2.2 advises a
+    server to be: pairs whose name is not a token or whose value is not
+    cookie-octets are dropped, as is a stray segment with no [=].
+    Repeated names are kept — two cookies with the same name but
+    different domains or paths legitimately arrive together, and §5.4
+    orders the more specific one first. *)
 
-    Example:
-    {[of_set_cookie_header ~now:(fun () -> Ptime_clock.now ())
-     ~domain:"example.com" ~path:"/" "session=abc123; Secure; HttpOnly"]}
+val set_cookie_header : t -> string
+(** [set_cookie_header c] is the [Set-Cookie] response header value for
+    [c] (RFC 6265 §4.1). A [`At] expiry is written as an [Expires]
+    attribute in IMF-fixdate form; a [`Session] expiry writes none. The
+    [Domain] attribute is written only when [c] is not host-only —
+    naming the domain is what widens a cookie to subdomains, so a
+    host-only cookie must omit it. The caller is responsible for
+    {!valid_name} and {!valid_value} holding, as when [c] was made by
+    {!v}. *)
 
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.2> RFC 6265 Section 5.2 - The Set-Cookie Header
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-5.3> RFC 6265 Section 5.3 - Storage Model (public suffix check)
-    @see <https://publicsuffix.org/list/> Public Suffix List *)
-
-val of_cookie_header :
-  now:(unit -> Ptime.t) ->
-  domain:string ->
-  path:string ->
-  string ->
-  (t list, string) result
-(** Parse Cookie request header containing semicolon-separated name=value pairs.
-
-    Parses a Cookie header following
-    {{:https://datatracker.ietf.org/doc/html/rfc6265#section-4.2} RFC 6265 Section 4.2}.
-    Cookie headers contain only name=value pairs without attributes:
-    ["name1=value1; name2=value2; name3=value3"]
-
-    Validates each cookie name and value per RFC 6265 and detects duplicate
-    cookie names (which is forbidden per Section 4.2.1).
-
-    Creates cookies with:
-    - Provided [domain] and [path] from request context
-    - All security flags set to [false] (defaults)
-    - All optional attributes set to [None]
-    - [host_only = true] (since we cannot determine from the header alone
-      whether cookies originally had a Domain attribute)
-    - [creation_time] and [last_access] set to current time from [now]
-
-    Returns [Ok cookies] if all cookies parse successfully with no duplicates,
-    or [Error msg] if any validation fails.
-
-    Example:
-    {[of_cookie_header ~now:(fun () -> Ptime_clock.now ()) ~domain:"example.com"
-     ~path:"/" "session=abc; theme=dark"]}
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.2> RFC 6265 Section 4.2 - The Cookie Header *)
-
-val make_cookie_header : t list -> string
-(** Create Cookie header value from cookies.
-
-    Formats a list of cookies into a Cookie header value suitable for HTTP
-    requests per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-4.2} RFC 6265 Section 4.2}.
-    - Format: [name1=value1; name2=value2; name3=value3]
-    - Only includes cookie names and values, not attributes
-    - Cookies should already be filtered for the target domain/path
-
-    Example: [make_cookie_header cookies] might return
-    ["session=abc123; theme=dark"]
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.2> RFC 6265 Section 4.2 - The Cookie Header *)
-
-val make_set_cookie_header : t -> string
-(** Create Set-Cookie header value from a cookie.
-
-    Formats a cookie into a Set-Cookie header value suitable for HTTP responses
-    per {{:https://datatracker.ietf.org/doc/html/rfc6265#section-4.1} RFC 6265 Section 4.1}.
-    Includes all cookie attributes: Max-Age, Expires, Domain, Path, Secure,
-    HttpOnly, Partitioned, and SameSite.
-
-    The Expires attribute uses rfc1123-date format ("Sun, 06 Nov 1994 08:49:37 GMT")
-    as specified in {{:https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.1} Section 4.1.1}.
-
-    @see <https://datatracker.ietf.org/doc/html/rfc6265#section-4.1> RFC 6265 Section 4.1 - The Set-Cookie Header *)
-
-(** {1 Pretty Printing} *)
+(** {1 Pretty printing} *)
 
 val pp : Format.formatter -> t -> unit
-(** Pretty print a cookie. *)
+(** [pp ppf c] prints [c] for debugging. *)

@@ -1,35 +1,18 @@
 # Cookie Library TODO
 
-This library is feature-complete for basic HTTP cookie management with RFC 6265 compliance. The following features are not yet implemented but may be added in future releases:
+Features that may be added in future releases:
 
-## Missing Features
-
-### Cryptographic Cookie Support (Priority 1)
+## Cryptographic Cookie Support
 - **Signed cookies**: HMAC-based cookie integrity verification
 - **Private cookies**: Encrypted cookie values with authentication
 - Key management and rotation strategies
 
-### Modern Web Features (Priority 2)
-- **Partitioned attribute**: CHIPS (Cookies Having Independent Partitioned State) support for privacy
-- **Cookie prefixes**: `__Host-` and `__Secure-` prefix validation
-- **Expiration type**: Explicit `Session | DateTime` distinction instead of optional expiry
+## Server-side Conveniences
+- A session-oriented helper for servers (the old delta-tracking jar was
+  removed with its last consumer; `Cookeio.parse_cookie_header` and
+  `Cookeio.set_cookie_header` cover the protocol itself)
+- `make_permanent` / `make_removal` constructors
 
-### Parser Enhancements (Priority 3)
-- **Multiple cookie parsing**: Parse semicolon-separated Cookie header into list
-- **Value trimming**: Strip quotes from cookie values automatically
-- **Builder pattern**: Fluent API for constructing cookies
-
-### Helper Functions
-- `make_permanent`: Create cookie with 20-year expiration
-- `make_removal`: Already implemented in `remove` function, could be exposed separately
-
-## Notes
-
-The library currently provides full RFC 6265 compliance including:
-- Max-Age and Expires handling with multiple date format support
-- Domain normalization and matching
-- Delta tracking for Set-Cookie generation
-- SameSite, Secure, HttpOnly attributes
-- Mozilla format persistence
-
-All 35 tests pass. No breaking changes are planned for future releases.
+## Client Jar
+- Partitioned storage (the `Partitioned` attribute is parsed and
+  round-tripped, but the jar does not key its store by top-level site)

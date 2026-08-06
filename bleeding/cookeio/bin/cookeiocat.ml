@@ -3,6 +3,10 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
+[@@@ai_disclosure "ai-generated"]
+[@@@ai_model "claude-fable-5"]
+[@@@ai_provider "Anthropic"]
+
 let () =
   Eio_main.run @@ fun env ->
   let args = Sys.argv in
@@ -14,5 +18,5 @@ let () =
   let fs = Eio.Stdenv.fs env in
   let clock = Eio.Stdenv.clock env in
   let path = Eio.Path.(fs / file_path) in
-  let jar = Cookeio_jar.load ~clock path in
+  let jar = Cookeio_jar.of_file ~clock ~save:`Manual path in
   Format.printf "%a@." Cookeio_jar.pp jar

@@ -1,5 +1,24 @@
 open Std
 
+(* Cstruct is not annotated for modes. The operations rebound here touch
+   only their arguments, so asserting portability is sound. Remove once
+   cstruct itself carries the annotations. *)
+module Cstruct = struct
+  include Cstruct
+  let length : t -> int = Obj.magic_portable length
+  let lenv : t list -> int = Obj.magic_portable lenv
+  let is_empty : t -> bool = Obj.magic_portable is_empty
+  let create : int -> t = Obj.magic_portable create
+  let sub : t -> int -> int -> t = Obj.magic_portable sub
+  let shift : t -> int -> t = Obj.magic_portable shift
+  let shiftv : t list -> int -> t list = Obj.magic_portable shiftv
+  let fillv = Obj.magic_portable (fun ~src ~dst -> fillv ~src ~dst)
+  let to_bytes : ?off:int -> ?len:int -> t -> bytes =
+    Obj.magic_portable (fun ?off ?len t -> to_bytes ?off ?len t)
+  let blit_from_string : string -> int -> t -> int -> int -> unit =
+    Obj.magic_portable blit_from_string
+end
+
 type shutdown_command = [ `Receive | `Send | `All ]
 
 type 't read_method = ..

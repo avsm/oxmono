@@ -159,27 +159,27 @@ type Runtime_events.User.tag +=
   | Suspend_domain
   | Domain_spawn
 
-let create_obj = Runtime_events.User.register "eio.create_obj" Create_obj id_obj_type
-let create_cc = Runtime_events.User.register "eio.create_cc" Create_cc id_cc_type
-let create_fiber = Runtime_events.User.register "eio.create_fiber" Create_fiber id_id_type
+let create_obj = Obj.magic_portable @@ Runtime_events.User.register "eio.create_obj" Create_obj id_obj_type
+let create_cc = Obj.magic_portable @@ Runtime_events.User.register "eio.create_cc" Create_cc id_cc_type
+let create_fiber = Obj.magic_portable @@ Runtime_events.User.register "eio.create_fiber" Create_fiber id_id_type
 
-let get = Runtime_events.User.register "eio.get" Get Runtime_events.Type.int
-let try_get = Runtime_events.User.register "eio.try_get" Try_get Runtime_events.Type.int
-let put = Runtime_events.User.register "eio.put" Put Runtime_events.Type.int
+let get = Obj.magic_portable @@ Runtime_events.User.register "eio.get" Get Runtime_events.Type.int
+let try_get = Obj.magic_portable @@ Runtime_events.User.register "eio.try_get" Try_get Runtime_events.Type.int
+let put = Obj.magic_portable @@ Runtime_events.User.register "eio.put" Put Runtime_events.Type.int
 
-let exit_cc = Runtime_events.User.register "eio.exit_cc" Exit_cc Runtime_events.Type.unit
-let exit_fiber = Runtime_events.User.register "eio.exit_fiber" Exit_fiber Runtime_events.Type.int
-let error = Runtime_events.User.register "eio.error" Error exn_type
+let exit_cc = Obj.magic_portable @@ Runtime_events.User.register "eio.exit_cc" Exit_cc Runtime_events.Type.unit
+let exit_fiber = Obj.magic_portable @@ Runtime_events.User.register "eio.exit_fiber" Exit_fiber Runtime_events.Type.int
+let error = Obj.magic_portable @@ Runtime_events.User.register "eio.error" Error exn_type
 
-let name = Runtime_events.User.register "eio.name" Name id_string_type
-let log = Runtime_events.User.register "eio.log" Log string
-let enter_span = Runtime_events.User.register "eio.enter_span" Enter_span string
-let exit_span = Runtime_events.User.register "eio.exit_span" Exit_span Runtime_events.Type.unit
+let name = Obj.magic_portable @@ Runtime_events.User.register "eio.name" Name id_string_type
+let log = Obj.magic_portable @@ Runtime_events.User.register "eio.log" Log string
+let enter_span = Obj.magic_portable @@ Runtime_events.User.register "eio.enter_span" Enter_span string
+let exit_span = Obj.magic_portable @@ Runtime_events.User.register "eio.exit_span" Exit_span Runtime_events.Type.unit
 
-let fiber = Runtime_events.User.register "eio.fiber" Fiber Runtime_events.Type.int
-let suspend_fiber = Runtime_events.User.register "eio.suspend_fiber" Suspend_fiber string
-let suspend_domain = Runtime_events.User.register "eio.suspend_domain" Suspend_domain Runtime_events.Type.span
-let domain_spawn = Runtime_events.User.register "eio.domain_spawn" Domain_spawn Runtime_events.Type.int
+let fiber = Obj.magic_portable @@ Runtime_events.User.register "eio.fiber" Fiber Runtime_events.Type.int
+let suspend_fiber = Obj.magic_portable @@ Runtime_events.User.register "eio.suspend_fiber" Suspend_fiber string
+let suspend_domain = Obj.magic_portable @@ Runtime_events.User.register "eio.suspend_domain" Suspend_domain Runtime_events.Type.span
+let domain_spawn = Obj.magic_portable @@ Runtime_events.User.register "eio.domain_spawn" Domain_spawn Runtime_events.Type.int
 
 type event = [
   | `Create of id * [

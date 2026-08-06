@@ -1,3 +1,5 @@
+@@ portable
+
 (** This library is used to write event traces using OCaml's runtime events infrastructure. *)
 
 type id = int
@@ -65,12 +67,12 @@ type event = [
   | `Domain_spawn of id         (** The current domain was spawned by fiber [id]. *)
 ]
 
-val pp_event : Format.formatter -> event -> unit
+val pp_event : Format.formatter -> event -> unit @@ nonportable
 (** [pp_event] formats an event as a human-readable string *)
 
 val add_callbacks:
   (int -> Runtime_events.Timestamp.t -> event -> unit) ->
-  Runtime_events.Callbacks.t -> Runtime_events.Callbacks.t
+  Runtime_events.Callbacks.t -> Runtime_events.Callbacks.t @@ nonportable
 (** [add_callbacks fn x] adds event handler [fn] to [x].
 
     When an Eio event is processed, it calls [fn ring_id ts event]. *)

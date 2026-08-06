@@ -44,7 +44,7 @@ let await_internal ~mutex (t:'a t) ctx enqueue =
     Option.iter Mutex.unlock mutex;
     enqueue (Error ex)
   | None ->
-    let resolved_waiter = ref Hook.null in
+    let resolved_waiter = ref Hook.Null in
     let finished = Atomic.make false in
     let cancel ex =
       if Atomic.compare_and_set finished false true then (

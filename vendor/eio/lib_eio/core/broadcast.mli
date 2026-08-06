@@ -1,3 +1,5 @@
+@@ portable
+
 (** A lock-free queue of waiters that should all be resumed at once.
 
     This uses {!Cells} internally. *)
@@ -33,5 +35,5 @@ val cancel : request -> bool
     It returns [true] if the request was cancelled, or [false] if it got
     resumed before that could happen. *)
 
-val dump : Format.formatter -> t -> unit
+val dump : Format.formatter -> t -> unit @@ nonportable
 (** Display the internal state of a queue, for debugging. *)

@@ -152,7 +152,7 @@ let run_internal t fn =
 let run ?name fn = Cancel.sub_checked ?name Switch (fun cc -> run_internal (create cc) fn)
 
 let run_protected ?name fn =
-  let ctx = Effect.perform Cancel.Get_context in
+  let ctx = Peff.perform Cancel.Get_context in
   Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true Switch @@ fun cancel ->
   Option.iter (Trace.name cancel.id) name;
   run_internal (create cancel) fn
@@ -162,7 +162,7 @@ let run_protected ?name fn =
    and means that cancelling [t] will cancel [fn]. *)
 let run_in t fn =
   with_op t @@ fun () ->
-  let ctx = Effect.perform Cancel.Get_context in
+  let ctx = Peff.perform Cancel.Get_context in
   let old_cc = ctx.cancel_context in
   Cancel.move_fiber_to t.cancel ctx;
   match fn () with

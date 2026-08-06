@@ -1,8 +1,8 @@
-module type CELL = sig
+module type CELL = sig @@ portable
   type 'a t
   val init : 'a t
   val segment_order : int
-  val dump : _ t Fmt.t
+  val dump : _ t Fmt.t @@ nonportable
 end
 
 (* To avoid worrying about wrapping on 32-bit platforms,
@@ -30,7 +30,7 @@ module Make(Cell : CELL) = struct
   (* An index identifies a cell. It is a pair of the segment ID and the offset
      within the segment, packed into a single integer so we can increment it
      atomically. *)
-  module Index : sig
+  module Index : sig @@ portable
     type t
     type segment_id = Int63.t
 
@@ -68,7 +68,7 @@ module Make(Cell : CELL) = struct
 
   (* A pair with counts for the number of cancelled cells in a segment and the
      number of pointers to it, packed as an integer so it can be adjusted atomically. *)
-  module Count : sig
+  module Count : sig @@ portable
     type t
 
     val create : pointers:int -> t
@@ -90,10 +90,10 @@ module Make(Cell : CELL) = struct
     val dec_pointers : t -> bool
     (* Decrement the pointers count, then return [removed t] for the new state. *)
 
-    val validate : expected_pointers:int -> t -> unit
+    val validate : expected_pointers:int -> t -> unit @@ nonportable
     (* [validate ~expected_pointers t] check that [t] is a valid count for a non-removed segment. *)
 
-    val dump : t Fmt.t
+    val dump : t Fmt.t @@ nonportable
   end = struct
     type t = int Atomic.t
 
@@ -140,7 +140,7 @@ module Make(Cell : CELL) = struct
   end
 
   (* A segment is a node in a linked list containing an array of [cells_per_segment] cells. *)
-  module Segment : sig
+  module Segment : sig @@ portable
     type 'a t
 
     val make_init : unit -> 'a t
@@ -174,13 +174,13 @@ module Make(Cell : CELL) = struct
     val cancel_cell : _ t -> unit
     (* Increment the cancelled-cells counter, and remove the segment if it is no longer useful. *)
 
-    val validate : 'a t -> suspend:'a t -> resume:'a t -> unit
+    val validate : 'a t -> suspend:'a t -> resume:'a t -> unit @@ nonportable
     (* [validate t ~suspend ~resume] checks that [t] is in a valid state,
        assuming there are no operations currently in progress.
        [suspend] and [resume] are the segments of the suspend and resume pointers.
        It checks that both are reachable from [t]. *)
 
-    val dump_list : label:Index.t Fmt.t -> 'a t Fmt.t
+    val dump_list : label:Index.t Fmt.t -> 'a t Fmt.t @@ nonportable
     (* [dump_list] formats this segment and all following ones for debugging.
        @param label Used to annotate indexes. *)
   end = struct
@@ -229,7 +229,7 @@ module Make(Cell : CELL) = struct
         let next = {
           id = Int63.succ t.id;
           count = Count.create ~pointers:0;
-          cells = Array.init cells_per_segment (fun (_ : int) -> Atomic.make Cell.init);
+          cells = Array.init cells_per_segment (fun (_ : int) -> Atomic.make (Obj.magic_uncontended Cell.init));
           next = Atomic.make None;
           prev = Atomic.make (Some t);
         } in
@@ -298,7 +298,7 @@ module Make(Cell : CELL) = struct
       {
         id = Int63.zero;
         count = Count.create ~pointers:2;
-        cells = Array.init cells_per_segment (fun (_ : int) -> Atomic.make Cell.init);
+        cells = Array.init cells_per_segment (fun (_ : int) -> Atomic.make (Obj.magic_uncontended Cell.init));
         next = Atomic.make None;
         prev = Atomic.make None;
       }
@@ -327,7 +327,7 @@ module Make(Cell : CELL) = struct
   end
 
   (* A mutable pointer into the list of cells. *)
-  module Position : sig
+  module Position : sig @@ portable
     type 'a t
 
     val of_segment : 'a Segment.t -> 'a t
@@ -359,7 +359,7 @@ module Make(Cell : CELL) = struct
     let of_segment segment =
       {
         segment = Atomic.make segment;
-        idx = Atomic.make Index.zero;
+        idx = Atomic.make (Obj.magic_uncontended Index.zero);
       }
 
     (* Set [t.segment] to [target] if [target] is ahead of us.

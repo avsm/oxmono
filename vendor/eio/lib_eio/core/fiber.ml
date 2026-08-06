@@ -6,7 +6,7 @@ let yield () =
 
 (* Note: [f] must not raise an exception, as that would terminate the whole scheduler. *)
 let fork_raw new_fiber f =
-  Effect.perform (Fork (new_fiber, f))
+  Peff.perform (Fork (new_fiber, f))
 
 let fork ~sw f =
   Switch.check_our_domain sw;
@@ -165,11 +165,11 @@ let any ?(combine=(fun x _ -> x)) fs = any_gen fs ~return:Fun.id ~combine
 let first ?combine f g = any ?combine [f; g]
 
 let is_cancelled () =
-  let ctx = Effect.perform Cancel.Get_context in
+  let ctx = Peff.perform Cancel.Get_context in
   not (Cancel.is_on ctx.cancel_context)
 
 let check () =
-  let ctx = Effect.perform Cancel.Get_context in
+  let ctx = Peff.perform Cancel.Get_context in
   Cancel.check ctx.cancel_context
 
 (* Some concurrent list operations *)
@@ -180,7 +180,7 @@ module List = struct
     | None -> xs
     | Some x -> x :: xs
 
-  module Limiter : sig
+  module Limiter : sig @@ portable
     (** This is a bit like using a semaphore, but it assumes that there is only a
         single fiber using it. e.g. you must not call {!use}, {!fork}, etc from
         two different fibers. *)
@@ -207,7 +207,7 @@ module List = struct
     }
 
     let max_fibers_err n =
-      Fmt.failwith "max_fibers must be positive (got %d)" n
+      failwith (Printf.sprintf "max_fibers must be positive (got %d)" n)
 
     let create ~sw max_fibers =
       if max_fibers <= 0 then max_fibers_err max_fibers;
@@ -286,11 +286,11 @@ let create_key () = Hmap.Key.create ()
 let get key = Hmap.find key (Cancel.Fiber_context.get_vars ())
 
 let with_binding var value fn =
-  let ctx = Effect.perform Cancel.Get_context in
+  let ctx = Peff.perform Cancel.Get_context in
   Cancel.Fiber_context.with_vars ctx (Hmap.add var value ctx.vars) fn
 
 let without_binding var fn =
-  let ctx = Effect.perform Cancel.Get_context in
+  let ctx = Peff.perform Cancel.Get_context in
   Cancel.Fiber_context.with_vars ctx (Hmap.rem var ctx.vars) fn
 
 (* Coroutines.

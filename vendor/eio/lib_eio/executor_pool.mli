@@ -1,3 +1,4 @@
+
 (** An executor pool distributes jobs (functions to execute) among a pool of domain workers (threads).
 
     Domains are reused and can execute multiple jobs concurrently.

@@ -14,24 +14,49 @@ type err += Multiple_io of (err * context * Printexc.raw_backtrace) list
 
 exception Cancelled of exn
 
-let create err = Io (err, { steps = [] })
+(* [Io]'s payload is an extensible type, which cannot cross portability,
+   so constructing it in a portable function needs an assertion. *)
+let create : err -> exn =
+  Obj.magic_portable (fun err -> Io (err, { steps = [] }))
 
 let empty_backtrace = Printexc.get_callstack 0
 
-let add_context ex fmt =
-  fmt |> Fmt.kstr @@ fun msg ->
-  match ex with
-  | Io (code, t) -> Io (code, {steps = msg :: t.steps})
-  | ex -> ex
+(* These match on [Io] and format with Fmt, neither of which is possible
+   in a portable function. The record wrappers keep the assertions
+   polymorphic despite the value restriction. *)
 
-let reraise_with_context ex bt fmt =
-  fmt |> Fmt.kstr @@ fun msg ->
-  match ex with
-  | Io (code, t) ->
-    let context = { steps = msg :: t.steps } in
-    Printexc.raise_with_backtrace (Io (code, context)) bt
-  | _ ->
-    Printexc.raise_with_backtrace ex bt
+type add_context_fn =
+  { add : 'a. exn -> ('a, Format.formatter, unit, exn) format4 -> 'a }
+[@@unboxed]
+
+let add_context_p =
+  Obj.magic_portable
+    { add = (fun ex fmt ->
+        fmt |> Fmt.kstr @@ fun msg ->
+        match ex with
+        | Io (code, t) -> Io (code, {steps = msg :: t.steps})
+        | ex -> ex) }
+
+let add_context ex fmt = add_context_p.add ex fmt
+
+type reraise_fn =
+  { reraise :
+      'a 'b. exn -> Printexc.raw_backtrace
+      -> ('a, Format.formatter, unit, 'b) format4 -> 'a }
+[@@unboxed]
+
+let reraise_with_context_p =
+  Obj.magic_portable
+    { reraise = (fun ex bt fmt ->
+        fmt |> Fmt.kstr @@ fun msg ->
+        match ex with
+        | Io (code, t) ->
+          let context = { steps = msg :: t.steps } in
+          Printexc.raise_with_backtrace (Io (code, context)) bt
+        | _ ->
+          Printexc.raise_with_backtrace ex bt) }
+
+let reraise_with_context ex bt fmt = reraise_with_context_p.reraise ex bt fmt
 
 let err_printers : (Format.formatter -> err -> bool) list ref = ref []
 
@@ -91,7 +116,10 @@ let () =
   | Cancelled ex -> Some ("Cancelled: " ^ Printexc.to_string ex)
   | _ -> None
 
-let combine e1 e2 =
+(* [combine] matches on [Io], whose [err] payload is an extensible type,
+   and extensible types cannot cross portability. The function touches no
+   shared state, so the assertion is sound. *)
+let combine_nonportable e1 e2 =
   if fst e1 == fst e2 then e1
   else match e1, e2 with
     | (Cancelled _, _), e
@@ -131,3 +159,8 @@ let () =
       | X ex -> Backend.pp f ex; true
       | _ -> false
     )
+
+let combine :
+  exn * Printexc.raw_backtrace -> exn * Printexc.raw_backtrace
+  -> exn * Printexc.raw_backtrace
+  = Obj.magic_portable combine_nonportable

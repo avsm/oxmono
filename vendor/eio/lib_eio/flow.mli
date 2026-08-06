@@ -1,3 +1,5 @@
+@@ portable
+
 (** Flows are used to represent byte streams, such as open files and network sockets.
     A {!source} provides a stream of bytes. A {!sink} consumes a stream.
     A {!two_way} can do both.

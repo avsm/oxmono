@@ -1,3 +1,5 @@
+@@ portable
+
 (** A queue of fibers waiting for an event. *)
 type 'a t
 (* A queue of fibers waiting for something.

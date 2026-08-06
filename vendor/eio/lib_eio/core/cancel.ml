@@ -120,7 +120,7 @@ let with_cc ~ctx:fiber ~parent ~protected purpose fn =
   | exception ex -> cleanup (); Trace.exit_cc (); raise ex
 
 let protect fn =
-  let ctx = Effect.perform Get_context in
+  let ctx = Peff.perform Get_context in
   with_cc ~ctx ~parent:ctx.cancel_context ~protected:true Protect @@ fun _ ->
   (* Note: there is no need to check the new context after [fn] returns;
      the goal of cancellation is only to finish the thread promptly, not to report the error.
@@ -172,7 +172,7 @@ let cancel t ex =
   )
 
 let sub_checked ?name purpose fn =
-  let ctx = Effect.perform Get_context in
+  let ctx = Peff.perform Get_context in
   let parent = ctx.cancel_context in
   with_cc ~ctx ~parent ~protected:false purpose @@ fun t ->
   Option.iter (Trace.name t.id) name;
@@ -184,7 +184,7 @@ let sub fn =
 (* Like [sub], but it's OK if the new context is cancelled.
    (instead, return the parent context on exit so the caller can check that) *)
 let sub_unchecked purpose fn =
-  let ctx = Effect.perform Get_context in
+  let ctx = Peff.perform Get_context in
   let parent = ctx.cancel_context in
   with_cc ~ctx ~parent ~protected:false purpose @@ fun t ->
   fn t;
@@ -214,7 +214,7 @@ module Fiber_context = struct
   let make_root () =
     let cc = create ~protected:false Root in
     cc.state <- On;
-    make ~cc ~vars:Hmap.empty
+    make ~cc ~vars:(Obj.magic_uncontended Hmap.empty)
 
   let destroy t =
     Trace.exit_fiber t.tid;
@@ -223,7 +223,7 @@ module Fiber_context = struct
   let vars t = t.vars
 
   let get_vars () =
-    vars (Effect.perform Get_context)
+    vars (Peff.perform Get_context)
 
   let with_vars t vars fn =
     let old_vars = t.vars in

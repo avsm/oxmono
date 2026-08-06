@@ -182,7 +182,7 @@ module Ipaddr = struct
   let of_raw t =
     match String.length t with
     | 4 | 16 -> t
-    | x -> Fmt.invalid_arg "An IP address must be either 4 or 16 bytes long (%S is %d bytes)" t x
+    | x -> invalid_arg (Printf.sprintf "An IP address must be either 4 or 16 bytes long (%S is %d bytes)" t x)
 
   let pp f = fold ~v4:(V4.pp f) ~v6:(V6.pp f)
 
@@ -500,13 +500,23 @@ let listen (type tag) ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:[>
   let module X = (val (Resource.get ops Pi.Network)) in
   X.listen t ~reuse_addr ~reuse_port ~backlog ~sw
 
+(* Matching [Exn.Io], whose payload is an extensible type, cannot appear
+   in a portable function, and rendering the address uses Fmt. The
+   handler is monomorphic, touches no shared state, and is asserted
+   portable. *)
+let connect_error : exn -> Sockaddr.stream -> 'a =
+  Obj.magic_portable @@ fun ex addr ->
+  match ex with
+  | Exn.Io _ ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "connecting to %a" Sockaddr.pp addr
+  | _ -> raise ex
+
 let connect (type tag) ~sw (t:[> tag ty] r) addr =
   let (Resource.T (t, ops)) = t in
   let module X = (val (Resource.get ops Pi.Network)) in
   try X.connect t ~sw addr
-  with Exn.Io _ as ex ->
-    let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "connecting to %a" Sockaddr.pp addr
+  with ex -> connect_error ex addr
 
 let datagram_socket (type tag) ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:[> tag ty] r) addr =
   let (Resource.T (t, ops)) = t in
@@ -525,13 +535,20 @@ let getaddrinfo_full (type tag) ~filter ?(service="") (t:[> tag ty] r) hostname 
   | xs -> xs
 
 
+(* See [connect_error]. *)
+let getaddrinfo_error : exn -> string -> string option -> 'a =
+  Obj.magic_portable @@ fun ex hostname service ->
+  match ex with
+  | Exn.Io _ ->
+    let bt = Printexc.get_raw_backtrace () in
+    (match service with
+     | None -> Exn.reraise_with_context ex bt "looking up %S" hostname
+     | Some service -> Exn.reraise_with_context ex bt "looking up %S (service %S)" hostname service)
+  | _ -> raise ex
+
 let getaddrinfo_full_ctx ~filter ?service t hostname =
   try getaddrinfo_full ~filter ?service t hostname
-  with Exn.Io _ as ex ->
-    let bt = Printexc.get_raw_backtrace () in
-    match service with
-    | None -> Exn.reraise_with_context ex bt "looking up %S" hostname
-    | Some service -> Exn.reraise_with_context ex bt "looking up %S (service %S)" hostname service
+  with ex -> getaddrinfo_error ex hostname service
 
 let getaddrinfo ?service t hostname =
   getaddrinfo_full_ctx ?service t hostname
@@ -604,7 +621,7 @@ let run_server ?(max_connections=Int.max_int) ?(additional_domains) ?stop ~on_er
   additional_domains |> Option.iter (fun (domain_mgr, domains) ->
       if domains < 0 then invalid_arg "additional_domains";
       for _ = 1 to domains do
-        Fiber.fork ~sw (fun () -> Domain_manager.run domain_mgr (fun () ->
+        Fiber.fork ~sw (fun () -> Domain_manager.unsafe_run domain_mgr (fun () ->
             Switch.run ~name:"run_server" @@ fun sw ->
             ignore (run_server_loop sw : 'a)
           ))

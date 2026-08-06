@@ -48,7 +48,7 @@ let create ~sw ~domain_count domain_mgr =
        It's up to the user to hold the switch open (and thus, the executor pool)
        by blocking on the jobs issued to the pool. *)
     Fiber.fork_daemon ~sw (fun () ->
-        Domain_manager.run domain_mgr (fun () ->
+        Domain_manager.unsafe_run domain_mgr (fun () ->
             run_worker t))
   done;
   t

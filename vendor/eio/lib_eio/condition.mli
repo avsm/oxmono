@@ -1,3 +1,5 @@
+@@ portable
+
 (** Waiters call {!await} in a loop as long as some condition is false.
     Fibers that modify inputs to the condition must call [broadcast] soon
     afterwards so that waiters can re-check the condition.

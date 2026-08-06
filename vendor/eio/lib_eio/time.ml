@@ -1,5 +1,19 @@
 open Std
 
+(* Mtime is not annotated for modes. These operations are pure. Remove
+   once mtime itself carries the annotations. *)
+module Mtime = struct
+  include Mtime
+  module Span = struct
+    include Mtime.Span
+    let max_span : t = Obj.magic_portable Mtime.Span.max_span
+    let zero : t = Obj.magic_portable Mtime.Span.zero
+    let of_uint64_ns : int64 -> t = Obj.magic_portable Mtime.Span.of_uint64_ns
+    let to_float_ns : t -> float = Obj.magic_portable Mtime.Span.to_float_ns
+  end
+  let add_span : t -> Span.t -> t option = Obj.magic_portable Mtime.add_span
+end
+
 exception Timeout
 
 type 'a clock_ty = [`Clock of 'a]
@@ -53,9 +67,9 @@ module Mono = struct
   let span_of_s s =
     if s >= 0.0 then (
       let ns = s *. 1e9 in
-      if ns >= too_many_ns then Mtime.Span.max_span
+      if ns >= too_many_ns then Obj.magic_uncontended Mtime.Span.max_span
       else Mtime.Span.of_uint64_ns (Int64.of_float ns)
-    ) else Mtime.Span.zero      (* Also happens for NaN and negative infinity *)
+    ) else Obj.magic_uncontended Mtime.Span.zero      (* Also happens for NaN and negative infinity *)
 
   let sleep t s =
     sleep_span t (span_of_s s)

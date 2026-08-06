@@ -1,3 +1,5 @@
+@@ portable
+
 (** Reading from an empty queue will wait until an item is available.
     Writing to a full queue will wait until there is space.
 
@@ -46,5 +48,5 @@ val length : 'a t -> int
 val is_empty : 'a t -> bool
 (** [is_empty t] is [length t = 0]. *)
 
-val dump : 'a t Fmt.t
+val dump : 'a t Fmt.t @@ nonportable
 (** For debugging. *)

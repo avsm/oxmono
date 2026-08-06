@@ -1,3 +1,5 @@
+@@ portable
+
 (** This is useful to manage a collection of resources where creating new ones is expensive
     and so you want to reuse them where possible.
 

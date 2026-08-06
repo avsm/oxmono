@@ -1,3 +1,5 @@
+@@ portable
+
 (** A lock-free queue-like structure with suspension and cancellation.
 
     This module provides an infinite sequence of atomic cells, which can be used for whatever you like.
@@ -32,7 +34,7 @@
 *)
 
 (** The signature for user-defined cell contents. *)
-module type CELL = sig
+module type CELL = sig @@ portable
   type 'a t
 
   val init : 'a t
@@ -43,11 +45,11 @@ module type CELL = sig
 
       The number of cells per segment is [2 ** segment_order]. *)
 
-  val dump : _ t Fmt.t
+  val dump : _ t Fmt.t @@ nonportable
   (** Display the cell state for debugging. *)
 end
 
-module Make(Cell : CELL) : sig
+module Make(Cell : CELL) : sig @@ portable
   type 'a t
 
   type 'a segment
@@ -103,9 +105,9 @@ module Make(Cell : CELL) : sig
 
       This function is lock-free and is safe to call even from a signal handler or GC finalizer. *)
 
-  val validate : _ t -> unit
+  val validate : _ t -> unit @@ nonportable
   (** [validate t] checks that [t] is in a valid state, assuming there are no operations currently in progress. *)
 
-  val dump : _ t Fmt.t
+  val dump : _ t Fmt.t @@ nonportable
   (** [dump] outputs the internal state of a [_ t], for debugging. *)
 end

@@ -1,19 +1,25 @@
 type ty = [`Domain_mgr]
 type 'a t = ([> ty] as 'a) Resource.t
 
-val run : _ t -> (unit -> 'a) -> 'a
+val run : _ t -> (unit -> 'a) @ portable -> 'a @@ portable
 (** [run t f] runs [f ()] in a newly-created domain and returns the result.
 
     Other fibers in the calling domain can run in parallel with the new domain.
 
-    Warning: [f] must only access thread-safe values from the calling domain,
-    but this is not enforced by the type system.
+    [f] must be [portable], so it can only capture values that are safe to
+    share with another domain.
 
     If the calling fiber is cancelled, this is propagated to the spawned domain. *)
 
-val run_raw : _ t -> (unit -> 'a) -> 'a
+val run_raw : _ t -> (unit -> 'a) @ portable -> 'a @@ portable
 (** [run_raw t f] is like {!run}, but does not run an event loop in the new domain,
     and so cannot perform IO, fork fibers, etc. *)
+
+val unsafe_run : _ t -> (unit -> 'a) -> 'a @@ portable
+(** [unsafe_run t f] is {!run} without the portability requirement on [f].
+
+    The caller must ensure that [f] only accesses thread-safe values from
+    the calling domain. The type system does not check this. *)
 
 (** {2 Provider Interface} *)
 

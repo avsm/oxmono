@@ -17,7 +17,7 @@ type connection_failure =
   | Refused of Exn.Backend.t
   | Timeout
 
-module Getaddrinfo_error : sig
+module Getaddrinfo_error : sig @@ portable
   (** Error codes returned by getaddrinfo(3) *)
 
   type t =
@@ -53,11 +53,11 @@ type error =
 
 type Exn.err += E of error
 
-val err : error -> exn
+val err : error -> exn @@ portable
 (** [err e] is [Eio.Exn.create (Net e)] *)
 
 (** IP addresses. *)
-module Ipaddr : sig
+module Ipaddr : sig @@ portable
   type 'a t = private string
   (** The raw bytes of the IP address.
       It is either 4 bytes long (for an IPv4 address) or
@@ -83,7 +83,7 @@ module Ipaddr : sig
     (** A special IPv6 address representing the host machine ([::1]). *)
   end
 
-  val pp : [< `V4 | `V6] t Fmt.t
+  val pp : [< `V4 | `V6] t Fmt.t @@ nonportable
   (** [pp] formats IP addresses.
       For IPv6 addresses, it follows {{:http://tools.ietf.org/html/rfc5952}}. *)
 
@@ -110,7 +110,7 @@ module Ipaddr : sig
 end
 
 (** Network addresses. *)
-module Sockaddr : sig
+module Sockaddr : sig @@ portable
   type stream = [
     | `Unix of string
     | `Tcp of Ipaddr.v4v6 * int
@@ -126,7 +126,7 @@ module Sockaddr : sig
 
   type t = [ stream | datagram ]
 
-  val pp : Format.formatter -> [< t] -> unit
+  val pp : Format.formatter -> [< t] -> unit @@ nonportable
 end
 
 (** {2 Types} *)
@@ -156,7 +156,7 @@ type 'a t = 'a r
 
 (** {2 Socket options} *)
 
-module Sockopt : sig
+module Sockopt : sig @@ portable
   (** An extensible type for socket options. Portable options can be defined
       here, while platform-specific options can be added by backends.
 
@@ -164,8 +164,8 @@ module Sockopt : sig
 
   type _ t = ..
 
-  val pp : 'a t Fmt.t
-  val pp_binding : ('a t * 'a) Fmt.t
+  val pp : 'a t Fmt.t @@ nonportable
+  val pp_binding : ('a t * 'a) Fmt.t @@ nonportable
 
   (** {2 Common options} *)
 
@@ -270,7 +270,7 @@ module Sockopt : sig
     get : 'a. 'a t -> (string * 'a Fmt.t) option
   } [@@unboxed]
 
-  val register_printer : printer_fn -> unit
+  val register_printer : printer_fn -> unit @@ nonportable
   (** [register_printer { get }] adds [get] to the list of printers.
 
       If called with an option it recognises, it should return the option's name
@@ -294,7 +294,7 @@ val getsockopt : [> `Socket] r -> 'a Sockopt.t -> 'a
 
 (** {2 Out-bound Connections} *)
 
-val connect : sw:Switch.t -> [> 'tag ty] t -> Sockaddr.stream -> 'tag stream_socket_ty r
+val connect : sw:Switch.t -> [> 'tag ty] t -> Sockaddr.stream -> 'tag stream_socket_ty r @@ portable
 (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
     The new socket will be closed when [sw] finishes, unless closed manually first. *)
@@ -328,6 +328,7 @@ val with_tcp_connect :
 val listen :
   ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t ->
   [> 'tag ty] r -> Sockaddr.stream -> 'tag listening_socket_ty r
+  @@ portable
 (** [listen ~sw ~backlog t addr] is a new listening socket bound to local address [addr].
 
     The new socket will be closed when [sw] finishes, unless closed manually first.
@@ -345,6 +346,7 @@ val accept :
   sw:Switch.t ->
   [> 'tag listening_socket_ty] r ->
   'tag stream_socket_ty r * Sockaddr.stream
+  @@ portable
 (** [accept ~sw socket] waits until a new connection is ready on [socket] and returns it.
 
     The new socket will be closed automatically when [sw] finishes, if not closed earlier.
@@ -372,7 +374,7 @@ val accept_fork :
                     [on_error] is not called for {!Cancel.Cancelled} exceptions,
                     which do not need to be reported. *)
 
-val listening_addr : [> 'tag listening_socket_ty] r -> Sockaddr.stream
+val listening_addr : [> 'tag listening_socket_ty] r -> Sockaddr.stream @@ portable
 
 (** {2 Running Servers} *)
 
@@ -445,7 +447,7 @@ val recv : _ datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
     of functions raise an exception (see {!Address_lookup_failed}) with an error
     code instead of returning an empty list. *)
 
-val getaddrinfo: ?service:string -> _ t -> string -> Sockaddr.t list
+val getaddrinfo: ?service:string -> _ t -> string -> Sockaddr.t list @@ portable
 (** [getaddrinfo ?service t node] returns a list of IP addresses for [node]. [node] is either a domain name or
     an IP address.
 
@@ -456,24 +458,24 @@ val getaddrinfo: ?service:string -> _ t -> string -> Sockaddr.t list
 
     Never returns an empty list; it will raise [Eio.Io (Eio.Net.E Address_lookup_failed _, _)] instead. *)
 
-val getaddrinfo_stream: ?service:string -> _ t -> string -> Sockaddr.stream list
+val getaddrinfo_stream: ?service:string -> _ t -> string -> Sockaddr.stream list @@ portable
 (** [getaddrinfo_stream] is like {!getaddrinfo}, but filters out non-stream protocols.
 
     Never returns an empty list; it will raise [Eio.Io (Eio.Net.E Address_lookup_failed _, _)] instead. *)
 
-val getaddrinfo_datagram: ?service:string -> _ t -> string -> Sockaddr.datagram list
+val getaddrinfo_datagram: ?service:string -> _ t -> string -> Sockaddr.datagram list @@ portable
 (** [getaddrinfo_datagram] is like {!getaddrinfo}, but filters out non-datagram protocols.
 
     Never returns an empty list; it will raise [Eio.Io (Eio.Net.E Address_lookup_failed _, _)] instead. *)
 
-val getnameinfo : _ t -> Sockaddr.t -> (string * string)
+val getnameinfo : _ t -> Sockaddr.t -> (string * string) @@ portable
 (** [getnameinfo t sockaddr] is [(hostname, service)] corresponding to [sockaddr]. [hostname] is the
     registered domain name represented by [sockaddr]. [service] is the IANA specified textual name of the
     port specified in [sockaddr], e.g. 'ftp', 'http', 'https', etc. *)
 
 (** {2 Closing} *)
 
-val close : [> `Close] r -> unit
+val close : [> `Close] r -> unit @@ portable
 (** Alias of {!Resource.close}. *)
 
 (** {2 Provider Interface} *)

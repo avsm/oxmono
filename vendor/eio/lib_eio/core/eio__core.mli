@@ -1,7 +1,7 @@
 (** Private internal module. Use {!Eio} instead. *)
 
 (** @canonical Eio.Switch *)
-module Switch : sig
+module Switch : sig @@ portable
   (** Many resources in Eio (such as fibers and file handles) require a switch to
       be provided when they are created. The resource cannot outlive its switch.
 
@@ -125,12 +125,12 @@ module Switch : sig
 
   (** {2 Debugging} *)
 
-  val dump : t Fmt.t
+  val dump : t Fmt.t @@ nonportable
   (** Dump out details of the switch's state for debugging. *)
 end
 
 (** @canonical Eio.Promise *)
-module Promise : sig
+module Promise : sig @@ portable
   (** Unlike lazy values, you cannot "force" promises;
       a promise is resolved when the maker of the promise is ready.
 
@@ -196,7 +196,7 @@ module Promise : sig
 end
 
 (** @canonical Eio.Fiber *)
-module Fiber : sig
+module Fiber : sig @@ portable
   (** Within a domain, only one fiber can be running at a time.
       A fiber runs until it performs an IO operation (directly or indirectly).
       At that point, it may be suspended and the next fiber on the run queue runs. *)
@@ -428,16 +428,16 @@ module Exn : sig
 
       This is useful if you want to catch and report all IO errors. *)
 
-  val create : err -> exn
+  val create : err -> exn @@ portable
   (** [create err] is an {!Io} exception with an empty context. *)
 
-  val add_context : exn -> ('a, Format.formatter, unit, exn) format4 -> 'a
+  val add_context : exn -> ('a, Format.formatter, unit, exn) format4 -> 'a @@ portable
   (** [add_context ex msg] returns a new exception with [msg] added to [ex]'s context,
       if [ex] is an {!Io} exception.
 
       If [ex] is not an [Io] exception, this function just returns the original exception. *)
 
-  val reraise_with_context : exn -> Printexc.raw_backtrace -> ('a, Format.formatter, unit, 'b) format4 -> 'a
+  val reraise_with_context : exn -> Printexc.raw_backtrace -> ('a, Format.formatter, unit, 'b) format4 -> 'a @@ portable
   (** [reraise_with_context ex bt msg] raises [ex] extended with additional information [msg].
 
       [ex] should be an {!Io} exception (if not, is re-raised unmodified).
@@ -453,23 +453,23 @@ module Exn : sig
       You must get the backtrace before calling any other function
       in the exception handler to prevent corruption of the backtrace. *)
 
-  val register_pp : (Format.formatter -> err -> bool) -> unit
+  val register_pp : (Format.formatter -> err -> bool) -> unit @@ nonportable
   (** [register_pp pp] adds [pp] as a pretty-printer of errors.
 
       [pp f err] should format [err] using [f], if possible.
       It should return [true] on success, or [false] if it didn't
       recognise [err]. *)
 
-  val pp : exn Fmt.t
+  val pp : exn Fmt.t @@ nonportable
   (** [pp] is a formatter for exceptions.
 
       This is similar to {!Fmt.exn}, but can do a better job on {!Io} exceptions
       because it can format them directly without having to convert to a string first. *)
 
-  val pp_err : err Fmt.t
+  val pp_err : err Fmt.t @@ nonportable
   (** [pp_err] formats an error code. *)
 
-  val empty_backtrace : Printexc.raw_backtrace
+  val empty_backtrace : Printexc.raw_backtrace @@ portable
   (** A backtrace with no frames. *)
 
   (** Extensible backend-specific exceptions. *)
@@ -479,14 +479,14 @@ module Exn : sig
     val show : bool ref
     (** Controls the behaviour of {!pp}. *)
 
-    val register_pp : (Format.formatter -> t -> bool) -> unit
+    val register_pp : (Format.formatter -> t -> bool) -> unit @@ nonportable
     (** [register_pp pp] adds [pp] as a pretty-printer of backend errors.
 
         [pp f err] should format [err] using [f], if possible.
         It should return [true] on success, or [false] if it didn't
         recognise [err]. *)
 
-    val pp : t Fmt.t
+    val pp : t Fmt.t @@ nonportable
     (** [pp] behaves like {!pp} except that if display of backend errors has been turned off
         (with {!show}) then it just prints a place-holder.
 
@@ -509,7 +509,7 @@ module Exn : sig
 
       Note: If multiple {b IO} errors occur, then you will get [Io (Multiple_io _, _)] instead of this. *)
 
-  val combine : with_bt -> with_bt -> with_bt
+  val combine : with_bt -> with_bt -> with_bt @@ portable
   (** [combine x y] returns a single exception and backtrace to use to represent two errors.
 
       The resulting exception is typically just [Multiple [y; x]],
@@ -520,7 +520,7 @@ module Exn : sig
 end
 
 (** @canonical Eio.Cancel *)
-module Cancel : sig
+module Cancel : sig @@ portable
   (** This is the low-level interface to cancellation.
       Every {!Switch} includes a cancellation context and most users will just use that API instead.
 
@@ -599,12 +599,12 @@ module Cancel : sig
       Note that the caller of this function is still responsible for handling the error somehow
       (e.g. reporting it to the user); it does not become the responsibility of the cancelled thread(s). *)
 
-  val dump : t Fmt.t
+  val dump : t Fmt.t @@ nonportable
   (** Show the cancellation sub-tree rooted at [t], for debugging. *)
 end
 
 (** @canonical Eio.Private *)
-module Private : sig
+module Private : sig @@ portable
   module Trace = Trace
 
   module Cells = Cells

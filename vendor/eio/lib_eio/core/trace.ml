@@ -10,7 +10,7 @@ let next_id_key =
   Domain.DLS.new_key (fun () -> Atomic.fetch_and_add next_id_chunk id_chunk_size)
 
 let mint_id () =
-  let next_id_local = Domain.DLS.get next_id_key in
+  let next_id_local = Peff.dls_get_int next_id_key in
   let next_id_local_succ =
     if ((next_id_local + 1) mod id_chunk_size) = 0 then
       (* we're out of local IDs *)
@@ -18,12 +18,23 @@ let mint_id () =
     else
       next_id_local + 1
   in
-  Domain.DLS.set next_id_key next_id_local_succ;
+  Peff.dls_set_int next_id_key next_id_local_succ;
   next_id_local
 
 module RE = Eio_runtime_events
 
-let add_event = Runtime_events.User.write
+(* [Runtime_events.User.write] appends to the calling domain's own ring
+   buffer, so it is domain-safe. The record wrapper keeps the assertion
+   polymorphic despite the value restriction. *)
+type add_event_fn = { f : 'a. 'a Runtime_events.User.t -> 'a -> unit } [@@unboxed]
+
+let add_event_p =
+  Obj.magic_portable { f = (fun ev v -> Runtime_events.User.write ev v) }
+
+(* Callers reach the event descriptors as module-level values, which a
+   portable function only sees contended. The descriptors are immutable,
+   so crossing them back is sound. *)
+let add_event (ev @ contended) v = add_event_p.f (Obj.magic_uncontended ev) v
 
 let create_obj ?label id ty =
   add_event RE.create_obj (id, ty);

@@ -1,3 +1,5 @@
+@@ portable
+
 (** The API is based on OCaml's [Semaphore.Counting].
 
     The difference is that when waiting for the semaphore this will switch to the next runnable fiber,

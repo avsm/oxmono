@@ -1,3 +1,5 @@
+@@ portable
+
 (** A mutex can be used to ensure that only one piece of code can access a shared resource at one time.
 
     Unlike {!Stdlib.Mutex}, which blocks the whole domain while waiting to take the mutex,

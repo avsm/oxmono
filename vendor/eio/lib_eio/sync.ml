@@ -185,7 +185,7 @@ type update_result =
   | Update_refused
   | Balance_closed
 
-module Balance : sig
+module Balance : sig @@ portable
   type t
 
   val make : unit -> t
@@ -203,7 +203,7 @@ module Balance : sig
   val incr_if_negative : t -> update_result
   val decr_if_positive : t -> update_result
 
-  val pp : t Fmt.t
+  val pp : t Fmt.t @@ nonportable
 end = struct
   type t = int Atomic.t
 
@@ -510,7 +510,7 @@ let take_nonblocking (t : _ t) =
                todo: could spin for a bit here first - the Item will probably arrive soon,
                and that would avoid making the producer start again. *)
             Domain.cpu_relax ();        (* Brief wait to encourage producer to finish *)
-            if Atomic.compare_and_set cell In_transition reject then Error `Would_block 
+            if Atomic.compare_and_set cell In_transition (Obj.magic_uncontended reject) then Error `Would_block 
             else aux cell
           )
     in aux (Q.next_resume t.producers)
@@ -537,7 +537,7 @@ let close t =
       (* Reject each waiting producer. They will try to restart and then discover the stream is closed. *)
       for _ = 1 to old do
         let cell = Q.next_resume t.producers in
-        add_to_cell t.consumers reject cell;
+        add_to_cell t.consumers (Obj.magic_uncontended reject) cell;
       done
     ) else (
       let reject_consumer = Item { v = Error `Closed; kp = ignore; cancel = Atomic.make `Resuming } in

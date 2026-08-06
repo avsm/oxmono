@@ -21,7 +21,7 @@ let run_raw (Resource.T (t, ops)) fn =
   let module X = (val (Resource.get ops Pi.Mgr)) in
   X.run_raw t fn
 
-let run (Resource.T (t, ops)) fn =
+let unsafe_run (Resource.T (t, ops)) fn =
   let module X = (val (Resource.get ops Pi.Mgr)) in
   X.run t @@ fun ~cancelled ->
   (* If the spawning fiber is cancelled, [cancelled] gets set to the exception. *)
@@ -41,3 +41,5 @@ let run (Resource.T (t, ops)) fn =
          which isn't what we want. *)
       raise cex
     | _ -> raise ex
+
+let run t fn = unsafe_run t fn

@@ -5,17 +5,17 @@ type 'a clock_base = 'a r constraint 'a = [> _ clock_ty]
 
 type 'a clock = ([> float clock_ty] as 'a) r
 
-val now : _ clock -> float
+val now : _ clock -> float @@ portable
 (** [now t] is the current time since 00:00:00 GMT, Jan. 1, 1970 - in seconds - according to [t]. *)
 
-val sleep_until : _ clock -> float -> unit
+val sleep_until : _ clock -> float -> unit @@ portable
 (** [sleep_until t time] waits until the given time is reached. *)
 
-val sleep : _ clock -> float -> unit
+val sleep : _ clock -> float -> unit @@ portable
 (** [sleep t d] waits for [d] seconds. *)
 
 (** Monotonic clocks. *)
-module Mono : sig
+module Mono : sig @@ portable
   (** Monotonic clocks are unaffected by corrections to the real-time clock,
       and so are a better choice for timeouts or measuring intervals,
       where the absolute time doesn't matter.
@@ -50,7 +50,7 @@ val with_timeout_exn : _ clock -> float -> (unit -> 'a) -> 'a
     raising exception {!exception-Timeout}. *)
 
 (** Timeout values. *)
-module Timeout : sig
+module Timeout : sig @@ portable
   type t
 
   val v : _ Mono.t -> Mtime.Span.t -> t
@@ -73,7 +73,7 @@ module Timeout : sig
   val sleep : t -> unit
   (** [sleep t] sleeps for [t]'s duration. *)
 
-  val pp : t Fmt.t
+  val pp : t Fmt.t @@ nonportable
   (** [pp] formats a timeout as a duration (e.g. "5s").
       This is intended for use in error messages and logging and is rounded. *)
 end

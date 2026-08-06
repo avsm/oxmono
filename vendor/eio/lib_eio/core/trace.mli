@@ -1,3 +1,5 @@
+@@ portable
+
 (** Trace Eio events using OCaml's runtime events system. *)
 
 type id = private int

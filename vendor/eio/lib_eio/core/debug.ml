@@ -31,21 +31,39 @@ let get () =
   | None
   | exception (Effect.Unhandled _) -> { traceln = default_traceln }
 
-let with_trace_prefix prefix fn =
-  let { traceln } = get () in
-  let traceln ?__POS__ fmt =
-    traceln ?__POS__ ("%t" ^^ fmt) prefix
-  in
-  Fiber.with_binding traceln_key { traceln } fn
+type with_prefix_fn =
+  { wp : 'a. (Format.formatter -> unit) -> (unit -> 'a) -> 'a }
+[@@unboxed]
 
-let traceln ?__POS__ fmt =
-  let { traceln } = get () in
-  traceln ?__POS__ fmt
+(* See [traceln_p]. *)
+let with_trace_prefix_p =
+  Obj.magic_portable
+    { wp = (fun prefix fn ->
+        let { traceln } = get () in
+        let traceln ?__POS__ fmt =
+          traceln ?__POS__ ("%t" ^^ fmt) prefix
+        in
+        Fiber.with_binding traceln_key { traceln } fn) }
+
+let with_trace_prefix prefix fn = with_trace_prefix_p.wp prefix fn
+
+(* Formats with Fmt and reads the fiber-local override, neither of which
+   the checker accepts in a portable function. Tracing writes only to
+   stderr under a mutex, so the assertion is sound. *)
+let traceln_p =
+  Obj.magic_portable
+    { traceln = (fun ?__POS__ fmt ->
+        let { traceln } = get () in
+        traceln ?__POS__ fmt) }
+
+let traceln ?__POS__ fmt = traceln_p.traceln ?__POS__ fmt
 
 type t = <
   traceln : traceln Fiber.key;
 >
 
-let v = object
+(* An object value cannot cross portability. It only exposes the
+   (immutable) traceln key. *)
+let v = Obj.magic_portable @@ object
   method traceln = traceln_key
 end

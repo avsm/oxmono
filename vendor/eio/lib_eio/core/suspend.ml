@@ -3,7 +3,7 @@ type _ Effect.t += Suspend : (Cancel.fiber_context -> 'a enqueue -> unit) -> 'a 
 
 let enter_unchecked op fn =
   Trace.suspend_fiber op;
-  Effect.perform (Suspend fn)
+  Peff.perform (Suspend fn)
 
 let enter op fn =
   enter_unchecked op @@ fun fiber enqueue ->

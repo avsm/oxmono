@@ -5,10 +5,9 @@ type _ binding = H : ('t, 'impl, 'tags) pi * 'impl -> 't binding
 (* The record wrapper exists to carry the mode-crossing assertion, which
    is not allowed on a type abbreviation. The explicit kind is also
    needed: the attribute alone does not change the declared kind that
-   signature matching checks (see oxcaml-repro/02). A handler is written
-   once when a resource is created and read-only afterwards, and
-   implementations are module-level functions, so sharing across domains
-   cannot race. *)
+   signature matching checks. A handler is written once when a resource
+   is created and read-only afterwards, and implementations are
+   module-level functions, so sharing across domains cannot race. *)
 type 't ops : value mod portable contended = { ops : 't binding array }
 [@@unboxed] [@@unsafe_allow_any_mode_crossing]
 

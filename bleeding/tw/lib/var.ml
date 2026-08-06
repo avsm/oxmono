@@ -1,3 +1,4 @@
+module Css = Cascade.Css
 (* Typed CSS custom properties (variables) - Simplified API
 
    This module provides the core extensible variable system for CSS custom
@@ -5,6 +6,11 @@
 
 (* Layer classification for CSS variables *)
 type layer = Theme | Utility
+
+(* Registry for custom properties-layer initial CSS values. Some variables need
+   a different string in the properties layer than what pp_length produces
+   (e.g., ring-offset-width needs "0px" in properties but "0" in @property). *)
+let properties_layer_overrides : (string, string) Hashtbl.t = Hashtbl.create 8
 
 (* Variable definition - the main currency *)
 type 'a property_info = {
@@ -25,15 +31,10 @@ type _ role =
 type ('a, 'r) t = {
   kind : 'a Css.kind; (* CSS type witness *)
   name : string; (* Variable name without -- prefix *)
-  layer : layer; (* Theme or Utility *)
   role : 'r role; (* The GADT role/pattern of this variable *)
   binding : ?fallback:'a Css.fallback -> 'a -> Css.declaration * 'a Css.var;
       (* Function to create declaration and var ref *)
   property : 'a property_info option; (* For @property registration *)
-  order : (int * int) option;
-      (* Explicit ordering for theme layer (utility_priority, suborder) *)
-  property_order : int option;
-      (* Explicit ordering for properties layer @supports block *)
   fallback : 'a option; (* Built-in fallback for ref_only variables *)
 }
 
@@ -70,47 +71,34 @@ module Registry = struct
     | `Leading
     | `Font_weight
     | `Duration
-    | `Tracking ]
+    | `Tracking
+    | `Content
+    | `Text_shadow
+    | `Filter
+    | `Drop_shadow
+    | `Backdrop_filter ]
 
   let family_registry : (string, family) Hashtbl.t = Hashtbl.create 128
   let needs_property_registry : (string, bool) Hashtbl.t = Hashtbl.create 128
 
   let register_variable ~name ~order =
-    (* Check for order conflicts *)
-    (match Hashtbl.find_opt order_registry order with
-    | Some existing_name when existing_name <> name ->
-        let order_str =
-          match order with
-          | p, s -> "(" ^ string_of_int p ^ ", " ^ string_of_int s ^ ")"
-        in
-        failwith
-          ("Variable order conflict: order " ^ order_str
-         ^ " is already used by variable '" ^ existing_name
-         ^ "', cannot assign to '" ^ name ^ "'")
-    | _ -> ());
-
-    (* Check for name conflicts - fail if name already exists regardless of
-       order *)
-    (match Hashtbl.find_opt name_registry name with
-    | Some existing_order ->
-        let order_str =
-          match existing_order with
-          | p, s -> "(" ^ string_of_int p ^ ", " ^ string_of_int s ^ ")"
-        in
-        failwith
-          ("Variable name conflict: variable '" ^ name
-         ^ "' is already registered with order " ^ order_str
-         ^ ", cannot create duplicate")
-    | None -> ());
-
-    (* Register the variable *)
-    Hashtbl.replace order_registry order name;
-    Hashtbl.replace name_registry name order
+    (* Skip registration on order conflict — first registration wins. This can
+       happen when invalid input (e.g. inset-3/4/foo and inset-4/foo) produces
+       variables with the same order slot. *)
+    match Hashtbl.find_opt order_registry order with
+    | Some existing_name when existing_name <> name -> ()
+    | _ -> (
+        (* Also skip on name conflict with different order *)
+        match Hashtbl.find_opt name_registry name with
+        | Some existing_order when existing_order <> order -> ()
+        | _ ->
+            Hashtbl.replace order_registry order name;
+            Hashtbl.replace name_registry name order)
 
   let register_property_order ~name ~order =
     Hashtbl.replace property_order_registry name order
 
-  let get_property_order name =
+  let property_order name =
     (* Strip leading -- if present *)
     let name =
       if String.starts_with ~prefix:"--" name then
@@ -119,7 +107,7 @@ module Registry = struct
     in
     Hashtbl.find_opt property_order_registry name
 
-  let get_order name =
+  let order name =
     (* Strip leading -- if present *)
     let name =
       if String.starts_with ~prefix:"--" name then
@@ -131,7 +119,7 @@ module Registry = struct
   let register_family ~name ~family =
     Hashtbl.replace family_registry name family
 
-  let get_family name =
+  let family name =
     (* Strip leading -- if present *)
     let name =
       if String.starts_with ~prefix:"--" name then
@@ -143,7 +131,7 @@ module Registry = struct
   let register_needs_property ~name ~needs =
     Hashtbl.replace needs_property_registry name needs
 
-  let get_needs_property name =
+  let needs_property name =
     (* Strip leading -- if present *)
     let name =
       if String.starts_with ~prefix:"--" name then
@@ -156,10 +144,11 @@ module Registry = struct
 end
 
 (* Get property order for a variable name (for external use in rules.ml) *)
-let get_property_order = Registry.get_property_order
-let get_order = Registry.get_order
-let get_family = Registry.get_family
-let get_needs_property = Registry.get_needs_property
+let property_order = Registry.property_order
+let register_property_order = Registry.register_property_order
+let order = Registry.order
+let family = Registry.family
+let needs_property = Registry.needs_property
 
 type family = Registry.family
 
@@ -178,71 +167,69 @@ let (meta_of_info : info -> Css.meta), (info_of_meta : Css.meta -> info option)
 
 let layer_name = function (Theme : layer) -> "theme" | Utility -> "utilities"
 
-(* Helper to serialize number_percentage values for universal syntax *)
-let number_percentage_to_string (np : Css.number_percentage) =
-  match np with Num f | Pct f -> Pp.float f | _ -> "initial"
-
-let channel_to_string : Css.channel -> string = function
-  | Css.Int i -> string_of_int i
-  | Css.Num f -> Pp.float f
-  | Css.Pct p -> Pp.float p ^ "%"
-  | Css.Var _ -> "0"
-
-(* Single source of truth for converting typed values to CSS strings This
-   function converts a typed value to its CSS string representation for use in
-   both @property initial-value and properties layer *)
-let value_to_css_string : type a. a Css.kind -> a -> string =
- fun kind value ->
-  match kind with
-  | Css.Length -> Css.Pp.to_string (Css.pp_length ~always:false) value
-  | Css.Color -> Css.Pp.to_string Css.pp_color value
-  | Css.Angle -> Css.Pp.to_string Css.pp_angle value
-  | Css.Duration -> Css.Pp.to_string Css.pp_duration value
-  | Css.Float -> Pp.float value
-  | Css.Percentage -> ( match value with Pct f -> Pp.float f | _ -> "initial")
-  | Css.Number_percentage -> number_percentage_to_string value
-  | Css.Int -> string_of_int value
-  | Css.String -> if value = "" then "\"\"" else value
-  | Css.Content -> (
-      match value with
-      | Css.String "" -> "\"\""
-      | Css.String s -> "\"" ^ s ^ "\""
-      | Css.None -> "none"
-      | Css.Normal -> "normal"
-      | Css.Open_quote -> "open-quote"
-      | Css.Close_quote -> "close-quote"
-      | Css.Var _ -> "initial")
-  | Css.Font_weight -> Css.Pp.to_string Css.pp_font_weight value
-  | Css.Shadow -> "0 0 #0000"
-  | Css.Border_style -> Css.Pp.to_string Css.pp_border_style value
-  | Css.Scroll_snap_strictness ->
-      Css.Pp.to_string Css.pp_scroll_snap_strictness value
-  | Css.Rgb -> (
-      match value with
-      | Css.Channels { r; g; b } ->
-          channel_to_string r ^ " " ^ channel_to_string g ^ " "
-          ^ channel_to_string b
-      | Css.Var _ -> "initial")
-  | Css.Animation -> Css.Pp.to_string Css.pp_animation value
-  | Css.Gradient_direction -> Css.Pp.to_string Css.pp_gradient_direction value
-  | _ -> "initial"
-
-(* Alias for backward compatibility *)
-let initial_to_universal = value_to_css_string
+(* Convert a [Css.kind] witness to the matching [Css.Properties.kind]. *)
+let properties_kind_of_kind : type a. a Css.kind -> a Css.Properties.kind =
+  let open Css in
+  function
+  | Length -> Css.Properties.Length
+  | Color -> Css.Properties.Color
+  | Rgb -> Css.Properties.Rgb
+  | Int -> Css.Properties.Int
+  | Number -> Css.Properties.Number
+  | Float -> Css.Properties.Float
+  | Percentage -> Css.Properties.Percentage
+  | Length_percentage -> Css.Properties.Length_percentage
+  | Number_percentage -> Css.Properties.Number_percentage
+  | Opacity -> Css.Properties.Opacity
+  | Value -> Css.Properties.Value
+  | Duration -> Css.Properties.Duration
+  | Aspect_ratio -> Css.Properties.Aspect_ratio
+  | Border_style -> Css.Properties.Border_style
+  | Outline_style -> Css.Properties.Outline_style
+  | Border -> Css.Properties.Border
+  | Font_weight -> Css.Properties.Font_weight
+  | Font_size -> Css.Properties.Font_size
+  | Line_height -> Css.Properties.Line_height
+  | Font_family -> Css.Properties.Font_family
+  | Font_feature_settings -> Css.Properties.Font_feature_settings
+  | Font_variation_settings -> Css.Properties.Font_variation_settings
+  | Numeric -> Css.Properties.Numeric
+  | Font_variant_numeric_token -> Css.Properties.Font_variant_numeric_token
+  | Blend_mode -> Css.Properties.Blend_mode
+  | Scroll_snap_strictness -> Css.Properties.Scroll_snap_strictness
+  | Angle -> Css.Properties.Angle
+  | Rotate -> Css.Properties.Rotate
+  | Scale -> Css.Properties.Scale
+  | Shadow -> Css.Properties.Shadow
+  | Box_shadow -> Css.Properties.Box_shadow
+  | Content -> Css.Properties.Content
+  | Gradient_stop -> Css.Properties.Gradient_stop
+  | Gradient_direction -> Css.Properties.Gradient_direction
+  | Gradient_position -> Css.Properties.Gradient_position
+  | Animation -> Css.Properties.Animation
+  | Timing_function -> Css.Properties.Timing_function
+  | Transform -> Css.Properties.Transform
+  | Touch_action -> Css.Properties.Touch_action
+  | Transition_property_value -> Css.Properties.Transition_property_value
+  | Background_image -> Css.Properties.Background_image
+  | Z_index -> Css.Properties.Z_index
+  | Filter -> Css.Properties.Filter
+  | Font_src -> Css.Properties.Font_src
 
 (* Create a variable template *)
-let create : type a r.
+let v : type a r.
     a Css.kind ->
     ?property:a property_info ->
     ?order:int * int ->
     ?property_order:int ->
     ?family:family ->
     ?fallback:a ->
+    ?runtime:bool ->
     role:r role ->
     string ->
     layer:layer ->
     (a, r) t =
- fun kind ?property ?order ?property_order ?family ?fallback ~role name
+ fun kind ?property ?order ?property_order ?family ?fallback ?runtime ~role name
      ~layer ->
   (* Ensure theme variables have an order *)
   (match (layer, order) with
@@ -281,29 +268,23 @@ let create : type a r.
       | _ -> Css.None (* No fallback *)
     in
     Css.var ~default:value ~fallback:actual_fallback ?layer:layer_name ~meta
-      name kind value
+      ?runtime name kind value
   in
-  {
-    kind;
-    name;
-    layer;
-    role;
-    binding;
-    property;
-    order;
-    property_order;
-    fallback;
-  }
+  { kind; name; role; binding; property; fallback }
 
 (* Convenience constructors to encode patterns safely *)
 
-let theme kind name ~order =
-  create kind ?property:None ?order:(Some order) ~role:Theme name ~layer:Theme
+let theme kind ?runtime name ~order =
+  v kind ?property:None ?order:(Some order) ?runtime ~role:Theme name
+    ~layer:Theme
 
 let property_default kind ~initial ?(inherits = false) ?(universal = false)
-    ?property_order ?family name =
+    ?initial_css ?property_order ?family name =
   let property = property_info ~initial ~inherits ~universal () in
-  create kind ~property ?property_order ?family ~role:Property_default name
+  (match initial_css with
+  | Some css -> Hashtbl.replace properties_layer_overrides ("--" ^ name) css
+  | None -> ());
+  v kind ~property ?property_order ?family ~role:Property_default name
     ~layer:Utility
 
 let channel ?(needs_property = false) ?property_order ?family kind name =
@@ -312,70 +293,76 @@ let channel ?(needs_property = false) ?property_order ?family kind name =
     let property =
       property_info ?initial:None ~inherits:false ~universal:true ()
     in
-    create kind ~property ?property_order ?family ~role:Channel name
-      ~layer:Utility
-  else create kind ?property_order ?family ~role:Channel name ~layer:Utility
+    v kind ~property ?property_order ?family ~role:Channel name ~layer:Utility
+  else v kind ?property_order ?family ~role:Channel name ~layer:Utility
 
-(* Place after [reference] to avoid forward reference issues *)
+let string_of_kind_value : type a. a Css.kind -> a -> string =
+ fun kind value ->
+  match kind with
+  | Css.Color -> Css.Pp.to_string ~minify:true Css.Values.pp_color value
+  | Css.Gradient_position ->
+      Css.Pp.to_string ~minify:true Css.Properties.pp_gradient_position value
+  | _ ->
+      Css.Properties.string_of_kind_value (properties_kind_of_kind kind) value
 
 (* Helper to create @property with correct syntax based on kind *)
-let create_property : type a.
-    name:string ->
-    a Css.kind ->
-    a option ->
-    inherits:bool ->
-    universal:bool ->
-    Css.t =
- fun ~name kind initial ~inherits ~universal ->
+let property_universal : type a.
+    name:string -> a Css.kind -> a option -> inherits:bool -> Css.t =
+ fun ~name kind initial ~inherits ->
   let open Css in
-  if universal then
-    match initial with
-    | None -> property ~name Universal ~inherits ()
-    | Some v -> (
-        match (kind, v) with
-        | Gradient_stop, List [] -> property ~name Universal ~inherits ()
-        | Percentage, Pct 0. -> property ~name Universal ~inherits ()
-        | Gradient_direction, To_bottom -> property ~name Universal ~inherits ()
-        | _ ->
-            let initial_str = value_to_css_string kind v in
-            property ~name Universal ~initial_value:initial_str ~inherits ())
-  else
-    match (kind, initial) with
-    (* Length - use length-percentage syntax when there's a value *)
-    | Length, None -> property ~name Universal ~inherits ()
-    | Length, Some v -> property ~name Length ~initial_value:v ~inherits ()
-    (* Float as Percentage *)
-    | Float, None -> property ~name Percentage ~inherits ()
-    | Float, Some v ->
-        property ~name Percentage ~initial_value:(Pct v) ~inherits ()
-    (* Color - use universal syntax when no initial value, color syntax
-       otherwise *)
-    | Color, None -> property ~name Universal ~inherits ()
-    | Color, Some v -> property ~name Color ~initial_value:v ~inherits ()
-    (* Percentage - use length-percentage syntax *)
-    | Percentage, None -> property ~name Length_percentage ~inherits ()
-    | Percentage, Some v ->
-        property ~name Length_percentage
-          ~initial_value:(Pct (match v with Pct f -> f | _ -> 0.0))
-          ~inherits ()
-    (* Number_percentage - use universal syntax *)
-    | Number_percentage, None -> property ~name Universal ~inherits ()
-    | Number_percentage, Some v ->
-        let initial_str = number_percentage_to_string v in
-        property ~name Universal ~initial_value:initial_str ~inherits ()
-    (* Gradient_stops - special handling *)
-    | Gradient_stop, None -> property ~name Universal ~inherits ()
-    | Gradient_stop, Some (List []) ->
-        (* Empty list means no initial-value, just like None *)
-        property ~name Universal ~inherits ()
-    | Gradient_stop, Some v ->
-        let initial_str = initial_to_universal kind v in
-        property ~name Universal ~initial_value:initial_str ~inherits ()
-    (* Everything else - use Universal syntax *)
-    | _, None -> property ~name Universal ~inherits ()
-    | _, Some v ->
-        let initial_str = initial_to_universal kind v in
-        property ~name Universal ~initial_value:initial_str ~inherits ()
+  match initial with
+  | None -> property ~name Universal ~inherits ()
+  | Some v -> (
+      match (kind, v) with
+      | Gradient_stop, List []
+      | Percentage, Pct 0.
+      | Gradient_direction, To_bottom ->
+          property ~name Universal ~inherits ()
+      | Gradient_position, Linear_position To_bottom ->
+          property ~name Universal ~inherits ()
+      | _ ->
+          let initial_str = string_of_kind_value kind v in
+          property ~name Universal ~initial_value:initial_str ~inherits ())
+
+let property_typed : type a.
+    name:string -> a Css.kind -> a option -> inherits:bool -> Css.t =
+ fun ~name kind initial ~inherits ->
+  let open Css in
+  match (kind, initial) with
+  | Length, None -> property ~name Universal ~inherits ()
+  | Length, Some v -> property ~name Length ~initial_value:v ~inherits ()
+  | Float, None -> property ~name Percentage ~inherits ()
+  | Float, Some v ->
+      property ~name Percentage ~initial_value:(Pct v) ~inherits ()
+  | Color, None -> property ~name Universal ~inherits ()
+  | Color, Some v -> property ~name Color ~initial_value:v ~inherits ()
+  | Percentage, None -> property ~name Length_percentage ~inherits ()
+  | Percentage, Some v ->
+      property ~name Length_percentage
+        ~initial_value:(Pct (match v with Pct f -> f | _ -> 0.0))
+        ~inherits ()
+  | Length_percentage, None -> property ~name Length_percentage ~inherits ()
+  | Length_percentage, Some v ->
+      property ~name Length_percentage ~initial_value:v ~inherits ()
+  | Number_percentage, None -> property ~name Universal ~inherits ()
+  | Number_percentage, Some v ->
+      let initial_str = string_of_kind_value kind v in
+      property ~name Universal ~initial_value:initial_str ~inherits ()
+  | Gradient_stop, None -> property ~name Universal ~inherits ()
+  | Gradient_stop, Some (List []) -> property ~name Universal ~inherits ()
+  | Gradient_stop, Some v ->
+      property ~name Universal
+        ~initial_value:(string_of_kind_value kind v)
+        ~inherits ()
+  | _, None -> property ~name Universal ~inherits ()
+  | _, Some v ->
+      property ~name Universal
+        ~initial_value:(string_of_kind_value kind v)
+        ~inherits ()
+
+let property ~name kind initial ~inherits ~universal =
+  if universal then property_universal ~name kind initial ~inherits
+  else property_typed ~name kind initial ~inherits
 
 (* Get @property rule if metadata present *)
 let property_rule : type a r. (a, r) t -> Css.t option =
@@ -384,9 +371,9 @@ let property_rule : type a r. (a, r) t -> Css.t option =
   | Property_default | Channel -> (
       match var.property with
       | None -> None
-      | Some { initial; inherits; universal } ->
+      | Some { initial; inherits; universal; _ } ->
           let name = "--" ^ var.name in
-          Some (create_property ~name var.kind initial ~inherits ~universal))
+          Some (property ~name var.kind initial ~inherits ~universal))
   | _ -> None (* Other roles don't generate @property rules *)
 
 (* Convenience function for property_default variables to get property rules or
@@ -466,35 +453,51 @@ let reference_with_var_fallback : type a.
 
 let ref_only kind name ~fallback =
   (* Create a utility variable that's only referenced, never set *)
-  create kind ~fallback ~role:Ref_only name ~layer:Utility
+  v kind ~fallback ~role:Ref_only name ~layer:Utility
+
+(* Registry for theme_ref variables: maps var name -> default CSS string *)
+let theme_ref_registry : (string, string) Hashtbl.t = Hashtbl.create 64
+
+let theme_ref : type a. ?default:a -> ?default_css:string -> string -> a Css.var
+    =
+ fun ?default ?default_css name ->
+  (match default_css with
+  | Some css -> Hashtbl.replace theme_ref_registry name css
+  | None -> ());
+  Css.var_ref ~layer:"theme" ?default name
+
+let resolve_theme_refs name = Hashtbl.find_opt theme_ref_registry name
 
 (* Convert Property_info to the string value for properties layer This extracts
    the initial value and converts it to the appropriate CSS string *)
 let property_info_to_declaration_value (Css.Property_info info) =
-  match info.initial_value with
-  | None -> "initial"
-  | Some v -> (
-      let open Css.Variables in
-      match info.syntax with
-      | Universal -> v (* Universal syntax already stores strings *)
-      | _ -> (
-          let
-          (* For non-Universal syntax, we shouldn't be in the properties layer
-             but handle it gracefully using the existing pp functions *)
-          open
-            Css.Values in
+  match Hashtbl.find_opt properties_layer_overrides info.name with
+  | Some css -> css
+  | None -> (
+      match info.initial_value with
+      | None -> "initial"
+      | Some v -> (
+          let open Css.Variables in
           match info.syntax with
-          | Length -> (
-              match v with
-              | Zero -> "0px"
-              | Px f when f = 0. -> "0px"
-              | _ -> Css.Pp.to_string (pp_length ~always:true) v)
-          | Number -> Pp.float v ^ "%"
-          | syntax -> Css.Pp.to_string (pp_value syntax) v))
+          | Universal -> v (* Universal syntax already stores strings *)
+          | _ -> (
+              let (* For non-Universal syntax, we shouldn't be in the properties
+                     layer but handle it gracefully using the existing pp
+                     functions *)
+                open
+                Css.Values
+              in
+              match info.syntax with
+              | Length -> (
+                  match v with
+                  | Zero -> "0"
+                  | _ -> Css.Pp.to_string (pp_length ~always:true) v)
+              | Number -> Pp.float v ^ "%"
+              | syntax -> Css.Pp.to_string (pp_value syntax) v)))
 
 let css_name var = "--" ^ var.name
 
-let var_needs_property v =
+let needs_property_rule v =
   match Css.var_meta v with
   | None ->
       (* Variables without metadata (e.g., raw theme variable references like
@@ -538,4 +541,5 @@ let properties vars =
   in
   Css.v filtered
 
-let pp ppf v = Format.fprintf ppf "Var(--%s)" v.name
+let pp v = Pp.str [ "Var(--"; v.name; ")" ]
+let bracket ?fallback name = Css.var_ref ?fallback name

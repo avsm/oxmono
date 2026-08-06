@@ -3,6 +3,7 @@
     https://tailwindcss.com/docs/background-image
     https://tailwindcss.com/docs/gradient-color-stops *)
 
+open Cascade
 open Utility
 
 (** {1 Utility Types} *)
@@ -17,9 +18,9 @@ type direction =
   | Left
   | Bottom_left
 
-val bg : Color.color -> int -> t
-(** [bg color shade] sets the background color. [shade] selects a color shade
-    (e.g., 50..900) when using Tailwind colors. *)
+val bg : ?opacity:int -> ?shade:int -> Color.color -> t
+(** [bg color] sets the background color. [shade] defaults to 500. [opacity]
+    sets the alpha modifier (0-100). *)
 
 val bg_gradient_to : direction -> t
 (** [bg_gradient_to dir] sets gradient direction. Prefer this typed variant over
@@ -41,6 +42,11 @@ module Handler : sig
   (** Gradient variables for use by other modules (e.g., transition-colors) *)
 
   val gradient_from_var : Css.color Var.property_default
+  (** [gradient_from_var] is the [--tw-gradient-from] variable. *)
+
   val gradient_via_var : Css.color Var.property_default
+  (** [gradient_via_var] is the [--tw-gradient-via] variable. *)
+
   val gradient_to_var : Css.color Var.property_default
+  (** [gradient_to_var] is the [--tw-gradient-to] variable. *)
 end

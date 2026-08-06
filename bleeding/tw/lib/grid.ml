@@ -3,6 +3,8 @@
     For grid item placement utilities (col-{i n}, row-{i n}), see Grid_item
     module. *)
 
+module Css = Cascade.Css
+
 module Handler = struct
   open Style
   open Css
@@ -14,10 +16,10 @@ module Handler = struct
       4 and are ordered alphabetically by suborder. *)
   let name = "grid"
 
-  let priority = 4
+  let priority _ = 4
   let grid = style [ display Grid ]
   let inline_grid = style [ display Inline_grid ]
-  let to_style = function Grid -> grid | Inline_grid -> inline_grid
+  let to_style _theme = function Grid -> grid | Inline_grid -> inline_grid
 
   let suborder = function
     (* Alphabetical among all display utilities (shared priority 4). block=1,
@@ -28,8 +30,8 @@ module Handler = struct
 
   let err_not_utility = Error (`Msg "Not a grid display utility")
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "grid" ] -> Ok Grid
     | [ "inline"; "grid" ] -> Ok Inline_grid

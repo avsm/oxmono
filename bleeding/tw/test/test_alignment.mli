@@ -1,2 +1,4 @@
-val all_utilities : unit -> Tw.t list
+(** Tests for the alignment module. *)
+
 val suite : string * unit Alcotest.test_case list
+(** [suite] is the test suite. *)

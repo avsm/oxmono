@@ -7,57 +7,34 @@
     {2 Module Structure}
 
     {[
-      (** Module documentation with links to Tailwind CSS docs *)
-
-      open Style
-      open Css
+    module Example = struct
+      module Css = Cascade.Css
+      module Style = Tw.Style
+      module Utility = Tw.Utility
 
       module Handler = struct
-        type t =
-          | Variant1
-          | Variant2
-          | ...
-
+        type t = Block
         type Utility.base += Self of t
 
-        let priority = N  (* See priority table below *)
+        let name = "example"
+        let priority _ = 4
 
-        let variant1 = style "class-name" [ css_prop value ]
-        let variant2 = style "class-name" [ css_prop value ]
+        let to_style _theme = function
+          | Block -> Style.style [ Css.display Css.Block ]
 
-        (* Note: Use Css.prop qualified names if helper name conflicts with CSS property *)
-        let example = style "example" [ Css.flex Auto ]
+        let suborder = function Block -> 0
 
-        let to_style = function
-          | Variant1 -> variant1
-          | Variant2 -> variant2
-          | ...
+        let of_class _theme = function
+          | "example-block" -> Ok Block
+          | _ -> Error (`Msg "Not an example utility")
 
-        let suborder = function
-          | Variant1 -> 0
-          | Variant2 -> 1
-          | ...
-
-        let err_not_utility = Error (`Msg "Not a <category> utility")
-        let of_strings =
-          function
-          | [ "class"; "name" ] -> Ok Variant1
-          | [ "other"; "class" ] -> Ok Variant2
-          | _ -> err_not_utility
-
-        let to_class = function
-          | ...
+        let to_class = function Block -> "example-block"
       end
 
-      open Handler
-
       let () = Utility.register (module Handler)
-
-      let utility x = Utility.base (Self x)
-
-      (* Public API *)
-      let variant1 = utility Variant1
-      let variant2 = utility Variant2
+      let utility x = Utility.base (Handler.Self x)
+      let example_block = utility Handler.Block
+    end
     ]}
 
     {2 Key Rules}
@@ -83,10 +60,30 @@ type base = ..
 (** Base utility type without modifiers - extensible variant *)
 
 (** Unified utility type with modifiers support *)
-type t = Base of base | Modified of Style.modifier * t | Group of t list
+type t =
+  | Base of base
+  | Modified of Style.modifier * t
+  | Group of t list
+  | Important of bool * t  (** [bool] is [true] for the v4 trailing [!] form. *)
+  | Aliased of string * t
+      (** [Aliased (class_name, u)] renders as [u] but reports [class_name] from
+          {!to_class}, so the emitted selector matches the source spelling. Used
+          for the [prop-(--x)] shorthand, which is [prop-[var(--x)]] in value
+          but keeps its own class name. *)
 
 val base : base -> t
 (** [base u] wraps a base utility into a Utility.t. *)
+
+val alias : string -> t -> t
+(** [alias class_name u] is [u] with its class name overridden to [class_name]
+    (see {!constructor-Aliased}). *)
+
+val important : ?suffix:bool -> t -> t
+(** [important ?suffix u] marks every declaration [u] emits as [!important]: the
+    [!] utility prefix, or the v4 trailing [!] form when [suffix] is [true]. *)
+
+val pp : t -> string
+(** [pp u] is a human-readable representation of [u] for debugging. *)
 
 (** Handler module type for utility registration *)
 module type Handler = sig
@@ -96,37 +93,44 @@ module type Handler = sig
   type base += Self of t  (** Extension of the base utility type *)
 
   val name : string
-  (** Name of this utility handler *)
+  (** Name of this utility handler. *)
 
-  val to_style : t -> Style.t
-  (** Convert utility to style *)
+  val to_style : Scheme.t -> t -> Style.t
+  (** [to_style theme u] converts utility [u] to a style, reading any theme
+      values it needs from [theme]. *)
 
-  val priority : int
-  (** Priority for ordering utilities *)
+  val priority : t -> int
+  (** [priority u] is the primary ordering key for utility [u]. Usually a module
+      constant ([let priority _ = n]); modules whose variants span several
+      canonical families (e.g. layout) return per-variant values. *)
 
   val suborder : t -> int
-  (** Suborder within the same priority *)
+  (** [suborder u] is the suborder within the same priority. *)
 
-  val of_class : string -> (t, [ `Msg of string ]) result
-  (** Parse class name into utility *)
+  val of_class : Scheme.t -> string -> (t, [ `Msg of string ]) result
+  (** [of_class theme name] parses class [name] into a utility, consulting
+      [theme] for custom token validation (e.g. named colors and opacities). *)
 
   val to_class : t -> string
-  (* TODO *)
+  (** [to_class u] is the CSS class name for utility [u]. *)
 end
 
 val register : (module Handler with type t = 'a) -> unit
-(** [register (module H)] registers a utility handler module. *)
+(** [register h] registers a utility handler module. *)
 
-val base_of_class : string -> (base, [ `Msg of string ]) result
-(** [base_of_class class_name] parses a class name into a base utility (without
-    modifiers). For internal use by the Tw module. *)
+val base_of_class : Scheme.t -> string -> (base, [ `Msg of string ]) result
+(** [base_of_class theme class_name] parses a class name into a base utility
+    (without modifiers). For internal use by the Tw module. *)
 
-val base_of_strings : string list -> (base, [ `Msg of string ]) result
-(** [base_of_strings parts] parses a list of string parts into a base utility.
-    Deprecated: use base_of_class. For backward compatibility with tests. *)
+val base_of_strings :
+  Scheme.t -> string list -> (base, [ `Msg of string ]) result
+(** [base_of_strings theme parts] parses a list of string parts into a base
+    utility. Deprecated: use base_of_class. For backward compatibility with
+    tests. *)
 
-val base_to_style : base -> Style.t
-(** [base_to_style u] converts a base utility (without modifiers) to Style.t. *)
+val base_to_style : Scheme.t -> base -> Style.t
+(** [base_to_style theme u] converts a base utility (without modifiers) to
+    Style.t, reading theme values from [theme]. *)
 
 val name_of_base : base -> string
 (** [name_of_base u] returns the utility name. *)
@@ -134,8 +138,9 @@ val name_of_base : base -> string
 val class_of_base : base -> string
 (** [class_of_base u] returns the CSS class name for a base utility. *)
 
-val to_style : t -> Style.t
-(** [to_style u] converts Utility.t (with modifiers) to Style.t. *)
+val to_style : Scheme.t -> t -> Style.t
+(** [to_style theme u] converts Utility.t (with modifiers) to Style.t, reading
+    theme values from [theme]. *)
 
 val to_class : t -> string
 (** [to_class u] converts Utility.t (with modifiers) to class name string. *)

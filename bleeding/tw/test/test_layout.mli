@@ -1,5 +1,4 @@
-val all_utilities : unit -> Tw.t list
-(** [all_utilities ()] returns all layout utilities for testing. *)
+(** Tests for the layout module. *)
 
 val suite : string * unit Alcotest.test_case list
-(** [suite] test suite. *)
+(** [suite] is the test suite. *)

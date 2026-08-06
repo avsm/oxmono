@@ -1,9 +1,11 @@
 (** Shared spacing utilities for padding, margin, and gap *)
 
+open Cascade
+
 (** {1 Spacing Variable} *)
 
-val spacing_var : Css.length Var.theme
-(** [spacing_var] shared spacing variable. *)
+val var : Css.length Var.theme
+(** [var] shared spacing variable. *)
 
 (** {1 Class Name Formatting} *)
 
@@ -71,15 +73,36 @@ val int : int -> Style.spacing
 
 (** {1 Shared Parsing Logic} *)
 
-type axis = [ `All | `X | `Y | `T | `R | `B | `L ]
-(** Axis for spacing utilities (all, x, y, top, right, bottom, left) *)
+val named_spacing_ref : string -> Css.length
+(** [named_spacing_ref name] creates a CSS variable reference
+    [var(--spacing-name)] for a named spacing value (e.g., "big" ->
+    [var(--spacing-big)]). *)
 
-val parse_value_string : allow_auto:bool -> string -> Style.margin option
-(** [parse_value_string ~allow_auto value] parses a spacing value string (px,
-    full, auto, or numeric).
+val named_spacing_binding :
+  ?theme:Scheme.t -> string -> Css.declaration option * Css.length
+(** [named_spacing_binding ?theme name] creates a theme variable binding for a
+    named spacing value, returning both the theme declaration (if theme value is
+    set) and a var reference. *)
 
+val is_named_spacing : string -> bool
+(** [is_named_spacing value] checks if a string is a valid named spacing
+    identifier. *)
+
+type axis = [ `All | `X | `Y | `T | `R | `B | `L | `S | `E | `Bs | `Be ]
+(** Axis for spacing utilities (all, x, y, top, right, bottom, left,
+    inline-start, inline-end, block-start, block-end) *)
+
+val parse_value_string :
+  ?theme:Scheme.t -> allow_auto:bool -> string -> Style.margin option
+(** [parse_value_string ?theme ~allow_auto value] parses a spacing value string
+    (px, full, auto, numeric, or a named token).
+
+    @param theme
+      Theme used to validate a named spacing ([mx-big]): a name is accepted only
+      when [--spacing-<name>] is defined, so stray source tokens do not parse as
+      utilities.
     @param allow_auto Whether to accept "auto" as a valid value
-    @param value The string to parse ("px", "full", "auto", or a number)
+    @param value The string to parse ("px", "full", "auto", a number, or a name)
     @return Parsed margin value or None if invalid. *)
 
 val axis_of_prefix : string -> axis option

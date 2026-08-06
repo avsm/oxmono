@@ -4,6 +4,7 @@
     https://tailwindcss.com/docs/ring-width
     https://tailwindcss.com/docs/ring-color *)
 
+open Cascade
 open Utility
 open Color
 
@@ -16,6 +17,12 @@ module Handler : Utility.Handler
 
 val shadow_none : t
 (** [shadow_none] applies no shadow. *)
+
+val shadow_2xs : t
+(** [shadow_2xs] applies the smallest shadow. *)
+
+val shadow_xs : t
+(** [shadow_xs] applies an extra-small shadow. *)
 
 val shadow_sm : t
 (** [shadow_sm] applies a small shadow. *)
@@ -43,23 +50,20 @@ val shadow_inner : t
 val inset_shadow_none : t
 (** [inset_shadow_none] removes the inset shadow. *)
 
+val inset_shadow_2xs : t
+(** [inset_shadow_2xs] applies the smallest inset shadow ([inset 0 1px]). *)
+
+val inset_shadow_xs : t
+(** [inset_shadow_xs] applies an extra-small inset shadow ([inset 0 1px 1px]).
+*)
+
 val inset_shadow_sm : t
-(** [inset_shadow_sm] applies a small inset shadow. *)
+(** [inset_shadow_sm] applies a small inset shadow ([inset 0 2px 4px]). *)
 
 val inset_shadow : t
-(** [inset_shadow] applies the default inset shadow. *)
-
-val inset_shadow_md : t
-(** [inset_shadow_md] applies a medium inset shadow. *)
-
-val inset_shadow_lg : t
-(** [inset_shadow_lg] applies a large inset shadow. *)
-
-val inset_shadow_xl : t
-(** [inset_shadow_xl] applies an extra-large inset shadow. *)
-
-val inset_shadow_2xl : t
-(** [inset_shadow_2xl] applies a 2× extra-large inset shadow. *)
+(** [inset_shadow] applies the inset shadow defined by the [--inset-shadow]
+    theme token. It has no default value: it is only a valid class when the
+    active theme defines that token. *)
 
 val opacity : int -> t
 (** [opacity n] sets opacity to n%. *)
@@ -87,9 +91,13 @@ val ring_lg : t
 val ring_xl : t
 (** [ring_xl] applies an extra-large ring. *)
 
-val ring_color : color -> int -> t
-(** [ring_color color shade] sets the ring color class, e.g., [ring blue 500].
-*)
+val inset_ring : t
+(** [inset_ring] applies a default (1px) inset ring. *)
+
+val ring_color : ?opacity:int -> ?shade:int -> color -> t
+(** [ring_color color] sets the ring color class, e.g., [ring_color blue]. Use
+    [~shade] to pick a shade (default 500) and [~opacity] to set opacity as a
+    percentage. *)
 
 val ring_inset : t
 (** [ring_inset] applies an inset ring. *)
@@ -102,7 +110,7 @@ val ring_inset : t
 val shadow_var : Css.shadow Var.property_default
 (** [shadow_var] is the --tw-shadow variable. *)
 
-val ring_inset_var : string Var.channel
+val ring_inset_var : Css.Variables.custom_value Var.channel
 (** [ring_inset_var] is the --tw-ring-inset variable. *)
 
 val ring_offset_width_var : Css.length Var.property_default

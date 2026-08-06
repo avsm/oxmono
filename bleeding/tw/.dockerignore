@@ -1,8 +1,0 @@
-# Ignore build artifacts
-_build/
-_opam/
-node_modules/
-tmp/
-*.tmp
-package.json
-package-lock.json

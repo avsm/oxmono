@@ -1,3 +1,4 @@
+module Css = Cascade.Css
 open Alcotest
 open Test_helpers
 
@@ -43,21 +44,65 @@ let of_string_invalid () =
   in
 
   fail_maybe [ "m" ];
-  (* Missing value *)
-  fail_maybe [ "m"; "invalid" ]
-(* Invalid value *)
+  (* Named spacing is valid only when the theme defines --spacing-<name>; stray
+     source tokens like my-form / mt-big must not parse as utilities. *)
+  fail_maybe [ "my"; "form" ];
+  fail_maybe [ "mt"; "big" ];
+  fail_maybe [ "mx"; "foo" ]
 
-let all_utilities () =
-  let open Tw in
-  List.concat_map
-    (fun n -> [ m n; mx n; my n; mt n; mb n; ml n; mr n ])
-    Test_helpers.spacing_values
+(* my-<name> parses only when the theme defines the spacing token, matching
+   Tailwind; without it the class is rejected (see [of_string_invalid]). *)
+let named_spacing_requires_theme_token () =
+  let themed =
+    Tw.Scheme.with_overrides Tw.Scheme.default [ ("spacing-form", "1rem") ]
+  in
+  (match Tw.Margin.Handler.of_class themed "my-form" with
+  | Ok _ -> ()
+  | Error (`Msg m) -> Alcotest.failf "my-form with theme rejected: %s" m);
+  match Tw.Margin.Handler.of_class Tw.Scheme.default "my-form" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "my-form without theme token should be rejected"
 
 let suborder_matches_tailwind () =
-  let shuffled = Test_helpers.shuffle (all_utilities ()) in
+  let open Tw in
+  let utilities =
+    List.concat_map
+      (fun n -> [ m n; mx n; my n; mt n; mb n; ml n; mr n ])
+      Test_helpers.spacing_values
+  in
+  let shuffled = Test_helpers.shuffle utilities in
 
   Test_helpers.check_ordering_matches
     ~test_name:"margin suborder matches Tailwind" shuffled
+
+(* Tailwind orders margins by side first, then sign (negative before positive
+   within a side), then value: e.g. m-0, -mt-1, mt-2, -ml-1, ml-2. tw used to
+   sort all negatives ahead of all positives, which both diverged from Tailwind
+   and reversed the cascade for conflicting rules (.m-0 vs .-ml-4). *)
+let negative_suborder_matches_tailwind () =
+  let mk s =
+    match Tw.of_string s with
+    | Ok u -> u
+    | Error (`Msg m) -> failwith (s ^ ": " ^ m)
+  in
+  let utilities =
+    List.map mk
+      [
+        "m-0";
+        "m-2";
+        "-m-1";
+        "-m-4";
+        "mt-2";
+        "-mt-1";
+        "ml-2";
+        "-ml-1";
+        "-mr-1";
+        "mb-4";
+      ]
+  in
+  Test_helpers.check_ordering_matches
+    ~test_name:"negative margin suborder matches Tailwind"
+    (Test_helpers.shuffle utilities)
 
 (** Test that CSS values use the correct spacing multiplier. m-64 should
     generate calc(var(--spacing)*64), not calc(var(--spacing)*16) *)
@@ -81,8 +126,12 @@ let tests =
   [
     test_case "margin of_string - valid values" `Quick of_string_valid;
     test_case "margin of_string - invalid values" `Quick of_string_invalid;
+    test_case "named spacing requires theme token" `Quick
+      named_spacing_requires_theme_token;
     test_case "margin suborder matches Tailwind" `Quick
       suborder_matches_tailwind;
+    test_case "negative margin suborder matches Tailwind" `Quick
+      negative_suborder_matches_tailwind;
     test_case "margin CSS values" `Quick test_css_values;
   ]
 

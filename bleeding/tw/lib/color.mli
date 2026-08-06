@@ -1,5 +1,7 @@
 (** Color conversion utilities for Tailwind v4 compatibility *)
 
+open Cascade
+
 type rgb = {
   r : int;  (** Red channel (0-255) *)
   g : int;  (** Green channel (0-255) *)
@@ -40,6 +42,9 @@ type color =
   | Hex of string
   | Rgb of { red : int; green : int; blue : int }
   | Oklch of oklch
+  | Css of Css.color
+      (** Arbitrary CSS color function (rgba, hsl, oklch, ...) *)
+  | Theme_named of string
 
 open Utility
 
@@ -180,9 +185,52 @@ val is_base_color : color -> bool
 val is_custom_color : color -> bool
 (** [is_custom_color color] checks if a color is a custom color (hex or rgb). *)
 
-val get_color_var : color -> int -> Css.color Var.theme
-(** [get_color_var color shade] gets or creates a memoized color variable for
-    the given color and shade. *)
+val is_shadeless : color -> bool
+(** [is_shadeless color] checks if a color should NOT have a shade suffix in
+    class names (base colors, custom colors, or theme-named colors). *)
+
+val color_var : color -> int -> Css.color Var.theme
+(** [color_var color shade] gets or creates a memoized color variable for the
+    given color and shade. *)
+
+val property_color_var :
+  ?theme:Scheme.t ->
+  property_prefix:string ->
+  color ->
+  int ->
+  Css.color Var.theme
+(** [property_color_var ?theme ~property_prefix color shade] gets or creates a
+    property-scoped color variable (e.g., [--border-color-blue-500]), checking
+    [theme] for a property-scoped token override when given. *)
+
+val property_color_value :
+  ?theme:Scheme.t -> property_prefix:string -> color -> int -> Css.color
+(** [property_color_value ?theme ~property_prefix color shade] returns the CSS
+    color value for a property-scoped color variable, reading scheme colors from
+    [theme] when given (default: the current global scheme). *)
+
+val scheme_color_name : color -> int -> string
+(** [scheme_color_name color shade] returns the scheme color name (e.g.,
+    "red-500") for a color and shade. *)
+
+val hex_with_alpha : string -> float -> string
+(** [hex_with_alpha hex_str opacity_percent] adds alpha to a hex color string.
+    Returns #RRGGBBAA format. The opacity is a percentage (0-100). *)
+
+val hex_to_oklab_alpha : string -> float -> Css.color
+(** [hex_to_oklab_alpha hex alpha] converts a hex color to an oklab CSS color
+    with the given alpha (0.0-1.0). Used for bracket hex colors with opacity
+    where the color is known at compile time. *)
+
+val color_mix_supports_condition : Css.Supports.t
+(** [color_mix_supports_condition] is the CSS supports condition for color-mix:
+    [(color: color-mix(in lab, red, red))]. *)
+
+val opacity_fallback_for_theme_value :
+  ?theme:Scheme.t -> string -> string -> Css.percentage Css.fallback
+(** [opacity_fallback_for_theme_value ?theme var_name bare] determines the
+    appropriate fallback for an opacity theme variable, reading token overrides
+    from [theme] when given. *)
 
 (** {1 Tailwind Colors} *)
 
@@ -194,9 +242,9 @@ end
 
 (** {1 Color Application Utilities} *)
 
-val bg : color -> int -> t
-(** [bg color shade] sets the background color using a palette [color] and
-    [shade]. *)
+val bg : ?opacity:int -> ?shade:int -> color -> t
+(** [bg color] sets the background color. [shade] defaults to 500. [opacity]
+    sets the alpha modifier (0-100), e.g. [bg ~opacity:50 white]. *)
 
 val bg_transparent : t
 (** [bg_transparent] makes the background fully transparent. *)
@@ -204,81 +252,9 @@ val bg_transparent : t
 val bg_current : t
 (** [bg_current] uses [currentColor] for the background. *)
 
-val bg_black : t
-(** [bg_black] uses the black palette for background. *)
-
-val bg_white : t
-(** [bg_white] uses the white palette for background. *)
-
-val bg_gray : t
-(** [bg_gray] uses the gray palette for background. *)
-
-val bg_slate : t
-(** [bg_slate] uses the slate palette for background. *)
-
-val bg_zinc : t
-(** [bg_zinc] uses the zinc palette for background. *)
-
-val bg_neutral : t
-(** [bg_neutral] uses the neutral palette for background. *)
-
-val bg_stone : t
-(** [bg_stone] uses the stone palette for background. *)
-
-val bg_red : t
-(** [bg_red] uses the red palette for background. *)
-
-val bg_orange : t
-(** [bg_orange] uses the orange palette for background. *)
-
-val bg_amber : t
-(** [bg_amber] uses the amber palette for background. *)
-
-val bg_yellow : t
-(** [bg_yellow] uses the yellow palette for background. *)
-
-val bg_lime : t
-(** [bg_lime] uses the lime palette for background. *)
-
-val bg_green : t
-(** [bg_green] uses the green palette for background. *)
-
-val bg_emerald : t
-(** [bg_emerald] uses the emerald palette for background. *)
-
-val bg_teal : t
-(** [bg_teal] uses the teal palette for background. *)
-
-val bg_cyan : t
-(** [bg_cyan] uses the cyan palette for background. *)
-
-val bg_sky : t
-(** [bg_sky] uses the sky palette for background. *)
-
-val bg_blue : t
-(** [bg_blue] uses the blue palette for background. *)
-
-val bg_indigo : t
-(** [bg_indigo] uses the indigo palette for background. *)
-
-val bg_violet : t
-(** [bg_violet] uses the violet palette for background. *)
-
-val bg_purple : t
-(** [bg_purple] uses the purple palette for background. *)
-
-val bg_fuchsia : t
-(** [bg_fuchsia] uses the fuchsia palette for background. *)
-
-val bg_pink : t
-(** [bg_pink] uses the pink palette for background. *)
-
-val bg_rose : t
-(** [bg_rose] uses the rose palette for background. *)
-
-val text : color -> int -> t
-(** [text color shade] sets the text color using a palette [color] and [shade].
-*)
+val text : ?opacity:int -> ?shade:int -> color -> t
+(** [text color] sets the text color. [shade] defaults to 500. [opacity] sets
+    the alpha modifier (0-100), e.g. [text ~opacity:50 red]. *)
 
 val text_transparent : t
 (** [text_transparent] makes text fully transparent. *)
@@ -289,81 +265,10 @@ val text_current : t
 val text_inherit : t
 (** [text_inherit] inherits text color from parent. *)
 
-val text_black : t
-(** [text_black] uses the black palette for text. *)
-
-val text_white : t
-(** [text_white] uses the white palette for text. *)
-
-val text_gray : t
-(** [text_gray] uses the gray palette for text. *)
-
-val text_slate : t
-(** [text_slate] uses the slate palette for text. *)
-
-val text_zinc : t
-(** [text_zinc] uses the zinc palette for text. *)
-
-val text_neutral : t
-(** [text_neutral] uses the neutral palette for text. *)
-
-val text_stone : t
-(** [text_stone] uses the stone palette for text. *)
-
-val text_red : t
-(** [text_red] uses the red palette for text. *)
-
-val text_orange : t
-(** [text_orange] uses the orange palette for text. *)
-
-val text_amber : t
-(** [text_amber] uses the amber palette for text. *)
-
-val text_yellow : t
-(** [text_yellow] uses the yellow palette for text. *)
-
-val text_lime : t
-(** [text_lime] uses the lime palette for text. *)
-
-val text_green : t
-(** [text_green] uses the green palette for text. *)
-
-val text_emerald : t
-(** [text_emerald] uses the emerald palette for text. *)
-
-val text_teal : t
-(** [text_teal] uses the teal palette for text. *)
-
-val text_cyan : t
-(** [text_cyan] uses the cyan palette for text. *)
-
-val text_sky : t
-(** [text_sky] uses the sky palette for text. *)
-
-val text_blue : t
-(** [text_blue] uses the blue palette for text. *)
-
-val text_indigo : t
-(** [text_indigo] uses the indigo palette for text. *)
-
-val text_violet : t
-(** [text_violet] uses the violet palette for text. *)
-
-val text_purple : t
-(** [text_purple] uses the purple palette for text. *)
-
-val text_fuchsia : t
-(** [text_fuchsia] uses the fuchsia palette for text. *)
-
-val text_pink : t
-(** [text_pink] uses the pink palette for text. *)
-
-val text_rose : t
-(** [text_rose] uses the rose palette for text. *)
-
-val border_color : color -> int -> t
-(** [border_color color shade] sets the border color using a palette [color] and
-    [shade]. *)
+val border_color : ?opacity:int -> ?shade:int -> color -> t
+(** [border_color color] sets the border color. [shade] defaults to 500.
+    [opacity] sets the alpha modifier (0-100), e.g.
+    [border_color ~opacity:5 white]. *)
 
 val border_transparent : t
 (** [border_transparent] makes the border fully transparent. *)
@@ -371,84 +276,59 @@ val border_transparent : t
 val border_current : t
 (** [border_current] uses [currentColor] for border color. *)
 
-val border_black : t
-(** [border_black] uses the black palette for border color. *)
+val accent : ?opacity:int -> ?shade:int -> color -> t
+(** [accent color] sets the accent color for form controls. [shade] defaults to
+    500. [opacity] sets the alpha modifier (0-100). *)
 
-val border_white : t
-(** [border_white] uses the white palette for border color. *)
+val accent_current : t
+(** [accent_current] sets accent color to currentColor. *)
 
-val border_gray : t
-(** [border_gray] uses the gray palette for border color. *)
+val accent_inherit : t
+(** [accent_inherit] sets accent color to inherit. *)
 
-val border_slate : t
-(** [border_slate] uses the slate palette for border color. *)
+val caret : ?opacity:int -> ?shade:int -> color -> t
+(** [caret color] sets the caret color for text input elements. [shade] defaults
+    to 500. [opacity] sets the alpha modifier (0-100). *)
 
-val border_zinc : t
-(** [border_zinc] uses the zinc palette for border color. *)
+val caret_current : t
+(** [caret_current] sets caret color to currentColor. *)
 
-val border_neutral : t
-(** [border_neutral] uses the neutral palette for border color. *)
+val caret_inherit : t
+(** [caret_inherit] sets caret color to inherit. *)
 
-val border_stone : t
-(** [border_stone] uses the stone palette for border color. *)
+val caret_transparent : t
+(** [caret_transparent] sets caret color to transparent. *)
 
-val border_red : t
-(** [border_red] uses the red palette for border color. *)
+(** {1 Opacity Modifiers} *)
 
-val border_orange : t
-(** [border_orange] uses the orange palette for border color. *)
+type opacity_modifier =
+  | No_opacity
+  | Opacity_percent of float  (** e.g., /50 means 50% *)
+  | Opacity_arbitrary of float  (** e.g., /[0.5] means 0.5 *)
+  | Opacity_bracket_percent of float
+      (** e.g., /[50%] means 50% but preserves bracket form in class name *)
+  | Opacity_named of string  (** e.g., /half, /custom - theme-defined names *)
+  | Opacity_var of string
+      (** e.g., /[var(--x)] - var ref used directly as percentage *)
 
-val border_amber : t
-(** [border_amber] uses the amber palette for border color. *)
-
-val border_yellow : t
-(** [border_yellow] uses the yellow palette for border color. *)
-
-val border_lime : t
-(** [border_lime] uses the lime palette for border color. *)
-
-val border_green : t
-(** [border_green] uses the green palette for border color. *)
-
-val border_emerald : t
-(** [border_emerald] uses the emerald palette for border color. *)
-
-val border_teal : t
-(** [border_teal] uses the teal palette for border color. *)
-
-val border_cyan : t
-(** [border_cyan] uses the cyan palette for border color. *)
-
-val border_sky : t
-(** [border_sky] uses the sky palette for border color. *)
-
-val border_blue : t
-(** [border_blue] uses the blue palette for border color. *)
-
-val border_indigo : t
-(** [border_indigo] uses the indigo palette for border color. *)
-
-val border_violet : t
-(** [border_violet] uses the violet palette for border color. *)
-
-val border_purple : t
-(** [border_purple] uses the purple palette for border color. *)
-
-val border_fuchsia : t
-(** [border_fuchsia] uses the fuchsia palette for border color. *)
-
-val border_pink : t
-(** [border_pink] uses the pink palette for border color. *)
-
-val border_rose : t
-(** [border_rose] uses the rose palette for border color. *)
-
-val accent : color -> int -> t
-(** [accent color shade] sets the accent color for form controls. *)
+val parse_opacity_modifier :
+  ?theme:Scheme.t -> string -> string * opacity_modifier
+(** [parse_opacity_modifier ?theme s] parses an opacity modifier from a string.
+    Returns the base string and the opacity modifier. Example: "500/50" ->
+    ("500", Opacity_percent 50.0). Named opacities are validated at parse time
+    against the [@theme] tokens in [theme]. *)
 
 val shade_of_strings : string list -> (color * int, [ `Msg of string ]) result
 (** [shade_of_strings parts] parses a color and shade from a list of strings.
     Example: ["blue"; "500"] -> Ok (Blue, 500). *)
+
+val shade_and_opacity_of_strings :
+  ?theme:Scheme.t ->
+  string list ->
+  (color * int * opacity_modifier, [ `Msg of string ]) result
+(** [shade_and_opacity_of_strings ?theme parts] parses a color, shade, and
+    optional opacity modifier from a list of strings. Example:
+    ["blue"; "500/50"] -> Ok (Blue, 500, Opacity_percent 50.0). *)
 
 val theme_order : string -> int * int
 (** [theme_order c] returns the theme layer order for a color variable. *)
@@ -466,4 +346,98 @@ val suborder_with_shade : string -> int
     utility with shade (e.g., "blue-500" returns 500 + color order offset). Used
     for sorting color utilities within their priority group. *)
 
-module Handler : Utility.Handler
+module Handler : sig
+  include Utility.Handler
+
+  val theme_color_decl : ?theme:Scheme.t -> string -> Css.declaration option
+  (** [theme_color_decl ?theme name] is the [\@layer theme] declaration for the
+      colour token [name] (e.g. ["color-red-500"]), or [None] when [name] is not
+      a catalogued colour token. Lets the build emit colour tokens that are only
+      referenced via [var()] (e.g. by an arbitrary [color:var(--color-red-500)])
+      rather than set by a colour utility. *)
+end
+
+(** {1 Color with Opacity Helpers}
+
+    These functions generate scheme-aware color styles with progressive
+    enhancement. They produce a fallback declaration plus a [\@supports] block
+    for color-mix. *)
+
+val fill_with_opacity :
+  ?theme:Scheme.t -> color -> int -> opacity_modifier -> Style.t
+(** [fill_with_opacity ?theme color shade opacity] generates fill style with
+    opacity, reading scheme colours from [theme] when given. *)
+
+val stroke_with_opacity :
+  ?theme:Scheme.t -> color -> int -> opacity_modifier -> Style.t
+(** [stroke_with_opacity ?theme color shade opacity] generates stroke style with
+    opacity, reading scheme colours from [theme] when given. *)
+
+val fill_current_with_opacity : opacity_modifier -> Style.t
+(** [fill_current_with_opacity opacity] generates fill currentColor with
+    opacity. *)
+
+val stroke_current_with_opacity : opacity_modifier -> Style.t
+(** [stroke_current_with_opacity opacity] generates stroke currentColor with
+    opacity. *)
+
+val divide_with_opacity :
+  ?theme:Scheme.t ->
+  color ->
+  int ->
+  opacity_modifier ->
+  Css.Selector.t ->
+  Style.t
+(** [divide_with_opacity ?theme color shade opacity selector] generates divide
+    border-color with opacity using the given selector. *)
+
+val divide_current_with_opacity : opacity_modifier -> Css.Selector.t -> Style.t
+(** [divide_current_with_opacity opacity selector] generates divide currentColor
+    with opacity using the given selector. *)
+
+val opacity_to_percent : opacity_modifier -> float
+(** [opacity_to_percent modifier] returns the opacity as a float percentage. *)
+
+val pp_opacity : opacity_modifier -> string
+(** [pp_opacity modifier] returns a string representation of the opacity
+    modifier for use in class names. E.g., Opacity_percent 50. -> "50",
+    Opacity_arbitrary 0.5 -> "[0.5]". *)
+
+val hex_alpha_color :
+  ?theme:Scheme.t -> color -> int -> opacity_modifier -> string option
+(** [hex_alpha_color ?theme color shade opacity] returns a hex color with alpha
+    if the color is defined in the scheme, otherwise None. This is useful for
+    properties where Tailwind outputs simple hex+alpha without [@supports]. *)
+
+val bg_with_opacity :
+  ?theme:Scheme.t -> color -> int -> opacity_modifier -> Style.t
+(** [bg_with_opacity ?theme color shade opacity] generates background-color
+    style with opacity. Scheme-aware: uses hex+alpha fallback with theme
+    variable in [\@supports] block. *)
+
+val bg_current_with_opacity : ?theme:Scheme.t -> opacity_modifier -> Style.t
+(** [bg_current_with_opacity ?theme opacity] generates background-color
+    currentColor with opacity using color-mix progressive enhancement. *)
+
+val rgb_to_oklab : rgb -> float * float * float
+(** [rgb_to_oklab rgb] converts RGB to OKLab (L, a, b) components. *)
+
+val shorten_hex_str : string -> string
+(** [shorten_hex_str hex] shortens a hex color string if possible. *)
+
+val bracket_color_to_custom : string -> color
+(** [bracket_color_to_custom inner] converts a bracket color string to a custom
+    color for opacity handling. *)
+
+val parse_bracket_color : string -> Css.color option
+(** [parse_bracket_color inner] parses a bracket color value into a typed
+    {!Css.color}. Handles hex, CSS color functions (rgba, hsl, oklch, ...), and
+    Tailwind named colors. Returns [None] if not a recognized color. *)
+
+val css_color_to_hex : Css.color -> Css.color option
+(** [css_color_to_hex c] converts a typed CSS color (Rgb, Rgba, Hsl) to a hex
+    color for Tailwind parity. Returns [None] for color types that cannot be
+    easily converted (oklch, oklab, etc.). *)
+
+val round_n : int -> float -> float
+(** [round_n n f] rounds [f] to [n] decimal places. *)

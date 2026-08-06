@@ -1,4 +1,4 @@
-val all_utilities : unit -> Tw.t list
-(** [all_utilities ()] returns all grid utilities for testing. *)
+(** Tests for the grid module. *)
 
 val suite : string * unit Alcotest.test_case list
+(** [suite] is the test suite. *)

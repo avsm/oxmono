@@ -1,0 +1,29 @@
+let check =
+  Test_helpers.check_handler_roundtrip (module Tw.Mask_gradient.Handler)
+
+let test_roundtrip () =
+  check "mask-t-from-0%";
+  check "mask-t-to-100%";
+  check "mask-b-from-50%";
+  check "mask-b-to-50%";
+  check "mask-l-from-0%";
+  check "mask-r-to-100%";
+  check "mask-x-from-0%";
+  check "mask-y-to-100%";
+  check "mask-radial";
+  check "mask-linear-0";
+  check "mask-linear-1";
+  check "mask-linear-45";
+  check "-mask-linear-1";
+  check "mask-conic-0";
+  check "mask-conic-1";
+  check "mask-conic-45";
+  check "mask-linear-[3rad]"
+
+let test_invalid () =
+  Test_helpers.check_invalid_input (module Tw.Mask_gradient.Handler) "mask-foo"
+
+let tests =
+  Test_helpers.standard ~roundtrip:test_roundtrip ~invalid:test_invalid
+
+let suite = ("mask_gradient", tests)

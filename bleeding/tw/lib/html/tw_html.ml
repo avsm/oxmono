@@ -1,3 +1,4 @@
+module Css = Cascade.Css
 (* HTML component module implementation with integrated Tailwind CSS *)
 
 (* Helper function to concatenate strings *)
@@ -198,31 +199,54 @@ let rawf segments = raw (str segments)
 (* Empty element *)
 let empty = { el = El.void; tw = []; forms = false }
 
-(* Merge tw-generated classes with any existing class attributes in ~at *)
-let merge_tw_class tw_styles atts =
-  let tw_cls = Tw.to_classes tw_styles in
-  let existing = List.filter_map (fun (k, v) ->
-    if k = "class" then Some v else None) atts in
-  let rest = List.filter (fun (k, _) -> k <> "class") atts in
-  let merged = match existing with
-    | [] -> tw_cls
-    | cls -> tw_cls ^ " " ^ String.concat " " cls
+(* Build final attribute list from tw styles, raw class strings, and non-class
+   attrs *)
+let class_atts tw_styles raw_classes other_atts =
+  let tw_cls = match tw_styles with [] -> "" | _ -> Tw.to_classes tw_styles in
+  let all_cls =
+    match (tw_cls, raw_classes) with
+    | "", [] -> ""
+    | s, [] -> s
+    | "", parts -> String.concat " " parts
+    | s, parts -> String.concat " " (s :: parts)
   in
-  At.class' merged :: rest
+  match all_cls with
+  | "" -> List.rev other_atts
+  | cls -> At.class' cls :: List.rev other_atts
+
+(* Parse a class string, returning (recognized_tw, raw_strings) *)
+let parse_class_value value =
+  let classes =
+    String.split_on_char ' ' value |> List.filter (fun s -> s <> "")
+  in
+  List.fold_left
+    (fun (tw_acc, raw_acc) cls ->
+      match Tw.of_string cls with
+      | Ok t -> (t :: tw_acc, raw_acc)
+      | Error _ -> (tw_acc, cls :: raw_acc))
+    ([], []) classes
+
+(* Extract class attrs from at, parse recognized Tw classes, keep unrecognized
+   as-is. Returns (tw_extras, raw_class_parts, other_atts) *)
+let extract_class_attrs atts =
+  List.fold_left
+    (fun (tw_extra, raw_cls, rest) ((name, value) as att) ->
+      if name = "class" then
+        let tw_parsed, raw = parse_class_value value in
+        (List.rev tw_parsed @ tw_extra, List.rev raw @ raw_cls, rest)
+      else (tw_extra, raw_cls, att :: rest))
+    ([], [], []) atts
 
 (* Helper to create elements - applies tw classes immediately *)
 let el_with_tw ?(forms = false) name ?at ?(tw = []) children =
   let atts = Option.value ~default:[] at in
-  (* Add tw classes to attributes *)
-  let atts_with_tw =
-    match tw with
-    | [] -> atts
-    | tw_styles -> merge_tw_class tw_styles atts
-  in
+  let tw_from_at, raw_classes, other_atts = extract_class_attrs atts in
+  let all_tw_styles = tw @ tw_from_at in
+  let atts_with_tw = class_atts all_tw_styles raw_classes other_atts in
   (* Convert children to Htmlit elements *)
   let child_els = List.map to_htmlit children in
   (* Collect all tw styles from this element and its children *)
-  let all_tw = tw @ List.concat_map to_tw children in
+  let all_tw = all_tw_styles @ List.concat_map to_tw children in
   (* Propagate forms flag from children or this element *)
   let has_forms = forms || List.exists (fun c -> c.forms) children in
   { el = El.v ~at:atts_with_tw name child_els; tw = all_tw; forms = has_forms }
@@ -295,47 +319,37 @@ let slot ?at ?tw children = el_with_tw "slot" ?at ?tw children
 let template ?at ?tw children = el_with_tw "template" ?at ?tw children
 
 (* Void elements *)
-let img ?at ?(tw = []) () =
+let void_el ?(forms = false) name ?at ?(tw = []) () =
   let atts = Option.value ~default:[] at in
-  let atts_with_tw =
-    match tw with
-    | [] -> atts
-    | tw_styles -> merge_tw_class tw_styles atts
-  in
-  { el = El.v ~at:atts_with_tw "img" []; tw; forms = false }
+  let tw_from_at, raw_classes, other_atts = extract_class_attrs atts in
+  let all_tw = tw @ tw_from_at in
+  let atts_with_tw = class_atts all_tw raw_classes other_atts in
+  { el = El.v ~at:atts_with_tw name []; tw = all_tw; forms }
 
-let meta ?at ?(tw = []) () =
-  let atts = Option.value ~default:[] at in
-  let atts_with_tw =
-    match tw with
-    | [] -> atts
-    | tw_styles -> merge_tw_class tw_styles atts
-  in
-  { el = El.v ~at:atts_with_tw "meta" []; tw; forms = false }
+let img ?at ?tw () = void_el "img" ?at ?tw ()
+let meta ?at ?tw () = void_el "meta" ?at ?tw ()
+let link ?at ?tw () = void_el "link" ?at ?tw ()
 
-let link ?at ?(tw = []) () =
+(* The <style> element holds raw CSS. Its content is emitted unescaped because
+   <style> is a raw-text element: escaping would turn selectors such as [ol>li]
+   into [ol&gt;li] and corrupt the stylesheet. *)
+let style ?at ?(tw = []) css =
   let atts = Option.value ~default:[] at in
-  let atts_with_tw =
-    match tw with
-    | [] -> atts
-    | tw_styles -> merge_tw_class tw_styles atts
-  in
-  { el = El.v ~at:atts_with_tw "link" []; tw; forms = false }
+  let tw_from_at, raw_classes, other_atts = extract_class_attrs atts in
+  let all_tw = tw @ tw_from_at in
+  let atts_with_tw = class_atts all_tw raw_classes other_atts in
+  {
+    el = El.v ~at:atts_with_tw "style" [ El.unsafe_raw css ];
+    tw = all_tw;
+    forms = false;
+  }
 
 (* Void is now an alias for empty *)
 let void = empty
 
 (* Forms *)
 let form ?at ?tw children = el_with_tw "form" ?at ?tw children
-
-let input ?at ?(tw = []) () =
-  let atts = Option.value ~default:[] at in
-  let atts_with_tw =
-    match tw with
-    | [] -> atts
-    | tw_styles -> merge_tw_class tw_styles atts
-  in
-  { el = El.v ~at:atts_with_tw "input" []; tw; forms = true }
+let input ?at ?tw () = void_el ~forms:true "input" ?at ?tw ()
 
 let textarea ?at ?tw children =
   el_with_tw ~forms:true "textarea" ?at ?tw children
@@ -359,23 +373,8 @@ let small ?at ?tw children = el_with_tw "small" ?at ?tw children
 let mark ?at ?tw children = el_with_tw "mark" ?at ?tw children
 
 (* Breaks *)
-let br ?at ?(tw = []) () =
-  let atts = Option.value ~default:[] at in
-  let atts_with_tw =
-    match tw with
-    | [] -> atts
-    | tw_styles -> merge_tw_class tw_styles atts
-  in
-  { el = El.v ~at:atts_with_tw "br" []; tw; forms = false }
-
-let hr ?at ?(tw = []) () =
-  let atts = Option.value ~default:[] at in
-  let atts_with_tw =
-    match tw with
-    | [] -> atts
-    | tw_styles -> merge_tw_class tw_styles atts
-  in
-  { el = El.v ~at:atts_with_tw "hr" []; tw; forms = false }
+let br ?at ?tw () = void_el "br" ?at ?tw ()
+let hr ?at ?tw () = void_el "hr" ?at ?tw ()
 
 (* Tables *)
 let table ?at ?tw children = el_with_tw "table" ?at ?tw children
@@ -402,15 +401,7 @@ let figcaption ?at ?tw children = el_with_tw "figcaption" ?at ?tw children
 (* Media *)
 let video ?at ?tw children = el_with_tw "video" ?at ?tw children
 let audio ?at ?tw children = el_with_tw "audio" ?at ?tw children
-
-let source ?at ?(tw = []) () =
-  let atts = Option.value ~default:[] at in
-  let atts_with_tw =
-    match tw with
-    | [] -> atts
-    | tw_styles -> merge_tw_class tw_styles atts
-  in
-  { el = El.v ~at:atts_with_tw "source" []; tw; forms = false }
+let source ?at ?tw () = void_el "source" ?at ?tw ()
 
 (* Embedded content *)
 let canvas ?at ?tw children = el_with_tw "canvas" ?at ?tw children
@@ -424,10 +415,14 @@ let rect ?at ?tw children = el_with_tw "rect" ?at ?tw children
 let path ?at ?tw children = el_with_tw "path" ?at ?tw children
 let line ?at ?tw children = el_with_tw "line" ?at ?tw children
 
-(* Type for page generation result *)
-type page = { html : string; css : Tw.Css.t; tw_css : string }
+(* CSS delivery strategy: link to an external stylesheet (with cache busting) or
+   inline the stylesheet directly into the document. *)
+type tw_css = Link of string | Inline
 
-let page_impl ~lang ~meta_list ?title_text ~charset ~tw_css head_content
+(* Type for page generation result *)
+type page = { html : string; css : Tw.Css.t; tw_css : tw_css }
+
+let page_impl ~lang ~meta_list ?title_text ~charset ~tw_css ?forms head_content
     body_content =
   (* Build HTML tree with placeholder for CSS link *)
   let meta_charset = meta ~at:[ At.charset charset ] () in
@@ -446,35 +441,37 @@ let page_impl ~lang ~meta_list ?title_text ~charset ~tw_css head_content
   (* Add styles from head content *)
   let all_tw = all_tw @ List.concat_map to_tw head_content in
 
-  (* Detect if forms plugin base styles are needed. Check body and head content
-     for form elements (input, select, textarea). *)
-  let forms_in_body = has_forms body_element in
-  let forms_in_head = List.exists has_forms head_content in
-  let need_forms = forms_in_body || forms_in_head in
-
-  (* Generate CSS and compute MD5 hash for cache busting *)
-  let css_stylesheet = Tw.to_css ~forms:need_forms all_tw in
+  (* The forms plugin base layer follows Tailwind's [\@plugin] model: it is
+     emitted only when the plugin is explicitly enabled ([~forms:true]), since a
+     page merely containing form controls does not opt into the plugin. When
+     [forms] is unset, [Tw.to_css] auto-detects from forms utility usage, the
+     same way prose styling is driven by the [prose] utility. *)
+  let css_stylesheet =
+    match forms with
+    | Some forms -> Tw.to_css ~forms all_tw
+    | None -> Tw.to_css all_tw
+  in
   let css_string = Tw.Css.to_string ~minify:true css_stylesheet in
 
-  (* Compute MD5 hash of the CSS content for cache busting *)
-  let css_hash =
-    let digest = Digest.string css_string in
-    (* Convert first 8 bytes of MD5 to hex string *)
-    let hex = Digest.to_hex digest in
-    String.sub hex 0 8
-  in
-
-  (* Add cache busting query parameter to CSS URL *)
-  let css_url_with_hash = String.concat "" [ tw_css; "?v="; css_hash ] in
-
-  (* Build final HTML with cache-busted CSS link *)
-  let css_link =
-    link ~at:[ At.rel "stylesheet"; At.href css_url_with_hash ] ()
+  (* Build the head CSS node: a cache-busted <link> for an external stylesheet,
+     or an inline <style> when the stylesheet is embedded in the document. *)
+  let css_head =
+    match tw_css with
+    | Inline -> style css_string
+    | Link file ->
+        (* Compute MD5 hash of the CSS content for cache busting *)
+        let css_hash =
+          let digest = Digest.string css_string in
+          (* Use the first 8 hex chars of the MD5 digest *)
+          String.sub (Digest.to_hex digest) 0 8
+        in
+        let css_url_with_hash = String.concat "" [ file; "?v="; css_hash ] in
+        link ~at:[ At.rel "stylesheet"; At.href css_url_with_hash ] ()
   in
   let head_children =
     meta_tags
     @ (match title_text with Some t -> [ title [ txt t ] ] | None -> [])
-    @ [ css_link ] @ head_content
+    @ [ css_head ] @ head_content
   in
   let html_tree =
     root ~at:[ At.lang lang ] [ head head_children; body_element ]
@@ -484,13 +481,17 @@ let page_impl ~lang ~meta_list ?title_text ~charset ~tw_css head_content
 
 (* Page generation with CSS - use renamed parameters to avoid shadowing *)
 let page ?(lang = "en") ?(meta = []) ?title ?(charset = "utf-8")
-    ?(tw_css = "tw.css") head_content body_content =
-  page_impl ~lang ~meta_list:meta ?title_text:title ~charset ~tw_css
+    ?(tw_css = Link "tw.css") ?forms head_content body_content =
+  page_impl ~lang ~meta_list:meta ?title_text:title ~charset ~tw_css ?forms
     head_content body_content
 
 (* Page accessor functions *)
 let html page = page.html
-let css page = (page.tw_css, page.css)
+
+let css page =
+  match page.tw_css with
+  | Link file -> (Some file, page.css)
+  | Inline -> (None, page.css)
 
 (* Pretty printing *)
 let pp t =

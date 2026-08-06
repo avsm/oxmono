@@ -70,6 +70,21 @@ val content_evenly : t
 val content_stretch : t
 (** [content_stretch] stretches content. *)
 
+val content_baseline : t
+(** [content_baseline] aligns content to baseline. *)
+
+val content_normal : t
+(** [content_normal] sets normal content alignment. *)
+
+val content_center_safe : t
+(** [content_center_safe] centers content with safe overflow. *)
+
+val content_end_safe : t
+(** [content_end_safe] aligns content to end with safe overflow. *)
+
+val content_start_safe : t
+(** [content_start_safe] aligns content to start with safe overflow. *)
+
 (** {1 Align Self Utilities} *)
 
 val self_auto : t
@@ -103,6 +118,12 @@ val justify_items_center : t
 
 val justify_items_stretch : t
 (** [justify_items_stretch] stretches items to fill. *)
+
+val justify_items_center_safe : t
+(** [justify_items_center_safe] justifies items to center with safe overflow. *)
+
+val justify_items_end_safe : t
+(** [justify_items_end_safe] justifies items to end with safe overflow. *)
 
 (** {1 Justify Self Utilities} *)
 
@@ -158,6 +179,18 @@ val place_items_center : t
 val place_items_stretch : t
 (** [place_items_stretch] stretches items to fill. *)
 
+val place_items_baseline : t
+(** [place_items_baseline] aligns items to baseline. *)
+
+val place_items_center_safe : t
+(** [place_items_center_safe] places items at center with safe overflow. *)
+
+val place_items_end_safe : t
+(** [place_items_end_safe] places items at end with safe overflow. *)
+
+val place_items_start_safe : t
+(** [place_items_start_safe] places items at start with safe overflow. *)
+
 (** {1 Place Self Utilities} *)
 
 val place_self_auto : t
@@ -174,5 +207,11 @@ val place_self_center : t
 
 val place_self_stretch : t
 (** [place_self_stretch] stretches self to fill. *)
+
+val place_self_center_safe : t
+(** [place_self_center_safe] places self at center with safe overflow. *)
+
+val place_self_end_safe : t
+(** [place_self_end_safe] places self at end with safe overflow. *)
 
 module Handler : Utility.Handler

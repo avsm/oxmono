@@ -1,0 +1,36 @@
+(executable
+ (name main)
+ (libraries tw tw.html))
+
+(rule
+ (targets index.html colors.css)
+ (deps main.exe)
+ (action
+  (run ./main.exe))
+ (mode
+  (promote (until-clean))))
+
+(rule
+ (targets tailwind.css)
+ (enabled_if false) ; vendored: no npx/tailwindcss in the monorepo
+ (deps index.html ../../package-lock.json)
+ (action
+  (run npx tailwindcss --content index.html -o %{targets} --minify))
+ (mode
+  (promote (until-clean))))
+
+(rule
+ (alias runtest)
+ (enabled_if false) ; vendored: no npx/tailwindcss in the monorepo
+ (deps colors.css tailwind.css)
+ (action
+  (setenv
+   CASCADE_COLOR
+   always
+   (run
+    %{bin:cascade}
+    diff
+    --diff=canonical
+    --prune-unused-custom-props
+    colors.css
+    tailwind.css))))

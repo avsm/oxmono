@@ -5,6 +5,8 @@
     inline-flex), see Flex module. For direction/wrap utilities, see Flex_layout
     module. *)
 
+module Css = Cascade.Css
+
 module Handler = struct
   open Style
   open Css
@@ -15,19 +17,35 @@ module Handler = struct
     | Flex_auto
     | Flex_initial
     | Flex_none
+    | Flex_n of int (* flex-N where N is any integer *)
+    | Flex_fraction of int * int (* flex-N/M where N/M is a fraction *)
+    | Flex_arbitrary of int (* flex-[123] *)
     (* Grow *)
     | Flex_grow
     | Flex_grow_0
+    | Flex_grow_arbitrary of int (* grow-[123] *)
+    | Flex_grow_legacy (* flex-grow (deprecated alias, keeps its class name) *)
+    | Flex_grow_0_legacy (* flex-grow-0 *)
     (* Shrink *)
     | Flex_shrink
     | Flex_shrink_0
+    | Flex_shrink_arbitrary of int (* shrink-[123] *)
+    | Flex_shrink_legacy (* flex-shrink *)
+    | Flex_shrink_0_legacy (* flex-shrink-0 *)
     (* Basis *)
     | Basis_0
     | Basis_1
+    | Basis_spacing of int
     | Basis_auto
     | Basis_full
+    | Basis_fraction of int * int
+    | Basis_named of string
+    | Basis_arbitrary of Css.flex_basis (* basis-[123px] *)
     (* Order *)
     | Order of int
+    | Neg_order of int (* -order-4 = calc(4 * -1) *)
+    | Neg_order_arbitrary of string (* -order-[var(--value)] *)
+    | Order_arbitrary of string (* order-[123] *)
     | Order_first
     | Order_last
     | Order_none
@@ -36,14 +54,29 @@ module Handler = struct
 
   let name = "flex_props"
 
-  (** Priority 7 - after sizing (6), before transforms (9) *)
-  let priority = 7
+  (* flex/grow/shrink/basis are the flexbox family (priority 7 - after sizing,
+     before transforms). order- occupies an early canonical slot (rank 13, right
+     after z-index), so it returns priority 0 with a suborder above z-index's
+     ~20M band and below container (priority 1). *)
+  let priority = function
+    | Order _ | Neg_order _ | Neg_order_arbitrary _ | Order_arbitrary _
+    | Order_first | Order_last | Order_none ->
+        0
+    | _ -> 7
 
   (* Flex shortcuts *)
-  let flex_1 = style [ flex (Grow 1.0) ]
+  let flex_1 = style [ flex (Grow (Number 1.0)) ]
   let flex_auto = style [ flex Auto ]
-  let flex_initial = style [ flex (Full (0., 1., Auto)) ]
+  let flex_initial = style [ flex (Full (Number 0., Number 1., Auto)) ]
   let flex_none = style [ flex None ]
+
+  (* flex-N: flex: N *)
+  let flex_n_style n = style [ flex (Grow (Number (float_of_int n))) ]
+
+  (* flex-N/M: flex: (N/M * 100)% - evaluates the fraction *)
+  let flex_fraction_style n m =
+    let pct_value = float_of_int n /. float_of_int m *. 100.0 in
+    style [ flex (Basis (Pct pct_value)) ]
 
   (* Grow *)
   let flex_grow_utility = style [ flex_grow 1.0 ]
@@ -53,84 +86,265 @@ module Handler = struct
   let flex_shrink_utility = style [ flex_shrink 1.0 ]
   let flex_shrink_0_utility = style [ flex_shrink 0.0 ]
 
-  (* Basis *)
-  let basis_0 = style [ flex_basis Zero ]
-  let basis_1 = style [ flex_basis (Pct 100.0) ]
+  (* Basis. Tailwind v4.3 emits [var(--spacing)] for [basis-1] and
+     [calc(var(--spacing) * <n>)] otherwise; [basis-full] / [basis-1/1] emit
+     literal [100%]. *)
+  let basis_spacing n =
+    let spacing_decl, _ = Var.binding Theme.spacing_var Theme.spacing_base in
+    let value : Css.flex_basis =
+      if n = 1 then Var (Var.theme_ref "spacing")
+      else Calc Css.Calc.(mul (var "spacing") (float (float_of_int n)))
+    in
+    style [ spacing_decl; flex_basis value ]
+
+  let basis_0 = basis_spacing 0
+  let basis_1 = basis_spacing 1
   let basis_auto = style [ flex_basis Auto ]
   let basis_full = style [ flex_basis (Pct 100.0) ]
 
-  (* Order *)
-  let order_style n = style [ order n ]
-  let order_first = style [ order (-9999) ]
-  let order_last = style [ order 9999 ]
-  let order_none = style [ order 0 ]
+  let basis_fraction_style n m =
+    let raw = float_of_int n /. float_of_int m *. 100.0 in
+    let pct_value = Float.round (raw *. 10000.0) /. 10000.0 in
+    style [ flex_basis (Pct pct_value) ]
 
-  let to_style = function
+  let basis_named_style ?theme name =
+    let var_name = "container-" ^ name in
+    match Scheme.theme_value theme var_name with
+    | Some value_str ->
+        let decl =
+          Css.custom_property ~layer:"theme" ("--" ^ var_name) value_str
+        in
+        let ref : Css.flex_basis Css.var =
+          Var.theme_ref var_name
+            ~default:(Css.Zero : Css.flex_basis)
+            ~default_css:"0px"
+        in
+        style [ decl; flex_basis (Var ref) ]
+    | None ->
+        let ref : Css.flex_basis Css.var =
+          Var.theme_ref var_name
+            ~default:(Css.Zero : Css.flex_basis)
+            ~default_css:"0px"
+        in
+        style [ flex_basis (Var ref) ]
+
+  (* Order *)
+  let order_style n = style [ order (Int n) ]
+
+  let themed_order ?theme name default =
+    match Scheme.theme_value theme name with
+    | None -> style [ order (Int default) ]
+    | Some value ->
+        let decl = Css.custom_property ~layer:"theme" ("--" ^ name) value in
+        let var_ref = Css.var_ref ~layer:"theme" name in
+        style [ decl; order (Var var_ref) ]
+
+  let order_first ?theme () = themed_order ?theme "order-first" (-9999)
+  let order_last ?theme () = themed_order ?theme "order-last" 9999
+  let order_none = style [ order (Int 0) ]
+
+  let to_style theme =
+    let basis_named_style name = basis_named_style ~theme name in
+    let order_first () = order_first ~theme () in
+    let order_last () = order_last ~theme () in
+    function
     | Flex_1 -> flex_1
     | Flex_auto -> flex_auto
     | Flex_initial -> flex_initial
     | Flex_none -> flex_none
+    | Flex_n n -> flex_n_style n
+    | Flex_fraction (n, m) -> flex_fraction_style n m
+    | Flex_arbitrary n -> flex_n_style n
     | Flex_grow -> flex_grow_utility
     | Flex_grow_0 -> flex_grow_0_utility
+    | Flex_grow_arbitrary n -> style [ flex_grow (float_of_int n) ]
+    | Flex_grow_legacy -> flex_grow_utility
+    | Flex_grow_0_legacy -> flex_grow_0_utility
     | Flex_shrink -> flex_shrink_utility
     | Flex_shrink_0 -> flex_shrink_0_utility
+    | Flex_shrink_arbitrary n -> style [ flex_shrink (float_of_int n) ]
+    | Flex_shrink_legacy -> flex_shrink_utility
+    | Flex_shrink_0_legacy -> flex_shrink_0_utility
     | Basis_0 -> basis_0
     | Basis_1 -> basis_1
+    | Basis_spacing n -> basis_spacing n
     | Basis_auto -> basis_auto
     | Basis_full -> basis_full
+    | Basis_fraction (n, m) -> basis_fraction_style n m
+    | Basis_named name -> basis_named_style name
+    | Basis_arbitrary len -> style [ flex_basis len ]
     | Order n -> order_style n
-    | Order_first -> order_first
-    | Order_last -> order_last
+    | Neg_order n -> style [ order (Int (-n)) ]
+    | Neg_order_arbitrary s -> (
+        match int_of_string_opt s with
+        | Some n -> style [ order (Int (-n)) ]
+        | None ->
+            let o = Css.Properties.read_order (Cascade.Cursor.of_string s) in
+            style [ order (Calc (Css.Calc.mul (Val o) (Css.Calc.float (-1.)))) ]
+        )
+    | Order_arbitrary s ->
+        style [ order (Css.Properties.read_order (Cascade.Cursor.of_string s)) ]
+    | Order_first -> order_first ()
+    | Order_last -> order_last ()
     | Order_none -> order_none
 
   let suborder : t -> int = function
-    (* Order - comes first in Tailwind's output. Ordering: order-1..6,
-       order-first, order-last, order-none *)
-    | Order n -> n
-    | Order_first -> 7
-    | Order_last -> 8
-    | Order_none -> 9
-    (* Flex shortcuts - alphabetical: 1, auto, initial, none *)
-    | Flex_1 -> 20
-    | Flex_auto -> 21
-    | Flex_initial -> 22
-    | Flex_none -> 23
-    (* Shrink - alphabetical: shrink, shrink-0 *)
-    | Flex_shrink -> 30
-    | Flex_shrink_0 -> 31
-    (* Grow - alphabetical: grow, grow-0 *)
-    | Flex_grow -> 40
-    | Flex_grow_0 -> 41
-    (* Basis - alphabetical: 0, 1, auto, full *)
-    | Basis_0 -> 50
-    | Basis_1 -> 51
-    | Basis_auto -> 52
-    | Basis_full -> 53
+    (* Order (priority 0) - after z-index (~20M band in layout.ml), before
+       container (priority 1). Ordering: negative first, then positive, then
+       first/last/none, then arbitrary. *)
+    | Neg_order n -> 21_000_000 + n (* negative comes first *)
+    | Neg_order_arbitrary _ -> 21_000_000 + 50
+    | Order n -> 21_000_000 + 100 + n
+    | Order_arbitrary _ -> 21_000_000 + 150
+    | Order_first -> 21_000_000 + 200
+    | Order_last -> 21_000_000 + 201
+    | Order_none -> 21_000_000 + 202
+    (* Tailwind flex order: flex-1 < fractions < numbers < auto < initial <
+       none. Note: flex-* utilities come AFTER order-* utilities *)
+    | Flex_1 -> 1000
+    (* Fractions: sorted by numerator then denominator (1/2 < 1/3 < 1/4 <
+       2/3...) *)
+    | Flex_fraction (n, m) -> 1020 + (n * 100) + m
+    (* flex-N values: after fractions, ordered by value *)
+    | Flex_n n -> 5000 + n
+    (* Arbitrary flex values - after regular numbers *)
+    | Flex_arbitrary n -> 6000 + n
+    (* Named shortcuts come last *)
+    | Flex_auto -> 10000
+    | Flex_initial -> 10001
+    | Flex_none -> 10002
+    (* Shrink - legacy flex-shrink* sorts before the canonical shrink* *)
+    | Flex_shrink_legacy -> 19998
+    | Flex_shrink_0_legacy -> 19999
+    | Flex_shrink -> 20000
+    | Flex_shrink_0 -> 20001
+    | Flex_shrink_arbitrary _ -> 20002
+    (* Grow - legacy flex-grow* sorts before the canonical grow* *)
+    | Flex_grow_legacy -> 29998
+    | Flex_grow_0_legacy -> 29999
+    | Flex_grow -> 30000
+    | Flex_grow_0 -> 30001
+    | Flex_grow_arbitrary _ -> 30002
+    (* Basis: fractions → arbitrary → keywords alphabetical → named *)
+    | Basis_fraction (n, m) -> 40000 + (n * 10) + m
+    | Basis_arbitrary _ -> 42000
+    | Basis_0 -> 43000
+    | Basis_1 -> 43001
+    | Basis_spacing _ -> 43001
+    | Basis_auto -> 43002
+    | Basis_full -> 43003
+    | Basis_named _ -> 44000
 
   let err_not_utility = Error (`Msg "Not a flex property utility")
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let parse_fraction s =
+    (* Parse "N/M" into (N, M) *)
+    match String.split_on_char '/' s with
+    | [ n_str; m_str ] -> (
+        match (int_of_string_opt n_str, int_of_string_opt m_str) with
+        | Some n, Some m when n > 0 && m > 0 -> Some (n, m)
+        | _ -> None)
+    | _ -> None
+
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "flex"; "1" ] -> Ok Flex_1
     | [ "flex"; "auto" ] -> Ok Flex_auto
     | [ "flex"; "initial" ] -> Ok Flex_initial
     | [ "flex"; "none" ] -> Ok Flex_none
-    | [ "flex"; "grow" ] | [ "grow" ] -> Ok Flex_grow
-    | [ "flex"; "grow"; "0" ] | [ "grow"; "0" ] -> Ok Flex_grow_0
-    | [ "flex"; "shrink" ] | [ "shrink" ] -> Ok Flex_shrink
-    | [ "flex"; "shrink"; "0" ] | [ "shrink"; "0" ] -> Ok Flex_shrink_0
+    | [ "flex"; "grow" ] -> Ok Flex_grow_legacy
+    | [ "grow" ] -> Ok Flex_grow
+    | [ "flex"; "grow"; "0" ] -> Ok Flex_grow_0_legacy
+    | [ "grow"; "0" ] -> Ok Flex_grow_0
+    | [ "grow"; n ] when Parse.is_bracket_value n -> (
+        let inner = Parse.bracket_inner n in
+        match int_of_string_opt inner with
+        | Some i -> Ok (Flex_grow_arbitrary i)
+        | None -> err_not_utility)
+    | [ "flex"; "shrink" ] -> Ok Flex_shrink_legacy
+    | [ "shrink" ] -> Ok Flex_shrink
+    | [ "flex"; "shrink"; "0" ] -> Ok Flex_shrink_0_legacy
+    | [ "shrink"; "0" ] -> Ok Flex_shrink_0
+    | [ "shrink"; n ] when Parse.is_bracket_value n -> (
+        let inner = Parse.bracket_inner n in
+        match int_of_string_opt inner with
+        | Some i -> Ok (Flex_shrink_arbitrary i)
+        | None -> err_not_utility)
     | [ "basis"; "0" ] -> Ok Basis_0
     | [ "basis"; "1" ] -> Ok Basis_1
     | [ "basis"; "auto" ] -> Ok Basis_auto
     | [ "basis"; "full" ] -> Ok Basis_full
+    | [ "basis"; value ] when Parse.is_bracket_value value ->
+        let inner = Parse.bracket_inner value in
+        if String.ends_with ~suffix:"px" inner then
+          let n = String.sub inner 0 (String.length inner - 2) in
+          match float_of_string_opt n with
+          | Some f -> Ok (Basis_arbitrary (Css.Px f))
+          | None -> err_not_utility
+        else if String.ends_with ~suffix:"rem" inner then
+          let n = String.sub inner 0 (String.length inner - 3) in
+          match float_of_string_opt n with
+          | Some f -> Ok (Basis_arbitrary (Css.Rem f))
+          | None -> err_not_utility
+        else err_not_utility
+    | [ "basis"; value ] -> (
+        match int_of_string_opt value with
+        | Some n when n >= 0 -> Ok (Basis_spacing n)
+        | _ -> (
+            match parse_fraction value with
+            | Some (n, m) -> Ok (Basis_fraction (n, m))
+            | None ->
+                if Spacing.is_named_spacing value then Ok (Basis_named value)
+                else err_not_utility))
     | [ "order"; "first" ] -> Ok Order_first
     | [ "order"; "last" ] -> Ok Order_last
     | [ "order"; "none" ] -> Ok Order_none
-    | [ "order"; n ] -> (
-        match int_of_string_opt n with
-        | Some n when n >= 1 -> Ok (Order n)
-        | _ -> err_not_utility)
+    | "order" :: rest when rest <> [] -> (
+        let value = String.concat "-" rest in
+        if
+          String.length value > 2
+          && value.[0] = '['
+          && value.[String.length value - 1] = ']'
+        then
+          let inner = String.sub value 1 (String.length value - 2) in
+          Ok (Order_arbitrary inner)
+        else
+          match int_of_string_opt value with
+          | Some n when n >= 0 -> Ok (Order n)
+          | _ -> err_not_utility)
+    | "" :: "order" :: rest when rest <> [] -> (
+        (* Negative order: -order-4, -order-[var(--value)] *)
+        let value = String.concat "-" rest in
+        if
+          String.length value > 2
+          && value.[0] = '['
+          && value.[String.length value - 1] = ']'
+        then
+          let inner = String.sub value 1 (String.length value - 2) in
+          Ok (Neg_order_arbitrary inner)
+        else
+          match int_of_string_opt value with
+          | Some n when n >= 1 -> Ok (Neg_order n)
+          | _ -> err_not_utility)
+    | [ "flex"; value ] when String.length value > 0 && value.[0] = '[' ->
+        (* Arbitrary flex: flex-[123] *)
+        let len = String.length value in
+        if len > 2 && value.[len - 1] = ']' then
+          let inner = String.sub value 1 (len - 2) in
+          match int_of_string_opt inner with
+          | Some n -> Ok (Flex_arbitrary n)
+          | None -> err_not_utility
+        else err_not_utility
+    | [ "flex"; value ] -> (
+        (* Try fraction first (e.g., "1/2") *)
+        match parse_fraction value with
+        | Some (n, m) -> Ok (Flex_fraction (n, m))
+        | None -> (
+            (* Try numeric value (e.g., "99") *)
+            match int_of_string_opt value with
+            | Some n when n > 1 -> Ok (Flex_n n)
+            | _ -> err_not_utility))
     | _ -> err_not_utility
 
   let to_class = function
@@ -139,19 +353,55 @@ module Handler = struct
     | Flex_auto -> "flex-auto"
     | Flex_initial -> "flex-initial"
     | Flex_none -> "flex-none"
-    (* Grow - Tailwind v4 uses shorter names *)
+    | Flex_n n -> "flex-" ^ string_of_int n
+    | Flex_fraction (n, m) -> "flex-" ^ string_of_int n ^ "/" ^ string_of_int m
+    | Flex_arbitrary n -> "flex-[" ^ string_of_int n ^ "]"
+    (* Grow - Tailwind v4 uses shorter names; the flex-* spellings are kept as
+       deprecated aliases that preserve their class name *)
     | Flex_grow -> "grow"
     | Flex_grow_0 -> "grow-0"
+    | Flex_grow_arbitrary n -> "grow-[" ^ string_of_int n ^ "]"
+    | Flex_grow_legacy -> "flex-grow"
+    | Flex_grow_0_legacy -> "flex-grow-0"
     (* Shrink - Tailwind v4 uses shorter names *)
     | Flex_shrink -> "shrink"
     | Flex_shrink_0 -> "shrink-0"
+    | Flex_shrink_arbitrary n -> "shrink-[" ^ string_of_int n ^ "]"
+    | Flex_shrink_legacy -> "flex-shrink"
+    | Flex_shrink_0_legacy -> "flex-shrink-0"
     (* Basis *)
     | Basis_0 -> "basis-0"
     | Basis_1 -> "basis-1"
+    | Basis_spacing n -> "basis-" ^ string_of_int n
     | Basis_auto -> "basis-auto"
     | Basis_full -> "basis-full"
+    | Basis_fraction (n, m) ->
+        "basis-" ^ string_of_int n ^ "/" ^ string_of_int m
+    | Basis_named s -> "basis-" ^ s
+    | Basis_arbitrary len -> (
+        match len with
+        | Px n ->
+            let s = string_of_float n in
+            let s =
+              if String.ends_with ~suffix:"." s then
+                String.sub s 0 (String.length s - 1)
+              else s
+            in
+            "basis-[" ^ s ^ "px]"
+        | Rem n ->
+            let s = string_of_float n in
+            let s =
+              if String.ends_with ~suffix:"." s then
+                String.sub s 0 (String.length s - 1)
+              else s
+            in
+            "basis-[" ^ s ^ "rem]"
+        | _ -> "basis-[<length>]")
     (* Order *)
     | Order n -> "order-" ^ string_of_int n
+    | Neg_order n -> "-order-" ^ string_of_int n
+    | Neg_order_arbitrary s -> "-order-[" ^ s ^ "]"
+    | Order_arbitrary s -> "order-[" ^ s ^ "]"
     | Order_first -> "order-first"
     | Order_last -> "order-last"
     | Order_none -> "order-none"

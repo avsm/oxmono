@@ -1,0 +1,57 @@
+(executable
+ (name main)
+ (libraries tw tw.html))
+
+; Generate HTML/CSS for prose example
+
+(rule
+ (targets index.html prose.css)
+ (deps main.exe)
+ (action
+  (run ./main.exe))
+ (mode
+  (promote (until-clean))))
+
+; Generate reference CSS with Tailwind CLI (requires typography plugin)
+
+(rule
+ (target input.css)
+ (action
+  (write-file
+   %{target}
+   "@import 'tailwindcss';\n@plugin '@tailwindcss/typography';\n")))
+
+(rule
+ (targets tailwind.css)
+ (enabled_if false) ; vendored: no npx/tailwindcss in the monorepo
+ (deps index.html input.css ../../package-lock.json)
+ (action
+  (run
+   npx
+   tailwindcss
+   -i
+   input.css
+   --content
+   index.html
+   -o
+   %{targets}
+   --minify
+   --optimize))
+ (mode
+  (promote (until-clean))))
+
+(rule
+ (alias runtest)
+ (enabled_if false) ; vendored: no npx/tailwindcss in the monorepo
+ (deps prose.css tailwind.css)
+ (action
+  (setenv
+   CASCADE_COLOR
+   always
+   (run
+    %{bin:cascade}
+    diff
+    --diff=canonical
+    --prune-unused-custom-props
+    tailwind.css
+    prose.css))))

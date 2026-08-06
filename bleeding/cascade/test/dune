@@ -1,0 +1,14 @@
+(test
+ (name test)
+ (deps
+  (source_tree examples))
+ (libraries
+  cascade
+  alcotest
+  astring
+  fmt
+  unix
+  re
+  cascade_diff
+  css_test_helpers
+  cascade_spec_inventory))

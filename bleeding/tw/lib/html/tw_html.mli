@@ -22,7 +22,7 @@ module At : sig
   (** {1 Global attributes} *)
 
   val title : string -> attr
-  (** [title "My Title"] creates a [title] attribute. *)
+  (** [title s] creates a {!val-title} attribute. *)
 
   val lang : string -> attr
   (** [lang "en"] creates a [lang] attribute. *)
@@ -141,7 +141,7 @@ module At : sig
   (** [sizes "..."] creates a [sizes] attribute for responsive images. *)
 
   val title' : string -> attr
-  (** [title' "My Page"] creates a [title] attribute for elements. *)
+  (** [title' s] creates a {!val-title} attribute for elements. *)
 
   (** {1 Additional attributes} *)
 
@@ -174,7 +174,7 @@ module At : sig
   (** [to_pair at] returns the attribute as a (name, value) pair. *)
 
   val of_pair : string * string -> attr
-  (** [of_pair (n, v)] creates an attribute from a (name, value) pair. *)
+  (** [of_pair (n,v)] creates an attribute from a (name, value) pair. *)
 
   (** {2 Additional HTML5 attributes} *)
 
@@ -241,61 +241,61 @@ module At : sig
   (** {2 SVG Attributes} *)
 
   val fill_rule : [ `evenodd ] -> attr
-  (** [fill_rule `evenodd] sets the fill rule *)
+  (** [fill_rule `evenodd] sets the fill rule. *)
 
   val clip_rule : [ `evenodd ] -> attr
-  (** [clip_rule `evenodd] sets the clipping rule *)
+  (** [clip_rule `evenodd] sets the clipping rule. *)
 
   val cx : int -> attr
-  (** [cx n] sets the center x coordinate *)
+  (** [cx n] sets the center x coordinate. *)
 
   val cy : int -> attr
-  (** [cy n] sets the center y coordinate *)
+  (** [cy n] sets the center y coordinate. *)
 
   val r : int -> attr
-  (** [r n] sets the radius *)
+  (** [r n] sets the radius. *)
 
   val view_box : string -> attr
-  (** [view_box "0 0 20 20"] sets the viewBox *)
+  (** [view_box s] sets the viewBox. *)
 
   val fill : string -> attr
-  (** [fill "currentColor"] sets the fill color *)
+  (** [fill "currentColor"] sets the fill color. *)
 
   val stroke : string -> attr
-  (** [stroke "currentColor"] sets the stroke color *)
+  (** [stroke "currentColor"] sets the stroke color. *)
 
   val stroke_width : string -> attr
-  (** [stroke_width "2"] sets the stroke width *)
+  (** [stroke_width "2"] sets the stroke width. *)
 
   val stroke_linecap : string -> attr
-  (** [stroke_linecap "round"] sets the stroke line cap *)
+  (** [stroke_linecap "round"] sets the stroke line cap. *)
 
   val stroke_linejoin : string -> attr
-  (** [stroke_linejoin "round"] sets the stroke line join *)
+  (** [stroke_linejoin "round"] sets the stroke line join. *)
 
   val x : string -> attr
-  (** [x "10"] sets the x coordinate *)
+  (** [x "10"] sets the x coordinate. *)
 
   val y : string -> attr
-  (** [y "10"] sets the y coordinate *)
+  (** [y "10"] sets the y coordinate. *)
 
   val rx : string -> attr
-  (** [rx "5"] sets the x radius for rounded rectangles *)
+  (** [rx "5"] sets the x radius for rounded rectangles. *)
 
   val d : string -> attr
-  (** [d "M10 10 L20 20"] sets the path data *)
+  (** [d s] sets the path data. *)
 
   val x1 : string -> attr
-  (** [x1 "0"] sets the first x coordinate *)
+  (** [x1 "0"] sets the first x coordinate. *)
 
   val y1 : string -> attr
-  (** [y1 "0"] sets the first y coordinate *)
+  (** [y1 "0"] sets the first y coordinate. *)
 
   val x2 : string -> attr
-  (** [x2 "20"] sets the second x coordinate *)
+  (** [x2 "20"] sets the second x coordinate. *)
 
   val y2 : string -> attr
-  (** [y2 "20"] sets the second y coordinate *)
+  (** [y2 "20"] sets the second y coordinate. *)
 end
 
 (** {1 Text helpers} *)
@@ -304,13 +304,13 @@ val txt : string -> t
 (** [txt s] creates a text node from string [s]. *)
 
 val txtf : string list -> t
-(** [txtf ["a"; "b"]] is equivalent to [txt "ab"]. *)
+(** [txtf strs] concatenates [strs] and creates a text node. *)
 
 val raw : string -> t
 (** [raw html] creates a node from raw HTML string. Use with caution. *)
 
 val rawf : string list -> t
-(** [rawf ["a"; "b"]] is equivalent to [raw "ab"]. *)
+(** [rawf strs] concatenates [strs] and creates a raw HTML node. *)
 
 val empty : t
 (** [empty] is the empty element, equivalent to no content. *)
@@ -357,6 +357,14 @@ val has_forms : t -> bool
 
 (** {1 Page generation} *)
 
+(** How a {!page} delivers its generated CSS. *)
+type tw_css =
+  | Link of string
+      (** Write the CSS to this file and reference it with a cache-busted
+          [<link>] tag. *)
+  | Inline
+      (** Embed the CSS directly in the document inside a [<style>] tag. *)
+
 type page
 (** Complete HTML page with integrated CSS.
 
@@ -374,31 +382,38 @@ val page :
   ?meta:(string * string) list ->
   ?title:string ->
   ?charset:string ->
-  ?tw_css:string ->
+  ?tw_css:tw_css ->
+  ?forms:bool ->
   t list ->
   t list ->
   page
-(** [page ?lang ?meta ?title ?charset ?tw_css head body] generates a complete
-    HTML page and its corresponding CSS.
+(** [page ?lang ?meta ?title ?charset ?tw_css ?forms head body] generates a
+    complete HTML page and its corresponding CSS.
 
     - [lang] defaults to ["en"]
     - [charset] defaults to ["utf-8"]
     - [meta] is a list of [(name, content)] pairs for meta tags
     - [title] is the page title
-    - [tw_css] defaults to ["tw.css"] - the filename for the CSS, automatically
-      included as a [<link>] tag in HTML head
+    - [tw_css] controls how the CSS is delivered (see {!type:tw_css}). Defaults
+      to [Link "tw.css"], which references the CSS through a cache-busted
+      [<link>] tag in the HTML head. Use {!constructor-Inline} to embed the CSS
+      in the document and avoid an extra HTTP request.
+    - [forms] explicitly enables the [\@tailwindcss/forms] plugin base layer,
+      mirroring Tailwind's [\@plugin] opt-in. When omitted, the forms base is
+      auto-detected from forms utility usage (like prose styling).
     - [head] is additional content for the head section
     - [body] is the body content
 
-    The HTML automatically includes a [<link rel="stylesheet" href="{tw_css}">]
-    tag. Use {!html} to get the HTML string and {!css} to get the CSS filename
-    and stylesheet. *)
+    Use {!html} to get the HTML string and {!css} to get the CSS filename and
+    stylesheet. *)
 
 val html : page -> string
 (** [html page] extracts the HTML string from a page result. *)
 
-val css : page -> string * Tw.Css.t
-(** [css page] extracts the CSS filename and stylesheet from a page result. *)
+val css : page -> string option * Tw.Css.t
+(** [css page] extracts the CSS filename and stylesheet from a page result. The
+    filename is [Some file] when the page links to an external stylesheet
+    ([Link file]) and [None] when the CSS is inlined ({!constructor-Inline}). *)
 
 (** {1 Livereload module}
 
@@ -413,7 +428,7 @@ module Livereload : sig
 
   val script : t
   (** [script] is the JavaScript code for livereload functionality. Only
-      included when [enabled] is true. *)
+      included when {!val-enabled} is true. *)
 end
 
 (** {1 HTML Elements} *)

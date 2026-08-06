@@ -1,3 +1,4 @@
+module Css = Cascade.Css
 open Alcotest
 open Tw.Style
 open Tw.Modifiers
@@ -20,11 +21,11 @@ let test_has_responsive_modifier () =
   let style2 = sm [ p 4 ] in
   check bool "has responsive (sm)" true (has_responsive_modifier style2);
 
-  let style3 = md [ bg blue 500 ] in
+  let style3 = md [ bg blue ] in
   check bool "has responsive (md)" true (has_responsive_modifier style3);
 
   (* Nested modifiers with responsive should be detected *)
-  let style4 = hover [ sm [ bg blue 500 ] ] in
+  let style4 = hover [ sm [ bg blue ] ] in
   check bool "nested has responsive" true (has_responsive_modifier style4);
 
   (* Non-responsive modifiers should not be detected as responsive *)
@@ -52,9 +53,7 @@ let test_validate_no_nested_responsive () =
     try
       validate_no_nested_responsive [ sm [ md [ p 4 ] ] ];
       fail "Should have raised exception for nested responsive"
-    with
-    | Failure _ -> ()
-    | _ -> fail "Expected Failure with 'responsive' in message"
+    with Failure _ -> ()
   in
   test_nested_fail ();
 
@@ -64,9 +63,7 @@ let test_validate_no_nested_responsive () =
       let responsive_style = sm [ p 4 ] in
       validate_no_nested_responsive [ responsive_style ];
       fail "Should have rejected responsive style"
-    with
-    | Failure _ -> () (* Expected to fail *)
-    | _ -> fail "Expected Failure for responsive style"
+    with Failure _ -> () (* Expected to fail *)
   in
   test_already_responsive ()
 
@@ -75,9 +72,7 @@ let test_responsive_rejects name outer_fn inner_content =
   try
     let _ = outer_fn [ inner_content ] in
     Alcotest.failf "%s should reject nested responsive" name
-  with
-  | Failure _ -> () (* Expected to fail *)
-  | _ -> Alcotest.failf "Expected Failure about nested responsive"
+  with Failure _ -> () (* Expected to fail *)
 
 (* Test that responsive functions reject nested responsive *)
 let test_responsive_functions_reject_nesting () =
@@ -94,42 +89,39 @@ let test_apply () =
   let style1 = apply [ "hover" ] (p 4) in
   check bool "hover modifier applied" true
     (match style1 with
-    | Group [ Modified (Hover, _) ] -> true
-    | Modified (Hover, _) -> true
+    | Some (Group [ Modified (Hover, _) ]) -> true
+    | Some (Modified (Hover, _)) -> true
     | _ -> false);
 
   (* Test multiple modifiers - "sm:hover:..." means sm is outermost, hover is
      inner. The structure is Modified(Sm, Modified(Hover, base)) which generates
      "sm:hover:..." *)
-  let style2 = apply [ "sm"; "hover" ] (bg blue 500) in
+  let style2 = apply [ "sm"; "hover" ] (bg blue) in
   check bool "multiple modifiers applied" true
     (match style2 with
-    | Group [ Modified (Responsive `Sm, Modified (Hover, _)) ] -> true
-    | Modified (Responsive `Sm, Modified (Hover, _)) -> true
+    | Some (Group [ Modified (Responsive `Sm, Modified (Hover, _)) ]) -> true
+    | Some (Modified (Responsive `Sm, Modified (Hover, _))) -> true
     | _ -> false);
 
-  (* Test unknown modifier (should be ignored) *)
+  (* Test unknown modifier (should reject the entire class) *)
   let style3 = apply [ "unknown"; "hover" ] (p 4) in
-  check bool "unknown modifier ignored" true
-    (match style3 with
-    | Group [ Modified (Hover, _) ] -> true
-    | Modified (Hover, _) -> true
-    | _ -> false);
+  check bool "unknown modifier rejects class" true
+    (match style3 with None -> true | _ -> false);
 
   (* Test responsive modifiers *)
   let style4 = apply [ "md" ] (m 2) in
   check bool "md modifier applied" true
     (match style4 with
-    | Group [ Modified (Responsive `Md, _) ] -> true
-    | Modified (Responsive `Md, _) -> true
+    | Some (Group [ Modified (Responsive `Md, _) ]) -> true
+    | Some (Modified (Responsive `Md, _)) -> true
     | _ -> false);
 
   (* Test dark mode *)
-  let style5 = apply [ "dark" ] (bg gray 900) in
+  let style5 = apply [ "dark" ] (bg ~shade:900 gray) in
   check bool "dark modifier applied" true
     (match style5 with
-    | Group [ Modified (Dark, _) ] -> true
-    | Modified (Dark, _) -> true
+    | Some (Group [ Modified (Dark, _) ]) -> true
+    | Some (Modified (Dark, _)) -> true
     | _ -> false);
 
   (* Test modifier order - modifiers are applied so that the first modifier in
@@ -141,8 +133,8 @@ let test_apply () =
   let style6 = apply [ "hover"; "sm" ] (p 4) in
   check bool "modifier order correct" true
     (match style6 with
-    | Group [ Modified (Hover, Modified (Responsive `Sm, _)) ] -> true
-    | Modified (Hover, Modified (Responsive `Sm, _)) -> true
+    | Some (Group [ Modified (Hover, Modified (Responsive `Sm, _)) ]) -> true
+    | Some (Modified (Hover, Modified (Responsive `Sm, _))) -> true
     | _ -> false)
 
 (* Test modifier class name format *)
@@ -154,7 +146,7 @@ let test_modifier_class_names () =
     (Tw.Utility.to_class (md [ grid_cols 2 ]));
 
   check string "lg: single colon" "lg:bg-blue-500"
-    (Tw.Utility.to_class (lg [ bg blue 500 ]));
+    (Tw.Utility.to_class (lg [ bg blue ]));
 
   (* 2xl prefix formatting *)
   check string "2xl: single colon" "2xl:p-4" (Tw.Utility.to_class (xl2 [ p 4 ]));
@@ -188,11 +180,11 @@ let test_media_preference_modifiers () =
     (Tw.Utility.to_class (contrast_more [ border_4 ]));
 
   check string "contrast-less: single colon" "contrast-less:text-gray-600"
-    (Tw.Utility.to_class (contrast_less [ text gray 600 ]));
+    (Tw.Utility.to_class (contrast_less [ text ~shade:600 gray ]));
 
   (* Dark mode *)
   check string "dark: single colon" "dark:bg-gray-900"
-    (Tw.Utility.to_class (dark [ bg gray 900 ]))
+    (Tw.Utility.to_class (dark [ bg ~shade:900 gray ]))
 
 (* Test CSS generation and parsing roundtrip for modifiers *)
 let test_modifier_css_roundtrip () =
@@ -201,17 +193,17 @@ let test_modifier_css_roundtrip () =
       motion_safe [ animate_pulse ];
       motion_reduce [ transition_none ];
       contrast_more [ border_4 ];
-      contrast_more [ text_black ];
-      contrast_less [ text gray 600 ];
-      dark [ bg gray 900 ];
-      hover [ bg blue 500 ];
+      contrast_more [ text black ];
+      contrast_less [ text ~shade:600 gray ];
+      dark [ bg ~shade:900 gray ];
+      hover [ bg blue ];
       sm [ p 4 ];
     ]
   in
 
   (* Generate CSS *)
-  let stylesheet = Tw.Rules.to_css test_utilities in
-  let css_str = Tw.Css.to_string ~minify:true ~optimize:true stylesheet in
+  let stylesheet = Tw.Build.to_css test_utilities in
+  let css_str = Tw.Css.to_string ~minify:true stylesheet in
 
   (* Verify CSS was generated *)
   check bool "CSS generated" true (String.length css_str > 0);
@@ -222,13 +214,13 @@ let test_modifier_css_roundtrip () =
       (* Successfully parsed our own generated CSS *)
       ()
   | Error parse_err ->
-      let error_msg = Tw.Css.pp_parse_error parse_err in
+      let error_msg = Cascade.Error.to_string parse_err in
       Alcotest.failf "Failed to parse generated CSS:\n%s" error_msg
 
 (* Test that generated CSS has correct selector escaping *)
 let test_selector_escaping_in_css () =
   (* Generate CSS with modifiers that need escaping *)
-  let stylesheet = Tw.Rules.to_css [ motion_safe [ animate_pulse ] ] in
+  let stylesheet = Tw.Build.to_css [ motion_safe [ animate_pulse ] ] in
   let css_str = Tw.Css.to_string ~minify:true stylesheet in
 
   (* Verify single backslash in output (not double) *)
@@ -248,7 +240,7 @@ let test_selector_escaping_in_css () =
   | Ok _ -> ()
   | Error e ->
       Alcotest.failf "Selector escaping broken - parse failed:\n%s"
-        (Tw.Css.pp_parse_error e)
+        (Cascade.Error.to_string e)
 
 (* Test combined modifiers with media preferences *)
 let test_combined_media_modifiers () =
@@ -257,51 +249,77 @@ let test_combined_media_modifiers () =
     (Tw.Utility.to_class (sm [ motion_safe [ animate_pulse ] ]));
 
   check string "md:dark: works" "md:dark:bg-gray-900"
-    (Tw.Utility.to_class (md [ dark [ bg gray 900 ] ]));
+    (Tw.Utility.to_class (md [ dark [ bg ~shade:900 gray ] ]));
 
   (* Generate and parse CSS with combined modifiers *)
   let utilities =
-    [ sm [ motion_safe [ animate_pulse ] ]; md [ dark [ bg gray 900 ] ] ]
+    [ sm [ motion_safe [ animate_pulse ] ]; md [ dark [ bg ~shade:900 gray ] ] ]
   in
-  let css_str = Tw.Css.to_string ~minify:true (Tw.Rules.to_css utilities) in
+  let css_str = Tw.Css.to_string ~minify:true (Tw.Build.to_css utilities) in
   match Tw.Css.of_string css_str with
   | Ok _ -> ()
   | Error e ->
       Alcotest.failf "Combined modifiers CSS roundtrip failed:\n%s"
-        (Tw.Css.pp_parse_error e)
+        (Cascade.Error.to_string e)
 
 (* Media query behavior for md [...] *)
 
 (* Test that motion-reduce:transition-none outputs transition-property: none *)
 let test_motion_reduce_transition_none () =
   (* Tailwind v4 uses transition-property: none, not transition: none *)
-  let css = Tw.Rules.to_css [ motion_reduce [ transition_none ] ] in
+  let css = Tw.Build.to_css [ motion_reduce [ transition_none ] ] in
   let css_str = Tw.Css.to_string ~minify:true css in
 
   (* Should contain transition-property:none *)
   let has_transition_property =
-    try
-      let _ = Str.search_forward (Str.regexp "transition-property") css_str 0 in
-      true
-    with Not_found -> false
+    Astring.String.is_infix ~affix:"transition-property" css_str
   in
   check bool "has transition-property (not transition shorthand)" true
     has_transition_property;
 
   (* Should NOT contain the shorthand 'transition: none' (with zero duration) *)
   let has_shorthand =
-    try
-      let _ =
-        Str.search_forward (Str.regexp "transition: *none *0s") css_str 0
-      in
-      true
-    with Not_found -> false
+    Astring.String.is_infix ~affix:"transition:" css_str
+    && Astring.String.is_infix ~affix:"none" css_str
+    && Astring.String.is_infix ~affix:"0s" css_str
   in
   check bool "should NOT have shorthand transition: none 0s" false has_shorthand
 
 (* Test suite *)
+(* The [!] prefix marks the utility's own declarations !important, leaves theme
+   tokens (--spacing) normal, preserves the class name, and nests under a
+   modifier (md:!flex). *)
+let test_important_prefix () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.fail m
+  in
+  let flex = css "!flex" in
+  Alcotest.(check bool)
+    "!flex marks display important" true
+    (Astring.String.is_infix ~affix:"display:flex!important" flex);
+  (match Tw.of_string "!flex" with
+  | Ok u -> Alcotest.(check string) "!flex class round-trips" "!flex" (Tw.pp u)
+  | Error (`Msg m) -> Alcotest.fail m);
+  (match Tw.of_string "md:!flex" with
+  | Ok u ->
+      Alcotest.(check string) "md:!flex class round-trips" "md:!flex" (Tw.pp u)
+  | Error (`Msg m) -> Alcotest.fail m);
+  (* v4 trailing form keeps the suffix in the class name *)
+  Alcotest.(check bool)
+    "flex! marks display important" true
+    (Astring.String.is_infix ~affix:"display:flex!important" (css "flex!"));
+  (match Tw.of_string "flex!" with
+  | Ok u -> Alcotest.(check string) "flex! class round-trips" "flex!" (Tw.pp u)
+  | Error (`Msg m) -> Alcotest.fail m);
+  Alcotest.(check bool)
+    "!p-4 leaves the --spacing theme token normal" false
+    (Astring.String.is_infix ~affix:"--spacing:.25rem!important" (css "!p-4"))
+
 let tests =
   [
+    test_case "important prefix" `Quick test_important_prefix;
     test_case "has_responsive_modifier" `Quick test_has_responsive_modifier;
     test_case "validate_no_nested_responsive" `Quick
       test_validate_no_nested_responsive;
@@ -360,26 +378,68 @@ let test_pp_modifier_strings () =
     (pp_modifier (Container (Tw.Style.Container_named ("", 600))));
   check string "pp has[...]" "has-[.foo]" (pp_modifier (Has ".foo"));
   check string "pp group-has[...]" "group-has-[.bar]"
-    (pp_modifier (Group_has ".bar"));
+    (pp_modifier (Group_has (".bar", None)));
   check string "pp peer-has[...]" "peer-has-[.baz]"
-    (pp_modifier (Peer_has ".baz"));
+    (pp_modifier (Peer_has (".baz", None)));
   check string "pp data state bracketed" "data-[state=open]"
     (pp_modifier (Data_state "open"));
   check string "pp before" "before" (pp_modifier Pseudo_before);
-  check string "pp not simplified" "not" (pp_modifier (Not Hover))
+  check string "pp not-hover" "not-hover" (pp_modifier (Not Hover))
+
+(* The full container-query size scale (@3xs .. @7xl) emits a container query at
+   the right threshold, using Tailwind v4's range syntax ([width >= 20rem]); @xs
+   and @3xl+ used to be unknown modifiers. *)
+let test_container_query_scale () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  check bool "@xs:flex is a 20rem container query" true
+    (Astring.String.is_infix ~affix:"@container (width >= 20rem)"
+       (css "@xs:flex"));
+  check bool "@3xl:flex is a 48rem container query" true
+    (Astring.String.is_infix ~affix:"@container (width >= 48rem)"
+       (css "@3xl:flex"));
+  check string "@xs round-trips" "@xs:p-4"
+    (Tw.Utility.to_class (Option.get (apply [ "@xs" ] (p 4))))
+
+(* @max-<size> negates the min query, and @min-/@max-[<len>] and bare @[<len>]
+   accept arbitrary lengths. All used to be unknown modifiers. *)
+let test_container_query_min_max () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "@min-md:flex" "@container (width >= 28rem)";
+  has "@max-md:flex" "@container (not (width >= 28rem))";
+  has "@min-[20rem]:flex" "@container (width >= 20rem)";
+  has "@max-[40rem]:flex" "@container (not (width >= 40rem))";
+  has "@[480px]:flex" "@container (width >= 480px)";
+  check string "@max-md round-trips" "@max-md:p-4"
+    (Tw.Utility.to_class (Option.get (apply [ "@max-md" ] (p 4))));
+  check string "@min-[20rem] round-trips" "@min-[20rem]:p-4"
+    (Tw.Utility.to_class (Option.get (apply [ "@min-[20rem]" ] (p 4))));
+  check string "@[480px] round-trips" "@[480px]:p-4"
+    (Tw.Utility.to_class (Option.get (apply [ "@[480px]" ] (p 4))))
 
 (* Test apply with bracketed has/group-has/peer-has modifiers *)
 let test_apply_bracketed_has () =
   let u1 = apply [ "has-[.x]" ] (p 4) in
-  check string "has-[.x]:p-4" "has-[.x]:p-4" (Tw.Utility.to_class u1);
+  check string "has-[.x]:p-4" "has-[.x]:p-4"
+    (Tw.Utility.to_class (Option.get u1));
 
   let u2 = apply [ "group-has-[.y]"; "hover" ] (m 2) in
   check string "group-has + hover order" "group-has-[.y]:hover:m-2"
-    (Tw.Utility.to_class u2);
+    (Tw.Utility.to_class (Option.get u2));
 
-  let u3 = apply [ "peer-has-[.z]" ] (bg blue 500) in
+  let u3 = apply [ "peer-has-[.z]" ] (bg blue) in
   check string "peer-has class" "peer-has-[.z]:bg-blue-500"
-    (Tw.Utility.to_class u3)
+    (Tw.Utility.to_class (Option.get u3))
 
 (* Test ARIA and data modifiers class names *)
 let test_aria_and_data_modifiers () =
@@ -392,7 +452,7 @@ let test_aria_and_data_modifiers () =
   check string "data-inactive:m-2" "data-inactive:m-2"
     (Tw.Utility.to_class (data_inactive [ m 2 ]));
   check string "data-state=open:bg-blue-500" "data-state=open:bg-blue-500"
-    (Tw.Utility.to_class (data_state "open" (bg blue 500)));
+    (Tw.Utility.to_class (data_state "open" (bg blue)));
   check string "data-variant=primary:p-3" "data-variant=primary:p-3"
     (Tw.Utility.to_class (data_variant "primary" (p 3)));
   check string "data-status=on:m-4" "data-status=on:m-4"
@@ -407,17 +467,21 @@ let test_before_after_modifiers () =
 let test_nested_modifier_class_names () =
   (* Basic dark:hover: nesting *)
   check string "dark:hover:text-white" "dark:hover:text-white"
-    Tw.(to_classes [ dark [ hover [ text_white ] ] ]);
+    Tw.(to_classes [ dark [ hover [ text white ] ] ]);
 
   (* Multiple utilities in nested modifier group *)
   check string "dark:[hover group with multiple items]"
     "dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white"
     Tw.(
-      to_classes [ dark [ text gray 300; hover [ bg gray 700; text_white ] ] ]);
+      to_classes
+        [
+          dark
+            [ text ~shade:300 gray; hover [ bg ~shade:700 gray; text white ] ];
+        ]);
 
   (* Triple nesting: sm:dark:hover *)
   check string "sm:dark:hover:bg-blue-500" "sm:dark:hover:bg-blue-500"
-    Tw.(to_classes [ sm [ dark [ hover [ bg blue 500 ] ] ] ]);
+    Tw.(to_classes [ sm [ dark [ hover [ bg blue ] ] ] ]);
 
   (* focus:before: nesting *)
   check string "focus:before:content-*" "focus:before:content-[\"'*'\"]"
@@ -426,7 +490,7 @@ let test_nested_modifier_class_names () =
   (* md:hover: group with multiple items *)
   check string "md:hover:[multiple items]"
     "md:hover:bg-blue-500 md:hover:text-white"
-    Tw.(to_classes [ md [ hover [ bg blue 500; text_white ] ] ]);
+    Tw.(to_classes [ md [ hover [ bg blue; text white ] ] ]);
 
   (* dark:focus-within: nesting *)
   check string "dark:focus-within:ring" "dark:focus-within:ring-2"
@@ -434,16 +498,16 @@ let test_nested_modifier_class_names () =
 
   (* group-hover inside dark *)
   check string "dark:group-hover:text-white" "dark:group-hover:text-white"
-    Tw.(to_classes [ dark [ group_hover [ text_white ] ] ]);
+    Tw.(to_classes [ dark [ group_hover [ text white ] ] ]);
 
   (* Complex nested group structure - this is the pattern from dashboard
      main.ml *)
   let complex_styles =
     Tw.
       [
-        text gray 600;
-        hover [ bg gray 100; text gray 900 ];
-        dark [ text gray 300; hover [ bg gray 700; text_white ] ];
+        text ~shade:600 gray;
+        hover [ bg ~shade:100 gray; text ~shade:900 gray ];
+        dark [ text ~shade:300 gray; hover [ bg ~shade:700 gray; text white ] ];
       ]
   in
   check string "complex nested structure"
@@ -454,28 +518,19 @@ let test_nested_modifier_class_names () =
 (* Test CSS generation for nested modifiers *)
 let test_nested_modifier_css_generation () =
   (* Ensure dark:hover: generates valid CSS with proper media query nesting *)
-  let utilities = [ dark [ hover [ bg blue 500 ] ] ] in
-  let css_str = Tw.Css.to_string ~minify:true (Tw.Rules.to_css utilities) in
+  let utilities = [ dark [ hover [ bg blue ] ] ] in
+  let css_str = Tw.Css.to_string ~minify:true (Tw.Build.to_css utilities) in
 
   (* Should contain the escaped class name *)
   let has_class =
-    try
-      let _ =
-        Str.search_forward (Str.regexp {|dark\\:hover\\:bg-blue-500|}) css_str 0
-      in
-      true
-    with Not_found -> false
+    Astring.String.is_infix ~affix:{|dark\:hover\:bg-blue-500|} css_str
   in
   check bool "CSS contains dark:hover: class selector" true has_class;
 
   (* Should contain prefers-color-scheme:dark media query *)
   let has_dark_media =
-    try
-      let _ =
-        Str.search_forward (Str.regexp "prefers-color-scheme:dark") css_str 0
-      in
-      true
-    with Not_found -> false
+    Astring.String.is_infix ~affix:"prefers-color-scheme" css_str
+    && Astring.String.is_infix ~affix:"dark" css_str
   in
   check bool "CSS contains dark mode media query" true has_dark_media;
 
@@ -484,7 +539,7 @@ let test_nested_modifier_css_generation () =
   | Ok _ -> ()
   | Error e ->
       Alcotest.failf "Nested modifier CSS parse failed:\n%s"
-        (Tw.Css.pp_parse_error e)
+        (Cascade.Error.to_string e)
 
 (* Extend the suite with new tests *)
 let tests =
@@ -493,6 +548,8 @@ let tests =
       test_case "is_hover flags" `Quick test_is_hover;
       test_case "of_string parsing" `Quick test_of_string_parsing;
       test_case "pp_modifier strings" `Quick test_pp_modifier_strings;
+      test_case "container query scale" `Quick test_container_query_scale;
+      test_case "container query min/max" `Quick test_container_query_min_max;
       test_case "apply bracketed has variants" `Quick test_apply_bracketed_has;
       test_case "ARIA and data modifiers" `Quick test_aria_and_data_modifiers;
       test_case "before/after modifiers" `Quick test_before_after_modifiers;

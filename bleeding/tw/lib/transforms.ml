@@ -1,5 +1,7 @@
 (** Transform utilities for 2D and 3D transformations. *)
 
+module Css = Cascade.Css
+
 (** Error helpers *)
 let err_not_utility = Error (`Msg "Not a transform utility")
 
@@ -10,25 +12,79 @@ module Handler = struct
   type t =
     | (* 2D Transforms *)
       Rotate of int
+    | Rotate_arbitrary of Css.angle
+    | Rotate_3d_arbitrary of float * float * float * Css.angle
+    | Rotate_bare_var of string
+    | Neg_rotate_bare_var of string
+    | Neg_rotate_arbitrary of Css.angle
     | Translate_x of int
+    | Translate_x_full
+    | Translate_x_px
+    | Translate_x_arbitrary of Css.length
     | Translate_y of int
+    | Translate_y_full
+    | Translate_y_px
+    | Translate_y_arbitrary of Css.length
     | Scale of int
     | Scale_x of int
+    | Scale_x_arbitrary of float
     | Scale_y of int
+    | Scale_y_arbitrary of float
+    | Scale_raw_1 of float
+    | Scale_raw_3 of float * float * float
     | Skew_x of int
+    | Skew_x_arbitrary of Css.angle
     | Skew_y of int
+    | Skew_y_arbitrary of Css.angle
+    | Skew of int
+    | Skew_arbitrary of Css.angle
+    | Translate_x_fraction of int * int
+    | Translate_y_fraction of int * int
     | (* Combined translate utilities *)
       Translate_full
+    | Translate_px
     | Translate_1_2
-    | (* Negative translate utilities for centering *)
-      Neg_translate_x_1_2
+    | Translate_fraction of int * int
+    | Translate_arbitrary of Css.length
+    | (* Negative translate utilities *)
+      Neg_translate_arbitrary of string
+    | Neg_translate_full
+    | Neg_translate_px
+    | Neg_translate_fraction of int * int
+    | Neg_translate_x_arbitrary of string
+    | Neg_translate_x_full
+    | Neg_translate_x_px
+    | Neg_translate_x_1_2
+    | Neg_translate_x_fraction of int * int
+    | Neg_translate_y_arbitrary of string
+    | Neg_translate_y_full
+    | Neg_translate_y_px
     | Neg_translate_y_1_2
+    | Neg_translate_y_fraction of int * int
     | (* 3D Transforms *)
       Translate_z of int
+    | Translate_z_px
+    | Neg_translate_z_arbitrary of string
+    | Neg_translate_z_px
+    | Translate_3d
     | Rotate_x of int
+    | Rotate_x_arbitrary of Css.angle
+    | Rotate_x_bare_var of string
+    | Neg_rotate_x_bare_var of string
+    | Neg_rotate_x_arbitrary of Css.angle
     | Rotate_y of int
+    | Rotate_y_arbitrary of Css.angle
+    | Rotate_y_bare_var of string
+    | Neg_rotate_y_bare_var of string
+    | Neg_rotate_y_arbitrary of Css.angle
     | Rotate_z of int
+    | Rotate_z_arbitrary of Css.angle
+    | Rotate_z_bare_var of string
+    | Neg_rotate_z_bare_var of string
+    | Neg_rotate_z_arbitrary of Css.angle
     | Scale_z of int
+    | Scale_z_arbitrary of string
+    | Scale_3d
     | Perspective_none
     | Perspective_dramatic
     | Perspective_normal
@@ -39,9 +95,20 @@ module Handler = struct
     | Perspective_origin_bottom
     | Perspective_origin_left
     | Perspective_origin_right
+    | Perspective_origin_top_left
+    | Perspective_origin_top_right
+    | Perspective_origin_bottom_left
+    | Perspective_origin_bottom_right
+    | Perspective_origin_arbitrary of string
     | (* Transform style *)
       Transform_style_3d
     | Transform_style_flat
+    | (* Transform box *)
+      Transform_box_border
+    | Transform_box_content
+    | Transform_box_fill
+    | Transform_box_stroke
+    | Transform_box_view
     | (* Backface visibility *)
       Backface_visible
     | Backface_hidden
@@ -50,6 +117,7 @@ module Handler = struct
     | Transform_cpu
     | Transform_none
     | Transform_gpu
+    | Transform_arbitrary of string
     | (* Transform origin *)
       Origin_center
     | Origin_top
@@ -60,6 +128,7 @@ module Handler = struct
     | Origin_top_right
     | Origin_bottom_left
     | Origin_bottom_right
+    | Origin_arbitrary of string
 
   type Utility.base += Self of t
 
@@ -67,7 +136,7 @@ module Handler = struct
   let name = "transforms"
 
   (* Match Tailwind ordering: transforms before animations and cursor *)
-  let priority = 9
+  let priority _ = 9
 
   (* Tailwind v4 uses rotate-x/y/z and skew-x/y variables for the transform
      utility. These variables contain the full transform function values, e.g.:
@@ -89,19 +158,18 @@ module Handler = struct
     Var.property_default Css.Length ~initial:Css.Zero ~universal:true
       ~property_order:2 ~family:`Translate "tw-translate-z"
 
-  (* Scale variables - use first-usage order with low property_order (5-7) for
-     tie-breaking *)
+  (* Scale variables - property_order (6-8) comes after duration (5) *)
   let tw_scale_x_var =
     Var.property_default Css.Number_percentage ~initial:(Num 1.0)
-      ~universal:true ~property_order:5 ~family:`Scale "tw-scale-x"
+      ~universal:true ~property_order:6 ~family:`Scale "tw-scale-x"
 
   let tw_scale_y_var =
     Var.property_default Css.Number_percentage ~initial:(Num 1.0)
-      ~universal:true ~property_order:6 ~family:`Scale "tw-scale-y"
+      ~universal:true ~property_order:7 ~family:`Scale "tw-scale-y"
 
   let tw_scale_z_var =
     Var.property_default Css.Number_percentage ~initial:(Num 1.0)
-      ~universal:true ~property_order:7 ~family:`Scale "tw-scale-z"
+      ~universal:true ~property_order:8 ~family:`Scale "tw-scale-z"
 
   (* Rotate and skew properties appear FIRST in @layer properties (0-4) *)
   let tw_rotate_x_var =
@@ -131,10 +199,101 @@ module Handler = struct
   let perspective_normal_var =
     Var.theme Css.Length "perspective-normal" ~order:(7, 14)
 
+  let perspective_none_var =
+    Var.theme Css.Length "perspective-none" ~order:(7, 15)
+
   (** {1 Helpers} *)
 
   let collect_property_rules vars =
     List.filter_map Var.property_rule vars |> concat
+
+  (* Property rules for rotate/skew transform chain *)
+  let rotate_skew_props =
+    collect_property_rules
+      [
+        tw_rotate_x_var;
+        tw_rotate_y_var;
+        tw_rotate_z_var;
+        tw_skew_x_var;
+        tw_skew_y_var;
+      ]
+
+  (* Helper to create transform with variable chain: Sets one variable and
+     outputs transform with all rotate/skew vars *)
+  let transform_with_var var transform_val =
+    let d, _ = Var.binding var transform_val in
+    let rotate_x_ref = Var.reference_with_empty_fallback tw_rotate_x_var in
+    let rotate_y_ref = Var.reference_with_empty_fallback tw_rotate_y_var in
+    let rotate_z_ref = Var.reference_with_empty_fallback tw_rotate_z_var in
+    let skew_x_ref = Var.reference_with_empty_fallback tw_skew_x_var in
+    let skew_y_ref = Var.reference_with_empty_fallback tw_skew_y_var in
+    style ~property_rules:rotate_skew_props
+      [
+        d;
+        transforms
+          [
+            Var rotate_x_ref;
+            Var rotate_y_ref;
+            Var rotate_z_ref;
+            Var skew_x_ref;
+            Var skew_y_ref;
+          ];
+      ]
+
+  (* Helper to create an angle with calc for negative values *)
+  let make_angle deg =
+    if deg >= 0 then Deg (float_of_int deg)
+    else Calc (Expr (Val (Deg (float_of_int (abs deg))), Mul, Num (-1.)))
+
+  (* Helper to create a percentage with calc for negative values *)
+  let make_pct n : Css.number_percentage =
+    if n >= 0 then Pct (float_of_int n)
+    else Calc (Expr (Val (Pct (float_of_int (abs n))), Mul, Num (-1.)))
+
+  let transform_with_both_skew_angle angle =
+    let skew_x_decl, _ = Var.binding tw_skew_x_var (Skew_x angle) in
+    let skew_y_decl, _ = Var.binding tw_skew_y_var (Skew_y angle) in
+    let rotate_x_ref = Var.reference_with_empty_fallback tw_rotate_x_var in
+    let rotate_y_ref = Var.reference_with_empty_fallback tw_rotate_y_var in
+    let rotate_z_ref = Var.reference_with_empty_fallback tw_rotate_z_var in
+    let skew_x_ref = Var.reference_with_empty_fallback tw_skew_x_var in
+    let skew_y_ref = Var.reference_with_empty_fallback tw_skew_y_var in
+    style ~property_rules:rotate_skew_props
+      [
+        skew_x_decl;
+        skew_y_decl;
+        transforms
+          [
+            Var rotate_x_ref;
+            Var rotate_y_ref;
+            Var rotate_z_ref;
+            Var skew_x_ref;
+            Var skew_y_ref;
+          ];
+      ]
+
+  let transform_with_both_skew deg =
+    let angle = make_angle deg in
+    let skew_x_decl, _ = Var.binding tw_skew_x_var (Skew_x angle) in
+    let skew_y_decl, _ = Var.binding tw_skew_y_var (Skew_y angle) in
+    let rotate_x_ref = Var.reference_with_empty_fallback tw_rotate_x_var in
+    let rotate_y_ref = Var.reference_with_empty_fallback tw_rotate_y_var in
+    let rotate_z_ref = Var.reference_with_empty_fallback tw_rotate_z_var in
+    let skew_x_ref = Var.reference_with_empty_fallback tw_skew_x_var in
+    let skew_y_ref = Var.reference_with_empty_fallback tw_skew_y_var in
+    style ~property_rules:rotate_skew_props
+      [
+        skew_x_decl;
+        skew_y_decl;
+        transforms
+          [
+            Var rotate_x_ref;
+            Var rotate_y_ref;
+            Var rotate_z_ref;
+            Var skew_x_ref;
+            Var skew_y_ref;
+          ];
+      ]
 
   let neg_class name n =
     let prefix = if n < 0 then "-" else "" in
@@ -172,9 +331,83 @@ module Handler = struct
             | _ -> Error (`Msg ("Invalid length unit: " ^ unit_s))))
     else Error (`Msg ("Not a bracket value: " ^ s))
 
+  let parse_bracket_angle s : (Css.angle, _) result =
+    if String.length s >= 3 && s.[0] = '[' && s.[String.length s - 1] = ']' then (
+      let inner = String.sub s 1 (String.length s - 2) in
+      let slen = String.length inner in
+      let i = ref 0 in
+      while
+        !i < slen
+        && ((inner.[!i] >= '0' && inner.[!i] <= '9')
+           || inner.[!i] = '.'
+           || inner.[!i] = '-')
+      do
+        incr i
+      done;
+      if !i = 0 || !i = slen then Error (`Msg ("Invalid angle value: " ^ inner))
+      else
+        let num_s = String.sub inner 0 !i in
+        let unit_s = String.sub inner !i (slen - !i) in
+        match Float.of_string_opt num_s with
+        | Option.None -> Error (`Msg ("Invalid angle value: " ^ inner))
+        | Option.Some n -> (
+            match unit_s with
+            | "deg" -> Ok (Css.Deg n : Css.angle)
+            | "rad" -> Ok (Rad n)
+            | "turn" -> Ok (Turn n)
+            | "grad" -> Ok (Grad n)
+            | _ -> Error (`Msg ("Invalid angle unit: " ^ unit_s))))
+    else Error (`Msg ("Not a bracket value: " ^ s))
+
+  let parse_bracket_number s : (float, _) result =
+    if String.length s >= 3 && s.[0] = '[' && s.[String.length s - 1] = ']' then
+      let inner = String.sub s 1 (String.length s - 2) in
+      match Float.of_string_opt inner with
+      | Some f -> Ok f
+      | None -> Error (`Msg ("Invalid number: " ^ inner))
+    else Error (`Msg ("Not a bracket value: " ^ s))
+
   (** {1 2D Transform Utilities} *)
 
-  let rotate n = style [ Css.rotate (Deg (float_of_int n)) ]
+  let rotate n = style [ Css.rotate (Angle (Deg (float_of_int n))) ]
+  let rotate_arbitrary angle = style [ Css.rotate (Angle angle) ]
+
+  let rotate_3d_arbitrary x y z angle =
+    style [ Css.rotate (Axis (x, y, z, angle)) ]
+
+  let rotate_bare_var name =
+    (* name is "--var", strip the -- prefix *)
+    let bare = String.sub name 2 (String.length name - 2) in
+    let ref : Css.angle Css.var = Var.bracket bare in
+    style [ Css.rotate (Angle (Var ref)) ]
+
+  let neg_rotate_bare_var name =
+    (* name is "--var", strip the -- prefix for Calc.var *)
+    let bare = String.sub name 2 (String.length name - 2) in
+    let neg_angle : Css.angle =
+      Calc (Expr (Var (Var.bracket bare), Mul, Num (-1.)))
+    in
+    style [ Css.rotate (Angle neg_angle) ]
+
+  let neg_rotate_arbitrary angle =
+    (* Negate the angle for CSS output *)
+    let neg = match angle with Css.Deg d -> Css.Deg (-.d) | a -> a in
+    style [ Css.rotate (Angle neg) ]
+
+  let translate_props =
+    collect_property_rules
+      [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
+
+  let translate_xy_refs =
+    let tx_ref = Var.reference tw_translate_x_var in
+    let ty_ref = Var.reference tw_translate_y_var in
+    Css.translate (XY (Var tx_ref, Var ty_ref))
+
+  let translate_xyz_refs =
+    let tx_ref = Var.reference tw_translate_x_var in
+    let ty_ref = Var.reference tw_translate_y_var in
+    let tz_ref = Var.reference tw_translate_z_var in
+    Css.translate (XYZ (Var tx_ref, Var ty_ref, Var tz_ref))
 
   let translate_axis axis_var n =
     let spacing_decl, spacing_ref =
@@ -187,21 +420,99 @@ module Handler = struct
            (Css.Calc.float (float_of_int n)))
     in
     let axis_decl, _ = Var.binding axis_var spacing_value in
-    let tx_ref = Var.reference tw_translate_x_var in
-    let ty_ref = Var.reference tw_translate_y_var in
-    let props =
-      collect_property_rules
-        [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
-    in
-    style ~property_rules:props
-      (spacing_decl :: axis_decl
-      :: [ Css.translate (XY (Var tx_ref, Var ty_ref)) ])
+    style ~property_rules:translate_props
+      (spacing_decl :: axis_decl :: [ translate_xy_refs ])
 
   let translate_x n = translate_axis tw_translate_x_var n
   let translate_y n = translate_axis tw_translate_y_var n
 
+  (** Helper to create a fraction percentage value: calc(n/d * 100%) *)
+  let make_fraction_pct num denom : Css.length =
+    Css.Calc
+      (Css.Calc.mul
+         (Css.Calc.div
+            (Css.Calc.float (float_of_int num))
+            (Css.Calc.float (float_of_int denom)))
+         (Css.Calc.length (Css.Pct 100.)))
+
+  (** Helper to create a negated fraction percentage value: calc(calc(n/d *
+      100%) * -1) *)
+  let make_neg_fraction_pct num denom : Css.length =
+    Css.Calc
+      (Css.Calc.mul
+         (Css.Calc.length (make_fraction_pct num denom))
+         (Css.Calc.float (-1.)))
+
+  let translate_x_fraction num denom =
+    let axis_decl, _ =
+      Var.binding tw_translate_x_var (make_fraction_pct num denom)
+    in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let translate_y_fraction num denom =
+    let axis_decl, _ =
+      Var.binding tw_translate_y_var (make_fraction_pct num denom)
+    in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let translate_x_full =
+    let axis_decl, _ = Var.binding tw_translate_x_var (Pct 100.0) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let translate_x_px =
+    let axis_decl, _ = Var.binding tw_translate_x_var (Px 1.0) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let translate_x_arbitrary len =
+    let axis_decl, _ = Var.binding tw_translate_x_var len in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let translate_y_full =
+    let axis_decl, _ = Var.binding tw_translate_y_var (Pct 100.0) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let translate_y_px =
+    let axis_decl, _ = Var.binding tw_translate_y_var (Px 1.0) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let translate_y_arbitrary len =
+    let axis_decl, _ = Var.binding tw_translate_y_var len in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  (* Negated arbitrary length from a bracket inner: a var() becomes
+     calc(var(--x) * -1); a plain length (110%, 10px) is parsed and negated the
+     same way, matching Tailwind's calc(<value> * -1). *)
+  let neg_arbitrary_len s : Css.length =
+    let as_var () : Css.length =
+      Calc (Calc.mul (Calc.var (Parse.extract_var_name s)) (Calc.float (-1.)))
+    in
+    if Parse.is_var s then as_var ()
+    else
+      match Css.parse_length s with
+      | Some l ->
+          (Calc (Calc.mul (Calc.length l) (Calc.float (-1.))) : Css.length)
+      | None -> as_var ()
+
+  let neg_translate_x_arbitrary_style s =
+    let neg_len = neg_arbitrary_len s in
+    let axis_decl, _ = Var.binding tw_translate_x_var neg_len in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let neg_translate_y_arbitrary_style s =
+    let neg_len = neg_arbitrary_len s in
+    let axis_decl, _ = Var.binding tw_translate_y_var neg_len in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let neg_translate_x_full =
+    let axis_decl, _ = Var.binding tw_translate_x_var (Pct (-100.0)) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let neg_translate_y_full =
+    let axis_decl, _ = Var.binding tw_translate_y_var (Pct (-100.0)) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
   let scale n =
-    let value : Css.number_percentage = Css.Pct (float_of_int n) in
+    let value = make_pct n in
     let dx, _ = Var.binding tw_scale_x_var value in
     let dy, _ = Var.binding tw_scale_y_var value in
     let dz, _ = Var.binding tw_scale_z_var value in
@@ -215,37 +526,63 @@ module Handler = struct
       (dx :: dy :: dz :: [ Css.scale (XY (Var scale_x_ref, Var scale_y_ref)) ])
 
   let scale_x n =
-    let value : Css.number_percentage = Css.Pct (float_of_int n) in
-    (* Only uses X variable *)
+    let value = make_pct n in
     let d, _ = Var.binding tw_scale_x_var value in
-    style (d :: [ Css.transform (Scale_x (float_of_int n /. 100.0)) ])
+    let props =
+      collect_property_rules [ tw_scale_x_var; tw_scale_y_var; tw_scale_z_var ]
+    in
+    let scale_x_ref = Var.reference tw_scale_x_var in
+    let scale_y_ref = Var.reference tw_scale_y_var in
+    style ~property_rules:props
+      (d :: [ Css.scale (XY (Var scale_x_ref, Var scale_y_ref)) ])
 
   let scale_y n =
-    let value : Css.number_percentage = Css.Pct (float_of_int n) in
-    (* Only uses Y variable *)
+    let value = make_pct n in
     let d, _ = Var.binding tw_scale_y_var value in
-    style (d :: [ Css.transform (Scale_y (float_of_int n /. 100.0)) ])
+    let props =
+      collect_property_rules [ tw_scale_x_var; tw_scale_y_var; tw_scale_z_var ]
+    in
+    let scale_x_ref = Var.reference tw_scale_x_var in
+    let scale_y_ref = Var.reference tw_scale_y_var in
+    style ~property_rules:props
+      (d :: [ Css.scale (XY (Var scale_x_ref, Var scale_y_ref)) ])
 
-  let skew_axis var mk_transform deg =
-    let transform_val = mk_transform (Css.Deg (float_of_int deg)) in
-    let d, _ = Var.binding var transform_val in
-    style [ d; Css.transform transform_val ]
+  let scale_x_arbitrary f =
+    let value : Css.number_percentage = Css.Num f in
+    let d, _ = Var.binding tw_scale_x_var value in
+    let props =
+      collect_property_rules [ tw_scale_x_var; tw_scale_y_var; tw_scale_z_var ]
+    in
+    let scale_x_ref = Var.reference tw_scale_x_var in
+    let scale_y_ref = Var.reference tw_scale_y_var in
+    style ~property_rules:props
+      (d :: [ Css.scale (XY (Var scale_x_ref, Var scale_y_ref)) ])
 
-  let skew_x deg = skew_axis tw_skew_x_var (fun a -> Css.Skew_x a) deg
-  let skew_y deg = skew_axis tw_skew_y_var (fun a -> Css.Skew_y a) deg
+  let scale_y_arbitrary f =
+    let value : Css.number_percentage = Css.Num f in
+    let d, _ = Var.binding tw_scale_y_var value in
+    let props =
+      collect_property_rules [ tw_scale_x_var; tw_scale_y_var; tw_scale_z_var ]
+    in
+    let scale_x_ref = Var.reference tw_scale_x_var in
+    let scale_y_ref = Var.reference tw_scale_y_var in
+    style ~property_rules:props
+      (d :: [ Css.scale (XY (Var scale_x_ref, Var scale_y_ref)) ])
+
+  let skew_x deg = transform_with_var tw_skew_x_var (Skew_x (make_angle deg))
+  let skew_y deg = transform_with_var tw_skew_y_var (Skew_y (make_angle deg))
+  let skew_x_arbitrary angle = transform_with_var tw_skew_x_var (Skew_x angle)
+  let skew_y_arbitrary angle = transform_with_var tw_skew_y_var (Skew_y angle)
 
   (* Combined translate utilities *)
   let translate_full =
     let dx, _ = Var.binding tw_translate_x_var (Pct 100.0) in
     let dy, _ = Var.binding tw_translate_y_var (Pct 100.0) in
-    let tx_ref = Var.reference tw_translate_x_var in
-    let ty_ref = Var.reference tw_translate_y_var in
     let props =
       collect_property_rules
         [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
     in
-    style ~property_rules:props
-      (dx :: dy :: [ Css.translate (XY (Var tx_ref, Var ty_ref)) ])
+    style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
 
   let translate_1_2 =
     (* Tailwind outputs calc(1 / 2 * 100%) rather than 50% *)
@@ -257,37 +594,253 @@ module Handler = struct
     in
     let dx, _ = Var.binding tw_translate_x_var half_pct in
     let dy, _ = Var.binding tw_translate_y_var half_pct in
-    let tx_ref = Var.reference tw_translate_x_var in
-    let ty_ref = Var.reference tw_translate_y_var in
     let props =
       collect_property_rules
         [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
     in
-    style ~property_rules:props
-      (dx :: dy :: [ Css.translate (XY (Var tx_ref, Var ty_ref)) ])
+    style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
 
-  (* Negative translate utilities for centering *)
-  let neg_translate_x_1_2 =
-    style [ Css.transform (Css.Translate_x (Css.Pct (-50.0))) ]
+  let translate_arbitrary len =
+    let dx, _ = Var.binding tw_translate_x_var len in
+    let dy, _ = Var.binding tw_translate_y_var len in
+    let props =
+      collect_property_rules
+        [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
+    in
+    style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
 
-  let neg_translate_y_1_2 =
-    style [ Css.transform (Css.Translate_y (Css.Pct (-50.0))) ]
+  let translate_px =
+    let dx, _ = Var.binding tw_translate_x_var (Px 1.0) in
+    let dy, _ = Var.binding tw_translate_y_var (Px 1.0) in
+    let props =
+      collect_property_rules
+        [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
+    in
+    style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
+
+  let neg_translate_px =
+    let dx, _ = Var.binding tw_translate_x_var (Px (-1.0)) in
+    let dy, _ = Var.binding tw_translate_y_var (Px (-1.0)) in
+    let props =
+      collect_property_rules
+        [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
+    in
+    style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
+
+  let neg_translate_x_px =
+    let axis_decl, _ = Var.binding tw_translate_x_var (Px (-1.0)) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let neg_translate_y_px =
+    let axis_decl, _ = Var.binding tw_translate_y_var (Px (-1.0)) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let neg_translate_arbitrary_style s =
+    let neg_len = neg_arbitrary_len s in
+    let dx, _ = Var.binding tw_translate_x_var neg_len in
+    let dy, _ = Var.binding tw_translate_y_var neg_len in
+    let props =
+      collect_property_rules
+        [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
+    in
+    style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
+
+  let neg_translate_full =
+    let dx, _ = Var.binding tw_translate_x_var (Pct (-100.0)) in
+    let dy, _ = Var.binding tw_translate_y_var (Pct (-100.0)) in
+    let props =
+      collect_property_rules
+        [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
+    in
+    style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
+
+  let translate_fraction num denom =
+    let frac_pct = make_fraction_pct num denom in
+    let dx, _ = Var.binding tw_translate_x_var frac_pct in
+    let dy, _ = Var.binding tw_translate_y_var frac_pct in
+    let props =
+      collect_property_rules
+        [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
+    in
+    style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
+
+  let neg_translate_fraction num denom =
+    let neg_frac_pct = make_neg_fraction_pct num denom in
+    let dx, _ = Var.binding tw_translate_x_var neg_frac_pct in
+    let dy, _ = Var.binding tw_translate_y_var neg_frac_pct in
+    let props =
+      collect_property_rules
+        [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
+    in
+    style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
+
+  let neg_translate_x_fraction num denom =
+    let axis_decl, _ =
+      Var.binding tw_translate_x_var (make_neg_fraction_pct num denom)
+    in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  let neg_translate_y_fraction num denom =
+    let axis_decl, _ =
+      Var.binding tw_translate_y_var (make_neg_fraction_pct num denom)
+    in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xy_refs ])
+
+  (* Legacy negative translate utilities for centering - kept for backward
+     compat *)
+  let neg_translate_x_1_2 = neg_translate_x_fraction 1 2
+  let neg_translate_y_1_2 = neg_translate_y_fraction 1 2
 
   (** {1 3D Transform Utilities} *)
 
-  let rotate_x n = style [ Css.transform (Rotate_x (Deg (float_of_int n))) ]
-  let rotate_y n = style [ Css.transform (Rotate_y (Deg (float_of_int n))) ]
-  let rotate_z n = style [ Css.transform (Rotate_z (Deg (float_of_int n))) ]
+  let rotate_x n = transform_with_var tw_rotate_x_var (Rotate_x (make_angle n))
+
+  let rotate_x_arbitrary angle =
+    transform_with_var tw_rotate_x_var (Rotate_x angle)
+
+  let rotate_x_bare_var name =
+    let bare = String.sub name 2 (String.length name - 2) in
+    let ref : Css.angle Css.var = Var.bracket bare in
+    transform_with_var tw_rotate_x_var (Rotate_x (Var ref))
+
+  let neg_rotate_x_bare_var name =
+    let bare = String.sub name 2 (String.length name - 2) in
+    let neg : Css.angle =
+      Calc (Expr (Var (Var.bracket bare), Mul, Num (-1.)))
+    in
+    transform_with_var tw_rotate_x_var (Rotate_x neg)
+
+  let neg_rotate_x_arbitrary angle =
+    let neg : Css.angle = Calc (Expr (Val angle, Mul, Num (-1.))) in
+    transform_with_var tw_rotate_x_var (Rotate_x neg)
+
+  let rotate_y n = transform_with_var tw_rotate_y_var (Rotate_y (make_angle n))
+
+  let rotate_y_arbitrary angle =
+    transform_with_var tw_rotate_y_var (Rotate_y angle)
+
+  let rotate_y_bare_var name =
+    let bare = String.sub name 2 (String.length name - 2) in
+    let ref : Css.angle Css.var = Var.bracket bare in
+    transform_with_var tw_rotate_y_var (Rotate_y (Var ref))
+
+  let neg_rotate_y_bare_var name =
+    let bare = String.sub name 2 (String.length name - 2) in
+    let neg : Css.angle =
+      Calc (Expr (Var (Var.bracket bare), Mul, Num (-1.)))
+    in
+    transform_with_var tw_rotate_y_var (Rotate_y neg)
+
+  let neg_rotate_y_arbitrary angle =
+    let neg : Css.angle = Calc (Expr (Val angle, Mul, Num (-1.))) in
+    transform_with_var tw_rotate_y_var (Rotate_y neg)
+
+  let rotate_z n = transform_with_var tw_rotate_z_var (Rotate_z (make_angle n))
+
+  let rotate_z_arbitrary angle =
+    transform_with_var tw_rotate_z_var (Rotate_z angle)
+
+  let rotate_z_bare_var name =
+    let bare = String.sub name 2 (String.length name - 2) in
+    let ref : Css.angle Css.var = Var.bracket bare in
+    transform_with_var tw_rotate_z_var (Rotate_z (Var ref))
+
+  let neg_rotate_z_bare_var name =
+    let bare = String.sub name 2 (String.length name - 2) in
+    let neg : Css.angle =
+      Calc (Expr (Var (Var.bracket bare), Mul, Num (-1.)))
+    in
+    transform_with_var tw_rotate_z_var (Rotate_z neg)
+
+  let neg_rotate_z_arbitrary angle =
+    let neg : Css.angle = Calc (Expr (Val angle, Mul, Num (-1.))) in
+    transform_with_var tw_rotate_z_var (Rotate_z neg)
 
   let translate_z n =
-    style [ Css.transform (Translate_z (Px (float_of_int n))) ]
+    let spacing_decl, spacing_ref =
+      Var.binding Theme.spacing_var (Css.Rem 0.25)
+    in
+    let spacing_value : Css.length =
+      Css.Calc
+        (Css.Calc.mul
+           (Css.Calc.length (Css.Var spacing_ref))
+           (Css.Calc.float (float_of_int n)))
+    in
+    let axis_decl, _ = Var.binding tw_translate_z_var spacing_value in
+    style ~property_rules:translate_props
+      (spacing_decl :: axis_decl :: [ translate_xyz_refs ])
+
+  let translate_z_px =
+    let axis_decl, _ = Var.binding tw_translate_z_var (Px 1.0) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xyz_refs ])
+
+  let neg_translate_z_arbitrary_style s =
+    let bare_name = Parse.extract_var_name s in
+    let neg_len : Css.length =
+      Calc (Calc.mul (Calc.var bare_name) (Calc.float (-1.)))
+    in
+    let axis_decl, _ = Var.binding tw_translate_z_var neg_len in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xyz_refs ])
+
+  let neg_translate_z_px =
+    let axis_decl, _ = Var.binding tw_translate_z_var (Px (-1.0)) in
+    style ~property_rules:translate_props (axis_decl :: [ translate_xyz_refs ])
+
+  let translate_3d =
+    style ~property_rules:translate_props [ translate_xyz_refs ]
 
   let scale_z n =
-    let value : Css.number_percentage = Css.Pct (float_of_int n) in
+    let value = make_pct n in
     let d, _ = Var.binding tw_scale_z_var value in
-    style (d :: [ Css.transform (Scale_z (float_of_int n /. 100.0)) ])
+    let props =
+      collect_property_rules [ tw_scale_x_var; tw_scale_y_var; tw_scale_z_var ]
+    in
+    let scale_x_ref = Var.reference tw_scale_x_var in
+    let scale_y_ref = Var.reference tw_scale_y_var in
+    let scale_z_ref = Var.reference tw_scale_z_var in
+    style ~property_rules:props
+      (d
+      :: [ Css.scale (XYZ (Var scale_x_ref, Var scale_y_ref, Var scale_z_ref)) ]
+      )
 
-  let perspective_none = style [ Css.perspective None ]
+  let scale_z_arbitrary s =
+    (* Arbitrary values pass through verbatim into [--tw-scale-z], whose
+       [@property] uses [syntax: "*"]. *)
+    let d =
+      Css.custom_property ~layer:"utilities" "--tw-scale-z"
+        (Parse.decode_arbitrary_value s)
+    in
+    let props =
+      collect_property_rules [ tw_scale_x_var; tw_scale_y_var; tw_scale_z_var ]
+    in
+    let scale_x_ref = Var.reference tw_scale_x_var in
+    let scale_y_ref = Var.reference tw_scale_y_var in
+    let scale_z_ref = Var.reference tw_scale_z_var in
+    style ~property_rules:props
+      [ d; Css.scale (XYZ (Var scale_x_ref, Var scale_y_ref, Var scale_z_ref)) ]
+
+  let scale_3d =
+    let props =
+      collect_property_rules [ tw_scale_x_var; tw_scale_y_var; tw_scale_z_var ]
+    in
+    let scale_x_ref = Var.reference tw_scale_x_var in
+    let scale_y_ref = Var.reference tw_scale_y_var in
+    let scale_z_ref = Var.reference tw_scale_z_var in
+    style ~property_rules:props
+      [ Css.scale (XYZ (Var scale_x_ref, Var scale_y_ref, Var scale_z_ref)) ]
+
+  let perspective_none ?theme () =
+    match Scheme.theme_value theme "perspective-none" with
+    | Some value_str ->
+        let len : Css.length =
+          if String.ends_with ~suffix:"px" value_str then
+            let n = String.sub value_str 0 (String.length value_str - 2) in
+            match float_of_string_opt n with Some f -> Px f | None -> Px 0.
+          else Px 0.
+        in
+        let decl, r = Var.binding perspective_none_var len in
+        style (decl :: [ Css.perspective (Var r) ])
+    | None -> style [ Css.perspective None ]
 
   let perspective_dramatic =
     let decl, r = Var.binding perspective_dramatic_var (Px 100.0) in
@@ -299,38 +852,154 @@ module Handler = struct
 
   let perspective_arbitrary len = style [ Css.perspective len ]
 
-  let perspective_origin_center =
-    style [ perspective_origin Css.Perspective_center ]
+  let po_with_ref ?theme name (default : Css.perspective_origin) default_css ()
+      =
+    match Scheme.theme_value theme name with
+    | Some value_str ->
+        let decl = Css.custom_property ~layer:"theme" ("--" ^ name) value_str in
+        let ref : Css.perspective_origin =
+          Var (Var.theme_ref name ~default ~default_css)
+        in
+        let perspective_ref : Css.length =
+          Css.Var
+            (Var.theme_ref name ~default:(Css.Zero : Css.length) ~default_css)
+        in
+        style [ decl; perspective_origin ref; Css.perspective perspective_ref ]
+    | None ->
+        let v : Css.perspective_origin =
+          Var (Var.theme_ref name ~default ~default_css)
+        in
+        let perspective_ref : Css.length =
+          Css.Var
+            (Var.theme_ref name ~default:(Css.Zero : Css.length) ~default_css)
+        in
+        style
+          [
+            perspective_origin v;
+            Css.theme_guarded ~var_name:name (Css.perspective perspective_ref);
+          ]
 
-  let perspective_origin_top = style [ perspective_origin Css.Perspective_top ]
+  let perspective_origin_center ?theme () =
+    po_with_ref ?theme "perspective-origin-center" Center "center" ()
 
-  let perspective_origin_bottom =
-    style [ perspective_origin Css.Perspective_bottom ]
+  let perspective_origin_top ?theme () =
+    po_with_ref ?theme "perspective-origin-top" Top "top" ()
 
-  let perspective_origin_left =
-    style [ perspective_origin Css.Perspective_left ]
+  let perspective_origin_bottom ?theme () =
+    po_with_ref ?theme "perspective-origin-bottom" Bottom "bottom" ()
 
-  let perspective_origin_right =
-    style [ perspective_origin Css.Perspective_right ]
+  let perspective_origin_left ?theme () =
+    po_with_ref ?theme "perspective-origin-left" (Single Zero) "0" ()
+
+  let perspective_origin_right ?theme () =
+    po_with_ref ?theme "perspective-origin-right" (Single (Pct 100.)) "100%" ()
+
+  let perspective_origin_top_left ?theme () =
+    po_with_ref ?theme "perspective-origin-top-left" (XY (Zero, Zero)) "0 0" ()
+
+  let perspective_origin_top_right ?theme () =
+    po_with_ref ?theme "perspective-origin-top-right"
+      (XY (Pct 100., Zero))
+      "100% 0" ()
+
+  let perspective_origin_bottom_left ?theme () =
+    po_with_ref ?theme "perspective-origin-bottom-left"
+      (XY (Zero, Pct 100.))
+      "0 100%" ()
+
+  let perspective_origin_bottom_right ?theme () =
+    po_with_ref ?theme "perspective-origin-bottom-right"
+      (XY (Pct 100., Pct 100.))
+      "100% 100%" ()
+
+  let perspective_origin_arbitrary s =
+    (* Convert underscore to space for arbitrary values like 50px_100px *)
+    let value = String.map (fun c -> if c = '_' then ' ' else c) s in
+    let cursor = Cascade.Cursor.of_string value in
+    match
+      Cascade.Cursor.try_parse_full_err Css.Properties.read_perspective_origin
+        cursor
+    with
+    | Ok po -> style [ perspective_origin po ]
+    | Error _ ->
+        invalid_arg
+          ("perspective-origin-[" ^ s ^ "]: not a valid perspective-origin")
 
   let transform_style_3d = style [ transform_style Preserve_3d ]
   let transform_style_flat = style [ transform_style Flat ]
+  let transform_box_border = style [ Css.transform_box Border_box ]
+  let transform_box_content = style [ Css.transform_box Content_box ]
+  let transform_box_fill = style [ Css.transform_box Fill_box ]
+  let transform_box_stroke = style [ Css.transform_box Stroke_box ]
+  let transform_box_view = style [ Css.transform_box View_box ]
   let backface_visible = style [ backface_visibility Visible ]
   let backface_hidden = style [ backface_visibility Hidden ]
 
-  (** {1 Transform Origin Utilities} *)
+  (** {1 Transform Origin Utilities}
 
-  let origin_center = style [ transform_origin Center ]
-  let origin_top = style [ transform_origin Top ]
-  let origin_bottom = style [ transform_origin Bottom ]
-  let origin_left = style [ transform_origin (X (Pct 0.0)) ]
-  let origin_right = style [ transform_origin (X (Pct 100.0)) ]
-  let origin_top_left = style [ transform_origin (XY (Pct 0.0, Pct 0.0)) ]
-  let origin_top_right = style [ transform_origin (XY (Pct 100.0, Pct 0.0)) ]
-  let origin_bottom_left = style [ transform_origin (XY (Pct 0.0, Pct 100.0)) ]
+      Tailwind v4 uses theme variable references for origin utilities when theme
+      variables are defined. *)
 
-  let origin_bottom_right =
-    style [ transform_origin (XY (Pct 100.0, Pct 100.0)) ]
+  let origin_with_ref ?theme name (default : Css.transform_origin) default_css
+      () =
+    match Scheme.theme_value theme name with
+    | Some value_str ->
+        let decl = Css.custom_property ~layer:"theme" ("--" ^ name) value_str in
+        let ref : Css.transform_origin Css.var =
+          Var.theme_ref name ~default ~default_css
+        in
+        style [ decl; transform_origin (Var ref) ]
+    | None ->
+        let v : Css.transform_origin =
+          Var (Var.theme_ref name ~default ~default_css)
+        in
+        style [ transform_origin v ]
+
+  let origin_center ?theme () =
+    origin_with_ref ?theme "transform-origin-center" Center "center" ()
+
+  let origin_top ?theme () =
+    origin_with_ref ?theme "transform-origin-top" Top "top" ()
+
+  let origin_bottom ?theme () =
+    origin_with_ref ?theme "transform-origin-bottom" Bottom "bottom" ()
+
+  let origin_left ?theme () =
+    origin_with_ref ?theme "transform-origin-left" (X Zero) "0" ()
+
+  let origin_right ?theme () =
+    origin_with_ref ?theme "transform-origin-right" (X (Pct 100.)) "100%" ()
+
+  let origin_top_left ?theme () =
+    origin_with_ref ?theme "transform-origin-top-left"
+      (XY (Zero, Zero))
+      "0 0" ()
+
+  let origin_top_right ?theme () =
+    origin_with_ref ?theme "transform-origin-top-right"
+      (XY (Pct 100., Zero))
+      "100% 0" ()
+
+  let origin_bottom_left ?theme () =
+    origin_with_ref ?theme "transform-origin-bottom-left"
+      (XY (Zero, Pct 100.))
+      "0 100%" ()
+
+  let origin_bottom_right ?theme () =
+    origin_with_ref ?theme "transform-origin-bottom-right"
+      (XY (Pct 100., Pct 100.))
+      "100% 100%" ()
+
+  let origin_arbitrary s =
+    (* Convert underscore to space for arbitrary values like 50px_100px *)
+    let value = String.map (fun c -> if c = '_' then ' ' else c) s in
+    let cursor = Cascade.Cursor.of_string value in
+    match
+      Cascade.Cursor.try_parse_full_err Css.Properties.read_transform_origin
+        cursor
+    with
+    | Ok t -> style [ transform_origin t ]
+    | Error _ -> invalid_arg ("origin-[" ^ s ^ "]: not a valid transform-origin")
 
   (** {1 Transform Control Utilities} *)
 
@@ -437,93 +1106,269 @@ module Handler = struct
 
   (** {1 Utility Conversion Functions} *)
 
-  let to_style = function
+  let to_style theme =
+    let perspective_none () = perspective_none ~theme () in
+    let perspective_origin_center () = perspective_origin_center ~theme () in
+    let perspective_origin_top () = perspective_origin_top ~theme () in
+    let perspective_origin_bottom () = perspective_origin_bottom ~theme () in
+    let perspective_origin_left () = perspective_origin_left ~theme () in
+    let perspective_origin_right () = perspective_origin_right ~theme () in
+    let perspective_origin_top_left () =
+      perspective_origin_top_left ~theme ()
+    in
+    let perspective_origin_top_right () =
+      perspective_origin_top_right ~theme ()
+    in
+    let perspective_origin_bottom_left () =
+      perspective_origin_bottom_left ~theme ()
+    in
+    let perspective_origin_bottom_right () =
+      perspective_origin_bottom_right ~theme ()
+    in
+    let origin_center () = origin_center ~theme () in
+    let origin_top () = origin_top ~theme () in
+    let origin_bottom () = origin_bottom ~theme () in
+    let origin_left () = origin_left ~theme () in
+    let origin_right () = origin_right ~theme () in
+    let origin_top_left () = origin_top_left ~theme () in
+    let origin_top_right () = origin_top_right ~theme () in
+    let origin_bottom_left () = origin_bottom_left ~theme () in
+    let origin_bottom_right () = origin_bottom_right ~theme () in
+    function
     | Rotate n -> rotate n
+    | Rotate_arbitrary a -> rotate_arbitrary a
+    | Rotate_3d_arbitrary (x, y, z, a) -> rotate_3d_arbitrary x y z a
+    | Rotate_bare_var name -> rotate_bare_var name
+    | Neg_rotate_bare_var name -> neg_rotate_bare_var name
+    | Neg_rotate_arbitrary a -> neg_rotate_arbitrary a
     | Translate_x n -> translate_x n
+    | Translate_x_full -> translate_x_full
+    | Translate_x_px -> translate_x_px
+    | Translate_x_arbitrary len -> translate_x_arbitrary len
+    | Translate_x_fraction (num, denom) -> translate_x_fraction num denom
     | Translate_y n -> translate_y n
+    | Translate_y_full -> translate_y_full
+    | Translate_y_px -> translate_y_px
+    | Translate_y_arbitrary len -> translate_y_arbitrary len
+    | Translate_y_fraction (num, denom) -> translate_y_fraction num denom
     | Translate_full -> translate_full
+    | Translate_px -> translate_px
     | Translate_1_2 -> translate_1_2
+    | Translate_fraction (num, denom) -> translate_fraction num denom
+    | Translate_arbitrary len -> translate_arbitrary len
+    | Neg_translate_arbitrary s -> neg_translate_arbitrary_style s
+    | Neg_translate_full -> neg_translate_full
+    | Neg_translate_px -> neg_translate_px
+    | Neg_translate_x_px -> neg_translate_x_px
+    | Neg_translate_y_px -> neg_translate_y_px
+    | Neg_translate_fraction (num, denom) -> neg_translate_fraction num denom
+    | Neg_translate_x_arbitrary s -> neg_translate_x_arbitrary_style s
+    | Neg_translate_x_full -> neg_translate_x_full
     | Neg_translate_x_1_2 -> neg_translate_x_1_2
+    | Neg_translate_x_fraction (num, denom) ->
+        neg_translate_x_fraction num denom
+    | Neg_translate_y_arbitrary s -> neg_translate_y_arbitrary_style s
+    | Neg_translate_y_full -> neg_translate_y_full
     | Neg_translate_y_1_2 -> neg_translate_y_1_2
+    | Neg_translate_y_fraction (num, denom) ->
+        neg_translate_y_fraction num denom
     | Translate_z n -> translate_z n
+    | Translate_z_px -> translate_z_px
+    | Neg_translate_z_arbitrary s -> neg_translate_z_arbitrary_style s
+    | Neg_translate_z_px -> neg_translate_z_px
+    | Translate_3d -> translate_3d
     | Scale n -> scale n
     | Scale_x n -> scale_x n
+    | Scale_x_arbitrary f -> scale_x_arbitrary f
     | Scale_y n -> scale_y n
+    | Scale_y_arbitrary f -> scale_y_arbitrary f
+    | Scale_raw_1 f -> style [ Css.scale (X (Num f)) ]
+    | Scale_raw_3 (x, y, z) -> style [ Css.scale (XYZ (Num x, Num y, Num z)) ]
     | Scale_z n -> scale_z n
+    | Scale_z_arbitrary s -> scale_z_arbitrary s
+    | Scale_3d -> scale_3d
     | Skew_x n -> skew_x n
+    | Skew_x_arbitrary a -> skew_x_arbitrary a
     | Skew_y n -> skew_y n
+    | Skew_y_arbitrary a -> skew_y_arbitrary a
+    | Skew n -> transform_with_both_skew n
+    | Skew_arbitrary a -> transform_with_both_skew_angle a
     | Rotate_x n -> rotate_x n
+    | Rotate_x_arbitrary a -> rotate_x_arbitrary a
+    | Rotate_x_bare_var name -> rotate_x_bare_var name
+    | Neg_rotate_x_bare_var name -> neg_rotate_x_bare_var name
+    | Neg_rotate_x_arbitrary a -> neg_rotate_x_arbitrary a
     | Rotate_y n -> rotate_y n
+    | Rotate_y_arbitrary a -> rotate_y_arbitrary a
+    | Rotate_y_bare_var name -> rotate_y_bare_var name
+    | Neg_rotate_y_bare_var name -> neg_rotate_y_bare_var name
+    | Neg_rotate_y_arbitrary a -> neg_rotate_y_arbitrary a
     | Rotate_z n -> rotate_z n
-    | Perspective_none -> perspective_none
+    | Rotate_z_arbitrary a -> rotate_z_arbitrary a
+    | Rotate_z_bare_var name -> rotate_z_bare_var name
+    | Neg_rotate_z_bare_var name -> neg_rotate_z_bare_var name
+    | Neg_rotate_z_arbitrary a -> neg_rotate_z_arbitrary a
+    | Perspective_none -> perspective_none ()
     | Perspective_dramatic -> perspective_dramatic
     | Perspective_normal -> perspective_normal
     | Perspective_arbitrary len -> perspective_arbitrary len
-    | Perspective_origin_center -> perspective_origin_center
-    | Perspective_origin_top -> perspective_origin_top
-    | Perspective_origin_bottom -> perspective_origin_bottom
-    | Perspective_origin_left -> perspective_origin_left
-    | Perspective_origin_right -> perspective_origin_right
+    | Perspective_origin_center -> perspective_origin_center ()
+    | Perspective_origin_top -> perspective_origin_top ()
+    | Perspective_origin_bottom -> perspective_origin_bottom ()
+    | Perspective_origin_left -> perspective_origin_left ()
+    | Perspective_origin_right -> perspective_origin_right ()
+    | Perspective_origin_top_left -> perspective_origin_top_left ()
+    | Perspective_origin_top_right -> perspective_origin_top_right ()
+    | Perspective_origin_bottom_left -> perspective_origin_bottom_left ()
+    | Perspective_origin_bottom_right -> perspective_origin_bottom_right ()
+    | Perspective_origin_arbitrary s -> perspective_origin_arbitrary s
     | Transform_style_3d -> transform_style_3d
     | Transform_style_flat -> transform_style_flat
+    | Transform_box_border -> transform_box_border
+    | Transform_box_content -> transform_box_content
+    | Transform_box_fill -> transform_box_fill
+    | Transform_box_stroke -> transform_box_stroke
+    | Transform_box_view -> transform_box_view
     | Backface_visible -> backface_visible
     | Backface_hidden -> backface_hidden
     | Transform -> transform
     | Transform_cpu -> transform_cpu
     | Transform_none -> transform_none
     | Transform_gpu -> transform_gpu
-    | Origin_center -> origin_center
-    | Origin_top -> origin_top
-    | Origin_bottom -> origin_bottom
-    | Origin_left -> origin_left
-    | Origin_right -> origin_right
-    | Origin_top_left -> origin_top_left
-    | Origin_top_right -> origin_top_right
-    | Origin_bottom_left -> origin_bottom_left
-    | Origin_bottom_right -> origin_bottom_right
+    | Transform_arbitrary s -> (
+        let value = String.map (fun c -> if c = '_' then ' ' else c) s in
+        let cursor = Cascade.Cursor.of_string value in
+        match
+          Cascade.Cursor.try_parse_full_err Css.Properties.read_transforms
+            cursor
+        with
+        | Ok ts -> style [ transforms ts ]
+        | Error _ ->
+            invalid_arg ("transform-[" ^ s ^ "]: not a valid transform list"))
+    | Origin_center -> origin_center ()
+    | Origin_top -> origin_top ()
+    | Origin_bottom -> origin_bottom ()
+    | Origin_left -> origin_left ()
+    | Origin_right -> origin_right ()
+    | Origin_top_left -> origin_top_left ()
+    | Origin_top_right -> origin_top_right ()
+    | Origin_bottom_left -> origin_bottom_left ()
+    | Origin_bottom_right -> origin_bottom_right ()
+    | Origin_arbitrary s -> origin_arbitrary s
 
   let suborder = function
     | Transform -> 2000
-    | Transform_cpu -> 2001
-    | Transform_gpu -> 2002
-    | Transform_none -> 2003
-    (* Combined translate utilities - alphabetical: 1/2 before full *)
-    | Translate_1_2 -> 90
+    | Transform_arbitrary _ -> 2001
+    | Transform_cpu -> 2002
+    | Transform_gpu -> 2003
+    | Transform_none -> 2004
+    (* Combined translate utilities: negative first, then positive *)
+    | Neg_translate_arbitrary _ -> 85
+    | Neg_translate_full -> 86
+    | Neg_translate_px -> 86
+    | Neg_translate_x_px -> 86
+    | Neg_translate_y_px -> 86
+    | Neg_translate_fraction _ -> 86
+    | Translate_1_2 -> 87
+    | Translate_fraction _ -> 87
+    | Translate_arbitrary _ -> 89
     | Translate_full -> 91
+    | Translate_px -> 91
     (* Translate utilities come first *)
-    | Translate_x n -> 100 + n
-    | Neg_translate_x_1_2 -> 150
-    | Translate_y n -> 200 + n
-    | Neg_translate_y_1_2 -> 250
-    | Translate_z n -> 300 + n
+    | Neg_translate_x_arbitrary _ -> 100
+    | Neg_translate_x_full -> 101
+    | Neg_translate_x_1_2 -> 102
+    | Neg_translate_x_fraction _ -> 102
+    | Translate_x n -> 110 + n
+    | Translate_x_fraction _ -> 125
+    | Translate_x_full -> 130
+    | Translate_x_px -> 131
+    | Translate_x_arbitrary _ -> 199
+    | Neg_translate_y_arbitrary _ -> 200
+    | Neg_translate_y_full -> 201
+    | Neg_translate_y_1_2 -> 202
+    | Neg_translate_y_fraction _ -> 202
+    | Translate_y n -> 210 + n
+    | Translate_y_fraction _ -> 225
+    | Translate_y_full -> 230
+    | Translate_y_px -> 231
+    | Translate_y_arbitrary _ -> 299
+    | Neg_translate_z_arbitrary _ -> 299
+    | Neg_translate_z_px -> 300
+    | Translate_z n -> 301 + n
+    | Translate_z_px -> 320
+    | Translate_3d -> 320
     (* Scale utilities *)
     | Scale n -> 400 + n
     | Scale_x n -> 500 + n
+    | Scale_x_arbitrary _ -> 599
     | Scale_y n -> 600 + n
+    | Scale_y_arbitrary _ -> 699
+    | Scale_raw_1 _ -> 498
+    | Scale_raw_3 _ -> 499
     | Scale_z n -> 700 + n
-    (* Rotate utilities *)
-    | Rotate n -> 800 + n
-    | Rotate_x n -> 900 + n
-    | Rotate_y n -> 1000 + n
-    | Rotate_z n -> 1100 + n
+    | Scale_z_arbitrary _ -> 799
+    | Scale_3d -> 750
+    (* Rotate utilities - negative before positive, bare var before int/arb *)
+    | Neg_rotate_bare_var _ -> 750
+    | Neg_rotate_arbitrary _ -> 799
+    | Rotate_bare_var _ -> 800
+    | Rotate n -> 801 + n
+    (* An arbitrary rotate sorts after every named rotate ('[' > any digit), so
+       it must sit past the largest [Rotate n] (rotate-180 -> 801 + 180 = 981),
+       not mid-range. *)
+    | Rotate_3d_arbitrary _ -> 982
+    | Rotate_arbitrary _ -> 983
+    | Neg_rotate_x_bare_var _ -> 900
+    | Neg_rotate_x_arbitrary _ -> 949
+    | Rotate_x_bare_var _ -> 950
+    | Rotate_x n -> 951 + n
+    | Rotate_x_arbitrary _ -> 999
+    | Neg_rotate_y_bare_var _ -> 1000
+    | Neg_rotate_y_arbitrary _ -> 1049
+    | Rotate_y_bare_var _ -> 1050
+    | Rotate_y n -> 1051 + n
+    | Rotate_y_arbitrary _ -> 1099
+    | Neg_rotate_z_bare_var _ -> 1100
+    | Neg_rotate_z_arbitrary _ -> 1149
+    | Rotate_z_bare_var _ -> 1150
+    | Rotate_z n -> 1151 + n
+    | Rotate_z_arbitrary _ -> 1199
     (* Skew utilities *)
     | Skew_x n -> 1200 + n
+    | Skew_x_arbitrary _ -> 1299
     | Skew_y n -> 1300 + n
+    | Skew_y_arbitrary _ -> 1398
+    | Skew n -> 1200 + n (* Combined skew, same order as skew-x *)
+    | Skew_arbitrary _ -> 1250
     (* Other transform utilities - arbitrary before named (alphabetical by
        class) *)
-    | Perspective_arbitrary _ -> 1399
+    | Perspective_arbitrary _ -> 1400
     | Perspective_dramatic -> 1400
     | Perspective_none -> 1401
     | Perspective_normal -> 1402
-    | Perspective_origin_center -> 1500
-    | Perspective_origin_top -> 1501
-    | Perspective_origin_bottom -> 1502
-    | Perspective_origin_left -> 1503
-    | Perspective_origin_right -> 1504
-    | Transform_style_3d -> 1600
-    | Transform_style_flat -> 1601
-    | Backface_visible -> 1602
-    | Backface_hidden -> 1603
+    | Perspective_origin_arbitrary _ -> 1499
+    | Perspective_origin_bottom -> 1500
+    | Perspective_origin_bottom_left -> 1501
+    | Perspective_origin_bottom_right -> 1502
+    | Perspective_origin_center -> 1503
+    | Perspective_origin_left -> 1504
+    | Perspective_origin_right -> 1505
+    | Perspective_origin_top -> 1506
+    | Perspective_origin_top_left -> 1507
+    | Perspective_origin_top_right -> 1508
+    (* Alphabetical by class name: backface-hidden, backface-visible,
+       transform-3d, transform-border, ..., transform-flat, ...,
+       transform-view *)
+    | Backface_hidden -> 1600
+    | Backface_visible -> 1601
+    | Transform_style_3d -> 1602
+    | Transform_box_border -> 1603
+    | Transform_box_content -> 1604
+    | Transform_box_fill -> 1605
+    | Transform_style_flat -> 1606
+    | Transform_box_stroke -> 1607
+    | Transform_box_view -> 1608
     (* Transform origin - alphabetical: bottom, bottom-left, bottom-right,
        center, left, right, top, top-left, top-right *)
     | Origin_bottom -> 1700
@@ -535,36 +1380,253 @@ module Handler = struct
     | Origin_top -> 1706
     | Origin_top_left -> 1707
     | Origin_top_right -> 1708
+    | Origin_arbitrary _ -> 1699
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  (** Parse a fraction string like "1/2", "2/3", etc. Returns (numerator,
+      denominator) or None. *)
+  let parse_fraction s =
+    match String.split_on_char '/' s with
+    | [ num_s; denom_s ] -> (
+        match (int_of_string_opt num_s, int_of_string_opt denom_s) with
+        | Some num, Some denom when num > 0 && denom > 0 -> Some (num, denom)
+        | _ -> None)
+    | _ -> None
+
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
+    | [ "rotate"; n ] when Parse.is_bare_var n ->
+        Ok (Rotate_bare_var (Parse.bare_var_inner n))
+    | [ "rotate"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        let inner = String.sub n 1 (String.length n - 2) in
+        (* Check for 3D rotation: x y z angle (underscores as spaces) *)
+        let inner_spaced =
+          String.map (fun c -> if c = '_' then ' ' else c) inner
+        in
+        let parts_3d = String.split_on_char ' ' inner_spaced in
+        match parts_3d with
+        | [ x; y; z; a ] -> (
+            match
+              ( Float.of_string_opt x,
+                Float.of_string_opt y,
+                Float.of_string_opt z,
+                parse_bracket_angle ("[" ^ a ^ "]") )
+            with
+            | Some fx, Some fy, Some fz, Ok angle ->
+                Ok (Rotate_3d_arbitrary (fx, fy, fz, angle))
+            | _ -> (
+                match parse_bracket_angle n with
+                | Ok a -> Ok (Rotate_arbitrary a)
+                | Error _ -> err_not_utility))
+        | _ -> (
+            match parse_bracket_angle n with
+            | Ok a -> Ok (Rotate_arbitrary a)
+            | Error _ -> err_not_utility))
     | [ "rotate"; n ] -> Parse.int_any n >|= fun n -> Rotate n
+    | [ "translate"; "x"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_length n with
+        | Ok len -> Ok (Translate_x_arbitrary len)
+        | Error _ -> err_not_utility)
+    | [ "translate"; "x"; "full" ] -> Ok Translate_x_full
+    | [ "translate"; "x"; "px" ] -> Ok Translate_x_px
+    | [ "translate"; "x"; n ] when String.contains n '/' -> (
+        match parse_fraction n with
+        | Some (num, denom) -> Ok (Translate_x_fraction (num, denom))
+        | None -> err_not_utility)
     | [ "translate"; "x"; n ] -> Parse.int_any n >|= fun n -> Translate_x n
+    | [ "translate"; "y"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_length n with
+        | Ok len -> Ok (Translate_y_arbitrary len)
+        | Error _ -> err_not_utility)
+    | [ "translate"; "y"; "full" ] -> Ok Translate_y_full
+    | [ "translate"; "y"; "px" ] -> Ok Translate_y_px
+    | [ "translate"; "y"; n ] when String.contains n '/' -> (
+        match parse_fraction n with
+        | Some (num, denom) -> Ok (Translate_y_fraction (num, denom))
+        | None -> err_not_utility)
     | [ "translate"; "y"; n ] -> Parse.int_any n >|= fun n -> Translate_y n
+    | [ "translate"; "z"; "px" ] -> Ok Translate_z_px
     | [ "translate"; "z"; n ] -> Parse.int_any n >|= fun n -> Translate_z n
     | [ "translate"; "full" ] -> Ok Translate_full
+    | [ "translate"; "px" ] -> Ok Translate_px
     | [ "translate"; "1/2" ] -> Ok Translate_1_2
+    | [ "translate"; n ] when String.contains n '/' -> (
+        match parse_fraction n with
+        | Some (num, denom) -> Ok (Translate_fraction (num, denom))
+        | None -> err_not_utility)
+    | [ "translate"; "3d" ] -> Ok Translate_3d
+    | "translate" :: rest
+      when match rest with
+           | [] | [ "x"; _ ] | [ "y"; _ ] | [ "z"; _ ] | [ "full" ] | [ "1/2" ]
+             ->
+               false
+           | [ n ] when String.contains n '/' -> false
+           | _ -> true -> (
+        let value = String.concat "-" rest in
+        match parse_bracket_length value with
+        | Ok len -> Ok (Translate_arbitrary len)
+        | Error _ -> err_not_utility)
     (* Negative translate utilities: -translate-x-N, -translate-y-N,
        -translate-z-N Split by '-' gives [""; "translate"; axis; n] *)
+    | [ ""; "translate"; value ] when Parse.is_bracket_value value ->
+        let inner = Parse.bracket_inner value in
+        Ok (Neg_translate_arbitrary inner)
+    | [ ""; "translate"; "full" ] -> Ok Neg_translate_full
+    | [ ""; "translate"; "px" ] -> Ok Neg_translate_px
+    | [ ""; "translate"; n ] when String.contains n '/' -> (
+        match parse_fraction n with
+        | Some (num, denom) -> Ok (Neg_translate_fraction (num, denom))
+        | None -> err_not_utility)
+    | [ ""; "translate"; "x"; value ] when Parse.is_bracket_value value ->
+        let inner = Parse.bracket_inner value in
+        Ok (Neg_translate_x_arbitrary inner)
+    | [ ""; "translate"; "x"; "full" ] -> Ok Neg_translate_x_full
+    | [ ""; "translate"; "x"; "px" ] -> Ok Neg_translate_x_px
+    | [ ""; "translate"; "x"; n ] when String.contains n '/' -> (
+        match parse_fraction n with
+        | Some (num, denom) -> Ok (Neg_translate_x_fraction (num, denom))
+        | None -> err_not_utility)
     | [ ""; "translate"; "x"; n ] ->
         Parse.int_pos ~name:"translate-x" n >|= fun n -> Translate_x (-n)
+    | [ ""; "translate"; "y"; value ] when Parse.is_bracket_value value ->
+        let inner = Parse.bracket_inner value in
+        Ok (Neg_translate_y_arbitrary inner)
+    | [ ""; "translate"; "y"; "full" ] -> Ok Neg_translate_y_full
+    | [ ""; "translate"; "y"; "px" ] -> Ok Neg_translate_y_px
+    | [ ""; "translate"; "y"; n ] when String.contains n '/' -> (
+        match parse_fraction n with
+        | Some (num, denom) -> Ok (Neg_translate_y_fraction (num, denom))
+        | None -> err_not_utility)
     | [ ""; "translate"; "y"; n ] ->
         Parse.int_pos ~name:"translate-y" n >|= fun n -> Translate_y (-n)
+    | [ ""; "translate"; "z"; value ] when Parse.is_bracket_value value ->
+        let inner = Parse.bracket_inner value in
+        Ok (Neg_translate_z_arbitrary inner)
+    | [ ""; "translate"; "z"; "px" ] -> Ok Neg_translate_z_px
     | [ ""; "translate"; "z"; n ] ->
         Parse.int_pos ~name:"translate-z" n >|= fun n -> Translate_z (-n)
+    | [ "scale"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        let inner = String.sub n 1 (String.length n - 2) in
+        (* Check for multi-value: x_y_z *)
+        let parts =
+          String.split_on_char '_' inner |> List.filter (fun s -> s <> "")
+        in
+        match parts with
+        | [ x; y; z ] -> (
+            match
+              ( Float.of_string_opt x,
+                Float.of_string_opt y,
+                Float.of_string_opt z )
+            with
+            | Some fx, Some fy, Some fz -> Ok (Scale_raw_3 (fx, fy, fz))
+            | _ -> err_not_utility)
+        | [ _ ] -> (
+            match Float.of_string_opt inner with
+            | Some f -> Ok (Scale_raw_1 f)
+            | None -> err_not_utility)
+        | _ -> err_not_utility)
+    | [ "scale"; "3d" ] -> Ok Scale_3d
     | [ "scale"; n ] -> Parse.int_pos ~name:"scale" n >|= fun n -> Scale n
+    | [ "scale"; "x"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_number n with
+        | Ok f -> Ok (Scale_x_arbitrary f)
+        | Error _ -> err_not_utility)
     | [ "scale"; "x"; n ] ->
         Parse.int_pos ~name:"scale-x" n >|= fun n -> Scale_x n
+    | [ "scale"; "y"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_number n with
+        | Ok f -> Ok (Scale_y_arbitrary f)
+        | Error _ -> err_not_utility)
     | [ "scale"; "y"; n ] ->
         Parse.int_pos ~name:"scale-y" n >|= fun n -> Scale_y n
+    | [ "scale"; "z"; n ] when Parse.is_bracket_value n ->
+        Ok (Scale_z_arbitrary (Parse.bracket_inner n))
     | [ "scale"; "z"; n ] ->
         Parse.int_pos ~name:"scale-z" n >|= fun n -> Scale_z n
+    | [ "skew"; "x"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Skew_x_arbitrary a)
+        | Error _ -> err_not_utility)
     | [ "skew"; "x"; n ] -> Parse.int_any n >|= fun n -> Skew_x n
+    | [ "skew"; "y"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Skew_y_arbitrary a)
+        | Error _ -> err_not_utility)
     | [ "skew"; "y"; n ] -> Parse.int_any n >|= fun n -> Skew_y n
+    | [ "skew"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Skew_arbitrary a)
+        | Error _ -> err_not_utility)
+    | [ "skew"; n ] -> Parse.int_any n >|= fun n -> Skew n
+    | [ "rotate"; "x"; n ] when Parse.is_bare_var n ->
+        Ok (Rotate_x_bare_var (Parse.bare_var_inner n))
+    | [ "rotate"; "x"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Rotate_x_arbitrary a)
+        | Error _ -> err_not_utility)
     | [ "rotate"; "x"; n ] -> Parse.int_any n >|= fun n -> Rotate_x n
+    | [ "rotate"; "y"; n ] when Parse.is_bare_var n ->
+        Ok (Rotate_y_bare_var (Parse.bare_var_inner n))
+    | [ "rotate"; "y"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Rotate_y_arbitrary a)
+        | Error _ -> err_not_utility)
     | [ "rotate"; "y"; n ] -> Parse.int_any n >|= fun n -> Rotate_y n
+    | [ "rotate"; "z"; n ] when Parse.is_bare_var n ->
+        Ok (Rotate_z_bare_var (Parse.bare_var_inner n))
+    | [ "rotate"; "z"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Rotate_z_arbitrary a)
+        | Error _ -> err_not_utility)
     | [ "rotate"; "z"; n ] -> Parse.int_any n >|= fun n -> Rotate_z n
+    (* Negative rotate: -rotate-N, -rotate-(--var), -rotate-[123deg] *)
+    | [ ""; "rotate"; n ] when Parse.is_bare_var n ->
+        Ok (Neg_rotate_bare_var (Parse.bare_var_inner n))
+    | [ ""; "rotate"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Neg_rotate_arbitrary a)
+        | Error _ -> err_not_utility)
+    | [ ""; "rotate"; n ] ->
+        Parse.int_pos ~name:"rotate" n >|= fun n -> Rotate (-n)
+    | [ ""; "rotate"; "x"; n ] when Parse.is_bare_var n ->
+        Ok (Neg_rotate_x_bare_var (Parse.bare_var_inner n))
+    | [ ""; "rotate"; "x"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Neg_rotate_x_arbitrary a)
+        | Error _ -> err_not_utility)
+    | [ ""; "rotate"; "x"; n ] ->
+        Parse.int_pos ~name:"rotate-x" n >|= fun n -> Rotate_x (-n)
+    | [ ""; "rotate"; "y"; n ] when Parse.is_bare_var n ->
+        Ok (Neg_rotate_y_bare_var (Parse.bare_var_inner n))
+    | [ ""; "rotate"; "y"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Neg_rotate_y_arbitrary a)
+        | Error _ -> err_not_utility)
+    | [ ""; "rotate"; "y"; n ] ->
+        Parse.int_pos ~name:"rotate-y" n >|= fun n -> Rotate_y (-n)
+    | [ ""; "rotate"; "z"; n ] when Parse.is_bare_var n ->
+        Ok (Neg_rotate_z_bare_var (Parse.bare_var_inner n))
+    | [ ""; "rotate"; "z"; n ] when String.length n > 0 && n.[0] = '[' -> (
+        match parse_bracket_angle n with
+        | Ok a -> Ok (Neg_rotate_z_arbitrary a)
+        | Error _ -> err_not_utility)
+    | [ ""; "rotate"; "z"; n ] ->
+        Parse.int_pos ~name:"rotate-z" n >|= fun n -> Rotate_z (-n)
+    (* Negative scale: -scale-N *)
+    | [ ""; "scale"; n ] ->
+        Parse.int_pos ~name:"scale" n >|= fun n -> Scale (-n)
+    | [ ""; "scale"; "x"; n ] ->
+        Parse.int_pos ~name:"scale-x" n >|= fun n -> Scale_x (-n)
+    | [ ""; "scale"; "y"; n ] ->
+        Parse.int_pos ~name:"scale-y" n >|= fun n -> Scale_y (-n)
+    | [ ""; "scale"; "z"; n ] ->
+        Parse.int_pos ~name:"scale-z" n >|= fun n -> Scale_z (-n)
+    (* Negative skew: -skew-N, -skew-x-N, -skew-y-N *)
+    | [ ""; "skew"; "x"; n ] ->
+        Parse.int_pos ~name:"skew-x" n >|= fun n -> Skew_x (-n)
+    | [ ""; "skew"; "y"; n ] ->
+        Parse.int_pos ~name:"skew-y" n >|= fun n -> Skew_y (-n)
+    | [ ""; "skew"; n ] -> Parse.int_pos ~name:"skew" n >|= fun n -> Skew (-n)
     | [ "perspective"; "none" ] -> Ok Perspective_none
     | [ "perspective"; "dramatic" ] -> Ok Perspective_dramatic
     | [ "perspective"; "normal" ] -> Ok Perspective_normal
@@ -579,8 +1641,36 @@ module Handler = struct
     | [ "perspective"; "origin"; "bottom" ] -> Ok Perspective_origin_bottom
     | [ "perspective"; "origin"; "left" ] -> Ok Perspective_origin_left
     | [ "perspective"; "origin"; "right" ] -> Ok Perspective_origin_right
+    | [ "perspective"; "origin"; "top"; "left" ] ->
+        Ok Perspective_origin_top_left
+    | [ "perspective"; "origin"; "top"; "right" ] ->
+        Ok Perspective_origin_top_right
+    | [ "perspective"; "origin"; "bottom"; "left" ] ->
+        Ok Perspective_origin_bottom_left
+    | [ "perspective"; "origin"; "bottom"; "right" ] ->
+        Ok Perspective_origin_bottom_right
+    | "perspective" :: "origin" :: rest when List.length rest > 0 ->
+        let value = String.concat "-" rest in
+        let len = String.length value in
+        if len > 2 && value.[0] = '[' && value.[len - 1] = ']' then
+          let inner = String.sub value 1 (len - 2) in
+          (* Convert underscores to spaces *)
+          let inner = String.map (fun c -> if c = '_' then ' ' else c) inner in
+          Ok (Perspective_origin_arbitrary inner)
+        else err_not_utility
     | [ "transform"; "style"; "3d" ] -> Ok Transform_style_3d
     | [ "transform"; "style"; "flat" ] -> Ok Transform_style_flat
+    | [ "transform"; "3d" ] -> Ok Transform_style_3d
+    | [ "transform"; "flat" ] -> Ok Transform_style_flat
+    | [ "backface"; "hidden" ] -> Ok Backface_hidden
+    | [ "backface"; "visible" ] -> Ok Backface_visible
+    | [ "transform"; "border" ] -> Ok Transform_box_border
+    | [ "transform"; "content" ] -> Ok Transform_box_content
+    | [ "transform"; "fill" ] -> Ok Transform_box_fill
+    | [ "transform"; "stroke" ] -> Ok Transform_box_stroke
+    | [ "transform"; "view" ] -> Ok Transform_box_view
+    | [ "transform"; value ] when Parse.is_bracket_value value ->
+        Ok (Transform_arbitrary (Parse.bracket_inner value))
     | [ "transform" ] -> Ok Transform
     | [ "transform"; "cpu" ] -> Ok Transform_cpu
     | [ "transform"; "none" ] -> Ok Transform_none
@@ -594,26 +1684,131 @@ module Handler = struct
     | [ "origin"; "top"; "right" ] -> Ok Origin_top_right
     | [ "origin"; "bottom"; "left" ] -> Ok Origin_bottom_left
     | [ "origin"; "bottom"; "right" ] -> Ok Origin_bottom_right
+    | "origin" :: rest when List.length rest > 0 ->
+        let value = String.concat "-" rest in
+        let len = String.length value in
+        if len > 2 && value.[0] = '[' && value.[len - 1] = ']' then
+          let inner = String.sub value 1 (len - 2) in
+          (* Convert underscores to spaces *)
+          let inner = String.map (fun c -> if c = '_' then ' ' else c) inner in
+          Ok (Origin_arbitrary inner)
+        else err_not_utility
     | _ -> err_not_utility
 
+  let pp_angle_bracket a = "[" ^ Css.Pp.to_string Css.pp_angle a ^ "]"
+
+  let pp_length_bracket len =
+    "[" ^ Css.Pp.to_string (pp_length ~always:true) len ^ "]"
+
+  let pp_number_bracket f =
+    let s = string_of_float f in
+    let s =
+      if String.ends_with ~suffix:"." s then String.sub s 0 (String.length s - 1)
+      else s
+    in
+    "[" ^ s ^ "]"
+
   let to_class = function
-    | Rotate n -> "rotate-" ^ string_of_int n
+    | Rotate n -> neg_class "rotate-" n
+    | Rotate_arbitrary a -> "rotate-" ^ pp_angle_bracket a
+    | Rotate_3d_arbitrary (x, y, z, a) ->
+        let pp f =
+          let s = string_of_float f in
+          if String.ends_with ~suffix:"." s then
+            String.sub s 0 (String.length s - 1)
+          else s
+        in
+        "rotate-[" ^ pp x ^ "_" ^ pp y ^ "_" ^ pp z ^ "_"
+        ^ Css.Pp.to_string Css.pp_angle a
+        ^ "]"
+    | Rotate_bare_var name -> "rotate-(" ^ name ^ ")"
+    | Neg_rotate_bare_var name -> "-rotate-(" ^ name ^ ")"
+    | Neg_rotate_arbitrary a -> "-rotate-" ^ pp_angle_bracket a
     | Translate_x n -> neg_class "translate-x-" n
+    | Translate_x_full -> "translate-x-full"
+    | Translate_x_px -> "translate-x-px"
+    | Translate_x_arbitrary len -> "translate-x-" ^ pp_length_bracket len
+    | Translate_x_fraction (num, denom) ->
+        "translate-x-" ^ string_of_int num ^ "/" ^ string_of_int denom
     | Translate_y n -> neg_class "translate-y-" n
+    | Translate_y_full -> "translate-y-full"
+    | Translate_y_px -> "translate-y-px"
+    | Translate_y_arbitrary len -> "translate-y-" ^ pp_length_bracket len
+    | Translate_y_fraction (num, denom) ->
+        "translate-y-" ^ string_of_int num ^ "/" ^ string_of_int denom
     | Translate_z n -> neg_class "translate-z-" n
+    | Translate_z_px -> "translate-z-px"
+    | Neg_translate_z_arbitrary s -> "-translate-z-[" ^ s ^ "]"
+    | Neg_translate_z_px -> "-translate-z-px"
+    | Translate_3d -> "translate-3d"
     | Translate_full -> "translate-full"
+    | Translate_px -> "translate-px"
     | Translate_1_2 -> "translate-1/2"
+    | Translate_fraction (num, denom) ->
+        "translate-" ^ string_of_int num ^ "/" ^ string_of_int denom
+    | Translate_arbitrary len -> "translate-" ^ pp_length_bracket len
+    | Neg_translate_arbitrary s -> "-translate-[" ^ s ^ "]"
+    | Neg_translate_full -> "-translate-full"
+    | Neg_translate_px -> "-translate-px"
+    | Neg_translate_x_px -> "-translate-x-px"
+    | Neg_translate_y_px -> "-translate-y-px"
+    | Neg_translate_fraction (num, denom) ->
+        "-translate-" ^ string_of_int num ^ "/" ^ string_of_int denom
+    | Neg_translate_x_arbitrary s -> "-translate-x-[" ^ s ^ "]"
+    | Neg_translate_x_full -> "-translate-x-full"
     | Neg_translate_x_1_2 -> "-translate-x-1/2"
+    | Neg_translate_x_fraction (num, denom) ->
+        "-translate-x-" ^ string_of_int num ^ "/" ^ string_of_int denom
+    | Neg_translate_y_arbitrary s -> "-translate-y-[" ^ s ^ "]"
+    | Neg_translate_y_full -> "-translate-y-full"
     | Neg_translate_y_1_2 -> "-translate-y-1/2"
-    | Scale n -> "scale-" ^ string_of_int n
-    | Scale_x n -> "scale-x-" ^ string_of_int n
-    | Scale_y n -> "scale-y-" ^ string_of_int n
-    | Scale_z n -> "scale-z-" ^ string_of_int n
+    | Neg_translate_y_fraction (num, denom) ->
+        "-translate-y-" ^ string_of_int num ^ "/" ^ string_of_int denom
+    | Scale n -> neg_class "scale-" n
+    | Scale_x n -> neg_class "scale-x-" n
+    | Scale_x_arbitrary f -> "scale-x-" ^ pp_number_bracket f
+    | Scale_y n -> neg_class "scale-y-" n
+    | Scale_y_arbitrary f -> "scale-y-" ^ pp_number_bracket f
+    | Scale_raw_1 f ->
+        let s = string_of_float f in
+        let s =
+          if String.ends_with ~suffix:"." s then
+            String.sub s 0 (String.length s - 1)
+          else s
+        in
+        "scale-[" ^ s ^ "]"
+    | Scale_raw_3 (x, y, z) ->
+        let pp f =
+          let s = string_of_float f in
+          if String.ends_with ~suffix:"." s then
+            String.sub s 0 (String.length s - 1)
+          else s
+        in
+        "scale-[" ^ pp x ^ "_" ^ pp y ^ "_" ^ pp z ^ "]"
+    | Scale_z n -> neg_class "scale-z-" n
+    | Scale_z_arbitrary s -> "scale-z-[" ^ s ^ "]"
+    | Scale_3d -> "scale-3d"
     | Skew_x n -> neg_class "skew-x-" n
+    | Skew_x_arbitrary a -> "skew-x-" ^ pp_angle_bracket a
     | Skew_y n -> neg_class "skew-y-" n
+    | Skew_y_arbitrary a -> "skew-y-" ^ pp_angle_bracket a
+    | Skew n -> neg_class "skew-" n
+    | Skew_arbitrary a -> "skew-" ^ pp_angle_bracket a
     | Rotate_x n -> neg_class "rotate-x-" n
+    | Rotate_x_arbitrary a -> "rotate-x-" ^ pp_angle_bracket a
+    | Rotate_x_bare_var name -> "rotate-x-(" ^ name ^ ")"
+    | Neg_rotate_x_bare_var name -> "-rotate-x-(" ^ name ^ ")"
+    | Neg_rotate_x_arbitrary a -> "-rotate-x-" ^ pp_angle_bracket a
     | Rotate_y n -> neg_class "rotate-y-" n
+    | Rotate_y_arbitrary a -> "rotate-y-" ^ pp_angle_bracket a
+    | Rotate_y_bare_var name -> "rotate-y-(" ^ name ^ ")"
+    | Neg_rotate_y_bare_var name -> "-rotate-y-(" ^ name ^ ")"
+    | Neg_rotate_y_arbitrary a -> "-rotate-y-" ^ pp_angle_bracket a
     | Rotate_z n -> neg_class "rotate-z-" n
+    | Rotate_z_arbitrary a -> "rotate-z-" ^ pp_angle_bracket a
+    | Rotate_z_bare_var name -> "rotate-z-(" ^ name ^ ")"
+    | Neg_rotate_z_bare_var name -> "-rotate-z-(" ^ name ^ ")"
+    | Neg_rotate_z_arbitrary a -> "-rotate-z-" ^ pp_angle_bracket a
     | Perspective_none -> "perspective-none"
     | Perspective_dramatic -> "perspective-dramatic"
     | Perspective_normal -> "perspective-normal"
@@ -624,14 +1819,27 @@ module Handler = struct
     | Perspective_origin_bottom -> "perspective-origin-bottom"
     | Perspective_origin_left -> "perspective-origin-left"
     | Perspective_origin_right -> "perspective-origin-right"
-    | Transform_style_3d -> "transform-style-3d"
-    | Transform_style_flat -> "transform-style-flat"
+    | Perspective_origin_top_left -> "perspective-origin-top-left"
+    | Perspective_origin_top_right -> "perspective-origin-top-right"
+    | Perspective_origin_bottom_left -> "perspective-origin-bottom-left"
+    | Perspective_origin_bottom_right -> "perspective-origin-bottom-right"
+    | Perspective_origin_arbitrary s ->
+        let s = String.map (fun c -> if c = ' ' then '_' else c) s in
+        "perspective-origin-[" ^ s ^ "]"
+    | Transform_style_3d -> "transform-3d"
+    | Transform_style_flat -> "transform-flat"
+    | Transform_box_border -> "transform-border"
+    | Transform_box_content -> "transform-content"
+    | Transform_box_fill -> "transform-fill"
+    | Transform_box_stroke -> "transform-stroke"
+    | Transform_box_view -> "transform-view"
     | Backface_visible -> "backface-visible"
     | Backface_hidden -> "backface-hidden"
     | Transform -> "transform"
     | Transform_cpu -> "transform-cpu"
     | Transform_none -> "transform-none"
     | Transform_gpu -> "transform-gpu"
+    | Transform_arbitrary s -> "transform-[" ^ s ^ "]"
     | Origin_center -> "origin-center"
     | Origin_top -> "origin-top"
     | Origin_bottom -> "origin-bottom"
@@ -641,6 +1849,10 @@ module Handler = struct
     | Origin_top_right -> "origin-top-right"
     | Origin_bottom_left -> "origin-bottom-left"
     | Origin_bottom_right -> "origin-bottom-right"
+    | Origin_arbitrary s ->
+        (* Convert spaces back to underscores for class name *)
+        let s = String.map (fun c -> if c = ' ' then '_' else c) s in
+        "origin-[" ^ s ^ "]"
 end
 
 open Handler
@@ -653,7 +1865,9 @@ let utility x = Utility.base (Self x)
 
 let rotate n = utility (Rotate n)
 let translate_x n = utility (Translate_x n)
+let translate_x_fraction num denom = utility (Translate_x_fraction (num, denom))
 let translate_y n = utility (Translate_y n)
+let translate_y_fraction num denom = utility (Translate_y_fraction (num, denom))
 let scale n = utility (Scale n)
 let scale_x n = utility (Scale_x n)
 let scale_y n = utility (Scale_y n)
@@ -676,6 +1890,11 @@ let perspective_origin_left = utility Perspective_origin_left
 let perspective_origin_right = utility Perspective_origin_right
 let transform_style_3d = utility Transform_style_3d
 let transform_style_flat = utility Transform_style_flat
+let transform_box_border = utility Transform_box_border
+let transform_box_content = utility Transform_box_content
+let transform_box_fill = utility Transform_box_fill
+let transform_box_stroke = utility Transform_box_stroke
+let transform_box_view = utility Transform_box_view
 let backface_visible = utility Backface_visible
 let backface_hidden = utility Backface_hidden
 let transform = utility Transform

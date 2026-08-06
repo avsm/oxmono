@@ -1,3 +1,4 @@
+module Css = Cascade.Css
 open Alcotest
 open Test_helpers
 
@@ -28,7 +29,12 @@ let of_string_valid () =
   check "space-x-2";
   check "space-y-4";
   check "-space-x-1";
-  check "-space-y-2"
+  check "-space-y-2";
+  (* px-valued space, both signs *)
+  check "space-x-px";
+  check "space-y-px";
+  check "-space-x-px";
+  check "-space-y-px"
 
 let of_string_invalid () =
   let fail_maybe = Test_helpers.check_invalid_parts (module Tw.Gap.Handler) in
@@ -41,17 +47,54 @@ let of_string_invalid () =
   fail_maybe [ "space"; "x" ];
   fail_maybe []
 
-let all_utilities () =
-  let open Tw in
-  List.concat_map
-    (fun n -> [ gap n; gap_x n; gap_y n ])
-    Test_helpers.spacing_values
-
 let suborder_matches_tailwind () =
-  let shuffled = Test_helpers.shuffle (all_utilities ()) in
+  let open Tw in
+  let utilities =
+    List.concat_map
+      (fun n -> [ gap n; gap_x n; gap_y n ])
+      Test_helpers.spacing_values
+  in
+  let shuffled = Test_helpers.shuffle utilities in
 
   Test_helpers.check_ordering_matches ~test_name:"gap suborder matches Tailwind"
     shuffled
+
+let require_parse class_name =
+  match Tw.of_string class_name with
+  | Ok u -> u
+  | Error (`Msg m) -> Alcotest.failf "%s: %s" class_name m
+
+(* gap and space interleave in Tailwind's property-registration order: .gap-4
+   comes before :where(.space-x-2 > :not(:last-child)). *)
+let mixed_gap_space_order_matches_tailwind () =
+  [ "gap-4"; "space-x-2" ] |> List.map require_parse
+  |> Test_helpers.check_ordering_matches
+       ~test_name:"mixed gap/space order matches Tailwind"
+
+(* gap-x (column-gap) sorts before gap-y (row-gap) regardless of arbitrary vs
+   standard values. *)
+let mixed_gap_axis_arbitrary_order_matches_tailwind () =
+  [ "gap-4"; "gap-x-[4px]"; "gap-y-1.5" ]
+  |> List.map require_parse
+  |> Test_helpers.check_ordering_matches
+       ~test_name:"mixed gap axis arbitrary order matches Tailwind"
+
+(* space-x-px / -space-x-px use a literal +/-1px gap (no --spacing multiple),
+   wrapped in the reverse calc like the numeric variants. *)
+let test_space_px_values () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.check bool "space-x-px uses 1px gap" true
+    (Astring.String.is_infix ~affix:"calc(1px * var(--tw-space-x-reverse))"
+       (css "space-x-px"));
+  Alcotest.check bool "-space-x-px uses -1px gap" true
+    (Astring.String.is_infix ~affix:"calc(-1px * var(--tw-space-x-reverse))"
+       (css "-space-x-px"));
+  Alcotest.check bool "space-x-px sets no --spacing" false
+    (Astring.String.is_infix ~affix:"--spacing" (css "space-x-px"))
 
 (** Test that CSS values use the correct spacing multiplier. gap-64 should
     generate calc(var(--spacing)*64), not calc(var(--spacing)*16) *)
@@ -73,6 +116,11 @@ let tests =
     test_case "gap of_string - valid values" `Quick of_string_valid;
     test_case "gap of_string - invalid values" `Quick of_string_invalid;
     test_case "gap suborder matches Tailwind" `Quick suborder_matches_tailwind;
+    test_case "mixed gap/space order matches Tailwind" `Quick
+      mixed_gap_space_order_matches_tailwind;
+    test_case "mixed gap axis arbitrary order matches Tailwind" `Quick
+      mixed_gap_axis_arbitrary_order_matches_tailwind;
+    test_case "space-px CSS values" `Quick test_space_px_values;
     test_case "gap CSS values" `Quick test_css_values;
   ]
 

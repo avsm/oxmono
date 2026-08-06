@@ -1,3 +1,4 @@
+module Css = Cascade.Css
 open Alcotest
 
 let stylesheet_nonempty () =

@@ -11,7 +11,14 @@ let of_string_valid () =
   check "flex-initial";
   check "flex-none";
 
-  (* Grow/Shrink *)
+  (* Grow/Shrink - Tailwind v4 uses shorter names *)
+  check "grow";
+  check "grow-0";
+  check "shrink";
+  check "shrink-0";
+
+  (* Deprecated v3 spellings keep their own class name (not folded into the
+     shorter grow/shrink), so the emitted selector matches the source class *)
   check "flex-grow";
   check "flex-grow-0";
   check "flex-shrink";
@@ -20,10 +27,14 @@ let of_string_valid () =
   (* Basis *)
   check "basis-0";
   check "basis-1";
+  (* v4 accepts any bare integer (spacing scale), not just 0/1 *)
+  check "basis-3";
+  check "basis-7";
   check "basis-auto";
   check "basis-full";
 
   (* Order *)
+  check "order-0";
   check "order-1";
   check "order-2";
   check "order-3";
@@ -37,7 +48,7 @@ let of_string_valid () =
 let of_string_invalid () =
   let fail_maybe input =
     let class_name = String.concat "-" input in
-    match Tw.Flex_props.Handler.of_class class_name with
+    match Tw.Flex_props.Handler.of_class Tw.Scheme.default class_name with
     | Ok _ -> fail ("Expected error for: " ^ String.concat "-" input)
     | Error _ -> ()
   in
@@ -46,42 +57,33 @@ let of_string_invalid () =
   fail_maybe [ "basis" ];
   (* Missing value *)
   fail_maybe [ "order" ];
-  (* Missing value *)
-  fail_maybe [ "order"; "0" ];
-  (* Invalid - must be >= 1 *)
   fail_maybe []
 
-let all_utilities () =
-  let open Tw in
-  [
-    (* Note: Direction and Wrap utilities are now in Flex_layout module *)
-    (* Flex shortcuts *)
-    flex_1;
-    flex_auto;
-    flex_initial;
-    flex_none;
-    (* Grow *)
-    flex_grow;
-    flex_grow_0;
-    (* Shrink *)
-    flex_shrink;
-    flex_shrink_0;
-    (* Basis *)
-    basis_0;
-    basis_1;
-    basis_auto;
-    basis_full;
-    (* Order *)
-    order 1;
-    order 3;
-    order 6;
-    order_first;
-    order_last;
-    order_none;
-  ]
-
 let suborder_matches_tailwind () =
-  let shuffled = Test_helpers.shuffle (all_utilities ()) in
+  let open Tw in
+  let utilities =
+    [
+      flex_1;
+      flex_auto;
+      flex_initial;
+      flex_none;
+      flex_grow;
+      flex_grow_0;
+      flex_shrink;
+      flex_shrink_0;
+      basis_0;
+      basis_1;
+      basis_auto;
+      basis_full;
+      order 1;
+      order 3;
+      order 6;
+      order_first;
+      order_last;
+      order_none;
+    ]
+  in
+  let shuffled = Test_helpers.shuffle utilities in
 
   Test_helpers.check_ordering_matches
     ~test_name:"flex_props suborder matches Tailwind" shuffled

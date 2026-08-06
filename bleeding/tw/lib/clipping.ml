@@ -1,5 +1,7 @@
 (** Clipping utilities *)
 
+module Css = Cascade.Css
+
 module Handler = struct
   open Style
   open Css
@@ -8,7 +10,7 @@ module Handler = struct
   type Utility.base += Self of t
 
   let name = "clipping"
-  let priority = 26
+  let priority _ = 28
 
   (** Convert float percentage pairs to typed length pairs for clip-path polygon
   *)
@@ -21,7 +23,16 @@ module Handler = struct
       points
 
   let clip_polygon' points =
-    style [ clip_path (Css.Clip_path_polygon (points_to_lengths points)) ]
+    style
+      [
+        clip_path
+          (Css.Clip_path_polygon
+             {
+               fill_rule = None;
+               points = points_to_lengths points;
+               spaced = false;
+             });
+      ]
 
   (** Format a float without trailing zeros for class name generation *)
   let format_float f =
@@ -41,9 +52,9 @@ module Handler = struct
         in
         "clip-[polygon(" ^ coords ^ ")]"
 
-  let to_style = function Clip_polygon points -> clip_polygon' points
+  let to_style _theme = function Clip_polygon points -> clip_polygon' points
   let suborder = function Clip_polygon _ -> 0
-  let of_class _class_name = Error (`Msg "Not a clipping utility")
+  let of_class _theme _class_name = Error (`Msg "Not a clipping utility")
 end
 
 open Handler

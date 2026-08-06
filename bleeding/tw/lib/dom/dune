@@ -1,0 +1,11 @@
+(library
+ (name tw_dom)
+ (public_name tw.dom)
+ (libraries tw brr cascade)
+ (optional))
+
+(mdx
+ (files tw_dom.mli)
+ (enabled_if false)
+ (preludes mdx/prelude.ml)
+ (libraries tw tw.dom brr))

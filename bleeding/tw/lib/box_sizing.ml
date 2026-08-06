@@ -1,5 +1,7 @@
 (** Box sizing utilities *)
 
+module Css = Cascade.Css
+
 module Handler = struct
   open Style
   open Css
@@ -8,16 +10,19 @@ module Handler = struct
   type Utility.base += Self of t
 
   let name = "box_sizing"
-  let priority = 2
+
+  (* box-sizing (rank 25) sorts after margin/prose (priority 2) and before the
+     display family (priority 4). *)
+  let priority _ = 3
   let suborder = function Border -> 0 | Content -> 1
   let to_class = function Border -> "box-border" | Content -> "box-content"
 
-  let to_style = function
+  let to_style _theme = function
     | Border -> style [ box_sizing Border_box ]
     | Content -> style [ box_sizing Content_box ]
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "box"; "border" ] -> Ok Border
     | [ "box"; "content" ] -> Ok Content

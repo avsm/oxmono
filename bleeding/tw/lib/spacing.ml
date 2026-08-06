@@ -1,17 +1,19 @@
 (** Shared spacing utilities for padding, margin, and gap *)
 
-open Style
+module Css = Cascade.Css
 open Css
+open Style
 
 (** {1 Spacing Variable} *)
 
-let spacing_var = Theme.spacing_var
+let var = Theme.spacing_var
 
 (** {1 Class Name Formatting} *)
 
 let pp_spacing_suffix : spacing -> string = function
   | `Px -> "px"
   | `Full -> "full"
+  | `Named name -> name
   | `Rem f ->
       let scale = f /. 0.25 in
       if Float.is_integer scale then string_of_int (abs (int_of_float scale))
@@ -35,28 +37,50 @@ let pp_margin_suffix : margin -> string = function
 
 (** {1 CSS Conversion} *)
 
-let to_length spacing_ref : spacing -> length = function
-  | `Px -> Px 1.
-  | `Full -> Pct 100.0
+let named_spacing_ref name : Css.length =
+  Css.Var (Var.bracket ("spacing-" ^ name))
+
+let named_spacing_binding ?theme name : Css.declaration option * Css.length =
+  let prop_name = "spacing-" ^ name in
+  match Scheme.theme_value theme prop_name with
+  | Some value_str ->
+      let decl =
+        Css.custom_property ~layer:"theme" ("--" ^ prop_name) value_str
+      in
+      let ref : Css.length Css.var =
+        Var.theme_ref prop_name
+          ~default:(Css.Zero : Css.length)
+          ~default_css:"0px"
+      in
+      (Some decl, Css.Var ref)
+  | None ->
+      let ref = named_spacing_ref name in
+      (None, ref)
+
+let length_with ~px ~full ~rem_factor spacing_ref : spacing -> length = function
+  | `Px -> Px px
+  | `Full -> Pct full
+  | `Named name -> named_spacing_ref name
   | `Rem f ->
-      let n = int_of_float (f /. 0.25) in
-      Calc
-        (Calc.mul (Calc.length (Var spacing_ref)) (Calc.float (float_of_int n)))
+      let n = rem_factor f in
+      Calc (Calc.mul (Calc.length (Var spacing_ref)) (Calc.float n))
+
+let to_length spacing_ref =
+  length_with ~px:1. ~full:100.0
+    ~rem_factor:(fun f -> float_of_int (int_of_float (f /. 0.25)))
+    spacing_ref
 
 let margin_to_length spacing_ref : margin -> length = function
   | `Auto -> Auto
-  | `Px -> Px 1.
-  | `Full -> Pct 100.0
-  | `Rem f ->
-      let n = f /. 0.25 in
-      Calc (Calc.mul (Calc.length (Var spacing_ref)) (Calc.float n))
+  | #spacing as spacing ->
+      length_with ~px:1. ~full:100.0
+        ~rem_factor:(fun f -> f /. 0.25)
+        spacing_ref spacing
 
-let margin_to_length_neg spacing_ref : spacing -> length = function
-  | `Px -> Px (-1.)
-  | `Full -> Pct (-100.0)
-  | `Rem f ->
-      let n = f /. 0.25 in
-      Calc (Calc.mul (Calc.length (Var spacing_ref)) (Calc.float (-.n)))
+let margin_to_length_neg spacing_ref =
+  length_with ~px:(-1.) ~full:(-100.0)
+    ~rem_factor:(fun f -> -.(f /. 0.25))
+    spacing_ref
 
 (** {1 Spacing Constructors} *)
 
@@ -64,17 +88,42 @@ let int n = `Rem (float_of_int n *. 0.25)
 
 (** {1 Shared Parsing Logic} *)
 
+(** Check if a string is a valid named spacing identifier (alphabetic, not a
+    keyword) *)
+let is_named_spacing value =
+  String.length value > 0
+  && (not (value = "px" || value = "full" || value = "auto"))
+  && String.for_all
+       (fun c ->
+         (c >= 'a' && c <= 'z')
+         || (c >= 'A' && c <= 'Z')
+         || (c >= '0' && c <= '9')
+         || c = '-')
+       value
+  &&
+  (* Must start with a letter *)
+  let c = value.[0] in
+  c >= 'a' && c <= 'z'
+
 (** Parse a spacing value from a string, with optional support for auto *)
-let parse_value_string ~allow_auto value : margin option =
+let parse_value_string ?theme ~allow_auto value : margin option =
   if value = "px" then Some `Px
   else if value = "full" then Some `Full
   else if allow_auto && value = "auto" then Some `Auto
   else
     match Parse.spacing_value ~name:"spacing" value with
     | Ok f -> Some (`Rem (f *. 0.25))
-    | Error _ -> None
+    | Error _ ->
+        (* A named spacing (mx-big) is valid only when the theme defines the
+           [--spacing-<name>] token; without that gate a stray source token like
+           [my-form] would parse as a utility. *)
+        if
+          is_named_spacing value
+          && Scheme.theme_value theme ("spacing-" ^ value) <> None
+        then Some (`Named value)
+        else None
 
-type axis = [ `All | `X | `Y | `T | `R | `B | `L ]
+type axis = [ `All | `X | `Y | `T | `R | `B | `L | `S | `E | `Bs | `Be ]
 (** Parse axis from a prefix string *)
 
 let axis_of_prefix = function
@@ -85,11 +134,17 @@ let axis_of_prefix = function
   | "pr" | "mr" -> Some `R
   | "pb" | "mb" -> Some `B
   | "pl" | "ml" -> Some `L
+  | "ps" | "ms" -> Some `S
+  | "pe" | "me" -> Some `E
+  | "pbs" | "mbs" -> Some `Bs
+  | "pbe" | "mbe" -> Some `Be
   | _ -> None
 
 (** Check if a prefix is for margin (vs padding) *)
 let is_margin_prefix = function
-  | "m" | "mx" | "my" | "mt" | "mr" | "mb" | "ml" -> true
+  | "m" | "mx" | "my" | "mt" | "mr" | "mb" | "ml" | "ms" | "me" | "mbs" | "mbe"
+    ->
+      true
   | _ -> false
 
 (** Parse class name parts into (is_negative, prefix, value) *)

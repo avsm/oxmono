@@ -1,3 +1,4 @@
+module Css = Cascade.Css
 open Alcotest
 open Test_helpers
 
@@ -30,8 +31,8 @@ let of_string_invalid () =
 
   fail_maybe [ "p" ];
   (* Missing value *)
-  fail_maybe [ "p"; "invalid" ];
-  (* Invalid value *)
+  fail_maybe [ "p"; "!!!" ];
+  (* Invalid value - non-alphanumeric *)
   fail_maybe [ "p"; "-1" ];
   (* Negative not allowed for padding *)
   fail_maybe [ "px"; "auto" ];
@@ -39,14 +40,14 @@ let of_string_invalid () =
   fail_maybe [ "py"; "auto" ]
 (* Auto not valid for py *)
 
-let all_utilities () =
-  let open Tw in
-  List.concat_map
-    (fun n -> [ p n; px n; py n; pt n; pb n; pl n; pr n ])
-    Test_helpers.spacing_values
-
 let suborder_matches_tailwind () =
-  let shuffled = Test_helpers.shuffle (all_utilities ()) in
+  let open Tw in
+  let utilities =
+    List.concat_map
+      (fun n -> [ p n; px n; py n; pt n; pb n; pl n; pr n ])
+      Test_helpers.spacing_values
+  in
+  let shuffled = Test_helpers.shuffle utilities in
 
   Test_helpers.check_ordering_matches
     ~test_name:"padding suborder matches Tailwind" shuffled

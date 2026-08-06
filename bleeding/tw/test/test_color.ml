@@ -1,5 +1,6 @@
 (** Tests for the color conversion module *)
 
+module Css = Cascade.Css
 open Tw.Color
 
 let test_rgb_to_oklch_roundtrip () =
@@ -94,23 +95,17 @@ let test_rgb_to_hex () =
     test_cases
 
 let test_oklch_css_formatting () =
-  let test_cases =
-    [
-      ({ l = 98.5; c = 0.002; h = 247.839 }, "oklch(98.5% 0.002 247.839)");
-      ({ l = 62.3; c = 0.214; h = 259.815 }, "oklch(62.3% 0.214 259.815)");
-      ({ l = 0.0; c = 0.0; h = 0.0 }, "oklch(0% 0 0)");
-      ({ l = 100.0; c = 0.4; h = 360.0 }, "oklch(100% 0.4 360)");
-    ]
+  let pp l c h expected =
+    let color = Css.oklch l c h in
+    let result = Css.Pp.to_string ~minify:false Css.pp_color color in
+    Alcotest.(check string)
+      (Fmt.str "OKLCH { l = %.1f; c = %.3f; h = %.3f }" l c h)
+      expected result
   in
-
-  List.iter
-    (fun (oklch, expected) ->
-      let result = oklch_to_css oklch in
-      Alcotest.(check string)
-        (Fmt.str "OKLCH { l = %.1f; c = %.3f; h = %.3f }" oklch.l oklch.c
-           oklch.h)
-        expected result)
-    test_cases
+  pp 98.5 0.002 247.839 "oklch(98.5% .002 247.839)";
+  pp 62.3 0.214 259.815 "oklch(62.3% .214 259.815)";
+  pp 0.0 0.0 0.0 "oklch(0% 0 0)";
+  pp 100.0 0.4 360.0 "oklch(100% .4 360)"
 
 let test_edge_cases () =
   let extreme_oklch = { l = 150.0; c = 0.5; h = 45.0 } in
@@ -166,14 +161,14 @@ let test_css_mode_with_colors () =
   (* Test that color utilities work correctly with different CSS modes *)
   let open Tw in
   (* Generate CSS from color utilities *)
-  let styles = [ bg_blue; text_red ] in
+  let styles = [ bg blue; text red ] in
   let css = to_css styles in
   let css_string = Css.to_string css in
 
   (* Debug: print CSS and class names *)
-  Printf.eprintf "bg_blue class: '%s'\n" (Tw.to_classes [ bg_blue ]);
-  Printf.eprintf "text_red class: '%s'\n" (Tw.to_classes [ text_red ]);
-  Printf.eprintf "Generated CSS:\n%s\n" css_string;
+  Fmt.epr "bg_blue class: '%s'\n" (Tw.to_classes [ bg blue ]);
+  Fmt.epr "text_red class: '%s'\n" (Tw.to_classes [ text red ]);
+  Fmt.epr "Generated CSS:\n%s\n" css_string;
 
   (* Test that Variables mode is the default and uses CSS variables *)
   Alcotest.(check bool)
@@ -188,9 +183,39 @@ let test_css_mode_with_colors () =
     "Contains text-red-500 class" true
     (Astring.String.is_infix ~affix:".text-red-500" css_string)
 
+(* Per-side border colors (border-{t,r,b,l}-{color}) paint the matching physical
+   edge; named, arbitrary and keyword forms. Widths (border-l-2) still resolve
+   via the borders handler. *)
+let test_border_side_color () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error _ -> Alcotest.failf "could not parse %S" cls
+  in
+  Alcotest.(check bool)
+    "border-l-[#575959] sets border-left-color" true
+    (Astring.String.is_infix ~affix:"border-left-color: #575959"
+       (css "border-l-[#575959]"));
+  Alcotest.(check bool)
+    "border-b-transparent sets border-bottom-color" true
+    (Astring.String.is_infix ~affix:"border-bottom-color:"
+       (css "border-b-transparent"));
+  Alcotest.(check bool)
+    "border-l-red-500 sets border-left-color" true
+    (Astring.String.is_infix ~affix:"border-left-color:"
+       (css "border-l-red-500"));
+  Alcotest.(check bool)
+    "border-l-2 is still a width" true
+    (Astring.String.is_infix ~affix:"border-left-width: 2px" (css "border-l-2"));
+  Alcotest.(check bool)
+    "border-x-red-500 uses the logical inline color" true
+    (Astring.String.is_infix ~affix:"border-inline-color:"
+       (css "border-x-red-500"))
+
 (* Test suite *)
 let tests =
   [
+    ("Per-side border colors", `Quick, test_border_side_color);
     ("RGB to OKLCH roundtrip", `Quick, test_rgb_to_oklch_roundtrip);
     ("Hex parsing", `Quick, test_hex_parsing);
     ("RGB to hex", `Quick, test_rgb_to_hex);

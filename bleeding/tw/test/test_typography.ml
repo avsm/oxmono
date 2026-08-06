@@ -8,7 +8,11 @@ let check_late = check_handler_roundtrip (module Tw.Typography.Typography_late)
 
 (* Try both handlers - the utility could be in either *)
 let check class_name =
-  try check_early class_name with _ -> check_late class_name
+  match
+    Tw.Typography.Typography_early.of_class Tw.Scheme.default class_name
+  with
+  | Ok _ -> check_early class_name
+  | Error _ -> check_late class_name
 
 let test_font_family () =
   check "font-sans";
@@ -74,6 +78,10 @@ let test_line_height () =
   List.iter
     (fun v -> check ("leading-" ^ v))
     [
+      "0";
+      "1";
+      "2";
+      "11";
       "3";
       "4";
       "5";
@@ -142,10 +150,16 @@ let test_vertical_align () =
   check "align-super"
 
 let test_font_stretch () =
-  check "font-stretch-normal";
+  check "font-stretch-ultra-condensed";
+  check "font-stretch-extra-condensed";
   check "font-stretch-condensed";
+  check "font-stretch-semi-condensed";
+  check "font-stretch-normal";
+  check "font-stretch-semi-expanded";
   check "font-stretch-expanded";
-  check "font-stretch-150"
+  check "font-stretch-extra-expanded";
+  check "font-stretch-ultra-expanded";
+  check "font-stretch-150%"
 
 let test_numeric_variants () =
   check "normal-nums";
@@ -158,17 +172,85 @@ let test_numeric_variants () =
   check "diagonal-fractions";
   check "stacked-fractions"
 
-let test_content () = check "content-none"
+let test_content () =
+  check "content-none";
+  (* Arbitrary content round-trips with its original quote style: the
+     double-quoted form already worked, the single-quoted form used to mangle to
+     content-[["x"]]. *)
+  check "content-[\"x\"]";
+  check "content-['x']"
+
+(* content-<token> parses only when the @theme defines --content-<token>; a bare
+   word like content-wrapper with no token is rejected (it used to parse as a
+   named content value, a false positive Tailwind does not emit). *)
+let test_content_named_requires_theme () =
+  (match
+     Tw.Typography.Typography_late.of_class Tw.Scheme.default "content-wrapper"
+   with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "content-wrapper should be rejected without a token");
+  let themed =
+    Tw.Scheme.with_overrides Tw.Scheme.default [ ("content-slash", "\"/\"") ]
+  in
+  match Tw.Typography.Typography_late.of_class themed "content-slash" with
+  | Ok _ -> ()
+  | Error (`Msg m) -> Alcotest.failf "content-slash with theme rejected: %s" m
+
+(* text-[<value>] accepts values that CSS font-size accepts: lengths with a
+   unit, percentages, font-size keywords (larger/smaller/xxx-large/...),
+   clamp(...), and var(...). Bare identifiers without a unit are rejected --
+   including things that look like hex colors but lack the leading '#' (CSS
+   Color §5.4.6). *)
+let test_text_bracket_size_valid () =
+  check "text-[16px]";
+  check "text-[1.5rem]";
+  check "text-[1.25em]";
+  check "text-[100%]";
+  check "text-[xxx-large]";
+  check "text-[xx-small]";
+  check "text-[larger]";
+  check "text-[smaller]";
+  check "text-[length:var(--my-size)]";
+  check "text-[percentage:50%]"
+
+let test_text_bracket_size_invalid () =
+  let bad input =
+    match Tw.Typography.Typography_early.of_class Tw.Scheme.default input with
+    | Ok _ -> Alcotest.fail ("Expected early handler to reject: " ^ input)
+    | Error _ -> (
+        match
+          Tw.Typography.Typography_late.of_class Tw.Scheme.default input
+        with
+        | Ok _ -> Alcotest.fail ("Expected late handler to reject: " ^ input)
+        | Error _ -> ())
+  in
+  (* Regression: these used to silently emit font-size: var(--<garbage>). *)
+  bad "text-[1A202C]";
+  (* Hex-looking, missing '#' *)
+  bad "text-[FF0000]";
+  bad "text-[totallyNotAColor]";
+  bad "text-[16]" (* Missing unit *)
 
 let of_string_invalid () =
   (* Invalid typography values *)
   let fail_maybe input =
     let class_name = String.concat "-" input in
-    (* Try both handlers - should fail on both *)
-    (try check_invalid_input (module Tw.Typography.Typography_early) class_name
-     with _ -> ());
-    try check_invalid_input (module Tw.Typography.Typography_late) class_name
-    with _ -> ()
+    (* Both handlers should reject the input *)
+    (match
+       Tw.Typography.Typography_early.of_class Tw.Scheme.default class_name
+     with
+    | Error _ -> ()
+    | Ok _ ->
+        Alcotest.fail
+          (String.concat ""
+             [ "Expected early handler to reject: "; class_name ]));
+    match
+      Tw.Typography.Typography_late.of_class Tw.Scheme.default class_name
+    with
+    | Error _ -> ()
+    | Ok _ ->
+        Alcotest.fail
+          (String.concat "" [ "Expected late handler to reject: "; class_name ])
   in
 
   fail_maybe [ "font"; "invalid" ];
@@ -179,47 +261,105 @@ let of_string_invalid () =
   (* Invalid font weight *)
   fail_maybe [ "text"; "middle" ];
   (* Invalid text alignment *)
-  fail_maybe [ "leading"; "11" ];
-  (* Invalid line height *)
-  fail_maybe [ "leading"; "2" ];
-  (* Invalid line height *)
   fail_maybe [ "tracking"; "tightest" ];
   (* Invalid letter spacing *)
   fail_maybe [ "unknown" ]
 (* Unknown typography type *)
 
-let all_utilities () =
-  let open Tw in
-  [
-    text_xs;
-    text_sm;
-    text_base;
-    text_lg;
-    text_xl;
-    text_2xl;
-    text_3xl;
-    font_thin;
-    font_light;
-    font_normal;
-    font_medium;
-    font_semibold;
-    font_bold;
-    font_extrabold;
-    font_black;
-    text_left;
-    text_center;
-    text_right;
-    text_justify;
-  ]
-
 let suborder_matches_tailwind () =
-  let shuffled = Test_helpers.shuffle (all_utilities ()) in
+  let open Tw in
+  let utilities =
+    [
+      text_xs;
+      text_sm;
+      text_base;
+      text_lg;
+      text_xl;
+      text_2xl;
+      text_3xl;
+      font_thin;
+      font_light;
+      font_normal;
+      font_medium;
+      font_semibold;
+      font_bold;
+      font_extrabold;
+      font_black;
+      text_left;
+      text_center;
+      text_right;
+      text_justify;
+    ]
+  in
+  let shuffled = Test_helpers.shuffle utilities in
 
   Test_helpers.check_ordering_matches
     ~test_name:"typography suborder matches Tailwind" shuffled
 
+(* tracking-normal's token must keep the em unit (0em), not collapse to 0. *)
+let test_tracking_normal_unit () =
+  let css = Tw.to_css [ Tw.tracking_normal ] |> Tw.Css.pp ~minify:true in
+  Alcotest.check bool "tracking-normal token keeps em unit" true
+    (Astring.String.is_infix ~affix:"--tracking-normal:0em" css)
+
+(* Numeric leading derives from the spacing scale in v4.3.1 (not a --leading-N
+   theme token). *)
+let test_numeric_leading_spacing () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css [ u ] |> Tw.Css.to_string ~minify:true
+    | Error _ -> Alcotest.failf "could not parse %s" cls
+  in
+  let has cls affix =
+    Alcotest.(check bool)
+      (cls ^ " -> " ^ affix)
+      true
+      (Astring.String.is_infix ~affix (css cls))
+  in
+  (* Any non-negative N is accepted; N>=2 scales spacing, 1 is bare, 0 is 0. *)
+  has "leading-6" "calc(var(--spacing)*6)";
+  has "leading-2" "calc(var(--spacing)*2)";
+  has "leading-11" "calc(var(--spacing)*11)";
+  has "leading-1" "line-height:var(--spacing)";
+  has "leading-0" "line-height:0"
+
+(* leading-none has no v4.3 theme token, so it inlines line-height: 1 rather
+   than minting a --leading-none var. *)
+let test_leading_none_inline () =
+  let css =
+    match Tw.of_string "leading-none" with
+    | Ok u -> Tw.to_css [ u ] |> Tw.Css.to_string ~minify:true
+    | Error _ -> Alcotest.fail "could not parse leading-none"
+  in
+  Alcotest.(check bool)
+    "leading-none inlines line-height:1" true
+    (Astring.String.is_infix ~affix:"line-height:1" css);
+  Alcotest.(check bool)
+    "leading-none mints no --leading-none token" false
+    (Astring.String.is_infix ~affix:"--leading-none" css)
+
+(* A text size must honor a --text-N--line-height theme override at use time,
+   not bake in the spacing-derived default at module load. *)
+let test_text_line_height_override () =
+  let theme =
+    Tw.Scheme.with_overrides Tw.Scheme.default
+      [ ("text-sm--line-height", "1.25rem") ]
+  in
+  let css =
+    match Tw.of_string "text-sm" with
+    | Ok u -> Tw.to_css ~theme [ u ] |> Tw.Css.to_string ~minify:true
+    | Error _ -> Alcotest.fail "could not parse text-sm"
+  in
+  Alcotest.(check bool)
+    "text-sm honors --text-sm--line-height override" true
+    (Astring.String.is_infix ~affix:"--text-sm--line-height:1.25rem" css)
+
 let tests =
   [
+    test_case "tracking-normal unit" `Quick test_tracking_normal_unit;
+    test_case "numeric leading from spacing" `Quick test_numeric_leading_spacing;
+    test_case "leading-none inline" `Quick test_leading_none_inline;
+    test_case "text line-height override" `Quick test_text_line_height_override;
     test_case "font family" `Quick test_font_family;
     test_case "font size" `Quick test_font_size;
     test_case "font weight" `Quick test_font_weight;
@@ -238,6 +378,12 @@ let tests =
     test_case "font stretch" `Quick test_font_stretch;
     test_case "numeric variants" `Quick test_numeric_variants;
     test_case "content" `Quick test_content;
+    test_case "content-named requires theme token" `Quick
+      test_content_named_requires_theme;
+    test_case "text-[<font-size>] valid values" `Quick
+      test_text_bracket_size_valid;
+    test_case "text-[<font-size>] invalid values" `Quick
+      test_text_bracket_size_invalid;
     test_case "typography of_string - invalid values" `Quick of_string_invalid;
     test_case "typography suborder matches Tailwind" `Quick
       suborder_matches_tailwind;

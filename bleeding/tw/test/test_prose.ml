@@ -1,3 +1,4 @@
+module Css = Cascade.Css
 (* Tests for prose typography utilities *)
 
 open Tw
@@ -41,7 +42,7 @@ let test_css_generation () =
   Alcotest.(check bool)
     "has prose h1 selector" true
     (Astring.String.is_infix
-       ~affix:".prose :where(h1):not(:where([class~=not-prose]" css_string)
+       ~affix:".prose :where(h1):not(:where([class~=\"not-prose\"]" css_string)
 
 let test_inline_styles () =
   (* Prose utilities can generate inline styles from their rules, but CSS
@@ -52,20 +53,60 @@ let test_inline_styles () =
     (String.length inline > 0);
 
   (* Check that CSS variables are filtered out - no "--" should appear *)
-  let has_css_vars =
-    try Astring.String.is_infix ~affix:"--" inline with _ -> false
-  in
+  let has_css_vars = Astring.String.is_infix ~affix:"--" inline in
   Alcotest.(check bool) "no CSS variables in inline styles" false has_css_vars;
 
   (* Color variants only set CSS variables, so they have no inline styles *)
   let inline_gray = to_inline_style [ prose_gray ] in
   Alcotest.(check string) "prose-gray has no inline styles" "" inline_gray
 
+(* prose-invert remaps the palette to the inverted vars; prose-orange overrides
+   the link accent colours. Both used to be no-ops / unknown. *)
+let test_color_variants () =
+  let invert = Css.to_string (to_css ~base:false [ prose_invert ]) in
+  Alcotest.(check bool)
+    "prose-invert remaps body to the invert var" true
+    (Astring.String.is_infix ~affix:"var(--tw-prose-invert-body)" invert);
+  let orange = Css.to_string (to_css ~base:false [ prose_orange ]) in
+  Alcotest.(check bool)
+    "prose-orange sets the link accent" true
+    (Astring.String.is_infix ~affix:"--tw-prose-links" orange
+    && Astring.String.is_infix ~affix:"--tw-prose-invert-links" orange)
+
+(* Real-CLI parity for the typography plugin. Until now prose had no comparison
+   against the actual @tailwindcss/typography output (always enabled in
+   Tailwind_gen) -- only checks of tw's own structure -- so the README's "fully
+   supported" claim was unproven for the plugin. check_ordering_matches does a
+   full canonical diff against the real CLI and fails on any difference, exactly
+   as the forms suite does. *)
+let test_size_parity () =
+  Test_helpers.check_ordering_matches ~test_name:"prose sizes match Tailwind"
+    [ prose; prose_sm; prose_lg; prose_xl; prose_2xl ]
+
+(* Covers the five gray ramps (zinc/neutral/stone were stubs emitting nothing
+   before this commit's parent), the invert remap and the orange accent. *)
+let test_color_theme_parity () =
+  Test_helpers.check_ordering_matches
+    ~test_name:"prose colour themes match Tailwind"
+    [
+      prose_gray;
+      prose_slate;
+      prose_zinc;
+      prose_neutral;
+      prose_stone;
+      prose_invert;
+      prose_orange;
+    ]
+
 let suite =
   ( "prose",
     [
       Alcotest.test_case "classes" `Quick test_classes;
+      Alcotest.test_case "color variants" `Quick test_color_variants;
       Alcotest.test_case "combinations" `Quick test_combinations;
       Alcotest.test_case "CSS generation" `Quick test_css_generation;
       Alcotest.test_case "inline styles" `Quick test_inline_styles;
+      Alcotest.test_case "size parity with Tailwind" `Quick test_size_parity;
+      Alcotest.test_case "colour theme parity with Tailwind" `Quick
+        test_color_theme_parity;
     ] )

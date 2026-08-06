@@ -1,8 +1,10 @@
 (executable
  (name extract_tests)
+ (modules extract_tests)
  (libraries re fmt astring))
 
 (test
  (name test)
- (libraries alcotest tw tw_tools tw.css fmt)
+ (modules test)
+ (libraries alcotest tw cascade cascade.diff fmt re)
  (deps utilities.txt))

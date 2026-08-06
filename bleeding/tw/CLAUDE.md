@@ -49,6 +49,9 @@ ALCOTEST_VERBOSE=1 dune exec test/test.exe
 dune exec -- tw -s "p-4" --variables
 dune exec -- tw -s "p-4" --variables --base
 
+# For classes starting with -, use --single="..." to avoid CLI flag parsing
+dune exec -- tw --single="-content-around" --variables
+
 # Compare with real Tailwind CSS
 ## Method 1: Direct comparison using --diff (recommended)
 dune exec -- tw -s "p-4" --diff
@@ -68,7 +71,8 @@ The `tw` binary supports three backend modes:
 **Important**: `--diff` mode always uses:
 - Variables mode (ignores `--inline` flag)
 - Base layer included (ignores `--no-base` flag)
-- This ensures consistent comparison conditions
+- Minified and optimized output (forces `--minify --optimize`)
+- This ensures 1:1 equivalence comparison with Tailwind's optimized+minified output
 
 Example diff output:
 ```bash

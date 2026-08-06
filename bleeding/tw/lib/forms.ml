@@ -9,14 +9,44 @@
     - checkbox, radio, input: priority 3 (before layout at 4)
     - select, textarea: priority 7 (after sizing at 6) *)
 
+module Css = Cascade.Css
+
+let forced_colors_active =
+  Css.Media.Cond
+    (Css.Media.Feature
+       (Css.Media.Plain
+          (Css.Media.Forced_colors, Css.Media.Ident Css.Media.Active)))
+
 (* Shared colors and focus ring helpers *)
 let blue_600 = Css.oklch 54.6 0.245 262.881
 let gray_500 = Css.oklch 55.1 0.027 264.364
 
+let ring_offset_shadow () =
+  let open Css in
+  let spread : length = Var (var_ref "tw-ring-offset-width") in
+  let color : color = Var (var_ref "tw-ring-offset-color") in
+  shadow ~inset:false ~inset_var:"tw-ring-inset" ~inset_var_no_fallback:true
+    ~h_offset:Zero ~v_offset:Zero ~blur:Zero ~spread ~color ()
+
+let ring_shadow ~ring_width_px =
+  let open Css in
+  let offset_width_default : length = Px 0. in
+  let spread : length =
+    Calc
+      Calc.(
+        add
+          (px (float_of_int ring_width_px))
+          (var ~default:offset_width_default "tw-ring-offset-width"))
+  in
+  let color : color = Var (var_ref "tw-ring-color") in
+  shadow ~inset:false ~inset_var:"tw-ring-inset" ~inset_var_no_fallback:true
+    ~h_offset:Zero ~v_offset:Zero ~blur:Zero ~spread ~color ()
+
 let focus_ring_decls ~offset_width ~ring_width_px =
   let open Css in
   let d_ring_inset, _ =
-    Var.binding Effects.ring_inset_var "var(--tw-empty, )"
+    Var.binding Effects.ring_inset_var
+      (Css.Variables.custom_value_var_empty_fallback "tw-empty")
   in
   let d_offset_width, _ =
     Var.binding Effects.ring_offset_width_var offset_width
@@ -25,39 +55,19 @@ let focus_ring_decls ~offset_width ~ring_width_px =
     Var.binding Effects.ring_offset_color_var (hex "#fff")
   in
   let d_ring_color, _ = Var.binding Effects.ring_color_var blue_600 in
-  let offset_shadow_spread : length = Var (var_ref "tw-ring-offset-width") in
-  let offset_shadow_color : color = Var (var_ref "tw-ring-offset-color") in
-  let ring_offset_shadow_value =
-    shadow ~inset:false ~inset_var:"tw-ring-inset" ~h_offset:Zero ~v_offset:Zero
-      ~blur:Zero ~spread:offset_shadow_spread ~color:offset_shadow_color ()
-  in
   let d_ring_offset_shadow, _ =
-    Var.binding Effects.ring_offset_shadow_var ring_offset_shadow_value
-  in
-  let offset_width_default : length = Px 0. in
-  let ring_shadow_spread : length =
-    Calc
-      Calc.(
-        add
-          (px (float_of_int ring_width_px))
-          (var ~default:offset_width_default "tw-ring-offset-width"))
-  in
-  let ring_shadow_color : color = Var (var_ref "tw-ring-color") in
-  let ring_shadow_value =
-    shadow ~inset:false ~inset_var:"tw-ring-inset" ~h_offset:Zero ~v_offset:Zero
-      ~blur:Zero ~spread:ring_shadow_spread ~color:ring_shadow_color ()
+    Var.binding Effects.ring_offset_shadow_var (ring_offset_shadow ())
   in
   let d_ring_shadow, _ =
-    Var.binding Effects.ring_shadow_var ring_shadow_value
+    Var.binding Effects.ring_shadow_var (ring_shadow ~ring_width_px)
   in
-  let v_ring_offset = Var.reference Effects.ring_offset_shadow_var in
-  let v_ring = Var.reference Effects.ring_shadow_var in
-  let v_shadow = Var.reference Effects.shadow_var in
   let box_shadow_vars : Css.shadow list =
-    [ Var v_ring_offset; Var v_ring; Var v_shadow ]
+    [
+      Var (Var.reference Effects.ring_offset_shadow_var);
+      Var (Var.reference Effects.ring_shadow_var);
+      Var (Var.reference Effects.shadow_var);
+    ]
   in
-  (* Note: does NOT include outline - that goes last, after optional
-     border_color *)
   [
     outline_offset (Px 2.);
     d_ring_inset;
@@ -104,7 +114,7 @@ module Handler = struct
   type Utility.base += Self of t
 
   let name = "forms"
-  let priority = 3
+  let priority _ = 3
 
   let form_input =
     let open Css in
@@ -123,7 +133,8 @@ module Handler = struct
             background_color (hex "#fff");
             border_width (Px 1.);
             border_color gray_500;
-            border_radius (Px 0.);
+            border_radius
+              (Radius { horizontal = [ Length Zero ]; vertical = None });
             padding [ Rem 0.5; Rem 0.75 ];
             font_size (Rem 1.);
             line_height (Rem 1.5);
@@ -131,7 +142,7 @@ module Handler = struct
         rule ~selector:(compound [ base_sel; Focus ]) input_focus_decls;
         rule
           ~selector:(compound [ base_sel; Placeholder ])
-          [ color gray_500; opacity 1. ];
+          [ color gray_500; opacity (Opacity_number 1.) ];
         rule
           ~selector:(compound [ base_sel; Webkit_datetime_edit_fields_wrapper ])
           [ padding [ Px 0. ] ];
@@ -189,6 +200,7 @@ module Handler = struct
         rule ~selector:base_sel
           [
             appearance None;
+            webkit_print_color_adjust Exact;
             print_color_adjust Exact;
             vertical_align Middle;
             webkit_user_select None;
@@ -199,7 +211,7 @@ module Handler = struct
             background_origin Border_box;
             border_width (Px 1.);
             border_color gray_500;
-            border_radius (Px 0.);
+            border_radius (radius Zero);
             flex_shrink 0.0;
             width (Rem 1.);
             height (Rem 1.);
@@ -218,12 +230,12 @@ module Handler = struct
                   4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 \
                   011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 \
                   0z'/%3e%3c/svg%3e");
-            background_position [ XY (Pct 50., Pct 50.) ];
+            background_position [ Single (Pct 50.) ];
             background_repeat No_repeat;
             background_size (Size (Pct 100., Pct 100.));
             border_color (hex "#0000");
           ];
-        media ~condition:(Media.Forced_colors `Active)
+        media ~condition:forced_colors_active
           [
             rule ~selector:(compound [ base_sel; Checked ]) [ appearance Auto ];
           ];
@@ -245,12 +257,12 @@ module Handler = struct
                   fill='none' viewBox='0 0 16 16'%3e%3cpath stroke='white' \
                   stroke-linecap='round' stroke-linejoin='round' \
                   stroke-width='2' d='M4 8h8'/%3e%3c/svg%3e");
-            background_position [ XY (Pct 50., Pct 50.) ];
+            background_position [ Single (Pct 50.) ];
             background_repeat No_repeat;
             background_size (Size (Pct 100., Pct 100.));
             border_color (hex "#0000");
           ];
-        media ~condition:(Media.Forced_colors `Active)
+        media ~condition:forced_colors_active
           [
             rule
               ~selector:(compound [ base_sel; Indeterminate ])
@@ -281,6 +293,7 @@ module Handler = struct
         rule ~selector:base_sel
           [
             appearance None;
+            webkit_print_color_adjust Exact;
             print_color_adjust Exact;
             vertical_align Middle;
             webkit_user_select None;
@@ -291,7 +304,7 @@ module Handler = struct
             background_origin Border_box;
             border_width (Px 1.);
             border_color gray_500;
-            border_radius (Pct 100.0);
+            border_radius (radius (Pct 100.0));
             flex_shrink 0.0;
             width (Rem 1.);
             height (Rem 1.);
@@ -308,12 +321,12 @@ module Handler = struct
                  "data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' \
                   xmlns='http://www.w3.org/2000/svg'%3e%3ccircle cx='8' cy='8' \
                   r='3'/%3e%3c/svg%3e");
-            background_position [ XY (Pct 50., Pct 50.) ];
+            background_position [ Single (Pct 50.) ];
             background_repeat No_repeat;
             background_size (Size (Pct 100., Pct 100.));
             border_color (hex "#0000");
           ];
-        media ~condition:(Media.Forced_colors `Active)
+        media ~condition:forced_colors_active
           [
             rule ~selector:(compound [ base_sel; Checked ]) [ appearance Auto ];
           ];
@@ -329,7 +342,7 @@ module Handler = struct
     in
     style ~rules:(Some rules) []
 
-  let to_style = function
+  let to_style _theme = function
     | Form_input -> form_input
     | Form_checkbox -> form_checkbox
     | Form_radio -> form_radio
@@ -339,7 +352,7 @@ module Handler = struct
     | Form_radio -> 1
     | Form_input -> 2
 
-  let of_class = function
+  let of_class _theme = function
     | "form-input" -> Ok Form_input
     | "form-checkbox" -> Ok Form_checkbox
     | "form-radio" -> Ok Form_radio
@@ -359,7 +372,7 @@ module Select = struct
   type Utility.base += Self of t
 
   let name = "forms_select"
-  let priority = 8 (* After sizing (6), flex_props (7) *)
+  let priority _ = 8 (* After sizing (6), flex_props (7) *)
 
   let form_textarea =
     let open Css in
@@ -378,7 +391,7 @@ module Select = struct
             background_color (hex "#fff");
             border_width (Px 1.);
             border_color gray_500;
-            border_radius (Px 0.);
+            border_radius (radius Zero);
             padding [ Rem 0.5; Rem 0.75 ];
             font_size (Rem 1.);
             line_height (Rem 1.5);
@@ -386,7 +399,7 @@ module Select = struct
         rule ~selector:(compound [ base_sel; Focus ]) input_focus_decls;
         rule
           ~selector:(compound [ base_sel; Placeholder ])
-          [ color gray_500; opacity 1. ];
+          [ color gray_500; opacity (Opacity_number 1.) ];
       ]
     in
     style ~rules:(Some rules) []
@@ -399,6 +412,14 @@ module Select = struct
       Var.binding Effects.shadow_var
         (shadow ~h_offset:Zero ~v_offset:Zero ~color:(hex "#0000") ())
     in
+    (* Emit a single .form-select base rule, then :focus, then :where(...) -
+       matching Tailwind's de-nested layout. Tailwind's source uses CSS nesting
+       (.form-select { base; &:focus {..}; more-base; &:where {..} }) which its
+       optimizer flattens into one consolidated outer rule plus the de-nested
+       children. Splitting our base props across two .form-select rules
+       separated by :focus would be structurally different (and break the
+       suborder parity test) even though our [:focus] decls don't override any
+       base prop here. *)
     let rules =
       [
         rule ~selector:base_sel
@@ -408,14 +429,11 @@ module Select = struct
             background_color (hex "#fff");
             border_width (Px 1.);
             border_color gray_500;
-            border_radius (Px 0.);
+            border_radius (radius Zero);
             padding [ Rem 0.5; Rem 0.75 ];
             font_size (Rem 1.);
             line_height (Rem 1.5);
-          ];
-        rule ~selector:(compound [ base_sel; Focus ]) input_focus_decls;
-        rule ~selector:base_sel
-          [
+            webkit_print_color_adjust Exact;
             print_color_adjust Exact;
             background_image
               (Url
@@ -425,11 +443,12 @@ module Select = struct
                   stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 \
                   4-4'/%3e%3c/svg%3e");
             background_position
-              [ Edge_offset_axis ("right", Rem 0.5, "center") ];
+              [ Edge_offset_axis ("right", Length (Rem 0.5), "center") ];
             background_repeat No_repeat;
             background_size (Size (Em 1.5, Em 1.5));
             padding_right (Rem 2.5);
           ];
+        rule ~selector:(compound [ base_sel; Focus ]) input_focus_decls;
         rule
           ~selector:
             (compound
@@ -457,13 +476,13 @@ module Select = struct
     in
     style ~rules:(Some rules) []
 
-  let to_style = function
+  let to_style _theme = function
     | Form_select -> form_select
     | Form_textarea -> form_textarea
 
   let suborder = function Form_select -> 0 | Form_textarea -> 1
 
-  let of_class = function
+  let of_class _theme = function
     | "form-select" -> Ok Form_select
     | "form-textarea" -> Ok Form_textarea
     | _ -> Error (`Msg "Not a form select utility")
@@ -599,59 +618,10 @@ let checkbox_focus_ring_decls =
            });
     ]
 
-(** Text inputs base styles *)
-let text_inputs_base () =
+(** Webkit datetime edit pseudo-element rules for text inputs *)
+let webkit_datetime_rules () =
   let open Css in
-  let d_shadow, _ =
-    Var.binding Effects.shadow_var
-      (shadow ~h_offset:Zero ~v_offset:Zero ~color:(hex "#0000") ())
-  in
-  let text_input_items =
-    [
-      type_text;
-      input_no_type;
-      type_email;
-      type_url;
-      type_password;
-      type_number;
-      type_date;
-      type_datetime_local;
-      type_month;
-      type_search;
-      type_tel;
-      type_time;
-      type_week;
-      multiple;
-      Selector.element "textarea";
-      Selector.element "select";
-    ]
-  in
   [
-    rule ~selector:text_inputs
-      [
-        appearance None;
-        d_shadow;
-        background_color (hex "#fff");
-        border_width (Px 1.);
-        border_color gray_500;
-        border_radius (Px 0.);
-        padding [ Rem 0.5; Rem 0.75 ];
-        font_size (Rem 1.);
-        line_height (Rem 1.5);
-      ];
-    rule
-      ~selector:Selector.(is_ text_input_items && Focus)
-      text_input_focus_ring_decls;
-    rule
-      ~selector:
-        Selector.(
-          list
-            [
-              element "input" && Placeholder; element "textarea" && Placeholder;
-            ])
-      [ color gray_500; opacity 1. ];
-    (* Webkit datetime edit rules - forms plugin specific. These provide
-       additional styling beyond preflight *)
     rule ~selector:Selector.Webkit_datetime_edit_fields_wrapper
       [ padding [ Px 0. ] ];
     rule ~selector:Selector.Webkit_date_and_time_value [ min_height (Em 1.5) ];
@@ -677,6 +647,61 @@ let text_inputs_base () =
       [ padding_top (Px 0.); padding_bottom (Px 0.) ];
   ]
 
+let text_input_items =
+  let open Css in
+  [
+    type_text;
+    input_no_type;
+    type_email;
+    type_url;
+    type_password;
+    type_number;
+    type_date;
+    type_datetime_local;
+    type_month;
+    type_search;
+    type_tel;
+    type_time;
+    type_week;
+    multiple;
+    Selector.element "textarea";
+    Selector.element "select";
+  ]
+
+(** Text inputs base styles *)
+let text_inputs_base () =
+  let open Css in
+  let d_shadow, _ =
+    Var.binding Effects.shadow_var
+      (shadow ~h_offset:Zero ~v_offset:Zero ~color:(hex "#0000") ())
+  in
+  [
+    rule ~selector:text_inputs
+      [
+        appearance None;
+        d_shadow;
+        background_color (hex "#fff");
+        border_width (Px 1.);
+        border_color gray_500;
+        border_radius (radius Zero);
+        padding [ Rem 0.5; Rem 0.75 ];
+        font_size (Rem 1.);
+        line_height (Rem 1.5);
+      ];
+    rule
+      ~selector:Selector.(is_ text_input_items && Focus)
+      text_input_focus_ring_decls;
+    rule
+      ~selector:
+        Selector.(
+          list
+            [
+              element "input" && Placeholder; element "textarea" && Placeholder;
+            ])
+      [ color gray_500; opacity (Opacity_number 1.) ];
+  ]
+  @ webkit_datetime_rules ()
+
 (** Select dropdown base styles *)
 let select_base () =
   let open Css in
@@ -691,7 +716,8 @@ let select_base () =
               fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='oklch(55.1%25 \
               0.027 264.364)' stroke-linecap='round' stroke-linejoin='round' \
               stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-        background_position [ Edge_offset_axis ("right", Rem 0.5, "center") ];
+        background_position
+          [ Edge_offset_axis ("right", Length (Rem 0.5), "center") ];
         background_repeat No_repeat;
         background_size (Size (Em 1.5, Em 1.5));
         padding_right (Rem 2.5);
@@ -712,6 +738,97 @@ let select_base () =
         print_color_adjust Unset;
         padding_right (Rem 0.75);
       ];
+  ]
+
+let forced_colors_checked_appearance selector =
+  let open Css in
+  media ~condition:forced_colors_active [ rule ~selector [ appearance Auto ] ]
+
+(** Checked state rules for checkbox/radio *)
+let checkbox_checked_rules () =
+  let open Css in
+  [
+    rule
+      ~selector:
+        Selector.(list [ type_checkbox && Checked; type_radio && Checked ])
+      [
+        background_color Current;
+        background_position [ Single (Pct 50.) ];
+        background_repeat No_repeat;
+        background_size (Size (Pct 100., Pct 100.));
+        border_color (hex "#0000");
+      ];
+    rule
+      ~selector:Selector.(type_checkbox && Checked)
+      [
+        background_image
+          (Url
+             "data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' \
+              xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 \
+              1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 \
+              9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");
+      ];
+    forced_colors_checked_appearance Selector.(type_checkbox && Checked);
+    rule
+      ~selector:Selector.(type_radio && Checked)
+      [
+        background_image
+          (Url
+             "data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' \
+              xmlns='http://www.w3.org/2000/svg'%3e%3ccircle cx='8' cy='8' \
+              r='3'/%3e%3c/svg%3e");
+      ];
+    forced_colors_checked_appearance Selector.(type_radio && Checked);
+    rule
+      ~selector:
+        Selector.(
+          list
+            [
+              type_checkbox && Checked && Hover;
+              type_checkbox && Checked && Focus;
+              type_radio && Checked && Hover;
+              type_radio && Checked && Focus;
+            ])
+      [ background_color Current; border_color (hex "#0000") ];
+  ]
+
+(** Indeterminate state rules for checkbox *)
+let checkbox_indeterminate_rules () =
+  let open Css in
+  [
+    (* 11. checkbox:indeterminate - all properties *)
+    rule
+      ~selector:Selector.(type_checkbox && Indeterminate)
+      [
+        background_color Current;
+        background_image
+          (Url
+             "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' \
+              fill='none' viewBox='0 0 16 16'%3e%3cpath stroke='white' \
+              stroke-linecap='round' stroke-linejoin='round' stroke-width='2' \
+              d='M4 8h8'/%3e%3c/svg%3e");
+        background_position [ Single (Pct 50.) ];
+        background_repeat No_repeat;
+        background_size (Size (Pct 100., Pct 100.));
+        border_color (hex "#0000");
+      ];
+    (* 12. @media (forced-colors:active) checkbox:indeterminate *)
+    media ~condition:forced_colors_active
+      [
+        rule
+          ~selector:Selector.(type_checkbox && Indeterminate)
+          [ appearance Auto ];
+      ];
+    (* 13. Indeterminate hover/focus *)
+    rule
+      ~selector:
+        Selector.(
+          list
+            [
+              type_checkbox && Indeterminate && Hover;
+              type_checkbox && Indeterminate && Focus;
+            ])
+      [ background_color Current; border_color (hex "#0000") ];
   ]
 
 (** Checkbox and radio base styles - order matches Tailwind exactly with
@@ -745,97 +862,16 @@ let checkbox_radio_base () =
         display Inline_block;
       ];
     (* 2. Checkbox border-radius: 0 *)
-    rule ~selector:type_checkbox [ border_radius (Px 0.) ];
+    rule ~selector:type_checkbox [ border_radius (radius Zero) ];
     (* 3. Radio border-radius: 100% *)
-    rule ~selector:type_radio [ border_radius (Pct 100.) ];
+    rule ~selector:type_radio [ border_radius (radius (Pct 100.)) ];
     (* 4. Focus ring for both *)
     rule
       ~selector:Selector.(list [ type_checkbox && Focus; type_radio && Focus ])
       checkbox_focus_ring_decls;
-    (* 5. Checked state for both - common properties *)
-    rule
-      ~selector:
-        Selector.(list [ type_checkbox && Checked; type_radio && Checked ])
-      [
-        background_color Current;
-        background_position [ XY (Pct 50., Pct 50.) ];
-        background_repeat No_repeat;
-        background_size (Size (Pct 100., Pct 100.));
-        border_color (hex "#0000");
-      ];
-    (* 6. checkbox:checked background-image (checkmark) *)
-    rule
-      ~selector:Selector.(type_checkbox && Checked)
-      [
-        background_image
-          (Url
-             "data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' \
-              xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 \
-              1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 \
-              9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");
-      ];
-    (* 7. @media (forced-colors:active) checkbox:checked *)
-    media ~condition:(Media.Forced_colors `Active)
-      [ rule ~selector:Selector.(type_checkbox && Checked) [ appearance Auto ] ];
-    (* 8. radio:checked background-image (circle) *)
-    rule
-      ~selector:Selector.(type_radio && Checked)
-      [
-        background_image
-          (Url
-             "data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' \
-              xmlns='http://www.w3.org/2000/svg'%3e%3ccircle cx='8' cy='8' \
-              r='3'/%3e%3c/svg%3e");
-      ];
-    (* 9. @media (forced-colors:active) radio:checked *)
-    media ~condition:(Media.Forced_colors `Active)
-      [ rule ~selector:Selector.(type_radio && Checked) [ appearance Auto ] ];
-    (* 10. Checked hover/focus for both *)
-    rule
-      ~selector:
-        Selector.(
-          list
-            [
-              type_checkbox && Checked && Hover;
-              type_checkbox && Checked && Focus;
-              type_radio && Checked && Hover;
-              type_radio && Checked && Focus;
-            ])
-      [ background_color Current; border_color (hex "#0000") ];
-    (* 11. checkbox:indeterminate - all properties *)
-    rule
-      ~selector:Selector.(type_checkbox && Indeterminate)
-      [
-        background_color Current;
-        background_image
-          (Url
-             "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' \
-              fill='none' viewBox='0 0 16 16'%3e%3cpath stroke='white' \
-              stroke-linecap='round' stroke-linejoin='round' stroke-width='2' \
-              d='M4 8h8'/%3e%3c/svg%3e");
-        background_position [ XY (Pct 50., Pct 50.) ];
-        background_repeat No_repeat;
-        background_size (Size (Pct 100., Pct 100.));
-        border_color (hex "#0000");
-      ];
-    (* 12. @media (forced-colors:active) checkbox:indeterminate *)
-    media ~condition:(Media.Forced_colors `Active)
-      [
-        rule
-          ~selector:Selector.(type_checkbox && Indeterminate)
-          [ appearance Auto ];
-      ];
-    (* 13. Indeterminate hover/focus *)
-    rule
-      ~selector:
-        Selector.(
-          list
-            [
-              type_checkbox && Indeterminate && Hover;
-              type_checkbox && Indeterminate && Focus;
-            ])
-      [ background_color Current; border_color (hex "#0000") ];
   ]
+  @ checkbox_checked_rules ()
+  @ checkbox_indeterminate_rules ()
 
 (** File input base styles *)
 let file_input_base () =
@@ -847,8 +883,8 @@ let file_input_base () =
         border_color Inherit;
         font_size Unset;
         line_height Inherit;
-        border_width (Px 0.);
-        border_radius (Px 0.);
+        border_width Zero;
+        border_radius (radius Zero);
         padding [ Px 0. ];
       ];
     rule
@@ -860,7 +896,7 @@ let file_input_base () =
              {
                width = Some (Px 1.);
                style = Some Solid;
-               color = Some (System ButtonText);
+               color = Some (System Button_text);
              });
         outline
           (Shorthand
@@ -872,13 +908,14 @@ let file_input_base () =
       ];
   ]
 
+(* Tailwind v4's [\@tailwindcss/forms] plugin defaults to the [base] strategy:
+   it resets native form controls globally ([input]/[select]/[textarea]/...),
+   not only elements bearing a [.form-*] class. Those global resets are the
+   forms base layer, emitted whenever the forms plugin is active. The rule order
+   below mirrors the plugin's own output. *)
+
 (** Complete base layer stylesheet for forms plugin *)
 let base_stylesheet () =
   Css.v
-    (List.concat
-       [
-         text_inputs_base ();
-         select_base ();
-         checkbox_radio_base ();
-         file_input_base ();
-       ])
+    (text_inputs_base () @ select_base () @ checkbox_radio_base ()
+   @ file_input_base ())

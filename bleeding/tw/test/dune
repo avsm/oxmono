@@ -1,19 +1,15 @@
 (test
  (name test)
- (libraries tw tw.html alcotest re astring fmt tw_tools str))
-
-; (test
-;  (name test_selector_escape)
-;  (libraries tw alcotest))
-;
-; (test
-;  (name test_css_parse_escape)
-;  (libraries tw alcotest))
-;
-; (test
-;  (name test_unescape)
-;  (libraries alcotest))
-;
-; (test
-;  (name test_css_double_escape)
-;  (libraries tw alcotest))
+ (libraries
+  tw
+  alcotest
+  re
+  astring
+  fmt
+  cmdliner
+  unix
+  tw_tools
+  cascade
+  cascade.diff
+  test_helpers)
+ (deps upstream/utilities.txt upstream/variants.txt))

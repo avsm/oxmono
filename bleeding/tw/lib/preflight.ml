@@ -1,5 +1,6 @@
 (** Preflight and reset rules *)
 
+module Css = Cascade.Css
 open Css
 
 (* Base element selectors *)
@@ -23,6 +24,7 @@ let hidden_until_found = Selector.attribute "hidden" (Exact "until-found")
 (* Complex selectors *)
 let abbr_with_title = Selector.(abbr && where [ title ])
 let select_is_multiple_size = Selector.(select && is_ [ multiple; size ])
+let radius len = Radius { horizontal = [ Length len ]; vertical = None }
 
 let input_button_types =
   Selector.(input && where [ type_button; type_reset; type_submit ])
@@ -35,7 +37,9 @@ let box_resets () =
   let open Selector in
   [
     rule
-      ~selector:(Selector.list [ Selector.universal; After; Before; Backdrop ])
+      ~selector:
+        (Selector.list
+           [ Selector.universal; After Double; Before Double; Backdrop ])
       [
         box_sizing Border_box;
         border ~width:Zero ~style:Solid ();
@@ -239,7 +243,12 @@ let text_level_resets () =
 let table_resets () =
   [
     rule ~selector:(Selector.element "table")
-      [ text_indent Zero; border_color Inherit; border_collapse Collapse ];
+      [
+        text_indent
+          (Indent { length = Length Zero; hanging = false; each_line = false });
+        border_color Inherit;
+        border_collapse Collapse;
+      ];
   ]
 
 (** Interactive elements *)
@@ -263,7 +272,10 @@ let list_resets () =
               Selector.element "ul";
               Selector.element "menu";
             ])
-      [ list_style "none" ];
+      [
+        list_style
+          (Shorthand { type_ = Some None; position = None; image = Some None });
+      ];
   ]
 
 (** Media resets *)
@@ -305,25 +317,25 @@ let form_control_resets () =
               Selector.element "textarea";
             ])
       [
-        font "inherit";
+        font Inherit;
         font_feature_settings Inherit;
         font_variation_settings Inherit;
         letter_spacing Inherit;
         color Inherit;
-        opacity 1.0;
+        opacity (Opacity_number 1.0);
         background_color (hex "#0000");
-        border_radius Zero;
+        border_radius (radius Zero);
       ];
     rule ~selector:File_selector_button
       [
-        font "inherit";
+        font Inherit;
         font_feature_settings Inherit;
         font_variation_settings Inherit;
         letter_spacing Inherit;
         color Inherit;
-        opacity 1.0;
+        opacity (Opacity_number 1.0);
         background_color (hex "#0000");
-        border_radius Zero;
+        border_radius (radius Zero);
       ];
   ]
 
@@ -343,7 +355,7 @@ let select_resets () =
 (** Form placeholder and textarea resets *)
 let form_misc_resets () =
   [
-    rule ~selector:Placeholder [ opacity 1.0 ];
+    rule ~selector:Placeholder [ opacity (Opacity_number 1.0) ];
     rule ~selector:(Selector.element "textarea") [ resize Vertical ];
   ]
 
@@ -358,27 +370,31 @@ let webkit_form_resets ?(forms = false) () =
         [ min_height (Lh 1.0); text_align Inherit ];
     ]
   in
-  (* When forms plugin is active, it provides these rules, so skip them here *)
+  (* Tailwind v4's [\@tailwindcss/forms] with [strategy: 'class'] does not touch
+     global webkit datetime pseudo-elements, so preflight always emits these
+     (independent of the [~forms] flag). *)
+  let _ = forms in
   let forms_provided_rules =
-    if forms then []
-    else
-      [
-        rule ~selector:Webkit_datetime_edit [ display Inline_flex ];
-        rule ~selector:Webkit_datetime_edit_fields_wrapper [ padding [ Zero ] ];
-      ]
+    [
+      rule ~selector:Webkit_datetime_edit [ display Inline_flex ];
+      rule ~selector:Webkit_datetime_edit_fields_wrapper [ padding [ Zero ] ];
+    ]
   in
   let padding_block_rules =
     [
-      rule ~selector:Webkit_datetime_edit [ padding_block Zero ];
-      rule ~selector:Webkit_datetime_edit_year_field [ padding_block Zero ];
-      rule ~selector:Webkit_datetime_edit_month_field [ padding_block Zero ];
-      rule ~selector:Webkit_datetime_edit_day_field [ padding_block Zero ];
-      rule ~selector:Webkit_datetime_edit_hour_field [ padding_block Zero ];
-      rule ~selector:Webkit_datetime_edit_minute_field [ padding_block Zero ];
-      rule ~selector:Webkit_datetime_edit_second_field [ padding_block Zero ];
+      rule ~selector:Webkit_datetime_edit [ padding_block [ Zero ] ];
+      rule ~selector:Webkit_datetime_edit_year_field [ padding_block [ Zero ] ];
+      rule ~selector:Webkit_datetime_edit_month_field [ padding_block [ Zero ] ];
+      rule ~selector:Webkit_datetime_edit_day_field [ padding_block [ Zero ] ];
+      rule ~selector:Webkit_datetime_edit_hour_field [ padding_block [ Zero ] ];
+      rule ~selector:Webkit_datetime_edit_minute_field
+        [ padding_block [ Zero ] ];
+      rule ~selector:Webkit_datetime_edit_second_field
+        [ padding_block [ Zero ] ];
       rule ~selector:Webkit_datetime_edit_millisecond_field
-        [ padding_block Zero ];
-      rule ~selector:Webkit_datetime_edit_meridiem_field [ padding_block Zero ];
+        [ padding_block [ Zero ] ];
+      rule ~selector:Webkit_datetime_edit_meridiem_field
+        [ padding_block [ Zero ] ];
       rule ~selector:Webkit_calendar_picker_indicator [ line_height (Num 1.) ];
     ]
   in
@@ -409,42 +425,42 @@ let button_resets () =
 let hidden_resets () =
   [ rule ~selector:hidden_not_until_found [ important (display None) ] ]
 
+let font_family_ref theme fallback_stack =
+  let _, ref = Var.binding theme fallback_stack in
+  ref
+
+let default_font_stack : font_family =
+  List
+    [
+      Ui_sans_serif;
+      System_ui;
+      Sans_serif;
+      Apple_color_emoji;
+      Segoe_ui_emoji;
+      Segoe_ui_symbol;
+      Noto_color_emoji;
+    ]
+
+let default_mono_stack : font_family =
+  List
+    [
+      Ui_monospace;
+      SFMono_regular;
+      Menlo;
+      Monaco;
+      Consolas;
+      Liberation_mono;
+      Courier_new;
+      Monospace;
+    ]
+
 (* Get default sans-serif font family reference *)
 let default_font_family_ref () =
-  let fallback_stack : font_family =
-    List
-      [
-        Ui_sans_serif;
-        System_ui;
-        Sans_serif;
-        Apple_color_emoji;
-        Segoe_ui_emoji;
-        Segoe_ui_symbol;
-        Noto_color_emoji;
-      ]
-  in
-  let _, ref = Var.binding Typography.default_font_family_var fallback_stack in
-  ref
+  font_family_ref Typography.default_font_family_var default_font_stack
 
 (* Get default monospace font family reference *)
 let default_mono_family_ref () =
-  let mono_fallback_stack : font_family =
-    List
-      [
-        Ui_monospace;
-        SFMono_regular;
-        Menlo;
-        Monaco;
-        Consolas;
-        Liberation_mono;
-        Courier_new;
-        Monospace;
-      ]
-  in
-  let _, ref =
-    Var.binding Typography.default_mono_font_family_var mono_fallback_stack
-  in
-  ref
+  font_family_ref Typography.default_mono_font_family_var default_mono_stack
 
 (* Get all font customization variable references *)
 let font_customization_refs () =

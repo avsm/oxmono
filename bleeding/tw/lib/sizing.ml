@@ -1,9 +1,13 @@
 (** Sizing utilities for width and height *)
 
+module Css = Cascade.Css
+
 type size =
   [ `None | `Xs | `Sm | `Md | `Lg | `Xl | `Xl_2 | `Xl_3 | `Full | `Rem of float ]
 
 module Handler = struct
+  let class_float = Pp.float
+
   open Style
   open Css
 
@@ -18,6 +22,11 @@ module Handler = struct
     | W_px
     | W_spacing of float
     | W_fraction of string
+    | W_arbitrary of string * Css.length
+    | W_dvw (* 100dvw - dynamic viewport width *)
+    | W_lvw (* 100lvw - large viewport width *)
+    | W_svw (* 100svw - small viewport width *)
+    | W_xl (* width: var(--width-xl) *)
     (* Height utilities *)
     | H_auto
     | H_full
@@ -28,13 +37,21 @@ module Handler = struct
     | H_px
     | H_spacing of float
     | H_fraction of string
+    | H_arbitrary of string * Css.length
+    | H_dvh (* 100dvh - dynamic viewport height *)
+    | H_lvh (* 100lvh - large viewport height *)
+    | H_svh (* 100svh - small viewport height *)
+    | H_lh (* 1lh - line height *)
     (* Min-width utilities *)
     | Min_w_0
     | Min_w_full
     | Min_w_min
     | Min_w_max
     | Min_w_fit
+    | Min_w_auto
     | Min_w_spacing of float
+    | Min_w_arbitrary of string * Css.length
+    | Min_w_xl (* min-width: var(--container-xl) *)
     (* Max-width utilities *)
     | Max_w_none
     | Max_w_xs
@@ -59,6 +76,7 @@ module Handler = struct
     | Max_w_screen_xl
     | Max_w_screen_2xl
     | Max_w_spacing of float
+    | Max_w_arbitrary of string * Css.length
     (* Min-height utilities *)
     | Min_h_0
     | Min_h_full
@@ -66,7 +84,13 @@ module Handler = struct
     | Min_h_min
     | Min_h_max
     | Min_h_fit
+    | Min_h_auto
+    | Min_h_dvh
+    | Min_h_lvh
+    | Min_h_svh
+    | Min_h_lh
     | Min_h_spacing of float
+    | Min_h_arbitrary of string * Css.length
     (* Max-height utilities *)
     | Max_h_none
     | Max_h_full
@@ -74,7 +98,12 @@ module Handler = struct
     | Max_h_min
     | Max_h_max
     | Max_h_fit
+    | Max_h_dvh
+    | Max_h_lvh
+    | Max_h_svh
+    | Max_h_lh
     | Max_h_spacing of float
+    | Max_h_arbitrary of string * Css.length
     (* Size utilities (both width and height) *)
     | Size_auto
     | Size_full
@@ -83,11 +112,84 @@ module Handler = struct
     | Size_fit
     | Size_spacing of float
     | Size_fraction of string
+    | Size_arbitrary of string * Css.length
+    (* inline-size utilities *)
+    | Inline_fraction of string
+    | Inline_spacing of float
+    | Inline_arbitrary of string * Css.length
+    | Inline_auto
+    | Inline_dvw
+    | Inline_fit
+    | Inline_full
+    | Inline_lvw
+    | Inline_max
+    | Inline_min
+    | Inline_screen
+    | Inline_svw
+    | Inline_xl
+    (* min-inline-size utilities *)
+    | Min_inline_spacing of float
+    | Min_inline_arbitrary of string * Css.length
+    | Min_inline_auto
+    | Min_inline_fit
+    | Min_inline_full
+    | Min_inline_max
+    | Min_inline_min
+    | Min_inline_xl
+    (* max-inline-size utilities *)
+    | Max_inline_spacing of float
+    | Max_inline_arbitrary of string * Css.length
+    | Max_inline_fit
+    | Max_inline_full
+    | Max_inline_max
+    | Max_inline_none
+    | Max_inline_xl
+    (* block-size utilities *)
+    | Block_fraction of string
+    | Block_spacing of float
+    | Block_arbitrary of string * Css.length
+    | Block_auto
+    | Block_dvh
+    | Block_fit
+    | Block_full
+    | Block_lh
+    | Block_lvh
+    | Block_max
+    | Block_min
+    | Block_screen
+    | Block_svh
+    (* min-block-size utilities *)
+    | Min_block_spacing of float
+    | Min_block_arbitrary of string * Css.length
+    | Min_block_auto
+    | Min_block_dvh
+    | Min_block_fit
+    | Min_block_full
+    | Min_block_lh
+    | Min_block_lvh
+    | Min_block_max
+    | Min_block_min
+    | Min_block_screen
+    | Min_block_svh
+    (* max-block-size utilities *)
+    | Max_block_spacing of float
+    | Max_block_arbitrary of string * Css.length
+    | Max_block_dvh
+    | Max_block_fit
+    | Max_block_full
+    | Max_block_lh
+    | Max_block_lvh
+    | Max_block_max
+    | Max_block_min
+    | Max_block_none
+    | Max_block_screen
+    | Max_block_svh
     (* Aspect utilities *)
     | Aspect_auto
     | Aspect_square
     | Aspect_video
-    | Aspect_ratio of int * int
+    | Aspect_ratio of float * float (* aspect-4/3, aspect-8.5/11 *)
+    | Aspect_bracket of float * float (* aspect-[10/9] *)
 
   type Utility.base += Self of t
 
@@ -95,21 +197,17 @@ module Handler = struct
 
   (** Priority 6: Sizing utilities (w-*, h-*, max-w-*, etc.) come before
       flex-1/flex-col etc. in Tailwind's order. *)
-  let priority = 6
+  let priority _ = 6
 
   (** Helper to create spacing-based utilities with consistent pattern. [n] is
       in rem units (e.g., 16.0 for w-64). We convert to class units by
-      multiplying by 4, since --spacing is 0.25rem and the CSS should be
-      calc(var(--spacing) * 64) for w-64. *)
-  let spacing_utility css_prop n =
-    let decl, spacing_ref = Var.binding Theme.spacing_var (Rem 0.25) in
-    let class_units = n *. 4. in
-    let spacing_value : Css.length =
-      Calc Calc.(mul (length (Var spacing_ref)) (float class_units))
-    in
+      multiplying by 4, since --spacing is 0.25rem. Uses calc(var(--spacing) *
+      n) for Tailwind v4 compatibility. *)
+  let spacing_utility ?theme css_prop n =
+    let decl, spacing_value = Theme.spacing_calc_float ?theme (n *. 4.) in
     style (decl :: [ css_prop spacing_value ])
 
-  let w' size =
+  let w' ?theme size =
     match size with
     | `None -> style [ width (Px 0.) ]
     | `Xs -> style [ width (Rem 0.5) ]
@@ -120,7 +218,7 @@ module Handler = struct
     | `Xl_2 -> style [ width (Rem 4.0) ]
     | `Xl_3 -> style [ width (Rem 6.0) ]
     | `Full -> style [ width (Pct 100.0) ]
-    | `Rem n -> spacing_utility width n
+    | `Rem n -> spacing_utility ?theme width n
 
   let w_auto' = style [ width Auto ]
   let w_px' = style [ width (Px 1.0) ]
@@ -129,19 +227,10 @@ module Handler = struct
   let w_min' = style [ width Min_content ]
   let w_max' = style [ width Max_content ]
   let w_fit' = style [ width Fit_content ]
-  let w_1_2' = style [ width (Pct 50.0) ]
-  let w_1_3' = style [ width (Pct 33.333333) ]
-  let w_2_3' = style [ width (Pct 66.666667) ]
-  let w_1_4' = style [ width (Pct 25.0) ]
-  let w_3_4' = style [ width (Pct 75.0) ]
-  let w_1_5' = style [ width (Pct 20.0) ]
-  let w_2_5' = style [ width (Pct 40.0) ]
-  let w_3_5' = style [ width (Pct 60.0) ]
-  let w_4_5' = style [ width (Pct 80.0) ]
 
   (* Int-based width function for Tailwind scale (n * 0.25rem) *)
 
-  let h' size =
+  let h' ?theme size =
     match size with
     | `None -> style [ height (Px 0.) ]
     | `Xs -> style [ height (Rem 0.5) ]
@@ -152,7 +241,7 @@ module Handler = struct
     | `Xl_2 -> style [ height (Rem 4.0) ]
     | `Xl_3 -> style [ height (Rem 6.0) ]
     | `Full -> style [ height (Pct 100.0) ]
-    | `Rem n -> spacing_utility height n
+    | `Rem n -> spacing_utility ?theme height n
 
   let h_auto' = style [ height Auto ]
   let h_px' = style [ height (Px 1.0) ]
@@ -161,19 +250,10 @@ module Handler = struct
   let h_min' = style [ height Min_content ]
   let h_max' = style [ height Max_content ]
   let h_fit' = style [ height Fit_content ]
-  let h_1_2' = style [ height (Pct 50.0) ]
-  let h_1_3' = style [ height (Pct 33.333333) ]
-  let h_2_3' = style [ height (Pct 66.666667) ]
-  let h_1_4' = style [ height (Pct 25.0) ]
-  let h_3_4' = style [ height (Pct 75.0) ]
-  let h_1_5' = style [ height (Pct 20.0) ]
-  let h_2_5' = style [ height (Pct 40.0) ]
-  let h_3_5' = style [ height (Pct 60.0) ]
-  let h_4_5' = style [ height (Pct 80.0) ]
 
   (* Int-based height function for Tailwind scale (n * 0.25rem) *)
 
-  let min_w' size =
+  let min_w' ?theme size =
     match size with
     | `None -> style [ min_width (Px 0.) ]
     | `Xs -> style [ min_width (Rem 0.5) ]
@@ -184,7 +264,7 @@ module Handler = struct
     | `Xl_2 -> style [ min_width (Rem 4.0) ]
     | `Xl_3 -> style [ min_width (Rem 6.0) ]
     | `Full -> style [ min_width (Pct 100.0) ]
-    | `Rem n -> spacing_utility min_width n
+    | `Rem n -> spacing_utility ?theme min_width n
 
   let min_w_0' = style [ min_width (Px 0.) ]
   let min_w_full' = style [ min_width (Pct 100.0) ]
@@ -194,7 +274,7 @@ module Handler = struct
 
   (* Int-based min-width function for Tailwind scale (n * 0.25rem) *)
 
-  let max_w' size =
+  let max_w' ?theme size =
     match size with
     | `None -> style [ max_width None ]
     | `Xs -> style [ max_width (Rem 20.0) ]
@@ -205,20 +285,34 @@ module Handler = struct
     | `Xl_2 -> style [ max_width (Rem 42.0) ]
     | `Xl_3 -> style [ max_width (Rem 48.0) ]
     | `Full -> style [ max_width (Pct 100.0) ]
-    | `Rem n -> spacing_utility max_width n
+    | `Rem n -> spacing_utility ?theme max_width n
 
-  (* Container size theme variables *)
-  let container_xs = Var.theme Css.Length "container-xs" ~order:(5, 0)
-  let container_sm = Var.theme Css.Length "container-sm" ~order:(5, 1)
-  let container_md = Var.theme Css.Length "container-md" ~order:(5, 2)
-  let container_lg = Var.theme Css.Length "container-lg" ~order:(5, 3)
-  let container_xl = Var.theme Css.Length "container-xl" ~order:(5, 4)
-  let container_2xl = Var.theme Css.Length "container-2xl" ~order:(5, 5)
-  let container_3xl = Var.theme Css.Length "container-3xl" ~order:(5, 6)
-  let container_4xl = Var.theme Css.Length "container-4xl" ~order:(5, 7)
-  let container_5xl = Var.theme Css.Length "container-5xl" ~order:(5, 8)
-  let container_6xl = Var.theme Css.Length "container-6xl" ~order:(5, 9)
-  let container_7xl = Var.theme Css.Length "container-7xl" ~order:(5, 10)
+  (* Named width theme variable *)
+  let width_xl = Var.theme Css.Length "width-xl" ~order:(5, 20)
+
+  (* Container size theme variables - ordered from smallest to largest *)
+  let container_3xs = Var.theme Css.Length "container-3xs" ~order:(5, 0)
+  let container_2xs = Var.theme Css.Length "container-2xs" ~order:(5, 1)
+  let container_xs = Var.theme Css.Length "container-xs" ~order:(5, 2)
+  let container_sm = Var.theme Css.Length "container-sm" ~order:(5, 3)
+  let container_md = Var.theme Css.Length "container-md" ~order:(5, 4)
+  let container_lg = Var.theme Css.Length "container-lg" ~order:(5, 5)
+  let container_xl = Var.theme Css.Length "container-xl" ~order:(5, 6)
+  let container_2xl = Var.theme Css.Length "container-2xl" ~order:(5, 7)
+  let container_3xl = Var.theme Css.Length "container-3xl" ~order:(5, 8)
+  let container_4xl = Var.theme Css.Length "container-4xl" ~order:(5, 9)
+  let container_5xl = Var.theme Css.Length "container-5xl" ~order:(5, 10)
+  let container_6xl = Var.theme Css.Length "container-6xl" ~order:(5, 11)
+  let container_7xl = Var.theme Css.Length "container-7xl" ~order:(5, 12)
+
+  (* Breakpoint theme vars, referenced by the (v3) max-w-screen-* utilities.
+     Negative suborders keep them before --container-* in the theme layer, as
+     Tailwind emits them. *)
+  let breakpoint_sm = Var.theme Css.Length "breakpoint-sm" ~order:(5, -5)
+  let breakpoint_md = Var.theme Css.Length "breakpoint-md" ~order:(5, -4)
+  let breakpoint_lg = Var.theme Css.Length "breakpoint-lg" ~order:(5, -3)
+  let breakpoint_xl = Var.theme Css.Length "breakpoint-xl" ~order:(5, -2)
+  let breakpoint_2xl = Var.theme Css.Length "breakpoint-2xl" ~order:(5, -1)
   let max_w_none' = style [ max_width None ]
 
   let max_w_xs' =
@@ -270,15 +364,20 @@ module Handler = struct
   let max_w_max' = style [ max_width Max_content ]
   let max_w_fit' = style [ max_width Fit_content ]
   let max_w_prose' = style [ max_width (Ch 65.0) ]
-  let max_w_screen_sm' = style [ max_width (Px 640.) ]
-  let max_w_screen_md' = style [ max_width (Px 768.) ]
-  let max_w_screen_lg' = style [ max_width (Px 1024.) ]
-  let max_w_screen_xl' = style [ max_width (Px 1280.) ]
-  let max_w_screen_2xl' = style [ max_width (Px 1536.) ]
+
+  let max_w_screen_of var rem =
+    let decl, r = Var.binding var (Rem rem : Css.length) in
+    style (decl :: [ max_width (Var r) ])
+
+  let max_w_screen_sm' = max_w_screen_of breakpoint_sm 40.
+  let max_w_screen_md' = max_w_screen_of breakpoint_md 48.
+  let max_w_screen_lg' = max_w_screen_of breakpoint_lg 64.
+  let max_w_screen_xl' = max_w_screen_of breakpoint_xl 80.
+  let max_w_screen_2xl' = max_w_screen_of breakpoint_2xl 96.
 
   (* Int-based max-width function for Tailwind scale (n * 0.25rem) *)
 
-  let min_h' size =
+  let min_h' ?theme size =
     match size with
     | `None -> style [ min_height (Px 0.) ]
     | `Xs -> style [ min_height (Rem 0.5) ]
@@ -289,7 +388,7 @@ module Handler = struct
     | `Xl_2 -> style [ min_height (Rem 4.0) ]
     | `Xl_3 -> style [ min_height (Rem 6.0) ]
     | `Full -> style [ min_height (Pct 100.0) ]
-    | `Rem n -> spacing_utility min_height n
+    | `Rem n -> spacing_utility ?theme min_height n
 
   let min_h_0' = style [ min_height (Px 0.) ]
   let min_h_full' = style [ min_height (Pct 100.0) ]
@@ -300,7 +399,7 @@ module Handler = struct
 
   (* Int-based min-height function for Tailwind scale (n * 0.25rem) *)
 
-  let max_h' size =
+  let max_h' ?theme size =
     match size with
     | `None -> style [ max_height None ]
     | `Xs -> style [ max_height (Rem 0.5) ]
@@ -311,7 +410,7 @@ module Handler = struct
     | `Xl_2 -> style [ max_height (Rem 4.0) ]
     | `Xl_3 -> style [ max_height (Rem 6.0) ]
     | `Full -> style [ max_height (Pct 100.0) ]
-    | `Rem n -> spacing_utility max_height n
+    | `Rem n -> spacing_utility ?theme max_height n
 
   let max_h_none' = style [ max_height None ]
   let max_h_full' = style [ max_height (Pct 100.0) ]
@@ -322,29 +421,47 @@ module Handler = struct
 
   (* Int-based max-height function for Tailwind scale (n * 0.25rem) *)
 
-  let fraction_table =
-    [
-      ("1/2", 50.0);
-      ("1/3", 33.333333);
-      ("2/3", 66.666667);
-      ("1/4", 25.0);
-      ("3/4", 75.0);
-      ("1/5", 20.0);
-      ("2/5", 40.0);
-      ("3/5", 60.0);
-      ("4/5", 80.0);
-      ("1/6", 16.666667);
-      ("5/6", 83.333333);
-    ]
+  (* A Tailwind sizing fraction [n/m] resolves to [n/m * 100%]. Tailwind emits
+     calc(n / m * 100%) and folds it to 6 significant figures (e.g. 33.3333,
+     8.33333); we emit the percentage rounded the same way so the two match.
+     Denominators follow Tailwind's scale. *)
+  let fraction_pct frac =
+    match String.split_on_char '/' frac with
+    | [ n; m ] -> (
+        match (int_of_string_opt n, int_of_string_opt m) with
+        | Some n, Some m
+          when m > 0 && n > 0 && n < m && List.mem m [ 2; 3; 4; 5; 6; 12 ] ->
+            let pct = float_of_int n /. float_of_int m *. 100. in
+            let digits = 6. -. Float.ceil (Float.log10 pct) in
+            let factor = 10. ** digits in
+            Some (Float.round (pct *. factor) /. factor)
+        | _ -> None)
+    | _ -> None
 
   let aspect_auto' = style [ Css.aspect_ratio Auto ]
+
+  (* Theme variables for aspect ratios *)
+  let aspect_video_var = Var.theme Css.Aspect_ratio "aspect-video" ~order:(4, 1)
+
+  (* aspect-square inlines the 1/1 ratio in v4 (no --aspect-square theme token),
+     unlike aspect-video which references the --aspect-video token. *)
   let aspect_square' = style [ Css.aspect_ratio (Ratio (1., 1.)) ]
-  let aspect_video' = style [ Css.aspect_ratio (Ratio (16., 9.)) ]
 
-  let aspect_ratio' w h =
-    style [ Css.aspect_ratio (Ratio (float_of_int w, float_of_int h)) ]
+  let aspect_video' =
+    let decl, r = Var.binding aspect_video_var (Ratio (16., 9.)) in
+    style (decl :: [ Css.aspect_ratio (Var r) ])
 
-  let to_style = function
+  let aspect_ratio' w h = style [ Css.aspect_ratio (Ratio (w, h)) ]
+
+  let to_style theme =
+    let spacing_utility css_prop n = spacing_utility ~theme css_prop n in
+    let w' size = w' ~theme size in
+    let h' size = h' ~theme size in
+    let min_w' size = min_w' ~theme size in
+    let max_w' size = max_w' ~theme size in
+    let min_h' size = min_h' ~theme size in
+    let max_h' size = max_h' ~theme size in
+    function
     (* Width utilities *)
     | W_auto -> w_auto'
     | W_px -> w_px'
@@ -355,17 +472,16 @@ module Handler = struct
     | W_fit -> w_fit'
     | W_spacing n -> w' (`Rem n)
     | W_fraction f -> (
-        match f with
-        | "1/2" -> w_1_2'
-        | "1/3" -> w_1_3'
-        | "2/3" -> w_2_3'
-        | "1/4" -> w_1_4'
-        | "3/4" -> w_3_4'
-        | "1/5" -> w_1_5'
-        | "2/5" -> w_2_5'
-        | "3/5" -> w_3_5'
-        | "4/5" -> w_4_5'
-        | _ -> failwith ("Unknown width fraction: " ^ f))
+        match fraction_pct f with
+        | Some pct -> style [ width (Pct pct) ]
+        | None -> failwith ("Unknown width fraction: " ^ f))
+    | W_arbitrary (_, len) -> style [ width len ]
+    | W_dvw -> style [ width (Dvw 100.) ]
+    | W_lvw -> style [ width (Lvw 100.) ]
+    | W_svw -> style [ width (Svw 100.) ]
+    | W_xl ->
+        let decl, ref_ = Var.binding width_xl (Rem 36.0) in
+        style [ decl; width (Var ref_) ]
     (* Height utilities *)
     | H_auto -> h_auto'
     | H_px -> h_px'
@@ -376,24 +492,26 @@ module Handler = struct
     | H_fit -> h_fit'
     | H_spacing n -> h' (`Rem n)
     | H_fraction f -> (
-        match f with
-        | "1/2" -> h_1_2'
-        | "1/3" -> h_1_3'
-        | "2/3" -> h_2_3'
-        | "1/4" -> h_1_4'
-        | "3/4" -> h_3_4'
-        | "1/5" -> h_1_5'
-        | "2/5" -> h_2_5'
-        | "3/5" -> h_3_5'
-        | "4/5" -> h_4_5'
-        | _ -> failwith ("Unknown height fraction: " ^ f))
+        match fraction_pct f with
+        | Some pct -> style [ height (Pct pct) ]
+        | None -> failwith ("Unknown height fraction: " ^ f))
+    | H_arbitrary (_, len) -> style [ height len ]
+    | H_dvh -> style [ height (Dvh 100.) ]
+    | H_lvh -> style [ height (Lvh 100.) ]
+    | H_svh -> style [ height (Svh 100.) ]
+    | H_lh -> style [ height (Lh 1.) ]
     (* Min-width utilities *)
     | Min_w_0 -> min_w_0'
     | Min_w_full -> min_w_full'
     | Min_w_min -> min_w_min'
     | Min_w_max -> min_w_max'
     | Min_w_fit -> min_w_fit'
+    | Min_w_auto -> style [ min_width Auto ]
     | Min_w_spacing n -> min_w' (`Rem n)
+    | Min_w_arbitrary (_, len) -> style [ min_width len ]
+    | Min_w_xl ->
+        let decl, ref_ = Var.binding container_xl (Rem 36.0) in
+        style [ decl; min_width (Var ref_) ]
     (* Max-width utilities *)
     | Max_w_none -> max_w_none'
     | Max_w_xs -> max_w_xs'
@@ -418,6 +536,7 @@ module Handler = struct
     | Max_w_screen_xl -> max_w_screen_xl'
     | Max_w_screen_2xl -> max_w_screen_2xl'
     | Max_w_spacing n -> max_w' (`Rem n)
+    | Max_w_arbitrary (_, len) -> style [ max_width len ]
     (* Min-height utilities *)
     | Min_h_0 -> min_h_0'
     | Min_h_full -> min_h_full'
@@ -425,7 +544,13 @@ module Handler = struct
     | Min_h_min -> min_h_min'
     | Min_h_max -> min_h_max'
     | Min_h_fit -> min_h_fit'
+    | Min_h_auto -> style [ min_height Auto ]
+    | Min_h_dvh -> style [ min_height (Dvh 100.) ]
+    | Min_h_lvh -> style [ min_height (Lvh 100.) ]
+    | Min_h_svh -> style [ min_height (Svh 100.) ]
+    | Min_h_lh -> style [ min_height (Lh 1.) ]
     | Min_h_spacing n -> min_h' (`Rem n)
+    | Min_h_arbitrary (_, len) -> style [ min_height len ]
     (* Max-height utilities *)
     | Max_h_none -> max_h_none'
     | Max_h_full -> max_h_full'
@@ -433,7 +558,12 @@ module Handler = struct
     | Max_h_min -> max_h_min'
     | Max_h_max -> max_h_max'
     | Max_h_fit -> max_h_fit'
+    | Max_h_dvh -> style [ max_height (Dvh 100.) ]
+    | Max_h_lvh -> style [ max_height (Lvh 100.) ]
+    | Max_h_svh -> style [ max_height (Svh 100.) ]
+    | Max_h_lh -> style [ max_height (Lh 1.) ]
     | Max_h_spacing n -> max_h' (`Rem n)
+    | Max_h_arbitrary (_, len) -> style [ max_height len ]
     (* Size utilities *)
     | Size_auto -> style [ width Auto; height Auto ]
     | Size_full -> style [ width (Pct 100.0); height (Pct 100.0) ]
@@ -441,154 +571,429 @@ module Handler = struct
     | Size_max -> style [ width Max_content; height Max_content ]
     | Size_fit -> style [ width Fit_content; height Fit_content ]
     | Size_spacing n ->
-        let decl, spacing_ref = Var.binding Theme.spacing_var (Rem 0.25) in
-        let class_units = n *. 4. in
-        let spacing_value : Css.length =
-          Calc Calc.(mul (length (Var spacing_ref)) (float class_units))
-        in
+        let decl, spacing_value = Theme.spacing_calc_float ~theme (n *. 4.) in
         style (decl :: [ width spacing_value; height spacing_value ])
     | Size_fraction f -> (
         match
           List.assoc_opt f
             [
               ("1/2", 50.0);
-              ("1/3", 33.333333);
-              ("2/3", 66.666667);
+              ("1/3", 33.3333);
+              ("2/3", 66.6667);
               ("1/4", 25.0);
               ("3/4", 75.0);
               ("1/5", 20.0);
               ("2/5", 40.0);
               ("3/5", 60.0);
               ("4/5", 80.0);
-              ("1/6", 16.666667);
-              ("5/6", 83.333333);
+              ("1/6", 16.6667);
+              ("5/6", 83.3333);
             ]
         with
         | Some pct -> style [ width (Pct pct); height (Pct pct) ]
         | None -> failwith ("Unknown size fraction: " ^ f))
+    | Size_arbitrary (_, len) -> style [ width len; height len ]
+    (* inline-size utilities *)
+    | Inline_fraction f -> (
+        match fraction_pct f with
+        | Some pct -> style [ inline_size (Pct pct) ]
+        | None -> failwith ("Unknown inline-size fraction: " ^ f))
+    | Inline_spacing n -> spacing_utility inline_size n
+    | Inline_arbitrary (_, len) -> style [ inline_size len ]
+    | Inline_auto -> style [ inline_size Auto ]
+    | Inline_dvw -> style [ inline_size (Dvw 100.) ]
+    | Inline_fit -> style [ inline_size Fit_content ]
+    | Inline_full -> style [ inline_size (Pct 100.) ]
+    | Inline_lvw -> style [ inline_size (Lvw 100.) ]
+    | Inline_max -> style [ inline_size Max_content ]
+    | Inline_min -> style [ inline_size Min_content ]
+    | Inline_screen -> style [ inline_size (Vw 100.) ]
+    | Inline_svw -> style [ inline_size (Svw 100.) ]
+    | Inline_xl ->
+        let decl, ref_ = Var.binding container_xl (Rem 36.0) in
+        style [ decl; inline_size (Var ref_) ]
+    (* min-inline-size utilities *)
+    | Min_inline_spacing n -> spacing_utility min_inline_size n
+    | Min_inline_arbitrary (_, len) -> style [ min_inline_size len ]
+    | Min_inline_auto -> style [ min_inline_size Auto ]
+    | Min_inline_fit -> style [ min_inline_size Fit_content ]
+    | Min_inline_full -> style [ min_inline_size (Pct 100.) ]
+    | Min_inline_max -> style [ min_inline_size Max_content ]
+    | Min_inline_min -> style [ min_inline_size Min_content ]
+    | Min_inline_xl ->
+        let decl, ref_ = Var.binding container_xl (Rem 36.0) in
+        style [ decl; min_inline_size (Var ref_) ]
+    (* max-inline-size utilities *)
+    | Max_inline_spacing n -> spacing_utility max_inline_size n
+    | Max_inline_arbitrary (_, len) -> style [ max_inline_size len ]
+    | Max_inline_fit -> style [ max_inline_size Fit_content ]
+    | Max_inline_full -> style [ max_inline_size (Pct 100.) ]
+    | Max_inline_max -> style [ max_inline_size Max_content ]
+    | Max_inline_none -> style [ max_inline_size None ]
+    | Max_inline_xl ->
+        let decl, ref_ = Var.binding container_xl (Rem 36.0) in
+        style [ decl; max_inline_size (Var ref_) ]
+    (* block-size utilities *)
+    | Block_fraction f -> (
+        match fraction_pct f with
+        | Some pct -> style [ block_size (Pct pct) ]
+        | None -> failwith ("Unknown block-size fraction: " ^ f))
+    | Block_spacing n -> spacing_utility block_size n
+    | Block_arbitrary (_, len) -> style [ block_size len ]
+    | Block_auto -> style [ block_size Auto ]
+    | Block_dvh -> style [ block_size (Dvh 100.) ]
+    | Block_fit -> style [ block_size Fit_content ]
+    | Block_full -> style [ block_size (Pct 100.) ]
+    | Block_lh -> style [ block_size (Lh 1.) ]
+    | Block_lvh -> style [ block_size (Lvh 100.) ]
+    | Block_max -> style [ block_size Max_content ]
+    | Block_min -> style [ block_size Min_content ]
+    | Block_screen -> style [ block_size (Vh 100.) ]
+    | Block_svh -> style [ block_size (Svh 100.) ]
+    (* min-block-size utilities *)
+    | Min_block_spacing n -> spacing_utility min_block_size n
+    | Min_block_arbitrary (_, len) -> style [ min_block_size len ]
+    | Min_block_auto -> style [ min_block_size Auto ]
+    | Min_block_dvh -> style [ min_block_size (Dvh 100.) ]
+    | Min_block_fit -> style [ min_block_size Fit_content ]
+    | Min_block_full -> style [ min_block_size (Pct 100.) ]
+    | Min_block_lh -> style [ min_block_size (Lh 1.) ]
+    | Min_block_lvh -> style [ min_block_size (Lvh 100.) ]
+    | Min_block_max -> style [ min_block_size Max_content ]
+    | Min_block_min -> style [ min_block_size Min_content ]
+    | Min_block_screen -> style [ min_block_size (Vh 100.) ]
+    | Min_block_svh -> style [ min_block_size (Svh 100.) ]
+    (* max-block-size utilities *)
+    | Max_block_spacing n -> spacing_utility max_block_size n
+    | Max_block_arbitrary (_, len) -> style [ max_block_size len ]
+    | Max_block_dvh -> style [ max_block_size (Dvh 100.) ]
+    | Max_block_fit -> style [ max_block_size Fit_content ]
+    | Max_block_full -> style [ max_block_size (Pct 100.) ]
+    | Max_block_lh -> style [ max_block_size (Lh 1.) ]
+    | Max_block_lvh -> style [ max_block_size (Lvh 100.) ]
+    | Max_block_max -> style [ max_block_size Max_content ]
+    | Max_block_min -> style [ max_block_size Min_content ]
+    | Max_block_none -> style [ max_block_size None ]
+    | Max_block_screen -> style [ max_block_size (Vh 100.) ]
+    | Max_block_svh -> style [ max_block_size (Svh 100.) ]
     (* Aspect utilities *)
     | Aspect_auto -> aspect_auto'
     | Aspect_square -> aspect_square'
     | Aspect_video -> aspect_video'
     | Aspect_ratio (w, h) -> aspect_ratio' w h
+    | Aspect_bracket (w, h) -> aspect_ratio' w h
 
   let err_not_utility = Error (`Msg "Not a sizing utility")
 
   let err_invalid_value name value =
     Error (`Msg ("Invalid " ^ name ^ " value: " ^ value))
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
-    let parse_w = function
-      | "auto" -> Ok W_auto
-      | "px" -> Ok W_px
-      | "full" -> Ok W_full
-      | "screen" -> Ok W_screen
-      | "min" -> Ok W_min
-      | "max" -> Ok W_max
-      | "fit" -> Ok W_fit
-      | frac when String.contains frac '/' ->
-          if List.mem_assoc frac fraction_table then Ok (W_fraction frac)
-          else err_invalid_value "width fraction" frac
-      | v -> (
-          match float_of_string_opt v with
-          | Some n when n >= 0. -> Ok (W_spacing (n *. 0.25))
-          | _ -> err_invalid_value "width" v)
-    in
-    let parse_h = function
-      | "auto" -> Ok H_auto
-      | "px" -> Ok H_px
-      | "full" -> Ok H_full
-      | "screen" -> Ok H_screen
-      | "min" -> Ok H_min
-      | "max" -> Ok H_max
-      | "fit" -> Ok H_fit
-      | frac when String.contains frac '/' ->
-          if List.mem_assoc frac fraction_table then Ok (H_fraction frac)
-          else err_invalid_value "height fraction" frac
-      | v -> (
-          match float_of_string_opt v with
-          | Some n when n >= 0. -> Ok (H_spacing (n *. 0.25))
-          | _ -> err_invalid_value "height" v)
-    in
-    let parse_min_w = function
-      | "0" -> Ok Min_w_0
-      | "full" -> Ok Min_w_full
-      | "min" -> Ok Min_w_min
-      | "max" -> Ok Min_w_max
-      | "fit" -> Ok Min_w_fit
-      | v -> (
-          match float_of_string_opt v with
-          | Some n when n >= 0. -> Ok (Min_w_spacing (n *. 0.25))
-          | _ -> err_invalid_value "min-width" v)
-    in
-    let parse_min_h = function
-      | "0" -> Ok Min_h_0
-      | "full" -> Ok Min_h_full
-      | "screen" -> Ok Min_h_screen
-      | v -> (
-          match float_of_string_opt v with
-          | Some n when n >= 0. -> Ok (Min_h_spacing (n *. 0.25))
-          | _ -> err_invalid_value "min-height" v)
-    in
-    let parse_max_w = function
-      | "none" -> Ok Max_w_none
-      | "xs" -> Ok Max_w_xs
-      | "sm" -> Ok Max_w_sm
-      | "md" -> Ok Max_w_md
-      | "lg" -> Ok Max_w_lg
-      | "xl" -> Ok Max_w_xl
-      | "2xl" -> Ok Max_w_2xl
-      | "3xl" -> Ok Max_w_3xl
-      | "4xl" -> Ok Max_w_4xl
-      | "5xl" -> Ok Max_w_5xl
-      | "6xl" -> Ok Max_w_6xl
-      | "7xl" -> Ok Max_w_7xl
-      | "full" -> Ok Max_w_full
-      | "min" -> Ok Max_w_min
-      | "max" -> Ok Max_w_max
-      | "fit" -> Ok Max_w_fit
-      | "prose" -> Ok Max_w_prose
-      | v -> (
-          match float_of_string_opt v with
-          | Some n when n >= 0. -> Ok (Max_w_spacing (n *. 0.25))
-          | _ -> err_invalid_value "max-width" v)
-    in
-    let parse_max_w_screen = function
-      | "sm" -> Ok Max_w_screen_sm
-      | "md" -> Ok Max_w_screen_md
-      | "lg" -> Ok Max_w_screen_lg
-      | "xl" -> Ok Max_w_screen_xl
-      | "2xl" -> Ok Max_w_screen_2xl
-      | s -> err_invalid_value "max-width screen size" s
-    in
-    let parse_max_h = function
-      | "none" -> Ok Max_h_none
-      | "full" -> Ok Max_h_full
-      | "screen" -> Ok Max_h_screen
-      | "min" -> Ok Max_h_min
-      | "max" -> Ok Max_h_max
-      | "fit" -> Ok Max_h_fit
-      | v -> (
-          match float_of_string_opt v with
-          | Some n when n >= 0. -> Ok (Max_h_spacing (n *. 0.25))
-          | _ -> err_invalid_value "max-height" v)
-    in
-    let parse_size = function
-      | "auto" -> Ok Size_auto
-      | "full" -> Ok Size_full
-      | "min" -> Ok Size_min
-      | "max" -> Ok Size_max
-      | "fit" -> Ok Size_fit
-      | frac when String.contains frac '/' ->
-          if List.mem_assoc frac fraction_table then Ok (Size_fraction frac)
-          else err_invalid_value "size fraction" frac
-      | v -> (
-          match float_of_string_opt v with
-          | Some n when n >= 0. -> Ok (Size_spacing (n *. 0.25))
-          | _ -> err_invalid_value "size" v)
-    in
-    match parts with
+  let parse_arbitrary s : (string * Css.length) option =
+    (* Parse bracket values: [4px], [1rem], [calc(100vh-4rem)], etc. Uses
+       Css.parse_length for full CSS length parsing including calc(). Returns
+       (raw_inner, parsed_length) where raw_inner is used for the CSS class name
+       selector (preserving original formatting). *)
+    let len = String.length s in
+    if len > 2 && s.[0] = '[' && s.[len - 1] = ']' then
+      let inner = String.sub s 1 (len - 2) in
+      let css_value = Parse.decode_arbitrary_value inner in
+      match Css.parse_length css_value with
+      | Some l -> Some (inner, l)
+      | None -> None
+    else None
+
+  let parse_w = function
+    | "auto" -> Ok W_auto
+    | "px" -> Ok W_px
+    | "full" -> Ok W_full
+    | "screen" -> Ok W_screen
+    | "min" -> Ok W_min
+    | "max" -> Ok W_max
+    | "fit" -> Ok W_fit
+    | "dvw" -> Ok W_dvw
+    | "lvw" -> Ok W_lvw
+    | "svw" -> Ok W_svw
+    | "xl" -> Ok W_xl
+    | frac when String.contains frac '/' ->
+        if fraction_pct frac <> None then Ok (W_fraction frac)
+        else err_invalid_value "width fraction" frac
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (W_arbitrary (raw, len))
+        | None -> err_invalid_value "width" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (W_spacing (n *. 0.25))
+        | _ -> err_invalid_value "width" v)
+
+  let parse_h = function
+    | "auto" -> Ok H_auto
+    | "px" -> Ok H_px
+    | "full" -> Ok H_full
+    | "screen" -> Ok H_screen
+    | "min" -> Ok H_min
+    | "max" -> Ok H_max
+    | "fit" -> Ok H_fit
+    | "dvh" -> Ok H_dvh
+    | "lvh" -> Ok H_lvh
+    | "svh" -> Ok H_svh
+    | "lh" -> Ok H_lh
+    | frac when String.contains frac '/' ->
+        if fraction_pct frac <> None then Ok (H_fraction frac)
+        else err_invalid_value "height fraction" frac
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (H_arbitrary (raw, len))
+        | None -> err_invalid_value "height" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (H_spacing (n *. 0.25))
+        | _ -> err_invalid_value "height" v)
+
+  let parse_min_w = function
+    | "0" -> Ok Min_w_0
+    | "full" -> Ok Min_w_full
+    | "min" -> Ok Min_w_min
+    | "max" -> Ok Min_w_max
+    | "fit" -> Ok Min_w_fit
+    | "auto" -> Ok Min_w_auto
+    | "xl" -> Ok Min_w_xl
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Min_w_arbitrary (raw, len))
+        | None -> err_invalid_value "min-width" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Min_w_spacing (n *. 0.25))
+        | _ -> err_invalid_value "min-width" v)
+
+  let parse_min_h = function
+    | "0" -> Ok Min_h_0
+    | "full" -> Ok Min_h_full
+    | "screen" -> Ok Min_h_screen
+    | "min" -> Ok Min_h_min
+    | "max" -> Ok Min_h_max
+    | "fit" -> Ok Min_h_fit
+    | "auto" -> Ok Min_h_auto
+    | "dvh" -> Ok Min_h_dvh
+    | "lvh" -> Ok Min_h_lvh
+    | "svh" -> Ok Min_h_svh
+    | "lh" -> Ok Min_h_lh
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Min_h_arbitrary (raw, len))
+        | None -> err_invalid_value "min-height" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Min_h_spacing (n *. 0.25))
+        | _ -> err_invalid_value "min-height" v)
+
+  let parse_max_w = function
+    | "none" -> Ok Max_w_none
+    | "xs" -> Ok Max_w_xs
+    | "sm" -> Ok Max_w_sm
+    | "md" -> Ok Max_w_md
+    | "lg" -> Ok Max_w_lg
+    | "xl" -> Ok Max_w_xl
+    | "2xl" -> Ok Max_w_2xl
+    | "3xl" -> Ok Max_w_3xl
+    | "4xl" -> Ok Max_w_4xl
+    | "5xl" -> Ok Max_w_5xl
+    | "6xl" -> Ok Max_w_6xl
+    | "7xl" -> Ok Max_w_7xl
+    | "full" -> Ok Max_w_full
+    | "min" -> Ok Max_w_min
+    | "max" -> Ok Max_w_max
+    | "fit" -> Ok Max_w_fit
+    | "prose" -> Ok Max_w_prose
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Max_w_arbitrary (raw, len))
+        | None -> err_invalid_value "max-width" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Max_w_spacing (n *. 0.25))
+        | _ -> err_invalid_value "max-width" v)
+
+  let parse_max_w_screen = function
+    | "sm" -> Ok Max_w_screen_sm
+    | "md" -> Ok Max_w_screen_md
+    | "lg" -> Ok Max_w_screen_lg
+    | "xl" -> Ok Max_w_screen_xl
+    | "2xl" -> Ok Max_w_screen_2xl
+    | s -> err_invalid_value "max-width screen size" s
+
+  let parse_max_h = function
+    | "none" -> Ok Max_h_none
+    | "full" -> Ok Max_h_full
+    | "screen" -> Ok Max_h_screen
+    | "min" -> Ok Max_h_min
+    | "max" -> Ok Max_h_max
+    | "fit" -> Ok Max_h_fit
+    | "dvh" -> Ok Max_h_dvh
+    | "lvh" -> Ok Max_h_lvh
+    | "svh" -> Ok Max_h_svh
+    | "lh" -> Ok Max_h_lh
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Max_h_arbitrary (raw, len))
+        | None -> err_invalid_value "max-height" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Max_h_spacing (n *. 0.25))
+        | _ -> err_invalid_value "max-height" v)
+
+  let parse_size = function
+    | "auto" -> Ok Size_auto
+    | "full" -> Ok Size_full
+    | "min" -> Ok Size_min
+    | "max" -> Ok Size_max
+    | "fit" -> Ok Size_fit
+    | frac when String.contains frac '/' ->
+        if fraction_pct frac <> None then Ok (Size_fraction frac)
+        else err_invalid_value "size fraction" frac
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Size_arbitrary (raw, len))
+        | None -> err_invalid_value "size" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Size_spacing (n *. 0.25))
+        | _ -> err_invalid_value "size" v)
+
+  let parse_inline = function
+    | "auto" -> Ok Inline_auto
+    | "dvw" -> Ok Inline_dvw
+    | "fit" -> Ok Inline_fit
+    | "full" -> Ok Inline_full
+    | "lvw" -> Ok Inline_lvw
+    | "max" -> Ok Inline_max
+    | "min" -> Ok Inline_min
+    | "screen" -> Ok Inline_screen
+    | "svw" -> Ok Inline_svw
+    | "xl" -> Ok Inline_xl
+    | frac when String.contains frac '/' ->
+        if fraction_pct frac <> None then Ok (Inline_fraction frac)
+        else err_invalid_value "inline-size fraction" frac
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Inline_arbitrary (raw, len))
+        | None -> err_invalid_value "inline-size" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Inline_spacing (n *. 0.25))
+        | _ -> err_invalid_value "inline-size" v)
+
+  let parse_min_inline = function
+    | "auto" -> Ok Min_inline_auto
+    | "fit" -> Ok Min_inline_fit
+    | "full" -> Ok Min_inline_full
+    | "max" -> Ok Min_inline_max
+    | "min" -> Ok Min_inline_min
+    | "xl" -> Ok Min_inline_xl
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Min_inline_arbitrary (raw, len))
+        | None -> err_invalid_value "min-inline-size" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Min_inline_spacing (n *. 0.25))
+        | _ -> err_invalid_value "min-inline-size" v)
+
+  let parse_max_inline = function
+    | "fit" -> Ok Max_inline_fit
+    | "full" -> Ok Max_inline_full
+    | "max" -> Ok Max_inline_max
+    | "none" -> Ok Max_inline_none
+    | "xl" -> Ok Max_inline_xl
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Max_inline_arbitrary (raw, len))
+        | None -> err_invalid_value "max-inline-size" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Max_inline_spacing (n *. 0.25))
+        | _ -> err_invalid_value "max-inline-size" v)
+
+  let parse_block = function
+    | "auto" -> Ok Block_auto
+    | "dvh" -> Ok Block_dvh
+    | "fit" -> Ok Block_fit
+    | "full" -> Ok Block_full
+    | "lh" -> Ok Block_lh
+    | "lvh" -> Ok Block_lvh
+    | "max" -> Ok Block_max
+    | "min" -> Ok Block_min
+    | "screen" -> Ok Block_screen
+    | "svh" -> Ok Block_svh
+    | frac when String.contains frac '/' ->
+        if fraction_pct frac <> None then Ok (Block_fraction frac)
+        else err_invalid_value "block-size fraction" frac
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Block_arbitrary (raw, len))
+        | None -> err_invalid_value "block-size" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Block_spacing (n *. 0.25))
+        | _ -> err_invalid_value "block-size" v)
+
+  let parse_min_block = function
+    | "auto" -> Ok Min_block_auto
+    | "dvh" -> Ok Min_block_dvh
+    | "fit" -> Ok Min_block_fit
+    | "full" -> Ok Min_block_full
+    | "lh" -> Ok Min_block_lh
+    | "lvh" -> Ok Min_block_lvh
+    | "max" -> Ok Min_block_max
+    | "min" -> Ok Min_block_min
+    | "screen" -> Ok Min_block_screen
+    | "svh" -> Ok Min_block_svh
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Min_block_arbitrary (raw, len))
+        | None -> err_invalid_value "min-block-size" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Min_block_spacing (n *. 0.25))
+        | _ -> err_invalid_value "min-block-size" v)
+
+  let parse_max_block = function
+    | "dvh" -> Ok Max_block_dvh
+    | "fit" -> Ok Max_block_fit
+    | "full" -> Ok Max_block_full
+    | "lh" -> Ok Max_block_lh
+    | "lvh" -> Ok Max_block_lvh
+    | "max" -> Ok Max_block_max
+    | "min" -> Ok Max_block_min
+    | "none" -> Ok Max_block_none
+    | "screen" -> Ok Max_block_screen
+    | "svh" -> Ok Max_block_svh
+    | v when String.length v > 0 && v.[0] = '[' -> (
+        match parse_arbitrary v with
+        | Some (raw, len) -> Ok (Max_block_arbitrary (raw, len))
+        | None -> err_invalid_value "max-block-size" v)
+    | v -> (
+        match float_of_string_opt v with
+        | Some n when n >= 0. -> Ok (Max_block_spacing (n *. 0.25))
+        | _ -> err_invalid_value "max-block-size" v)
+
+  (* Tailwind accepts a ratio part only when it is a non-negative multiple of
+     0.25 ([isValidSpacingMultiplier]), so [8.5/11] is valid but [1.23/4.56] is
+     not. *)
+  let is_quarter_multiple f = f >= 0. && Float.rem f 0.25 = 0.
+
+  let parse_aspect_ratio s mk =
+    match String.split_on_char '/' s with
+    | [ w; h ] -> (
+        match (float_of_string_opt w, float_of_string_opt h) with
+        | Some w, Some h when is_quarter_multiple w && is_quarter_multiple h ->
+            Ok (mk w h)
+        | _ -> err_not_utility)
+    | _ -> err_not_utility
+
+  let of_class _theme class_name =
+    match Parse.split_class class_name with
     | [ "w"; value ] -> parse_w value
     | [ "h"; value ] -> parse_h value
     | [ "min"; "w"; value ] -> parse_min_w value
@@ -597,9 +1002,20 @@ module Handler = struct
     | [ "max"; "w"; "screen"; size ] -> parse_max_w_screen size
     | [ "max"; "h"; value ] -> parse_max_h value
     | [ "size"; value ] -> parse_size value
+    | [ "inline"; value ] -> parse_inline value
+    | [ "min"; "inline"; value ] -> parse_min_inline value
+    | [ "max"; "inline"; value ] -> parse_max_inline value
+    | [ "block"; value ] -> parse_block value
+    | [ "min"; "block"; value ] -> parse_min_block value
+    | [ "max"; "block"; value ] -> parse_max_block value
     | [ "aspect"; "auto" ] -> Ok Aspect_auto
     | [ "aspect"; "square" ] -> Ok Aspect_square
     | [ "aspect"; "video" ] -> Ok Aspect_video
+    | [ "aspect"; value ] when Parse.is_bracket_value value ->
+        parse_aspect_ratio (Parse.bracket_inner value) (fun w h ->
+            Aspect_bracket (w, h))
+    | [ "aspect"; value ] ->
+        parse_aspect_ratio value (fun w h -> Aspect_ratio (w, h))
     | _ -> err_not_utility
 
   (* Tailwind spacing order helper: matches canonical spacing scale order. n is
@@ -618,106 +1034,237 @@ module Handler = struct
     in
     (integer * 4) + frac_order
 
-  let suborder = function
-    (* Height utilities (0-99999) Tailwind sorts: spacing values first, then
-       keywords alphabetically (auto, fit, full, max, min, px, screen).
-       Fractions sort with their integer part. *)
-    | H_spacing n -> spacing_suborder n
-    | H_fraction f -> (
-        (* Extract the numerator to sort fractions with their integer part *)
-        match String.split_on_char '/' f with
-        | [ num; _ ] -> (
-            try int_of_string num * 10000
-            with Failure _ -> 50000 (* Invalid numerator *))
-        | _ -> 50000)
-    | H_auto -> 90000
-    | H_fit -> 90001
-    | H_full -> 90002
-    | H_max -> 90003
-    | H_min -> 90004
-    | H_px -> 90005
-    | H_screen -> 90006
-    (* Max-height utilities (100000-199999) - comes after height *)
-    (* Order: fit, full, max, min, none, screen *)
-    | Max_h_fit -> 100000
-    | Max_h_full -> 100001
-    | Max_h_max -> 100002
-    | Max_h_min -> 100003
-    | Max_h_none -> 100004
-    | Max_h_screen -> 100005
-    | Max_h_spacing n -> 100100 + spacing_suborder n
-    (* Min-height utilities (200000-299999) - comes after max-height *)
-    | Min_h_0 -> 200000
-    | Min_h_full -> 200001
-    | Min_h_screen -> 200002
-    | Min_h_min -> 200003
-    | Min_h_max -> 200004
-    | Min_h_fit -> 200005
-    | Min_h_spacing n -> 200100 + spacing_suborder n
-    (* Width utilities (300000-399999) Numeric widths (w-0, w-1, etc.) are
-       ordered by their numeric value via spacing_suborder. Keyword widths
-       (w-auto, w-full, etc.) use fixed suborders and sort alphabetically within
-       that group. *)
-    | W_spacing n -> 300000 + spacing_suborder n
-    (* Keyword widths: use a suborder range (300500-300599) that comes after all
-       numeric widths (which max out around 300000 + 96*4 = 300384 for w-96),
-       allowing them to sort alphabetically. *)
-    | W_auto -> 300500
-    | W_fit -> 300501
-    | W_full -> 300502
-    | W_max -> 300503
-    | W_min -> 300504
-    | W_px -> 300505
-    | W_screen -> 300506
-    (* Fractions come after keywords *)
-    | W_fraction _ -> 300600
-    (* Max-width utilities (400000-499999) - comes after width *)
-    (* Numbered containers first *)
-    | Max_w_xs -> 400000
-    | Max_w_sm -> 400001
-    | Max_w_md -> 400002
-    | Max_w_lg -> 400003
-    | Max_w_xl -> 400004
-    | Max_w_2xl -> 400005
-    | Max_w_3xl -> 400006
-    | Max_w_4xl -> 400007
-    | Max_w_5xl -> 400008
-    | Max_w_6xl -> 400009
-    | Max_w_7xl -> 400010
-    (* Keywords after numbered containers - order: fit, full, max, min, none,
-       prose *)
-    | Max_w_fit -> 400011
-    | Max_w_full -> 400012
-    | Max_w_max -> 400013
-    | Max_w_min -> 400014
-    | Max_w_none -> 400015
-    | Max_w_prose -> 400016
-    | Max_w_screen_sm -> 400020
-    | Max_w_screen_md -> 400021
-    | Max_w_screen_lg -> 400022
-    | Max_w_screen_xl -> 400023
-    | Max_w_screen_2xl -> 400024
-    | Max_w_spacing n -> 400100 + spacing_suborder n
-    (* Min-width utilities (500000-599999) - comes after max-width *)
-    | Min_w_0 -> 500000
-    | Min_w_full -> 500001
-    | Min_w_min -> 500002
-    | Min_w_max -> 500003
-    | Min_w_fit -> 500004
-    | Min_w_spacing n -> 500100 + spacing_suborder n
-    (* Size utilities (600000-699999) *)
-    | Size_auto -> 600000
-    | Size_full -> 600001
-    | Size_min -> 600002
-    | Size_max -> 600003
-    | Size_fit -> 600004
-    | Size_spacing n -> 600100 + spacing_suborder n
-    | Size_fraction _ -> 650000
-    (* Aspect utilities (700000-) *)
-    | Aspect_auto -> 700000
-    | Aspect_square -> 700001
-    | Aspect_video -> 700002
-    | Aspect_ratio (w, h) -> 700100 + (w * 100) + h
+  (* Tailwind interleaves spacing values and fractions within a sizing family by
+     the integer part of their magnitude (spacing value or fraction numerator):
+     e.g. w-0.5, w-1, w-1.5, w-1/2, w-1/3, w-2, w-2/3, w-3/4. Spacing sorts by
+     value, fractions of numerator n come just after the spacing values with
+     that integer part, ordered by denominator. Both stay well under the
+     per-family arbitrary offset (5_000_000). *)
+  let spacing_value_order n = spacing_suborder n * 100
+
+  (* A spacing value is stored as rem (class number * 0.25). A fraction n/m has
+     numerator [n], whose class number is [n], so [spacing_suborder (n *. 0.25)]
+     puts it on the spacing scale. [+ 4] steps to the next class boundary
+     (spacing_suborder for an integer class k is 4k); [- 50 + m] pulls it just
+     before that boundary, after every floor-n spacing value, by denominator. *)
+  let fraction_value_order f =
+    match String.split_on_char '/' f with
+    | [ n; m ] -> (
+        match (int_of_string_opt n, int_of_string_opt m) with
+        | Some n, Some m ->
+            ((spacing_suborder (float_of_int n *. 0.25) + 4) * 100) - 50 + m
+        | _ -> 490000)
+    | _ -> 490000
+
+  (* Per-family base; families keep their previous relative order but with wide
+     (10M) bands so the interleaved spacing/fraction range never overflows. *)
+  let arbitrary_off = 5_000_000
+  let keyword_off = 6_000_000
+
+  let suborder =
+    (* Family bases are 10M apart so the interleaved spacing/fraction range (<
+       5M) and arbitrary/keyword offsets never overflow into the next family.
+       Within a family: spacing/fractions interleaved by magnitude, then
+       arbitrary, then keywords (alphabetical). *)
+    (* size-* (width+height) sorts first in Tailwind, before h/w/max/min. *)
+    let size = 0 in
+    let h = 10_000_000 in
+    let max_h = 20_000_000 in
+    let min_h = 30_000_000 in
+    let w = 40_000_000 in
+    let max_w = 50_000_000 in
+    let min_w = 60_000_000 in
+    let inline = 70_000_000 in
+    let min_inline = 80_000_000 in
+    let max_inline = 90_000_000 in
+    let block = 100_000_000 in
+    let min_block = 110_000_000 in
+    let max_block = 120_000_000 in
+    let aspect = 130_000_000 in
+    function
+    (* Height *)
+    | H_fraction f -> h + fraction_value_order f
+    | H_spacing n -> h + spacing_value_order n
+    | H_arbitrary _ -> h + arbitrary_off
+    | H_auto -> h + keyword_off + 0
+    | H_dvh -> h + keyword_off + 1
+    | H_fit -> h + keyword_off + 2
+    | H_full -> h + keyword_off + 3
+    | H_lh -> h + keyword_off + 4
+    | H_lvh -> h + keyword_off + 5
+    | H_max -> h + keyword_off + 6
+    | H_min -> h + keyword_off + 7
+    | H_px -> h + keyword_off + 8
+    | H_screen -> h + keyword_off + 9
+    | H_svh -> h + keyword_off + 10
+    (* Max-height *)
+    | Max_h_spacing n -> max_h + spacing_value_order n
+    | Max_h_arbitrary _ -> max_h + arbitrary_off
+    | Max_h_dvh -> max_h + keyword_off + 0
+    | Max_h_fit -> max_h + keyword_off + 1
+    | Max_h_full -> max_h + keyword_off + 2
+    | Max_h_lh -> max_h + keyword_off + 3
+    | Max_h_lvh -> max_h + keyword_off + 4
+    | Max_h_max -> max_h + keyword_off + 5
+    | Max_h_min -> max_h + keyword_off + 6
+    | Max_h_none -> max_h + keyword_off + 7
+    | Max_h_screen -> max_h + keyword_off + 8
+    | Max_h_svh -> max_h + keyword_off + 9
+    (* Min-height *)
+    | Min_h_0 -> min_h + 0
+    | Min_h_spacing n -> min_h + spacing_value_order n
+    | Min_h_arbitrary _ -> min_h + arbitrary_off
+    | Min_h_auto -> min_h + keyword_off + 0
+    | Min_h_dvh -> min_h + keyword_off + 1
+    | Min_h_fit -> min_h + keyword_off + 2
+    | Min_h_full -> min_h + keyword_off + 3
+    | Min_h_lh -> min_h + keyword_off + 4
+    | Min_h_lvh -> min_h + keyword_off + 5
+    | Min_h_max -> min_h + keyword_off + 6
+    | Min_h_min -> min_h + keyword_off + 7
+    | Min_h_screen -> min_h + keyword_off + 8
+    | Min_h_svh -> min_h + keyword_off + 9
+    (* Width *)
+    | W_fraction f -> w + fraction_value_order f
+    | W_spacing n -> w + spacing_value_order n
+    | W_arbitrary _ -> w + arbitrary_off
+    | W_auto -> w + keyword_off + 0
+    | W_dvw -> w + keyword_off + 1
+    | W_fit -> w + keyword_off + 2
+    | W_full -> w + keyword_off + 3
+    | W_lvw -> w + keyword_off + 4
+    | W_max -> w + keyword_off + 5
+    | W_min -> w + keyword_off + 6
+    | W_px -> w + keyword_off + 7
+    | W_screen -> w + keyword_off + 8
+    | W_svw -> w + keyword_off + 9
+    | W_xl -> w + keyword_off + 10
+    (* Max-width *)
+    (* Tailwind orders max-width in three bands: the container scale sizes
+       (2xl..7xl) by number, then the numeric spacing values, then an arbitrary
+       value, then the letter-prefixed keywords alphabetically. *)
+    | Max_w_2xl -> max_w + 0
+    | Max_w_3xl -> max_w + 1
+    | Max_w_4xl -> max_w + 2
+    | Max_w_5xl -> max_w + 3
+    | Max_w_6xl -> max_w + 4
+    | Max_w_7xl -> max_w + 5
+    | Max_w_spacing n -> max_w + 1_000_000 + spacing_value_order n
+    | Max_w_arbitrary _ -> max_w + arbitrary_off
+    | Max_w_fit -> max_w + keyword_off + 0
+    | Max_w_full -> max_w + keyword_off + 1
+    | Max_w_lg -> max_w + keyword_off + 2
+    | Max_w_max -> max_w + keyword_off + 3
+    | Max_w_md -> max_w + keyword_off + 4
+    | Max_w_min -> max_w + keyword_off + 5
+    | Max_w_none -> max_w + keyword_off + 6
+    | Max_w_prose -> max_w + keyword_off + 7
+    | Max_w_screen_2xl -> max_w + keyword_off + 8
+    | Max_w_screen_lg -> max_w + keyword_off + 9
+    | Max_w_screen_md -> max_w + keyword_off + 10
+    | Max_w_screen_sm -> max_w + keyword_off + 11
+    | Max_w_screen_xl -> max_w + keyword_off + 12
+    | Max_w_sm -> max_w + keyword_off + 13
+    | Max_w_xl -> max_w + keyword_off + 14
+    | Max_w_xs -> max_w + keyword_off + 15
+    (* Min-width *)
+    | Min_w_0 -> min_w + 0
+    | Min_w_spacing n -> min_w + spacing_value_order n
+    | Min_w_arbitrary _ -> min_w + arbitrary_off
+    | Min_w_auto -> min_w + keyword_off + 0
+    | Min_w_fit -> min_w + keyword_off + 1
+    | Min_w_full -> min_w + keyword_off + 2
+    | Min_w_max -> min_w + keyword_off + 3
+    | Min_w_min -> min_w + keyword_off + 4
+    | Min_w_xl -> min_w + keyword_off + 5
+    (* Size *)
+    | Size_fraction f -> size + fraction_value_order f
+    | Size_spacing n -> size + spacing_value_order n
+    | Size_arbitrary _ -> size + arbitrary_off
+    | Size_auto -> size + keyword_off + 0
+    | Size_fit -> size + keyword_off + 1
+    | Size_full -> size + keyword_off + 2
+    | Size_max -> size + keyword_off + 3
+    | Size_min -> size + keyword_off + 4
+    (* inline-size *)
+    | Inline_fraction f -> inline + fraction_value_order f
+    | Inline_spacing n -> inline + spacing_value_order n
+    | Inline_arbitrary _ -> inline + arbitrary_off
+    | Inline_auto -> inline + keyword_off + 0
+    | Inline_dvw -> inline + keyword_off + 1
+    | Inline_fit -> inline + keyword_off + 2
+    | Inline_full -> inline + keyword_off + 3
+    | Inline_lvw -> inline + keyword_off + 4
+    | Inline_max -> inline + keyword_off + 5
+    | Inline_min -> inline + keyword_off + 6
+    | Inline_screen -> inline + keyword_off + 7
+    | Inline_svw -> inline + keyword_off + 8
+    | Inline_xl -> inline + keyword_off + 9
+    (* min-inline-size *)
+    | Min_inline_spacing n -> min_inline + spacing_value_order n
+    | Min_inline_arbitrary _ -> min_inline + arbitrary_off
+    | Min_inline_auto -> min_inline + keyword_off + 0
+    | Min_inline_fit -> min_inline + keyword_off + 1
+    | Min_inline_full -> min_inline + keyword_off + 2
+    | Min_inline_max -> min_inline + keyword_off + 3
+    | Min_inline_min -> min_inline + keyword_off + 4
+    | Min_inline_xl -> min_inline + keyword_off + 5
+    (* max-inline-size *)
+    | Max_inline_spacing n -> max_inline + spacing_value_order n
+    | Max_inline_arbitrary _ -> max_inline + arbitrary_off
+    | Max_inline_fit -> max_inline + keyword_off + 0
+    | Max_inline_full -> max_inline + keyword_off + 1
+    | Max_inline_max -> max_inline + keyword_off + 2
+    | Max_inline_none -> max_inline + keyword_off + 3
+    | Max_inline_xl -> max_inline + keyword_off + 4
+    (* block-size *)
+    | Block_fraction f -> block + fraction_value_order f
+    | Block_spacing n -> block + spacing_value_order n
+    | Block_arbitrary _ -> block + arbitrary_off
+    | Block_auto -> block + keyword_off + 0
+    | Block_dvh -> block + keyword_off + 1
+    | Block_fit -> block + keyword_off + 2
+    | Block_full -> block + keyword_off + 3
+    | Block_lh -> block + keyword_off + 4
+    | Block_lvh -> block + keyword_off + 5
+    | Block_max -> block + keyword_off + 6
+    | Block_min -> block + keyword_off + 7
+    | Block_screen -> block + keyword_off + 8
+    | Block_svh -> block + keyword_off + 9
+    (* min-block-size *)
+    | Min_block_spacing n -> min_block + spacing_value_order n
+    | Min_block_arbitrary _ -> min_block + arbitrary_off
+    | Min_block_auto -> min_block + keyword_off + 0
+    | Min_block_dvh -> min_block + keyword_off + 1
+    | Min_block_fit -> min_block + keyword_off + 2
+    | Min_block_full -> min_block + keyword_off + 3
+    | Min_block_lh -> min_block + keyword_off + 4
+    | Min_block_lvh -> min_block + keyword_off + 5
+    | Min_block_max -> min_block + keyword_off + 6
+    | Min_block_min -> min_block + keyword_off + 7
+    | Min_block_screen -> min_block + keyword_off + 8
+    | Min_block_svh -> min_block + keyword_off + 9
+    (* max-block-size *)
+    | Max_block_spacing n -> max_block + spacing_value_order n
+    | Max_block_arbitrary _ -> max_block + arbitrary_off
+    | Max_block_dvh -> max_block + keyword_off + 0
+    | Max_block_fit -> max_block + keyword_off + 1
+    | Max_block_full -> max_block + keyword_off + 2
+    | Max_block_lh -> max_block + keyword_off + 3
+    | Max_block_lvh -> max_block + keyword_off + 4
+    | Max_block_max -> max_block + keyword_off + 5
+    | Max_block_min -> max_block + keyword_off + 6
+    | Max_block_none -> max_block + keyword_off + 7
+    | Max_block_screen -> max_block + keyword_off + 8
+    | Max_block_svh -> max_block + keyword_off + 9
+    (* Aspect: ratios -> brackets -> keywords *)
+    | Aspect_ratio (rw, rh) ->
+        aspect + int_of_float (rw *. 10.) + int_of_float rh
+    | Aspect_bracket (rw, rh) ->
+        aspect + 1000 + int_of_float (rw *. 10.) + int_of_float rh
+    | Aspect_auto -> aspect + 2000
+    | Aspect_square -> aspect + 2001
+    | Aspect_video -> aspect + 2002
 
   let to_class = function
     (* Width utilities *)
@@ -728,8 +1275,13 @@ module Handler = struct
     | W_max -> "w-max"
     | W_fit -> "w-fit"
     | W_px -> "w-px"
-    | W_spacing n -> "w-" ^ Css.Pp.to_string Css.Pp.float (n *. 4.)
+    | W_spacing n -> "w-" ^ class_float (n *. 4.)
     | W_fraction f -> "w-" ^ f
+    | W_arbitrary (raw, _) -> "w-[" ^ raw ^ "]"
+    | W_dvw -> "w-dvw"
+    | W_lvw -> "w-lvw"
+    | W_svw -> "w-svw"
+    | W_xl -> "w-xl"
     (* Height utilities *)
     | H_auto -> "h-auto"
     | H_full -> "h-full"
@@ -738,15 +1290,23 @@ module Handler = struct
     | H_max -> "h-max"
     | H_fit -> "h-fit"
     | H_px -> "h-px"
-    | H_spacing n -> "h-" ^ Css.Pp.to_string Css.Pp.float (n *. 4.)
+    | H_spacing n -> "h-" ^ class_float (n *. 4.)
     | H_fraction f -> "h-" ^ f
+    | H_arbitrary (raw, _) -> "h-[" ^ raw ^ "]"
+    | H_dvh -> "h-dvh"
+    | H_lh -> "h-lh"
+    | H_lvh -> "h-lvh"
+    | H_svh -> "h-svh"
     (* Min-width utilities *)
     | Min_w_0 -> "min-w-0"
     | Min_w_full -> "min-w-full"
     | Min_w_min -> "min-w-min"
     | Min_w_max -> "min-w-max"
     | Min_w_fit -> "min-w-fit"
-    | Min_w_spacing n -> "min-w-" ^ Css.Pp.to_string Css.Pp.float (n *. 4.)
+    | Min_w_auto -> "min-w-auto"
+    | Min_w_spacing n -> "min-w-" ^ class_float (n *. 4.)
+    | Min_w_arbitrary (raw, _) -> "min-w-[" ^ raw ^ "]"
+    | Min_w_xl -> "min-w-xl"
     (* Max-width utilities *)
     | Max_w_none -> "max-w-none"
     | Max_w_xs -> "max-w-xs"
@@ -770,7 +1330,8 @@ module Handler = struct
     | Max_w_screen_lg -> "max-w-screen-lg"
     | Max_w_screen_xl -> "max-w-screen-xl"
     | Max_w_screen_2xl -> "max-w-screen-2xl"
-    | Max_w_spacing n -> "max-w-" ^ Css.Pp.to_string Css.Pp.float (n *. 4.)
+    | Max_w_spacing n -> "max-w-" ^ class_float (n *. 4.)
+    | Max_w_arbitrary (raw, _) -> "max-w-[" ^ raw ^ "]"
     (* Min-height utilities *)
     | Min_h_0 -> "min-h-0"
     | Min_h_full -> "min-h-full"
@@ -778,7 +1339,13 @@ module Handler = struct
     | Min_h_min -> "min-h-min"
     | Min_h_max -> "min-h-max"
     | Min_h_fit -> "min-h-fit"
-    | Min_h_spacing n -> "min-h-" ^ Css.Pp.to_string Css.Pp.float (n *. 4.)
+    | Min_h_auto -> "min-h-auto"
+    | Min_h_dvh -> "min-h-dvh"
+    | Min_h_lvh -> "min-h-lvh"
+    | Min_h_svh -> "min-h-svh"
+    | Min_h_lh -> "min-h-lh"
+    | Min_h_spacing n -> "min-h-" ^ class_float (n *. 4.)
+    | Min_h_arbitrary (raw, _) -> "min-h-[" ^ raw ^ "]"
     (* Max-height utilities *)
     | Max_h_none -> "max-h-none"
     | Max_h_full -> "max-h-full"
@@ -786,21 +1353,108 @@ module Handler = struct
     | Max_h_min -> "max-h-min"
     | Max_h_max -> "max-h-max"
     | Max_h_fit -> "max-h-fit"
-    | Max_h_spacing n -> "max-h-" ^ Css.Pp.to_string Css.Pp.float (n *. 4.)
+    | Max_h_dvh -> "max-h-dvh"
+    | Max_h_lvh -> "max-h-lvh"
+    | Max_h_svh -> "max-h-svh"
+    | Max_h_lh -> "max-h-lh"
+    | Max_h_spacing n -> "max-h-" ^ class_float (n *. 4.)
+    | Max_h_arbitrary (raw, _) -> "max-h-[" ^ raw ^ "]"
     (* Size utilities *)
     | Size_auto -> "size-auto"
     | Size_full -> "size-full"
     | Size_min -> "size-min"
     | Size_max -> "size-max"
     | Size_fit -> "size-fit"
-    | Size_spacing n -> "size-" ^ Css.Pp.to_string Css.Pp.float (n *. 4.)
+    | Size_spacing n -> "size-" ^ class_float (n *. 4.)
     | Size_fraction f -> "size-" ^ f
+    | Size_arbitrary (raw, _) -> "size-[" ^ raw ^ "]"
+    (* inline-size utilities *)
+    | Inline_fraction f -> "inline-" ^ f
+    | Inline_spacing n -> "inline-" ^ class_float (n *. 4.)
+    | Inline_arbitrary (raw, _) -> "inline-[" ^ raw ^ "]"
+    | Inline_auto -> "inline-auto"
+    | Inline_dvw -> "inline-dvw"
+    | Inline_fit -> "inline-fit"
+    | Inline_full -> "inline-full"
+    | Inline_lvw -> "inline-lvw"
+    | Inline_max -> "inline-max"
+    | Inline_min -> "inline-min"
+    | Inline_screen -> "inline-screen"
+    | Inline_svw -> "inline-svw"
+    | Inline_xl -> "inline-xl"
+    (* min-inline-size utilities *)
+    | Min_inline_spacing n -> "min-inline-" ^ class_float (n *. 4.)
+    | Min_inline_arbitrary (raw, _) -> "min-inline-[" ^ raw ^ "]"
+    | Min_inline_auto -> "min-inline-auto"
+    | Min_inline_fit -> "min-inline-fit"
+    | Min_inline_full -> "min-inline-full"
+    | Min_inline_max -> "min-inline-max"
+    | Min_inline_min -> "min-inline-min"
+    | Min_inline_xl -> "min-inline-xl"
+    (* max-inline-size utilities *)
+    | Max_inline_spacing n -> "max-inline-" ^ class_float (n *. 4.)
+    | Max_inline_arbitrary (raw, _) -> "max-inline-[" ^ raw ^ "]"
+    | Max_inline_fit -> "max-inline-fit"
+    | Max_inline_full -> "max-inline-full"
+    | Max_inline_max -> "max-inline-max"
+    | Max_inline_none -> "max-inline-none"
+    | Max_inline_xl -> "max-inline-xl"
+    (* block-size utilities *)
+    | Block_fraction f -> "block-" ^ f
+    | Block_spacing n -> "block-" ^ class_float (n *. 4.)
+    | Block_arbitrary (raw, _) -> "block-[" ^ raw ^ "]"
+    | Block_auto -> "block-auto"
+    | Block_dvh -> "block-dvh"
+    | Block_fit -> "block-fit"
+    | Block_full -> "block-full"
+    | Block_lh -> "block-lh"
+    | Block_lvh -> "block-lvh"
+    | Block_max -> "block-max"
+    | Block_min -> "block-min"
+    | Block_screen -> "block-screen"
+    | Block_svh -> "block-svh"
+    (* min-block-size utilities *)
+    | Min_block_spacing n -> "min-block-" ^ class_float (n *. 4.)
+    | Min_block_arbitrary (raw, _) -> "min-block-[" ^ raw ^ "]"
+    | Min_block_auto -> "min-block-auto"
+    | Min_block_dvh -> "min-block-dvh"
+    | Min_block_fit -> "min-block-fit"
+    | Min_block_full -> "min-block-full"
+    | Min_block_lh -> "min-block-lh"
+    | Min_block_lvh -> "min-block-lvh"
+    | Min_block_max -> "min-block-max"
+    | Min_block_min -> "min-block-min"
+    | Min_block_screen -> "min-block-screen"
+    | Min_block_svh -> "min-block-svh"
+    (* max-block-size utilities *)
+    | Max_block_spacing n -> "max-block-" ^ class_float (n *. 4.)
+    | Max_block_arbitrary (raw, _) -> "max-block-[" ^ raw ^ "]"
+    | Max_block_dvh -> "max-block-dvh"
+    | Max_block_fit -> "max-block-fit"
+    | Max_block_full -> "max-block-full"
+    | Max_block_lh -> "max-block-lh"
+    | Max_block_lvh -> "max-block-lvh"
+    | Max_block_max -> "max-block-max"
+    | Max_block_min -> "max-block-min"
+    | Max_block_none -> "max-block-none"
+    | Max_block_screen -> "max-block-screen"
+    | Max_block_svh -> "max-block-svh"
     (* Aspect utilities *)
     | Aspect_auto -> "aspect-auto"
     | Aspect_square -> "aspect-square"
     | Aspect_video -> "aspect-video"
     | Aspect_ratio (w, h) ->
-        "aspect-[" ^ string_of_int w ^ "/" ^ string_of_int h ^ "]"
+        let num f =
+          if Float.is_integer f then string_of_int (int_of_float f)
+          else string_of_float f
+        in
+        "aspect-" ^ num w ^ "/" ^ num h
+    | Aspect_bracket (w, h) ->
+        let num f =
+          if Float.is_integer f then string_of_int (int_of_float f)
+          else string_of_float f
+        in
+        "aspect-[" ^ num w ^ "/" ^ num h ^ "]"
 end
 
 open Handler
@@ -814,77 +1468,53 @@ let utility x = Utility.base (Self x)
 let () = () (* Ensure utility is defined before usage below *)
 
 (* Expose prime helpers wrapped as Utility.t *)
-let w' = function
-  | `None -> utility (W_spacing 0.)
-  | `Xs -> utility (W_spacing 0.5)
-  | `Sm -> utility (W_spacing 1.0)
-  | `Md -> utility (W_spacing 1.5)
-  | `Lg -> utility (W_spacing 2.0)
-  | `Xl -> utility (W_spacing 3.0)
-  | `Xl_2 -> utility (W_spacing 4.0)
-  | `Xl_3 -> utility (W_spacing 6.0)
-  | `Full -> utility W_full
-  | `Rem n -> utility (W_spacing n)
+let prime_size_utility ~none ~xs ~sm ~md ~lg ~xl ~xl_2 ~xl_3 ~full ~rem =
+  function
+  | `None -> utility none
+  | `Xs -> utility xs
+  | `Sm -> utility sm
+  | `Md -> utility md
+  | `Lg -> utility lg
+  | `Xl -> utility xl
+  | `Xl_2 -> utility xl_2
+  | `Xl_3 -> utility xl_3
+  | `Full -> utility full
+  | `Rem n -> utility (rem n)
 
-let h' = function
-  | `None -> utility (H_spacing 0.)
-  | `Xs -> utility (H_spacing 0.5)
-  | `Sm -> utility (H_spacing 1.0)
-  | `Md -> utility (H_spacing 1.5)
-  | `Lg -> utility (H_spacing 2.0)
-  | `Xl -> utility (H_spacing 3.0)
-  | `Xl_2 -> utility (H_spacing 4.0)
-  | `Xl_3 -> utility (H_spacing 6.0)
-  | `Full -> utility H_full
-  | `Rem n -> utility (H_spacing n)
+let w' =
+  prime_size_utility ~none:(W_spacing 0.) ~xs:(W_spacing 0.5)
+    ~sm:(W_spacing 1.0) ~md:(W_spacing 1.5) ~lg:(W_spacing 2.0)
+    ~xl:(W_spacing 3.0) ~xl_2:(W_spacing 4.0) ~xl_3:(W_spacing 6.0) ~full:W_full
+    ~rem:(fun n -> W_spacing n)
 
-let min_w' = function
-  | `None -> utility Min_w_0
-  | `Xs -> utility (Min_w_spacing 0.5)
-  | `Sm -> utility (Min_w_spacing 1.0)
-  | `Md -> utility (Min_w_spacing 1.5)
-  | `Lg -> utility (Min_w_spacing 2.0)
-  | `Xl -> utility (Min_w_spacing 3.0)
-  | `Xl_2 -> utility (Min_w_spacing 4.0)
-  | `Xl_3 -> utility (Min_w_spacing 6.0)
-  | `Full -> utility Min_w_full
-  | `Rem n -> utility (Min_w_spacing n)
+let h' =
+  prime_size_utility ~none:(H_spacing 0.) ~xs:(H_spacing 0.5)
+    ~sm:(H_spacing 1.0) ~md:(H_spacing 1.5) ~lg:(H_spacing 2.0)
+    ~xl:(H_spacing 3.0) ~xl_2:(H_spacing 4.0) ~xl_3:(H_spacing 6.0) ~full:H_full
+    ~rem:(fun n -> H_spacing n)
 
-let max_w' = function
-  | `None -> utility Max_w_none
-  | `Xs -> utility Max_w_xs
-  | `Sm -> utility Max_w_sm
-  | `Md -> utility Max_w_md
-  | `Lg -> utility Max_w_lg
-  | `Xl -> utility Max_w_xl
-  | `Xl_2 -> utility Max_w_2xl
-  | `Xl_3 -> utility Max_w_3xl
-  | `Full -> utility Max_w_full
-  | `Rem n -> utility (Max_w_spacing n)
+let min_w' =
+  prime_size_utility ~none:Min_w_0 ~xs:(Min_w_spacing 0.5)
+    ~sm:(Min_w_spacing 1.0) ~md:(Min_w_spacing 1.5) ~lg:(Min_w_spacing 2.0)
+    ~xl:(Min_w_spacing 3.0) ~xl_2:(Min_w_spacing 4.0) ~xl_3:(Min_w_spacing 6.0)
+    ~full:Min_w_full ~rem:(fun n -> Min_w_spacing n)
 
-let min_h' = function
-  | `None -> utility Min_h_0
-  | `Xs -> utility (Min_h_spacing 0.5)
-  | `Sm -> utility (Min_h_spacing 1.0)
-  | `Md -> utility (Min_h_spacing 1.5)
-  | `Lg -> utility (Min_h_spacing 2.0)
-  | `Xl -> utility (Min_h_spacing 3.0)
-  | `Xl_2 -> utility (Min_h_spacing 4.0)
-  | `Xl_3 -> utility (Min_h_spacing 6.0)
-  | `Full -> utility Min_h_full
-  | `Rem n -> utility (Min_h_spacing n)
+let max_w' =
+  prime_size_utility ~none:Max_w_none ~xs:Max_w_xs ~sm:Max_w_sm ~md:Max_w_md
+    ~lg:Max_w_lg ~xl:Max_w_xl ~xl_2:Max_w_2xl ~xl_3:Max_w_3xl ~full:Max_w_full
+    ~rem:(fun n -> Max_w_spacing n)
 
-let max_h' = function
-  | `None -> utility Max_h_none
-  | `Xs -> utility (Max_h_spacing 0.5)
-  | `Sm -> utility (Max_h_spacing 1.0)
-  | `Md -> utility (Max_h_spacing 1.5)
-  | `Lg -> utility (Max_h_spacing 2.0)
-  | `Xl -> utility (Max_h_spacing 3.0)
-  | `Xl_2 -> utility (Max_h_spacing 4.0)
-  | `Xl_3 -> utility (Max_h_spacing 6.0)
-  | `Full -> utility Max_h_full
-  | `Rem n -> utility (Max_h_spacing n)
+let min_h' =
+  prime_size_utility ~none:Min_h_0 ~xs:(Min_h_spacing 0.5)
+    ~sm:(Min_h_spacing 1.0) ~md:(Min_h_spacing 1.5) ~lg:(Min_h_spacing 2.0)
+    ~xl:(Min_h_spacing 3.0) ~xl_2:(Min_h_spacing 4.0) ~xl_3:(Min_h_spacing 6.0)
+    ~full:Min_h_full ~rem:(fun n -> Min_h_spacing n)
+
+let max_h' =
+  prime_size_utility ~none:Max_h_none ~xs:(Max_h_spacing 0.5)
+    ~sm:(Max_h_spacing 1.0) ~md:(Max_h_spacing 1.5) ~lg:(Max_h_spacing 2.0)
+    ~xl:(Max_h_spacing 3.0) ~xl_2:(Max_h_spacing 4.0) ~xl_3:(Max_h_spacing 6.0)
+    ~full:Max_h_full ~rem:(fun n -> Max_h_spacing n)
 
 (* Top-level wrappers returning Utility.t, following the Utility.Handler
    pattern *)
@@ -988,8 +1618,23 @@ let size_fit = utility Size_fit
 let aspect_auto = utility Aspect_auto
 let aspect_square = utility Aspect_square
 let aspect_video = utility Aspect_video
-let aspect_ratio w h = utility (Aspect_ratio (w, h))
+let aspect_ratio w h = utility (Aspect_ratio (float_of_int w, float_of_int h))
 
 (* Order exposure for this module *)
 let order (u : Utility.base) =
-  match u with Self x -> Some (priority, suborder x) | _ -> None
+  match u with Self x -> Some (priority x, suborder x) | _ -> None
+
+(* Export container theme variables for use by other modules (e.g., Columns) *)
+let container_3xs = Handler.container_3xs
+let container_2xs = Handler.container_2xs
+let container_xs = Handler.container_xs
+let container_sm = Handler.container_sm
+let container_md = Handler.container_md
+let container_lg = Handler.container_lg
+let container_xl = Handler.container_xl
+let container_2xl = Handler.container_2xl
+let container_3xl = Handler.container_3xl
+let container_4xl = Handler.container_4xl
+let container_5xl = Handler.container_5xl
+let container_6xl = Handler.container_6xl
+let container_7xl = Handler.container_7xl

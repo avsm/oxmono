@@ -1,19 +1,31 @@
 (** Utility module for common utility types and functions *)
 
 type base = ..
-type t = Base of base | Modified of Style.modifier * t | Group of t list
+
+type t =
+  | Base of base
+  | Modified of Style.modifier * t
+  | Group of t list
+  | Important of bool * t  (** [bool] is [true] for the v4 trailing [!] form. *)
+  | Aliased of string * t
+      (** [Aliased (class_name, u)] renders as [u] but reports [class_name] from
+          {!to_class}, so the emitted selector matches the source spelling. Used
+          for the [prop-(--x)] shorthand, which is [prop-[var(--x)]] in value
+          but keeps its own class name. *)
 
 let base x = Base x
+let important ?(suffix = false) x = Important (suffix, x)
+let alias class_name u = Aliased (class_name, u)
 
 module type Handler = sig
   type t
   type base += Self of t
 
   val name : string
-  val to_style : t -> Style.t
-  val priority : int
+  val to_style : Scheme.t -> t -> Style.t
+  val priority : t -> int
   val suborder : t -> int
-  val of_class : string -> (t, [ `Msg of string ]) result
+  val of_class : Scheme.t -> string -> (t, [ `Msg of string ]) result
   val to_class : t -> string
 end
 
@@ -34,29 +46,33 @@ let name_of_base u =
   try_handlers !handlers
 
 let class_of_base u =
-  let rec try_handlers = function
-    | [] -> failwith "name_of_base"
-    | H (module M) :: rest -> (
-        match u with M.Self x -> M.to_class x | _ -> try_handlers rest)
+  let found = ref None in
+  let visit (H (module M)) =
+    match (!found, u) with
+    | None, M.Self x -> found := Some (M.to_class x)
+    | _ -> ()
   in
-  try_handlers !handlers
+  List.iter visit !handlers;
+  match !found with
+  | Some class_name -> class_name
+  | None -> failwith "name_of_base"
 
-let base_of_class class_name =
+let base_of_class theme class_name =
   let rec try_handlers = function
     | [] -> Error (`Msg "Unknown utility")
     | H (module M) :: rest -> (
-        match M.of_class class_name with
+        match M.of_class theme class_name with
         | Ok x -> Ok (M.Self x)
         | Error _ -> try_handlers rest)
   in
   try_handlers !handlers
 
 (* Keep for backward compatibility with tests *)
-let base_of_strings parts =
+let base_of_strings theme parts =
   let class_name = String.concat "-" parts in
-  base_of_class class_name
+  base_of_class theme class_name
 
-let base_to_style u =
+let base_to_style theme u =
   let rec try_handlers = function
     | [] ->
         prerr_endline
@@ -65,14 +81,16 @@ let base_to_style u =
           "Unknown utility type - handler not registered. This is a bug in the \
            utility system."
     | H (module M) :: rest -> (
-        match u with M.Self x -> M.to_style x | _ -> try_handlers rest)
+        match u with M.Self x -> M.to_style theme x | _ -> try_handlers rest)
   in
   try_handlers !handlers
 
-let rec to_style = function
-  | Base u -> base_to_style u
-  | Modified (m, u) -> Style.Modified (m, to_style u)
-  | Group us -> Style.Group (List.map to_style us)
+let rec to_style theme = function
+  | Base u -> base_to_style theme u
+  | Modified (m, u) -> Style.Modified (m, to_style theme u)
+  | Group us -> Style.Group (List.map (to_style theme) us)
+  | Important (_, u) -> Style.map_important (to_style theme u)
+  | Aliased (_, u) -> to_style theme u
 
 let rec to_class = function
   | Base u -> class_of_base u
@@ -85,6 +103,16 @@ let rec to_class = function
             (List.map (fun item -> to_class (Modified (m, item))) us)
       | _ -> Style.pp_modifier m ^ ":" ^ to_class u)
   | Group us -> String.concat " " (List.map to_class us)
+  | Important (suffix, u) ->
+      if suffix then to_class u ^ "!" else "!" ^ to_class u
+  | Aliased (class_name, _) -> class_name
+
+let rec pp = function
+  | Base u -> "Base " ^ class_of_base u
+  | Modified (m, u) -> "Modified (" ^ Style.pp_modifier m ^ ", " ^ pp u ^ ")"
+  | Group us -> "Group [" ^ String.concat "; " (List.map pp us) ^ "]"
+  | Important (_, u) -> "Important (" ^ pp u ^ ")"
+  | Aliased (class_name, u) -> "Aliased (" ^ class_name ^ ", " ^ pp u ^ ")"
 
 let order (u : base) : int * int =
   let rec try_handlers = function
@@ -94,7 +122,7 @@ let order (u : base) : int * int =
            utility system."
     | H (module M) :: rest -> (
         match u with
-        | M.Self x -> (M.priority, M.suborder x)
+        | M.Self x -> (M.priority x, M.suborder x)
         | _ -> try_handlers rest)
   in
   try_handlers !handlers

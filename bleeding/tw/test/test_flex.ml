@@ -27,11 +27,11 @@ let of_string_valid () =
   check_props "flex-initial";
   check_props "flex-none";
 
-  (* Grow/Shrink *)
-  check_props "flex-grow";
-  check_props "flex-grow-0";
-  check_props "flex-shrink";
-  check_props "flex-shrink-0";
+  (* Grow/Shrink - Tailwind v4 uses shorter names *)
+  check_props "grow";
+  check_props "grow-0";
+  check_props "shrink";
+  check_props "shrink-0";
 
   (* Basis *)
   check_props "basis-0";
@@ -64,15 +64,11 @@ let of_string_invalid () =
   fail_props [ "flex"; "invalid" ];
   fail_props [ "basis" ];
   fail_props [ "order" ];
-  fail_props [ "order"; "0" ];
   fail_props []
 
-let all_utilities () =
-  let open Tw in
-  [ flex; inline_flex ]
-
 let suborder_matches_tailwind () =
-  let shuffled = Test_helpers.shuffle (all_utilities ()) in
+  let open Tw in
+  let shuffled = Test_helpers.shuffle [ flex; inline_flex ] in
 
   Test_helpers.check_ordering_matches
     ~test_name:"flex suborder matches Tailwind" shuffled

@@ -11,6 +11,7 @@
     - Accepts ["forced"; "color"; "adjust"; "auto" | "none"]. Unknown tokens
       yield `Error (`Msg "Not an accessibility utility")`. *)
 
+module Css = Cascade.Css
 open Style
 open Css
 
@@ -19,13 +20,13 @@ module Handler = struct
   type Utility.base += Self of t
 
   let name = "accessibility"
-  let priority = 27
+  let priority _ = 29
 
   let to_class = function
     | Forced_color_adjust_auto -> "forced-color-adjust-auto"
     | Forced_color_adjust_none -> "forced-color-adjust-none"
 
-  let to_style = function
+  let to_style _theme = function
     | Forced_color_adjust_auto -> style [ forced_color_adjust Auto ]
     | Forced_color_adjust_none -> style [ forced_color_adjust None ]
 
@@ -33,8 +34,8 @@ module Handler = struct
     | Forced_color_adjust_auto -> 0
     | Forced_color_adjust_none -> 1
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "forced"; "color"; "adjust"; "auto" ] -> Ok Forced_color_adjust_auto
     | [ "forced"; "color"; "adjust"; "none" ] -> Ok Forced_color_adjust_none

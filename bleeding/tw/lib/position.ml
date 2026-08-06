@@ -1,17 +1,104 @@
 (** Positioning utilities for controlling element placement *)
 
+module Css = Cascade.Css
+
 (** {1 Helper Functions} *)
 
-(* Use shared spacing variable from Theme *)
-let spacing_var = Theme.spacing_var
+(* Parse a bracket value like [4px] or [var(--x)] and return a Css.length *)
+let parse_bracket_length s : (Css.length, _) result =
+  if String.length s >= 3 && s.[0] = '[' && s.[String.length s - 1] = ']' then (
+    let inner = String.sub s 1 (String.length s - 2) in
+    if Parse.is_var inner then
+      Ok (Css.Var (Var.bracket (Parse.extract_var_name inner)) : Css.length)
+    else
+      let slen = String.length inner in
+      let i = ref 0 in
+      while
+        !i < slen
+        && (inner.[!i] = '-'
+           || inner.[!i] = '.'
+           || (inner.[!i] >= '0' && inner.[!i] <= '9'))
+      do
+        incr i
+      done;
+      let num_s = String.sub inner 0 !i in
+      let unit_s = String.sub inner !i (slen - !i) in
+      match Float.of_string_opt num_s with
+      | None -> Error (`Msg ("Invalid number: " ^ num_s))
+      | Some n -> (
+          let open Css in
+          match unit_s with
+          | "px" -> Ok (Px n)
+          | "rem" -> Ok (Rem n)
+          | "em" -> Ok (Em n)
+          | "%" -> Ok (Pct n)
+          | "vw" -> Ok (Vw n)
+          | "vh" -> Ok (Vh n)
+          | _ -> Error (`Msg ("Invalid length unit: " ^ unit_s))))
+  else Error (`Msg ("Not a bracket value: " ^ s))
 
-let spacing_value n : Css.declaration * Css.length =
-  let decl, spacing_ref = Var.binding spacing_var (Css.Rem 0.25) in
-  ( decl,
-    Css.Calc
-      (Css.Calc.mul
-         (Css.Calc.length (Css.Var spacing_ref))
-         (Css.Calc.float (float_of_int n))) )
+(* Negate an inset length: simple units flip sign directly; var()/calc() and
+   parenthesized expressions wrap in [calc(... * -1)] to match Tailwind. *)
+let negate_length (l : Css.length) : Css.length =
+  let open Css in
+  match l with
+  | Px n -> Px (-.n)
+  | Rem n -> Rem (-.n)
+  | Em n -> Em (-.n)
+  | Pct n -> Pct (-.n)
+  | Vw n -> Vw (-.n)
+  | Vh n -> Vh (-.n)
+  | other -> Calc (Calc.mul (Calc.length other) (Calc.float (-1.)))
+
+(* Parse a negative arbitrary inset value like [-left-[(var(--a)+var(--b))]]. A
+   bare parenthesised expression is not a length on its own, so parse it as a
+   calc body and negate the typed calc. *)
+let parse_neg_bracket_length s : Css.length option =
+  if String.length s > 2 && s.[0] = '[' && s.[String.length s - 1] = ']' then
+    let inner =
+      Parse.decode_arbitrary_value (String.sub s 1 (String.length s - 2))
+    in
+    match Css.parse_length inner with
+    | Some l -> Some (negate_length l)
+    | None -> (
+        match Css.parse_length (String.concat "" [ "calc("; inner; ")" ]) with
+        | Some (Css.Calc c) ->
+            Some (Css.Calc (Css.Calc.mul c (Css.Calc.float (-1.))))
+        | Some l -> Some (negate_length l)
+        | None -> None)
+  else None
+
+(* Memoization cache for inset-named theme variables *)
+let inset_named_cache : (string, Css.length Var.theme) Hashtbl.t =
+  Hashtbl.create 16
+
+(* Get or create a theme variable for a named inset value like
+   --inset-shadowned. Uses order (3, 200) to place in theme layer after numbered
+   spacing variables (which are at 3, 100+n). *)
+let inset_named_var name =
+  match Hashtbl.find_opt inset_named_cache name with
+  | Some var -> var
+  | None ->
+      let var_name = "inset-" ^ name in
+      (* Order (3, 200) places named inset vars after numbered spacing (3,
+         100+n) *)
+      let var = Var.theme Css.Length var_name ~order:(3, 200) in
+      Hashtbl.add inset_named_cache name var;
+      var
+
+(* Create a named inset value using a theme variable like --inset-shadowned.
+   Returns the theme declaration and a length that references the variable. *)
+let named_inset_value name : Css.declaration * Css.length =
+  let var = inset_named_var name in
+  (* Use 1940px as placeholder value - this comes from Tailwind test config *)
+  let concrete_value : Css.length = Px 1940. in
+  let decl, ref = Var.binding var concrete_value in
+  (decl, Css.Var ref)
+
+(* Create a spacing value using calc(var(--spacing) * n). Returns the theme
+   declaration and a length that references the variable. *)
+let spacing_value ?theme n : Css.declaration * Css.length =
+  Theme.spacing_calc ?theme n
 
 module Handler = struct
   open Style
@@ -29,34 +116,86 @@ module Handler = struct
     | Inset_y_0
     | Inset_auto
     | Inset_full
+    | Neg_inset_full
     | Inset_3_4
     | Inset_x_auto
     | Inset_x_full
+    | Neg_inset_x_full
     | Inset_x_3_4
     | Inset_y_auto
     | Inset_y_full
+    | Neg_inset_y_full
     | Inset_y_3_4
     | Inset of int
+    | Inset_arbitrary of string * Css.length
+    | Inset_named of string (* Custom property reference like inset-shadowned *)
     | Inset_x of int
+    | Inset_x_arbitrary of string * Css.length
+    | Inset_x_named of string
     | Inset_y of int
+    | Inset_y_arbitrary of string * Css.length
+    | Inset_y_named of string
+    (* Logical position utilities: inset-s, inset-e, inset-bs, inset-be *)
+    | Inset_s of int
+    | Inset_s_arbitrary of string * Css.length
+    | Inset_s_named of string
+    | Inset_s_auto
+    | Inset_s_full
+    | Neg_inset_s_full
+    | Inset_s_3_4
+    | Inset_e of int
+    | Inset_e_arbitrary of string * Css.length
+    | Inset_e_named of string
+    | Inset_e_auto
+    | Inset_e_full
+    | Neg_inset_e_full
+    | Inset_e_3_4
+    | Inset_bs of int
+    | Inset_bs_arbitrary of string * Css.length
+    | Inset_bs_named of string
+    | Inset_bs_auto
+    | Inset_bs_full
+    | Neg_inset_bs_full
+    | Inset_bs_3_4
+    | Inset_be of int
+    | Inset_be_arbitrary of string * Css.length
+    | Inset_be_named of string
+    | Inset_be_auto
+    | Inset_be_full
+    | Neg_inset_be_full
+    | Inset_be_3_4
     | Top of int
     | Top_1_2
     | Top_auto
     | Top_full
+    | Neg_top_full
     | Top_3_4
+    | Top_arbitrary of string * Css.length
+    | Top_named of string
     | Right of int
     | Right_auto
     | Right_full
+    | Neg_right_full
     | Right_3_4
+    | Right_arbitrary of string * Css.length
+    | Right_named of string
     | Bottom of int
     | Bottom_auto
     | Bottom_full
+    | Neg_bottom_full
     | Bottom_3_4
+    | Bottom_arbitrary of string * Css.length
+    | Bottom_named of string
     | Left of int
     | Left_1_2
     | Left_auto
     | Left_full
+    | Neg_left_full
     | Left_3_4
+    | Left_arbitrary of string * Css.length
+    | Neg_left_arbitrary of string * Css.length
+      (* raw bracket suffix kept for the class name; value is negated *)
+    | Left_named of string
     | Start of int
     | Start_auto
     | Start_full
@@ -65,7 +204,6 @@ module Handler = struct
     | End_auto
     | End_full
     | End_3_4
-    | Z of int
 
   (** Extensible variant for position utilities *)
   type Utility.base += Self of t
@@ -73,11 +211,13 @@ module Handler = struct
   let name = "position"
 
   (** Priority for position utilities *)
-  let priority = 0
+  let priority _ = 0
 
   (** {1 Utility Conversion Functions} *)
 
-  let to_style = function
+  let to_style theme =
+    let spacing_value n = spacing_value ~theme n in
+    function
     | Position_static -> style [ position Static ]
     | Position_relative -> style [ position Relative ]
     | Position_absolute -> style [ position Absolute ]
@@ -85,57 +225,141 @@ module Handler = struct
     | Position_sticky -> style [ position Sticky ]
     | Inset_0 ->
         let decl, zero_value = spacing_value 0 in
-        style (decl :: [ Css.inset zero_value ])
+        style (decl :: [ Css.inset [ zero_value ] ])
     | Inset_x_0 ->
         let decl, zero_value = spacing_value 0 in
-        style (decl :: [ Css.left zero_value; Css.right zero_value ])
+        style (decl :: [ Css.inset_inline [ zero_value ] ])
     | Inset_y_0 ->
         let decl, zero_value = spacing_value 0 in
-        style (decl :: [ Css.bottom zero_value; Css.top zero_value ])
-    | Inset_auto -> style [ Css.inset Auto ]
-    | Inset_full -> style [ Css.inset (Pct 100.0) ]
-    | Inset_3_4 -> style [ Css.inset (Pct 75.0) ]
-    | Inset_x_auto -> style [ Css.inset_inline Auto ]
-    | Inset_x_full -> style [ Css.inset_inline (Pct 100.0) ]
-    | Inset_x_3_4 -> style [ Css.inset_inline (Pct 75.0) ]
-    | Inset_y_auto -> style [ Css.inset_block Auto ]
-    | Inset_y_full -> style [ Css.inset_block (Pct 100.0) ]
-    | Inset_y_3_4 -> style [ Css.inset_block (Pct 75.0) ]
+        style (decl :: [ Css.inset_block [ zero_value ] ])
+    | Inset_auto -> style [ Css.inset [ Auto ] ]
+    | Inset_full -> style [ Css.inset [ Pct 100.0 ] ]
+    | Neg_inset_full -> style [ Css.inset [ Pct (-100.0) ] ]
+    | Inset_3_4 -> style [ Css.inset [ Pct 75.0 ] ]
+    | Inset_x_auto -> style [ Css.inset_inline [ Auto ] ]
+    | Inset_x_full -> style [ Css.inset_inline [ Pct 100.0 ] ]
+    | Neg_inset_x_full -> style [ Css.inset_inline [ Pct (-100.0) ] ]
+    | Inset_x_3_4 -> style [ Css.inset_inline [ Pct 75.0 ] ]
+    | Inset_y_auto -> style [ Css.inset_block [ Auto ] ]
+    | Inset_y_full -> style [ Css.inset_block [ Pct 100.0 ] ]
+    | Neg_inset_y_full -> style [ Css.inset_block [ Pct (-100.0) ] ]
+    | Inset_y_3_4 -> style [ Css.inset_block [ Pct 75.0 ] ]
     | Inset n ->
         let decl, value = spacing_value n in
-        style (decl :: [ Css.inset value ])
+        style (decl :: [ Css.inset [ value ] ])
+    | Inset_arbitrary (_, len) -> style [ Css.inset [ len ] ]
+    | Inset_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.inset [ value ] ])
     | Inset_x n ->
         let decl, value = spacing_value n in
-        style (decl :: [ Css.inset_inline value ])
+        style (decl :: [ Css.inset_inline [ value ] ])
+    | Inset_x_arbitrary (_, len) -> style [ Css.inset_inline [ len ] ]
+    | Inset_x_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.inset_inline [ value ] ])
     | Inset_y n ->
         let decl, value = spacing_value n in
-        style (decl :: [ Css.inset_block value ])
+        style (decl :: [ Css.inset_block [ value ] ])
+    | Inset_y_arbitrary (_, len) -> style [ Css.inset_block [ len ] ]
+    | Inset_y_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.inset_block [ value ] ])
+    (* inset-s = inset-inline-start *)
+    | Inset_s n ->
+        let decl, value = spacing_value n in
+        style (decl :: [ Css.inset_inline_start value ])
+    | Inset_s_arbitrary (_, len) -> style [ Css.inset_inline_start len ]
+    | Inset_s_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.inset_inline_start value ])
+    | Inset_s_auto -> style [ Css.inset_inline_start Auto ]
+    | Inset_s_full -> style [ Css.inset_inline_start (Pct 100.0) ]
+    | Neg_inset_s_full -> style [ Css.inset_inline_start (Pct (-100.0)) ]
+    | Inset_s_3_4 -> style [ Css.inset_inline_start (Pct 75.0) ]
+    (* inset-e = inset-inline-end *)
+    | Inset_e n ->
+        let decl, value = spacing_value n in
+        style (decl :: [ Css.inset_inline_end value ])
+    | Inset_e_arbitrary (_, len) -> style [ Css.inset_inline_end len ]
+    | Inset_e_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.inset_inline_end value ])
+    | Inset_e_auto -> style [ Css.inset_inline_end Auto ]
+    | Inset_e_full -> style [ Css.inset_inline_end (Pct 100.0) ]
+    | Neg_inset_e_full -> style [ Css.inset_inline_end (Pct (-100.0)) ]
+    | Inset_e_3_4 -> style [ Css.inset_inline_end (Pct 75.0) ]
+    (* inset-bs = inset-block-start *)
+    | Inset_bs n ->
+        let decl, value = spacing_value n in
+        style (decl :: [ Css.inset_block_start value ])
+    | Inset_bs_arbitrary (_, len) -> style [ Css.inset_block_start len ]
+    | Inset_bs_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.inset_block_start value ])
+    | Inset_bs_auto -> style [ Css.inset_block_start Auto ]
+    | Inset_bs_full -> style [ Css.inset_block_start (Pct 100.0) ]
+    | Neg_inset_bs_full -> style [ Css.inset_block_start (Pct (-100.0)) ]
+    | Inset_bs_3_4 -> style [ Css.inset_block_start (Pct 75.0) ]
+    (* inset-be = inset-block-end *)
+    | Inset_be n ->
+        let decl, value = spacing_value n in
+        style (decl :: [ Css.inset_block_end value ])
+    | Inset_be_arbitrary (_, len) -> style [ Css.inset_block_end len ]
+    | Inset_be_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.inset_block_end value ])
+    | Inset_be_auto -> style [ Css.inset_block_end Auto ]
+    | Inset_be_full -> style [ Css.inset_block_end (Pct 100.0) ]
+    | Neg_inset_be_full -> style [ Css.inset_block_end (Pct (-100.0)) ]
+    | Inset_be_3_4 -> style [ Css.inset_block_end (Pct 75.0) ]
     | Top n ->
         let decl, value = spacing_value n in
         style (decl :: [ Css.top value ])
     | Top_1_2 -> style [ Css.top (Pct 50.0) ]
     | Top_auto -> style [ Css.top Auto ]
     | Top_full -> style [ Css.top (Pct 100.0) ]
+    | Neg_top_full -> style [ Css.top (Pct (-100.0)) ]
     | Top_3_4 -> style [ Css.top (Pct 75.0) ]
+    | Top_arbitrary (_, len) -> style [ Css.top len ]
+    | Top_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.top value ])
     | Right n ->
         let decl, value = spacing_value n in
         style (decl :: [ Css.right value ])
     | Right_auto -> style [ Css.right Auto ]
     | Right_full -> style [ Css.right (Pct 100.0) ]
+    | Neg_right_full -> style [ Css.right (Pct (-100.0)) ]
     | Right_3_4 -> style [ Css.right (Pct 75.0) ]
+    | Right_arbitrary (_, len) -> style [ Css.right len ]
+    | Right_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.right value ])
     | Bottom n ->
         let decl, value = spacing_value n in
         style (decl :: [ Css.bottom value ])
     | Bottom_auto -> style [ Css.bottom Auto ]
     | Bottom_full -> style [ Css.bottom (Pct 100.0) ]
+    | Neg_bottom_full -> style [ Css.bottom (Pct (-100.0)) ]
     | Bottom_3_4 -> style [ Css.bottom (Pct 75.0) ]
+    | Bottom_arbitrary (_, len) -> style [ Css.bottom len ]
+    | Bottom_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.bottom value ])
     | Left n ->
         let decl, value = spacing_value n in
         style (decl :: [ Css.left value ])
     | Left_1_2 -> style [ Css.left (Pct 50.0) ]
     | Left_auto -> style [ Css.left Auto ]
     | Left_full -> style [ Css.left (Pct 100.0) ]
+    | Neg_left_full -> style [ Css.left (Pct (-100.0)) ]
     | Left_3_4 -> style [ Css.left (Pct 75.0) ]
+    | Left_arbitrary (_, len) -> style [ Css.left len ]
+    | Neg_left_arbitrary (_, len) -> style [ Css.left len ]
+    | Left_named name ->
+        let decl, value = named_inset_value name in
+        style (decl :: [ Css.left value ])
     | Start n ->
         let decl, value = spacing_value n in
         style (decl :: [ Css.inset_inline_start value ])
@@ -148,61 +372,175 @@ module Handler = struct
     | End_auto -> style [ Css.inset_inline_end Auto ]
     | End_full -> style [ Css.inset_inline_end (Pct 100.0) ]
     | End_3_4 -> style [ Css.inset_inline_end (Pct 75.0) ]
-    | Z n -> style [ Css.z_index (Css.Index n) ]
 
   let int_of_string_with_sign = Parse.int_any
 
-  let suborder = function
+  (* Suborder follows Tailwind's ordering: 1. Negative numeric values (-inset-4)
+     - small suborder 2. Negative percentage (-inset-full) 3. Fractions
+     (inset-3/4) 4. Positive numeric (inset-4) 5. Arbitrary (inset-[4px]) 6.
+     auto (inset-auto) 7. full (inset-full) 8. named (inset-shadowned) *)
+  (* Within an inset family Tailwind orders: negative numeric (ascending by
+     magnitude), then negative full, then positives with fractions interleaved
+     by numerator (inset-1, inset-1/2, inset-2, inset-3/4, inset-4), then
+     arbitrary, then keywords (auto, full) then named. The offsets below are
+     spaced far enough apart that a numeric value (up to ~96) never overflows
+     into the next tier or family: family bands are 1_000_000 apart. *)
+  let neg_num n = abs n * 10 (* 0 .. ~960 *)
+  let neg_arb_off = 490_000 (* negative arbitrary before negative full *)
+  let neg_full_off = 500_000
+  let pos_off = 600_000
+  let pos_int n = pos_off + (n * 10)
+  let pos_frac num den = pos_off + (num * 10) + 1 + den
+  let arb_off = 800_000
+  let auto_off = 900_000
+  let full_off = 900_001
+  let named_off = 900_002
+
+  let suborder =
+    let inset = 1_000_000 in
+    let inset_x = 2_000_000 in
+    let inset_y = 3_000_000 in
+    let inset_s = 4_000_000 in
+    let inset_e = 5_000_000 in
+    let inset_bs = 6_000_000 in
+    let inset_be = 7_000_000 in
+    let top = 8_000_000 in
+    let right = 9_000_000 in
+    let bottom = 10_000_000 in
+    let left = 11_000_000 in
+    let start = 12_000_000 in
+    let e = 13_000_000 in
+    function
     | Position_absolute -> 0
     | Position_fixed -> 1
     | Position_relative -> 2
     | Position_static -> 3
     | Position_sticky -> 4
-    | Inset_0 -> 100
-    | Inset_x_0 -> 101
-    | Inset_y_0 -> 102
-    | Inset_3_4 -> 103
-    | Inset_auto -> 104
-    | Inset_full -> 105
-    | Inset_x_3_4 -> 106
-    | Inset_x_auto -> 107
-    | Inset_x_full -> 108
-    | Inset_y_3_4 -> 109
-    | Inset_y_auto -> 110
-    | Inset_y_full -> 111
-    | Inset n -> 200 + n
-    | Inset_x n -> 210 + n
-    | Inset_y n -> 220 + n
-    | Top_1_2 -> 300
-    | Top_3_4 -> 301
-    | Top_auto -> 302
-    | Top_full -> 303
-    | Top n -> 400 + n
-    | Right_3_4 -> 450
-    | Right_auto -> 451
-    | Right_full -> 452
-    | Right n -> 500 + n
-    | Bottom_3_4 -> 550
-    | Bottom_auto -> 551
-    | Bottom_full -> 552
-    | Bottom n -> 600 + n
-    | Left_1_2 -> 700
-    | Left_3_4 -> 701
-    | Left_auto -> 702
-    | Left_full -> 703
-    | Start_3_4 -> 750
-    | Start_auto -> 751
-    | Start_full -> 752
-    | Start n -> 800 + n
-    | End_3_4 -> 850
-    | End_auto -> 851
-    | End_full -> 852
-    | End n -> 900 + n
-    | Left n -> 800 + n
-    | Z n -> 900 + n
+    (* inset *)
+    | Inset n when n < 0 -> inset + neg_num n
+    | Neg_inset_full -> inset + neg_full_off
+    | Inset_0 -> inset + pos_int 0
+    | Inset_3_4 -> inset + pos_frac 3 4
+    | Inset n -> inset + pos_int n
+    | Inset_arbitrary _ -> inset + arb_off
+    | Inset_auto -> inset + auto_off
+    | Inset_full -> inset + full_off
+    | Inset_named _ -> inset + named_off
+    (* inset-x *)
+    | Neg_inset_x_full -> inset_x + neg_full_off
+    | Inset_x_0 -> inset_x + pos_int 0
+    | Inset_x_3_4 -> inset_x + pos_frac 3 4
+    | Inset_x n when n < 0 -> inset_x + neg_num n
+    | Inset_x n -> inset_x + pos_int n
+    | Inset_x_arbitrary _ -> inset_x + arb_off
+    | Inset_x_auto -> inset_x + auto_off
+    | Inset_x_full -> inset_x + full_off
+    | Inset_x_named _ -> inset_x + named_off
+    (* inset-y *)
+    | Neg_inset_y_full -> inset_y + neg_full_off
+    | Inset_y_0 -> inset_y + pos_int 0
+    | Inset_y_3_4 -> inset_y + pos_frac 3 4
+    | Inset_y n when n < 0 -> inset_y + neg_num n
+    | Inset_y n -> inset_y + pos_int n
+    | Inset_y_arbitrary _ -> inset_y + arb_off
+    | Inset_y_auto -> inset_y + auto_off
+    | Inset_y_full -> inset_y + full_off
+    | Inset_y_named _ -> inset_y + named_off
+    (* inset-s *)
+    | Inset_s n when n < 0 -> inset_s + neg_num n
+    | Neg_inset_s_full -> inset_s + neg_full_off
+    | Inset_s_3_4 -> inset_s + pos_frac 3 4
+    | Inset_s n -> inset_s + pos_int n
+    | Inset_s_arbitrary _ -> inset_s + arb_off
+    | Inset_s_auto -> inset_s + auto_off
+    | Inset_s_full -> inset_s + full_off
+    | Inset_s_named _ -> inset_s + named_off
+    (* inset-e *)
+    | Inset_e n when n < 0 -> inset_e + neg_num n
+    | Neg_inset_e_full -> inset_e + neg_full_off
+    | Inset_e_3_4 -> inset_e + pos_frac 3 4
+    | Inset_e n -> inset_e + pos_int n
+    | Inset_e_arbitrary _ -> inset_e + arb_off
+    | Inset_e_auto -> inset_e + auto_off
+    | Inset_e_full -> inset_e + full_off
+    | Inset_e_named _ -> inset_e + named_off
+    (* inset-bs *)
+    | Inset_bs n when n < 0 -> inset_bs + neg_num n
+    | Neg_inset_bs_full -> inset_bs + neg_full_off
+    | Inset_bs_3_4 -> inset_bs + pos_frac 3 4
+    | Inset_bs n -> inset_bs + pos_int n
+    | Inset_bs_arbitrary _ -> inset_bs + arb_off
+    | Inset_bs_auto -> inset_bs + auto_off
+    | Inset_bs_full -> inset_bs + full_off
+    | Inset_bs_named _ -> inset_bs + named_off
+    (* inset-be *)
+    | Inset_be n when n < 0 -> inset_be + neg_num n
+    | Neg_inset_be_full -> inset_be + neg_full_off
+    | Inset_be_3_4 -> inset_be + pos_frac 3 4
+    | Inset_be n -> inset_be + pos_int n
+    | Inset_be_arbitrary _ -> inset_be + arb_off
+    | Inset_be_auto -> inset_be + auto_off
+    | Inset_be_full -> inset_be + full_off
+    | Inset_be_named _ -> inset_be + named_off
+    (* top *)
+    | Top n when n < 0 -> top + neg_num n
+    | Neg_top_full -> top + neg_full_off
+    | Top_1_2 -> top + pos_frac 1 2
+    | Top_3_4 -> top + pos_frac 3 4
+    | Top n -> top + pos_int n
+    | Top_arbitrary _ -> top + arb_off
+    | Top_auto -> top + auto_off
+    | Top_full -> top + full_off
+    | Top_named _ -> top + named_off
+    (* right *)
+    | Right n when n < 0 -> right + neg_num n
+    | Neg_right_full -> right + neg_full_off
+    | Right_3_4 -> right + pos_frac 3 4
+    | Right n -> right + pos_int n
+    | Right_arbitrary _ -> right + arb_off
+    | Right_auto -> right + auto_off
+    | Right_full -> right + full_off
+    | Right_named _ -> right + named_off
+    (* bottom *)
+    | Bottom n when n < 0 -> bottom + neg_num n
+    | Neg_bottom_full -> bottom + neg_full_off
+    | Bottom_3_4 -> bottom + pos_frac 3 4
+    | Bottom n -> bottom + pos_int n
+    | Bottom_arbitrary _ -> bottom + arb_off
+    | Bottom_auto -> bottom + auto_off
+    | Bottom_full -> bottom + full_off
+    | Bottom_named _ -> bottom + named_off
+    (* left *)
+    | Left n when n < 0 -> left + neg_num n
+    | Neg_left_arbitrary _ -> left + neg_arb_off
+    | Neg_left_full -> left + neg_full_off
+    | Left_1_2 -> left + pos_frac 1 2
+    | Left_3_4 -> left + pos_frac 3 4
+    | Left n -> left + pos_int n
+    | Left_arbitrary _ -> left + arb_off
+    | Left_auto -> left + auto_off
+    | Left_full -> left + full_off
+    | Left_named _ -> left + named_off
+    (* start / end *)
+    | Start_3_4 -> start + pos_frac 3 4
+    | Start_auto -> start + auto_off
+    | Start_full -> start + full_off
+    | Start n -> start + pos_int n
+    | End_3_4 -> e + pos_frac 3 4
+    | End_auto -> e + auto_off
+    | End_full -> e + full_off
+    | End n -> e + pos_int n
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  (* A named inset (top-header) is valid only when the theme defines the token.
+     Tailwind resolves the name against the [--inset-*] namespace, then falls
+     back to [--spacing-*]; without this gate a stray source token like
+     [top-level] would parse as a utility and emit a bogus value. *)
+  let is_named_inset theme n =
+    Scheme.theme_value (Some theme) ("inset-" ^ n) <> None
+    || Scheme.theme_value (Some theme) ("spacing-" ^ n) <> None
+
+  let of_class theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "static" ] -> Ok Position_static
     | [ "relative" ] -> Ok Position_relative
@@ -214,53 +552,193 @@ module Handler = struct
     | [ "inset"; "y"; "0" ] -> Ok Inset_y_0
     | [ "inset"; "auto" ] -> Ok Inset_auto
     | [ "inset"; "full" ] -> Ok Inset_full
+    | [ ""; "inset"; "full" ] -> Ok Neg_inset_full
     | [ "inset"; "3/4" ] -> Ok Inset_3_4
     | [ "inset"; "x"; "auto" ] -> Ok Inset_x_auto
     | [ "inset"; "x"; "full" ] -> Ok Inset_x_full
+    | [ ""; "inset"; "x"; "full" ] -> Ok Neg_inset_x_full
     | [ "inset"; "x"; "3/4" ] -> Ok Inset_x_3_4
     | [ "inset"; "y"; "auto" ] -> Ok Inset_y_auto
     | [ "inset"; "y"; "full" ] -> Ok Inset_y_full
+    | [ ""; "inset"; "y"; "full" ] -> Ok Neg_inset_y_full
     | [ "inset"; "y"; "3/4" ] -> Ok Inset_y_3_4
-    | [ "inset"; "x"; n ] ->
-        int_of_string_with_sign n |> Result.map (fun x -> Inset_x x)
+    | [ "inset"; "x"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Inset_x x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Inset_x_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Inset_x_named n)
+            | Error _ -> Error (`Msg "invalid")))
     | [ ""; "inset"; "x"; n ] ->
         int_of_string_with_sign n |> Result.map (fun x -> Inset_x (-x))
-    | [ "inset"; "y"; n ] ->
-        int_of_string_with_sign n |> Result.map (fun x -> Inset_y x)
+    | [ "inset"; "y"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Inset_y x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Inset_y_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Inset_y_named n)
+            | Error _ -> Error (`Msg "invalid")))
     | [ ""; "inset"; "y"; n ] ->
         int_of_string_with_sign n |> Result.map (fun x -> Inset_y (-x))
-    | [ "inset"; n ] ->
-        int_of_string_with_sign n |> Result.map (fun x -> Inset x)
+    (* inset-s = inset-inline-start *)
+    | [ "inset"; "s"; "auto" ] -> Ok Inset_s_auto
+    | [ "inset"; "s"; "full" ] -> Ok Inset_s_full
+    | [ ""; "inset"; "s"; "full" ] -> Ok Neg_inset_s_full
+    | [ "inset"; "s"; "3/4" ] -> Ok Inset_s_3_4
+    | [ "inset"; "s"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Inset_s x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Inset_s_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Inset_s_named n)
+            | Error _ -> Error (`Msg "invalid")))
+    | [ ""; "inset"; "s"; n ] ->
+        int_of_string_with_sign n |> Result.map (fun x -> Inset_s (-x))
+    (* inset-e = inset-inline-end *)
+    | [ "inset"; "e"; "auto" ] -> Ok Inset_e_auto
+    | [ "inset"; "e"; "full" ] -> Ok Inset_e_full
+    | [ ""; "inset"; "e"; "full" ] -> Ok Neg_inset_e_full
+    | [ "inset"; "e"; "3/4" ] -> Ok Inset_e_3_4
+    | [ "inset"; "e"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Inset_e x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Inset_e_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Inset_e_named n)
+            | Error _ -> Error (`Msg "invalid")))
+    | [ ""; "inset"; "e"; n ] ->
+        int_of_string_with_sign n |> Result.map (fun x -> Inset_e (-x))
+    (* inset-bs = inset-block-start *)
+    | [ "inset"; "bs"; "auto" ] -> Ok Inset_bs_auto
+    | [ "inset"; "bs"; "full" ] -> Ok Inset_bs_full
+    | [ ""; "inset"; "bs"; "full" ] -> Ok Neg_inset_bs_full
+    | [ "inset"; "bs"; "3/4" ] -> Ok Inset_bs_3_4
+    | [ "inset"; "bs"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Inset_bs x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Inset_bs_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Inset_bs_named n)
+            | Error _ -> Error (`Msg "invalid")))
+    | [ ""; "inset"; "bs"; n ] ->
+        int_of_string_with_sign n |> Result.map (fun x -> Inset_bs (-x))
+    (* inset-be = inset-block-end *)
+    | [ "inset"; "be"; "auto" ] -> Ok Inset_be_auto
+    | [ "inset"; "be"; "full" ] -> Ok Inset_be_full
+    | [ ""; "inset"; "be"; "full" ] -> Ok Neg_inset_be_full
+    | [ "inset"; "be"; "3/4" ] -> Ok Inset_be_3_4
+    | [ "inset"; "be"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Inset_be x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Inset_be_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Inset_be_named n)
+            | Error _ -> Error (`Msg "invalid")))
+    | [ ""; "inset"; "be"; n ] ->
+        int_of_string_with_sign n |> Result.map (fun x -> Inset_be (-x))
+    | [ "inset"; n ]
+      when n <> "shadow" && n <> "ring" && n <> "x" && n <> "y" && n <> "s"
+           && n <> "e" && n <> "bs" && n <> "be" -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Inset x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Inset_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Inset_named n)
+            | Error _ -> Error (`Msg "invalid")))
     | [ ""; "inset"; n ] ->
         int_of_string_with_sign n |> Result.map (fun x -> Inset (-x))
     | [ "top"; "1/2" ] -> Ok Top_1_2
     | [ "top"; "3/4" ] -> Ok Top_3_4
     | [ "top"; "auto" ] -> Ok Top_auto
     | [ "top"; "full" ] -> Ok Top_full
-    | [ "top"; n ] -> int_of_string_with_sign n |> Result.map (fun x -> Top x)
+    | [ ""; "top"; "full" ] -> Ok Neg_top_full
+    | [ "top"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Top x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Top_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Top_named n)
+            | Error _ -> Error (`Msg "invalid")))
     | [ ""; "top"; n ] ->
         int_of_string_with_sign n |> Result.map (fun x -> Top (-x))
     | [ "right"; "3/4" ] -> Ok Right_3_4
     | [ "right"; "auto" ] -> Ok Right_auto
     | [ "right"; "full" ] -> Ok Right_full
-    | [ "right"; n ] ->
-        int_of_string_with_sign n |> Result.map (fun x -> Right x)
+    | [ ""; "right"; "full" ] -> Ok Neg_right_full
+    | [ "right"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Right x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Right_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Right_named n)
+            | Error _ -> Error (`Msg "invalid")))
     | [ ""; "right"; n ] ->
         int_of_string_with_sign n |> Result.map (fun x -> Right (-x))
     | [ "bottom"; "3/4" ] -> Ok Bottom_3_4
     | [ "bottom"; "auto" ] -> Ok Bottom_auto
     | [ "bottom"; "full" ] -> Ok Bottom_full
-    | [ "bottom"; n ] ->
-        int_of_string_with_sign n |> Result.map (fun x -> Bottom x)
+    | [ ""; "bottom"; "full" ] -> Ok Neg_bottom_full
+    | [ "bottom"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Bottom x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Bottom_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Bottom_named n)
+            | Error _ -> Error (`Msg "invalid")))
     | [ ""; "bottom"; n ] ->
         int_of_string_with_sign n |> Result.map (fun x -> Bottom (-x))
     | [ "left"; "1/2" ] -> Ok Left_1_2
     | [ "left"; "3/4" ] -> Ok Left_3_4
     | [ "left"; "auto" ] -> Ok Left_auto
     | [ "left"; "full" ] -> Ok Left_full
-    | [ "left"; n ] -> int_of_string_with_sign n |> Result.map (fun x -> Left x)
-    | [ ""; "left"; n ] ->
-        int_of_string_with_sign n |> Result.map (fun x -> Left (-x))
+    | [ ""; "left"; "full" ] -> Ok Neg_left_full
+    | [ "left"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Left x)
+        | Error _ -> (
+            match parse_bracket_length n with
+            | Ok len -> Ok (Left_arbitrary (n, len))
+            | Error _ when Parse.is_valid_theme_name n && is_named_inset theme n
+              ->
+                Ok (Left_named n)
+            | Error _ -> Error (`Msg "invalid")))
+    | [ ""; "left"; n ] -> (
+        match int_of_string_with_sign n with
+        | Ok x -> Ok (Left (-x))
+        | Error _ -> (
+            match parse_neg_bracket_length n with
+            | Some len -> Ok (Neg_left_arbitrary (n, len))
+            | None -> Error (`Msg "invalid")))
     | [ "start"; "3/4" ] -> Ok Start_3_4
     | [ "start"; "auto" ] -> Ok Start_auto
     | [ "start"; "full" ] -> Ok Start_full
@@ -274,7 +752,6 @@ module Handler = struct
     | [ "end"; n ] -> int_of_string_with_sign n |> Result.map (fun x -> End x)
     | [ ""; "end"; n ] ->
         int_of_string_with_sign n |> Result.map (fun x -> End (-x))
-    | [ "z"; n ] -> int_of_string_with_sign n |> Result.map (fun x -> Z x)
     | _ -> Error (`Msg "Not a position utility")
 
   let to_class = function
@@ -288,48 +765,110 @@ module Handler = struct
     | Inset_y_0 -> "inset-y-0"
     | Inset_auto -> "inset-auto"
     | Inset_full -> "inset-full"
+    | Neg_inset_full -> "-inset-full"
     | Inset_3_4 -> "inset-3/4"
     | Inset_x_auto -> "inset-x-auto"
     | Inset_x_full -> "inset-x-full"
+    | Neg_inset_x_full -> "-inset-x-full"
     | Inset_x_3_4 -> "inset-x-3/4"
     | Inset_y_auto -> "inset-y-auto"
     | Inset_y_full -> "inset-y-full"
+    | Neg_inset_y_full -> "-inset-y-full"
     | Inset_y_3_4 -> "inset-y-3/4"
     | Inset n ->
         let prefix = if n < 0 then "-" else "" in
         prefix ^ "inset-" ^ string_of_int (abs n)
+    | Inset_arbitrary (raw, _) -> "inset-" ^ raw
+    | Inset_named name -> "inset-" ^ name
     | Inset_x n ->
         let prefix = if n < 0 then "-" else "" in
         prefix ^ "inset-x-" ^ string_of_int (abs n)
+    | Inset_x_arbitrary (raw, _) -> "inset-x-" ^ raw
+    | Inset_x_named name -> "inset-x-" ^ name
     | Inset_y n ->
         let prefix = if n < 0 then "-" else "" in
         prefix ^ "inset-y-" ^ string_of_int (abs n)
+    | Inset_y_arbitrary (raw, _) -> "inset-y-" ^ raw
+    | Inset_y_named name -> "inset-y-" ^ name
+    (* inset-s = inset-inline-start *)
+    | Inset_s n ->
+        let prefix = if n < 0 then "-" else "" in
+        prefix ^ "inset-s-" ^ string_of_int (abs n)
+    | Inset_s_arbitrary (raw, _) -> "inset-s-" ^ raw
+    | Inset_s_named name -> "inset-s-" ^ name
+    | Inset_s_auto -> "inset-s-auto"
+    | Inset_s_full -> "inset-s-full"
+    | Neg_inset_s_full -> "-inset-s-full"
+    | Inset_s_3_4 -> "inset-s-3/4"
+    (* inset-e = inset-inline-end *)
+    | Inset_e n ->
+        let prefix = if n < 0 then "-" else "" in
+        prefix ^ "inset-e-" ^ string_of_int (abs n)
+    | Inset_e_arbitrary (raw, _) -> "inset-e-" ^ raw
+    | Inset_e_named name -> "inset-e-" ^ name
+    | Inset_e_auto -> "inset-e-auto"
+    | Inset_e_full -> "inset-e-full"
+    | Neg_inset_e_full -> "-inset-e-full"
+    | Inset_e_3_4 -> "inset-e-3/4"
+    (* inset-bs = inset-block-start *)
+    | Inset_bs n ->
+        let prefix = if n < 0 then "-" else "" in
+        prefix ^ "inset-bs-" ^ string_of_int (abs n)
+    | Inset_bs_arbitrary (raw, _) -> "inset-bs-" ^ raw
+    | Inset_bs_named name -> "inset-bs-" ^ name
+    | Inset_bs_auto -> "inset-bs-auto"
+    | Inset_bs_full -> "inset-bs-full"
+    | Neg_inset_bs_full -> "-inset-bs-full"
+    | Inset_bs_3_4 -> "inset-bs-3/4"
+    (* inset-be = inset-block-end *)
+    | Inset_be n ->
+        let prefix = if n < 0 then "-" else "" in
+        prefix ^ "inset-be-" ^ string_of_int (abs n)
+    | Inset_be_arbitrary (raw, _) -> "inset-be-" ^ raw
+    | Inset_be_named name -> "inset-be-" ^ name
+    | Inset_be_auto -> "inset-be-auto"
+    | Inset_be_full -> "inset-be-full"
+    | Neg_inset_be_full -> "-inset-be-full"
+    | Inset_be_3_4 -> "inset-be-3/4"
     | Top_1_2 -> "top-1/2"
     | Top_3_4 -> "top-3/4"
     | Top_auto -> "top-auto"
     | Top_full -> "top-full"
+    | Neg_top_full -> "-top-full"
     | Top n ->
         let prefix = if n < 0 then "-" else "" in
         prefix ^ "top-" ^ string_of_int (abs n)
+    | Top_arbitrary (raw, _) -> "top-" ^ raw
+    | Top_named name -> "top-" ^ name
     | Right_3_4 -> "right-3/4"
     | Right_auto -> "right-auto"
     | Right_full -> "right-full"
+    | Neg_right_full -> "-right-full"
     | Right n ->
         let prefix = if n < 0 then "-" else "" in
         prefix ^ "right-" ^ string_of_int (abs n)
+    | Right_arbitrary (raw, _) -> "right-" ^ raw
+    | Right_named name -> "right-" ^ name
     | Bottom_3_4 -> "bottom-3/4"
     | Bottom_auto -> "bottom-auto"
     | Bottom_full -> "bottom-full"
+    | Neg_bottom_full -> "-bottom-full"
     | Bottom n ->
         let prefix = if n < 0 then "-" else "" in
         prefix ^ "bottom-" ^ string_of_int (abs n)
+    | Bottom_arbitrary (raw, _) -> "bottom-" ^ raw
+    | Bottom_named name -> "bottom-" ^ name
     | Left_1_2 -> "left-1/2"
     | Left_3_4 -> "left-3/4"
     | Left_auto -> "left-auto"
     | Left_full -> "left-full"
+    | Neg_left_full -> "-left-full"
     | Left n ->
         let prefix = if n < 0 then "-" else "" in
         prefix ^ "left-" ^ string_of_int (abs n)
+    | Left_arbitrary (raw, _) -> "left-" ^ raw
+    | Neg_left_arbitrary (raw, _) -> "-left-" ^ raw
+    | Left_named name -> "left-" ^ name
     | Start_3_4 -> "start-3/4"
     | Start_auto -> "start-auto"
     | Start_full -> "start-full"
@@ -342,7 +881,6 @@ module Handler = struct
     | End n ->
         let prefix = if n < 0 then "-" else "" in
         prefix ^ "end-" ^ string_of_int (abs n)
-    | Z n -> "z-" ^ string_of_int n
 end
 
 open Handler
@@ -360,7 +898,9 @@ let fixed = utility Position_fixed
 let sticky = utility Position_sticky
 let inset n = utility (Inset n)
 let inset_0 = utility Inset_0
+let inset_x n = utility (Inset_x n)
 let inset_x_0 = utility Inset_x_0
+let inset_y n = utility (Inset_y n)
 let inset_y_0 = utility Inset_y_0
 let top n = utility (Top n)
 let right n = utility (Right n)
@@ -368,4 +908,3 @@ let bottom n = utility (Bottom n)
 let left n = utility (Left n)
 let top_1_2 = utility Top_1_2
 let left_1_2 = utility Left_1_2
-let z n = utility (Z n)

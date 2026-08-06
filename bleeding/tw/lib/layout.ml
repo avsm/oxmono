@@ -1,5 +1,7 @@
 (** Layout utilities for basic display, positioning, and object properties *)
 
+module Css = Cascade.Css
+
 (** Screen reader utilities handler - priority 0 to appear first *)
 module Screen_reader_handler = struct
   open Style
@@ -9,7 +11,7 @@ module Screen_reader_handler = struct
   type Utility.base += Self of t
 
   let name = "screen_reader"
-  let priority = 0
+  let priority _ = 0
 
   let suborder = function
     (* Negative suborders to appear before absolute (suborder 0) *)
@@ -18,44 +20,80 @@ module Screen_reader_handler = struct
 
   let to_class = function Sr_only -> "sr-only" | Not_sr_only -> "not-sr-only"
 
-  let to_style = function
+  let to_style _theme = function
     | Sr_only ->
-        (* Property order matches Tailwind: clip-path, white-space,
-           border-width, width, height, margin, padding, position, overflow *)
+        (* Property order matches Tailwind: position, width, height, padding,
+           margin, overflow, clip-path, white-space, border-width *)
         style
           [
-            clip_path (Css.Clip_path_inset (Pct 50., None, None, None));
-            white_space Nowrap;
-            border_width Zero;
+            Css.position Absolute;
             width (Px 1.);
             height (Px 1.);
-            margin [ Px (-1.) ];
             padding [ Zero ];
-            Css.position Absolute;
+            margin [ Px (-1.) ];
             overflow Hidden;
+            clip_path
+              (Css.Clip_path_inset
+                 {
+                   top = Pct 50.;
+                   right = None;
+                   bottom = None;
+                   left = None;
+                   rounded = None;
+                 });
+            white_space Nowrap;
+            border_width Zero;
           ]
     | Not_sr_only ->
-        (* Property order matches Tailwind: clip-path, white-space, width,
-           height, margin, padding, position, overflow *)
+        (* Property order matches Tailwind: position, width, height, padding,
+           margin, overflow, clip-path, white-space *)
         style
           [
-            clip_path Css.Clip_path_none;
-            white_space Normal;
+            Css.position Static;
             width Auto;
             height Auto;
-            margin [ Zero ];
             padding [ Zero ];
-            Css.position Static;
+            margin [ Zero ];
             overflow Visible;
+            clip_path Css.Clip_path_none;
+            white_space Normal;
           ]
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "sr"; "only" ] -> Ok Sr_only
     | [ "not"; "sr"; "only" ] -> Ok Not_sr_only
     | _ -> Error (`Msg "Not a screen reader utility")
 end
+
+(* Theme variable for z-index-auto. When the threaded theme overrides this token
+   (e.g. an [@theme] block sets [--z-index-auto: 42]), produces a custom
+   declaration --z-index-auto: 42 in the :root, :host block. *)
+let z_index_auto_var = Var.theme Css.Z_index "z-index-auto" ~order:(4, 750)
+
+(* Generate z-auto style: either theme var with custom declaration, or bare
+   theme_ref fallback *)
+let z_auto_style ?theme () =
+  match Scheme.theme_value theme "z-index-auto" with
+  | Some value_str ->
+      (* Parse theme value as z_index *)
+      let z_value : Css.z_index =
+        match value_str with
+        | "auto" -> Auto
+        | s -> Css.Properties.read_z_index (Cascade.Cursor.of_string s)
+      in
+      let decl, ref = Var.binding z_index_auto_var z_value in
+      Style.style [ decl; Css.z_index (Var ref) ]
+  | None ->
+      Style.style
+        [
+          Css.z_index
+            (Var
+               (Var.theme_ref "z-index-auto"
+                  ~default:(Auto : Css.z_index)
+                  ~default_css:"auto"));
+        ]
 
 module Handler = struct
   open Style
@@ -95,6 +133,10 @@ module Handler = struct
     | Z_40
     | Z_50
     | Z_auto
+    | Z of int (* Dynamic z-index: z-5, z-100, etc. *)
+    | Neg_z of int (* Negative z-index: -z-10, -z-50, etc. *)
+    | Z_arbitrary of string (* Arbitrary values: z-[123] *)
+    | Neg_z_arbitrary of string (* Negative arbitrary: -z-[var(--value)] *)
     | (* Object fit *)
       Object_contain
     | Object_cover
@@ -107,6 +149,15 @@ module Handler = struct
     | Object_bottom
     | Object_left
     | Object_right
+    | Object_bottom_left
+    | Object_bottom_right
+    | Object_left_bottom
+    | Object_left_top
+    | Object_right_bottom
+    | Object_right_top
+    | Object_top_left
+    | Object_top_right
+    | Object_arbitrary of string
     | (* Float *)
       Float_left
     | Float_right
@@ -120,15 +171,55 @@ module Handler = struct
     | Clear_both
     | Clear_start
     | Clear_end
+    | (* Box decoration break *)
+      Box_decoration_clone
+    | Box_decoration_slice
+    | (* Break before/after/inside - page/column breaks *)
+      Break_before_all
+    | Break_before_auto
+    | Break_before_avoid
+    | Break_before_avoid_page
+    | Break_before_column
+    | Break_before_left
+    | Break_before_page
+    | Break_before_right
+    | Break_after_all
+    | Break_after_auto
+    | Break_after_avoid
+    | Break_after_avoid_page
+    | Break_after_column
+    | Break_after_left
+    | Break_after_page
+    | Break_after_right
+    | Break_inside_auto
+    | Break_inside_avoid
+    | Break_inside_avoid_column
+    | Break_inside_avoid_page
 
   type Utility.base += Self of t
 
-  (** Priority for layout utilities. Set to 4 for display utilities (block,
-      inline, inline-block, hidden). All display utilities share priority 4 to
-      group together and sort alphabetically. *)
   let name = "layout"
 
-  let priority = 4
+  (* Most layout utilities are the display family (priority 4). Visibility and
+     z-index occupy distinct canonical positions in Tailwind's order, so they
+     return their own priority: visibility comes first (rank 0), z-index right
+     after inset (rank 12) via priority 0 with a suborder above inset's range
+     (position.ml uses up to ~13M) and below container (priority 1). *)
+  let priority = function
+    | Collapse | Invisible | Visible -> 0
+    | Neg_z _ | Z_0 | Z _ | Z_10 | Z_20 | Z_30 | Z_40 | Z_50 | Neg_z_arbitrary _
+    | Z_arbitrary _ | Z_auto ->
+        0
+    (* object-fit / object-position (rank ~72): after svg fill/stroke (21),
+       before padding (23). *)
+    | Object_contain | Object_cover | Object_fill | Object_none
+    | Object_scale_down | Object_center | Object_top | Object_bottom
+    | Object_left | Object_right | Object_bottom_left | Object_bottom_right
+    | Object_left_bottom | Object_left_top | Object_right_bottom
+    | Object_right_top | Object_top_left | Object_top_right | Object_arbitrary _
+      ->
+        22
+    | _ -> 4
 
   let suborder = function
     (* Display utilities - ordered alphabetically per Tailwind. Gaps left for
@@ -155,33 +246,48 @@ module Handler = struct
     | Table_header_group -> 21
     | Table_row -> 22
     | Table_row_group -> 23
-    (* Visibility - alphabetical order: collapse, invisible, visible *)
-    | Collapse -> 100
-    | Invisible -> 101
-    | Visible -> 102
+    (* Visibility (priority 0) - first in Tailwind's order, before sr-only
+       (suborder -2). Alphabetical: collapse, invisible, visible. *)
+    | Collapse -> -20
+    | Invisible -> -19
+    | Visible -> -18
     (* Isolation - order: isolate, isolation-auto *)
     | Isolate -> 200
     | Isolation_auto -> 201
-    (* Z-index *)
-    | Z_0 -> 500
-    | Z_10 -> 501
-    | Z_20 -> 502
-    | Z_30 -> 503
-    | Z_40 -> 504
-    | Z_50 -> 505
-    | Z_auto -> 506
+    (* Z-index (priority 0) - after inset (up to ~13M in position.ml), before
+       container (priority 1). Order: negative, positive, arbitrary, auto. *)
+    | Neg_z n -> 20_000_000 + 500 + n (* -z-50, -z-10 *)
+    | Z_0 -> 20_000_000 + 600
+    | Z n -> 20_000_000 + 601 + n (* z-10 *)
+    | Z_10 -> 20_000_000 + 611
+    | Z_20 -> 20_000_000 + 621
+    | Z_30 -> 20_000_000 + 631
+    | Z_40 -> 20_000_000 + 641
+    | Z_50 -> 20_000_000 + 651
+    | Neg_z_arbitrary _ -> 20_000_000 + 560
+    | Z_arbitrary _ -> 20_000_000 + 700
+    | Z_auto -> 20_000_000 + 750
     (* Object fit *)
     | Object_contain -> 600
     | Object_cover -> 601
     | Object_fill -> 602
     | Object_none -> 603
     | Object_scale_down -> 604
-    (* Object position *)
-    | Object_center -> 700
-    | Object_top -> 701
-    | Object_bottom -> 702
-    | Object_left -> 703
-    | Object_right -> 704
+    (* Object position - alphabetical: bottom, bottom-left, ..., top-right *)
+    | Object_bottom -> 700
+    | Object_bottom_left -> 701
+    | Object_bottom_right -> 702
+    | Object_center -> 703
+    | Object_left -> 704
+    | Object_left_bottom -> 705
+    | Object_left_top -> 706
+    | Object_right -> 707
+    | Object_right_bottom -> 708
+    | Object_right_top -> 709
+    | Object_top -> 710
+    | Object_top_left -> 711
+    | Object_top_right -> 712
+    | Object_arbitrary _ -> 650
     (* Float - alphabetical order: end, left, none, right, start *)
     | Float_end -> 800
     | Float_left -> 801
@@ -195,6 +301,33 @@ module Handler = struct
     | Clear_none -> 903
     | Clear_right -> 904
     | Clear_start -> 905
+    (* Box decoration break - alphabetical: clone, slice *)
+    | Box_decoration_clone -> 1000
+    | Box_decoration_slice -> 1001
+    (* Break before - alphabetical order (Tailwind: break-before < break-inside
+       < break-after) *)
+    | Break_before_all -> 1100
+    | Break_before_auto -> 1101
+    | Break_before_avoid -> 1102
+    | Break_before_avoid_page -> 1103
+    | Break_before_column -> 1104
+    | Break_before_left -> 1105
+    | Break_before_page -> 1106
+    | Break_before_right -> 1107
+    (* Break inside - alphabetical order *)
+    | Break_inside_auto -> 1200
+    | Break_inside_avoid -> 1201
+    | Break_inside_avoid_column -> 1202
+    | Break_inside_avoid_page -> 1203
+    (* Break after - alphabetical order *)
+    | Break_after_all -> 1300
+    | Break_after_auto -> 1301
+    | Break_after_avoid -> 1302
+    | Break_after_avoid_page -> 1303
+    | Break_after_column -> 1304
+    | Break_after_left -> 1305
+    | Break_after_page -> 1306
+    | Break_after_right -> 1307
 
   (** {1 Style Generation} *)
 
@@ -222,12 +355,16 @@ module Handler = struct
     | Isolate -> "isolate"
     | Isolation_auto -> "isolation-auto"
     | Z_0 -> "z-0"
+    | Z n -> "z-" ^ string_of_int n
     | Z_10 -> "z-10"
     | Z_20 -> "z-20"
     | Z_30 -> "z-30"
     | Z_40 -> "z-40"
     | Z_50 -> "z-50"
     | Z_auto -> "z-auto"
+    | Neg_z n -> "-z-" ^ string_of_int n
+    | Z_arbitrary s -> "z-[" ^ s ^ "]"
+    | Neg_z_arbitrary s -> "-z-[" ^ s ^ "]"
     | Object_contain -> "object-contain"
     | Object_cover -> "object-cover"
     | Object_fill -> "object-fill"
@@ -238,6 +375,15 @@ module Handler = struct
     | Object_bottom -> "object-bottom"
     | Object_left -> "object-left"
     | Object_right -> "object-right"
+    | Object_bottom_left -> "object-bottom-left"
+    | Object_bottom_right -> "object-bottom-right"
+    | Object_left_bottom -> "object-left-bottom"
+    | Object_left_top -> "object-left-top"
+    | Object_right_bottom -> "object-right-bottom"
+    | Object_right_top -> "object-right-top"
+    | Object_top_left -> "object-top-left"
+    | Object_top_right -> "object-top-right"
+    | Object_arbitrary s -> "object-[" ^ s ^ "]"
     | Float_left -> "float-left"
     | Float_right -> "float-right"
     | Float_none -> "float-none"
@@ -249,8 +395,32 @@ module Handler = struct
     | Clear_both -> "clear-both"
     | Clear_start -> "clear-start"
     | Clear_end -> "clear-end"
+    | Box_decoration_clone -> "box-decoration-clone"
+    | Box_decoration_slice -> "box-decoration-slice"
+    | Break_before_all -> "break-before-all"
+    | Break_before_auto -> "break-before-auto"
+    | Break_before_avoid -> "break-before-avoid"
+    | Break_before_avoid_page -> "break-before-avoid-page"
+    | Break_before_column -> "break-before-column"
+    | Break_before_left -> "break-before-left"
+    | Break_before_page -> "break-before-page"
+    | Break_before_right -> "break-before-right"
+    | Break_after_all -> "break-after-all"
+    | Break_after_auto -> "break-after-auto"
+    | Break_after_avoid -> "break-after-avoid"
+    | Break_after_avoid_page -> "break-after-avoid-page"
+    | Break_after_column -> "break-after-column"
+    | Break_after_left -> "break-after-left"
+    | Break_after_page -> "break-after-page"
+    | Break_after_right -> "break-after-right"
+    | Break_inside_auto -> "break-inside-auto"
+    | Break_inside_avoid -> "break-inside-avoid"
+    | Break_inside_avoid_column -> "break-inside-avoid-column"
+    | Break_inside_avoid_page -> "break-inside-avoid-page"
 
-  let to_style = function
+  let to_style theme =
+    let z_auto_style () = z_auto_style ~theme () in
+    function
     | Block -> style [ display Block ]
     | Inline -> style [ display Inline ]
     | Inline_block -> style [ display Inline_block ]
@@ -274,22 +444,72 @@ module Handler = struct
     | Isolate -> style [ isolation Isolate ]
     | Isolation_auto -> style [ isolation Auto ]
     | Z_0 -> style [ z_index (Index 0) ]
+    | Z n -> style [ z_index (Index n) ]
     | Z_10 -> style [ z_index (Index 10) ]
     | Z_20 -> style [ z_index (Index 20) ]
     | Z_30 -> style [ z_index (Index 30) ]
     | Z_40 -> style [ z_index (Index 40) ]
     | Z_50 -> style [ z_index (Index 50) ]
-    | Z_auto -> style [ z_index_auto ]
+    | Z_auto -> z_auto_style ()
+    | Neg_z n -> style [ z_index (Index (-n)) ]
+    | Z_arbitrary s ->
+        style
+          [ z_index (Css.Properties.read_z_index (Cascade.Cursor.of_string s)) ]
+    | Neg_z_arbitrary s -> (
+        match int_of_string_opt s with
+        | Some n -> style [ z_index (Index (-n)) ]
+        | None ->
+            let zi = Css.Properties.read_z_index (Cascade.Cursor.of_string s) in
+            style
+              [ z_index (Calc (Css.Calc.mul (Val zi) (Css.Calc.float (-1.)))) ])
     | Object_contain -> style [ object_fit Contain ]
     | Object_cover -> style [ object_fit Cover ]
     | Object_fill -> style [ object_fit Fill ]
     | Object_none -> style [ object_fit None ]
     | Object_scale_down -> style [ object_fit Scale_down ]
-    | Object_center -> style [ object_position Center ]
-    | Object_top -> style [ object_position Center_top ]
-    | Object_bottom -> style [ object_position Center_bottom ]
-    | Object_left -> style [ object_position Left_center ]
-    | Object_right -> style [ object_position Right_center ]
+    | ( Object_center | Object_top | Object_bottom | Object_left | Object_right
+      | Object_bottom_left | Object_bottom_right | Object_left_bottom
+      | Object_left_top | Object_right_bottom | Object_right_top
+      | Object_top_left | Object_top_right ) as obj -> (
+        let name, (default : Css.position_value), default_css =
+          match obj with
+          | Object_center -> ("object-position-center", Center, "center")
+          | Object_top -> ("object-position-top", Top, "top")
+          | Object_bottom -> ("object-position-bottom", Bottom, "bottom")
+          | Object_left -> ("object-position-left", Left, "left")
+          | Object_right -> ("object-position-right", Right, "right")
+          | Object_bottom_left ->
+              ("object-position-bottom-left", Bottom_left, "left bottom")
+          | Object_bottom_right ->
+              ("object-position-bottom-right", Bottom_right, "right bottom")
+          | Object_left_bottom ->
+              ("object-position-left-bottom", Left_bottom, "left bottom")
+          | Object_left_top -> ("object-position-left-top", Left_top, "left top")
+          | Object_right_bottom ->
+              ("object-position-right-bottom", Right_bottom, "right bottom")
+          | Object_right_top ->
+              ("object-position-right-top", Right_top, "right top")
+          | Object_top_left -> ("object-position-top-left", Top_left, "left top")
+          | Object_top_right ->
+              ("object-position-top-right", Top_right, "right top")
+          | _ -> assert false
+        in
+        match Scheme.theme_value (Some theme) name with
+        | Some value ->
+            let theme_decl =
+              Css.custom_property ~layer:"theme" ("--" ^ name) value
+            in
+            let pos_ref : Css.position_value Css.var = Var.bracket name in
+            style [ theme_decl; object_position (Var pos_ref) ]
+        | None ->
+            let v : Css.position_value =
+              Var (Var.theme_ref name ~default ~default_css)
+            in
+            style [ object_position v ])
+    | Object_arbitrary var_str ->
+        let bare_name = Parse.extract_var_name var_str in
+        let pos_ref : Css.position_value Css.var = Var.bracket bare_name in
+        style [ object_position (Var pos_ref) ]
     | Float_left -> style [ Css.float Left ]
     | Float_right -> style [ Css.float Right ]
     | Float_none -> style [ Css.float None ]
@@ -301,11 +521,46 @@ module Handler = struct
     | Clear_both -> style [ Css.clear Both ]
     | Clear_start -> style [ Css.clear Inline_start ]
     | Clear_end -> style [ Css.clear Inline_end ]
+    | Box_decoration_clone ->
+        style
+          [
+            Css.webkit_box_decoration_break Clone;
+            Css.box_decoration_break Clone;
+          ]
+    | Box_decoration_slice ->
+        style
+          [
+            Css.webkit_box_decoration_break Slice;
+            Css.box_decoration_break Slice;
+          ]
+    (* Break before *)
+    | Break_before_all -> style [ Css.break_before All ]
+    | Break_before_auto -> style [ Css.break_before Auto ]
+    | Break_before_avoid -> style [ Css.break_before Avoid ]
+    | Break_before_avoid_page -> style [ Css.break_before Avoid_page ]
+    | Break_before_column -> style [ Css.break_before Column ]
+    | Break_before_left -> style [ Css.break_before Left ]
+    | Break_before_page -> style [ Css.break_before Page ]
+    | Break_before_right -> style [ Css.break_before Right ]
+    (* Break after *)
+    | Break_after_all -> style [ Css.break_after All ]
+    | Break_after_auto -> style [ Css.break_after Auto ]
+    | Break_after_avoid -> style [ Css.break_after Avoid ]
+    | Break_after_avoid_page -> style [ Css.break_after Avoid_page ]
+    | Break_after_column -> style [ Css.break_after Column ]
+    | Break_after_left -> style [ Css.break_after Left ]
+    | Break_after_page -> style [ Css.break_after Page ]
+    | Break_after_right -> style [ Css.break_after Right ]
+    (* Break inside *)
+    | Break_inside_auto -> style [ Css.break_inside Auto ]
+    | Break_inside_avoid -> style [ Css.break_inside Avoid ]
+    | Break_inside_avoid_column -> style [ Css.break_inside Avoid_column ]
+    | Break_inside_avoid_page -> style [ Css.break_inside Avoid_page ]
 
   (** {1 Parsing Functions} *)
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "block" ] -> Ok Block
     | [ "contents" ] -> Ok Contents
@@ -336,6 +591,31 @@ module Handler = struct
     | [ "z"; "40" ] -> Ok Z_40
     | [ "z"; "50" ] -> Ok Z_50
     | [ "z"; "auto" ] -> Ok Z_auto
+    | [ "z"; n ] when String.length n > 0 && n.[0] = '[' ->
+        (* Arbitrary value: z-[123] *)
+        let len = String.length n in
+        if len > 2 && n.[len - 1] = ']' then
+          Ok (Z_arbitrary (String.sub n 1 (len - 2)))
+        else Error (`Msg ("Invalid z-index arbitrary value: " ^ n))
+    | [ "z"; n ] -> (
+        (* Dynamic z-index: z-5, z-100, etc. *)
+        match int_of_string_opt n with
+        | Some i -> Ok (Z i)
+        | None -> Error (`Msg ("Invalid z-index value: " ^ n)))
+    | "" :: "z" :: rest when rest <> [] -> (
+        (* Negative z-index: -z-10, -z-50, -z-[var(--value)], etc. *)
+        let value = String.concat "-" rest in
+        if
+          String.length value > 2
+          && value.[0] = '['
+          && value.[String.length value - 1] = ']'
+        then
+          let inner = String.sub value 1 (String.length value - 2) in
+          Ok (Neg_z_arbitrary inner)
+        else
+          match int_of_string_opt value with
+          | Some i -> Ok (Neg_z i)
+          | None -> Error (`Msg ("Invalid negative z-index value: " ^ value)))
     | [ "object"; "contain" ] -> Ok Object_contain
     | [ "object"; "cover" ] -> Ok Object_cover
     | [ "object"; "fill" ] -> Ok Object_fill
@@ -346,6 +626,16 @@ module Handler = struct
     | [ "object"; "bottom" ] -> Ok Object_bottom
     | [ "object"; "left" ] -> Ok Object_left
     | [ "object"; "right" ] -> Ok Object_right
+    | [ "object"; "bottom"; "left" ] -> Ok Object_bottom_left
+    | [ "object"; "bottom"; "right" ] -> Ok Object_bottom_right
+    | [ "object"; "left"; "bottom" ] -> Ok Object_left_bottom
+    | [ "object"; "left"; "top" ] -> Ok Object_left_top
+    | [ "object"; "right"; "bottom" ] -> Ok Object_right_bottom
+    | [ "object"; "right"; "top" ] -> Ok Object_right_top
+    | [ "object"; "top"; "left" ] -> Ok Object_top_left
+    | [ "object"; "top"; "right" ] -> Ok Object_top_right
+    | [ "object"; value ] when Parse.is_bracket_value value ->
+        Ok (Object_arbitrary (Parse.bracket_inner value))
     | [ "float"; "left" ] -> Ok Float_left
     | [ "float"; "right" ] -> Ok Float_right
     | [ "float"; "none" ] -> Ok Float_none
@@ -357,6 +647,31 @@ module Handler = struct
     | [ "clear"; "both" ] -> Ok Clear_both
     | [ "clear"; "start" ] -> Ok Clear_start
     | [ "clear"; "end" ] -> Ok Clear_end
+    | [ "box"; "decoration"; "clone" ] -> Ok Box_decoration_clone
+    | [ "box"; "decoration"; "slice" ] -> Ok Box_decoration_slice
+    (* Break before *)
+    | [ "break"; "before"; "all" ] -> Ok Break_before_all
+    | [ "break"; "before"; "auto" ] -> Ok Break_before_auto
+    | [ "break"; "before"; "avoid" ] -> Ok Break_before_avoid
+    | [ "break"; "before"; "avoid"; "page" ] -> Ok Break_before_avoid_page
+    | [ "break"; "before"; "column" ] -> Ok Break_before_column
+    | [ "break"; "before"; "left" ] -> Ok Break_before_left
+    | [ "break"; "before"; "page" ] -> Ok Break_before_page
+    | [ "break"; "before"; "right" ] -> Ok Break_before_right
+    (* Break after *)
+    | [ "break"; "after"; "all" ] -> Ok Break_after_all
+    | [ "break"; "after"; "auto" ] -> Ok Break_after_auto
+    | [ "break"; "after"; "avoid" ] -> Ok Break_after_avoid
+    | [ "break"; "after"; "avoid"; "page" ] -> Ok Break_after_avoid_page
+    | [ "break"; "after"; "column" ] -> Ok Break_after_column
+    | [ "break"; "after"; "left" ] -> Ok Break_after_left
+    | [ "break"; "after"; "page" ] -> Ok Break_after_page
+    | [ "break"; "after"; "right" ] -> Ok Break_after_right
+    (* Break inside *)
+    | [ "break"; "inside"; "auto" ] -> Ok Break_inside_auto
+    | [ "break"; "inside"; "avoid" ] -> Ok Break_inside_avoid
+    | [ "break"; "inside"; "avoid"; "column" ] -> Ok Break_inside_avoid_column
+    | [ "break"; "inside"; "avoid"; "page" ] -> Ok Break_inside_avoid_page
     | _ -> Error (`Msg "Not a layout utility")
 end
 
@@ -399,6 +714,7 @@ let z_20 = utility Z_20
 let z_30 = utility Z_30
 let z_40 = utility Z_40
 let z_50 = utility Z_50
+let z n = utility (Z n)
 let z_auto = utility Z_auto
 let object_contain = utility Object_contain
 let object_cover = utility Object_cover
@@ -410,6 +726,14 @@ let object_top = utility Object_top
 let object_bottom = utility Object_bottom
 let object_left = utility Object_left
 let object_right = utility Object_right
+let object_bottom_left = utility Object_bottom_left
+let object_bottom_right = utility Object_bottom_right
+let object_left_bottom = utility Object_left_bottom
+let object_left_top = utility Object_left_top
+let object_right_bottom = utility Object_right_bottom
+let object_right_top = utility Object_right_top
+let object_top_left = utility Object_top_left
+let object_top_right = utility Object_top_right
 let float_left = utility Float_left
 let float_right = utility Float_right
 let float_none = utility Float_none
@@ -420,3 +744,29 @@ let float_end = utility Float_end
 let sr_utility x = Utility.base (Screen_reader_handler.Self x)
 let sr_only = sr_utility Screen_reader_handler.Sr_only
 let not_sr_only = sr_utility Screen_reader_handler.Not_sr_only
+
+(* Box decoration break utilities *)
+let box_decoration_clone = utility Box_decoration_clone
+let box_decoration_slice = utility Box_decoration_slice
+
+(* Break before/after/inside utilities - page/column breaks *)
+let break_before_all = utility Break_before_all
+let break_before_auto = utility Break_before_auto
+let break_before_avoid = utility Break_before_avoid
+let break_before_avoid_page = utility Break_before_avoid_page
+let break_before_column = utility Break_before_column
+let break_before_left = utility Break_before_left
+let break_before_page = utility Break_before_page
+let break_before_right = utility Break_before_right
+let break_after_all = utility Break_after_all
+let break_after_auto = utility Break_after_auto
+let break_after_avoid = utility Break_after_avoid
+let break_after_avoid_page = utility Break_after_avoid_page
+let break_after_column = utility Break_after_column
+let break_after_left = utility Break_after_left
+let break_after_page = utility Break_after_page
+let break_after_right = utility Break_after_right
+let break_inside_auto = utility Break_inside_auto
+let break_inside_avoid = utility Break_inside_avoid
+let break_inside_avoid_column = utility Break_inside_avoid_column
+let break_inside_avoid_page = utility Break_inside_avoid_page

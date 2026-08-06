@@ -3,44 +3,13 @@
 open Alcotest
 open Tw_html
 
-(* Helpers to keep individual tests small and readable *)
-let write_file path content =
-  let oc = open_out path in
-  output_string oc content;
-  close_out oc
-
-let read_file path =
-  let ic = open_in path in
-  let s = really_input_string ic (in_channel_length ic) in
-  close_in ic;
-  s
-
-let html_doc_of body =
-  Fmt.str
-    "<!DOCTYPE html>\n\
-     <html>\n\
-     <head>\n\
-     <meta charset=\"UTF-8\">\n\
-     </head>\n\
-     <body>\n\
-     %s\n\
-     </body>\n\
-     </html>"
-    body
-
-let check_selector_in css pattern name =
-  if not (Astring.String.is_infix ~affix:pattern css) then
-    Fmt.pr "Warning: Tailwind doesn't contain expected %s selector: %s@." name
-      pattern
-  else Fmt.pr "✓ Found %s selector in Tailwind output@." name
-
 let test_txt () =
   let text = txt "Hello World" in
   let html_str = to_string text in
   check string "text content" "Hello World" html_str
 
 let test_element_creation () =
-  let div = div ~tw:Tw.[ p 4; bg_white ] [ txt "Content" ] in
+  let div = div ~tw:Tw.[ p 4; bg white ] [ txt "Content" ] in
   let html_str = to_string div in
 
   check bool "is div element" true
@@ -54,7 +23,7 @@ let test_attributes () =
   let link =
     a
       ~at:[ At.href "/about"; At.title "About page" ]
-      ~tw:Tw.[ text blue 600; hover [ underline ] ]
+      ~tw:Tw.[ text ~shade:600 blue; hover [ underline ] ]
       [ txt "About" ]
   in
   let html_str = to_string link in
@@ -145,7 +114,7 @@ let test_nesting () =
 let test_to_tw () =
   let elem =
     div
-      ~tw:Tw.[ p 4; bg_white; text gray 900; rounded_lg ]
+      ~tw:Tw.[ p 4; bg white; text ~shade:900 gray; rounded_lg ]
       [ span ~tw:Tw.[ font_bold ] [ txt "Text" ] ]
   in
 
@@ -170,8 +139,8 @@ let test_page_cache_busting () =
   let test_page =
     page ~title:"Test Page"
       ~meta:[ ("description", "Test page for cache busting") ]
-      ~tw_css:"styles.css" [ (* head content *) ]
-      [ div ~tw:Tw.[ p 4; bg_white ] [ txt "Test content" ] ]
+      ~tw_css:(Link "styles.css") [ (* head content *) ]
+      [ div ~tw:Tw.[ p 4; bg white ] [ txt "Test content" ] ]
   in
 
   let html_content = html test_page in
@@ -182,7 +151,9 @@ let test_page_cache_busting () =
     (Astring.String.is_infix ~affix:"<link" html_content);
   check bool "CSS link has cache buster" true
     (Astring.String.is_infix ~affix:"styles.css?v=" html_content);
-  check string "CSS filename is correct" "styles.css" css_filename;
+  check
+    Alcotest.(option string)
+    "CSS filename is correct" (Some "styles.css") css_filename;
 
   (* Check that the hash is 8 characters (MD5 hash prefix) *)
   match Astring.String.find_sub ~sub:"styles.css?v=" html_content with
@@ -208,7 +179,7 @@ let test_page_cache_busting () =
 let test_page_cache_busting_consistency () =
   (* Test that same content produces same hash *)
   let create_test_page () =
-    page ~title:"Test" ~tw_css:"test.css" []
+    page ~title:"Test" ~tw_css:(Link "test.css") []
       [ div ~tw:Tw.[ p 4; m 2 ] [ txt "Content" ] ]
   in
 
@@ -235,7 +206,7 @@ let test_page_cache_busting_consistency () =
 
   (* Different content should produce different hash *)
   let page3 =
-    page ~title:"Test" ~tw_css:"test.css" []
+    page ~title:"Test" ~tw_css:(Link "test.css") []
       [ div ~tw:Tw.[ p 8; m 4 ] [ txt "Different" ] ]
   in
   let html3 = html page3 in
@@ -243,203 +214,68 @@ let test_page_cache_busting_consistency () =
 
   check bool "different content produces different hash" false (hash1 = hash3)
 
-let test_exact_tailwind_match () =
-  let page_content =
+let test_inline_css () =
+  let test_page =
+    page ~title:"Inline Style Test" ~tw_css:Inline []
+      [ div ~tw:Tw.[ p 4; bg white ] [ txt "Inline content" ] ]
+  in
+  let html_content = html test_page in
+  let css_filename, css_stylesheet = css test_page in
+
+  (* Inline pages have no external CSS file *)
+  check Alcotest.(option string) "no external CSS file" None css_filename;
+
+  (* The CSS is embedded in a <style> tag, not referenced via <link> *)
+  check bool "HTML contains style tag" true
+    (Astring.String.is_infix ~affix:"<style>" html_content);
+  check bool "HTML has no link tag" false
+    (Astring.String.is_infix ~affix:"<link" html_content);
+
+  (* The stylesheet is inlined verbatim: <style> is a raw-text element, so the
+     CSS must not be HTML-escaped (e.g. [>] must stay [>], not [&gt;]). *)
+  let expected_css = Tw.Css.to_string ~minify:true css_stylesheet in
+  check bool "stylesheet inlined verbatim (unescaped)" true
+    (Astring.String.is_infix ~affix:expected_css html_content)
+
+let test_class_merging () =
+  (* tw classes and explicit class attribute should merge into one class attr *)
+  let elem =
     div
-      ~tw:Tw.[ p 4; bg blue 500; hover [ bg blue 600 ] ]
-      [
-        h1
-          ~tw:Tw.[ text_2xl; font_bold; text white 0; mb 4 ]
-          [ txt "Test Page" ];
-        p
-          ~tw:Tw.[ text gray 200; hover [ text white 0 ] ]
-          [ txt "Testing hover states" ];
-        (* Test group hover *)
-        div
-          ~tw:Tw.[ group; p 4 ]
-          [
-            p ~tw:Tw.[ group_hover [ text red 500 ] ] [ txt "Group hover test" ];
-          ];
-        (* Test peer *)
-        div
-          [
-            input ~at:[ At.type' "checkbox" ] ~tw:Tw.[ peer ] ();
-            p
-              ~tw:Tw.[ peer_checked [ text green 500 ] ]
-              [ txt "Peer checked test" ];
-          ];
-        (* Test aria *)
-        div
-          ~at:[ At.v "aria-checked" "true" ]
-          ~tw:Tw.[ aria_checked [ bg purple 100 ] ]
-          [ txt "Aria checked test" ];
-        (* Test data attribute *)
-        div
-          ~at:[ At.v "data-active" "true" ]
-          ~tw:Tw.[ data_active [ font_bold ] ]
-          [ txt "Data active test" ];
-      ]
+      ~at:[ At.v "class" "custom-class" ]
+      ~tw:Tw.[ p 4; flex ]
+      [ txt "Merged" ]
   in
-
-  let generated_page = page ~title:"Test" [] [ page_content ] in
-  let html_output = html generated_page in
-  let _css_filename, css_stylesheet = css generated_page in
-  let css_output = Tw.Css.to_string ~minify:false css_stylesheet in
-  let html_file = "/tmp/tw_test_exact.html" in
-  write_file html_file (html_doc_of html_output);
-
-  (* Tailwind config *)
-  let tailwind_config =
-    {|
-module.exports = {
-  content: ["/tmp/tw_test_exact.html"],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-}
-|}
+  let html_str = to_string elem in
+  (* Should have exactly one class attribute containing both *)
+  let class_count =
+    let rec count s from n =
+      match Astring.String.find_sub ~start:from ~sub:"class=" s with
+      | Some i -> count s (i + 6) (n + 1)
+      | None -> n
+    in
+    count html_str 0 0
   in
-  let config_file = "/tmp/tailwind.config.js" in
-  write_file config_file tailwind_config;
+  check int "single class attribute" 1 class_count;
+  check bool "has tw classes" true
+    (Astring.String.is_infix ~affix:"p-4" html_str);
+  check bool "has custom class" true
+    (Astring.String.is_infix ~affix:"custom-class" html_str)
 
-  (* Run Tailwind and collect output if available *)
-  let tailwind_cmd =
-    "cd /tmp && npx tailwindcss -i /dev/stdin -c tailwind.config.js -o \
-     tailwind_real.css <<< '@tailwind base; @tailwind components; @tailwind \
-     utilities;' 2>/dev/null"
-  in
-  let exit_code = Sys.command tailwind_cmd in
-
-  if exit_code <> 0 then (
-    Fmt.pr
-      "Note: Tailwind CSS comparison test skipped (tailwindcss not available \
-       or wrong version)@.";
-    ())
-  else
-    let tailwind_css = read_file "/tmp/tailwind_real.css" in
-    check_selector_in tailwind_css ".hover\\:bg-blue-600:hover" "hover modifier";
-    check_selector_in tailwind_css ".group:hover .group-hover\\:"
-      "group-hover modifier";
-    check_selector_in tailwind_css ".peer:checked ~ .peer-checked\\:"
-      "peer-checked modifier";
-    check_selector_in tailwind_css "[aria-checked=\"true\"]" "aria-checked";
-    check_selector_in tailwind_css "[data-active]" "data-active";
-    Fmt.pr "@.Our CSS output:@.";
-    Fmt.pr "%s@."
-      (if String.length css_output > 500 then
-         String.sub css_output 0 500 ^ "..."
-       else css_output);
-    Fmt.pr "@.Tailwind CSS output (first 500 chars):@.";
-    Fmt.pr "%s@."
-      (String.sub tailwind_css 0 (min 500 (String.length tailwind_css)))
-
-let test_exact_byte_match () =
-  let page_content =
-    div ~tw:Tw.[ p 4; bg blue 500; text white 0 ] [ txt "Test" ]
-  in
-
-  let generated_page = page ~title:"Test" ~tw_css:"" [] [ page_content ] in
-  let html_output = html generated_page in
-  let _css_filename, css_stylesheet = css generated_page in
-  let our_css = Tw.Css.to_string ~minify:true ~optimize:true css_stylesheet in
-
-  let html_file = "/tmp/tw_exact_test.html" in
-  write_file html_file
-    (Fmt.str "<!DOCTYPE html>\n<html>\n<body>\n%s\n</body>\n</html>" html_output);
-
-  (* Create minimal Tailwind config with preflight enabled *)
-  let tailwind_config =
-    {|
-module.exports = {
-  content: ["/tmp/tw_exact_test.html"],
-  theme: { extend: {} },
-  plugins: [],
-}
-|}
-  in
-  let config_file = "/tmp/tw_exact_config.js" in
-  write_file config_file tailwind_config;
-
-  (* Run Tailwind v3 with minification to get complete CSS with base/preflight *)
-  (* First ensure Tailwind v3 is installed *)
-  let _ =
-    Sys.command
-      "cd /tmp && npm init -y >/dev/null 2>&1 && npm install tailwindcss@3 \
-       >/dev/null 2>&1"
-  in
-  let tailwind_cmd =
-    "cd /tmp && npx tailwindcss -c tw_exact_config.js --minify -o tw_exact.css \
-     <<< '@tailwind base; @tailwind utilities;' 2>/dev/null"
-  in
-  let exit_code = Sys.command tailwind_cmd in
-
-  if exit_code <> 0 then (
-    Fmt.pr
-      "Note: Exact match test skipped (tailwindcss not available, exit code: \
-       %d)@."
-      exit_code;
-    ())
-  else
-    let ic = open_in "/tmp/tw_exact.css" in
-    let tailwind_css = really_input_string ic (in_channel_length ic) in
-    close_in ic;
-
-    (* Save both for debugging *)
-    let oc = open_out "/tmp/our_exact.css" in
-    output_string oc our_css;
-    close_out oc;
-
-    Fmt.pr "@.=== EXACT BYTE COMPARISON ===@.";
-    Fmt.pr "Our CSS length: %d bytes@." (String.length our_css);
-    Fmt.pr "Tailwind CSS length: %d bytes@." (String.length tailwind_css);
-
-    if our_css = tailwind_css then (
-      Fmt.pr "✅ EXACT MATCH! CSS outputs are byte-for-byte identical!@.";
-      check bool "CSS matches exactly" true true)
-    else (
-      Fmt.pr "❌ CSS outputs differ@.@.";
-
-      (* Show first difference *)
-      let rec find_first_diff i =
-        if i >= String.length our_css || i >= String.length tailwind_css then
-          Fmt.pr "One string is prefix of the other@."
-        else if our_css.[i] <> tailwind_css.[i] then (
-          Fmt.pr "First difference at position %d:@." i;
-          Fmt.pr "  Our char: '%c' (code %d)@." our_css.[i]
-            (Char.code our_css.[i]);
-          Fmt.pr "  Tailwind char: '%c' (code %d)@." tailwind_css.[i]
-            (Char.code tailwind_css.[i]);
-
-          (* Show context *)
-          let start = max 0 (i - 20) in
-          let end_ours = min (String.length our_css) (i + 20) in
-          let end_tw = min (String.length tailwind_css) (i + 20) in
-          Fmt.pr "@.Context (position %d-%d):@." start i;
-          Fmt.pr "  Ours:     ...%s[*]%s...@."
-            (String.sub our_css start (i - start))
-            (String.sub our_css i (end_ours - i));
-          Fmt.pr "  Tailwind: ...%s[*]%s...@."
-            (String.sub tailwind_css start (i - start))
-            (String.sub tailwind_css i (end_tw - i)))
-        else find_first_diff (i + 1)
-      in
-      find_first_diff 0;
-
-      Fmt.pr
-        "@.Full outputs saved to /tmp/our_exact.css and /tmp/tw_exact.css@.";
-
-      (* Show full outputs if small enough *)
-      if String.length our_css < 500 && String.length tailwind_css < 500 then (
-        Fmt.pr "@.Our CSS:@.%s@." our_css;
-        Fmt.pr "@.Tailwind CSS:@.%s@." tailwind_css))
+let test_no_class_without_tw () =
+  (* No class attribute when tw is empty *)
+  let elem = div [ txt "Plain" ] in
+  let html_str = to_string elem in
+  check bool "no class attribute" false
+    (Astring.String.is_infix ~affix:"class=" html_str)
 
 let suite =
-  ( "html",
+  ( "tw_html",
     [
       test_case "txt" `Quick test_txt;
       test_case "element creation" `Quick test_element_creation;
       test_case "attributes" `Quick test_attributes;
+      test_case "class merging" `Quick test_class_merging;
+      test_case "no class without tw" `Quick test_no_class_without_tw;
       test_case "html escaping" `Quick test_html_escaping;
       test_case "boolean + aria/data attrs" `Quick test_boolean_and_data_attrs;
       test_case "nesting" `Quick test_nesting;
@@ -448,6 +284,5 @@ let suite =
       test_case "page cache busting" `Quick test_page_cache_busting;
       test_case "cache busting consistency" `Quick
         test_page_cache_busting_consistency;
-      test_case "exact tailwind match" `Quick test_exact_tailwind_match;
-      test_case "minified exact match" `Quick test_exact_byte_match;
+      test_case "inline css" `Quick test_inline_css;
     ] )

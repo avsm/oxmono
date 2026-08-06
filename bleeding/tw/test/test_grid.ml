@@ -10,7 +10,7 @@ let of_string_valid () =
 let of_string_invalid () =
   let fail_maybe input =
     let class_name = String.concat "-" input in
-    match Tw.Grid.Handler.of_class class_name with
+    match Tw.Grid.Handler.of_class Tw.Scheme.default class_name with
     | Ok _ -> fail ("Expected error for: " ^ String.concat "-" input)
     | Error _ -> ()
   in
@@ -22,12 +22,9 @@ let of_string_invalid () =
   fail_maybe [ "row"; "span"; "1" ]
 (* Wrong utility - this is grid_item *)
 
-let all_utilities () =
-  let open Tw in
-  [ grid; inline_grid ]
-
 let suborder_matches_tailwind () =
-  let shuffled = Test_helpers.shuffle (all_utilities ()) in
+  let open Tw in
+  let shuffled = Test_helpers.shuffle [ grid; inline_grid ] in
 
   Test_helpers.check_ordering_matches
     ~test_name:"grid suborder matches Tailwind" shuffled

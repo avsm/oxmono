@@ -15,6 +15,7 @@
     https://tailwindcss.com/docs/text-overflow
     https://tailwindcss.com/docs/word-break *)
 
+open Cascade
 open Utility
 
 (** {1 Font Size Utilities} *)
@@ -233,6 +234,9 @@ val normal_case : t
 
 (** {1 Text Underline Offset} *)
 
+val underline_offset : int -> t
+(** [underline_offset n] sets underline offset to [n]px. *)
+
 val underline_offset_auto : t
 (** [underline_offset_auto] sets underline offset to auto. *)
 
@@ -310,8 +314,9 @@ val list_image_url : string -> t
 
 (** {1 Text Indent} *)
 
-val indent : int -> t
-(** [indent n] sets text-indent to [n] times the spacing scale (n * 0.25rem). *)
+val indent : float -> t
+(** [indent n] sets text-indent to [n] times the spacing scale (n * 0.25rem).
+    Accepts fractional values like 0.5, 1.5, 2.5, 3.5. *)
 
 (** {1 Line Clamp} *)
 
@@ -389,14 +394,32 @@ val hyphens_auto : t
 
 (** {1 Font Stretch} *)
 
-val font_stretch_normal : t
-(** [font_stretch_normal] uses the normal font stretch. *)
+val font_stretch_ultra_condensed : t
+(** [font_stretch_ultra_condensed] uses ultra-condensed font stretch (50%). *)
+
+val font_stretch_extra_condensed : t
+(** [font_stretch_extra_condensed] uses extra-condensed font stretch (62.5%). *)
 
 val font_stretch_condensed : t
-(** [font_stretch_condensed] uses a condensed font stretch. *)
+(** [font_stretch_condensed] uses condensed font stretch (75%). *)
+
+val font_stretch_semi_condensed : t
+(** [font_stretch_semi_condensed] uses semi-condensed font stretch (87.5%). *)
+
+val font_stretch_normal : t
+(** [font_stretch_normal] uses normal font stretch (100%). *)
+
+val font_stretch_semi_expanded : t
+(** [font_stretch_semi_expanded] uses semi-expanded font stretch (112.5%). *)
 
 val font_stretch_expanded : t
-(** [font_stretch_expanded] uses an expanded font stretch. *)
+(** [font_stretch_expanded] uses expanded font stretch (125%). *)
+
+val font_stretch_extra_expanded : t
+(** [font_stretch_extra_expanded] uses extra-expanded font stretch (150%). *)
+
+val font_stretch_ultra_expanded : t
+(** [font_stretch_ultra_expanded] uses ultra-expanded font stretch (200%). *)
 
 val font_stretch_percent : int -> t
 (** [font_stretch_percent n] sets font stretch to [n]%. *)

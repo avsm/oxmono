@@ -24,6 +24,7 @@ _build/
 *.swo
 
 # Dune local files
+dune-workspace
 .dune-workspace.local
 
 # Test artifacts
@@ -36,6 +37,8 @@ _doc/
 
 # opam local switch
 _opam/
+_opam
+cascade
 
 # Secrets
 .env
@@ -49,8 +52,6 @@ tmp/
 
 # Node.js
 node_modules/
-package.json
-package-lock.json
 .npm/
 
 # Generated example files
@@ -61,5 +62,4 @@ examples/**/*.tailwind.css
 # Root-level generated/temp files
 /*.css
 /*.html
-lib/theme.mli
 .claude/settings.local.json

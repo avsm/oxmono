@@ -5,6 +5,7 @@
     https://tailwindcss.com/docs/transition-timing-function
     https://tailwindcss.com/docs/transition-delay *)
 
+open Cascade
 open Utility
 
 (** {1 Transition Utilities} *)

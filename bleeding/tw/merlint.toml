@@ -1,0 +1,106 @@
+# Modules included in tw.ml intentionally expose prefixed DSL names at the
+# top-level Tw namespace.
+# Utility parsers are intentionally expressed as large Tailwind class matchers.
+max-complexity = 43
+max-nesting = 9
+
+allowed_words = [
+  "base_to_style",
+  "bracket_color_to_custom",
+  "candidates_from_file",
+  "color_to_string",
+  "config_to_string",
+  "container_query_to_condition",
+  "css_color_to_hex",
+  "custom_color_to_oklab",
+  "dedup_keyframes_to_css",
+  "extract_breakpoints_from_css",
+  "extract_radius_from_css",
+  "extract_spacing_from_css",
+  "filter_theme_from_statements",
+  "hex_to_rgb",
+  "indexed_rule_to_statement",
+  "margin_to_length",
+  "oklch_to_css",
+  "oklch_to_rgb",
+  "opacity_to_percent",
+  "rgb_to_hex",
+  "rgb_to_oklab",
+  "rgb_to_oklch",
+  "rule_to_triple",
+  "set_var_names_from_props",
+  "test_modifier_to_rule",
+  "test_rgb_to_hex",
+  "test_to_tw",
+  "to_class",
+  "to_classes",
+  "to_color",
+  "to_css",
+  "to_name",
+]
+
+# The local checkout uses an untracked symlink to the sibling cascade repo for
+# development, and vendored dev tooling under mono/. Neither is part of this
+# package's lint surface.
+[[rules]]
+files = ["cascade/**", "./cascade/**", "mono/**", "./mono/**"]
+exclude = ["*"]
+
+# Modules included in tw.ml are flattened into the top-level Tw namespace, so
+# they intentionally keep prefixed DSL names (E330) and prefixed variant/field
+# constructors (E334): the prefixes disambiguate constructors that would
+# otherwise collide once every module is merged into a single namespace.
+[[rules]]
+files = [
+  "lib/color.ml*",
+  "lib/backgrounds.ml*",
+  "lib/margin.ml*",
+  "lib/gap.ml*",
+  "lib/padding.ml*",
+  "lib/sizing.ml*",
+  "lib/typography.ml*",
+  "lib/layout.ml*",
+  "lib/overflow.ml*",
+  "lib/overscroll.ml*",
+  "lib/overflow_wrap.ml*",
+  "lib/box_sizing.ml*",
+  "lib/tab.ml*",
+  "lib/scrollbar.ml*",
+  "lib/zoom.ml*",
+  "lib/field_sizing.ml*",
+  "lib/grid.ml*",
+  "lib/grid_item.ml*",
+  "lib/grid_template.ml*",
+  "lib/flex.ml*",
+  "lib/flex_props.ml*",
+  "lib/flex_layout.ml*",
+  "lib/alignment.ml*",
+  "lib/borders.ml*",
+  "lib/effects.ml*",
+  "lib/text_shadow.ml*",
+  "lib/transforms.ml*",
+  "lib/cursor.ml*",
+  "lib/touch.ml*",
+  "lib/divide.ml*",
+  "lib/interactivity.ml*",
+  "lib/containers.ml*",
+  "lib/filters.ml*",
+  "lib/masks.ml*",
+  "lib/mask_gradient.ml*",
+  "lib/clipping.ml*",
+  "lib/position.ml*",
+  "lib/animations.ml*",
+  "lib/transitions.ml*",
+  "lib/forms.ml*",
+  "lib/tables.ml*",
+  "lib/svg.ml*",
+  "lib/accessibility.ml*",
+  "lib/modifiers.ml*",
+  "lib/prose.ml*",
+  "lib/columns.ml*",
+  "lib/contain.ml*",
+  "lib/scroll.ml*",
+  "lib/arbitrary.ml*",
+  "lib/style.ml*",
+]
+exclude = ["E330", "E334"]

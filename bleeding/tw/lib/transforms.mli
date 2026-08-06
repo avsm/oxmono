@@ -32,6 +32,14 @@ val skew_x : int -> t
 val skew_y : int -> t
 (** [skew_y deg] skews element vertically by deg degrees. *)
 
+val translate_x_fraction : int -> int -> t
+(** [translate_x_fraction num denom] translates element horizontally by
+    calc(num/denom * 100%). *)
+
+val translate_y_fraction : int -> int -> t
+(** [translate_y_fraction num denom] translates element vertically by
+    calc(num/denom * 100%). *)
+
 val neg_translate_x_1_2 : t
 (** [neg_translate_x_1_2] translates element -50% along the X axis (useful for
     centering). *)
@@ -88,6 +96,24 @@ val transform_style_3d : t
 
 val transform_style_flat : t
 (** [transform_style_flat] flattens 3D positioning of child elements. *)
+
+val transform_box_border : t
+(** [transform_box_border] sets the reference box for transform to border-box.
+*)
+
+val transform_box_content : t
+(** [transform_box_content] sets the reference box for transform to content-box.
+*)
+
+val transform_box_fill : t
+(** [transform_box_fill] sets the reference box for transform to fill-box. *)
+
+val transform_box_stroke : t
+(** [transform_box_stroke] sets the reference box for transform to stroke-box.
+*)
+
+val transform_box_view : t
+(** [transform_box_view] sets the reference box for transform to view-box. *)
 
 val backface_visible : t
 (** [backface_visible] makes the back face visible when rotated. *)

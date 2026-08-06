@@ -28,10 +28,10 @@ let () =
     (* Return test suites *)
     [
       Test_tw.suite;
+      Test_source_scan.suite;
       Test_svg.suite;
       Test_tables.suite;
       Test_accessibility.suite;
-      Test_display.suite;
       Test_flex.suite;
       Test_flex_props.suite;
       Test_alignment.suite;
@@ -40,6 +40,7 @@ let () =
       Test_grid_template.suite;
       Test_gap.suite;
       Test_cursor.suite;
+      Test_arbitrary.suite;
       Test_color.suite;
       Test_margin.suite;
       Test_padding.suite;
@@ -58,7 +59,10 @@ let () =
       Test_interactivity.suite;
       Test_parse.suite;
       Test_position.suite;
-      Test_rules.suite;
+      Test_output.suite;
+      Test_rule.suite;
+      Test_build.suite;
+      Test_sort.suite;
       Test_preflight.suite;
       Test_transforms.suite;
       Test_var.suite;
@@ -68,34 +72,24 @@ let () =
       Test_theme.suite;
       Test_utility.suite;
       Test_spacing.suite;
+      Test_box_sizing.suite;
+      Test_tab.suite;
+      Test_scrollbar.suite;
+      Test_zoom.suite;
+      Test_columns.suite;
+      Test_contain.suite;
+      Test_divide.suite;
+      Test_field_sizing.suite;
+      Test_flex_layout.suite;
+      Test_mask_gradient.suite;
+      Test_masks.suite;
+      Test_overflow.suite;
+      Test_overflow_wrap.suite;
+      Test_overscroll.suite;
+      Test_property.suite;
+      Test_scheme.suite;
+      Test_scroll.suite;
+      Test_text_shadow.suite;
+      Test_touch.suite;
+      Test_transitions.suite;
     ]
-
-(* Debug test for escape parsing *)
-let test_escape_in_selector () =
-  let test_css = ".inset-3\\/4 { inset: 75%; }" in
-  Printf.printf "\n=== ESCAPE DEBUG ===\n";
-  Printf.printf "Input: %S\n" test_css;
-  Printf.printf "Chars: ";
-  for i = 0 to min 14 (String.length test_css - 1) do
-    Printf.printf "[%d]='%c'(0x%02x) " i test_css.[i] (Char.code test_css.[i])
-  done;
-  Printf.printf "\n";
-  match Css.of_string test_css with
-  | Ok _ -> Printf.printf "✓ Parsed OK\n"
-  | Error e ->
-      Printf.printf "✗ Error: %s\n" (Css.pp_parse_error e);
-      Alcotest.fail "parse failed"
-
-let () = test_escape_in_selector ()
-
-let () =
-  Printf.printf "Testing CSS escape parsing...\n";
-  let css = ".w-1\\/2 { width: 50%%; }" in
-  Printf.printf "Input: %S\n" css;
-  match Css.of_string css with
-  | Ok stylesheet ->
-      Printf.printf "✓ SUCCESS! Parsed correctly.\n";
-      Printf.printf "Output: %s\n" (Css.to_string stylesheet)
-  | Error e ->
-      Printf.printf "✗ FAILED:\n%s\n" (Css.pp_parse_error e);
-      exit 1

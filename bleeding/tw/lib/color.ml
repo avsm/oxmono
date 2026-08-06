@@ -1,5 +1,7 @@
 (** Color conversion utilities for Tailwind v4 compatibility *)
 
+module Css = Cascade.Css
+
 type rgb = {
   r : int;  (** Red channel (0-255) *)
   g : int;  (** Green channel (0-255) *)
@@ -40,6 +42,8 @@ type color =
   | Hex of string
   | Rgb of { red : int; green : int; blue : int }
   | Oklch of oklch
+  | Css of Css.color
+  | Theme_named of string
 
 let linearize_channel c =
   let c' = float_of_int c /. 255.0 in
@@ -52,14 +56,10 @@ let gamma_correct c =
   in
   int_of_float ((c' *. 255.0) +. 0.5)
 
-let rgb_to_oklch rgb =
-  (* Convert to linear RGB *)
-  let r_lin = linearize_channel rgb.r in
-  let g_lin = linearize_channel rgb.g in
-  let b_lin = linearize_channel rgb.b in
+let cbrt_signed x =
+  if x < 0.0 then -.(-.x ** (1.0 /. 3.0)) else x ** (1.0 /. 3.0)
 
-  (* Convert to OKLab using the standard matrix *)
-  (* M1: linear RGB to LMS *)
+let linear_rgb_to_oklab r_lin g_lin b_lin =
   let l =
     (0.4122214708 *. r_lin) +. (0.5363325363 *. g_lin) +. (0.0514459929 *. b_lin)
   in
@@ -69,15 +69,9 @@ let rgb_to_oklch rgb =
   let s =
     (0.0883024619 *. r_lin) +. (0.2817188376 *. g_lin) +. (0.6299787005 *. b_lin)
   in
-
-  (* Apply cube root for perceptual uniformity *)
-  let cbrt x = if x < 0.0 then -.(-.x ** (1.0 /. 3.0)) else x ** (1.0 /. 3.0) in
-
-  let l' = cbrt l in
-  let m' = cbrt m in
-  let s' = cbrt s in
-
-  (* M2: LMS' to Lab coordinates *)
+  let l' = cbrt_signed l in
+  let m' = cbrt_signed m in
+  let s' = cbrt_signed s in
   let ok_l =
     (0.2104542553 *. l') +. (0.7936177850 *. m') -. (0.0040720468 *. s')
   in
@@ -87,6 +81,13 @@ let rgb_to_oklch rgb =
   let ok_b =
     (0.0259040371 *. l') +. (0.7827717662 *. m') -. (0.8086757660 *. s')
   in
+  (ok_l, ok_a, ok_b)
+
+let rgb_to_oklch rgb =
+  let r_lin = linearize_channel rgb.r in
+  let g_lin = linearize_channel rgb.g in
+  let b_lin = linearize_channel rgb.b in
+  let ok_l, ok_a, ok_b = linear_rgb_to_oklab r_lin g_lin b_lin in
 
   (* Convert to LCH *)
   let lightness = ok_l *. 100.0 in
@@ -98,40 +99,152 @@ let rgb_to_oklch rgb =
 
   { l = lightness; c = chroma; h = hue }
 
-let oklch_to_rgb oklch =
-  (* Convert LCH to Lab *)
-  let ok_l = oklch.l /. 100.0 in
-  let h_rad = oklch.h *. Float.pi /. 180.0 in
-  let ok_a = oklch.c *. cos h_rad in
-  let ok_b = oklch.c *. sin h_rad in
+let rgb_to_oklab rgb =
+  let r_lin = linearize_channel rgb.r in
+  let g_lin = linearize_channel rgb.g in
+  let b_lin = linearize_channel rgb.b in
+  let ok_l, ok_a, ok_b = linear_rgb_to_oklab r_lin g_lin b_lin in
+  (ok_l *. 100.0, ok_a, ok_b)
 
-  (* Convert from OKLab to linear RGB *)
+(* Convert OKLab to linear sRGB via XYZ intermediate, matching the CSS Color
+   Level 4 / lightningcss conversion path. *)
+let oklab_to_linear_srgb ok_l ok_a ok_b =
+  (* OKLab to LMS (cube root space) *)
   let l' = ok_l +. (0.3963377774 *. ok_a) +. (0.2158037573 *. ok_b) in
   let m' = ok_l -. (0.1055613458 *. ok_a) -. (0.0638541728 *. ok_b) in
   let s' = ok_l -. (0.0894841775 *. ok_a) -. (1.2914855480 *. ok_b) in
-
+  (* Cube to get LMS *)
   let l = l' *. l' *. l' in
   let m = m' *. m' *. m' in
   let s = s' *. s' *. s' in
-
-  (* Convert to linear RGB *)
+  (* LMS to XYZ (D65) *)
+  let x =
+    (1.2268798733741557 *. l) -. (0.5578149965554813 *. m)
+    +. (0.28139105017721583 *. s)
+  in
+  let y =
+    (-0.04057576262431372 *. l)
+    +. (1.1122868293970594 *. m) -. (0.07171106666151701 *. s)
+  in
+  let z =
+    (-0.07637294974672142 *. l)
+    -. (0.4214933239627914 *. m) +. (1.5869240244272418 *. s)
+  in
+  (* XYZ to linear sRGB *)
   let r_lin =
-    (4.0767416621 *. l) -. (3.3077115913 *. m) +. (0.2309699292 *. s)
+    (3.2409699419045226 *. x) -. (1.5373831775700939 *. y)
+    -. (0.4986107602930034 *. z)
   in
   let g_lin =
-    (-1.2684380046 *. l) +. (2.6097574011 *. m) -. (0.3413193965 *. s)
+    (-0.9692436362808796 *. x) +. (1.8759675015077202 *. y)
+    +. (0.04155505740717559 *. z)
   in
   let b_lin =
-    (-0.0041960863 *. l) -. (0.7034186147 *. m) +. (1.7076147010 *. s)
+    (0.05563007969699366 *. x) -. (0.20397696064091520 *. y)
+    +. (1.0569715142428786 *. z)
   in
+  (r_lin, g_lin, b_lin)
 
-  (* Apply gamma correction and clamp to 0-255 *)
-  let clamp x = max 0 (min 255 x) in
-  {
-    r = clamp (gamma_correct r_lin);
-    g = clamp (gamma_correct g_lin);
-    b = clamp (gamma_correct b_lin);
-  }
+(* Convert linear sRGB to OKLab via XYZ intermediate *)
+let linear_srgb_to_oklab r_lin g_lin b_lin =
+  (* linear sRGB to XYZ *)
+  let x =
+    (0.4123907992659595 *. r_lin)
+    +. (0.357584339383878 *. g_lin)
+    +. (0.1804807884018343 *. b_lin)
+  in
+  let y =
+    (0.21263900587151027 *. r_lin)
+    +. (0.715168678767756 *. g_lin)
+    +. (0.07219231536073371 *. b_lin)
+  in
+  let z =
+    (0.01933081871559182 *. r_lin)
+    +. (0.11919477979462598 *. g_lin)
+    +. (0.9505321522496607 *. b_lin)
+  in
+  (* XYZ to LMS *)
+  let l = (0.8189330101 *. x) +. (0.3618667424 *. y) -. (0.1288597137 *. z) in
+  let m = (0.0329845436 *. x) +. (0.9293118715 *. y) +. (0.0361456387 *. z) in
+  let s = (0.0482003018 *. x) +. (0.2643662691 *. y) +. (0.6338517070 *. z) in
+  (* Cube root *)
+  let cbrt x =
+    if x < 0.0 then -.(Float.abs x ** (1.0 /. 3.0))
+    else if x = 0.0 then 0.0
+    else x ** (1.0 /. 3.0)
+  in
+  let l' = cbrt l in
+  let m' = cbrt m in
+  let s' = cbrt s in
+  (* LMS' to OKLab *)
+  let ok_l =
+    (0.2104542553 *. l') +. (0.7936177850 *. m') -. (0.0040720468 *. s')
+  in
+  let ok_a =
+    (1.9779984951 *. l') -. (2.4285922050 *. m') +. (0.4505937099 *. s')
+  in
+  let ok_b =
+    (0.0259040371 *. l') +. (0.7827717662 *. m') -. (0.8086757660 *. s')
+  in
+  (ok_l, ok_a, ok_b)
+
+(* CSS Color Level 4 gamut mapping algorithm, matching lightningcss. Uses binary
+   search on OKLCh chroma to find the closest in-gamut sRGB color. Reference:
+   https://www.w3.org/TR/css-color-4/#css-gamut-mapping *)
+let clip_val x = Float.max 0.0 (Float.min 1.0 x)
+let clip (r, g, b) = (clip_val r, clip_val g, clip_val b)
+
+let in_gamut (r, g, b) =
+  r >= 0.0 && r <= 1.0 && g >= 0.0 && g <= 1.0 && b >= 0.0 && b <= 1.0
+
+(* Binary search to find maximum chroma that stays in sRGB gamut *)
+let gamut_map_chroma ~ok_l ~cos_h ~sin_h chroma =
+  let jnd = 0.02 in
+  let epsilon = 0.00001 in
+  let oklch_to_linear c = oklab_to_linear_srgb ok_l (c *. cos_h) (c *. sin_h) in
+  let delta_e_ok (r, g, b) c =
+    let l1, a1, b1 = linear_srgb_to_oklab r g b in
+    let dl = l1 -. ok_l
+    and da = a1 -. (c *. cos_h)
+    and db = b1 -. (c *. sin_h) in
+    sqrt ((dl *. dl) +. (da *. da) +. (db *. db))
+  in
+  let rgb = oklch_to_linear chroma in
+  if in_gamut rgb then clip rgb
+  else
+    let min_c = ref 0.0 in
+    let max_c = ref chroma in
+    let result = ref None in
+    while !max_c -. !min_c > epsilon && !result = None do
+      let c = (!min_c +. !max_c) /. 2.0 in
+      let rgb = oklch_to_linear c in
+      if in_gamut rgb then min_c := c
+      else
+        let clipped = clip rgb in
+        let de = delta_e_ok clipped c in
+        if de < jnd then result := Some clipped else max_c := c
+    done;
+    match !result with
+    | Some clipped -> clipped
+    | None -> clip (oklch_to_linear !min_c)
+
+let oklch_to_rgb oklch =
+  let epsilon = 0.00001 in
+  let ok_l = oklch.l /. 100.0 in
+  if Float.abs (ok_l -. 1.0) < epsilon || ok_l > 1.0 then
+    { r = 255; g = 255; b = 255 }
+  else if ok_l < epsilon then { r = 0; g = 0; b = 0 }
+  else
+    let h_rad = oklch.h *. Float.pi /. 180.0 in
+    let r, g, b =
+      gamut_map_chroma ~ok_l ~cos_h:(cos h_rad) ~sin_h:(sin h_rad) oklch.c
+    in
+    let clamp x = max 0 (min 255 x) in
+    {
+      r = clamp (gamma_correct r);
+      g = clamp (gamma_correct g);
+      b = clamp (gamma_correct b);
+    }
 
 let hex_to_rgb hex =
   try
@@ -160,28 +273,63 @@ let hex_to_rgb hex =
   with Invalid_argument _ | Failure _ -> None
 
 let rgb_to_hex rgb =
-  let to_hex_byte n =
-    let hex = "0123456789abcdef" in
-    String.make 1 hex.[n / 16] ^ String.make 1 hex.[n mod 16]
+  "#" ^ Pp.hex_byte rgb.r ^ Pp.hex_byte rgb.g ^ Pp.hex_byte rgb.b
+
+(** Add alpha to a hex color string. Returns #RRGGBBAA format. The opacity is a
+    percentage (0-100). *)
+let hex_with_alpha hex_str opacity_percent =
+  (* Parse hex color *)
+  let hex_clean =
+    if String.length hex_str > 0 && hex_str.[0] = '#' then
+      String.sub hex_str 1 (String.length hex_str - 1)
+    else hex_str
   in
-  "#" ^ to_hex_byte rgb.r ^ to_hex_byte rgb.g ^ to_hex_byte rgb.b
+  (* Convert opacity percentage to 8-bit alpha value, with rounding *)
+  let alpha = int_of_float ((opacity_percent /. 100.0 *. 255.0) +. 0.5) in
+  let alpha_clamped = max 0 (min 255 alpha) in
+  let full = hex_clean ^ Pp.hex_byte alpha_clamped in
+  (* Shorten #RRGGBBAA → #RGBA when each pair is identical *)
+  let len = String.length full in
+  let shortened =
+    if
+      len = 8
+      && full.[0] = full.[1]
+      && full.[2] = full.[3]
+      && full.[4] = full.[5]
+      && full.[6] = full.[7]
+    then (
+      let s = Bytes.create 4 in
+      Bytes.set s 0 full.[0];
+      Bytes.set s 1 full.[2];
+      Bytes.set s 2 full.[4];
+      Bytes.set s 3 full.[6];
+      Bytes.unsafe_to_string s)
+    else full
+  in
+  "#" ^ shortened
 
 let oklch_to_css oklch =
-  let pp_oklch ctx oklch =
-    Css.Pp.string ctx "oklch(";
-    Css.Pp.float_n 1 ctx oklch.l;
-    Css.Pp.string ctx "% ";
-    Css.Pp.float_n 3 ctx oklch.c;
-    Css.Pp.string ctx " ";
-    Css.Pp.float_n 3 ctx oklch.h;
-    Css.Pp.string ctx ")"
-  in
-  Css.Pp.to_string ~minify:false pp_oklch oklch
+  let f n = Css.Pp.string_of_float ~drop_leading_zero:false ~max_decimals:n in
+  String.concat ""
+    [ "oklch("; f 1 oklch.l; "% "; f 3 oklch.c; " "; f 3 oklch.h; ")" ]
 
 let hex_to_oklch_css hex =
   match hex_to_rgb hex with
   | Some rgb -> oklch_to_css (rgb_to_oklch rgb)
   | None -> hex (* Fallback to original hex if parsing fails *)
+
+let round_n n f =
+  let factor = 10.0 ** float_of_int n in
+  Float.round (f *. factor) /. factor
+
+let hex_to_oklab_alpha hex alpha : Css.color =
+  match hex_to_rgb hex with
+  | Some rgb ->
+      let l, a, b = rgb_to_oklab rgb in
+      (* Raw floats — precision is controlled at CSS emission time in
+         pp_oklab *)
+      Css.oklaba l a b alpha
+  | None -> Css.hex hex
 
 module Tailwind = struct
   let gray =
@@ -556,8 +704,33 @@ let shorten_hex_str hex_str =
       String.sub hex_str 1 (String.length hex_str - 1)
     else hex_str
   in
-  if String.length hex_no_hash <> 6 then hex_no_hash
-  else
+  let len = String.length hex_no_hash in
+  if len = 8 then
+    let r1 = hex_no_hash.[0] and r2 = hex_no_hash.[1] in
+    let g1 = hex_no_hash.[2] and g2 = hex_no_hash.[3] in
+    let b1 = hex_no_hash.[4] and b2 = hex_no_hash.[5] in
+    let a1 = hex_no_hash.[6] and a2 = hex_no_hash.[7] in
+    if r1 = r2 && g1 = g2 && b1 = b2 && a1 = a2 then (
+      if a1 = 'f' || a1 = 'F' then (
+        (* #RRGGBBFF → #RGB when fully opaque *)
+        let short = Bytes.create 3 in
+        Bytes.set short 0 r1;
+        Bytes.set short 1 g1;
+        Bytes.set short 2 b1;
+        Bytes.unsafe_to_string short)
+      else
+        (* #RRGGBBAA → #RGBA *)
+        let short = Bytes.create 4 in
+        Bytes.set short 0 r1;
+        Bytes.set short 1 g1;
+        Bytes.set short 2 b1;
+        Bytes.set short 3 a1;
+        Bytes.unsafe_to_string short)
+    else if (a1 = 'f' || a1 = 'F') && (a2 = 'f' || a2 = 'F') then
+      (* #RRGGBBFF → #RRGGBB when fully opaque *)
+      String.sub hex_no_hash 0 6
+    else hex_no_hash
+  else if len = 6 then
     let r1 = hex_no_hash.[0] and r2 = hex_no_hash.[1] in
     let g1 = hex_no_hash.[2] and g2 = hex_no_hash.[3] in
     let b1 = hex_no_hash.[4] and b2 = hex_no_hash.[5] in
@@ -568,6 +741,7 @@ let shorten_hex_str hex_str =
       Bytes.set short 2 b1;
       Bytes.unsafe_to_string short)
     else hex_no_hash
+  else hex_no_hash
 
 let is_rgb_call s =
   String.starts_with ~prefix:"rgb(" s && String.ends_with ~suffix:")" s
@@ -683,7 +857,34 @@ let of_string = function
   | "fuchsia" -> Ok Fuchsia
   | "pink" -> Ok Pink
   | "rose" -> Ok Rose
-  | s -> Error (`Msg ("Unknown color: " ^ s))
+  | s ->
+      let len = String.length s in
+      if len >= 4 && s.[0] = '[' && s.[1] = '#' && s.[len - 1] = ']' then (
+        (* Arbitrary bracket hex value like [#0088cc]. Store original hex
+           (unshortened) so class names preserve it. Shortening happens later in
+           to_css for CSS output. Validate hex chars to avoid matching
+           [#0088cc]/[0.5] where the ] belongs to a different bracket. *)
+        let hex = String.sub s 2 (len - 3) in
+        let is_hex c =
+          (c >= '0' && c <= '9')
+          || (c >= 'a' && c <= 'f')
+          || (c >= 'A' && c <= 'F')
+        in
+        let valid = ref true in
+        String.iter (fun c -> if not (is_hex c) then valid := false) hex;
+        if !valid && String.length hex >= 3 then Ok (Hex hex)
+        else Error (`Msg ("Unknown color: " ^ s)))
+      else if len >= 3 && s.[0] = '[' && s.[len - 1] = ']' then
+        let inner = String.sub s 1 (len - 2) in
+        let normalized =
+          String.map (fun c -> if c = '_' then ' ' else c) inner
+        in
+        if Parse.is_css_color_fn normalized then
+          match Css.parse_color normalized with
+          | Some c -> Ok (Css c)
+          | None -> Error (`Msg ("Unknown color: " ^ s))
+        else Error (`Msg ("Unknown color: " ^ s))
+      else Error (`Msg ("Unknown color: " ^ s))
 
 let rgb r g b =
   if r < 0 || r > 255 then
@@ -705,6 +906,25 @@ let to_oklch color shade =
       | Some rgb -> rgb_to_oklch rgb
       | None -> { l = 0.0; c = 0.0; h = 0.0 })
   | Rgb { red; green; blue } -> rgb_to_oklch { r = red; g = green; b = blue }
+  | Css c -> (
+      (* Extract RGB channels from CSS color for oklch conversion *)
+      match c with
+      | Css.Hex { r; g; b; _ } | Css.Authored_hex { r; g; b; _ } -> (
+          match hex_to_rgb (hex_string_of_rgb (r, g, b)) with
+          | Some rgb -> rgb_to_oklch rgb
+          | None -> { l = 0.0; c = 0.0; h = 0.0 })
+      | Css.Rgb (Channels { r; g; b })
+      | Css.Rgba { rgb = Channels { r; g; b }; _ } ->
+          let chan_to_int : Css.channel -> int = function
+            | Int i -> i
+            | Num f -> Float.to_int (Float.round f)
+            | Pct f -> Float.to_int (Float.round (f *. 2.55))
+            | Var _ -> 0
+            | None -> 0
+          in
+          rgb_to_oklch
+            { r = chan_to_int r; g = chan_to_int g; b = chan_to_int b }
+      | _ -> { l = 0.0; c = 0.0; h = 0.0 })
   | _ -> (
       (* For named colors, get OKLCH data directly from Tailwind *)
       let color_name =
@@ -781,152 +1001,207 @@ let to_oklch_css color shade =
       | Some value -> value
       | None -> "oklch(0% 0 0)" (* Fallback *))
 
+let oklch_node_of color shade =
+  let oklch = to_oklch color shade in
+  Css.oklch oklch.l oklch.c oklch.h
+
+(* The palette ([Red], [Blue], ...) is a fixed set of (colour, shade) pairs and
+   its oklch nodes are immutable, so materialise each node once and share it
+   across every utility and variant that uses the colour, instead of
+   reconstructing an identical node per use. Built once on first use; only the
+   constant palette constructors are keyed here, [Rgb]/[Theme_named] carry
+   open-ended payloads and build fresh. *)
+let palette_nodes =
+  lazy
+    (let table = Hashtbl.create 256 in
+     List.iter
+       (fun (color, palette) ->
+         List.iter
+           (fun (shade, o) ->
+             Hashtbl.replace table (color, shade) (Css.oklch o.l o.c o.h))
+           palette)
+       [
+         (Gray, Tailwind.gray);
+         (Slate, Tailwind.slate);
+         (Zinc, Tailwind.zinc);
+         (Neutral, Tailwind.neutral);
+         (Stone, Tailwind.stone);
+         (Red, Tailwind.red);
+         (Orange, Tailwind.orange);
+         (Amber, Tailwind.amber);
+         (Yellow, Tailwind.yellow);
+         (Lime, Tailwind.lime);
+         (Green, Tailwind.green);
+         (Emerald, Tailwind.emerald);
+         (Teal, Tailwind.teal);
+         (Cyan, Tailwind.cyan);
+         (Sky, Tailwind.sky);
+         (Blue, Tailwind.blue);
+         (Indigo, Tailwind.indigo);
+         (Violet, Tailwind.violet);
+         (Purple, Tailwind.purple);
+         (Fuchsia, Tailwind.fuchsia);
+         (Pink, Tailwind.pink);
+         (Rose, Tailwind.rose);
+       ];
+     table)
+
 (* Convert color to CSS color value *)
 let to_css color shade =
   match color with
-  | Black -> Css.Hex { hash = true; value = "000" }
-  | White -> Css.Hex { hash = true; value = "fff" }
+  | Black -> Css.hex "#000"
+  | White -> Css.hex "#fff"
   | Hex hex ->
       (* For arbitrary hex colors, always output valid CSS with # prefix. Per
-         MDN spec, hex colors MUST have # prefix. *)
+         MDN spec, hex colors MUST have # prefix. Shorten hex for CSS output
+         (e.g., 0088cc -> 08c) while class names preserve original. *)
       let hex_value =
         if String.starts_with ~prefix:"#" hex then
           String.sub hex 1 (String.length hex - 1)
         else hex
       in
-      Css.Hex { hash = true; value = hex_value }
-  | Oklch oklch ->
-      (* Use the new Oklch constructor *)
-      Css.oklch oklch.l oklch.c oklch.h
-  | _ ->
-      (* For other colors, get OKLCH data directly *)
-      let oklch = to_oklch color shade in
-      Css.oklch oklch.l oklch.c oklch.h
+      Css.hex ("#" ^ shorten_hex_str hex_value)
+  | Oklch oklch -> Css.oklch oklch.l oklch.c oklch.h
+  | Css c -> c
+  | Rgb _ | Theme_named _ -> oklch_node_of color shade
+  | _ -> (
+      match Hashtbl.find_opt (Lazy.force palette_nodes) (color, shade) with
+      | Some node -> node
+      | None -> oklch_node_of color shade)
+
+let named_color_name = function
+  | Black -> "black"
+  | White -> "white"
+  | Gray -> "gray"
+  | Slate -> "slate"
+  | Zinc -> "zinc"
+  | Neutral -> "neutral"
+  | Stone -> "stone"
+  | Red -> "red"
+  | Orange -> "orange"
+  | Amber -> "amber"
+  | Yellow -> "yellow"
+  | Lime -> "lime"
+  | Green -> "green"
+  | Emerald -> "emerald"
+  | Teal -> "teal"
+  | Cyan -> "cyan"
+  | Sky -> "sky"
+  | Blue -> "blue"
+  | Indigo -> "indigo"
+  | Violet -> "violet"
+  | Purple -> "purple"
+  | Fuchsia -> "fuchsia"
+  | Pink -> "pink"
+  | Rose -> "rose"
+  | _ -> ""
+
+let is_named_color color = named_color_name color <> ""
 
 (* Get the name of a color as a string *)
-let to_name = function
-  | Black -> "black"
-  | White -> "white"
-  | Gray -> "gray"
-  | Slate -> "slate"
-  | Zinc -> "zinc"
-  | Neutral -> "neutral"
-  | Stone -> "stone"
-  | Red -> "red"
-  | Orange -> "orange"
-  | Amber -> "amber"
-  | Yellow -> "yellow"
-  | Lime -> "lime"
-  | Green -> "green"
-  | Emerald -> "emerald"
-  | Teal -> "teal"
-  | Cyan -> "cyan"
-  | Sky -> "sky"
-  | Blue -> "blue"
-  | Indigo -> "indigo"
-  | Violet -> "violet"
-  | Purple -> "purple"
-  | Fuchsia -> "fuchsia"
-  | Pink -> "pink"
-  | Rose -> "rose"
-  | Hex h ->
-      let h_stripped =
-        if String.starts_with ~prefix:"#" h then
-          String.sub h 1 (String.length h - 1)
-        else h
-      in
-      let pp_hex ctx h =
-        Css.Pp.string ctx "[";
-        Css.Pp.string ctx h;
-        Css.Pp.string ctx "]"
-      in
-      Css.Pp.to_string ~minify:false pp_hex h_stripped
-  | Rgb { red; green; blue } ->
-      let pp_rgb ctx (r, g, b) =
-        Css.Pp.string ctx "[rgb(";
-        Css.Pp.int ctx r;
-        Css.Pp.string ctx ",";
-        Css.Pp.int ctx g;
-        Css.Pp.string ctx ",";
-        Css.Pp.int ctx b;
-        Css.Pp.string ctx ")]"
-      in
-      Css.Pp.to_string ~minify:false pp_rgb (red, green, blue)
-  | Oklch oklch ->
-      let pp_oklch ctx oklch =
-        Css.Pp.string ctx "[oklch(";
-        Css.Pp.float ctx oklch.l;
-        Css.Pp.string ctx "%,";
-        Css.Pp.float ctx oklch.c;
-        Css.Pp.string ctx ",";
-        Css.Pp.float ctx oklch.h;
-        Css.Pp.string ctx ")]"
-      in
-      Css.Pp.to_string ~minify:false pp_oklch oklch
+let to_name color =
+  if is_named_color color then named_color_name color
+  else
+    match color with
+    | Hex h ->
+        let h_stripped =
+          if String.starts_with ~prefix:"#" h then
+            String.sub h 1 (String.length h - 1)
+          else h
+        in
+        let pp_hex ctx h =
+          Css.Pp.string ctx "[";
+          Css.Pp.string ctx h;
+          Css.Pp.string ctx "]"
+        in
+        Css.Pp.to_string ~minify:false pp_hex h_stripped
+    | Rgb { red; green; blue } ->
+        let pp_rgb ctx (r, g, b) =
+          Css.Pp.string ctx "[rgb(";
+          Css.Pp.int ctx r;
+          Css.Pp.string ctx ",";
+          Css.Pp.int ctx g;
+          Css.Pp.string ctx ",";
+          Css.Pp.int ctx b;
+          Css.Pp.string ctx ")]"
+        in
+        Css.Pp.to_string ~minify:false pp_rgb (red, green, blue)
+    | Oklch oklch ->
+        let pp_oklch ctx oklch =
+          Css.Pp.string ctx "[oklch(";
+          Css.Pp.float ctx oklch.l;
+          Css.Pp.string ctx "%,";
+          Css.Pp.float ctx oklch.c;
+          Css.Pp.string ctx ",";
+          Css.Pp.float ctx oklch.h;
+          Css.Pp.string ctx ")]"
+        in
+        Css.Pp.to_string ~minify:false pp_oklch oklch
+    | Css c ->
+        (* Serialize CSS color to bracket string for class names *)
+        let s = Css.Pp.to_string ~minify:true Css.pp_color c in
+        let s = String.map (fun c -> if c = ' ' then '_' else c) s in
+        "[" ^ s ^ "]"
+    | Theme_named name -> name
+    | _ -> ""
 
 (* Pretty printer for colors *)
-let pp = function
-  | Black -> "black"
-  | White -> "white"
-  | Gray -> "gray"
-  | Slate -> "slate"
-  | Zinc -> "zinc"
-  | Neutral -> "neutral"
-  | Stone -> "stone"
-  | Red -> "red"
-  | Orange -> "orange"
-  | Amber -> "amber"
-  | Yellow -> "yellow"
-  | Lime -> "lime"
-  | Green -> "green"
-  | Emerald -> "emerald"
-  | Teal -> "teal"
-  | Cyan -> "cyan"
-  | Sky -> "sky"
-  | Blue -> "blue"
-  | Indigo -> "indigo"
-  | Violet -> "violet"
-  | Purple -> "purple"
-  | Fuchsia -> "fuchsia"
-  | Pink -> "pink"
-  | Rose -> "rose"
-  | Hex s ->
-      (* Use Tailwind's arbitrary value syntax [#hex] for hex colors *)
-      let hex_value = if String.starts_with ~prefix:"#" s then s else "#" ^ s in
-      let pp_hex_val ctx v =
-        Css.Pp.string ctx "[";
-        Css.Pp.string ctx v;
-        Css.Pp.string ctx "]"
-      in
-      Css.Pp.to_string ~minify:false pp_hex_val hex_value
-  | Rgb { red; green; blue } ->
-      let pp_rgb_val ctx (r, g, b) =
-        Css.Pp.string ctx "Rgb(";
-        Css.Pp.int ctx r;
-        Css.Pp.string ctx ",";
-        Css.Pp.int ctx g;
-        Css.Pp.string ctx ",";
-        Css.Pp.int ctx b;
-        Css.Pp.string ctx ")"
-      in
-      Css.Pp.to_string ~minify:false pp_rgb_val (red, green, blue)
-  | Oklch { l; c; h } ->
-      let pp_oklch_val ctx (l, c, h) =
-        Css.Pp.string ctx "Oklch(";
-        Css.Pp.float ctx l;
-        Css.Pp.string ctx ",";
-        Css.Pp.float ctx c;
-        Css.Pp.string ctx ",";
-        Css.Pp.float ctx h;
-        Css.Pp.string ctx ")"
-      in
-      Css.Pp.to_string ~minify:false pp_oklch_val (l, c, h)
+let pp color =
+  if is_named_color color then named_color_name color
+  else
+    match color with
+    | Hex s ->
+        (* Use Tailwind's arbitrary value syntax [#hex] for hex colors *)
+        let hex_value =
+          if String.starts_with ~prefix:"#" s then s else "#" ^ s
+        in
+        let pp_hex_val ctx v =
+          Css.Pp.string ctx "[";
+          Css.Pp.string ctx v;
+          Css.Pp.string ctx "]"
+        in
+        Css.Pp.to_string ~minify:false pp_hex_val hex_value
+    | Rgb { red; green; blue } ->
+        let pp_rgb_val ctx (r, g, b) =
+          Css.Pp.string ctx "Rgb(";
+          Css.Pp.int ctx r;
+          Css.Pp.string ctx ",";
+          Css.Pp.int ctx g;
+          Css.Pp.string ctx ",";
+          Css.Pp.int ctx b;
+          Css.Pp.string ctx ")"
+        in
+        Css.Pp.to_string ~minify:false pp_rgb_val (red, green, blue)
+    | Oklch { l; c; h } ->
+        let pp_oklch_val ctx (l, c, h) =
+          Css.Pp.string ctx "Oklch(";
+          Css.Pp.float ctx l;
+          Css.Pp.string ctx ",";
+          Css.Pp.float ctx c;
+          Css.Pp.string ctx ",";
+          Css.Pp.float ctx h;
+          Css.Pp.string ctx ")"
+        in
+        Css.Pp.to_string ~minify:false pp_oklch_val (l, c, h)
+    | Css c ->
+        let s = Css.Pp.to_string ~minify:true Css.pp_color c in
+        "Css(" ^ s ^ ")"
+    | Theme_named name -> name
+    | _ -> ""
 
 (* Check if a color is black or white *)
 let is_base_color = function Black | White -> true | _ -> false
 
 (* Check if a color is a custom color (hex, rgb, or oklch) *)
-let is_custom_color = function Hex _ | Rgb _ | Oklch _ -> true | _ -> false
+let is_custom_color = function
+  | Hex _ | Rgb _ | Oklch _ | Css _ -> true
+  | _ -> false
+
+(* Check if a color is a theme-named color (no shade suffix) *)
+let is_theme_named = function Theme_named _ -> true | _ -> false
+
+(* Check if a color should NOT have a shade suffix in class names *)
+let is_shadeless c = is_base_color c || is_custom_color c || is_theme_named c
 
 (** {1 Color Application Utilities} *)
 
@@ -1043,32 +1318,45 @@ let theme_order_with_shade color_name shade =
   (var_priority, base_order + shade)
 
 (* Memoization table for color variables *)
-let color_var_cache : (string, Css.color Var.theme) Hashtbl.t =
+(* Keyed by [(color, shade)] (shade normalised to 0 for shadeless colours, which
+   ignore it) rather than the materialized name, so a cache hit skips building
+   the name string entirely - and within one generation bg/text/border share the
+   same colour, so hits happen even on a single cold run. *)
+let color_var_cache : (color * int, Css.color Var.theme) Hashtbl.t =
   Hashtbl.create 128
+
+(* Property-scoped colour variables (text-color-*, accent-color-*, ...) keyed by
+   their full name, kept separate from the [(color, shade)] cache above. *)
+let property_color_var_cache : (string, Css.color Var.theme) Hashtbl.t =
+  Hashtbl.create 64
 
 (* Helper to create a color variable with memoization. Creates theme layer
    variables with deterministic ordering based on color and shade. *)
-let get_color_var color shade =
-  let base = pp color in
-  (* Escape brackets in variable names - CSS variable names can't have unescaped
-     [] *)
-  let escaped_base =
-    let s = String.to_seq base |> List.of_seq in
-    let escaped =
-      List.concat_map
-        (function '[' -> [ '\\'; '[' ] | ']' -> [ '\\'; ']' ] | c -> [ c ])
-        s
-    in
-    String.of_seq (List.to_seq escaped)
-  in
-  let name =
-    if is_base_color color then "color-" ^ escaped_base
-    else "color-" ^ escaped_base ^ "-" ^ string_of_int shade
-  in
-  (* Check if variable already exists in cache *)
-  match Hashtbl.find_opt color_var_cache name with
+let color_var color shade =
+  let shadeless = is_shadeless color in
+  let key = (color, if shadeless then 0 else shade) in
+  match Hashtbl.find_opt color_var_cache key with
   | Some var -> var
   | None ->
+      let base = pp color in
+      (* Escape brackets in variable names - CSS variable names can't have
+         unescaped []. Almost no colour name contains brackets, so keep a
+         zero-allocation fast path and only build a buffer when needed. *)
+      let escaped_base =
+        if String.contains base '[' || String.contains base ']' then (
+          let buf = Buffer.create (String.length base + 4) in
+          String.iter
+            (fun c ->
+              (match c with '[' | ']' -> Buffer.add_char buf '\\' | _ -> ());
+              Buffer.add_char buf c)
+            base;
+          Buffer.contents buf)
+        else base
+      in
+      let name =
+        if shadeless then "color-" ^ escaped_base
+        else Pp.str [ "color-"; escaped_base; "-"; string_of_int shade ]
+      in
       (* Create theme variable with deterministic theme layer order: - Base
          colors use theme_order(color_name) - Shaded colors use
          theme_order_with_shade(color_name, shade)
@@ -1077,11 +1365,11 @@ let get_color_var color shade =
          input, not by a fixed ordering. Our implementation uses a fixed
          ordering for determinism and consistency. *)
       let var_order =
-        if is_base_color color then theme_order_with_shade base 0
+        if shadeless then theme_order_with_shade base 0
         else theme_order_with_shade base shade
       in
       let var = Var.theme Css.Color name ~order:var_order in
-      Hashtbl.add color_var_cache name var;
+      Hashtbl.add color_var_cache key var;
       var
 
 let color_to_string (c : color) : string =
@@ -1144,8 +1432,61 @@ let color_to_string (c : color) : string =
           Css.Pp.float ctx o.h;
           Css.Pp.string ctx ")]")
         oklch
+  | Css c ->
+      let s = Css.Pp.to_string ~minify:true Css.pp_color c in
+      let s = String.map (fun ch -> if ch = ' ' then '_' else ch) s in
+      "[" ^ s ^ "]"
+  | Theme_named name -> name
 
 (** Color parsing utilities *)
+
+(** Opacity modifier type *)
+type opacity_modifier =
+  | No_opacity
+  | Opacity_percent of float (* e.g., /50 means 50% *)
+  | Opacity_arbitrary of float (* e.g., /[0.5] means 0.5 *)
+  | Opacity_bracket_percent of
+      float (* e.g., /[50%] means 50% but preserves bracket form *)
+  | Opacity_named of string (* e.g., /half, /custom - theme-defined names *)
+  | Opacity_var of string (* e.g., /[var(--x)] - var ref used as percentage *)
+
+(** Parse opacity modifier from a string that may contain /NN or /[N.N] *)
+let parse_opacity_modifier ?theme s =
+  match String.index_opt s '/' with
+  | None -> (s, No_opacity)
+  | Some idx -> (
+      let base = String.sub s 0 idx in
+      let opacity_str = String.sub s (idx + 1) (String.length s - idx - 1) in
+      if
+        String.length opacity_str > 2
+        && opacity_str.[0] = '['
+        && opacity_str.[String.length opacity_str - 1] = ']'
+      then
+        (* Arbitrary value like [0.5] or [50%] or [var(--x)] *)
+        let inner = String.sub opacity_str 1 (String.length opacity_str - 2) in
+        if String.ends_with ~suffix:"%" inner then
+          let num_str = String.sub inner 0 (String.length inner - 1) in
+          match float_of_string_opt num_str with
+          | Some f -> (base, Opacity_bracket_percent f)
+          | None -> (s, No_opacity)
+        else
+          match float_of_string_opt inner with
+          | Some f -> (base, Opacity_arbitrary f)
+          | None ->
+              if Parse.is_var inner then (base, Opacity_var inner)
+              else (s, No_opacity)
+      else
+        (* Numeric value like 50 or 2.5, or named opacity like half/custom *)
+        match float_of_string_opt opacity_str with
+        | Some f when f >= 0. -> (base, Opacity_percent f)
+        | _ ->
+            (* Not a number — check if it's a named opacity defined in the theme
+               (e.g., /half when --opacity-half exists) *)
+            if
+              Parse.is_valid_theme_name opacity_str
+              && Scheme.theme_value theme ("opacity-" ^ opacity_str) <> None
+            then (base, Opacity_named opacity_str)
+            else (s, No_opacity))
 
 (* Parse color and shade from string list *)
 let shade_of_strings = function
@@ -1163,72 +1504,548 @@ let shade_of_strings = function
   | [] -> Error (`Msg "No color specified")
   | _ -> Error (`Msg "Too many color parts")
 
+(* Parse color, shade, and optional opacity modifier from string list. Handles
+   formats like ["red"; "500/50"] or ["red"; "500/[0.5]"] *)
+let shade_and_opacity_of_strings ?theme = function
+  | [ color_str; shade_opacity_str ] -> (
+      let shade_str, opacity =
+        parse_opacity_modifier ?theme shade_opacity_str
+      in
+      match of_string color_str with
+      | Ok color -> (
+          match int_of_string_opt shade_str with
+          | Some shade when shade >= 0 -> Ok (color, shade, opacity)
+          | _ -> Error (`Msg ("Invalid shade: " ^ shade_str)))
+      | Error _ -> Error (`Msg ("Invalid color: " ^ color_str)))
+  | [ color_str ] -> (
+      (* Could be "current/50" or just "black" *)
+      let base_str, opacity = parse_opacity_modifier ?theme color_str in
+      match of_string base_str with
+      | Ok color -> Ok (color, 500, opacity)
+      | Error _ -> Error (`Msg ("Invalid color: " ^ color_str)))
+  | [] -> Error (`Msg "No color specified")
+  | _ -> Error (`Msg "Too many color parts")
+
 (** {1 Parsing Functions} *)
 
 module Handler = struct
+  (* Per-side border colour: which physical border edge a border-{side}-{color}
+     utility paints. Bs_x is the logical inline axis (border-inline-color);
+     border-y (block axis) needs a border-block-color setter cascade does not
+     expose yet, so it is not handled here. *)
+  type border_side = Bs_t | Bs_r | Bs_b | Bs_l | Bs_x
+
+  (* The colour value of a border-{side}-{color}: a named theme colour, an
+     arbitrary bracket colour, or a keyword. *)
+  type border_side_color =
+    | Bsc_named of color * int
+    | Bsc_bracket of string * Css.color
+    | Bsc_transparent
+    | Bsc_current
+
   (** Local color utility type *)
   type t =
     (* Background colors *)
     | Bg of color * int
+    | Bg_opacity of color * int * opacity_modifier
     | Bg_transparent
     | Bg_current
+    | Bg_current_opacity of opacity_modifier
     (* Text colors *)
     | Text of color * int
+    | Text_opacity of color * int * opacity_modifier
     | Text_transparent
     | Text_current
+    | Text_current_opacity of opacity_modifier
     | Text_inherit
+    | Text_bracket_color of string * Css.color
+      (* text-[#0088cc], text-[black] - string is original bracket content *)
+    | Text_bracket_color_opacity of string * Css.color * opacity_modifier
+    | Text_bracket_var of string (* text-[var(--value)] *)
+    | Text_bracket_var_opacity of string * opacity_modifier
+    | Text_bracket_typed_var of string (* text-[color:var(--value)] *)
+    | Text_bracket_typed_var_opacity of string * opacity_modifier
     (* Border colors *)
     | Border of color * int
+    | Border_opacity of color * int * opacity_modifier
     | Border_transparent
     | Border_current
+    | Border_current_opacity of opacity_modifier
+    | Border_bracket_color of string * Css.color
+    | Border_bracket_color_opacity of string * Css.color * opacity_modifier
+    | Border_side_color of border_side * border_side_color
     (* Accent colors *)
     | Accent of color * int
+    | Accent_opacity of color * int * opacity_modifier
+    | Accent_transparent
+    | Accent_current
+    | Accent_current_opacity of opacity_modifier
+    | Accent_inherit
+    | Accent_bracket_color of string * Css.color
+    | Accent_bracket_color_opacity of string * Css.color * opacity_modifier
+    (* Caret colors *)
+    | Caret of color * int
+    | Caret_opacity of color * int * opacity_modifier
+    | Caret_current
+    | Caret_current_opacity of opacity_modifier
+    | Caret_inherit
+    | Caret_transparent
+    | Caret_bracket_color of string * Css.color
+    | Caret_bracket_color_opacity of string * Css.color * opacity_modifier
+    (* Outline colors *)
+    | Outline of color * int
+    | Outline_opacity of color * int * opacity_modifier
+    | Outline_current
+    | Outline_current_opacity of opacity_modifier
+    | Outline_inherit
+    | Outline_transparent
+    | Outline_bracket_color of string * Css.color
+      (* outline-[#0088cc], outline-[black] *)
+    | Outline_bracket_color_opacity of string * Css.color * opacity_modifier
+    | Outline_bracket_var of string (* outline-[var(--value)] *)
+    | Outline_bracket_var_opacity of string * opacity_modifier
+    | Outline_bracket_typed_var of string (* outline-[color:var(--value)] *)
+    | Outline_bracket_typed_var_opacity of string * opacity_modifier
+    (* Placeholder colors *)
+    | Placeholder of color * int
+    | Placeholder_opacity of color * int * opacity_modifier
+    | Placeholder_transparent
+    | Placeholder_current
+    | Placeholder_current_opacity of opacity_modifier
+    | Placeholder_inherit
+    | Placeholder_bracket_color of string * Css.color
+    | Placeholder_bracket_color_opacity of string * Css.color * opacity_modifier
 
   (** Extensible variant for color utilities *)
   type Utility.base += Self of t
+
+  (** Resolve the optionally-threaded theme, defaulting to the base scheme. *)
+  let resolve_scheme = function Some s -> s | None -> Scheme.default
+
+  (** Get the scheme color name for a color and shade (e.g., "red-500"). Must be
+      defined before [open Css] to use the outer [color] type. *)
+  let scheme_color_name (c : color) shade =
+    let base = pp c in
+    match c with
+    | Black | White | Theme_named _ -> base
+    | _ -> base ^ "-" ^ string_of_int shade
+
+  (** Get the color value for a color and shade, checking scheme first. When
+      scheme defines the color as hex, returns hex. Otherwise returns oklch. *)
+  let get_color_value ?theme (c : color) shade =
+    let color_name = scheme_color_name c shade in
+    match Scheme.hex_color (resolve_scheme theme) color_name with
+    | Some hex -> Css.hex hex
+    | None -> to_css c (if is_base_color c then 500 else shade)
+
+  (* The theme-layer declaration for a colour token named like "color-red-500",
+     or None when the name is not a catalogued colour token. [color_var]
+     registers the token's canonical order and [get_color_value] supplies the
+     typed value, so the result matches what a colour utility would emit. Used
+     to emit tokens that arbitrary values reference via var() but that no colour
+     utility set. *)
+  let theme_color_decl ?theme name =
+    if String.length name <= 6 || String.sub name 0 6 <> "color-" then None
+    else
+      let rest = String.sub name 6 (String.length name - 6) in
+      match shade_of_strings (String.split_on_char '-' rest) with
+      | Ok (c, shade) when not (is_custom_color c) ->
+          let decl, _ =
+            Var.binding (color_var c shade) (get_color_value ?theme c shade)
+          in
+          Some decl
+      | _ -> None
+
+  (** Get a color variable for a property. Checks if a property-scoped theme
+      value exists (e.g., [--accent-color-blue-500]) and if so creates a
+      property-scoped variable. Otherwise falls back to the generic
+      [--color-{name}] variable. *)
+  let property_color_var ?theme ~property_prefix (c : color) shade =
+    let color_name = scheme_color_name c shade in
+    let prop_name = property_prefix ^ "-" ^ color_name in
+    match Scheme.theme_value theme prop_name with
+    | Some _ -> (
+        (* Property-scoped theme value exists, create scoped variable *)
+        let name = prop_name in
+        match Hashtbl.find_opt property_color_var_cache name with
+        | Some var -> var
+        | None ->
+            let base = pp c in
+            let var_order =
+              if is_shadeless c then theme_order_with_shade base 0
+              else theme_order_with_shade base shade
+            in
+            let var = Var.theme Css.Color name ~order:var_order in
+            Hashtbl.add property_color_var_cache name var;
+            var)
+    | None ->
+        (* Fall back to generic --color-{name} *)
+        color_var c shade
+
+  (** Get the color value for use with color variables. Checks for
+      property-scoped theme value first, then scheme, then generic theme value,
+      then converts from oklch as fallback. *)
+  let property_color_value ?theme ~property_prefix (c : color) shade =
+    let color_name = scheme_color_name c shade in
+    let prop_name = property_prefix ^ "-" ^ color_name in
+    match Scheme.theme_value theme prop_name with
+    | Some value -> Css.hex value
+    | None -> (
+        match Scheme.hex_color (resolve_scheme theme) color_name with
+        | Some hex -> Css.hex hex
+        | None -> (
+            (* Check theme value overrides for standard color name *)
+            let std_name = "color-" ^ color_name in
+            match Scheme.theme_value theme std_name with
+            | Some value -> Css.hex value
+            | None -> to_css c (if is_base_color c then 500 else shade)))
+
+  (* Aliases for color constructors/functions that will be shadowed by open
+     Css *)
+  let mk_color_hex s : color = Hex s
+  let color_of_string = of_string
+  let pp_int = Pp.int
+  let pp_float = Pp.float
 
   open Style
   open Css
 
   let name = "color"
-  let priority = 23
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  (* Color families sort at their property's canonical rank, not together:
+     border-color (rank ~65) joins border-width/style at priority 19; text-color
+     (the `color` property, rank ~86) interleaves inside the late-typography
+     block, after text-transform and before font-style, at priority 26. The rest
+     (accent, caret, ...) stay at 25. [_opacity] variants lead each group so the
+     type resolves to the color [t] rather than the shadowed [Css.Border] /
+     [Css.user_select] [Text] constructors. *)
+  let priority = function
+    | Border_opacity _ | Border _ | Border_transparent | Border_current
+    | Border_current_opacity _ | Border_bracket_color _ | Border_side_color _
+    | Border_bracket_color_opacity _ ->
+        19
+    | Text_opacity _ | Text _ | Text_transparent | Text_current
+    | Text_current_opacity _ | Text_inherit | Text_bracket_color _
+    | Text_bracket_color_opacity _ | Text_bracket_var _
+    | Text_bracket_var_opacity _ | Text_bracket_typed_var _
+    | Text_bracket_typed_var_opacity _ ->
+        26
+    | _ -> 25
+
+  (* Helper to check if a string contains an opacity modifier *)
+  let has_opacity s = String.contains s '/'
+
+  (** Parse a bracket inner string into a typed [Css.color], if it represents a
+      valid color. Handles hex strings (with [#] prefix), CSS color functions
+      like [rgb(...)], [hsl(...)], etc., and named Tailwind colors (which are
+      converted to their CSS representation via [to_css]). Returns [None] for
+      non-color values. *)
+  let parse_bracket_color (inner : string) : Css.color option =
+    if String.length inner > 0 && inner.[0] = '#' then Some (Css.hex inner)
+    else
+      let normalized = String.map (fun c -> if c = '_' then ' ' else c) inner in
+      if Parse.is_css_color_fn normalized then Css.parse_color normalized
+      else
+        match color_of_string inner with
+        | Ok c -> Some (to_css c 500)
+        | Error _ -> None
+
+  let of_class theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "bg"; "transparent" ] -> Ok Bg_transparent
-    | [ "bg"; "current" ] -> Ok Bg_current
+    | [ "bg"; current_str ]
+      when String.starts_with ~prefix:"current" current_str -> (
+        let base, opacity = parse_opacity_modifier ~theme current_str in
+        match opacity with
+        | No_opacity when base = "current" -> Ok Bg_current
+        | No_opacity -> Error (`Msg ("Invalid bg: " ^ current_str))
+        | _ -> Ok (Bg_current_opacity opacity))
+    | "bg" :: color_parts when List.exists has_opacity color_parts -> (
+        match shade_and_opacity_of_strings ~theme color_parts with
+        | Ok (color, shade, opacity) -> Ok (Bg_opacity (color, shade, opacity))
+        | Error e -> Error e)
     | "bg" :: color_parts -> (
         match shade_of_strings color_parts with
         | Ok (color, shade) -> Ok (Bg (color, shade))
         | Error e -> Error e)
     | [ "text"; "transparent" ] -> Ok Text_transparent
-    | [ "text"; "current" ] -> Ok Text_current
     | [ "text"; "inherit" ] -> Ok Text_inherit
+    | [ "text"; current_str ]
+      when String.starts_with ~prefix:"current" current_str -> (
+        let base, opacity = parse_opacity_modifier ~theme current_str in
+        match opacity with
+        | No_opacity when base = "current" -> Ok Text_current
+        | No_opacity -> Error (`Msg ("Invalid text: " ^ current_str))
+        | _ -> Ok (Text_current_opacity opacity))
+    | [ "text"; v ]
+      when String.length v > 0
+           && v.[0] = '['
+           && Parse.is_bracket_value (fst (parse_opacity_modifier ~theme v))
+      -> (
+        let base_str, opacity = parse_opacity_modifier ~theme v in
+        let base_inner = Parse.bracket_inner base_str in
+        let starts prefix s =
+          String.length s >= String.length prefix
+          && String.sub s 0 (String.length prefix) = prefix
+        in
+        if starts "color:" base_inner then
+          let var_part =
+            String.sub base_inner 6 (String.length base_inner - 6)
+          in
+          match opacity with
+          | No_opacity -> Ok (Text_bracket_typed_var var_part)
+          | _ -> Ok (Text_bracket_typed_var_opacity (var_part, opacity))
+        else if starts "var(" base_inner then
+          match opacity with
+          | No_opacity -> Ok (Text_bracket_var base_inner)
+          | _ -> Ok (Text_bracket_var_opacity (base_inner, opacity))
+        else
+          match parse_bracket_color base_inner with
+          | Some css_color -> (
+              match opacity with
+              | No_opacity -> Ok (Text_bracket_color (base_inner, css_color))
+              | _ ->
+                  Ok
+                    (Text_bracket_color_opacity (base_inner, css_color, opacity))
+              )
+          | None -> Error (`Msg ("Invalid text bracket value: " ^ base_inner)))
+    | "text" :: color_parts when List.exists has_opacity color_parts -> (
+        match shade_and_opacity_of_strings ~theme color_parts with
+        | Ok (color, shade, opacity) ->
+            Ok (Text_opacity (color, shade, opacity))
+        | Error e -> Error e)
     | "text" :: color_parts -> (
         match shade_of_strings color_parts with
         | Ok (color, shade) -> Ok (Text (color, shade))
         | Error e -> Error e)
     | [ "border"; "transparent" ] -> Ok Border_transparent
-    | [ "border"; "current" ] -> Ok Border_current
+    | [ "border"; current_str ]
+      when String.starts_with ~prefix:"current" current_str -> (
+        let base, opacity = parse_opacity_modifier ~theme current_str in
+        match opacity with
+        | No_opacity when base = "current" -> Ok Border_current
+        | No_opacity -> Error (`Msg ("Invalid border: " ^ current_str))
+        | _ -> Ok (Border_current_opacity opacity))
+    | [ "border"; v ]
+      when String.length v > 0
+           && v.[0] = '['
+           && Parse.is_bracket_value (fst (parse_opacity_modifier ~theme v))
+      -> (
+        let base_str, opacity = parse_opacity_modifier ~theme v in
+        let base_inner = Parse.bracket_inner base_str in
+        match parse_bracket_color base_inner with
+        | Some css_color -> (
+            match opacity with
+            | No_opacity -> Ok (Border_bracket_color (base_inner, css_color))
+            | _ ->
+                Ok
+                  (Border_bracket_color_opacity (base_inner, css_color, opacity))
+            )
+        | None -> Error (`Msg ("Invalid border bracket value: " ^ base_inner)))
+    | "border" :: side :: rest
+      when rest <> []
+           && match side with "t" | "r" | "b" | "l" | "x" -> true | _ -> false
+      -> (
+        let bs =
+          match side with
+          | "t" -> Bs_t
+          | "r" -> Bs_r
+          | "b" -> Bs_b
+          | "x" -> Bs_x
+          | _ -> Bs_l
+        in
+        match rest with
+        | [ "transparent" ] -> Ok (Border_side_color (bs, Bsc_transparent))
+        | [ "current" ] -> Ok (Border_side_color (bs, Bsc_current))
+        | [ v ]
+          when String.length v > 0 && v.[0] = '[' && Parse.is_bracket_value v
+          -> (
+            let inner = Parse.bracket_inner v in
+            match parse_bracket_color inner with
+            | Some css_color ->
+                Ok (Border_side_color (bs, Bsc_bracket (inner, css_color)))
+            | None -> Error (`Msg ("Invalid border side bracket: " ^ v)))
+        | color_parts -> (
+            match shade_of_strings color_parts with
+            | Ok (color, shade) ->
+                Ok (Border_side_color (bs, Bsc_named (color, shade)))
+            | Error e -> Error e))
+    | "border" :: color_parts when List.exists has_opacity color_parts -> (
+        match shade_and_opacity_of_strings ~theme color_parts with
+        | Ok (color, shade, opacity) ->
+            Ok (Border_opacity (color, shade, opacity))
+        | Error e -> Error e)
     | "border" :: color_parts -> (
         match shade_of_strings color_parts with
         | Ok (color, shade) -> Ok (Border (color, shade))
+        | Error e -> Error e)
+    | [ "accent"; "transparent" ] -> Ok Accent_transparent
+    | [ "accent"; "inherit" ] -> Ok Accent_inherit
+    | [ "accent"; current_str ]
+      when String.starts_with ~prefix:"current" current_str -> (
+        let base, opacity = parse_opacity_modifier ~theme current_str in
+        match opacity with
+        | No_opacity when base = "current" -> Ok Accent_current
+        | No_opacity -> Error (`Msg ("Invalid accent: " ^ current_str))
+        | _ -> Ok (Accent_current_opacity opacity))
+    | [ "accent"; v ]
+      when String.length v > 0
+           && v.[0] = '['
+           && Parse.is_bracket_value (fst (parse_opacity_modifier ~theme v))
+      -> (
+        let base_str, opacity = parse_opacity_modifier ~theme v in
+        let base_inner = Parse.bracket_inner base_str in
+        match parse_bracket_color base_inner with
+        | Some css_color -> (
+            match opacity with
+            | No_opacity -> Ok (Accent_bracket_color (base_inner, css_color))
+            | _ ->
+                Ok
+                  (Accent_bracket_color_opacity (base_inner, css_color, opacity))
+            )
+        | None -> Error (`Msg ("Invalid accent bracket value: " ^ base_inner)))
+    | "accent" :: color_parts when List.exists has_opacity color_parts -> (
+        match shade_and_opacity_of_strings ~theme color_parts with
+        | Ok (color, shade, opacity) ->
+            Ok (Accent_opacity (color, shade, opacity))
         | Error e -> Error e)
     | "accent" :: color_parts -> (
         match shade_of_strings color_parts with
         | Ok (color, shade) -> Ok (Accent (color, shade))
         | Error e -> Error e)
+    | [ "caret"; "inherit" ] -> Ok Caret_inherit
+    | [ "caret"; "transparent" ] -> Ok Caret_transparent
+    | [ "caret"; current_str ]
+      when String.starts_with ~prefix:"current" current_str -> (
+        let base, opacity = parse_opacity_modifier ~theme current_str in
+        match opacity with
+        | No_opacity when base = "current" -> Ok Caret_current
+        | No_opacity -> Error (`Msg ("Invalid caret: " ^ current_str))
+        | _ -> Ok (Caret_current_opacity opacity))
+    | [ "caret"; v ]
+      when String.length v > 0
+           && v.[0] = '['
+           && Parse.is_bracket_value (fst (parse_opacity_modifier ~theme v))
+      -> (
+        let base_str, opacity = parse_opacity_modifier ~theme v in
+        let base_inner = Parse.bracket_inner base_str in
+        match parse_bracket_color base_inner with
+        | Some css_color -> (
+            match opacity with
+            | No_opacity -> Ok (Caret_bracket_color (base_inner, css_color))
+            | _ ->
+                Ok
+                  (Caret_bracket_color_opacity (base_inner, css_color, opacity))
+            )
+        | None -> Error (`Msg ("Invalid caret bracket value: " ^ base_inner)))
+    | "caret" :: color_parts when List.exists has_opacity color_parts -> (
+        match shade_and_opacity_of_strings ~theme color_parts with
+        | Ok (color, shade, opacity) ->
+            Ok (Caret_opacity (color, shade, opacity))
+        | Error e -> Error e)
+    | "caret" :: color_parts -> (
+        match shade_of_strings color_parts with
+        | Ok (color, shade) -> Ok (Caret (color, shade))
+        | Error e -> Error e)
+    | [ "outline"; "transparent" ] -> Ok Outline_transparent
+    | [ "outline"; "inherit" ] -> Ok Outline_inherit
+    | [ "outline"; current_str ]
+      when String.starts_with ~prefix:"current" current_str -> (
+        let base, opacity = parse_opacity_modifier ~theme current_str in
+        match opacity with
+        | No_opacity when base = "current" -> Ok Outline_current
+        | No_opacity -> Error (`Msg ("Invalid outline: " ^ current_str))
+        | _ -> Ok (Outline_current_opacity opacity))
+    | [ "outline"; v ]
+      when String.length v > 0
+           && v.[0] = '['
+           && Parse.is_bracket_value (fst (parse_opacity_modifier ~theme v))
+      -> (
+        let base_str, opacity = parse_opacity_modifier ~theme v in
+        let base_inner = Parse.bracket_inner base_str in
+        let starts prefix s =
+          String.length s >= String.length prefix
+          && String.sub s 0 (String.length prefix) = prefix
+        in
+        if starts "color:" base_inner then
+          let var_part =
+            String.sub base_inner 6 (String.length base_inner - 6)
+          in
+          match opacity with
+          | No_opacity -> Ok (Outline_bracket_typed_var var_part)
+          | _ -> Ok (Outline_bracket_typed_var_opacity (var_part, opacity))
+        else if starts "var(" base_inner then
+          match opacity with
+          | No_opacity -> Ok (Outline_bracket_var base_inner)
+          | _ -> Ok (Outline_bracket_var_opacity (base_inner, opacity))
+        else
+          match parse_bracket_color base_inner with
+          | Some css_color -> (
+              match opacity with
+              | No_opacity -> Ok (Outline_bracket_color (base_inner, css_color))
+              | _ ->
+                  Ok
+                    (Outline_bracket_color_opacity
+                       (base_inner, css_color, opacity)))
+          | None ->
+              Error (`Msg ("Invalid outline bracket value: " ^ base_inner)))
+    | "outline" :: color_parts when List.exists has_opacity color_parts -> (
+        match shade_and_opacity_of_strings ~theme color_parts with
+        | Ok (color, shade, opacity) ->
+            Ok (Outline_opacity (color, shade, opacity))
+        | Error e -> Error e)
+    | "outline" :: color_parts -> (
+        match shade_of_strings color_parts with
+        | Ok (color, shade) -> Ok (Outline (color, shade))
+        | Error e -> Error e)
+    | [ "placeholder"; "transparent" ] -> Ok Placeholder_transparent
+    | [ "placeholder"; "inherit" ] -> Ok Placeholder_inherit
+    | [ "placeholder"; current_str ]
+      when String.starts_with ~prefix:"current" current_str -> (
+        let base, opacity = parse_opacity_modifier ~theme current_str in
+        match opacity with
+        | No_opacity when base = "current" -> Ok Placeholder_current
+        | No_opacity -> Error (`Msg ("Invalid placeholder: " ^ current_str))
+        | _ -> Ok (Placeholder_current_opacity opacity))
+    | [ "placeholder"; v ]
+      when String.length v > 0
+           && v.[0] = '['
+           && Parse.is_bracket_value (fst (parse_opacity_modifier ~theme v))
+      -> (
+        let base_str, opacity = parse_opacity_modifier ~theme v in
+        let base_inner = Parse.bracket_inner base_str in
+        match parse_bracket_color base_inner with
+        | Some css_color -> (
+            match opacity with
+            | No_opacity ->
+                Ok (Placeholder_bracket_color (base_inner, css_color))
+            | _ ->
+                Ok
+                  (Placeholder_bracket_color_opacity
+                     (base_inner, css_color, opacity)))
+        | None ->
+            Error (`Msg ("Invalid placeholder bracket value: " ^ base_inner)))
+    | "placeholder" :: color_parts when List.exists has_opacity color_parts -> (
+        match shade_and_opacity_of_strings ~theme color_parts with
+        | Ok (color, shade, opacity) ->
+            Ok (Placeholder_opacity (color, shade, opacity))
+        | Error e -> Error e)
+    | "placeholder" :: color_parts -> (
+        match shade_of_strings color_parts with
+        | Ok (color, shade) -> Ok (Placeholder (color, shade))
+        | Error e -> Error e)
     | _ -> Error (`Msg "Not a color utility")
 
-  let bg' c shade =
+  let bg' ?theme c shade =
     if is_custom_color c then
       let css_color = to_css c shade in
       style [ Css.background_color css_color ]
     else
-      let color_var = get_color_var c shade in
-      let color_value = to_css c (if is_base_color c then 500 else shade) in
-      let decl, color_ref = Var.binding color_var color_value in
+      (* Use shared color variable to match tailwindcss output exactly. *)
+      let cv = color_var c shade in
+      let color_value = get_color_value ?theme c shade in
+      let decl, color_ref = Var.binding cv color_value in
       style (decl :: [ Css.background_color (Css.Var color_ref) ])
 
   let bg_transparent = style [ Css.background_color (Css.hex "#0000") ]
@@ -1236,16 +2053,22 @@ module Handler = struct
 
   (** Text color utilities *)
 
-  let text' color shade =
+  let text' ?theme color shade =
     if is_custom_color color then
       let css_color = to_css color shade in
       style [ Css.color css_color ]
     else
-      let color_var = get_color_var color shade in
-      let color_value =
-        to_css color (if is_base_color color then 500 else shade)
+      let color_name = scheme_color_name color shade in
+      let prop_name = "text-color-" ^ color_name in
+      let has_property_scoped = Scheme.theme_value theme prop_name <> None in
+      let cv, color_value =
+        if has_property_scoped then
+          ( property_color_var ?theme ~property_prefix:"text-color" color shade,
+            property_color_value ?theme ~property_prefix:"text-color" color
+              shade )
+        else (color_var color shade, get_color_value ?theme color shade)
       in
-      let decl, color_ref = Var.binding color_var color_value in
+      let decl, color_ref = Var.binding cv color_value in
       style (decl :: [ Css.color (Var color_ref) ])
 
   let text_transparent = style [ Css.color (Css.hex "#0000") ]
@@ -1254,76 +2077,702 @@ module Handler = struct
 
   (** Border color utilities *)
 
-  let border_color' color shade =
+  let border_color' ?theme color shade =
     if is_custom_color color then
       let css_color = to_css color shade in
       style [ Css.border_color css_color ]
     else
-      let color_var = get_color_var color shade in
-      let color_value =
-        to_css color (if is_base_color color then 500 else shade)
-      in
+      let color_var = color_var color shade in
+      let color_value = get_color_value ?theme color shade in
       let decl, color_ref = Var.binding color_var color_value in
       style (decl :: [ Css.border_color (Var color_ref) ])
 
   let border_transparent = style [ Css.border_color (Css.hex "#0000") ]
   let border_current = style [ Css.border_color Current ]
 
+  (* Per-side border colour emission. *)
+  let setters_of_side : border_side -> (Css.color -> Css.declaration) list =
+    function
+    | Bs_t -> [ Css.border_top_color ]
+    | Bs_r -> [ Css.border_right_color ]
+    | Bs_b -> [ Css.border_bottom_color ]
+    | Bs_l -> [ Css.border_left_color ]
+    | Bs_x ->
+        [ (fun c -> Css.border_inline_color (Css.logical_border_color c)) ]
+
+  let border_side_color_style side value =
+    let sides = setters_of_side side in
+    let apply c = style (List.map (fun set -> set c) sides) in
+    match value with
+    | Bsc_named (color, shade) ->
+        if is_custom_color color then apply (to_css color shade)
+        else
+          let color_var = color_var color shade in
+          let color_value = get_color_value color shade in
+          let decl, color_ref = Var.binding color_var color_value in
+          style
+            (decl :: List.map (fun set -> set (Var color_ref : Css.color)) sides)
+    | Bsc_bracket (_, css_color) -> apply css_color
+    | Bsc_transparent -> apply (Css.hex "#0000")
+    | Bsc_current -> apply Current
+
   (** Accent color utilities *)
 
-  let accent' color shade =
+  let accent' ?theme color shade =
     if is_custom_color color then
       let css_color = to_css color shade in
       style [ Css.accent_color css_color ]
     else
-      let color_var = get_color_var color shade in
+      let color_var =
+        property_color_var ?theme ~property_prefix:"accent-color" color shade
+      in
       let color_value =
-        to_css color (if is_base_color color then 500 else shade)
+        property_color_value ?theme ~property_prefix:"accent-color" color shade
       in
       let decl, color_ref = Var.binding color_var color_value in
       style (decl :: [ Css.accent_color (Var color_ref) ])
 
-  let to_style = function
+  let accent_transparent = style [ Css.accent_color (Css.hex "#0000") ]
+  let accent_current = style [ Css.accent_color Current ]
+  let accent_inherit = style [ Css.accent_color Inherit ]
+
+  (** Caret color utilities *)
+
+  let caret' ?theme color shade =
+    if is_custom_color color then
+      let css_color = to_css color shade in
+      style [ Css.caret_color css_color ]
+    else
+      let color_var =
+        property_color_var ?theme ~property_prefix:"caret-color" color shade
+      in
+      let color_value =
+        property_color_value ?theme ~property_prefix:"caret-color" color shade
+      in
+      let decl, color_ref = Var.binding color_var color_value in
+      style (decl :: [ Css.caret_color (Var color_ref) ])
+
+  let caret_current = style [ Css.caret_color Current ]
+  let caret_inherit = style [ Css.caret_color Inherit ]
+  let caret_transparent = style [ Css.caret_color (Css.hex "#0000") ]
+
+  (** Outline color utilities *)
+
+  let outline' ?theme color shade =
+    if is_custom_color color then
+      let css_color = to_css color shade in
+      style [ Css.outline_color css_color ]
+    else
+      let color_var =
+        property_color_var ?theme ~property_prefix:"outline-color" color shade
+      in
+      let color_value =
+        property_color_value ?theme ~property_prefix:"outline-color" color shade
+      in
+      let decl, color_ref = Var.binding color_var color_value in
+      style (decl :: [ Css.outline_color (Var color_ref) ])
+
+  let outline_current = style [ Css.outline_color Current ]
+  let outline_inherit = style [ Css.outline_color Inherit ]
+  let outline_transparent = style [ Css.outline_color (Css.hex "#0000") ]
+
+  (** Convert a CSS channel value to an integer 0-255 *)
+  let channel_to_int : Css.channel -> int = function
+    | Int i -> min 255 (max 0 i)
+    | Num f -> min 255 (max 0 (Float.to_int (Float.round f)))
+    | Pct f -> min 255 (max 0 (Float.to_int (Float.round (f *. 2.55))))
+    | Var _ -> 0
+    | None -> 0
+
+  (** Convert a CSS alpha value to an integer 0-255 *)
+  let alpha_to_int : Css.alpha -> int option = function
+    | None -> None
+    | Num f -> Some (min 255 (max 0 (Float.to_int (Float.round (f *. 255.)))))
+    | Pct f -> Some (min 255 (max 0 (Float.to_int (Float.round (f *. 2.55)))))
+    | Var _ | Calc _ -> None
+
+  let to_hex_byte n =
+    let hex = "0123456789abcdef" in
+    String.make 1 hex.[n / 16] ^ String.make 1 hex.[n mod 16]
+
+  (** Convert a typed CSS color to a hex string for Tailwind parity *)
+  let css_color_to_hex (c : Css.color) : Css.color option =
+    match c with
+    | Rgb (Channels { r; g; b }) ->
+        let hex =
+          to_hex_byte (channel_to_int r)
+          ^ to_hex_byte (channel_to_int g)
+          ^ to_hex_byte (channel_to_int b)
+        in
+        Some (Css.hex ("#" ^ shorten_hex_str hex))
+    | Rgba { rgb = Channels { r; g; b }; a; _ } -> (
+        let r = channel_to_int r
+        and g = channel_to_int g
+        and b = channel_to_int b in
+        let hex = to_hex_byte r ^ to_hex_byte g ^ to_hex_byte b in
+        match alpha_to_int a with
+        | Some a_int ->
+            let full_hex = hex ^ to_hex_byte a_int in
+            Some (Css.hex ("#" ^ shorten_hex_str full_hex))
+        | None -> Some (Css.hex ("#" ^ shorten_hex_str hex)))
+    | Hsl { h; s; l; a } ->
+        let h_deg =
+          match h with Unitless f -> f | Angle (Deg f) -> f | _ -> 0.
+        in
+        let s_pct = match s with Pct f -> f /. 100. | _ -> 0. in
+        let l_pct = match l with Pct f -> f /. 100. | _ -> 0. in
+        let c = (1. -. abs_float ((2. *. l_pct) -. 1.)) *. s_pct in
+        let h' = h_deg /. 60. in
+        let x = c *. (1. -. abs_float (Float.rem h' 2. -. 1.)) in
+        let r1, g1, b1 =
+          if h' < 1. then (c, x, 0.)
+          else if h' < 2. then (x, c, 0.)
+          else if h' < 3. then (0., c, x)
+          else if h' < 4. then (0., x, c)
+          else if h' < 5. then (x, 0., c)
+          else (c, 0., x)
+        in
+        let m = l_pct -. (c /. 2.) in
+        let r = Float.to_int (Float.round ((r1 +. m) *. 255.)) in
+        let g = Float.to_int (Float.round ((g1 +. m) *. 255.)) in
+        let b = Float.to_int (Float.round ((b1 +. m) *. 255.)) in
+        let hex = to_hex_byte r ^ to_hex_byte g ^ to_hex_byte b in
+        let hex =
+          match alpha_to_int a with
+          | Some a_int -> hex ^ to_hex_byte a_int
+          | None -> hex
+        in
+        Some (Css.hex ("#" ^ shorten_hex_str hex))
+    | _ -> None
+
+  (** Resolve a typed [Css.color] to its emission form. Hex colors are
+      shortened, color functions are converted to hex where possible. This
+      mirrors the logic that was previously inlined in each [to_style] branch.
+  *)
+  let resolve_bracket_css_color (css_color : Css.color) : Css.color =
+    match css_color with
+    | Hex { r; g; b; a } | Authored_hex { r; g; b; a; _ } ->
+        let value = hex_string_of_rgb (r, g, b) in
+        let value = if a = 255 then value else value ^ to_hex_byte a in
+        Css.hex ("#" ^ shorten_hex_str value)
+    | _ -> (
+        match css_color_to_hex css_color with
+        | Some hex_c -> hex_c
+        | None -> css_color)
+
+  let outline_bracket_var_style v =
+    let bare_name = Parse.extract_var_name v in
+    style ~merge_key:"outline-"
+      [ Css.outline_color (Css.Var (Var.bracket bare_name)) ]
+
+  let outline_bracket_typed_var_style v =
+    let bare_name = Parse.extract_var_name v in
+    style ~merge_key:"outline-"
+      [ Css.outline_color (Css.Var (Var.bracket bare_name)) ]
+
+  (** Convert opacity modifier to a percentage value (0-100) *)
+  let opacity_to_percent = function
+    | No_opacity -> 100.0
+    | Opacity_percent p -> p (* Already a percentage like 50 *)
+    | Opacity_bracket_percent p -> p (* [50%] is also a percentage *)
+    | Opacity_arbitrary f -> f *. 100.0 (* e.g., 0.5 -> 50 *)
+    | Opacity_named _ | Opacity_var _ ->
+        (* Named/var opacity requires variable lookup, default to 100% *)
+        100.0
+
+  (** Condition for progressive enhancement with color-mix in oklab *)
+  let color_mix_supports_condition =
+    Css.Supports.property "color" "color-mix(in lab, red, red)"
+
+  (** Generate color with opacity using progressive enhancement. Output depends
+      on scheme:
+      - With hex scheme: fallback is hex+alpha, [\@supports] has color-mix
+      - With oklch scheme (default): fallback is color-mix(srgb), [\@supports]
+        has color-mix(oklab) *)
+  let color_with_opacity_style ?theme ~property ?property_prefix ?merge_key c
+      shade opacity =
+    let percent = opacity_to_percent opacity in
+    if is_custom_color c then
+      (* Custom/arbitrary colors (hex, rgb): output oklab() directly. No theme
+         variables, no @supports, no hex+alpha fallback. *)
+      let ok_l, ok_a, ok_b =
+        match c with
+        | Hex h -> (
+            match hex_to_rgb h with
+            | Some rgb -> rgb_to_oklab rgb
+            | None -> (0.0, 0.0, 0.0))
+        | Rgb { red; green; blue } ->
+            rgb_to_oklab { r = red; g = green; b = blue }
+        | _ -> (0.0, 0.0, 0.0)
+      in
+      let alpha = percent /. 100.0 in
+      let oklab_value = Css.oklaba_none_zeros ok_l ok_a ok_b alpha in
+      style ?merge_key [ property oklab_value ]
+    else
+      let scheme = resolve_scheme theme in
+      let color_name = scheme_color_name c shade in
+      (* Check if color is defined as hex in the scheme *)
+      match Scheme.hex_color scheme color_name with
+      | Some hex_value ->
+          (* Scheme has hex color: use hex+alpha fallback with top-level
+             @supports *)
+          let hex_with_alpha = hex_with_alpha hex_value percent in
+          let fallback_decl = property (Css.hex hex_with_alpha) in
+          (* Theme declaration for the variable *)
+          let color_var = color_var c shade in
+          let theme_decl, color_ref =
+            Var.binding color_var (Css.hex hex_value)
+          in
+          (* Progressive enhancement: color-mix(in oklab, var(--color-X) NN%,
+             transparent) *)
+          let oklab_color =
+            Css.color_mix ~in_space:Oklab (Css.Var color_ref) Css.Transparent
+              ~percent1:percent
+          in
+          let oklab_decl = property oklab_color in
+          (* Create @supports block with oklab version as top-level rule. Use
+             placeholder selector that rules.ml replaces with actual class. *)
+          let supports_block =
+            Css.supports ~condition:color_mix_supports_condition
+              [ Css.rule ~selector:(Css.Selector.class_ "_") [ oklab_decl ] ]
+          in
+          style ?merge_key ~rules:(Some [ supports_block ])
+            [ theme_decl; fallback_decl ]
+      | None ->
+          (* Non-scheme color: use property-scoped variable if prefix given *)
+          let color_var =
+            match property_prefix with
+            | Some prefix ->
+                property_color_var ?theme ~property_prefix:prefix c shade
+            | Stdlib.Option.None -> color_var c shade
+          in
+          let color_value =
+            match property_prefix with
+            | Some prefix ->
+                property_color_value ?theme ~property_prefix:prefix c shade
+            | Stdlib.Option.None ->
+                to_css c (if is_base_color c then 500 else shade)
+          in
+          (* Fallback: hex+alpha from converted value *)
+          let oklch = to_oklch c shade in
+          let rgb = oklch_to_rgb oklch in
+          let hex_value = rgb_to_hex rgb in
+          let hex_with_alpha_str = hex_with_alpha hex_value percent in
+          let fallback_decl = property (Css.hex hex_with_alpha_str) in
+          let theme_decl, color_ref = Var.binding color_var color_value in
+          let oklab_color =
+            Css.color_mix ~in_space:Oklab (Css.Var color_ref) Css.Transparent
+              ~percent1:percent
+          in
+          let oklab_decl = property oklab_color in
+          let supports_block =
+            Css.supports ~condition:color_mix_supports_condition
+              [ Css.rule ~selector:(Css.Selector.class_ "_") [ oklab_decl ] ]
+          in
+          style ?merge_key ~rules:(Some [ supports_block ])
+            [ theme_decl; fallback_decl ]
+
+  (** Background color with opacity *)
+  let bg_with_opacity ?theme c shade opacity =
+    color_with_opacity_style ?theme ~property:Css.background_color
+      ~property_prefix:"background-color" c shade opacity
+
+  (** Text color with opacity *)
+  let text_with_opacity ?theme c shade opacity =
+    let property_prefix =
+      if not (is_custom_color c) then
+        let color_name = scheme_color_name c shade in
+        let prop_name = "text-color-" ^ color_name in
+        if Scheme.theme_value theme prop_name <> None then Some "text-color"
+        else None
+      else None
+    in
+    color_with_opacity_style ?theme ~property:Css.color ?property_prefix c shade
+      opacity
+
+  (** Border color with opacity *)
+  let border_with_opacity ?theme c shade opacity =
+    color_with_opacity_style ?theme ~property:Css.border_color c shade opacity
+
+  (** Accent color with opacity *)
+  let accent_with_opacity ?theme c shade opacity =
+    color_with_opacity_style ?theme ~property:Css.accent_color
+      ~property_prefix:"accent-color" c shade opacity
+
+  (** Caret color with opacity *)
+  let caret_with_opacity ?theme c shade opacity =
+    color_with_opacity_style ?theme ~property:Css.caret_color
+      ~property_prefix:"caret-color" c shade opacity
+
+  (** Outline color with opacity *)
+  let outline_with_opacity ?theme c shade opacity =
+    color_with_opacity_style ?theme ~property:Css.outline_color
+      ~property_prefix:"outline-color" c shade opacity
+
+  (** Current color with opacity using color-mix with progressive enhancement *)
+  let current_color_with_opacity ~property opacity =
+    let property : Css.color -> Css.declaration = property in
+    let percent = opacity_to_percent opacity in
+    (* Fallback: just currentColor (browsers that don't support color-mix) *)
+    let fallback_decl = property Css.Current in
+    (* Progressive enhancement: color-mix(in oklab, currentcolor NN%,
+       transparent) *)
+    let oklab_color =
+      Css.color_mix ~in_space:Oklab Css.Current Css.Transparent
+        ~percent1:percent
+    in
+    let oklab_decl = property oklab_color in
+    (* Create @supports block with oklab version as top-level rule. Use
+       placeholder selector that rules.ml replaces with actual class. *)
+    let supports_block =
+      Css.supports ~condition:color_mix_supports_condition
+        [ Css.rule ~selector:(Css.Selector.class_ "_") [ oklab_decl ] ]
+    in
+    style ~rules:(Some [ supports_block ]) [ fallback_decl ]
+
+  (** Convert a bracket color string to a custom Hex color for opacity handling.
+      Named colors like "black" are converted to their hex equivalent so they go
+      through the direct oklab path (is_custom_color = true). *)
+  let bracket_color_to_custom inner =
+    if String.length inner > 0 && inner.[0] = '#' then
+      mk_color_hex (String.sub inner 1 (String.length inner - 1))
+    else
+      match color_of_string inner with
+      | Ok Black -> mk_color_hex "000000"
+      | Ok White -> mk_color_hex "ffffff"
+      | Ok c ->
+          let oklch = to_oklch c 500 in
+          let rgb = oklch_to_rgb oklch in
+          mk_color_hex (rgb_to_hex rgb)
+      | Error _ -> mk_color_hex "000000"
+
+  let outline_bracket_color_opacity_style inner opacity =
+    let c = bracket_color_to_custom inner in
+    let merge_key =
+      if String.length inner > 0 && inner.[0] = '#' then
+        (* Hex bracket colors: strip bracket+opacity for merging *)
+        "outline-"
+      else
+        (* Named bracket colors: unique per variant to prevent merging.
+           Different opacity syntaxes (e.g. /50 vs /[0.5]) produce identical CSS
+           but Tailwind keeps them separate. *)
+        let opacity_tag =
+          match opacity with
+          | No_opacity -> ""
+          | Opacity_percent p -> "/" ^ string_of_float p
+          | Opacity_arbitrary f -> "/[" ^ string_of_float f ^ "]"
+          | Opacity_bracket_percent p -> "/[" ^ string_of_float p ^ "%]"
+          | Opacity_named n -> "/" ^ n
+          | Opacity_var v -> "/[" ^ v ^ "]"
+        in
+        "outline-[" ^ inner ^ "]" ^ opacity_tag
+    in
+    color_with_opacity_style ~property:Css.outline_color ~merge_key c 500
+      opacity
+
+  let outline_bracket_var_opacity_style v opacity =
+    let bare_name = Parse.extract_var_name v in
+    let percent = opacity_to_percent opacity in
+    let var_color : Css.color = Css.Var (Var.bracket bare_name) in
+    let fallback_decl = Css.outline_color var_color in
+    let oklab_color =
+      Css.color_mix ~in_space:Oklab var_color Css.Transparent ~percent1:percent
+    in
+    let oklab_decl = Css.outline_color oklab_color in
+    let supports_block =
+      Css.supports ~condition:color_mix_supports_condition
+        [ Css.rule ~selector:(Css.Selector.class_ "_") [ oklab_decl ] ]
+    in
+    style ~merge_key:"outline-" ~rules:(Some [ supports_block ])
+      [ fallback_decl ]
+
+  let outline_bracket_var_opacity v opacity =
+    let bare_name = Parse.extract_var_name v in
+    let percent = opacity_to_percent opacity in
+    let var_color : Css.color = Css.Var (Var.bracket bare_name) in
+    let fallback_decl = Css.outline_color var_color in
+    let oklab_color =
+      Css.color_mix ~in_space:Oklab var_color Css.Transparent ~percent1:percent
+    in
+    let oklab_decl = Css.outline_color oklab_color in
+    let supports_block =
+      Css.supports ~condition:color_mix_supports_condition
+        [ Css.rule ~selector:(Css.Selector.class_ "_") [ oklab_decl ] ]
+    in
+    style ~merge_key:"outline-" ~rules:(Some [ supports_block ])
+      [ fallback_decl ]
+
+  let border_bracket_color_opacity_style inner opacity =
+    let c = bracket_color_to_custom inner in
+    color_with_opacity_style ~property:Css.border_color c 500 opacity
+
+  let with_pseudo pseudo = function
+    | Style.Style s -> Style.Style { s with pseudo_suffix = Some pseudo }
+    | other -> other
+
+  let to_style theme =
+    (* Shadow the scheme-reading colour helpers with theme-applied versions so
+       the match arms below read from the explicitly threaded scheme. *)
+    let bg' color shade = bg' ~theme color shade in
+    let text' color shade = text' ~theme color shade in
+    let border_color' color shade = border_color' ~theme color shade in
+    let accent' color shade = accent' ~theme color shade in
+    let caret' color shade = caret' ~theme color shade in
+    let outline' color shade = outline' ~theme color shade in
+    let bg_with_opacity color shade opacity =
+      bg_with_opacity ~theme color shade opacity
+    in
+    let text_with_opacity color shade opacity =
+      text_with_opacity ~theme color shade opacity
+    in
+    let border_with_opacity color shade opacity =
+      border_with_opacity ~theme color shade opacity
+    in
+    let accent_with_opacity color shade opacity =
+      accent_with_opacity ~theme color shade opacity
+    in
+    let caret_with_opacity color shade opacity =
+      caret_with_opacity ~theme color shade opacity
+    in
+    let outline_with_opacity color shade opacity =
+      outline_with_opacity ~theme color shade opacity
+    in
+    function
     | Bg (color, shade) -> bg' color shade
+    | Bg_opacity (color, shade, opacity) ->
+        (* 100% opacity: same as base color, no @supports needed *)
+        if opacity_to_percent opacity >= 100. && not (is_custom_color color)
+        then bg' color shade
+        else bg_with_opacity color shade opacity
     | Bg_transparent -> bg_transparent
     | Bg_current -> bg_current
+    | Bg_current_opacity opacity ->
+        current_color_with_opacity ~property:Css.background_color opacity
     | Text (color, shade) -> text' color shade
+    | Text_opacity (color, shade, opacity) ->
+        text_with_opacity color shade opacity
     | Text_transparent -> text_transparent
     | Text_current -> text_current
+    | Text_current_opacity opacity ->
+        current_color_with_opacity ~property:Css.color opacity
     | Text_inherit -> text_inherit
+    | Text_bracket_color (_orig, css_color) ->
+        let c = resolve_bracket_css_color css_color in
+        style ~merge_key:"text-" [ Css.color c ]
+    | Text_bracket_color_opacity (inner, _css_color, opacity) ->
+        let c = bracket_color_to_custom inner in
+        color_with_opacity_style ~property:Css.color c 500 opacity
+    | Text_bracket_var v ->
+        let bare_name = Parse.extract_var_name v in
+        style ~merge_key:"text-" [ Css.color (Css.Var (Var.bracket bare_name)) ]
+    | Text_bracket_var_opacity (v, opacity) ->
+        let bare_name = Parse.extract_var_name v in
+        let percent = opacity_to_percent opacity in
+        let var_color : Css.color = Css.Var (Var.bracket bare_name) in
+        let fallback_decl = Css.color var_color in
+        let oklab_color =
+          Css.color_mix ~in_space:Oklab var_color Css.Transparent
+            ~percent1:percent
+        in
+        let oklab_decl = Css.color oklab_color in
+        let supports_block =
+          Css.supports ~condition:color_mix_supports_condition
+            [ Css.rule ~selector:(Css.Selector.class_ "_") [ oklab_decl ] ]
+        in
+        style ~merge_key:"text-" ~rules:(Some [ supports_block ])
+          [ fallback_decl ]
+    | Text_bracket_typed_var v ->
+        let bare_name = Parse.extract_var_name v in
+        style ~merge_key:"text-" [ Css.color (Css.Var (Var.bracket bare_name)) ]
+    | Text_bracket_typed_var_opacity (v, opacity) ->
+        let bare_name = Parse.extract_var_name v in
+        let percent = opacity_to_percent opacity in
+        let var_color : Css.color = Css.Var (Var.bracket bare_name) in
+        let fallback_decl = Css.color var_color in
+        let oklab_color =
+          Css.color_mix ~in_space:Oklab var_color Css.Transparent
+            ~percent1:percent
+        in
+        let oklab_decl = Css.color oklab_color in
+        let supports_block =
+          Css.supports ~condition:color_mix_supports_condition
+            [ Css.rule ~selector:(Css.Selector.class_ "_") [ oklab_decl ] ]
+        in
+        style ~merge_key:"text-" ~rules:(Some [ supports_block ])
+          [ fallback_decl ]
+    | Border_side_color (side, value) -> border_side_color_style side value
     | Border (color, shade) -> border_color' color shade
+    | Border_opacity (color, shade, opacity) ->
+        border_with_opacity color shade opacity
     | Border_transparent -> border_transparent
     | Border_current -> border_current
+    | Border_current_opacity opacity ->
+        current_color_with_opacity ~property:Css.border_color opacity
+    | Border_bracket_color (_orig, css_color) ->
+        let c = resolve_bracket_css_color css_color in
+        style ~merge_key:"border-" [ Css.border_color c ]
+    | Border_bracket_color_opacity (inner, _css_color, opacity) ->
+        border_bracket_color_opacity_style inner opacity
     | Accent (color, shade) -> accent' color shade
+    | Accent_opacity (color, shade, opacity) ->
+        accent_with_opacity color shade opacity
+    | Accent_transparent -> accent_transparent
+    | Accent_current -> accent_current
+    | Accent_current_opacity opacity ->
+        current_color_with_opacity ~property:Css.accent_color opacity
+    | Accent_inherit -> accent_inherit
+    | Accent_bracket_color (_orig, css_color) ->
+        let c = resolve_bracket_css_color css_color in
+        style ~merge_key:"accent-" [ Css.accent_color c ]
+    | Accent_bracket_color_opacity (inner, _css_color, opacity) ->
+        let c = bracket_color_to_custom inner in
+        color_with_opacity_style ~property:Css.accent_color c 500 opacity
+    | Caret (color, shade) -> caret' color shade
+    | Caret_opacity (color, shade, opacity) ->
+        caret_with_opacity color shade opacity
+    | Caret_current -> caret_current
+    | Caret_current_opacity opacity ->
+        current_color_with_opacity ~property:Css.caret_color opacity
+    | Caret_inherit -> caret_inherit
+    | Caret_transparent -> caret_transparent
+    | Caret_bracket_color (_orig, css_color) ->
+        let c = resolve_bracket_css_color css_color in
+        style ~merge_key:"caret-" [ Css.caret_color c ]
+    | Caret_bracket_color_opacity (inner, _css_color, opacity) ->
+        let c = bracket_color_to_custom inner in
+        color_with_opacity_style ~property:Css.caret_color c 500 opacity
+    | Outline (color, shade) -> outline' color shade
+    | Outline_opacity (color, shade, opacity) ->
+        outline_with_opacity color shade opacity
+    | Outline_current -> outline_current
+    | Outline_current_opacity opacity ->
+        current_color_with_opacity ~property:Css.outline_color opacity
+    | Outline_inherit -> outline_inherit
+    | Outline_transparent -> outline_transparent
+    | Outline_bracket_color (_orig, css_color) ->
+        let c = resolve_bracket_css_color css_color in
+        style ~merge_key:"outline-" [ Css.outline_color c ]
+    | Outline_bracket_color_opacity (inner, _css_color, opacity) ->
+        outline_bracket_color_opacity_style inner opacity
+    | Outline_bracket_var v -> outline_bracket_var_style v
+    | Outline_bracket_var_opacity (v, opacity) ->
+        outline_bracket_var_opacity_style v opacity
+    | Outline_bracket_typed_var v -> outline_bracket_typed_var_style v
+    | Outline_bracket_typed_var_opacity (v, opacity) ->
+        outline_bracket_var_opacity v opacity
+    | Placeholder (color, shade) ->
+        with_pseudo Css.Selector.Placeholder (text' color shade)
+    | Placeholder_opacity (color, shade, opacity) ->
+        if opacity_to_percent opacity >= 100. && not (is_custom_color color)
+        then with_pseudo Css.Selector.Placeholder (text' color shade)
+        else
+          with_pseudo Css.Selector.Placeholder
+            (text_with_opacity color shade opacity)
+    | Placeholder_transparent ->
+        with_pseudo Css.Selector.Placeholder text_transparent
+    | Placeholder_current -> with_pseudo Css.Selector.Placeholder text_current
+    | Placeholder_current_opacity opacity ->
+        with_pseudo Css.Selector.Placeholder
+          (current_color_with_opacity ~property:Css.color opacity)
+    | Placeholder_inherit -> with_pseudo Css.Selector.Placeholder text_inherit
+    | Placeholder_bracket_color (_orig, css_color) ->
+        let c = resolve_bracket_css_color css_color in
+        let s = style [ Css.color c ] in
+        with_pseudo Css.Selector.Placeholder s
+    | Placeholder_bracket_color_opacity (inner, _css_color, opacity) ->
+        let c = bracket_color_to_custom inner in
+        with_pseudo Css.Selector.Placeholder
+          (color_with_opacity_style ~property:Css.color c 500 opacity)
 
-  (* Suborder determines order within the color priority group. Tailwind orders:
-     border -> bg -> text So we use: border (0-9999), bg (10000-19999), text
-     (20000-29999) NOTE: Bg must be first pattern to infer local type t vs
-     shadowed Css.Border *)
+  (* Suborder for the non-text color families: border (0-9999) then bg
+     (10000-19999). text-color runs at priority 26 (see [priority]) with a fixed
+     suborder inside the late-typography block. NOTE: Bg must be first pattern
+     to infer local type t vs shadowed Css.Border. *)
   let suborder = function
     | Bg (color, shade) ->
         (* All background colors use the same suborder (10000) to allow
            alphabetical sorting, matching Tailwind v4 behavior. *)
         let _ = (color, shade) in
         10000
+    | Bg_opacity (color, shade, _) ->
+        let _ = (color, shade) in
+        10000
     | Bg_transparent -> 10000
     | Bg_current -> 10000
+    | Bg_current_opacity _ -> 10000
     | Text (color, shade) ->
-        (* All text colors use the same suborder (20000) to allow alphabetical
-           sorting, matching Tailwind v4 behavior. *)
+        (* All text colors share suborder 8370 (priority 26, after
+           text-transform and before font-style) so they sort alphabetically,
+           matching Tailwind. *)
         let _ = (color, shade) in
-        20000
-    | Text_transparent -> 20000
-    | Text_current -> 20000
-    | Text_inherit -> 20000
+        8370
+    | Text_opacity (color, shade, _) ->
+        let _ = (color, shade) in
+        8370
+    | Text_transparent -> 8370
+    | Text_current -> 8370
+    | Text_current_opacity _ -> 8370
+    | Text_inherit -> 8370
+    | Text_bracket_color _ -> 8370
+    | Text_bracket_color_opacity _ -> 8370
+    | Text_bracket_var _ -> 8370
+    | Text_bracket_var_opacity _ -> 8370
+    | Text_bracket_typed_var _ -> 8370
+    | Text_bracket_typed_var_opacity _ -> 8370
     | Border (color, shade) ->
-        (* All border colors use the same suborder (0) to allow alphabetical
+        (* Border colors share suborder 1500 with borders.ml's named border
+           colors (Border_color), at priority 19, so named and arbitrary tie and
+           sort together by class name - matching Tailwind. *)
+        let _ = (color, shade) in
+        1500
+    | Border_opacity (color, shade, _) ->
+        let _ = (color, shade) in
+        1500
+    | Border_transparent -> 1500
+    | Border_current -> 1500
+    | Border_current_opacity _ -> 1500
+    | Border_bracket_color _ -> 1500
+    | Border_bracket_color_opacity _ -> 1500
+    (* Per-side border colors sort after the all-sides colors. *)
+    | Border_side_color _ -> 1600
+    | Accent (color, shade) ->
+        (* All accent colors use the same suborder (50000) to allow alphabetical
            sorting, matching Tailwind v4 behavior. *)
         let _ = (color, shade) in
-        0
-    | Border_transparent -> 0
-    | Border_current -> 0
-    | Accent (color, shade) ->
+        50000
+    | Accent_opacity (color, shade, _) ->
+        let _ = (color, shade) in
+        50000
+    | Accent_transparent -> 50000
+    | Accent_current -> 50000
+    | Accent_current_opacity _ -> 50000
+    | Accent_inherit -> 50000
+    | Accent_bracket_color _ -> 50000
+    | Accent_bracket_color_opacity _ -> 50000
+    (* Caret comes after accent. Alphabetical: current, inherit, [colors],
+       transparent We use: - current: 60000 (c comes before colors, except
+       blue=60003) - inherit: 60000 + 9*1000 = 69000 (i comes after h, before
+       l=lime) - colors: 60000 + color_order * 1000 + shade (blue=3*1000,
+       red=15*1000) - transparent: 60000 + 25*1000 = 85000 (t comes after all
+       colors) Actually simpler: just use character-based ordering for special
+       keywords *)
+    | Caret (color, shade) ->
+        (* All caret colors use the same suborder (60000) to allow alphabetical
+           sorting, matching Tailwind v4 behavior. *)
+        let _ = (color, shade) in
+        60000
+    | Caret_opacity (color, shade, _) ->
+        let _ = (color, shade) in
+        60000
+    | Caret_current -> 60000
+    | Caret_current_opacity _ -> 60000
+    | Caret_inherit -> 60000
+    | Caret_transparent -> 60000
+    | Caret_bracket_color _ -> 60000
+    | Caret_bracket_color_opacity _ -> 60000
+    (* t -> after all colors (max=24) *)
+    (* Outline comes after caret. Use 70000 base. *)
+    | Outline (color, shade) ->
         let base =
           if is_base_color color then
             suborder_with_shade (color_to_string color)
@@ -1331,34 +2780,200 @@ module Handler = struct
             suborder_with_shade
               (color_to_string color ^ "-" ^ string_of_int shade)
         in
-        (* Accent comes after ALL text colors. Since text uses 20000 +
-           color*1000 and colors go up to ~25, max text suborder is ~45000. Use
-           50000 base to ensure accent always comes after text regardless of
-           color. *)
-        50000 + base
+        70000 + base
+    | Outline_opacity (color, shade, _) ->
+        let base =
+          if is_base_color color then
+            suborder_with_shade (color_to_string color)
+          else
+            suborder_with_shade
+              (color_to_string color ^ "-" ^ string_of_int shade)
+        in
+        70000 + base
+    | Outline_current ->
+        70000 + (4 * 1000) (* c -> between cyan(4) and emerald(5) *)
+    | Outline_current_opacity _ -> 70000 + (4 * 1000)
+    | Outline_inherit -> 70000 + (9 * 1000)
+    (* i -> between indigo(9) and lime(10) *)
+    | Outline_transparent -> 70000 + (22 * 1000)
+    (* t -> between teal and violet *)
+    | Outline_bracket_color _ -> 70000
+    | Outline_bracket_color_opacity _ -> 70000
+    | Outline_bracket_var _ -> 70000
+    | Outline_bracket_var_opacity _ -> 70000
+    | Outline_bracket_typed_var _ -> 70000
+    | Outline_bracket_typed_var_opacity _ -> 70000
+    (* Placeholder colors: 80000 base *)
+    | Placeholder _ -> 80000
+    | Placeholder_opacity _ -> 80000
+    | Placeholder_transparent -> 80000
+    | Placeholder_current -> 80000
+    | Placeholder_current_opacity _ -> 80000
+    | Placeholder_inherit -> 80000
+    | Placeholder_bracket_color _ -> 80000
+    | Placeholder_bracket_color_opacity _ -> 80000
+
+  (* Format opacity modifier for class names *)
+  let opacity_suffix = function
+    | No_opacity -> ""
+    | Opacity_percent p ->
+        if Float.is_integer p then "/" ^ pp_int (int_of_float p)
+        else "/" ^ pp_float p
+    | Opacity_bracket_percent p ->
+        if Float.is_integer p then "/[" ^ pp_int (int_of_float p) ^ "%]"
+        else "/[" ^ pp_float p ^ "%]"
+    | Opacity_arbitrary f -> "/[" ^ pp_float f ^ "]"
+    | Opacity_named name -> "/" ^ name
+    | Opacity_var v -> "/[" ^ v ^ "]"
 
   let to_class = function
     | Bg (c, shade) ->
         if is_base_color c || is_custom_color c then "bg-" ^ color_to_string c
         else "bg-" ^ color_to_string c ^ "-" ^ string_of_int shade
+    | Bg_opacity (c, shade, opacity) ->
+        if is_base_color c || is_custom_color c then
+          "bg-" ^ color_to_string c ^ opacity_suffix opacity
+        else
+          "bg-" ^ color_to_string c ^ "-" ^ string_of_int shade
+          ^ opacity_suffix opacity
     | Bg_transparent -> "bg-transparent"
     | Bg_current -> "bg-current"
+    | Bg_current_opacity opacity -> "bg-current" ^ opacity_suffix opacity
     | Text (c, shade) ->
         if is_base_color c || is_custom_color c then "text-" ^ color_to_string c
         else "text-" ^ color_to_string c ^ "-" ^ string_of_int shade
+    | Text_opacity (c, shade, opacity) ->
+        if is_base_color c || is_custom_color c then
+          "text-" ^ color_to_string c ^ opacity_suffix opacity
+        else
+          "text-" ^ color_to_string c ^ "-" ^ string_of_int shade
+          ^ opacity_suffix opacity
     | Text_transparent -> "text-transparent"
     | Text_current -> "text-current"
+    | Text_current_opacity opacity -> "text-current" ^ opacity_suffix opacity
     | Text_inherit -> "text-inherit"
+    | Text_bracket_color (v, _) -> "text-[" ^ v ^ "]"
+    | Text_bracket_color_opacity (v, _, opacity) ->
+        "text-[" ^ v ^ "]" ^ opacity_suffix opacity
+    | Text_bracket_var v -> "text-[" ^ v ^ "]"
+    | Text_bracket_var_opacity (v, opacity) ->
+        "text-[" ^ v ^ "]" ^ opacity_suffix opacity
+    | Text_bracket_typed_var v -> "text-[color:" ^ v ^ "]"
+    | Text_bracket_typed_var_opacity (v, opacity) ->
+        "text-[color:" ^ v ^ "]" ^ opacity_suffix opacity
     | Border (c, shade) ->
         if is_base_color c || is_custom_color c then
           "border-" ^ color_to_string c
         else "border-" ^ color_to_string c ^ "-" ^ string_of_int shade
+    | Border_opacity (c, shade, opacity) ->
+        if is_base_color c || is_custom_color c then
+          "border-" ^ color_to_string c ^ opacity_suffix opacity
+        else
+          "border-" ^ color_to_string c ^ "-" ^ string_of_int shade
+          ^ opacity_suffix opacity
     | Border_transparent -> "border-transparent"
     | Border_current -> "border-current"
+    | Border_current_opacity opacity ->
+        "border-current" ^ opacity_suffix opacity
+    | Border_bracket_color (v, _) -> "border-[" ^ v ^ "]"
+    | Border_side_color (side, value) ->
+        let s =
+          match side with
+          | Bs_t -> "t"
+          | Bs_r -> "r"
+          | Bs_b -> "b"
+          | Bs_l -> "l"
+          | Bs_x -> "x"
+        in
+        let v =
+          match value with
+          | Bsc_named (c, shade) ->
+              if is_base_color c || is_custom_color c then color_to_string c
+              else color_to_string c ^ "-" ^ string_of_int shade
+          | Bsc_bracket (orig, _) -> "[" ^ orig ^ "]"
+          | Bsc_transparent -> "transparent"
+          | Bsc_current -> "current"
+        in
+        "border-" ^ s ^ "-" ^ v
+    | Border_bracket_color_opacity (v, _, opacity) ->
+        "border-[" ^ v ^ "]" ^ opacity_suffix opacity
     | Accent (c, shade) ->
         if is_base_color c || is_custom_color c then
           "accent-" ^ color_to_string c
         else "accent-" ^ color_to_string c ^ "-" ^ string_of_int shade
+    | Accent_opacity (c, shade, opacity) ->
+        if is_base_color c || is_custom_color c then
+          "accent-" ^ color_to_string c ^ opacity_suffix opacity
+        else
+          "accent-" ^ color_to_string c ^ "-" ^ string_of_int shade
+          ^ opacity_suffix opacity
+    | Accent_transparent -> "accent-transparent"
+    | Accent_current -> "accent-current"
+    | Accent_current_opacity opacity ->
+        "accent-current" ^ opacity_suffix opacity
+    | Accent_inherit -> "accent-inherit"
+    | Accent_bracket_color (v, _) -> "accent-[" ^ v ^ "]"
+    | Accent_bracket_color_opacity (v, _, opacity) ->
+        "accent-[" ^ v ^ "]" ^ opacity_suffix opacity
+    | Caret (c, shade) ->
+        if is_base_color c || is_custom_color c then
+          "caret-" ^ color_to_string c
+        else "caret-" ^ color_to_string c ^ "-" ^ string_of_int shade
+    | Caret_opacity (c, shade, opacity) ->
+        if is_base_color c || is_custom_color c then
+          "caret-" ^ color_to_string c ^ opacity_suffix opacity
+        else
+          "caret-" ^ color_to_string c ^ "-" ^ string_of_int shade
+          ^ opacity_suffix opacity
+    | Caret_current -> "caret-current"
+    | Caret_current_opacity opacity -> "caret-current" ^ opacity_suffix opacity
+    | Caret_inherit -> "caret-inherit"
+    | Caret_transparent -> "caret-transparent"
+    | Caret_bracket_color (v, _) -> "caret-[" ^ v ^ "]"
+    | Caret_bracket_color_opacity (v, _, opacity) ->
+        "caret-[" ^ v ^ "]" ^ opacity_suffix opacity
+    | Outline (c, shade) ->
+        if is_base_color c || is_custom_color c then
+          "outline-" ^ color_to_string c
+        else "outline-" ^ color_to_string c ^ "-" ^ string_of_int shade
+    | Outline_opacity (c, shade, opacity) ->
+        if is_base_color c || is_custom_color c then
+          "outline-" ^ color_to_string c ^ opacity_suffix opacity
+        else
+          "outline-" ^ color_to_string c ^ "-" ^ string_of_int shade
+          ^ opacity_suffix opacity
+    | Outline_current -> "outline-current"
+    | Outline_current_opacity opacity ->
+        "outline-current" ^ opacity_suffix opacity
+    | Outline_inherit -> "outline-inherit"
+    | Outline_transparent -> "outline-transparent"
+    | Outline_bracket_color (v, _) -> "outline-[" ^ v ^ "]"
+    | Outline_bracket_color_opacity (v, _, opacity) ->
+        "outline-[" ^ v ^ "]" ^ opacity_suffix opacity
+    | Outline_bracket_var v -> "outline-[" ^ v ^ "]"
+    | Outline_bracket_var_opacity (v, opacity) ->
+        "outline-[" ^ v ^ "]" ^ opacity_suffix opacity
+    | Outline_bracket_typed_var v -> "outline-[color:" ^ v ^ "]"
+    | Outline_bracket_typed_var_opacity (v, opacity) ->
+        "outline-[color:" ^ v ^ "]" ^ opacity_suffix opacity
+    | Placeholder (c, shade) ->
+        if is_base_color c || is_custom_color c then
+          "placeholder-" ^ color_to_string c
+        else "placeholder-" ^ color_to_string c ^ "-" ^ string_of_int shade
+    | Placeholder_opacity (c, shade, opacity) ->
+        if is_base_color c || is_custom_color c then
+          "placeholder-" ^ color_to_string c ^ opacity_suffix opacity
+        else
+          "placeholder-" ^ color_to_string c ^ "-" ^ string_of_int shade
+          ^ opacity_suffix opacity
+    | Placeholder_transparent -> "placeholder-transparent"
+    | Placeholder_current -> "placeholder-current"
+    | Placeholder_current_opacity opacity ->
+        "placeholder-current" ^ opacity_suffix opacity
+    | Placeholder_inherit -> "placeholder-inherit"
+    | Placeholder_bracket_color (v, _) -> "placeholder-[" ^ v ^ "]"
+    | Placeholder_bracket_color_opacity (v, _, opacity) ->
+        "placeholder-[" ^ v ^ "]" ^ opacity_suffix opacity
 end
 
 open Handler
@@ -1366,12 +2981,350 @@ open Handler
 (** Register color handler with Utility system *)
 let () = Utility.register (module Handler)
 
+(** Re-export helper functions from Handler for use by other modules *)
+let scheme_color_name = Handler.scheme_color_name
+
+let property_color_var = Handler.property_color_var
+let property_color_value = Handler.property_color_value
+let opacity_to_percent = Handler.opacity_to_percent
+
+let pp_opacity = function
+  | No_opacity -> ""
+  | Opacity_percent pct ->
+      (* Handle both integer and decimal values *)
+      let rounded = Float.round pct in
+      if Float.equal pct rounded then string_of_int (int_of_float pct)
+      else Pp.float pct
+  | Opacity_bracket_percent pct ->
+      let rounded = Float.round pct in
+      if Float.equal pct rounded then
+        "[" ^ string_of_int (int_of_float pct) ^ "%]"
+      else "[" ^ Pp.float pct ^ "%]"
+  | Opacity_arbitrary f -> "[" ^ string_of_float f ^ "]"
+  | Opacity_named name -> name
+  | Opacity_var v -> "[" ^ v ^ "]"
+
+let shorten_hex_str = shorten_hex_str
+let bracket_color_to_custom = Handler.bracket_color_to_custom
+let css_color_to_hex = Handler.css_color_to_hex
+let parse_bracket_color = Handler.parse_bracket_color
+let round_n = round_n
+
+let hex_alpha_color ?theme c shade opacity =
+  let open Handler in
+  let percent = opacity_to_percent opacity in
+  let color_name = scheme_color_name c shade in
+  match Scheme.hex_color (resolve_scheme theme) color_name with
+  | Some hex_value -> Some (hex_with_alpha hex_value percent)
+  | None ->
+      (* Shadeless base colours (black/white) have no scheme entry but a known
+         hex, so an /opacity modifier still resolves to a colour. *)
+      if is_base_color c then
+        Some (hex_with_alpha (to_oklch_css c shade) percent)
+      else None
+
+let color_mix_supports_condition = Handler.color_mix_supports_condition
+
+(** {1 Color with Opacity Helpers}
+
+    Generic helpers for scheme-aware color generation with progressive
+    enhancement. These can be used by other modules (svg, divide) to avoid code
+    duplication. *)
+
+let custom_color_to_oklab c =
+  match c with
+  | Hex h -> (
+      match hex_to_rgb h with
+      | Some rgb -> rgb_to_oklab rgb
+      | None -> (0.0, 0.0, 0.0))
+  | Rgb { red; green; blue } -> rgb_to_oklab { r = red; g = green; b = blue }
+  | _ -> (0.0, 0.0, 0.0)
+
+let color_mix_supports ~decls =
+  Css.supports ~condition:color_mix_supports_condition
+    [ Css.rule ~selector:(Css.Selector.class_ "_") decls ]
+
+let color_mix_supports_stmts ~stmts =
+  Css.supports ~condition:color_mix_supports_condition stmts
+
+let oklab_with_supports ~property ~fallback_decl c shade percent =
+  let cvar = color_var c shade in
+  let color_value = to_css c (if is_base_color c then 500 else shade) in
+  let theme_decl, color_ref = Var.binding cvar color_value in
+  let oklab_color =
+    Css.color_mix ~in_space:Oklab (Css.Var color_ref) Css.Transparent
+      ~percent1:percent
+  in
+  let oklab_decl = property oklab_color in
+  let supports_block = color_mix_supports ~decls:[ theme_decl; oklab_decl ] in
+  Style.style ~rules:(Some [ supports_block ]) [ fallback_decl ]
+
+let generic_color_with_opacity ?theme ~property c shade opacity =
+  let open Handler in
+  let percent = opacity_to_percent opacity in
+  if is_custom_color c then
+    let ok_l, ok_a, ok_b = custom_color_to_oklab c in
+    let alpha = percent /. 100.0 in
+    let oklab_value = Css.oklaba ok_l ok_a ok_b alpha in
+    Style.style [ property oklab_value ]
+  else
+    let color_name = scheme_color_name c shade in
+    match Scheme.hex_color (resolve_scheme theme) color_name with
+    | Some hex_value ->
+        let fallback_decl =
+          property (Css.hex (hex_with_alpha hex_value percent))
+        in
+        oklab_with_supports ~property ~fallback_decl c shade percent
+    | None ->
+        let oklch = to_oklch c shade in
+        let fallback_color =
+          Css.color_mix ~in_space:Srgb
+            (Css.oklch oklch.l oklch.c oklch.h)
+            Css.Transparent ~percent1:percent
+        in
+        oklab_with_supports ~property ~fallback_decl:(property fallback_color) c
+          shade percent
+
+let generic_current_with_opacity ?merge_key ~fallback_decl ~property opacity =
+  let open Handler in
+  let percent = opacity_to_percent opacity in
+  let oklab_color =
+    Css.color_mix ~in_space:Oklab Css.Current Css.Transparent ~percent1:percent
+  in
+  let oklab_decl = property oklab_color in
+  let supports_block =
+    Css.supports ~condition:color_mix_supports_condition
+      [ Css.rule ~selector:(Css.Selector.class_ "_") [ oklab_decl ] ]
+  in
+  Style.style ?merge_key ~rules:(Some [ supports_block ]) [ fallback_decl ]
+
+(* Fill/stroke helpers for SVG utilities *)
+let fill_with_opacity ?theme c shade opacity =
+  generic_color_with_opacity ?theme
+    ~property:(fun color -> Css.fill (Css.Color color))
+    c shade opacity
+
+let stroke_with_opacity ?theme c shade opacity =
+  generic_color_with_opacity ?theme
+    ~property:(fun color -> Css.stroke (Css.Color color))
+    c shade opacity
+
+let fill_current_with_opacity opacity =
+  generic_current_with_opacity ~merge_key:"fill-current"
+    ~fallback_decl:(Css.fill Current_color)
+    ~property:(fun color -> Css.fill (Css.Color color))
+    opacity
+
+let stroke_current_with_opacity opacity =
+  generic_current_with_opacity ~merge_key:"stroke-current"
+    ~fallback_decl:(Css.stroke Current_color)
+    ~property:(fun color -> Css.stroke (Css.Color color))
+    opacity
+
+let divide_opacity_via_property ?theme ~selector c shade percent =
+  let cvar =
+    property_color_var ?theme ~property_prefix:"border-color" c shade
+  in
+  let color_value =
+    property_color_value ~property_prefix:"border-color" c shade
+  in
+  let hex_alpha =
+    let oklch = to_oklch c shade in
+    hex_with_alpha (rgb_to_hex (oklch_to_rgb oklch)) percent
+  in
+  let fallback_rule =
+    Css.rule ~selector [ Css.border_color (Css.hex hex_alpha) ]
+  in
+  let theme_decl, color_ref = Var.binding cvar color_value in
+  let oklab_color =
+    Css.color_mix ~in_space:Oklab (Css.Var color_ref) Css.Transparent
+      ~percent1:percent
+  in
+  let supports_rule =
+    Css.rule ~selector [ theme_decl; Css.border_color oklab_color ]
+  in
+  let supports_block = color_mix_supports_stmts ~stmts:[ supports_rule ] in
+  Style.style ~rules:(Some [ fallback_rule; supports_block ]) []
+
+let bg_opacity_via_property c shade percent =
+  let cvar = color_var c shade in
+  let color_value = to_css c (if is_base_color c then 500 else shade) in
+  let hex_alpha =
+    let oklch = to_oklch c shade in
+    hex_with_alpha (rgb_to_hex (oklch_to_rgb oklch)) percent
+  in
+  let fallback_decl = Css.background_color (Css.hex hex_alpha) in
+  let theme_decl, color_ref = Var.binding cvar color_value in
+  let oklab_decl =
+    Css.background_color
+      (Css.color_mix ~in_space:Oklab (Css.Var color_ref) Css.Transparent
+         ~percent1:percent)
+  in
+  let supports_block = color_mix_supports ~decls:[ theme_decl; oklab_decl ] in
+  Style.style ~rules:(Some [ supports_block ]) [ fallback_decl ]
+
+(* Divide helpers with custom selector *)
+let divide_with_opacity_selector ?theme ~selector c shade opacity =
+  let open Handler in
+  let percent = opacity_to_percent opacity in
+  if is_custom_color c then
+    let ok_l, ok_a, ok_b = custom_color_to_oklab c in
+    let alpha = percent /. 100.0 in
+    let oklab_value = Css.oklaba ok_l ok_a ok_b alpha in
+    let rule = Css.rule ~selector [ Css.border_color oklab_value ] in
+    Style.style ~rules:(Some [ rule ]) []
+  else
+    let color_name = scheme_color_name c shade in
+    match Scheme.hex_color (resolve_scheme theme) color_name with
+    | Some hex_value ->
+        let hex_alpha = hex_with_alpha hex_value percent in
+        let fallback_rule =
+          Css.rule ~selector [ Css.border_color (Css.hex hex_alpha) ]
+        in
+        let cvar = color_var c shade in
+        let _theme_decl, color_ref = Var.binding cvar (Css.hex hex_value) in
+        let oklab_color =
+          Css.color_mix ~in_space:Oklab (Css.Var color_ref) Css.Transparent
+            ~percent1:percent
+        in
+        let supports_rule =
+          Css.rule ~selector [ Css.border_color oklab_color ]
+        in
+        let supports_block =
+          color_mix_supports_stmts ~stmts:[ supports_rule ]
+        in
+        Style.style ~rules:(Some [ fallback_rule; supports_block ]) []
+    | None -> divide_opacity_via_property ?theme ~selector c shade percent
+
+let divide_with_opacity ?theme c shade opacity selector =
+  divide_with_opacity_selector ?theme ~selector c shade opacity
+
+let divide_current_with_opacity_selector ~selector opacity =
+  let open Handler in
+  let percent = opacity_to_percent opacity in
+  (* Fallback: just currentColor (browsers that don't support color-mix) *)
+  let fallback_rule = Css.rule ~selector [ Css.border_color Css.Current ] in
+  let oklab_color =
+    Css.color_mix ~in_space:Oklab Css.Current Css.Transparent ~percent1:percent
+  in
+  let supports_rule = Css.rule ~selector [ Css.border_color oklab_color ] in
+  let supports_block =
+    Css.supports ~condition:color_mix_supports_condition [ supports_rule ]
+  in
+  Style.style ~rules:(Some [ fallback_rule; supports_block ]) []
+
+let divide_current_with_opacity opacity selector =
+  divide_current_with_opacity_selector ~selector opacity
+
+(** Background color with opacity - scheme-aware. Uses hex+alpha fallback with
+    theme variable in [@supports] block. *)
+let bg_with_opacity ?theme c shade opacity =
+  let open Handler in
+  let percent = opacity_to_percent opacity in
+  if percent >= 100.0 then
+    (* 100% opacity = no transparency. Tailwind outputs the plain color var
+       reference, identical to the no-opacity case. *)
+    let cvar = color_var c shade in
+    let color_value = to_css c (if is_base_color c then 500 else shade) in
+    let _d, color_ref = Var.binding cvar color_value in
+    Style.style [ Css.background_color (Var color_ref) ]
+  else if is_custom_color c then
+    let ok_l, ok_a, ok_b = custom_color_to_oklab c in
+    let alpha = percent /. 100.0 in
+    let oklab_value = Css.oklaba_none_zeros ok_l ok_a ok_b alpha in
+    Style.style [ Css.background_color oklab_value ]
+  else
+    let color_name = scheme_color_name c shade in
+    match Scheme.hex_color (resolve_scheme theme) color_name with
+    | Some hex_value ->
+        let fallback_decl =
+          Css.background_color (Css.hex (hex_with_alpha hex_value percent))
+        in
+        let cvar = color_var c shade in
+        let theme_decl, color_ref = Var.binding cvar (Css.hex hex_value) in
+        let oklab_decl =
+          Css.background_color
+            (Css.color_mix ~in_space:Oklab (Css.Var color_ref) Css.Transparent
+               ~percent1:percent)
+        in
+        let supports_block = color_mix_supports ~decls:[ oklab_decl ] in
+        Style.style ~rules:(Some [ supports_block ])
+          [ theme_decl; fallback_decl ]
+    | None -> bg_opacity_via_property c shade percent
+
+(** Determine the appropriate fallback for an opacity theme variable. If the
+    theme defines a concrete value (e.g., "0.5"), use [Fallback (Num f)]. If the
+    theme defines a var reference (e.g., "var(--custom-opacity)"), use
+    [Var_fallback] with the inner var name. Otherwise fall back to the
+    conventional [name-opacity] pattern. *)
+let opacity_fallback_for_theme_value ?theme var_name bare :
+    Css.percentage Css.fallback =
+  match Scheme.theme_value theme var_name with
+  | Some value when String.length value > 4 && String.sub value 0 4 = "var(" ->
+      (* Theme value is a var reference like "var(--custom-opacity)" *)
+      let inner = String.sub value 4 (String.length value - 5) in
+      let name =
+        if String.length inner > 2 && String.sub inner 0 2 = "--" then
+          String.sub inner 2 (String.length inner - 2)
+        else inner
+      in
+      Css.Var_fallback name
+  | Some value -> (
+      match float_of_string_opt (String.trim value) with
+      | Some f -> Css.Fallback (Css.Num f)
+      | None -> Css.Var_fallback (bare ^ "-opacity"))
+  | None -> Css.Var_fallback (bare ^ "-opacity")
+
+(** Background currentColor with opacity *)
+let bg_current_with_opacity ?theme opacity =
+  let open Handler in
+  let fallback_decl = Css.background_color Css.Current in
+  let oklab_color =
+    match opacity with
+    | Opacity_named name ->
+        let bare = Parse.extract_var_name name in
+        let var_name = "opacity-" ^ bare in
+        let fallback = opacity_fallback_for_theme_value ?theme var_name bare in
+        Css.color_mix_var_pct_fallback ~in_space:Oklab ~var_name ~fallback
+          Css.Current Css.Transparent
+    | Opacity_var var_str ->
+        let bare = Parse.extract_var_name var_str in
+        Css.color_mix_var_percent ~in_space:Oklab ~var_name:bare Css.Current
+          Css.Transparent
+    | _ ->
+        let percent = opacity_to_percent opacity in
+        Css.color_mix ~in_space:Oklab Css.Current Css.Transparent
+          ~percent1:percent
+  in
+  let oklab_decl = Css.background_color oklab_color in
+  let supports_block =
+    Css.supports ~condition:color_mix_supports_condition
+      [ Css.rule ~selector:(Css.Selector.class_ "_") [ oklab_decl ] ]
+  in
+  Style.style ~rules:(Some [ supports_block ]) [ fallback_decl ]
+
 (** Public API *)
 let utility x = Utility.base (Self x)
 
-let bg color shade = utility (Bg (color, shade))
-let text color shade = utility (Text (color, shade))
-let border_color color shade = utility (Border (color, shade))
+let bg ?opacity ?(shade = 500) color =
+  match opacity with
+  | None -> utility (Bg (color, shade))
+  | Some pct ->
+      utility (Bg_opacity (color, shade, Opacity_percent (Float.of_int pct)))
+
+let text ?opacity ?(shade = 500) color =
+  match opacity with
+  | None -> utility (Text (color, shade))
+  | Some pct ->
+      utility (Text_opacity (color, shade, Opacity_percent (Float.of_int pct)))
+
+let border_color ?opacity ?(shade = 500) color =
+  match opacity with
+  | None -> utility (Border (color, shade))
+  | Some pct ->
+      utility
+        (Border_opacity (color, shade, Opacity_percent (Float.of_int pct)))
+
 let bg_transparent = utility Bg_transparent
 let bg_current = utility Bg_current
 let text_transparent = utility Text_transparent
@@ -1379,78 +3332,23 @@ let text_current = utility Text_current
 let text_inherit = utility Text_inherit
 let border_transparent = utility Border_transparent
 let border_current = utility Border_current
-let accent color shade = utility (Accent (color, shade))
 
-(* Convenient semantic wrappers for default 500 shade *)
-let bg_black = bg black 500
-let bg_white = bg white 500
-let bg_gray = bg gray 500
-let bg_slate = bg slate 500
-let bg_zinc = bg zinc 500
-let bg_neutral = bg neutral 500
-let bg_stone = bg stone 500
-let bg_red = bg red 500
-let bg_orange = bg orange 500
-let bg_amber = bg amber 500
-let bg_yellow = bg yellow 500
-let bg_lime = bg lime 500
-let bg_green = bg green 500
-let bg_emerald = bg emerald 500
-let bg_teal = bg teal 500
-let bg_cyan = bg cyan 500
-let bg_sky = bg sky 500
-let bg_blue = bg blue 500
-let bg_indigo = bg indigo 500
-let bg_violet = bg violet 500
-let bg_purple = bg purple 500
-let bg_fuchsia = bg fuchsia 500
-let bg_pink = bg pink 500
-let bg_rose = bg rose 500
-let text_black = text black 500
-let text_white = text white 500
-let text_gray = text gray 500
-let text_slate = text slate 500
-let text_zinc = text zinc 500
-let text_neutral = text neutral 500
-let text_stone = text stone 500
-let text_red = text red 500
-let text_orange = text orange 500
-let text_amber = text amber 500
-let text_yellow = text yellow 500
-let text_lime = text lime 500
-let text_green = text green 500
-let text_emerald = text emerald 500
-let text_teal = text teal 500
-let text_cyan = text cyan 500
-let text_sky = text sky 500
-let text_blue = text blue 500
-let text_indigo = text indigo 500
-let text_violet = text violet 500
-let text_purple = text purple 500
-let text_fuchsia = text fuchsia 500
-let text_pink = text pink 500
-let text_rose = text rose 500
-let border_black = border_color black 500
-let border_white = border_color white 500
-let border_gray = border_color gray 500
-let border_slate = border_color slate 500
-let border_zinc = border_color zinc 500
-let border_neutral = border_color neutral 500
-let border_stone = border_color stone 500
-let border_red = border_color red 500
-let border_orange = border_color orange 500
-let border_amber = border_color amber 500
-let border_yellow = border_color yellow 500
-let border_lime = border_color lime 500
-let border_green = border_color green 500
-let border_emerald = border_color emerald 500
-let border_teal = border_color teal 500
-let border_cyan = border_color cyan 500
-let border_sky = border_color sky 500
-let border_blue = border_color blue 500
-let border_indigo = border_color indigo 500
-let border_violet = border_color violet 500
-let border_purple = border_color purple 500
-let border_fuchsia = border_color fuchsia 500
-let border_pink = border_color pink 500
-let border_rose = border_color rose 500
+let accent ?opacity ?(shade = 500) color =
+  match opacity with
+  | None -> utility (Accent (color, shade))
+  | Some pct ->
+      utility
+        (Accent_opacity (color, shade, Opacity_percent (Float.of_int pct)))
+
+let accent_current = utility Accent_current
+let accent_inherit = utility Accent_inherit
+
+let caret ?opacity ?(shade = 500) color =
+  match opacity with
+  | None -> utility (Caret (color, shade))
+  | Some pct ->
+      utility (Caret_opacity (color, shade, Opacity_percent (Float.of_int pct)))
+
+let caret_current = utility Caret_current
+let caret_inherit = utility Caret_inherit
+let caret_transparent = utility Caret_transparent

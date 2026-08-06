@@ -1,4 +1,4 @@
-val suite : string * unit Alcotest.test_case list
-(** [suite] test suite. *)
+(** Tests for the typography module. *)
 
-val all_utilities : unit -> Tw.t list
+val suite : string * unit Alcotest.test_case list
+(** [suite] is the test suite. *)

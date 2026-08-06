@@ -1,5 +1,7 @@
 (** Field sizing utilities *)
 
+module Css = Cascade.Css
+
 module Handler = struct
   open Style
   open Css
@@ -8,19 +10,19 @@ module Handler = struct
   type Utility.base += Self of t
 
   let name = "field_sizing"
-  let priority = 2
+  let priority _ = 2
   let suborder = function Content -> 0 | Fixed -> 1
 
   let to_class = function
     | Content -> "field-sizing-content"
     | Fixed -> "field-sizing-fixed"
 
-  let to_style = function
+  let to_style _theme = function
     | Content -> style [ field_sizing Content ]
     | Fixed -> style [ field_sizing Fixed ]
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "field"; "sizing"; "content" ] -> Ok Content
     | [ "field"; "sizing"; "fixed" ] -> Ok Fixed

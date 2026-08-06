@@ -12,6 +12,8 @@
       ["snap"; "x"], ["resize"; "y"], etc. Unknown tokens yield `Error (`Msg
       "Not an interactivity utility")`. *)
 
+module Css = Cascade.Css
+
 module Handler = struct
   open Style
   open Css
@@ -49,13 +51,31 @@ module Handler = struct
     | Will_change_scroll
     | Will_change_contents
     | Will_change_transform
+    | Will_change_arbitrary of string
     | Group  (** Marker class for group parent *)
     | Peer  (** Marker class for peer sibling *)
+    | Scheme_dark
+    | Scheme_light
+    | Scheme_light_dark
+    | Scheme_normal
+    | Scheme_only_dark
+    | Scheme_only_light
 
   type Utility.base += Self of t
 
   let name = "interactivity"
-  let priority = 29
+
+  (* Most interactivity utilities (user-select, will-change, scroll-snap, ...)
+     sort late (priority 31). resize (canonical rank 47) and appearance (rank
+     49) belong right after cursor (priority 11), around list-style (rank 48);
+     they return priority 11 with a suborder above cursor's range (<1000),
+     leaving a gap for list-style at ~2M. *)
+  let priority = function
+    | Resize | Resize_none | Resize_x | Resize_y | Appearance_auto
+    | Appearance_none ->
+        11
+    | _ -> 31
+
   let select_none_s = style [ webkit_user_select None; user_select None ]
   let select_text_s = style [ webkit_user_select Text; user_select Text ]
   let select_all_s = style [ webkit_user_select All; user_select All ]
@@ -142,8 +162,14 @@ module Handler = struct
   let will_change_transform_s = style [ will_change Css.Transform ]
   let group_s = style []
   let peer_s = style []
+  let scheme_dark_s = style [ color_scheme Dark ]
+  let scheme_light_s = style [ color_scheme Light ]
+  let scheme_light_dark_s = style [ color_scheme Light_dark ]
+  let scheme_normal_s = style [ color_scheme Normal ]
+  let scheme_only_dark_s = style [ color_scheme Only_dark ]
+  let scheme_only_light_s = style [ color_scheme Only_light ]
 
-  let to_style = function
+  let to_style _theme = function
     | Select_none -> select_none_s
     | Select_text -> select_text_s
     | Select_all -> select_all_s
@@ -174,8 +200,22 @@ module Handler = struct
     | Will_change_scroll -> will_change_scroll_s
     | Will_change_contents -> will_change_contents_s
     | Will_change_transform -> will_change_transform_s
+    | Will_change_arbitrary s ->
+        if Parse.is_var s then
+          let bare_name = Parse.extract_var_name s in
+          style [ will_change (Var (Var.bracket bare_name)) ]
+        else
+          let raw = String.map (fun c -> if c = '_' then ' ' else c) s in
+          let props = String.split_on_char ',' raw |> List.map String.trim in
+          style [ will_change (Properties props) ]
     | Group -> group_s
     | Peer -> peer_s
+    | Scheme_dark -> scheme_dark_s
+    | Scheme_light -> scheme_light_s
+    | Scheme_light_dark -> scheme_light_dark_s
+    | Scheme_normal -> scheme_normal_s
+    | Scheme_only_dark -> scheme_only_dark_s
+    | Scheme_only_light -> scheme_only_light_s
 
   let suborder = function
     (* Alphabetical order: scroll before select *)
@@ -197,23 +237,32 @@ module Handler = struct
     | Snap_start -> 19
     | Snap_x -> 20
     | Snap_y -> 21
-    | Resize -> 22
-    | Resize_none -> 23
-    | Resize_x -> 24
-    | Resize_y -> 25
+    (* resize (priority 11) - after cursor (<1000), before list-style (~2M) *)
+    | Resize -> 1_000_000 + 22
+    | Resize_none -> 1_000_000 + 23
+    | Resize_x -> 1_000_000 + 24
+    | Resize_y -> 1_000_000 + 25
     | Pointer_events_auto -> 26
     | Pointer_events_none -> 27
-    | Appearance_auto -> 28
-    | Appearance_none -> 29
+    (* appearance (priority 11) - after list-style (~2M) *)
+    | Appearance_auto -> 3_000_000 + 28
+    | Appearance_none -> 3_000_000 + 29
     | Will_change_auto -> 31
     | Will_change_contents -> 32
     | Will_change_scroll -> 33
     | Will_change_transform -> 34
+    | Will_change_arbitrary _ -> 30
     | Group -> 35
     | Peer -> 36
+    | Scheme_dark -> 40
+    | Scheme_light -> 41
+    | Scheme_light_dark -> 42
+    | Scheme_normal -> 43
+    | Scheme_only_dark -> 44
+    | Scheme_only_light -> 45
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "select"; "none" ] -> Ok Select_none
     | [ "select"; "text" ] -> Ok Select_text
@@ -245,8 +294,16 @@ module Handler = struct
     | [ "will"; "change"; "scroll" ] -> Ok Will_change_scroll
     | [ "will"; "change"; "contents" ] -> Ok Will_change_contents
     | [ "will"; "change"; "transform" ] -> Ok Will_change_transform
+    | [ "will"; "change"; value ] when Parse.is_bracket_value value ->
+        Ok (Will_change_arbitrary (Parse.bracket_inner value))
     | [ "group" ] -> Ok Group
     | [ "peer" ] -> Ok Peer
+    | [ "scheme"; "dark" ] -> Ok Scheme_dark
+    | [ "scheme"; "light" ] -> Ok Scheme_light
+    | [ "scheme"; "light"; "dark" ] -> Ok Scheme_light_dark
+    | [ "scheme"; "normal" ] -> Ok Scheme_normal
+    | [ "scheme"; "only"; "dark" ] -> Ok Scheme_only_dark
+    | [ "scheme"; "only"; "light" ] -> Ok Scheme_only_light
     | _ -> err_not_utility
 
   let to_class = function
@@ -280,8 +337,15 @@ module Handler = struct
     | Will_change_scroll -> "will-change-scroll"
     | Will_change_contents -> "will-change-contents"
     | Will_change_transform -> "will-change-transform"
+    | Will_change_arbitrary s -> "will-change-[" ^ s ^ "]"
     | Group -> "group"
     | Peer -> "peer"
+    | Scheme_dark -> "scheme-dark"
+    | Scheme_light -> "scheme-light"
+    | Scheme_light_dark -> "scheme-light-dark"
+    | Scheme_normal -> "scheme-normal"
+    | Scheme_only_dark -> "scheme-only-dark"
+    | Scheme_only_light -> "scheme-only-light"
 end
 
 open Handler
@@ -320,3 +384,9 @@ let will_change_contents = utility Will_change_contents
 let will_change_transform = utility Will_change_transform
 let group = utility Group
 let peer = utility Peer
+let scheme_dark = utility Scheme_dark
+let scheme_light = utility Scheme_light
+let scheme_light_dark = utility Scheme_light_dark
+let scheme_normal = utility Scheme_normal
+let scheme_only_dark = utility Scheme_only_dark
+let scheme_only_light = utility Scheme_only_light

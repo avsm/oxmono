@@ -5,6 +5,8 @@
     - `wrap-break-word` - Break words to prevent overflow.
     - `wrap-anywhere` - Break at any character to prevent overflow. *)
 
+module Css = Cascade.Css
+
 module Handler = struct
   open Style
   open Css
@@ -15,7 +17,7 @@ module Handler = struct
   let name = "overflow_wrap"
 
   (* Typography-adjacent priority *)
-  let priority = 10
+  let priority _ = 13
   let suborder = function Anywhere -> 0 | Break_word -> 1 | Normal -> 2
 
   let to_class = function
@@ -23,13 +25,13 @@ module Handler = struct
     | Break_word -> "wrap-break-word"
     | Anywhere -> "wrap-anywhere"
 
-  let to_style = function
+  let to_style _theme = function
     | Normal -> style [ overflow_wrap Normal ]
     | Break_word -> style [ overflow_wrap Break_word ]
     | Anywhere -> style [ overflow_wrap Anywhere ]
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "wrap"; "normal" ] -> Ok Normal
     | [ "wrap"; "break"; "word" ] -> Ok Break_word

@@ -1,181 +1,404 @@
 (** Gap and space-between utilities. *)
 
+module Css = Cascade.Css
+
 module Handler = struct
   open Style
   open Css
 
+  type gap_value =
+    | Standard of spacing
+    | Arbitrary of Css.length (* gap-[4px] *)
+    | Arbitrary_var of string (* gap-[var(--value)] *)
+
   type t =
-    | Gap of { axis : [ `All | `X | `Y ]; value : spacing }
+    | Gap of { axis : [ `All | `X | `Y ]; value : gap_value }
     | Space of { negative : bool; axis : [ `X | `Y ]; value : spacing }
+    | Space_arb of { axis : [ `X | `Y ]; value : Css.length; raw : string }
+      (* [raw] is the original bracketed token (e.g. "[-0]"), kept verbatim for
+         the class name since [value] normalises away signed zero. *)
+    | Space_x_reverse
+    | Space_y_reverse
 
   type Utility.base += Self of t
 
   let name = "gap"
-  let priority = 17
+  let priority _ = 17
 
-  (** Space-y reverse variable for flex-row-reverse support. Property order -1
-      ensures this comes FIRST in {i \@layer properties} (Tailwind places it
-      before --tw-border-style). *)
+  (* Space reverse variables for flex-reverse support. Property order 2/3 places
+     these after the transform group but before --tw-divide-*-reverse (4/5) and
+     --tw-border-style (6), matching Tailwind's @layer properties order. Like
+     divide, they must use ~family:`Border so they sort with that group by
+     property_order rather than being pushed to family-order. *)
+  let space_x_reverse_var =
+    Var.property_default Css.Number_percentage ~initial:(Css.Num 0.0)
+      ~property_order:2 ~family:`Border "tw-space-x-reverse"
+
   let space_y_reverse_var =
     Var.property_default Css.Number_percentage ~initial:(Css.Num 0.0)
-      ~property_order:(-1) "tw-space-y-reverse"
-
-  (* TODO: Space-x reverse variable for flex-col-reverse support let
-     space_x_reverse_var = Var.property_default Css.Float ~initial:0.0
-     ~property_order:25 "tw-space-x-reverse" *)
+      ~property_order:3 ~family:`Border "tw-space-y-reverse"
 
   (** {2 Typed Gap Utilities} *)
 
-  let gap (s : spacing) =
-    let spacing_decl, spacing_ref =
-      Var.binding Spacing.spacing_var (Rem 0.25)
-    in
-    let len = Spacing.to_length spacing_ref s in
-    let gap_value = { row_gap = Some len; column_gap = Some len } in
+  (** Convert spacing to (declaration, length) using Theme.spacing_calc_float.
+  *)
+  let spacing_to_decl_len ?theme (s : spacing) : Css.declaration option * length
+      =
     match s with
-    | `Rem _ -> style [ spacing_decl; gap gap_value ]
-    | _ -> style [ gap gap_value ]
+    | `Px ->
+        let len : length = Px 1. in
+        let decl, _ = Var.binding Spacing.var (Rem 0.25) in
+        (Some decl, len)
+    | `Full ->
+        let len : length = Pct 100. in
+        let decl, _ = Var.binding Spacing.var (Rem 0.25) in
+        (Some decl, len)
+    | `Named name ->
+        let len = Spacing.named_spacing_ref name in
+        (None, len)
+    | `Rem f ->
+        let n = f /. 0.25 in
+        let decl, len = Theme.spacing_calc_float ?theme n in
+        (Some decl, len)
 
-  let gap_x (s : spacing) =
-    let spacing_decl, spacing_ref =
-      Var.binding Spacing.spacing_var (Rem 0.25)
-    in
-    let len = Spacing.to_length spacing_ref s in
-    match s with
-    | `Rem _ -> style [ spacing_decl; column_gap len ]
-    | _ -> style [ column_gap len ]
+  let gap_standard ?theme (s : spacing) =
+    let decl, len = spacing_to_decl_len ?theme s in
+    let gap_value = Lengths { row_gap = Some len; column_gap = Some len } in
+    style (Option.to_list decl @ [ gap gap_value ])
 
-  let gap_y (s : spacing) =
-    let spacing_decl, spacing_ref =
-      Var.binding Spacing.spacing_var (Rem 0.25)
-    in
-    let len = Spacing.to_length spacing_ref s in
-    match s with
-    | `Rem _ -> style [ spacing_decl; row_gap len ]
-    | _ -> style [ row_gap len ]
+  let gap_x_standard ?theme (s : spacing) =
+    let decl, len = spacing_to_decl_len ?theme s in
+    style (Option.to_list decl @ [ column_gap len ])
+
+  let gap_y_standard ?theme (s : spacing) =
+    let decl, len = spacing_to_decl_len ?theme s in
+    style (Option.to_list decl @ [ row_gap len ])
+
+  let gap_arb len =
+    let gap_value = Lengths { row_gap = Some len; column_gap = Some len } in
+    style [ gap gap_value ]
+
+  let gap_x_arb len = style [ column_gap len ]
+  let gap_y_arb len = style [ row_gap len ]
+
+  let gap_var_ref var_str : Css.length =
+    let bare_name = Parse.extract_var_name var_str in
+    Css.Var (Var.bracket bare_name)
+
+  let gap_value ?theme axis (v : gap_value) =
+    match v with
+    | Standard s -> (
+        match axis with
+        | `All -> gap_standard ?theme s
+        | `X -> gap_x_standard ?theme s
+        | `Y -> gap_y_standard ?theme s)
+    | Arbitrary len -> (
+        match axis with
+        | `All -> gap_arb len
+        | `X -> gap_x_arb len
+        | `Y -> gap_y_arb len)
+    | Arbitrary_var var_str -> (
+        let len = gap_var_ref var_str in
+        match axis with
+        | `All -> gap_arb len
+        | `X -> gap_x_arb len
+        | `Y -> gap_y_arb len)
 
   (** {2 Space Between Utilities} *)
 
-  let space_x n =
-    let s = Spacing.int n in
-    match s with
-    | `Rem _ ->
-        let decl, spacing_ref = Var.binding Spacing.spacing_var (Rem 0.25) in
-        let n_units =
-          int_of_float ((match s with `Rem f -> f | _ -> 0.) /. 0.25)
-        in
-        let len : Css.length =
-          Calc
-            Calc.(mul (length (Var spacing_ref)) (float (float_of_int n_units)))
-        in
-        style (decl :: [ margin_left len ])
-    | `Px -> style [ margin_left (Px 1.) ]
-    | `Full -> style [ margin_left (Pct 100.0) ]
+  (* Build margin calc expressions for space utilities. The negative sign is
+     already folded into [spacing_len] (calc(var(--spacing) * -n)), so the
+     reverse mechanism just wraps it once, matching Tailwind. *)
+  let space_margin_calcs ~spacing_len ~reverse_var_name =
+    let base = Css.Calc.length spacing_len in
+    (* Wrap sub-expression as an explicit calc() call, matching Tailwind's
+       output: calc(... * calc(1 - var(--tw-space-y-reverse))) *)
+    let one_minus_reverse =
+      Css.Calc.length
+        (Css.Calc
+           (Css.Calc.sub (Css.Calc.float 1.0) (Css.Calc.var reverse_var_name)))
+    in
+    let start_expr = Css.Calc.(mul base (var reverse_var_name)) in
+    let end_expr = Css.Calc.(mul base one_minus_reverse) in
+    ((Css.Calc start_expr : Css.length), (Css.Calc end_expr : Css.length))
 
-  let space_y n =
-    let s = Spacing.int n in
-    let class_name = "space-y-" ^ string_of_int (abs n) in
-    (* Tailwind v4 minified output uses flat selector: :where(.space-y-N >
-       :not(:last-child)) This matches exactly what Tailwind's minifier
-       produces. *)
+  let space_x ?theme n =
+    (* [Float.sign_bit] (not [n < 0.0]) so negative zero keeps its sign: the
+       class [-space-x-0] must render [.-space-x-0], distinct from [.space-x-0],
+       even though the value collapses to the same [margin-inline: 0]. *)
+    let negative = Float.sign_bit n in
+    let abs_n = Float.abs n in
+    let class_name =
+      (if negative then "-space-x-" else "space-x-")
+      ^ Spacing.pp_spacing_suffix (`Rem (abs_n *. 0.25))
+    in
     let selector =
       Css.Selector.(where [ class_ class_name >> not [ Last_child ] ])
     in
-    match s with
-    | `Rem _ ->
-        let _spacing_decl, spacing_ref =
-          Var.binding Spacing.spacing_var (Rem 0.25)
-        in
-        let n_units =
-          int_of_float ((match s with `Rem f -> f | _ -> 0.) /. 0.25)
-        in
-        (* Create reverse_decl and reverse_ref for the --tw-space-y-reverse
-           var *)
-        let reverse_decl, reverse_ref =
-          Var.binding space_y_reverse_var (Css.Num 0.0)
-        in
-        (* margin-block-start = calc(calc(var(--spacing) * N) *
-           var(--tw-space-y-reverse)) - matches Tailwind's nested calc format *)
-        let reverse_var_name = Css.var_name reverse_ref in
-        let spacing_times_n =
-          Calc.(mul (length (Var spacing_ref)) (float (float_of_int n_units)))
-        in
-        let margin_start : Css.length =
-          Calc Calc.(mul (nested spacing_times_n) (var reverse_var_name))
-        in
-        (* margin-block-end = calc(calc(var(--spacing) * N) * calc(1 -
-           var(--tw-space-y-reverse))) - matches Tailwind's format *)
-        let margin_end : Css.length =
-          Calc
-            Calc.(
-              mul (nested spacing_times_n)
-                (nested (sub (float 1.0) (var reverse_var_name))))
-        in
-        let property_rules =
-          [ Var.property_rule space_y_reverse_var ] |> List.filter_map Fun.id
-        in
-        let rule =
-          Css.rule ~selector
-            [
-              reverse_decl;
-              margin_block_start margin_start;
-              margin_block_end margin_end;
-            ]
-        in
-        style ~rules:(Some [ rule ])
-          ~property_rules:(Css.concat property_rules)
-          []
-    | `Px ->
-        let rule =
-          Css.rule ~selector
-            [ margin_block_start (Px 1.); margin_block_end Zero ]
-        in
-        style ~rules:(Some [ rule ]) []
-    | `Full ->
-        let rule =
-          Css.rule ~selector
-            [ margin_block_start (Pct 100.0); margin_block_end Zero ]
-        in
-        style ~rules:(Some [ rule ]) []
+    let spacing_decl, spacing_len = Theme.spacing_calc_float ?theme n in
+    let reverse_decl, reverse_ref =
+      Var.binding space_x_reverse_var (Css.Num 0.0)
+    in
+    let reverse_var_name = Css.var_name reverse_ref in
+    let margin_start, margin_end =
+      space_margin_calcs ~spacing_len ~reverse_var_name
+    in
+    let property_rules =
+      [ Var.property_rule space_x_reverse_var ] |> List.filter_map Fun.id
+    in
+    let rule =
+      Css.rule ~selector
+        [
+          spacing_decl;
+          reverse_decl;
+          margin_inline_start margin_start;
+          margin_inline_end margin_end;
+        ]
+    in
+    style ~rules:(Some [ rule ]) ~property_rules:(Css.concat property_rules) []
 
+  (* space-x-px / space-y-px: the gap is a literal 1px (not a spacing multiple),
+     so there is no --spacing declaration; the reverse mechanism wraps ±1px
+     directly, matching Tailwind. *)
+  let space_px ~axis ~negative
+      (reverse_var : Css.number_percentage Var.property_default)
+      ~margin_start_decl ~margin_end_decl =
+    let axis_str = match axis with `X -> "x" | `Y -> "y" in
+    let class_name =
+      (if negative then "-space-" else "space-") ^ axis_str ^ "-px"
+    in
+    let selector =
+      Css.Selector.(where [ class_ class_name >> not [ Last_child ] ])
+    in
+    let spacing_len : length = if negative then Px (-1.) else Px 1. in
+    let reverse_decl, reverse_ref = Var.binding reverse_var (Css.Num 0.0) in
+    let reverse_var_name = Css.var_name reverse_ref in
+    let margin_start, margin_end =
+      space_margin_calcs ~spacing_len ~reverse_var_name
+    in
+    let property_rules =
+      [ Var.property_rule reverse_var ] |> List.filter_map Fun.id
+    in
+    let rule =
+      Css.rule ~selector
+        [
+          reverse_decl;
+          margin_start_decl margin_start;
+          margin_end_decl margin_end;
+        ]
+    in
+    style ~rules:(Some [ rule ]) ~property_rules:(Css.concat property_rules) []
+
+  let space_y ?theme n =
+    (* See [space_x]: negative zero ([-space-y-0]) must keep its sign. *)
+    let negative = Float.sign_bit n in
+    let abs_n = Float.abs n in
+    let class_name =
+      (if negative then "-space-y-" else "space-y-")
+      ^ Spacing.pp_spacing_suffix (`Rem (abs_n *. 0.25))
+    in
+    let selector =
+      Css.Selector.(where [ class_ class_name >> not [ Last_child ] ])
+    in
+    let spacing_decl, spacing_len = Theme.spacing_calc_float ?theme n in
+    let reverse_decl, reverse_ref =
+      Var.binding space_y_reverse_var (Css.Num 0.0)
+    in
+    let reverse_var_name = Css.var_name reverse_ref in
+    let margin_start, margin_end =
+      space_margin_calcs ~spacing_len ~reverse_var_name
+    in
+    let property_rules =
+      [ Var.property_rule space_y_reverse_var ] |> List.filter_map Fun.id
+    in
+    let rule =
+      Css.rule ~selector
+        [
+          spacing_decl;
+          reverse_decl;
+          margin_block_start margin_start;
+          margin_block_end margin_end;
+        ]
+    in
+    style ~rules:(Some [ rule ]) ~property_rules:(Css.concat property_rules) []
+
+  (* Bracket arbitrary space: space-x-[4px], space-y-[10rem] *)
+  let space_arb_x (len : Css.length) class_name =
+    let selector =
+      Css.Selector.(where [ class_ class_name >> not [ Last_child ] ])
+    in
+    let reverse_decl, reverse_ref =
+      Var.binding space_x_reverse_var (Css.Num 0.0)
+    in
+    let reverse_var_name = Css.var_name reverse_ref in
+    let margin_start : Css.length =
+      Calc Calc.(mul (length len) (var reverse_var_name))
+    in
+    let margin_end : Css.length =
+      Calc
+        Calc.(
+          mul (length len) (nested (sub (float 1.0) (var reverse_var_name))))
+    in
+    let property_rules =
+      [ Var.property_rule space_x_reverse_var ] |> List.filter_map Fun.id
+    in
+    let rule =
+      Css.rule ~selector
+        [
+          reverse_decl;
+          margin_inline_start margin_start;
+          margin_inline_end margin_end;
+        ]
+    in
+    style ~rules:(Some [ rule ]) ~property_rules:(Css.concat property_rules) []
+
+  let space_arb_y (len : Css.length) class_name =
+    let selector =
+      Css.Selector.(where [ class_ class_name >> not [ Last_child ] ])
+    in
+    let reverse_decl, reverse_ref =
+      Var.binding space_y_reverse_var (Css.Num 0.0)
+    in
+    let reverse_var_name = Css.var_name reverse_ref in
+    let margin_start : Css.length =
+      Calc Calc.(mul (length len) (var reverse_var_name))
+    in
+    let margin_end : Css.length =
+      Calc
+        Calc.(
+          mul (length len) (nested (sub (float 1.0) (var reverse_var_name))))
+    in
+    let property_rules =
+      [ Var.property_rule space_y_reverse_var ] |> List.filter_map Fun.id
+    in
+    let rule =
+      Css.rule ~selector
+        [
+          reverse_decl;
+          margin_block_start margin_start;
+          margin_block_end margin_end;
+        ]
+    in
+    style ~rules:(Some [ rule ]) ~property_rules:(Css.concat property_rules) []
+
+  (* Relative value order within one axis: px, then the rem scale ascending (max
+     ~960 at gap-96), then full and named. Kept compact so a whole axis fits in
+     a band well under 10000. *)
   let spacing_value_order = function
     | `Px -> 1
-    | `Full -> 10000
-    | `Rem f ->
-        let units = f /. 0.25 in
-        int_of_float (units *. 10.)
+    | `Rem f -> int_of_float (f /. 0.25 *. 10.)
+    | `Full -> 1000
+    | `Named _ -> 1100
 
-  let to_style t =
+  (* space-x-reverse utility sets --tw-space-x-reverse: 1 on children *)
+  let space_x_reverse_style () =
+    let selector =
+      Css.Selector.(where [ class_ "space-x-reverse" >> not [ Last_child ] ])
+    in
+    let decl, _ = Var.binding space_x_reverse_var (Css.Num 1.0) in
+    let property_rules =
+      [ Var.property_rule space_x_reverse_var ] |> List.filter_map Fun.id
+    in
+    let rule = Css.rule ~selector [ decl ] in
+    style ~rules:(Some [ rule ]) ~property_rules:(Css.concat property_rules) []
+
+  (* space-y-reverse utility sets --tw-space-y-reverse: 1 on children *)
+  let space_y_reverse_style () =
+    let selector =
+      Css.Selector.(where [ class_ "space-y-reverse" >> not [ Last_child ] ])
+    in
+    let decl, _ = Var.binding space_y_reverse_var (Css.Num 1.0) in
+    let property_rules =
+      [ Var.property_rule space_y_reverse_var ] |> List.filter_map Fun.id
+    in
+    let rule = Css.rule ~selector [ decl ] in
+    style ~rules:(Some [ rule ]) ~property_rules:(Css.concat property_rules) []
+
+  let pp_float n =
+    let s = string_of_float n in
+    if String.ends_with ~suffix:"." s then String.sub s 0 (String.length s - 1)
+    else s
+
+  let to_style theme t =
+    let gap_value axis value = gap_value ~theme axis value in
+    let space_x n = space_x ~theme n in
+    let space_y n = space_y ~theme n in
     match t with
-    | Gap { axis; value } -> (
+    | Gap { axis; value } -> gap_value axis value
+    | Space { negative; axis; value = `Px } -> (
         match axis with
-        | `All -> gap value
-        | `X -> gap_x value
-        | `Y -> gap_y value)
+        | `X ->
+            space_px ~axis:`X ~negative space_x_reverse_var
+              ~margin_start_decl:margin_inline_start
+              ~margin_end_decl:margin_inline_end
+        | `Y ->
+            space_px ~axis:`Y ~negative space_y_reverse_var
+              ~margin_start_decl:margin_block_start
+              ~margin_end_decl:margin_block_end)
     | Space { negative; axis; value } -> (
         let n =
           match value with
-          | `Rem f -> int_of_float (f /. 0.25)
-          | `Px -> 0
-          | `Full -> 0
+          | `Rem f -> f /. 0.25
+          | `Px -> 0.0
+          | `Full -> 0.0
+          | `Named _ -> 0.0
         in
-        let n = if negative then -n else n in
+        let n = if negative then -.n else n in
         match axis with `X -> space_x n | `Y -> space_y n)
+    | Space_arb { axis; value; raw } -> (
+        let class_name =
+          match axis with `X -> "space-x-" ^ raw | `Y -> "space-y-" ^ raw
+        in
+        match axis with
+        | `X -> space_arb_x value class_name
+        | `Y -> space_arb_y value class_name)
+    | Space_x_reverse -> space_x_reverse_style ()
+    | Space_y_reverse -> space_y_reverse_style ()
+
+  let gap_value_order = function
+    | Standard s -> spacing_value_order s
+    | Arbitrary _ -> 2000
+    | Arbitrary_var _ -> 2100
+
+  (* gap and space share priority 17 with the alignment utilities. Tailwind
+     emits them in CSS-property registration order, which interleaves the two
+     families between justify-items and place-self: gap (all) -> margin-block
+     (space-y) -> column-gap (gap-x) -> margin-inline (space-x) -> row-gap
+     (gap-y) Each property gets a 10000-wide band starting at 1000 (above
+     justify-items at <=75, below place-self at 76000); values sort within the
+     band. *)
+  let gap_rank = function `All -> 0 | `X -> 2 | `Y -> 4
+  let space_rank = function `Y -> 1 | `X -> 3
+  let band r = 1000 + (r * 10000)
+
+  (* Within a space band: negatives (ascending magnitude) come first, then
+     positive standards, then arbitrary (3000) and reverse (3100). *)
+  let space_value_order ~negative value =
+    if negative then spacing_value_order value
+    else 1500 + spacing_value_order value
 
   let suborder = function
-    | Gap { axis; value } ->
-        let axis_offset =
-          match axis with `All -> 0 | `X -> 20000 | `Y -> 40000
-        in
-        25000 + axis_offset + spacing_value_order value
+    | Gap { axis; value } -> band (gap_rank axis) + gap_value_order value
     | Space { negative; axis; value } ->
-        let neg_offset = if negative then 100000 else 0 in
-        let axis_offset = match axis with `X -> 0 | `Y -> 10000 in
-        20000 + neg_offset + axis_offset + spacing_value_order value
+        band (space_rank axis) + space_value_order ~negative value
+    | Space_arb { axis; _ } -> band (space_rank axis) + 3000
+    | Space_x_reverse -> band (space_rank `X) + 3100
+    | Space_y_reverse -> band (space_rank `Y) + 3100
+
+  let pp_gap_value_suffix = function
+    | Standard s -> Spacing.pp_spacing_suffix s
+    | Arbitrary len -> (
+        match len with
+        | Zero -> "[0]"
+        | Px n -> "[" ^ pp_float n ^ "px]"
+        | Rem n -> "[" ^ pp_float n ^ "rem]"
+        | Pct n -> "[" ^ pp_float n ^ "%]"
+        | _ -> "[<length>]")
+    | Arbitrary_var s -> "[" ^ s ^ "]"
 
   let to_class = function
     | Gap { axis; value } -> (
-        let suffix = Spacing.pp_spacing_suffix value in
+        let suffix = pp_gap_value_suffix value in
         match axis with
         | `All -> "gap-" ^ suffix
         | `X -> "gap-x-" ^ suffix
@@ -186,77 +409,117 @@ module Handler = struct
         match axis with
         | `X -> prefix ^ "space-x-" ^ suffix
         | `Y -> prefix ^ "space-y-" ^ suffix)
+    | Space_arb { axis; raw; _ } -> (
+        match axis with `X -> "space-x-" ^ raw | `Y -> "space-y-" ^ raw)
+    | Space_x_reverse -> "space-x-reverse"
+    | Space_y_reverse -> "space-y-reverse"
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let parse_gap_arbitrary s : gap_value option =
+    let len = String.length s in
+    if len > 2 && s.[0] = '[' && s.[len - 1] = ']' then
+      let inner = String.sub s 1 (len - 2) in
+      if Parse.is_var inner then Some (Arbitrary_var inner)
+      else if String.ends_with ~suffix:"px" inner then
+        let n = String.sub inner 0 (String.length inner - 2) in
+        match float_of_string_opt n with
+        | Some f -> Some (Arbitrary (Css.Px f))
+        | None -> None
+      else if String.ends_with ~suffix:"rem" inner then
+        let n = String.sub inner 0 (String.length inner - 3) in
+        match float_of_string_opt n with
+        | Some f -> Some (Arbitrary (Css.Rem f))
+        | None -> None
+      else
+        (* Unitless zero ([0], [-0]) is a valid CSS length. *)
+        match float_of_string_opt inner with
+        | Some f when f = 0.0 -> Some (Arbitrary Css.Zero)
+        | _ -> None
+    else None
+
+  let parse_gap_value value =
+    if String.length value > 0 && value.[0] = '[' then parse_gap_arbitrary value
+    else
+      match Parse.spacing_value ~name:"gap" value with
+      | Ok f -> Some (Standard (`Rem (f *. 0.25)))
+      | Error _ ->
+          if value = "px" then Some (Standard `Px)
+          else if value = "full" then Some (Standard `Full)
+          else None
+
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     let err_not_utility = Error (`Msg "Not a gap utility") in
     let parse_class = function
       | [ "gap"; value ] -> (
-          match Parse.spacing_value ~name:"gap" value with
-          | Ok f -> Ok (Gap { axis = `All; value = `Rem (f *. 0.25) })
-          | Error _ ->
-              if value = "px" then Ok (Gap { axis = `All; value = `Px })
-              else if value = "full" then
-                Ok (Gap { axis = `All; value = `Full })
-              else err_not_utility)
+          match parse_gap_value value with
+          | Some v -> Ok (Gap { axis = `All; value = v })
+          | None -> err_not_utility)
       | [ "gap"; "x"; value ] -> (
-          match Parse.spacing_value ~name:"gap-x" value with
-          | Ok f -> Ok (Gap { axis = `X; value = `Rem (f *. 0.25) })
-          | Error _ ->
-              if value = "px" then Ok (Gap { axis = `X; value = `Px })
-              else if value = "full" then Ok (Gap { axis = `X; value = `Full })
-              else err_not_utility)
+          match parse_gap_value value with
+          | Some v -> Ok (Gap { axis = `X; value = v })
+          | None -> err_not_utility)
       | [ "gap"; "y"; value ] -> (
-          match Parse.spacing_value ~name:"gap-y" value with
-          | Ok f -> Ok (Gap { axis = `Y; value = `Rem (f *. 0.25) })
-          | Error _ ->
-              if value = "px" then Ok (Gap { axis = `Y; value = `Px })
-              else if value = "full" then Ok (Gap { axis = `Y; value = `Full })
-              else err_not_utility)
+          match parse_gap_value value with
+          | Some v -> Ok (Gap { axis = `Y; value = v })
+          | None -> err_not_utility)
       | [ "space"; "x"; value ] -> (
-          match Parse.int_pos ~name:"space-x" value with
-          | Ok n ->
-              Ok
-                (Space
-                   {
-                     negative = false;
-                     axis = `X;
-                     value = `Rem (float_of_int n *. 0.25);
-                   })
-          | Error _ -> err_not_utility)
+          if value = "reverse" then Ok Space_x_reverse
+          else if value = "px" then
+            Ok (Space { negative = false; axis = `X; value = `Px })
+          else
+            match parse_gap_arbitrary value with
+            | Some (Arbitrary len) ->
+                Ok (Space_arb { axis = `X; value = len; raw = value })
+            | _ -> (
+                match Parse.spacing_value ~name:"space-x" value with
+                | Ok n ->
+                    Ok
+                      (Space
+                         {
+                           negative = false;
+                           axis = `X;
+                           value = `Rem (n *. 0.25);
+                         })
+                | Error _ -> err_not_utility))
       | [ "space"; "y"; value ] -> (
-          match Parse.int_pos ~name:"space-y" value with
-          | Ok n ->
-              Ok
-                (Space
-                   {
-                     negative = false;
-                     axis = `Y;
-                     value = `Rem (float_of_int n *. 0.25);
-                   })
-          | Error _ -> err_not_utility)
+          if value = "reverse" then Ok Space_y_reverse
+          else if value = "px" then
+            Ok (Space { negative = false; axis = `Y; value = `Px })
+          else
+            match parse_gap_arbitrary value with
+            | Some (Arbitrary len) ->
+                Ok (Space_arb { axis = `Y; value = len; raw = value })
+            | _ -> (
+                match Parse.spacing_value ~name:"space-y" value with
+                | Ok n ->
+                    Ok
+                      (Space
+                         {
+                           negative = false;
+                           axis = `Y;
+                           value = `Rem (n *. 0.25);
+                         })
+                | Error _ -> err_not_utility))
       | [ ""; "space"; "x"; value ] -> (
-          match Parse.int_pos ~name:"space-x" value with
-          | Ok n ->
-              Ok
-                (Space
-                   {
-                     negative = true;
-                     axis = `X;
-                     value = `Rem (float_of_int n *. 0.25);
-                   })
-          | Error _ -> err_not_utility)
+          if value = "px" then
+            Ok (Space { negative = true; axis = `X; value = `Px })
+          else
+            match Parse.spacing_value ~name:"space-x" value with
+            | Ok n ->
+                Ok
+                  (Space
+                     { negative = true; axis = `X; value = `Rem (n *. 0.25) })
+            | Error _ -> err_not_utility)
       | [ ""; "space"; "y"; value ] -> (
-          match Parse.int_pos ~name:"space-y" value with
-          | Ok n ->
-              Ok
-                (Space
-                   {
-                     negative = true;
-                     axis = `Y;
-                     value = `Rem (float_of_int n *. 0.25);
-                   })
-          | Error _ -> err_not_utility)
+          if value = "px" then
+            Ok (Space { negative = true; axis = `Y; value = `Px })
+          else
+            match Parse.spacing_value ~name:"space-y" value with
+            | Ok n ->
+                Ok
+                  (Space
+                     { negative = true; axis = `Y; value = `Rem (n *. 0.25) })
+            | Error _ -> err_not_utility)
       | _ -> err_not_utility
     in
     parse_class parts
@@ -277,27 +540,27 @@ let space_util negative axis value = utility (Space { negative; axis; value })
 
 (** {2 Int-based Gap Utilities} *)
 
-let gap n = gap_util `All (Spacing.int n)
-let gap_x n = gap_util `X (Spacing.int n)
-let gap_y n = gap_util `Y (Spacing.int n)
+let gap n = gap_util `All (Handler.Standard (Spacing.int n))
+let gap_x n = gap_util `X (Handler.Standard (Spacing.int n))
+let gap_y n = gap_util `Y (Handler.Standard (Spacing.int n))
 
 (** {2 Special Gap Values} *)
 
-let gap_px = gap_util `All `Px
-let gap_full = gap_util `All `Full
-let gap_x_px = gap_util `X `Px
-let gap_x_full = gap_util `X `Full
-let gap_y_px = gap_util `Y `Px
-let gap_y_full = gap_util `Y `Full
+let gap_px = gap_util `All (Handler.Standard `Px)
+let gap_full = gap_util `All (Handler.Standard `Full)
+let gap_x_px = gap_util `X (Handler.Standard `Px)
+let gap_x_full = gap_util `X (Handler.Standard `Full)
+let gap_y_px = gap_util `Y (Handler.Standard `Px)
+let gap_y_full = gap_util `Y (Handler.Standard `Full)
 
 (** {2 Space Between Utilities} *)
 
 let space_x n =
-  let s = Spacing.int n in
-  let neg = n < 0 in
+  let s = `Rem (Float.abs n *. 0.25) in
+  let neg = n < 0.0 in
   space_util neg `X s
 
 let space_y n =
-  let s = Spacing.int n in
-  let neg = n < 0 in
+  let s = `Rem (Float.abs n *. 0.25) in
+  let neg = n < 0.0 in
   space_util neg `Y s

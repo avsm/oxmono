@@ -1,3 +1,0 @@
-(tests
- (names test_optimizer)
- (libraries tw alcotest))

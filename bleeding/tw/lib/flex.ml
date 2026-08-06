@@ -3,6 +3,8 @@
     For flexbox property utilities (direction, wrap, grow, shrink, basis,
     order), see Flex_props module. *)
 
+module Css = Cascade.Css
+
 module Handler = struct
   open Style
   open Css
@@ -14,10 +16,10 @@ module Handler = struct
       4 and are ordered alphabetically by suborder. *)
   let name = "flex"
 
-  let priority = 4
+  let priority _ = 4
   let flex = style [ display Flex ]
   let inline_flex = style [ display Inline_flex ]
-  let to_style = function Flex -> flex | Inline_flex -> inline_flex
+  let to_style _theme = function Flex -> flex | Inline_flex -> inline_flex
 
   let suborder = function
     (* Alphabetical among all display utilities (shared priority 4). block=1,
@@ -28,8 +30,8 @@ module Handler = struct
 
   let err_not_utility = Error (`Msg "Not a flex display utility")
 
-  let of_class class_name =
-    let parts = String.split_on_char '-' class_name in
+  let of_class _theme class_name =
+    let parts = Parse.split_class class_name in
     match parts with
     | [ "flex" ] -> Ok Flex
     | [ "inline"; "flex" ] -> Ok Inline_flex

@@ -1,0 +1,42 @@
+(executable
+ (name main)
+ (libraries tw tw.html))
+
+; Generate HTML/CSS for landing example
+
+(rule
+ (targets index.html landing.css)
+ (deps main.exe)
+ (action
+  (run ./main.exe))
+ (mode
+  (promote (until-clean))))
+
+; Generate reference CSS with Tailwind CLI
+
+(rule
+ (targets tailwind.css)
+ (enabled_if false) ; vendored: no npx/tailwindcss in the monorepo
+ (deps index.html ../../package-lock.json)
+ (action
+  (run npx tailwindcss --content index.html -o %{targets} --minify))
+ (mode
+  (promote (until-clean))))
+
+; Test: compare our CSS against Tailwind output
+
+(rule
+ (alias runtest)
+ (enabled_if false) ; vendored: no npx/tailwindcss in the monorepo
+ (deps landing.css tailwind.css)
+ (action
+  (setenv
+   CASCADE_COLOR
+   always
+   (run
+    %{bin:cascade}
+    diff
+    --diff=canonical
+    --prune-unused-custom-props
+    landing.css
+    tailwind.css))))

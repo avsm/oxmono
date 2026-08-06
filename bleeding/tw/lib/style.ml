@@ -1,14 +1,28 @@
 (** Core types and helpers for Tailwind CSS DSL *)
 
+module Css = Cascade.Css
+
 type breakpoint = [ `Sm | `Md | `Lg | `Xl | `Xl_2 ]
+type container_cmp = Cq_min | Cq_max
 
 type container_query =
+  | Container_3xs
+  | Container_2xs
+  | Container_xs
   | Container_sm
   | Container_md
   | Container_lg
   | Container_xl
   | Container_2xl
+  | Container_3xl
+  | Container_4xl
+  | Container_5xl
+  | Container_6xl
+  | Container_7xl
   | Container_named of string * int
+  | Container_size of container_cmp * container_query
+  | Container_len of Css.length
+  | Container_len_cmp of container_cmp * Css.length
 
 type modifier =
   | Hover
@@ -19,6 +33,12 @@ type modifier =
   | Group_focus
   | Dark
   | Responsive of breakpoint
+  | Min_responsive of breakpoint
+  | Max_responsive of breakpoint
+  | Min_arbitrary of float
+  | Max_arbitrary of float
+  | Min_arbitrary_length of Css.length
+  | Max_arbitrary_length of Css.length
   | Peer_hover
   | Peer_focus
   | Peer_checked
@@ -34,8 +54,8 @@ type modifier =
   | Container of container_query
   | Not of modifier
   | Has of string
-  | Group_has of string
-  | Peer_has of string
+  | Group_has of string * string option
+  | Peer_has of string * string option
   | Starting
   | Focus_within
   | Focus_visible
@@ -45,12 +65,196 @@ type modifier =
   | Contrast_less
   | Pseudo_before
   | Pseudo_after
+  | First
+  | Last
+  | Only
+  | Odd
+  | Even
+  | First_of_type
+  | Last_of_type
+  | Only_of_type
+  | Nth of string
+  | Nth_last of string
+  | Nth_of_type of string
+  | Nth_last_of_type of string
+  | Empty
+  | Checked
+  | Indeterminate
+  | Default
+  | Required
+  | Valid
+  | Invalid
+  | In_range
+  | Out_of_range
+  | Placeholder_shown
+  | Autofill
+  | Read_only
+  | Read_write
+  | Optional
+  | Open
+  | Enabled
+  | Target
+  | Visited
+  | Inert
+  | User_valid
+  | User_invalid
+  | Group_first
+  | Group_last
+  | Group_only
+  | Group_odd
+  | Group_even
+  | Group_first_of_type
+  | Group_last_of_type
+  | Group_only_of_type
+  | Peer_first
+  | Peer_last
+  | Peer_only
+  | Peer_odd
+  | Peer_even
+  | Peer_first_of_type
+  | Peer_last_of_type
+  | Peer_only_of_type
+  | Group_active
+  | Group_visited
+  | Group_disabled
+  | Group_checked
+  | Group_empty
+  | Group_required
+  | Group_valid
+  | Group_invalid
+  | Group_indeterminate
+  | Group_default
+  | Group_open
+  | Group_target
+  | Peer_active
+  | Peer_visited
+  | Peer_disabled
+  | Peer_empty
+  | Peer_required
+  | Peer_valid
+  | Peer_invalid
+  | Peer_indeterminate
+  | Peer_default
+  | Peer_open
+  | Peer_target
+  | Group_optional
+  | Peer_optional
+  | Group_read_only
+  | Peer_read_only
+  | Group_read_write
+  | Peer_read_write
+  | Group_inert
+  | Peer_inert
+  | Group_user_valid
+  | Peer_user_valid
+  | Group_user_invalid
+  | Peer_user_invalid
+  | Group_placeholder_shown
+  | Peer_placeholder_shown
+  | Group_autofill
+  | Peer_autofill
+  | Group_in_range
+  | Peer_in_range
+  | Group_out_of_range
+  | Peer_out_of_range
+  | Group_focus_within
+  | Peer_focus_within
+  | Group_focus_visible
+  | Peer_focus_visible
+  | Group_enabled
+  | Peer_enabled
+  | Pseudo_marker
+  | Pseudo_selection
+  | Pseudo_placeholder
+  | Pseudo_backdrop
+  | Pseudo_file
+  | Pseudo_first_letter
+  | Pseudo_first_line
+  | Pseudo_details_content
+  | Children (* * variant - all direct children *)
+  | Descendants (* ** variant - all descendants *)
+  | Ltr
+  | Rtl
+  | Print
+  | Portrait
+  | Landscape
+  | Forced_colors
+  | Inverted_colors
+  | Pointer_none
+  | Pointer_coarse
+  | Pointer_fine
+  | Any_pointer_none
+  | Any_pointer_coarse
+  | Any_pointer_fine
+  | Noscript
+  | Supports of string
+  | Group_hocus
+  | Peer_hocus
+  | Custom_responsive of string
+  | Min_custom of string
+  | Max_custom of string
+  | Group_arbitrary of string
+  | Peer_arbitrary of string
+  | Hocus  (** [:hover, :focus] compound selector (no media query) *)
+  | Device_hocus  (** [:hover, :focus] compound + [@media (hover: hover)] *)
+  | Not_bracket of string
+      (** [not-[...]] bracket patterns — stores raw bracket content *)
+  | In_bracket of string
+      (** [in-[...]] ancestor patterns — element must be descendant of selector
+      *)
+  | In_data of string
+      (** [in-data-X] — element must be descendant of [data-X] *)
+  | Group_not of modifier * string option
+      (** [group-not-X/name] — inner modifier + optional group name *)
+  | Peer_not of modifier * string option
+      (** [peer-not-X/name] — inner modifier + optional peer name *)
+  | Data_bracket of string
+      (** [data-[expr]] — full CSS attribute expression, e.g. "foo$=bar_baz_i"
+      *)
+  | Group_data of string * string option
+      (** [group-data-[expr]/name] — group data variant with optional name *)
+  | Peer_data of string * string option
+      (** [peer-data-[expr]/name] — peer data variant with optional name *)
+  | Aria_bracket of string
+      (** [aria-[expr]] — arbitrary aria attribute, e.g. "modal", "valuenow=1"
+      *)
+  | Group_aria of string * string option
+      (** [group-aria-X/name] — group aria variant with optional name *)
+  | Peer_aria of string * string option
+      (** [peer-aria-X/name] — peer aria variant with optional name *)
+  | Not_named_group of modifier * string
+      (** [not-group-X/name] — negate named group variant *)
+  | Has_named_group of modifier * string
+      (** [has-group-X/name] — has named group variant *)
+  | In_named_group of modifier * string
+      (** [in-group-X/name] — descendant of named group variant *)
+  | Group_peer_named of modifier * string
+      (** [group-peer-X/name] — peer-X within named group *)
+  | Arbitrary_selector of string
+      (** [[&_p]] — arbitrary selector variant, [&] is replaced by the element's
+          own class selector *)
+  | Custom_variant of string * string
+      (** [is-data-foo:] — a [matchVariant]-registered variant. First field is
+          the class-name token (e.g. [is-data-foo]); second is the resolved
+          selector template with the value substituted (e.g.
+          [&:is([data-foo])]), where [&] is the element's own class. *)
+  | Container_style of string * Css.Container.t
+      (** [has-a:] — a [@custom-variant]-registered variant whose body is a
+          container query (e.g. [@container style(--a)]). First field is the
+          class-name token; second is the structural container condition (so the
+          [not-] prefix can negate it soundly, including double-negation). *)
+  | Prose_element of string
+      (** [prose-X:] — prose element variant, wraps utility in a descendant
+          selector targeting specific HTML elements within prose content. E.g.
+          [prose-headings:text-white] targets h1-h6,th inside prose. *)
 
 type t =
   | Style of {
       props : Css.declaration list;
       rules : Css.statement list option;
       property_rules : Css.t;
+      merge_key : string option;
+      pseudo_suffix : Css.Selector.t option;
     }
   | Modified of modifier * t
   | Group of t list
@@ -58,15 +262,77 @@ type t =
 type size =
   [ `None | `Xs | `Sm | `Md | `Lg | `Xl | `Xl_2 | `Xl_3 | `Full | `Rem of float ]
 
-type spacing = [ `Px | `Full | `Rem of float ]
+type spacing = [ `Px | `Full | `Rem of float | `Named of string ]
 type margin = [ spacing | `Auto ]
 type scale = [ spacing | size | `Screen | `Min | `Max | `Fit ]
 type max_scale = [ scale | `Xl_4 | `Xl_5 | `Xl_6 | `Xl_7 ]
 type shadow = [ size | `Inner ]
 
 (* Helper to create a style *)
-let style ?(rules = None) ?(property_rules = Css.empty) props =
-  Style { props; rules; property_rules }
+let style ?(rules = None) ?(property_rules = Css.empty) ?merge_key
+    ?pseudo_suffix props =
+  Style { props; rules; property_rules; merge_key; pseudo_suffix }
+
+(* Mark the property declarations a style emits as !important (the [!] utility
+   prefix), recursing through modifiers, groups and nested rules. Custom
+   properties (theme tokens such as the spacing and tw- variables) are left
+   untouched -- like Tailwind, [!] applies to the visible declaration, not the
+   variables it pulls in. *)
+let mark_important_decl d =
+  match Css.custom_declaration_name d with
+  | Some _ -> d
+  | None -> Css.important d
+
+let rec important_stmt stmt =
+  match Css.as_rule stmt with
+  | Some (selector, decls, nested) ->
+      Css.rule ~selector
+        ~nested:(List.map important_stmt nested)
+        (List.map mark_important_decl decls)
+  | None -> stmt
+
+let rec map_important = function
+  | Style s ->
+      Style
+        {
+          s with
+          props = List.map mark_important_decl s.props;
+          rules = Option.map (List.map important_stmt) s.rules;
+        }
+  | Modified (m, t) -> Modified (m, map_important t)
+  | Group ts -> Group (List.map map_important ts)
+
+let is_numeric s = s <> "" && String.for_all (fun c -> c >= '0' && c <= '9') s
+
+let pp_nth prefix expr =
+  if is_numeric expr then prefix ^ "-" ^ expr else prefix ^ "-[" ^ expr ^ "]"
+
+let container_cmp_prefix = function Cq_min -> "min-" | Cq_max -> "max-"
+
+(* The class-name suffix (after the leading [@]) for a container query. *)
+let rec container_size_name = function
+  | Container_3xs -> "3xs"
+  | Container_2xs -> "2xs"
+  | Container_xs -> "xs"
+  | Container_sm -> "sm"
+  | Container_md -> "md"
+  | Container_lg -> "lg"
+  | Container_xl -> "xl"
+  | Container_2xl -> "2xl"
+  | Container_3xl -> "3xl"
+  | Container_4xl -> "4xl"
+  | Container_5xl -> "5xl"
+  | Container_6xl -> "6xl"
+  | Container_7xl -> "7xl"
+  | Container_named (n, size) -> n ^ "/" ^ string_of_int size
+  | Container_size (cmp, inner) ->
+      container_cmp_prefix cmp ^ container_size_name inner
+  | Container_len l ->
+      "[" ^ Css.Pp.to_string (Css.pp_length ~always:true) l ^ "]"
+  | Container_len_cmp (cmp, l) ->
+      container_cmp_prefix cmp ^ "["
+      ^ Css.Pp.to_string (Css.pp_length ~always:true) l
+      ^ "]"
 
 (* Convert modifier to string prefix *)
 let rec pp_modifier = function
@@ -80,13 +346,33 @@ let rec pp_modifier = function
   | Responsive `Lg -> "lg"
   | Responsive `Xl -> "xl"
   | Responsive `Xl_2 -> "2xl"
-  | Container Container_sm -> "@sm"
-  | Container Container_md -> "@md"
-  | Container Container_lg -> "@lg"
-  | Container Container_xl -> "@xl"
-  | Container Container_2xl -> "@2xl"
-  | Container (Container_named (n, size)) ->
-      String.concat "" [ "@"; n; "/"; string_of_int size ]
+  | Min_responsive `Sm -> "min-sm"
+  | Min_responsive `Md -> "min-md"
+  | Min_responsive `Lg -> "min-lg"
+  | Min_responsive `Xl -> "min-xl"
+  | Min_responsive `Xl_2 -> "min-2xl"
+  | Max_responsive `Sm -> "max-sm"
+  | Max_responsive `Md -> "max-md"
+  | Max_responsive `Lg -> "max-lg"
+  | Max_responsive `Xl -> "max-xl"
+  | Max_responsive `Xl_2 -> "max-2xl"
+  | Min_arbitrary px ->
+      let px_str =
+        if Float.is_integer px then Int.to_string (Float.to_int px)
+        else Float.to_string px
+      in
+      String.concat "" [ "min-["; px_str; "px]" ]
+  | Max_arbitrary px ->
+      let px_str =
+        if Float.is_integer px then Int.to_string (Float.to_int px)
+        else Float.to_string px
+      in
+      String.concat "" [ "max-["; px_str; "px]" ]
+  | Min_arbitrary_length l ->
+      "min-[" ^ Css.Pp.to_string (Css.pp_length ~always:true) l ^ "]"
+  | Max_arbitrary_length l ->
+      "max-[" ^ Css.Pp.to_string (Css.pp_length ~always:true) l ^ "]"
+  | Container q -> "@" ^ container_size_name q
   | Group_hover -> "group-hover"
   | Group_focus -> "group-focus"
   | Peer_hover -> "peer-hover"
@@ -103,8 +389,11 @@ let rec pp_modifier = function
   | Data_custom (k, v) -> String.concat "" [ "data-"; k; "="; v ]
   | Not m -> String.concat "" [ "not("; pp_modifier m; ")" ]
   | Has s -> String.concat "" [ "has-["; s; "]" ]
-  | Group_has s -> String.concat "" [ "group-has-["; s; "]" ]
-  | Peer_has s -> String.concat "" [ "peer-has-["; s; "]" ]
+  | Group_has (s, None) -> String.concat "" [ "group-has-["; s; "]" ]
+  | Group_has (s, Some name) ->
+      String.concat "" [ "group-has-["; s; "]/"; name ]
+  | Peer_has (s, None) -> String.concat "" [ "peer-has-["; s; "]" ]
+  | Peer_has (s, Some name) -> String.concat "" [ "peer-has-["; s; "]/"; name ]
   | Starting -> "starting"
   | Focus_within -> "focus-within"
   | Focus_visible -> "focus-visible"
@@ -114,9 +403,185 @@ let rec pp_modifier = function
   | Contrast_less -> "contrast-less"
   | Pseudo_before -> "before"
   | Pseudo_after -> "after"
+  | First -> "first"
+  | Last -> "last"
+  | Only -> "only"
+  | Odd -> "odd"
+  | Even -> "even"
+  | First_of_type -> "first-of-type"
+  | Last_of_type -> "last-of-type"
+  | Only_of_type -> "only-of-type"
+  | Nth expr -> pp_nth "nth" expr
+  | Nth_last expr -> pp_nth "nth-last" expr
+  | Nth_of_type expr -> pp_nth "nth-of-type" expr
+  | Nth_last_of_type expr -> pp_nth "nth-last-of-type" expr
+  | Empty -> "empty"
+  | Checked -> "checked"
+  | Indeterminate -> "indeterminate"
+  | Default -> "default"
+  | Required -> "required"
+  | Valid -> "valid"
+  | Invalid -> "invalid"
+  | In_range -> "in-range"
+  | Out_of_range -> "out-of-range"
+  | Placeholder_shown -> "placeholder-shown"
+  | Autofill -> "autofill"
+  | Read_only -> "read-only"
+  | Read_write -> "read-write"
+  | Optional -> "optional"
+  | Open -> "open"
+  | Enabled -> "enabled"
+  | Target -> "target"
+  | Visited -> "visited"
+  | Inert -> "inert"
+  | User_valid -> "user-valid"
+  | User_invalid -> "user-invalid"
+  | Group_first -> "group-first"
+  | Group_last -> "group-last"
+  | Group_only -> "group-only"
+  | Group_odd -> "group-odd"
+  | Group_even -> "group-even"
+  | Group_first_of_type -> "group-first-of-type"
+  | Group_last_of_type -> "group-last-of-type"
+  | Group_only_of_type -> "group-only-of-type"
+  | Peer_first -> "peer-first"
+  | Peer_last -> "peer-last"
+  | Peer_only -> "peer-only"
+  | Peer_odd -> "peer-odd"
+  | Peer_even -> "peer-even"
+  | Peer_first_of_type -> "peer-first-of-type"
+  | Peer_last_of_type -> "peer-last-of-type"
+  | Peer_only_of_type -> "peer-only-of-type"
+  | Group_active -> "group-active"
+  | Group_visited -> "group-visited"
+  | Group_disabled -> "group-disabled"
+  | Group_checked -> "group-checked"
+  | Group_empty -> "group-empty"
+  | Group_required -> "group-required"
+  | Group_valid -> "group-valid"
+  | Group_invalid -> "group-invalid"
+  | Group_indeterminate -> "group-indeterminate"
+  | Group_default -> "group-default"
+  | Group_open -> "group-open"
+  | Group_target -> "group-target"
+  | Peer_active -> "peer-active"
+  | Peer_visited -> "peer-visited"
+  | Peer_disabled -> "peer-disabled"
+  | Peer_empty -> "peer-empty"
+  | Peer_required -> "peer-required"
+  | Peer_valid -> "peer-valid"
+  | Peer_invalid -> "peer-invalid"
+  | Peer_indeterminate -> "peer-indeterminate"
+  | Peer_default -> "peer-default"
+  | Peer_open -> "peer-open"
+  | Peer_target -> "peer-target"
+  | Group_optional -> "group-optional"
+  | Peer_optional -> "peer-optional"
+  | Group_read_only -> "group-read-only"
+  | Peer_read_only -> "peer-read-only"
+  | Group_read_write -> "group-read-write"
+  | Peer_read_write -> "peer-read-write"
+  | Group_inert -> "group-inert"
+  | Peer_inert -> "peer-inert"
+  | Group_user_valid -> "group-user-valid"
+  | Peer_user_valid -> "peer-user-valid"
+  | Group_user_invalid -> "group-user-invalid"
+  | Peer_user_invalid -> "peer-user-invalid"
+  | Group_placeholder_shown -> "group-placeholder-shown"
+  | Peer_placeholder_shown -> "peer-placeholder-shown"
+  | Group_autofill -> "group-autofill"
+  | Peer_autofill -> "peer-autofill"
+  | Group_in_range -> "group-in-range"
+  | Peer_in_range -> "peer-in-range"
+  | Group_out_of_range -> "group-out-of-range"
+  | Peer_out_of_range -> "peer-out-of-range"
+  | Group_focus_within -> "group-focus-within"
+  | Peer_focus_within -> "peer-focus-within"
+  | Group_focus_visible -> "group-focus-visible"
+  | Peer_focus_visible -> "peer-focus-visible"
+  | Group_enabled -> "group-enabled"
+  | Peer_enabled -> "peer-enabled"
+  | Pseudo_marker -> "marker"
+  | Pseudo_selection -> "selection"
+  | Pseudo_placeholder -> "placeholder"
+  | Pseudo_backdrop -> "backdrop"
+  | Pseudo_file -> "file"
+  | Pseudo_first_letter -> "first-letter"
+  | Pseudo_first_line -> "first-line"
+  | Pseudo_details_content -> "details-content"
+  | Children -> "*"
+  | Descendants -> "**"
+  | Ltr -> "ltr"
+  | Rtl -> "rtl"
+  | Print -> "print"
+  | Portrait -> "portrait"
+  | Landscape -> "landscape"
+  | Forced_colors -> "forced-colors"
+  | Inverted_colors -> "inverted-colors"
+  | Pointer_none -> "pointer-none"
+  | Pointer_coarse -> "pointer-coarse"
+  | Pointer_fine -> "pointer-fine"
+  | Any_pointer_none -> "any-pointer-none"
+  | Any_pointer_coarse -> "any-pointer-coarse"
+  | Any_pointer_fine -> "any-pointer-fine"
+  | Noscript -> "noscript"
+  | Supports cond ->
+      (* Handle shorthand supports-<property> vs supports-[condition] *)
+      if String.ends_with ~suffix:": var(--tw)" cond then
+        let prop_len =
+          String.length cond - 11
+          (* ": var(--tw)" is 11 chars *)
+        in
+        "supports-" ^ String.sub cond 0 prop_len
+      else "supports-[" ^ cond ^ "]"
+  | Custom_responsive name -> name
+  | Min_custom name -> "min-" ^ name
+  | Max_custom name -> "max-" ^ name
+  | Group_hocus -> "group-hocus"
+  | Peer_hocus -> "peer-hocus"
+  | Group_arbitrary sel -> "group-[" ^ sel ^ "]"
+  | Peer_arbitrary sel -> "peer-[" ^ sel ^ "]"
+  | Hocus -> "hocus"
+  | Device_hocus -> "device-hocus"
+  | Not_bracket content -> "not-[" ^ content ^ "]"
+  | In_bracket content -> "in-[" ^ content ^ "]"
+  | In_data attr -> "in-data-" ^ attr
+  | Group_not (inner, None) ->
+      String.concat "" [ "group-not-"; pp_modifier inner ]
+  | Group_not (inner, Some name) ->
+      String.concat "" [ "group-not-"; pp_modifier inner; "/"; name ]
+  | Peer_not (inner, None) ->
+      String.concat "" [ "peer-not-"; pp_modifier inner ]
+  | Peer_not (inner, Some name) ->
+      String.concat "" [ "peer-not-"; pp_modifier inner; "/"; name ]
+  | Data_bracket expr -> "data-[" ^ expr ^ "]"
+  | Group_data (expr, None) -> "group-data-[" ^ expr ^ "]"
+  | Group_data (expr, Some name) ->
+      String.concat "" [ "group-data-["; expr; "]/"; name ]
+  | Peer_data (expr, None) -> "peer-data-[" ^ expr ^ "]"
+  | Peer_data (expr, Some name) ->
+      String.concat "" [ "peer-data-["; expr; "]/"; name ]
+  | Aria_bracket expr -> "aria-[" ^ expr ^ "]"
+  | Group_aria (expr, None) -> "group-aria-" ^ expr
+  | Group_aria (expr, Some name) ->
+      String.concat "" [ "group-aria-"; expr; "/"; name ]
+  | Peer_aria (expr, None) -> "peer-aria-" ^ expr
+  | Peer_aria (expr, Some name) ->
+      String.concat "" [ "peer-aria-"; expr; "/"; name ]
+  | Not_named_group (inner, name) ->
+      "not-group-" ^ pp_modifier inner ^ "/" ^ name
+  | Has_named_group (inner, name) ->
+      "has-group-" ^ pp_modifier inner ^ "/" ^ name
+  | In_named_group (inner, name) -> "in-group-" ^ pp_modifier inner ^ "/" ^ name
+  | Group_peer_named (inner, name) ->
+      "group-peer-" ^ pp_modifier inner ^ "/" ^ name
+  | Arbitrary_selector content -> "[" ^ content ^ "]"
+  | Custom_variant (token, _) -> token
+  | Container_style (token, _) -> token
+  | Prose_element name -> "prose-" ^ name
 
-let rec pp ppf = function
+let rec pp = function
   | Style { props; _ } ->
-      Format.fprintf ppf "Style(%d props)" (List.length props)
-  | Modified (m, s) -> Format.fprintf ppf "%s:%a" (pp_modifier m) pp s
-  | Group styles -> Format.fprintf ppf "Group(%d)" (List.length styles)
+      Pp.str [ "Style("; Pp.int (List.length props); " props)" ]
+  | Modified (m, s) -> Pp.str [ pp_modifier m; ":"; pp s ]
+  | Group styles -> Pp.str [ "Group("; Pp.int (List.length styles); ")" ]

@@ -53,19 +53,19 @@ let tab_item ~active_tab label href =
     ~at:[H.At.href href]
     ~tw:Tw.[
       px 2; py 1; text_xs; font_mono; no_underline;
-      (if is_active then text_white else text gray 400);
-      (if is_active then bg gray 700 else bg_transparent);
-      hover [text_white; bg gray 600];
+      (if is_active then text white else text ~shade:400 gray);
+      (if is_active then bg ~shade:700 gray else bg_transparent);
+      hover [text white; bg ~shade:600 gray];
     ]
     [H.txt label]
 
 let navbar ~active_tab =
-  H.nav ~tw:Tw.[bg gray 900; border_b; border_color gray 700] [
+  H.nav ~tw:Tw.[bg ~shade:900 gray; border_b; border_color ~shade:700 gray] [
     H.div ~tw:Tw.[max_w_7xl; mx_auto; px 2; flex; items_center; gap 1] [
       H.a ~at:[H.At.href "/"]
-        ~tw:Tw.[font_mono; font_bold; text_xs; text green 400; py 1; px 2; no_underline]
+        ~tw:Tw.[font_mono; font_bold; text_xs; text ~shade:400 green; py 1; px 2; no_underline]
         [H.txt "bushel"];
-      H.span ~tw:Tw.[text gray 600; text_xs] [H.txt "|"];
+      H.span ~tw:Tw.[text ~shade:600 gray; text_xs] [H.txt "|"];
       tab_item ~active_tab "notes" "/notes";
       tab_item ~active_tab "papers" "/papers";
       tab_item ~active_tab "projects" "/projects";
@@ -82,32 +82,32 @@ let layout ~title:page_title ~active_tab content =
   let head_extra = [
     H.raw "<style>img{max-height:48px;width:auto}ul.kv li::marker{content:'\b7  ';color:#d1d5db}</style>";
   ] in
-  H.page ~title:page_title ~tw_css:"/tw.css" head_extra body_content
+  H.page ~title:page_title ~tw_css:(H.Link "/tw.css") head_extra body_content
 
 (** {1 Common UI components} *)
 
 let kv_row k v =
   H.li ~tw:mono [
-    H.span ~tw:Tw.[text gray 500] [H.txt (k ^ ": ")];
-    H.span ~tw:Tw.[text gray 900] [H.txt v];
+    H.span ~tw:Tw.[text ~shade:500 gray] [H.txt (k ^ ": ")];
+    H.span ~tw:Tw.[text ~shade:900 gray] [H.txt v];
   ]
 
 let kv_row_html k children =
   H.li ~tw:mono [
-    H.span ~tw:Tw.[text gray 500] [H.txt (k ^ ": ")];
-    H.span ~tw:Tw.[text gray 900] children;
+    H.span ~tw:Tw.[text ~shade:500 gray] [H.txt (k ^ ": ")];
+    H.span ~tw:Tw.[text ~shade:900 gray] children;
   ]
 
 let section_row label =
-  H.li ~tw:Tw.[text_xs; font_bold; font_mono; text gray 400; uppercase;
+  H.li ~tw:Tw.[text_xs; font_bold; font_mono; text ~shade:400 gray; uppercase;
                 tracking_wide; pt 2; list_none] [H.txt label]
 
 let kv_table rows =
-  H.ul ~at:[H.At.v "class" "kv"] ~tw:Tw.[pl 4; list_inside; space_y 0] rows
+  H.ul ~at:[H.At.v "class" "kv"] ~tw:Tw.[pl 4; list_inside; space_y 0.] rows
 
 let slug_link slug href =
   H.a ~at:[H.At.href href]
-    ~tw:Tw.[text_xs; font_mono; text blue 500; no_underline; hover [underline]]
+    ~tw:Tw.[text_xs; font_mono; text ~shade:500 blue; no_underline; hover [underline]]
     [H.txt slug]
 
 let entry_link entry =
@@ -115,11 +115,11 @@ let entry_link entry =
 
 let entry_link_with_title entry =
   H.a ~at:[H.At.href (entry_url entry)]
-    ~tw:Tw.[text_xs; font_mono; text blue 500; no_underline; hover [underline]]
+    ~tw:Tw.[text_xs; font_mono; text ~shade:500 blue; no_underline; hover [underline]]
     [H.txt (Printf.sprintf "%s (%s)" (Entry.slug entry) (Entry.title entry))]
 
 let tag_pill tag_str =
-  H.span ~tw:Tw.[text_xs; font_mono; px 1; mr 1; bg gray 100; text gray 700; border; border_color gray 200]
+  H.span ~tw:Tw.[text_xs; font_mono; px 1; mr 1; bg ~shade:100 gray; text ~shade:700 gray; border; border_color ~shade:200 gray]
     [H.txt tag_str]
 
 let tag_list tags =
@@ -133,7 +133,7 @@ let link_list ~entries slugs =
     | Some entry ->
       H.div [entry_link_with_title entry]
     | None ->
-      H.div [H.span ~tw:Tw.[text_xs; font_mono; text gray 400] [H.txt slug]]
+      H.div [H.span ~tw:Tw.[text_xs; font_mono; text ~shade:400 gray] [H.txt slug]]
   ) slugs
 
 let external_link_list urls =
@@ -141,7 +141,7 @@ let external_link_list urls =
   else List.map (fun url ->
     H.div [
       H.a ~at:[H.At.href url]
-        ~tw:Tw.[text_xs; font_mono; text blue 500; no_underline; hover [underline]; break_all]
+        ~tw:Tw.[text_xs; font_mono; text ~shade:500 blue; no_underline; hover [underline]; break_all]
         [H.txt url]
     ]
   ) urls
@@ -307,9 +307,9 @@ let video_metadata (v : Bushel.Video.t) =
 
 let list_header columns =
   H.thead [
-    H.tr ~tw:Tw.[bg gray 50; border_b; border_color gray 200] (
+    H.tr ~tw:Tw.[bg ~shade:50 gray; border_b; border_color ~shade:200 gray] (
       List.map (fun col ->
-        H.th ~tw:Tw.[text_left; text_xs; font_mono; font_bold; text gray 500;
+        H.th ~tw:Tw.[text_left; text_xs; font_mono; font_bold; text ~shade:500 gray;
                       uppercase; tracking_wide; px 2; py 1]
           [H.txt col]
       ) columns
@@ -317,7 +317,7 @@ let list_header columns =
   ]
 
 let cell ?(tw_extra=[]) children =
-  H.td ~tw:(Tw.[text_xs; font_mono; px 2; py 1; align_top; border_b; border_color gray 100] @ tw_extra) children
+  H.td ~tw:(Tw.[text_xs; font_mono; px 2; py 1; align_top; border_b; border_color ~shade:100 gray] @ tw_extra) children
 
 let cell_text ?(tw_extra=[]) s = cell ~tw_extra [H.txt s]
 
@@ -331,20 +331,20 @@ let notes_page entries =
   let rows = List.map (fun n ->
     let entry = `Note n in
     let tags = Bushel.Note.tags n in
-    H.tr ~tw:Tw.[hover [bg gray 50]] [
+    H.tr ~tw:Tw.[hover [bg ~shade:50 gray]] [
       cell_link (Bushel.Note.slug n) (entry_url entry);
       cell_text (Bushel.Note.title n);
       cell_text (format_date (Bushel.Note.date n));
       cell [H.div ~tw:Tw.[flex; flex_wrap; gap 1] (tag_list tags)];
-      cell_text ~tw_extra:Tw.[text gray 500] (opt_str (Bushel.Note.synopsis n));
-      cell_text ~tw_extra:Tw.[text_right; text gray 400] (string_of_int (Bushel.Note.words n));
-      cell_text ~tw_extra:Tw.[text_right; text gray 400] (bool_str (Bushel.Note.perma n));
+      cell_text ~tw_extra:Tw.[text ~shade:500 gray] (opt_str (Bushel.Note.synopsis n));
+      cell_text ~tw_extra:Tw.[text_right; text ~shade:400 gray] (string_of_int (Bushel.Note.words n));
+      cell_text ~tw_extra:Tw.[text_right; text ~shade:400 gray] (bool_str (Bushel.Note.perma n));
     ]
   ) notes in
   let content = [
     H.div ~tw:Tw.[flex; items_center; gap 2; py 1] [
-      H.span ~tw:(mono @ Tw.[font_bold; text gray 700]) [H.txt "notes"];
-      H.span ~tw:(mono @ Tw.[text gray 400])
+      H.span ~tw:(mono @ Tw.[font_bold; text ~shade:700 gray]) [H.txt "notes"];
+      H.span ~tw:(mono @ Tw.[text ~shade:400 gray])
         [H.txt (Printf.sprintf "(%d entries)" (List.length notes))];
     ];
     H.table ~tw:Tw.[w_full; border_collapse; table_auto] [
@@ -364,7 +364,7 @@ let papers_page entries =
       | Bushel.Paper.Short -> "short"
       | Bushel.Paper.Preprint -> "preprint"
     in
-    H.tr ~tw:Tw.[hover [bg gray 50]] [
+    H.tr ~tw:Tw.[hover [bg ~shade:50 gray]] [
       cell_link (Bushel.Paper.slug p) (entry_url entry);
       cell_text (Bushel.Paper.title p);
       cell_text (String.concat "; " (Bushel.Paper.authors p));
@@ -377,8 +377,8 @@ let papers_page entries =
   ) papers in
   let content = [
     H.div ~tw:Tw.[flex; items_center; gap 2; py 1] [
-      H.span ~tw:(mono @ Tw.[font_bold; text gray 700]) [H.txt "papers"];
-      H.span ~tw:(mono @ Tw.[text gray 400])
+      H.span ~tw:(mono @ Tw.[font_bold; text ~shade:700 gray]) [H.txt "papers"];
+      H.span ~tw:(mono @ Tw.[text ~shade:400 gray])
         [H.txt (Printf.sprintf "(%d entries)" (List.length papers))];
     ];
     H.table ~tw:Tw.[w_full; border_collapse; table_auto] [
@@ -398,7 +398,7 @@ let projects_page entries =
       | None -> "ongoing"
     in
     let tags = Bushel.Project.tags p in
-    H.tr ~tw:Tw.[hover [bg gray 50]] [
+    H.tr ~tw:Tw.[hover [bg ~shade:50 gray]] [
       cell_link (Bushel.Project.slug p) (entry_url entry);
       cell_text (Bushel.Project.title p);
       cell_text (string_of_int (Bushel.Project.start p));
@@ -408,8 +408,8 @@ let projects_page entries =
   ) projects in
   let content = [
     H.div ~tw:Tw.[flex; items_center; gap 2; py 1] [
-      H.span ~tw:(mono @ Tw.[font_bold; text gray 700]) [H.txt "projects"];
-      H.span ~tw:(mono @ Tw.[text gray 400])
+      H.span ~tw:(mono @ Tw.[font_bold; text ~shade:700 gray]) [H.txt "projects"];
+      H.span ~tw:(mono @ Tw.[text ~shade:400 gray])
         [H.txt (Printf.sprintf "(%d entries)" (List.length projects))];
     ];
     H.table ~tw:Tw.[w_full; border_collapse; table_auto] [
@@ -424,7 +424,7 @@ let ideas_page entries =
     |> List.sort Bushel.Idea.compare in
   let rows = List.map (fun i ->
     let entry = `Idea i in
-    H.tr ~tw:Tw.[hover [bg gray 50]] [
+    H.tr ~tw:Tw.[hover [bg ~shade:50 gray]] [
       cell_link (Bushel.Idea.slug i) (entry_url entry);
       cell_text (Bushel.Idea.title i);
       cell_text (Bushel.Idea.level_to_string (Bushel.Idea.level i));
@@ -435,8 +435,8 @@ let ideas_page entries =
   ) ideas in
   let content = [
     H.div ~tw:Tw.[flex; items_center; gap 2; py 1] [
-      H.span ~tw:(mono @ Tw.[font_bold; text gray 700]) [H.txt "ideas"];
-      H.span ~tw:(mono @ Tw.[text gray 400])
+      H.span ~tw:(mono @ Tw.[font_bold; text ~shade:700 gray]) [H.txt "ideas"];
+      H.span ~tw:(mono @ Tw.[text ~shade:400 gray])
         [H.txt (Printf.sprintf "(%d entries)" (List.length ideas))];
     ];
     H.table ~tw:Tw.[w_full; border_collapse; table_auto] [
@@ -452,7 +452,7 @@ let videos_page entries =
   let rows = List.map (fun v ->
     let entry = `Video v in
     let url_str = Bushel.Video.url v in
-    H.tr ~tw:Tw.[hover [bg gray 50]] [
+    H.tr ~tw:Tw.[hover [bg ~shade:50 gray]] [
       cell_link (Bushel.Video.slug v) (entry_url entry);
       cell_text (Bushel.Video.title v);
       cell_text (format_date (Bushel.Video.date v));
@@ -460,15 +460,15 @@ let videos_page entries =
       cell_text (opt_str_raw (Bushel.Video.paper v));
       cell [if url_str <> "" then
               H.a ~at:[H.At.href url_str]
-                ~tw:Tw.[text_xs; font_mono; text blue 500; no_underline; hover [underline]]
+                ~tw:Tw.[text_xs; font_mono; text ~shade:500 blue; no_underline; hover [underline]]
                 [H.txt (String.sub url_str 0 (min 40 (String.length url_str)) ^ (if String.length url_str > 40 then "..." else ""))]
             else H.txt "\xe2\x80\x94"];
     ]
   ) videos in
   let content = [
     H.div ~tw:Tw.[flex; items_center; gap 2; py 1] [
-      H.span ~tw:(mono @ Tw.[font_bold; text gray 700]) [H.txt "videos"];
-      H.span ~tw:(mono @ Tw.[text gray 400])
+      H.span ~tw:(mono @ Tw.[font_bold; text ~shade:700 gray]) [H.txt "videos"];
+      H.span ~tw:(mono @ Tw.[text ~shade:400 gray])
         [H.txt (Printf.sprintf "(%d entries)" (List.length videos))];
     ];
     H.table ~tw:Tw.[w_full; border_collapse; table_auto] [
@@ -516,17 +516,17 @@ let detail_page ~entries entry ~view =
     | `Rendered ->
       let body = Entry.body entry in
       if body = "" then
-        H.div ~tw:(mono @ Tw.[text gray 400; p 2]) [H.txt "(no body content)"]
+        H.div ~tw:(mono @ Tw.[text ~shade:400 gray; p 2]) [H.txt "(no body content)"]
       else
         let html = render_markdown ~entries body in
         H.div ~tw:Tw.[prose; prose_sm; max_w_none; font_mono; text_xs] [H.raw html]
     | `Source ->
       let body = Entry.body entry in
       if body = "" then
-        H.div ~tw:(mono @ Tw.[text gray 400; p 2]) [H.txt "(no body content)"]
+        H.div ~tw:(mono @ Tw.[text ~shade:400 gray; p 2]) [H.txt "(no body content)"]
       else
-        H.pre ~tw:Tw.[bg gray 50; p 2; text_xs; font_mono; overflow_auto;
-                       border; border_color gray 200] [
+        H.pre ~tw:Tw.[bg ~shade:50 gray; p 2; text_xs; font_mono; overflow_auto;
+                       border; border_color ~shade:200 gray] [
           H.code [H.txt body]
         ]
   in
@@ -540,7 +540,7 @@ let detail_page ~entries entry ~view =
            H.div ~tw:Tw.[mt 2] [
              kv_table [
                section_row "ABSTRACT";
-               H.li ~tw:Tw.[text_xs; font_mono; text gray 800; list_none]
+               H.li ~tw:Tw.[text_xs; font_mono; text ~shade:800 gray; list_none]
                  [H.txt abstract];
              ]
            ]
@@ -550,8 +550,8 @@ let detail_page ~entries entry ~view =
              kv_table [
                section_row "BIBTEX";
                H.li ~tw:Tw.[list_none] [
-                 H.pre ~tw:Tw.[bg gray 50; p 2; text_xs; font_mono; overflow_auto;
-                                border; border_color gray 100; m 0] [
+                 H.pre ~tw:Tw.[bg ~shade:50 gray; p 2; text_xs; font_mono; overflow_auto;
+                                border; border_color ~shade:100 gray; m 0] [
                    H.code [H.txt bib]
                  ]
                ];
@@ -565,7 +565,7 @@ let detail_page ~entries entry ~view =
         H.div ~tw:Tw.[mt 2] [
           kv_table [
             section_row "READING";
-            H.li ~tw:Tw.[text_xs; font_mono; text gray 800; list_none]
+            H.li ~tw:Tw.[text_xs; font_mono; text ~shade:800 gray; list_none]
               [H.raw (render_markdown ~entries reading)];
           ]
         ]
@@ -577,7 +577,7 @@ let detail_page ~entries entry ~view =
            H.div ~tw:Tw.[mt 2] [
              kv_table [
                section_row "SIDEBAR";
-               H.li ~tw:Tw.[text_xs; font_mono; text gray 800; list_none]
+               H.li ~tw:Tw.[text_xs; font_mono; text ~shade:800 gray; list_none]
                  [H.raw (render_markdown ~entries sidebar_text)];
              ]
            ]
@@ -620,7 +620,7 @@ let detail_page ~entries entry ~view =
           H.div ~tw:Tw.[flex; items_center; gap 2] [
             H.img ~at:[H.At.src url; H.At.alt img_slug; H.At.height 48]
               ~tw:Tw.[] ();
-            H.span ~tw:Tw.[text_xs; font_mono; text gray 400]
+            H.span ~tw:Tw.[text_xs; font_mono; text ~shade:400 gray]
               [H.txt (Printf.sprintf "%dx%d" w h)];
           ];
         ])
@@ -657,18 +657,18 @@ let detail_page ~entries entry ~view =
   in
   let content = [
     (* Header bar *)
-    H.div ~tw:Tw.[flex; items_center; justify_between; py 1; border_b; border_color gray 200] [
+    H.div ~tw:Tw.[flex; items_center; justify_between; py 1; border_b; border_color ~shade:200 gray] [
       H.div ~tw:Tw.[flex; items_center; gap 1] [
         H.a ~at:[H.At.href (type_url entry)]
-          ~tw:(mono @ Tw.[text blue 500; no_underline; hover [underline]])
+          ~tw:(mono @ Tw.[text ~shade:500 blue; no_underline; hover [underline]])
           [H.txt active_tab];
-        H.span ~tw:(mono @ Tw.[text gray 400]) [H.txt "/"];
-        H.span ~tw:(mono @ Tw.[text gray 700; font_bold]) [H.txt slug];
-        H.span ~tw:(mono @ Tw.[text gray 300]) [H.txt "\xe2\x80\x94"];
-        H.span ~tw:(mono @ Tw.[text gray 600]) [H.txt title];
+        H.span ~tw:(mono @ Tw.[text ~shade:400 gray]) [H.txt "/"];
+        H.span ~tw:(mono @ Tw.[text ~shade:700 gray; font_bold]) [H.txt slug];
+        H.span ~tw:(mono @ Tw.[text ~shade:300 gray]) [H.txt "\xe2\x80\x94"];
+        H.span ~tw:(mono @ Tw.[text ~shade:600 gray]) [H.txt title];
       ];
       H.a ~at:[H.At.href toggle_url]
-        ~tw:(mono @ Tw.[text blue 500; no_underline; hover [underline]])
+        ~tw:(mono @ Tw.[text ~shade:500 blue; no_underline; hover [underline]])
         [H.txt toggle_label];
     ];
     (* Metadata *)
@@ -685,7 +685,7 @@ let detail_page ~entries entry ~view =
     H.div ~tw:Tw.[mt 2] [
       kv_table [section_row (match view with `Rendered -> "BODY (RENDERED)" | `Source -> "BODY (SOURCE)")];
     ];
-    H.div ~tw:Tw.[mt 1; border; border_color gray 200; p 2] [body_content];
+    H.div ~tw:Tw.[mt 1; border; border_color ~shade:200 gray; p 2] [body_content];
   ] @ extra_content in
   layout ~title:(Printf.sprintf "%s | %s" slug active_tab) ~active_tab content
 
@@ -705,10 +705,10 @@ let reference_page entries =
     H.table ~tw:Tw.[w_full; border_collapse; table_auto] [
       list_header ["a"; "b"; "c"];
       H.tbody [
-        H.tr ~tw:Tw.[hover [bg gray 50]] [
+        H.tr ~tw:Tw.[hover [bg ~shade:50 gray]] [
           cell_text "x";
-          cell_text ~tw_extra:Tw.[text_right; text gray 400] "y";
-          cell_text ~tw_extra:Tw.[text gray 500] "z";
+          cell_text ~tw_extra:Tw.[text_right; text ~shade:400 gray] "y";
+          cell_text ~tw_extra:Tw.[text ~shade:500 gray] "z";
         ];
       ];
     ];
@@ -719,14 +719,14 @@ let reference_page entries =
       kv_row_html "key2" [H.txt "val2"];
     ];
     (* Extra content list items *)
-    H.li ~tw:Tw.[text_xs; font_mono; text gray 800; list_none] [H.txt "content"];
+    H.li ~tw:Tw.[text_xs; font_mono; text ~shade:800 gray; list_none] [H.txt "content"];
     H.li ~tw:Tw.[list_none] [H.txt "block"];
     (* Tag pills *)
     H.div ~tw:Tw.[flex; flex_wrap; gap 1] (tag_list ["a"; "b"]);
     tag_pill "x";
     (* Links *)
     slug_link "slug" "/url";
-    H.a ~tw:Tw.[text_xs; font_mono; text blue 500; no_underline; hover [underline]; break_all]
+    H.a ~tw:Tw.[text_xs; font_mono; text ~shade:500 blue; no_underline; hover [underline]; break_all]
       [H.txt "ext"];
     (* Entry links *)
     (match sample_entry with
@@ -736,40 +736,40 @@ let reference_page entries =
      | Some e -> entry_link_with_title e
      | None -> H.empty);
     (* Mono styles *)
-    H.span ~tw:(mono @ Tw.[font_bold; text gray 700]) [H.txt "header"];
-    H.span ~tw:(mono @ Tw.[text gray 400]) [H.txt "count"];
-    H.span ~tw:(mono @ Tw.[text gray 300]) [H.txt "sep"];
-    H.span ~tw:(mono @ Tw.[text gray 600]) [H.txt "sub"];
-    H.span ~tw:(mono @ Tw.[text gray 700; font_bold]) [H.txt "slug"];
-    H.span ~tw:(mono @ Tw.[text blue 500; no_underline; hover [underline]]) [H.txt "l"];
-    H.span ~tw:Tw.[text gray 500] [H.txt "label"];
-    H.span ~tw:Tw.[text gray 900] [H.txt "value"];
+    H.span ~tw:(mono @ Tw.[font_bold; text ~shade:700 gray]) [H.txt "header"];
+    H.span ~tw:(mono @ Tw.[text ~shade:400 gray]) [H.txt "count"];
+    H.span ~tw:(mono @ Tw.[text ~shade:300 gray]) [H.txt "sep"];
+    H.span ~tw:(mono @ Tw.[text ~shade:600 gray]) [H.txt "sub"];
+    H.span ~tw:(mono @ Tw.[text ~shade:700 gray; font_bold]) [H.txt "slug"];
+    H.span ~tw:(mono @ Tw.[text ~shade:500 blue; no_underline; hover [underline]]) [H.txt "l"];
+    H.span ~tw:Tw.[text ~shade:500 gray] [H.txt "label"];
+    H.span ~tw:Tw.[text ~shade:900 gray] [H.txt "value"];
     (* Body styles *)
     H.div ~tw:Tw.[prose; prose_sm; max_w_none; font_mono; text_xs] [H.txt "body"];
-    H.pre ~tw:Tw.[bg gray 50; p 2; text_xs; font_mono; overflow_auto;
-                   border; border_color gray 200] [
+    H.pre ~tw:Tw.[bg ~shade:50 gray; p 2; text_xs; font_mono; overflow_auto;
+                   border; border_color ~shade:200 gray] [
       H.code [H.txt "source"]
     ];
-    H.pre ~tw:Tw.[bg gray 50; p 2; text_xs; font_mono; overflow_auto;
-                   border; border_color gray 100; m 0] [
+    H.pre ~tw:Tw.[bg ~shade:50 gray; p 2; text_xs; font_mono; overflow_auto;
+                   border; border_color ~shade:100 gray; m 0] [
       H.code [H.txt "bib"]
     ];
     (* Detail page styles *)
-    H.div ~tw:Tw.[flex; items_center; justify_between; py 1; border_b; border_color gray 200] [H.txt "x"];
-    H.div ~tw:Tw.[mt 1; border; border_color gray 200; p 2] [H.txt "body"];
+    H.div ~tw:Tw.[flex; items_center; justify_between; py 1; border_b; border_color ~shade:200 gray] [H.txt "x"];
+    H.div ~tw:Tw.[mt 1; border; border_color ~shade:200 gray; p 2] [H.txt "body"];
     H.div ~tw:Tw.[mt 2] [H.txt "mt2"];
-    H.div ~tw:(mono @ Tw.[text gray 400; p 2]) [H.txt "empty"];
+    H.div ~tw:(mono @ Tw.[text ~shade:400 gray; p 2]) [H.txt "empty"];
     H.div ~tw:Tw.[flex; items_center; gap 2] [H.txt "img row"];
     (* Tab styles *)
     H.a ~tw:Tw.[px 2; py 1; text_xs; font_mono; no_underline;
-                 text_white; bg gray 700; hover [text_white; bg gray 600]]
+                 text white; bg ~shade:700 gray; hover [text white; bg ~shade:600 gray]]
       [H.txt "active"];
     H.a ~tw:Tw.[px 2; py 1; text_xs; font_mono; no_underline;
-                 text gray 400; bg_transparent; hover [text_white; bg gray 600]]
+                 text ~shade:400 gray; bg_transparent; hover [text white; bg ~shade:600 gray]]
       [H.txt "inactive"];
     (* Navbar *)
-    H.span ~tw:Tw.[text gray 600; text_xs] [H.txt "|"];
-    H.a ~tw:Tw.[font_mono; font_bold; text_xs; text green 400; py 1; px 2; no_underline]
+    H.span ~tw:Tw.[text ~shade:600 gray; text_xs] [H.txt "|"];
+    H.a ~tw:Tw.[font_mono; font_bold; text_xs; text ~shade:400 green; py 1; px 2; no_underline]
       [H.txt "brand"];
   ]
 

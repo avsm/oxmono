@@ -5,6 +5,11 @@
     results. All functions return [result] with [`Msg] error messages instead of
     raising. *)
 
+val has_prefix : prefix:string -> string -> bool
+(** [has_prefix ~prefix s] is [true] when [s] starts with [prefix]. Like
+    [String.starts_with] but allocation-free (no per-call closure), for hot
+    prefix tests in ordering. *)
+
 val int_pos : name:string -> string -> (int, [> `Msg of string ]) result
 (** [int_pos ~name s] parses a non-negative integer from [s]. Returns [Ok n] if
     [s] is a decimal integer >= 0, otherwise [Error (`Msg msg)]. [name] is used
@@ -26,6 +31,57 @@ val spacing_value : name:string -> string -> (float, [> `Msg of string ]) result
 (** [spacing_value ~name s] parses spacing values, handling both integers and
     decimals like "0.5", "1.5". *)
 
+val is_valid_theme_name : string -> bool
+(** [is_valid_theme_name s] returns [true] if [s] is a valid theme variable
+    name. Names containing ['/'] are rejected — such values are invalid class
+    suffixes, not theme references. *)
+
 val ( >|= ) : ('a, 'e) result -> ('a -> 'b) -> ('b, 'e) result
 (** Infix map over [result]: [r >|= f] maps [Ok x] to [Ok (f x)] and leaves
     [Error e] unchanged. *)
+
+val extract_var_name : string -> string
+(** [extract_var_name s] extracts the bare variable name from ["var(--name)"],
+    returning ["name"]. If [s] is not a var() reference, returns [s] unchanged.
+*)
+
+val is_bracket_value : string -> bool
+(** [is_bracket_value s] returns [true] if [s] is a bracket-wrapped value like
+    ["[...]"]. *)
+
+val bracket_inner : string -> string
+(** [bracket_inner s] extracts the inner content from ["[foo]"], returning
+    ["foo"]. If [s] is not bracket-wrapped, returns [s] unchanged. *)
+
+val decode_arbitrary_value : string -> string
+(** [decode_arbitrary_value s] decodes Tailwind arbitrary-value syntax into a
+    CSS value string suitable for Cascade readers. This converts underscores to
+    spaces and normalizes omitted whitespace around binary [+] and [-] operators
+    inside CSS math functions such as [calc()]. *)
+
+val is_var : string -> bool
+(** [is_var s] returns [true] if [s] starts with ["var("]. Works on inner
+    bracket content (without surrounding brackets). *)
+
+val is_bracket_var : string -> bool
+(** [is_bracket_var s] returns [true] if [s] is a bracket-wrapped var()
+    reference like ["[var(--value)]"]. *)
+
+val is_css_color_fn : string -> bool
+(** [is_css_color_fn s] returns [true] if [s] looks like a CSS color function
+    call such as ["rgba(...)"], ["hsl(...)"], or ["oklch(...)"]. Recognizes all
+    standard CSS color functions: rgb, rgba, hsl, hsla, hwb, oklch, oklab, lch,
+    lab, color, and color-mix. *)
+
+val is_bare_var : string -> bool
+(** [is_bare_var s] returns [true] if [s] is a bare var reference like
+    ["(--name)"]. *)
+
+val bare_var_inner : string -> string
+(** [bare_var_inner s] extracts the inner content from ["(--name)"], returning
+    ["--name"]. *)
+
+val split_class : string -> string list
+(** [split_class class_name] splits a class name on ['-'] but treats ['[...]']
+    and ['(...)'] as atomic, so brackets and parentheses containing dashes are
+    preserved. E.g. ["m-[var(--value)]"] becomes [["m"; "[var(--value)]"]]. *)

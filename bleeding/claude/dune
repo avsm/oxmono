@@ -1,5 +1,0 @@
-; Root dune file
-
-; Ignore third_party directory (for fetched dependency sources)
-
-(data_only_dirs third_party)

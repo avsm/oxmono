@@ -1,0 +1,20 @@
+; The rules assert the current behaviour: constants of abstract types
+; are unusable from portable functions, and only the defining library
+; can fix that by declaring a kind.
+
+(rule
+ (alias runtest)
+ (action
+  (progn
+   (run %{bin:ocamlopt} -color never -c %{dep:lib.mli})
+   (run %{bin:ocamlopt} -color never -c %{dep:lib.ml})
+   (with-accepted-exit-codes 2
+    (run %{bin:ocamlopt} -color never -c %{dep:consumer.ml})))))
+
+(rule
+ (alias runtest)
+ (action
+  (progn
+   (run %{bin:ocamlopt} -color never -c %{dep:fixed.mli})
+   (run %{bin:ocamlopt} -color never -c %{dep:fixed.ml})
+   (run %{bin:ocamlopt} -color never -c %{dep:fixed_consumer.ml}))))

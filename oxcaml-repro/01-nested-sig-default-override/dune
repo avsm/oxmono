@@ -1,0 +1,17 @@
+; The rules assert the current (buggy) behaviour, so `dune runtest`
+; passes today and fails once the compiler is fixed.
+
+(rule
+ (alias runtest)
+ (action
+  (progn
+   (run %{bin:ocamlopt} -color never -c %{dep:repro.mli})
+   (with-accepted-exit-codes 2
+    (run %{bin:ocamlopt} -color never -c %{dep:repro.ml})))))
+
+(rule
+ (alias runtest)
+ (action
+  (progn
+   (run %{bin:ocamlopt} -color never -c %{dep:control.mli})
+   (run %{bin:ocamlopt} -color never -c %{dep:control.ml}))))

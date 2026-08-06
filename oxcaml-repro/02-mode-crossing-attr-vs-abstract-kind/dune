@@ -1,0 +1,32 @@
+; These rules assert the current behaviour: [@@unsafe_allow_any_mode_crossing]
+; is silently inert unless the declaration also carries an explicit kind
+; annotation. repro.ml (abstract-kind match) and use_sites.ml (use site)
+; show the attribute alone doing nothing; kind_only.ml shows the kind
+; alone being rejected; fix.ml shows the working combination.
+
+(rule
+ (alias runtest)
+ (action
+  (progn
+   (run %{bin:ocamlopt} -color never -c %{dep:repro.mli})
+   (with-accepted-exit-codes 2
+    (run %{bin:ocamlopt} -color never -c %{dep:repro.ml})))))
+
+(rule
+ (alias runtest)
+ (action
+  (with-accepted-exit-codes 2
+   (run %{bin:ocamlopt} -color never -c %{dep:use_sites.ml}))))
+
+(rule
+ (alias runtest)
+ (action
+  (with-accepted-exit-codes 2
+   (run %{bin:ocamlopt} -color never -c %{dep:kind_only.ml}))))
+
+(rule
+ (alias runtest)
+ (action
+  (progn
+   (run %{bin:ocamlopt} -color never -c %{dep:fix.mli})
+   (run %{bin:ocamlopt} -color never -c %{dep:fix.ml}))))

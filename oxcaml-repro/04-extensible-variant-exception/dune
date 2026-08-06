@@ -1,0 +1,16 @@
+; The first rule asserts the current behaviour. Arguably by design, but
+; it makes error-context idioms unannotatable without unsafe casts.
+
+(rule
+ (alias runtest)
+ (action
+  (with-accepted-exit-codes 2
+   (run %{bin:ocamlopt} -color never -c %{dep:repro.ml}))))
+
+(rule
+ (alias runtest)
+ (action (run %{bin:ocamlopt} -color never -c %{dep:control.ml})))
+
+(rule
+ (alias runtest)
+ (action (run %{bin:ocamlopt} -color never -c %{dep:workaround.ml})))

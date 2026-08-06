@@ -1,3 +1,0 @@
-(executable
- (name bench_snappy)
- (libraries snappy unix))

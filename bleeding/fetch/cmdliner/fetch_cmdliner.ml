@@ -485,9 +485,6 @@ let pp_config ?(show_sources = true) ppf config =
 (* ========================================================================= *)
 
 let setup_log_sources ?(verbose_http = false) level =
-  (* Helper to set TLS tracing level by finding the source by name. fetch-curl
-     leaves TLS to libcurl, but a process may link tls-eio for something else,
-     and its hexdumps are what --verbose-http used to gate. *)
   let set_tls_tracing_level lvl =
     match
       List.find_opt (fun s -> Logs.Src.name s = "tls.tracing") (Logs.Src.list ())

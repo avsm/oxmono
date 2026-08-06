@@ -1,3 +1,0 @@
-(executable
- (name gen_tables)
- (modules gen_tables))

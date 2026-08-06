@@ -1,7 +1,0 @@
-(library
- (name brotli_bytesrw)
- (public_name brotli.bytesrw)
- (optional)
- (wrapped false)
- (modules bytesrw_brotli)
- (libraries brotli bytesrw))

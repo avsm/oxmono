@@ -1,0 +1,9 @@
+(tests
+ (names test_portability test_backend)
+ (modules test_portability test_backend)
+ (libraries eio eio_main))
+
+(library
+ (name proffer_probe)
+ (modules probe_portable)
+ (libraries eio))

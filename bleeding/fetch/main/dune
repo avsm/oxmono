@@ -1,0 +1,4 @@
+(library
+ (name fetch_main)
+ (public_name fetch-main)
+ (libraries fetch fetch-curl fetch-macos eio fmt))

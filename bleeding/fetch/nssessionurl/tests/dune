@@ -1,0 +1,7 @@
+(test
+ (name test_nssessionurl)
+ (package nssessionurl)
+ (deps echo_server.py)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries nssessionurl unix cstruct eio eio_main))

@@ -1,0 +1,5 @@
+(mdx
+ (package fetch-main)
+ (enabled_if
+  (= %{system} macosx))
+ (deps (package fetch-main) (package fetch)))

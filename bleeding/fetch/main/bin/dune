@@ -1,0 +1,5 @@
+(executable
+ (name fetch_cli)
+ (public_name fetch)
+ (package fetch-main)
+ (libraries fetch fetch-main eio eio_main http fmt))

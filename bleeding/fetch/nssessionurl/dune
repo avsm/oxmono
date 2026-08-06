@@ -1,0 +1,14 @@
+(library
+ (name nssessionurl)
+ (public_name nssessionurl)
+ (libraries unix cstruct eio eio.unix)
+ (foreign_stubs
+  (language c)
+  (names nssessionurl_stubs)
+  (flags (:standard (:include c_flags.sexp))))
+ (c_library_flags (:include c_library_flags.sexp)))
+
+(rule
+ (targets c_flags.sexp c_library_flags.sexp)
+ (action
+  (run ./config/discover.exe)))

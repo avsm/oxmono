@@ -1,0 +1,4 @@
+(library
+ (name fetch_macos)
+ (public_name fetch-macos)
+ (libraries fetch fetch.cookies nssessionurl eio http fmt))

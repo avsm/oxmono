@@ -1,2 +1,20 @@
 (lang dune 3.21)
 (name proffer)
+
+(generate_opam_files true)
+
+(source (github avsm/proffer))
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "anil@recoil.org")
+
+(package
+ (name proffer)
+ (synopsis "Declarative HTTP serving with interchangeable backends")
+ (description
+  "Proffer describes a site as data: handlers return responses rather than
+writing them, routes capture path segments as curried handler arguments, and
+caching policy is typed. The core depends on the stdlib alone. Backends own
+the wire and share the conditional-request and HEAD logic the core provides.")
+ (depends
+  (ocaml (>= 5.2))))

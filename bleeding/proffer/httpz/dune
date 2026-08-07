@@ -1,0 +1,11 @@
+(library
+ (name proffer_httpz)
+ (public_name proffer-httpz)
+ (libraries
+  proffer
+  httpz
+  eio
+  cstruct
+  unix
+  stdlib_stable
+  stdlib_upstream_compatible))

@@ -18,3 +18,17 @@ caching policy is typed. The core depends on the stdlib alone. Backends own
 the wire and share the conditional-request and HEAD logic the core provides.")
  (depends
   (ocaml (>= 5.2))))
+
+(package
+ (name proffer-httpz)
+ (synopsis "Proffer backend on the httpz parser and Eio")
+ (description
+  "Serves a compiled proffer site over HTTP/1.1 on one domain, a fibre per
+connection. Requests are parsed by httpz and answered through Proffer.Serve,
+so dispatch, conditional requests and HEAD behave as the mock backend does.")
+ (depends
+  (ocaml (>= 5.2))
+  proffer
+  httpz
+  eio
+  cstruct))

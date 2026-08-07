@@ -6,9 +6,10 @@ description: """
 Sortal provides contact metadata management with versioned schemas,
    XDG-compliant storage, git versioning, and CLI tools.
 
-   The library is split into two components:
+   The library is split into three components:
    - sortal.schema: Versioned data types with minimal dependencies
-   - sortal: Core library with storage, git integration, and CLI support"""
+   - sortal: Core library with storage, git integration, and CLI support
+   - sortal.web: The local web UI, as a proffer site"""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"
@@ -33,6 +34,8 @@ depends: [
   "fetch-curl"
   "xmlm"
   "uri"
+  "proffer"
+  "proffer-httpz"
   "odoc" {with-doc}
   "alcotest" {with-test & >= "1.7.0"}
 ]

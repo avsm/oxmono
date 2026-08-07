@@ -1,0 +1,12 @@
+(library
+ (public_name sortal.web)
+ (name sortal_web)
+ (libraries sortal.schema proffer))
+
+; ocamlformat cannot parse the mode annotations this library needs, so the
+; directory formats its dune file only.
+
+(env
+ (_
+  (formatting
+   (enabled_for dune))))

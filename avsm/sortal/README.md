@@ -128,6 +128,21 @@ sortal delete jsmith
 sortal sync
 ```
 
+### Web interface
+
+`sortal serve` presents the same database as a small HTML interface for
+browsing, searching, adding, editing and deleting contacts. `--port` selects
+the port, which defaults to 8380.
+
+```bash
+sortal serve --port 8380
+```
+
+The server binds 127.0.0.1 only and this is not configurable, because the UI
+has no authentication. Anyone who can reach the port can change every contact.
+Edits are committed when the data directory is a git repository, as the
+equivalent subcommands would commit them.
+
 ## Git Versioning
 
 Sortal includes a `Sortal_git_store` module that provides automatic git commits

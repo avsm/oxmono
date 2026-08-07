@@ -7,6 +7,9 @@
   sortal.feed
   sortal.discover
   sortal.config
+  sortal.web
+  proffer
+  proffer-httpz
   eio
   eio_main
   xdge

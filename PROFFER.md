@@ -295,15 +295,21 @@ dependencies (`optint`, `lwt-dllist`, `hmap`) are vendored and
 annotated, and the spikes prove the compiled-site crossing and the
 checked multi-domain accept loop.
 
+Also done, in a v1 form: the interface, the core with `proffer.mock`,
+and the `proffer-httpz` backend, all tested. `Cache`, `Sse`,
+`Negotiate`, `Site.mount` and the other combinators described above are
+not implemented, and serving is single domain, so no caps cross and the
+backend asserts nothing. `sortal serve` is the first consumer, with
+`avsm/sortal/lib/web` a site whose portable handlers reach the store
+through an env record of closures.
+
 Next, in order:
 
-1. Draft `proffer.mli` covering `Req`, `Resp`, `Body`, `Cache_control`,
-   `Route`, `Site`, `Compiled`, `Cache`, `Sink`, `Sse`, `Negotiate` and
-   `Log`, and review it before implementation.
-2. Implement the core with `proffer.mock` and tests.
-3. Implement `proffer-httpz` and port arod.
-4. Implement `proffer-cohttp`.
-5. Migrate bushel_web and httpz-perma-proxy, then fold `httpz.route`
+1. Fill in the deferred core: `Cache`, `Site.mount` and the wrappers,
+   `Negotiate`, `Sse`, `Range`.
+2. Take `proffer-httpz` multi-domain, and port arod.
+3. Implement `proffer-cohttp`.
+4. Migrate bushel_web and httpz-perma-proxy, then fold `httpz.route`
    and `httpz.eio_server` into the backend.
 
 In parallel and without blocking: upstream the Eio annotation patch,

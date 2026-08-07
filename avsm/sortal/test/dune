@@ -10,3 +10,6 @@
  (name test_feed)
  (libraries sortal.feed sortal.schema eio eio_main syndic jsonfeed xmlm uri ptime))
 
+(test
+ (name test_web)
+ (libraries sortal.web sortal.schema proffer proffer.mock))

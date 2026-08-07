@@ -61,6 +61,19 @@ let () =
     Cmd.v Sortal.Cmd.sync_info term
   in
 
+  let serve_cmd =
+    let term =
+      let open Term.Syntax in
+      let+ (xdg, _) = xdg_term
+      and+ port = Sortal_serve.port_arg
+      and+ log_level = Logs_cli.level () in
+      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
+      Logs.set_level log_level;
+      Sortal_serve.cmd ~port xdg env
+    in
+    Cmd.v Sortal_serve.info term
+  in
+
   (* Helper: load config, resolve remote, provide git+repo context *)
   let with_git_remote xdg env ~dry_run ~remote_override f =
     match Sortal_config.load () with
@@ -753,6 +766,7 @@ let () =
     search_cmd;
     stats_cmd;
     sync_cmd;
+    serve_cmd;
     git_group;
     init_config_cmd;
     config_cmd;

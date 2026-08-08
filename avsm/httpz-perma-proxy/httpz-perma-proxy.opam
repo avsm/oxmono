@@ -12,5 +12,4 @@ depends: [
   "eio_main"
   "eio_posix"
   "jsont"
-  "unix"
 ]

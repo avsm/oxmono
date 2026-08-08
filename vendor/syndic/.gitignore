@@ -1,0 +1,11 @@
+_build
+setup.data
+setup.log
+doc/*.html
+*.native
+*.byte
+*.docdir
+lib/syndic_conf.ml
+*.tar.gz
+.merlin
+*.install

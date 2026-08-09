@@ -422,6 +422,26 @@ let test_contact_v2 () =
   assert (C.feeds (C.remove_feed with_feed (Sortal_schema.Feed.url feed)) = []);
   print_endline "✓ V2 contact works"
 
+(* Task 10's [migrate] command tells a V1 file from a V2 one by trying the
+   V2 decoder first and falling back to V1 on failure. That only works if
+   the V2 decoder rejects every shape a V1 or malformed [version] member
+   can take, so each is pinned here rather than assumed. *)
+let test_v2_rejects_non_v2 () =
+  let module V2 = Sortal_schema.V2.Contact in
+  let decode s = Jsont_bytesrw.decode_string V2.json_t s in
+  assert (Result.is_error
+            (decode {|{"version":1,"kind":"person","handle":"a","names":["A"]}|}));
+  assert (Result.is_error
+            (decode {|{"version":3,"kind":"person","handle":"a","names":["A"]}|}));
+  assert (Result.is_error
+            (decode {|{"kind":"person","handle":"a","names":["A"]}|}));
+  assert (Result.is_error
+            (decode {|{"version":"2","kind":"person","handle":"a","names":["A"]}|}));
+  (* a non-integer number is not a schema version either *)
+  assert (Result.is_error
+            (decode {|{"version":2.5,"kind":"person","handle":"a","names":["A"]}|}));
+  print_endline "✓ V2 decoder rejects non-V2 input"
+
 let () =
   print_endline "\n=== Schema Tests ===\n";
   test_temporal ();
@@ -432,4 +452,5 @@ let () =
   test_platform ();
   test_account_codec ();
   test_contact_v2 ();
+  test_v2_rejects_non_v2 ();
   print_endline "\n=== All Schema Tests Passed ===\n"

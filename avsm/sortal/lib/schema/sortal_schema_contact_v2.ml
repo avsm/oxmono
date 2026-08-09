@@ -181,17 +181,26 @@ let list_mem name codec get =
   Jsont.Object.mem name codec ~dec_absent:[] ~enc:get
     ~enc_omit:(fun v -> v = [])
 
+(* [Jsont.int] accepts a numeric JSON string as well as a number, so a file
+   with ["version": "2"] would decode. The migration tells a V1 file from a
+   V2 one by whether this decoder fails, so the check has to be strict about
+   the JSON type as well as the value. *)
+let version_json =
+  let dec meta f =
+    if Float.is_integer f && int_of_float f = version then version
+    else
+      Jsont.Error.msgf meta "expected schema version %d, got %g" version f
+  in
+  Jsont.Base.number (Jsont.Base.map ~kind:"Version" ~dec ~enc:float_of_int ())
+
 let json_t =
   let open Jsont.Object in
   map ~kind:"ContactV2"
-    (fun v kind handle names emails accounts links affiliations photo feeds
+    (fun _v kind handle names emails accounts links affiliations photo feeds
          vcard ->
-      if v <> version then
-        Jsont.Error.msgf Jsont.Meta.none
-          "ContactV2: expected schema version %d, got %d" version v;
       { kind; handle; names; emails; accounts; links; affiliations; photo;
         feeds; vcard })
-  |> mem "version" Jsont.int ~enc:(fun _ -> version)
+  |> mem "version" version_json ~enc:(fun _ -> version)
   |> mem "kind" kind_json ~enc:(fun c -> c.kind)
   |> mem "handle" Jsont.string ~enc:(fun c -> c.handle)
   |> mem "names" (Jsont.list Jsont.string) ~enc:(fun c -> c.names)

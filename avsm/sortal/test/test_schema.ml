@@ -44,10 +44,36 @@ let test_json_roundtrip () =
        | Error e -> failwith ("Decode failed: " ^ e))
   | Error e -> failwith ("Encode failed: " ^ e)
 
+let test_date () =
+  let p = Sortal_schema.Date.parse in
+  assert (p "2001" = Some (2001, 1, 1));
+  assert (p "2001-03" = Some (2001, 3, 1));
+  assert (p "2001-03-15" = Some (2001, 3, 15));
+  assert (p "" = None);
+  assert (p "not-a-date" = None);
+  assert (p "2001-13-01" = None);
+  assert (p "2001-02-30" = None);
+  assert (p "0x10" = None);
+  assert (p "0o17" = None);
+  assert (p "2_006" = None);
+  assert (p "+2001" = None);
+  assert (p " 2001-03-15 " = None);
+  assert (p "2001 - 03 - 15" = None);
+  assert (p "2001-01-01-01" = None);
+  assert (p "-0001" = None);
+  assert (p "201" = None);
+  assert (p "2001-3-15" = None);
+  assert (Sortal_schema.Date.to_string (2001, 3, 15) = "2001-03-15");
+  List.iter
+    (fun d -> assert (p (Sortal_schema.Date.to_string d) = Some d))
+    [ (2001, 1, 1); (2001, 3, 15); (1999, 12, 31); (2024, 2, 29) ];
+  print_endline "✓ Date parsing works"
+
 let () =
   print_endline "\n=== Schema Tests ===\n";
   test_temporal ();
   test_feed_types ();
   test_contact_construction ();
   test_json_roundtrip ();
+  test_date ();
   print_endline "\n=== All Schema Tests Passed ===\n"

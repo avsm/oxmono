@@ -35,6 +35,9 @@ end
     When V2 is introduced, these will continue pointing to V1 for
     backward compatibility. *)
 
+(** ISO 8601 calendar dates, used by V2's affiliations. *)
+module Date = Sortal_schema_date
+
 module Temporal = V1.Temporal
 module Feed = V1.Feed
 module Contact = V1.Contact

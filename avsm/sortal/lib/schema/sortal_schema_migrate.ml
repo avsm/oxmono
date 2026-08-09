@@ -277,15 +277,20 @@ let collect f xs =
       Ok (acc @ [ y ]))
     (Ok []) xs
 
+let classify_url url =
+  match Option.bind (host_of_url url) platform_of_host with
+  | Some (P.Simple p) -> (
+      match handle_of_simple p url with
+      | Some h -> `Account (A.Simple (p, h))
+      | None -> `Link)
+  | _ -> `Link
+
 (* An account promoted out of [urls], or [Right u] to keep [u] as a link
    when its host names no platform, or is not a URL at all. *)
 let account_of_url (u : V1.url_entry) =
-  match Option.bind (host_of_url u.url) platform_of_host with
-  | Some (P.Simple p) -> (
-      match handle_of_simple p u.url with
-      | Some h -> Either.Left (A.Simple (p, h))
-      | None -> Either.Right u)
-  | _ -> Either.Right u
+  match classify_url u.url with
+  | `Account a -> Either.Left a
+  | `Link -> Either.Right u
 
 let v1_to_v2 (c : V1.t) =
   let* service_accounts = collect account_of_service (V1.services c) in
@@ -323,6 +328,20 @@ let v1_to_v2 (c : V1.t) =
         in
         if seen then acc else acc @ [ a ])
       [] accounts
+  in
+  (* [Sortal_schema_account.json_t] decodes accounts in ascending platform-key
+     order, because it groups them through a [Map.Make(String)] on the way
+     in. A value built here in a different order, such as the order
+     [services] happened to list them, would not survive an encode and a
+     decode unchanged: the round trip would differ only in account order,
+     which is not a loss of data but does mean this function's output is
+     not idempotent under that codec. Sorting here, stably so that two
+     accounts on the same platform keep their relative order, matches what
+     a decode always produces. *)
+  let accounts =
+    List.stable_sort
+      (fun a b -> String.compare (P.key (A.platform a)) (P.key (A.platform b)))
+      accounts
   in
   let kind =
     match V1.kind c with

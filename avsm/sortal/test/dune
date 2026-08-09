@@ -13,3 +13,8 @@
 (test
  (name test_web)
  (libraries sortal.web sortal.schema proffer proffer.mock))
+
+(test
+ (name test_migrate_golden)
+ (deps (universe))
+ (libraries sortal.schema yamlt jsont jsont.bytesrw bytesrw))

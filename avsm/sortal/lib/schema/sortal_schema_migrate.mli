@@ -43,3 +43,10 @@ val platform_of_host : string -> Sortal_schema_platform.id option
     is not GitHub. Any [scholar.google.<tld>] host is Google Scholar: a
     Scholar profile id is global, not tied to the domain it was found
     under. *)
+
+val classify_url :
+  string -> [ `Account of Sortal_schema_account.t | `Link ]
+(** [classify_url u] is how [u] migrates: an account when its host names a
+    platform and a handle can be derived from it, and a link otherwise. This
+    is the same decision {!v1_to_v2} makes for a [urls] entry, exposed so a
+    caller can report on it without reimplementing it. *)

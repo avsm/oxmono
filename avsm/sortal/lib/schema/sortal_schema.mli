@@ -40,6 +40,10 @@ module V2 : sig
   module Contact = Sortal_schema_contact_v2
 end
 
+module Migrate = Sortal_schema_migrate
+(** {!Sortal_schema_migrate} converts a {!V1.Contact.t} to a
+    {!V2.Contact.t}. *)
+
 (** {1 Current version aliases}
 
     These name the schema in current use, and currently straddle both

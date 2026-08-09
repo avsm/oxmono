@@ -17,6 +17,8 @@ module V2 = struct
   module Contact = Sortal_schema_contact_v2
 end
 
+module Migrate = Sortal_schema_migrate
+
 module Date = V2.Date
 module Platform = V2.Platform
 module Account = V2.Account

@@ -422,6 +422,322 @@ let test_contact_v2 () =
   assert (C.feeds (C.remove_feed with_feed (Sortal_schema.Feed.url feed)) = []);
   print_endline "✓ V2 contact works"
 
+let test_migrate () =
+  let module V1 = Sortal_schema.V1.Contact in
+  let module V2 = Sortal_schema.V2.Contact in
+  let module A = Sortal_schema.Account in
+  let module P = Sortal_schema.Platform in
+  let migrate c =
+    match Sortal_schema.Migrate.v1_to_v2 c with
+    | Ok v2 -> v2
+    | Error e -> failwith e
+  in
+  (* a github service loses its url, kind and primary *)
+  let c =
+    V1.make ~handle:"a" ~names:[ "A" ]
+      ~services:
+        [ V1.make_service ~kind:V1.Github ~handle:"avsm" ~primary:false
+            "https://github.com/avsm" ]
+      ()
+  in
+  assert (V2.handle_on (migrate c) (P.Simple P.Github) = Some "avsm");
+
+  (* a service with no handle derives one from the url tail *)
+  let c =
+    V1.make ~handle:"b" ~names:[ "B" ]
+      ~services:[ V1.make_service ~kind:V1.Github "https://github.com/mdales" ]
+      ()
+  in
+  assert (V2.handle_on (migrate c) (P.Simple P.Github) = Some "mdales");
+
+  (* a service whose url is really a bare handle, as mdales.yaml has *)
+  let c =
+    V1.make ~handle:"c" ~names:[ "C" ]
+      ~services:[ V1.make_service ~kind:V1.Github "mdales" ]
+      ()
+  in
+  assert (V2.handle_on (migrate c) (P.Simple P.Github) = Some "mdales");
+
+  (* both mastodon spellings converge *)
+  let c =
+    V1.make ~handle:"d" ~names:[ "D" ]
+      ~services:
+        [ V1.make_service ~kind:(V1.ActivityPub V1.Mastodon)
+            ~handle:"avsm@amok.recoil.org" "https://amok.recoil.org/@avsm" ]
+      ()
+  in
+  assert (
+    V2.handle_on (migrate c) (P.Federated P.Mastodon)
+    = Some "avsm@amok.recoil.org");
+
+  (* photo splits by host *)
+  let c =
+    V1.make ~handle:"e" ~names:[ "E" ]
+      ~services:
+        [
+          V1.make_service ~kind:V1.Photo ~handle:"avsm"
+            "https://www.instagram.com/avsm";
+          V1.make_service ~kind:V1.Photo ~handle:"avsm"
+            "https://www.flickr.com/photos/avsm";
+        ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.handle_on m (P.Simple P.Instagram) = Some "avsm");
+  assert (V2.handle_on m (P.Simple P.Flickr) = Some "avsm");
+
+  (* the orcid field becomes an account *)
+  let c =
+    V1.make ~handle:"f" ~names:[ "F" ] ~orcid:"0000-0001-8954-2428" ()
+  in
+  assert (
+    V2.handle_on (migrate c) (P.Simple P.Orcid) = Some "0000-0001-8954-2428");
+
+  (* a linkedin url is promoted out of urls *)
+  let c =
+    V1.make ~handle:"g" ~names:[ "G" ]
+      ~urls:
+        [ V1.url_of_string "https://www.linkedin.com/in/anilmadhavapeddy" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.handle_on m (P.Simple P.LinkedIn) = Some "anilmadhavapeddy");
+  assert (V2.links m = []);
+
+  (* a github.io page is a personal site, not a github account *)
+  let c =
+    V1.make ~handle:"h" ~names:[ "H" ]
+      ~urls:[ V1.url_of_string "https://ancazugo.github.io/" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.account_on m (P.Simple P.Github) = None);
+  assert (List.length (V2.links m) = 1);
+
+  (* emails lose their type and keep their order *)
+  let c =
+    V1.make ~handle:"i" ~names:[ "I" ]
+      ~emails:
+        [
+          V1.make_email ~type_:V1.Personal "anil@recoil.org";
+          V1.make_email ~type_:V1.Work "avsm2@cam.ac.uk";
+        ]
+      ()
+  in
+  assert (V2.emails (migrate c) = [ "anil@recoil.org"; "avsm2@cam.ac.uk" ]);
+
+  (* an unknown custom service kind is an error, not a silent drop *)
+  let c =
+    V1.make ~handle:"j" ~names:[ "J" ]
+      ~services:
+        [ V1.make_service ~kind:(V1.Custom "myspace") "https://myspace.com/j" ]
+      ()
+  in
+  assert (Result.is_error (Sortal_schema.Migrate.v1_to_v2 c));
+
+  (* a kinded service with no handle and no url has nothing to identify it
+     by. Migration does not itself validate handles, the same as the orcid
+     field below, so it produces an account with an empty handle rather than
+     erroring: [Account.check] is what catches this. *)
+  let c =
+    V1.make ~handle:"k" ~names:[ "K" ]
+      ~services:[ V1.make_service ~kind:V1.Github "" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.handle_on m (P.Simple P.Github) = Some "");
+  assert (Result.is_error (A.check (Option.get (V2.account_on m (P.Simple P.Github)))));
+
+  (* an orcid that fails its checksum still becomes an account: migration
+     converts the field, it does not validate it. [Account.check] catches
+     the bad checksum, matching [Platform.check_simple] in test_platform. *)
+  let c =
+    V1.make ~handle:"l" ~names:[ "L" ] ~orcid:"0000-0001-8954-2427" ()
+  in
+  let m = migrate c in
+  assert (V2.handle_on m (P.Simple P.Orcid) = Some "0000-0001-8954-2427");
+  assert (Result.is_error (A.check (Option.get (V2.account_on m (P.Simple P.Orcid)))));
+
+  (* an atproto block and a kind:bluesky service with different handles are
+     two distinct identities, and migration keeps both rather than
+     collapsing them: only an exact platform-and-handle duplicate merges *)
+  let c =
+    V1.make ~handle:"m" ~names:[ "M" ]
+      ~atproto:
+        {
+          V1.atp_handle = "neil.example.com";
+          atp_did = None;
+          atp_services =
+            [ { atp_type = V1.ATBluesky; atp_url = "https://bsky.app/profile/neil.example.com" } ];
+        }
+      ~services:
+        [
+          V1.make_service ~kind:(V1.Custom "bluesky")
+            ~handle:"lawrennd.bsky.social"
+            "https://bsky.app/profile/lawrennd.bsky.social";
+        ]
+      ()
+  in
+  let m = migrate c in
+  let atproto_accounts =
+    List.filter (fun a -> A.platform a = P.Atproto) (V2.accounts m)
+  in
+  assert (List.length atproto_accounts = 2);
+
+  (* an organization's temporal range moves to the affiliation it becomes,
+     since V2 keeps dates only on affiliations *)
+  let c =
+    V1.make ~handle:"n" ~names:[ "N" ]
+      ~organizations:
+        [ V1.make_org ~from:(2010, 1, 1) ~until:(2015, 6, 1) "Acme" ]
+      ()
+  in
+  let m = migrate c in
+  (match V2.affiliations m with
+   | [ aff ] ->
+       assert (aff.V2.org = "Acme");
+       assert (aff.V2.from = Some (2010, 1, 1));
+       assert (aff.V2.until = Some (2015, 6, 1))
+   | _ -> assert false);
+
+  (* icon is the fallback photo when there is no thumbnail *)
+  let c =
+    V1.make ~handle:"o" ~names:[ "O" ] ~icon:"https://example.com/o.png" ()
+  in
+  assert (V2.photo (migrate c) = Some "https://example.com/o.png");
+
+  (* a urls entry that is not a URL at all is kept as a link, not an error *)
+  let c =
+    V1.make ~handle:"p" ~names:[ "P" ]
+      ~urls:[ V1.url_of_string "just some text, not a url" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.links m = [ { V2.url = "just some text, not a url"; label = None } ]);
+  assert (V2.accounts m = []);
+
+  (* Scholar's id is the [user] query parameter, not everything after the
+     first [=]: most Scholar URLs in the store have a trailing [&hl=..]
+     that must not be folded into the id *)
+  let c =
+    V1.make ~handle:"q" ~names:[ "Q" ]
+      ~urls:
+        [ V1.url_of_string
+            "https://scholar.google.com/citations?user=lBhFXdIAAAAJ&hl=en" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.handle_on m (P.Simple P.Scholar) = Some "lBhFXdIAAAAJ");
+
+  (* the [user] parameter need not come first *)
+  let c =
+    V1.make ~handle:"r" ~names:[ "R" ]
+      ~urls:
+        [ V1.url_of_string
+            "https://scholar.google.com/citations?hl=en&user=lBhFXdIAAAAJ" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.handle_on m (P.Simple P.Scholar) = Some "lBhFXdIAAAAJ");
+
+  (* a citations URL with no [user] parameter at all has no id to extract,
+     so it stays a link rather than becoming a bogus account *)
+  let c =
+    V1.make ~handle:"s" ~names:[ "S" ]
+      ~urls:[ V1.url_of_string "https://scholar.google.com/citations?hl=en" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.account_on m (P.Simple P.Scholar) = None);
+  assert (List.length (V2.links m) = 1);
+
+  (* a regional Scholar domain is the same platform as scholar.google.com,
+     since a profile id is global, not per-domain *)
+  let c =
+    V1.make ~handle:"t" ~names:[ "T" ]
+      ~urls:
+        [ V1.url_of_string
+            "https://scholar.google.ca/citations?user=bc4TxdsAAAAJ" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.handle_on m (P.Simple P.Scholar) = Some "bc4TxdsAAAAJ");
+
+  (* Scholar hosts are matched on label structure, not a string prefix: a
+     prefix test would also accept a crafted host such as
+     [scholar.google.com.evil.example], which has "scholar.google." as a
+     literal prefix but is not a Google host at all *)
+  let scholar = Some (P.Simple P.Scholar) in
+  let platform_of_host = Sortal_schema.Migrate.platform_of_host in
+  assert (platform_of_host "scholar.google.com" = scholar);
+  assert (platform_of_host "scholar.google.ca" = scholar);
+  assert (platform_of_host "scholar.google.co.uk" = scholar);
+  assert (platform_of_host "scholar.google.com.evil.example" = None);
+  assert (platform_of_host "notscholar.google.com" = None);
+  assert (platform_of_host "google.com" = None);
+  assert (platform_of_host "www.google.com" = None);
+
+  (* a [#fragment] glued onto the id by the [&]-split alone is rejected by
+     the character-set check, not folded into the handle *)
+  let c =
+    V1.make ~handle:"v" ~names:[ "V" ]
+      ~urls:
+        [ V1.url_of_string
+            "https://scholar.google.com/citations?user=lBhFXdIAAAAJ#foo" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.account_on m (P.Simple P.Scholar) = None);
+  assert (List.length (V2.links m) = 1);
+
+  (* an empty [user=] behaves like a missing parameter, not an empty
+     handle *)
+  let c =
+    V1.make ~handle:"w" ~names:[ "W" ]
+      ~urls:[ V1.url_of_string "https://scholar.google.com/citations?user=&hl=en" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.account_on m (P.Simple P.Scholar) = None);
+
+  (* a percent-encoded value is rejected undecoded: '%' is not in the id's
+     character set *)
+  let c =
+    V1.make ~handle:"x" ~names:[ "X" ]
+      ~urls:
+        [ V1.url_of_string
+            "https://scholar.google.com/citations?user=lB%20hFXdI" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.account_on m (P.Simple P.Scholar) = None);
+
+  (* any other character outside [A-Za-z0-9_-] is rejected the same way *)
+  let c =
+    V1.make ~handle:"y" ~names:[ "Y" ]
+      ~urls:
+        [ V1.url_of_string "https://scholar.google.com/citations?user=abc def" ]
+      ()
+  in
+  let m = migrate c in
+  assert (V2.account_on m (P.Simple P.Scholar) = None);
+
+  (* an organization's email has no V2 affiliation field to carry it, so it
+     is an error rather than a silent drop, naming the contact and the
+     organization *)
+  let c =
+    V1.make ~handle:"u" ~names:[ "U" ]
+      ~organizations:[ V1.make_org ~email:"acme@example.com" "Acme" ]
+      ()
+  in
+  (match Sortal_schema.Migrate.v1_to_v2 c with
+   | Error e ->
+       assert (contains e "u");
+       assert (contains e "Acme")
+   | Ok _ -> assert false);
+
+  print_endline "✓ V1 to V2 migration works"
+
 (* Task 10's [migrate] command tells a V1 file from a V2 one by trying the
    V2 decoder first and falling back to V1 on failure. That only works if
    the V2 decoder rejects every shape a V1 or malformed [version] member
@@ -452,5 +768,6 @@ let () =
   test_platform ();
   test_account_codec ();
   test_contact_v2 ();
+  test_migrate ();
   test_v2_rejects_non_v2 ();
   print_endline "\n=== All Schema Tests Passed ===\n"

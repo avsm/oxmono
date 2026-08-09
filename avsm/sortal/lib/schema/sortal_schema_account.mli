@@ -28,28 +28,28 @@ type t =
       (** [Federated (p, user, host)] is [user] at [host] on [p]. *)
   | Atproto of atproto
 
-val platform : t -> Platform.id
+val platform : t -> Platform.id @@ portable
 (** [platform a] is the platform [a] is held on. *)
 
-val handle : t -> string
+val handle : t -> string @@ portable
 (** [handle a] is [a]'s handle. For a federated account this is the
     [user@host] form, and for an AT Protocol account it is the bare handle. *)
 
-val url : t -> string
+val url : t -> string @@ portable
 (** [url a] is [a]'s canonical URL, derived from its platform and handle. For
     an AT Protocol account this is the URL of its first app, or the Bluesky
     URL if it lists none. *)
 
-val app_url : atproto -> app -> string
+val app_url : atproto -> app -> string @@ portable
 (** [app_url a app] is the URL of [a]'s identity on [app]. *)
 
-val app_to_string : app -> string
+val app_to_string : app -> string @@ portable
 (** [app_to_string app] is [app]'s name as it appears in YAML. *)
 
-val app_of_string : string -> app option
+val app_of_string : string -> app option @@ portable
 (** [app_of_string s] is the app [s] names, or [None]. *)
 
-val check : t -> (unit, string) result
+val check : t -> (unit, string) result @@ portable
 (** [check a] is [Ok ()] if [a]'s handle is syntactically valid for its
     platform, or [Error why]. The check is local. *)
 

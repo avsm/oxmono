@@ -375,33 +375,17 @@ let related_stream ~ctx slug =
     and social links. Reusable from sidebar avatars and sidenotes. *)
 
 module Contact = Sortal_schema.Contact
-
-(** Build a matrix.to link and display handle from a Matrix service entry.
-    The service URL is the homeserver domain, handle is the username.
-    Returns [(link_url, display_handle)]. *)
-let matrix_link (svc : Contact.service) =
-  let homeserver =
-    match Uri.host (Uri.of_string svc.url) with
-    | Some h -> h
-    | None -> svc.url
-  in
-  match svc.handle with
-  | Some h ->
-    let mxid = Printf.sprintf "@%s:%s" h homeserver in
-    (Printf.sprintf "https://matrix.to/#/%s" mxid, mxid)
-  | None ->
-    (Printf.sprintf "https://matrix.to/#/@:%s" homeserver,
-     Printf.sprintf "@:%s" homeserver)
+module Account = Sortal_schema.Contact.Account
 
 let contact_popover_card contact ~thumb =
   let name = Contact.name contact in
-  let org_el = match Contact.current_organization contact with
-    | Some org ->
-      let title_str = match org.Contact.title with
+  let org_el = match Contact.current_affiliation contact with
+    | Some (a : Contact.affiliation) ->
+      let title_str = match a.title with
         | Some t -> t ^ ", "
         | None -> ""
       in
-      [El.p ~at:[At.class' "popover-org block text-secondary text-[0.65rem] m-0 truncate"] [El.txt (title_str ^ org.Contact.name)]]
+      [El.p ~at:[At.class' "popover-org block text-secondary text-[0.65rem] m-0 truncate"] [El.txt (title_str ^ a.org)]]
     | None -> []
   in
   let social_icons =
@@ -411,54 +395,47 @@ let contact_popover_card contact ~thumb =
         El.a ~at:[At.href ("https://github.com/" ^ g);
            At.v "title" "GitHub"; At.class' "popover-social-link"]
            [El.unsafe_raw (brand ~size:14 github_brand)]
-      ) (Contact.github_handle contact);
+      ) (Contact.handle_on contact (Simple Github));
       Option.map (fun t ->
         El.a ~at:[At.href ("https://twitter.com/" ^ t);
            At.v "title" "X"; At.class' "popover-social-link"]
            [El.unsafe_raw (brand ~size:14 x_brand)]
-      ) (Contact.twitter_handle contact);
+      ) (Contact.handle_on contact (Simple Twitter));
       Option.map (fun b ->
         El.a ~at:[At.href ("https://bsky.app/profile/" ^ b);
            At.v "title" "Bluesky"; At.class' "popover-social-link"]
            [El.unsafe_raw (brand ~size:14 bluesky_brand)]
-      ) (Contact.bluesky_handle contact);
-      Option.map (fun (svc : Contact.service) ->
-        El.a ~at:[At.href svc.url;
+      ) (Contact.atproto_handle contact);
+      Option.map (fun svc ->
+        El.a ~at:[At.href (Account.url svc);
            At.v "title" "LinkedIn"; At.class' "popover-social-link"]
            [El.unsafe_raw (brand ~size:14 linkedin_brand)]
-      ) (Contact.linkedin contact);
+      ) (Contact.account_on contact (Simple LinkedIn));
       Option.map (fun u ->
         El.a ~at:[At.href u;
            At.v "title" "Website"; At.class' "popover-social-link"]
            [El.unsafe_raw (outline ~size:14 world_o)]
-      ) (Contact.current_url contact);
+      ) (Contact.best_url contact);
       Option.map (fun o ->
         El.a ~at:[At.href ("https://orcid.org/" ^ o);
            At.v "title" "ORCID"; At.class' "popover-social-link"]
            [El.unsafe_raw (brand ~size:14 orcid_brand)]
-      ) (Contact.orcid contact);
-      Option.map (fun (svc : Contact.service) ->
-        if svc.url = "" then None
-        else let link_url, _ = matrix_link svc in
-          Some (El.a ~at:[At.href link_url;
+      ) (Contact.handle_on contact (Simple Orcid));
+      Option.map (fun svc ->
+        El.a ~at:[At.href (Account.url svc);
            At.v "title" "Matrix"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 matrix_brand)])
-      ) (Contact.matrix contact) |> Option.join;
-      Option.map (fun (svc : Contact.service) ->
-        if svc.url = "" then None
-        else Some (El.a ~at:[At.href svc.url;
+           [El.unsafe_raw (brand ~size:14 matrix_brand)]
+      ) (Contact.account_on contact (Federated Matrix));
+      Option.map (fun svc ->
+        El.a ~at:[At.href (Account.url svc);
            At.v "title" "Zulip"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 zulip_brand)])
-      ) (Contact.zulip contact) |> Option.join;
-    ] @ List.filter_map (fun (svc : Contact.service) ->
-      if svc.url = "" then None
-      else
-        let profile_url = match svc.handle with
-          | Some h -> svc.url ^ "/u/" ^ h | None -> svc.url in
-        Some (El.a ~at:[At.href profile_url;
+           [El.unsafe_raw (brand ~size:14 zulip_brand)]
+      ) (Contact.account_on contact (Federated Zulip));
+    ] @ List.filter_map (fun svc ->
+        Some (El.a ~at:[At.href (Account.url svc);
            At.v "title" "Discourse"; At.class' "popover-social-link"]
            [El.unsafe_raw (brand ~size:14 discourse_brand)])
-    ) (Contact.discourse contact) in
+    ) (Contact.accounts_on contact (Federated Discourse)) in
     match items with
     | [] -> []
     | _ -> [El.div ~at:[At.class' "popover-socials"] items]
@@ -532,49 +509,42 @@ let contact_inline ~ctx contact =
         El.a ~at:[At.href ("https://github.com/" ^ g);
            At.v "title" "GitHub"; At.class' "contact-social-icon"]
            [El.unsafe_raw (brand ~size:12 github_brand)]
-      ) (Contact.github_handle contact);
+      ) (Contact.handle_on contact (Simple Github));
       Option.map (fun t ->
         El.a ~at:[At.href ("https://twitter.com/" ^ t);
            At.v "title" "X"; At.class' "contact-social-icon"]
            [El.unsafe_raw (brand ~size:12 x_brand)]
-      ) (Contact.twitter_handle contact);
+      ) (Contact.handle_on contact (Simple Twitter));
       Option.map (fun b ->
         El.a ~at:[At.href ("https://bsky.app/profile/" ^ b);
            At.v "title" "Bluesky"; At.class' "contact-social-icon"]
            [El.unsafe_raw (brand ~size:12 bluesky_brand)]
-      ) (Contact.bluesky_handle contact);
-      Option.map (fun (svc : Contact.service) ->
-        El.a ~at:[At.href svc.url;
+      ) (Contact.atproto_handle contact);
+      Option.map (fun svc ->
+        El.a ~at:[At.href (Account.url svc);
            At.v "title" "LinkedIn"; At.class' "contact-social-icon"]
            [El.unsafe_raw (brand ~size:12 linkedin_brand)]
-      ) (Contact.linkedin contact);
+      ) (Contact.account_on contact (Simple LinkedIn));
       Option.map (fun u ->
         El.a ~at:[At.href u;
            At.v "title" "Website"; At.class' "contact-social-icon"]
            [El.unsafe_raw (outline ~size:12 world_o)]
-      ) (Contact.current_url contact);
-      Option.map (fun (svc : Contact.service) ->
-        if svc.url = "" then None
-        else let link_url, _ = matrix_link svc in
-          Some (El.a ~at:[At.href link_url;
+      ) (Contact.best_url contact);
+      Option.map (fun svc ->
+        El.a ~at:[At.href (Account.url svc);
            At.v "title" "Matrix"; At.class' "contact-social-icon"]
-           [El.unsafe_raw (brand ~size:12 matrix_brand)])
-      ) (Contact.matrix contact) |> Option.join;
-      Option.map (fun (svc : Contact.service) ->
-        if svc.url = "" then None
-        else Some (El.a ~at:[At.href svc.url;
+           [El.unsafe_raw (brand ~size:12 matrix_brand)]
+      ) (Contact.account_on contact (Federated Matrix));
+      Option.map (fun svc ->
+        El.a ~at:[At.href (Account.url svc);
            At.v "title" "Zulip"; At.class' "contact-social-icon"]
-           [El.unsafe_raw (brand ~size:12 zulip_brand)])
-      ) (Contact.zulip contact) |> Option.join;
-    ] @ List.filter_map (fun (svc : Contact.service) ->
-      if svc.url = "" then None
-      else
-        let profile_url = match svc.handle with
-          | Some h -> svc.url ^ "/u/" ^ h | None -> svc.url in
-        Some (El.a ~at:[At.href profile_url;
+           [El.unsafe_raw (brand ~size:12 zulip_brand)]
+      ) (Contact.account_on contact (Federated Zulip));
+    ] @ List.filter_map (fun svc ->
+        Some (El.a ~at:[At.href (Account.url svc);
            At.v "title" "Discourse"; At.class' "contact-social-icon"]
            [El.unsafe_raw (brand ~size:12 discourse_brand)])
-    ) (Contact.discourse contact)
+    ) (Contact.accounts_on contact (Federated Discourse))
   in
   El.div ~at:[At.class' "sidebar-meta-line contact-inline-row"] [
     El.span ~at:[At.class' "sidebar-meta-icon"] [avatar_el];
@@ -1054,54 +1024,42 @@ let socials_box ~ctx =
     in
     (* Code group: GitHub + Tangled *)
     let code_items = List.filter_map Fun.id [
-      (match Contact.github_handle author_contact with
+      (match Contact.handle_on author_contact (Simple Github) with
        | Some g ->
          Some (social_link ~icon:(brand ~size:16 github_brand)
            ~title:"GitHub" ~service:"GitHub" ~label:g ("https://github.com/" ^ g))
        | None -> None);
-      (let open Contact in
-       let tangled_svc = List.find_opt (fun (s : atproto_service) ->
-         s.atp_type = ATTangled) (Contact.atproto_services author_contact) in
-       match tangled_svc with
-       | Some svc ->
-         let label = match Uri.host (Uri.of_string svc.atp_url) with
-           | Some h -> (match Uri.path (Uri.of_string svc.atp_url) with
+      (match Contact.atproto author_contact with
+       | Some a when List.mem Account.Tangled a.apps ->
+         let url = Account.app_url a Tangled in
+         let label = match Uri.host (Uri.of_string url) with
+           | Some h -> (match Uri.path (Uri.of_string url) with
              | "" | "/" -> h
              | p -> h ^ p)
            | None -> "Tangled"
          in
          Some (social_link ~icon:(brand ~size:16 tangled_brand)
-           ~title:"Tangled" ~service:"Tangled" ~label svc.atp_url)
-       | None -> None);
+           ~title:"Tangled" ~service:"Tangled" ~label url)
+       | _ -> None);
     ] in
     (* Identities group: ORCID + emails + website *)
     let id_items =
       List.filter_map Fun.id [
-        (match Contact.orcid author_contact with
+        (match Contact.handle_on author_contact (Simple Orcid) with
          | Some o ->
            Some (social_link ~icon:(brand ~size:16 orcid_brand)
              ~title:"ORCID" ~service:"ORCID" ~label:o ("https://orcid.org/" ^ o))
          | None -> None);
       ]
-      @ (let current_emails = List.filter (fun (e : Contact.email) ->
-           Sortal_schema.Temporal.is_current e.range
-         ) (Contact.emails author_contact) in
-         List.map (fun (e : Contact.email) ->
-           let service = match e.type_ with
-             | Some Work -> "work"
-             | Some Personal -> "personal"
-             | Some Other -> "other"
-             | None -> "email"
-           in
-           El.a ~at:[At.href ("mailto:" ^ e.address);
+      @ (* V2 emails carry no type or validity range, so every address shows. *)
+        List.map (fun address ->
+           El.a ~at:[At.href ("mailto:" ^ address);
                At.v "title" "Email"; At.class' "social-box-link no-underline u-email"]
                [El.unsafe_raw (outline ~size:16 mail_o);
-                El.span ~at:[At.class' "social-box-label"]
-                  [El.txt e.address;
-                   El.span ~at:[At.class' "social-box-service"] [El.txt (" [" ^ service ^ "]")]]]
-         ) current_emails)
+                El.span ~at:[At.class' "social-box-label"] [El.txt address]]
+         ) (Contact.emails author_contact)
       @ List.filter_map Fun.id [
-        (match Contact.current_url author_contact with
+        (match Contact.best_url author_contact with
          | Some u ->
            let label = match Uri.host (Uri.of_string u) with
              | Some h -> h | None -> u
@@ -1113,127 +1071,102 @@ let socials_box ~ctx =
     in
     (* Social group: Bluesky + Mastodon + X + LinkedIn *)
     let social_items = List.filter_map Fun.id [
-      (match Contact.bluesky_handle author_contact with
+      (match Contact.atproto_handle author_contact with
        | Some b ->
          Some (social_link ~icon:(brand ~size:16 bluesky_brand)
            ~title:"Bluesky" ~service:"Bluesky" ~label:b ("https://bsky.app/profile/" ^ b))
        | None -> None);
-      (match Contact.mastodon author_contact with
+      (match Contact.account_on author_contact (Federated Mastodon) with
        | Some svc ->
-         let handle = match Contact.mastodon_handle author_contact with
-           | Some h -> h | None -> "Mastodon"
-         in
-         let url = svc.Contact.url in
-         if url <> "" then
-           Some (social_link ~icon:(brand ~size:16 mastodon_brand)
-             ~title:"Mastodon" ~service:"Mastodon" ~label:handle url)
-         else None
+         Some (social_link ~icon:(brand ~size:16 mastodon_brand)
+           ~title:"Mastodon" ~service:"Mastodon" ~label:(Account.handle svc)
+           (Account.url svc))
        | None -> None);
-      (match Contact.twitter_handle author_contact with
+      (match Contact.handle_on author_contact (Simple Twitter) with
        | Some t ->
          Some (social_link ~icon:(brand ~size:16 x_brand)
            ~title:"X" ~service:"X" ~label:("@" ^ t) ("https://twitter.com/" ^ t))
        | None -> None);
-      (match Contact.threads author_contact with
-       | Some svc when svc.Contact.url <> "" ->
-         let label = match svc.Contact.handle with
-           | Some h -> h | None -> "Threads" in
-         Some (social_link ~icon:(brand ~size:16 threads_brand)
-           ~title:"Threads" ~service:"Threads" ~label svc.Contact.url)
-       | _ -> None);
-      (match Contact.linkedin author_contact with
+      (match Contact.account_on author_contact (Simple Threads) with
        | Some svc ->
-         let label = match Contact.linkedin_handle author_contact with
-           | Some h -> h | None -> "LinkedIn"
-         in
-         Some (social_link ~icon:(brand ~size:16 linkedin_brand)
-           ~title:"LinkedIn" ~service:"LinkedIn" ~label svc.Contact.url)
+         Some (social_link ~icon:(brand ~size:16 threads_brand)
+           ~title:"Threads" ~service:"Threads" ~label:(Account.handle svc)
+           (Account.url svc))
        | None -> None);
-      (match Contact.matrix author_contact with
-       | Some svc when svc.Contact.url <> "" ->
-         let link_url, display = matrix_link svc in
+      (match Contact.account_on author_contact (Simple LinkedIn) with
+       | Some svc ->
+         Some (social_link ~icon:(brand ~size:16 linkedin_brand)
+           ~title:"LinkedIn" ~service:"LinkedIn" ~label:(Account.handle svc)
+           (Account.url svc))
+       | None -> None);
+      (match Contact.account_on author_contact (Federated Matrix) with
+       | Some svc ->
          Some (social_link ~icon:(brand ~size:16 matrix_brand)
-           ~title:"Matrix" ~service:"Matrix" ~label:display link_url)
-       | _ -> None);
-      (match Contact.zulip author_contact with
-       | Some svc when svc.Contact.url <> "" ->
-         let label = match svc.Contact.handle with
-           | Some h -> h | None -> "Zulip" in
+           ~title:"Matrix" ~service:"Matrix" ~label:(Account.handle svc)
+           (Account.url svc))
+       | None -> None);
+      (match Contact.account_on author_contact (Federated Zulip) with
+       | Some svc ->
          Some (social_link ~icon:(brand ~size:16 zulip_brand)
-           ~title:"Zulip" ~service:"Zulip" ~label svc.Contact.url)
-       | _ -> None);
+           ~title:"Zulip" ~service:"Zulip" ~label:(Account.handle svc)
+           (Account.url svc))
+       | None -> None);
     ] in
     let discourse_items =
-      List.filter_map (fun (svc : Contact.service) ->
-        if svc.url = "" then None
-        else
-          let profile_url = match svc.handle with
-            | Some h -> svc.url ^ "/u/" ^ h
-            | None -> svc.url
-          in
-          let label = match svc.handle with
-            | Some h -> h | None -> "Discourse" in
-          Some (social_link ~icon:(brand ~size:16 discourse_brand)
-            ~title:"Discourse" ~service:"Discourse" ~label profile_url)
-      ) (Contact.discourse author_contact)
+      List.map (fun svc ->
+          social_link ~icon:(brand ~size:16 discourse_brand)
+            ~title:"Discourse" ~service:"Discourse" ~label:(Account.handle svc)
+            (Account.url svc)
+      ) (Contact.accounts_on author_contact (Federated Discourse))
     in
     (* Media group: photo + video services *)
     let media_items =
-      let photo_svcs = Contact.services_of_kind author_contact Photo in
-      let photo_items = List.filter_map (fun (svc : Contact.service) ->
-        if svc.url = "" then None
-        else
-          let host = match Uri.host (Uri.of_string svc.url) with
-            | Some h -> String.lowercase_ascii h | None -> "" in
-          let bare = Common.strip_www host in
-          let icon_paths, title =
-            if String.length bare >= 13 && String.sub bare 0 13 = "instagram.com" then
-              instagram_brand, "Instagram"
-            else if String.length bare >= 10 && String.sub bare 0 10 = "flickr.com" then
-              flickr_brand, "Flickr"
-            else
-              instagram_brand, "Photos"
+      let photo_items = List.filter_map (fun svc ->
+          let icon_paths, title = match Account.platform svc with
+            | Simple Instagram -> instagram_brand, "Instagram"
+            | Simple Flickr -> flickr_brand, "Flickr"
+            | _ -> instagram_brand, "Photos"
           in
-          let label = match svc.handle with
-            | Some h -> h | None -> title in
           Some (social_link ~icon:(brand ~size:16 icon_paths)
-            ~title ~service:title ~label svc.url)
-      ) photo_svcs in
+            ~title ~service:title ~label:(Account.handle svc) (Account.url svc))
+      ) (List.concat_map (Contact.accounts_on author_contact)
+           [ Simple Instagram; Simple Flickr ]) in
       let peertube_items = List.filter_map Fun.id [
-        (match Contact.peertube author_contact with
-         | Some svc when svc.Contact.url <> "" ->
-           let label = match svc.Contact.handle with
-             | Some h -> h | None -> "PeerTube" in
+        (match Contact.account_on author_contact (Federated PeerTube) with
+         | Some svc ->
            Some (social_link ~icon:(brand ~size:16 peertube_brand)
-             ~title:"PeerTube" ~service:"PeerTube" ~label svc.Contact.url)
-         | _ -> None);
+             ~title:"PeerTube" ~service:"PeerTube" ~label:(Account.handle svc)
+             (Account.url svc))
+         | None -> None);
       ] in
       photo_items @ peertube_items
     in
-    (* Office group: current organizations *)
+    (* Office group: every affiliation. V2 has no notion of "current" beyond
+       the single {!Contact.current_affiliation}, so past affiliations show
+       here too where V1 hid them. *)
     let office_items =
-      let orgs = Contact.current_organizations author_contact in
-      List.concat_map (fun (org : Contact.organization) ->
-        let title_str = match org.title with
-          | Some t -> t ^ ", " ^ org.name
-          | None -> org.name
+      let affiliations = Contact.affiliations author_contact in
+      List.concat_map (fun (a : Contact.affiliation) ->
+        let title_str = match a.title with
+          | Some t -> t ^ ", " ^ a.org
+          | None -> a.org
         in
-        let org_el = match org.url with
+        let org_el = match a.url with
           | Some u ->
             social_link ~icon:(outline ~size:16 home_o)
-              ~title:org.name ~label:title_str u
+              ~title:a.org ~label:title_str u
           | None ->
             El.div ~at:[At.class' "social-box-link"] [
               El.unsafe_raw (outline ~size:16 home_o);
               El.span ~at:[At.class' "social-box-label"] [El.txt title_str]]
         in
-        let addr_el = match org.address with
+        let addr_el = match a.address with
           | Some addr ->
             [El.div ~at:[At.class' "social-box-address"] [El.txt addr]]
           | None -> []
         in
         org_el :: addr_el
-      ) orgs
+      ) affiliations
     in
     let groups = List.filter_map Fun.id [
       group_opt "Identities" id_items;
@@ -1265,15 +1198,15 @@ let socials_box ~ctx =
                   At.v "style" "display:none"] [
           El.span ~at:[At.class' "p-name"] [El.txt author_name]];
       ] @ hidden_photo @ hidden_note in
-      let hidden_org = match Contact.current_organization author_contact with
-        | Some org ->
-          let jt = match org.Contact.title with
+      let hidden_org = match Contact.current_affiliation author_contact with
+        | Some (a : Contact.affiliation) ->
+          let jt = match a.title with
             | Some t -> [El.span ~at:[At.class' "p-job-title";
                                       At.v "style" "display:none"] [El.txt t]]
             | None -> []
           in
           jt @ [El.span ~at:[At.class' "p-org"; At.v "style" "display:none"]
-                  [El.txt org.Contact.name]]
+                  [El.txt a.org]]
         | None -> []
       in
       Common.meta_box ~cls:"sidebar-meta-box mb-3 h-card"

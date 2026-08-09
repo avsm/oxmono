@@ -24,4 +24,4 @@ module Platform = V2.Platform
 module Account = V2.Account
 module Feed = V2.Feed
 module Temporal = V1.Temporal
-module Contact = V1.Contact
+module Contact = V2.Contact

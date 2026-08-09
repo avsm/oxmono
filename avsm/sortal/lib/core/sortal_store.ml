@@ -4,7 +4,6 @@
  ---------------------------------------------------------------------------*)
 
 module Contact = Sortal_schema.Contact
-module Temporal = Sortal_schema.Temporal
 
 type t = {
   xdg : Xdge.t; [@warning "-69"]
@@ -63,194 +62,41 @@ let update_contact t handle f =
       save t updated;
       Ok ()
 
-let add_email t handle (email : Contact.email) =
-  match lookup t handle with
-  | None -> Error (Printf.sprintf "Contact not found: %s" handle)
-  | Some contact ->
-      let emails = Contact.emails contact in
-      (* Check for duplicate email address *)
-      if List.exists (fun (e : Contact.email) -> e.address = email.address) emails then
-        Error (Printf.sprintf "Email %s already exists for contact @%s" email.address handle)
-      else
-        update_contact t handle (fun contact ->
-          let emails = Contact.emails contact in
-          Contact.make
-            ~handle:(Contact.handle contact)
-            ~names:(Contact.names contact)
-            ~kind:(Contact.kind contact)
-            ~emails:(emails @ [email])
-            ~organizations:(Contact.organizations contact)
-            ~urls:(Contact.urls contact)
-            ~services:(Contact.services contact)
-            ?icon:(Contact.icon contact)
-            ?thumbnail:(Contact.thumbnail contact)
-            ?orcid:(Contact.orcid contact)
-            ?feeds:(Contact.feeds contact)
-            ?atproto:(Contact.atproto contact)
-            ()
-        )
+let with_accounts contact accounts =
+  Contact.make
+    ~handle:(Contact.handle contact)
+    ~names:(Contact.names contact)
+    ~kind:(Contact.kind contact)
+    ~emails:(Contact.emails contact)
+    ~accounts
+    ~links:(Contact.links contact)
+    ~affiliations:(Contact.affiliations contact)
+    ?photo:(Contact.photo contact)
+    ~feeds:(Contact.feeds contact)
+    ~vcard:(Contact.vcard contact)
+    ()
 
-let remove_email t handle address =
+let set_account t handle account =
+  match Contact.Account.check account with
+  | Error _ as e -> e
+  | Ok () ->
+      let platform = Contact.Account.platform account in
+      update_contact t handle (fun contact ->
+          let others =
+            List.filter
+              (fun a -> Contact.Account.platform a <> platform)
+              (Contact.accounts contact)
+          in
+          with_accounts contact (others @ [ account ]))
+
+let unset_account t handle platform =
   update_contact t handle (fun contact ->
-    let emails = Contact.emails contact
-                 |> List.filter (fun (e : Contact.email) -> e.address <> address) in
-    Contact.make
-      ~handle:(Contact.handle contact)
-      ~names:(Contact.names contact)
-      ~kind:(Contact.kind contact)
-      ~emails
-      ~organizations:(Contact.organizations contact)
-      ~urls:(Contact.urls contact)
-      ~services:(Contact.services contact)
-      ?icon:(Contact.icon contact)
-      ?thumbnail:(Contact.thumbnail contact)
-      ?orcid:(Contact.orcid contact)
-      ?feeds:(Contact.feeds contact)
-      ()
-  )
-
-let add_service t handle (service : Contact.service) =
-  match lookup t handle with
-  | None -> Error (Printf.sprintf "Contact not found: %s" handle)
-  | Some contact ->
-      let services = Contact.services contact in
-      (* Check for duplicate service URL *)
-      if List.exists (fun (s : Contact.service) -> s.url = service.url) services then
-        Error (Printf.sprintf "Service URL %s already exists for contact @%s" service.url handle)
-      else
-        update_contact t handle (fun contact ->
-          let services = Contact.services contact in
-          Contact.make
-            ~handle:(Contact.handle contact)
-            ~names:(Contact.names contact)
-            ~kind:(Contact.kind contact)
-            ~emails:(Contact.emails contact)
-            ~organizations:(Contact.organizations contact)
-            ~urls:(Contact.urls contact)
-            ~services:(services @ [service])
-            ?icon:(Contact.icon contact)
-            ?thumbnail:(Contact.thumbnail contact)
-            ?orcid:(Contact.orcid contact)
-            ?feeds:(Contact.feeds contact)
-            ?atproto:(Contact.atproto contact)
-            ()
-        )
-
-let remove_service t handle url =
-  update_contact t handle (fun contact ->
-    let services = Contact.services contact
-                   |> List.filter (fun (s : Contact.service) -> s.url <> url) in
-    Contact.make
-      ~handle:(Contact.handle contact)
-      ~names:(Contact.names contact)
-      ~kind:(Contact.kind contact)
-      ~emails:(Contact.emails contact)
-      ~organizations:(Contact.organizations contact)
-      ~urls:(Contact.urls contact)
-      ~services
-      ?icon:(Contact.icon contact)
-      ?thumbnail:(Contact.thumbnail contact)
-      ?orcid:(Contact.orcid contact)
-      ?feeds:(Contact.feeds contact)
-      ()
-  )
-
-let add_organization t handle (org : Contact.organization) =
-  match lookup t handle with
-  | None -> Error (Printf.sprintf "Contact not found: %s" handle)
-  | Some contact ->
-      let orgs = Contact.organizations contact in
-      (* Check for exact duplicate organization (same name, title, and department) *)
-      let is_duplicate = List.exists (fun (o : Contact.organization) ->
-        o.name = org.name &&
-        o.title = org.title &&
-        o.department = org.department
-      ) orgs in
-      if is_duplicate then
-        Error (Printf.sprintf "Organization %s with the same title/department already exists for contact @%s" org.name handle)
-      else
-        update_contact t handle (fun contact ->
-          let orgs = Contact.organizations contact in
-          Contact.make
-            ~handle:(Contact.handle contact)
-            ~names:(Contact.names contact)
-            ~kind:(Contact.kind contact)
-            ~emails:(Contact.emails contact)
-            ~organizations:(orgs @ [org])
-            ~urls:(Contact.urls contact)
-            ~services:(Contact.services contact)
-            ?icon:(Contact.icon contact)
-            ?thumbnail:(Contact.thumbnail contact)
-            ?orcid:(Contact.orcid contact)
-            ?feeds:(Contact.feeds contact)
-            ?atproto:(Contact.atproto contact)
-            ()
-        )
-
-let remove_organization t handle name =
-  update_contact t handle (fun contact ->
-    let orgs = Contact.organizations contact
-               |> List.filter (fun (o : Contact.organization) -> o.name <> name) in
-    Contact.make
-      ~handle:(Contact.handle contact)
-      ~names:(Contact.names contact)
-      ~kind:(Contact.kind contact)
-      ~emails:(Contact.emails contact)
-      ~organizations:orgs
-      ~urls:(Contact.urls contact)
-      ~services:(Contact.services contact)
-      ?icon:(Contact.icon contact)
-      ?thumbnail:(Contact.thumbnail contact)
-      ?orcid:(Contact.orcid contact)
-      ?feeds:(Contact.feeds contact)
-      ()
-  )
-
-let add_url t handle (url_entry : Contact.url_entry) =
-  match lookup t handle with
-  | None -> Error (Printf.sprintf "Contact not found: %s" handle)
-  | Some contact ->
-      let urls = Contact.urls contact in
-      (* Check for duplicate URL *)
-      if List.exists (fun (u : Contact.url_entry) -> u.url = url_entry.url) urls then
-        Error (Printf.sprintf "URL %s already exists for contact @%s" url_entry.url handle)
-      else
-        update_contact t handle (fun contact ->
-          let urls = Contact.urls contact in
-          Contact.make
-            ~handle:(Contact.handle contact)
-            ~names:(Contact.names contact)
-            ~kind:(Contact.kind contact)
-            ~emails:(Contact.emails contact)
-            ~organizations:(Contact.organizations contact)
-            ~urls:(urls @ [url_entry])
-            ~services:(Contact.services contact)
-            ?icon:(Contact.icon contact)
-            ?thumbnail:(Contact.thumbnail contact)
-            ?orcid:(Contact.orcid contact)
-            ?feeds:(Contact.feeds contact)
-            ?atproto:(Contact.atproto contact)
-            ()
-        )
-
-let remove_url t handle url =
-  update_contact t handle (fun contact ->
-    let urls = Contact.urls contact
-               |> List.filter (fun (u : Contact.url_entry) -> u.url <> url) in
-    Contact.make
-      ~handle:(Contact.handle contact)
-      ~names:(Contact.names contact)
-      ~kind:(Contact.kind contact)
-      ~emails:(Contact.emails contact)
-      ~organizations:(Contact.organizations contact)
-      ~urls
-      ~services:(Contact.services contact)
-      ?icon:(Contact.icon contact)
-      ?thumbnail:(Contact.thumbnail contact)
-      ?orcid:(Contact.orcid contact)
-      ?feeds:(Contact.feeds contact)
-      ()
-  )
+      let accounts =
+        List.filter
+          (fun a -> Contact.Account.platform a <> platform)
+          (Contact.accounts contact)
+      in
+      with_accounts contact accounts)
 
 let list t =
   try
@@ -266,11 +112,11 @@ let list t =
   | _ -> []
 
 let thumbnail_path t contact =
-  Contact.thumbnail contact
+  Contact.photo contact
   |> Option.map (fun relative_path -> Eio.Path.(t.data_dir / relative_path))
 
 let png_thumbnail_path t contact =
-  match Contact.thumbnail contact with
+  match Contact.photo contact with
   | None -> None
   | Some relative_path ->
     let base = Filename.remove_extension relative_path in
@@ -350,39 +196,20 @@ let lookup_by_name t name =
   | [] -> failwith ("Contact not found: " ^ name)
   | _ -> failwith ("Ambiguous contact: " ^ name)
 
-let find_by_email_at t ~email ~date =
-  let all = list t in
-  List.find_opt (fun c ->
-    let emails_at_date = Contact.emails_at c ~date in
-    List.exists (fun (e : Contact.email) -> e.address = email) emails_at_date
-  ) all
-
-let find_by_org t ~org ?from ?until () =
+let find_by_org t ~org =
   let org_lower = String.lowercase_ascii org in
   let all = list t in
-  let matches = List.filter (fun c ->
-    let orgs : Contact.organization list = Contact.organizations c in
-    let filtered_orgs = match from, until with
-      | None, None -> orgs
-      | _, _ -> Temporal.filter ~get:(fun (o : Contact.organization) -> o.range)
-                  ~from ~until orgs
-    in
-    List.exists (fun (o : Contact.organization) ->
-      contains_substring ~needle:org_lower
-        (String.lowercase_ascii o.name)
-    ) filtered_orgs
-  ) all in
+  let matches =
+    List.filter
+      (fun c ->
+        List.exists
+          (fun (a : Contact.affiliation) ->
+            contains_substring ~needle:org_lower
+              (String.lowercase_ascii a.org))
+          (Contact.affiliations c))
+      all
+  in
   List.sort Contact.compare matches
-
-let list_at t ~date =
-  let all = list t in
-  List.filter (fun c ->
-    (* Contact is active if it has any email, org, or URL valid at date *)
-    let has_email = Contact.emails_at c ~date <> [] in
-    let has_org = Contact.organization_at c ~date <> None in
-    let has_url = Contact.url_at c ~date <> None in
-    has_email || has_org || has_url
-  ) all
 
 let pp ppf t =
   let all = list t in

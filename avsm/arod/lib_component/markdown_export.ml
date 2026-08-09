@@ -345,7 +345,7 @@ let network_md ~ctx =
   let entries = Arod.Ctx.entries ctx in
   let contacts_with_feeds = List.filter_map (fun contact ->
     match Contact.feeds contact with
-    | Some feeds when feeds <> [] -> Some (contact, feeds)
+    | feeds when feeds <> [] -> Some (contact, feeds)
     | _ -> None
   ) all_contacts in
   let contacts_with_feeds = List.sort (fun (a, _) (b, _) ->

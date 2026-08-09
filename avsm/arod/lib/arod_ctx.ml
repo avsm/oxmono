@@ -165,7 +165,7 @@ let load_feed_items ~author_handle ~base_url ~entries fs contacts =
     let handle = Sortal_schema.Contact.handle contact in
     if handle = author_handle then [] else
     match Sortal_schema.Contact.feeds contact with
-    | Some feeds when feeds <> [] ->
+    | feeds when feeds <> [] ->
       (try
          let feed_entries = Sortal_feed.Store.all_entries feed_store ~handle feeds in
          (* Load annotations for each feed *)

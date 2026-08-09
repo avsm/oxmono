@@ -66,19 +66,19 @@ let person_jsonld ~ctx =
       | None -> ""
     in
     let job_title, affiliation =
-      match Contact.current_organization author with
-      | Some org ->
-        let jt = match org.Contact.title with
+      match Contact.current_affiliation author with
+      | Some (a : Contact.affiliation) ->
+        let jt = match a.title with
           | Some t -> Printf.sprintf {|, "jobTitle": %s|} (json_string t)
           | None -> ""
         in
         let org_json =
-          let org_url = match org.Contact.url with
+          let org_url = match a.url with
             | Some u -> Printf.sprintf {|, "url": %s|} (json_string u)
             | None -> ""
           in
           Printf.sprintf {|{"@type": "Organization", "name": %s%s}|}
-            (json_string org.Contact.name) org_url
+            (json_string a.org) org_url
         in
         let af = Printf.sprintf {|, "affiliation": %s|} org_json in
         (jt, af)
@@ -86,32 +86,21 @@ let person_jsonld ~ctx =
     in
     (* Collect sameAs URLs *)
     let same_as_urls = List.filter_map Fun.id [
-      Option.map (fun g -> "https://github.com/" ^ g) (Contact.github_handle author);
-      (let bsky_svc = List.find_opt (fun (s : Contact.atproto_service) ->
-         s.atp_type = ATBluesky) (Contact.atproto_services author) in
-       match bsky_svc with
-       | Some svc -> Some svc.atp_url
-       | None ->
-         Option.map (fun b -> "https://bsky.app/profile/" ^ b)
-           (Contact.bluesky_handle author));
-      (match Contact.mastodon author with
-       | Some svc when svc.Contact.url <> "" -> Some svc.Contact.url
-       | _ -> None);
-      Option.map (fun (svc : Contact.service) -> svc.url) (Contact.linkedin author);
-      Option.map (fun t -> "https://twitter.com/" ^ t) (Contact.twitter_handle author);
-      Option.map (fun o -> "https://orcid.org/" ^ o) (Contact.orcid author);
-      (match Contact.peertube author with
-       | Some svc when svc.Contact.url <> "" -> Some svc.Contact.url
-       | _ -> None);
-      (match Contact.threads author with
-       | Some svc when svc.Contact.url <> "" -> Some svc.Contact.url
-       | _ -> None);
+      Contact.url_on author (Simple Github);
+      Contact.url_on author Atproto;
+      Option.map Contact.Account.url (Contact.account_on author (Federated Mastodon));
+      Option.map Contact.Account.url (Contact.account_on author (Simple LinkedIn));
+      Contact.url_on author (Simple Twitter);
+      Contact.url_on author (Simple Orcid);
+      Option.map Contact.Account.url (Contact.account_on author (Federated PeerTube));
+      Option.map Contact.Account.url (Contact.account_on author (Simple Threads));
     ] in
     let same_as_urls =
-      let photo_svcs = Contact.services_of_kind author Photo in
-      let photo_urls = List.filter_map (fun (svc : Contact.service) ->
-        if svc.url <> "" then Some svc.url else None
-      ) photo_svcs in
+      let photo_urls =
+        List.concat_map (Contact.accounts_on author)
+          [ Simple Instagram; Simple Flickr ]
+        |> List.map Contact.Account.url
+      in
       same_as_urls @ photo_urls
     in
     let same_as = match same_as_urls with
@@ -120,11 +109,11 @@ let person_jsonld ~ctx =
         Printf.sprintf {|, "sameAs": %s|}
           (json_array (List.map json_string urls))
     in
-    let orcid_id = match Contact.orcid author with
-      | Some o ->
+    let orcid_id = match Contact.url_on author (Simple Orcid) with
+      | Some url ->
         Printf.sprintf
           {|, "identifier": {"@type": "PropertyValue", "propertyID": "ORCID", "value": %s}|}
-          (json_string ("https://orcid.org/" ^ o))
+          (json_string url)
       | None -> ""
     in
     Printf.sprintf

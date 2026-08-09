@@ -14,7 +14,7 @@ let anil_copyright = "(c) 1998-2026 Anil Madhavapeddy, all rights reserved"
 
 let author c =
   let uri = Option.map Uri.of_string (C.best_url c) in
-  let email = match C.emails c with e :: _ -> Some e.C.address | [] -> None in
+  let email = match C.emails c with e :: _ -> Some e | [] -> None in
   {X.name=(C.name c); email; uri}
 
 let form_uri cfg path = Uri.of_string (cfg.Arod_config.site.base_url ^ path)

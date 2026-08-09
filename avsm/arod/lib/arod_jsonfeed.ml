@@ -16,8 +16,8 @@ let form_uri cfg path = cfg.Arod_config.site.base_url ^ path
 
 let author cfg c =
   let name = C.name c in
-  let url = match C.orcid c with
-    | Some orcid -> Some (Printf.sprintf "https://orcid.org/%s" orcid)
+  let url = match C.url_on c (Simple Orcid) with
+    | Some orcid_url -> Some orcid_url
     | None -> C.best_url c
   in
   let avatar = Some (form_uri cfg "/images/anil-headshot.webp") in

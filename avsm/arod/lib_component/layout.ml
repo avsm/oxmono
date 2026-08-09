@@ -21,62 +21,52 @@ let footer_el ~ctx ?url () =
              At.class' "opacity-50 hover:opacity-100 transition-opacity"]
       [El.unsafe_raw icon]
   in
-  let photo_icon (svc : Contact.service) =
-    let host = match Uri.host (Uri.of_string svc.url) with
-      | Some h -> String.lowercase_ascii h | None -> "" in
-    let bare = Common.strip_www host in
-    if String.length bare >= 13 && String.sub bare 0 13 = "instagram.com" then
+  let photo_icon a =
+    match Contact.Account.platform a with
+    | Simple Instagram ->
       Some (icon_link ~icon:(brand ~size:14 instagram_brand)
-        ~title:"Instagram" svc.url)
-    else if String.length bare >= 10 && String.sub bare 0 10 = "flickr.com" then
+        ~title:"Instagram" (Contact.Account.url a))
+    | Simple Flickr ->
       Some (icon_link ~icon:(brand ~size:14 flickr_brand)
-        ~title:"Flickr" svc.url)
-    else None
+        ~title:"Flickr" (Contact.Account.url a))
+    | _ -> None
   in
   let social_icons = match Arod.Ctx.author ctx with
     | None -> []
     | Some author_contact ->
       let photo_icons = List.filter_map photo_icon
-        (Contact.services_of_kind author_contact Photo) in
+        (List.concat_map (Contact.accounts_on author_contact)
+           [ Simple Instagram; Simple Flickr ]) in
       let main_icons = List.filter_map Fun.id [
-        (match Contact.github_handle author_contact with
+        (match Contact.handle_on author_contact (Simple Github) with
          | Some g -> Some (icon_link ~icon:(brand ~size:14 github_brand)
              ~title:"GitHub" ("https://github.com/" ^ g))
          | None -> None);
-        (let bsky_svc = List.find_opt (fun (s : Contact.atproto_service) ->
-           s.atp_type = ATBluesky) (Contact.atproto_services author_contact) in
-         match bsky_svc with
-         | Some svc -> Some (icon_link ~icon:(brand ~size:14 bluesky_brand)
-             ~title:"Bluesky" svc.atp_url)
-         | None ->
-           match Contact.bluesky_handle author_contact with
-           | Some b -> Some (icon_link ~icon:(brand ~size:14 bluesky_brand)
-               ~title:"Bluesky" ("https://bsky.app/profile/" ^ b))
-           | None -> None);
-        (match Contact.mastodon author_contact with
-         | Some svc when svc.Contact.url <> "" ->
-           Some (icon_link ~icon:(brand ~size:14 mastodon_brand)
-             ~title:"Mastodon" svc.Contact.url)
-         | _ -> None);
-        (match Contact.peertube author_contact with
-         | Some svc when svc.Contact.url <> "" ->
-           Some (icon_link ~icon:(brand ~size:14 peertube_brand)
-             ~title:"PeerTube" svc.Contact.url)
-         | _ -> None);
-        (match Contact.threads author_contact with
-         | Some svc when svc.Contact.url <> "" ->
-           Some (icon_link ~icon:(brand ~size:14 threads_brand)
-             ~title:"Threads" svc.Contact.url)
-         | _ -> None);
-        (match Contact.linkedin author_contact with
-         | Some svc -> Some (icon_link ~icon:(brand ~size:14 linkedin_brand)
-             ~title:"LinkedIn" svc.Contact.url)
+        (match Contact.atproto_handle author_contact with
+         | Some b -> Some (icon_link ~icon:(brand ~size:14 bluesky_brand)
+             ~title:"Bluesky" ("https://bsky.app/profile/" ^ b))
          | None -> None);
-        (match Contact.twitter_handle author_contact with
+        (match Contact.account_on author_contact (Federated Mastodon) with
+         | Some svc -> Some (icon_link ~icon:(brand ~size:14 mastodon_brand)
+             ~title:"Mastodon" (Contact.Account.url svc))
+         | None -> None);
+        (match Contact.account_on author_contact (Federated PeerTube) with
+         | Some svc -> Some (icon_link ~icon:(brand ~size:14 peertube_brand)
+             ~title:"PeerTube" (Contact.Account.url svc))
+         | None -> None);
+        (match Contact.account_on author_contact (Simple Threads) with
+         | Some svc -> Some (icon_link ~icon:(brand ~size:14 threads_brand)
+             ~title:"Threads" (Contact.Account.url svc))
+         | None -> None);
+        (match Contact.account_on author_contact (Simple LinkedIn) with
+         | Some svc -> Some (icon_link ~icon:(brand ~size:14 linkedin_brand)
+             ~title:"LinkedIn" (Contact.Account.url svc))
+         | None -> None);
+        (match Contact.handle_on author_contact (Simple Twitter) with
          | Some t -> Some (icon_link ~icon:(brand ~size:14 x_brand)
              ~title:"X" ("https://twitter.com/" ^ t))
          | None -> None);
-        (match Contact.orcid author_contact with
+        (match Contact.handle_on author_contact (Simple Orcid) with
          | Some o -> Some (icon_link ~icon:(brand ~size:14 orcid_brand)
              ~title:"ORCID" ("https://orcid.org/" ^ o))
          | None -> None);
@@ -207,29 +197,23 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
     | None -> head_els
     | Some author_contact ->
       let me_links = List.filter_map Fun.id [
-        (match Contact.github_handle author_contact with
+        (match Contact.handle_on author_contact (Simple Github) with
          | Some g -> Some (El.link ~at:[ At.rel "me";
              At.href ("https://github.com/" ^ g) ] ())
          | None -> None);
-        (let bsky_svc = List.find_opt (fun (s : Contact.atproto_service) ->
-           s.atp_type = ATBluesky) (Contact.atproto_services author_contact) in
-         match bsky_svc with
-         | Some svc -> Some (El.link ~at:[ At.rel "me";
-             At.href svc.atp_url ] ())
-         | None ->
-           match Contact.bluesky_handle author_contact with
-           | Some b -> Some (El.link ~at:[ At.rel "me";
-               At.href ("https://bsky.app/profile/" ^ b) ] ())
-           | None -> None);
-        (match Contact.mastodon author_contact with
-         | Some svc when svc.Contact.url <> "" ->
-           Some (El.link ~at:[ At.rel "me"; At.href svc.Contact.url ] ())
-         | _ -> None);
-        (match Contact.linkedin author_contact with
-         | Some svc -> Some (El.link ~at:[ At.rel "me";
-             At.href svc.Contact.url ] ())
+        (match Contact.atproto_handle author_contact with
+         | Some b -> Some (El.link ~at:[ At.rel "me";
+             At.href ("https://bsky.app/profile/" ^ b) ] ())
          | None -> None);
-        (match Contact.twitter_handle author_contact with
+        (match Contact.account_on author_contact (Federated Mastodon) with
+         | Some svc -> Some (El.link ~at:[ At.rel "me";
+             At.href (Contact.Account.url svc) ] ())
+         | None -> None);
+        (match Contact.account_on author_contact (Simple LinkedIn) with
+         | Some svc -> Some (El.link ~at:[ At.rel "me";
+             At.href (Contact.Account.url svc) ] ())
+         | None -> None);
+        (match Contact.handle_on author_contact (Simple Twitter) with
          | Some t -> Some (El.link ~at:[ At.rel "me";
              At.href ("https://twitter.com/" ^ t) ] ())
          | None -> None);

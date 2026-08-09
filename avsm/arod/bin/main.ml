@@ -227,7 +227,7 @@ let annotate_cmd =
          if not !found then
            let handle = Sortal_schema.Contact.handle contact in
            match Sortal_schema.Contact.feeds contact with
-           | Some feeds when feeds <> [] ->
+           | feeds when feeds <> [] ->
              List.iter (fun feed ->
                if not !found then
                  let entries = Sortal_feed.Store.entries_of_feed feed_store ~handle feed in

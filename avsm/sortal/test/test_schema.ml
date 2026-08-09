@@ -31,7 +31,7 @@ let test_contact_construction () =
   let c = Sortal_schema.Contact.make
     ~handle:"test"
     ~names:["Test User"]
-    ~emails:[Sortal_schema.Contact.email_of_string "test@example.com"]
+    ~emails:["test@example.com"]
     () in
   assert (Sortal_schema.Contact.handle c = "test");
   assert (Sortal_schema.Contact.name c = "Test User");

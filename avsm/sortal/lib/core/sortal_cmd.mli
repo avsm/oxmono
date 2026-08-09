@@ -9,7 +9,6 @@
     CLI applications that work with contact metadata. *)
 
 module Contact = Sortal_schema.Contact
-module Temporal = Sortal_schema.Temporal
 
 (** {1 Command Implementations} *)
 
@@ -65,7 +64,7 @@ val git_init_cmd : Xdge.t -> Eio_unix.Stdenv.base -> int
     @param orcid Optional ORCID identifier
     @param xdg XDG context
     @param env Eio environment for git operations *)
-val add_cmd : string -> string list -> Contact.contact_kind option ->
+val add_cmd : string -> string list -> Contact.kind option ->
               string option -> string option -> string option -> string option ->
               Xdge.t -> Eio_unix.Stdenv.base -> int
 
@@ -76,62 +75,16 @@ val add_cmd : string -> string list -> Contact.contact_kind option ->
     @param env Eio environment for git operations *)
 val delete_cmd : string -> Xdge.t -> Eio_unix.Stdenv.base -> int
 
-(** [add_email_cmd handle address type_ from until note xdg env] adds an email to a contact.
+(** [set_cmd handle platform_key value xdg env] sets [handle]'s account on the
+    platform named by [platform_key] to [value]. For a federated platform,
+    [value] is [user@host]. It exits with a message listing every known
+    platform key if [platform_key] does not name one. *)
+val set_cmd : string -> string -> string -> Xdge.t -> Eio_unix.Stdenv.base -> int
 
-    @param handle Contact handle
-    @param address Email address
-    @param type_ Email type (work, personal, other)
-    @param from Start date of validity
-    @param until End date of validity
-    @param note Contextual note
-    @param xdg XDG context
-    @param env Eio environment for git operations *)
-val add_email_cmd : string -> string -> Contact.email_type option ->
-                    string option -> string option -> string option ->
-                    Xdge.t -> Eio_unix.Stdenv.base -> int
-
-(** [remove_email_cmd handle address xdg env] removes an email from a contact. *)
-val remove_email_cmd : string -> string -> Xdge.t -> Eio_unix.Stdenv.base -> int
-
-(** [add_service_cmd handle url kind service_handle label xdg env] adds a service to a contact.
-
-    @param handle Contact handle
-    @param url Service URL
-    @param kind Service kind
-    @param service_handle Service username/handle
-    @param label Human-readable label
-    @param xdg XDG context
-    @param env Eio environment for git operations *)
-val add_service_cmd : string -> string -> Contact.service_kind option ->
-                      string option -> string option -> Xdge.t -> Eio_unix.Stdenv.base -> int
-
-(** [remove_service_cmd handle url xdg env] removes a service from a contact. *)
-val remove_service_cmd : string -> string -> Xdge.t -> Eio_unix.Stdenv.base -> int
-
-(** [add_org_cmd handle org_name title department from until org_email org_url xdg env]
-    adds an organization to a contact. *)
-val add_org_cmd : string -> string -> string option -> string option ->
-                  string option -> string option -> string option -> string option ->
-                  Xdge.t -> Eio_unix.Stdenv.base -> int
-
-(** [remove_org_cmd handle org_name xdg env] removes an organization from a contact. *)
-val remove_org_cmd : string -> string -> Xdge.t -> Eio_unix.Stdenv.base -> int
-
-(** [add_url_cmd handle url label xdg env] adds a URL to a contact. *)
-val add_url_cmd : string -> string -> string option -> Xdge.t -> Eio_unix.Stdenv.base -> int
-
-(** [remove_url_cmd handle url xdg env] removes a URL from a contact. *)
-val remove_url_cmd : string -> string -> Xdge.t -> Eio_unix.Stdenv.base -> int
-
-(** [add_atproto_cmd handle atproto_handle svc_type svc_url xdg env]
-    sets the AT Protocol identity on a contact. *)
-val add_atproto_cmd : string -> string -> string option -> string option ->
-                      Xdge.t -> Eio_unix.Stdenv.base -> int
-
-(** [add_atproto_service_cmd handle svc_type svc_url xdg env]
-    adds a service to a contact's AT Protocol identity. *)
-val add_atproto_service_cmd : string -> string -> string ->
-                              Xdge.t -> Eio_unix.Stdenv.base -> int
+(** [unset_cmd handle platform_key xdg env] removes [handle]'s account on the
+    platform named by [platform_key]. It exits with a message listing every
+    known platform key if [platform_key] does not name one. *)
+val unset_cmd : string -> string -> Xdge.t -> Eio_unix.Stdenv.base -> int
 
 (** {1 Cmdliner Info Objects} *)
 
@@ -162,35 +115,11 @@ val add_info : Cmdliner.Cmd.info
 (** [delete_info] is the command info for the delete command. *)
 val delete_info : Cmdliner.Cmd.info
 
-(** [add_email_info] is the command info for the add-email command. *)
-val add_email_info : Cmdliner.Cmd.info
+(** [set_info] is the command info for the set command. *)
+val set_info : Cmdliner.Cmd.info
 
-(** [remove_email_info] is the command info for the remove-email command. *)
-val remove_email_info : Cmdliner.Cmd.info
-
-(** [add_service_info] is the command info for the add-service command. *)
-val add_service_info : Cmdliner.Cmd.info
-
-(** [remove_service_info] is the command info for the remove-service command. *)
-val remove_service_info : Cmdliner.Cmd.info
-
-(** [add_org_info] is the command info for the add-org command. *)
-val add_org_info : Cmdliner.Cmd.info
-
-(** [remove_org_info] is the command info for the remove-org command. *)
-val remove_org_info : Cmdliner.Cmd.info
-
-(** [add_url_info] is the command info for the add-url command. *)
-val add_url_info : Cmdliner.Cmd.info
-
-(** [remove_url_info] is the command info for the remove-url command. *)
-val remove_url_info : Cmdliner.Cmd.info
-
-(** [add_atproto_info] is the command info for the add-atproto command. *)
-val add_atproto_info : Cmdliner.Cmd.info
-
-(** [add_atproto_service_info] is the command info for the add-atproto-service command. *)
-val add_atproto_service_info : Cmdliner.Cmd.info
+(** [unset_info] is the command info for the unset command. *)
+val unset_info : Cmdliner.Cmd.info
 
 (** {1 Cmdliner Argument Definitions} *)
 
@@ -207,7 +136,7 @@ val add_handle_arg : string Cmdliner.Term.t
 val add_names_arg : string list Cmdliner.Term.t
 
 (** [add_kind_arg] is the optional argument for contact kind. *)
-val add_kind_arg : Contact.contact_kind option Cmdliner.Term.t
+val add_kind_arg : Contact.kind option Cmdliner.Term.t
 
 (** [add_email_arg] is the optional argument for email. *)
 val add_email_arg : string option Cmdliner.Term.t
@@ -221,59 +150,9 @@ val add_url_arg : string option Cmdliner.Term.t
 (** [add_orcid_arg] is the optional argument for ORCID. *)
 val add_orcid_arg : string option Cmdliner.Term.t
 
-(** [email_address_arg] is the positional argument for email address. *)
-val email_address_arg : string Cmdliner.Term.t
+(** [platform_arg] is the positional argument for a platform key, used by
+    both [set] and [unset]. *)
+val platform_arg : string Cmdliner.Term.t
 
-(** [email_type_arg] is the optional argument for email type. *)
-val email_type_arg : Contact.email_type option Cmdliner.Term.t
-
-(** [date_arg name] creates a date argument with the given option name. *)
-val date_arg : string -> string option Cmdliner.Term.t
-
-(** [note_arg] is the optional argument for notes. *)
-val note_arg : string option Cmdliner.Term.t
-
-(** [service_url_arg] is the positional argument for service URL. *)
-val service_url_arg : string Cmdliner.Term.t
-
-(** [service_kind_arg] is the optional argument for service kind. *)
-val service_kind_arg : Contact.service_kind option Cmdliner.Term.t
-
-(** [service_handle_arg] is the optional argument for service handle. *)
-val service_handle_arg : string option Cmdliner.Term.t
-
-(** [label_arg] is the optional argument for labels. *)
-val label_arg : string option Cmdliner.Term.t
-
-(** [org_name_arg] is the positional argument for organization name. *)
-val org_name_arg : string Cmdliner.Term.t
-
-(** [org_title_arg] is the optional argument for job title. *)
-val org_title_arg : string option Cmdliner.Term.t
-
-(** [org_department_arg] is the optional argument for department. *)
-val org_department_arg : string option Cmdliner.Term.t
-
-(** [org_email_arg] is the optional argument for work email. *)
-val org_email_arg : string option Cmdliner.Term.t
-
-(** [org_url_arg] is the optional argument for work URL. *)
-val org_url_arg : string option Cmdliner.Term.t
-
-(** [url_value_arg] is the positional argument for URL. *)
-val url_value_arg : string Cmdliner.Term.t
-
-(** [atproto_handle_arg] is the positional argument for AT Protocol handle. *)
-val atproto_handle_arg : string Cmdliner.Term.t
-
-(** [atproto_svc_type_arg] is the positional argument for AT Protocol service type. *)
-val atproto_svc_type_arg : string Cmdliner.Term.t
-
-(** [atproto_svc_url_arg] is the positional argument for AT Protocol service URL. *)
-val atproto_svc_url_arg : string Cmdliner.Term.t
-
-(** [atproto_opt_service_type] is the optional --service argument. *)
-val atproto_opt_service_type : string option Cmdliner.Term.t
-
-(** [atproto_opt_service_url] is the optional --service-url argument. *)
-val atproto_opt_service_url : string option Cmdliner.Term.t
+(** [value_arg] is the positional argument for an account handle. *)
+val value_arg : string Cmdliner.Term.t

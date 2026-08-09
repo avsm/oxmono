@@ -29,11 +29,7 @@ let config_codec =
 
 let contacts cfg all_contacts =
   match cfg.contacts with
-  | [] -> List.filter (fun c ->
-    match Sortal.Contact.feeds c with
-    | Some (_ :: _) -> true
-    | _ -> false
-  ) all_contacts
+  | [] -> List.filter (fun c -> Sortal.Contact.feeds c <> []) all_contacts
   | handles ->
     List.filter (fun c ->
       let h = Sortal.Contact.handle c in

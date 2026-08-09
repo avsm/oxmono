@@ -10,7 +10,6 @@
     YAML files (one per contact) using the handle as the filename. *)
 
 module Contact = Sortal_schema.Contact
-module Temporal = Sortal_schema.Temporal
 
 type t
 
@@ -63,78 +62,15 @@ val delete : t -> string -> unit
 
 (** {1 Contact Modification} *)
 
-(** [add_email t handle email] adds an email to an existing contact.
+val set_account : t -> string -> Contact.Account.t -> (unit, string) result
+(** [set_account t handle account] adds [account] to the contact named
+    [handle], replacing any existing account on the same platform. It is
+    [Error why] if no such contact exists or if [account] fails its syntax
+    check. *)
 
-    @param t The store
-    @param handle The contact handle
-    @param email The email entry to add
-    @return [Ok ()] on success, [Error msg] if contact not found
-    @raise Failure if the contact cannot be saved *)
-val add_email : t -> string -> Contact.email -> (unit, string) result
-
-(** [remove_email t handle address] removes an email from a contact.
-
-    Removes all email entries with the given address.
-
-    @param t The store
-    @param handle The contact handle
-    @param address The email address to remove
-    @return [Ok ()] on success, [Error msg] if contact not found *)
-val remove_email : t -> string -> string -> (unit, string) result
-
-(** [add_service t handle service] adds a service to an existing contact.
-
-    @param t The store
-    @param handle The contact handle
-    @param service The service entry to add
-    @return [Ok ()] on success, [Error msg] if contact not found *)
-val add_service : t -> string -> Contact.service -> (unit, string) result
-
-(** [remove_service t handle url] removes a service from a contact.
-
-    Removes all service entries with the given URL.
-
-    @param t The store
-    @param handle The contact handle
-    @param url The service URL to remove
-    @return [Ok ()] on success, [Error msg] if contact not found *)
-val remove_service : t -> string -> string -> (unit, string) result
-
-(** [add_organization t handle org] adds an organization to an existing contact.
-
-    @param t The store
-    @param handle The contact handle
-    @param org The organization entry to add
-    @return [Ok ()] on success, [Error msg] if contact not found *)
-val add_organization : t -> string -> Contact.organization -> (unit, string) result
-
-(** [remove_organization t handle name] removes an organization from a contact.
-
-    Removes all organization entries with the given name.
-
-    @param t The store
-    @param handle The contact handle
-    @param name The organization name to remove
-    @return [Ok ()] on success, [Error msg] if contact not found *)
-val remove_organization : t -> string -> string -> (unit, string) result
-
-(** [add_url t handle url_entry] adds a URL to an existing contact.
-
-    @param t The store
-    @param handle The contact handle
-    @param url_entry The URL entry to add
-    @return [Ok ()] on success, [Error msg] if contact not found *)
-val add_url : t -> string -> Contact.url_entry -> (unit, string) result
-
-(** [remove_url t handle url] removes a URL from a contact.
-
-    Removes all URL entries with the given URL.
-
-    @param t The store
-    @param handle The contact handle
-    @param url The URL to remove
-    @return [Ok ()] on success, [Error msg] if contact not found *)
-val remove_url : t -> string -> string -> (unit, string) result
+val unset_account : t -> string -> Contact.Platform.id -> (unit, string) result
+(** [unset_account t handle platform] removes every account [handle] holds on
+    [platform]. It is [Error why] if no such contact exists. *)
 
 (** [update_contact t handle f] updates a contact by applying function [f].
 
@@ -228,38 +164,12 @@ val find_by_name_opt : t -> string -> Contact.t option
     @return A list of matching contacts, sorted by handle *)
 val search_all : t -> string -> Contact.t list
 
-(** {1 Temporal Queries} *)
+(** {1 Searching by affiliation} *)
 
-(** [find_by_email_at t ~email ~date] finds a contact by email address at a specific date.
-
-    Searches for a contact that had the given email address valid at [date].
-
-    @param email Email address to search for
-    @param date ISO 8601 date string
-    @return The first matching contact, or [None] if not found *)
-val find_by_email_at : t -> email:string -> date:Temporal.date ->
-                       Contact.t option
-
-(** [find_by_org t ~org ?from ?until ()] finds contacts who worked at an organization.
-
-    Searches for contacts whose organization records overlap with the given period.
-    If [from] and [until] are omitted, returns all contacts who ever worked there.
-
-    @param org Organization name (case-insensitive substring match)
-    @param from Start date of period to check (inclusive, optional)
-    @param until End date of period to check (exclusive, optional)
-    @return List of matching contacts, sorted by handle *)
-val find_by_org : t -> org:string -> ?from:Temporal.date ->
-                  ?until:Temporal.date -> unit -> Contact.t list
-
-(** [list_at t ~date] returns contacts that were active at a specific date.
-
-    A contact is considered active at a date if it has at least one
-    email, organization, or URL valid at that date.
-
-    @param date ISO 8601 date string
-    @return List of active contacts at that date *)
-val list_at : t -> date:Temporal.date -> Contact.t list
+val find_by_org : t -> org:string -> Contact.t list
+(** [find_by_org t ~org] is every contact with an affiliation whose
+    organisation name contains [org], compared case-insensitively, sorted by
+    handle. *)
 
 (** {1 Utilities} *)
 

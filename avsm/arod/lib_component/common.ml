@@ -126,7 +126,7 @@ let feed_type_badge ft =
 let contacts_with_feeds contacts =
   let with_feeds = List.filter_map (fun contact ->
     match Contact.feeds contact with
-    | Some feeds when feeds <> [] -> Some (contact, feeds)
+    | feeds when feeds <> [] -> Some (contact, feeds)
     | _ -> None
   ) contacts in
   List.sort (fun (a, _) (b, _) ->

@@ -243,31 +243,30 @@ let render_sidenote ~entries ~sidenotes c = function
         href title (Arod_icons.brand ~size:11 svg)
     in
     let socials = List.filter_map Fun.id [
-      (match github_handle contact with
+      (match handle_on contact (Simple Github) with
        | Some g -> Some (social_icon ("https://github.com/" ^ g) "GitHub" Arod_icons.github_o)
        | None -> None);
-      (match linkedin contact with
-       | Some (svc : Sortal_schema.Contact.service) -> Some (social_brand svc.url "LinkedIn" Arod_icons.linkedin_brand)
+      (match account_on contact (Simple LinkedIn) with
+       | Some svc -> Some (social_brand (Account.url svc) "LinkedIn" Arod_icons.linkedin_brand)
        | None -> None);
-      (match mastodon contact with
-       | Some svc when svc.url <> "" ->
-         Some (social_brand svc.url "Mastodon" Arod_icons.mastodon_brand)
-       | _ -> None);
-      (match bluesky_handle contact with
+      (match account_on contact (Federated Mastodon) with
+       | Some svc -> Some (social_brand (Account.url svc) "Mastodon" Arod_icons.mastodon_brand)
+       | None -> None);
+      (match atproto_handle contact with
        | Some b -> Some (social_brand ("https://bsky.app/profile/" ^ b) "Bluesky" Arod_icons.bluesky_brand)
        | None -> None);
-      (match twitter_handle contact with
+      (match handle_on contact (Simple Twitter) with
        | Some t -> Some (social_brand ("https://twitter.com/" ^ t) "X" Arod_icons.x_brand)
        | None -> None);
-      (match orcid contact with
+      (match handle_on contact (Simple Orcid) with
        | Some o -> Some (social_brand ("https://orcid.org/" ^ o) "ORCID" Arod_icons.orcid_brand)
        | None -> None);
-      (match current_url contact with
+      (match best_url contact with
        | Some u -> Some (social_icon u "Website" Arod_icons.world_o)
        | None -> None);
-      (match current_email contact with
-       | Some addr -> Some (social_icon ("mailto:" ^ addr) "Email" Arod_icons.mail_o)
-       | None -> None);
+      (match emails contact with
+       | addr :: _ -> Some (social_icon ("mailto:" ^ addr) "Email" Arod_icons.mail_o)
+       | [] -> None);
     ] in
     if socials <> [] then begin
       Buffer.add_string html {|<span class="sn-contact-socials">|};

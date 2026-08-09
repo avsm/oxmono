@@ -141,10 +141,11 @@ let update_contact t handle f ~msg =
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
-let add_email t handle (email : Contact.email) =
-  let msg = Printf.sprintf "Update @%s: add email %s"
-    handle email.address in
-  match Sortal_store.add_email t.store handle email with
+let set_account t handle account =
+  let msg = Printf.sprintf "Update @%s: set %s account %s" handle
+    (Contact.Platform.key (Contact.Account.platform account))
+    (Contact.Account.handle account) in
+  match Sortal_store.set_account t.store handle account with
   | Error _ as e -> e
   | Ok () ->
       match ensure_initialized t with
@@ -153,82 +154,10 @@ let add_email t handle (email : Contact.email) =
         let filename = handle ^ ".yaml" in
         commit_file t filename msg
 
-let remove_email t handle address =
-  let msg = Printf.sprintf "Update @%s: remove email %s" handle address in
-  match Sortal_store.remove_email t.store handle address with
-  | Error _ as e -> e
-  | Ok () ->
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let filename = handle ^ ".yaml" in
-        commit_file t filename msg
-
-let add_service t handle (service : Contact.service) =
-  let kind_str = match service.kind with
-    | Some k -> Contact.service_kind_to_string k
-    | None -> "unknown"
-  in
-  let msg = Printf.sprintf "Update @%s: add service %s (%s)"
-    handle kind_str service.url in
-  match Sortal_store.add_service t.store handle service with
-  | Error _ as e -> e
-  | Ok () ->
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let filename = handle ^ ".yaml" in
-        commit_file t filename msg
-
-let remove_service t handle url =
-  let msg = Printf.sprintf "Update @%s: remove service %s" handle url in
-  match Sortal_store.remove_service t.store handle url with
-  | Error _ as e -> e
-  | Ok () ->
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let filename = handle ^ ".yaml" in
-        commit_file t filename msg
-
-let add_organization t handle (org : Contact.organization) =
-  let msg = Printf.sprintf "Update @%s: add organization %s"
-    handle org.name in
-  match Sortal_store.add_organization t.store handle org with
-  | Error _ as e -> e
-  | Ok () ->
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let filename = handle ^ ".yaml" in
-        commit_file t filename msg
-
-let remove_organization t handle name =
-  let msg = Printf.sprintf "Update @%s: remove organization %s" handle name in
-  match Sortal_store.remove_organization t.store handle name with
-  | Error _ as e -> e
-  | Ok () ->
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let filename = handle ^ ".yaml" in
-        commit_file t filename msg
-
-let add_url t handle (url_entry : Contact.url_entry) =
-  let msg = Printf.sprintf "Update @%s: add URL %s"
-    handle url_entry.url in
-  match Sortal_store.add_url t.store handle url_entry with
-  | Error _ as e -> e
-  | Ok () ->
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let filename = handle ^ ".yaml" in
-        commit_file t filename msg
-
-let remove_url t handle url =
-  let msg = Printf.sprintf "Update @%s: remove URL %s" handle url in
-  match Sortal_store.remove_url t.store handle url with
+let unset_account t handle platform =
+  let msg = Printf.sprintf "Update @%s: unset %s account" handle
+    (Contact.Platform.key platform) in
+  match Sortal_store.unset_account t.store handle platform with
   | Error _ as e -> e
   | Ok () ->
       match ensure_initialized t with

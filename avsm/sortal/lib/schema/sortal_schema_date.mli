@@ -18,10 +18,10 @@ val parse : string -> t option
     are both [(2001, 1, 1)]. A date that names a day outside its month, such
     as ["2001-02-30"], is rejected. *)
 
-val to_string : t -> string
+val to_string : t -> string @@ portable
 (** [to_string d] is [d] as an ISO 8601 date, always in [YYYY-MM-DD] form. *)
 
-val compare : t -> t -> int
+val compare : t -> t -> int @@ portable
 (** [compare a b] orders dates chronologically. *)
 
 val json_t : t Jsont.t

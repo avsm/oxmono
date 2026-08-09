@@ -34,39 +34,39 @@ type federated =
 type id = Simple of simple | Federated of federated | Atproto
 (** [id] names any platform, and is what a lookup takes. *)
 
-val all : id list
+val all : id list @@ portable
 (** [all] is every platform, in the order they are declared. *)
 
-val key : id -> string
+val key : id -> string @@ portable
 (** [key id] is the YAML mapping key for [id]. Keys are unique across
     platforms. *)
 
-val of_key : string -> id option
+val of_key : string -> id option @@ portable
 (** [of_key s] is the platform [s] names, or [None] if [s] is not a platform
     key. *)
 
-val simple_url : simple -> string -> string
+val simple_url : simple -> string -> string @@ portable
 (** [simple_url p handle] is the canonical URL of [handle] on [p]. *)
 
-val federated_url : federated -> user:string -> host:string -> string
+val federated_url : federated -> user:string -> host:string -> string @@ portable
 (** [federated_url p ~user ~host] is the canonical URL of [user] at [host] on
     [p]. Zulip is the exception: a Zulip account is recorded by display name
     rather than by handle, so no user URL can be derived and the host URL is
     returned instead. *)
 
-val check_simple : simple -> string -> (unit, string) result
+val check_simple : simple -> string -> (unit, string) result @@ portable
 (** [check_simple p handle] is [Ok ()] if [handle] is syntactically a [p]
     handle, or [Error why] naming the problem. The check is local and makes
     no network request. *)
 
 val check_federated : federated -> user:string -> host:string ->
-  (unit, string) result
+  (unit, string) result @@ portable
 (** [check_federated p ~user ~host] is [Ok ()] if [user] at [host] is
     syntactically a [p] account, or [Error why]. Zulip is the exception: a
     Zulip account is recorded by display name, so [user] may contain
     whitespace and only its emptiness is checked. *)
 
-val check_atproto_handle : string -> (unit, string) result
+val check_atproto_handle : string -> (unit, string) result @@ portable
 (** [check_atproto_handle h] is [Ok ()] if [h] satisfies the AT Protocol
     handle syntax, or [Error why]. A handle is ASCII, at most 253 characters,
     and has two or more dot-separated segments of 1 to 63 characters drawn

@@ -29,8 +29,8 @@ end
 
 (** {1 Schema Version 2}
 
-    V2 is complete. It is not yet the default: {!Contact} below still
-    aliases {!V1.Contact}, because the store still reads and writes V1. *)
+    V2 is the default: {!Contact} below aliases {!V2.Contact}, and the
+    store reads and writes V2. *)
 
 module V2 : sig
   module Date = Sortal_schema_date
@@ -46,15 +46,13 @@ module Migrate = Sortal_schema_migrate
 
 (** {1 Current version aliases}
 
-    These name the schema in current use, and currently straddle both
-    versions. Date, Platform and Account exist only in V2, so they point
-    there. Feed is the same module in both versions. Temporal and Contact
-    still point at V1, because the store has not migrated its contacts to
-    V2. *)
+    These name the schema in current use. Contact now points at V2, since
+    the store reads and writes V2. Temporal still points at V1: it has no
+    V2 counterpart, and is removed once the last V1 reader is gone. *)
 
 module Date = V2.Date
 module Platform = V2.Platform
 module Account = V2.Account
 module Feed = V2.Feed
 module Temporal = V1.Temporal
-module Contact = V1.Contact
+module Contact = V2.Contact

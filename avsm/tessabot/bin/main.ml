@@ -28,7 +28,7 @@ let load_entries env cfg =
     let handle = Sortal.Contact.handle contact in
     let names = Sortal.Contact.names contact in
     let name = match names with n :: _ -> n | [] -> handle in
-    let feeds = Sortal.Contact.feeds contact |> Option.value ~default:[] in
+    let feeds = Sortal.Contact.feeds contact in
     let entries = Sortal_feed.Store.all_entries feed_store ~handle feeds in
     List.map (fun entry -> (handle, name, entry)) entries
   ) monitored in

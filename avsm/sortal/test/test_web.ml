@@ -27,8 +27,7 @@ let contains hay needle =
 let matches q (c : Contact.t) =
   let q = String.lowercase_ascii q in
   let any l = List.exists (fun s -> contains (String.lowercase_ascii s) q) l in
-  any (c.Contact.handle :: c.Contact.names)
-  || any (List.map (fun (e : Contact.email) -> e.Contact.address) c.Contact.emails)
+  any (Contact.handle c :: Contact.names c) || any (Contact.emails c)
 
 let all () = Hashtbl.fold (fun _ c acc -> c :: acc) contacts []
 
@@ -39,7 +38,7 @@ let env : Sortal_web.env =
     search = (fun q -> List.filter (matches q) (all ()));
     save =
       (fun c ->
-        Hashtbl.replace contacts c.Contact.handle c;
+        Hashtbl.replace contacts (Contact.handle c) c;
         Ok ());
     delete =
       (fun h ->
@@ -138,12 +137,8 @@ let () =
   check "create points at the contact"
     (String.equal (header_exn o "location") "/contact/avsm");
   let c = stored "avsm" in
-  check "create keeps the name" (c.Contact.names = [ "Anil Madhavapeddy" ]);
-  check "create keeps the email"
-    (match c.Contact.emails with
-    | [ e ] -> String.equal e.Contact.address "anil@recoil.org"
-    | _ -> false);
-  check "create is version 1" (c.Contact.version = 1)
+  check "create keeps the name" (Contact.names c = [ "Anil Madhavapeddy" ]);
+  check "create keeps the email" (Contact.emails c = [ "anil@recoil.org" ])
 
 let () =
   let o = post "/new" ~fields:[ ("handle", "avsm"); ("name", "Someone") ] in
@@ -219,17 +214,18 @@ let () =
           ("names", "Anil Madhavapeddy\r\nAVSM\r\n");
           ("kind", "org");
           ("orcid", "0000-0001-2345-6789");
-          ("icon", "https://example.com/a.png");
+          ("photo", "https://example.com/a.png");
         ]
   in
   check "edit redirects to the detail" (code o = 303);
   check "edit redirect target"
     (String.equal (header_exn o "location") "/contact/avsm");
   let c = stored "avsm" in
-  check "edit splits the names" (c.Contact.names = [ "Anil Madhavapeddy"; "AVSM" ]);
-  check "edit sets the kind" (c.Contact.kind = Contact.Organization);
-  check "edit sets the orcid" (c.Contact.orcid = Some "0000-0001-2345-6789");
-  check "edit sets the icon" (c.Contact.icon = Some "https://example.com/a.png");
+  check "edit splits the names" (Contact.names c = [ "Anil Madhavapeddy"; "AVSM" ]);
+  check "edit sets the kind" (Contact.kind c = Contact.Organization);
+  check "edit sets the orcid"
+    (Contact.handle_on c (Simple Orcid) = Some "0000-0001-2345-6789");
+  check "edit sets the photo" (Contact.photo c = Some "https://example.com/a.png");
   (* Put it back so the rest of the run reads naturally. *)
   let o =
     post "/contact/avsm/edit"
@@ -237,8 +233,8 @@ let () =
   in
   check "edit clears the scalars" (code o = 303);
   let c = stored "avsm" in
-  check "edit unsets the orcid" (c.Contact.orcid = None);
-  check "edit unsets the icon" (c.Contact.icon = None)
+  check "edit unsets the orcid" (Contact.handle_on c (Simple Orcid) = None);
+  check "edit unsets the photo" (Contact.photo c = None)
 
 let () =
   check "edit of an unknown contact is 404"
@@ -247,18 +243,15 @@ let () =
 (* Collections *)
 
 let () =
-  let o =
-    post "/contact/avsm/email/add"
-      ~fields:[ ("address", "avsm@cl.cam.ac.uk"); ("type", "work") ]
-  in
+  let o = post "/contact/avsm/email/add" ~fields:[ ("address", "avsm@cl.cam.ac.uk") ] in
   check "email add redirects" (code o = 303);
   check "email add returns to the editor"
     (String.equal (header_exn o "location") "/contact/avsm/edit");
   let c = stored "avsm" in
-  check "email add appends" (List.length c.Contact.emails = 2);
-  check "email add keeps the type"
-    (match List.rev c.Contact.emails with
-    | e :: _ -> e.Contact.type_ = Some Contact.Work
+  check "email add appends" (List.length (Contact.emails c) = 2);
+  check "email add keeps the address"
+    (match List.rev (Contact.emails c) with
+    | e :: _ -> String.equal e "avsm@cl.cam.ac.uk"
     | [] -> false);
   let o =
     post "/contact/avsm/email/remove" ~fields:[ ("address", "avsm@cl.cam.ac.uk") ]
@@ -266,9 +259,7 @@ let () =
   check "email remove redirects" (code o = 303);
   let c = stored "avsm" in
   check "email remove drops one by address"
-    (match c.Contact.emails with
-    | [ e ] -> String.equal e.Contact.address "anil@recoil.org"
-    | _ -> false)
+    (Contact.emails c = [ "anil@recoil.org" ])
 
 let () =
   let o =
@@ -278,44 +269,35 @@ let () =
   check "url add redirects" (code o = 303);
   let c = stored "avsm" in
   check "url add appends"
-    (match c.Contact.urls with
-    | [ u ] ->
-        String.equal u.Contact.url "https://anil.recoil.org"
-        && u.Contact.label = Some "Homepage"
-        && u.Contact.range = None
+    (match Contact.links c with
+    | [ (u : Contact.link) ] ->
+        String.equal u.url "https://anil.recoil.org" && u.label = Some "Homepage"
     | _ -> false);
   let o =
     post "/contact/avsm/url/remove"
       ~fields:[ ("url", "https://anil.recoil.org") ]
   in
   check "url remove redirects" (code o = 303);
-  check "url remove drops it by url" ((stored "avsm").Contact.urls = [])
+  check "url remove drops it by url" (Contact.links (stored "avsm") = [])
 
 let () =
   let o =
     post "/contact/avsm/service/add"
-      ~fields:
-        [
-          ("url", "https://github.com/avsm");
-          ("handle", "avsm");
-          ("label", "Code");
-        ]
+      ~fields:[ ("platform", "github"); ("handle", "avsm") ]
   in
   check "service add redirects" (code o = 303);
   let c = stored "avsm" in
   check "service add appends"
-    (match c.Contact.services with
-    | [ sv ] ->
-        String.equal sv.Contact.url "https://github.com/avsm"
-        && sv.Contact.handle = Some "avsm"
-        && sv.Contact.range = None
+    (match Contact.accounts c with
+    | [ a ] ->
+        String.equal (Contact.Account.url a) "https://github.com/avsm"
+        && String.equal (Contact.Account.handle a) "avsm"
     | _ -> false);
   let o =
-    post "/contact/avsm/service/remove"
-      ~fields:[ ("url", "https://github.com/avsm") ]
+    post "/contact/avsm/service/remove" ~fields:[ ("platform", "github") ]
   in
   check "service remove redirects" (code o = 303);
-  check "service remove drops it by url" ((stored "avsm").Contact.services = [])
+  check "service remove drops it by platform" (Contact.accounts (stored "avsm") = [])
 
 let () =
   let o =
@@ -325,10 +307,9 @@ let () =
   check "org add redirects" (code o = 303);
   let c = stored "avsm" in
   check "org add appends"
-    (match c.Contact.organizations with
-    | [ o ] ->
-        String.equal o.Contact.name "University of Cambridge"
-        && o.Contact.title = Some "Professor"
+    (match Contact.affiliations c with
+    | [ (a : Contact.affiliation) ] ->
+        String.equal a.org "University of Cambridge" && a.title = Some "Professor"
     | _ -> false);
   check "detail shows the org"
     (contains (body (get "/contact/avsm")) "University of Cambridge");
@@ -337,8 +318,7 @@ let () =
       ~fields:[ ("name", "University of Cambridge") ]
   in
   check "org remove redirects" (code o = 303);
-  check "org remove drops it by name"
-    ((stored "avsm").Contact.organizations = [])
+  check "org remove drops it by name" (Contact.affiliations (stored "avsm") = [])
 
 let () =
   check "collection add on an unknown contact is 404"

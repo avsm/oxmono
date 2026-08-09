@@ -57,45 +57,14 @@ val delete : t -> string -> (unit, string) result
 
 (** {1 Contact Modification} *)
 
-val add_email : t -> string -> Contact.email -> (unit, string) result
-(** [add_email t handle email] adds an email to a contact and commits.
+val set_account : t -> string -> Contact.Account.t -> (unit, string) result
+(** [set_account t handle account] adds [account] to the contact named
+    [handle], replacing any existing account on the same platform, and
+    commits the change. *)
 
-    Commits with message "Update @handle: add email address@example.com". *)
-
-val remove_email : t -> string -> string -> (unit, string) result
-(** [remove_email t handle address] removes an email and commits.
-
-    Commits with message "Update @handle: remove email address@example.com". *)
-
-val add_service : t -> string -> Contact.service -> (unit, string) result
-(** [add_service t handle service] adds a service to a contact and commits.
-
-    Commits with message "Update @handle: add service Kind (url)". *)
-
-val remove_service : t -> string -> string -> (unit, string) result
-(** [remove_service t handle url] removes a service and commits.
-
-    Commits with message "Update @handle: remove service url". *)
-
-val add_organization : t -> string -> Contact.organization -> (unit, string) result
-(** [add_organization t handle org] adds an organization and commits.
-
-    Commits with message "Update @handle: add organization Org Name". *)
-
-val remove_organization : t -> string -> string -> (unit, string) result
-(** [remove_organization t handle name] removes an organization and commits.
-
-    Commits with message "Update @handle: remove organization Org Name". *)
-
-val add_url : t -> string -> Contact.url_entry -> (unit, string) result
-(** [add_url t handle url_entry] adds a URL and commits.
-
-    Commits with message "Update @handle: add URL url". *)
-
-val remove_url : t -> string -> string -> (unit, string) result
-(** [remove_url t handle url] removes a URL and commits.
-
-    Commits with message "Update @handle: remove URL url". *)
+val unset_account : t -> string -> Contact.Platform.id -> (unit, string) result
+(** [unset_account t handle platform] removes every account [handle] holds on
+    [platform] and commits the change. *)
 
 (** {1 Low-level Operations} *)
 

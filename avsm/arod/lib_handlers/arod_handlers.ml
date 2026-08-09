@@ -729,7 +729,7 @@ let blogroll_opml ~ctx (local_ rctx) (local_ respond) =
   let contacts = Arod.Ctx.contacts ctx in
   let contacts_with_feeds = List.filter_map (fun contact ->
     match Contact.feeds contact with
-    | Some feeds when feeds <> [] -> Some (contact, feeds)
+    | feeds when feeds <> [] -> Some (contact, feeds)
     | _ -> None
   ) contacts in
   let contacts_with_feeds = List.sort (fun (a, _) (b, _) ->

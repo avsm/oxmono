@@ -285,162 +285,34 @@ let () =
     Cmd.v Sortal.Cmd.delete_info term
   in
 
-  (* Entry management commands *)
-  let add_email_cmd =
+  (* Account management commands *)
+  let set_cmd =
     let term =
       let open Term.Syntax in
       let+ (xdg, _) = xdg_term
       and+ handle = Sortal.Cmd.handle_arg
-      and+ address = Sortal.Cmd.email_address_arg
-      and+ type_ = Sortal.Cmd.email_type_arg
-      and+ from = Sortal.Cmd.date_arg "from"
-      and+ until = Sortal.Cmd.date_arg "until"
-      and+ note = Sortal.Cmd.note_arg
+      and+ platform = Sortal.Cmd.platform_arg
+      and+ value = Sortal.Cmd.value_arg
       and+ log_level = Logs_cli.level () in
       Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
       Logs.set_level log_level;
-      Sortal.Cmd.add_email_cmd handle address type_ from until note xdg env
+      Sortal.Cmd.set_cmd handle platform value xdg env
     in
-    Cmd.v Sortal.Cmd.add_email_info term
+    Cmd.v Sortal.Cmd.set_info term
   in
 
-  let remove_email_cmd =
+  let unset_cmd =
     let term =
       let open Term.Syntax in
       let+ (xdg, _) = xdg_term
       and+ handle = Sortal.Cmd.handle_arg
-      and+ address = Sortal.Cmd.email_address_arg
+      and+ platform = Sortal.Cmd.platform_arg
       and+ log_level = Logs_cli.level () in
       Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
       Logs.set_level log_level;
-      Sortal.Cmd.remove_email_cmd handle address xdg env
+      Sortal.Cmd.unset_cmd handle platform xdg env
     in
-    Cmd.v Sortal.Cmd.remove_email_info term
-  in
-
-  let add_service_cmd =
-    let term =
-      let open Term.Syntax in
-      let+ (xdg, _) = xdg_term
-      and+ handle = Sortal.Cmd.handle_arg
-      and+ url = Sortal.Cmd.service_url_arg
-      and+ kind = Sortal.Cmd.service_kind_arg
-      and+ service_handle = Sortal.Cmd.service_handle_arg
-      and+ label = Sortal.Cmd.label_arg
-      and+ log_level = Logs_cli.level () in
-      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
-      Logs.set_level log_level;
-      Sortal.Cmd.add_service_cmd handle url kind service_handle label xdg env
-    in
-    Cmd.v Sortal.Cmd.add_service_info term
-  in
-
-  let remove_service_cmd =
-    let term =
-      let open Term.Syntax in
-      let+ (xdg, _) = xdg_term
-      and+ handle = Sortal.Cmd.handle_arg
-      and+ url = Sortal.Cmd.service_url_arg
-      and+ log_level = Logs_cli.level () in
-      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
-      Logs.set_level log_level;
-      Sortal.Cmd.remove_service_cmd handle url xdg env
-    in
-    Cmd.v Sortal.Cmd.remove_service_info term
-  in
-
-  let add_org_cmd =
-    let term =
-      let open Term.Syntax in
-      let+ (xdg, _) = xdg_term
-      and+ handle = Sortal.Cmd.handle_arg
-      and+ org_name = Sortal.Cmd.org_name_arg
-      and+ title = Sortal.Cmd.org_title_arg
-      and+ department = Sortal.Cmd.org_department_arg
-      and+ from = Sortal.Cmd.date_arg "from"
-      and+ until = Sortal.Cmd.date_arg "until"
-      and+ org_email = Sortal.Cmd.org_email_arg
-      and+ org_url = Sortal.Cmd.org_url_arg
-      and+ log_level = Logs_cli.level () in
-      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
-      Logs.set_level log_level;
-      Sortal.Cmd.add_org_cmd handle org_name title department from until org_email org_url xdg env
-    in
-    Cmd.v Sortal.Cmd.add_org_info term
-  in
-
-  let remove_org_cmd =
-    let term =
-      let open Term.Syntax in
-      let+ (xdg, _) = xdg_term
-      and+ handle = Sortal.Cmd.handle_arg
-      and+ org_name = Sortal.Cmd.org_name_arg
-      and+ log_level = Logs_cli.level () in
-      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
-      Logs.set_level log_level;
-      Sortal.Cmd.remove_org_cmd handle org_name xdg env
-    in
-    Cmd.v Sortal.Cmd.remove_org_info term
-  in
-
-  let add_url_cmd =
-    let term =
-      let open Term.Syntax in
-      let+ (xdg, _) = xdg_term
-      and+ handle = Sortal.Cmd.handle_arg
-      and+ url = Sortal.Cmd.url_value_arg
-      and+ label = Sortal.Cmd.label_arg
-      and+ log_level = Logs_cli.level () in
-      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
-      Logs.set_level log_level;
-      Sortal.Cmd.add_url_cmd handle url label xdg env
-    in
-    Cmd.v Sortal.Cmd.add_url_info term
-  in
-
-  let remove_url_cmd =
-    let term =
-      let open Term.Syntax in
-      let+ (xdg, _) = xdg_term
-      and+ handle = Sortal.Cmd.handle_arg
-      and+ url = Sortal.Cmd.url_value_arg
-      and+ log_level = Logs_cli.level () in
-      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
-      Logs.set_level log_level;
-      Sortal.Cmd.remove_url_cmd handle url xdg env
-    in
-    Cmd.v Sortal.Cmd.remove_url_info term
-  in
-
-  let add_atproto_cmd =
-    let term =
-      let open Term.Syntax in
-      let+ (xdg, _) = xdg_term
-      and+ handle = Sortal.Cmd.handle_arg
-      and+ atproto_handle = Sortal.Cmd.atproto_handle_arg
-      and+ svc_type = Sortal.Cmd.atproto_opt_service_type
-      and+ svc_url = Sortal.Cmd.atproto_opt_service_url
-      and+ log_level = Logs_cli.level () in
-      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
-      Logs.set_level log_level;
-      Sortal.Cmd.add_atproto_cmd handle atproto_handle svc_type svc_url xdg env
-    in
-    Cmd.v Sortal.Cmd.add_atproto_info term
-  in
-
-  let add_atproto_service_cmd =
-    let term =
-      let open Term.Syntax in
-      let+ (xdg, _) = xdg_term
-      and+ handle = Sortal.Cmd.handle_arg
-      and+ svc_type = Sortal.Cmd.atproto_svc_type_arg
-      and+ svc_url = Sortal.Cmd.atproto_svc_url_arg
-      and+ log_level = Logs_cli.level () in
-      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
-      Logs.set_level log_level;
-      Sortal.Cmd.add_atproto_service_cmd handle svc_type svc_url xdg env
-    in
-    Cmd.v Sortal.Cmd.add_atproto_service_info term
+    Cmd.v Sortal.Cmd.unset_info term
   in
 
   (* Config command *)
@@ -507,8 +379,8 @@ let () =
   let contacts_with_feeds store =
     Sortal.Store.list store |> List.filter_map (fun contact ->
       match Sortal.Contact.feeds contact with
-      | Some (_ :: _ as feeds) -> Some (Sortal.Contact.handle contact, feeds)
-      | _ -> None
+      | _ :: _ as feeds -> Some (Sortal.Contact.handle contact, feeds)
+      | [] -> None
     )
   in
 
@@ -531,9 +403,9 @@ let () =
            | None -> Logs.err (fun m -> m "Contact not found: %s" handle); []
            | Some contact ->
              match Sortal.Contact.feeds contact with
-             | None | Some [] ->
+             | [] ->
                Logs.err (fun m -> m "No feeds configured for @%s" handle); []
-             | Some feeds -> [(handle, feeds)])
+             | feeds -> [(handle, feeds)])
         | None ->
           let all = contacts_with_feeds store in
           if all = [] then
@@ -582,9 +454,9 @@ let () =
            | None -> Logs.err (fun m -> m "Contact not found: %s" handle); []
            | Some contact ->
              match Sortal.Contact.feeds contact with
-             | None | Some [] ->
+             | [] ->
                Logs.err (fun m -> m "No feeds configured for @%s" handle); []
-             | Some feeds -> [(handle, feeds)])
+             | feeds -> [(handle, feeds)])
         | None ->
           let all = contacts_with_feeds store in
           if all = [] then
@@ -630,9 +502,9 @@ let () =
       | None -> Logs.err (fun m -> m "Contact not found: %s" handle); 1
       | Some contact ->
         match Sortal.Contact.feeds contact with
-        | None | Some [] ->
+        | [] ->
           Logs.err (fun m -> m "No feeds configured for @%s" handle); 1
-        | Some feeds ->
+        | feeds ->
           let feed_store = Sortal_feed.Store.create_from_xdg xdg in
           let entries = Sortal_feed.Store.all_entries feed_store ~handle feeds in
           match List.find_opt (fun (e : Sortal_feed.Entry.t) -> e.id = entry_id) entries with
@@ -648,14 +520,11 @@ let () =
 
   let contacts_with_manual_feeds store =
     Sortal.Store.list store |> List.filter_map (fun contact ->
-      match Sortal.Contact.feeds contact with
-      | Some feeds ->
-        let manual = List.filter (fun f ->
-          Sortal_schema.Feed.feed_type f = Manual) feeds
-        in
-        if manual <> [] then Some (Sortal.Contact.handle contact, manual)
-        else None
-      | _ -> None
+      let manual = List.filter (fun f ->
+        Sortal_schema.Feed.feed_type f = Manual) (Sortal.Contact.feeds contact)
+      in
+      if manual <> [] then Some (Sortal.Contact.handle contact, manual)
+      else None
     )
   in
 
@@ -673,16 +542,13 @@ let () =
           (match Sortal.Store.lookup store handle with
            | None -> Logs.err (fun m -> m "Contact not found: %s" handle); []
            | Some contact ->
-             match Sortal.Contact.feeds contact with
-             | None | Some [] ->
-               Logs.err (fun m -> m "No feeds configured for @%s" handle); []
-             | Some feeds ->
-               let manual = List.filter (fun f ->
-                 Sortal_schema.Feed.feed_type f = Manual) feeds
-               in
-               if manual = [] then begin
-                 Logs.err (fun m -> m "No manual feeds configured for @%s" handle); []
-               end else [(handle, manual)])
+             let manual = List.filter (fun f ->
+               Sortal_schema.Feed.feed_type f = Manual)
+               (Sortal.Contact.feeds contact)
+             in
+             if manual = [] then begin
+               Logs.err (fun m -> m "No manual feeds configured for @%s" handle); []
+             end else [(handle, manual)])
         | None ->
           let all = contacts_with_manual_feeds store in
           if all = [] then
@@ -772,16 +638,8 @@ let () =
     config_cmd;
     add_cmd;
     delete_cmd;
-    add_email_cmd;
-    remove_email_cmd;
-    add_service_cmd;
-    remove_service_cmd;
-    add_org_cmd;
-    remove_org_cmd;
-    add_url_cmd;
-    remove_url_cmd;
-    add_atproto_cmd;
-    add_atproto_service_cmd;
+    set_cmd;
+    unset_cmd;
     feed_group;
   ] in
 

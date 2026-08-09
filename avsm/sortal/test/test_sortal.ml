@@ -6,44 +6,47 @@
 (** Tests for the Sortal library *)
 
 open Eio.Std
+module Account = Sortal.Contact.Account
+module Platform = Sortal.Contact.Platform
 
 let test_contact_creation () =
   let c = Sortal.Contact.make
     ~handle:"test"
     ~names:["Test User"; "T. User"]
-    ~emails:[Sortal.Contact.email_of_string "test@example.com"]
-    ~services:[Sortal.Contact.make_service ~kind:Git ~handle:"testuser" "https://github.com/testuser"]
+    ~emails:["test@example.com"]
+    ~accounts:[Account.Simple (Github, "testuser")]
     () in
   assert (Sortal.Contact.handle c = "test");
   assert (Sortal.Contact.name c = "Test User");
   assert (List.length (Sortal.Contact.names c) = 2);
-  assert (Sortal.Contact.current_email c = Some "test@example.com");
-  assert (List.length (Sortal.Contact.services c) = 1);
-  assert (List.length (Sortal.Contact.services_of_kind c Git) = 1);
+  assert (Sortal.Contact.emails c = ["test@example.com"]);
+  assert (List.length (Sortal.Contact.accounts c) = 1);
+  assert (Sortal.Contact.handle_on c (Simple Github) = Some "testuser");
   traceln "✓ Contact creation works"
 
 let test_best_url () =
   let c1 = Sortal.Contact.make
     ~handle:"test1"
     ~names:["Test 1"]
-    ~urls:[Sortal.Contact.url_of_string "https://example.com"]
-    ~services:[Sortal.Contact.service_of_url "https://github.com/test1"]
+    ~links:[{ Sortal.Contact.url = "https://example.com"; label = None }]
+    ~accounts:[Account.Simple (Github, "test1")]
     () in
   assert (Sortal.Contact.best_url c1 = Some "https://example.com");
 
   let c2 = Sortal.Contact.make
     ~handle:"test2"
     ~names:["Test 2"]
-    ~services:[Sortal.Contact.service_of_url "https://github.com/test2"]
+    ~accounts:[Account.Simple (Github, "test2")]
     () in
   assert (Sortal.Contact.best_url c2 = Some "https://github.com/test2");
 
+  (* An email alone gives no URL: V2's [best_url] has no mailto fallback. *)
   let c3 = Sortal.Contact.make
     ~handle:"test3"
     ~names:["Test 3"]
-    ~emails:[Sortal.Contact.email_of_string "test3@example.com"]
+    ~emails:["test3@example.com"]
     () in
-  assert (Sortal.Contact.best_url c3 = Some "mailto:test3@example.com");
+  assert (Sortal.Contact.best_url c3 = None);
 
   let c4 = Sortal.Contact.make
     ~handle:"test4"
@@ -57,9 +60,11 @@ let test_json_encoding () =
   let c = Sortal.Contact.make
     ~handle:"json_test"
     ~names:["JSON Test"]
-    ~emails:[Sortal.Contact.email_of_string "json@example.com"]
-    ~services:[Sortal.Contact.make_service ~kind:Git ~handle:"jsontest" "https://github.com/jsontest"]
-    ~orcid:"0000-0001-2345-6789"
+    ~emails:["json@example.com"]
+    ~accounts:[
+      Account.Simple (Github, "jsontest");
+      Account.Simple (Orcid, "0000-0001-2345-6789");
+    ]
     () in
 
   match Jsont_bytesrw.encode_string Sortal.Contact.json_t c with
@@ -67,9 +72,9 @@ let test_json_encoding () =
       (match Jsont_bytesrw.decode_string Sortal.Contact.json_t json_str with
        | Ok decoded ->
            assert (Sortal.Contact.handle decoded = "json_test");
-           assert (Sortal.Contact.current_email decoded = Some "json@example.com");
-           assert (List.length (Sortal.Contact.services_of_kind decoded Git) = 1);
-           assert (Sortal.Contact.orcid decoded = Some "0000-0001-2345-6789");
+           assert (Sortal.Contact.emails decoded = ["json@example.com"]);
+           assert (Sortal.Contact.handle_on decoded (Simple Github) = Some "jsontest");
+           assert (Sortal.Contact.handle_on decoded (Simple Orcid) = Some "0000-0001-2345-6789");
            traceln "✓ JSON encoding/decoding works"
        | Error err ->
            failwith ("JSON decode failed: " ^ err))
@@ -92,13 +97,13 @@ let test_store_operations () =
   let c1 = Sortal.Contact.make
     ~handle:"alice"
     ~names:["Alice Anderson"]
-    ~emails:[Sortal.Contact.email_of_string "alice@example.com"]
+    ~emails:["alice@example.com"]
     () in
 
   let c2 = Sortal.Contact.make
     ~handle:"bob"
     ~names:["Bob Brown"; "Robert Brown"]
-    ~services:[Sortal.Contact.service_of_url "https://github.com/bobbrown"]
+    ~accounts:[Account.Simple (Github, "bobbrown")]
     () in
 
   (* Test save *)
@@ -159,37 +164,37 @@ let test_contact_compare () =
   assert (Sortal.Contact.compare c1 c3 = 0);
   traceln "✓ Contact comparison works"
 
-let test_urls () =
-  (* Test with only url set *)
+let test_links () =
+  (* Test with only one link set *)
   let c1 = Sortal.Contact.make
     ~handle:"test1"
     ~names:["Test 1"]
-    ~urls:[Sortal.Contact.url_of_string "https://example.com"]
+    ~links:[{ Sortal.Contact.url = "https://example.com"; label = None }]
     () in
-  assert (Sortal.Contact.current_url c1 = Some "https://example.com");
-  assert (List.length (Sortal.Contact.urls c1) = 1);
+  assert (Sortal.Contact.best_url c1 = Some "https://example.com");
+  assert (List.length (Sortal.Contact.links c1) = 1);
 
-  (* Test with multiple urls *)
+  (* Test with multiple links: the first is preferred *)
   let c2 = Sortal.Contact.make
     ~handle:"test2"
     ~names:["Test 2"]
-    ~urls:[
-      Sortal.Contact.url_of_string "https://one.com";
-      Sortal.Contact.url_of_string "https://two.com"
+    ~links:[
+      { Sortal.Contact.url = "https://one.com"; label = None };
+      { Sortal.Contact.url = "https://two.com"; label = None };
     ]
     () in
-  assert (Sortal.Contact.current_url c2 = Some "https://one.com");
-  assert (List.length (Sortal.Contact.urls c2) = 2);
+  assert (Sortal.Contact.best_url c2 = Some "https://one.com");
+  assert (List.length (Sortal.Contact.links c2) = 2);
 
-  (* Test with no urls *)
+  (* Test with no links *)
   let c3 = Sortal.Contact.make
     ~handle:"test3"
     ~names:["Test 3"]
     () in
-  assert (Sortal.Contact.current_url c3 = None);
-  assert (Sortal.Contact.urls c3 = []);
+  assert (Sortal.Contact.best_url c3 = None);
+  assert (Sortal.Contact.links c3 = []);
 
-  traceln "✓ URLs field works correctly"
+  traceln "✓ Links field works correctly"
 
 let () =
   traceln "\n=== Running Sortal Tests ===\n";
@@ -199,7 +204,7 @@ let () =
   test_json_encoding ();
   test_handle_generation ();
   test_contact_compare ();
-  test_urls ();
+  test_links ();
   test_store_operations ();
 
   traceln "\n=== All Tests Passed ===\n"

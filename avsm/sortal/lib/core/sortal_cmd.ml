@@ -6,7 +6,7 @@
 open Cmdliner
 
 module Contact = Sortal_schema.Contact
-module Temporal = Sortal_schema.Temporal
+module Platform = Sortal_schema.Platform
 
 let list_cmd xdg =
   let store = Sortal_store.create_from_xdg xdg in
@@ -52,7 +52,8 @@ let search_cmd query xdg =
       (if List.length matches = 1 then "" else "es"));
     List.iter (fun c ->
       Logs.app (fun m -> m "@%s: %s" (Contact.handle c) (Contact.name c));
-      Option.iter (fun e -> Logs.app (fun m -> m "  Email: %s" e)) (Contact.current_email c);
+      Option.iter (fun e -> Logs.app (fun m -> m "  Email: %s" e))
+        (List.nth_opt (Contact.emails c) 0);
       Option.iter (fun u -> Logs.app (fun m -> m "  URL: %s" u)) (Contact.best_url c)
     ) matches;
     0
@@ -63,19 +64,17 @@ let stats_cmd () xdg =
   let total = List.length contacts in
   let count pred = List.filter pred contacts |> List.length in
   let with_email = count (fun c -> Contact.emails c <> []) in
-  let with_org = count (fun c -> Contact.organizations c <> []) in
-  let with_url = count (fun c -> Contact.urls c <> []) in
-  let with_service = count (fun c -> Contact.services c <> []) in
-  let with_orcid = count (fun c -> Option.is_some (Contact.orcid c)) in
-  let with_feeds = count (fun c -> Option.is_some (Contact.feeds c)) in
+  let with_org = count (fun c -> Contact.affiliations c <> []) in
+  let with_url = count (fun c -> Contact.links c <> []) in
+  let with_service = count (fun c -> Contact.accounts c <> []) in
+  let with_orcid = count (fun c -> Option.is_some (Contact.handle_on c (Simple Orcid))) in
+  let with_feeds = count (fun c -> Contact.feeds c <> []) in
   let total_feeds =
-    List.fold_left (fun acc c ->
-      acc + Option.fold ~none:0 ~some:List.length (Contact.feeds c)
-    ) 0 contacts
+    List.fold_left (fun acc c -> acc + List.length (Contact.feeds c)) 0 contacts
   in
   let total_services =
     List.fold_left (fun acc c ->
-      acc + List.length (Contact.services c)
+      acc + List.length (Contact.accounts c)
     ) 0 contacts
   in
   let pct n = float_of_int n /. float_of_int total *. 100. in
@@ -88,6 +87,20 @@ let stats_cmd () xdg =
   Logs.app (fun m -> m "  With URL: %d (%.1f%%)" with_url (pct with_url));
   Logs.app (fun m -> m "  With feeds: %d (%.1f%%), total %d feeds" with_feeds (pct with_feeds) total_feeds);
   0
+
+let with_photo contact photo =
+  Contact.make
+    ~handle:(Contact.handle contact)
+    ~names:(Contact.names contact)
+    ~kind:(Contact.kind contact)
+    ~emails:(Contact.emails contact)
+    ~accounts:(Contact.accounts contact)
+    ~links:(Contact.links contact)
+    ~affiliations:(Contact.affiliations contact)
+    ?photo
+    ~feeds:(Contact.feeds contact)
+    ~vcard:(Contact.vcard contact)
+    ()
 
 (* DID resolution *)
 let resolve_atproto_did http_session atp_handle =
@@ -135,7 +148,7 @@ let sync_cmd ~force () xdg env =
   | Some immich_session ->
     let targets = if force then contacts
       else List.filter (fun c ->
-        Option.is_none (Contact.thumbnail c)
+        Option.is_none (Contact.photo c)
       ) contacts in
     if targets = [] then
       Logs.app (fun m -> m "All contacts have thumbnails, skipping Immich fetch")
@@ -209,7 +222,7 @@ let sync_cmd ~force () xdg env =
                         let oc = open_out_bin output_path in
                         output_string oc thumb_data;
                         close_out oc;
-                        let updated = { contact with Contact.thumbnail = Some filename } in
+                        let updated = with_photo contact (Some filename) in
                         Sortal_store.save store updated;
                         Logs.app (fun m -> m "  @%s: fetched face from Immich" handle);
                         incr fetched
@@ -253,7 +266,7 @@ let sync_cmd ~force () xdg env =
   else
     List.filter (fun c ->
       match Contact.atproto c with
-      | Some a -> Option.is_none a.atp_did
+      | Some a -> Option.is_none a.did
       | None -> false
     ) contacts
   in
@@ -267,13 +280,13 @@ let sync_cmd ~force () xdg env =
       match Contact.atproto contact with
       | None -> ()
       | Some atp ->
-        match resolve_atproto_did session atp.atp_handle with
+        match resolve_atproto_did session atp.handle with
         | Some did ->
           let updated = Contact.set_atproto_did contact did in
           Sortal_store.save store updated;
-          Logs.app (fun m -> m "  @%s: %s -> %s" handle atp.atp_handle did)
+          Logs.app (fun m -> m "  @%s: %s -> %s" handle atp.handle did)
         | None ->
-          Logs.warn (fun m -> m "  @%s: failed to resolve %s" handle atp.atp_handle);
+          Logs.warn (fun m -> m "  @%s: failed to resolve %s" handle atp.handle);
           incr atproto_errors
     ) atproto_targets;
     Logs.app (fun m -> m "ATProto DID resolution: %d resolved, %d errors"
@@ -306,28 +319,21 @@ let add_cmd handle names kind email github url orcid xdg env =
       Logs.err (fun m -> m "Contact @%s already exists" handle);
       1
   | None ->
-      let emails = match email with
-        | Some e -> [Contact.make_email e]
+      let emails = match email with Some e -> [ e ] | None -> [] in
+      let accounts =
+        (match github with
+        | Some gh -> [ Contact.Account.Simple (Platform.Github, gh) ]
+        | None -> [])
+        @
+        match orcid with
+        | Some o -> [ Contact.Account.Simple (Platform.Orcid, o) ]
         | None -> []
       in
-      let services = match github with
-        | Some gh -> [Contact.make_service ~kind:Contact.Github ~handle:gh (Printf.sprintf "https://github.com/%s" gh)]
+      let links = match url with
+        | Some u -> [ { Contact.url = u; label = None } ]
         | None -> []
       in
-      let urls = match url with
-        | Some u -> [Contact.make_url u]
-        | None -> []
-      in
-      let contact = Contact.make
-        ~handle
-        ~names
-        ?kind
-        ~emails
-        ~services
-        ~urls
-        ?orcid
-        ()
-      in
+      let contact = Contact.make ~handle ~names ?kind ~emails ~accounts ~links () in
       match Sortal_git_store.save git_store contact with
       | Ok () ->
           Logs.app (fun m -> m "Created contact @%s: %s" handle (Contact.name contact));
@@ -348,174 +354,64 @@ let delete_cmd handle xdg env =
       Logs.err (fun m -> m "%s" msg);
       1
 
-(* Convert string option to Ptime.date option *)
-let parse_date_opt (s_opt : string option) : Sortal_schema.Temporal.date option =
-  match s_opt with
-  | None -> None
-  | Some s ->
-      match Sortal_schema.Temporal.parse_date_string s with
-      | Some d -> Some d
+(* The error message for an unknown platform key names every known one. *)
+let unknown_platform key =
+  Fmt.epr "unknown platform %S@.known platforms: %s@." key
+    (String.concat ", " (List.map Platform.key Platform.all));
+  exit 1
+
+(* [value] as an account on [platform]. A federated platform expects
+   [user@host]; anything else is a syntax error the caller reports. *)
+let account_of_value platform value =
+  match (platform : Platform.id) with
+  | Simple p -> Ok (Contact.Account.Simple (p, value))
+  | Atproto -> Ok (Contact.Account.Atproto { handle = value; did = None; apps = [] })
+  | Federated p -> (
+      match String.index_opt value '@' with
+      | Some i ->
+          let user = String.sub value 0 i in
+          let host = String.sub value (i + 1) (String.length value - i - 1) in
+          Ok (Contact.Account.Federated (p, user, host))
       | None ->
-          Logs.warn (fun m -> m "Invalid date format: %s (using ISO 8601: YYYY, YYYY-MM, or YYYY-MM-DD)" s);
-          None
+          Error
+            (Printf.sprintf "%S is not user@host, required for %s" value
+               (Platform.key platform)))
 
-(* Add email to existing contact *)
-let add_email_cmd handle address type_ from until note xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  let from = parse_date_opt from in
-  let until = parse_date_opt until in
-  let email = Contact.make_email ?type_ ?from ?until ?note address in
-  match Sortal_git_store.add_email git_store handle email with
-  | Ok () ->
-      Logs.app (fun m -> m "Added email %s to @%s" address handle);
-      0
-  | Error msg ->
-      Logs.err (fun m -> m "%s" msg);
-      1
-
-(* Remove email from contact *)
-let remove_email_cmd handle address xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  match Sortal_git_store.remove_email git_store handle address with
-  | Ok () ->
-      Logs.app (fun m -> m "Removed email %s from @%s" address handle);
-      0
-  | Error msg ->
-      Logs.err (fun m -> m "%s" msg);
-      1
-
-(* Add service to existing contact *)
-let add_service_cmd handle url kind service_handle label xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  let service = Contact.make_service ?kind ?handle:service_handle ?label url in
-  match Sortal_git_store.add_service git_store handle service with
-  | Ok () ->
-      Logs.app (fun m -> m "Added service %s to @%s" url handle);
-      0
-  | Error msg ->
-      Logs.err (fun m -> m "%s" msg);
-      1
-
-(* Remove service from contact *)
-let remove_service_cmd handle url xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  match Sortal_git_store.remove_service git_store handle url with
-  | Ok () ->
-      Logs.app (fun m -> m "Removed service %s from @%s" url handle);
-      0
-  | Error msg ->
-      Logs.err (fun m -> m "%s" msg);
-      1
-
-(* Add organization to existing contact *)
-let add_org_cmd handle org_name title department from until org_email org_url xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  let from = parse_date_opt from in
-  let until = parse_date_opt until in
-  let org = Contact.make_org ?title ?department ?from ?until ?email:org_email ?url:org_url org_name in
-  match Sortal_git_store.add_organization git_store handle org with
-  | Ok () ->
-      Logs.app (fun m -> m "Added organization %s to @%s" org_name handle);
-      0
-  | Error msg ->
-      Logs.err (fun m -> m "%s" msg);
-      1
-
-(* Remove organization from contact *)
-let remove_org_cmd handle org_name xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  match Sortal_git_store.remove_organization git_store handle org_name with
-  | Ok () ->
-      Logs.app (fun m -> m "Removed organization %s from @%s" org_name handle);
-      0
-  | Error msg ->
-      Logs.err (fun m -> m "%s" msg);
-      1
-
-(* Add URL to existing contact *)
-let add_url_cmd handle url label xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  let url_entry = Contact.make_url ?label url in
-  match Sortal_git_store.add_url git_store handle url_entry with
-  | Ok () ->
-      Logs.app (fun m -> m "Added URL %s to @%s" url handle);
-      0
-  | Error msg ->
-      Logs.err (fun m -> m "%s" msg);
-      1
-
-(* Remove URL from contact *)
-let remove_url_cmd handle url xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  match Sortal_git_store.remove_url git_store handle url with
-  | Ok () ->
-      Logs.app (fun m -> m "Removed URL %s from @%s" url handle);
-      0
-  | Error msg ->
-      Logs.err (fun m -> m "%s" msg);
-      1
-
-(* Add ATProto identity to contact *)
-let add_atproto_cmd handle atproto_handle svc_type svc_url xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  let services = match svc_type, svc_url with
-    | Some t, Some u ->
-      [{ Contact.atp_type = Contact.atproto_service_type_of_string t;
-         atp_url = u }]
-    | _ -> []
-  in
-  let atp : Contact.atproto = {
-    atp_handle = atproto_handle;
-    atp_did = None;
-    atp_services = services;
-  } in
-  match Sortal_git_store.update_contact git_store handle
-    ~msg:(Printf.sprintf "Set ATProto identity %s on @%s" atproto_handle handle)
-    (fun c -> { c with atproto = Some atp }) with
-  | Ok () ->
-      Logs.app (fun m -> m "Set ATProto identity %s on @%s" atproto_handle handle);
-      0
-  | Error msg ->
-      Logs.err (fun m -> m "%s" msg);
-      1
-
-(* Add ATProto service to existing identity *)
-let add_atproto_service_cmd handle svc_type svc_url xdg env =
-  let store = Sortal_store.create_from_xdg xdg in
-  let git_store = Sortal_git_store.create store env in
-  match Sortal_store.lookup store handle with
-  | None ->
-      Logs.err (fun m -> m "Contact not found: %s" handle);
-      1
-  | Some contact ->
-    match Contact.atproto contact with
-    | None ->
-        Logs.err (fun m -> m "No ATProto identity set for @%s. Use add-atproto first." handle);
-        1
-    | Some atp ->
-      let svc : Contact.atproto_service = {
-        atp_type = Contact.atproto_service_type_of_string svc_type;
-        atp_url = svc_url;
-      } in
-      let updated_atp = { atp with atp_services = atp.atp_services @ [svc] } in
-      match Sortal_git_store.update_contact git_store handle
-        ~msg:(Printf.sprintf "Add ATProto service %s to @%s" svc_type handle)
-        (fun c -> { c with atproto = Some updated_atp }) with
-      | Ok () ->
-          Logs.app (fun m -> m "Added ATProto service %s (%s) to @%s" svc_type svc_url handle);
-          0
+(* Set a contact's account on a platform *)
+let set_cmd handle platform_key value xdg env =
+  match Platform.of_key platform_key with
+  | None -> unknown_platform platform_key
+  | Some platform -> (
+      match account_of_value platform value with
       | Error msg ->
           Logs.err (fun m -> m "%s" msg);
           1
+      | Ok account -> (
+          let store = Sortal_store.create_from_xdg xdg in
+          let git_store = Sortal_git_store.create store env in
+          match Sortal_git_store.set_account git_store handle account with
+          | Ok () ->
+              Logs.app (fun m ->
+                  m "Set %s account %s on @%s" platform_key value handle);
+              0
+          | Error msg ->
+              Logs.err (fun m -> m "%s" msg);
+              1))
+
+(* Remove a contact's account on a platform *)
+let unset_cmd handle platform_key xdg env =
+  match Platform.of_key platform_key with
+  | None -> unknown_platform platform_key
+  | Some platform ->
+      let store = Sortal_store.create_from_xdg xdg in
+      let git_store = Sortal_git_store.create store env in
+      (match Sortal_git_store.unset_account git_store handle platform with
+      | Ok () ->
+          Logs.app (fun m -> m "Removed %s account from @%s" platform_key handle);
+          0
+      | Error msg ->
+          Logs.err (fun m -> m "%s" msg);
+          1)
 
 (* Command info and args *)
 let list_info = Cmd.info "list" ~doc:"List all contacts"
@@ -540,16 +436,8 @@ let add_info = Cmd.info "add" ~doc:"Create a new contact"
   ]
 
 let delete_info = Cmd.info "delete" ~doc:"Delete a contact"
-let add_email_info = Cmd.info "add-email" ~doc:"Add an email address to a contact"
-let remove_email_info = Cmd.info "remove-email" ~doc:"Remove an email address from a contact"
-let add_service_info = Cmd.info "add-service" ~doc:"Add a service (GitHub, Twitter, etc.) to a contact"
-let remove_service_info = Cmd.info "remove-service" ~doc:"Remove a service from a contact"
-let add_org_info = Cmd.info "add-org" ~doc:"Add an organization/affiliation to a contact"
-let remove_org_info = Cmd.info "remove-org" ~doc:"Remove an organization from a contact"
-let add_url_info = Cmd.info "add-url" ~doc:"Add a URL to a contact"
-let remove_url_info = Cmd.info "remove-url" ~doc:"Remove a URL from a contact"
-let add_atproto_info = Cmd.info "add-atproto" ~doc:"Set AT Protocol identity on a contact"
-let add_atproto_service_info = Cmd.info "add-atproto-service" ~doc:"Add a service to a contact's AT Protocol identity"
+let set_info = Cmd.info "set" ~doc:"Set a contact's account on a platform"
+let unset_info = Cmd.info "unset" ~doc:"Remove a contact's account on a platform"
 
 let handle_arg =
   Arg.(required & pos 0 (some string) None & info [] ~docv:"HANDLE"
@@ -568,13 +456,22 @@ let add_names_arg =
   Arg.(non_empty & opt_all string [] & info ["n"; "name"] ~docv:"NAME"
     ~doc:"Full name (can be specified multiple times for aliases)")
 
+let kind_of_string = function
+  | "person" -> Some Contact.Person
+  | "organization" | "org" -> Some Contact.Organization
+  | _ -> None
+
+let kind_to_string = function
+  | Contact.Person -> "person"
+  | Contact.Organization -> "organization"
+
 let add_kind_arg =
   let kind_conv =
-    let parse s = match Contact.contact_kind_of_string s with
+    let parse s = match kind_of_string s with
       | Some k -> Ok k
       | None -> Error (`Msg (Printf.sprintf "Invalid kind: %s" s))
     in
-    let print ppf k = Format.pp_print_string ppf (Contact.contact_kind_to_string k) in
+    let print ppf k = Format.pp_print_string ppf (kind_to_string k) in
     Arg.conv (parse, print)
   in
   Arg.(value & opt (some kind_conv) None & info ["k"; "kind"] ~docv:"KIND"
@@ -596,99 +493,11 @@ let add_orcid_arg =
   Arg.(value & opt (some string) None & info ["orcid"] ~docv:"ORCID"
     ~doc:"ORCID identifier")
 
-(* Add-email command arguments *)
-let email_address_arg =
-  Arg.(required & pos 1 (some string) None & info [] ~docv:"EMAIL"
-    ~doc:"Email address")
+(* Set and unset command arguments *)
+let platform_arg =
+  Arg.(required & pos 1 (some string) None & info [] ~docv:"PLATFORM"
+    ~doc:"The platform key, such as $(b,github).")
 
-let email_type_arg =
-  let type_conv =
-    let parse s = match Contact.email_type_of_string s with
-      | Some t -> Ok t
-      | None -> Error (`Msg (Printf.sprintf "Invalid email type: %s" s))
-    in
-    let print ppf t = Format.pp_print_string ppf (Contact.email_type_to_string t) in
-    Arg.conv (parse, print)
-  in
-  Arg.(value & opt (some type_conv) None & info ["t"; "type"] ~docv:"TYPE"
-    ~doc:"Email type (work, personal, other)")
-
-let date_arg name =
-  Arg.(value & opt (some string) None & info [name] ~docv:"DATE"
-    ~doc:"ISO 8601 date (e.g., 2023, 2023-01, 2023-01-15)")
-
-let note_arg =
-  Arg.(value & opt (some string) None & info ["note"] ~docv:"NOTE"
-    ~doc:"Contextual note")
-
-(* Add-service command arguments *)
-let service_url_arg =
-  Arg.(required & pos 1 (some string) None & info [] ~docv:"URL"
-    ~doc:"Service URL")
-
-let service_kind_arg =
-  let kind_conv =
-    let parse s = match Contact.service_kind_of_string s with
-      | Some k -> Ok k
-      | None -> Error (`Msg (Printf.sprintf "Invalid service kind: %s" s))
-    in
-    let print ppf k = Format.pp_print_string ppf (Contact.service_kind_to_string k) in
-    Arg.conv (parse, print)
-  in
-  Arg.(value & opt (some kind_conv) None & info ["k"; "kind"] ~docv:"KIND"
-    ~doc:"Service kind (github, git, social, activitypub, photo)")
-
-let service_handle_arg =
-  Arg.(value & opt (some string) None & info ["handle"] ~docv:"HANDLE"
-    ~doc:"Service handle/username")
-
-let label_arg =
-  Arg.(value & opt (some string) None & info ["l"; "label"] ~docv:"LABEL"
-    ~doc:"Human-readable label")
-
-(* Add-org command arguments *)
-let org_name_arg =
-  Arg.(required & pos 1 (some string) None & info [] ~docv:"ORG"
-    ~doc:"Organization name")
-
-let org_title_arg =
-  Arg.(value & opt (some string) None & info ["title"] ~docv:"TITLE"
-    ~doc:"Job title")
-
-let org_department_arg =
-  Arg.(value & opt (some string) None & info ["dept"; "department"] ~docv:"DEPT"
-    ~doc:"Department")
-
-let org_email_arg =
-  Arg.(value & opt (some string) None & info ["email"] ~docv:"EMAIL"
-    ~doc:"Work email during this period")
-
-let org_url_arg =
-  Arg.(value & opt (some string) None & info ["url"] ~docv:"URL"
-    ~doc:"Work homepage during this period")
-
-(* URL command arguments *)
-let url_value_arg =
-  Arg.(required & pos 1 (some string) None & info [] ~docv:"URL"
-    ~doc:"URL")
-
-(* ATProto command arguments *)
-let atproto_handle_arg =
-  Arg.(required & pos 1 (some string) None & info [] ~docv:"ATPROTO_HANDLE"
-    ~doc:"AT Protocol handle (e.g., user.bsky.social)")
-
-let atproto_svc_type_arg =
-  Arg.(required & pos 1 (some string) None & info [] ~docv:"TYPE"
-    ~doc:"Service type (bluesky, tangled, or custom)")
-
-let atproto_svc_url_arg =
-  Arg.(required & pos 2 (some string) None & info [] ~docv:"URL"
-    ~doc:"Service URL")
-
-let atproto_opt_service_type =
-  Arg.(value & opt (some string) None & info ["service"] ~docv:"TYPE"
-    ~doc:"Initial service type (bluesky, tangled, or custom)")
-
-let atproto_opt_service_url =
-  Arg.(value & opt (some string) None & info ["service-url"] ~docv:"URL"
-    ~doc:"Initial service URL")
+let value_arg =
+  Arg.(required & pos 2 (some string) None & info [] ~docv:"HANDLE"
+    ~doc:"The handle on that platform.")

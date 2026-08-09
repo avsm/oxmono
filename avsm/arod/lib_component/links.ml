@@ -111,8 +111,8 @@ let build_contact_by_domain contacts =
     | None -> ()
   in
   List.iter (fun c ->
-    List.iter (fun (u : Contact.url_entry) -> add_url c u.url) (Contact.urls c);
-    List.iter (fun (s : Contact.service) -> add_url c s.url) (Contact.current_services c)
+    List.iter (fun (l : Contact.link) -> add_url c l.url) (Contact.links c);
+    List.iter (fun a -> add_url c (Contact.Account.url a)) (Contact.accounts c)
   ) contacts;
   tbl
 

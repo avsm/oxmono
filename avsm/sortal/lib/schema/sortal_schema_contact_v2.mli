@@ -52,66 +52,71 @@ val make :
   ?feeds:Feed.t list ->
   ?vcard:(string * string) list ->
   unit -> t
+  @@ portable
 (** [make ~handle ~names ()] is a contact. [kind] defaults to [Person] and
     every list defaults to empty. [names] must not be empty, and its first
     entry is the primary name. [make] does not itself enforce this: use
     {!check} to reject an empty list. *)
 
-(** {1 Accessors} *)
+(** {1 Accessors}
 
-val kind : t -> kind
-val handle : t -> string
-val names : t -> string list
+    Every accessor below is a pure projection out of {!t}, so it is
+    [@@ portable] and may be called from a portable page such as
+    {!Sortal_web}'s. *)
 
-val name : t -> string
+val kind : t -> kind @@ portable
+val handle : t -> string @@ portable
+val names : t -> string list @@ portable
+
+val name : t -> string @@ portable
 (** [name t] is [t]'s primary name, the first of {!names}, or [t]'s handle
     if {!names} is empty. *)
 
-val emails : t -> string list
+val emails : t -> string list @@ portable
 (** [emails t] is [t]'s addresses, preferred first. *)
 
-val accounts : t -> Account.t list
-val links : t -> link list
-val affiliations : t -> affiliation list
-val photo : t -> string option
-val feeds : t -> Feed.t list
+val accounts : t -> Account.t list @@ portable
+val links : t -> link list @@ portable
+val affiliations : t -> affiliation list @@ portable
+val photo : t -> string option @@ portable
+val feeds : t -> Feed.t list @@ portable
 
-val vcard : t -> (string * string) list
+val vcard : t -> (string * string) list @@ portable
 (** [vcard t] is [t]'s reserved passthrough data for a future CardDAV
     importer. Nothing in this module interprets it. *)
 
 (** {1 Account queries} *)
 
-val accounts_on : t -> Platform.id -> Account.t list
+val accounts_on : t -> Platform.id -> Account.t list @@ portable
 (** [accounts_on t p] is every account [t] holds on [p]. Several accounts on
     one platform keep the order they were written in. *)
 
-val account_on : t -> Platform.id -> Account.t option
+val account_on : t -> Platform.id -> Account.t option @@ portable
 (** [account_on t p] is [t]'s first account on [p]. *)
 
-val handle_on : t -> Platform.id -> string option
+val handle_on : t -> Platform.id -> string option @@ portable
 (** [handle_on t p] is the handle of [t]'s first account on [p]. *)
 
-val url_on : t -> Platform.id -> string option
+val url_on : t -> Platform.id -> string option @@ portable
 (** [url_on t p] is the URL of [t]'s first account on [p]. *)
 
-val atproto : t -> Account.atproto option
+val atproto : t -> Account.atproto option @@ portable
 (** [atproto t] is [t]'s AT Protocol identity. *)
 
-val atproto_handle : t -> string option
-val atproto_did : t -> string option
+val atproto_handle : t -> string option @@ portable
+val atproto_did : t -> string option @@ portable
 
-val set_atproto_did : t -> string -> t
+val set_atproto_did : t -> string -> t @@ portable
 (** [set_atproto_did t did] is [t] with its AT Protocol DID set. It is [t]
     unchanged if [t] has no AT Protocol account. *)
 
-val best_url : t -> string option
+val best_url : t -> string option @@ portable
 (** [best_url t] is the URL a reader should follow to find [t]. It is the
     first link if there is one, and otherwise the URL of the account whose
     platform sorts first by key. Account order does not survive decoding, so
     this cannot be "the first account written". *)
 
-val current_affiliation : t -> affiliation option
+val current_affiliation : t -> affiliation option @@ portable
 (** [current_affiliation t] is [t]'s first affiliation with no [until] date. *)
 
 (** {1 Modification} *)
@@ -122,13 +127,13 @@ val remove_feed : t -> string -> t
 (** [remove_feed t url] is [t] without any feed whose URL is [url]. It is
     [t] unchanged if no feed has that URL. *)
 
-val check : t -> (unit, string) result
+val check : t -> (unit, string) result @@ portable
 (** [check t] is [Ok ()] if [t]'s names are non-empty and every account
     passes {!Sortal_schema_account.check}, or [Error why]. *)
 
 (** {1 Comparison, display and encoding} *)
 
-val compare : t -> t -> int
+val compare : t -> t -> int @@ portable
 val pp : Format.formatter -> t -> unit
 
 val json_t : t Jsont.t

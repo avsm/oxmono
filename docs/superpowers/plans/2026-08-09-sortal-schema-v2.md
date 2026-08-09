@@ -583,7 +583,12 @@ val json_t : t list Jsont.t
 
     A member's value is a string naming one handle, an array of strings
     naming several, or, for [atproto] alone, an object. A member whose name
-    is not a platform key is a decoding error. *)
+    is not a platform key is a decoding error.
+
+    Decoding goes through a string-keyed map, so the accounts come back
+    ordered by platform key rather than in the order the file wrote them.
+    Several handles under one key keep their order relative to each other.
+    Nothing should depend on the order across platforms. *)
 ```
 
 - [ ] **Step 4: Write the implementation**
@@ -921,7 +926,8 @@ val vcard : t -> (string * string) list
 (** {1 Account queries} *)
 
 val accounts_on : t -> Platform.id -> Account.t list
-(** [accounts_on t p] is every account [t] holds on [p], in file order. *)
+(** [accounts_on t p] is every account [t] holds on [p]. Several accounts on
+    one platform keep the order they were written in. *)
 
 val account_on : t -> Platform.id -> Account.t option
 (** [account_on t p] is [t]'s first account on [p]. *)
@@ -944,7 +950,9 @@ val set_atproto_did : t -> string -> t
 
 val best_url : t -> string option
 (** [best_url t] is the URL a reader should follow to find [t]. It is the
-    first link if there is one, and otherwise the URL of the first account. *)
+    first link if there is one, and otherwise the URL of the account whose
+    platform sorts first by key. Account order does not survive decoding, so
+    this cannot be "the first account written". *)
 
 val current_affiliation : t -> affiliation option
 (** [current_affiliation t] is [t]'s first affiliation with no [until] date. *)

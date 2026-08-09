@@ -5,6 +5,11 @@
 
 (** Schema-only tests (no I/O dependencies) *)
 
+let contains haystack needle =
+  let n = String.length needle and h = String.length haystack in
+  let rec go i = i + n <= h && (String.sub haystack i n = needle || go (i + 1)) in
+  n = 0 || go 0
+
 let test_temporal () =
   (* Parse dates from strings *)
   let from_date = Sortal_schema.Temporal.parse_date_string "2020-01" |> Option.get in
@@ -288,6 +293,135 @@ let test_account_codec () =
    | Error e -> failwith e);
   print_endline "✓ Account codec works"
 
+let test_contact_v2 () =
+  let module C = Sortal_schema.V2.Contact in
+  let module A = Sortal_schema.Account in
+  let module P = Sortal_schema.Platform in
+  let c =
+    C.make ~handle:"avsm" ~names:[ "Anil Madhavapeddy" ]
+      ~emails:[ "anil@recoil.org"; "avsm2@cam.ac.uk" ]
+      (* accounts are listed in platform-key order (atproto, github,
+         mastodon): decoding always returns that order (see
+         [Sortal_schema_account.json_t]), so a value built in a different
+         order would not equal what a round trip through [json_t] produces *)
+      ~accounts:
+        [ A.Atproto { A.handle = "anil.recoil.org"; did = None;
+                      apps = [ A.Bluesky ] };
+          A.Simple (P.Github, "avsm");
+          A.Federated (P.Mastodon, "avsm", "amok.recoil.org") ]
+      ~links:[ { C.url = "https://anil.recoil.org"; label = None } ]
+      ()
+  in
+  assert (C.handle c = "avsm");
+  assert (C.name c = "Anil Madhavapeddy");
+  assert (C.handle_on c (P.Simple P.Github) = Some "avsm");
+  assert (C.handle_on c (P.Simple P.Twitter) = None);
+  assert (C.url_on c (P.Simple P.Github) = Some "https://github.com/avsm");
+  assert (C.atproto_handle c = Some "anil.recoil.org");
+  assert (C.best_url c = Some "https://anil.recoil.org");
+  (* a contact with no links falls back to an account URL *)
+  let bare = C.make ~handle:"x" ~names:[ "X" ]
+      ~accounts:[ A.Simple (P.Github, "x") ] () in
+  assert (C.best_url bare = Some "https://github.com/x");
+  (* best_url sorts accounts by platform key: "github" < "twitter", so the
+     Github account wins even though Twitter is written first *)
+  let sorted = C.make ~handle:"s" ~names:[ "S" ]
+      ~accounts:
+        [ A.Simple (P.Twitter, "s-tw"); A.Simple (P.Github, "s-gh") ] ()
+  in
+  assert (C.best_url sorted = Some "https://github.com/s-gh");
+  (* round trip *)
+  (match Jsont_bytesrw.encode_string C.json_t c with
+   | Ok json ->
+       (match Jsont_bytesrw.decode_string C.json_t json with
+        | Ok d -> assert (d = c)
+        | Error e -> failwith e)
+   | Error e -> failwith e);
+  (* empty collections are omitted, and an unlabelled link is a bare string *)
+  let minimal = C.make ~handle:"m" ~names:[ "M" ]
+      ~links:[ { C.url = "https://m.example"; label = None } ] () in
+  (match Jsont_bytesrw.encode_string C.json_t minimal with
+   | Ok json ->
+       assert (not (contains json "\"emails\""));
+       assert (not (contains json "\"accounts\""));
+       assert (not (contains json "\"affiliations\""));
+       assert (not (contains json "\"vcard\""));
+       assert (contains json "\"https://m.example\"");
+       assert (not (contains json "\"label\""))
+   | Error e -> failwith e);
+  (* a labelled link survives a round trip as an object, not a bare string *)
+  let labelled = C.make ~handle:"l" ~names:[ "L" ]
+      ~links:[ { C.url = "https://l.example"; label = Some "home page" } ] ()
+  in
+  (match Jsont_bytesrw.encode_string C.json_t labelled with
+   | Ok json ->
+       assert (contains json "\"url\":\"https://l.example\"");
+       assert (contains json "\"label\":\"home page\"");
+       (* the link is an object, not the bare-string form an unlabelled
+          link would take *)
+       assert (not (contains json "\"links\":[\"https://l.example\"]"));
+       (match Jsont_bytesrw.decode_string C.json_t json with
+        | Ok d -> assert (d = labelled)
+        | Error e -> failwith e)
+   | Error e -> failwith e);
+  (* the version member must be 2, and 1 must be rejected *)
+  assert (Result.is_error
+            (Jsont_bytesrw.decode_string C.json_t
+               {|{"version":1,"kind":"person","handle":"a","names":["A"]}|}));
+  (* a missing version member is rejected too *)
+  assert (Result.is_error
+            (Jsont_bytesrw.decode_string C.json_t
+               {|{"kind":"person","handle":"a","names":["A"]}|}));
+  (* an empty names list is accepted by [make], since it is [check] that
+     enforces non-emptiness, and [name] falls back to the handle *)
+  let noname = C.make ~handle:"h" ~names:[] () in
+  assert (C.names noname = []);
+  assert (C.name noname = "h");
+  assert (Result.is_error (C.check noname));
+  (* a bad handle on an otherwise well-formed account is caught by [check] *)
+  let bad_account = C.make ~handle:"b" ~names:[ "B" ]
+      ~accounts:[ A.Simple (P.Github, "not a handle") ] () in
+  assert (Result.is_error (C.check bad_account));
+  (* a well-formed contact passes [check] *)
+  assert (Result.is_ok (C.check c));
+  (* a vcard passthrough round trips and is not omitted when present *)
+  let with_vcard = C.make ~handle:"v" ~names:[ "V" ]
+      ~vcard:[ ("FN", "V Test"); ("TEL", "+44 1223 000000") ] () in
+  (match Jsont_bytesrw.encode_string C.json_t with_vcard with
+   | Ok json ->
+       assert (contains json "\"vcard\"");
+       (match Jsont_bytesrw.decode_string C.json_t json with
+        | Ok d -> assert (d = with_vcard); assert (C.vcard d = C.vcard with_vcard)
+        | Error e -> failwith e)
+   | Error e -> failwith e);
+  (* an affiliation with only [from] omits [until] on encoding *)
+  let aff = { C.org = "Cambridge"; department = None; title = None;
+              url = None; address = None; from = Some (2015, 10, 1);
+              until = None } in
+  let affiliated = C.make ~handle:"a" ~names:[ "A" ] ~affiliations:[ aff ] () in
+  (match Jsont_bytesrw.encode_string C.json_t affiliated with
+   | Ok json ->
+       assert (contains json "\"from\":\"2015-10-01\"");
+       assert (not (contains json "\"until\""));
+       (match Jsont_bytesrw.decode_string C.json_t json with
+        | Ok d -> assert (C.affiliations d = [ aff ])
+        | Error e -> failwith e)
+   | Error e -> failwith e);
+  assert (C.current_affiliation affiliated = Some aff);
+  (* [set_atproto_did] on a contact with no AT Protocol account is a no-op *)
+  assert (C.set_atproto_did bare "did:plc:x" = bare);
+  assert (C.atproto_did c = None);
+  let with_did = C.set_atproto_did c "did:plc:x" in
+  assert (C.atproto_did with_did = Some "did:plc:x");
+  (* [remove_feed] for a URL that is not present leaves the contact alone *)
+  let feed = Sortal_schema.Feed.make ~feed_type:Atom
+      ~url:"https://anil.recoil.org/feed.xml" () in
+  let with_feed = C.add_feed c feed in
+  assert (List.length (C.feeds with_feed) = 1);
+  assert (C.remove_feed with_feed "https://nope.example" = with_feed);
+  assert (C.feeds (C.remove_feed with_feed (Sortal_schema.Feed.url feed)) = []);
+  print_endline "✓ V2 contact works"
+
 let () =
   print_endline "\n=== Schema Tests ===\n";
   test_temporal ();
@@ -297,4 +431,5 @@ let () =
   test_date ();
   test_platform ();
   test_account_codec ();
+  test_contact_v2 ();
   print_endline "\n=== All Schema Tests Passed ===\n"

@@ -29,6 +29,16 @@ module V1 : sig
   module Contact = Sortal_schema_contact_v1
 end
 
+(** {1 Schema Version 2} *)
+
+module V2 : sig
+  (** Version 2 of the contact schema. Not yet the default: {!Contact}
+      below still aliases {!V1.Contact} until Task 8 switches it over. *)
+
+  (** Contact metadata, V2. *)
+  module Contact = Sortal_schema_contact_v2
+end
+
 (** {1 Current Version Aliases}
 
     These aliases point to the current stable schema version (V1).

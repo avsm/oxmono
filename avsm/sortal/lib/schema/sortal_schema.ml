@@ -9,6 +9,12 @@ module V1 = struct
   module Contact = Sortal_schema_contact_v1
 end
 
+(* Additive only: Task 5 restructures this properly. V1 stays the default
+   until Task 8, so nothing here may change what [Contact] below aliases. *)
+module V2 = struct
+  module Contact = Sortal_schema_contact_v2
+end
+
 module Date = Sortal_schema_date
 module Platform = Sortal_schema_platform
 module Account = Sortal_schema_account

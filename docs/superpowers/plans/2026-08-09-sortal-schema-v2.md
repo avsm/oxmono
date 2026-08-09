@@ -10,11 +10,16 @@
 
 ## Global Constraints
 
-- `dune build`, `dune runtest` and `dune build @fmt` must all be clean before every commit. No red commits.
+- Before every commit, `dune build` must be clean repo-wide and `dune runtest avsm/sortal` must be clean. No red commits.
+- `dune build @fmt` is **suspended** for this plan: `ocamlformat` is not installed in the `5.2.0+ox` switch, so it fails on untouched files too. Run it once, scoped to `avsm/sortal`, if the switch ever gains it. Match the surrounding formatting by hand meanwhile.
+- Repo-wide `dune runtest` fails at `bleeding/atp/atp/test/dune:6` and `bleeding/fetch/main/tests/main.md:1`. Both predate this work and are out of scope. Do not attempt to fix them, and do not let them gate a commit.
+- Never run `dune build @fmt --auto-promote` unscoped. It reformats `dune` files across the whole repository.
 - One commit per self-contained change, one-line imperative message, no trailers or sign-off.
 - Keep a mechanical change, such as a reformat, out of the commit that changes behaviour.
 - Prose in `.mli` files follows `CLAUDE.md`: document a value as `[foo x y] is ...`, name its arguments, no em-dashes, do not join two clauses with a semicolon.
 - Every new module gets an `.mli`.
+- **Decode errors must carry position.** When mapping a JSON string to a variant or a parsed value, use `Jsont.Base.string (Jsont.Base.map ~kind ~dec ~enc ())`, whose `dec` has type `meta -> string -> 'a` and so can forward a real `meta` into `Jsont.Error.msgf meta ...`. The precedent is `avsm/sortal/lib/schema/sortal_schema_temporal.ml:120-129`. Do NOT use the top-level `Jsont.map` for this: its `dec` is `'a -> 'b` and never receives a `meta`, so `Jsont.Meta.none` is the only thing you can pass and the error loses its position. Inside a `Jsont.Object.map` constructor closure no `meta` exists either, so `Jsont.Meta.none` is acceptable there, but the message must then name the field it concerns so it stays locatable.
+- A parser exposed as `string -> 'a option` must reject what its `.mli` says it rejects. `int_of_string_opt` accepts `0x10`, `0o17`, `2_006` and `+2001`, so it is not by itself a decimal-digit check.
 - Tests are plain executables using `assert` and `print_endline`, matching `avsm/sortal/test/test_schema.ml`. Do not introduce alcotest.
 - Copyright header on every new file, copied verbatim from an existing file in the same directory.
 - The design spec is `docs/superpowers/specs/2026-08-09-sortal-schema-v2-design.md`. It is authoritative where this plan is silent.
@@ -136,12 +141,12 @@ let to_string (y, m, d) = Printf.sprintf "%04d-%02d-%02d" y m d
 let compare = Stdlib.compare
 
 let json_t =
-  Jsont.map ~kind:"Date"
-    ~dec:(fun s ->
-      match parse s with
-      | Some d -> d
-      | None -> Jsont.Error.msgf Jsont.Meta.none "not an ISO 8601 date: %S" s)
-    ~enc:to_string Jsont.string
+  let dec meta s =
+    match parse s with
+    | Some d -> d
+    | None -> Jsont.Error.msgf meta "Date: not an ISO 8601 date: %S" s
+  in
+  Jsont.Base.string (Jsont.Base.map ~kind:"Date" ~dec ~enc:to_string ())
 ```
 
 - [ ] **Step 5: Run the tests**
@@ -654,13 +659,12 @@ type raw =
   | Obj of atproto
 
 let app_json =
-  Jsont.map ~kind:"App"
-    ~dec:(fun s ->
-      match app_of_string s with
-      | Some a -> a
-      | None ->
-          Jsont.Error.msgf Jsont.Meta.none "unknown AT Protocol app: %S" s)
-    ~enc:app_to_string Jsont.string
+  let dec meta s =
+    match app_of_string s with
+    | Some a -> a
+    | None -> Jsont.Error.msgf meta "App: unknown AT Protocol app: %S" s
+  in
+  Jsont.Base.string (Jsont.Base.map ~kind:"App" ~dec ~enc:app_to_string ())
 
 let atproto_json =
   let open Jsont.Object in
@@ -1074,12 +1078,12 @@ let kind_of_string = function
   | _ -> None
 
 let kind_json =
-  Jsont.map ~kind:"Kind"
-    ~dec:(fun s ->
-      match kind_of_string s with
-      | Some k -> k
-      | None -> Jsont.Error.msgf Jsont.Meta.none "unknown contact kind: %S" s)
-    ~enc:kind_to_string Jsont.string
+  let dec meta s =
+    match kind_of_string s with
+    | Some k -> k
+    | None -> Jsont.Error.msgf meta "Kind: unknown contact kind: %S" s
+  in
+  Jsont.Base.string (Jsont.Base.map ~kind:"Kind" ~dec ~enc:kind_to_string ())
 
 (* A link with no label encodes as a bare string, which is what 318 of the
    319 links in the live database are. *)
@@ -1645,7 +1649,6 @@ git commit -m "Add V1 to V2 contact migration"
 ### Task 7: Golden test against the live database
 
 **Files:**
-- Create: `avsm/sortal/test/golden/` containing a snapshot of the live store
 - Create: `avsm/sortal/test/test_migrate_golden.ml`
 - Modify: `avsm/sortal/test/dune`
 
@@ -1653,24 +1656,29 @@ git commit -m "Add V1 to V2 contact migration"
 - Consumes: `Sortal_schema.Migrate.v1_to_v2`, `Sortal_schema.V1.Contact.json_t`, `Sortal_schema.V2.Contact.json_t`.
 - Produces: nothing consumed by later tasks. This is the gate that makes Task 8 safe.
 
-- [ ] **Step 1: Snapshot the live store**
+The test reads the live store in place. Nothing is copied into the repository, because the store holds 460 real people's names, emails and affiliations and committing them would put that in the git history permanently. The cost of this choice is that the test cannot gate CI or a fresh clone, so it must skip cleanly when the store is absent rather than fail.
+
+- [ ] **Step 1: Confirm the store is readable**
 
 ```bash
-mkdir -p avsm/sortal/test/golden
-cp ~/.local/share/sortal/*.yaml avsm/sortal/test/golden/
-ls avsm/sortal/test/golden/*.yaml | wc -l
+ls ~/.local/share/sortal/*.yaml | wc -l
 ```
 
-Expected: 460 files. These are real contact records, so check with the repository owner before committing them. If they must not be committed, reduce the snapshot to a representative 20 covering every case the migration handles, including `avsm`, `mdales`, `emils`, `nlawrence`, `sreynolds`, `ag`, `aer` and `acardona`, and record that decision here.
+Expected: 460. The test locates the store from `SORTAL_DATA_DIR` if set, and otherwise from `$HOME/.local/share/sortal`, matching how `Sortal_store` resolves it.
 
 - [ ] **Step 2: Write the test**
 
 Create `avsm/sortal/test/test_migrate_golden.ml` with the copyright header:
 
 ```ocaml
-(** Every contact in the golden snapshot must migrate, and the result must
+(** Every contact in the live store must migrate, and the result must
     re-encode and decode unchanged. This is the gate for switching the store
-    to V2. *)
+    to V2.
+
+    The store is read in place rather than copied into the repository,
+    because it holds real personal data. That means this test cannot run in
+    CI or in a fresh clone, so an absent store is a skip and not a
+    failure. *)
 
 let read_file path =
   let ic = open_in_bin path in
@@ -1679,14 +1687,26 @@ let read_file path =
   close_in ic;
   s
 
+let store_dir () =
+  match Sys.getenv_opt "SORTAL_DATA_DIR" with
+  | Some d -> d
+  | None -> Filename.concat (Sys.getenv "HOME") ".local/share/sortal"
+
 let () =
-  let dir = "golden" in
+  let dir = store_dir () in
+  if not (Sys.file_exists dir && Sys.is_directory dir) then begin
+    Printf.printf "- no store at %s, skipping migration check\n" dir;
+    exit 0
+  end;
   let files =
     Sys.readdir dir |> Array.to_list
     |> List.filter (fun f -> Filename.check_suffix f ".yaml")
     |> List.sort String.compare
   in
-  assert (files <> []);
+  if files = [] then begin
+    Printf.printf "- store at %s holds no contacts, skipping\n" dir;
+    exit 0
+  end;
   let failures = ref [] in
   List.iter
     (fun f ->
@@ -1726,15 +1746,17 @@ Append to `avsm/sortal/test/dune`:
 ```
 (test
  (name test_migrate_golden)
- (deps (glob_files_rec golden/**))
+ (deps (universe))
  (libraries sortal.schema yamlt jsont jsont.bytesrw bytesrw))
 ```
+
+`(deps (universe))` is required. Without it dune caches the result and the test stops re-running when the store changes, which is exactly when it matters.
 
 - [ ] **Step 4: Run it**
 
 Run: `dune build @avsm/sortal/runtest 2>&1 | tail -40`
 
-Expected: `✓ 460 contacts migrate cleanly`. If contacts fail, fix `Sortal_schema_migrate`, not the test. Every failure is a real case the migration does not yet handle. Do not add a catch-all that turns an unknown field into a link, because that is exactly the silent truncation the spec forbids.
+Expected: `✓ 460 contacts migrate cleanly`. A skip message means the store was not found, which is a failure of this step even though the test exits 0. If contacts fail, fix `Sortal_schema_migrate`, not the test. Every failure is a real case the migration does not yet handle. Do not add a catch-all that turns an unknown field into a link, because that is exactly the silent truncation the spec forbids.
 
 - [ ] **Step 5: Inspect the output by eye**
 
@@ -1745,8 +1767,8 @@ Write a scratch binary or use the existing CLI to print the migrated form of `av
 ```bash
 dune build @fmt --auto-promote
 dune build && dune runtest
-git add avsm/sortal/test/test_migrate_golden.ml avsm/sortal/test/dune avsm/sortal/test/golden
-git commit -m "Pin V1 to V2 migration against a golden contact snapshot"
+git add avsm/sortal/test/test_migrate_golden.ml avsm/sortal/test/dune
+git commit -m "Pin V1 to V2 migration against the live contact store"
 ```
 
 ---
@@ -2176,7 +2198,7 @@ git commit -m "Revise sortal data model draft for schema V2"
 **Files:**
 - Delete: `avsm/sortal/lib/schema/sortal_schema_contact_v1.ml{,i}`, `sortal_schema_temporal.ml{,i}`, `sortal_schema_migrate.ml{,i}`
 - Modify: `avsm/sortal/lib/schema/sortal_schema.ml{,i}`, `avsm/sortal/test/dune`
-- Delete: `avsm/sortal/test/test_migrate_golden.ml`, `avsm/sortal/test/golden/`
+- Delete: `avsm/sortal/test/test_migrate_golden.ml`
 - Modify: `avsm/sortal/README.md`
 - Create or modify: `avsm/sortal/CHANGES.md`
 

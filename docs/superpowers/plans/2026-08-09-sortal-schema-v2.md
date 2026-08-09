@@ -1459,6 +1459,14 @@ let handle_of_simple p url =
 let account_of_simple p handle = Ok (A.Simple (p, handle))
 
 let account_of_federated p handle =
+  (* A fediverse handle is often written with a leading sigil, as
+     [@user@host]. The store has one such entry. Strip it before splitting,
+     or the user part keeps the sigil. *)
+  let handle =
+    if String.length handle > 0 && handle.[0] = '@' then
+      String.sub handle 1 (String.length handle - 1)
+    else handle
+  in
   match String.rindex_opt handle '@' with
   | Some i when i > 0 && i < String.length handle - 1 ->
       let user = String.sub handle 0 i in
@@ -1553,15 +1561,15 @@ let account_of_atproto (a : V1.atproto) =
   Ok (A.Atproto { A.handle = a.atp_handle; did = a.atp_did; apps })
 
 let affiliation_of_org (o : V1.organization) =
-  let date d = Option.bind d (fun d -> Some d) in
+  let bound f = Option.bind o.range f in
   {
     V2.org = o.name;
     department = o.department;
     title = o.title;
     url = o.url;
     address = o.address;
-    from = date (Option.bind o.range (fun (r : Sortal_schema_temporal.range) -> r.from));
-    until = date (Option.bind o.range (fun (r : Sortal_schema_temporal.range) -> r.until));
+    from = bound (fun (r : Sortal_schema_temporal.range) -> r.from);
+    until = bound (fun (r : Sortal_schema_temporal.range) -> r.until);
   }
 
 let v1_to_v2 (c : V1.t) =
@@ -1602,8 +1610,10 @@ let v1_to_v2 (c : V1.t) =
   let accounts =
     service_accounts @ orcid_accounts @ atproto_accounts @ promoted
   in
-  (* Drop an account whose platform is already present, keeping the first,
-     so an ORCID recorded both as a field and as a URL yields one account. *)
+  (* Drop an exact duplicate, keeping the first. An ORCID recorded both in
+     the [orcid] field and as a URL yields the same handle twice, and 3 of
+     the 460 contacts do exactly that. Two different handles on one platform
+     are kept, because the schema permits them. *)
   let accounts =
     List.fold_left
       (fun acc a ->

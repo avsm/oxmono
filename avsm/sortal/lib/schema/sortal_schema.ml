@@ -10,6 +10,7 @@ module V1 = struct
 end
 
 module Date = Sortal_schema_date
+module Platform = Sortal_schema_platform
 module Temporal = V1.Temporal
 module Feed = V1.Feed
 module Contact = V1.Contact

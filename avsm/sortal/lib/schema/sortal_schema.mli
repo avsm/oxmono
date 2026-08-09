@@ -41,6 +41,10 @@ module Date = Sortal_schema_date
 (** The closed platform vocabulary, used by V2's accounts. *)
 module Platform = Sortal_schema_platform
 
+(** Accounts a contact holds on a platform, V2's replacement for V1's four
+    overlapping ways of recording where a person is online. *)
+module Account = Sortal_schema_account
+
 module Temporal = V1.Temporal
 module Feed = V1.Feed
 module Contact = V1.Contact

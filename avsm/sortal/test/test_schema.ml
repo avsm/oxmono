@@ -135,6 +135,159 @@ let test_platform () =
   assert (P.check_atproto_handle "4bsky.social" = Ok ());
   print_endline "✓ Platform vocabulary works"
 
+let decode_accounts s =
+  Jsont_bytesrw.decode_string Sortal_schema.Account.json_t s
+
+let encode_accounts a =
+  Jsont_bytesrw.encode_string Sortal_schema.Account.json_t a
+
+let test_account_codec () =
+  let module A = Sortal_schema.Account in
+  let module P = Sortal_schema.Platform in
+  (* scalar form *)
+  (match decode_accounts {|{"github":"avsm"}|} with
+   | Ok [ a ] ->
+       assert (A.platform a = P.Simple P.Github);
+       assert (A.handle a = "avsm");
+       assert (A.url a = "https://github.com/avsm")
+   | Ok _ -> assert false
+   | Error e -> failwith e);
+  (* federated form splits on the last @ *)
+  (match decode_accounts {|{"mastodon":"avsm@amok.recoil.org"}|} with
+   | Ok [ A.Federated (P.Mastodon, user, host) ] ->
+       assert (user = "avsm");
+       assert (host = "amok.recoil.org")
+   | Ok _ -> assert false
+   | Error e -> failwith e);
+  (* sequence form *)
+  (match decode_accounts {|{"github":["avsm","avsm-work"]}|} with
+   | Ok [ a; b ] -> assert (A.handle a = "avsm"); assert (A.handle b = "avsm-work")
+   | Ok _ -> assert false
+   | Error e -> failwith e);
+  (* atproto object form *)
+  (match decode_accounts
+           {|{"atproto":{"handle":"anil.recoil.org","did":"did:plc:x","apps":["bluesky","tangled"]}}|}
+   with
+   | Ok [ A.Atproto a ] ->
+       assert (a.A.handle = "anil.recoil.org");
+       assert (a.A.did = Some "did:plc:x");
+       assert (a.A.apps = [ A.Bluesky; A.Tangled ])
+   | Ok _ -> assert false
+   | Error e -> failwith e);
+  (* an unknown platform key is a decode error, not a silent accept *)
+  assert (Result.is_error (decode_accounts {|{"githb":"avsm"}|}));
+  (* a federated platform given a bare handle is a decode error *)
+  assert (Result.is_error (decode_accounts {|{"mastodon":"avsm"}|}));
+  (* an unknown app is a decode error *)
+  assert (Result.is_error
+            (decode_accounts {|{"atproto":{"handle":"a.b","apps":["nope"]}}|}));
+  (* a leading or trailing @ leaves an empty user or host, still an error *)
+  assert (Result.is_error (decode_accounts {|{"mastodon":"@amok.recoil.org"}|}));
+  assert (Result.is_error (decode_accounts {|{"mastodon":"avsm@"}|}));
+  (* an atproto object without a handle member is a decode error *)
+  assert (Result.is_error (decode_accounts {|{"atproto":{"did":"did:plc:x"}}|}));
+  (* a typo'd member inside the atproto object is a decode error, not a
+     silently ignored unknown member: "dad" does not become "did" *)
+  assert (Result.is_error
+            (decode_accounts {|{"atproto":{"handle":"a.b","dad":"did:plc:x"}}|}));
+  (* the last '@' is where a federated handle splits, even with two of them;
+     Platform.check_federated, not the split, is what would reject this *)
+  (match decode_accounts {|{"mastodon":"a@b@c"}|} with
+   | Ok [ A.Federated (P.Mastodon, user, host) ] ->
+       assert (user = "a@b");
+       assert (host = "c")
+   | Ok _ -> assert false
+   | Error e -> failwith e);
+  (* an empty array under a key yields no accounts for that key *)
+  (match decode_accounts {|{"github":[]}|} with
+   | Ok [] -> ()
+   | Ok _ -> assert false
+   | Error e -> failwith e);
+  (* a duplicate handle within one key's array is kept, not deduplicated *)
+  (match decode_accounts {|{"github":["avsm","avsm"]}|} with
+   | Ok [ a; b ] -> assert (A.handle a = "avsm"); assert (A.handle b = "avsm")
+   | Ok _ -> assert false
+   | Error e -> failwith e);
+  (* structural decoding and syntax checking are separate: a handle that
+     fails its platform's syntax check still decodes, and [check] catches it *)
+  (match decode_accounts {|{"github":"not a handle"}|} with
+   | Ok [ a ] -> assert (Result.is_error (A.check a))
+   | Ok _ -> assert false
+   | Error e -> failwith e);
+  (* round trip, sequence form *)
+  (match decode_accounts {|{"github":["avsm","avsm-work"]}|} with
+   | Ok accounts ->
+       (match encode_accounts accounts with
+        | Ok out ->
+            (match decode_accounts out with
+             | Ok again -> assert (again = accounts)
+             | Error e -> failwith e)
+        | Error e -> failwith e)
+   | Error e -> failwith e);
+  (* round trip, atproto object form *)
+  (match decode_accounts
+           {|{"atproto":{"handle":"anil.recoil.org","did":"did:plc:x","apps":["bluesky","tangled"]}}|}
+   with
+   | Ok accounts ->
+       (match encode_accounts accounts with
+        | Ok out ->
+            (match decode_accounts out with
+             | Ok again -> assert (again = accounts)
+             | Error e -> failwith e)
+        | Error e -> failwith e)
+   | Error e -> failwith e);
+  (* round trip, mixed mapping *)
+  let src =
+    {|{"github":"avsm","mastodon":"avsm@amok.recoil.org","atproto":{"handle":"anil.recoil.org","apps":["bluesky"]}}|}
+  in
+  (match decode_accounts src with
+   | Ok accounts ->
+       (match encode_accounts accounts with
+        | Ok out ->
+            (match decode_accounts out with
+             | Ok again -> assert (again = accounts)
+             | Error e -> failwith e)
+        | Error e -> failwith e)
+   | Error e -> failwith e);
+  (* canonicalisation is pinned at the JSON-text level, since decoded values
+     alone cannot distinguish a scalar from a single-element sequence: a
+     one-element array is re-encoded as a bare scalar *)
+  (match decode_accounts {|{"github":["avsm"]}|} with
+   | Ok accounts ->
+       (match encode_accounts accounts with
+        | Ok out ->
+            let contains sub =
+              let sl = String.length sub and ol = String.length out in
+              let rec go i = i + sl <= ol && (String.sub out i sl = sub || go (i + 1)) in
+              go 0
+            in
+            assert (contains {|"github":"avsm"|});
+            assert (not (contains "["))
+        | Error e -> failwith e)
+   | Error e -> failwith e);
+  (* an atproto account with neither a did nor an app narrows to a bare
+     scalar handle on encode, the same shape it would decode from *)
+  (match decode_accounts {|{"atproto":"anil.recoil.org"}|} with
+   | Ok [ A.Atproto { did = None; apps = []; _ } ] as accounts -> (
+       match encode_accounts (Result.get_ok accounts) with
+       | Ok out -> assert (out = {|{"atproto":"anil.recoil.org"}|})
+       | Error e -> failwith e)
+   | Ok _ -> assert false
+   | Error e -> failwith e);
+  (* an atproto account with a did stays an object on encode, since a bare
+     scalar cannot carry it *)
+  (match decode_accounts {|{"atproto":{"handle":"anil.recoil.org","did":"did:plc:x"}}|} with
+   | Ok accounts -> (
+       match encode_accounts accounts with
+       | Ok out ->
+           assert (out <> {|{"atproto":"anil.recoil.org"}|});
+           (match decode_accounts out with
+            | Ok again -> assert (again = accounts)
+            | Error e -> failwith e)
+       | Error e -> failwith e)
+   | Error e -> failwith e);
+  print_endline "✓ Account codec works"
+
 let () =
   print_endline "\n=== Schema Tests ===\n";
   test_temporal ();
@@ -143,4 +296,5 @@ let () =
   test_json_roundtrip ();
   test_date ();
   test_platform ();
+  test_account_codec ();
   print_endline "\n=== All Schema Tests Passed ===\n"

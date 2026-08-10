@@ -105,13 +105,25 @@ let () =
   let lines_before = ref 0 in
   let lines_after = ref 0 in
   let yaml_encode_failures = ref 0 in
+  let already_v2 = ref 0 in
   List.iter
     (fun f ->
       let path = Filename.concat dir f in
       let yaml = read_file path in
       lines_before := !lines_before + line_count yaml;
+      (* A store that has already been migrated holds no V1 files at all, so
+         there is nothing here to gate. Recognise that and skip, rather than
+         reporting every contact as a V1 decode failure. *)
+      match Yamlt.decode V2.json_t (Bytesrw.Bytes.Reader.of_string yaml) with
+      | Ok _ -> incr already_v2
+      | Error _ -> (
       let reader = Bytesrw.Bytes.Reader.of_string yaml in
-      match Yamlt.decode V1.json_t reader with
+      (* The V1 decoder raises on a version it does not know, so a file that
+         is neither V1 nor V2 must be caught rather than matched. *)
+      match
+        try Yamlt.decode V1.json_t reader
+        with Failure e -> Error e
+      with
       | Error e -> failures := (f, "V1 decode: " ^ e) :: !failures
       | Ok v1 -> (
           (* Tally the promoted/link split against the same [urls] field
@@ -154,8 +166,13 @@ let () =
                         incr round_trip_mismatches;
                         failures := (f, "round trip differs") :: !failures
                       end
-                      else incr clean))))
+                      else incr clean)))))
     files;
+  if !already_v2 = List.length files then begin
+    Printf.printf "- all %d contacts are already V2, nothing to migrate\n"
+      !already_v2;
+    exit 0
+  end;
   Printf.printf "\n--- migration summary ---\n";
   Printf.printf
     "contacts: %d, clean: %d, migrate errors: %d, round-trip mismatches: %d\n"

@@ -154,6 +154,48 @@ let test_store_operations () =
   Sortal.delete store "bob";
   traceln "✓ Test cleanup complete"
 
+let test_feed_pause_resume () =
+  Eio_main.run @@ fun env ->
+  let store = Sortal.create env#fs "sortal-test-pause" in
+  let url = "https://example.com/feed.atom" in
+  let feed = Sortal.Feed.make ~feed_type:Atom ~url () in
+  let c = Sortal.Contact.make ~handle:"paused-test" ~names:["Pause Test"]
+    ~feeds:[feed] () in
+  Sortal.save store c;
+
+  (* Unknown handle and unknown URL are both reported, not silently
+     ignored. *)
+  (match Sortal.Store.set_feed_paused store "no-such-handle" url true with
+   | Error _ -> traceln "✓ pause reports an unknown handle"
+   | Ok () -> failwith "pause should fail for an unknown handle");
+  (match Sortal.Store.set_feed_paused store "paused-test" "https://no.such/url" true with
+   | Error _ -> traceln "✓ pause reports an unknown feed URL"
+   | Ok () -> failwith "pause should fail for an unknown feed URL");
+
+  (match Sortal.Store.set_feed_paused store "paused-test" url true with
+   | Error e -> failwith ("pause failed: " ^ e)
+   | Ok () -> ());
+  (match Sortal.lookup store "paused-test" with
+   | None -> failwith "contact vanished after pause"
+   | Some c ->
+       (match Sortal.Contact.feeds c with
+        | [ f ] -> assert (Sortal.Feed.paused f)
+        | _ -> failwith "expected exactly one feed"));
+  traceln "✓ pause persists the paused flag";
+
+  (match Sortal.Store.set_feed_paused store "paused-test" url false with
+   | Error e -> failwith ("resume failed: " ^ e)
+   | Ok () -> ());
+  (match Sortal.lookup store "paused-test" with
+   | None -> failwith "contact vanished after resume"
+   | Some c ->
+       (match Sortal.Contact.feeds c with
+        | [ f ] -> assert (not (Sortal.Feed.paused f))
+        | _ -> failwith "expected exactly one feed"));
+  traceln "✓ resume clears the paused flag";
+
+  Sortal.delete store "paused-test"
+
 let test_contact_compare () =
   let c1 = Sortal.Contact.make ~handle:"alice" ~names:["Alice"] () in
   let c2 = Sortal.Contact.make ~handle:"bob" ~names:["Bob"] () in
@@ -206,5 +248,6 @@ let () =
   test_contact_compare ();
   test_links ();
   test_store_operations ();
+  test_feed_pause_resume ();
 
   traceln "\n=== All Tests Passed ===\n"

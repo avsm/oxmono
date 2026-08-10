@@ -447,7 +447,10 @@ let () =
             | Ok results ->
               List.iter (fun (r : Sortal_feed.Sync.sync_result) ->
                 let name = Option.value ~default:"(unnamed)" r.feed_name in
-                Logs.app (fun m -> m "  @%s %s: %d new, %d total" handle name r.new_entries r.total_entries)
+                if r.paused then
+                  Logs.app (fun m -> m "  @%s %s: paused" handle name)
+                else
+                  Logs.app (fun m -> m "  @%s %s: %d new, %d total" handle name r.new_entries r.total_entries)
               ) results
           ) targets;
           result := (if !failed then 1 else 0)
@@ -621,6 +624,41 @@ let () =
     Cmd.v info term
   in
 
+  let feed_url_arg =
+    Arg.(required & pos 1 (some string) None & info [] ~docv:"URL"
+      ~doc:"Feed URL, as recorded in the contact's feed list")
+  in
+
+  let feed_pause_resume_cmd ~name ~doc ~paused =
+    let term =
+      let open Term.Syntax in
+      let+ (xdg, _) = xdg_term
+      and+ handle = Sortal.Cmd.handle_arg
+      and+ url = feed_url_arg
+      and+ log_level = Logs_cli.level () in
+      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
+      Logs.set_level log_level;
+      let store = Sortal.Store.create_from_xdg xdg in
+      match Sortal.Store.set_feed_paused store handle url paused with
+      | Ok () ->
+        Logs.app (fun m -> m "@%s %s: %s" handle url
+          (if paused then "paused" else "resumed"));
+        0
+      | Error msg -> Logs.err (fun m -> m "%s" msg); 1
+    in
+    Cmd.v (Cmd.info name ~doc) term
+  in
+
+  let feed_pause_cmd =
+    feed_pause_resume_cmd ~name:"pause" ~paused:true
+      ~doc:"Stop polling a feed, keeping everything already downloaded"
+  in
+
+  let feed_resume_cmd =
+    feed_pause_resume_cmd ~name:"resume" ~paused:false
+      ~doc:"Resume polling a paused feed"
+  in
+
   let feed_group =
     let info = Cmd.info "feed" ~doc:"Feed content management"
       ~man:[
@@ -631,9 +669,15 @@ let () =
         `P "Use $(b,sortal feed list) to view all feed entries.";
         `P "Use $(b,sortal feed show HANDLE ID) to view a specific entry.";
         `P "Use $(b,sortal feed discover) to discover entries for manual feeds.";
+        `P "Use $(b,sortal feed pause HANDLE URL) to stop polling a feed \
+            without losing what has already been downloaded.";
+        `P "Use $(b,sortal feed resume HANDLE URL) to resume polling it.";
       ]
     in
-    Cmd.group info [feed_sync_cmd; feed_list_cmd; feed_show_cmd; feed_discover_cmd]
+    Cmd.group info [
+      feed_sync_cmd; feed_list_cmd; feed_show_cmd; feed_discover_cmd;
+      feed_pause_cmd; feed_resume_cmd;
+    ]
   in
 
   let default_term =

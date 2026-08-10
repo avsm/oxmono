@@ -7,6 +7,7 @@ type sync_result = {
   new_entries : int;
   total_entries : int;
   feed_name : string option;
+  paused : bool;
 }
 
 let parse_error_message url exn =
@@ -65,7 +66,7 @@ let sync_atom ~store ~handle feed body meta_path =
     let new_entries = max 0 (total - existing_count) in
     update_meta meta_path feed (Ptime_clock.now ()) ~entry_count:total;
     Ok { new_entries; total_entries = total;
-         feed_name = Sortal_schema.Feed.name feed }
+         feed_name = Sortal_schema.Feed.name feed; paused = false }
   with exn ->
     Error (parse_error_message url exn)
 
@@ -86,7 +87,7 @@ let sync_rss ~store ~handle feed body meta_path =
     let new_entries = max 0 (total - existing_count) in
     update_meta meta_path feed (Ptime_clock.now ()) ~entry_count:total;
     Ok { new_entries; total_entries = total;
-         feed_name = Sortal_schema.Feed.name feed }
+         feed_name = Sortal_schema.Feed.name feed; paused = false }
   with exn ->
     Error (parse_error_message url exn)
 
@@ -131,13 +132,23 @@ let sync_jsonfeed ~store ~handle feed body meta_path =
       let new_entries = max 0 (total - existing_count) in
       update_meta meta_path feed (Ptime_clock.now ()) ~entry_count:total;
       Ok { new_entries; total_entries = total;
-           feed_name = Sortal_schema.Feed.name feed }
+           feed_name = Sortal_schema.Feed.name feed; paused = false }
     with exn ->
       Error (parse_error_message url exn)
 
 let sync_feed ~session ~store ~handle ?(force=false) feed =
   let meta_path = Sortal_feed_store.meta_file store handle feed in
   let existing_meta = Sortal_feed_meta.load meta_path in
+  if Sortal_schema.Feed.paused feed then
+    (* Report distinctly from "0 new" so a reader can see the feed was
+       skipped rather than genuinely empty. *)
+    let total = match existing_meta with
+      | Some m -> m.entry_count
+      | None -> 0
+    in
+    Ok { new_entries = 0; total_entries = total;
+         feed_name = Sortal_schema.Feed.name feed; paused = true }
+  else
   let etag = if force then None else Option.bind existing_meta (fun m -> m.etag) in
   let last_modified = if force then None else Option.bind existing_meta (fun m -> m.last_modified) in
   let url = Sortal_schema.Feed.url feed in
@@ -150,7 +161,7 @@ let sync_feed ~session ~store ~handle ?(force=false) feed =
       | None -> 0
     in
     Ok { new_entries = 0; total_entries = total;
-         feed_name = Sortal_schema.Feed.name feed }
+         feed_name = Sortal_schema.Feed.name feed; paused = false }
   | Error (`Error msg) ->
     Error (Printf.sprintf "Failed to fetch %s: %s" url msg)
   | Ok result ->
@@ -171,7 +182,7 @@ let sync_feed ~session ~store ~handle ?(force=false) feed =
       | Manual ->
         (* Manual feeds are handled by sortal.discover, not HTTP sync *)
         Ok { new_entries = 0; total_entries = 0;
-             feed_name = Sortal_schema.Feed.name feed }
+             feed_name = Sortal_schema.Feed.name feed; paused = false }
     in
     (match res with
      | Ok _ -> update_http_meta meta_path result.etag result.last_modified

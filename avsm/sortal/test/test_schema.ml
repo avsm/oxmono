@@ -27,6 +27,30 @@ let test_feed_types () =
   assert (Sortal_schema.Feed.url feed = "https://example.com/feed");
   print_endline "✓ Feed types work"
 
+(* [paused] must be omitted on encoding when [false], so the 34 feeds
+   already in the live store round-trip unchanged, and present when
+   [true]. *)
+let test_feed_paused_codec () =
+  let module Feed = Sortal_schema.Feed in
+  let unpaused = Feed.make ~feed_type:Atom ~url:"https://example.com/feed" () in
+  (match Jsont_bytesrw.encode_string Feed.json_t unpaused with
+   | Ok json -> assert (not (contains json "paused"))
+   | Error e -> failwith ("Encode failed: " ^ e));
+  let paused = Feed.set_paused unpaused true in
+  (match Jsont_bytesrw.encode_string Feed.json_t paused with
+   | Ok json ->
+       assert (contains json "\"paused\":true" || contains json "\"paused\": true");
+       (match Jsont_bytesrw.decode_string Feed.json_t json with
+        | Ok decoded -> assert (Feed.paused decoded)
+        | Error e -> failwith ("Decode failed: " ^ e))
+   | Error e -> failwith ("Encode failed: " ^ e));
+  (* A feed encoded before [paused] existed decodes as unpaused. *)
+  (match Jsont_bytesrw.decode_string Feed.json_t
+           {|{"type":"atom","url":"https://example.com/feed"}|} with
+   | Ok decoded -> assert (not (Feed.paused decoded))
+   | Error e -> failwith ("Decode failed: " ^ e));
+  print_endline "✓ Feed paused flag encodes only when true"
+
 let test_contact_construction () =
   let c = Sortal_schema.Contact.make
     ~handle:"test"
@@ -762,6 +786,7 @@ let () =
   print_endline "\n=== Schema Tests ===\n";
   test_temporal ();
   test_feed_types ();
+  test_feed_paused_codec ();
   test_contact_construction ();
   test_json_roundtrip ();
   test_date ();

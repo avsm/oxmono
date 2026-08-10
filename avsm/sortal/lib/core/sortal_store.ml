@@ -98,6 +98,39 @@ let unset_account t handle platform =
       in
       with_accounts contact accounts)
 
+let with_feeds contact feeds =
+  Contact.make
+    ~handle:(Contact.handle contact)
+    ~names:(Contact.names contact)
+    ~kind:(Contact.kind contact)
+    ~emails:(Contact.emails contact)
+    ~accounts:(Contact.accounts contact)
+    ~links:(Contact.links contact)
+    ~affiliations:(Contact.affiliations contact)
+    ?photo:(Contact.photo contact)
+    ~feeds
+    ~vcard:(Contact.vcard contact)
+    ()
+
+let set_feed_paused t handle url paused =
+  match lookup t handle with
+  | None -> Error (Printf.sprintf "Contact not found: %s" handle)
+  | Some contact ->
+      let feeds = Contact.feeds contact in
+      if not (List.exists (fun f -> Contact.Feed.url f = url) feeds) then
+        Error (Printf.sprintf "No feed with URL %s for @%s" url handle)
+      else
+        let feeds =
+          List.map
+            (fun f ->
+              if Contact.Feed.url f = url then
+                Contact.Feed.set_paused f paused
+              else f)
+            feeds
+        in
+        save t (with_feeds contact feeds);
+        Ok ()
+
 let list t =
   try
     let entries = Eio.Path.read_dir t.data_dir in

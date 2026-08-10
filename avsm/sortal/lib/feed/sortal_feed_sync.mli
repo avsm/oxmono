@@ -15,6 +15,7 @@ type sync_result = {
   new_entries : int;
   total_entries : int;
   feed_name : string option;
+  paused : bool;  (** [true] if the feed was skipped without fetching. *)
 }
 
 val sync_feed :
@@ -24,6 +25,9 @@ val sync_feed :
   ?force:bool ->
   Sortal_schema.Feed.t ->
   (sync_result, string) result
+(** [sync_feed ~session ~store ~handle feed] fetches [feed] and merges it
+    into [store]. A paused feed is returned as [Ok { paused = true; ... }]
+    without fetching, keeping everything already downloaded. *)
 
 val sync_all :
   session:Fetch.plain ->

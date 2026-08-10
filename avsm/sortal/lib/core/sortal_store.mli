@@ -72,6 +72,11 @@ val unset_account : t -> string -> Contact.Platform.id -> (unit, string) result
 (** [unset_account t handle platform] removes every account [handle] holds on
     [platform]. It is [Error why] if no such contact exists. *)
 
+val set_feed_paused : t -> string -> string -> bool -> (unit, string) result
+(** [set_feed_paused t handle url paused] sets the [paused] flag on the feed
+    at [url] belonging to the contact named [handle]. It is [Error why] if
+    no such contact exists, or if [handle]'s contact has no feed at [url]. *)
+
 (** [update_contact t handle f] updates a contact by applying function [f].
 
     Looks up the contact, applies [f] to transform it, and saves the result.

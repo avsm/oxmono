@@ -136,8 +136,23 @@ let sync_jsonfeed ~store ~handle feed body meta_path =
     with exn ->
       Error (parse_error_message url exn)
 
+(* [Sortal_feed_sniff.detect] never returns [Atom]/[Rss]/[Json] except
+   when its result matches one of these constructors, so this is total in
+   practice; the exhaustive match documents that rather than hiding it
+   behind [Obj.magic] or a partial function. *)
+let feed_type_of_sniff : Sortal_feed_sniff.t -> Sortal_schema.Feed.feed_type = function
+  | Sortal_feed_sniff.Atom -> Sortal_schema.Feed.Atom
+  | Sortal_feed_sniff.Rss -> Sortal_schema.Feed.Rss
+  | Sortal_feed_sniff.Json -> Sortal_schema.Feed.Json
+  | Sortal_feed_sniff.Unknown _ -> invalid_arg "feed_type_of_sniff: Unknown"
+
 let sync_feed ~session ~store ~handle ?(force=false) feed =
-  let meta_path = Sortal_feed_store.meta_file store handle feed in
+  (* Read metadata from wherever the feed's content actually lives: a
+     feed reclassified by an earlier sync may no longer be at the path
+     implied by its recorded type. *)
+  let effective_ft = Sortal_feed_store.effective_type store handle feed in
+  let feed_for_meta = Sortal_schema.Feed.set_feed_type feed effective_ft in
+  let meta_path = Sortal_feed_store.meta_file store handle feed_for_meta in
   let existing_meta = Sortal_feed_meta.load meta_path in
   if Sortal_schema.Feed.paused feed then
     (* Report distinctly from "0 new" so a reader can see the feed was
@@ -175,17 +190,45 @@ let sync_feed ~session ~store ~handle ?(force=false) feed =
         Sortal_feed_meta.save meta_path m
       | None -> ()
     in
-    let res = match Sortal_schema.Feed.feed_type feed with
-      | Atom -> sync_atom ~store ~handle feed result.body meta_path
-      | Rss -> sync_rss ~store ~handle feed result.body meta_path
-      | Json -> sync_jsonfeed ~store ~handle feed result.body meta_path
+    let res, meta_path_synced = match Sortal_schema.Feed.feed_type feed with
       | Manual ->
-        (* Manual feeds are handled by sortal.discover, not HTTP sync *)
-        Ok { new_entries = 0; total_entries = 0;
-             feed_name = Sortal_schema.Feed.name feed; paused = false }
+        (* Manual feeds are handled by sortal.discover, not HTTP sync, and
+           are fetched by nothing here: the recorded type is trusted as
+           given rather than sniffed. *)
+        (Ok { new_entries = 0; total_entries = 0;
+              feed_name = Sortal_schema.Feed.name feed; paused = false },
+         meta_path)
+      | (Atom | Rss | Json) as recorded ->
+        (match Sortal_feed_sniff.detect result.body with
+         | Sortal_feed_sniff.Unknown excerpt ->
+           (Error (Printf.sprintf
+                     "Failed to parse %s: could not detect feed format, body starts with: %s"
+                     url excerpt),
+            meta_path)
+         | (Atom | Rss | Json) as detected ->
+           let detected_ft = feed_type_of_sniff detected in
+           if detected_ft <> recorded then
+             Logs.info (fun m -> m
+               "%s: recorded as %s but the document is %s"
+               url
+               (Sortal_schema.Feed.feed_type_to_string recorded)
+               (Sortal_schema.Feed.feed_type_to_string detected_ft));
+           (* Move any already-downloaded content to the path the
+              detected type implies, so it is not orphaned at a path
+              nothing reads from any more. *)
+           Sortal_feed_store.relocate store handle feed detected_ft;
+           let feed' = Sortal_schema.Feed.set_feed_type feed detected_ft in
+           let meta_path' = Sortal_feed_store.meta_file store handle feed' in
+           let r = match detected_ft with
+             | Atom -> sync_atom ~store ~handle feed' result.body meta_path'
+             | Rss -> sync_rss ~store ~handle feed' result.body meta_path'
+             | Json -> sync_jsonfeed ~store ~handle feed' result.body meta_path'
+             | Manual -> assert false (* [detected] only ranges over Atom|Rss|Json *)
+           in
+           (r, meta_path'))
     in
     (match res with
-     | Ok _ -> update_http_meta meta_path result.etag result.last_modified
+     | Ok _ -> update_http_meta meta_path_synced result.etag result.last_modified
      | Error _ -> ());
     res
 

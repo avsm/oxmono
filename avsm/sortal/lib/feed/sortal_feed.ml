@@ -9,3 +9,4 @@ module Fetch = Sortal_feed_fetch
 module Sync = Sortal_feed_sync
 module Meta = Sortal_feed_meta
 module Annotations = Sortal_feed_annotations
+module Sniff = Sortal_feed_sniff

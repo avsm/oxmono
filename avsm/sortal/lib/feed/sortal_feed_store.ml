@@ -110,10 +110,97 @@ let load_jsonfeed path =
       Eio.Path.pp path (Printexc.to_string exn));
     None
 
+(* [feed_file]/[meta_file]/[annotations_file] derive their path from
+   [feed]'s recorded type, so a feed reclassified by [Sortal_feed_sync]
+   (its actual format found to differ from what the contact YAML records)
+   would point at a fresh, empty path, orphaning everything already
+   downloaded under the old one. [effective_type] and [relocate] below
+   keep reads and writes pointed at wherever the content actually is. *)
+let known_types = Sortal_schema.Feed.[ Atom; Rss; Json ]
+
+(* A silent probe, deliberately not routed through [load_atom]/[load_rss]/
+   [load_jsonfeed]: those log a warning on a parse failure, which is the
+   expected, ordinary outcome here for a feed whose format has genuinely
+   changed, not something a reader needs to see. *)
+let parses_as feed_type path =
+  try
+    let data = Eio.Path.load path in
+    match feed_type with
+    | Sortal_schema.Feed.Atom | Sortal_schema.Feed.Manual ->
+      ignore (Syndic.Atom.parse (Xmlm.make_input (`String (0, data))));
+      true
+    | Sortal_schema.Feed.Rss ->
+      ignore (Syndic.Rss2.parse (Xmlm.make_input (`String (0, data))));
+      true
+    | Sortal_schema.Feed.Json -> Result.is_ok (Jsonfeed.of_string data)
+  with _ -> false
+
+let mtime path =
+  try Some (Eio.Path.stat ~follow:true path).Eio.File.Stat.mtime
+  with Eio.Io _ -> None
+
+let effective_type t handle feed =
+  match Sortal_schema.Feed.feed_type feed with
+  | Sortal_schema.Feed.Manual as ft -> ft
+  | recorded ->
+    let candidates =
+      List.filter_map
+        (fun ft ->
+          let p = feed_file t handle (Sortal_schema.Feed.set_feed_type feed ft) in
+          if Eio.Path.is_file p then Some (ft, Option.value ~default:0. (mtime p))
+          else None)
+        known_types
+    in
+    (match candidates with
+     | [] -> recorded
+     | first :: rest ->
+       (* The freshest file wins: once a reclassified feed has been
+          synced at all, its new file is more recent than whatever was
+          left behind at the old, no-longer-matching type. *)
+       fst
+         (List.fold_left
+            (fun (bft, bmt) (ft, mt) -> if mt > bmt then (ft, mt) else (bft, bmt))
+            first rest))
+
+let relocate t handle feed to_type =
+  match Sortal_schema.Feed.feed_type feed with
+  | Manual -> ()
+  | _ ->
+    let from_type = effective_type t handle feed in
+    if from_type <> to_type then begin
+      let from_feed = Sortal_schema.Feed.set_feed_type feed from_type in
+      let to_feed = Sortal_schema.Feed.set_feed_type feed to_type in
+      let src = feed_file t handle from_feed in
+      (* Only relocate content that genuinely reads as [to_type]: a feed
+         simply mislabelled from the start moves over and keeps merging
+         normally. A feed whose format has truly changed server-side
+         (mdales's blog once really did serve RSS, and now serves Atom at
+         the same URL) is left exactly where it is rather than being
+         moved somewhere it can only fail to parse and get silently
+         replaced by [save_atom]/[save_rss_raw]/[save_jsonfeed]'s
+         truncating write. [effective_type] then finds it by trying every
+         known type, so it is read, not lost, just no longer preferred
+         once a fresher file exists. *)
+      if Eio.Path.is_file src && parses_as to_type src then begin
+        let dst = feed_file t handle to_feed in
+        if not (Eio.Path.is_file dst) then Eio.Path.rename src dst;
+        let move_companion accessor =
+          let s = accessor t handle from_feed and d = accessor t handle to_feed in
+          if Eio.Path.is_file s && not (Eio.Path.is_file d) then Eio.Path.rename s d
+        in
+        move_companion meta_file;
+        move_companion annotations_file
+      end
+    end
+
 let entries_of_feed t ~handle feed =
   let source_feed = Sortal_schema.Feed.url feed in
-  let path = feed_file t handle feed in
-  match Sortal_schema.Feed.feed_type feed with
+  (* Read from wherever [effective_type] finds content, not from [feed]'s
+     recorded type: sync may have found a feed's real format to differ
+     from what the contact YAML still records. *)
+  let ft = effective_type t handle feed in
+  let path = feed_file t handle (Sortal_schema.Feed.set_feed_type feed ft) in
+  match ft with
   | Atom | Manual ->
     (match load_atom path with
      | Some atom_feed ->

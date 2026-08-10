@@ -61,6 +61,25 @@ let () =
     Cmd.v Sortal.Cmd.sync_info term
   in
 
+  let migrate_cmd =
+    let dry_run_arg =
+      Arg.(value & flag
+           & info [ "dry-run"; "n" ]
+               ~doc:"Report what would change without writing anything. \
+                     This is the safe way to preview a migration.")
+    in
+    let term =
+      let open Term.Syntax in
+      let+ (xdg, _) = xdg_term
+      and+ dry_run = dry_run_arg
+      and+ log_level = Logs_cli.level () in
+      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
+      Logs.set_level log_level;
+      Sortal.Cmd.migrate_cmd ~dry_run xdg
+    in
+    Cmd.v Sortal.Cmd.migrate_info term
+  in
+
   let serve_cmd =
     let term =
       let open Term.Syntax in
@@ -632,6 +651,7 @@ let () =
     search_cmd;
     stats_cmd;
     sync_cmd;
+    migrate_cmd;
     serve_cmd;
     git_group;
     init_config_cmd;

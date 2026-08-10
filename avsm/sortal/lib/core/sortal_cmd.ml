@@ -413,6 +413,30 @@ let unset_cmd handle platform_key xdg env =
           Logs.err (fun m -> m "%s" msg);
           1)
 
+(* Rewrite every V1 contact file into V2 *)
+let migrate_cmd ~dry_run xdg =
+  let store = Sortal_store.create_from_xdg xdg in
+  let migrated, skipped, failures = Sortal_store.migrate store ~dry_run in
+  List.iter
+    (fun (h, why) -> Logs.err (fun m -> m "@%s: %s" h why))
+    failures;
+  if dry_run then
+    Logs.app (fun m ->
+        m "DRY RUN, nothing written: %d contacts would be migrated to V2, \
+           %d already V2, %d would fail"
+          migrated skipped (List.length failures))
+  else
+    Logs.app (fun m ->
+        m "%d contacts migrated to V2, %d already V2, %d failed" migrated
+          skipped (List.length failures));
+  if failures <> [] then begin
+    Logs.err (fun m ->
+        m "%d contacts failed to migrate, nothing was written for them"
+          (List.length failures));
+    1
+  end
+  else 0
+
 (* Command info and args *)
 let list_info = Cmd.info "list" ~doc:"List all contacts"
 let show_info = Cmd.info "show" ~doc:"Show detailed information about a contact"
@@ -438,6 +462,26 @@ let add_info = Cmd.info "add" ~doc:"Create a new contact"
 let delete_info = Cmd.info "delete" ~doc:"Delete a contact"
 let set_info = Cmd.info "set" ~doc:"Set a contact's account on a platform"
 let unset_info = Cmd.info "unset" ~doc:"Remove a contact's account on a platform"
+
+let migrate_info =
+  Cmd.info "migrate" ~doc:"Rewrite V1 contact files into the V2 schema"
+    ~man:
+      [
+        `S Manpage.s_description;
+        `P "Rewrites every V1 contact file in the store into the V2 \
+            schema. A file already in V2 is left alone. Running the \
+            command again is safe: contacts already migrated are \
+            reported as already V2 and nothing is rewritten.";
+        `P "Commit the store to git before running this without \
+            $(b,--dry-run). The rewrite changes file contents in place \
+            and is only recoverable through git history.";
+        `P "Use $(b,--dry-run) to report what would change without \
+            writing anything. This is the safe way to preview a \
+            migration: plain $(b,sortal migrate) writes immediately.";
+        `P "A contact that fails to migrate is left untouched on disk \
+            and named with its reason. The command exits non-zero if \
+            any contact fails.";
+      ]
 
 let handle_arg =
   Arg.(required & pos 0 (some string) None & info [] ~docv:"HANDLE"

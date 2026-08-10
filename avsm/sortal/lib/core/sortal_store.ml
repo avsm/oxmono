@@ -196,6 +196,42 @@ let lookup_by_name t name =
   | [] -> failwith ("Contact not found: " ^ name)
   | _ -> failwith ("Ambiguous contact: " ^ name)
 
+let migrate t ~dry_run =
+  let migrated = ref 0 and skipped = ref 0 and failures = ref [] in
+  let entries = Eio.Path.read_dir t.data_dir in
+  List.iter
+    (fun entry ->
+      if Filename.check_suffix entry ".yaml" then begin
+        let handle = Filename.chop_suffix entry ".yaml" in
+        let path = Eio.Path.(t.data_dir / entry) in
+        let yaml = Eio.Path.load path in
+        let reader () = Bytesrw.Bytes.Reader.of_string yaml in
+        match Yamlt.decode Sortal_schema.V2.Contact.json_t (reader ()) with
+        | Ok _ -> incr skipped
+        | Error _ -> (
+            match Yamlt.decode Sortal_schema.V1.Contact.json_t (reader ()) with
+            | Error e -> failures := (handle, "V1 decode: " ^ e) :: !failures
+            | Ok v1 -> (
+                match Sortal_schema.Migrate.v1_to_v2 v1 with
+                | Error e -> failures := (handle, e) :: !failures
+                | Ok v2 ->
+                    let buf = Buffer.create 4096 in
+                    let writer = Bytesrw.Bytes.Writer.of_buffer buf in
+                    (match
+                       Yamlt.encode Sortal_schema.V2.Contact.json_t v2
+                         ~eod:true writer
+                     with
+                    | Error e ->
+                        failures := (handle, "V2 encode: " ^ e) :: !failures
+                    | Ok () ->
+                        if not dry_run then
+                          Eio.Path.save ~create:(`Or_truncate 0o644) path
+                            (Buffer.contents buf);
+                        incr migrated)))
+      end)
+    entries;
+  (!migrated, !skipped, List.rev !failures)
+
 let find_by_org t ~org =
   let org_lower = String.lowercase_ascii org in
   let all = list t in

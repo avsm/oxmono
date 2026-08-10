@@ -164,6 +164,24 @@ val find_by_name_opt : t -> string -> Contact.t option
     @return A list of matching contacts, sorted by handle *)
 val search_all : t -> string -> Contact.t list
 
+(** {1 Migration} *)
+
+val migrate : t -> dry_run:bool -> int * int * (string * string) list
+(** [migrate t ~dry_run] rewrites every V1 contact file in [t] into V2. It
+    is [(migrated, skipped, failures)]: [migrated] is the number of files
+    rewritten, [skipped] is the number already in V2 and left alone, and
+    [failures] pairs the handle of each file that could not be migrated
+    with the reason.
+
+    Each file is decoded and re-encoded fully in memory before anything is
+    written, so a file that fails to migrate is left untouched on disk.
+    When [dry_run] is true nothing is written and the counts describe what
+    would happen. Running [migrate] again after a successful migration
+    reports every file as already V2 and writes nothing.
+
+    The store is git versioned, so a rewrite is recoverable. Run
+    [sortal git commit] first if there are uncommitted changes. *)
+
 (** {1 Searching by affiliation} *)
 
 val find_by_org : t -> org:string -> Contact.t list

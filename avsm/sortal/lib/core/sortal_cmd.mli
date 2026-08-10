@@ -86,6 +86,14 @@ val set_cmd : string -> string -> string -> Xdge.t -> Eio_unix.Stdenv.base -> in
     known platform key if [platform_key] does not name one. *)
 val unset_cmd : string -> string -> Xdge.t -> Eio_unix.Stdenv.base -> int
 
+(** [migrate_cmd ~dry_run xdg] rewrites every V1 contact file in the store
+    at [xdg] into V2, or reports what it would rewrite when [dry_run] is
+    true without writing anything. It prints the number migrated, the
+    number already V2, and the number that failed, naming each failed
+    contact with its reason, and returns a non-zero exit code if any
+    contact failed to migrate. *)
+val migrate_cmd : dry_run:bool -> Xdge.t -> int
+
 (** {1 Cmdliner Info Objects} *)
 
 (** [list_info] is the command info for the list command. *)
@@ -120,6 +128,9 @@ val set_info : Cmdliner.Cmd.info
 
 (** [unset_info] is the command info for the unset command. *)
 val unset_info : Cmdliner.Cmd.info
+
+(** [migrate_info] is the command info for the migrate command. *)
+val migrate_info : Cmdliner.Cmd.info
 
 (** {1 Cmdliner Argument Definitions} *)
 

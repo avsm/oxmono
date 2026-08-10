@@ -12,6 +12,11 @@ type fetch_result = {
   body : string;
   etag : string option;
   last_modified : string option;
+  content_type : string option;
+      (** the response's [Content-Type] media type (e.g. ["text/html"]),
+          without parameters such as [charset]. Not to be trusted for
+          identifying the feed's format: use {!Sortal_feed_sniff} on
+          [body] instead. Kept only for error messages. *)
 }
 
 val fetch :

@@ -136,14 +136,15 @@ let sync_jsonfeed ~store ~handle feed body meta_path =
     with exn ->
       Error (parse_error_message url exn)
 
-(* [Sortal_feed_sniff.detect] never returns [Atom]/[Rss]/[Json] except
-   when its result matches one of these constructors, so this is total in
-   practice; the exhaustive match documents that rather than hiding it
-   behind [Obj.magic] or a partial function. *)
+(* Only called below on the [Atom | Rss | Json] arm of a prior match on
+   the same [Sortal_feed_sniff.detect] result, so [Html] and [Unknown]
+   never reach here. The exhaustive match documents that invariant rather
+   than hiding it behind a partial function. *)
 let feed_type_of_sniff : Sortal_feed_sniff.t -> Sortal_schema.Feed.feed_type = function
   | Sortal_feed_sniff.Atom -> Sortal_schema.Feed.Atom
   | Sortal_feed_sniff.Rss -> Sortal_schema.Feed.Rss
   | Sortal_feed_sniff.Json -> Sortal_schema.Feed.Json
+  | Sortal_feed_sniff.Html -> invalid_arg "feed_type_of_sniff: Html"
   | Sortal_feed_sniff.Unknown _ -> invalid_arg "feed_type_of_sniff: Unknown"
 
 let sync_feed ~session ~store ~handle ?(force=false) feed =
@@ -200,6 +201,15 @@ let sync_feed ~session ~store ~handle ?(force=false) feed =
          meta_path)
       | (Atom | Rss | Json) as recorded ->
         (match Sortal_feed_sniff.detect result.body with
+         | Sortal_feed_sniff.Html ->
+           let ct = match result.content_type with
+             | Some ct -> Printf.sprintf " (Content-Type: %s)" ct
+             | None -> ""
+           in
+           (Error (Printf.sprintf
+                     "Failed to parse %s: server returned an HTML page, not a feed%s"
+                     url ct),
+            meta_path)
          | Sortal_feed_sniff.Unknown excerpt ->
            (Error (Printf.sprintf
                      "Failed to parse %s: could not detect feed format, body starts with: %s"

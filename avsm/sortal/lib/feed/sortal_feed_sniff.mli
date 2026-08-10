@@ -13,6 +13,7 @@ type t =
   | Atom
   | Rss
   | Json
+  | Html  (** the body is an HTML page, not a feed *)
   | Unknown of string
       (** the body's first bytes, truncated, when nothing recognisable was
           found *)
@@ -21,7 +22,9 @@ val detect : string -> t
 (** [detect body] is [body]'s apparent format. It skips an optional
     leading XML declaration and whitespace, then looks at the first
     element: [<feed] is Atom, [<rss] or [<rdf:RDF] is RSS, and a body
-    whose first non-whitespace byte is ['{'] is JSON Feed. Anything else
-    ahead of the root element, such as an HTML-escaped XML declaration, is
-    not tolerated: detection does not skip past it, so the result is
+    whose first non-whitespace byte is ['{'] is JSON Feed. [<html] or a
+    leading [<!DOCTYPE html] is [Html]: a server that has lapsed into
+    serving its home page instead of a feed. Anything else ahead of the
+    root element, such as an HTML-escaped XML declaration, is not
+    tolerated: detection does not skip past it, so the result is
     [Unknown]. *)

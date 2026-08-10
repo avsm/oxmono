@@ -7,6 +7,7 @@ type t =
   | Atom
   | Rss
   | Json
+  | Html
   | Unknown of string
 
 let is_ws = function
@@ -49,4 +50,6 @@ let detect body =
   else if starts_with_ci "<feed" body i then Atom
   else if starts_with_ci "<rss" body i then Rss
   else if starts_with_ci "<rdf:rdf" body i then Rss
+  else if starts_with_ci "<html" body i then Html
+  else if starts_with_ci "<!doctype html" body i then Html
   else Unknown (excerpt body i)

@@ -7,6 +7,7 @@ type fetch_result = {
   body : string;
   etag : string option;
   last_modified : string option;
+  content_type : string option;
 }
 
 let fetch ~session ?etag ?last_modified url =
@@ -37,7 +38,11 @@ let fetch ~session ?etag ?last_modified url =
       let body = Fetch.body response |> Eio.Flow.read_all in
       let etag = Fetch.header (Fetch.Header.text "ETag") response in
       let last_modified = Fetch.header Fetch.Header.last_modified response in
-      Ok { body; etag; last_modified }
+      let content_type =
+        Option.map (fun (mt : Fetch.Header.media_type) -> mt.media)
+          (Fetch.header Fetch.Header.content_type response)
+      in
+      Ok { body; etag; last_modified; content_type }
     else
       Error (`Error (Printf.sprintf "HTTP %d" status))
   with exn ->

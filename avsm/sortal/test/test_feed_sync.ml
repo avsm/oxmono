@@ -9,6 +9,11 @@
 
 open Eio.Std
 
+let contains haystack needle =
+  let n = String.length needle and h = String.length haystack in
+  let rec go i = i + n <= h && (String.sub haystack i n = needle || go (i + 1)) in
+  n = 0 || go 0
+
 let with_tmp_store f =
   Eio_main.run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
@@ -22,18 +27,21 @@ let with_tmp_store f =
    an in-memory body and records whether it was called, so a paused feed's
    "does not fetch" contract is checked directly rather than inferred from
    its result. *)
-let mock_session ~body =
+let mock_session ?content_type ~body () =
   let called = ref false in
+  let headers =
+    Option.map (fun ct -> Http.Header.init_with "Content-Type" ct) content_type
+  in
   let session =
     Fetch_mock.client (fun req ->
       called := true;
-      Fetch_mock.respond body req)
+      Fetch_mock.respond ?headers body req)
   in
   (session, called)
 
 let test_paused_feed_skips_fetch () =
   with_tmp_store @@ fun store ->
-  let session, called = mock_session ~body:"<feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>" in
+  let session, called = mock_session ~body:"<feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>" () in
   let feed =
     Sortal_schema.Feed.make ~feed_type:Atom
       ~url:"https://example.com/paused.atom" ~paused:true ()
@@ -81,7 +89,7 @@ let nickludlam_body =
 
 let test_mislabelled_atom_feed_syncs () =
   with_tmp_store @@ fun store ->
-  let session, _ = mock_session ~body:mdales_atom_body in
+  let session, _ = mock_session ~body:mdales_atom_body () in
   let feed = Sortal_schema.Feed.make ~feed_type:Rss ~url:"https://digitalflapjack.com/blog/index.xml" () in
   match Sortal_feed.Sync.sync_feed ~session ~store ~handle:"mdales" feed with
   | Error e -> failwith ("expected the mislabelled Atom feed to sync, got: " ^ e)
@@ -120,7 +128,7 @@ let test_reclassify_merges_when_content_already_matches () =
   let annot_path = Sortal_feed.Store.annotations_file store handle rss_feed in
   Eio.Path.save ~create:(`Or_truncate 0o644) annot_path "{}";
 
-  let session, _ = mock_session ~body:mdales_atom_body in
+  let session, _ = mock_session ~body:mdales_atom_body () in
   (match Sortal_feed.Sync.sync_feed ~session ~store ~handle rss_feed with
    | Error e -> failwith ("expected the reclassified feed to sync, got: " ^ e)
    | Ok _ -> ());
@@ -153,7 +161,7 @@ let test_reclassify_preserves_genuinely_old_format () =
       last_modified = None; entry_count = 1 };
 
   (* The site has since switched to Atom, still at the same URL. *)
-  let session, _ = mock_session ~body:mdales_atom_body in
+  let session, _ = mock_session ~body:mdales_atom_body () in
   (match Sortal_feed.Sync.sync_feed ~session ~store ~handle rss_feed with
    | Error e -> failwith ("expected the reclassified feed to sync, got: " ^ e)
    | Ok _ -> ());
@@ -174,24 +182,48 @@ let test_reclassify_preserves_genuinely_old_format () =
 
 let test_undetectable_body_fails_legibly () =
   with_tmp_store @@ fun store ->
-  let session, _ = mock_session ~body:nickludlam_body in
+  let session, _ = mock_session ~body:nickludlam_body () in
   let feed = Sortal_schema.Feed.make ~feed_type:Rss ~url:"https://nick.recoil.org/index.xml" () in
   match Sortal_feed.Sync.sync_feed ~session ~store ~handle:"nickludlam" feed with
   | Ok _ -> failwith "expected the escaped declaration to fail detection"
   | Error msg ->
     assert (
-      let contains haystack needle =
-        let n = String.length needle and h = String.length haystack in
-        let rec go i = i + n <= h && (String.sub haystack i n = needle || go (i + 1)) in
-        n = 0 || go 0
-      in
       contains msg "could not detect feed format"
       && contains msg "&lt;?xml");
     traceln "  detection: an HTML-escaped declaration fails with a legible message"
 
+(* gabrielmahler.org/feed.xml: the domain lapsed and now serves an HTML
+   gambling site at every URL, including the feed's. *)
+let gmahler_html_body =
+  "<!DOCTYPE html>\n\
+   <html lang=\"id\">\n\
+   <head><meta charset=\"UTF-8\">\n\
+   <title>Tapir328 | Nikmati Pengalaman Bermain Game Online</title>"
+
+let test_html_response_fails_with_content_type () =
+  with_tmp_store @@ fun store ->
+  let session, _ = mock_session ~content_type:"text/html" ~body:gmahler_html_body () in
+  let feed = Sortal_schema.Feed.make ~feed_type:Atom ~url:"https://gabrielmahler.org/feed.xml" () in
+  match Sortal_feed.Sync.sync_feed ~session ~store ~handle:"gmahler" feed with
+  | Ok _ -> failwith "expected an HTML response to fail"
+  | Error msg ->
+    assert (contains msg "HTML");
+    assert (contains msg "text/html");
+    traceln "  detection: an HTML response fails naming the Content-Type"
+
+let test_html_response_without_content_type_still_fails () =
+  with_tmp_store @@ fun store ->
+  let session, _ = mock_session ~body:gmahler_html_body () in
+  let feed = Sortal_schema.Feed.make ~feed_type:Atom ~url:"https://example.com/no-content-type" () in
+  match Sortal_feed.Sync.sync_feed ~session ~store ~handle:"nohdr" feed with
+  | Ok _ -> failwith "expected an HTML response to fail"
+  | Error msg ->
+    assert (contains msg "HTML");
+    traceln "  detection: an HTML response fails even without a Content-Type header"
+
 let test_manual_feed_is_not_sniffed () =
   with_tmp_store @@ fun store ->
-  let session, _ = mock_session ~body:"this is not a feed of any kind" in
+  let session, _ = mock_session ~body:"this is not a feed of any kind" () in
   let feed = Sortal_schema.Feed.make ~feed_type:Manual ~url:"https://example.com/about" () in
   match Sortal_feed.Sync.sync_feed ~session ~store ~handle:"someone" feed with
   | Error e -> failwith ("Manual feeds must not be sniffed, got: " ^ e)
@@ -202,7 +234,7 @@ let test_unpaused_feed_does_fetch () =
   let session, called =
     mock_session ~body:"<feed xmlns=\"http://www.w3.org/2005/Atom\">\
                          <id>urn:test</id><title>T</title>\
-                         <updated>2026-01-01T00:00:00Z</updated></feed>"
+                         <updated>2026-01-01T00:00:00Z</updated></feed>" ()
   in
   let feed =
     Sortal_schema.Feed.make ~feed_type:Atom
@@ -223,5 +255,7 @@ let () =
   test_reclassify_merges_when_content_already_matches ();
   test_reclassify_preserves_genuinely_old_format ();
   test_undetectable_body_fails_legibly ();
+  test_html_response_fails_with_content_type ();
+  test_html_response_without_content_type_still_fails ();
   test_manual_feed_is_not_sniffed ();
   traceln "\n=== All Feed Sync Tests Passed ===\n"

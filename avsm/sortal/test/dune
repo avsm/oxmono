@@ -12,7 +12,7 @@
 
 (test
  (name test_feed_sync)
- (libraries sortal.feed sortal.schema eio eio_main fetch fetch.mock))
+ (libraries sortal.feed sortal.schema eio eio_main fetch fetch.mock http))
 
 (test
  (name test_web)

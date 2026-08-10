@@ -146,6 +146,60 @@ let test_dedup () =
   (try Eio.Path.unlink feeds_dir with _ -> ());
   (try Eio.Path.unlink tmp_dir with _ -> ())
 
+(* patrick.sirref.org/posts/atom.xml: valid Atom, but one of its 13
+   entries ("Modular Explicits in OCaml") has neither <updated> nor
+   <published>. RFC 4287 requires exactly one atom:updated per entry, and
+   without the vendored patch this excerpt raises [Syndic.Error.Error]. *)
+let pf341_missing_updated_body =
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+   <feed xmlns=\"http://www.w3.org/2005/Atom\">\
+   <updated>2026-06-17T00:00:00-00:00</updated>\
+   <title>Posts</title>\
+   <id>https://patrick.sirref.org/posts/</id>\
+   <entry>\
+   <title>Modular Explicits in OCaml</title>\
+   <author><name>Patrick Ferris</name></author>\
+   <link rel=\"alternate\" type=\"text/html\" \
+   href=\"https://patrick.sirref.org/modular-explicits/\" />\
+   <id>https://patrick.sirref.org/modular-explicits/</id>\
+   <content type=\"xhtml\">\
+   <div xmlns=\"http://www.w3.org/1999/xhtml\">Some content</div>\
+   </content>\
+   </entry>\
+   </feed>"
+
+let test_entry_missing_updated_falls_back_to_feed_updated () =
+  let input = Xmlm.make_input (`String (0, pf341_missing_updated_body)) in
+  let feed = Syndic.Atom.parse input in
+  (match feed.entries with
+   | [ entry ] -> assert (Ptime.equal entry.updated feed.updated)
+   | _ -> failwith "expected exactly one entry");
+  traceln "  missing <updated>: falls back to the feed-level <updated>"
+
+let entry_with_published_no_updated_body =
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+   <feed xmlns=\"http://www.w3.org/2005/Atom\">\
+   <updated>2026-06-17T00:00:00-00:00</updated>\
+   <title>Posts</title>\
+   <id>https://example.com/posts/</id>\
+   <entry>\
+   <title>A post</title>\
+   <id>https://example.com/posts/1</id>\
+   <published>2025-01-02T00:00:00-00:00</published>\
+   </entry>\
+   </feed>"
+
+let test_entry_missing_updated_prefers_own_published () =
+  let input = Xmlm.make_input (`String (0, entry_with_published_no_updated_body)) in
+  let feed = Syndic.Atom.parse input in
+  match feed.entries with
+  | [ entry ] ->
+      let published = Option.get entry.published in
+      assert (Ptime.equal entry.updated published);
+      assert (not (Ptime.equal entry.updated feed.updated));
+      traceln "  missing <updated>, present <published>: falls back to <published>"
+  | _ -> failwith "expected exactly one entry"
+
 let () =
   traceln "\n=== Feed Tests ===\n";
   test_url_to_filename ();
@@ -154,4 +208,6 @@ let () =
   test_jsonfeed_item_conversion ();
   test_compare_by_date ();
   test_dedup ();
+  test_entry_missing_updated_falls_back_to_feed_updated ();
+  test_entry_missing_updated_prefers_own_published ();
   traceln "\n=== All Feed Tests Passed ===\n"

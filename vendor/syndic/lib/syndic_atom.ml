@@ -830,6 +830,10 @@ type feed' =
 
 let dummy_name = "\000"
 
+(* Sentinel for an entry parsed with no <updated>; see the comment where
+   it is produced, in [make_entry] below, and fixed up in [make_feed]. *)
+let dummy_updated = Date.epoch
+
 let make_entry ~pos l =
   let authors =
     List.fold_left
@@ -934,11 +938,12 @@ let make_entry ~pos l =
     match find (function `Updated _ -> true | _ -> false) l with
     | Some (`Updated u) -> u
     | _ ->
-        raise
-          (Error.Error
-             ( pos
-             , "<entry> elements MUST contains exactly one <updated> elements"
-             ))
+        (* Be permissive: RFC 4287 requires exactly one <updated>, but a
+           real feed can lack it on one entry while still carrying a
+           feed-level <updated>. [dummy_updated] is an unacceptable
+           sentinel value, fixed up by [fix_updated] in [make_feed] below,
+           the same shape as the [dummy_name] author fix above. *)
+        dummy_updated
   in
   `Entry
     ( pos
@@ -1119,9 +1124,22 @@ let make_feed ~pos (l : _ list) =
           {e with authors= ({name= "Unknown"; uri= None; email= None}, [])} )
     | _ -> e
   in
+  (* Be permissive: an entry parsed with no <updated> (see [dummy_updated]
+     in [make_entry]) falls back to its own <published>, and failing that
+     to the feed's own <updated>, which [updated] above already holds: by
+     this point it has either been read from the document or already
+     raised, so this can never invent a timestamp from nothing. *)
+  let fix_updated (e : entry) =
+    if e.updated = dummy_updated then
+      match e.published with
+      | Some p -> {e with updated= p}
+      | None -> {e with updated}
+    else e
+  in
   let entries =
     List.fold_left
-      (fun acc -> function `Entry (pos, e) -> fix_author pos e :: acc
+      (fun acc -> function
+        | `Entry (pos, e) -> fix_updated (fix_author pos e) :: acc
         | _ -> acc )
       [] l
   in

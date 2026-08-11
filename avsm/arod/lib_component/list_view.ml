@@ -11,7 +11,6 @@ open Htmlit
 
 type entry_type = Entry.entry_type
 
-let entry_type_to_string = Entry.entry_type_to_string
 let entry_type_of_string = Entry.entry_type_of_string
 
 (** Truncate the body of an entry. *)
@@ -126,45 +125,6 @@ let render_feed ~ctx ent =
   El.div [entry_heading ~ctx ent; entry_html; tags_meta ~ctx ent]
 
 (** {1 Page Functions} *)
-
-(** Paginated entry list page content. *)
-let entries_page ~ctx ~title:page_title ~types =
-  let ents = get_entries ~ctx ~types in
-  let ents' = if List.length ents > 25 then Common.take 25 ents else ents in
-  let rendered = List.map (render_entry ~ctx) ents' in
-  let rec add_separators = function
-    | [] -> [] | [x] -> [x]
-    | x :: xs -> x :: El.hr ~at:[At.class' "my-3 border-t"] () :: add_separators xs
-  in
-  let main_content = add_separators rendered in
-  let types_str = String.concat "," (List.map entry_type_to_string types) in
-  El.article ~at:[
-    At.v "data-pagination" "true";
-    At.v "data-collection-type" "entries";
-    At.v "data-total-count" (string_of_int (List.length ents));
-    At.v "data-current-count" (string_of_int (List.length ents'));
-    At.v "data-types" types_str] [
-    El.h1 ~at:[At.class' "text-2xl font-semibold mb-4"] [El.txt page_title];
-    El.div main_content]
-
-(** Chronological feed view page content. *)
-let feed_page ~ctx ~title:page_title ~types =
-  let feed = get_entries ~ctx ~types in
-  let feed' = if List.length feed > 25 then Common.take 25 feed else feed in
-  let rec intersperse_hr = function
-    | [] -> [] | [x] -> [render_feed ~ctx x]
-    | x :: xs -> render_feed ~ctx x :: El.hr ~at:[At.class' "my-3 border-t"] () :: intersperse_hr xs
-  in
-  let main_content = intersperse_hr feed' in
-  let types_str = String.concat "," (List.map entry_type_to_string types) in
-  El.article ~at:[
-    At.v "data-pagination" "true";
-    At.v "data-collection-type" "feed";
-    At.v "data-total-count" (string_of_int (List.length feed));
-    At.v "data-current-count" (string_of_int (List.length feed'));
-    At.v "data-types" types_str] [
-    El.h1 ~at:[At.class' "text-2xl font-semibold mb-4"] [El.txt page_title];
-    El.div main_content]
 
 (** HTML string fragment for pagination API (entry list). *)
 let render_entries_html ~ctx ents =

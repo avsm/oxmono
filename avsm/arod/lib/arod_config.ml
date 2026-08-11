@@ -126,14 +126,6 @@ let feeds_codec =
     |> finish
   ))
 
-let well_known_entry_codec =
-  Tomlt.(Table.(
-    obj (fun key value -> { key; value })
-    |> mem "key" string ~enc:(fun e -> e.key)
-    |> mem "value" string ~enc:(fun e -> e.value)
-    |> finish
-  ))
-
 (** Codec for well_known as a table of key-value pairs *)
 let well_known_codec =
   Tomlt.(Table.(

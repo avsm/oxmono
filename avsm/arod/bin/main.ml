@@ -280,8 +280,6 @@ let annotate_cmd =
 module Document = Atp_lexicon_standard_site.Site.Standard.Document
 module Publication = Atp_lexicon_standard_site.Site.Standard.Publication
 
-let now_rfc3339 () = Ptime.to_rfc3339 ~tz_offset_s:0 ~frac_s:3 (Ptime_clock.now ())
-
 let date_to_rfc3339 (y, m, d) =
   match Ptime.of_date (y, m, d) with
   | Some t -> Ptime.to_rfc3339 ~tz_offset_s:0 ~frac_s:3 t

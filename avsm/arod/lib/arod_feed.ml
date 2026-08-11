@@ -21,12 +21,6 @@ let form_uri cfg path = Uri.of_string (cfg.Arod_config.site.base_url ^ path)
 
 let atom_id cfg e = form_uri cfg @@ E.site_url e
 
-let generator = {
-  X.version = Some "1.0";
-  uri = Some (Uri.of_string "https://github.com/avsm/bushel");
-  content = "Bushel"
-}
-
 let link cfg e =
   let href = form_uri cfg @@ E.site_url e in
   let rel = X.Alternate in

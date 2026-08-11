@@ -397,9 +397,6 @@ let page ~ctx ~title ~description ?url ?image ?(jsonld=[]) ?standardsite ?curren
   El.to_string ~doctype:true
     (El.html ~at:[At.lang "en"] [head_el; body_el])
 
-let simple_page ~ctx ~title ~description ?url ?current_page ?(page_scripts=[]) ~content () =
-  page ~ctx ~title ~description ?url ?current_page ~page_scripts ~article:content ()
-
 let wide_page ~ctx ~title ~description ?url ?current_page ?(jsonld=[]) ?(page_scripts=[]) ~article () =
   let config = Arod.Ctx.config ctx in
   let full_title = title ^ " | " ^ config.Arod.Config.site.name in

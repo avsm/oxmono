@@ -421,27 +421,3 @@ let index_md ~ctx =
     let body_md = if body <> "" then render_body ~ctx body else "" in
     Printf.sprintf "# %s\n\n%s\n\n---\nCanonical: %s\n" title body_md base
 
-let wiki_md ~ctx =
-  let all = Arod.Ctx.all_entries ctx in
-  let all = List.sort (fun a b -> compare (Entry.date b) (Entry.date a)) all in
-  let base = Arod.Ctx.base_url ctx in
-  let header = "# All Entries\n\n" in
-  let items = List.map (fun ent ->
-    let type_str = Entry.to_type_string ent in
-    let title = Entry.title ent in
-    let url = entry_url ~ctx ent in
-    let d = date_str (Entry.date ent) in
-    Printf.sprintf "- [%s](%s) (%s, %s)" title url type_str d
-  ) all in
-  let footer = Printf.sprintf "\n---\nCanonical: %s/wiki\n" base in
-  header ^ String.concat "\n" items ^ "\n" ^ footer
-
-let news_md ~ctx =
-  let notes = Arod.Ctx.notes ctx in
-  let base = Arod.Ctx.base_url ctx in
-  let header = "# News\n\n" in
-  let items = List.map (fun note ->
-    entry_bullet ~ctx (`Note note)
-  ) notes in
-  let footer = Printf.sprintf "\n---\nCanonical: %s/news\n" base in
-  header ^ String.concat "\n" items ^ "\n" ^ footer

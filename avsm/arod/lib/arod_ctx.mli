@@ -31,8 +31,6 @@ val create : config:Arod_config.t -> Eio.Fs.dir_ty Eio.Path.t -> t
 
 val config : t -> Arod_config.t
 val base_url : t -> string
-val site_name : t -> string
-val site_description : t -> string
 val author : t -> Sortal_schema.Contact.t option
 val author_exn : t -> Sortal_schema.Contact.t
 val author_name : t -> string

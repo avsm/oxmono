@@ -92,55 +92,6 @@ let status_dot status =
   El.span ~at:[At.class' cls]
     [El.unsafe_raw (I.filled ~size:8 I.circle_f)]
 
-(** Render an idea as a compact list row for project listings.
-    Uses a coloured dot icon as the bullet; text stays neutral. *)
-let to_html_no_sidenotes ~ctx idea =
-  let idea_url = "/ideas/" ^ idea.Idea.slug in
-  let sups = List.filter (fun x -> x <> "avsm") idea.Idea.supervisor_handles in
-  let lev = match idea.Idea.level with
-    | Idea.Any -> "" | PartII -> "Part II" | MPhil -> "MPhil"
-    | PhD -> "PhD" | Postdoc -> "Postdoc"
-  in
-  let status_text = match idea.Idea.status with
-    | Available -> "Available"
-    | Discussion -> "Discussion"
-    | Ongoing -> "Ongoing"
-    | Completed -> "Completed"
-    | Expired -> "Expired"
-  in
-  let detail_parts =
-    [status_text] @
-    (if lev <> "" then [lev] else []) @
-    (match idea.Idea.status with
-     | Ongoing | Completed when idea.Idea.student_handles <> [] -> []
-     | _ -> [])
-  in
-  let detail_text = String.concat " \xC2\xB7 " detail_parts in
-  let people_el = match idea.Idea.status with
-    | Ongoing ->
-      (match idea.Idea.student_handles with
-       | [] -> El.void
-       | _ -> El.span [El.txt " with "; render_contacts ~ctx idea.Idea.student_handles])
-    | Completed ->
-      (match idea.Idea.student_handles with
-       | [] -> El.void
-       | _ -> El.span [El.txt " by "; render_contacts ~ctx idea.Idea.student_handles;
-                        El.txt (Printf.sprintf " (%d)" idea.Idea.year)])
-    | _ -> El.void
-  in
-  let cosup_el = match sups with
-    | [] -> El.void
-    | _ -> El.span ~at:[At.class' "text-secondary"] [
-        El.txt " + "; render_contacts ~ctx sups]
-  in
-  El.div ~at:[At.class' "idea-row"] [
-    status_dot (Idea.status idea);
-    El.div ~at:[At.class' "idea-row-content"] [
-      El.a ~at:[At.href idea_url; At.class' "idea-row-title"]
-        [El.txt (Idea.title idea)];
-      El.span ~at:[At.class' "idea-row-meta"]
-        [El.txt detail_text; people_el; cosup_el]]]
-
 (** {1 Main Rendering Functions} *)
 
 (** Brief idea with status/level info. *)

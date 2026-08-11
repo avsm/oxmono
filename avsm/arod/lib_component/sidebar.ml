@@ -47,10 +47,6 @@ let entry_type_icon ?(opacity="opacity-50") ?(size=10) entry =
   in
   I.outline ~cl:opacity ~size svg
 
-let truncate_str n s =
-  if String.length s <= n then s
-  else String.sub s 0 n ^ "\xe2\x80\xa6"
-
 let entry_links ~ctx slug =
   let entries = Arod.Ctx.entries ctx in
   let outbound_slugs = Bushel.Link_graph.get_outbound_for_slug slug in
@@ -259,18 +255,6 @@ let activity_row ~ctx ent =
           [El.txt date_str]];
       detail_el]]
 
-(** Build an activity stream section from a list of entries.
-    Returns [El.void] if the list is empty. *)
-let activity_stream ~ctx ~title entries =
-  let open Htmlit in
-  match entries with
-  | [] -> El.void
-  | _ ->
-    El.div ~at:[At.class' "mt-6"] [
-      El.h2 ~at:[At.class' "text-lg font-semibold mb-3"] [El.txt title];
-      El.div ~at:[At.class' "project-activity-list not-prose"]
-        (List.map (activity_row ~ctx) entries)]
-
 (** {1 Related Stream}
 
     Unified "Related" section combining bushel entry backlinks and feed
@@ -369,118 +353,10 @@ let related_stream ~ctx slug =
         [El.txt "Related"];
       El.div ~at:[At.class' "project-activity-list"] rows]
 
-(** {1 Contact Popover}
-
-    Shared hover card for contacts. Shows photo, name, current org,
-    and social links. Reusable from sidebar avatars and sidenotes. *)
+(** {1 Contacts} *)
 
 module Contact = Sortal_schema.Contact
 module Account = Sortal_schema.Contact.Account
-
-let contact_popover_card contact ~thumb =
-  let name = Contact.name contact in
-  let org_el = match Contact.current_affiliation contact with
-    | Some (a : Contact.affiliation) ->
-      let title_str = match a.title with
-        | Some t -> t ^ ", "
-        | None -> ""
-      in
-      [El.p ~at:[At.class' "popover-org block text-secondary text-[0.65rem] m-0 truncate"] [El.txt (title_str ^ a.org)]]
-    | None -> []
-  in
-  let social_icons =
-    let open Arod.Icons in
-    let items = List.filter_map Fun.id [
-      Option.map (fun g ->
-        El.a ~at:[At.href ("https://github.com/" ^ g);
-           At.v "title" "GitHub"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 github_brand)]
-      ) (Contact.handle_on contact (Simple Github));
-      Option.map (fun t ->
-        El.a ~at:[At.href ("https://twitter.com/" ^ t);
-           At.v "title" "X"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 x_brand)]
-      ) (Contact.handle_on contact (Simple Twitter));
-      Option.map (fun b ->
-        El.a ~at:[At.href ("https://bsky.app/profile/" ^ b);
-           At.v "title" "Bluesky"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 bluesky_brand)]
-      ) (Contact.atproto_handle contact);
-      Option.map (fun svc ->
-        El.a ~at:[At.href (Account.url svc);
-           At.v "title" "LinkedIn"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 linkedin_brand)]
-      ) (Contact.account_on contact (Simple LinkedIn));
-      Option.map (fun u ->
-        El.a ~at:[At.href u;
-           At.v "title" "Website"; At.class' "popover-social-link"]
-           [El.unsafe_raw (outline ~size:14 world_o)]
-      ) (Contact.best_url contact);
-      Option.map (fun o ->
-        El.a ~at:[At.href ("https://orcid.org/" ^ o);
-           At.v "title" "ORCID"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 orcid_brand)]
-      ) (Contact.handle_on contact (Simple Orcid));
-      Option.map (fun svc ->
-        El.a ~at:[At.href (Account.url svc);
-           At.v "title" "Matrix"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 matrix_brand)]
-      ) (Contact.account_on contact (Federated Matrix));
-      Option.map (fun svc ->
-        El.a ~at:[At.href (Account.url svc);
-           At.v "title" "Zulip"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 zulip_brand)]
-      ) (Contact.account_on contact (Federated Zulip));
-    ] @ List.filter_map (fun svc ->
-        Some (El.a ~at:[At.href (Account.url svc);
-           At.v "title" "Discourse"; At.class' "popover-social-link"]
-           [El.unsafe_raw (brand ~size:14 discourse_brand)])
-    ) (Contact.accounts_on contact (Federated Discourse)) in
-    match items with
-    | [] -> []
-    | _ -> [El.div ~at:[At.class' "popover-socials"] items]
-  in
-  let photo_el = match thumb with
-    | Some src ->
-      El.img ~at:[At.src src; At.v "alt" name;
-                  At.class' "popover-photo"] ()
-    | None ->
-      El.span ~at:[At.class' "popover-photo-initials"]
-        [El.txt (contact_initials name)]
-  in
-  let name_el = match Contact.best_url contact with
-    | Some u -> El.a ~at:[At.href u; At.class' "popover-name block font-semibold !text-text !no-underline truncate"] [El.txt name]
-    | None -> El.span ~at:[At.class' "popover-name block font-semibold !text-text !no-underline truncate"] [El.txt name]
-  in
-  El.div ~at:[At.class' "contact-popover"]
-    ([El.div ~at:[At.class' "popover-row"]
-        [photo_el;
-         El.div ~at:[At.class' "popover-info min-w-0"]
-           ([name_el] @ org_el)]]
-     @ social_icons)
-
-(** Inline avatar with hover popover. *)
-let contact_avatar ~ctx contact =
-  let entries = Arod.Ctx.entries ctx in
-  let name = Contact.name contact in
-  let thumb = Bushel.Entry.contact_thumbnail entries contact in
-  let img_el = match thumb with
-    | Some src ->
-      El.img ~at:[At.src src; At.v "alt" name;
-                  At.class' "sidebar-avatar-img"] ()
-    | None ->
-      El.span ~at:[At.class' "sidebar-avatar-initials text-[0.38rem] font-bold text-muted leading-none uppercase tracking-[-0.03em]"]
-        [El.txt (contact_initials name)]
-  in
-  let popover = contact_popover_card contact ~thumb in
-  let wrapper =
-    El.div ~at:[At.class' "sidebar-avatar-wrap"] [
-      El.div ~at:[At.class' "sidebar-avatar"] [img_el];
-      popover]
-  in
-  match Contact.best_url contact with
-  | Some u -> El.a ~at:[At.href u; At.class' "no-underline sidebar-avatar-wrap-link"] [wrapper]
-  | None -> wrapper
 
 (** Inline contact row with name + social icons (no popover). *)
 let contact_inline ~ctx contact =

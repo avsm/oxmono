@@ -248,8 +248,6 @@ let create ~config fs =
 
 let config t = t.config
 let base_url t = t.config.site.base_url
-let site_name t = t.config.site.name
-let site_description t = t.config.site.description
 
 let author t =
   let contacts = Bushel.Entry.contacts t.entries in

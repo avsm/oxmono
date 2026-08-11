@@ -238,14 +238,22 @@ let papers_list_md ~ctx =
 
 let notes_list_md ~ctx =
   let notes = Arod.Ctx.notes ctx in
+  let weeknotes, journal = List.partition Bushel.Note.weeknote notes in
   let header, footer = list_header ~ctx ~title:"Notes" ~description:"Notes and blog posts." ~path:"/notes" in
-  let items = List.map (fun note ->
+  let bullet_of note =
     let bullet = entry_bullet ~ctx (`Note note) in
     match Bushel.Note.synopsis note with
     | Some syn when syn <> "" -> bullet ^ "\n  " ^ syn
     | _ -> bullet
-  ) notes in
-  header ^ String.concat "\n" items ^ "\n" ^ footer
+  in
+  let items = List.map bullet_of journal in
+  let weeknote_section = match weeknotes with
+    | [] -> ""
+    | _ ->
+      "\n\n## Weeknotes\n\n"
+      ^ String.concat "\n" (List.map bullet_of weeknotes)
+  in
+  header ^ String.concat "\n" items ^ weeknote_section ^ "\n" ^ footer
 
 let ideas_list_md ~ctx =
   let ideas = Arod.Ctx.ideas ctx in

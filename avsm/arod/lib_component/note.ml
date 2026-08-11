@@ -145,17 +145,11 @@ let format_number n =
     done;
     Buffer.contents buf
 
-(** Compact note card for list view. *)
+(** Compact note card for the journal stream. Weeknotes render in the
+    ledger via [weeknote_ledger] instead. *)
 let compact ~ctx note =
   let (y, m, d) = Bushel.Entry.date (`Note note) in
-  let date_str =
-    if Note.weeknote note then
-      let (_,_,_, sun_y, sun_m, sun_d) = Note.week_date_range note in
-      let today = Ptime_clock.now () |> Ptime.to_date in
-      if today <= (sun_y, sun_m, sun_d) then "ongoing"
-      else Printf.sprintf "%d %s %d" d (Common.month_name m) y
-    else Printf.sprintf "%d %s %d" d (Common.month_name m) y
-  in
+  let date_str = Printf.sprintf "%d %s %d" d (Common.month_name m) y in
   let url = Bushel.Entry.site_url (`Note note) in
   let all_tags = Arod.Ctx.tags_of_ent ctx (`Note note) in
   let tag_strs = List.map Bushel.Tags.to_raw_string all_tags in
@@ -176,12 +170,9 @@ let compact ~ctx note =
             [El.txt ("#" ^ t)]
         ) tags)
   in
-  let is_weeknote = Note.weeknote note in
   let is_perma = Note.perma note in
   let card_cls = "note-compact hover:bg-surface note-item h-entry px-1 py-1 md:px-2 md:py-1 md:pl-6"
-    ^ (if is_weeknote then " note-weeknote"
-       else if is_perma then " note-perma"
-       else "") in
+    ^ (if is_perma then " note-perma" else "") in
   let display_title = Note.title note in
   let ref_el = match Note.slug_ent note with
     | Some slug ->
@@ -198,9 +189,7 @@ let compact ~ctx note =
     | None -> El.void
   in
   let type_icon_el, icon_tooltip =
-    if is_weeknote then
-      I.outline ~cl:"opacity-40" ~size:14 I.calendar_o, "Weekly"
-    else if is_perma then
+    if is_perma then
       I.outline ~cl:"opacity-40" ~size:14 I.bookmark_o, "Full post"
     else
       I.outline ~cl:"opacity-40" ~size:14 I.writing_o, "Quick post"
@@ -218,20 +207,113 @@ let compact ~ctx note =
       El.time ~at:[At.class' "note-compact-meta shrink-0 text-[0.82rem] text-secondary whitespace-nowrap tabular-nums dt-published";
                    At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
         [El.txt date_str]];
-    (* Row 2: synopsis — weeknotes get smaller text since their titles are more descriptive *)
+    (* Row 2: synopsis *)
     (if synopsis <> "" then
-       let synopsis_cls = if is_weeknote
-         then "note-compact-synopsis text-[0.74rem] text-secondary leading-[1.3] mt-[0.1rem] p-summary"
-         else "note-compact-synopsis text-[0.85rem] text-secondary leading-[1.4] mt-[0.1rem] p-summary"
-       in
-       El.div ~at:[At.class' synopsis_cls] [El.txt synopsis]
+       El.div ~at:[At.class' "note-compact-synopsis text-[0.85rem] text-secondary leading-[1.4] mt-[0.1rem] p-summary"]
+         [El.txt synopsis]
      else El.void);
     (* Row 3: slug_ent reference *)
     ref_el;
     (* Row 4: tags *)
     tag_chips]
 
-(** Notes list page grouped by month with calendar sidebar.
+(** {1 Weeknote Ledger} *)
+
+(** [strip_weeknote_prefix t] removes the ".plan-YY-WW: " prefix that
+    [Bushel.Note.of_frontmatter] prepends to weeknote titles. The ledger
+    rows carry the week number in a badge, so the prefix is redundant. *)
+let strip_weeknote_prefix t =
+  if String.length t >= 6 && String.sub t 0 6 = ".plan-" then
+    match String.index_opt t ':' with
+    | Some i when i + 2 < String.length t ->
+      String.sub t (i + 2) (String.length t - i - 2)
+    | _ -> t
+  else t
+
+(** Weeknote ledger column. Renders one row per ISO week from the newest
+    weeknote back to the oldest, newest first. Weeks without a weeknote
+    collapse into quiet-week markers so the writing cadence stays honest.
+    Returns [El.void] when there are no weeknotes. *)
+let weeknote_ledger ~ctx weeknotes =
+  match weeknotes with
+  | [] -> El.void
+  | _ ->
+    let sorted =
+      List.sort (fun a b -> compare (Note.week_number b) (Note.week_number a))
+        weeknotes
+    in
+    let by_week = Hashtbl.create 64 in
+    List.iter (fun n -> Hashtbl.replace by_week (Note.week_number n) n) sorted;
+    let newest = List.hd sorted in
+    let oldest_week = Note.week_number (List.nth sorted (List.length sorted - 1)) in
+    let current_week = Note.iso_week_number (Ptime_clock.now () |> Ptime.to_date) in
+    let entries = Arod.Ctx.entries ctx in
+    let week_step pt =
+      Option.get (Ptime.sub_span pt (Ptime.Span.of_int_s (7 * 86400))) in
+    (* Walk newest to oldest, one ISO week at a time. *)
+    let rows =
+      let rec go pt quiet =
+        let wk = Note.iso_week_number (Ptime.to_date pt) in
+        if compare wk oldest_week < 0 then []
+        else
+          match Hashtbl.find_opt by_week wk with
+          | Some n ->
+            let qrows = if quiet > 0 then [`Quiet quiet] else [] in
+            qrows @ (`Week n :: go (week_step pt) 0)
+          | None -> go (week_step pt) (quiet + 1)
+      in
+      go (Note.datetime newest) 0
+    in
+    let week_row n =
+      let week = Note.week_number n in
+      let (_, wk) = week in
+      let (y, m, d) = Note.date n in
+      let is_current = week = current_week in
+      let all_tags = Arod.Ctx.tags_of_ent ctx (`Note n) in
+      let tags_data =
+        String.concat "," (List.map Bushel.Tags.to_raw_string all_tags) in
+      let range_str =
+        if is_current then "ongoing"
+        else Printf.sprintf "%s %d" (Note.week_date_range_string n) y in
+      let url = Bushel.Entry.site_url (`Note n) in
+      let slice_el = match Bushel.Entry.thumbnail entries (`Note n) with
+        | Some src ->
+          El.a ~at:[At.href url; At.class' "week-slice-link";
+                    At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
+            [El.img ~at:[At.src src; At.v "alt" "";
+                         At.v "loading" "lazy";
+                         At.class' "week-slice"] ()]
+        | None -> El.void
+      in
+      let cls = "week-row note-item h-entry"
+        ^ (if is_current then " week-current" else "") in
+      El.div ~at:[At.class' cls;
+                  At.v "data-tags" tags_data;
+                  At.v "title" (Printf.sprintf "%s words" (format_number (Note.words n)))] [
+        El.div ~at:[At.class' "week-row-body min-w-0"] [
+          El.div ~at:[At.class' "week-meta"] [
+            El.txt (Printf.sprintf "W%02d" wk);
+            El.txt " \xC2\xB7 ";
+            El.time ~at:[At.class' "week-range dt-published";
+                         At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+              [El.txt range_str]];
+          El.a ~at:[At.href url; At.class' "week-title p-name u-url"]
+            [El.txt (strip_weeknote_prefix (Note.title n))]];
+        slice_el]
+    in
+    let row_el = function
+      | `Week n -> week_row n
+      | `Quiet 1 -> El.div ~at:[At.class' "week-quiet"] [El.txt "1 quiet week"]
+      | `Quiet q ->
+        El.div ~at:[At.class' "week-quiet"]
+          [El.txt (Printf.sprintf "%d quiet weeks" q)]
+    in
+    El.div ~at:[At.class' "week-rail"] [
+      El.div ~at:[At.class' "paper-year-header"] [El.txt "Weeknotes"];
+      El.div ~at:[At.class' "week-rail-list"] (List.map row_el rows)]
+
+(** Notes list page split into a journal stream of regular notes and a
+    weeknote ledger column, with calendar sidebar.
     Returns [(article, sidebar)]. *)
 let notes_list ~ctx =
   let all_notes =
@@ -239,16 +321,18 @@ let notes_list ~ctx =
     |> List.sort (fun a b -> Bushel.Entry.compare (`Note a) (`Note b))
     |> List.rev
   in
-  let total_notes = List.length all_notes in
-  let total_words = List.fold_left (fun acc n -> acc + Note.words n) 0 all_notes in
-  (* Group by (year, month) *)
+  let weeknotes, journal_notes = List.partition Note.weeknote all_notes in
+  let total_notes = List.length journal_notes in
+  let total_words =
+    List.fold_left (fun acc n -> acc + Note.words n) 0 journal_notes in
+  (* Group the journal stream by (year, month) *)
   let by_month = Hashtbl.create 32 in
   List.iter (fun n ->
     let (y, m, _d) = Bushel.Entry.date (`Note n) in
     let key = (y, m) in
     let cur = try Hashtbl.find by_month key with Not_found -> [] in
     Hashtbl.replace by_month key (n :: cur)
-  ) all_notes;
+  ) journal_notes;
   let months =
     Hashtbl.fold (fun k _ acc -> k :: acc) by_month []
     |> List.sort (fun (y1, m1) (y2, m2) ->
@@ -297,8 +381,12 @@ let notes_list ~ctx =
         El.txt (Printf.sprintf "%s %d" (Common.month_name_full m) y)];
       El.div ~at:[At.class' "note-month-list"] note_cards]
   ) months in
-  (* Article *)
-  let article = El.article ~at:[At.class' "h-feed"] [El.div month_sections]
+  (* Article: weeknote ledger on the left of the journal stream *)
+  let article =
+    El.article ~at:[At.class' "h-feed"] [
+      El.div ~at:[At.class' "notes-split"] [
+        weeknote_ledger ~ctx weeknotes;
+        El.div ~at:[At.class' "notes-journal min-w-0"] month_sections]]
   in
   (* Sidebar: calendar box — stats in header + heatmap + per-month calendar *)
   let first_month = match months with
@@ -331,8 +419,10 @@ let notes_list ~ctx =
       Common.meta_box ~body_cls:"sidebar-meta-body tag-cloud"
         ~header:[El.txt " tags"] tag_btns
   in
+  (* The ledger occupies the lg viewport width, so the meta sidebar only
+     returns at xl where all three columns fit. *)
   let sidebar =
-    El.aside ~at:[At.class' "hidden lg:block lg:w-72 shrink-0"]
+    El.aside ~at:[At.class' "hidden xl:block lg:w-72 shrink-0"]
       [El.div ~at:[At.class' "sticky top-16"]
          [calendar_box; tag_cloud_box]]
   in

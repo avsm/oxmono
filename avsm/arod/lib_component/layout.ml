@@ -351,18 +351,18 @@ let build_scripts page_scripts =
 
 (** {1 Content Grid} *)
 
-let content_grid ~article ?sidebar () =
+let content_grid ?(main_cls="max-w-2xl") ~article ?sidebar () =
   El.div
     ~at:[At.class' "max-w-6xl mx-auto px-2 md:px-6 py-8 flex flex-col lg:flex-row gap-6 lg:gap-10"]
     ([ El.main
-         ~at:[At.class' "prose text-body flex-1 max-w-2xl"]
+         ~at:[At.class' ("prose text-body flex-1 " ^ main_cls)]
          [ article ] ]
      @ Option.to_list sidebar)
 
 (** {1 Page Assembly} *)
 
 let page ~ctx ~title ~description ?url ?image ?(jsonld=[]) ?standardsite ?current_page ?toc_sections
-    ?og_type ?published ?modified ?tags ?citation ?(page_scripts=[]) ~article ?sidebar ?mobile_footer () =
+    ?og_type ?published ?modified ?tags ?citation ?(page_scripts=[]) ?main_cls ~article ?sidebar ?mobile_footer () =
   let config = Arod.Ctx.config ctx in
   let full_title = title ^ " | " ^ config.Arod.Config.site.name in
   let og_type = Option.value ~default:"website" og_type in
@@ -379,7 +379,7 @@ let page ~ctx ~title ~description ?url ?image ?(jsonld=[]) ?standardsite ?curren
   in
   let body_content =
     [ Nav.header ?current_page ?toc_sections ctx;
-      content_grid ~article ?sidebar ();
+      content_grid ?main_cls ~article ?sidebar ();
       mobile_footer_el;
       footer_el ~ctx ?url () ]
     @ build_scripts page_scripts

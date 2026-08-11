@@ -1899,19 +1899,8 @@ let custom_css = {|
     color: var(--color-accent) !important;
     border-color: var(--color-accent);
   }
-  /* Weeknote cards — .plan entries */
-  .note-weeknote .note-compact-title {
-    font-weight: 500 !important;
-    font-size: 0.85rem !important;
-  }
-  .note-weeknote .note-compact-meta {
-    font-size: 0.72rem;
-  }
-  .note-weeknote:hover .note-compact-title {
-    color: var(--color-link) !important;
-  }
-  /* Quick post cards — between perma and weeknote size */
-  .note-compact:not(.note-perma):not(.note-weeknote) .note-compact-title {
+  /* Quick post cards — smaller than perma size */
+  .note-compact:not(.note-perma) .note-compact-title {
     font-size: 0.85rem !important;
   }
   /* Perma article cards — subtle accent background */
@@ -1924,17 +1913,12 @@ let custom_css = {|
     display: inline-flex;
     align-items: center;
   }
-  .note-weeknote .note-type-icon {
-    background: radial-gradient(circle, var(--color-weeknote-accent) 30%, transparent 70%);
-    padding: 0.3rem;
-    margin: -0.3rem;
-  }
   .note-perma .note-type-icon {
     background: radial-gradient(circle, var(--color-perma-accent) 30%, transparent 70%);
     padding: 0.3rem;
     margin: -0.3rem;
   }
-  .note-compact:not(.note-perma):not(.note-weeknote) .note-type-icon {
+  .note-compact:not(.note-perma) .note-type-icon {
     background: radial-gradient(circle, var(--color-quickpost-accent) 30%, transparent 70%);
     padding: 0.3rem;
     margin: -0.3rem;
@@ -1963,10 +1947,7 @@ let custom_css = {|
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Synopsis for weeknotes and quick posts: smaller than heading */
-  .note-weeknote .note-compact-synopsis {
-    font-size: 0.62rem;
-  }
+  /* Synopsis for quick posts: smaller than heading */
   .note-compact:not(.note-perma) .note-compact-synopsis {
     font-size: 0.78rem;
     line-height: 1.35;
@@ -2029,6 +2010,93 @@ let custom_css = {|
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
+  }
+  /* Journal-and-ledger split for the notes index. The journal stream of
+     regular notes sits beside a weeknote ledger rail. On small screens the
+     ledger comes first as a capped scrollable box so recent weeks stay
+     visible without burying the journal. */
+  .notes-split {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+  .notes-split .week-rail-list {
+    max-height: 16rem;
+    overflow-y: auto;
+  }
+  @media (min-width: 1024px) {
+    .notes-split {
+      display: grid;
+      grid-template-columns: 13rem minmax(0, 1fr);
+      gap: 2.5rem;
+      align-items: start;
+    }
+    .notes-split .week-rail-list {
+      max-height: none;
+      overflow-y: visible;
+    }
+  }
+  /* Extra room beneath the notes page section headers (month names in the
+     journal, "Weeknotes" atop the rail). */
+  .notes-journal .paper-year-header,
+  .week-rail > .paper-year-header {
+    margin-bottom: 0.65rem !important;
+  }
+  .week-rail-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  /* Each weeknote is a bordered card: a wide slice of the week's title
+     image on top, meta line and title on a surface panel below.
+     flex-shrink: 0 stops the height-capped mobile list collapsing the
+     cards to zero height. */
+  .week-row {
+    border: 1px solid var(--color-border);
+    border-radius: 7px;
+    overflow: hidden;
+    background: var(--color-surface);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    flex-shrink: 0;
+  }
+  .week-quiet {
+    flex-shrink: 0;
+  }
+  .week-row:hover {
+    border-color: var(--color-accent);
+  }
+  .week-slice-link {
+    display: block;
+  }
+  .week-row-body {
+    padding: 0.35rem 0.55rem 0.5rem;
+  }
+  .week-meta {
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+    color: var(--color-muted);
+  }
+  .week-range {
+    color: var(--color-muted);
+  }
+  .week-current .week-range {
+    color: var(--color-accent);
+    font-weight: 500;
+  }
+  .week-title {
+    display: block;
+    font-size: 0.74rem;
+    font-weight: 500;
+    line-height: 1.35;
+    margin-top: 0.05rem;
+    color: var(--color-text) !important;
+    text-decoration: none !important;
+  }
+  .week-quiet {
+    font-size: 0.68rem;
+    font-style: italic;
+    color: var(--color-muted);
+    padding: 0.05rem 0;
   }
   /* Year heatmap strip */
   .heatmap-strip {
@@ -2430,6 +2498,36 @@ let custom_css = {|
 .dark .search-filter-pill.active {
   color: #fff;
   background: var(--color-accent);
+}
+
+/* Weeknote ledger slice — unlayered so the fixed crop height wins over the
+   Tailwind preflight img { height: auto } reset */
+.week-slice {
+  display: block;
+  width: 100%;
+  height: 2.9rem;
+  object-fit: cover;
+  opacity: 0.75;
+  filter: sepia(0.7) saturate(0.7);
+  transition: opacity 0.15s, filter 0.15s;
+  border-top: 1px solid var(--color-border);
+}
+.week-row:hover .week-slice {
+  opacity: 1;
+  filter: none;
+}
+/* Light source images glare against dark cards, so dim them further */
+.dark .week-slice {
+  opacity: 0.55;
+}
+.dark .week-row:hover .week-slice {
+  opacity: 0.9;
+}
+/* Mobile keeps the weeknote cards text-only */
+@media (max-width: 1023px) {
+  .week-slice-link {
+    display: none;
+  }
 }
 
 /* These need higher specificity than layered rules */

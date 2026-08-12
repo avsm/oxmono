@@ -23,9 +23,9 @@ type result = {
 
 let note_fields =
   [ "title"; "date"; "slug"; "tags"; "draft"; "updated"; "index_page";
-    "perma"; "weeknote"; "doi"; "synopsis"; "titleimage"; "slug_ent";
-    "source"; "url"; "author"; "category"; "standardsite"; "social";
-    "via"; "via-url"; "sidebar" ]
+    "perma"; "weeknote"; "featured"; "doi"; "synopsis"; "titleimage";
+    "slug_ent"; "source"; "url"; "author"; "category"; "standardsite";
+    "social"; "via"; "via-url"; "sidebar" ]
 
 let paper_fields =
   [ "title"; "author"; "year"; "month"; "bibtype"; "publisher";

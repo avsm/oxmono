@@ -19,6 +19,7 @@ type t = {
   index_page : bool;
   perma : bool;              (** Permanent article that will receive a DOI *)
   weeknote : bool;           (** Regular small update with ISO week numbering *)
+  featured : bool;           (** Curated highlight for index pages *)
   doi : string option;       (** DOI identifier for permanent articles *)
   synopsis : string option;
   titleimage : string option;
@@ -46,6 +47,7 @@ let sidebar { sidebar; _ } = sidebar
 let synopsis { synopsis; _ } = synopsis
 let perma { perma; _ } = perma
 let weeknote { weeknote; _ } = weeknote
+let featured { featured; _ } = featured
 let doi { doi; _ } = doi
 let titleimage { titleimage; _ } = titleimage
 let slug_ent { slug_ent; _ } = slug_ent
@@ -191,10 +193,10 @@ let via_jsont : (string * string) option Jsont.t =
 let jsont ~default_date ~default_slug : t Jsont.t =
   let open Jsont in
   let open Jsont.Object in
-  let make title date slug tags draft updated index_page perma weeknote doi synopsis titleimage
+  let make title date slug tags draft updated index_page perma weeknote featured doi synopsis titleimage
            slug_ent source url author category standardsite social =
     { title; date; slug; body = ""; tags; draft; updated; sidebar = None;
-      index_page; perma; weeknote; doi; synopsis; titleimage; via = None;
+      index_page; perma; weeknote; featured; doi; synopsis; titleimage; via = None;
       slug_ent; source; url; author; category; standardsite; social;
       source_file = None }
   in
@@ -209,6 +211,7 @@ let jsont ~default_date ~default_slug : t Jsont.t =
   |> mem "index_page" bool ~dec_absent:false ~enc:(fun n -> n.index_page)
   |> mem "perma" bool ~dec_absent:false ~enc:(fun n -> n.perma)
   |> mem "weeknote" bool ~dec_absent:false ~enc:(fun n -> n.weeknote)
+  |> mem "featured" bool ~dec_absent:false ~enc:(fun n -> n.featured)
   |> mem "doi" Bushel_types.string_option_jsont ~dec_absent:None
        ~enc_omit:Option.is_none ~enc:(fun n -> n.doi)
   |> mem "synopsis" Bushel_types.string_option_jsont ~dec_absent:None
@@ -277,6 +280,7 @@ let pp ppf n =
   pf ppf "%a: %b@," (styled `Bold string) "Index Page" n.index_page;
   pf ppf "%a: %b@," (styled `Bold string) "Perma" (perma n);
   pf ppf "%a: %b@," (styled `Bold string) "Weeknote" (weeknote n);
+  pf ppf "%a: %b@," (styled `Bold string) "Featured" (featured n);
   (match doi n with
    | Some d -> pf ppf "%a: %a@," (styled `Bold string) "DOI" string d
    | None -> ());

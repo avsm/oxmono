@@ -172,7 +172,7 @@ let compact ?(cls="") ~ctx note =
         ) tags)
   in
   let is_perma = Note.perma note in
-  let card_cls = "note-compact hover:bg-surface note-item h-entry px-1 py-1 md:px-2 md:py-1 md:pl-6"
+  let card_cls = "note-compact hover:bg-surface note-item h-entry px-1 py-1 md:px-2 md:py-1"
     ^ (if is_perma then " note-perma" else "")
     ^ (if cls = "" then "" else " " ^ cls) in
   let display_title = Note.title note in
@@ -190,18 +190,10 @@ let compact ?(cls="") ~ctx note =
        | None -> El.void)
     | None -> El.void
   in
-  let type_icon_el, icon_tooltip =
-    if is_perma then
-      I.outline ~cl:"opacity-40" ~size:14 I.bookmark_o, "Full post"
-    else
-      I.outline ~cl:"opacity-40" ~size:14 I.writing_o, "Quick post"
-  in
   El.div ~at:[At.id note_id;
               At.class' card_cls;
               At.v "data-tags" tags_data;
               At.v "data-month" month_data] [
-    El.span ~at:[At.class' "note-type-icon"; At.v "title" icon_tooltip]
-      [El.unsafe_raw type_icon_el];
     (* Row 1: title + meta *)
     El.div ~at:[At.class' "note-compact-row"] [
       El.a ~at:[At.href url; At.class' "note-compact-title flex-1 min-w-0 font-medium !text-text !no-underline p-name u-url"]
@@ -363,10 +355,15 @@ let notes_list ~ctx =
         weeknote_ledger ~ctx weeknotes;
         El.div ~at:[At.class' "notes-journal min-w-0"] month_sections]]
   in
-  (* Sidebar: featured rail of recent perma articles, styled to match the
-     weeknote ledger cards *)
+  (* Sidebar: featured rail of curated notes, styled to match the weeknote
+     ledger cards. Falls back to recent perma articles when nothing is
+     marked featured in the store. *)
   let featured_rail =
-    let featured = List.filter Note.perma journal_notes |> Common.take 5 in
+    let featured =
+      match List.filter Note.featured journal_notes with
+      | [] -> List.filter Note.perma journal_notes |> Common.take 5
+      | marked -> marked
+    in
     match featured with
     | [] -> El.void
     | _ ->

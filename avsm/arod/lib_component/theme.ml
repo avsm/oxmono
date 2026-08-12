@@ -144,8 +144,6 @@ let custom_css = {|
   --color-highlight: #fde68a;
   --color-toc-bg: #e0e7ff;
   --color-bq-text: #4a4a4a;
-  --color-perma-accent: #c8d4e8;
-  --color-quickpost-accent: #e0e0e0;
   --color-weeknote-accent: #dde8d8;
 }
 
@@ -176,8 +174,6 @@ let custom_css = {|
   --color-highlight: #634d15;
   --color-toc-bg: #1c2654;
   --color-bq-text: #b1bac4;
-  --color-perma-accent: #2d3a52;
-  --color-quickpost-accent: #2a2e33;
   --color-weeknote-accent: #253528;
 }
 
@@ -1903,26 +1899,6 @@ let custom_css = {|
   .note-compact:not(.note-perma) .note-compact-title {
     font-size: 0.85rem !important;
   }
-  /* Perma article cards — subtle accent background */
-  /* Note type icon — positioned in left gutter with radial glow */
-  /* Note type icon — vertically centered with the heading row */
-  .note-type-icon {
-    position: absolute;
-    left: 0.35rem;
-    top: 0.55rem;
-    display: inline-flex;
-    align-items: center;
-  }
-  .note-perma .note-type-icon {
-    background: radial-gradient(circle, var(--color-perma-accent) 30%, transparent 70%);
-    padding: 0.3rem;
-    margin: -0.3rem;
-  }
-  .note-compact:not(.note-perma) .note-type-icon {
-    background: radial-gradient(circle, var(--color-quickpost-accent) 30%, transparent 70%);
-    padding: 0.3rem;
-    margin: -0.3rem;
-  }
   /* Perma article cards — featured with more visual weight */
   .note-perma .note-compact-title {
     font-weight: 600 !important;
@@ -2077,13 +2053,13 @@ let custom_css = {|
      edge: meta line, title, then the week's image slice. The spine border
      itself is declared below the @layer block. */
   .week-row {
-    padding-left: 0.65rem;
+    padding-right: 0.65rem;
     flex-shrink: 0;
     transition: border-color 0.15s;
   }
   .week-quiet {
     flex-shrink: 0;
-    padding-left: calc(3px + 0.65rem);
+    padding-right: calc(3px + 0.65rem);
   }
   .week-row:hover {
     border-color: var(--color-accent);
@@ -2114,6 +2090,10 @@ let custom_css = {|
     margin-top: 0.05rem;
     color: var(--color-text) !important;
     text-decoration: none !important;
+  }
+  /* Weeknote titles read as summaries, so match the featured synopsis size */
+  .week-row .week-title {
+    font-size: 0.7rem;
   }
   .week-quiet {
     font-size: 0.68rem;
@@ -2547,24 +2527,28 @@ let custom_css = {|
 /* Accent spines binding each ledger and featured unit — unlayered so they
    survive the Tailwind preflight border reset */
 .week-row {
-  border-left: 3px solid var(--color-weeknote-accent);
+  border-right: 3px solid var(--color-weeknote-accent);
 }
 .feat-card {
   border-left: 3px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-weeknote-accent));
 }
-.week-row:hover,
+.week-row:hover {
+  border-right-color: var(--color-accent);
+}
 .feat-card:hover {
   border-left-color: var(--color-accent);
 }
 /* The dark weeknote accent is a background tint and vanishes as a line,
    so lift the spine towards the foreground in dark mode. */
 .dark .week-row {
-  border-left-color: color-mix(in srgb, var(--color-weeknote-accent) 45%, var(--color-secondary));
+  border-right-color: color-mix(in srgb, var(--color-weeknote-accent) 45%, var(--color-secondary));
 }
 .dark .feat-card {
   border-left-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-secondary));
 }
-.dark .week-row:hover,
+.dark .week-row:hover {
+  border-right-color: var(--color-accent);
+}
 .dark .feat-card:hover {
   border-left-color: var(--color-accent);
 }
@@ -3171,7 +3155,6 @@ main .paper-item a:not(.no-underline):not(.heading-anchor):not(.lightbox-trigger
 /* Mobile listing adjustments */
 @media (max-width: 768px) {
   /* Hide type icons from listing items */
-  .note-type-icon,
   .paper-cls-icon {
     display: none;
   }

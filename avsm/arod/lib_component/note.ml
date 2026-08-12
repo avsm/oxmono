@@ -409,7 +409,7 @@ let notes_list ~ctx =
   (* The ledger occupies the lg viewport width, so the featured sidebar
      only returns at xl where all three columns fit. *)
   let sidebar =
-    El.aside ~at:[At.class' "hidden xl:block lg:w-72 shrink-0"]
+    El.aside ~at:[At.class' "hidden xl:block lg:w-52 shrink-0"]
       [featured_rail]
   in
   (article, sidebar)

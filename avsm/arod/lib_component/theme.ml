@@ -2020,20 +2020,12 @@ let custom_css = {|
     flex-direction: column;
     gap: 2rem;
   }
-  .notes-split .week-rail-list {
-    max-height: 16rem;
-    overflow-y: auto;
-  }
   @media (min-width: 1024px) {
     .notes-split {
       display: grid;
       grid-template-columns: 13rem minmax(0, 1fr);
       gap: 2.5rem;
       align-items: start;
-    }
-    .notes-split .week-rail-list {
-      max-height: none;
-      overflow-y: visible;
     }
   }
   /* Extra room beneath the notes page section headers (month names in the
@@ -2565,12 +2557,6 @@ let custom_css = {|
 .dark .week-row:hover .week-slice,
 .dark .feat-card:hover .week-slice {
   opacity: 0.9;
-}
-/* Mobile keeps the weeknote cards text-only */
-@media (max-width: 1023px) {
-  .week-slice-link {
-    display: none;
-  }
 }
 
 /* These need higher specificity than layered rules */

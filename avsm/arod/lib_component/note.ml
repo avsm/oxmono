@@ -145,9 +145,10 @@ let format_number n =
     done;
     Buffer.contents buf
 
-(** Compact note card for the journal stream. Weeknotes render in the
-    ledger via [weeknote_ledger] instead. *)
-let compact ~ctx note =
+(** Compact note card for the journal stream. On desktop weeknotes render
+    in the ledger via [weeknote_ledger] instead, so weeknote cards are
+    emitted with [cls] set to hide them at large widths. *)
+let compact ?(cls="") ~ctx note =
   let (y, m, d) = Bushel.Entry.date (`Note note) in
   let date_str = Printf.sprintf "%d %s %d" d (Common.month_name m) y in
   let url = Bushel.Entry.site_url (`Note note) in
@@ -172,7 +173,8 @@ let compact ~ctx note =
   in
   let is_perma = Note.perma note in
   let card_cls = "note-compact hover:bg-surface note-item h-entry px-1 py-1 md:px-2 md:py-1 md:pl-6"
-    ^ (if is_perma then " note-perma" else "") in
+    ^ (if is_perma then " note-perma" else "")
+    ^ (if cls = "" then "" else " " ^ cls) in
   let display_title = Note.title note in
   let ref_el = match Note.slug_ent note with
     | Some slug ->
@@ -308,7 +310,7 @@ let weeknote_ledger ~ctx weeknotes =
         El.div ~at:[At.class' "week-quiet"]
           [El.txt (Printf.sprintf "%d quiet weeks" q)]
     in
-    El.div ~at:[At.class' "week-rail"] [
+    El.div ~at:[At.class' "week-rail hidden lg:block"] [
       El.div ~at:[At.class' "paper-year-header"] [El.txt "Weeknotes"];
       El.div ~at:[At.class' "week-rail-list"] (List.map row_el rows)]
 
@@ -325,42 +327,55 @@ let notes_list ~ctx =
   let total_notes = List.length journal_notes in
   let total_words =
     List.fold_left (fun acc n -> acc + Note.words n) 0 journal_notes in
-  (* Group the journal stream by (year, month) *)
+  (* Group all notes by (year, month). Weeknote cards only show in the
+     stream on small screens where the ledger column is hidden. *)
   let by_month = Hashtbl.create 32 in
   List.iter (fun n ->
     let (y, m, _d) = Bushel.Entry.date (`Note n) in
     let key = (y, m) in
     let cur = try Hashtbl.find by_month key with Not_found -> [] in
     Hashtbl.replace by_month key (n :: cur)
-  ) journal_notes;
+  ) all_notes;
   let months =
     Hashtbl.fold (fun k _ acc -> k :: acc) by_month []
     |> List.sort (fun (y1, m1) (y2, m2) ->
       let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
   in
-  (* Build calendar data JSON: { "YYYY-MM": [day1, day2, ...], ... } *)
+  (* Build calendar data JSON from journal notes only:
+     { "YYYY-MM": [day1, day2, ...], ... } *)
   let calendar_json =
-    let month_entries = List.map (fun (y, m) ->
-      let notes = Hashtbl.find by_month (y, m) in
-      let days = List.map (fun n ->
-        let (_, _, d) = Bushel.Entry.date (`Note n) in d
-      ) notes in
-      let days = List.sort_uniq compare days in
-      let key = Printf.sprintf "%04d-%02d" y m in
-      let day_strs = List.map string_of_int days in
-      Printf.sprintf {|"%s":[%s]|} key (String.concat "," day_strs)
+    let month_entries = List.filter_map (fun (y, m) ->
+      let notes =
+        List.filter (fun n -> not (Note.weeknote n))
+          (Hashtbl.find by_month (y, m))
+      in
+      match notes with
+      | [] -> None
+      | _ ->
+        let days = List.map (fun n ->
+          let (_, _, d) = Bushel.Entry.date (`Note n) in d
+        ) notes in
+        let days = List.sort_uniq compare days in
+        let key = Printf.sprintf "%04d-%02d" y m in
+        let day_strs = List.map string_of_int days in
+        Some (Printf.sprintf {|"%s":[%s]|} key (String.concat "," day_strs))
     ) months in
     "{" ^ String.concat "," month_entries ^ "}"
   in
-  (* Render month sections *)
+  (* Render month sections. Weeknote cards are mobile-only, and a month
+     holding nothing but weeknotes hides with them on desktop. *)
   let month_sections = List.map (fun (y, m) ->
     let notes = List.rev (Hashtbl.find by_month (y, m)) in
+    let has_journal = List.exists (fun n -> not (Note.weeknote n)) notes in
     let section_id = Printf.sprintf "month-%04d-%02d" y m in
     let month_id = Printf.sprintf "%04d-%02d" y m in
-    let note_cards = List.map (fun n -> compact ~ctx n) notes in
+    let note_cards = List.map (fun n ->
+      if Note.weeknote n then compact ~cls:"lg:hidden" ~ctx n
+      else compact ~ctx n) notes in
+    let section_cls = if has_journal then "mb-6" else "mb-6 lg:hidden" in
     El.div ~at:[At.id section_id;
                 At.v "data-month-id" month_id;
-                At.class' "mb-6"] [
+                At.class' section_cls] [
       El.div ~at:[At.class' "paper-year-header sticky top-0 bg-bg z-10 py-0.5"] [
         El.txt (Printf.sprintf "%s %d" (Common.month_name_full m) y)];
       El.div ~at:[At.class' "note-month-list"] note_cards]
@@ -372,9 +387,13 @@ let notes_list ~ctx =
         weeknote_ledger ~ctx weeknotes;
         El.div ~at:[At.class' "notes-journal min-w-0"] month_sections]]
   in
-  (* Sidebar: calendar box — stats in header + heatmap + per-month calendar *)
-  let first_month = match months with
-    | (y, m) :: _ -> Printf.sprintf "%04d-%02d" y m
+  (* Sidebar: calendar box — stats in header + heatmap + per-month calendar.
+     The current month must exist in the (journal-only) calendar data, so it
+     comes from the newest journal note. *)
+  let first_month = match journal_notes with
+    | n :: _ ->
+      let (y, m, _) = Bushel.Entry.date (`Note n) in
+      Printf.sprintf "%04d-%02d" y m
     | [] -> ""
   in
   let calendar_box =

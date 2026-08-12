@@ -338,22 +338,6 @@ let notes_list ~ctx =
     |> List.sort (fun (y1, m1) (y2, m2) ->
       let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
   in
-  (* Build tag frequency map *)
-  let tag_counts = Hashtbl.create 64 in
-  List.iter (fun n ->
-    let tags = Arod.Ctx.tags_of_ent ctx (`Note n) in
-    List.iter (fun tag ->
-      let t = Bushel.Tags.to_raw_string tag in
-      let cur = try Hashtbl.find tag_counts t with Not_found -> 0 in
-      Hashtbl.replace tag_counts t (cur + 1)
-    ) tags
-  ) all_notes;
-  (* Sort tags by frequency, take top 20 *)
-  let sorted_tags =
-    Hashtbl.fold (fun t c acc -> (t, c) :: acc) tag_counts []
-    |> List.sort (fun (_, a) (_, b) -> compare b a)
-  in
-  let top_tags = List.filteri (fun i _ -> i < 20) sorted_tags in
   (* Build calendar data JSON: { "YYYY-MM": [day1, day2, ...], ... } *)
   let calendar_json =
     let month_entries = List.map (fun (y, m) ->
@@ -401,30 +385,61 @@ let notes_list ~ctx =
       ~header:[El.txt (Printf.sprintf " %s notes \xC2\xB7 %s words"
                  (format_number total_notes) (format_number total_words))]
       [El.div ~at:[At.class' "cal-header"] [];
-       El.div ~at:[At.class' "heatmap-strip"] [];
-       El.div ~at:[At.class' "cal-divider"] [];
-       El.div ~at:[At.class' "cal-grid"] []]
+       El.div ~at:[At.class' "heatmap-strip"] []]
   in
-  (* Sidebar: tag cloud box *)
-  let tag_cloud_box = match top_tags with
+  (* Sidebar: featured rail of recent perma articles, styled to match the
+     weeknote ledger cards *)
+  let featured_rail =
+    let featured = List.filter Note.perma journal_notes |> Common.take 5 in
+    match featured with
     | [] -> El.void
     | _ ->
-      let tag_btns = List.map (fun (tag, count) ->
-        El.button ~at:[At.class' "tag-cloud-btn";
-                       At.v "data-tag" tag] [
-          El.txt tag;
-          El.span ~at:[At.class' "tag-count inline-flex items-center justify-center min-w-[0.95rem] h-[0.95rem] text-[0.5rem] font-semibold text-muted bg-surface-alt rounded-full leading-none tabular-nums"] [
-            El.txt (string_of_int count)]]
-      ) top_tags in
-      Common.meta_box ~body_cls:"sidebar-meta-body tag-cloud"
-        ~header:[El.txt " tags"] tag_btns
+      let feat_card n =
+        let url = Bushel.Entry.site_url (`Note n) in
+        let (y, m, d) = Bushel.Entry.date (`Note n) in
+        let slice = match Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) (`Note n) with
+          | Some src ->
+            El.a ~at:[At.href url; At.class' "feat-slice-link";
+                      At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
+              [El.img ~at:[At.src src; At.v "alt" "";
+                           At.v "loading" "lazy";
+                           At.class' "week-slice"] ()]
+          | None -> El.void
+        in
+        let synopsis_el = match Note.synopsis n with
+          | Some s when s <> "" ->
+            El.div ~at:[At.class' "feat-synopsis"] [El.txt s]
+          | _ -> El.void
+        in
+        let doi_el = match Note.doi n with
+          | Some doi ->
+            El.span [El.txt " \xC2\xB7 ";
+                     El.a ~at:[At.href ("https://doi.org/" ^ doi);
+                               At.class' "feat-doi"] [El.txt "DOI"]]
+          | None -> El.void
+        in
+        El.div ~at:[At.class' "feat-card"] [
+          El.div ~at:[At.class' "week-row-body min-w-0"] [
+            El.div ~at:[At.class' "week-meta"] [
+              El.time ~at:[At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+                [El.txt (Printf.sprintf "%d %s %d" d (Common.month_name m) y)];
+              doi_el];
+            El.a ~at:[At.href url; At.class' "week-title"]
+              [El.txt (Note.title n)];
+            synopsis_el];
+          slice]
+      in
+      El.div ~at:[At.class' "notes-feat"] [
+        El.div ~at:[At.class' "paper-year-header"] [El.txt "Featured"];
+        El.div ~at:[At.class' "feat-list"] (List.map feat_card featured)]
   in
   (* The ledger occupies the lg viewport width, so the meta sidebar only
-     returns at xl where all three columns fit. *)
+     returns at xl where all three columns fit. Only the calendar sticks;
+     the featured rail scrolls with the page beneath it. *)
   let sidebar =
     El.aside ~at:[At.class' "hidden xl:block lg:w-72 shrink-0"]
-      [El.div ~at:[At.class' "sticky top-16"]
-         [calendar_box; tag_cloud_box]]
+      [El.div ~at:[At.class' "sticky top-16 z-10 bg-bg pb-1"] [calendar_box];
+       featured_rail]
   in
   (article, sidebar)
 

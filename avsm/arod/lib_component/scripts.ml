@@ -1338,6 +1338,8 @@ let notes_calendar_js = {|
     headerEl.appendChild(title);
     headerEl.appendChild(nextBtn);
 
+    // The day grid is optional: a months-only calendar omits .cal-grid
+    if (!gridEl) return;
     gridEl.innerHTML = '';
     var weekdays = ['Mo','Tu','We','Th','Fr','Sa','Su'];
     weekdays.forEach(function(wd) {

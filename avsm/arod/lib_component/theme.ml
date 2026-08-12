@@ -2039,8 +2039,46 @@ let custom_css = {|
   /* Extra room beneath the notes page section headers (month names in the
      journal, "Weeknotes" atop the rail). */
   .notes-journal .paper-year-header,
-  .week-rail > .paper-year-header {
+  .week-rail > .paper-year-header,
+  .notes-feat > .paper-year-header {
     margin-bottom: 0.65rem !important;
+  }
+  /* Featured perma-article cards in the sidebar share the weeknote card
+     anatomy: meta line, title, then image slice at the bottom. */
+  .feat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .feat-card {
+    border: 1px solid var(--color-border);
+    border-radius: 7px;
+    overflow: hidden;
+    background: var(--color-surface);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  }
+  .feat-card:hover {
+    border-color: var(--color-accent);
+  }
+  .feat-slice-link {
+    display: block;
+  }
+  .feat-synopsis {
+    font-size: 0.7rem;
+    line-height: 1.4;
+    color: var(--color-secondary);
+    margin-top: 0.15rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .feat-card .feat-doi {
+    color: var(--color-muted) !important;
+    text-decoration: none !important;
+  }
+  .feat-card .feat-doi:hover {
+    color: var(--color-accent) !important;
   }
   .week-rail-list {
     display: flex;
@@ -2516,11 +2554,16 @@ let custom_css = {|
   opacity: 1;
   filter: none;
 }
+.feat-card:hover .week-slice {
+  opacity: 1;
+  filter: none;
+}
 /* Light source images glare against dark cards, so dim them further */
 .dark .week-slice {
   opacity: 0.55;
 }
-.dark .week-row:hover .week-slice {
+.dark .week-row:hover .week-slice,
+.dark .feat-card:hover .week-slice {
   opacity: 0.9;
 }
 /* Mobile keeps the weeknote cards text-only */

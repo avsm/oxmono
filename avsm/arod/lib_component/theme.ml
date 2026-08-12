@@ -2084,16 +2084,12 @@ let custom_css = {|
   }
   .week-title {
     display: block;
-    font-size: 0.74rem;
+    font-size: 0.7rem;
     font-weight: 500;
     line-height: 1.35;
     margin-top: 0.05rem;
     color: var(--color-text) !important;
     text-decoration: none !important;
-  }
-  /* Weeknote titles read as summaries, so match the featured synopsis size */
-  .week-row .week-title {
-    font-size: 0.7rem;
   }
   .week-quiet {
     font-size: 0.68rem;

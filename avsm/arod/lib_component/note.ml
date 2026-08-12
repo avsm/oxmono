@@ -379,11 +379,6 @@ let notes_list ~ctx =
                            At.class' "week-slice"] ()]
           | None -> El.void
         in
-        let synopsis_el = match Note.synopsis n with
-          | Some s when s <> "" ->
-            El.div ~at:[At.class' "feat-synopsis"] [El.txt s]
-          | _ -> El.void
-        in
         let doi_el = match Note.doi n with
           | Some doi ->
             El.span [El.txt " \xC2\xB7 ";
@@ -398,8 +393,7 @@ let notes_list ~ctx =
                 [El.txt (Printf.sprintf "%d %s %d" d (Common.month_name m) y)];
               doi_el];
             El.a ~at:[At.href url; At.class' "week-title"]
-              [El.txt (Note.title n)];
-            synopsis_el];
+              [El.txt (Note.title n)]];
           slice]
       in
       El.div ~at:[At.class' "notes-feat"] [

@@ -324,9 +324,6 @@ let notes_list ~ctx =
     |> List.rev
   in
   let weeknotes, journal_notes = List.partition Note.weeknote all_notes in
-  let total_notes = List.length journal_notes in
-  let total_words =
-    List.fold_left (fun acc n -> acc + Note.words n) 0 journal_notes in
   (* Group all notes by (year, month). Weeknote cards only show in the
      stream on small screens where the ledger column is hidden. *)
   let by_month = Hashtbl.create 32 in
@@ -340,27 +337,6 @@ let notes_list ~ctx =
     Hashtbl.fold (fun k _ acc -> k :: acc) by_month []
     |> List.sort (fun (y1, m1) (y2, m2) ->
       let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
-  in
-  (* Build calendar data JSON from journal notes only:
-     { "YYYY-MM": [day1, day2, ...], ... } *)
-  let calendar_json =
-    let month_entries = List.filter_map (fun (y, m) ->
-      let notes =
-        List.filter (fun n -> not (Note.weeknote n))
-          (Hashtbl.find by_month (y, m))
-      in
-      match notes with
-      | [] -> None
-      | _ ->
-        let days = List.map (fun n ->
-          let (_, _, d) = Bushel.Entry.date (`Note n) in d
-        ) notes in
-        let days = List.sort_uniq compare days in
-        let key = Printf.sprintf "%04d-%02d" y m in
-        let day_strs = List.map string_of_int days in
-        Some (Printf.sprintf {|"%s":[%s]|} key (String.concat "," day_strs))
-    ) months in
-    "{" ^ String.concat "," month_entries ^ "}"
   in
   (* Render month sections. Weeknote cards are mobile-only, and a month
      holding nothing but weeknotes hides with them on desktop. *)
@@ -386,25 +362,6 @@ let notes_list ~ctx =
       El.div ~at:[At.class' "notes-split"] [
         weeknote_ledger ~ctx weeknotes;
         El.div ~at:[At.class' "notes-journal min-w-0"] month_sections]]
-  in
-  (* Sidebar: calendar box — stats in header + heatmap + per-month calendar.
-     The current month must exist in the (journal-only) calendar data, so it
-     comes from the newest journal note. *)
-  let first_month = match journal_notes with
-    | n :: _ ->
-      let (y, m, _) = Bushel.Entry.date (`Note n) in
-      Printf.sprintf "%04d-%02d" y m
-    | [] -> ""
-  in
-  let calendar_box =
-    Common.meta_box ~id:"notes-calendar"
-      ~body_cls:"sidebar-meta-body notes-calendar"
-      ~data_attrs:["data-calendar-months", calendar_json;
-                   "data-current-month", first_month]
-      ~header:[El.txt (Printf.sprintf " %s notes \xC2\xB7 %s words"
-                 (format_number total_notes) (format_number total_words))]
-      [El.div ~at:[At.class' "cal-header"] [];
-       El.div ~at:[At.class' "heatmap-strip"] []]
   in
   (* Sidebar: featured rail of recent perma articles, styled to match the
      weeknote ledger cards *)
@@ -452,13 +409,11 @@ let notes_list ~ctx =
         El.div ~at:[At.class' "paper-year-header"] [El.txt "Featured"];
         El.div ~at:[At.class' "feat-list"] (List.map feat_card featured)]
   in
-  (* The ledger occupies the lg viewport width, so the meta sidebar only
-     returns at xl where all three columns fit. Only the calendar sticks;
-     the featured rail scrolls with the page beneath it. *)
+  (* The ledger occupies the lg viewport width, so the featured sidebar
+     only returns at xl where all three columns fit. *)
   let sidebar =
     El.aside ~at:[At.class' "hidden xl:block lg:w-72 shrink-0"]
-      [El.div ~at:[At.class' "sticky top-16 z-10 bg-bg pb-1"] [calendar_box];
-       featured_rail]
+      [featured_rail]
   in
   (article, sidebar)
 

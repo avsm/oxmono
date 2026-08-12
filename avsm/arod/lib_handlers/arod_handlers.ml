@@ -340,7 +340,7 @@ let notes_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
         Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/notes" ~title:"Notes" ~description:"Notes and blog posts" ~count ();
         Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/"); ("Notes", "/notes")];
       ] in
-      C.Layout.page ~ctx ~title:"Notes" ~description:"Notes and blog posts" ~url:"/notes" ~current_page:"Notes" ~jsonld ~page_scripts:[Notes_calendar; Pagination; Toc] ~main_cls:"max-w-4xl" ~article ~sidebar ())
+      C.Layout.page ~ctx ~title:"Notes" ~description:"Notes and blog posts" ~url:"/notes" ~current_page:"Notes" ~jsonld ~page_scripts:[Pagination; Toc] ~main_cls:"max-w-4xl" ~article ~sidebar ())
     ~md_fn:(fun () -> C.Markdown_export.notes_list_md ~ctx)
   respond
 

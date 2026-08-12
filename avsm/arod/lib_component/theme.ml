@@ -2042,15 +2042,11 @@ let custom_css = {|
     flex-direction: column;
     gap: 1.5rem;
   }
+  /* Spine colours live below the @layer block: Tailwind's unlayered
+     border reset wins over any layered border declaration. */
   .feat-card {
-    border: 1px solid var(--color-border);
-    border-radius: 7px;
-    overflow: hidden;
-    background: var(--color-surface);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  }
-  .feat-card:hover {
-    border-color: var(--color-accent);
+    padding-left: 0.65rem;
+    transition: border-color 0.15s;
   }
   .feat-slice-link {
     display: block;
@@ -2077,20 +2073,17 @@ let custom_css = {|
     flex-direction: column;
     gap: 1.5rem;
   }
-  /* Each weeknote is a bordered card: a wide slice of the week's title
-     image on top, meta line and title on a surface panel below.
-     flex-shrink: 0 stops the height-capped mobile list collapsing the
-     cards to zero height. */
+  /* Each weeknote is an open unit bound by an accent spine down its left
+     edge: meta line, title, then the week's image slice. The spine border
+     itself is declared below the @layer block. */
   .week-row {
-    border: 1px solid var(--color-border);
-    border-radius: 7px;
-    overflow: hidden;
-    background: var(--color-surface);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    padding-left: 0.65rem;
     flex-shrink: 0;
+    transition: border-color 0.15s;
   }
   .week-quiet {
     flex-shrink: 0;
+    padding-left: calc(3px + 0.65rem);
   }
   .week-row:hover {
     border-color: var(--color-accent);
@@ -2099,7 +2092,7 @@ let custom_css = {|
     display: block;
   }
   .week-row-body {
-    padding: 0.35rem 0.55rem 0.5rem;
+    padding: 0 0 0.35rem 0;
   }
   .week-meta {
     font-size: 0.68rem;
@@ -2540,7 +2533,8 @@ let custom_css = {|
   opacity: 0.75;
   filter: sepia(0.7) saturate(0.7);
   transition: opacity 0.15s, filter 0.15s;
-  border-top: 1px solid var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
 }
 .week-row:hover .week-slice {
   opacity: 1;
@@ -2549,6 +2543,30 @@ let custom_css = {|
 .feat-card:hover .week-slice {
   opacity: 1;
   filter: none;
+}
+/* Accent spines binding each ledger and featured unit — unlayered so they
+   survive the Tailwind preflight border reset */
+.week-row {
+  border-left: 3px solid var(--color-weeknote-accent);
+}
+.feat-card {
+  border-left: 3px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-weeknote-accent));
+}
+.week-row:hover,
+.feat-card:hover {
+  border-left-color: var(--color-accent);
+}
+/* The dark weeknote accent is a background tint and vanishes as a line,
+   so lift the spine towards the foreground in dark mode. */
+.dark .week-row {
+  border-left-color: color-mix(in srgb, var(--color-weeknote-accent) 45%, var(--color-secondary));
+}
+.dark .feat-card {
+  border-left-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-secondary));
+}
+.dark .week-row:hover,
+.dark .feat-card:hover {
+  border-left-color: var(--color-accent);
 }
 /* Light source images glare against dark cards, so dim them further */
 .dark .week-slice {

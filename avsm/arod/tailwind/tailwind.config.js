@@ -1,0 +1,85 @@
+/* Tailwind v3 config for the prebuilt arod stylesheet. Mirrors the config
+   the site previously passed to the Play CDN, plus content globs over the
+   OCaml sources that emit every class the site uses. Regenerate tw.css with
+   ./regen.sh after changing markup classes or this config. */
+module.exports = {
+  content: [
+    '../lib/*.ml',
+    '../lib_component/*.ml',
+    '../lib_handlers/*.ml',
+  ],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['system-ui', '-apple-system', 'sans-serif'],
+        serif: ['Georgia', 'serif'],
+      },
+      colors: {
+        bg: 'var(--color-bg)',
+        text: 'var(--color-text)',
+        link: 'var(--color-link)',
+        'link-underline': 'var(--color-link-ul)',
+        secondary: 'var(--color-secondary)',
+        surface: 'var(--color-surface)',
+        'surface-alt': 'var(--color-surface-alt)',
+        muted: 'var(--color-muted)',
+        faint: 'var(--color-faint)',
+        dim: 'var(--color-dim)',
+        accent: 'var(--color-accent)',
+        'border-color': 'var(--color-border)',
+        'st-avail': 'var(--color-st-avail)',
+        'st-discuss': 'var(--color-st-discuss)',
+        'st-ongoing': 'var(--color-st-ongoing)',
+        'st-done': 'var(--color-st-done)',
+        'st-expired': 'var(--color-st-expired)',
+      },
+      fontSize: {
+        'body': ['0.88rem', '1.45'],
+      },
+      typography: {
+        DEFAULT: {
+          css: {
+            '--tw-prose-body': 'var(--color-text)',
+            '--tw-prose-headings': 'var(--color-text)',
+            '--tw-prose-links': 'var(--color-link)',
+            '--tw-prose-bold': 'var(--color-text)',
+            '--tw-prose-counters': 'var(--color-secondary)',
+            '--tw-prose-bullets': 'var(--color-secondary)',
+            '--tw-prose-quotes': 'var(--color-bq-text)',
+            '--tw-prose-quote-borders': 'var(--color-accent)',
+            '--tw-prose-code': 'var(--color-text)',
+            '--tw-prose-pre-bg': 'var(--color-surface)',
+            '--tw-prose-pre-code': 'var(--color-text)',
+            fontSize: '0.88rem',
+            lineHeight: '1.45',
+            maxWidth: 'none',
+            p: { marginTop: '0', marginBottom: '1.1em' },
+            '[class~="lead"]': { fontSize: '1rem' },
+            ol: { marginTop: '0.5em', marginBottom: '1.1em', paddingLeft: '1.5em' },
+            ul: { marginTop: '0.5em', marginBottom: '1.1em', paddingLeft: '1.5em' },
+            li: { marginTop: '0.2em', marginBottom: '0.2em' },
+            'ol > li::marker': { color: 'var(--color-secondary)' },
+            'ul > li::marker': { color: 'var(--color-secondary)' },
+            a: { color: 'var(--color-link)', fontWeight: 'inherit', textDecoration: 'underline dotted', textDecorationColor: 'var(--color-link-ul)', textUnderlineOffset: '2px' },
+            'a:hover': { textDecorationStyle: 'solid', textDecorationColor: 'var(--color-link)' },
+            blockquote: { fontStyle: 'italic', color: 'var(--color-bq-text)', borderLeftColor: 'var(--color-accent)' },
+            'blockquote p:first-of-type::before': { content: 'none' },
+            'blockquote p:last-of-type::after': { content: 'none' },
+            h1: { fontSize: '1.25rem', marginTop: '1rem', marginBottom: '0.75rem' },
+            h2: { fontSize: '1.125rem', marginTop: '1.25rem', marginBottom: '0.5rem' },
+            h3: { fontSize: '1rem', marginTop: '1rem', marginBottom: '0.375rem' },
+            h4: { fontSize: '0.88rem', marginTop: '0.75rem', marginBottom: '0.25rem' },
+            code: { fontSize: '0.78rem', fontWeight: '400' },
+            'code::before': { content: 'none' },
+            'code::after': { content: 'none' },
+            pre: { fontSize: '0.72rem', lineHeight: '1.5', backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '4px', padding: '0.5rem 0.75rem', marginTop: '0.5em', marginBottom: '0.5em' },
+            img: { marginTop: '0', marginBottom: '0' },
+            hr: { borderColor: 'var(--color-border)' },
+          },
+        },
+      },
+    }
+  },
+  plugins: [require('@tailwindcss/typography')],
+}

@@ -173,12 +173,11 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       El.link ~at:[ At.rel "license";
                  At.href "https://creativecommons.org/licenses/by/4.0/" ] ();
 
-      (* Theme init — must be before Tailwind CDN to prevent FOUC *)
+      (* Theme init — must run before stylesheets apply to prevent FOUC *)
       El.script [El.unsafe_raw Theme.theme_init_js];
 
-      (* Tailwind CDN *)
-      El.script ~at:[ At.src "https://cdn.tailwindcss.com?plugins=typography" ] [];
-      El.script [El.unsafe_raw Theme.tailwind_config];
+      (* Tailwind stylesheet, prebuilt by tailwind/regen.sh and committed *)
+      El.link ~at:[ At.rel "stylesheet"; At.href "/tw.css" ] ();
 
       (* Highlight.js — both themes, JS toggles which one is active *)
       El.link ~at:[ At.rel "stylesheet"; At.id "hljs-light";

@@ -1015,6 +1015,7 @@ let all_routes ~ctx ~cache ~search ~log ~fs =
     get_ [ "favicon-16x16.png" ] (fun rctx respond -> embedded_file "favicon-16x16.png" rctx respond);
     get_ [ "apple-touch-icon.png" ] (fun rctx respond -> embedded_file "apple-touch-icon.png" rctx respond);
     get_ [ "site.webmanifest" ] (fun rctx respond -> embedded_file "site.webmanifest" rctx respond);
+    get_ [ "tw.css" ] (fun rctx respond -> embedded_file "tw.css" rctx respond);
     (* Stats dashboard — hidden, not cached, not in sitemap, HTTP Basic auth *)
     get_h1 (lits ["action"]) Authorization (fun () auth rctx (local_ respond) ->
       if not (check_stats_auth cfg auth) then send_auth_challenge respond

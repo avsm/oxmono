@@ -1,0 +1,9 @@
+{
+  "name": "arod-tailwind",
+  "private": true,
+  "description": "Prebuilds the arod utility stylesheet with the Tailwind v3 CLI",
+  "devDependencies": {
+    "tailwindcss": "^3.4.17",
+    "@tailwindcss/typography": "^0.5.16"
+  }
+}

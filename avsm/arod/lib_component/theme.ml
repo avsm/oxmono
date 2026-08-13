@@ -1921,7 +1921,7 @@ let custom_css = {|
   @media (min-width: 1024px) {
     .notes-split {
       display: grid;
-      grid-template-columns: 13rem minmax(0, 1fr);
+      grid-template-columns: 10rem minmax(0, 1fr);
       gap: 2.5rem;
       align-items: start;
     }

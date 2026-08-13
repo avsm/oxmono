@@ -400,10 +400,9 @@ let notes_list ~ctx =
         El.div ~at:[At.class' "paper-year-header"] [El.txt "Featured"];
         El.div ~at:[At.class' "feat-list"] (List.map feat_card featured)]
   in
-  (* The ledger occupies the lg viewport width, so the featured sidebar
-     only returns at xl where all three columns fit. *)
+  (* The ledger is narrow enough that all three columns fit from lg up. *)
   let sidebar =
-    El.aside ~at:[At.class' "hidden xl:block lg:w-52 shrink-0"]
+    El.aside ~at:[At.class' "hidden lg:block lg:w-52 shrink-0"]
       [featured_rail]
   in
   (article, sidebar)

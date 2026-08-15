@@ -201,8 +201,9 @@ window.addEventListener('load', () => {
   // Re-position again after images/fonts finish loading
   setTimeout(positionSidenotes, 500);
 });
+// Positions are computed in page coordinates, so scrolling never changes
+// them. Only a resize (or the post-load reflow above) can move a ref.
 window.addEventListener('resize', positionSidenotes);
-window.addEventListener('scroll', positionSidenotes, { passive: true });
 |}
 
 let toc_js = {|

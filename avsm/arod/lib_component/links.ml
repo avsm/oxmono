@@ -590,10 +590,13 @@ let links_list ~ctx =
 
   (* Sidebar *)
   let calendar_box =
-    Common.meta_box ~id:"links-calendar"
+    Common.meta_box
       ~body_cls:"sidebar-meta-body notes-calendar"
       ~data_attrs:["data-calendar-months", calendar_json;
-                   "data-current-month", first_month]
+                   "data-current-month", first_month;
+                   "data-cal-track", ".link-group";
+                   "data-cal-noun", "link";
+                   "data-cal-empty", "no links"]
       ~header:[El.txt (Printf.sprintf " %d links \xC2\xB7 %d domains"
                  total_urls total_domains)]
       [El.div ~at:[At.class' "cal-header"] [];

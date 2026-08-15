@@ -456,10 +456,13 @@ let papers_list ~ctx =
     | [] -> ""
   in
   let calendar_box =
-    Common.meta_box ~id:"papers-calendar"
+    Common.meta_box
       ~body_cls:"sidebar-meta-body notes-calendar"
       ~data_attrs:["data-calendar-years", calendar_json;
-                   "data-current-year", first_year]
+                   "data-current-year", first_year;
+                   "data-cal-track", "[data-year-id]";
+                   "data-cal-noun", "paper";
+                   "data-cal-empty", "no papers"]
       ~header:[El.txt (Printf.sprintf " %d papers" total)]
       [El.div ~at:[At.class' "cal-header"] [];
        El.div ~at:[At.class' "heatmap-strip"] [];

@@ -995,18 +995,30 @@ let checkbox_filter_js = {|
 })();
 |}
 
-let papers_calendar_js = {|
-// Papers calendar — year heatmap + month grid, syncs with scroll
+let calendar_js = {|
+// Sidebar calendar — a heatmap strip plus a detail grid, kept in sync with
+// the timeline scroll position. The container declares year mode by
+// carrying data-calendar-years ({year: [months]}) or month mode by
+// carrying data-calendar-months ({ym: [days]}). It also carries
+// data-cal-track (selector for timeline elements bearing data-year-id or
+// data-month-id), data-cal-noun (count word) and data-cal-empty (tooltip
+// for an empty period).
 (function() {
-  var container = document.getElementById('papers-calendar');
+  var container = document.querySelector('[data-calendar-years], [data-calendar-months]');
   if (!container) return;
 
+  var yearMode = 'calendarYears' in container.dataset;
+  var raw = (yearMode ? container.dataset.calendarYears : container.dataset.calendarMonths) || '{}';
   var data;
-  try { data = JSON.parse(container.dataset.calendarYears || '{}'); } catch(e) { return; }
-  var currentYear = container.dataset.currentYear || '';
-  var allYears = Object.keys(data).sort().reverse();
-  if (!allYears.length) return;
-  if (!currentYear) currentYear = allYears[0];
+  try { data = JSON.parse(raw); } catch(e) { return; }
+  var allKeys = Object.keys(data).sort().reverse();
+  if (!allKeys.length) return;
+  var current = (yearMode ? container.dataset.currentYear : container.dataset.currentMonth) || allKeys[0];
+  var currentDay = 0;
+  var trackSel = container.dataset.calTrack;
+  var keyAttr = yearMode ? 'year-id' : 'month-id';
+  var noun = container.dataset.calNoun;
+  var emptyTip = container.dataset.calEmpty;
 
   var heatmapEl = container.querySelector('.heatmap-strip');
   var headerEl = container.querySelector('.cal-header');
@@ -1015,495 +1027,98 @@ let papers_calendar_js = {|
   var shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   var now = new Date();
-  var todayYear = String(now.getFullYear());
+  var todayKey = yearMode
+    ? String(now.getFullYear())
+    : now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
 
-  function countForYear(y) {
-    return data[y] ? data[y].length : 0;
+  function ymAdd(ym, offset) {
+    var parts = ym.split('-');
+    var y = parseInt(parts[0]);
+    var m = parseInt(parts[1]) - 1 + offset;
+    var ny = y + Math.floor(m / 12);
+    var nm = ((m % 12) + 12) % 12;
+    return ny + '-' + String(nm + 1).padStart(2, '0');
   }
 
-  // Build a 10-year window: 4 before + current + 5 after
+  function countFor(key) {
+    return data[key] ? data[key].length : 0;
+  }
+
+  function keyLabel(key) {
+    return yearMode ? "'" + key.slice(-2) : shortMonths[parseInt(key.split('-')[1]) - 1];
+  }
+
+  function keyTipName(key) {
+    return yearMode ? key : shortMonths[parseInt(key.split('-')[1]) - 1];
+  }
+
   function getHeatmapWindow() {
-    var cy = parseInt(currentYear);
     var win = [];
-    for (var i = -4; i <= 5; i++) {
-      win.push(String(cy + i));
+    if (yearMode) {
+      var cy = parseInt(current);
+      for (var i = -4; i <= 5; i++) win.push(String(cy + i));
+    } else {
+      for (var i = -5; i <= 6; i++) win.push(ymAdd(current, i));
     }
     return win;
   }
 
+  function scrollToKey(key) {
+    var el = document.querySelector(trackSel + '[data-' + keyAttr + '="' + key + '"]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   function renderHeatmap() {
     heatmapEl.innerHTML = '';
-    var windowYears = getHeatmapWindow();
+    var windowKeys = getHeatmapWindow();
     var maxCount = 1;
-    windowYears.forEach(function(y) {
-      var c = countForYear(y);
+    windowKeys.forEach(function(k) {
+      var c = countFor(k);
       if (c > maxCount) maxCount = c;
     });
 
     var strip = document.createElement('div');
     strip.className = 'heatmap-grid';
-    strip.style.gridTemplateColumns = 'repeat(' + windowYears.length + ', 1fr)';
+    strip.style.gridTemplateColumns = 'repeat(' + windowKeys.length + ', 1fr)';
 
-    windowYears.forEach(function(y) {
-      var count = countForYear(y);
-      var isFuture = y > todayYear;
+    windowKeys.forEach(function(k) {
+      var count = countFor(k);
+      var isFuture = k > todayKey;
       var cell = document.createElement('div');
       cell.className = 'heatmap-cell';
-      if (y === currentYear) cell.classList.add('heatmap-current');
+      if (k === current) cell.classList.add('heatmap-current');
 
       if (isFuture) {
         cell.dataset.state = 'future';
         cell.dataset.level = 0;
-        cell.title = y + ': upcoming';
+        cell.title = keyTipName(k) + ': upcoming';
       } else if (count === 0) {
         cell.dataset.state = 'empty';
         cell.dataset.level = 0;
-        cell.title = y + ': no papers';
+        cell.title = keyTipName(k) + ': ' + emptyTip;
       } else {
         cell.dataset.state = 'active';
         var level = Math.min(4, Math.ceil(count / maxCount * 4));
         cell.dataset.level = level;
-        cell.title = y + ': ' + count + ' paper' + (count !== 1 ? 's' : '');
+        cell.title = keyTipName(k) + ': ' + count + ' ' + noun + (count !== 1 ? 's' : '');
       }
 
       if (!isFuture) {
-        (function(targetY) {
+        (function(target) {
           cell.addEventListener('click', function() {
-            currentYear = targetY;
-            renderMonth(currentYear);
-            renderHeatmap();
-            var section = document.getElementById('year-' + targetY);
-            if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          });
-        })(y);
-      }
-
-      var label = document.createElement('span');
-      label.className = 'heatmap-label';
-      label.textContent = "'" + y.slice(-2);
-
-      var circle = document.createElement('div');
-      circle.className = 'heatmap-circle';
-      if (isFuture) {
-        circle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/><path d="M12 7v5l3 3"/></svg>';
-      } else if (count === 0) {
-        circle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"/></svg>';
-      }
-
-      cell.appendChild(label);
-      cell.appendChild(circle);
-      strip.appendChild(cell);
-    });
-    heatmapEl.appendChild(strip);
-  }
-
-  function renderMonth(y) {
-    var months = data[y] || [];
-    var monthSet = new Set(months);
-
-    headerEl.innerHTML = '';
-    var prevBtn = document.createElement('button');
-    prevBtn.className = 'cal-nav';
-    prevBtn.textContent = '\u25C0';
-    prevBtn.addEventListener('click', function() { navigate(-1); });
-    var nextBtn = document.createElement('button');
-    nextBtn.className = 'cal-nav';
-    nextBtn.textContent = '\u25B6';
-    nextBtn.addEventListener('click', function() { navigate(1); });
-    var title = document.createElement('span');
-    title.className = 'cal-title';
-    title.textContent = y;
-    headerEl.appendChild(prevBtn);
-    headerEl.appendChild(title);
-    headerEl.appendChild(nextBtn);
-
-    gridEl.innerHTML = '';
-    gridEl.style.gridTemplateColumns = 'repeat(4, 1fr)';
-    for (var m = 0; m < 12; m++) {
-      var cell = document.createElement('span');
-      if (monthSet.has(m + 1)) {
-        cell.className = 'cal-day cal-day-active';
-      } else {
-        cell.className = 'cal-day cal-day-empty';
-      }
-      cell.textContent = shortMonths[m];
-      gridEl.appendChild(cell);
-    }
-  }
-
-  function navigate(dir) {
-    var idx = allYears.indexOf(currentYear);
-    var next = idx - dir;
-    if (next >= 0 && next < allYears.length) {
-      currentYear = allYears[next];
-      renderMonth(currentYear);
-      renderHeatmap();
-    }
-  }
-
-  renderHeatmap();
-  renderMonth(currentYear);
-
-  // Scroll tracking — find the last section whose top has scrolled past the header
-  var sections = document.querySelectorAll('[data-year-id]');
-  if (sections.length) {
-    function updateCurrentYear() {
-      var best = null;
-      sections.forEach(function(s) {
-        var rect = s.getBoundingClientRect();
-        if (rect.top <= 120) best = s;
-      });
-      if (best) {
-        var yearId = best.dataset.yearId;
-        if (yearId && yearId !== currentYear) {
-          currentYear = yearId;
-          renderMonth(currentYear);
-          renderHeatmap();
-        }
-      }
-    }
-    window.addEventListener('scroll', updateCurrentYear, { passive: true });
-    updateCurrentYear();
-  }
-})();
-|}
-
-
-let links_calendar_js = {|
-// Links calendar — year heatmap + month grid, syncs with scroll
-(function() {
-  var container = document.getElementById('links-calendar');
-  if (!container) return;
-
-  var data;
-  try { data = JSON.parse(container.dataset.calendarMonths || '{}'); } catch(e) { return; }
-  var currentMonth = container.dataset.currentMonth || '';
-  var currentDay = 0;
-  var allMonths = Object.keys(data).sort().reverse();
-  if (!allMonths.length) return;
-  if (!currentMonth) currentMonth = allMonths[0];
-
-  var heatmapEl = container.querySelector('.heatmap-strip');
-  var headerEl = container.querySelector('.cal-header');
-  var gridEl = container.querySelector('.cal-grid');
-
-  var shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  var now = new Date();
-  var todayYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-
-  function ymAdd(ym, offset) {
-    var parts = ym.split('-');
-    var y = parseInt(parts[0]);
-    var m = parseInt(parts[1]) - 1 + offset;
-    var ny = y + Math.floor(m / 12);
-    var nm = ((m % 12) + 12) % 12;
-    return ny + '-' + String(nm + 1).padStart(2, '0');
-  }
-
-  function countForMonth(ym) {
-    return data[ym] ? data[ym].length : 0;
-  }
-
-  function getHeatmapWindow() {
-    var window = [];
-    for (var i = -5; i <= 6; i++) {
-      window.push(ymAdd(currentMonth, i));
-    }
-    return window;
-  }
-
-  function renderHeatmap() {
-    heatmapEl.innerHTML = '';
-    var windowMonths = getHeatmapWindow();
-    var maxCount = 1;
-    windowMonths.forEach(function(ym) {
-      var c = countForMonth(ym);
-      if (c > maxCount) maxCount = c;
-    });
-
-    var strip = document.createElement('div');
-    strip.className = 'heatmap-grid';
-    windowMonths.forEach(function(ym) {
-      var count = countForMonth(ym);
-      var parts = ym.split('-');
-      var month = parseInt(parts[1]);
-      var isFuture = ym > todayYM;
-      var cell = document.createElement('div');
-      cell.className = 'heatmap-cell';
-      if (ym === currentMonth) cell.classList.add('heatmap-current');
-
-      if (isFuture) {
-        cell.dataset.state = 'future';
-        cell.dataset.level = 0;
-        cell.title = shortMonths[month - 1] + ': upcoming';
-      } else if (count === 0) {
-        cell.dataset.state = 'empty';
-        cell.dataset.level = 0;
-        cell.title = shortMonths[month - 1] + ': no links';
-      } else {
-        cell.dataset.state = 'active';
-        var level = Math.min(4, Math.ceil(count / maxCount * 4));
-        cell.dataset.level = level;
-        cell.title = shortMonths[month - 1] + ': ' + count + ' link' + (count !== 1 ? 's' : '');
-      }
-
-      if (!isFuture) {
-        (function(targetYm) {
-          cell.addEventListener('click', function() {
-            currentMonth = targetYm;
-            renderMonth(currentMonth);
-            renderHeatmap();
-            // Find first link-group with this month-id
-            var group = document.querySelector('.link-group[data-month-id="' + targetYm + '"]');
-            if (group) group.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          });
-        })(ym);
-      }
-
-      var label = document.createElement('span');
-      label.className = 'heatmap-label';
-      label.textContent = shortMonths[month - 1];
-
-      var circle = document.createElement('div');
-      circle.className = 'heatmap-circle';
-      if (isFuture) {
-        circle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/><path d="M12 7v5l3 3"/></svg>';
-      } else if (count === 0) {
-        circle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"/></svg>';
-      }
-
-      cell.appendChild(label);
-      cell.appendChild(circle);
-      strip.appendChild(cell);
-    });
-    heatmapEl.appendChild(strip);
-  }
-
-  function daysInMonth(y, m) {
-    return new Date(y, m, 0).getDate();
-  }
-
-  function firstDayOfWeek(y, m) {
-    var d = new Date(y, m - 1, 1).getDay();
-    return d === 0 ? 6 : d - 1;
-  }
-
-  function renderMonth(ym) {
-    var parts = ym.split('-');
-    var year = parseInt(parts[0]);
-    var month = parseInt(parts[1]);
-    var days = data[ym] || [];
-    var daySet = new Set(days);
-    var total = daysInMonth(year, month);
-    var offset = firstDayOfWeek(year, month);
-
-    headerEl.innerHTML = '';
-    var prevBtn = document.createElement('button');
-    prevBtn.className = 'cal-nav';
-    prevBtn.textContent = '\u25C0';
-    prevBtn.addEventListener('click', function() { navigate(-1); });
-    var nextBtn = document.createElement('button');
-    nextBtn.className = 'cal-nav';
-    nextBtn.textContent = '\u25B6';
-    nextBtn.addEventListener('click', function() { navigate(1); });
-    var title = document.createElement('span');
-    title.className = 'cal-title';
-    title.textContent = shortMonths[month - 1] + ' ' + year;
-    headerEl.appendChild(prevBtn);
-    headerEl.appendChild(title);
-    headerEl.appendChild(nextBtn);
-
-    gridEl.innerHTML = '';
-    var weekdays = ['Mo','Tu','We','Th','Fr','Sa','Su'];
-    weekdays.forEach(function(wd) {
-      var cell = document.createElement('span');
-      cell.className = 'cal-weekday';
-      cell.textContent = wd;
-      gridEl.appendChild(cell);
-    });
-
-    for (var i = 0; i < offset; i++) {
-      var empty = document.createElement('span');
-      empty.className = 'cal-day cal-day-empty';
-      gridEl.appendChild(empty);
-    }
-
-    for (var d = 1; d <= total; d++) {
-      var cell = document.createElement('span');
-      if (daySet.has(d)) {
-        cell.className = 'cal-day cal-day-active';
-        if (d === currentDay) cell.classList.add('cal-day-viewing');
-        cell.textContent = d;
-      } else {
-        cell.className = 'cal-day cal-day-empty';
-        cell.textContent = d;
-      }
-      gridEl.appendChild(cell);
-    }
-
-    var totalCells = offset + total;
-    while (totalCells < 42) {
-      var pad = document.createElement('span');
-      pad.className = 'cal-day cal-day-pad';
-      gridEl.appendChild(pad);
-      totalCells++;
-    }
-  }
-
-  function navigate(dir) {
-    var idx = allMonths.indexOf(currentMonth);
-    var next = idx - dir;
-    if (next >= 0 && next < allMonths.length) {
-      currentMonth = allMonths[next];
-      currentDay = 0;
-      renderMonth(currentMonth);
-      renderHeatmap();
-    }
-  }
-
-  renderHeatmap();
-  renderMonth(currentMonth);
-
-  // Scroll tracking — observe link-group elements with data-month-id
-  var observed = new WeakSet();
-  var observer = null;
-  if ('IntersectionObserver' in window) {
-    observer = new IntersectionObserver(function(entries) {
-      entries.forEach(function(entry) {
-        if (entry.isIntersecting) {
-          var monthId = entry.target.dataset.monthId;
-          var day = parseInt(entry.target.dataset.day || '0');
-          var changed = false;
-          if (monthId && monthId !== currentMonth) {
-            currentMonth = monthId;
-            currentDay = day;
-            changed = true;
-          } else if (day && day !== currentDay) {
-            currentDay = day;
-            changed = true;
-          }
-          if (changed) {
-            renderMonth(currentMonth);
-            renderHeatmap();
-          }
-        }
-      });
-    }, { rootMargin: '-80px 0px -60% 0px' });
-  }
-
-  function observeGroups() {
-    if (!observer) return;
-    document.querySelectorAll('.link-group[data-month-id]').forEach(function(s) {
-      if (!observed.has(s)) {
-        observed.add(s);
-        observer.observe(s);
-      }
-    });
-  }
-
-  observeGroups();
-  document.addEventListener('pagination-loaded', function() {
-    requestAnimationFrame(observeGroups);
-  });
-
-  // Also watch for DOM changes as a fallback
-  var mutObs = new MutationObserver(function() {
-    observeGroups();
-  });
-  var timeline = document.querySelector('[data-pagination="true"]');
-  if (timeline) mutObs.observe(timeline, { childList: true, subtree: true });
-})();
-|}
-
-let network_calendar_js = {|
-// Network calendar — year heatmap + month grid, syncs with scroll (day-level)
-(function() {
-  var container = document.getElementById('network-calendar');
-  if (!container) return;
-
-  var data;
-  try { data = JSON.parse(container.dataset.calendarMonths || '{}'); } catch(e) { return; }
-  var currentMonth = container.dataset.currentMonth || '';
-  var currentDay = 0;
-  var allMonths = Object.keys(data).sort().reverse();
-  if (!allMonths.length) return;
-  if (!currentMonth) currentMonth = allMonths[0];
-
-  var heatmapEl = container.querySelector('.heatmap-strip');
-  var headerEl = container.querySelector('.cal-header');
-  var gridEl = container.querySelector('.cal-grid');
-
-  var shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var now = new Date();
-  var todayYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-
-  function ymAdd(ym, offset) {
-    var parts = ym.split('-');
-    var y = parseInt(parts[0]);
-    var m = parseInt(parts[1]) - 1 + offset;
-    var ny = y + Math.floor(m / 12);
-    var nm = ((m % 12) + 12) % 12;
-    return ny + '-' + String(nm + 1).padStart(2, '0');
-  }
-
-  function countForMonth(ym) {
-    return data[ym] ? data[ym].length : 0;
-  }
-
-  function getHeatmapWindow() {
-    var w = [];
-    for (var i = -5; i <= 6; i++) w.push(ymAdd(currentMonth, i));
-    return w;
-  }
-
-  function renderHeatmap() {
-    heatmapEl.innerHTML = '';
-    var windowMonths = getHeatmapWindow();
-    var maxCount = 1;
-    windowMonths.forEach(function(ym) {
-      var c = countForMonth(ym);
-      if (c > maxCount) maxCount = c;
-    });
-    var strip = document.createElement('div');
-    strip.className = 'heatmap-grid';
-    windowMonths.forEach(function(ym) {
-      var count = countForMonth(ym);
-      var parts = ym.split('-');
-      var month = parseInt(parts[1]);
-      var isFuture = ym > todayYM;
-      var cell = document.createElement('div');
-      cell.className = 'heatmap-cell';
-      if (ym === currentMonth) cell.classList.add('heatmap-current');
-      if (isFuture) {
-        cell.dataset.state = 'future';
-        cell.dataset.level = 0;
-        cell.title = shortMonths[month - 1] + ': upcoming';
-      } else if (count === 0) {
-        cell.dataset.state = 'empty';
-        cell.dataset.level = 0;
-        cell.title = shortMonths[month - 1] + ': no posts';
-      } else {
-        cell.dataset.state = 'active';
-        var level = Math.min(4, Math.ceil(count / maxCount * 4));
-        cell.dataset.level = level;
-        cell.title = shortMonths[month - 1] + ': ' + count + ' day' + (count !== 1 ? 's' : '');
-      }
-      if (!isFuture) {
-        (function(targetYm) {
-          cell.addEventListener('click', function() {
-            currentMonth = targetYm;
+            current = target;
             currentDay = 0;
-            renderMonth(currentMonth);
+            renderDetail(current);
             renderHeatmap();
-            var el = document.querySelector('.network-feed-item[data-month-id="' + targetYm + '"]');
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            scrollToKey(target);
           });
-        })(ym);
+        })(k);
       }
+
       var label = document.createElement('span');
       label.className = 'heatmap-label';
-      label.textContent = shortMonths[month - 1];
+      label.textContent = keyLabel(k);
+
       var circle = document.createElement('div');
       circle.className = 'heatmap-circle';
       if (isFuture) {
@@ -1511,11 +1126,30 @@ let network_calendar_js = {|
       } else if (count === 0) {
         circle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"/></svg>';
       }
+
       cell.appendChild(label);
       cell.appendChild(circle);
       strip.appendChild(cell);
     });
     heatmapEl.appendChild(strip);
+  }
+
+  function renderHeader(titleText) {
+    headerEl.innerHTML = '';
+    var prevBtn = document.createElement('button');
+    prevBtn.className = 'cal-nav';
+    prevBtn.textContent = '\u25C0';
+    prevBtn.addEventListener('click', function() { navigate(-1); });
+    var nextBtn = document.createElement('button');
+    nextBtn.className = 'cal-nav';
+    nextBtn.textContent = '\u25B6';
+    nextBtn.addEventListener('click', function() { navigate(1); });
+    var title = document.createElement('span');
+    title.className = 'cal-title';
+    title.textContent = titleText;
+    headerEl.appendChild(prevBtn);
+    headerEl.appendChild(title);
+    headerEl.appendChild(nextBtn);
   }
 
   function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
@@ -1524,34 +1158,34 @@ let network_calendar_js = {|
     return d === 0 ? 6 : d - 1;
   }
 
-  function renderMonth(ym) {
-    var parts = ym.split('-');
+  // Year mode: 12 month-of-year cells. Month mode: a weekday-aligned grid
+  // of the month's days, padded to six rows so the box height is stable.
+  function renderDetail(key) {
+    if (yearMode) {
+      renderHeader(key);
+      var monthSet = new Set(data[key] || []);
+      gridEl.innerHTML = '';
+      gridEl.style.gridTemplateColumns = 'repeat(4, 1fr)';
+      for (var m = 0; m < 12; m++) {
+        var cell = document.createElement('span');
+        cell.className = monthSet.has(m + 1) ? 'cal-day cal-day-active' : 'cal-day cal-day-empty';
+        cell.textContent = shortMonths[m];
+        gridEl.appendChild(cell);
+      }
+      return;
+    }
+
+    var parts = key.split('-');
     var year = parseInt(parts[0]);
     var month = parseInt(parts[1]);
-    var days = data[ym] || [];
-    var daySet = new Set(days);
+    var daySet = new Set(data[key] || []);
     var total = daysInMonth(year, month);
     var offset = firstDayOfWeek(year, month);
 
-    headerEl.innerHTML = '';
-    var prevBtn = document.createElement('button');
-    prevBtn.className = 'cal-nav';
-    prevBtn.textContent = '\u25C0';
-    prevBtn.addEventListener('click', function() { navigate(-1); });
-    var nextBtn = document.createElement('button');
-    nextBtn.className = 'cal-nav';
-    nextBtn.textContent = '\u25B6';
-    nextBtn.addEventListener('click', function() { navigate(1); });
-    var title = document.createElement('span');
-    title.className = 'cal-title';
-    title.textContent = shortMonths[month - 1] + ' ' + year;
-    headerEl.appendChild(prevBtn);
-    headerEl.appendChild(title);
-    headerEl.appendChild(nextBtn);
+    renderHeader(shortMonths[month - 1] + ' ' + year);
 
     gridEl.innerHTML = '';
-    var weekdays = ['Mo','Tu','We','Th','Fr','Sa','Su'];
-    weekdays.forEach(function(wd) {
+    ['Mo','Tu','We','Th','Fr','Sa','Su'].forEach(function(wd) {
       var cell = document.createElement('span');
       cell.className = 'cal-weekday';
       cell.textContent = wd;
@@ -1567,11 +1201,10 @@ let network_calendar_js = {|
       if (daySet.has(d)) {
         cell.className = 'cal-day cal-day-active';
         if (d === currentDay) cell.classList.add('cal-day-viewing');
-        cell.textContent = d;
       } else {
         cell.className = 'cal-day cal-day-empty';
-        cell.textContent = d;
       }
+      cell.textContent = d;
       gridEl.appendChild(cell);
     }
     var totalCells = offset + total;
@@ -1584,31 +1217,51 @@ let network_calendar_js = {|
   }
 
   function navigate(dir) {
-    var idx = allMonths.indexOf(currentMonth);
+    var idx = allKeys.indexOf(current);
     var next = idx - dir;
-    if (next >= 0 && next < allMonths.length) {
-      currentMonth = allMonths[next];
+    if (next >= 0 && next < allKeys.length) {
+      current = allKeys[next];
       currentDay = 0;
-      renderMonth(currentMonth);
+      renderDetail(current);
       renderHeatmap();
     }
   }
 
   renderHeatmap();
-  renderMonth(currentMonth);
+  renderDetail(current);
 
-  // Scroll tracking — observe feed items with data-month-id and data-day
-  var observed = new WeakSet();
-  var observer = null;
-  if ('IntersectionObserver' in window) {
-    observer = new IntersectionObserver(function(entries) {
+  // Scroll tracking. Year mode reads section positions on scroll; month
+  // mode observes timeline items, re-observing whatever pagination adds.
+  if (yearMode) {
+    if (document.querySelector(trackSel)) {
+      // Query on each scroll so sections added by pagination are tracked
+      var updateCurrent = function() {
+        var best = null;
+        document.querySelectorAll(trackSel).forEach(function(s) {
+          if (s.getBoundingClientRect().top <= 120) best = s;
+        });
+        if (best) {
+          var key = best.dataset.yearId;
+          if (key && key !== current) {
+            current = key;
+            renderDetail(current);
+            renderHeatmap();
+          }
+        }
+      };
+      window.addEventListener('scroll', updateCurrent, { passive: true });
+      updateCurrent();
+    }
+  } else if ('IntersectionObserver' in window) {
+    var observed = new WeakSet();
+    var observer = new IntersectionObserver(function(entries) {
       entries.forEach(function(entry) {
         if (entry.isIntersecting) {
           var monthId = entry.target.dataset.monthId;
           var day = parseInt(entry.target.dataset.day || '0');
           var changed = false;
-          if (monthId && monthId !== currentMonth) {
-            currentMonth = monthId;
+          if (monthId && monthId !== current) {
+            current = monthId;
             currentDay = day;
             changed = true;
           } else if (day && day !== currentDay) {
@@ -1616,31 +1269,30 @@ let network_calendar_js = {|
             changed = true;
           }
           if (changed) {
-            renderMonth(currentMonth);
+            renderDetail(current);
             renderHeatmap();
           }
         }
       });
     }, { rootMargin: '-80px 0px -60% 0px' });
-  }
 
-  function observeItems() {
-    if (!observer) return;
-    document.querySelectorAll('.network-feed-item[data-month-id]').forEach(function(s) {
-      if (!observed.has(s)) {
-        observed.add(s);
-        observer.observe(s);
-      }
+    var observeItems = function() {
+      document.querySelectorAll(trackSel + '[data-month-id]').forEach(function(s) {
+        if (!observed.has(s)) {
+          observed.add(s);
+          observer.observe(s);
+        }
+      });
+    };
+
+    observeItems();
+    document.addEventListener('pagination-loaded', function() {
+      requestAnimationFrame(observeItems);
     });
+    var mutObs = new MutationObserver(observeItems);
+    var timeline = document.querySelector('[data-pagination="true"]');
+    if (timeline) mutObs.observe(timeline, { childList: true, subtree: true });
   }
-
-  observeItems();
-  document.addEventListener('pagination-loaded', function() {
-    requestAnimationFrame(observeItems);
-  });
-  var mutObs = new MutationObserver(function() { observeItems(); });
-  var timeline = document.querySelector('[data-collection-type="network"]');
-  if (timeline) mutObs.observe(timeline, { childList: true, subtree: true });
 })();
 |}
 

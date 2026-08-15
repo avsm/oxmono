@@ -416,10 +416,13 @@ let network_page ~ctx =
 
   (* Sidebar — calendar *)
   let calendar_box =
-    Common.meta_box ~id:"network-calendar"
+    Common.meta_box
       ~body_cls:"sidebar-meta-body notes-calendar"
       ~data_attrs:["data-calendar-months", calendar_json;
-                   "data-current-month", first_month]
+                   "data-current-month", first_month;
+                   "data-cal-track", ".network-feed-item";
+                   "data-cal-noun", "day";
+                   "data-cal-empty", "no posts"]
       ~header:[El.txt (Printf.sprintf " %d posts \xC2\xB7 %d contacts"
                  total_feed total_contacts)]
       [El.div ~at:[At.class' "cal-header"] [];

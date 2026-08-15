@@ -313,9 +313,7 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
 
 type page_script =
   | Toc | Pagination | Lightbox | Links_modal
-  | Checkbox_filter
-  | Papers_calendar | Links_calendar
-  | Network_calendar
+  | Checkbox_filter | Calendar
   | Tag_cloud_filter
 
 let script_of = function
@@ -324,9 +322,7 @@ let script_of = function
   | Lightbox -> Scripts.lightbox_js
   | Links_modal -> Scripts.links_modal_js
   | Checkbox_filter -> Scripts.checkbox_filter_js
-  | Papers_calendar -> Scripts.papers_calendar_js
-  | Links_calendar -> Scripts.links_calendar_js
-  | Network_calendar -> Scripts.network_calendar_js
+  | Calendar -> Scripts.calendar_js
   | Tag_cloud_filter -> Scripts.tag_cloud_filter_js
 
 let global_scripts =

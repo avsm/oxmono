@@ -1401,3 +1401,19 @@ let mobile_menu_js = {|
 })();
 |}
 
+
+(** [by_name] maps the file names served under [/js/] to their sources.
+    [site.js] bundles the scripts every page includes. The bundle must
+    execute after the highlight.js CDN script, which [hljs_init] uses. *)
+let by_name = [
+  "site.js", String.concat "\n" [
+    sidenotes_js; search_js; hljs_init; theme_toggle_js;
+    feed_dropdown_js; mobile_menu_js ];
+  "toc.js", toc_js;
+  "pagination.js", pagination_js;
+  "lightbox.js", lightbox_js;
+  "links-modal.js", links_modal_js;
+  "filter.js", checkbox_filter_js;
+  "calendar.js", calendar_js;
+  "tag-filter.js", tag_cloud_filter_js;
+]

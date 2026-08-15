@@ -96,6 +96,19 @@ let footer_el ~ctx ?url () =
         ]
     ]
 
+(** {1 Asset Versions}
+
+    Static assets are served with far-future cache headers, so their URLs
+    carry a content hash that changes whenever the content does. *)
+
+let js_version =
+  let all = String.concat "" (List.map snd Scripts.by_name) in
+  String.sub (Digest.to_hex (Digest.string all)) 0 8
+
+let tw_version =
+  let css = Option.value ~default:"" (Arod_assets.read "tw.css") in
+  String.sub (Digest.to_hex (Digest.string css)) 0 8
+
 (** {1 Head Elements} *)
 
 let meta_tag ~name ~content =
@@ -177,14 +190,19 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       El.script [El.unsafe_raw Theme.theme_init_js];
 
       (* Tailwind stylesheet, prebuilt by tailwind/regen.sh and committed *)
-      El.link ~at:[ At.rel "stylesheet"; At.href "/tw.css" ] ();
+      El.link ~at:[ At.rel "stylesheet";
+                 At.href ("/tw.css?v=" ^ tw_version) ] ();
 
-      (* Highlight.js — both themes, JS toggles which one is active *)
+      (* Highlight.js — both themes, JS toggles which one is active.
+         Deferred so it never blocks parsing; the site bundle that calls
+         hljs.highlightAll() is also deferred and comes later in the
+         document, which guarantees it runs after this. *)
       El.link ~at:[ At.rel "stylesheet"; At.id "hljs-light";
                  At.href "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" ] ();
       El.link ~at:[ At.rel "stylesheet"; At.id "hljs-dark"; At.disabled;
                  At.href "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" ] ();
-      El.script ~at:[ At.src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" ] [];
+      El.script ~at:[ At.defer;
+                 At.src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" ] [];
 
       (* Custom CSS *)
       El.style [El.unsafe_raw Theme.custom_css];
@@ -316,28 +334,24 @@ type page_script =
   | Checkbox_filter | Calendar
   | Tag_cloud_filter
 
-let script_of = function
-  | Toc -> Scripts.toc_js
-  | Pagination -> Scripts.pagination_js
-  | Lightbox -> Scripts.lightbox_js
-  | Links_modal -> Scripts.links_modal_js
-  | Checkbox_filter -> Scripts.checkbox_filter_js
-  | Calendar -> Scripts.calendar_js
-  | Tag_cloud_filter -> Scripts.tag_cloud_filter_js
+let script_file_of = function
+  | Toc -> "toc.js"
+  | Pagination -> "pagination.js"
+  | Lightbox -> "lightbox.js"
+  | Links_modal -> "links-modal.js"
+  | Checkbox_filter -> "filter.js"
+  | Calendar -> "calendar.js"
+  | Tag_cloud_filter -> "tag-filter.js"
 
-let global_scripts =
-  [ El.script [ El.unsafe_raw Scripts.sidenotes_js ];
-    El.script [ El.unsafe_raw Scripts.search_js ];
-    El.script [ El.unsafe_raw Scripts.hljs_init ];
-    El.script [ El.unsafe_raw Scripts.theme_toggle_js ];
-    El.script [ El.unsafe_raw Scripts.feed_dropdown_js ];
-    El.script [ El.unsafe_raw Scripts.mobile_menu_js ] ]
-
+(* Deferred external scripts. Placing them in the head lets the browser
+   fetch early, and defer preserves document order while running only
+   after the DOM is parsed. *)
 let build_scripts page_scripts =
-  let page_els = List.map (fun s ->
-    El.script [ El.unsafe_raw (script_of s) ]
-  ) page_scripts in
-  global_scripts @ page_els
+  let script_el name =
+    El.script ~at:[ At.defer; At.src ("/js/" ^ name ^ "?v=" ^ js_version) ] []
+  in
+  script_el "site.js"
+  :: List.map (fun s -> script_el (script_file_of s)) page_scripts
 
 (** {1 Content Grid} *)
 
@@ -372,14 +386,14 @@ let page ~ctx ~title ~description ?url ?image ?(jsonld=[]) ?standardsite ?curren
       content_grid ?main_cls ~article ?sidebar ();
       mobile_footer_el;
       footer_el ~ctx ?url () ]
-    @ build_scripts page_scripts
   in
   let head_el =
     El.head
       ([ El.meta ~at:[At.charset "utf-8"] ();
          El.meta ~at:[At.name "viewport"; At.content "width=device-width, initial-scale=1.0"] ();
          El.title [El.txt full_title] ]
-       @ head_els)
+       @ head_els
+       @ build_scripts page_scripts)
   in
   let body_el =
     El.body ~at:[At.class' "bg-bg text-text font-sans"] body_content
@@ -396,14 +410,14 @@ let wide_page ~ctx ~title ~description ?url ?current_page ?(jsonld=[]) ?(page_sc
       El.div ~at:[At.class' "max-w-screen-xl mx-auto px-2 md:px-6 py-8"]
         [El.main ~at:[At.class' "prose text-body"] [article]];
       footer_el ~ctx ?url () ]
-    @ build_scripts page_scripts
   in
   let head_el =
     El.head
       ([ El.meta ~at:[At.charset "utf-8"] ();
          El.meta ~at:[At.name "viewport"; At.content "width=device-width, initial-scale=1.0"] ();
          El.title [El.txt full_title] ]
-       @ head_els)
+       @ head_els
+       @ build_scripts page_scripts)
   in
   let body_el =
     El.body ~at:[At.class' "bg-bg text-text font-sans"] body_content

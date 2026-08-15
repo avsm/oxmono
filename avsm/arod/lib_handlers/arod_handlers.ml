@@ -126,6 +126,35 @@ let embedded_file path (local_ rctx) (local_ respond) =
       send_file respond ~mime content
   | None -> not_found respond
 
+(** {1 Versioned Static Assets}
+
+    These are referenced with a content-hash query string, so the response
+    can be cached forever: a content change changes the URL. *)
+
+let immutable_cache =
+  (Httpz.Header_name.Cache_control, "public, max-age=31536000, immutable")
+
+let[@inline] send_file_immutable (local_ respond) ~mime body =
+  respond ~status:Httpz.Res.Success
+    ~headers:[(Httpz.Header_name.Content_type, mime); immutable_cache]
+    body
+
+let embedded_file_immutable path (local_ rctx) (local_ respond) =
+  match Arod_assets.read path with
+  | Some content ->
+    let mime = mime_type_of_path path in
+    if R.is_head rctx then send_file_immutable respond ~mime R.Empty
+    else send_file_immutable respond ~mime (R.String content)
+  | None -> not_found respond
+
+let js_file name (local_ rctx) (local_ respond) =
+  match List.assoc_opt name C.Scripts.by_name with
+  | Some js ->
+    let mime = "text/javascript" in
+    if R.is_head rctx then send_file_immutable respond ~mime R.Empty
+    else send_file_immutable respond ~mime (R.String js)
+  | None -> not_found respond
+
 (** {1 Cached Handler Wrapper} *)
 
 let cached ~cache ~key rctx f (local_ respond) =
@@ -1015,7 +1044,8 @@ let all_routes ~ctx ~cache ~search ~log ~fs =
     get_ [ "favicon-16x16.png" ] (fun rctx respond -> embedded_file "favicon-16x16.png" rctx respond);
     get_ [ "apple-touch-icon.png" ] (fun rctx respond -> embedded_file "apple-touch-icon.png" rctx respond);
     get_ [ "site.webmanifest" ] (fun rctx respond -> embedded_file "site.webmanifest" rctx respond);
-    get_ [ "tw.css" ] (fun rctx respond -> embedded_file "tw.css" rctx respond);
+    get_ [ "tw.css" ] (fun rctx respond -> embedded_file_immutable "tw.css" rctx respond);
+    get ("js" / seg root) (fun (name, ()) -> js_file name);
     (* Stats dashboard — hidden, not cached, not in sitemap, HTTP Basic auth *)
     get_h1 (lits ["action"]) Authorization (fun () auth rctx (local_ respond) ->
       if not (check_stats_auth cfg auth) then send_auth_challenge respond

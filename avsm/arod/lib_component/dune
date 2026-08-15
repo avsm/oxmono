@@ -4,6 +4,7 @@
  (libraries
   htmlit
   arod
+  arod.assets
   bushel
   sortal.schema
   sortal.feed

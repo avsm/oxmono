@@ -417,7 +417,7 @@ let ideas_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
         Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/ideas" ~title:"Research Ideas" ~description:"Research ideas by year" ~count ();
         Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/"); ("Ideas", "/ideas")];
       ] in
-      C.Layout.page ~ctx ~title:"Research Ideas" ~description:"Research ideas by year" ~url:"/ideas" ~current_page:"Ideas" ~jsonld ~page_scripts:[Ideas_calendar; Status_filter; Toc] ~article ~sidebar ())
+      C.Layout.page ~ctx ~title:"Research Ideas" ~description:"Research ideas by year" ~url:"/ideas" ~current_page:"Ideas" ~jsonld ~page_scripts:[Status_filter; Toc] ~article ~sidebar ())
     ~md_fn:(fun () -> C.Markdown_export.ideas_list_md ~ctx)
   respond
 
@@ -480,7 +480,7 @@ let projects_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
         Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/projects" ~title:"Projects" ~description:"Research projects" ~count ();
         Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/"); ("Projects", "/projects")];
       ] in
-      C.Layout.wide_page ~ctx ~title:"Projects" ~description:"Research projects" ~url:"/projects" ~current_page:"Projects" ~jsonld ~page_scripts:[Masonry] ~article ())
+      C.Layout.wide_page ~ctx ~title:"Projects" ~description:"Research projects" ~url:"/projects" ~current_page:"Projects" ~jsonld ~article ())
     ~md_fn:(fun () -> C.Markdown_export.projects_list_md ~ctx)
   respond
 
@@ -539,7 +539,7 @@ let videos_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
         Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/videos" ~title:"Talks" ~description:"Conference talks and presentations" ~count ();
         Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/"); ("Talks", "/videos")];
       ] in
-      C.Layout.wide_page ~ctx ~title:"Talks" ~description:"Conference talks and presentations" ~url:"/videos" ~current_page:"Talks" ~jsonld ~page_scripts:[Masonry; Pagination] ~article ())
+      C.Layout.wide_page ~ctx ~title:"Talks" ~description:"Conference talks and presentations" ~url:"/videos" ~current_page:"Talks" ~jsonld ~page_scripts:[Pagination] ~article ())
     ~md_fn:(fun () -> C.Markdown_export.videos_list_md ~ctx)
   respond
 

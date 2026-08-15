@@ -315,8 +315,8 @@ type page_script =
   | Toc | Pagination | Lightbox | Links_modal
   | Status_filter | Classification_filter | Link_filter
   | Papers_calendar | Links_calendar
-  | Network_calendar | Ideas_calendar
-  | Tag_cloud_filter | Masonry
+  | Network_calendar
+  | Tag_cloud_filter
 
 let script_of = function
   | Toc -> Scripts.toc_js
@@ -329,9 +329,7 @@ let script_of = function
   | Papers_calendar -> Scripts.papers_calendar_js
   | Links_calendar -> Scripts.links_calendar_js
   | Network_calendar -> Scripts.network_calendar_js
-  | Ideas_calendar -> Scripts.ideas_calendar_js
   | Tag_cloud_filter -> Scripts.tag_cloud_filter_js
-  | Masonry -> Scripts.masonry_js
 
 let global_scripts =
   [ El.script [ El.unsafe_raw Scripts.sidenotes_js ];

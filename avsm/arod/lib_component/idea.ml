@@ -184,8 +184,8 @@ let status_filter_box ~total ~counts =
   let checkbox ~id ~label_text ~checked:is_checked ~status_name ~cls ~count =
     El.label ~at:[At.class' "idea-filter-row"] [
       El.input ~at:([At.type' "checkbox"; At.id id;
-        At.class' "status-checkbox";
-        At.v "data-status" status_name]
+        At.class' "filter-checkbox";
+        At.v "data-filter" status_name]
         @ (if is_checked then [At.checked] else [])) ();
       El.span ~at:[At.class' ("idea-dot " ^ cls)]
         [El.unsafe_raw (I.filled ~size:7 I.circle_f)];
@@ -242,7 +242,7 @@ let compact ~ctx idea =
   in
   let synopsis_text = status_str ^ people_text ^ cosup_text in
   El.div ~at:[At.class' "note-compact hover:bg-surface idea-item h-entry px-1 py-1 md:px-2 md:py-1";
-              At.v "data-status" (Idea.status_to_string status);
+              At.v "data-filter-item" (Idea.status_to_string status);
               At.v "data-year" (string_of_int year)] [
     El.div ~at:[At.class' "note-compact-row"] [
       status_dot status;
@@ -296,7 +296,8 @@ let ideas_list ~ctx =
       | Some y -> Printf.sprintf "%d\u{2013}%d" proj.Bushel.Project.start y
       | None -> Printf.sprintf "%d\u{2013}now" proj.Bushel.Project.start
     in
-    El.div ~at:[At.id ("proj-" ^ proj_slug); At.class' "idea-project-section mb-8"] [
+    El.div ~at:[At.id ("proj-" ^ proj_slug); At.v "data-filter-section" "";
+                At.class' "idea-project-section mb-8"] [
       El.div ~at:[At.class' "proj-card-header sticky top-0 z-10"] [
         El.span ~at:[At.class' "proj-card-prompt"] [El.txt ">_"];
         El.a ~at:[At.href ("/projects/" ^ proj_slug);

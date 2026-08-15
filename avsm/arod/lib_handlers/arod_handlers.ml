@@ -245,7 +245,7 @@ let papers_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
         Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/papers" ~title:"Papers" ~description:"Academic papers" ~count ();
         Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/"); ("Papers", "/papers")];
       ] in
-      C.Layout.page ~ctx ~title:"Papers" ~description:"Academic papers" ~url:"/papers" ~current_page:"Papers" ~jsonld ~page_scripts:[Papers_calendar; Classification_filter; Tag_cloud_filter; Pagination; Toc] ~article ~sidebar ())
+      C.Layout.page ~ctx ~title:"Papers" ~description:"Academic papers" ~url:"/papers" ~current_page:"Papers" ~jsonld ~page_scripts:[Papers_calendar; Checkbox_filter; Tag_cloud_filter; Pagination; Toc] ~article ~sidebar ())
     ~md_fn:(fun () -> C.Markdown_export.papers_list_md ~ctx)
   respond
 
@@ -417,7 +417,7 @@ let ideas_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
         Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/ideas" ~title:"Research Ideas" ~description:"Research ideas by year" ~count ();
         Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/"); ("Ideas", "/ideas")];
       ] in
-      C.Layout.page ~ctx ~title:"Research Ideas" ~description:"Research ideas by year" ~url:"/ideas" ~current_page:"Ideas" ~jsonld ~page_scripts:[Status_filter; Toc] ~article ~sidebar ())
+      C.Layout.page ~ctx ~title:"Research Ideas" ~description:"Research ideas by year" ~url:"/ideas" ~current_page:"Ideas" ~jsonld ~page_scripts:[Checkbox_filter; Toc] ~article ~sidebar ())
     ~md_fn:(fun () -> C.Markdown_export.ideas_list_md ~ctx)
   respond
 
@@ -619,7 +619,7 @@ let links_list ~ctx ~cache accept (local_ rctx) (local_ respond) =
   negotiated ~cache ~key rctx accept
     ~html_fn:(fun () ->
       let article, sidebar = C.Links.links_list ~ctx in
-      C.Layout.page ~ctx ~title:"Links" ~description:"Outbound links" ~url:"/links" ~current_page:"Links" ~page_scripts:[Links_calendar; Link_filter; Links_modal; Pagination; Toc] ~article ~sidebar ())
+      C.Layout.page ~ctx ~title:"Links" ~description:"Outbound links" ~url:"/links" ~current_page:"Links" ~page_scripts:[Links_calendar; Checkbox_filter; Links_modal; Pagination; Toc] ~article ~sidebar ())
     ~md_fn:(fun () -> C.Markdown_export.links_list_md ~ctx)
   respond
 

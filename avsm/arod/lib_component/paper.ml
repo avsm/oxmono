@@ -337,8 +337,8 @@ let classification_filter_box ~total ~counts =
     in
     El.label ~at:[At.class' "paper-filter-row"] [
       El.input ~at:[At.type' "checkbox"; At.checked;
-                    At.v "data-classification" data_cls;
-                    At.class' "classification-checkbox sr-only"] ();
+                    At.v "data-filter" data_cls;
+                    At.class' "filter-checkbox sr-only"] ();
       classification_icon cls;
       El.span ~at:[At.class' "paper-filter-label"] [El.txt label];
       El.span ~at:[At.class' "paper-stat-count"] [El.txt (string_of_int count)]]
@@ -360,7 +360,7 @@ let compact_card ~ctx paper =
   let tag_strs = List.map Bushel.Tags.to_raw_string all_tags in
   let tags_data = String.concat "," tag_strs in
   El.div ~at:[At.class' "note-compact hover:bg-surface paper-item note-item h-entry px-1 py-1 md:px-2 md:py-1 md:pl-5";
-              At.v "data-classification" cls_str;
+              At.v "data-filter-item" cls_str;
               At.v "data-tags" tags_data;
               At.v "data-year" (string_of_int y)] [
     (* Classification icon — positioned absolutely to the left *)
@@ -439,6 +439,7 @@ let papers_list ~ctx =
     let paper_cards = List.map (fun p -> compact_card ~ctx p) papers in
     El.div ~at:[At.id (Printf.sprintf "year-%d" y);
                 At.v "data-year-id" (string_of_int y);
+                At.v "data-filter-section" "";
                 At.class' "mb-6"] [
       El.div ~at:[At.class' "paper-year-header sticky top-0 bg-bg z-10 py-0.5"] [
         El.txt (string_of_int y)];

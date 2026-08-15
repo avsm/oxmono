@@ -961,56 +961,37 @@ let theme_toggle_js = {|
 })();
 |}
 
-let status_filter_js = {|
-// Idea status filter checkboxes
+let checkbox_filter_js = {|
+// Checkbox filters. A checkbox carrying data-filter shows or hides every
+// element whose data-filter-item equals its value. A container marked
+// data-filter-section is hidden once none of its items are visible.
 (function() {
-  const checkboxes = document.querySelectorAll('.status-checkbox');
+  var checkboxes = document.querySelectorAll('input.filter-checkbox[data-filter]');
   if (!checkboxes.length) return;
 
-  function applyFilter() {
-    checkboxes.forEach(cb => {
-      const status = cb.dataset.status;
-      const items = document.querySelectorAll('.idea-item[data-status="' + status + '"]');
-      items.forEach(item => {
+  function apply() {
+    checkboxes.forEach(function(cb) {
+      var items = document.querySelectorAll('[data-filter-item="' + cb.dataset.filter + '"]');
+      items.forEach(function(item) {
         item.style.display = cb.checked ? '' : 'none';
       });
     });
-    // Hide year sections with no visible items
-    document.querySelectorAll('[data-year-id]').forEach(function(section) {
-      var visible = section.querySelectorAll('.idea-item:not([style*="display: none"])');
-      section.style.display = visible.length ? '' : 'none';
+    document.querySelectorAll('[data-filter-section]').forEach(function(section) {
+      var items = section.querySelectorAll('[data-filter-item]');
+      if (!items.length) return;
+      var visible = false;
+      items.forEach(function(item) {
+        if (item.style.display !== 'none') visible = true;
+      });
+      section.style.display = visible ? '' : 'none';
     });
   }
 
-  checkboxes.forEach(cb => {
-    cb.addEventListener('change', applyFilter);
-  });
-
-  // Apply initial filter state on page load (hides unchecked like Expired)
-  applyFilter();
-})();
-|}
-
-let classification_filter_js = {|
-// Paper classification filter checkboxes
-(function() {
-  const checkboxes = document.querySelectorAll('.classification-checkbox');
-  if (!checkboxes.length) return;
-
-  checkboxes.forEach(cb => {
-    cb.addEventListener('change', () => {
-      const cls = cb.dataset.classification;
-      const items = document.querySelectorAll('.paper-item[data-classification="' + cls + '"]');
-      items.forEach(item => {
-        item.style.display = cb.checked ? '' : 'none';
-      });
-      // Hide year sections with no visible papers
-      document.querySelectorAll('[data-year-id]').forEach(function(section) {
-        var visible = section.querySelectorAll('.paper-item:not([style*="display: none"])');
-        section.style.display = visible.length ? '' : 'none';
-      });
-    });
-  });
+  checkboxes.forEach(function(cb) { cb.addEventListener('change', apply); });
+  // Content loaded by pagination must respect the current checkbox state
+  document.addEventListener('pagination-loaded', apply);
+  // Some boxes start unchecked (expired ideas, untitled links)
+  apply();
 })();
 |}
 
@@ -1768,37 +1749,3 @@ let mobile_menu_js = {|
 })();
 |}
 
-let link_filter_js = {|
-// Link classification filter checkboxes
-(function() {
-  var checkboxes = document.querySelectorAll('.link-filter-checkbox');
-  if (!checkboxes.length) return;
-
-  function applyFilters() {
-    checkboxes.forEach(function(cb) {
-      var kind = cb.dataset.linkFilter;
-      var rows = document.querySelectorAll('.link-row[data-link-filter="' + kind + '"]');
-      rows.forEach(function(row) {
-        row.style.display = cb.checked ? '' : 'none';
-      });
-    });
-    // Hide link-group divs with no visible rows
-    document.querySelectorAll('.link-group').forEach(function(group) {
-      var visible = group.querySelectorAll('.link-row:not([style*="display: none"])');
-      group.style.display = visible.length ? '' : 'none';
-    });
-  }
-
-  checkboxes.forEach(function(cb) {
-    cb.addEventListener('change', applyFilters);
-  });
-
-  // Re-apply filters when pagination loads new content
-  document.addEventListener('pagination-loaded', function() {
-    applyFilters();
-  });
-
-  // Apply initial filter state (hides unchecked kinds like untitled)
-  applyFilters();
-})();
-|}

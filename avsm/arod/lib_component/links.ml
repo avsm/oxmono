@@ -457,11 +457,11 @@ let render_group ~contact_by_domain ~doi_entries ~entries ~ctx group =
       else El.void
     in
     El.div ~at:[At.class' "link-row pl-0 md:pl-5";
-                At.v "data-link-kind" (string_of_kind display.kind);
-                At.v "data-link-filter" (string_of_filter_kind (filter_of_kind display.kind))]
+                At.v "data-filter-item" (string_of_filter_kind (filter_of_kind display.kind))]
       [badge; label_el; domain_hint]
   ) group.links in
   El.div ~at:[At.class' "link-group";
+              At.v "data-filter-section" "";
               At.v "data-month-id" month_id;
               At.v "data-day" day_str]
     (header :: link_rows)
@@ -679,8 +679,8 @@ let links_list ~ctx =
         let checked_at = if kind = Fp_untitled then [] else [At.checked] in
         Some (El.label ~at:[At.class' "paper-filter-row"] [
           El.input ~at:([At.type' "checkbox";
-                        At.v "data-link-filter" kind_str;
-                        At.class' "link-filter-checkbox sr-only"] @ checked_at) ();
+                        At.v "data-filter" kind_str;
+                        At.class' "filter-checkbox sr-only"] @ checked_at) ();
           filter_icon kind;
           El.span ~at:[At.class' "paper-filter-label"] [El.txt label];
           El.span ~at:[At.class' "paper-stat-count"] [El.txt (string_of_int count)]])

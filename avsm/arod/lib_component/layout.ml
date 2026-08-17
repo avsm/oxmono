@@ -365,7 +365,7 @@ let content_grid ?(main_cls="max-w-2xl") ~article ?sidebar () =
 
 (** {1 Page Assembly} *)
 
-let page ~ctx ~title ~description ?url ?image ?(jsonld=[]) ?standardsite ?current_page ?toc_sections
+let page ~ctx ~title ~description ?url ?image ?(jsonld=[]) ?standardsite ?current_page
     ?og_type ?published ?modified ?tags ?citation ?(page_scripts=[]) ?main_cls ~article ?sidebar ?mobile_footer () =
   let config = Arod.Ctx.config ctx in
   let full_title = title ^ " | " ^ config.Arod.Config.site.name in
@@ -382,7 +382,7 @@ let page ~ctx ~title ~description ?url ?image ?(jsonld=[]) ?standardsite ?curren
     | None -> El.void
   in
   let body_content =
-    [ Nav.header ?current_page ?toc_sections ctx;
+    [ Nav.header ?current_page ctx;
       content_grid ?main_cls ~article ?sidebar ();
       mobile_footer_el;
       footer_el ~ctx ?url () ]

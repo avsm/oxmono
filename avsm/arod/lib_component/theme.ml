@@ -305,9 +305,84 @@ let custom_css = {|
     opacity: 1;
     transition: opacity 0.3s ease-in;
   }
+  /* Contents box. Pinned below the sticky header while the article
+     scrolls, so it sits over the sidenotes beneath it. The offset must
+     match the header exactly or sidebar content shows through the gap;
+     toc.js measures the header and sets --toc-top. */
+  .toc-box {
+    position: sticky;
+    top: var(--toc-top, 3rem);
+    z-index: 20;
+  }
+  /* Fade the column out under the pinned box instead of cutting it off.
+     Only while pinned: at rest the box sits on the meta box below it. */
+  .toc-box::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: 3rem;
+    background: linear-gradient(to bottom, var(--color-bg) 30%, transparent);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+  }
+  .toc-box.stuck::after {
+    opacity: 1;
+  }
+  #toc-box .sidebar-meta-header {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .toc-top {
+    margin-left: auto;
+    display: inline-flex;
+    color: var(--color-secondary);
+  }
+  .toc-top:hover {
+    color: var(--color-link);
+  }
+  .toc-list {
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
   .toc-link {
+    display: grid;
+    grid-template-columns: 1.1em 1fr;
+    align-items: baseline;
+    gap: 0.35em;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    color: var(--color-secondary);
     background: linear-gradient(to right, var(--color-toc-bg) 0%, var(--color-toc-bg) var(--progress, 0%), transparent var(--progress, 0%), transparent 100%);
     transition: all 0.15s ease;
+  }
+  .toc-link:hover {
+    color: var(--color-link);
+  }
+  .toc-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Matches the section numbers the article headings carry */
+  .toc-num {
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--color-muted);
+  }
+  .toc-link.passed .toc-num {
+    color: var(--color-link);
+  }
+  .toc-link.active .toc-num {
+    color: var(--color-accent);
   }
   .toc-link.passed {
     background: var(--color-toc-bg);
@@ -2479,15 +2554,7 @@ let custom_css = {|
   opacity: 0.9;
 }
 
-/* These need higher specificity than layered rules */
-#nav-notes.emphasized {
-  color: var(--color-link);
 }
-#toc-row.visible {
-  opacity: 1;
-  max-height: 2rem;
-  overflow-x: auto;
-  overflow-y: hidden;
 }
 /* Unlayered — wins over Tailwind utility classes */
 main a:not(.no-underline):not(.heading-anchor):not(.lightbox-trigger) {

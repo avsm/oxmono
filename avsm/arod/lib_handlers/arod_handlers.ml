@@ -390,7 +390,7 @@ let note ~ctx ~cache slug accept (local_ rctx) (local_ respond) =
         let refs = C.Note.references ~ctx n in
         let related = C.Sidebar.related_stream ~ctx (Bushel.Note.slug n) in
         let full_article = Htmlit.El.div [article_el; refs; related] in
-        let sidebar = C.Sidebar.for_entry ~ctx ~sidenotes (`Note n) in
+        let sidebar = C.Sidebar.for_entry ~ctx ~sidenotes ~toc:headings (`Note n) in
         let cfg = Arod.Ctx.config ctx in
         let entries = Arod.Ctx.entries ctx in
         let description = Option.value ~default:"" (Bushel.Note.synopsis n) in
@@ -424,7 +424,7 @@ let note ~ctx ~cache slug accept (local_ rctx) (local_ respond) =
           ~url:("/notes/" ^ slug) ?image ~og_type:"article"
           ~published ?modified ~tags ?citation ~jsonld ?standardsite
           ~page_scripts:[Toc; Lightbox; Links_modal]
-          ~toc_sections:headings ~article:full_article ~sidebar ()
+          ~article:full_article ~sidebar ()
       | Some ent ->
         let article = C.Entry.full_body ~ctx ent in
         C.Layout.page ~ctx ~title:(Bushel.Entry.title ent) ~description:"" ~page_scripts:[Toc; Lightbox] ~article ())
@@ -466,7 +466,7 @@ let idea ~ctx ~cache slug accept (local_ rctx) (local_ respond) =
         let article_el, sidenotes, headings = C.Idea.full_page ~ctx i in
         let related = C.Sidebar.related_stream ~ctx i.Bushel.Idea.slug in
         let full_article = Htmlit.El.div [article_el; related] in
-        let sidebar = C.Sidebar.for_entry ~ctx ~sidenotes (`Idea i) in
+        let sidebar = C.Sidebar.for_entry ~ctx ~sidenotes ~toc:headings (`Idea i) in
         let description = Option.value ~default:(Bushel.Idea.title i) (Bushel.Entry.synopsis (`Idea i)) in
         let published = Bushel.Entry.date (`Idea i) in
         let cfg = Arod.Ctx.config ctx in
@@ -487,7 +487,7 @@ let idea ~ctx ~cache slug accept (local_ rctx) (local_ respond) =
         C.Layout.page ~ctx ~title:(Bushel.Idea.title i) ~description
           ~url:("/ideas/" ^ slug) ?image ~og_type:"article" ~published ~jsonld
           ~page_scripts:[Toc; Links_modal]
-          ~toc_sections:headings ~article:full_article ~sidebar ()
+          ~article:full_article ~sidebar ()
       | Some ent ->
         let article = C.Entry.full_body ~ctx ent in
         C.Layout.page ~ctx ~title:(Bushel.Entry.title ent) ~description:"" ~page_scripts:[Toc] ~article ())

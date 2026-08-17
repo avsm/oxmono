@@ -5,8 +5,9 @@
 
 (** Navigation header component for the Arod site.
 
-    Sticky header with navigation links, search button, and TOC breadcrumb
-    row matching the Tailwind CSS reference design. *)
+    Sticky header with navigation links, search button, feed dropdown and
+    theme toggle. The per-page table of contents lives in the sidebar, see
+    {!Sidebar.toc_box}. *)
 
 open Htmlit
 
@@ -175,40 +176,6 @@ let mobile_nav_item_el ~current_page = function
   | Link item -> render_mobile_nav_link ~current_page item
   | Divider -> mobile_nav_divider ()
 
-(** {1 TOC Row} *)
-
-let toc_row ~sections =
-  match sections with
-  | [] -> El.void
-  | _ ->
-  El.div
-    ~at:[ At.id "toc-row";
-          At.class' "hidden md:flex items-center gap-0 mt-1.5 opacity-0 max-h-0 overflow-hidden transition-all duration-300 scrollbar-hide" ]
-    ([ El.a
-        ~at:[
-          At.id "toc-root";
-          At.href "#intro";
-          At.v "title" "Top";
-          At.class' "text-xs text-secondary hover:text-link no-underline transition-colors shrink-0";
-        ]
-        [ El.unsafe_raw (I.outline ~size:12 I.arrow_up_o) ];
-    ]
-    @ List.concat
-        (List.mapi
-           (fun i (id, short_label) ->
-             [
-               El.span ~at:[At.class' "text-gray-300 select-none px-0.5 text-xs"]
-                 [ El.txt "/" ];
-               El.a
-                 ~at:[
-                   At.href ("#" ^ id);
-                   At.class' "toc-link no-underline text-xs px-0.5 py-0 rounded-md text-secondary hover:text-link transition-all whitespace-nowrap overflow-hidden text-ellipsis inline-block max-w-40";
-                   At.v "data-index" (string_of_int i);
-                 ]
-                 [ El.txt short_label ];
-             ])
-           sections))
-
 (** {1 Search Modal} *)
 
 let search_filter_pill ~active kind label =
@@ -296,7 +263,7 @@ let search_modal =
 
 (** {1 Header} *)
 
-let header ?(current_page : string option) ?(toc_sections=[]) ctx =
+let header ?(current_page : string option) ctx =
   let config = Arod.Ctx.config ctx in
   let site_name = config.Arod.Config.site.name in
 
@@ -416,9 +383,6 @@ let header ?(current_page : string option) ?(toc_sections=[]) ctx =
                   (* Theme toggle *)
                   theme_toggle_btn;
                 ];
-
-              (* TOC row - populated per-page *)
-              toc_row ~sections:toc_sections;
             ];
         ];
       mobile_menu;

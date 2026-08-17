@@ -1090,7 +1090,36 @@ let socials_box ~ctx =
         ~header:[El.txt " 'bout ye?"]
         (hidden_hcard @ hidden_org @ groups)
 
-let for_entry ~ctx ?(sidenotes=[]) ent =
+(** {1 Table of Contents} *)
+
+(** [toc_box sections] is a sidebar box listing [sections] as (anchor id,
+    label) pairs, one row per h2. The rows carry [data-index] and the
+    [toc-link] class that [toc.js] fills with scroll progress. Empty for
+    an entry with no headings. *)
+let toc_box sections =
+  match sections with
+  | [] -> El.void
+  | _ ->
+    (* [extract_headings] yields h2s in document order, so the row index
+       matches the section number the renderer prints in the article. *)
+    let row i (id, label) =
+      El.a
+        ~at:[At.href ("#" ^ id); At.class' "toc-link no-underline";
+             At.v "data-index" (string_of_int i)]
+        [El.span ~at:[At.class' "toc-num"] [El.txt (string_of_int (i + 1))];
+         El.span ~at:[At.class' "toc-label"] [El.txt label]]
+    in
+    El.div ~at:[At.class' "toc-box hidden lg:block"] [
+      Common.meta_box ~id:"toc-box" ~cls:"sidebar-meta-box mb-3"
+        ~body_cls:"sidebar-meta-body toc-list"
+        ~header:[
+          El.txt " contents";
+          El.a ~at:[At.id "toc-root"; At.href "#intro"; At.v "title" "Top";
+                    At.class' "toc-top no-underline"]
+            [El.unsafe_raw (I.outline ~size:12 I.arrow_up_o)]]
+        (List.mapi row sections)]
+
+let for_entry ~ctx ?(sidenotes=[]) ?(toc=[]) ent =
   let entries = Arod.Ctx.entries ctx in
 
   (* Entry-specific metadata *)
@@ -1146,7 +1175,9 @@ let for_entry ~ctx ?(sidenotes=[]) ent =
   El.aside
     ~at:[At.class' "lg:w-72 shrink-0"]
     [El.div ~at:[At.class' "relative h-full"]
-       [(* Meta boxes + related: visible on all screens *)
+       [(* Contents: desktop only, pinned as the article scrolls *)
+        toc_box toc;
+        (* Meta boxes + related: visible on all screens *)
         El.div ~at:[At.class' "mb-4 lg:mb-4 border-t border-border-color pt-4 mt-2 lg:border-t-0 lg:pt-0 lg:mt-0"]
           [note_meta_el; related_el];
         (* Sidenotes: desktop only — on mobile they appear inline *)

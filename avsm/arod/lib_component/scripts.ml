@@ -210,32 +210,32 @@ let toc_js = {|
 // Table of Contents functionality (desktop only)
 function setupTOC() {
   if (window.innerWidth < 1024) return;
-  const tocRow = document.getElementById('toc-row');
-  const navNotes = document.getElementById('nav-notes');
+  const tocBox = document.querySelector('.toc-box');
+  const tocList = document.querySelector('#toc-box .toc-list');
   const tocLinks = document.querySelectorAll('.toc-link');
-  if (!tocRow) return;
+  if (!tocList) return;
 
   const sectionIds = [];
   tocLinks.forEach(link => { sectionIds.push(link.getAttribute('href').slice(1)); });
   const sectionElements = sectionIds.map(id => document.getElementById(id)).filter(Boolean);
 
-  let tocVisible = false;
-  const showThreshold = 200;
+  // Pin the box flush under the header. Any gap lets the sidebar show
+  // through as it scrolls behind, and the header height depends on how
+  // the nav row wraps.
+  function setTocTop() {
+    const header = document.getElementById('header');
+    if (!header) return;
+    document.documentElement.style.setProperty('--toc-top', header.offsetHeight + 'px');
+  }
 
   function updateTOC() {
     const scrollY = window.scrollY;
     const header = document.getElementById('header');
     const headerHeight = header ? header.offsetHeight : 0;
 
-    if (scrollY > showThreshold && !tocVisible) {
-      tocVisible = true;
-      tocRow.classList.add('visible');
-      if (navNotes) navNotes.classList.add('emphasized');
-    } else if (scrollY <= showThreshold && tocVisible) {
-      tocVisible = false;
-      tocRow.classList.remove('visible');
-      if (navNotes) navNotes.classList.remove('emphasized');
-    }
+    // The fade below the box only makes sense once it has pinned.
+    tocBox.classList.toggle('stuck',
+      tocBox.getBoundingClientRect().top <= headerHeight + 1);
 
     const atBottom = (scrollY + window.innerHeight) >= document.documentElement.scrollHeight - 5;
     let currentIndex = 0;
@@ -262,7 +262,7 @@ function setupTOC() {
     }
 
     let activeLink = null;
-    tocLinks.forEach((link, index) => {
+    tocLinks.forEach(link => {
       const linkIndex = parseInt(link.dataset.index);
       link.classList.remove('passed', 'active');
       if (linkIndex < currentIndex) {
@@ -277,13 +277,13 @@ function setupTOC() {
       }
     });
 
-    // Scroll active TOC link into view horizontally
-    if (activeLink && tocRow.scrollWidth > tocRow.clientWidth) {
-      const linkLeft = activeLink.offsetLeft;
-      const linkWidth = activeLink.offsetWidth;
-      const rowWidth = tocRow.clientWidth;
-      const scrollTarget = linkLeft - (rowWidth / 2) + (linkWidth / 2);
-      tocRow.scrollTo({ left: scrollTarget, behavior: 'smooth' });
+    // A long contents list scrolls within its box, so keep the active
+    // row in view without moving the page.
+    if (activeLink && tocList.scrollHeight > tocList.clientHeight) {
+      const listHeight = tocList.clientHeight;
+      const scrollTarget = activeLink.offsetTop - (listHeight / 2)
+        + (activeLink.offsetHeight / 2);
+      tocList.scrollTo({ top: scrollTarget, behavior: 'smooth' });
     }
   }
 
@@ -313,6 +313,8 @@ function setupTOC() {
   }
 
   window.addEventListener('scroll', updateTOC, { passive: true });
+  window.addEventListener('resize', setTocTop);
+  setTocTop();
   updateTOC();
 }
 

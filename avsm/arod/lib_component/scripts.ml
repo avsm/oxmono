@@ -202,8 +202,22 @@ window.addEventListener('load', () => {
   setTimeout(positionSidenotes, 500);
 });
 // Positions are computed in page coordinates, so scrolling never changes
-// them. Only a resize (or the post-load reflow above) can move a ref.
+// them by itself. What does move a ref is the article growing under it:
+// its images carry no intrinsic size and most are lazy, so each one that
+// decodes mid-scroll reflows everything below it. Watch the article and
+// reposition when its height actually changes, which also covers fonts
+// and late layout settling.
 window.addEventListener('resize', positionSidenotes);
+(function() {
+  const article = document.querySelector('main');
+  if (!article || !window.ResizeObserver) return;
+  let pending = null;
+  const observer = new ResizeObserver(() => {
+    if (pending) cancelAnimationFrame(pending);
+    pending = requestAnimationFrame(() => { pending = null; positionSidenotes(); });
+  });
+  observer.observe(article);
+})();
 |}
 
 let toc_js = {|

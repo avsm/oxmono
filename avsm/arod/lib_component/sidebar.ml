@@ -47,7 +47,10 @@ let entry_type_icon ?(opacity="opacity-50") ?(size=10) entry =
   in
   I.outline ~cl:opacity ~size svg
 
-let entry_links ~ctx slug =
+(** [link_rows ~ctx slug] is every link touching [slug], forward links and
+    backlinks from the entry graph followed by feed backlinks, deduplicated
+    and newest first. Each row is [(dir, title, url, date, entry)]. *)
+let link_rows ~ctx slug =
   let entries = Arod.Ctx.entries ctx in
   let outbound_slugs = Bushel.Link_graph.get_outbound_for_slug slug in
   let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug slug in
@@ -99,7 +102,73 @@ let entry_links ~ctx slug =
   let feed_rows = List.map (fun (dir, title, url) ->
     (dir, title, url, None, None)
   ) feed_link_rows in
-  let combined = entry_rows @ feed_rows in
+  entry_rows @ feed_rows
+
+(** [links_modal combined] is the overlay listing every row of [combined],
+    opened by any button carrying [data-modal-target="links-modal-overlay"].
+    Empty when there are no links. *)
+let links_modal combined =
+  match combined with
+  | [] -> El.void
+  | _ ->
+    let total = List.length combined in
+    let all_rows = List.map (fun (dir, title, url, date_opt, entry_opt) ->
+      let dir_icon = match dir with
+        | `Forward -> I.outline ~cl:"opacity-40" ~size:12 I.arrow_right_o
+        | `Back -> I.outline ~cl:"opacity-40" ~size:12 I.arrow_left_o
+        | `Feed -> I.outline ~cl:"opacity-40" ~size:12 I.arrow_up_o
+      in
+      let type_icon_el = match dir, entry_opt with
+        | `Feed, _ ->
+          [El.span ~at:[At.class' "links-modal-type-icon"]
+            [El.unsafe_raw (I.brand ~cl:"opacity-40" ~size:12 I.rss_brand)]]
+        | _, Some entry ->
+          [El.span ~at:[At.class' "links-modal-type-icon"]
+            [El.unsafe_raw (entry_type_icon ~size:12 entry)]]
+        | _, None -> []
+      in
+      let date_str = match date_opt with
+        | Some (ey, em, _ed) -> Printf.sprintf "%s %d" (Common.month_name em) ey
+        | None -> ""
+      in
+      El.div ~at:[At.class' "links-modal-row"]
+        ([El.span ~at:[At.class' "links-modal-icon"] [El.unsafe_raw dir_icon]]
+         @ type_icon_el
+         @ [El.a ~at:[At.href url;
+                      At.class' "links-modal-link"] [El.txt title];
+            El.span ~at:[At.class' "links-modal-date"] [El.txt date_str]])
+    ) combined in
+    El.div ~at:[At.id "links-modal-overlay";
+                At.class' "links-modal-overlay"] [
+      El.div ~at:[At.class' "links-modal"] [
+        El.div ~at:[At.class' "links-modal-header"] [
+          El.span [El.txt (Printf.sprintf "Links (%d)" total)];
+          El.button ~at:[At.id "links-modal-close";
+                         At.class' "links-modal-close-btn"]
+            [El.txt "\xC3\x97"]];
+        El.div ~at:[At.class' "links-modal-body"] all_rows]]
+
+(** [entry_links_icon ~ctx slug] is [(icon, modal)] for a box that keeps its
+    links behind a header button rather than listing them inline. Both are
+    empty when the entry has no links. *)
+let entry_links_icon ~ctx slug =
+  let combined = link_rows ~ctx slug in
+  match combined with
+  | [] -> (El.void, El.void)
+  | _ ->
+    let total = List.length combined in
+    let icon =
+      El.button
+        ~at:[At.class' "sidebar-header-btn";
+             At.v "data-modal-target" "links-modal-overlay";
+             At.v "title" (Printf.sprintf "%d links" total);
+             At.v "aria-label" (Printf.sprintf "Show %d links" total)]
+        [El.unsafe_raw (I.outline ~size:12 I.link_o)]
+    in
+    (icon, links_modal combined)
+
+let entry_links ~ctx slug =
+  let combined = link_rows ~ctx slug in
   let total = List.length combined in
   let max_shown = 5 in
   let render_row ~size (dir, title, url, _date, entry_opt) =
@@ -139,45 +208,7 @@ let entry_links ~ctx slug =
       El.div ~at:[At.class' "sidebar-meta-links"]
         (rows @ [expand_btn])
   in
-  let modal_el =
-    if total > max_shown then
-      let all_rows = List.map (fun (dir, title, url, date_opt, entry_opt) ->
-        let dir_icon = match dir with
-          | `Forward -> I.outline ~cl:"opacity-40" ~size:12 I.arrow_right_o
-          | `Back -> I.outline ~cl:"opacity-40" ~size:12 I.arrow_left_o
-          | `Feed -> I.outline ~cl:"opacity-40" ~size:12 I.arrow_up_o
-        in
-        let type_icon_el = match dir, entry_opt with
-          | `Feed, _ ->
-            [El.span ~at:[At.class' "links-modal-type-icon"]
-              [El.unsafe_raw (I.brand ~cl:"opacity-40" ~size:12 I.rss_brand)]]
-          | _, Some entry ->
-            [El.span ~at:[At.class' "links-modal-type-icon"]
-              [El.unsafe_raw (entry_type_icon ~size:12 entry)]]
-          | _, None -> []
-        in
-        let date_str = match date_opt with
-          | Some (ey, em, _ed) -> Printf.sprintf "%s %d" (Common.month_name em) ey
-          | None -> ""
-        in
-        El.div ~at:[At.class' "links-modal-row"]
-          ([El.span ~at:[At.class' "links-modal-icon"] [El.unsafe_raw dir_icon]]
-           @ type_icon_el
-           @ [El.a ~at:[At.href url;
-                        At.class' "links-modal-link"] [El.txt title];
-              El.span ~at:[At.class' "links-modal-date"] [El.txt date_str]])
-      ) combined in
-      El.div ~at:[At.id "links-modal-overlay";
-                  At.class' "links-modal-overlay"] [
-        El.div ~at:[At.class' "links-modal"] [
-          El.div ~at:[At.class' "links-modal-header"] [
-            El.span [El.txt (Printf.sprintf "Links (%d)" total)];
-            El.button ~at:[At.id "links-modal-close";
-                           At.class' "links-modal-close-btn"]
-              [El.txt "\xC3\x97"]];
-          El.div ~at:[At.class' "links-modal-body"] all_rows]]
-    else El.void
-  in
+  let modal_el = if total > max_shown then links_modal combined else El.void in
   (links_el, modal_el)
 
 (** {1 Activity Stream}
@@ -547,14 +578,16 @@ let note_meta ~ctx n =
         El.div ~at:[At.class' "weeknote-nav"] [prev_el; next_el]
     else El.void
   in
-  let links_el, links_modal_el = entry_links ~ctx slug in
+  (* Notes carry enough links to crowd the box, so they sit behind the
+     header button instead of being listed. *)
+  let links_icon_el, links_modal_el = entry_links_icon ~ctx slug in
   El.div [
-    Common.meta_box
-      ~header:[El.txt " ";
-               El.a ~at:[At.href (Bushel.Entry.site_url (`Note n));
-                         At.class' "sidebar-meta-link"] [El.txt header_text]]
+    Common.meta_box ~id:"note-meta"
+      ~header:[El.a ~at:[At.href (Bushel.Entry.site_url (`Note n));
+                         At.class' "sidebar-meta-link"] [El.txt header_text];
+               links_icon_el]
       [synopsis_el; weeknote_nav_el; date_el; words_el; category_el; source_el; doi_el;
-       standardsite_el; social_el; links_el];
+       standardsite_el; social_el];
     links_modal_el]
 
 module Idea = Bushel.Idea

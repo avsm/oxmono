@@ -1167,6 +1167,21 @@ let custom_css = {|
   .sidebar-meta-expand:hover {
     color: var(--color-link);
   }
+  /* Links button in a box header rather than a row in its body. The
+     title grows to fill, which puts the button hard against the right
+     edge without a margin: Tailwind's unlayered button reset zeroes
+     margins on buttons whatever this layer says. */
+  #note-meta > .sidebar-meta-header {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  #note-meta > .sidebar-meta-header > .sidebar-meta-link {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .links-modal-overlay {
     position: fixed;
     inset: 0;
@@ -2554,7 +2569,21 @@ let custom_css = {|
   opacity: 0.9;
 }
 
+/* Unlayered — Tailwind's button reset is unlayered too, and would
+   otherwise win over anything set inside @layer components */
+.sidebar-header-btn {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: color 0.15s;
 }
+.sidebar-header-btn:hover {
+  color: var(--color-link);
 }
 /* Unlayered — wins over Tailwind utility classes */
 main a:not(.no-underline):not(.heading-anchor):not(.lightbox-trigger) {

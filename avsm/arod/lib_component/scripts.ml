@@ -699,7 +699,7 @@ let search_js = {|
 
 let links_modal_js = {|
 (function() {
-  document.querySelectorAll('.sidebar-meta-expand[data-modal-target]').forEach(function(btn) {
+  document.querySelectorAll('[data-modal-target]').forEach(function(btn) {
     var overlay = document.getElementById(btn.dataset.modalTarget);
     if (!overlay) return;
     var closeBtn = overlay.querySelector('.links-modal-close-btn');

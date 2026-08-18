@@ -411,19 +411,23 @@ let custom_css = {|
     text-align: right;
     color: var(--color-muted);
   }
-  .toc-link.passed .toc-num {
-    color: var(--color-link);
-  }
+  .toc-link.passed .toc-num,
   .toc-link.active .toc-num {
-    color: var(--color-accent);
+    color: var(--color-link);
   }
   .toc-link.passed {
     background: var(--color-toc-bg);
     color: var(--color-link);
   }
+  /* Mark the section being read by underlining it. A heavier weight or a
+     wider glyph would reflow the row as the reader scrolls past it. */
   .toc-link.active {
     color: var(--color-link);
-    font-weight: 500;
+  }
+  .toc-link.active .toc-label {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
   }
   .text-body { font-size: 0.88rem; line-height: 1.45; }
   /* idea status colours are now Tailwind utilities (font-medium text-st-*) */

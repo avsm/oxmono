@@ -46,9 +46,20 @@ let ua_categories = [
     "Tiny Tiny RSS"; "Inoreader"; "NewsBlur"; "Blogtrottr"; "FrostySoftStort";
     "BuobeBot"; "BuobeFeedDiscovery";
   ];
+  (* Fetched because a person asked a question, so these arrive one page
+     at a time and follow a link the user was shown. Listed before the
+     crawlers because the two are told apart by suffix: Claude-User and
+     ClaudeBot, ChatGPT-User and GPTBot. *)
+  "AI agents", [
+    "ChatGPT-User"; "Claude-User"; "Perplexity-User";
+    "Gemini-Deep-Research"; "Codex/"; "Google-CloudVertexBot";
+    "grok-agent"; "Shap-User";
+  ];
+  (* Fetched to build a training set or a search index, with no user
+     waiting on the response. *)
   "AI crawlers", [
-    "ChatGPT-User"; "ClaudeBot"; "Aranet-SearchBot"; "Amazonbot";
-    "meta-externalagent"; "GPTBot"; "Bytespider"; "Applebot-Extended";
+    "ClaudeBot"; "Aranet-SearchBot"; "Amazonbot"; "meta-externalagent";
+    "GPTBot"; "OAI-SearchBot"; "Bytespider"; "Applebot-Extended";
     "PerplexityBot"; "Cohere-AI"; "anthropic-ai"; "Google-Extended";
   ];
   "SEO crawlers", [
@@ -640,6 +651,17 @@ let ua_versus_headers db range =
   ) in
   ignore (Sqlite3_eio.finalize db stmt : Sqlite3.Rc.t);
   List.rev rows
+
+(* [markdown_clients db range] is the user agents whose Accept header
+   puts text/markdown first, as [(user agent, requests)]. *)
+let markdown_clients db range =
+  query_string_int db
+    (Printf.sprintf
+       {|SELECT COALESCE(user_agent, '(none)') AS ua, COUNT(*) AS cnt
+         FROM %s r
+         WHERE request_headers LIKE '%%["Accept","text/markdown%%'
+         GROUP BY ua ORDER BY cnt DESC LIMIT 15|}
+       (header_sample_sql range))
 
 (* [header_names db range] is how many of the sampled requests carried
    each header name, commonest first. It exists to show which headers are
@@ -1575,6 +1597,7 @@ let header_section db range =
   let identity = identity_breakdown db range in
   let cross = ua_versus_headers db range in
   let names = header_names db range in
+  let markdown = markdown_clients db range in
   let note text =
     El.p ~at:[At.class' "text-sm opacity-50"; At.style "margin-bottom:0.5rem"]
       [El.txt text]
@@ -1644,6 +1667,12 @@ let header_section db range =
            El.v "td" ~at:[] [El.txt hd];
            El.v "td" ~at:[At.class' "num"] [El.txt (format_number cnt)];
          ]) cross);
+
+    sub "Clients asking for markdown";
+    note "An Accept header naming text/markdown before text/html asks for \
+          the machine-readable form of a page. Agents fetching on behalf \
+          of a user do this whatever their User-Agent says.";
+    table [("User-Agent", false); ("Requests", true)] (count_rows markdown);
 
     sub "Headers seen";
     note "Every header name in the sample, with the number of requests \

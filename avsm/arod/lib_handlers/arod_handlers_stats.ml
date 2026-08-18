@@ -1613,23 +1613,19 @@ let header_section db range =
   El.div ~at:[At.class' "stats-section"] [
     El.h2 ~at:[] [El.txt "Request Headers"];
     note (Printf.sprintf
-            "Matching a header means reading its stored JSON, which no \
-             index narrows, so this section reads the most recent %s \
-             requests in range rather than all of them. Counts are counts \
-             within that sample."
+            "Sampled from the most recent %s requests in range."
             (format_number header_sample));
 
     sub "Signed agents (Web Bot Auth)";
-    note "Signature-Agent names the operator, and Signature covers the \
-          request with a key published at that origin. This is the only \
-          identification here that cannot simply be claimed.";
+    note "Signature-Agent names the operator. The accompanying signature \
+          is verifiable against a key published at that origin, but arod \
+          does not check it.";
     table [("Agent", false); ("Requests", true); ("User agents", true)]
       (value_rows signed);
 
     sub "Declared crawler contacts (From:)";
-    note "A contact address the crawler volunteers. Unverified, but it \
-          separates operators that run several crawlers for different \
-          purposes, such as training against search.";
+    note "A contact address the crawler sends. It is self-declared, and \
+          one operator may use a different address per crawler.";
     table [("Contact", false); ("Requests", true); ("User agents", true)]
       (value_rows contacts);
 
@@ -1638,9 +1634,9 @@ let header_section db range =
       (count_rows identity);
 
     sub "User-Agent against browser fetch metadata";
-    note "Chromium and Firefox always send Sec-Fetch-* on a navigation. A \
-          browser-like User-Agent arriving without it is a client driving \
-          HTTP directly, whatever it calls itself.";
+    note "Browser engines send Sec-Fetch-* on every navigation. A \
+          browser-like User-Agent without it is a client speaking HTTP \
+          directly.";
     table [("User-Agent", false); ("Fetch metadata", false); ("Requests", true)]
       (List.map (fun (ua, hd, cnt) ->
          El.v "tr" ~at:[] [
@@ -1650,8 +1646,8 @@ let header_section db range =
          ]) cross);
 
     sub "Headers seen";
-    note "Which headers are in play at all, so a new one worth querying \
-          can be spotted.";
+    note "Every header name in the sample, with the number of requests \
+          carrying it.";
     table [("Header", false); ("Requests", true)] (count_rows names);
   ]
 

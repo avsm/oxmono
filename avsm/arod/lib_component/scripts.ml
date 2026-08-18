@@ -229,9 +229,12 @@ function setupTOC() {
   const tocLinks = document.querySelectorAll('.toc-link');
   if (!tocList) return;
 
-  const sectionIds = [];
-  tocLinks.forEach(link => { sectionIds.push(link.getAttribute('href').slice(1)); });
-  const sectionElements = sectionIds.map(id => document.getElementById(id)).filter(Boolean);
+  const sections = [];
+  tocLinks.forEach(link => {
+    const el = document.getElementById(link.getAttribute('href').slice(1));
+    if (el) sections.push({ link, el, level: parseInt(link.dataset.level) || 2 });
+  });
+  if (!sections.length) return;
 
   // Pin the box flush under the header. Any gap lets the sidebar show
   // through as it scrolls behind, and the header height depends on how
@@ -251,44 +254,30 @@ function setupTOC() {
     tocBox.classList.toggle('stuck',
       tocBox.getBoundingClientRect().top <= headerHeight + 1);
 
-    const atBottom = (scrollY + window.innerHeight) >= document.documentElement.scrollHeight - 5;
-    let currentIndex = 0;
-    let progressInSection = 0;
-    if (atBottom) {
-      currentIndex = sectionElements.length - 1;
-      progressInSection = 100;
-    } else {
-      for (let i = sectionElements.length - 1; i >= 0; i--) {
-        const el = sectionElements[i];
-        if (el && el.getBoundingClientRect().top <= headerHeight + 50) {
-          currentIndex = i;
-          const sectionTop = el.getBoundingClientRect().top + scrollY - headerHeight;
-          const nextEl = sectionElements[i + 1];
-          const sectionBottom = nextEl
-            ? nextEl.getBoundingClientRect().top + scrollY - headerHeight
-            : document.documentElement.scrollHeight;
-          const sectionHeight = sectionBottom - sectionTop;
-          const scrollInSection = scrollY - sectionTop + headerHeight;
-          progressInSection = Math.min(Math.max((scrollInSection / sectionHeight) * 100, 0), 100);
-          break;
-        }
-      }
-    }
+    const docHeight = document.documentElement.scrollHeight;
+    const atBottom = (scrollY + window.innerHeight) >= docHeight - 5;
+    const top = (el) => el.getBoundingClientRect().top + scrollY - headerHeight;
+    // The reading position: the point a heading has to pass to count as
+    // the section being read. At the foot of the page nothing further can
+    // scroll, so read the last section as still in progress.
+    const pos = atBottom ? docHeight - 1 : scrollY + 50;
 
     let activeLink = null;
-    tocLinks.forEach(link => {
-      const linkIndex = parseInt(link.dataset.index);
-      link.classList.remove('passed', 'active');
-      if (linkIndex < currentIndex) {
-        link.classList.add('passed');
-        link.style.setProperty('--progress', '100%');
-      } else if (linkIndex === currentIndex) {
-        link.classList.add('active');
-        link.style.setProperty('--progress', progressInSection + '%');
-        activeLink = link;
-      } else {
-        link.style.setProperty('--progress', '0%');
+    sections.forEach((section, i) => {
+      // A section runs until the next heading at the same depth or
+      // shallower, so an h2 stays active, and keeps filling, while its
+      // subsections scroll past.
+      let end = docHeight;
+      for (let j = i + 1; j < sections.length; j++) {
+        if (sections[j].level <= section.level) { end = top(sections[j].el); break; }
       }
+      const start = top(section.el);
+      const progress = Math.min(Math.max((pos - start) / Math.max(end - start, 1), 0), 1);
+      const active = pos >= start && pos < end;
+      section.link.classList.toggle('passed', pos >= end);
+      section.link.classList.toggle('active', active);
+      section.link.style.setProperty('--progress', (progress * 100) + '%');
+      if (active) activeLink = section.link;
     });
 
     // A long contents list scrolls within its box, so keep the active

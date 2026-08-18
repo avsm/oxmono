@@ -693,22 +693,43 @@ let to_plain_html ~(ctx : Arod_ctx.t) content =
 
 (** {1 Heading Extraction}
 
-    Extract h2 headings from markdown content for TOC generation. *)
+    Extract h2 and h3 headings from markdown content for TOC generation. *)
+
+type heading = { id : string; level : int; number : string; text : string }
 
 let extract_headings content =
   let open Cmarkit in
   let doc = Doc.of_string ~strict:false ~heading_auto_ids:true content in
   let headings = ref [] in
+  let h2_count = ref 0 and h3_count = ref 0 in
   let collect_heading _mapper = function
-    | Block.Heading (h, _) when Block.Heading.level h = 2 ->
-      let text =
-        Block.Heading.inline h
-        |> Inline.to_plain_text ~break_on_soft:false
-        |> fun r -> String.concat " " (List.map (String.concat "") r)
+    | Block.Heading (h, _) ->
+      let level = Block.Heading.level h in
+      (* Run the same counters as [custom_heading_renderer] over every
+         heading, so a contents row carries the number the article prints
+         beside its section. An h4 changes neither counter. *)
+      let number =
+        match level with
+        | 2 ->
+          incr h2_count;
+          h3_count := 0;
+          Some (string_of_int !h2_count)
+        | 3 ->
+          incr h3_count;
+          (* A note whose top level is h3 numbers from zero. Those rows
+             have no parent to thread under, so leave them out. *)
+          if !h2_count = 0 then None
+          else Some (Printf.sprintf "%d.%d" !h2_count !h3_count)
+        | _ -> None
       in
-      (match Block.Heading.id h with
-       | Some (`Auto id | `Id id) when id <> "" ->
-         headings := (id, text) :: !headings
+      (match (number, Block.Heading.id h) with
+       | Some number, Some (`Auto id | `Id id) when id <> "" ->
+         let text =
+           Block.Heading.inline h
+           |> Inline.to_plain_text ~break_on_soft:false
+           |> fun r -> String.concat " " (List.map (String.concat "") r)
+         in
+         headings := { id; level; number; text } :: !headings
        | _ -> ());
       Mapper.default
     | _ -> Mapper.default

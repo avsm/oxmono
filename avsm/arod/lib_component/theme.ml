@@ -352,8 +352,9 @@ let custom_css = {|
     overflow-y: auto;
   }
   .toc-link {
+    position: relative;
     display: grid;
-    grid-template-columns: 1.1em 1fr;
+    grid-template-columns: minmax(1.1em, auto) 1fr;
     align-items: baseline;
     gap: 0.35em;
     padding: 0.1rem 0.3rem;
@@ -365,6 +366,38 @@ let custom_css = {|
   }
   .toc-link:hover {
     color: var(--color-link);
+  }
+  /* Subsections hang off a thread running down the left of the group.
+     The run ends at the next h2, or at the end of the list, and that
+     last row draws only the top half of the thread to close it off. */
+  .toc-sub {
+    padding-left: 1.55em;
+    grid-template-columns: minmax(2.1em, auto) 1fr;
+  }
+  .toc-sub::before {
+    content: "";
+    position: absolute;
+    left: 0.6em;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--color-muted);
+    opacity: 0.45;
+  }
+  .toc-sub:last-child::before,
+  .toc-sub:has(+ .toc-link:not(.toc-sub))::before {
+    bottom: auto;
+    height: 50%;
+  }
+  .toc-sub::after {
+    content: "";
+    position: absolute;
+    left: 0.6em;
+    top: 50%;
+    width: 0.5em;
+    height: 1px;
+    background: var(--color-muted);
+    opacity: 0.45;
   }
   .toc-label {
     white-space: nowrap;

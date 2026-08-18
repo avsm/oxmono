@@ -38,9 +38,20 @@ val to_atom_html : ctx:Arod_ctx.t -> string -> string
     Handles footnotes with numbered references and ensures proper
     link resolution for feed readers. *)
 
-val extract_headings : string -> (string * string) list
-(** [extract_headings content] extracts h2 headings from markdown content
-    as [(id, text)] pairs, for use in table-of-contents generation. *)
+type heading = {
+  id : string;  (** Anchor id, matching the [id] on the rendered heading. *)
+  level : int;  (** 2 or 3. *)
+  number : string;  (** Section number, as ["2"] or ["2.1"]. *)
+  text : string;  (** Heading text, with inline markup stripped. *)
+}
+(** A heading in a table of contents. *)
+
+val extract_headings : string -> heading list
+(** [extract_headings content] is the h2 and h3 headings of [content] in
+    document order, for table-of-contents generation. Each [number] is the
+    one {!to_html} prints beside the heading, so a contents row and its
+    section agree. Deeper headings are skipped, as are h3s with no h2
+    above them. *)
 
 (** {1 Utilities} *)
 

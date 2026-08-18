@@ -1125,22 +1125,24 @@ let socials_box ~ctx =
 
 (** {1 Table of Contents} *)
 
-(** [toc_box sections] is a sidebar box listing [sections] as (anchor id,
-    label) pairs, one row per h2. The rows carry [data-index] and the
-    [toc-link] class that [toc.js] fills with scroll progress. Empty for
-    an entry with no headings. *)
+(** [toc_box sections] is a sidebar box listing [sections], one row per
+    heading, with h3 rows threaded under the h2 they belong to. The rows
+    carry [data-level] and the [toc-link] class that [toc.js] fills with
+    scroll progress. Empty for an entry with no headings. *)
 let toc_box sections =
   match sections with
   | [] -> El.void
   | _ ->
-    (* [extract_headings] yields h2s in document order, so the row index
-       matches the section number the renderer prints in the article. *)
-    let row i (id, label) =
+    let row (h : Arod.Md.heading) =
+      let cls =
+        if h.level > 2 then "toc-link toc-sub no-underline"
+        else "toc-link no-underline"
+      in
       El.a
-        ~at:[At.href ("#" ^ id); At.class' "toc-link no-underline";
-             At.v "data-index" (string_of_int i)]
-        [El.span ~at:[At.class' "toc-num"] [El.txt (string_of_int (i + 1))];
-         El.span ~at:[At.class' "toc-label"] [El.txt label]]
+        ~at:[At.href ("#" ^ h.id); At.class' cls;
+             At.v "data-level" (string_of_int h.level)]
+        [El.span ~at:[At.class' "toc-num"] [El.txt h.number];
+         El.span ~at:[At.class' "toc-label"] [El.txt h.text]]
     in
     El.div ~at:[At.class' "toc-box hidden lg:block"] [
       Common.meta_box ~id:"toc-box" ~cls:"sidebar-meta-box mb-3"
@@ -1150,7 +1152,7 @@ let toc_box sections =
           El.a ~at:[At.id "toc-root"; At.href "#intro"; At.v "title" "Top";
                     At.class' "toc-top no-underline"]
             [El.unsafe_raw (I.outline ~size:12 I.arrow_up_o)]]
-        (List.mapi row sections)]
+        (List.map row sections)]
 
 let for_entry ~ctx ?(sidenotes=[]) ?(toc=[]) ent =
   let entries = Arod.Ctx.entries ctx in

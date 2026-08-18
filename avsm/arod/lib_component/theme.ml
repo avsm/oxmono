@@ -361,8 +361,7 @@ let custom_css = {|
     border-radius: 3px;
     font-size: 0.72rem;
     color: var(--color-secondary);
-    background: linear-gradient(to right, var(--color-toc-bg) 0%, var(--color-toc-bg) var(--progress, 0%), transparent var(--progress, 0%), transparent 100%);
-    transition: all 0.15s ease;
+    transition: color 0.15s ease;
   }
   .toc-link:hover {
     color: var(--color-link);
@@ -416,13 +415,16 @@ let custom_css = {|
     color: var(--color-link);
   }
   .toc-link.passed {
-    background: var(--color-toc-bg);
     color: var(--color-link);
   }
-  /* Mark the section being read by underlining it. A heavier weight or a
-     wider glyph would reflow the row as the reader scrolls past it. */
+  /* Only the section being read is filled, so the fill reads as a
+     progress bar rather than as everything above the reader. Both the
+     h2 and the h3 within it are active, so both fill. Mark it with an
+     underline too: a heavier weight or a wider glyph would reflow the
+     row as the reader scrolls past it. */
   .toc-link.active {
     color: var(--color-link);
+    background: linear-gradient(to right, var(--color-toc-bg) 0%, var(--color-toc-bg) var(--progress, 0%), transparent var(--progress, 0%), transparent 100%);
   }
   .toc-link.active .toc-label {
     text-decoration: underline;

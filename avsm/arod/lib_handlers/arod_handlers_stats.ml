@@ -166,37 +166,38 @@ let query_string_int db sql =
 
 (** {1 Data Queries} *)
 
-let total_requests db range =
-  query_int db
-    (Printf.sprintf "SELECT COUNT(*) FROM requests WHERE 1=1%s" (time_clause range))
+(* [overview_metrics db range] is [(total, avg_us, cache_rate, err_rate,
+   bandwidth)] for [range], where the two rates are percentages.
 
-let avg_response_time db range =
-  query_float db
-    (Printf.sprintf "SELECT COALESCE(AVG(duration_us), 0) FROM requests WHERE 1=1%s"
-       (time_clause range))
-
-let cache_hit_rate db range =
-  let tc = time_clause range in
-  let hits = query_int db
-    (Printf.sprintf "SELECT COUNT(*) FROM requests WHERE cache_status = 'hit'%s" tc) in
-  let cacheable = query_int db
-    (Printf.sprintf "SELECT COUNT(*) FROM requests WHERE cache_status IN ('hit', 'miss')%s" tc) in
-  if cacheable > 0 then float_of_int hits /. float_of_int cacheable *. 100.0
-  else 0.0
-
-let error_rate db range =
-  let tc = time_clause range in
-  let errors = query_int db
-    (Printf.sprintf "SELECT COUNT(*) FROM requests WHERE status_code >= 400%s" tc) in
-  let total = query_int db
-    (Printf.sprintf "SELECT COUNT(*) FROM requests WHERE 1=1%s" tc) in
-  if total > 0 then float_of_int errors /. float_of_int total *. 100.0
-  else 0.0
-
-let total_bandwidth db range =
-  query_float db
-    (Printf.sprintf "SELECT COALESCE(SUM(response_body_size), 0) FROM requests WHERE 1=1%s"
-       (time_clause range))
+   The dashboard shows every range side by side, so a query per metric
+   meant seven scans per range and twenty-eight per page load, four of
+   them over the whole table. All five come off one pass, which
+   idx_requests_metrics covers. *)
+let overview_metrics db range =
+  let sql = Printf.sprintf
+    {|SELECT COUNT(*),
+             COALESCE(AVG(duration_us), 0),
+             SUM(CASE WHEN cache_status = 'hit' THEN 1 ELSE 0 END),
+             SUM(CASE WHEN cache_status IN ('hit', 'miss') THEN 1 ELSE 0 END),
+             SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
+             COALESCE(SUM(response_body_size), 0)
+       FROM requests WHERE 1=1%s|}
+    (time_clause range) in
+  let stmt = Sqlite3_eio.prepare db sql in
+  let num i (row : Sqlite3.Data.t array) = match row.(i) with
+    | Sqlite3.Data.INT n -> Int64.to_float n
+    | Sqlite3.Data.FLOAT f -> f
+    | _ -> 0.0
+  in
+  let _rc, m = Sqlite3_eio.fold db stmt ~init:(0, 0.0, 0.0, 0.0, 0.0)
+    ~f:(fun _acc row ->
+      let pct x total = if total > 0.0 then x /. total *. 100.0 else 0.0 in
+      let total = num 0 row in
+      (int_of_float total, num 1 row,
+       pct (num 2 row) (num 3 row), pct (num 4 row) total, num 5 row)
+    ) in
+  ignore (Sqlite3_eio.finalize db stmt : Sqlite3.Rc.t);
+  m
 
 let status_breakdown db range =
   query_string_int db
@@ -247,22 +248,33 @@ let traffic_over_time db range =
          LIMIT %d|}
        bucket_expr (time_clause range) limit)
 
+(* SQLite has no percentile function, so the rows still come back sorted,
+   but they are counted through rather than accumulated: the whole point
+   is to avoid holding a list of every duration in the range, which for
+   the all-time column is millions of entries. *)
 let latency_percentiles db range =
-  let sql = Printf.sprintf
-    {|SELECT duration_us FROM requests WHERE 1=1%s ORDER BY duration_us ASC|}
-    (time_clause range) in
-  let stmt = Sqlite3_eio.prepare db sql in
-  let _rc, durations = Sqlite3_eio.fold db stmt ~init:[] ~f:(fun acc row ->
-    let d = match row.(0) with Sqlite3.Data.INT i -> Int64.to_int i | _ -> 0 in
-    d :: acc
-  ) in
-  ignore (Sqlite3_eio.finalize db stmt : Sqlite3.Rc.t);
-  let arr = Array.of_list (List.rev durations) in
-  let len = Array.length arr in
-  if len = 0 then (0, 0, 0, 0)
-  else
-    let pct p = arr.(min (len - 1) (int_of_float (float_of_int len *. p))) in
-    (pct 0.50, pct 0.90, pct 0.95, pct 0.99)
+  let tc = time_clause range in
+  let count =
+    query_int db
+      (Printf.sprintf "SELECT COUNT(*) FROM requests WHERE 1=1%s" tc)
+  in
+  if count = 0 then (0, 0, 0, 0)
+  else begin
+    let at p = min (count - 1) (int_of_float (float_of_int count *. p)) in
+    let want = [| at 0.50; at 0.90; at 0.95; at 0.99 |] in
+    let got = Array.make 4 0 in
+    let stmt = Sqlite3_eio.prepare db
+      (Printf.sprintf
+         "SELECT duration_us FROM requests WHERE 1=1%s ORDER BY duration_us ASC"
+         tc) in
+    let _rc, _i = Sqlite3_eio.fold db stmt ~init:0 ~f:(fun i row ->
+      let d = match row.(0) with Sqlite3.Data.INT n -> Int64.to_int n | _ -> 0 in
+      Array.iteri (fun k w -> if i = w then got.(k) <- d) want;
+      i + 1
+    ) in
+    ignore (Sqlite3_eio.finalize db stmt : Sqlite3.Rc.t);
+    (got.(0), got.(1), got.(2), got.(3))
+  end
 
 let latency_histogram db range =
   query_string_int db
@@ -401,17 +413,24 @@ let is_attack_probe path =
   is_random_hash path ||
   List.exists (fun pat -> contains_substr path pat) attack_path_patterns
 
+(* The referrer is picked with a window function rather than a subquery
+   correlated on path. That subquery ran once per output path and scanned
+   every request ever logged for it, taking seconds on its own. *)
 let recent_errors_with_referrer db =
   let range = Last_days 7 in
   let stmt = Sqlite3_eio.prepare db
     (Printf.sprintf
-       {|SELECT path, COUNT(*) AS cnt,
-                (SELECT referer FROM requests r2
-                 WHERE r2.path = requests.path AND r2.referer IS NOT NULL
-                   AND r2.referer <> '' AND r2.status_code >= 400
-                 ORDER BY r2.timestamp DESC LIMIT 1) AS top_ref
-         FROM requests WHERE status_code >= 400%s
-         GROUP BY path ORDER BY cnt DESC LIMIT 200|}
+       {|SELECT path, cnt, top_ref FROM (
+           SELECT path,
+                  COUNT(*) OVER (PARTITION BY path) AS cnt,
+                  referer AS top_ref,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY path
+                    ORDER BY (referer IS NULL OR referer = ''), timestamp DESC
+                  ) AS rn
+           FROM requests WHERE status_code >= 400%s
+         ) WHERE rn = 1
+         ORDER BY cnt DESC LIMIT 200|}
        (time_clause range)) in
   let _rc, rows = Sqlite3_eio.fold db stmt ~init:[] ~f:(fun acc row ->
     let path = match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> "" in
@@ -970,11 +989,7 @@ let time_tabs range =
 
 let overview_comparison db active_range =
   let metrics = List.map (fun range ->
-    let total = total_requests db range in
-    let avg_lat = avg_response_time db range in
-    let cache_rate = cache_hit_rate db range in
-    let err_rate = error_rate db range in
-    let bw = total_bandwidth db range in
+    let total, avg_lat, cache_rate, err_rate, bw = overview_metrics db range in
     (range, total, avg_lat, cache_rate, err_rate, bw)
   ) all_ranges in
   let col_at range =
@@ -1530,11 +1545,7 @@ let render_dashboard db range =
 (** {1 JSON API Responses} *)
 
 let overview_json db range =
-  let total = total_requests db range in
-  let avg_lat = avg_response_time db range in
-  let cache_rate = cache_hit_rate db range in
-  let err_rate = error_rate db range in
-  let bw = total_bandwidth db range in
+  let total, avg_lat, cache_rate, err_rate, bw = overview_metrics db range in
   Ezjsonm.to_string (`O [
     ("total", `String (format_number total));
     ("avg_latency", `String (human_duration_us (Float.to_int avg_lat)));

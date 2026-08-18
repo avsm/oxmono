@@ -549,6 +549,109 @@ let traffic_classification db range =
   ignore (Sqlite3_eio.finalize db stmt : Sqlite3.Rc.t);
   List.rev rows
 
+(** {1 Request Header Analysis}
+
+    The stored headers are a JSON array of [name, value] pairs. Expanding
+    that JSON is what costs, so each query narrows with a LIKE over the
+    raw text first and only expands the rows that can match. *)
+
+(* [header_like name] matches rows whose stored headers carry [name].
+   The array is written as [["Name","value"],...], so anchoring on the
+   opening bracket and quote avoids matching a header whose value
+   happens to mention the name. *)
+let header_like name = Printf.sprintf {|'%%["%s",%%'|} name
+
+(* Number of recent requests every query in this section reads. Matching
+   a header means scanning the stored JSON, which no index can narrow, so
+   the section is capped here instead of growing with the range: over all
+   time it would read gigabytes of text per query. Counts below are
+   therefore counts within the sample. *)
+let header_sample = 100_000
+
+(* [header_sample_sql range] is a subquery of the most recent requests in
+   [range], for the header queries to read in place of the whole table. *)
+let header_sample_sql range =
+  Printf.sprintf
+    {|(SELECT request_headers, user_agent, timestamp FROM requests
+       WHERE 1=1%s ORDER BY timestamp DESC LIMIT %d)|}
+    (time_clause range) header_sample
+
+(* [header_values db range name] is the values seen for header [name],
+   as [(value, requests, distinct user agents)], commonest first. *)
+let header_values db range name =
+  let sql = Printf.sprintf
+    {|SELECT TRIM(json_extract(h.value, '$[1]'), '"') AS v,
+             COUNT(*) AS cnt,
+             COUNT(DISTINCT r.user_agent) AS uas
+      FROM %s r, json_each(r.request_headers) h
+      WHERE r.request_headers LIKE %s
+        AND json_extract(h.value, '$[0]') = '%s'
+      GROUP BY v ORDER BY cnt DESC LIMIT 25|}
+    (header_sample_sql range) (header_like name) name in
+  let stmt = Sqlite3_eio.prepare db sql in
+  let _rc, rows = Sqlite3_eio.fold db stmt ~init:[] ~f:(fun acc row ->
+    let v = match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> "" in
+    let cnt = match row.(1) with Sqlite3.Data.INT i -> Int64.to_int i | _ -> 0 in
+    let uas = match row.(2) with Sqlite3.Data.INT i -> Int64.to_int i | _ -> 0 in
+    (v, cnt, uas) :: acc
+  ) in
+  ignore (Sqlite3_eio.finalize db stmt : Sqlite3.Rc.t);
+  List.rev rows
+
+(* [identity_breakdown db range] counts requests by the strongest claim
+   of identity their headers carry. Order matters: a signature is proof,
+   a From: address is a claim, and fetch metadata only says a real
+   browser sent it. *)
+let identity_breakdown db range =
+  query_string_int db
+    (Printf.sprintf
+       {|SELECT CASE
+                  WHEN request_headers LIKE %s THEN 'Signed (Web Bot Auth)'
+                  WHEN request_headers LIKE %s THEN 'Declared (From:)'
+                  WHEN request_headers LIKE %s THEN 'Browser fetch metadata'
+                  ELSE 'Nothing'
+                END AS kind,
+                COUNT(*) AS cnt
+          FROM %s r
+          GROUP BY kind ORDER BY cnt DESC|}
+       (header_like "Signature-Agent") (header_like "From")
+       (header_like "Sec-Fetch-Mode") (header_sample_sql range))
+
+(* [ua_versus_headers db range] cross-tabulates what the User-Agent
+   claims against whether the request carries the headers a browser
+   engine always sends. A browser string with no fetch metadata is the
+   signature of something driving HTTP directly. *)
+let ua_versus_headers db range =
+  let sql = Printf.sprintf
+    {|SELECT CASE WHEN user_agent LIKE '%%Mozilla/%%'
+                  THEN 'Browser-like UA' ELSE 'Non-browser UA' END AS ua_kind,
+             CASE WHEN request_headers LIKE %s
+                  THEN 'sends Sec-Fetch-*' ELSE 'no Sec-Fetch-*' END AS hdr_kind,
+             COUNT(*) AS cnt
+      FROM %s r
+      GROUP BY ua_kind, hdr_kind ORDER BY cnt DESC|}
+    (header_like "Sec-Fetch-Mode") (header_sample_sql range) in
+  let stmt = Sqlite3_eio.prepare db sql in
+  let _rc, rows = Sqlite3_eio.fold db stmt ~init:[] ~f:(fun acc row ->
+    let ua = match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> "" in
+    let hd = match row.(1) with Sqlite3.Data.TEXT s -> s | _ -> "" in
+    let cnt = match row.(2) with Sqlite3.Data.INT i -> Int64.to_int i | _ -> 0 in
+    (ua, hd, cnt) :: acc
+  ) in
+  ignore (Sqlite3_eio.finalize db stmt : Sqlite3.Rc.t);
+  List.rev rows
+
+(* [header_names db range] is how many of the sampled requests carried
+   each header name, commonest first. It exists to show which headers are
+   in play at all, so a new one worth querying can be spotted. *)
+let header_names db range =
+  query_string_int db
+    (Printf.sprintf
+       {|SELECT json_extract(h.value, '$[0]') AS name, COUNT(*) AS cnt
+         FROM %s r, json_each(r.request_headers) h
+         GROUP BY name ORDER BY cnt DESC LIMIT 40|}
+       (header_sample_sql range))
+
 (** {1 Formatting Helpers} *)
 
 let human_bytes b =
@@ -1466,6 +1569,92 @@ let popular_content_section db range =
     ];
   ]
 
+let header_section db range =
+  let signed = header_values db range "Signature-Agent" in
+  let contacts = header_values db range "From" in
+  let identity = identity_breakdown db range in
+  let cross = ua_versus_headers db range in
+  let names = header_names db range in
+  let note text =
+    El.p ~at:[At.class' "text-sm opacity-50"; At.style "margin-bottom:0.5rem"]
+      [El.txt text]
+  in
+  let sub text =
+    El.h3 ~at:[At.class' "text-sm font-semibold mb-2 opacity-70";
+               At.style "margin-top:1rem"] [El.txt text]
+  in
+  let table headers rows =
+    if rows = [] then El.p ~at:[At.class' "text-sm opacity-50"] [El.txt "None"]
+    else
+      El.div ~at:[At.class' "chart-container"] [
+        El.table ~at:[At.class' "stats-table"] [
+          El.v "thead" ~at:[] [
+            El.v "tr" ~at:[]
+              (List.map (fun (h, num) ->
+                 El.v "th" ~at:(if num then [At.class' "num"] else []) [El.txt h])
+                 headers)];
+          El.v "tbody" ~at:[] rows]]
+  in
+  let value_rows data =
+    List.map (fun (v, cnt, uas) ->
+      El.v "tr" ~at:[] [
+        El.v "td" ~at:[At.class' "path-cell"; At.v "title" v] [El.txt v];
+        El.v "td" ~at:[At.class' "num"] [El.txt (format_number cnt)];
+        El.v "td" ~at:[At.class' "num"] [El.txt (format_number uas)];
+      ]) data
+  in
+  let count_rows data =
+    List.map (fun (k, cnt) ->
+      El.v "tr" ~at:[] [
+        El.v "td" ~at:[] [El.txt k];
+        El.v "td" ~at:[At.class' "num"] [El.txt (format_number cnt)];
+      ]) data
+  in
+  El.div ~at:[At.class' "stats-section"] [
+    El.h2 ~at:[] [El.txt "Request Headers"];
+    note (Printf.sprintf
+            "Matching a header means reading its stored JSON, which no \
+             index narrows, so this section reads the most recent %s \
+             requests in range rather than all of them. Counts are counts \
+             within that sample."
+            (format_number header_sample));
+
+    sub "Signed agents (Web Bot Auth)";
+    note "Signature-Agent names the operator, and Signature covers the \
+          request with a key published at that origin. This is the only \
+          identification here that cannot simply be claimed.";
+    table [("Agent", false); ("Requests", true); ("User agents", true)]
+      (value_rows signed);
+
+    sub "Declared crawler contacts (From:)";
+    note "A contact address the crawler volunteers. Unverified, but it \
+          separates operators that run several crawlers for different \
+          purposes, such as training against search.";
+    table [("Contact", false); ("Requests", true); ("User agents", true)]
+      (value_rows contacts);
+
+    sub "What identity the headers carry";
+    table [("Strongest claim", false); ("Requests", true)]
+      (count_rows identity);
+
+    sub "User-Agent against browser fetch metadata";
+    note "Chromium and Firefox always send Sec-Fetch-* on a navigation. A \
+          browser-like User-Agent arriving without it is a client driving \
+          HTTP directly, whatever it calls itself.";
+    table [("User-Agent", false); ("Fetch metadata", false); ("Requests", true)]
+      (List.map (fun (ua, hd, cnt) ->
+         El.v "tr" ~at:[] [
+           El.v "td" ~at:[] [El.txt ua];
+           El.v "td" ~at:[] [El.txt hd];
+           El.v "td" ~at:[At.class' "num"] [El.txt (format_number cnt)];
+         ]) cross);
+
+    sub "Headers seen";
+    note "Which headers are in play at all, so a new one worth querying \
+          can be spotted.";
+    table [("Header", false); ("Requests", true)] (count_rows names);
+  ]
+
 (** {1 Full Dashboard Page} *)
 
 let render_dashboard db range =
@@ -1477,6 +1666,7 @@ let render_dashboard db range =
     time_tabs range;
     overview_comparison db range;
     traffic_classification_section db range;
+    header_section db range;
     traffic_section db range;
     feed_section db range;
     popular_content_section db range;

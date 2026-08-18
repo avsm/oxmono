@@ -39,8 +39,23 @@ CREATE TABLE IF NOT EXISTS requests (
 let index_sql = [
   "CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON requests(timestamp)";
   "CREATE INDEX IF NOT EXISTS idx_requests_path ON requests(path)";
-  "CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status_code)";
-  "CREATE INDEX IF NOT EXISTS idx_requests_cache ON requests(cache_status)";
+  "CREATE INDEX IF NOT EXISTS idx_requests_status_ts \
+   ON requests(status_code, timestamp)";
+  (* Covers every column the overview aggregates read, so those queries
+     never touch the table itself, whose rows are dominated by the
+     request_headers JSON. *)
+  "CREATE INDEX IF NOT EXISTS idx_requests_metrics \
+   ON requests(timestamp, status_code, cache_status, duration_us, \
+   response_body_size)";
+]
+
+(* status_code has five distinct values and cache_status three, so an
+   index on either narrows nothing. The planner picked them over the
+   timestamp range anyway and then read a million rows from the table,
+   which is why they are dropped rather than merely unused. *)
+let drop_index_sql = [
+  "DROP INDEX IF EXISTS idx_requests_status";
+  "DROP INDEX IF EXISTS idx_requests_cache";
 ]
 
 let insert_sql = {|
@@ -97,9 +112,16 @@ let create ~sw path =
   Sqlite3.Rc.check (Sqlite3_eio.exec db "PRAGMA journal_mode=WAL");
   Sqlite3.Rc.check (Sqlite3_eio.exec db "PRAGMA synchronous=NORMAL");
   Sqlite3.Rc.check (Sqlite3_eio.exec db schema_sql);
+  List.iter drop_index_sql ~f:(fun sql ->
+    Sqlite3.Rc.check (Sqlite3_eio.exec db sql)
+  );
   List.iter index_sql ~f:(fun sql ->
     Sqlite3.Rc.check (Sqlite3_eio.exec db sql)
   );
+  (* Give the query planner size and cardinality figures. Without them it
+     estimates a range constraint at a quarter of the table and picks
+     whatever equality index it can find instead. *)
+  Sqlite3.Rc.check (Sqlite3_eio.exec db "ANALYZE");
   (* Analytics run on their own read-only connection. SQLite serializes
      every call on a connection, and an aggregate does its whole scan
      inside one step, so a dashboard query sharing this handle would hold

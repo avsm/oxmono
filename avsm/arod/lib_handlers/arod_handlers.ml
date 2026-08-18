@@ -1050,7 +1050,7 @@ let all_routes ~ctx ~cache ~search ~log ~fs =
     get_h1 (lits ["action"]) Authorization (fun () auth rctx (local_ respond) ->
       if not (check_stats_auth cfg auth) then send_auth_challenge respond
       else
-        let db = Arod_log.db log in
+        let db = Arod_log.reader log in
         let range_s = match R.query_param rctx "range" with
           | Some s -> s | None -> "7d" in
         let range = Arod_handlers_stats.range_of_string range_s in
@@ -1060,7 +1060,7 @@ let all_routes ~ctx ~cache ~search ~log ~fs =
     get_h1 (lits ["action"; "api"; "overview"]) Authorization (fun () auth rctx (local_ respond) ->
       if not (check_stats_auth cfg auth) then send_auth_challenge respond
       else
-        let db = Arod_log.db log in
+        let db = Arod_log.reader log in
         let range_s = match R.query_param rctx "range" with
           | Some s -> s | None -> "7d" in
         let range = Arod_handlers_stats.range_of_string range_s in
@@ -1068,7 +1068,7 @@ let all_routes ~ctx ~cache ~search ~log ~fs =
     get_h1 (lits ["action"; "api"; "traffic"]) Authorization (fun () auth rctx (local_ respond) ->
       if not (check_stats_auth cfg auth) then send_auth_challenge respond
       else
-        let db = Arod_log.db log in
+        let db = Arod_log.reader log in
         let range_s = match R.query_param rctx "range" with
           | Some s -> s | None -> "7d" in
         let range = Arod_handlers_stats.range_of_string range_s in
@@ -1076,7 +1076,7 @@ let all_routes ~ctx ~cache ~search ~log ~fs =
     get_h1 (lits ["action"; "api"; "recent"]) Authorization (fun () auth rctx (local_ respond) ->
       if not (check_stats_auth cfg auth) then send_auth_challenge respond
       else
-        let db = Arod_log.db log in
+        let db = Arod_log.reader log in
         R.json_gen rctx respond (fun () -> Arod_handlers_stats.recent_json db));
     (* Redirect /collection/slug/index.html to canonical /collection/slug *)
     get_ [ "index.html" ] (fun _rctx (local_ respond) ->

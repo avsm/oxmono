@@ -11,6 +11,7 @@ module F64 = Stdlib_upstream_compatible.Float_u
 
 type t = {
   db : Sqlite3_eio.t;
+  reader : Sqlite3_eio.t;
 }
 
 let schema_sql = {|
@@ -89,7 +90,7 @@ let rec globalize_pairs (local_ l : (string * string) list) : (string * string) 
 let bind_text_opt stmt pos v =
   Sqlite3.Rc.check (Sqlite3.bind stmt pos (Sqlite3.Data.opt_text v))
 
-let db t = t.db
+let reader t = t.reader
 
 let create ~sw path =
   let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 path in
@@ -99,7 +100,16 @@ let create ~sw path =
   List.iter index_sql ~f:(fun sql ->
     Sqlite3.Rc.check (Sqlite3_eio.exec db sql)
   );
-  { db }
+  (* Analytics run on their own read-only connection. SQLite serializes
+     every call on a connection, and an aggregate does its whole scan
+     inside one step, so a dashboard query sharing this handle would hold
+     the mutex for seconds and stall the insert of every request that
+     arrived meanwhile. WAL lets a second connection read without
+     blocking the writer at all. *)
+  let reader =
+    Sqlite3_eio.open_path ~sw ~busy_timeout:5000 ~mode:`READONLY path
+  in
+  { db; reader }
 
 let log_request t (local_ info : Httpz_eio_server.request_info) =
   (* Globalize all local string fields before binding to SQLite *)

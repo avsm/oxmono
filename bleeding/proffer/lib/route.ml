@@ -77,5 +77,15 @@ let route meth pat (handler @ portable) =
 
 let get pat handler = route `GET pat handler
 let post pat handler = route `POST pat handler
+
+(* A redirect pattern captures nothing, so ['f] is ['env handler] itself and
+   the location is fixed. A capture in the location needs a plain [get]. *)
+
+let moved pat location =
+  route `GET pat (fun _env _req -> Resp.redirect ~permanent:true location)
+
+let found pat location =
+  route `GET pat (fun _env _req -> Resp.redirect location)
+
 let meth t = t.meth
 let run t segs = t.run segs

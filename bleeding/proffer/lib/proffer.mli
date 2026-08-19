@@ -491,6 +491,15 @@ module Route : sig
     @@ portable
   (** [route meth pat handler] is the general form, for a method without its
       own constructor. *)
+
+  val moved : ('env handler, 'env handler) pat -> string -> 'env t @@ portable
+  (** [moved pat location] answers GET, and HEAD, at [pat] with a 301 to
+      [location]. The pattern captures nothing, so [location] is fixed. A
+      location built from a capture needs a {!get} returning
+      {!Resp.redirect}. *)
+
+  val found : ('env handler, 'env handler) pat -> string -> 'env t @@ portable
+  (** [found pat location] is {!moved} with a 302 instead. *)
 end
 
 module Site : sig

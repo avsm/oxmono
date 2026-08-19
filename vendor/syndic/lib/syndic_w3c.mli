@@ -27,7 +27,7 @@ type 'a t =
         (** If applicable the value of the element, attribute or content which
             triggered the message. *) }
 
-val url : [< `Data of string | `Uri of Uri.t] -> Uri.t
+val url : [< `Data of string | `Uri of Uriz.t] -> Uriz.t
 (** Generate url for the W3C Feed Validator API returning a SOAP 12 output.
     Thus URL is supposed to be used with GET. *)
 

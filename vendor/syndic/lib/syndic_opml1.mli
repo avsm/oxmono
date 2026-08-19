@@ -70,10 +70,10 @@ type outline =
         (** Indicates whether a breakpoint is set on this outline. This
             attribute is mainly necessary for outlines used to edit scripts
             that execute. *)
-  ; xml_url: Uri.t option
+  ; xml_url: Uriz.t option
         (** Link to the XML data associated to this outline, typically the RSS
             feed. *)
-  ; html_url: Uri.t option
+  ; html_url: Uriz.t option
         (** Link to the HTML data associated to this outline, typically the
             HTML pages rendering the news feed. *)
   ; attrs: Xmlm.attribute list
@@ -86,8 +86,8 @@ val outline :
      ?typ:string
   -> ?is_comment:bool
   -> ?is_breakpoint:bool
-  -> ?xml_url:Uri.t
-  -> ?html_url:Uri.t
+  -> ?xml_url:Uriz.t
+  -> ?html_url:Uriz.t
   -> ?attrs:Xmlm.attribute list
   -> ?outlines:outline list
   -> string
@@ -106,11 +106,11 @@ type t =
   ; head: head
   ; body: body }
 
-val parse : ?xmlbase:Uri.t -> Xmlm.input -> t
+val parse : ?xmlbase:Uriz.t -> Xmlm.input -> t
 (** [parse i] takes [i] and returns an opml record which is the OCaml
     representation of the OPML document. *)
 
-val read : ?xmlbase:Uri.t -> string -> t
+val read : ?xmlbase:Uriz.t -> string -> t
 (** [read fname] reads the file name [fname] and parses it. For the optional
     parameters, see {!parse}. *)
 
@@ -140,10 +140,10 @@ val of_atom : head:head -> Syndic_atom.feed list -> t
 
 (** An URI is given by (xmlbase, uri). The value of [xmlbase], if not [None],
     gives the base URI against which [uri] must be resolved if it is relative. *)
-type uri = Uri.t option * string
+type uri = Uriz.t option * string
 
 val unsafe :
-     ?xmlbase:Uri.t
+     ?xmlbase:Uriz.t
   -> Xmlm.input
   -> [> `Opml of [> `Body of [> `Outline of ([> `Text of string
                                              | `Type of string

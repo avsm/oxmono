@@ -2,4 +2,4 @@
  (name sortal_feed)
  (public_name sortal.feed)
  (libraries sortal.schema syndic jsonfeed fetch xdge
-            eio fmt logs ptime ptime.clock.os bytesrw uri jsont xmlm))
+            eio fmt logs ptime ptime.clock.os bytesrw uriz jsont xmlm))

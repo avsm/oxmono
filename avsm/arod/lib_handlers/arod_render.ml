@@ -374,14 +374,16 @@ let blogroll ~ctx =
   ) contacts_with_feeds in
   let outlines = List.map (fun (contact, feeds) ->
     let name = Contact.name contact in
-    let html_url = Option.map Uri.of_string (Contact.best_url contact) in
+    let html_url =
+      Option.map Syndic.XML.uri_of_string (Contact.best_url contact)
+    in
     let sub_outlines = List.map (fun feed ->
       let feed_type_str = match Feed.feed_type feed with
         | Feed.Atom -> "rss" | Feed.Rss -> "rss" | Feed.Json -> "rss"
         | Feed.Manual -> "rss"
       in
       Syndic.Opml1.outline ~typ:feed_type_str
-        ~xml_url:(Uri.of_string (Feed.url feed))
+        ~xml_url:(Syndic.XML.uri_of_string (Feed.url feed))
         ?html_url
         (Option.value ~default:name (Feed.name feed))
     ) feeds in

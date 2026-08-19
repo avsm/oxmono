@@ -10,7 +10,7 @@ module XML = struct
   let xmlbase_of_attr ~xmlbase attr =
     try
       let new_base = List.assoc xmlbase_tag attr in
-      Some (Syndic_xml.resolve ~xmlbase (Uri.of_string new_base))
+      Some (Syndic_xml.resolve ~xmlbase (uri_of_string new_base))
     with Not_found -> xmlbase
 
   let generate_catcher ?(namespaces = [""]) ?(attr_producer = [])
@@ -121,7 +121,7 @@ module Util = struct
     match v_opt with None | Some "" -> attr | Some v -> (name, v) :: attr
 
   let add_attr_uri name v_opt attr =
-    match v_opt with None -> attr | Some v -> (name, Uri.to_string v) :: attr
+    match v_opt with None -> attr | Some v -> (name, Uriz.to_string v) :: attr
 
   let tag name = (("", name), [])
   let dummy_pos = (0, 0)
@@ -131,7 +131,7 @@ module Util = struct
   let node_data tag content =
     XML.Node (dummy_pos, tag, [XML.Data (dummy_pos, content)])
 
-  let node_uri tag uri = node_data tag (Uri.to_string uri)
+  let node_uri tag uri = node_data tag (Uriz.to_string uri)
 
   let add_node_data tag c nodes =
     match c with
@@ -141,7 +141,7 @@ module Util = struct
   let add_node_uri tag c nodes =
     match c with
     | None -> nodes
-    | Some uri -> node_data tag (Uri.to_string uri) :: nodes
+    | Some uri -> node_data tag (Uriz.to_string uri) :: nodes
 
   (* Add to [nodes] those coming from mapping [f] on [els] *)
   let add_nodes_rev_map f els nodes =

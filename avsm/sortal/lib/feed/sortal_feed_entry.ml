@@ -9,7 +9,7 @@ type t = {
   date : Ptime.t option;
   summary : string option;
   content : string option;
-  url : Uri.t option;
+  url : Uriz.t option;
   source_feed : string;
   source_type : Sortal_schema.Feed.feed_type;
 }
@@ -37,7 +37,7 @@ let text_of_content (c : Syndic.Atom.content) =
   | Src _ -> None
 
 let of_atom_entry ~source_feed (entry : Syndic.Atom.entry) =
-  let id = Uri.to_string entry.id in
+  let id = Uriz.to_string entry.id in
   let title = text_of_text_construct entry.title in
   let date = match entry.published with
     | Some d -> Some d
@@ -57,9 +57,9 @@ let of_atom_entry ~source_feed (entry : Syndic.Atom.entry) =
 
 let of_rss2_item ~source_feed (item : Syndic.Rss2.item) =
   let id = match item.guid with
-    | Some guid -> Uri.to_string guid.data
+    | Some guid -> Uriz.to_string guid.data
     | None -> match item.link with
-      | Some link -> Uri.to_string link
+      | Some link -> Uriz.to_string link
       | None -> source_feed ^ "#unknown"
   in
   let title, summary = match item.story with
@@ -84,7 +84,7 @@ let of_jsonfeed_item ~source_feed (item : Jsonfeed.Item.t) =
     | Some _ as c -> c
     | None -> Jsonfeed.Item.content_html item
   in
-  let url = Option.map Uri.of_string (Jsonfeed.Item.url item) in
+  let url = Option.map Syndic.XML.uri_of_string (Jsonfeed.Item.url item) in
   { id; title; date; summary; content; url;
     source_feed; source_type = Json }
 
@@ -114,7 +114,7 @@ let pp_full ppf t =
   pf ppf "%a: %s@," (styled `Bold string) "ID" t.id;
   Option.iter (fun title -> pf ppf "%a: %s@," (styled `Bold string) "Title" title) t.title;
   Option.iter (fun d -> pf ppf "%a: %s@," (styled `Bold string) "Date" (Ptime.to_rfc3339 d)) t.date;
-  Option.iter (fun u -> pf ppf "%a: %s@," (styled `Bold string) "URL" (Uri.to_string u)) t.url;
+  Option.iter (fun u -> pf ppf "%a: %s@," (styled `Bold string) "URL" (Uriz.to_string u)) t.url;
   pf ppf "%a: %s (%s)@,"
     (styled `Bold string) "Source"
     t.source_feed

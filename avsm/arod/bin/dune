@@ -19,6 +19,7 @@
   atp-lexicon-standard-site
   ptime.clock
   uri
+  uriz
   eio_main
   unix
   cmdliner

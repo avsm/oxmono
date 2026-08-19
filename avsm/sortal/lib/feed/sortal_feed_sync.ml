@@ -38,7 +38,7 @@ let dedup_atom_entries entries =
      (which is the newest when entries are sorted newest-first). *)
   let tbl = Hashtbl.create (List.length entries) in
   List.filter (fun (e : Syndic.Atom.entry) ->
-    let key = Uri.to_string e.id in
+    let key = Uriz.to_string e.id in
     if Hashtbl.mem tbl key then false
     else (Hashtbl.replace tbl key (); true)
   ) entries

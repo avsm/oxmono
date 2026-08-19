@@ -264,8 +264,8 @@ let annotate_cmd =
                  List.iter (fun (fe : Sortal_feed.Entry.t) ->
                    if not !found then
                      match fe.url with
-                     | Some u when normalize_url (Uri.to_string u) = norm_entry_url ->
-                       let feed_url = Uri.to_string u in
+                     | Some u when normalize_url (Uriz.to_string u) = norm_entry_url ->
+                       let feed_url = Uriz.to_string u in
                        let ann_path = Sortal_feed.Store.annotations_file feed_store handle feed in
                        let ann = Sortal_feed.Annotations.load ann_path in
                        Sortal_feed.Annotations.add_slug ann ~url:feed_url ~slug;

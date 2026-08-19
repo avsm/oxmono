@@ -95,7 +95,7 @@ let feed_post_run () dry_run entry_id text_override link_override scheduling mod
   (* Link attachment: explicit --link overrides, otherwise use entry URL *)
   let link_attachment = match link_override with
     | Some _ -> link_override
-    | None -> Option.map Uri.to_string entry.url
+    | None -> Option.map Uriz.to_string entry.url
   in
   let scheduling_type = match scheduling with
     | `Automatic -> Tessabot.Buffer.Automatic

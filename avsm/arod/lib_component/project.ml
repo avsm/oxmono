@@ -120,7 +120,7 @@ let full ~ctx proj =
   let feed_seen = Hashtbl.create 16 in
   let all_feed_bls = List.filter (fun (bl : Arod.Ctx.feed_backlink) ->
     let u = match bl.feed_entry.Sortal_feed.Entry.url with
-      | Some u -> Uri.to_string u | None -> "" in
+      | Some u -> Uriz.to_string u | None -> "" in
     if u = "" || Hashtbl.mem feed_seen u then false
     else (Hashtbl.add feed_seen u (); true)
   ) (feed_bls @ outbound_feed) in

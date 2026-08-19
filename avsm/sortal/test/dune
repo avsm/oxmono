@@ -8,7 +8,7 @@
 
 (test
  (name test_feed)
- (libraries sortal.feed sortal.schema eio eio_main syndic jsonfeed xmlm uri ptime))
+ (libraries sortal.feed sortal.schema eio eio_main syndic jsonfeed xmlm uriz ptime))
 
 (test
  (name test_feed_sync)

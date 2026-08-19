@@ -14,7 +14,7 @@ type t = {
   date : Ptime.t option;
   summary : string option;
   content : string option;
-  url : Uri.t option;
+  url : Uriz.t option;
   source_feed : string;
   source_type : Sortal_schema.Feed.feed_type;
 }

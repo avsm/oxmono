@@ -242,8 +242,8 @@ type outline =
   ; (* see common attributes *)
     is_breakpoint: bool
   ; (* see common attributes *)
-    xml_url: Uri.t option
-  ; html_url: Uri.t option
+    xml_url: Uriz.t option
+  ; html_url: Uriz.t option
   ; attrs: Xmlm.attribute list
   ; outlines: outline list }
 
@@ -276,10 +276,10 @@ let rec outline_of_node ~xmlbase ((pos, (_, attributes), datas) : node) =
           (Error.Error (pos, "<isBreakpoint> must have true or false value."))
       )
     | _, "xmlUrl" -> (
-      try xml_url := Some (XML.resolve ~xmlbase (Uri.of_string v)) with _ ->
+      try xml_url := Some (XML.resolve ~xmlbase (uri_of_string v)) with _ ->
         raise (Error.Error (pos, "<xmlUrl> content must be an URL")) )
     | _, "htmlUrl" -> (
-      try html_url := Some (XML.resolve ~xmlbase (Uri.of_string v)) with _ ->
+      try html_url := Some (XML.resolve ~xmlbase (uri_of_string v)) with _ ->
         raise (Error.Error (pos, "<htmlUrl> content must be an URL")) )
     | _ -> attrs := attr :: !attrs
   in
@@ -409,7 +409,7 @@ let read ?xmlbase fname =
     close_in fh ; x
   with e -> close_in fh ; raise e
 
-type uri = Uri.t option * string
+type uri = Uriz.t option * string
 
 let unsafe ?xmlbase input =
   match XML.of_xmlm input |> snd with
@@ -467,8 +467,8 @@ let rec outline_to_xml o =
   let attr =
     (n "text", o.text) :: attr
     |> add_attr "type" o.typ id_string
-    |> add_attr "xmlUrl" o.xml_url Uri.to_string
-    |> add_attr "htmlUrl" o.html_url Uri.to_string
+    |> add_attr "xmlUrl" o.xml_url Uriz.to_string
+    |> add_attr "htmlUrl" o.html_url Uriz.to_string
   in
   XML.Node (dummy_pos, (n "outline", attr), List.map outline_to_xml o.outlines)
 

@@ -178,7 +178,7 @@ let load_feed_items ~author_handle ~base_url ~entries fs contacts =
            let auto_mentions = scan_feed_entry_mentions ~base_url ~entries fe in
            let ann_mentions = match fe.Sortal_feed.Entry.url with
              | Some u ->
-               let url_str = Uri.to_string u in
+               let url_str = Uriz.to_string u in
                List.concat_map (fun (_feed_url, ann) ->
                  List.filter_map (fun slug -> Bushel.Entry.lookup entries slug)
                    (Sortal_feed.Annotations.slugs_for_url ann url_str)
@@ -215,7 +215,7 @@ let load_feed_items ~author_handle ~base_url ~entries fs contacts =
   List.iter (fun (item : feed_item) ->
     match item.entry.Sortal_feed.Entry.url with
     | Some u ->
-      let key = normalise_url (Uri.to_string u) in
+      let key = normalise_url (Uriz.to_string u) in
       let bl = { contact = item.contact; feed_entry = item.entry } in
       let cur = try Hashtbl.find feed_by_url key with Not_found -> [] in
       Hashtbl.replace feed_by_url key (bl :: cur)
@@ -317,7 +317,7 @@ let feed_items_for_outbound t slug =
     | Some bls ->
       List.filter (fun (bl : feed_backlink) ->
         let fe_url = match bl.feed_entry.Sortal_feed.Entry.url with
-          | Some u -> Uri.to_string u | None -> "" in
+          | Some u -> Uriz.to_string u | None -> "" in
         if Hashtbl.mem seen fe_url then false
         else (Hashtbl.add seen fe_url (); true)
       ) bls

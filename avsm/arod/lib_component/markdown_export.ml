@@ -73,7 +73,7 @@ let related_entries ~ctx ent =
     let name = Contact.name bl.contact in
     let title = match bl.feed_entry.FeedEntry.title with Some t -> t | None -> name in
     let url = match bl.feed_entry.FeedEntry.url with
-      | Some u -> Uri.to_string u | None -> "" in
+      | Some u -> Uriz.to_string u | None -> "" in
     let date_str_s = match bl.feed_entry.FeedEntry.date with
       | Some d -> let (y, m, dd), _ = Ptime.to_date_time d in
         Printf.sprintf "%04d-%02d-%02d" y m dd
@@ -382,7 +382,7 @@ let network_md ~ctx =
     let name = Contact.name item.contact in
     let title = match fe.FeedEntry.title with Some t -> t | None -> "(untitled)" in
     let url_str = match fe.FeedEntry.url with
-      | Some u -> Uri.to_string u | None -> "" in
+      | Some u -> Uriz.to_string u | None -> "" in
     let date_line = match fe.FeedEntry.date with
       | Some d ->
         let (y, m, d), _ = Ptime.to_date_time d in
@@ -394,7 +394,7 @@ let network_md ~ctx =
     ) item.mentions in
     let forward_strs = match fe.FeedEntry.url with
       | Some u ->
-        let key = Network.normalise_url (Uri.to_string u) in
+        let key = Network.normalise_url (Uriz.to_string u) in
         let slugs = try Hashtbl.find forward_index key with Not_found -> [] in
         List.filter_map (fun slug ->
           match Entry.lookup entries slug with

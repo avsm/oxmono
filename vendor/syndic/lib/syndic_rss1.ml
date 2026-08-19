@@ -60,13 +60,13 @@ let description_of_xml, description_of_xml' =
   , generate_catcher ~namespaces ~leaf_producer (fun ~pos:_ x -> `Description x)
   )
 
-type channel_image = Uri.t
-type channel_image' = [`URI of Uri.t option * string]
+type channel_image = Uriz.t
+type channel_image' = [`URI of Uriz.t option * string]
 
 let make_channel_image ~pos (l : [< channel_image'] list) =
   let image =
     match find (function `URI _ -> true) l with
-    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (Uri.of_string u)
+    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (uri_of_string u)
     | _ ->
         raise
           (Error.Error
@@ -79,13 +79,13 @@ let channel_image_of_xml, channel_image_of_xml' =
   ( generate_catcher ~namespaces ~attr_producer make_channel_image
   , generate_catcher ~namespaces ~attr_producer (fun ~pos:_ x -> `Image x) )
 
-type link = Uri.t
-type link' = [`URI of Uri.t option * string]
+type link = Uriz.t
+type link' = [`URI of Uriz.t option * string]
 
 let make_link ~pos (l : [< link'] list) =
   let link =
     match find (function `URI _ -> true) l with
-    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (Uri.of_string u)
+    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (uri_of_string u)
     | _ ->
         raise
           (Error.Error (pos, "The content of <link> MUST be a non-empty string"))
@@ -97,13 +97,13 @@ let link_of_xml, link_of_xml' =
   ( generate_catcher ~namespaces ~leaf_producer make_link
   , generate_catcher ~namespaces ~leaf_producer (fun ~pos:_ x -> `Link x) )
 
-type url = Uri.t
-type url' = [`URI of Uri.t option * string]
+type url = Uriz.t
+type url' = [`URI of Uriz.t option * string]
 
 let make_url ~pos (l : [< url'] list) =
   let url =
     match find (function `URI _ -> true) l with
-    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (Uri.of_string u)
+    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (uri_of_string u)
     | _ ->
         raise
           (Error.Error (pos, "The content of <url> MUST be a non-empty string"))
@@ -115,13 +115,13 @@ let url_of_xml, url_of_xml' =
   ( generate_catcher ~namespaces ~leaf_producer make_url
   , generate_catcher ~namespaces ~leaf_producer (fun ~pos:_ x -> `URL x) )
 
-type li = Uri.t
-type li' = [`URI of Uri.t option * string]
+type li = Uriz.t
+type li' = [`URI of Uriz.t option * string]
 
 let make_li ~pos (l : [< li'] list) =
   let url =
     match find (function `URI _ -> true) l with
-    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (Uri.of_string u)
+    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (uri_of_string u)
     | _ ->
         raise
           (Error.Error (pos, "Li elements MUST have a 'resource' attribute"))
@@ -172,13 +172,13 @@ let items_of_xml' =
   let data_producer = [("Seq", seq_of_xml')] in
   generate_catcher ~namespaces ~data_producer (fun ~pos:_ x -> `Items x)
 
-type channel_textinput = Uri.t
-type channel_textinput' = [`URI of Uri.t option * string]
+type channel_textinput = Uriz.t
+type channel_textinput' = [`URI of Uriz.t option * string]
 
 let make_textinput ~pos (l : [< channel_textinput'] list) =
   let url =
     match find (function `URI _ -> true) l with
-    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (Uri.of_string u)
+    | Some (`URI (xmlbase, u)) -> XML.resolve ~xmlbase (uri_of_string u)
     | _ ->
         raise
           (Error.Error
@@ -193,7 +193,7 @@ let channel_textinput_of_xml, channel_textinput_of_xml' =
   )
 
 type channel =
-  { about: Uri.t
+  { about: Uriz.t
   ; (* must be uniq *)
     title: title
   ; link: link
@@ -209,7 +209,7 @@ type channel' =
   | `Image of channel_image
   | `Items of items
   | `TextInput of channel_textinput
-  | `About of Uri.t ]
+  | `About of Uriz.t ]
 
 let make_channel ~pos (l : [< channel'] list) =
   let about =
@@ -271,7 +271,7 @@ let make_channel ~pos (l : [< channel'] list) =
   `Channel
     ({about; title; link; description; image; items; textinput} : channel)
 
-let about_of_xml ~xmlbase a = `About (XML.resolve ~xmlbase (Uri.of_string a))
+let about_of_xml ~xmlbase a = `About (XML.resolve ~xmlbase (uri_of_string a))
 let about_of_xml' ~xmlbase a = `About (xmlbase, a)
 
 let channel_of_xml =
@@ -297,8 +297,8 @@ let channel_of_xml' =
   generate_catcher ~namespaces ~attr_producer ~data_producer (fun ~pos:_ x ->
       `Channel x )
 
-type image = {about: Uri.t; title: title; url: url; link: link}
-type image' = [`Title of title | `Link of link | `URL of url | `About of Uri.t]
+type image = {about: Uriz.t; title: title; url: url; link: link}
+type image' = [`Title of title | `Link of link | `URL of url | `About of Uriz.t]
 
 let make_image ~pos (l : [< image'] list) =
   let title =
@@ -350,13 +350,13 @@ let image_of_xml' =
       `Image x )
 
 type item =
-  {about: Uri.t; title: title; link: link; description: description option}
+  {about: Uriz.t; title: title; link: link; description: description option}
 
 type item' =
   [ `Title of title
   | `Link of link
   | `Description of description
-  | `About of Uri.t ]
+  | `About of Uriz.t ]
 
 let make_item ~pos (l : [< item'] list) =
   let title =
@@ -407,10 +407,10 @@ let item_of_xml' =
       `Item x )
 
 type textinput =
-  {about: Uri.t; title: title; description: description; name: name; link: link}
+  {about: Uriz.t; title: title; description: description; name: name; link: link}
 
 type textinput' =
-  [ `About of Uri.t
+  [ `About of Uriz.t
   | `Title of title
   | `Description of description
   | `Name of name
@@ -553,7 +553,7 @@ let read ?xmlbase fname =
     close_in fh ; x
   with e -> close_in fh ; raise e
 
-type uri = Uri.t option * string
+type uri = Uriz.t option * string
 
 let unsafe ?xmlbase input =
   match XML.of_xmlm input |> snd with

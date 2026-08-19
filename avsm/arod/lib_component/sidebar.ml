@@ -79,7 +79,7 @@ let link_rows ~ctx slug =
     let seen = Hashtbl.create 16 in
     List.filter (fun (bl : Arod.Ctx.feed_backlink) ->
       let u = match bl.feed_entry.Sortal_feed.Entry.url with
-        | Some u -> Uri.to_string u | None -> "" in
+        | Some u -> Uriz.to_string u | None -> "" in
       if u = "" || Hashtbl.mem seen u then false
       else (Hashtbl.add seen u (); true)
     ) (feed_bls @ outbound_feed)
@@ -89,7 +89,7 @@ let link_rows ~ctx slug =
     let title = match fe.Sortal_feed.Entry.title with
       | Some t -> t | None -> "(untitled)" in
     let url = match fe.Sortal_feed.Entry.url with
-      | Some u -> Uri.to_string u | None -> "" in
+      | Some u -> Uriz.to_string u | None -> "" in
     if String.length url > 0 then
       Some (`Feed, title, url)
     else None
@@ -355,7 +355,7 @@ let related_stream ~ctx slug =
   let feed_seen = Hashtbl.create 16 in
   let all_feed_bls = List.filter (fun (bl : Arod.Ctx.feed_backlink) ->
     let u = match bl.feed_entry.Sortal_feed.Entry.url with
-      | Some u -> Uri.to_string u | None -> "" in
+      | Some u -> Uriz.to_string u | None -> "" in
     if u = "" || Hashtbl.mem feed_seen u then false
     else (Hashtbl.add feed_seen u (); true)
   ) (feed_bls @ outbound_feed) in

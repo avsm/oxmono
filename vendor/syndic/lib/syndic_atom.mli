@@ -14,9 +14,9 @@ module Error : module type of Syndic_error
     annotation to disambiguate the two. *)
 type text_construct =
   | Text of string  (** [Text(content)] *)
-  | Html of Uri.t option * string
+  | Html of Uriz.t option * string
       (** [Html(xmlbase, content)] where the content is left unparsed. *)
-  | Xhtml of Uri.t option * Syndic_xml.t list  (** [Xhtml(xmlbase, content)] *)
+  | Xhtml of Uriz.t option * Syndic_xml.t list  (** [Xhtml(xmlbase, content)] *)
 
 (** Describes a person, corporation, or similar entity (hereafter, 'person')
     that indicates the author of the entry or feed. {{:
@@ -29,9 +29,9 @@ type text_construct =
     § 4.2.1}) and contributors
     ({{:http://tools.ietf.org/html/rfc4287#section-4.2.3} See RFC 4287
     § 4.2.3}) *)
-type author = {name: string; uri: Uri.t option; email: string option}
+type author = {name: string; uri: Uriz.t option; email: string option}
 
-val author : ?uri:Uri.t -> ?email:string -> string -> author
+val author : ?uri:Uriz.t -> ?email:string -> string -> author
 
 (** The [category] element conveys information about a category associated with
     an entry or feed. This specification assigns no meaning to the content (if
@@ -47,9 +47,9 @@ val author : ?uri:Uri.t -> ?email:string -> string -> author
     end-user applications. The content of the "label" attribute is
     Language-Sensitive. {{: http://tools.ietf.org/html/rfc4287#section-4.2.2.1}
     See RFC 4287 § 4.2.2.1} *)
-type category = {term: string; scheme: Uri.t option; label: string option}
+type category = {term: string; scheme: Uriz.t option; label: string option}
 
-val category : ?scheme:Uri.t -> ?label:string -> string -> category
+val category : ?scheme:Uriz.t -> ?label:string -> string -> category
 
 (** The [generator] element's content identifies the agent used to generate a
     feed, for debugging and other purposes. - [content] is a human-readable
@@ -59,9 +59,9 @@ val category : ?scheme:Uri.t -> ?label:string -> string -> category
 
     See {{: http://tools.ietf.org/html/rfc4287#section-4.2.4}RFC 4287 §
     4.2.4}. *)
-type generator = {version: string option; uri: Uri.t option; content: string}
+type generator = {version: string option; uri: Uriz.t option; content: string}
 
-val generator : ?uri:Uri.t -> ?version:string -> string -> generator
+val generator : ?uri:Uriz.t -> ?version:string -> string -> generator
 
 (** The [icon] element's content is an IRI reference [RFC3987] that identifies
     an image that provides iconic visual identification for a feed.
@@ -70,7 +70,7 @@ val generator : ?uri:Uri.t -> ?version:string -> string -> generator
     and SHOULD be suitable for presentation at a small size.
 
     {{:http://tools.ietf.org/html/rfc4287#section-4.2.5} See RFC 4287 § 4.2.5} *)
-type icon = Uri.t
+type icon = Uriz.t
 
 (** The [id] element conveys a permanent, universally unique identifier for an
     entry or feed.
@@ -85,7 +85,7 @@ type icon = Uri.t
 
     {{: http://tools.ietf.org/html/rfc4287#section-4.2.6} See RFC 4287 § 4.2.6
     } *)
-type id = Uri.t
+type id = Uriz.t
 
 (** Indicates the link relation type. See {{:
     http://tools.ietf.org/html/rfc4287#section-4.2.7.2} RFC 4287 § 4.2.7.2}. *)
@@ -110,7 +110,7 @@ type rel =
       (** Signifies that the IRI in the value of the link [href] field
           identifies a resource that is the source of the information provided
           in the containing element. *)
-  | Link of Uri.t
+  | Link of Uriz.t
       (** The URI MUST be non-empty and match either the "isegment-nz-nc" or
           the "IRI" production in {{:http://tools.ietf.org/html/rfc3987}
           RFC3987}. Note that use of a relative reference other than a simple
@@ -145,7 +145,7 @@ type rel =
     representation as reported by the underlying protocol. See {{:
     http://tools.ietf.org/html/rfc4287#section-4.2.7.6} RFC 4287 § 4.2.7.6}. *)
 type link =
-  { href: Uri.t
+  { href: Uriz.t
   ; rel: rel
   ; type_media: string option
   ; hreflang: string option
@@ -158,7 +158,7 @@ val link :
   -> ?title:string
   -> ?length:int
   -> ?rel:rel
-  -> Uri.t
+  -> Uriz.t
   -> link
 (** [link uri] creates a link element.
 
@@ -176,7 +176,7 @@ val link :
 
     {{: http://tools.ietf.org/html/rfc4287#section-4.2.8} See RFC 4287 §
     4.2.8} *)
-type logo = Uri.t
+type logo = Uriz.t
 
 (** [published] is a Date construct indicating an instant in time associated
     with an event early in the life cycle of the entry.
@@ -298,10 +298,10 @@ type mime = string
     http://tools.ietf.org/html/rfc4287#section-4.1.3.2} RFC 4287 § 4.1.3.2} *)
 type content =
   | Text of string
-  | Html of Uri.t option * string
-  | Xhtml of Uri.t option * Syndic_xml.t list
+  | Html of Uriz.t option * string
+  | Xhtml of Uriz.t option * Syndic_xml.t list
   | Mime of mime * string
-  | Src of mime option * Uri.t
+  | Src of mime option * Uriz.t
 
 (** [summary] is a Text construct that conveys a short summary, abstract, or
     excerpt of an entry.
@@ -424,7 +424,7 @@ val feed :
 
 (** {2 Input and output} *)
 
-val parse : ?self:Uri.t -> ?xmlbase:Uri.t -> Xmlm.input -> feed
+val parse : ?self:Uriz.t -> ?xmlbase:Uriz.t -> Xmlm.input -> feed
 (** [parse xml] returns the feed corresponding to [xml]. Beware that [xml] is
     mutable, so when the parsing fails, one has to create a new copy of [xml]
     to use it with another function. If you retrieve [xml] from a URL, you
@@ -441,7 +441,7 @@ val parse : ?self:Uri.t -> ?xmlbase:Uri.t -> Xmlm.input -> feed
     information will add an entry to [links] with [rel = Self] unless one
     already exists. *)
 
-val read : ?self:Uri.t -> ?xmlbase:Uri.t -> string -> feed
+val read : ?self:Uriz.t -> ?xmlbase:Uriz.t -> string -> feed
 (** [read fname] reads the file name [fname] and parses it. For the optional
     parameters, see {!parse}. *)
 
@@ -468,7 +468,7 @@ val descending : entry -> entry -> int
     [updated] is used. *)
 
 val aggregate :
-     ?self:Uri.t
+     ?self:Uriz.t
   -> ?id:id
   -> ?updated:updated
   -> ?subtitle:subtitle
@@ -493,7 +493,7 @@ val aggregate :
     it is generally desired. @param n number of entries of the (sorted)
     aggregated feed to return. *)
 
-val set_self_link : feed -> ?hreflang:string -> ?length:int -> Uri.t -> feed
+val set_self_link : feed -> ?hreflang:string -> ?length:int -> Uriz.t -> feed
 (** [set_self feed url] add or replace the URI in the self link of the feed.
     You can also set the [hreflang] and [length] of the self link. *)
 
@@ -511,12 +511,12 @@ val set_main_author : feed -> author -> feed
 
 (** An URI is given by (xmlbase, uri). The value of [xmlbase], if not [None],
     gives the base URI against which [uri] must be resolved if it is relative. *)
-type uri = Uri.t option * string
+type uri = Uriz.t option * string
 
 type person = [`Email of string | `Name of string | `URI of uri] list
 
 val unsafe :
-     ?xmlbase:Uri.t
+     ?xmlbase:Uriz.t
   -> Xmlm.input
   -> [> `Feed of [> `Author of person
                  | `Category of [> `Label of string

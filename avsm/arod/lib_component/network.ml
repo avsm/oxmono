@@ -194,7 +194,7 @@ let render_feed_item ~entries ~forward_index ~idea_index (item : Arod.Ctx.feed_i
   let forward_els =
     match fe.FeedEntry.url with
     | Some u ->
-      let url_str = normalise_url (Uri.to_string u) in
+      let url_str = normalise_url (Uriz.to_string u) in
       let slugs = try Hashtbl.find forward_index url_str with Not_found -> [] in
       let forward_entries = List.filter_map (fun slug ->
         Entry.lookup entries slug

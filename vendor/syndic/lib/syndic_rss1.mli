@@ -41,7 +41,7 @@ type description = string
 
     {[ Syntax: <image rdf:resource="{image_uri}" /> Requirement: Required only
     if image element present Model: Empty ]} *)
-type channel_image = Uri.t
+type channel_image = Uriz.t
 
 (** The URL of the image to used in the "src" attribute of the channel's image
     tag when rendered as HTML. {{: http://web.resource.org/rss/1.0/spec#s5.4.2}
@@ -49,7 +49,7 @@ type channel_image = Uri.t
 
     {[ Syntax: <url>{image_url}</url> Requirement: Required if the image
     element is present Model: (#PCDATA) (Suggested) Maximum Length: 500 ]} *)
-type url = Uri.t
+type url = Uriz.t
 
 (** This can be - The URL to which an HTML rendering of the channel title will
     link, commonly the parent site's home or news page. {{:
@@ -64,7 +64,7 @@ type url = Uri.t
 
     {[ Syntax: <link>{link}</link> Requirement: Required for all Model:
     (#PCDATA) (Suggested) Maximum Length: 500 ]} *)
-type link = Uri.t
+type link = Uriz.t
 
 (** An RDF table of contents, associating the document's items [5.5] with this
     particular RSS channel. Each item's rdf:resource {item_uri} must be the
@@ -80,7 +80,7 @@ type link = Uri.t
 
     {[ Syntax: <items><rdf:Seq><rdf:li resource="{item_uri}" /> ...
     </rdf:Seq></items> Requirement: Required ]} *)
-type items = Uri.t list
+type items = Uriz.t list
 
 (** Establishes an RDF association between the optional textinput element [5.6]
     and this particular RSS channel. The {textinput_uri} rdf:resource must be
@@ -90,7 +90,7 @@ type items = Uri.t list
 
     {[ Syntax: <textinput rdf:resource="{textinput_uri}" /> Requirement:
     Required only if texinput element present Model: Empty ]} *)
-type channel_textinput = Uri.t
+type channel_textinput = Uriz.t
 
 (** The channel element contains metadata describing the channel itself,
     including a title, brief description, and URL link to the described
@@ -106,7 +106,7 @@ type channel_textinput = Uri.t
     Attribute(s): rdf:about Model: (title, link, description, image?, items,
     textinput?) ]} *)
 type channel =
-  { about: Uri.t  (** must be unique *)
+  { about: Uriz.t  (** must be unique *)
   ; title: title
   ; link: link
   ; description: description
@@ -124,7 +124,7 @@ type channel =
     {[ Syntax: <image rdf:about="{image_uri}"> Requirement: Optional; if
     present, must also be present in channel element [5.3.4] Required
     Attribute(s): rdf:about Model: (title, url, link) ]} *)
-type image = {about: Uri.t; title: title; url: url; link: link}
+type image = {about: Uriz.t; title: title; url: url; link: link}
 
 (** While commonly a news headline, with RSS 1.0's modular extensibility, this
     can be just about anything: discussion posting, job listing, software patch
@@ -143,7 +143,7 @@ type image = {about: Uri.t; title: title; url: url; link: link}
     (for backward compatibility with 0.9x): 1-15 Required Attribute(s):
     rdf:about Model: (title, link, description?) ]} *)
 type item =
-  {about: Uri.t; title: title; link: link; description: description option}
+  {about: Uriz.t; title: title; link: link; description: description option}
 
 (** The textinput element affords a method for submitting form data to an
     arbitrary URL — usually located at the parent website. The form processor
@@ -168,7 +168,7 @@ type item =
     if present, must also be present in channel element [5.3.6] Required
     Attribute(s): rdf:about Model: (title, description, name, link) ]} *)
 type textinput =
-  {about: Uri.t; title: title; description: description; name: name; link: link}
+  {about: Uriz.t; title: title; description: description; name: name; link: link}
 
 (** The outermost level in every RSS 1.0 compliant document is the RDF element.
     The opening RDF tag assocaties the rdf: namespace prefix with the RDF
@@ -191,7 +191,7 @@ type rdf =
   ; item: item list
   ; textinput: textinput option }
 
-val parse : ?xmlbase:Uri.t -> Xmlm.input -> rdf
+val parse : ?xmlbase:Uriz.t -> Xmlm.input -> rdf
 (** [parse xml] returns the RDF corresponding to [xml].
 
     @raise Error.raise_expectation if [xml] is not a valid RSS1 document.
@@ -200,7 +200,7 @@ val parse : ?xmlbase:Uri.t -> Xmlm.input -> rdf
     document are resolved. It is superseded by xml:base present in the document
     (if any). *)
 
-val read : ?xmlbase:Uri.t -> string -> rdf
+val read : ?xmlbase:Uriz.t -> string -> rdf
 (** [read fname] reads the file name [fname] and parses it. For the optional
     parameters, see {!parse}. *)
 
@@ -208,10 +208,10 @@ val read : ?xmlbase:Uri.t -> string -> rdf
 
 (** An URI is given by (xmlbase, uri). The value of [xmlbase], if not [None],
     gives the base URI against which [uri] must be resolved if it is relative. *)
-type uri = Uri.t option * string
+type uri = Uriz.t option * string
 
 val unsafe :
-     ?xmlbase:Uri.t
+     ?xmlbase:Uriz.t
   -> Xmlm.input
   -> [> `RDF of [> `Channel of [> `About of uri
                                | `Description of string list

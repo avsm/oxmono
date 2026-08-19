@@ -6,9 +6,9 @@ module Date = Syndic_date
 module Error = Syndic_error
 
 type image =
-  { url: Uri.t
+  { url: Uriz.t
   ; title: string
-  ; link: Uri.t
+  ; link: Uriz.t
   ; width: int
   ; (* default 88 *)
     height: int
@@ -16,9 +16,9 @@ type image =
     description: string option }
 
 type image' =
-  [ `URL of Uri.t
+  [ `URL of Uriz.t
   | `Title of string
-  | `Link of Uri.t
+  | `Link of Uriz.t
   | `Width of int
   | `Height of int
   | `Description of string ]
@@ -67,7 +67,7 @@ let make_image ~pos (l : [< image'] list) =
   in
   `Image ({url; title; link; width; height; description} : image)
 
-let url_of_xml ~xmlbase a = `URL (XML.resolve ~xmlbase (Uri.of_string a))
+let url_of_xml ~xmlbase a = `URL (XML.resolve ~xmlbase (uri_of_string a))
 let url_of_xml' ~xmlbase a = `URL (xmlbase, a)
 
 let image_url_of_xml ~xmlbase (pos, _tag, datas) =
@@ -79,7 +79,7 @@ let image_title_of_xml ~xmlbase:_ (_pos, _tag, datas) =
   `Title (try get_leaf datas with Not_found -> "")
 
 let image_link_of_xml ~xmlbase (pos, _tag, datas) =
-  try `Link (XML.resolve ~xmlbase (Uri.of_string (get_leaf datas)))
+  try `Link (XML.resolve ~xmlbase (uri_of_string (get_leaf datas)))
   with Not_found ->
     raise
       (Error.Error (pos, "The content of <link> MUST be a non-empty string"))
@@ -145,7 +145,7 @@ let image_of_xml' =
   in
   generate_catcher ~data_producer (fun ~pos:_ x -> `Image x)
 
-type cloud = {uri: Uri.t; registerProcedure: string; protocol: string}
+type cloud = {uri: Uriz.t; registerProcedure: string; protocol: string}
 
 type cloud' =
   [ `Domain of string
@@ -191,7 +191,17 @@ let make_cloud ~pos (l : [< cloud'] list) =
         raise
           (Error.Error (pos, "Cloud elements MUST have a 'protocol' attribute"))
   in
-  let uri = Uri.make ~host:domain ~port ~path () in
+  (* [Uriz.make] rejects components that cannot form a reference, and these
+     three are whatever the publisher wrote in the attributes.  On rejection
+     the same text goes through the lax parser, which repairs what it can. *)
+  let uri =
+    try Uriz.make ~host:domain ~port ~path ()
+    with Invalid_argument _ ->
+      let path =
+        if path = "" || path.[0] = '/' then path else "/" ^ path
+      in
+      uri_of_string (Printf.sprintf "//%s:%d%s" domain port path)
+  in
   `Cloud ({uri; registerProcedure; protocol} : cloud)
 
 let cloud_attr_producer =
@@ -208,10 +218,10 @@ let cloud_of_xml =
 let cloud_of_xml' =
   generate_catcher ~attr_producer:cloud_attr_producer (fun ~pos:_ x -> `Cloud x)
 
-type textinput = {title: string; description: string; name: string; link: Uri.t}
+type textinput = {title: string; description: string; name: string; link: Uriz.t}
 
 type textinput' =
-  [`Title of string | `Description of string | `Name of string | `Link of Uri.t]
+  [`Title of string | `Description of string | `Name of string | `Link of Uriz.t]
 
 let make_textinput ~pos (l : [< textinput'] list) =
   let title =
@@ -273,7 +283,7 @@ let textinput_name_of_xml ~xmlbase:_ (pos, _tag, datas) =
       (Error.Error (pos, "The content of <name> MUST be a non-empty string"))
 
 let textinput_link_of_xml ~xmlbase (pos, _tag, datas) =
-  try `Link (XML.resolve ~xmlbase (Uri.of_string (get_leaf datas)))
+  try `Link (XML.resolve ~xmlbase (uri_of_string (get_leaf datas)))
   with Not_found ->
     raise
       (Error.Error (pos, "The content of <link> MUST be a non-empty string"))
@@ -296,8 +306,8 @@ let textinput_of_xml' =
   in
   generate_catcher ~data_producer (fun ~pos:_ x -> `TextInput x)
 
-type category = {data: string; domain: Uri.t option}
-type category' = [`Data of string | `Domain of Uri.t]
+type category = {data: string; domain: Uriz.t option}
+type category' = [`Data of string | `Domain of Uriz.t]
 
 let make_category ~pos:_ (l : [< category'] list) =
   let data =
@@ -314,7 +324,7 @@ let make_category ~pos:_ (l : [< category'] list) =
 
 let category_of_xml =
   let attr_producer =
-    [("domain", fun ~xmlbase:_ a -> `Domain (Uri.of_string a))]
+    [("domain", fun ~xmlbase:_ a -> `Domain (uri_of_string a))]
   in
   let leaf_producer ~xmlbase:_ _pos data = `Data data in
   generate_catcher ~attr_producer ~leaf_producer make_category
@@ -324,8 +334,8 @@ let category_of_xml' =
   let leaf_producer ~xmlbase:_ _pos data = `Data data in
   generate_catcher ~attr_producer ~leaf_producer (fun ~pos:_ x -> `Category x)
 
-type enclosure = {url: Uri.t; length: int; mime: string}
-type enclosure' = [`URL of Uri.t | `Length of string | `Mime of string]
+type enclosure = {url: Uriz.t; length: int; mime: string}
+type enclosure' = [`URL of Uriz.t | `Length of string | `Mime of string]
 
 let make_enclosure ~pos (l : [< enclosure'] list) =
   let url =
@@ -368,8 +378,8 @@ let enclosure_of_xml' =
   in
   generate_catcher ~attr_producer (fun ~pos:_ x -> `Enclosure x)
 
-type guid = {data: Uri.t; (* must be uniq *) permalink: bool (* default true *)}
-type guid' = [`Data of Uri.t option * string | `Permalink of string]
+type guid = {data: Uriz.t; (* must be uniq *) permalink: bool (* default true *)}
+type guid' = [`Data of Uriz.t option * string | `Permalink of string]
 
 (* Some RSS2 server output <guid isPermaLink="false"></guid> ! *)
 let make_guid ~pos:_ (l : [< guid'] list) =
@@ -385,8 +395,8 @@ let make_guid ~pos:_ (l : [< guid'] list) =
       else
         (* When the GUID is declared as a permlink, resolve it using xml:base *)
         let data =
-          if permalink then XML.resolve ~xmlbase (Uri.of_string u)
-          else Uri.of_string u
+          if permalink then XML.resolve ~xmlbase (uri_of_string u)
+          else uri_of_string u
         in
         `Guid (Some ({data; permalink} : guid))
   | _ -> `Guid None
@@ -397,8 +407,8 @@ let guid_of_xml, guid_of_xml' =
   ( generate_catcher ~attr_producer ~leaf_producer make_guid
   , generate_catcher ~attr_producer ~leaf_producer (fun ~pos:_ x -> `Guid x) )
 
-type source = {data: string; url: Uri.t}
-type source' = [`Data of string | `URL of Uri.t]
+type source = {data: string; url: Uriz.t}
+type source' = [`Data of string | `URL of Uriz.t]
 
 let make_source ~pos (l : [< source'] list) =
   let data =
@@ -429,18 +439,18 @@ let source_of_xml' =
   generate_catcher ~attr_producer ~leaf_producer (fun ~pos:_ x -> `Source x)
 
 type story =
-  | All of string * Uri.t option * string
+  | All of string * Uriz.t option * string
   | Title of string
-  | Description of Uri.t option * string
+  | Description of Uriz.t option * string
 
 type item =
   { story: story
-  ; content: Uri.t option * string
-  ; link: Uri.t option
+  ; content: Uriz.t option * string
+  ; link: Uriz.t option
   ; author: string option
   ; (* e-mail *)
     categories: category list
-  ; comments: Uri.t option
+  ; comments: Uriz.t option
   ; enclosure: enclosure option
   ; guid: guid option
   ; pubDate: Date.t option
@@ -451,12 +461,12 @@ type item =
 
 type item' =
   [ `Title of string
-  | `Description of Uri.t option * string (* xmlbase, description *)
-  | `Content of Uri.t option * string
-  | `Link of Uri.t
+  | `Description of Uriz.t option * string (* xmlbase, description *)
+  | `Content of Uriz.t option * string
+  | `Link of Uriz.t
   | `Author of string (* e-mail *)
   | `Category of category
-  | `Comments of Uri.t
+  | `Comments of Uriz.t
   | `Enclosure of enclosure
   | `Guid of guid
   | `PubDate of Date.t
@@ -544,7 +554,7 @@ let item_content_of_xml ~xmlbase (_pos, _tag, datas) =
 
 let item_link_of_xml ~xmlbase (_pos, _tag, datas) =
   `Link
-    ( try Some (XML.resolve ~xmlbase (Uri.of_string (get_leaf datas)))
+    ( try Some (XML.resolve ~xmlbase (uri_of_string (get_leaf datas)))
       with Not_found -> None )
 
 let item_author_of_xml ~xmlbase:_ (pos, _tag, datas) =
@@ -553,7 +563,7 @@ let item_author_of_xml ~xmlbase:_ (pos, _tag, datas) =
       (Error.Error (pos, "The content of <author> MUST be a non-empty string"))
 
 let item_comments_of_xml ~xmlbase (pos, _tag, datas) =
-  try `Comments (XML.resolve ~xmlbase (Uri.of_string (get_leaf datas)))
+  try `Comments (XML.resolve ~xmlbase (uri_of_string (get_leaf datas)))
   with Not_found ->
     raise
       (Error.Error (pos, "The content of <comments> MUST be a non-empty string"))
@@ -603,7 +613,7 @@ let item_of_xml' =
 
 type channel =
   { title: string
-  ; link: Uri.t
+  ; link: Uriz.t
   ; description: string
   ; language: string option
   ; copyright: string option
@@ -613,7 +623,7 @@ type channel =
   ; lastBuildDate: Date.t option
   ; category: string option
   ; generator: string option
-  ; docs: Uri.t option
+  ; docs: Uriz.t option
   ; cloud: cloud option
   ; ttl: int option
   ; image: image option
@@ -625,7 +635,7 @@ type channel =
 
 type channel' =
   [ `Title of string
-  | `Link of Uri.t
+  | `Link of Uriz.t
   | `Description of string
   | `Language of string
   | `Copyright of string
@@ -635,7 +645,7 @@ type channel' =
   | `LastBuildDate of Date.t
   | `Category of string
   | `Generator of string
-  | `Docs of Uri.t
+  | `Docs of Uriz.t
   | `Cloud of cloud
   | `TTL of int
   | `Image of image
@@ -789,7 +799,7 @@ let channel_description_of_xml ~xmlbase:_ (_pos, _tag, datas) =
   `Description (try get_leaf datas with Not_found -> "")
 
 let channel_link_of_xml ~xmlbase (pos, _tag, datas) =
-  try `Link (XML.resolve ~xmlbase (Uri.of_string (get_leaf datas)))
+  try `Link (XML.resolve ~xmlbase (uri_of_string (get_leaf datas)))
   with Not_found ->
     raise
       (Error.Error (pos, "The content of <link> MUST be a non-empty string"))
@@ -839,7 +849,7 @@ let channel_generator_of_xml ~xmlbase:_ (pos, _tag, datas) =
          (pos, "The content of <generator> MUST be a non-empty string"))
 
 let channel_docs_of_xml ~xmlbase (pos, _tag, datas) =
-  try `Docs (XML.resolve ~xmlbase (Uri.of_string (get_leaf datas)))
+  try `Docs (XML.resolve ~xmlbase (uri_of_string (get_leaf datas)))
   with Not_found ->
     raise
       (Error.Error (pos, "The content of <docs> MUST be a non-empty string"))
@@ -959,7 +969,7 @@ let read ?xmlbase fname =
     close_in fh ; x
   with e -> close_in fh ; raise e
 
-type uri = Uri.t option * string
+type uri = Uriz.t option * string
 
 let unsafe ?xmlbase input =
   match XML.of_xmlm input |> snd with
@@ -1067,8 +1077,8 @@ let extract_name_email a =
   with Not_found -> (a, None)
 
 let looks_like_a_link u =
-  (Uri.scheme u = Some "http" || Uri.scheme u = Some "https")
-  && match Uri.host u with None | Some "" -> false | Some _ -> true
+  (match Uriz.scheme u with This ("http" | "https") -> true | _ -> false)
+  && match Uriz.host u with Null | This "" -> false | This _ -> true
 
 let entry_of_item ch_link ch_updated (it : item) : Atom.entry =
   let author =
@@ -1115,8 +1125,8 @@ let entry_of_item ch_link ch_updated (it : item) : Atom.entry =
     | Some g ->
         if g.permalink || looks_like_a_link g.data then g.data
         else
-          let d = Digest.to_hex (Digest.string (Uri.to_string g.data)) in
-          Uri.with_fragment ch_link (Some d)
+          let d = Digest.to_hex (Digest.string (Uriz.to_string g.data)) in
+          Uriz.with_fragment ch_link (This d)
     | None ->
         (* The [it.link] may not be a permanent link and may also be used by
            other items. We use a digest to make it unique. *)
@@ -1128,7 +1138,7 @@ let entry_of_item ch_link ch_updated (it : item) : Atom.entry =
           | Description (_, d) -> d
         in
         let d = Digest.to_hex (Digest.string s) in
-        Uri.with_fragment link (Some d)
+        Uriz.with_fragment link (This d)
   in
   let links =
     match (it.guid, it.link) with

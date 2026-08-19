@@ -12,12 +12,18 @@ module X = Syndic.Atom
 
 let anil_copyright = "(c) 1998-2026 Anil Madhavapeddy, all rights reserved"
 
+(* A contact's URL is whatever was recorded for that person, so it goes
+   through Syndic's lax parser rather than the raising one. *)
 let author c =
-  let uri = Option.map Uri.of_string (C.best_url c) in
+  let uri = Option.map Syndic.XML.uri_of_string (C.best_url c) in
   let email = match C.emails c with e :: _ -> Some e | [] -> None in
   {X.name=(C.name c); email; uri}
 
-let form_uri cfg path = Uri.of_string (cfg.Arod_config.site.base_url ^ path)
+(* [form_uri cfg path] is the site's own base URL with [path] appended. Both
+   halves come from the configuration and from slugs this tree generates, so a
+   parse failure is a misconfiguration and must be loud. *)
+let form_uri cfg path =
+  Uriz.of_string_exn (cfg.Arod_config.site.base_url ^ path)
 
 let atom_id cfg e = form_uri cfg @@ E.site_url e
 
@@ -39,8 +45,10 @@ let news_feed_link cfg =
   let hreflang = None in
   {X.href; rel; type_media; title; length; hreflang}
 
+(* [l] is a note's [via] target, an external URL typed into frontmatter, so
+   it is repaired rather than rejected. *)
 let ext_link ~title l =
-  let href = Uri.of_string l in
+  let href = Syndic.XML.uri_of_string l in
   let rel = X.Alternate in
   let type_media = None in
   let title = title in
@@ -67,7 +75,7 @@ let atom_of_note ~ctx cfg ~author note =
       failwith (Printf.sprintf "in note '%s': %s" note.N.title msg)
   in
 
-  let html_base_uri = Some (Uri.of_string (cfg.site.base_url ^ "/")) in
+  let html_base_uri = Some (Uriz.of_string_exn (cfg.site.base_url ^ "/")) in
   let content, links =
     match N.link note with
     | `Local _ ->
@@ -92,7 +100,7 @@ let feed ~ctx (cfg : Arod_config.t) uri entries =
   try
     let author = author @@ Arod_ctx.author_exn ctx in
     let authors = [author] in
-    let icon = Uri.of_string (cfg.site.base_url ^ "/favicon.png") in
+    let icon = Uriz.of_string_exn (cfg.site.base_url ^ "/favicon.png") in
     let links = [news_feed_link cfg] in
     let atom_entries = List.filter_map (atom_of_entry ~ctx cfg ~author) entries in
     let title : X.text_construct = X.Text (cfg.site.name ^ "'s feed") in

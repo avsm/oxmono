@@ -21,8 +21,8 @@ let test_atom_entry_conversion () =
     categories = [];
     content = Some (Syndic.Atom.Text "Some content");
     contributors = [];
-    id = Uri.of_string "urn:uuid:test-1";
-    links = [Syndic.Atom.link ~rel:Syndic.Atom.Alternate (Uri.of_string "https://example.com/post/1")];
+    id = Uriz.of_string_exn "urn:uuid:test-1";
+    links = [Syndic.Atom.link ~rel:Syndic.Atom.Alternate (Uriz.of_string_exn "https://example.com/post/1")];
     published = Some now;
     rights = None;
     source = None;
@@ -36,7 +36,7 @@ let test_atom_entry_conversion () =
   assert (e.date = Some now);
   assert (e.summary = Some "A summary");
   assert (e.content = Some "Some content");
-  assert (e.url = Some (Uri.of_string "https://example.com/post/1"));
+  assert (e.url = Some (Uriz.of_string_exn "https://example.com/post/1"));
   assert (e.source_type = Sortal_schema.Feed.Atom);
   traceln "  of_atom_entry: fields extracted correctly"
 
@@ -45,12 +45,12 @@ let test_rss2_item_conversion () =
   let item : Syndic.Rss2.item = {
     story = Syndic.Rss2.All ("RSS Title", None, "RSS description");
     content = (None, "Full content");
-    link = Some (Uri.of_string "https://example.com/rss/1");
+    link = Some (Uriz.of_string_exn "https://example.com/rss/1");
     author = Some "author@example.com";
     categories = [];
     comments = None;
     enclosure = None;
-    guid = Some { data = Uri.of_string "guid-1"; permalink = false };
+    guid = Some { data = Uriz.of_string_exn "guid-1"; permalink = false };
     pubDate = Some now;
     source = None;
   } in
@@ -60,7 +60,7 @@ let test_rss2_item_conversion () =
   assert (e.date = Some now);
   assert (e.summary = Some "RSS description");
   assert (e.content = Some "Full content");
-  assert (e.url = Some (Uri.of_string "https://example.com/rss/1"));
+  assert (e.url = Some (Uriz.of_string_exn "https://example.com/rss/1"));
   assert (e.source_type = Sortal_schema.Feed.Rss);
   traceln "  of_rss2_item: fields extracted correctly"
 
@@ -107,7 +107,7 @@ let test_jsonfeed_item_conversion () =
   assert (e.date = Some now);
   assert (e.summary = Some "JSON summary");
   assert (e.content = Some "JSON content");
-  assert (e.url = Some (Uri.of_string "https://example.com/json/1"));
+  assert (e.url = Some (Uriz.of_string_exn "https://example.com/json/1"));
   assert (e.source_type = Sortal_schema.Feed.Json);
   traceln "  of_jsonfeed_item: fields extracted correctly"
 
@@ -226,8 +226,84 @@ let test_entry_missing_updated_prefers_own_published () =
       traceln "  missing <updated>, present <published>: falls back to <published>"
   | _ -> failwith "expected exactly one entry"
 
+(* [Syndic.XML.uri_of_string] replaces the coercion that opam [uri] used to
+   do for us. It has to be total, because a feed carries whatever its
+   publisher wrote, so each of these is a case the old parser swallowed
+   silently and the new one has to keep swallowing. *)
+let test_lax_uri_repair () =
+  let case input expected =
+    let got = Uriz.to_string (Syndic.XML.uri_of_string input) in
+    if got <> expected then
+      failwith (Printf.sprintf "uri_of_string %S = %S, expected %S" input got
+                  expected)
+  in
+  (* Already a reference: returned unchanged, bar RFC 3986 normalization. *)
+  case "https://example.com/post/1" "https://example.com/post/1";
+  case "urn:uuid:test-1" "urn:uuid:test-1";
+  case "guid-1" "guid-1";
+  case "" "";
+  (* Repaired: the structure survives and only the illegal bytes move. *)
+  case "http://example.com/a b" "http://example.com/a%20b";
+  case "http://example.com/caf\xc3\xa9" "http://example.com/caf%C3%A9";
+  case "http://example.com/x[1]" "http://example.com/x%5B1%5D";
+  case "http://example.com/100%" "http://example.com/100%25";
+  case "http://example.com/a#b#c" "http://example.com/a#b%23c";
+  case "http://example.com/a<b>c" "http://example.com/a%3Cb%3Ec";
+  (* An IPv6 authority keeps its brackets, which the repair pass must not
+     touch even though a bracket elsewhere is encoded. *)
+  case "http://[::1]/a b" "http://[::1]/a%20b";
+  (* Beyond repair: the whole text becomes one opaque segment. It compares
+     equal to itself and to nothing else, which is all a feed reader needs of
+     an <id>. *)
+  case "http://example.com:port/x" "http%3A%2F%2Fexample.com%3Aport%2Fx";
+  case "://nowhere" "%3A%2F%2Fnowhere";
+  traceln "  uri_of_string: parses, repairs or escapes, and never raises"
+
+let test_lax_uri_is_total () =
+  (* The third tier must apply to anything, so walk every byte. *)
+  for c = 0 to 255 do
+    let s = Printf.sprintf "a%cb" (Char.chr c) in
+    ignore (Syndic.XML.uri_of_string s : Uriz.t);
+    ignore (Syndic.XML.uri_of_string (String.make 1 (Char.chr c)) : Uriz.t)
+  done;
+  traceln "  uri_of_string: total over every single-byte input"
+
+(* A malformed href in a real feed must reach the entry rather than stopping
+   the parse. *)
+let malformed_href_feed_body =
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+   <feed xmlns=\"http://www.w3.org/2005/Atom\">\
+   <updated>2026-06-17T00:00:00-00:00</updated>\
+   <title>Posts</title>\
+   <id>https://example.com/posts/</id>\
+   <entry>\
+   <title>A post</title>\
+   <link rel=\"alternate\" href=\"https://example.com/a b/c[1]\" />\
+   <id>https://example.com/a b/c[1]</id>\
+   <updated>2025-01-02T00:00:00-00:00</updated>\
+   </entry>\
+   </feed>"
+
+let test_malformed_href_survives_parsing () =
+  let input = Xmlm.make_input (`String (0, malformed_href_feed_body)) in
+  let feed = Syndic.Atom.parse input in
+  match feed.entries with
+  | [ entry ] ->
+      let e =
+        Sortal_feed.Entry.of_atom_entry
+          ~source_feed:"https://example.com/atom.xml" entry
+      in
+      assert (e.id = "https://example.com/a%20b/c%5B1%5D");
+      assert (e.url = Some (Uriz.of_string_exn
+                              "https://example.com/a%20b/c%5B1%5D"));
+      traceln "  malformed href: repaired, not dropped and not raised"
+  | _ -> failwith "expected exactly one entry"
+
 let () =
   traceln "\n=== Feed Tests ===\n";
+  test_lax_uri_repair ();
+  test_lax_uri_is_total ();
+  test_malformed_href_survives_parsing ();
   test_url_to_filename ();
   test_atom_entry_conversion ();
   test_rss2_item_conversion ();

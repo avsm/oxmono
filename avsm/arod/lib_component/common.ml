@@ -96,7 +96,7 @@ let feed_entry_title_el ?(cls="project-activity-title") fe =
   let title_str = feed_entry_title_str fe in
   match fe.FeedEntry.url with
   | Some u ->
-    El.a ~at:[At.href (Uri.to_string u);
+    El.a ~at:[At.href (Uriz.to_string u);
               At.class' (cls ^ " no-underline p-name u-url");
               At.v "rel" "noopener"]
       [El.txt title_str]

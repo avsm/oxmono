@@ -11,12 +11,12 @@ module Error : module type of Syndic_error
     http://www.rssboard.org/rss-specification#ltimagegtSubelementOfLtchannelgt}
     See RSS 2.0 about <image>}. *)
 type image =
-  { url: Uri.t
+  { url: Uriz.t
         (** The URL of a GIF, JPEG or PNG image that represents the channel. *)
   ; title: string
         (** Describes the image. It's used in the ALT attribute of the HTML
             <img> tag when the channel is rendered in HTML. *)
-  ; link: Uri.t
+  ; link: Uriz.t
         (** The URL of the site, when the channel is rendered, the image is a
             link to the site. (Note, in practice the image [title] and [link]
             should have the same value as the {!channel}'s [title] and [link]. *)
@@ -49,7 +49,7 @@ type image =
     would send an XML-RPC message to rpc.sys.com on port 80, with a path of
     /RPC2. The procedure to call is myCloud.rssPleaseNotify. *)
 type cloud =
-  { uri: Uri.t  (** The URI of the cloud (domain, port, path). *)
+  { uri: Uriz.t  (** The URI of the cloud (domain, port, path). *)
   ; registerProcedure: string
   ; protocol: string }
 
@@ -67,7 +67,7 @@ type textinput =
   { title: string  (** The label of the Submit button in the text input area. *)
   ; description: string  (** Explains the text input area. *)
   ; name: string  (** The name of the text object in the text input area. *)
-  ; link: Uri.t
+  ; link: Uriz.t
         (** The URL of the CGI script that processes text input requests. *) }
 
 (** [category] is an optional sub-element of {!item}. - [data] is A
@@ -89,7 +89,7 @@ type textinput =
     You may include as many category elements as you need to, for different
     domains, and to have an item cross-referenced in different parts of the
     same domain. *)
-type category = {data: string; domain: Uri.t option}
+type category = {data: string; domain: Uriz.t option}
 
 (** [enclosure] is an optional sub-element of {!item}. It has three required
     attributes. - [url] says where the enclosure is located (must be an http
@@ -102,7 +102,7 @@ type category = {data: string; domain: Uri.t option}
 
     {[ <enclosure url="http://www.scripting.com/mp3s/weatherReportSuite.mp3"
     length="12216320" type="audio/mpeg" /> ]} *)
-type enclosure = {url: Uri.t; length: int; mime: string}
+type enclosure = {url: Uriz.t; length: int; mime: string}
 
 (** [guid] is an optional sub-element of {!item}. "guid" stands for globally
     unique identifier. It's a string that uniquely identifies the item. When
@@ -128,7 +128,7 @@ type enclosure = {url: Uri.t; length: int; mime: string}
     If [permalink] is [false], the guid may not be assumed to be a url, or a
     url to anything in particular. *)
 type guid =
-  {data: Uri.t  (** Must be unique *); permalink: bool  (** default [true] *)}
+  {data: Uriz.t  (** Must be unique *); permalink: bool  (** default [true] *)}
 
 (** [source] is an optional sub-element of {!item}. - [data] is the name of the
     RSS channel that the item came from, derived from its <title>. - [url]
@@ -144,13 +144,13 @@ type guid =
 
     {[<source url="http://www.tomalak.org/links2.xml">Tomalak's
     Realm</source>]} *)
-type source = {data: string; url: Uri.t}
+type source = {data: string; url: Uriz.t}
 
 type story =
-  | All of string * Uri.t option * string
+  | All of string * Uriz.t option * string
       (** [All(title, xmlbase, description)] *)
   | Title of string
-  | Description of Uri.t option * string
+  | Description of Uriz.t option * string
       (** [Description(xmlbase, description)] *)
 
 (** A {!channel} may contain any number of [item]s. An item may represent a
@@ -176,11 +176,11 @@ type story =
     2.0 about <item> } *)
 type item =
   { story: story
-  ; content: Uri.t option * string
-  ; link: Uri.t option
+  ; content: Uriz.t option * string
+  ; link: Uriz.t option
   ; author: string option
   ; categories: category list
-  ; comments: Uri.t option
+  ; comments: Uriz.t option
   ; enclosure: enclosure option
   ; guid: guid option
   ; pubDate: Syndic_date.t option
@@ -241,7 +241,7 @@ type item =
     RSS 2.0 about <channel>} *)
 type channel =
   { title: string
-  ; link: Uri.t
+  ; link: Uriz.t
   ; description: string
   ; language: string option
   ; copyright: string option
@@ -251,7 +251,7 @@ type channel =
   ; lastBuildDate: Syndic_date.t option
   ; category: string option
   ; generator: string option
-  ; docs: Uri.t option
+  ; docs: Uriz.t option
   ; cloud: cloud option
   ; ttl: int option
         (** {{:
@@ -265,17 +265,17 @@ type channel =
   ; skipDays: int option
   ; items: item list }
 
-val parse : ?xmlbase:Uri.t -> Xmlm.input -> channel
+val parse : ?xmlbase:Uriz.t -> Xmlm.input -> channel
 (** [parse xml] returns the channel corresponding to [xml].
 
     Raise [Error.Expected], [Error.Size_Exceeded] or [Error.Item_expectation]
     if [xml] is not a valid RSS2 document. *)
 
-val read : ?xmlbase:Uri.t -> string -> channel
+val read : ?xmlbase:Uriz.t -> string -> channel
 (** [read fname] reads the file name [fname] and parses it. For the optional
     parameters, see {!parse}. *)
 
-val to_atom : ?self:Uri.t -> channel -> Syndic_atom.feed
+val to_atom : ?self:Uriz.t -> channel -> Syndic_atom.feed
 (** [to_atom ch] returns an Atom feed that (mostly) contains the same
     information.
 
@@ -288,10 +288,10 @@ val to_atom : ?self:Uri.t -> channel -> Syndic_atom.feed
 
 (** An URI is given by (xmlbase, uri). The value of [xmlbase], if not [None],
     gives the base URI against which [uri] must be resolved if it is relative. *)
-type uri = Uri.t option * string
+type uri = Uriz.t option * string
 
 val unsafe :
-     ?xmlbase:Uri.t
+     ?xmlbase:Uriz.t
   -> Xmlm.input
   -> [> `Channel of [> `Category of string
                     | `Cloud of [> `Domain of string

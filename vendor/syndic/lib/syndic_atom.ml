@@ -8,10 +8,10 @@ let atom_ns = "http://www.w3.org/2005/Atom"
 let xhtml_ns = "http://www.w3.org/1999/xhtml"
 let namespaces = [atom_ns]
 
-type rel = Alternate | Related | Self | Enclosure | Via | Link of Uri.t
+type rel = Alternate | Related | Self | Enclosure | Via | Link of Uriz.t
 
 type link =
-  { href: Uri.t
+  { href: Uriz.t
   ; rel: rel
   ; type_media: string option
   ; hreflang: string option
@@ -22,7 +22,7 @@ let link ?type_media ?hreflang ?(title = "") ?length ?(rel = Alternate) href =
   {href; rel; type_media; hreflang; title; length}
 
 type link' =
-  [ `HREF of Uri.t
+  [ `HREF of Uriz.t
   | `Rel of string
   | `Type of string
   | `HREFLang of string
@@ -61,8 +61,8 @@ let get_html_content html =
 
 type text_construct =
   | Text of string
-  | Html of Uri.t option * string
-  | Xhtml of Uri.t option * XML.t list
+  | Html of Uriz.t option * string
+  | Xhtml of Uriz.t option * XML.t list
 
 let text_construct_of_xml ~xmlbase
     ((_pos, (_tag, attr), data) : XML.pos * XML.tag * t list) =
@@ -73,13 +73,13 @@ let text_construct_of_xml ~xmlbase
       Xhtml (xmlbase, get_xml_content data data)
   | _ -> Text (get_leaf data)
 
-type author = {name: string; uri: Uri.t option; email: string option}
+type author = {name: string; uri: Uriz.t option; email: string option}
 
 let empty_author = {name= ""; uri= None; email= None}
 let not_empty_author a = a.name <> "" || a.uri <> None || a.email <> None
 let author ?uri ?email name = {uri; email; name}
 
-type person' = [`Name of string | `URI of Uri.t | `Email of string]
+type person' = [`Name of string | `URI of Uriz.t | `Email of string]
 
 let make_person datas ~pos:_ (l : [< person'] list) =
   (* element atom:name { text } *)
@@ -113,7 +113,7 @@ let person_name_of_xml ~xmlbase:_ (_pos, _tag, datas) =
 (* mandatory ? *)
 
 let person_uri_of_xml ~xmlbase (pos, _tag, datas) =
-  try `URI (XML.resolve ~xmlbase (Uri.of_string (get_leaf datas)))
+  try `URI (XML.resolve ~xmlbase (uri_of_string (get_leaf datas)))
   with Not_found ->
     raise
       (Error.Error (pos, "The content of <uri> MUST be a non-empty string"))
@@ -140,7 +140,7 @@ let author_of_xml ~xmlbase ((_, _, datas) as xml) =
   generate_catcher ~namespaces ~data_producer:person_data_producer
     (make_author datas) ~xmlbase xml
 
-type uri = Uri.t option * string
+type uri = Uriz.t option * string
 type person = [`Email of string | `Name of string | `URI of uri] list
 
 let person_data_producer' =
@@ -152,11 +152,11 @@ let author_of_xml' =
   generate_catcher ~namespaces ~data_producer:person_data_producer'
     (fun ~pos:_ x -> `Author x )
 
-type category = {term: string; scheme: Uri.t option; label: string option}
+type category = {term: string; scheme: Uriz.t option; label: string option}
 
 let category ?scheme ?label term = {scheme; label; term}
 
-type category' = [`Term of string | `Scheme of Uri.t | `Label of string]
+type category' = [`Term of string | `Scheme of Uriz.t | `Label of string]
 
 let make_category ~pos (l : [< category'] list) =
   (* attribute term { text } *)
@@ -181,7 +181,7 @@ let make_category ~pos (l : [< category'] list) =
   in
   `Category ({term; scheme; label} : category)
 
-let scheme_of_xml ~xmlbase a = `Scheme (XML.resolve ~xmlbase (Uri.of_string a))
+let scheme_of_xml ~xmlbase a = `Scheme (XML.resolve ~xmlbase (uri_of_string a))
 
 (* atomCategory = element atom:category { atomCommonAttributes, attribute term
    { text }, attribute scheme { atomUri }?, attribute label { text }?,
@@ -210,11 +210,11 @@ let contributor_of_xml' =
   generate_catcher ~namespaces ~data_producer:person_data_producer'
     (fun ~pos:_ x -> `Contributor x )
 
-type generator = {version: string option; uri: Uri.t option; content: string}
+type generator = {version: string option; uri: Uriz.t option; content: string}
 
 let generator ?uri ?version content = {uri; version; content}
 
-type generator' = [`URI of Uri.t | `Version of string | `Content of string]
+type generator' = [`URI of Uriz.t | `Version of string | `Content of string]
 
 let make_generator ~pos (l : [< generator'] list) =
   (* text *)
@@ -244,7 +244,7 @@ let make_generator ~pos (l : [< generator'] list) =
    excludes relative references but we resolve it anyway in case this is not
    respected by the generator. *)
 let generator_uri_of_xml ~xmlbase a =
-  `URI (XML.resolve ~xmlbase (Uri.of_string a))
+  `URI (XML.resolve ~xmlbase (uri_of_string a))
 
 (* atomGenerator = element atom:generator { atomCommonAttributes, attribute uri
    { atomUri }?, attribute version { text }?, text } *)
@@ -263,9 +263,9 @@ let generator_of_xml' =
   let leaf_producer ~xmlbase:_ _pos data = `Content data in
   generate_catcher ~attr_producer ~leaf_producer (fun ~pos:_ x -> `Generator x)
 
-type icon = Uri.t
+type icon = Uriz.t
 
-let make_icon ~pos (l : Uri.t list) =
+let make_icon ~pos (l : Uriz.t list) =
   (* (atomUri) *)
   let uri =
     match l with
@@ -279,7 +279,7 @@ let make_icon ~pos (l : Uri.t list) =
 (* atomIcon = element atom:icon { atomCommonAttributes, } *)
 let icon_of_xml =
   let leaf_producer ~xmlbase _pos data =
-    XML.resolve ~xmlbase (Uri.of_string data)
+    XML.resolve ~xmlbase (uri_of_string data)
   in
   generate_catcher ~leaf_producer make_icon
 
@@ -287,13 +287,13 @@ let icon_of_xml' =
   let leaf_producer ~xmlbase _pos data = `URI (xmlbase, data) in
   generate_catcher ~leaf_producer (fun ~pos:_ x -> `Icon x)
 
-type id = Uri.t
+type id = Uriz.t
 
 let make_id ~pos (l : string list) =
   (* (atomUri) *)
   let id =
     match l with
-    | u :: _ -> Uri.of_string u
+    | u :: _ -> uri_of_string u
     | [] ->
         raise
           (Error.Error (pos, "The content of <id> MUST be a non-empty string"))
@@ -316,7 +316,7 @@ let rel_of_string s =
   | uri ->
       (* RFC 4287 § 4.2.7.2: the use of a relative reference other than a
          simple name is not allowed. Thus no need to resolve against xml:base. *)
-      Link (Uri.of_string uri)
+      Link (uri_of_string uri)
 
 let make_link ~pos (l : [< link'] list) =
   (* attribute href { atomUri } *)
@@ -360,7 +360,7 @@ let make_link ~pos (l : [< link'] list) =
   `Link ({href; rel; type_media; hreflang; title; length} : link)
 
 let link_href_of_xml ~xmlbase a =
-  `HREF (XML.resolve ~xmlbase (Uri.of_string a))
+  `HREF (XML.resolve ~xmlbase (uri_of_string a))
 
 (* atomLink = element atom:link { atomCommonAttributes, attribute href {
    atomUri }, attribute rel { atomNCName | atomUri }?, attribute type {
@@ -383,9 +383,9 @@ let link_of_xml' =
   in
   generate_catcher ~attr_producer (fun ~pos:_ x -> `Link x)
 
-type logo = Uri.t
+type logo = Uriz.t
 
-let make_logo ~pos (l : Uri.t list) =
+let make_logo ~pos (l : Uriz.t list) =
   (* (atomUri) *)
   let uri =
     match l with
@@ -399,7 +399,7 @@ let make_logo ~pos (l : Uri.t list) =
 (* atomLogo = element atom:logo { atomCommonAttributes, (atomUri) } *)
 let logo_of_xml =
   let leaf_producer ~xmlbase _pos data =
-    XML.resolve ~xmlbase (Uri.of_string data)
+    XML.resolve ~xmlbase (uri_of_string data)
   in
   generate_catcher ~leaf_producer make_logo
 
@@ -649,10 +649,10 @@ type mime = string
 
 type content =
   | Text of string
-  | Html of Uri.t option * string
-  | Xhtml of Uri.t option * Syndic_xml.t list
+  | Html of Uriz.t option * string
+  | Xhtml of Uriz.t option * Syndic_xml.t list
   | Mime of mime * string
-  | Src of mime option * Uri.t
+  | Src of mime option * Uriz.t
 
 [@@@warning "-34"]
 
@@ -684,7 +684,7 @@ let content_of_xml ~xmlbase
         | Some (_, ty) -> Some ty
         | None -> None
       in
-      `Content (Src (mime, XML.resolve ~xmlbase (Uri.of_string src)))
+      `Content (Src (mime, XML.resolve ~xmlbase (uri_of_string src)))
   | None ->
       (* (text)*
        *  | xhtmlDiv
@@ -782,7 +782,7 @@ let uniq_link_alternate ~pos (l : link list) =
     Printf.sprintf
       "Duplicate link between <link href=\"%s\" hreflang=\"%s\" type=\"%s\" \
        ..> and <link hreflang=\"%s\" type=\"%s\" ..>"
-      (Uri.to_string href) hl ty hl' ty'
+      (Uriz.to_string href) hl ty hl' ty'
   in
   let raise_error link link' =
     raise (Error.Error (pos, string_of_duplicate_link link link'))
@@ -1339,7 +1339,7 @@ let atom name : XML.tag = ((atom_ns, name), [])
 
 let add_attr_xmlbase ~xmlbase attrs =
   match xmlbase with
-  | Some u -> ((Xmlm.ns_xml, "base"), Uri.to_string u) :: attrs
+  | Some u -> ((Xmlm.ns_xml, "base"), Uriz.to_string u) :: attrs
   | None -> attrs
 
 let text_construct_to_xml tag_name (t : text_construct) =
@@ -1395,11 +1395,11 @@ let string_of_rel = function
   | Self -> "self"
   | Enclosure -> "enclosure"
   | Via -> "via"
-  | Link l -> Uri.to_string l
+  | Link l -> Uriz.to_string l
 
 let link_to_xml (l : link) =
   let attr =
-    [(("", "href"), Uri.to_string l.href); (("", "rel"), string_of_rel l.rel)]
+    [(("", "href"), Uriz.to_string l.href); (("", "rel"), string_of_rel l.rel)]
     |> add_attr ("", "type") l.type_media
     |> add_attr ("", "hreflang") l.hreflang
   in
@@ -1418,7 +1418,7 @@ let add_node_date tag date nodes =
 
 let source_to_xml (s : source) =
   let nodes =
-    node_data (atom "id") (Uri.to_string s.id)
+    node_data (atom "id") (Uriz.to_string s.id)
     :: text_construct_to_xml "title" s.title
     :: List.map author_to_xml s.authors
     |> add_nodes_rev_map category_to_xml s.categories
@@ -1458,14 +1458,14 @@ let content_to_xml (c : content) =
         , [XML.Data (dummy_pos, d)] )
   | Src (mime, uri) ->
       let attr =
-        [(("", "src"), Uri.to_string uri)] |> add_attr ("", "type") mime
+        [(("", "src"), Uriz.to_string uri)] |> add_attr ("", "type") mime
       in
       XML.Node (dummy_pos, ((atom_ns, "content"), attr), [])
 
 let entry_to_xml (e : entry) =
   let a0, a = e.authors in
   let nodes =
-    node_data (atom "id") (Uri.to_string e.id)
+    node_data (atom "id") (Uriz.to_string e.id)
     :: text_construct_to_xml "title" e.title
     :: node_data (atom "updated") (Date.to_rfc3339 e.updated)
     :: author_to_xml a0
@@ -1483,7 +1483,7 @@ let entry_to_xml (e : entry) =
 
 let to_xml (f : feed) =
   let nodes =
-    node_data (atom "id") (Uri.to_string f.id)
+    node_data (atom "id") (Uriz.to_string f.id)
     :: text_construct_to_xml "title" f.title
     :: node_data (atom "updated") (Date.to_rfc3339 f.updated)
     :: List.map entry_to_xml f.entries
@@ -1531,7 +1531,9 @@ let syndic_generator =
   ; uri= Some Syndic_conf.homepage
   ; content= "OCaml Syndic.Atom feed aggregator" }
 
-let ocaml_icon = Uri.of_string "http://ocaml.org/img/colour-icon-170x148.png"
+let ocaml_icon =
+  Uriz.of_string_exn "http://ocaml.org/img/colour-icon-170x148.png"
+
 let default_title : text_construct = Text "Syndic.Atom aggregated feed"
 
 let[@warning "-32"] is_alternate_Atom (l : link) =
@@ -1583,11 +1585,11 @@ let aggregate ?self ?id ?updated ?subtitle ?(title = default_title)
     | None ->
         (* Collect all ids of the entries and "digest" them. *)
         let b = Buffer.create 4096 in
-        let add_id (e : entry) = Buffer.add_string b (Uri.to_string e.id) in
+        let add_id (e : entry) = Buffer.add_string b (Uriz.to_string e.id) in
         List.iter add_id entries ;
         let d = Digest.to_hex (Digest.string (Buffer.contents b)) in
         (* FIXME: use urn:uuid *)
-        Uri.of_string ("urn:md5:" ^ d)
+        Uriz.of_string_exn ("urn:md5:" ^ d)
   in
   let links =
     match self with

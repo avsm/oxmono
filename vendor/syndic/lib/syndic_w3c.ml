@@ -34,16 +34,27 @@ type 'a t =
         (** If applicable the value of the element, attribute or content which
             triggered the message. *) }
 
-let feed_url = Uri.of_string "http://validator.w3.org/feed/check.cgi"
+let feed_url = Uriz.of_string_exn "http://validator.w3.org/feed/check.cgi"
+
+(* [Uriz.with_query] takes the query as encoded text, so the parameters are
+   joined here.  [`Query_value] encodes ['&'], ['='] and ['+'], which is what
+   keeps a value from being read as a further parameter. *)
+let query_of_params params =
+  let param (k, v) =
+    Uriz.pct_encode ~component:`Query_value k
+    ^ "="
+    ^ Uriz.pct_encode ~component:`Query_value v
+  in
+  String.concat "&" (List.map param params)
 
 let url d =
-  let q = [("output", ["soap12"])] in
+  let q = [("output", "soap12")] in
   let q =
     match d with
-    | `Data data -> ("rawdata", [data]) :: q
-    | `Uri uri -> [("url", [Uri.to_string uri])]
+    | `Data data -> ("rawdata", data) :: q
+    | `Uri uri -> [("url", Uriz.to_string uri)]
   in
-  Uri.with_query feed_url q
+  Uriz.with_query feed_url (This (query_of_params q))
 
 let make_error ~kind ~pos:_ (l : [< error'] list) =
   let line =

@@ -4,22 +4,26 @@ module XML : sig
 
   val generate_catcher :
        ?namespaces:string list
-    -> ?attr_producer:(string * (xmlbase:Uri.t option -> string -> 'a)) list
-    -> ?data_producer:(string * (xmlbase:Uri.t option -> node -> 'a)) list
-    -> ?leaf_producer:(xmlbase:Uri.t option -> Xmlm.pos -> string -> 'a)
+    -> ?attr_producer:(string * (xmlbase:Uriz.t option -> string -> 'a)) list
+    -> ?data_producer:(string * (xmlbase:Uriz.t option -> node -> 'a)) list
+    -> ?leaf_producer:(xmlbase:Uriz.t option -> Xmlm.pos -> string -> 'a)
     -> (pos:Xmlm.pos -> 'a list -> 'b)
-    -> xmlbase:Uri.t option
+    -> xmlbase:Uriz.t option
     -> node
     -> 'b
 
   val dummy_of_xml :
-       ctor:(xmlbase:Uri.t option -> string -> 'a)
-    -> xmlbase:Uri.t option
+       ctor:(xmlbase:Uriz.t option -> string -> 'a)
+    -> xmlbase:Uriz.t option
     -> node
     -> 'a
 
   val xmlbase_of_attr :
-    xmlbase:Uri.t option -> Xmlm.attribute list -> Uri.t option
+    xmlbase:Uriz.t option -> Xmlm.attribute list -> Uriz.t option
+
+  val uri_of_string : string -> Uriz.t
+  (** [uri_of_string s] is {!Syndic_xml.uri_of_string}, re-exported so that
+      the parsers see it unqualified. *)
 end
 
 module Util : sig
@@ -46,7 +50,7 @@ module Util : sig
     Xmlm.name -> string option -> Xmlm.attribute list -> Xmlm.attribute list
 
   val add_attr_uri :
-    Xmlm.name -> Uri.t option -> Xmlm.attribute list -> Xmlm.attribute list
+    Xmlm.name -> Uriz.t option -> Xmlm.attribute list -> Xmlm.attribute list
 
   val tag : string -> Xmlm.tag
   (** [tag n] returns a tag with name [n], no namespace, and no attributes. *)
@@ -55,9 +59,9 @@ module Util : sig
   (** [node_data tag content] returns a node named [tag] with data set to
       [content]. *)
 
-  val node_uri : Xmlm.tag -> Uri.t -> XML.t
+  val node_uri : Xmlm.tag -> Uriz.t -> XML.t
   val add_node_data : Xmlm.tag -> string option -> XML.t list -> XML.t list
-  val add_node_uri : Xmlm.tag -> Uri.t option -> XML.t list -> XML.t list
+  val add_node_uri : Xmlm.tag -> Uriz.t option -> XML.t list -> XML.t list
 
   val add_nodes_rev_map : ('a -> XML.t) -> 'a list -> XML.t list -> XML.t list
   (** [add_nodes_rev_map f l nodes] apply [f] to each element of [l] and add

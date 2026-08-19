@@ -398,19 +398,6 @@ let blogroll ~ctx =
   Syndic.Opml1.output opml (`Buffer buf);
   Buffer.contents buf
 
-let robots ~ctx =
-  let cfg = Arod.Ctx.config ctx in
-  Printf.sprintf "User-agent: *\nAllow: /\n\nSitemap: %s/sitemap.xml\n"
-    cfg.site.base_url
-
-let well_known ~ctx key =
-  let cfg = Arod.Ctx.config ctx in
-  match
-    List.find_opt (fun e -> String.equal e.Arod.Config.key key) cfg.well_known
-  with
-  | Some entry -> Some entry.value
-  | None -> None
-
 (** {1 JSON APIs} *)
 
 let slice_list offset limit l =

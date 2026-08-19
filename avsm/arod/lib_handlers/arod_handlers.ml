@@ -167,11 +167,18 @@ let sitemap env _req = Resp.media "application/xml" (env.E.sitemap ())
 let blogroll_opml env _req =
   Resp.media "text/x-opml+xml; charset=utf-8" (env.E.blogroll ())
 
-let robots_txt env _req = Resp.text (env.E.robots ())
+let robots_txt env _req =
+  Resp.text
+    (Printf.sprintf "User-agent: *\nAllow: /\n\nSitemap: %s/sitemap.xml\n"
+       env.E.config.site.base_url)
 
 let well_known key env _req =
-  match env.E.well_known key with
-  | Some value -> Resp.text value
+  match
+    List.find_opt
+      (fun e -> String.equal e.Arod.Config.key key)
+      env.E.config.well_known
+  with
+  | Some entry -> Resp.text entry.value
   | None -> Resp.not_found ()
 
 (** {1 JSON APIs} *)

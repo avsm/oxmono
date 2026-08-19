@@ -13,9 +13,18 @@ let check name b =
 
 let flavour = function `Html -> "html" | `Markdown -> "md"
 
+let cfg : Arod.Config.t =
+  {
+    Arod.Config.default with
+    server = { Arod.Config.default.server with stats_password = Some "pw" };
+    site = { Arod.Config.default.site with base_url = "https://example.com" };
+    well_known = [ { Arod.Config.key = "known"; value = "value" } ];
+  }
+
 let env =
   {
-    Arod_handlers.Env.cache = Proffer.Cache.create ~ttl:60.0;
+    Arod_handlers.Env.config = cfg;
+    cache = Proffer.Cache.create ~ttl:60.0;
     now = (fun () -> 0.0);
     listing =
       (fun which f ->
@@ -53,8 +62,6 @@ let env =
         | `Perma_json -> "perma-json");
     sitemap = (fun () -> "<urlset/>");
     blogroll = (fun () -> "<opml/>");
-    robots = (fun () -> "User-agent: *\n");
-    well_known = (fun key -> if key = "known" then Some "value" else None);
     pagination =
       (fun ~collection ~offset ~limit ~types ->
         ignore types;
@@ -69,12 +76,6 @@ let env =
         | None -> None);
     read_paper = (fun name -> if name = "gone.pdf" then None else Some name);
     report = (fun _which ~range -> "report:" ^ range);
-  }
-
-let cfg : Arod.Config.t =
-  {
-    Arod.Config.default with
-    server = { Arod.Config.default.server with stats_password = Some "pw" };
   }
 
 let site = Arod_server.Site.build cfg
@@ -188,7 +189,10 @@ let () =
     (body (get "/api/search?q=ocaml&limit=3") = "ocaml/3");
   check "a known well-known key is served"
     (body (get "/.well-known/known") = "value");
-  check "an unknown one is a 404" (code (get "/.well-known/other") = 404)
+  check "an unknown one is a 404" (code (get "/.well-known/other") = 404);
+  check "robots.txt names the configured sitemap"
+    (body (get "/robots.txt")
+    = "User-agent: *\nAllow: /\n\nSitemap: https://example.com/sitemap.xml\n")
 
 let () =
   let r = get "/action" in

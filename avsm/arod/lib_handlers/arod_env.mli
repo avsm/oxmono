@@ -13,10 +13,15 @@
     in {!t} instead, and one value of {!t} is built per domain by {!create},
     where those resources exist.
 
-    A field is named for the response it produces, not for the module it came
-    from, so a handler reads as a description of the route it answers. *)
+    A closure field is named for the response it produces, not for the module
+    it came from, so a handler reads as a description of the route it answers.
+    A response a handler can compute itself from plain configuration has no
+    field. It reads {!t.config} instead. *)
 
 type t = {
+  config : Arod.Config.t;
+      (** The loaded configuration. It is immutable data, so a handler reads
+          it directly rather than through a closure. *)
   cache : Proffer.Cache.t;
       (** The memoization cache for rendered pages. It crosses domains, so
           every domain shares one cache. *)
@@ -42,11 +47,6 @@ type t = {
       (** [sitemap ()] is the XML sitemap of every entry. *)
   blogroll : unit -> string;
       (** [blogroll ()] is the OPML blogroll of every contact with a feed. *)
-  robots : unit -> string;
-      (** [robots ()] is the robots.txt body. *)
-  well_known : string -> string option;
-      (** [well_known key] is the configured value under [key], and [None]
-          when the configuration names no such key. *)
   pagination :
     collection:string option ->
     offset:int ->
@@ -85,8 +85,8 @@ val create :
   now:(unit -> float) ->
   t
 (** [create ~ctx ~cache ~search ~read_image ~read_paper ~reader ~now] is the
-    capability record for one domain. Every rendering closure is built over
-    [ctx], [search] answers the search API, [reader] is the read-only handle
-    the stats dashboard queries, and [read_image] and [read_paper] are the
-    confined reads of the served directories. Call it on the domain that owns
-    those resources. *)
+    capability record for one domain. The configuration and every rendering
+    closure come from [ctx], [search] answers the search API, [reader] is the
+    read-only handle the stats dashboard queries, and [read_image] and
+    [read_paper] are the confined reads of the served directories. Call it on
+    the domain that owns those resources. *)

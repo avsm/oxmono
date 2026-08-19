@@ -4,6 +4,7 @@
  ---------------------------------------------------------------------------*)
 
 type t = {
+  config : Arod.Config.t;
   cache : Proffer.Cache.t;
   now : unit -> float;
   listing : Arod_render.listing -> Arod_render.flavour -> string;
@@ -13,8 +14,6 @@ type t = {
   feed : Arod_render.feed -> string;
   sitemap : unit -> string;
   blogroll : unit -> string;
-  robots : unit -> string;
-  well_known : string -> string option;
   pagination :
     collection:string option ->
     offset:int ->
@@ -29,6 +28,7 @@ type t = {
 
 let create ~ctx ~cache ~search ~read_image ~read_paper ~reader ~now =
   {
+    config = Arod.Ctx.config ctx;
     cache;
     now;
     listing = (fun which flavour -> Arod_render.listing ~ctx which flavour);
@@ -38,8 +38,6 @@ let create ~ctx ~cache ~search ~read_image ~read_paper ~reader ~now =
     feed = (fun which -> Arod_render.feed ~ctx which);
     sitemap = (fun () -> Arod_render.sitemap ~ctx);
     blogroll = (fun () -> Arod_render.blogroll ~ctx);
-    robots = (fun () -> Arod_render.robots ~ctx);
-    well_known = (fun key -> Arod_render.well_known ~ctx key);
     pagination =
       (fun ~collection ~offset ~limit ~types ->
         Arod_render.pagination ~ctx ~collection ~offset ~limit ~types);

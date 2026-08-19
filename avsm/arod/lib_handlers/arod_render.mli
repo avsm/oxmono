@@ -63,13 +63,6 @@ val sitemap : ctx:Arod.Ctx.t -> string
 val blogroll : ctx:Arod.Ctx.t -> string
 (** [blogroll ~ctx] is the OPML blogroll of every contact that has a feed. *)
 
-val robots : ctx:Arod.Ctx.t -> string
-(** [robots ~ctx] allows every crawler and points at the sitemap. *)
-
-val well_known : ctx:Arod.Ctx.t -> string -> string option
-(** [well_known ~ctx key] is the configured value under [key], and [None]
-    when the configuration names no such key. *)
-
 val pagination :
   ctx:Arod.Ctx.t ->
   collection:string option ->

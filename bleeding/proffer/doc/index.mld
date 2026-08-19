@@ -52,6 +52,63 @@ mode system does not constrain.
       ~env compiled
 ]}
 
+{1 Combinators}
+
+{!Proffer.Negotiate.v} picks a response variant from the request's Accept
+header, the client's order deciding and the first variant serving as the
+fallback, and marks the answer [Vary: Accept]. {!Proffer.Cache} memoizes a
+rendered body under a string key and returns a weak entity-tag over it, so a
+revalidation costs a tag compare and a 304 rather than a re-render. A cache
+crosses domains, so it is created once at startup.
+
+{[
+  let cache = Cache.create ~ttl:300.
+
+  let note =
+    get (s "notes" / str /? nil) (fun slug ->
+      Negotiate.v
+        [ `Html, (fun env _req ->
+            let body, etag =
+              Cache.memoize cache ~now:(env.now ()) ~key:("html:" ^ slug)
+                (fun () -> env.render_html slug)
+            in
+            Resp.html ~etag body)
+        ; `Markdown, (fun env _req ->
+            Resp.media "text/markdown" (env.render_md slug))
+        ])
+]}
+
+A tail capture is client input. {!Proffer.Static.confine} joins its segments
+only when none of them can leave the subtree, so a refusal becomes a plain 404,
+and {!Proffer.Mime.of_path} names the Content-Type. [confine] cannot see
+symlinks, so the capability the handler opens the file through must itself be
+confined to the directory served.
+
+{[
+  get (s "assets" /* rest) (fun segs env _req ->
+    match Static.confine segs with
+    | None -> Resp.not_found ()
+    | Some path ->
+      match env.read_asset path with
+      | None -> Resp.not_found ()
+      | Some body -> Resp.media (Mime.of_path path) body)
+]}
+
+{!Proffer.Site.with_auth} gates every path under a prefix, and it is the gate
+that answers there, so a request that would have got a 404 or a 405 under the
+scope gets the 401 instead. {!Proffer.Site.with_headers} adds fields to every
+response. {!Proffer.Site.mount} takes the routes of another site, and only its
+routes, so it raises [Invalid_argument] on a sub-site that has been through
+either wrapper rather than serve it ungated.
+
+{[
+  Site.of_routes [ note; asset; moved (s "old" /? nil) "/new" ]
+  |> Site.mount ~at:[ "api" ] api_site
+  |> Site.with_auth ~scope:[ [ "stats" ] ] ~realm:"stats" ~check:authorized
+  |> Site.with_headers [ ("X-Content-Type-Options", "nosniff") ]
+  |> Site.with_fallback (fun env req -> Pages.not_found env req)
+]}
+
 {1 Writing a backend}
 
 {!module:Proffer.Backend} is the interface a backend implements against. It

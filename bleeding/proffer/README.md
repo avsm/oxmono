@@ -80,6 +80,76 @@ Backend authors work through `Proffer.Backend`, which exposes the outcome type
 and the `handle` function the two shipped backends call. Ordinary users never
 name it.
 
+## Combinators
+
+`Negotiate.v` picks a response variant from the request's `Accept` header. The
+client's order decides, not the order the variants are listed in, and the first
+variant is the fallback for a client that accepts none of them or sends no
+`Accept` at all. The chosen response gains `Vary: Accept`.
+
+`Cache.memoize` renders a body once and hands back a weak entity-tag over it, so
+a revalidation costs a tag compare and a 304 rather than a re-render. A cache
+crosses domains, so create it once at startup and reach it from any handler.
+
+```ocaml
+let cache = Cache.create ~ttl:300.
+
+let note =
+  get (s "notes" / str /? nil) (fun slug ->
+    Negotiate.v
+      [ `Html, (fun env _req ->
+          let body, etag =
+            Cache.memoize cache ~now:(env.now ()) ~key:("html:" ^ slug)
+              (fun () -> env.render_html slug)
+          in
+          Resp.html ~etag body)
+      ; `Markdown, (fun env _req ->
+          Resp.media "text/markdown" (env.render_md slug))
+      ])
+```
+
+A tail capture is client input. `Static.confine` joins its segments only when
+none of them is empty, `.`, `..`, or holds a `/` or a NUL, so the result cannot
+leave the subtree, and a refusal becomes a plain 404. It cannot see symlinks, so
+the capability the handler opens the file through must itself be confined to the
+directory being served. `Static.v` records a root label and a cache policy for a
+backend that resolves files against its own filesystem capability.
+
+```ocaml
+let assets =
+  Static.v ~root:"assets"
+    ~cache:Cache_control.(public ~max_age:(`Days 365) ~immutable:true ()) ()
+
+let asset =
+  get (s "assets" /* rest) (fun segs env _req ->
+    match Static.confine segs with
+    | None -> Resp.not_found ()
+    | Some path ->
+      match env.read_asset path with
+      | None -> Resp.not_found ()
+      | Some body ->
+        Resp.media ?cache:(Static.cache assets) (Mime.of_path path) body)
+```
+
+Wrappers decorate a whole site. `with_auth` gates every path under a prefix in
+`scope`, and it is the gate that answers there, so a request that would have got
+a 404 or a 405 under the scope gets the 401 instead. `with_headers` adds fields
+to every response, whether a route wrote it or the library did. `mount` takes the
+routes of another site, and only its routes, so it raises `Invalid_argument` on a
+sub-site that has been through either wrapper rather than serve it ungated. Wrap
+the result of `mount`. `moved` and `found` are routes in their own right, each
+answering GET, and HEAD, at a capture-free pattern with a 301 or a 302 to a fixed
+location.
+
+```ocaml
+let site =
+  Site.of_routes [ note; asset; moved (s "old" /? nil) "/new" ]
+  |> Site.mount ~at:[ "api" ] api_site
+  |> Site.with_auth ~scope:[ [ "stats" ] ] ~realm:"stats" ~check:authorized
+  |> Site.with_headers [ ("X-Content-Type-Options", "nosniff") ]
+  |> Site.with_fallback (fun env req -> Pages.not_found env req)
+```
+
 ## Testing a site
 
 `proffer.mock` dispatches a synthetic request through the same code a socket

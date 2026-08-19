@@ -20,3 +20,30 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
 - Reads in `proffer-httpz` carry an idle and a request deadline, and the number
   of connections open at once is capped, so a slow client cannot hold a fibre
   and its buffers indefinitely.
+- `Mime.of_path` is the Content-Type a filename's extension names, with case
+  folded, and `application/octet-stream` for an extension it does not know.
+- `Static.confine` joins the segments of a tail capture only when none of them
+  can leave the subtree, and `Static.v` describes a served directory as a root
+  label and a cache policy for a backend to resolve.
+- `Cache.memoize` returns a rendered body and a weak entity-tag over it, keyed
+  by string and expiring after the cache's TTL, so a revalidation costs a tag
+  compare rather than a re-render. `Cache.stats` is the hit and miss counts. A
+  cache crosses domains.
+- `Negotiate.v` answers with the variant the client's Accept header ranks
+  highest, falling back to the first variant offered, and adds `Vary: Accept`.
+  `Negotiate.of_accept` is the parsed preference order on its own.
+- `Route.moved` and `Route.found` answer GET, and HEAD, at a capture-free
+  pattern with a 301 or a 302 to a fixed location.
+- `Site.mount` adds another site's routes under a path prefix. It raises
+  `Invalid_argument` for a sub-site that has been through `with_auth` or
+  `with_headers`, since mounting takes the routes alone and would drop the
+  wrapper.
+- `Site.with_auth` gates every path under a prefix behind a check on the
+  Authorization field, and answers 401 where that scope would have given a 404
+  or a 405, so credentials are needed to learn which paths name a route.
+  `Site.with_headers` adds fields to every response the site gives.
+- `Resp.vary` adds a name to a response's Vary field and `Resp.add_headers`
+  appends fields the response does not already set.
+- `Proffer_httpz.event` gains the request path, every request field in the
+  order it arrived, the response Content-Type and the handler's `X-Cache`
+  value, which is what an access log records.

@@ -34,11 +34,11 @@ A handler returns a description of a response. It does not write one.
 ```ocaml
 type 'env handler = 'env -> Req.t -> Resp.t
 
-Resp.html ~cache:(Cache_control.public ~max_age:(`Hours 1)) html
+Resp.html ~cache:(Cache_control.public ~max_age:(`Hours 1) ()) html
 
 Resp.v ~status:`OK
   ~etag:(`Strong hash) ~last_modified:mtime
-  ~cache:Cache_control.(public ~max_age:(`Days 365) ~immutable:true)
+  ~cache:Cache_control.(public ~max_age:(`Days 365) ~immutable:true ())
   (Body.String s)
 ```
 
@@ -127,7 +127,7 @@ prefix scopes.
 ```ocaml
 Site.of_routes routes
 |> Site.mount ~at:["api"] api_site
-|> Site.static ~at:["assets"] ~cache:Cache_control.(public ~max_age:(`Days 365) ~immutable:true) `Embedded
+|> Site.static ~at:["assets"] ~cache:Cache_control.(public ~max_age:(`Days 365) ~immutable:true ()) `Embedded
 |> Site.with_cache ~scope:[[]] shared_cache
 |> Site.with_auth ~scope:[["stats"]] ~realm:"stats" ~check
 |> Site.with_headers [security_headers]
@@ -174,6 +174,13 @@ type env = {
   search : string -> Arod_search.result list;    (* over this domain's handle *)
 }
 ```
+
+A filesystem closure in `env`, such as `read_asset`, is built over a
+directory opened with `Eio.Path.open_subtree`, or over `Eio.Stdenv.cwd`
+for a relative configured path, never over the unrestricted
+`Eio.Stdenv.fs`, so the OS refuses a `..` or a symlink that leaves the
+subtree. `Static.confine` sits on top of that as the layer that turns an
+escape attempt into a clean 404 rather than an exception.
 
 Two styles coexist. Operations from the annotated Eio surface (`Net`,
 `Flow`, `Time`, `Switch`, `Fiber`, `Promise`, `Stream`, `Mutex`) can be
@@ -296,17 +303,28 @@ annotated, and the spikes prove the compiled-site crossing and the
 checked multi-domain accept loop.
 
 Also done, in a v1 form: the interface, the core with `proffer.mock`,
-and the `proffer-httpz` backend, all tested. `Cache`, `Sse`,
-`Negotiate`, `Site.mount` and the other combinators described above are
-not implemented, and serving is single domain, so no caps cross and the
-backend asserts nothing. `sortal serve` is the first consumer, with
+and the `proffer-httpz` backend, all tested. Since then the core has
+gained `Mime`, `Static.confine` and the `Static.t` node, `Cache`,
+`Negotiate` with `Resp.vary`, `Route.moved` and `Route.found`, and
+`Site.mount`, `Site.with_auth` and `Site.with_headers`. The httpz log
+event carries the path, the request fields in arrival order, the
+response content type and the cache status, which is what an access log
+records.
+
+Still not implemented, despite the sketches above: `Sse`, `Range`,
+`with_cache` as a site wrapper, which a handler does for itself by
+calling `Cache.memoize`, `Site.static` as a site node, and a backend
+that maps the `Static.t` node onto its own file serving. A site serves
+files today through a `rest` route whose handler calls `Static.confine`.
+Serving is single domain, so no caps cross and the backend asserts
+nothing. `sortal serve` is the first consumer, with
 `avsm/sortal/lib/web` a site whose portable handlers reach the store
 through an env record of closures.
 
 Next, in order:
 
-1. Fill in the deferred core: `Cache`, `Site.mount` and the wrappers,
-   `Negotiate`, `Sse`, `Range`.
+1. Finish the deferred core: `Sse`, `Range`, and the backend mapping for
+   the `Static.t` node.
 2. Take `proffer-httpz` multi-domain, and port arod.
 3. Implement `proffer-cohttp`.
 4. Migrate bushel_web and httpz-perma-proxy, then fold `httpz.route`

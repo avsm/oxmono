@@ -7,22 +7,25 @@ let epoch = Ptime.epoch
 let compare = Ptime.compare
 let max d1 d2 = if compare d1 d2 < 0 then d2 else d1
 let min d1 d2 = if compare d1 d2 < 0 then d1 else d2
-let month_to_int = Hashtbl.create 12
 
-let () =
-  let add m i = Hashtbl.add month_to_int m i in
-  add "Jan" 1 ;
-  add "Feb" 2 ;
-  add "Mar" 3 ;
-  add "Apr" 4 ;
-  add "May" 5 ;
-  add "Jun" 6 ;
-  add "Jul" 7 ;
-  add "Aug" 8 ;
-  add "Sep" 9 ;
-  add "Oct" 10 ;
-  add "Nov" 11 ;
-  add "Dec" 12
+(* This was a module-level [Hashtbl] filled by a top-level [let ()], which a
+   portable function cannot read. The lookup was [Hashtbl.find], so an
+   unrecognised name raised [Not_found] and [of_rfc822] turned that into its
+   own parse failure. The last arm keeps that exception. *)
+let month_to_int = function
+  | "Jan" -> 1
+  | "Feb" -> 2
+  | "Mar" -> 3
+  | "Apr" -> 4
+  | "May" -> 5
+  | "Jun" -> 6
+  | "Jul" -> 7
+  | "Aug" -> 8
+  | "Sep" -> 9
+  | "Oct" -> 10
+  | "Nov" -> 11
+  | "Dec" -> 12
+  | _ -> raise Not_found
 
 let map f = function Some x -> f x | None -> None
 let map2 f a b = match (a, b) with Some a, Some b -> f a b | _ -> None
@@ -37,7 +40,7 @@ let of_rfc822 s =
     let month =
       if String.length month <= 3 then month else String.sub month 0 3
     in
-    let month = Hashtbl.find month_to_int month in
+    let month = month_to_int month in
     let date = Ptime.of_date (year, month, day) in
     let s =
       if maybe_s <> "" && maybe_s.[0] = ':' then

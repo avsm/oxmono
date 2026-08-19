@@ -10,10 +10,11 @@ OxCaml portability, and the section below records why.
 Local patches
 =============
 
-Three hunks, all of them making the parser accept a document that the
-specification forbids. Everything else in `lib/` is believed to be upstream
-1.7.0. The three differ in how well that provenance is established, so each
-one says below how it was determined.
+Four hunks. Three of them make the parser accept a document that the
+specification forbids, and the fourth is a portability prerequisite that
+changes nothing a caller can see. Everything else in `lib/` is believed to be
+upstream 1.7.0. The hunks differ in how well that provenance is established,
+so each one says below how it was determined.
 
 * `syndic_atom.ml`, a missing entry `<updated>`. RFC 4287 requires exactly
   one, and upstream raises without it. The parser now stores the
@@ -44,10 +45,23 @@ one says below how it was determined.
   function. Treat the boundary between these two hunks and the surrounding
   1.7.0 code as approximate until it is checked against a real 1.7.0 file.
 
+* `syndic_date.ml`, `month_to_int` is a match rather than a module-level
+  `Hashtbl` filled by a top-level `let ()`. A portable function cannot read a
+  hash table held at module level, and this lookup is on the path of
+  `of_rfc822`. The twelve keys and values are the ones the table held, and
+  since the lookup was `Hashtbl.find`, an unrecognised name raised
+  `Not_found`. The last arm raises it too, so `of_rfc822`'s pattern chain
+  still falls through to the next `sscanf` and then to the RFC 3339 fallback
+  exactly as before. Nothing else changed, and nothing in the interface did.
+
+  Provenance: certain. This hunk is the commit that replaced the table, which
+  touches only this file, this list and the test that pins it.
+
 `avsm/sortal/test/test_feed.ml` holds the regression tests. Without the
-`<updated>` hunk its excerpt raises `Syndic.Error.Error`. The two
-`syndic_date.ml` hunks have no test of their own, which is a second reason to
-re-derive them rather than reapply them from this list.
+`<updated>` hunk its excerpt raises `Syndic.Error.Error`, and
+`test_rfc822_month_names` walks the twelve month arms and the thirteenth that
+raises. The trim and the RFC 3339 fallback have no test of their own, which is
+a second reason to re-derive them rather than reapply them from this list.
 
 Portability status
 ==================
@@ -73,25 +87,30 @@ side, `Syndic_date` is `Ptime` under other names and `vendor/ptime` has
 annotated that. `Xmlm.make_output` is nonportable too, so `Syndic_atom.output`
 would fail on `xmlm` even with `uri` solved.
 
-The one blocker local to this copy is `month_to_int` in `syndic_date.ml`, a
-module-level `Hashtbl` filled by a top-level `let ()`. That is the shape the
-htmlit vendoring fixed by replacing a module-level `Set` with a match. It is
-now the only thing between `Syndic_date` and an annotation, since the `Ptime`
-it wraps is annotated. Fixing it would still not let a feed cross, because
-`Syndic.Atom.feed` holds `Uri.t`.
+The blockers local to this copy are all in `syndic_date.ml`, and one of them
+is gone. `month_to_int` was a module-level `Hashtbl` filled by a top-level
+`let ()`, which is the shape the htmlit vendoring fixed by replacing a
+module-level `Set` with a match, and it is a match here now. With it gone,
+putting `@@ portable` at the head of `syndic_date.mli` no longer names
+`of_rfc822`; it names `to_rfc822`, which closes over `day_of_week`, which
+reads the module-level `wday` array. `month_of_date` closes over a
+module-level `months` array in the same way. Those two are what is left, and
+they are the shape `vendor/ptime` fixed three times. Clearing them would still
+not let a feed cross, because `Syndic.Atom.feed` holds `Uri.t`.
 
 What would have to land first, in order:
 
-1. `xmlm` vendored and annotated, at least `make_output` and `to_xmlm`.
-2. `uri` vendored and annotated, including a crossing kind on `Uri.t`.
+1. The two remaining array closures in `syndic_date.ml` turned into matches.
+2. `xmlm` annotated, at least `make_output` and `to_xmlm`. It is vendored as
+   of `vendor/xmlm`, unpatched, so the annotation has somewhere to land.
+3. `uri` vendored and annotated, including a crossing kind on `Uri.t`.
 
-`vendor/ocaml-uri` does not satisfy the second. It builds `uriz`, which is a
+`vendor/ocaml-uri` does not satisfy the third. It builds `uriz`, which is a
 rewrite with a different interface rather than a patched `Uri`. Its functions
-are already portable, so `fun s -> Uriz.to_string (Uriz.of_string_exn s)`
-compiles at `@ portable`, but `Uriz.t` is abstract at the bare `value` kind
-just as `Uri.t` is, so a URI still cannot be captured. Moving Syndic onto
-`uriz` would be a semantic fork of the parser rather than an annotation pass,
-and it would not by itself let a feed cross.
+are portable and `Uriz.t` now has the `immutable_data` kind, so a URI parsed
+once can be captured by a portable closure, but none of that reaches `Uri.t`,
+which is still abstract at the bare `value` kind. Moving Syndic onto `uriz`
+would be a semantic fork of the parser rather than an annotation pass.
 
 The callers are blocked independently of all this. `Arod.Feed.feed_string` is
 nonportable, and so is `Arod.Feed.form_uri`, which is one call to
@@ -111,12 +130,16 @@ Re-vendoring checklist
 2. Copy `lib/` and `LICENSE` from the new release over this directory,
    keeping `dune`, `dune-project`, `syndic.opam` and this file.
 3. Reapply the `<updated>` hunk, which `git show 0888157ea` gives exactly,
-   and whichever of the two `syndic_date.ml` hunks step 1 confirmed.
+   the `month_to_int` match, and whichever of the two remaining
+   `syndic_date.ml` hunks step 1 confirmed.
 4. Update the version in `syndic.opam`, in `dune-project` and in the first
    line of this file.
 5. `dune build @avsm/sortal/all @avsm/sortal/runtest`, which reaches the
-   `test_feed` suite that pins the `<updated>` hunk. Nothing pins the two
-   date hunks, so a green build does not show that they survived.
+   `test_feed` suite. That pins the `<updated>` hunk, and
+   `test_rfc822_month_names` in the same file pins all twelve arms of
+   `month_to_int` and the `Not_found` on the last one. Nothing pins the trim
+   or the RFC 3339 fallback, so a green build does not show that those two
+   survived.
 6. `dune build @avsm/arod/all @avsm/bushel/all`.
 
 Do not add `@@ portable` while re-vendoring. Read the section above first,

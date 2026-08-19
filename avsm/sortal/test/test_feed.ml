@@ -64,6 +64,32 @@ let test_rss2_item_conversion () =
   assert (e.source_type = Sortal_schema.Feed.Rss);
   traceln "  of_rss2_item: fields extracted correctly"
 
+(* [Syndic.Date.of_rfc822] looks a month abbreviation up in [month_to_int],
+   which vendor/syndic replaced with a match so that the module can be made
+   portable. Nothing else in the tree parses an RSS [pubDate], so without this
+   the twelve arms and the [Not_found] on the last one are unpinned. *)
+let test_rfc822_month_names () =
+  let months =
+    [ ("Jan", 1); ("Feb", 2); ("Mar", 3); ("Apr", 4); ("May", 5); ("Jun", 6);
+      ("Jul", 7); ("Aug", 8); ("Sep", 9); ("Oct", 10); ("Nov", 11);
+      ("Dec", 12) ]
+  in
+  List.iter
+    (fun (name, n) ->
+      let s = Printf.sprintf "Sun, 05 %s 2002 15:21:36 GMT" name in
+      let y, m, d = Ptime.to_date (Syndic.Date.of_rfc822 s) in
+      assert (y = 2002);
+      assert (m = n);
+      assert (d = 5))
+    months;
+  (* An unknown abbreviation used to fall out of [Hashtbl.find] as
+     [Not_found], which every RFC 822 pattern catches, leaving the RFC 3339
+     fallback to reject the string. *)
+  (match Syndic.Date.of_rfc822 "Sun, 05 Foo 2002 15:21:36 GMT" with
+  | _ -> failwith "expected an unknown month to be rejected"
+  | exception Invalid_argument _ -> ());
+  traceln "  of_rfc822: the twelve month names, and no thirteenth"
+
 let test_jsonfeed_item_conversion () =
   let now = Ptime_clock.now () in
   let item = Jsonfeed.Item.create
@@ -205,6 +231,7 @@ let () =
   test_url_to_filename ();
   test_atom_entry_conversion ();
   test_rss2_item_conversion ();
+  test_rfc822_month_names ();
   test_jsonfeed_item_conversion ();
   test_compare_by_date ();
   test_dedup ();

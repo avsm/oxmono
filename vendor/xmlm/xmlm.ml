@@ -10,7 +10,8 @@ type std_string = string
 type std_buffer = Buffer.t
 
 module type String = sig
-  type t
+  @@ portable
+  type t : value mod portable contended
   val empty : t
   val length : t -> int
   val append : t -> t -> t
@@ -22,6 +23,7 @@ module type String = sig
 end
 
 module type Buffer = sig
+  @@ portable
   type string
   type t
   exception Full
@@ -33,6 +35,7 @@ module type Buffer = sig
 end
 
 module type S = sig
+  @@ portable
   type string
   type encoding = [
     | `UTF_8 | `UTF_16 | `UTF_16BE | `UTF_16LE | `ISO_8859_1 | `US_ASCII ]
@@ -103,22 +106,23 @@ end
 
 exception Malformed                 (* for character stream, internal only. *)
 
-let utf8_len = [|        (* Char byte length according to first UTF-8 byte. *)
-  1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1;
-  1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1;
-  1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1;
-  1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1;
-  1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1; 1;
-  1; 1; 1; 1; 1; 1; 1; 1; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0;
-  0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0;
-  0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0;
-  0; 0; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2; 2;
-  2; 2; 2; 2; 2; 2; 2; 2; 3; 3; 3; 3; 3; 3; 3; 3; 3; 3; 3; 3; 3; 3; 3; 3;
-  4; 4; 4; 4; 4; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0; 0 |]
+(* Char byte length according to first UTF-8 byte. Upstream this is a
+   module-level array. An array is mutable data, so every function that reads
+   it is nonportable and so is everything that calls one, which is the whole
+   codec. The match answers the same length for every byte and the first arm
+   raises what indexing the array raised for an index that is not a byte. *)
+let utf8_len = function
+| b when b < 0 || 0xFF < b -> invalid_arg "index out of bounds"
+| b when b <= 0x7F -> 1
+| b when b <= 0xC1 -> 0
+| b when b <= 0xDF -> 2
+| b when b <= 0xEF -> 3
+| b when b <= 0xF4 -> 4
+| _ -> 0
 
 let uchar_utf8 i =
   let b0 = i () in
-  begin match utf8_len.(b0) with
+  begin match utf8_len b0 with
   | 0 -> raise Malformed
   | 1 -> b0
   | 2 ->
@@ -188,7 +192,7 @@ struct
     Buffer.add_uchar b u;
     Buffer.contents b
 
-  module Ht = Hashtbl.Make (struct type t = string
+  module Ht = Hashtbl.MakePortable (struct type t = string
       let equal = str_eq
       let hash = Hashtbl.hash end)
 
@@ -530,16 +534,29 @@ struct
     if is_char !c then (clear_ident i; addc_ident i !c; Buffer.contents i.ident)
     else err i (`Illegal_char_ref (Buffer.contents i.ident))
 
-  let predefined_entities =
-    let h = Ht.create 5 in
-    let e k v = Ht.add h (str k) (str v) in
-    e "lt" "<"; e "gt" ">"; e "amp" "&"; e "apos" "'"; e "quot" "\"";
-    h
+  (* Upstream holds the five predefined entities in a module-level [Ht.t]. A
+     hash table is mutable data, so any function that reads one is
+     nonportable, and every parser entry point closes over this one. The
+     chain below answers what [Ht.find] answered, [Not_found] included, and
+     compares keys with [str_eq], which is the equality [Ht] was built on. *)
+  let en_lt = str "lt" and es_lt = str "<"
+  let en_gt = str "gt" and es_gt = str ">"
+  let en_amp = str "amp" and es_amp = str "&"
+  let en_apos = str "apos" and es_apos = str "'"
+  let en_quot = str "quot" and es_quot = str "\""
+
+  let predefined_entity ent =
+    if str_eq ent en_lt then es_lt else
+    if str_eq ent en_gt then es_gt else
+    if str_eq ent en_amp then es_amp else
+    if str_eq ent en_apos then es_apos else
+    if str_eq ent en_quot then es_quot else
+    raise Not_found
 
   let p_entity_ref i =                        (* {EntityRef}, '&' was eaten. *)
     let ent = p_ncname i in
     accept i u_scolon;
-    try Ht.find predefined_entities ent with Not_found ->
+    try predefined_entity ent with Not_found ->
       match i.fun_entity ent with
       | Some s -> s
       | None -> err i (`Unknown_entity_ref ent)

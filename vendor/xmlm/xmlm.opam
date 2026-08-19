@@ -12,9 +12,10 @@ under the ISC license.
 
 Home page: http://erratique.ch/software/xmlm
 
-This is xmlm 1.4.0 vendored unpatched. The sources are byte identical to
-the release. The copy exists so that a later pass can annotate the
-interface for OxCaml portability."""
+This is xmlm 1.4.0 vendored and patched for OxCaml portability. The
+interface is annotated, and the UTF-8 byte length array and the predefined
+entity table are code rather than module-level mutable data. See
+vendor/xmlm/README.md for the hunk inventory."""
 maintainer: "Daniel Bünzli <daniel.buenzl i@erratique.ch>"
 authors: "The xmlm programmers"
 license: "ISC"

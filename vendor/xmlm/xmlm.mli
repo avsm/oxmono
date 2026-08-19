@@ -3,6 +3,8 @@
    Distributed under the ISC license, see terms at the end of the file.
   ---------------------------------------------------------------------------*)
 
+@@ portable
+
 (** Streaming XML codec.
 
     A well-formed sequence of {{!signal}signals} represents an
@@ -278,9 +280,12 @@ type std_buffer = Buffer.t
 
 (** Input signature for strings. *)
 module type String = sig
+  @@ portable
 
-  type t
-  (** The type for strings. *)
+  type t : value mod portable contended
+  (** The type for strings. Immutable, and it crosses portability and
+      contention, so that the codec's own constant strings can be read from a
+      portable context. *)
 
   val empty : t
   (** The empty string. *)
@@ -314,6 +319,7 @@ end
 
 (** Input signature for internal buffers. *)
 module type Buffer = sig
+  @@ portable
 
   type string
   (** The type for strings. *)
@@ -346,6 +352,7 @@ end
 
 (** Output signature of {!Make}. *)
 module type S = sig
+  @@ portable
 
   (** {1 Basic types and values} *)
 

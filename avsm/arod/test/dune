@@ -29,6 +29,11 @@
  (libraries uriz))
 
 (test
+ (name test_xmlm)
+ (modules test_xmlm)
+ (libraries xmlm))
+
+(test
  (name test_feed_annotations)
  (modules test_feed_annotations)
  (libraries arod sortal.feed syndic uriz))

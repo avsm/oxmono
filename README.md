@@ -60,6 +60,13 @@ void element set replaced by a match, since a set cannot be read from a
 portable function, and the interface annotated. See
 [vendor/htmlit/README.md](vendor/htmlit/README.md).
 
+`syndic` is vendored for a third reason, to carry parse fixes for feeds that
+publishers actually emit. It is deliberately not annotated: its published
+types are built from `Uri.t` and `Ptime.t`, neither of which crosses
+portability, so a feed cannot be held by a portable closure whatever the
+interface says. See
+[vendor/syndic/README.md](vendor/syndic/README.md).
+
 `mdx` from opam is likewise blocked on minus39, hence the local-clone pin
 in the setup steps above.
 

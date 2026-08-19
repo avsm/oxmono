@@ -29,6 +29,11 @@
  (libraries uriz))
 
 (test
+ (name test_feed_annotations)
+ (modules test_feed_annotations)
+ (libraries arod sortal.feed syndic uriz))
+
+(test
  (name test_routes)
  (modules test_routes)
  (libraries arod arod.handlers arod.server proffer proffer.mock))

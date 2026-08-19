@@ -266,9 +266,13 @@ let annotate_cmd =
                      match fe.url with
                      | Some u when normalize_url (Uriz.to_string u) = norm_entry_url ->
                        let feed_url = Uriz.to_string u in
+                       (* Store the key in the form Arod.Ctx looks it up in,
+                          so a later change of URL rendering cannot orphan
+                          the annotation. *)
+                       let ann_key = Arod.Ctx.normalise_url feed_url in
                        let ann_path = Sortal_feed.Store.annotations_file feed_store handle feed in
                        let ann = Sortal_feed.Annotations.load ann_path in
-                       Sortal_feed.Annotations.add_slug ann ~url:feed_url ~slug;
+                       Sortal_feed.Annotations.add_slug ann ~url:ann_key ~slug;
                        Sortal_feed.Annotations.save ann_path ann;
                        Printf.printf "Associated %s with %s (contact: %s)\n"
                          feed_url slug (Sortal_schema.Contact.name contact);

@@ -19,9 +19,12 @@ let author c =
   let email = match C.emails c with e :: _ -> Some e | [] -> None in
   {X.name=(C.name c); email; uri}
 
-(* [form_uri cfg path] is the site's own base URL with [path] appended. Both
-   halves come from the configuration and from slugs this tree generates, so a
-   parse failure is a misconfiguration and must be loud. *)
+(* [form_uri cfg path] is the site's own base URL with [path] appended. The
+   base comes from the configuration and the path from a slug, which for
+   [atom_id] is a note's frontmatter or its filename. Both are site-owner
+   content, so a parse failure is a mistake in this tree and must be loud
+   rather than coerced into a URL nobody meant. It costs the whole feed route,
+   which re-raises, not just the one entry. *)
 let form_uri cfg path =
   Uriz.of_string_exn (cfg.Arod_config.site.base_url ^ path)
 

@@ -93,18 +93,35 @@ now calls it. It is total and it never raises. It tries three things in turn.
    result is one opaque path segment holding the original bytes. It is a
    valid relative reference and it compares equal to itself, which is what a
    feed reader needs of an `<id>`, but it no longer names anything. Only
-   input that survives step 2 and is still not a reference reaches here, such
-   as a non-numeric port or a first segment holding a colon.
+   input that survives step 2 and is still not a reference reaches here: a
+   non-numeric port, a first segment holding a colon, or a bracket inside a
+   registered name, as in `http://ex[a]mple.com/x`, where step 2 leaves the
+   bracket alone because it is inside the authority. `Uri.of_string` produced
+   escaped-bracket garbage for that last shape rather than an opaque segment,
+   so the two disagree there, and neither result names the intended host.
 
-The other calls map directly. `Uri.to_string` is `Uriz.to_string` and is now
-free, because the canonical text is the representation.
-`Uri.resolve "" base u` is `Uriz.resolve ~base u`, which is plain RFC 3986
-section 5.2. `Uri.with_fragment u (Some d)` is
+`Uri.to_string` is `Uriz.to_string`, and that is not a free rename. Both
+render a canonical form, but not the same one, so a URL that was already
+valid can come out spelled differently. Measured on already-valid input, uri
+re-encodes `+` and `;` in a query and `&`, `+` and `;` in a fragment, encodes
+sub-delimiters in a host, and decodes pre-encoded reserved triplets such as
+`%2B`, `%2F` and `%3A` in paths and queries. So `?q=ocaml+uri` renders as
+`?q=ocaml%20uri` under uri and unchanged under uriz, `/wiki/C%2B%2B` becomes
+`/wiki/C++` under uri, and `?to=https%3A%2F%2Fa.org%2Fb` becomes
+`?to=https://a.org/b`. uriz is right in each case, and uri decoding `%2F`
+changes which resource the URL names, but this is a production-visible byte
+change in every feed this library emits from the swap commit onwards.
+Anything that persists a rendered URL as a key has to canonicalise it rather
+than compare raw text.
+
+The rest map directly. `Uri.resolve "" base u` is `Uriz.resolve ~base u`,
+which is plain RFC 3986 section 5.2. `Uri.with_fragment u (Some d)` is
 `Uriz.with_fragment u (This d)`, and `Uri.scheme` and `Uri.host` return
 `or_null` rather than `option`. Two calls needed more than a rename.
-`Uriz.make`, which the RSS2 `<cloud>` parser uses, raises `Invalid_argument`
-where `Uri.make` coerced, so `Syndic_rss2.make_cloud` catches it and falls
-back to `uri_of_string` on the assembled text. `Uriz.with_query` takes
+`Uriz.make`, which the RSS2 `<cloud>` parser uses, agrees with `Uri.make` on
+every shape a `<cloud>` can produce and refuses only a negative port, which
+the port attribute can carry, so `Syndic_rss2.make_cloud` catches that and
+falls back to `uri_of_string` on the assembled text. `Uriz.with_query` takes
 encoded query text rather than an association list, so `Syndic_w3c.url`
 joins its parameters itself, encoding each key and value with the
 `` `Query_value `` component.
@@ -119,7 +136,31 @@ tests named below pin the three tiers of `uri_of_string`, its totality over
 every single byte, and that a malformed href in a real Atom document reaches
 the entry rather than stopping the parse. Rendering the six feeds in `test/`
 through `Syndic.Atom.output` produced byte-identical XML before and after the
-port, so well-formed input is unaffected.
+port, so nothing in that corpus falls in the `to_string` divergence class
+above. That is evidence about those six feeds, not a general guarantee.
+
+Callers that hold a rendered URL
+================================
+
+Two consequences of the section above reach out of this directory.
+
+`Arod.Ctx` keys its feed annotation file on the rendered entry URL. Keys
+written before the swap carry uri's spelling, so `Arod.Ctx.annotation_index`
+re-keys the file through `Arod.Ctx.normalise_url` on load, and
+`arod feed associate` writes that form. `avsm/arod/test/test_feed_annotations.ml`
+pins both halves. Any other store keyed on a rendered URL needs the same
+treatment.
+
+`Arod.Feed.form_uri` uses the raising `Uriz.of_string_exn`, and it runs on
+more than configuration. `Arod.Feed.atom_id` calls it on
+`Bushel.Entry.site_url`, whose slug comes from a note's frontmatter or its
+filename. That is deliberate. A slug is site-owner-authored internal content
+and a malformed one should fail loudly rather than be coerced into a URL
+nobody meant. The failure mode is worth knowing: `Arod.Feed.feed` re-raises,
+so the whole feed route fails and the server logs it through `on_error` and
+answers with an error rather than the feed, until the slug is corrected. That
+is louder than a silently wrong `<id>`, but it takes out the route rather
+than the one bad entry.
 
 Tests
 =====

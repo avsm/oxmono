@@ -191,15 +191,14 @@ let make_cloud ~pos (l : [< cloud'] list) =
         raise
           (Error.Error (pos, "Cloud elements MUST have a 'protocol' attribute"))
   in
-  (* [Uriz.make] rejects components that cannot form a reference, and these
-     three are whatever the publisher wrote in the attributes.  On rejection
-     the same text goes through the lax parser, which repairs what it can. *)
+  (* [Uriz.make] agrees with [Uri.make] on every shape a [<cloud>] can
+     produce, rooting a relative path and encoding an illegal host byte
+     rather than rejecting either.  The one input it refuses is a negative
+     port, which [int_of_string] above happily returns for [port="-1"], so
+     the lax parser catches that rather than let a parser raise. *)
   let uri =
     try Uriz.make ~host:domain ~port ~path ()
     with Invalid_argument _ ->
-      let path =
-        if path = "" || path.[0] = '/' then path else "/" ^ path
-      in
       uri_of_string (Printf.sprintf "//%s:%d%s" domain port path)
   in
   `Cloud ({uri; registerProcedure; protocol} : cloud)

@@ -257,6 +257,10 @@ let test_lax_uri_repair () =
      an <id>. *)
   case "http://example.com:port/x" "http%3A%2F%2Fexample.com%3Aport%2Fx";
   case "://nowhere" "%3A%2F%2Fnowhere";
+  (* A bracket inside a registered name survives the repair pass, because the
+     pass leaves the authority alone so that an IPv6 literal keeps its
+     brackets, so this one goes opaque. *)
+  case "http://ex[a]mple.com/x" "http%3A%2F%2Fex%5Ba%5Dmple.com%2Fx";
   traceln "  uri_of_string: parses, repairs or escapes, and never raises"
 
 let test_lax_uri_is_total () =

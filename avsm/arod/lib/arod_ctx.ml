@@ -45,6 +45,29 @@ let normalise_url url =
     Uri.to_string (Uri.with_path u path)
   | None -> url
 
+(* Annotation files are keyed by the rendered entry URL, and that rendering is
+   not stable across time: keys written before Syndic moved to [uriz] carry
+   opam uri's spelling, which differs wherever the URL had a percent-encoded
+   reserved character, since uri decoded those triplets and uriz keeps them.
+   A raw comparison would silently drop the backlink. Re-keying on
+   [normalise_url] fixes it, because that re-parses and re-renders through one
+   parser and so maps both spellings to the same string. Slugs recorded under
+   two spellings of one URL are unioned. *)
+type annotation_index = (string, string list) Hashtbl.t
+
+let annotation_index ann =
+  let idx = Hashtbl.create (Hashtbl.length ann) in
+  Hashtbl.iter
+    (fun k (a : Sortal_feed.Annotations.entry_annotation) ->
+       let key = normalise_url k in
+       let cur = try Hashtbl.find idx key with Not_found -> [] in
+       Hashtbl.replace idx key (a.slugs @ cur))
+    ann;
+  idx
+
+let annotation_slugs idx url =
+  try Hashtbl.find idx (normalise_url url) with Not_found -> []
+
 (** {1 Feed Link Scanning}
 
     Extract URLs from HTML content/summary of feed entries and resolve
@@ -170,18 +193,18 @@ let load_feed_items ~author_handle ~base_url ~entries fs contacts =
          let feed_entries = Sortal_feed.Store.all_entries feed_store ~handle feeds in
          (* Load annotations for each feed *)
          let ann_by_feed = List.map (fun feed ->
-           (Sortal_schema.Feed.url feed,
-            Sortal_feed.Annotations.load
-              (Sortal_feed.Store.annotations_file feed_store handle feed))
+           annotation_index
+             (Sortal_feed.Annotations.load
+                (Sortal_feed.Store.annotations_file feed_store handle feed))
          ) feeds in
          List.map (fun fe ->
            let auto_mentions = scan_feed_entry_mentions ~base_url ~entries fe in
            let ann_mentions = match fe.Sortal_feed.Entry.url with
              | Some u ->
                let url_str = Uriz.to_string u in
-               List.concat_map (fun (_feed_url, ann) ->
+               List.concat_map (fun idx ->
                  List.filter_map (fun slug -> Bushel.Entry.lookup entries slug)
-                   (Sortal_feed.Annotations.slugs_for_url ann url_str)
+                   (annotation_slugs idx url_str)
                ) ann_by_feed
              | None -> []
            in

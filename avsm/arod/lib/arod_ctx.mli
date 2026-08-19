@@ -70,6 +70,28 @@ val feed_items_for_outbound : t -> string -> feed_backlink list
 (** [feed_items_for_outbound t slug] returns feed entries whose URL matches
     an outbound external link from [slug]. *)
 
+(** {1 Feed Annotations} *)
+
+val normalise_url : string -> string
+(** [normalise_url u] is [u] with a [www.] host prefix and a trailing slash
+    removed, re-parsed and re-rendered through a URI parser. Every table in
+    this module that is looked up by URL is keyed on this form, and so is the
+    annotation file that [arod feed associate] writes. *)
+
+type annotation_index
+(** An annotations file re-keyed by {!normalise_url}. *)
+
+val annotation_index : Sortal_feed.Annotations.t -> annotation_index
+(** [annotation_index ann] re-keys [ann] on {!normalise_url}. The stored keys
+    are entry URLs as some earlier run rendered them, and that rendering
+    changed when Syndic moved from [uri] to [uriz]. A key written under either
+    spelling resolves through this index. Slugs recorded under two spellings
+    of one URL are unioned. *)
+
+val annotation_slugs : annotation_index -> string -> string list
+(** [annotation_slugs idx url] is the slugs annotated for [url], or the empty
+    list if there are none. *)
+
 (** {1 Tags} *)
 
 val tags_of_ent : t -> Bushel.Entry.entry -> Bushel.Tags.t list

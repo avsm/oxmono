@@ -246,58 +246,6 @@ let js_file name _env _req =
 
 (** {1 Stats dashboard} *)
 
-(* Base64 is decoded here rather than through the [base64] library, whose
-   interface carries no mode annotations and so cannot be called from the
-   portable check {!Proffer.Site.with_auth} takes. Only the standard alphabet
-   is accepted, which is all HTTP Basic sends. *)
-let base64_decode s =
-  let sextet c =
-    if c >= 'A' && c <= 'Z' then Char.code c - Char.code 'A'
-    else if c >= 'a' && c <= 'z' then Char.code c - Char.code 'a' + 26
-    else if c >= '0' && c <= '9' then Char.code c - Char.code '0' + 52
-    else if c = '+' then 62
-    else if c = '/' then 63
-    else -1
-  in
-  let n = String.length s in
-  if n = 0 || n mod 4 <> 0 then None
-  else
-    let pad =
-      if s.[n - 1] <> '=' then 0 else if s.[n - 2] <> '=' then 1 else 2
-    in
-    let out = Bytes.create ((n / 4 * 3) - pad) in
-    let len = Bytes.length out in
-    let bad = ref false in
-    let o = ref 0 in
-    let i = ref 0 in
-    while (not !bad) && !i < n do
-      let take j =
-        let c = s.[!i + j] in
-        if c = '=' then (
-          (* Padding is only ever the last one or two characters. *)
-          if !i + 4 <> n || j < 4 - pad then bad := true;
-          0)
-        else
-          let v = sextet c in
-          if v < 0 then (
-            bad := true;
-            0)
-          else v
-      in
-      let a = take 0 in
-      let b = take 1 in
-      let c = take 2 in
-      let d = take 3 in
-      let word = (a lsl 18) lor (b lsl 12) lor (c lsl 6) lor d in
-      if !o < len then Bytes.set out !o (Char.chr ((word lsr 16) land 0xff));
-      if !o + 1 < len then
-        Bytes.set out (!o + 1) (Char.chr ((word lsr 8) land 0xff));
-      if !o + 2 < len then Bytes.set out (!o + 2) (Char.chr (word land 0xff));
-      o := !o + 3;
-      i := !i + 4
-    done;
-    if !bad then None else Some (Bytes.to_string out)
-
 let stats_auth ~password auth =
   match auth with
   | None -> false
@@ -309,9 +257,13 @@ let stats_auth ~password auth =
         String.sub header (String.length prefix)
           (String.length header - String.length prefix)
       in
-      match base64_decode (String.trim encoded) with
-      | None -> false
-      | Some decoded -> (
+      (* RFC 7235 allows whitespace after the scheme token but not after the
+         credentials. Trimming both sides is deliberately more lenient than
+         that, since a trailing space cannot make one credential read as
+         another. *)
+      match Base64.decode (String.trim encoded) with
+      | Error (`Msg _) -> false
+      | Ok decoded -> (
         (* The credentials are "user:password" and only the password is
            checked, since the dashboard has one reader. *)
         match String.index_opt decoded ':' with

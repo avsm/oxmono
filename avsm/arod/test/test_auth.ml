@@ -1,6 +1,6 @@
-(* The stats dashboard is gated on [stats_auth] alone, and it decodes the
-   credentials itself rather than through the base64 library, which a portable
-   check cannot call. Each way the decode can be fed bad input is pinned. *)
+(* The stats dashboard is gated on [stats_auth] alone. Each way the credentials
+   can be malformed is pinned, since a decode that answered anything other than
+   a refusal there would open the dashboard. *)
 
 let checks = ref 0
 
@@ -36,8 +36,17 @@ let () =
   check "padding in the middle is refused"
     (not (accepts ~password:"s3cret" "dXNl=jpzM2NyZXQ="));
   check "empty credentials are refused" (not (accepts ~password:"" ""));
-  (* A client may pad the field with optional whitespace either side of the
-     credentials, so the decode trims before it runs. *)
+  (* [Base64] accepts whole "====" groups after a group that needed no padding,
+     and that is the contract here. Such a field is another spelling of
+     credentials that already authenticate, so the only plaintext the wider
+     accept set adds is "", which carries no colon and so authenticates
+     nothing. Any future base64 must keep that property. *)
+  check "padding groups after the credentials are accepted"
+    (accepts ~password:"s3cr" "dXNlcjpzM2Ny====");
+  check "padding after a padded group is refused"
+    (not (accepts ~password:"s3cret" "dXNlcjpzM2NyZXQ====="));
+  (* The trim is deliberately more lenient than RFC 7235, which allows optional
+     whitespace after the scheme token but not after the credentials. *)
   check "whitespace around the payload is ignored"
     (accepts ~password:"s3cret" "  dXNlcjpzM2NyZXQ=  ");
   Printf.printf "test_auth: %d checks ok\n" !checks

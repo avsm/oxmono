@@ -9,6 +9,11 @@
  (libraries arod.handlers))
 
 (test
+ (name test_base64)
+ (modules test_base64)
+ (libraries base64))
+
+(test
  (name test_routes)
  (modules test_routes)
  (libraries arod arod.handlers arod.server proffer proffer.mock))

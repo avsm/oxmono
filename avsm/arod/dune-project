@@ -21,6 +21,7 @@
   (bushel (>= 0.1))
   (proffer (>= 0.1))
   (proffer-httpz (>= 0.1))
+  (base64 (>= 3.5))
   (htmlit (>= 0.1))
   (tw (>= 0.1))
   (cmarkit (>= 0.3))

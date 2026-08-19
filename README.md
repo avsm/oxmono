@@ -73,9 +73,10 @@ workspace dependency of ptime has to be built from source alongside it. See
 [vendor/jsonfeed/README.md](vendor/jsonfeed/README.md).
 
 `xmlm` is vendored ahead of its annotation pass, so the copy is 1.4.0 with no
-patch at all. Syndic's interface is written in terms of `Xmlm.pos`,
-`Xmlm.input` and `Xmlm.tag`, so a portable syndic needs a portable xmlm first,
-and the annotation lands as its own commit against this import. See
+patch at all. Sortal's feed library calls `Xmlm` directly, and syndic's
+interface is written in terms of `Xmlm.pos`, `Xmlm.input` and `Xmlm.tag`, so a
+portable syndic would need a portable xmlm first. The annotation lands as its
+own commit against this import. See
 [vendor/xmlm/README.md](vendor/xmlm/README.md).
 
 `sitemap` is vendored as a consequence of that, and is unpatched, for the same

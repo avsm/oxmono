@@ -59,9 +59,11 @@ so each one says below how it was determined.
 
 `avsm/sortal/test/test_feed.ml` holds the regression tests. Without the
 `<updated>` hunk its excerpt raises `Syndic.Error.Error`, and
-`test_rfc822_month_names` walks the twelve month arms and the thirteenth that
-raises. The trim and the RFC 3339 fallback have no test of their own, which is
-a second reason to re-derive them rather than reapply them from this list.
+`test_rfc822_month_names` walks the twelve month names and checks that an
+unknown month is rejected. It cannot see `Not_found` itself, since every call
+site catches every exception. The trim and the RFC 3339 fallback have no test
+of their own, which is a second reason to re-derive them rather than reapply
+them from this list.
 
 Portability status
 ==================
@@ -92,11 +94,14 @@ is gone. `month_to_int` was a module-level `Hashtbl` filled by a top-level
 `let ()`, which is the shape the htmlit vendoring fixed by replacing a
 module-level `Set` with a match, and it is a match here now. With it gone,
 putting `@@ portable` at the head of `syndic_date.mli` no longer names
-`of_rfc822`; it names `to_rfc822`, which closes over `day_of_week`, which
-reads the module-level `wday` array. `month_of_date` closes over a
-module-level `months` array in the same way. Those two are what is left, and
-they are the shape `vendor/ptime` fixed three times. Clearing them would still
-not let a feed cross, because `Syndic.Atom.feed` holds `Uri.t`.
+`of_rfc822`. It names `to_rfc822`, which calls `day_of_week`, and
+`day_of_week` is a closure over a `wday` array built at module level.
+`month_of_date` is the same shape over a `months` array. Both are at
+`syndic_date.ml:139-167`. Neither array is a module-level binding of its own,
+so a search for one will not find them: the array is bound in the `let` that
+returns the function. Those two are what is left, and they are the shape
+`vendor/ptime` fixed three times. Clearing them would still not let a feed
+cross, because `Syndic.Atom.feed` holds `Uri.t`.
 
 What would have to land first, in order:
 
@@ -137,7 +142,7 @@ Re-vendoring checklist
 5. `dune build @avsm/sortal/all @avsm/sortal/runtest`, which reaches the
    `test_feed` suite. That pins the `<updated>` hunk, and
    `test_rfc822_month_names` in the same file pins all twelve arms of
-   `month_to_int` and the `Not_found` on the last one. Nothing pins the trim
+   `month_to_int` and that an unknown month is rejected. Nothing pins the trim
    or the RFC 3339 fallback, so a green build does not show that those two
    survived.
 6. `dune build @avsm/arod/all @avsm/bushel/all`.

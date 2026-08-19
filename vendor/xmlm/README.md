@@ -4,13 +4,21 @@ This is xmlm 1.4.0, vendored from https://erratique.ch/software/xmlm. Nothing
 is patched. `xmlm.ml` and `xmlm.mli` are byte identical to the ones in the
 1.4.0 release tarball, which are also the ones opam installed.
 
-The copy exists as a prerequisite, not as a fix. `syndic` is vendored here and
-is being annotated for OxCaml portability, and its interface is written in
-terms of `Xmlm.pos`, `Xmlm.input`, `Xmlm.dest`, `Xmlm.tag`, `Xmlm.attribute`
-and `Xmlm.name`. A portable syndic interface therefore needs a portable xmlm
-interface first, and a vendored `public_name` is what lets that annotation
-land. The annotation is a separate pass, so that its diff is exactly the patch
-and this commit is exactly the import.
+The copy exists as a prerequisite, not as a fix. It is needed for two reasons.
+
+`avsm/sortal/lib/feed` and `avsm/sortal/test` call `Xmlm` directly, so the
+workspace has a first-party caller whose portability depends on this
+interface, independently of anything else.
+
+Syndic's interface is written in terms of `Xmlm.pos`, `Xmlm.input`,
+`Xmlm.dest`, `Xmlm.tag`, `Xmlm.attribute` and `Xmlm.name`, so a portable
+syndic would need a portable xmlm first. Syndic itself is deliberately not
+annotated and must not be, for reasons `vendor/syndic/README.md` records, and
+xmlm is only one of the things standing in its way. A vendored `public_name`
+is what would let an annotation land here at all.
+
+Annotating is a separate pass, so that its diff is exactly the patch and this
+import is exactly the release.
 
 ### What differs from the upstream distribution
 
@@ -39,6 +47,10 @@ consistent.
    this file.
 2. Update the version in `xmlm.opam` and in the first line of this file.
 3. Rebuild every consumer, since this copy shadows the installed package for
-   all of them: `dune build @vendor/xmlm/all @vendor/sitemap/all
-   @vendor/syndic/all @avsm/arod/all @avsm/arod/runtest @avsm/sortal/all
-   @avsm/sortal/runtest @avsm/bushel/all`.
+   all of them: `dune build @avsm/arod/all @avsm/arod/runtest
+   @avsm/sortal/all @avsm/sortal/runtest`. Arod reaches this copy through
+   `vendor/sitemap`, sortal through `vendor/syndic` and through its own direct
+   dependency. Do not add `@vendor/xmlm/all` or any other alias under
+   `vendor/`. The root `dune` declares `(vendored_dirs vendor)`, so dune skips
+   aliases there: such a build exits 0 having compiled nothing, which reads as
+   a pass and is not one.

@@ -67,7 +67,7 @@ let test_rss2_item_conversion () =
 (* [Syndic.Date.of_rfc822] looks a month abbreviation up in [month_to_int],
    which vendor/syndic replaced with a match so that the module can be made
    portable. Nothing else in the tree parses an RSS [pubDate], so without this
-   the twelve arms and the [Not_found] on the last one are unpinned. *)
+   the twelve arms and the rejection of anything else are unpinned. *)
 let test_rfc822_month_names () =
   let months =
     [ ("Jan", 1); ("Feb", 2); ("Mar", 3); ("Apr", 4); ("May", 5); ("Jun", 6);

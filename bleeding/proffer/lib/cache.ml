@@ -1,7 +1,8 @@
 (* Entries live in an association list rather than a [Map], because the
    stdlib's map type does not cross portability and a cache that cannot be
-   shared between domains is of no use here. A cache holds one entry per
-   rendered page, so a linear scan is cheap. *)
+   shared between domains is of no use here. A miss drops what has expired, so
+   the list holds only the keys asked for within one [ttl] window and a linear
+   scan stays cheap even when the keys come from the request. *)
 
 type entry = { body : string; etag : string; expires : float }
 
@@ -32,8 +33,12 @@ let memoize t ~now ~key gen =
       let etag = etag_of body in
       let e = { body; etag; expires = now +. t.ttl } in
       bump t (fun s ->
+          (* A miss is the only point at which anything leaves the cache. The
+             filter runs on the state this attempt read, so a losing racer
+             prunes the state that won rather than an older one. *)
+          let live = List.filter (fun (_, e) -> now < e.expires) s.entries in
           {
-            entries = (key, e) :: List.remove_assoc key s.entries;
+            entries = (key, e) :: List.remove_assoc key live;
             hits = s.hits;
             misses = s.misses + 1;
           });

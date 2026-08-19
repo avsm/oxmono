@@ -28,7 +28,9 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
 - `Cache.memoize` returns a rendered body and a weak entity-tag over it, keyed
   by string and expiring after the cache's TTL, so a revalidation costs a tag
   compare rather than a re-render. `Cache.stats` is the hit and miss counts. A
-  cache crosses domains.
+  cache crosses domains. Every miss drops the entries that have expired, so a
+  cache under request-derived keys costs what the distinct keys of one TTL
+  window cost rather than growing for the life of the process.
 - `Negotiate.v` answers with the variant the client's Accept header ranks
   highest, falling back to the first variant offered, and adds `Vary: Accept`.
   `Negotiate.of_accept` is the parsed preference order on its own.
@@ -42,8 +44,14 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
   Authorization field, and answers 401 where that scope would have given a 404
   or a 405, so credentials are needed to learn which paths name a route.
   `Site.with_headers` adds fields to every response the site gives.
+  `Site.with_auth` raises `Invalid_argument` for an empty scope, which would
+  otherwise gate nothing and serve the site open. Pass `[[]]` for the whole
+  site.
 - `Resp.vary` adds a name to a response's Vary field and `Resp.add_headers`
   appends fields the response does not already set.
 - `Proffer_httpz.event` gains the request path, every request field in the
   order it arrived, the response Content-Type and the handler's `X-Cache`
   value, which is what an access log records.
+- `proffer-httpz` hands a handler the request fields in arrival order, so a
+  repeated field such as Authorization reads through `Req.header` as the first
+  one sent, as it does on every other backend.

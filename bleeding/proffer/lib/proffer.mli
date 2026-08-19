@@ -552,7 +552,9 @@ module Site : sig
 
       @raise Invalid_argument
         if [realm] holds a double quote or a backslash, which a quoted-string
-        cannot carry unescaped. *)
+        cannot carry unescaped, or if [scope] is empty. An empty [scope] gates
+        no path at all, which would serve the site open behind what reads as
+        a gate. Pass [[[]]] to gate the whole site. *)
 
   val mount : at:string list -> 'env t -> 'env t -> 'env t @@ portable
   (** [mount ~at sub site] adds the routes of [sub] to [site] under the path
@@ -661,7 +663,14 @@ module Cache : sig
       otherwise. [now] is seconds since the epoch, passed in so the core reads
       no clock. [gen] runs on the calling domain and is not stored, so it may
       capture domain-bound state. Two domains racing on a miss both run [gen]
-      and one result wins, which is the right trade for memoization. *)
+      and one result wins, which is the right trade for memoization.
+
+      An entry is replaced on the next miss for its key, and every miss also
+      drops the entries that have expired, whatever key they are under.
+      Nothing is reclaimed while no miss occurs, so a cache serving hits alone
+      keeps what it holds. What the cache costs is therefore set by the
+      distinct keys asked for within one [ttl], which is what to bound when
+      the key comes from the request. *)
 
   val stats : t -> int * int @@ portable
   (** [stats t] is the hit and miss counts since [t] was created. *)

@@ -52,6 +52,13 @@ let under scope segs =
   List.exists (fun pfx -> starts pfx segs) scope
 
 let with_auth ~scope ~realm ~(check @ portable) t =
+  (* An empty scope gates nothing, so the wrapper would serve the site open
+     while reading as a gate. The prefix that gates everything is [[]], one
+     keystroke away, so the empty list is refused rather than obeyed. *)
+  if scope = [] then
+    invalid_arg
+      "Proffer.Site.with_auth: an empty scope gates nothing, so pass [[]] to \
+       gate the whole site";
   (* [%S] quotes and escapes the realm, which is what a quoted-string wants.
      A realm holding a backslash or a double quote would need HTTP's escaping
      rather than OCaml's, so it is rejected here instead. *)

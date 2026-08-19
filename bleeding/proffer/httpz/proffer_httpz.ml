@@ -325,7 +325,14 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
       conn.keep_alive <- req.#keep_alive;
       let meth = meth_of req.#meth in
       let target = Httpz.Span.to_string buf req.#target in
-      let req_headers = Httpz.Header.to_string_pairs_local buf headers in
+      (* The parser accumulates fields as it goes, so it yields them in
+         reverse arrival order. They are put back in order here rather than at
+         each use, because [Proffer.Headers.find] takes the first match: a
+         repeated field such as Authorization or If-None-Match would otherwise
+         resolve to the last one sent here and the first one elsewhere. *)
+      let req_headers =
+        List.rev (Httpz.Header.to_string_pairs_local buf headers)
+      in
       (* A request refused before it is routed has no path and no response of
          the handler's making, so those fields default to nothing. The
          request fields are known from the parse, so every event carries
@@ -341,9 +348,7 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
                 meth;
                 target;
                 path;
-                (* The parser accumulates fields as it goes, so [req_headers]
-                   is in reverse arrival order. *)
-                request_headers = List.rev req_headers;
+                request_headers = req_headers;
                 status;
                 response_content_type = content_type;
                 cache_status = cache;

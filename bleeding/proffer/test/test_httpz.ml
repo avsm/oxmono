@@ -46,6 +46,8 @@ let routes =
         Resp.v ~content_type:"text/html; charset=utf-8"
           ~headers:[ ("X-Cache", "hit") ]
           (Body.String "hi"));
+    get (s "dup" /? nil) (fun _env req ->
+        Resp.text (Option.value ~default:"none" (Req.header req "x-dup")));
     post (s "form" /? nil) (fun _env req ->
         match Req.form_param req "who" with
         | Some who -> Resp.see_other ("/hello/" ^ who)
@@ -334,6 +336,15 @@ let tests ~clock ~net addr =
       check "event cache status" (e.Proffer_httpz.cache_status = Some "hit")
   | [] -> check "an event was recorded" false);
 
+  (* A handler reads a field through a first-match lookup, so the request has
+     to reach it in arrival order. Answering with the last value sent would
+     let a client override an Authorization or an If-None-Match by repeating
+     it, and would differ from what the mock backend does. *)
+  let resp =
+    request (get_req ~headers:"X-Dup: first\r\nX-Dup: second\r\n" "/dup")
+  in
+  check "a repeated field reads as the first one sent" (resp.body = "first");
+
   (* An event is recorded once its response has been written, so the count
      is only stable after the serving fibre has had a turn. *)
   Eio.Time.sleep clock 0.05;
@@ -356,7 +367,7 @@ let tests ~clock ~net addr =
       check "keep-alive second" (second.body = "<p>hello again</p>"));
 
   Eio.Time.sleep clock 0.05;
-  check "one event per request" (List.length !events = 20);
+  check "one event per request" (List.length !events = 21);
   match !events with
   | last :: _ ->
       check "event method" (Method.equal last.Proffer_httpz.meth `GET);

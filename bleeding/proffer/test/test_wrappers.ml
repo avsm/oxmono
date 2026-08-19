@@ -81,4 +81,16 @@ let () =
     | _ -> false
     | exception Invalid_argument _ -> true)
 
+(* [[]] gates everything and [[[]]] is one keystroke away from it, so an empty
+   scope has to be refused. Serving the site open behind a wrapper named
+   [with_auth] is the one outcome that must not be reachable by accident. *)
+let () =
+  check "an empty scope raises"
+    (match
+       Site.with_auth ~scope:[] ~realm:"stats" ~check:(fun _ -> false)
+         (Site.of_routes [ get nil (fun _env _req -> Resp.text "open") ])
+     with
+    | _ -> false
+    | exception Invalid_argument _ -> true)
+
 let () = Printf.printf "test_wrappers: %d checks ok\n" !checks

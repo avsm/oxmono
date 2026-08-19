@@ -20,7 +20,14 @@ val memoize :
     otherwise. [now] is seconds since the epoch, passed in so the core reads no
     clock. [gen] runs on the calling domain and is not stored, so it may
     capture domain-bound state. Two domains racing on a miss both run [gen] and
-    one result wins, which is the right trade for memoization. *)
+    one result wins, which is the right trade for memoization.
+
+    An entry is replaced on the next miss for its key, and every miss also
+    drops the entries that have expired, whatever key they are under. Nothing
+    is reclaimed while no miss occurs, so a cache serving hits alone keeps what
+    it holds. What the cache costs is therefore set by the distinct keys asked
+    for within one [ttl], which is what to bound when the key comes from the
+    request. *)
 
 val stats : t -> int * int @@ portable
 (** [stats t] is the hit and miss counts since [t] was created. *)

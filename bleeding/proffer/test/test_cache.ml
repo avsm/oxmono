@@ -35,5 +35,23 @@ let () =
     Cache.stats c
   in
   let hits, misses = through_handler () in
-  check "reachable from a portable handler" (hits = 2 && misses = 4);
-  Printf.printf "test_cache: %d checks ok\n" !checks
+  check "reachable from a portable handler" (hits = 2 && misses = 4)
+
+(* Pruning is observable by asking for an expired key again with a [now] before
+   its own expiry. The entry is gone, so the ask is a miss, where an entry left
+   in the list would have answered it. This is what keeps a cache under
+   request-derived keys from growing without bound. *)
+let () =
+  let c = Cache.create ~ttl:10. in
+  let calls = ref 0 in
+  let gen () = incr calls; "A" in
+  let _b, _e = Cache.memoize c ~now:0. ~key:"/a" gen in
+  let _b, _e = Cache.memoize c ~now:20. ~key:"/b" (fun () -> "B") in
+  let body, _e = Cache.memoize c ~now:5. ~key:"/a" gen in
+  check "a miss drops every expired entry" (!calls = 2 && body = "A");
+  let _b, _e = Cache.memoize c ~now:6. ~key:"/a" gen in
+  check "the entry a prune made way for is kept" (!calls = 2);
+  let hits, misses = Cache.stats c in
+  check "pruning leaves the counts alone" (hits = 1 && misses = 3)
+
+let () = Printf.printf "test_cache: %d checks ok\n" !checks

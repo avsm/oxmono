@@ -24,6 +24,11 @@
  (libraries ptime ptime.clock))
 
 (test
+ (name test_uriz)
+ (modules test_uriz)
+ (libraries uriz))
+
+(test
  (name test_routes)
  (modules test_routes)
  (libraries arod arod.handlers arod.server proffer proffer.mock))

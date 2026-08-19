@@ -18,6 +18,11 @@ v5.0.0 (unreleased, `ox` branch)
   all, with a statically checked `[@zero_alloc]` on each. `of_string_exn`, `make`, `with_*` and `normalize` gained `__local`
   variants too, though those still put the canonical string on the heap.
   `resolve` accepts both arguments at mode `local`.
+* **`Uriz.t` has the `immutable_data` kind.** A URI is a string and a row of
+  offsets into it, never written after construction, so it crosses
+  portability and contention. A URI parsed once at module level can be read
+  from a portable closure, and so can a `Uriz.t or_null` such as the result
+  of `of_string`.
 * **New `` `Unreserved `` component** for `pct_encode`, which escapes every
   byte outside the RFC 3986 section 2.3 unreserved set, sub-delimiters
   included.

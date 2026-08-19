@@ -39,7 +39,9 @@ empty URI for input it could not parse.
 
 Read-only operations accept their arguments at mode `local`, the producers are
 mode-polymorphic (`__local` variants via `ppx_template`), and every export is
-`portable`.
+`portable`. `Uriz.t` has the `immutable_data` kind, so a URI parsed once at
+module level, or a `Uriz.t or_null` returned by `of_string`, can be read from
+a portable closure on any domain.
 
 Measured on the same machine against `uri` 4.4; the first four rows come from
 `bench/qbench.ml` and the `resolve` rows from `bench/compare.ml`:

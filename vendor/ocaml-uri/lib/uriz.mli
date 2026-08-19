@@ -40,8 +40,11 @@
     than truncated, and IPv6 literals are case-normalized but not
     zero-compressed per RFC 5952. *)
 
-type t
-(** A validated, canonical URI reference. *)
+type t : immutable_data
+(** A validated, canonical URI reference.  It is a string and a row of
+    offsets into it, never written after construction, so it crosses
+    portability and contention: a URI may be held at module level and read
+    from a portable closure. *)
 
 (** {2 Modes}
 
@@ -58,7 +61,8 @@ type t
     they encode component text through intermediate strings.
 
     A URI in a region dies with it.  Use {!globalize} to keep one.  Every
-    export is [portable]. *)
+    export is [portable], and {!t} has the [immutable_data] kind, so a URI
+    parsed once at module level is readable from every domain. *)
 
 (** {2 Construction} *)
 

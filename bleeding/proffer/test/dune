@@ -9,7 +9,8 @@
   test_resp
   test_mime
   test_static
-  test_cache)
+  test_cache
+  test_negotiate)
  (modules
   test_route
   test_req
@@ -17,7 +18,8 @@
   test_resp
   test_mime
   test_static
-  test_cache)
+  test_cache
+  test_negotiate)
  (package proffer)
  (libraries proffer proffer_mock))
 

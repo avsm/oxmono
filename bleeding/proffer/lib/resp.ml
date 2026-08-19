@@ -134,6 +134,25 @@ let not_found ?(html = "<!doctype html>\n<title>Not Found</title>\n") () =
 let bad_request ?(html = "<!doctype html>\n<title>Bad Request</title>\n") () =
   v ~status:`Bad_request ~content_type:html_type (Body.String html)
 
+(* The field is rewritten rather than appended to, so repeated calls leave one
+   Vary rather than two. The name is checked here because this is the one
+   constructor that does not funnel through [v]. *)
+let vary name t =
+  if String.equal name "" || not (String.for_all is_tchar name) then
+    invalid_arg
+      (Printf.sprintf "Proffer.Resp.vary: %S is not a header name" name);
+  let value =
+    match Headers.find t.headers "Vary" with
+    | None -> name
+    | Some existing -> existing ^ ", " ^ name
+  in
+  let others =
+    List.filter
+      (fun (n, _) -> not (Headers.same n "Vary"))
+      (Headers.to_list t.headers)
+  in
+  { t with headers = Headers.of_list (others @ [ ("Vary", value) ]) }
+
 let status t = t.status
 let headers t = t.headers
 let body t = t.body

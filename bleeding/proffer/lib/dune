@@ -15,6 +15,7 @@
   headers
   method
   mime
+  negotiate
   pct
   req
   resp

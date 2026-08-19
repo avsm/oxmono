@@ -9,6 +9,7 @@ module Etag = Etag
 module Resp = Resp
 module Route = Route
 module Site = Site
+module Negotiate = Negotiate
 module Compiled = Compiled
 module Static = Static
 module Cache = Cache

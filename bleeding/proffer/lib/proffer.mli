@@ -367,6 +367,14 @@ module Resp : sig
   val bad_request : ?html:string -> unit -> t @@ portable
   (** [bad_request ()] is a 400 carrying [html], or a minimal page. *)
 
+  val vary : string -> t -> t @@ portable
+  (** [vary name t] adds [name] to [t]'s Vary field, or sets that field when
+      [t] has none. A negotiation combinator uses it to mark a response as
+      depending on a request header.
+
+      @raise Invalid_argument
+        if [name] is not a non-empty RFC 9110 token. *)
+
   val status : t -> Status.t @@ portable
   (** [status t] is the status [t] was built with, before any conditional
       request turns it into a 304. *)
@@ -500,6 +508,34 @@ module Site : sig
   (** [with_fallback handler site] answers with [handler] when no route matches
       the path. A path that matches a route under another method gets 405
       instead, and never reaches the fallback. *)
+end
+
+module Negotiate : sig
+  (** Choosing a response variant from the request's Accept header. *)
+
+  type media = [ `Html | `Markdown | `Json | `Xml | `Other of string ]
+  (** A media type this library can negotiate. [`Other] carries a full type
+      such as ["image/png"]. *)
+
+  val of_accept : string option -> media list @@ portable
+  (** [of_accept accept] is the media types [accept] asks for, most preferred
+      first, with q-values honoured and a missing q taken as 1. It is [[]] when
+      [accept] is absent or empty. A type this library does not name becomes
+      [`Other]. *)
+
+  val v :
+    (media * 'env Route.handler) list @ portable ->
+    'env Route.handler @ portable
+    @@ portable
+  (** [v variants] is a handler that answers with the variant the client most
+      prefers, which is the first media type its Accept header ranks that
+      [variants] offers. The client's order decides, not the order [variants]
+      are listed in. The first entry of [variants] is the fallback, taken when
+      the client accepts none of them or sends no Accept header. The chosen
+      response gains [Vary: Accept], since it depends on that header. An empty
+      [variants] leaves nothing to answer with and gives a 404. [variants] is
+      taken at [portable] because the handler it yields captures it, and a
+      route stores that handler in a portable closure. *)
 end
 
 module Compiled : sig

@@ -1,5 +1,5 @@
 (* Wire code, and nothing else. Everything a backend could get wrong twice
-   lives in Proffer.Serve, so this file parses, frames and writes. *)
+   lives in Proffer.Backend, so this file parses, frames and writes. *)
 
 module I16 = Stdlib_stable.Int16_u
 module I64 = Stdlib_upstream_compatible.Int64_u
@@ -8,20 +8,29 @@ module F64 = Stdlib_upstream_compatible.Float_u
 let[@inline] i16 x = I16.of_int x
 let[@inline] to_int x = I16.to_int x
 
-type config = { backlog : int }
+type config = {
+  backlog : int;
+  max_connections : int;
+  idle_timeout : float;
+  request_timeout : float;
+}
 
-let default_config = { backlog = 64 }
-
-module Log = struct
-  type event = {
-    remote_addr : string;
-    meth : Proffer.Method.t;
-    target : string;
-    status : Proffer.Status.t;
-    body_size : int;
-    duration_us : int;
+let default_config =
+  {
+    backlog = 64;
+    max_connections = 512;
+    idle_timeout = 75.;
+    request_timeout = 15.;
   }
-end
+
+type event = {
+  remote_addr : string;
+  meth : Proffer.Method.t;
+  target : string;
+  status : Proffer.Status.t;
+  body_size : int;
+  duration_us : int;
+}
 
 (* [Httpz.parse] is told the fill level as an [int16#], so a buffer filled to
    all 32768 bytes would present itself as a negative length. One byte is
@@ -43,21 +52,34 @@ let status_of (s : Proffer.Status.t) : Httpz.Res.status =
   match s with
   | `OK -> Httpz.Res.Success
   | `Created -> Httpz.Res.Created
+  | `Accepted -> Httpz.Res.Accepted
   | `No_content -> Httpz.Res.No_content
   | `Moved_permanently -> Httpz.Res.Moved_permanently
   | `Found -> Httpz.Res.Found
   | `See_other -> Httpz.Res.See_other
   | `Not_modified -> Httpz.Res.Not_modified
+  | `Temporary_redirect -> Httpz.Res.Temporary_redirect
+  | `Permanent_redirect -> Httpz.Res.Permanent_redirect
   | `Bad_request -> Httpz.Res.Bad_request
+  | `Unauthorized -> Httpz.Res.Unauthorized
   | `Forbidden -> Httpz.Res.Forbidden
   | `Not_found -> Httpz.Res.Not_found
   | `Method_not_allowed -> Httpz.Res.Method_not_allowed
+  | `Not_acceptable -> Httpz.Res.Not_acceptable
+  | `Request_timeout -> Httpz.Res.Request_timeout
   | `Conflict -> Httpz.Res.Conflict
+  | `Gone -> Httpz.Res.Gone
   | `Length_required -> Httpz.Res.Length_required
+  | `Precondition_failed -> Httpz.Res.Precondition_failed
   | `Payload_too_large -> Httpz.Res.Payload_too_large
   | `Unsupported_media_type -> Httpz.Res.Unsupported_media_type
+  | `Unprocessable_entity -> Httpz.Res.Unprocessable_entity
+  | `Too_many_requests -> Httpz.Res.Too_many_requests
   | `Internal_server_error -> Httpz.Res.Internal_server_error
   | `Not_implemented -> Httpz.Res.Not_implemented
+  | `Bad_gateway -> Httpz.Res.Bad_gateway
+  | `Service_unavailable -> Httpz.Res.Service_unavailable
+  | `Gateway_timeout -> Httpz.Res.Gateway_timeout
 
 (* httpz rejects a method it does not know at parse time, so [`Other] here
    only ever carries a method httpz names and proffer does not. *)
@@ -79,11 +101,17 @@ let addr_string (addr : Eio.Net.Sockaddr.stream) =
 
 (** {1 Connections} *)
 
-(* The flow is held as two closures so that this record has no type
-   parameter, and with it no [Eio.Net.stream_socket] constraint to thread
-   through every function below. *)
+(* The flow and the clock are held as closures so that this record has no
+   type parameter, and with it no [Eio.Net.stream_socket] or [Eio.Time.clock]
+   constraint to thread through every function below. *)
 type conn = {
-  read : Cstruct.t -> int;
+  now : unit -> float;
+  read : float -> Cstruct.t -> int;
+      (** [read deadline cs] fills [cs], and is [-1] when the absolute time
+          [deadline] passes first. Eio never reads zero bytes, so the
+          sentinel cannot collide with a real result. A read that loses that
+          race may have taken bytes off the socket, which costs nothing
+          because every caller drops the connection on a timeout. *)
   write : Cstruct.t list -> unit;
   read_buf : bytes;  (** What the httpz parser reads. *)
   read_cs : Cstruct.t;  (** What Eio reads into, blitted to [read_buf]. *)
@@ -92,9 +120,16 @@ type conn = {
   mutable keep_alive : bool;
 }
 
-let create_conn flow =
+let create_conn flow ~clock =
   {
-    read = (fun cs -> Eio.Flow.single_read flow cs);
+    now = (fun () -> Eio.Time.now clock);
+    read =
+      (fun deadline cs ->
+        Eio.Fiber.first
+          (fun () ->
+            Eio.Time.sleep_until clock deadline;
+            -1)
+          (fun () -> Eio.Flow.single_read flow cs));
     write = (fun bufs -> Eio.Flow.write flow bufs);
     read_buf = Bytes.create Httpz.buffer_size;
     read_cs = Cstruct.create Httpz.buffer_size;
@@ -103,13 +138,14 @@ let create_conn flow =
     keep_alive = true;
   }
 
-let read_more conn =
+let read_more conn ~deadline =
   if conn.read_len >= read_capacity then `Buffer_full
   else
     let cs =
       Cstruct.sub conn.read_cs conn.read_len (read_capacity - conn.read_len)
     in
-    match conn.read cs with
+    match conn.read deadline cs with
+    | -1 -> `Timeout
     | n ->
         Cstruct.blit_to_bytes cs 0 conn.read_buf conn.read_len n;
         conn.read_len <- conn.read_len + n;
@@ -174,8 +210,9 @@ let send_error conn ~version ~status message =
 (* [write_outcome conn ~keep_alive ~chunked ~version o] sends [o] and is the
    number of body bytes it wrote. *)
 let write_outcome conn ~keep_alive ~chunked ~version o =
-  let { Proffer.Serve.status; headers; body; content_length } = o in
+  let { Proffer.Backend.status; headers; body; content_length } = o in
   let status = status_of status in
+  let headers = Proffer.Headers.to_list headers in
   let head mode =
     head_cstruct conn ~keep_alive ~version ~status ~headers ~mode
   in
@@ -224,7 +261,7 @@ let write_outcome conn ~keep_alive ~chunked ~version o =
             written := !written + n
           end
       in
-      write (Proffer.Serve.sink emit);
+      write (Proffer.Backend.sink emit);
       if chunked then begin
         let scratch = Bytes.create 8 in
         let off = Httpz.Res.write_final_chunk scratch ~off:(i16 0) in
@@ -236,14 +273,14 @@ let write_outcome conn ~keep_alive ~chunked ~version o =
 
 let continue_line = "HTTP/1.1 100 Continue\r\n\r\n"
 
-(* [request_body conn req] brings the whole request body into [conn.read_buf]
-   and is where it lies, or why it cannot be served.
+(* [request_body conn ~deadline req] brings the whole request body into
+   [conn.read_buf] and is where it lies, or why it cannot be served.
 
    A chunked body is refused with 411 rather than dechunked: this backend
    serves forms and small uploads, and the parse buffer is the only place a
    body goes. For the same reason a declared length that cannot fit is 413,
    decided before a byte of it is read. *)
-let request_body conn (req : Httpz.Req.t) =
+let request_body conn ~deadline (req : Httpz.Req.t) =
   if req.#is_chunked then `Length_required
   else
     let cl = I64.to_int req.#content_length in
@@ -256,16 +293,18 @@ let request_body conn (req : Httpz.Req.t) =
       let rec fill () =
         if conn.read_len >= body_end then `Body (body_off, cl)
         else
-          match read_more conn with
+          match read_more conn ~deadline with
           | `Ok _ -> fill ()
+          | `Timeout -> `Timed_out
           | `Eof | `Buffer_full -> `Incomplete
       in
       fill ()
     end
 
-(* [handle_request conn ...] serves at most one request from the buffered
-   bytes, and is `Continue, `Close or `Need_more. *)
-let handle_request conn ~addr_str ~compiled ~env ~on_event ~on_error =
+(* [handle_request conn ~deadline ...] serves at most one request from the
+   buffered bytes, and is `Continue, `Close or `Need_more. [deadline] is the
+   absolute time by which the rest of this request must arrive. *)
+let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
   let buf = conn.read_buf in
   let #(status, req, headers) =
     Httpz.parse buf ~len:(i16 conn.read_len) ~limits:Httpz.default_limits
@@ -290,7 +329,7 @@ let handle_request conn ~addr_str ~compiled ~env ~on_event ~on_error =
             let us = (Unix.gettimeofday () -. t0) *. 1_000_000. in
             f
               {
-                Log.remote_addr = addr_str;
+                remote_addr = addr_str;
                 meth;
                 target;
                 status;
@@ -304,9 +343,12 @@ let handle_request conn ~addr_str ~compiled ~env ~on_event ~on_error =
         emit status (String.length message);
         `Close
       in
-      (match request_body conn req with
+      (match request_body conn ~deadline req with
       | `Length_required -> refuse `Length_required "Length Required\n"
       | `Too_large -> refuse `Payload_too_large "Payload Too Large\n"
+      (* The request line parsed, so this timeout has a method and a target
+         to report and the client is still in the exchange. *)
+      | `Timed_out -> refuse `Request_timeout "Request Timeout\n"
       | `Incomplete ->
           (* The client stopped mid-body. Nothing it would read is left to
              send, so drop the connection. *)
@@ -319,9 +361,9 @@ let handle_request conn ~addr_str ~compiled ~env ~on_event ~on_error =
           let preq =
             Proffer.Req.v ~meth ~target ~headers:req_headers ~body ()
           in
-          let outcome = Proffer.Serve.handle ~on_error compiled env preq in
+          let outcome = Proffer.Backend.handle ~on_error compiled env preq in
           let unknown_stream =
-            match outcome.Proffer.Serve.body with
+            match outcome.Proffer.Backend.body with
             | `Stream (None, _) -> true
             | _ -> false
           in
@@ -333,7 +375,7 @@ let handle_request conn ~addr_str ~compiled ~env ~on_event ~on_error =
              write_outcome conn ~keep_alive:conn.keep_alive ~chunked ~version
                outcome
            with
-          | body_size -> emit outcome.Proffer.Serve.status body_size
+          | body_size -> emit outcome.Proffer.Backend.status body_size
           | exception Headers_too_large ->
               on_error Headers_too_large;
               conn.keep_alive <- false;
@@ -357,34 +399,61 @@ let handle_request conn ~addr_str ~compiled ~env ~on_event ~on_error =
         "Bad Request\n";
       `Close
 
-let handle_connection conn ~addr_str ~compiled ~env ~on_event ~on_error =
-  let rec after_read = function
-    | `Eof -> ()
-    | `Buffer_full ->
-        conn.keep_alive <- false;
-        send_error conn ~version:Httpz.Version.Http_1_1
-          ~status:`Payload_too_large "Payload Too Large\n"
-    | `Ok _ -> loop ()
-  and loop () =
-    if conn.read_len = 0 then after_read (read_more conn)
-    else
-      match
-        handle_request conn ~addr_str ~compiled ~env ~on_event ~on_error
-      with
-      | `Continue -> loop ()
-      | `Close -> ()
-      | `Need_more -> after_read (read_more conn)
+(* Two deadlines bound a connection. One with nothing buffered is idle and
+   waits [idle_timeout] for the first byte of a request. From that byte the
+   whole request, head and body, must arrive within [request_timeout], since
+   a request that trickles in is the shape a slowloris takes. *)
+let handle_connection conn ~config ~addr_str ~compiled ~env ~on_event ~on_error
+    =
+  let too_large () =
+    conn.keep_alive <- false;
+    send_error conn ~version:Httpz.Version.Http_1_1 ~status:`Payload_too_large
+      "Payload Too Large\n"
   in
-  loop ()
+  (* No part of a request line parsed, so there is no method or target for an
+     event. The 408 still goes out, because a client that has begun sending
+     is a client still reading. *)
+  let timed_out () =
+    conn.keep_alive <- false;
+    send_error conn ~version:Httpz.Version.Http_1_1 ~status:`Request_timeout
+      "Request Timeout\n"
+  in
+  let rec idle () =
+    match read_more conn ~deadline:(conn.now () +. config.idle_timeout) with
+    | `Eof | `Timeout -> ()
+    | `Buffer_full -> too_large ()
+    | `Ok _ -> serve (conn.now () +. config.request_timeout)
+  and serve deadline =
+    match
+      handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error
+    with
+    | `Close -> ()
+    | `Continue ->
+        (* Bytes left over are a pipelined request, whose own clock starts
+           here rather than when the request before it began. *)
+        if conn.read_len = 0 then idle ()
+        else serve (conn.now () +. config.request_timeout)
+    | `Need_more -> (
+        match read_more conn ~deadline with
+        | `Eof -> ()
+        | `Timeout -> timed_out ()
+        | `Buffer_full -> too_large ()
+        | `Ok _ -> serve deadline)
+  in
+  idle ()
 
 (** {1 Entry point} *)
 
-let run ~sw ~net ~addr ?(config = default_config) ?on_event ~on_error ~env
-    compiled =
+let run ~sw ~net ~clock ~addr ?(config = default_config) ?on_listening
+    ?on_event ~on_error ~env compiled =
   let sock =
     Eio.Net.listen net ~sw ~backlog:config.backlog ~reuse_addr:true addr
   in
-  Eio.Net.run_server sock ~on_error (fun flow client_addr ->
-      let conn = create_conn flow in
-      handle_connection conn ~addr_str:(addr_string client_addr) ~compiled ~env
-        ~on_event ~on_error)
+  (match on_listening with
+  | None -> ()
+  | Some f -> f (Eio.Net.listening_addr sock));
+  Eio.Net.run_server sock ~max_connections:config.max_connections ~on_error
+    (fun flow client_addr ->
+      let conn = create_conn flow ~clock in
+      handle_connection conn ~config ~addr_str:(addr_string client_addr)
+        ~compiled ~env ~on_event ~on_error)

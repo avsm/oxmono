@@ -75,7 +75,17 @@ let civil_from_days z =
   let m = if mp < 10 then mp + 3 else mp - 9 in
   ((if m <= 2 then y + 1 else y), m, d)
 
+(* The layout is exactly 29 bytes with a four-digit year, and [of_imf] reads it
+   back at fixed offsets, so only a time inside these bounds round-trips.
+   They are 0000-01-01T00:00:00Z and 9999-12-31T23:59:59Z. *)
+let min_time = -62167219200.
+let max_time = 253402300799.
+
+let representable t = Float.is_finite t && t >= min_time && t <= max_time
+
 let to_imf t =
+  if not (representable t) then
+    invalid_arg "Proffer.Date.to_imf: time is not a representable HTTP date";
   let secs = int_of_float (Float.floor t) in
   let days = if secs >= 0 then secs / 86400 else ((secs + 1) / 86400) - 1 in
   let rem = secs - (days * 86400) in
@@ -90,9 +100,20 @@ let int_at s off len =
     int_of_string_opt sub
   else None
 
+let days_in_month ~y ~m =
+  match m with
+  | 1 | 3 | 5 | 7 | 8 | 10 | 12 -> 31
+  | 4 | 6 | 9 | 11 -> 30
+  | _ -> if (y mod 4 = 0 && y mod 100 <> 0) || y mod 400 = 0 then 29 else 28
+
 (* [of_imf s] is the epoch seconds of an IMF-fixdate, or [None] when [s] is not
    one. The layout is fixed width, so the fields are read at known offsets:
-   "Sun, 06 Nov 1994 08:49:37 GMT". *)
+   "Sun, 06 Nov 1994 08:49:37 GMT".
+
+   The weekday is not checked against the date. RFC 9110 section 5.6.7 makes it
+   redundant, and rejecting a sender that disagrees with itself would only turn
+   a working conditional request into a full response. A day-of-month the month
+   does not have is rejected, because it names no instant at all. *)
 let of_imf s =
   if String.length s <> 29 then None
   else if
@@ -110,7 +131,8 @@ let of_imf s =
         int_at s 23 2 )
     with
     | Some d, Some m, Some y, Some hh, Some mm, Some ss ->
-        if d < 1 || d > 31 || hh > 23 || mm > 59 || ss > 60 then None
+        if d < 1 || d > days_in_month ~y ~m || hh > 23 || mm > 59 || ss > 60
+        then None
         else
           let days = days_from_civil ~y ~m ~d in
           Some

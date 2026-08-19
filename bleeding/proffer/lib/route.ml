@@ -33,7 +33,7 @@ let conv ~name (parse @ portable) = Fcap ({ name; parse }, Fnil)
 let str : 'r. (string -> 'r, 'r) frag =
   Fcap ({ name = "str"; parse = (fun x -> Some x) }, Fnil)
 
-let int' : 'r. (int -> 'r, 'r) frag =
+let int : 'r. (int -> 'r, 'r) frag =
   Fcap ({ name = "int"; parse = int_of_string_opt }, Fnil)
 
 let rec ( / ) : type f g r. (f, g) frag -> (g, r) frag -> (f, r) frag =

@@ -1,0 +1,60 @@
+{0 Proffer}
+
+Declarative HTTP serving, independent of any HTTP implementation. A handler
+returns a description of a response rather than writing one. A backend consumes
+that description and owns the wire, so dispatch, conditional requests and HEAD
+are decided once and behave the same everywhere. The core depends on the stdlib
+alone, holding no sockets and no buffers.
+
+Route constructors take their handler at [portable], so proffer needs the OxCaml
+compiler. State a handler needs reaches it through the ['env] argument, which the
+mode system does not constrain.
+
+{1 Entry points}
+
+- {!module:Proffer} is the core: requests, responses, typed routing, sites and
+  the compiled dispatcher.
+- {!module:Proffer_mock} runs a compiled site against synthetic requests, with
+  no sockets.
+- [Proffer_httpz], in the separate [proffer-httpz] package, serves a compiled
+  site over HTTP/1.1 on the httpz parser and Eio.
+
+{1 Quick start}
+
+{[
+  open Proffer
+  open Proffer.Route
+
+  type env = { greet : string -> string }
+
+  let site =
+    Site.of_routes
+      [ get nil (fun _env _req -> Resp.text "index")
+      ; get (s "hello" / str /? nil) (fun who env _req ->
+          Resp.html (env.greet who))
+      ; post (s "hello" /? nil) (fun _env req ->
+          match Req.form_param req "who" with
+          | Some who -> Resp.see_other ("/hello/" ^ who)
+          | None -> Resp.bad_request ())
+      ]
+
+  let compiled = Compiled.compile site
+  let env = { greet = (fun who -> "<h1>hello " ^ who ^ "</h1>") }
+
+  let () =
+    Eio_main.run @@ fun stdenv ->
+    Eio.Switch.run @@ fun sw ->
+    Proffer_httpz.run ~sw
+      ~net:(Eio.Stdenv.net stdenv)
+    ~clock:(Eio.Stdenv.clock stdenv)
+      ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8380))
+      ~on_error:(fun exn -> prerr_endline (Printexc.to_string exn))
+      ~env compiled
+]}
+
+{1 Writing a backend}
+
+{!module:Proffer.Backend} is the interface a backend implements against. It
+turns a parsed request into an outcome, applying the routing, conditional and
+HEAD rules that need no socket, and leaves the wire to the caller. Users of a
+shipped backend never name it.

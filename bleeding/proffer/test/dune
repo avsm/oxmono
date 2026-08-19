@@ -1,9 +1,14 @@
+; The mock-backed tests need nothing beyond the core, so they belong to
+; [proffer]. [test_httpz] drives a socket and belongs to the backend package.
+
 (tests
  (names test_route test_req test_conditional test_resp)
  (modules test_route test_req test_conditional test_resp)
+ (package proffer)
  (libraries proffer proffer_mock))
 
 (test
  (name test_httpz)
  (modules test_httpz)
+ (package proffer-httpz)
  (libraries proffer proffer_httpz eio eio_main))

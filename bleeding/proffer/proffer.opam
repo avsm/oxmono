@@ -5,11 +5,15 @@ description: """
 Proffer describes a site as data: handlers return responses rather than
 writing them, routes capture path segments as curried handler arguments, and
 caching policy is typed. The core depends on the stdlib alone. Backends own
-the wire and share the conditional-request and HEAD logic the core provides."""
+the wire and share the conditional-request and HEAD logic the core provides.
+Route constructors take their handler at portable, so the OxCaml compiler is
+required."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"
+tags: ["http" "server" "web" "routing"]
 homepage: "https://github.com/avsm/proffer"
+doc: "https://avsm.github.io/proffer/"
 bug-reports: "https://github.com/avsm/proffer/issues"
 depends: [
   "dune" {>= "3.21"}

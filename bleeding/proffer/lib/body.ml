@@ -11,8 +11,6 @@ type t =
   | Delayed of { length : int64 option; gen : unit -> string }
   | Stream of { length : int64 option; write : Sink.t -> unit }
 
-let string s = String s
-
 (* [declared_length t] is the length the body claims without producing it. It
    is what a HEAD or a 304 reports, so a [Delayed] generator is never run. *)
 let declared_length = function

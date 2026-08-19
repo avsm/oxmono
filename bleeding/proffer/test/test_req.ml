@@ -77,13 +77,45 @@ let () =
   check "forwarded_for is the first entry"
     (Req.forwarded_for r = Some "203.0.113.7");
   check "forwarded_proto is lowercased" (Req.forwarded_proto r = Some "https");
-  check "headers to_list is lowercased"
-    (List.mem_assoc "x-forwarded-proto" (Headers.to_list (Req.headers r)))
+  check "to_list keeps the name as written"
+    (List.mem_assoc "X-Forwarded-Proto" (Headers.to_list (Req.headers r)));
+  check "mem folds case" (Headers.mem (Req.headers r) "IF-NONE-MATCH");
+  check "mem is not a prefix test"
+    (not (Headers.mem (Req.headers r) "if-none"))
+
+(* A field name may repeat. [find] answers with the first value and does not
+   join them, and every repeat still goes on the wire as it was written. *)
+let () =
+  let r =
+    req ~headers:[ ("X-Dup", "one"); ("x-dup", "two"); ("X-Dup", "three") ] "/"
+  in
+  check "find is the first value"
+    (Headers.find (Req.headers r) "X-Dup" = Some "one");
+  check "find folds case across a repeat"
+    (Headers.find (Req.headers r) "X-DUP" = Some "one");
+  check "header agrees with find" (Req.header r "x-dup" = Some "one");
+  check "every repeat is kept, spelled as written"
+    (Headers.to_list (Req.headers r)
+    = [ ("X-Dup", "one"); ("x-dup", "two"); ("X-Dup", "three") ]);
+  check "mem folds case across a repeat" (Headers.mem (Req.headers r) "X-DUP")
 
 let () =
-  let h = Headers.add (Headers.of_list [ ("A", "1") ]) "B" "2" in
-  check "headers add" (Headers.find h "b" = Some "2");
-  check "headers mem" (Headers.mem h "a" && not (Headers.mem h "c"));
-  check "headers empty" (Headers.to_list Headers.empty = [])
+  let r = req "/s?" in
+  check "an empty query has no parameters" (Req.query r = []);
+  check "an empty query finds nothing" (Req.query_param r "q" = None);
+  check "an empty query still ends the path" (Req.path r = "/s");
+  check "an empty query stays in the target" (Req.target r = "/s?");
+  check "no query at all has no parameters" (Req.query (req "/s") = []);
+  check "an empty piece is dropped"
+    (Req.query (req "/s?&a=1&") = [ ("a", "1") ])
+
+let () =
+  let headers = [ ("Content-Type", "application/x-www-form-urlencoded") ] in
+  let r = req ~headers ~body:"k=1&k=2&bare&e=&s=a+b" "/new" in
+  check "form keeps repeats in order"
+    (Req.form r
+    = [ ("k", "1"); ("k", "2"); ("bare", ""); ("e", ""); ("s", "a b") ]);
+  check "form_param is the first value" (Req.form_param r "k" = Some "1");
+  check "a form field with no = is empty" (Req.form_param r "bare" = Some "")
 
 let () = Printf.printf "test_req: %d checks ok\n" !checks

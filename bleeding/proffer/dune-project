@@ -4,6 +4,7 @@
 (generate_opam_files true)
 
 (source (github avsm/proffer))
+(documentation "https://avsm.github.io/proffer/")
 (license ISC)
 (authors "Anil Madhavapeddy")
 (maintainers "anil@recoil.org")
@@ -15,7 +16,10 @@
   "Proffer describes a site as data: handlers return responses rather than
 writing them, routes capture path segments as curried handler arguments, and
 caching policy is typed. The core depends on the stdlib alone. Backends own
-the wire and share the conditional-request and HEAD logic the core provides.")
+the wire and share the conditional-request and HEAD logic the core provides.
+Route constructors take their handler at portable, so the OxCaml compiler is
+required.")
+ (tags (http server web routing))
  (depends
   (ocaml (>= 5.2))))
 
@@ -24,11 +28,16 @@ the wire and share the conditional-request and HEAD logic the core provides.")
  (synopsis "Proffer backend on the httpz parser and Eio")
  (description
   "Serves a compiled proffer site over HTTP/1.1 on one domain, a fibre per
-connection. Requests are parsed by httpz and answered through Proffer.Serve,
-so dispatch, conditional requests and HEAD behave as the mock backend does.")
+connection. Requests are parsed by httpz and answered through Proffer.Backend,
+so dispatch, conditional requests and HEAD behave as the mock backend does.
+Reads carry an idle and a request deadline, and the number of connections
+served at once is capped.")
+ (tags (http server web eio))
  (depends
   (ocaml (>= 5.2))
   proffer
   httpz
   eio
-  cstruct))
+  cstruct
+  base-unix
+  (eio_main (and :with-test (>= 1.0)))))

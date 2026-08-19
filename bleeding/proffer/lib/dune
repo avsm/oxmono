@@ -1,3 +1,21 @@
 (library
  (name proffer)
- (public_name proffer))
+ (public_name proffer)
+ ; Only [Proffer] is public API. Listing the rest as private keeps their .cmi
+ ; out of the installed interface, so a consumer cannot reach [Proffer__Route]
+ ; and bind itself to an internal signature.
+ (private_modules
+  backend
+  body
+  cache_control
+  compiled
+  date
+  etag
+  headers
+  method
+  pct
+  req
+  resp
+  route
+  site
+  status))

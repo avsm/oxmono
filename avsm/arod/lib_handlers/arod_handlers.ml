@@ -106,13 +106,29 @@ let mime_type_of_path path =
   else if String.ends_with ~suffix:".webmanifest" path then "application/manifest+json"
   else "application/octet-stream"
 
-let static_file ~dir path (local_ rctx) (local_ respond) =
-  match Eio.Path.load Eio.Path.(dir / path) with
-  | content ->
-    let mime = mime_type_of_path path in
-    if R.is_head rctx then send_file_empty respond ~mime
-    else send_file respond ~mime content
-  | exception _ -> not_found respond
+(* A tail capture is client input, and [dir] is built from [Eio.Stdenv.fs],
+   which follows "..". A segment of ".." would therefore read any file the
+   process can, so the path is confined to the subtree here rather than
+   trusted. Empty and "." segments are refused too, since neither names a
+   file under [dir]. *)
+let confined_path segs =
+  let unsafe s =
+    String.equal s "" || String.equal s "." || String.equal s ".."
+    || String.contains s '/'
+    || String.contains s '\000'
+  in
+  if List.exists unsafe segs then None else Some (String.concat "/" segs)
+
+let static_file ~dir segs (local_ rctx) (local_ respond) =
+  match confined_path segs with
+  | None -> not_found respond
+  | Some path -> (
+    match Eio.Path.load Eio.Path.(dir / path) with
+    | content ->
+      let mime = mime_type_of_path path in
+      if R.is_head rctx then send_file_empty respond ~mime
+      else send_file respond ~mime content
+    | exception _ -> not_found respond)
 
 (** {1 Embedded Asset Serving} *)
 
@@ -282,7 +298,7 @@ let paper ~ctx ~cache ~papers_dir slug accept (local_ rctx) (local_ respond) =
   let cfg = Arod.Ctx.config ctx in
   match slug with
   | slug when String.ends_with ~suffix:".pdf" slug ->
-    static_file ~dir:papers_dir slug rctx respond
+    static_file ~dir:papers_dir [ slug ] rctx respond
   | slug when String.ends_with ~suffix:".bib" slug ->
     let paper_slug = Filename.chop_extension slug in
     begin match Arod.Ctx.lookup ctx paper_slug with
@@ -1102,5 +1118,5 @@ let all_routes ~ctx ~cache ~search ~log ~fs =
     get ("videos" / seg (lit "index.html" root)) (fun (slug, ()) _rctx (local_ respond) ->
       R.redirect respond ~status:Httpz.Res.Moved_permanently ~location:("/videos/" ^ slug));
     (* Static files - not cached *)
-    get ("images" / tail) (fun path -> static_file ~dir:images_dir (String.concat "/" path));
+    get ("images" / tail) (fun path -> static_file ~dir:images_dir path);
   ]

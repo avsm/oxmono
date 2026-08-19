@@ -39,7 +39,7 @@ Resp.html ~cache:(Cache_control.public ~max_age:(`Hours 1)) html
 Resp.v ~status:`OK
   ~etag:(`Strong hash) ~last_modified:mtime
   ~cache:Cache_control.(public ~max_age:(`Days 365) ~immutable:true)
-  (Body.string s)
+  (Body.String s)
 ```
 
 The backend implements the protocol mechanics against that description:
@@ -104,7 +104,7 @@ let routes = [
 
 `('f, 'r) pat` threads the handler type, so `s "papers" / str /? nil`
 demands a handler `string -> 'env -> Req.t -> Resp.t`. Converters are
-`str`, `int'`, `conv ~name of_string`, and `rest` for tail capture.
+`str`, `int`, `conv ~name of_string`, and `rest` for tail capture.
 
 Route constructors take the handler at `portable`, so a site is portable
 by construction and `compile` needs no separate check. The compiler
@@ -201,7 +201,7 @@ val run :
   ?domains:(_ Eio.Domain_manager.t * int) ->
   caps:'caps ->
   env:('caps -> int -> 'env) @ portable ->
-  on_event:(Log.event -> unit) @ portable ->
+  on_event:(event -> unit) @ portable ->
   config -> 'env Compiled.t -> unit
 ```
 
@@ -247,7 +247,7 @@ which also receives transport errors. `Site.with_fallback` supplies the
 404. Handlers never see sockets, so no transport concern leaks into
 them.
 
-`Log.event` is the portable successor of
+`Proffer_httpz.event` is the portable successor of
 `Httpz_eio_server.request_info`: remote address, method, target, status,
 response size, duration, negotiated content type, cache status, and the
 forwarded headers. All fields are immutable data, so events cross
@@ -258,7 +258,7 @@ domains freely.
 A backend consumes a `Compiled.t` and owns the wire. Its obligations:
 parse requests, dispatch through the trie, apply the conditional and
 HEAD logic against `Resp.t` metadata, write bodies, and emit one
-`Log.event` per request.
+`event` per request.
 
 - `proffer-httpz` keeps httpz's zero-allocation interior: per-connection
   buffers, trie matching over parse-buffer spans, and a fast path that

@@ -1,7 +1,22 @@
-(tests
+; Design validation for the mode system, not part of either package. These are
+; attached to their own alias rather than to [runtest], so that an opam build
+; with tests does not run them against dependencies the packages do not
+; declare. Run them with [dune build @bleeding/proffer/spike].
+
+(executables
  (names test_portability test_backend)
  (modules test_portability test_backend)
  (libraries eio eio_main))
+
+(rule
+ (alias spike)
+ (action
+  (run ./test_portability.exe)))
+
+(rule
+ (alias spike)
+ (action
+  (run ./test_backend.exe)))
 
 (library
  (name proffer_probe)

@@ -3,12 +3,16 @@ opam-version: "2.0"
 synopsis: "Proffer backend on the httpz parser and Eio"
 description: """
 Serves a compiled proffer site over HTTP/1.1 on one domain, a fibre per
-connection. Requests are parsed by httpz and answered through Proffer.Serve,
-so dispatch, conditional requests and HEAD behave as the mock backend does."""
+connection. Requests are parsed by httpz and answered through Proffer.Backend,
+so dispatch, conditional requests and HEAD behave as the mock backend does.
+Reads carry an idle and a request deadline, and the number of connections
+served at once is capped."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"
+tags: ["http" "server" "web" "eio"]
 homepage: "https://github.com/avsm/proffer"
+doc: "https://avsm.github.io/proffer/"
 bug-reports: "https://github.com/avsm/proffer/issues"
 depends: [
   "dune" {>= "3.21"}
@@ -17,6 +21,8 @@ depends: [
   "httpz"
   "eio"
   "cstruct"
+  "base-unix"
+  "eio_main" {with-test & >= "1.0"}
   "odoc" {with-doc}
 ]
 build: [

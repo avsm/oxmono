@@ -82,19 +82,9 @@ let post ?(fields = []) target =
     ~headers:[ ("content-type", "application/x-www-form-urlencoded") ]
     ~body:(encode fields) Sortal_web.compiled env `POST target
 
-let code (o : Serve.outcome) = Status.code o.Serve.status
-
-let body (o : Serve.outcome) =
-  match o.Serve.body with `String s -> s | `Empty -> "" | `Stream _ -> ""
-
-let header (o : Serve.outcome) name =
-  let name = String.lowercase_ascii name in
-  let rec go = function
-    | [] -> None
-    | (k, v) :: tl ->
-        if String.equal (String.lowercase_ascii k) name then Some v else go tl
-  in
-  go o.Serve.headers
+let code o = Status.code (Proffer_mock.status o)
+let body = Proffer_mock.body
+let header = Proffer_mock.header
 
 let header_exn o name =
   match header o name with

@@ -64,7 +64,7 @@ let web_env xdg stdenv =
     thumbnail;
   }
 
-let on_event (e : Proffer_httpz.Log.event) =
+let on_event (e : Proffer_httpz.event) =
   Logs.info (fun m ->
     m "%s %s %s %d %dB %.1fms" e.remote_addr
       (Proffer.Method.to_string e.meth)
@@ -78,12 +78,13 @@ let on_error exn = Logs.err (fun m -> m "%s" (Printexc.to_string exn))
 let cmd ~port xdg stdenv =
   let env = web_env xdg stdenv in
   let net = Eio.Stdenv.net stdenv in
+  let clock = Eio.Stdenv.clock stdenv in
   let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
   Logs.app (fun m ->
     m "Sortal web UI on http://127.0.0.1:%d (Ctrl-C to stop)" port);
   (try
      Eio.Switch.run @@ fun sw ->
-     Proffer_httpz.run ~sw ~net ~addr ~on_event ~on_error ~env
+     Proffer_httpz.run ~sw ~net ~clock ~addr ~on_event ~on_error ~env
        Sortal_web.compiled
    with Eio.Cancel.Cancelled _ -> ());
   0

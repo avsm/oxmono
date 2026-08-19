@@ -44,6 +44,19 @@ let routes =
              }));
     post (s "page" /? nil) (fun _env _req ->
         Resp.html ~etag:(`Strong "v1") ~cache "<p>posted</p>");
+    get (s "boom" /? nil) (fun _env _req ->
+        Resp.v ~content_type:"text/plain"
+          (Body.Delayed
+             {
+               length = None;
+               gen = (fun () -> failwith "generator blew up");
+             }));
+    (* The instant travels in the path so that one route can serve the whole
+       spread of dates the round trip covers. *)
+    get
+      (s "at" / conv ~name:"epoch" float_of_string_opt /? nil)
+      (fun t _env _req ->
+        Resp.v ~last_modified:t ~content_type:"text/plain" (Body.String "at"));
     get (s "stream" /? nil) (fun _env _req ->
         Resp.v ~content_type:"text/plain"
           (Body.Stream
@@ -62,26 +75,23 @@ let env = { forced = ref 0 }
 let run ?headers meth target =
   Proffer_mock.request ?headers compiled env meth target
 
-let body (o : Serve.outcome) =
-  match o.Serve.body with
-  | `String s -> s
-  | `Empty -> ""
-  | `Stream _ -> "<stream>"
-
-let header (o : Serve.outcome) n = List.assoc_opt n o.Serve.headers
+let body = Proffer_mock.body
+let header = Proffer_mock.header
+let code o = Status.code (Proffer_mock.status o)
+let length = Proffer_mock.content_length
 
 let () =
   let o = run `GET "/page" in
-  check "200 without a condition" (Status.code o.Serve.status = 200);
+  check "200 without a condition" (code o = 200);
   check "etag rendered" (header o "ETag" = Some "\"v1\"");
   check "cache rendered"
     (header o "Cache-Control" = Some "public, max-age=3600")
 
 let () =
   let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] `GET "/page" in
-  check "matching etag is 304" (Status.code o.Serve.status = 304);
+  check "matching etag is 304" (code o = 304);
   check "304 has no body" (body o = "");
-  check "304 has no length" (o.Serve.content_length = None);
+  check "304 has no length" (length o = None);
   check "304 keeps the etag" (header o "ETag" = Some "\"v1\"");
   check "304 keeps the cache policy"
     (header o "Cache-Control" = Some "public, max-age=3600");
@@ -89,39 +99,39 @@ let () =
 
 let () =
   let o = run ~headers:[ ("If-None-Match", "\"other\"") ] `GET "/page" in
-  check "other etag is 200" (Status.code o.Serve.status = 200);
+  check "other etag is 200" (code o = 200);
   let o =
     run ~headers:[ ("If-None-Match", "\"a\", W/\"v1\" , \"b\"") ] `GET "/page"
   in
-  check "etag list matches" (Status.code o.Serve.status = 304);
+  check "etag list matches" (code o = 304);
   let o = run ~headers:[ ("If-None-Match", "*") ] `GET "/page" in
-  check "star matches" (Status.code o.Serve.status = 304);
+  check "star matches" (code o = 304);
   let o = run ~headers:[ ("If-None-Match", "v1") ] `GET "/page" in
-  check "unquoted tag does not match" (Status.code o.Serve.status = 200)
+  check "unquoted tag does not match" (code o = 200)
 
 let () =
   let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] `GET "/weak" in
-  check "weak against strong matches" (Status.code o.Serve.status = 304);
+  check "weak against strong matches" (code o = 304);
   check "304 keeps Vary" (header o "Vary" = Some "Accept");
   check "304 drops other headers" (header o "X-Extra" = None)
 
 let () =
   let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] `POST "/page" in
-  check "a non-GET is not revalidated" (Status.code o.Serve.status = 200);
+  check "a non-GET is not revalidated" (code o = 200);
   check "the posted body is sent" (body o = "<p>posted</p>")
 
 let () =
   let o = run `GET "/dated" in
   check "last modified rendered" (header o "Last-Modified" = Some imf);
   let o = run ~headers:[ ("If-Modified-Since", imf) ] `GET "/dated" in
-  check "same second is 304" (Status.code o.Serve.status = 304);
+  check "same second is 304" (code o = 304);
   check "304 keeps last modified" (header o "Last-Modified" = Some imf);
   let o = run ~headers:[ ("If-Modified-Since", later) ] `GET "/dated" in
-  check "a later date is 304" (Status.code o.Serve.status = 304);
+  check "a later date is 304" (code o = 304);
   let o = run ~headers:[ ("If-Modified-Since", earlier) ] `GET "/dated" in
-  check "an earlier date is 200" (Status.code o.Serve.status = 200);
+  check "an earlier date is 200" (code o = 200);
   let o = run ~headers:[ ("If-Modified-Since", "yesterday") ] `GET "/dated" in
-  check "an unparsable date is ignored" (Status.code o.Serve.status = 200)
+  check "an unparsable date is ignored" (code o = 200)
 
 let () =
   let o =
@@ -130,13 +140,13 @@ let () =
       `GET "/dated"
   in
   check "If-None-Match hides If-Modified-Since"
-    (Status.code o.Serve.status = 200)
+    (code o = 200)
 
 let () =
   let o = run `HEAD "/page" in
-  check "head matches the get route" (Status.code o.Serve.status = 200);
+  check "head matches the get route" (code o = 200);
   check "head has no body" (body o = "");
-  check "head keeps the length" (o.Serve.content_length = Some 11L);
+  check "head keeps the length" (length o = Some 11L);
   check "head keeps the headers"
     (header o "Content-Type" = Some "text/html; charset=utf-8")
 
@@ -144,21 +154,101 @@ let () =
   check "delayed not yet forced" (!(env.forced) = 0);
   let o = run `HEAD "/delayed" in
   check "head does not force delayed" (!(env.forced) = 0);
-  check "head reports the declared length" (o.Serve.content_length = Some 7L);
+  check "head reports the declared length" (length o = Some 7L);
   let o = run ~headers:[ ("If-None-Match", "\"d1\"") ] `GET "/delayed" in
   check "304 does not force delayed" (!(env.forced) = 0);
-  check "304 on delayed" (Status.code o.Serve.status = 304);
+  check "304 on delayed" (code o = 304);
   let o = run `GET "/delayed" in
   check "get forces delayed once" (!(env.forced) = 1);
   check "delayed body is a string" (body o = "delayed");
-  check "delayed length from the body" (o.Serve.content_length = Some 7L)
+  check "delayed length from the body" (length o = Some 7L)
 
 let () =
   let o = run `GET "/stream" in
   check "mock collects the stream" (body o = "abc");
-  check "mock reports the collected length" (o.Serve.content_length = Some 3L);
+  check "mock reports the collected length" (length o = Some 3L);
   let o = run `HEAD "/stream" in
   check "head on a stream has no body" (body o = "");
-  check "unknown stream length stays unknown" (o.Serve.content_length = None)
+  check "unknown stream length stays unknown" (length o = None)
+
+(* The generator runs under the same guard as the handler, so a failure is a
+   500 and not a dropped connection. *)
+let () =
+  let seen = ref None in
+  let o =
+    Proffer_mock.request
+      ~on_error:(fun e -> seen := Some e)
+      compiled env `GET "/boom"
+  in
+  check "a generator that raises is 500" (code o = 500);
+  check "on_error is told about the generator"
+    (match !seen with Some (Failure _) -> true | _ -> false);
+  check "the 500 has a body" (body o = "Internal Server Error\n");
+  let o = Proffer_mock.request compiled env `HEAD "/boom" in
+  check "head does not run the generator" (code o = 200)
+
+(* An impossible date is no date, so the condition is dropped and the full
+   response goes out. *)
+let () =
+  let since v = run ~headers:[ ("If-Modified-Since", v) ] `GET "/dated" in
+  check "31 February is not a date"
+    (code (since "Wed, 31 Feb 2000 00:00:00 GMT") = 200);
+  check "31 April is not a date"
+    (code (since "Thu, 31 Apr 2000 00:00:00 GMT") = 200);
+  check "29 February 2100 is not a date"
+    (code (since "Mon, 29 Feb 2100 00:00:00 GMT") = 200);
+  check "29 February 2000 is a date"
+    (code (since "Tue, 29 Feb 2000 00:00:00 GMT") = 304);
+  check "a disagreeing weekday is still a date"
+    (code (since "Mon, 29 Feb 2000 00:00:00 GMT") = 304)
+
+(* The obsolete RFC 850 and asctime forms name the same instant as [imf], and
+   lib/date.ml accepts neither, so the condition is dropped and the full
+   response goes out. *)
+let () =
+  let since v = run ~headers:[ ("If-Modified-Since", v) ] `GET "/dated" in
+  check "RFC 850 is not a date"
+    (code (since "Sunday, 06-Nov-94 08:49:37 GMT") = 200);
+  check "asctime is not a date"
+    (code (since "Sun Nov  6 08:49:37 1994") = 200)
+
+(* [Resp.v ~last_modified] prints an IMF-fixdate and If-Modified-Since reads
+   one back. A date survives the pair when its printed form gives a 304
+   against the instant it came from and the printed form of the second before
+   gives a 200, which together pin the parsed value to the second it was
+   printed from. *)
+let at t = Printf.sprintf "/at/%.0f" t
+
+let printed t =
+  match header (run `GET (at t)) "Last-Modified" with
+  | Some v -> v
+  | None -> failwith "no Last-Modified"
+
+let since t v = code (run ~headers:[ ("If-Modified-Since", v) ] `GET (at t))
+
+let () =
+  let spread =
+    [
+      ("the epoch", 0.);
+      ("a leap day", 951782400.);
+      ("the last second of 1999", 946684799.);
+      ("the first second of 2000", 946684800.);
+      ("a recent date", 1755561600.);
+      ("the last representable second", 253402300799.);
+    ]
+  in
+  List.iter
+    (fun (name, t) ->
+      check (name ^ " round trips") (since t (printed t) = 304);
+      check
+        (name ^ " is later than the second before it")
+        (since t (printed (t -. 1.)) = 200))
+    spread;
+  (* The first representable second has nothing before it, so the pair is read
+     from the other side. *)
+  let t = -62167219200. in
+  check "the first representable second round trips"
+    (since t (printed t) = 304);
+  check "the second after it is later" (since (t +. 1.) (printed t) = 200)
 
 let () = Printf.printf "test_conditional: %d checks ok\n" !checks

@@ -19,13 +19,25 @@ val all_routes : ctx:Arod.Ctx.t -> cache:Arod.Cache.t -> search:Arod_search.t ->
 (** [all_routes ~ctx ~cache ~search ~log ~fs] returns all routes for the arod application.
     Content routes use the cache for memoization. The [search] handle is used
     for the [/api/search] JSON endpoint. [log] provides the access log database
-    for the stats dashboard. [fs] is the filesystem capability used
-    for static file serving with path traversal protection. *)
+    for the stats dashboard. [fs] is the filesystem capability the static file
+    routes read through, confined to their subtree by {!static_file}. *)
 
 (** {1 Static File Serving} *)
 
-val static_file : dir:_ Eio.Path.t -> string -> Httpz_route.ctx @ local ->
+val confined_path : string list -> string option
+(** [confined_path segs] is [segs] joined with ['/'] when every segment names
+    something directly under the serving directory, and [None] otherwise. A
+    segment that is empty, ["."] or [".."], or that holds a ['/'] or a NUL, is
+    refused, so a joined path can never leave the subtree. *)
+
+val static_file : dir:_ Eio.Path.t -> string list -> Httpz_route.ctx @ local ->
   local_ Httpz_route.respond -> unit
-(** [static_file ~dir path ctx respond] serves a file from [dir]/[path] with
-    appropriate MIME type. Uses Eio.Path for path traversal protection.
-    Calls [respond] with 404 if file not found. *)
+(** [static_file ~dir segs ctx respond] serves the file named by [segs] under
+    [dir], with a MIME type taken from its extension. It answers 404 when the
+    file is missing.
+
+    [segs] comes from the client, so it is confined to the subtree here: a
+    segment that is empty, ["."] or [".."], or that holds a ['/'] or a NUL,
+    gives a 404. [Eio.Path] does not do this. A [dir] rooted at
+    {!Eio.Stdenv.fs} follows [".."] out of the subtree, so without this check
+    a request reads any file the process can. *)

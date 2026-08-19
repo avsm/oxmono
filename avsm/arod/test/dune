@@ -1,0 +1,4 @@
+(test
+ (name test_static)
+ (modules test_static)
+ (libraries arod.handlers))

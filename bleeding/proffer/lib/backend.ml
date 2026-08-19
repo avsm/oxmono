@@ -4,7 +4,7 @@
 
 type outcome = {
   status : Status.t;
-  headers : (string * string) list;
+  headers : Headers.t;
   body :
     [ `Empty
     | `String of string
@@ -115,57 +115,83 @@ let not_modified req resp =
         | _ -> false)
 
 let revalidation_headers resp =
-  List.filter
-    (fun (n, _) ->
-      match String.lowercase_ascii n with
-      | "etag" | "last-modified" | "cache-control" | "vary" -> true
-      | _ -> false)
-    (Resp.headers resp)
+  Headers.of_list
+    (List.filter
+       (fun (n, _) ->
+         match String.lowercase_ascii n with
+         | "etag" | "last-modified" | "cache-control" | "vary" -> true
+         | _ -> false)
+       (Headers.to_list (Resp.headers resp)))
 
 let len s = Some (Int64.of_int (String.length s))
 
-let of_resp req resp =
+(* A [Body.Delayed] generator is handed back rather than run, so that [handle]
+   can run it under the same guard as the handler. Running it here would put it
+   outside that guard, where an exception drops the connection instead of
+   giving a 500. *)
+type plan =
+  | Ready of outcome
+  | Generate of {
+      status : Status.t;
+      headers : Headers.t;
+      gen : unit -> string;
+    }
+
+let plan req resp =
   let status = Resp.status resp and headers = Resp.headers resp in
   if not_modified req resp then
-    {
-      status = `Not_modified;
-      headers = revalidation_headers resp;
-      body = `Empty;
-      content_length = None;
-    }
+    Ready
+      {
+        status = `Not_modified;
+        headers = revalidation_headers resp;
+        body = `Empty;
+        content_length = None;
+      }
   else if Method.equal (Req.meth req) `HEAD then
-    {
-      status;
-      headers;
-      body = `Empty;
-      content_length = Body.declared_length (Resp.body resp);
-    }
+    Ready
+      {
+        status;
+        headers;
+        body = `Empty;
+        content_length = Body.declared_length (Resp.body resp);
+      }
   else
     match Resp.body resp with
-    | Body.Empty -> { status; headers; body = `Empty; content_length = Some 0L }
+    | Body.Empty ->
+        Ready { status; headers; body = `Empty; content_length = Some 0L }
     | Body.String s ->
-        { status; headers; body = `String s; content_length = len s }
-    | Body.Delayed { gen; _ } ->
-        let s = gen () in
-        { status; headers; body = `String s; content_length = len s }
+        Ready { status; headers; body = `String s; content_length = len s }
+    | Body.Delayed { gen; _ } -> Generate { status; headers; gen }
     | Body.Stream { length; write } ->
-        {
-          status;
-          headers;
-          body = `Stream (length, write);
-          content_length = length;
-        }
+        Ready
+          {
+            status;
+            headers;
+            body = `Stream (length, write);
+            content_length = length;
+          }
 
 let handle ?on_error compiled env req =
   let report exn = match on_error with None -> () | Some f -> f exn in
+  (* [internal_error] has a string body, so the plan it yields is [Ready] and
+     this recurses at most once. *)
+  let rec settle = function
+    | Ready o -> o
+    | Generate { status; headers; gen } -> (
+        match gen () with
+        | s -> { status; headers; body = `String s; content_length = len s }
+        | exception exn ->
+            report exn;
+            settle (plan req (internal_error ())))
+  in
   let run h =
     match h env req with
-    | resp -> resp
+    | resp -> settle (plan req resp)
     | exception exn ->
         report exn;
-        internal_error ()
+        settle (plan req (internal_error ()))
   in
   match dispatch compiled (Req.meth req) (Req.segments req) with
-  | Some h, _ -> of_resp req (run h)
-  | None, [] -> of_resp req (run (Compiled.fallback compiled))
-  | None, allowed -> of_resp req (method_not_allowed allowed)
+  | Some h, _ -> run h
+  | None, [] -> run (Compiled.fallback compiled)
+  | None, allowed -> settle (plan req (method_not_allowed allowed))

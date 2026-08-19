@@ -4,13 +4,20 @@
 type 'env t = {
   routes : 'env Route.t list;
   fallback : 'env Route.handler @@ portable;
+  decorate :
+    (string list -> 'env Route.handler -> 'env Route.handler) @@ portable;
 }
 
 (* The fields are read directly rather than through [Site]'s accessors: an
    accessor returns the fallback at the legacy mode, and the field here demands
    a portable one. *)
 let compile (site : 'env Site.t) =
-  { routes = site.Site.routes; fallback = site.Site.fallback }
+  {
+    routes = site.Site.routes;
+    fallback = site.Site.fallback;
+    decorate = site.Site.decorate;
+  }
 
 let routes t = t.routes
 let fallback t = t.fallback
+let decorate t = t.decorate

@@ -375,6 +375,15 @@ module Resp : sig
       @raise Invalid_argument
         if [name] is not a non-empty RFC 9110 token. *)
 
+  val add_headers : (string * string) list -> t -> t @@ portable
+  (** [add_headers extra t] appends [extra] to [t]'s field block. A name [t]
+      already carries is left in place, so the copy [t] set is the one a
+      client reads first. A site wrapper uses it to add a header to every
+      response.
+
+      @raise Invalid_argument
+        if a name or a value is unwritable, as {!v} rejects it. *)
+
   val status : t -> Status.t @@ portable
   (** [status t] is the status [t] was built with, before any conditional
       request turns it into a 304. *)
@@ -517,6 +526,46 @@ module Site : sig
   (** [with_fallback handler site] answers with [handler] when no route matches
       the path. A path that matches a route under another method gets 405
       instead, and never reaches the fallback. *)
+
+  val with_headers : (string * string) list -> 'env t -> 'env t @@ portable
+  (** [with_headers extra site] adds [extra] to every response [site] gives,
+      whether a route wrote it or the library did. It is how a site sets
+      security headers once. *)
+
+  val with_auth :
+    scope:string list list ->
+    realm:string ->
+    check:(string option -> bool) @ portable ->
+    'env t ->
+    'env t
+    @@ portable
+  (** [with_auth ~scope ~realm ~check site] gates every path under a prefix in
+      [scope] behind [check], which is given the Authorization field of the
+      request, or [None] when there is none. A failed check answers 401 with
+      [WWW-Authenticate: Basic realm=...] naming [realm]. A path under no
+      prefix in [scope] is served unchanged, and the empty prefix [[]] gates
+      the whole site.
+
+      The gate is what answers under [scope], so a request that would have got
+      a 404 or a 405 there gets the 401 instead. A caller without credentials
+      therefore cannot tell which paths under [scope] name a route.
+
+      @raise Invalid_argument
+        if [realm] holds a double quote or a backslash, which a quoted-string
+        cannot carry unescaped. *)
+
+  val mount : at:string list -> 'env t -> 'env t -> 'env t @@ portable
+  (** [mount ~at sub site] adds the routes of [sub] to [site] under the path
+      prefix [at]. A request whose path starts with [at] and whose remainder
+      matches a route of [sub] is answered by that route. Only the routes of
+      [sub] are taken, so its fallback stays behind and [site]'s answers a
+      path [sub] does not match.
+
+      @raise Invalid_argument
+        if [sub] has been through {!with_auth} or {!with_headers}. Those wrap
+        a site rather than its routes, and mounting takes the routes alone, so
+        a mounted gate would be dropped and the sub-site served open. Wrap the
+        result of [mount] instead. *)
 end
 
 module Negotiate : sig

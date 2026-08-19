@@ -191,7 +191,15 @@ let handle ?on_error compiled env req =
         report exn;
         settle (plan req (internal_error ()))
   in
-  match dispatch compiled (Req.meth req) (Req.segments req) with
-  | Some h, _ -> run h
-  | None, [] -> run (Compiled.fallback compiled)
-  | None, allowed -> settle (plan req (method_not_allowed allowed))
+  (* Every answer to a request goes through the site's decoration, including
+     the 404 and the 405 the library writes itself. A 405 that escaped the
+     decoration would tell an unauthenticated caller that a route exists under
+     a gated path, which a 404 outside the route table would not, and that
+     difference enumerates the protected route table. *)
+  let decorate = Compiled.decorate compiled in
+  let segs = Req.segments req in
+  match dispatch compiled (Req.meth req) segs with
+  | Some h, _ -> run (decorate segs h)
+  | None, [] -> run (decorate segs (Compiled.fallback compiled))
+  | None, allowed ->
+      run (decorate segs (fun _env _req -> method_not_allowed allowed))

@@ -153,6 +153,14 @@ let vary name t =
   in
   { t with headers = Headers.of_list (others @ [ ("Vary", value) ]) }
 
+(* Appended rather than merged, so a site-wide header a handler already set is
+   left alone and the handler's copy is the one a client reads first. The names
+   and values go through the same check [v] applies, which is what stops a
+   decorator injecting a response split. *)
+let add_headers extra t =
+  List.iter (fun (n, value) -> check_header n value) extra;
+  { t with headers = Headers.of_list (Headers.to_list t.headers @ extra) }
+
 let status t = t.status
 let headers t = t.headers
 let body t = t.body

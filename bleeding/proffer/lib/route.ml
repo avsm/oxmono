@@ -87,5 +87,20 @@ let moved pat location =
 let found pat location =
   route `GET pat (fun _env _req -> Resp.redirect location)
 
+(* [prefix at t] is [t] with the literal segments [at] prepended to its
+   pattern. A route holds a matcher rather than its pattern, so the prefix is
+   stripped from the path before the matcher sees it. Used by [Site.mount]. *)
+let prefix at t =
+  let run segs =
+    let rec strip pfx s =
+      match (pfx, s) with
+      | [], rest -> Some rest
+      | pc :: pt, sc :: st -> if String.equal pc sc then strip pt st else None
+      | _ :: _, [] -> None
+    in
+    match strip at segs with Some rest -> t.run rest | None -> None
+  in
+  { t with run }
+
 let meth t = t.meth
 let run t segs = t.run segs

@@ -11,4 +11,5 @@ module Route = Route
 module Site = Site
 module Compiled = Compiled
 module Static = Static
+module Cache = Cache
 module Backend = Backend

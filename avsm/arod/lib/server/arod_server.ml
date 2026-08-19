@@ -3,37 +3,36 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** httpz + Eio server adapter for arod routes *)
+(** Serving the arod site over proffer-httpz. *)
 
+module Site = Arod_site
 open Base
 
 let src = Logs.Src.create "arod.server" ~doc:"Arod server adapter"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
-(** {1 Public API} *)
-
-let run ~sw:_ ~net ~config ~log routes =
-  let addr =
-    `Tcp (Eio.Net.Ipaddr.V4.any, config.Arod.Config.server.port)
+let run ~sw ~net ~clock ~(config : Arod.Config.t) ~log ~env compiled =
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.any, config.server.port) in
+  let on_listening _ =
+    Log.app (fun m ->
+        m "Listening on http://%s:%d" config.server.host config.server.port)
   in
-  Eio.Switch.run @@ fun sw ->
-  let socket = Eio.Net.listen net ~sw ~backlog:128 ~reuse_addr:true addr in
-  Log.app (fun m ->
-      m "Listening on http://%s:%d" config.server.host config.server.port);
-  let on_request (local_ info : Httpz_eio_server.request_info) =
-    (* Extract values before Logs closure, which captures globally *)
-    let meth_s = Httpz.Method.to_string info.meth in
-    let path_s = Arod_log.globalize info.path in
-    let status_s = Httpz.Res.status_to_string info.status in
-    let dur = info.duration_us in
-    let cache_s = match info.cache_status with
-      | This s -> " " ^ Arod_log.globalize s | Null -> "" in
-    Arod_log.log_request log info;
-    Log.info (fun m -> m "%s %s - %s (%dus%s)" meth_s path_s status_s dur cache_s)
+  let on_event (event : Proffer_httpz.event) =
+    (* Serving is single-domain, so the insert happens on the domain that
+       owns the log database. Serving from several domains would need this
+       to hand the event to a fiber on that domain through a queue. *)
+    Arod_log.log_request log ~timestamp:(Eio.Time.now clock) event;
+    let cache = match event.cache_status with Some s -> " " ^ s | None -> "" in
+    Log.info (fun m ->
+        m "%s %s - %d (%dus%s)"
+          (Proffer.Method.to_string event.meth)
+          event.path
+          (Proffer.Status.code event.status)
+          event.duration_us cache)
   in
   let on_error exn =
-    Log.err (fun m -> m "Connection error: %s" (Exn.to_string exn))
+    Log.err (fun m -> m "Server error: %s" (Exn.to_string exn))
   in
-  Eio.Net.run_server socket ~on_error (fun flow addr ->
-    Httpz_eio_server.handle_client ~routes ~on_request ~on_error flow addr)
+  Proffer_httpz.run ~sw ~net ~clock ~addr ~on_listening ~on_event ~on_error
+    ~env compiled

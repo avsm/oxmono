@@ -1,4 +1,14 @@
 (test
  (name test_static)
  (modules test_static)
+ (libraries proffer))
+
+(test
+ (name test_auth)
+ (modules test_auth)
  (libraries arod.handlers))
+
+(test
+ (name test_routes)
+ (modules test_routes)
+ (libraries arod arod.handlers arod.server proffer proffer.mock))

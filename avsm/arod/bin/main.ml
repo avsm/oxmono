@@ -3,7 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Arod webserver - an httpz-based server for Bushel content *)
+(** Arod webserver - a proffer-based server for Bushel content *)
 
 (** {1 Logging} *)
 
@@ -35,7 +35,9 @@ let serve_cmd =
     Log.info (fun m -> m "Config:@.%a" Arod.Config.pp cfg);
     Eio_main.run @@ fun env ->
     let fs = Eio.Stdenv.fs env in
+    let cwd = Eio.Stdenv.cwd env in
     let net = Eio.Stdenv.net env in
+    let clock = Eio.Stdenv.clock env in
     Log.info (fun m -> m "Loading entries from %s" cfg.paths.data_dir);
     (* Create context (loads Bushel entries) *)
     let ctx = Arod.Ctx.create ~config:cfg fs in
@@ -48,8 +50,6 @@ let serve_cmd =
           (List.length (Arod.Ctx.videos ctx))
           (List.length (Arod.Ctx.images ctx))
           (List.length (Arod.Ctx.feed_items ctx)));
-    (* Create cache with 5 minute TTL *)
-    let cache = Arod.Cache.create ~ttl:300.0 in
     (* Run inside switch so search DB and log DB stay open for server lifetime *)
     Eio.Switch.run @@ fun sw ->
     (* Build in-memory search index on startup *)
@@ -62,18 +62,42 @@ let serve_cmd =
     let log_path = Eio.Path.(Xdge.data_dir xdg / "access.db") in
     let log = Arod_log.create ~sw log_path in
     Log.info (fun m -> m "Access log: %a" Eio.Path.pp log_path);
-    (* Get all routes with ctx, cache and search *)
-    let routes = Arod_handlers.all_routes ~ctx ~cache ~search ~log ~fs in
+    (* A relative configured path is resolved against cwd. Only an absolute
+       one needs fs, and the subtree capability is all the server keeps: the
+       OS refuses an escape from it even if the path check were wrong. *)
+    let confined_dir dir =
+      let base = if Filename.is_relative dir then cwd else fs in
+      Eio.Path.open_subtree ~sw Eio.Path.(base / dir)
+    in
+    let images_dir = confined_dir cfg.paths.images_dir in
+    let papers_dir = confined_dir cfg.paths.papers_dir in
+    let read_confined dir segs =
+      match Proffer.Static.confine segs with
+      | None -> None
+      | Some path -> (
+        try Some (Eio.Path.load Eio.Path.(dir / path)) with _ -> None)
+    in
+    let henv =
+      Arod_handlers.Env.create ~ctx
+        ~cache:(Proffer.Cache.create ~ttl:300.0)
+        ~search:(fun ~limit q -> Arod_search.search search ~limit q)
+        ~read_image:(fun segs -> read_confined images_dir segs)
+        ~read_paper:(fun name -> read_confined papers_dir [ name ])
+        ~reader:(fun () -> Arod_log.reader log)
+        ~now:(fun () -> Eio.Time.now clock)
+    in
+    let site = Arod_server.Site.build cfg in
+    let serve () =
+      Arod_server.run ~sw ~net ~clock ~config:cfg ~log ~env:henv site
+    in
     (* Start finger server alongside HTTP if configured *)
     (match cfg.server.finger_port with
      | Some finger_port ->
-       Eio.Fiber.both
-         (fun () -> Arod_server.run ~sw ~net ~config:cfg ~log routes)
+       Eio.Fiber.both serve
          (fun () ->
            let handler = Arod_finger.handler ~ctx in
            Finger.Server.run ~sw ~net ~port:finger_port ~handler ())
-     | None ->
-       Arod_server.run ~sw ~net ~config:cfg ~log routes);
+     | None -> serve ());
     0
   in
   let doc = "Start the Arod webserver." in
@@ -762,7 +786,7 @@ let main_cmd =
     [
       `S Manpage.s_description;
       `P
-        "Arod is an httpz-based webserver that serves Bushel content \
+        "Arod is a proffer-based webserver that serves Bushel content \
          (notes, papers, projects, ideas, videos) as a website.";
       `S "CONFIGURATION";
       `P "Configuration is read from ~/.config/arod/config.toml";

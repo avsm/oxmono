@@ -3,25 +3,23 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** httpz + Eio server adapter for arod routes
+(** Serving the arod site over proffer-httpz. *)
 
-    This module adapts the framework-agnostic {!Arod.Route} abstraction to
-    work with httpz for HTTP parsing and Eio for async I/O. It provides
-    a zero-allocation request/response path using CPS-style handlers
-    that write responses directly. *)
+module Site = Arod_site
+(** The compiled route table this module serves. *)
 
 val run :
   sw:Eio.Switch.t ->
   net:_ Eio.Net.t ->
+  clock:_ Eio.Time.clock ->
   config:Arod.Config.t ->
   log:Arod_log.t ->
-  Httpz_route.t ->
+  env:'env ->
+  'env Proffer.Compiled.t ->
   unit
-(** [run ~sw ~net ~config ~log routes] starts the httpz + Eio server with
-    the given routes.
-
-    @param sw Eio switch for managing server lifecycle.
-    @param net Eio network for creating sockets.
-    @param config Server configuration with host, port, and paths.
-    @param log Access log database for request logging.
-    @raise exn on server errors (Eio propagates exceptions) *)
+(** [run ~sw ~net ~clock ~config ~log ~env compiled] listens on every address
+    at [config]'s port and serves [compiled] until [sw] is cancelled, which is
+    the only way it returns. Each served request is written to [log] and
+    reported on the [arod.server] log source. [env] is the capability record
+    the handlers read, and it may hold state bound to the calling domain,
+    since serving is single-domain. *)

@@ -5,21 +5,13 @@
   arod
   arod.assets
   arod.component
-  arod.log
   arod.search
   proffer
   bushel
   sortal.schema
-  srcsetter
   htmlit
-  httpz
-  httpz.route
-  eio
   ezjsonm
   sitemap
   sqlite3-eio
-  ptime
   ptime.clock.os
-  uri
-  base64
-  fmt))
+  uri))

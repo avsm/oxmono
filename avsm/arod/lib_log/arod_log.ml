@@ -7,8 +7,6 @@
 
 open Base
 
-module F64 = Stdlib_upstream_compatible.Float_u
-
 type t = {
   db : Sqlite3_eio.t;
   reader : Sqlite3_eio.t;
@@ -83,25 +81,6 @@ let encode_headers_json headers =
   | Ok s -> s
   | Error _ -> "[]"
 
-(* Copy a local string to a global string *)
-let globalize (local_ s : string) : string =
-  let len = String.length s in
-  let dst = Bytes.create len in
-  for i = 0 to len - 1 do
-    Bytes.unsafe_set dst i (String.unsafe_get s i)
-  done;
-  Bytes.unsafe_to_string ~no_mutation_while_string_reachable:dst
-
-let globalize_or_null (local_ v : string or_null) : string option =
-  match v with
-  | This s -> Some (globalize s)
-  | Null -> None
-
-let rec globalize_pairs (local_ l : (string * string) list) : (string * string) list =
-  match l with
-  | [] -> []
-  | (k, v) :: rest -> (globalize k, globalize v) :: globalize_pairs rest
-
 let bind_text_opt stmt pos v =
   Sqlite3.Rc.check (Sqlite3.bind stmt pos (Sqlite3.Data.opt_text v))
 
@@ -133,45 +112,38 @@ let create ~sw path =
   in
   { db; reader }
 
-let log_request t (local_ info : Httpz_eio_server.request_info) =
-  (* Globalize all local string fields before binding to SQLite *)
-  let timestamp = F64.to_float info.timestamp in
-  let remote_addr = globalize info.remote_addr in
-  let forwarded_for = globalize_or_null info.forwarded_for in
-  let forwarded_proto = globalize_or_null info.forwarded_proto in
-  let meth = Httpz.Method.to_string info.meth in
-  let target = globalize info.target in
-  let path = globalize info.path in
-  let host = globalize_or_null info.host in
-  let user_agent = globalize_or_null info.user_agent in
-  let referer = globalize_or_null info.referer in
-  let accept = globalize_or_null info.accept in
-  let request_headers = encode_headers_json (globalize_pairs info.request_headers) in
-  let status_code = Httpz.Res.status_code info.status in
-  let response_content_type = globalize_or_null info.response_content_type in
-  let response_body_size = info.response_body_size in
-  let cache_status = globalize_or_null info.cache_status in
-  let duration_us = info.duration_us in
-  (* Prepare a fresh statement per insert — concurrent fibers from
-     keep-alive connections would race on a shared prepared statement. *)
+(* The event carries the request fields the parser did not consume, in
+   arrival order, so the named columns are derived from it here. A name is
+   spelled as the parser gives it, hence the case-insensitive match. *)
+let header headers name =
+  List.find_map headers ~f:(fun (k, v) ->
+    if String.Caseless.equal k name then Some v else None)
+
+let log_request t ~timestamp (event : Proffer_httpz.event) =
+  let headers = event.request_headers in
+  (* Prepare a fresh statement per insert. Concurrent fibers from keep-alive
+     connections would race on a shared prepared statement. *)
   let stmt = Sqlite3_eio.prepare t.db insert_sql in
   Sqlite3.Rc.check (Sqlite3.bind_double stmt 1 timestamp);
-  Sqlite3.Rc.check (Sqlite3.bind_text stmt 2 remote_addr);
-  bind_text_opt stmt 3 forwarded_for;
-  bind_text_opt stmt 4 forwarded_proto;
-  Sqlite3.Rc.check (Sqlite3.bind_text stmt 5 meth);
-  Sqlite3.Rc.check (Sqlite3.bind_text stmt 6 target);
-  Sqlite3.Rc.check (Sqlite3.bind_text stmt 7 path);
-  bind_text_opt stmt 8 host;
-  bind_text_opt stmt 9 user_agent;
-  bind_text_opt stmt 10 referer;
-  bind_text_opt stmt 11 accept;
-  Sqlite3.Rc.check (Sqlite3.bind_text stmt 12 request_headers);
-  Sqlite3.Rc.check (Sqlite3.bind_int stmt 13 status_code);
-  bind_text_opt stmt 14 response_content_type;
-  Sqlite3.Rc.check (Sqlite3.bind_int stmt 15 response_body_size);
-  bind_text_opt stmt 16 cache_status;
-  Sqlite3.Rc.check (Sqlite3.bind_int stmt 17 duration_us);
+  Sqlite3.Rc.check (Sqlite3.bind_text stmt 2 event.remote_addr);
+  bind_text_opt stmt 3 (header headers "x-forwarded-for");
+  bind_text_opt stmt 4 (header headers "x-forwarded-proto");
+  Sqlite3.Rc.check
+    (Sqlite3.bind_text stmt 5 (Proffer.Method.to_string event.meth));
+  Sqlite3.Rc.check (Sqlite3.bind_text stmt 6 event.target);
+  Sqlite3.Rc.check (Sqlite3.bind_text stmt 7 event.path);
+  bind_text_opt stmt 8 (header headers "host");
+  bind_text_opt stmt 9 (header headers "user-agent");
+  bind_text_opt stmt 10 (header headers "referer");
+  bind_text_opt stmt 11 (header headers "accept");
+  Sqlite3.Rc.check
+    (Sqlite3.bind_text stmt 12 (encode_headers_json headers));
+  Sqlite3.Rc.check
+    (Sqlite3.bind_int stmt 13 (Proffer.Status.code event.status));
+  bind_text_opt stmt 14 event.response_content_type;
+  Sqlite3.Rc.check (Sqlite3.bind_int stmt 15 event.body_size);
+  bind_text_opt stmt 16 event.cache_status;
+  Sqlite3.Rc.check (Sqlite3.bind_int stmt 17 event.duration_us);
   let rc = Sqlite3_eio.step t.db stmt in
   ignore (Sqlite3_eio.finalize t.db stmt : Sqlite3.Rc.t);
   match rc with

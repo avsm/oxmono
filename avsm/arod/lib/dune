@@ -11,8 +11,6 @@
   cmarkit
   tomlt
   tomlt.bytesrw
-  httpz
-  httpz.route
   xdge
   uri
   ptime

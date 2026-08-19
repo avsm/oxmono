@@ -4,11 +4,51 @@
  ---------------------------------------------------------------------------*)
 
 type t = {
-  ctx : Arod.Ctx.t;
   cache : Proffer.Cache.t;
-  search : limit:int -> string -> Arod_search.result list;
+  now : unit -> float;
+  listing : Arod_render.listing -> Arod_render.flavour -> string;
+  entry : Arod_render.entry_kind -> string -> Arod_render.flavour -> string;
+  entry_markdown : string -> string option;
+  paper_bib : string -> string option;
+  feed : Arod_render.feed -> string;
+  sitemap : unit -> string;
+  blogroll : unit -> string;
+  robots : unit -> string;
+  well_known : string -> string option;
+  pagination :
+    collection:string option ->
+    offset:int ->
+    limit:int ->
+    types:string list ->
+    string;
+  search : q:string -> limit:int -> string;
   read_image : string list -> string option;
   read_paper : string -> string option;
-  reader : unit -> Sqlite3_eio.t;
-  now : unit -> float;
+  report : Arod_render.report -> range:string -> string;
 }
+
+let create ~ctx ~cache ~search ~read_image ~read_paper ~reader ~now =
+  {
+    cache;
+    now;
+    listing = (fun which flavour -> Arod_render.listing ~ctx which flavour);
+    entry = (fun kind slug flavour -> Arod_render.entry ~ctx kind slug flavour);
+    entry_markdown = (fun slug -> Arod_render.entry_markdown ~ctx slug);
+    paper_bib = (fun slug -> Arod_render.paper_bib ~ctx slug);
+    feed = (fun which -> Arod_render.feed ~ctx which);
+    sitemap = (fun () -> Arod_render.sitemap ~ctx);
+    blogroll = (fun () -> Arod_render.blogroll ~ctx);
+    robots = (fun () -> Arod_render.robots ~ctx);
+    well_known = (fun key -> Arod_render.well_known ~ctx key);
+    pagination =
+      (fun ~collection ~offset ~limit ~types ->
+        Arod_render.pagination ~ctx ~collection ~offset ~limit ~types);
+    search =
+      (fun ~q ~limit ->
+        if String.equal q "" then {|{"results":[]}|}
+        else Arod_render.search ~ctx (search ~limit q));
+    read_image;
+    read_paper;
+    report =
+      (fun which ~range -> Arod_render.report ~db:(reader ()) which ~range);
+  }

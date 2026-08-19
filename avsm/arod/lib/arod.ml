@@ -5,24 +5,19 @@
 
 (** Arod - Webserver for Bushel content
 
-    Arod is an httpz-based webserver that serves Bushel content
+    Arod is a proffer-based webserver that serves Bushel content
     (notes, papers, projects, ideas, videos) as a website.
 
     {1 Core Modules}
 
     - {!Config} - TOML configuration
-    - {!Ctx} - Context record (replaces global state)
-    - {!Cache} - TTL cache for rendered HTML
-    - {!Handlers} - Route handlers *)
+    - {!Ctx} - Context record (replaces global state) *)
 
 module Config = Arod_config
 (** TOML-based configuration for the webserver. *)
 
 module Ctx = Arod_ctx
 (** Context record holding entries and configuration. *)
-
-module Cache = Arod_cache
-(** TTL-based cache for rendered HTML responses. *)
 
 module Md = Arod_md
 (** Markdown rendering with Bushel extensions. *)
@@ -41,9 +36,6 @@ module Jsonfeed = Arod_jsonfeed
 
 module Jsonld = Arod_jsonld
 (** Schema.org JSON-LD structured data generation. *)
-
-module Route = Httpz_route
-(** HTTP routing (re-exported from httpz). *)
 
 (* Handlers are in the separate arod.handlers library to avoid
    circular dependency with arod.component. *)

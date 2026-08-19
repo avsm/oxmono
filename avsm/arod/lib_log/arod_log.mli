@@ -10,16 +10,16 @@ val create : sw:Eio.Switch.t -> _ Eio.Path.t -> t
     Enables WAL mode and creates the schema if needed.
     The database is automatically closed when [sw] finishes. *)
 
-val globalize : string @ local -> string
-(** [globalize s] copies a local string to a global one. *)
-
 val reader : t -> Sqlite3_eio.t
 (** [reader t] is a read-only handle on the log database, for analytics.
     It is a separate connection from the one {!log_request} writes on:
     SQLite serializes calls per connection, so a query issued on the
     writer would block request logging for as long as it scans. *)
 
-val log_request : t -> Httpz_eio_server.request_info @ local -> unit
-(** [log_request t info] inserts a request log entry synchronously.
-    Accepts the record as [@ local] — all values are extracted
-    and bound to SQLite parameters before returning. *)
+val log_request : t -> timestamp:float -> Proffer_httpz.event -> unit
+(** [log_request t ~timestamp event] inserts one row for [event], recording
+    it at [timestamp] seconds since the epoch. Host, User-Agent, Referer,
+    Accept and the forwarding fields are read out of the event's request
+    headers case-insensitively, and the whole header block is stored as JSON
+    beside them. The insert is synchronous, so it must run on the domain that
+    owns [t]. *)

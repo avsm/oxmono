@@ -2,7 +2,7 @@
 opam-version: "2.0"
 synopsis: "Webserver for Bushel content"
 description: """
-Arod is a httpz-based webserver that serves Bushel content
+Arod is a proffer-based webserver that serves Bushel content
    (notes, papers, projects, ideas, videos) as a website. It uses
    TOML configuration for easy deployment and includes support for
    responsive images, syntax highlighting, and feeds."""
@@ -15,7 +15,8 @@ depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.2"}
   "bushel" {>= "0.1"}
-  "httpz" {>= "0.1"}
+  "proffer" {>= "0.1"}
+  "proffer-httpz" {>= "0.1"}
   "htmlit" {>= "0.1"}
   "tw" {>= "0.1"}
   "cmarkit" {>= "0.3"}

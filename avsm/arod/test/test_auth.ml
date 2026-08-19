@@ -36,4 +36,8 @@ let () =
   check "padding in the middle is refused"
     (not (accepts ~password:"s3cret" "dXNl=jpzM2NyZXQ="));
   check "empty credentials are refused" (not (accepts ~password:"" ""));
+  (* A client may pad the field with optional whitespace either side of the
+     credentials, so the decode trims before it runs. *)
+  check "whitespace around the payload is ignored"
+    (accepts ~password:"s3cret" "  dXNlcjpzM2NyZXQ=  ");
   Printf.printf "test_auth: %d checks ok\n" !checks

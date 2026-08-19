@@ -1,0 +1,3 @@
+(library
+ (name xmlm)
+ (public_name xmlm))

@@ -255,10 +255,18 @@ let author t =
     Sortal_schema.Contact.handle c = t.config.site.author_handle
   ) contacts
 
+(* Contacts come from the sortal store under XDG_DATA_HOME, not from the
+   bushel data directory, so the message names both the handle and the
+   store size to point an operator at the right place. *)
 let author_exn t =
   match author t with
   | Some c -> c
-  | None -> failwith "Author not found"
+  | None ->
+    failwith
+      (Printf.sprintf
+         "Author handle %S not found among %d contacts in the sortal store"
+         t.config.site.author_handle
+         (List.length (Bushel.Entry.contacts t.entries)))
 
 let author_name t =
   match author t with

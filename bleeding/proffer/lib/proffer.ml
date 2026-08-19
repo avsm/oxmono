@@ -1,6 +1,7 @@
 module Method = Method
 module Status = Status
 module Headers = Headers
+module Mime = Mime
 module Req = Req
 module Cache_control = Cache_control
 module Body = Body

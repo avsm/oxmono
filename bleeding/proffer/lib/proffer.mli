@@ -135,6 +135,15 @@ module Headers : sig
   (** [to_list t] is the fields in order, each name spelled as it was given. *)
 end
 
+module Mime : sig
+  (** Content types by filename extension. *)
+
+  val of_path : string -> string @@ portable
+  (** [of_path name] is the Content-Type for [name], from its extension with
+      case folded, or ["application/octet-stream"] when it is absent or
+      unknown. *)
+end
+
 (** {1 Requests} *)
 
 module Req : sig

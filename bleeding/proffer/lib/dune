@@ -13,6 +13,7 @@
   etag
   headers
   method
+  mime
   pct
   req
   resp

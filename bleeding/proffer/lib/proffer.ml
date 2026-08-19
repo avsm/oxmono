@@ -10,4 +10,5 @@ module Resp = Resp
 module Route = Route
 module Site = Site
 module Compiled = Compiled
+module Static = Static
 module Backend = Backend

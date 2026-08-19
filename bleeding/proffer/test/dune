@@ -2,8 +2,8 @@
 ; [proffer]. [test_httpz] drives a socket and belongs to the backend package.
 
 (tests
- (names test_route test_req test_conditional test_resp test_mime)
- (modules test_route test_req test_conditional test_resp test_mime)
+ (names test_route test_req test_conditional test_resp test_mime test_static)
+ (modules test_route test_req test_conditional test_resp test_mime test_static)
  (package proffer)
  (libraries proffer proffer_mock))
 

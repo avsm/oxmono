@@ -19,4 +19,5 @@
   resp
   route
   site
+  static
   status))

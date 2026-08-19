@@ -11,9 +11,8 @@
     annotations, which is every function in Uri, Cmarkit and Ezjsonm, and any
     Bushel accessor, including the ones that date an entry through the
     annotated Ptime, and every renderer built on those. Each of them is
-    reached through a closure in
-    {!t} instead, and one value of {!t} is built per domain by {!create},
-    where those resources exist.
+    reached through a closure in {!t} instead, and one value of {!t} is built
+    per domain by {!create}, where those resources exist.
 
     A closure field is named for the response it produces, not for the module
     it came from, so a handler reads as a description of the route it answers.

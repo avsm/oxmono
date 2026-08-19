@@ -14,6 +14,11 @@ The sources are the ones opam installed, copied verbatim. `dune`,
 opam file records why the copy exists. Dune's generated `jsonfeed__.ml` is
 not copied, since dune regenerates it.
 
+One word of the opam description differs from upstream's. It said the library
+parses "using Jsonm and Ptime", which has been false since the port to Jsont,
+and this copy says Jsont. Nothing else in the description changed beyond the
+paragraph recording why the copy exists.
+
 Nothing here is annotated for portability. `Jsonfeed.t` is built from
 `Jsont.json`, which does not cross portability, so annotating the interface
 would buy nothing until jsont is annotated.

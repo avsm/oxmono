@@ -15,11 +15,12 @@
     {!Arod_env} closes over them once, on the domain that owns the context.
 
     Htmlit and Ptime are vendored and annotated and are no longer among them.
-    That is not enough to make a render portable on its own. The render path
-    reaches every date through a Bushel accessor rather than through Ptime
-    directly, resolves links through Uri and turns entry bodies into HTML
-    through Cmarkit, so the closures stay until those three are annotated
-    too. *)
+    The direct Ptime calls on this path, the clock read that stamps the
+    blogroll and the RFC 3339 rendering in {!Arod.Jsonld}, are therefore no
+    longer blockers. That is not enough to make a render portable. The path
+    still dates entries through Bushel accessors, resolves links through Uri
+    and turns entry bodies into HTML through Cmarkit, so the closures stay
+    until those three are annotated too. *)
 
 type flavour = [ `Html | `Markdown ]
 (** Which rendering of a page is wanted. *)

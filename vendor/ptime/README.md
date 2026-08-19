@@ -21,7 +21,9 @@ The code patch touches `ptime.ml`, `ptime.mli`, `ptime_clock.ml` and
 * `max_month_day` closed over a module-level `int array` of month lengths. A
   closure over an array is not portable, and `is_date_valid` calls it, so
   `of_date_time` and everything above it were nonportable. The lengths are a
-  match instead, and its last arm keeps the same out of range exception.
+  match instead. Its last arm keeps upstream's out of range exception but
+  cannot be reached, since `is_date_valid` short-circuits on
+  `1 <= m && m <= 12` before it calls.
 * `weekday` closed over a module-level array of the seven days, for the same
   reason. It is a match on `weekday_num` instead. `weekday_num` answers in
   `[0;6]`, so the last arm cannot be reached.
@@ -44,8 +46,12 @@ The code patch touches `ptime.ml`, `ptime.mli`, `ptime_clock.ml` and
   `localtime` and `gmtime`, which answer with pointers into static storage
   shared by every thread, so two domains calling it at once would race. No
   in-tree caller needs it from a portable context. Switching the stub to
-  `localtime_r` and `gmtime_r` would let the annotation go, at the cost of a
-  C change that cannot be tested here on anything but Darwin.
+  `localtime_r` and `gmtime_r` would remove that particular race, but it is
+  not a clean fix. Both still read the process-global timezone state that
+  `tzset` and `setenv("TZ")` mutate, and glibc's `localtime_r` deliberately
+  does not call `tzset`, so the annotation would still be claiming more than
+  the C guarantees. It would also be a change that cannot be tested here on
+  anything but Darwin.
 
 Timekeeping behaviour is unchanged. This is checked by a differential run of
 the whole interface against the pristine 1.2.0 sources: timestamps, spans,

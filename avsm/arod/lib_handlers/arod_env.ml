@@ -20,13 +20,15 @@ type t = {
     limit:int ->
     types:string list ->
     string;
-  search : q:string -> limit:int -> string;
+  search : q:string -> limit:int -> string * int;
+  log_search : query:string -> limit:int -> results:int option -> unit;
   read_image : string list -> string option;
   read_paper : string -> string option;
   report : Arod_render.report -> range:string -> string;
 }
 
-let create ~ctx ~cache ~search ~read_image ~read_paper ~reader ~now =
+let create ~ctx ~cache ~search ~log_search ~read_image ~read_paper ~reader ~now
+    =
   {
     config = Arod.Ctx.config ctx;
     cache;
@@ -43,8 +45,11 @@ let create ~ctx ~cache ~search ~read_image ~read_paper ~reader ~now =
         Arod_render.pagination ~ctx ~collection ~offset ~limit ~types);
     search =
       (fun ~q ~limit ->
-        if String.equal q "" then {|{"results":[]}|}
-        else Arod_render.search ~ctx (search ~limit q));
+        if String.equal q "" then ({|{"results":[]}|}, 0)
+        else
+          let results = search ~limit q in
+          (Arod_render.search ~ctx results, List.length results));
+    log_search;
     read_image;
     read_paper;
     report =

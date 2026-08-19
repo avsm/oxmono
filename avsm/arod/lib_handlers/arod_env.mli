@@ -55,10 +55,16 @@ type t = {
     string;
       (** [pagination ~collection ~offset ~limit ~types] is one page of
           [collection] as the JSON the pagination script reads. *)
-  search : q:string -> limit:int -> string;
+  search : q:string -> limit:int -> string * int;
       (** [search ~q ~limit] is at most [limit] results for [q] as the JSON
-          the search box reads. An empty [q] is an empty result set and
-          queries nothing. *)
+          the search box reads, paired with the number of results it holds. An
+          empty [q] is an empty result set and queries nothing. *)
+  log_search : query:string -> limit:int -> results:int option -> unit;
+      (** [log_search ~query ~limit ~results] records a search API request.
+          [results] is [None] before the query runs and [Some n] once it has
+          returned [n] results. A handler is portable and cannot reach a log
+          source itself, so the message is written on the domain that built
+          this record. *)
   read_image : string list -> string option;
       (** [read_image segs] is the contents of the file named by [segs] under
           the served image directory, and [None] when that file is missing or
@@ -79,14 +85,16 @@ val create :
   ctx:Arod.Ctx.t ->
   cache:Proffer.Cache.t ->
   search:(limit:int -> string -> Arod_search.result list) ->
+  log_search:(query:string -> limit:int -> results:int option -> unit) ->
   read_image:(string list -> string option) ->
   read_paper:(string -> string option) ->
   reader:(unit -> Sqlite3_eio.t) ->
   now:(unit -> float) ->
   t
-(** [create ~ctx ~cache ~search ~read_image ~read_paper ~reader ~now] is the
-    capability record for one domain. The configuration and every rendering
-    closure come from [ctx], [search] answers the search API, [reader] is the
-    read-only handle the stats dashboard queries, and [read_image] and
-    [read_paper] are the confined reads of the served directories. Call it on
-    the domain that owns those resources. *)
+(** [create ~ctx ~cache ~search ~log_search ~read_image ~read_paper ~reader
+    ~now] is the capability record for one domain. The configuration and every
+    rendering closure come from [ctx], [search] answers the search API,
+    [log_search] reports what it was asked for, [reader] is the read-only
+    handle the stats dashboard queries, and [read_image] and [read_paper] are
+    the confined reads of the served directories. Call it on the domain that
+    owns those resources. *)

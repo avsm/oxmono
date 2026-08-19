@@ -81,6 +81,12 @@ let serve_cmd =
       Arod_handlers.Env.create ~ctx
         ~cache:(Proffer.Cache.create ~ttl:300.0)
         ~search:(fun ~limit q -> Arod_search.search search ~limit q)
+        ~log_search:(fun ~query ~limit ~results ->
+          match results with
+          | None ->
+            Log.info (fun m -> m "Search API: q=%S limit=%d" query limit)
+          | Some n ->
+            Log.info (fun m -> m "Search API: %d results for %S" n query))
         ~read_image:(fun segs -> read_confined images_dir segs)
         ~read_paper:(fun name -> read_confined papers_dir [ name ])
         ~reader:(fun () -> Arod_log.reader log)

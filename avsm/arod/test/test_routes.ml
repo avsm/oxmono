@@ -21,6 +21,13 @@ let cfg : Arod.Config.t =
     well_known = [ { Arod.Config.key = "known"; value = "value" } ];
   }
 
+(* A handler is portable, so it cannot reach a log source. The search API
+   reports through a closure in the environment instead, and the stub below
+   records each call for the checks to read back. The stub search returns the
+   length of the query as its result count, which is enough to tell the two
+   log points apart. *)
+let searches = ref []
+
 let env =
   {
     Arod_handlers.Env.config = cfg;
@@ -68,7 +75,14 @@ let env =
         Printf.sprintf "%s/%d/%d"
           (Option.value ~default:"none" collection)
           offset limit);
-    search = (fun ~q ~limit -> Printf.sprintf "%s/%d" q limit);
+    search =
+      (fun ~q ~limit -> (Printf.sprintf "%s/%d" q limit, String.length q));
+    log_search =
+      (fun ~query ~limit ~results ->
+        let results =
+          match results with None -> "?" | Some n -> string_of_int n
+        in
+        searches := Printf.sprintf "%s/%d/%s" query limit results :: !searches);
     read_image =
       (fun segs ->
         match Proffer.Static.confine segs with
@@ -187,6 +201,12 @@ let () =
     (body (get "/api/entries?collection=links&limit=9999") = "links/0/100");
   check "the search API reads its query"
     (body (get "/api/search?q=ocaml&limit=3") = "ocaml/3");
+  check "and reports the query it was given and the count it found"
+    (List.rev !searches = [ "ocaml/3/?"; "ocaml/3/5" ]);
+  searches := [];
+  check "an empty query is still reported"
+    (body (get "/api/search") = "/20");
+  check "with no results" (List.rev !searches = [ "/20/?"; "/20/0" ]);
   check "a known well-known key is served"
     (body (get "/.well-known/known") = "value");
   check "an unknown one is a 404" (code (get "/.well-known/other") = 404);

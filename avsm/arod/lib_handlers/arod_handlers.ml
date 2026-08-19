@@ -211,7 +211,10 @@ let pagination_api env req =
 let search_api env req =
   let q = match Req.query_param req "q" with Some q -> q | None -> "" in
   let limit = int_param req "limit" ~default:20 ~lo:1 ~hi:100 in
-  Resp.media json_type (env.E.search ~q ~limit)
+  env.E.log_search ~query:q ~limit ~results:None;
+  let body, results = env.E.search ~q ~limit in
+  env.E.log_search ~query:q ~limit ~results:(Some results);
+  Resp.media json_type body
 
 (** {1 Files} *)
 

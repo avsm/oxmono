@@ -1,0 +1,4 @@
+(library
+ (name htmlit)
+ (public_name htmlit)
+ (modules htmlit))

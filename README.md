@@ -55,6 +55,11 @@ The vendored copy is 3.5.2 with the alphabet tables made immutable and the
 interface annotated. See [vendor/base64/README.md](vendor/base64/README.md).
 It can be dropped once upstream is annotated.
 
+`htmlit` is vendored for the same reason. The vendored copy is 0.2.0 with the
+void element set replaced by a match, since a set cannot be read from a
+portable function, and the interface annotated. See
+[vendor/htmlit/README.md](vendor/htmlit/README.md).
+
 `mdx` from opam is likewise blocked on minus39, hence the local-clone pin
 in the setup steps above.
 

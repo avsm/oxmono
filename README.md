@@ -49,6 +49,12 @@ currently be installed from opam on `oxcaml-compiler.5.2.0minus39`:
 These should be re-checked against the ox opam repository on each compiler
 upgrade and dropped once installable.
 
+`base64` is vendored for a different reason: it installs from opam, but its
+interface carries no mode annotations, so a `portable` function cannot call it.
+The vendored copy is 3.5.2 with the alphabet tables made immutable and the
+interface annotated. See [vendor/base64/README.md](vendor/base64/README.md).
+It can be dropped once upstream is annotated.
+
 `mdx` from opam is likewise blocked on minus39, hence the local-clone pin
 in the setup steps above.
 

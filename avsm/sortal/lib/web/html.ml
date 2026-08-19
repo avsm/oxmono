@@ -15,19 +15,7 @@ let escape s =
   add_escaped b s;
   Buffer.contents b
 
-let unreserved c =
-  match c with
-  | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '-' | '.' | '_' | '~' -> true
-  | _ -> false
-
-let pct_segment s =
-  let b = Buffer.create (String.length s + 8) in
-  String.iter
-    (fun c ->
-      if unreserved c then Buffer.add_char b c
-      else Buffer.add_string b (Printf.sprintf "%%%02X" (Char.code c)))
-    s;
-  Buffer.contents b
+let pct_segment s = Uriz.pct_encode ~component:`Unreserved s
 
 let page ~title ~query body =
   let b = Buffer.create (String.length body + 1024) in

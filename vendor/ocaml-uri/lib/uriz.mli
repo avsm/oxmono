@@ -217,7 +217,11 @@ type component =
   | `Segment  (** one path segment, so ['/'] is encoded *)
   | `Query  (** query, keeping ['&'], ['='] and ['+'] *)
   | `Query_value  (** one key or value, so ['&'], ['='], ['+'] are encoded *)
-  | `Fragment ]
+  | `Fragment
+  | `Unreserved
+    (** only the unreserved set of RFC 3986 section 2.3, so a sub-delimiter
+        is encoded too *)
+  ]
 
 val pct_encode : ?component:component -> string -> string @@ portable
 (** [pct_encode ~component s] percent-encodes every character of [s] not

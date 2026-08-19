@@ -10,9 +10,11 @@ val escape : string -> string @@ portable
     double-quoted attribute alike. *)
 
 val pct_segment : string -> string @@ portable
-(** [pct_segment s] is [s] percent-encoded for one path segment. Everything
-    outside the unreserved set of RFC 3986 is encoded, so a handle containing
-    ['/'], ['?'] or ['#'] cannot break out of its segment. *)
+(** [pct_segment s] is [s] percent-encoded for one path segment. Every byte
+    outside the unreserved set of RFC 3986 section 2.3 is escaped,
+    sub-delimiters included, so a handle containing ['/'], ['?'], ['#'] or an
+    apostrophe cannot break out of its segment. That is stricter than what the
+    RFC allows in a segment. *)
 
 val add_escaped : Buffer.t -> string -> unit @@ portable
 (** [add_escaped b s] appends {!escape}[ s] to [b] without the intermediate

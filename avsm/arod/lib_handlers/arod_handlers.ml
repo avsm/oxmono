@@ -153,28 +153,12 @@ let perma_json env _req =
 (** {1 Redirect targets} *)
 
 (* A capture arrives decoded, so it may hold a space, a '/', or a CR that
-   would make [Resp.redirect] refuse the field. Everything outside the
-   unreserved set of RFC 3986 section 2.3 is encoded, which is always valid
-   and leaves an ordinary slug untouched. Uri does the same job but carries no
-   mode annotations, so a portable handler cannot call it. *)
-let encode_segment s =
-  let unreserved c =
-    (c >= 'A' && c <= 'Z')
-    || (c >= 'a' && c <= 'z')
-    || (c >= '0' && c <= '9')
-    || c = '-' || c = '.' || c = '_' || c = '~'
-  in
-  let hex n = "0123456789ABCDEF".[n] in
-  let b = Buffer.create (String.length s) in
-  String.iter
-    (fun c ->
-      if unreserved c then Buffer.add_char b c
-      else (
-        Buffer.add_char b '%';
-        Buffer.add_char b (hex (Char.code c lsr 4));
-        Buffer.add_char b (hex (Char.code c land 0xf))))
-    s;
-  Buffer.contents b
+   would make [Resp.redirect] refuse the field. [`Unreserved] escapes every
+   byte outside the unreserved set of RFC 3986 section 2.3, sub-delimiters
+   included, which is stricter than [`Segment] and is what the redirect tests
+   pin. Uriz is the vendored encoder, whose interface is mode-annotated, so a
+   portable handler can call it. *)
+let encode_segment s = Uriz.pct_encode ~component:`Unreserved s
 
 (** {1 Machine-readable pages} *)
 

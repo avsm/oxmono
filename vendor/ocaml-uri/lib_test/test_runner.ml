@@ -382,6 +382,12 @@ let test_pct =
         assert_equal ~printer:str "a%26b"
           (Uriz.pct_encode ~component:`Query_value "a&b");
         assert_equal ~printer:str "a&b" (Uriz.pct_encode ~component:`Query "a&b");
+        assert_equal ~printer:str "a-b_c.d~e9"
+          (Uriz.pct_encode ~component:`Unreserved "a-b_c.d~e9");
+        assert_equal ~printer:str "o%27brien%20x"
+          (Uriz.pct_encode ~component:`Unreserved "o'brien x");
+        assert_equal ~printer:str "%C3%A9"
+          (Uriz.pct_encode ~component:`Unreserved "\xc3\xa9");
         assert_equal ~printer:str "%25" (Uriz.pct_encode "%");
         assert_equal ~printer:str "%2541" (Uriz.pct_encode "%41"));
     case "pct_encode shares when there is nothing to do" (fun () ->

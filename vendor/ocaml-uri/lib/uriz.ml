@@ -313,13 +313,22 @@ let fragment_span (t : t @ local) = #(t.frag_off, t.frag_len)
 (* {2 Percent codecs} *)
 
 type component =
-  [ `Userinfo | `Host | `Path | `Segment | `Query | `Query_value | `Fragment ]
+  [ `Userinfo
+  | `Host
+  | `Path
+  | `Segment
+  | `Query
+  | `Query_value
+  | `Fragment
+  | `Unreserved
+  ]
 
 let table_of_pred f =
   String.init 256 (fun i -> if f (Char.unsafe_chr i) then '\001' else '\000')
 
 let[@inline] base_safe c = Raw.is_unreserved c || Raw.is_sub_delim c
 
+let tbl_unreserved = table_of_pred Raw.is_unreserved
 let tbl_userinfo = table_of_pred (fun c -> base_safe c || c = ':')
 let tbl_host = table_of_pred base_safe
 let tbl_segment = table_of_pred (fun c -> base_safe c || c = ':' || c = '@')
@@ -344,6 +353,7 @@ let table_of = function
   | `Query -> tbl_query
   | `Query_value -> tbl_query_value
   | `Fragment -> tbl_query
+  | `Unreserved -> tbl_unreserved
 
 let[@inline] safe tbl c = String.unsafe_get tbl (Char.code c) <> '\000'
 

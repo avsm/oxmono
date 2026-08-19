@@ -37,6 +37,7 @@
   fetch-curl
   xmlm
   uri
+  uriz
   proffer
   proffer-httpz
   (odoc :with-doc)

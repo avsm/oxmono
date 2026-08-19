@@ -113,11 +113,13 @@ val perma_json : handler @@ portable
 
 val encode_segment : string -> string @@ portable
 (** [encode_segment s] is [s] with every byte outside the unreserved set of
-    RFC 3986 section 2.3 percent-encoded. A route capture arrives decoded, so
-    a redirect built from one passes it through this first. Without it a
-    segment holding a space redirects to the wrong place, and one holding a CR
-    makes {!Proffer.Resp.redirect} refuse the field and the request answer
-    500. An ordinary slug is unchanged. *)
+    RFC 3986 section 2.3 percent-encoded, sub-delimiters included. That is
+    stricter than what the RFC allows in a path segment, which also admits a
+    sub-delimiter, [':'] and ['@']. A route capture arrives decoded, so a
+    redirect built from one passes it through this first. Without it a segment
+    holding a space redirects to the wrong place, and one holding a CR makes
+    {!Proffer.Resp.redirect} refuse the field and the request answer 500. An
+    ordinary slug is unchanged. *)
 
 (** {1 Machine-readable pages} *)
 

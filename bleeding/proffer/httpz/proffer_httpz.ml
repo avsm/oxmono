@@ -27,7 +27,11 @@ type event = {
   remote_addr : string;
   meth : Proffer.Method.t;
   target : string;
+  path : string;
+  request_headers : (string * string) list;
   status : Proffer.Status.t;
+  response_content_type : string option;
+  cache_status : string option;
   body_size : int;
   duration_us : int;
 }
@@ -322,7 +326,11 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
       let meth = meth_of req.#meth in
       let target = Httpz.Span.to_string buf req.#target in
       let req_headers = Httpz.Header.to_string_pairs_local buf headers in
-      let emit status body_size =
+      (* A request refused before it is routed has no path and no response of
+         the handler's making, so those fields default to nothing. The
+         request fields are known from the parse, so every event carries
+         them. *)
+      let emit ?(path = "") ?content_type ?cache status body_size =
         match on_event with
         | None -> ()
         | Some f ->
@@ -332,7 +340,13 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
                 remote_addr = addr_str;
                 meth;
                 target;
+                path;
+                (* The parser accumulates fields as it goes, so [req_headers]
+                   is in reverse arrival order. *)
+                request_headers = List.rev req_headers;
                 status;
+                response_content_type = content_type;
+                cache_status = cache;
                 body_size;
                 duration_us = int_of_float us;
               }
@@ -362,6 +376,10 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
             Proffer.Req.v ~meth ~target ~headers:req_headers ~body ()
           in
           let outcome = Proffer.Backend.handle ~on_error compiled env preq in
+          let path = Proffer.Req.path preq in
+          let field name =
+            Proffer.Headers.find outcome.Proffer.Backend.headers name
+          in
           let unknown_stream =
             match outcome.Proffer.Backend.body with
             | `Stream (None, _) -> true
@@ -375,13 +393,19 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
              write_outcome conn ~keep_alive:conn.keep_alive ~chunked ~version
                outcome
            with
-          | body_size -> emit outcome.Proffer.Backend.status body_size
+          | body_size ->
+              emit ~path
+                ?content_type:(field "content-type")
+                ?cache:(field "x-cache")
+                outcome.Proffer.Backend.status body_size
           | exception Headers_too_large ->
               on_error Headers_too_large;
               conn.keep_alive <- false;
               let message = "Internal Server Error\n" in
               send_error conn ~version ~status:`Internal_server_error message;
-              emit `Internal_server_error (String.length message));
+              (* The handler's response never reached the wire, so none of it
+                 is what was served. *)
+              emit ~path `Internal_server_error (String.length message));
           let consumed =
             if body_len > 0 then body_off + body_len else body_off
           in

@@ -57,7 +57,26 @@ type event = {
   meth : Proffer.Method.t;  (** The method from the request line. *)
   target : string;
       (** The request target as it was sent, still percent-encoded. *)
+  path : string;
+      (** The part of [target] before any ['?'], still percent-encoded. This
+          is empty for a request refused before it reached a route, which is
+          one answered 408, 411 or 413. *)
+  request_headers : (string * string) list;
+      (** Every request field the parser did not consume, in the order they
+          arrived. Content-Length, Transfer-Encoding, Connection and Expect
+          are consumed for framing and never appear. Host does. A name is
+          spelled as the parser gives it, canonically for a field it knows
+          and as sent for one it does not, so a reader folds case to match. A
+          log derives Host, User-Agent, Referer and the forwarding fields
+          from here. *)
   status : Proffer.Status.t;  (** The status sent to the client. *)
+  response_content_type : string option;
+      (** The Content-Type the handler set, or [None] when it set none, as a
+          304 does. A request refused before it reached a route is also
+          [None], its reply being the server's own. *)
+  cache_status : string option;
+      (** What the handler put in X-Cache, or [None] when it set nothing.
+          The field is the site's own, so what a value means is too. *)
   body_size : int;  (** Bytes of body sent, so zero for HEAD and 304. *)
   duration_us : int;
       (** Microseconds from the parse of the request line to the last byte of

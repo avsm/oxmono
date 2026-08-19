@@ -42,6 +42,10 @@ let routes =
                    Body.Sink.write sink "ab";
                    Body.Sink.write sink "cd");
              }));
+    get (s "logged" /? nil) (fun _env _req ->
+        Resp.v ~content_type:"text/html; charset=utf-8"
+          ~headers:[ ("X-Cache", "hit") ]
+          (Body.String "hi"));
     post (s "form" /? nil) (fun _env req ->
         match Req.form_param req "who" with
         | Some who -> Resp.see_other ("/hello/" ^ who)
@@ -255,6 +259,26 @@ let tests ~clock ~net addr =
   check "an oversized body is 413"
     (resp.line = "HTTP/1.1 413 Payload Too Large");
 
+  (* A refused request is logged with what the parse knew of it. No route
+     ran, so it has no path, and the reply is the server's own rather than a
+     handler's, so neither response field is set. Content-Length is consumed
+     for framing and so is not among the fields. *)
+  Eio.Time.sleep clock 0.05;
+  (match !events with
+  | e :: _ ->
+      let names =
+        List.map
+          (fun (name, _) -> String.lowercase_ascii name)
+          e.Proffer_httpz.request_headers
+      in
+      check "413 event status" (Status.code e.Proffer_httpz.status = 413);
+      check "413 event keeps the request fields" (names = [ "host" ]);
+      check "413 event has no path" (e.Proffer_httpz.path = "");
+      check "413 event has no response fields"
+        (e.Proffer_httpz.response_content_type = None
+        && e.Proffer_httpz.cache_status = None)
+  | [] -> check "an event was recorded" false);
+
   (* HTTP/1.0 defaults to closing and has no chunked encoding. *)
   let resp = request "GET / HTTP/1.0\r\n\r\n" in
   check "1.0 status line" (resp.line = "HTTP/1.0 200 OK");
@@ -283,6 +307,33 @@ let tests ~clock ~net addr =
   check "405 allow" (field resp "allow" = Some "POST");
   check "405 body" (resp.body = "Method Not Allowed\n");
 
+  (* Everything an access log needs beyond the request line: the path without
+     its query, the fields the request arrived with, and what the response
+     says about its type and its cache. *)
+  let resp =
+    request
+      (get_req ~headers:"Accept: text/html\r\nUser-Agent: t\r\n" "/logged?q=1")
+  in
+  check "logged body" (resp.body = "hi");
+  Eio.Time.sleep clock 0.05;
+  (match !events with
+  | e :: _ ->
+      let sent =
+        List.map
+          (fun (name, value) -> (String.lowercase_ascii name, value))
+          e.Proffer_httpz.request_headers
+      in
+      check "event path" (e.Proffer_httpz.path = "/logged");
+      check "event request headers arrive in order"
+        (List.map fst sent = [ "host"; "accept"; "user-agent" ]);
+      check "event request headers"
+        (List.assoc_opt "accept" sent = Some "text/html");
+      check "event response content type"
+        (e.Proffer_httpz.response_content_type
+        = Some "text/html; charset=utf-8");
+      check "event cache status" (e.Proffer_httpz.cache_status = Some "hit")
+  | [] -> check "an event was recorded" false);
+
   (* An event is recorded once its response has been written, so the count
      is only stable after the serving fibre has had a turn. *)
   Eio.Time.sleep clock 0.05;
@@ -305,7 +356,7 @@ let tests ~clock ~net addr =
       check "keep-alive second" (second.body = "<p>hello again</p>"));
 
   Eio.Time.sleep clock 0.05;
-  check "one event per request" (List.length !events = 19);
+  check "one event per request" (List.length !events = 20);
   match !events with
   | last :: _ ->
       check "event method" (Method.equal last.Proffer_httpz.meth `GET);

@@ -8,9 +8,10 @@
     A proffer handler is portable. It can therefore capture neither
     domain-bound state, such as a search handle, an access log, a clock or a
     filesystem capability, nor a function whose interface carries no mode
-    annotations, which is every function in Ptime, Uri, Cmarkit and Ezjsonm,
-    and so any Bushel accessor that dates or links an entry, and every
-    renderer built on those. Each of them is reached through a closure in
+    annotations, which is every function in Uri, Cmarkit and Ezjsonm, and any
+    Bushel accessor, including the ones that date an entry through the
+    annotated Ptime, and every renderer built on those. Each of them is
+    reached through a closure in
     {!t} instead, and one value of {!t} is built per domain by {!create},
     where those resources exist.
 

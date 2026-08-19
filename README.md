@@ -60,11 +60,22 @@ void element set replaced by a match, since a set cannot be read from a
 portable function, and the interface annotated. See
 [vendor/htmlit/README.md](vendor/htmlit/README.md).
 
+`ptime` is vendored for the same reason. The vendored copy is 1.2.0 with the
+three module-level tables the arithmetic indexed replaced by matches, since an
+array cannot be read from a portable function, the timestamp and span types
+given the `immutable_data` kind, and both interfaces annotated. The clock
+sublibrary comes with it. See [vendor/ptime/README.md](vendor/ptime/README.md).
+
+`jsonfeed` is vendored as a consequence of that, and is unpatched. A vendored
+`public_name` shadows the installed package for the whole workspace, and two
+libraries named `ptime` cannot be linked into one executable, so every
+workspace dependency of ptime has to be built from source alongside it. See
+[vendor/jsonfeed/README.md](vendor/jsonfeed/README.md).
+
 `syndic` is vendored for a third reason, to carry parse fixes for feeds that
 publishers actually emit. It is deliberately not annotated: its published
-types are built from `Uri.t` and `Ptime.t`, neither of which crosses
-portability, so a feed cannot be held by a portable closure whatever the
-interface says. See
+types are built from `Uri.t`, which does not cross portability, so a feed
+cannot be held by a portable closure whatever the interface says. See
 [vendor/syndic/README.md](vendor/syndic/README.md).
 
 `mdx` from opam is likewise blocked on minus39, hence the local-clone pin

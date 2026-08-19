@@ -19,6 +19,11 @@
  (libraries htmlit))
 
 (test
+ (name test_ptime)
+ (modules test_ptime)
+ (libraries ptime ptime.clock))
+
+(test
  (name test_routes)
  (modules test_routes)
  (libraries arod arod.handlers arod.server proffer proffer.mock))

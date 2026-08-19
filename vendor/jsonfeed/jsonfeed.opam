@@ -1,0 +1,30 @@
+version: "v1.1.0"
+opam-version: "2.0"
+synopsis: "JSON Feed format parser and serializer for OCaml"
+description: """\
+This library implements the JSON Feed specification (version 1.1) for
+OCaml. JSON Feed is a syndication format similar to RSS and Atom, but
+using JSON instead of XML. The library provides type-safe parsing and
+serialization using Jsont and Ptime.
+
+This is jsonfeed v1.1.0 vendored unpatched. It is here only because it
+depends on ptime, and vendor/ptime shadows the installed ptime for the
+whole workspace. Two copies of a library named ptime cannot be linked
+into one executable, so every workspace dependency of ptime has to be
+built from source alongside it."""
+maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
+authors: ["Anil Madhavapeddy"]
+license: "ISC"
+homepage: "https://tangled.sh/@anil.recoil.org/ocaml-jsonfeed"
+bug-reports: "https://tangled.sh/@anil.recoil.org/ocaml-jsonfeed"
+depends: [
+  "dune" {>= "3.21"}
+  "ocaml" {>= "5.2.0"}
+  "jsont" {>= "0.2.0"}
+  "ptime" {>= "1.2.0"}
+  "bytesrw"
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+]
+dev-repo: "git+https://tangled.sh/@anil.recoil.org/ocaml-jsonfeed"

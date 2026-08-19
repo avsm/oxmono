@@ -1,0 +1,4 @@
+(library
+ (name jsonfeed)
+ (public_name jsonfeed)
+ (libraries jsont jsont.bytesrw bytesrw ptime))

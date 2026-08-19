@@ -9,14 +9,15 @@
     of them decides a status, a content type or a cache policy, which is
     {!Arod_handlers}' business.
 
-    These functions reach Ptime, Uri, Cmarkit, Fmt, Srcsetter and Ezjsonm,
+    These functions reach Uri, Cmarkit, Fmt, Srcsetter, Ezjsonm and Bushel,
     whose interfaces carry no mode annotations and so read as nonportable. A
     proffer handler is portable and cannot call them, which is why
     {!Arod_env} closes over them once, on the domain that owns the context.
 
-    Htmlit is vendored and annotated and is no longer one of them. That is not
-    enough to make a render portable on its own. The render path dates entries
-    through Ptime, resolves links through Uri and turns entry bodies into HTML
+    Htmlit and Ptime are vendored and annotated and are no longer among them.
+    That is not enough to make a render portable on its own. The render path
+    reaches every date through a Bushel accessor rather than through Ptime
+    directly, resolves links through Uri and turns entry bodies into HTML
     through Cmarkit, so the closures stay until those three are annotated
     too. *)
 

@@ -52,40 +52,40 @@ re-derive them rather than reapply them from this list.
 Portability status
 ==================
 
-Nothing in `lib/` carries `@@ portable`, and nothing can until `uri`, `ptime`
-and `xmlm` are portable. This was measured, not assumed. Every claim below is
+Nothing in `lib/` carries `@@ portable`, and nothing can until `uri` and
+`xmlm` are portable. This was measured, not assumed. Every claim below is
 a compiler verdict against this copy.
 
-The published types are the harder half of the problem. `Uri.t` and `Ptime.t`
-are abstract at the bare `value` kind in this switch, so neither crosses
-portability. `Syndic.Atom.feed`, `entry`, `link`, `author`, `id`, `icon` and
-`logo` are all built from those two types, so no feed and no entry can be
-held by a portable closure however the interface is annotated. A kind
-annotation cannot fix this from here, because the kind that has to change is
-on an abstract type in another package.
+The published types are the harder half of the problem. `Uri.t` is abstract at
+the bare `value` kind in this switch, so it does not cross portability.
+`Syndic.Atom.feed`, `entry`, `link`, `author`, `id`, `icon` and `logo` are all
+built from it, so no feed and no entry can be held by a portable closure
+however the interface is annotated. A kind annotation cannot fix this from
+here, because the kind that has to change is on an abstract type in another
+package. `Ptime.t` was the other half of this and no longer is: `vendor/ptime`
+gives it the `immutable_data` kind.
 
 The function bodies are the easier half and still do not clear. Annotating
 `Syndic_atom.to_xml` names `Syndic_common.Util.add_node_option` as the
 blocker. Annotating `Syndic_common` names `Syndic_xml.resolve`. Annotating
 `Syndic_xml` names `Uri.resolve`, which is where the chain stops. On the date
-side, annotating `Syndic_date` names `epoch`, which is `Ptime.epoch`, and the
-rest of that module is `Ptime` under other names. `Xmlm.make_output` is
-nonportable too, so `Syndic_atom.output` would fail on `xmlm` even with `uri`
-and `ptime` solved.
+side, `Syndic_date` is `Ptime` under other names and `vendor/ptime` has
+annotated that. `Xmlm.make_output` is nonportable too, so `Syndic_atom.output`
+would fail on `xmlm` even with `uri` solved.
 
 The one blocker local to this copy is `month_to_int` in `syndic_date.ml`, a
 module-level `Hashtbl` filled by a top-level `let ()`. That is the shape the
-htmlit vendoring fixed by replacing a module-level `Set` with a match. Fixing
-it here would gain nothing, because every value in `Syndic_date` reaches
-`Ptime` anyway.
+htmlit vendoring fixed by replacing a module-level `Set` with a match. It is
+now the only thing between `Syndic_date` and an annotation, since the `Ptime`
+it wraps is annotated. Fixing it would still not let a feed cross, because
+`Syndic.Atom.feed` holds `Uri.t`.
 
 What would have to land first, in order:
 
-1. `ptime` vendored and annotated, including a crossing kind on `Ptime.t`.
-2. `xmlm` vendored and annotated, at least `make_output` and `to_xmlm`.
-3. `uri` vendored and annotated, including a crossing kind on `Uri.t`.
+1. `xmlm` vendored and annotated, at least `make_output` and `to_xmlm`.
+2. `uri` vendored and annotated, including a crossing kind on `Uri.t`.
 
-`vendor/ocaml-uri` does not satisfy the third. It builds `uriz`, which is a
+`vendor/ocaml-uri` does not satisfy the second. It builds `uriz`, which is a
 rewrite with a different interface rather than a patched `Uri`. Its functions
 are already portable, so `fun s -> Uriz.to_string (Uriz.of_string_exn s)`
 compiles at `@ portable`, but `Uriz.t` is abstract at the bare `value` kind
@@ -96,10 +96,9 @@ and it would not by itself let a feed cross.
 The callers are blocked independently of all this. `Arod.Feed.feed_string` is
 nonportable, and so is `Arod.Feed.form_uri`, which is one call to
 `Uri.of_string`. The Arod feed path also reaches `Arod.Ctx.author_exn` and
-`Arod.Md.to_atom_html`, which
-`.superpowers/sdd/vendoring-followups/item3-report.md` records as blocked on
-`Ptime` and `Cmarkit`. Making Syndic portable would therefore not on its own
-collapse the `feed` or `blogroll` closure in `Arod_env.t`.
+`Arod.Md.to_atom_html`, which are blocked on `Cmarkit` and on Bushel, whose
+own interface carries no annotations. Making Syndic portable would therefore
+not on its own collapse the `feed` or `blogroll` closure in `Arod_env.t`.
 
 Re-vendoring checklist
 ======================

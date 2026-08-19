@@ -1,0 +1,8 @@
+; Upstream's META names the clock library both [ptime.clock] and, deprecated,
+; [ptime.clock.os]. In-tree consumers write both, so both must resolve.
+
+(library
+ (name ptime_clock_os)
+ (public_name ptime.clock.os)
+ (modules)
+ (libraries (re_export ptime_clock)))

@@ -218,28 +218,47 @@ let academic_patterns = [
   ("mdpi.com", []);
 ]
 
-let is_academic_url url =
-  let uri = Uri.of_string url in
-  match Uri.host uri with
-  | None -> false
-  | Some host ->
-    let host = match Astring.String.cut ~sep:"www." host with
-      | Some ("", rest) -> rest
-      | _ -> host
-    in
-    let path = Uri.path uri in
-    List.exists (fun (domain, prefixes) ->
-      let domain_match =
-        host = domain || Astring.String.is_suffix ~affix:("." ^ domain) host
-      in
-      domain_match && (
-        prefixes = [] ||
-        List.exists (fun prefix -> Astring.String.is_prefix ~affix:prefix path) prefixes
-      )
-    ) academic_patterns
+(* [Stdlib.String] has [starts_with] and [ends_with] but no substring search,
+   and the one affix these predicates look for is eight bytes, so the naive
+   scan is the right one. *)
+let is_infix ~affix s =
+  let n = String.length affix and m = String.length s in
+  let rec matches i j = j = n || (s.[i + j] = affix.[j] && matches i (j + 1)) in
+  let rec scan i = i + n <= m && (matches i 0 || scan (i + 1)) in
+  scan 0
 
-let is_doi_url url =
-  Astring.String.is_infix ~affix:"doi.org/" url
+(* [Uriz.of_string] refuses a string that is not a URI-reference where the
+   opam [Uri] coerced one, so a URL carrying a space, a non-ASCII byte, a
+   brace, a bar, a caret, a backslash, a quote or an angle bracket answers
+   [false] here rather than being parsed. That is the
+   right answer for a predicate that asks whether a URL names a paper. No URL
+   in the links file takes the branch: the two spellings agree on all 4659 of
+   them. *)
+let is_academic_url url =
+  match Uriz.of_string url with
+  | Null -> false
+  | This uri -> (
+    match Uriz.host uri with
+    | Null -> false
+    | This host ->
+      let host =
+        if String.starts_with ~prefix:"www." host
+        then String.sub host 4 (String.length host - 4)
+        else host
+      in
+      let path = Uriz.path uri in
+      List.exists (fun (domain, prefixes) ->
+        let domain_match =
+          String.equal host domain
+          || String.ends_with ~suffix:("." ^ domain) host
+        in
+        domain_match && (
+          prefixes = [] ||
+          List.exists (fun prefix -> String.starts_with ~prefix path) prefixes
+        )
+      ) academic_patterns)
+
+let is_doi_url url = is_infix ~affix:"doi.org/" url
 
 let is_paper_url url =
   is_doi_url url || is_academic_url url

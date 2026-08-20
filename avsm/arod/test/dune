@@ -79,3 +79,11 @@
  (name test_url_render)
  (modules test_url_render)
  (libraries arod arod.component bushel sortal.schema ptime))
+
+; A tool, not a test. It needs a corpus of real URLs that is not in this
+; repository, so it must stay out of the runtest alias. Its header says how
+; to run it and what it proved.
+(executable
+ (name link_predicate_diff)
+ (modules link_predicate_diff)
+ (libraries bushel uri astring uriz))

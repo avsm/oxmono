@@ -9,15 +9,11 @@
     the Karakeep bookmarking service knows about it and which Bushel entries
     mention it. Links live in one YAML file that the sync pipeline rewrites.
 
-    The record and its accessors are portable, which is what lets a renderer
-    read a link from inside a function marked [portable]. The two file
-    operations are not, and neither are the three URL predicates. That last
-    one costs something, because {!is_paper_url} runs at render time on the
-    links listing. {!is_doi_url} is held back by [Astring] alone.
-    {!is_academic_url} is held back twice over, by [Astring] and by the opam
-    [Uri] that the rest of this render path has moved off, and {!is_paper_url}
-    inherits both. Moving the host and path reads onto [uriz] and the three
-    affix tests onto [String] would lift all three. *)
+    Everything here is portable except the two file operations, which is what
+    lets a renderer read a link and classify its URL from inside a function
+    marked [portable]. {!is_paper_url} is what needs that, because it runs at
+    render time on the links listing, and it is the disjunction of the other
+    two, so both of them had to move for either to be worth moving. *)
 
 @@ portable
 
@@ -64,17 +60,18 @@ val description : t -> string
 
 (** {1 URL classification} *)
 
-val is_doi_url : string -> bool @@ nonportable
+val is_doi_url : string -> bool
 (** [is_doi_url u] is [true] if [u] resolves through a DOI resolver. *)
 
-val is_academic_url : string -> bool @@ nonportable
+val is_academic_url : string -> bool
 (** [is_academic_url u] is [true] if [u] is on a publisher or preprint host
     that the Zotero translation server can resolve. Matching ignores a
     leading ["www."] and accepts any subdomain of a listed host. Some hosts
     match only under a given path prefix, so that a journal's front page is
-    not taken for an article. *)
+    not taken for an article. A [u] that is not a URI-reference is [false]
+    rather than being coerced into one. *)
 
-val is_paper_url : string -> bool @@ nonportable
+val is_paper_url : string -> bool
 (** [is_paper_url u] is [is_doi_url u || is_academic_url u]. *)
 
 (** {1 Files and merging} *)

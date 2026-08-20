@@ -90,6 +90,9 @@ module Doi_entry = Bushel_doi_entry
 module Reference = Bushel_reference
 (** Structured reference types for citations. *)
 
+module Smap = Bushel_smap
+(** Build-once lookup tables keyed by string. *)
+
 module Util = Bushel_util
 (** Utility functions (word counting, text processing). *)
 

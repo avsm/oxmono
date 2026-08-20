@@ -13,7 +13,7 @@ type entry =
   | `Note of Bushel_note.t
   ]
 
-type slugs = (string, entry) Hashtbl.t
+type slugs = entry Bushel_smap.t
 
 type t = {
   slugs : slugs;
@@ -25,24 +25,32 @@ type t = {
   videos : Bushel_video.ts;
   contacts : Sortal_schema.Contact.t list;
   images : Srcsetter.t list;
-  image_index : (string, Srcsetter.t) Hashtbl.t;
+  image_index : Srcsetter.t Bushel_smap.t;
   data_dir : string;
   doi_entries : Bushel_doi_entry.ts;
 }
 
 (** {1 Constructors} *)
 
+(* The five entry lists are concatenated in the order the slug table used to be
+   filled, because a slug claimed by two entries resolves to the one added
+   last and that resolution is what callers see. *)
+let slugged_entries ~notes ~projects ~ideas ~videos ~papers =
+  List.map (fun n -> (n.Bushel_note.slug, `Note n)) notes
+  @ List.map (fun p -> (p.Bushel_project.slug, `Project p)) projects
+  @ List.map (fun i -> (i.Bushel_idea.slug, `Idea i)) ideas
+  @ List.map (fun v -> (v.Bushel_video.slug, `Video v)) videos
+  @ List.map (fun p -> (p.Bushel_paper.slug, `Paper p)) papers
+
 let v ~papers ~notes ~projects ~ideas ~videos ~contacts ?(images=[]) ?(doi_entries=[]) ~data_dir () =
-  let slugs : slugs = Hashtbl.create 42 in
   let papers, old_papers = List.partition (fun p -> p.Bushel_paper.latest) papers in
-  List.iter (fun n -> Hashtbl.add slugs n.Bushel_note.slug (`Note n)) notes;
-  List.iter (fun p -> Hashtbl.add slugs p.Bushel_project.slug (`Project p)) projects;
-  List.iter (fun i -> Hashtbl.add slugs i.Bushel_idea.slug (`Idea i)) ideas;
-  List.iter (fun v -> Hashtbl.add slugs v.Bushel_video.slug (`Video v)) videos;
-  List.iter (fun p -> Hashtbl.add slugs p.Bushel_paper.slug (`Paper p)) papers;
+  let slugs : slugs =
+    Bushel_smap.of_list (slugged_entries ~notes ~projects ~ideas ~videos ~papers)
+  in
   (* Build image index *)
-  let image_index = Hashtbl.create (List.length images) in
-  List.iter (fun img -> Hashtbl.add image_index (Srcsetter.slug img) img) images;
+  let image_index =
+    Bushel_smap.of_list (List.map (fun img -> (Srcsetter.slug img, img)) images)
+  in
   { slugs; papers; old_papers; notes; projects; ideas; videos; contacts; images; image_index; data_dir; doi_entries }
 
 (** {1 Accessors} *)
@@ -61,12 +69,12 @@ let doi_entries { doi_entries; _ } = doi_entries
 (** {1 Image Lookup} *)
 
 let lookup_image { image_index; _ } slug =
-  Hashtbl.find_opt image_index slug
+  Bushel_smap.find_opt slug image_index
 
 (** {1 Lookup Functions} *)
 
-let lookup { slugs; _ } slug = Hashtbl.find_opt slugs slug
-let lookup_exn { slugs; _ } slug = Hashtbl.find slugs slug
+let lookup { slugs; _ } slug = Bushel_smap.find_opt slug slugs
+let lookup_exn { slugs; _ } slug = Bushel_smap.find slug slugs
 
 (** {1 Entry Properties} *)
 
@@ -156,8 +164,11 @@ let notes_for_slug { notes; _ } slug =
     | None -> false
   ) notes
 
-let all_entries { slugs; _ } =
-  Hashtbl.fold (fun _ v acc -> v :: acc) slugs []
+(* Reconstructed from the typed lists rather than read out of [slugs], so that
+   two entries sharing a slug both survive here as they did when the table
+   held one binding per addition. *)
+let all_entries { notes; projects; ideas; videos; papers; _ } =
+  List.map snd (slugged_entries ~notes ~projects ~ideas ~videos ~papers)
 
 let all_papers { papers; old_papers; _ } =
   List.map (fun x -> `Paper x) (papers @ old_papers)

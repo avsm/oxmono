@@ -14,8 +14,10 @@ type entry =
   | `Note of Bushel_note.t
   ]
 
-(** Slug-to-entry lookup table. *)
-type slugs = (string, entry) Hashtbl.t
+(** Slug-to-entry lookup table. A slug claimed by more than one entry resolves
+    to the entry that was loaded last, in the order note, project, idea, video,
+    paper. *)
+type slugs = entry Bushel_smap.t
 
 (** The complete entry collection. *)
 type t
@@ -107,7 +109,9 @@ val notes_for_slug : t -> string -> Bushel_note.t list
 (** [notes_for_slug entries slug] returns notes that reference the given slug. *)
 
 val all_entries : t -> entry list
-(** [all_entries entries] returns all entries as a list. *)
+(** [all_entries entries] is every entry, grouped by kind in the order note,
+    project, idea, video and paper, and within a kind in load order. Old paper
+    versions are not included. Callers that need another order must sort. *)
 
 val all_papers : t -> entry list
 (** [all_papers entries] returns all papers including old versions. *)

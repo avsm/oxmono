@@ -23,10 +23,10 @@
     previews. {!make_link_only_mapper} produces ordinary links for feeds and
     for search indexing. {!to_markdown} produces standard markdown.
 
-    The link predicates and {!with_bushel_links} are portable, so a renderer
-    running inside a function marked [portable] can parse with the resolver.
-    The mappers and the whole-document conversions are not, and each says
-    why. *)
+    The link predicates, {!with_bushel_links} and the three mappers are
+    portable, so a renderer running inside a function marked [portable] can
+    parse with the resolver and map the result. Three of the whole-document
+    conversions are not, and each says why. *)
 
 @@ portable
 
@@ -83,19 +83,17 @@ val with_bushel_links : Cmarkit.Label.resolver
 
 (** {1 Mappers}
 
-    None of the three is portable, and the reason is the same for all three
-    and worth stating once. Each writes its results with
-    [Cmarkit.Mapper.default] and [Cmarkit.Mapper.ret]. [Mapper.default] is a
-    module-level value of a polymorphic variant type, which crosses nothing,
-    so a portable function that reads it may only return a [contended]
-    result. [Cmarkit.Mapper.mapper] does not admit one, so such a mapper
-    cannot be passed to [Cmarkit.Mapper.make] and the whole arrangement is
-    unusable. Writing the literals [`Default] and [`Map (Some v)] in place of
-    the two constants removes the read and the mappers become portable, which
-    the compiler confirms on the version of this file that does so. *)
+    All three are portable, and one thing about how they are written keeps
+    them so. Each writes a default result as the literal [`Default] rather
+    than as [Cmarkit.Mapper.default]. That constant is a module-level value of
+    a polymorphic variant type, which crosses nothing, so a portable function
+    that reads it may only return a [contended] result, and
+    [Cmarkit.Mapper.mapper] does not admit one. A mapper here that reads the
+    constant cannot be passed to [Cmarkit.Mapper.make]. [Cmarkit.Mapper.ret]
+    is a function call and is used as it stands. *)
 
 val make_sidenote_mapper :
-  Bushel_entry.t -> Cmarkit.Inline.t Cmarkit.Mapper.mapper @@ nonportable
+  Bushel_entry.t -> Cmarkit.Inline.t Cmarkit.Mapper.mapper
 (** [make_sidenote_mapper es] is an inline mapper that rewrites a Bushel link
     into a {!Side_note} carrying the entry or contact it names. A tag or kind
     link stays an ordinary link, and a link to a slug that [es] does not hold
@@ -104,7 +102,7 @@ val make_sidenote_mapper :
     slug names a video. *)
 
 val make_link_only_mapper :
-  Bushel_entry.t -> Cmarkit.Inline.t Cmarkit.Mapper.mapper @@ nonportable
+  Bushel_entry.t -> Cmarkit.Inline.t Cmarkit.Mapper.mapper
 (** [make_link_only_mapper es] is an inline mapper that rewrites a Bushel link
     into an ordinary link to the site path of what it names. A contact link
     becomes a link to that contact's best URL, or plain text if the contact
@@ -112,22 +110,18 @@ val make_link_only_mapper :
 
 val make_bushel_link_only_mapper :
   'a -> Bushel_entry.t -> Cmarkit.Inline.t Cmarkit.Mapper.mapper
-  @@ nonportable
 (** [make_bushel_link_only_mapper defs es] is [make_link_only_mapper es].
     [defs] is ignored and is there for callers that hold a definition map. *)
 
 (** {1 Whole-document conversions} *)
 
 val plain_text_of_markdown :
-  ?contact_name:(string -> string option) -> string -> string @@ nonportable
+  ?contact_name:(string -> string option) -> string -> string
 (** [plain_text_of_markdown md] is the prose of [md] with its markup removed,
     one paragraph or heading per line and a blank line before each heading. A
     Bushel link becomes its text, a contact link becomes the contact's name if
     [contact_name] maps its handle and the handle otherwise, and an image with
-    a slug target is dropped.
-
-    This is not portable because its mapper reads [Cmarkit.Mapper.delete], a
-    module-level polymorphic variant constant that crosses nothing. *)
+    a slug target is dropped. *)
 
 val to_markdown :
   ?base_url:string ->
@@ -154,13 +148,10 @@ val extract_all_links : string -> string list @@ nonportable
 (** {1 Validation} *)
 
 val validate_references :
-  Bushel_entry.t -> string -> string list * string list @@ nonportable
+  Bushel_entry.t -> string -> string list * string list
 (** [validate_references es md] is the Bushel slugs and the contact handles
     that [md] links to and [es] does not hold, each in unspecified order. Both
-    are returned with their sigils.
-
-    This is not portable because its mapper reads [Cmarkit.Mapper.default], a
-    module-level polymorphic variant constant that crosses nothing. *)
+    are returned with their sigils. *)
 
 (** {1 References} *)
 

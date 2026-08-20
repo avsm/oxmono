@@ -171,16 +171,16 @@ let make_plain_text_mapper ?contact_name () =
              | Some () ->
                let title = Inline.Link.text lb |> text_of_inline in
                Mapper.ret (text_inline title)
-             | None -> Mapper.default))
-       | None -> Mapper.default)
+             | None -> `Default))
+       | None -> `Default)
   in
   let inline _m = function
     | Inline.Link (lb, meta) -> handle_link lb meta
     | Inline.Image (lb, _) ->
       (match image_target_is_bushel lb with
-       | Some _ -> Mapper.delete
-       | None -> Mapper.default)
-    | _ -> Mapper.default
+       | Some _ -> `Map None
+       | None -> `Default)
+    | _ -> `Default
   in
   Mapper.make ~inline ()
 
@@ -312,9 +312,9 @@ let make_sidenote_mapper entries =
                     let ll = `Inline (ld, meta) in
                     let link = Inline.Link.make txt ll in
                     Mapper.ret (Inline.Link (link, meta))
-                  else Mapper.default
-                | None -> Mapper.default))
-          | None -> Mapper.default))
+                  else `Default
+                | None -> `Default))
+          | None -> `Default))
     | Inline.Image (lb, meta) ->
       (* Handle images with bushel slugs *)
       (match image_target_is_bushel lb with
@@ -337,8 +337,8 @@ let make_sidenote_mapper entries =
             let ll = `Inline (ld, meta) in
             let img = Inline.Link.make txt ll in
             Mapper.ret (Inline.Image (img, meta)))
-       | None -> Mapper.default)
-    | _ -> Mapper.default
+       | None -> `Default)
+    | _ -> `Default
 
 (** Alias for compatibility *)
 let make_bushel_inline_mapper = make_sidenote_mapper
@@ -415,10 +415,10 @@ let make_link_only_mapper entries =
                     let ll = `Inline (ld, meta) in
                     let ld = Inline.Link.make txt ll in
                     Mapper.ret (Inline.Link (ld, meta))
-                  else Mapper.default
-                | None -> Mapper.default))
-          | None -> Mapper.default))
-    | _ -> Mapper.default
+                  else `Default
+                | None -> `Default))
+          | None -> `Default))
+    | _ -> `Default
 
 (** Alias for compatibility *)
 let make_bushel_link_only_mapper _defs = make_link_only_mapper
@@ -432,7 +432,7 @@ let scan_for_slugs entries md =
   let inline_mapper _m = function
     | Inline.Link (lb, _meta) ->
       (match link_target_is_bushel ~slugs lb with
-       | Some _ -> Mapper.default
+       | Some _ -> `Default
        | None ->
          (match Inline.Link.referenced_label lb with
           | Some l ->
@@ -442,10 +442,10 @@ let scan_for_slugs entries md =
                let slug = Label.key l in
                if is_bushel_slug slug then
                  Hashtbl.replace slugs slug ();
-               Mapper.default
-             | None -> Mapper.default)
-          | None -> Mapper.default))
-    | _ -> Mapper.default
+               `Default
+             | None -> `Default)
+          | None -> `Default))
+    | _ -> `Default
   in
   let mapper = Mapper.make ~inline:inline_mapper () in
   let _ = Mapper.map_doc mapper doc in
@@ -467,8 +467,8 @@ let extract_all_links text =
          (match Link_definition.dest ld with
           | Some (url, _) ->
             links := url :: !links;
-            Mapper.default
-          | None -> Mapper.default)
+            `Default
+          | None -> `Default)
        | `Ref _ ->
          (match Inline.Link.referenced_label lb with
           | Some l ->
@@ -476,9 +476,9 @@ let extract_all_links text =
             if String.length key > 0 && (key.[0] = ':' || key.[0] = '@' ||
                (String.length key > 1 && key.[0] = '#' && key.[1] = '#')) then
               links := key :: !links;
-            Mapper.default
-          | None -> Mapper.default))
-    | _ -> Mapper.default
+            `Default
+          | None -> `Default))
+    | _ -> `Default
   in
 
   let mapper = Mapper.make ~inline:find_links_in_inline () in
@@ -512,8 +512,8 @@ let extract_external_links md =
          (match Link_definition.dest ld with
           | Some (url, _) when is_external_url url ->
             urls := url :: !urls;
-            Mapper.default
-          | _ -> Mapper.default)
+            `Default
+          | _ -> `Default)
        | `Ref (_, _, l) ->
          let defs = Doc.defs (Doc.of_string ~strict:false md) in
          (match Label.Map.find_opt (Label.key l) defs with
@@ -523,13 +523,13 @@ let extract_external_links md =
                urls := url :: !urls
              | _ -> ())
           | _ -> ());
-         Mapper.default)
+         `Default)
     | Inline.Autolink (autolink, _) ->
       let url = Inline.Autolink.link autolink |> fst in
       if not (Inline.Autolink.is_email autolink) && is_external_url url then
         urls := url :: !urls;
-      Mapper.default
-    | _ -> Mapper.default
+      `Default
+    | _ -> `Default
   in
 
   let mapper = Mapper.make ~inline:inline_mapper () in
@@ -551,10 +551,10 @@ let extract_first_image md =
          (match Link_definition.dest ld with
           | Some (url, _) when !found_image = None ->
             found_image := Some url;
-            Mapper.default
-          | _ -> Mapper.default)
-       | _ -> Mapper.default)
-    | _ -> Mapper.default
+            `Default
+          | _ -> `Default)
+       | _ -> `Default)
+    | _ -> `Default
   in
 
   let mapper = Mapper.make ~inline:find_image_in_inline () in
@@ -620,7 +620,7 @@ let make_validation_mapper entries broken_slugs broken_contacts =
            (match Bushel_entry.lookup entries s with
             | None -> Hashtbl.replace broken_slugs url ()
             | Some _ -> ());
-         Mapper.default
+         `Default
        | None ->
          (match Inline.Link.referenced_label lb with
           | Some l ->
@@ -632,10 +632,10 @@ let make_validation_mapper entries broken_slugs broken_contacts =
                (match List.find_opt (fun c -> Sortal_schema.Contact.handle c = handle) (Bushel_entry.contacts entries) with
                 | None -> Hashtbl.replace broken_contacts slug ()
                 | Some _ -> ());
-               Mapper.default
+               `Default
              | None ->
                (match Meta.find sluglink m with
-                | None -> Mapper.default
+                | None -> `Default
                 | Some () ->
                   let slug = Label.key l in
                   if is_bushel_slug slug then begin
@@ -644,9 +644,9 @@ let make_validation_mapper entries broken_slugs broken_contacts =
                      | None -> Hashtbl.replace broken_slugs slug ()
                      | Some _ -> ()
                   end;
-                  Mapper.default))
-          | None -> Mapper.default))
-    | _ -> Mapper.default
+                  `Default))
+          | None -> `Default))
+    | _ -> `Default
 
 (** Validate all bushel references in markdown and return broken ones *)
 let validate_references entries md =
@@ -792,9 +792,9 @@ let make_to_markdown_mapper ?(base_url="") ?(image_base="/images") entries =
                     let ll = `Inline (ld, meta) in
                     let link = Inline.Link.make txt ll in
                     Mapper.ret (Inline.Link (link, meta))
-                  else Mapper.default
-                | None -> Mapper.default))
-          | None -> Mapper.default))
+                  else `Default
+                | None -> `Default))
+          | None -> `Default))
     | Inline.Image (lb, meta) ->
       (match image_target_is_bushel lb with
        | Some (url, alt, caption) ->
@@ -866,8 +866,8 @@ let make_to_markdown_mapper ?(base_url="") ?(image_base="/images") entries =
                let ll = `Inline (ld, meta) in
                let img = Inline.Link.make txt ll in
                Mapper.ret (Inline.Image (img, meta))))
-       | None -> Mapper.default)
-    | _ -> Mapper.default
+       | None -> `Default)
+    | _ -> `Default
 
 (** Convert Bushel markdown to standard markdown.
 

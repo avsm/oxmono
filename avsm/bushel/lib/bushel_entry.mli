@@ -5,9 +5,9 @@
 
 (** Union entry type for all Bushel content.
 
-    Everything here is portable except {!thumbnail_slug} and {!thumbnail},
-    which is what lets a renderer hold a loaded collection and read entries
-    out of it from inside a function marked [portable]. *)
+    Everything here is portable, which is what lets a renderer hold a loaded
+    collection and read entries out of it from inside a function marked
+    [portable]. *)
 
 @@ portable
 
@@ -194,19 +194,12 @@ val contact_thumbnail : t -> Sortal_schema.Contact.t -> string option
 (** [contact_thumbnail es c] is the path of the thumbnail of [c], or [None] if
     [es] holds no image under the handle of [c]. *)
 
-val thumbnail_slug : t -> entry -> string option @@ nonportable
+val thumbnail_slug : t -> entry -> string option
 (** [thumbnail_slug es e] is the image slug of [e]. A note falls back through
     its title image, the first image in its body, the first video it links and
-    the entry it is about.
+    the entry it is about. *)
 
-    This is not portable because it parses markdown with a mapper that reads
-    [Cmarkit.Mapper.default], a module-level polymorphic variant constant that
-    crosses nothing. Writing the literal [`Default] instead would lift the
-    restriction. *)
-
-val thumbnail : t -> entry -> string option @@ nonportable
+val thumbnail : t -> entry -> string option
 (** [thumbnail es e] is the path of the thumbnail of [e]. A project with no
     image of its own falls back to the face of a supervisor of one of its
-    ideas, preferring one other than [avsm].
-
-    This is not portable for the reason given on {!thumbnail_slug}. *)
+    ideas, preferring one other than [avsm]. *)

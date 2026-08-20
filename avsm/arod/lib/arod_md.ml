@@ -739,8 +739,8 @@ let extract_headings content =
          in
          headings := { id; level; number; text } :: !headings
        | _ -> ());
-      Mapper.default
-    | _ -> Mapper.default
+      `Default
+    | _ -> `Default
   in
   let mapper = Mapper.make ~block:collect_heading () in
   let _ = Mapper.map_doc mapper doc in
@@ -800,8 +800,8 @@ let to_atom_html ~(ctx : Arod_ctx.t) content =
                   Mapper.ret (Inline.Image (new_lb, meta))
                 | None ->
                   failwith (Printf.sprintf "%s slug not found in atom markdown" slug)))
-          | _ -> Mapper.default)
-       | _ -> Mapper.default)
+          | _ -> `Default)
+       | _ -> `Default)
     | _ ->
       Bushel.Md.make_bushel_link_only_mapper defs entries _m inline
   in

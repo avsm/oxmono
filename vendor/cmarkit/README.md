@@ -205,30 +205,25 @@ tree calls either function.
 
   `cmarkit_html.ml:494` and `cmarkit_commonmark.ml:435` fail the same way
   before their own interfaces are annotated and do not fail after, so the two
-  backends are already paid for and are not what blocks this. Two things are.
+  backends are already paid for and are not what blocks this. Two things
+  were, and one still is.
 
   `cmarkit_latex.ml` is meant to stay unannotated, per the entry above, and it
   builds a renderer. Adding the modality would make an unannotated backend
   impossible, so the two decisions cannot both hold.
 
-  `arod_md.ml:667` is outside this directory. Ascribing
-  `custom_inline_renderer` portable to see past the one-line message gives the
-  chain. Srcsetter used to be its first step, through `Img.name` at
-  `arod_md.ml:53`, where `Img` is `Srcsetter`, aliased at `arod_md.ml:8`.
-  `avsm/srcsetter/lib/srcsetter.mli` now carries a floating `@@ portable`, so
-  that step is done and the chain runs on:
+  `arod_md.ml:667` was outside this directory and is now paid. Its chain ran
+  through `Img.name` at `arod_md.ml:53`, where `Img` is `Srcsetter`, aliased
+  at `arod_md.ml:8`, then through `render_sidenote` to
+  `Bushel.Entry.thumbnail`, which parses markdown with a mapper that read
+  `Cmarkit.Mapper.default`. `avsm/srcsetter/lib/srcsetter.mli` carries a
+  floating `@@ portable` and the mapper is written with the literals per the
+  entry below, so ascribing `let custom_inline_renderer : _ @ portable` now
+  compiles with no error at all.
 
-      The value "custom_inline_renderer" is "nonportable"
-        because it closes over the value "render_sidenote" at
-        arod_md.ml, line 604
-        because it closes over the value "Bushel.Entry.thumbnail" at
-        arod_md.ml, line 295
-        which is "nonportable".
-
-  What remains is inside `avsm/bushel`, not here. `Bushel.Entry.thumbnail`
-  parses markdown with a mapper that reads `Cmarkit.Mapper.default`, which is
-  the entry below. When `arod_md.ml` renders portably this is the hunk to add,
-  and `cmarkit_latex.mli` has to be annotated with it.
+  `cmarkit_latex.ml` is therefore the only thing left standing between this
+  copy and the modality, and it is meant to stay unannotated. Whoever wants
+  the modality has to annotate `cmarkit_latex.mli` first.
 
 * `Cmarkit.Mapper.default`, `Mapper.delete` and `Folder.default`. These are
   module-level values of a polymorphic variant type, which crosses nothing, so
@@ -243,15 +238,19 @@ tree calls either function.
   `Mapper.default` typechecks, but only with its result at mode `contended`,
   and `Mapper.mapper` declares an uncontended result, so such a function
   cannot be passed to `Mapper.make`. The two spellings are therefore not
-  interchangeable for a mapper that is to be both portable and usable. This
-  was measured on `avsm/bushel/lib/bushel_md.ml`: its three exported mappers
-  are portable except for those reads, and swapping the constants for the
-  literals is the whole of what stands between them and a floating
-  `@@ portable` on `bushel_md.mli`. The same holds for
-  `Bushel.Entry.thumbnail`. The rewrite is 53 sites: 44 in `bushel_md.ml`, of
-  which one is `Mapper.delete`, and 9 in `bushel_entry.ml`. `arod_md.ml` adds
-  four more when it follows. `Mapper.ret` is a function call and needs no
-  change.
+  interchangeable for a mapper that is to be both portable and usable.
+
+  Every in-tree mapper and folder is written with the literals for that
+  reason, and a reader who reaches for the constant out of habit should know
+  that this is why. The rewrite was 57 sites: 44 in
+  `avsm/bushel/lib/bushel_md.ml`, of which one is `Mapper.delete`, 9 in
+  `avsm/bushel/lib/bushel_entry.ml` and 4 in `avsm/arod/lib/arod_md.ml`.
+  `Mapper.ret` and `Folder.ret` are function calls and were left alone. It
+  bought the floating `@@ portable` on `bushel_md.mli` for the three exported
+  mappers and lifted the `@@ nonportable` from `Bushel.Entry.thumbnail` and
+  `Bushel.Entry.thumbnail_slug`. Putting one constant back fails the build at
+  the interface check, naming a `result @ contended` the interface does not
+  admit.
 
 ### Behaviour identity
 

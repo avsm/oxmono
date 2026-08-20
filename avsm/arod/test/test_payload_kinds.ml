@@ -233,9 +233,10 @@ let link_handler : (string -> string) @ portable =
 
    [Bushel.Md.with_bushel_links] is the resolver the goldens depend on, and
    it is reached the way a renderer reaches it, as an argument to
-   [Cmarkit.Doc.of_string]. The mappers are absent on purpose: they read
-   [Cmarkit.Mapper.default] and [bushel_md.mli] records them as
-   nonportable. *)
+   [Cmarkit.Doc.of_string]. [Bushel.Md.make_link_only_mapper] is reached the
+   way a renderer reaches it too, through [Cmarkit.Mapper.make], which is
+   what a mapper written with [Cmarkit.Mapper.default] cannot be passed
+   to. *)
 
 let render_handler : (string -> string) @ portable =
  fun slug ->
@@ -249,10 +250,14 @@ let render_handler : (string -> string) @ portable =
         (Printf.sprintf "[text][%s]\n" target)
     in
     (* The resolver answers [:slug] with a tagged label that carries no
-       destination, so the HTML backend prints a comment naming an undefined
-       label. Without the resolver the reference would have stayed literal
-       text and no comment would appear, which is what makes the comment
-       proof that the resolver ran. *)
+       destination, and the mapper turns that tagged label into a link to the
+       entry's site path. Without the resolver the reference would have
+       stayed literal text and the mapper would have had nothing to rewrite,
+       so the rendered anchor is proof that both ran. *)
+    let mapper =
+      Cmarkit.Mapper.make ~inline:(Bushel.Md.make_link_only_mapper entries) ()
+    in
+    let doc = Cmarkit.Mapper.map_doc mapper doc in
     let html = String.trim (Cmarkit_html.of_doc ~safe:true doc) in
     match Bushel.Entry.lookup entries key with
     | None -> "no entry"
@@ -285,12 +290,12 @@ let () =
     (link_handler "https://example.com/post" = "A Post");
   check "a feed backlink in a Smap crosses"
     (link_handler "hello-note" = "ada: A Feed Post");
-  check "the Bushel markdown resolver and the note interface are portable"
+  check "the Bushel markdown resolver, mapper and note interface are portable"
     (render_handler "hello-note"
     = "note /notes/hello-note Hello Note 2025-W01 \
-       <p>text<!-- Undefined label :hello-note --></p>");
+       <p><a href=\"/notes/hello-note\">text</a></p>");
   check "the entry, idea and image interfaces are portable"
     (render_handler "an-idea"
     = "idea /ideas/an-idea MPhil Available /images/ada-640.webp \
-       <p>text<!-- Undefined label :an-idea --></p>");
+       <p><a href=\"/ideas/an-idea\">text</a></p>");
   Printf.printf "test_payload_kinds: %d checks ok\n" !checks

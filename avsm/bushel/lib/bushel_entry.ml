@@ -269,10 +269,10 @@ let extract_first_image md =
          (match Link_definition.dest ld with
           | Some (url, _) when !found_image = None ->
             found_image := Some url;
-            Mapper.default
-          | _ -> Mapper.default)
-       | _ -> Mapper.default)
-    | _ -> Mapper.default
+            `Default
+          | _ -> `Default)
+       | _ -> `Default)
+    | _ -> `Default
   in
   let mapper = Mapper.make ~inline:find_image_in_inline () in
   let _ = Mapper.map_doc mapper doc in
@@ -293,11 +293,11 @@ let extract_first_video entries md =
             (match lookup entries slug with
              | Some (`Video v) ->
                found_video := Some (Bushel_video.uuid v);
-               Mapper.default
-             | _ -> Mapper.default)
-          | _ -> Mapper.default)
-       | _ -> Mapper.default)
-    | _ -> Mapper.default
+               `Default
+             | _ -> `Default)
+          | _ -> `Default)
+       | _ -> `Default)
+    | _ -> `Default
   in
   let mapper = Mapper.make ~inline:find_video_in_inline () in
   let _ = Mapper.map_doc mapper doc in

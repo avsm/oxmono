@@ -812,10 +812,12 @@ let make_to_markdown_mapper ?(base_url="") ?(image_base="/images") entries =
             (* Video embed: rewrite watch URL to embed URL *)
             let video_url = Bushel_video.url v in
             let embed_url =
-              let uri = Uri.of_string video_url in
-              let path = Uri.path uri |> String.split_on_char '/' in
-              let path = List.map (function "watch" -> "embed" | p -> p) path in
-              Uri.with_path uri (String.concat "/" path) |> Uri.to_string
+              match Uriz.of_string video_url with
+              | Null -> video_url
+              | This uri ->
+                let path = Uriz.path uri |> String.split_on_char '/' in
+                let path = List.map (function "watch" -> "embed" | p -> p) path in
+                Uriz.with_path uri (String.concat "/" path) |> Uriz.to_string
             in
             let html = Printf.sprintf
               {|<div class="video-center"><iframe title="%s" width="100%%" height="315px" src="%s" frameborder="0" allowfullscreen sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe></div>|}

@@ -23,10 +23,12 @@
     previews. {!make_link_only_mapper} produces ordinary links for feeds and
     for search indexing. {!to_markdown} produces standard markdown.
 
-    The link predicates, {!with_bushel_links} and the three mappers are
-    portable, so a renderer running inside a function marked [portable] can
-    parse with the resolver and map the result. Three of the whole-document
-    conversions are not, and each says why. *)
+    The link predicates, {!with_bushel_links}, the three mappers and two of
+    the three whole-document conversions are portable, so a renderer running
+    inside a function marked [portable] can parse with the resolver, map the
+    result and render it back to markdown. {!extract_all_links} is the one
+    conversion that is not, and it says why, as does {!note_references}
+    below. *)
 
 @@ portable
 
@@ -128,15 +130,12 @@ val to_markdown :
   ?image_base:string ->
   entries:Bushel_entry.t ->
   string ->
-  string @@ nonportable
+  string
 (** [to_markdown ~entries md] is [md] as standard markdown, with every Bushel
     link resolved to a URL under [base_url], which defaults to the empty
     string, and every slug image resolved under [image_base], which defaults
     to ["/images"]. A video embed and an image carrying a placement directive
-    become raw HTML, because markdown cannot express either.
-
-    This is not portable because it rewrites a video watch URL to an embed URL
-    through [Uri]. *)
+    become raw HTML, because markdown cannot express either. *)
 
 val extract_all_links : string -> string list @@ nonportable
 (** [extract_all_links md] is every link and image target in [md], including

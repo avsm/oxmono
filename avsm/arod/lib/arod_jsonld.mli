@@ -3,7 +3,14 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Schema.org JSON-LD structured data generation. *)
+(** Schema.org JSON-LD structured data generation.
+
+    The floating [@@ portable] is scaffolding. Nothing portable calls into
+    this module yet, because the renders that would are blocked by what
+    {!Arod_render}'s header names. It is here so that the chain is paid ahead
+    of them rather than found again. *)
+
+@@ portable
 
 val website_jsonld :
   base_url:string -> site_name:string -> description:string -> string

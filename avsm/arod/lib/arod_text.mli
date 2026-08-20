@@ -3,7 +3,14 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Plaintext extraction helpers for HTML content. *)
+(** Plaintext extraction helpers for HTML content.
+
+    The floating [@@ portable] is scaffolding. Nothing portable calls into
+    this module yet, because the renders that would are blocked by what
+    {!Arod_render}'s header names. It is here so that the chain is paid ahead
+    of them rather than found again. *)
+
+@@ portable
 
 val strip_html : string -> string
 (** Remove all HTML tags, keeping only text content. *)

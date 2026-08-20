@@ -11,7 +11,7 @@ module Project = Bushel.Project
 module B_paper = Bushel.Paper
 module I = Arod.Icons
 
-module StringSet = Set.Make(String)
+module StringSet = Set.MakePortable (String)
 
 (** {1 Main Rendering Functions} *)
 
@@ -30,7 +30,7 @@ let card ~ctx proj =
   in
   let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug project_slug in
   let backlink_set =
-    List.fold_left (fun acc slug -> StringSet.add slug acc) StringSet.empty backlink_slugs
+    List.fold_left (fun acc slug -> StringSet.add slug acc) (StringSet.of_list []) backlink_slugs
   in
   let recent_notes =
     List.filter (fun e ->
@@ -67,7 +67,7 @@ let full ~ctx proj =
   let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug project_slug in
   let outbound_slugs = Bushel.Link_graph.get_outbound_for_slug project_slug in
   let backlink_set =
-    List.fold_left (fun acc slug -> StringSet.add slug acc) StringSet.empty backlink_slugs
+    List.fold_left (fun acc slug -> StringSet.add slug acc) (StringSet.of_list []) backlink_slugs
   in
   let all_entries = Arod.Ctx.all_entries ctx in
   let entries = Arod.Ctx.entries ctx in
@@ -207,7 +207,7 @@ let projects_list ~ctx =
     let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug project_slug in
     let backlink_set =
       List.fold_left (fun acc slug ->
-        StringSet.add slug acc) StringSet.empty backlink_slugs
+        StringSet.add slug acc) (StringSet.of_list []) backlink_slugs
     in
     let recent_notes =
       List.filter (fun e ->

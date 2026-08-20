@@ -92,6 +92,26 @@ let ada =
       ]
     ()
 
+(* The URL is the shape every video in the real collection has, a PeerTube
+   watch path. {!Bushel.Md.to_markdown} rewrites the [watch] segment to
+   [embed], which is the one place on that path that parses and reassembles a
+   URL. *)
+let a_video =
+  {
+    Bushel.Video.slug = "a-video";
+    title = "A Sample Video";
+    published_date = Option.get (Ptime.of_date (2022, 9, 1));
+    uuid = "0b1c2d3e-4f56-4789-8abc-def012345678";
+    description = "";
+    url = "https://crank.example.org/videos/watch/0b1c2d3e-4f56-4789-8abc-def012345678";
+    talk = true;
+    vertical = false;
+    paper = None;
+    project = None;
+    tags = [];
+    social = None;
+  }
+
 let sample_image =
   let variants =
     Srcsetter.MS.of_list
@@ -117,7 +137,7 @@ let entries =
       ]
     ~projects:[]
     ~ideas:[ idea ~slug:"an-idea" ~title:"A Sample Idea" ~supervisors:[ ada ] ]
-    ~videos:[] ~contacts:[ ada ]
+    ~videos:[ a_video ] ~contacts:[ ada ]
     ~images:[ sample_image; ada_image ]
     ~data_dir:"." ()
 
@@ -280,6 +300,39 @@ let render_handler : (string -> string) @ portable =
           face html
     | Some e -> Bushel.Entry.title e
 
+(* {1 The context render}
+
+   The three closures above stop at Bushel. This one captures a whole
+   {!Arod.Ctx.t} and calls the real {!Arod.Md.to_html} through it, which is
+   the render the site serves rather than a reconstruction of one. Two things
+   hold it up and each was checked by removing it. Dropping the floating
+   [@@ portable] from [arod_md.mli] fails here naming [Arod.Md.to_html], and
+   dropping the [immutable_data] kind from [Arod.Ctx.t] fails here naming
+   [ctx]. Dropping the floating [@@ portable] from [arod_ctx.mli] fails the
+   build one step earlier, inside [arod] itself.
+
+   The markdown is written here rather than read out of an entry body,
+   because what is being pinned is that the renderer runs at all from inside
+   a portable closure, not what it emits. [test_md_golden] owns the bytes. *)
+
+(* {1 The markdown export}
+
+   {!Bushel.Md.to_markdown} is the only render on this path that reassembles a
+   URL, rewriting a video's [watch] segment to [embed] so the export can carry
+   an [iframe]. It moved from opam [Uri] to [Uriz] with the rest of the path,
+   and nothing else under [dune runtest] reaches it: [test_md_golden]'s three
+   renderers are all HTML. So this pins the rewritten bytes as well as the
+   modality. Breaking the rewrite, by dropping the [watch] case from the
+   segment map, fails the check here. *)
+
+let markdown_export : (string -> string) @ portable =
+ fun md -> String.trim (Bushel.Md.to_markdown ~entries md)
+
+let ctx_render : (string -> string) @ portable =
+ fun md ->
+  let html, sidenotes = Arod.Md.to_html ~ctx md in
+  Printf.sprintf "%d %s" (List.length sidenotes) (String.trim html)
+
 let () =
   check "note, its date and its image cross"
     (handler "hello-note" = "Hello Note 2025-01-05 sample.webp [480 960]");
@@ -298,4 +351,21 @@ let () =
     (render_handler "an-idea"
     = "idea /ideas/an-idea MPhil Available /images/ada-640.webp \
        <p><a href=\"/ideas/an-idea\">text</a></p>");
+  check "a captured context renders a contact sidenote portably"
+    (ctx_render "See [x][@ada].\n"
+    = "1 <p>See <span class=\"sidenote-anchor\"><a href=\"#\" \
+       class=\"sidenote-ref\" data-sidenote=\"ada\">Ada Lovelace</a></span>.</p>");
+  check "a captured context numbers a heading portably"
+    (ctx_render "## Head\n\nBody.\n"
+    = "0 <h2 id=\"head\" class=\"group relative text-lg font-semibold mt-5 \
+       mb-2\"><a href=\"#head\" class=\"heading-number\" aria-label=\"Link to \
+       this section\">1</a> Head</h2>\n<p>Body.</p>");
+  check "a video watch URL is rewritten to an embed URL portably"
+    (markdown_export "![%c](:a-video \"A talk\")\n"
+    = "<div class=\"video-center\"><iframe title=\"A talk\" width=\"100%\" \
+       height=\"315px\" \
+       src=\"https://crank.example.org/videos/embed/\
+       0b1c2d3e-4f56-4789-8abc-def012345678\" frameborder=\"0\" \
+       allowfullscreen sandbox=\"allow-same-origin allow-scripts \
+       allow-popups allow-forms\"></iframe></div>");
   Printf.printf "test_payload_kinds: %d checks ok\n" !checks

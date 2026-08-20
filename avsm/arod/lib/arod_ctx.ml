@@ -27,6 +27,7 @@ type t = {
   feed_backlinks : feed_backlink list Bushel.Smap.t;
   feed_by_url : feed_backlink list Bushel.Smap.t;
   forward_slugs : string list Bushel.Smap.t;
+  outbound_feed : feed_backlink list Bushel.Smap.t;
   links_by_url : Bushel.Link.t Bushel.Smap.t;
 }
 
@@ -280,6 +281,47 @@ let build_forward_slugs feed_items =
              | Some slugs -> Some (raw, slugs)))
        feed_items)
 
+(* An entry's sidebar shows the feed entries its own body links out to. That
+   match is the previous one run the other way round, and it is settled here
+   for the same two reasons: [normalise_url] runs on opam uri, and the
+   outbound links come from a module-level ref in the link graph. A slug that
+   reaches no feed entry has no binding.
+
+   [Bushel.Link_graph.get_external_links_for_slug] answers a sorted set, and
+   the sidebar's order follows it, so the urls are sorted here too. The [seen]
+   table drops a feed entry that two of one slug's outbound links reach. *)
+let build_outbound_feed feed_by_url =
+  let by_source = Hashtbl.create 256 in
+  List.iter
+    (fun (l : Bushel.Link_graph.external_link) ->
+       let cur = try Hashtbl.find by_source l.source with Not_found -> [] in
+       Hashtbl.replace by_source l.source (l.url :: cur))
+    (Bushel.Link_graph.all_external_links ());
+  let backlinks_of urls =
+    let seen = Hashtbl.create 16 in
+    List.concat_map
+      (fun url ->
+         match Bushel.Smap.find_opt (normalise_url url) feed_by_url with
+         | None -> []
+         | Some bls ->
+           List.filter
+             (fun (bl : feed_backlink) ->
+                let fe_url =
+                  match bl.feed_entry.Sortal_feed.Entry.url with
+                  | Some u -> Uriz.to_string u
+                  | None -> ""
+                in
+                if Hashtbl.mem seen fe_url then false
+                else (Hashtbl.add seen fe_url (); true))
+             bls)
+      (List.sort_uniq String.compare urls)
+  in
+  Bushel.Smap.of_list
+    (Hashtbl.fold
+       (fun source urls acc ->
+          match backlinks_of urls with [] -> acc | bls -> (source, bls) :: acc)
+       by_source [])
+
 let create ~config fs =
   let image_output_dir = config.Arod_config.paths.images_dir in
   let data_dir = config.paths.data_dir in
@@ -289,6 +331,7 @@ let create ~config fs =
   let base_url = config.site.base_url in
   let feed_items, feed_backlinks, feed_by_url = load_feed_items ~author_handle ~base_url ~entries fs contacts in
   let forward_slugs = build_forward_slugs feed_items in
+  let outbound_feed = build_outbound_feed feed_by_url in
   let links_by_url =
     let links_file = Filename.concat data_dir "links.yml" in
     let links =
@@ -303,6 +346,7 @@ let create ~config fs =
     feed_backlinks;
     feed_by_url;
     forward_slugs;
+    outbound_feed;
     links_by_url;
   }
 
@@ -314,6 +358,7 @@ let of_entries ~config entries =
     feed_backlinks = Bushel.Smap.empty;
     feed_by_url = Bushel.Smap.empty;
     forward_slugs = Bushel.Smap.empty;
+    outbound_feed = Bushel.Smap.empty;
     links_by_url = Bushel.Smap.empty;
   }
 
@@ -384,20 +429,9 @@ let feed_backlinks_for_slug t slug =
   | None -> []
 
 let feed_items_for_outbound t slug =
-  let ext_urls = Bushel.Link_graph.get_external_links_for_slug slug in
-  let seen = Hashtbl.create 16 in
-  List.concat_map (fun url ->
-    let key = normalise_url url in
-    match Bushel.Smap.find_opt key t.feed_by_url with
-    | Some bls ->
-      List.filter (fun (bl : feed_backlink) ->
-        let fe_url = match bl.feed_entry.Sortal_feed.Entry.url with
-          | Some u -> Uriz.to_string u | None -> "" in
-        if Hashtbl.mem seen fe_url then false
-        else (Hashtbl.add seen fe_url (); true)
-      ) bls
-    | None -> []
-  ) ext_urls
+  match Bushel.Smap.find_opt slug t.outbound_feed with
+  | Some bls -> bls
+  | None -> []
 
 let forward_slugs t url =
   match Bushel.Smap.find_opt url t.forward_slugs with

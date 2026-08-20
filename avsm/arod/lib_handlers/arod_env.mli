@@ -8,18 +8,23 @@
     A proffer handler is portable. It can therefore capture neither
     domain-bound state, such as a search handle, an access log, a clock or a
     filesystem capability, nor a function whose interface carries no mode
-    annotations, which is every function in Uri, Cmarkit and Ezjsonm, and any
-    Bushel accessor, including the ones that date an entry through the
-    annotated Ptime, and every renderer built on those. Each of them is
-    reached through a closure in {!t} instead, and one value of {!t} is built
-    per domain by {!create}, where those resources exist.
+    annotations, which is every function in Uri, Ezjsonm, Re and Syndic, and
+    every renderer built on those. Each of them is reached through a closure
+    in {!t} instead, and one value of {!t} is built per domain by {!create},
+    where those resources exist.
 
     A closure field is named for the response it produces, not for the module
     it came from, so a handler reads as a description of the route it answers.
-    A response a handler can compute itself from plain configuration has no
-    field. It reads {!t.config} instead. *)
+    A response a handler can compute itself has no field: it reads {!t.config}
+    or {!t.ctx} and calls {!Arod_render} directly. {!Arod_render.paper_bib}
+    and {!Arod_render.blogroll} are reached that way, and the header of
+    {!Arod_render} says what stops the rest joining them. *)
 
 type t = {
+  ctx : Arod.Ctx.t;
+      (** The loaded context. It is immutable data, so a handler both captures
+          it and passes it to {!Arod_render} directly. A response whose render
+          is portable has no closure field and reads this instead. *)
   config : Arod.Config.t;
       (** The loaded configuration. It is immutable data, so a handler reads
           it directly rather than through a closure. *)
@@ -39,15 +44,10 @@ type t = {
   entry_markdown : string -> string option;
       (** [entry_markdown slug] is the entry [slug] as markdown, and [None]
           when no entry has that slug. *)
-  paper_bib : string -> string option;
-      (** [paper_bib slug] is the BibTeX entry for the paper [slug], and
-          [None] when [slug] names no paper. *)
   feed : Arod_render.feed -> string;
       (** [feed which] is the syndication feed [which]. *)
   sitemap : unit -> string;
       (** [sitemap ()] is the XML sitemap of every entry. *)
-  blogroll : unit -> string;
-      (** [blogroll ()] is the OPML blogroll of every contact with a feed. *)
   pagination :
     collection:string option ->
     offset:int ->

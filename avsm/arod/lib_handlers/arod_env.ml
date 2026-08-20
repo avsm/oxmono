@@ -4,16 +4,15 @@
  ---------------------------------------------------------------------------*)
 
 type t = {
+  ctx : Arod.Ctx.t;
   config : Arod.Config.t;
   cache : Proffer.Cache.t;
   now : unit -> float;
   listing : Arod_render.listing -> Arod_render.flavour -> string;
   entry : Arod_render.entry_kind -> string -> Arod_render.flavour -> string;
   entry_markdown : string -> string option;
-  paper_bib : string -> string option;
   feed : Arod_render.feed -> string;
   sitemap : unit -> string;
-  blogroll : unit -> string;
   pagination :
     collection:string option ->
     offset:int ->
@@ -30,16 +29,15 @@ type t = {
 let create ~ctx ~cache ~search ~log_search ~read_image ~read_paper ~reader ~now
     =
   {
+    ctx;
     config = Arod.Ctx.config ctx;
     cache;
     now;
     listing = (fun which flavour -> Arod_render.listing ~ctx which flavour);
     entry = (fun kind slug flavour -> Arod_render.entry ~ctx kind slug flavour);
     entry_markdown = (fun slug -> Arod_render.entry_markdown ~ctx slug);
-    paper_bib = (fun slug -> Arod_render.paper_bib ~ctx slug);
     feed = (fun which -> Arod_render.feed ~ctx which);
     sitemap = (fun () -> Arod_render.sitemap ~ctx);
-    blogroll = (fun () -> Arod_render.blogroll ~ctx);
     pagination =
       (fun ~collection ~offset ~limit ~types ->
         Arod_render.pagination ~ctx ~collection ~offset ~limit ~types);

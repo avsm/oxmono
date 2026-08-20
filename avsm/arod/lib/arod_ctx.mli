@@ -8,6 +8,8 @@
     The context holds loaded Bushel entries and site configuration.
     Created once at server startup and passed to all handlers. *)
 
+@@ portable
+
 type feed_item = {
   contact : Sortal_schema.Contact.t;
   entry : Sortal_feed.Entry.t;
@@ -28,7 +30,8 @@ type t : immutable_data
     list or a {!Bushel.Smap.t}. Adding a mutable or function-valued field would
     make the compiler reject this line. *)
 
-val create : config:Arod_config.t -> Eio.Fs.dir_ty Eio.Path.t -> t
+val create :
+  config:Arod_config.t -> Eio.Fs.dir_ty Eio.Path.t -> t @@ nonportable
 (** [create ~config fs] loads Bushel entries from the configured data directory
     and returns a context. This should be called once at server startup. *)
 
@@ -86,8 +89,11 @@ val feed_backlinks_for_slug : t -> string -> feed_backlink list
 (** [feed_backlinks_for_slug t slug] returns feed entries that link to [slug]. *)
 
 val feed_items_for_outbound : t -> string -> feed_backlink list
-(** [feed_items_for_outbound t slug] returns feed entries whose URL matches
-    an outbound external link from [slug]. *)
+(** [feed_items_for_outbound t slug] is the feed entries whose URL matches an
+    outbound external link from [slug], in the order the sorted outbound URLs
+    reach them and without repeats. The match is made through
+    {!normalise_url} when the context is built, for the reason given on
+    {!forward_slugs}. *)
 
 val forward_slugs : t -> string -> string list
 (** [forward_slugs t url] is the slugs of the entries whose bodies link to
@@ -98,7 +104,7 @@ val forward_slugs : t -> string -> string list
 
 (** {1 Feed Annotations} *)
 
-val normalise_url : string -> string
+val normalise_url : string -> string @@ nonportable
 (** [normalise_url u] is [u] with a [www.] host prefix and a trailing slash
     removed, re-parsed and re-rendered through a URI parser. Every table in
     this module that is looked up by URL is keyed on this form, and so is the
@@ -107,14 +113,14 @@ val normalise_url : string -> string
 type annotation_index
 (** An annotations file re-keyed by {!normalise_url}. *)
 
-val annotation_index : Sortal_feed.Annotations.t -> annotation_index
+val annotation_index : Sortal_feed.Annotations.t -> annotation_index @@ nonportable
 (** [annotation_index ann] re-keys [ann] on {!normalise_url}. The stored keys
     are entry URLs as some earlier run rendered them, and that rendering
     changed when Syndic moved from [uri] to [uriz]. A key written under either
     spelling resolves through this index. Slugs recorded under two spellings
     of one URL are unioned. *)
 
-val annotation_slugs : annotation_index -> string -> string list
+val annotation_slugs : annotation_index -> string -> string list @@ nonportable
 (** [annotation_slugs idx url] is the slugs annotated for [url], or the empty
     list if there are none. *)
 

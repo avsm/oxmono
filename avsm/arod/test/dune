@@ -73,7 +73,7 @@
 (test
  (name test_routes)
  (modules test_routes)
- (libraries arod arod.handlers arod.server proffer proffer.mock))
+ (libraries arod arod.handlers arod.server bushel proffer proffer.mock))
 
 (test
  (name test_url_render)

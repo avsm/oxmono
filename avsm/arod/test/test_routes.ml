@@ -21,6 +21,51 @@ let cfg : Arod.Config.t =
     well_known = [ { Arod.Config.key = "known"; value = "value" } ];
   }
 
+(* {!Arod_render.paper_bib} and {!Arod_render.blogroll} are portable, so the
+   handlers that serve them call the real render through the context in the
+   environment rather than through a stub. The context below holds one paper
+   and nothing else, so those two routes answer real bytes: the paper's stored
+   BibTeX, and an OPML document with no outlines in it, since a blogroll lists
+   contacts that have feeds and this context has no contacts. Every other
+   render is still a stub. *)
+let paper : Bushel.Paper.t =
+  {
+    Bushel.Paper.slug = "x";
+    ver = "1";
+    title = "A Paper";
+    authors = [ "Ada Lovelace" ];
+    year = 2024;
+    month = 1;
+    bibtype = "article";
+    publisher = "";
+    booktitle = "";
+    journal = "";
+    institution = "";
+    pages = "";
+    volume = None;
+    number = None;
+    doi = None;
+    url = None;
+    video = None;
+    isbn = "";
+    editor = "";
+    bib = "@x";
+    tags = [];
+    projects = [];
+    slides = [];
+    abstract = "";
+    latest = true;
+    selected = false;
+    classification = None;
+    note = None;
+    social = None;
+  }
+
+let ctx =
+  Arod.Ctx.of_entries ~config:cfg
+    (Bushel.Entry.v ~papers:[ paper ] ~notes:[] ~projects:[] ~ideas:[]
+       ~videos:[] ~contacts:[] ~data_dir:"." ())
+
 (* A handler is portable, so it cannot reach a log source. The search API
    reports through a closure in the environment instead, and the stub below
    records each call for the checks to read back. The stub search returns the
@@ -30,7 +75,8 @@ let searches = ref []
 
 let env =
   {
-    Arod_handlers.Env.config = cfg;
+    Arod_handlers.Env.ctx;
+    config = cfg;
     cache = Proffer.Cache.create ~ttl:60.0;
     now = (fun () -> 0.0);
     listing =
@@ -59,7 +105,6 @@ let env =
         in
         String.concat ":" [ name; slug; flavour f ]);
     entry_markdown = (fun slug -> if slug = "gone" then None else Some slug);
-    paper_bib = (fun slug -> if slug = "gone" then None else Some ("@" ^ slug));
     feed =
       (fun which ->
         match which with
@@ -68,7 +113,6 @@ let env =
         | `Perma_atom -> "perma-atom"
         | `Perma_json -> "perma-json");
     sitemap = (fun () -> "<urlset/>");
-    blogroll = (fun () -> "<opml/>");
     pagination =
       (fun ~collection ~offset ~limit ~types ->
         ignore types;
@@ -178,6 +222,18 @@ let () =
     (header (get "/papers/x.pdf") "Content-Type" = Some "application/pdf");
   check "a missing PDF is a 404" (code (get "/papers/gone.pdf") = 404);
   check "a .bib URL is the BibTeX entry" (body (get "/papers/x.bib") = "@x");
+  check "and a .bib URL for no paper is a 404"
+    (code (get "/papers/gone.bib") = 404);
+  (* The blogroll is a real render, not a stub, so what is pinned here is
+     that it ran and produced an OPML document rather than what it says. Its
+     head stamps the clock, so the bytes cannot be pinned whole. *)
+  check "the blogroll route runs the real render"
+    (let b = body (get "/network/blogroll.opml") in
+     String.starts_with ~prefix:"<?xml version=\"1.0\" encoding=\"UTF-8\"?>" b
+     && String.ends_with ~suffix:"<body/></opml>" b);
+  check "and serves it as OPML"
+    (header (get "/network/blogroll.opml") "Content-Type"
+    = Some "text/x-opml+xml; charset=utf-8");
   check "an entry .md URL is that entry as markdown"
     (body (get "/papers/x.md") = "x");
   check "and an unknown one is a 404" (code (get "/papers/gone.md") = 404)

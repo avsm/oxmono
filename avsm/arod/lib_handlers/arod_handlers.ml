@@ -110,7 +110,7 @@ let paper slug env req =
     | Some body -> Resp.media (Mime.of_path slug) body
     | None -> Resp.not_found ()
   else if String.ends_with ~suffix:".bib" slug then
-    match env.E.paper_bib (Filename.chop_extension slug) with
+    match Render.paper_bib ~ctx:env.E.ctx (Filename.chop_extension slug) with
     | Some bib -> Resp.text bib
     | None -> Resp.not_found ()
   else if String.ends_with ~suffix:".md" slug then
@@ -165,7 +165,7 @@ let encode_segment s = Uriz.pct_encode ~component:`Unreserved s
 let sitemap env _req = Resp.media "application/xml" (env.E.sitemap ())
 
 let blogroll_opml env _req =
-  Resp.media "text/x-opml+xml; charset=utf-8" (env.E.blogroll ())
+  Resp.media "text/x-opml+xml; charset=utf-8" (Render.blogroll ~ctx:env.E.ctx)
 
 let robots_txt env _req =
   Resp.text

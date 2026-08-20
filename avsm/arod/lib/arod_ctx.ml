@@ -24,9 +24,9 @@ type t = {
   config : Arod_config.t;
   entries : Bushel.Entry.t;
   feed_items : feed_item list;
-  feed_backlinks : (string, feed_backlink list) Hashtbl.t;
-  feed_by_url : (string, feed_backlink list) Hashtbl.t;
-  links_by_url : (string, Bushel.Link.t) Hashtbl.t;
+  feed_backlinks : feed_backlink list Bushel.Smap.t;
+  feed_by_url : feed_backlink list Bushel.Smap.t;
+  links_by_url : Bushel.Link.t Bushel.Smap.t;
 }
 
 (** Normalise a URL for matching: strip www. prefix from host, remove trailing slash. *)
@@ -244,7 +244,13 @@ let load_feed_items ~author_handle ~base_url ~entries fs contacts =
       Hashtbl.replace feed_by_url key (bl :: cur)
     | None -> ()
   ) items;
-  (items, feed_backlinks, feed_by_url)
+  (* Both tables are accumulated in a scratch hashtable because a key's list
+     grows as the feeds are walked, then frozen into the read-only shape the
+     context holds. *)
+  let freeze tbl =
+    Bushel.Smap.of_list (Hashtbl.fold (fun k v acc -> (k, v) :: acc) tbl [])
+  in
+  (items, freeze feed_backlinks, freeze feed_by_url)
 
 let create ~config fs =
   let image_output_dir = config.Arod_config.paths.images_dir in
@@ -256,14 +262,10 @@ let create ~config fs =
   let feed_items, feed_backlinks, feed_by_url = load_feed_items ~author_handle ~base_url ~entries fs contacts in
   let links_by_url =
     let links_file = Filename.concat data_dir "links.yml" in
-    let tbl = Hashtbl.create 256 in
-    (try
-       let links = Bushel.Link.load_links_file links_file in
-       List.iter (fun (l : Bushel.Link.t) ->
-         Hashtbl.replace tbl l.url l
-       ) links
-     with _ -> ());
-    tbl
+    let links =
+      try Bushel.Link.load_links_file links_file with _ -> []
+    in
+    Bushel.Smap.of_list (List.map (fun (l : Bushel.Link.t) -> (l.url, l)) links)
   in
   { config; entries; feed_items; feed_backlinks; feed_by_url; links_by_url }
 
@@ -272,9 +274,9 @@ let of_entries ~config entries =
     config;
     entries;
     feed_items = [];
-    feed_backlinks = Hashtbl.create 1;
-    feed_by_url = Hashtbl.create 1;
-    links_by_url = Hashtbl.create 1;
+    feed_backlinks = Bushel.Smap.empty;
+    feed_by_url = Bushel.Smap.empty;
+    links_by_url = Bushel.Smap.empty;
   }
 
 (** {1 Config Accessors} *)
@@ -339,14 +341,16 @@ let feed_items_for_contact t handle =
   ) t.feed_items
 
 let feed_backlinks_for_slug t slug =
-  try Hashtbl.find t.feed_backlinks slug with Not_found -> []
+  match Bushel.Smap.find_opt slug t.feed_backlinks with
+  | Some bls -> bls
+  | None -> []
 
 let feed_items_for_outbound t slug =
   let ext_urls = Bushel.Link_graph.get_external_links_for_slug slug in
   let seen = Hashtbl.create 16 in
   List.concat_map (fun url ->
     let key = normalise_url url in
-    match Hashtbl.find_opt t.feed_by_url key with
+    match Bushel.Smap.find_opt key t.feed_by_url with
     | Some bls ->
       List.filter (fun (bl : feed_backlink) ->
         let fe_url = match bl.feed_entry.Sortal_feed.Entry.url with
@@ -363,10 +367,9 @@ let tags_of_ent t ent = Bushel.Entry.tags_of_ent t.entries ent
 
 (** {1 Links} *)
 
-let link_for_url t url = Hashtbl.find_opt t.links_by_url url
+let link_for_url t url = Bushel.Smap.find_opt url t.links_by_url
 
-let all_links t =
-  Hashtbl.to_seq_values t.links_by_url |> List.of_seq
+let all_links t = List.map snd (Bushel.Smap.bindings t.links_by_url)
 
 (** {1 Entry Filtering} *)
 

@@ -66,6 +66,8 @@ val videos : t -> Bushel.Video.t list
 val contacts : t -> Sortal_schema.Contact.t list
 val images : t -> Srcsetter.t list
 val all_entries : t -> Bushel.Entry.entry list
+(** [all_entries t] is {!Bushel.Entry.all_entries} over the context's entries,
+    so it is grouped by kind rather than sorted. *)
 
 (** {1 Feed Items} *)
 
@@ -114,7 +116,8 @@ val link_for_url : t -> string -> Bushel.Link.t option
 (** [link_for_url t url] returns the link metadata for [url] if present in links.yml. *)
 
 val all_links : t -> Bushel.Link.t list
-(** [all_links t] returns all links loaded from links.yml. *)
+(** [all_links t] is every link loaded from links.yml, in increasing URL
+    order. *)
 
 (** {1 Entry Filtering} *)
 

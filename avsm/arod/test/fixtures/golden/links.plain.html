@@ -1,0 +1,18 @@
+<p>An inline slug link reads <a href="/notes/hello-note">the hello note</a>, and a bare one
+reads <a href="/notes/hello-note">Hello Note</a>. Both resolve through the entry set.</p>
+<p>A reference slug link reads <a href="/notes/hello-note">these words</a>. That form is the
+one that travels through a <code>Cmarkit.Meta.key</code>: the resolver tags the label
+and the mapper reads the tag back.</p>
+<p>A paper reads <a href="/papers/a-paper">A Sample Paper</a>, a project reads <a href="/projects/a-project">A Sample Project</a>, an idea reads
+<a href="/ideas/an-idea">A Sample Idea</a> and a video reads <a href="/videos/a-video">A Sample Video</a>. Each entry kind builds a different
+sidenote.</p>
+<p>A slug that names nothing reads <a href="">:no-such-entry</a>, and falls back to a
+plain link.</p>
+<p>A contact link reads Ada Lovelace, and a reference contact link reads
+Ada Lovelace. Both of those are reference links and travel through
+the authorlink key. An inline one, <a href="">the author of it</a>, does not: it is
+detected from its destination instead, and keeps its own link text.</p>
+<p>A tag link reads <a href="">ocaml</a> and a kind link reads
+<a href="">papers</a>.</p>
+<p>An ordinary link to <a href="https://example.com/b">example</a> must be untouched by
+any of this.</p>

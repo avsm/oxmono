@@ -27,6 +27,18 @@ val create : config:Arod_config.t -> Eio.Fs.dir_ty Eio.Path.t -> t
 (** [create ~config fs] loads Bushel entries from the configured data directory
     and returns a context. This should be called once at server startup. *)
 
+val of_entries : config:Arod_config.t -> Bushel.Entry.t -> t
+(** [of_entries ~config entries] is a context over [entries] alone, with no
+    feed items, no feed backlinks and no link table. It reads no filesystem
+    and needs no Eio.
+
+    {!Arod_md.to_html}, {!Arod_md.to_plain_html} and {!Arod_md.to_atom_html}
+    take nothing else out of a context, so this is enough to render a body.
+    It is not enough for the rest of {!Arod_md}: {!Arod_md.with_feed_references}
+    reads {!author_exn}, which raises unless [entries] holds a contact whose
+    handle is the configured one. The server builds its context with
+    {!create}. *)
+
 (** {1 Config Accessors} *)
 
 val config : t -> Arod_config.t

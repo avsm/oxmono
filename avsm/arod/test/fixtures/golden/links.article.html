@@ -1,0 +1,18 @@
+<p>An inline slug link reads <span class="sidenote-anchor"><a href="/notes/hello-note" class="sidenote-ref" data-sidenote="hello-note">the hello note</a></span>, and a bare one
+reads <span class="sidenote-anchor"><a href="/notes/hello-note" class="sidenote-ref" data-sidenote="hello-note">Hello Note</a></span>. Both resolve through the entry set.</p>
+<p>A reference slug link reads <span class="sidenote-anchor"><a href="/notes/hello-note" class="sidenote-ref" data-sidenote="hello-note">these words</a></span>. That form is the
+one that travels through a <code>Cmarkit.Meta.key</code>: the resolver tags the label
+and the mapper reads the tag back.</p>
+<p>A paper reads <span class="sidenote-anchor" id="cite-10-1234-sample"><a href="/papers/a-paper" class="sidenote-ref" data-sidenote="a-paper">A Sample Paper</a></span>, a project reads <span class="sidenote-anchor"><a href="/projects/a-project" class="sidenote-ref" data-sidenote="a-project">A Sample Project</a></span>, an idea reads
+<span class="sidenote-anchor"><a href="/ideas/an-idea" class="sidenote-ref" data-sidenote="an-idea">A Sample Idea</a></span> and a video reads <span class="sidenote-anchor"><a href="/videos/a-video" class="sidenote-ref" data-sidenote="a-video">A Sample Video</a></span>. Each entry kind builds a different
+sidenote.</p>
+<p>A slug that names nothing reads <a href="">:no-such-entry</a>, and falls back to a
+plain link.</p>
+<p>A contact link reads <span class="sidenote-anchor"><a href="#" class="sidenote-ref" data-sidenote="ada">Ada Lovelace</a></span>, and a reference contact link reads
+<span class="sidenote-anchor"><a href="#" class="sidenote-ref" data-sidenote="ada">Ada Lovelace</a></span>. Both of those are reference links and travel through
+the authorlink key. An inline one, <span class="sidenote-anchor"><a href="#" class="sidenote-ref" data-sidenote="ada">the author of it</a></span>, does not: it is
+detected from its destination instead, and keeps its own link text.</p>
+<p>A tag link reads <a href="#tag=ocaml" data-tag="ocaml" class="tag-search-link"><span class="hash-prefix">#</span>ocaml</a> and a kind link reads
+<a href="#kind=papers" data-kind="papers" class="kind-search-link">papers</a>.</p>
+<p>An ordinary link to <a href="https://example.com/b">example</a> must be untouched by
+any of this.</p>

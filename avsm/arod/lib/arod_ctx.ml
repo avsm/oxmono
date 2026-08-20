@@ -267,6 +267,16 @@ let create ~config fs =
   in
   { config; entries; feed_items; feed_backlinks; feed_by_url; links_by_url }
 
+let of_entries ~config entries =
+  {
+    config;
+    entries;
+    feed_items = [];
+    feed_backlinks = Hashtbl.create 1;
+    feed_by_url = Hashtbl.create 1;
+    links_by_url = Hashtbl.create 1;
+  }
+
 (** {1 Config Accessors} *)
 
 let config t = t.config

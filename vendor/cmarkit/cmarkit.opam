@@ -22,16 +22,18 @@ Cmarkit is distributed under the ISC license. It has no dependencies.
 
 This copy is patched for OxCaml portability. Its Unicode and HTML entity
 tables are immutable arrays rather than Sets and Maps, node metadata has a
-dictionary whose bindings cross portability and contention, and several
-functor applications are the portable ones. Rendering and parsing behaviour
-is unchanged. See README.md for the hunks.
+dictionary whose bindings cross portability and contention, several functor
+applications are the portable ones, and the parsing and rendering interfaces
+carry the mode annotations a portable caller needs. Rendering and parsing
+behaviour is unchanged. See README.md for the hunks.
 
-This copy needs an OxCaml compiler. Two things ask for it: the Stdlib's
-Type.Id, which upstream shims for compilers before 5.1 and whose
-immutable_data kind the metadata dictionary needs, and the basement library,
-which provides the iarray operations the tables use. The ocaml lower bound
-below is 5.1.0 for the Type.Id requirement, and is a necessary rather than a
-sufficient condition.
+This copy needs an OxCaml compiler. It is not buildable by an upstream OCaml
+of any version. Three things ask for it: the mode and kind syntax in the
+interfaces, the Stdlib's Type.Id, which upstream shims for compilers before
+5.1 and which this copy needs unshimmed for its immutable_data kind, and the
+basement library, which provides the iarray operations the tables use. The
+ocaml lower bound below is 5.1.0 for the Type.Id requirement, and is a
+necessary rather than a sufficient condition.
 
 [CommonMark specification]: https://spec.commonmark.org/
 

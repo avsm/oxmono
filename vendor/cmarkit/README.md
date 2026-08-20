@@ -113,12 +113,12 @@ the container with code, or move to `iarray`. All three appear below.
 
 ### The annotation hunks
 
-Four interfaces carry a floating `@@ portable` at the head of the file, which
+Six interfaces carry a floating `@@ portable` at the head of the file, which
 makes every value in them portable: `cmarkit_data.mli`, `cmarkit_base.mli`,
-`cmarkit.mli` and `cmarkit_renderer.mli`. Together they let a `@ portable`
-closure parse a document, resolve its labels through a resolver of its own,
-map and fold the tree, and drive a renderer over a buffer. The two backends
-follow.
+`cmarkit.mli`, `cmarkit_renderer.mli`, `cmarkit_html.mli` and
+`cmarkit_commonmark.mli`. Together they let a `@ portable` closure parse a
+document and render it to HTML or to CommonMark, with a resolver, a mapper, a
+folder and a composed renderer of its own.
 
 Five types carry a kind, and no more than five do. A kind is only worth adding
 where a value of the type has to be held at module level and read from a
@@ -141,7 +141,7 @@ portable function, and most of cmarkit's types cannot carry one in any case:
   read it from every rendering function. It costs nothing, being a
   `Type.Id.t` once the shim is gone.
 
-Six `.empty` sites became calls, each named by the compiler the moment the
+Seven `.empty` sites became calls, each named by the compiler the moment the
 function that reads it was required to be portable:
 
 | Site | Read | Now |
@@ -151,6 +151,7 @@ function that reads it was required to be portable:
 | `cmarkit.ml:886`, `parser` | `cidx = Closer_index.empty` | `Closer_index.of_list []` |
 | `cmarkit.ml:1110`, `rev_token_list_and_make_closer_index` | `loop Closer_index.empty` | `loop (Closer_index.of_list [])` |
 | `cmarkit.ml:2961`, `Doc.make` | `?(defs = Label.Map.empty)` | `Label.Map.of_list []` |
+| `cmarkit_html.ml:25`, `init_context` | `String_set.empty`, `Label.Map.empty` | `of_list []` for both |
 | `cmarkit_renderer.ml:49`, `Context.make` | `Dict.empty` | `Dict.empty ()` |
 
 Three constants became functions, which is a break in the published
@@ -166,19 +167,21 @@ that would have kept it a constant.
   defaults read them, all inside `cmarkit.ml`. Nothing in this tree reads
   either.
 
+`cmarkit_commonmark.mli`'s `module Char_set : Set.S with type elt = char`
+is gone, replaced by `type char_set = char -> bool`, and `escaped_string` and
+`buffer_add_escaped_string` take that instead of a `Char_set.t`. This is the
+break slice D deferred. The escaper reads five module-level sets, which do not
+cross whatever the functor, and a predicate closes over nothing and does. The
+five are matches now, in the shape htmlit's `void_els` took. Nothing in this
+tree calls either function.
+
 ### What was deliberately left alone
 
 * `cmarkit_latex.ml` and `cmarkit_latex.mli`. The LaTeX renderer is on no
   in-tree path. Its `String_set` is untouched and its interface carries no
   annotation, so `Cmarkit_latex.of_doc` is not callable from a portable
-  function. Annotating it would be the same work as the interfaces above and
+  function. Annotating it would be the same work as `cmarkit_html.mli` and
   would buy nothing today.
-
-* `cmarkit_commonmark.ml`'s `Char_set` and its five module-level escaping
-  sets. They do need to change, and a predicate is the shape that works, which
-  breaks the published type of `escaped_string` and `buffer_add_escaped_string`
-  and removes the `module Char_set : Set.S` beside them. That break belongs
-  with the annotation that forces it, in the backends' own hunk.
 
 * **`Cmarkit_renderer.t`'s four callback fields carry no `@ portable`
   modality, so a renderer does not cross and cannot be held at module level
@@ -186,19 +189,46 @@ that would have kept it a constant.
   works, which is what `Cmarkit_html.of_doc` does and what
   `avsm/arod/test/test_cmarkit_portable.ml` does. The modality was tried. It
   is achievable in the sense that `type t : value mod portable contended` is
-  then accepted, and it is rejected by everything that builds a renderer,
-  because `make` would demand portable callbacks:
+  then accepted, and it is rejected by two of the four renderers this
+  workspace builds, because `make` would demand portable callbacks. Applied on
+  top of these hunks, the whole build reports exactly two errors:
 
-      cmarkit_latex.ml:404    ~init_context   nonportable but expected portable
-      cmarkit_html.ml:494     ~init_context   nonportable but expected portable
-      cmarkit_commonmark.ml:429 ~init_context nonportable but expected portable
-      arod_md.ml:659  ~inline:(custom_inline_renderer ~entries ~sidenotes)
+      File "vendor/cmarkit/cmarkit_latex.ml", line 404, characters 25-37:
+      404 |   Cmarkit_renderer.make ~init_context ~inline ~block ~doc ()
+                                     ^^^^^^^^^^^^
+      Error: This value is "nonportable" but is expected to be "portable".
 
-  The three inside this directory would be fixed by their own annotations,
-  except `cmarkit_latex.ml`, which is meant to stay unannotated. The fourth is
-  outside it: `Arod.Md`'s custom renderers close over values from modules that
-  are not annotated, so the modality cannot land until arod's own markdown
-  path is annotated. When that happens this is the hunk to add.
+      File "avsm/arod/lib/arod_md.ml", line 659, characters 15-59:
+      659 |        ~inline:(custom_inline_renderer ~entries ~sidenotes)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      Error: This value is "nonportable" but is expected to be "portable".
+
+  `cmarkit_html.ml:494` and `cmarkit_commonmark.ml:435` fail the same way
+  before their own interfaces are annotated and do not fail after, so the two
+  backends are already paid for and are not what blocks this. Two things are.
+
+  `cmarkit_latex.ml` is meant to stay unannotated, per the entry above, and it
+  builds a renderer. Adding the modality would make an unannotated backend
+  impossible, so the two decisions cannot both hold.
+
+  `arod_md.ml:659` is outside this directory. Ascribing
+  `custom_inline_renderer` portable to see past the one-line message gives the
+  chain, which leaves cmarkit at the first step:
+
+      The value "try_render_linked_image" is "nonportable"
+        because it closes over the value "render_image_html" at
+        arod_md.ml, line 579
+        because it closes over the value "Img.name" at arod_md.ml, line 53
+        which is "nonportable".
+
+  `Img` is `Srcsetter`, aliased at `arod_md.ml:8`.
+  `avsm/srcsetter/lib/srcsetter.mli` already carries a kind on `MS.t` and a
+  `@@ portable` modality on `MS.bindings`, from this campaign's slice B2, but
+  it has no floating `@@ portable`, so `Srcsetter.name` is nonportable and the
+  chain stops there. That is nearer than a whole markdown path: annotating
+  `srcsetter.mli` is the first step, and `arod_md.ml` follows it. When both are
+  done this is the hunk to add, and `cmarkit_latex.mli` has to be annotated
+  with it.
 
 * `Cmarkit.Mapper.default`, `Mapper.delete` and `Folder.default`. These are
   module-level values of a polymorphic variant type, which crosses nothing, so
@@ -211,7 +241,7 @@ that would have kept it a constant.
 
 ### Behaviour identity
 
-Three independent checks.
+Four independent checks.
 
 `avsm/arod/test/test_md_golden.ml` renders four documents through the three
 markdown renderers and the sidenote collector and compares 34 results against
@@ -219,8 +249,8 @@ checked-in bytes. All 34 pass unchanged. It bites: a `Meta_dict.add` that drops
 its binding, which is what a wrong dictionary would look like, fails it at
 `links.article.html` byte 183.
 
-`avsm/arod/test/test_cmarkit_tables.ml` is new here, and is the standing guard
-on the tables. 6665 checks, all of them against the generated arrays the
+`avsm/arod/test/test_cmarkit_tables.ml` is the standing guard on the tables.
+6665 checks, all of them against the generated arrays the
 tables are built from rather than against checked-in expectations, so new
 Unicode data in a later release needs no edit. Every listed whitespace,
 punctuation and case folding code point answers through its accessor and no
@@ -231,10 +261,37 @@ says while 17 other names and the six unreachable numbered heading names do
 not. Nine mutations were run against it and all nine fail it: a short last
 index on each of the four tables, a lowercasing entity lookup, a case fold
 search that never hits, a dropped condition 6 tag, an added one, and a dropped
-condition 1 tag. Two more cover the two ends of the search window those nine
-left untested, and both fail it too: an entity search that starts at index 1,
-so the first entry is unreachable, and one that gives up on a one-element
-window by testing `lo >= hi` for `lo > hi`.
+condition 1 tag. Two more were added with the annotation hunks, for the two
+ends of the search window the first nine left untested, and both fail it: an
+entity search that starts at index 1, so the first entry is unreachable, and
+one that gives up on a one-element window by testing `lo >= hi` for `lo > hi`.
+
+`avsm/arod/test/test_cmarkit_portable.ml` is the standing guard on the
+annotations. 7 checks. It holds two `Cmarkit.Meta.key` values and a
+`Cmarkit_renderer.Context.State.t` at module level and reads all three from
+`@ portable` closures that parse a document with their own resolver, render it
+to HTML and to CommonMark, map it, fold it, and run a renderer composed with
+`Cmarkit_html.renderer`, comparing the rendered bytes. The captures are what
+guards: a closure that only takes cmarkit values as arguments compiles
+whatever the interface says about modes.
+
+One of its checks is not about modes. It renders a document whose two links
+carry an angled destination, a bare destination, a double-quoted title and a
+single-quoted one, which is what reaches four of the five escaping predicates
+above. It is here because nothing else in the tree reaches them:
+`test_md_golden.ml`'s three renderers are all HTML, and the only in-tree
+caller of `Cmarkit_commonmark` is `Bushel.Md.to_markdown`, which no test runs.
+Setting all four predicates to `fun _ -> true` fails it, so does setting all
+four to `fun _ -> false`, and so does setting any one of the four on its own.
+Before this check, the first of those mutations left the whole suite green.
+
+It bites. Removing the floating
+`@@ portable` from `cmarkit_html.mli` fails it with
+`The value "Cmarkit_html.of_doc" is "nonportable" but is expected to be
+"portable"`, and removing the `immutable_data` kind from
+`Cmarkit.Meta.key` fails it with `The value "sluglink" is "nonportable"`, as
+does removing it from `Cmarkit_renderer.Context.State.t`, naming the state
+key.
 
 A differential harness, built in a scratch directory, compiles one driver
 against the pristine 0.3.0 sources and against this copy and diffs the two
@@ -310,15 +367,17 @@ the workspace build. The four in-tree consumers, `avsm/arod/lib`,
        dune build @avsm/arod/all @avsm/arod/runtest --force
        dune build @avsm/bushel/all @avsm/sortal/all @avsm/sortal/runtest
 
-   Two tests there are the gate. `avsm/arod/test/test_md_golden.ml`
+   Three tests there are the gate. `avsm/arod/test/test_md_golden.ml`
    byte-compares 34 rendered results against checked-in files, so a cmarkit
    change that alters one byte of output fails there. Never regenerate the
    goldens to make it pass. `avsm/arod/test/test_cmarkit_tables.ml` checks the
    four tables against the generated arrays they are built from, so it
    survives new Unicode data but not a mis-built table. Its two lists of tag
    names are the one thing in it that a release could legitimately move.
-5. Rebuild the differential harness described above, since the two tests reach
-   only what their corpus and their tag lists reach. Two scratch dune
+   `avsm/arod/test/test_cmarkit_portable.ml` fails if any of the annotations
+   or the kinds is dropped.
+5. Rebuild the differential harness described above, since the three tests
+   reach only what their corpus and their tag lists reach. Two scratch dune
    projects, one holding the new pristine sources and one holding this
    directory, each with the driver and `(flags (:standard -w -a))`, and the
    two transcripts diffed. The driver is not checked in, because it has to be

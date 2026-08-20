@@ -14,6 +14,8 @@
     {b Warning.} Rendering outputs are unstable, they may be tweaked
     even between minor versions of the library. *)
 
+@@ portable
+
 (** {1:rendering Rendering} *)
 
 val of_doc : ?backend_blocks:bool -> safe:bool -> Cmarkit.Doc.t -> string

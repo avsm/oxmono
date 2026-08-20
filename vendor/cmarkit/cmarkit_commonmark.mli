@@ -15,6 +15,8 @@
     {b Warning.} Rendering outputs are unstable. They may be tweaked
     even between minor versions of the library. *)
 
+@@ portable
+
 (** {1:rendering Rendering} *)
 
 val of_doc : Cmarkit.Doc.t -> string
@@ -68,18 +70,23 @@ val indent : Cmarkit_renderer.context -> unit
 
 (** {2:bslash Backslash escaping} *)
 
-module Char_set : Set.S with type elt = char
-(** Sets of US-ASCII characters. *)
+type char_set = char -> bool
+(** The type for sets of US-ASCII characters, as membership predicates.
+    Upstream publishes a [Set.Make (Char)] here. A predicate is used instead
+    because the renderer holds its own escaping sets at module level, and a
+    module-level value of a stdlib container cannot be read from a portable
+    function. *)
 
 val escaped_string :
-  ?esc_ctrl:bool -> Cmarkit_renderer.context -> Char_set.t -> string -> unit
+  ?esc_ctrl:bool -> Cmarkit_renderer.context -> char_set -> string -> unit
 (** [escaped_string ?esc_ctrl c cs s] renders [s] on [c] with
-    characters in [cs] backslash escaped. If [esc_ctrl] is [true]
-    (default) {{:https://spec.commonmark.org/0.30/#ascii-control-character}
+    characters for which [cs] is [true] backslash escaped. If [esc_ctrl] is
+    [true] (default)
+    {{:https://spec.commonmark.org/0.30/#ascii-control-character}
     ASCII control characters} are escaped to decimal escapes. *)
 
 val buffer_add_escaped_string :
-  ?esc_ctrl:bool -> Buffer.t -> Char_set.t -> string -> unit
+  ?esc_ctrl:bool -> Buffer.t -> char_set -> string -> unit
 (** [buffer_add_escaped_string b cs s] is {!escaped_string} but
     appends to a buffer value. *)
 

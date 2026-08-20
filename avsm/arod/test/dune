@@ -59,6 +59,11 @@
  (libraries cmarkit))
 
 (test
+ (name test_cmarkit_portable)
+ (modules test_cmarkit_portable)
+ (libraries cmarkit))
+
+(test
  (name test_md_golden)
  (modules test_md_golden)
  (deps

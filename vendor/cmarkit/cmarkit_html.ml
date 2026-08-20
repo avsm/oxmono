@@ -22,7 +22,7 @@ let state : state C.State.t = C.State.make ()
 let safe c = (C.State.get c state).safe
 let backend_blocks c = (C.State.get c state).backend_blocks
 let init_context ?(backend_blocks = false) ~safe c _ =
-  let ids = String_set.empty and footnotes = Label.Map.empty in
+  let ids = String_set.of_list [] and footnotes = Label.Map.of_list [] in
   let st = { safe; backend_blocks; ids; footnote_count = 0; footnotes } in
   C.State.set c state (Some st)
 

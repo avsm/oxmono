@@ -24,13 +24,19 @@ let init_context c d =
 
 (* Escaping *)
 
-module Char_set = Set.Make (Char)
+(* A character set is a membership predicate rather than a [Set.Make (Char)].
+   The five sets are module-level values read by the escaper, which must be
+   portable, and a module-level value of a stdlib container does not cross
+   contention whatever the functor. A predicate closes over nothing and so
+   does cross. *)
 
-let esc_angles = Char_set.of_list ['<'; '>']
-let esc_parens = Char_set.of_list ['(';')' ]
-let esc_quote = Char_set.singleton '\''
-let esc_dquote = Char_set.singleton '\"'
-let esc_link_label = Char_set.of_list ['['; ']'; '\\']
+type char_set = char -> bool
+
+let esc_angles = function '<' | '>' -> true | _ -> false
+let esc_parens = function '(' | ')' -> true | _ -> false
+let esc_quote = function '\'' -> true | _ -> false
+let esc_dquote = function '\"' -> true | _ -> false
+let esc_link_label = function '[' | ']' | '\\' -> true | _ -> false
 
 let buffer_add_dec_esc b c =
   Buffer.add_string b "&#";
@@ -48,7 +54,7 @@ let buffer_add_escaped_string ?(esc_ctrl = true) b cs s =
     if i > max then flush b max start i else
     let next = i + 1 in
     let c = String.get s i in
-    if Char_set.mem c cs then
+    if cs c then
       (flush b max start i; buffer_add_bslash_esc b c; loop b s max next next)
     else if esc_ctrl && Cmarkit_base.Ascii.is_control c then
       (flush b max start i; buffer_add_dec_esc b c; loop b s max next next)

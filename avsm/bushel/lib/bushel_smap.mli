@@ -10,7 +10,7 @@
     stdlib [Map.S.t] declares such a kind, and [Map.MakePortable] does not
     change that, so a record field holding either cannot be read from a
     portable closure. This module is a balanced binary search tree over string
-    keys. It is built once from a list and then read only, which is what every
+    keys. It is built once from a list and then read-only, which is what every
     caller in this tree needs. *)
 
 type 'a t : immutable_data with 'a
@@ -37,3 +37,9 @@ val find : string -> 'a t -> 'a
 
 val bindings : 'a t -> (string * 'a) list
 (** [bindings m] is the bindings of [m] in increasing key order. *)
+
+val depth : 'a t -> int
+(** [depth m] is the length of the longest path from the root of [m], which is
+    the worst case a lookup can cost. It is a diagnostic, exported so that a
+    test can hold {!of_list} to the shallowest tree the number of keys allows
+    on input that would degenerate a naive insertion. *)

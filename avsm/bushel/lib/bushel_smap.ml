@@ -5,9 +5,6 @@
 
 (** Build-once lookup tables keyed by string *)
 
-(* The tree is declared here rather than reached for in the stdlib because a
-   type has to carry a kind before a portable closure can read a captured
-   value of it, and no stdlib container declares one. *)
 type 'a t = Empty | Node of 'a t * string * 'a * 'a t
 
 let empty = Empty
@@ -66,3 +63,7 @@ let bindings t =
     | Node (l, k, v, r) -> go l ((k, v) :: go r acc)
   in
   go t []
+
+let rec depth = function
+  | Empty -> 0
+  | Node (l, _, _, r) -> 1 + max (depth l) (depth r)

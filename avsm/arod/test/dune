@@ -39,6 +39,11 @@
  (libraries syndic xmlm uriz ptime))
 
 (test
+ (name test_smap)
+ (modules test_smap)
+ (libraries bushel))
+
+(test
  (name test_feed_annotations)
  (modules test_feed_annotations)
  (libraries arod sortal.feed syndic uriz))

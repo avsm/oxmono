@@ -90,7 +90,7 @@ let annotation_slugs idx url =
     - [scan_feed_entry_mentions] belongs in a [Bushel_feed_links] module
       that takes a [Bushel.Entry.t] and a list of feed entries, returning
       [(feed_entry * Bushel.Entry.entry list) list] plus a reverse map
-      [(string * feed_backlink list) Hashtbl.t].
+      [feed_backlink list Bushel.Smap.t].
 
     - The link graph ([Bushel_link_graph]) could gain a new [feed_backlinks]
       hashtable (slug -> feed_backlink list) alongside the existing

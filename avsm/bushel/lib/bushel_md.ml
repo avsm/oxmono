@@ -37,13 +37,13 @@ type Cmarkit.Inline.t += Side_note of sidenote_data
 
 (** {1 Link Detection} *)
 
-let is_bushel_slug = String.starts_with ~prefix:":"
+let is_bushel_slug s = String.starts_with ~prefix:":" s
 let is_tag_slug link =
   String.starts_with ~prefix:"##" link &&
   not (String.starts_with ~prefix:"###" link)
 let is_kind_slug link =
   String.starts_with ~prefix:"###" link
-let is_contact_slug = String.starts_with ~prefix:"@"
+let is_contact_slug s = String.starts_with ~prefix:"@" s
 
 let strip_handle s =
   if String.length s = 0 then s

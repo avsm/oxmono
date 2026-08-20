@@ -37,7 +37,7 @@
       | _ -> ()
 
       (* Get backlinks *)
-      let backlinks = Bushel.Link_graph.get_backlinks_for_slug "my-note" in
+      let backlinks = Bushel.Entry.backlinks entries "my-note" in
       List.iter print_endline backlinks
     ]}
 *)
@@ -74,7 +74,8 @@ module Link = Bushel_link
 (** External link tracking and merging. *)
 
 module Link_graph = Bushel_link_graph
-(** Bidirectional link graph for entry relationships. *)
+(** Bidirectional link graph for entry relationships. A loaded {!Entry.t}
+    carries one, and {!Entry.backlinks} and its neighbours read it. *)
 
 module Description = Bushel_description
 (** Generate descriptive text for entries. *)

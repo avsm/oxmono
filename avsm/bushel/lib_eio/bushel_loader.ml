@@ -171,27 +171,22 @@ let rec load ?image_output_dir fs base =
   let entries = Bushel.Entry.v ~papers ~notes ~projects ~ideas ~videos ~contacts ~images ~doi_entries ~data_dir () in
   Log.info (fun m -> m "Building link graph");
   let graph = build_link_graph entries in
-  Bushel.Link_graph.set_graph graph;
+  let entries = Bushel.Entry.with_graph entries graph in
   Log.info (fun m -> m "Load complete: %a" Bushel.Link_graph.pp graph);
   entries
 
 (** Build link graph from entries *)
 and build_link_graph entries =
-  let graph = Bushel.Link_graph.empty () in
+  let internal = ref [] in
+  let external_ = ref [] in
 
   let add_internal_link source target target_type =
-    let link = { Bushel.Link_graph.source; target; target_type } in
-    graph.internal_links <- link :: graph.internal_links;
-    Bushel.Link_graph.add_to_set_hashtbl graph.outbound source target;
-    Bushel.Link_graph.add_to_set_hashtbl graph.backlinks target source
+    internal := { Bushel.Link_graph.source; target; target_type } :: !internal
   in
 
   let add_external_link source url =
     let domain = Bushel.Util.extract_domain url in
-    let link = { Bushel.Link_graph.source; domain; url } in
-    graph.external_links <- link :: graph.external_links;
-    Bushel.Link_graph.add_to_set_hashtbl graph.external_by_entry source url;
-    Bushel.Link_graph.add_to_set_hashtbl graph.external_by_domain domain source
+    external_ := { Bushel.Link_graph.source; domain; url } :: !external_
   in
 
   (* Process each entry *)
@@ -283,7 +278,6 @@ and build_link_graph entries =
       | n -> n
   end) in
 
-  graph.internal_links <- LinkSet.elements (LinkSet.of_list graph.internal_links);
-  graph.external_links <- ExtLinkSet.elements (ExtLinkSet.of_list graph.external_links);
-
-  graph
+  Bushel.Link_graph.v
+    ~internal_links:(LinkSet.elements (LinkSet.of_list !internal))
+    ~external_links:(ExtLinkSet.elements (ExtLinkSet.of_list !external_))

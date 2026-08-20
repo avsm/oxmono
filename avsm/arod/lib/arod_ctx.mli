@@ -77,6 +77,23 @@ val all_entries : t -> Bushel.Entry.entry list
 (** [all_entries t] is {!Bushel.Entry.all_entries} over the context's entries,
     so it is grouped by kind rather than sorted. *)
 
+(** {1 Link Graph}
+
+    The graph the loader built over the context's entries. A context made by
+    {!of_entries} has no graph, so each of these answers the empty list. *)
+
+val backlinks : t -> string -> string list
+(** [backlinks t slug] is the slugs of the entries that link to [slug], sorted
+    and without repeats. *)
+
+val outbound : t -> string -> string list
+(** [outbound t slug] is the slugs and contact handles that [slug] links to,
+    sorted and without repeats. *)
+
+val all_external_links : t -> Bushel.Link_graph.external_link list
+(** [all_external_links t] is every web link written in an entry, in
+    increasing source slug and then URL order. *)
+
 (** {1 Feed Items} *)
 
 val feed_items : t -> feed_item list

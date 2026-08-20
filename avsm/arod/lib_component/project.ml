@@ -28,7 +28,7 @@ let card ~ctx proj =
     |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
     |> (fun l -> Common.take 3 l)
   in
-  let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug project_slug in
+  let backlink_slugs = Arod.Ctx.backlinks ctx project_slug in
   let backlink_set =
     List.fold_left (fun acc slug -> StringSet.add slug acc) (StringSet.of_list []) backlink_slugs
   in
@@ -64,8 +64,8 @@ let card ~ctx proj =
 (** Full project with activity stream and references. *)
 let full ~ctx proj =
   let project_slug = proj.Project.slug in
-  let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug project_slug in
-  let outbound_slugs = Bushel.Link_graph.get_outbound_for_slug project_slug in
+  let backlink_slugs = Arod.Ctx.backlinks ctx project_slug in
+  let outbound_slugs = Arod.Ctx.outbound ctx project_slug in
   let backlink_set =
     List.fold_left (fun acc slug -> StringSet.add slug acc) (StringSet.of_list []) backlink_slugs
   in
@@ -204,7 +204,7 @@ let projects_list ~ctx =
       |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
       |> (fun l -> Common.take 3 l)
     in
-    let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug project_slug in
+    let backlink_slugs = Arod.Ctx.backlinks ctx project_slug in
     let backlink_set =
       List.fold_left (fun acc slug ->
         StringSet.add slug acc) (StringSet.of_list []) backlink_slugs

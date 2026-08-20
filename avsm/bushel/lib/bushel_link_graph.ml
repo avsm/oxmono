@@ -5,7 +5,8 @@
 
 (** Link graph for tracking relationships between Bushel entries *)
 
-module StringSet = Set.Make(String)
+module StringSet = Set.Make (String)
+module StringMap = Map.Make (String)
 
 type entry_type = [ `Paper | `Project | `Note | `Idea | `Video | `Contact ]
 
@@ -22,33 +23,71 @@ type external_link = {
 }
 
 type t = {
-  mutable internal_links : internal_link list;
-  mutable external_links : external_link list;
-  outbound : (string, StringSet.t) Hashtbl.t;
-  backlinks : (string, StringSet.t) Hashtbl.t;
-  external_by_entry : (string, StringSet.t) Hashtbl.t;
-  external_by_domain : (string, StringSet.t) Hashtbl.t;
+  internal_links : internal_link list;
+  external_links : external_link list;
+  outbound : string list Bushel_smap.t;
+  backlinks : string list Bushel_smap.t;
+  external_by_entry : string list Bushel_smap.t;
 }
 
 (** {1 Constructors} *)
 
-let empty () = {
-  internal_links = [];
-  external_links = [];
-  outbound = Hashtbl.create 256;
-  backlinks = Hashtbl.create 256;
-  external_by_entry = Hashtbl.create 256;
-  external_by_domain = Hashtbl.create 64;
-}
+let empty =
+  {
+    internal_links = [];
+    external_links = [];
+    outbound = Bushel_smap.empty;
+    backlinks = Bushel_smap.empty;
+    external_by_entry = Bushel_smap.empty;
+  }
 
-(** {1 Global Storage} *)
+(* A key's values are collected into a set so that a table answers the same
+   sorted, repeat-free list the mutable graph answered from a [StringSet]. *)
+let group pairs =
+  let m =
+    List.fold_left
+      (fun m (k, v) ->
+        let cur =
+          match StringMap.find_opt k m with
+          | Some s -> s
+          | None -> StringSet.empty
+        in
+        StringMap.add k (StringSet.add v cur) m)
+      StringMap.empty pairs
+  in
+  Bushel_smap.of_list
+    (List.map (fun (k, s) -> (k, StringSet.elements s)) (StringMap.bindings m))
 
-let current_graph : t option ref = ref None
+let v ~internal_links ~external_links =
+  {
+    internal_links;
+    external_links;
+    outbound =
+      group (List.map (fun (l : internal_link) -> (l.source, l.target)) internal_links);
+    backlinks =
+      group (List.map (fun (l : internal_link) -> (l.target, l.source)) internal_links);
+    external_by_entry =
+      group (List.map (fun (l : external_link) -> (l.source, l.url)) external_links);
+  }
 
-let set_graph graph = current_graph := Some graph
-let get_graph () = !current_graph
+(** {1 Queries} *)
 
-(** {1 Utility Functions} *)
+let find tbl slug =
+  match Bushel_smap.find_opt slug tbl with Some l -> l | None -> []
+
+let backlinks g slug = find g.backlinks slug
+let outbound g slug = find g.outbound slug
+let external_urls g slug = find g.external_by_entry slug
+let all_external_links g = g.external_links
+
+(** {1 Utilities} *)
+
+let entry_type_of_entry = function
+  | `Paper _ -> `Paper
+  | `Project _ -> `Project
+  | `Note _ -> `Note
+  | `Idea _ -> `Idea
+  | `Video _ -> `Video
 
 let entry_type_to_string = function
   | `Paper -> "paper"
@@ -58,143 +97,10 @@ let entry_type_to_string = function
   | `Video -> "video"
   | `Contact -> "contact"
 
-let entry_type_of_entry = function
-  | `Paper _ -> `Paper
-  | `Project _ -> `Project
-  | `Note _ -> `Note
-  | `Idea _ -> `Idea
-  | `Video _ -> `Video
-
-let add_to_set_hashtbl tbl key value =
-  let current =
-    try Hashtbl.find tbl key
-    with Not_found -> StringSet.empty
-  in
-  Hashtbl.replace tbl key (StringSet.add value current)
-
-(** {1 Query Functions} *)
-
-let get_outbound graph slug =
-  try StringSet.elements (Hashtbl.find graph.outbound slug)
-  with Not_found -> []
-
-let get_backlinks graph slug =
-  try StringSet.elements (Hashtbl.find graph.backlinks slug)
-  with Not_found -> []
-
-let get_external_links graph slug =
-  try StringSet.elements (Hashtbl.find graph.external_by_entry slug)
-  with Not_found -> []
-
-let get_entries_linking_to_domain graph domain =
-  try StringSet.elements (Hashtbl.find graph.external_by_domain domain)
-  with Not_found -> []
-
-(** Query functions using global graph *)
-
-let get_backlinks_for_slug slug =
-  match !current_graph with
-  | None -> []
-  | Some graph -> get_backlinks graph slug
-
-let get_outbound_for_slug slug =
-  match !current_graph with
-  | None -> []
-  | Some graph -> get_outbound graph slug
-
-let get_external_links_for_slug slug =
-  match !current_graph with
-  | None -> []
-  | Some graph -> get_external_links graph slug
-
-let all_external_links () =
-  match !current_graph with
-  | None -> []
-  | Some graph -> graph.external_links
-
-(** {1 Pretty Printing} *)
-
-let pp_internal_link ppf (link : internal_link) =
-  Fmt.pf ppf "%s -> %s (%s)"
-    link.source
-    link.target
-    (entry_type_to_string link.target_type)
-
-let pp_external_link ppf (link : external_link) =
-  Fmt.pf ppf "%s -> %s (%s)"
-    link.source
-    link.domain
-    link.url
-
-let pp ppf graph =
-  Fmt.pf ppf "@[<v>Internal links: %d@,External links: %d@,Entries with outbound: %d@,Entries with backlinks: %d@]"
-    (List.length graph.internal_links)
-    (List.length graph.external_links)
-    (Hashtbl.length graph.outbound)
-    (Hashtbl.length graph.backlinks)
-
-(** {1 JSON Export} *)
-
-let to_json graph entries =
-  let entry_nodes = List.map (fun entry ->
-    let slug = Bushel_entry.slug entry in
-    let title = Bushel_entry.title entry in
-    let entry_type = entry_type_of_entry entry in
-    `O [
-      ("id", `String slug);
-      ("title", `String title);
-      ("type", `String (entry_type_to_string entry_type));
-      ("group", `String "entry");
-    ]
-  ) (Bushel_entry.all_entries entries) in
-
-  let contact_nodes = List.map (fun contact ->
-    let handle = Sortal_schema.Contact.handle contact in
-    let name = Sortal_schema.Contact.name contact in
-    `O [
-      ("id", `String handle);
-      ("title", `String name);
-      ("type", `String "contact");
-      ("group", `String "entry");
-    ]
-  ) (Bushel_entry.contacts entries) in
-
-  let domain_map = Hashtbl.create 64 in
-  List.iter (fun link ->
-    if not (Hashtbl.mem domain_map link.domain) then
-      Hashtbl.add domain_map link.domain ()
-  ) graph.external_links;
-
-  let domain_nodes = Hashtbl.fold (fun domain () acc ->
-    (`O [
-      ("id", `String ("domain:" ^ domain));
-      ("title", `String domain);
-      ("type", `String "domain");
-      ("group", `String "domain");
-    ]) :: acc
-  ) domain_map [] in
-
-  let all_nodes = entry_nodes @ contact_nodes @ domain_nodes in
-
-  let internal_links_json = List.map (fun (link : internal_link) ->
-    `O [
-      ("source", `String link.source);
-      ("target", `String link.target);
-      ("type", `String "internal");
-    ]
-  ) graph.internal_links in
-
-  let external_links_json = List.map (fun (link : external_link) ->
-    `O [
-      ("source", `String link.source);
-      ("target", `String ("domain:" ^ link.domain));
-      ("type", `String "external");
-    ]
-  ) graph.external_links in
-
-  let all_links = internal_links_json @ external_links_json in
-
-  `O [
-    ("nodes", `A all_nodes);
-    ("links", `A all_links);
-  ]
+let pp ppf g =
+  Fmt.pf ppf
+    "@[<v>Internal links: %d@,External links: %d@,Entries with outbound: %d@,Entries with backlinks: %d@]"
+    (List.length g.internal_links)
+    (List.length g.external_links)
+    (List.length (Bushel_smap.bindings g.outbound))
+    (List.length (Bushel_smap.bindings g.backlinks))

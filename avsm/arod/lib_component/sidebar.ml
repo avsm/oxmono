@@ -52,8 +52,8 @@ let entry_type_icon ?(opacity="opacity-50") ?(size=10) entry =
     and newest first. Each row is [(dir, title, url, date, entry)]. *)
 let link_rows ~ctx slug =
   let entries = Arod.Ctx.entries ctx in
-  let outbound_slugs = Bushel.Link_graph.get_outbound_for_slug slug in
-  let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug slug in
+  let outbound_slugs = Arod.Ctx.outbound ctx slug in
+  let backlink_slugs = Arod.Ctx.backlinks ctx slug in
   let feed_bls = Arod.Ctx.feed_backlinks_for_slug ctx slug in
   let resolve dir slugs = List.filter_map (fun s ->
     match Entry.lookup entries s with
@@ -333,8 +333,8 @@ let related_stream ~ctx slug =
   let open Htmlit in
   let entries = Arod.Ctx.entries ctx in
   (* Bushel entry backlinks *)
-  let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug slug in
-  let outbound_slugs = Bushel.Link_graph.get_outbound_for_slug slug in
+  let backlink_slugs = Arod.Ctx.backlinks ctx slug in
+  let outbound_slugs = Arod.Ctx.outbound ctx slug in
   let seen = Hashtbl.create 16 in
   Hashtbl.replace seen slug ();
   let resolve_unique slugs =
@@ -1173,7 +1173,7 @@ let for_entry ~ctx ?(sidenotes=[]) ?(toc=[]) ent =
     | `Note _ | `Idea _ | `Paper _ | `Project _ -> El.void
     | _ ->
       let slug = Entry.slug ent in
-      let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug slug in
+      let backlink_slugs = Arod.Ctx.backlinks ctx slug in
       let backlink_items = List.filter_map (fun backlink_slug ->
         match Entry.lookup entries backlink_slug with
         | Some entry ->

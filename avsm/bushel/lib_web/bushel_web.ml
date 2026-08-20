@@ -8,7 +8,6 @@
 module R = Httpz_route
 module H = Tw_html
 module Entry = Bushel.Entry
-module Link_graph = Bushel.Link_graph
 
 (** {1 Helpers} *)
 
@@ -149,9 +148,9 @@ let external_link_list urls =
 (** {1 Link graph section} *)
 
 let link_graph_section ~entries slug =
-  let backlinks = Link_graph.get_backlinks_for_slug slug in
-  let outbound = Link_graph.get_outbound_for_slug slug in
-  let external_links = Link_graph.get_external_links_for_slug slug in
+  let backlinks = Entry.backlinks entries slug in
+  let outbound = Entry.outbound entries slug in
+  let external_links = Entry.external_urls entries slug in
   kv_table [
     section_row "LINK GRAPH";
     kv_row_html "backlinks" (link_list ~entries backlinks);

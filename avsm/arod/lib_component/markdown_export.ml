@@ -66,8 +66,8 @@ let resolve_slug ~ctx slug =
 
 let related_entries ~ctx ent =
   let slug = Entry.slug ent in
-  let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug slug in
-  let outbound_slugs = Bushel.Link_graph.get_outbound_for_slug slug in
+  let backlink_slugs = Arod.Ctx.backlinks ctx slug in
+  let outbound_slugs = Arod.Ctx.outbound ctx slug in
   let feed_bls = Arod.Ctx.feed_backlinks_for_slug ctx slug in
   let feed_items = List.map (fun (bl : Arod.Ctx.feed_backlink) ->
     let name = Contact.name bl.contact in
@@ -313,7 +313,7 @@ let videos_list_md ~ctx =
 
 let links_list_md ~ctx =
   let entries = Arod.Ctx.entries ctx in
-  let all_links = Bushel.Link_graph.all_external_links () in
+  let all_links = Arod.Ctx.all_external_links ctx in
   let by_source : (string, Bushel.Link_graph.external_link list) Hashtbl.t =
     Hashtbl.create 128 in
   List.iter (fun (link : Bushel.Link_graph.external_link) ->

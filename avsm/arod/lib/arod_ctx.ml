@@ -95,12 +95,10 @@ let annotation_slugs idx url =
       [feed_backlink list Bushel.Smap.t].
 
     - The link graph ([Bushel_link_graph]) could gain a new [feed_backlinks]
-      hashtable (slug -> feed_backlink list) alongside the existing
-      [backlinks] (slug -> StringSet of source slugs). A new
-      [add_feed_backlink ~target_slug ~source_feed_url ~source_title ~contact]
-      would register these. The existing [get_backlinks_for_slug] would not
-      change; a separate [get_feed_backlinks_for_slug] would query the new
-      table.
+      table (slug -> feed_backlink list) alongside the existing [backlinks],
+      built by [Bushel_link_graph.v] from a third list of links. The existing
+      [Bushel_entry.backlinks] would not change; a separate
+      [feed_backlinks] accessor would read the new table.
 
     - Feed entry scanning could run during [Bushel_loader.load] if feed
       data is available, or as a post-load step called by the application
@@ -256,19 +254,18 @@ let load_feed_items ~author_handle ~base_url ~entries fs contacts =
 
 (* The network page shows, against each feed entry, the local entries whose
    bodies link to it. Both halves of that match need [normalise_url], which
-   runs on opam uri and so cannot be reached from a portable render, and the
-   link graph half reads a module-level ref. The whole match is therefore
-   settled here, at startup, and the render arm reads the answer by the feed
-   entry URL exactly as [Uriz.to_string] spells it. A URL with no local entry
-   linking to it has no binding. *)
-let build_forward_slugs feed_items =
+   runs on opam uri and so cannot be reached from a portable render. The whole
+   match is therefore settled here, at startup, and the render arm reads the
+   answer by the feed entry URL exactly as [Uriz.to_string] spells it. A URL
+   with no local entry linking to it has no binding. *)
+let build_forward_slugs entries feed_items =
   let idx = Hashtbl.create 256 in
   List.iter
     (fun (l : Bushel.Link_graph.external_link) ->
        let key = normalise_url l.url in
        let cur = try Hashtbl.find idx key with Not_found -> [] in
        if not (List.mem l.source cur) then Hashtbl.replace idx key (l.source :: cur))
-    (Bushel.Link_graph.all_external_links ());
+    (Bushel.Entry.all_external_links entries);
   Bushel.Smap.of_list
     (List.filter_map
        (fun (item : feed_item) ->
@@ -283,20 +280,19 @@ let build_forward_slugs feed_items =
 
 (* An entry's sidebar shows the feed entries its own body links out to. That
    match is the previous one run the other way round, and it is settled here
-   for the same two reasons: [normalise_url] runs on opam uri, and the
-   outbound links come from a module-level ref in the link graph. A slug that
-   reaches no feed entry has no binding.
+   for the same reason: [normalise_url] runs on opam uri. A slug that reaches
+   no feed entry has no binding.
 
-   [Bushel.Link_graph.get_external_links_for_slug] answers a sorted set, and
-   the sidebar's order follows it, so the urls are sorted here too. The [seen]
-   table drops a feed entry that two of one slug's outbound links reach. *)
-let build_outbound_feed feed_by_url =
+   [Bushel.Entry.external_urls] answers a sorted set, and the sidebar's order
+   follows it, so the urls are sorted here too. The [seen] table drops a feed
+   entry that two of one slug's outbound links reach. *)
+let build_outbound_feed entries feed_by_url =
   let by_source = Hashtbl.create 256 in
   List.iter
     (fun (l : Bushel.Link_graph.external_link) ->
        let cur = try Hashtbl.find by_source l.source with Not_found -> [] in
        Hashtbl.replace by_source l.source (l.url :: cur))
-    (Bushel.Link_graph.all_external_links ());
+    (Bushel.Entry.all_external_links entries);
   let backlinks_of urls =
     let seen = Hashtbl.create 16 in
     List.concat_map
@@ -330,8 +326,8 @@ let create ~config fs =
   let author_handle = config.site.author_handle in
   let base_url = config.site.base_url in
   let feed_items, feed_backlinks, feed_by_url = load_feed_items ~author_handle ~base_url ~entries fs contacts in
-  let forward_slugs = build_forward_slugs feed_items in
-  let outbound_feed = build_outbound_feed feed_by_url in
+  let forward_slugs = build_forward_slugs entries feed_items in
+  let outbound_feed = build_outbound_feed entries feed_by_url in
   let links_by_url =
     let links_file = Filename.concat data_dir "links.yml" in
     let links =
@@ -413,6 +409,12 @@ let videos t = Bushel.Entry.videos t.entries
 let contacts t = Bushel.Entry.contacts t.entries
 let images t = Bushel.Entry.images t.entries
 let all_entries t = Bushel.Entry.all_entries t.entries
+
+(** {1 Link Graph} *)
+
+let backlinks t slug = Bushel.Entry.backlinks t.entries slug
+let outbound t slug = Bushel.Entry.outbound t.entries slug
+let all_external_links t = Bushel.Entry.all_external_links t.entries
 
 (** {1 Feed Items} *)
 

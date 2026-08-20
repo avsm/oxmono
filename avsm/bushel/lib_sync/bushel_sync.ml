@@ -390,7 +390,7 @@ let sync_git ~dry_run ~env ~data_dir config =
 (** {1 Run Pipeline} *)
 
 let generate_links ~dry_run ~data_dir ~entries =
-  let external_links = Bushel.Link_graph.all_external_links () in
+  let external_links = Bushel.Entry.all_external_links entries in
   if external_links = [] then
     Log.info (fun m -> m "No external links found in entries")
   else begin

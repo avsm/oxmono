@@ -47,7 +47,14 @@ val v :
   t
 (** [v ~papers ~notes ~projects ~ideas ~videos ~contacts ~data_dir ()] is the
     collection holding those entries. A paper whose [latest] field is unset is
-    filed as an old version and is left out of {!all_entries}. *)
+    filed as an old version and is left out of {!all_entries}. The link graph
+    is empty, since it is built from the entries and so cannot exist yet.
+    {!with_graph} fills it in. *)
+
+val with_graph : t -> Bushel_link_graph.t -> t
+(** [with_graph es g] is [es] carrying [g] as its link graph. This is the
+    loader's job, and it is the only way the graph is set: a collection that
+    has not been through it answers every graph query with the empty list. *)
 
 (** {1 Accessors} *)
 
@@ -80,6 +87,30 @@ val data_dir : t -> string
 
 val doi_entries : t -> Bushel_doi_entry.ts
 (** [doi_entries es] is the resolved DOI records of [es]. *)
+
+(** {1 Link Graph}
+
+    The graph the loader built over [es]. Every one of these answers the empty
+    list on a collection that has not been through {!with_graph}. *)
+
+val graph : t -> Bushel_link_graph.t
+(** [graph es] is the link graph of [es]. *)
+
+val backlinks : t -> string -> string list
+(** [backlinks es slug] is the slugs of the entries of [es] that link to
+    [slug], sorted and without repeats. *)
+
+val outbound : t -> string -> string list
+(** [outbound es slug] is the slugs and contact handles that [slug] links to,
+    sorted and without repeats. *)
+
+val external_urls : t -> string -> string list
+(** [external_urls es slug] is the web URLs that [slug] links to, sorted and
+    without repeats. *)
+
+val all_external_links : t -> Bushel_link_graph.external_link list
+(** [all_external_links es] is every web link written in an entry of [es], in
+    increasing source slug and then URL order. *)
 
 (** {1 Lookup Functions} *)
 

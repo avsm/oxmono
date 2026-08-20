@@ -1115,7 +1115,7 @@ let links_generate_cmd =
     | Ok config ->
       let data_dir = get_data_dir config data_dir in
       with_entries data_dir @@ fun _env entries ->
-      let external_links = Bushel.Link_graph.all_external_links () in
+      let external_links = Bushel.Entry.all_external_links entries in
       if external_links = [] then begin
         Printf.printf "No external links found in entries.\n";
         0

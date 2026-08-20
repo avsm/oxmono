@@ -60,8 +60,8 @@ let video_card ~ctx v =
   ] in
   (* Backlinks — other entries that reference this video *)
   let entries = Arod.Ctx.entries ctx in
-  let backlink_slugs = Bushel.Link_graph.get_backlinks_for_slug slug in
-  let outbound_slugs = Bushel.Link_graph.get_outbound_for_slug slug in
+  let backlink_slugs = Arod.Ctx.backlinks ctx slug in
+  let outbound_slugs = Arod.Ctx.outbound ctx slug in
   let all_linked = List.filter_map (fun s ->
     match Bushel.Entry.lookup entries s with
     | Some ent -> Some ent

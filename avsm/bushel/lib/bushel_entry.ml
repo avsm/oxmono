@@ -28,6 +28,7 @@ type t = {
   image_index : Srcsetter.t Bushel_smap.t;
   data_dir : string;
   doi_entries : Bushel_doi_entry.ts;
+  graph : Bushel_link_graph.t;
 }
 
 (** {1 Constructors} *)
@@ -51,7 +52,14 @@ let v ~papers ~notes ~projects ~ideas ~videos ~contacts ?(images=[]) ?(doi_entri
   let image_index =
     Bushel_smap.of_list (List.map (fun img -> (Srcsetter.slug img, img)) images)
   in
-  { slugs; papers; old_papers; notes; projects; ideas; videos; contacts; images; image_index; data_dir; doi_entries }
+  { slugs; papers; old_papers; notes; projects; ideas; videos; contacts; images; image_index; data_dir; doi_entries;
+    graph = Bushel_link_graph.empty }
+
+(* The graph is built from the entries, so it cannot exist when they are, and
+   the loader hands it back here once it does. A collection that never goes
+   through this answers every graph query with the empty list, which is what
+   the module level graph answered before it was set. *)
+let with_graph t graph = { t with graph }
 
 (** {1 Accessors} *)
 
@@ -65,6 +73,11 @@ let old_papers { old_papers; _ } = old_papers
 let images { images; _ } = images
 let data_dir { data_dir; _ } = data_dir
 let doi_entries { doi_entries; _ } = doi_entries
+let graph { graph; _ } = graph
+let backlinks { graph; _ } slug = Bushel_link_graph.backlinks graph slug
+let outbound { graph; _ } slug = Bushel_link_graph.outbound graph slug
+let external_urls { graph; _ } slug = Bushel_link_graph.external_urls graph slug
+let all_external_links { graph; _ } = Bushel_link_graph.all_external_links graph
 
 (** {1 Image Lookup} *)
 

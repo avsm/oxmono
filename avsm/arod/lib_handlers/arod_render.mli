@@ -17,31 +17,21 @@
 
     Most of what used to hold them back is gone. Htmlit, Ptime, Cmarkit and
     uriz are annotated, {!Arod.Ctx}, {!Arod.Md}, {!Arod.Jsonld},
-    {!Arod.Text} and the Bushel accessors are annotated, and the URL matching
-    that ran on opam Uri is settled when the context is built. Two things
-    remain, and both are structural rather than a missing annotation.
-
-    {!Bushel.Link_graph} keeps the whole graph in a module-level [ref], and
-    four functions read it: [get_backlinks_for_slug],
-    [get_outbound_for_slug], [get_external_links_for_slug] and
-    [all_external_links]. A portable function cannot read a module-level ref,
-    and the graph behind it holds [Hashtbl]s, so it cannot become a context
-    field as it stands. This module's path reaches three of the four, at
-    fifteen call sites in ten functions across five files in
-    [lib_component]. The fourth is read by [Bushel_web], outside arod, which
-    is why lifting the ref is a Bushel change rather than an arod one.
+    {!Arod.Text} and the Bushel accessors are annotated, the URL matching
+    that ran on opam Uri is settled when the context is built, and the link
+    graph is now an immutable field of {!Bushel.Entry.t} rather than a
+    module-level [ref], so a portable render reads backlinks straight out of
+    the collection. One thing remains.
 
     {!Bushel.Md.note_references} scans a note body with [Re] and decodes a DOI
     with [Uri.pct_decode], at [bushel_md.ml:996-1002] and again at
     [:1019-1023]. [Re] is an opam library with no mode annotations, so nothing
     short of vendoring it or precomputing the references reaches past that.
 
-    Between them the two block {!listing}, {!entry} and {!entry_markdown}, and
-    nothing else here. They are not equal shares of it. Answering the link
-    graph alone lifts {!listing} and {!entry_markdown} and leaves {!entry}
-    reaching the references through a note page. Answering the references
-    alone lifts none of the three. Both statements were measured by stubbing
-    one and asking the compiler.
+    It blocks {!entry} and nothing else here: {!entry} reaches it through a
+    note page, and {!listing} and {!entry_markdown} are now held back by
+    nothing, which was measured by annotating all three and asking the
+    compiler.
 
     The rest of this module is blocked elsewhere and always was: {!feed} by
     {!Arod.Feed}, {!sitemap} by the vendored [Sitemap], which carries no

@@ -410,7 +410,7 @@ type link_group = {
 (** Compute all link groups sorted by entry date descending. *)
 let compute_groups ~ctx =
   let entries = Arod.Ctx.entries ctx in
-  let all_links = Bushel.Link_graph.all_external_links () in
+  let all_links = Arod.Ctx.all_external_links ctx in
   let by_source : (string, Bushel.Link_graph.external_link list) Hashtbl.t =
     Hashtbl.create 128 in
   List.iter (fun (link : Bushel.Link_graph.external_link) ->

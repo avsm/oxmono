@@ -211,23 +211,22 @@ tree calls either function.
   builds a renderer. Adding the modality would make an unannotated backend
   impossible, so the two decisions cannot both hold.
 
-  `arod_md.ml:659` is outside this directory. Ascribing
+  `arod_md.ml:667` is outside this directory. Ascribing
   `custom_inline_renderer` portable to see past the one-line message gives the
-  chain, which leaves cmarkit at the first step:
+  chain. Srcsetter used to be its first step, through `Img.name` at
+  `arod_md.ml:53`, where `Img` is `Srcsetter`, aliased at `arod_md.ml:8`.
+  `avsm/srcsetter/lib/srcsetter.mli` now carries a floating `@@ portable`, so
+  that step is done and the chain runs on:
 
-      The value "try_render_linked_image" is "nonportable"
-        because it closes over the value "render_image_html" at
-        arod_md.ml, line 579
-        because it closes over the value "Img.name" at arod_md.ml, line 53
+      The value "custom_inline_renderer" is "nonportable"
+        because it closes over the value "render_sidenote" at
+        arod_md.ml, line 604
+        because it closes over the value "Bushel.Entry.contact_thumbnail" at
+        arod_md.ml, line 230
         which is "nonportable".
 
-  `Img` is `Srcsetter`, aliased at `arod_md.ml:8`.
-  `avsm/srcsetter/lib/srcsetter.mli` already carries a kind on `MS.t` and a
-  `@@ portable` modality on `MS.bindings`, from this campaign's slice B2, but
-  it has no floating `@@ portable`, so `Srcsetter.name` is nonportable and the
-  chain stops there. That is nearer than a whole markdown path: annotating
-  `srcsetter.mli` is the first step, and `arod_md.ml` follows it. When both are
-  done this is the hunk to add, and `cmarkit_latex.mli` has to be annotated
+  What remains is inside `avsm/bushel`, not here. When `arod_md.ml` renders
+  portably this is the hunk to add, and `cmarkit_latex.mli` has to be annotated
   with it.
 
 * `Cmarkit.Mapper.default`, `Mapper.delete` and `Folder.default`. These are

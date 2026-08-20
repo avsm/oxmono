@@ -4,6 +4,9 @@
   `bindings`, `cardinal` and `fold`, and its type now declares a kind, so a
   `Srcsetter.t` can be read by a function marked `portable`. The JSON written
   and read is unchanged.
+- Every value in `Srcsetter` is now `portable` except the four JSON codecs,
+  which are built from `Jsont` combinators that carry no modality. A function
+  marked `portable` can read an image entry and walk its variants.
 
 ## v0.1.0 (2026-01-16)
 

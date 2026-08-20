@@ -2,7 +2,14 @@
 
     This module provides types and functions for managing image entries
     that contain metadata about responsive images including their dimensions
-    and size variants. *)
+    and size variants.
+
+    Every value here is portable except the four JSON codecs at the end, which
+    are built from [Jsont] combinators that carry no modality. A renderer that
+    runs inside a function marked [portable] may therefore read an entry and
+    all of its fields, but must not serialise one. *)
+
+@@ portable
 
 (** {1 Types} *)
 
@@ -22,7 +29,7 @@ module MS : sig
   (** [of_list l] is the map holding the bindings of [l]. A key bound more than
       once in [l] keeps the binding that appears last. *)
 
-  val bindings : 'a t -> (string * 'a) list @@ portable
+  val bindings : 'a t -> (string * 'a) list
   (** [bindings m] is the bindings of [m] in increasing key order. *)
 
   val cardinal : 'a t -> int
@@ -79,18 +86,18 @@ val variants : t -> (int * int) MS.t
 
 (** {1 JSON Serialization} *)
 
-val json_t : t Jsont.t
+val json_t : t Jsont.t @@ nonportable
 (** JSON codec for a single image entry. *)
 
-val list : t list Jsont.t
+val list : t list Jsont.t @@ nonportable
 (** JSON codec for a list of image entries. *)
 
-val list_to_json : t list -> (string, string) result
+val list_to_json : t list -> (string, string) result @@ nonportable
 (** [list_to_json entries] serializes a list of entries to a JSON string.
 
     Returns [Ok json_string] on success, or [Error message] if encoding fails. *)
 
-val list_of_json : string -> (t list, string) result
+val list_of_json : string -> (t list, string) result @@ nonportable
 (** [list_of_json json_string] parses a JSON string into a list of entries.
 
     Returns [Ok entries] on success, or [Error message] if parsing fails. *)

@@ -13,11 +13,12 @@
    {!Bushel.Entry.t}, {!Sortal_schema.Contact.t}, {!Sortal_schema.Feed.t} and
    the map inside {!Srcsetter.t} are invisible from every other test.
 
-   The two closures below are the guard. Deleting a kind annotation from any of
-   those interfaces, or putting a [Hashtbl.t] or a stdlib [Map.S.t] back into
-   one of their representations, stops this file compiling. Their reads are
-   real and their answers are asserted, so a handler that crossed but found
-   nothing would fail too. *)
+   The three closures below are the guard. Deleting a kind annotation from any
+   of those interfaces, or putting a [Hashtbl.t] or a stdlib [Map.S.t] back
+   into one of their representations, stops this file compiling. The third
+   closure guards modalities rather than kinds, and says so where it stands.
+   Their reads are real and their answers are asserted, so a handler that
+   crossed but found nothing would fail too. *)
 
 module Contact = Sortal_schema.Contact
 
@@ -98,6 +99,15 @@ let sample_image =
   in
   Srcsetter.v "sample.webp" "sample-image" "src/sample.png" variants (1920, 1280)
 
+(* Filed under the handle of [ada], which is the slug
+   {!Bushel.Entry.contact_thumbnail} looks a contact's face up by. *)
+let ada_image =
+  let variants =
+    Srcsetter.MS.of_list
+      [ ("ada-320.webp", (320, 320)); ("ada-640.webp", (640, 640)) ]
+  in
+  Srcsetter.v "ada.webp" "ada" "src/ada.png" variants (1280, 1280)
+
 let entries =
   Bushel.Entry.v ~papers:[]
     ~notes:
@@ -107,7 +117,9 @@ let entries =
       ]
     ~projects:[]
     ~ideas:[ idea ~slug:"an-idea" ~title:"A Sample Idea" ~supervisors:[ ada ] ]
-    ~videos:[] ~contacts:[ ada ] ~images:[ sample_image ] ~data_dir:"." ()
+    ~videos:[] ~contacts:[ ada ]
+    ~images:[ sample_image; ada_image ]
+    ~data_dir:"." ()
 
 let ctx = Arod.Ctx.of_entries ~config:Arod.Config.default entries
 
@@ -209,6 +221,60 @@ let link_handler : (string -> string) @ portable =
                b.Arod.Ctx.feed_entry.Sortal_feed.Entry.title)
       | Some [] | None -> "")
 
+(* {1 The render handler}
+
+   The two closures above guard kinds on payload types. This one guards
+   modalities on the interfaces the render path reads through: the floating
+   [@@ portable] on [srcsetter.mli], [bushel_entry.mli], [bushel_md.mli] and
+   the four leaf entry interfaces. Every call below names a module-level
+   function, which a portable closure may only read if that function is
+   itself portable, so deleting any one of those floating annotations stops
+   this file compiling.
+
+   [Bushel.Md.with_bushel_links] is the resolver the goldens depend on, and
+   it is reached the way a renderer reaches it, as an argument to
+   [Cmarkit.Doc.of_string]. The mappers are absent on purpose: they read
+   [Cmarkit.Mapper.default] and [bushel_md.mli] records them as
+   nonportable. *)
+
+let render_handler : (string -> string) @ portable =
+ fun slug ->
+  let target = ":" ^ slug in
+  if not (Bushel.Md.is_bushel_slug target) then "not a slug"
+  else
+    let key = Bushel.Md.strip_handle target in
+    let doc =
+      Cmarkit.Doc.of_string ~strict:false
+        ~resolver:Bushel.Md.with_bushel_links
+        (Printf.sprintf "[text][%s]\n" target)
+    in
+    (* The resolver answers [:slug] with a tagged label that carries no
+       destination, so the HTML backend prints a comment naming an undefined
+       label. Without the resolver the reference would have stayed literal
+       text and no comment would appear, which is what makes the comment
+       proof that the resolver ran. *)
+    let html = String.trim (Cmarkit_html.of_doc ~safe:true doc) in
+    match Bushel.Entry.lookup entries key with
+    | None -> "no entry"
+    | Some (`Note n as e) ->
+        let iso_y, iso_w = Bushel.Note.week_number n in
+        Printf.sprintf "%s %s %s %d-W%02d %s"
+          (Bushel.Entry.to_type_string e)
+          (Bushel.Entry.site_url e) (Bushel.Entry.title e) iso_y iso_w html
+    | Some (`Idea i as e) ->
+        let face =
+          match Bushel.Entry.contact_thumbnail entries (List.hd i.Bushel.Idea.supervisors) with
+          | Some path -> path
+          | None -> "none"
+        in
+        Printf.sprintf "%s %s %s %s %s %s"
+          (Bushel.Entry.to_type_string e)
+          (Bushel.Entry.site_url e)
+          (Bushel.Idea.level_to_string (Bushel.Idea.level i))
+          (Bushel.Idea.status_to_string (Bushel.Idea.status i))
+          face html
+    | Some e -> Bushel.Entry.title e
+
 let () =
   check "note, its date and its image cross"
     (handler "hello-note" = "Hello Note 2025-01-05 sample.webp [480 960]");
@@ -219,4 +285,12 @@ let () =
     (link_handler "https://example.com/post" = "A Post");
   check "a feed backlink in a Smap crosses"
     (link_handler "hello-note" = "ada: A Feed Post");
+  check "the Bushel markdown resolver and the note interface are portable"
+    (render_handler "hello-note"
+    = "note /notes/hello-note Hello Note 2025-W01 \
+       <p>text<!-- Undefined label :hello-note --></p>");
+  check "the entry, idea and image interfaces are portable"
+    (render_handler "an-idea"
+    = "idea /ideas/an-idea MPhil Available /images/ada-640.webp \
+       <p>text<!-- Undefined label :an-idea --></p>");
   Printf.printf "test_payload_kinds: %d checks ok\n" !checks

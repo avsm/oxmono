@@ -46,7 +46,7 @@
 (test
  (name test_payload_kinds)
  (modules test_payload_kinds)
- (libraries arod bushel sortal.schema sortal.feed srcsetter uriz ptime))
+ (libraries arod bushel cmarkit sortal.schema sortal.feed srcsetter uriz ptime))
 
 (test
  (name test_feed_annotations)

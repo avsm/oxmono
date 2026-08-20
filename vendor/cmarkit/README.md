@@ -221,13 +221,14 @@ tree calls either function.
       The value "custom_inline_renderer" is "nonportable"
         because it closes over the value "render_sidenote" at
         arod_md.ml, line 604
-        because it closes over the value "Bushel.Entry.contact_thumbnail" at
-        arod_md.ml, line 230
+        because it closes over the value "Bushel.Entry.thumbnail" at
+        arod_md.ml, line 295
         which is "nonportable".
 
-  What remains is inside `avsm/bushel`, not here. When `arod_md.ml` renders
-  portably this is the hunk to add, and `cmarkit_latex.mli` has to be annotated
-  with it.
+  What remains is inside `avsm/bushel`, not here. `Bushel.Entry.thumbnail`
+  parses markdown with a mapper that reads `Cmarkit.Mapper.default`, which is
+  the entry below. When `arod_md.ml` renders portably this is the hunk to add,
+  and `cmarkit_latex.mli` has to be annotated with it.
 
 * `Cmarkit.Mapper.default`, `Mapper.delete` and `Folder.default`. These are
   module-level values of a polymorphic variant type, which crosses nothing, so
@@ -237,6 +238,20 @@ tree calls either function.
   function calls and work. Making the three constants functions would break
   every existing mapper for a convenience that already has a one-word
   spelling.
+
+  The cost is sharper than "cannot read them". A portable function that reads
+  `Mapper.default` typechecks, but only with its result at mode `contended`,
+  and `Mapper.mapper` declares an uncontended result, so such a function
+  cannot be passed to `Mapper.make`. The two spellings are therefore not
+  interchangeable for a mapper that is to be both portable and usable. This
+  was measured on `avsm/bushel/lib/bushel_md.ml`: its three exported mappers
+  are portable except for those reads, and swapping the constants for the
+  literals is the whole of what stands between them and a floating
+  `@@ portable` on `bushel_md.mli`. The same holds for
+  `Bushel.Entry.thumbnail`. The rewrite is 53 sites: 44 in `bushel_md.ml`, of
+  which one is `Mapper.delete`, and 9 in `bushel_entry.ml`. `arod_md.ml` adds
+  four more when it follows. `Mapper.ret` is a function call and needs no
+  change.
 
 ### Behaviour identity
 

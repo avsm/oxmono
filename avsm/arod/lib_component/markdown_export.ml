@@ -375,7 +375,6 @@ let network_md ~ctx =
   ) contacts_with_feeds in
   let blogroll_section = "## Blogroll\n\n" ^ String.concat "\n" blogroll_items ^ "\n\n" in
   (* Feed timeline *)
-  let forward_index = Network.build_forward_index () in
   let feed_items = Arod.Ctx.feed_items ctx in
   let feed_lines = List.map (fun (item : Arod.Ctx.feed_item) ->
     let fe = item.entry in
@@ -394,8 +393,7 @@ let network_md ~ctx =
     ) item.mentions in
     let forward_strs = match fe.FeedEntry.url with
       | Some u ->
-        let key = Network.normalise_url (Uriz.to_string u) in
-        let slugs = try Hashtbl.find forward_index key with Not_found -> [] in
+        let slugs = Arod.Ctx.forward_slugs ctx (Uriz.to_string u) in
         List.filter_map (fun slug ->
           match Entry.lookup entries slug with
           | Some ent ->

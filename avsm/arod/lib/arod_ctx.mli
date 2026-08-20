@@ -89,6 +89,13 @@ val feed_items_for_outbound : t -> string -> feed_backlink list
 (** [feed_items_for_outbound t slug] returns feed entries whose URL matches
     an outbound external link from [slug]. *)
 
+val forward_slugs : t -> string -> string list
+(** [forward_slugs t url] is the slugs of the entries whose bodies link to
+    [url], where [url] is a feed entry URL spelled as {!Uriz.to_string}
+    spells it, and the empty list when no entry links to it. The match is
+    made through {!normalise_url} when the context is built, because the
+    render that reads it is portable and {!normalise_url} is not. *)
+
 (** {1 Feed Annotations} *)
 
 val normalise_url : string -> string

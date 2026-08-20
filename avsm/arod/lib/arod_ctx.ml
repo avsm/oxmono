@@ -26,6 +26,7 @@ type t = {
   feed_items : feed_item list;
   feed_backlinks : feed_backlink list Bushel.Smap.t;
   feed_by_url : feed_backlink list Bushel.Smap.t;
+  forward_slugs : string list Bushel.Smap.t;
   links_by_url : Bushel.Link.t Bushel.Smap.t;
 }
 
@@ -252,6 +253,33 @@ let load_feed_items ~author_handle ~base_url ~entries fs contacts =
   in
   (items, freeze feed_backlinks, freeze feed_by_url)
 
+(* The network page shows, against each feed entry, the local entries whose
+   bodies link to it. Both halves of that match need [normalise_url], which
+   runs on opam uri and so cannot be reached from a portable render, and the
+   link graph half reads a module-level ref. The whole match is therefore
+   settled here, at startup, and the render arm reads the answer by the feed
+   entry URL exactly as [Uriz.to_string] spells it. A URL with no local entry
+   linking to it has no binding. *)
+let build_forward_slugs feed_items =
+  let idx = Hashtbl.create 256 in
+  List.iter
+    (fun (l : Bushel.Link_graph.external_link) ->
+       let key = normalise_url l.url in
+       let cur = try Hashtbl.find idx key with Not_found -> [] in
+       if not (List.mem l.source cur) then Hashtbl.replace idx key (l.source :: cur))
+    (Bushel.Link_graph.all_external_links ());
+  Bushel.Smap.of_list
+    (List.filter_map
+       (fun (item : feed_item) ->
+          match item.entry.Sortal_feed.Entry.url with
+          | None -> None
+          | Some u ->
+            let raw = Uriz.to_string u in
+            (match Hashtbl.find_opt idx (normalise_url raw) with
+             | None | Some [] -> None
+             | Some slugs -> Some (raw, slugs)))
+       feed_items)
+
 let create ~config fs =
   let image_output_dir = config.Arod_config.paths.images_dir in
   let data_dir = config.paths.data_dir in
@@ -260,6 +288,7 @@ let create ~config fs =
   let author_handle = config.site.author_handle in
   let base_url = config.site.base_url in
   let feed_items, feed_backlinks, feed_by_url = load_feed_items ~author_handle ~base_url ~entries fs contacts in
+  let forward_slugs = build_forward_slugs feed_items in
   let links_by_url =
     let links_file = Filename.concat data_dir "links.yml" in
     let links =
@@ -267,7 +296,15 @@ let create ~config fs =
     in
     Bushel.Smap.of_list (List.map (fun (l : Bushel.Link.t) -> (l.url, l)) links)
   in
-  { config; entries; feed_items; feed_backlinks; feed_by_url; links_by_url }
+  {
+    config;
+    entries;
+    feed_items;
+    feed_backlinks;
+    feed_by_url;
+    forward_slugs;
+    links_by_url;
+  }
 
 let of_entries ~config entries =
   {
@@ -276,6 +313,7 @@ let of_entries ~config entries =
     feed_items = [];
     feed_backlinks = Bushel.Smap.empty;
     feed_by_url = Bushel.Smap.empty;
+    forward_slugs = Bushel.Smap.empty;
     links_by_url = Bushel.Smap.empty;
   }
 
@@ -360,6 +398,11 @@ let feed_items_for_outbound t slug =
       ) bls
     | None -> []
   ) ext_urls
+
+let forward_slugs t url =
+  match Bushel.Smap.find_opt url t.forward_slugs with
+  | Some slugs -> slugs
+  | None -> []
 
 (** {1 Tags} *)
 

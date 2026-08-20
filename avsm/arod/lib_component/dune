@@ -11,6 +11,5 @@
   srcsetter
   ptime
   ptime.clock.os
-  uri
   uriz
   fmt))

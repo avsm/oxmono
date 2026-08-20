@@ -15,5 +15,4 @@
   sitemap
   sqlite3-eio
   ptime.clock.os
-  uri
   uriz))

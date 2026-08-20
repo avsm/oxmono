@@ -20,33 +20,6 @@ module FeedEntry = Sortal_feed.Entry
 module Idea = Bushel.Idea
 module I = Arod.Icons
 
-(** {1 Forward Links} *)
-
-(** Normalise a URL for matching: strip www. prefix from host, remove trailing slash. *)
-let normalise_url url =
-  match Uri.of_string url |> Uri.host with
-  | Some host ->
-    let host' = Common.strip_www host in
-    let u = Uri.of_string url in
-    let u = Uri.with_host u (Some host') in
-    let path = Uri.path u in
-    let path = if String.length path > 1 && path.[String.length path - 1] = '/'
-      then String.sub path 0 (String.length path - 1) else path in
-    Uri.to_string (Uri.with_path u path)
-  | None -> url
-
-(** Build a reverse index from normalised external URL → source slugs, so we
-    can find local entries that link TO a given feed entry URL. *)
-let build_forward_index () =
-  let tbl : (string, string list) Hashtbl.t = Hashtbl.create 256 in
-  List.iter (fun (link : Bushel.Link_graph.external_link) ->
-    let key = normalise_url link.url in
-    let cur = try Hashtbl.find tbl key with Not_found -> [] in
-    if not (List.mem link.source cur) then
-      Hashtbl.replace tbl key (link.source :: cur)
-  ) (Bushel.Link_graph.all_external_links ());
-  tbl
-
 (** {1 Timeline Item} *)
 
 type timeline_item =
@@ -141,7 +114,7 @@ let render_avatar ~entries contact =
          [El.txt initials]]
 
 (** Render a feed entry row in the network timeline. *)
-let render_feed_item ~entries ~forward_index ~idea_index (item : Arod.Ctx.feed_item) ((_y, _m, day) : int * int * int) =
+let render_feed_item ~ctx ~entries ~idea_index (item : Arod.Ctx.feed_item) ((_y, _m, day) : int * int * int) =
   let fe = item.entry in
   let contact = item.contact in
   let name = Contact.name contact in
@@ -194,8 +167,7 @@ let render_feed_item ~entries ~forward_index ~idea_index (item : Arod.Ctx.feed_i
   let forward_els =
     match fe.FeedEntry.url with
     | Some u ->
-      let url_str = normalise_url (Uriz.to_string u) in
-      let slugs = try Hashtbl.find forward_index url_str with Not_found -> [] in
+      let slugs = Arod.Ctx.forward_slugs ctx (Uriz.to_string u) in
       let forward_entries = List.filter_map (fun slug ->
         Entry.lookup entries slug
       ) slugs in
@@ -240,12 +212,12 @@ let render_feed_item ~entries ~forward_index ~idea_index (item : Arod.Ctx.feed_i
     idea_els]
 
 (** Render a single month section (feed items only, bushel entries skipped). *)
-let render_month ~entries ~forward_index ~idea_index section =
+let render_month ~ctx ~entries ~idea_index section =
   let people_els = List.map (render_avatar ~entries) section.collaborators in
   let item_els = List.filter_map (fun item ->
     match item with
     | Bushel _ -> None
-    | Feed_item (fi, d) -> Some (render_feed_item ~entries ~forward_index ~idea_index fi d)
+    | Feed_item (fi, d) -> Some (render_feed_item ~ctx ~entries ~idea_index fi d)
   ) section.items in
   El.div ~at:[At.class' "network-month"] [
     El.div ~at:[At.class' "network-month-header"] [
@@ -328,9 +300,8 @@ let build_idea_index ~ctx =
 (** Render a slice of month sections as an HTML string for the pagination API. *)
 let render_months_html ~ctx sections =
   let entries = Arod.Ctx.entries ctx in
-  let forward_index = build_forward_index () in
   let idea_index = build_idea_index ~ctx in
-  let els = List.map (render_month ~entries ~forward_index ~idea_index) sections in
+  let els = List.map (render_month ~ctx ~entries ~idea_index) sections in
   El.to_string ~doctype:false (El.div els)
 
 (** Return all computed month sections for use by the pagination API. *)
@@ -386,9 +357,8 @@ let network_page ~ctx =
     if List.length sections > page_size then Common.take page_size sections
     else sections
   in
-  let forward_index = build_forward_index () in
   let idea_index = build_idea_index ~ctx in
-  let month_els = List.map (render_month ~entries ~forward_index ~idea_index) visible_sections in
+  let month_els = List.map (render_month ~ctx ~entries ~idea_index) visible_sections in
 
   let intro =
     El.p ~at:[At.class' "text-sm text-gray-600 dark:text-gray-400 mb-6"] [

@@ -113,13 +113,14 @@ the container with code, or move to `iarray`. All three appear below.
 
 ### The annotation hunks
 
-Three interfaces carry a floating `@@ portable` at the head of the file, which
-makes every value in them portable: `cmarkit_data.mli`, `cmarkit_base.mli` and
-`cmarkit.mli`. Together they let a `@ portable` closure parse a document,
-resolve its labels through a resolver of its own, and map and fold the tree.
-The renderer and the two backends follow.
+Four interfaces carry a floating `@@ portable` at the head of the file, which
+makes every value in them portable: `cmarkit_data.mli`, `cmarkit_base.mli`,
+`cmarkit.mli` and `cmarkit_renderer.mli`. Together they let a `@ portable`
+closure parse a document, resolve its labels through a resolver of its own,
+map and fold the tree, and drive a renderer over a buffer. The two backends
+follow.
 
-Four types carry a kind, and no more than four do. A kind is only worth adding
+Five types carry a kind, and no more than five do. A kind is only worth adding
 where a value of the type has to be held at module level and read from a
 portable function, and most of cmarkit's types cannot carry one in any case:
 `Inline.t`, `Block.t` and `Label.def` are extensible variants, whose kind is
@@ -135,10 +136,10 @@ portable function, and most of cmarkit's types cannot carry one in any case:
   own use forces.
 * `Cmarkit.Textloc.t` and `Cmarkit_base.Textloc.t`, `immutable_data`, which
   `Meta.t` contains.
-* `Cmarkit_base.Dict.key`, `immutable_data`. This is the key of the renderer
-  state dictionary, which both backends hold at module level. It costs
-  nothing, being a `Type.Id.t` once the shim is gone. The annotation that
-  reads it is in the renderer's own hunk.
+* `Cmarkit_renderer.Context.State.t` and the `Cmarkit_base.Dict.key` it is,
+  `immutable_data`. Both backends hold their state key at module level and
+  read it from every rendering function. It costs nothing, being a
+  `Type.Id.t` once the shim is gone.
 
 Six `.empty` sites became calls, each named by the compiler the moment the
 function that reads it was required to be portable:
@@ -178,6 +179,26 @@ that would have kept it a constant.
   breaks the published type of `escaped_string` and `buffer_add_escaped_string`
   and removes the `module Char_set : Set.S` beside them. That break belongs
   with the annotation that forces it, in the backends' own hunk.
+
+* **`Cmarkit_renderer.t`'s four callback fields carry no `@ portable`
+  modality, so a renderer does not cross and cannot be held at module level
+  and read from a portable closure.** A renderer built inside the closure
+  works, which is what `Cmarkit_html.of_doc` does and what
+  `avsm/arod/test/test_cmarkit_portable.ml` does. The modality was tried. It
+  is achievable in the sense that `type t : value mod portable contended` is
+  then accepted, and it is rejected by everything that builds a renderer,
+  because `make` would demand portable callbacks:
+
+      cmarkit_latex.ml:404    ~init_context   nonportable but expected portable
+      cmarkit_html.ml:494     ~init_context   nonportable but expected portable
+      cmarkit_commonmark.ml:429 ~init_context nonportable but expected portable
+      arod_md.ml:659  ~inline:(custom_inline_renderer ~entries ~sidenotes)
+
+  The three inside this directory would be fixed by their own annotations,
+  except `cmarkit_latex.ml`, which is meant to stay unannotated. The fourth is
+  outside it: `Arod.Md`'s custom renderers close over values from modules that
+  are not annotated, so the modality cannot land until arod's own markdown
+  path is annotated. When that happens this is the hunk to add.
 
 * `Cmarkit.Mapper.default`, `Mapper.delete` and `Folder.default`. These are
   module-level values of a polymorphic variant type, which crosses nothing, so

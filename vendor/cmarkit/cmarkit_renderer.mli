@@ -13,6 +13,8 @@
     {!Cmarkit_commonmark.of_doc}. If you want to extend them,
     see {{!example}this example}. *)
 
+@@ portable
+
 (** {1:rendering Rendering} *)
 
 type t
@@ -131,8 +133,10 @@ module Context : sig
   (** Custom context state. *)
   module State : sig
 
-    type 'a t
-    (** The type for custom state of type ['a]. *)
+    type 'a t : immutable_data
+    (** The type for custom state of type ['a]. The kind lets a backend hold
+        its state key at module level and read it from a portable rendering
+        function. *)
 
     val make : unit -> 'a t
     (** [make ()] is a new bit of context state. *)

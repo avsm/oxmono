@@ -38,7 +38,10 @@ type affiliation = {
 (** An employment or academic affiliation. This is the only part of the
     schema that carries a date. *)
 
-type t
+type t : immutable_data
+(** A contact. Every field is a string, a list of immutable records or an
+    option over one, so the kind is honest and a contact may be read by a
+    portable function. *)
 
 val make :
   handle:string ->

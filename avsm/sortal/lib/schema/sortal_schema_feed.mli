@@ -8,7 +8,10 @@
     A feed represents a subscription to a content source (Atom, RSS, JSONFeed,
     or Manual discovery via Claude). *)
 
-type t
+type t : immutable_data
+(** A feed subscription. Every field is a string, an option over one, a bool or
+    a {!feed_type}, so the kind is honest and a feed may be read by a portable
+    function. *)
 
 (** Feed type identifier. *)
 type feed_type =

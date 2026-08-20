@@ -20,8 +20,13 @@ type feed_backlink = {
   feed_entry : Sortal_feed.Entry.t;
 }
 
-type t
-(** The context type containing entries and configuration. *)
+type t : immutable_data
+(** The context type containing entries and configuration. The kind is what
+    lets a handler marked [portable] capture a context and read through it. It
+    is honest because the context is built once, by {!create} or
+    {!of_entries}, and every field is a config record, a {!Bushel.Entry.t}, a
+    list or a {!Bushel.Smap.t}. Adding a mutable or function-valued field would
+    make the compiler reject this line. *)
 
 val create : config:Arod_config.t -> Eio.Fs.dir_ty Eio.Path.t -> t
 (** [create ~config fs] loads Bushel entries from the configured data directory
@@ -49,9 +54,9 @@ val author_name : t -> string
 
 (** {1 Entry Lookup} *)
 
-val lookup : t -> string -> Bushel.Entry.entry option
+val lookup : t -> string -> Bushel.Entry.entry option @@ portable
 val lookup_exn : t -> string -> Bushel.Entry.entry
-val lookup_image : t -> string -> Srcsetter.t option
+val lookup_image : t -> string -> Srcsetter.t option @@ portable
 val lookup_by_name : t -> string -> Sortal_schema.Contact.t option
 val lookup_by_handle : t -> string -> Sortal_schema.Contact.t option
 

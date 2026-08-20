@@ -92,8 +92,9 @@ val outbound : t -> string -> string list
     sorted and without repeats. *)
 
 val all_external_links : t -> Bushel.Link_graph.external_link list
-(** [all_external_links t] is every web link written in an entry, in
-    increasing source slug and then URL order. *)
+(** [all_external_links t] is every web link written in an entry, in the order
+    the graph was built with, which for a loaded collection is increasing
+    source slug and then URL order. *)
 
 (** {1 References} *)
 

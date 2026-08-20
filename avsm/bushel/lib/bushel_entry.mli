@@ -110,7 +110,9 @@ val external_urls : t -> string -> string list
 
 val all_external_links : t -> Bushel_link_graph.external_link list
 (** [all_external_links es] is every web link written in an entry of [es], in
-    increasing source slug and then URL order. *)
+    the order the graph was built with. A graph built by the loader is in
+    increasing source slug and then URL order, but the order is the builder's
+    to choose and {!with_graph} accepts any. *)
 
 (** {1 Lookup Functions} *)
 

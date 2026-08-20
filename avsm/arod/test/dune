@@ -96,3 +96,8 @@
  (name link_predicate_diff)
  (modules link_predicate_diff)
  (libraries bushel uri astring uriz))
+
+; render_capture.sh is a tool too, and a shell script rather than an
+; executable because it serves the site and drives it with curl. It needs a
+; real data directory and a free port, so it also stays out of the runtest
+; alias. Its header says how to run it, what it captures and what it proved.

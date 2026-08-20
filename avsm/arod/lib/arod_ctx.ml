@@ -285,9 +285,10 @@ let build_forward_slugs entries feed_items =
    for the same reason: [normalise_url] runs on opam uri. A slug that reaches
    no feed entry has no binding.
 
-   [Bushel.Entry.external_urls] answers a sorted set, and the sidebar's order
-   follows it, so the urls are sorted here too. The [seen] table drops a feed
-   entry that two of one slug's outbound links reach. *)
+   The sidebar's order follows the sorted set of outbound URLs the link graph
+   answers for a slug, so the urls are sorted here too rather than left in the
+   order the external link list happens to reach them. The [seen] table drops
+   a feed entry that two of one slug's outbound links reach. *)
 let build_outbound_feed entries feed_by_url =
   let by_source = Hashtbl.create 256 in
   List.iter

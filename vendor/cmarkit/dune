@@ -6,4 +6,5 @@
 (library
  (name cmarkit)
  (public_name cmarkit)
+ (libraries basement)
  (wrapped false))

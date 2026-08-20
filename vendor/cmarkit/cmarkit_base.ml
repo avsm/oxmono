@@ -24,8 +24,6 @@ let sub_includes ~affix s ~first ~last =
 
 let unsafe_get = String.unsafe_get
 
-module String_set = Set.Make (String)
-
 (* Heterogeneous dictionaries *)
 
 module Dict = struct
@@ -221,7 +219,44 @@ type 'a next_line = 'a -> ('a * line_span) option
 
 (* Node meta data *)
 
+(* A second heterogeneous dictionary, for [Meta.t]. It differs from [Dict] in
+   that its bindings cross portability and contention, which is what lets a
+   client hold a key at module level and read it from a portable function.
+   [Dict] cannot be given the same treatment: it carries renderer state,
+   which is a mutable record by design.
+
+   Two things make the crossing work. The key is the Stdlib's [Type.Id.t],
+   which declares [immutable_data], rather than the packed first-class module
+   [Dict] shims in for it, whose kind is [value non_float]. The Stdlib's is
+   reached here without touching that shim, because the shim is declared
+   inside [Dict]. And the container is an association list rather than a
+   [Map.Make (Int)], because [Map.S] declares no kind on [t].
+
+   The association list is not a semantic change. This dictionary is reached
+   only through [mem], [add], [tag], [remove] and [find], none of which
+   observes order, [add] shadows an existing binding as [Map.add] did, and
+   there is no iteration in the interface. It holds a couple of bindings. *)
+module Meta_dict = struct
+  type 'a key = 'a Type.Id.t
+  type binding = B : ('a : immutable_data). 'a key * 'a -> binding
+  type t = (int * binding) list
+
+  let key = Type.Id.make
+  let empty = []
+  let mem k m = List.mem_assoc (Type.Id.uid k) m
+  let remove k m = List.remove_assoc (Type.Id.uid k) m
+  let add k v m = (Type.Id.uid k, B (k, v)) :: remove k m
+  let tag k m = add k () m
+  let find : type a. a key -> t -> a option =
+  fun k m -> match List.assoc_opt (Type.Id.uid k) m with
+  | None -> None
+  | Some B (k', v) ->
+      match Type.Id.provably_equal k k' with
+      | None -> assert false | Some Type.Equal -> Some v
+end
+
 module Meta = struct
+  module Dict = Meta_dict
   type id = int
   type t = { textloc : Textloc.t; id : id; dict : Dict.t }
 
@@ -1155,19 +1190,28 @@ let fenced_code_block_continue ~fence:(fc, fcount) s ~last ~start =
   in
   if start > last then `Code else loop s start last start
 
-let html_start_cond_1_set =
-  String_set.of_list ["pre"; "script"; "style"; "textarea"]
+(* Upstream held the two tag tables below as module-level
+   [Set.Make (String)] values. A module-level value of a stdlib container
+   cannot be read from a portable function, because [Set.S] declares no kind
+   on [t], and [html_block_start] reads both on every line that opens with a
+   tag. A match needs no module-level value at all, and the same names answer
+   [true]. *)
 
-let html_start_cond_6_set =
-  String_set.of_list
-    [ "address"; "article"; "aside"; "base"; "basefont"; "blockquote"; "body";
-      "caption"; "center"; "col"; "colgroup"; "dd"; "details"; "dialog"; "dir";
-      "div"; "dl"; "dt"; "fieldset"; "figcaption"; "figure"; "footer"; "form";
-      "frame"; "frameset"; "h1"; "h2"; "h3"; "h4"; "h5"; "h6"; "head"; "header";
-      "hr"; "html"; "iframe"; "legend"; "li"; "link"; "main"; "menu";
-      "menuitem"; "nav"; "noframes"; "ol"; "optgroup"; "option"; "p"; "param";
-      "section"; "source"; "summary"; "table"; "tbody"; "td"; "tfoot"; "th";
-      "thead"; "title"; "tr"; "track"; "ul" ]
+let is_html_start_cond_1_tag = function
+| "pre" | "script" | "style" | "textarea" -> true
+| _ -> false
+
+let is_html_start_cond_6_tag = function
+| "address" | "article" | "aside" | "base" | "basefont" | "blockquote"
+| "body" | "caption" | "center" | "col" | "colgroup" | "dd" | "details"
+| "dialog" | "dir" | "div" | "dl" | "dt" | "fieldset" | "figcaption"
+| "figure" | "footer" | "form" | "frame" | "frameset" | "h1" | "h2" | "h3"
+| "h4" | "h5" | "h6" | "head" | "header" | "hr" | "html" | "iframe"
+| "legend" | "li" | "link" | "main" | "menu" | "menuitem" | "nav"
+| "noframes" | "ol" | "optgroup" | "option" | "p" | "param" | "section"
+| "source" | "summary" | "table" | "tbody" | "td" | "tfoot" | "th" | "thead"
+| "title" | "tr" | "track" | "ul" -> true
+| _ -> false
 
 let html_block_start_5 s ~last ~start = (* 3 first chars checked *)
   let next = start + 3 and sub = "CDATA[" in
@@ -1234,13 +1278,13 @@ let html_block_start s ~last ~start  =
          s.[tag_last + 2] = '>')
       in
       if c <> '/' then begin
-        if String_set.mem tag html_start_cond_1_set && is_open_end
+        if is_html_start_cond_1_tag tag && is_open_end
         then Html_block_line `End_cond_1 (* 1 *) else
-        if String_set.mem tag html_start_cond_6_set && is_open_close_end
+        if is_html_start_cond_6_tag tag && is_open_close_end
         then Html_block_line `End_blank (* 6 *) else
         html_block_start_7_open_tag s ~last ~start
       end else begin
-        if String_set.mem tag html_start_cond_6_set && is_open_close_end
+        if is_html_start_cond_6_tag tag && is_open_close_end
         then Html_block_line `End_blank (* 6 *) else
         html_block_start_7_close_tag s ~last ~start
       end

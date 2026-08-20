@@ -3,7 +3,6 @@
    Distributed under the ISC license, see terms at the end of the file.
   ---------------------------------------------------------------------------*)
 
-module String_map = Map.Make (String)
 module Ascii = Cmarkit_base.Ascii
 module Text = Cmarkit_base.Text
 module Match = Cmarkit_base
@@ -102,7 +101,7 @@ module Label = struct
 
   (* Definitions *)
 
-  module Map = Map.Make (String)
+  module Map = Map.MakePortable (String)
   type def = ..
   type defs = def Map.t
 
@@ -811,7 +810,7 @@ end
    start. Shortcuts forward searches in inline parsing. See
    Inline_struct. *)
 
-module Pos_set = Set.Make (Int) (* Sets of positions. *)
+module Pos_set = Set.MakePortable (Int) (* Sets of positions. *)
 module Closer = struct
   type t =
   | Backticks of int (* run length *)
@@ -825,7 +824,7 @@ module Closer = struct
 end
 
 module Closer_index = struct
-  include Map.Make (Closer)
+  include Map.MakePortable (Closer)
   type nonrec t = Pos_set.t t
 
   let add cl pos cidx =

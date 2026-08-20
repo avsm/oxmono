@@ -54,6 +54,11 @@
  (libraries arod sortal.feed syndic uriz))
 
 (test
+ (name test_cmarkit_tables)
+ (modules test_cmarkit_tables)
+ (libraries cmarkit))
+
+(test
  (name test_md_golden)
  (modules test_md_golden)
  (deps

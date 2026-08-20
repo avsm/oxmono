@@ -5,7 +5,7 @@
 
 open Cmarkit
 module C = Cmarkit_renderer.Context
-module String_set = Set.Make (String)
+module String_set = Set.MakePortable (String)
 
 (* Renderer state *)
 

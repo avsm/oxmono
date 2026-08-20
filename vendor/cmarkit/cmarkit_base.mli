@@ -7,7 +7,9 @@
 
 (** Heterogeneous dictionaries.
 
-    Used by {!Cmarkit.Meta}. *)
+    Used by {!Cmarkit_renderer.Context.State}, whose bindings are the
+    renderers' mutable per-render state. {!Cmarkit.Meta} has a dictionary of
+    its own, whose bindings must instead cross portability and contention. *)
 module Dict : sig
   type 'a key
   val key : unit -> 'a key
@@ -87,10 +89,10 @@ module Meta : sig
   type 'a key
   val key : unit -> 'a key
   val mem : 'a key -> t -> bool
-  val add : 'a key -> 'a -> t -> t
+  val add : ('a : immutable_data). 'a key -> 'a -> t -> t
   val tag : unit key -> t -> t
   val remove : 'a key -> t -> t
-  val find : 'a key -> t -> 'a option
+  val find : ('a : immutable_data). 'a key -> t -> 'a option
 end
 
 type line_span =

@@ -20,6 +20,12 @@ Cmarkit parses the [CommonMark specification]. It provides:
 
 Cmarkit is distributed under the ISC license. It has no dependencies.
 
+This copy is patched for OxCaml portability. Its Unicode and HTML entity
+tables are immutable arrays rather than Sets and Maps, node metadata has a
+dictionary whose bindings cross portability and contention, and several
+functor applications are the portable ones. Rendering and parsing behaviour
+is unchanged. See README.md for the hunks.
+
 [CommonMark specification]: https://spec.commonmark.org/
 
 Homepage: <https://erratique.ch/software/cmarkit>"""
@@ -33,5 +39,6 @@ bug-reports: "https://github.com/dbuenzli/cmarkit/issues"
 depends: [
   "ocaml" {>= "4.14.0"}
   "dune" {>= "3.21"}
+  "basement"
 ]
 dev-repo: "git+https://erratique.ch/repos/cmarkit.git"

@@ -248,8 +248,10 @@ module Meta : sig
   val mem : 'a key -> t -> bool
   (** [mem k m] is [true] iff [k] is bound in [m]. *)
 
-  val add : 'a key -> 'a -> t -> t
-  (** [add k v m] is [m] with key [k] bound to [v]. *)
+  val add : ('a : immutable_data). 'a key -> 'a -> t -> t
+  (** [add k v m] is [m] with key [k] bound to [v]. The value must be
+      immutable data, which is what lets a node's metadata cross portability
+      and contention along with the node. *)
 
   val tag : unit key -> t -> t
   (** [tag k m] is [add k () m]. *)
@@ -257,7 +259,7 @@ module Meta : sig
   val remove : 'a key -> t -> t
   (** [remove k m] is [m] with key [k] unbound in [v]. *)
 
-  val find : 'a key -> t -> 'a option
+  val find : ('a : immutable_data). 'a key -> t -> 'a option
   (** [find k m] the value of [k] in [m], if any. *)
 end
 

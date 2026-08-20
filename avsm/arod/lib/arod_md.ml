@@ -174,11 +174,19 @@ let render_image_html_simple ?link_url ~cl ~alt ~title ~src () =
 
 (** {1 Video Embedding} *)
 
+(* A video URL comes from a data file. One that does not parse is embedded as
+   it stands, since an iframe with the author's own text in [src] is a better
+   answer than a failed page. *)
 let rewrite_watch_to_embed url =
-  let uri = Uri.of_string url in
-  let path = Uri.path uri |> String.split_on_char '/' in
-  let path = List.map (function "watch" -> "embed" | v -> v) path in
-  Uri.with_path uri (String.concat "/" path) |> Uri.to_string
+  match Uriz.of_string url with
+  | Null -> url
+  | This uri ->
+    let path =
+      Uriz.path uri |> String.split_on_char '/'
+      |> List.map (function "watch" -> "embed" | v -> v)
+      |> String.concat "/"
+    in
+    Uriz.with_path uri path |> Uriz.to_string
 
 let render_video_iframe ?(vertical=false) ~title url =
   let embed_url = rewrite_watch_to_embed url in

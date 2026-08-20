@@ -74,3 +74,8 @@
  (name test_routes)
  (modules test_routes)
  (libraries arod arod.handlers arod.server proffer proffer.mock))
+
+(test
+ (name test_url_render)
+ (modules test_url_render)
+ (libraries arod arod.component bushel sortal.schema ptime))

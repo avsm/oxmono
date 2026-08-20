@@ -40,9 +40,9 @@ let authors ~ctx paper =
 
 (** Extract hostname without www. prefix from a URL. *)
 let host_without_www u =
-  match Uri.host (Uri.of_string u) with
-  | None -> ""
-  | Some h -> Common.strip_www h
+  match Common.url_host u with
+  | Null -> ""
+  | This h -> Common.strip_www h
 
 (** Render publisher description based on bibtype. *)
 let publisher paper =

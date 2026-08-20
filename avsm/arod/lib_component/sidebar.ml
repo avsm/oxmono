@@ -753,9 +753,9 @@ let paper_meta ~ctx paper =
                El.txt (Printf.sprintf " BIB (%s)" bibtype)]);
       (match Paper.url paper with
        | Some u ->
-         let host = match Uri.host (Uri.of_string u) with
-           | None -> ""
-           | Some h -> Common.strip_www h
+         let host = match Common.url_host u with
+           | Null -> ""
+           | This h -> Common.strip_www h
          in
          let label = if host <> "" then Printf.sprintf " URL (%s)" host else " URL" in
          Some (El.a ~at:[At.href u; At.class' "sidebar-meta-link"]
@@ -941,11 +941,13 @@ let socials_box ~ctx =
       (match Contact.atproto author_contact with
        | Some a when List.mem Account.Tangled a.apps ->
          let url = Account.app_url a Tangled in
-         let label = match Uri.host (Uri.of_string url) with
-           | Some h -> (match Uri.path (Uri.of_string url) with
-             | "" | "/" -> h
-             | p -> h ^ p)
-           | None -> "Tangled"
+         let label = match Uriz.of_string url with
+           | This u ->
+             (match Uriz.host u with
+              | This h ->
+                (match Uriz.path u with "" | "/" -> h | p -> h ^ p)
+              | Null -> "Tangled")
+           | Null -> "Tangled"
          in
          Some (social_link ~icon:(brand ~size:16 tangled_brand)
            ~title:"Tangled" ~service:"Tangled" ~label url)
@@ -970,8 +972,8 @@ let socials_box ~ctx =
       @ List.filter_map Fun.id [
         (match Contact.best_url author_contact with
          | Some u ->
-           let label = match Uri.host (Uri.of_string u) with
-             | Some h -> h | None -> u
+           let label = match Common.url_host u with
+             | This h -> h | Null -> u
            in
            Some (social_link ~icon:(outline ~size:16 world_o)
              ~title:"Website" ~service:"website" ~label u)

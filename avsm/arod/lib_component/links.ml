@@ -18,11 +18,27 @@ module I = Arod.Icons
 
 (** {1 Helpers} *)
 
+(** [host_and_path url] is the host and path of [url]. The host is [""] when
+    [url] names none, the path is ["/"] when it is empty, and a [url] that is
+    not a URI reference yields both defaults: link URLs come from a data file,
+    so a malformed one classifies as a plain web link rather than stopping the
+    page. *)
+let host_and_path url =
+  match Uriz.of_string url with
+  | Null -> ("", "/")
+  | This u ->
+    ( (match Uriz.host u with Null -> "" | This h -> h),
+      match Uriz.path u with "" -> "/" | p -> p )
+
 (** Format a URL as "domain /path" with truncated path. *)
 let domain_and_path url =
-  let u = Uri.of_string url in
-  let domain = Option.value ~default:"" (Uri.host u) in
-  let path = match Uri.path u with "" | "/" -> "" | p -> p in
+  let domain, path =
+    match Uriz.of_string url with
+    | Null -> ("", url)
+    | This u ->
+      ( (match Uriz.host u with Null -> "" | This h -> h),
+        match Uriz.path u with "" | "/" -> "" | p -> p )
+  in
   let path =
     if String.length path > 50 then String.sub path 0 50 ^ "\xe2\x80\xa6"
     else path
@@ -49,12 +65,14 @@ type link_display = {
 
 (** Extract path segments from a URL. *)
 let path_segments url =
-  let u = Uri.of_string url in
-  match Uri.path u with
-  | "" | "/" -> []
-  | path ->
-    String.split_on_char '/' path
-    |> List.filter (fun s -> s <> "")
+  match Uriz.of_string url with
+  | Null -> []
+  | This u ->
+    match Uriz.path u with
+    | "" | "/" -> []
+    | path ->
+      String.split_on_char '/' path
+      |> List.filter (fun s -> s <> "")
 
 (** Try to extract an RFC number from a URL path. *)
 let extract_rfc_number url =
@@ -98,17 +116,15 @@ let build_contact_by_domain contacts =
   let tbl : (string, (string * Contact.t) list) Hashtbl.t = Hashtbl.create 64 in
   let is_shared h = List.mem h shared_platforms in
   let add_url c url_str =
-    let uri = Uri.of_string url_str in
-    match Uri.host uri with
-    | Some h ->
+    match host_and_path url_str with
+    | "", _ -> ()
+    | h, path ->
       let bare = strip_www (String.lowercase_ascii h) in
       if not (is_shared bare) then begin
-        let path = match Uri.path uri with "" | "/" -> "/" | p -> p in
         let cur = try Hashtbl.find tbl bare with Not_found -> [] in
         if not (List.exists (fun (p, _) -> p = path) cur) then
           Hashtbl.replace tbl bare ((path, c) :: cur)
       end
-    | None -> ()
   in
   List.iter (fun c ->
     List.iter (fun (l : Contact.link) -> add_url c l.url) (Contact.links c);
@@ -139,8 +155,7 @@ let find_contact_for_url contact_by_domain bare_host url_path =
 
 (** Classify a URL into a structured display. *)
 let classify_url ~contact_by_domain ~doi_entries ~ctx url =
-  let u = Uri.of_string url in
-  let host = match Uri.host u with Some h -> h | None -> "" in
+  let host, url_path = host_and_path url in
   let host_lc = String.lowercase_ascii host in
   let bare_host = strip_www host_lc in
   (* Get favicon from links.yml if available *)
@@ -166,7 +181,6 @@ let classify_url ~contact_by_domain ~doi_entries ~ctx url =
     { label; secondary; kind; favicon; contact = None }
   in
   (* 1. Contact match — requires path prefix match *)
-  let url_path = match Uri.path u with "" -> "/" | p -> p in
   match find_contact_for_url contact_by_domain bare_host url_path with
   | Some contact ->
     let name = Contact.name contact in
@@ -252,9 +266,9 @@ let classify_url ~contact_by_domain ~doi_entries ~ctx url =
   end
   (* 4. DOI — look up title from doi.yml first, then karakeep *)
   else if bare_host = "doi.org" then begin
-    let path = Uri.path u in
     let doi_id =
-      if String.length path > 1 then String.sub path 1 (String.length path - 1)
+      if String.length url_path > 1 then
+        String.sub url_path 1 (String.length url_path - 1)
       else ""
     in
     let doi_title =
@@ -510,13 +524,11 @@ let links_list ~ctx =
     Hashtbl.replace filter_counts k (cur + 1)
   in
   Hashtbl.iter (fun url () ->
-    let u = Uri.of_string url in
-    let host = match Uri.host u with Some h -> h | None -> "" in
+    let host, url_path = host_and_path url in
     let bare = strip_www (String.lowercase_ascii host) in
     if bare = "arxiv.org" || bare = "doi.org" || Bushel.Link.is_paper_url url then
       bump_filter Fp_paper
-    else if find_contact_for_url contact_by_domain bare
-              (match Uri.path u with "" -> "/" | p -> p) <> None then
+    else if find_contact_for_url contact_by_domain bare url_path <> None then
       bump_filter Fp_contact
     else if List.mem bare code_hosts then
       bump_filter Fp_code

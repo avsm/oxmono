@@ -61,6 +61,14 @@ let strip_www h =
   if String.length h > 4 && String.sub h 0 4 = "www."
   then String.sub h 4 (String.length h - 4) else h
 
+(** [url_host u] is the host of [u], or [Null] when [u] names no host or is
+    not a URI reference at all. A URL reaching this module comes from a data
+    file, so both cases are ordinary and neither may stop a render. *)
+let url_host u =
+  match Uriz.of_string u with
+  | Null -> Null
+  | This uri -> Uriz.host uri
+
 let contact_initials name =
   match String.split_on_char ' ' name with
   | f :: l :: _ when String.length f > 0 && String.length l > 0 ->

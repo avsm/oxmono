@@ -54,7 +54,9 @@ let format_note ~ctx note =
   let slug = Bushel.Note.slug note in
   let base_url = cfg.site.base_url in
   let hostname =
-    Uri.host (Uri.of_string base_url) |> Option.value ~default:"localhost"
+    match Uriz.of_string base_url with
+    | This u -> (match Uriz.host u with This h -> h | Null -> "localhost")
+    | Null -> "localhost"
   in
   let buf = Buffer.create 2048 in
   let line s = Buffer.add_string buf s; Buffer.add_string buf "\r\n" in

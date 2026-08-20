@@ -17,25 +17,25 @@ type 'a t : immutable_data with 'a
 (** A finite map from strings to ['a]. The kind is what lets a value of this
     type be read after it crosses into a portable closure. *)
 
-val empty : 'a t
+val empty : 'a t @@ portable
 (** [empty] is the map with no bindings. *)
 
-val of_list : (string * 'a) list -> 'a t
+val of_list : (string * 'a) list -> 'a t @@ portable
 (** [of_list l] is the map holding the bindings of [l], balanced so that a
     lookup costs time logarithmic in the length of [l]. A key bound more than
     once in [l] keeps the binding that appears last, as repeated
     [Hashtbl.replace] would. *)
 
-val find_opt : string -> 'a t -> 'a option
+val find_opt : string -> 'a t -> 'a option @@ portable
 (** [find_opt k m] is the value bound to [k] in [m], or [None] if there is
     none. *)
 
-val find : string -> 'a t -> 'a
+val find : string -> 'a t -> 'a @@ portable
 (** [find k m] is the value bound to [k] in [m].
 
     @raise Not_found if [k] is not bound. *)
 
-val bindings : 'a t -> (string * 'a) list
+val bindings : 'a t -> (string * 'a) list @@ portable
 (** [bindings m] is the bindings of [m] in increasing key order. *)
 
 val depth : 'a t -> int

@@ -19,8 +19,11 @@ type entry =
     paper. *)
 type slugs = entry Bushel_smap.t
 
-(** The complete entry collection. *)
-type t
+(** The complete entry collection. The kind is what lets a loaded collection be
+    captured and read by a portable function: every field is an immutable list,
+    string or {!Bushel_smap.t}, and the collection is built once by {!v} and
+    never written to again. *)
+type t : immutable_data
 
 (** {1 Constructors} *)
 
@@ -53,10 +56,10 @@ val doi_entries : t -> Bushel_doi_entry.ts
 
 (** {1 Lookup Functions} *)
 
-val lookup_image : t -> string -> Srcsetter.t option
+val lookup_image : t -> string -> Srcsetter.t option @@ portable
 (** [lookup_image entries slug] finds an image by its slug. *)
 
-val lookup : t -> string -> entry option
+val lookup : t -> string -> entry option @@ portable
 (** [lookup entries slug] finds an entry by its slug. *)
 
 val lookup_exn : t -> string -> entry

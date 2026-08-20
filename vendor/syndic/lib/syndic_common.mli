@@ -1,22 +1,29 @@
 module XML : sig
+  @@ portable
+
   type t = Syndic_xml.t
   type node = Syndic_xml.pos * Syndic_xml.tag * t list
 
   val generate_catcher :
-       ?namespaces:string list
-    -> ?attr_producer:(string * (xmlbase:Uriz.t option -> string -> 'a)) list
-    -> ?data_producer:(string * (xmlbase:Uriz.t option -> node -> 'a)) list
-    -> ?leaf_producer:(xmlbase:Uriz.t option -> Xmlm.pos -> string -> 'a)
-    -> (pos:Xmlm.pos -> 'a list -> 'b)
-    -> xmlbase:Uriz.t option
-    -> node
-    -> 'b
+       ?namespaces:string list @ portable
+    -> ?attr_producer:
+         (string * (xmlbase:Uriz.t option -> string -> 'a)) list @ portable
+    -> ?data_producer:
+         (string * (xmlbase:Uriz.t option -> node -> 'a)) list @ portable
+    -> ?leaf_producer:
+         (xmlbase:Uriz.t option -> Xmlm.pos -> string -> 'a) @ portable
+    -> (pos:Xmlm.pos -> 'a list -> 'b) @ portable
+    -> (xmlbase:Uriz.t option -> node -> 'b) @ portable
+  (** Every producer arrives [portable], because the parser this returns closes
+      over all of them and is itself stored as a module-level value by each
+      caller. A module-level closure that is not portable makes every parser
+      above it nonportable in turn. *)
 
   val dummy_of_xml :
-       ctor:(xmlbase:Uriz.t option -> string -> 'a)
-    -> xmlbase:Uriz.t option
-    -> node
-    -> 'a
+       ctor:(xmlbase:Uriz.t option -> string -> 'a) @ portable
+    -> (xmlbase:Uriz.t option -> node -> 'a) @ portable
+  (** [ctor] arrives [portable] for the reason {!generate_catcher}'s producers
+      do: this is a partial application held at module level by its callers. *)
 
   val xmlbase_of_attr :
     xmlbase:Uriz.t option -> Xmlm.attribute list -> Uriz.t option
@@ -27,6 +34,8 @@ module XML : sig
 end
 
 module Util : sig
+  @@ portable
+
   val find : ('a -> bool) -> 'a list -> 'a option
   val recursive_find : (XML.t -> bool) -> XML.t -> XML.t option
   val filter_map : 'a list -> ('a -> 'b option) -> 'b list

@@ -986,51 +986,47 @@ let unsafe ?xmlbase input =
 
 let map_option o f = match o with None -> None | Some v -> Some (f v)
 
-(* Assume ASCII or a superset like UTF-8. *)
-let valid_local_part =
-  let is_valid c =
-    let c = Char.unsafe_chr c in
-    ('a' <= c && c <= 'z')
-    || ('A' <= c && c <= 'Z')
-    || ('0' <= c && c <= '9')
-    || c = '.'
-    (* shouldn't be the 1st char and not appear twice consecutively *)
-    || c = '!'
-    || c = '#'
-    || c = '$'
-    || c = '%'
-    || c = '&'
-    || c = '\''
-    || c = '*'
-    || c = '+'
-    || c = '-'
-    || c = '/'
-    || c = '='
-    || c = '?'
-    || c = '^'
-    || c = '_'
-    || c = '`'
-    || c = '{'
-    || c = '|'
-    || c = '}'
-    || c = '~'
-  in
-  Array.init 256 is_valid
+(* Assume ASCII or a superset like UTF-8.
 
-let is_valid_local_part c = valid_local_part.(Char.code c)
+   Upstream memoises each of these two predicates into a 256-entry
+   [bool array] at module level and indexes it. An array is mutable data, so a
+   function that reads one is nonportable, and here that reaches all the way
+   out to [Rss2.to_atom]. The predicates below are the memoised functions
+   themselves, applied to the character rather than to its code, so they answer
+   the same for every character. *)
+let is_valid_local_part c =
+  ('a' <= c && c <= 'z')
+  || ('A' <= c && c <= 'Z')
+  || ('0' <= c && c <= '9')
+  || c = '.'
+  (* shouldn't be the 1st char and not appear twice consecutively *)
+  || c = '!'
+  || c = '#'
+  || c = '$'
+  || c = '%'
+  || c = '&'
+  || c = '\''
+  || c = '*'
+  || c = '+'
+  || c = '-'
+  || c = '/'
+  || c = '='
+  || c = '?'
+  || c = '^'
+  || c = '_'
+  || c = '`'
+  || c = '{'
+  || c = '|'
+  || c = '}'
+  || c = '~'
 
-let valid_domain_part =
-  let is_valid c =
-    let c = Char.unsafe_chr c in
-    ('a' <= c && c <= 'z')
-    || ('A' <= c && c <= 'Z')
-    || ('0' <= c && c <= '9')
-    || c = '.'
-    || c = '.'
-  in
-  Array.init 256 is_valid
-
-let is_valid_domain_part c = valid_domain_part.(Char.code c)
+(* Upstream lists ['.'] twice here. The second is dropped, and the predicate
+   is unchanged. *)
+let is_valid_domain_part c =
+  ('a' <= c && c <= 'z')
+  || ('A' <= c && c <= 'Z')
+  || ('0' <= c && c <= '9')
+  || c = '.'
 
 (* Valid range [s.[i]], [i0 ≤ i < i1]. *)
 let sub_no_braces s i0 i1 =

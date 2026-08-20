@@ -1,6 +1,8 @@
 (** [Syndic.Rss2]: compliant with {{:
     http://www.rssboard.org/rss-specification} RSS 2.0}. *)
 
+@@ portable
+
 module Error : module type of Syndic_error
 
 (** An [image] is an optional sub-element of {!channel}, which contains three

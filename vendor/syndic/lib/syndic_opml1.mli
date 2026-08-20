@@ -8,6 +8,8 @@
     screenplays, directories, diaries, discussion groups, chat systems and
     stories. *)
 
+@@ portable
+
 module Error : module type of Syndic_error
 
 type head =

@@ -6,17 +6,19 @@ RSS and Atom feed parsing
 This is Syndic 1.7.0, vendored from https://github.com/Cumulus/Syndic and
 patched to parse feeds that real publishers emit. It has also been ported off
 opam `uri` onto the vendored `uriz`, which is a breaking change to the public
-interface. The sections below record both.
+interface, and annotated so that its whole interface is callable from a
+`portable` context. The sections below record all three.
 
 Local patches
 =============
 
-Five hunks. Three of them make the parser accept a document that the
+Six hunks. Three of them make the parser accept a document that the
 specification forbids, the fourth is a portability prerequisite that changes
-nothing a caller can see, and the fifth is the `uriz` port, which changes
-every published type that carries a URI. Everything else in `lib/` is believed
-to be upstream 1.7.0. The hunks differ in how well that provenance is
-established, so each one says below how it was determined.
+nothing a caller can see, the fifth is the `uriz` port, which changes every
+published type that carries a URI, and the sixth is the portability
+annotation. Everything else in `lib/` is believed to be upstream 1.7.0. The
+hunks differ in how well that provenance is established, so each one says
+below how it was determined.
 
 * `syndic_atom.ml`, a missing entry `<updated>`. RFC 4287 requires exactly
   one, and upstream raises without it. The parser now stores the
@@ -68,6 +70,16 @@ established, so each one says below how it was determined.
   uriz", which touches this directory and every in-tree consumer at once,
   because `Syndic_xml.resolve` carries the type in its own signature and no
   partial state compiles.
+
+* All of `lib/`, annotated for OxCaml portability. Nine interfaces gained a
+  `@@ portable` modality, `Syndic_common.XML.generate_catcher` and
+  `dummy_of_xml` gained modes so that the parsers built from them stay the
+  module-level partial applications upstream wrote, and four module-level
+  mutable tables became code. Five call sites moved. The detail is in "The
+  portability annotation" below.
+
+  Provenance: certain. This hunk is the commit "Annotate syndic for OxCaml
+  portability", which touches this directory, `avsm/arod/test` and this file.
 
 The uriz port
 =============
@@ -173,65 +185,177 @@ site catches every exception. The trim and the RFC 3339 fallback have no test
 of their own, which is a second reason to re-derive them rather than reapply
 them from this list.
 
-Portability status
-==================
+`avsm/arod/test/test_syndic.ml` holds the portability guard. See "The
+portability annotation" below for what it pins.
 
-Nothing in `lib/` carries `@@ portable` yet. The type-level blocker is gone
-and the remaining work is the annotation pass itself plus `xmlm`. This was
-measured, not assumed. Every claim below is a compiler verdict against this
-copy.
+The portability annotation
+==========================
 
-The published types used to be the harder half of the problem, and are no
-longer. `Uri.t` was abstract at the bare `value` kind in this switch, so
-`Syndic.Atom.feed`, `entry`, `link`, `author`, `id`, `icon` and `logo` could
-not cross portability however the interface was annotated, and a kind
-annotation could not fix it from here because the kind that had to change was
-on an abstract type in another package. Those types now hold `Uriz.t`, which
-`vendor/ocaml-uri` gives the `immutable_data` kind, so a feed parsed once can
-be captured by a portable closure. `Ptime.t` was the other half of this and
-`vendor/ptime` settled it the same way.
+Every one of the nine interfaces in `lib/` carries `@@ portable`, so a
+`portable` closure can call `Syndic.Atom.parse`, `to_xml`, `output` and
+`aggregate`, `Syndic.Rss1.parse`, `Syndic.Rss2.parse` and `to_atom`,
+`Syndic.Opml1.parse`, `to_xml` and `output`, `Syndic.W3C.parse` and `url`,
+`Syndic.Date` in full and `Syndic.XML` in full. A `Syndic.Atom.feed` built or
+parsed once can be held at module level and read from a portable closure,
+because every type reachable from it is data: `Uriz.t` and `Ptime.t` both have
+the `immutable_data` kind, `Xmlm.pos` is a pair of `int`, and the rest is
+strings, lists, options and variants of those. Nothing in the interface is
+left nonportable, `Syndic_xml.input_of_channel` included. What a portable
+closure still cannot do is read an `in_channel`, an `out_channel` or a
+`Buffer.t` bound at module level and hand it to `parse` or `output`, but that
+is stdlib's rule about a shared sink rather than anything this library
+imposes, and passing one in as an argument is unaffected.
 
-The function bodies still do not clear, and the chain is shorter than it was.
-Annotating `Syndic_atom.to_xml` names `Syndic_common.Util.add_node_option` as
-the blocker. Annotating `Syndic_common` names `Syndic_xml.resolve`, which
-used to stop at `Uri.resolve` and no longer does, since every `Uriz` export
-is `portable`. On the date side, `Syndic_date` is `Ptime` under other names
-and `vendor/ptime` has annotated that. `Xmlm.make_output` is nonportable, so
-`Syndic_atom.output` would still fail on `xmlm`.
+None of the published types needed a kind annotation. They are concrete
+records and variants, so the compiler derives their kinds from their fields.
 
-The blockers local to this copy are all in `syndic_date.ml`, and one of them
-is gone. `month_to_int` was a module-level `Hashtbl` filled by a top-level
-`let ()`, which is the shape the htmlit vendoring fixed by replacing a
-module-level `Set` with a match, and it is a match here now. With it gone,
-putting `@@ portable` at the head of `syndic_date.mli` no longer names
-`of_rfc822`. It names `to_rfc822`, which calls `day_of_week`, and
-`day_of_week` is a closure over a `wday` array built at module level.
-`month_of_date` is the same shape over a `months` array. Both are at
-`syndic_date.ml:139-167`. Neither array is a module-level binding of its own,
-so a search for one will not find them: the array is bound in the `let` that
-returns the function. Those two are what is left, and they are the shape
-`vendor/ptime` fixed three times.
+`avsm/arod/test/test_syndic.ml` is the guard, 12 checks. It lives outside
+`vendor/` because the root `dune` declares `(vendored_dirs vendor)` and dune
+skips aliases there, so a `runtest` alias under this directory would never
+run. Strip the `@@ portable` from `syndic_atom.mli` and the guard stops
+compiling, with `The value "Syndic.Atom.output" is "nonportable" but is
+expected to be "portable"`.
 
-What would have to land first, in order:
+What the implementations needed
+-------------------------------
 
-1. The two remaining array closures in `syndic_date.ml` turned into matches.
-2. `xmlm` annotated, at least `make_output` and `to_xmlm`. It is vendored as
-   of `vendor/xmlm`, unpatched, so the annotation has somewhere to land.
-3. The annotation pass over `lib/` itself.
+Nothing in the annotation changes what any function computes. Rendering the
+six feeds in `test/` through `Syndic.Atom.output` gives XML byte-identical to
+what the copy produced before this pass, 6165 lines, MD5
+`db46ba2797ac8cd0cfcbabe289f0313f`, 0 parse failures.
 
-The third step used to be blocked on vendoring and annotating `uri`, and that
-is what the `uriz` port replaced. `vendor/ocaml-uri` builds `uriz`, a rewrite
-with a different interface rather than a patched `Uri`, and moving Syndic
-onto it was a semantic fork of the parser rather than an annotation pass.
-That fork has now happened, and what it bought is recorded above.
+**Modes on `generate_catcher` and `dummy_of_xml`, 2 declarations.** This is
+the whole of it, and everything else below is a consequence.
 
-The callers are blocked independently of all this. `Arod.Feed.feed_string` is
-nonportable, and so is `Arod.Feed.form_uri`, which is one call to
-`Uriz.of_string_exn`. The Arod feed path also reaches `Arod.Ctx.author_exn`
-and `Arod.Md.to_atom_html`, which are blocked on `Cmarkit` and on Bushel,
-whose own interface carries no annotations. Making Syndic portable would
-therefore not on its own collapse the `feed` or `blogroll` closure in
-`Arod_env.t`.
+Almost every parser in this library is a module-level partial application:
+
+```ocaml
+let entry_of_xml =
+  let data_producer = [ ... ] in
+  generate_catcher ~namespaces ~data_producer make_entry
+```
+
+That binds a closure into the module, and a module-level closure is
+nonportable unless the function it came from says otherwise, which drags every
+parser above it down to `parse`. `lib/` holds 83 calls to `generate_catcher`
+and 53 partial applications of `dummy_of_xml`, counted with
+
+    grep -c 'generate_catcher ' lib/syndic_{atom,rss1,rss2,opml1,w3c}.ml
+    grep -h 'dummy_of_xml ~ctor' lib/*.ml | wc -l
+
+and the fix is two declarations in `syndic_common.{ml,mli}` that leave all but
+four of them exactly as upstream wrote them. Both halves of each declaration
+are needed. In the implementation, the mode goes on parameters whose types are
+**written out**, and on the returned closure:
+
+```ocaml
+let generate_catcher ?(namespaces : string list @ portable = [""])
+    ?(attr_producer :
+       (string * (xmlbase:Uriz.t option -> string -> 'a)) list @ portable = [])
+    ?(data_producer :
+       (string * (xmlbase:Uriz.t option -> node -> 'a)) list @ portable = [])
+    ?(leaf_producer :
+       (xmlbase:Uriz.t option -> Xmlm.pos -> string -> 'a) option @ portable)
+    (maker @ portable) = ...
+  let generate : _ @ portable = fun ~xmlbase ((pos, tag, datas) : node) -> ...
+```
+
+In the interface, the same modes on the parameters **and a mode on the
+result**, which is what makes the partial application portable at a call site
+in another compilation unit:
+
+```ocaml
+  val generate_catcher :
+       ?namespaces:string list @ portable
+    -> ...
+    -> (pos:Xmlm.pos -> 'a list -> 'b) @ portable
+    -> (xmlbase:Uriz.t option -> node -> 'b) @ portable
+```
+
+`dummy_of_xml` takes the same treatment on its one parameter and its result,
+so a producer list holding `dummy_of_xml ~ctor:...` entries stays at module
+level too.
+
+Writing the types out is not decoration. An unannotated `?(attr_producer =
+[])` with only `@ portable` on it still leaves `generate` reading it at
+`contended`, and the build stops with `This value is "contended" ... expected
+to be "uncontended"`. Four earlier shapes failed for that reason: a result
+mode alone, `@ portable` on `maker` alone, `@ portable` on the untyped
+optional parameters, and `@ portable` on the inner `catch_attr` /
+`catch_datas` / `generate` bindings.
+
+**Consequences elsewhere, 5 sites.** Everything else in `lib/` is untouched.
+`syndic_rss1.ml` and `syndic_opml1.ml` are byte-identical to what they were
+before this pass.
+
+- `Syndic_atom.author_of_xml` and `contributor_of_xml` need parentheses.
+  `generate_catcher` now delivers its parser in one application, so
+  `generate_catcher ... maker ~xmlbase xml` is rejected with `This
+  application is complete, but surplus arguments were provided afterwards`.
+  Written as `(generate_catcher ... maker) ~xmlbase xml` it compiles. Only
+  these two are affected, because only they apply the node in the same
+  expression rather than storing the parser.
+- `Syndic_w3c.errorlist_of_xml` and `warninglist_of_xml` need the same
+  parentheses and, additionally, take the node as an argument. They fix
+  `~xmlbase:None` at the definition, and `(generate_catcher ... maker)
+  ~xmlbase:None` on its own is still a closure, which at module level is still
+  nonportable.
+- `Syndic_common.Util.datas_has_leaf` was `List.exists (function ...)`, a
+  partial application of a function that says nothing about modes, so it is
+  eta expanded.
+
+**Module-level mutable tables, 4.** All four are memoised pure functions and
+none is written after it is built, so turning each into code loses nothing.
+
+| Where | Was | Is |
+| --- | --- | --- |
+| `syndic_date.ml` `month_of_date` | `[|Jan; ...; Dec|]` indexed by `i - 1` | a match on `i` |
+| `syndic_date.ml` `day_of_week` | `[|Thu; ...; Wed|]` indexed by the day count mod 7 | a match on that index |
+| `syndic_rss2.ml` `valid_local_part` | `Array.init 256 is_valid` | `is_valid_local_part` applied to the character |
+| `syndic_rss2.ml` `valid_domain_part` | `Array.init 256 is_valid` | `is_valid_domain_part` applied to the character |
+
+The two `syndic_date.ml` arrays were bound inside the `let` that returned the
+function, not as module-level bindings of their own, which is why a search for
+them found nothing. Both matches answer what indexing answered, over the whole
+range the caller can produce:
+
+| `month_of_date` index | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Array | Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec |
+| Match | Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec |
+
+| `day_of_week` index | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Array | Thu | Fri | Sat | Sun | Mon | Tue | Wed |
+| Match | Thu | Fri | Sat | Sun | Mon | Tue | Wed |
+
+`Ptime.to_date` returns a month in `1 .. 12` and the day count mod 7,
+adjusted, is in `0 .. 6`, so neither match can fall through. The last arm of
+each raises `Invalid_argument "index out of bounds"`, which is what indexing
+the array raised, so even an impossible index behaves as it did.
+
+The two `syndic_rss2.ml` arrays memoised a predicate over all 256 bytes and
+were read as `valid_local_part.(Char.code c)`. The predicate is now applied to
+`c` directly, which is the same answer for every character, since the array
+entry at `Char.code c` was the predicate at `Char.unsafe_chr (Char.code c)`.
+Upstream's domain-part predicate lists `'.'` twice. The second is dropped, and
+the predicate is unchanged.
+
+**Stdlib functors, 1.** `Syndic_atom.LinkSet` is `Set.MakePortable (LinkOrder)`
+rather than `Set.Make`. The two differ only in that the second requires a
+portable `compare` and delivers portable operations, and `LinkOrder.compare`
+already was one. `LinkSet.empty` is a module-level value of an abstract type
+with no kind, so a portable function cannot read it: the one use is now
+`LinkSet.of_list []`, the same empty set built rather than read.
+
+The callers
+-----------
+
+`Arod.Feed.feed_string` and the `feed` and `blogroll` closures in `Arod_env.t`
+are still nonportable, and syndic is no longer why. `Arod.Feed.form_uri` is
+one call to `Uriz.of_string_exn`, which is portable. What remains is
+`Arod.Ctx.author_exn` and `Arod.Md.to_atom_html`, blocked on `Cmarkit` and on
+Bushel, whose own interface carries no annotations.
 
 Re-vendoring checklist
 ======================
@@ -253,18 +377,26 @@ Re-vendoring checklist
    of it, including the consumers that break with it. Deciding against it
    means reverting that commit across the tree, not just here, because the
    published types are part of it.
-5. Update the version in `syndic.opam`, in `dune-project` and in the first
+5. Re-apply the portability annotation. Upstream carries none of it, so a
+   straight copy loses every `@@ portable` and every reshaped body, and
+   `test_syndic` stops compiling. "The portability annotation" above says what
+   each class of change is and why, and `git show` on the commit "Annotate
+   syndic for OxCaml portability" gives the whole of it. Do the work rather than
+   replaying the patch, because a new release moves the parsers around.
+6. Update the version in `syndic.opam`, in `dune-project` and in the first
    line of this file.
-6. `dune build @avsm/sortal/all @avsm/sortal/runtest`, which reaches the
+7. `dune build @avsm/sortal/all @avsm/sortal/runtest`, which reaches the
    `test_feed` suite. That pins the `<updated>` hunk, the three tiers of
    `uri_of_string` and its totality, and `test_rfc822_month_names` in the
    same file pins all twelve arms of `month_to_int` and that an unknown month
    is rejected. Nothing pins the trim or the RFC 3339 fallback, so a green
    build does not show that those two survived.
-7. `dune build @avsm/arod/all @avsm/bushel/all`.
+8. `dune build @avsm/arod/all @avsm/arod/runtest @avsm/bushel/all`.
+   `test_syndic` under `avsm/arod/test` is what pins the annotation and the
+   four replaced tables.
 
-Do not add `@@ portable` while re-vendoring. Read the section above first,
-then check whether `uriz`, `ptime` and `xmlm` have moved.
+Check whether `uriz`, `ptime` and `xmlm` have moved before assuming the
+annotation still lands where it did.
 
 Build Requirements
 ==================

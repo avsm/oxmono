@@ -13,8 +13,22 @@ module XML = struct
       Some (Syndic_xml.resolve ~xmlbase (uri_of_string new_base))
     with Not_found -> xmlbase
 
-  let generate_catcher ?(namespaces = [""]) ?(attr_producer = [])
-      ?(data_producer = []) ?leaf_producer maker =
+  (* The modes are the point, and they have to sit on parameters whose types
+     are written out. [generate] closes over every one of them, so unless each
+     arrives portable the closure is nonportable, and then every parser built
+     by partially applying this function is a nonportable module-level value.
+     With the modes here, [let entry_of_xml = generate_catcher ... make_entry]
+     stays the module-level partial application upstream wrote and is
+     portable. *)
+  let generate_catcher ?(namespaces : string list @ portable = [""])
+      ?(attr_producer :
+         (string * (xmlbase:Uriz.t option -> string -> 'a)) list @ portable =
+         [])
+      ?(data_producer :
+         (string * (xmlbase:Uriz.t option -> node -> 'a)) list @ portable = [])
+      ?(leaf_producer :
+         (xmlbase:Uriz.t option -> Xmlm.pos -> string -> 'a) option @ portable)
+      (maker @ portable) =
     let in_namespaces ((prefix, _), _) = List.mem prefix namespaces in
     let get_attr_name (((_prefix, name), _) : Xmlm.attribute) = name in
     let get_attr_value ((_, value) : Xmlm.attribute) = value in
@@ -45,7 +59,8 @@ module XML = struct
         | None -> catch_datas ~xmlbase acc r )
       | [] -> acc
     in
-    let generate ~xmlbase ((pos, tag, datas) : node) =
+    let generate : _ @ portable =
+     fun ~xmlbase ((pos, tag, datas) : node) ->
       (* The spec says that "The base URI for a URI reference appearing in any
          other attribute value, including default attribute values, is the base
          URI of the element bearing the attribute" so get xml:base first. *)
@@ -55,7 +70,11 @@ module XML = struct
     in
     generate
 
-  let dummy_of_xml ~ctor =
+  (* Same reason as [generate_catcher] above: [ctor] is closed over by the
+     parser this returns, and every caller holds that parser in a producer
+     list at module level. *)
+  let dummy_of_xml
+      ~(ctor : (xmlbase:Uriz.t option -> string -> 'a) @ portable) =
     let leaf_producer ~xmlbase _pos data = ctor ~xmlbase data in
     let head ~pos:_ = function [] -> ctor ~xmlbase:None "" | x :: _ -> x in
     generate_catcher ~leaf_producer head
@@ -93,7 +112,8 @@ module Util = struct
 
   let tag_is (((_prefix, name), _attrs) : XML.tag) = ( = ) name
   let attr_is (((_prefix, name), _value) : Xmlm.attribute) = ( = ) name
-  let datas_has_leaf = List.exists (function XML.Data _ -> true | _ -> false)
+  let datas_has_leaf l =
+    List.exists (function XML.Data _ -> true | _ -> false) l
 
   let get_leaf l =
     match find (function XML.Data _ -> true | _ -> false) l with

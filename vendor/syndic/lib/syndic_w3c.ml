@@ -102,13 +102,18 @@ let error_of_xml ~kind =
 
 let make_errorlist ~pos:_ (l : _ t list) = l
 
-let errorlist_of_xml =
+(* Two changes, both forced by [generate_catcher] returning its parser in one
+   application. The parentheses put [~xmlbase] on that parser rather than on
+   [generate_catcher], and the node is taken as an argument because
+   [... ~xmlbase:None] on its own is a closure, and a module-level closure is
+   nonportable. *)
+let errorlist_of_xml xml =
   let data_producer = [("error", error_of_xml ~kind:Error)] in
-  generate_catcher ~data_producer ~xmlbase:None make_errorlist
+  (generate_catcher ~data_producer make_errorlist) ~xmlbase:None xml
 
-let warninglist_of_xml =
+let warninglist_of_xml xml =
   let data_producer = [("warning", error_of_xml ~kind:Warning)] in
-  generate_catcher ~data_producer ~xmlbase:None make_errorlist
+  (generate_catcher ~data_producer make_errorlist) ~xmlbase:None xml
 
 let find_errorlist l =
   recursive_find

@@ -1,5 +1,7 @@
 (** Minimal date module required by Syndic. *)
 
+@@ portable
+
 (** A date with time. *)
 type t = Ptime.t
 

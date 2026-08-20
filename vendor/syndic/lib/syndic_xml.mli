@@ -1,5 +1,7 @@
 (** Common module for XML parsing. *)
 
+@@ portable
+
 (** The type for the optional {{:http://www.w3.org/TR/REC-xml/#dt-doctype}DTD}. *)
 type dtd = string option
 

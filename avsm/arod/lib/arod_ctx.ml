@@ -149,7 +149,7 @@ let resolve_url_to_entry ~base_url ~entries url =
     else
       ""
   in
-  (* Parse /type/slug — valid types are papers, notes, projects, ideas, videos *)
+  (* Parse /type/slug. Valid types are papers, notes, projects, ideas, videos *)
   match String.split_on_char '/' path with
   | "" :: typ :: slug :: _ when
       typ = "papers" || typ = "notes" || typ = "projects"

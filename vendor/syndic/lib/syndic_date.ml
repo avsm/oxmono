@@ -136,13 +136,26 @@ let string_of_month = function
   | Nov -> "Nov"
   | Dec -> "Dec"
 
-let month_of_date =
-  let months =
-    [|Jan; Feb; Mar; Apr; May; Jun; Jul; Aug; Sep; Oct; Nov; Dec|]
-  in
-  fun t ->
-    let _, i, _ = Ptime.to_date t in
-    months.(i - 1)
+(* The twelve months were an array bound inside this [let], which made the
+   closure that indexed it nonportable. The match answers the same month for
+   every index [Ptime.to_date] can return, and the last arm keeps the
+   exception indexing the array raised for one it cannot. *)
+let month_of_date t =
+  let _, i, _ = Ptime.to_date t in
+  match i with
+  | 1 -> Jan
+  | 2 -> Feb
+  | 3 -> Mar
+  | 4 -> Apr
+  | 5 -> May
+  | 6 -> Jun
+  | 7 -> Jul
+  | 8 -> Aug
+  | 9 -> Sep
+  | 10 -> Oct
+  | 11 -> Nov
+  | 12 -> Dec
+  | _ -> invalid_arg "index out of bounds"
 
 (* RFC3339 date *)
 let of_rfc3339 s =
@@ -160,11 +173,22 @@ let to_rfc3339 d =
 
 (* Convenience functions *)
 
-let day_of_week =
-  let wday = [|Thu; Fri; Sat; Sun; Mon; Tue; Wed|] in
-  fun t ->
-    let i = fst Ptime.(Span.to_d_ps @@ to_span t) mod 7 in
-    wday.((if i < 0 then 7 + i else i))
+(* The seven weekdays were an array bound inside this [let], with the same
+   consequence as [month_of_date] above. The epoch, 1970-01-01, was a
+   Thursday, which is why the array starts there. [mod 7] lands in [-6 .. 6]
+   and the adjustment lifts that to [0 .. 6], so the last arm is unreachable
+   and is there to keep the exception indexing the array would have raised. *)
+let day_of_week t =
+  let i = fst Ptime.(Span.to_d_ps @@ to_span t) mod 7 in
+  match if i < 0 then 7 + i else i with
+  | 0 -> Thu
+  | 1 -> Fri
+  | 2 -> Sat
+  | 3 -> Sun
+  | 4 -> Mon
+  | 5 -> Tue
+  | 6 -> Wed
+  | _ -> invalid_arg "index out of bounds"
 
 let string_of_day = function
   | Thu -> "Thu"

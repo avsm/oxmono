@@ -137,8 +137,9 @@ let person_data_producer =
   ; ("email", person_email_of_xml) ]
 
 let author_of_xml ~xmlbase ((_, _, datas) as xml) =
-  generate_catcher ~namespaces ~data_producer:person_data_producer
-    (make_author datas) ~xmlbase xml
+  (generate_catcher ~namespaces ~data_producer:person_data_producer
+     (make_author datas))
+    ~xmlbase xml
 
 type uri = Uriz.t option * string
 type person = [`Email of string | `Name of string | `URI of uri] list
@@ -203,8 +204,9 @@ let category_of_xml' =
 let make_contributor datas ~pos a = `Contributor (make_person datas ~pos a)
 
 let contributor_of_xml ~xmlbase ((_, _, datas) as xml) =
-  generate_catcher ~namespaces ~data_producer:person_data_producer
-    (make_contributor datas) ~xmlbase xml
+  (generate_catcher ~namespaces ~data_producer:person_data_producer
+     (make_contributor datas))
+    ~xmlbase xml
 
 let contributor_of_xml' =
   generate_catcher ~namespaces ~data_producer:person_data_producer'
@@ -770,7 +772,7 @@ module LinkOrder : Set.OrderedType with type t = string * string = struct
     match compare (fst a) (fst b) with 0 -> compare (snd a) (snd b) | n -> n
 end
 
-module LinkSet = Set.Make (LinkOrder)
+module LinkSet = Set.MakePortable (LinkOrder)
 
 let uniq_link_alternate ~pos (l : link list) =
   let string_of_duplicate_link {href; type_media; hreflang; _}
@@ -811,7 +813,10 @@ let uniq_link_alternate ~pos (l : link list) =
         else aux (LinkSet.add ("", "") acc) r
     | _ :: r -> aux acc r
   in
-  aux LinkSet.empty l
+  (* [LinkSet.empty] is a module-level value of an abstract type with no kind,
+     so a portable function cannot read it. [of_list []] is the same empty
+     set, built rather than read. *)
+  aux (LinkSet.of_list []) l
 
 type feed' =
   [ `Author of author

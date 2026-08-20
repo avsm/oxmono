@@ -84,11 +84,14 @@ syndic's interface is written in terms of `Xmlm.pos`, `Xmlm.input` and
 shadowing reason as jsonfeed. See
 [vendor/sitemap/README.md](vendor/sitemap/README.md).
 
-`syndic` is vendored for a third reason, to carry parse fixes for feeds that
-publishers actually emit. It is deliberately not annotated: its published
-types are built from `Uri.t`, which does not cross portability, so a feed
-cannot be held by a portable closure whatever the interface says. See
-[vendor/syndic/README.md](vendor/syndic/README.md).
+`syndic` is vendored for a third reason as well, to carry parse fixes for
+feeds that publishers actually emit. It is now annotated too. Its published
+types are built from `Uriz.t` and `Ptime.t`, both of which cross portability,
+so a parsed feed can be held by a portable closure, and every one of its nine
+interfaces carries `@@ portable`. Getting there needed modes on the two
+functions its eighty-odd parsers are partial applications of, so that those
+parsers stay portable module-level values, and four module-level tables turned
+into code. See [vendor/syndic/README.md](vendor/syndic/README.md).
 
 `mdx` from opam is likewise blocked on minus39, hence the local-clone pin
 in the setup steps above.

@@ -1,6 +1,8 @@
 (** [Syndic.Atom]: {{: http://tools.ietf.org/html/rfc4287} RFC 4287} compliant
     Atom parser. *)
 
+@@ portable
+
 module Error : module type of Syndic_error
 
 (** {2 Structure of Atom document} *)

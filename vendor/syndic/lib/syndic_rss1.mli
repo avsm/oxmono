@@ -1,6 +1,8 @@
 (** [Syndic.Rss1]: compliant with {{: http://web.resource.org/rss/1.0/spec} RSS
     1.0}. *)
 
+@@ portable
+
 module Error : module type of Syndic_error
 
 (** A descriptive title for the channel, image, item and textinput. See RSS 1.0

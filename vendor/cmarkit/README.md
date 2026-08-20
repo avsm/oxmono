@@ -80,7 +80,7 @@ the container with code, or move to `iarray`. All three appear below.
   `html_start_cond_1_set` and `html_start_cond_6_set` were module-level
   `Set.Make (String)` values read by `html_block_start`, which runs on every
   line that opens with a tag. They are matches, `is_html_start_cond_1_tag` and
-  `is_html_start_cond_6_tag`, and the same 4 and 63 names answer `true`. This
+  `is_html_start_cond_6_tag`, and the same 4 and 62 names answer `true`. This
   is the shape htmlit's `void_els` took. `module String_set` had no other user
   in the file and is gone.
 
@@ -135,12 +135,15 @@ Unicode data in a later release needs no edit. Every listed whitespace,
 punctuation and case folding code point answers through its accessor and no
 unlisted one does, all 2125 entity names resolve to their replacements while a
 name with a character added or removed resolves only if it is itself a name,
-and all 67 condition 1 and condition 6 tag names behave as their condition
+and all 66 condition 1 and condition 6 tag names behave as their condition
 says while 17 other names and the six unreachable numbered heading names do
 not. Nine mutations were run against it and all nine fail it: a short last
 index on each of the four tables, a lowercasing entity lookup, a case fold
 search that never hits, a dropped condition 6 tag, an added one, and a dropped
-condition 1 tag.
+condition 1 tag. Two more cover the two ends of the search window those nine
+left untested, and both fail it too: an entity search that starts at index 1,
+so the first entry is unreachable, and one that gives up on a one-element
+window by testing `lo >= hi` for `lo > hi`.
 
 A differential harness, built in a scratch directory, compiles one driver
 against the pristine 0.3.0 sources and against this copy and diffs the two
@@ -149,7 +152,7 @@ from 0 to 0x10FFFF through the three Unicode accessors, all 2125 entity names,
 38 near-miss entity probes, a digest over 232699 bytes of further near misses
 built from every proper prefix of every name, every name with a character
 appended, three case foldings of every name and every one and two character
-ASCII string, all 67 condition 1 and condition 6 tag names in the five shapes
+ASCII string, all 66 condition 1 and condition 6 tag names in the five shapes
 that reach `html_block_start` plus 19 names that must not match, and 15
 documents rendered through strict HTML, extended HTML, CommonMark, LaTeX, a
 CommonMark round trip and a text location fold.
@@ -171,6 +174,10 @@ which is a correct binary search.
   stanza are dropped with the command line tool they served.
 * `dune` and `dune-project` are written for this workspace rather than taken
   from upstream.
+* Upstream builds with any OCaml from 4.14 and this copy needs an OxCaml
+  compiler. `cmarkit.opam`'s `ocaml` bound is `>= 5.1.0`, which is the
+  Stdlib's `Type.Id` and is necessary rather than sufficient. The
+  `basement` dependency asks for OxCaml on top of it.
 * Upstream has no dependencies and this copy has one, `basement`, for the
   `iarray` operations `cmarkit_data.ml` now uses. There is no `Iarray` module
   in this switch's stdlib, and `basement` is where `Stdlib_iarray_labels`

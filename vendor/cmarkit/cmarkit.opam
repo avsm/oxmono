@@ -26,6 +26,13 @@ dictionary whose bindings cross portability and contention, and several
 functor applications are the portable ones. Rendering and parsing behaviour
 is unchanged. See README.md for the hunks.
 
+This copy needs an OxCaml compiler. Two things ask for it: the Stdlib's
+Type.Id, which upstream shims for compilers before 5.1 and whose
+immutable_data kind the metadata dictionary needs, and the basement library,
+which provides the iarray operations the tables use. The ocaml lower bound
+below is 5.1.0 for the Type.Id requirement, and is a necessary rather than a
+sufficient condition.
+
 [CommonMark specification]: https://spec.commonmark.org/
 
 Homepage: <https://erratique.ch/software/cmarkit>"""
@@ -37,7 +44,7 @@ homepage: "https://erratique.ch/software/cmarkit"
 doc: "https://erratique.ch/software/cmarkit/doc"
 bug-reports: "https://github.com/dbuenzli/cmarkit/issues"
 depends: [
-  "ocaml" {>= "4.14.0"}
+  "ocaml" {>= "5.1.0"}
   "dune" {>= "3.21"}
   "basement"
 ]

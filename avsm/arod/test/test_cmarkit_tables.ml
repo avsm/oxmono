@@ -7,8 +7,9 @@
    Everything here is checked against the generated arrays the tables are
    built from, so nothing needs updating when a re-vendor brings new Unicode
    data. A binary search that accepts a key it should not, misses one it
-   should find, or cannot reach the last entry, fails here. So does a tag
-   dropped from or added to the two HTML block start conditions.
+   should find, cannot reach the first or the last entry, or gives up on a
+   one-element window, fails here. So does a tag dropped from or added to the
+   two HTML block start conditions.
 
    avsm/arod/test/test_md_golden.ml is the other half of the guarantee. It
    pins rendered bytes, but its four documents reach only a handful of these

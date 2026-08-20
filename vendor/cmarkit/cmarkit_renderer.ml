@@ -46,7 +46,7 @@ let doc r = r.doc
 module Context = struct
   type t = context
   let make renderer b =
-    { renderer; b; state = Dict.empty; doc = Cmarkit.Doc.empty }
+    { renderer; b; state = Dict.empty (); doc = Cmarkit.Doc.empty () }
 
   let buffer c = c.b
   let renderer c = c.renderer
@@ -77,7 +77,7 @@ module Context = struct
   let doc (c : context) d =
     c.doc <- d; init c d;
     ignore (c.renderer.doc c d || unhandled_doc d);
-    c.doc <- Cmarkit.Doc.empty
+    c.doc <- Cmarkit.Doc.empty ()
 end
 
 let doc_to_string r d =

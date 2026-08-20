@@ -9,11 +9,10 @@ from `cmarkit.0.3.0+ox`. That package applies one patch to upstream, in
 matched both the installed copy and the upstream tarball, file by file under
 `cmp`. Everything that has moved since is below.
 
-### The patch, hunk by hunk
+### The structural hunks
 
-This is the structural half of the pass. It changes what a module-level value
-is, not what any interface promises about modes. The `@@ portable`
-annotations, and the kinds that go with them, come later and are not here.
+These change what a module-level value is, not what any interface promises
+about modes. The mode annotations are in the next section.
 
 One rule explains most of it. **A module-level value of a stdlib container
 cannot be read from a portable function, even when the container is immutable
@@ -56,14 +55,23 @@ the container with code, or move to `iarray`. All three appear below.
   `immutable_data` bound on its bindings is rejected. `Meta` therefore has a
   dictionary of its own. `Meta_dict`'s key is the Stdlib's `Type.Id.t`, which
   declares `immutable_data`, and its container is an association list, since
-  no stdlib container carries a kind. Cmarkit's own `Type.Id` shim is declared
-  *inside* `Dict`, so a sibling module reaches the Stdlib's without touching
-  it.
+  no stdlib container carries a kind.
 
   The association list is not a semantic change. This dictionary is reached
   only through `mem`, `add`, `tag`, `remove` and `find`, none of which
   observes order, `add` shadows an existing binding as `Map.add` did, and
   there is no iteration in the interface. It holds a couple of bindings.
+
+* `cmarkit_base.ml`, `Dict`. Upstream shims `Type.Id` inside this module, for
+  compilers before 5.1, by packing a first-class module. That shim is deleted
+  and the Stdlib's `Type.Id` is used instead. The bodies of `key`,
+  `provably_equal` and `uid` are the same words either way, so the module
+  reads as it did, but the Stdlib's identifier declares `immutable_data` and
+  the shim's packed module is `value non_float`. That kind is what lets a
+  backend hold its `Cmarkit_renderer.Context.State` key at module level and
+  read it from a portable rendering function, which both backends do.
+  `Map.Make (Int)` becomes `Map.MakePortable (Int)` and `empty` becomes
+  `empty ()`, since a module-level map value does not cross.
 
 * `cmarkit_base.mli` and `cmarkit.mli`, `Meta.add` and `Meta.find`. Both gain
   an `('a : immutable_data)` bound, which the implementation forces. This is a
@@ -103,20 +111,82 @@ the container with code, or move to `iarray`. All three appear below.
   reason as the three above. Its members are the heading identifiers already
   handed out, held in the renderer's mutable state.
 
+### The annotation hunks
+
+Three interfaces carry a floating `@@ portable` at the head of the file, which
+makes every value in them portable: `cmarkit_data.mli`, `cmarkit_base.mli` and
+`cmarkit.mli`. Together they let a `@ portable` closure parse a document,
+resolve its labels through a resolver of its own, and map and fold the tree.
+The renderer and the two backends follow.
+
+Four types carry a kind, and no more than four do. A kind is only worth adding
+where a value of the type has to be held at module level and read from a
+portable function, and most of cmarkit's types cannot carry one in any case:
+`Inline.t`, `Block.t` and `Label.def` are extensible variants, whose kind is
+`value`, and `Doc.t` reaches them.
+
+* `Cmarkit.Meta.key` and `Cmarkit_base.Meta.key`, `immutable_data`. This is the
+  one the campaign was gated on. A client mints a key once at module level and
+  reads it from a portable function, and it has no choice about that: a key
+  minted twice is two identities and `Meta.find` matches on identity, so
+  moving the key inside its reader would silently return `None` for ever.
+  `avsm/bushel/lib/bushel_md.ml` holds two.
+* `Cmarkit.Meta.t` and `Cmarkit_base.Meta.t`, `immutable_data`, which the key's
+  own use forces.
+* `Cmarkit.Textloc.t` and `Cmarkit_base.Textloc.t`, `immutable_data`, which
+  `Meta.t` contains.
+* `Cmarkit_base.Dict.key`, `immutable_data`. This is the key of the renderer
+  state dictionary, which both backends hold at module level. It costs
+  nothing, being a `Type.Id.t` once the shim is gone. The annotation that
+  reads it is in the renderer's own hunk.
+
+Six `.empty` sites became calls, each named by the compiler the moment the
+function that reads it was required to be portable:
+
+| Site | Read | Now |
+| --- | --- | --- |
+| `cmarkit.ml:781`, `Block.defs` | `?(init = Label.Map.empty)` | `Label.Map.of_list []` |
+| `cmarkit.ml:880`, `parser` | `?(defs = Label.Map.empty)` | `Label.Map.of_list []` |
+| `cmarkit.ml:886`, `parser` | `cidx = Closer_index.empty` | `Closer_index.of_list []` |
+| `cmarkit.ml:1110`, `rev_token_list_and_make_closer_index` | `loop Closer_index.empty` | `loop (Closer_index.of_list [])` |
+| `cmarkit.ml:2961`, `Doc.make` | `?(defs = Label.Map.empty)` | `Label.Map.of_list []` |
+| `cmarkit_renderer.ml:49`, `Context.make` | `Dict.empty` | `Dict.empty ()` |
+
+Three constants became functions, which is a break in the published
+interface. Each is a value whose type cannot cross, so there is no annotation
+that would have kept it a constant.
+
+* `Cmarkit.Doc.empty`, now `unit -> t`. `Doc.t` holds a `Label.Map.t` and
+  reaches `Block.t`. `Cmarkit_renderer.Context.make` seeds a context with it
+  and `Context.doc` clears the context back to it, and both must be portable.
+  Nothing else in this tree reads it.
+* `Cmarkit.Inline.empty` and `Cmarkit.Block.empty`, now `unit -> t`. Both are
+  extensible variant values. `Block.Footnote.stub` and the two `Mapper`
+  defaults read them, all inside `cmarkit.ml`. Nothing in this tree reads
+  either.
+
 ### What was deliberately left alone
 
-* `Cmarkit_base.Dict`, as above. Renderer state is mutable by design.
-* `cmarkit_latex.ml`'s `String_set`. The LaTeX renderer is on no in-tree path
-  and no slice plans to annotate it, so the swap would buy nothing.
+* `cmarkit_latex.ml` and `cmarkit_latex.mli`. The LaTeX renderer is on no
+  in-tree path. Its `String_set` is untouched and its interface carries no
+  annotation, so `Cmarkit_latex.of_doc` is not callable from a portable
+  function. Annotating it would be the same work as the interfaces above and
+  would buy nothing today.
+
 * `cmarkit_commonmark.ml`'s `Char_set` and its five module-level escaping
-  sets. These do need to change, and `MakePortable` is not enough for them:
-  the escaper reads the five constants, and a module-level container constant
-  does not cross whatever the functor. The fix is to replace the sets with
-  predicates, which changes the published type of `escaped_string` and
-  `buffer_add_escaped_string` and the `module Char_set : Set.S` beside them.
-  An interface break belongs with the annotation that forces it, not in a
-  commit whose contract is that behaviour does not move. Nothing in this tree
-  calls either function.
+  sets. They do need to change, and a predicate is the shape that works, which
+  breaks the published type of `escaped_string` and `buffer_add_escaped_string`
+  and removes the `module Char_set : Set.S` beside them. That break belongs
+  with the annotation that forces it, in the backends' own hunk.
+
+* `Cmarkit.Mapper.default`, `Mapper.delete` and `Folder.default`. These are
+  module-level values of a polymorphic variant type, which crosses nothing, so
+  a portable function cannot read them. The literals they stand for,
+  `` `Default ``, `` `Map None `` and `` `Fold v ``, are what a portable
+  mapper or folder writes instead, and `Mapper.ret` and `Folder.ret` are
+  function calls and work. Making the three constants functions would break
+  every existing mapper for a convenience that already has a one-word
+  spelling.
 
 ### Behaviour identity
 
@@ -176,8 +246,9 @@ which is a correct binary search.
   from upstream.
 * Upstream builds with any OCaml from 4.14 and this copy needs an OxCaml
   compiler. `cmarkit.opam`'s `ocaml` bound is `>= 5.1.0`, which is the
-  Stdlib's `Type.Id` and is necessary rather than sufficient. The
-  `basement` dependency asks for OxCaml on top of it.
+  Stdlib's `Type.Id` and is necessary rather than sufficient. The mode and
+  kind syntax in the interfaces and the `basement` dependency both ask for
+  OxCaml on top of it.
 * Upstream has no dependencies and this copy has one, `basement`, for the
   `iarray` operations `cmarkit_data.ml` now uses. There is no `Iarray` module
   in this switch's stdlib, and `basement` is where `Stdlib_iarray_labels`

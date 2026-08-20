@@ -5,16 +5,18 @@
 
 (** Low-level internal tools. *)
 
+@@ portable
+
 (** Heterogeneous dictionaries.
 
     Used by {!Cmarkit_renderer.Context.State}, whose bindings are the
     renderers' mutable per-render state. {!Cmarkit.Meta} has a dictionary of
     its own, whose bindings must instead cross portability and contention. *)
 module Dict : sig
-  type 'a key
+  type 'a key : immutable_data
   val key : unit -> 'a key
   type t
-  val empty : t
+  val empty : unit -> t
   val mem : 'a key -> t -> bool
   val add : 'a key -> 'a -> t -> t
   val tag : unit key -> t -> t
@@ -39,7 +41,7 @@ module Textloc : sig
   val line_pos_first : line_pos
   val line_pos_none : line_pos
 
-  type t
+  type t : immutable_data
   val none : t
   val v :
     file:fpath -> first_byte:byte_pos -> last_byte:byte_pos ->
@@ -73,7 +75,7 @@ end
    See {!Cmarkit.Meta} for documentation. *)
 module Meta : sig
   type id = int
-  type t
+  type t : immutable_data
 
   val none : t
   val make : ?textloc:Textloc.t -> unit -> t
@@ -86,7 +88,7 @@ module Meta : sig
   val compare : t -> t -> int
   val is_none : t -> bool
 
-  type 'a key
+  type 'a key : immutable_data
   val key : unit -> 'a key
   val mem : 'a key -> t -> bool
   val add : ('a : immutable_data). 'a key -> 'a -> t -> t

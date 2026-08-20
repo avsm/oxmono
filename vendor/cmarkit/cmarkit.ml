@@ -319,7 +319,7 @@ module Inline = struct
   | Strong_emphasis of Emphasis.t node
   | Text of Text.t node
 
-  let empty = Inlines ([], Meta.none)
+  let empty () = Inlines ([], Meta.none)
 
   let err_unknown = "Unknown Cmarkit.Inline.t type extension"
 
@@ -649,7 +649,7 @@ module Block = struct
   | Paragraph of Paragraph.t node
   | Thematic_break of Thematic_break.t node
 
-  let empty = Blocks ([], Meta.none)
+  let empty () = Blocks ([], Meta.none)
 
   (* Extensions *)
 
@@ -729,7 +729,7 @@ module Block = struct
 
     type Label.def += Def of t node
     let stub label defined_label =
-      Def ({ indent = 0; label; defined_label; block = empty}, Meta.none)
+      Def ({ indent = 0; label; defined_label; block = empty () }, Meta.none)
   end
 
   type t +=
@@ -777,7 +777,8 @@ module Block = struct
   | b -> ext b
 
   let rec defs
-      ?(ext = fun b defs -> invalid_arg err_unknown) ?(init = Label.Map.empty)
+      ?(ext = fun b defs -> invalid_arg err_unknown)
+      ?(init = Label.Map.of_list [])
     = function
     | Blank_line _ | Code_block _ | Heading _ | Html_block _
     | Paragraph _ | Thematic_break _
@@ -876,13 +877,14 @@ type parser =
       col; }
 
 let parser
-    ?(defs = Label.Map.empty) ?(resolver = Label.default_resolver)
+    ?(defs = Label.Map.of_list []) ?(resolver = Label.default_resolver)
     ?(nested_links = false) ?(heading_auto_ids = false) ?(layout = false)
     ?(locs = false) ?(file = Textloc.file_none) ~strict i
   =
   let nolocs = not locs and nolayout = not layout and exts = not strict in
   { file; i; buf = Buffer.create 512; exts; nolocs; nolayout;
-    heading_auto_ids; nested_links; defs; resolver; cidx = Closer_index.empty;
+    heading_auto_ids; nested_links; defs; resolver;
+    cidx = Closer_index.of_list [];
     current_line_pos = 1, 0; current_line_last_char = -1; current_char = 0;
     current_char_col = 0; next_non_blank = 0; next_non_blank_col = 0;
     tab_consumed_cols = 0; }
@@ -1106,7 +1108,7 @@ module Inline_struct = struct
     | t :: toks -> loop cidx (t :: acc) toks
     | [] -> cidx, acc
     in
-    loop Closer_index.empty [] toks
+    loop (Closer_index.of_list []) [] toks
 
   let rec rev_tokens_and_shorten_last_line ~to_last:last acc = function
   (* Used to make the text delimitation precise for nested inlines *)
@@ -2957,8 +2959,10 @@ let block_struct_to_doc p (doc, meta) =
 
 module Doc = struct
   type t = { nl : Layout.string; block : Block.t; defs : Label.defs }
-  let make ?(nl = "\n") ?(defs = Label.Map.empty) block = { nl; block; defs }
-  let empty = make (Block.Blocks ([], Meta.none))
+  let make ?(nl = "\n") ?(defs = Label.Map.of_list []) block =
+    { nl; block; defs }
+
+  let empty () = make (Block.Blocks ([], Meta.none))
   let nl d = d.nl
   let block d = d.block
   let defs d = d.defs
@@ -3020,7 +3024,9 @@ module Mapper = struct
       | Autolink _ | Break _ | Code_span _ | Raw_html _
       | Text _ | Ext_math_span _ as i -> Some i
       | Image (l, meta) ->
-          let text = Option.value ~default:Inline.empty (map_inline m l.text) in
+          let text = match map_inline m l.text with
+          | None -> Inline.empty () | Some text -> text
+          in
           Some (Image ({ l with text }, meta))
       | Link (l, meta) ->
           let* text = map_inline m l.text in
@@ -3092,7 +3098,9 @@ module Mapper = struct
       | ext -> m.block_ext_default m ext
 
   let map_doc m d =
-    let map_block m b = Option.value ~default:Block.empty (map_block m b) in
+    let map_block m b = match map_block m b with
+    | None -> Block.empty () | Some b -> b
+    in
     (* XXX something better for defs should be devised here. *)
     let map_def m = function
     | Block.Footnote.Def (fn, meta) ->

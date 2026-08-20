@@ -13,6 +13,8 @@
     {e {{:https://spec.commonmark.org/0.30/}
     CommonMark Spec}}. Version 0.30, 2021}}  *)
 
+@@ portable
+
 (** {1:ast Abstract syntax tree} *)
 
 (** Text locations.
@@ -74,7 +76,7 @@ module Textloc : sig
 
   (** {1:tloc Text locations} *)
 
-  type t
+  type t : immutable_data
   (** The type for text locations. A text location identifies a text
       span in an UTF-8 encoded file by an inclusive range of absolute
       {{!type-byte_pos}byte positions} and the {{!type-line_pos}line positions}
@@ -195,8 +197,9 @@ module Meta : sig
   type id = int
   (** The type for non-negative metadata identifiers. *)
 
-  type t
-  (** The type for abstract syntax tree node metadata. *)
+  type t : immutable_data
+  (** The type for abstract syntax tree node metadata. The kind lets a value
+      of it be held at module level and read from a portable function. *)
 
   val none : t
   (** [none] is metadata for when there is none, its {!textloc} is
@@ -239,8 +242,10 @@ module Meta : sig
       {!val-id}. It is possible for two meta values to have the same
       id and different metadata. *)
 
-  type 'a key
-  (** The type for custom metadata keys. *)
+  type 'a key : immutable_data
+  (** The type for custom metadata keys. The kind lets a key be held at
+      module level, which a client must do: a key minted twice is two
+      identities and {!find} matches on identity. *)
 
   val key : unit -> 'a key
   (** [key ()] is a new metadata key. *)
@@ -830,8 +835,11 @@ module Inline : sig
   (** The
       CommonMark {{:https://spec.commonmark.org/0.30/#inlines}inlines}. *)
 
-  val empty : t
-  (** [empty] is [Inlines ([], Meta.none)]. *)
+  val empty : unit -> t
+  (** [empty ()] is [Inlines ([], Meta.none)]. This is a function rather than
+      a constant because {!type-t} is an extensible variant, whose values do
+      not cross portability, so a constant could not be read from a portable
+      function. *)
 
   (** {1:exts Extensions}
 
@@ -1211,8 +1219,9 @@ module Block : sig
       and {{:https://spec.commonmark.org/0.30/#container-blocks}container}
       blocks. *)
 
-  val empty : t
-  (** [empty] is [Blocks ([], Meta.none)]. *)
+  val empty : unit -> t
+  (** [empty ()] is [Blocks ([], Meta.none)]. This is a function rather than a
+      constant for the reason given for {!Inline.val-empty}. *)
 
   (** {1:exts Extensions}
 
@@ -1360,8 +1369,11 @@ module Doc : sig
       [nl] (defaults to ["\n"]), label definition [defs]
       (defaults to {!Label.Map.empty}). *)
 
-  val empty : t
-  (** [empty] is an empty document. *)
+  val empty : unit -> t
+  (** [empty ()] is an empty document. This is a function rather than a
+      constant because its [defs] field is a {!Label.Map} value, and a
+      module-level value of a stdlib container cannot be read from a portable
+      function. *)
 
   (** {1:parsing Parsing} *)
 

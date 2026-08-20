@@ -27,34 +27,20 @@ let unsafe_get = String.unsafe_get
 (* Heterogeneous dictionaries *)
 
 module Dict = struct
-  (* Type identifiers, can be deleted once we require 5.1 *)
-  module Type = struct
-    type (_, _) eq = Equal : ('a, 'a) eq
-    module Id = struct
-      type _ id = ..
-      module type ID = sig type t type _ id += Id : t id end
-      type 'a t = (module ID with type t = 'a)
-
-      let make (type a) () : a t =
-        (module struct type t = a type _ id += Id : t id end)
-
-      let provably_equal
-          (type a b) ((module A) : a t) ((module B) : b t) : (a, b) eq option
-        =
-        match A.Id with B.Id -> Some Equal | _ -> None
-
-      let uid (type a) ((module A) : a t) =
-        Obj.Extension_constructor.id (Obj.Extension_constructor.of_val A.Id)
-    end
-  end
-
-  module M = Map.Make (Int)
+  (* [Type.Id] is the Stdlib's. Upstream shims one here for pre-5.1 compilers,
+     packing a first-class module, whose kind is [value non_float] and so
+     cannot be read from a portable function. The Stdlib's is [immutable_data],
+     which is what a renderer holding its state key at module level needs. *)
+  module M = Map.MakePortable (Int)
   type 'a key = 'a Type.Id.t
   type binding = B : 'a key * 'a -> binding
   type t = binding M.t
 
   let key = Type.Id.make
-  let empty = M.empty
+  (* A fresh empty map rather than a module-level constant. A stdlib container
+     declares no kind on its [t], so a constant of one reads as contended in a
+     portable function whatever the functor. *)
+  let empty () = M.of_list []
   let mem k m = M.mem (Type.Id.uid k) m
   let add k v m = M.add (Type.Id.uid k) (B (k, v)) m
   let tag k m = add k () m

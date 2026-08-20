@@ -5,6 +5,8 @@
 
 (** Data needed for CommonMark parsing. *)
 
+@@ portable
+
 (** {1:unicode Unicode data} *)
 
 val unicode_version : string

@@ -175,4 +175,6 @@ val note_references :
     none.
 
     This is not portable because it scans for URLs with [Re] and decodes them
-    with [Uri]. *)
+    with [Uri]. It is called once per note when a context is built rather than
+    on the render path, so a portable render can serve a note's references
+    without reaching either library. *)

@@ -29,6 +29,8 @@ type t = {
   forward_slugs : string list Bushel.Smap.t;
   outbound_feed : feed_backlink list Bushel.Smap.t;
   links_by_url : Bushel.Link.t Bushel.Smap.t;
+  note_references :
+    (string * string * Bushel.Md.reference_source) list Bushel.Smap.t;
 }
 
 (** Normalise a URL for matching: strip www. prefix from host, remove trailing slash. *)
@@ -318,6 +320,36 @@ let build_outbound_feed entries feed_by_url =
           match backlinks_of urls with [] -> acc | bls -> (source, bls) :: acc)
        by_source [])
 
+(* A note's references are the works it cites, and [Bushel.Md.note_references]
+   finds them by scanning the body with [Re] and decoding a DOI with opam
+   [Uri]. Neither is annotated, so a portable render cannot run that scan. It
+   is run here instead, once per note, and the render looks the answer up by
+   slug. Nothing can change a note after the load, so the answer cannot go
+   stale. A note that cites nothing has no binding, which keeps the table to
+   the notes that have a references section.
+
+   The citing author is needed to attribute a cited note that names none, and
+   the handle to look them up by comes from the configuration, which is why
+   this is settled in arod rather than in the Bushel loader. A collection with
+   no such contact yields no references at all, which is what the render did
+   when it looked the author up itself and found nothing. *)
+let build_note_references ~config entries =
+  match
+    List.find_opt
+      (fun c ->
+         Sortal_schema.Contact.handle c = config.Arod_config.site.author_handle)
+      (Bushel.Entry.contacts entries)
+  with
+  | None -> Bushel.Smap.empty
+  | Some author ->
+    Bushel.Smap.of_list
+      (List.filter_map
+         (fun note ->
+            match Bushel.Md.note_references entries author note with
+            | [] -> None
+            | refs -> Some (Bushel.Note.slug note, refs))
+         (Bushel.Entry.notes entries))
+
 let create ~config fs =
   let image_output_dir = config.Arod_config.paths.images_dir in
   let data_dir = config.paths.data_dir in
@@ -344,6 +376,7 @@ let create ~config fs =
     forward_slugs;
     outbound_feed;
     links_by_url;
+    note_references = build_note_references ~config entries;
   }
 
 let of_entries ~config entries =
@@ -356,6 +389,7 @@ let of_entries ~config entries =
     forward_slugs = Bushel.Smap.empty;
     outbound_feed = Bushel.Smap.empty;
     links_by_url = Bushel.Smap.empty;
+    note_references = build_note_references ~config entries;
   }
 
 (** {1 Config Accessors} *)
@@ -415,6 +449,13 @@ let all_entries t = Bushel.Entry.all_entries t.entries
 let backlinks t slug = Bushel.Entry.backlinks t.entries slug
 let outbound t slug = Bushel.Entry.outbound t.entries slug
 let all_external_links t = Bushel.Entry.all_external_links t.entries
+
+(** {1 References} *)
+
+let note_references t slug =
+  match Bushel.Smap.find_opt slug t.note_references with
+  | Some refs -> refs
+  | None -> []
 
 (** {1 Feed Items} *)
 

@@ -21,17 +21,14 @@
     that ran on opam Uri is settled when the context is built, and the link
     graph is now an immutable field of {!Bushel.Entry.t} rather than a
     module-level [ref], so a portable render reads backlinks straight out of
-    the collection. One thing remains.
+    the collection. The last of it was {!Bushel.Md.note_references}, which
+    scans a note body with [Re] and decodes a DOI with [Uri.pct_decode], and
+    which {!Arod.Ctx} now settles once per note when the context is built.
 
-    {!Bushel.Md.note_references} scans a note body with [Re] and decodes a DOI
-    with [Uri.pct_decode], at [bushel_md.ml:996-1002] and again at
-    [:1019-1023]. [Re] is an opam library with no mode annotations, so nothing
-    short of vendoring it or precomputing the references reaches past that.
-
-    It blocks {!entry} and nothing else here: {!entry} reaches it through a
-    note page, and {!listing} and {!entry_markdown} are now held back by
+    {!listing}, {!entry} and {!entry_markdown} are therefore held back by
     nothing, which was measured by annotating all three and asking the
-    compiler.
+    compiler. They are still reached through {!Arod_env} until their closures
+    are removed.
 
     The rest of this module is blocked elsewhere and always was: {!feed} by
     {!Arod.Feed}, {!sitemap} by the vendored [Sitemap], which carries no

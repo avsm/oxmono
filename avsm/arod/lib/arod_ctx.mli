@@ -35,10 +35,11 @@ val create :
 (** [create ~config fs] loads Bushel entries from the configured data directory
     and returns a context. This should be called once at server startup. *)
 
-val of_entries : config:Arod_config.t -> Bushel.Entry.t -> t
+val of_entries : config:Arod_config.t -> Bushel.Entry.t -> t @@ nonportable
 (** [of_entries ~config entries] is a context over [entries] alone, with no
     feed items, no feed backlinks and no link table. It reads no filesystem
-    and needs no Eio.
+    and needs no Eio. It is not portable because it scans every note for the
+    works it cites, which {!note_references} then serves.
 
     {!Arod_md.to_html}, {!Arod_md.to_plain_html} and {!Arod_md.to_atom_html}
     take nothing else out of a context, so this is enough to render a body.
@@ -93,6 +94,18 @@ val outbound : t -> string -> string list
 val all_external_links : t -> Bushel.Link_graph.external_link list
 (** [all_external_links t] is every web link written in an entry, in
     increasing source slug and then URL order. *)
+
+(** {1 References} *)
+
+val note_references :
+  t -> string -> (string * string * Bushel.Md.reference_source) list
+(** [note_references t slug] is the works the note [slug] cites, as
+    {!Bushel.Md.note_references} answers them, and the empty list for a note
+    that cites nothing or a slug that names no note. The scan runs on [Re] and
+    opam [Uri], so it is settled once when the context is built and the render
+    reads it from here. A context whose entries hold no contact under the
+    configured author handle has no references at all, matching what the
+    render did when it looked the author up itself. *)
 
 (** {1 Feed Items} *)
 

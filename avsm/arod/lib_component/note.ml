@@ -412,39 +412,32 @@ let for_feed ~ctx n = Common.truncated_body ~ctx (`Note n)
 
 (** Citation references section for notes with DOI-bearing links. *)
 let references ~ctx n =
-  let cfg = Arod.Ctx.config ctx in
-    let me = Arod.Ctx.lookup_by_handle ctx cfg.site.author_handle in
-    match me with
-    | None -> El.void
-    | Some author_contact ->
-      let entries = Arod.Ctx.entries ctx in
-      let refs = Bushel.Md.note_references entries author_contact n in
-      match refs with
-      | [] -> El.void
-      | _ ->
-        let ref_items = List.mapi (fun i (doi, citation, is_paper) ->
-          let num = i + 1 in
-          let doi_url = Printf.sprintf "https://doi.org/%s" doi in
-          let cite_id = Arod.Md.doi_to_id doi in
-          let icon = match is_paper with
-            | Bushel.Md.Paper -> Arod.Icons.(outline ~cl:"opacity-40" ~size:12 paper_o)
-            | Bushel.Md.Note -> Arod.Icons.(outline ~cl:"opacity-40" ~size:12 note_o)
-            | Bushel.Md.External -> Arod.Icons.(outline ~cl:"opacity-40" ~size:12 external_link_o)
-          in
-          El.div ~at:[At.id (Printf.sprintf "ref-%d" num);
-                      At.class' "ref-item h-cite"] [
-            El.span ~at:[At.class' "ref-num"] [
-              El.a ~at:[At.href ("#" ^ cite_id); At.class' "ref-backlink no-underline";
-                        At.v "title" "Jump to citation"]
-                [El.txt (Printf.sprintf "[%d]" num)]];
-            El.unsafe_raw icon;
-            El.span ~at:[At.class' "ref-body"] [
-              El.span ~at:[At.class' "p-name"] [El.txt (citation ^ " ")];
-              El.a ~at:[At.href doi_url; At.v "target" "_blank";
-                        At.v "rel" "noopener";
-                        At.class' "ref-doi u-url"] [El.txt doi]]]
-        ) refs in
-        El.div ~at:[At.class' "references-block mt-8"] [
-          El.h3 ~at:[At.class' "text-sm font-semibold text-secondary uppercase tracking-wide mb-2"]
-            [El.txt "References"];
-          El.div ~at:[At.class' "ref-list"] ref_items]
+  match Arod.Ctx.note_references ctx (Bushel.Note.slug n) with
+  | [] -> El.void
+  | refs ->
+    let ref_items = List.mapi (fun i (doi, citation, is_paper) ->
+      let num = i + 1 in
+      let doi_url = Printf.sprintf "https://doi.org/%s" doi in
+      let cite_id = Arod.Md.doi_to_id doi in
+      let icon = match is_paper with
+        | Bushel.Md.Paper -> Arod.Icons.(outline ~cl:"opacity-40" ~size:12 paper_o)
+        | Bushel.Md.Note -> Arod.Icons.(outline ~cl:"opacity-40" ~size:12 note_o)
+        | Bushel.Md.External -> Arod.Icons.(outline ~cl:"opacity-40" ~size:12 external_link_o)
+      in
+      El.div ~at:[At.id (Printf.sprintf "ref-%d" num);
+                  At.class' "ref-item h-cite"] [
+        El.span ~at:[At.class' "ref-num"] [
+          El.a ~at:[At.href ("#" ^ cite_id); At.class' "ref-backlink no-underline";
+                    At.v "title" "Jump to citation"]
+            [El.txt (Printf.sprintf "[%d]" num)]];
+        El.unsafe_raw icon;
+        El.span ~at:[At.class' "ref-body"] [
+          El.span ~at:[At.class' "p-name"] [El.txt (citation ^ " ")];
+          El.a ~at:[At.href doi_url; At.v "target" "_blank";
+                    At.v "rel" "noopener";
+                    At.class' "ref-doi u-url"] [El.txt doi]]]
+    ) refs in
+    El.div ~at:[At.class' "references-block mt-8"] [
+      El.h3 ~at:[At.class' "text-sm font-semibold text-secondary uppercase tracking-wide mb-2"]
+        [El.txt "References"];
+      El.div ~at:[At.class' "ref-list"] ref_items]

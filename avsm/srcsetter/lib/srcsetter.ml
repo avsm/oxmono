@@ -14,7 +14,32 @@
    TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
    PERFORMANCE OF THIS SOFTWARE. *)
 
-module MS = Map.Make (String)
+module MS = struct
+  (* A sorted association list, not [Map.Make (String)]. A variant map is built
+     once and then only walked in key order, never searched, and an image has a
+     handful of variants, so a tree buys nothing. What it costs is that
+     [Map.S.t] declares no kind, which leaves {!t} unable to cross into a
+     function marked [portable]. *)
+  type 'a t = (string * 'a) list
+
+  let empty = []
+
+  (* Sort stably and keep the last binding of each key, which is what folding
+     [Map.add] over the list would leave. *)
+  let of_list l =
+    let l = List.stable_sort (fun (a, _) (b, _) -> String.compare a b) l in
+    let rec last_of_each_run = function
+      | (k1, _) :: ((k2, _) :: _ as rest) when String.equal k1 k2 ->
+          last_of_each_run rest
+      | b :: rest -> b :: last_of_each_run rest
+      | [] -> []
+    in
+    last_of_each_run l
+
+  let bindings l = l
+  let cardinal = List.length
+  let fold f l acc = List.fold_left (fun acc (k, v) -> f k v acc) acc l
+end
 
 type t = {
   name : string;
@@ -38,6 +63,16 @@ let dims_json_t =
   let enc (w, h) i = if i = 0 then w else h in
   t2 ~dec ~enc uint16
 
+(* A variant map is a JSON object keyed by filename. [as_string_map] is the
+   only object-as-map [Jsont] offers and it yields a stdlib map, so the
+   bindings are handed on to {!MS}. Both sides walk in key order, so the bytes
+   written are the bytes a stdlib map wrote. *)
+let variants_json_t =
+  let module M = Stdlib.Map.Make (String) in
+  let dec m = MS.of_list (M.bindings m) in
+  let enc l = M.of_list (MS.bindings l) in
+  Jsont.map ~dec ~enc (Jsont.Object.as_string_map dims_json_t)
+
 let json_t =
   let open Jsont in
   let open Jsont.Object in
@@ -45,7 +80,7 @@ let json_t =
   |> mem "name" string ~enc:name
   |> mem "slug" string ~enc:slug
   |> mem "origin" string ~enc:origin
-  |> mem "variants" (as_string_map dims_json_t) ~enc:variants
+  |> mem "variants" variants_json_t ~enc:variants
   |> mem "dims" dims_json_t ~enc:dims
   |> finish
 

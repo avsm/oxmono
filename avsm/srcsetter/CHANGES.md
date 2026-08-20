@@ -1,3 +1,10 @@
+## Unreleased
+
+- `Srcsetter.MS` is no longer `Map.Make (String)`. It keeps `empty`, `of_list`,
+  `bindings`, `cardinal` and `fold`, and its type now declares a kind, so a
+  `Srcsetter.t` can be read by a function marked `portable`. The JSON written
+  and read is unchanged.
+
 ## v0.1.0 (2026-01-16)
 
 Initial release.

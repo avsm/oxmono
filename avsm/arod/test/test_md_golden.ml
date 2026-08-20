@@ -187,9 +187,7 @@ let video ~slug ~title ~date =
 
 let sample_image =
   let variants =
-    List.fold_left
-      (fun m (f, wh) -> Srcsetter.MS.add f wh m)
-      Srcsetter.MS.empty
+    Srcsetter.MS.of_list
       [ ("sample-480.webp", (480, 320)); ("sample-960.webp", (960, 640)) ]
   in
   Srcsetter.v "sample.webp" "sample-image" "src/sample.png" variants (1920, 1280)

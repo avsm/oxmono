@@ -6,8 +6,32 @@
 
 (** {1 Types} *)
 
-(** String map for storing image variants keyed by filename. *)
-module MS : Map.S with type key = string
+(** String map for storing image variants keyed by filename.
+
+    This is not [Map.Make (String)]. A variant map is built once and then only
+    walked in key order, and [Map.S] declares no kind on its [t], which would
+    leave {!t} unable to cross into a function marked [portable]. *)
+module MS : sig
+  type 'a t : immutable_data with 'a
+  (** A finite map from filenames to ['a], in increasing filename order. *)
+
+  val empty : 'a t
+  (** [empty] is the map with no bindings. *)
+
+  val of_list : (string * 'a) list -> 'a t
+  (** [of_list l] is the map holding the bindings of [l]. A key bound more than
+      once in [l] keeps the binding that appears last. *)
+
+  val bindings : 'a t -> (string * 'a) list @@ portable
+  (** [bindings m] is the bindings of [m] in increasing key order. *)
+
+  val cardinal : 'a t -> int
+  (** [cardinal m] is the number of bindings in [m]. *)
+
+  val fold : (string -> 'a -> 'acc -> 'acc) -> 'a t -> 'acc -> 'acc
+  (** [fold f m acc] folds [f] over the bindings of [m] in increasing key
+      order. *)
+end
 
 (** An image entry representing a source image and its generated variants.
 

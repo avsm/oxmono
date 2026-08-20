@@ -1,7 +1,9 @@
 (* The route table is where a literal and a capture at the same depth can
    silently swap places, and where the auth scope and the cache headers are
-   decided. It is driven here through the mock backend over a stub
-   environment, so no context, database or filesystem is needed. *)
+   decided. It is driven here through the mock backend over an environment
+   whose remaining closures are stubs, so no database and no filesystem is
+   needed. The context is real, because every page render is portable and the
+   handlers reach those through it. *)
 
 let checks = ref 0
 
@@ -11,8 +13,6 @@ let check name b =
     prerr_endline ("FAIL: " ^ name);
     exit 1)
 
-let flavour = function `Html -> "html" | `Markdown -> "md"
-
 let cfg : Arod.Config.t =
   {
     Arod.Config.default with
@@ -21,13 +21,11 @@ let cfg : Arod.Config.t =
     well_known = [ { Arod.Config.key = "known"; value = "value" } ];
   }
 
-(* {!Arod_render.paper_bib} and {!Arod_render.blogroll} are portable, so the
-   handlers that serve them call the real render through the context in the
-   environment rather than through a stub. The context below holds one paper
-   and nothing else, so those two routes answer real bytes: the paper's stored
-   BibTeX, and an OPML document with no outlines in it, since a blogroll lists
-   contacts that have feeds and this context has no contacts. Every other
-   render is still a stub. *)
+(* The context below holds one paper and one note, which is the smallest
+   collection every page route can render from. The paper gives the [.bib] and
+   [.pdf] routes something to name, and the blogroll answers an OPML document
+   with no outlines in it, since a blogroll lists contacts that have feeds and
+   this context has no contacts. *)
 let paper : Bushel.Paper.t =
   {
     Bushel.Paper.slug = "x";
@@ -61,10 +59,40 @@ let paper : Bushel.Paper.t =
     social = None;
   }
 
+(* The front page renders the entry whose slug is ["index"], so the context
+   needs one for [/] to answer anything but the empty string. *)
+let index_note : Bushel.Note.t =
+  {
+    Bushel.Note.title = "Index";
+    date = (2024, 2, 3);
+    slug = "index";
+    body = "Hello from the index.";
+    tags = [];
+    draft = false;
+    updated = None;
+    sidebar = None;
+    index_page = true;
+    perma = false;
+    weeknote = false;
+    featured = false;
+    doi = None;
+    synopsis = None;
+    titleimage = None;
+    via = None;
+    slug_ent = None;
+    source = None;
+    url = None;
+    author = None;
+    category = None;
+    standardsite = None;
+    social = None;
+    source_file = None;
+  }
+
 let ctx =
   Arod.Ctx.of_entries ~config:cfg
-    (Bushel.Entry.v ~papers:[ paper ] ~notes:[] ~projects:[] ~ideas:[]
-       ~videos:[] ~contacts:[] ~data_dir:"." ())
+    (Bushel.Entry.v ~papers:[ paper ] ~notes:[ index_note ] ~projects:[]
+       ~ideas:[] ~videos:[] ~contacts:[] ~data_dir:"." ())
 
 (* A handler is portable, so it cannot reach a log source. The search API
    reports through a closure in the environment instead, and the stub below
@@ -79,32 +107,6 @@ let env =
     config = cfg;
     cache = Proffer.Cache.create ~ttl:60.0;
     now = (fun () -> 0.0);
-    listing =
-      (fun which f ->
-        let name =
-          match which with
-          | `Index -> "index"
-          | `Papers -> "papers"
-          | `Notes -> "notes"
-          | `Ideas -> "ideas"
-          | `Projects -> "projects"
-          | `Videos -> "videos"
-          | `Links -> "links"
-          | `Network -> "network"
-        in
-        name ^ ":" ^ flavour f);
-    entry =
-      (fun kind slug f ->
-        let name =
-          match kind with
-          | `Paper -> "paper"
-          | `Note -> "note"
-          | `Idea -> "idea"
-          | `Project -> "project"
-          | `Video -> "video"
-        in
-        String.concat ":" [ name; slug; flavour f ]);
-    entry_markdown = (fun slug -> if slug = "gone" then None else Some slug);
     feed =
       (fun which ->
         match which with
@@ -136,6 +138,17 @@ let env =
     report = (fun _which ~range -> "report:" ^ range);
   }
 
+(* Every page render is portable, so the environment above holds no rendering
+   closure for one and the routes below reach the real render through the
+   context. The context holds one paper and one note, so the pages are small
+   and the bytes are stable, but they are still whole pages: what is checked
+   is that the route reached the render that belongs to it, not what that
+   render says. [test_md_golden] owns the bytes. *)
+let contains hay needle =
+  let n = String.length needle and h = String.length hay in
+  let rec go i = i + n <= h && (String.sub hay i n = needle || go (i + 1)) in
+  go 0
+
 let site = Arod_server.Site.build cfg
 let get ?headers target = Proffer_mock.request ?headers site env `GET target
 let code r = Proffer.Status.code (Proffer_mock.status r)
@@ -143,14 +156,23 @@ let body = Proffer_mock.body
 let header = Proffer_mock.header
 
 let () =
-  check "the front page is served" (body (get "/") = "index:html");
-  check "so is /about" (body (get "/about") = "index:html");
+  let front = body (get "/") in
+  check "the front page is served"
+    (String.starts_with ~prefix:"<!DOCTYPE html>" front
+    && contains front "<title>Index | My Site</title>");
+  check "so is /about" (body (get "/about") = front);
+  (* The markdown rendering of the front page is short enough to pin whole,
+     which is the one place here that says a real render ran rather than a
+     page-shaped stub. *)
   check "a markdown Accept picks the markdown variant"
-    (body (get ~headers:[ ("Accept", "text/markdown") ] "/") = "index:md");
+    (body (get ~headers:[ ("Accept", "text/markdown") ] "/")
+    = "# Index\n\nHello from the index.\n\n---\nCanonical: https://example.com\n");
   check "a negotiated response varies on Accept"
     (header (get "/") "Vary" = Some "Accept");
   check "a .md URL is the markdown variant"
-    (body (get "/papers.md") = "papers:md")
+    (let b = body (get "/papers.md") in
+     String.starts_with ~prefix:"# Papers\n" b
+     && contains b "[A Paper](https://example.com/papers/x)")
 
 let () =
   check "a feed path is not swallowed by the note route"
@@ -158,7 +180,10 @@ let () =
   check "and neither is the JSON feed"
     (body (get "/notes/feed.json") = "json");
   check "a note slug still reaches the note route"
-    (body (get "/notes/hello") = "note:hello:html");
+    (contains (body (get "/notes/index"))
+       "<link rel=\"canonical\" href=\"https://example.com/notes/index\">");
+  check "and a slug that names no entry renders as the empty string"
+    (body (get "/notes/hello") = "");
   check "the Atom feed names the path it was fetched from"
     (body (get "/news.xml") = "atom:/news.xml")
 
@@ -235,7 +260,9 @@ let () =
     (header (get "/network/blogroll.opml") "Content-Type"
     = Some "text/x-opml+xml; charset=utf-8");
   check "an entry .md URL is that entry as markdown"
-    (body (get "/papers/x.md") = "x");
+    (let b = body (get "/papers/x.md") in
+     String.starts_with ~prefix:"# A Paper\n" b
+     && contains b "Canonical: https://example.com/papers/x");
   check "and an unknown one is a 404" (code (get "/papers/gone.md") = 404)
 
 let () =
@@ -308,6 +335,7 @@ let () =
   let r = Proffer_mock.request site env `HEAD "/" in
   check "a HEAD has no body" (body r = "");
   check "but reports the length it would have sent"
-    (Proffer_mock.content_length r = Some 10L);
+    (Proffer_mock.content_length r
+    = Some (Int64.of_int (String.length (body (get "/")))));
   check "an unrouted path is a 404" (code (get "/nowhere") = 404);
   Printf.printf "test_routes: %d checks ok\n" !checks

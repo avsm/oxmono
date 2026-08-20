@@ -333,6 +333,28 @@ let ctx_render : (string -> string) @ portable =
   let html, sidenotes = Arod.Md.to_html ~ctx md in
   Printf.sprintf "%d %s" (List.length sidenotes) (String.trim html)
 
+(* {1 The page renders}
+
+   A proffer handler is portable and reaches {!Arod_handlers.Render} directly,
+   with no closure in {!Arod_handlers.Env} between them. That is what the two
+   closures below stand guard over: each captures the context and calls one of
+   the real page renders, the collection listing and the single entry. Between
+   them they run the whole render path, from the Bushel accessors through the
+   markdown export.
+
+   Dropping the [@@ portable] from {!Arod_handlers.Render.listing} or
+   {!Arod_handlers.Render.entry}, or putting their closure fields back into
+   {!Arod_handlers.Env} and calling through those, stops this file compiling.
+   The markdown flavour is asked for because its bytes are short enough to
+   assert whole, so a render that crossed but produced nothing would fail
+   too. *)
+
+let listing_render : (unit -> string) @ portable =
+ fun () -> Arod_handlers.Render.listing ~ctx `Notes `Markdown
+
+let entry_render : (string -> string) @ portable =
+ fun slug -> Arod_handlers.Render.entry ~ctx `Note slug `Markdown
+
 let () =
   check "note, its date and its image cross"
     (handler "hello-note" = "Hello Note 2025-01-05 sample.webp [480 960]");
@@ -360,6 +382,36 @@ let () =
     = "0 <h2 id=\"head\" class=\"group relative text-lg font-semibold mt-5 \
        mb-2\"><a href=\"#head\" class=\"heading-number\" aria-label=\"Link to \
        this section\">1</a> Head</h2>\n<p>Body.</p>");
+  check "a portable closure renders a listing page through a captured context"
+    (listing_render ()
+    = String.concat "\n"
+        [
+          "# Notes";
+          "";
+          "Notes and blog posts.";
+          "";
+          "- [Hello Note](http://localhost:8080/notes/hello-note) (2025-01-05)";
+          "";
+          "---";
+          "Canonical: http://localhost:8080/notes";
+          "Feeds: [Atom](http://localhost:8080/news.xml), \
+           [JSON](http://localhost:8080/feed.json)";
+          "";
+        ]);
+  check "and an entry page through the same context"
+    (entry_render "hello-note"
+    = String.concat "\n"
+        [
+          "# Hello Note";
+          "";
+          "*2025-01-05 \xe2\x80\x94 note*";
+          "";
+          "";
+          "---";
+          "Canonical: http://localhost:8080/notes/hello-note";
+          "Type: note";
+          "";
+        ]);
   check "a video watch URL is rewritten to an embed URL portably"
     (markdown_export "![%c](:a-video \"A talk\")\n"
     = "<div class=\"video-center\"><iframe title=\"A talk\" width=\"100%\" \

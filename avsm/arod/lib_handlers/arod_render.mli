@@ -9,31 +9,28 @@
     of them decides a status, a content type or a cache policy, which is
     {!Arod_handlers}' business.
 
-    {!paper_bib} and {!blogroll} are portable, so the handlers that serve them
-    call them directly, passing the context out of {!Arod_env.t}. The rest are
-    not, and a proffer handler, which is portable, reaches those through the
-    closures in {!Arod_env} instead, built once on the domain that owns the
-    context.
+    Every page render is portable: {!listing}, {!entry}, {!entry_markdown},
+    {!paper_bib} and {!blogroll}. A proffer handler is portable too, so it
+    calls them directly, passing the context out of {!Arod_env.t}. None of
+    them has a closure field in {!Arod_env} any more.
 
-    Most of what used to hold them back is gone. Htmlit, Ptime, Cmarkit and
-    uriz are annotated, {!Arod.Ctx}, {!Arod.Md}, {!Arod.Jsonld},
-    {!Arod.Text} and the Bushel accessors are annotated, the URL matching
-    that ran on opam Uri is settled when the context is built, and the link
-    graph is now an immutable field of {!Bushel.Entry.t} rather than a
-    module-level [ref], so a portable render reads backlinks straight out of
-    the collection. The last of it was {!Bushel.Md.note_references}, which
-    scans a note body with [Re] and decodes a DOI with [Uri.pct_decode], and
-    which {!Arod.Ctx} now settles once per note when the context is built.
+    Getting there took the whole render path. Htmlit, Ptime, Cmarkit and uriz
+    are annotated, {!Arod.Ctx}, {!Arod.Md}, {!Arod.Jsonld}, {!Arod.Text} and
+    the Bushel accessors are annotated, the URL matching that ran on opam Uri
+    is settled when the context is built, the link graph is an immutable field
+    of {!Bushel.Entry.t} rather than a module-level [ref], and
+    {!Bushel.Md.note_references}, which scans a note body with [Re] and
+    decodes a DOI with [Uri.pct_decode], is settled once per note when the
+    context is built.
 
-    {!listing}, {!entry} and {!entry_markdown} are therefore held back by
-    nothing, which was measured by annotating all three and asking the
-    compiler. They are still reached through {!Arod_env} until their closures
-    are removed.
-
-    The rest of this module is blocked elsewhere and always was: {!feed} by
-    {!Arod.Feed}, {!sitemap} by the vendored [Sitemap], which carries no
-    annotations yet, {!pagination} and {!search} by Ezjsonm, and {!report} by
-    the log database. Each was measured the same way. *)
+    Five renders are still not portable, and each was measured by annotating
+    it and reading what the compiler named. {!feed} closes over
+    [Arod.Feed.feed_string], {!sitemap} over [Sitemap.v] from the vendored
+    sitemap library, {!pagination} and {!search} over [Ezjsonm.to_string], and
+    {!report} over [Arod_handlers_stats.render_dashboard]. {!report} also
+    takes a database handle, which is bound to the domain that opened it, so
+    annotating the renderer alone would not free the route. Those five keep
+    their closures in {!Arod_env}. *)
 
 type flavour = [ `Html | `Markdown ]
 (** Which rendering of a page is wanted. *)
@@ -59,15 +56,16 @@ type feed = [ `Atom of string | `Json | `Perma_atom | `Perma_json ]
 type report = [ `Dashboard | `Overview | `Traffic | `Recent ]
 (** One view of the access log. *)
 
-val listing : ctx:Arod.Ctx.t -> listing -> flavour -> string
+val listing : ctx:Arod.Ctx.t -> listing -> flavour -> string @@ portable
 (** [listing ~ctx which flavour] is the page [which] rendered as [flavour]. *)
 
-val entry : ctx:Arod.Ctx.t -> entry_kind -> string -> flavour -> string
+val entry :
+  ctx:Arod.Ctx.t -> entry_kind -> string -> flavour -> string @@ portable
 (** [entry ~ctx kind slug flavour] is the entry [slug] rendered as [flavour].
     A [slug] that names nothing is the empty string, and one whose entry is
     not of [kind] renders as a bare page. *)
 
-val entry_markdown : ctx:Arod.Ctx.t -> string -> string option
+val entry_markdown : ctx:Arod.Ctx.t -> string -> string option @@ portable
 (** [entry_markdown ~ctx slug] is the entry [slug] as markdown, and [None]
     when no entry has that slug. *)
 

@@ -51,16 +51,16 @@ let listing_page ~key which =
       ( `Html,
         fun env _req ->
           cached env ~key ~content_type:html_type (fun () ->
-              env.E.listing which `Html) );
+              Render.listing ~ctx:env.E.ctx which `Html) );
       ( `Markdown,
         fun env _req ->
           cached env ~key:(md_key key) ~content_type:markdown_type (fun () ->
-              env.E.listing which `Markdown) );
+              Render.listing ~ctx:env.E.ctx which `Markdown) );
     ]
 
 let listing_markdown ~key which env _req =
   cached env ~key:(md_key key) ~content_type:markdown_type (fun () ->
-      env.E.listing which `Markdown)
+      Render.listing ~ctx:env.E.ctx which `Markdown)
 
 let index = listing_page ~key:"/" `Index
 let papers_list = listing_page ~key:"/papers" `Papers
@@ -84,7 +84,7 @@ let network_markdown = listing_markdown ~key:"/network" `Network
 (* A ".md" suffix asks for one entry as markdown. It is not negotiated, so it
    is not cached: an entry render is cheap next to a list page. *)
 let entry_markdown env slug =
-  match env.E.entry_markdown slug with
+  match Render.entry_markdown ~ctx:env.E.ctx slug with
   | Some md -> Resp.media markdown_type md
   | None -> Resp.not_found ()
 
@@ -95,11 +95,11 @@ let entry_page ~prefix kind slug =
       ( `Html,
         fun env _req ->
           cached env ~key ~content_type:html_type (fun () ->
-              env.E.entry kind slug `Html) );
+              Render.entry ~ctx:env.E.ctx kind slug `Html) );
       ( `Markdown,
         fun env _req ->
           cached env ~key:(md_key key) ~content_type:markdown_type (fun () ->
-              env.E.entry kind slug `Markdown) );
+              Render.entry ~ctx:env.E.ctx kind slug `Markdown) );
     ]
 
 (* One route serves every shape of a paper URL, since the extension is part of

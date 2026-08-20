@@ -8,17 +8,17 @@
     A proffer handler is portable. It can therefore capture neither
     domain-bound state, such as a search handle, an access log, a clock or a
     filesystem capability, nor a function whose interface carries no mode
-    annotations, which is every function in Uri, Ezjsonm, Re and Syndic, and
-    every renderer built on those. Each of them is reached through a closure
-    in {!t} instead, and one value of {!t} is built per domain by {!create},
-    where those resources exist.
+    annotations, which is every function in Ezjsonm and Syndic and every
+    renderer built on those. Each of them is reached through a closure in {!t}
+    instead, and one value of {!t} is built per domain by {!create}, where
+    those resources exist.
 
     A closure field is named for the response it produces, not for the module
     it came from, so a handler reads as a description of the route it answers.
     A response a handler can compute itself has no field: it reads {!t.config}
-    or {!t.ctx} and calls {!Arod_render} directly. {!Arod_render.paper_bib}
-    and {!Arod_render.blogroll} are reached that way, and the header of
-    {!Arod_render} says what stops the rest joining them. *)
+    or {!t.ctx} and calls {!Arod_render} directly. Every page render is now
+    reached that way, and the header of {!Arod_render} names what keeps the
+    five that are left behind a closure. *)
 
 type t = {
   ctx : Arod.Ctx.t;
@@ -34,16 +34,6 @@ type t = {
   now : unit -> float;
       (** [now ()] is the current time in seconds since the epoch, read from
           this domain's clock. The cache is expired against it. *)
-  listing : Arod_render.listing -> Arod_render.flavour -> string;
-      (** [listing which flavour] is the page [which] rendered as
-          [flavour]. *)
-  entry : Arod_render.entry_kind -> string -> Arod_render.flavour -> string;
-      (** [entry kind slug flavour] is the entry [slug] of collection [kind]
-          rendered as [flavour]. A [slug] that names nothing is the empty
-          string, which is what arod has always answered such a URL with. *)
-  entry_markdown : string -> string option;
-      (** [entry_markdown slug] is the entry [slug] as markdown, and [None]
-          when no entry has that slug. *)
   feed : Arod_render.feed -> string;
       (** [feed which] is the syndication feed [which]. *)
   sitemap : unit -> string;
@@ -93,9 +83,9 @@ val create :
   now:(unit -> float) ->
   t
 (** [create ~ctx ~cache ~search ~log_search ~read_image ~read_paper ~reader
-    ~now] is the capability record for one domain. The configuration and every
-    rendering closure come from [ctx], [search] answers the search API,
-    [log_search] reports what it was asked for, [reader] is the read-only
-    handle the stats dashboard queries, and [read_image] and [read_paper] are
-    the confined reads of the served directories. Call it on the domain that
-    owns those resources. *)
+    ~now] is the capability record for one domain. The configuration and the
+    rendering closures that are left come from [ctx], [search] answers the
+    search API, [log_search] reports what it was asked for, [reader] is the
+    read-only handle the stats dashboard queries, and [read_image] and
+    [read_paper] are the confined reads of the served directories. Call it on
+    the domain that owns those resources. *)

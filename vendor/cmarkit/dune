@@ -1,0 +1,9 @@
+; Upstream builds one library whose modules are all top level, and exposes
+; five of them. Dune has no way to publish some modules of an unwrapped
+; library and hide the rest, so all nine are visible here. In-tree consumers
+; name Cmarkit, Cmarkit_renderer, Cmarkit_html and Cmarkit_commonmark only.
+
+(library
+ (name cmarkit)
+ (public_name cmarkit)
+ (wrapped false))

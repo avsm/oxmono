@@ -14,13 +14,19 @@ type response = {
 (* The outcome reaches the writer at [local], so what a test reads has to be
    copied out of it. [Headers.to_list] then [of_list] is that copy: the block a
    test holds is a heap value, and the one the backend was handed was never
-   one. *)
+   one. The length is copied for the same reason: the option itself is built
+   in the backend's region now, so rebuilding it here is what moves it to the
+   heap a test can keep. *)
+let copy_length (l : int64 option @ local) =
+  match l with None -> None | Some n -> Some (Int64.of_int (Int64.to_int n))
+
 let snapshot out (o : Proffer.Backend.outcome @ local) =
   let body, content_length =
     match o.Proffer.Backend.body with
-    | `Empty -> ("", o.Proffer.Backend.content_length)
-    | `String s -> (s, o.Proffer.Backend.content_length)
-    | `Stream (_, w) ->
+    | Proffer.Backend.Empty -> ("", copy_length o.Proffer.Backend.content_length)
+    | Proffer.Backend.String s ->
+        (s, copy_length o.Proffer.Backend.content_length)
+    | Proffer.Backend.Stream { write = w; _ } ->
         let b = Buffer.create 256 in
         w (Proffer.Backend.sink (fun s -> Buffer.add_string b s));
         let s = Buffer.contents b in

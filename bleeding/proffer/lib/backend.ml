@@ -10,14 +10,25 @@
 
 module M = Httpz.Method
 
+(* A declared variant with [global_] payloads rather than a polymorphic one
+   in a [global_] field. The distinction is worth 8 words on every response:
+   the socket needs the string and the writer at global, but it does not need
+   the block holding them, and [global_] on the field forced the whole thing
+   to the heap. The payloads carry the modality instead, so the block is built
+   in the region and what comes out of it is still global. *)
+type body =
+  | Empty
+  | String of string @@ global
+  | Stream of {
+      length : int64 option;
+      write : (Body.Sink.t -> unit) @@ global;
+    }
+
 type outcome = {
   status : Status.t;
   headers : Headers.t;
-  global_ body :
-    [ `Empty
-    | `String of string
-    | `Stream of int64 option * (Body.Sink.t -> unit) ];
-  global_ content_length : int64 option;
+  body : body;
+  content_length : int64 option;
 }
 
 type writer = outcome @ local -> unit
@@ -66,8 +77,8 @@ let rec scan routes meth path allowed
   | [] -> none (List.rev allowed)
   | r :: rest -> (
       match Route.run r path with
-      | None -> scan rest meth path allowed ~found ~none
-      | Some h ->
+      | Null -> scan rest meth path allowed ~found ~none
+      | This h ->
           let rm = Route.meth r in
           if meth_matches meth rm then found h
           else if mem_meth rm allowed then scan rest meth path allowed ~found
@@ -137,7 +148,10 @@ let not_modified (req : Req.t @ local) (d : Resp.description @ local) =
                 Float.floor lm <= Float.floor since)
         | _ -> false)
 
-let len s = Some (Int64.of_int (String.length s))
+(* [exclave_], so the option and the [Int64] box it holds are built in the
+   caller's region rather than on the heap. Without it a top-level function
+   returns a global value and the whole point of the local outcome is lost. *)
+let len s = exclave_ Some (Int64.of_int (String.length s))
 
 (* The fields a typed argument owns are rendered here rather than in
    [Resp.v], because this is where it is known whether the response is being
@@ -212,15 +226,14 @@ let decide (req : Req.t @ local) (d : Resp.description @ local)
   let local_ b = block d in
   if not_modified req d then
     let local_ o =
-      { status = Httpz.Res.Not_modified; headers = revalidation b; body =
-        `Empty;
+      { status = Httpz.Res.Not_modified; headers = revalidation b; body = Empty;
         content_length = None }
     in
     let () = write o in
     ()
   else if Method.equal (Req.meth req) Httpz.Method.Head then
     let local_ o =
-      { status = d.Resp.status; headers = b; body = `Empty;
+      { status = d.Resp.status; headers = b; body = Empty;
         content_length = Body.declared_length d.Resp.body }
     in
     let () = write o in
@@ -229,22 +242,22 @@ let decide (req : Req.t @ local) (d : Resp.description @ local)
     match d.Resp.body with
     | Body.Empty ->
         let local_ o =
-          { status = d.Resp.status; headers = b; body = `Empty;
+          { status = d.Resp.status; headers = b; body = Empty;
             content_length = Some 0L }
         in
         let () = write o in
         ()
     | Body.String s ->
         let local_ o =
-          { status = d.Resp.status; headers = b; body = `String s;
+          { status = d.Resp.status; headers = b; body = String s;
             content_length = len s }
         in
         let () = write o in
         ()
     | Body.Stream { length; write = w } ->
         let local_ o =
-          { status = d.Resp.status; headers = b; body = `Stream (length, w);
-            content_length = length }
+          { status = d.Resp.status; headers = b;
+            body = Stream { length; write = w }; content_length = length }
         in
         let () = write o in
         ()
@@ -254,7 +267,7 @@ let decide (req : Req.t @ local) (d : Resp.description @ local)
            back rather than run in the handler. *)
         let s = gen () in
         let local_ o =
-          { status = d.Resp.status; headers = b; body = `String s;
+          { status = d.Resp.status; headers = b; body = String s;
             content_length = len s }
         in
         let () = write o in

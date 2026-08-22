@@ -67,34 +67,42 @@ let ( /* ) = ( /? )
    nothing; only a capture allocates, and only what it binds. [rest] is the
    one arm that materialises a list, and only when its route has matched
    everything before it. *)
+(* The result is [or_null] rather than [option]. A handler is a closure and so
+   never null, and [or_null] is represented as the value itself, so a match
+   costs nothing where [Some h] cost two words on every request that matched a
+   route. *)
 let rec apply :
     type f r.
-    (f, r) pat -> f @ contended -> string -> int -> int -> r option @ contended
-    =
+    (f, r) pat ->
+    f @ contended ->
+    string ->
+    int ->
+    int ->
+    r or_null @ contended =
  fun pat h path i n ->
   let off = Pct.seg_start path i n in
   match pat with
-  | Rest -> Some (h (Pct.seg_list path off n))
-  | End -> if off >= n then Some h else None
+  | Rest -> This (h (Pct.seg_list path off n))
+  | End -> if off >= n then This h else Null
   | Lit (l, tl) ->
-      if off >= n then None
+      if off >= n then Null
       else
         let stop = Pct.seg_stop path off n in
-        if Pct.seg_is path off stop l then apply tl h path stop n else None
+        if Pct.seg_is path off stop l then apply tl h path stop n else Null
   | Cap ({ parse; _ }, tl) -> (
-      if off >= n then None
+      if off >= n then Null
       else
         let stop = Pct.seg_stop path off n in
         let x = Pct.decode_sub ~plus:false path off (stop - off) in
         match parse x with
         | Some v -> apply tl (h v) path stop n
-        | None -> None)
+        | None -> Null)
 
 type 'env t = {
   meth : Method.t;
   (* The matcher takes the path and the offset to start at, so [prefix] can
      hand on a suffix without cutting a string. *)
-  run : string -> int -> 'env handler option @@ portable;
+  run : string -> int -> 'env handler or_null @@ portable;
 }
 
 let route meth pat (handler @ portable) =
@@ -134,7 +142,7 @@ let prefix at t =
             let stop = Pct.seg_stop path off n in
             if Pct.seg_is path off stop pc then strip pt stop else None
     in
-    match strip at i with Some rest -> t.run path rest | None -> None
+    match strip at i with Some rest -> t.run path rest | None -> Null
   in
   { t with run }
 

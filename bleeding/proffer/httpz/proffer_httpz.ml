@@ -282,7 +282,7 @@ let write_outcome conn ~keep_alive ~chunked ~version
     head_cstruct conn ~keep_alive ~version ~status ~headers ~mode
   in
   match body with
-  | `Empty ->
+  | Proffer.Backend.Empty ->
       let mode =
         match content_length with
         | Some n -> Known (Int64.to_int n)
@@ -290,13 +290,13 @@ let write_outcome conn ~keep_alive ~chunked ~version
       in
       conn.write [ head mode ];
       0
-  | `String s ->
+  | Proffer.Backend.String s ->
       let n = String.length s in
       let head = head (Known n) in
       if n = 0 then conn.write [ head ]
       else write_through conn s ~before:[ head ] ~after:[];
       n
-  | `Stream (length, write) ->
+  | Proffer.Backend.Stream { length; write } ->
       let written = ref 0 in
       let mode =
         match length with
@@ -459,7 +459,7 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
             in
             let unknown_stream =
               match outcome.Proffer.Backend.body with
-              | `Stream (None, _) -> true
+              | Proffer.Backend.Stream { length = None; _ } -> true
               | _ -> false
             in
             (* Without chunked encoding the only frame left for a body of

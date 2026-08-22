@@ -89,9 +89,19 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
   now takes what it needs as arguments and hands the result to a local
   continuation, so nothing is boxed on the way out. A route match still costs
   the `Some` `Route.run` returns.
+- `Backend.outcome`'s body is a declared variant carrying `@@ global` on its
+  payloads, rather than a polymorphic variant in a `global_` field. A socket
+  needs the string and the writer at global, not the block naming which of
+  them it is, and `global_` on the field forced the whole thing to the heap.
+  Worth 8 words a response. `` `String s `` becomes `String s` and
+  `` `Stream (length, write) `` becomes `Stream { length; write }`, which is a
+  breaking change for anyone who has written a backend.
+- A route match allocates nothing. `Route.run` returns `'env handler or_null`
+  rather than `'env handler option`: a handler is a closure and so never null,
+  and `or_null` needs no box to say so.
 - Together with the decoder work: a complete request and response cycle for a
-  literal route allocates **17 words**, where `Req.v` alone used to cost 175.
-  A 404 is 15 and a written streamed body 29.
+  literal route allocates **7 words**, where `Req.v` alone used to cost 175.
+  A 404 is 7 and a written streamed body 21.
   `bleeding/proffer/bench/bench_alloc.exe` prints these and attributes them.
 - A response body goes to the socket through a 64 KB scratch owned by the
   connection rather than one `Cstruct.of_string` of the whole body, so the

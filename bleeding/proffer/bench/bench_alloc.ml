@@ -60,7 +60,7 @@ let null_writer (_ : Backend.outcome @ local) = ()
 
 let stream_writer (o : Backend.outcome @ local) =
   match o.body with
-  | `Stream (_, write) ->
+  | Backend.Stream { write; _ } ->
       write (Backend.sink ~emit_sub:(fun _ _ _ -> ()) (fun _ -> ()))
   | _ -> ()
 
@@ -172,8 +172,12 @@ let () =
              Body.Empty
          in
          ()));
-  row "  + a string body (variant, Some, boxed Int64)"
-    (run_with (fun r -> Resp.v r ~headers:Headers.empty (Body.String "hi")));
+  (* [Sys.opaque_identity], because [Body.String "hi"] on a literal is a
+     static constant and would measure nothing. *)
+  row "  + a string body and its content length"
+    (run_with (fun r ->
+         Resp.v r ~headers:Headers.empty
+           (Body.String (Sys.opaque_identity "hello"))));
   (* Dispatch itself is free. What a route costs is the [Some] [Route.run]
      returns on a match, and a capture pattern's partial application. *)
   let cheap () _ (r : Resp.respond @ local) =

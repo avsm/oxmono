@@ -461,14 +461,16 @@ module Resp : sig
       constructor below with no [~headers] at all allocates nothing for the
       block either way, since the default is a constant.
 
-      The same rule governs the typed arguments, and it cuts the other way
-      from what their convenience suggests. Each is optional, so each is
-      passed as an allocated [Some]: measured on a body-less response,
-      [~content_type] costs 5 words and [~etag] 9, where naming the same field
-      in a [stack_] block costs none. They earn it back on a route that is
-      revalidated, since {!Backend.handle} renders them only once it knows the
-      response is being sent, so a 304 pays for no block at all. On a route
-      that is never conditional, a field in the block is cheaper.
+      The typed arguments below cut the other way from what their convenience
+      suggests. Measured on a body-less response, [~content_type] costs 5
+      words where naming the same field in a [stack_] block costs none. It is
+      not the calling convention: an optional argument's [Some] is
+      stack-allocated when the callee does not let it escape. It is the
+      [global_] field it lands in, which is [global_] because a header value
+      reaches a socket. They earn it back on a route that is revalidated,
+      since {!Backend.handle} renders them only once it knows the response is
+      being sent, so a 304 pays for no block at all. On a route that is never
+      conditional, a field in the block is cheaper.
 
       [last_modified] is seconds since the epoch. Each of [content_type],
       [cache], [etag] and [last_modified] adds its header and owns that field,
@@ -888,24 +890,37 @@ module Backend : sig
       Use this module only when writing a backend. To test a site, drive it
       through [proffer.mock] instead. *)
 
+  type body =
+    | Empty
+    | String of string @@ global
+    | Stream of {
+        length : int64 option;
+        write : (Body.Sink.t -> unit) @@ global;
+      }
+  (** The body a backend is asked to write, with the choice already made:
+      there is no [Delayed], because {!handle} has run the generator, and a
+      HEAD or a 304 arrives as {!Empty}.
+
+      The payloads carry [global], not the block. A socket write needs the
+      string and the writer at global; it does not need the block holding
+      them, so the block is built in the region and costs nothing. *)
+
   type outcome = {
     status : Status.t;
     headers : Headers.t;
         (** Fully rendered, including validators, Cache-Control and
             Content-Type. Content-Length is the backend's job. *)
-    global_ body :
-      [ `Empty
-      | `String of string
-      | `Stream of int64 option * (Body.Sink.t -> unit) ];
-    global_ content_length : int64 option;
+    body : body;
+    content_length : int64 option;
         (** The length the response would have, kept accurate for HEAD and 304
             so a backend can send Content-Length without a body. [None] means
             unknown, which for a stream means chunked. *)
   }
-  (** One response, decided but not yet written. It reaches a backend at
-      [local], so it costs no heap. [headers] is left at the record's own mode,
-      since the block is the part worth keeping on the stack; the body and the
-      length are [global_] because a socket write needs them there. *)
+  (** One response, decided but not yet written. Every field is at the
+      record's own mode, so a backend that reads it and writes it costs no
+      heap at all: the length is an [int64 option] built in the region rather
+      than on it, and {!body} keeps its payloads global without the block
+      being global too. *)
 
   type writer = outcome @ local -> unit
   (** What a backend gives {!handle} to write one response with. It is called

@@ -16,7 +16,7 @@ Both axes are now as far as they go without a design change. **Portable**:
 four closures are left in `Arod_env.t`. `feed`, `pagination` and `search`
 render through jsont, whose codecs cannot be given a crossing kind; `report`
 holds a database handle.
-**Local**: a complete request and response cycle allocates 17 words, where
+**Local**: a complete request and response cycle allocates 7 words, where
 `Req.v` alone cost 175 when this started.
 
 ## Closures
@@ -63,15 +63,15 @@ domain-bound `search` closure anyway.
 ## What is left for local
 
 The request and response paths are done. A complete cycle for a literal route
-allocates **17 words**, where `Req.v` alone cost 175 when this started.
+allocates **7 words**, where `Req.v` alone cost 175 when this started.
 
 | | words |
 | --- | --- |
-| full serve, literal route, content type only | 17 |
-| the same with an entity-tag | 28 |
-| the same with a header field in a `stack_` block | 17 |
-| a streamed body, written | 29 |
-| a 404 | 15 |
+| full serve, literal route, content type only | 7 |
+| the same with an entity-tag | 18 |
+| the same with a header field in a `stack_` block | 7 |
+| a streamed body, written | 21 |
+| a 404 | 7 |
 | `Req.v` (record only, now on the stack) | 0 |
 | one `Req.query_param` | 4, or 0 when absent |
 
@@ -129,32 +129,52 @@ interface asks for:
 | | words |
 | --- | --- |
 | `Backend.run` machinery, cheapest response | 0 |
-| a string body: `` `String s ``, `Some`, boxed `Int64` | 8 |
+| a string body and its content length | 2 |
 | `~content_type` as an optional argument | 5 |
 | the same field in a `stack_` block instead | 0 |
-| `~etag` as an optional argument | 9 |
 | dispatch, any number of routes, none matched | 0 |
-| a route match, for the `Some` `Route.run` returns | 2 |
-| a capture pattern's partial application, on top | 4 |
+| a route match | 0 |
+| a capture pattern's partial application | 4 |
 | `Backend.sink` built without `emit_sub` | 8 |
 | `Backend.sink` built with `emit_sub` | 3 |
 
-Three of these are reachable without a redesign, in descending order of size.
+Two rules came out of this, and both generalise past proffer.
 
-1. **The content length, 5 words.** `Some (Int64.of_int n)` is a `Some` and a
-   custom block. An `int option` would be 2 and an `int` with a sentinel 0.
-   `Backend.outcome` is a backend-facing type with two in-tree implementors,
-   so this is a small change with a real question attached: a 63-bit `int`
-   covers any body on a 64-bit host but caps at 1GB on a 32-bit one.
-2. **The typed optional arguments, 5 to 9 words each.** Same rule as
-   `~headers`: an optional argument is an allocated `Some`. They earn it back
-   on a revalidated route, since `Backend.handle` renders them only once it
-   knows the response is being sent, so a 304 pays for no block. On a route
-   that is never conditional, the field belongs in a `stack_` block, and
-   `Resp.v`'s documentation now says so.
-3. **`Route.run`'s `Some`, 2 words per match.** Removing it means the same
-   continuation-passing treatment `dispatch` just had, threaded through the
-   pattern combinators in `route.ml`. Larger than it looks.
+**A `global_` field forces its whole block to the heap; a `global` modality
+on a payload does not.** `Backend.outcome` held its body as a polymorphic
+variant in a `global_` field, which cost 8 words. What a socket needs at
+global is the string and the writer, not the block naming which of them it
+is, so the body became a declared variant carrying `@@ global` on its
+payloads and the field lost `global_`. The same reasoning applies anywhere a
+local record has to hand a heap value onward.
+
+**`or_null` is free where `option` is two words.** A value that can never be
+null, which a closure or any block is, does not need a box to say so.
+`Route.run` returned `'env handler option` and now returns `'env handler
+or_null`, so a route match allocates nothing.
+
+Two things were tried and reverted because they measured nothing, which is
+worth recording so they are not tried again. Putting `@@ global` on `Body.t`'s
+payloads and dropping `global_` from `Resp.description.body` changed no
+figure. Replacing `Option.iter (check_value "content_type")` in `Resp.v`,
+a partial application and so a closure, changed no figure either.
+
+What is left is small and each piece has a reason.
+
+1. **The typed optional arguments, 5 words for `~content_type`.** Not the
+   calling convention: an optional argument's `Some` is stack-allocated when
+   the callee does not let it escape, measured at 0. It is the `global_` field
+   it lands in, and that field is `global_` because `Headers.field`'s value is,
+   because a header value reaches the socket. The same field named in a
+   `stack_` block costs nothing, and `Resp.v`'s documentation now says so.
+   They earn their keep on a revalidated route, where `Backend.handle` renders
+   them only once it knows the response is being sent, so a 304 pays for no
+   block at all.
+2. **`Backend.sink`, 8 words without `emit_sub` and 3 with.** The 8 is the
+   defaulting closure over `emit`; the 3 is the record. Only a streamed
+   response pays it, and `proffer-httpz` passes `emit_sub`.
+3. **A capture pattern, 4 words.** The partial application binding what the
+   segment decoded to.
 
 A streamed body costs 12 words over a string one, for the sink record and the
 closure the outcome carries. Beyond that the remaining allocation is the

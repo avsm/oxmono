@@ -28,8 +28,10 @@ type t =
   | Stream of { length : int64 option; write : Sink.t -> unit }
 
 (* [declared_length t] is the length the body claims without producing it. It
-   is what a HEAD or a 304 reports, so a [Delayed] generator is never run. *)
-let declared_length = function
+   is what a HEAD or a 304 reports, so a [Delayed] generator is never run.
+   [exclave_], so the option is built in the caller's region. *)
+let declared_length (t : t @ local) = exclave_
+  match t with
   | Empty -> Some 0L
   | String s -> Some (Int64.of_int (Stdlib.String.length s))
   | Delayed { length; _ } -> length

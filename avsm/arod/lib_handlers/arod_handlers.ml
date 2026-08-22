@@ -217,7 +217,7 @@ let pagination_api env req respond =
       (fun (k, v) -> if String.equal k "type" then Some v else None)
       (Req.query req)
   in
-  Resp.media respond json_type
+  Resp.stream respond json_type
     (env.E.pagination
        ~collection:(Req.query_param req "collection")
        ~offset ~limit ~types)
@@ -226,9 +226,9 @@ let search_api env req respond =
   let q = match Req.query_param req "q" with Some q -> q | None -> "" in
   let limit = int_param req "limit" ~default:20 ~lo:1 ~hi:100 in
   env.E.log_search ~query:q ~limit ~results:None;
-  let body, results = env.E.search ~q ~limit in
+  let write, results = env.E.search ~q ~limit in
   env.E.log_search ~query:q ~limit ~results:(Some results);
-  Resp.media respond json_type body
+  Resp.stream respond json_type write
 
 (** {1 Files} *)
 

@@ -333,6 +333,16 @@ module Body : sig
     (** [write t s] emits [s]. It is valid only during the [Body.Stream] write
         callback and must not escape it. A backend builds the sink with
         {!Backend.sink}. *)
+
+    val write_sub : t -> bytes -> off:int -> len:int -> unit @@ portable
+    (** [write_sub t b ~off ~len] emits that range of [b], which is not
+        retained past the call.
+
+        This is the way in for a producer that already holds bytes, which is
+        every encoder that writes through a buffer: it hands over the
+        encoder's own slice rather than making a string for each one. A
+        backend that can only take strings pays a copy per slice here, so a
+        producer that has a string should call {!write} instead. *)
   end
 
   type t =
@@ -519,6 +529,36 @@ module Resp : sig
     unit
     @@ portable
   (** [media respond ct s] responds with [s] under Content-Type [ct]. *)
+
+  val stream :
+    respond @ local ->
+    ?status:Status.t ->
+    ?cache:Cache_control.t ->
+    ?headers:Headers.t @ local ->
+    ?length:int64 ->
+    string ->
+    (Body.Sink.t -> unit) ->
+    unit
+    @@ portable
+  (** [stream respond ct write] responds under Content-Type [ct] with whatever
+      [write] emits onto the sink it is given.
+
+      This is the constructor for a body that is produced rather than held: an
+      encoder writing through a buffer hands each slice straight to the socket
+      and the finished body never exists as a string. On a route answering a
+      megabyte that is the difference between one copy and none.
+
+      Omit [length] unless it is known before [write] runs, which for an
+      encoder it is not. Without it the backend frames the body chunked, so
+      the response carries no Content-Length. [write] is not run for a HEAD,
+      which then reports no length either.
+
+      [write] runs after the response head is on the wire, so a failure part
+      way through it cannot become an error status. It is reported to
+      {!Backend.handle}'s [on_error] and the body is truncated. Do not put a
+      computation that can fail on this path. There is no [etag] argument for
+      the same reason: a validator would have to be known before the bytes it
+      validates. *)
 
   val empty :
     respond @ local ->
@@ -916,6 +956,15 @@ module Backend : sig
       handler mistakes. {!handle} is this plus dispatch. A test reaches it
       through [proffer.mock] to exercise one response without a site. *)
 
-  val sink : (string -> unit) -> Body.Sink.t @@ portable
-  (** [sink f] is how a backend wraps its writer for a [Body.Stream]. *)
+  val sink :
+    ?emit_sub:(bytes -> int -> int -> unit) ->
+    (string -> unit) ->
+    Body.Sink.t
+    @@ portable
+  (** [sink f] is how a backend wraps its writer for a [Body.Stream].
+
+      A backend that can write a range of bytes without making a string of it
+      should pass [emit_sub] as well, so that a producer streaming through a
+      buffer costs nothing per slice. Without it {!Body.Sink.write_sub} copies
+      the range into a string and calls [f]. *)
 end

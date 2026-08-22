@@ -41,12 +41,12 @@ type t = {
     offset:int ->
     limit:int ->
     types:string list ->
-    string;
+    (Proffer.Body.Sink.t -> unit);
       (** [pagination ~collection ~offset ~limit ~types] is one page of
           [collection] as the JSON the pagination API answers. It is a closure
           because it renders through jsont, whose codecs cannot cross a domain
           boundary. *)
-  search : q:string -> limit:int -> string * int;
+  search : q:string -> limit:int -> (Proffer.Body.Sink.t -> unit) * int;
       (** [search ~q ~limit] is at most [limit] results for [q] as the JSON
           the search box reads, paired with the number of results it holds. An
           empty [q] is an empty result set and queries nothing. *)

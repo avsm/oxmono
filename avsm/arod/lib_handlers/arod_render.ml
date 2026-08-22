@@ -410,7 +410,7 @@ let error_codec =
   |> Jsont.Object.mem "error" Jsont.string ~enc:Fun.id
   |> Jsont.Object.finish
 
-let error_json msg = Arod_json.encode error_codec msg
+let error_json msg = Arod_json.stream error_codec msg
 
 type page = {
   html : string;
@@ -433,8 +433,11 @@ let page_codec =
   |> Jsont.Object.mem "has_more" Jsont.bool ~enc:(fun p -> p.has_more)
   |> Jsont.Object.finish
 
+(* The record is built now and encoded later, when the backend runs the
+   writer. The page HTML is the expensive half and is already a string by the
+   time it lands in [html], but the JSON around it never becomes one. *)
 let page_json ~html ~total ~offset ~limit ~count ~has_more =
-  Arod_json.encode page_codec { html; total; offset; limit; count; has_more }
+  Arod_json.stream page_codec { html; total; offset; limit; count; has_more }
 
 let pagination ~ctx ~collection ~offset ~limit ~types =
   let paginate all render =
@@ -544,7 +547,7 @@ let search ~ctx (results : Arod_search.result list) =
     { Search_hit.slug = r.slug; kind = r.kind; url = r.url; title = r.title;
       snippet = r.snippet; date = r.date; tags = r.tags; thumbnail; parents }
   ) results in
-  Arod_json.encode search_codec hits
+  Arod_json.stream search_codec hits
 
 (** {1 Stats dashboard} *)
 

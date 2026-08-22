@@ -233,30 +233,45 @@ let send_error conn ~version ~status message =
   in
   conn.write [ head; Cstruct.of_string message ]
 
-(* [write_through conn s ~before ~after] sends [before], then [s], then
-   [after]. The body goes through the connection's scratch a chunk at a time
-   rather than as one [Cstruct.of_string], which used to malloc and copy the
-   whole body: the largest route this serves answers 3.3MB, so a burst of
-   concurrent requests for it held a bigstring each. A body that fits in the
-   scratch is still a single [writev] carrying [before] with it. Eio's write
-   completes before it returns, so the scratch is free to reuse. *)
-let write_through conn s ~before ~after =
-  let n = String.length s in
+(* [write_range conn ~len ~blit ~before ~after] sends [before], then [len]
+   bytes produced by [blit], then [after]. The body goes through the
+   connection's scratch a chunk at a time rather than as one
+   [Cstruct.of_string], which used to malloc and copy the whole body: the
+   largest route this serves answers 3.3MB, so a burst of concurrent requests
+   for it held a bigstring each. A body that fits in the scratch is still a
+   single [writev] carrying [before] with it. Eio's write completes before it
+   returns, so the scratch is free to reuse.
+
+   [blit src_off dst_off n] copies [n] bytes from offset [src_off] of whatever
+   the source is into the scratch at [dst_off]. That is what lets a string
+   body and a slice handed over by a streaming encoder share this path. *)
+let write_range conn ~len ~blit ~before ~after =
   let cap = Cstruct.length conn.body_cs in
-  let first = min cap n in
-  Cstruct.blit_from_string s 0 conn.body_cs 0 first;
-  let tail = if first = n then after else [] in
+  let first = min cap len in
+  blit 0 0 first;
+  let tail = if first = len then after else [] in
   conn.write (before @ (Cstruct.sub conn.body_cs 0 first :: tail));
   let rec rest off =
-    if off < n then begin
-      let k = min cap (n - off) in
-      Cstruct.blit_from_string s off conn.body_cs 0 k;
-      let tail = if off + k = n then after else [] in
+    if off < len then begin
+      let k = min cap (len - off) in
+      blit off 0 k;
+      let tail = if off + k = len then after else [] in
       conn.write (Cstruct.sub conn.body_cs 0 k :: tail);
       rest (off + k)
     end
   in
   rest first
+
+let write_through conn s ~before ~after =
+  write_range conn ~len:(String.length s)
+    ~blit:(fun src dst n -> Cstruct.blit_from_string s src conn.body_cs dst n)
+    ~before ~after
+
+let write_through_bytes conn b ~off ~len ~before ~after =
+  write_range conn ~len
+    ~blit:(fun src dst n ->
+      Cstruct.blit_from_bytes b (off + src) conn.body_cs dst n)
+    ~before ~after
 
 (* [write_outcome conn ~keep_alive ~chunked ~version o] sends [o] and is the
    number of body bytes it wrote. *)
@@ -289,30 +304,39 @@ let write_outcome conn ~keep_alive ~chunked ~version
         | None -> if chunked then Chunked else Omit
       in
       conn.write [ head mode ];
-      let emit =
-        if chunked then (
+      (* A chunk's header and footer are the same whichever way the body
+         arrived, so they are computed once here and the two emitters differ
+         only in where the bytes come from. *)
+      let framing n =
+        if not chunked then ([], [])
+        else begin
           let scratch = Bytes.create 32 in
-          fun s ->
-            let n = String.length s in
-            (* A zero-length chunk ends the body, so an empty write is
-               dropped rather than sent. *)
-            if n > 0 then begin
-              let off = St.write_chunk_header scratch ~off:(i16 0)
-                ~size:n in
-              let hdr = Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) in
-              let off = St.write_chunk_footer scratch ~off:(i16 0) in
-              let ftr = Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) in
-              write_through conn s ~before:[ hdr ] ~after:[ ftr ];
-              written := !written + n
-            end)
-        else fun s ->
-          let n = String.length s in
-          if n > 0 then begin
-            write_through conn s ~before:[] ~after:[];
-            written := !written + n
-          end
+          let off = St.write_chunk_header scratch ~off:(i16 0) ~size:n in
+          let hdr = Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) in
+          let scratch = Bytes.create 32 in
+          let off = St.write_chunk_footer scratch ~off:(i16 0) in
+          let ftr = Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) in
+          ([ hdr ], [ ftr ])
+        end
       in
-      write (Proffer.Backend.sink emit);
+      (* A zero-length chunk ends the body, so an empty write is dropped
+         rather than sent. *)
+      let emit s =
+        let n = String.length s in
+        if n > 0 then begin
+          let before, after = framing n in
+          write_through conn s ~before ~after;
+          written := !written + n
+        end
+      in
+      let emit_sub b off len =
+        if len > 0 then begin
+          let before, after = framing len in
+          write_through_bytes conn b ~off ~len ~before ~after;
+          written := !written + len
+        end
+      in
+      write (Proffer.Backend.sink ~emit_sub emit);
       if chunked then begin
         let scratch = Bytes.create 8 in
         let off = St.write_final_chunk scratch ~off:(i16 0) in

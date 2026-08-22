@@ -120,11 +120,16 @@ let env =
     pagination =
       (fun ~collection ~offset ~limit ~types ->
         ignore types;
-        Printf.sprintf "%s/%d/%d"
-          (Option.value ~default:"none" collection)
-          offset limit);
+        let s =
+          Printf.sprintf "%s/%d/%d"
+            (Option.value ~default:"none" collection)
+            offset limit
+        in
+        fun sink -> Proffer.Body.Sink.write sink s);
     search =
-      (fun ~q ~limit -> (Printf.sprintf "%s/%d" q limit, String.length q));
+      (fun ~q ~limit ->
+        let s = Printf.sprintf "%s/%d" q limit in
+        ((fun sink -> Proffer.Body.Sink.write sink s), String.length q));
     log_search =
       (fun ~query ~limit ~results ->
         let results =

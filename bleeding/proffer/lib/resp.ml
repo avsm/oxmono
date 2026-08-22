@@ -160,6 +160,14 @@ let media (respond : respond @ local) ?status ?etag ?cache
     ?(headers : Headers.t @ local = Headers.empty) ct s =
   v respond ?status ?etag ?cache ~headers ~content_type:ct (Body.String s)
 
+(* [write] is taken at the caller's mode rather than [local], since the
+   backend runs it after the description has been consumed, which is past the
+   point where a local closure would still be alive. *)
+let stream (respond : respond @ local) ?status ?cache
+    ?(headers : Headers.t @ local = Headers.empty) ?length ct write =
+  v respond ?status ?cache ~headers ~content_type:ct
+    (Body.Stream { length; write })
+
 let empty (respond : respond @ local) ?(status = Httpz.Res.Success)
     ?(headers : Headers.t @ local = Headers.empty) () =
   v respond ~status ~headers Body.Empty

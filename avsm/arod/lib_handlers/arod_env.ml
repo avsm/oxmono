@@ -14,8 +14,8 @@ type t = {
     offset:int ->
     limit:int ->
     types:string list ->
-    string;
-  search : q:string -> limit:int -> string * int;
+    (Proffer.Body.Sink.t -> unit);
+  search : q:string -> limit:int -> (Proffer.Body.Sink.t -> unit) * int;
   log_search : query:string -> limit:int -> results:int option -> unit;
   read_image : string list -> string option;
   read_paper : string -> string option;
@@ -35,7 +35,8 @@ let create ~ctx ~cache ~search ~log_search ~read_image ~read_paper ~reader ~now
         Arod_render.pagination ~ctx ~collection ~offset ~limit ~types);
     search =
       (fun ~q ~limit ->
-        if String.equal q "" then ({|{"results":[]}|}, 0)
+        if String.equal q "" then
+          ((fun sink -> Proffer.Body.Sink.write sink {|{"results":[]}|}), 0)
         else
           let results = search ~limit q in
           (Arod_render.search ~ctx results, List.length results));

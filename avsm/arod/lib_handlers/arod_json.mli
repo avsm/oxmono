@@ -22,3 +22,20 @@ val encode : 'a Jsont.t -> 'a -> string
     An encode fails only when a codec maps a value through a function that
     raises, which none of the response codecs do, so the failure branch
     answers a JSON error object rather than raising inside a route. *)
+
+val stream : 'a Jsont.t -> 'a -> Proffer.Body.Sink.t -> unit
+(** [stream codec v sink] encodes [v] through [codec] straight onto [sink],
+    without the finished string in between.
+
+    jsont writes through a slice at a time, and a slice is bytes with an
+    offset and a length, so it goes to the socket through
+    {!Proffer.Body.Sink.write_sub} with nothing copied on the way. That is
+    what a route answering half a megabyte wants: the encoded body used to
+    exist twice, once as jsont's output and once as the response, and now it
+    exists as neither.
+
+    The response cannot carry a Content-Length, since the length is not known
+    until the encode has run, so a route using this answers chunked. An encode
+    that fails part way has already written, so the failure is reported to the
+    backend's [on_error] and the body is truncated: a codec that can raise
+    does not belong on this path. *)

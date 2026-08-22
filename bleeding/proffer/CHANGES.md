@@ -90,6 +90,14 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
   bigstring a large response needs is bounded per connection instead of per
   request. A body that fits in the scratch is still a single `writev` carrying
   the head with it. Streamed chunks take the same path.
+- `Body.Sink` takes bytes as well as strings. `Sink.write_sub t b ~off ~len`
+  is the way in for a producer that writes through a buffer, which is every
+  encoder: it hands over the encoder's own slice rather than making a string
+  per slice. A backend that can only take strings omits `Backend.sink`'s new
+  `?emit_sub` and pays the copy, which is what the mock does.
+- `Resp.stream respond ct write` responds with whatever `write` emits, for a
+  body that is produced rather than held. Without a `?length` the backend
+  frames it chunked, since an encoder does not know its size before it runs.
 - Two behaviour changes come with httpz's date handling. The obsolete RFC 850
   and asctime forms of a date are now accepted, as RFC 9110 section 5.6.7
   requires and proffer's own parser did not. And `Date.representable` stops at

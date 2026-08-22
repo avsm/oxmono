@@ -30,7 +30,7 @@
     Four renders are still not portable, and each was measured by annotating it
     and reading what the compiler named. {!feed} closes over
     [Arod.Feed.feed_string], {!pagination} and {!search} over
-    [Arod_json.encode], and {!report} over
+    [Arod_json.stream], and {!report} over
     [Arod_handlers_stats.render_dashboard]. The first three reach jsont, whose
     codecs cannot be given a kind that crosses a domain boundary; [TODO.md]
     records what that would take and where it stops. {!report} also takes a
@@ -94,14 +94,22 @@ val pagination :
   offset:int ->
   limit:int ->
   types:string list ->
-  string
-(** [pagination ~ctx ~collection ~offset ~limit ~types] is one page of
+  (Proffer.Body.Sink.t -> unit)
+(** [pagination ~ctx ~collection ~offset ~limit ~types] writes one page of
     [collection] as rendered HTML with the counts a client needs to ask for
     the next. [types] filters an entry collection and is ignored by the
-    others. An unknown or absent [collection] is a JSON error object. *)
+    others. An unknown or absent [collection] writes a JSON error object.
 
-val search : ctx:Arod.Ctx.t -> Arod_search.result list -> string
-(** [search ~ctx results] is [results] as the JSON the search box reads. *)
+    The page is selected and its HTML rendered when this is called, so a
+    caller holds the cost of the page as soon as it has the writer. Only the
+    JSON is deferred, and it goes to the socket a slice at a time rather than
+    through a string: this route answers over a megabyte, which used to exist
+    twice. *)
+
+val search :
+  ctx:Arod.Ctx.t -> Arod_search.result list -> (Proffer.Body.Sink.t -> unit)
+(** [search ~ctx results] writes [results] as the JSON the search box reads,
+    streamed as {!pagination} is. *)
 
 val report : db:Sqlite3_eio.t -> report -> range:string -> string
 (** [report ~db which ~range] is the access log view [which] over [range],

@@ -146,14 +146,22 @@ in the scratch is still a single `writev` carrying the head with it, which is
 most routes. Measured at 20 to 60 microseconds either way, so this buys
 memory, not speed. All 1588 routes byte-identical.
 
-**Building the string at all (not done).** `pagination` and `search` render a
-fresh body per request; `feed` and the pages are memoised, so they pay once
-per TTL. Not building it means streaming the render, which proffer already
-supports through `Body.Stream`. The obstacle is arod's renderers, which go
-through `El.to_string` and `Jsont_bytesrw.encode_string` and hand back a
-finished string. Streaming them means an incremental writer at each of those
-seams. That is the largest remaining allocation in the system by a wide
-margin, and the only one left worth chasing.
+**Building the string at all (JSON done, HTML not).** `pagination` and
+`search` render a fresh body per request; `feed` and the pages are memoised,
+so they pay once per TTL. Both now answer through `Resp.stream`.
+`Arod_json.stream` drives `Jsont_bytesrw.encode` into a `Bytes.Writer.t` that
+forwards each slice to `Body.Sink.write_sub`, so the JSON goes from the
+encoder to the socket with nothing copied on the way and the encoded body
+never exists as a string. Measured on a 111 KB search response: 9725 words
+allocated, against 40077 through `encode_string`. The two routes are framed
+chunked now, since the length is not known before the encode runs. All 1588
+captured routes byte-identical.
+
+What is left of this is the HTML. `page_json`'s `html` member is still an
+`El.to_string`, and on `collection=network` that member is most of the
+1.35 MB. Streaming it means an incremental writer inside htmlit and a jsont
+codec that can take a producer rather than a string for a member, which is a
+larger change than the one above and is deliberately not taken yet.
 
 ## Settled questions. Do not reopen without new facts.
 

@@ -22,7 +22,7 @@ type outcome = {
 
 type writer = outcome @ local -> unit
 
-let sink emit = Body.Sink.v emit
+let sink ?emit_sub emit = Body.Sink.v ?emit_sub emit
 let text_type = "text/plain; charset=utf-8"
 (* HEAD is answered from the GET route, so it belongs in Allow whenever GET
    does. Order follows the route list, which is stable across runs. *)

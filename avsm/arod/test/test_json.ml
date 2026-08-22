@@ -71,7 +71,18 @@ let result ?(kind = "note") ?(snippet = "s") ?(tags = [])
     tags;
   }
 
-let search results = Arod_handlers.Render.search ~ctx results
+(* The responses are written rather than returned, so the test plays backend:
+   it lends a sink that accumulates and reads what came out. Going through
+   [emit_sub] is deliberate, since that is the path a real encode takes. *)
+let render write =
+  let b = Buffer.create 4096 in
+  write
+    (Proffer.Backend.sink
+       ~emit_sub:(fun s off len -> Buffer.add_subbytes b s off len)
+       (fun s -> Buffer.add_string b s));
+  Buffer.contents b
+
+let search results = render (Arod_handlers.Render.search ~ctx results)
 
 let () =
   eq "an empty result set is an empty array"
@@ -105,12 +116,14 @@ let () =
 
 let () =
   eq "an absent collection is a JSON error object"
-    (Arod_handlers.Render.pagination ~ctx ~collection:None ~offset:0 ~limit:10
-       ~types:[])
+    (render
+       (Arod_handlers.Render.pagination ~ctx ~collection:None ~offset:0
+          ~limit:10 ~types:[]))
     {|{"error":"Missing collection parameter"}|};
   eq "so is an unknown one"
-    (Arod_handlers.Render.pagination ~ctx ~collection:(Some "nope") ~offset:0
-       ~limit:10 ~types:[])
+    (render
+       (Arod_handlers.Render.pagination ~ctx ~collection:(Some "nope")
+          ~offset:0 ~limit:10 ~types:[]))
     {|{"error":"Invalid collection type"}|}
 
 let () = Printf.printf "test_json: %d checks ok\n" !checks

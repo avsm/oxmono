@@ -1,54 +1,54 @@
 (* The part of a backend that is not wire code: dispatch, conditional GET and
    HEAD. Writing it once here is what lets the mock tests exercise the same
-   code a socket backend runs. *)
+   code a socket backend runs.
+
+   A handler is given a responder and [handle] is given a writer, so a response
+   travels down through both and never back up. Everything that describes it
+   lives in the region [handle] runs the handler in: the description record,
+   the header block and the outcome are all local, and only the bodies and the
+   strings inside the block are heap values that were already there. *)
+
+module M = Httpz.Method
 
 type outcome = {
   status : Status.t;
   headers : Headers.t;
-  body :
+  global_ body :
     [ `Empty
     | `String of string
     | `Stream of int64 option * (Body.Sink.t -> unit) ];
-  content_length : int64 option;
+  global_ content_length : int64 option;
 }
+
+type writer = outcome @ local -> unit
 
 let sink emit = Body.Sink.v emit
 let text_type = "text/plain; charset=utf-8"
-
-let internal_error () =
-  Resp.v ~status:`Internal_server_error ~content_type:text_type
-    (Body.String "Internal Server Error\n")
-
 (* HEAD is answered from the GET route, so it belongs in Allow whenever GET
    does. Order follows the route list, which is stable across runs. *)
 let allow_value allowed =
   let names = List.map Method.to_string allowed in
   let names =
-    if List.exists (fun m -> Method.equal m `GET) allowed then
+    if List.exists (fun m -> Method.equal m M.Get) allowed then
       names @ [ "HEAD" ]
     else names
   in
   String.concat ", " names
 
-let method_not_allowed allowed =
-  Resp.v ~status:`Method_not_allowed
-    ~headers:[ ("Allow", allow_value allowed) ]
-    ~content_type:text_type
-    (Body.String "Method Not Allowed\n")
-
-(* [dispatch compiled meth segs] is the handler of the first route matching
+(* [dispatch compiled meth path] is the handler of the first route matching
    both the path and the method, or else the methods that matched the path
    alone, which is what a 405 must report. *)
-let dispatch compiled meth segs =
+let dispatch compiled meth path =
   let matches route_meth =
     Method.equal route_meth meth
-    || (Method.equal meth `HEAD && Method.equal route_meth `GET)
+    || (Method.equal meth M.Head && Method.equal route_meth
+      M.Get)
   in
   let rec go routes allowed =
     match routes with
     | [] -> (None, List.rev allowed)
     | r :: rest -> (
-        match Route.run r segs with
+        match Route.run r path with
         | None -> go rest allowed
         | Some h ->
             let rm = Route.meth r in
@@ -94,16 +94,19 @@ let if_none_match v etag =
    precondition on any other method with 412, which v1 does not implement, so
    those requests simply get the full response. If-Modified-Since is consulted
    only when If-None-Match is absent, as RFC 9110 section 13.1.3 requires. *)
-let not_modified req resp =
+let not_modified (req : Req.t @ local) (d : Resp.description @ local) =
   let meth = Req.meth req in
-  if not (Method.equal meth `GET || Method.equal meth `HEAD) then false
-  else if Status.code (Resp.status resp) <> 200 then false
+  if not (Method.equal meth Httpz.Method.Get || Method.equal meth
+    Httpz.Method.Head) then false
+  else if Status.code d.Resp.status <> 200 then false
   else
-    match Req.header req "if-none-match" with
+    match Req.header req Httpz.Header_name.If_none_match with
     | Some v -> (
-        match Resp.etag resp with Some e -> if_none_match v e | None -> false)
+        match d.Resp.etag with Some e -> if_none_match v e | None -> false)
     | None -> (
-        match (Resp.last_modified resp, Req.header req "if-modified-since") with
+        match (d.Resp.last_modified, Req.header req
+          Httpz.Header_name.If_modified_since)
+          with
         | Some lm, Some v -> (
             match Date.of_imf v with
             | None -> false
@@ -114,92 +117,198 @@ let not_modified req resp =
                 Float.floor lm <= Float.floor since)
         | _ -> false)
 
-let revalidation_headers resp =
-  Headers.of_list
-    (List.filter
-       (fun (n, _) ->
-         match String.lowercase_ascii n with
-         | "etag" | "last-modified" | "cache-control" | "vary" -> true
-         | _ -> false)
-       (Headers.to_list (Resp.headers resp)))
-
 let len s = Some (Int64.of_int (String.length s))
 
-(* A [Body.Delayed] generator is handed back rather than run, so that [handle]
-   can run it under the same guard as the handler. Running it here would put it
-   outside that guard, where an exception drops the connection instead of
-   giving a 500. *)
-type plan =
-  | Ready of outcome
-  | Generate of {
-      status : Status.t;
-      headers : Headers.t;
-      gen : unit -> string;
-    }
+(* The fields a typed argument owns are rendered here rather than in
+   [Resp.v], because this is where it is known whether the response is being
+   sent at all. A 304 keeps only the revalidation fields, and does not pay for
+   a block it would discard. The order is the one [Resp.v] used to build:
+   the caller's block, then Content-Type, Cache-Control, ETag, Last-Modified. *)
+(* Every field is built with [h_local], so the block a backend writes is
+   entirely in the region. [h] would put each record on the heap, which on
+   this path is every response. *)
+let block (d : Resp.description @ local) = exclave_
+  let local_ extra = [] in
+  let local_ extra =
+    match d.Resp.last_modified with
+    | None -> extra
+    | Some t -> Headers.h_local Httpz.Header_name.Last_modified (Date.to_imf t)
+        :: extra
+  in
+  let local_ extra =
+    match d.Resp.etag with
+    | None -> extra
+    | Some e ->
+        Headers.h_local Httpz.Header_name.Etag (Etag.to_string e) :: extra
+  in
+  let local_ extra =
+    match d.Resp.cache with
+    | None -> extra
+    | Some c -> Headers.h_local Httpz.Header_name.Cache_control c :: extra
+  in
+  let local_ extra =
+    match d.Resp.content_type with
+    | None -> extra
+    | Some ct -> Headers.h_local Httpz.Header_name.Content_type ct :: extra
+  in
+  Headers.cat d.Resp.headers extra
 
-let plan req resp =
-  let status = Resp.status resp and headers = Resp.headers resp in
-  if not_modified req resp then
-    Ready
-      {
-        status = `Not_modified;
-        headers = revalidation_headers resp;
-        body = `Empty;
-        content_length = None;
-      }
-  else if Method.equal (Req.meth req) `HEAD then
-    Ready
-      {
-        status;
-        headers;
-        body = `Empty;
-        content_length = Body.declared_length (Resp.body resp);
-      }
+(* A 304 carries only what a client revalidates against. *)
+let revalidation (b : Headers.t @ local) = exclave_
+  let rec go (b : Headers.t @ local) = exclave_
+    match b with
+    | [] -> []
+    | { Headers.name; spelling; value } :: tl ->
+        (* A 304 carries only what a client revalidates against. The name is
+           httpz's constructor, so this is four comparisons of an immediate
+           rather than four case-folding walks over a string. *)
+        let keep =
+          match name with
+          | Httpz.Header_name.Etag | Httpz.Header_name.Last_modified
+          | Httpz.Header_name.Cache_control | Httpz.Header_name.Vary ->
+              true
+          | _ -> false
+        in
+        if keep then { Headers.name; spelling; value } :: go tl else go tl
+  in
+  go b
+
+let method_not_allowed allowed (respond : Resp.respond @ local) =
+  (* Through [Resp.v] rather than [Resp.text ~headers], because the optional
+     argument would put the block on the heap. *)
+  let () =
+    Resp.v respond ~status:Httpz.Res.Method_not_allowed
+      ~headers:
+        (stack_
+           [ Headers.h_local Httpz.Header_name.Allow (allow_value allowed) ])
+      ~content_type:text_type (Body.String "Method Not Allowed\n")
+  in
+  ()
+
+(* [decide req d write] turns one description into the outcome a backend
+   writes. It is where the protocol mechanics that need no socket happen. *)
+let decide (req : Req.t @ local) (d : Resp.description @ local)
+    (write : writer @ local) =
+  let local_ b = block d in
+  if not_modified req d then
+    let local_ o =
+      { status = Httpz.Res.Not_modified; headers = revalidation b; body =
+        `Empty;
+        content_length = None }
+    in
+    let () = write o in
+    ()
+  else if Method.equal (Req.meth req) Httpz.Method.Head then
+    let local_ o =
+      { status = d.Resp.status; headers = b; body = `Empty;
+        content_length = Body.declared_length d.Resp.body }
+    in
+    let () = write o in
+    ()
   else
-    match Resp.body resp with
+    match d.Resp.body with
     | Body.Empty ->
-        Ready { status; headers; body = `Empty; content_length = Some 0L }
+        let local_ o =
+          { status = d.Resp.status; headers = b; body = `Empty;
+            content_length = Some 0L }
+        in
+        let () = write o in
+        ()
     | Body.String s ->
-        Ready { status; headers; body = `String s; content_length = len s }
-    | Body.Delayed { gen; _ } -> Generate { status; headers; gen }
-    | Body.Stream { length; write } ->
-        Ready
-          {
-            status;
-            headers;
-            body = `Stream (length, write);
-            content_length = length;
-          }
+        let local_ o =
+          { status = d.Resp.status; headers = b; body = `String s;
+            content_length = len s }
+        in
+        let () = write o in
+        ()
+    | Body.Stream { length; write = w } ->
+        let local_ o =
+          { status = d.Resp.status; headers = b; body = `Stream (length, w);
+            content_length = length }
+        in
+        let () = write o in
+        ()
+    | Body.Delayed { gen; _ } ->
+        (* Run here, so a HEAD and a 304 never pay for a body they drop. The
+           generator runs under [handle]'s guard, which is why it is handed
+           back rather than run in the handler. *)
+        let s = gen () in
+        let local_ o =
+          { status = d.Resp.status; headers = b; body = `String s;
+            content_length = len s }
+        in
+        let () = write o in
+        ()
 
-let handle ?on_error compiled env req =
+(* [run ?on_error req describe write] gives [describe] a responder and writes
+   what it responds with. [handle] is this plus dispatch, and a test reaches it
+   through [proffer.mock] to exercise one response without a site. *)
+let run ?on_error (req : Req.t @ local)
+    (describe : (Resp.respond @ local -> unit) @ local)
+    (write : writer @ local) =
   let report exn = match on_error with None -> () | Some f -> f exn in
-  (* [internal_error] has a string body, so the plan it yields is [Ready] and
-     this recurses at most once. *)
-  let rec settle = function
-    | Ready o -> o
-    | Generate { status; headers; gen } -> (
-        match gen () with
-        | s -> { status; headers; body = `String s; content_length = len s }
-        | exception exn ->
-            report exn;
-            settle (plan req (internal_error ())))
+  (* Two heap words on the path, and they decide four things a site depends
+     on. [responded] records that the handler called its responder, so a
+     handler that returns without responding is a bug that gets a 500 and a
+     second call is dropped rather than writing twice. [sent] records that
+     bytes actually reached the writer, which is not the same thing: a
+     [Body.Delayed] generator runs inside [decide], so a generator that raises
+     has responded but not sent, and must still get a 500. A handler that
+     raises after sending gets nothing further, because the bytes have gone. *)
+  let responded = ref false in
+  let sent = ref false in
+  let local_ w : writer =
+   fun o ->
+    sent := true;
+    write o
   in
-  let run h =
-    match h env req with
-    | resp -> settle (plan req resp)
-    | exception exn ->
-        report exn;
-        settle (plan req (internal_error ()))
+  let local_ respond : Resp.respond =
+   fun d ->
+    if !responded then
+      report
+        (Invalid_argument
+           "Proffer.Backend: the handler responded more than once")
+    else begin
+      responded := true;
+      let () = decide req d w in
+      ()
+    end
   in
+  (match describe respond with
+  | () ->
+      if not !responded then
+        report
+          (Invalid_argument
+             "Proffer.Backend: the handler returned without responding")
+  | exception exn -> report exn);
+  if not !sent then begin
+    let local_ d =
+      { Resp.status = Httpz.Res.Internal_server_error; headers = Headers.empty;
+        etag = None; last_modified = None; cache = None;
+        content_type = Some text_type;
+        body = Body.String "Internal Server Error\n" }
+    in
+    let () = decide req d w in
+    ()
+  end
+
+let handle ?on_error compiled env (req : Req.t @ local)
+    (write : writer @ local) =
   (* Every answer to a request goes through the site's decoration, including
      the 404 and the 405 the library writes itself. A 405 that escaped the
      decoration would tell an unauthenticated caller that a route exists under
      a gated path, which a 404 outside the route table would not, and that
      difference enumerates the protected route table. *)
   let decorate = Compiled.decorate compiled in
-  let segs = Req.segments req in
-  match dispatch compiled (Req.meth req) segs with
-  | Some h, _ -> run (decorate segs h)
-  | None, [] -> run (decorate segs (Compiled.fallback compiled))
-  | None, allowed ->
-      run (decorate segs (fun _env _req -> method_not_allowed allowed))
+  let path = Req.path req in
+  let h =
+    match dispatch compiled (Req.meth req) path with
+    | Some h, _ -> decorate path h
+    | None, [] -> decorate path (Compiled.fallback compiled)
+    | None, allowed ->
+        decorate path (fun _env _req (r : Resp.respond @ local) ->
+            method_not_allowed allowed r)
+  in
+  let local_ describe (r : Resp.respond @ local) = h env req r in
+  let () = run ?on_error req describe write in
+  ()

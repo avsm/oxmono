@@ -11,7 +11,8 @@
   bushel
   sortal.schema
   htmlit
-  ezjsonm
+  jsont
+  jsont.bytesrw
   sitemap
   sqlite3-eio
   ptime.clock.os

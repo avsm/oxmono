@@ -4,6 +4,8 @@
 module I16 = Stdlib_stable.Int16_u
 module I64 = Stdlib_upstream_compatible.Int64_u
 module F64 = Stdlib_upstream_compatible.Float_u
+module H = Httpz.Header_name
+module St = Httpz.Res
 
 let[@inline] i16 x = I16.of_int x
 let[@inline] to_int x = I16.to_int x
@@ -46,57 +48,50 @@ let read_capacity = min Httpz.buffer_size 32767
    whole response head must stay under 32768 bytes. Handler headers are
    unbounded, hence the separate lower bound below. *)
 let write_buffer_size = 32768
+
+(* How much of a body goes out per write. A response that fits stays one
+   [writev] of head and body together, which is every page this serves bar the
+   feeds and the largest listings. *)
+let body_chunk_size = 65536
 let max_header_block = 30000
 
 exception Headers_too_large
 
 (** {1 Vocabulary} *)
 
-let status_of (s : Proffer.Status.t) : Httpz.Res.status =
-  match s with
-  | `OK -> Httpz.Res.Success
-  | `Created -> Httpz.Res.Created
-  | `Accepted -> Httpz.Res.Accepted
-  | `No_content -> Httpz.Res.No_content
-  | `Moved_permanently -> Httpz.Res.Moved_permanently
-  | `Found -> Httpz.Res.Found
-  | `See_other -> Httpz.Res.See_other
-  | `Not_modified -> Httpz.Res.Not_modified
-  | `Temporary_redirect -> Httpz.Res.Temporary_redirect
-  | `Permanent_redirect -> Httpz.Res.Permanent_redirect
-  | `Bad_request -> Httpz.Res.Bad_request
-  | `Unauthorized -> Httpz.Res.Unauthorized
-  | `Forbidden -> Httpz.Res.Forbidden
-  | `Not_found -> Httpz.Res.Not_found
-  | `Method_not_allowed -> Httpz.Res.Method_not_allowed
-  | `Not_acceptable -> Httpz.Res.Not_acceptable
-  | `Request_timeout -> Httpz.Res.Request_timeout
-  | `Conflict -> Httpz.Res.Conflict
-  | `Gone -> Httpz.Res.Gone
-  | `Length_required -> Httpz.Res.Length_required
-  | `Precondition_failed -> Httpz.Res.Precondition_failed
-  | `Payload_too_large -> Httpz.Res.Payload_too_large
-  | `Unsupported_media_type -> Httpz.Res.Unsupported_media_type
-  | `Unprocessable_entity -> Httpz.Res.Unprocessable_entity
-  | `Too_many_requests -> Httpz.Res.Too_many_requests
-  | `Internal_server_error -> Httpz.Res.Internal_server_error
-  | `Not_implemented -> Httpz.Res.Not_implemented
-  | `Bad_gateway -> Httpz.Res.Bad_gateway
-  | `Service_unavailable -> Httpz.Res.Service_unavailable
-  | `Gateway_timeout -> Httpz.Res.Gateway_timeout
+(* Proffer speaks httpz's methods, statuses and header names, so there is
+   nothing to convert here any more. What used to live in this file was a
+   thirty-one arm status match, a method match, and a header name mapped in
+   both directions through a string. All of it was the cost of proffer having
+   its own copy of a vocabulary httpz already owned.
 
-(* httpz rejects a method it does not know at parse time, so [`Other] here
-   only ever carries a method httpz names and proffer does not. *)
-let meth_of (m : Httpz.Method.t) : Proffer.Method.t =
-  match m with
-  | Httpz.Method.Get -> `GET
-  | Httpz.Method.Head -> `HEAD
-  | Httpz.Method.Post -> `POST
-  | Httpz.Method.Put -> `PUT
-  | Httpz.Method.Delete -> `DELETE
-  | Httpz.Method.Patch -> `PATCH
-  | Httpz.Method.Options -> `OPTIONS
-  | other -> `Other (Httpz.Method.to_string other)
+   The parser accumulates fields as it goes, so it yields them in reverse
+   arrival order. Accumulating onto a list reverses that again, so one pass
+   produces the block in arrival order. Order matters because
+   [Proffer.Headers.find] answers with the first match, so a repeated
+   Authorization or If-None-Match must resolve to the one sent first.
+
+   A name httpz recognises costs nothing: the constructor is carried over and
+   the spelling is [canonical]'s constant. Only a field httpz does not name
+   copies its spelling out of the read buffer. *)
+let block_of_headers buf (hs : Httpz.Header.t list @ local) :
+    Proffer.Headers.t =
+  let rec go acc (hs : Httpz.Header.t list @ local) =
+    match hs with
+    | [] -> acc
+    | h :: tl ->
+        let value = Httpz.Span.to_string buf h.Httpz.Header.value in
+        let field =
+          match h.Httpz.Header.name with
+          | H.Other ->
+              Proffer.Headers.other
+                (Httpz.Span.to_string buf h.Httpz.Header.name_span)
+                value
+          | known -> Proffer.Headers.h known value
+        in
+        go (field :: acc) tl
+  in
+  go [] hs
 
 let addr_string (addr : Eio.Net.Sockaddr.stream) =
   match addr with
@@ -120,6 +115,15 @@ type conn = {
   read_buf : bytes;  (** What the httpz parser reads. *)
   read_cs : Cstruct.t;  (** What Eio reads into, blitted to [read_buf]. *)
   write_buf : bytes;  (** The response head under construction. *)
+  body_cs : Cstruct.t;
+      (** Scratch for the body on its way to the socket, reused for every
+          response on this connection. A string body used to go out as one
+          [Cstruct.of_string], which mallocs and copies the whole body: the
+          largest route this serves answers 3.3MB, so a burst of concurrent
+          requests for it held a bigstring each. Writing through a fixed
+          scratch bounds that at its length per connection. Eio's write
+          completes before it returns, so the scratch is free to reuse on the
+          next chunk. *)
   mutable read_len : int;
   mutable keep_alive : bool;
 }
@@ -138,6 +142,7 @@ let create_conn flow ~clock =
     read_buf = Bytes.create Httpz.buffer_size;
     read_cs = Cstruct.create Httpz.buffer_size;
     write_buf = Bytes.create write_buffer_size;
+    body_cs = Cstruct.create body_chunk_size;
     read_len = 0;
     keep_alive = true;
   }
@@ -159,7 +164,8 @@ let read_more conn ~deadline =
 let shift_buffer conn consumed =
   if consumed >= conn.read_len then conn.read_len <- 0
   else if consumed > 0 then begin
-    Bytes.blit conn.read_buf consumed conn.read_buf 0 (conn.read_len - consumed);
+    Bytes.blit conn.read_buf consumed conn.read_buf 0 (conn.read_len -
+      consumed);
     conn.read_len <- conn.read_len - consumed
   end
 
@@ -171,52 +177,92 @@ type length_mode =
   | Omit  (** No framing field, which is right for 304 and for a HEAD whose
               length the handler did not declare. *)
 
-let rec write_headers buf off headers =
+(* Walks proffer's block where it lies. It arrives at [local], and httpz's
+   writers take their strings at [local] too, so nothing is copied to write a
+   response: no association list, and no name spelled as a string for a field
+   both libraries name. [write_header_name] emits a known name from a
+   precomputed byte sequence, which is why the mapping is worth doing here
+   rather than falling back to [canonical]. *)
+(* Walks proffer's block where it lies. It arrives at [local], and httpz's
+   writers take their strings at [local] too, so nothing is copied to write a
+   response: no association list, and no name spelled as a string for a field
+   httpz names. [write_header_name] emits a known name from a precomputed byte
+   sequence. *)
+let rec write_headers buf off (headers : Proffer.Headers.t @ local) =
   match headers with
   | [] -> off
-  | (name, value) :: rest ->
+  | { Proffer.Headers.name; spelling; value } :: rest ->
       if
-        to_int off + String.length name + String.length value + 4
+        to_int off + String.length spelling + String.length value + 4
         > max_header_block
       then raise Headers_too_large;
-      let off = Httpz.Res.write_header buf ~off name value in
+      let off =
+        match name with
+        | H.Other ->
+            St.write_header buf ~off spelling value
+        | known -> St.write_header_name buf ~off known value
+      in
       write_headers buf off rest
 
 (* The head as one cstruct over [conn.write_buf], valid until the next call.
    Raises [Headers_too_large] before writing anything to the socket. *)
 let head_cstruct conn ~keep_alive ~version ~status ~headers ~mode =
   let buf = conn.write_buf in
-  let off = Httpz.Res.write_status_line buf ~off:(i16 0) status version in
+  let off = St.write_status_line buf ~off:(i16 0) status version in
   let off =
     Httpz.Date.write_date_header buf ~off (F64.of_float (Unix.gettimeofday ()))
   in
   let off = write_headers buf off headers in
   let off =
     match mode with
-    | Known n -> Httpz.Res.write_content_length buf ~off n
-    | Chunked -> Httpz.Res.write_transfer_encoding_chunked buf ~off
+    | Known n -> St.write_content_length buf ~off n
+    | Chunked -> St.write_transfer_encoding_chunked buf ~off
     | Omit -> off
   in
-  let off = Httpz.Res.write_connection buf ~off ~keep_alive in
-  let off = Httpz.Res.write_crlf buf ~off in
+  let off = St.write_connection buf ~off ~keep_alive in
+  let off = St.write_crlf buf ~off in
   Cstruct.of_bytes buf ~off:0 ~len:(to_int off)
 
 let text_type = "text/plain; charset=utf-8"
 
 let send_error conn ~version ~status message =
   let head =
-    head_cstruct conn ~keep_alive:false ~version ~status:(status_of status)
-      ~headers:[ ("Content-Type", text_type) ]
+    head_cstruct conn ~keep_alive:false ~version ~status
+      ~headers:[ Proffer.Headers.h H.Content_type text_type ]
       ~mode:(Known (String.length message))
   in
   conn.write [ head; Cstruct.of_string message ]
 
+(* [write_through conn s ~before ~after] sends [before], then [s], then
+   [after]. The body goes through the connection's scratch a chunk at a time
+   rather than as one [Cstruct.of_string], which used to malloc and copy the
+   whole body: the largest route this serves answers 3.3MB, so a burst of
+   concurrent requests for it held a bigstring each. A body that fits in the
+   scratch is still a single [writev] carrying [before] with it. Eio's write
+   completes before it returns, so the scratch is free to reuse. *)
+let write_through conn s ~before ~after =
+  let n = String.length s in
+  let cap = Cstruct.length conn.body_cs in
+  let first = min cap n in
+  Cstruct.blit_from_string s 0 conn.body_cs 0 first;
+  let tail = if first = n then after else [] in
+  conn.write (before @ (Cstruct.sub conn.body_cs 0 first :: tail));
+  let rec rest off =
+    if off < n then begin
+      let k = min cap (n - off) in
+      Cstruct.blit_from_string s off conn.body_cs 0 k;
+      let tail = if off + k = n then after else [] in
+      conn.write (Cstruct.sub conn.body_cs 0 k :: tail);
+      rest (off + k)
+    end
+  in
+  rest first
+
 (* [write_outcome conn ~keep_alive ~chunked ~version o] sends [o] and is the
    number of body bytes it wrote. *)
-let write_outcome conn ~keep_alive ~chunked ~version o =
+let write_outcome conn ~keep_alive ~chunked ~version
+    (o : Proffer.Backend.outcome @ local) =
   let { Proffer.Backend.status; headers; body; content_length } = o in
-  let status = status_of status in
-  let headers = Proffer.Headers.to_list headers in
   let head mode =
     head_cstruct conn ~keep_alive ~version ~status ~headers ~mode
   in
@@ -233,7 +279,7 @@ let write_outcome conn ~keep_alive ~chunked ~version o =
       let n = String.length s in
       let head = head (Known n) in
       if n = 0 then conn.write [ head ]
-      else conn.write [ head; Cstruct.of_string s ];
+      else write_through conn s ~before:[ head ] ~after:[];
       n
   | `Stream (length, write) ->
       let written = ref 0 in
@@ -251,24 +297,25 @@ let write_outcome conn ~keep_alive ~chunked ~version o =
             (* A zero-length chunk ends the body, so an empty write is
                dropped rather than sent. *)
             if n > 0 then begin
-              let off = Httpz.Res.write_chunk_header scratch ~off:(i16 0) ~size:n in
+              let off = St.write_chunk_header scratch ~off:(i16 0)
+                ~size:n in
               let hdr = Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) in
-              let off = Httpz.Res.write_chunk_footer scratch ~off:(i16 0) in
+              let off = St.write_chunk_footer scratch ~off:(i16 0) in
               let ftr = Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) in
-              conn.write [ hdr; Cstruct.of_string s; ftr ];
+              write_through conn s ~before:[ hdr ] ~after:[ ftr ];
               written := !written + n
             end)
         else fun s ->
           let n = String.length s in
           if n > 0 then begin
-            conn.write [ Cstruct.of_string s ];
+            write_through conn s ~before:[] ~after:[];
             written := !written + n
           end
       in
       write (Proffer.Backend.sink emit);
       if chunked then begin
         let scratch = Bytes.create 8 in
-        let off = Httpz.Res.write_final_chunk scratch ~off:(i16 0) in
+        let off = St.write_final_chunk scratch ~off:(i16 0) in
         conn.write [ Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) ]
       end;
       !written
@@ -292,7 +339,8 @@ let request_body conn ~deadline (req : Httpz.Req.t) =
     let body_off = to_int req.#body_off in
     if body_off + cl > read_capacity then `Too_large
     else begin
-      if req.#expect_continue then conn.write [ Cstruct.of_string continue_line ];
+      if req.#expect_continue then conn.write [ Cstruct.of_string
+        continue_line ];
       let body_end = body_off + cl in
       let rec fill () =
         if conn.read_len >= body_end then `Body (body_off, cl)
@@ -323,16 +371,9 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
         | Httpz.Version.Http_1_0 -> false
       in
       conn.keep_alive <- req.#keep_alive;
-      let meth = meth_of req.#meth in
+      let meth = req.#meth in
       let target = Httpz.Span.to_string buf req.#target in
-      (* The parser accumulates fields as it goes, so it yields them in
-         reverse arrival order. They are put back in order here rather than at
-         each use, because [Proffer.Headers.find] takes the first match: a
-         repeated field such as Authorization or If-None-Match would otherwise
-         resolve to the last one sent here and the first one elsewhere. *)
-      let req_headers =
-        List.rev (Httpz.Header.to_string_pairs_local buf headers)
-      in
+      let req_headers = block_of_headers buf headers in
       (* A request refused before it is routed has no path and no response of
          the handler's making, so those fields default to nothing. The
          request fields are known from the parse, so every event carries
@@ -348,7 +389,9 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
                 meth;
                 target;
                 path;
-                request_headers = req_headers;
+                (* Only an event carries the fields as an association list,
+                   so the copy is paid for by the site that asked for one. *)
+                request_headers = Proffer.Headers.to_list req_headers;
                 status;
                 response_content_type = content_type;
                 cache_status = cache;
@@ -363,11 +406,12 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
         `Close
       in
       (match request_body conn ~deadline req with
-      | `Length_required -> refuse `Length_required "Length Required\n"
-      | `Too_large -> refuse `Payload_too_large "Payload Too Large\n"
+      | `Length_required ->
+          refuse St.Length_required "Length Required\n"
+      | `Too_large -> refuse St.Payload_too_large "Payload Too Large\n"
       (* The request line parsed, so this timeout has a method and a target
          to report and the client is still in the exchange. *)
-      | `Timed_out -> refuse `Request_timeout "Request Timeout\n"
+      | `Timed_out -> refuse St.Request_timeout "Request Timeout\n"
       | `Incomplete ->
           (* The client stopped mid-body. Nothing it would read is left to
              send, so drop the connection. *)
@@ -380,37 +424,45 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
           let preq =
             Proffer.Req.v ~meth ~target ~headers:req_headers ~body ()
           in
-          let outcome = Proffer.Backend.handle ~on_error compiled env preq in
           let path = Proffer.Req.path preq in
-          let field name =
-            Proffer.Headers.find outcome.Proffer.Backend.headers name
+          (* The outcome reaches the writer at [local] and is written from
+             inside [handle], so nothing about the response is ever a heap
+             value here either. *)
+          let local_ write : Proffer.Backend.writer =
+           fun outcome ->
+            let field name =
+              Proffer.Headers.find outcome.Proffer.Backend.headers name
+            in
+            let unknown_stream =
+              match outcome.Proffer.Backend.body with
+              | `Stream (None, _) -> true
+              | _ -> false
+            in
+            (* Without chunked encoding the only frame left for a body of
+               unknown length is the end of the connection. *)
+            let chunked = unknown_stream && http_1_1 in
+            if unknown_stream && not chunked then conn.keep_alive <- false;
+            match
+              write_outcome conn ~keep_alive:conn.keep_alive ~chunked ~version
+                outcome
+            with
+            | body_size ->
+                emit ~path
+                  ?content_type:(field H.Content_type)
+                  ?cache:(field H.X_cache)
+                  outcome.Proffer.Backend.status body_size
+            | exception Headers_too_large ->
+                on_error Headers_too_large;
+                conn.keep_alive <- false;
+                let message = "Internal Server Error\n" in
+                send_error conn ~version
+                  ~status:St.Internal_server_error message;
+                (* The handler's response never reached the wire, so none of it
+                   is what was served. *)
+                emit ~path St.Internal_server_error (String.length
+                  message)
           in
-          let unknown_stream =
-            match outcome.Proffer.Backend.body with
-            | `Stream (None, _) -> true
-            | _ -> false
-          in
-          (* Without chunked encoding the only frame left for a body of
-             unknown length is the end of the connection. *)
-          let chunked = unknown_stream && http_1_1 in
-          if unknown_stream && not chunked then conn.keep_alive <- false;
-          (match
-             write_outcome conn ~keep_alive:conn.keep_alive ~chunked ~version
-               outcome
-           with
-          | body_size ->
-              emit ~path
-                ?content_type:(field "content-type")
-                ?cache:(field "x-cache")
-                outcome.Proffer.Backend.status body_size
-          | exception Headers_too_large ->
-              on_error Headers_too_large;
-              conn.keep_alive <- false;
-              let message = "Internal Server Error\n" in
-              send_error conn ~version ~status:`Internal_server_error message;
-              (* The handler's response never reached the wire, so none of it
-                 is what was served. *)
-              emit ~path `Internal_server_error (String.length message));
+          let () = Proffer.Backend.handle ~on_error compiled env preq write in
           let consumed =
             if body_len > 0 then body_off + body_len else body_off
           in
@@ -420,11 +472,12 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
   | Httpz.Buf_read.Headers_too_large | Httpz.Buf_read.Content_length_overflow ->
       conn.keep_alive <- false;
       send_error conn ~version:Httpz.Version.Http_1_1
-        ~status:`Payload_too_large "Payload Too Large\n";
+        ~status:St.Payload_too_large "Payload Too Large\n";
       `Close
   | _ ->
       conn.keep_alive <- false;
-      send_error conn ~version:Httpz.Version.Http_1_1 ~status:`Bad_request
+      send_error conn ~version:Httpz.Version.Http_1_1
+        ~status:St.Bad_request
         "Bad Request\n";
       `Close
 
@@ -436,7 +489,8 @@ let handle_connection conn ~config ~addr_str ~compiled ~env ~on_event ~on_error
     =
   let too_large () =
     conn.keep_alive <- false;
-    send_error conn ~version:Httpz.Version.Http_1_1 ~status:`Payload_too_large
+    send_error conn ~version:Httpz.Version.Http_1_1
+      ~status:St.Payload_too_large
       "Payload Too Large\n"
   in
   (* No part of a request line parsed, so there is no method or target for an
@@ -444,7 +498,8 @@ let handle_connection conn ~config ~addr_str ~compiled ~env ~on_event ~on_error
      is a client still reading. *)
   let timed_out () =
     conn.keep_alive <- false;
-    send_error conn ~version:Httpz.Version.Http_1_1 ~status:`Request_timeout
+    send_error conn ~version:Httpz.Version.Http_1_1
+      ~status:St.Request_timeout
       "Request Timeout\n"
   in
   let rec idle () =

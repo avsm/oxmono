@@ -47,16 +47,31 @@ let routes =
     moved (s "ideas" / s "index.html" /? nil) "/ideas";
     moved (s "projects" / s "index.html" /? nil) "/projects";
     moved (s "videos" / s "index.html" /? nil) "/videos";
-    get (s "papers" / str / s "index.html" /? nil) (fun slug _env _req ->
-        Resp.redirect ~permanent:true ("/papers/" ^ H.encode_segment slug));
-    get (s "notes" / str / s "index.html" /? nil) (fun slug _env _req ->
-        Resp.redirect ~permanent:true ("/notes/" ^ H.encode_segment slug));
-    get (s "ideas" / str / s "index.html" /? nil) (fun slug _env _req ->
-        Resp.redirect ~permanent:true ("/ideas/" ^ H.encode_segment slug));
-    get (s "projects" / str / s "index.html" /? nil) (fun slug _env _req ->
-        Resp.redirect ~permanent:true ("/projects/" ^ H.encode_segment slug));
-    get (s "videos" / str / s "index.html" /? nil) (fun slug _env _req ->
-        Resp.redirect ~permanent:true ("/videos/" ^ H.encode_segment slug));
+    get
+      (s "papers" / str / s "index.html" /? nil)
+      (fun slug _env _req respond ->
+        Resp.redirect respond ~permanent:true
+          ("/papers/" ^ H.encode_segment slug));
+    get
+      (s "notes" / str / s "index.html" /? nil)
+      (fun slug _env _req respond ->
+        Resp.redirect respond ~permanent:true
+          ("/notes/" ^ H.encode_segment slug));
+    get
+      (s "ideas" / str / s "index.html" /? nil)
+      (fun slug _env _req respond ->
+        Resp.redirect respond ~permanent:true
+          ("/ideas/" ^ H.encode_segment slug));
+    get
+      (s "projects" / str / s "index.html" /? nil)
+      (fun slug _env _req respond ->
+        Resp.redirect respond ~permanent:true
+          ("/projects/" ^ H.encode_segment slug));
+    get
+      (s "videos" / str / s "index.html" /? nil)
+      (fun slug _env _req respond ->
+        Resp.redirect respond ~permanent:true
+          ("/videos/" ^ H.encode_segment slug));
     (* Collections *)
     get (s "papers" /? nil) H.papers_list;
     get (s "papers" / str /? nil) H.paper;
@@ -76,10 +91,11 @@ let routes =
     moved (s "feeds" /? nil) "/network";
     moved (s "wiki" /? nil) "/notes";
     moved (s "news" /? nil) "/notes";
-    get (s "news" / str /? nil) (fun slug _env _req ->
-        Resp.redirect ~permanent:true ("/notes/" ^ H.encode_segment slug));
-    get (s "tags" / str /? nil) (fun tag _env _req ->
-        Resp.redirect ("/#tag=" ^ H.encode_segment tag));
+    get (s "news" / str /? nil) (fun slug _env _req respond ->
+        Resp.redirect respond ~permanent:true
+          ("/notes/" ^ H.encode_segment slug));
+    get (s "tags" / str /? nil) (fun tag _env _req respond ->
+        Resp.redirect respond ("/#tag=" ^ H.encode_segment tag));
     (* Machine-readable pages *)
     get (s "sitemap.xml" /? nil) H.sitemap;
     get (s "robots.txt" /? nil) H.robots_txt;

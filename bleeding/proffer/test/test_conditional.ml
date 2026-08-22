@@ -3,6 +3,8 @@
 
 open Proffer
 open Proffer.Route
+module H = Httpz.Header_name
+module M = Httpz.Method
 
 let checks = ref 0
 
@@ -23,17 +25,18 @@ type env = { forced : int ref }
 
 let routes =
   [
-    get (s "page" /? nil) (fun _env _req ->
-        Resp.html ~etag:(`Strong "v1") ~cache "<p>page</p>");
-    get (s "weak" /? nil) (fun _env _req ->
-        Resp.v ~etag:(`Weak "v1") ~cache
-          ~headers:[ ("Vary", "Accept"); ("X-Extra", "1") ]
+    get (s "page" /? nil) (fun _env _req respond ->
+        Resp.html respond ~etag:(`Strong "v1") ~cache "<p>page</p>");
+    get (s "weak" /? nil) (fun _env _req respond ->
+        Resp.v respond ~etag:(`Weak "v1") ~cache
+          ~headers:[ Resp.h H.Vary "Accept"; Resp.other "X-Extra" "1" ]
           ~content_type:"text/plain" (Body.String "weak"));
-    get (s "dated" /? nil) (fun _env _req ->
-        Resp.v ~last_modified:mtime ~content_type:"text/plain"
-          (Body.String "dated"));
-    get (s "delayed" /? nil) (fun env _req ->
-        Resp.v ~etag:(`Strong "d1") ~content_type:"text/plain"
+    get (s "dated" /? nil) (fun _env _req respond ->
+        Resp.v respond ~last_modified:mtime ~headers:Headers.empty
+          ~content_type:"text/plain" (Body.String "dated"));
+    get (s "delayed" /? nil) (fun env _req respond ->
+        Resp.v respond ~etag:(`Strong "d1") ~headers:Headers.empty
+          ~content_type:"text/plain"
           (Body.Delayed
              {
                length = Some 7L;
@@ -42,10 +45,10 @@ let routes =
                    incr env.forced;
                    "delayed");
              }));
-    post (s "page" /? nil) (fun _env _req ->
-        Resp.html ~etag:(`Strong "v1") ~cache "<p>posted</p>");
-    get (s "boom" /? nil) (fun _env _req ->
-        Resp.v ~content_type:"text/plain"
+    post (s "page" /? nil) (fun _env _req respond ->
+        Resp.html respond ~etag:(`Strong "v1") ~cache "<p>posted</p>");
+    get (s "boom" /? nil) (fun _env _req respond ->
+        Resp.v respond ~headers:Headers.empty ~content_type:"text/plain"
           (Body.Delayed
              {
                length = None;
@@ -55,10 +58,11 @@ let routes =
        spread of dates the round trip covers. *)
     get
       (s "at" / conv ~name:"epoch" float_of_string_opt /? nil)
-      (fun t _env _req ->
-        Resp.v ~last_modified:t ~content_type:"text/plain" (Body.String "at"));
-    get (s "stream" /? nil) (fun _env _req ->
-        Resp.v ~content_type:"text/plain"
+      (fun t _env _req respond ->
+        Resp.v respond ~last_modified:t ~headers:Headers.empty
+          ~content_type:"text/plain" (Body.String "at"));
+    get (s "stream" /? nil) (fun _env _req respond ->
+        Resp.v respond ~headers:Headers.empty ~content_type:"text/plain"
           (Body.Stream
              {
                length = None;
@@ -76,98 +80,99 @@ let run ?headers meth target =
   Proffer_mock.request ?headers compiled env meth target
 
 let body = Proffer_mock.body
+let header_other o s = Proffer_mock.header_other o s
 let header = Proffer_mock.header
 let code o = Status.code (Proffer_mock.status o)
 let length = Proffer_mock.content_length
 
 let () =
-  let o = run `GET "/page" in
+  let o = run M.Get "/page" in
   check "200 without a condition" (code o = 200);
-  check "etag rendered" (header o "ETag" = Some "\"v1\"");
+  check "etag rendered" (header o H.Etag = Some "\"v1\"");
   check "cache rendered"
-    (header o "Cache-Control" = Some "public, max-age=3600")
+    (header o H.Cache_control = Some "public, max-age=3600")
 
 let () =
-  let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] `GET "/page" in
+  let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] M.Get "/page" in
   check "matching etag is 304" (code o = 304);
   check "304 has no body" (body o = "");
   check "304 has no length" (length o = None);
-  check "304 keeps the etag" (header o "ETag" = Some "\"v1\"");
+  check "304 keeps the etag" (header o H.Etag = Some "\"v1\"");
   check "304 keeps the cache policy"
-    (header o "Cache-Control" = Some "public, max-age=3600");
-  check "304 drops the content type" (header o "Content-Type" = None)
+    (header o H.Cache_control = Some "public, max-age=3600");
+  check "304 drops the content type" (header o H.Content_type = None)
 
 let () =
-  let o = run ~headers:[ ("If-None-Match", "\"other\"") ] `GET "/page" in
+  let o = run ~headers:[ ("If-None-Match", "\"other\"") ] M.Get "/page" in
   check "other etag is 200" (code o = 200);
   let o =
-    run ~headers:[ ("If-None-Match", "\"a\", W/\"v1\" , \"b\"") ] `GET "/page"
+    run ~headers:[ ("If-None-Match", "\"a\", W/\"v1\" , \"b\"") ] M.Get "/page"
   in
   check "etag list matches" (code o = 304);
-  let o = run ~headers:[ ("If-None-Match", "*") ] `GET "/page" in
+  let o = run ~headers:[ ("If-None-Match", "*") ] M.Get "/page" in
   check "star matches" (code o = 304);
-  let o = run ~headers:[ ("If-None-Match", "v1") ] `GET "/page" in
+  let o = run ~headers:[ ("If-None-Match", "v1") ] M.Get "/page" in
   check "unquoted tag does not match" (code o = 200)
 
 let () =
-  let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] `GET "/weak" in
+  let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] M.Get "/weak" in
   check "weak against strong matches" (code o = 304);
-  check "304 keeps Vary" (header o "Vary" = Some "Accept");
-  check "304 drops other headers" (header o "X-Extra" = None)
+  check "304 keeps Vary" (header o H.Vary = Some "Accept");
+  check "304 drops other headers" (header_other o "X-Extra" = None)
 
 let () =
-  let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] `POST "/page" in
+  let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] M.Post "/page" in
   check "a non-GET is not revalidated" (code o = 200);
   check "the posted body is sent" (body o = "<p>posted</p>")
 
 let () =
-  let o = run `GET "/dated" in
-  check "last modified rendered" (header o "Last-Modified" = Some imf);
-  let o = run ~headers:[ ("If-Modified-Since", imf) ] `GET "/dated" in
+  let o = run M.Get "/dated" in
+  check "last modified rendered" (header o H.Last_modified = Some imf);
+  let o = run ~headers:[ ("If-Modified-Since", imf) ] M.Get "/dated" in
   check "same second is 304" (code o = 304);
-  check "304 keeps last modified" (header o "Last-Modified" = Some imf);
-  let o = run ~headers:[ ("If-Modified-Since", later) ] `GET "/dated" in
+  check "304 keeps last modified" (header o H.Last_modified = Some imf);
+  let o = run ~headers:[ ("If-Modified-Since", later) ] M.Get "/dated" in
   check "a later date is 304" (code o = 304);
-  let o = run ~headers:[ ("If-Modified-Since", earlier) ] `GET "/dated" in
+  let o = run ~headers:[ ("If-Modified-Since", earlier) ] M.Get "/dated" in
   check "an earlier date is 200" (code o = 200);
-  let o = run ~headers:[ ("If-Modified-Since", "yesterday") ] `GET "/dated" in
+  let o = run ~headers:[ ("If-Modified-Since", "yesterday") ] M.Get "/dated" in
   check "an unparsable date is ignored" (code o = 200)
 
 let () =
   let o =
     run
       ~headers:[ ("If-None-Match", "\"none\""); ("If-Modified-Since", imf) ]
-      `GET "/dated"
+      M.Get "/dated"
   in
   check "If-None-Match hides If-Modified-Since"
     (code o = 200)
 
 let () =
-  let o = run `HEAD "/page" in
+  let o = run M.Head "/page" in
   check "head matches the get route" (code o = 200);
   check "head has no body" (body o = "");
   check "head keeps the length" (length o = Some 11L);
   check "head keeps the headers"
-    (header o "Content-Type" = Some "text/html; charset=utf-8")
+    (header o H.Content_type = Some "text/html; charset=utf-8")
 
 let () =
   check "delayed not yet forced" (!(env.forced) = 0);
-  let o = run `HEAD "/delayed" in
+  let o = run M.Head "/delayed" in
   check "head does not force delayed" (!(env.forced) = 0);
   check "head reports the declared length" (length o = Some 7L);
-  let o = run ~headers:[ ("If-None-Match", "\"d1\"") ] `GET "/delayed" in
+  let o = run ~headers:[ ("If-None-Match", "\"d1\"") ] M.Get "/delayed" in
   check "304 does not force delayed" (!(env.forced) = 0);
   check "304 on delayed" (code o = 304);
-  let o = run `GET "/delayed" in
+  let o = run M.Get "/delayed" in
   check "get forces delayed once" (!(env.forced) = 1);
   check "delayed body is a string" (body o = "delayed");
   check "delayed length from the body" (length o = Some 7L)
 
 let () =
-  let o = run `GET "/stream" in
+  let o = run M.Get "/stream" in
   check "mock collects the stream" (body o = "abc");
   check "mock reports the collected length" (length o = Some 3L);
-  let o = run `HEAD "/stream" in
+  let o = run M.Head "/stream" in
   check "head on a stream has no body" (body o = "");
   check "unknown stream length stays unknown" (length o = None)
 
@@ -178,19 +183,19 @@ let () =
   let o =
     Proffer_mock.request
       ~on_error:(fun e -> seen := Some e)
-      compiled env `GET "/boom"
+      compiled env M.Get "/boom"
   in
   check "a generator that raises is 500" (code o = 500);
   check "on_error is told about the generator"
     (match !seen with Some (Failure _) -> true | _ -> false);
   check "the 500 has a body" (body o = "Internal Server Error\n");
-  let o = Proffer_mock.request compiled env `HEAD "/boom" in
+  let o = Proffer_mock.request compiled env M.Head "/boom" in
   check "head does not run the generator" (code o = 200)
 
 (* An impossible date is no date, so the condition is dropped and the full
    response goes out. *)
 let () =
-  let since v = run ~headers:[ ("If-Modified-Since", v) ] `GET "/dated" in
+  let since v = run ~headers:[ ("If-Modified-Since", v) ] M.Get "/dated" in
   check "31 February is not a date"
     (code (since "Wed, 31 Feb 2000 00:00:00 GMT") = 200);
   check "31 April is not a date"
@@ -202,15 +207,17 @@ let () =
   check "a disagreeing weekday is still a date"
     (code (since "Mon, 29 Feb 2000 00:00:00 GMT") = 304)
 
-(* The obsolete RFC 850 and asctime forms name the same instant as [imf], and
-   lib/date.ml accepts neither, so the condition is dropped and the full
-   response goes out. *)
+(* RFC 9110 section 5.6.7 requires a recipient to accept the two obsolete
+   forms as well as IMF-fixdate. Dates are httpz's now and it parses all
+   three, so both of these name the same instant as [imf] and answer 304.
+   Proffer's own parser read IMF-fixdate alone and dropped the condition. *)
 let () =
-  let since v = run ~headers:[ ("If-Modified-Since", v) ] `GET "/dated" in
-  check "RFC 850 is not a date"
-    (code (since "Sunday, 06-Nov-94 08:49:37 GMT") = 200);
-  check "asctime is not a date"
-    (code (since "Sun Nov  6 08:49:37 1994") = 200)
+  let since v =
+    run ~headers:[ ("If-Modified-Since", v) ] M.Get "/dated"
+  in
+  check "RFC 850 is a date"
+    (code (since "Sunday, 06-Nov-94 08:49:37 GMT") = 304);
+  check "asctime is a date" (code (since "Sun Nov  6 08:49:37 1994") = 304)
 
 (* [Resp.v ~last_modified] prints an IMF-fixdate and If-Modified-Since reads
    one back. A date survives the pair when its printed form gives a 304
@@ -220,11 +227,12 @@ let () =
 let at t = Printf.sprintf "/at/%.0f" t
 
 let printed t =
-  match header (run `GET (at t)) "Last-Modified" with
+  match header (run M.Get (at t)) H.Last_modified
+    with
   | Some v -> v
   | None -> failwith "no Last-Modified"
 
-let since t v = code (run ~headers:[ ("If-Modified-Since", v) ] `GET (at t))
+let since t v = code (run ~headers:[ ("If-Modified-Since", v) ] M.Get (at t))
 
 let () =
   let spread =
@@ -246,7 +254,8 @@ let () =
     spread;
   (* The first representable second has nothing before it, so the pair is read
      from the other side. *)
-  let t = -62167219200. in
+  (* httpz clamps below year 1, so that is the floor now. *)
+  let t = -62135596800. in
   check "the first representable second round trips"
     (since t (printed t) = 304);
   check "the second after it is later" (since (t +. 1.) (printed t) = 200)

@@ -9,7 +9,6 @@ type t = {
   cache : Proffer.Cache.t;
   now : unit -> float;
   feed : Arod_render.feed -> string;
-  sitemap : unit -> string;
   pagination :
     collection:string option ->
     offset:int ->
@@ -31,7 +30,6 @@ let create ~ctx ~cache ~search ~log_search ~read_image ~read_paper ~reader ~now
     cache;
     now;
     feed = (fun which -> Arod_render.feed ~ctx which);
-    sitemap = (fun () -> Arod_render.sitemap ~ctx);
     pagination =
       (fun ~collection ~offset ~limit ~types ->
         Arod_render.pagination ~ctx ~collection ~offset ~limit ~types);

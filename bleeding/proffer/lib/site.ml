@@ -4,19 +4,23 @@
    [decorate] to the handler it selects, and to the fallback, passing the
    request's path segments so a wrapper can act on a subtree alone. *)
 
+module St = Httpz.Res
+
 type 'env t = {
   routes : 'env Route.t list;
   fallback : 'env Route.handler @@ portable;
   decorate :
-    (string list -> 'env Route.handler -> 'env Route.handler) @@ portable;
+    (string -> 'env Route.handler -> 'env Route.handler) @@ portable;
   (* Whether a wrapper has composed onto [decorate]. [mount] reads it, because
      it takes a sub-site's routes and nothing else, and a decoration silently
      dropped from a gated sub-site would serve it unauthenticated. *)
   decorated : bool;
 }
 
-let default_fallback _env _req = Resp.text ~status:`Not_found "Not Found\n"
-let no_decoration _segs h = h
+let default_fallback _env (_req : Req.t @ local)
+    (respond : Resp.respond @ local) =
+  Resp.text respond ~status:St.Not_found "Not Found\n"
+let no_decoration _path h = h
 
 let of_routes routes =
   {
@@ -26,30 +30,57 @@ let of_routes routes =
     decorated = false;
   }
 
-let with_fallback (fallback @ portable) t = { t with fallback }
+let with_fallback (fallback : _ Route.handler @ portable) t =
+  { t with fallback }
 
 (* A wrapper runs outside the wrappers already applied, so the site's own
    decoration is what it wraps. Stacking [with_headers] over [with_auth] puts
    the headers on the challenge too. *)
 
+(* The decorator extends the block on its way past rather than rebuilding a
+   response, since a handler no longer returns one. [Headers.cat] puts the
+   joined block in the caller's region, so a site-wide header costs no heap.
+   Appended rather than merged, so a name a handler already set is the copy a
+   client reads first. The names and values go through the same check [Resp.v]
+   applies, which is what stops a decorator injecting a response split, and it
+   runs once here rather than on every response. *)
 let with_headers extra t =
+  let extra = Headers.of_list extra in
+  Headers.iter Resp.check_header extra;
   let decorate segs h =
     let inner = t.decorate segs h in
-    fun env req -> Resp.add_headers extra (inner env req)
+    fun env (req : Req.t @ local) (respond : Resp.respond @ local) ->
+      let local_ decorated : Resp.respond =
+       fun d ->
+        let local_ d =
+          { d with Resp.headers = Headers.cat d.Resp.headers extra }
+        in
+        let () = respond d in
+        ()
+      in
+      let () = inner env req decorated in
+      ()
   in
   { t with decorate; decorated = true }
 
-(* [under scope segs] is whether [segs] starts with one of the prefixes in
+(* [under scope path] is whether [path] starts with one of the prefixes in
    [scope]. An empty prefix matches every path, which is how a caller gates a
-   whole site. *)
-let under scope segs =
-  let rec starts pfx s =
-    match (pfx, s) with
-    | [], _ -> true
-    | pc :: pt, sc :: st -> String.equal pc sc && starts pt st
-    | _ :: _, [] -> false
+   whole site. The prefix is walked against the path where it lies, for the
+   same reason dispatch is: a gate that ran on every request should not build
+   a list to do it. *)
+let under scope path =
+  let n = String.length path in
+  let rec starts pfx i =
+    match pfx with
+    | [] -> true
+    | pc :: pt ->
+        let off = Pct.seg_start path i n in
+        off < n
+        &&
+        let stop = Pct.seg_stop path off n in
+        Pct.seg_is path off stop pc && starts pt stop
   in
-  List.exists (fun pfx -> starts pfx segs) scope
+  List.exists (fun pfx -> starts pfx 0) scope
 
 let with_auth ~scope ~realm ~(check @ portable) t =
   (* An empty scope gates nothing, so the wrapper would serve the site open
@@ -66,18 +97,25 @@ let with_auth ~scope ~realm ~(check @ portable) t =
     invalid_arg
       (Printf.sprintf "Proffer.Site.with_auth: realm %S is not quotable" realm);
   let field = Printf.sprintf "Basic realm=%S" realm in
-  (* The challenge is built per rejection rather than once, because a response
-     is not portable and so cannot be captured by the decorator. *)
-  let challenge () =
-    Resp.add_headers
-      [ ("WWW-Authenticate", field) ]
-      (Resp.text ~status:`Unauthorized "Unauthorized\n")
+  let challenge (respond : Resp.respond @ local) =
+    let () =
+      Resp.v respond ~status:St.Unauthorized
+        ~headers:
+          (stack_
+             [ Headers.h_local Httpz.Header_name.Www_authenticate field ])
+        ~content_type:"text/plain; charset=utf-8"
+        (Body.String "Unauthorized\n")
+    in
+    ()
   in
   let decorate segs h =
     let inner = t.decorate segs h in
-    if under scope segs then fun env req ->
-      if check (Req.header req "authorization") then inner env req
-      else challenge ()
+    if under scope segs then
+      fun env (req : Req.t @ local) (respond : Resp.respond @ local) ->
+        if check (Req.header req Httpz.Header_name.Authorization) then
+          let () = inner env req respond in
+          ()
+        else challenge respond
     else inner
   in
   { t with decorate; decorated = true }

@@ -1,11 +1,42 @@
-type t = {
+(* A handler is given a responder rather than returning a value. Nothing on the
+   response path then has to outlive the call, so a backend can build the whole
+   description in the region it runs the handler in.
+
+   [respond] is always used at [local]. A handler that stashed it would be
+   holding a closure over a connection about to be reused, and the mode is what
+   stops that. Values flow down into the responder and never back up, which is
+   why this is a continuation rather than a returned record: a returned local
+   value would need [exclave_] at every frame between the constructor and the
+   backend, and every combinator that transforms a response would need it too.
+
+   The typed fields travel beside the block rather than inside it. [Backend]
+   renders them into fields when it knows whether it is sending the response at
+   all, which is also where a conditional request is answered, so a 304 does
+   not pay for a block it discards. *)
+
+(* The description is one record rather than a run of labelled arguments.
+   Currying and locality do not mix: a curried function used at [local] groups
+   its arrows, so [respond ~status ~headers ...] reads as complete after the
+   first argument and the compiler rejects the rest. One argument has no
+   arrows to group.
+
+   The record travels at [local], so a backend never pays heap for it. Only
+   [headers] is left at the record's own mode, because the block is the part
+   worth keeping on the stack. Every other field holds a heap value that has to
+   be readable at global to be written to a socket, so each is [global_]. *)
+module H = Httpz.Header_name
+
+type description = {
   status : Status.t;
   headers : Headers.t;
-  etag : Etag.t option;
-  last_modified : float option;
-  cache : Cache_control.t option;
-  body : Body.t;
+  global_ etag : Etag.t option;
+  global_ last_modified : float option;
+  global_ cache : Cache_control.t option;
+  global_ content_type : string option;
+  global_ body : Body.t;
 }
+
+type respond = description @ local -> unit
 
 let html_type = "text/html; charset=utf-8"
 let text_type = "text/plain; charset=utf-8"
@@ -15,7 +46,11 @@ let text_type = "text/plain; charset=utf-8"
    entity-tag carrying a double quote from ending its own quoted string. The
    check raises rather than sanitising: a caller that builds such a field has a
    bug, and the backend's handler guard turns the exception into a 500 reported
-   at the point it happened. *)
+   at the point it happened.
+
+   The strings reaching these checks are global even when the block holding
+   them is local, because [Headers.field] declares both of its fields
+   [global_]. That is what lets the checks stay written against the stdlib. *)
 
 let is_tchar = function
   | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' -> true
@@ -40,13 +75,19 @@ let check_value what value =
       (Printf.sprintf "Proffer.Resp.v: %s value %S contains CR, LF or NUL" what
          value)
 
-let check_header name value =
-  check_name name;
+(* A known name is an RFC 9110 token by construction and no caller can spell
+   it wrong, so only [Other] is checked. That is most of what the name ADT
+   buys: the validation that used to run on every field of every response now
+   runs on the few a site invents. *)
+let check_header (name : Headers.name @ local) spelling value =
+  (match name with
+  | H.Other -> check_name spelling
+  | _ -> ());
   if has_control value then
     invalid_arg
       (Printf.sprintf
          "Proffer.Resp.v: value %S of header %S contains CR, LF or NUL" value
-         name)
+         spelling)
 
 let check_etag e =
   let opaque = Etag.opaque e in
@@ -69,101 +110,85 @@ let check_last_modified t =
 (* A typed argument owns its field. Were [headers] allowed to name it too, the
    block would carry the field twice, and the copy a client reads first would
    not be the one [Backend] evaluates a conditional request against. *)
-let check_no_overlap headers name set =
-  if set && List.exists (fun (n, _) -> Headers.same n name) headers then
+let check_no_overlap (headers : Headers.t @ local) (name : Headers.name) set =
+  if set && Headers.exists (fun n _ _ -> Headers.same_name n name) headers then
     invalid_arg
       (Printf.sprintf
-         "Proffer.Resp.v: header %S is already set by its own argument" name)
+         "Proffer.Resp.v: header %S is already set by its own argument"
+         (Httpz.Header_name.canonical name))
 
-let v ?(status = `OK) ?(headers = []) ?etag ?last_modified ?cache ?content_type
+(* [headers] is a required argument rather than an optional one. An optional
+   argument is passed as an allocated [Some], which for a local block would be
+   a local option, and a local option cannot cross into the optional-argument
+   protocol. The friendly constructors below take the optional form and forward
+   to the required one. *)
+let v (respond : respond @ local) ?(status = Httpz.Res.Success)
+    ~(headers : Headers.t @ local) ?etag ?last_modified ?cache ?content_type
     body =
-  List.iter (fun (n, value) -> check_header n value) headers;
+  Headers.iter check_header headers;
   Option.iter (check_value "content_type") content_type;
   Option.iter check_etag etag;
   Option.iter check_last_modified last_modified;
-  check_no_overlap headers "Content-Type" (content_type <> None);
-  check_no_overlap headers "Cache-Control" (cache <> None);
-  check_no_overlap headers "ETag" (etag <> None);
-  check_no_overlap headers "Last-Modified" (last_modified <> None);
-  let extra =
-    List.concat
-      [
-        (match content_type with
-        | None -> []
-        | Some ct -> [ ("Content-Type", ct) ]);
-        (match cache with
-        | None -> []
-        | Some c -> [ ("Cache-Control", Cache_control.to_string c) ]);
-        (match etag with
-        | None -> []
-        | Some e -> [ ("ETag", Etag.to_string e) ]);
-        (match last_modified with
-        | None -> []
-        | Some t -> [ ("Last-Modified", Date.to_imf t) ]);
-      ]
+  check_no_overlap headers Httpz.Header_name.Content_type (content_type <>
+    None);
+  check_no_overlap headers Httpz.Header_name.Cache_control (cache <> None);
+  check_no_overlap headers Httpz.Header_name.Etag (etag <> None);
+  check_no_overlap headers Httpz.Header_name.Last_modified (last_modified <>
+    None);
+  let local_ d =
+    { status; headers; etag; last_modified; cache; content_type; body }
   in
-  {
-    status;
-    headers = Headers.of_list (headers @ extra);
-    etag;
-    last_modified;
-    cache;
-    body;
-  }
+  (* Not a tail call: [d] lives in this frame, so the call must return here
+     for the region to be torn down after the backend has consumed it. *)
+  let () = respond d in
+  ()
 
-let html ?status ?etag ?cache s =
-  v ?status ?etag ?cache ~content_type:html_type (Body.String s)
+let h = Headers.h
+let other = Headers.other
+let h_local = Headers.h_local
 
-let text ?status s = v ?status ~content_type:text_type (Body.String s)
+let html (respond : respond @ local) ?status ?etag ?cache
+    ?(headers : Headers.t @ local = Headers.empty) s =
+  v respond ?status ?etag ?cache ~headers ~content_type:html_type
+    (Body.String s)
 
-let media ?status ?etag ?cache ct s =
-  v ?status ?etag ?cache ~content_type:ct (Body.String s)
+let text (respond : respond @ local) ?status
+    ?(headers : Headers.t @ local = Headers.empty) s =
+  v respond ?status ~headers ~content_type:text_type (Body.String s)
 
-let see_other location =
-  v ~status:`See_other ~headers:[ ("Location", location) ] Body.Empty
+let media (respond : respond @ local) ?status ?etag ?cache
+    ?(headers : Headers.t @ local = Headers.empty) ct s =
+  v respond ?status ?etag ?cache ~headers ~content_type:ct (Body.String s)
 
-let redirect ?(permanent = false) location =
-  v
-    ~status:(if permanent then `Moved_permanently else `Found)
-    ~headers:[ ("Location", location) ]
-    Body.Empty
+let empty (respond : respond @ local) ?(status = Httpz.Res.Success)
+    ?(headers : Headers.t @ local = Headers.empty) () =
+  v respond ~status ~headers Body.Empty
 
-let not_found ?(html = "<!doctype html>\n<title>Not Found</title>\n") () =
-  v ~status:`Not_found ~content_type:html_type (Body.String html)
-
-let bad_request ?(html = "<!doctype html>\n<title>Bad Request</title>\n") () =
-  v ~status:`Bad_request ~content_type:html_type (Body.String html)
-
-(* The field is rewritten rather than appended to, so repeated calls leave one
-   Vary rather than two. The name is checked here because this is the one
-   constructor that does not funnel through [v]. *)
-let vary name t =
-  if String.equal name "" || not (String.for_all is_tchar name) then
-    invalid_arg
-      (Printf.sprintf "Proffer.Resp.vary: %S is not a header name" name);
-  let value =
-    match Headers.find t.headers "Vary" with
-    | None -> name
-    | Some existing -> existing ^ ", " ^ name
+let see_other (respond : respond @ local) location =
+  let () =
+    v respond ~status:Httpz.Res.See_other
+      ~headers:(stack_ [ h_local Httpz.Header_name.Location location ])
+      Body.Empty
   in
-  let others =
-    List.filter
-      (fun (n, _) -> not (Headers.same n "Vary"))
-      (Headers.to_list t.headers)
+  ()
+
+let redirect (respond : respond @ local) ?(permanent = false) location =
+  let () =
+    v respond
+      ~status:
+        (if permanent then Httpz.Res.Moved_permanently else Httpz.Res.Found)
+      ~headers:(stack_ [ h_local Httpz.Header_name.Location location ])
+      Body.Empty
   in
-  { t with headers = Headers.of_list (others @ [ ("Vary", value) ]) }
+  ()
 
-(* Appended rather than merged, so a site-wide header a handler already set is
-   left alone and the handler's copy is the one a client reads first. The names
-   and values go through the same check [v] applies, which is what stops a
-   decorator injecting a response split. *)
-let add_headers extra t =
-  List.iter (fun (n, value) -> check_header n value) extra;
-  { t with headers = Headers.of_list (Headers.to_list t.headers @ extra) }
+let not_found (respond : respond @ local)
+    ?(html = "<!doctype html>\n<title>Not Found</title>\n") () =
+  v respond ~status:Httpz.Res.Not_found ~headers:Headers.empty
+    ~content_type:html_type
+    (Body.String html)
 
-let status t = t.status
-let headers t = t.headers
-let body t = t.body
-let etag t = t.etag
-let last_modified t = t.last_modified
-let cache t = t.cache
+let bad_request (respond : respond @ local)
+    ?(html = "<!doctype html>\n<title>Bad Request</title>\n") () =
+  v respond ~status:Httpz.Res.Bad_request ~headers:Headers.empty
+    ~content_type:html_type (Body.String html)

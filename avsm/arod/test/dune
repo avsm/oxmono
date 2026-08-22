@@ -85,6 +85,21 @@
  (libraries arod arod.handlers arod.server bushel proffer proffer.mock))
 
 (test
+ (name test_bytesrw)
+ (modules test_bytesrw)
+ (libraries bytesrw))
+
+(test
+ (name test_sitemap)
+ (modules test_sitemap)
+ (libraries sitemap xmlm))
+
+(test
+ (name test_json)
+ (modules test_json)
+ (libraries arod arod.handlers arod.search bushel))
+
+(test
  (name test_url_render)
  (modules test_url_render)
  (libraries arod arod.component bushel sortal.schema ptime))

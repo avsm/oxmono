@@ -1,4 +1,10 @@
-type 'env handler = 'env -> Req.t -> Resp.t
+(* The responder is taken at [local]: it is built per request in the region
+   [Backend.handle] runs the handler in, and a handler that stashed one would
+   hold a closure over a connection about to be reused. *)
+module M = Httpz.Method
+
+type 'env handler =
+  'env -> Req.t @ local -> Resp.respond @ local -> unit
 
 (* A converter turns one path segment into a value. [name] appears nowhere on
    the wire and exists so a pattern can be described in a diagnostic. *)
@@ -54,53 +60,83 @@ let ( /* ) = ( /? )
 
 (* The handler is read at [contended] because a route stores it in a portable
    closure, and a value captured by one is contended there. Applying a
-   contended function is allowed, passing it on at the legacy mode is not. *)
+   contended function is allowed, passing it on at the legacy mode is not.
+
+   [apply] walks the path where it lies rather than over a list built for
+   every request. A literal segment is compared in place and allocates
+   nothing; only a capture allocates, and only what it binds. [rest] is the
+   one arm that materialises a list, and only when its route has matched
+   everything before it. *)
 let rec apply :
     type f r.
-    (f, r) pat -> f @ contended -> string list -> r option @ contended =
- fun pat h segs ->
-  match (pat, segs) with
-  | End, [] -> Some h
-  | Rest, tail -> Some (h tail)
-  | Lit (l, tl), x :: xs -> if String.equal l x then apply tl h xs else None
-  | Cap ({ parse; _ }, tl), x :: xs -> (
-      match parse x with Some v -> apply tl (h v) xs | None -> None)
-  | (End | Lit _ | Cap _), _ -> None
+    (f, r) pat -> f @ contended -> string -> int -> int -> r option @ contended
+    =
+ fun pat h path i n ->
+  let off = Pct.seg_start path i n in
+  match pat with
+  | Rest -> Some (h (Pct.seg_list path off n))
+  | End -> if off >= n then Some h else None
+  | Lit (l, tl) ->
+      if off >= n then None
+      else
+        let stop = Pct.seg_stop path off n in
+        if Pct.seg_is path off stop l then apply tl h path stop n else None
+  | Cap ({ parse; _ }, tl) -> (
+      if off >= n then None
+      else
+        let stop = Pct.seg_stop path off n in
+        let x = Pct.decode_sub ~plus:false path off (stop - off) in
+        match parse x with
+        | Some v -> apply tl (h v) path stop n
+        | None -> None)
 
 type 'env t = {
   meth : Method.t;
-  run : string list -> 'env handler option @@ portable;
+  (* The matcher takes the path and the offset to start at, so [prefix] can
+     hand on a suffix without cutting a string. *)
+  run : string -> int -> 'env handler option @@ portable;
 }
 
 let route meth pat (handler @ portable) =
-  { meth; run = (fun segs -> apply pat handler segs) }
+  { meth; run = (fun path i -> apply pat handler path i (String.length path)) }
 
-let get pat handler = route `GET pat handler
-let post pat handler = route `POST pat handler
+let get pat handler = route M.Get pat handler
+let post pat handler = route M.Post pat handler
 
 (* A redirect pattern captures nothing, so ['f] is ['env handler] itself and
    the location is fixed. A capture in the location needs a plain [get]. *)
 
 let moved pat location =
-  route `GET pat (fun _env _req -> Resp.redirect ~permanent:true location)
+  route M.Get pat
+    (fun _env (_req : Req.t @ local) (respond : Resp.respond @ local) ->
+      Resp.redirect respond ~permanent:true location)
 
 let found pat location =
-  route `GET pat (fun _env _req -> Resp.redirect location)
+  route M.Get pat
+    (fun _env (_req : Req.t @ local) (respond : Resp.respond @ local) ->
+      Resp.redirect respond location)
 
 (* [prefix at t] is [t] with the literal segments [at] prepended to its
    pattern. A route holds a matcher rather than its pattern, so the prefix is
-   stripped from the path before the matcher sees it. Used by [Site.mount]. *)
+   stripped from the path before the matcher sees it: [strip] advances the
+   offset past each prefix segment and hands the rest on. Used by
+   [Site.mount]. *)
 let prefix at t =
-  let run segs =
-    let rec strip pfx s =
-      match (pfx, s) with
-      | [], rest -> Some rest
-      | pc :: pt, sc :: st -> if String.equal pc sc then strip pt st else None
-      | _ :: _, [] -> None
+  let run path i =
+    let n = String.length path in
+    let rec strip pfx i =
+      match pfx with
+      | [] -> Some i
+      | pc :: pt ->
+          let off = Pct.seg_start path i n in
+          if off >= n then None
+          else
+            let stop = Pct.seg_stop path off n in
+            if Pct.seg_is path off stop pc then strip pt stop else None
     in
-    match strip at segs with Some rest -> t.run rest | None -> None
+    match strip at i with Some rest -> t.run path rest | None -> None
   in
   { t with run }
 
 let meth t = t.meth
-let run t segs = t.run segs
+let run t path = t.run path 0

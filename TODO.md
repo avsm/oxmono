@@ -1,57 +1,159 @@
 # Remaining OxCaml porting work
 
-State as of 2026-08-21, branch `minus39`. Arod serves through proffer with
-`listing`, `entry`, `entry_markdown`, `paper_bib` and `blogroll` running as
-`@@ portable` handlers over an immutable `Arod.Ctx.t`. `Arod_env.t` holds 12
-fields. Five closures remain, three of them liftable. Every claim below was
-compiler-probed in the session that wrote this file. The per-field reasons in
+State as of 2026-08-22, branch `minus39`. Every claim here was compiler-probed
+or measured in the session that wrote it. The per-field reasons in
 `avsm/arod/lib_handlers/arod_render.mli` and `arod_env.mli` are probe
 transcripts and are the authority if this file drifts.
 
-## Liftable closures, in recommended order
+Where things stand. Proffer is a server layer over httpz and **all 86 values
+in its interface are `@@ portable`**. Arod serves `listing`, `entry`,
+`entry_markdown`, `paper_bib`, `blogroll` and `sitemap` as portable handlers
+over an immutable `Arod.Ctx.t`. `Arod_env.t` holds 10 fields, of which three
+are data and two are closures.
 
-### 1. `sitemap` (effort S)
+Both axes are now as far as they go without a design change. **Portable**:
+four closures are left in `Arod_env.t`. `feed`, `pagination` and `search`
+render through jsont, whose codecs cannot be given a crossing kind; `report`
+holds a database handle.
+**Local**: a complete request and response cycle allocates 32 words, where
+`Req.v` alone cost 175 when this started.
 
-`Sitemap.v`/`Sitemap.output` at `arod_render.ml:359-361`. The library is
-already vendored at `vendor/sitemap` (dragged in verbatim by the xmlm
-shadowing cascade) and its only dependencies, xmlm and ptime, are both
-portable. Do an htmlit-style annotation pass: floating `@@ portable` on
-`sitemap.mli`, kinds where capture needs them, a capture-shaped guard in
-`avsm/arod/test/`, README hunk inventory. Follow `vendor/xmlm/README.md` as
-the template. Lifts the `sitemap` field from `Arod_env.t`.
+## Closures
 
-### 2. `feed` (effort M, gated on a probe)
+### 1. `sitemap` (done)
 
-`Arod.Feed.feed_string` at `arod_render.ml:339-344`. The chain is clear
-except **jsonfeed** (vendored verbatim at `vendor/jsonfeed`, never annotated)
-and its dependency **jsont** (+ bytesrw), which are opam libraries. Run the
-half-day feasibility probe first: can jsont's codec surface be annotated
-without a semantic fork? Look for the logs-shaped pattern (closures capturing
-handles or formatters stored in records) before investing. If jsont is
-htmlit-shaped, vendor and annotate jsont, then annotate `vendor/jsonfeed`,
-then `Arod.Feed`. Note the two feed callers of `Bushel.Md.note_references`
-(`arod_jsonfeed.ml`, `arod_md.ml:with_feed_references`) reach the author via
-`author_exn` while the render path reads the ctx precompute. When feed goes
-portable, move those callers to the precompute and retire the dual route
-consciously (recorded concern in the walls-final round).
+One hunk, a floating `@@ portable` on `vendor/sitemap/sitemap.mli`. Nothing
+needed a kind, because `type url` is a private record rather than an abstract
+type, so the compiler reads `immutable_data` off its fields. `sitemap.ml` is
+unpatched: it holds no module-level table of the kind `vendor/xmlm` had to
+replace with code. `avsm/arod/test/test_sitemap.ml` is the guard, and
+`Arod_render.sitemap` is `@@ portable`, so the field is gone from
+`Arod_env.t`. `render_capture.sh` reports `/sitemap.xml` byte-identical.
 
-### 3. `pagination` (effort S-M, shares the jsont answer)
+### 2. `feed`, `pagination` and `search` (blocked in jsont)
 
-Three trivial `Ezjsonm.to_string` emitters at `arod_render.ml:408-485`.
-Ezjsonm is ruled not worth vendoring (drags hex, jsonm, sexplib0, uutf).
-Either ride the jsont work from item 2, or hand a small portable JSON-emit
-helper into arod. If hand-rolled, differential-test the escaper against
-Ezjsonm over adversarial strings. Hand-rolled JSON escaping is where the
-survey found a real RFC 8259 bug in tessabot, so do not skip the comparison.
-Lifting this does not free `search`, which also holds the domain-bound index
-handle.
+All three render through jsont: `feed` through jsonfeed's document model,
+`pagination` and `search` through `Arod_json.encode`. A codec is a
+module-level `Jsont.t`, and a portable handler reaches a module-level value
+only if its type carries a crossing kind. `Jsont.t` cannot be given one, and
+the ruling below says exactly where that stops.
 
-## The floor
+A hand-rolled JSON writer was built and then removed. It worked, and the
+escaping was differentially correct against jsont over 126823 comparisons,
+but a bespoke JSON encoder in a site is the wrong thing to own. One closure in
+`Arod_env.t` is cheaper than that, and that record exists for exactly this.
 
-After items 1-3, every remaining `Arod_env.t` closure is genuinely
-domain-bound and stays: `search` (index handle), `report` (SQLite),
-`read_image`/`read_paper` (confined Eio capabilities), `now` (clock),
-`log_search` (log source). `ctx`, `config` and `cache` are data.
+## The floor for portable
+
+Four closures are left in `Arod_env.t`. `feed`, `pagination` and `search`
+render through jsont. `report` holds a SQLite handle, which is bound to the
+domain that opened it, so annotating the renderer alone would not free the
+route. The rest of the record is either data (`ctx`, `config`, `cache`) or
+genuinely domain-bound: `now` (clock), `log_search` (log source), `read_image`
+and `read_paper` (confined Eio capabilities).
+
+Off the render path, three things are still nonportable and none of them costs
+anything where it sits. `Bushel.Md.extract_all_links` is declared
+`@@ nonportable` in `bushel_md.mli` and is the one whole-document conversion
+left, with no render consumer. `Astring` survives in `bushel_sync`. `fmt`
+survives in `avsm/arod/lib_search/arod_search.ml`, which is behind the
+domain-bound `search` closure anyway.
+
+## What is left for local
+
+The request and response paths are done. A complete cycle for a literal route
+allocates **32 words**, where `Req.v` alone cost 175 when this started.
+
+| | words |
+| --- | --- |
+| full serve, literal route, content type only | 32 |
+| the same with an entity-tag | 43 |
+| a 404 | 28 |
+| `Req.v` (record only, now on the stack) | 0 |
+| one `Req.query_param` | 4, or 0 when absent |
+| one header field via `Headers.h_local` in a `stack_` block | 0 |
+
+Everything below was measured with `Gc.minor_words` and, where it changed
+behaviour, differentially tested against what it replaced.
+
+### 1. What was done
+
+`Pct` decodes over a range of the target rather than over pieces cut out of it
+first, and takes a range holding no escape with one `String.sub`. The query is
+parsed on demand, with `query_param` scanning for its key. Dispatch walks the
+path, so a literal segment is compared in place and only a capture allocates.
+A request reaches a handler at `local` with `global_` strings, so it costs no
+heap and cannot be stashed. And every header field on the response path is
+built with `Headers.h_local`, which allocates in the caller's region.
+
+### 2. `local` permits stack allocation, it does not cause it
+
+The finding that made the rest work, and the one to remember. Annotating a
+parameter `@ local` says the callee will not let the value escape; it says
+nothing about where the caller puts it, and the caller's default is the heap.
+Three things have to line up, and none is visible at a call site that omits
+them:
+
+- the caller writes `stack_`;
+- the call is not in tail position, so it is written `let () = ... in ()`;
+- the parameter is not optional, since an optional argument is passed as an
+  allocated `Some` the block cannot cross. This one is silent: without
+  `stack_` the call compiles and quietly heap-allocates.
+
+And `stack_` covers the literal it is applied to, not the calls inside it, so
+`stack_ [ h n v ]` needs `h` to return `exclave_` for the record to move too.
+That is what `Headers.h_local` is.
+
+`Resp.v` takes `~headers` required so it can be given a stack block; the sugar
+constructors take `?headers` and cannot. Paths that answer every request use
+the former, and say so at the call site.
+
+### 3. What is left
+
+Of the 32 words: the description and outcome records, the two `ref`s
+`Backend.run` uses to tell a handler that never responded from one that
+responded twice, and the boxed `int64` content length with its `Some`. The
+refs cannot be `let mutable` because closures capture them. The content length
+would need to be an `int` to stop being boxed, which is an interface change
+for a number that can exceed one.
+
+Beyond that the remaining allocation is the response body itself, which is
+what `Body.Stream` exists for.
+
+### 4. The body is three orders of magnitude bigger than any of this
+
+Worth stating plainly, because it decides where effort goes next. Measured
+from the render capture, the routes that keep an `Arod_env.t` closure answer:
+
+| Route | Body |
+| --- | --- |
+| `/api/entries?collection=network` | 1.35 MB |
+| `/api/entries?collection=entries` | 503 KB |
+| `/notes/feed.json` | 3.3 MB |
+| `/news.xml` | 3.4 MB |
+| a listing page | 768 KB |
+
+Against that, everything under **What is left for local** above is about 1 KB
+a request. So moding those closures, or the values they return, is not the
+lever. Two things are.
+
+**The copy on the way out (done).** Every string body used to leave as one
+`Cstruct.of_string`, which mallocs and copies the whole body: a burst of
+concurrent requests for the feed held a 3.3 MB bigstring each.
+`proffer-httpz` now writes through a 64 KB scratch owned by the connection,
+so that is bounded per connection rather than per request. A body that fits
+in the scratch is still a single `writev` carrying the head with it, which is
+most routes. Measured at 20 to 60 microseconds either way, so this buys
+memory, not speed. All 1588 routes byte-identical.
+
+**Building the string at all (not done).** `pagination` and `search` render a
+fresh body per request; `feed` and the pages are memoised, so they pay once
+per TTL. Not building it means streaming the render, which proffer already
+supports through `Body.Stream`. The obstacle is arod's renderers, which go
+through `El.to_string` and `Jsont_bytesrw.encode_string` and hand back a
+finished string. Streaming them means an incremental writer at each of those
+seams. That is the largest remaining allocation in the system by a wide
+margin, and the only one left worth chasing.
 
 ## Settled questions. Do not reopen without new facts.
 
@@ -66,26 +168,106 @@ domain-bound and stays: `search` (index handle), `report` (SQLite),
 - **Re**: never vendor for portability. Compiled `Re.re` values carry
   internally mutable DFA caches mutated on execution. The references
   precompute at `Arod.Ctx` build made it startup-only.
+- **jsont**: four of the five blockers fall to small, principled changes. The
+  fifth is the kind system, not jsont. This entry replaces two earlier ones,
+  the first saying it was structurally impossible and the second that it was
+  merely expensive. Both were wrong in ways worth recording.
+
+  To capture a module-level codec in a portable handler, `Jsont.t` needs a
+  kind that crosses portability and contention. Probed against vendored jsont
+  in a scratch workspace, these are what stand in the way and what each costs:
+
+  1. `Repr.Rec : 'a t Lazy.t`. `lazy_t` has kind `value non_float` and can
+     never cross contention, since two domains forcing one cell would race.
+     **Solved**: `Basement.Portable_lazy.t` is declared
+     `value mod contended portable` and is a drop-in.
+  2. `Repr.String_map = Map.Make (String)`, whose `t` carries no kind.
+     **Solved**: `Map.MakePortable`.
+  3. Fifteen function-typed fields across nine record types. **Solved**: a
+     `@@ portable` modality on each, which the compiler accepts, including on
+     a GADT constructor payload.
+  4. `Type.Id.t`, jsont's own pre-5.1 shim: a first-class module holding an
+     extension constructor, which does not cross contention. **Solved**, and
+     this one should go upstream: OxCaml is 5.2, `Stdlib.Type.Id.t` is already
+     declared `immutable_data`, and jsont's own comment on the shim says
+     "Can be removed once we require OCaml 5.1".
+  5. **Not solved.** With all of the above in place, `Repr.t`'s kind computes
+     as `immutable_data with 'a any_map with ('a, 'a) object_map with ...`,
+     nine component type applications the solver will not discharge. They are
+     records in one mutually recursive group with existential parameters, and
+     annotating them individually reproduces the same conditional-kind problem
+     one level down. This is not a defect in jsont: it is that a recursive
+     GADT with existential intermediates cannot currently be given a crossing
+     kind. No patch to jsont fixes it.
+
+  So the codecs stay where they are and the routes that use them keep a
+  closure. Reopen if the kind solver learns to discharge recursive component
+  kinds, at which point items 1 to 4 are the patch and they are all small.
+
+  bytesrw was probed too and has its own four blockers, two fixable and two
+  not: `Slice.make_or_eod` returns `t @ contended` from the module-level `eod`
+  sentinel; `Slice.pp` needs `bytesrw_fmt.mli` annotated; `Slice.tracer`
+  defaults its `ppf` to `Format.err_formatter`, which the stdlib declares
+  `@@ nonportable`, and a per-`val` override does not reach it because it sits
+  two modules deep, where the enclosing floating annotation wins; and
+  `Stream.error` raises a module-level exception whose payload is an
+  extensible variant. All of that is moot while item 5 stands.
+
+  Earlier work in this repository is not a head start. `opam/bytesrw` on
+  `main`, last present at `761947088`, carries 18 `@ local` annotations and no
+  `portable` at all. Local is stack allocation, a different axis, and none of
+  it lifts a closure.
+
 - **sqlite at render time**: declined by ruling. A db handle in a portable
   handler reintroduces the env-closure pattern. Precomputed immutable
   structures are the house answer for build-once data.
 
+## Two upstream bugs found while vendoring
+
+Both are in bytesrw 0.3.0, both reproduced against a pristine build from the
+release sources, and both are fixed in `vendor/bytesrw` and pinned by
+`avsm/arod/test/test_bytesrw.ml`. Neither has been reported upstream.
+
+- `Bytes.Slice.equal` and `Bytes.Slice.compare` never read the last byte of
+  two slices of equal length. `equal` answers `true` for `"a"` and `"b"`. The
+  loop runs `while !cmp = 0 && !i < max` with `max = len - 1`.
+- The `Bytes.Slice` formatters test the head cut with `len - 1 > max` and the
+  empty case with `max < 0`, forgetting that a slice may start away from zero,
+  so a truncated slice with `first > 0` printed without its ellipsis.
+
 ## Adjacent opportunities
 
+- **Proffer on the stack** (done). A handler is given a `Resp.respond` and
+  calls it rather than returning a value, so the description, its header block
+  and the backend's outcome are all `local`. Three lessons worth keeping,
+  since they will come up again. A curried function used at `local` groups its
+  arrows, so an application reads as complete after the first argument: one
+  record argument has no arrows to group. An optional argument is passed as an
+  allocated `Some`, which a local block cannot cross, so the primitive takes
+  its block required and the sugar forwards. And a local value cannot be an
+  argument in a tail call, so every call handing one on is written
+  `let () = ... in ()`.
+- **Proffer over httpz** (done). Methods, statuses, header names and dates are
+  httpz's types rather than copies, so `proffer-httpz` has no conversion left
+  in it at all. `Method.t` lost its `` `Other `` case with it. What remains of
+  the request path is under **What is left for local** above.
 - **Multi-domain serving**: the strategic payoff of all the portability
   work, and the original PROFFER.md goal. `Proffer_httpz.run` through
   `Domain_manager` plus the queue-based log bridge. The comment in
   `avsm/arod/lib/server/arod_server.ml` marks the spot. Everything the
   render path touches now crosses domains. Verify with the same
   live-differential methodology (`avsm/arod/test/render_capture.sh`).
-- **sortal_web onto htmlit** (S-M, deletes ~662 lines):
-  `avsm/sortal/lib/web/html.ml` and `pages.ml` hand-roll HTML in `Buffer`
-  solely because htmlit was nonportable when they were written. It is
-  portable now.
-- **Off-path stragglers, low priority**: `Bushel.Md.extract_all_links` (the
-  one nonportable whole-document conversion left, no render consumer),
-  Astring's four uses in `bushel_sync`, `fmt` in arod's `lib_component` and
-  `lib_search` (off the portable paths, the collapse compiled around them).
+- **sortal_web onto htmlit** (S-M, deletes ~650 lines):
+  `avsm/sortal/lib/web/html.ml` (258) and `pages.ml` (392) hand-roll HTML in
+  `Buffer` solely because htmlit was nonportable when they were written. It is
+  portable now, and sortal itself is already fully ported: no module-level
+  mutable state, portable handlers, and on the continuation API. So this is a
+  cleanup rather than a port. One consequence to plan for: sortal escapes `'`
+  as `&#39;` and htmlit writes `&apos;`, so every page carrying an apostrophe
+  changes. `test_web`'s 95 checks are substring-based and mostly survive
+  that.
+- **Off-path stragglers, low priority**: listed under **The floor for
+  portable** above, with their current locations.
 
 ## Where the methodology lives
 
@@ -96,7 +278,11 @@ domain-bound and stays: `search` (index handle), `report` (SQLite),
 - Behaviour oracles: `avsm/arod/test/test_md_golden.ml` (golden renders,
   never regenerate to make a test pass), `render_capture.sh` (full-site
   byte differential, 1588 routes, noise floor documented in its header),
-  `link_predicate_diff.ml` (URL predicate corpus differential).
+  `link_predicate_diff.ml` (URL predicate corpus differential),
+  `test_json.ml` (the search and pagination JSON byte for byte, including
+  the escaping rule, on the routes `render_capture.sh` does not reach),
+  `test_bytesrw.ml` (the two vendored bytesrw fixes, against oracles outside
+  bytesrw).
 - Portability guards: `test_payload_kinds.ml`, `test_cmarkit_portable.ml`
   and siblings. Guards must capture module-level values inside `@ portable`
   closures. Parameter-shaped ascriptions prove nothing.

@@ -5,7 +5,7 @@ type 'env t = {
   routes : 'env Route.t list;
   fallback : 'env Route.handler @@ portable;
   decorate :
-    (string list -> 'env Route.handler -> 'env Route.handler) @@ portable;
+    (string -> 'env Route.handler -> 'env Route.handler) @@ portable;
 }
 
 (* The fields are read directly rather than through [Site]'s accessors: an

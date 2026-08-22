@@ -9,6 +9,7 @@ module Env = Arod_env
 module Render = Arod_render
 module E = Env
 open Proffer
+module H = Httpz.Header_name
 
 type handler = Env.t Proffer.Route.handler
 
@@ -32,12 +33,23 @@ let immutable_cache =
    where that delta is exact. It is approximate under concurrent domains,
    since another request may bump the same counter in between. The field is
    kept because the stats dashboard breaks traffic down by it. *)
-let cached env ~key ~content_type gen =
+let cached (respond : Resp.respond @ local) env ~key ~content_type gen =
   let hits_before, _ = Cache.stats env.E.cache in
   let body, etag = Cache.memoize env.E.cache ~now:(env.E.now ()) ~key gen in
   let hits_after, _ = Cache.stats env.E.cache in
   let status = if hits_after > hits_before then "hit" else "miss" in
-  Resp.media ~etag content_type body |> Resp.add_headers [ ("X-Cache", status) ]
+  (* Through [Resp.v] with [stack_] rather than [Resp.media ~headers], because
+     this is every cached page. An optional argument is passed as an allocated
+     [Some] that the block cannot cross, so [~headers] on the sugar
+     constructors puts the field on the heap; and a local argument cannot be
+     passed in a tail call, which is what the [let () = ... in ()] is for.
+     Neither is obvious from the call site, so both are written out here. *)
+  let () =
+    Resp.v respond ~etag
+      ~headers:(stack_ [ Resp.h_local H.X_cache status ])
+      ~content_type (Body.String body)
+  in
+  ()
 
 (* The markdown rendering of a page is cached under the HTML page's key with a
    suffix, so a ".md" URL and an Accept of text/markdown share one entry. *)
@@ -49,17 +61,17 @@ let listing_page ~key which =
   Negotiate.v
     [
       ( `Html,
-        fun env _req ->
-          cached env ~key ~content_type:html_type (fun () ->
+        fun env _req respond ->
+          cached respond env ~key ~content_type:html_type (fun () ->
               Render.listing ~ctx:env.E.ctx which `Html) );
       ( `Markdown,
-        fun env _req ->
-          cached env ~key:(md_key key) ~content_type:markdown_type (fun () ->
-              Render.listing ~ctx:env.E.ctx which `Markdown) );
+        fun env _req respond ->
+          cached respond env ~key:(md_key key) ~content_type:markdown_type
+            (fun () -> Render.listing ~ctx:env.E.ctx which `Markdown) );
     ]
 
-let listing_markdown ~key which env _req =
-  cached env ~key:(md_key key) ~content_type:markdown_type (fun () ->
+let listing_markdown ~key which env _req respond =
+  cached respond env ~key:(md_key key) ~content_type:markdown_type (fun () ->
       Render.listing ~ctx:env.E.ctx which `Markdown)
 
 let index = listing_page ~key:"/" `Index
@@ -83,44 +95,44 @@ let network_markdown = listing_markdown ~key:"/network" `Network
 
 (* A ".md" suffix asks for one entry as markdown. It is not negotiated, so it
    is not cached: an entry render is cheap next to a list page. *)
-let entry_markdown env slug =
+let entry_markdown (respond : Resp.respond @ local) env slug =
   match Render.entry_markdown ~ctx:env.E.ctx slug with
-  | Some md -> Resp.media markdown_type md
-  | None -> Resp.not_found ()
+  | Some md -> Resp.media respond markdown_type md
+  | None -> Resp.not_found respond ()
 
 let entry_page ~prefix kind slug =
   let key = prefix ^ slug in
   Negotiate.v
     [
       ( `Html,
-        fun env _req ->
-          cached env ~key ~content_type:html_type (fun () ->
+        fun env _req respond ->
+          cached respond env ~key ~content_type:html_type (fun () ->
               Render.entry ~ctx:env.E.ctx kind slug `Html) );
       ( `Markdown,
-        fun env _req ->
-          cached env ~key:(md_key key) ~content_type:markdown_type (fun () ->
-              Render.entry ~ctx:env.E.ctx kind slug `Markdown) );
+        fun env _req respond ->
+          cached respond env ~key:(md_key key) ~content_type:markdown_type
+            (fun () -> Render.entry ~ctx:env.E.ctx kind slug `Markdown) );
     ]
 
 (* One route serves every shape of a paper URL, since the extension is part of
    the slug segment rather than a path of its own. *)
-let paper slug env req =
+let paper slug env req respond =
   if String.ends_with ~suffix:".pdf" slug then
     match env.E.read_paper slug with
-    | Some body -> Resp.media (Mime.of_path slug) body
-    | None -> Resp.not_found ()
+    | Some body -> Resp.media respond (Mime.of_path slug) body
+    | None -> Resp.not_found respond ()
   else if String.ends_with ~suffix:".bib" slug then
     match Render.paper_bib ~ctx:env.E.ctx (Filename.chop_extension slug) with
-    | Some bib -> Resp.text bib
-    | None -> Resp.not_found ()
+    | Some bib -> Resp.text respond bib
+    | None -> Resp.not_found respond ()
   else if String.ends_with ~suffix:".md" slug then
-    entry_markdown env (Filename.chop_extension slug)
-  else entry_page ~prefix:"/papers/" `Paper slug env req
+    entry_markdown respond env (Filename.chop_extension slug)
+  else entry_page ~prefix:"/papers/" `Paper slug env req respond
 
-let entry_route ~prefix kind slug env req =
+let entry_route ~prefix kind slug env req respond =
   if String.ends_with ~suffix:".md" slug then
-    entry_markdown env (Filename.chop_extension slug)
-  else entry_page ~prefix kind slug env req
+    entry_markdown respond env (Filename.chop_extension slug)
+  else entry_page ~prefix kind slug env req respond
 
 let note slug = entry_route ~prefix:"/notes/" `Note slug
 let idea slug = entry_route ~prefix:"/ideas/" `Idea slug
@@ -134,20 +146,20 @@ let video slug = entry_route ~prefix:"/videos/" `Video slug
    from the request: a request target percent-encodes as it likes, the router
    matches on decoded segments, and a key taken from the target would let a
    client mint cache entries the cache never evicts. *)
-let atom_feed path env _req =
-  cached env ~key:("feed:" ^ path) ~content_type:atom_type (fun () ->
+let atom_feed path env _req respond =
+  cached respond env ~key:("feed:" ^ path) ~content_type:atom_type (fun () ->
       env.E.feed (`Atom path))
 
-let json_feed env _req =
-  cached env ~key:"feed:/feed.json" ~content_type:json_type (fun () ->
+let json_feed env _req respond =
+  cached respond env ~key:"feed:/feed.json" ~content_type:json_type (fun () ->
       env.E.feed `Json)
 
-let perma_atom env _req =
-  cached env ~key:"feed:/perma.xml" ~content_type:atom_type (fun () ->
+let perma_atom env _req respond =
+  cached respond env ~key:"feed:/perma.xml" ~content_type:atom_type (fun () ->
       env.E.feed `Perma_atom)
 
-let perma_json env _req =
-  cached env ~key:"feed:/perma.json" ~content_type:json_type (fun () ->
+let perma_json env _req respond =
+  cached respond env ~key:"feed:/perma.json" ~content_type:json_type (fun () ->
       env.E.feed `Perma_json)
 
 (** {1 Redirect targets} *)
@@ -162,24 +174,26 @@ let encode_segment s = Uriz.pct_encode ~component:`Unreserved s
 
 (** {1 Machine-readable pages} *)
 
-let sitemap env _req = Resp.media "application/xml" (env.E.sitemap ())
+let sitemap env _req respond =
+  Resp.media respond "application/xml" (Render.sitemap ~ctx:env.E.ctx)
 
-let blogroll_opml env _req =
-  Resp.media "text/x-opml+xml; charset=utf-8" (Render.blogroll ~ctx:env.E.ctx)
+let blogroll_opml env _req respond =
+  Resp.media respond "text/x-opml+xml; charset=utf-8"
+    (Render.blogroll ~ctx:env.E.ctx)
 
-let robots_txt env _req =
-  Resp.text
+let robots_txt env _req respond =
+  Resp.text respond
     (Printf.sprintf "User-agent: *\nAllow: /\n\nSitemap: %s/sitemap.xml\n"
        env.E.config.site.base_url)
 
-let well_known key env _req =
+let well_known key env _req respond =
   match
     List.find_opt
       (fun e -> String.equal e.Arod.Config.key key)
       env.E.config.well_known
   with
-  | Some entry -> Resp.text entry.value
-  | None -> Resp.not_found ()
+  | Some entry -> Resp.text respond entry.value
+  | None -> Resp.not_found respond ()
 
 (** {1 JSON APIs} *)
 
@@ -191,7 +205,7 @@ let int_param req name ~default ~lo ~hi =
     | Some n -> min hi (max lo n)
     | None -> default)
 
-let pagination_api env req =
+let pagination_api env req respond =
   let offset =
     match Req.query_param req "offset" with
     | Some o -> ( match int_of_string_opt o with Some n -> max 0 n | None -> 0)
@@ -203,40 +217,43 @@ let pagination_api env req =
       (fun (k, v) -> if String.equal k "type" then Some v else None)
       (Req.query req)
   in
-  Resp.media json_type
+  Resp.media respond json_type
     (env.E.pagination
        ~collection:(Req.query_param req "collection")
        ~offset ~limit ~types)
 
-let search_api env req =
+let search_api env req respond =
   let q = match Req.query_param req "q" with Some q -> q | None -> "" in
   let limit = int_param req "limit" ~default:20 ~lo:1 ~hi:100 in
   env.E.log_search ~query:q ~limit ~results:None;
   let body, results = env.E.search ~q ~limit in
   env.E.log_search ~query:q ~limit ~results:(Some results);
-  Resp.media json_type body
+  Resp.media respond json_type body
 
 (** {1 Files} *)
 
-let image_file segs env _req =
+let image_file segs env _req respond =
   match env.E.read_image segs with
-  | Some body -> Resp.media (Mime.of_path (String.concat "/" segs)) body
-  | None -> Resp.not_found ()
+  | Some body ->
+      Resp.media respond (Mime.of_path (String.concat "/" segs)) body
+  | None -> Resp.not_found respond ()
 
-let embedded_file path _env _req =
+let embedded_file path _env _req respond =
   match Arod_assets.read path with
-  | Some body -> Resp.media (Mime.of_path path) body
-  | None -> Resp.not_found ()
+  | Some body -> Resp.media respond (Mime.of_path path) body
+  | None -> Resp.not_found respond ()
 
-let embedded_file_immutable path _env _req =
+let embedded_file_immutable path _env _req respond =
   match Arod_assets.read path with
-  | Some body -> Resp.media ~cache:immutable_cache (Mime.of_path path) body
-  | None -> Resp.not_found ()
+  | Some body ->
+      Resp.media respond ~cache:immutable_cache (Mime.of_path path) body
+  | None -> Resp.not_found respond ()
 
-let js_file name _env _req =
+let js_file name _env _req respond =
   match List.assoc_opt name Arod_component.Scripts.by_name with
-  | Some js -> Resp.media ~cache:immutable_cache "text/javascript" js
-  | None -> Resp.not_found ()
+  | Some js ->
+      Resp.media respond ~cache:immutable_cache "text/javascript" js
+  | None -> Resp.not_found respond ()
 
 (** {1 Stats dashboard} *)
 
@@ -270,14 +287,14 @@ let stats_auth ~password auth =
 let stats_range req =
   match Req.query_param req "range" with Some s -> s | None -> "7d"
 
-let stats_dashboard env req =
-  Resp.html (env.E.report `Dashboard ~range:(stats_range req))
+let stats_dashboard env req respond =
+  Resp.html respond (env.E.report `Dashboard ~range:(stats_range req))
 
-let stats_overview env req =
-  Resp.media json_type (env.E.report `Overview ~range:(stats_range req))
+let stats_overview env req respond =
+  Resp.media respond json_type (env.E.report `Overview ~range:(stats_range req))
 
-let stats_traffic env req =
-  Resp.media json_type (env.E.report `Traffic ~range:(stats_range req))
+let stats_traffic env req respond =
+  Resp.media respond json_type (env.E.report `Traffic ~range:(stats_range req))
 
-let stats_recent env req =
-  Resp.media json_type (env.E.report `Recent ~range:(stats_range req))
+let stats_recent env req respond =
+  Resp.media respond json_type (env.E.report `Recent ~range:(stats_range req))

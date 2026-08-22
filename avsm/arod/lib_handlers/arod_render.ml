@@ -405,18 +405,36 @@ let blogroll ~ctx =
 let slice_list offset limit l =
   List.filteri (fun i _ -> i >= offset && i < offset + limit) l
 
-let error_json msg = Ezjsonm.to_string (`O [ ("error", `String msg) ])
+let error_codec =
+  Jsont.Object.map ~kind:"error" Fun.id
+  |> Jsont.Object.mem "error" Jsont.string ~enc:Fun.id
+  |> Jsont.Object.finish
+
+let error_json msg = Arod_json.encode error_codec msg
+
+type page = {
+  html : string;
+  total : int;
+  offset : int;
+  limit : int;
+  count : int;
+  has_more : bool;
+}
+
+let page_codec =
+  Jsont.Object.map ~kind:"page"
+    (fun html total offset limit count has_more ->
+      { html; total; offset; limit; count; has_more })
+  |> Jsont.Object.mem "html" Jsont.string ~enc:(fun p -> p.html)
+  |> Jsont.Object.mem "total" Jsont.int ~enc:(fun p -> p.total)
+  |> Jsont.Object.mem "offset" Jsont.int ~enc:(fun p -> p.offset)
+  |> Jsont.Object.mem "limit" Jsont.int ~enc:(fun p -> p.limit)
+  |> Jsont.Object.mem "count" Jsont.int ~enc:(fun p -> p.count)
+  |> Jsont.Object.mem "has_more" Jsont.bool ~enc:(fun p -> p.has_more)
+  |> Jsont.Object.finish
 
 let page_json ~html ~total ~offset ~limit ~count ~has_more =
-  Ezjsonm.to_string
-    (`O [
-       ("html", `String html);
-       ("total", `Float (float_of_int total));
-       ("offset", `Float (float_of_int offset));
-       ("limit", `Float (float_of_int limit));
-       ("count", `Float (float_of_int count));
-       ("has_more", `Bool has_more);
-     ])
+  Arod_json.encode page_codec { html; total; offset; limit; count; has_more }
 
 let pagination ~ctx ~collection ~offset ~limit ~types =
   let paginate all render =
@@ -443,18 +461,70 @@ let pagination ~ctx ~collection ~offset ~limit ~types =
     paginate (C.List_view.get_entries ~ctx ~types) render
   | Some _ -> error_json "Invalid collection type"
 
+(* A hit and the entries it hangs under share four member names, so each shape
+   is its own module rather than two record types competing for them. *)
+module Search_parent = struct
+  type t = { slug : string; title : string; url : string; kind : string }
+
+  let codec =
+    Jsont.Object.map ~kind:"parent" (fun slug title url kind ->
+      { slug; title; url; kind })
+    |> Jsont.Object.mem "slug" Jsont.string ~enc:(fun p -> p.slug)
+    |> Jsont.Object.mem "title" Jsont.string ~enc:(fun p -> p.title)
+    |> Jsont.Object.mem "url" Jsont.string ~enc:(fun p -> p.url)
+    |> Jsont.Object.mem "kind" Jsont.string ~enc:(fun p -> p.kind)
+    |> Jsont.Object.finish
+end
+
+module Search_hit = struct
+  type t = {
+    slug : string;
+    kind : string;
+    url : string;
+    title : string;
+    snippet : string;
+    date : string;
+    tags : string list;
+    thumbnail : string option;
+    parents : Search_parent.t list;
+  }
+
+  let codec =
+    Jsont.Object.map ~kind:"hit"
+      (fun slug kind url title snippet date tags thumbnail parents ->
+        { slug; kind; url; title; snippet; date; tags; thumbnail; parents })
+    |> Jsont.Object.mem "slug" Jsont.string ~enc:(fun h -> h.slug)
+    |> Jsont.Object.mem "kind" Jsont.string ~enc:(fun h -> h.kind)
+    |> Jsont.Object.mem "url" Jsont.string ~enc:(fun h -> h.url)
+    |> Jsont.Object.mem "title" Jsont.string ~enc:(fun h -> h.title)
+    |> Jsont.Object.mem "snippet" Jsont.string ~enc:(fun h -> h.snippet)
+    |> Jsont.Object.mem "date" Jsont.string ~enc:(fun h -> h.date)
+    |> Jsont.Object.mem "tags" (Jsont.list Jsont.string)
+         ~enc:(fun h -> h.tags) ~enc_omit:(fun tags -> tags = [])
+    |> Jsont.Object.opt_mem "thumbnail" Jsont.string
+         ~enc:(fun h -> h.thumbnail)
+    |> Jsont.Object.mem "parents" (Jsont.list Search_parent.codec)
+         ~enc:(fun h -> h.parents) ~enc_omit:(fun parents -> parents = [])
+    |> Jsont.Object.finish
+end
+
+let search_codec =
+  Jsont.Object.map ~kind:"results" Fun.id
+  |> Jsont.Object.mem "results" (Jsont.list Search_hit.codec) ~enc:Fun.id
+  |> Jsont.Object.finish
+
 let search ~ctx (results : Arod_search.result list) =
   let entries = Arod.Ctx.entries ctx in
-  let json_results = List.map (fun (r : Arod_search.result) ->
-    let parent_entries = List.filter_map (fun slug ->
+  let hits = List.map (fun (r : Arod_search.result) ->
+    let parents = List.filter_map (fun slug ->
       match Arod.Ctx.lookup ctx slug with
       | Some ent ->
-        Some (`O [
-          ("slug", `String slug);
-          ("title", `String (Bushel.Entry.title ent));
-          ("url", `String (Bushel.Entry.site_url ent));
-          ("kind", `String (Bushel.Entry.to_type_string ent));
-        ])
+        Some {
+          Search_parent.slug;
+          title = Bushel.Entry.title ent;
+          url = Bushel.Entry.site_url ent;
+          kind = Bushel.Entry.to_type_string ent;
+        }
       | None -> None
     ) r.parent_slugs in
     let thumbnail = match r.kind with
@@ -471,18 +541,10 @@ let search ~ctx (results : Arod_search.result list) =
          | Some ent -> Bushel.Entry.thumbnail entries ent
          | None -> None)
     in
-    `O ([ ("slug", `String r.slug); ("kind", `String r.kind);
-          ("url", `String r.url); ("title", `String r.title);
-          ("snippet", `String r.snippet); ("date", `String r.date) ]
-         @ (if r.tags <> [] then
-              [("tags", `A (List.map (fun t -> `String t) r.tags))]
-            else [])
-         @ (match thumbnail with Some t -> [("thumbnail", `String t)] | None -> [])
-         @ (if parent_entries <> [] then
-              [("parents", `A parent_entries)]
-            else []))
+    { Search_hit.slug = r.slug; kind = r.kind; url = r.url; title = r.title;
+      snippet = r.snippet; date = r.date; tags = r.tags; thumbnail; parents }
   ) results in
-  Ezjsonm.to_string (`O [("results", `A json_results)])
+  Arod_json.encode search_codec hits
 
 (** {1 Stats dashboard} *)
 

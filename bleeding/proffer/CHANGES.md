@@ -2,8 +2,29 @@
 
 First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
 
-- A handler returns a `Resp.t` describing a response rather than writing one,
-  over a `Req.t` whose path, query, headers and form body are decoded once.
+- A handler is given a `Resp.respond` and calls it, rather than returning a
+  response, over a `Req.t` whose path, query, headers and form body are
+  decoded once. Nothing describing a response travels back up, so the
+  description, its header block and the backend's outcome all live at `local`
+  in the region `Backend.handle` runs the handler in, and answering a request
+  allocates on the heap only what the body is made of.
+- A header field name is a constructor rather than a string. `Headers.name`
+  closes over the fields RFC 9110 names, with `Other of string @@ global` for
+  a site's own. Comparison is constructor equality rather than a case-folding
+  walk over two strings, a known name needs no validation because it is a
+  token by construction, and a name cannot be misspelled at a call site.
+  `Req.header` and `Headers.find` take a `name`; `Site.with_headers` and
+  `Req.v` still take strings and map them through `Headers.of_string`.
+- A header field is a record whose `value` is `global_`, so a block can sit on
+  the stack while its values stay readable at the mode a socket write wants.
+  `Headers.cat` and `Headers.vary` extend a block in the caller's region,
+  which is how `Site.with_headers` and `Negotiate.v` add a field on the way
+  past.
+- `Backend.handle` reports three handler mistakes to `on_error`: returning
+  without responding, which is answered 500; responding twice, where the
+  second is dropped; and raising after responding, where nothing further is
+  written. `Backend.run` is the same machinery without dispatch, which is what
+  `proffer.mock`'s `describe` uses to exercise one response with no site.
 - Path patterns built from `s`, `str`, `int`, `conv` and `rest` give each
   capture to the handler as a curried argument. Handlers are taken at
   `portable`, so a compiled site crosses domains by construction.
@@ -17,6 +38,66 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
   backend runs, and collects a streaming body into a buffer.
 - `proffer-httpz` serves a compiled site over HTTP/1.1 on the httpz parser and
   Eio, a fibre per connection, and reports one log event per request.
+- Proffer is a server layer over httpz rather than a library independent of
+  any wire implementation. Methods, statuses, header names and HTTP dates are
+  httpz's types, so `Proffer.Method.t = Httpz.Method.t`,
+  `Proffer.Status.t = Httpz.Res.status` and
+  `Proffer.Headers.name = Httpz.Header_name.t`. `proffer-httpz` has no
+  conversion left in it at all: what used to be a thirty-one arm status match,
+  a method match, and a header name mapped both ways through a string is now
+  nothing.
+- `Method.t` loses its `` `Other `` case. httpz's parser accepts the methods it
+  names and rejects anything else, so a method that reaches a handler is
+  always one of them, and a method the set lacks is added to httpz rather than
+  modelled around. `Method.equal` is constructor equality.
+- A request's block is built from the parser's fields in one pass instead of
+  three, and a response's block is written where it lies, since httpz's
+  writers take their strings at `local` and can emit a name it knows from a
+  precomputed byte sequence. Measured on eight request fields and four
+  response fields: 152 words to 80 per request for the block, and 24 words to
+  0 per response, before counting the name string per known field that is no
+  longer copied out of the parse buffer. The association list a log event
+  carries is built only when a site asked for events.
+- The request path decodes in place. `Pct` works over a range of the target
+  rather than over pieces cut out of it first, and takes a range that holds no
+  escape with one `String.sub` instead of a `Buffer`; and the query is parsed
+  on demand, with `Req.query_param` scanning for its key rather than building
+  the association list. Measured on
+  `/notes/hello-there?tag=ocaml&limit=25` with three header fields, `Req.v`
+  falls from 175 words to 33, one `query_param` costs 4 words and one that
+  finds nothing costs none. Both changes are differentially tested against the
+  implementations they replaced: 168392 comparisons for the decoder and 840406
+  for the lookup, over an adversarial corpus, every byte value, and randomised
+  input.
+- Dispatch walks the path rather than a `string list` built for every
+  request. A literal segment is compared where it lies and allocates nothing,
+  only a capture allocates, and `rest` is the one arm that materialises a
+  list. `Req.segments` stays as an on-demand accessor and no handler signature
+  changed. Differentially tested against the segment-list semantics over 40046
+  paths, comparing which route won and what it captured, with no differences.
+- A request reaches a handler at `local`, so it costs no heap and cannot be
+  stashed. Its strings are `global_` within the record, so a handler still has
+  them at the mode the stdlib wants.
+- `Headers.h_local` and `other_local` build a field in the caller's region.
+  `stack_` on a list literal covers its cons cells and not the calls inside
+  it, so a block written `stack_ [ h n v ]` still put every record on the
+  heap. Every field the backend renders, and every one proffer's own
+  constructors build, now goes through the local form.
+- Together with the decoder work: a complete request and response cycle for a
+  literal route allocates **32 words**, where `Req.v` alone used to cost 175.
+- A response body goes to the socket through a 64 KB scratch owned by the
+  connection rather than one `Cstruct.of_string` of the whole body, so the
+  bigstring a large response needs is bounded per connection instead of per
+  request. A body that fits in the scratch is still a single `writev` carrying
+  the head with it. Streamed chunks take the same path.
+- Two behaviour changes come with httpz's date handling. The obsolete RFC 850
+  and asctime forms of a date are now accepted, as RFC 9110 section 5.6.7
+  requires and proffer's own parser did not. And `Date.representable` stops at
+  0001-01-01 rather than the proleptic 0000-01-01, which is where httpz's
+  formatter clamps.
+- 422 is spelled `Unprocessable Entity` on the status line, httpz's phrase,
+  where proffer used RFC 9110's `Unprocessable Content`. The reason phrase is
+  advisory and no client parses it.
 - Reads in `proffer-httpz` carry an idle and a request deadline, and the number
   of connections open at once is capped, so a slow client cannot hold a fibre
   and its buffers indefinitely.

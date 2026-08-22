@@ -3,6 +3,8 @@
 
 open Proffer
 open Proffer.Route
+module St = Httpz.Res
+module M = Httpz.Method
 
 let checks = ref 0
 
@@ -18,12 +20,13 @@ let index = "<h1>index</h1>"
 
 let routes =
   [
-    get nil (fun _env _req -> Resp.html index);
-    get (s "hello" / str /? nil) (fun who env _req -> Resp.html (env.greet who));
-    get (s "cached" /? nil) (fun _env _req ->
-        Resp.html ~etag:(`Strong "v1") "<p>cached</p>");
-    get (s "stream" /? nil) (fun _env _req ->
-        Resp.v ~content_type:"text/plain"
+    get nil (fun _env _req respond -> Resp.html respond index);
+    get (s "hello" / str /? nil) (fun who env _req respond ->
+        Resp.html respond (env.greet who));
+    get (s "cached" /? nil) (fun _env _req respond ->
+        Resp.html respond ~etag:(`Strong "v1") "<p>cached</p>");
+    get (s "stream" /? nil) (fun _env _req respond ->
+        Resp.v respond ~headers:Headers.empty ~content_type:"text/plain"
           (Body.Stream
              {
                length = None;
@@ -32,8 +35,8 @@ let routes =
                    Body.Sink.write sink "ab";
                    Body.Sink.write sink "cd");
              }));
-    get (s "known" /? nil) (fun _env _req ->
-        Resp.v ~content_type:"text/plain"
+    get (s "known" /? nil) (fun _env _req respond ->
+        Resp.v respond ~headers:Headers.empty ~content_type:"text/plain"
           (Body.Stream
              {
                length = Some 4L;
@@ -42,22 +45,25 @@ let routes =
                    Body.Sink.write sink "ab";
                    Body.Sink.write sink "cd");
              }));
-    get (s "logged" /? nil) (fun _env _req ->
-        Resp.v ~content_type:"text/html; charset=utf-8"
-          ~headers:[ ("X-Cache", "hit") ]
+    get (s "logged" /? nil) (fun _env _req respond ->
+        Resp.v respond ~content_type:"text/html; charset=utf-8"
+          ~headers:[ Resp.other "X-Cache" "hit" ]
           (Body.String "hi"));
-    get (s "dup" /? nil) (fun _env req ->
-        Resp.text (Option.value ~default:"none" (Req.header req "x-dup")));
-    post (s "form" /? nil) (fun _env req ->
+    get (s "dup" /? nil) (fun _env req respond ->
+        Resp.text respond
+          (Option.value ~default:"none"
+             (Req.header_other req "X-Dup")));
+    post (s "form" /? nil) (fun _env req respond ->
         match Req.form_param req "who" with
-        | Some who -> Resp.see_other ("/hello/" ^ who)
-        | None -> Resp.bad_request ());
+        | Some who -> Resp.see_other respond ("/hello/" ^ who)
+        | None -> Resp.bad_request respond ());
   ]
 
 let compiled =
   Compiled.compile
     (Site.with_fallback
-       (fun _env _req -> Resp.html ~status:`Not_found "<p>missing</p>")
+       (fun _env _req respond ->
+         Resp.html respond ~status:St.Not_found "<p>missing</p>")
        (Site.of_routes routes))
 
 let env = { greet = (fun who -> "<p>hello " ^ who ^ "</p>") }
@@ -370,7 +376,7 @@ let tests ~clock ~net addr =
   check "one event per request" (List.length !events = 21);
   match !events with
   | last :: _ ->
-      check "event method" (Method.equal last.Proffer_httpz.meth `GET);
+      check "event method" (Method.equal last.Proffer_httpz.meth M.Get);
       check "event target" (last.Proffer_httpz.target = "/hello/again");
       check "event status" (Status.code last.Proffer_httpz.status = 200);
       check "event body size" (last.Proffer_httpz.body_size = 18)

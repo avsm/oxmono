@@ -4,6 +4,12 @@
     the description and owns the wire. The core here depends on the stdlib
     alone, so it holds no sockets and no buffers.
 
+    A handler is handed a {!Resp.respond} and calls it. Nothing that describes
+    a response travels back up, so the description, its header block and the
+    backend's outcome all live in the region {!Backend.handle} runs the handler
+    in, at [local], and answering a request allocates on the heap only what the
+    body itself is made of.
+
     {2 Quick start}
 
     {[
@@ -15,13 +21,13 @@
       let site =
         Site.of_routes
           [
-            get nil (fun _env _req -> Resp.text "index");
-            get (s "hello" / str /? nil) (fun who env _req ->
-                Resp.html (env.greet who));
-            post (s "hello" /? nil) (fun _env req ->
+            get nil (fun _env _req respond -> Resp.text respond "index");
+            get (s "hello" / str /? nil) (fun who env _req respond ->
+                Resp.html respond (env.greet who));
+            post (s "hello" /? nil) (fun _env req respond ->
                 match Req.form_param req "who" with
-                | Some who -> Resp.see_other ("/hello/" ^ who)
-                | None -> Resp.bad_request ());
+                | Some who -> Resp.see_other respond ("/hello/" ^ who)
+                | None -> Resp.bad_request respond ());
           ]
 
       let compiled = Compiled.compile site
@@ -43,96 +49,156 @@
 (** {1 Protocol vocabulary} *)
 
 module Method : sig
-  (** Request methods. *)
+  (** Request methods, which are httpz's.
 
-  type t =
-    [ `GET
-    | `HEAD
-    | `POST
-    | `PUT
-    | `DELETE
-    | `PATCH
-    | `OPTIONS
-    | `Other of string ]
-  (** The methods this library names. Any other token a client sends arrives as
-      [`Other]. *)
+      httpz's parser accepts the methods it names and rejects anything else,
+      so a method that reaches a handler is always one of them. There is no
+      [`Other] case and no wire spelling to compare: a method this set lacks
+      is added to httpz rather than modelled around here. *)
+
+  type t = Httpz.Method.t
+  (** The methods httpz names. *)
 
   val to_string : t -> string @@ portable
   (** [to_string m] is the method token as it appears on the request line. *)
 
-  val of_string : string -> t @@ portable
-  (** [of_string s] is the method [s] names. An unrecognised token becomes
-      [`Other s], with no case folding: method names are case-sensitive. *)
-
   val equal : t -> t -> bool @@ portable
-  (** [equal a b] compares the wire spelling, so [`Other "GET"] and [`GET] are
-      the same method. *)
+  (** [equal a b] is whether [a] and [b] are the same method. *)
 end
 
 module Status : sig
-  (** Response status codes. *)
+  (** Response status codes, which are httpz's.
 
-  type t =
-    [ `OK
-    | `Created
-    | `Accepted
-    | `No_content
-    | `Moved_permanently
-    | `Found
-    | `See_other
-    | `Not_modified
-    | `Temporary_redirect
-    | `Permanent_redirect
-    | `Bad_request
-    | `Unauthorized
-    | `Forbidden
-    | `Not_found
-    | `Method_not_allowed
-    | `Not_acceptable
-    | `Request_timeout
-    | `Conflict
-    | `Gone
-    | `Length_required
-    | `Precondition_failed
-    | `Payload_too_large
-    | `Unsupported_media_type
-    | `Unprocessable_entity
-    | `Too_many_requests
-    | `Internal_server_error
-    | `Not_implemented
-    | `Bad_gateway
-    | `Service_unavailable
-    | `Gateway_timeout ]
-  (** The statuses this library names, ordered by code. A backend maps each one
-      onto its own status type. *)
+      A backend writes one straight onto the status line, so there is nothing
+      to convert between describing a response and sending it. *)
+
+  type t = Httpz.Res.status
+  (** The statuses httpz names. *)
 
   val code : t -> int @@ portable
   (** [code s] is the three-digit status code. *)
 
   val reason : t -> string @@ portable
   (** [reason s] is the reason phrase for the status line. *)
+
+  val of_code : int -> t option @@ portable
+  (** [of_code n] is the status [n] names, if httpz names one. *)
 end
 
 module Headers : sig
-  (** A field block, read case-insensitively.
+  (** A field block.
 
-      A name is kept as it was written, since the block is what a backend
-      sends. Lookup folds case instead. {!Req.headers}, {!Resp.headers} and
-      {!Backend.outcome} all speak this type. A block is built by passing an
-      association list to {!Req.v} or {!Resp.v}. *)
+      A field name is httpz's constructor. httpz already enumerates the fields
+      its parser recognises, and a server layer that kept its own copy would
+      spend every request and every response translating between two spellings
+      of the same idea. Comparison is therefore constructor equality, a known
+      name needs no validation because it is a token by construction, and a
+      backend hands its parse over with nothing to convert.
 
-  type t
+      httpz names an unrecognised field {!Httpz.Header_name.Other} and keeps
+      its spelling elsewhere, because a parsed name is a span into the read
+      buffer. A described field has no buffer to point at, so {!field} carries
+      the spelling directly. For a name httpz knows that is the canonical one,
+      which costs nothing.
 
-  val find : t -> string -> string option @@ portable
-  (** [find t name] is the first value under [name], matched
-      case-insensitively. Repeated fields are not joined. *)
+      A block travels the response path at [local], so its cells are stack
+      allocated and a response costs no heap for them. [spelling] and [value]
+      are [global_] because a string is boxed and a socket write needs it at
+      global; [name] needs no modality, since it is read only to compare and
+      to hand back to httpz's writer. Every operation below takes the block at
+      [local], which a global block also satisfies. *)
 
-  val mem : t -> string -> bool @@ portable
-  (** [mem t name] is whether [t] has a field named [name], matched
-      case-insensitively. *)
+  type name = Httpz.Header_name.t
+  (** A field name. *)
 
-  val to_list : t -> (string * string) list @@ portable
-  (** [to_list t] is the fields in order, each name spelled as it was given. *)
+  type field = {
+    name : name;
+    global_ spelling : string;
+        (** The wire spelling: canonical for a name httpz knows, as given for
+            an {!Httpz.Header_name.Other}. *)
+    global_ value : string;
+  }
+  (** One field. *)
+
+  type t = field list
+  (** A block, in the order it goes on the wire. *)
+
+  val h : name -> string -> field @@ portable
+  (** [h name value] is the field [name: value], spelled canonically. It is
+      what a handler passes in [~headers]. *)
+
+  val other : string -> string -> field @@ portable
+  (** [other spelling value] is a field httpz does not name, such as a site's
+      own [X-] field, spelled as given. A spelling httpz does name resolves to
+      its constructor, so a block holds the same field under one name however
+      it was built. *)
+
+  val h_local : name -> string -> field @ local @@ portable
+  (** [h_local name value] is {!h} allocated in the caller's region.
+
+      [stack_] on a list literal covers its cons cells and not the calls
+      inside it, so [stack_ [ h n v ]] still puts every record on the heap.
+      This is what a block on a path that answers every request should be
+      built from. Everywhere else {!h} is simpler and the words do not
+      matter. *)
+
+  val other_local : string -> string -> field @ local @@ portable
+  (** [other_local] is {!other} allocated in the caller's region. *)
+
+  val empty : t @@ portable
+  (** [empty] is the block with no fields. *)
+
+  val of_string : string -> name @@ portable
+  (** [of_string s] is the name [s] spells, matched case-insensitively, or
+      {!Httpz.Header_name.Other} for one httpz does not name. *)
+
+  val of_list : (string * string) list -> t @@ portable
+  (** [of_list l] is [l] as a block, each name recognised where httpz names
+      it. *)
+
+  val to_list : t @ local -> (string * string) list @@ portable
+  (** [to_list t] is the fields in order, each under its wire spelling. The
+      result is a heap list, so this is a copy out of the block. *)
+
+  val to_string : field -> string @@ portable
+  (** [to_string f] is [f]'s wire spelling. *)
+
+  val find : t @ local -> name -> string option @@ portable
+  (** [find t name] is the first value under [name]. It is always [None] for
+      {!Httpz.Header_name.Other}, which names no particular field; use
+      {!find_other}. Repeated fields are not joined. *)
+
+  val find_other : t @ local -> string -> string option @@ portable
+  (** [find_other t spelling] is the first value under a field httpz does not
+      name, matched case-insensitively. *)
+
+  val mem : t @ local -> name -> bool @@ portable
+  (** [mem t name] is whether [t] has a field named [name]. *)
+
+  val same_name : name @ local -> name @ local -> bool @@ portable
+  (** [same_name a b] is whether [a] and [b] are the same constructor. Every
+      {!Httpz.Header_name.Other} is the same constructor, so this does not
+      distinguish two differently spelled custom fields. *)
+
+  val iter :
+    (name -> string -> string -> unit) -> t @ local -> unit
+    @@ portable
+  (** [iter f t] applies [f] to each field's name, spelling and value, in
+      order. It exists because [List.iter] takes a global list. *)
+
+  val exists :
+    (name -> string -> string -> bool) -> t @ local -> bool
+    @@ portable
+  (** [exists p t] is whether some field satisfies [p]. *)
+
+  val cat : t @ local -> t @ local -> t @ local @@ portable
+  (** [cat a b] is [a] then [b], allocated in the caller's region. A wrapper
+      that adds a field to a block on its way past uses it, and pays no
+      heap. *)
+
+  val vary : t @ local -> string -> t @ local @@ portable
+  (** [vary t name] is [t] with [name] added to its Vary field, rewriting that
+      field rather than repeating it, and allocated in the caller's region. *)
 end
 
 module Mime : sig
@@ -157,59 +223,64 @@ module Req : sig
   val v :
     meth:Method.t ->
     target:string ->
-    ?headers:(string * string) list ->
+    ?headers:Headers.t ->
     ?body:string ->
     unit ->
-    t
+    t @ local
     @@ portable
-  (** [v ~meth ~target ()] is a request. [target] is the origin-form request
-      target, for example ["/contact/avsm?tab=emails"]. Backends and tests
-      construct requests with it. The path and query are decoded once, here. *)
+  (** [v ~meth ~target ()] is a request. [headers] is a block rather than an
+      association list, so a backend that already has one built from its own
+      parse hands it over without a second copy, and there is one way to build
+      a block rather than two. Use {!Headers.of_list} for a literal. *)
 
-  val meth : t -> Method.t @@ portable
+  val meth : t @ local -> Method.t @@ portable
   (** [meth t] is the request method. *)
 
-  val target : t -> string @@ portable
+  val target : t @ local -> string @@ portable
   (** [target t] is the request target as it arrived, undecoded. *)
 
-  val path : t -> string @@ portable
+  val path : t @ local -> string @@ portable
   (** [path t] is the part of the target before any ['?'], still encoded. *)
 
-  val segments : t -> string list @@ portable
+  val segments : t @ local -> string list @@ portable
   (** [segments t] is the path split on ['/'], with empty segments dropped and
       each remaining one percent-decoded. Routes match against it. *)
 
-  val query : t -> (string * string) list @@ portable
+  val query : t @ local -> (string * string) list @@ portable
   (** [query t] is the query string decoded, with ['+'] read as a space. A
       parameter given without a value has the empty string. *)
 
-  val query_param : t -> string -> string option @@ portable
+  val query_param : t @ local -> string -> string option @@ portable
   (** [query_param t name] is the first value of [name] in {!query}. *)
 
-  val headers : t -> Headers.t @@ portable
+  val headers : t @ local -> Headers.t @ local @@ portable
   (** [headers t] is the request's field block. *)
 
-  val header : t -> string -> string option @@ portable
-  (** [header t name] is the first field named [name], matched
-      case-insensitively. *)
+  val header : t @ local -> Headers.name -> string option @@ portable
+  (** [header t name] is the first value under [name]. It is always [None] for
+      {!Httpz.Header_name.Other}; use {!header_other}. *)
 
-  val body : t -> string @@ portable
+  val header_other : t @ local -> string -> string option @@ portable
+  (** [header_other t spelling] is the first value under a field httpz does not
+      name, matched case-insensitively. *)
+
+  val body : t @ local -> string @@ portable
   (** [body t] is the request body, or [""] when there is none. *)
 
-  val form : t -> (string * string) list @@ portable
+  val form : t @ local -> (string * string) list @@ portable
   (** [form t] is the body decoded as [application/x-www-form-urlencoded]. It
       is [[]] when the body is empty or the Content-Type is another media
       type. *)
 
-  val form_param : t -> string -> string option @@ portable
+  val form_param : t @ local -> string -> string option @@ portable
   (** [form_param t name] is the first value of [name] in {!form}. *)
 
-  val forwarded_for : t -> string option @@ portable
+  val forwarded_for : t @ local -> string option @@ portable
   (** [forwarded_for t] is the first entry of X-Forwarded-For, which the
       nearest proxy sets to the client it saw. Whether that proxy is trusted is
       the deployment's business, not this library's. *)
 
-  val forwarded_proto : t -> string option @@ portable
+  val forwarded_proto : t @ local -> string option @@ portable
   (** [forwarded_proto t] is X-Forwarded-Proto, lowercased. *)
 end
 
@@ -294,29 +365,98 @@ module Etag : sig
 end
 
 module Resp : sig
-  (** One response, described. A handler returns a value of this type and never
-      writes to a socket. The constructors below all funnel through {!v}, which
-      rejects a field that would not survive the wire. *)
+  (** One response, described. A handler is handed a {!respond} and calls it,
+      rather than returning a value.
 
-  type t
-  (** A response. *)
+      That is what keeps the response path off the heap. A returned record
+      would have to outlive the frame that built it, or need [exclave_] at
+      every frame between the constructor and the backend, and every
+      combinator that transforms a response would need it too. Passing a
+      responder down means nothing has to travel back up, so the description,
+      its header block and the backend's outcome all live in the region
+      {!Backend.handle} runs the handler in.
+
+      A responder is always used at [local]. A backend builds one per request,
+      and a handler that stashed one would hold a closure over a connection
+      about to be reused. The mode is what stops that.
+
+      Respond once, and respond last. A second call is dropped and reported to
+      {!Backend.handle}'s [on_error], since the first response is already on
+      the wire. A handler that returns without responding is reported the same
+      way and answered 500. *)
+
+  type description = {
+    status : Status.t;
+    headers : Headers.t;
+    global_ etag : Etag.t option;
+    global_ last_modified : float option;
+    global_ cache : Cache_control.t option;
+    global_ content_type : string option;
+    global_ body : Body.t;
+  }
+  (** What a handler describes. Only a backend and {!Backend.handle} read it:
+      a handler builds one through the constructors below.
+
+      It is passed at [local], so it costs no heap. [headers] is left at the
+      record's own mode, because the block is the part worth keeping on the
+      stack. Every other field holds a heap value that has to be readable at
+      global to reach a socket, so each is [global_]. *)
+
+  type respond = description @ local -> unit
+  (** What a backend hands a handler.
+
+      One record argument rather than a run of labelled ones: currying and
+      locality do not mix, since a curried function used at [local] groups its
+      arrows and an application then reads as complete after the first
+      argument. *)
 
   val v :
+    respond @ local ->
     ?status:Status.t ->
-    ?headers:(string * string) list ->
+    headers:Headers.t @ local ->
     ?etag:Etag.t ->
     ?last_modified:float ->
     ?cache:Cache_control.t ->
     ?content_type:string ->
     Body.t ->
-    t
+    unit
     @@ portable
-  (** [v body] is a response, [`OK] unless [status] says otherwise.
+  (** [v respond ~headers body] responds with [body], [`OK] unless [status]
+      says otherwise.
+
+      [headers] is required rather than optional, and that is what lets a
+      block reach the responder on the stack. An optional argument is passed
+      as an allocated [Some] which the block cannot cross, so the constructors
+      below, which take [?headers] for convenience, put the block on the heap
+      whenever one is given.
+
+      Two things are needed to keep a block off the heap, and neither is
+      visible at a call site that omits them. The block must be written
+      [stack_], since [local] on a parameter permits stack allocation but does
+      not cause it. And the call must not be in tail position, since a local
+      argument cannot be passed in a tail call, so it is written
+      [let () = ... in ()]. On a path that answers every request, that is
+      worth doing:
+
+      {[
+        let () =
+          Resp.v respond ~etag ~content_type
+            ~headers:(stack_ [ Resp.h Httpz.Header_name.X_cache "hit" ])
+            (Body.String page)
+        in
+        ()
+      ]}
+
+      Everywhere else the convenience is worth more than the words, and a
+      constructor below with no [~headers] at all allocates nothing for the
+      block either way, since the default is a constant.
 
       [last_modified] is seconds since the epoch. Each of [content_type],
       [cache], [etag] and [last_modified] adds its header and owns that field,
       so [headers] may not name it as well. [etag] and [last_modified] are also
-      what {!Backend.handle} evaluates a conditional request against.
+      what {!Backend.handle} evaluates a conditional request against, and the
+      fields they own are rendered there, once it is known whether the
+      response is being sent at all.
 
       Every other constructor in this module goes through [v], so the checks
       below cover them all.
@@ -337,75 +477,73 @@ module Resp : sig
       guard, so either mistake becomes a 500 reported to [on_error] rather
       than a split, duplicated or truncated response. *)
 
+  val h : Headers.name -> string -> Headers.field @@ portable
+
+  val other : string -> string -> Headers.field @@ portable
+  (** [other spelling value] is {!Headers.other}, re-exported. *)
+
+  val h_local : Headers.name -> string -> Headers.field @ local @@ portable
+  (** [h_local] is {!Headers.h_local}, re-exported: the constructor to build a
+      block from on a path that answers every request. *)
+  (** [h name value] is {!Headers.h}, re-exported so that a handler passing
+      [~headers] needs only this module in scope. *)
+
   val html :
-    ?status:Status.t -> ?etag:Etag.t -> ?cache:Cache_control.t -> string -> t
-    @@ portable
-  (** [html s] is [s] as [text/html; charset=utf-8]. *)
-
-  val text : ?status:Status.t -> string -> t @@ portable
-  (** [text s] is [s] as [text/plain; charset=utf-8]. *)
-
-  val media :
+    respond @ local ->
     ?status:Status.t ->
     ?etag:Etag.t ->
     ?cache:Cache_control.t ->
+    ?headers:Headers.t @ local ->
     string ->
-    string ->
-    t
+    unit
     @@ portable
-  (** [media ct s] is [s] with Content-Type [ct]. *)
+  (** [html respond s] responds with [s] as [text/html; charset=utf-8]. *)
 
-  val see_other : string -> t @@ portable
-  (** [see_other location] is the 303 that follows a successful form post. *)
+  val text :
+    respond @ local ->
+    ?status:Status.t ->
+    ?headers:Headers.t @ local ->
+    string ->
+    unit
+    @@ portable
+  (** [text respond s] responds with [s] as [text/plain; charset=utf-8]. *)
 
-  val redirect : ?permanent:bool -> string -> t @@ portable
-  (** [redirect location] is a 302, or a 301 when [permanent] is [true]. *)
+  val media :
+    respond @ local ->
+    ?status:Status.t ->
+    ?etag:Etag.t ->
+    ?cache:Cache_control.t ->
+    ?headers:Headers.t @ local ->
+    string ->
+    string ->
+    unit
+    @@ portable
+  (** [media respond ct s] responds with [s] under Content-Type [ct]. *)
 
-  val not_found : ?html:string -> unit -> t @@ portable
-  (** [not_found ()] is a 404 carrying [html], or a minimal page. *)
+  val empty :
+    respond @ local ->
+    ?status:Status.t ->
+    ?headers:Headers.t @ local ->
+    unit ->
+    unit
+    @@ portable
+  (** [empty respond ()] responds with no body. *)
 
-  val bad_request : ?html:string -> unit -> t @@ portable
-  (** [bad_request ()] is a 400 carrying [html], or a minimal page. *)
+  val see_other : respond @ local -> string -> unit @@ portable
+  (** [see_other respond location] is the 303 that follows a successful form
+      post. *)
 
-  val vary : string -> t -> t @@ portable
-  (** [vary name t] adds [name] to [t]'s Vary field, or sets that field when
-      [t] has none. A negotiation combinator uses it to mark a response as
-      depending on a request header.
+  val redirect :
+    respond @ local -> ?permanent:bool -> string -> unit @@ portable
+  (** [redirect respond location] is a 302, or a 301 when [permanent] is
+      [true]. *)
 
-      @raise Invalid_argument
-        if [name] is not a non-empty RFC 9110 token. *)
+  val not_found : respond @ local -> ?html:string -> unit -> unit @@ portable
+  (** [not_found respond ()] is a 404 carrying [html], or a minimal page. *)
 
-  val add_headers : (string * string) list -> t -> t @@ portable
-  (** [add_headers extra t] appends [extra] to [t]'s field block. A name [t]
-      already carries is left in place, so the copy [t] set is the one a
-      client reads first. A site wrapper uses it to add a header to every
-      response.
-
-      @raise Invalid_argument
-        if a name or a value is unwritable, as {!v} rejects it. *)
-
-  val status : t -> Status.t @@ portable
-  (** [status t] is the status [t] was built with, before any conditional
-      request turns it into a 304. *)
-
-  val headers : t -> Headers.t @@ portable
-  (** [headers t] is the field block as it goes on the wire, including
-      Content-Type, Cache-Control, ETag and Last-Modified. Content-Length is
-      the backend's business, since only it knows what it will send. *)
-
-  val body : t -> Body.t @@ portable
-  (** [body t] is the body [t] describes. *)
-
-  val etag : t -> Etag.t option @@ portable
-  (** [etag t] is the entity-tag [t] was built with, which is what a
-      conditional request is evaluated against. *)
-
-  val last_modified : t -> float option @@ portable
-  (** [last_modified t] is the modification time [t] was built with, in seconds
-      since the epoch. *)
-
-  val cache : t -> Cache_control.t option @@ portable
-  (** [cache t] is the cache policy [t] was built with. *)
+  val bad_request :
+    respond @ local -> ?html:string -> unit -> unit @@ portable
+  (** [bad_request respond ()] is a 400 carrying [html], or a minimal page. *)
 end
 
 (** {1 Routes and sites} *)
@@ -415,17 +553,17 @@ module Route : sig
       handler argument rather than a tuple element.
 
       {[
-        get nil (fun env _req -> ...)
-        (* env -> Req.t -> Resp.t *)
+        get nil (fun env _req respond -> ...)
+        (* env -> Req.t -> Resp.respond @ local -> unit *)
 
-        get (s "contact" / str /? nil) (fun handle env req -> ...)
-        (* string -> env -> Req.t -> Resp.t *)
+        get (s "contact" / str /? nil) (fun handle env req respond -> ...)
+        (* string -> env -> Req.t -> Resp.respond @ local -> unit *)
 
-        get (s "a" / str / s "b" / int /? nil) (fun x n env req -> ...)
-        (* string -> int -> env -> Req.t -> Resp.t *)
+        get (s "a" / str / s "b" / int /? nil) (fun x n env req respond -> ...)
+        (* string -> int -> env -> ... *)
 
-        get (s "static" /* rest) (fun segs env req -> ...)
-        (* string list -> env -> Req.t -> Resp.t *)
+        get (s "static" /* rest) (fun segs env req respond -> ...)
+        (* string list -> env -> ... *)
       ]}
 
       A pattern is a chain of fragments joined by [( / )], closed with
@@ -434,9 +572,13 @@ module Route : sig
 
       A GET route also answers HEAD. {!Backend.handle} suppresses the body. *)
 
-  type 'env handler = 'env -> Req.t -> Resp.t
+  type 'env handler =
+    'env -> Req.t @ local -> Resp.respond @ local -> unit
   (** What a route runs. The ['env] argument carries whatever state the handler
-      needs, since a portable closure cannot capture it. *)
+      needs, since a portable closure cannot capture it. The responder is taken
+      at [local]: it is built per request in the region {!Backend.handle} runs
+      the handler in, and a handler that stashed one would hold a closure over
+      a connection about to be reused. *)
 
   type ('f, 'r) pat
   (** A complete pattern. ['f] is the handler type it demands and ['r] what is
@@ -530,7 +672,15 @@ module Site : sig
   val with_headers : (string * string) list -> 'env t -> 'env t @@ portable
   (** [with_headers extra site] adds [extra] to every response [site] gives,
       whether a route wrote it or the library did. It is how a site sets
-      security headers once. *)
+      security headers once.
+
+      The fields are appended to the block on its way past the wrapper, so a
+      name a handler already set is the copy a client reads first, and the
+      joined block is built in the responder's region rather than the heap.
+      The names and values are checked once here, as {!Resp.v} checks them,
+      which is what stops a decorator injecting a response split.
+
+      @raise Invalid_argument if a name or a value is unwritable. *)
 
   val with_auth :
     scope:string list list ->
@@ -694,22 +844,35 @@ module Backend : sig
     headers : Headers.t;
         (** Fully rendered, including validators, Cache-Control and
             Content-Type. Content-Length is the backend's job. *)
-    body :
+    global_ body :
       [ `Empty
       | `String of string
       | `Stream of int64 option * (Body.Sink.t -> unit) ];
-    content_length : int64 option;
+    global_ content_length : int64 option;
         (** The length the response would have, kept accurate for HEAD and 304
             so a backend can send Content-Length without a body. [None] means
             unknown, which for a stream means chunked. *)
   }
-  (** One response, decided but not yet written. *)
+  (** One response, decided but not yet written. It reaches a backend at
+      [local], so it costs no heap. [headers] is left at the record's own mode,
+      since the block is the part worth keeping on the stack; the body and the
+      length are [global_] because a socket write needs them there. *)
+
+  type writer = outcome @ local -> unit
+  (** What a backend gives {!handle} to write one response with. It is called
+      exactly once per request. *)
 
   val handle :
-    ?on_error:(exn -> unit) -> 'env Compiled.t -> 'env -> Req.t -> outcome
+    ?on_error:(exn -> unit) ->
+    'env Compiled.t ->
+    'env ->
+    Req.t @ local ->
+    writer @ local ->
+    unit
     @@ portable
-  (** [handle compiled env req] dispatches [req] and applies the protocol
-      mechanics that do not need a socket, in this order.
+  (** [handle compiled env req write] dispatches [req], applies the protocol
+      mechanics that do not need a socket, and calls [write] once with the
+      outcome, in this order.
 
       - The method and the decoded segments select a route. HEAD matches a GET
         route. A path that matches only under other methods gives 405 with an
@@ -731,7 +894,27 @@ module Backend : sig
         handler failure.
 
       A handler that raises, including one whose response is rejected as
-      unwritable, is answered 500, so [handle] itself does not raise. *)
+      unwritable, is answered 500, so [handle] itself does not raise.
+
+      Three cases a handler can get wrong are decided here rather than left to
+      a backend. A handler that returns without responding is reported to
+      [on_error] and answered 500. A handler that responds twice has the second
+      call reported and dropped, since the first is already written. A handler
+      that raises after responding is reported and nothing further is written,
+      because the bytes have gone. *)
+
+  val run :
+    ?on_error:(exn -> unit) ->
+    Req.t @ local ->
+    (Resp.respond @ local -> unit) @ local ->
+    writer @ local ->
+    unit
+    @@ portable
+  (** [run req describe write] gives [describe] a responder and writes what it
+      responds with, applying the same conditional-request, HEAD and
+      {!Body.Delayed} mechanics {!handle} does and reporting the same three
+      handler mistakes. {!handle} is this plus dispatch. A test reaches it
+      through [proffer.mock] to exercise one response without a site. *)
 
   val sink : (string -> unit) -> Body.Sink.t @@ portable
   (** [sink f] is how a backend wraps its writer for a [Body.Stream]. *)

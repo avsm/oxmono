@@ -1,3 +1,5 @@
+module H = Httpz.Header_name
+
 type media = [ `Html | `Markdown | `Json | `Xml | `Other of string ]
 
 let of_media s : media =
@@ -59,7 +61,20 @@ let rec pick variants = function
       | Some h -> Some h
       | None -> pick variants rest)
 
-let v variants env req =
-  match pick variants (of_accept (Req.header req "accept")) with
-  | Some h -> Resp.vary "Accept" (h env req)
-  | None -> Resp.not_found ()
+(* The chosen response gains [Vary: Accept] on its way past, since it depends
+   on that header. Rewriting rather than appending leaves one Vary when the
+   handler named a field itself. *)
+let v variants env req (respond : Resp.respond @ local) =
+  match pick variants (of_accept (Req.header req H.Accept)) with
+  | Some h ->
+      let local_ varying : Resp.respond =
+       fun d ->
+        let local_ d =
+          { d with Resp.headers = Headers.vary d.Resp.headers "Accept" }
+        in
+        let () = respond d in
+        ()
+      in
+      let () = h env req varying in
+      ()
+  | None -> Resp.not_found respond ()

@@ -8,7 +8,7 @@
     A proffer handler is portable. It can therefore capture neither
     domain-bound state, such as a search handle, an access log, a clock or a
     filesystem capability, nor a function whose interface carries no mode
-    annotations, which is every function in Ezjsonm and Syndic and every
+    annotations, which is every function in jsont and Syndic and every
     renderer built on those. Each of them is reached through a closure in {!t}
     instead, and one value of {!t} is built per domain by {!create}, where
     those resources exist.
@@ -17,8 +17,8 @@
     it came from, so a handler reads as a description of the route it answers.
     A response a handler can compute itself has no field: it reads {!t.config}
     or {!t.ctx} and calls {!Arod_render} directly. Every page render is now
-    reached that way, and the header of {!Arod_render} names what keeps the
-    five that are left behind a closure. *)
+    reached that way, as is the sitemap, and the header of {!Arod_render} names
+    what keeps the four that are left behind a closure. *)
 
 type t = {
   ctx : Arod.Ctx.t;
@@ -36,8 +36,6 @@ type t = {
           this domain's clock. The cache is expired against it. *)
   feed : Arod_render.feed -> string;
       (** [feed which] is the syndication feed [which]. *)
-  sitemap : unit -> string;
-      (** [sitemap ()] is the XML sitemap of every entry. *)
   pagination :
     collection:string option ->
     offset:int ->
@@ -45,7 +43,9 @@ type t = {
     types:string list ->
     string;
       (** [pagination ~collection ~offset ~limit ~types] is one page of
-          [collection] as the JSON the pagination script reads. *)
+          [collection] as the JSON the pagination API answers. It is a closure
+          because it renders through jsont, whose codecs cannot cross a domain
+          boundary. *)
   search : q:string -> limit:int -> string * int;
       (** [search ~q ~limit] is at most [limit] results for [q] as the JSON
           the search box reads, paired with the number of results it holds. An

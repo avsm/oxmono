@@ -1,6 +1,10 @@
 (library
  (name proffer)
  (public_name proffer)
+ ; Proffer is a server layer over httpz, which owns the protocol vocabulary:
+ ; methods, statuses, header names and dates are httpz's types, not copies of
+ ; them. A backend therefore hands its parse straight over with no conversion.
+ (libraries httpz stdlib_stable stdlib_upstream_compatible)
  ; Only [Proffer] is public API. Listing the rest as private keeps their .cmi
  ; out of the installed interface, so a consumer cannot reach [Proffer__Route]
  ; and bind itself to an internal signature.
@@ -15,6 +19,7 @@
   headers
   method
   mime
+  status
   negotiate
   pct
   req

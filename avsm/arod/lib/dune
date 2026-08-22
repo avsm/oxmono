@@ -18,7 +18,6 @@
   ptime.clock.os
   syndic
   jsonfeed
-  ezjsonm
   sitemap
   unix
   fmt

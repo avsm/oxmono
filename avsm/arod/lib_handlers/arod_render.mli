@@ -23,13 +23,19 @@
     decodes a DOI with [Uri.pct_decode], is settled once per note when the
     context is built.
 
-    Five renders are still not portable, and each was measured by annotating
-    it and reading what the compiler named. {!feed} closes over
-    [Arod.Feed.feed_string], {!sitemap} over [Sitemap.v] from the vendored
-    sitemap library, {!pagination} and {!search} over [Ezjsonm.to_string], and
-    {!report} over [Arod_handlers_stats.render_dashboard]. {!report} also
-    takes a database handle, which is bound to the domain that opened it, so
-    annotating the renderer alone would not free the route. Those five keep
+    {!sitemap} is portable too, since the vendored sitemap library carries a
+    floating [@@ portable] and its [url] type is a private record whose kind
+    the compiler reads off its fields.
+
+    Four renders are still not portable, and each was measured by annotating it
+    and reading what the compiler named. {!feed} closes over
+    [Arod.Feed.feed_string], {!pagination} and {!search} over
+    [Arod_json.encode], and {!report} over
+    [Arod_handlers_stats.render_dashboard]. The first three reach jsont, whose
+    codecs cannot be given a kind that crosses a domain boundary; [TODO.md]
+    records what that would take and where it stops. {!report} also takes a
+    database handle, which is bound to the domain that opened it, so
+    annotating the renderer alone would not free the route. Those four keep
     their closures in {!Arod_env}. *)
 
 type flavour = [ `Html | `Markdown ]
@@ -76,7 +82,7 @@ val paper_bib : ctx:Arod.Ctx.t -> string -> string option @@ portable
 val feed : ctx:Arod.Ctx.t -> feed -> string
 (** [feed ~ctx which] is the feed [which]. *)
 
-val sitemap : ctx:Arod.Ctx.t -> string
+val sitemap : ctx:Arod.Ctx.t -> string @@ portable
 (** [sitemap ~ctx] is the XML sitemap of every entry. *)
 
 val blogroll : ctx:Arod.Ctx.t -> string @@ portable

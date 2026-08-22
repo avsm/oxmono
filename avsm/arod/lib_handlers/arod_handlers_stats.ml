@@ -1759,34 +1759,101 @@ let render_dashboard db range =
 
 (** {1 JSON API Responses} *)
 
+(* Every metric is preformatted for display, so the dashboard reads strings
+   and does no arithmetic of its own. *)
+module Overview = struct
+  type t = {
+    total : string;
+    avg_latency : string;
+    cache_rate : string;
+    error_rate : string;
+    bandwidth : string;
+  }
+
+  let codec =
+    Jsont.Object.map ~kind:"overview"
+      (fun total avg_latency cache_rate error_rate bandwidth ->
+        { total; avg_latency; cache_rate; error_rate; bandwidth })
+    |> Jsont.Object.mem "total" Jsont.string ~enc:(fun o -> o.total)
+    |> Jsont.Object.mem "avg_latency" Jsont.string
+         ~enc:(fun o -> o.avg_latency)
+    |> Jsont.Object.mem "cache_rate" Jsont.string ~enc:(fun o -> o.cache_rate)
+    |> Jsont.Object.mem "error_rate" Jsont.string ~enc:(fun o -> o.error_rate)
+    |> Jsont.Object.mem "bandwidth" Jsont.string ~enc:(fun o -> o.bandwidth)
+    |> Jsont.Object.finish
+end
+
 let overview_json db range =
   let total, avg_lat, cache_rate, err_rate, bw = overview_metrics db range in
-  Ezjsonm.to_string (`O [
-    ("total", `String (format_number total));
-    ("avg_latency", `String (human_duration_us (Float.to_int avg_lat)));
-    ("cache_rate", `String (Printf.sprintf "%.1f%%" cache_rate));
-    ("error_rate", `String (Printf.sprintf "%.1f%%" err_rate));
-    ("bandwidth", `String (human_bytes bw));
-  ])
+  Arod_json.encode Overview.codec
+    {
+      Overview.total = format_number total;
+      avg_latency = human_duration_us (Float.to_int avg_lat);
+      cache_rate = Printf.sprintf "%.1f%%" cache_rate;
+      error_rate = Printf.sprintf "%.1f%%" err_rate;
+      bandwidth = human_bytes bw;
+    }
+
+module Bucket = struct
+  type t = { bucket : string; count : int }
+
+  let codec =
+    Jsont.Object.map ~kind:"bucket" (fun bucket count -> { bucket; count })
+    |> Jsont.Object.mem "bucket" Jsont.string ~enc:(fun b -> b.bucket)
+    |> Jsont.Object.mem "count" Jsont.int ~enc:(fun b -> b.count)
+    |> Jsont.Object.finish
+end
+
+let traffic_codec =
+  Jsont.Object.map ~kind:"traffic" Fun.id
+  |> Jsont.Object.mem "traffic" (Jsont.list Bucket.codec) ~enc:Fun.id
+  |> Jsont.Object.finish
 
 let traffic_json db range =
-  let data = traffic_over_time db range in
-  let items = List.map (fun (bucket, cnt) ->
-    `O [("bucket", `String bucket); ("count", `Float (float_of_int cnt))]
-  ) data in
-  Ezjsonm.to_string (`O [("traffic", `A items)])
+  let items =
+    List.map
+      (fun (bucket, count) -> { Bucket.bucket; count })
+      (traffic_over_time db range)
+  in
+  Arod_json.encode traffic_codec items
+
+module Request = struct
+  type t = {
+    timestamp : string;
+    meth : string;
+    path : string;
+    status : int;
+    duration : string;
+    cache : string;
+    size : string;
+  }
+
+  let codec =
+    Jsont.Object.map ~kind:"request"
+      (fun timestamp meth path status duration cache size ->
+        { timestamp; meth; path; status; duration; cache; size })
+    |> Jsont.Object.mem "timestamp" Jsont.string ~enc:(fun r -> r.timestamp)
+    |> Jsont.Object.mem "method" Jsont.string ~enc:(fun r -> r.meth)
+    |> Jsont.Object.mem "path" Jsont.string ~enc:(fun r -> r.path)
+    |> Jsont.Object.mem "status" Jsont.int ~enc:(fun r -> r.status)
+    |> Jsont.Object.mem "duration" Jsont.string ~enc:(fun r -> r.duration)
+    |> Jsont.Object.mem "cache" Jsont.string ~enc:(fun r -> r.cache)
+    |> Jsont.Object.mem "size" Jsont.string ~enc:(fun r -> r.size)
+    |> Jsont.Object.finish
+end
+
+let recent_codec =
+  Jsont.Object.map ~kind:"requests" Fun.id
+  |> Jsont.Object.mem "requests" (Jsont.list Request.codec) ~enc:Fun.id
+  |> Jsont.Object.finish
 
 let recent_json db =
-  let recent = recent_requests db in
-  let items = List.map (fun (ts, meth, path, status, dur, cache, size) ->
-    `O [
-      ("timestamp", `String ts);
-      ("method", `String meth);
-      ("path", `String path);
-      ("status", `Float (float_of_int status));
-      ("duration", `String (human_duration_us dur));
-      ("cache", `String (if cache = "" then "" else cache));
-      ("size", `String (human_bytes (float_of_int size)));
-    ]
-  ) recent in
-  Ezjsonm.to_string (`O [("requests", `A items)])
+  let items =
+    List.map
+      (fun (timestamp, meth, path, status, dur, cache, size) ->
+        { Request.timestamp; meth; path; status;
+          duration = human_duration_us dur; cache;
+          size = human_bytes (float_of_int size) })
+      (recent_requests db)
+  in
+  Arod_json.encode recent_codec items

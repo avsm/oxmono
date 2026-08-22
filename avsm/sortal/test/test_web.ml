@@ -3,6 +3,8 @@
 
 open Proffer
 module Contact = Sortal_schema.Contact
+module H = Httpz.Header_name
+module M = Httpz.Method
 
 let checks = ref 0
 
@@ -75,12 +77,12 @@ let encode fields =
     (List.map (fun (k, v) -> urlenc k ^ "=" ^ urlenc v) fields)
 
 let get ?headers target =
-  Proffer_mock.request ?headers Sortal_web.compiled env `GET target
+  Proffer_mock.request ?headers Sortal_web.compiled env M.Get target
 
 let post ?(fields = []) target =
   Proffer_mock.request
     ~headers:[ ("content-type", "application/x-www-form-urlencoded") ]
-    ~body:(encode fields) Sortal_web.compiled env `POST target
+    ~body:(encode fields) Sortal_web.compiled env M.Post target
 
 let code o = Status.code (Proffer_mock.status o)
 let body = Proffer_mock.body
@@ -90,7 +92,7 @@ let header_exn o name =
   match header o name with
   | Some v -> v
   | None ->
-      prerr_endline ("FAIL: no header " ^ name);
+      prerr_endline ("FAIL: no header " ^ H.canonical name);
       exit 1
 
 (* The empty index *)
@@ -125,7 +127,7 @@ let () =
   in
   check "create redirects" (code o = 303);
   check "create points at the contact"
-    (String.equal (header_exn o "location") "/contact/avsm");
+    (String.equal (header_exn o H.Location) "/contact/avsm");
   let c = stored "avsm" in
   check "create keeps the name" (Contact.names c = [ "Anil Madhavapeddy" ]);
   check "create keeps the email" (Contact.emails c = [ "anil@recoil.org" ])
@@ -209,7 +211,7 @@ let () =
   in
   check "edit redirects to the detail" (code o = 303);
   check "edit redirect target"
-    (String.equal (header_exn o "location") "/contact/avsm");
+    (String.equal (header_exn o H.Location) "/contact/avsm");
   let c = stored "avsm" in
   check "edit splits the names" (Contact.names c = [ "Anil Madhavapeddy"; "AVSM" ]);
   check "edit sets the kind" (Contact.kind c = Contact.Organization);
@@ -236,7 +238,7 @@ let () =
   let o = post "/contact/avsm/email/add" ~fields:[ ("address", "avsm@cl.cam.ac.uk") ] in
   check "email add redirects" (code o = 303);
   check "email add returns to the editor"
-    (String.equal (header_exn o "location") "/contact/avsm/edit");
+    (String.equal (header_exn o H.Location) "/contact/avsm/edit");
   let c = stored "avsm" in
   check "email add appends" (List.length (Contact.emails c) = 2);
   check "email add keeps the address"
@@ -324,7 +326,7 @@ let () =
   in
   check "awkward handle is created" (code o = 303);
   check "awkward handle is percent-encoded"
-    (String.equal (header_exn o "location") "/contact/o%27brien%20x");
+    (String.equal (header_exn o H.Location) "/contact/o%27brien%20x");
   let o = get "/contact/o%27brien%20x" in
   check "awkward handle resolves" (code o = 200);
   check "awkward handle is HTML-escaped" (contains (body o) "O&#39;Brien");
@@ -341,14 +343,14 @@ let () =
   let o = get "/thumbnail/avsm" in
   check "thumbnail is 200" (code o = 200);
   check "thumbnail is a png"
-    (String.equal (header_exn o "content-type") "image/png");
+    (String.equal (header_exn o H.Content_type) "image/png");
   check "thumbnail is privately cached"
-    (contains (header_exn o "cache-control") "private");
-  let etag = header_exn o "etag" in
+    (contains (header_exn o H.Cache_control) "private");
+  let etag = header_exn o H.Etag in
   check "thumbnail etag is strong" (String.length etag > 2 && etag.[0] = '"');
   let o = get ~headers:[ ("if-none-match", etag) ] "/thumbnail/avsm" in
   check "thumbnail revalidates to 304" (code o = 304);
-  check "304 keeps the etag" (header o "etag" = Some etag);
+  check "304 keeps the etag" (header o Httpz.Header_name.Etag = Some etag);
   check "304 has no body" (String.equal (body o) "");
   let o = get "/" in
   check "index shows the thumbnail"
@@ -360,12 +362,13 @@ let () =
   let o = get "/static/style.css" in
   check "css is 200" (code o = 200);
   check "css content type"
-    (String.equal (header_exn o "content-type") "text/css; charset=utf-8");
+    (String.equal (header_exn o H.Content_type)
+       "text/css; charset=utf-8");
   check "css is immutable for a year"
-    (contains (header_exn o "cache-control") "immutable"
-    && contains (header_exn o "cache-control") "max-age=31536000");
+    (contains (header_exn o H.Cache_control) "immutable"
+    && contains (header_exn o H.Cache_control) "max-age=31536000");
   check "css has content" (contains (body o) "--accent");
-  let etag = header_exn o "etag" in
+  let etag = header_exn o H.Etag in
   let o = get ~headers:[ ("if-none-match", etag) ] "/static/style.css" in
   check "css revalidates to 304" (code o = 304)
 
@@ -377,7 +380,7 @@ let () =
   let o = post "/contact/avsm/delete" in
   check "delete redirects" (code o = 303);
   check "delete returns to the index"
-    (String.equal (header_exn o "location") "/");
+    (String.equal (header_exn o H.Location) "/");
   check "deleted contact is gone" (code (get "/contact/avsm") = 404);
   check "index drops it" (not (contains (body (get "/")) "/contact/avsm"))
 

@@ -5,6 +5,9 @@
    needed. The context is real, because every page render is portable and the
    handlers reach those through it. *)
 
+module H = Httpz.Header_name
+module M = Httpz.Method
+
 let checks = ref 0
 
 let check name b =
@@ -114,7 +117,6 @@ let env =
         | `Json -> "json"
         | `Perma_atom -> "perma-atom"
         | `Perma_json -> "perma-json");
-    sitemap = (fun () -> "<urlset/>");
     pagination =
       (fun ~collection ~offset ~limit ~types ->
         ignore types;
@@ -150,7 +152,9 @@ let contains hay needle =
   go 0
 
 let site = Arod_server.Site.build cfg
-let get ?headers target = Proffer_mock.request ?headers site env `GET target
+let header_other o n = Proffer_mock.header_other o n
+let get ?headers target = Proffer_mock.request ?headers site env
+  M.Get target
 let code r = Proffer.Status.code (Proffer_mock.status r)
 let body = Proffer_mock.body
 let header = Proffer_mock.header
@@ -168,7 +172,7 @@ let () =
     (body (get ~headers:[ ("Accept", "text/markdown") ] "/")
     = "# Index\n\nHello from the index.\n\n---\nCanonical: https://example.com\n");
   check "a negotiated response varies on Accept"
-    (header (get "/") "Vary" = Some "Accept");
+    (header (get "/") H.Vary = Some "Accept");
   check "a .md URL is the markdown variant"
     (let b = body (get "/papers.md") in
      String.starts_with ~prefix:"# Papers\n" b
@@ -191,20 +195,23 @@ let () =
   let r = get "/atom.xml" in
   check "a retired feed path is a permanent redirect" (code r = 301);
   check "and it points at the current one"
-    (header r "Location" = Some "/news.xml");
+    (header r H.Location = Some "/news.xml");
   let r = get "/notes/index.html" in
   check "a list index.html redirects to the list" (code r = 301);
-  check "at the canonical path" (header r "Location" = Some "/notes");
+  check "at the canonical path"
+    (header r H.Location = Some "/notes");
   let r = get "/notes/hello/index.html" in
   check "an entry index.html redirects to the entry" (code r = 301);
-  check "carrying the slug" (header r "Location" = Some "/notes/hello");
+  check "carrying the slug"
+    (header r H.Location = Some "/notes/hello");
   let r = get "/tags/ocaml" in
   check "a tag link is a temporary redirect" (code r = 302);
   check "into the front page's tag filter"
-    (header r "Location" = Some "/#tag=ocaml");
+    (header r H.Location = Some "/#tag=ocaml");
   let r = get "/news/hello" in
   check "a legacy news URL redirects to the note" (code r = 301);
-  check "keeping the slug" (header r "Location" = Some "/notes/hello")
+  check "keeping the slug"
+    (header r H.Location = Some "/notes/hello")
 
 let () =
   (* A capture arrives decoded, so what goes back into a Location has to be
@@ -212,19 +219,21 @@ let () =
      CR would make Resp.redirect refuse the field and answer 500. *)
   let r = get "/news/foo%20bar" in
   check "a space in a capture is encoded back into the Location"
-    (header r "Location" = Some "/notes/foo%20bar");
+    (header r H.Location = Some "/notes/foo%20bar");
   check "and the redirect is still a redirect" (code r = 301);
   let r = get "/news/a%0Db" in
   check "a CR in a capture does not become a 500" (code r = 301);
-  check "it is encoded instead" (header r "Location" = Some "/notes/a%0Db");
+  check "it is encoded instead"
+    (header r H.Location = Some "/notes/a%0Db");
   let r = get "/notes/foo%20bar/index.html" in
   check "an entry index.html encodes its slug too"
-    (header r "Location" = Some "/notes/foo%20bar");
+    (header r H.Location = Some "/notes/foo%20bar");
   let r = get "/tags/two%20words" in
   check "so does the tag redirect"
-    (header r "Location" = Some "/#tag=two%20words");
+    (header r H.Location = Some "/#tag=two%20words");
   check "an ordinary slug is left alone"
-    (header (get "/news/hello-there") "Location" = Some "/notes/hello-there")
+    (header (get "/news/hello-there") H.Location
+    = Some "/notes/hello-there")
 
 let () =
   let enc = Arod_handlers.encode_segment in
@@ -244,7 +253,8 @@ let () =
   check "a paper PDF is served from the paper directory"
     (body (get "/papers/x.pdf") = "x.pdf");
   check "with a Content-Type from its extension"
-    (header (get "/papers/x.pdf") "Content-Type" = Some "application/pdf");
+    (header (get "/papers/x.pdf") H.Content_type
+    = Some "application/pdf");
   check "a missing PDF is a 404" (code (get "/papers/gone.pdf") = 404);
   check "a .bib URL is the BibTeX entry" (body (get "/papers/x.bib") = "@x");
   check "and a .bib URL for no paper is a 404"
@@ -257,7 +267,7 @@ let () =
      String.starts_with ~prefix:"<?xml version=\"1.0\" encoding=\"UTF-8\"?>" b
      && String.ends_with ~suffix:"<body/></opml>" b);
   check "and serves it as OPML"
-    (header (get "/network/blogroll.opml") "Content-Type"
+    (header (get "/network/blogroll.opml") H.Content_type
     = Some "text/x-opml+xml; charset=utf-8");
   check "an entry .md URL is that entry as markdown"
     (let b = body (get "/papers/x.md") in
@@ -271,9 +281,10 @@ let () =
   check "a traversal in the tail is refused"
     (code (get "/images/../etc/passwd") = 404);
   check "an embedded asset is served"
-    (header (get "/favicon.svg") "Content-Type" = Some "image/svg+xml");
+    (header (get "/favicon.svg") H.Content_type
+    = Some "image/svg+xml");
   check "a versioned asset may be cached for ever"
-    (header (get "/tw.css") "Cache-Control"
+    (header (get "/tw.css") H.Cache_control
     = Some "public, max-age=31536000, immutable")
 
 let () =
@@ -301,7 +312,7 @@ let () =
   let r = get "/action" in
   check "the dashboard is gated" (code r = 401);
   check "and says how to authenticate"
-    (header r "WWW-Authenticate" = Some "Basic realm=\"stats\"");
+    (header r H.Www_authenticate = Some "Basic realm=\"stats\"");
   check "a path under the gate that names no route is gated too"
     (code (get "/action/nothing") = 401);
   let auth = [ ("Authorization", "Basic dTpwdw==") ] in
@@ -314,17 +325,21 @@ let () =
 
 let () =
   check "every response carries the sniffing guard"
-    (header (get "/") "X-Content-Type-Options" = Some "nosniff");
+    (header_other (get "/") "X-Content-Type-Options"
+    = Some "nosniff");
   check "and the referrer policy"
-    (header (get "/") "Referrer-Policy" = Some "strict-origin-when-cross-origin")
+    (header_other (get "/") "Referrer-Policy"
+    = Some "strict-origin-when-cross-origin")
 
 let () =
   (* No test above fetches /links, so this pair sees a miss and then a hit. *)
   let r = get "/links" in
-  check "the first render is a cache miss" (header r "X-Cache" = Some "miss");
+  check "the first render is a cache miss"
+    (header r H.X_cache = Some "miss");
   let r' = get "/links" in
-  check "the second is a hit" (header r' "X-Cache" = Some "hit");
-  match header r' "ETag" with
+  check "the second is a hit"
+    (header r' H.X_cache = Some "hit");
+  match header r' H.Etag with
   | None -> check "a cached page carries an entity-tag" false
   | Some etag ->
     let r'' = get ~headers:[ ("If-None-Match", etag) ] "/links" in
@@ -332,7 +347,7 @@ let () =
     check "with no body" (body r'' = "")
 
 let () =
-  let r = Proffer_mock.request site env `HEAD "/" in
+  let r = Proffer_mock.request site env M.Head "/" in
   check "a HEAD has no body" (body r = "");
   check "but reports the length it would have sent"
     (Proffer_mock.content_length r

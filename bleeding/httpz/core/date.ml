@@ -128,7 +128,13 @@ let days_before_month : int iarray =
 (* Convert date components to Unix timestamp, returns (timestamp, valid) *)
 let to_timestamp ~year ~month ~day ~hour ~minute ~second =
   (* Validate ranges *)
-  if year < 1970 || month < 0 || month > 11 then #(f64 0.0, false)
+  (* [days_to_year] divides only non-negative operands for any year from 1 on,
+     so truncation is floor there and the formula holds below the epoch as
+     well as above it. The floor is 1 because that is where [format] stops:
+     rejecting 1970 and earlier meant [parse] could not read back what
+     [format] wrote, and an If-Modified-Since naming any pre-epoch instant was
+     silently dropped. *)
+  if year < 1 || month < 0 || month > 11 then #(f64 0.0, false)
   else
     let max_day =
       if month = 1 && is_leap_year year then 29

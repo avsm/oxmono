@@ -158,11 +158,44 @@ let test_roundtrip () =
   done
 ;;
 
+(* The sweep above starts at the year 2000 and runs forward, which is how
+   [parse] came to reject every instant before the epoch without anything
+   noticing: [format] wrote those correctly and [parse] would not read them
+   back, so an If-Modified-Since naming a pre-epoch date was silently dropped.
+   These are the landmarks below 1970, down to the year [format] clamps at. *)
+let test_roundtrip_pre_epoch () =
+  let landmarks =
+    [ -62_135_596_800.0 (* 0001-01-01, the clamp *)
+    ; -2_208_988_800.0 (* 1900-01-01 *)
+    ; -1_234_567_890.0
+    ; -86_400.0 (* 1969-12-31 *)
+    ; -1.0
+    ; 0.0
+    ]
+  in
+  List.iter landmarks ~f:(fun ts ->
+    let s = Httpz.Date.format (F64.of_float ts) in
+    let buf = Bytes.of_string s in
+    let sp =
+      Httpz.Span.make ~off:(Httpz.Buf_read.i16 0) ~len:(Httpz.Buf_read.i16 29)
+    in
+    let #(status, back) = Httpz.Date.parse buf sp in
+    check
+      "pre_epoch/valid"
+      (match status with
+       | Httpz.Date.Valid -> true
+       | Httpz.Date.Invalid -> false)
+      (fun () -> Printf.sprintf "ts=%.0f s=%S" ts s);
+    check "pre_epoch/value" (Float.equal (F64.to_float back) ts) (fun () ->
+      Printf.sprintf "ts=%.0f back=%.0f s=%S" ts (F64.to_float back) s))
+;;
+
 let () =
   test_landmarks ();
   test_sweeps (Random.State.make [| 20260805 |]);
   test_clamped ();
   test_roundtrip ();
+  test_roundtrip_pre_epoch ();
   if !failures > 0
   then begin
     Stdio.printf "%d date-format failures\n" !failures;

@@ -2413,7 +2413,7 @@ let generate_dune_inc ~(spec_path : string option) (package_name : string) : str
  (targets %s.ml %s.mli)
  (deps %s)
  (action
-  (run openapi-gen generate -o . -n %s %%{deps})))
+  (run openapi-gen generate --code-only -o . -n %s %%{deps})))
 |} package_name package_name basename package_name
 
 let generate ~(config : config) (spec : Spec.t) : (string * string) list =

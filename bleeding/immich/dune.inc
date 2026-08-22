@@ -7,4 +7,4 @@
  (targets immich.ml immich.mli)
  (deps immich-openapi-specs.json)
  (action
-  (run openapi-gen generate -o . -n immich %{deps})))
+  (run openapi-gen generate --code-only -o . -n immich %{deps})))

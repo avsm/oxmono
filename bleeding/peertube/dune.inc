@@ -7,4 +7,4 @@
  (targets peer_tube.ml peer_tube.mli)
  (deps peertube-openapi.yaml)
  (action
-  (run openapi-gen generate -o . -n peer_tube %{deps})))
+  (run openapi-gen generate --code-only -o . -n peer_tube %{deps})))

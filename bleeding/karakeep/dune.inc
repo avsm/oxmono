@@ -7,4 +7,4 @@
  (targets karakeep.ml karakeep.mli)
  (deps karakeep-openapi-spec.json)
  (action
-  (run openapi-gen generate -o . -n karakeep %{deps})))
+  (run openapi-gen generate --code-only -o . -n karakeep %{deps})))

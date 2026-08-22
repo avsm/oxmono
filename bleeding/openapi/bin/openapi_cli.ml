@@ -37,7 +37,8 @@ let with_spec spec_path f =
       1
   | Ok spec -> f spec
 
-let generate_cmd spec_path output_dir package_name include_regen_rule =
+let generate_cmd spec_path output_dir package_name include_regen_rule
+    code_only =
   setup_logging None (Some Logs.Info);
   Logs.info (fun m -> m "Reading OpenAPI spec from %s" spec_path);
   with_spec spec_path (fun spec ->
@@ -51,6 +52,18 @@ let generate_cmd spec_path output_dir package_name include_regen_rule =
     let spec_path_for_dune = if include_regen_rule then Some spec_path else None in
     let config = Openapi.Codegen.{ output_dir; package_name; spec_path = spec_path_for_dune } in
     let files = Openapi.Codegen.generate ~config spec in
+    (* [--code-only] drops the [dune] and [dune.inc] scaffolding. The rule in
+       a generated [dune.inc] declares only the two OCaml files as targets, so
+       an action that also wrote the scaffolding would write outside its
+       targets and dune's sandbox would refuse it on every regeneration. *)
+    let files =
+      if not code_only then files
+      else
+        List.filter
+          (fun (name, _) ->
+            not (String.equal name "dune" || String.equal name "dune.inc"))
+          files
+    in
 
     (try Unix.mkdir output_dir 0o755 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
     Openapi.Codegen.write_files ~output_dir files;
@@ -112,8 +125,15 @@ let include_regen_rule =
   let doc = "Include dune.inc regeneration rule with spec path." in
   Arg.(value & flag & info ["regen"; "include-regen-rule"] ~doc)
 
+let code_only =
+  let doc =
+    "Write only the generated .ml and .mli, not the dune scaffolding."
+  in
+  Arg.(value & flag & info ["code-only"] ~doc)
+
 let generate_term =
-  Term.(const generate_cmd $ spec_path $ output_dir $ package_name $ include_regen_rule)
+  Term.(const generate_cmd $ spec_path $ output_dir $ package_name
+        $ include_regen_rule $ code_only)
 
 let generate_info =
   let doc = "Generate OCaml code from an OpenAPI specification." in

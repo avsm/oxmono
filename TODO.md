@@ -5,11 +5,12 @@ or measured in the session that wrote it. The per-field reasons in
 `avsm/arod/lib_handlers/arod_render.mli` and `arod_env.mli` are probe
 transcripts and are the authority if this file drifts.
 
-Where things stand. Proffer is a server layer over httpz and **all 86 values
+Where things stand. Proffer is a server layer over httpz and **all 91 values
 in its interface are `@@ portable`**. Arod serves `listing`, `entry`,
 `entry_markdown`, `paper_bib`, `blogroll` and `sitemap` as portable handlers
-over an immutable `Arod.Ctx.t`. `Arod_env.t` holds 10 fields, of which three
-are data and two are closures.
+over an immutable `Arod.Ctx.t`. `Arod_env.t` holds 11 fields: three are data
+(`ctx`, `config`, `cache`) and eight are closures, of which four are renders
+and four are domain-bound capabilities.
 
 Both axes are now as far as they go without a design change. **Portable**:
 four closures are left in `Arod_env.t`. `feed`, `pagination` and `search`
@@ -33,7 +34,7 @@ replace with code. `avsm/arod/test/test_sitemap.ml` is the guard, and
 ### 2. `feed`, `pagination` and `search` (blocked in jsont)
 
 All three render through jsont: `feed` through jsonfeed's document model,
-`pagination` and `search` through `Arod_json.encode`. A codec is a
+`pagination` and `search` through `Arod_json.stream`. A codec is a
 module-level `Jsont.t`, and a portable handler reaches a module-level value
 only if its type carries a crossing kind. `Jsont.t` cannot be given one, and
 the ruling below says exactly where that stops.
@@ -68,13 +69,17 @@ allocates **32 words**, where `Req.v` alone cost 175 when this started.
 | --- | --- |
 | full serve, literal route, content type only | 32 |
 | the same with an entity-tag | 43 |
+| the same with a header field in a `stack_` block | 32 |
+| a streamed body, written | 44 |
 | a 404 | 28 |
 | `Req.v` (record only, now on the stack) | 0 |
 | one `Req.query_param` | 4, or 0 when absent |
-| one header field via `Headers.h_local` in a `stack_` block | 0 |
 
-Everything below was measured with `Gc.minor_words` and, where it changed
-behaviour, differentially tested against what it replaced.
+`bleeding/proffer/bench/bench_alloc.exe` is where those come from, so they can
+be rechecked rather than believed. It is a tool, not a test: the figures move
+with the compiler and pinning them would fail a build for a reason nobody
+wants to chase. Everything below was measured the same way and, where it
+changed behaviour, differentially tested against what it replaced.
 
 ### 1. What was done
 
@@ -117,8 +122,9 @@ refs cannot be `let mutable` because closures capture them. The content length
 would need to be an `int` to stop being boxed, which is an interface change
 for a number that can exceed one.
 
-Beyond that the remaining allocation is the response body itself, which is
-what `Body.Stream` exists for.
+A streamed body costs 12 words over a string one, for the sink record and the
+closure the outcome carries. Beyond that the remaining allocation is the
+response body itself, which is what the next section is about.
 
 ### 4. The body is three orders of magnitude bigger than any of this
 
@@ -153,9 +159,19 @@ so they pay once per TTL. Both now answer through `Resp.stream`.
 forwards each slice to `Body.Sink.write_sub`, so the JSON goes from the
 encoder to the socket with nothing copied on the way and the encoded body
 never exists as a string. Measured on a 111 KB search response: 9725 words
-allocated, against 40077 through `encode_string`. The two routes are framed
-chunked now, since the length is not known before the encode runs. All 1588
-captured routes byte-identical.
+allocated, against 40077 through `encode_string`. All 1588 captured routes
+byte-identical.
+
+The two routes are framed chunked now, since the length is not known before
+the encode runs. `render_capture.sh` cannot see that: curl decodes the
+framing, so the capture compares bodies and a framing change is invisible to
+it. Confirmed instead against a live server, which also showed a listing page
+still carrying its Content-Length, HEAD reporting neither field, and two
+requests answered on one connection, so keep-alive survives the change.
+
+The stats views still go through `Arod_json.encode`. They answer from an
+access log rather than the corpus, their bodies are small, and the route is
+behind a database handle either way, so they are not the lever.
 
 What is left of this is the HTML. `page_json`'s `html` member is still an
 `El.to_string`, and on `collection=network` that member is most of the
@@ -272,7 +288,7 @@ release sources, and both are fixed in `vendor/bytesrw` and pinned by
   mutable state, portable handlers, and on the continuation API. So this is a
   cleanup rather than a port. One consequence to plan for: sortal escapes `'`
   as `&#39;` and htmlit writes `&apos;`, so every page carrying an apostrophe
-  changes. `test_web`'s 95 checks are substring-based and mostly survive
+  changes. `test_web`'s 91 checks are substring-based and mostly survive
   that.
 - **Off-path stragglers, low priority**: listed under **The floor for
   portable** above, with their current locations.
@@ -281,7 +297,8 @@ release sources, and both are fixed in `vendor/bytesrw` and pinned by
 
 - Vendoring and annotation playbook: the READMEs under `vendor/base64`,
   `vendor/htmlit`, `vendor/ptime`, `vendor/xmlm`, `vendor/cmarkit`,
-  `vendor/syndic`. Each carries a hunk inventory graded by provenance and a
+  `vendor/syndic`, `vendor/sitemap`, `vendor/jsonfeed`, `vendor/bytesrw` and
+  `vendor/jsont`. Each carries a hunk inventory graded by provenance and a
   re-vendoring checklist.
 - Behaviour oracles: `avsm/arod/test/test_md_golden.ml` (golden renders,
   never regenerate to make a test pass), `render_capture.sh` (full-site
@@ -291,6 +308,9 @@ release sources, and both are fixed in `vendor/bytesrw` and pinned by
   the escaping rule, on the routes `render_capture.sh` does not reach),
   `test_bytesrw.ml` (the two vendored bytesrw fixes, against oracles outside
   bytesrw).
+- Allocation: `bleeding/proffer/bench/bench_alloc.exe`, which is where the
+  word counts under **What is left for local** come from. A tool, not a test,
+  for the reason given there.
 - Portability guards: `test_payload_kinds.ml`, `test_cmarkit_portable.ml`
   and siblings. Guards must capture module-level values inside `@ portable`
   closures. Parameter-shaped ascriptions prove nothing.

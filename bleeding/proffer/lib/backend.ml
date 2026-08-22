@@ -37,27 +37,47 @@ let allow_value allowed =
 
 (* [dispatch compiled meth path] is the handler of the first route matching
    both the path and the method, or else the methods that matched the path
-   alone, which is what a 405 must report. *)
-let dispatch compiled meth path =
-  let matches route_meth =
-    Method.equal route_meth meth
-    || (Method.equal meth M.Head && Method.equal route_meth
-      M.Get)
-  in
-  let rec go routes allowed =
-    match routes with
-    | [] -> (None, List.rev allowed)
-    | r :: rest -> (
-        match Route.run r path with
-        | None -> go rest allowed
-        | Some h ->
-            let rm = Route.meth r in
-            if matches rm then (Some h, [])
-            else if List.exists (fun m -> Method.equal m rm) allowed then
-              go rest allowed
-            else go rest (rm :: allowed))
-  in
-  go (Compiled.routes compiled) []
+   alone, which is what a 405 must report.
+
+   Every function here takes what it needs as an argument and the scan returns
+   into the caller's region. Written the obvious way, with [matches] and [go]
+   closing over [meth] and [path] and returning a heap tuple, this cost 13
+   words on every request before a route was even looked at, which was the
+   largest single allocation left on the serving path. A closure that captures
+   is a heap block; a parameter is not. *)
+let meth_matches meth route_meth =
+  Method.equal route_meth meth
+  || (Method.equal meth M.Head && Method.equal route_meth M.Get)
+
+let rec mem_meth m allowed =
+  match allowed with
+  | [] -> false
+  | x :: tl -> Method.equal x m || mem_meth m tl
+
+(* The result is passed to a continuation rather than returned. A returned
+   [(handler option * Method.t list)] cannot be local, because the handler
+   inside it is a heap closure and a local option would make the compiler
+   treat it as one; and it cannot be global without allocating the option and
+   the tuple on every request. Handing it on costs neither. *)
+let rec scan routes meth path allowed
+    ~(found : ('e Route.handler -> 'e Route.handler) @ local)
+    ~(none : (Method.t list -> 'e Route.handler) @ local) =
+  match routes with
+  | [] -> none (List.rev allowed)
+  | r :: rest -> (
+      match Route.run r path with
+      | None -> scan rest meth path allowed ~found ~none
+      | Some h ->
+          let rm = Route.meth r in
+          if meth_matches meth rm then found h
+          else if mem_meth rm allowed then scan rest meth path allowed ~found
+              ~none
+          else scan rest meth path (rm :: allowed) ~found ~none)
+
+let dispatch compiled meth path
+    ~(found : ('e Route.handler -> 'e Route.handler) @ local)
+    ~(none : (Method.t list -> 'e Route.handler) @ local) =
+  scan (Compiled.routes compiled) meth path [] ~found ~none
 
 (* An entity-tag may contain a comma inside its quotes, so the If-None-Match
    list is split on commas outside them. *)
@@ -302,12 +322,14 @@ let handle ?on_error compiled env (req : Req.t @ local)
   let decorate = Compiled.decorate compiled in
   let path = Req.path req in
   let h =
-    match dispatch compiled (Req.meth req) path with
-    | Some h, _ -> decorate path h
-    | None, [] -> decorate path (Compiled.fallback compiled)
-    | None, allowed ->
-        decorate path (fun _env _req (r : Resp.respond @ local) ->
-            method_not_allowed allowed r)
+    dispatch compiled (Req.meth req) path
+      ~found:(fun h -> decorate path h)
+      ~none:(fun allowed ->
+        match allowed with
+        | [] -> decorate path (Compiled.fallback compiled)
+        | allowed ->
+            decorate path (fun _env _req (r : Resp.respond @ local) ->
+                method_not_allowed allowed r))
   in
   let local_ describe (r : Resp.respond @ local) = h env req r in
   let () = run ?on_error req describe write in

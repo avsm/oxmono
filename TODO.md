@@ -16,7 +16,7 @@ Both axes are now as far as they go without a design change. **Portable**:
 four closures are left in `Arod_env.t`. `feed`, `pagination` and `search`
 render through jsont, whose codecs cannot be given a crossing kind; `report`
 holds a database handle.
-**Local**: a complete request and response cycle allocates 32 words, where
+**Local**: a complete request and response cycle allocates 17 words, where
 `Req.v` alone cost 175 when this started.
 
 ## Closures
@@ -63,15 +63,15 @@ domain-bound `search` closure anyway.
 ## What is left for local
 
 The request and response paths are done. A complete cycle for a literal route
-allocates **32 words**, where `Req.v` alone cost 175 when this started.
+allocates **17 words**, where `Req.v` alone cost 175 when this started.
 
 | | words |
 | --- | --- |
-| full serve, literal route, content type only | 32 |
-| the same with an entity-tag | 43 |
-| the same with a header field in a `stack_` block | 32 |
-| a streamed body, written | 44 |
-| a 404 | 28 |
+| full serve, literal route, content type only | 17 |
+| the same with an entity-tag | 28 |
+| the same with a header field in a `stack_` block | 17 |
+| a streamed body, written | 29 |
+| a 404 | 15 |
 | `Req.v` (record only, now on the stack) | 0 |
 | one `Req.query_param` | 4, or 0 when absent |
 
@@ -86,7 +86,9 @@ changed behaviour, differentially tested against what it replaced.
 `Pct` decodes over a range of the target rather than over pieces cut out of it
 first, and takes a range holding no escape with one `String.sub`. The query is
 parsed on demand, with `query_param` scanning for its key. Dispatch walks the
-path, so a literal segment is compared in place and only a capture allocates.
+path, so a literal segment is compared in place and only a capture allocates,
+and its scan takes what it needs as arguments and hands its result to a
+continuation, so route selection itself allocates nothing.
 A request reaches a handler at `local` with `global_` strings, so it costs no
 heap and cannot be stashed. And every header field on the response path is
 built with `Headers.h_local`, which allocates in the caller's region.
@@ -113,14 +115,46 @@ That is what `Headers.h_local` is.
 constructors take `?headers` and cannot. Paths that answer every request use
 the former, and say so at the call site.
 
-### 3. What is left
+### 3. What is left, attributed
 
-Of the 32 words: the description and outcome records, the two `ref`s
-`Backend.run` uses to tell a handler that never responded from one that
-responded twice, and the boxed `int64` content length with its `Some`. The
-refs cannot be `let mutable` because closures capture them. The content length
-would need to be an `int` to stop being boxed, which is an interface change
-for a number that can exceed one.
+An earlier version of this section guessed, and guessed wrong: it named the
+description record, the outcome record and `Backend.run`'s two `ref`s as the
+cost. Measured, that machinery is **0 words**. The compiler keeps all of it
+in the region. Nothing in this file is worth believing that the bench does not
+print.
+
+`bench_alloc.exe` prints the attribution. Every word left is a box the
+interface asks for:
+
+| | words |
+| --- | --- |
+| `Backend.run` machinery, cheapest response | 0 |
+| a string body: `` `String s ``, `Some`, boxed `Int64` | 8 |
+| `~content_type` as an optional argument | 5 |
+| the same field in a `stack_` block instead | 0 |
+| `~etag` as an optional argument | 9 |
+| dispatch, any number of routes, none matched | 0 |
+| a route match, for the `Some` `Route.run` returns | 2 |
+| a capture pattern's partial application, on top | 4 |
+| `Backend.sink` built without `emit_sub` | 8 |
+| `Backend.sink` built with `emit_sub` | 3 |
+
+Three of these are reachable without a redesign, in descending order of size.
+
+1. **The content length, 5 words.** `Some (Int64.of_int n)` is a `Some` and a
+   custom block. An `int option` would be 2 and an `int` with a sentinel 0.
+   `Backend.outcome` is a backend-facing type with two in-tree implementors,
+   so this is a small change with a real question attached: a 63-bit `int`
+   covers any body on a 64-bit host but caps at 1GB on a 32-bit one.
+2. **The typed optional arguments, 5 to 9 words each.** Same rule as
+   `~headers`: an optional argument is an allocated `Some`. They earn it back
+   on a revalidated route, since `Backend.handle` renders them only once it
+   knows the response is being sent, so a 304 pays for no block. On a route
+   that is never conditional, the field belongs in a `stack_` block, and
+   `Resp.v`'s documentation now says so.
+3. **`Route.run`'s `Some`, 2 words per match.** Removing it means the same
+   continuation-passing treatment `dispatch` just had, threaded through the
+   pattern combinators in `route.ml`. Larger than it looks.
 
 A streamed body costs 12 words over a string one, for the sink record and the
 closure the outcome carries. Beyond that the remaining allocation is the

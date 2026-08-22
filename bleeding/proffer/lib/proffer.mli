@@ -461,6 +461,15 @@ module Resp : sig
       constructor below with no [~headers] at all allocates nothing for the
       block either way, since the default is a constant.
 
+      The same rule governs the typed arguments, and it cuts the other way
+      from what their convenience suggests. Each is optional, so each is
+      passed as an allocated [Some]: measured on a body-less response,
+      [~content_type] costs 5 words and [~etag] 9, where naming the same field
+      in a [stack_] block costs none. They earn it back on a route that is
+      revalidated, since {!Backend.handle} renders them only once it knows the
+      response is being sent, so a 304 pays for no block at all. On a route
+      that is never conditional, a field in the block is cheaper.
+
       [last_modified] is seconds since the epoch. Each of [content_type],
       [cache], [etag] and [last_modified] adds its header and owns that field,
       so [headers] may not name it as well. [etag] and [last_modified] are also
@@ -966,5 +975,9 @@ module Backend : sig
       A backend that can write a range of bytes without making a string of it
       should pass [emit_sub] as well, so that a producer streaming through a
       buffer costs nothing per slice. Without it {!Body.Sink.write_sub} copies
-      the range into a string and calls [f]. *)
+      the range into a string and calls [f].
+
+      Passing it is also cheaper per response, not only per slice: the sink
+      costs 3 words built with [emit_sub] and 8 without, because the default
+      is a closure over [f] rather than a function the caller already had. *)
 end

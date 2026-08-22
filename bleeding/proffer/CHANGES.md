@@ -83,8 +83,16 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
   it, so a block written `stack_ [ h n v ]` still put every record on the
   heap. Every field the backend renders, and every one proffer's own
   constructors build, now goes through the local form.
+- Route selection allocates nothing. `Backend`'s scan took its method and
+  path from closures and returned a `(handler option * method list)` tuple,
+  which cost 13 words on every request before a route was even looked at. It
+  now takes what it needs as arguments and hands the result to a local
+  continuation, so nothing is boxed on the way out. A route match still costs
+  the `Some` `Route.run` returns.
 - Together with the decoder work: a complete request and response cycle for a
-  literal route allocates **32 words**, where `Req.v` alone used to cost 175.
+  literal route allocates **17 words**, where `Req.v` alone used to cost 175.
+  A 404 is 15 and a written streamed body 29.
+  `bleeding/proffer/bench/bench_alloc.exe` prints these and attributes them.
 - A response body goes to the socket through a 64 KB scratch owned by the
   connection rather than one `Cstruct.of_string` of the whole body, so the
   bigstring a large response needs is bounded per connection instead of per

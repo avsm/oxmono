@@ -140,3 +140,78 @@ let () =
          in
          ())
     -. base)
+
+(* Where the words in the rows above go. Each line is the one above it plus a
+   single named thing, so the difference is what that thing costs. Read this
+   before trying to shave the serving path: the machinery is already free and
+   what is left is boxes the interface asks for. *)
+let () =
+  print_newline ();
+  let n = 20_000 in
+  let run_with describe =
+    words ~n (fun () ->
+        let () =
+          let local_ req = Req.v ~meth:Httpz.Method.Get ~target:"/hello" () in
+          Backend.run req describe null_writer
+        in
+        ())
+  in
+  row "Backend.run machinery, cheapest response"
+    (run_with (fun r -> Resp.v r ~headers:Headers.empty Body.Empty));
+  row "  + a content type, as ?content_type"
+    (run_with (fun r ->
+         Resp.v r ~headers:Headers.empty ~content_type:"text/plain"
+           Body.Empty));
+  row "  same content type, in a stack_ block instead"
+    (run_with (fun r ->
+         let () =
+           Resp.v r
+             ~headers:
+               (stack_
+                  [ Resp.h_local Httpz.Header_name.Content_type "text/plain" ])
+             Body.Empty
+         in
+         ()));
+  row "  + a string body (variant, Some, boxed Int64)"
+    (run_with (fun r -> Resp.v r ~headers:Headers.empty (Body.String "hi")));
+  (* Dispatch itself is free. What a route costs is the [Some] [Route.run]
+     returns on a match, and a capture pattern's partial application. *)
+  let cheap () _ (r : Resp.respond @ local) =
+    Resp.v r ~headers:Headers.empty Body.Empty
+  in
+  let site routes =
+    Compiled.compile
+      (Site.with_fallback cheap (Site.of_routes routes))
+  in
+  let serve_site c t =
+    words ~n (fun () ->
+        let () =
+          let local_ req = Req.v ~meth:Httpz.Method.Get ~target:t () in
+          Backend.handle c () req null_writer
+        in
+        ())
+  in
+  row "dispatch: 8 routes, none matched"
+    (serve_site
+       (site
+          (List.init 8 (fun i ->
+               Route.(get (s (Printf.sprintf "r%d" i) /? nil)) cheap)))
+       "/nope");
+  row "dispatch: 8 routes, the last matched"
+    (serve_site
+       (site
+          (List.init 8 (fun i ->
+               Route.(get (s (Printf.sprintf "r%d" i) /? nil)) cheap)))
+       "/r7");
+  row "dispatch: one capture route, matched"
+    (serve_site
+       (site [ Route.(get (s "e" / str /? nil)) (fun _s -> cheap) ])
+       "/e/abc");
+  row "Backend.sink without emit_sub"
+    (words ~n (fun () ->
+         ignore (Sys.opaque_identity (Backend.sink (fun _ -> ())))));
+  row "Backend.sink with emit_sub"
+    (words ~n (fun () ->
+         ignore
+           (Sys.opaque_identity
+              (Backend.sink ~emit_sub:(fun _ _ _ -> ()) (fun _ -> ())))))

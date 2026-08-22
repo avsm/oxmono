@@ -1,0 +1,4 @@
+(library
+ (name jsont)
+ (public_name jsont)
+ (modules jsont jsont_base))

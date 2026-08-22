@@ -1,0 +1,14 @@
+; [wrapped false] because upstream's bytesrw.mllib publishes Bytesrw,
+; Bytesrw_fmt, Bytesrw_utf and Bytesrw_hex as four top-level modules rather
+; than one. Wrapping them would rename every one of them and break the
+; installed interface this copy shadows.
+;
+; [base] is here for [Base.Bytes], whose operations accept a [local] bytes.
+; Stdlib's do not, so the local-aware [Slice] operations cannot be written
+; without it.
+(library
+ (name bytesrw)
+ (public_name bytesrw)
+ (wrapped false)
+ (libraries base)
+ (modules bytesrw bytesrw_fmt bytesrw_utf bytesrw_hex))

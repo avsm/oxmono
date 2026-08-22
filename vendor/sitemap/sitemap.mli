@@ -1,3 +1,5 @@
+@@ portable
+
 (** {1 XML Sitemap Generator}
 
     This library provides functionality to generate XML sitemaps, which are useful

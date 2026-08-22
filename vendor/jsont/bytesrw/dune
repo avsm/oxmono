@@ -1,0 +1,5 @@
+(library
+ (name jsont_bytesrw)
+ (public_name jsont.bytesrw)
+ (modules jsont_bytesrw)
+ (libraries jsont bytesrw))

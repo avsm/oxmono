@@ -163,8 +163,8 @@ workspace, and two libraries named `xmlm` cannot be linked into one
 executable. Every workspace dependency of xmlm therefore has to be built from
 source alongside it. Of the installed packages whose META requires xmlm,
 `syndic` was already vendored and `sitemap` was not. `vendor/sitemap` is that
-copy, taken unpatched from sitemap v1.0 and present only to keep the link
-consistent.
+copy. It began as an unpatched v1.0 and now carries a one-hunk portability
+annotation of its own, which this copy is what makes possible.
 
 ### Re-vendoring checklist
 

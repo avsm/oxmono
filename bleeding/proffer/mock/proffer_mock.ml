@@ -23,7 +23,8 @@ let copy_length (l : int64 option @ local) =
 let snapshot out (o : Proffer.Backend.outcome @ local) =
   let body, content_length =
     match o.Proffer.Backend.body with
-    | Proffer.Backend.Empty -> ("", copy_length o.Proffer.Backend.content_length)
+    | Proffer.Backend.Empty ->
+        ("", copy_length o.Proffer.Backend.content_length)
     | Proffer.Backend.String s ->
         (s, copy_length o.Proffer.Backend.content_length)
     | Proffer.Backend.Stream { write = w; _ } ->

@@ -100,6 +100,7 @@ let routes =
     get (s "sitemap.xml" /? nil) H.sitemap;
     get (s "robots.txt" /? nil) H.robots_txt;
     get (s ".well-known" / str /? nil) H.well_known;
+    get (s "search" /? nil) H.search_page;
     (* JSON APIs *)
     get (s "api" / s "entries" /? nil) H.pagination_api;
     get (s "api" / s "search" /? nil) H.search_api;

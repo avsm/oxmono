@@ -130,6 +130,9 @@ let env =
       (fun ~q ~limit ~link_limit ->
         let s = Printf.sprintf "%s/%d/%d" q limit link_limit in
         ((fun sink -> Proffer.Body.Sink.write sink s), String.length q));
+    search_page =
+      (fun ~q ~limit ~link_limit ~fragment ->
+        Printf.sprintf "page:%s/%d/%d/%b" q limit link_limit fragment);
     log_search =
       (fun ~query ~limit ~results ->
         let results =
@@ -305,6 +308,15 @@ let () =
   searches := [];
   check "an absent query is the empty string"
     (body (get "/api/search") = "/20/12");
+  check "the search page reads its query and limits"
+    (body (get "/search?q=xen&limit=5&link_limit=3") = "page:xen/5/3/false");
+  check "a fragment request is marked"
+    (body (get "/search?q=xen&fragment=1") = "page:xen/20/12/true");
+  check "the search page is HTML"
+    (header (get "/search") H.Content_type
+     = Some "text/html; charset=utf-8");
+  check "the page script is served"
+    (contains (body (get "/js/search.js")) "search-results");
   check "a known well-known key is served"
     (body (get "/.well-known/known") = "value");
   check "an unknown one is a 404" (code (get "/.well-known/other") = 404);

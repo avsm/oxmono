@@ -53,6 +53,12 @@ type t = {
           [limit] work hits and [link_limit] links, as the JSON the search
           page reads, paired with the number of hits in both tiers. An empty
           [q] is an empty result set and queries nothing. *)
+  search_page :
+    q:string -> limit:int -> link_limit:int -> fragment:bool -> string;
+      (** [search_page ~q ~limit ~link_limit ~fragment] is the search page
+          for [q], or with [fragment] only its results region. It is a
+          closure because the search handle is bound to the domain that
+          built this record. *)
   log_search : query:string -> limit:int -> results:int option -> unit;
       (** [log_search ~query ~limit ~results] records a search API request.
           [results] is [None] before the query runs and [Some n] once it has

@@ -332,7 +332,7 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
 type page_script =
   | Toc | Pagination | Lightbox | Links_modal
   | Checkbox_filter | Calendar
-  | Tag_cloud_filter
+  | Tag_cloud_filter | Search
 
 let script_file_of = function
   | Toc -> "toc.js"
@@ -342,6 +342,7 @@ let script_file_of = function
   | Checkbox_filter -> "filter.js"
   | Calendar -> "calendar.js"
   | Tag_cloud_filter -> "tag-filter.js"
+  | Search -> "search.js"
 
 (* Deferred external scripts. Placing them in the head lets the browser
    fetch early, and defer preserves document order while running only

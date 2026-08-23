@@ -111,6 +111,12 @@ val search :
 (** [search ~ctx results] writes [results] as the JSON the search page
     reads, streamed as {!pagination} is. *)
 
+val search_page :
+  ctx:Arod.Ctx.t -> q:string -> fragment:bool -> Arod_search.results -> string
+(** [search_page ~ctx ~q ~fragment r] is the search page for [q] showing
+    [r], or with [fragment] only the results region the page script swaps
+    in. *)
+
 val report : db:Sqlite3_eio.t -> report -> range:string -> string
 (** [report ~db which ~range] is the access log view [which] over [range],
     which names a time span such as ["7d"]. An unrecognised [range] is seven

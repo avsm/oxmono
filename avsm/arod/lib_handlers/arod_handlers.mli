@@ -147,6 +147,10 @@ val search_api : handler @@ portable
 (** [search_api] is the full-text search results for the [q] query parameter,
     at most [limit] of them. *)
 
+val search_page : handler @@ portable
+(** The search page at [/search], or its results fragment when the query
+    string carries [fragment=1]. *)
+
 (** {1 Files} *)
 
 val image_file : string list -> handler @@ portable

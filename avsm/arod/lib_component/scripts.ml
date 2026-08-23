@@ -1422,6 +1422,92 @@ let mobile_menu_js = {|
 })();
 |}
 
+let search_page_js = {|
+// Search page: live results as you type, facets, keyboard selection
+(function() {
+  var input = document.getElementById('search-page-input');
+  var form = input && input.closest('form');
+  if (!input) return;
+  var limits = { limit: 20, link_limit: 12 };
+  var timer = null, sel = -1, controller = null;
+
+  function results() { return document.getElementById('search-results'); }
+  function hits() { return results().querySelectorAll('.sp-hit'); }
+
+  function url(q) {
+    return '/search?q=' + encodeURIComponent(q)
+      + '&limit=' + limits.limit + '&link_limit=' + limits.link_limit;
+  }
+
+  function load(q) {
+    if (controller) controller.abort();
+    controller = new AbortController();
+    fetch(url(q) + '&fragment=1', { signal: controller.signal })
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var box = results();
+        box.outerHTML = html;
+        sel = -1;
+        history.replaceState(null, '', q ? '/search?q=' + encodeURIComponent(q) : '/search');
+      })
+      .catch(function() {});
+  }
+
+  function search() {
+    limits = { limit: 20, link_limit: 12 };
+    load(input.value.trim());
+  }
+
+  input.addEventListener('input', function() {
+    clearTimeout(timer);
+    timer = setTimeout(search, 120);
+  });
+  if (form) form.addEventListener('submit', function(e) { e.preventDefault(); search(); });
+
+  function select(i) {
+    var hs = hits();
+    if (!hs.length) return;
+    if (sel >= 0 && sel < hs.length) hs[sel].classList.remove('selected');
+    sel = (i + hs.length) % hs.length;
+    hs[sel].classList.add('selected');
+    hs[sel].scrollIntoView({ block: 'nearest' });
+  }
+
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); select(sel + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); select(sel - 1); }
+    else if (e.key === 'Enter' && sel >= 0) {
+      e.preventDefault();
+      var h = hits()[sel];
+      if (h) window.location.href = h.getAttribute('href');
+    }
+    else if (e.key === 'Escape') { input.value = ''; search(); }
+  });
+
+  function toggleWord(word) {
+    var words = input.value.trim().split(/\s+/).filter(Boolean);
+    var i = words.indexOf(word);
+    if (i >= 0) words.splice(i, 1); else words.push(word);
+    input.value = words.join(' ');
+    search();
+    input.focus();
+  }
+
+  document.addEventListener('click', function(e) {
+    var more = e.target.closest('[data-more]');
+    if (more) {
+      var p = more.getAttribute('data-more');
+      limits[p] = limits[p] * 2;
+      load(input.value.trim());
+      return;
+    }
+    var k = e.target.closest('[data-kind]');
+    if (k) { toggleWord('kind:' + k.getAttribute('data-kind')); return; }
+    var t = e.target.closest('[data-tag]');
+    if (t) { toggleWord('#' + t.getAttribute('data-tag')); }
+  });
+})();
+|}
 
 (** [by_name] maps the file names served under [/js/] to their sources.
     [site.js] bundles the scripts every page includes. The bundle must
@@ -1437,4 +1523,5 @@ let by_name = [
   "filter.js", checkbox_filter_js;
   "calendar.js", calendar_js;
   "tag-filter.js", tag_cloud_filter_js;
+  "search.js", search_page_js;
 ]

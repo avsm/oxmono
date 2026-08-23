@@ -18,6 +18,8 @@ type t = {
   search :
     q:string -> limit:int -> link_limit:int ->
     (Proffer.Body.Sink.t -> unit) * int;
+  search_page :
+    q:string -> limit:int -> link_limit:int -> fragment:bool -> string;
   log_search : query:string -> limit:int -> results:int option -> unit;
   read_image : string list -> string option;
   read_paper : string -> string option;
@@ -43,6 +45,13 @@ let create ~ctx ~cache ~search ~log_search ~read_image ~read_paper ~reader ~now
           let r = search ~limit ~link_limit q in
           (Arod_render.search ~ctx r,
            List.length r.work + List.length r.links));
+    search_page =
+      (fun ~q ~limit ~link_limit ~fragment ->
+        let r =
+          if String.equal q "" then Arod_search.empty
+          else search ~limit ~link_limit q
+        in
+        Arod_render.search_page ~ctx ~q ~fragment r);
     log_search;
     read_image;
     read_paper;

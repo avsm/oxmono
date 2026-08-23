@@ -231,6 +231,13 @@ let search_api env req respond =
   env.E.log_search ~query:q ~limit ~results:(Some results);
   Resp.stream respond json_type write
 
+let search_page env req respond =
+  let q = match Req.query_param req "q" with Some q -> q | None -> "" in
+  let limit = int_param req "limit" ~default:20 ~lo:1 ~hi:100 in
+  let link_limit = int_param req "link_limit" ~default:12 ~lo:1 ~hi:100 in
+  let fragment = Req.query_param req "fragment" = Some "1" in
+  Resp.html respond (env.E.search_page ~q ~limit ~link_limit ~fragment)
+
 (** {1 Files} *)
 
 let image_file segs env _req respond =

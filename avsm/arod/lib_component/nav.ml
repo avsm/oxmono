@@ -5,7 +5,7 @@
 
 (** Navigation header component for the Arod site.
 
-    Sticky header with navigation links, search button, feed dropdown and
+    Sticky header with navigation links, search link, feed dropdown and
     theme toggle. The per-page table of contents lives in the sidebar, see
     {!Sidebar.toc_box}. *)
 

@@ -108,8 +108,8 @@ val pagination :
 
 val search :
   ctx:Arod.Ctx.t -> Arod_search.results -> (Proffer.Body.Sink.t -> unit)
-(** [search ~ctx results] writes [results] as the JSON the search page
-    reads, streamed as {!pagination} is. *)
+(** [search ~ctx results] writes [results] as the JSON [/api/search]
+    serves, streamed as {!pagination} is. *)
 
 val search_page :
   ctx:Arod.Ctx.t -> q:string -> fragment:bool -> Arod_search.results -> string

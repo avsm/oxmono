@@ -41,6 +41,19 @@ val rebuild : t -> Arod.Ctx.t -> unit
 (** [rebuild t ctx] drops and rebuilds all per-kind search tables from all
     entries and links in [ctx]. *)
 
+val index :
+  t ->
+  ?own_host:string ->
+  contact_name:(string -> string option) ->
+  entries:Bushel.Entry.entry list ->
+  links:Bushel.Link.t list ->
+  unit
+(** [index t ?own_host ~contact_name ~entries ~links] drops every table and
+    indexes [entries] and [links]. [contact_name handle] is the display name
+    a body mention of [handle] expands to. [own_host] is the host of the
+    site's own base URL, and links on it are left out of search results. It
+    is what {!rebuild} calls with a context's contents. *)
+
 val search : t -> ?limit:int -> string -> result list
 (** [search t ?limit input] parses [input] using the search syntax and
     returns results from the relevant per-kind FTS5 tables. The syntax

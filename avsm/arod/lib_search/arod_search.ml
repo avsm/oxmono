@@ -11,7 +11,10 @@
 
 module StringSet = Set.Make(String)
 
-type t = { db : Sqlite3_eio.t }
+type t = {
+  db : Sqlite3_eio.t;
+  mutable own_host : string;
+}
 
 type result = {
   slug : string;
@@ -70,16 +73,16 @@ let create_all_tables db =
 let create ~sw path =
   let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 path in
   create_all_tables db;
-  { db }
+  { db; own_host = "" }
 
 let create_memory ~sw () =
   let db = Sqlite3_eio.open_memory ~sw () in
   create_all_tables db;
-  { db }
+  { db; own_host = "" }
 
 let open_readonly ~sw path =
   let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 ~mode:`READONLY path in
-  { db }
+  { db; own_host = "" }
 
 (** {1 Date formatting} *)
 
@@ -203,24 +206,28 @@ let index_link t (link : Bushel.Link.t) =
     insert_tag_row t ~tag ~kind ~slug ~url ~title ~date
   ) all_tags
 
-let rebuild t ctx =
+let host_of_url url =
+  let strip prefix s =
+    if String.starts_with ~prefix s then
+      String.sub s (String.length prefix)
+        (String.length s - String.length prefix)
+    else s
+  in
+  let u = String.lowercase_ascii url |> strip "https://" |> strip "http://"
+          |> strip "www." in
+  match String.index_opt u '/' with
+  | Some i -> String.sub u 0 i
+  | None -> u
+
+let index t ?(own_host = "") ~contact_name ~entries ~links =
+  t.own_host <- own_host;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "BEGIN");
   List.iter (fun kind ->
     Sqlite3.Rc.check (Sqlite3_eio.exec t.db
       (Printf.sprintf "DELETE FROM %s" (table_for kind)))
   ) kinds;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "DELETE FROM entry_tags");
-  let contacts = Arod.Ctx.contacts ctx in
-  let contact_name handle =
-    List.find_map (fun c ->
-      if Sortal_schema.Contact.handle c = handle
-      then Some (Sortal_schema.Contact.name c)
-      else None
-    ) contacts
-  in
-  let entries = Arod.Ctx.all_entries ctx in
   List.iter (fun ent -> index_entry t ~contact_name ent) entries;
-  let links = Arod.Ctx.all_links ctx in
   List.iter (fun link -> index_link t link) links;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "COMMIT");
   (* Log per-table counts *)
@@ -234,6 +241,22 @@ let rebuild t ctx =
     ignore (Sqlite3_eio.finalize t.db stmt);
     Logs.info (fun m -> m "Search index: %s has %d rows" tbl count)
   ) kinds
+(* [own_host] is optional and has no positional argument after it, so the
+   compiler cannot tell a caller is done supplying arguments without this. *)
+[@@warning "-16"]
+
+let rebuild t ctx =
+  let contacts = Arod.Ctx.contacts ctx in
+  let contact_name handle =
+    List.find_map (fun c ->
+      if Sortal_schema.Contact.handle c = handle
+      then Some (Sortal_schema.Contact.name c)
+      else None
+    ) contacts
+  in
+  let own_host = host_of_url (Arod.Ctx.base_url ctx) in
+  index t ~own_host ~contact_name
+    ~entries:(Arod.Ctx.all_entries ctx) ~links:(Arod.Ctx.all_links ctx)
 
 (** {1 Querying} *)
 

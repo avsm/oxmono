@@ -166,7 +166,8 @@ let search_cmd =
       let db_path = Eio.Path.(Xdge.cache_dir xdg / "search.db") in
       let search = Arod_search.open_readonly ~sw db_path in
       let results = Arod_search.search search ?limit input in
-      if results = Arod_search.empty then begin
+      if Arod_search.(results.goto = [] && results.work = []
+                       && results.links = []) then begin
         Printf.printf "No results.\n";
         0
       end else begin

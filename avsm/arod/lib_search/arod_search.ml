@@ -138,12 +138,22 @@ let create_entry_tags_sql =
 let create_entry_tags_index_sql =
   {|CREATE INDEX IF NOT EXISTS idx_entry_tags_tag ON entry_tags(tag)|}
 
+(* own_host does not fit a per-kind table or entry_tags, and a read-only
+   handle has no other way to learn it: it never calls index, so it must
+   read back whatever the last index wrote here. *)
+let create_search_meta_sql =
+  {|CREATE TABLE IF NOT EXISTS search_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )|}
+
 let create_all_tables db =
   List.iter (fun kind ->
     Sqlite3.Rc.check (Sqlite3_eio.exec db (create_table_sql kind))
   ) kinds;
   Sqlite3.Rc.check (Sqlite3_eio.exec db create_entry_tags_sql);
-  Sqlite3.Rc.check (Sqlite3_eio.exec db create_entry_tags_index_sql)
+  Sqlite3.Rc.check (Sqlite3_eio.exec db create_entry_tags_index_sql);
+  Sqlite3.Rc.check (Sqlite3_eio.exec db create_search_meta_sql)
 
 let create ~sw path =
   let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 path in
@@ -153,10 +163,6 @@ let create ~sw path =
 let create_memory ~sw () =
   let db = Sqlite3_eio.open_memory ~sw () in
   create_all_tables db;
-  { db; own_host = ""; tag_counts = []; projects = [] }
-
-let open_readonly ~sw path =
-  let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 ~mode:`READONLY path in
   { db; own_host = ""; tag_counts = []; projects = [] }
 
 (** {1 Date formatting} *)
@@ -281,6 +287,15 @@ let index_link t (link : Bushel.Link.t) =
     insert_tag_row t ~tag ~kind ~slug ~url ~title ~date
   ) all_tags
 
+let load_own_host t =
+  let stmt = Sqlite3_eio.prepare t.db
+    {|SELECT value FROM search_meta WHERE key = 'own_host'|} in
+  let _rc, host = Sqlite3_eio.fold t.db stmt ~init:"" ~f:(fun _acc row ->
+    match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> ""
+  ) in
+  ignore (Sqlite3_eio.finalize t.db stmt);
+  host
+
 (* Both lists are read on every query and never change between rebuilds,
    so they are computed once here rather than queried each time. *)
 let load_tag_counts t =
@@ -305,6 +320,28 @@ let load_projects t =
   ignore (Sqlite3_eio.finalize t.db stmt);
   List.rev ps
 
+(* A read-only handle never calls [index], so it learns [own_host],
+   [tag_counts] and [projects] by reading back what the last [index]
+   left in the database rather than by computing them itself. *)
+let open_readonly ~sw path =
+  let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 ~mode:`READONLY path in
+  let t = { db; own_host = ""; tag_counts = []; projects = [] } in
+  t.own_host <- load_own_host t;
+  t.tag_counts <- load_tag_counts t;
+  t.projects <- load_projects t;
+  t
+
+let save_own_host t own_host =
+  let stmt = Sqlite3_eio.prepare t.db
+    {|INSERT OR REPLACE INTO search_meta (key, value)
+      VALUES ('own_host', ?1)|} in
+  Sqlite3.Rc.check (Sqlite3.bind_text stmt 1 own_host);
+  let rc = Sqlite3_eio.step t.db stmt in
+  ignore (Sqlite3_eio.finalize t.db stmt);
+  match rc with
+  | Sqlite3.Rc.DONE -> ()
+  | rc -> Sqlite3.Rc.check rc
+
 let index t ~own_host ~contact_name ~entries ~links =
   t.own_host <- own_host;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "BEGIN");
@@ -313,6 +350,7 @@ let index t ~own_host ~contact_name ~entries ~links =
       (Printf.sprintf "DELETE FROM %s" (table_for kind)))
   ) kinds;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "DELETE FROM entry_tags");
+  save_own_host t own_host;
   List.iter (fun ent -> index_entry t ~contact_name ent) entries;
   List.iter (fun link -> index_link t link) links;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "COMMIT");
@@ -356,13 +394,29 @@ let fetch_depth kind = if kind = "link" then 500 else 200
 let split_tags s =
   String.split_on_char ' ' s |> List.filter (fun t -> t <> "")
 
+(* FTS5's snippet() wraps a match in whatever bytes it is given, and a body
+   can hold real angle brackets ("<repo>") or third-party text, so wrapping
+   in "<b>" directly would let either forge markup in a rendered page. The
+   snippet is instead wrapped in these control bytes, which cannot occur in
+   indexed text, HTML-escaped as plain text, and only then turned into the
+   real tags the match wrapper needs. *)
+let escape_snippet raw =
+  let escaped = Arod.Md.html_escape_attr raw in
+  let buf = Buffer.create (String.length escaped) in
+  String.iter (fun c ->
+    if c = '\002' then Buffer.add_string buf "<b>"
+    else if c = '\003' then Buffer.add_string buf "</b>"
+    else Buffer.add_char buf c
+  ) escaped;
+  Buffer.contents buf
+
 (** Query one per-kind table ordered by relevance. [score] is the negated
     bm25, so larger is better. *)
 let query_table t ~kind q =
   let tbl = table_for kind in
   let sql = Printf.sprintf
     {|SELECT slug, url, date, parent_slugs, title,
-           snippet(%s, 5, '<b>', '</b>', '...', 32),
+           snippet(%s, 5, char(2), char(3), '...', 32),
            bm25(%s, 0.0, 0.0, 0.0, 0.0, 10.0, 1.0, 5.0),
            tags
       FROM %s
@@ -378,7 +432,7 @@ let query_table t ~kind q =
   let _rc, results = Sqlite3_eio.fold t.db stmt ~init:[] ~f:(fun acc row ->
     let rank = match row.(6) with Sqlite3.Data.FLOAT f -> f | _ -> 0.0 in
     { slug = text 0 row; kind; url = text 1 row; title = text 4 row;
-      snippet = text 5 row; date = text 2 row;
+      snippet = escape_snippet (text 5 row); date = text 2 row;
       tags = split_tags (text 7 row);
       parent_slugs = parse_parent_slugs (text 3 row);
       score = -. rank } :: acc
@@ -478,6 +532,19 @@ let search_tags t ?(kinds=[]) ?(limit=20) tags =
     ) in
     ignore (Sqlite3_eio.finalize t.db stmt);
     List.rev results
+
+(** [tags_for_slug t slug] is every tag on the entry [slug], sorted. A
+    row from {!search_tags} carries no tags column of its own, so a hit
+    that is to show or be counted by them needs this looked up. *)
+let tags_for_slug t slug =
+  let stmt = Sqlite3_eio.prepare t.db
+    {|SELECT DISTINCT tag FROM entry_tags WHERE slug = ?1 ORDER BY tag|} in
+  Sqlite3.Rc.check (Sqlite3.bind_text stmt 1 slug);
+  let _rc, tags = Sqlite3_eio.fold t.db stmt ~init:[] ~f:(fun acc row ->
+    match row.(0) with Sqlite3.Data.TEXT s -> s :: acc | _ -> acc
+  ) in
+  ignore (Sqlite3_eio.finalize t.db stmt);
+  List.rev tags
 
 (** Return all unique tags with counts. *)
 let all_tags t =
@@ -586,6 +653,12 @@ let name_words s =
 let is_prefix_of_name ~term name =
   List.exists (String.starts_with ~prefix:term) (name_words name)
 
+(* site.js redirects a "/#tag=" hash straight to "/search?q=%23<tag>", so a
+   go-to chip that used the hash form cost a full home-page load before that
+   redirect ran. Pointing it at the search URL directly skips that hop. *)
+let tag_goto_url tag =
+  "/search?q=%23" ^ Uriz.pct_encode ~component:`Query_value tag
+
 (* Every query word must match something in a hit for it to be offered as a
    go-to, so a two-word query only jumps to a project or tag whose name
    accounts for both words. *)
@@ -618,7 +691,7 @@ let goto_hits t terms =
         if every_term (fun term ->
              String.starts_with ~prefix:term tag
              || is_prefix_of_name ~term tag)
-        then Some { label = tag; url = "/#tag=" ^ tag;
+        then Some { label = tag; url = tag_goto_url tag;
                     detail = Printf.sprintf "%d %s" n
                         (if n = 1 then "entry" else "entries");
                     goto_kind = `Tag }
@@ -686,7 +759,15 @@ let search t ?today ?(limit = 20) ?(link_limit = 12) input =
   | [], _ ->
     finish (List.concat_map (fun kind -> query_table t ~kind fts_query)
               target_kinds)
-  | tags, "" -> browse (search_tags t ~kinds:target_kinds ~limit:1000 tags)
+  | tags, "" ->
+    (* search_tags rows carry no tags of their own, so the work tier
+       and the tag facet are enriched after the browse limit cuts them
+       down to size: at most [limit] small lookups, not one per match. *)
+    let r = browse (search_tags t ~kinds:target_kinds ~limit:1000 tags) in
+    let work = List.map
+        (fun (h : hit) -> { h with tags = tags_for_slug t h.slug }) r.work in
+    let _, _, tag_facets = facets work in
+    { r with work; tags = tag_facets }
   | tags, _ ->
     let tag_slugs =
       List.fold_left (fun s r -> StringSet.add r.slug s) StringSet.empty

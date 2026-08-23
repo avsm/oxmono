@@ -52,9 +52,12 @@ type results = {
   tags : (string * int) list;
 }
 (** The tiers of one search. [work] and [links] are ranked and cut to the
-    caller's limits, [work_total] and [links_total] count the matches before
-    the cut, and [kinds], [years] and [tags] count over every work match
-    before that cut, not just what [work] carries. [kinds] is sorted by
+    caller's limits, and [work_total] and [links_total] count the matches
+    before that cut. Each per-kind query fetches at most a fixed depth (200
+    for a local kind, 500 for links), so a total is bounded by what was
+    fetched, not by what exists. [kinds], [years] and [tags] count the same
+    way, over every work match before the cut, except on a tags-only query,
+    where [tags] counts only the shown page of [work]. [kinds] is sorted by
     name and [years] ascending. [tags] is sorted by count descending then
     name, cut to the 8 most used. [terms] is the query's words, lowercased,
     for marking matches. *)
@@ -70,7 +73,10 @@ val create_memory : sw:Eio.Switch.t -> unit -> t
     Ideal for the server where the index is rebuilt on startup. *)
 
 val open_readonly : sw:Eio.Switch.t -> _ Eio.Path.t -> t
-(** [open_readonly ~sw path] opens the search database read-only for queries. *)
+(** [open_readonly ~sw path] opens the search database read-only for queries.
+    It never calls {!index}, so [own_host], the tag counts and the projects
+    a {!search} needs are read back from what the last {!index} left in
+    [path] rather than computed. *)
 
 val rebuild : t -> Arod.Ctx.t -> unit
 (** [rebuild t ctx] drops and rebuilds all per-kind search tables from all

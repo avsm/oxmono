@@ -10,6 +10,11 @@ let check name cond =
     prerr_endline ("FAIL: " ^ name);
     exit 1)
 
+let contains hay needle =
+  let n = String.length needle and h = String.length hay in
+  let rec go i = i + n <= h && (String.sub hay i n = needle || go (i + 1)) in
+  go 0
+
 let note ?(tags = []) ?(date = (2024, 2, 3)) ~slug ~title body : Bushel.Note.t =
   {
     Bushel.Note.title;
@@ -38,12 +43,12 @@ let note ?(tags = []) ?(date = (2024, 2, 3)) ~slug ~title body : Bushel.Note.t =
     source_file = None;
   }
 
-let link ?(title = "") ?(slugs = []) ?(date = (2024, 1, 1)) url
-    : Bushel.Link.t =
+let link ?(title = "") ?(slugs = []) ?(date = (2024, 1, 1))
+    ?(description = "") url : Bushel.Link.t =
   {
     Bushel.Link.url;
     date;
-    description = "";
+    description;
     karakeep =
       (if title = "" then None
        else
@@ -239,8 +244,8 @@ let () =
        gotos);
   check "a tag is a go-to hit with its entry count, most used first"
     (List.filter (fun (k, _, _, _) -> k = `Tag) gotos
-     = [ (`Tag, "ocaml", "/#tag=ocaml", "2 entries");
-         (`Tag, "ocaml-labs", "/#tag=ocaml-labs", "1 entry") ]);
+     = [ (`Tag, "ocaml", "/search?q=%23ocaml", "2 entries");
+         (`Tag, "ocaml-labs", "/search?q=%23ocaml-labs", "1 entry") ]);
   check "projects come before tags"
     (match gotos with (`Project, _, _, _) :: _ -> true | _ -> false);
   (* n3 matches through its tag, since the tags column tokenises
@@ -259,5 +264,87 @@ let () =
   check "a project matches on a prefix of any title word"
     (List.exists (fun (g : Arod_search.goto) ->
          g.goto_kind = `Project) r.goto)
+
+(* A link's body is indexed as written, unlike a note's, which is stripped
+   of markup on the way to plain text. So it is a link description, not a
+   note, that carries real markup ("<repo>") and third-party text a matched
+   snippet must not let through unescaped: the sentinel bytes snippet() is
+   asked for must turn into a real <b> and nothing else does. *)
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t =
+    index ~sw ~notes:[]
+      ~links:[
+        link ~title:"A repo"
+          ~description:"Clone the <repo> and build the unikernel."
+          "https://example.org/x";
+      ]
+      ()
+  in
+  let r = Arod_search.search t ~today "unikernel" in
+  let snippet = match r.links with [ h ] -> h.snippet | _ -> "" in
+  check "a snippet HTML-escapes body text around the match"
+    (contains snippet "&lt;repo&gt;");
+  check "and wraps only the match in a real <b>"
+    (contains snippet "<b>unikernel</b>" && not (contains snippet "<repo>"))
+
+(* search_tags rows carry no tags column, so a tags-only query used to
+   return hits and an empty tag facet with no tags at all. *)
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t =
+    index ~sw
+      ~notes:[
+        note ~slug:"a" ~tags:[ "ocaml"; "systems" ] ~title:"A" "x";
+        note ~slug:"b" ~tags:[ "ocaml" ] ~title:"B" "x";
+      ]
+      ~links:[] ()
+  in
+  let r = Arod_search.search t ~today "#ocaml" in
+  check "a tags-only query returns hits carrying their tags"
+    (r.work <> []
+    && List.for_all (fun (h : Arod_search.hit) -> h.tags <> []) r.work);
+  check "and a non-empty tag facet"
+    (r.tags <> [])
+
+(* A read-only handle never calls [index], so [own_host], the tag counts
+   and the projects a search needs have to survive a close and reopen of
+   the database rather than living only in the handle that indexed it. *)
+let () =
+  Eio_main.run @@ fun env ->
+  let fs = Eio.Stdenv.fs env in
+  let dir = Filename.temp_dir "arod_search_test" "" in
+  let db_path = Eio.Path.(fs / dir / "search.db") in
+  Eio.Switch.run (fun sw ->
+    let t = Arod_search.create ~sw db_path in
+    Arod_search.index t ~own_host:"example.com"
+      ~contact_name:(fun _ -> None)
+      ~entries:
+        [
+          `Note
+            (note ~slug:"n" ~tags:[ "ocaml" ] ~title:"OCaml notes"
+               "About ocaml unikernels.");
+        ]
+      ~links:
+        [
+          link ~title:"Own copy" ~slugs:[ "n" ]
+            "https://example.com/ocaml-copy";
+          link ~title:"External" ~slugs:[ "n" ] "https://other.org/ocaml-guide";
+        ]);
+  Eio.Switch.run (fun sw ->
+    let t = Arod_search.open_readonly ~sw db_path in
+    let r = Arod_search.search t ~today "ocaml" in
+    check "a reopened read-only index drops a link on the site's own host"
+      (not
+         (List.exists
+            (fun (h : Arod_search.hit) ->
+              Arod_search.host_of_url h.url = "example.com")
+            r.links));
+    check "and offers a tag go-to hit"
+      (List.exists
+         (fun (g : Arod_search.goto) -> g.goto_kind = `Tag)
+         r.goto))
 
 let () = Printf.printf "test_search: %d checks ok\n" !checks

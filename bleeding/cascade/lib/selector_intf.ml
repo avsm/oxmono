@@ -56,7 +56,7 @@ type nth =
   | An_plus_b of int * int (* An+B: a is coefficient, b is offset *)
 
 type vt_class_selector = { name : string option; classes : string list }
-(** CSS View Transitions 2 §3.4.1 [<vt-class-selector>]: an optional vt-name
+(** CSS View Transitions 2 sec. 3.4.1 [<vt-class-selector>]: an optional vt-name
     ([<custom-ident>] or [*]) followed by zero or more [.<custom-ident>] class
     qualifiers. The empty case (no name and no classes) does not appear in
     cascade output - the parser always reads at least one component. *)
@@ -216,7 +216,7 @@ type t =
   | Cue_region of t list (* ::cue-region(...) - takes selectors *)
   | Highlight of
       string list (* ::highlight(...) - takes custom highlight names *)
-  | View_transition (* ::view-transition (CSS View Transitions 1 §3.2) *)
+  | View_transition (* ::view-transition (CSS View Transitions 1 sec. 3.2) *)
   | View_transition_group of vt_class_selector
       (** ::view-transition-group with optional name and class suffixes. *)
   | View_transition_image_pair of vt_class_selector
@@ -238,3 +238,8 @@ type t =
        :has() *)
   | List of t list
   | Nesting (* & - CSS nesting selector *)
+
+let equal (a : t) b = a = b
+let hash (selector : t) = Hashtbl.hash selector
+let equal_specificity (a : specificity) b = a = b
+let equal_combinator (a : combinator) b = a = b

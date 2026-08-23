@@ -7,9 +7,10 @@ let list_filter_preserve = List.filter_preserve
 
 let media_feature_is name (f : Media.feature) =
   match f with
-  | Media.Plain (n, _) | Media.Boolean n -> n = name
-  | Media.Range (n, _, _) | Media.Range_rev (_, _, n) -> n = name
-  | Media.Interval (_, _, n, _, _) -> n = name
+  | Media.Plain (n, _) | Media.Boolean n -> Media.equal_name n name
+  | Media.Range (n, _, _) | Media.Range_rev (_, _, n) -> Media.equal_name n name
+  | Media.Interval (_, _, n, _, _) -> Media.equal_name n name
+  | Media.General_enclosed _ -> false
 
 let rec condition_has_feature name (c : Media.condition) =
   match c with
@@ -162,10 +163,10 @@ let rec leaf_rules stmt =
       List.concat_map leaf_rules b
   | _ -> []
 
+(* Only reached once the two declarations are known to share a property, so the
+   property itself is not part of the key. *)
 let decl_value_key d =
-  ( Declaration.property_name d,
-    Declaration.string_of_value ~minify:true d,
-    Declaration.is_important d )
+  (Declaration.string_of_value ~minify:true d, Declaration.is_important d)
 
 (* Two rules whose declarations would reorder unsafely: overlapping selectors
    and a shared property set to a different value. Equal values reorder
@@ -176,10 +177,11 @@ let rules_conflict (r1 : rule) (r2 : rule) =
     (Selector_summary.of_selector r2.selector)
   && List.exists
        (fun a ->
-         let pa = Declaration.property_name a in
          List.exists
            (fun b ->
-             Declaration.property_name b = pa
+             (* [same_property] reads the property off the AST; comparing the
+                printed names would tie two constructors that print alike. *)
+             Declaration.same_property a b
              && decl_value_key a <> decl_value_key b)
            r2.declarations)
        r1.declarations
@@ -477,10 +479,10 @@ let drop_empty_rules stmts =
       | _ -> true)
     stmts
 
-(* CSS Cascade 5 §6.6.3: a [@layer <name>;] declaration form is prelude-friendly
-   and may interleave with [@charset] / [@import] / [@namespace], so a
-   [Layer_decl] before [@import] / [@namespace] must not flip [seen_body] -
-   otherwise the following [@import] gets dropped as misplaced. *)
+(* CSS Cascade 5 sec. 6.6.3: a [@layer <name>;] declaration form is
+   prelude-friendly and may interleave with [@charset] / [@import] /
+   [@namespace], so a [Layer_decl] before [@import] / [@namespace] must not flip
+   [seen_body] - otherwise the following [@import] gets dropped as misplaced. *)
 let drop_misplaced_imports stmts =
   let seen_body = ref false in
   let seen_import_or_namespace = ref false in

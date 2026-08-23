@@ -58,7 +58,8 @@ and scroll_state_query =
   | Either of scroll_state_query * scroll_state_query
   | Negated of scroll_state_query
 
-type kind = Min_width | Other  (** Coarse container condition category. *)
+(** Coarse container condition category. *)
+type kind = Min_width | Other
 
 val kind : t -> kind
 (** [kind t] classifies min-width-only conditions for compatibility helpers. *)
@@ -86,6 +87,10 @@ val of_string : string -> t
 (** [of_string s] parses a container condition. Raises [Failure] for malformed
     conditions. *)
 
+val of_components : Component.t list -> t
+(** [of_components components] parses an already-tokenized container condition.
+    Raises [Failure] for malformed conditions. *)
+
 val feature : string -> Media.value -> t
 (** [feature name value] is the typed container feature query constructed via
     {!Media.val-feature}. *)
@@ -102,3 +107,9 @@ val scroll_state : string -> string -> t
 
 val compare : t -> t -> int
 (** [compare t1 t2] compares two container conditions. *)
+
+val compare_scroll_state_query : scroll_state_query -> scroll_state_query -> int
+(** [compare_scroll_state_query a b] totally orders scroll-state queries. *)
+
+val equal_kind : kind -> kind -> bool
+(** [equal_kind a b] tests container condition categories for equality. *)

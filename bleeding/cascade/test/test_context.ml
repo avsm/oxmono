@@ -260,7 +260,7 @@ let test_query_context_boundaries () =
   Alcotest.(check bool)
     "supports declaration is exact on value" false
     (Css.Context.matches_supports ctx (Css.Supports.property "display" "flex"));
-  (* CSS property names are ASCII case-insensitive (CSS Syntax §3.6), so
+  (* CSS property names are ASCII case-insensitive (CSS Syntax sec. 3.6), so
      "Display" and "display" name the same property. *)
   Alcotest.(check bool)
     "supports declaration normalises property case" true
@@ -644,7 +644,7 @@ let declaration_value_source decl =
 let scope_selector_matches (document : Css.Context.document) = function
   | None -> true
   | Some selector ->
-      document.scope = Some selector
+      Option.equal Css.Selector.equal document.scope (Some selector)
       || Css.Context.matches_selector document selector
 
 let scope_boundary_allows document start boundary =
@@ -839,7 +839,8 @@ let same_layer_candidate (c : Css.Stylesheet.cascade_candidate)
 
 let same_origin_candidate (c : Css.Stylesheet.cascade_candidate)
     (l : Css.Stylesheet.cascade_origin_candidate) =
-  l.origin = c.origin && l.important = c.important
+  Css.Stylesheet.equal_cascade_origin l.origin c.origin
+  && l.important = c.important
   && l.source_order = c.source_order
 
 let lower_layer_candidates ~layer_order
@@ -1258,6 +1259,17 @@ let test_loader_context_contract () =
   check_resolved_url "absolute URL remains absolute" ~loader
     ~expected:"https://cdn.example.test/site.css"
     "https://cdn.example.test/site.css";
+  check_resolved_url "data URL remains absolute" ~loader
+    ~expected:"data:image/png;base64,x" "data:image/png;base64,x";
+  check_resolved_url "scheme-relative URL inherits scheme" ~loader
+    ~expected:"https://cdn.example.test/site.css" "//cdn.example.test/site.css";
+  check_resolved_url "query reference keeps base path" ~loader
+    ~expected:"https://example.test/css/app.css?v=1" "?v=1";
+  check_resolved_url "fragment reference keeps base path" ~loader
+    ~expected:"https://example.test/css/app.css#icon" "#icon";
+  check_resolved_url "scheme matching is case-insensitive" ~loader
+    ~expected:"https://cdn.example.test/site.css"
+    "HTTPS://cdn.example.test/site.css";
   check_url_error "relative URL without base is unresolved"
     ~loader:Css.Context.empty_loader "theme.css";
   check_import_loaded "loads same-directory import" ~loader

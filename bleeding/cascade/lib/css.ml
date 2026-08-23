@@ -372,6 +372,11 @@ let logical_border_color value = (Single value : logical_border_color)
 let logical_border_colors start end_ =
   (Pair (start, end_) : logical_border_color)
 
+let logical_border_width value = (Single value : logical_border_width)
+
+let logical_border_widths start end_ =
+  (Pair (start, end_) : logical_border_width)
+
 let transform_list items = (List items : transform)
 let filter_list items = (List items : filter)
 let cursor_url ?hotspot ~fallback url = (Url (url, hotspot, fallback) : cursor)
@@ -478,6 +483,33 @@ let parse_background_image s =
   | value -> value
   | exception (Cursor.Parse_error _ | Invalid_argument _) -> None
 
+let parse_font_family s =
+  match
+    let r = Cursor.of_string s in
+    let v = Properties.read_font_family r in
+    if Cursor.is_done r then Some v else None
+  with
+  | value -> value
+  | exception (Cursor.Parse_error _ | Invalid_argument _) -> None
+
+let parse_list_style_type s =
+  match
+    let r = Cursor.of_string s in
+    let v = Properties.read_list_style_type r in
+    if Cursor.is_done r then Some v else None
+  with
+  | value -> value
+  | exception (Cursor.Parse_error _ | Invalid_argument _) -> None
+
+let parse_list_style_image s =
+  match
+    let r = Cursor.of_string s in
+    let v = Properties.read_list_style_image r in
+    if Cursor.is_done r then Some v else None
+  with
+  | value -> value
+  | exception (Cursor.Parse_error _ | Invalid_argument _) -> None
+
 let as_layer = function
   | Layer (name, content) -> Some (name, content)
   | _ -> None
@@ -517,17 +549,7 @@ let map_container_block f = function
   | Origin (origin, content) -> Some (Origin (origin, f content))
   | _ -> None
 
-let statement_children = function
-  | Rule rule -> rule.nested
-  | Layer (_, nested)
-  | Media (_, nested)
-  | Supports (_, nested)
-  | Origin (_, nested)
-  | Starting_style nested
-  | Scope (_, _, nested) ->
-      nested
-  | Container (_, _, nested) -> nested
-  | _ -> []
+let statement_children = Stylesheet.statement_children
 
 let rec map f stmts =
   List.map
@@ -605,7 +627,7 @@ let v = Stylesheet.v
 let theme_guarded = Declaration.theme_guarded
 
 let as_theme_guarded = function
-  | Theme_guarded { var_name; decl } -> Some (var_name, decl)
+  | Theme_guarded { var_name; decl; _ } -> Some (var_name, decl)
   | _ -> None
 
 (* Override to return statements instead of rules *)
@@ -780,10 +802,12 @@ let vars_of_rules statements =
 type parse = { stylesheet : t; warnings : Error.t list }
 
 let of_string ?(strict = false) ?(filename = "<string>")
-    ?(meta = Loc.default_meta_level) css =
+    ?(meta = Loc.default_meta_level) ?(enforce_spec = false) css =
   let stamp e = Error.with_filename ~filename e in
   try
-    let stylesheet, warnings = Stylesheet.parse_stylesheet_partial ~meta css in
+    let stylesheet, warnings =
+      Stylesheet.parse_stylesheet_partial ~meta ~enforce_spec css
+    in
     let warnings = List.map stamp warnings in
     if strict then
       match warnings with
@@ -792,8 +816,8 @@ let of_string ?(strict = false) ?(filename = "<string>")
     else Ok { stylesheet; warnings }
   with Error.Parse_error error -> Error (stamp error)
 
-let of_string_exn ?strict ?filename ?meta css =
-  match of_string ?strict ?filename ?meta css with
+let of_string_exn ?strict ?filename ?meta ?enforce_spec css =
+  match of_string ?strict ?filename ?meta ?enforce_spec css with
   | Ok { stylesheet; _ } -> stylesheet
   | Error error -> Error.fail error
 
@@ -847,9 +871,11 @@ let inline_style_of_declarations ?(optimize = false) ?minify ?mode declarations
   inline_style_of_declarations ?minify ?mode declarations
 
 let optimize ?scope ?flatten_nesting ?lossless ?enforce_spec ?aggressive
-    ?closed_world ?objective ?prune_unused_custom_props stylesheet =
+    ?regroup ?closed_world ?objective ?prune_unused_custom_props ?stats
+    stylesheet =
   Optimize.stylesheet ?scope ?flatten_nesting ?lossless ?enforce_spec
-    ?aggressive ?closed_world ?objective ?prune_unused_custom_props stylesheet
+    ?aggressive ?regroup ?closed_world ?objective ?prune_unused_custom_props
+    ?stats stylesheet
 
 let flatten_nesting = Optimize.flatten_nesting
 let canonicalize_rule_order = Rule_order.canonicalize
@@ -922,7 +948,7 @@ let resolve_theme_guards_in_decls ~(theme : Pp.String_set.t option) decls =
   | Option.Some set ->
       List.filter_map
         (function
-          | Declaration.Theme_guarded { var_name; decl } ->
+          | Declaration.Theme_guarded { var_name; decl; _ } ->
               if Pp.String_set.mem var_name set then Option.Some decl
               else Option.None
           | d -> Option.Some d)

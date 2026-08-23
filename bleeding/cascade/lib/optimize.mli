@@ -47,10 +47,12 @@ type ctx
 val ctx_of_scope :
   ?lossless:bool ->
   ?aggressive:bool ->
+  ?regroup:bool ->
   ?extend_lists:bool ->
   ?closed_world:bool ->
   ?objective:Ctx.objective ->
   ?enforce_spec:bool ->
+  ?stats:Stats.t ->
   scope option ->
   ctx
 (** [ctx_of_scope ?lossless ?aggressive ?extend_lists ?closed_world scope]
@@ -92,8 +94,8 @@ val drop_invalid : t -> t
 
 val drop_unknown_at_rules : t -> t
 (** [drop_unknown_at_rules ss] removes every [Unknown_at_rule] statement at any
-    block depth. CSS Syntax 3 §5.4.1 says an unknown at-rule is discarded; the
-    parser preserves them in the AST for fidelity, and minify-time
+    block depth. CSS Syntax 3 sec. 5.4.1 says an unknown at-rule is discarded;
+    the parser preserves them in the AST for fidelity, and minify-time
     canonicalization then drops them. *)
 
 val drop_empty_rules : t -> t
@@ -102,11 +104,9 @@ val drop_empty_rules : t -> t
 
 (** {1 Edge Model} *)
 
-type packed_property =
-  | Packed : 'a Properties.property -> packed_property
-      (** Existential wrapper that hides the value type of a typed property tag,
-          so properties of different value types can live in the same edge list.
-      *)
+(** Existential wrapper that hides the value type of a typed property tag, so
+    properties of different value types can live in the same edge list. *)
+type packed_property = Packed : 'a Properties.property -> packed_property
 
 type edge = {
   summary : Selector_summary.t;
@@ -148,9 +148,11 @@ val stylesheet :
   ?lossless:bool ->
   ?enforce_spec:bool ->
   ?aggressive:bool ->
+  ?regroup:bool ->
   ?closed_world:bool ->
   ?objective:Ctx.objective ->
   ?prune_unused_custom_props:bool ->
+  ?stats:Stats.t ->
   t ->
   t
 (** [stylesheet ?scope ?flatten_nesting ?lossless ?enforce_spec ss] optimizes an
@@ -189,65 +191,12 @@ val stylesheet :
     bindings referenced by no [var()] anywhere are dropped. This is opt-in
     because it assumes a complete stylesheet with no out-of-band reader (another
     stylesheet, or [getComputedStyle]) - the same closed-world assumption as
-    {!Css.inline_vars}. *)
+    {!Css.inline_vars}.
+
+    [stats] records what this run did; read it back with {!Stats.snapshot}.
+    Without it the run counts into a recorder of its own that nobody reads. *)
 
 val flatten_nesting : t -> t
 (** [flatten_nesting ss] returns [ss] with every nested rule flattened into a
     top-level rule. Equivalent to the [~flatten_nesting:true] mode of
     {!stylesheet} but without the deduplication / merge passes. *)
-
-type pass_stat = {
-  mutable time : float;  (** accumulated wall-clock, seconds *)
-  mutable calls : int;  (** times the pass ran across all fixpoint iterations *)
-  mutable changes : int;  (** times the pass returned a structurally new list *)
-  mutable rules_in : int;  (** total input rule count summed across calls *)
-  mutable rules_out : int;  (** total output rule count summed across calls *)
-}
-(** One pass's contribution to a single [Optimize.stylesheet] run. *)
-
-val pass_times : (string, pass_stat) Hashtbl.t
-(** Per-pass stats for [factor_rules_to_fixpoint]. Populated as a side effect
-    during {!val-stylesheet} runs; reset at each entry. Keys are pass names. *)
-
-val set_profile : bool -> unit
-(** Enable or disable exact diagnostic size collection for subsequent optimizer
-    runs. Default is [false]. *)
-
-type iteration_stat = {
-  fixpoint : int;
-  iteration : int;
-  local_iteration : int;
-  before_rules : int;
-  after_rules : int;
-  before_bytes : int;
-  after_bytes : int;
-  bytes_saved : int;
-  active_passes : int;
-  changed_passes : int;
-  elapsed : float;
-}
-(** One global factoring fixpoint iteration. *)
-
-val iteration_stats : unit -> iteration_stat list
-(** Per-iteration stats for [factor_rules_to_fixpoint], newest first. *)
-
-type counters = {
-  mutable iterations : int;  (** [factor_rules_to_fixpoint] iterations *)
-  mutable factor_fixpoints_run : int;
-      (** global factoring fixpoints attempted after the preflight *)
-  mutable marginal_stops : int;
-      (** fixpoints stopped because consecutive iterations had low byte gain *)
-  mutable factor_fixpoints_skipped : int;
-      (** global factoring fixpoints skipped by the incremental preflight *)
-  mutable factor_preflight_gain : int;
-      (** total raw-byte gain estimated by the global factoring preflight *)
-  mutable factor_bytes_saved : int;
-      (** total committed byte savings reported by global factoring passes *)
-  mutable factor_transfer_reverts : int;
-      (** factoring results discarded because the estimated DEFLATE size grew *)
-}
-(** Global counters across the last [Optimize.stylesheet] run. *)
-
-val counters : counters
-(** The counters; mutated by the optimizer, reset at each {!val-stylesheet}
-    entry. *)

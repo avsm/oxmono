@@ -74,6 +74,8 @@ type property_registration = {
   initial_value : string option;
 }
 
+let equal_property_registration (a : property_registration) b = a = b
+
 type property_registry = { property_registrations : property_registration list }
 
 let empty =
@@ -240,10 +242,10 @@ let scope ?layer_order ?layer ctx =
     layer = (match layer with Some _ -> layer | None -> ctx.layer);
   }
 
-(* CSS Cascade 5 §6.4.3 layered custom-property lookup. Important beats normal.
-   Normal author: unlayered wins, else later layers beat earlier. Important
-   author: the order reverses (earlier layers beat later, unlayered ranks
-   below). *)
+(* CSS Cascade 5 sec. 6.4.3 layered custom-property lookup. Important beats
+   normal. Normal author: unlayered wins, else later layers beat earlier.
+   Important author: the order reverses (earlier layers beat later, unlayered
+   ranks below). *)
 let custom_layer_index ~layer_order = function
   | None -> max_int
   | Some name ->
@@ -343,6 +345,18 @@ let lookup_custom_property ?layer ?layer_order ctx name =
       match pick_important_custom ~layer_order important with
       | Some _ as v -> v
       | None -> pick_normal_custom ?layer ~layer_order normal)
+
+(* The computed winner among a pool of same-property custom-property
+   declarations, resolved by CSS Cascade 5 sec. 6.4.3: important beats normal,
+   [revert-layer] rolls back to the next layer down, and layer order (reversed
+   for important) breaks ties. Layers are read from each declaration's own
+   annotation, so the caller must have tagged them. [None] when the pool is
+   empty or resolves to unset. *)
+let winning_custom_declaration ~layer_order decls =
+  let important, normal = List.partition Declaration.is_important decls in
+  match pick_important_custom ~layer_order important with
+  | Some _ as v -> v
+  | None -> pick_normal_custom ~layer_order normal
 
 (* Extract the value bound to feature [name] from a single media feature. A
    [<name>: <value>] plain and an [<name> = <value>] equality range both pin the
@@ -659,7 +673,7 @@ let kind_equal : type a b.
   | Properties.Font_src, Properties.Font_src -> Some Refl
   | _ -> None
 
-(* CSS Cascade 5 §6.4 lists inherited properties; the rest default to the
+(* CSS Cascade 5 sec. 6.4 lists inherited properties; the rest default to the
    property's initial value when no value is supplied. *)
 let property_is_inherited = function
   | "color" | "cursor" | "direction" | "font-family" | "font-feature-settings"
@@ -1109,7 +1123,7 @@ module Calc_residual = struct
     run_simplify ops ~resolve_var ~simplify_var_record value
 end
 
-(** {2 Length canonicalisation (CSS Values 4 §6)}
+(** {2 Length canonicalisation (CSS Values 4 sec. 6)}
 
     All length units convert to pixels. Absolute units come from the fixed 1in =
     96px conversion table; font-relative and viewport-relative units require the
@@ -1127,7 +1141,7 @@ module Length = struct
     container_height : float option;
   }
 
-  (* CSS Media Queries 4 §1.3: relative units in @media/@container resolve
+  (* CSS Media Queries 4 sec. 1.3: relative units in @media/@container resolve
      against root font-size. Pre-fill [parent_font_size]/[root_font_size] with
      the 16px default so [em]/[rem] in queries always have a reference; a fresh
      [Length.ctx] without these rejects relative units. *)
@@ -1212,7 +1226,7 @@ module Length = struct
       container_height = unwrap_px ctx.container_height;
     }
 
-  (* CSS Values 4 §10.11 simplification of a typed [length calc]: fold every
+  (* CSS Values 4 sec. 10.11 simplification of a typed [length calc]: fold every
      subtree the [ctx] can collapse to absolute lengths, leaving
      [Var]/[Sibling_*]/unresolvable subtrees. The result stays a [length calc] -
      [Val (Px _)] when fully reducible, else [Expr] with simplified operands. *)
@@ -1249,7 +1263,7 @@ module Length = struct
     | Val la, _, Num n ->
         Option.map (fun out -> Val out) (eval_combine_length_num ctx la n op)
     | Num n, Mul, Val lb ->
-        (* Multiplication is commutative on length × number. *)
+        (* Multiplication is commutative on length x number. *)
         Option.map (fun out -> Val out) (eval_combine_length_num ctx lb n Mul)
     | _ -> None
 
@@ -1377,7 +1391,7 @@ module Length = struct
     | value -> normalize_zero value
 end
 
-(** {2 Media-feature value comparison (CSS Media Queries 4 §3)}
+(** {2 Media-feature value comparison (CSS Media Queries 4 sec. 3)}
 
     [query.media_features] stores typed [Media.feature]s parsed at construction;
     this module is just the numeric comparison glue used when matching range
@@ -1413,7 +1427,7 @@ module Media_value = struct
         | _ -> None)
 end
 
-(** {2 [@supports] evaluation (CSS Conditional 4 §3)}
+(** {2 [@supports] evaluation (CSS Conditional 4 sec. 3)}
 
     Each [Supports.t] constructor has a dedicated evaluator. The structural
     cases ([Not]/[And]/[Or]) recurse into [eval]; the leaves ([Property]/[Func])
@@ -1435,7 +1449,7 @@ end
     [Media.feature], [eval_condition] for [Media.condition], [eval_query] for
     [Media.query], [eval_medium] for [Media.medium], and [eval] for the
     typed-shorthand wrapper [Media.t]. Lengths resolve against a 16px base per
-    §1.3; [min-]/[max-] feature prefixes desugar to range comparisons. *)
+    sec. 1.3; [min-]/[max-] feature prefixes desugar to range comparisons. *)
 
 module Match_media = struct
   open Media
@@ -1463,6 +1477,9 @@ module Match_media = struct
       | Some actual -> Option.value ~default:false (f actual)
     in
     function
+    (* Media Queries 4 3.1: an unrecognised <general-enclosed> is [unknown], and
+       unknown becomes false where a boolean is expected. *)
+    | General_enclosed _ -> false
     | Boolean name -> feature_present table name
     | Plain (name, value) -> (
         match strip_min_max name with
@@ -1508,7 +1525,7 @@ module Match_media = struct
     | List qs -> List.exists (eval q) qs
 end
 
-(** {2 Container-query evaluation (CSS Containment 3 §3.4)}
+(** {2 Container-query evaluation (CSS Containment 3 sec. 3.4)}
 
     Container queries reuse the media-feature evaluator applied to the container
     feature table; they additionally guard on the container name (when supplied)
@@ -1579,7 +1596,7 @@ module Match_container = struct
     List.exists
       (function
         | Container.Scroll_state { query = actual; _ } ->
-            Stdlib.compare actual query = 0
+            Container.compare_scroll_state_query actual query = 0
         | _ -> false)
       q.container_features
     || eval_scroll_state_query q query
@@ -1729,76 +1746,16 @@ end
 (** {2 URL resolution (RFC 3986)} *)
 
 module Url = struct
-  let starts_with ~prefix s =
-    let n = String.length prefix in
-    String.length s >= n && String.sub s 0 n = prefix
-
-  let cut ?(rev = false) ~sep s =
-    let sep_len = String.length sep in
-    let len = String.length s in
-    let matches i = i + sep_len <= len && String.sub s i sep_len = sep in
-    let rec forward i =
-      if i + sep_len > len then None
-      else if matches i then Some i
-      else forward (i + 1)
-    in
-    let rec backward i =
-      if i < 0 then None else if matches i then Some i else backward (i - 1)
-    in
-    match if rev then backward (len - sep_len) else forward 0 with
-    | None -> None
-    | Some i ->
-        Some (String.sub s 0 i, String.sub s (i + sep_len) (len - i - sep_len))
-
-  (* Collapse a single [..]/[.] segment in [path]. Returns [None] when the path
-     has no segments left to normalise. *)
-  let normalise_path path =
-    let parts = String.split_on_char '/' path in
-    let rec loop acc = function
-      | [] -> List.rev acc
-      | "." :: rest -> loop acc rest
-      | ".." :: rest -> (
-          match acc with [] -> loop acc rest | _ :: tl -> loop tl rest)
-      | seg :: rest -> loop (seg :: acc) rest
-    in
-    String.concat "/" (loop [] parts)
-
-  let resolve_absolute base href =
-    match cut ~sep:"://" base with
-    | None -> Ok href
-    | Some (scheme, rest) -> (
-        match cut ~sep:"/" rest with
-        | None -> Ok (scheme ^ "://" ^ rest ^ href)
-        | Some (host, _) -> Ok (scheme ^ "://" ^ host ^ href))
-
-  let resolve_combined combined =
-    match cut ~sep:"://" combined with
-    | None -> Ok (normalise_path combined)
-    | Some (scheme, rest) -> (
-        match cut ~sep:"/" rest with
-        | None -> Ok (scheme ^ "://" ^ normalise_path rest)
-        | Some (host, path) ->
-            Ok (scheme ^ "://" ^ host ^ "/" ^ normalise_path path))
-
-  let resolve_relative base href =
-    match cut ~rev:true ~sep:"/" base with
-    | None -> Ok href
-    | Some (dir, _) -> resolve_combined (dir ^ "/" ^ href)
-
-  let is_absolute_url href =
-    starts_with ~prefix:"http://" href || starts_with ~prefix:"https://" href
-
   let resolve loader href =
-    if is_absolute_url href then Ok href
-    else
-      match loader.base_url with
-      | None -> Error ("no base URL to resolve " ^ href)
-      | Some base when starts_with ~prefix:"/" href ->
-          resolve_absolute base href
-      | Some base -> resolve_relative base href
+    let reference = Uri.of_string href in
+    match (Uri.scheme reference, loader.base_url) with
+    | Some _, _ -> Ok (Uri.to_string reference)
+    | None, None -> Error ("no base URL to resolve " ^ href)
+    | None, Some base ->
+        Ok (Uri.resolve "" (Uri.of_string base) reference |> Uri.to_string)
 end
 
-(** {2 [@import] loader (CSS Cascade 5 §6)}
+(** {2 [@import] loader (CSS Cascade 5 sec. 6)}
 
     Resolves the import URL through {!Url}, looks up the body in
     [loader.imports], parses it, and applies any media/supports/layer guards on
@@ -3468,7 +3425,7 @@ let rec eval_typed ?layer_order ?layer ctx decl =
   | Declaration.Theme_guarded { var_name; decl; _ } ->
       Declaration.theme_guarded ~var_name
         (eval_typed ~layer_order ?layer ctx decl)
-  | Declaration.Declaration { property; value; important } -> (
+  | Declaration.Declaration { property; value; important; _ } -> (
       match Properties.property_value_kind property with
       | Some kind ->
           eval_kind ~layer_order ?layer ctx kind property important value

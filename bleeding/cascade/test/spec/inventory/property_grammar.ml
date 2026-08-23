@@ -392,6 +392,8 @@ let matrix =
         "border-left-color";
         "border-inline-start-color";
         "border-inline-end-color";
+        "border-block-start-color";
+        "border-block-end-color";
         "text-decoration-color";
         "-webkit-text-decoration-color";
         "-webkit-tap-highlight-color";
@@ -400,6 +402,9 @@ let matrix =
         "stroke";
         "accent-color";
         "caret-color";
+        "stop-color";
+        "flood-color";
+        "lighting-color";
       ]
       [ "red"; "currentColor"; "rgb(0 0 0 / 50%)" ]
       [ "1px"; "red blue" ]
@@ -419,6 +424,10 @@ let matrix =
         "border-left-style";
         "border-inline-style";
         "border-block-style";
+        "border-inline-start-style";
+        "border-inline-end-style";
+        "border-block-start-style";
+        "border-block-end-style";
       ]
       [ "none"; "solid"; "dashed"; "hidden" ]
       [ "solid dashed"; "foo" ]
@@ -443,18 +452,31 @@ let matrix =
         "stroke-width";
         "outline-width";
         "outline-offset";
-        "text-underline-offset";
         "letter-spacing";
         "text-indent";
         "word-spacing";
         "line-height-step";
         "overflow-clip-margin";
         "offset-distance";
-        "perspective";
         "shape-margin";
       ]
       [ "0"; "1px"; "calc(1rem + 2px)" ]
       [ "auto"; "red"; "1px 2px" ]
+  (* CSS Transforms 2 sec. 3: [perspective] takes [none], its initial value. CSS
+     Text Decoration 4 sec. 5: [text-underline-offset] takes [auto] and may be
+     negative. *)
+  @ [
+      {
+        property = "perspective";
+        positives = [ "0"; "1px"; "none"; "calc(1rem + 2px)" ];
+        negatives = [ "auto"; "red"; "1px 2px"; "-1px" ];
+      };
+      {
+        property = "text-underline-offset";
+        positives = [ "0"; "1px"; "auto"; "-2px"; "10%" ];
+        negatives = [ "red"; "1px 2px" ];
+      };
+    ]
   @ rows_for
       [ "margin-left"; "margin-right"; "margin-top"; "margin-bottom" ]
       [ "0"; "1px"; "10%"; "auto"; "anchor-size(width)" ]
@@ -476,13 +498,16 @@ let matrix =
       ]
       [ "0"; "1px"; "10%"; "auto" ]
       [ "red"; "1px 2px" ]
+    (* CSS Scroll Snap 1 sec. 5.1: the scroll-margin longhands are [<length>]
+       with no [0,inf] range, so negatives are valid; percentages are not
+       ("Percentages: n/a"). Contrast scroll-padding just below. *)
   @ rows_for [ "scroll-margin" ]
-      [ "0"; "1px"; "1px 2px"; "1px 2px 3px 4px" ]
-      [ "auto"; "10%"; "red"; "1px 2px 3px 4px 5px" ]
+      [ "0"; "1px"; "-1px"; "1px 2px"; "-1px -2px"; "1px 2px 3px 4px" ]
+      [ "auto"; "10%"; "-10%"; "red"; "1px 2px 3px 4px 5px" ]
   @ rows_for
       [ "scroll-margin-inline"; "scroll-margin-block" ]
-      [ "0"; "1px"; "1px 2px" ]
-      [ "auto"; "10%"; "red"; "1px 2px 3px" ]
+      [ "0"; "1px"; "-1px"; "1px 2px"; "-1px -2px" ]
+      [ "auto"; "10%"; "-10%"; "red"; "1px 2px 3px" ]
   @ rows_for
       [
         "scroll-margin-top";
@@ -494,8 +519,8 @@ let matrix =
         "scroll-margin-block-start";
         "scroll-margin-block-end";
       ]
-      [ "0"; "1px" ]
-      [ "auto"; "10%"; "red"; "1px 2px" ]
+      [ "0"; "1px"; "-1px" ]
+      [ "auto"; "10%"; "-10%"; "red"; "1px 2px" ]
   @ rows_for [ "scroll-padding" ]
       [ "auto"; "0"; "1px"; "10%"; "1px 2px"; "1px 2px 3px 4px" ]
       [ "red"; "1px 2px 3px 4px 5px"; "auto auto auto auto auto"; "-1px" ]
@@ -566,6 +591,21 @@ let matrix =
         property = "border-inline-color";
         positives = [ "red"; "red blue"; "currentColor" ];
         negatives = [ "red blue green"; "1px" ];
+      };
+      {
+        property = "border-block-color";
+        positives = [ "red"; "red blue"; "currentColor" ];
+        negatives = [ "red blue green"; "1px" ];
+      };
+      {
+        property = "border-inline-width";
+        positives = [ "1px"; "1px 2px"; "thin"; "medium thick" ];
+        negatives = [ "1px 2px 3px"; "red" ];
+      };
+      {
+        property = "border-block-width";
+        positives = [ "1px"; "1px 2px"; "thin"; "medium thick" ];
+        negatives = [ "1px 2px 3px"; "red" ];
       };
     ]
   @ rows_for [ "inset" ]
@@ -1830,6 +1870,68 @@ let matrix =
         property = "direction";
         positives = [ "ltr"; "rtl" ];
         negatives = [ "ltr rtl"; "auto" ];
+      };
+      {
+        property = "fill-rule";
+        positives = [ "nonzero"; "evenodd" ];
+        negatives = [ "nonzero evenodd"; "even-odd" ];
+      };
+      {
+        property = "clip-rule";
+        positives = [ "nonzero"; "evenodd" ];
+        negatives = [ "nonzero evenodd"; "even-odd" ];
+      };
+      {
+        property = "stroke-linecap";
+        positives = [ "butt"; "round"; "square" ];
+        negatives = [ "butt round"; "flat" ];
+      };
+      {
+        property = "stroke-linejoin";
+        positives = [ "miter"; "miter-clip"; "round"; "bevel"; "arcs" ];
+        negatives = [ "miter bevel"; "mitre" ];
+      };
+      {
+        property = "stroke-miterlimit";
+        positives = [ "1"; "4"; "10.5"; "calc(2 * 3)" ];
+        negatives = [ ".5"; "-1"; "4px"; "4 4" ];
+      };
+      {
+        property = "stroke-dashoffset";
+        positives = [ "0"; "4"; "4px"; "10%"; "-2px" ];
+        negatives = [ "none"; "4 2"; "red" ];
+      };
+      {
+        property = "stroke-dasharray";
+        positives = [ "none"; "4"; "4 2"; "4, 2"; "4px 2px"; "10% 5%" ];
+        negatives = [ "red"; "4 red" ];
+      };
+      {
+        property = "vector-effect";
+        positives =
+          [
+            "none";
+            "non-scaling-stroke";
+            "non-scaling-size";
+            "non-rotation";
+            "fixed-position";
+            "non-scaling-stroke screen";
+            "non-scaling-stroke fixed-position";
+          ];
+        negatives = [ "bogus"; "screen"; "none non-scaling-stroke" ];
+      };
+      {
+        property = "paint-order";
+        positives =
+          [
+            "normal";
+            "fill";
+            "stroke";
+            "markers";
+            "stroke fill";
+            "markers stroke fill";
+          ];
+        negatives = [ "fill fill"; "normal fill"; "bogus"; "fill bogus" ];
       };
       {
         property = "unicode-bidi";

@@ -17,8 +17,6 @@
                | <mf-value> <gt-op> <mf-name> <gt-op> <mf-value>
     v} *)
 
-open Syntax
-
 type cmp = Lt | Le | Eq | Gt | Ge
 
 type name =
@@ -116,12 +114,18 @@ type value =
           captured as a function name plus its raw argument body for round-trip;
           cascade doesn't yet evaluate them at parse time. *)
 
+let equal_value (a : value) b = a = b
+
 type feature =
   | Plain of name * value
   | Boolean of name
   | Range of name * cmp * value
   | Range_rev of value * cmp * name
   | Interval of value * cmp * name * cmp * value
+  | General_enclosed of string
+      (** Media Queries 4 sec. 3.1 [<general-enclosed>]: a grammatical but
+          unrecognised query, kept verbatim. Its result is [unknown], which
+          becomes false wherever a boolean is expected. *)
 
 type condition =
   | Feature of feature
@@ -131,6 +135,8 @@ type condition =
 
 type medium = All | Screen | Print | Other of string
 type prefix = Not | Only
+
+let equal_name (a : name) b = a = b
 
 type t =
   | Cond of condition
@@ -365,6 +371,7 @@ let pp_value : value Pp.t =
 
 let pp_feature : feature Pp.t =
  fun ctx -> function
+  | General_enclosed raw -> Pp.string ctx raw
   | Plain (name, value) when Pp.minified ctx ->
       Pp.char ctx '(';
       Pp.string ctx (string_of_name name);
@@ -503,121 +510,40 @@ let to_string ?(minify = false) t = Pp.to_string ~minify pp t
 
 (* ===== Parser ===== *)
 
-(* A lightweight character scanner sufficient for media-query syntax. *)
-type scanner = { s : string; mutable pos : int }
 type recovery_scope = Branch | Query_list
 
 exception Parse_error of recovery_scope * string
 
 let fail_parse ?(scope = Branch) reason = raise (Parse_error (scope, reason))
-let mk_scanner s = { s = String.trim s; pos = 0 }
-let at_end sc = sc.pos >= String.length sc.s
 
-let peek sc : char option =
-  if at_end sc then Option.None else Some sc.s.[sc.pos]
+let is_whitespace_component = function
+  | Component.Preserved { kind = Token.Whitespace; _ } -> true
+  | _ -> false
 
-let advance sc = sc.pos <- sc.pos + 1
+let rec drop_whitespace = function
+  | component :: rest when is_whitespace_component component ->
+      drop_whitespace rest
+  | components -> components
 
-let skip_ws sc =
-  while
-    (not (at_end sc))
-    &&
-    let c = sc.s.[sc.pos] in
-    c = ' ' || c = '\t' || c = '\n' || c = '\r' || c = '\012'
-  do
-    advance sc
-  done
+let trim_components components =
+  components |> drop_whitespace |> List.rev |> drop_whitespace |> List.rev
 
-let read_ident sc =
-  skip_ws sc;
-  let start = sc.pos in
-  if at_end sc then ""
-  else if not (is_ascii_ident_start sc.s.[sc.pos]) then ""
-  else (
-    advance sc;
-    while (not (at_end sc)) && is_ascii_ident_continue sc.s.[sc.pos] do
-      advance sc
-    done;
-    String.sub sc.s start (sc.pos - start))
+let non_whitespace_components = List.filter (Fun.negate is_whitespace_component)
 
-let lookahead_ident sc kw =
-  let kw_len = String.length kw in
-  let s_len = String.length sc.s in
-  if sc.pos + kw_len > s_len then false
-  else
-    let ok = ref true in
-    for k = 0 to kw_len - 1 do
-      if Char.lowercase_ascii sc.s.[sc.pos + k] <> Char.lowercase_ascii kw.[k]
-      then ok := false
-    done;
-    !ok
-    && (sc.pos + kw_len >= s_len
-       ||
-       let c = sc.s.[sc.pos + kw_len] in
-       not (is_ascii_ident_continue c))
+let components_empty components =
+  match trim_components components with [] -> true | _ :: _ -> false
 
-let consume_keyword sc kw = sc.pos <- sc.pos + String.length kw
+let string_of_components components =
+  Cursor.string_of_components ~trim:true components
 
-(* Parse an mf-value: number/integer + optional unit, ratio, or ident. *)
-let is_digit c = c >= '0' && c <= '9'
+let ident_component = function
+  | Component.Preserved { kind = Token.Ident name; _ } -> Some name
+  | _ -> Option.None
 
-let consume_digits sc =
-  let saw_digit = ref false in
-  while (not (at_end sc)) && is_digit sc.s.[sc.pos] do
-    saw_digit := true;
-    advance sc
-  done;
-  !saw_digit
-
-let consume_sign sc =
-  match peek sc with Some ('+' | '-') -> advance sc | _ -> ()
-
-let consume_exponent sc =
-  match peek sc with
-  | Some ('e' | 'E') ->
-      let mark = sc.pos in
-      advance sc;
-      consume_sign sc;
-      if not (consume_digits sc) then sc.pos <- mark
-  | _ -> ()
-
-let read_number_lit sc : ([ `Int of int | `Float of float ] * string) option =
-  let start = sc.pos in
-  consume_sign sc;
-  let saw_int = consume_digits sc in
-  let saw_dot =
-    match peek sc with
-    | Some '.' ->
-        advance sc;
-        true
-    | _ -> false
-  in
-  let saw_frac = saw_dot && consume_digits sc in
-  consume_exponent sc;
-  if not (saw_int || saw_frac) then (
-    sc.pos <- start;
-    None)
-  else
-    let txt = String.sub sc.s start (sc.pos - start) in
-    let is_int =
-      (not saw_dot) && not (String.contains txt 'e' || String.contains txt 'E')
-    in
-    if is_int then Some (`Int (int_of_string txt), txt)
-    else Some (`Float (float_of_string txt), txt)
-
-let read_unit sc =
-  let start = sc.pos in
-  if at_end sc then ""
-  else if sc.s.[sc.pos] = '%' then (
-    advance sc;
-    "%")
-  else if is_ascii_ident_start sc.s.[sc.pos] then (
-    advance sc;
-    while (not (at_end sc)) && is_ascii_ident_continue sc.s.[sc.pos] do
-      advance sc
-    done;
-    String.sub sc.s start (sc.pos - start))
-  else ""
+let ident_is keyword component =
+  match ident_component component with
+  | Some name -> String.equal (String.lowercase_ascii name) keyword
+  | Option.None -> false
 
 let length_of_value f unit : Values_intf.length option =
   let module L = Values_intf in
@@ -656,139 +582,70 @@ let length_of_value f unit : Values_intf.length option =
   | "svw" -> Some (L.Svw f)
   | "svmin" -> Some (L.Svmin f)
   | "svmax" -> Some (L.Svmax f)
-  | _ -> None
+  | _ -> Option.None
 
 let resolution_units = [ "dpi"; "dpcm"; "dppx"; "x" ]
 
-(* Read balanced parens content into a string. Assumes '(' already consumed. *)
-let read_balanced sc =
-  let buf = Buffer.create 32 in
-  let depth = ref 1 in
-  let continue = ref true in
-  while !continue do
-    match peek sc with
-    | None -> failwith "Unmatched parenthesis in @media condition"
-    | Some '(' ->
-        incr depth;
-        Buffer.add_char buf '(';
-        advance sc
-    | Some ')' ->
-        decr depth;
-        if !depth = 0 then (
-          advance sc;
-          continue := false)
-        else (
-          Buffer.add_char buf ')';
-          advance sc)
-    | Some c ->
-        Buffer.add_char buf c;
-        advance sc
-  done;
-  Buffer.contents buf
-
-let typed_function_value name args : value option =
-  let raw = name ^ "(" ^ args ^ ")" in
-  let cursor = Cursor.of_string raw in
+let typed_function_value component : value option =
+  let cursor = Cursor.of_components [ component ] in
   match Values.read_length cursor with
   | length ->
       Cursor.ws cursor;
       Cursor.expect_eof cursor;
       Some (Length length)
-  | exception Cursor.Parse_error _ -> None
+  | exception Cursor.Parse_error _ -> Option.None
 
-let number_as_scalar : [ `Int of int | `Float of float ] -> value = function
-  | `Int n -> Integer n
-  | `Float f -> Number f
+let value_of_number (number : Token.number) =
+  match number.number_flag with
+  | Token.Integer -> Integer (int_of_float number.value)
+  | Token.Number -> Number number.value
 
-let number_as_int : [ `Int of int | `Float of float ] -> int = function
-  | `Int n -> n
-  | `Float f -> int_of_float f
-
-let read_value_with_unit num unit : value option =
-  let f = match num with `Int n -> float_of_int n | `Float f -> f in
-  match length_of_value f unit with
+let read_value_with_unit value unit : value option =
+  match length_of_value value unit with
   | Some l -> Some (Length l)
-  | None ->
+  | Option.None ->
       if List.mem (String.lowercase_ascii unit) resolution_units then
-        Some (Resolution_value (f, unit))
-      else None
+        Some (Resolution_value (value, unit))
+      else Option.None
 
-let read_ratio_tail sc num : value option =
-  (* Could be a ratio: "n / m" *)
-  let mark = sc.pos in
-  skip_ws sc;
-  match peek sc with
-  | Some '/' -> (
-      advance sc;
-      skip_ws sc;
-      match read_number_lit sc with
-      | Some (`Int d, _) -> Some (Ratio (number_as_int num, d))
-      | _ ->
-          sc.pos <- mark;
-          Some (number_as_scalar num))
-  | _ ->
-      sc.pos <- mark;
-      Some (number_as_scalar num)
-
-let read_numeric_value sc : value option =
-  match read_number_lit sc with
-  | None -> None
-  | Some (num, _) ->
-      let unit = read_unit sc in
-      if unit = "" then read_ratio_tail sc num
-      else read_value_with_unit num unit
-
-let read_ident_value sc : value option =
-  let id = read_ident sc in
-  if id = "" then None
-  else (
-    skip_ws sc;
-    match peek sc with
-    | Some '(' -> (
-        advance sc;
-        let args = read_balanced sc in
-        match typed_function_value id args with
-        | Some _ as value -> value
-        | None -> Some (Function (id, args)))
-    | _ -> Some (Ident (ident_of_string id)))
-
-let read_value sc : value option =
-  skip_ws sc;
-  match peek sc with
-  | None -> None
-  | Some c when (c >= '0' && c <= '9') || c = '.' || c = '+' || c = '-' ->
-      read_numeric_value sc
-  | Some _ -> read_ident_value sc
+let value_of_components_opt components =
+  match non_whitespace_components components with
+  | [ Component.Preserved { kind = Token.Number_tok number; _ } ] ->
+      Some (value_of_number number)
+  | [ Component.Preserved { kind = Token.Percentage number; _ } ] ->
+      Some (Length (Values_intf.Pct number.value))
+  | [ Component.Preserved { kind = Token.Dimension { number; unit_ }; _ } ] ->
+      read_value_with_unit number.value unit_
+  | [
+   Component.Preserved { kind = Token.Number_tok numerator; _ };
+   Component.Preserved { kind = Token.Delim "/"; _ };
+   Component.Preserved
+     {
+       kind =
+         Token.Number_tok
+           { value = denominator; number_flag = Token.Integer; _ };
+       _;
+     };
+  ] ->
+      Some (Ratio (int_of_float numerator.value, int_of_float denominator))
+  | [ Component.Preserved { kind = Token.Ident name; _ } ] ->
+      Some (Ident (ident_of_string name))
+  | [
+   (Component.Func { node = { name; arguments; terminated = true }; _ } as
+    component);
+  ] -> (
+      match typed_function_value component with
+      | Some _ as value -> value
+      | Option.None -> Some (Function (name, string_of_components arguments)))
+  | _ -> Option.None
 
 let value_of_string s =
-  let sc = mk_scanner s in
-  match read_value sc with
-  | Some value ->
-      skip_ws sc;
-      if at_end sc then value else failwith ("invalid media value: " ^ s)
-  | None -> failwith ("invalid media value: " ^ s)
+  let components = Cursor.of_string s |> Cursor.remaining in
+  match value_of_components_opt components with
+  | Some value -> value
+  | Option.None -> failwith ("invalid media value: " ^ s)
 
 let boolean_feature name : feature = Boolean name
-
-let read_cmp sc : cmp option =
-  skip_ws sc;
-  match peek sc with
-  | Some '<' ->
-      advance sc;
-      if peek sc = Some '=' then (
-        advance sc;
-        Some Le)
-      else Some Lt
-  | Some '>' ->
-      advance sc;
-      if peek sc = Some '=' then (
-        advance sc;
-        Some Ge)
-      else Some Gt
-  | Some '=' ->
-      advance sc;
-      Some Eq
-  | _ -> None
 
 let interval_ops_compatible op1 op2 =
   match (op1, op2) with
@@ -897,170 +754,173 @@ let plain_feature name value : feature =
      ^ "'s grammar (see Media.validate_plain_feature)");
   Plain (name, value)
 
-(* Parse content already inside parens (no surrounding parens). *)
-let value_first_interval_tail sc v1 op1 name op2 : feature option =
-  skip_ws sc;
-  match read_value sc with
-  | None -> None
-  | Some v2 ->
-      skip_ws sc;
-      if
-        at_end sc
-        && interval_ops_compatible op1 op2
-        && validate_range_feature name v1
-        && validate_range_feature name v2
-      then Some (Interval (v1, op1, name, op2, v2))
-      else None
+let take_cmp = function
+  | Component.Preserved { kind = Token.Delim "<"; _ }
+    :: Component.Preserved { kind = Token.Delim "="; _ }
+    :: rest ->
+      Some (Le, rest)
+  | Component.Preserved { kind = Token.Delim ">"; _ }
+    :: Component.Preserved { kind = Token.Delim "="; _ }
+    :: rest ->
+      Some (Ge, rest)
+  | Component.Preserved { kind = Token.Delim "<"; _ } :: rest -> Some (Lt, rest)
+  | Component.Preserved { kind = Token.Delim ">"; _ } :: rest -> Some (Gt, rest)
+  | Component.Preserved { kind = Token.Delim "="; _ } :: rest -> Some (Eq, rest)
+  | _ -> Option.None
 
-let value_first_range_or_interval sc v1 op1 name : feature option =
-  match read_cmp sc with
-  | Some op2 -> value_first_interval_tail sc v1 op1 name op2
-  | None ->
-      skip_ws sc;
-      if at_end sc && validate_range_feature name v1 then
-        Some (Range_rev (v1, op1, name))
-      else None
-
-let value_first_after_op sc ~mark v1 op1 : feature option =
-  skip_ws sc;
-  let name = read_ident sc in
-  if name = "" then (
-    sc.pos <- mark;
-    None)
-  else
-    let name = name_of_string name in
-    value_first_range_or_interval sc v1 op1 name
-
-let value_first_feature content : feature option =
-  let sc = mk_scanner content in
-  skip_ws sc;
-  (* Try value-first form: V op name [op V] *)
-  let mark = sc.pos in
-  match read_value sc with
-  | None -> None
-  | Some v1 -> (
-      match read_cmp sc with
-      | Some op1 -> value_first_after_op sc ~mark v1 op1
-      | None ->
-          sc.pos <- mark;
-          None)
-
-let boolean_or_none_feature id : feature option =
-  if Option.is_some (prefixed_range_feature_name (name_of_string id)) then None
-  else Some (boolean_feature (name_of_string id))
-
-let plain_feature_after_colon sc id : feature option =
-  advance sc;
-  skip_ws sc;
-  match read_value sc with
-  | None -> None
-  | Some value ->
-      skip_ws sc;
-      let name = name_of_string id in
-      if at_end sc && validate_plain_feature name value then
-        Some (plain_feature name value)
-      else None
-
-let range_after_value sc id op v2 : feature option =
-  match read_cmp sc with
-  | Some _ -> None
-  | None ->
-      skip_ws sc;
-      let name = name_of_string id in
-      if at_end sc && validate_range_feature name v2 then
-        Some (Range (name, op, v2))
-      else None
-
-let range_after_op sc id op : feature option =
-  skip_ws sc;
-  match read_value sc with
-  | None -> None
-  | Some v2 -> range_after_value sc id op v2
-
-let name_first_range sc id content : feature option =
-  match read_cmp sc with
-  | None -> value_first_feature content
-  | Some op -> range_after_op sc id op
-
-let feature_after_ident sc id content : feature option =
-  skip_ws sc;
-  match peek sc with
-  | None -> boolean_or_none_feature id
-  | Some ':' -> plain_feature_after_colon sc id
-  | Some _ -> name_first_range sc id content
-
-let feature_in_parens content : feature option =
-  let sc = mk_scanner content in
-  skip_ws sc;
-  if at_end sc then None
-  else
-    let id = read_ident sc in
-    if id = "" then value_first_feature content
-    else feature_after_ident sc id content
-
-let extract_feature_or_fail content =
-  match feature_in_parens content with
-  | Some f -> f
-  | None -> failwith ("invalid media feature: " ^ content)
-
-let rec condition_from_paren_content content =
-  let trimmed = String.trim content in
-  (* Could be either ( <condition> ) or ( <feature> ). *)
-  let inner = mk_scanner trimmed in
-  skip_ws inner;
-  if lookahead_ident inner "not" then condition_of_string trimmed
-  else if lookahead_ident inner "and" || lookahead_ident inner "or" then
-    Feature (extract_feature_or_fail trimmed)
-  else if peek inner = Some '(' then condition_of_string trimmed
-  else Feature (extract_feature_or_fail trimmed)
-
-(* Parser for media-condition (sequence of (...) with and/or/not). *)
-and condition_in_parens sc =
-  skip_ws sc;
-  match peek sc with
-  | Some '(' ->
-      advance sc;
-      condition_from_paren_content (read_balanced sc)
-  | _ -> failwith "expected '(' in media condition"
-
-and condition_of_string s =
-  let sc = mk_scanner s in
-  condition sc
-
-and condition sc =
-  skip_ws sc;
-  if lookahead_ident sc "not" then (
-    consume_keyword sc "not";
-    skip_ws sc;
-    let inner = condition_in_parens sc in
-    skip_ws sc;
-    if at_end sc then Not inner
-    else failwith "trailing content after 'not <media-in-parens>'")
-  else
-    let left = condition_in_parens sc in
-    chain sc left
-
-and chain sc (acc : condition) =
-  let rec loop op (acc : condition) : condition =
-    skip_ws sc;
-    if at_end sc then acc
-    else if lookahead_ident sc "and" then (
-      (match op with
-      | Some `Or -> failwith "mixed 'and'/'or' media condition"
-      | _ -> ());
-      consume_keyword sc "and";
-      let right = condition_in_parens sc in
-      loop (Some `And) (And (acc, right) : condition))
-    else if lookahead_ident sc "or" then (
-      (match op with
-      | Some `And -> failwith "mixed 'and'/'or' media condition"
-      | _ -> ());
-      consume_keyword sc "or";
-      let right = condition_in_parens sc in
-      loop (Some `Or) (Or (acc, right) : condition))
-    else acc
+let split_cmp components =
+  let rec loop before rest =
+    match take_cmp rest with
+    | Some (op, after) -> Some (List.rev before, op, after)
+    | Option.None -> (
+        match rest with
+        | [] -> Option.None
+        | component :: after -> loop (component :: before) after)
   in
-  loop None acc
+  loop [] (non_whitespace_components components)
+
+type parsed_feature = Valid_feature of feature | Invalid_feature | Not_feature
+
+let valid_or_invalid feature =
+  match feature with
+  | Some feature -> Valid_feature feature
+  | Option.None -> Invalid_feature
+
+let boolean_feature_of_name name =
+  let name = name_of_string name in
+  if Option.is_some (prefixed_range_feature_name name) then Option.None
+  else Some (boolean_feature name)
+
+let plain_feature_of_components name components =
+  match value_of_components_opt components with
+  | Some value ->
+      let name = name_of_string name in
+      if validate_plain_feature name value then Some (plain_feature name value)
+      else Option.None
+  | Option.None -> Option.None
+
+let name_first_range name op components =
+  match (split_cmp components, value_of_components_opt components) with
+  | Option.None, Some value ->
+      let name = name_of_string name in
+      if validate_range_feature name value then Some (Range (name, op, value))
+      else Option.None
+  | Some _, _ | Option.None, Option.None -> Option.None
+
+let range_rev_of_components lower op1 = function
+  | [ name_component ] -> (
+      match ident_component name_component with
+      | Some name ->
+          let name = name_of_string name in
+          if validate_range_feature name lower then
+            Some (Range_rev (lower, op1, name))
+          else Option.None
+      | Option.None -> Option.None)
+  | _ -> Option.None
+
+let interval_of_components lower op1 name_components op2 upper_components =
+  match (name_components, value_of_components_opt upper_components) with
+  | [ name_component ], Some upper -> (
+      match ident_component name_component with
+      | Some name ->
+          let name = name_of_string name in
+          if
+            interval_ops_compatible op1 op2
+            && validate_range_feature name lower
+            && validate_range_feature name upper
+          then Some (Interval (lower, op1, name, op2, upper))
+          else Option.None
+      | Option.None -> Option.None)
+  | _ -> Option.None
+
+let value_first_range_or_interval lhs op1 rhs =
+  match value_of_components_opt lhs with
+  | Option.None -> Option.None
+  | Some lower -> (
+      match split_cmp rhs with
+      | Option.None -> range_rev_of_components lower op1 rhs
+      | Some (name_components, op2, upper_components) ->
+          interval_of_components lower op1 name_components op2 upper_components)
+
+let parse_feature_components components =
+  let components = non_whitespace_components components in
+  match components with
+  | [] -> Invalid_feature
+  | [ name_component ] -> (
+      match ident_component name_component with
+      | Some name -> valid_or_invalid (boolean_feature_of_name name)
+      | Option.None -> Not_feature)
+  | Component.Preserved { kind = Token.Ident name; _ }
+    :: Component.Preserved { kind = Token.Colon; _ }
+    :: value_components ->
+      valid_or_invalid (plain_feature_of_components name value_components)
+  | _ -> (
+      match split_cmp components with
+      | Some ([ name_component ], op, rhs) -> (
+          match ident_component name_component with
+          | Some name -> valid_or_invalid (name_first_range name op rhs)
+          | Option.None ->
+              valid_or_invalid
+                (value_first_range_or_interval [ name_component ] op rhs))
+      | Some (lhs, op, rhs) ->
+          valid_or_invalid (value_first_range_or_interval lhs op rhs)
+      | Option.None -> (
+          match components with
+          | Component.Preserved { kind = Token.Ident _; _ } :: _ -> Not_feature
+          | _ -> Not_feature))
+
+let feature_in_components components =
+  match parse_feature_components components with
+  | Valid_feature feature -> Some feature
+  | Invalid_feature | Not_feature -> Option.None
+
+let rec condition_of_components components : condition =
+  let components = non_whitespace_components components in
+  match components with
+  | first :: rest when ident_is "not" first -> (
+      match rest with
+      | [ operand ] -> Not (condition_in_parens operand)
+      | _ -> failwith "trailing content after 'not <media-in-parens>'")
+  | first :: rest ->
+      let left = condition_in_parens first in
+      condition_chain Option.None left rest
+  | [] -> failwith "empty media condition"
+
+and condition_in_parens component : condition =
+  match component with
+  | Component.Block
+      { node = { opening = Token.Paren; value; closed = true }; _ } -> (
+      match parse_feature_components value with
+      | Valid_feature feature -> Feature feature
+      | Invalid_feature ->
+          failwith ("invalid media feature: " ^ string_of_components value)
+      | Not_feature -> condition_of_components value)
+  | Component.Block { node = { opening = Token.Paren; closed = false; _ }; _ }
+    ->
+      failwith "unmatched parenthesis in @media condition"
+  | Component.Func { node = { terminated = true; _ }; _ } ->
+      Feature (General_enclosed (string_of_components [ component ]))
+  | Component.Func { node = { terminated = false; _ }; _ } ->
+      failwith "unmatched function in @media condition"
+  | Component.Block _ | Component.Preserved _ ->
+      failwith "expected media-in-parens"
+
+and condition_chain operator acc components : condition =
+  match components with
+  | [] -> acc
+  | keyword :: operand :: rest when ident_is "and" keyword ->
+      (match operator with
+      | Some `Or -> failwith "mixed 'and'/'or' media condition"
+      | Some `And | Option.None -> ());
+      let right = condition_in_parens operand in
+      condition_chain (Some `And) (And (acc, right)) rest
+  | keyword :: operand :: rest when ident_is "or" keyword ->
+      (match operator with
+      | Some `And -> failwith "mixed 'and'/'or' media condition"
+      | Some `Or | Option.None -> ());
+      let right = condition_in_parens operand in
+      condition_chain (Some `Or) (Or (acc, right)) rest
+  | _ -> failwith "trailing content in media condition"
 
 let medium_of_ident s : medium =
   match String.lowercase_ascii s with
@@ -1072,151 +932,119 @@ let medium_of_ident s : medium =
 let is_reserved_media_type_keyword s =
   match String.lowercase_ascii s with "and" | "or" -> true | _ -> false
 
-let rec next_non_ws s len i : char option =
-  if i >= len then None
-  else match s.[i] with ' ' | '\t' -> next_non_ws s len (i + 1) | c -> Some c
+let is_media_in_parens = function
+  | Component.Block { node = { opening = Token.Paren; _ }; _ }
+  | Component.Func _ ->
+      true
+  | Component.Block _ | Component.Preserved _ -> false
 
-(* [<media-query>] starts as [<media-condition>] (rather than as a media type)
-   when its first non-space token is '(' or "not (". *)
-let starts_with_condition sc =
-  match (peek sc, lookahead_ident sc "not") with
-  | Some '(', _ -> true
-  | _, true -> next_non_ws sc.s (String.length sc.s) (sc.pos + 3) = Some '('
+let starts_with_condition components =
+  match non_whitespace_components components with
+  | first :: _ when is_media_in_parens first -> true
+  | first :: second :: _ when ident_is "not" first -> is_media_in_parens second
   | _ -> false
 
-let read_query_prefix sc =
-  if lookahead_ident sc "not" then (
-    consume_keyword sc "not";
-    skip_ws sc;
-    Some Not)
-  else if lookahead_ident sc "only" then (
-    consume_keyword sc "only";
-    skip_ws sc;
-    Some Only)
-  else None
+let read_query_prefix = function
+  | first :: rest when ident_is "not" first -> (Some Not, rest)
+  | first :: rest when ident_is "only" first -> (Some Only, rest)
+  | components -> (Option.None, components)
 
-let read_media_type_query sc =
-  let prefix = read_query_prefix sc in
-  (match prefix with
-  | Some _ when lookahead_ident sc "not" || lookahead_ident sc "only" ->
+let read_media_type_query components =
+  let components = non_whitespace_components components in
+  let prefix, components = read_query_prefix components in
+  (match (prefix, components) with
+  | Some _, first :: _ when ident_is "not" first || ident_is "only" first ->
       fail_parse ~scope:Query_list "duplicate media query prefix"
   | _ -> ());
-  let id = read_ident sc in
-  if id = "" then failwith "expected media type or condition"
-  else if is_reserved_media_type_keyword id then
-    failwith "reserved media condition keyword cannot be a media type"
-  else
-    let type_ = medium_of_ident id in
-    skip_ws sc;
-    if at_end sc || peek sc = Some ',' then
-      Type { prefix; type_; trailing = None }
-    else if lookahead_ident sc "and" then (
-      consume_keyword sc "and";
-      let cond = condition_in_parens sc in
-      let cond = chain sc cond in
-      Type { prefix; type_; trailing = Some cond })
-    else
-      failwith
-        (String.concat ""
-           [
-             "expected 'and' or end of query after media type, got: ";
-             String.sub sc.s sc.pos (String.length sc.s - sc.pos);
-           ])
+  match components with
+  | name_component :: rest -> (
+      match ident_component name_component with
+      | Option.None -> failwith "expected media type or condition"
+      | Some name when is_reserved_media_type_keyword name ->
+          failwith "reserved media condition keyword cannot be a media type"
+      | Some name -> (
+          let type_ = medium_of_ident name in
+          match rest with
+          | [] -> Type { prefix; type_; trailing = Option.None }
+          | keyword :: condition when ident_is "and" keyword ->
+              Type
+                {
+                  prefix;
+                  type_;
+                  trailing = Some (condition_of_components condition);
+                }
+          | _ -> failwith "expected 'and' or end of query after media type"))
+  | [] -> failwith "expected media type or condition"
 
-let single_query sc =
-  skip_ws sc;
-  if at_end sc then failwith "empty media query"
-  else if starts_with_condition sc then Cond (condition sc)
-  else read_media_type_query sc
+let single_query components =
+  if components_empty components then failwith "empty media query"
+  else if starts_with_condition components then
+    Cond (condition_of_components components)
+  else read_media_type_query components
 
-let not_all_query : t = Type { prefix = Some Not; type_ = All; trailing = None }
+let not_all_query : t =
+  Type { prefix = Some Not; type_ = All; trailing = Option.None }
 
-let skip_recovery_branch sc =
-  let depth = ref 0 in
-  let continue = ref true in
-  while (not (at_end sc)) && !continue do
-    match peek sc with
-    | Some '(' ->
-        incr depth;
-        advance sc
-    | Some ')' ->
-        if !depth > 0 then decr depth;
-        advance sc
-    | Some ',' when !depth = 0 -> continue := false
-    | Some _ -> advance sc
-    | None -> continue := false
-  done
+let is_comma_component = function
+  | Component.Preserved { kind = Token.Comma; _ } -> true
+  | _ -> false
 
-let query_branch ~recover ~recovered_at_eof sc =
-  let mark = sc.pos in
-  try
-    let query = single_query sc in
-    skip_ws sc;
-    match peek sc with
-    | None | Some ',' -> query
-    | _ -> failwith "trailing content in media query branch"
-  with
-  | Parse_error (scope, reason) ->
-      if not recover then raise (Failure reason);
-      if scope = Query_list then sc.pos <- String.length sc.s
-      else (
-        sc.pos <- mark;
-        skip_recovery_branch sc);
-      skip_ws sc;
-      if at_end sc then recovered_at_eof := true;
-      not_all_query
-  | Failure _ ->
-      if not recover then raise (Failure "invalid media query branch");
-      sc.pos <- mark;
-      skip_recovery_branch sc;
-      skip_ws sc;
-      if at_end sc then recovered_at_eof := true;
-      not_all_query
-
-let trailing_content_failure sc =
-  failwith
-    (String.concat ""
-       [
-         "trailing content in media query: ";
-         String.sub sc.s sc.pos (String.length sc.s - sc.pos);
-       ])
-
-let query_of_string ?(recover = true) s : t =
-  let comma_query_list sc branch first recovered_at_eof =
-    let rec loop acc =
-      match peek sc with
-      | Some ',' ->
-          advance sc;
-          skip_ws sc;
-          let q = branch () in
-          skip_ws sc;
-          loop (q :: acc)
-      | _ -> List.rev acc
-    in
-    let rest = loop [] in
-    skip_ws sc;
-    if not (at_end sc) then trailing_content_failure sc;
-    if !recovered_at_eof then not_all_query else List (first :: rest)
+let split_query_list components =
+  let rec loop current branches saw_comma = function
+    | [] -> (List.rev (List.rev current :: branches), saw_comma)
+    | component :: rest when is_comma_component component ->
+        loop [] (List.rev current :: branches) true rest
+    | component :: rest -> loop (component :: current) branches saw_comma rest
   in
-  let sc = mk_scanner s in
-  if at_end sc then (List [] : t)
+  loop [] [] false components
+
+let parse_query_branch components =
+  try Ok (single_query components) with
+  | Parse_error (scope, reason) -> Error (scope, reason)
+  | Failure reason -> Error (Branch, reason)
+
+let of_components ?(recover = true) components =
+  let branches, saw_comma = split_query_list components in
+  if (not saw_comma) && List.for_all components_empty branches then
+    (List [] : t)
   else
-    let recovered_at_eof = ref false in
-    let branch () = query_branch ~recover ~recovered_at_eof sc in
-    let first = branch () in
-    skip_ws sc;
-    match (at_end sc, peek sc) with
-    | true, _ -> first
-    | false, Some ',' -> comma_query_list sc branch first recovered_at_eof
-    | false, _ -> trailing_content_failure sc
+    let rec parse acc = function
+      | [] -> List.rev acc
+      | [ branch ] -> (
+          match parse_query_branch branch with
+          | Ok query -> List.rev (query :: acc)
+          | Error (_, reason) ->
+              if recover then [ not_all_query ] else raise (Failure reason))
+      | branch :: rest -> (
+          match parse_query_branch branch with
+          | Ok query -> parse (query :: acc) rest
+          | Error (Query_list, reason) ->
+              if recover then [ not_all_query ] else raise (Failure reason)
+          | Error (Branch, reason) ->
+              if recover then parse (not_all_query :: acc) rest
+              else raise (Failure reason))
+    in
+    match (saw_comma, parse [] branches) with
+    | false, [ query ] -> query
+    | false, [] -> List []
+    | false, _ :: _ :: _ -> assert false
+    | true, [ Type { prefix = Some Not; type_ = All; trailing = Option.None } ]
+      ->
+        not_all_query
+    | true, queries -> List queries
 
-let of_string s = query_of_string s
-let of_string_strict s = query_of_string ~recover:false s
+let of_string s = Cursor.of_string s |> Cursor.remaining |> of_components
 
-let of_function_body s : t =
-  match feature_in_parens s with
+let of_string_strict s =
+  Cursor.of_string s |> Cursor.remaining |> of_components ~recover:false
+
+let of_function_components components =
+  match feature_in_components components with
   | Some feature -> Cond (Feature feature)
-  | None -> of_string s
+  | Option.None -> of_components components
+
+let of_function_body s =
+  Cursor.of_string s |> Cursor.remaining |> of_function_components
 
 let feature name value : t =
   Cond (Feature (plain_feature (name_of_string name) value))
@@ -1284,6 +1112,8 @@ type kind =
   | Preference_accessibility
   | Preference_appearance
   | Other
+
+let equal_kind (a : kind) b = a = b
 
 let length_sort_key (l : Values_intf.length) =
   match l with
@@ -1363,7 +1193,7 @@ let feature_kind (f : feature) : kind =
           | Plain (name, value) -> plain_feature_kind name value
           | Boolean name -> Option.value (preference_kind name) ~default:Other
           | Interval (lo, _, name, _, _) -> interval_feature_kind name lo
-          | Range _ | Range_rev _ -> Other))
+          | Range _ | Range_rev _ | General_enclosed _ -> Other))
 
 let rec condition_kind (c : condition) : kind =
   match c with

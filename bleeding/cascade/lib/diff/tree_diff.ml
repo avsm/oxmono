@@ -37,6 +37,10 @@ type rule_diff =
       old_declarations : Css.declaration list option;
       new_declarations : Css.declaration list option;
     }
+  | Rearranged of { selector : string; declarations : Css.declaration list }
+    (* Every declaration the selector carries survives on both sides, spread
+       differently over the rules that write it. An element that also matches an
+       overlapping selector can resolve differently. *)
   | Regrouped of {
       from_selectors : string list; (* rule selectors in expected *)
       to_selectors : string list; (* rule selectors in actual *)
@@ -46,7 +50,13 @@ type rule_diff =
 
 type container_info = {
   container_type :
-    [ `Media | `Layer | `Supports | `Container | `Property | `Nesting ];
+    [ `Media
+    | `Layer
+    | `Supports
+    | `Container
+    | `Property
+    | `Nesting
+    | `At_rule ];
   condition : string;
   rules : Css.statement list;
 }
@@ -63,7 +73,13 @@ type container_diff =
   | Reordered of { info : container_info; expected_pos : int; actual_pos : int }
   | Block_structure_changed of {
       container_type :
-        [ `Media | `Layer | `Supports | `Container | `Property | `Nesting ];
+        [ `Media
+        | `Layer
+        | `Supports
+        | `Container
+        | `Property
+        | `Nesting
+        | `At_rule ];
       condition : string;
       expected_blocks : (int * Css.statement list) list;
           (** (position, rules) for each block in expected *)
@@ -71,15 +87,31 @@ type container_diff =
           (** (position, rules) for each block in actual *)
     }
 
-type t = { rules : rule_diff list; containers : container_diff list }
+type layer_order_diff = {
+  expected_order : string list;
+  actual_order : string list;
+  swapped : (string * string) list;
+}
+
+type t = {
+  rules : rule_diff list;
+  containers : container_diff list;
+  layer_order : layer_order_diff option;
+}
 
 (* ===== Constants ===== *)
 
 let default_truncation_length = String_diff.default_max_width
 
+(* How many swapped layer pairs the report names before counting the rest. A
+   reversed order of n layers inverts n(n-1)/2 pairs, and reading the first few
+   is enough to place the change. *)
+let max_layer_swaps = 5
+
 (* ===== Helper Functions ===== *)
 
-let is_empty d = d.rules = [] && d.containers = []
+let is_empty d =
+  d.rules = [] && d.containers = [] && Option.is_none d.layer_order
 
 (* ===== Pretty Printing Functions ===== *)
 
@@ -87,10 +119,12 @@ let is_empty d = d.rules = [] && d.containers = []
 type tree_style = {
   use_tree : bool; (* Whether to use tree-style box-drawing characters *)
   color : bool; (* Whether to wrap diff markers in ANSI colors *)
+  depth : int; (* Levels still renderable below the current node *)
 }
 
-let default_style = { use_tree = false; color = false }
-let tree_style = { use_tree = true; color = false }
+let unlimited_depth = max_int
+let default_style = { use_tree = false; color = false; depth = unlimited_depth }
+let tree_style = { use_tree = true; color = false; depth = unlimited_depth }
 
 (* ANSI color helpers. Plain text unless [color] is set: the printers write into
    a [Buffer.t], so tty detection cannot happen here; the caller decides. *)
@@ -111,15 +145,44 @@ let style_text ~color action s =
 let tree_prefix ~style ~is_last ~parent_prefix =
   if not style.use_tree then ""
   else
-    let connector = if is_last then "└─ " else "├─ " in
+    let connector =
+      if is_last then "\u{2514}\u{2500} " else "\u{251c}\u{2500} "
+    in
     parent_prefix ^ connector
 
 (* Get the continuation prefix for children *)
 let tree_continuation ~style ~is_last ~parent_prefix =
   if not style.use_tree then parent_prefix
   else
-    let continuation = if is_last then "   " else "│  " in
+    let continuation = if is_last then "   " else "\u{2502}  " in
     parent_prefix ^ continuation
+
+(* Leaf lines (declarations, block listings) hang off the continuation prefix
+   without a connector of their own. *)
+let child_indent ~style ~parent_prefix =
+  if style.use_tree then parent_prefix ^ "   " else parent_prefix ^ "    "
+
+let add_strings buf ls = List.iter (Buffer.add_string buf) ls
+
+let count_lines buf =
+  let n = ref 0 in
+  String.iter (fun c -> if c = '\n' then incr n) (Buffer.contents buf);
+  !n
+
+(* Render a node's children under the depth budget. Past the budget the subtree
+   is still rendered, but only to report how much it hides: a diff that silently
+   stopped at depth N would read as "nothing more to see". *)
+let pp_children ~style ~parent_prefix buf render =
+  if style.depth > 0 then render { style with depth = style.depth - 1 } buf
+  else
+    let sub = Buffer.create 256 in
+    render { style with depth = unlimited_depth } sub;
+    match count_lines sub with
+    | 0 -> ()
+    | n ->
+        let noun = if n = 1 then " more line\n" else " more lines\n" in
+        add_strings buf
+          [ child_indent ~style ~parent_prefix; "..."; string_of_int n; noun ]
 
 (* Print a list of CSS declarations with an action prefix *)
 let pp_declarations ?(style = default_style) ?(parent_prefix = "") buf action
@@ -128,6 +191,7 @@ let pp_declarations ?(style = default_style) ?(parent_prefix = "") buf action
     match action with
     | "add" -> "+"
     | "remove" -> "-"
+    | "same" -> " " (* context marker: present on both sides *)
     | _ -> action (* fallback for other actions like "declarations" *)
   in
   (* Properties don't get tree connectors - just indentation continuation *)
@@ -305,40 +369,67 @@ let pp_reorder ?(style = default_style) ?(parent_prefix = "") decls1 decls2 buf
     && reorder_is_significant decls1 decls2
   then pp_same_property_reorder buf indent prop_names1 prop_names2
 
+let pp_content_changed_body ~style ~child_prefix buf ~old_declarations
+    ~new_declarations ~property_changes ~added_properties ~removed_properties
+    ~has_any_changes =
+  let indent = child_indent ~style ~parent_prefix:child_prefix in
+  List.iter
+    (fun prop_name ->
+      add_strings buf
+        [ indent; ansi_red ~color:style.color ("- " ^ prop_name); "\n" ])
+    removed_properties;
+  List.iter
+    (fun prop_name ->
+      add_strings buf
+        [ indent; ansi_green ~color:style.color ("+ " ^ prop_name); "\n" ])
+    added_properties;
+  pp_property_diffs ~style ~parent_prefix:child_prefix buf property_changes;
+  pp_reorder ~style ~parent_prefix:child_prefix old_declarations
+    new_declarations buf;
+  if
+    (not has_any_changes)
+    && not
+         (List.equal Declaration.equal_declaration old_declarations
+            new_declarations)
+  then
+    let old_count = List.length old_declarations in
+    let new_count = List.length new_declarations in
+    if old_count <> new_count then
+      add_strings buf
+        [
+          indent;
+          "(declaration count: ";
+          string_of_int old_count;
+          " -> ";
+          string_of_int new_count;
+          ")\n";
+        ]
+    else add_strings buf [ indent; "(declarations differ in subtle ways)\n" ]
+
 let pp_content_changed ~style ~prefix ~child_prefix buf ~selector
     ~old_declarations ~new_declarations ~property_changes ~added_properties
     ~removed_properties =
-  let indent =
-    if style.use_tree then child_prefix ^ "   " else child_prefix ^ "    "
-  in
   let has_any_changes =
     property_changes <> [] || added_properties <> [] || removed_properties <> []
   in
-  if (not has_any_changes) && old_declarations = new_declarations then ()
+  if
+    (not has_any_changes)
+    && List.equal Declaration.equal_declaration old_declarations
+         new_declarations
+  then ()
+  else if selector = "" then
+    (* The parent already named the subject, as it does for an [@property] whose
+       descriptors changed. Repeating it as a child label reads as two entries
+       for one registration. *)
+    pp_content_changed_body ~style ~child_prefix buf ~old_declarations
+      ~new_declarations ~property_changes ~added_properties ~removed_properties
+      ~has_any_changes
   else (
-    Buffer.add_string buf (prefix ^ selector ^ "\n");
-    List.iter
-      (fun prop_name ->
-        Buffer.add_string buf
-          (indent ^ ansi_red ~color:style.color ("- " ^ prop_name) ^ "\n"))
-      removed_properties;
-    List.iter
-      (fun prop_name ->
-        Buffer.add_string buf
-          (indent ^ ansi_green ~color:style.color ("+ " ^ prop_name) ^ "\n"))
-      added_properties;
-    pp_property_diffs ~style ~parent_prefix:child_prefix buf property_changes;
-    pp_reorder ~style ~parent_prefix:child_prefix old_declarations
-      new_declarations buf;
-    if (not has_any_changes) && old_declarations <> new_declarations then
-      let old_count = List.length old_declarations in
-      let new_count = List.length new_declarations in
-      if old_count <> new_count then
-        Buffer.add_string buf
-          (indent ^ "(declaration count: " ^ string_of_int old_count ^ " -> "
-         ^ string_of_int new_count ^ ")\n")
-      else
-        Buffer.add_string buf (indent ^ "(declarations differ in subtle ways)\n"))
+    add_strings buf [ prefix; selector; "\n" ];
+    pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+        pp_content_changed_body ~style ~child_prefix buf ~old_declarations
+          ~new_declarations ~property_changes ~added_properties
+          ~removed_properties ~has_any_changes))
 
 let pp_position_reorder ~prefix buf ~selector ~expected_pos ~actual_pos
     ~swapped_with =
@@ -364,20 +455,19 @@ let pp_regrouped ~style ~prefix ~child_prefix buf ~from_selectors ~to_selectors
   let verb =
     if nf > nt then "merged" else if nf < nt then "split" else "regrouped"
   in
-  Buffer.add_string buf (prefix ^ "selectors " ^ verb ^ "\n");
-  let indent =
-    if style.use_tree then child_prefix ^ "   " else child_prefix ^ "    "
-  in
-  List.iter
-    (fun s ->
-      Buffer.add_string buf
-        (indent ^ ansi_red ~color:style.color ("- " ^ s) ^ "\n"))
-    from_selectors;
-  List.iter
-    (fun s ->
-      Buffer.add_string buf
-        (indent ^ ansi_green ~color:style.color ("+ " ^ s) ^ "\n"))
-    to_selectors
+  add_strings buf [ prefix; "selectors "; verb; "\n" ];
+  pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+      let indent = child_indent ~style ~parent_prefix:child_prefix in
+      List.iter
+        (fun s ->
+          add_strings buf
+            [ indent; ansi_red ~color:style.color ("- " ^ s); "\n" ])
+        from_selectors;
+      List.iter
+        (fun s ->
+          add_strings buf
+            [ indent; ansi_green ~color:style.color ("+ " ^ s); "\n" ])
+        to_selectors)
 
 let pp_rule_diff ?(style = default_style) ?(is_last = false)
     ?(parent_prefix = "") buf (diff : rule_diff) =
@@ -385,14 +475,17 @@ let pp_rule_diff ?(style = default_style) ?(is_last = false)
   | Added { selector; declarations } ->
       let prefix = tree_prefix ~style ~is_last ~parent_prefix in
       let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
-      Buffer.add_string buf (prefix ^ selector ^ "\n");
-      pp_declarations ~style ~parent_prefix:child_prefix buf "add" declarations
+      add_strings buf [ prefix; selector; "\n" ];
+      pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+          pp_declarations ~style ~parent_prefix:child_prefix buf "add"
+            declarations)
   | Removed { selector; declarations } ->
       let prefix = tree_prefix ~style ~is_last ~parent_prefix in
       let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
-      Buffer.add_string buf (prefix ^ selector ^ "\n");
-      pp_declarations ~style ~parent_prefix:child_prefix buf "remove"
-        declarations
+      add_strings buf [ prefix; selector; "\n" ];
+      pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+          pp_declarations ~style ~parent_prefix:child_prefix buf "remove"
+            declarations)
   | Content_changed r ->
       let prefix = tree_prefix ~style ~is_last ~parent_prefix in
       let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
@@ -405,26 +498,34 @@ let pp_rule_diff ?(style = default_style) ?(is_last = false)
   | Selector_changed { old_selector; new_selector; declarations } ->
       let prefix = tree_prefix ~style ~is_last ~parent_prefix in
       let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
-      Buffer.add_string buf (prefix ^ "selector changed:\n");
-      let indent =
-        if style.use_tree then child_prefix ^ "   " else child_prefix ^ "    "
-      in
-      Buffer.add_string buf (indent ^ "from: " ^ old_selector ^ "\n");
-      Buffer.add_string buf (indent ^ "to:   " ^ new_selector ^ "\n");
-      if declarations <> [] then
-        pp_declarations ~style ~parent_prefix:child_prefix buf "declarations"
-          declarations
+      add_strings buf [ prefix; "selector changed:\n" ];
+      pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+          let indent = child_indent ~style ~parent_prefix:child_prefix in
+          add_strings buf [ indent; "from: "; old_selector; "\n" ];
+          add_strings buf [ indent; "to:   "; new_selector; "\n" ];
+          if declarations <> [] then
+            pp_declarations ~style ~parent_prefix:child_prefix buf
+              "declarations" declarations)
   | Reordered r -> (
       let prefix = tree_prefix ~style ~is_last ~parent_prefix in
       match (r.old_declarations, r.new_declarations) with
       | Some old_decls, Some new_decls ->
           let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
-          Buffer.add_string buf (prefix ^ r.selector ^ "\n");
-          pp_reorder ~style ~parent_prefix:child_prefix old_decls new_decls buf
+          add_strings buf [ prefix; r.selector; "\n" ];
+          pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+              pp_reorder ~style ~parent_prefix:child_prefix old_decls new_decls
+                buf)
       | _ ->
           pp_position_reorder ~prefix buf ~selector:r.selector
             ~expected_pos:r.expected_pos ~actual_pos:r.actual_pos
             ~swapped_with:r.swapped_with)
+  | Rearranged { selector; declarations } ->
+      let prefix = tree_prefix ~style ~is_last ~parent_prefix in
+      let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
+      add_strings buf [ prefix; selector; " (moved between rules)\n" ];
+      pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+          pp_declarations ~style ~parent_prefix:child_prefix buf "same"
+            declarations)
   | Regrouped { from_selectors; to_selectors } ->
       let prefix = tree_prefix ~style ~is_last ~parent_prefix in
       let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
@@ -445,6 +546,8 @@ let pp_rule_diff_simple buf (diff : rule_diff) =
       Buffer.add_string buf
         ("Reordered(" ^ selector ^ ":" ^ string_of_int expected_pos ^ "->"
        ^ string_of_int actual_pos ^ ")")
+  | Rearranged { selector; _ } ->
+      Buffer.add_string buf ("Rearranged(" ^ selector ^ ")")
   | Regrouped { from_selectors; to_selectors } ->
       Buffer.add_string buf
         ("Regrouped("
@@ -467,7 +570,8 @@ let meaningful_rules (rules : rule_diff list) =
             new_declarations;
             _;
           }
-        when old_declarations = new_declarations ->
+        when List.equal Declaration.equal_declaration old_declarations
+               new_declarations ->
           (* Filter out rules that moved to different nesting but have no
              changes *)
           false
@@ -520,23 +624,104 @@ let container_prefix = function
   | `Container -> "@container"
   | `Property -> "@property"
   | `Nesting -> "&"
+  (* The condition already spells the at-rule out, keyword included. *)
+  | `At_rule -> ""
 
-let pp_container_rules ~style ~parent_prefix ~label buf rules =
-  if rules <> [] then
-    let rule_count = List.length rules in
-    List.iteri
-      (fun i stmt ->
-        match Css.as_rule stmt with
-        | Some (selector, _, _) ->
-            let rule_prefix =
-              tree_prefix ~style ~is_last:(i = rule_count - 1) ~parent_prefix
+let container_label container_type condition =
+  match container_prefix container_type with
+  | "" -> condition
+  | prefix -> prefix ^ " " ^ condition
+
+let describe_statement stmt =
+  let try_desc f = f stmt in
+  let matchers =
+    [
+      (fun s ->
+        Option.map (fun (s, _, _) -> Css.Selector.to_string s) (Css.as_rule s));
+      (fun s ->
+        Option.map
+          (fun (c, _) -> "@media " ^ Css.Media.to_string c)
+          (Css.as_media s));
+      (fun s ->
+        Option.map
+          (fun (n, _) ->
+            match n with Some name -> "@layer " ^ name | None -> "@layer")
+          (Css.as_layer s));
+      (fun s ->
+        Option.map
+          (fun (n, c, _) ->
+            let prefix = match n with Some n -> n ^ " " | None -> "" in
+            let cond_str =
+              match c with Some c -> Css.Container.to_string c | None -> ""
             in
-            Buffer.add_string buf
-              (rule_prefix
-              ^ Css.Selector.to_string selector
-              ^ " (" ^ label ^ ")\n")
-        | None -> ())
-      rules
+            "@container " ^ prefix ^ cond_str)
+          (Css.as_container s));
+      (fun s ->
+        Option.map
+          (fun (c, _) -> "@supports " ^ Css.Supports.to_string c)
+          (Css.as_supports s));
+      (fun s -> Option.map (fun _ -> "@property") (Css.as_property s));
+      (fun s ->
+        Option.map (fun (name, _) -> "@keyframes " ^ name) (Css.as_keyframes s));
+      (fun s -> Option.map (fun _ -> "@font-face") (Css.as_font_face s));
+      (* The statements that carry neither a selector nor a block. Naming them
+         apart also keeps them apart in the order keys, where one shared "(other
+         statement)" made a [@charset] and a [@namespace] the same statement. *)
+      (fun (s : Css.statement) ->
+        match s with
+        | Charset encoding -> Some ("@charset \"" ^ encoding ^ "\";")
+        | Namespace (prefix, _) ->
+            Some
+              ("@namespace"
+              ^ (match prefix with Some p -> " " ^ p | None -> "")
+              ^ ";")
+        (* The semicolon is what tells a layer-order pin from the block of the
+           same name: [@layer a;] ahead of [@layer a { ... }] is a second
+           statement, not the block again. *)
+        | Layer_decl names -> Some ("@layer " ^ String.concat ", " names ^ ";")
+        | _ -> None);
+    ]
+  in
+  match List.find_map try_desc matchers with
+  | Some desc -> Some desc
+  | None -> Some "(other statement)"
+
+(* The body of a container that was added or removed wholesale. Every statement
+   gets a line, including the ones [Css.as_rule] cannot see: a statement the
+   tree drops silently leaves the reader counting fewer entries than the header
+   claims, and shifts the last-child connector onto the wrong one. *)
+let statement_children stmt =
+  match Css.as_media stmt with
+  | Some (_, body) -> body
+  | None -> (
+      match Css.as_supports stmt with
+      | Some (_, body) -> body
+      | None -> (
+          match Css.as_layer stmt with
+          | Some (_, body) -> body
+          | None -> (
+              match Css.as_container stmt with
+              | Some (_, _, body) -> body
+              | None -> [])))
+
+let rec pp_container_rules ~style ~parent_prefix ~label buf rules =
+  let count = List.length rules in
+  List.iteri
+    (fun i stmt ->
+      let is_last = i = count - 1 in
+      let prefix = tree_prefix ~style ~is_last ~parent_prefix in
+      let desc =
+        Option.value (describe_statement stmt) ~default:"(other statement)"
+      in
+      Buffer.add_string buf (prefix ^ desc ^ " (" ^ label ^ ")\n");
+      match statement_children stmt with
+      | [] -> ()
+      | children ->
+          let parent_prefix =
+            tree_continuation ~style ~is_last ~parent_prefix
+          in
+          pp_container_rules ~style ~parent_prefix ~label buf children)
+    rules
 
 let count_rule_changes (rule_changes : rule_diff list) =
   let count pred = List.length (List.filter pred rule_changes) in
@@ -565,6 +750,11 @@ let count_rule_changes (rule_changes : rule_diff list) =
          if n > 0 then Some (string_of_int n ^ " reordered") else None);
         (let n =
            count (fun (diff : rule_diff) ->
+               match diff with Rearranged _ -> true | _ -> false)
+         in
+         if n > 0 then Some (string_of_int n ^ " rearranged") else None);
+        (let n =
+           count (fun (diff : rule_diff) ->
                match diff with Selector_changed _ -> true | _ -> false)
          in
          if n > 0 then Some (string_of_int n ^ " selector changed") else None);
@@ -585,60 +775,145 @@ let selectors_of_rules rules =
       | None -> None)
     rules
 
+(* Position + selector signature for every block that names at least one
+   rule. *)
+let block_signatures blocks =
+  List.filter_map
+    (fun (pos, rules) ->
+      match selectors_of_rules rules with
+      | [] -> None
+      | selectors -> Some (pos, String.concat ", " selectors))
+    blocks
+
+(* Queue of still-unmatched positions per signature, in ascending order, so
+   repeated signatures pair off one-for-one between the two sides. *)
+let signature_queues blocks =
+  let tbl = Hashtbl.create 64 in
+  List.iter
+    (fun (pos, sign) ->
+      let q = Option.value ~default:[] (Hashtbl.find_opt tbl sign) in
+      Hashtbl.replace tbl sign (pos :: q))
+    (List.rev blocks);
+  tbl
+
+let take_signature tbl sign =
+  match Hashtbl.find_opt tbl sign with
+  | Some (pos :: rest) ->
+      Hashtbl.replace tbl sign rest;
+      Some pos
+  | Some [] | None -> None
+
+type block_pairing = {
+  removed : (int * string) list; (* expected-only blocks *)
+  added : (int * string) list; (* actual-only blocks *)
+  shifts : (int * int) list; (* (delta, run length), expected order *)
+  unchanged : int; (* paired blocks that kept their position *)
+}
+
+(* Group consecutive equal deltas so one insertion upstream reads as a single
+   run rather than one line per renumbered block. *)
+let shift_runs deltas =
+  let flush acc = function Some (d, n) -> (d, n) :: acc | None -> acc in
+  let acc, current =
+    List.fold_left
+      (fun (acc, current) d ->
+        match current with
+        | Some (d', n) when d' = d -> (acc, Some (d, n + 1))
+        | _ -> (flush acc current, Some (d, 1)))
+      ([], None) deltas
+  in
+  List.rev (flush acc current)
+
+let pair_blocks ~expected_blocks ~actual_blocks =
+  let expected = block_signatures expected_blocks in
+  let actual = block_signatures actual_blocks in
+  let queues = signature_queues actual in
+  let matched = Hashtbl.create 64 in
+  let removed, deltas =
+    List.fold_left
+      (fun (removed, deltas) (pos, sign) ->
+        match take_signature queues sign with
+        | None -> ((pos, sign) :: removed, deltas)
+        | Some actual_pos ->
+            Hashtbl.replace matched actual_pos ();
+            (removed, (actual_pos - pos) :: deltas))
+      ([], []) expected
+  in
+  let deltas = List.rev deltas in
+  {
+    removed = List.rev removed;
+    added = List.filter (fun (pos, _) -> not (Hashtbl.mem matched pos)) actual;
+    shifts = shift_runs (List.filter (fun d -> d <> 0) deltas);
+    unchanged = List.length (List.filter (fun d -> d = 0) deltas);
+  }
+
+let pp_block_pairing ~style ~child_prefix buf pairing =
+  let indent = child_indent ~style ~parent_prefix:child_prefix in
+  let pp_block sign style_fn (pos, selectors) =
+    add_strings buf
+      [
+        indent;
+        style_fn
+          (sign ^ " Block at position " ^ string_of_int pos ^ ": " ^ selectors);
+        "\n";
+      ]
+  in
+  List.iter (pp_block "-" (ansi_red ~color:style.color)) pairing.removed;
+  List.iter (pp_block "+" (ansi_green ~color:style.color)) pairing.added;
+  List.iter
+    (fun (delta, n) ->
+      let sign = if delta > 0 then "+" else "-" in
+      add_strings buf
+        [
+          indent;
+          string_of_int n;
+          (if n = 1 then " block shifted by " else " blocks shifted by ");
+          sign;
+          string_of_int (abs delta);
+          "\n";
+        ])
+    pairing.shifts;
+  if pairing.unchanged > 0 then
+    add_strings buf
+      [
+        indent;
+        string_of_int pairing.unchanged;
+        (if pairing.unchanged = 1 then " block unchanged\n"
+         else " blocks unchanged\n");
+      ]
+
 let pp_block_structure_changed ~style ~is_last ~parent_prefix buf
     ~container_type ~condition ~expected_blocks ~actual_blocks =
-  let cont_prefix = container_prefix container_type in
+  let label = container_label container_type condition in
   let prefix = tree_prefix ~style ~is_last ~parent_prefix in
   let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
-  let indent =
-    if style.use_tree then child_prefix ^ "   " else child_prefix ^ "    "
-  in
-
-  (* Show the merge/split summary *)
   let exp_count = List.length expected_blocks in
   let act_count = List.length actual_blocks in
-
   (* Report block structure changes - this is a meaningful difference even if
      selectors are identical *)
-  if exp_count > act_count then
-    Buffer.add_string buf
-      (prefix ^ cont_prefix ^ " " ^ condition ^ " (" ^ string_of_int exp_count
-     ^ " blocks merged into " ^ string_of_int act_count ^ ")\n")
-  else if exp_count < act_count then
-    Buffer.add_string buf
-      (prefix ^ cont_prefix ^ " " ^ condition ^ " (" ^ string_of_int exp_count
-     ^ " block split into " ^ string_of_int act_count ^ ")\n")
-  else
-    (* Same count but different positions *)
-    Buffer.add_string buf
-      (prefix ^ cont_prefix ^ " " ^ condition ^ " (" ^ string_of_int exp_count
-     ^ " blocks at different positions)\n");
-
-  let pp_blocks sign style_fn blocks =
-    List.iter
-      (fun (pos, rules) ->
-        let selectors = selectors_of_rules rules in
-        if selectors <> [] then
-          Buffer.add_string buf
-            (indent
-            ^ style_fn
-                (sign ^ " Block at position " ^ string_of_int pos ^ ": "
-                ^ String.concat ", " selectors)
-            ^ "\n"))
-      blocks
+  let summary =
+    if exp_count > act_count then
+      [
+        string_of_int exp_count; " blocks merged into "; string_of_int act_count;
+      ]
+    else if exp_count < act_count then
+      [ string_of_int exp_count; " block split into "; string_of_int act_count ]
+    else [ string_of_int exp_count; " blocks at different positions" ]
   in
-  pp_blocks "-" (ansi_red ~color:style.color) expected_blocks;
-  pp_blocks "+" (ansi_green ~color:style.color) actual_blocks
+  add_strings buf ([ prefix; label; " (" ] @ summary);
+  Buffer.add_string buf ")\n";
+  let pairing = pair_blocks ~expected_blocks ~actual_blocks in
+  pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+      pp_block_pairing ~style ~child_prefix buf pairing)
 
 let pp_container_add_remove ~style ~is_last ~parent_prefix ~label buf
     container_type condition rules =
   let prefix = tree_prefix ~style ~is_last ~parent_prefix in
   let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
-  Buffer.add_string buf
-    (prefix
-    ^ container_prefix container_type
-    ^ " " ^ condition ^ " (" ^ label ^ ")\n");
-  pp_container_rules ~style ~parent_prefix:child_prefix ~label buf rules
+  add_strings buf
+    [ prefix; container_label container_type condition; " ("; label; ")\n" ];
+  pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+      pp_container_rules ~style ~parent_prefix:child_prefix ~label buf rules)
 
 let rec pp_container_diff ?(style = default_style) ?(is_last = false)
     ?(parent_prefix = "") buf = function
@@ -655,42 +930,44 @@ let rec pp_container_diff ?(style = default_style) ?(is_last = false)
         rule_changes;
         container_changes;
       } ->
-      let cont_prefix = container_prefix container_type in
       let prefix = tree_prefix ~style ~is_last ~parent_prefix in
       let child_prefix = tree_continuation ~style ~is_last ~parent_prefix in
       let changes_parts = count_rule_changes rule_changes in
-      Buffer.add_string buf (prefix ^ cont_prefix ^ " " ^ condition ^ " ");
+      add_strings buf [ prefix; container_label container_type condition; " " ];
       if changes_parts <> [] then
-        Buffer.add_string buf ("(" ^ String.concat ", " changes_parts ^ ")\n")
+        add_strings buf [ "("; String.concat ", " changes_parts; ")\n" ]
       else if container_changes = [] then
-        Buffer.add_string buf "(position changed)\n"
+        (* A [Modified] carrying neither a rule nor a container change says only
+           that the container differs. Calling it a position change names a
+           difference nobody established; [Reordered] is what reports one. *)
+        Buffer.add_string buf "(modified, no details)\n"
       else Buffer.add_char buf '\n';
-
-      (* Show rule changes at this level *)
-      List.iteri
-        (fun i rule_diff ->
-          let is_last_item =
-            i = List.length rule_changes - 1 && container_changes = []
-          in
-          pp_rule_diff ~style ~is_last:is_last_item ~parent_prefix:child_prefix
-            buf rule_diff)
-        rule_changes;
-      (* Show nested container changes with increased indentation *)
-      let container_count = List.length container_changes in
-      List.iteri
-        (fun i cont_diff ->
-          let is_last_cont = i = container_count - 1 in
-          pp_container_diff ~style ~is_last:is_last_cont
-            ~parent_prefix:child_prefix buf cont_diff)
-        container_changes
+      pp_children ~style ~parent_prefix:child_prefix buf (fun style buf ->
+          (* Show rule changes at this level *)
+          List.iteri
+            (fun i rule_diff ->
+              let is_last_item =
+                i = List.length rule_changes - 1 && container_changes = []
+              in
+              pp_rule_diff ~style ~is_last:is_last_item
+                ~parent_prefix:child_prefix buf rule_diff)
+            rule_changes;
+          (* Show nested container changes with increased indentation *)
+          let container_count = List.length container_changes in
+          List.iteri
+            (fun i cont_diff ->
+              let is_last_cont = i = container_count - 1 in
+              pp_container_diff ~style ~is_last:is_last_cont
+                ~parent_prefix:child_prefix buf cont_diff)
+            container_changes)
   | Reordered
       { info = { container_type; condition; _ }; expected_pos; actual_pos } ->
-      let cont_prefix = container_prefix container_type in
       let prefix = tree_prefix ~style ~is_last ~parent_prefix in
       Buffer.add_string buf
-        (prefix ^ cont_prefix ^ " " ^ condition ^ " (position "
-       ^ string_of_int expected_pos ^ " \xe2\x86\x92 "
-       ^ string_of_int actual_pos ^ ")\n")
+        (prefix
+        ^ container_label container_type condition
+        ^ " (position " ^ string_of_int expected_pos ^ " \xe2\x86\x92 "
+        ^ string_of_int actual_pos ^ ")\n")
   | Block_structure_changed
       { container_type; condition; expected_blocks; actual_blocks } ->
       pp_block_structure_changed ~style ~is_last ~parent_prefix buf
@@ -725,9 +1002,61 @@ let pp_containers_section ~style buf containers =
       pp_container_diff ~style ~is_last ~parent_prefix:"" buf cont_diff)
     containers
 
-let pp ?(expected = "Expected") ?(actual = "Actual") ?(color = false) buf
-    { rules; containers } =
-  if rules = [] && containers = [] then
+(* A layer path is keyed for the cascade, not for reading: an anonymous [@layer
+   { }] block is a segment starting with U+0000, which a report has to name some
+   other way. *)
+let layer_path_name path =
+  String.split_on_char '.' path
+  |> List.map (fun segment ->
+      if String.length segment > 0 && segment.[0] = '\000' then
+        "(anonymous " ^ String.sub segment 1 (String.length segment - 1) ^ ")"
+      else segment)
+  |> String.concat "."
+
+let layer_path_list paths = String.concat ", " (List.map layer_path_name paths)
+
+let pp_layer_swaps ~style buf swapped =
+  let line ~is_last text =
+    add_strings buf
+      [ tree_prefix ~style ~is_last ~parent_prefix:""; text; "\n" ]
+  in
+  List.iteri
+    (fun i (weaker, stronger) ->
+      if i < max_layer_swaps then
+        line ~is_last:false
+          (layer_path_name stronger ^ " now precedes " ^ layer_path_name weaker))
+    swapped;
+  match List.length swapped - max_layer_swaps with
+  | hidden when hidden > 0 ->
+      let noun = if hidden = 1 then " more pair\n" else " more pairs\n" in
+      add_strings buf
+        [
+          tree_prefix ~style ~is_last:false ~parent_prefix:"";
+          "...";
+          string_of_int hidden;
+          noun;
+        ]
+  | _ -> ()
+
+let pp_layer_order_section ~style buf = function
+  | None -> ()
+  | Some { expected_order; actual_order; swapped } ->
+      Buffer.add_string buf "Cascade layer order changed:\n";
+      pp_children ~style ~parent_prefix:"" buf (fun style buf ->
+          pp_layer_swaps ~style buf swapped;
+          add_strings buf
+            [
+              tree_prefix ~style ~is_last:true ~parent_prefix:"";
+              "order: ";
+              ansi_red ~color:style.color (layer_path_list expected_order);
+              " -> ";
+              ansi_green ~color:style.color (layer_path_list actual_order);
+              "\n";
+            ])
+
+let pp ?(expected = "Expected") ?(actual = "Actual") ?(color = false)
+    ?(depth = unlimited_depth) buf { rules; containers; layer_order } =
+  if rules = [] && containers = [] && Option.is_none layer_order then
     Buffer.add_string buf
       "Structural differences detected in nested contexts (e.g., @media inside \
        @layer)\n\
@@ -742,13 +1071,34 @@ let pp ?(expected = "Expected") ?(actual = "Actual") ?(color = false) buf
           match diff with Reordered _ -> true | _ -> false)
         rules
     in
-    let style = { tree_style with color } in
+    (* [depth] counts renderable levels; the roots printed here are level 1. *)
+    let style = { tree_style with color; depth = max 0 (depth - 1) } in
     let container_count = List.length containers in
+    (* The layer order leads: it decides which of the rules below it wins. *)
+    pp_layer_order_section ~style buf layer_order;
     pp_rule_list ~style ~container_count buf meaningful;
     pp_reordered_section ~style ~container_count buf reordered_rules;
     pp_containers_section ~style buf containers)
 
 (* ===== Tree Diff Computation Functions ===== *)
+
+(* The text a statement prints to, cut at its block, for the statements no
+   selector names: [@charset "UTF-8";], [@layer a, b;], [@namespace ...]. An
+   entry with no name cannot be classified, so it corrupts every count the
+   summary derives from the same list, and it renders as a bare tree
+   connector. *)
+let statement_head stmt =
+  let text =
+    Css.Stylesheet.to_string ~minify:true (Css.v [ stmt ]) |> String.trim
+  in
+  let head =
+    match String.index_opt text '{' with
+    | Some i -> String.trim (String.sub text 0 i)
+    | None -> text
+  in
+  if head = "" then
+    Option.value ~default:"(other statement)" (describe_statement stmt)
+  else head
 
 (* Helper to extract rule information from statements *)
 let strings_of_rule stmt =
@@ -756,7 +1106,9 @@ let strings_of_rule stmt =
   | Some (selector, decls, _) ->
       let selector_str = Css.Selector.to_string selector in
       (selector_str, decls)
-  | None -> ("", [])
+  | None ->
+      ( statement_head stmt,
+        Option.value ~default:[] (Css.statement_declarations stmt) )
 
 let decl_to_prop_value decl =
   let name = Css.declaration_name decl in
@@ -766,8 +1118,17 @@ let decl_to_prop_value decl =
   in
   (name, value)
 
+let compare_prop_value (name1, value1) (name2, value2) =
+  let by_name = String.compare name1 name2 in
+  if by_name <> 0 then by_name else String.compare value1 value2
+
+let equal_prop_value (name1, value1) (name2, value2) =
+  String.equal name1 name2 && String.equal value1 value2
+
 let decls_signature (decls : Css.declaration list) =
-  List.map decl_to_prop_value decls |> List.sort compare
+  List.map decl_to_prop_value decls |> List.sort compare_prop_value
+
+let equal_decls_signature = List.equal equal_prop_value
 
 (* Normalize a selector string by sorting comma-separated selector items. This
    ensures we consider ".a,.b" equivalent to ".b,.a" when matching.
@@ -788,7 +1149,9 @@ let rule_selector stmt =
    structural equality + [Hashtbl.hash]. Avoids serialising through
    [Pp.to_string] for every comparison. *)
 let selector_key_of_selector (sel : Css.Selector.t) : Css.Selector.t =
-  match sel with List subs -> List (List.sort compare subs) | _ -> sel
+  match sel with
+  | List subs -> List (List.sort Selector.compare subs)
+  | _ -> sel
 
 let selector_key_of_stmt stmt = selector_key_of_selector (rule_selector stmt)
 
@@ -807,32 +1170,39 @@ let rule_nested stmt =
 let diffs ~(key_of : 'item -> 'key) ~(key_equal : 'key -> 'key -> bool)
     ~(is_empty_diff : 'item -> 'item -> bool) items1 items2 =
   let items1_keyed = List.map (fun i -> (i, key_of i)) items1 in
-  let items2_keyed = List.map (fun i -> (i, key_of i)) items2 in
-  let find_by_key key items =
-    List.find_opt (fun (_, k) -> key_equal k key) items
+  let items2_keyed = Array.of_list (List.map (fun i -> (i, key_of i)) items2) in
+  (* Each right-hand item is claimed by at most one left-hand item. Testing
+     existence instead would hide a duplicate key entirely: with two blocks
+     carrying one condition and one on the other side, neither counts as added
+     or removed, and the survivor is paired twice, so both pairings report
+     differences that are not there. *)
+  let claimed = Array.make (Array.length items2_keyed) false in
+  let claim key =
+    let rec scan i =
+      if i >= Array.length items2_keyed then None
+      else if (not claimed.(i)) && key_equal (snd items2_keyed.(i)) key then (
+        claimed.(i) <- true;
+        Some (fst items2_keyed.(i)))
+      else scan (i + 1)
+    in
+    scan 0
   in
+  let pairs, removed =
+    List.fold_left
+      (fun (pairs, removed) (item1, key1) ->
+        match claim key1 with
+        | Some item2 -> ((item1, item2) :: pairs, removed)
+        | None -> (pairs, item1 :: removed))
+      ([], []) items1_keyed
+  in
+  let pairs = List.rev pairs and removed = List.rev removed in
   let added =
-    List.filter_map
-      (fun (item2, key2) ->
-        if List.exists (fun (_, k1) -> key_equal k1 key2) items1_keyed then None
-        else Some item2)
-      items2_keyed
-  in
-  let removed =
-    List.filter_map
-      (fun (item1, key1) ->
-        if List.exists (fun (_, k2) -> key_equal key1 k2) items2_keyed then None
-        else Some item1)
-      items1_keyed
+    Array.to_list items2_keyed
+    |> List.filteri (fun i _ -> not claimed.(i))
+    |> List.map fst
   in
   let modified =
-    List.filter_map
-      (fun (item1, key1) ->
-        match find_by_key key1 items2_keyed with
-        | Some (item2, _) when not (is_empty_diff item1 item2) ->
-            Some (item1, item2)
-        | _ -> None)
-      items1_keyed
+    List.filter (fun (item1, item2) -> not (is_empty_diff item1 item2)) pairs
   in
   (added, removed, modified)
 
@@ -897,8 +1267,8 @@ let try_exact_match rules2_by_key used_rules r1 key1 d1 =
     List.find_opt
       (fun r ->
         (not (Hashtbl.mem used_rules r))
-        && rule_declarations r = d1
-        && rule_nested r = rule_nested r1)
+        && List.equal Declaration.equal_declaration (rule_declarations r) d1
+        && Stylesheet.equal (rule_nested r) (rule_nested r1))
       candidates
   with
   | Some exact ->
@@ -948,19 +1318,24 @@ let pick_non_exact_rule rules2_by_key rules2_by_props used_rules r1 key1 d1
   | Some result -> Some result
   | None -> try_equivalent_props_match rules2_by_props used_rules r1 d1 props1
 
-let pick_modified_rule rules2_by_key rules2_by_props used_rules r1 key1 d1
-    props1 =
-  match try_exact_match rules2_by_key used_rules r1 key1 d1 with
-  | Some (Some result) -> Some result
-  | Some None -> None
-  | None ->
-      pick_non_exact_rule rules2_by_key rules2_by_props used_rules r1 key1 d1
-        props1
-
 let rules_modified_diff rules1 rules2 =
   let rules2_by_key, rules2_by_props = build_rule_lookup_tables rules2 in
   let used_rules = Hashtbl.create (List.length rules2) in
-
+  (* Claim every exact match first, wherever it sits. Matching in one greedy
+     pass lets an early rule take, through the property fallback, the partner a
+     later rule matches exactly, so a page of [.to-*] gradient rules, all with
+     the same property signature, pairs off by position and every one reports as
+     modified. *)
+  let exact, pending =
+    List.partition_map
+      (fun r1 ->
+        let key1 = selector_key_of_stmt r1 in
+        let d1 = rule_declarations r1 in
+        match try_exact_match rules2_by_key used_rules r1 key1 d1 with
+        | Some pick -> Left pick
+        | None -> Right r1)
+      rules1
+  in
   let rec aux acc = function
     | [] -> List.rev acc
     | r1 :: t1 ->
@@ -968,13 +1343,13 @@ let rules_modified_diff rules1 rules2 =
         let d1 = rule_declarations r1 in
         let props1 = decls_signature d1 in
         let pick =
-          pick_modified_rule rules2_by_key rules2_by_props used_rules r1 key1 d1
-            props1
+          pick_non_exact_rule rules2_by_key rules2_by_props used_rules r1 key1
+            d1 props1
         in
         let acc = match pick with None -> acc | Some x -> x :: acc in
         aux acc t1
   in
-  aux [] rules1
+  List.filter_map Fun.id exact @ aux [] pending
 
 let has_same_selectors rules1 rules2 =
   if List.length rules1 <> List.length rules2 then false
@@ -1027,38 +1402,134 @@ let build_selector_map rules =
     [] rules
   |> List.rev
 
-let selector_in_list sel_key remaining =
-  (* Check if selector key exists in remaining list *)
-  List.exists (fun (s, _) -> selector_key_of_selector s = sel_key) remaining
+(* A container takes part in the ordering comparison too: swapping a rule with
+   an [@media] that writes the same property flips the cascade winner. *)
+type order_key = Rule_order of Css.Selector.t | Block_order of string
+
+let order_key_of_stmt stmt =
+  match Css.as_rule stmt with
+  | Some (sel, _, _) -> Some (Rule_order (selector_key_of_selector sel))
+  | None -> Option.map (fun desc -> Block_order desc) (describe_statement stmt)
+
+(* Order keys in first-occurrence order. *)
+let order_keys_in_order stmts =
+  let seen = Hashtbl.create (List.length stmts) in
+  List.filter_map
+    (fun stmt ->
+      match order_key_of_stmt stmt with
+      | Some key when not (Hashtbl.mem seen key) ->
+          Hashtbl.add seen key ();
+          Some key
+      | _ -> None)
+    stmts
+
+(* Positions of one longest increasing subsequence of [ranks], by patience
+   sorting: [tails.(l)] is the position ending the smallest subsequence of
+   length [l + 1] seen so far, and [prev] chains each position to its
+   predecessor. *)
+let increasing_subsequence ranks =
+  let n = Array.length ranks in
+  let tails = Array.make n 0 in
+  let prev = Array.make n (-1) in
+  let len = ref 0 in
+  for i = 0 to n - 1 do
+    let lo = ref 0 and hi = ref !len in
+    while !lo < !hi do
+      let mid = (!lo + !hi) / 2 in
+      if ranks.(tails.(mid)) < ranks.(i) then lo := mid + 1 else hi := mid
+    done;
+    let pos = !lo in
+    prev.(i) <- (if pos > 0 then tails.(pos - 1) else -1);
+    tails.(pos) <- i;
+    if pos = !len then incr len
+  done;
+  let members = Array.make n false in
+  (if !len > 0 then
+     let i = ref tails.(!len - 1) in
+     while !i >= 0 do
+       members.(!i) <- true;
+       i := prev.(!i)
+     done);
+  members
+
+(* Statements whose order against the rest actually inverted. Judged on the
+   statements both sides share, since one the other side never had shifts every
+   absolute position after it without transposing anything: comparing positions
+   on each side reports the whole tail of the stylesheet as reordered whenever a
+   rule is added or dropped. Anchoring on a longest order-preserving matching of
+   that common sequence also keeps one move to one entry, where comparing rank
+   pairwise would name every statement the move passed. *)
+let moved_order_keys stmts1 stmts2 =
+  let keys2 = order_keys_in_order stmts2 in
+  let rank2 = Hashtbl.create (List.length keys2) in
+  List.iteri (fun i key -> Hashtbl.replace rank2 key i) keys2;
+  let common = List.filter (Hashtbl.mem rank2) (order_keys_in_order stmts1) in
+  let ranks = Array.of_list (List.map (Hashtbl.find rank2) common) in
+  let anchored = increasing_subsequence ranks in
+  let moved = Hashtbl.create (Array.length ranks) in
+  List.iteri
+    (fun i key -> if not anchored.(i) then Hashtbl.replace moved key ())
+    common;
+  moved
+
+let selector_moved moved sel = Hashtbl.mem moved (Rule_order sel)
+
+(* The conditions of the containers that changed places against the rest of the
+   enclosing statement list, judged on the same key space as the rule ordering.
+   The absolute index a container sits at is not that coordinate: one statement
+   inserted ahead of a block renumbers it and everything after it without
+   transposing anything, which is why the index comparisons this replaces
+   carried a slack distance and still answered the wrong question on both sides
+   of it. [moved_order_keys] anchors on a longest order-preserving matching of
+   the statements both sides share, so an insertion moves nothing at any
+   distance and a block that swapped with a rule or another block moves even by
+   one position. *)
+let moved_conditions ~condition_of stmts1 stmts2 =
+  let moved = moved_order_keys stmts1 stmts2 in
+  let conds = Hashtbl.create 8 in
+  List.iter
+    (fun stmt ->
+      match (condition_of stmt, order_key_of_stmt stmt) with
+      | Some cond, Some key when Hashtbl.mem moved key ->
+          Hashtbl.replace conds cond ()
+      | _ -> ())
+    stmts1;
+  conds
 
 (* Locate matching declarations in map2 for a given selector key *)
 let matching_decls_in_map2 sel1_key decls1 map2 decls2 =
   (* Prefer an exact declaration match for the same selector key if available *)
   match
     List.find_opt
-      (fun (s, d) -> selector_key_of_selector s = sel1_key && d = decls1)
+      (fun (s, d) ->
+        Selector.equal (selector_key_of_selector s) sel1_key
+        && List.equal Declaration.equal_declaration d decls1)
       map2
   with
   | Some (s, d) -> (d, Some s)
   | None -> (
       match
-        List.find_opt (fun (s, _) -> selector_key_of_selector s = sel1_key) map2
+        List.find_opt
+          (fun (s, _) -> Selector.equal (selector_key_of_selector s) sel1_key)
+          map2
       with
       | Some (s, d) -> (d, Some s)
       | None -> (decls2, None))
 
-let add_ordering_issue map2 remaining1 remaining2 acc sel1 decls1 sel2 decls2 =
+let add_ordering_issue ~moved map2 acc sel1 decls1 sel2 decls2 =
   let sel1_key = selector_key_of_selector sel1 in
   let sel2_key = selector_key_of_selector sel2 in
-  if sel1_key = sel2_key then
+  if Selector.equal sel1_key sel2_key then
     (* Same selector at this position: a difference only when its declarations
        differ, i.e. same-selector rules were reordered so the cascade winner
        flips. *)
-    if decls_signature decls1 = decls_signature decls2 then acc
+    if equal_decls_signature (decls_signature decls1) (decls_signature decls2)
+    then acc
     else (sel1, sel2, decls1, decls2) :: acc
-  else if
-    selector_in_list sel1_key remaining2 && selector_in_list sel2_key remaining1
-  then
+  else if selector_moved moved sel1_key then
+    (* Report the selector that moved, not the ones it displaced: a rule pulled
+       to the front sits opposite a different selector at every position it
+       passed, and pairing on that named each of them instead. *)
     let decls1_from_map2, sel2_opt =
       matching_decls_in_map2 sel1_key decls1 map2 decls2
     in
@@ -1069,7 +1540,7 @@ let add_ordering_issue map2 remaining1 remaining2 acc sel1 decls1 sel2 decls2 =
 (* no-op: pure rule ordering is handled in handle_structural_diff via
    has_ordering_changes/ordering_diff *)
 
-let ordering_diff rules1 rules2 =
+let ordering_diff ~moved rules1 rules2 =
   let map1 = build_selector_map rules1 in
   let map2 = build_selector_map rules2 in
 
@@ -1077,10 +1548,7 @@ let ordering_diff rules1 rules2 =
     match (remaining1, remaining2) with
     | [], [] -> List.rev acc
     | (sel1, decls1) :: rest1, (sel2, decls2) :: rest2 ->
-        let acc =
-          add_ordering_issue map2 remaining1 remaining2 acc sel1 decls1 sel2
-            decls2
-        in
+        let acc = add_ordering_issue ~moved map2 acc sel1 decls1 sel2 decls2 in
         find_ordering_issues acc rest1 rest2
     | _, _ -> List.rev acc
   in
@@ -1139,7 +1607,7 @@ let selector_changes all_added_candidates all_removed_candidates =
         List.find_opt
           (fun added_rule ->
             let added_sel = rule_selector added_rule in
-            removed_sel <> added_sel
+            (not (Selector.equal removed_sel added_sel))
             && selectors_share_parent_ast removed_sel added_sel)
           (added_with_props_sig removed_props)
       in
@@ -1265,13 +1733,16 @@ let detect_pure_regroups added removed =
         | Some (_, subs, _) -> List.map selector_key_of_selector subs
         | None -> [])
       rules
-    |> List.sort compare
+    |> List.sort Selector.compare
   in
   List.filter_map rule_sig (added @ removed)
   |> List.sort_uniq compare
   |> List.filter_map (fun s ->
       let radd = with_sig s added and rrem = with_sig s removed in
-      if radd <> [] && rrem <> [] && single_keys radd = single_keys rrem then
+      if
+        radd <> [] && rrem <> []
+        && List.equal Selector.equal (single_keys radd) (single_keys rrem)
+      then
         Some
           ( s,
             (Regrouped
@@ -1292,6 +1763,19 @@ let reconcile_selector_grouping added removed =
   let removed = List.filter (fun r -> not (in_pure r)) removed in
   let added, removed = partial_trim added removed in
   (added, removed, List.map snd pure)
+
+(* Key reorder detection uses both selector and declarations: two same-selector
+   rules with conflicting declarations cascade last-wins. *)
+let order_signature stmts =
+  List.map
+    (fun stmt ->
+      (selector_key_of_stmt stmt, decls_signature (rule_declarations stmt)))
+    stmts
+
+let equal_order_signature =
+  List.equal (fun (selector1, declarations1) (selector2, declarations2) ->
+      Selector.equal selector1 selector2
+      && equal_decls_signature declarations1 declarations2)
 
 let handle_structural_diff rules1 rules2 =
   let all_added_candidates = rules_added_diff rules1 rules2 in
@@ -1321,22 +1805,18 @@ let handle_structural_diff rules1 rules2 =
   let has_structural_changes =
     added <> [] || removed <> [] || modified <> [] || regrouped <> []
   in
-  (* Key reorder detection on the (selector, declarations) sequence, not the
-     selector alone: two same-selector rules with conflicting declarations
-     cascade last-wins, so swapping them is a real change. *)
-  let order_signature stmts =
-    List.map
-      (fun s -> (selector_key_of_stmt s, decls_signature (rule_declarations s)))
-      stmts
-  in
   let has_ordering_changes =
     (not has_structural_changes)
     && has_same_selectors rules1 rules2
-    && order_signature rules1 <> order_signature rules2
+    && not
+         (equal_order_signature (order_signature rules1)
+            (order_signature rules2))
   in
 
   let modified_with_order =
-    if has_ordering_changes then ordering_diff rules1 rules2 @ modified
+    if has_ordering_changes then
+      let moved = moved_order_keys rules1 rules2 in
+      ordering_diff ~moved rules1 rules2 @ modified
     else modified
   in
 
@@ -1344,100 +1824,92 @@ let handle_structural_diff rules1 rules2 =
 
 let rule_diffs rules1 rules2 = handle_structural_diff rules1 rules2
 
+(* The values a rule writes for [name], in the order it writes them. *)
+let occurrences_of name props =
+  List.filter_map (fun (p, v) -> if p = name then Some v else None) props
+
+(* The property names of [props], each once, in first-appearance order. *)
+let names_of props =
+  List.fold_left
+    (fun acc (p, _) -> if List.mem p acc then acc else p :: acc)
+    [] props
+  |> List.rev
+
+(* Zip one name's occurrence lists. A rule may write a property several times -
+   a fallback chain is the usual reason - so occurrence n on one side answers
+   occurrence n on the other, and whichever side has more occurrences carries
+   the surplus. Matching by name alone binds every occurrence to the first entry
+   opposite and reports values neither side holds. *)
+let rec zip_occurrences name (modified, added, removed) values1 values2 =
+  match (values1, values2) with
+  | [], [] -> (modified, added, removed)
+  | v1 :: rest1, v2 :: rest2 ->
+      let modified =
+        if v1 = v2 then modified
+        else
+          { property_name = name; expected_value = v1; actual_value = v2 }
+          :: modified
+      in
+      zip_occurrences name (modified, added, removed) rest1 rest2
+  | _ :: rest1, [] ->
+      zip_occurrences name (modified, added, name :: removed) rest1 []
+  | [], _ :: rest2 ->
+      zip_occurrences name (modified, name :: added, removed) [] rest2
+
 (* Helper function to compute property diffs between two declaration lists,
    including added and removed properties *)
 let properties_diff decls1 decls2 : declaration list * string list * string list
     =
   let props1 = List.map decl_to_prop_value decls1 in
   let props2 = List.map decl_to_prop_value decls2 in
-
-  (* Find modified properties *)
-  let modified =
-    List.fold_left
-      (fun acc (p1, v1) ->
-        match List.assoc_opt p1 props2 with
-        | Some v2 when v1 <> v2 ->
-            { property_name = p1; expected_value = v1; actual_value = v2 }
-            :: acc
-        | _ -> acc)
-      [] props1
-    |> List.rev
+  (* Names the expected side writes first, then the ones only the actual side
+     writes, so the report reads in source order. *)
+  let names =
+    let names1 = names_of props1 in
+    names1 @ List.filter (fun p -> not (List.mem p names1)) (names_of props2)
   in
-
-  (* Find added properties (in actual but not in expected) *)
-  let added =
+  let modified, added, removed =
     List.fold_left
-      (fun acc (p2, _v2) ->
-        if not (List.mem_assoc p2 props1) then p2 :: acc else acc)
-      [] props2
-    |> List.rev
+      (fun acc name ->
+        zip_occurrences name acc
+          (occurrences_of name props1)
+          (occurrences_of name props2))
+      ([], [], []) names
   in
-
-  (* Find removed properties (in expected but not in actual) *)
-  let removed =
-    List.fold_left
-      (fun acc (p1, _v1) ->
-        if not (List.mem_assoc p1 props2) then p1 :: acc else acc)
-      [] props1
-    |> List.rev
-  in
-
-  (modified, added, removed)
+  (List.rev modified, List.rev added, List.rev removed)
 
 (* Helper functions for converting rule changes - moved here for mutual
    recursion *)
+(* A container still takes part in the ordering comparison, since swapping a
+   rule with an [@media] is cascade-significant, but [container_changes] is what
+   reports it. Converting it here as well gives a second entry for the same
+   block. *)
+let is_container_statement stmt =
+  Css.as_media stmt <> None
+  || Css.as_supports stmt <> None
+  || Css.as_layer stmt <> None
+  || Css.as_container stmt <> None
+
 let convert_added_rule stmt =
-  let sel, decls = strings_of_rule stmt in
-  (Added { selector = sel; declarations = decls } : rule_diff)
+  if is_container_statement stmt then None
+  else
+    let sel, decls = strings_of_rule stmt in
+    Some (Added { selector = sel; declarations = decls } : rule_diff)
 
 let convert_removed_rule stmt =
-  let sel, decls = strings_of_rule stmt in
-  (Removed { selector = sel; declarations = decls } : rule_diff)
-
-let describe_statement stmt =
-  let try_desc f = f stmt in
-  let matchers =
-    [
-      (fun s ->
-        Option.map (fun (s, _, _) -> Css.Selector.to_string s) (Css.as_rule s));
-      (fun s ->
-        Option.map
-          (fun (c, _) -> "@media " ^ Css.Media.to_string c)
-          (Css.as_media s));
-      (fun s ->
-        Option.map
-          (fun (n, _) ->
-            match n with Some name -> "@layer " ^ name | None -> "@layer")
-          (Css.as_layer s));
-      (fun s ->
-        Option.map
-          (fun (n, c, _) ->
-            let prefix = match n with Some n -> n ^ " " | None -> "" in
-            let cond_str =
-              match c with Some c -> Css.Container.to_string c | None -> ""
-            in
-            "@container " ^ prefix ^ cond_str)
-          (Css.as_container s));
-      (fun s ->
-        Option.map
-          (fun (c, _) -> "@supports " ^ Css.Supports.to_string c)
-          (Css.as_supports s));
-      (fun s -> Option.map (fun _ -> "@property") (Css.as_property s));
-      (fun s ->
-        Option.map (fun (name, _) -> "@keyframes " ^ name) (Css.as_keyframes s));
-      (fun s -> Option.map (fun _ -> "@font-face") (Css.as_font_face s));
-    ]
-  in
-  match List.find_map try_desc matchers with
-  | Some desc -> Some desc
-  | None -> Some "(other statement)"
+  if is_container_statement stmt then None
+  else
+    let sel, decls = strings_of_rule stmt in
+    Some (Removed { selector = sel; declarations = decls } : rule_diff)
 
 let selector_position sel rules =
   let sel_key = selector_key_of_selector sel in
   List.mapi
     (fun i stmt ->
       match Css.as_rule stmt with
-      | Some (s, _, _) when selector_key_of_selector s = sel_key -> Some i
+      | Some (s, _, _) when Selector.equal (selector_key_of_selector s) sel_key
+        ->
+          Some i
       | _ -> None)
     rules
   |> List.find_map Fun.id |> Option.value ~default:(-1)
@@ -1474,10 +1946,9 @@ let reordered ~rules1 ~rules2 sel1 sel2 selector : rule_diff =
      }
     : rule_diff)
 
-let position_changed ~rules1 ~rules2 sel1 sel2 =
-  let expected_pos = selector_position sel1 rules1 in
-  let actual_pos = selector_position sel2 rules2 in
-  expected_pos <> actual_pos
+(* The change is reported under [sel1], so [sel1] is what has to have moved. *)
+let position_changed ~moved sel1 =
+  selector_moved moved (selector_key_of_selector sel1)
 
 let is_pure_decl_reordering decls1 decls2 =
   let property_changes, added_props, removed_props =
@@ -1485,7 +1956,7 @@ let is_pure_decl_reordering decls1 decls2 =
   in
   let pure =
     property_changes = [] && added_props = [] && removed_props = []
-    && decls_signature decls1 = decls_signature decls2
+    && equal_decls_signature (decls_signature decls1) (decls_signature decls2)
   in
   (pure, property_changes, added_props, removed_props)
 
@@ -1507,10 +1978,10 @@ let decls_str_equal d1 d2 =
        (fun x y -> decl_to_prop_value x = decl_to_prop_value y)
        d1 d2
 
-let convert_modified_rule ~rules1 ~rules2 (sel1, sel2, decls1, decls2) =
+let convert_modified_rule ~moved ~rules1 ~rules2 (sel1, sel2, decls1, decls2) =
   let sel1_str = Css.Selector.to_string sel1 in
   let sel2_str = Css.Selector.to_string sel2 in
-  let position_changed () = position_changed ~rules1 ~rules2 sel1 sel2 in
+  let position_changed () = position_changed ~moved sel1 in
   let reordered selector = reordered ~rules1 ~rules2 sel1 sel2 selector in
   let reorder_or_content selector d1 d2 =
     if position_changed () then Some (reordered selector)
@@ -1529,7 +2000,8 @@ let convert_modified_rule ~rules1 ~rules2 (sel1, sel2, decls1, decls2) =
              new_selector = sel2_str;
              declarations = decls2;
            })
-  | _, _ when decls1 = decls2 -> reorder_or_content sel1_str decls1 decls2
+  | _, _ when List.equal Declaration.equal_declaration decls1 decls2 ->
+      reorder_or_content sel1_str decls1 decls2
   | _, _ ->
       let pure, property_changes, added_props, removed_props =
         is_pure_decl_reordering decls1 decls2
@@ -1538,7 +2010,8 @@ let convert_modified_rule ~rules1 ~rules2 (sel1, sel2, decls1, decls2) =
         if position_changed () then Some (reordered sel1_str)
         else if decls_str_equal decls1 decls2 then
           (* OCaml ASTs differ but string output is identical (e.g., Nested vs
-             bare expression after calc() normalization) — no real difference *)
+             bare expression after calc() normalization) -- no real
+             difference *)
           None
         else if reorder_is_significant decls1 decls2 then
           Some (decl_level_reorder sel1_str decls1 decls2)
@@ -1548,12 +2021,223 @@ let convert_modified_rule ~rules1 ~rules2 (sel1, sel2, decls1, decls2) =
       else reorder_or_content sel1_str decls1 decls2
 
 (* Assemble rule changes (added/removed/modified) between two rule lists *)
+
+(* The selector a change is about, when it names one. *)
+let changed_selector : rule_diff -> string option = function
+  | Added { selector; _ }
+  | Removed { selector; _ }
+  | Content_changed { selector; _ } ->
+      Some selector
+  | Rearranged { selector; _ } -> Some selector
+  | Reordered _ | Selector_changed _ | Regrouped _ -> None
+
+let change_sides : rule_diff -> Css.declaration list * Css.declaration list =
+  function
+  | Added { declarations; _ } -> ([], declarations)
+  | Removed { declarations; _ } -> (declarations, [])
+  | Content_changed { old_declarations; new_declarations; _ } ->
+      (old_declarations, new_declarations)
+  | _ -> ([], [])
+
+let change_gains : rule_diff -> bool = function
+  | Added _ | Content_changed _ -> true
+  | _ -> false
+
+let change_loses : rule_diff -> bool = function
+  | Removed _ | Content_changed _ -> true
+  | _ -> false
+
+(* Every declaration [sel] writes on one side, across all of its rules. *)
+let declarations_of_selector sel stmts =
+  List.concat_map
+    (fun stmt ->
+      match Css.as_rule stmt with
+      | Some (selector, decls, _) when Css.Selector.to_string selector = sel ->
+          decls
+      | _ -> [])
+    stmts
+
+(* Judge on every rule of the selector, not only the differing ones: a
+   declaration a matching rule already carries distinguishes a move from a
+   loss. *)
+let merge_selector_group ~rules1 ~rules2 sel peers =
+  let old_all = declarations_of_selector sel rules1
+  and new_all = declarations_of_selector sel rules2 in
+  if
+    old_all <> []
+    && equal_decls_signature (decls_signature old_all) (decls_signature new_all)
+  then Rearranged { selector = sel; declarations = new_all }
+  else
+    content_changed sel
+      (List.concat_map (fun d -> fst (change_sides d)) peers)
+      (List.concat_map (fun d -> snd (change_sides d)) peers)
+
+(* One selector, one node. Two rules writing the same selector in a container
+   produced two sibling entries under the same label, one reporting a
+   declaration added and the other a different one removed, which reads as a
+   contradiction rather than as a declaration moving between them. The group
+   collapses to a single before-and-after for that selector.
+
+   Only a group that both gains and loses collapses: several rules added under
+   one selector really are several additions, and merging those would hide the
+   count. *)
+let merge_same_selector_changes ~rules1 ~rules2 (changes : rule_diff list) :
+    rule_diff list =
+  let done_ = Hashtbl.create 8 in
+  List.filter_map
+    (fun diff ->
+      match changed_selector diff with
+      | None -> Some diff
+      | Some sel when Hashtbl.mem done_ sel -> None
+      | Some sel -> (
+          let peers =
+            List.filter (fun d -> changed_selector d = Some sel) changes
+          in
+          match peers with
+          | _ :: _ :: _
+            when List.exists change_gains peers
+                 && List.exists change_loses peers ->
+              Hashtbl.replace done_ sel ();
+              Some (merge_selector_group ~rules1 ~rules2 sel peers)
+          | _ -> Some diff))
+    changes
+
+(* At-rules that carry neither a selector nor a condition the other processors
+   key on: [@page], [@font-face], [@counter-style], [@scope], [@starting-style]
+   and friends. [rule_diffs] gives every one of them the universal selector, so
+   it pairs them without ever reading their bodies. What they hold below the
+   brace decides how a pair is compared. *)
+type at_rule_body =
+  | Block of Css.statement list  (** statements, walked like a container *)
+  | Declarations of Css.declaration list  (** a rule body without a rule *)
+  | Opaque  (** descriptors, compared as the text they print to *)
+
+let at_rule_body (stmt : Css.statement) : at_rule_body option =
+  match stmt with
+  | Starting_style block
+  | Scope (_, _, block)
+  | Moz_document (_, block)
+  | When (_, block)
+  | Else (_, block) ->
+      Some (Block block)
+  | Page (_, decls)
+  (* With margin rules the declarations are only part of the body, so the whole
+     block is compared as text instead. *)
+  | Page_with_margins (_, decls, [])
+  | Position_try (_, decls)
+  | Supports_condition (_, decls) ->
+      Some (Declarations decls)
+  | Font_face _ | Counter_style _ | Page_with_margins _ | Font_palette_values _
+  | Font_feature_values _ | View_transition _ | Viewport _ | Webkit_keyframes _
+  | Moz_keyframes _ | Unknown_at_rule _ ->
+      Some Opaque
+  | _ -> None
+
+(* [process_at_rules] owns these statements, so leaving them in the rule diff as
+   well would report one change twice, once against the universal selector. *)
+let is_selectorless_at_rule stmt = at_rule_body stmt <> None
+
+(* Every statement a processor of its own reads and names.
+   [selector_key_of_stmt] gives all of them the universal selector, so the rule
+   matcher pairs a [@property] with a [@keyframes] with a [@media] and hands
+   whichever it has one too many of to the report, where nothing can name it.
+   Containers are the exception and stay: [moved_order_keys] reads their
+   position, and [convert_added_rule]/[convert_removed_rule] keep them out of
+   the entries. *)
+let is_reported_by_own_processor stmt =
+  is_selectorless_at_rule stmt
+  || Css.as_property stmt <> None
+  || Css.as_keyframes stmt <> None
+
+(* The at-rule text split at its block: the head keys the statement, the body is
+   what a descriptor-only at-rule is compared on. *)
+let at_rule_text stmt =
+  let text = Css.Stylesheet.to_string ~minify:true (Css.v [ stmt ]) in
+  match String.index_opt text '{' with
+  | None -> (String.trim text, "")
+  | Some i ->
+      let head = String.sub text 0 i in
+      let last = String.length text - 1 in
+      let body =
+        if last > i && text.[last] = '}' then
+          String.sub text (i + 1) (last - i - 1)
+        else String.sub text (i + 1) (last - i)
+      in
+      (String.trim head, body)
+
+(* A stylesheet may repeat one at-rule (several [@font-face] blocks, several
+   [@page] rules), so the head alone does not name a block. Number the blocks
+   that share a head and pair them in order. *)
+let at_rule_items stmts =
+  let seen = Hashtbl.create 8 in
+  List.filter_map
+    (fun stmt ->
+      match at_rule_body stmt with
+      | None -> None
+      | Some body ->
+          let head, text = at_rule_text stmt in
+          let n = Option.value ~default:0 (Hashtbl.find_opt seen head) in
+          Hashtbl.replace seen head (n + 1);
+          Some ((head, n), (head, body, text)))
+    stmts
+
+(* The container line already names the at-rule, so these changes carry no
+   selector of their own; a second label would read as a second subject. *)
+
+let at_rule_declarations_change decls1 decls2 =
+  let property_changes, added_properties, removed_properties =
+    properties_diff decls1 decls2
+  in
+  if
+    property_changes = [] && added_properties = [] && removed_properties = []
+    && not (reorder_is_significant decls1 decls2)
+  then None
+  else
+    Some
+      (Content_changed
+         {
+           selector = "";
+           old_declarations = decls1;
+           new_declarations = decls2;
+           property_changes;
+           added_properties;
+           removed_properties;
+         })
+
+(* Descriptors hold neither statements nor declarations, so a pair of them is
+   compared on the text it prints to. *)
+let at_rule_text_change text1 text2 =
+  Content_changed
+    {
+      selector = "";
+      old_declarations = [];
+      new_declarations = [];
+      property_changes =
+        [
+          {
+            property_name = "descriptors";
+            expected_value = text1;
+            actual_value = text2;
+          };
+        ];
+      added_properties = [];
+      removed_properties = [];
+    }
+
 let to_rule_changes rules1 rules2 : rule_diff list =
+  let rules1 =
+    List.filter (fun s -> not (is_reported_by_own_processor s)) rules1
+  in
+  let rules2 =
+    List.filter (fun s -> not (is_reported_by_own_processor s)) rules2
+  in
   let r_added, r_removed, r_modified, r_regrouped = rule_diffs rules1 rules2 in
-  List.map convert_added_rule r_added
-  @ List.map convert_removed_rule r_removed
-  @ List.filter_map (convert_modified_rule ~rules1 ~rules2) r_modified
+  let moved = moved_order_keys rules1 rules2 in
+  List.filter_map convert_added_rule r_added
+  @ List.filter_map convert_removed_rule r_removed
+  @ List.filter_map (convert_modified_rule ~moved ~rules1 ~rules2) r_modified
   @ r_regrouped
+  |> merge_same_selector_changes ~rules1 ~rules2
 
 (* Generic helpers for processing nested containers *)
 let extract_items_with_positions extract_fn stmts =
@@ -1565,57 +2249,45 @@ let extract_items_with_positions extract_fn stmts =
     stmts
   |> List.filter_map (fun x -> x)
 
+let restore_group_order table =
+  Hashtbl.to_seq_keys table |> List.of_seq
+  |> List.iter (fun key ->
+      Hashtbl.replace table key (List.rev (Hashtbl.find table key)));
+  table
+
 let group_by_condition items =
   let tbl = Hashtbl.create 16 in
   List.iter
     (fun (pos, cond, rules) ->
       let existing = try Hashtbl.find tbl cond with Not_found -> [] in
-      Hashtbl.replace tbl cond (existing @ [ (pos, rules) ]))
+      Hashtbl.replace tbl cond ((pos, rules) :: existing))
     items;
-  tbl
+  restore_group_order tbl
 
-let block_positions_differ blocks1_list blocks2_list =
-  List.length blocks1_list = List.length blocks2_list
-  &&
-  let pos1_list = List.map fst blocks1_list in
-  let pos2_list = List.map fst blocks2_list in
-  List.exists2 (fun p1 p2 -> abs (p1 - p2) > 10) pos1_list pos2_list
-
-let block_structure_differs blocks1_list blocks2_list =
-  List.length blocks1_list <> List.length blocks2_list
-  || block_positions_differ blocks1_list blocks2_list
-
+(* Two sides holding a different number of blocks under one condition split or
+   merged them. Where those blocks sit is a separate question, and one
+   [moved_conditions] answers: comparing their absolute indices here reported
+   the whole tail of a stylesheet as restructured whenever a block was inserted
+   ahead of it, which is what the slack distance was there to hide. *)
 let detect_block_structure_changes blocks1 blocks2 =
   let block_structure_changed = Hashtbl.create 16 in
   Hashtbl.iter
     (fun cond blocks1_list ->
       match Hashtbl.find_opt blocks2 cond with
       | Some blocks2_list ->
-          if block_structure_differs blocks1_list blocks2_list then
+          if List.length blocks1_list <> List.length blocks2_list then
             Hashtbl.replace block_structure_changed cond
               (blocks1_list, blocks2_list)
       | _ -> ())
     blocks1;
   block_structure_changed
 
-let only_declaration_reorders rule_changes nested_containers =
-  rule_changes <> []
-  && List.for_all
-       (fun (diff : rule_diff) ->
-         match diff with
-         | Reordered { old_declarations = Some _; new_declarations = Some _; _ }
-           ->
-             true
-         | _ -> false)
-       rule_changes
-  && nested_containers = []
-
-let container_position extract_fn cond stmts =
+let condition_position ~condition_of cond stmts =
   let rec go i = function
     | [] -> None
     | stmt :: rest -> (
-        match extract_fn stmt with
-        | Some (c, _) when c = cond -> Some i
+        match condition_of stmt with
+        | Some c when c = cond -> Some i
         | _ -> go (i + 1) rest)
   in
   go 0 stmts
@@ -1627,6 +2299,33 @@ let reordered_container container_type cond rules1 pos1 pos2 =
       expected_pos = pos1;
       actual_pos = pos2;
     }
+
+(* The entry for a container that changed places, naming where it went. *)
+let container_moved ~container_type ~condition_of ~stmts1 ~stmts2 cond rules =
+  match
+    ( condition_position ~condition_of cond stmts1,
+      condition_position ~condition_of cond stmts2 )
+  with
+  | Some pos1, Some pos2 ->
+      Some (reordered_container container_type cond rules pos1 pos2)
+  | None, _ | _, None -> None
+
+(* One entry per container that only changed places. [reported] holds the
+   conditions an entry already names, so a block that also changed content is
+   named once, by the entry that says what changed, and a condition several
+   blocks share is named once for the group. Every condition both sides hold is
+   asked, not only the ones whose bodies differ: a block that kept its body and
+   swapped with the rule below it changes which declaration wins. *)
+let container_reorders ~container_type ~condition_of ~moved_conds ~reported
+    ~stmts1 ~stmts2 items =
+  List.filter_map
+    (fun (cond, rules) ->
+      if (not (Hashtbl.mem moved_conds cond)) || Hashtbl.mem reported cond then
+        None
+      else (
+        Hashtbl.replace reported cond ();
+        container_moved ~container_type ~condition_of ~stmts1 ~stmts2 cond rules))
+    items
 
 let modified_container container_type cond rules1 rules2 rule_changes
     nested_containers =
@@ -1658,13 +2357,51 @@ let detect_order_only_change ~container_type added removed items1 items2 =
                })
       | _ -> None
 
+(* The descriptors an [@property] body carries, in the order CSS Properties and
+   Values 1 sec. 2 defines them. The syntax and the initial value are
+   existentially typed and share that existential, so they are compared on the
+   form they serialise to rather than on the value. *)
+let property_descriptors = function
+  | Css.Property_info { syntax; inherits; initial_value; _ } ->
+      ("syntax", Pp.to_string ~minify:true Css.Variables.pp_syntax syntax)
+      :: ("inherits", if inherits then "true" else "false")
+      ::
+      (match initial_value with
+      | None -> []
+      | Some value ->
+          [
+            ( "initial-value",
+              Pp.to_string ~minify:true (Css.Variables.pp_value syntax) value );
+          ])
+
+(* A registration decides how every use of the custom property parses, animates
+   and inherits, so a descriptor that differs is a difference. *)
+let property_descriptor_changes prop1 prop2 =
+  let descs1 = property_descriptors prop1 in
+  let descs2 = property_descriptors prop2 in
+  let changed =
+    List.filter_map
+      (fun (name, expected_value) ->
+        match List.assoc_opt name descs2 with
+        | Some actual_value when actual_value <> expected_value ->
+            Some { property_name = name; expected_value; actual_value }
+        | _ -> None)
+      descs1
+  in
+  let only_in others (name, _) =
+    if List.mem_assoc name others then None else Some name
+  in
+  ( changed,
+    List.filter_map (only_in descs1) descs2,
+    List.filter_map (only_in descs2) descs1 )
+
 let property_diff items1 items2 =
   let key_of (Css.Property_info { name; _ }) = name in
   let key_equal = String.equal in
   let is_empty_diff prop1 prop2 =
-    let (Css.Property_info { name = n1; inherits = i1; _ }) = prop1 in
-    let (Css.Property_info { name = n2; inherits = i2; _ }) = prop2 in
-    n1 = n2 && i1 = i2
+    let (Css.Property_info { name = n1; _ }) = prop1 in
+    let (Css.Property_info { name = n2; _ }) = prop2 in
+    n1 = n2 && property_descriptors prop1 = property_descriptors prop2
   in
   let added, removed, modified_pairs =
     diffs ~key_of ~key_equal ~is_empty_diff items1 items2
@@ -1677,7 +2414,9 @@ let property_diff items1 items2 =
   in
   let modified =
     List.map
-      (fun (Css.Property_info { name; _ }, _) -> (name, [], []))
+      (fun ((Css.Property_info { name; _ } as prop1), prop2) ->
+        let changed, added, removed = property_descriptor_changes prop1 prop2 in
+        (name, changed, added, removed))
       modified_pairs
   in
   (added, removed, modified)
@@ -1748,6 +2487,13 @@ let extract_supports_as_string stmt =
   | Some (cond, rules) -> Some (Css.Supports.to_string cond, rules)
   | None -> None
 
+(* The name [layer_diff] keys a layer on: an anonymous [@layer { ... }] has
+   none, so it keys on the empty string like every other anonymous one. *)
+let extract_layer_name stmt =
+  match Css.as_layer stmt with
+  | Some (name_opt, rules) -> Some (Option.value ~default:"" name_opt, rules)
+  | None -> None
+
 let keyframes_container_info name =
   { container_type = `Layer; condition = "@keyframes " ^ name; rules = [] }
 
@@ -1756,7 +2502,7 @@ let keyframe_frames_diff frames1 frames2 =
   let key_equal = Css.Keyframe.selector_equal in
   let is_empty_diff (f1 : Css.keyframe) (f2 : Css.keyframe) =
     Css.Keyframe.selector_equal f1.selector f2.selector
-    && f1.declarations = f2.declarations
+    && List.equal Declaration.equal_declaration f1.declarations f2.declarations
   in
   let added, removed, modified_pairs =
     diffs ~key_of ~key_equal ~is_empty_diff frames1 frames2
@@ -1780,7 +2526,11 @@ let keyframe_frames_diff frames1 frames2 =
   let modified_changes =
     List.filter_map
       (fun ((f1 : Css.keyframe), (f2 : Css.keyframe)) ->
-        if f1.declarations <> f2.declarations then
+        if
+          not
+            (List.equal Declaration.equal_declaration f1.declarations
+               f2.declarations)
+        then
           Some
             (Content_changed
                {
@@ -1804,7 +2554,7 @@ let keyframes_diff items1 items2 =
   in
   diffs ~key_of ~key_equal ~is_empty_diff items1 items2
 
-let process_nested_keyframes ~depth:_ stmts1 stmts2 =
+let process_nested_keyframes stmts1 stmts2 =
   let items1 = List.filter_map Css.as_keyframes stmts1 in
   let items2 = List.filter_map Css.as_keyframes stmts2 in
   let added, removed, modified = keyframes_diff items1 items2 in
@@ -1836,41 +2586,6 @@ let process_nested_keyframes ~depth:_ stmts1 stmts2 =
   in
   added_diffs @ removed_diffs @ modified_diffs
 
-let process_font_face_rules ~depth:_ stmts1 stmts2 =
-  let items1 = List.filter_map Css.as_font_face stmts1 in
-  let items2 = List.filter_map Css.as_font_face stmts2 in
-  let diffs = ref [] in
-  match (items1, items2) with
-  | [], [] -> []
-  | [], _ ->
-      diffs :=
-        Added { container_type = `Layer; condition = "@font-face"; rules = [] }
-        :: !diffs;
-      !diffs
-  | _, [] ->
-      diffs :=
-        Removed
-          { container_type = `Layer; condition = "@font-face"; rules = [] }
-        :: !diffs;
-      !diffs
-  | descs1 :: _, descs2 :: _ ->
-      if descs1 <> descs2 then
-        diffs :=
-          Modified
-            {
-              info =
-                {
-                  container_type = `Layer;
-                  condition = "@font-face";
-                  rules = [];
-                };
-              actual_rules = [];
-              rule_changes = [];
-              container_changes = [];
-            }
-          :: !diffs;
-      !diffs
-
 let container_condition_string name_opt condition =
   let cond_str =
     match condition with Some c -> Css.Container.to_string c | None -> ""
@@ -1888,8 +2603,59 @@ let container_key (name_opt, condition, _) =
 let condition_rules_of_container (name_opt, condition, rules) =
   (container_condition_string name_opt condition, rules)
 
+let extract_container_as_string stmt =
+  Option.map condition_rules_of_container (Css.as_container stmt)
+
 let modified_container_of_pair ((name_opt, condition, rules1), (_, _, rules2)) =
   (container_condition_string name_opt condition, rules1, rules2)
+
+(* Process property rules. An [@property] body holds descriptors, not
+   statements, so there is nothing below it to recurse into. *)
+let process_nested_properties stmts1 stmts2 =
+  let items1 = List.filter_map Css.as_property stmts1 in
+  let items2 = List.filter_map Css.as_property stmts2 in
+  let added, removed, modified = property_diff items1 items2 in
+  let diffs = ref [] in
+  List.iter
+    (fun (name, rules) ->
+      diffs :=
+        Added { container_type = `Property; condition = name; rules } :: !diffs)
+    added;
+  List.iter
+    (fun (name, rules) ->
+      diffs :=
+        Removed { container_type = `Property; condition = name; rules }
+        :: !diffs)
+    removed;
+  List.iter
+    (fun (name, property_changes, added_properties, removed_properties) ->
+      (* The body is reported as the descriptors that changed. Left empty, the
+         renderer has nothing to show and falls back to calling the entry a
+         position change, which is not what differs. *)
+      let rule_changes =
+        [
+          Content_changed
+            {
+              selector = "";
+              old_declarations = [];
+              new_declarations = [];
+              property_changes;
+              added_properties;
+              removed_properties;
+            };
+        ]
+      in
+      diffs :=
+        Modified
+          {
+            info = { container_type = `Property; condition = name; rules = [] };
+            actual_rules = [];
+            rule_changes;
+            container_changes = [];
+          }
+        :: !diffs)
+    modified;
+  !diffs @ property_reorder_diffs stmts1 stmts2 items1 items2
 
 (* Mutual recursion declarations *)
 (* Check if two rule-lists under the same media condition differ *)
@@ -1905,7 +2671,7 @@ let rec media_condition_differs rules_list1 rules_list2 =
   let has_immediate =
     added_r <> [] || removed_r <> [] || modified_r <> [] || regrouped_r <> []
   in
-  let has_nested = nested_differences ~depth:1 all_rules1 all_rules2 <> [] in
+  let has_nested = nested_differences all_rules1 all_rules2 <> [] in
   if has_immediate || has_nested || block_count_differs then
     Some (all_rules1, all_rules2)
   else None
@@ -1916,9 +2682,9 @@ and media_diff items1 items2 =
     List.iter
       (fun (cond, rules) ->
         let existing = try Hashtbl.find tbl cond with Not_found -> [] in
-        Hashtbl.replace tbl cond (existing @ [ rules ]))
+        Hashtbl.replace tbl cond (rules :: existing))
       items;
-    tbl
+    restore_group_order tbl
   in
   let groups1 = group items1 in
   let groups2 = group items2 in
@@ -1944,37 +2710,27 @@ and media_diff items1 items2 =
     groups2;
   (!added, !removed, !modified)
 
-and process_modified_container ~container_type ~extract_fn ~depth ~stmts1
-    ~stmts2 ~block_structure_changed cond rules1 rules2 =
+and process_modified_container ~container_type ~condition_of ~moved_conds
+    ~stmts1 ~stmts2 ~block_structure_changed ~reported cond rules1 rules2 =
   (* Skip if this condition has a block structure change *)
   if Hashtbl.mem block_structure_changed cond then None
   else
     let rule_changes = to_rule_changes rules1 rules2 in
     (* Recursively check deeper nesting *)
-    let nested_containers =
-      nested_differences ~depth:(depth + 1) rules1 rules2
-    in
-    (* Check for position changes within parent container *)
-    let pos1 =
-      container_position extract_fn cond stmts1 |> Option.value ~default:(-1)
-    in
-    let pos2 =
-      container_position extract_fn cond stmts2 |> Option.value ~default:(-1)
-    in
-    let position_changed = pos1 >= 0 && pos2 >= 0 && abs (pos2 - pos1) > 3 in
-
-    (* If only position changed with no content changes, report as reordered *)
-    if position_changed && rule_changes = [] && nested_containers = [] then
-      Some (reordered_container container_type cond rules1 pos1 pos2)
-    else if not (only_declaration_reorders rule_changes nested_containers) then
+    let nested_containers = nested_differences rules1 rules2 in
+    Hashtbl.replace reported cond ();
+    if rule_changes <> [] || nested_containers <> [] then
       (* Container was modified in content, not just position *)
       Some
         (modified_container container_type cond rules1 rules2 rule_changes
            nested_containers)
+    else if Hashtbl.mem moved_conds cond then
+      container_moved ~container_type ~condition_of ~stmts1 ~stmts2 cond rules1
     else None
 
-and process_nested_containers ~container_type ~extract_fn ~diff_fn ~depth stmts1
-    stmts2 =
+and process_nested_containers ~container_type ~extract_fn ~diff_fn stmts1 stmts2
+    =
+  let condition_of stmt = Option.map fst (extract_fn stmt) in
   let items_with_pos1 = extract_items_with_positions extract_fn stmts1 in
   let items_with_pos2 = extract_items_with_positions extract_fn stmts2 in
   let block_structure_changed =
@@ -1982,12 +2738,15 @@ and process_nested_containers ~container_type ~extract_fn ~diff_fn ~depth stmts1
       (group_by_condition items_with_pos1)
       (group_by_condition items_with_pos2)
   in
+  let moved_conds = moved_conditions ~condition_of stmts1 stmts2 in
+  let reported = Hashtbl.create 8 in
   let items1 = List.filter_map extract_fn stmts1 in
   let items2 = List.filter_map extract_fn stmts2 in
   let added, removed, modified = diff_fn items1 items2 in
   let diffs = ref [] in
   Hashtbl.iter
     (fun cond (expected_blocks, actual_blocks) ->
+      Hashtbl.replace reported cond ();
       diffs :=
         Block_structure_changed
           { container_type; condition = cond; expected_blocks; actual_blocks }
@@ -1995,21 +2754,27 @@ and process_nested_containers ~container_type ~extract_fn ~diff_fn ~depth stmts1
     block_structure_changed;
   List.iter
     (fun (cond, rules) ->
+      Hashtbl.replace reported cond ();
       diffs := Added { container_type; condition = cond; rules } :: !diffs)
     added;
   List.iter
     (fun (cond, rules) ->
+      Hashtbl.replace reported cond ();
       diffs := Removed { container_type; condition = cond; rules } :: !diffs)
     removed;
   List.iter
     (fun (cond, rules1, rules2) ->
       match
-        process_modified_container ~container_type ~extract_fn ~depth ~stmts1
-          ~stmts2 ~block_structure_changed cond rules1 rules2
+        process_modified_container ~container_type ~condition_of ~moved_conds
+          ~stmts1 ~stmts2 ~block_structure_changed ~reported cond rules1 rules2
       with
       | Some diff -> diffs := diff :: !diffs
       | None -> ())
     modified;
+  diffs :=
+    container_reorders ~container_type ~condition_of ~moved_conds ~reported
+      ~stmts1 ~stmts2 items1
+    @ !diffs;
   (if !diffs = [] then
      match
        detect_order_only_change ~container_type added removed items1 items2
@@ -2030,7 +2795,7 @@ and layer_diff items1 items2 =
     if has_immediate_diffs then false
     else
       (* Also check for nested differences *)
-      let nested_diffs = nested_differences ~depth:1 rules1 rules2 in
+      let nested_diffs = nested_differences rules1 rules2 in
       nested_diffs = []
   in
   let added, removed, modified_pairs =
@@ -2056,27 +2821,31 @@ and layer_diff items1 items2 =
   (added, removed, modified)
 
 (* Shared helper: collect added/removed container diffs and process modified
-   containers with the standard rule-change + nesting logic. *)
-and collect_container_diffs ~container_type ~depth added removed modified =
+   containers with the standard rule-change + nesting logic. [extract_fn] names
+   the containers in the enclosing statement list, which is what decides whether
+   one of them moved. *)
+and collect_container_diffs ~container_type ~extract_fn ~stmts1 ~stmts2 added
+    removed modified =
+  let condition_of stmt = Option.map fst (extract_fn stmt) in
+  let moved_conds = moved_conditions ~condition_of stmts1 stmts2 in
+  let reported = Hashtbl.create 8 in
   let diffs = ref [] in
   List.iter
     (fun (condition, rules) ->
+      Hashtbl.replace reported condition ();
       diffs := Added { container_type; condition; rules } :: !diffs)
     added;
   List.iter
     (fun (condition, rules) ->
+      Hashtbl.replace reported condition ();
       diffs := Removed { container_type; condition; rules } :: !diffs)
     removed;
   List.iter
     (fun (condition, rules1, rules2) ->
       let rule_changes = to_rule_changes rules1 rules2 in
-      let nested_containers =
-        nested_differences ~depth:(depth + 1) rules1 rules2
-      in
-      if
-        (rule_changes <> [] || nested_containers <> [])
-        && not (only_declaration_reorders rule_changes nested_containers)
-      then
+      let nested_containers = nested_differences rules1 rules2 in
+      Hashtbl.replace reported condition ();
+      if rule_changes <> [] || nested_containers <> [] then
         diffs :=
           Modified
             {
@@ -2085,22 +2854,32 @@ and collect_container_diffs ~container_type ~depth added removed modified =
               rule_changes;
               container_changes = nested_containers;
             }
-          :: !diffs)
+          :: !diffs
+      else if Hashtbl.mem moved_conds condition then
+        match
+          container_moved ~container_type ~condition_of ~stmts1 ~stmts2
+            condition rules1
+        with
+        | Some diff -> diffs := diff :: !diffs
+        | None -> ())
     modified;
-  !diffs
+  container_reorders ~container_type ~condition_of ~moved_conds ~reported
+    ~stmts1 ~stmts2
+    (List.filter_map extract_fn stmts1)
+  @ !diffs
 
 (* Process layers separately due to different type signature *)
-and process_nested_layers ~depth stmts1 stmts2 =
+and process_nested_layers stmts1 stmts2 =
   let items1 = List.filter_map Css.as_layer stmts1 in
   let items2 = List.filter_map Css.as_layer stmts2 in
   let added, removed, modified = layer_diff items1 items2 in
-  collect_container_diffs ~container_type:`Layer ~depth added removed modified
+  collect_container_diffs ~container_type:`Layer ~extract_fn:extract_layer_name
+    ~stmts1 ~stmts2 added removed modified
 
 and container_has_no_diff (_, _, rules1) (_, _, rules2) =
   let a_r, r_r, m_r, rg_r = rule_diffs rules1 rules2 in
   let has_immediate_diffs = a_r <> [] || r_r <> [] || m_r <> [] || rg_r <> [] in
-  if has_immediate_diffs then false
-  else nested_differences ~depth:1 rules1 rules2 = []
+  if has_immediate_diffs then false else nested_differences rules1 rules2 = []
 
 (* Container diff function for @container rules *)
 and container_diff items1 items2 =
@@ -2116,51 +2895,16 @@ and container_diff items1 items2 =
   (added, removed, modified)
 
 (* Process container rules *)
-and process_nested_containers_with_name ~depth stmts1 stmts2 =
+and process_nested_containers_with_name stmts1 stmts2 =
   let items1 = List.filter_map Css.as_container stmts1 in
   let items2 = List.filter_map Css.as_container stmts2 in
   let added, removed, modified = container_diff items1 items2 in
-  collect_container_diffs ~container_type:`Container ~depth added removed
+  collect_container_diffs ~container_type:`Container
+    ~extract_fn:extract_container_as_string ~stmts1 ~stmts2 added removed
     modified
 
-(* Process property rules *)
-and process_nested_properties ~depth stmts1 stmts2 =
-  let items1 = List.filter_map Css.as_property stmts1 in
-  let items2 = List.filter_map Css.as_property stmts2 in
-  let added, removed, modified = property_diff items1 items2 in
-  let diffs = ref [] in
-  List.iter
-    (fun (name, rules) ->
-      diffs :=
-        Added { container_type = `Property; condition = name; rules } :: !diffs)
-    added;
-  List.iter
-    (fun (name, rules) ->
-      diffs :=
-        Removed { container_type = `Property; condition = name; rules }
-        :: !diffs)
-    removed;
-  List.iter
-    (fun (name, rules1, rules2) ->
-      let rule_changes = to_rule_changes rules1 rules2 in
-      let nested_containers =
-        nested_differences ~depth:(depth + 1) rules1 rules2
-      in
-      diffs :=
-        Modified
-          {
-            info =
-              { container_type = `Property; condition = name; rules = rules1 };
-            actual_rules = rules2;
-            rule_changes;
-            container_changes = nested_containers;
-          }
-        :: !diffs)
-    modified;
-  !diffs @ property_reorder_diffs stmts1 stmts2 items1 items2
-
 (* Process CSS nesting: rules with nested child rules (& .foo { ... }) *)
-and process_nested_rules ~depth stmts1 stmts2 =
+and process_nested_rules stmts1 stmts2 =
   (* Extract (selector_key, nested_statements) for all rules, including those
      with empty nesting. This allows detecting when nesting is added/removed. *)
   let extract_nesting stmts =
@@ -2178,11 +2922,9 @@ and process_nested_rules ~depth stmts1 stmts2 =
   List.iter
     (fun (sel1, nested1) ->
       match List.find_opt (fun (s, _) -> s = sel1) items2 with
-      | Some (_, nested2) when nested1 <> nested2 ->
+      | Some (_, nested2) when not (Stylesheet.equal nested1 nested2) ->
           let rule_changes = to_rule_changes nested1 nested2 in
-          let nested_containers =
-            nested_differences ~depth:(depth + 1) nested1 nested2
-          in
+          let nested_containers = nested_differences nested1 nested2 in
           if rule_changes <> [] || nested_containers <> [] then
             diffs :=
               Modified
@@ -2203,81 +2945,77 @@ and process_nested_rules ~depth stmts1 stmts2 =
     items1;
   !diffs
 
-(* Main recursive function for nested differences *)
-and nested_differences ?(depth = 0) (stmts1 : Css.statement list)
-    (stmts2 : Css.statement list) : container_diff list =
-  if depth > 3 then [] (* Prevent infinite recursion *)
-  else
-    (* Process CSS nesting (& .foo { ... } inside rules) *)
-    process_nested_rules ~depth stmts1 stmts2
-    (* Process media queries *)
-    @ process_nested_containers ~container_type:`Media
-        ~extract_fn:extract_media_as_string ~diff_fn:media_diff ~depth stmts1
-        stmts2
-    (* Process layers - different type signature *)
-    @ process_nested_layers ~depth stmts1 stmts2
-    (* Process supports - reuses media_diff since they have the same
-       structure *)
-    @ process_nested_containers ~container_type:`Supports
-        ~extract_fn:extract_supports_as_string ~diff_fn:media_diff ~depth stmts1
-        stmts2
-    (* Process container queries *)
-    @ process_nested_containers_with_name ~depth stmts1 stmts2
-    (* Process property declarations *)
-    @ process_nested_properties ~depth stmts1 stmts2
-    (* Process keyframes animations *)
-    @ process_nested_keyframes ~depth stmts1 stmts2
-    (* Process font-face rules *)
-    @ process_font_face_rules ~depth stmts1 stmts2
-
-(* Check if containers appear at different positions in statement sequence *)
-let detect_container_position_changes stmts1 stmts2 containers =
-  (* Build position maps for @media containers *)
-  let build_media_position_map stmts =
-    List.mapi
-      (fun i stmt ->
-        match Css.as_media stmt with
-        | Some (cond, _) -> Some (Css.Media.to_string cond, i)
-        | None -> None)
-      stmts
-    |> List.filter_map (fun x -> x)
-    |> List.fold_left
-         (fun acc (cond, pos) ->
-           let existing = try List.assoc cond acc with Not_found -> [] in
-           (cond, pos :: existing) :: List.remove_assoc cond acc)
-         []
+(* Compare one pair of at-rule blocks that occupy the same position under the
+   same head. *)
+and at_rule_pair_diff (head, body1, text1) (_, body2, text2) =
+  let modified rules actual_rules rule_changes container_changes =
+    Modified
+      {
+        info = { container_type = `At_rule; condition = head; rules };
+        actual_rules;
+        rule_changes;
+        container_changes;
+      }
   in
+  match (body1, body2) with
+  | Block block1, Block block2 ->
+      let rule_changes = to_rule_changes block1 block2 in
+      let container_changes = nested_differences block1 block2 in
+      if rule_changes = [] && container_changes = [] then None
+      else Some (modified block1 block2 rule_changes container_changes)
+  | Declarations decls1, Declarations decls2 ->
+      Option.map
+        (fun change -> modified [] [] [ change ] [])
+        (at_rule_declarations_change decls1 decls2)
+  | Opaque, Opaque when text1 <> text2 ->
+      Some (modified [] [] [ at_rule_text_change text1 text2 ] [])
+  | Block _, _ | Declarations _, _ | Opaque, _ -> None
 
-  let pos_map1 = build_media_position_map stmts1 in
-  let pos_map2 = build_media_position_map stmts2 in
+and process_at_rules stmts1 stmts2 =
+  let items1 = at_rule_items stmts1 and items2 = at_rule_items stmts2 in
+  let added, removed, pairs =
+    diffs ~key_of:fst ~key_equal:( = )
+      ~is_empty_diff:(fun _ _ -> false)
+      items1 items2
+  in
+  let block_rules = function Block block -> block | _ -> [] in
+  let info (head, body, _) =
+    { container_type = `At_rule; condition = head; rules = block_rules body }
+  in
+  List.map (fun (_, item) -> Added (info item)) added
+  @ List.map (fun (_, item) -> Removed (info item)) removed
+  @ List.filter_map
+      (fun ((_, item1), (_, item2)) -> at_rule_pair_diff item1 item2)
+      pairs
 
-  (* Enhance container_diffs with position info *)
-  List.map
-    (function
-      | Modified
-          ({
-             info = { container_type = `Media; condition; _ };
-             rule_changes;
-             container_changes;
-             _;
-           } as cm)
-        when rule_changes = [] && container_changes = [] ->
-          (* No content changes - check if position changed *)
-          let pos1 =
-            try List.assoc condition pos_map1 |> List.hd
-            with Not_found | Failure _ -> -1
-          in
-          let pos2 =
-            try List.assoc condition pos_map2 |> List.hd
-            with Not_found | Failure _ -> -1
-          in
-          if pos1 >= 0 && pos2 >= 0 && abs (pos2 - pos1) > 5 then
-            (* Significant position change - report as structure difference *)
-            Modified
-              { cm with info = { cm.info with rules = [] }; actual_rules = [] }
-          else Modified cm
-      | other -> other)
-    containers
+(* Main recursive function for nested differences *)
+(* Every branch below recurses on the statements of a block, which is a strictly
+   smaller list than the one holding it, so the walk terminates on the depth of
+   the stylesheet. A cutoff here is a cutoff of the answer: the detection
+   helpers ([media_condition_differs], [layer_diff]'s [is_empty_diff],
+   [container_has_no_diff]) call back in to decide whether a container differs
+   at all, so a container past the cutoff was reported as identical, verdict and
+   exit code included. *)
+and nested_differences (stmts1 : Css.statement list)
+    (stmts2 : Css.statement list) : container_diff list =
+  (* Process CSS nesting (& .foo { ... } inside rules) *)
+  process_nested_rules stmts1 stmts2
+  (* Process media queries *)
+  @ process_nested_containers ~container_type:`Media
+      ~extract_fn:extract_media_as_string ~diff_fn:media_diff stmts1 stmts2
+  (* Process layers - different type signature *)
+  @ process_nested_layers stmts1 stmts2
+  (* Process supports - reuses media_diff since they have the same structure *)
+  @ process_nested_containers ~container_type:`Supports
+      ~extract_fn:extract_supports_as_string ~diff_fn:media_diff stmts1 stmts2
+  (* Process container queries *)
+  @ process_nested_containers_with_name stmts1 stmts2
+  (* Process property declarations *)
+  @ process_nested_properties stmts1 stmts2
+  (* Process keyframes animations *)
+  @ process_nested_keyframes stmts1 stmts2
+  (* Process the at-rules that carry no selector of their own *)
+  @ process_at_rules stmts1 stmts2
 
 (* Main diff function *)
 (* @import and the other selectorless leaf rules collapse onto the universal
@@ -2356,6 +3094,60 @@ let process_imports stmts1 stmts2 : rule_diff list =
         (fun s -> (Added { selector = s; declarations = [] } : rule_diff))
         (multiset_remove_each ~remove:l1 l2)
 
+(* Cascade layer order. Two sheets can hold the same [@layer] blocks with the
+   same bodies and still resolve a conflict between two layers the opposite way,
+   because a layer's strength comes from where its name is first declared, not
+   from where its rules stand: an [@layer a;] statement ahead of the blocks pins
+   [a] as the weaker layer wherever its block ends up. Nothing else in the walk
+   reads that, so compare the declared orders here. *)
+
+(* A layer only one side declares is the rule and container walk's business: it
+   reports the [@layer] block that came or went. What only the order shows is a
+   pair of layers both sides declare in the opposite relative order, so restrict
+   each order to the shared names before comparing. *)
+let shared_layer_order order other =
+  List.filter (fun name -> List.exists (String.equal name) other) order
+
+(* The pairs [(weaker, stronger)] that [expected] declares weaker-then-stronger
+   and [actual] the other way round. Both lists hold the same names, so a
+   position lookup in [actual] settles each pair. *)
+let swapped_layer_pairs ~expected ~actual =
+  let positions = Hashtbl.create 16 in
+  List.iteri (fun i name -> Hashtbl.replace positions name i) actual;
+  let position name =
+    match Hashtbl.find_opt positions name with Some i -> i | None -> -1
+  in
+  let rec pairs = function
+    | [] -> []
+    | earlier :: rest ->
+        List.filter_map
+          (fun later ->
+            if position later < position earlier then Some (earlier, later)
+            else None)
+          rest
+        @ pairs rest
+  in
+  pairs expected
+
+(* [Resolve.layer_order] keys a sheet's layers by dotted path, so the two orders
+   compare across spellings: [@layer a.b] and [@layer a { @layer b }] reach the
+   same path, and an [@layer a, b;] statement declares its names the same way a
+   block does. *)
+let layer_order_diff stmts1 stmts2 =
+  let order1 = Resolve.layer_order stmts1 in
+  let order2 = Resolve.layer_order stmts2 in
+  let expected_order = shared_layer_order order1 order2 in
+  let actual_order = shared_layer_order order2 order1 in
+  if List.equal String.equal expected_order actual_order then None
+  else
+    Some
+      {
+        expected_order;
+        actual_order;
+        swapped =
+          swapped_layer_pairs ~expected:expected_order ~actual:actual_order;
+      }
+
 let diff ~(expected : Css.t) ~(actual : Css.t) : t =
   let all1 = Css.statements expected in
   let all2 = Css.statements actual in
@@ -2363,19 +3155,12 @@ let diff ~(expected : Css.t) ~(actual : Css.t) : t =
      keeps [rule_diffs] from matching every import on the universal key. *)
   let rules1 = List.filter (fun s -> Css.as_import s = None) all1 in
   let rules2 = List.filter (fun s -> Css.as_import s = None) all2 in
-  let added, removed, modified, regrouped = rule_diffs rules1 rules2 in
-
+  (* Same assembly as inside a container, so a difference reports the same way
+     at either depth. *)
   let rule_changes =
-    List.map convert_added_rule added
-    @ List.map convert_removed_rule removed
-    @ List.filter_map (convert_modified_rule ~rules1 ~rules2) modified
-    @ regrouped @ process_imports all1 all2
+    to_rule_changes rules1 rules2 @ process_imports all1 all2
   in
 
   (* Delegate all container and nested-container diffs to the generic walker *)
-  let containers =
-    let base_containers = nested_differences ~depth:0 all1 all2 in
-    detect_container_position_changes all1 all2 base_containers
-  in
-
-  { rules = rule_changes; containers }
+  let containers = nested_differences all1 all2 in
+  { rules = rule_changes; containers; layer_order = layer_order_diff all1 all2 }

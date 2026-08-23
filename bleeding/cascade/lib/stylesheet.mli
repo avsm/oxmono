@@ -217,6 +217,16 @@ val declarations : rule -> declaration list
 val nested : rule -> statement list
 (** [nested rule] returns the nested statements of a rule. *)
 
+val statement_children : statement -> block
+(** [statement_children stmt] is the block [stmt] wraps: a rule's nested
+    statements, the body of a grouping at-rule ([@media], [@supports],
+    [@container], [@layer], [@scope], [@starting-style], [@when], [@else],
+    [@-moz-document], and the [Origin] wrapper), and [[]] for a statement that
+    holds no statements of its own. It is the one place that knows which
+    at-rules nest, so a traversal written on top of it cannot miss one: the
+    match is exhaustive, and a block at-rule added to the AST later does not
+    compile until it is listed here. *)
+
 (** {1 Reading/Parsing} *)
 
 val read_rule : ?nested:bool -> Cursor.t -> rule
@@ -246,7 +256,10 @@ val read_stylesheet_of_rules :
     snippets. *)
 
 val parse_stylesheet_partial :
-  ?meta:Loc.meta_level -> string -> stylesheet * Error.t list
+  ?meta:Loc.meta_level ->
+  ?enforce_spec:bool ->
+  string ->
+  stylesheet * Error.t list
 (** [parse_stylesheet_partial ?meta source] runs section 5.3 recovery via
     {!Parser.stylesheet} and then typed-validates each recovered rule via
     {!read_stylesheet_of_rules}. Warnings from both stages are combined in
@@ -320,3 +333,8 @@ val pp_import_rule : import_rule Pp.t
 
 val read_import_rule : Cursor.t -> import_rule
 (** [read_import_rule r] parses an import rule. *)
+
+val rule_hash : rule -> int
+(** [rule_hash r] is a cheap hash that discriminates rules by their cached
+    declaration hashes. Equal rules hash equally; unequal rules may collide, so
+    callers still confirm with structural equality. *)

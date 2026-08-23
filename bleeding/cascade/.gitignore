@@ -1,5 +1,7 @@
 _build/
-_opam/
+# Not `_opam/`: a worktree points `_opam` at the main checkout's switch with a
+# symlink, and a directory rule leaves that showing up as untracked.
+_opam
 _homebrew_build/
 *~
 .DS_Store
@@ -9,3 +11,4 @@ _homebrew_build/
 
 # Real pages downloaded by test/inline/fetch.sh for the differential test.
 /test/inline/pages/
+dune-workspace

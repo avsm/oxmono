@@ -34,7 +34,7 @@ and consume_simple_block lexer opening ~start_loc :
     | Token.Eof ->
         let loc = Loc.union start_loc tok.loc in
         { node = { opening; value = List.rev acc; closed = false }; loc }
-    | Token.Close b when b = opening ->
+    | Token.Close b when Token.equal_bracket b opening ->
         let loc = Loc.union start_loc tok.loc in
         { node = { opening; value = List.rev acc; closed = true }; loc }
     | _ ->
@@ -124,7 +124,7 @@ let escape_ident_emit_cp buf ~needs_leading_escape u =
   if needs_leading_escape then add_hex_escape_cp buf cp
   else if cp < 0x20 || cp = 0x7F then add_hex_escape_cp buf cp
   else if cp < 0x80 then escape_ident_emit_ascii buf cp
-  else if Lexer.is_non_ascii_ident_cp cp then Uutf.Buffer.add_utf_8 buf u
+  else if Lexer.spec_non_ascii_ident_cp cp then Uutf.Buffer.add_utf_8 buf u
   else add_hex_escape_cp buf cp
 
 let escape_ident_starts s n =
@@ -203,11 +203,18 @@ let string_of_token_kind : Token.kind -> string = function
   | Token.Hash { value; _ } -> "#" ^ escape_name value
   | Token.String { value; quote = _; terminated } ->
       (* Normalize quoting to double-quote (the original quote is kept on the
-         token only for quote-sensitive lookups like @charset). CSS Syntax
-         §4.3.5 recovers an unterminated string; the [terminated] flag is
+         token only for quote-sensitive lookups like @charset). CSS Syntax sec.
+         4.3.5 recovers an unterminated string; the [terminated] flag is
          preserved so one round-trips, emitting without its closing quote. *)
       escape_string ~quote:'"' ~terminated value
-  | Token.Bad_string -> ""
+  | Token.Bad_string ->
+      (* A bad string keeps no text, so serialize the shortest source that
+         re-tokenizes as one, the way [Bad_url] serializes to [url(a b)]. CSS
+         Syntax sec. 4.3.5 makes one only from a newline inside a string and
+         reconsumes that newline, so the quote needs the newline after it and
+         the token is always followed by whitespace -- which is what the
+         reconsumed newline lexes as, keeping the component count stable. *)
+      "\"\n"
   | Token.Url s ->
       let buf = Buffer.create (String.length s + 5) in
       Buffer.add_string buf "url(";
@@ -230,7 +237,7 @@ let string_of_token_kind : Token.kind -> string = function
   | Token.Number_tok { repr; _ } -> repr
   | Token.Percentage { repr; _ } -> repr ^ "%"
   | Token.Dimension { number; unit_ } ->
-      (* CSS Syntax §9.1 ambiguous-dimension rule: a unit of [e]/[E] then a
+      (* CSS Syntax sec. 9.1 ambiguous-dimension rule: a unit of [e]/[E] then a
          (signed) digit would re-read as scientific notation, so hex-escape the
          leading letter to keep it out of the number's exponent. *)
       let unit_serialized =
@@ -611,7 +618,7 @@ let url_string_can_unquote s =
 
 (* If [args] is a single [<string-token>] argument we can fold it into the
    bare-URL form [url(X)] when X has no special characters - per CSS Values L4
-   §3.4 the two notations are equivalent and the bare form is shorter. *)
+   sec. 3.4 the two notations are equivalent and the bare form is shorter. *)
 let url_args_as_bare_string args =
   let stripped =
     List.filter
@@ -967,12 +974,21 @@ let declaration_of_buffer ~meta lexer ~name ~name_loc ~warnings cvs :
 
 (* Buffer component values until the terminating ';' or EOF (CSS Syntax section
    5.4.6 declaration body). Shared by the list, single-declaration and
-   block-contents entry points. *)
+   block-contents entry points.
+
+   Section 5.5.7 also stops on a '}' when [nested] is true, the flag section
+   5.5.5 passes to "consume a declaration". A balanced '}' is eaten by
+   [consume_component_value_from] along with its opening brace, so one reaching
+   this loop closes an enclosing block: hand it back rather than swallow it and
+   the rest of the block with it. *)
 let consume_declaration_body lexer =
   let rec loop acc =
     let t = Lexer.next lexer in
     match t.Token.kind with
     | Token.Semicolon | Token.Eof -> List.rev acc
+    | Token.Close Curly ->
+        Lexer.reconsume lexer t;
+        List.rev acc
     | _ -> loop (consume_component_value_from lexer t :: acc)
   in
   loop []

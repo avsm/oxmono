@@ -92,7 +92,7 @@ type display =
   | Revert_layer
   | Multi of display * display
       (** Two-value [<display-outside> <display-inside>] syntax per CSS Display
-          3 §2.1, e.g. [inline flow-root] or [list-item flow-root]. *)
+          3 sec. 2.1, e.g. [inline flow-root] or [list-item flow-root]. *)
   | Var of display var
 
 type position =
@@ -587,8 +587,8 @@ type flex_basis =
   | Max_content
   | Min_content
   | From_font
-  (* Math functions over [<length-percentage>] (CSS Values 4 §10). Args reuse
-     [length] (which already carries [Pct]) and mirror the [length]
+  (* Math functions over [<length-percentage>] (CSS Values 4 sec. 10). Args
+     reuse [length] (which already carries [Pct]) and mirror the [length]
      constructors; [flex_basis_of_length] carries them across and the printer
      delegates to [pp_length]. *)
   | Clamp of length * length * length
@@ -742,8 +742,8 @@ type grid_auto_flow =
   | Var of grid_auto_flow var
 
 (** [repeat()] count argument: an explicit integer, one of the auto-track-list
-    keywords (CSS Grid 1 §7.2.3.1 / 2), or a [var()] standing in for the count.
-*)
+    keywords (CSS Grid 1 sec. 7.2.3.1 / 2), or a [var()] standing in for the
+    count. *)
 type repeat_count =
   | Count of int
   | Auto_fill
@@ -820,10 +820,10 @@ type grid_line_pair =
   | Lines of grid_line * grid_line
   | Var of grid_line_pair var
 
-(* CSS Grid 2 §8.4: [grid-area: <grid-line> [/ <grid-line>]{0,3}] - row-start /
-   column-start / row-end / column-end. The 1/2/3-value source forms are
-   defaulting per the spec; they all canonicalise to the four-line record so the
-   printer can pick the shortest equivalent spelling. *)
+(* CSS Grid 2 sec. 8.4: [grid-area: <grid-line> [/ <grid-line>]{0,3}] -
+   row-start / column-start / row-end / column-end. The 1/2/3-value source forms
+   are defaulting per the spec; they all canonicalise to the four-line record so
+   the printer can pick the shortest equivalent spelling. *)
 type grid_area =
   | Lines of {
       row_start : grid_line;
@@ -886,13 +886,13 @@ type text_decoration_line =
   | Overline
   | Line_through
   | Blink
-      (** CSS Text Decoration 4 §2.1: deprecated but still part of the
+      (** CSS Text Decoration 4 sec. 2.1: deprecated but still part of the
           [<text-decoration-line>] grammar; UAs typically render it as no-op. *)
   | Spelling_error
-      (** CSS Text Decoration 4 §2.1 [spelling-error]: lets authors style the
-          UA's spelling-error mark via [text-decoration]. *)
+      (** CSS Text Decoration 4 sec. 2.1 [spelling-error]: lets authors style
+          the UA's spelling-error mark via [text-decoration]. *)
   | Grammar_error
-      (** CSS Text Decoration 4 §2.1 [grammar-error]: parallel to
+      (** CSS Text Decoration 4 sec. 2.1 [grammar-error]: parallel to
           [spelling-error]. *)
   | Inherit
   | Initial
@@ -1027,7 +1027,7 @@ type text_emphasis_position =
   | Revert_layer
   | Var of text_emphasis_position var
 
-(** CSS Text 4 §6.1
+(** CSS Text 4 sec. 6.1
     [text-indent: <length-percentage> && hanging? && each-line?]. Each component
     is optional except the length, but the three may appear in any order. *)
 type text_indent_value =
@@ -1073,7 +1073,7 @@ type glyph_orientation_vertical =
   | Revert_layer
   | Var of glyph_orientation_vertical var
 
-(** CSS Text 4 §6.3
+(** CSS Text 4 sec. 6.3
     [text-transform = none | [capitalize | uppercase | lowercase] || full-width
      || full-size-kana]: case + width + kana width are independent and can
     combine. *)
@@ -1742,6 +1742,18 @@ type logical_border_color =
   | Revert_layer
   | Var of logical_border_color var
 
+(* border-inline-width / border-block-width take one or two <line-width> values,
+   mirroring logical_border_color. *)
+type logical_border_width =
+  | Single of border_width
+  | Pair of border_width * border_width
+  | Inherit
+  | Initial
+  | Unset
+  | Revert
+  | Revert_layer
+  | Var of logical_border_width var
+
 type outline_style =
   | None
   | Solid
@@ -1879,9 +1891,9 @@ type font_family =
   | List of font_family list
   | Var of font_family var
   | Invalid of invalid_value
-      (** CSS Cascade 5 §7.3: a CSS-wide keyword (e.g. [inherit]) is only valid
-          as a sole top-level value. [font-family: Arial, inherit] mixes it
-          inside a [<custom-ident>#] list and is therefore invalid. Cascade
+      (** CSS Cascade 5 sec. 7.3: a CSS-wide keyword (e.g. [inherit]) is only
+          valid as a sole top-level value. [font-family: Arial, inherit] mixes
+          it inside a [<custom-ident>#] list and is therefore invalid. Cascade
           preserves the source verbatim for round-trip; [Optimize.drop_invalid]
           removes the declaration under [--minify]. *)
 
@@ -2587,7 +2599,7 @@ type border_radius =
   | Unset
   | Revert
   | Revert_layer
-  | Var of border_radius var  (** Per CSS Backgrounds and Borders 3 §5. *)
+  | Var of border_radius var  (** Per CSS Backgrounds and Borders 3 sec. 5. *)
 
 type conic_gradient_config = {
   angle : angle option;  (** [from <angle>] starting angle *)
@@ -2655,7 +2667,7 @@ type background_image =
   | Repeating_linear_gradient of gradient_direction * gradient_stop list
   | Repeating_radial_gradient of radial_gradient_config * gradient_stop list
   | Repeating_conic_gradient of conic_gradient_config * gradient_stop list
-      (** [repeating-{linear,radial,conic}-gradient()] CSS Images 4 §3. *)
+      (** [repeating-{linear,radial,conic}-gradient()] CSS Images 4 sec. 3. *)
   | Webkit_linear_gradient of gradient_direction * gradient_stop list
   | Webkit_repeating_linear_gradient of gradient_direction * gradient_stop list
   | Webkit_radial_gradient of radial_gradient_config * gradient_stop list
@@ -2876,9 +2888,9 @@ type border_image_outset =
   | Revert_layer
   | Var of border_image_outset var
 
-(** CSS Masking 1 §6 [<mask-border-mode>]: shared with the [border_image] record
-    because [mask-border] is otherwise the same shorthand as [border-image] (the
-    mode is always [None] for the latter). *)
+(** CSS Masking 1 sec. 6 [<mask-border-mode>]: shared with the [border_image]
+    record because [mask-border] is otherwise the same shorthand as
+    [border-image] (the mode is always [None] for the latter). *)
 type mask_border_mode = Alpha | Luminance
 
 type border_image = {
@@ -3633,7 +3645,7 @@ type break_inside_value =
   | Revert_layer
   | Var of break_inside_value var
 
-(* CSS Fragmentation 3 §6 deprecated [page-break-before / -after / -inside]
+(* CSS Fragmentation 3 sec. 6 deprecated [page-break-before / -after / -inside]
    aliases. The shorter value vocabulary makes them their own type rather than
    overload [break_value]. *)
 type page_break_value =
@@ -3651,9 +3663,9 @@ type page_break_inside_value =
   | Inherit
   | Var of page_break_inside_value var
 
-(* CSS Paged Media 3 §6.1 [size] descriptor: optional page size keyword (paper
-   sheet name), explicit dimensions, [auto], or a page size combined with an
-   orientation. *)
+(* CSS Paged Media 3 sec. 6.1 [size] descriptor: optional page size keyword
+   (paper sheet name), explicit dimensions, [auto], or a page size combined with
+   an orientation. *)
 type page_size_name =
   | A5
   | A4
@@ -3860,11 +3872,134 @@ type svg_paint =
   | Color of color
   | Url of string * svg_paint option
   | Context_fill
-      (** SVG2 §11.2 [context-fill] - inherits the fill paint of the context
+      (** SVG2 sec. 11.2 [context-fill] - inherits the fill paint of the context
           element, used in marker / pattern / use trees. *)
   | Context_stroke
-      (** SVG2 §11.2 [context-stroke] - mirror of [Context_fill]. *)
+      (** SVG2 sec. 11.2 [context-stroke] - mirror of [Context_fill]. *)
   | Var of svg_paint var
+
+(** SVG 2 sec. 13.5 / 14.4 [<fill-rule>]: which points count as inside a shape
+    when its subpaths overlap. Shared by [fill-rule] and [clip-rule]; the
+    argument form inside [polygon()] is {!clip_path_fill_rule}, which carries no
+    CSS-wide keywords. *)
+type fill_rule =
+  | Nonzero
+  | Evenodd
+  | Inherit
+  | Initial
+  | Unset
+  | Revert
+  | Revert_layer
+  | Var of fill_rule var
+
+(** SVG 2 sec. 13.3 [stroke-linecap]: the shape drawn at the ends of an open
+    subpath and at the ends of each dash. *)
+type stroke_linecap =
+  | Butt
+  | Round
+  | Square
+  | Inherit
+  | Initial
+  | Unset
+  | Revert
+  | Revert_layer
+  | Var of stroke_linecap var
+
+(** SVG 2 sec. 13.3 [stroke-linejoin]: the shape drawn where two path segments
+    meet. [miter_clip] and [arcs] are the Level 2 additions. *)
+type stroke_linejoin =
+  | Miter
+  | Miter_clip
+  | Round
+  | Bevel
+  | Arcs
+  | Inherit
+  | Initial
+  | Unset
+  | Revert
+  | Revert_layer
+  | Var of stroke_linejoin var
+
+(** SVG 2 sec. 13.3 [stroke-miterlimit]: the ratio at which a miter join is
+    converted to a bevel. The specification makes a value below 1 invalid. *)
+type stroke_miterlimit =
+  | Number of float
+  | Calc of stroke_miterlimit calc
+  | Inherit
+  | Initial
+  | Unset
+  | Revert
+  | Revert_layer
+  | Var of stroke_miterlimit var
+
+(** SVG 2 sec. 13.3: one dash length. A bare [<number>] is in user units, which
+    is why this is not plain [length_percentage]. *)
+type dash_length = Number of float | Length of length_percentage
+
+(** SVG 2 sec. 13.3 [stroke-dashoffset]. *)
+type stroke_dashoffset =
+  | Dash of dash_length
+  | Inherit
+  | Initial
+  | Unset
+  | Revert
+  | Revert_layer
+  | Var of stroke_dashoffset var
+
+(** SVG 2 sec. 13.3 [stroke-dasharray]: [none] or a dash pattern. The grammar
+    separates entries by comma and/or whitespace and the rendered pattern is the
+    flat sequence either way, so both spellings read to one list. *)
+type stroke_dasharray =
+  | None
+  | Dashes of dash_length list
+  | Inherit
+  | Initial
+  | Unset
+  | Revert
+  | Revert_layer
+  | Var of stroke_dasharray var
+
+(** SVG 2 sec. 13.7 [paint-order] operand. *)
+type paint_order_keyword = Fill | Stroke | Markers
+
+(** SVG 2 sec. 13.7 [paint-order]: [normal | [ fill || stroke || markers ]]. The
+    written order is the paint order, and any keyword left out is painted last
+    in the order [normal] would use, so a trailing run that already matches
+    [normal] is redundant. Entries are distinct: [||] takes each operand at most
+    once. *)
+type paint_order =
+  | Normal
+  | Order of paint_order_keyword list
+  | Inherit
+  | Initial
+  | Unset
+  | Revert
+  | Revert_layer
+  | Var of paint_order var
+
+(** SVG 2 sec. 7.10 [vector-effect] operand. *)
+type vector_effect_keyword =
+  | Non_scaling_stroke
+  | Non_scaling_size
+  | Non_rotation
+  | Fixed_position
+
+(** SVG 2 sec. 7.10 host coordinate space for a vector effect. [viewport] is
+    what an omitted space means. *)
+type vector_effect_space = Viewport | Screen
+
+(** SVG 2 sec. 7.10 [vector-effect]:
+    [none | [ non-scaling-stroke | non-scaling-size | non-rotation |
+     fixed-position ]+ [ viewport | screen ]?]. *)
+type vector_effect =
+  | None
+  | Effects of vector_effect_keyword list * vector_effect_space option
+  | Inherit
+  | Initial
+  | Unset
+  | Revert
+  | Revert_layer
+  | Var of vector_effect var
 
 (* Direction Types *)
 type direction =
@@ -4173,7 +4308,7 @@ type clip =
   | Revert_layer
   | Var of clip var
 
-(** CSS Masking 1 §3.6 [<geometry-box>] reference box for [clip-path]: the
+(** CSS Masking 1 sec. 3.6 [<geometry-box>] reference box for [clip-path]: the
     [<shape-box>] from CSS Shapes 1 plus the SVG-specific boxes. *)
 type clip_geometry_box =
   | Margin_box
@@ -4184,7 +4319,7 @@ type clip_geometry_box =
   | Stroke_box
   | View_box
 
-(** CSS Shapes 1 §3.1 [<shape-radius>] for [circle()] / [ellipse()]: a
+(** CSS Shapes 1 sec. 3.1 [<shape-radius>] for [circle()] / [ellipse()]: a
     [<length-percentage>] or one of the extent keywords. *)
 type clip_path_extent = Extent_length of length | Closest_side | Farthest_side
 
@@ -4317,8 +4452,8 @@ and custom_property_value =
   | Typed : { kind : 'a kind; value : 'a } -> custom_property_value
   | Tokens of custom_value
 
-(** [all] shorthand value (CSS Cascade 5 §3.2). The [all] property only accepts
-    CSS-wide keywords - no other syntax is valid. *)
+(** [all] shorthand value (CSS Cascade 5 sec. 3.2). The [all] property only
+    accepts CSS-wide keywords - no other syntax is valid. *)
 type css_wide =
   | Initial
   | Inherit
@@ -4340,6 +4475,10 @@ type 'a property =
   | Border_right_style : border_style property
   | Border_bottom_style : border_style property
   | Border_left_style : border_style property
+  | Border_inline_start_style : border_style property
+  | Border_inline_end_style : border_style property
+  | Border_block_start_style : border_style property
+  | Border_block_end_style : border_style property
   | Padding : length list property
   | Padding_left : length property
   | Padding_right : length property
@@ -4431,7 +4570,7 @@ type 'a property =
   | Grid_template_areas : grid_template_areas property
   | Grid_template : grid_template property
   | Grid : grid_template property
-      (** CSS Grid 1 §8 [grid] shorthand. Cascade treats it as a free-form
+      (** CSS Grid 1 sec. 8 [grid] shorthand. Cascade treats it as a free-form
           [grid_template] for now: the simple cases (track-list, grid-template
           syntax with area strings) round-trip through the same AST as
           [grid-template], and inputs that exercise the auto-flow branches fall
@@ -4455,6 +4594,8 @@ type 'a property =
   | Border_inline_end_width : border_width property
   | Border_block_start_width : border_width property
   | Border_block_end_width : border_width property
+  | Border_inline_width : logical_border_width property
+  | Border_block_width : logical_border_width property
   | Border_image : border_image property
   | Border_image_source : background_image property
   | Border_image_slice : border_image_slice property
@@ -4472,7 +4613,10 @@ type 'a property =
   | Border_left_color : color property
   | Border_inline_start_color : color property
   | Border_inline_end_color : color property
+  | Border_block_start_color : color property
+  | Border_block_end_color : color property
   | Border_inline_color : logical_border_color property
+  | Border_block_color : logical_border_color property
   | Border_inline_style : border_style property
   | Border_block_style : border_style property
   | Border_start_start_radius : length property
@@ -4480,6 +4624,10 @@ type 'a property =
   | Border_end_start_radius : length property
   | Border_end_end_radius : length property
   | Opacity : opacity property
+  | Fill_opacity : opacity property
+  | Stroke_opacity : opacity property
+  | Stop_opacity : opacity property
+  | Flood_opacity : opacity property
   | Mix_blend_mode : blend_mode property
   | Transform : transform list property
   | Translate : translate_value property
@@ -4798,6 +4946,18 @@ type 'a property =
   | Fill : svg_paint property
   | Stroke : svg_paint property
   | Stroke_width : length property
+  | Fill_rule : fill_rule property
+  | Clip_rule : fill_rule property
+  | Stroke_linecap : stroke_linecap property
+  | Stroke_linejoin : stroke_linejoin property
+  | Stroke_miterlimit : stroke_miterlimit property
+  | Stroke_dashoffset : stroke_dashoffset property
+  | Stroke_dasharray : stroke_dasharray property
+  | Paint_order : paint_order property
+  | Vector_effect : vector_effect property
+  | Stop_color : color property
+  | Flood_color : color property
+  | Lighting_color : color property
   | Direction : direction property
   | Unicode_bidi : unicode_bidi property
   | Writing_mode : writing_mode property
@@ -4876,3 +5036,26 @@ type _ property_value_kind =
   | Background_images : background_image list property_value_kind
   | Font_src : Font_face.src property_value_kind
   | Font_family : font_family property_value_kind
+
+let equal_overflow (a : overflow) b = a = b
+let equal_grid_line (a : grid_line) b = a = b
+let equal_text_emphasis_skip_keyword (a : text_emphasis_skip_keyword) b = a = b
+
+let equal_min_intrinsic_sizing_keyword (a : min_intrinsic_sizing_keyword) b =
+  a = b
+
+let equal_initial_letter_align_keyword (a : initial_letter_align_keyword) b =
+  a = b
+
+let equal_ruby_position_keyword (a : ruby_position_keyword) b = a = b
+let equal_background_shorthand (a : background_shorthand) b = a = b
+let equal_mask_layer (a : mask_layer) b = a = b
+let equal_position_area_keyword (a : position_area_keyword) b = a = b
+
+let equal_position_visibility_condition (a : position_visibility_condition) b =
+  a = b
+
+let equal_animation_range_name (a : animation_range_name) b = a = b
+let equal_container_shorthand (a : container_shorthand) b = a = b
+let equal_paint_order_keyword (a : paint_order_keyword) b = a = b
+let equal_paint_order (a : paint_order) b = a = b

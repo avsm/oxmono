@@ -1,11 +1,23 @@
 (** Local DAG rewrite candidates and byte scoring. *)
 
+(* The size memo is probed a few hundred thousand times on a large stylesheet,
+   and a generic [Hashtbl] keyed by a rule compares rule subtrees structurally
+   on every probe. *)
+module Rule_tbl = Hashtbl.Make (struct
+  type t = Stylesheet.rule
+
+  let equal = ( = )
+  let hash = Stylesheet.rule_hash
+end)
+
 type kind =
   | Identical_body
   | Same_selector
   | Exact_shared_declarations
   | Selector_branch_inline
   | Default_factoring
+
+let equal_kind (a : kind) b = a = b
 
 type candidate = {
   generation : int;
@@ -18,11 +30,11 @@ type candidate = {
 type size_cache = {
   graph : Rule_graph.t;
   node_sizes : (Rule_graph.node_id, int) Hashtbl.t;
-  rule_sizes : (Stylesheet.rule, int) Hashtbl.t;
+  rule_sizes : int Rule_tbl.t;
 }
 
 let size_cache graph =
-  { graph; node_sizes = Hashtbl.create 256; rule_sizes = Hashtbl.create 256 }
+  { graph; node_sizes = Hashtbl.create 256; rule_sizes = Rule_tbl.create 256 }
 
 let node_size cache id =
   match Hashtbl.find_opt cache.node_sizes id with
@@ -33,11 +45,11 @@ let node_size cache id =
       size
 
 let produced_rule_size cache rule =
-  match Hashtbl.find_opt cache.rule_sizes rule with
+  match Rule_tbl.find_opt cache.rule_sizes rule with
   | Option.Some size -> size
   | Option.None ->
       let size = Size.rule rule in
-      Hashtbl.replace cache.rule_sizes rule size;
+      Rule_tbl.replace cache.rule_sizes rule size;
       size
 
 let consumed_size cache ids =

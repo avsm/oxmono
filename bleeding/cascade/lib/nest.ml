@@ -3,13 +3,48 @@ open Stylesheet
 let contains sel =
   Selector.any (function Selector.Nesting -> true | _ -> false) sel
 
-let substitute ~parent sel =
+(* CSS Nesting 1 sec. 2.1: [&] stands for [:is(<parent selector list>)]. A
+   parent that carries a combinator or lists alternatives needs that wrapper, or
+   its own structure escapes: dropping it turns [.dark &] over parent [.a .b]
+   into [.dark .a .b], which demands that [.a] itself sit inside [.dark]. Where
+   [&] heads the selector nothing can escape to its left, so the wrapper is
+   redundant there and the parent goes in verbatim. *)
+let complex = function
+  | Selector.List _ | Selector.Combined _ | Selector.Relative _ -> true
+  | _ -> false
+
+let count_nesting sel =
+  let n = ref 0 in
+  ignore
+    (Selector.any
+       (fun s ->
+         (match s with Selector.Nesting -> incr n | _ -> ());
+         false)
+       sel);
+  !n
+
+let rec heads = function
+  | Selector.Nesting -> true
+  | Selector.Compound (x :: _) -> heads x
+  | Selector.Combined (l, _, _) -> heads l
+  | _ -> false
+
+let substitute ?(leftmost = true) ~parent sel =
+  let verbatim =
+    (not (complex parent)) || (leftmost && heads sel && count_nesting sel = 1)
+  in
+  let parent = if verbatim then parent else Selector.Is [ parent ] in
   Selector.map (function Selector.Nesting -> parent | s -> s) sel
 
-let combine parent child =
+(* CSS Nesting 1 §2: a nested selector list is relative to the parent branch by
+   branch, so [.p { a, b { ... } }] is [.p a, .p b]. Combining the parent with
+   the list as a whole would put the combinator on the first branch only and let
+   the rest escape as top-level selectors. *)
+let rec combine parent child =
   match child with
+  | Selector.List branches -> Selector.List (List.map (combine parent) branches)
   | Selector.Relative (comb, right) ->
-      Selector.Combined (parent, comb, substitute ~parent right)
+      Selector.Combined (parent, comb, substitute ~leftmost:false ~parent right)
   | _ when contains child -> substitute ~parent child
   | _ -> Selector.Combined (parent, Selector.Descendant, child)
 
@@ -23,12 +58,12 @@ let rec merge_lone (rule : rule) =
 
 let rec strip_prefix (parent : Selector.t) (child : Selector.t) =
   match (parent, child) with
-  | _, Selector.Combined (cp, comb, crest) when cp = parent ->
+  | _, Selector.Combined (cp, comb, crest) when Selector.equal cp parent ->
       Some
         (if comb = Selector.Descendant then crest
          else Selector.Relative (comb, crest))
   | Selector.Combined (pp, pcomb, prest), Selector.Combined (cp, ccomb, crest)
-    when pcomb = ccomb && pp = cp ->
+    when Selector.equal_combinator pcomb ccomb && Selector.equal pp cp ->
       strip_prefix prest crest
   | _, Selector.Compound cps -> (
       let pps =

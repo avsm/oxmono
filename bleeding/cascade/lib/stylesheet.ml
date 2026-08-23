@@ -249,6 +249,30 @@ let selector (rule : rule) = rule.selector
 let declarations (rule : rule) = rule.declarations
 let nested (rule : rule) = rule.nested
 
+(* Listed one by one rather than closed with a wildcard: a traversal that
+   descends through this function is only as complete as this match, and a
+   wildcard would silently hide the next block at-rule from every caller. *)
+let statement_children = function
+  | Rule rule -> rule.nested
+  | Layer (_, block)
+  | Media (_, block)
+  | Container (_, _, block)
+  | Supports (_, block)
+  | Moz_document (_, block)
+  | When (_, block)
+  | Else (_, block)
+  | Starting_style block
+  | Origin (_, block)
+  | Scope (_, _, block) ->
+      block
+  | Property _ -> []
+  | Declarations _ | Bang_comment _ | Charset _ | Import _ | Namespace _
+  | Layer_decl _ | Supports_condition _ | Keyframes _ | Webkit_keyframes _
+  | Moz_keyframes _ | Font_face _ | Counter_style _ | Page _
+  | Page_with_margins _ | Font_palette_values _ | Font_feature_values _
+  | View_transition _ | Position_try _ | Viewport _ | Unknown_at_rule _ ->
+      []
+
 (** {1 Pretty Printing} *)
 
 let pp_property_rule : 'a property_rule Pp.t =
@@ -296,9 +320,9 @@ let pp_property_rule : 'a property_rule Pp.t =
       if not ctx.Pp.minify then Pp.semicolon ctx ())
     ctx ()
 
-(* CSS Animations 1 §3 [<keyframes-name>] is [<custom-ident> | <string>]. The
-   reader normalizes either form to a plain OCaml string; on output we prefer
-   the bare identifier when the value is a syntactically valid CSS ident
+(* CSS Animations 1 sec. 3 [<keyframes-name>] is [<custom-ident> | <string>].
+   The reader normalizes either form to a plain OCaml string; on output we
+   prefer the bare identifier when the value is a syntactically valid CSS ident
    (shorter than the quoted form), falling back to a double-quoted string when
    the name contains characters that would otherwise need escaping. *)
 let pp_keyframes_name ctx name =
@@ -445,8 +469,12 @@ let pp_unknown_at_rule_statement ctx name prelude (block : string option) =
      [escape_ident] so the serialized [\6 T] re-tokenizes back to the same
      at-keyword token. *)
   Pp.string ctx (Parser.escape_ident name);
+  (* CSS Syntax 3 sec. 4.3.1: the at-keyword consumes an ident sequence, so the
+     whitespace before the prelude is the only thing keeping them apart. It is a
+     hard space, not layout - minifying [@foo bar] to [@foobar] names a
+     different at-rule. *)
   if prelude <> "" then (
-    Pp.sp ctx ();
+    Pp.space ctx ();
     Pp.string ctx prelude);
   match block with
   | None -> Pp.semicolon ctx ()
@@ -1496,15 +1524,45 @@ let read_import_supports (r : Cursor.t) =
         Error.fail_bad_condition loc ~at_rule:"@supports" ~reason)
     r
 
+(* In the [@import] prelude [layer(...)] and [supports(...)] are structural, and
+   the grammar allows each once, before the media query list. Reaching the media
+   position still holding one means a duplicate or a misordered prelude. They
+   are function tokens, so the media grammar would otherwise take them as a
+   [<general-enclosed>] query and quietly accept the rule. *)
+let starts_with_import_keyword components =
+  let cursor = Cursor.of_components components in
+  match Cursor.peek cursor with
+  | Some (Component.Func { node = { name; _ }; _ }) ->
+      let name = String.lowercase_ascii name in
+      String.equal name "layer" || String.equal name "supports"
+  | Some (Component.Preserved { kind = Token.Ident name; _ }) ->
+      String.equal (String.lowercase_ascii name) "layer"
+  | Some (Component.Block _ | Component.Preserved _) | None -> false
+
+let drain_until_semicolon r =
+  let rec loop acc =
+    match Cursor.peek_raw r with
+    | None | Some (Component.Preserved { kind = Token.Semicolon; _ }) ->
+        List.rev acc
+    | Some component ->
+        ignore (Cursor.next_raw r);
+        loop (component :: acc)
+  in
+  loop []
+
 let read_import_media (r : Cursor.t) : Media.t option =
   if Cursor.peek_semicolon r || Cursor.is_done r then None
   else
     let loc = Cursor.position r in
-    let raw = Cursor.consume_until_semicolon ~trim:true r in
-    match Media.of_string_strict raw with
-    | media -> Some media
-    | exception Failure reason ->
-        Error.fail_bad_condition loc ~at_rule:"@media" ~reason
+    let components = drain_until_semicolon r in
+    if starts_with_import_keyword components then
+      Error.fail_bad_condition loc ~at_rule:"@media"
+        ~reason:"layer()/supports() must precede the media query, and once only"
+    else
+      match Media.of_components ~recover:false components with
+      | media -> Some media
+      | exception Failure reason ->
+          Error.fail_bad_condition loc ~at_rule:"@media" ~reason
 
 let read_import_prelude ~keep_url_repr (r : Cursor.t) : import_rule =
   Cursor.expect_at_keyword "import" r;
@@ -1606,7 +1664,7 @@ let read_keyframes_block inner =
   in
   read_frames []
 
-(* CSS Animations 1 §3: [@keyframes <keyframes-name>], [<keyframes-name> =
+(* CSS Animations 1 sec. 3: [@keyframes <keyframes-name>], [<keyframes-name> =
    <custom-ident> | <string>]. The reserved spellings ([none], CSS-wide
    keywords, [default]) are excluded from [<custom-ident>], but every mainstream
    minifier accepts them as [<string>], so cascade keeps them too rather than
@@ -1697,16 +1755,16 @@ let read_descriptor_block normalize inner =
   in
   loop []
 
-(* CSS Fonts 4 §11.2 wants the first bound of a descriptor range <= the second.
-   Browsers keep a descending range, so the readers accept it but record a
-   warning here; [Css.of_string ~strict] then turns the warning into an
+(* CSS Fonts 4 sec. 11.2 wants the first bound of a descriptor range <= the
+   second. Browsers keep a descending range, so the readers accept it but record
+   a warning here; [Css.of_string ~strict] then turns the warning into an
    error. *)
 let warn_descending_range r property =
   Cursor.push_warning r
     (Error.bad_value (Cursor.position r) ~property
        ~reason:
          "range must run from the smaller value to the larger (CSS Fonts 4 \
-          §11.2)")
+          \u{00a7}11.2)")
 
 let font_weight_num = function
   | (Properties.Weight n : Properties.font_weight) -> Some n
@@ -1979,10 +2037,10 @@ let read_font_face_descriptor (r : Cursor.t) : font_face_descriptor option =
         if Cursor.peek_semicolon r then Cursor.skip r;
         Some descriptor
     | exception Error.Parse_error e ->
-        (* CSS Fonts 4 §11.2 / CSS Syntax 3 §5.4.4: a descriptor that does not
-           parse - an unknown name (Fontsource's [font-named-instance]) or an
-           invalid value of a known one ([font-display:maybe]) - is dropped and
-           the rest of the @font-face is kept, matching browsers. *)
+        (* CSS Fonts 4 sec. 11.2 / CSS Syntax 3 sec. 5.4.4: a descriptor that
+           does not parse - an unknown name (Fontsource's [font-named-instance])
+           or an invalid value of a known one ([font-display:maybe]) - is
+           dropped and the rest of the @font-face is kept, matching browsers. *)
         Cursor.push_warning r e;
         let rec skip_to_semicolon () =
           match Cursor.next_raw r with
@@ -2007,9 +2065,9 @@ let read_font_face (r : Cursor.t) : statement =
   Cursor.with_context r "@font-face" @@ fun () ->
   Cursor.expect_at_keyword "font-face" r;
   Cursor.ws r;
-  (* CSS Fonts 4 §11.2.1: missing [font-family] / [src] is a semantic mismatch,
-     not a syntax one. [validate_partial_statement] flags it; the syntactic
-     reader accepts. *)
+  (* CSS Fonts 4 sec. 11.2.1: missing [font-family] / [src] is a semantic
+     mismatch, not a syntax one. [validate_partial_statement] flags it; the
+     syntactic reader accepts. *)
   let descriptors = Cursor.braces read_font_face_block r in
   Font_face descriptors
 
@@ -2181,8 +2239,8 @@ let read_counter_style (r : Cursor.t) : statement =
   counter_style_validate r descriptors;
   Counter_style (name, descriptors)
 
-(* CSS Paged Media 3 §3.1: a page selector is an optional page name followed by
-   zero or more pseudo-pages from [:first | :left | :right | :blank]. *)
+(* CSS Paged Media 3 sec. 3.1: a page selector is an optional page name followed
+   by zero or more pseudo-pages from [:first | :left | :right | :blank]. *)
 let page_selector_error r s =
   Cursor.err_invalid r ("invalid @page selector: " ^ s)
 
@@ -2310,8 +2368,8 @@ let read_page_margin_rule r =
     when List.mem name allowed_page_margin_names ->
       Cursor.skip r;
       Cursor.ws r;
-      (* CSS Paged Media §5: a page-margin box accepts every descriptor valid in
-         [@page] plus [content]. *)
+      (* CSS Paged Media sec. 5: a page-margin box accepts every descriptor
+         valid in [@page] plus [content]. *)
       let descriptors =
         Cursor.braces
           (fun inner ->
@@ -2716,7 +2774,7 @@ let unknown_block_body slice value =
       in
       slice first.Loc.start_pos last.Loc.end_pos |> trim_unknown_block_body
 
-(* CSS Syntax 3 §5.4.2 "consume an at-rule": after the at-keyword has been
+(* CSS Syntax 3 sec. 5.4.2 "consume an at-rule": after the at-keyword has been
    consumed, walk components until we hit [;] (no block) or [{...}] (block). Raw
    prelude/block strings are sliced from the original source so the at-rule
    round-trips byte-for-byte even when its grammar is unknown. *)
@@ -2781,9 +2839,14 @@ let conditional_args (fn : Component.func Component.node) =
   if not fn.node.terminated then failwith "unterminated conditional function";
   Cursor.string_of_components ~trim:true fn.node.arguments
 
+let conditional_arguments (fn : Component.func Component.node) =
+  if not fn.node.terminated then failwith "unterminated conditional function";
+  fn.node.arguments
+
 let conditional_atom (fn : Component.func Component.node) =
   match String.lowercase_ascii fn.Component.node.name with
-  | "media" -> Media_condition (Media.of_function_body (conditional_args fn))
+  | "media" ->
+      Media_condition (Media.of_function_components (conditional_arguments fn))
   | "supports" ->
       Supports_condition_test
         (Supports.of_string ~allow_unwrapped_decl:true (conditional_args fn))
@@ -2880,10 +2943,10 @@ let read_supports_condition (r : Cursor.t) : statement =
 
 let read_layer_name (r : Cursor.t) : string = read_layer_name_component r
 
-let read_nested_media_condition condition_str =
-  if String.length condition_str = 0 then Media.List []
+let read_nested_media_condition components =
+  if Cursor.of_components components |> Cursor.is_done then Media.List []
   else
-    try Media.of_string_strict condition_str
+    try Media.of_components ~recover:false components
     with Failure _ -> Media.of_string "not all"
 
 let read_rule_selector ?(nested = false) r =
@@ -2980,6 +3043,24 @@ let read_property_rule (r : Cursor.t) : statement =
       in
       Property { name; syntax; inherits; initial_value }
 
+(* Does the item ahead hold a curly block before its terminating [;]? Then it is
+   a nested rule, not a declaration, however much its prelude looks like one.
+   Leaves the cursor where it found it. *)
+let item_opens_block inner =
+  let start = Cursor.save inner in
+  let rec scan () =
+    match Cursor.peek inner with
+    | None -> false
+    | Some (Component.Preserved { kind = Token.Semicolon; _ }) -> false
+    | Some (Component.Block { node = { opening = Token.Curly; _ }; _ }) -> true
+    | Some _ ->
+        Cursor.skip inner;
+        scan ()
+  in
+  let found = scan () in
+  Cursor.restore inner start;
+  found
+
 let rec read_statement (r : Cursor.t) : statement =
   Cursor.ws r;
   let table : (string * (Cursor.t -> statement)) list =
@@ -3017,7 +3098,7 @@ let rec read_statement (r : Cursor.t) : statement =
       match List.assoc_opt name table with
       | Some p -> p r
       | None ->
-          (* CSS Syntax 3 §5.4.1: an at-rule with no registered handler is
+          (* CSS Syntax 3 sec. 5.4.1: an at-rule with no registered handler is
              reported via a typed warning so [Css.of_string] partial-recovery
              can surface it to callers. The prelude/block stay in the AST as
              [Unknown_at_rule], and [Optimize.drop_unknown] removes them under
@@ -3046,7 +3127,7 @@ and read_block (r : Cursor.t) : block =
       let loc = Cursor.position r in
       let snap = Cursor.save r in
       match read_statement r with
-      (* CSS Syntax 3 §5.4.1: a rule that fails to parse (e.g. an invalid
+      (* CSS Syntax 3 sec. 5.4.1: a rule that fails to parse (e.g. an invalid
          selector) is dropped, and parsing resumes at the next rule - one bad
          rule must not take the rest of the [@layer] / [@media] block with it.
          Strict mode ([not (Cursor.recover r)]) still raises. *)
@@ -3056,7 +3137,7 @@ and read_block (r : Cursor.t) : block =
           skip_bad_statement ();
           read_statements acc
       | Import _ ->
-          (* CSS Cascade L6 §2: @import is only valid at the top of the
+          (* CSS Cascade L6 sec. 2: @import is only valid at the top of the
              stylesheet. Drop a misplaced one rather than emitting it. *)
           Cursor.push_warning r
             (Error.bad_value loc ~property:"stylesheet"
@@ -3111,12 +3192,13 @@ and read_else (r : Cursor.t) : statement =
 and read_media (r : Cursor.t) : statement =
   Cursor.expect_at_keyword "media" r;
   Cursor.ws r;
-  let condition_str = Cursor.drain_until_block_as_string ~trim:true r in
+  let condition_components = Cursor.drain_until_block r in
   let content = Cursor.braces (fun inner -> read_block inner) r in
   let condition =
-    if String.length condition_str = 0 then Media.List []
+    if Cursor.of_components condition_components |> Cursor.is_done then
+      Media.List []
     else
-      try Media.of_string_strict condition_str
+      try Media.of_components ~recover:false condition_components
       with Failure reason ->
         Cursor.err_invalid r ("invalid @media condition: " ^ reason)
   in
@@ -3175,12 +3257,13 @@ and read_container (r : Cursor.t) : statement =
     | other -> other
   in
   Cursor.ws r;
-  let condition_str = Cursor.drain_until_block_as_string ~trim:true r in
+  let condition_components = Cursor.drain_until_block r in
   let content = Cursor.braces (fun inner -> read_block inner) r in
   let condition : Container.t option =
-    if condition_str = "" then Option.None
+    if Cursor.of_components condition_components |> Cursor.is_done then
+      Option.None
     else
-      match Container.of_string condition_str with
+      match Container.of_components condition_components with
       | condition -> Some condition
       | exception Failure msg -> Cursor.err_invalid r msg
   in
@@ -3316,9 +3399,9 @@ and read_nested_supports_rule r =
   Supports (supports_condition ~loc:cond_loc condition, content)
 
 and read_nested_media_rule r =
-  let condition_str = Cursor.drain_until_block_as_string ~trim:true r in
+  let condition_components = Cursor.drain_until_block r in
   let content = Cursor.braces (fun inner -> read_nesting_block inner) r in
-  Media (read_nested_media_condition condition_str, content)
+  Media (read_nested_media_condition condition_components, content)
 
 and read_nested_scope_rule r =
   let prelude_components = Cursor.drain_until_block r in
@@ -3367,12 +3450,21 @@ and read_rule_item selector inner decls nested =
   | _ -> read_rule_decl_or_nested selector inner decls nested
 
 and read_rule_decl_or_nested selector inner decls nested =
+  let start = Cursor.save inner in
   match Declaration.read_declaration inner with
   | Some d ->
       Cursor.ws inner;
       if Cursor.peek_semicolon inner then Cursor.skip inner;
       `Continue (d :: decls, nested)
   | None -> read_nested_rule_or_done selector inner decls nested
+  (* CSS Nesting 1 sec. 2 lets a nested rule start with an identifier, so
+     [h2:where(...) { ... }] reads as a declaration up to the [{]. Rewind and
+     take it as a rule; a genuine bad declaration has no block and still reports
+     as one. *)
+  | exception Error.Parse_error _
+    when Cursor.restore inner start;
+         item_opens_block inner ->
+      read_nested_rule_or_done selector inner decls nested
 
 and read_nested_rule_or_done selector inner decls nested =
   if Cursor.is_done inner then `Done (List.rev decls, List.rev nested)
@@ -3750,9 +3842,9 @@ let extract_bang_comments (source : string) : (int * string) list =
 
 (* Top-level partial-recovery entry point: combine section 5.3 syntax warnings
    from [Parser.stylesheet] with per-rule typed-validation warnings. *)
-let parse_stylesheet_partial ?(meta = Loc.default_meta_level) (source : string)
-    : stylesheet * Error.t list =
-  let reader = Reader.of_string source in
+let parse_stylesheet_partial ?(meta = Loc.default_meta_level)
+    ?(enforce_spec = false) (source : string) : stylesheet * Error.t list =
+  let reader = Reader.of_string ~enforce_spec source in
   let out = Parser.stylesheet ~meta reader in
   let sheet, typed_warnings =
     read_stylesheet_of_rules ~source:(Reader.source reader) ~meta out.value
@@ -3870,3 +3962,12 @@ let pp_import_rule : import_rule Pp.t =
 let read_import_rule (r : Cursor.t) : import_rule =
   Cursor.ws r;
   read_import_prelude ~keep_url_repr:false r
+
+(* A cheap discriminating hash for a rule, folding the hash each declaration
+   already caches. The stdlib structural hash reads only the first few nodes of
+   a rule, so rules sharing a selector collide and any table keyed by one then
+   compares whole rule subtrees on every probe. *)
+let rule_hash (r : rule) =
+  List.fold_left
+    (fun acc d -> (acc * 31) + Declaration.hash d)
+    (Selector.hash r.selector) r.declarations

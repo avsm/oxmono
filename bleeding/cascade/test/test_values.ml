@@ -259,6 +259,25 @@ let test_color () =
   check_color ~optimized:"#639" "rebeccapurple";
   check_color ~optimized:"#f0f8ff" "aliceblue";
 
+  (* [hex] is a constructor, not a parser: a string it cannot decode denotes no
+     colour, so it raises rather than handing back one the caller did not ask
+     for. [hex_opt] is the deciding form. *)
+  Alcotest.(check string)
+    "hex accepts a bare spelling" "#fff"
+    (Pp.to_string ~minify:true pp_color (hex "ffffff"));
+  let rejects s =
+    match hex s with _ -> false | exception Invalid_argument _ -> true
+  in
+  Alcotest.(check bool) "hex rejects a bad length" true (rejects "#12345");
+  Alcotest.(check bool) "hex rejects a bad digit" true (rejects "gggggg");
+  Alcotest.(check bool)
+    "hex rejects an over-long spelling" true (rejects "#1234567");
+  Alcotest.(check bool) "hex rejects the empty string" true (rejects "");
+  Alcotest.(check bool) "hex_opt decides instead" true (hex_opt "#12345" = None);
+  Alcotest.(check bool)
+    "hex_opt accepts a good spelling" true
+    (hex_opt "#abc" <> None);
+
   (* Modern color notations. pp preserves the authored function node; the
      equivalent hex form is the optimize+minify oracle. *)
   check_color ~expected:"hsl(180 50% 25%)" ~optimized:"#206060"
@@ -399,6 +418,35 @@ let lossless_color () =
   check_value_cursor "color" read_color pp_color ~minify:false
     ~expected:"oklch(55.2% .016 285.938)" "oklch(55.2% 0.016 285.938)"
 
+(* Alpha is a colour channel like any other, so --lossless suppresses its
+   rounding too: every colour function keeps the authored 0.74567. *)
+let lossless_alpha () =
+  decl_lossless ~prop:"color" ~into:"rgb(10 20 30/.74567)"
+    "rgb(10 20 30 / 0.74567)";
+  decl_lossless ~prop:"color" ~into:"hsl(200 50% 40%/.74567)"
+    "hsl(200 50% 40% / 0.74567)";
+  decl_lossless ~prop:"color" ~into:"hwb(200 20% 30%/.74567)"
+    "hwb(200 20% 30% / 0.74567)";
+  decl_lossless ~prop:"color" ~into:"oklch(.55432 .12276 180.4567/.74567)"
+    "oklch(0.55432 0.12276 180.4567 / 0.74567)";
+  decl_lossless ~prop:"color" ~into:"lch(54.321 100.456 274.456/.74567)"
+    "lch(54.321 100.456 274.456 / 0.74567)";
+  decl_lossless ~prop:"color" ~into:"oklab(.65432-.23456 .18901/.74567)"
+    "oklab(0.65432 -0.23456 0.18901 / 0.74567)";
+  decl_lossless ~prop:"color" ~into:"lab(54.321-60.456 70.789/.74567)"
+    "lab(54.321 -60.456 70.789 / 0.74567)";
+  decl_lossless ~prop:"color"
+    ~into:"color(display-p3 .97654 .12345 .01789/.74567)"
+    "color(display-p3 0.97654 0.12345 0.01789 / 0.74567)";
+  (* Control: plain minify keeps the 3-decimal alpha fold. It is a deliberate
+     minification - sRGB alpha resolves to 1/255 ~ 0.004 - and only --lossless
+     opts out of it. *)
+  decl_optimizes ~prop:"color" ~into:"#0a141ebe" "rgb(10 20 30 / 0.74567)";
+  decl_optimizes ~prop:"color" ~into:"oklch(.554 .123 180.457/.746)"
+    "oklch(0.55432 0.12276 180.4567 / 0.74567)";
+  decl_optimizes ~prop:"color" ~into:"color(display-p3 .977 .123 .018/.746)"
+    "color(display-p3 0.97654 0.12345 0.01789 / 0.74567)"
+
 let test_angle () =
   (* pp holds the authored angle unit verbatim: the unit is part of the value
      node and cross-unit conversion is lossy (1rad has no exact degree
@@ -459,8 +507,8 @@ let test_angle () =
     "0.000001deg";
   decl_optimizes ~prop:"rotate" ~held:".0001deg" ~into:".0001deg" "0.0001deg";
 
-  (* CSS Values 4 §10.7: scaling a typed <angle> by a unitless number folds to a
-     concrete angle (then picks the shortest unit), so calc(1deg * -45) ->
+  (* CSS Values 4 sec. 10.7: scaling a typed <angle> by a unitless number folds
+     to a concrete angle (then picks the shortest unit), so calc(1deg * -45) ->
      -45deg matches what the browser computes. Both operand orders fold. *)
   decl_optimizes ~prop:"rotate" ~held:"calc(1deg*-45)" ~into:"-45deg"
     "calc(1deg * -45)";
@@ -482,7 +530,7 @@ let test_angle () =
     ~into:"calc(var(--x)*1deg)" "calc(var(--x) * 1deg)";
   decl_optimizes ~prop:"rotate" ~held:"calc(45deg*2*var(--x))"
     ~into:"calc(90deg*var(--x))" "calc(45deg * 2 * var(--x))";
-  (* Same-unit add/sub of two angles combines into one (CSS Values 4 §10.7);
+  (* Same-unit add/sub of two angles combines into one (CSS Values 4 sec. 10.7);
      cross-unit operands stay unfolded. *)
   decl_optimizes ~prop:"rotate" ~held:"calc(45deg + 45deg)" ~into:"90deg"
     "calc(45deg + 45deg)";
@@ -525,7 +573,7 @@ let test_duration () =
   check_duration ~expected:".15s" "150ms";
   check_duration "1.5s";
 
-  (* CSS Values 4 §10.7: a typed <time> scales by a number and same-unit
+  (* CSS Values 4 sec. 10.7: a typed <time> scales by a number and same-unit
      operands combine. s and ms stay distinct, and an inexact division keeps the
      calc() so no precision is lost. *)
   decl_optimizes ~prop:"transition-duration" ~held:"calc(1s*2)" ~into:"2s"
@@ -553,7 +601,7 @@ let test_duration () =
 let test_percentage () =
   check_percentage "50%";
   check_percentage "100%";
-  (* CSS Values 4 §6.5 only lets a [<length>] zero drop the unit; a zero
+  (* CSS Values 4 sec. 6.5 only lets a [<length>] zero drop the unit; a zero
      [<percentage>] keeps the [%] (otherwise it would type as a [<number>] and
      the dimension/percentage grammars would reject it). *)
   check_percentage "0%";
@@ -680,6 +728,20 @@ let test_color_oklch_printing () =
   let s = Css.Pp.to_string pp_color c in
   Alcotest.(check string) "oklch printing" "oklch(50% .123 30)" s
 
+(* A [none] hue is a missing component, not the number zero: it stays [none]
+   through printing, and the colour cannot fold to a hex because a hex would pin
+   the hue that interpolation is meant to take from the other colour. *)
+(* Not a roundtrip test *)
+let test_color_oklch_none_hue () =
+  let open Css.Values in
+  let c = oklch_none_hue 55.6 0.0 in
+  let s = Css.Pp.to_string pp_color c in
+  Alcotest.(check string) "oklch none hue printing" "oklch(55.6% 0 none)" s;
+  (* Optimize still folds the lightness to its shorter number spelling, but the
+     colour stays an oklch(): a hex would pin the missing hue. *)
+  check_color ~expected:"oklch(55.6%0 none)" ~optimized:"oklch(.556 0 none)"
+    "oklch(55.6% 0 none)"
+
 (* Not a roundtrip test *)
 let test_color_mix_printing () =
   let open Css.Values in
@@ -803,6 +865,189 @@ let test_color_name () =
   neg_cursor read_color_name "123";
   neg_cursor read_color_name ""
 
+(* CSS Color 4 sec. 6.1, the whole named-colour set, written out here rather
+   than derived from the library so it can serve as the oracle: every name
+   [pp_color_name] prints must read back through [read_color_name], and must
+   read back as the constructor that prints it - [grey] is [Grey], not the
+   [Gray] that prints [gray]. *)
+let css_color_names =
+  [
+    "red";
+    "blue";
+    "green";
+    "white";
+    "black";
+    "yellow";
+    "cyan";
+    "magenta";
+    "gray";
+    "grey";
+    "orange";
+    "purple";
+    "pink";
+    "silver";
+    "maroon";
+    "fuchsia";
+    "lime";
+    "olive";
+    "navy";
+    "teal";
+    "aqua";
+    "aliceblue";
+    "antiquewhite";
+    "aquamarine";
+    "azure";
+    "beige";
+    "bisque";
+    "blanchedalmond";
+    "blueviolet";
+    "brown";
+    "burlywood";
+    "cadetblue";
+    "chartreuse";
+    "chocolate";
+    "coral";
+    "cornflowerblue";
+    "cornsilk";
+    "crimson";
+    "darkblue";
+    "darkcyan";
+    "darkgoldenrod";
+    "darkgray";
+    "darkgreen";
+    "darkgrey";
+    "darkkhaki";
+    "darkmagenta";
+    "darkolivegreen";
+    "darkorange";
+    "darkorchid";
+    "darkred";
+    "darksalmon";
+    "darkseagreen";
+    "darkslateblue";
+    "darkslategray";
+    "darkslategrey";
+    "darkturquoise";
+    "darkviolet";
+    "deeppink";
+    "deepskyblue";
+    "dimgray";
+    "dimgrey";
+    "dodgerblue";
+    "firebrick";
+    "floralwhite";
+    "forestgreen";
+    "gainsboro";
+    "ghostwhite";
+    "gold";
+    "goldenrod";
+    "greenyellow";
+    "honeydew";
+    "hotpink";
+    "indianred";
+    "indigo";
+    "ivory";
+    "khaki";
+    "lavender";
+    "lavenderblush";
+    "lawngreen";
+    "lemonchiffon";
+    "lightblue";
+    "lightcoral";
+    "lightcyan";
+    "lightgoldenrodyellow";
+    "lightgray";
+    "lightgreen";
+    "lightgrey";
+    "lightpink";
+    "lightsalmon";
+    "lightseagreen";
+    "lightskyblue";
+    "lightslategray";
+    "lightslategrey";
+    "lightsteelblue";
+    "lightyellow";
+    "limegreen";
+    "linen";
+    "mediumaquamarine";
+    "mediumblue";
+    "mediumorchid";
+    "mediumpurple";
+    "mediumseagreen";
+    "mediumslateblue";
+    "mediumspringgreen";
+    "mediumturquoise";
+    "mediumvioletred";
+    "midnightblue";
+    "mintcream";
+    "mistyrose";
+    "moccasin";
+    "navajowhite";
+    "oldlace";
+    "olivedrab";
+    "orangered";
+    "orchid";
+    "palegoldenrod";
+    "palegreen";
+    "paleturquoise";
+    "palevioletred";
+    "papayawhip";
+    "peachpuff";
+    "peru";
+    "plum";
+    "powderblue";
+    "rebeccapurple";
+    "rosybrown";
+    "royalblue";
+    "saddlebrown";
+    "salmon";
+    "sandybrown";
+    "seagreen";
+    "seashell";
+    "sienna";
+    "skyblue";
+    "slateblue";
+    "slategray";
+    "slategrey";
+    "snow";
+    "springgreen";
+    "steelblue";
+    "tan";
+    "thistle";
+    "tomato";
+    "turquoise";
+    "violet";
+    "wheat";
+    "whitesmoke";
+    "yellowgreen";
+  ]
+
+let color_name_totality () =
+  Alcotest.(check int)
+    "the oracle lists every CSS named colour" 148
+    (List.length css_color_names);
+  List.iter (fun name -> check_color_name ~roundtrip:true name) css_color_names
+
+(* [minify_color] keeps the name when it is no longer than the [#hex] it would
+   print instead, so a six-letter name always beats a six-digit hex. The
+   inversion has to agree: these seven fold, the equal-length ties below it do
+   not. *)
+let hex_folds_to_shorter_name () =
+  check_color ~optimized:"bisque" "#ffe4c4";
+  check_color ~optimized:"indigo" "#4b0082";
+  check_color ~optimized:"orchid" "#da70d6";
+  check_color ~optimized:"salmon" "#fa8072";
+  check_color ~optimized:"sienna" "#a0522d";
+  check_color ~optimized:"tomato" "#ff6347";
+  check_color ~optimized:"violet" "#ee82ee";
+  (* The same colour written as a function reaches the fold too. *)
+  check_color ~optimized:"bisque" "rgb(255 228 196)";
+  (* A name longer than its hex keeps the hex: the tie is not broken the other
+     way. *)
+  check_color "#00f";
+  check_color "#f0f";
+  check_color "#a9a9a9"
+
 let test_alpha () =
   (* pp preserves percentage alpha spelling; optimize owns percentage->number
      conversion in colour contexts. *)
@@ -817,7 +1062,7 @@ let test_alpha () =
   check_alpha ~expected:"0" "-0.5";
   check_alpha ~expected:"100%" "150%";
   decl_optimizes ~prop:"color" ~into:"#000" "rgb(0 0 0 / 150%)";
-  (* CSS Values 4 §10.7: an alpha calc() resolves - a scaled or added alpha
+  (* CSS Values 4 sec. 10.7: an alpha calc() resolves - a scaled or added alpha
      folds, and a percentage alpha that reaches 100% drops the channel. *)
   decl_optimizes ~prop:"color" ~into:"#ff000080" "rgb(255 0 0 / calc(0.5 * 1))";
   decl_optimizes ~prop:"color" ~into:"#ff00004d"
@@ -948,9 +1193,9 @@ let spec_values_l45_math_color () =
   check_color ~expected:"color-mix(in srgb longer hue,red,blue)"
     ~optimized:"color-mix(in srgb longer hue,red,#00f)"
     "color-mix(in srgb longer hue, red, blue)";
-  (* CSS Color 5 §3: the color-mix weight may be a [calc()]. A constant folds to
-     a plain percentage; a [var()]-bearing one is kept verbatim. The weight
-     reader previously rejected any [calc()] here. *)
+  (* CSS Color 5 sec. 3: the color-mix weight may be a [calc()]. A constant
+     folds to a plain percentage; a [var()]-bearing one is kept verbatim. The
+     weight reader previously rejected any [calc()] here. *)
   check_color ~expected:"color-mix(in srgb,red 30%,blue)"
     ~optimized:"color-mix(in srgb,red 30%,#00f)"
     "color-mix(in srgb, red calc(30%), blue)";
@@ -1213,6 +1458,7 @@ let value_tests =
     test_case "length" `Quick test_length;
     test_case "color" `Quick test_color;
     test_case "lossless color" `Quick lossless_color;
+    test_case "lossless alpha" `Quick lossless_alpha;
     test_case "angle" `Quick test_angle;
     test_case "duration" `Quick test_duration;
     test_case "percentage" `Quick test_percentage;
@@ -1229,6 +1475,7 @@ let value_tests =
     test_case "minified value formatting" `Quick test_minified_value_formatting;
     test_case "regular value formatting" `Quick test_regular_value_formatting;
     test_case "oklch printing" `Quick test_color_oklch_printing;
+    test_case "oklch none hue" `Quick test_color_oklch_none_hue;
     test_case "color-mix printing" `Quick test_color_mix_printing;
     test_case "var in calc other types" `Quick test_var_in_calc_types;
     test_case "number var printing" `Quick test_number_var_printing;
@@ -1239,6 +1486,8 @@ let value_tests =
     test_case "color_space" `Quick test_color_space;
     test_case "hue" `Quick test_hue;
     test_case "color_name" `Quick test_color_name;
+    test_case "color_name totality" `Quick color_name_totality;
+    test_case "hex folds to a shorter name" `Quick hex_folds_to_shorter_name;
     test_case "alpha" `Quick test_alpha;
     test_case "hue_interpolation" `Quick test_hue_interpolation;
     test_case "calc_op" `Quick test_calc_op;

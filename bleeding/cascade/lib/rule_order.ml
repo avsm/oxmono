@@ -171,47 +171,19 @@ let sort_run ?parent changed (run : (statement * rule list) list) :
         (Array.map (fun i -> fst arr.(Rule_graph.Node_id.to_int i)) order)
     end
 
-let branch_key sel = Pp.to_string ~minify:true Selector.pp sel
-
-(* Selector branches that occur in more than one rule of a block: the only
-   branches a later coalesce can fold. Expanding a list rule is only worthwhile
-   when one of its branches is such a shared branch. *)
-let shared_branches (stmts : statement list) : (string, unit) Hashtbl.t =
-  let counts = Hashtbl.create 64 in
-  List.iter
-    (function
-      | Rule r when r.nested = [] && r.merge_key = None ->
-          List.iter
-            (fun sel ->
-              let k = branch_key sel in
-              Hashtbl.replace counts k
-                (1 + Option.value ~default:0 (Hashtbl.find_opt counts k)))
-            (Edge.selectors r.selector)
-      | _ -> ())
-    stmts;
-  let shared = Hashtbl.create 16 in
-  Hashtbl.iter (fun k n -> if n > 1 then Hashtbl.replace shared k ()) counts;
-  shared
-
 (* A grouped rule is the sequence of its per-branch rules, and a hoisted shared
    declaration is the same declaration written inline, so two sheets that factor
    the same content differently ([.absolute,.sr-only {position:absolute}] vs the
    declaration inline in [.sr-only]) only converge once grouping is undone.
-   Expand a selector-list rule into singletons only when a branch is shared with
-   another rule, so a coalesce can fold it; a list whose branches each occur
-   once ([:host,:root]) has nothing to coalesce with, and splitting it only
-   bloats the projection. *)
-let expand_lists shared (stmt : statement) : statement list =
+   Every list expands, whether or not a branch occurs elsewhere: the projection
+   must not depend on how the input happened to group its selectors. *)
+let expand_lists (stmt : statement) : statement list =
   match stmt with
   | Rule r when r.nested = [] && r.merge_key = None -> (
       match Edge.selectors r.selector with
       | [] | [ _ ] -> [ stmt ]
-      | branches
-        when List.exists
-               (fun sel -> Hashtbl.mem shared (branch_key sel))
-               branches ->
-          List.map (fun selector -> Rule { r with selector }) branches
-      | _ -> [ stmt ])
+      | branches -> List.map (fun selector -> Rule { r with selector }) branches
+      )
   | _ -> [ stmt ]
 
 (* Coalescing two occurrences of a selector concatenates their declarations, so
@@ -247,21 +219,37 @@ let interval_clear scan ~lo ~hi mems =
   done;
   !ok
 
-let merge scan changed ~from ~into =
-  (match (scan.arr.(from), scan.arr.(into)) with
-  | (Rule rf, _), (Rule ri, _) ->
-      let earlier, later = if from < into then (rf, ri) else (ri, rf) in
+(* The element a merge produces. Two elements only ever pair on an equal
+   [element_key], which is derived from the constructor, so the two sides always
+   match here. A block merge concatenates the bodies in source order and
+   re-canonicalises the result: the two halves were each canonical alone, but
+   their concatenation need not be. *)
+let merged_element ~canon_body scan ~from ~into =
+  let earlier, later = if from < into then (from, into) else (into, from) in
+  match (fst scan.arr.(earlier), fst scan.arr.(later)) with
+  | Rule a, Rule b ->
       let merged =
         {
-          earlier with
+          a with
           declarations =
             canonical_declarations
-              (coalesced_declarations
-                 (earlier.declarations @ later.declarations));
+              (coalesced_declarations (a.declarations @ b.declarations));
         }
       in
-      scan.arr.(into) <- (Rule merged, [ merged ])
-  | _ -> assert false);
+      (Rule merged, [ merged ])
+  | Media (m, ba), Media (_, bb) ->
+      let stmt = Media (m, canon_body (ba @ bb)) in
+      (stmt, Option.value ~default:[] (element_rules stmt))
+  | Supports (c, ba), Supports (_, bb) ->
+      let stmt = Supports (c, canon_body (ba @ bb)) in
+      (stmt, Option.value ~default:[] (element_rules stmt))
+  | Container (n, c, ba), Container (_, _, bb) ->
+      let stmt = Container (n, c, canon_body (ba @ bb)) in
+      (stmt, Option.value ~default:[] (element_rules stmt))
+  | _ -> assert false
+
+let merge ~canon_body scan changed ~from ~into =
+  scan.arr.(into) <- merged_element ~canon_body scan ~from ~into;
   scan.members.(into) <- scan.members.(from) @ scan.members.(into);
   scan.alive.(from) <- false;
   scan.merged_any <- true;
@@ -270,21 +258,48 @@ let merge scan changed ~from ~into =
 (* Fold the earlier occurrence [i] down into [j] when nothing in between
    observes its writes moving; otherwise fold [j]'s writes up into [i] when
    nothing in between observes those. *)
-let try_merge scan changed ~last ~key i j =
+let try_merge ~canon_body scan changed ~last ~key i j =
   if interval_clear scan ~lo:i ~hi:j scan.members.(i) then begin
-    merge scan changed ~from:i ~into:j;
+    merge ~canon_body scan changed ~from:i ~into:j;
     Hashtbl.replace last key j
   end
   else if interval_clear scan ~lo:i ~hi:j scan.members.(j) then
-    merge scan changed ~from:j ~into:i
+    merge ~canon_body scan changed ~from:j ~into:i
   else Hashtbl.replace last key j
 
-(* Coalesce same-selector singleton rules within one run. Folding an occurrence
-   into another moves its declarations past every element in between, which is
-   observable only if one of those elements conflicts with the moved rule; the
-   conflict test is the graph's, against every original occurrence already
-   accumulated into the surviving element. *)
-let coalesce ?parent changed (run : (statement * rule list) list) :
+(* What makes two run elements the same cascade slot, so that one can fold into
+   the other. A style rule is keyed by its selector, a conditional block by its
+   kind and condition; the [@]-prefix keeps the two namespaces apart. A block
+   whose interior is not summarisable never became a run element, so it cannot
+   reach here. *)
+let element_key (stmt : statement) =
+  match stmt with
+  | Rule r when r.merge_key = None ->
+      Some (Pp.to_string ~minify:true Selector.pp r.selector)
+  | Media (m, _) -> Some (String.concat "" [ "@media "; Media.to_string m ])
+  | Supports (c, _) ->
+      Some (String.concat "" [ "@supports "; Supports.to_string c ])
+  | Container (name, cond, _) ->
+      Some
+        (String.concat ""
+           [
+             "@container ";
+             Option.value ~default:"" name;
+             " ";
+             (match cond with
+             | Some c -> Container.to_string ~minify:true c
+             | None -> "");
+           ])
+  | _ -> None
+
+(* Coalesce same-slot elements within one run. Folding an occurrence into
+   another moves its writes past every element in between, which is observable
+   only if one of those elements conflicts with what moved; the conflict test is
+   the graph's, against every original occurrence already accumulated into the
+   surviving element. A conditional block stands in the graph for the union of
+   its interior selectors and declarations, a superset of its true edges, so the
+   same test covers a block merge. *)
+let coalesce ~canon_body ?parent changed (run : (statement * rule list) list) :
     (statement * rule list) list =
   match run with
   | [] | [ _ ] -> run
@@ -304,20 +319,14 @@ let coalesce ?parent changed (run : (statement * rule list) list) :
           merged_any = false;
         }
       in
-      let selector_key i =
-        match arr.(i) with
-        | Rule r, _ when r.merge_key = None ->
-            Some (Pp.to_string ~minify:true Selector.pp r.selector)
-        | _ -> None
-      in
       let last = Hashtbl.create 16 in
       for j = 0 to n - 1 do
-        match selector_key j with
+        match element_key (fst arr.(j)) with
         | None -> ()
         | Some key -> (
             match Hashtbl.find_opt last key with
             | Some i when scan.alive.(i) ->
-                try_merge scan changed ~last ~key i j
+                try_merge ~canon_body scan changed ~last ~key i j
             | _ -> Hashtbl.replace last key j)
       done;
       if not scan.merged_any then run
@@ -328,8 +337,8 @@ let coalesce ?parent changed (run : (statement * rule list) list) :
    apart, enabling a merge the source order hid, so equivalent sheets converge
    regardless of which arrangement they started from. Each merging round removes
    at least one element, so this terminates. *)
-let rec settle ?parent changed (run : (statement * rule list) list) :
-    statement list =
+let rec settle ~canon_body ?parent changed (run : (statement * rule list) list)
+    : statement list =
   let stmts = sort_run ?parent changed run in
   let sorted =
     List.filter_map
@@ -339,8 +348,62 @@ let rec settle ?parent changed (run : (statement * rule list) list) :
         | None -> None)
       stmts
   in
-  let coalesced = coalesce ?parent changed sorted in
-  if coalesced == sorted then stmts else settle ?parent changed coalesced
+  let coalesced = coalesce ~canon_body ?parent changed sorted in
+  if coalesced == sorted then stmts
+  else settle ~canon_body ?parent changed coalesced
+
+(* A declaration a later rule with the *identical* selector also writes is dead:
+   same element set, same specificity, later wins. Dropping it lets a sheet that
+   hoisted the declaration into a shared group converge with one that wrote it
+   inline - the hoisted copy survives expansion only to be overridden. Neither
+   may carry [!important], which changes the winner. *)
+(* One backward pass: [later] holds, per selector, the properties that the
+   statements already walked write without [!important], and those are exactly
+   the statements after the current one. Consulting it is a lookup rather than a
+   rescan of the tail, so no selector is serialised more than once. *)
+let drop_shadowed_declarations stmts =
+  (* Properties are keyed by their AST identity: two constructors that print
+     alike are different properties, and a name-keyed table would have one
+     shadow the other. *)
+  let later : (string, (Declaration.prop_key, unit) Hashtbl.t) Hashtbl.t =
+    Hashtbl.create 64
+  in
+  let written sel =
+    match Hashtbl.find_opt later sel with
+    | Some props -> props
+    | None ->
+        let props = Hashtbl.create 8 in
+        Hashtbl.replace later sel props;
+        props
+  in
+  let record sel declarations =
+    let props = written sel in
+    List.iter
+      (fun d ->
+        if not (Declaration.is_important d) then
+          Hashtbl.replace props (Declaration.property_key d) ())
+      declarations
+  in
+  let rec go = function
+    | [] -> []
+    | (Rule r as stmt) :: rest ->
+        (* The tail first, so [later] describes it by the time [stmt] asks. *)
+        let rest = go rest in
+        let sel = Pp.to_string ~minify:true Selector.pp r.selector in
+        let shadowed = written sel in
+        let kept =
+          List.filter
+            (fun d ->
+              Declaration.is_important d
+              || not (Hashtbl.mem shadowed (Declaration.property_key d)))
+            r.declarations
+        in
+        record sel r.declarations;
+        if List.compare_lengths kept r.declarations = 0 then stmt :: rest
+        else Rule { r with declarations = kept } :: rest
+    | stmt :: rest -> stmt :: go rest
+  in
+  go stmts
 
 (* Canonicalise every cascade context. At-rule block bodies inherit the current
    nesting [parent]; a style rule's nested body is canonicalised under the
@@ -380,8 +443,9 @@ and canonicalize_block ~parent changed (stmts : statement list) : statement list
   (* Canonicalise interiors first so run elements are ranked on their canonical
      serialized form, then undo grouping so equivalent factorings converge. *)
   let stmts = List.map (recurse ~parent changed) stmts in
-  let shared = shared_branches stmts in
-  let expanded = List.concat_map (expand_lists shared) stmts in
+  let expanded =
+    List.concat_map expand_lists stmts |> drop_shadowed_declarations
+  in
   if List.compare_lengths expanded stmts <> 0 then changed := true;
   let rec go = function
     | [] -> []
@@ -396,14 +460,210 @@ and canonicalize_block ~parent changed (stmts : statement list) : statement list
               | [] -> (List.rev acc, [])
             in
             let run, rest = take [ (stmt, rules) ] rest in
-            settle ?parent changed run @ go rest
+            let canon_body = canonicalize_block ~parent changed in
+            settle ~canon_body ?parent changed run @ go rest
         | None -> stmt :: go rest)
   in
   go expanded
 
+(* A custom property is an opaque token stream, so a minifier that treats it as
+   text keeps the spacing the author wrote while one that re-serialises a typed
+   value drops it: [var(--a, var(--b), var(--c))] against
+   [var(--a,var(--b),var(--c))]. The two are the same value, so the projection
+   normalises the space after a top-level comma. Text inside quotes is left
+   alone. *)
+let normalize_custom_value v =
+  let len = String.length v in
+  let buf = Buffer.create len in
+  let rec go i quote =
+    if i >= len then ()
+    else
+      let c = v.[i] in
+      match quote with
+      | Some q ->
+          Buffer.add_char buf c;
+          go (i + 1) (if c = q then None else quote)
+      | None ->
+          if c = '"' || c = '\'' then begin
+            Buffer.add_char buf c;
+            go (i + 1) (Some c)
+          end
+          else if c = ',' then begin
+            Buffer.add_char buf ',';
+            let rec skip j =
+              if j < len && v.[j] = ' ' then skip (j + 1) else j
+            in
+            go (skip (i + 1)) None
+          end
+          else begin
+            Buffer.add_char buf c;
+            go (i + 1) None
+          end
+  in
+  go 0 None;
+  Buffer.contents buf
+
+(* A multi-word font name spells the same family quoted or as the bare ident
+   sequence it unquotes to (CSS Fonts 4 sec. 15.3), and a custom property
+   holding a font stack substitutes either form identically into [font-family].
+   Emission keeps whichever the author wrote, so the projection folds the quoted
+   form onto the ident sequence - the same normalisation the structural
+   comparator applies through {!Css.declaration_value_for_equivalence}. *)
+let normalize_custom_declaration d =
+  Declaration.unquote_custom_font_strings
+    (Declaration.map_custom_value normalize_custom_value d)
+
+let rec normalize_custom_values (stmts : statement list) : statement list =
+  List.map
+    (fun stmt ->
+      match stmt with
+      | Rule r ->
+          Rule
+            {
+              r with
+              declarations =
+                List.map normalize_custom_declaration r.declarations;
+              nested = normalize_custom_values r.nested;
+            }
+      | Layer (n, inner) -> Layer (n, normalize_custom_values inner)
+      | Media (c, inner) -> Media (c, normalize_custom_values inner)
+      | Supports (c, inner) -> Supports (c, normalize_custom_values inner)
+      | other -> other)
+    stmts
+
+(* CSS Color 4 sec. 10: [color(srgb r g b)] scales each channel by 255, so
+   [color(srgb 1 0 0)] and [rgb(255 0 0)] are one colour written two ways. Under
+   [--lossless] the optimizer keeps whichever function the author used, which
+   leaves the projection reading the spelling as a difference. Fold the
+   exactly-representable ones so it does not.
+
+   Projection only, and only when the fold fires: the declaration is compared
+   against the same normalisation without the flag, and kept as written unless
+   the colour actually moved. So no other value fold rides along, and the
+   emitted form is untouched - the two spellings are not interchangeable on
+   output, since [color()] needs a browser that parses it. *)
+let canonical_color_spelling decl =
+  let folded = Declaration.normalize ~lossless:true ~exact_srgb:true decl in
+  if folded == decl then decl
+  else if
+    Declaration.equal_declaration folded
+      (Declaration.normalize ~lossless:true decl)
+  then decl
+  else folded
+
+let rec canonical_color_spellings (stmts : statement list) : statement list =
+  List.map
+    (fun stmt ->
+      match stmt with
+      | Rule r ->
+          Rule
+            {
+              r with
+              declarations = List.map canonical_color_spelling r.declarations;
+              nested = canonical_color_spellings r.nested;
+            }
+      | Layer (n, inner) -> Layer (n, canonical_color_spellings inner)
+      | Media (c, inner) -> Media (c, canonical_color_spellings inner)
+      | Supports (c, inner) -> Supports (c, canonical_color_spellings inner)
+      | Container (n, c, inner) ->
+          Container (n, c, canonical_color_spellings inner)
+      | other -> other)
+    stmts
+
+(* CSS Properties and Values API 1 sec. 2: registrations for different custom
+   property names are order-independent, and for the same name the last one
+   wins. So a run of [@property] rules canonicalises to that run sorted by name,
+   keeping the last registration of each - two sheets that register the same set
+   then differ only in the order they happened to emit them. A non-registration
+   statement splits a run, since reordering across it is not covered by that
+   argument. *)
+let sort_property_run (run : (string * statement) list) : statement list =
+  let last = Hashtbl.create (List.length run) in
+  List.iteri (fun i (name, _) -> Hashtbl.replace last name i) run;
+  run
+  |> List.filteri (fun i (name, _) -> Hashtbl.find last name = i)
+  |> List.stable_sort (fun (a, _) (b, _) -> String.compare a b)
+  |> List.map snd
+
+let rec sort_property_runs (stmts : statement list) : statement list =
+  let name_of stmt =
+    match stmt with Stylesheet_intf.Property p -> Some p.name | _ -> None
+  in
+  (* [@property] is valid inside a conditional group rule and inside [@layer],
+     so every block body is a run context of its own. *)
+  let descend stmt =
+    let here = sort_property_runs in
+    match stmt with
+    | Layer (n, b) -> Layer (n, here b)
+    | Media (m, b) -> Media (m, here b)
+    | Container (n, c, b) -> Container (n, c, here b)
+    | Supports (s, b) -> Supports (s, here b)
+    | Moz_document (c, b) -> Moz_document (c, here b)
+    | When (c, b) -> When (c, here b)
+    | Else (c, b) -> Else (c, here b)
+    | Starting_style b -> Starting_style (here b)
+    | Origin (o, b) -> Origin (o, here b)
+    | Scope (s, e, b) -> Scope (s, e, here b)
+    | other -> other
+  in
+  let rec go acc = function
+    | [] -> List.rev acc
+    | stmt :: rest -> (
+        match name_of stmt with
+        | None -> go (descend stmt :: acc) rest
+        | Some name ->
+            let rec take run = function
+              | s :: r as l -> (
+                  match name_of s with
+                  | Some n -> take ((n, s) :: run) r
+                  | None -> (List.rev run, l))
+              | [] -> (List.rev run, [])
+            in
+            let run, rest = take [ (name, stmt) ] rest in
+            go (List.rev_append (sort_property_run run) acc) rest)
+  in
+  go [] stmts
+
+(* Media Queries 4 sec. 2.1: [all] matches every media type, so it is the
+   identity in [<media-type> and <condition>] and the Level 3 spelling [not all
+   and (X)] is the same query as the Level 4 [not (X)]. Bare [not all] has no
+   condition form - it matches nothing - so it stays, and the unnegated [all and
+   (X)] never reaches here because {!Optimize} already drops it.
+
+   Projection only. The Level 4 form is eight characters shorter, but a Level 3
+   parser rejects a [not] with no media type and an unrecognised query never
+   matches, so rewriting one to the other on output would silently drop the
+   block in those browsers. *)
+let rec canonical_media (query : Media.t) : Media.t =
+  match query with
+  | Media.Type { prefix = Some Media.Not; type_ = Media.All; trailing = Some c }
+    ->
+      Media.Cond (Media.Not c)
+  | Media.List qs -> Media.List (List.map canonical_media qs)
+  | query -> query
+
+let rec canonical_media_queries (stmts : statement list) : statement list =
+  List.map
+    (fun stmt ->
+      match stmt with
+      | Rule r -> Rule { r with nested = canonical_media_queries r.nested }
+      | Media (q, inner) ->
+          Media (canonical_media q, canonical_media_queries inner)
+      | Layer (n, inner) -> Layer (n, canonical_media_queries inner)
+      | Supports (c, inner) -> Supports (c, canonical_media_queries inner)
+      | Container (n, c, inner) ->
+          Container (n, c, canonical_media_queries inner)
+      | other -> other)
+    stmts
+
 let canonicalize (stmts : statement list) : statement list =
   let changed = ref false in
-  let result =
-    canonicalize_block ~parent:(None : Selector.t option) changed stmts
+  let normalized =
+    canonical_media_queries
+      (sort_property_runs
+         (canonical_color_spellings (normalize_custom_values stmts)))
   in
-  if !changed then result else stmts
+  let result =
+    canonicalize_block ~parent:(None : Selector.t option) changed normalized
+  in
+  if !changed then result else normalized

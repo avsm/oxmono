@@ -46,10 +46,15 @@ let decls_size = Size.decls
 let mix_int acc x = ((acc lsl 5) - acc) lxor x
 let hash_bool = function false -> 0 | true -> 1
 
+(* [String.iter] would allocate a closure over the accumulator ref on every
+   call; the loop carries it in a parameter instead. *)
 let hash_string s =
-  let hash = ref 0x811c9dc5 in
-  String.iter (fun c -> hash := mix_int !hash (Char.code c)) s;
-  !hash
+  let n = String.length s in
+  let rec go acc i =
+    if i >= n then acc
+    else go (mix_int acc (Char.code (String.unsafe_get s i))) (i + 1)
+  in
+  go 0x811c9dc5 0
 
 let hash_ints xs = List.fold_left mix_int 0x345678 xs
 
@@ -81,6 +86,57 @@ let rule_eligible (r : rule) =
    rules too - unlike the factoring passes, which reorder declarations and would
    disturb a later [var()] resolution. [try_rewrite]'s acyclicity check still
    rejects a group whose merge would cross a conflicting (re)definition. *)
+(* Keyed on the property's AST identity rather than its printed name: two
+   constructors that print alike are different properties, and building the set
+   from names would merge them. [prop_key] is unboxed over the property
+   constructor, so ordering it is ordering the constructor. *)
+module Prop_set = Set.Make (struct
+  type t = Declaration.prop_key
+
+  let compare = Stdlib.compare
+end)
+
+(* Merging a run of same-selector rules into the first one moves each later
+   rule's declarations ahead of any nested block an earlier one carries. That
+   only matters for a property the nested block also sets, so a rule with nested
+   children can still take part as long as those children and the declarations
+   that would move past them are disjoint. *)
+let rec nested_property_keys acc (stmts : statement list) =
+  List.fold_left
+    (fun acc stmt ->
+      match stmt with
+      | Rule r ->
+          let acc =
+            List.fold_left
+              (fun acc d -> Prop_set.add (Declaration.property_key d) acc)
+              acc r.declarations
+          in
+          nested_property_keys acc r.nested
+      | _ -> acc)
+    acc stmts
+
+let same_selector_eligible (r : rule) =
+  r.merge_key = Option.None
+  && (not (contains_vendor_pseudo_element r.selector))
+  && not (List.exists Shorthand.is_all_declaration r.declarations)
+
+let nested_merge_is_safe (rules : rule list) =
+  let rec go = function
+    | [] | [ _ ] -> true
+    | r :: rest ->
+        (r.nested = []
+        ||
+        let blocked = nested_property_keys Prop_set.empty r.nested in
+        List.for_all
+          (fun (later : rule) ->
+            List.for_all
+              (fun d -> not (Prop_set.mem (Declaration.property_key d) blocked))
+              later.declarations)
+          rest)
+        && go rest
+  in
+  go rules
+
 let identical_body_eligible ~ctx (r : rule) =
   r.nested = [] && r.merge_key = Option.None
   && (not (contains_vendor_pseudo_element r.selector))
@@ -294,11 +350,6 @@ let ordered_ids g ids =
     | order -> order
   in
   ids |> Node_set.of_list |> Node_set.elements |> List.sort compare_by_origin
-
-let first_origin g ids =
-  match ordered_ids g ids with
-  | [] -> max_int
-  | id :: _ -> Rule_graph.node_origin g id
 
 let candidate_set_key ids =
   ids |> List.map Rule_graph.Node_id.to_int |> hash_ints
@@ -620,13 +671,13 @@ let add_same_selector_group ?size_cache ~finalize g ~candidates ids =
   let rules = List.map snd rules_with_ids in
   match rules with
   | [] | [ _ ] -> ()
-  | (first : rule) :: _ -> (
+  | (first : rule) :: _ when nested_merge_is_safe rules -> (
       let merged =
         {
           first with
           declarations =
             List.concat_map (fun (r : rule) -> r.declarations) rules;
-          nested = [];
+          nested = List.concat_map (fun (r : rule) -> r.nested) rules;
           merge_key = Option.None;
         }
       in
@@ -636,13 +687,14 @@ let add_same_selector_group ?size_cache ~finalize g ~candidates ids =
       with
       | Option.None -> ()
       | Option.Some c -> candidates := c :: !candidates)
+  | _ -> ()
 
 let same_selector_candidates ?size_cache ?touching ~finalize g =
   let touching = touching_set touching in
   let buckets = Int_table.create 128 in
   List.iter
     (fun (id, rule) ->
-      if rule_eligible rule then
+      if same_selector_eligible rule then
         add_int_bucket buckets (selector_key_hash rule) id)
     (live_rules g);
   let candidates = ref [] in
@@ -661,13 +713,16 @@ let same_selector_candidates ?size_cache ?touching ~finalize g =
 
 let decl_hash_bucket decl = Declaration.hash decl
 
-let add_decl_bucket buckets decl id =
+(* Each entry carries the smallest origin among its ids, kept up to date as ids
+   arrive. The sort below asks for it once per comparison, so deriving it from
+   the id list there recomputed the same answer O(n log n) times. *)
+let add_decl_bucket ~origin buckets decl id =
   let hash = decl_hash_bucket decl in
   let entries = Int_table.find_opt buckets hash |> Option.value ~default:[] in
   let rec insert acc = function
-    | [] -> List.rev ((decl, [ id ]) :: acc)
-    | (existing, ids) :: rest when same_decl existing decl ->
-        List.rev_append acc ((existing, id :: ids) :: rest)
+    | [] -> List.rev ((decl, [ id ], origin) :: acc)
+    | (existing, ids, least) :: rest when same_decl existing decl ->
+        List.rev_append acc ((existing, id :: ids, Int.min least origin) :: rest)
     | entry :: rest -> insert (entry :: acc) rest
   in
   Int_table.replace buckets hash (insert [] entries)
@@ -677,20 +732,24 @@ let shared_decl_buckets g =
   List.iter
     (fun (id, rule) ->
       if rule_eligible rule then
+        let origin = Rule_graph.node_origin g id in
         unique_decls rule.declarations
-        |> List.iter (fun decl -> add_decl_bucket buckets decl id))
+        |> List.iter (fun decl -> add_decl_bucket ~origin buckets decl id))
     (live_rules g);
   buckets
 
-let shared_decl_buckets_by_origin g buckets =
+let shared_decl_buckets_by_origin buckets =
   Int_table.fold
     (fun _ entries acc ->
-      List.fold_left (fun acc (_, ids) -> ids :: acc) acc entries)
+      List.fold_left
+        (fun acc (_, ids, least) -> (least, ids) :: acc)
+        acc entries)
     buckets []
-  |> List.sort (fun left right ->
-      match Int.compare (first_origin g left) (first_origin g right) with
+  |> List.sort (fun (left_origin, left) (right_origin, right) ->
+      match Int.compare left_origin right_origin with
       | 0 -> Int.compare (List.length left) (List.length right)
       | order -> order)
+  |> List.map snd
 
 let exact_group_key rules common =
   mix_int
@@ -840,11 +899,17 @@ let group_crosses_external_conflict g ~ids (grouped : rule) =
   match origin_bounds g ids with
   | Option.None -> false
   | Option.Some (min_origin, max_origin) ->
-      live_rules g
-      |> List.exists (fun (external_id, (external_rule : rule)) ->
+      (* Walk the ids, not a freshly built (id, rule) list: this runs once per
+         candidate, so materialising every live rule up front cost more than the
+         scan itself, which usually stops on the first crossing node. The origin
+         range is the cheapest filter, so it goes first. *)
+      Rule_graph.live_nodes g
+      |> List.exists (fun external_id ->
           (not (id_mem external_id ids))
           && crosses_bounds g ~min_origin ~max_origin external_id
-          && selectors_tie_and_overlap grouped.selector external_rule.selector
+          &&
+          let external_rule : rule = Rule_graph.node_rule g external_id in
+          selectors_tie_and_overlap grouped.selector external_rule.selector
           && declarations_cross_order grouped.declarations
                external_rule.declarations)
 
@@ -890,7 +955,7 @@ let shared_decl_candidates ?size_cache ?touching ~ctx ~finalize g =
   let buckets = shared_decl_buckets g in
   let seen_groups = Int_table.create 128 in
   let candidates = ref [] in
-  shared_decl_buckets_by_origin g buckets
+  shared_decl_buckets_by_origin buckets
   |> List.iter (fun ids ->
       let ids = ids |> eligible_ids_from_bucket g |> ordered_ids g in
       if touches_any touching ids then
@@ -911,20 +976,30 @@ let shared_decl_candidates ?size_cache ?touching ~ctx ~finalize g =
                       candidates := candidate :: !candidates)));
   !candidates
 
-type property_key = { property_name : string; important : bool; hash : int }
+(* Keyed on {!Declaration.prop_key}, the property's structural identity, rather
+   than on its name: the name only exists as a string once [pp_property] has
+   rendered it through a [Buffer], and this key is rebuilt for every declaration
+   of every rule the candidate search touches. [prop_key] is [[@@unboxed]] over
+   the property constructor, so for the constant constructors that is an
+   immediate, and both equality and [Hashtbl.hash] are structural on it. *)
+type property_key = {
+  prop : Declaration.prop_key;
+  important : bool;
+  hash : int;
+}
 
 let declaration_property_key decl : property_key =
-  let property_name = Declaration.property_name decl in
+  let prop = Declaration.property_key decl in
   let important = Declaration.is_important decl in
   {
-    property_name;
+    prop;
     important;
-    hash = mix_int (hash_string property_name) (hash_bool important);
+    hash = mix_int (Declaration.hash_prop_key prop) (hash_bool important);
   }
 
 let property_key_equal left right =
   Bool.equal left.important right.important
-  && String.equal left.property_name right.property_name
+  && Declaration.equal_prop_key left.prop right.prop
 
 let property_key_hash key = key.hash
 
@@ -956,14 +1031,23 @@ let rec has_property_key key = function
       property_key_equal (declaration_property_key decl) key
       || has_property_key key rest
 
-let add_property_buckets buckets id (rule : rule) =
+(* Each entry carries the order in which its key was first seen. The buckets
+   live in a hash table, so folding them yields the hash's order, and the sort
+   below would otherwise leave entries that tie on origin and size in that
+   order: the search's choice would follow the hash rather than the input. *)
+let add_property_buckets ~seq ~origin buckets id (rule : rule) =
   let add key id =
     let hash = property_key_hash key in
     let entries = Int_table.find_opt buckets hash |> Option.value ~default:[] in
     let rec insert acc = function
-      | [] -> List.rev ((key, [ id ]) :: acc)
-      | (existing, ids) :: rest when property_key_equal existing key ->
-          List.rev_append acc ((existing, id :: ids) :: rest)
+      | [] ->
+          let n = !seq in
+          incr seq;
+          List.rev ((key, [ id ], n, origin) :: acc)
+      | (existing, ids, n, least) :: rest when property_key_equal existing key
+        ->
+          List.rev_append acc
+            ((existing, id :: ids, n, Int.min least origin) :: rest)
       | entry :: rest -> insert (entry :: acc) rest
     in
     Int_table.replace buckets hash (insert [] entries)
@@ -1274,18 +1358,26 @@ let default_value_candidates ?size_cache ?touching ~ctx ~finalize g =
     | Indexed budget -> Option.Some (indexed_budget_state budget)
   in
   let buckets = Int_table.create 256 in
+  let seq = ref 0 in
   List.iter
     (fun (id, rule) ->
-      if rule_eligible rule then add_property_buckets buckets id rule)
+      if rule_eligible rule then
+        let origin = Rule_graph.node_origin g id in
+        add_property_buckets ~seq ~origin buckets id rule)
     (live_rules g);
   let seen_groups = Int_table.create 128 in
   let candidates = ref [] in
   Int_table.fold (fun _ entries acc -> List.rev_append entries acc) buckets []
-  |> List.sort (fun (_, left) (_, right) ->
-      match Int.compare (first_origin g left) (first_origin g right) with
-      | 0 -> Int.compare (List.length left) (List.length right)
-      | order -> order)
-  |> List.iter (fun (key, ids) ->
+  |> List.sort
+       (fun
+         (_, left, left_seq, left_origin) (_, right, right_seq, right_origin) ->
+         match Int.compare left_origin right_origin with
+         | 0 -> (
+             match Int.compare (List.length left) (List.length right) with
+             | 0 -> Int.compare left_seq right_seq
+             | order -> order)
+         | order -> order)
+  |> List.iter (fun (key, ids, _, _) ->
       let ids =
         ids |> Node_set.of_list |> Node_set.elements
         |> List.filter (fun id -> rule_eligible (Rule_graph.node_rule g id))

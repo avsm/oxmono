@@ -11,12 +11,21 @@ val pp_property_value : ('a property * 'a) Pp.t
     value. *)
 
 val normalize_property_value :
-  ?lossless:bool -> ?ctx:Values.calc_ctx -> 'a property -> 'a -> 'a
+  ?lossless:bool ->
+  ?exact_srgb:bool ->
+  ?ctx:Values.calc_ctx ->
+  'a property ->
+  'a ->
+  'a
 (** [normalize_property_value ?lossless prop value] applies semantic
     (equivalence) canonicalisation to [value] so the optimizer holds a canonical
     AST and the pretty-printer stays a pure serialiser. Identity for properties
     whose folds have not yet migrated out of [pp]. [lossless] disables colour
-    approximation while keeping exact colour canonicalisation. *)
+    approximation while keeping exact colour canonicalisation.
+
+    [exact_srgb] is {!Values.normalize_color}'s flag of the same name, applied
+    to the properties whose whole value is a colour. It is for the canonical
+    diff projection only. *)
 
 val normalize_custom_property_value :
   ?lossless:bool ->
@@ -1984,6 +1993,14 @@ val read_logical_border_color : Cursor.t -> logical_border_color
 (** [read_logical_border_color t] is the [logical_border_color] parsed from [t].
 *)
 
+val pp_logical_border_width : logical_border_width Pp.t
+(** [pp_logical_border_width] is the pretty-printer for [logical_border_width].
+*)
+
+val read_logical_border_width : Cursor.t -> logical_border_width
+(** [read_logical_border_width t] is the [logical_border_width] parsed from [t].
+*)
+
 val pp_column_span : column_span Pp.t
 (** [pp_column_span] is the pretty-printer for [column_span]. *)
 
@@ -2244,6 +2261,83 @@ val pp_direction : direction Pp.t
 
 val read_direction : Cursor.t -> direction
 (** [read_direction t] is the [direction] parsed from [t]. *)
+
+val pp_fill_rule : fill_rule Pp.t
+(** [pp_fill_rule] pretty-prints an SVG [<fill-rule>]. *)
+
+val read_fill_rule : Cursor.t -> fill_rule
+(** [read_fill_rule t] is the [fill_rule] parsed from [t]. *)
+
+val pp_stroke_linecap : stroke_linecap Pp.t
+(** [pp_stroke_linecap] pretty-prints a [stroke-linecap] keyword. *)
+
+val read_stroke_linecap : Cursor.t -> stroke_linecap
+(** [read_stroke_linecap t] is the [stroke_linecap] parsed from [t]. *)
+
+val pp_stroke_linejoin : stroke_linejoin Pp.t
+(** [pp_stroke_linejoin] pretty-prints a [stroke-linejoin] keyword. *)
+
+val read_stroke_linejoin : Cursor.t -> stroke_linejoin
+(** [read_stroke_linejoin t] is the [stroke_linejoin] parsed from [t]. *)
+
+val pp_stroke_miterlimit : stroke_miterlimit Pp.t
+(** [pp_stroke_miterlimit] pretty-prints a [stroke-miterlimit]. *)
+
+val read_stroke_miterlimit : Cursor.t -> stroke_miterlimit
+(** [read_stroke_miterlimit t] is the [stroke_miterlimit] parsed from [t]. *)
+
+val pp_vector_effect_keyword : vector_effect_keyword Pp.t
+(** [pp_vector_effect_keyword] pretty-prints one [vector-effect] operand. *)
+
+val read_vector_effect_keyword : Cursor.t -> vector_effect_keyword
+(** [read_vector_effect_keyword t] is the [vector_effect_keyword] parsed from
+    [t]. *)
+
+val pp_vector_effect_space : vector_effect_space Pp.t
+(** [pp_vector_effect_space] pretty-prints a [vector-effect] host space. *)
+
+val read_vector_effect_space : Cursor.t -> vector_effect_space
+(** [read_vector_effect_space t] is the [vector_effect_space] parsed from [t].
+*)
+
+val pp_vector_effect : vector_effect Pp.t
+(** [pp_vector_effect] pretty-prints a [vector-effect]. *)
+
+val read_vector_effect : Cursor.t -> vector_effect
+(** [read_vector_effect t] is the [vector_effect] parsed from [t]. *)
+
+val pp_paint_order_keyword : paint_order_keyword Pp.t
+(** [pp_paint_order_keyword] pretty-prints one [paint-order] operand. *)
+
+val read_paint_order_keyword : Cursor.t -> paint_order_keyword
+(** [read_paint_order_keyword t] is the [paint_order_keyword] parsed from [t].
+*)
+
+val pp_paint_order : paint_order Pp.t
+(** [pp_paint_order] pretty-prints a [paint-order]. *)
+
+val read_paint_order : Cursor.t -> paint_order
+(** [read_paint_order t] is the [paint_order] parsed from [t]. *)
+
+val pp_dash_length : dash_length Pp.t
+(** [pp_dash_length] pretty-prints one SVG dash length. *)
+
+val read_dash_length : Cursor.t -> dash_length
+(** [read_dash_length t] is the [dash_length] parsed from [t]. A bare number is
+    in user units; anything carrying a unit or a percent sign is a
+    [<length-percentage>]. *)
+
+val pp_stroke_dashoffset : stroke_dashoffset Pp.t
+(** [pp_stroke_dashoffset] pretty-prints a [stroke-dashoffset]. *)
+
+val read_stroke_dashoffset : Cursor.t -> stroke_dashoffset
+(** [read_stroke_dashoffset t] is the [stroke_dashoffset] parsed from [t]. *)
+
+val pp_stroke_dasharray : stroke_dasharray Pp.t
+(** [pp_stroke_dasharray] pretty-prints a [stroke-dasharray]. *)
+
+val read_stroke_dasharray : Cursor.t -> stroke_dasharray
+(** [read_stroke_dasharray t] is the [stroke_dasharray] parsed from [t]. *)
 
 val pp_unicode_bidi : unicode_bidi Pp.t
 (** [pp_unicode_bidi] is the pretty-printer for [unicode_bidi]. *)

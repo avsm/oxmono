@@ -200,7 +200,7 @@ let custom_properties_integration () =
     (minify stylesheet)
 
 (* Regression: a custom property name starting with a digit after the -- is a
-   valid dashed-ident per CSS Syntax §4.3.11. Tailwind emits these for
+   valid dashed-ident per CSS Syntax sec. 4.3.11. Tailwind emits these for
    arbitrary-value classes like text-[1A202C]. *)
 let var_digit_after_dashes () =
   let css = ".x{font-size:var(--1A202C)}" in
@@ -1009,6 +1009,53 @@ let public_parse_edges () =
         "partial parser reports invalid rules" 2
         (List.length parsed.warnings)
 
+(* A newline inside a string produces a <bad-string-token>. In an at-rule
+   prelude that token used to serialize to nothing, so [@media <bad-string>]
+   reached the media-condition reader as an empty condition: the rule kept its
+   body but lost its condition, with no diagnostic. *)
+let public_bad_string_prelude_edges () =
+  match of_string "@media \"abc\n{ .a { color: red } }" with
+  | Error err ->
+      Alcotest.failf "lenient parse rejected recoverable CSS: %s"
+        (Cascade.Error.to_string err)
+  | Ok parsed ->
+      Alcotest.(check bool)
+        "the lost media condition is reported" true (parsed.warnings <> []);
+      Alcotest.(check bool)
+        "no unconditional @media is emitted" false
+        (Astring.String.is_infix ~affix:"@media{" (minify parsed.stylesheet))
+
+(* The value parsers the [list-style] shorthand is built from, exposed so a
+   caller can read a single [list-style-type] / [list-style-image]. *)
+let list_style_value_parsers () =
+  let ok what = function
+    | Some _ -> ()
+    | None -> Alcotest.failf "%s should parse" what
+  in
+  ok "square" (Css.parse_list_style_type "square");
+  ok "upper-roman" (Css.parse_list_style_type "upper-roman");
+  ok "url()" (Css.parse_list_style_image "url(/carrot.png)");
+  ok "none" (Css.parse_list_style_image "none");
+  Alcotest.(check bool)
+    "an unknown counter style is rejected" true
+    (Css.parse_list_style_type "nonsense-style" = None)
+
+(* [font-family] takes a stack, and a token defined as one is what a theme feeds
+   back in, so a var() among the entries has to survive the read. *)
+let font_family_value_parser () =
+  let roundtrip s =
+    match Css.parse_font_family s with
+    | None -> Alcotest.failf "%s should parse" s
+    | Some v ->
+        Alcotest.(check string)
+          s s
+          (Pp.to_string Css.Properties.pp_font_family v)
+  in
+  roundtrip "Georgia, serif";
+  roundtrip "ui-sans-serif";
+  roundtrip "var(--font-source-sans-pro), system-ui";
+  roundtrip "var(--font-ubuntu-mono)"
+
 let suite =
   ( "css",
     [
@@ -1025,6 +1072,10 @@ let suite =
         custom_properties_integration;
       Alcotest.test_case "var(--1A202C) parses" `Quick var_digit_after_dashes;
       Alcotest.test_case "CSS roundtrip parsing" `Quick roundtrip;
+      Alcotest.test_case "list-style value parsers" `Quick
+        list_style_value_parsers;
+      Alcotest.test_case "font-family value parser" `Quick
+        font_family_value_parser;
       (* AST introspection helpers *)
       Alcotest.test_case "layer_block extraction" `Quick test_layer_block;
       Alcotest.test_case "rules_of_statements" `Quick test_rules_of_statements;
@@ -1051,4 +1102,6 @@ let suite =
       Alcotest.test_case "public theme var rendering" `Quick
         public_theme_var_rendering_edges;
       Alcotest.test_case "public parse recovery edges" `Quick public_parse_edges;
+      Alcotest.test_case "public bad-string prelude edges" `Quick
+        public_bad_string_prelude_edges;
     ] )

@@ -4,13 +4,13 @@ type mode = Auto | Tree | String | Canonical
 
 let err_read path msg = Error (`Msg (Fmt.str "Error reading %s: %s" path msg))
 
+let err_depth s =
+  Error
+    (`Msg
+       (Fmt.str "invalid depth %S: expected auto, max, or a positive integer" s))
+
 let read_file path =
-  try
-    let ic = open_in path in
-    let content = really_input_string ic (in_channel_length ic) in
-    close_in ic;
-    Ok content
-  with Sys_error msg -> err_read path msg
+  try Ok (Cli_io.read_file path) with Sys_error msg -> err_read path msg
 
 let no_color_var = "NO_COLOR"
 
@@ -36,21 +36,100 @@ let run_diff mode ~lossless ~prune_unused_custom_props ~css1 ~css2 =
   Cascade_diff.Css_compare.diff ~mode ~lossless ~prune_unused_custom_props css1
     css2
 
-let print_diff_report ~color ~file1 ~file2 ~css1 ~css2 result =
+type depth = Fit | Full | Level of int
+
+(* A report past this many lines has stopped summarising and started dumping, so
+   [Auto] drops to the deepest level that still fits. *)
+let auto_line_budget = 40
+
+(* The probe renders the report once per level, and the diff tree is as deep as
+   the stylesheet nests. Stop at a level that summarises any report worth
+   summarising; [--depth=max] is the answer for the rest. *)
+let max_probe_depth = 5
+
+let count_lines s =
+  let n = ref 0 in
+  String.iter (fun c -> if c = '\n' then incr n) s;
+  !n
+
+(* Parse warnings shown per side before the rest is counted. *)
+let auto_warning_budget = 3
+
+let render_diff ~color ~file1 ~file2 ~depth result =
+  let buf = Buffer.create 1024 in
+  Cascade_diff.Css_compare.pp_diff ~expected:file1 ~actual:file2 ~color ?depth
+    buf result;
+  Buffer.contents buf
+
+let render_warnings ~file1 ~file2 ~max result =
+  let buf = Buffer.create 256 in
+  Cascade_diff.Css_compare.pp_warnings ~expected:file1 ~actual:file2 ?max buf
+    result;
+  if Cascade_diff.Css_compare.has_warnings result then Buffer.add_char buf '\n';
+  Buffer.contents buf
+
+(* Deepest level whose report still fits the budget, or level 1 when even the
+   roots overflow: the roots are the one thing always worth printing. *)
+let fit_depth render =
+  let rec go level best =
+    if level > max_probe_depth then best
+    else
+      let body = render (Some level) in
+      if count_lines body <= auto_line_budget then go (level + 1) (level, body)
+      else best
+  in
+  go 2 (1, render (Some 1))
+
+let render_at_depth ~color ~file1 ~file2 ~depth result =
+  let render depth = render_diff ~color ~file1 ~file2 ~depth result in
+  match depth with
+  | Full -> (render None, None)
+  | Level n -> (render (Some n), None)
+  | Fit ->
+      let full = render None in
+      if count_lines full <= auto_line_budget then (full, None)
+      else
+        let level, body = fit_depth render in
+        (body, Some level)
+
+(* Canonical mode compares the two canonical minified forms, so the text under a
+   string diff there is those forms and not the files as written. Say which. *)
+let canonical_forms_note mode result =
+  match (mode, result) with
+  | Canonical, Cascade_diff.Css_compare.String_diff _ ->
+      "Canonical forms differ:\n"
+  | _ -> ""
+
+let print_diff_report ~color ~file1 ~file2 ~css1 ~css2 ~depth ~mode result =
   let stats =
     Cascade_diff.Css_compare.stats ~expected_str:css1 ~actual_str:css2 result
   in
+  let max_warnings =
+    match depth with Full -> None | Fit | Level _ -> Some auto_warning_budget
+  in
   let buf = Buffer.create 1024 in
   Cascade_diff.Css_compare.pp_stats buf stats;
+  Buffer.add_string buf
+    (canonical_forms_note mode result.Cascade_diff.Css_compare.result);
   Buffer.add_char buf '\n';
-  Cascade_diff.Css_compare.pp ~expected:file1 ~actual:file2 ~color buf result;
+  Buffer.add_string buf (render_warnings ~file1 ~file2 ~max:max_warnings result);
+  let body, elided_at = render_at_depth ~color ~file1 ~file2 ~depth result in
+  Buffer.add_string buf body;
   Buffer.add_char buf '\n';
+  (match elided_at with
+  | None -> ()
+  | Some level ->
+      List.iter (Buffer.add_string buf)
+        [
+          "(depth ";
+          string_of_int level;
+          "; use --depth=max for the full report)\n";
+        ]);
   print_string (Buffer.contents buf)
 
 type canonical_opts = { lossless : bool; prune_unused_custom_props : bool }
 
-let compare_files file1 file2 style_renderer mode opts memtrace_path () =
-  Cli_io.start_memtrace memtrace_path;
+let compare_files file1 file2 style_renderer mode depth opts () =
   Fmt_tty.setup_std_outputs
     ?style_renderer:(resolve_style_renderer style_renderer)
     ();
@@ -74,18 +153,21 @@ let compare_files file1 file2 style_renderer mode opts memtrace_path () =
             ~css2
         in
         match result.Cascade_diff.Css_compare.result with
-        | No_diff _ ->
+        | No_diff ->
             (* Equal ASTs can still hide parse-dropped declarations; show the
                warnings so the equality verdict is honest about them. *)
-            let buf = Buffer.create 256 in
-            Cascade_diff.Css_compare.pp ~expected:file1 ~actual:file2 ~color buf
-              result;
-            print_string (Buffer.contents buf);
+            let max =
+              match depth with
+              | Full -> None
+              | Fit | Level _ -> Some auto_warning_budget
+            in
+            print_string (render_warnings ~file1 ~file2 ~max result);
             Fmt.pr "CSS files are identical@.";
             Ok ()
         | String_diff _ | Tree_diff _ | Both_errors _ | Expected_error _
         | Actual_error _ ->
-            print_diff_report ~color ~file1 ~file2 ~css1 ~css2 result;
+            print_diff_report ~color ~file1 ~file2 ~css1 ~css2 ~depth ~mode
+              result;
             (* Differing inputs are a result, not a usage error: exit 1 as
                documented, distinct from cmdliner's reserved error codes. *)
             Stdlib.exit 1)
@@ -116,6 +198,33 @@ let mode_arg =
   in
   Arg.(value & opt mode_conv Auto & info [ "diff" ] ~docv:"MODE" ~doc)
 
+let depth_arg =
+  let doc =
+    "How many levels of the difference tree to print: $(b,auto) (default) \
+     prints the whole tree when it is short and otherwise falls back to the \
+     deepest level that stays readable, $(b,max) always prints it in full, and \
+     an integer pins an exact level ($(b,1) is the top-level entries alone). \
+     Wherever children are cut off, a $(b,... N more lines) marker records how \
+     much is hidden."
+  in
+  let parse = function
+    | "auto" -> Ok Fit
+    | "max" | "full" -> Ok Full
+    | s -> (
+        match int_of_string_opt s with
+        | Some n when n >= 1 -> Ok (Level n)
+        | Some _ | None -> err_depth s)
+  in
+  let print ppf = function
+    | Fit -> Fmt.string ppf "auto"
+    | Full -> Fmt.string ppf "max"
+    | Level n -> Fmt.int ppf n
+  in
+  Arg.(
+    value
+    & opt (conv ~docv:"DEPTH" (parse, print)) Fit
+    & info [ "depth" ] ~docv:"DEPTH" ~doc)
+
 let lossless_arg =
   let doc =
     "Disable colour approximation in $(b,--diff=canonical) canonicalisation. \
@@ -137,13 +246,6 @@ let prune_unused_custom_props_arg =
   in
   Arg.(value & flag & info [ "prune-unused-custom-props" ] ~doc)
 
-let memtrace_arg =
-  let doc =
-    "Write a Memtrace allocation profile to $(docv) covering the diff run. \
-     Open it with [memtrace-viewer] to see allocation hotspots."
-  in
-  Arg.(value & opt (some string) None & info [ "memtrace" ] ~docv:"FILE" ~doc)
-
 let term =
   let open Term in
   let style_renderer_with_env =
@@ -162,7 +264,7 @@ let term =
   in
   term_result
     (const compare_files $ file1_arg $ file2_arg $ style_renderer_with_env
-   $ mode_arg $ canonical_opts $ memtrace_arg $ Cli_log.term)
+   $ mode_arg $ depth_arg $ canonical_opts $ Cli_log.term)
 
 let man =
   [
@@ -192,6 +294,12 @@ let man =
       ( "--diff=canonical",
         "Compare canonical minified CSS before reporting a diff" );
     `I
+      ( "--depth=auto|max|N",
+        "Levels of the difference tree to print. $(b,auto) (default) prints it \
+         whole while it stays short, then falls back to the deepest level that \
+         fits; $(b,max) always prints it whole; an integer pins a level. Cut \
+         subtrees are marked with the number of lines hidden." );
+    `I
       ( "--lossless",
         "Disable colour approximation under $(b,--diff=canonical): colour \
          channels keep their authored precision and static modern colour-space \
@@ -199,7 +307,11 @@ let man =
     `S Manpage.s_exit_status;
     `P "$(tname) exits with:";
     `I ("0", "if the CSS files are identical");
-    `I ("1", "if the CSS files differ");
+    `I
+      ( "1",
+        "if the CSS files differ. Under $(b,--diff=canonical) that is any \
+         difference between their canonical forms, whether or not the \
+         structural walk reached it" );
     `I ("124", "on command-line errors or unreadable input files");
     `S Manpage.s_examples;
     `P "Compare two CSS files:";

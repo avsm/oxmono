@@ -3,6 +3,24 @@
 open Stylesheet
 open Stdlib
 
+(* The declaration-keyed bucket index is probed once per overlap key per node
+   while a graph is built, and a generic [Hashtbl] compares whole declaration
+   subtrees on every probe. The cached [Declaration.hash] buckets in constant
+   time and the structural check runs only when two hashes collide. *)
+module Decl_tbl = Hashtbl.Make (struct
+  type t = Declaration.declaration
+
+  let equal = Shorthand.same_minified_declaration
+  let hash = Declaration.hash
+end)
+
+module Key_tbl = Hashtbl.Make (struct
+  type t = Shorthand.overlap_key
+
+  let equal = Shorthand.overlap_key_equal
+  let hash = Shorthand.overlap_key_hash
+end)
+
 module Node_id = struct
   type t = int
 
@@ -45,6 +63,10 @@ type t = {
       (** the enclosing nesting context; every node's overlap is computed on its
           selector expanded against this, and rewrites reuse it so produced
           nodes are indexed the same way as existing ones. *)
+  count : int;
+      (** live extent of the node arrays. They are allocated with slack and
+          appended to in place, so their length is a capacity, not a node count.
+      *)
   rules : rule array;  (** all nodes ever created, dead ones included *)
   summaries : Summary.t array;
       (** declaration-side facts and byte sizes, precomputed once per node *)
@@ -53,6 +75,11 @@ type t = {
   selectors : Selector.t list array;
       (** effective selector branches for each node, after applying [parent] *)
   selector_summaries : Selector_summary.t list array;
+  specificities : Selector.specificity list array;
+      (** each node's per-branch specificity, computed once. The order test
+          compares specificity on every candidate pair, and recomputing it
+          allocates a record per branch per comparison, which made it one of the
+          largest allocation sites in the optimizer. *)
   branches : string list array;
   decl_overlaps : decl_overlap list array;
   overlap_keys : Shorthand.overlap_key list array;
@@ -62,10 +89,7 @@ type t = {
           order they were created in (source order for [of_rules], inherited
           order for rewrites). A valid linear extension is any topological order
           of the live sub-graph. *)
-  key_index :
-    ( Shorthand.overlap_key,
-      (Declaration.declaration, node_id list) Hashtbl.t )
-    Hashtbl.t;
+  key_index : node_id list Decl_tbl.t Key_tbl.t;
       (** overlap key -> (declaration writing it -> node ids), so a rewrite
           finds an external node's potential conflicts without scanning every
           node, and {e without even iterating} the nodes that write the same
@@ -90,41 +114,68 @@ let declarations_conflict left right =
   && Shorthand.declarations_overlap_with_keys left.decl left.footprint
        right.decl right.footprint
 
-let decls_order_conflict d1 d2 =
-  List.exists (fun a -> List.exists (fun b -> declarations_conflict a b) d2) d1
+(* Written as plain recursion rather than nested [List.exists]: the inner
+   closure captured the outer element, so it was rebuilt once per element of the
+   left list, and these run on every candidate pair. *)
+let rec declaration_conflicts_with a = function
+  | [] -> false
+  | b :: rest -> declarations_conflict a b || declaration_conflicts_with a rest
+
+let rec decls_order_conflict d1 d2 =
+  match d1 with
+  | [] -> false
+  | a :: rest -> declaration_conflicts_with a d2 || decls_order_conflict rest d2
+
+let rec overlap_key_in key = function
+  | [] -> false
+  | k :: rest -> Shorthand.overlap_key_equal key k || overlap_key_in key rest
+
+let rec overlap_keys_meet a b =
+  match a with
+  | [] -> false
+  | key :: rest -> overlap_key_in key b || overlap_keys_meet rest b
 
 let overlap_key_lists_intersect a b =
   let broad = Shorthand.broad_overlap_key in
-  List.exists (Shorthand.overlap_key_equal broad) a
-  || List.exists (Shorthand.overlap_key_equal broad) b
-  || List.exists (fun key -> List.exists (Shorthand.overlap_key_equal key) b) a
+  overlap_key_in broad a || overlap_key_in broad b || overlap_keys_meet a b
 
-let specificity_equal a b =
-  let a = Selector.specificity a in
-  let b = Selector.specificity b in
+let specificity_equal (a : Selector.specificity) (b : Selector.specificity) =
   Int.equal a.ids b.ids
   && Int.equal a.classes b.classes
   && Int.equal a.elements b.elements
 
+(* [List.exists2] over a zipped pair needs the zip built first, and the inner
+   one was built inside the outer closure: B's whole tuple list was rebuilt once
+   per element of A. Walking the three parallel lists in step decides the same
+   question and allocates nothing. Lengths match by construction (one entry per
+   selector branch); [invalid_arg] mirrors [List.exists2] if they ever do
+   not. *)
+let rec exists3 f a b c =
+  match (a, b, c) with
+  | [], [], [] -> false
+  | x :: xs, y :: ys, z :: zs -> f x y z || exists3 f xs ys zs
+  | _ -> invalid_arg "Rule_graph.exists3"
+
 let selectors_order_conflict ?(closed_world = false) selectors_a summaries_a
-    selectors_b summaries_b =
-  List.exists2
-    (fun selector_a summary_a ->
-      List.exists2
-        (fun selector_b summary_b ->
-          specificity_equal selector_a selector_b
+    specificities_a selectors_b summaries_b specificities_b =
+  exists3
+    (fun selector_a summary_a specificity_a ->
+      exists3
+        (fun selector_b summary_b specificity_b ->
+          specificity_equal specificity_a specificity_b
           &&
           if closed_world then
             (* the caller asserts no element matches two distinct selectors, so
                only an identical selector still ties on the same element *)
             selector_a = selector_b
           else Selector_summary.may_overlap summary_a summary_b)
-        selectors_b summaries_b)
-    selectors_a summaries_a
+        selectors_b summaries_b specificities_b)
+    selectors_a summaries_a specificities_a
 
 (* Canonical, list-order-independent branch strings of a selector: canonicalize
    each comma branch, then sort. [.foo,.bar] and [.bar,.foo] yield the same
    list. *)
+(* Sorted, which is what lets [share_branch] merge-walk two of these. *)
 let selector_branch_keys selectors =
   selectors
   |> List.map (fun s ->
@@ -134,9 +185,21 @@ let selector_branch_keys selectors =
 (* Two rules share a selector branch when a factoring produced one as a residual
    of the other (e.g. [.a] and [.a,.b]) or they are the same selector. Such
    rules are pinned so a factored group stays contiguous and its declaration
-   order is left to the declaration canonicalization. *)
-let share_branch a b =
-  List.exists (fun branch -> List.exists (String.equal branch) b) a
+   order is left to the declaration canonicalization.
+
+   Both arguments come from [selector_branch_keys], which sorts, so this walks
+   the two in step rather than scanning one per element of the other: linear
+   instead of quadratic, and it allocates nothing, where the nested
+   [List.exists] built a closure per element of the left list and a partial
+   application per pair. *)
+let rec share_branch a b =
+  match (a, b) with
+  | [], _ | _, [] -> false
+  | x :: xs, y :: ys ->
+      let c = String.compare x y in
+      if c = 0 then true
+      else if c < 0 then share_branch xs b
+      else share_branch a ys
 
 let declaration_size decl = Pp.size ~minify:true Declaration.pp_declaration decl
 
@@ -172,7 +235,8 @@ let nodes_conflict_reason t i j =
     overlap_key_lists_intersect t.overlap_keys.(i) t.overlap_keys.(j)
     && decls_order_conflict t.decl_overlaps.(i) t.decl_overlaps.(j)
     && selectors_order_conflict ~closed_world:t.closed_world t.selectors.(i)
-         t.selector_summaries.(i) t.selectors.(j) t.selector_summaries.(j)
+         t.selector_summaries.(i) t.specificities.(i) t.selectors.(j)
+         t.selector_summaries.(j) t.specificities.(j)
   then Option.Some Cascade_conflict
   else Option.None
 
@@ -240,7 +304,7 @@ let collect_string_bucket bucket key stamp seen acc =
   |> List.fold_left (add_candidate stamp seen) acc
 
 let source_order_edges t =
-  let n = Array.length t.rules in
+  let n = t.count in
   let succ = Array.make n [] in
   let by_decl_key = Overlap_key_table.create 256 in
   let by_branch = String_table.create 256 in
@@ -284,12 +348,16 @@ let index_add tbl key node =
   Hashtbl.replace tbl key
     (node :: Option.value ~default:[] (Hashtbl.find_opt tbl key))
 
+let decl_index_add tbl key node =
+  Decl_tbl.replace tbl key
+    (node :: Option.value ~default:[] (Decl_tbl.find_opt tbl key))
+
 let key_inner t key =
-  match Hashtbl.find_opt t.key_index key with
+  match Key_tbl.find_opt t.key_index key with
   | Some inner -> inner
   | None ->
-      let inner = Hashtbl.create 4 in
-      Hashtbl.replace t.key_index key inner;
+      let inner = Decl_tbl.create 4 in
+      Key_tbl.replace t.key_index key inner;
       inner
 
 (* Add [node]'s overlap keys (partitioned by the declaration that writes each)
@@ -299,7 +367,7 @@ let index_node t (node : node_id) =
   List.iter
     (fun (ov : decl_overlap) ->
       List.iter
-        (fun key -> index_add (key_inner t key) ov.decl node)
+        (fun key -> decl_index_add (key_inner t key) ov.decl node)
         ov.footprint)
     t.decl_overlaps.(i);
   List.iter (fun branch -> index_add t.branch_index branch node) t.branches.(i)
@@ -313,6 +381,7 @@ let of_rules ?parent ?(closed_world = false) (rules : rule list) : t =
   let selector_summaries =
     Array.map (List.map Selector_summary.of_selector) selectors
   in
+  let specificities = Array.map (List.map Selector.specificity) selectors in
   let branches = Array.map selector_branch_keys selectors in
   let decl_overlaps = Array.map rule_decl_overlaps rules in
   let overlap_keys = Array.map rule_overlap_keys decl_overlaps in
@@ -322,17 +391,19 @@ let of_rules ?parent ?(closed_world = false) (rules : rule list) : t =
       generation = 0;
       closed_world;
       parent;
+      count = n;
       rules;
       summaries;
       origin = Array.init n Fun.id;
       live;
       selectors;
       selector_summaries;
+      specificities;
       branches;
       decl_overlaps;
       overlap_keys;
       succ = [||];
-      key_index = Hashtbl.create (max 16 (n * 2));
+      key_index = Key_tbl.create (max 16 (n * 2));
       branch_index = Hashtbl.create (max 16 (n * 2));
     }
   in
@@ -341,7 +412,7 @@ let of_rules ?parent ?(closed_world = false) (rules : rule list) : t =
   done;
   { t with succ = source_order_edges t }
 
-let node_count t = Array.length t.rules
+let node_count t = t.count
 let node_rule t i = t.rules.(i)
 let node_size t i = Summary.size t.summaries.(i)
 let node_origin t i = t.origin.(i)
@@ -502,6 +573,29 @@ let produced_origins t consume produced_branches =
       |> fun origin -> if origin = max_int then fallback else origin)
     produced_branches
 
+(* [rewrite] has a single caller, which threads one graph and discards the
+   parent as soon as a rewrite is accepted, so a produced graph can extend these
+   append-only arrays in place and share them: the parent's [count] never covers
+   the new slots, and a rejected rewrite simply leaves them to be overwritten by
+   the next attempt. Growing geometrically turns a full copy of every array per
+   rewrite into an amortised append. [live] and [succ] stay copies, since a
+   rewrite mutates both and the parent must not see that. *)
+let append_slack arr ~count (items : 'a array) =
+  let added = Array.length items in
+  let needed = count + added in
+  let arr =
+    if Array.length arr >= needed then arr
+    else begin
+      let grown =
+        Array.make (max needed (2 * max 1 (Array.length arr))) items.(0)
+      in
+      Array.blit arr 0 grown 0 count;
+      grown
+    end
+  in
+  Array.blit items 0 arr count added;
+  arr
+
 let rewrite_live t ~total ~new_n ~consume =
   let live = Array.make new_n false in
   Array.blit t.live 0 live 0 total;
@@ -518,12 +612,14 @@ let produced_metadata t produced =
   let selector_summaries =
     Array.map (List.map Selector_summary.of_selector) selectors
   in
+  let specificities = Array.map (List.map Selector.specificity) selectors in
   let branches = Array.map selector_branch_keys selectors in
   let decl_overlaps = Array.map rule_decl_overlaps produced in
   let overlap_keys = Array.map rule_overlap_keys decl_overlaps in
   ( summaries,
     selectors,
     selector_summaries,
+    specificities,
     branches,
     decl_overlaps,
     overlap_keys )
@@ -541,6 +637,7 @@ let rewrite_base t ~consume ~produce :
         let ( p_summaries,
               p_selectors,
               p_selector_summaries,
+              p_specificities,
               p_branches,
               p_decl_overlaps,
               p_overlap_keys ) =
@@ -551,18 +648,27 @@ let rewrite_base t ~consume ~produce :
             generation = t.generation + 1;
             closed_world = t.closed_world;
             parent = t.parent;
-            rules = Array.append t.rules produced;
-            summaries = Array.append t.summaries p_summaries;
+            count = new_n;
+            rules = append_slack t.rules ~count:total produced;
+            summaries = append_slack t.summaries ~count:total p_summaries;
             origin =
-              Array.append t.origin (produced_origins t consume p_branches);
+              append_slack t.origin ~count:total
+                (produced_origins t consume p_branches);
             live = rewrite_live t ~total ~new_n ~consume;
-            selectors = Array.append t.selectors p_selectors;
+            selectors = append_slack t.selectors ~count:total p_selectors;
             selector_summaries =
-              Array.append t.selector_summaries p_selector_summaries;
-            branches = Array.append t.branches p_branches;
-            decl_overlaps = Array.append t.decl_overlaps p_decl_overlaps;
-            overlap_keys = Array.append t.overlap_keys p_overlap_keys;
-            succ = Array.append t.succ (Array.make (Array.length produced) []);
+              append_slack t.selector_summaries ~count:total
+                p_selector_summaries;
+            specificities =
+              append_slack t.specificities ~count:total p_specificities;
+            branches = append_slack t.branches ~count:total p_branches;
+            decl_overlaps =
+              append_slack t.decl_overlaps ~count:total p_decl_overlaps;
+            overlap_keys =
+              append_slack t.overlap_keys ~count:total p_overlap_keys;
+            succ =
+              Array.append (Array.sub t.succ 0 total)
+                (Array.make (Array.length produced) []);
             (* shared with [t]: holds the existing nodes; produced nodes are
                added by {!rewrite} only once the rewrite is accepted, so
                [add_external_edges] below sees the pre-rewrite index. *)
@@ -753,9 +859,9 @@ let external_candidates graph ~total ~consumed ~seen p =
       (fun (ov : decl_overlap) ->
         List.iter
           (fun key ->
-            match Hashtbl.find_opt graph.key_index key with
+            match Key_tbl.find_opt graph.key_index key with
             | Some inner ->
-                Hashtbl.iter
+                Decl_tbl.iter
                   (fun decl' ids ->
                     if not (Shorthand.same_minified_declaration ov.decl decl')
                     then push_ids ids)
@@ -765,8 +871,8 @@ let external_candidates graph ~total ~consumed ~seen p =
       graph.decl_overlaps.(p);
     (* The broad key ([all]) conflicts with everything, so collect every node
        under it regardless of declaration. *)
-    (match Hashtbl.find_opt graph.key_index Shorthand.broad_overlap_key with
-    | Some inner -> Hashtbl.iter (fun _ ids -> push_ids ids) inner
+    (match Key_tbl.find_opt graph.key_index Shorthand.broad_overlap_key with
+    | Some inner -> Decl_tbl.iter (fun _ ids -> push_ids ids) inner
     | None -> ());
     List.iter
       (fun b ->

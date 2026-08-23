@@ -19,8 +19,8 @@ and block = {
   value : t list;
   closed : bool;
       (** [false] when the lexer reached EOF before the matching closer (CSS
-          Syntax §5.4.6 parse error). The serializer still emits the synthetic
-          closer so reserialised output round-trips. *)
+          Syntax sec. 5.4.6 parse error). The serializer still emits the
+          synthetic closer so reserialised output round-trips. *)
 }
 
 and func = {
@@ -46,6 +46,9 @@ type qualified_rule = qualified_rule_body node
 type rule = Qualified of qualified_rule | At of at_rule
 type declaration_body = { name : string; value : t list; important : bool }
 type declaration = declaration_body node
+
+val equal : t -> t -> bool
+(** [equal a b] tests component values for structural equality. *)
 
 val source_loc : t -> Loc.t
 (** [source_loc cv] is the source range spanned by [cv]. *)

@@ -1,6 +1,6 @@
 (** CSS Syntax Module Level 3 section 4.2: token taxonomy.
 
-    Types only; the §4.3 tokenization algorithm lives in {!Lexer}. *)
+    Types only; the sec. 4.3 tokenization algorithm lives in {!Lexer}. *)
 
 type hash_flag = Id | Unrestricted
 type number_flag = Integer | Number
@@ -42,6 +42,10 @@ type kind =
 
 type t = { kind : kind; loc : Loc.t }
 
+let equal_hash_flag (a : hash_flag) b = a = b
+let equal_number_flag (a : number_flag) b = a = b
+let equal_bracket (a : bracket) b = a = b
+let equal_kind (a : kind) b = a = b
 let v ~kind ~loc = { kind; loc }
 let synthetic kind = { kind; loc = Loc.dummy }
 

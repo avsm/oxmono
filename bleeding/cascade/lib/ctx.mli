@@ -8,18 +8,23 @@ type objective = [ `Raw | `Transfer ]
     (gzip) transfer bytes. *)
 
 type t
-(** Shared optimizer context. *)
+(** Shared optimizer context. One is built per optimizer run and threaded to
+    every pass, so it also carries the run's profiling recorder. *)
 
 val fragment : t
-(** Default fragment context. *)
+(** Default fragment context. Being a constant it carries a recorder shared by
+    everything that uses it; build a context with {!v} to collect a run's
+    profile. *)
 
 val of_scope :
   ?lossless:bool ->
   ?aggressive:bool ->
+  ?regroup:bool ->
   ?extend_lists:bool ->
   ?closed_world:bool ->
   ?objective:objective ->
   ?enforce_spec:bool ->
+  ?stats:Stats.t ->
   scope option ->
   t
 (** Build a context from an optional scope. *)
@@ -27,14 +32,18 @@ val of_scope :
 val v :
   ?lossless:bool ->
   ?aggressive:bool ->
+  ?regroup:bool ->
   ?extend_lists:bool ->
   ?closed_world:bool ->
   ?objective:objective ->
   ?enforce_spec:bool ->
   ?registered:(string -> bool) ->
+  ?stats:Stats.t ->
   scope ->
   t
-(** Build a context explicitly. *)
+(** Build a context explicitly. [stats] defaults to a fresh recorder, so a
+    context that is not handed one still counts its run's work, into a recorder
+    nobody reads. *)
 
 val scope : t -> scope
 (** Scope assumed by optimizations. *)
@@ -44,6 +53,13 @@ val registered : t -> string -> bool
 
 val lossless : t -> bool
 (** Whether lossless value optimization is enabled. *)
+
+val regroup : t -> bool
+(** Whether rules may be regrouped: shared declarations factored into a selector
+    list, and nesting synthesised from a run of adjacent rules. Both depend on
+    how the input happened to order its rules - a rule sitting between two
+    others decides whether either applies - so a canonical projection turns them
+    off to stay confluent. *)
 
 val aggressive : t -> bool
 (** Whether expensive optimization passes (notably the global factoring
@@ -80,6 +96,9 @@ val enforce_spec : t -> bool
 (** Whether the evergreen-browser target is dropped. Off by default: a vendor-
     prefixed declaration whose unprefixed twin is present may be stripped, since
     modern browsers understand the unprefixed form. On: keep every prefix. *)
+
+val stats : t -> Stats.t
+(** Profiling recorder for the run this context belongs to. *)
 
 val with_extend_lists : bool -> t -> t
 (** [with_extend_lists enabled ctx] returns [ctx] with only the list-extension

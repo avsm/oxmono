@@ -36,166 +36,261 @@ let read_system_color_of_string keyword : color option =
   | "-webkit-focus-ring-color" -> Some (System Webkit_focus_ring_color)
   | _ -> None
 
+(* CSS Color 4 sec. 6.1 and 6.4: the named colours, each with its canonical CSS
+   spelling and its sRGB bytes. This list is the only place either is written
+   down. [pp_color_name], [color_name_hex], the colour-keyword reader,
+   [read_color_name] and the hex inversion all derive from it, so a name and its
+   bytes cannot drift apart and every view covers the same 148 colours. Hex is
+   stored in its shortest spelling ([rrggbb] folded to [rgb]), which is what
+   [hex_string_of_bytes] produces, so the inversion keys on it directly.
+
+   A colour with two names lists the canonical spelling first ([gray] before
+   [grey], [cyan] before [aqua]); the hex inversion keeps the first row. *)
+let color_table : (color_name * string * string) list =
+  [
+    (Red, "red", "f00");
+    (Blue, "blue", "00f");
+    (Green, "green", "008000");
+    (White, "white", "fff");
+    (Black, "black", "000");
+    (Yellow, "yellow", "ff0");
+    (Cyan, "cyan", "0ff");
+    (Magenta, "magenta", "f0f");
+    (Gray, "gray", "808080");
+    (Grey, "grey", "808080");
+    (Orange, "orange", "ffa500");
+    (Purple, "purple", "800080");
+    (Pink, "pink", "ffc0cb");
+    (Silver, "silver", "c0c0c0");
+    (Maroon, "maroon", "800000");
+    (Fuchsia, "fuchsia", "f0f");
+    (Lime, "lime", "0f0");
+    (Olive, "olive", "808000");
+    (Navy, "navy", "000080");
+    (Teal, "teal", "008080");
+    (Aqua, "aqua", "0ff");
+    (Alice_blue, "aliceblue", "f0f8ff");
+    (Antique_white, "antiquewhite", "faebd7");
+    (Aquamarine, "aquamarine", "7fffd4");
+    (Azure, "azure", "f0ffff");
+    (Beige, "beige", "f5f5dc");
+    (Bisque, "bisque", "ffe4c4");
+    (Blanched_almond, "blanchedalmond", "ffebcd");
+    (Blue_violet, "blueviolet", "8a2be2");
+    (Brown, "brown", "a52a2a");
+    (Burlywood, "burlywood", "deb887");
+    (Cadet_blue, "cadetblue", "5f9ea0");
+    (Chartreuse, "chartreuse", "7fff00");
+    (Chocolate, "chocolate", "d2691e");
+    (Coral, "coral", "ff7f50");
+    (Cornflower_blue, "cornflowerblue", "6495ed");
+    (Cornsilk, "cornsilk", "fff8dc");
+    (Crimson, "crimson", "dc143c");
+    (Dark_blue, "darkblue", "00008b");
+    (Dark_cyan, "darkcyan", "008b8b");
+    (Dark_goldenrod, "darkgoldenrod", "b8860b");
+    (Dark_gray, "darkgray", "a9a9a9");
+    (Dark_green, "darkgreen", "006400");
+    (Dark_grey, "darkgrey", "a9a9a9");
+    (Dark_khaki, "darkkhaki", "bdb76b");
+    (Dark_magenta, "darkmagenta", "8b008b");
+    (Dark_olive_green, "darkolivegreen", "556b2f");
+    (Dark_orange, "darkorange", "ff8c00");
+    (Dark_orchid, "darkorchid", "9932cc");
+    (Dark_red, "darkred", "8b0000");
+    (Dark_salmon, "darksalmon", "e9967a");
+    (Dark_sea_green, "darkseagreen", "8fbc8f");
+    (Dark_slate_blue, "darkslateblue", "483d8b");
+    (Dark_slate_gray, "darkslategray", "2f4f4f");
+    (Dark_slate_grey, "darkslategrey", "2f4f4f");
+    (Dark_turquoise, "darkturquoise", "00ced1");
+    (Dark_violet, "darkviolet", "9400d3");
+    (Deep_pink, "deeppink", "ff1493");
+    (Deep_sky_blue, "deepskyblue", "00bfff");
+    (Dim_gray, "dimgray", "696969");
+    (Dim_grey, "dimgrey", "696969");
+    (Dodger_blue, "dodgerblue", "1e90ff");
+    (Firebrick, "firebrick", "b22222");
+    (Floral_white, "floralwhite", "fffaf0");
+    (Forest_green, "forestgreen", "228b22");
+    (Gainsboro, "gainsboro", "dcdcdc");
+    (Ghost_white, "ghostwhite", "f8f8ff");
+    (Gold, "gold", "ffd700");
+    (Goldenrod, "goldenrod", "daa520");
+    (Green_yellow, "greenyellow", "adff2f");
+    (Honeydew, "honeydew", "f0fff0");
+    (Hot_pink, "hotpink", "ff69b4");
+    (Indian_red, "indianred", "cd5c5c");
+    (Indigo, "indigo", "4b0082");
+    (Ivory, "ivory", "fffff0");
+    (Khaki, "khaki", "f0e68c");
+    (Lavender, "lavender", "e6e6fa");
+    (Lavender_blush, "lavenderblush", "fff0f5");
+    (Lawn_green, "lawngreen", "7cfc00");
+    (Lemon_chiffon, "lemonchiffon", "fffacd");
+    (Light_blue, "lightblue", "add8e6");
+    (Light_coral, "lightcoral", "f08080");
+    (Light_cyan, "lightcyan", "e0ffff");
+    (Light_goldenrod_yellow, "lightgoldenrodyellow", "fafad2");
+    (Light_gray, "lightgray", "d3d3d3");
+    (Light_green, "lightgreen", "90ee90");
+    (Light_grey, "lightgrey", "d3d3d3");
+    (Light_pink, "lightpink", "ffb6c1");
+    (Light_salmon, "lightsalmon", "ffa07a");
+    (Light_sea_green, "lightseagreen", "20b2aa");
+    (Light_sky_blue, "lightskyblue", "87cefa");
+    (Light_slate_gray, "lightslategray", "789");
+    (Light_slate_grey, "lightslategrey", "789");
+    (Light_steel_blue, "lightsteelblue", "b0c4de");
+    (Light_yellow, "lightyellow", "ffffe0");
+    (Lime_green, "limegreen", "32cd32");
+    (Linen, "linen", "faf0e6");
+    (Medium_aquamarine, "mediumaquamarine", "66cdaa");
+    (Medium_blue, "mediumblue", "0000cd");
+    (Medium_orchid, "mediumorchid", "ba55d3");
+    (Medium_purple, "mediumpurple", "9370db");
+    (Medium_sea_green, "mediumseagreen", "3cb371");
+    (Medium_slate_blue, "mediumslateblue", "7b68ee");
+    (Medium_spring_green, "mediumspringgreen", "00fa9a");
+    (Medium_turquoise, "mediumturquoise", "48d1cc");
+    (Medium_violet_red, "mediumvioletred", "c71585");
+    (Midnight_blue, "midnightblue", "191970");
+    (Mint_cream, "mintcream", "f5fffa");
+    (Misty_rose, "mistyrose", "ffe4e1");
+    (Moccasin, "moccasin", "ffe4b5");
+    (Navajo_white, "navajowhite", "ffdead");
+    (Old_lace, "oldlace", "fdf5e6");
+    (Olive_drab, "olivedrab", "6b8e23");
+    (Orange_red, "orangered", "ff4500");
+    (Orchid, "orchid", "da70d6");
+    (Pale_goldenrod, "palegoldenrod", "eee8aa");
+    (Pale_green, "palegreen", "98fb98");
+    (Pale_turquoise, "paleturquoise", "afeeee");
+    (Pale_violet_red, "palevioletred", "db7093");
+    (Papaya_whip, "papayawhip", "ffefd5");
+    (Peach_puff, "peachpuff", "ffdab9");
+    (Peru, "peru", "cd853f");
+    (Plum, "plum", "dda0dd");
+    (Powder_blue, "powderblue", "b0e0e6");
+    (Rebecca_purple, "rebeccapurple", "663399");
+    (Rosy_brown, "rosybrown", "bc8f8f");
+    (Royal_blue, "royalblue", "4169e1");
+    (Saddle_brown, "saddlebrown", "8b4513");
+    (Salmon, "salmon", "fa8072");
+    (Sandy_brown, "sandybrown", "f4a460");
+    (Sea_green, "seagreen", "2e8b57");
+    (Sea_shell, "seashell", "fff5ee");
+    (Sienna, "sienna", "a0522d");
+    (Sky_blue, "skyblue", "87ceeb");
+    (Slate_blue, "slateblue", "6a5acd");
+    (Slate_gray, "slategray", "708090");
+    (Slate_grey, "slategrey", "708090");
+    (Snow, "snow", "fffafa");
+    (Spring_green, "springgreen", "00ff7f");
+    (Steel_blue, "steelblue", "4682b4");
+    (Tan, "tan", "d2b48c");
+    (Thistle, "thistle", "d8bfd8");
+    (Tomato, "tomato", "ff6347");
+    (Turquoise, "turquoise", "40e0d0");
+    (Violet, "violet", "ee82ee");
+    (Wheat, "wheat", "f5deb3");
+    (White_smoke, "whitesmoke", "f5f5f5");
+    (Yellow_green, "yellowgreen", "9acd32");
+  ]
+
+(* Not called. [color_table] is a list, so a constructor with no row would be a
+   lookup miss at run time; this match turns adding a [color_name] into a build
+   error here, beside the table that needs the new row. *)
+let _color_table_covers_color_name : color_name -> unit = function
+  | Red | Blue | Green | White | Black | Yellow | Cyan | Magenta | Gray | Grey
+  | Orange | Purple | Pink | Silver | Maroon | Fuchsia | Lime | Olive | Navy
+  | Teal | Aqua | Alice_blue | Antique_white | Aquamarine | Azure | Beige
+  | Bisque | Blanched_almond | Blue_violet | Brown | Burlywood | Cadet_blue
+  | Chartreuse | Chocolate | Coral | Cornflower_blue | Cornsilk | Crimson
+  | Dark_blue | Dark_cyan | Dark_goldenrod | Dark_gray | Dark_green | Dark_grey
+  | Dark_khaki | Dark_magenta | Dark_olive_green | Dark_orange | Dark_orchid
+  | Dark_red | Dark_salmon | Dark_sea_green | Dark_slate_blue | Dark_slate_gray
+  | Dark_slate_grey | Dark_turquoise | Dark_violet | Deep_pink | Deep_sky_blue
+  | Dim_gray | Dim_grey | Dodger_blue | Firebrick | Floral_white | Forest_green
+  | Gainsboro | Ghost_white | Gold | Goldenrod | Green_yellow | Honeydew
+  | Hot_pink | Indian_red | Indigo | Ivory | Khaki | Lavender | Lavender_blush
+  | Lawn_green | Lemon_chiffon | Light_blue | Light_coral | Light_cyan
+  | Light_goldenrod_yellow | Light_gray | Light_green | Light_grey | Light_pink
+  | Light_salmon | Light_sea_green | Light_sky_blue | Light_slate_gray
+  | Light_slate_grey | Light_steel_blue | Light_yellow | Lime_green | Linen
+  | Medium_aquamarine | Medium_blue | Medium_orchid | Medium_purple
+  | Medium_sea_green | Medium_slate_blue | Medium_spring_green
+  | Medium_turquoise | Medium_violet_red | Midnight_blue | Mint_cream
+  | Misty_rose | Moccasin | Navajo_white | Old_lace | Olive_drab | Orange_red
+  | Orchid | Pale_goldenrod | Pale_green | Pale_turquoise | Pale_violet_red
+  | Papaya_whip | Peach_puff | Peru | Plum | Powder_blue | Rebecca_purple
+  | Rosy_brown | Royal_blue | Saddle_brown | Salmon | Sandy_brown | Sea_green
+  | Sea_shell | Sienna | Sky_blue | Slate_blue | Slate_gray | Slate_grey | Snow
+  | Spring_green | Steel_blue | Tan | Thistle | Tomato | Turquoise | Violet
+  | Wheat | White_smoke | Yellow_green ->
+      ()
+
+(* Shortest spelling of one colour. The name wins only when it is no longer than
+   the [#hex] beside it, so [bisque] beats [#ffe4c4] while [blue] loses to
+   [#00f]. [minify_color] and the hex inversion are the two directions of this
+   single choice, which is why both read it from here. *)
+let color_name_is_shortest ~name ~hex =
+  String.length name < String.length hex + 1
+
+let color_table_index : (color_name, string * string) Hashtbl.t =
+  let tbl = Hashtbl.create 211 in
+  List.iter
+    (fun (c, name, hex) -> Hashtbl.replace tbl c (name, hex))
+    color_table;
+  tbl
+
+(** Convert a named color to its hex equivalent (name, hex_value). Returns the
+    shortest representation matching Lightning CSS behavior. *)
+let color_name_hex (c : color_name) : string * string =
+  match Hashtbl.find_opt color_table_index c with
+  | Some row -> row
+  | None -> ("", "")
+
+let color_name_by_spelling : (string, color_name) Hashtbl.t =
+  let tbl = Hashtbl.create 211 in
+  List.iter (fun (c, name, _) -> Hashtbl.replace tbl name c) color_table;
+  tbl
+
+(* [name] must already be lower-cased: a colour keyword is
+   ASCII-case-insensitive, but every caller folds the case before it gets
+   here. *)
+let color_name_of_string name = Hashtbl.find_opt color_name_by_spelling name
+
+(* Reverse of [color_name_hex], restricted to the colours whose name is the
+   shortest spelling: inverting any of the others would hand back a longer
+   answer than the hex it was given. *)
+let color_name_by_hex : (string, color_name) Hashtbl.t =
+  let tbl = Hashtbl.create 61 in
+  List.iter
+    (fun (c, name, hex) ->
+      if color_name_is_shortest ~name ~hex && not (Hashtbl.mem tbl hex) then
+        Hashtbl.add tbl hex c)
+    color_table;
+  tbl
+
+let color_name_of_hex hex =
+  Hashtbl.find_opt color_name_by_hex (String.lowercase_ascii hex)
+
 let read_color_keyword_of_string keyword : color option =
   match keyword with
   | "transparent" -> Some Transparent
   | "currentcolor" -> Some Current
   | "auto" -> Some Auto
   | "inherit" -> Some Inherit
-  | "red" -> Some (Named Red)
-  | "green" -> Some (Named Green)
-  | "blue" -> Some (Named Blue)
-  | "white" -> Some (Named White)
-  | "black" -> Some (Named Black)
-  | "gray" -> Some (Named Gray)
-  | "grey" -> Some (Named Grey)
-  | "silver" -> Some (Named Silver)
-  | "maroon" -> Some (Named Maroon)
-  | "yellow" -> Some (Named Yellow)
-  | "olive" -> Some (Named Olive)
-  | "lime" -> Some (Named Lime)
-  | "aqua" -> Some (Named Aqua)
-  | "cyan" -> Some (Named Cyan)
-  | "teal" -> Some (Named Teal)
-  | "navy" -> Some (Named Navy)
-  | "fuchsia" -> Some (Named Fuchsia)
-  | "magenta" -> Some (Named Magenta)
-  | "purple" -> Some (Named Purple)
-  | "orange" -> Some (Named Orange)
-  | "pink" -> Some (Named Pink)
-  | "aliceblue" -> Some (Named Alice_blue)
-  | "antiquewhite" -> Some (Named Antique_white)
-  | "aquamarine" -> Some (Named Aquamarine)
-  | "azure" -> Some (Named Azure)
-  | "beige" -> Some (Named Beige)
-  | "bisque" -> Some (Named Bisque)
-  | "blanchedalmond" -> Some (Named Blanched_almond)
-  | "blueviolet" -> Some (Named Blue_violet)
-  | "brown" -> Some (Named Brown)
-  | "burlywood" -> Some (Named Burlywood)
-  | "cadetblue" -> Some (Named Cadet_blue)
-  | "chartreuse" -> Some (Named Chartreuse)
-  | "chocolate" -> Some (Named Chocolate)
-  | "coral" -> Some (Named Coral)
-  | "cornflowerblue" -> Some (Named Cornflower_blue)
-  | "cornsilk" -> Some (Named Cornsilk)
-  | "crimson" -> Some (Named Crimson)
-  | "darkblue" -> Some (Named Dark_blue)
-  | "darkcyan" -> Some (Named Dark_cyan)
-  | "darkgoldenrod" -> Some (Named Dark_goldenrod)
-  | "darkgray" -> Some (Named Dark_gray)
-  | "darkgreen" -> Some (Named Dark_green)
-  | "darkgrey" -> Some (Named Dark_grey)
-  | "darkkhaki" -> Some (Named Dark_khaki)
-  | "darkmagenta" -> Some (Named Dark_magenta)
-  | "darkolivegreen" -> Some (Named Dark_olive_green)
-  | "darkorange" -> Some (Named Dark_orange)
-  | "darkorchid" -> Some (Named Dark_orchid)
-  | "darkred" -> Some (Named Dark_red)
-  | "darksalmon" -> Some (Named Dark_salmon)
-  | "darkseagreen" -> Some (Named Dark_sea_green)
-  | "darkslateblue" -> Some (Named Dark_slate_blue)
-  | "darkslategray" -> Some (Named Dark_slate_gray)
-  | "darkslategrey" -> Some (Named Dark_slate_grey)
-  | "darkturquoise" -> Some (Named Dark_turquoise)
-  | "darkviolet" -> Some (Named Dark_violet)
-  | "deeppink" -> Some (Named Deep_pink)
-  | "deepskyblue" -> Some (Named Deep_sky_blue)
-  | "dimgray" -> Some (Named Dim_gray)
-  | "dimgrey" -> Some (Named Dim_grey)
-  | "dodgerblue" -> Some (Named Dodger_blue)
-  | "firebrick" -> Some (Named Firebrick)
-  | "floralwhite" -> Some (Named Floral_white)
-  | "forestgreen" -> Some (Named Forest_green)
-  | "gainsboro" -> Some (Named Gainsboro)
-  | "ghostwhite" -> Some (Named Ghost_white)
-  | "gold" -> Some (Named Gold)
-  | "goldenrod" -> Some (Named Goldenrod)
-  | "greenyellow" -> Some (Named Green_yellow)
-  | "honeydew" -> Some (Named Honeydew)
-  | "hotpink" -> Some (Named Hot_pink)
-  | "indianred" -> Some (Named Indian_red)
-  | "indigo" -> Some (Named Indigo)
-  | "ivory" -> Some (Named Ivory)
-  | "khaki" -> Some (Named Khaki)
-  | "lavender" -> Some (Named Lavender)
-  | "lavenderblush" -> Some (Named Lavender_blush)
-  | "lawngreen" -> Some (Named Lawn_green)
-  | "lemonchiffon" -> Some (Named Lemon_chiffon)
-  | "lightblue" -> Some (Named Light_blue)
-  | "lightcoral" -> Some (Named Light_coral)
-  | "lightcyan" -> Some (Named Light_cyan)
-  | "lightgoldenrodyellow" -> Some (Named Light_goldenrod_yellow)
-  | "lightgray" -> Some (Named Light_gray)
-  | "lightgreen" -> Some (Named Light_green)
-  | "lightgrey" -> Some (Named Light_grey)
-  | "lightpink" -> Some (Named Light_pink)
-  | "lightsalmon" -> Some (Named Light_salmon)
-  | "lightseagreen" -> Some (Named Light_sea_green)
-  | "lightskyblue" -> Some (Named Light_sky_blue)
-  | "lightslategray" -> Some (Named Light_slate_gray)
-  | "lightslategrey" -> Some (Named Light_slate_grey)
-  | "lightsteelblue" -> Some (Named Light_steel_blue)
-  | "lightyellow" -> Some (Named Light_yellow)
-  | "limegreen" -> Some (Named Lime_green)
-  | "linen" -> Some (Named Linen)
-  | "mediumaquamarine" -> Some (Named Medium_aquamarine)
-  | "mediumblue" -> Some (Named Medium_blue)
-  | "mediumorchid" -> Some (Named Medium_orchid)
-  | "mediumpurple" -> Some (Named Medium_purple)
-  | "mediumseagreen" -> Some (Named Medium_sea_green)
-  | "mediumslateblue" -> Some (Named Medium_slate_blue)
-  | "mediumspringgreen" -> Some (Named Medium_spring_green)
-  | "mediumturquoise" -> Some (Named Medium_turquoise)
-  | "mediumvioletred" -> Some (Named Medium_violet_red)
-  | "midnightblue" -> Some (Named Midnight_blue)
-  | "mintcream" -> Some (Named Mint_cream)
-  | "mistyrose" -> Some (Named Misty_rose)
-  | "moccasin" -> Some (Named Moccasin)
-  | "navajowhite" -> Some (Named Navajo_white)
-  | "oldlace" -> Some (Named Old_lace)
-  | "olivedrab" -> Some (Named Olive_drab)
-  | "orangered" -> Some (Named Orange_red)
-  | "orchid" -> Some (Named Orchid)
-  | "palegoldenrod" -> Some (Named Pale_goldenrod)
-  | "palegreen" -> Some (Named Pale_green)
-  | "paleturquoise" -> Some (Named Pale_turquoise)
-  | "palevioletred" -> Some (Named Pale_violet_red)
-  | "papayawhip" -> Some (Named Papaya_whip)
-  | "peachpuff" -> Some (Named Peach_puff)
-  | "peru" -> Some (Named Peru)
-  | "plum" -> Some (Named Plum)
-  | "powderblue" -> Some (Named Powder_blue)
-  | "rebeccapurple" -> Some (Named Rebecca_purple)
-  | "rosybrown" -> Some (Named Rosy_brown)
-  | "royalblue" -> Some (Named Royal_blue)
-  | "saddlebrown" -> Some (Named Saddle_brown)
-  | "salmon" -> Some (Named Salmon)
-  | "sandybrown" -> Some (Named Sandy_brown)
-  | "seagreen" -> Some (Named Sea_green)
-  | "seashell" -> Some (Named Sea_shell)
-  | "sienna" -> Some (Named Sienna)
-  | "skyblue" -> Some (Named Sky_blue)
-  | "slateblue" -> Some (Named Slate_blue)
-  | "slategray" -> Some (Named Slate_gray)
-  | "slategrey" -> Some (Named Slate_grey)
-  | "snow" -> Some (Named Snow)
-  | "springgreen" -> Some (Named Spring_green)
-  | "steelblue" -> Some (Named Steel_blue)
-  | "tan" -> Some (Named Tan)
-  | "thistle" -> Some (Named Thistle)
-  | "tomato" -> Some (Named Tomato)
-  | "turquoise" -> Some (Named Turquoise)
-  | "violet" -> Some (Named Violet)
-  | "wheat" -> Some (Named Wheat)
-  | "whitesmoke" -> Some (Named White_smoke)
-  | "yellowgreen" -> Some (Named Yellow_green)
   | "initial" -> Some Initial
   | "unset" -> Some Unset
   | "revert" -> Some Revert
   | "revert-layer" -> Some Revert_layer
-  (* CSS system colors - case-insensitive matching *)
-  | _ -> read_system_color_of_string keyword
+  | _ -> (
+      match color_name_of_string keyword with
+      | Some name -> Some (Named name)
+      (* CSS system colors - case-insensitive matching *)
+      | None -> read_system_color_of_string keyword)
 
 (* Inside a custom-property body, colour keywords ([transparent], named colours,
    ...) are ASCII-case-insensitive idents whose canonical spelling is
@@ -230,6 +325,9 @@ let oklch l c h =
 
 let oklcha l c h a =
   Oklch { l = Some (Pct l); c = Some c; h = Unitless h; alpha = Num a }
+
+let oklch_none_hue l c =
+  Oklch { l = Some (Pct l); c = Some c; h = Hue_none; alpha = None }
 
 let oklab l a b =
   Oklab { l = Some (Pct l); a = Some a; b = Some b; alpha = None }
@@ -784,7 +882,7 @@ let pp_calc_contents : type a. a Pp.t -> a calc Pp.t =
 
 (* Fold [a / b] only when the float quotient round-trips through multiplication:
    exact divisions like [100/4 = 25] survive but [100/3 = 33.333...] does not,
-   so the calc wrapper stays and CSS Values 4 §10.7's precision requirement
+   so the calc wrapper stays and CSS Values 4 sec. 10.7's precision requirement
    holds. *)
 let exact_div (a : float) (b : float) : float option =
   if b = 0. then Option.none
@@ -819,7 +917,7 @@ let fold_zero_numeric_expr : type a.
       match value with Some 0. -> Some (Num 0.) | _ -> None)
   | _ -> None
 
-(* CSS Values 4 §10.7 value-independent calc identities: hold for any finite
+(* CSS Values 4 sec. 10.7 value-independent calc identities: hold for any finite
    operand, so they fold even across a kept [var()] (single-valued inside
    [calc()], so [var * 1 = var]). Identity cases ([x * 1], [x / 1], [x + 0],
    ...) return the operand verbatim; zero-producing cases take the type's
@@ -867,7 +965,7 @@ let default_calc_ctx = { var_is_single_valued = (fun _ -> false) }
 (* A nested [calc()] or a parenthesised group around a single leaf is redundant
    grouping: drop it. A [var()] leaf is only safe to unwrap when the var is
    single-valued; otherwise its substitution could be a multi-term expression
-   that needs the grouping (CSS Values 4 §10.10). *)
+   that needs the grouping (CSS Values 4 sec. 10.10). *)
 let unwrap_grouping : type a.
     ctx:calc_ctx -> rewrap:(a calc -> a calc) -> a calc -> a calc =
  fun ~ctx ~rewrap reduced ->
@@ -912,7 +1010,7 @@ let rec eval_calc : type a. ?ctx:calc_ctx -> a calc -> a calc =
               | Some zero -> zero
               | None -> Expr (l, op, r))))
 
-(* CSS Values 4 §10.7 typed [calc()] reduction, shared by every dimensioned
+(* CSS Values 4 sec. 10.7 typed [calc()] reduction, shared by every dimensioned
    type: the [Expr] dispatch is identical, only the per-type leaves differ and
    are passed in ([math_fn], [scale], [combine], [zero] / [is_zero] for the
    identities). A shape with no [scale] / [combine] returns [None] and the
@@ -962,7 +1060,7 @@ let rec eval_typed_calc : type a.
           match scale ~exact:true Mul a n with
           | Some v -> Val v
           | None -> Expr (l, op, r))
-      (* CSS Values 4 §10.7: [1 / (1 / x)] cancels the double inversion. *)
+      (* CSS Values 4 sec. 10.7: [1 / (1 / x)] cancels the double inversion. *)
       | Num 1., Div, Parens (Expr (Num 1., Div, x)) -> x
       | Num 1., Div, Expr (Num 1., Div, x) -> x
       | _ -> (
@@ -973,10 +1071,11 @@ let rec eval_typed_calc : type a.
 let pp_calc : type a. a Pp.t -> a calc Pp.t =
  fun pp_value ctx calc ->
   match calc with
-  (* CSS Values 4 §10.10: a [var()] inside [calc()] is a runtime substitution
-     boundary - the substituted tokens go through calc's typed grammar, not the
-     surrounding property's grammar. Unwrapping [calc(var(--x))] to bare
-     [var(--x)] would change which substitution shape is valid. *)
+  (* CSS Values 4 sec. 10.10: a [var()] inside [calc()] is a runtime
+     substitution boundary - the substituted tokens go through calc's typed
+     grammar, not the surrounding property's grammar. Unwrapping
+     [calc(var(--x))] to bare [var(--x)] would change which substitution shape
+     is valid. *)
   | Val v when Pp.minified ctx -> pp_value ctx v
   | Num n when Pp.minified ctx -> Pp.float ctx n
   | _ ->
@@ -1193,7 +1292,7 @@ let rec resolve_length_calc_vars ctx : length calc -> length calc = function
     as leaf ->
       leaf
 
-(* CSS Values 4 §6.1: the absolute lengths share px as a canonical unit. *)
+(* CSS Values 4 sec. 6.1: the absolute lengths share px as a canonical unit. *)
 let absolute_unit_px_ratio = function
   | "px" -> Some 1.
   | "in" -> Some 96.
@@ -1204,9 +1303,9 @@ let absolute_unit_px_ratio = function
   | "pc" -> Some (96. /. 6.)
   | _ -> None
 
-(* CSS Values 4 §10.7: same-unit add/sub of two typed lengths reduces to a
+(* CSS Values 4 sec. 10.7: same-unit add/sub of two typed lengths reduces to a
    single length. Mixed cases reduce when both operands are absolute units
-   (px-compatible per §6.1) by combining in the canonical px form; relative
+   (px-compatible per sec. 6.1) by combining in the canonical px form; relative
    units (em/rem/vw/...) still require cascade context and stay unfolded. *)
 let length_combine op v1 v2 =
   let combine a b =
@@ -1223,11 +1322,11 @@ let length_combine op v1 v2 =
       | _ -> None)
   | _ -> None
 
-(* CSS Values 4 §10.7: a unitless factor scales a typed length, unit unchanged.
-   Division folds only when [exact_div] is exact, else the [calc()] is kept to
-   avoid precision loss. Exception: an irrational divisor (a math constant [pi]
-   / [e] / ...) can never be exact, and keeping [calc()] preserves no more
-   precision than the browser computes, so fold to the rounded value. *)
+(* CSS Values 4 sec. 10.7: a unitless factor scales a typed length, unit
+   unchanged. Division folds only when [exact_div] is exact, else the [calc()]
+   is kept to avoid precision loss. Exception: an irrational divisor (a math
+   constant [pi] / [e] / ...) can never be exact, and keeping [calc()] preserves
+   no more precision than the browser computes, so fold to the rounded value. *)
 let length_scale ?(exact = true) op v n =
   if not (Float.is_finite n) then Option.none
   else
@@ -1246,9 +1345,10 @@ let length_scale ?(exact = true) op v n =
           else Option.none
     | _ -> Option.none
 
-(* CSS Values 4 §10.7: [abs()] preserves the input's type, so [abs(<length>)]
-   returns a [<length>]. The generic [Math_fn -> Num] reduction strips the unit;
-   reconstruct a length [Val] when the argument's [Dim] carries one. *)
+(* CSS Values 4 sec. 10.7: [abs()] preserves the input's type, so
+   [abs(<length>)] returns a [<length>]. The generic [Math_fn -> Num] reduction
+   strips the unit; reconstruct a length [Val] when the argument's [Dim] carries
+   one. *)
 let length_of_math_fn (fn : math_fn) : length option =
   match fn with
   | Abs_n (Dim (n, unit)) ->
@@ -1258,7 +1358,7 @@ let length_of_math_fn (fn : math_fn) : length option =
 let length_math_fn_value (fn : math_fn) : float option =
   match fn with Sin _ | Cos _ -> None | fn -> eval_math_fn fn
 
-(* CSS Values 4 §10.10: identity-rule simplifications around a runtime
+(* CSS Values 4 sec. 10.10: identity-rule simplifications around a runtime
    substitution would change the substituted-grammar context. *)
 (* A [-webkit-] / [-moz-] intrinsic sizing keyword, the legacy fallback an
    author pairs with the unprefixed form ([width:-webkit-max-content;
@@ -1538,11 +1638,11 @@ let ordered_linear_terms terms =
           Hashtbl.replace table unit
             { term with value = term.value +. n; count = term.count + 1 })
     terms;
-  (* CSS Values 4 §10.10: a calc()'s type is the union of its argument types.
-     Dropping [0%] from [calc(100px + 0%)] would narrow [<length-percentage>] to
-     [<length>] and break interpolation, so [0%] is kept as a type sentinel.
-     Other zero terms (e.g. [0px] beside another [px]) drop, their unit already
-     in the result. *)
+  (* CSS Values 4 sec. 10.10: a calc()'s type is the union of its argument
+     types. Dropping [0%] from [calc(100px + 0%)] would narrow
+     [<length-percentage>] to [<length>] and break interpolation, so [0%] is
+     kept as a type sentinel. Other zero terms (e.g. [0px] beside another [px])
+     drop, their unit already in the result. *)
   let keep_zero_term term =
     length_unit_is_pct term.unit
     && Hashtbl.fold
@@ -2057,312 +2157,7 @@ and pp_generic_length_calc ~always ctx cv =
       pp_calc_presolved (pp_length ~always) ctx cv
 
 let pp_color_name : color_name Pp.t =
- fun ctx -> function
-  | Red -> Pp.string ctx "red"
-  | Blue -> Pp.string ctx "blue"
-  | Green -> Pp.string ctx "green"
-  | White -> Pp.string ctx "white"
-  | Black -> Pp.string ctx "black"
-  | Yellow -> Pp.string ctx "yellow"
-  | Cyan -> Pp.string ctx "cyan"
-  | Magenta -> Pp.string ctx "magenta"
-  | Gray -> Pp.string ctx "gray"
-  | Grey -> Pp.string ctx "grey"
-  | Orange -> Pp.string ctx "orange"
-  | Purple -> Pp.string ctx "purple"
-  | Pink -> Pp.string ctx "pink"
-  | Silver -> Pp.string ctx "silver"
-  | Maroon -> Pp.string ctx "maroon"
-  | Fuchsia -> Pp.string ctx "fuchsia"
-  | Lime -> Pp.string ctx "lime"
-  | Olive -> Pp.string ctx "olive"
-  | Navy -> Pp.string ctx "navy"
-  | Teal -> Pp.string ctx "teal"
-  | Aqua -> Pp.string ctx "aqua"
-  | Alice_blue -> Pp.string ctx "aliceblue"
-  | Antique_white -> Pp.string ctx "antiquewhite"
-  | Aquamarine -> Pp.string ctx "aquamarine"
-  | Azure -> Pp.string ctx "azure"
-  | Beige -> Pp.string ctx "beige"
-  | Bisque -> Pp.string ctx "bisque"
-  | Blanched_almond -> Pp.string ctx "blanchedalmond"
-  | Blue_violet -> Pp.string ctx "blueviolet"
-  | Brown -> Pp.string ctx "brown"
-  | Burlywood -> Pp.string ctx "burlywood"
-  | Cadet_blue -> Pp.string ctx "cadetblue"
-  | Chartreuse -> Pp.string ctx "chartreuse"
-  | Chocolate -> Pp.string ctx "chocolate"
-  | Coral -> Pp.string ctx "coral"
-  | Cornflower_blue -> Pp.string ctx "cornflowerblue"
-  | Cornsilk -> Pp.string ctx "cornsilk"
-  | Crimson -> Pp.string ctx "crimson"
-  | Dark_blue -> Pp.string ctx "darkblue"
-  | Dark_cyan -> Pp.string ctx "darkcyan"
-  | Dark_goldenrod -> Pp.string ctx "darkgoldenrod"
-  | Dark_gray -> Pp.string ctx "darkgray"
-  | Dark_green -> Pp.string ctx "darkgreen"
-  | Dark_grey -> Pp.string ctx "darkgrey"
-  | Dark_khaki -> Pp.string ctx "darkkhaki"
-  | Dark_magenta -> Pp.string ctx "darkmagenta"
-  | Dark_olive_green -> Pp.string ctx "darkolivegreen"
-  | Dark_orange -> Pp.string ctx "darkorange"
-  | Dark_orchid -> Pp.string ctx "darkorchid"
-  | Dark_red -> Pp.string ctx "darkred"
-  | Dark_salmon -> Pp.string ctx "darksalmon"
-  | Dark_sea_green -> Pp.string ctx "darkseagreen"
-  | Dark_slate_blue -> Pp.string ctx "darkslateblue"
-  | Dark_slate_gray -> Pp.string ctx "darkslategray"
-  | Dark_slate_grey -> Pp.string ctx "darkslategrey"
-  | Dark_turquoise -> Pp.string ctx "darkturquoise"
-  | Dark_violet -> Pp.string ctx "darkviolet"
-  | Deep_pink -> Pp.string ctx "deeppink"
-  | Deep_sky_blue -> Pp.string ctx "deepskyblue"
-  | Dim_gray -> Pp.string ctx "dimgray"
-  | Dim_grey -> Pp.string ctx "dimgrey"
-  | Dodger_blue -> Pp.string ctx "dodgerblue"
-  | Firebrick -> Pp.string ctx "firebrick"
-  | Floral_white -> Pp.string ctx "floralwhite"
-  | Forest_green -> Pp.string ctx "forestgreen"
-  | Gainsboro -> Pp.string ctx "gainsboro"
-  | Ghost_white -> Pp.string ctx "ghostwhite"
-  | Gold -> Pp.string ctx "gold"
-  | Goldenrod -> Pp.string ctx "goldenrod"
-  | Green_yellow -> Pp.string ctx "greenyellow"
-  | Honeydew -> Pp.string ctx "honeydew"
-  | Hot_pink -> Pp.string ctx "hotpink"
-  | Indian_red -> Pp.string ctx "indianred"
-  | Indigo -> Pp.string ctx "indigo"
-  | Ivory -> Pp.string ctx "ivory"
-  | Khaki -> Pp.string ctx "khaki"
-  | Lavender -> Pp.string ctx "lavender"
-  | Lavender_blush -> Pp.string ctx "lavenderblush"
-  | Lawn_green -> Pp.string ctx "lawngreen"
-  | Lemon_chiffon -> Pp.string ctx "lemonchiffon"
-  | Light_blue -> Pp.string ctx "lightblue"
-  | Light_coral -> Pp.string ctx "lightcoral"
-  | Light_cyan -> Pp.string ctx "lightcyan"
-  | Light_goldenrod_yellow -> Pp.string ctx "lightgoldenrodyellow"
-  | Light_gray -> Pp.string ctx "lightgray"
-  | Light_green -> Pp.string ctx "lightgreen"
-  | Light_grey -> Pp.string ctx "lightgrey"
-  | Light_pink -> Pp.string ctx "lightpink"
-  | Light_salmon -> Pp.string ctx "lightsalmon"
-  | Light_sea_green -> Pp.string ctx "lightseagreen"
-  | Light_sky_blue -> Pp.string ctx "lightskyblue"
-  | Light_slate_gray -> Pp.string ctx "lightslategray"
-  | Light_slate_grey -> Pp.string ctx "lightslategrey"
-  | Light_steel_blue -> Pp.string ctx "lightsteelblue"
-  | Light_yellow -> Pp.string ctx "lightyellow"
-  | Lime_green -> Pp.string ctx "limegreen"
-  | Linen -> Pp.string ctx "linen"
-  | Medium_aquamarine -> Pp.string ctx "mediumaquamarine"
-  | Medium_blue -> Pp.string ctx "mediumblue"
-  | Medium_orchid -> Pp.string ctx "mediumorchid"
-  | Medium_purple -> Pp.string ctx "mediumpurple"
-  | Medium_sea_green -> Pp.string ctx "mediumseagreen"
-  | Medium_slate_blue -> Pp.string ctx "mediumslateblue"
-  | Medium_spring_green -> Pp.string ctx "mediumspringgreen"
-  | Medium_turquoise -> Pp.string ctx "mediumturquoise"
-  | Medium_violet_red -> Pp.string ctx "mediumvioletred"
-  | Midnight_blue -> Pp.string ctx "midnightblue"
-  | Mint_cream -> Pp.string ctx "mintcream"
-  | Misty_rose -> Pp.string ctx "mistyrose"
-  | Moccasin -> Pp.string ctx "moccasin"
-  | Navajo_white -> Pp.string ctx "navajowhite"
-  | Old_lace -> Pp.string ctx "oldlace"
-  | Olive_drab -> Pp.string ctx "olivedrab"
-  | Orange_red -> Pp.string ctx "orangered"
-  | Orchid -> Pp.string ctx "orchid"
-  | Pale_goldenrod -> Pp.string ctx "palegoldenrod"
-  | Pale_green -> Pp.string ctx "palegreen"
-  | Pale_turquoise -> Pp.string ctx "paleturquoise"
-  | Pale_violet_red -> Pp.string ctx "palevioletred"
-  | Papaya_whip -> Pp.string ctx "papayawhip"
-  | Peach_puff -> Pp.string ctx "peachpuff"
-  | Peru -> Pp.string ctx "peru"
-  | Plum -> Pp.string ctx "plum"
-  | Powder_blue -> Pp.string ctx "powderblue"
-  | Rebecca_purple -> Pp.string ctx "rebeccapurple"
-  | Rosy_brown -> Pp.string ctx "rosybrown"
-  | Royal_blue -> Pp.string ctx "royalblue"
-  | Saddle_brown -> Pp.string ctx "saddlebrown"
-  | Salmon -> Pp.string ctx "salmon"
-  | Sandy_brown -> Pp.string ctx "sandybrown"
-  | Sea_green -> Pp.string ctx "seagreen"
-  | Sea_shell -> Pp.string ctx "seashell"
-  | Sienna -> Pp.string ctx "sienna"
-  | Sky_blue -> Pp.string ctx "skyblue"
-  | Slate_blue -> Pp.string ctx "slateblue"
-  | Slate_gray -> Pp.string ctx "slategray"
-  | Slate_grey -> Pp.string ctx "slategrey"
-  | Snow -> Pp.string ctx "snow"
-  | Spring_green -> Pp.string ctx "springgreen"
-  | Steel_blue -> Pp.string ctx "steelblue"
-  | Tan -> Pp.string ctx "tan"
-  | Thistle -> Pp.string ctx "thistle"
-  | Tomato -> Pp.string ctx "tomato"
-  | Turquoise -> Pp.string ctx "turquoise"
-  | Violet -> Pp.string ctx "violet"
-  | Wheat -> Pp.string ctx "wheat"
-  | White_smoke -> Pp.string ctx "whitesmoke"
-  | Yellow_green -> Pp.string ctx "yellowgreen"
-
-(* CSS Color 4 §6.4: every named colour has a canonical sRGB byte triple. Minify
-   routes [Named n] through this table for the shortest spelling (name vs
-   [#hex]). Hex is stored shortest ([shorten_hex] folds [rrggbb] to [rgb]), so
-   [pp_color]'s back-conversion is a no-op. *)
-
-(** Convert a named color to its hex equivalent (name, hex_value). Returns the
-    shortest representation matching Lightning CSS behavior. *)
-let color_name_hex : color_name -> string * string = function
-  | Red -> ("red", "f00")
-  | Blue -> ("blue", "00f")
-  | Green -> ("green", "008000")
-  | White -> ("white", "fff")
-  | Black -> ("black", "000")
-  | Yellow -> ("yellow", "ff0")
-  | Cyan -> ("cyan", "0ff")
-  | Magenta -> ("magenta", "f0f")
-  | Gray -> ("gray", "808080")
-  | Grey -> ("grey", "808080")
-  | Orange -> ("orange", "ffa500")
-  | Purple -> ("purple", "800080")
-  | Pink -> ("pink", "ffc0cb")
-  | Silver -> ("silver", "c0c0c0")
-  | Maroon -> ("maroon", "800000")
-  | Fuchsia -> ("fuchsia", "f0f")
-  | Lime -> ("lime", "0f0")
-  | Olive -> ("olive", "808000")
-  | Navy -> ("navy", "000080")
-  | Teal -> ("teal", "008080")
-  | Aqua -> ("aqua", "0ff")
-  | Alice_blue -> ("aliceblue", "f0f8ff")
-  | Antique_white -> ("antiquewhite", "faebd7")
-  | Aquamarine -> ("aquamarine", "7fffd4")
-  | Azure -> ("azure", "f0ffff")
-  | Beige -> ("beige", "f5f5dc")
-  | Bisque -> ("bisque", "ffe4c4")
-  | Blanched_almond -> ("blanchedalmond", "ffebcd")
-  | Blue_violet -> ("blueviolet", "8a2be2")
-  | Brown -> ("brown", "a52a2a")
-  | Burlywood -> ("burlywood", "deb887")
-  | Cadet_blue -> ("cadetblue", "5f9ea0")
-  | Chartreuse -> ("chartreuse", "7fff00")
-  | Chocolate -> ("chocolate", "d2691e")
-  | Coral -> ("coral", "ff7f50")
-  | Cornflower_blue -> ("cornflowerblue", "6495ed")
-  | Cornsilk -> ("cornsilk", "fff8dc")
-  | Crimson -> ("crimson", "dc143c")
-  | Dark_blue -> ("darkblue", "00008b")
-  | Dark_cyan -> ("darkcyan", "008b8b")
-  | Dark_goldenrod -> ("darkgoldenrod", "b8860b")
-  | Dark_gray -> ("darkgray", "a9a9a9")
-  | Dark_green -> ("darkgreen", "006400")
-  | Dark_grey -> ("darkgrey", "a9a9a9")
-  | Dark_khaki -> ("darkkhaki", "bdb76b")
-  | Dark_magenta -> ("darkmagenta", "8b008b")
-  | Dark_olive_green -> ("darkolivegreen", "556b2f")
-  | Dark_orange -> ("darkorange", "ff8c00")
-  | Dark_orchid -> ("darkorchid", "9932cc")
-  | Dark_red -> ("darkred", "8b0000")
-  | Dark_salmon -> ("darksalmon", "e9967a")
-  | Dark_sea_green -> ("darkseagreen", "8fbc8f")
-  | Dark_slate_blue -> ("darkslateblue", "483d8b")
-  | Dark_slate_gray -> ("darkslategray", "2f4f4f")
-  | Dark_slate_grey -> ("darkslategrey", "2f4f4f")
-  | Dark_turquoise -> ("darkturquoise", "00ced1")
-  | Dark_violet -> ("darkviolet", "9400d3")
-  | Deep_pink -> ("deeppink", "ff1493")
-  | Deep_sky_blue -> ("deepskyblue", "00bfff")
-  | Dim_gray -> ("dimgray", "696969")
-  | Dim_grey -> ("dimgrey", "696969")
-  | Dodger_blue -> ("dodgerblue", "1e90ff")
-  | Firebrick -> ("firebrick", "b22222")
-  | Floral_white -> ("floralwhite", "fffaf0")
-  | Forest_green -> ("forestgreen", "228b22")
-  | Gainsboro -> ("gainsboro", "dcdcdc")
-  | Ghost_white -> ("ghostwhite", "f8f8ff")
-  | Gold -> ("gold", "ffd700")
-  | Goldenrod -> ("goldenrod", "daa520")
-  | Green_yellow -> ("greenyellow", "adff2f")
-  | Honeydew -> ("honeydew", "f0fff0")
-  | Hot_pink -> ("hotpink", "ff69b4")
-  | Indian_red -> ("indianred", "cd5c5c")
-  | Indigo -> ("indigo", "4b0082")
-  | Ivory -> ("ivory", "fffff0")
-  | Khaki -> ("khaki", "f0e68c")
-  | Lavender -> ("lavender", "e6e6fa")
-  | Lavender_blush -> ("lavenderblush", "fff0f5")
-  | Lawn_green -> ("lawngreen", "7cfc00")
-  | Lemon_chiffon -> ("lemonchiffon", "fffacd")
-  | Light_blue -> ("lightblue", "add8e6")
-  | Light_coral -> ("lightcoral", "f08080")
-  | Light_cyan -> ("lightcyan", "e0ffff")
-  | Light_goldenrod_yellow -> ("lightgoldenrodyellow", "fafad2")
-  | Light_gray -> ("lightgray", "d3d3d3")
-  | Light_green -> ("lightgreen", "90ee90")
-  | Light_grey -> ("lightgrey", "d3d3d3")
-  | Light_pink -> ("lightpink", "ffb6c1")
-  | Light_salmon -> ("lightsalmon", "ffa07a")
-  | Light_sea_green -> ("lightseagreen", "20b2aa")
-  | Light_sky_blue -> ("lightskyblue", "87cefa")
-  | Light_slate_gray -> ("lightslategray", "789")
-  | Light_slate_grey -> ("lightslategrey", "789")
-  | Light_steel_blue -> ("lightsteelblue", "b0c4de")
-  | Light_yellow -> ("lightyellow", "ffffe0")
-  | Lime_green -> ("limegreen", "32cd32")
-  | Linen -> ("linen", "faf0e6")
-  | Medium_aquamarine -> ("mediumaquamarine", "66cdaa")
-  | Medium_blue -> ("mediumblue", "0000cd")
-  | Medium_orchid -> ("mediumorchid", "ba55d3")
-  | Medium_purple -> ("mediumpurple", "9370db")
-  | Medium_sea_green -> ("mediumseagreen", "3cb371")
-  | Medium_slate_blue -> ("mediumslateblue", "7b68ee")
-  | Medium_spring_green -> ("mediumspringgreen", "00fa9a")
-  | Medium_turquoise -> ("mediumturquoise", "48d1cc")
-  | Medium_violet_red -> ("mediumvioletred", "c71585")
-  | Midnight_blue -> ("midnightblue", "191970")
-  | Mint_cream -> ("mintcream", "f5fffa")
-  | Misty_rose -> ("mistyrose", "ffe4e1")
-  | Moccasin -> ("moccasin", "ffe4b5")
-  | Navajo_white -> ("navajowhite", "ffdead")
-  | Old_lace -> ("oldlace", "fdf5e6")
-  | Olive_drab -> ("olivedrab", "6b8e23")
-  | Orange_red -> ("orangered", "ff4500")
-  | Orchid -> ("orchid", "da70d6")
-  | Pale_goldenrod -> ("palegoldenrod", "eee8aa")
-  | Pale_green -> ("palegreen", "98fb98")
-  | Pale_turquoise -> ("paleturquoise", "afeeee")
-  | Pale_violet_red -> ("palevioletred", "db7093")
-  | Papaya_whip -> ("papayawhip", "ffefd5")
-  | Peach_puff -> ("peachpuff", "ffdab9")
-  | Peru -> ("peru", "cd853f")
-  | Plum -> ("plum", "dda0dd")
-  | Powder_blue -> ("powderblue", "b0e0e6")
-  | Rebecca_purple -> ("rebeccapurple", "663399")
-  | Rosy_brown -> ("rosybrown", "bc8f8f")
-  | Royal_blue -> ("royalblue", "4169e1")
-  | Saddle_brown -> ("saddlebrown", "8b4513")
-  | Salmon -> ("salmon", "fa8072")
-  | Sandy_brown -> ("sandybrown", "f4a460")
-  | Sea_green -> ("seagreen", "2e8b57")
-  | Sea_shell -> ("seashell", "fff5ee")
-  | Sienna -> ("sienna", "a0522d")
-  | Sky_blue -> ("skyblue", "87ceeb")
-  | Slate_blue -> ("slateblue", "6a5acd")
-  | Slate_gray -> ("slategray", "708090")
-  | Slate_grey -> ("slategrey", "708090")
-  | Snow -> ("snow", "fffafa")
-  | Spring_green -> ("springgreen", "00ff7f")
-  | Steel_blue -> ("steelblue", "4682b4")
-  | Tan -> ("tan", "d2b48c")
-  | Thistle -> ("thistle", "d8bfd8")
-  | Tomato -> ("tomato", "ff6347")
-  | Turquoise -> ("turquoise", "40e0d0")
-  | Violet -> ("violet", "ee82ee")
-  | Wheat -> ("wheat", "f5deb3")
-  | White_smoke -> ("whitesmoke", "f5f5f5")
-  | Yellow_green -> ("yellowgreen", "9acd32")
+ fun ctx name -> Pp.string ctx (fst (color_name_hex name))
 
 (* The body of a [Relative_rgb] is stored as a verbatim string of the form
    ["from <origin> r g b/<alpha>"], because the channels and alpha are part of
@@ -2729,16 +2524,23 @@ let hex_of_byte i =
 
 (* Decode a hex spelling ([#rgb] / [#rrggbb] / [#rgba] / [#rrggbbaa], with or
    without the leading [#]) to its sRGB byte components. Every equivalent
-   spelling decodes to the same node. Invalid input folds to opaque black. *)
+   spelling decodes to the same node. Malformed input raises: there is no colour
+   it denotes, and a caller that guessed one would emit a plausible wrong colour
+   rather than a failure. Use [hex_opt] to decide. *)
+let strip_hash s =
+  if String.length s > 0 && s.[0] = '#' then String.sub s 1 (String.length s - 1)
+  else s
+
+let hex_opt s : color option =
+  match rgba_of_hex (strip_hash s) with
+  | Some (r, g, b, a) -> Some (Hex { r; g; b; a })
+  | None -> Option.None
+
 let hex s : color =
-  let s =
-    if String.length s > 0 && s.[0] = '#' then
-      String.sub s 1 (String.length s - 1)
-    else s
-  in
-  match rgba_of_hex s with
-  | Some (r, g, b, a) -> Hex { r; g; b; a }
-  | None -> Hex { r = 0; g = 0; b = 0; a = 255 }
+  match hex_opt s with
+  | Some c -> c
+  | Option.None ->
+      invalid_arg (String.concat "" [ "Values.hex: not a hex colour: "; s ])
 
 (* CSS Color 4 sec. 4.2.3 [none] sentinel: per-channel folding of a static
    colour to sRGB. Each channel is [Some byte] when the colour resolves
@@ -2827,6 +2629,28 @@ let exact_rgb_to_srgb_bytes c : (int * int * int * int) option =
   | Transparent -> Some (0, 0, 0, 0)
   | _ -> None
 
+(* CSS Color 4 sec. 10: [color(srgb r g b)] is [rgb()] with its channels scaled
+   to [0..1], so the two functions spell one colour exactly when every channel
+   lands on a whole byte. No other [color()] space converts to sRGB without a
+   transfer function or a matrix, so nothing else here is exact; a channel
+   outside the gamut, a [none] and a [var()] are all left alone. *)
+let exact_srgb_function_channels c : (int * int * int * alpha) option =
+  let byte : component -> int option = function
+    | Num f when f >= 0. && f <= 1. ->
+        let b = f *. 255. in
+        if Float.is_integer b then Some (Float.to_int b) else None
+    | Pct f when f >= 0. && f <= 100. ->
+        let b = f *. 255. /. 100. in
+        if Float.is_integer b then Some (Float.to_int b) else None
+    | _ -> None
+  in
+  match c with
+  | Color { space = Srgb; components = [ r; g; b ]; alpha } -> (
+      match (byte r, byte g, byte b) with
+      | Some r, Some g, Some b -> Some (r, g, b, alpha)
+      | _ -> None)
+  | _ -> None
+
 (* CSS Color 5 5: combine two [color-mix] percentages into the final
    per-component weights and an [alpha] multiplier. [p1] / [p2] are in [0..100];
    missing values are normalised by the caller. *)
@@ -2844,12 +2668,12 @@ let lerp_byte b1 b2 w1 w2 =
   Float.to_int
     (Float.round ((Float.of_int b1 *. w1) +. (Float.of_int b2 *. w2)))
 
-(* Mix two static colours in sRGB per CSS Color 5 §5. [None] if either operand
-   can't fold statically ([Var] / [Calc]) or the weights reduce to zero. CSS
-   Color 4 §4.2.3 [none] sentinel: a [none] channel inherits the other operand's
-   channel rather than averaging in a zero; both [none] yields [none] (returned
-   as zero, since the caller routes through [Hex] and [#000000] is the shortest
-   fully-[none] spelling). *)
+(* Mix two static colours in sRGB per CSS Color 5 sec. 5. [None] if either
+   operand can't fold statically ([Var] / [Calc]) or the weights reduce to zero.
+   CSS Color 4 sec. 4.2.3 [none] sentinel: a [none] channel inherits the other
+   operand's channel rather than averaging in a zero; both [none] yields [none]
+   (returned as zero, since the caller routes through [Hex] and [#000000] is the
+   shortest fully-[none] spelling). *)
 let mix_srgb_bytes c1 c2 ~p1 ~p2 =
   match
     (static_color_to_srgb_channels c1, static_color_to_srgb_channels c2)
@@ -3365,48 +3189,11 @@ let color_mix_percentages (percent1 : percentage option)
   | Some _, Some _ -> (
       match (f1, f2) with Some p1, Some p2 -> Some (p1, p2) | _ -> None)
 
-(* Reverse of [color_name_hex] for the named-color set whose hex form is short
-   enough to be a candidate. The map is keyed on the shortened hex spelling so
-   [shorten_hex "#ff0000"] and [#f00] both resolve to the same name. *)
-let named_for_hex value =
-  match String.lowercase_ascii value with
-  | "f00" -> Some "red"
-  | "00f" -> Some "blue"
-  | "008000" -> Some "green"
-  | "fff" -> Some "white"
-  | "000" -> Some "black"
-  | "ff0" -> Some "yellow"
-  | "0ff" -> Some "cyan"
-  | "f0f" -> Some "magenta"
-  | "808080" -> Some "gray"
-  | "ffa500" -> Some "orange"
-  | "800080" -> Some "purple"
-  | "ffc0cb" -> Some "pink"
-  | "c0c0c0" -> Some "silver"
-  | "800000" -> Some "maroon"
-  | "808000" -> Some "olive"
-  | "000080" -> Some "navy"
-  | "008080" -> Some "teal"
-  | "f0ffff" -> Some "azure"
-  | "f5f5dc" -> Some "beige"
-  | "a52a2a" -> Some "brown"
-  | "ff7f50" -> Some "coral"
-  | "ffd700" -> Some "gold"
-  | "fffff0" -> Some "ivory"
-  | "f0e68c" -> Some "khaki"
-  | "faf0e6" -> Some "linen"
-  | "cd853f" -> Some "peru"
-  | "dda0dd" -> Some "plum"
-  | "fffafa" -> Some "snow"
-  | "d2b48c" -> Some "tan"
-  | "f5deb3" -> Some "wheat"
-  | _ -> None
-
 (** Minify a color value by converting named colors to hex when shorter,
     matching Lightning CSS behavior. *)
 let shorten_hex value =
   let len = String.length value in
-  (* #RRGGBB → #RGB when R=R, G=G, B=B *)
+  (* #RRGGBB -> #RGB when R=R, G=G, B=B *)
   if
     len = 6
     && value.[0] = value.[1]
@@ -3417,7 +3204,7 @@ let shorten_hex value =
     Bytes.set s 0 value.[0];
     Bytes.set s 1 value.[2];
     Bytes.set s 2 value.[4];
-    Bytes.to_string s (* #RRGGBBAA → #RGBA when R=R, G=G, B=B, A=A *))
+    Bytes.to_string s (* #RRGGBBAA -> #RGBA when R=R, G=G, B=B, A=A *))
   else if
     len = 8
     && value.[0] = value.[1]
@@ -3426,7 +3213,7 @@ let shorten_hex value =
     && value.[6] = value.[7]
   then (
     if
-      (* Further shorten #RGBA → #RGB when A=f (fully opaque) *)
+      (* Further shorten #RGBA -> #RGB when A=f (fully opaque) *)
       value.[6] = 'f' || value.[6] = 'F'
     then (
       let s = Bytes.create 3 in
@@ -3442,13 +3229,13 @@ let shorten_hex value =
       Bytes.set s 3 value.[6];
       Bytes.to_string s)
   else if
-    (* #RRGGBBFF → #RRGGBB when fully opaque *)
+    (* #RRGGBBFF -> #RRGGBB when fully opaque *)
     len = 8
     && (value.[6] = 'f' || value.[6] = 'F')
     && (value.[7] = 'f' || value.[7] = 'F')
   then String.sub value 0 6
   else if
-    (* #RGBA → #RGB when A=f (fully opaque) *)
+    (* #RGBA -> #RGB when A=f (fully opaque) *)
     len = 4 && (value.[3] = 'f' || value.[3] = 'F')
   then String.sub value 0 3
   else value
@@ -3462,20 +3249,16 @@ let hex_string_of_bytes r g b a =
   else shorten_hex (String.concat "" [ rgb; hex_of_byte a ])
 
 let minify_color : color -> color = function
-  | Named n ->
+  | Named n -> (
       let name, hex = color_name_hex n in
-      let hex_len =
-        String.length hex + 1
-        (* # prefix *)
-      in
-      if hex <> "" && hex_len <= String.length name then
+      if hex = "" || color_name_is_shortest ~name ~hex then Named n
+      else
         match rgba_of_hex hex with
         | Some (r, g, b, a) -> Hex { r; g; b; a }
-        | None -> Named n
-      else Named n
+        | None -> Named n)
   | c -> c
 
-(* CSS Color 4 §11 normalises system colour keywords to lowercase ASCII. *)
+(* CSS Color 4 sec. 11 normalises system colour keywords to lowercase ASCII. *)
 let pp_system_color : system_color Pp.t =
  fun ctx -> function
   | Accent_color -> Pp.string ctx "accentcolor"
@@ -3590,10 +3373,14 @@ let rec pp_alpha : alpha Pp.t =
  fun ctx -> function
   | None -> ()
   | Num f ->
-      (* CSSOM serialisation (CSS Values 4 §6.7.2) drops a leading zero on
+      (* CSSOM serialisation (CSS Values 4 sec. 6.7.2) drops a leading zero on
          fractional numbers: emit [.25] not [0.25] in both modes. Under minify,
-         round to 3 decimals (alpha precision is 1/255 ~ 0.004 in sRGB). *)
-      let max_decimals = if Pp.minified ctx then 3 else 8 in
+         round to 3 decimals (alpha precision is 1/255 ~ 0.004 in sRGB); alpha
+         is a colour channel, so [lossless] opts out of that fold like the other
+         channels. *)
+      let max_decimals =
+        if Pp.minified ctx && not ctx.Pp.lossless then 3 else 8
+      in
       Pp.string ctx (Pp.string_of_float ~drop_leading_zero:true ~max_decimals f)
   | Pct f ->
       Pp.float ctx f;
@@ -3877,7 +3664,7 @@ let normalize_duration ?(ctx = default_calc_ctx) (d : duration) : duration =
       match eval_time_calc ~ctx c with Val v -> v | folded -> Calc folded)
   | _ -> d
 
-(* CSS Values 4 §10.7: a typed [<angle>] multiplied or divided by a unitless
+(* CSS Values 4 sec. 10.7: a typed [<angle>] multiplied or divided by a unitless
    number scales the angle's coefficient and keeps its unit, so [calc(1deg *
    -45)] reduces to [-45deg]. Division folds only when the quotient is [exact]
    (see [exact_div]); dividing by a math constant ([pi] / ...) is irrational, so
@@ -3909,7 +3696,7 @@ let angle_is_zero : angle -> bool = function
   | Deg f | Rad f | Turn f | Grad f -> f = 0.
   | _ -> false
 
-(* CSS Values 4 §10.7: same-unit add/sub of two typed angles reduces to one
+(* CSS Values 4 sec. 10.7: same-unit add/sub of two typed angles reduces to one
    angle ([calc(45deg + 45deg)] -> [90deg]). Cross-unit operands (e.g. [1turn +
    90deg]) stay unfolded; [normalize_angle] picks the shortest spelling of a
    single folded operand, not across a mixed sum. *)
@@ -4008,6 +3795,11 @@ let normalize_angle ?(ctx = default_calc_ctx) =
         | Val v -> go v
         | folded -> Calc folded)
     | Deg _ | Turn _ | Grad _ -> angle_shortest a
+    (* [angle_shortest] leaves radians alone because deg/rad conversion goes
+       through pi and so is never exactly value-preserving. Zero is the one
+       radian value that converts exactly, and it is the one that matters: a
+       zero angle is what the grammars let you drop. *)
+    | Rad f when f = 0. -> Deg 0.
     | Rad _ | Var _ | Invalid _ -> a
   in
   go
@@ -4282,7 +4074,7 @@ let rec pp_rgb : rgb Pp.t =
   | Channels { r; g; b } -> Pp.list ~sep:Pp.space pp_channel ctx [ r; g; b ]
   | Var v -> pp_var pp_rgb ctx v
 
-(** Lab-like float string. CSSOM serialisation (CSS Values 4 §6.7.2) drops a
+(** Lab-like float string. CSSOM serialisation (CSS Values 4 sec. 6.7.2) drops a
     leading zero on fractional numbers; the coefficient prints in full so the
     value round-trips, with precision reduction left to [normalize_color]. *)
 let string_of_lab_float f =
@@ -4689,7 +4481,7 @@ and pp_color_default : color Pp.t =
 
 let pp_specified_color = pp_color_default
 
-(* CSS Values 4 §6.3: [ms] and [s] are interchangeable; pick the shorter
+(* CSS Values 4 sec. 6.3: [ms] and [s] are interchangeable; pick the shorter
    spelling when minifying. The "s" suffix is one character shorter than "ms",
    so a millisecond value collapses to seconds when its second-form digits are
    no longer than the millisecond-form digits. *)
@@ -5083,7 +4875,7 @@ let read_math_constant_name t name =
   | _ -> Cursor.err t "expected math constant"
 
 let read_math_number_with_unit t =
-  (* CSS Values 5 §10.7 [sign()] / [abs()] accept a [<calc-sum>] over any
+  (* CSS Values 5 sec. 10.7 [sign()] / [abs()] accept a [<calc-sum>] over any
      numeric type, including dimensions and percentages. Capture the leading
      number plus its unit so [sign(-1vw)] and [sign(1%)] preserve their source
      shape. *)
@@ -5167,8 +4959,8 @@ let math_constant_factor_of_name : type a. Cursor.t -> _ -> string -> a calc =
 
 let read_math_constant_factor : type a. Cursor.t -> a calc =
  fun t ->
-  (* CSS Values 4 §10.7.1 math constants ([pi], [e], [infinity], [-infinity],
-     [NaN]) appear as bare identifiers inside [calc()]. *)
+  (* CSS Values 4 sec. 10.7.1 math constants ([pi], [e], [infinity],
+     [-infinity], [NaN]) appear as bare identifiers inside [calc()]. *)
   let snap = Cursor.save t in
   match Cursor.ident_opt t with
   | Some name -> math_constant_factor_of_name t snap name
@@ -5254,7 +5046,7 @@ and read_calc_numeric_function : type a. Cursor.t -> a calc =
       | "min" -> read_numeric_list_call "min" Float.min Float.infinity t
       | "max" -> read_numeric_list_call "max" Float.max Float.neg_infinity t
       | "clamp" -> read_numeric_clamp t
-      (* CSS Values 4 §10.7 numeric math functions: parsed into the typed
+      (* CSS Values 4 sec. 10.7 numeric math functions: parsed into the typed
          [Math_fn] AST so pretty pp re-emits [name(args)]; the optimizer (or
          minify pp) folds via [eval_math_fn]. *)
       | "sqrt" -> Math_fn (Sqrt (read_math_call_arg "sqrt" t))
@@ -5924,7 +5716,7 @@ and read_rgb t : rgb =
 
 let read_rgb_space_separated t : color =
   (* The cursor wraps the [rgb(...)] [Func] arguments, so there is no closing
-     [)] to consume — it's the block boundary. *)
+     [)] to consume -- it's the block boundary. *)
   Cursor.ws t;
   if Cursor.looking_at t "var(" then (
     let snap = Cursor.save t in
@@ -6057,7 +5849,7 @@ let read_atan2_scalar t : atan2_category * float =
   match unit with
   | "" -> (Number, n)
   | "%" -> (Percentage, n)
-  (* CSS Values 4 §6.2 absolute lengths converted to [px]. *)
+  (* CSS Values 4 sec. 6.2 absolute lengths converted to [px]. *)
   | "px" -> (Length, n)
   | "cm" -> (Length, n *. (96. /. 2.54))
   | "mm" -> (Length, n *. (96. /. 25.4))
@@ -6144,7 +5936,7 @@ let read_angle_trig kind name t =
 let read_angle_atan2 t =
   let typed t =
     Cursor.call "atan2" t (fun inner ->
-        (* CSS Values 4 §10.7: atan2(y, x) accepts <number>|<dimension>|
+        (* CSS Values 4 sec. 10.7: atan2(y, x) accepts <number>|<dimension>|
            <percentage> for both arguments (must match types). When both
            arguments reduce to a scalar in a shared category, the ratio is
            unit-free and the result folds to a [Deg] constant. *)
@@ -6401,8 +6193,8 @@ let read_color_function t : color =
   Color { space; components; alpha }
 
 (* A bare [<percentage>] leaf inside a color-mix weight [calc()]. Unlike the
-   top-level weight it is not range-checked: CSS Values 4 §10 clamps the math
-   function's result, not its individual operands. [read_calc] handles the
+   top-level weight it is not range-checked: CSS Values 4 sec. 10 clamps the
+   math function's result, not its individual operands. [read_calc] handles the
    [var()] and nested-[calc()] factors itself, so the leaf only sees a token. *)
 let read_color_mix_calc_pct t : percentage = Pct (Cursor.pct t)
 
@@ -6412,9 +6204,9 @@ let rec read_percentage_in_color_mix t : percentage =
   if Cursor.looking_at t "var(" then
     Var (read_var read_percentage_in_color_mix t)
   else if Cursor.looking_at_calc t then
-    (* CSS Color 5 §3: the weight may be a math function. We can't bound-check a
-       [calc()] statically (it may carry a [var()]), so we keep it verbatim and
-       let substitution-time clamping apply. *)
+    (* CSS Color 5 sec. 3: the weight may be a math function. We can't
+       bound-check a [calc()] statically (it may carry a [var()]), so we keep it
+       verbatim and let substitution-time clamping apply. *)
     Calc (read_calc read_color_mix_calc_pct t)
   else
     let n = Cursor.number t in
@@ -6424,7 +6216,7 @@ let rec read_percentage_in_color_mix t : percentage =
     (Pct n : percentage)
 
 let read_optional_percentage t : percentage option =
-  (* CSS Color 5 §3 (https://drafts.csswg.org/css-color-5/#color-mix): the
+  (* CSS Color 5 sec. 3 (https://drafts.csswg.org/css-color-5/#color-mix): the
      [color-mix()] weight grammar is [<percentage [0,100]>?] - strictly a
      percentage token, no [<number>] alternative. We don't accept a bare decimal
      here even though some minifiers (cssnano) ship the [0% -> 0] shortcut as a
@@ -6613,7 +6405,7 @@ let rec read_color_mix t : color =
   Mix { in_space; hue; color1; percent1; color2; percent2 }
 
 and read_color_mix_component t =
-  (* CSS Color 5 §3: a component is [<color> && <percentage>?] - the two may
+  (* CSS Color 5 sec. 3: a component is [<color> && <percentage>?] - the two may
      appear in either order. Prefer the [<color> <percentage>?] reading so an
      ambiguous leading [var()] is taken as the colour ([var(--c) var(--p)] keeps
      its source order rather than being re-emitted percentage-first). Fall back
@@ -6706,9 +6498,9 @@ and read_color_attr t : color =
   Attribute (name, fallback)
 
 and read_relative_color name t : color =
-  (* CSS Color 5 §2: any colour function may take [from <origin> <c1> <c2> <c3>
-     [/ <alpha>]?]. We capture the body verbatim so the printer re-emits the
-     function name + parenthesised tail unchanged. *)
+  (* CSS Color 5 sec. 2: any colour function may take [from <origin> <c1> <c2>
+     <c3> [/ <alpha>]?]. We capture the body verbatim so the printer re-emits
+     the function name + parenthesised tail unchanged. *)
   Cursor.ws t;
   Cursor.expect_string "from" t;
   Cursor.ws t;
@@ -7128,7 +6920,7 @@ let rec read_percentage t : percentage =
   else if Cursor.looking_at_calc t then Calc (read_calc read_percentage t)
   else Pct (Cursor.pct t)
 
-(* CSS Values 5 §10: math functions that produce a non-length type ([asin] /
+(* CSS Values 5 sec. 10: math functions that produce a non-length type ([asin] /
    [acos] / [atan] / [atan2] return angles, [sin] / [cos] / [tan] return
    numbers). Used in a [<length-percentage>] context they are spec-invalid;
    lightning et al. preserve verbatim, so cascade captures the original call as
@@ -7229,41 +7021,18 @@ let rec read_number_percentage t : number_percentage =
 let read_color_name t : color_name =
   Cursor.ws t;
   let s = Cursor.ident t in
-  match String.lowercase_ascii s with
-  | "red" -> Red
-  | "blue" -> Blue
-  | "green" -> Green
-  | "white" -> White
-  | "black" -> Black
-  | "yellow" -> Yellow
-  | "cyan" -> Cyan
-  | "magenta" -> Magenta
-  | "gray" | "grey" -> Gray
-  | "orange" -> Orange
-  | "purple" -> Purple
-  | "pink" -> Pink
-  | "silver" -> Silver
-  | "maroon" -> Maroon
-  | "fuchsia" -> Fuchsia
-  | "lime" -> Lime
-  | "olive" -> Olive
-  | "navy" -> Navy
-  | "teal" -> Teal
-  | "aqua" -> Aqua
-  | "rebeccapurple" -> Rebecca_purple
-  | _ -> Cursor.err_invalid t ("color name: " ^ s)
+  match color_name_of_string (String.lowercase_ascii s) with
+  | Some name -> name
+  | None -> Cursor.err_invalid t ("color name: " ^ s)
 
-(* Shortest spelling of a hex value as a [color]: shorten, then pick the named
-   form when it is strictly shorter (the [pp_hex_color] choice, as an AST
-   rewrite producing a [color] instead of printing). *)
+(* Shortest spelling of a hex value as a [color]: shorten, then take the named
+   form when the table has one, which it holds only for the colours whose name
+   is the shorter spelling (the [pp_hex_color] choice, as an AST rewrite
+   producing a [color] instead of printing). *)
 let canonical_color_of_hex r g b a : color =
-  let shortened = hex_string_of_bytes r g b a in
-  match named_for_hex shortened with
-  | Some name when String.length name < String.length shortened + 1 ->
-      Option.value
-        (read_color_keyword_of_string name)
-        ~default:(Hex { r; g; b; a })
-  | _ -> Hex { r; g; b; a }
+  match color_name_of_hex (hex_string_of_bytes r g b a) with
+  | Some name -> Named name
+  | None -> Hex { r; g; b; a }
 
 (* Canonicalise a colour's alpha for a colour the static fold leaves alone (e.g.
    a [var()] channel). CSS Color 4 sec. 4.1: a fully-opaque [/ 1] / [/ 100%] is
@@ -7398,13 +7167,33 @@ let canonical_color_lightness ~lossless ~pct_scale ~axis_max_decimals
       else Some (num f)
   | other -> other
 
-let normalize_static_modern_color ~in_feature_query ~lossless c =
+let normalize_static_modern_color ~in_feature_query ~exact_srgb ~lossless c =
   let hex_of_bytes r g b (a : alpha) =
     match alpha_value_byte a with
     | Some ab -> canonical_color_of_hex r g b ab
     | Option.None -> c
   in
-  if in_feature_query || lossless then drop_full_alpha c
+  (* A feature query asks whether the browser parses the function that was
+     written, so the spelling is the point there and no fold applies. *)
+  if in_feature_query then drop_full_alpha c
+  else if lossless then
+    match
+      if exact_srgb then exact_srgb_function_channels c else Option.None
+    with
+    | Some (r, g, b, alpha) -> (
+        match exact_alpha_value_byte alpha with
+        | Some a -> canonical_color_of_hex r g b a
+        | Option.None ->
+            (* The channels are exact but the alpha is not a whole byte, so
+               [rgb()] is as far as the fold goes: it is the same spelling the
+               lossless path leaves an authored [rgb()] in. *)
+            drop_full_alpha
+              (Rgba
+                 {
+                   rgb = Channels { r = Int r; g = Int g; b = Int b };
+                   a = alpha;
+                 }))
+    | Option.None -> drop_full_alpha c
   else
     match static_color_to_linear_srgb c with
     | Some (linear, alpha_f) -> (
@@ -7492,19 +7281,23 @@ let round_lab_family_axes ~lossless (c : color) : color =
    [@supports] tests). The sRGB fold runs on the authored coefficients first;
    [round_lab_family_axes] then rounds only what survives in its own colour
    space. *)
-let rec normalize_color ?(lossless = false) ~in_feature_query (c : color) :
-    color =
+let rec normalize_color ?(lossless = false) ?(exact_srgb = false)
+    ~in_feature_query (c : color) : color =
+  let normalize_color ?(lossless = lossless) =
+    normalize_color ~lossless ~exact_srgb
+  in
   let hex_of_byte_quad r g b ab = canonical_color_of_hex r g b ab in
   let static_fold () =
     round_lab_family_axes ~lossless
-      (normalize_static_modern_color ~in_feature_query ~lossless c)
+      (normalize_static_modern_color ~in_feature_query ~exact_srgb ~lossless c)
   in
   match c with
   | Oklch { l = Some _; c = Some _; _ } -> static_fold ()
   | Oklab { l = Some _; a = Some _; b = Some _; _ } -> static_fold ()
   | Lch { l = Some _; c = Some _; _ } -> static_fold ()
   | Lab { l = Some _; a = Some _; b = Some _; _ } -> static_fold ()
-  | Color _ -> normalize_static_modern_color ~in_feature_query ~lossless c
+  | Color _ ->
+      normalize_static_modern_color ~in_feature_query ~exact_srgb ~lossless c
   | Hex { r; g; b; a } | Authored_hex { r; g; b; a; _ } ->
       normalize_hex_color c r g b a
   | Named orig_name -> normalize_named_color c orig_name

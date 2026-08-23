@@ -72,6 +72,110 @@ let complex_values () =
   decl_optimizes ~prop:"background" ~into:"linear-gradient(90deg,red,#00f)"
     "linear-gradient(to right, red, blue)";
 
+  (* CSS Images 4 section 3.4.1 defines [<color> <p1> <p2>] as exactly [<color>
+     <p1>, <color> <p2>], so adjacent stops of one colour fold into a
+     double-position stop. pp holds the pair; the fold is an optimize step. *)
+  check_declaration
+    ~expected:"background:linear-gradient(currentColor 0,currentColor 1px)"
+    "background: linear-gradient(currentColor 0, currentColor 1px);";
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(currentColor 0 1px)"
+    "linear-gradient(currentColor 0, currentColor 1px)";
+  (* The colours fold first, so two spellings of one colour still pair up. *)
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(red 0 10px)"
+    "linear-gradient(red 0, #f00 10px)";
+  (* A stop without a position is not the same stop repeated: the position it
+     would take is interpolated, so there is nothing to absorb. *)
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(red,red 10px)"
+    "linear-gradient(red, red 10px)";
+  (* A stop already carrying both positions absorbs no further neighbour. *)
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(red 0 5px,red 10px)"
+    "linear-gradient(red 0 5px, red 10px)";
+
+  (* [0deg] points the gradient line at the top; turning it 180 degrees reaches
+     the default [to bottom] and reversing the stops undoes the turn, so the
+     angle costs nothing but bytes. *)
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(#00f,red)"
+    "linear-gradient(0deg, red, blue)";
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(#00f,red)"
+    "linear-gradient(to top, red, blue)";
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(#00f,green,red)"
+    "linear-gradient(0deg, red, green, blue)";
+  (* A positioned stop would have to mirror to [100% - p] to survive the
+     reversal, which is not shorter, so the angle stays. *)
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(0deg,red,#00f)"
+    "linear-gradient(0deg, red 0%, blue 100%)";
+  (* An interpolation hint is positional in the same way. *)
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(0deg,red,30%,#00f)"
+    "linear-gradient(0deg, red, 30%, blue)";
+  (* The legacy prefixed gradients measure their angle from a different zero, so
+     the same rewrite would point them elsewhere. *)
+  decl_optimizes ~prop:"background"
+    ~into:"-webkit-linear-gradient(0deg,red,#00f)"
+    "-webkit-linear-gradient(0deg, red, blue)";
+
+  (* The SVG and filter opacities are <alpha-value>, so they minify like
+     [opacity] rather than surviving as opaque unknown-property text. *)
+  check_declaration ~expected:"fill-opacity:.1" "fill-opacity: 0.1;";
+  check_declaration ~expected:"stroke-opacity:1" "stroke-opacity: 1.0;";
+  check_declaration ~expected:"stop-opacity:.5" "stop-opacity: .50;";
+  (* A percentage is the same alpha as the number, and the number is never
+     longer. *)
+  decl_optimizes ~prop:"flood-opacity" ~into:".5" "50%";
+
+  (* SVG 2 sec. 13.4 and Filter Effects 1 sec. 9.3 / 12.2 make each of these a
+     plain <color>, so they shorten like any other colour-valued property
+     instead of surviving as opaque unknown-property text. *)
+  check_declaration ~expected:"stop-color:#fff" "stop-color: #ffffff;";
+  check_declaration ~expected:"lighting-color:currentColor"
+    "lighting-color: currentColor;";
+  (* Cross-notation folds are node changes, so they belong to the optimizer
+     rather than the printer. *)
+  check_declaration ~expected:"flood-color:rgb(255 0 0)"
+    "flood-color: rgb(255, 0, 0);";
+  decl_optimizes ~prop:"flood-color" ~into:"red" "rgb(255, 0, 0)";
+  decl_optimizes ~prop:"stop-color" ~into:"#0000" "rgba(0, 0, 0, 0)";
+
+  (* SVG 2 sec. 13.5 and 14.4 give [fill-rule] and [clip-rule] the same
+     <fill-rule>, which is the keyword pair alone: the argument form inside
+     polygon() is a different production. *)
+  check_declaration ~expected:"fill-rule:evenodd" "fill-rule: evenodd;";
+  check_declaration ~expected:"clip-rule:nonzero" "clip-rule: nonzero;";
+  check_declaration ~expected:"fill-rule:var(--r)" "fill-rule: var(--r);";
+  (* SVG 2 sec. 13.3. [miter-clip] and [arcs] are the Level 2 additions to
+     [stroke-linejoin]; a reader that takes the grammar takes all five. *)
+  check_declaration ~expected:"stroke-linecap:square" "stroke-linecap: square;";
+  check_declaration ~expected:"stroke-linejoin:arcs" "stroke-linejoin: arcs;";
+  (* SVG 2 sec. 13.3 makes the miter limit a <number> that cannot go below 1, so
+     it minifies like one and a constant calc() folds. *)
+  check_declaration ~expected:"stroke-miterlimit:4" "stroke-miterlimit: 4.0;";
+  decl_optimizes ~prop:"stroke-miterlimit" ~into:"6" "calc(2 * 3)";
+  (* SVG 2 sec. 13.3 separates dashes by comma and/or whitespace and the
+     rendered pattern is the flat sequence either way, so both spellings read to
+     one list and print with the shorter separator. *)
+  check_declaration ~expected:"stroke-dasharray:4 2" "stroke-dasharray: 4, 2;";
+  check_declaration ~expected:"stroke-dasharray:none" "stroke-dasharray: none;";
+  (* A dash length is a <length-percentage> or a bare <number> in user units,
+     and it minifies like every other length. *)
+  decl_optimizes ~prop:"stroke-dashoffset" ~into:"0" "0px";
+  decl_optimizes ~prop:"stroke-dasharray" ~into:"0 4px" "0px 4px";
+  check_declaration ~expected:"stroke-dashoffset:.5px"
+    "stroke-dashoffset: 0.50px;";
+  (* SVG 2 sec. 13.7: a keyword left out is painted last, in the order [normal]
+     would use, so the specification's own example is that [paint-order: stroke]
+     equals [paint-order: stroke fill markers]. The shortest spelling is the
+     shortest prefix that expands back to the same order. *)
+  decl_optimizes ~prop:"paint-order" ~into:"stroke" "stroke fill markers";
+  decl_optimizes ~prop:"paint-order" ~into:"normal" "fill stroke markers";
+  decl_optimizes ~prop:"paint-order" ~into:"normal" "fill";
+  (* Reordering the tail is load-bearing, so this one keeps both keywords. *)
+  decl_optimizes ~prop:"paint-order" ~into:"markers stroke" "markers stroke";
+  (* SVG 2 sec. 7.10 makes [viewport] what an omitted host space means, so
+     writing it is redundant; [screen] is not. *)
+  decl_optimizes ~prop:"vector-effect" ~into:"non-scaling-stroke"
+    "non-scaling-stroke viewport";
+  decl_optimizes ~prop:"vector-effect" ~into:"non-scaling-stroke screen"
+    "non-scaling-stroke screen";
+
   (* Complex nested functions. Per CSS Values 4 section 10.7 the printer
      simplifies all-constant calc subexpressions, reducing same-unit additions
      to a single value. Calcs containing [var()] cannot reduce at syntax time
@@ -302,7 +406,15 @@ let special_cases () =
   (* Multiple backgrounds *)
   check_declaration ~expected:"background:url(x.png),linear-gradient(red,blue)"
     ~optimized:"background:url(x.png),linear-gradient(red,#00f)"
-    "background: url(x.png), linear-gradient(red, blue);"
+    "background: url(x.png), linear-gradient(red, blue);";
+
+  (* One position per background layer, comma-separated: joining the layers with
+     spaces reads as a single four-value position. *)
+  check_declaration ~expected:"background-position:30% 50%,70% 50%"
+    ~optimized:"background-position:30%,70%"
+    "background-position: 30% 50%, 70% 50%;";
+  check_declaration ~expected:"mask-position:0 0,10px 10px"
+    "mask-position: 0 0, 10px 10px;"
 
 let colors () =
   (* Same-node spellings the printer keeps (case-fold, hex shorten). The
@@ -731,7 +843,7 @@ let transforms () =
     "transform: scale(2) translateY(20px) rotate(180deg)";
 
   (* Transform origin *)
-  (* Per CSS Transforms 1 §6 [center] is shorthand for [50% 50%] and the
+  (* Per CSS Transforms 1 sec. 6 [center] is shorthand for [50% 50%] and the
      keyword pair [top left] is [0 0]. A single [0] would mean [0 50%], so the
      two-value form must be preserved. *)
   check_declaration ~expected:"transform-origin:50%" "transform-origin: center";
@@ -798,6 +910,14 @@ let grid () =
     "grid-auto-flow: row dense";
   check_declaration ~expected:"grid-auto-flow:column dense"
     "grid-auto-flow: column dense";
+  (* CSS Grid 2 sec. 7.6 gives [ row | column ] || dense with [row] as the
+     omitted axis, so [row dense] and [dense] are one value and the optimizer
+     picks the shorter. The axis is load-bearing on [column dense]. *)
+  decl_optimizes_to ~held:"grid-auto-flow:row dense"
+    ~into:"grid-auto-flow:dense" "grid-auto-flow: row dense";
+  decl_optimizes_to ~held:"grid-auto-flow:row dense"
+    ~into:"grid-auto-flow:dense" "grid-auto-flow: dense row";
+  decl_optimizes ~prop:"grid-auto-flow" ~into:"column dense" "column dense";
 
   (* Grid gaps *)
   check_declaration ~expected:"gap:10px" "gap: 10px";
@@ -1373,7 +1493,7 @@ let number_formats () =
 let unterminated () =
   (* CSS Syntax 5.3.7 / 4.3.5 auto-close unterminated strings, brackets and
      function calls at EOF. Assert the recovered declaration matches the shape
-     an explicit closer would have produced — the parser must not silently drop
+     an explicit closer would have produced -- the parser must not silently drop
      content. *)
   check_declaration ~expected:"content:\"abc\"" "content: \"abc";
   (* The auto-closed inner parens collapse to a single value, leaving the outer
@@ -1454,7 +1574,16 @@ let angle_units () =
   (* deg/turn/grad conversion is an optimize rewrite, not a pp spelling: pp
      holds the authored units, optimize converts to the shortest. *)
   decl_optimizes_to ~held:"transform:skew(.25turn,100grad)"
-    ~into:"transform:skew(90deg,90deg)" "transform: skew(0.25turn, 100grad)"
+    ~into:"transform:skew(90deg,90deg)" "transform: skew(0.25turn, 100grad)";
+  (* A radian converts through pi, so it is never exactly a whole number of
+     degrees - except at zero, which is the same angle in every unit. *)
+  decl_optimizes_to ~held:"transform:rotate(0rad)"
+    ~into:"transform:rotate(0deg)" "transform: rotate(0rad)";
+  decl_optimizes_to ~held:"filter:hue-rotate(0rad)" ~into:"filter:hue-rotate()"
+    "filter: hue-rotate(0rad)";
+  (* hue-rotate() takes [ <angle> | <zero> ]? and means 0 when omitted, so the
+     other zero spellings drop the argument as well. *)
+  decl_optimizes ~prop:"filter" ~into:"hue-rotate()" "hue-rotate(0turn)"
 
 let property_case () =
   (* Property names are ASCII case-insensitive *)
@@ -1890,6 +2019,11 @@ let spec_remaining_prop_vectors () =
     ];
   check_declaration ~expected:"border-inline-color:red blue"
     ~optimized:"border-inline-color:red #00f" "border-inline-color: red blue";
+  check_declaration ~expected:"border-block-color:red blue"
+    ~optimized:"border-block-color:red #00f" "border-block-color: red blue";
+  check_declaration ~expected:"border-inline-width:1px 2px"
+    "border-inline-width: 1px 2px";
+  check_declaration ~expected:"border-block-width:4px" "border-block-width: 4px";
   List.iter
     (fun input -> neg_cursor read_declaration input)
     [
@@ -1902,7 +2036,6 @@ let spec_remaining_prop_vectors () =
       "overscroll-behavior-inline: contain auto none";
       "scroll-snap-align: start center end";
       "scroll-snap-stop: normal always";
-      "scroll-margin: -1px";
       "columns: 1 2 3";
       "column-rule: solid solid";
       "column-span: all none";
@@ -1911,6 +2044,8 @@ let spec_remaining_prop_vectors () =
       "background-origin: border-box padding-box content-box border-box";
       "background-size: contain cover";
       "border-inline-color: red blue green";
+      "border-block-color: red blue green";
+      "border-inline-width: 1px 2px 3px";
       "border-start-start-radius: 1rem /";
       "text-decoration: underline none";
       "text-underline-position: auto under";
@@ -2265,7 +2400,7 @@ let spec_property_grammar_manifest () =
   if List.length unique_properties <> List.length property_grammar_matrix then
     Alcotest.fail "property grammar manifest has duplicate property rows";
   Alcotest.(check int)
-    "property grammar manifest covers every tracked spec property name" 431
+    "property grammar manifest covers every tracked spec property name" 452
     (List.length unique_properties);
   List.iter check_property_row property_grammar_matrix
 
@@ -2305,6 +2440,242 @@ let parse_declaration_case () =
     "invalid value is None" true
     (parse_declaration "mask-type" "definitely-not-a-mask-type" = None)
 
+(* CSS Scroll Snap 1 sec. 5.1: the [scroll-margin] longhands are [<length>],
+   with no [0,inf] range and no "negative values are invalid" clause - that
+   clause belongs to [scroll-padding] alone (sec. 4.2), and the CR changelog
+   records the restriction as applying to [scroll-padding] only. Outsets may
+   therefore be negative, exactly like [margin]. *)
+let scroll_margin_negative () =
+  let props =
+    [
+      "scroll-margin";
+      "scroll-margin-top";
+      "scroll-margin-right";
+      "scroll-margin-bottom";
+      "scroll-margin-left";
+      "scroll-margin-inline";
+      "scroll-margin-inline-start";
+      "scroll-margin-inline-end";
+      "scroll-margin-block";
+      "scroll-margin-block-start";
+      "scroll-margin-block-end";
+    ]
+  in
+  List.iter
+    (fun prop ->
+      (* Minified (no space after the colon) and spaced spellings agree. *)
+      check_declaration ~roundtrip:true ~expected:(prop ^ ":-2vh")
+        (prop ^ ":-2vh");
+      check_declaration ~roundtrip:true ~expected:(prop ^ ":-2vh")
+        (prop ^ ": -2vh");
+      check_declaration ~roundtrip:true ~expected:(prop ^ ":-1px")
+        (prop ^ ": -1px");
+      check_declaration ~roundtrip:true ~expected:(prop ^ ":-.5em")
+        (prop ^ ": -.5em");
+      check_declaration ~roundtrip:true
+        ~expected:(prop ^ ":calc(-1px - 2px)")
+        (prop ^ ": calc(-1px - 2px)");
+      (* Percentages stay invalid: the longhands are [<length>], "Percentages:
+         n/a". *)
+      neg_cursor read_declaration (prop ^ ": -10%");
+      neg_cursor read_declaration (prop ^ ": 10%"))
+    props;
+  (* Multi-value shorthand forms take a negative in any position. *)
+  check_declaration ~roundtrip:true ~expected:"scroll-margin:-1px 2px"
+    "scroll-margin:-1px 2px";
+  check_declaration ~roundtrip:true ~expected:"scroll-margin:1px -2px"
+    "scroll-margin: 1px -2px";
+  check_declaration ~roundtrip:true
+    ~expected:"scroll-margin:-1px -2px -3px -4px"
+    "scroll-margin: -1px -2px -3px -4px";
+  check_declaration ~roundtrip:true ~expected:"scroll-margin-block:-1px -2px"
+    "scroll-margin-block: -1px -2px";
+  check_declaration ~roundtrip:true ~expected:"scroll-margin-inline:-1px -2px"
+    "scroll-margin-inline: -1px -2px";
+  (* Control: [scroll-padding] is [auto | <length-percentage>] with "Negative
+     values are invalid", so its longhands keep rejecting them. *)
+  List.iter
+    (fun prop ->
+      neg_cursor read_declaration (prop ^ ":-2vh");
+      neg_cursor read_declaration (prop ^ ": -2vh"))
+    [
+      "scroll-padding";
+      "scroll-padding-top";
+      "scroll-padding-inline";
+      "scroll-padding-block-end";
+    ]
+
+(* The whole-sheet path must accept the same values without recovering: a
+   swallowed warning is what hid this from [Css.of_string] callers. *)
+let scroll_margin_negative_sheet () =
+  List.iter
+    (fun css ->
+      match Css.of_string ~strict:true css with
+      | Ok { stylesheet; _ } ->
+          Alcotest.(check string)
+            "scroll-margin sheet roundtrip" css
+            (String.trim (Css.to_string ~minify:true stylesheet))
+      | Error e -> Alcotest.failf "%s: %s" css (Error.to_string e))
+    [
+      "a{scroll-margin:-2vh}";
+      "a{scroll-margin:-1px 2px}";
+      "a{scroll-margin-top:-2vh}";
+      "a{scroll-margin-block:-1px -2px}";
+      "a{scroll-margin-inline-start:-1px}";
+    ]
+
+(* A declaration the reader rejects is dropped from the sheet with nothing but a
+   warning, so every reader gap needs a whole-sheet pin too. *)
+let check_sheet_roundtrip name css =
+  match Css.of_string ~strict:true css with
+  | Ok { stylesheet; _ } ->
+      Alcotest.(check string)
+        (name ^ " sheet roundtrip")
+        css
+        (String.trim (Css.to_string ~minify:true stylesheet))
+  | Error e -> Alcotest.failf "%s: %s" css (Error.to_string e)
+
+(* CSS Shapes 1 sec. 2: [shape-outside] is [none | [<basic-shape> ||
+   <shape-box>] | <image>]. The reader only looked at the first component and
+   only knew [none], [circle()] and [inset()] there, so a reference box, a
+   box/shape pair, the other basic shapes and an image were all rejected and the
+   declaration dropped. *)
+let shape_outside_grammar () =
+  List.iter
+    (fun css -> check_declaration ~roundtrip:true css)
+    [
+      "shape-outside:none";
+      "shape-outside:inherit";
+      "shape-outside:var(--shape)";
+      (* <basic-shape> *)
+      "shape-outside:circle(50%)";
+      "shape-outside:circle()";
+      "shape-outside:circle(50% at 20% 30%)";
+      "shape-outside:ellipse(closest-side farthest-side at 10px 20px)";
+      "shape-outside:inset(10px round 2px)";
+      "shape-outside:polygon(0 0,100% 0,100% 100%)";
+      "shape-outside:xywh(0 0 100% 100%)";
+      (* <shape-box> on its own, and either order in the [||] pair *)
+      "shape-outside:margin-box";
+      "shape-outside:content-box";
+      "shape-outside:circle() border-box";
+      "shape-outside:padding-box circle(50%)";
+      (* <image> *)
+      "shape-outside:url(shape.png)";
+      "shape-outside:linear-gradient(red,blue)";
+    ];
+  (* Controls: an unknown keyword is no part of the grammar, [none] and a box
+     are alternatives rather than a [||] pair, the box appears once, and
+     [<shape-box>] excludes the three SVG boxes [<geometry-box>] adds. *)
+  List.iter
+    (neg_cursor read_declaration)
+    [
+      "shape-outside:not-a-shape";
+      "shape-outside:none margin-box";
+      "shape-outside:margin-box border-box";
+      "shape-outside:circle(50%) fill-box";
+    ]
+
+let shape_outside_sheet () =
+  List.iter
+    (check_sheet_roundtrip "shape-outside")
+    [
+      "a{shape-outside:none}";
+      "a{shape-outside:margin-box}";
+      "a{shape-outside:circle(50%) content-box}";
+      "a{shape-outside:url(shape.png)}";
+    ]
+
+(* Vendor-prefixed properties with a typed constructor need a reader arm as
+   well: without one the dispatch falls through to "unsupported property reader"
+   and the declaration is dropped. Each takes the same value type as the
+   unprefixed property, so each reads with the unprefixed reader. *)
+let vendor_prefixed_shorthands () =
+  let values =
+    [
+      ("animation", "spin 1s");
+      ("animation-delay", "1s");
+      ("animation-direction", "reverse");
+      ("animation-duration", "2s");
+      ("animation-fill-mode", "forwards");
+      ("animation-iteration-count", "infinite");
+      ("animation-name", "spin");
+      ("animation-play-state", "paused");
+      ("animation-timing-function", "ease-in");
+      ("transition", "all .3s");
+      ("transition-delay", "1s");
+      ("transition-duration", "2s");
+      ("transition-property", "opacity");
+      ("transition-timing-function", "linear");
+      ("border-radius", "4px");
+      ("box-shadow", "0 1px 2px #000");
+      ("background-size", "cover");
+      ("flex-direction", "column");
+      ("flex-flow", "row wrap");
+      ("flex-wrap", "wrap");
+      ("justify-content", "space-between");
+      ("align-content", "center");
+      ("align-items", "center");
+      ("align-self", "flex-end");
+    ]
+  in
+  let prefixed prefix names =
+    List.filter_map
+      (fun (name, value) ->
+        if List.mem name names then Some (prefix ^ name ^ ":" ^ value) else None)
+      values
+  in
+  let cases =
+    prefixed "-webkit-"
+      [
+        "animation-delay";
+        "animation-direction";
+        "animation-duration";
+        "animation-fill-mode";
+        "animation-iteration-count";
+        "animation-name";
+        "animation-play-state";
+        "animation-timing-function";
+        "transition-delay";
+        "transition-duration";
+        "transition-property";
+        "transition-timing-function";
+        "border-radius";
+        "box-shadow";
+        "background-size";
+        "flex-direction";
+        "flex-flow";
+        "flex-wrap";
+        "justify-content";
+        "align-content";
+        "align-items";
+        "align-self";
+      ]
+    @ prefixed "-moz-"
+        [
+          "animation";
+          "animation-delay";
+          "animation-direction";
+          "animation-duration";
+          "animation-fill-mode";
+          "animation-iteration-count";
+          "animation-name";
+          "animation-play-state";
+          "animation-timing-function";
+          "transition";
+          "transition-delay";
+          "transition-duration";
+          "transition-property";
+          "transition-timing-function";
+          "border-radius";
+          "box-shadow";
+        ]
+  in
+  List.iter (fun css -> check_declaration ~roundtrip:true css) cases;
+  List.iter
+    (fun css -> check_sheet_roundtrip "vendor prefix" ("a{" ^ css ^ "}"))
+    cases
+
 let declaration_tests =
   [
     (* Core declaration type testing *)
@@ -2330,6 +2701,8 @@ let declaration_tests =
     test_case "spec custom property token stream values" `Quick
       spec_custom_tokens;
     test_case "vendor prefixes" `Quick vendor_prefixes;
+    test_case "vendor-prefixed shorthand readers" `Quick
+      vendor_prefixed_shorthands;
     (* Property value categories *)
     test_case "colors" `Quick colors;
     test_case "color functions" `Quick color_functions;
@@ -2369,6 +2742,11 @@ let declaration_tests =
     test_case "error unclosed block" `Quick error_unclosed_block;
     test_case "unterminated parsing" `Quick unterminated;
     test_case "invalid declarations" `Quick invalid;
+    test_case "scroll-margin negative lengths" `Quick scroll_margin_negative;
+    test_case "scroll-margin negative lengths (sheet)" `Quick
+      scroll_margin_negative_sheet;
+    test_case "shape-outside grammar" `Quick shape_outside_grammar;
+    test_case "shape-outside grammar (sheet)" `Quick shape_outside_sheet;
     (* Spec details and edge cases *)
     test_case "CSS-wide keywords" `Quick css_wide_keywords;
     test_case "spec cascade 3 shorthand properties" `Quick

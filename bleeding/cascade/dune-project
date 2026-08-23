@@ -2,7 +2,7 @@
 (implicit_transitive_deps false)
 (using mdx 0.4)
 (name cascade)
-(version 1.0.0)
+(version 1.1.0)
 (generate_opam_files true)
 (source (github samoht/cascade))
 (license ISC)
@@ -31,7 +31,7 @@
   (fmt (>= 0.10.0))
   base-unix
   uutf
+  uri
   psq
   logs
-  (cmdliner (>= 1.1.0))
-  memtrace))
+  (cmdliner (>= 1.1.0))))

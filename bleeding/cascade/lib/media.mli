@@ -85,6 +85,8 @@ type ident =
   | Enabled
   | Other of string
 
+(** [env(--name)] / [var(...)] / [calc(...)] etc. captured as a function name
+    plus its raw argument body. *)
 type value =
   | Length of Values.length
   | Integer of int
@@ -93,15 +95,20 @@ type value =
   | Resolution_value of float * string
   | Ident of ident
   | Function of string * string
-      (** [env(--name)] / [var(...)] / [calc(...)] etc. captured as a function
-          name plus its raw argument body. *)
 
+val equal_value : value -> value -> bool
+(** [equal_value a b] tests media feature values structurally. *)
+
+(** Media Queries 4 sec. 3.1 [<general-enclosed>]: a grammatical but
+    unrecognised query, kept verbatim. Its result is [unknown], which becomes
+    false wherever a boolean is expected. *)
 type feature =
   | Plain of name * value
   | Boolean of name
   | Range of name * cmp * value
   | Range_rev of value * cmp * name
   | Interval of value * cmp * name * cmp * value
+  | General_enclosed of string
 
 type condition =
   | Feature of feature
@@ -112,6 +119,10 @@ type condition =
 type medium = All | Screen | Print | Other of string
 type prefix = Not | Only
 
+val equal_name : name -> name -> bool
+(** [equal_name a b] tests media feature names for equality. *)
+
+(** Comma-separated media query list. *)
 type t =
   | Cond of condition
   | Type of {
@@ -119,7 +130,7 @@ type t =
       type_ : medium;
       trailing : condition option;
     }
-  | List of t list  (** Comma-separated media query list. *)
+  | List of t list
 
 val of_string : string -> t
 (** [of_string s] parses [s] as a media query. *)
@@ -127,10 +138,18 @@ val of_string : string -> t
 val of_string_strict : string -> t
 (** [of_string_strict s] parses [s] as a media query without branch recovery. *)
 
+val of_components : ?recover:bool -> Component.t list -> t
+(** [of_components components] parses an already-tokenized media query. Invalid
+    branches recover to [not all] unless [recover] is [false]. *)
+
 val of_function_body : string -> t
 (** [of_function_body s] parses the body of a conditional [media(...)] function.
     Unlike a standalone media query, a single feature appears without its outer
     parentheses in this grammar. *)
+
+val of_function_components : Component.t list -> t
+(** [of_function_components components] parses an already-tokenized conditional
+    [media(...)] body. *)
 
 val value_of_string : string -> value
 (** [value_of_string s] parses [s] as a media-feature value. *)
@@ -206,6 +225,9 @@ type kind =
   | Preference_accessibility
   | Preference_appearance
   | Other
+
+val equal_kind : kind -> kind -> bool
+(** [equal_kind a b] tests media query categories for equality. *)
 
 val kind : t -> kind
 (** [kind t] classifies [t] for grouping and ordering. *)

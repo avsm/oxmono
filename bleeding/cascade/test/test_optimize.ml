@@ -126,7 +126,8 @@ let test_deduplicate_declarations () =
 let test_deduplicate_declarations_physical_identity () =
   let no_op = [ custom_property "--a" "red"; custom_property "--b" "blue" ] in
   let result = deduplicate_declarations no_op in
-  check bool "no-op deduplicate is structurally unchanged" true (result = no_op);
+  check bool "no-op deduplicate is structurally unchanged" true
+    (List.equal Declaration.equal_declaration result no_op);
   check bool "no-op deduplicate preserves physical identity" true
     (result == no_op);
   let overriding =
@@ -877,10 +878,334 @@ let test_lossless_declaration_order () =
     ".a{border-top:1px solid red;border-color:#00f}"
     (opt ~lossless:true ".a{border-top:1px solid red;border-color:blue}")
 
+let test_lossless_keeps_unknown_property_order () =
+  let opt css =
+    match Css.of_string ~strict:false css with
+    | Ok p ->
+        Css.to_string ~minify:true (Css.optimize ~lossless:true p.stylesheet)
+        |> String.trim
+    | Error _ -> Alcotest.fail "parse"
+  in
+  (* A property with no typed spelling still writes cascade slots, so the
+     canonical order must not move it past a shorthand that resets it:
+     [background] resets the X position the longhand set. *)
+  Alcotest.(check string)
+    "an unknown longhand stays after its shorthand"
+    ".a{background:red;background-position-x:10px}"
+    (opt ".a{background:red;background-position-x:10px}");
+  (* [grid-row-gap] is the legacy alias of [row-gap]; moving it after [gap]
+     would make the row gap 9px instead of 1px. *)
+  Alcotest.(check string)
+    "a legacy alias stays before the shorthand that resets it"
+    ".a{grid-row-gap:9px;gap:1px}"
+    (opt ".a{grid-row-gap:9px;gap:1px}");
+  (* A typed longhand whose value defeats the typed reader is recovered as an
+     unknown property under its own name, and is just as order-dependent. *)
+  Alcotest.(check string)
+    "a recovered typed longhand stays after its shorthand"
+    ".a{margin:0;margin-top:var(--a) var(--b)}"
+    (opt ".a{margin:0;margin-top:var(--a) var(--b)}")
+
+(* A typed shorthand and the typed longhands it resets write common cascade
+   slots, so the canonical order has to keep them in source order. Each case is
+   one family whose two declarations render differently when swapped; the
+   expected string is the source order with value normalisation applied. *)
+let shorthand_longhand_order_cases =
+  [
+    ("gap", ".a{row-gap:9px;gap:1px}", ".a{row-gap:9px;gap:1px}");
+    ( "animation",
+      ".a{animation:x 1s;animation-duration:2s}",
+      ".a{animation:x 1s;animation-duration:2s}" );
+    ( "animation-range",
+      ".a{animation-range:normal;animation-range-start:10%}",
+      ".a{animation-range:normal;animation-range-start:10%}" );
+    ( "outline",
+      ".a{outline:1px solid red;outline-color:blue}",
+      ".a{outline:1px solid red;outline-color:#00f}" );
+    ( "grid",
+      ".a{grid:auto/auto;grid-template-columns:1fr}",
+      ".a{grid:auto/auto;grid-template-columns:1fr}" );
+    ( "grid-template",
+      ".a{grid-template:auto/auto;grid-template-areas:\"a\"}",
+      ".a{grid-template:auto/auto;grid-template-areas:\"a\"}" );
+    ( "grid-row",
+      ".a{grid-row:1/2;grid-row-start:3}",
+      ".a{grid-row:1/2;grid-row-start:3}" );
+    ( "place-content",
+      ".a{place-content:center;align-content:start}",
+      ".a{place-content:center;align-content:start}" );
+    ( "overflow",
+      ".a{overflow:hidden;overflow-x:visible}",
+      ".a{overflow:hidden;overflow-x:visible}" );
+    ( "border-radius",
+      ".a{border-top-left-radius:8px;border-radius:4px}",
+      ".a{border-top-left-radius:8px;border-radius:4px}" );
+    ( "border resets border-image",
+      ".a{border:1px solid red;border-image-source:url(a)}",
+      ".a{border:1px solid red;border-image-source:url(a)}" );
+    ( "border-image",
+      ".a{border-image:none;border-image-repeat:round}",
+      ".a{border-image:none;border-image-repeat:round}" );
+    ( "columns",
+      ".a{columns:2;column-width:10em}",
+      ".a{columns:2;column-width:10em}" );
+    ( "list-style",
+      ".a{list-style:none;list-style-type:disc}",
+      ".a{list-style:none;list-style-type:disc}" );
+    ( "text-decoration",
+      ".a{text-decoration:underline;text-decoration-color:red}",
+      ".a{text-decoration:underline;text-decoration-color:red}" );
+    ( "text-decoration-skip",
+      ".a{text-decoration-skip:none;text-decoration-skip-ink:auto}",
+      ".a{text-decoration-skip:none;text-decoration-skip-ink:auto}" );
+    ( "text-emphasis",
+      ".a{text-emphasis:dot;text-emphasis-color:red}",
+      ".a{text-emphasis:dot;text-emphasis-color:red}" );
+    ( "font resets font-language-override",
+      ".a{font:12px a;font-language-override:normal}",
+      ".a{font:12px a;font-language-override:normal}" );
+    ( "font resets font-palette",
+      ".a{font:12px a;font-palette:dark}",
+      ".a{font:12px a;font-palette:dark}" );
+    ( "font-synthesis",
+      ".a{font-synthesis:none;font-synthesis-weight:auto}",
+      ".a{font-synthesis:none;font-synthesis-weight:auto}" );
+    ( "contain-intrinsic-size",
+      ".a{contain-intrinsic-width:20px;contain-intrinsic-size:10px}",
+      ".a{contain-intrinsic-width:20px;contain-intrinsic-size:10px}" );
+    ( "scroll-margin",
+      ".a{scroll-margin:1px;scroll-margin-top:2px}",
+      ".a{scroll-margin:1px;scroll-margin-top:2px}" );
+    ( "scroll-padding",
+      ".a{scroll-padding:1px;scroll-padding-left:2px}",
+      ".a{scroll-padding:1px;scroll-padding-left:2px}" );
+    ( "overscroll-behavior",
+      ".a{overscroll-behavior:auto;overscroll-behavior-x:contain}",
+      ".a{overscroll-behavior:auto;overscroll-behavior-x:contain}" );
+    ( "container",
+      ".a{container:a/size;container-type:normal}",
+      ".a{container:a/size;container-type:normal}" );
+    ( "scroll-timeline",
+      ".a{scroll-timeline:--a block;scroll-timeline-axis:inline}",
+      ".a{scroll-timeline:--a block;scroll-timeline-axis:inline}" );
+    ( "view-timeline",
+      ".a{view-timeline:--a block;view-timeline-axis:inline}",
+      ".a{view-timeline:--a block;view-timeline-axis:inline}" );
+    ("caret", ".a{caret:red;caret-shape:bar}", ".a{caret:red;caret-shape:bar}");
+    ( "text-box",
+      ".a{text-box:trim-both cap alphabetic;text-box-edge:auto}",
+      ".a{text-box:trim-both cap alphabetic;text-box-edge:auto}" );
+    ( "text-wrap",
+      ".a{text-wrap:balance;text-wrap-mode:nowrap}",
+      ".a{text-wrap:balance;text-wrap-mode:nowrap}" );
+    ( "white-space resets text-wrap-mode",
+      ".a{white-space:pre;text-wrap-mode:wrap}",
+      ".a{white-space:pre;text-wrap-mode:wrap}" );
+    ( "interest-delay",
+      ".a{interest-delay:1s;interest-delay-start:2s}",
+      ".a{interest-delay:1s;interest-delay-start:2s}" );
+    ( "position-try",
+      ".a{position-try:--a;position-try-order:most-width}",
+      ".a{position-try:--a;position-try-order:most-width}" );
+  ]
+
+let test_lossless_keeps_shorthand_longhand_order () =
+  let opt css =
+    match Css.of_string ~strict:false css with
+    | Ok p ->
+        Css.to_string ~minify:true (Css.optimize ~lossless:true p.stylesheet)
+        |> String.trim
+    | Error _ -> Alcotest.fail "parse"
+  in
+  List.iter
+    (fun (name, input, expected) ->
+      Alcotest.(check string) name expected (opt input))
+    shorthand_longhand_order_cases
+
+(* CSS Logical 1 sec. 2: a flow-relative longhand resolves to a physical side
+   the writing mode picks, so a sheet on its own cannot say whether
+   [margin-inline-start] and [margin-left] name one slot or two. The canonical
+   order therefore has to keep such a pair in source order, in both directions.
+   The first three cases are corpus tests duplicates/0015-0017, each of which a
+   browser renders differently once the pair is swapped. *)
+let logical_physical_order_cases =
+  [
+    ( "border-top before border-block",
+      ".a{border-top:1px solid red;border-block:2px solid red}",
+      ".a{border-top:1px solid red;border-block:2px solid red}" );
+    ( "border-block before border-top",
+      ".a{border-block:2px solid red;border-top:1px solid red}",
+      ".a{border-block:2px solid red;border-top:1px solid red}" );
+    ( "margin-left before margin-inline-start",
+      ".a{margin-left:10px;margin-inline-start:20px}",
+      ".a{margin-left:10px;margin-inline-start:20px}" );
+    ( "margin-inline-start before margin-left",
+      ".a{margin-inline-start:20px;margin-left:10px}",
+      ".a{margin-inline-start:20px;margin-left:10px}" );
+    ( "padding-top before padding-block-start",
+      ".a{padding-top:10px;padding-block-start:20px}",
+      ".a{padding-top:10px;padding-block-start:20px}" );
+    ( "padding-block-start before padding-top",
+      ".a{padding-block-start:20px;padding-top:10px}",
+      ".a{padding-block-start:20px;padding-top:10px}" );
+    (* The inline axis is the horizontal one in [horizontal-tb] and the vertical
+       one in a vertical mode, so a logical border width aliases whichever
+       physical side the mode gives it. *)
+    ( "border-left-width before border-inline-width",
+      ".a{border-left-width:1px;border-inline-width:2px}",
+      ".a{border-left-width:1px;border-inline-width:2px}" );
+    ( "border-inline-width before border-left-width",
+      ".a{border-inline-width:2px;border-left-width:1px}",
+      ".a{border-inline-width:2px;border-left-width:1px}" );
+    (* A logical side also aliases into the physical shorthand that covers every
+       side. *)
+    ( "border before border-block",
+      ".a{border:1px solid red;border-block:2px solid red}",
+      ".a{border:1px solid red;border-block:2px solid red}" );
+    ( "top before inset-inline-start",
+      ".a{top:1px;inset-inline-start:5px}",
+      ".a{top:1px;inset-inline-start:5px}" );
+    ( "scroll-margin-top before scroll-margin-block-start",
+      ".a{scroll-margin-top:1px;scroll-margin-block-start:2px}",
+      ".a{scroll-margin-top:1px;scroll-margin-block-start:2px}" );
+    (* CSS Logical 1 sec. 4.4: the sizing family aliases the same way, with no
+       physical shorthand covering the two axes. *)
+    ( "width before inline-size",
+      ".a{width:10px;inline-size:20px}",
+      ".a{width:10px;inline-size:20px}" );
+    ( "inline-size before width",
+      ".a{inline-size:20px;width:10px}",
+      ".a{inline-size:20px;width:10px}" );
+    ( "height before block-size",
+      ".a{height:10px;block-size:20px}",
+      ".a{height:10px;block-size:20px}" );
+    ( "min-width before min-inline-size",
+      ".a{min-width:10px;min-inline-size:20px}",
+      ".a{min-width:10px;min-inline-size:20px}" );
+    ( "max-width before max-inline-size",
+      ".a{max-width:10px;max-inline-size:20px}",
+      ".a{max-width:10px;max-inline-size:20px}" );
+    (* CSS Logical 1 sec. 4.3: a flow-relative corner resolves to whichever
+       physical corner the writing mode and the direction give it. *)
+    ( "border-top-left-radius before border-start-start-radius",
+      ".a{border-top-left-radius:1px;border-start-start-radius:2px}",
+      ".a{border-top-left-radius:1px;border-start-start-radius:2px}" );
+    ( "border-start-start-radius before border-top-left-radius",
+      ".a{border-start-start-radius:2px;border-top-left-radius:1px}",
+      ".a{border-start-start-radius:2px;border-top-left-radius:1px}" );
+    ( "contain-intrinsic-width before contain-intrinsic-inline-size",
+      ".a{contain-intrinsic-width:1px;contain-intrinsic-inline-size:2px}",
+      ".a{contain-intrinsic-width:1px;contain-intrinsic-inline-size:2px}" );
+    ( "overscroll-behavior-x before overscroll-behavior-inline",
+      ".a{overscroll-behavior-x:none;overscroll-behavior-inline:contain}",
+      ".a{overscroll-behavior-x:none;overscroll-behavior-inline:contain}" );
+  ]
+
+let test_lossless_keeps_logical_physical_order () =
+  let opt css =
+    match Css.of_string ~strict:false css with
+    | Ok p ->
+        Css.to_string ~minify:true (Css.optimize ~lossless:true p.stylesheet)
+        |> String.trim
+    | Error _ -> Alcotest.fail "parse"
+  in
+  List.iter
+    (fun (name, input, expected) ->
+      Alcotest.(check string) name expected (opt input))
+    logical_physical_order_cases
+
+(* Regrouping - factoring a shared declaration into a selector list, and
+   synthesising nesting from a run of adjacent rules - depends on how the input
+   happened to order its rules: a rule sitting between two others decides
+   whether either applies. A canonical projection therefore turns regrouping
+   off, so the same stylesheet written either way maps to one form. *)
+(* Eliminating a non-adjacent duplicate declaration has to read the importance
+   flag: with an [!important] earlier write in play, the later normal write is
+   the dead one, not the winner. Dropping the wrong one changes what [.a]
+   computes to, and it is the failure mode a peer minifier ships (Lightning CSS
+   1.0.0-alpha.71 emits [.b{color:green}.a{color:#00f}] here, so [.a] resolves
+   to blue rather than red). *)
+let important_survives_non_adjacent_duplicate () =
+  let out src =
+    Css.to_string ~minify:true (Css.optimize (Css.of_string_exn src))
+  in
+  Alcotest.(check string)
+    "the !important winner is kept and the dead write dropped"
+    ".a{color:red!important}.b{color:green}"
+    (out ".a{color:red!important}.b{color:green}.a{color:blue}");
+  (* The mirror image: when the later write carries the flag it is the winner,
+     so the earlier one is what goes. *)
+  Alcotest.(check string)
+    "a later !important wins over an earlier normal write"
+    ".b{color:green}.a{color:#00f!important}"
+    (out ".a{color:red}.b{color:green}.a{color:blue!important}");
+  (* Neither carries the flag, so the plain last-wins rule applies. *)
+  Alcotest.(check string)
+    "without !important the later write wins" ".b{color:green}.a{color:#00f}"
+    (out ".a{color:red}.b{color:green}.a{color:blue}");
+  (* Both carry it, so last-wins applies among them. *)
+  Alcotest.(check string)
+    "between two !important writes the later wins"
+    ".b{color:green}.a{color:#00f!important}"
+    (out ".a{color:red!important}.b{color:green}.a{color:blue!important}")
+
+let regrouping_can_be_disabled () =
+  let src =
+    ".text-xs{font-size:var(--text-xs);line-height:1}.text-xs\\/4{font-size:var(--text-xs);line-height:4}.text-xs\\/5{font-size:var(--text-xs);line-height:5}.text-xs\\/6{font-size:var(--text-xs);line-height:6}.text-xs\\/7{font-size:var(--text-xs);line-height:7}"
+  in
+  let sheet = Css.of_string_exn src in
+  let out ?regroup () =
+    Css.to_string ~minify:true (Css.optimize ?regroup sheet)
+  in
+  Alcotest.(check bool)
+    "regrouping on lifts the shared declaration" true
+    (Astring.String.is_infix ~affix:".text-xs,.text-xs\\/4" (out ()));
+  Alcotest.(check bool)
+    "regrouping off leaves each rule alone" false
+    (Astring.String.is_infix ~affix:".text-xs,.text-xs\\/4"
+       (out ~regroup:false ()))
+
+(* The other regrouping pass: two adjacent rules sharing a selector prefix
+   become one nested rule, and whether they are adjacent is exactly what an
+   unrelated rule between them decides. *)
+let nesting_synthesis_can_be_disabled () =
+  let sheet =
+    Css.of_string_exn
+      ".prose:where(:not(.not-prose,.not-prose \
+       *)){color:red;font-size:1rem}.prose:where(:not(.not-prose,.not-prose \
+       *)):where(.dark,.dark *){color:blue;font-size:2rem}"
+  in
+  let out ?regroup () =
+    Css.to_string ~minify:true (Css.optimize ?regroup sheet)
+  in
+  Alcotest.(check bool)
+    "regrouping on nests the second rule" true
+    (Astring.String.is_infix ~affix:"&:where(.dark,.dark *)" (out ()));
+  Alcotest.(check bool)
+    "regrouping off keeps both flat" false
+    (Astring.String.is_infix ~affix:"&:where(.dark,.dark *)"
+       (out ~regroup:false ()))
+
 let optimize_tests =
   [
+    ( "!important survives non-adjacent duplicate elimination",
+      `Quick,
+      important_survives_non_adjacent_duplicate );
+    ("regrouping can be disabled", `Quick, regrouping_can_be_disabled);
+    ( "nesting synthesis can be disabled",
+      `Quick,
+      nesting_synthesis_can_be_disabled );
     ("vendor prefix strip", `Quick, test_vendor_prefix_strip);
     ("lossless declaration order", `Quick, test_lossless_declaration_order);
+    ( "lossless keeps unknown property order",
+      `Quick,
+      test_lossless_keeps_unknown_property_order );
+    ( "lossless keeps shorthand longhand order",
+      `Quick,
+      test_lossless_keeps_shorthand_longhand_order );
+    ( "lossless keeps logical physical order",
+      `Quick,
+      test_lossless_keeps_logical_physical_order );
     ( "var() colour functions preserved",
       `Quick,
       test_var_color_functions_preserved );
@@ -1224,14 +1549,16 @@ let normalize_pairs =
    collapse it to one canonical node and pp alone must stay a fixed point.
    (Whether pp keeps these textually distinct depends on which forms the parser
    canonicalizes, so that side is asserted only for the colour/calc pairs, where
-   the node distinction is certain.) *)
+   the node distinction is certain.) The basic-shape pairs use [clip-path]:
+   [shape-outside] holds its value as raw text, so nothing about it is
+   normalized. *)
 let gradient_shape_pairs =
   [
     ( "a{background:linear-gradient(to top,red,blue)}",
       "a{background:linear-gradient(0deg,red,blue)}" );
     ("a{clip-path:circle(closest-side at center)}", "a{clip-path:circle()}");
-    ( "a{shape-outside:ellipse(closest-side closest-side at center)}",
-      "a{shape-outside:ellipse()}" );
+    ( "a{clip-path:ellipse(closest-side closest-side at center)}",
+      "a{clip-path:ellipse()}" );
   ]
 
 let assert_pp_keeps_distinct pairs =
@@ -1623,6 +1950,55 @@ let c61_adjacent_later_dedup () =
   Alcotest.(check string)
     "adjacent same-selector rules merge and dedupe by source order"
     ".box{display:flex;color:#00f}" output
+
+(* A rule that carries nested children can still absorb a later same-selector
+   rule: the merge moves the later declarations ahead of the nested block, which
+   is only observable for a property the nested block also sets. *)
+let same_selector_merge_past_nested () =
+  let of_string css =
+    match Css.of_string css with
+    | Ok p -> p.Css.stylesheet
+    | Error _ -> Alcotest.failf "could not parse %s" css
+  in
+  let canon css =
+    Css.Optimize.stylesheet (Css.statements (of_string css))
+    |> Css.Stylesheet.to_string ~minify:true
+    |> String.trim
+  in
+  Alcotest.(check string)
+    "disjoint nested children do not block the merge"
+    ".a{color:red;padding:1rem;&:hover{background:#00f}}"
+    (canon ".a{color:red;&:hover{background:blue}}.a{padding:1rem}");
+  Alcotest.(check string)
+    "a nested child setting the same property does block it"
+    ".a{color:red;&:hover{padding:2rem}}.a{padding:1rem}"
+    (canon ".a{color:red;&:hover{padding:2rem}}.a{padding:1rem}")
+
+(* A selector list holding a vendor pseudo-element is invalidated as a whole by
+   a browser that does not know it, so the other selectors silently lose the
+   declarations. The grouping passes refuse to build such a list; one the author
+   wrote is split so the risky branches stand alone. *)
+let vendor_pseudo_list_is_split () =
+  let of_string css =
+    match Css.of_string css with
+    | Ok p -> p.Css.stylesheet
+    | Error _ -> Alcotest.failf "could not parse %s" css
+  in
+  let canon css =
+    Css.Optimize.stylesheet (Css.statements (of_string css))
+    |> Css.Stylesheet.to_string ~minify:true
+    |> String.trim
+  in
+  Alcotest.(check string)
+    "the risky branches leave the list"
+    ".i::-webkit-search-cancel-button{display:none}.i::-webkit-search-decoration{display:none}.i::-webkit-search-results-button,.reset{display:none}"
+    (canon
+       ".i::-webkit-search-cancel-button,.i::-webkit-search-decoration,.i::-webkit-search-results-button{display:none}.reset{display:none}");
+  Alcotest.(check string)
+    "a list of only risky branches is left alone"
+    ".i::-webkit-search-cancel-button,.i::-webkit-search-decoration{display:none}"
+    (canon
+       ".i::-webkit-search-cancel-button,.i::-webkit-search-decoration{display:none}")
 
 let c61_no_merge_intervening () =
   (* CSS Cascade 6.1: [.a] and the intervening [.b] tie on specificity (0,1,0),
@@ -2603,8 +2979,8 @@ let calc_flatten_registered_single_valued () =
      * 2)}"
     "@property \
      --x{syntax:\"<length>\";inherits:false;initial-value:0px}.a{width:calc(var(--x)*2)}";
-  (* CSS Values 4 §10.10: an unregistered var() could substitute a multi-term
-     value, so the grouping must stay. *)
+  (* CSS Values 4 sec. 10.10: an unregistered var() could substitute a
+     multi-term value, so the grouping must stay. *)
   check "unregistered var keeps the nested calc"
     ".a{width:calc(calc(var(--x)) * 2)}" ".a{width:calc(calc(var(--x))*2)}";
   (* A universal syntax is not a single term, so it is not unwrapped. *)
@@ -3564,7 +3940,7 @@ let c64_child_layer_one_anonymous () =
   let optimized = Css.Optimize.stylesheet input in
   (* Per shortest-wins, two adjacent [@layer foo] blocks inside the same
      anonymous parent merge into one - they refer to the same nested layer per
-     Cascade L6 §6.4.2.1, so collapsing is spec-allowed. *)
+     Cascade L6 sec. 6.4.2.1, so collapsing is spec-allowed. *)
   let output = Css.Stylesheet.to_string ~minify:true optimized |> String.trim in
   Alcotest.(check bool)
     "anonymous parent preserved" true
@@ -4310,6 +4686,7 @@ module Fuzz = struct
     let attribute _ _ : string option = None
     let parent _ : node option = None
     let children _ = []
+    let text_children _ = []
   end
 
   module R = Resolve.Make (Node)
@@ -4757,6 +5134,10 @@ module Fuzz = struct
         fuzz_valid_and_no_larger;
       Alcotest.test_case "optimize preserves the cascade" `Slow
         fuzz_cascade_equivalent;
+      Alcotest.test_case "same-selector merge past nested children" `Quick
+        same_selector_merge_past_nested;
+      Alcotest.test_case "vendor pseudo-element list is split" `Quick
+        vendor_pseudo_list_is_split;
       Alcotest.test_case "cascade-neutral permutations stay equivalent" `Slow
         fuzz_neutral_permutation_soundness;
       Alcotest.test_case "shorthand longhand cascade preserved" `Slow

@@ -23,8 +23,10 @@ type stats = {
   removed_rules : int;
   modified_rules : int;
   reordered_rules : int;
+  rearranged_rules : int;
   regrouped_rules : int;
   container_changes : int;
+  layer_order_swaps : int;
 }
 
 (* ===== Helper Functions ===== *)
@@ -100,9 +102,10 @@ let strip_tool_header css =
   (* Trim trailing whitespace for consistent comparison *)
   String.trim stripped
 
-(* Note: We do NOT normalize @property order because their order matters for
-   testing property_order values in our implementation. The order of @property
-   rules in @layer properties reflects the intended cascade behavior. *)
+(* The canonical projection sorts a run of [@property] rules by name (see
+   [Css.canonicalize_rule_order]): CSS Properties and Values API 1 sec. 2 makes
+   registrations for different names order-independent. A caller that wants to
+   assert its own emission order should inspect the AST, or use mode [`Tree]. *)
 
 (* Analyze differences between two parsed CSS ASTs, returning structural
    changes *)
@@ -132,20 +135,30 @@ let sig_of_decls decls =
       let c = String.compare a1 a2 in
       if c <> 0 then c else String.compare b1 b2)
 
+let restore_group_order table =
+  Hashtbl.to_seq_keys table |> List.of_seq
+  |> List.iter (fun key ->
+      Hashtbl.replace table key (List.rev (Hashtbl.find table key)));
+  table
+
 let group_into_table rules =
   let tbl = Hashtbl.create 128 in
   List.iter
     (fun (k, d) ->
       let lst = match Hashtbl.find_opt tbl k with Some l -> l | None -> [] in
-      Hashtbl.replace tbl k (lst @ [ d ]))
+      Hashtbl.replace tbl k (d :: lst))
     rules;
-  tbl
+  restore_group_order tbl
 
 (* Compare two declaration lists with the same key and emit diffs *)
 let diff_same_key_pair key d1 d2 =
   let sig1 = sig_of_decls d1 in
   let sig2 = sig_of_decls d2 in
-  if sig1 = sig2 && d1 <> d2 && D.reorder_is_significant d1 d2 then
+  if
+    sig1 = sig2
+    && (not (List.equal Declaration.equal_declaration d1 d2))
+    && D.reorder_is_significant d1 d2
+  then
     Some
       (D.Reordered
          {
@@ -216,46 +229,50 @@ let build_reorder_diff expected_css actual_css =
   let diffs = ref [] in
   Hashtbl.iter (collect_key_diffs ~tbl2 ~diffs) tbl1;
   if !diffs = [] then None
-  else Some D.{ rules = List.rev !diffs; containers = [] }
+  else Some D.{ rules = List.rev !diffs; containers = []; layer_order = None }
 
 let css_for_semantic_comparison ?property css =
   match property with
   | None -> css
   | Some property -> ":root{" ^ property ^ ":" ^ css ^ "}"
 
-let canonical_semantic_css ~strict ~lossless
-    ?(prune_unused_custom_props = false) css =
-  match Css.of_string ~strict css with
-  | Ok { stylesheet; _ } -> (
-      try
-        Some
-          (stylesheet
-          |> Css.optimize ~lossless ~prune_unused_custom_props
-          |> Css.canonicalize_rule_order
-          |> Css.to_string ~minify:true ~lossless)
-      with Invalid_argument _ -> None)
-  | Error _ -> None
+let canonical_of_stylesheet ~lossless ~prune_unused_custom_props stylesheet =
+  try
+    Some
+      (stylesheet
+      (* Regrouping - factoring a shared declaration into a selector list,
+         synthesising nesting from adjacent rules - depends on how the input
+         happened to order its rules, so it is not confluent: the same sheet
+         written either way would canonicalise differently. The projection skips
+         it. *)
+      |> Css.optimize ~lossless ~regroup:false ~prune_unused_custom_props
+      |> Css.canonicalize_rule_order
+      |> Css.to_string ~minify:true ~lossless)
+  with Invalid_argument _ -> None
 
-let canonical_css ~strict ~lossless ?(prune_unused_custom_props = false) css =
-  canonical_semantic_css ~strict ~lossless ~prune_unused_custom_props css
+(* Parse both sides before canonicalising either. A caller that retries at a
+   different strictness needs only to know that one side failed to parse, and
+   canonicalising the other first is the whole pipeline's work thrown away. *)
+let canonical_both ~strict ~lossless ~prune_unused_custom_props expected actual
+    =
+  match (Css.of_string ~strict expected, Css.of_string ~strict actual) with
+  | Ok { stylesheet = expected; _ }, Ok { stylesheet = actual; _ } -> (
+      let canonical =
+        canonical_of_stylesheet ~lossless ~prune_unused_custom_props
+      in
+      match (canonical expected, canonical actual) with
+      | Some expected, Some actual -> Some (expected, actual)
+      | _ -> None)
+  | _ -> None
 
 let canonical_pair ~strict ~lossless expected actual =
-  match
-    ( canonical_css ~strict ~lossless expected,
-      canonical_css ~strict ~lossless actual )
-  with
-  | Some expected_norm, Some actual_norm ->
-      Some (String.equal expected_norm actual_norm)
-  | _ -> None
+  canonical_both ~strict ~lossless ~prune_unused_custom_props:false expected
+    actual
+  |> Option.map (fun (expected, actual) -> String.equal expected actual)
 
 let canonical_diff_inputs ~strict ~lossless ?(prune_unused_custom_props = false)
     expected actual =
-  match
-    ( canonical_css ~strict ~lossless ~prune_unused_custom_props expected,
-      canonical_css ~strict ~lossless ~prune_unused_custom_props actual )
-  with
-  | Some expected, Some actual -> Some (expected, actual)
-  | _ -> None
+  canonical_both ~strict ~lossless ~prune_unused_custom_props expected actual
 
 let canonical_diff_inputs_with_fallback ~lossless
     ?(prune_unused_custom_props = false) expected actual =
@@ -292,14 +309,7 @@ let equivalent_value ?lossless ~property a b =
 type result =
   | Tree_diff of Tree_diff.t (* CSS AST differences found *)
   | String_diff of String_diff.t (* No structural diff but strings differ *)
-  | No_diff of { canonical_byte_diff : (string * string) option }
-      (** Structurally equivalent. [canonical_byte_diff = None] means the two
-          inputs were bytewise equal (after header strip / canonical minify).
-          [Some (expected, actual)] means the structural comparator (tree-diff
-          in [`Canonical] mode) found no difference but the canonical minified
-          forms still differed - i.e. a canonical-pass gap to chip away at in
-          future. The two strings let maintainers inspect what cascade hasn't
-          normalised yet. *)
+  | No_diff (* No difference under the selected mode *)
   | Both_errors of Error.t * Error.t
   | Expected_error of Error.t
   | Actual_error of Error.t
@@ -329,7 +339,8 @@ let diff_after_empty_structural ~expected ~actual ~expected_norm ~actual_norm =
   | None -> fallback_to_string_diff ~expected ~actual
 
 let diff_two_parsed ~expected ~actual ~expected_ast ~actual_ast =
-  (* Do NOT normalize @property order - their order matters for tests *)
+  (* Order between [@property] registrations for different names carries no
+     meaning; the canonical projection sorts them. *)
   let expected_norm = expected_ast in
   let actual_norm = actual_ast in
   let structural_diff = tree_diff ~expected:expected_norm ~actual:actual_norm in
@@ -338,7 +349,7 @@ let diff_two_parsed ~expected ~actual ~expected_ast ~actual_ast =
 
 let diff_auto ~expected ~actual ~expected_parse ~actual_parse =
   (* First check if original strings are identical *)
-  if expected = actual then No_diff { canonical_byte_diff = None }
+  if expected = actual then No_diff
   else
     match (expected_parse, actual_parse) with
     | ( Ok { Css.stylesheet = expected_ast; _ },
@@ -348,6 +359,11 @@ let diff_auto ~expected ~actual ~expected_parse ~actual_parse =
     | Ok _, Error e -> Actual_error e
     | Error e, Ok _ -> Expected_error e
 
+(* The two canonical forms already differ, so this only picks how to say it: the
+   tree diff when its walk reaches the divergence, the bytes themselves when it
+   does not. A tree diff that comes back empty over two differing canonical
+   forms is a blind spot in the walk, and the string diff of the forms is what
+   names it. *)
 let diff_canonical_parsed ~expected ~actual ~expected_parse ~actual_parse
     ~expected_canon ~actual_canon =
   match (Css.of_string expected_canon, Css.of_string actual_canon) with
@@ -356,13 +372,13 @@ let diff_canonical_parsed ~expected ~actual ~expected_parse ~actual_parse
         tree_diff ~expected:expected_ast ~actual:actual_ast
       in
       if is_empty structural_diff then
-        No_diff { canonical_byte_diff = Some (expected_canon, actual_canon) }
+        fallback_to_string_diff ~expected:expected_canon ~actual:actual_canon
       else Tree_diff structural_diff
   | _ -> diff_auto ~expected ~actual ~expected_parse ~actual_parse
 
 let diff_canonical ~lossless ~prune_unused_custom_props ~expected ~actual
     ~expected_parse ~actual_parse =
-  if expected = actual then No_diff { canonical_byte_diff = None }
+  if expected = actual then No_diff
   else
     match
       canonical_diff_inputs_with_fallback ~lossless ~prune_unused_custom_props
@@ -370,27 +386,22 @@ let diff_canonical ~lossless ~prune_unused_custom_props ~expected ~actual
     with
     | None -> diff_auto ~expected ~actual ~expected_parse ~actual_parse
     | Some (expected_canon, actual_canon) ->
-        if String.equal expected_canon actual_canon then
-          No_diff { canonical_byte_diff = None }
+        (* The canonical form is what this mode compares: equivalent inputs
+           reach one form, so two forms that differ are two different
+           stylesheets or one projection missing a normalisation key. Either is
+           a difference here, and either is a finding - the key is added to the
+           projection, the blind spot fixed in the walk. *)
+        if String.equal expected_canon actual_canon then No_diff
         else
-          (* Tree-diff is the authoritative semantic comparator in Canonical
-             mode; canonical-minified byte equality is a fast-path sufficient
-             condition, not a necessary one. When the structural diff is empty,
-             the inputs ARE equivalent - cascade's canonical pass just hasn't
-             (yet) collapsed those particular textual variants (tool headers,
-             [@layer a, b;] vs split-form, empty layer-order pins, whitespace
-             inside [url()], ...). Expose the canonical byte forms on [No_diff]
-             so maintainers can spot which canonical-pass gap to chip away at
-             next, without ever overriding the structural answer. *)
           diff_canonical_parsed ~expected ~actual ~expected_parse ~actual_parse
             ~expected_canon ~actual_canon
 
 let diff_string ~expected ~actual =
-  if expected = actual then No_diff { canonical_byte_diff = None }
+  if expected = actual then No_diff
   else
     match String_diff.diff ~expected actual with
     | Some sdiff -> String_diff sdiff
-    | None -> No_diff { canonical_byte_diff = None }
+    | None -> No_diff
 
 let diff_tree ~expected_parse ~actual_parse =
   match (expected_parse, actual_parse) with
@@ -399,8 +410,7 @@ let diff_tree ~expected_parse ~actual_parse =
       let structural_diff =
         tree_diff ~expected:expected_ast ~actual:actual_ast
       in
-      if is_empty structural_diff then No_diff { canonical_byte_diff = None }
-      else Tree_diff structural_diff
+      if is_empty structural_diff then No_diff else Tree_diff structural_diff
   | Error e1, Error e2 -> Both_errors (e1, e2)
   | Ok _, Error e -> Actual_error e
   | Error e, Ok _ -> Expected_error e
@@ -414,11 +424,7 @@ let diff ?(mode = `Auto) ?(lossless = false)
   let expected = strip_tool_header expected in
   let actual = strip_tool_header actual in
   if expected = actual then
-    {
-      result = No_diff { canonical_byte_diff = None };
-      expected_warnings = [];
-      actual_warnings = [];
-    }
+    { result = No_diff; expected_warnings = []; actual_warnings = [] }
   else
     match mode with
     | `String ->
@@ -446,14 +452,14 @@ let diff ?(mode = `Auto) ?(lossless = false)
 
 let equal ?mode ?lossless ?prune_unused_custom_props a b =
   match (diff ?mode ?lossless ?prune_unused_custom_props a b).result with
-  | No_diff _ -> true
+  | No_diff -> true
   | _ -> false
 
 let as_tree_diff t =
   match t.result with
   | Tree_diff d -> Some d
-  | String_diff _ | No_diff _ | Both_errors _ | Expected_error _
-  | Actual_error _ ->
+  | String_diff _ | No_diff | Both_errors _ | Expected_error _ | Actual_error _
+    ->
       None
 
 (* Compute statistics from diff results *)
@@ -479,9 +485,15 @@ let compute_stats ~expected_str ~actual_str diff_result =
             | _ -> false);
         reordered_rules =
           count_rule_type (function D.Reordered _ -> true | _ -> false);
+        rearranged_rules =
+          count_rule_type (function D.Rearranged _ -> true | _ -> false);
         regrouped_rules =
           count_rule_type (function D.Regrouped _ -> true | _ -> false);
         container_changes = List.length d.containers;
+        layer_order_swaps =
+          (match d.layer_order with
+          | None -> 0
+          | Some { swapped; _ } -> List.length swapped);
       }
   | _ ->
       (* For non-tree diffs, just return character stats *)
@@ -494,8 +506,10 @@ let compute_stats ~expected_str ~actual_str diff_result =
         removed_rules = 0;
         modified_rules = 0;
         reordered_rules = 0;
+        rearranged_rules = 0;
         regrouped_rules = 0;
         container_changes = 0;
+        layer_order_swaps = 0;
       }
 
 (* Alias for compute_stats *)
@@ -504,25 +518,40 @@ let stats = compute_stats
 let add_strings b ls = List.iter (fun s -> Buffer.add_string b s) ls
 
 (* Render each side's parse warnings so a declaration the parser dropped never
-   reads as a phantom structural difference on the side that parsed. *)
-let pp_parse_warnings buf label warnings =
+   reads as a phantom structural difference on the side that parsed. Past [max]
+   they are counted rather than printed: a stylesheet that trips the same
+   unsupported syntax hundreds of times would otherwise bury the diff it is
+   meant to qualify. *)
+let pp_parse_warnings ?(max = Stdlib.max_int) buf label warnings =
+  let shown, hidden =
+    let n = List.length warnings in
+    if n <= max then (warnings, 0)
+    else (List.filteri (fun i _ -> i < max) warnings, n - max)
+  in
   List.iter
     (fun w ->
       if Buffer.length buf > 0 && Buffer.nth buf (Buffer.length buf - 1) <> '\n'
       then Buffer.add_char buf '\n';
       add_strings buf [ label; " parse warning: "; Error.to_string w; "\n" ])
-    warnings
+    shown;
+  if hidden > 0 then
+    add_strings buf
+      [
+        label;
+        ": ";
+        string_of_int hidden;
+        (if hidden = 1 then " more parse warning\n"
+         else " more parse warnings\n");
+      ]
 
-let pp_result ?(expected = "Expected") ?(actual = "Actual") ?(color = false) buf
-    = function
+let pp_result ?(expected = "Expected") ?(actual = "Actual") ?(color = false)
+    ?depth buf = function
   | Tree_diff d ->
       (* Show structural differences *)
-      D.pp ~expected ~actual ~color buf d
-  | String_diff sdiff -> String_diff.pp buf sdiff
-  | No_diff _ ->
-      (* No output for structurally equivalent files (whether or not the
-         canonical-minified bytes also matched). *)
-      ()
+      D.pp ~expected ~actual ~color ?depth buf d
+  | String_diff sdiff ->
+      String_diff.pp ~expected_label:expected ~actual_label:actual buf sdiff
+  | No_diff -> ()
   | Both_errors (e1, e2) ->
       let err1 = Error.to_string e1 in
       let err2 = Error.to_string e2 in
@@ -545,10 +574,23 @@ let pp_result ?(expected = "Expected") ?(actual = "Actual") ?(color = false) buf
   | Actual_error e ->
       add_strings buf [ actual; " CSS parse error: "; Error.to_string e ]
 
-let pp ?(expected = "Expected") ?(actual = "Actual") ?(color = false) buf t =
-  pp_result ~expected ~actual ~color buf t.result;
-  pp_parse_warnings buf expected t.expected_warnings;
-  pp_parse_warnings buf actual t.actual_warnings
+let pp_warnings ?(expected = "Expected") ?(actual = "Actual") ?max buf t =
+  pp_parse_warnings ?max buf expected t.expected_warnings;
+  pp_parse_warnings ?max buf actual t.actual_warnings
+
+let has_warnings t = t.expected_warnings <> [] || t.actual_warnings <> []
+
+let pp_diff ?(expected = "Expected") ?(actual = "Actual") ?(color = false)
+    ?depth buf t =
+  pp_result ~expected ~actual ~color ?depth buf t.result
+
+let pp ?(expected = "Expected") ?(actual = "Actual") ?(color = false) ?depth buf
+    t =
+  (* Warnings come first: a dropped declaration qualifies every line below it,
+     and trailing them puts that caveat past the end of a long report. *)
+  pp_warnings ~expected ~actual buf t;
+  if has_warnings t then Buffer.add_char buf '\n';
+  pp_diff ~expected ~actual ~color ?depth buf t
 
 let add_pct buf char_diff_pct =
   let rounded = Float.round (char_diff_pct *. 10.0) /. 10.0 in
@@ -572,13 +614,21 @@ let emit_changes buf stats =
       (stats.removed_rules, "removed", "rule");
       (stats.modified_rules, "modified", "rule");
       (stats.reordered_rules, "reordered", "rule");
+      (stats.rearranged_rules, "rearranged", "rule");
       (stats.regrouped_rules, "regrouped", "rule");
     ]
     |> List.filter (fun (n, _, _) -> n > 0)
   in
   let container = stats.container_changes in
-  if entries = [] && container = 0 then
-    Buffer.add_string buf "No structural differences\n"
+  let layers = stats.layer_order_swaps in
+  (* Every counter above comes from a tree diff, so they all read zero on the
+     results that never reached one: a comparison that fell through to the
+     string diff, a side whose content the parser discarded, a parse error. The
+     line says what it knows - nothing was classified - and leaves the verdict
+     to the report under it. *)
+  if entries = [] && container = 0 && layers = 0 then
+    Buffer.add_string buf
+      "Changes: none classified structurally (see report below)\n"
   else (
     Buffer.add_string buf "Changes: ";
     List.iteri
@@ -588,7 +638,10 @@ let emit_changes buf stats =
       entries;
     if container > 0 then (
       if entries <> [] then Buffer.add_string buf ", ";
-      add_strings buf [ string_of_int container; " containers" ]);
+      add_change buf container "changed" "container");
+    if layers > 0 then (
+      if entries <> [] || container > 0 then Buffer.add_string buf ", ";
+      add_change buf layers "swapped" "layer pair");
     Buffer.add_char buf '\n')
 
 let pp_stats buf stats =
@@ -598,12 +651,13 @@ let pp_stats buf stats =
       float_of_int char_diff *. 100.0 /. float_of_int stats.expected_chars
     else 0.0
   in
+  (* Same order as the [---] / [+++] headers below: expected, then actual. *)
   add_strings buf
     [
       "CSS: ";
-      string_of_int stats.actual_chars;
-      " chars vs ";
       string_of_int stats.expected_chars;
+      " chars vs ";
+      string_of_int stats.actual_chars;
       " chars (";
     ];
   add_pct buf char_diff_pct;

@@ -97,6 +97,10 @@ type property_registration = {
     parser-visible data from an [@property] rule without creating live CSSOM
     registration state. *)
 
+val equal_property_registration :
+  property_registration -> property_registration -> bool
+(** [equal_property_registration a b] tests registrations structurally. *)
+
 type property_registry = { property_registrations : property_registration list }
 (** Explicit context for registration-aware custom property validation. *)
 
@@ -220,6 +224,17 @@ val custom_property : string -> t -> Declaration.declaration option
 (** [custom_property name ctx] is the custom property declaration named [name]
     in [ctx], if any. *)
 
+val winning_custom_declaration :
+  layer_order:string list ->
+  Declaration.declaration list ->
+  Declaration.declaration option
+(** [winning_custom_declaration ~layer_order decls] is the cascade winner among
+    same-property custom-property declarations per CSS Cascade 5 sec. 6.4.3:
+    [!important] beats normal, [revert-layer] rolls back a layer, and layer
+    order (reversed for [!important]) breaks ties. Each declaration's layer is
+    read from its own annotation. [None] when [decls] is empty or resolves to
+    unset. *)
+
 val inherited_value : string -> t -> Declaration.declaration option
 (** [inherited_value property ctx] is the inherited declaration for [property]
     in [ctx], if any. *)
@@ -274,7 +289,7 @@ val matches_container : query -> ?name:string -> Container.t -> bool
 
 val resolve_url : loader -> string -> (string, string) result
 (** [resolve_url loader href] resolves [href] against
-    {!type-loader.field-base_url} using simple relative-URL handling. *)
+    {!type-loader.field-base_url} according to RFC 3986. *)
 
 val import_source : string -> loader -> string option
 (** [import_source url ctx] looks up imported stylesheet text. *)

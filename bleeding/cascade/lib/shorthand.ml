@@ -281,7 +281,101 @@ let border_inline_end_keys =
     key "border-inline-end-color";
   ]
 
-let property_footprint : type a. a Properties.property -> overlap_key list =
+(* CSS Backgrounds 3 sec. 6.1: [border-image] resets the five image longhands,
+   and sec. 4.5 makes [border] reset [border-image] in turn. *)
+let border_image_keys =
+  [
+    key "border-image-source";
+    key "border-image-slice";
+    key "border-image-width";
+    key "border-image-outset";
+    key "border-image-repeat";
+  ]
+
+let border_radius_keys =
+  [
+    key "border-top-left-radius";
+    key "border-top-right-radius";
+    key "border-bottom-right-radius";
+    key "border-bottom-left-radius";
+  ]
+
+(* CSS Box Alignment 3 sec. 8.3. The legacy [grid-row-gap] / [grid-column-gap]
+   spellings name the same cascade slots as the modern ones, so each axis
+   carries both names. [grid-gap] itself is deliberately absent: it has no typed
+   spelling, and leaving its name out of every footprint keeps it in the
+   conservative [Unknown_property] path. *)
+let row_gap_keys = [ key "row-gap"; key "grid-row-gap" ]
+let column_gap_keys = [ key "column-gap"; key "grid-column-gap" ]
+
+(* CSS Animations 2 sec. 4 plus Scroll-driven Animations 1 sec. 4.3, which makes
+   [animation] reset [animation-timeline]. [animation-composition] and the
+   [animation-range-*] longhands are not part of the shorthand. *)
+let animation_keys =
+  [
+    key "animation-name";
+    key "animation-duration";
+    key "animation-timing-function";
+    key "animation-delay";
+    key "animation-iteration-count";
+    key "animation-direction";
+    key "animation-fill-mode";
+    key "animation-play-state";
+    key "animation-timeline";
+  ]
+
+let transition_keys =
+  [
+    key "transition-property";
+    key "transition-duration";
+    key "transition-timing-function";
+    key "transition-delay";
+    key "transition-behavior";
+  ]
+
+(* CSS Grid 1 sec. 7.4 and 8.1: [grid-template] resets the three template
+   longhands, and [grid] resets those plus the three [grid-auto-*] ones. *)
+let grid_template_keys =
+  [
+    key "grid-template-rows";
+    key "grid-template-columns";
+    key "grid-template-areas";
+  ]
+
+let grid_auto_keys =
+  [ key "grid-auto-rows"; key "grid-auto-columns"; key "grid-auto-flow" ]
+
+let grid_row_keys = [ key "grid-row-start"; key "grid-row-end" ]
+let grid_column_keys = [ key "grid-column-start"; key "grid-column-end" ]
+
+(* CSS Text Decoration 4 sec. 2.5. [text-underline-offset] and the
+   [text-decoration-skip-*] longhands are outside the shorthand. *)
+let text_decoration_keys =
+  [
+    key "text-decoration-line";
+    key "text-decoration-style";
+    key "text-decoration-color";
+    key "text-decoration-thickness";
+  ]
+
+let scroll_margin_keys =
+  [
+    key "scroll-margin-top";
+    key "scroll-margin-right";
+    key "scroll-margin-bottom";
+    key "scroll-margin-left";
+  ]
+
+let scroll_padding_keys =
+  [
+    key "scroll-padding-top";
+    key "scroll-padding-right";
+    key "scroll-padding-bottom";
+    key "scroll-padding-left";
+  ]
+
+(* The slots a property names, before flow-relative aliasing. *)
+let property_slots : type a. a Properties.property -> overlap_key list =
   function
   | All -> [ key "*" ]
   | Margin ->
@@ -357,19 +451,53 @@ let property_footprint : type a. a Properties.property -> overlap_key list =
   | Flex_flow -> [ key "flex-direction"; key "flex-wrap" ]
   | Flex_direction -> [ key "flex-direction" ]
   | Flex_wrap -> [ key "flex-wrap" ]
-  | Transition ->
-      [
-        key "transition-property";
-        key "transition-duration";
-        key "transition-timing-function";
-        key "transition-delay";
-        key "transition-behavior";
-      ]
-  | Transition_property -> [ key "transition-property" ]
-  | Transition_duration -> [ key "transition-duration" ]
-  | Transition_timing_function -> [ key "transition-timing-function" ]
-  | Transition_delay -> [ key "transition-delay" ]
+  (* A vendor-prefixed spelling is an alias of the unprefixed property in every
+     engine that supports it - [deduplicate_declarations] already drops the
+     prefixed copy of an identical twin - so it writes the same cascade slots
+     and carries the same footprint. *)
+  | Transition | Webkit_transition | Moz_transition | O_transition ->
+      transition_keys
+  | Transition_property | Webkit_transition_property | Moz_transition_property
+    ->
+      [ key "transition-property" ]
+  | Transition_duration | Webkit_transition_duration | Moz_transition_duration
+    ->
+      [ key "transition-duration" ]
+  | Transition_timing_function | Webkit_transition_timing_function
+  | Moz_transition_timing_function ->
+      [ key "transition-timing-function" ]
+  | Transition_delay | Webkit_transition_delay | Moz_transition_delay ->
+      [ key "transition-delay" ]
   | Transition_behavior -> [ key "transition-behavior" ]
+  | Animation | Webkit_animation | Moz_animation -> animation_keys
+  | Animation_name | Webkit_animation_name | Moz_animation_name ->
+      [ key "animation-name" ]
+  | Animation_duration | Webkit_animation_duration | Moz_animation_duration ->
+      [ key "animation-duration" ]
+  | Animation_timing_function | Webkit_animation_timing_function
+  | Moz_animation_timing_function ->
+      [ key "animation-timing-function" ]
+  | Animation_delay | Webkit_animation_delay | Moz_animation_delay ->
+      [ key "animation-delay" ]
+  | Animation_iteration_count | Webkit_animation_iteration_count
+  | Moz_animation_iteration_count ->
+      [ key "animation-iteration-count" ]
+  | Animation_direction | Webkit_animation_direction | Moz_animation_direction
+    ->
+      [ key "animation-direction" ]
+  | Animation_fill_mode | Webkit_animation_fill_mode | Moz_animation_fill_mode
+    ->
+      [ key "animation-fill-mode" ]
+  | Animation_play_state | Webkit_animation_play_state
+  | Moz_animation_play_state ->
+      [ key "animation-play-state" ]
+  | Animation_timeline -> [ key "animation-timeline" ]
+  (* Scroll-driven Animations 1 sec. 5.3: [animation-range] is its own
+     shorthand, and [animation] does not reset either end. *)
+  | Animation_range ->
+      [ key "animation-range-start"; key "animation-range-end" ]
+  | Animation_range_start -> [ key "animation-range-start" ]
+  | Animation_range_end -> [ key "animation-range-end" ]
   | Border ->
       [
         key "border-top-width";
@@ -384,8 +512,8 @@ let property_footprint : type a. a Properties.property -> overlap_key list =
         key "border-right-color";
         key "border-bottom-color";
         key "border-left-color";
-        key "border-image";
       ]
+      @ border_image_keys
   | Border_width ->
       [
         key "border-top-width";
@@ -439,15 +567,34 @@ let property_footprint : type a. a Properties.property -> overlap_key list =
   | Border_right_color -> [ key "border-right-color" ]
   | Border_bottom_color -> [ key "border-bottom-color" ]
   | Border_left_color -> [ key "border-left-color" ]
-  | Border_image -> [ key "border-image" ]
+  | Border_image -> border_image_keys
+  | Border_image_source -> [ key "border-image-source" ]
+  | Border_image_slice -> [ key "border-image-slice" ]
+  | Border_image_width -> [ key "border-image-width" ]
+  | Border_image_outset -> [ key "border-image-outset" ]
+  | Border_image_repeat -> [ key "border-image-repeat" ]
+  | Border_radius | Webkit_border_radius | Moz_border_radius ->
+      border_radius_keys
+  | Border_top_left_radius -> [ key "border-top-left-radius" ]
+  | Border_top_right_radius -> [ key "border-top-right-radius" ]
+  | Border_bottom_right_radius -> [ key "border-bottom-right-radius" ]
+  | Border_bottom_left_radius -> [ key "border-bottom-left-radius" ]
   | Border_inline_start_width -> [ key "border-inline-start-width" ]
   | Border_inline_end_width -> [ key "border-inline-end-width" ]
   | Border_block_start_width -> [ key "border-block-start-width" ]
   | Border_block_end_width -> [ key "border-block-end-width" ]
   | Border_inline_start_color -> [ key "border-inline-start-color" ]
   | Border_inline_end_color -> [ key "border-inline-end-color" ]
+  | Border_block_start_color -> [ key "border-block-start-color" ]
+  | Border_block_end_color -> [ key "border-block-end-color" ]
   | Border_inline_color ->
       [ key "border-inline-start-color"; key "border-inline-end-color" ]
+  | Border_block_color ->
+      [ key "border-block-start-color"; key "border-block-end-color" ]
+  | Border_inline_width ->
+      [ key "border-inline-start-width"; key "border-inline-end-width" ]
+  | Border_block_width ->
+      [ key "border-block-start-width"; key "border-block-end-width" ]
   | Border_inline_style ->
       [ key "border-inline-start-style"; key "border-inline-end-style" ]
   | Border_block_style ->
@@ -498,6 +645,8 @@ let property_footprint : type a. a Properties.property -> overlap_key list =
         key "font-size-adjust";
         key "font-kerning";
         key "font-optical-sizing";
+        key "font-language-override";
+        key "font-palette";
       ]
   | Font_style -> [ key "font-style" ]
   | Font_weight -> [ key "font-weight" ]
@@ -516,19 +665,436 @@ let property_footprint : type a. a Properties.property -> overlap_key list =
   | Font_size_adjust -> [ key "font-size-adjust" ]
   | Font_kerning -> [ key "font-kerning" ]
   | Font_optical_sizing -> [ key "font-optical-sizing" ]
+  | Font_language_override -> [ key "font-language-override" ]
+  | Font_palette -> [ key "font-palette" ]
+  (* CSS Fonts 4 sec. 6.6: [font-synthesis] is its own shorthand, outside the
+     set [font] resets. *)
+  | Font_synthesis ->
+      [
+        key "font-synthesis-weight";
+        key "font-synthesis-style";
+        key "font-synthesis-small-caps";
+        key "font-synthesis-position";
+      ]
+  | Font_synthesis_weight -> [ key "font-synthesis-weight" ]
+  | Font_synthesis_style -> [ key "font-synthesis-style" ]
+  | Font_synthesis_small_caps -> [ key "font-synthesis-small-caps" ]
+  | Font_synthesis_position -> [ key "font-synthesis-position" ]
+  | Gap -> row_gap_keys @ column_gap_keys
+  | Row_gap -> row_gap_keys
+  | Column_gap -> column_gap_keys
+  (* CSS UI 4 sec. 6.4: [outline] resets width, style and colour. It leaves
+     [outline-offset] alone - that one is a sibling, not a longhand. *)
+  | Outline -> [ key "outline-width"; key "outline-style"; key "outline-color" ]
+  | Outline_width -> [ key "outline-width" ]
+  | Outline_style -> [ key "outline-style" ]
+  | Outline_color -> [ key "outline-color" ]
+  | Grid -> grid_template_keys @ grid_auto_keys
+  | Grid_template -> grid_template_keys
+  | Grid_template_rows -> [ key "grid-template-rows" ]
+  | Grid_template_columns -> [ key "grid-template-columns" ]
+  | Grid_template_areas -> [ key "grid-template-areas" ]
+  | Grid_auto_rows -> [ key "grid-auto-rows" ]
+  | Grid_auto_columns -> [ key "grid-auto-columns" ]
+  | Grid_auto_flow -> [ key "grid-auto-flow" ]
+  (* CSS Grid 1 sec. 8.4: the placement shorthands reset the four line
+     longhands; [grid] resets none of them. *)
+  | Grid_area -> grid_row_keys @ grid_column_keys
+  | Grid_row -> grid_row_keys
+  | Grid_column -> grid_column_keys
+  | Grid_row_start -> [ key "grid-row-start" ]
+  | Grid_row_end -> [ key "grid-row-end" ]
+  | Grid_column_start -> [ key "grid-column-start" ]
+  | Grid_column_end -> [ key "grid-column-end" ]
+  (* CSS Box Alignment 3 sec. 4.5, 5.5 and 6.5. *)
+  | Place_content -> [ key "align-content"; key "justify-content" ]
+  | Place_items -> [ key "align-items"; key "justify-items" ]
+  | Place_self -> [ key "align-self"; key "justify-self" ]
+  | Align_content | Webkit_align_content -> [ key "align-content" ]
+  | Justify_content | Webkit_justify_content -> [ key "justify-content" ]
+  | Align_items | Webkit_align_items -> [ key "align-items" ]
+  | Justify_items -> [ key "justify-items" ]
+  | Align_self | Webkit_align_self -> [ key "align-self" ]
+  | Justify_self -> [ key "justify-self" ]
+  | Webkit_flex_flow -> [ key "flex-direction"; key "flex-wrap" ]
+  | Webkit_flex_direction -> [ key "flex-direction" ]
+  | Webkit_flex_wrap -> [ key "flex-wrap" ]
+  (* CSS Overflow 3 sec. 3.3. *)
+  | Overflow -> [ key "overflow-x"; key "overflow-y" ]
+  | Overflow_x -> [ key "overflow-x" ]
+  | Overflow_y -> [ key "overflow-y" ]
+  | Overflow_block -> [ key "overflow-block" ]
+  | Overflow_inline -> [ key "overflow-inline" ]
+  (* CSS Multicol 1 sec. 3.3. *)
+  | Columns -> [ key "column-width"; key "column-count" ]
+  | Column_width -> [ key "column-width" ]
+  | Column_count -> [ key "column-count" ]
+  (* CSS Lists 3 sec. 3.4. *)
+  | List_style ->
+      [
+        key "list-style-type"; key "list-style-position"; key "list-style-image";
+      ]
+  | List_style_type -> [ key "list-style-type" ]
+  | List_style_position -> [ key "list-style-position" ]
+  | List_style_image -> [ key "list-style-image" ]
+  | Text_decoration | Webkit_text_decoration -> text_decoration_keys
+  | Text_decoration_line -> [ key "text-decoration-line" ]
+  | Text_decoration_style -> [ key "text-decoration-style" ]
+  | Text_decoration_color | Webkit_text_decoration_color ->
+      [ key "text-decoration-color" ]
+  | Text_decoration_thickness -> [ key "text-decoration-thickness" ]
+  (* CSS Text Decoration 4 sec. 2.7: [text-decoration-skip] is its own shorthand
+     over the five skip longhands. *)
+  | Text_decoration_skip ->
+      [
+        key "text-decoration-skip-self";
+        key "text-decoration-skip-box";
+        key "text-decoration-skip-inset";
+        key "text-decoration-skip-spaces";
+        key "text-decoration-skip-ink";
+      ]
+  | Text_decoration_skip_self -> [ key "text-decoration-skip-self" ]
+  | Text_decoration_skip_box -> [ key "text-decoration-skip-box" ]
+  | Text_decoration_skip_inset -> [ key "text-decoration-skip-inset" ]
+  | Text_decoration_skip_spaces -> [ key "text-decoration-skip-spaces" ]
+  | Text_decoration_skip_ink -> [ key "text-decoration-skip-ink" ]
+  (* CSS Text Decoration 4 sec. 3.4: [text-emphasis] resets style and colour;
+     [text-emphasis-position] and [text-emphasis-skip] stay independent. *)
+  | Text_emphasis -> [ key "text-emphasis-style"; key "text-emphasis-color" ]
+  | Text_emphasis_style -> [ key "text-emphasis-style" ]
+  | Text_emphasis_color -> [ key "text-emphasis-color" ]
+  (* CSS Sizing 4 sec. 5.2. The block/inline pair is flow-relative. *)
+  | Contain_intrinsic_size ->
+      [ key "contain-intrinsic-width"; key "contain-intrinsic-height" ]
+  | Contain_intrinsic_width -> [ key "contain-intrinsic-width" ]
+  | Contain_intrinsic_height -> [ key "contain-intrinsic-height" ]
+  (* CSS Scroll Snap 1 sec. 5 and 6. *)
+  | Scroll_margin -> scroll_margin_keys
+  | Scroll_margin_top -> [ key "scroll-margin-top" ]
+  | Scroll_margin_right -> [ key "scroll-margin-right" ]
+  | Scroll_margin_bottom -> [ key "scroll-margin-bottom" ]
+  | Scroll_margin_left -> [ key "scroll-margin-left" ]
+  | Scroll_margin_inline ->
+      [ key "scroll-margin-inline-start"; key "scroll-margin-inline-end" ]
+  | Scroll_margin_inline_start -> [ key "scroll-margin-inline-start" ]
+  | Scroll_margin_inline_end -> [ key "scroll-margin-inline-end" ]
+  | Scroll_margin_block ->
+      [ key "scroll-margin-block-start"; key "scroll-margin-block-end" ]
+  | Scroll_margin_block_start -> [ key "scroll-margin-block-start" ]
+  | Scroll_margin_block_end -> [ key "scroll-margin-block-end" ]
+  | Scroll_padding -> scroll_padding_keys
+  | Scroll_padding_top -> [ key "scroll-padding-top" ]
+  | Scroll_padding_right -> [ key "scroll-padding-right" ]
+  | Scroll_padding_bottom -> [ key "scroll-padding-bottom" ]
+  | Scroll_padding_left -> [ key "scroll-padding-left" ]
+  | Scroll_padding_inline ->
+      [ key "scroll-padding-inline-start"; key "scroll-padding-inline-end" ]
+  | Scroll_padding_inline_start -> [ key "scroll-padding-inline-start" ]
+  | Scroll_padding_inline_end -> [ key "scroll-padding-inline-end" ]
+  | Scroll_padding_block ->
+      [ key "scroll-padding-block-start"; key "scroll-padding-block-end" ]
+  | Scroll_padding_block_start -> [ key "scroll-padding-block-start" ]
+  | Scroll_padding_block_end -> [ key "scroll-padding-block-end" ]
+  (* CSS Overscroll Behavior 1 sec. 3. *)
+  | Overscroll_behavior ->
+      [ key "overscroll-behavior-x"; key "overscroll-behavior-y" ]
+  | Overscroll_behavior_x -> [ key "overscroll-behavior-x" ]
+  | Overscroll_behavior_y -> [ key "overscroll-behavior-y" ]
+  (* CSS Contain 3 sec. 4.3. *)
+  | Container -> [ key "container-name"; key "container-type" ]
+  | Container_name -> [ key "container-name" ]
+  | Container_type -> [ key "container-type" ]
+  (* Scroll-driven Animations 1 sec. 4.1 and 4.2. [view-timeline-inset] is not
+     part of [view-timeline]. *)
+  | Scroll_timeline ->
+      [ key "scroll-timeline-name"; key "scroll-timeline-axis" ]
+  | Scroll_timeline_name -> [ key "scroll-timeline-name" ]
+  | Scroll_timeline_axis -> [ key "scroll-timeline-axis" ]
+  | View_timeline -> [ key "view-timeline-name"; key "view-timeline-axis" ]
+  | View_timeline_name -> [ key "view-timeline-name" ]
+  | View_timeline_axis -> [ key "view-timeline-axis" ]
+  (* CSS UI 4 sec. 7.4. *)
+  | Caret -> [ key "caret-color"; key "caret-animation"; key "caret-shape" ]
+  | Caret_color -> [ key "caret-color" ]
+  | Caret_animation -> [ key "caret-animation" ]
+  | Caret_shape -> [ key "caret-shape" ]
+  | Interest_delay -> [ key "interest-delay-start"; key "interest-delay-end" ]
+  | Interest_delay_start -> [ key "interest-delay-start" ]
+  | Interest_delay_end -> [ key "interest-delay-end" ]
+  (* CSS Inline 3 sec. 5.3. *)
+  | Text_box -> [ key "text-box-trim"; key "text-box-edge" ]
+  | Text_box_trim -> [ key "text-box-trim" ]
+  | Text_box_edge -> [ key "text-box-edge" ]
+  (* CSS Text 4 sec. 3 and 5.1: [white-space] and [text-wrap] both reset
+     [text-wrap-mode]. *)
+  | White_space -> [ key "white-space-collapse"; key "text-wrap-mode" ]
+  | Text_wrap -> [ key "text-wrap-mode"; key "text-wrap-style" ]
+  | Text_wrap_mode -> [ key "text-wrap-mode" ]
+  | Text_wrap_style -> [ key "text-wrap-style" ]
+  (* CSS Anchor Positioning 1 sec. 5.4. *)
+  | Position_try -> [ key "position-try-order"; key "position-try-fallbacks" ]
+  | Position_try_order -> [ key "position-try-order" ]
+  | Position_try_fallbacks -> [ key "position-try-fallbacks" ]
   | Custom_property name -> [ key ("--" ^ name) ]
   | Unknown_property name -> [ key name ]
   | property -> [ property_key property ]
 
-let footprint_mem footprint = List.exists (overlap_key_equal footprint)
+(* CSS Logical 1 sec. 2 and 4: a flow-relative longhand resolves to a physical
+   side that the writing mode and the text direction pick, so
+   [margin-inline-start] writes [margin-left] under one mode and [margin-right]
+   under another. A stylesheet does not carry the mode of the elements it will
+   match, so each logical family is paired here with the physical family it
+   resolves into, and every logical slot takes the whole physical set. The two
+   logical slots of one family then look like they share a slot, which the
+   perpendicular axes never do; that direction of the approximation costs only a
+   pair kept in source order, and it leaves the physical sides - the common case
+   - naming one slot each. *)
+let logical_alias_families =
+  Properties.
+    [
+      ([ Prop Margin_inline; Prop Margin_block ], [ Prop Margin ]);
+      ([ Prop Padding_inline; Prop Padding_block ], [ Prop Padding ]);
+      ([ Prop Inset_inline; Prop Inset_block ], [ Prop Inset ]);
+      ( [ Prop Border_inline_width; Prop Border_block_width ],
+        [ Prop Border_width ] );
+      ( [ Prop Border_inline_style; Prop Border_block_style ],
+        [ Prop Border_style ] );
+      ( [ Prop Border_inline_color; Prop Border_block_color ],
+        [ Prop Border_color ] );
+      ( [ Prop Scroll_margin_inline; Prop Scroll_margin_block ],
+        [ Prop Scroll_margin ] );
+      ( [ Prop Scroll_padding_inline; Prop Scroll_padding_block ],
+        [ Prop Scroll_padding ] );
+      ([ Prop Overflow_block; Prop Overflow_inline ], [ Prop Overflow ]);
+      ([ Prop Inline_size; Prop Block_size ], [ Prop Width; Prop Height ]);
+      ( [ Prop Min_inline_size; Prop Min_block_size ],
+        [ Prop Min_width; Prop Min_height ] );
+      ( [ Prop Max_inline_size; Prop Max_block_size ],
+        [ Prop Max_width; Prop Max_height ] );
+      ( [
+          Prop Border_start_start_radius;
+          Prop Border_start_end_radius;
+          Prop Border_end_start_radius;
+          Prop Border_end_end_radius;
+        ],
+        [ Prop Border_radius ] );
+      ( [ Prop Contain_intrinsic_inline_size; Prop Contain_intrinsic_block_size ],
+        [ Prop Contain_intrinsic_width; Prop Contain_intrinsic_height ] );
+      ( [ Prop Overscroll_behavior_inline; Prop Overscroll_behavior_block ],
+        [ Prop Overscroll_behavior_x; Prop Overscroll_behavior_y ] );
+    ]
 
-let overlap_keys_intersect a b =
-  List.exists (fun footprint -> footprint_mem footprint b) a
+(* Each logical slot paired with the physical slots it may alias, sorted for
+   binary search. One family shares a single physical list across its slots, so
+   [add_logical_aliases] can fold the repeats away by physical equality. *)
+let logical_alias_index =
+  let entries =
+    List.concat_map
+      (fun (logical, physical) ->
+        let physical_slots =
+          List.concat_map (fun (Properties.Prop p) -> property_slots p) physical
+        in
+        List.concat_map
+          (fun l ->
+            let slots = match l with Properties.Prop p -> property_slots p in
+            List.map (fun k -> (k, physical_slots)) slots)
+          logical)
+      logical_alias_families
+  in
+  let arr = Array.of_list entries in
+  Array.sort (fun (a, _) (b, _) -> compare a b) arr;
+  arr
+
+(* The physical slots [k] may alias, empty when [k] is not a flow-relative slot.
+   Spelled as a search over a sorted array rather than a hashtable lookup: this
+   runs once per footprint key, and an option per key would allocate in the
+   optimizer's hottest path. *)
+let logical_alias_slots k =
+  let lo = ref 0 and hi = ref (Array.length logical_alias_index - 1) in
+  let physical = ref [] in
+  let searching = ref true in
+  while !searching && !lo <= !hi do
+    let mid = (!lo + !hi) / 2 in
+    let v, slots = Array.unsafe_get logical_alias_index mid in
+    if overlap_key_equal v k then (
+      physical := slots;
+      searching := false)
+    else if v < k then lo := mid + 1
+    else hi := mid - 1
+  done;
+  !physical
+
+let add_logical_aliases slots =
+  let rec collect acc = function
+    | [] -> acc
+    | k :: rest -> (
+        match logical_alias_slots k with
+        | [] -> collect acc rest
+        | physical when List.memq physical acc -> collect acc rest
+        | physical -> collect (physical :: acc) rest)
+  in
+  match collect [] slots with
+  | [] -> slots
+  | groups -> List.concat (slots :: groups)
+
+let property_footprint : type a. a Properties.property -> overlap_key list =
+ fun property -> add_logical_aliases (property_slots property)
+
+(* Spelled as explicit recursion rather than [List.exists (overlap_key_equal
+   footprint)]: the partial application and the closure over [b] each allocate
+   once per element, and this pair sits in the conflict test's inner loop, which
+   made them the two largest allocation sites in the optimizer. *)
+let rec footprint_mem footprint = function
+  | [] -> false
+  | k :: rest -> overlap_key_equal footprint k || footprint_mem footprint rest
+
+let rec overlap_keys_intersect a b =
+  match a with
+  | [] -> false
+  | footprint :: rest ->
+      footprint_mem footprint b || overlap_keys_intersect rest b
 
 let declaration_overlap_keys decl =
   match unwrap_theme_guard decl with
   | Declaration { property; _ } -> property_footprint property
   | _ -> [ key (Declaration.property_name decl) ]
+
+(* The families whose footprints spell out every longhand name the model knows.
+   Every arm of [property_footprint] not listed here has a footprint that is a
+   subset of one of these. Grouped only to keep each list short. *)
+let box_footprint_family_heads =
+  Properties.
+    [
+      Prop Margin;
+      Prop Margin_inline;
+      Prop Margin_block;
+      Prop Padding;
+      Prop Padding_inline;
+      Prop Padding_block;
+      Prop Inset;
+      Prop Inset_inline;
+      Prop Inset_block;
+      Prop Scroll_margin;
+      Prop Scroll_margin_inline;
+      Prop Scroll_margin_block;
+      Prop Scroll_padding;
+      Prop Scroll_padding_inline;
+      Prop Scroll_padding_block;
+    ]
+
+let layout_footprint_family_heads =
+  Properties.
+    [
+      Prop Flex;
+      Prop Flex_flow;
+      Prop Gap;
+      Prop Grid;
+      Prop Grid_area;
+      Prop Place_content;
+      Prop Place_items;
+      Prop Place_self;
+      Prop Overflow;
+      Prop Overscroll_behavior;
+      Prop Columns;
+      Prop Contain_intrinsic_size;
+      Prop Container;
+    ]
+
+let paint_footprint_family_heads =
+  Properties.
+    [
+      Prop Background;
+      Prop Border;
+      Prop Border_block;
+      Prop Border_inline;
+      Prop Border_radius;
+      Prop Mask;
+      Prop Outline;
+      Prop List_style;
+    ]
+
+let text_footprint_family_heads =
+  Properties.
+    [
+      Prop Font;
+      Prop Font_synthesis;
+      Prop Text_decoration;
+      Prop Text_decoration_skip;
+      Prop Text_emphasis;
+      Prop Text_box;
+      Prop Text_wrap;
+      Prop White_space;
+      Prop Caret;
+    ]
+
+let timing_footprint_family_heads =
+  Properties.
+    [
+      Prop Transition;
+      Prop Animation;
+      Prop Animation_range;
+      Prop Scroll_timeline;
+      Prop View_timeline;
+      Prop Interest_delay;
+      Prop Position_try;
+    ]
+
+let footprint_family_heads =
+  List.concat
+    [
+      box_footprint_family_heads;
+      layout_footprint_family_heads;
+      paint_footprint_family_heads;
+      text_footprint_family_heads;
+      timing_footprint_family_heads;
+    ]
+
+(* Every longhand name those footprints mention, sorted for binary search. Taken
+   from [property_footprint] itself rather than respelled, so the two cannot
+   drift. *)
+let known_footprint_keys =
+  let keys =
+    List.concat_map
+      (fun (Properties.Prop p) -> property_footprint p)
+      footprint_family_heads
+  in
+  let arr = Array.of_list keys in
+  Array.sort compare arr;
+  arr
+
+let is_known_footprint_key k =
+  let lo = ref 0 and hi = ref (Array.length known_footprint_keys - 1) in
+  let found = ref false in
+  while (not !found) && !lo <= !hi do
+    let mid = (!lo + !hi) / 2 in
+    let v = Array.unsafe_get known_footprint_keys mid in
+    if overlap_key_equal v k then found := true
+    else if v < k then lo := mid + 1
+    else hi := mid - 1
+  done;
+  !found
+
+(* Whether an [Unknown_property] name can be placed in the footprint model. A
+   name a typed footprint mentions writes the slot it names and, for a
+   flow-relative name, the physical slots [add_logical_aliases] gives it: a
+   typed longhand is recovered under its own name when its value defeats the
+   typed reader ([margin-top:var(--a) var(--b)] parses that way), and it
+   conflicts with the same declarations the typed spelling would - the name
+   carries the same footprint either way. Any other name may be a shorthand, a
+   legacy alias, or a longhand of a family the footprints do not model -
+   [background-position-x] writes part of [background], [grid-row-gap] is
+   [row-gap] - so it has to be treated as touching whatever it is compared
+   against. *)
+let unknown_name_is_placeable name = is_known_footprint_key (key name)
+
+(* Whether one name is the other with a further hyphenated component, the shape
+   a longhand takes under its shorthand. Two placeable names of that shape write
+   a common slot even though neither footprint mentions the other. *)
+let name_extends other name =
+  let n = String.length other in
+  String.length name > n
+  && String.starts_with ~prefix:other name
+  && Char.equal name.[n] '-'
 
 let declarations_overlap_with_keys a a_keys b b_keys =
   match (unwrap_theme_guard a, unwrap_theme_guard b) with
@@ -537,15 +1103,20 @@ let declarations_overlap_with_keys a a_keys b b_keys =
       String.equal a b
   | Declaration { property = Custom_property _; _ }, _ -> false
   | _, Declaration { property = Custom_property _; _ } -> false
-  | ( Declaration { property = Unknown_property a; _ },
-      Declaration { property = Unknown_property b; _ } ) ->
-      String.equal a b
-  | Declaration { property = Unknown_property _; _ }, _ -> false
-  | _, Declaration { property = Unknown_property _; _ } -> false
   | Declaration { property = All; _ }, Declaration { property; _ } ->
       not (is_excluded_from_all_reset property)
   | Declaration { property; _ }, Declaration { property = All; _ } ->
       not (is_excluded_from_all_reset property)
+  | ( Declaration { property = Unknown_property a; _ },
+      Declaration { property = Unknown_property b; _ } ) ->
+      String.equal a b || name_extends a b || name_extends b a
+      || not (unknown_name_is_placeable a && unknown_name_is_placeable b)
+  | Declaration { property = Unknown_property name; _ }, Declaration _ ->
+      (not (unknown_name_is_placeable name))
+      || overlap_keys_intersect a_keys b_keys
+  | Declaration _, Declaration { property = Unknown_property name; _ } ->
+      (not (unknown_name_is_placeable name))
+      || overlap_keys_intersect a_keys b_keys
   | Declaration _, Declaration _ -> overlap_keys_intersect a_keys b_keys
   | _ -> false
 
@@ -647,7 +1218,7 @@ let collapse_box_by same = function
 (* Both sides are the same [length] type, so structural equality is the
    minified-equality test once lengths are canonical - no need to render and
    compare text. *)
-let same_minified_length (a : Values.length) (b : Values.length) = a = b
+let same_minified_length = Values.equal_length
 let collapse_box_lengths vs = collapse_box_by same_minified_length vs
 
 type sides = Values.length * Values.length * Values.length * Values.length
@@ -667,16 +1238,16 @@ let sides_have_runtime_subst ((top, right, bottom, left) : sides) =
 let absorb_margin_corner ~important ((top, right, bottom, left) : sides) d :
     sides option =
   match d with
-  | Declaration { property = Margin_top; value = v; important = i }
+  | Declaration { property = Margin_top; value = v; important = i; _ }
     when i = important ->
       Some (v, right, bottom, left)
-  | Declaration { property = Margin_right; value = v; important = i }
+  | Declaration { property = Margin_right; value = v; important = i; _ }
     when i = important ->
       Some (top, v, bottom, left)
-  | Declaration { property = Margin_bottom; value = v; important = i }
+  | Declaration { property = Margin_bottom; value = v; important = i; _ }
     when i = important ->
       Some (top, right, v, left)
-  | Declaration { property = Margin_left; value = v; important = i }
+  | Declaration { property = Margin_left; value = v; important = i; _ }
     when i = important ->
       Some (top, right, bottom, v)
   | _ -> None
@@ -684,16 +1255,16 @@ let absorb_margin_corner ~important ((top, right, bottom, left) : sides) d :
 let absorb_padding_corner ~important ((top, right, bottom, left) : sides) d :
     sides option =
   match d with
-  | Declaration { property = Padding_top; value = v; important = i }
+  | Declaration { property = Padding_top; value = v; important = i; _ }
     when i = important ->
       Some (v, right, bottom, left)
-  | Declaration { property = Padding_right; value = v; important = i }
+  | Declaration { property = Padding_right; value = v; important = i; _ }
     when i = important ->
       Some (top, v, bottom, left)
-  | Declaration { property = Padding_bottom; value = v; important = i }
+  | Declaration { property = Padding_bottom; value = v; important = i; _ }
     when i = important ->
       Some (top, right, v, left)
-  | Declaration { property = Padding_left; value = v; important = i }
+  | Declaration { property = Padding_left; value = v; important = i; _ }
     when i = important ->
       Some (top, right, bottom, v)
   | _ -> None
@@ -772,19 +1343,19 @@ let try_merge_box_shorthand ~original ~property ~vs ~important ~absorb
             in
             (Declaration.v ~important property value, rest'))
 
-(* CSS Overflow 3 §3.1: [overflow] is the [overflow-x overflow-y] shorthand.
+(* CSS Overflow 3 sec. 3.1: [overflow] is the [overflow-x overflow-y] shorthand.
    When the two longhands appear together with matching importance and neither
    side is later shadowed within the same block, fold them into [overflow] -
    single value when the two axes match, two values otherwise. *)
 let combined_overflow v_x v_y : Properties.overflow =
-  if v_x = v_y then v_x else Overflow_pair (v_x, v_y)
+  if Properties.equal_overflow v_x v_y then v_x else Overflow_pair (v_x, v_y)
 
 let try_take_overflow_y ~important rest =
   let rec loop acc :
       (int * declaration) list ->
       (Properties.overflow * (int * declaration) list) option = function
     | [] -> None
-    | (_, Declaration { property = Overflow_y; value = v_y; important = i' })
+    | (_, Declaration { property = Overflow_y; value = v_y; important = i'; _ })
       :: rest
       when i' = important ->
         Some (v_y, List.rev_append acc rest)
@@ -800,7 +1371,7 @@ let try_take_overflow_x ~important rest =
       (int * declaration) list ->
       (Properties.overflow * (int * declaration) list) option = function
     | [] -> None
-    | (_, Declaration { property = Overflow_x; value = v_x; important = i' })
+    | (_, Declaration { property = Overflow_x; value = v_x; important = i'; _ })
       :: rest
       when i' = important ->
         Some (v_x, List.rev_append acc rest)
@@ -814,8 +1385,8 @@ let try_take_overflow_x ~important rest =
 let merge_overflow_longhands decls =
   let rec go acc = function
     | [] -> List.rev acc
-    | ((idx, Declaration { property = Overflow_x; value = v_x; important }) as
-       item)
+    | ((idx, Declaration { property = Overflow_x; value = v_x; important; _ })
+       as item)
       :: rest -> (
         match try_take_overflow_y ~important rest with
         | None -> go (item :: acc) rest
@@ -824,8 +1395,8 @@ let merge_overflow_longhands decls =
               Declaration.v ~important Overflow (combined_overflow v_x v_y)
             in
             go ((idx, merged) :: acc) rest')
-    | ((idx, Declaration { property = Overflow_y; value = v_y; important }) as
-       item)
+    | ((idx, Declaration { property = Overflow_y; value = v_y; important; _ })
+       as item)
       :: rest -> (
         match try_take_overflow_x ~important rest with
         | None -> go (item :: acc) rest
@@ -846,52 +1417,53 @@ type box_side = Top | Right | Bottom | Left
 
 let extract_margin_side :
     declaration -> (box_side * Values.length * bool) option = function
-  | Declaration { property = Margin_top; value; important } ->
+  | Declaration { property = Margin_top; value; important; _ } ->
       Some (Top, value, important)
-  | Declaration { property = Margin_right; value; important } ->
+  | Declaration { property = Margin_right; value; important; _ } ->
       Some (Right, value, important)
-  | Declaration { property = Margin_bottom; value; important } ->
+  | Declaration { property = Margin_bottom; value; important; _ } ->
       Some (Bottom, value, important)
-  | Declaration { property = Margin_left; value; important } ->
+  | Declaration { property = Margin_left; value; important; _ } ->
       Some (Left, value, important)
   | _ -> None
 
 let extract_padding_side :
     declaration -> (box_side * Values.length * bool) option = function
-  | Declaration { property = Padding_top; value; important } ->
+  | Declaration { property = Padding_top; value; important; _ } ->
       Some (Top, value, important)
-  | Declaration { property = Padding_right; value; important } ->
+  | Declaration { property = Padding_right; value; important; _ } ->
       Some (Right, value, important)
-  | Declaration { property = Padding_bottom; value; important } ->
+  | Declaration { property = Padding_bottom; value; important; _ } ->
       Some (Bottom, value, important)
-  | Declaration { property = Padding_left; value; important } ->
+  | Declaration { property = Padding_left; value; important; _ } ->
       Some (Left, value, important)
   | _ -> None
 
-(* CSS Position 3 §3.1: [inset] is the [top right bottom left] shorthand. The
-   longhand values are wrapped in a [length list] for grammar reasons but carry
-   exactly one length per side. *)
+(* CSS Position 3 sec. 3.1: [inset] is the [top right bottom left] shorthand.
+   The longhand values are wrapped in a [length list] for grammar reasons but
+   carry exactly one length per side. *)
 let extract_inset_side : declaration -> (box_side * Values.length * bool) option
     = function
-  | Declaration { property = Top; value = [ v ]; important } ->
+  | Declaration { property = Top; value = [ v ]; important; _ } ->
       Some (Top, v, important)
-  | Declaration { property = Right; value = [ v ]; important } ->
+  | Declaration { property = Right; value = [ v ]; important; _ } ->
       Some (Right, v, important)
-  | Declaration { property = Bottom; value = [ v ]; important } ->
+  | Declaration { property = Bottom; value = [ v ]; important; _ } ->
       Some (Bottom, v, important)
-  | Declaration { property = Left; value = [ v ]; important } ->
+  | Declaration { property = Left; value = [ v ]; important; _ } ->
       Some (Left, v, important)
   | _ -> None
 
 let extract_border_radius_corner :
     declaration -> (box_side * Values.length * bool) option = function
-  | Declaration { property = Border_top_left_radius; value; important } ->
+  | Declaration { property = Border_top_left_radius; value; important; _ } ->
       Some (Top, value, important)
-  | Declaration { property = Border_top_right_radius; value; important } ->
+  | Declaration { property = Border_top_right_radius; value; important; _ } ->
       Some (Right, value, important)
-  | Declaration { property = Border_bottom_right_radius; value; important } ->
+  | Declaration { property = Border_bottom_right_radius; value; important; _ }
+    ->
       Some (Bottom, value, important)
-  | Declaration { property = Border_bottom_left_radius; value; important } ->
+  | Declaration { property = Border_bottom_left_radius; value; important; _ } ->
       Some (Left, value, important)
   | _ -> None
 
@@ -1076,9 +1648,9 @@ type pair_side = Row | Column
 
 let extract_gap_side : declaration -> (pair_side * Values.length * bool) option
     = function
-  | Declaration { property = Row_gap; value; important } ->
+  | Declaration { property = Row_gap; value; important; _ } ->
       Some (Row, value, important)
-  | Declaration { property = Column_gap; value; important } ->
+  | Declaration { property = Column_gap; value; important; _ } ->
       Some (Column, value, important)
   | _ -> None
 
@@ -1130,60 +1702,62 @@ let try_compose_axis_pair_at idx ~extract ~build i =
         let v_start = List.assoc Start pair in
         let v_end = List.assoc End pair in
         let value =
-          if v_start = v_end then [ v_start ] else [ v_start; v_end ]
+          if Values.equal_length v_start v_end then [ v_start ]
+          else [ v_start; v_end ]
         in
         Some (build ~important:imp1 ~value)
     | _ -> None
 
 let extract_margin_inline_side :
     declaration -> (axis_side * Values.length * bool) option = function
-  | Declaration { property = Margin_inline_start; value; important } ->
+  | Declaration { property = Margin_inline_start; value; important; _ } ->
       Some (Start, value, important)
-  | Declaration { property = Margin_inline_end; value; important } ->
+  | Declaration { property = Margin_inline_end; value; important; _ } ->
       Some (End, value, important)
   | _ -> None
 
 let extract_margin_block_side :
     declaration -> (axis_side * Values.length * bool) option = function
-  | Declaration { property = Margin_block_start; value; important } ->
+  | Declaration { property = Margin_block_start; value; important; _ } ->
       Some (Start, value, important)
-  | Declaration { property = Margin_block_end; value; important } ->
+  | Declaration { property = Margin_block_end; value; important; _ } ->
       Some (End, value, important)
   | _ -> None
 
 let extract_padding_inline_side :
     declaration -> (axis_side * Values.length * bool) option = function
-  | Declaration { property = Padding_inline_start; value; important } ->
+  | Declaration { property = Padding_inline_start; value; important; _ } ->
       Some (Start, value, important)
-  | Declaration { property = Padding_inline_end; value; important } ->
+  | Declaration { property = Padding_inline_end; value; important; _ } ->
       Some (End, value, important)
   | _ -> None
 
 let extract_padding_block_side :
     declaration -> (axis_side * Values.length * bool) option = function
-  | Declaration { property = Padding_block_start; value; important } ->
+  | Declaration { property = Padding_block_start; value; important; _ } ->
       Some (Start, value, important)
-  | Declaration { property = Padding_block_end; value; important } ->
+  | Declaration { property = Padding_block_end; value; important; _ } ->
       Some (End, value, important)
   | _ -> None
 
 let extract_inset_inline_side :
     declaration -> (axis_side * Values.length * bool) option = function
-  | Declaration { property = Inset_inline_start; value = [ v ]; important } ->
+  | Declaration { property = Inset_inline_start; value = [ v ]; important; _ }
+    ->
       Some (Start, v, important)
-  | Declaration { property = Inset_inline_end; value = [ v ]; important } ->
+  | Declaration { property = Inset_inline_end; value = [ v ]; important; _ } ->
       Some (End, v, important)
   | _ -> None
 
 let extract_inset_block_side :
     declaration -> (axis_side * Values.length * bool) option = function
-  | Declaration { property = Inset_block_start; value = [ v ]; important } ->
+  | Declaration { property = Inset_block_start; value = [ v ]; important; _ } ->
       Some (Start, v, important)
-  | Declaration { property = Inset_block_end; value = [ v ]; important } ->
+  | Declaration { property = Inset_block_end; value = [ v ]; important; _ } ->
       Some (End, v, important)
   | _ -> None
 
-(* CSS Align 3 §6.1: [place-items] / [place-content] / [place-self] are the
+(* CSS Align 3 sec. 6.1: [place-items] / [place-content] / [place-self] are the
    [<align> <justify>] shorthands. When the two longhands appear contiguously
    with matching importance, fold them; the per-property printer then collapses
    matching pairs to a single value. *)
@@ -1198,36 +1772,37 @@ let try_compose_place_at idx i =
     let d1 = Rule_index.decl_at idx i in
     let d2 = Rule_index.decl_at idx (i + 1) in
     match (d1, d2) with
-    | ( Declaration { property = Align_items; value = a; important = i1 },
-        Declaration { property = Justify_items; value = j; important = i2 } )
+    | ( Declaration { property = Align_items; value = a; important = i1; _ },
+        Declaration { property = Justify_items; value = j; important = i2; _ } )
       when i1 = i2 ->
         Some
           (Declaration.v ~important:i1 Place_items
              (Align_justify (a, j) : Properties.place_items))
-    | ( Declaration { property = Justify_items; value = j; important = i1 },
-        Declaration { property = Align_items; value = a; important = i2 } )
+    | ( Declaration { property = Justify_items; value = j; important = i1; _ },
+        Declaration { property = Align_items; value = a; important = i2; _ } )
       when i1 = i2 ->
         Some
           (Declaration.v ~important:i1 Place_items
              (Align_justify (a, j) : Properties.place_items))
-    | ( Declaration { property = Align_content; value = a; important = i1 },
-        Declaration { property = Justify_content; value = j; important = i2 } )
+    | ( Declaration { property = Align_content; value = a; important = i1; _ },
+        Declaration { property = Justify_content; value = j; important = i2; _ }
+      )
       when i1 = i2 ->
         Some
           (Declaration.v ~important:i1 Place_content
              (Align_justify (a, j) : Properties.place_content))
-    | ( Declaration { property = Justify_content; value = j; important = i1 },
-        Declaration { property = Align_content; value = a; important = i2 } )
+    | ( Declaration { property = Justify_content; value = j; important = i1; _ },
+        Declaration { property = Align_content; value = a; important = i2; _ } )
       when i1 = i2 ->
         Some
           (Declaration.v ~important:i1 Place_content
              (Align_justify (a, j) : Properties.place_content))
-    | ( Declaration { property = Align_self; value = a; important = i1 },
-        Declaration { property = Justify_self; value = j; important = i2 } )
+    | ( Declaration { property = Align_self; value = a; important = i1; _ },
+        Declaration { property = Justify_self; value = j; important = i2; _ } )
       when i1 = i2 ->
         Some (Declaration.v ~important:i1 Place_self (a, j))
-    | ( Declaration { property = Justify_self; value = j; important = i1 },
-        Declaration { property = Align_self; value = a; important = i2 } )
+    | ( Declaration { property = Justify_self; value = j; important = i1; _ },
+        Declaration { property = Align_self; value = a; important = i2; _ } )
       when i1 = i2 ->
         Some (Declaration.v ~important:i1 Place_self (a, j))
     | _ -> None
@@ -1690,37 +2265,37 @@ let compose_text_decoration_via_index idx =
    value would change the resolved shape. *)
 let border_width_of :
     declaration -> (box_side * Properties.border_width * bool) option = function
-  | Declaration { property = Border_top_width; value; important } ->
+  | Declaration { property = Border_top_width; value; important; _ } ->
       Some (Top, value, important)
-  | Declaration { property = Border_right_width; value; important } ->
+  | Declaration { property = Border_right_width; value; important; _ } ->
       Some (Right, value, important)
-  | Declaration { property = Border_bottom_width; value; important } ->
+  | Declaration { property = Border_bottom_width; value; important; _ } ->
       Some (Bottom, value, important)
-  | Declaration { property = Border_left_width; value; important } ->
+  | Declaration { property = Border_left_width; value; important; _ } ->
       Some (Left, value, important)
   | _ -> None
 
 let border_style_of :
     declaration -> (box_side * Properties.border_style * bool) option = function
-  | Declaration { property = Border_top_style; value; important } ->
+  | Declaration { property = Border_top_style; value; important; _ } ->
       Some (Top, value, important)
-  | Declaration { property = Border_right_style; value; important } ->
+  | Declaration { property = Border_right_style; value; important; _ } ->
       Some (Right, value, important)
-  | Declaration { property = Border_bottom_style; value; important } ->
+  | Declaration { property = Border_bottom_style; value; important; _ } ->
       Some (Bottom, value, important)
-  | Declaration { property = Border_left_style; value; important } ->
+  | Declaration { property = Border_left_style; value; important; _ } ->
       Some (Left, value, important)
   | _ -> None
 
 let border_color_of : declaration -> (box_side * Values.color * bool) option =
   function
-  | Declaration { property = Border_top_color; value; important } ->
+  | Declaration { property = Border_top_color; value; important; _ } ->
       Some (Top, value, important)
-  | Declaration { property = Border_right_color; value; important } ->
+  | Declaration { property = Border_right_color; value; important; _ } ->
       Some (Right, value, important)
-  | Declaration { property = Border_bottom_color; value; important } ->
+  | Declaration { property = Border_bottom_color; value; important; _ } ->
       Some (Bottom, value, important)
-  | Declaration { property = Border_left_color; value; important } ->
+  | Declaration { property = Border_left_color; value; important; _ } ->
       Some (Left, value, important)
   | _ -> None
 
@@ -2838,8 +3413,8 @@ let merge_box_shorthand_longhands source decls =
      with its index - the head stays physically shared on a no-op. *)
   let rec go acc = function
     | [] -> List.rev acc
-    | ((idx, (Declaration { property = Margin; value = vs; important } as d)) as
-       item)
+    | ((idx, (Declaration { property = Margin; value = vs; important; _ } as d))
+       as item)
       :: rest
       when not (box_shorthand_had_prior_longhand source idx d) ->
         let merged, rest =
@@ -2849,7 +3424,7 @@ let merge_box_shorthand_longhands source decls =
         in
         let head = if merged == d then item else (idx, merged) in
         go (head :: acc) rest
-    | ((idx, (Declaration { property = Padding; value = vs; important } as d))
+    | ((idx, (Declaration { property = Padding; value = vs; important; _ } as d))
        as item)
       :: rest
       when not (box_shorthand_had_prior_longhand source idx d) ->
@@ -2874,15 +3449,21 @@ let property_covered_by_important kept decl =
 
 let same_property = Declaration.same_property
 
+(* Rebuilt through the smart constructors: they recompute the cached
+   [Declaration.hash] over the new payload, and a record update would leave it
+   fingerprinting the importance that was just cleared. *)
 let rec without_importance = function
-  | Declaration r -> Declaration { r with important = false }
-  | Theme_guarded t -> Theme_guarded { t with decl = without_importance t.decl }
+  | Declaration { property; value; _ } ->
+      Declaration.v ~important:false property value
+  | Theme_guarded { var_name; decl; _ } ->
+      Declaration.theme_guarded ~var_name (without_importance decl)
 
 (* Value equality ignoring importance. Every caller establishes [same_property]
    first, so the two declarations share a value type and this is a structural
    value comparison: on canonical ASTs it matches minified-text equality without
    rendering. *)
-let same_value a b = without_importance a = without_importance b
+let same_value a b =
+  Declaration.equal_declaration (without_importance a) (without_importance b)
 
 (* Two declarations minify to the same text exactly when their canonical ASTs
    are equal (property, value, and importance). After the optimizer's
@@ -2897,7 +3478,9 @@ let same_value a b = without_importance a = without_importance b
    compare without walking the AST; we only fall through to structural equality
    on a hash collision. *)
 let same_minified_declaration (a : declaration) (b : declaration) =
-  a == b || (Declaration.hash a = Declaration.hash b && a = b)
+  a == b
+  || Declaration.hash a = Declaration.hash b
+     && Declaration.equal_declaration a b
 
 let legacy_vendor_fallback new_decl existing =
   (* Different-value duplicates are kept when one value is vendor-prefixed: the
@@ -2983,104 +3566,125 @@ let deduplicate_step kept (idx, decl) =
 (* WebKit animation longhand vendor-alias pairs ([-webkit-] vs unprefixed). *)
 let vendor_alias_redundant_webkit_animation vendor twin =
   match (vendor, twin) with
-  | ( Declaration { property = Webkit_animation; value = v1; important = i1 },
-      Declaration { property = Animation; value = v2; important = i2 } ) ->
+  | ( Declaration { property = Webkit_animation; value = v1; important = i1; _ },
+      Declaration { property = Animation; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_animation_delay; value = v1; important = i1 },
-      Declaration { property = Animation_delay; value = v2; important = i2 } )
-    ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration
-        { property = Webkit_animation_duration; value = v1; important = i1 },
-      Declaration { property = Animation_duration; value = v2; important = i2 }
+        { property = Webkit_animation_delay; value = v1; important = i1; _ },
+      Declaration { property = Animation_delay; value = v2; important = i2; _ }
     ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_animation_direction; value = v1; important = i1 },
-      Declaration { property = Animation_direction; value = v2; important = i2 }
-    ) ->
+        { property = Webkit_animation_duration; value = v1; important = i1; _ },
+      Declaration
+        { property = Animation_duration; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        { property = Webkit_animation_direction; value = v1; important = i1; _ },
+      Declaration
+        { property = Animation_direction; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
         {
           property = Webkit_animation_iteration_count;
           value = v1;
           important = i1;
+          _;
         },
       Declaration
-        { property = Animation_iteration_count; value = v2; important = i2 } )
-    ->
+        { property = Animation_iteration_count; value = v2; important = i2; _ }
+    ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_animation_name; value = v1; important = i1 },
-      Declaration { property = Animation_name; value = v2; important = i2 } ) ->
+        { property = Webkit_animation_name; value = v1; important = i1; _ },
+      Declaration { property = Animation_name; value = v2; important = i2; _ } )
+    ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
         {
           property = Webkit_animation_timing_function;
           value = v1;
           important = i1;
+          _;
         },
       Declaration
-        { property = Animation_timing_function; value = v2; important = i2 } )
-    ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration
-        { property = Webkit_animation_fill_mode; value = v1; important = i1 },
-      Declaration { property = Animation_fill_mode; value = v2; important = i2 }
+        { property = Animation_timing_function; value = v2; important = i2; _ }
     ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_animation_play_state; value = v1; important = i1 },
+        { property = Webkit_animation_fill_mode; value = v1; important = i1; _ },
       Declaration
-        { property = Animation_play_state; value = v2; important = i2 } ) ->
+        { property = Animation_fill_mode; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        {
+          property = Webkit_animation_play_state;
+          value = v1;
+          important = i1;
+          _;
+        },
+      Declaration
+        { property = Animation_play_state; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | _ -> false
 
 (* Mozilla animation longhand vendor-alias pairs ([-moz-] vs unprefixed). *)
 let vendor_alias_redundant_moz_animation vendor twin =
   match (vendor, twin) with
-  | ( Declaration { property = Moz_animation; value = v1; important = i1 },
-      Declaration { property = Animation; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Moz_animation_delay; value = v1; important = i1 },
-      Declaration { property = Animation_delay; value = v2; important = i2 } )
-    ->
+  | ( Declaration { property = Moz_animation; value = v1; important = i1; _ },
+      Declaration { property = Animation; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Moz_animation_duration; value = v1; important = i1 },
-      Declaration { property = Animation_duration; value = v2; important = i2 }
+        { property = Moz_animation_delay; value = v1; important = i1; _ },
+      Declaration { property = Animation_delay; value = v2; important = i2; _ }
     ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Moz_animation_direction; value = v1; important = i1 },
-      Declaration { property = Animation_direction; value = v2; important = i2 }
+        { property = Moz_animation_duration; value = v1; important = i1; _ },
+      Declaration
+        { property = Animation_duration; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        { property = Moz_animation_direction; value = v1; important = i1; _ },
+      Declaration
+        { property = Animation_direction; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        {
+          property = Moz_animation_iteration_count;
+          value = v1;
+          important = i1;
+          _;
+        },
+      Declaration
+        { property = Animation_iteration_count; value = v2; important = i2; _ }
     ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Moz_animation_iteration_count; value = v1; important = i1 },
-      Declaration
-        { property = Animation_iteration_count; value = v2; important = i2 } )
-    ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Moz_animation_name; value = v1; important = i1 },
-      Declaration { property = Animation_name; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration
-        { property = Moz_animation_timing_function; value = v1; important = i1 },
-      Declaration
-        { property = Animation_timing_function; value = v2; important = i2 } )
+        { property = Moz_animation_name; value = v1; important = i1; _ },
+      Declaration { property = Animation_name; value = v2; important = i2; _ } )
     ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Moz_animation_fill_mode; value = v1; important = i1 },
-      Declaration { property = Animation_fill_mode; value = v2; important = i2 }
+        {
+          property = Moz_animation_timing_function;
+          value = v1;
+          important = i1;
+          _;
+        },
+      Declaration
+        { property = Animation_timing_function; value = v2; important = i2; _ }
     ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Moz_animation_play_state; value = v1; important = i1 },
+        { property = Moz_animation_fill_mode; value = v1; important = i1; _ },
       Declaration
-        { property = Animation_play_state; value = v2; important = i2 } ) ->
+        { property = Animation_fill_mode; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        { property = Moz_animation_play_state; value = v1; important = i1; _ },
+      Declaration
+        { property = Animation_play_state; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | _ -> false
 
@@ -3092,63 +3696,66 @@ let vendor_alias_redundant_animation vendor twin =
    unprefixed). *)
 let vendor_alias_redundant_transition vendor twin =
   match (vendor, twin) with
-  | ( Declaration { property = Webkit_transition; value = v1; important = i1 },
-      Declaration { property = Transition; value = v2; important = i2 } ) ->
+  | ( Declaration { property = Webkit_transition; value = v1; important = i1; _ },
+      Declaration { property = Transition; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_transition_delay; value = v1; important = i1 },
-      Declaration { property = Transition_delay; value = v2; important = i2 } )
-    ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration
-        { property = Webkit_transition_duration; value = v1; important = i1 },
-      Declaration { property = Transition_duration; value = v2; important = i2 }
+        { property = Webkit_transition_delay; value = v1; important = i1; _ },
+      Declaration { property = Transition_delay; value = v2; important = i2; _ }
     ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_transition_property; value = v1; important = i1 },
-      Declaration { property = Transition_property; value = v2; important = i2 }
-    ) ->
+        { property = Webkit_transition_duration; value = v1; important = i1; _ },
+      Declaration
+        { property = Transition_duration; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        { property = Webkit_transition_property; value = v1; important = i1; _ },
+      Declaration
+        { property = Transition_property; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
         {
           property = Webkit_transition_timing_function;
           value = v1;
           important = i1;
+          _;
         },
       Declaration
-        { property = Transition_timing_function; value = v2; important = i2 } )
-    ->
+        { property = Transition_timing_function; value = v2; important = i2; _ }
+    ) ->
       v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Moz_transition; value = v1; important = i1 },
-      Declaration { property = Transition; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Moz_transition_delay; value = v1; important = i1 },
-      Declaration { property = Transition_delay; value = v2; important = i2 } )
-    ->
+  | ( Declaration { property = Moz_transition; value = v1; important = i1; _ },
+      Declaration { property = Transition; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Moz_transition_duration; value = v1; important = i1 },
-      Declaration { property = Transition_duration; value = v2; important = i2 }
+        { property = Moz_transition_delay; value = v1; important = i1; _ },
+      Declaration { property = Transition_delay; value = v2; important = i2; _ }
     ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Moz_transition_property; value = v1; important = i1 },
-      Declaration { property = Transition_property; value = v2; important = i2 }
-    ) ->
+        { property = Moz_transition_duration; value = v1; important = i1; _ },
+      Declaration
+        { property = Transition_duration; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        { property = Moz_transition_property; value = v1; important = i1; _ },
+      Declaration
+        { property = Transition_property; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
         {
           property = Moz_transition_timing_function;
           value = v1;
           important = i1;
+          _;
         },
       Declaration
-        { property = Transition_timing_function; value = v2; important = i2 } )
-    ->
+        { property = Transition_timing_function; value = v2; important = i2; _ }
+    ) ->
       v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = O_transition; value = v1; important = i1 },
-      Declaration { property = Transition; value = v2; important = i2 } ) ->
+  | ( Declaration { property = O_transition; value = v1; important = i1; _ },
+      Declaration { property = Transition; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | _ -> false
 
@@ -3156,84 +3763,92 @@ let vendor_alias_redundant_transition vendor twin =
 let vendor_alias_redundant_flex vendor twin =
   match (vendor, twin) with
   | ( Declaration
-        { property = Webkit_flex_direction; value = v1; important = i1 },
-      Declaration { property = Flex_direction; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Webkit_flex_wrap; value = v1; important = i1 },
-      Declaration { property = Flex_wrap; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Webkit_flex_flow; value = v1; important = i1 },
-      Declaration { property = Flex_flow; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration
-        { property = Webkit_justify_content; value = v1; important = i1 },
-      Declaration { property = Justify_content; value = v2; important = i2 } )
+        { property = Webkit_flex_direction; value = v1; important = i1; _ },
+      Declaration { property = Flex_direction; value = v2; important = i2; _ } )
     ->
       v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Webkit_align_items; value = v1; important = i1 },
-      Declaration { property = Align_items; value = v2; important = i2 } ) ->
+  | ( Declaration { property = Webkit_flex_wrap; value = v1; important = i1; _ },
+      Declaration { property = Flex_wrap; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Webkit_align_content; value = v1; important = i1 },
-      Declaration { property = Align_content; value = v2; important = i2 } ) ->
+  | ( Declaration { property = Webkit_flex_flow; value = v1; important = i1; _ },
+      Declaration { property = Flex_flow; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Webkit_align_self; value = v1; important = i1 },
-      Declaration { property = Align_self; value = v2; important = i2 } ) ->
+  | ( Declaration
+        { property = Webkit_justify_content; value = v1; important = i1; _ },
+      Declaration { property = Justify_content; value = v2; important = i2; _ }
+    ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        { property = Webkit_align_items; value = v1; important = i1; _ },
+      Declaration { property = Align_items; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        { property = Webkit_align_content; value = v1; important = i1; _ },
+      Declaration { property = Align_content; value = v2; important = i2; _ } )
+    ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration { property = Webkit_align_self; value = v1; important = i1; _ },
+      Declaration { property = Align_self; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | _ -> false
 
 (* Border-radius / box-shadow / background-size / filter vendor-alias pairs. *)
 let vendor_alias_redundant_visual vendor twin =
   match (vendor, twin) with
-  | ( Declaration { property = Webkit_border_radius; value = v1; important = i1 },
-      Declaration { property = Border_radius; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Moz_border_radius; value = v1; important = i1 },
-      Declaration { property = Border_radius; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Webkit_box_shadow; value = v1; important = i1 },
-      Declaration { property = Box_shadow; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Moz_box_shadow; value = v1; important = i1 },
-      Declaration { property = Box_shadow; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_background_size; value = v1; important = i1 },
-      Declaration { property = Background_size; value = v2; important = i2 } )
+        { property = Webkit_border_radius; value = v1; important = i1; _ },
+      Declaration { property = Border_radius; value = v2; important = i2; _ } )
     ->
       v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Webkit_filter; value = v1; important = i1 },
-      Declaration { property = Filter; value = v2; important = i2 } ) ->
+  | ( Declaration { property = Moz_border_radius; value = v1; important = i1; _ },
+      Declaration { property = Border_radius; value = v2; important = i2; _ } )
+    ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration { property = Webkit_box_shadow; value = v1; important = i1; _ },
+      Declaration { property = Box_shadow; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration { property = Moz_box_shadow; value = v1; important = i1; _ },
+      Declaration { property = Box_shadow; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_backdrop_filter; value = v1; important = i1 },
-      Declaration { property = Backdrop_filter; value = v2; important = i2 } )
-    ->
+        { property = Webkit_background_size; value = v1; important = i1; _ },
+      Declaration { property = Background_size; value = v2; important = i2; _ }
+    ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration { property = Webkit_filter; value = v1; important = i1; _ },
+      Declaration { property = Filter; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        { property = Webkit_backdrop_filter; value = v1; important = i1; _ },
+      Declaration { property = Backdrop_filter; value = v2; important = i2; _ }
+    ) ->
       v1 = v2 && Bool.equal i1 i2
   | _ -> false
 
 let vendor_alias_redundant vendor twin =
   match (vendor, twin) with
-  | ( Declaration { property = Webkit_transform; value = v1; important = i1 },
-      Declaration { property = Transform; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Webkit_user_select; value = v1; important = i1 },
-      Declaration { property = User_select; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Moz_user_select; value = v1; important = i1 },
-      Declaration { property = User_select; value = v2; important = i2 } ) ->
-      v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Webkit_hyphens; value = v1; important = i1 },
-      Declaration { property = Hyphens; value = v2; important = i2 } ) ->
+  | ( Declaration { property = Webkit_transform; value = v1; important = i1; _ },
+      Declaration { property = Transform; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_text_size_adjust; value = v1; important = i1 },
-      Declaration { property = Text_size_adjust; value = v2; important = i2 } )
-    ->
+        { property = Webkit_user_select; value = v1; important = i1; _ },
+      Declaration { property = User_select; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration { property = Moz_user_select; value = v1; important = i1; _ },
+      Declaration { property = User_select; value = v2; important = i2; _ } ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration { property = Webkit_hyphens; value = v1; important = i1; _ },
+      Declaration { property = Hyphens; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | ( Declaration
-        { property = Webkit_print_color_adjust; value = v1; important = i1 },
-      Declaration { property = Print_color_adjust; value = v2; important = i2 }
+        { property = Webkit_text_size_adjust; value = v1; important = i1; _ },
+      Declaration { property = Text_size_adjust; value = v2; important = i2; _ }
     ) ->
+      v1 = v2 && Bool.equal i1 i2
+  | ( Declaration
+        { property = Webkit_print_color_adjust; value = v1; important = i1; _ },
+      Declaration
+        { property = Print_color_adjust; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | _ ->
       vendor_alias_redundant_animation vendor twin
@@ -3271,9 +3886,9 @@ let strip_vendor_prefix name =
 let text_vendor_alias_redundant vendor twin =
   match (vendor, twin) with
   | ( Declaration
-        { property = Unknown_property vname; value = vv; important = vi },
+        { property = Unknown_property vname; value = vv; important = vi; _ },
       Declaration
-        { property = Unknown_property tname; value = tv; important = ti } )
+        { property = Unknown_property tname; value = tv; important = ti; _ } )
     when Bool.equal vi ti -> (
       match strip_vendor_prefix vname with
       | Some modern -> String.equal tname modern && vv = tv
@@ -3285,11 +3900,11 @@ let text_vendor_alias_redundant vendor twin =
    need are target-dependent and only drop under the opt-in targets axis. *)
 let vendor_alias_redundant_targeted vendor twin =
   match (vendor, twin) with
-  | ( Declaration { property = Webkit_box_sizing; value = v1; important = i1 },
-      Declaration { property = Box_sizing; value = v2; important = i2 } ) ->
+  | ( Declaration { property = Webkit_box_sizing; value = v1; important = i1; _ },
+      Declaration { property = Box_sizing; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
-  | ( Declaration { property = Moz_box_sizing; value = v1; important = i1 },
-      Declaration { property = Box_sizing; value = v2; important = i2 } ) ->
+  | ( Declaration { property = Moz_box_sizing; value = v1; important = i1; _ },
+      Declaration { property = Box_sizing; value = v2; important = i2; _ } ) ->
       v1 = v2 && Bool.equal i1 i2
   | _ -> false
 

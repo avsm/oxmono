@@ -29,7 +29,14 @@ val string_of_number_percentage : number_percentage -> string
 (** {1 Constructor Functions} *)
 
 val hex : string -> color
-(** [hex s] creates a hex color value. *)
+(** [hex s] is the colour of the hex spelling [s], with or without the leading
+    [#]. Raises [Invalid_argument] when [s] is not one of [#rgb], [#rrggbb],
+    [#rgba] or [#rrggbbaa]: no colour is denoted, and returning one would put a
+    plausible wrong colour into the output. See {!hex_opt} to decide. *)
+
+val hex_opt : string -> color option
+(** [hex_opt s] is {!val-hex} without the exception: the colour when [s] is a
+    hex spelling, and nothing otherwise. *)
 
 val rgb : ?alpha:float -> int -> int -> int -> color
 (** [rgb ?alpha r g b] creates an RGB color with optional alpha. *)
@@ -51,6 +58,11 @@ val oklch : float -> float -> float -> color
 
 val oklcha : float -> float -> float -> float -> color
 (** [oklcha l c h a] creates an OKLCH color with alpha. *)
+
+val oklch_none_hue : float -> float -> color
+(** [oklch_none_hue l c] creates an OKLCH color whose hue is [none]. The hue of
+    an achromatic color is powerless, and [none] keeps the component missing, so
+    interpolation takes the other color's hue rather than 0. *)
 
 val oklab : float -> float -> float -> color
 (** [oklab l a b] creates an OKLAB color. *)
@@ -239,14 +251,21 @@ val normalize_duration : ?ctx:calc_ctx -> duration -> duration
     [calc()] ([calc(var(--d) * 1)] becomes [calc(var(--d))]), keeping any
     [var()]. *)
 
-val normalize_color : ?lossless:bool -> in_feature_query:bool -> color -> color
+val normalize_color :
+  ?lossless:bool -> ?exact_srgb:bool -> in_feature_query:bool -> color -> color
 (** [normalize_color ?lossless ~in_feature_query c] canonicalises a color to its
     shortest spelling: a static colour in any space folds through sRGB to
-    hex/named, hex shortens, and named↔hex picks the shorter. [in_feature_query]
-    keeps a colour untouched inside an [@supports] test, where the exact
-    spelling is the capability being probed. [lossless] disables lossy static
-    colour-space and color-mix folds while preserving exact named/hex and
-    byte-exact rgb folds. *)
+    hex/named, hex shortens, and named<->hex picks the shorter.
+    [in_feature_query] keeps a colour untouched inside an [@supports] test,
+    where the exact spelling is the capability being probed. [lossless] disables
+    lossy static colour-space and color-mix folds while preserving exact
+    named/hex and byte-exact rgb folds.
+
+    [exact_srgb] (default [false], and only consulted under [lossless])
+    additionally folds a [color(srgb ...)] whose channels all land on a whole
+    byte, the one [color()] conversion that loses nothing. It exists for the
+    canonical diff projection, where [color(srgb 1 0 0)] and [rgb(255 0 0)] must
+    not read as a difference; emission leaves the authored function alone. *)
 
 val pp_number_percentage : ?always:bool -> number_percentage Pp.t
 (** [pp_number_percentage ?always] pretty-prints {!number_percentage} values.
@@ -259,7 +278,10 @@ val pp_color_name : color_name Pp.t
 (** [pp_color_name] pretty-prints {!type-color_name} values. *)
 
 val read_color_name : Cursor.t -> color_name
-(** [read_color_name] reads a {!type-color_name} value. *)
+(** [read_color_name] reads a {!type-color_name} value: every name
+    {!pp_color_name} prints, matched case-insensitively, and read back as the
+    constructor that prints it, so [grey] is [Grey] and not the [Gray] that
+    prints [gray]. *)
 
 val pp_color_space : color_space Pp.t
 (** [pp_color_space] pretty-prints {!color_space} values. *)
@@ -511,7 +533,7 @@ val read_calc : (Cursor.t -> 'a) -> Cursor.t -> 'a calc
 (** [read_calc read t] parses a [calc(...)] expression or a promotable value. *)
 
 val read_calc_expr : (Cursor.t -> 'a) -> Cursor.t -> 'a calc
-(** [read_calc_expr read t] parses a calc expression body — the contents of a
+(** [read_calc_expr read t] parses a calc expression body -- the contents of a
     [calc(...)] form without the surrounding [calc(] and [)]. *)
 
 val eval_numeric_calc : 'a calc -> float option
@@ -520,8 +542,9 @@ val eval_numeric_calc : 'a calc -> float option
     non-numeric values. *)
 
 val eval_math_fn : math_fn -> float option
-(** [eval_math_fn fn] evaluates a CSS Values 4 §10.7 numeric math function call
-    to a float. Returns [None] when an arg references an unresolved variable. *)
+(** [eval_math_fn fn] evaluates a CSS Values 4 sec. 10.7 numeric math function
+    call to a float. Returns [None] when an arg references an unresolved
+    variable. *)
 
 val read_numeric_expression : Cursor.t -> float
 (** [read_numeric_expression t] parses and evaluates a numeric math expression,
@@ -533,12 +556,12 @@ val map_calc : ('a -> 'b) -> 'a calc -> 'b calc
     structure (operators, [Nested], [Parens], [Var] fallbacks). *)
 
 val eval_calc : ?ctx:calc_ctx -> 'a calc -> 'a calc
-(** [eval_calc calc] applies CSS Values 4 §10.7 structural simplification: folds
-    [Expr (Num _, op, Num _)] subtrees into a single [Num] and unwraps trivial
-    [Nested] / [Parens] around leaves. [Val] / [Var] leaves and mixed-type
-    operands survive — type-specific simplification (e.g., length arithmetic) is
-    the caller's job. With [~ctx], a [Nested] / [Parens] around a single-valued
-    [Var] leaf is also unwrapped (see {!calc_ctx}). *)
+(** [eval_calc calc] applies CSS Values 4 sec. 10.7 structural simplification:
+    folds [Expr (Num _, op, Num _)] subtrees into a single [Num] and unwraps
+    trivial [Nested] / [Parens] around leaves. [Val] / [Var] leaves and
+    mixed-type operands survive -- type-specific simplification (e.g., length
+    arithmetic) is the caller's job. With [~ctx], a [Nested] / [Parens] around a
+    single-valued [Var] leaf is also unwrapped (see {!calc_ctx}). *)
 
 val calc_identity :
   zero:'a calc ->
@@ -548,7 +571,7 @@ val calc_identity :
   'a calc ->
   'a calc option
 (** [calc_identity ~zero ~is_zero l op r] applies the value-independent CSS
-    Values 4 §10.7 identities to one [Expr (l, op, r)] node, returning the
+    Values 4 sec. 10.7 identities to one [Expr (l, op, r)] node, returning the
     folded operand when one applies. These hold for any operand including a kept
     [var()] (inside [calc()] a [var()] is single-valued): [x * 1], [1 * x],
     [x / 1], [x + 0], [0 + x], [x - 0] keep [x]; [x * 0] / [0 * x] reduce to

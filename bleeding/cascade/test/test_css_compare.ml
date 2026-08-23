@@ -33,6 +33,146 @@ let equal_empty () =
     "empty strings equal" true
     (Cascade_diff.Css_compare.equal "" "")
 
+(* CSS Properties and Values API 1 sec. 2: registrations for different names are
+   order-independent, and for the same name the last wins. Two sheets that
+   register the same set differ only in the order they happened to emit them. *)
+let equal_canonical_ignores_property_order () =
+  let a =
+    "@property --z{syntax:\"*\";inherits:false}@property \
+     --a{syntax:\"*\";inherits:false}"
+  in
+  let b =
+    "@property --a{syntax:\"*\";inherits:false}@property \
+     --z{syntax:\"*\";inherits:false}"
+  in
+  Alcotest.(check bool)
+    "@property order is not a difference" true
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical a b);
+  (* the last registration of a name still wins, so a differing duplicate is a
+     real difference *)
+  Alcotest.(check bool)
+    "a differing duplicate still differs" false
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical
+       "@property --a{syntax:\"*\";inherits:false}@property \
+        --a{syntax:\"*\";inherits:true}"
+       "@property --a{syntax:\"*\";inherits:false}");
+  (* @property is valid inside a conditional group rule and inside @layer, which
+     is where a generator emitting a block of registrations puts them *)
+  Alcotest.(check bool)
+    "@property order inside @layer is not a difference" true
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical
+       ("@layer properties{" ^ a ^ "}")
+       ("@layer properties{" ^ b ^ "}"));
+  Alcotest.(check bool)
+    "@property order inside @supports is not a difference" true
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical
+       ("@supports (color:red){" ^ a ^ "}")
+       ("@supports (color:red){" ^ b ^ "}"));
+  (* a run is split by any other statement, so this reordering crosses a barrier
+     and stays a difference *)
+  Alcotest.(check bool)
+    "reordering across an intervening rule still differs" false
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical
+       "@property --z{syntax:\"*\";inherits:false}.x{top:0}@property \
+        --a{syntax:\"*\";inherits:false}"
+       "@property --a{syntax:\"*\";inherits:false}.x{top:0}@property \
+        --z{syntax:\"*\";inherits:false}")
+
+(* Media Queries 4 sec. 2.1: [all] matches every media type, so [not all and
+   (X)] and [not (X)] are the same query. Equating them is projection-only - a
+   Level 3 parser rejects the shorter form, so emission keeps what it read. *)
+let equal_canonical_media_not_all () =
+  Alcotest.(check bool)
+    "not all and (X) is not a difference against not (X)" true
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical
+       "@media not all and (hover){.a{color:red}}"
+       "@media not (hover){.a{color:red}}");
+  (* A media type other than [all] restricts the query, so it stays. *)
+  Alcotest.(check bool)
+    "not screen and (X) still differs from not (X)" false
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical
+       "@media not screen and (hover){.a{color:red}}"
+       "@media not (hover){.a{color:red}}");
+  (* Bare [not all] matches nothing, which no condition spells. *)
+  Alcotest.(check bool)
+    "not all still differs from not (X)" false
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical
+       "@media not all{.a{color:red}}" "@media not (hover){.a{color:red}}")
+
+(* CSS Color 4 sec. 10: [color(srgb r g b)] scales each channel by 255, so
+   [color(srgb 1 0 0)] and [rgb(255 0 0)] are one colour in two spellings.
+   [--lossless] keeps a modern colour function on output, which leaves the
+   projection reading the spelling as a difference. The fold is exact-only: a
+   channel that does not land on a whole byte, and a colour in another gamut,
+   stay distinct. *)
+let equal_canonical_lossless_exact_srgb () =
+  let equal a b =
+    Cascade_diff.Css_compare.equal ~mode:`Canonical ~lossless:true a b
+  in
+  Alcotest.(check bool)
+    "color(srgb 1 0 0) is rgb(255 0 0)" true
+    (equal ".a{color:color(srgb 1 0 0)}" ".a{color:rgb(255,0,0)}");
+  Alcotest.(check bool)
+    "color(srgb 1 0 0) is #f00" true
+    (equal ".a{color:color(srgb 1 0 0)}" ".a{color:#f00}");
+  Alcotest.(check bool)
+    "color(srgb .2 .4 .6) is rgb(51 102 153)" true
+    (equal ".a{color:color(srgb .2 .4 .6)}" ".a{color:rgb(51,102,153)}");
+  Alcotest.(check bool)
+    "the alpha scales exactly too" true
+    (equal ".a{color:color(srgb 1 0 0/.5)}" ".a{color:rgba(255,0,0,.5)}");
+  (* display-p3 red is a different colour, not a different spelling. *)
+  Alcotest.(check bool)
+    "color(display-p3 1 0 0) still differs from rgb(255 0 0)" false
+    (equal ".a{color:color(display-p3 1 0 0)}" ".a{color:rgb(255,0,0)}");
+  (* One byte off is a difference, and .501 does not scale to a whole byte, so
+     neither folds onto the other. *)
+  Alcotest.(check bool)
+    "color(srgb 1 0 0) still differs from rgb(254 0 0)" false
+    (equal ".a{color:color(srgb 1 0 0)}" ".a{color:rgb(254,0,0)}");
+  Alcotest.(check bool)
+    "an off-grid channel keeps its function" false
+    (equal ".a{color:color(srgb .501 0 0)}" ".a{color:maroon}")
+
+(* Filter Effects 1 sec. 8.5 makes an omitted [hue-rotate()] argument 0, and
+   [hue-rotate] names a filter function and nothing else, so the two spellings
+   are one value wherever the stream is substituted. *)
+let canonical_custom_hue_rotate_zero () =
+  Alcotest.(check bool)
+    "hue-rotate() and hue-rotate(0deg) agree in a custom property" true
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical
+       ".a{--f:hue-rotate();filter:var(--f)}"
+       ".a{--f:hue-rotate(0deg);filter:var(--f)}");
+  (* Any zero angle, since the unit does not survive normalisation. *)
+  Alcotest.(check bool)
+    "a zero turn agrees too" true
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical ".a{--f:hue-rotate()}"
+       ".a{--f:hue-rotate(0turn)}");
+  (* A non-zero angle is a different filter. *)
+  Alcotest.(check bool)
+    "a non-zero angle still differs" false
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical ".a{--f:hue-rotate()}"
+       ".a{--f:hue-rotate(90deg)}")
+
+(* Cascade 5 sec. 6.2: an important custom property beats a later normal one, so
+   the flag is part of what the declaration means and two sheets that disagree
+   about it are different sheets. *)
+let canonical_important_custom_property_distinct () =
+  Alcotest.(check bool)
+    "an important custom property differs from a normal one" false
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical ":root{--x:red!important}"
+       ":root{--x:red}");
+  (* the same importance on both sides is not a difference *)
+  Alcotest.(check bool)
+    "matching important custom properties agree" true
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical ":root{--x:red!important}"
+       ":root{--x:red !important}");
+  (* the flag also decides which of two definitions of one name survives *)
+  Alcotest.(check bool)
+    "an important definition is not shadowed by a later normal one" false
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical
+       ":root{--x:red!important}:root{--x:blue}" ":root{--x:blue}")
+
 let equal_prune_unused_custom_props () =
   let with_bind = ":root{--spacing:.25rem}.top-0{top:0}" in
   let without = ".top-0{top:0}" in
@@ -570,7 +710,7 @@ let semantic_legacy_pseudo_element_alias () =
     (Cascade_diff.Css_compare.diff ~mode:`Canonical legacy modern)
       .Cascade_diff.Css_compare.result
   with
-  | Cascade_diff.Css_compare.No_diff _ -> ()
+  | Cascade_diff.Css_compare.No_diff -> ()
   | _ -> Alcotest.fail "expected :before and ::before to canonicalize equally"
 
 let semantic_vendor_recovered () =
@@ -609,13 +749,13 @@ let diff_no_diff () =
   let css = ".a { color: red }" in
   let result = Cascade_diff.Css_compare.diff css css in
   match result.Cascade_diff.Css_compare.result with
-  | Cascade_diff.Css_compare.No_diff _ -> ()
+  | Cascade_diff.Css_compare.No_diff -> ()
   | _ -> Alcotest.fail "expected No_diff"
 
 let diff_no_diff_empty () =
   let result = Cascade_diff.Css_compare.diff "" "" in
   match result.Cascade_diff.Css_compare.result with
-  | Cascade_diff.Css_compare.No_diff _ -> ()
+  | Cascade_diff.Css_compare.No_diff -> ()
   | _ -> Alcotest.fail "expected No_diff for empty strings"
 
 (* ===== diff returning Tree_diff ===== *)
@@ -651,7 +791,7 @@ let diff_string_diff () =
   match result.Cascade_diff.Css_compare.result with
   | Cascade_diff.Css_compare.String_diff d ->
       Alcotest.(check bool) "string diff has position" true (d.position >= 0)
-  | Cascade_diff.Css_compare.No_diff _ ->
+  | Cascade_diff.Css_compare.No_diff ->
       (* Strings might be considered equal after strip_tool_header/trim *)
       ()
   | _ -> Alcotest.fail "expected String_diff or No_diff"
@@ -780,6 +920,73 @@ let pp_stats_does_not_crash () =
     "pp_stats produces output" true
     (String.length output > 0)
 
+(* The counters only ever count a tree diff, so they read zero on every result
+   that never reached one: a comparison that fell through to strings, and a side
+   whose content the parser discarded. Announcing that as an absence of
+   structural differences states a conclusion the comparator never drew. *)
+
+let rendered_stats ?mode expected actual =
+  let result = Cascade_diff.Css_compare.diff ?mode expected actual in
+  let s =
+    Cascade_diff.Css_compare.stats ~expected_str:expected ~actual_str:actual
+      result
+  in
+  let buf = Buffer.create 256 in
+  Cascade_diff.Css_compare.pp_stats buf s;
+  Buffer.contents buf
+
+let zero_counters_do_not_claim_equivalence () =
+  (* The stray braces are dropped with a parse warning, so both sides reach the
+     same AST and the report falls through to a string diff. *)
+  let output = rendered_stats "a{color:red}" "a{color:red}}}}" in
+  Alcotest.(check bool)
+    "does not claim the two sheets match structurally" false
+    (contains_substring output "No structural differences");
+  Alcotest.(check bool)
+    "says the changes were not classified" true
+    (contains_substring output "none classified structurally")
+
+let zero_counters_unparsed_do_not_claim_equivalence () =
+  (* Mode [`String] never parses, so the counters read zero over two sheets that
+     paint differently. *)
+  let output = rendered_stats ~mode:`String "a{color:red}" "a{color:blue}" in
+  Alcotest.(check bool)
+    "a comparison that never parsed is not an absence of differences" false
+    (contains_substring output "No structural differences")
+
+(* The canonical minified form is the verdict in [`Canonical] mode: two sheets
+   whose canonical bytes differ differ, whether or not the tree diff reached the
+   divergence. Here an empty layer-order pin the projection does not fold away -
+   either a normalisation key the projection is missing or a blind spot in the
+   tree diff, and both are findings. *)
+let canonical_byte_residual_is_a_difference () =
+  let pinned = "@layer a;@layer a{x{top:0}}" in
+  let unpinned = "@layer a{x{top:0}}" in
+  let result = Cascade_diff.Css_compare.diff ~mode:`Canonical pinned unpinned in
+  (match result.Cascade_diff.Css_compare.result with
+  | Cascade_diff.Css_compare.String_diff _ -> ()
+  | _ ->
+      Alcotest.fail
+        "expected a string diff of the two differing canonical forms");
+  Alcotest.(check bool)
+    "the equality answer follows the bytes" false
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical pinned unpinned)
+
+let canonical_byte_equal_is_no_diff () =
+  (* The converse: once the two sheets reach one canonical form, the spelling
+     they started from is immaterial and the verdict is equality. [equal] is
+     [true] only on {!No_diff}, so it pins the constructor too. *)
+  let spaced = ".x { color: red }" in
+  let tight = ".x{color:red}" in
+  Alcotest.(check bool)
+    "the equality answer follows the bytes" true
+    (Cascade_diff.Css_compare.equal ~mode:`Canonical spaced tight);
+  Alcotest.(check bool)
+    "no tree diff is reported over one canonical form" true
+    (Option.is_none
+       (Cascade_diff.Css_compare.as_tree_diff
+          (Cascade_diff.Css_compare.diff ~mode:`Canonical spaced tight)))
+
 (* ===== diff tests ===== *)
 
 let diff_auto () =
@@ -804,14 +1011,14 @@ let diff_string () =
   let result = Cascade_diff.Css_compare.diff ~mode:`String expected actual in
   match result.Cascade_diff.Css_compare.result with
   | Cascade_diff.Css_compare.String_diff _ -> ()
-  | Cascade_diff.Css_compare.No_diff _ -> ()
+  | Cascade_diff.Css_compare.No_diff -> ()
   | _ -> Alcotest.fail "expected String_diff or No_diff in string mode"
 
 let diff_string_identical () =
   let css = ".a { color: red }" in
   let result = Cascade_diff.Css_compare.diff ~mode:`String css css in
   match result.Cascade_diff.Css_compare.result with
-  | Cascade_diff.Css_compare.No_diff _ -> ()
+  | Cascade_diff.Css_compare.No_diff -> ()
   | _ -> Alcotest.fail "expected No_diff for identical in string mode"
 
 let semantic_color_mix_mode () =
@@ -819,7 +1026,7 @@ let semantic_color_mix_mode () =
   let actual = ".a { color: " ^ color_mix_transparent_hex ^ " }" in
   let result = Cascade_diff.Css_compare.diff ~mode:`Canonical expected actual in
   match result.Cascade_diff.Css_compare.result with
-  | Cascade_diff.Css_compare.No_diff _ -> ()
+  | Cascade_diff.Css_compare.No_diff -> ()
   | _ -> Alcotest.fail "expected No_diff for semantically equivalent CSS"
 
 let diff_canonical_uses_outputs () =
@@ -944,6 +1151,29 @@ let canonical_same_selector_merge_across_intervening_rules () =
     "canonical diff reconciles split/merged same-selector forms rules" true
     (equal ~mode:`Canonical merged split)
 
+(* A property with no typed spelling still writes cascade slots: [background]
+   resets the X position [background-position-x] set, so the two orders render
+   differently and the canonical projection must keep them apart. *)
+let canonical_unknown_longhand_order () =
+  Alcotest.(check bool)
+    "an unknown longhand swapped past its shorthand is a difference" false
+    (equal ~mode:`Canonical ".a{background:red;background-position-x:10px}"
+       ".a{background-position-x:10px;background:red}");
+  Alcotest.(check bool)
+    "the same order is still equal" true
+    (equal ~mode:`Canonical ".a{background:red;background-position-x:10px}"
+       ".a{background:red;background-position-x:10px}")
+
+(* [gap] resets [row-gap], so the two orders give the rule a different row gap
+   and the canonical projection must keep them apart. *)
+let canonical_typed_longhand_order () =
+  Alcotest.(check bool)
+    "a longhand swapped past the shorthand that resets it is a difference" false
+    (equal ~mode:`Canonical ".a{row-gap:9px;gap:1px}" ".a{gap:1px;row-gap:9px}");
+  Alcotest.(check bool)
+    "the same order is still equal" true
+    (equal ~mode:`Canonical ".a{row-gap:9px;gap:1px}" ".a{row-gap:9px;gap:1px}")
+
 (* ===== Suite ===== *)
 
 let suite =
@@ -958,6 +1188,10 @@ let suite =
       Alcotest.test_case
         "canonical same-selector merge across intervening rules" `Quick
         canonical_same_selector_merge_across_intervening_rules;
+      Alcotest.test_case "canonical unknown longhand order" `Quick
+        canonical_unknown_longhand_order;
+      Alcotest.test_case "canonical typed longhand order" `Quick
+        canonical_typed_longhand_order;
       Alcotest.test_case "equal identical" `Quick equal_identical;
       Alcotest.test_case "equal different" `Quick equal_different;
       Alcotest.test_case "equal empty" `Quick equal_empty;
@@ -1085,6 +1319,14 @@ let suite =
       Alcotest.test_case "stats with tree diff" `Quick stats_with_tree_diff;
       Alcotest.test_case "pp_stats does not crash" `Quick
         pp_stats_does_not_crash;
+      Alcotest.test_case "zero counters do not claim equivalence" `Quick
+        zero_counters_do_not_claim_equivalence;
+      Alcotest.test_case "zero counters unparsed do not claim equivalence"
+        `Quick zero_counters_unparsed_do_not_claim_equivalence;
+      Alcotest.test_case "canonical byte residual is a difference" `Quick
+        canonical_byte_residual_is_a_difference;
+      Alcotest.test_case "canonical byte equality is no diff" `Quick
+        canonical_byte_equal_is_no_diff;
       Alcotest.test_case "diff auto" `Quick diff_auto;
       Alcotest.test_case "diff tree" `Quick diff_tree;
       Alcotest.test_case "diff string" `Quick diff_string;
@@ -1098,4 +1340,14 @@ let suite =
       Alcotest.test_case "pp does not crash" `Quick pp_does_not_crash;
       Alcotest.test_case "opt-in prune-unused-custom-props" `Quick
         equal_prune_unused_custom_props;
+      Alcotest.test_case "canonical folds a zero hue-rotate in a custom value"
+        `Quick canonical_custom_hue_rotate_zero;
+      Alcotest.test_case "canonical keeps custom-property importance" `Quick
+        canonical_important_custom_property_distinct;
+      Alcotest.test_case "canonical ignores @property order" `Quick
+        equal_canonical_ignores_property_order;
+      Alcotest.test_case "canonical equates not all and (X) with not (X)" `Quick
+        equal_canonical_media_not_all;
+      Alcotest.test_case "canonical lossless equates exact srgb spellings"
+        `Quick equal_canonical_lossless_exact_srgb;
     ] )

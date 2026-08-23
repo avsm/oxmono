@@ -50,15 +50,16 @@ let rec important = function
 (* Apply AST-level value normalisation so the optimizer holds a canonical AST.
    The pretty-printer is a pure serialiser of the result; this is where semantic
    value folds live (see [Properties.normalize_property_value]). *)
-let rec normalize ?(lossless = false) ?(ctx = Values.default_calc_ctx) =
-  function
+let rec normalize ?(lossless = false) ?(exact_srgb = false)
+    ?(ctx = Values.default_calc_ctx) = function
   | Declaration { property; value; important; _ } as decl ->
       let value' =
-        Properties.normalize_property_value ~lossless ~ctx property value
+        Properties.normalize_property_value ~lossless ~exact_srgb ~ctx property
+          value
       in
       if value' == value then decl else v ~important property value'
   | Theme_guarded g as themed ->
-      let decl = normalize ~lossless ~ctx g.decl in
+      let decl = normalize ~lossless ~exact_srgb ~ctx g.decl in
       if decl == g.decl then themed else theme_guarded ~var_name:g.var_name decl
 
 (* Helper for raw custom properties - primarily for internal use *)
@@ -307,8 +308,8 @@ let is_decl_unknown_property_name name =
 (** [is_invalid decl] is [true] when [decl]'s typed value is a known spec
     violation detected at parse time; [Optimize.drop_invalid] removes such
     declarations under minify. An unknown property is not invalid: browsers keep
-    unrecognised declarations (CSS Syntax 3 §5.4), and cascade emits them (and
-    vendor-prefix extensions) as raw component lists. *)
+    unrecognised declarations (CSS Syntax 3 sec. 5.4), and cascade emits them
+    (and vendor-prefix extensions) as raw component lists. *)
 let rec is_invalid = function
   | Declaration { property = Unknown_property _; _ } -> false
   | Declaration { property; value; _ } ->
@@ -387,14 +388,20 @@ let property_value_uses_color (type a) (p : Values.color -> bool)
   | Border_left_color -> p value
   | Border_inline_start_color -> p value
   | Border_inline_end_color -> p value
+  | Border_block_start_color -> p value
+  | Border_block_end_color -> p value
   | Outline_color -> p value
   | Text_decoration_color -> p value
   | Text_emphasis_color -> p value
   | Accent_color -> p value
   | Caret_color -> p value
+  | Stop_color -> p value
+  | Flood_color -> p value
+  | Lighting_color -> p value
   | Webkit_tap_highlight_color -> p value
   | Webkit_text_decoration_color -> p value
   | Border_inline_color -> logical_color_uses p value
+  | Border_block_color -> logical_color_uses p value
   | Box_shadow -> shadow_uses_color p value
   | Text_shadow -> List.exists (text_shadow_uses_color p) value
   | Border -> border_uses_color p value
@@ -465,6 +472,10 @@ let rec property_name decl =
    property name" directly - no [Pp], no [Obj.repr]. *)
 type prop_key = Key : 'a Properties.property -> prop_key [@@unboxed]
 
+let equal_declaration (a : declaration) b = a = b
+let equal_prop_key (a : prop_key) b = a = b
+let hash_prop_key (key : prop_key) = Hashtbl.hash key
+
 let rec property_key decl =
   match decl with
   | Declaration { property; _ } -> Key property
@@ -489,6 +500,28 @@ let rec string_of_value ?(minify = true) ?(inline = false) decl =
   | Declaration { property; value; _ } ->
       Pp.to_string ~minify ~inline pp_property_value (property, value)
   | Theme_guarded { decl; _ } -> string_of_value ~minify ~inline decl
+
+(* Rewrite the value of a custom declaration through [f], which sees its
+   minified serialisation. Everything else the declaration carries - its
+   importance, its cascade layer, its metadata and any theme guard - belongs to
+   the declaration and not to the value, so it is kept: rebuilding with
+   [custom_property] instead silently drops all four. *)
+let rec map_custom_value f decl =
+  match decl with
+  | Declaration
+      {
+        property = Custom_property _ as property;
+        value = Custom_value cv;
+        important;
+        _;
+      } ->
+      let value = f (string_of_value ~minify:true decl) in
+      let components = Cursor.remaining (Cursor.of_string value) in
+      v ~important property (Custom_value { cv with value = Tokens components })
+  | Declaration _ -> decl
+  | Theme_guarded g ->
+      let decl' = map_custom_value f g.decl in
+      if decl' == g.decl then decl else theme_guarded ~var_name:g.var_name decl'
 
 (* Byte length of [string_of_value] with no allocation; see
    [property_name_size]. *)
@@ -550,28 +583,50 @@ let read_text_decoration_lines t =
   if duplicates lines then Cursor.err_invalid t "duplicate text-decoration-line";
   lines
 
+(* CSS Shapes 1 sec. 2.2: [<shape-box>] is [<visual-box> | margin-box], so the
+   three SVG boxes [<geometry-box>] adds are not valid here. *)
+let check_shape_box t (box : clip_geometry_box) =
+  match box with
+  | Margin_box | Border_box | Padding_box | Content_box -> ()
+  | Fill_box | Stroke_box | View_box ->
+      Cursor.err_invalid t "shape-outside takes a <shape-box>"
+
+(* [read_clip_path] reads [<basic-shape> || <geometry-box>], the same double-bar
+   pair shape-outside uses, along with [none], [url()] and the CSS-wide
+   keywords. Shapes 1 sec. 2 differs on two points, checked here: the box is a
+   [<shape-box>], and everything outside [<basic-shape>] is an alternative to
+   the pair rather than a member of it. *)
+let check_shape_outside_shape t =
+  let is_basic_shape (shape : clip_path) =
+    match shape with
+    | Clip_path_inset _ | Clip_path_circle _ | Clip_path_ellipse _
+    | Clip_path_polygon _ | Clip_path_path _ | Clip_path_shape _
+    | Clip_path_xywh _ | Clip_path_rect _ ->
+        true
+    (* A shape the [clip_path] reader kept verbatim as spec-invalid: the raw
+       text survives here too rather than costing the whole declaration. *)
+    | Invalid _ -> true
+    | _ -> false
+  in
+  match read_clip_path t with
+  | Clip_path_box box -> check_shape_box t box
+  | Clip_path_with_box { shape; box; _ } when is_basic_shape shape ->
+      check_shape_box t box
+  | Clip_path_with_box _ ->
+      Cursor.err_invalid t "shape-outside pairs a <shape-box> with a shape"
+  | _ -> ()
+
+(* CSS Shapes 1 sec. 2: [shape-outside] is [none | [<basic-shape> ||
+   <shape-box>] | <image>]. The value is the raw source text ([Shape_outside :
+   string property]): typing it would mean a sum of the [clip_path] shapes and
+   the whole [background_image] type for [<image>], so the reader validates the
+   grammar and hands the text back verbatim. *)
 let read_shape_outside t =
   let raw = Cursor.lookahead (Cursor.consume_to_decl_end ~trim:true) t in
-  let accept_single () =
-    Cursor.skip t;
-    Cursor.expect_eof t;
-    raw
+  let read_shape_image t =
+    ignore (read_background_image t : background_image)
   in
-  let accept_var () =
-    let _ : string var =
-      Values.read_var
-        (fun inner -> Cursor.consume_remaining_as_string ~trim:true inner)
-        t
-    in
-    Cursor.expect_eof t;
-    raw
-  in
-  match Cursor.peek t with
-  | Some (Component.Preserved { kind = Token.Ident keyword; _ })
-    when Properties.is_css_wide_keyword keyword ->
-      accept_single ()
-  | Some (Component.Preserved { kind = Token.Ident "none"; _ }) ->
-      accept_single ()
+  (match Cursor.peek t with
   | Some
       (Component.Func
          { node = { name = "var"; terminated = true; arguments = []; _ }; _ })
@@ -579,23 +634,26 @@ let read_shape_outside t =
       Cursor.err_invalid t "empty var()"
   | Some (Component.Func { node = { name = "var"; terminated = true; _ }; _ })
     ->
-      accept_var ()
-  | Some (Component.Func { node = { name = "circle"; terminated; _ }; _ })
-    when terminated ->
-      (* CSS Shapes 1 section 3.1: [circle()] is valid (both [<shape-radius>]
-         and [at <position>] are optional). *)
-      accept_single ()
-  | Some
-      (Component.Func { node = { name = "inset"; arguments; terminated }; _ })
-    when terminated && arguments <> [] ->
-      accept_single ()
-  | Some (Component.Func { node = { name = "inset"; _ }; _ }) ->
-      Cursor.err_invalid t "empty basic shape"
-  | _ -> Cursor.err_invalid t ("invalid shape-outside: " ^ raw)
+      let _ : string var =
+        Values.read_var
+          (fun inner -> Cursor.consume_remaining_as_string ~trim:true inner)
+          t
+      in
+      ()
+  | _ ->
+      Cursor.one_of
+        [
+          check_shape_outside_shape;
+          read_shape_image;
+          (fun t -> Cursor.err_invalid t ("invalid shape-outside: " ^ raw));
+        ]
+        t);
+  Cursor.expect_eof t;
+  raw
 
 let read_grid_template_list t = read_grid_template t
 
-(* Some properties (shape-margin, scroll-margin, padding, etc.) require a
+(* Some properties (shape-margin, scroll-padding, padding, etc.) require a
    non-negative length-percentage. Detect a leading [-] number/percentage and
    reject before delegating to the typed reader. *)
 let read_non_negative_length_percentage t =
@@ -640,6 +698,36 @@ let read_normal_or_length name t =
     ~default:(Values.read_length ~with_keywords:false)
     t
 
+(* CSS Transforms 2 sec. 3: [perspective] is [none | <length [0,inf]>]; the
+   keyword is its initial value, so it has to read. *)
+let read_perspective_value t =
+  Cursor.enum "perspective"
+    [
+      ("none", (None : length));
+      ("inherit", Inherit);
+      ("initial", Initial);
+      ("unset", Unset);
+      ("revert", Revert);
+      ("revert-layer", Revert_layer);
+    ]
+    ~default:(read_non_negative_length ~with_keywords:false)
+    t
+
+(* CSS Text Decoration 4 sec. 5: [text-underline-offset] is [auto |
+   <length-percentage>], and unlike the lengths above it may be negative. *)
+let read_underline_offset t =
+  Cursor.enum "text-underline-offset"
+    [
+      ("auto", (Auto : length));
+      ("inherit", Inherit);
+      ("initial", Initial);
+      ("unset", Unset);
+      ("revert", Revert);
+      ("revert-layer", Revert_layer);
+    ]
+    ~default:(Values.read_length ~with_keywords:false)
+    t
+
 let read_letter_spacing t = read_normal_or_length "letter-spacing" t
 let read_word_spacing t = read_normal_or_length "word-spacing" t
 
@@ -668,6 +756,10 @@ let read_padding_logical_shorthand t =
   in
   Cursor.one_of [ read_global_singleton; read_lengths ] t
 
+(* CSS Scroll Snap 1 sec. 5.1: the [scroll-margin] longhands are [<length>] - an
+   unrestricted range, so an outset may be negative just as a margin may. Only
+   [scroll-padding] (sec. 4.2) says "Negative values are invalid". "Percentages:
+   n/a" still rules a percentage out. *)
 let read_scroll_margin_length t =
   Cursor.enum "scroll-margin length"
     [
@@ -678,7 +770,7 @@ let read_scroll_margin_length t =
       ("revert-layer", Revert_layer);
     ]
     ~default:(fun t ->
-      match read_non_negative_length ~with_keywords:false t with
+      match read_length ~with_keywords:false t with
       | Pct _ -> Cursor.err_invalid t "scroll-margin percentage"
       | length -> length)
     t
@@ -755,9 +847,9 @@ let read_border_radius_vertical t =
       Some (read_border_radius_radii t)
   | _ -> None
 
-(* CSS Backgrounds and Borders 3 §5: [border-radius = <length-percentage>{1,4}
-   [/ <length-percentage>{1,4}]?]. Reads 1-4 horizontal radii then, after [/],
-   1-4 vertical radii. *)
+(* CSS Backgrounds and Borders 3 sec. 5: [border-radius =
+   <length-percentage>{1,4} [/ <length-percentage>{1,4}]?]. Reads 1-4 horizontal
+   radii then, after [/], 1-4 vertical radii. *)
 let rec read_border_radius (t : Cursor.t) : Properties.border_radius =
   Cursor.ws t;
   Cursor.enum_or_var "border-radius"
@@ -879,6 +971,9 @@ let read_color_value : type a. a property -> Cursor.t -> declaration option =
   | Text_emphasis_color -> Some (v Text_emphasis_color (read_color t))
   | Accent_color -> Some (v Accent_color (read_color t))
   | Caret_color -> Some (v Caret_color (read_color t))
+  | Stop_color -> Some (v Stop_color (read_color t))
+  | Flood_color -> Some (v Flood_color (read_color t))
+  | Lighting_color -> Some (v Lighting_color (read_color t))
   | Webkit_tap_highlight_color ->
       Some (v Webkit_tap_highlight_color (read_color t))
   | Webkit_text_decoration_color ->
@@ -911,7 +1006,7 @@ let read_sizing_value : type a. a property -> Cursor.t -> declaration option =
   | Max_block_size ->
       Some (v Max_block_size (read_length_percentage ~allow_negative:false t))
   | Font_size -> Some (v Font_size (Properties.read_font_size t))
-  | Perspective -> Some (v Perspective (read_nn_length_or_global t))
+  | Perspective -> Some (v Perspective (read_perspective_value t))
   | Offset_distance -> Some (v Offset_distance (read_nn_lp_or_global t))
   | Shape_margin -> Some (v Shape_margin (read_nn_lp_or_global t))
   | Line_height_step -> Some (v Line_height_step (read_nn_length_or_global t))
@@ -991,10 +1086,26 @@ let read_box_edge_value : type a. a property -> Cursor.t -> declaration option =
   | Border_inline_start_color ->
       Some (v Border_inline_start_color (read_color t))
   | Border_inline_end_color -> Some (v Border_inline_end_color (read_color t))
+  | Border_block_start_color -> Some (v Border_block_start_color (read_color t))
+  | Border_block_end_color -> Some (v Border_block_end_color (read_color t))
   | Border_inline_color ->
       Some (v Border_inline_color (read_logical_border_color t))
+  | Border_block_color ->
+      Some (v Border_block_color (read_logical_border_color t))
+  | Border_inline_width ->
+      Some (v Border_inline_width (read_logical_border_width t))
+  | Border_block_width ->
+      Some (v Border_block_width (read_logical_border_width t))
   | Border_inline_style -> Some (v Border_inline_style (read_border_style t))
   | Border_block_style -> Some (v Border_block_style (read_border_style t))
+  | Border_inline_start_style ->
+      Some (v Border_inline_start_style (read_border_style t))
+  | Border_inline_end_style ->
+      Some (v Border_inline_end_style (read_border_style t))
+  | Border_block_start_style ->
+      Some (v Border_block_start_style (read_border_style t))
+  | Border_block_end_style ->
+      Some (v Border_block_end_style (read_border_style t))
   | _ -> None
 
 let read_type_value : type a. a property -> Cursor.t -> declaration option =
@@ -1015,7 +1126,7 @@ let read_type_value : type a. a property -> Cursor.t -> declaration option =
   | Text_decoration_style ->
       Some (v Text_decoration_style (read_text_decoration_style t))
   | Text_underline_offset ->
-      Some (v Text_underline_offset (read_nn_length_or_global t))
+      Some (v Text_underline_offset (read_underline_offset t))
   | Text_emphasis -> Some (v Text_emphasis (read_text_emphasis t))
   | Text_emphasis_style ->
       Some (v Text_emphasis_style (read_text_emphasis_style t))
@@ -1057,6 +1168,77 @@ let read_flex_effect_value : type a.
   | Filter -> Some (v Filter (read_filter t))
   | Appearance -> Some (v Appearance (read_appearance t))
   | Color_scheme -> Some (v Color_scheme (read_color_scheme t))
+  | _ -> None
+
+let read_vendor_alias_value : type a.
+    a property -> Cursor.t -> declaration option =
+ fun prop t ->
+  match prop with
+  | Webkit_transition_delay ->
+      Some (v Webkit_transition_delay (read_duration_list read_time t))
+  | Webkit_transition_duration ->
+      Some (v Webkit_transition_duration (read_duration_list read_duration t))
+  | Webkit_transition_property ->
+      Some (v Webkit_transition_property (read_transition_property t))
+  | Webkit_transition_timing_function ->
+      Some (v Webkit_transition_timing_function (read_timing_function_list t))
+  | Webkit_animation_delay ->
+      Some (v Webkit_animation_delay (read_duration_list read_time t))
+  | Webkit_animation_duration ->
+      Some (v Webkit_animation_duration (read_duration_list read_duration t))
+  | Webkit_animation_direction ->
+      Some (v Webkit_animation_direction (read_animation_direction t))
+  | Webkit_animation_iteration_count ->
+      Some
+        (v Webkit_animation_iteration_count (read_animation_iteration_count t))
+  | Webkit_animation_name ->
+      Some (v Webkit_animation_name (read_animation_name t))
+  | Webkit_animation_timing_function ->
+      Some (v Webkit_animation_timing_function (read_timing_function_list t))
+  | Webkit_animation_fill_mode ->
+      Some (v Webkit_animation_fill_mode (read_animation_fill_mode t))
+  | Webkit_animation_play_state ->
+      Some (v Webkit_animation_play_state (read_animation_play_state t))
+  | Webkit_flex_direction ->
+      Some (v Webkit_flex_direction (read_flex_direction t))
+  | Webkit_flex_wrap -> Some (v Webkit_flex_wrap (read_flex_wrap t))
+  | Webkit_flex_flow -> Some (v Webkit_flex_flow (read_flex_flow t))
+  | Webkit_justify_content ->
+      Some (v Webkit_justify_content (read_justify_content t))
+  | Webkit_align_content -> Some (v Webkit_align_content (read_align_content t))
+  | Webkit_align_items -> Some (v Webkit_align_items (read_align_items t))
+  | Webkit_align_self -> Some (v Webkit_align_self (read_align_self t))
+  | Webkit_border_radius -> Some (v Webkit_border_radius (read_border_radius t))
+  | Webkit_box_shadow -> Some (v Webkit_box_shadow (read_shadow t))
+  | Webkit_background_size ->
+      Some (v Webkit_background_size (read_background_size_list t))
+  | Moz_animation -> Some (v Moz_animation (read_animations t))
+  | Moz_animation_delay ->
+      Some (v Moz_animation_delay (read_duration_list read_time t))
+  | Moz_animation_duration ->
+      Some (v Moz_animation_duration (read_duration_list read_duration t))
+  | Moz_animation_direction ->
+      Some (v Moz_animation_direction (read_animation_direction t))
+  | Moz_animation_iteration_count ->
+      Some (v Moz_animation_iteration_count (read_animation_iteration_count t))
+  | Moz_animation_name -> Some (v Moz_animation_name (read_animation_name t))
+  | Moz_animation_timing_function ->
+      Some (v Moz_animation_timing_function (read_timing_function_list t))
+  | Moz_animation_fill_mode ->
+      Some (v Moz_animation_fill_mode (read_animation_fill_mode t))
+  | Moz_animation_play_state ->
+      Some (v Moz_animation_play_state (read_animation_play_state t))
+  | Moz_transition -> Some (v Moz_transition (read_transitions t))
+  | Moz_transition_delay ->
+      Some (v Moz_transition_delay (read_duration_list read_time t))
+  | Moz_transition_duration ->
+      Some (v Moz_transition_duration (read_duration_list read_duration t))
+  | Moz_transition_property ->
+      Some (v Moz_transition_property (read_transition_property t))
+  | Moz_transition_timing_function ->
+      Some (v Moz_transition_timing_function (read_timing_function_list t))
+  | Moz_border_radius -> Some (v Moz_border_radius (read_border_radius t))
+  | Moz_box_shadow -> Some (v Moz_box_shadow (read_shadow t))
   | _ -> None
 
 let read_background_value : type a. a property -> Cursor.t -> declaration option
@@ -1128,6 +1310,10 @@ let read_shadow_content_value : type a.
   | Counter_increment -> Some (v Counter_increment (read_counter_set t))
   | Z_index -> Some (v Z_index (Properties.read_z_index t))
   | Opacity -> Some (v Opacity (Properties.read_opacity t))
+  | Fill_opacity -> Some (v Fill_opacity (Properties.read_opacity t))
+  | Stroke_opacity -> Some (v Stroke_opacity (Properties.read_opacity t))
+  | Stop_opacity -> Some (v Stop_opacity (Properties.read_opacity t))
+  | Flood_opacity -> Some (v Flood_opacity (Properties.read_opacity t))
   | Cursor -> Some (v Cursor (read_cursor t))
   | Interactivity -> Some (v Interactivity (read_interactivity t))
   | Caret_animation -> Some (v Caret_animation (read_caret_animation t))
@@ -1583,6 +1769,19 @@ let read_interaction_value : type a.
   | Fill -> Some (v Fill (read_svg_paint t))
   | Stroke -> Some (v Stroke (read_svg_paint t))
   | Direction -> Some (v Direction (read_direction t))
+  | Fill_rule -> Some (v Fill_rule (Properties.read_fill_rule t))
+  | Clip_rule -> Some (v Clip_rule (Properties.read_fill_rule t))
+  | Stroke_linecap -> Some (v Stroke_linecap (Properties.read_stroke_linecap t))
+  | Stroke_linejoin ->
+      Some (v Stroke_linejoin (Properties.read_stroke_linejoin t))
+  | Stroke_miterlimit ->
+      Some (v Stroke_miterlimit (Properties.read_stroke_miterlimit t))
+  | Stroke_dashoffset ->
+      Some (v Stroke_dashoffset (Properties.read_stroke_dashoffset t))
+  | Stroke_dasharray ->
+      Some (v Stroke_dasharray (Properties.read_stroke_dasharray t))
+  | Paint_order -> Some (v Paint_order (Properties.read_paint_order t))
+  | Vector_effect -> Some (v Vector_effect (Properties.read_vector_effect t))
   | Unicode_bidi -> Some (v Unicode_bidi (read_unicode_bidi t))
   | Writing_mode -> Some (v Writing_mode (read_writing_mode t))
   | Text_combine_upright ->
@@ -1662,6 +1861,7 @@ let read_value_readers =
     { read_value_opt = read_box_edge_value };
     { read_value_opt = read_type_value };
     { read_value_opt = read_flex_effect_value };
+    { read_value_opt = read_vendor_alias_value };
     { read_value_opt = read_background_value };
     { read_value_opt = read_grid_value };
     { read_value_opt = read_shadow_content_value };
@@ -1764,10 +1964,10 @@ let read_custom_value name ~raw_is_whitespace_only value_str =
 
 let read_custom_property_declaration t : declaration =
   let name = read_property_name t in
-  (* CSS Syntax 3 §4.3.7 lets [\X] escapes carry any code point into an ident,
-     so the name may contain characters ([/], whitespace, etc.) that don't
-     tokenize as a bare ident on a string round-trip. We trust the original
-     lexer's tokenization: the only validation we still run is the
+  (* CSS Syntax 3 sec. 4.3.7 lets [\X] escapes carry any code point into an
+     ident, so the name may contain characters ([/], whitespace, etc.) that
+     don't tokenize as a bare ident on a string round-trip. We trust the
+     original lexer's tokenization: the only validation we still run is the
      [<dashed-ident>] prefix check. *)
   if String.length name <= 2 || name.[0] <> '-' || name.[1] <> '-' then
     Cursor.err_invalid t ("expected <dashed-ident>, got: " ^ name);
@@ -1796,7 +1996,7 @@ let read_custom_property_declaration t : declaration =
    can legitimately appear as a non-special ident. [animation-name] /
    [grid-area] / [will-change] / etc. accept arbitrary ident lists.
    [font-family] also takes a [<custom-ident>#] list, so a CSS-wide keyword
-   inside the list is invalid CSS (CSS Cascade 5 §7.3) but upstream tools
+   inside the list is invalid CSS (CSS Cascade 5 sec. 7.3) but upstream tools
    (lightningcss, csso) preserve the source verbatim. *)
 let property_allows_keyword_as_ident = function
   | "animation-name" | "grid-area" | "grid-row" | "grid-column"
@@ -1893,6 +2093,7 @@ let is_color_property = function
   | "color" | "background-color" | "border-color" | "border-top-color"
   | "border-right-color" | "border-bottom-color" | "border-left-color"
   | "border-inline-start-color" | "border-inline-end-color"
+  | "border-block-start-color" | "border-block-end-color"
   | "text-decoration-color" | "-webkit-text-decoration-color"
   | "-webkit-tap-highlight-color" | "outline-color" | "accent-color"
   | "caret-color" | "fill" | "stroke" ->
@@ -1942,9 +2143,9 @@ let read_typed_property_declaration t start =
   Cursor.ws t;
   if not (Cursor.colon t) then Cursor.err_expected t "':'";
   Cursor.ws t;
-  (* CSS Syntax 3 §5.3.7 / §4.3.5 auto-close unterminated functions, brackets
-     and strings at EOF. Typed readers consume the spec-recovered tokens; the
-     declaration survives with the auto-closed shape. *)
+  (* CSS Syntax 3 sec. 5.3.7 / sec. 4.3.5 auto-close unterminated functions,
+     brackets and strings at EOF. Typed readers consume the spec-recovered
+     tokens; the declaration survives with the auto-closed shape. *)
   match prop_type with
   | Unknown_property name -> read_unknown_property_declaration t name
   | _ -> (
@@ -2151,6 +2352,7 @@ let rec pp_declaration : declaration Pp.t =
         property = Custom_property name;
         value = Custom_value { value; layer; _ };
         important;
+        _;
       } ->
       Pp.string ctx name;
       Pp.string ctx ":";
@@ -2163,7 +2365,7 @@ let rec pp_declaration : declaration Pp.t =
             (Custom_property name, Custom_value { value; layer; meta = None }));
       if important then
         Pp.string ctx (if ctx.minify then "!important" else " !important")
-  | Declaration { property; value; important } ->
+  | Declaration { property; value; important; _ } ->
       pp_property ctx property;
       Pp.string ctx ":";
       Pp.space_if_pretty ctx ();
@@ -2574,10 +2776,19 @@ let border_right_color value = v Border_right_color value
 let border_bottom_color value = v Border_bottom_color value
 let border_left_color value = v Border_left_color value
 let border_inline_start_color value = v Border_inline_start_color value
+let border_block_start_color value = v Border_block_start_color value
+let border_block_end_color value = v Border_block_end_color value
 let border_inline_end_color value = v Border_inline_end_color value
 let border_inline_color value = v Border_inline_color value
+let border_block_color value = v Border_block_color value
+let border_inline_width value = v Border_inline_width value
+let border_block_width value = v Border_block_width value
 let border_inline_style value = v Border_inline_style value
 let border_block_style value = v Border_block_style value
+let border_inline_start_style value = v Border_inline_start_style value
+let border_inline_end_style value = v Border_inline_end_style value
+let border_block_start_style value = v Border_block_start_style value
+let border_block_end_style value = v Border_block_end_style value
 let border_start_start_radius value = v Border_start_start_radius value
 let border_start_end_radius value = v Border_start_end_radius value
 let border_end_start_radius value = v Border_end_start_radius value

@@ -63,48 +63,6 @@ let deduplicate_declarations = Shorthand.deduplicate_declarations
 let single_rule_without_nested = Rule.single
 let finalize_rule_without_nested = Rule.finalize
 
-(* Per-pass and global counters for the --profile CLI flag. Reset at each
-   [Optimize.stylesheet] entry; bumped from the hot loops below. *)
-type pass_stat = Stats.pass_stat = {
-  mutable time : float;
-  mutable calls : int;
-  mutable changes : int;
-  mutable rules_in : int;
-  mutable rules_out : int;
-}
-
-let pass_times = Stats.pass_times
-let set_profile = Stats.set_profile
-
-type iteration_stat = Stats.iteration_stat = {
-  fixpoint : int;
-  iteration : int;
-  local_iteration : int;
-  before_rules : int;
-  after_rules : int;
-  before_bytes : int;
-  after_bytes : int;
-  bytes_saved : int;
-  active_passes : int;
-  changed_passes : int;
-  elapsed : float;
-}
-
-let iteration_stats = Stats.iteration_stats
-
-type counters = Stats.counters = {
-  mutable iterations : int;
-  mutable factor_fixpoints_run : int;
-  mutable marginal_stops : int;
-  mutable factor_fixpoints_skipped : int;
-  mutable factor_preflight_gain : int;
-  mutable factor_bytes_saved : int;
-  mutable factor_transfer_reverts : int;
-}
-
-let counters = Stats.counters
-let reset_counters () = Stats.reset ()
-
 (** {1 Statement Optimization} *)
 
 let merge_consecutive_layers = Block.merge_consecutive_layers
@@ -169,6 +127,29 @@ let drop_nesting_prefix (stmt : statement) : statement =
         }
   | other -> other
 
+(* A selector list holding a vendor pseudo-element is invalidated as a whole by
+   a browser that does not know that pseudo-element, so every other selector in
+   the list silently loses the declarations too. The grouping passes already
+   refuse to build such a list; one the author wrote gets the same treatment
+   here, so the risky branches stand alone and the rest keep their rule. *)
+let split_vendor_selector_lists (stmts : statement list) : statement list =
+  List.concat_map
+    (fun stmt ->
+      match stmt with
+      | Rule ({ selector = Selector.List parts; _ } as nr)
+        when List.length parts > 1
+             && List.exists Merge.vendor parts
+             && not (List.for_all Merge.vendor parts) ->
+          let risky, safe = List.partition Merge.vendor parts in
+          let of_parts = function
+            | [] -> []
+            | [ one ] -> [ Rule { nr with selector = one } ]
+            | many -> [ Rule { nr with selector = Selector.List many } ]
+          in
+          List.concat_map (fun sel -> of_parts [ sel ]) risky @ of_parts safe
+      | other -> [ other ])
+    stmts
+
 let rec statements ?factor_cache ~ctx ~enforce_spec (stmts : statement list) :
     statement list =
   match stmts with
@@ -182,12 +163,15 @@ let rec statements ?factor_cache ~ctx ~enforce_spec (stmts : statement list) :
          after the merge would leave a re-run to combine them). *)
       let stmts' =
         let stmts =
-          drop_misplaced_imports stmts |> merge_named_layers_by_name
+          drop_misplaced_imports stmts
+          |> merge_named_layers_by_name |> split_vendor_selector_lists
         in
         let stmts =
           process_statements ?factor_cache ~ctx ~enforce_spec [] stmts
         in
-        let stmts = synthesize_nesting_statements stmts in
+        let stmts =
+          if Ctx.regroup ctx then synthesize_nesting_statements stmts else stmts
+        in
         let stmts =
           stmts
           |> merge_consecutive_media ~optimize_merged_block
@@ -394,7 +378,11 @@ and rules_aux ?factor_cache ~ctx ~enforce_spec (rules : rule list) : rule list =
      optimizations above always run; this incremental gate only decides whether
      the expensive global factoring fixpoint is likely to buy enough bytes to
      justify the full indexed scheduler walk. *)
-  let factored = factor_rules_incremental ?cache:factor_cache ~ctx prepared in
+  let factored =
+    if Ctx.regroup ctx then
+      factor_rules_incremental ?cache:factor_cache ~ctx prepared
+    else prepared
+  in
   (* After factoring so the greedy scheduler sees the unconstrained input (a
      local pre-merge can lock a pair together and hide a larger group): this
      only picks up the merges factoring did not make because its preflight
@@ -595,7 +583,7 @@ let drop_invalid (stylesheet : t) : t =
 (** [drop_unknown_at_rules] removes [Unknown_at_rule] statements at every block
     depth. Used in [--minify] alongside [drop_invalid] so the typed warnings
     emitted at parse time materialise as a dropped rule, matching CSS Syntax 3
-    §5.4.1 (unknown at-rules are discarded). *)
+    sec. 5.4.1 (unknown at-rules are discarded). *)
 let drop_unknown_at_rules (stylesheet : t) : t =
   let rec statement stmt =
     match stmt with
@@ -681,6 +669,7 @@ let promote_registered_custom_decl ~lossless registry decl =
         property = Custom_property name;
         value = Custom_value { value = Tokens components; layer; meta };
         important;
+        _;
       } -> (
       match Hashtbl.find_opt registry name with
       | None -> decl
@@ -796,6 +785,7 @@ let rec prune_position_try_decl known (decl : Declaration.declaration) :
         property = Position_try_fallbacks;
         value = (Fallbacks items : Properties.position_try_fallbacks);
         important;
+        _;
       } -> (
       let keep = function
         | (Properties.Name s : Properties.position_try_fallback) ->
@@ -1058,7 +1048,7 @@ let run_pipeline ~ctx ~enforce_spec ~aggressive stylesheet =
     else
       let next = statements_top_level ~factor_cache ~ctx ~enforce_spec stmts in
       if next == stmts then stmts
-      else if next = stmts then stmts
+      else if Stylesheet.equal next stmts then stmts
       else
         let next_key = stylesheet_key next in
         if String.equal key next_key then next else loop (n - 1) next_key next
@@ -1126,11 +1116,10 @@ let drop_unused_custom_props (stmts : statement list) : statement list =
   list_map_preserve prune stmts
 
 let stylesheet ?scope ?(flatten_nesting = false) ?(lossless = false)
-    ?(enforce_spec = false) ?(aggressive = false) ?(closed_world = false)
-    ?(objective = `Transfer) ?(prune_unused_custom_props = false)
-    (stylesheet : t) : t =
+    ?(enforce_spec = false) ?(aggressive = false) ?(regroup = true)
+    ?(closed_world = false) ?(objective = `Transfer)
+    ?(prune_unused_custom_props = false) ?stats (stylesheet : t) : t =
   Selector_summary.clear_memo ();
-  reset_counters ();
   let scope = Option.value scope ~default:`Fragment in
   let ctx = single_valued_calc_ctx stylesheet in
   let stylesheet = sanitize_block ~ctx ~lossless stylesheet in
@@ -1141,8 +1130,8 @@ let stylesheet ?scope ?(flatten_nesting = false) ?(lossless = false)
   let registered = registered_foldable stylesheet in
   let stylesheet = prune_position_try_fallbacks ~scope stylesheet in
   let ctx =
-    Ctx.v ~lossless ~aggressive ~closed_world ~objective ~enforce_spec
-      ~registered scope
+    Ctx.v ~lossless ~aggressive ~regroup ~closed_world ~objective ~enforce_spec
+      ~registered ?stats scope
   in
   let result =
     run_pipeline
@@ -1153,4 +1142,14 @@ let stylesheet ?scope ?(flatten_nesting = false) ?(lossless = false)
     if prune_unused_custom_props then drop_unused_custom_props result
     else result
   in
-  if lossless then canonicalize_declaration_order result else result
+  let result =
+    if lossless then canonicalize_declaration_order result else result
+  in
+  Log.debug (fun m ->
+      let c = (Stats.snapshot (Ctx.stats ctx)).counters in
+      m
+        "optimized: %d factoring fixpoints run, %d skipped, %d reverted by the \
+         transfer gate, %d bytes saved"
+        c.factor_fixpoints_run c.factor_fixpoints_skipped
+        c.factor_transfer_reverts c.factor_bytes_saved);
+  result

@@ -162,11 +162,13 @@ let check_container_shorthand ?expected input =
   let expected_value = read_container_shorthand (Cursor.of_string expected) in
   Alcotest.(check bool)
     (Fmt.str "container structural expected %s" input)
-    true (value = expected_value);
+    true
+    (equal_container_shorthand value expected_value);
   let reparsed = read_container_shorthand (Cursor.of_string serialized) in
   Alcotest.(check bool)
     (Fmt.str "container structural roundtrip %s" input)
-    true (value = reparsed)
+    true
+    (equal_container_shorthand value reparsed)
 
 let check_contain = check_value_cursor "contain" read_contain pp_contain
 let check_isolation = check_value_cursor "isolation" read_isolation pp_isolation
@@ -188,6 +190,46 @@ let check_scroll_snap_type =
 
 let check_svg_paint = check_value_cursor "svg-paint" read_svg_paint pp_svg_paint
 let check_direction = check_value_cursor "direction" read_direction pp_direction
+let check_fill_rule = check_value_cursor "fill-rule" read_fill_rule pp_fill_rule
+
+let check_stroke_linecap =
+  check_value_cursor "stroke-linecap" read_stroke_linecap pp_stroke_linecap
+
+let check_stroke_linejoin =
+  check_value_cursor "stroke-linejoin" read_stroke_linejoin pp_stroke_linejoin
+
+let check_stroke_miterlimit =
+  check_value_cursor "stroke-miterlimit" read_stroke_miterlimit
+    pp_stroke_miterlimit
+
+let check_vector_effect_keyword =
+  check_value_cursor "vector-effect-keyword" read_vector_effect_keyword
+    pp_vector_effect_keyword
+
+let check_vector_effect_space =
+  check_value_cursor "vector-effect-space" read_vector_effect_space
+    pp_vector_effect_space
+
+let check_vector_effect =
+  check_value_cursor "vector-effect" read_vector_effect pp_vector_effect
+
+let check_paint_order_keyword =
+  check_value_cursor "paint-order-keyword" read_paint_order_keyword
+    pp_paint_order_keyword
+
+let check_paint_order =
+  check_value_cursor "paint-order" read_paint_order pp_paint_order
+
+let check_dash_length =
+  check_value_cursor "dash-length" read_dash_length pp_dash_length
+
+let check_stroke_dashoffset =
+  check_value_cursor "stroke-dashoffset" read_stroke_dashoffset
+    pp_stroke_dashoffset
+
+let check_stroke_dasharray =
+  check_value_cursor "stroke-dasharray" read_stroke_dasharray
+    pp_stroke_dasharray
 
 let check_unicode_bidi =
   check_value_cursor "unicode-bidi" read_unicode_bidi pp_unicode_bidi
@@ -866,6 +908,10 @@ let check_line_fit_edge_keyword =
 let check_logical_border_color =
   check_value_cursor "logical_border_color" read_logical_border_color
     pp_logical_border_color
+
+let check_logical_border_width =
+  check_value_cursor "logical_border_width" read_logical_border_width
+    pp_logical_border_width
 
 let check_margin_trim =
   check_value_cursor "margin_trim" read_margin_trim pp_margin_trim
@@ -1691,9 +1737,9 @@ let test_background () =
     "linear-gradient(to right, red, blue)";
   check_background ~expected:"url(image.png)center/cover no-repeat fixed red"
     "red url(image.png) center/cover no-repeat fixed";
-  (* Multi-layer shorthand (CSS Backgrounds 3 §2.1): the layer comma separates
-     layers and must not be eaten by a per-component reader. [repeat] is the
-     default and folds away; the second layer's [space] stays. *)
+  (* Multi-layer shorthand (CSS Backgrounds 3 sec. 2.1): the layer comma
+     separates layers and must not be eaten by a per-component reader. [repeat]
+     is the default and folds away; the second layer's [space] stays. *)
   decl_optimizes ~prop:"background" ~into:"url(a.png),url(b.png)space"
     "url(a.png) repeat,url(b.png) space";
   check_background ~expected:"0 0" "none";
@@ -2027,7 +2073,7 @@ let test_list_style_type () =
   check_list_style_type "upper-alpha";
   check_list_style_type "lower-roman";
   check_list_style_type "upper-roman";
-  (* Predefined counter styles (CSS Counter Styles 3 §6). *)
+  (* Predefined counter styles (CSS Counter Styles 3 sec. 6). *)
   check_list_style_type "decimal-leading-zero";
   check_list_style_type "lower-greek";
   check_list_style_type "lower-latin";
@@ -2109,12 +2155,15 @@ let test_font_family () =
     (Css.Pp.to_string ~minify:true ~enforce_spec:true pp_font_family stack)
 
 let test_font_stretch () =
-  check_font_stretch "normal";
   check_font_stretch "50%";
-  check_font_stretch "ultra-condensed";
-  check_font_stretch "ultra-expanded";
   check_font_stretch "inherit";
-  neg_cursor read_font_stretch "invalid-stretch"
+  neg_cursor read_font_stretch "invalid-stretch";
+  (* CSS Fonts 4 sec. 5.3 defines each keyword as a percentage, never longer, so
+     minified output uses it, but only for the standalone property: the [font]
+     shorthand's stretch component takes the keyword alone. *)
+  check_font_stretch ~expected:"100%" "normal";
+  check_font_stretch ~expected:"50%" "ultra-condensed";
+  check_font_stretch ~expected:"200%" "ultra-expanded"
 
 let test_font_variant_numeric () =
   check_font_variant_numeric "normal";
@@ -2294,7 +2343,8 @@ let test_background_repeat () =
   check_background_repeat "repeat-x";
   check_background_repeat "repeat-y";
   check_background_repeat "inherit";
-  (* CSS Backgrounds 3 §3.6: the longhand is a comma-separated layer list. *)
+  (* CSS Backgrounds 3 sec. 3.6: the longhand is a comma-separated layer
+     list. *)
   decl_optimizes ~prop:"background-repeat" ~into:"no-repeat,repeat-y,no-repeat"
     "no-repeat,repeat-y,no-repeat";
   decl_optimizes ~prop:"background-repeat" ~into:"repeat-x,repeat-y"
@@ -2316,7 +2366,7 @@ let test_background_size () =
   check_background_size "var(--s)";
   check_background_size "calc(50% + 10px)";
   check_background_size "calc(50% + 10px) auto";
-  (* Comma-separated layer list (CSS Backgrounds 3 §3.9). *)
+  (* Comma-separated layer list (CSS Backgrounds 3 sec. 3.9). *)
   decl_optimizes ~prop:"background-size" ~into:"cover,contain" "cover,contain";
   decl_optimizes ~prop:"background-size" ~into:"100px 200px,auto"
     "100px 200px,auto";
@@ -2342,10 +2392,13 @@ let test_gradient_direction () =
     decl_optimizes ~prop:"background" ~into
       ("linear-gradient(" ^ dir ^ ",red,#123456)")
   in
-  optimizes ~into:"0deg" "to top";
   optimizes ~into:"90deg" "to right";
   optimizes ~into:"" "to bottom";
   optimizes ~into:"270deg" "to left";
+  (* [to top] is the one side keyword whose angle also disappears: it is the
+     default direction turned 180 degrees, so reversing the stops absorbs it. *)
+  decl_optimizes ~prop:"background" ~into:"linear-gradient(#123456,red)"
+    "linear-gradient(to top,red,#123456)";
   neg_cursor read_gradient_direction "invalid-direction"
 
 (* CSS Images 4 sections 6.1-6.3: the gradient prelude is a linear direction, a
@@ -2799,6 +2852,99 @@ let test_direction () =
   check_direction "inherit";
   neg_cursor read_direction "invalid-direction"
 
+let test_fill_rule () =
+  check_fill_rule "nonzero";
+  check_fill_rule "evenodd";
+  check_fill_rule "inherit";
+  check_fill_rule "var(--r)";
+  neg_cursor read_fill_rule "even-odd";
+  neg_cursor read_fill_rule "nonzero evenodd"
+
+let test_stroke_linecap () =
+  check_stroke_linecap "butt";
+  check_stroke_linecap "round";
+  check_stroke_linecap "square";
+  check_stroke_linecap "var(--c)";
+  neg_cursor read_stroke_linecap "flat"
+
+let test_stroke_linejoin () =
+  check_stroke_linejoin "miter";
+  check_stroke_linejoin "miter-clip";
+  check_stroke_linejoin "round";
+  check_stroke_linejoin "bevel";
+  check_stroke_linejoin "arcs";
+  neg_cursor read_stroke_linejoin "mitre"
+
+let test_stroke_miterlimit () =
+  check_stroke_miterlimit "1";
+  check_stroke_miterlimit "4";
+  check_stroke_miterlimit "10.5";
+  check_stroke_miterlimit "var(--m)";
+  (* The limit is a ratio of miter length to stroke width, which is 1 at its
+     smallest, so the specification makes anything below that invalid. *)
+  neg_cursor read_stroke_miterlimit ".5";
+  neg_cursor read_stroke_miterlimit "-1";
+  neg_cursor read_stroke_miterlimit "4px"
+
+let test_vector_effect_keyword () =
+  check_vector_effect_keyword "non-scaling-stroke";
+  check_vector_effect_keyword "non-scaling-size";
+  check_vector_effect_keyword "non-rotation";
+  check_vector_effect_keyword "fixed-position";
+  neg_cursor read_vector_effect_keyword "screen"
+
+let test_vector_effect_space () =
+  check_vector_effect_space "viewport";
+  check_vector_effect_space "screen";
+  neg_cursor read_vector_effect_space "non-scaling-stroke"
+
+let test_vector_effect () =
+  check_vector_effect "none";
+  check_vector_effect "non-scaling-stroke";
+  check_vector_effect "non-scaling-stroke screen";
+  check_vector_effect "non-scaling-stroke fixed-position";
+  check_vector_effect "var(--v)";
+  neg_cursor read_vector_effect "bogus"
+
+let test_paint_order_keyword () =
+  check_paint_order_keyword "fill";
+  check_paint_order_keyword "stroke";
+  check_paint_order_keyword "markers";
+  neg_cursor read_paint_order_keyword "normal"
+
+let test_paint_order () =
+  check_paint_order "normal";
+  check_paint_order "stroke";
+  check_paint_order "markers stroke";
+  check_paint_order "var(--p)";
+  (* [||] takes each operand at most once. *)
+  neg_cursor read_paint_order "bogus"
+
+let test_dash_length () =
+  check_dash_length "4";
+  check_dash_length "4px";
+  check_dash_length "10%";
+  neg_cursor read_dash_length "red"
+
+let test_stroke_dashoffset () =
+  check_stroke_dashoffset "0";
+  check_stroke_dashoffset "4";
+  check_stroke_dashoffset "4px";
+  check_stroke_dashoffset "10%";
+  check_stroke_dashoffset "var(--o)";
+  neg_cursor read_stroke_dashoffset "none"
+
+let test_stroke_dasharray () =
+  check_stroke_dasharray "none";
+  check_stroke_dasharray "4";
+  check_stroke_dasharray "4 2";
+  check_stroke_dasharray "4px 2px";
+  check_stroke_dasharray "10% 5%";
+  (* Comma and whitespace are the same separator here. *)
+  check_stroke_dasharray ~expected:"4 2" "4, 2";
+  check_stroke_dasharray "var(--d)";
+  neg_cursor read_stroke_dasharray "red"
+
 let test_unicode_bidi () =
   check_unicode_bidi "normal";
   check_unicode_bidi "embed";
@@ -2903,7 +3049,7 @@ let test_text_decoration_skip_ink () =
   neg_cursor read_text_decoration_skip_ink "invalid-skip"
 
 let test_transform_origin () =
-  (* Per CSS Transforms 1 §6 the keyword [center] is shorthand for [50%] and
+  (* Per CSS Transforms 1 sec. 6 the keyword [center] is shorthand for [50%] and
      matched-pair shorthand collapses to a single value. Per shortest- wins
      (Lightning CSS) the printer emits the numeric form. *)
   check_transform_origin ~expected:"50%" "center";
@@ -3689,6 +3835,7 @@ let spec_generated_box_layout_edges () =
   check_line_fit_edge "text alphabetic";
   check_line_fit_edge_keyword "ideographic-ink";
   check_logical_border_color "red blue";
+  check_logical_border_width "1px 2px";
   decl_optimizes ~prop:"border-inline-color" ~held:"red blue" ~into:"red #00f"
     "red blue";
   check_min_intrinsic_sizing "legacy zero-if-scroll";
@@ -3731,6 +3878,7 @@ let spec_generated_box_layout_edges () =
   neg_cursor read_line_fit_edge "text text";
   neg_cursor read_line_fit_edge_keyword "baseline";
   neg_cursor read_logical_border_color "red blue green";
+  neg_cursor read_logical_border_width "1px 2px 3px";
   neg_cursor read_min_intrinsic_sizing "legacy legacy";
   neg_cursor read_min_intrinsic_sizing_keyword "zero";
   neg_cursor read_overflow_clip_box "margin-box";
@@ -4192,6 +4340,18 @@ let additional_tests =
     test_case "overscroll_behavior" `Quick test_overscroll_behavior;
     test_case "svg_paint" `Quick test_svg_paint;
     test_case "direction" `Quick test_direction;
+    test_case "fill_rule" `Quick test_fill_rule;
+    test_case "stroke_linecap" `Quick test_stroke_linecap;
+    test_case "stroke_linejoin" `Quick test_stroke_linejoin;
+    test_case "stroke_miterlimit" `Quick test_stroke_miterlimit;
+    test_case "vector_effect_keyword" `Quick test_vector_effect_keyword;
+    test_case "vector_effect_space" `Quick test_vector_effect_space;
+    test_case "vector_effect" `Quick test_vector_effect;
+    test_case "paint_order_keyword" `Quick test_paint_order_keyword;
+    test_case "paint_order" `Quick test_paint_order;
+    test_case "dash_length" `Quick test_dash_length;
+    test_case "stroke_dashoffset" `Quick test_stroke_dashoffset;
+    test_case "stroke_dasharray" `Quick test_stroke_dasharray;
     test_case "unicode_bidi" `Quick test_unicode_bidi;
     test_case "writing_mode" `Quick test_writing_mode;
     test_case "webkit_appearance" `Quick test_webkit_appearance;

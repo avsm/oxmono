@@ -21,10 +21,16 @@ val important : declaration -> declaration
 (** [important d] is [d] marked as [!important]. *)
 
 val normalize :
-  ?lossless:bool -> ?ctx:Values.calc_ctx -> declaration -> declaration
+  ?lossless:bool ->
+  ?exact_srgb:bool ->
+  ?ctx:Values.calc_ctx ->
+  declaration ->
+  declaration
 (** [normalize ?lossless d] applies AST-level semantic value canonicalisation so
     the optimizer holds a canonical declaration and the pretty-printer stays a
-    pure serialiser. [lossless] disables colour approximation. *)
+    pure serialiser. [lossless] disables colour approximation. [exact_srgb] is
+    {!Properties.normalize_property_value}'s flag of the same name, for the
+    canonical diff projection only. *)
 
 val string_of_declaration : ?minify:bool -> declaration -> string
 (** [string_of_declaration ~minify decl] converts a declaration to its string
@@ -53,6 +59,12 @@ val parse_declaration : ?layer:string -> string -> string -> declaration option
 
 val custom_declaration_layer : declaration -> string option
 (** [custom_declaration_layer d] is the layer of [d], if any. *)
+
+val map_custom_value : (string -> string) -> declaration -> declaration
+(** [map_custom_value f d] is [d] with its custom-property value replaced by
+    [f]'s rewrite of the minified serialisation. The importance, layer, metadata
+    and theme guard of [d] are kept; any other declaration passes through
+    unchanged. *)
 
 val unquote_custom_font_strings : declaration -> declaration
 (** [unquote_custom_font_strings d] rewrites a quoted multi-word [<string>] in a
@@ -123,6 +135,15 @@ val property_name : declaration -> string
 (** A property identity comparable with stdlib structural equality, without
     serialising the name to a string. *)
 type prop_key = Key : 'a Properties.property -> prop_key [@@unboxed]
+
+val equal_declaration : declaration -> declaration -> bool
+(** [equal_declaration a b] tests declarations for structural equality. *)
+
+val equal_prop_key : prop_key -> prop_key -> bool
+(** [equal_prop_key a b] tests property identities for equality. *)
+
+val hash_prop_key : prop_key -> int
+(** [hash_prop_key key] returns a hash consistent with {!equal_prop_key}. *)
 
 val property_key : declaration -> prop_key
 (** [property_key decl] is the identity of [decl]'s property. Two declarations
@@ -263,6 +284,26 @@ val border_block_style : border_style -> declaration
 (** [border_block_style v] is the
     {{:https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-style}
      border-block-style} property. *)
+
+val border_inline_start_style : border_style -> declaration
+(** [border_inline_start_style v] is the
+    {{:https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-start-style}
+     border-inline-start-style} property. *)
+
+val border_inline_end_style : border_style -> declaration
+(** [border_inline_end_style v] is the
+    {{:https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-end-style}
+     border-inline-end-style} property. *)
+
+val border_block_start_style : border_style -> declaration
+(** [border_block_start_style v] is the
+    {{:https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-start-style}
+     border-block-start-style} property. *)
+
+val border_block_end_style : border_style -> declaration
+(** [border_block_end_style v] is the
+    {{:https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-end-style}
+     border-block-end-style} property. *)
 
 val border_start_start_radius : length -> declaration
 (** [border_start_start_radius len] is the
@@ -1502,8 +1543,24 @@ val border_inline_end_color : color -> declaration
 (** [border_inline_end_color v] is the CSS [border-inline-end-color] property.
 *)
 
+val border_block_start_color : color -> declaration
+(** [border_block_start_color v] is the CSS [border-block-start-color] property.
+*)
+
+val border_block_end_color : color -> declaration
+(** [border_block_end_color v] is the CSS [border-block-end-color] property. *)
+
 val border_inline_color : logical_border_color -> declaration
 (** [border_inline_color v] is the CSS [border-inline-color] property. *)
+
+val border_block_color : logical_border_color -> declaration
+(** [border_block_color v] is the CSS [border-block-color] property. *)
+
+val border_inline_width : logical_border_width -> declaration
+(** [border_inline_width v] is the CSS [border-inline-width] property. *)
+
+val border_block_width : logical_border_width -> declaration
+(** [border_block_width v] is the CSS [border-block-width] property. *)
 
 val quotes : Properties.quotes -> declaration
 (** [quotes v] is the CSS [quotes] property. *)

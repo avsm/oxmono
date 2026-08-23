@@ -48,6 +48,11 @@ let results : Arod_search.results =
     kinds = [ ("note", 30) ]; years = [ (2024, 30) ];
     tags = [ ("xen", 29) ] }
 
+let unresolved_via_results : Arod_search.results =
+  { results with
+    links = [ hit ~kind:"link" ~url:"https://example.com/x"
+                ~parent_slugs:[ "unknown" ] "Example" ] }
+
 let html = Htmlit.El.to_string ~doctype:false
 
 let () =
@@ -68,6 +73,11 @@ let () =
     (contains f {|<span class="sp-via-in">in </span>Xen Hypervisor</span>|});
   check "the link row shows the host"
     (contains f "wiki.xen.org");
+  let f2 =
+    html (Arod_component.Search.fragment ~ctx ~q:"xen" unresolved_via_results)
+  in
+  check "a link row with an unresolved parent slug shows no via span"
+    (not (contains f2 {|class="sp-via"|}));
   check "a truncated tier offers more"
     (contains f "Show 29 more" && contains f "Show 4 more");
   check "facets carry the filter to add"

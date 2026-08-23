@@ -44,8 +44,6 @@ let mark ~terms title =
 
 let host url = S.host_of_url url
 
-let plural n one many = Printf.sprintf "%d %s" n (if n = 1 then one else many)
-
 let section_head label total =
   El.div ~at:[At.class' "sp-sec-h"]
     [ El.span ~at:[At.class' "sp-eyebrow"] [El.txt label];
@@ -108,13 +106,18 @@ let link_row ~ctx ~terms (h : S.hit) =
   in
   let via = match h.parent_slugs with
     | [] -> El.void
-    | slug :: rest ->
+    | slug :: rest -> (
       let title = Bushel.Entry.lookup_title (Arod.Ctx.entries ctx) slug in
-      let extra = if rest = [] then "" else
-          Printf.sprintf " +%d" (List.length rest) in
-      El.span ~at:[At.class' "sp-via"]
-        [ El.span ~at:[At.class' "sp-via-in"] [El.txt "in "];
-          El.txt (title ^ extra) ]
+      (* An unresolved slug looks up to "", which would render a dangling
+         "in " with nothing after it, so it is treated as no via at all. *)
+      match title with
+      | "" -> El.void
+      | title ->
+        let extra = if rest = [] then "" else
+            Printf.sprintf " +%d" (List.length rest) in
+        El.span ~at:[At.class' "sp-via"]
+          [ El.span ~at:[At.class' "sp-via-in"] [El.txt "in "];
+            El.txt (title ^ extra) ])
   in
   El.a ~at:[At.href h.url; At.class' "sp-hit sp-link"; At.v "rel" "noopener"]
     [ El.span ~at:[At.class' "sp-fav"] [fav];
@@ -225,8 +228,8 @@ let page_body ~ctx ~q r =
     El.form ~at:[At.action "/search"; At.method' "get"; At.class' "sp-form";
                  At.v "role" "search"]
       [ El.span ~at:[At.class' "sp-prompt"] [El.txt ">_"];
-        El.input ~at:([ At.id "search-input"; At.type' "search"; At.name "q";
-                        At.value q; At.autocomplete "off";
+        El.input ~at:([ At.id "search-page-input"; At.type' "search";
+                        At.name "q"; At.value q; At.autocomplete "off";
                         At.v "placeholder" placeholder ]
                       @ (if q = "" then [At.autofocus] else [])) () ]
   in

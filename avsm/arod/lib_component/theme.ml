@@ -244,58 +244,40 @@ let custom_css = {|
   .sidenote-number {
     color: var(--color-sidenote-ref);
   }
-  /* Sidenote toggle: mobile = clickable circle, desktop = discrete superscript */
+  /* CSS Text treats an atomic inline as an ideographic character for
+     line breaking, so an inline-block marker permits a break between
+     the ref text and the number. Keeping the marker inline removes that
+     break opportunity, and setupSidenoteNumbers in scripts.ml inserts a
+     U+2060 word joiner before the marker to forbid the break outright.
+     Drop either half and the marker can wrap on to a line of its own. */
   .sidenote-toggle {
-    display: inline-block;
+    display: inline;
+    font-size: 0.6em;
+    vertical-align: super;
+    color: var(--color-sidenote-ref);
+    opacity: 0.75;
+    font-weight: 500;
     margin-left: 1px;
     font-variant-numeric: tabular-nums;
-    transition: color 0.2s;
+    transition: opacity 0.2s;
   }
-  /* Mobile: circled number badge */
-  @media (max-width: 1023px) {
-    .sidenote-toggle {
-      width: 1rem;
-      height: 1rem;
-      font-size: 0.55rem;
-      line-height: 1rem;
-      text-align: center;
-      background: var(--color-surface-alt);
-      border: 1px solid var(--color-border);
-      border-radius: 9999px;
-      color: var(--color-muted);
-      font-weight: 500;
-      cursor: pointer;
-      vertical-align: baseline;
-      position: relative;
-      top: -0.35em;
-    }
-    .sidenote-toggle:hover {
-      background: var(--color-surface);
-      border-color: var(--color-faint);
-    }
-    .dark .sidenote-toggle {
-      background: color-mix(in srgb, var(--color-sidenote-ref) 15%, transparent);
-      border-color: transparent;
-      color: color-mix(in srgb, var(--color-sidenote-ref) 70%, transparent);
-    }
-    .dark .sidenote-toggle:hover {
-      background: color-mix(in srgb, var(--color-sidenote-ref) 25%, transparent);
-      color: var(--color-sidenote-ref);
-    }
+  .sidenote-anchor.sidenote-active .sidenote-toggle {
+    opacity: 1;
   }
-  /* Desktop: plain superscript number */
-  @media (min-width: 1024px) {
-    .sidenote-toggle {
-      font-size: 0.6em;
-      vertical-align: super;
-      color: var(--color-sidenote-ref);
-      opacity: 0.75;
-      pointer-events: none;
-      font-weight: 500;
-    }
+  .sidenote-anchor.sidenote-active .sidenote-ref {
+    color: var(--color-sidenote-ref);
   }
   .sidenote-anchor {
     position: relative;
+  }
+  /* Below the sidebar breakpoint a ref opens its inline note in place.
+     The ref itself is named because .sidenote-ref sets cursor: help and
+     is more specific over the <a> than .sidenote-anchor alone. */
+  @media (max-width: 1023px) {
+    .sidenote-anchor,
+    .sidenote-anchor .sidenote-ref {
+      cursor: pointer;
+    }
   }
   /* Hide sidenotes until JS positions them, then fade in */
   .sidenote-hidden {

@@ -91,19 +91,19 @@ function hideThumbOverlay() {
 function setupSidenoteHover() {
   document.querySelectorAll('.sidenote').forEach(sidenote => {
     const id = sidenote.id.replace('sidenote-', '');
-    const ref = document.querySelector('.sidenote-ref[data-sidenote="' + id + '"]');
-    if (!ref) return;
+    const refs = document.querySelectorAll('.sidenote-ref[data-sidenote="' + id + '"]');
+    if (!refs.length) return;
     // Find thumbnail src stored as data attr (shown on hover)
     const thumbSrc = sidenote.dataset.thumb || '';
 
     function activate(e) {
       sidenote.classList.add('!border-accent', '!text-text');
-      ref.classList.add('highlighted');
+      refs.forEach(ref => ref.classList.add('highlighted'));
       if (thumbSrc) showThumbOverlay(thumbSrc, e);
     }
     function deactivate() {
       sidenote.classList.remove('!border-accent', '!text-text');
-      ref.classList.remove('highlighted');
+      refs.forEach(ref => ref.classList.remove('highlighted'));
       hideThumbOverlay();
     }
 
@@ -114,25 +114,30 @@ function setupSidenoteHover() {
     // Inline refs highlight sidenote but do NOT show thumbnail
     function activateNoThumb() {
       sidenote.classList.add('!border-accent', '!text-text');
-      ref.classList.add('highlighted');
+      refs.forEach(ref => ref.classList.add('highlighted'));
     }
-    ref.addEventListener('mouseenter', activateNoThumb);
-    ref.addEventListener('mouseleave', deactivate);
-
-    const toggle = document.querySelector('.sidenote-toggle[data-sidenote="' + id + '"]');
-    if (toggle) {
-      toggle.addEventListener('mouseenter', activateNoThumb);
-      toggle.addEventListener('mouseleave', deactivate);
-    }
+    refs.forEach(ref => {
+      ref.addEventListener('mouseenter', activateNoThumb);
+      ref.addEventListener('mouseleave', deactivate);
+    });
   });
 }
 
+// Hide every inline note and clear the active marker on every ref.
+function closeInlineNotes() {
+  document.querySelectorAll('.sidenote-anchor').forEach(a =>
+    a.classList.remove('sidenote-active'));
+  document.querySelectorAll('.sidenote-inline').forEach(n =>
+    n.classList.add('hidden'));
+}
+
 // Setup sidenote numbers and mobile toggles.
-// Deduplicates: only the first ref for a given sidenote gets a number.
-// Subsequent refs for the same slug reuse the same number.
+// Numbering is per slug: the first ref for a slug takes a new number and
+// later refs reuse it. Inline notes are per ref, so a tap opens the note
+// beside the ref that was tapped.
 function setupSidenoteNumbers() {
   let noteNumber = 1;
-  const seen = {};  // slug -> { number, inlineNote }
+  const seen = {};  // slug -> { number, count }
   document.querySelectorAll('.sidenote-ref').forEach(ref => {
     const id = ref.dataset.sidenote;
     const sidenote = document.getElementById('sidenote-' + id);
@@ -140,52 +145,63 @@ function setupSidenoteNumbers() {
 
     // Determine the number: first occurrence gets a new one, duplicates reuse
     let currentNumber;
-    let inlineNote;
-    const isFirst = !seen[id];
-    if (isFirst) {
+    let index;
+    if (!seen[id]) {
       currentNumber = noteNumber++;
+      index = 0;
       // Add number prefix to sidebar sidenote (only once)
       const numberSpan = document.createElement('span');
       numberSpan.className = 'sidenote-number font-semibold';
       numberSpan.textContent = currentNumber + '. ';
       sidenote.insertBefore(numberSpan, sidenote.firstChild);
-      // Create mobile inline note (only once per sidenote)
-      inlineNote = document.createElement('div');
-      inlineNote.className = 'hidden lg:!hidden sidenote-inline text-sm leading-relaxed text-text bg-surface border-l-2 border-accent px-3 py-2 my-2 rounded-r';
-      inlineNote.id = 'sidenote-inline-' + id;
-      inlineNote.innerHTML = '<span class="sidenote-number font-semibold">' + currentNumber + '.</span> ' + sidenote.innerHTML.replace(/<span class="sidenote-number.*?<\/span>/, '');
-      const paragraph = ref.closest('p, blockquote, li');
-      if (paragraph && !document.getElementById('sidenote-inline-' + id)) {
-        paragraph.insertAdjacentElement('afterend', inlineNote);
-      }
-      seen[id] = { number: currentNumber, inlineNote: inlineNote };
+      seen[id] = { number: currentNumber, count: 1 };
     } else {
       currentNumber = seen[id].number;
-      inlineNote = seen[id].inlineNote;
+      index = seen[id].count++;
     }
 
     // Add toggle badge to every ref (shows the same number)
     const toggle = document.createElement('span');
     toggle.className = 'sidenote-toggle';
     toggle.textContent = currentNumber;
-    toggle.dataset.sidenote = id;
     const anchor = ref.closest('.sidenote-anchor');
-    if (anchor) anchor.appendChild(toggle);
-    toggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const wasActive = toggle.classList.contains('!bg-accent');
-      document.querySelectorAll('.sidenote-toggle').forEach(t => t.classList.remove('!bg-accent', '!border-accent', '!text-white'));
-      document.querySelectorAll('.sidenote-inline').forEach(n => n.classList.add('hidden'));
+    if (!anchor) return;
+    // U+2060 WORD JOINER forbids a line break between the last letter of
+    // the ref text and the marker. The .sidenote-toggle rule in theme.ml
+    // keeps the marker display: inline so it is not an atomic inline,
+    // which would reintroduce the break. Either half alone still lets
+    // the marker wrap on to a line of its own.
+    anchor.appendChild(document.createTextNode('\u2060'));
+    anchor.appendChild(toggle);
+
+    // One inline note per ref, keyed by slug and occurrence so ids stay
+    // unique. A ref in no block has nowhere to put one and gets none.
+    const block = ref.closest('p, blockquote, li, h1, h2, h3, h4, h5, ' +
+      'h6, td, th, dd, dt, figcaption');
+    if (!block) return;
+    const inlineNote = document.createElement('div');
+    inlineNote.className = 'hidden lg:!hidden sidenote-inline text-sm leading-relaxed text-text bg-surface border-l-2 border-accent px-3 py-2 my-2 rounded-r';
+    inlineNote.id = 'sidenote-inline-' + id + '-' + index;
+    inlineNote.innerHTML = '<span class="sidenote-number font-semibold">' + currentNumber + '.</span> ' + sidenote.innerHTML.replace(/<span class="sidenote-number.*?<\/span>/, '');
+    block.insertAdjacentElement('afterend', inlineNote);
+
+    anchor.addEventListener('click', (e) => {
+      // Read the width at click time: the window can be resized after
+      // setup, and above the breakpoint the link must navigate.
+      if (window.innerWidth >= 1024) return;
+      e.preventDefault();
+      const wasActive = anchor.classList.contains('sidenote-active');
+      closeInlineNotes();
       if (!wasActive) {
-        toggle.classList.add('!bg-accent', '!border-accent', '!text-white');
+        anchor.classList.add('sidenote-active');
         inlineNote.classList.remove('hidden');
       }
     });
   });
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('.sidenote-toggle') && !e.target.closest('.sidenote-inline')) {
-      document.querySelectorAll('.sidenote-toggle').forEach(t => t.classList.remove('!bg-accent', '!border-accent', '!text-white'));
-      document.querySelectorAll('.sidenote-inline').forEach(n => n.classList.add('hidden'));
+    if (!e.target.closest('.sidenote-anchor') &&
+        !e.target.closest('.sidenote-inline')) {
+      closeInlineNotes();
     }
   });
 }

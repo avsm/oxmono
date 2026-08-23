@@ -196,7 +196,9 @@ let () =
   check "and kind chips"
     (contains (body (get "/js/site.js")) "data-kind");
   check "and the tag hash redirect"
-    (contains (body (get "/js/site.js")) "'#tag='")
+    (contains (body (get "/js/site.js")) "'#tag='");
+  check "and tag-cloud buttons keep their local filtering"
+    (contains (body (get "/js/site.js")) "tag-cloud-btn")
 
 let () =
   check "a feed path is not swallowed by the note route"

@@ -355,7 +355,8 @@ let search_shortcut_js = {|
   document.addEventListener('click', function(e) {
     if (document.getElementById('search-page-input')) return;
     var tagEl = e.target.closest('[data-tag]');
-    if (tagEl) {
+    // Tag-cloud chips filter in place; they are not a search-page link.
+    if (tagEl && !tagEl.classList.contains('tag-cloud-btn')) {
       e.preventDefault();
       window.location.href = '/search?q=' + encodeURIComponent('#' + tagEl.getAttribute('data-tag'));
       return;

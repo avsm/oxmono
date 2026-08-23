@@ -107,9 +107,9 @@ val pagination :
     twice. *)
 
 val search :
-  ctx:Arod.Ctx.t -> Arod_search.result list -> (Proffer.Body.Sink.t -> unit)
-(** [search ~ctx results] writes [results] as the JSON the search box reads,
-    streamed as {!pagination} is. *)
+  ctx:Arod.Ctx.t -> Arod_search.results -> (Proffer.Body.Sink.t -> unit)
+(** [search ~ctx results] writes [results] as the JSON the search page
+    reads, streamed as {!pagination} is. *)
 
 val report : db:Sqlite3_eio.t -> report -> range:string -> string
 (** [report ~db which ~range] is the access log view [which] over [range],

@@ -11,21 +11,50 @@
 type t
 (** A handle to the search database. *)
 
-type result = {
+type goto_kind = [ `Section | `Project | `Tag ]
+(** What a {!goto} entry points at. *)
+
+type goto = {
+  label : string;
+  url : string;
+  detail : string;
+  goto_kind : goto_kind;
+}
+(** A direct jump offered above the ranked tiers, such as a project or a
+    tag page whose name matches the query outright. *)
+
+type hit = {
   slug : string;
   kind : string;
   url : string;
   title : string;
   snippet : string;
   date : string;
-  rank : float;
-  parent_slugs : string list;
   tags : string list;
+  parent_slugs : string list;
+  score : float;
 }
-(** A search result with BM25 ranking and snippet.
-    For links, [parent_slugs] lists the Bushel entry slugs that contain
-    this link (e.g. notes or papers). Empty for non-link entries.
-    [tags] lists the entry's tags (exact, from entry_tags table). *)
+(** One ranked hit. [score] is the tier's combined score, larger is better.
+    For a link, [parent_slugs] names the entries that cite it. *)
+
+type results = {
+  terms : string list;
+  goto : goto list;
+  work : hit list;
+  work_total : int;
+  links : hit list;
+  links_total : int;
+  kinds : (string * int) list;
+  years : (int * int) list;
+  tags : (string * int) list;
+}
+(** The tiers of one search. [work] and [links] are ranked and cut to the
+    caller's limits, [work_total] and [links_total] count the matches before
+    the cut, and [kinds], [years] and [tags] count over every work match.
+    [terms] is the query's words, lowercased, for marking matches. *)
+
+val empty : results
+(** [empty] is the result of a query that asked for nothing. *)
 
 val create : sw:Eio.Switch.t -> _ Eio.Path.t -> t
 (** [create ~sw path] opens or creates the search database at [path]. *)
@@ -43,35 +72,49 @@ val rebuild : t -> Arod.Ctx.t -> unit
 
 val index :
   t ->
-  ?own_host:string ->
+  own_host:string ->
   contact_name:(string -> string option) ->
   entries:Bushel.Entry.entry list ->
   links:Bushel.Link.t list ->
   unit
-(** [index t ?own_host ~contact_name ~entries ~links] drops every table and
+(** [index t ~own_host ~contact_name ~entries ~links] drops every table and
     indexes [entries] and [links]. [contact_name handle] is the display name
     a body mention of [handle] expands to. [own_host] is the host of the
     site's own base URL, and links on it are left out of search results. It
     is what {!rebuild} calls with a context's contents. *)
 
-val search : t -> ?limit:int -> string -> result list
-(** [search t ?limit input] parses [input] using the search syntax and
-    returns results from the relevant per-kind FTS5 tables. The syntax
-    supports:
+val search :
+  t -> ?today:int * int * int -> ?limit:int -> ?link_limit:int ->
+  string -> results
+(** [search t ?today ?limit ?link_limit input] ranks what matches [input]
+    in three strict tiers. Papers, notes, projects, ideas and videos are
+    ordered by [bm25 × kind prior × freshness]. Links are ordered by
+    [bm25 × freshness × citation bonus], deduplicated by normalised URL and
+    by host and title, and never include the site's own host. [today]
+    defaults to the current date and fixes freshness for tests. [limit]
+    defaults to 20 and [link_limit] to 12. The syntax is as before: words,
+    ["exact phrase"], [prefix*], [kind:paper] and [#tag]. A query with only
+    filters browses the filtered set by date. *)
 
-    - Plain words: matched against title, body, and tags
-    - [kind:paper] (or [kind:note], [kind:project], [kind:idea],
-      [kind:video], [kind:link]) — restrict to specific entry types
-    - ["exact phrase"] — match the exact phrase
-    - [prefix*] — prefix matching
-    - [#tag] — exact tag matching (uses entry_tags table, not FTS)
+val kind_prior : string -> float
+(** [kind_prior kind] is the multiplier the work tier applies to [kind]. *)
 
-    Multiple kind filters are supported (queries their union).
-    [#tag] tokens can be mixed with text: [#ocaml memory] finds entries
-    tagged "ocaml" that also match FTS "memory".
-    Returns empty if no text query or tags are provided. *)
+val freshness : today:int * int * int -> string -> float
+(** [freshness ~today date] is between 1.0 and 1.25, largest for [today]
+    and 1.0 from eight years before it. *)
 
-val search_tags : t -> ?kinds:string list -> ?limit:int -> string list -> result list
+val citation_bonus : int -> float
+(** [citation_bonus n] is the multiplier for a link cited by [n] entries. *)
+
+val normalise_url : string -> string
+(** [normalise_url u] is [u] lowercased without scheme, leading [www.] or
+    trailing [/] and [#]. Two links with one normalised URL are one page. *)
+
+val host_of_url : string -> string
+(** [host_of_url u] is the host of {!normalise_url}[ u]. *)
+
+val search_tags :
+  t -> ?kinds:string list -> ?limit:int -> string list -> hit list
 (** [search_tags t ?kinds ?limit tags] returns entries matching ALL given
     tags exactly. Uses the entry_tags table for exact matching. *)
 
@@ -82,5 +125,5 @@ val all_tags : t -> (string * int) list
 val kinds : string list
 (** The valid kind values: paper, note, project, idea, video, link. *)
 
-val pp_result : Format.formatter -> result -> unit
-(** Pretty-print a single search result. *)
+val pp_results : Format.formatter -> results -> unit
+(** [pp_results ppf r] prints each tier under a heading. *)

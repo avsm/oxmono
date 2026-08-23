@@ -80,7 +80,8 @@ let serve_cmd =
     let henv =
       Arod_handlers.Env.create ~ctx
         ~cache:(Proffer.Cache.create ~ttl:300.0)
-        ~search:(fun ~limit q -> Arod_search.search search ~limit q)
+        ~search:(fun ~limit ~link_limit q ->
+          Arod_search.search search ~limit ~link_limit q)
         ~log_search:(fun ~query ~limit ~results ->
           match results with
           | None ->
@@ -165,16 +166,11 @@ let search_cmd =
       let db_path = Eio.Path.(Xdge.cache_dir xdg / "search.db") in
       let search = Arod_search.open_readonly ~sw db_path in
       let results = Arod_search.search search ?limit input in
-      if results = [] then begin
+      if results = Arod_search.empty then begin
         Printf.printf "No results.\n";
         0
       end else begin
-        List.iter (fun r ->
-          Fmt.pr "%a@.@." Arod_search.pp_result r
-        ) results;
-        Printf.printf "(%d result%s)\n"
-          (List.length results)
-          (if List.length results = 1 then "" else "s");
+        Fmt.pr "%a@." Arod_search.pp_results results;
         0
       end
     end

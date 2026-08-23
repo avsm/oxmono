@@ -6,8 +6,9 @@
 (** FTS5 full-text search index for Arod content.
 
     Uses one FTS5 table per entry kind (paper, note, project, idea, video,
-    link) so that kind filtering is a simple matter of which tables to query.
-    Results from each table are merged and sorted by date. *)
+    link) so that kind filtering is a simple matter of which tables to
+    query. A search ranks matches into a work tier and a links tier, each
+    sorted, cut to a limit and counted before the cut. *)
 
 module StringSet = Set.Make(String)
 
@@ -16,16 +17,42 @@ type t = {
   mutable own_host : string;
 }
 
-type result = {
+type goto_kind = [ `Section | `Project | `Tag ]
+
+type goto = {
+  label : string;
+  url : string;
+  detail : string;
+  goto_kind : goto_kind;
+}
+
+type hit = {
   slug : string;
   kind : string;
   url : string;
   title : string;
   snippet : string;
   date : string;
-  rank : float;
-  parent_slugs : string list;
   tags : string list;
+  parent_slugs : string list;
+  score : float;
+}
+
+type results = {
+  terms : string list;
+  goto : goto list;
+  work : hit list;
+  work_total : int;
+  links : hit list;
+  links_total : int;
+  kinds : (string * int) list;
+  years : (int * int) list;
+  tags : (string * int) list;
+}
+
+let empty = {
+  terms = []; goto = []; work = []; work_total = 0; links = [];
+  links_total = 0; kinds = []; years = []; tags = [];
 }
 
 (** {1 Kinds} *)
@@ -33,6 +60,52 @@ type result = {
 let kinds = ["paper"; "note"; "project"; "idea"; "video"; "link"]
 
 let table_for kind = "search_" ^ kind
+
+(** {1 Scoring} *)
+
+(* A project page is the landing point for its topic. An idea is a proposal
+   rather than a result. *)
+let kind_prior = function
+  | "project" -> 1.15
+  | "video" -> 0.9
+  | "idea" -> 0.85
+  | _ -> 1.0
+
+let age_years ~today:(ty, tm, _) date =
+  match String.split_on_char '-' date with
+  | y :: m :: _ -> (
+    match int_of_string_opt y, int_of_string_opt m with
+    | Some y, Some m ->
+      float_of_int (ty - y) +. (float_of_int (tm - m) /. 12.)
+    | _ -> 100.)
+  | _ -> 100.
+
+(* A date after [today] gives a negative age. Clamp it at zero first so a
+   future-dated entry gets the maximum boost and no more. *)
+let freshness ~today date =
+  let age = Float.max 0. (age_years ~today date) in
+  1. +. (0.25 *. Float.max 0. (1. -. (age /. 8.)))
+
+let citation_bonus n = 1. +. (0.3 *. log (float_of_int (max 1 n)))
+
+let normalise_url url =
+  let strip prefix s =
+    if String.starts_with ~prefix s then
+      String.sub s (String.length prefix)
+        (String.length s - String.length prefix)
+    else s
+  in
+  let u = String.lowercase_ascii url |> strip "https://" |> strip "http://"
+          |> strip "www." in
+  let n = ref (String.length u) in
+  while !n > 0 && (u.[!n - 1] = '/' || u.[!n - 1] = '#') do decr n done;
+  String.sub u 0 !n
+
+let host_of_url url =
+  let u = normalise_url url in
+  match String.index_opt u '/' with
+  | Some i -> String.sub u 0 i
+  | None -> u
 
 (** {1 Schema — one FTS5 table per kind} *)
 
@@ -206,20 +279,7 @@ let index_link t (link : Bushel.Link.t) =
     insert_tag_row t ~tag ~kind ~slug ~url ~title ~date
   ) all_tags
 
-let host_of_url url =
-  let strip prefix s =
-    if String.starts_with ~prefix s then
-      String.sub s (String.length prefix)
-        (String.length s - String.length prefix)
-    else s
-  in
-  let u = String.lowercase_ascii url |> strip "https://" |> strip "http://"
-          |> strip "www." in
-  match String.index_opt u '/' with
-  | Some i -> String.sub u 0 i
-  | None -> u
-
-let index t ?(own_host = "") ~contact_name ~entries ~links =
+let index t ~own_host ~contact_name ~entries ~links =
   t.own_host <- own_host;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "BEGIN");
   List.iter (fun kind ->
@@ -241,9 +301,6 @@ let index t ?(own_host = "") ~contact_name ~entries ~links =
     ignore (Sqlite3_eio.finalize t.db stmt);
     Logs.info (fun m -> m "Search index: %s has %d rows" tbl count)
   ) kinds
-(* [own_host] is optional and has no positional argument after it, so the
-   compiler cannot tell a caller is done supplying arguments without this. *)
-[@@warning "-16"]
 
 let rebuild t ctx =
   let contacts = Arod.Ctx.contacts ctx in
@@ -264,59 +321,86 @@ let parse_parent_slugs s =
   if s = "" then []
   else String.split_on_char ',' s |> List.filter (fun s -> s <> "")
 
-(** Query a single per-kind FTS5 table. *)
-let query_table t ~kind ~limit q =
+(* Per-kind fetch depth. The facets count over these, so they are the
+   upper bound on a total. *)
+let fetch_depth kind = if kind = "link" then 500 else 200
+
+let split_tags s =
+  String.split_on_char ' ' s |> List.filter (fun t -> t <> "")
+
+(** Query one per-kind table ordered by relevance. [score] is the negated
+    bm25, so larger is better. *)
+let query_table t ~kind q =
   let tbl = table_for kind in
   let sql = Printf.sprintf
     {|SELECT slug, url, date, parent_slugs, title,
            snippet(%s, 5, '<b>', '</b>', '...', 32),
-           bm25(%s, 0.0, 0.0, 0.0, 0.0, 10.0, 1.0, 5.0)
+           bm25(%s, 0.0, 0.0, 0.0, 0.0, 10.0, 1.0, 5.0),
+           tags
       FROM %s
       WHERE %s MATCH ?1
-      ORDER BY date DESC
+      ORDER BY bm25(%s, 0.0, 0.0, 0.0, 0.0, 10.0, 1.0, 5.0)
       LIMIT ?2|}
-    tbl tbl tbl tbl
+    tbl tbl tbl tbl tbl
   in
   let stmt = Sqlite3_eio.prepare t.db sql in
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 1 q);
-  Sqlite3.Rc.check (Sqlite3.bind_int stmt 2 limit);
+  Sqlite3.Rc.check (Sqlite3.bind_int stmt 2 (fetch_depth kind));
+  let text i row = match row.(i) with Sqlite3.Data.TEXT s -> s | _ -> "" in
   let _rc, results = Sqlite3_eio.fold t.db stmt ~init:[] ~f:(fun acc row ->
-    let slug = match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-    let url = match row.(1) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-    let date = match row.(2) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-    let parent_slugs_str = match row.(3) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-    let title = match row.(4) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-    let snippet = match row.(5) with Sqlite3.Data.TEXT s -> s | _ -> "" in
     let rank = match row.(6) with Sqlite3.Data.FLOAT f -> f | _ -> 0.0 in
-    let parent_slugs = parse_parent_slugs parent_slugs_str in
-    { slug; kind; url; title; snippet; date; rank; parent_slugs; tags = [] } :: acc
+    { slug = text 0 row; kind; url = text 1 row; title = text 4 row;
+      snippet = text 5 row; date = text 2 row;
+      tags = split_tags (text 7 row);
+      parent_slugs = parse_parent_slugs (text 3 row);
+      score = -. rank } :: acc
   ) in
   ignore (Sqlite3_eio.finalize t.db stmt);
   List.rev results
 
-(** Merge results from multiple tables, sorted by date descending, take [limit]. *)
-let merge_results ~limit results_per_kind =
-  let all = List.concat results_per_kind in
-  let sorted = List.sort (fun a b -> String.compare b.date a.date) all in
-  let rec take acc n = function
-    | _ when n <= 0 -> List.rev acc
-    | [] -> List.rev acc
-    | x :: xs -> take (x :: acc) (n - 1) xs
-  in
-  take [] limit sorted
+let by_score a b =
+  match compare b.score a.score with
+  | 0 -> compare b.date a.date
+  | c -> c
+
+let rec take n = function
+  | [] -> []
+  | _ when n <= 0 -> []
+  | x :: xs -> x :: take (n - 1) xs
+
+let rank_work ~today hits =
+  List.map (fun h ->
+    { h with score = h.score *. kind_prior h.kind *. freshness ~today h.date })
+    hits
+  |> List.sort by_score
+
+(* Two URLs that differ only in scheme, www, a trailing slash or hash are
+   one page. So are two links on one host with the same title, which is how
+   a redirect and its target both end up cited. The higher-scoring copy
+   survives, so this runs after the sort. *)
+let dedupe_links ~own_host hits =
+  let seen = Hashtbl.create 64 in
+  List.filter (fun h ->
+    let url_key = normalise_url h.url in
+    let title_key = host_of_url h.url ^ "|" ^ String.lowercase_ascii h.title in
+    if host_of_url h.url = own_host && own_host <> "" then false
+    else if Hashtbl.mem seen url_key || Hashtbl.mem seen title_key then false
+    else begin
+      Hashtbl.replace seen url_key ();
+      Hashtbl.replace seen title_key ();
+      true
+    end
+  ) hits
+
+let rank_links ~today ~own_host hits =
+  List.map (fun h ->
+    { h with score = h.score *. freshness ~today h.date
+                     *. citation_bonus (List.length h.parent_slugs) })
+    hits
+  |> List.sort by_score
+  |> dedupe_links ~own_host
 
 (** {1 Tag queries} *)
-
-(** Look up tags for a given slug from the entry_tags table. *)
-let tags_for_slug t slug =
-  let stmt = Sqlite3_eio.prepare t.db
-    {|SELECT DISTINCT tag FROM entry_tags WHERE slug = ?1 ORDER BY tag|} in
-  Sqlite3.Rc.check (Sqlite3.bind_text stmt 1 slug);
-  let _rc, tags = Sqlite3_eio.fold t.db stmt ~init:[] ~f:(fun acc row ->
-    match row.(0) with Sqlite3.Data.TEXT s -> s :: acc | _ -> acc
-  ) in
-  ignore (Sqlite3_eio.finalize t.db stmt);
-  List.rev tags
 
 (** Query entries matching ALL given tags exactly. *)
 let search_tags t ?(kinds=[]) ?(limit=20) tags =
@@ -361,7 +445,7 @@ let search_tags t ?(kinds=[]) ?(limit=20) tags =
       let url = match row.(2) with Sqlite3.Data.TEXT s -> s | _ -> "" in
       let title = match row.(3) with Sqlite3.Data.TEXT s -> s | _ -> "" in
       let date = match row.(4) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-      { slug; kind; url; title; snippet = ""; date; rank = 0.0;
+      { slug; kind; url; title; snippet = ""; date; score = 0.0;
         parent_slugs = []; tags = [] } :: acc
     ) in
     ignore (Sqlite3_eio.finalize t.db stmt);
@@ -411,87 +495,111 @@ let parse_search_input input =
       List.rev (last' :: rest)
   in
   let fts_query = String.concat " " terms in
-  (List.rev !found_kinds, List.rev !found_tags, fts_query)
-
-let enrich_tags t results =
-  List.map (fun r ->
-    { r with tags = tags_for_slug t r.slug }
-  ) results
-
-let search t ?(limit = 20) input =
-  let found_kinds, found_tags, fts_query = parse_search_input input in
-  Logs.info (fun m -> m "Search: input=%S kinds=[%s] tags=[%s] fts_query=%S"
-    input (String.concat "," found_kinds) (String.concat "," found_tags) fts_query);
-  let target_kinds = match found_kinds with
-    | [] -> kinds
-    | ks -> ks
+  let plain =
+    List.map (fun w ->
+      let w = String.lowercase_ascii w in
+      let w = if String.ends_with ~suffix:"*" w
+        then String.sub w 0 (String.length w - 1) else w in
+      String.concat "" (String.split_on_char '"' w)) terms
+    |> List.filter (fun w -> w <> "")
   in
-  match found_tags, fts_query with
-  | [], "" when found_kinds = [] -> []
-  | [], "" ->
-    (* Kind-only browse: return recent entries of the specified kinds *)
-    let kind_phs = List.mapi (fun i _ ->
-      Printf.sprintf "?%d" (i + 1)
-    ) target_kinds |> String.concat ", " in
+  (List.rev !found_kinds, List.rev !found_tags, fts_query, plain)
+
+(* entry_tags carries a row per (entry, tag), so an untagged entry has no
+   row there and a browse over it would silently drop that entry. The
+   per-kind table holds every entry of that kind regardless of tags. *)
+let browse_kinds t ~kinds:target_kinds =
+  List.concat_map (fun kind ->
+    let tbl = table_for kind in
     let sql = Printf.sprintf
-      {|SELECT DISTINCT slug, kind, url, title, date
-        FROM entry_tags
-        WHERE kind IN (%s)
+      {|SELECT slug, url, date, parent_slugs, title, tags
+        FROM %s
         ORDER BY date DESC
-        LIMIT ?%d|}
-      kind_phs (List.length target_kinds + 1)
+        LIMIT 1000|}
+      tbl
     in
     let stmt = Sqlite3_eio.prepare t.db sql in
-    List.iteri (fun i k ->
-      Sqlite3.Rc.check (Sqlite3.bind_text stmt (i + 1) k)
-    ) target_kinds;
-    Sqlite3.Rc.check (Sqlite3.bind_int stmt (List.length target_kinds + 1) limit);
+    let text i row = match row.(i) with Sqlite3.Data.TEXT s -> s | _ -> "" in
     let _rc, results = Sqlite3_eio.fold t.db stmt ~init:[] ~f:(fun acc row ->
-      let slug = match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-      let kind = match row.(1) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-      let url = match row.(2) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-      let title = match row.(3) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-      let date = match row.(4) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-      { slug; kind; url; title; snippet = ""; date; rank = 0.0;
-        parent_slugs = []; tags = [] } :: acc
+      { slug = text 0 row; kind; url = text 1 row; title = text 4 row;
+        snippet = ""; date = text 2 row; score = 0.0;
+        tags = split_tags (text 5 row);
+        parent_slugs = parse_parent_slugs (text 3 row) } :: acc
     ) in
     ignore (Sqlite3_eio.finalize t.db stmt);
-    enrich_tags t (List.rev results)
-  | [], _ ->
-    (* Pure FTS search, same as before *)
-    let per_kind = List.map (fun kind ->
-      let results = query_table t ~kind ~limit fts_query in
-      Logs.info (fun m -> m "Search: table=%s query=%S -> %d results"
-        (table_for kind) fts_query (List.length results));
-      results
-    ) target_kinds in
-    enrich_tags t (merge_results ~limit per_kind)
-  | tags, "" ->
-    (* Pure tag search *)
-    let results = search_tags t ~kinds:target_kinds ~limit tags in
-    enrich_tags t results
-  | tags, _ ->
-    (* Mixed: tag filter + FTS — intersect results *)
-    let tag_results = search_tags t ~kinds:target_kinds ~limit:1000 tags in
-    let tag_slugs = List.fold_left (fun s r ->
-      StringSet.add r.slug s
-    ) StringSet.empty tag_results in
-    let per_kind = List.map (fun kind ->
-      query_table t ~kind ~limit fts_query
-    ) target_kinds in
-    let fts_results = merge_results ~limit:1000 per_kind in
-    let filtered = List.filter (fun r ->
-      StringSet.mem r.slug tag_slugs
-    ) fts_results in
-    let rec take acc n = function
-      | _ when n <= 0 -> List.rev acc
-      | [] -> List.rev acc
-      | x :: xs -> take (x :: acc) (n - 1) xs
-    in
-    enrich_tags t (take [] limit filtered)
+    List.rev results
+  ) target_kinds
 
-let pp_result ppf r =
-  let snippet = Arod.Text.strip_html r.snippet in
-  let tags_str = match r.tags with [] -> "" | ts -> " #" ^ String.concat " #" ts in
-  Fmt.pf ppf "@[<v>%s [%s] %s%s@,  %s@,  %s@]"
-    r.title r.kind r.date tags_str r.url snippet
+let split_tiers hits =
+  List.partition (fun h -> h.kind <> "link") hits
+
+(* Both a ranked query and a plain browse cut work and links to the
+   caller's limits and count the matches before the cut, so the record
+   is built once here. *)
+let make_results ~terms ~limit ~link_limit work links =
+  { empty with terms; work = take limit work;
+    work_total = List.length work; links = take link_limit links;
+    links_total = List.length links }
+
+let search t ?today ?(limit = 20) ?(link_limit = 12) input =
+  let today = match today with
+    | Some d -> d
+    | None -> let (d, _) = Ptime.to_date_time (Ptime_clock.now ()) in d
+  in
+  let found_kinds, found_tags, fts_query, terms = parse_search_input input in
+  Logs.info (fun m -> m "Search: input=%S kinds=[%s] tags=[%s] fts_query=%S"
+    input (String.concat "," found_kinds) (String.concat "," found_tags)
+    fts_query);
+  let target_kinds = match found_kinds with [] -> kinds | ks -> ks in
+  let finish hits =
+    let work, links = split_tiers hits in
+    let work = rank_work ~today work in
+    let links = rank_links ~today ~own_host:t.own_host links in
+    make_results ~terms ~limit ~link_limit work links
+  in
+  let browse hits =
+    let work, links = split_tiers hits in
+    let by_date = List.sort (fun a b -> compare b.date a.date) in
+    let links = by_date links |> dedupe_links ~own_host:t.own_host in
+    make_results ~terms ~limit ~link_limit (by_date work) links
+  in
+  match found_tags, fts_query with
+  | [], "" when found_kinds = [] -> empty
+  | [], "" -> browse (browse_kinds t ~kinds:target_kinds)
+  | [], _ ->
+    finish (List.concat_map (fun kind -> query_table t ~kind fts_query)
+              target_kinds)
+  | tags, "" -> browse (search_tags t ~kinds:target_kinds ~limit:1000 tags)
+  | tags, _ ->
+    let tag_slugs =
+      List.fold_left (fun s r -> StringSet.add r.slug s) StringSet.empty
+        (search_tags t ~kinds:target_kinds ~limit:1000 tags)
+    in
+    List.concat_map (fun kind -> query_table t ~kind fts_query) target_kinds
+    |> List.filter (fun r -> StringSet.mem r.slug tag_slugs)
+    |> finish
+
+let pp_hit ppf h =
+  let snippet = Arod.Text.strip_html h.snippet in
+  let tags = match h.tags with
+    | [] -> "" | ts -> " #" ^ String.concat " #" ts in
+  let parents = match h.parent_slugs with
+    | [] -> "" | ps -> " in " ^ String.concat ", " ps in
+  Fmt.pf ppf "@[<v>%s [%s] %s %6.1f%s%s@,  %s@,  %s@]"
+    h.title h.kind h.date h.score tags parents h.url snippet
+
+let pp_results ppf r =
+  let tier name total hits =
+    if hits <> [] then begin
+      Fmt.pf ppf "@[<v>== %s (%d)@,@]" name total;
+      List.iter (fun h -> Fmt.pf ppf "%a@.@." pp_hit h) hits
+    end
+  in
+  if r.goto <> [] then begin
+    Fmt.pf ppf "== go to@.";
+    List.iter (fun g -> Fmt.pf ppf "  %s  %s  %s@." g.label g.detail g.url)
+      r.goto;
+    Fmt.pf ppf "@."
+  end;
+  tier "on this site" r.work_total r.work;
+  tier "links" r.links_total r.links

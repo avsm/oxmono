@@ -57,30 +57,157 @@ let link ?(title = "") ?(slugs = []) ?(date = (2024, 1, 1)) url
     bushel = Some { Bushel.Link.slugs; tags = [] };
   }
 
-let index ?own_host ~notes ~links () =
-  Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
+(* [Arod_search.create_memory] ties the database to [sw]: it closes when
+   the switch that opened it finishes. [Arod_search.search] also runs
+   inside the Eio scheduler that [Eio_main.run] installs. So [index] takes
+   the caller's already-open [sw] rather than opening its own, and every
+   check below that touches [t] runs inside one [Eio_main.run]. *)
+let index ~sw ?(own_host = "") ~notes ~links () =
   let t = Arod_search.create_memory ~sw () in
-  Arod_search.index t ?own_host
+  Arod_search.index t ~own_host
     ~contact_name:(fun _ -> None)
     ~entries:(List.map (fun n -> `Note n) notes)
     ~links;
   t
 
+let today = (2026, 8, 23)
+
+let slugs (hits : Arod_search.hit list) =
+  List.map (fun (h : Arod_search.hit) -> h.slug) hits
+
 let () =
   Eio_main.run @@ fun _env ->
   Eio.Switch.run @@ fun sw ->
-  let t = Arod_search.create_memory ~sw () in
-  Arod_search.index t ~own_host:""
-    ~contact_name:(fun _ -> None)
-    ~entries:[ `Note (note ~slug:"a" ~title:"Unikernels" "A body.") ]
-    ~links:[ link ~title:"Unikernel blog" ~slugs:[ "a" ] "https://x.org/u" ];
-  let results = Arod_search.search t "unikernel" in
-  check "an indexed note is found"
-    (List.exists (fun (r : Arod_search.result) -> r.slug = "a") results);
-  check "so is an indexed link"
-    (List.exists
-       (fun (r : Arod_search.result) -> r.slug = "https://x.org/u")
-       results)
+  let t =
+    index ~sw
+      ~notes:
+        [
+          note ~slug:"old" ~date:(2010, 1, 1) ~title:"Unikernels" "Body.";
+          note ~slug:"new" ~date:(2026, 1, 1) ~title:"Unikernels" "Body.";
+          note ~slug:"body-only" ~title:"Other" "About unikernels here.";
+        ]
+      ~links:
+        [
+          link ~title:"Unikernel blog" ~slugs:[ "old" ]
+            "https://x.org/unikernel";
+          link ~title:"Unikernel blog" ~slugs:[ "old"; "new" ]
+            "https://www.x.org/unikernel/";
+          link ~title:"Unikernel mirror" ~slugs:[ "old" ]
+            "https://X.org/unikernel#";
+          link ~title:"Unikernels local" ~slugs:[ "old" ]
+            "https://example.com/papers/u.pdf";
+          link ~title:"Unikernels twice" ~slugs:[ "old"; "new" ]
+            "https://y.org/a";
+          link ~title:"Unikernels once" ~slugs:[ "old" ] "https://z.org/a";
+        ]
+      ~own_host:"example.com" ()
+  in
+  let r = Arod_search.search t ~today "unikernel" in
+  check "a title match outranks a body match"
+    (List.mem "body-only" (slugs r.work)
+    && List.nth (slugs r.work) 2 = "body-only");
+  check "freshness breaks the tie between equal title matches"
+    (slugs r.work |> List.filteri (fun i _ -> i < 2) = [ "new"; "old" ]);
+  check "links never appear in the work tier"
+    (List.for_all (fun (h : Arod_search.hit) -> h.kind <> "link") r.work);
+  check "URLs differing by scheme, www, trailing slash or hash are one link"
+    (List.length
+       (List.filter
+          (fun (h : Arod_search.hit) ->
+            Arod_search.normalise_url h.url = "x.org/unikernel")
+          r.links)
+    = 1);
+  check "a link on the site's own host is dropped"
+    (not (List.exists (fun (h : Arod_search.hit) ->
+              h.url = "https://example.com/papers/u.pdf") r.links));
+  check "a link cited twice outranks the same title cited once"
+    (let ys = List.filter (fun (h : Arod_search.hit) ->
+         String.starts_with ~prefix:"https://y.org" h.url
+         || String.starts_with ~prefix:"https://z.org" h.url) r.links in
+     List.map (fun (h : Arod_search.hit) -> h.url) ys
+     = [ "https://y.org/a"; "https://z.org/a" ]);
+  check "totals count matches before the limit"
+    (r.work_total = 3 && r.links_total = 3);
+  check "the query words are returned lowercased without the prefix star"
+    (r.terms = [ "unikernel" ])
+
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t =
+    index ~sw
+      ~notes:
+        [
+          note ~slug:"a" ~date:(2020, 1, 1) ~title:"A" "x";
+          note ~slug:"b" ~date:(2021, 1, 1) ~title:"B" "x";
+        ]
+      ~links:[] ()
+  in
+  let r = Arod_search.search t ~today ~limit:1 "x" in
+  check "limit caps the work list" (List.length r.work = 1);
+  check "but not the total" (r.work_total = 2);
+  let r = Arod_search.search t ~today "kind:note" in
+  check "a filter-only query browses by date"
+    (slugs r.work = [ "b"; "a" ]);
+  check "an empty query is empty"
+    (Arod_search.search t ~today "" = Arod_search.empty)
+
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t =
+    index ~sw
+      ~notes:[]
+      ~links:
+        [
+          link ~title:"Duplicate" ~slugs:[ "p" ] "https://d.org/a";
+          link ~title:"Duplicate" ~slugs:[ "p" ]
+            "https://www.d.org/a/";
+          link ~title:"Own" ~slugs:[ "p" ] "https://example.com/x";
+        ]
+      ~own_host:"example.com" ()
+  in
+  let r = Arod_search.search t ~today "kind:link" in
+  check "a browse dedupes links and drops the site's own host"
+    (List.length r.links = 1 && r.links_total = 1
+    && Arod_search.normalise_url (List.hd r.links).url = "d.org/a")
+
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t =
+    index ~sw
+      ~notes:[]
+      ~links:
+        [
+          link ~title:"Same" ~slugs:[ "p" ] "https://h.org/a";
+          link ~title:"Same" ~slugs:[ "p"; "q" ] "https://h.org/b";
+        ]
+      ()
+  in
+  let r = Arod_search.search t ~today "same" in
+  check "two URLs on one host sharing a title are one link, kept by score"
+    (let hits =
+       List.filter
+         (fun (h : Arod_search.hit) -> Arod_search.host_of_url h.url = "h.org")
+         r.links
+     in
+     List.map (fun (h : Arod_search.hit) -> h.url) hits
+     = [ "https://h.org/b" ])
+
+let () =
+  check "kind priors favour projects over ideas"
+    (Arod_search.kind_prior "project" > Arod_search.kind_prior "paper"
+    && Arod_search.kind_prior "paper" > Arod_search.kind_prior "idea");
+  check "freshness is 1.25 this month and 1.0 after eight years"
+    (Arod_search.freshness ~today "2026-08-01" = 1.25
+    && Arod_search.freshness ~today "2018-01-01" = 1.0);
+  check "freshness does not exceed 1.25 for a future date"
+    (Arod_search.freshness ~today "2030-01-01" = 1.25);
+  check "the citation bonus is 1 for a single citation"
+    (Arod_search.citation_bonus 1 = 1.0
+    && Arod_search.citation_bonus 2 > 1.0);
+  check "host_of_url drops scheme and www"
+    (Arod_search.host_of_url "https://www.Example.com/a/b" = "example.com")
 
 let () = Printf.printf "test_search: %d checks ok\n" !checks

@@ -127,8 +127,8 @@ let env =
         in
         fun sink -> Proffer.Body.Sink.write sink s);
     search =
-      (fun ~q ~limit ->
-        let s = Printf.sprintf "%s/%d" q limit in
+      (fun ~q ~limit ~link_limit ->
+        let s = Printf.sprintf "%s/%d/%d" q limit link_limit in
         ((fun sink -> Proffer.Body.Sink.write sink s), String.length q));
     log_search =
       (fun ~query ~limit ~results ->
@@ -299,13 +299,12 @@ let () =
   check "an out of range limit is clamped"
     (body (get "/api/entries?collection=links&limit=9999") = "links/0/100");
   check "the search API reads its query"
-    (body (get "/api/search?q=ocaml&limit=3") = "ocaml/3");
-  check "and reports the query it was given and the count it found"
+    (body (get "/api/search?q=ocaml&limit=3&link_limit=2") = "ocaml/3/2");
+  check "and logs before and after"
     (List.rev !searches = [ "ocaml/3/?"; "ocaml/3/5" ]);
   searches := [];
-  check "an empty query is still reported"
-    (body (get "/api/search") = "/20");
-  check "with no results" (List.rev !searches = [ "/20/?"; "/20/0" ]);
+  check "an absent query is the empty string"
+    (body (get "/api/search") = "/20/12");
   check "a known well-known key is served"
     (body (get "/.well-known/known") = "value");
   check "an unknown one is a 404" (code (get "/.well-known/other") = 404);

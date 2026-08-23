@@ -511,43 +511,108 @@ module Search_hit = struct
     |> Jsont.Object.finish
 end
 
-let search_codec =
-  Jsont.Object.map ~kind:"results" Fun.id
-  |> Jsont.Object.mem "results" (Jsont.list Search_hit.codec) ~enc:Fun.id
+module Search_goto = struct
+  type t = { label : string; url : string; detail : string; kind : string }
+
+  let codec =
+    Jsont.Object.map ~kind:"goto" (fun label url detail kind ->
+      { label; url; detail; kind })
+    |> Jsont.Object.mem "label" Jsont.string ~enc:(fun g -> g.label)
+    |> Jsont.Object.mem "url" Jsont.string ~enc:(fun g -> g.url)
+    |> Jsont.Object.mem "detail" Jsont.string ~enc:(fun g -> g.detail)
+    |> Jsont.Object.mem "kind" Jsont.string ~enc:(fun g -> g.kind)
+    |> Jsont.Object.finish
+end
+
+(* A facet is a name and a count. The member naming the thing counted
+   differs per facet, so one codec is built per member name. *)
+let count_codec ~kind name =
+  Jsont.Object.map ~kind (fun k n -> (k, n))
+  |> Jsont.Object.mem name Jsont.string ~enc:fst
+  |> Jsont.Object.mem "count" Jsont.int ~enc:snd
   |> Jsont.Object.finish
 
-let search ~ctx (results : Arod_search.result list) =
+let year_codec =
+  Jsont.Object.map ~kind:"year" (fun y n -> (y, n))
+  |> Jsont.Object.mem "year" Jsont.int ~enc:fst
+  |> Jsont.Object.mem "count" Jsont.int ~enc:snd
+  |> Jsont.Object.finish
+
+module Search_response = struct
+  type t = {
+    goto : Search_goto.t list;
+    work : Search_hit.t list;
+    work_total : int;
+    links : Search_hit.t list;
+    links_total : int;
+    kinds : (string * int) list;
+    years : (int * int) list;
+    tags : (string * int) list;
+  }
+
+  let codec =
+    Jsont.Object.map ~kind:"results"
+      (fun goto work work_total links links_total kinds years tags ->
+        { goto; work; work_total; links; links_total; kinds; years; tags })
+    |> Jsont.Object.mem "goto" (Jsont.list Search_goto.codec)
+         ~enc:(fun r -> r.goto)
+    |> Jsont.Object.mem "work" (Jsont.list Search_hit.codec)
+         ~enc:(fun r -> r.work)
+    |> Jsont.Object.mem "work_total" Jsont.int ~enc:(fun r -> r.work_total)
+    |> Jsont.Object.mem "links" (Jsont.list Search_hit.codec)
+         ~enc:(fun r -> r.links)
+    |> Jsont.Object.mem "links_total" Jsont.int
+         ~enc:(fun r -> r.links_total)
+    |> Jsont.Object.mem "kinds" (Jsont.list (count_codec ~kind:"kind" "kind"))
+         ~enc:(fun r -> r.kinds)
+    |> Jsont.Object.mem "years" (Jsont.list year_codec) ~enc:(fun r -> r.years)
+    |> Jsont.Object.mem "tags" (Jsont.list (count_codec ~kind:"tag" "tag"))
+         ~enc:(fun r -> r.tags)
+    |> Jsont.Object.finish
+end
+
+let search_hit ~ctx (r : Arod_search.hit) =
   let entries = Arod.Ctx.entries ctx in
-  let hits = List.map (fun (r : Arod_search.result) ->
-    let parents = List.filter_map (fun slug ->
-      match Arod.Ctx.lookup ctx slug with
-      | Some ent ->
-        Some {
-          Search_parent.slug;
-          title = Bushel.Entry.title ent;
-          url = Bushel.Entry.site_url ent;
-          kind = Bushel.Entry.to_type_string ent;
-        }
-      | None -> None
-    ) r.parent_slugs in
-    let thumbnail = match r.kind with
-      | "link" ->
-        (match Arod.Ctx.link_for_url ctx r.url with
-         | Some link ->
-           let meta = match link.karakeep with Some k -> k.metadata | None -> [] in
-           (match List.assoc_opt "favicon" meta with
-            | Some f when f <> "" -> Some f
-            | _ -> None)
-         | None -> None)
-      | _ ->
-        (match Arod.Ctx.lookup ctx r.slug with
-         | Some ent -> Bushel.Entry.thumbnail entries ent
-         | None -> None)
-    in
-    { Search_hit.slug = r.slug; kind = r.kind; url = r.url; title = r.title;
-      snippet = r.snippet; date = r.date; tags = r.tags; thumbnail; parents }
-  ) results in
-  Arod_json.stream search_codec hits
+  let parents = List.filter_map (fun slug ->
+    match Arod.Ctx.lookup ctx slug with
+    | Some ent ->
+      Some {
+        Search_parent.slug;
+        title = Bushel.Entry.title ent;
+        url = Bushel.Entry.site_url ent;
+        kind = Bushel.Entry.to_type_string ent;
+      }
+    | None -> None
+  ) r.parent_slugs in
+  let thumbnail = match r.kind with
+    | "link" ->
+      (match Arod.Ctx.link_for_url ctx r.url with
+       | Some link ->
+         let meta = match link.karakeep with Some k -> k.metadata | None -> [] in
+         (match List.assoc_opt "favicon" meta with
+          | Some f when f <> "" -> Some f
+          | _ -> None)
+       | None -> None)
+    | _ ->
+      (match Arod.Ctx.lookup ctx r.slug with
+       | Some ent -> Bushel.Entry.thumbnail entries ent
+       | None -> None)
+  in
+  { Search_hit.slug = r.slug; kind = r.kind; url = r.url; title = r.title;
+    snippet = r.snippet; date = r.date; tags = r.tags; thumbnail; parents }
+
+let goto_kind_string = function
+  | `Section -> "section" | `Project -> "project" | `Tag -> "tag"
+
+let search ~ctx (r : Arod_search.results) =
+  let goto = List.map (fun (g : Arod_search.goto) ->
+    { Search_goto.label = g.label; url = g.url; detail = g.detail;
+      kind = goto_kind_string g.goto_kind }) r.goto in
+  Arod_json.stream Search_response.codec
+    { Search_response.goto; work = List.map (search_hit ~ctx) r.work;
+      work_total = r.work_total; links = List.map (search_hit ~ctx) r.links;
+      links_total = r.links_total; kinds = r.kinds; years = r.years;
+      tags = r.tags }
 
 (** {1 Stats dashboard} *)
 

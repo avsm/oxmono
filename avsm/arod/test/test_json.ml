@@ -57,8 +57,8 @@ let ctx =
     (Bushel.Entry.v ~papers:[] ~notes:[ note ] ~projects:[] ~ideas:[]
        ~videos:[] ~contacts:[] ~data_dir:"." ())
 
-let result ?(kind = "note") ?(snippet = "s") ?(tags = [])
-    ?(parent_slugs = []) slug : Arod_search.result =
+let hit ?(kind = "note") ?(snippet = "s") ?(tags = []) ?(parent_slugs = [])
+    slug : Arod_search.hit =
   {
     Arod_search.slug;
     kind;
@@ -66,8 +66,22 @@ let result ?(kind = "note") ?(snippet = "s") ?(tags = [])
     title = "T";
     snippet;
     date = "2024-02-03";
-    rank = 0.0;
+    tags;
     parent_slugs;
+    score = 1.0;
+  }
+
+let results ?(goto = []) ?(links = []) ?(kinds = []) ?(years = [])
+    ?(tags = []) work : Arod_search.results =
+  {
+    Arod_search.terms = [];
+    goto;
+    work;
+    work_total = List.length work;
+    links;
+    links_total = List.length links;
+    kinds;
+    years;
     tags;
   }
 
@@ -82,37 +96,61 @@ let render write =
        (fun s -> Buffer.add_string b s));
   Buffer.contents b
 
-let search results = render (Arod_handlers.Render.search ~ctx results)
+let search r = render (Arod_handlers.Render.search ~ctx r)
+
+let empty_tail =
+  {|,"work_total":0,"links":[],"links_total":0,"kinds":[],"years":[],|}
+  ^ {|"tags":[]}|}
 
 let () =
-  eq "an empty result set is an empty array"
-    (search [])
-    {|{"results":[]}|};
+  eq "an empty result set is every member, empty"
+    (search Arod_search.empty)
+    ({|{"goto":[],"work":[]|} ^ empty_tail);
   eq "a bare hit omits tags, thumbnail and parents"
-    (search [ result "a-note" ])
-    ({|{"results":[{"slug":"a-note","kind":"note","url":"/notes/a-note",|}
-     ^ {|"title":"T","snippet":"s","date":"2024-02-03"}]}|});
+    (search (results [ hit "a-note" ]))
+    ({|{"goto":[],"work":[{"slug":"a-note","kind":"note",|}
+     ^ {|"url":"/notes/a-note",|}
+     ^ {|"title":"T","snippet":"s","date":"2024-02-03"}],"work_total":1,|}
+     ^ {|"links":[],"links_total":0,"kinds":[],"years":[],"tags":[]}|});
   eq "tags are emitted when the entry has them"
-    (search [ result ~tags:[ "ocaml"; "mirage" ] "a-note" ])
-    ({|{"results":[{"slug":"a-note","kind":"note","url":"/notes/a-note",|}
+    (search (results [ hit ~tags:[ "ocaml"; "mirage" ] "a-note" ]))
+    ({|{"goto":[],"work":[{"slug":"a-note","kind":"note",|}
+     ^ {|"url":"/notes/a-note",|}
      ^ {|"title":"T","snippet":"s","date":"2024-02-03",|}
-     ^ {|"tags":["ocaml","mirage"]}]}|});
+     ^ {|"tags":["ocaml","mirage"]}],"work_total":1,|}
+     ^ {|"links":[],"links_total":0,"kinds":[],"years":[],"tags":[]}|});
   eq "a parent the context knows is expanded, one it does not is dropped"
-    (search [ result ~parent_slugs:[ "a-note"; "absent" ] "a-note" ])
-    ({|{"results":[{"slug":"a-note","kind":"note","url":"/notes/a-note",|}
+    (search (results [ hit ~parent_slugs:[ "a-note"; "absent" ] "a-note" ]))
+    ({|{"goto":[],"work":[{"slug":"a-note","kind":"note",|}
+     ^ {|"url":"/notes/a-note",|}
      ^ {|"title":"T","snippet":"s","date":"2024-02-03",|}
      ^ {|"parents":[{"slug":"a-note","title":"A Note",|}
-     ^ {|"url":"/notes/a-note","kind":"note"}]}]}|})
+     ^ {|"url":"/notes/a-note","kind":"note"}]}],"work_total":1,|}
+     ^ {|"links":[],"links_total":0,"kinds":[],"years":[],"tags":[]}|});
+  eq "go-to hits and facets are objects"
+    (search
+       (results
+          ~goto:[ { Arod_search.label = "Papers"; url = "/papers";
+                    detail = "section"; goto_kind = `Section } ]
+          ~kinds:[ ("note", 2) ] ~years:[ (2024, 2) ] ~tags:[ ("ocaml", 1) ]
+          []))
+    ({|{"goto":[{"label":"Papers","url":"/papers","detail":"section",|}
+     ^ {|"kind":"section"}],"work":[],"work_total":0,"links":[],|}
+     ^ {|"links_total":0,"kinds":[{"kind":"note","count":2}],|}
+     ^ {|"years":[{"year":2024,"count":2}],|}
+     ^ {|"tags":[{"tag":"ocaml","count":1}]}|})
 
 (* A snippet carries arbitrary document text into the response, so the
    escaping rule is pinned on the characters that have one. *)
 let () =
   let snippet = "q\"b s\\b lt< amp& nl\n tab\t cr\r del\127 e\xc3\xa9" in
   eq "a snippet escapes what RFC 8259 requires and nothing else"
-    (search [ result ~snippet "a-note" ])
-    ({|{"results":[{"slug":"a-note","kind":"note","url":"/notes/a-note",|}
+    (search (results [ hit ~snippet "a-note" ]))
+    ({|{"goto":[],"work":[{"slug":"a-note","kind":"note",|}
+     ^ {|"url":"/notes/a-note",|}
      ^ {|"title":"T","snippet":"q\"b s\\b lt< amp& nl\n tab\t cr\r |}
-     ^ "del\\u007F e\xc3\xa9\"" ^ {|,"date":"2024-02-03"}]}|})
+     ^ "del\\u007F e\xc3\xa9\"" ^ {|,"date":"2024-02-03"}],"work_total":1,|}
+     ^ {|"links":[],"links_total":0,"kinds":[],"years":[],"tags":[]}|})
 
 let () =
   eq "an absent collection is a JSON error object"

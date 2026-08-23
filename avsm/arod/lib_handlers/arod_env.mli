@@ -46,10 +46,13 @@ type t = {
           [collection] as the JSON the pagination API answers. It is a closure
           because it renders through jsont, whose codecs cannot cross a domain
           boundary. *)
-  search : q:string -> limit:int -> (Proffer.Body.Sink.t -> unit) * int;
-      (** [search ~q ~limit] is at most [limit] results for [q] as the JSON
-          the search box reads, paired with the number of results it holds. An
-          empty [q] is an empty result set and queries nothing. *)
+  search :
+    q:string -> limit:int -> link_limit:int ->
+    (Proffer.Body.Sink.t -> unit) * int;
+      (** [search ~q ~limit ~link_limit] is the tiers for [q], at most
+          [limit] work hits and [link_limit] links, as the JSON the search
+          page reads, paired with the number of hits in both tiers. An empty
+          [q] is an empty result set and queries nothing. *)
   log_search : query:string -> limit:int -> results:int option -> unit;
       (** [log_search ~query ~limit ~results] records a search API request.
           [results] is [None] before the query runs and [Some n] once it has
@@ -75,7 +78,7 @@ type t = {
 val create :
   ctx:Arod.Ctx.t ->
   cache:Proffer.Cache.t ->
-  search:(limit:int -> string -> Arod_search.result list) ->
+  search:(limit:int -> link_limit:int -> string -> Arod_search.results) ->
   log_search:(query:string -> limit:int -> results:int option -> unit) ->
   read_image:(string list -> string option) ->
   read_paper:(string -> string option) ->

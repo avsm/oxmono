@@ -285,6 +285,51 @@ let test_motion_reduce_transition_none () =
   in
   check bool "should NOT have shorthand transition: none 0s" false has_shorthand
 
+(* The class a modifier renders has to be the class it was read from. This is
+   the cheap guard on the two spellings staying merged: the class name comes
+   from Style.pp_modifier and the selector from the table Modifiers exposes, and
+   while those were two tables they disagreed on nine constructors without
+   anything failing. Both directions matter - Style is the right arm for the
+   supports- shorthand and not-[...], Modifiers' was for not-* and the data
+   attributes. *)
+let test_modifier_class_roundtrip () =
+  List.iter
+    (fun cls ->
+      match Tw.of_string cls with
+      | Error (`Msg m) -> Alcotest.failf "%s rejected: %s" cls m
+      | Ok u ->
+          Alcotest.(check string)
+            (cls ^ " round-trips") cls (Tw.to_classes [ u ]))
+    [
+      "hover:p-4";
+      "not-hover:p-4";
+      "not-focus:p-4";
+      "not-sm:p-4";
+      "not-[.foo]:p-4";
+      "data-[state=open]:flex";
+      "data-[variant=ghost]:flex";
+      "data-[foo=bar]:flex";
+      "data-foo:flex";
+      "data-active:p-1";
+      "supports-grid:flex";
+      "supports-[display:grid]:flex";
+      "has-[:focus]:border-2";
+      "has-checked:flex";
+      "group-has-[:focus]:flex";
+      "peer-checked:bg-blue-500";
+      "aria-checked:p-4";
+      "aria-[sort=ascending]:p-4";
+      "min-[320px]:flex";
+      "max-[48rem]:flex";
+      "@sm:flex";
+      "@[600px]:flex";
+      "dark:hover:bg-gray-800";
+      "md:focus:outline-none";
+      "in-[.parent]:flex";
+      "before:block";
+      "marker:text-gray-500";
+    ]
+
 (* Test suite *)
 (* The [!] prefix marks the utility's own declarations !important, leaves theme
    tokens (--spacing) normal, preserves the class name, and nests under a
@@ -374,7 +419,9 @@ let test_pp_modifier_strings () =
   check string "pp sm" "sm" (pp_modifier (Responsive `Sm));
   check string "pp container md" "@md"
     (pp_modifier (Container Tw.Style.Container_md));
-  check string "pp container named width" "@600px"
+  (* An unnamed width is the arbitrary form; [@600px] is not a class the parser
+     reads back, and Tailwind spells it [@[600px]]. *)
+  check string "pp container named width" "@[600px]"
     (pp_modifier (Container (Tw.Style.Container_named ("", 600))));
   check string "pp has[...]" "has-[.foo]" (pp_modifier (Has ".foo"));
   check string "pp group-has[...]" "group-has-[.bar]"
@@ -420,6 +467,10 @@ let test_container_query_min_max () =
   has "@min-[20rem]:flex" "@container (width >= 20rem)";
   has "@max-[40rem]:flex" "@container (not (width >= 40rem))";
   has "@[480px]:flex" "@container (width >= 480px)";
+  (* A theme(--breakpoint-lg) arbitrary value resolves to the breakpoint the
+     [lg:] variant uses (64rem). *)
+  has "@min-[theme(--breakpoint-lg)]:flex" "@container (width >= 64rem)";
+  has "@max-[theme(--breakpoint-lg)]:flex" "@container (not (width >= 64rem))";
   check string "@max-md round-trips" "@max-md:p-4"
     (Tw.Utility.to_class (Option.get (apply [ "@max-md" ] (p 4))));
   check string "@min-[20rem] round-trips" "@min-[20rem]:p-4"
@@ -441,6 +492,147 @@ let test_apply_bracketed_has () =
   check string "peer-has class" "peer-has-[.z]:bg-blue-500"
     (Tw.Utility.to_class (Option.get u3))
 
+(* [has-<state>] takes the same state names as the group/peer variants, not just
+   checked: the name resolves to the pseudo-class that state matches, and
+   has-hover keeps the pointer gate hover itself carries. *)
+let test_has_state_shorthands () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has_infix affix cls =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has_infix ".has-focus\\:flex:has(:focus)" "has-focus:flex";
+  has_infix ".has-focus-visible\\:flex:has(:focus-visible)"
+    "has-focus-visible:flex";
+  has_infix ".has-first\\:flex:has(:first-child)" "has-first:flex";
+  has_infix ".has-odd\\:flex:has(:nth-child(odd))" "has-odd:flex";
+  has_infix ".group-has-focus\\:flex:is(:where(.group):has(:focus) *)"
+    "group-has-focus:flex";
+  check bool "has-hover keeps the pointer gate" true
+    (Astring.String.is_infix ~affix:"@media(hover:hover)" (css "has-hover:flex"));
+  (* the class name round-trips through the shorthand, not the bracket form *)
+  check string "has-focus round-trips" "has-focus:flex"
+    (Tw.pp (Result.get_ok (Tw.of_string "has-focus:flex")))
+
+(* A named anchor works on any state variant, not just the has/aria/data ones:
+   group-hover/edit scopes to .group\/edit. And a data variant takes the bare
+   attribute shorthand under group-/peer- too, keeping a class name distinct
+   from the bracket spelling. *)
+let test_named_anchor_and_bare_data () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "group-hover/edit:underline"
+    ".group-hover\\/edit\\:underline:is(:where(.group\\/edit):hover *)";
+  has "group-focus/option:underline"
+    ".group-focus\\/option\\:underline:is(:where(.group\\/option):focus *)";
+  has "peer-checked/draft:block"
+    ".peer-checked\\/draft\\:block:is(:where(.peer\\/draft):checked~*)";
+  has "group-data-modified:italic"
+    ".group-data-modified\\:italic:is(:where(.group)[data-modified] *)";
+  (* the bracket spelling keeps its own class name *)
+  has "group-data-[modified]:italic"
+    ".group-data-\\[modified\\]\\:italic:is(:where(.group)[data-modified] *)";
+  (* group-hover gates on the pointer, as a plain hover does *)
+  check bool "group-hover/edit keeps the pointer gate" true
+    (Astring.String.is_infix ~affix:"@media(hover:hover)"
+       (css "group-hover/edit:underline"))
+
+(* [has-data-lg] matches an attribute rather than a state but spells itself the
+   same way, and [not-] composes over any variant, including a scoped
+   [group-has-]: the negation wraps the whole relative selector. *)
+let test_has_data_and_not_composition () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "has-data-lg:opacity-40" ".has-data-lg\\:opacity-40:has([data-lg])";
+  has "group-has-data-lg:opacity-40"
+    ".group-has-data-lg\\:opacity-40:is(:where(.group):has([data-lg]) *)";
+  has "not-group-has-data-lg:opacity-40"
+    ".not-group-has-data-lg\\:opacity-40:not(:is(:where(.group):has([data-lg]) \
+     *))";
+  has "not-peer-has-checked:opacity-0"
+    ".not-peer-has-checked\\:opacity-0:not(:is(:where(.peer):has(:checked)~*))"
+
+(* A bracket [has-] argument is one relative selector, so a list inside it goes
+   in an [:is()]; a bare type selector keeps its brackets in the class name
+   rather than being read as a state name. And [group-not-] takes any variant as
+   its inner, not just the simple states. *)
+let test_has_bracket_arguments () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "has-[[data-a],[data-b]]:block" ":has(:is([data-a], [data-b]))";
+  has "has-[a]:block" ".has-\\[a\\]\\:block:has(a)";
+  has "group-has-[a]:block"
+    ".group-has-\\[a\\]\\:block:is(:where(.group):has(a) *)";
+  has "group-not-has-[[data-hover],[data-focus]]:block"
+    ":not(:has(:is([data-hover], [data-focus])))";
+  (* the hocus shorthand really is two selectors and stays a list *)
+  has "has-hocus:flex" ":has(:hover,:focus)"
+
+(* A group or peer bracket without an [&] attaches its compound to the anchor:
+   group-[.is-published] scopes to a .group that also has that class. It used to
+   be an unknown class, since the anchor had to be spelled. *)
+let test_anchor_bracket_without_ampersand () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "group-[.is-published]:block" ":is(:where(.group).is-published *)";
+  has "peer-[.is-dirty]:block" ":is(:where(.peer).is-dirty~*)";
+  (* the spelled anchor still works *)
+  has "group-[&:hover]:block" ":is(:where(.group):hover *)"
+
+(* What follows the [&] anchor in a group or peer bracket is a selector, so it
+   is read as one. A pseudo-class outside a short hand-written list came out as
+   a class literally named [:defined], and a compound remainder was taken whole
+   as an element name, so [&_p.foo] named an element [p.foo]. *)
+let test_anchor_bracket_reads_remainder () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "group-[&:defined]:flex"
+    {|.group-\[\&\:defined\]\:flex:is(:where(.group):defined *)|};
+  has "group-[&:nth-child(2)]:flex"
+    {|.group-\[\&\:nth-child\(2\)\]\:flex:is(:where(.group):nth-child(2) *)|};
+  has "group-[&_p.foo]:flex"
+    {|.group-\[\&_p\.foo\]\:flex:is(:where(.group) p.foo *)|};
+  (* the spellings that already worked stay byte-identical *)
+  has "group-[&:hover]:flex"
+    {|.group-\[\&\:hover\]\:flex:is(:where(.group):hover *)|};
+  has "group-[&_p]:flex" {|.group-\[\&_p\]\:flex:is(:where(.group) p *)|};
+  has "group-[:nth-of-type(3)_&]:flex" {|:is(:nth-of-type(3) :where(.group) *)|};
+  has "peer-[&:hover]:flex"
+    {|.peer-\[\&\:hover\]\:flex:is(:where(.peer):hover~*)|}
+
 (* Test ARIA and data modifiers class names *)
 let test_aria_and_data_modifiers () =
   check string "aria-checked:p-4" "aria-checked:p-4"
@@ -451,11 +643,13 @@ let test_aria_and_data_modifiers () =
     (Tw.Utility.to_class (data_active [ p 1 ]));
   check string "data-inactive:m-2" "data-inactive:m-2"
     (Tw.Utility.to_class (data_inactive [ m 2 ]));
-  check string "data-state=open:bg-blue-500" "data-state=open:bg-blue-500"
+  (* The class name has to be the class the selector matches, and Tailwind
+     brackets a data attribute carrying a value. *)
+  check string "data-[state=open]:bg-blue-500" "data-[state=open]:bg-blue-500"
     (Tw.Utility.to_class (data_state "open" (bg blue)));
-  check string "data-variant=primary:p-3" "data-variant=primary:p-3"
+  check string "data-[variant=primary]:p-3" "data-[variant=primary]:p-3"
     (Tw.Utility.to_class (data_variant "primary" (p 3)));
-  check string "data-status=on:m-4" "data-status=on:m-4"
+  check string "data-[status=on]:m-4" "data-[status=on]:m-4"
     (Tw.Utility.to_class (data_custom "status" "on" (m 4)))
 
 (* Test before/after pseudo-element modifiers *)
@@ -541,17 +735,157 @@ let test_nested_modifier_css_generation () =
       Alcotest.failf "Nested modifier CSS parse failed:\n%s"
         (Cascade.Error.to_string e)
 
+(* not-[<selector>] with an arbitrary selector parses [_] as a space and [&] as
+   the element, which becomes the universal selector inside the negation (so
+   not-[.os-macos_&]:block negates the descendant context as a :not over
+   .os-macos descendants). It used to escape the bracket content as one class
+   name instead. *)
+let test_not_bracket_arbitrary_selector () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  check bool "not-[.os-macos_&]:block negates the descendant context" true
+    (Astring.String.is_infix ~affix:":not(.os-macos *)"
+       (css "not-[.os-macos_&]:block"));
+  check bool "not-[.foo]:block negates a plain class" true
+    (Astring.String.is_infix ~affix:":not(.foo)" (css "not-[.foo]:block"))
+
+(* A group/peer arbitrary variant whose [&] anchor is preceded by a context
+   (e.g. group-[:nth-of-type(3)_&]) keeps that prefix ahead of the anchor,
+   rather than dropping it down to just :where(.group). *)
+let test_group_arbitrary_prefix () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  check bool "group-[:nth-of-type(3)_&] keeps the prefix" true
+    (Astring.String.is_infix ~affix:":is(:nth-of-type(3) :where(.group) *)"
+       (css "group-[:nth-of-type(3)_&]:block"));
+  check bool "group-[&_p] anchor-first still works" true
+    (Astring.String.is_infix ~affix:":is(:where(.group) p *)"
+       (css "group-[&_p]:block"))
+
+(* An nth-* bracket holds an An+B expression and a supports- bracket holds an
+   @supports condition; both are taken verbatim, so content the CSS grammar has
+   no production for escapes as a parse error out of the selector or condition
+   reader. They are validated where data-[ and has-[ are. *)
+let test_invalid_bracket_modifiers () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  rejected "nth-[]:flex";
+  rejected "nth-[abc]:flex";
+  rejected "nth-last-[]:flex";
+  rejected "nth-of-type-[]:flex";
+  rejected "nth-last-of-type-[]:flex";
+  rejected "supports-[]:flex"
+
+(* An aria- or data- variant names an attribute, so an empty argument would
+   compile to [[aria-]] or [[data-]]: a selector browsers parse and keep, and
+   nothing ever matches. An underscore stands for a space, so it is empty
+   too. *)
+let test_empty_attribute_brackets () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok u -> Alcotest.failf "expected %s to be rejected, got %s" cls (Tw.pp u)
+    | Error _ -> ()
+  in
+  rejected "aria-[]:flex";
+  rejected "aria-[_]:flex";
+  rejected "aria-_:flex";
+  rejected "group-aria-[]:flex";
+  rejected "peer-aria-[]:flex";
+  rejected "data-[]:flex";
+  rejected "data-[_]:flex";
+  rejected "group-data-[]:flex";
+  rejected "peer-data-[]:flex";
+  rejected "group-data-_:flex";
+  rejected "peer-data-_:flex"
+
+let test_padded_attribute_brackets () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok u -> Alcotest.failf "expected %s to be rejected, got %s" cls (Tw.pp u)
+    | Error _ -> ()
+  in
+  rejected "aria-[_modal_]:flex";
+  rejected "data-[_state=open_]:flex"
+
+(* The attribute spellings that do name something keep working, including the
+   empty-name-with-value form Tailwind also accepts. *)
+let test_attribute_brackets_still_parse () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let emits affix cls =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  emits "[aria-modal]" "aria-[modal]:flex";
+  emits "[aria-sort=ascending]" "aria-[sort=ascending]:flex";
+  emits "[aria-=true]" "aria-[=true]:flex";
+  emits "[data-state=open]" "data-[state=open]:flex";
+  emits "[data-dragging]" "group-data-[dragging]:flex";
+  emits "[data-dragging]" "peer-data-[dragging]:flex";
+  emits "[data-modified]" "group-data-modified:flex"
+
+(* The valid spellings the validation must keep accepting. *)
+let test_valid_bracket_modifiers () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let emits affix cls =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  emits ":nth-child(2n+1)" "nth-[2n+1]:flex";
+  emits ":nth-child(3)" "nth-[3]:flex";
+  emits ":nth-last-child(2n)" "nth-last-[2n]:flex";
+  emits ":nth-of-type(odd)" "nth-of-type-[odd]:flex";
+  emits "@supports (display: grid)" "supports-[display:grid]:flex"
+
 (* Extend the suite with new tests *)
 let tests =
   tests
   @ [
+      test_case "invalid bracket modifiers" `Quick
+        test_invalid_bracket_modifiers;
+      test_case "valid bracket modifiers" `Quick test_valid_bracket_modifiers;
+      test_case "empty attribute brackets" `Quick test_empty_attribute_brackets;
+      test_case "padded attribute brackets" `Quick
+        test_padded_attribute_brackets;
+      test_case "attribute brackets still parse" `Quick
+        test_attribute_brackets_still_parse;
+      test_case "not-[selector] arbitrary negation" `Quick
+        test_not_bracket_arbitrary_selector;
+      test_case "group arbitrary prefix anchor" `Quick
+        test_group_arbitrary_prefix;
       test_case "is_hover flags" `Quick test_is_hover;
       test_case "of_string parsing" `Quick test_of_string_parsing;
       test_case "pp_modifier strings" `Quick test_pp_modifier_strings;
       test_case "container query scale" `Quick test_container_query_scale;
       test_case "container query min/max" `Quick test_container_query_min_max;
       test_case "apply bracketed has variants" `Quick test_apply_bracketed_has;
+      test_case "has state shorthands" `Quick test_has_state_shorthands;
+      test_case "named anchor and bare data" `Quick
+        test_named_anchor_and_bare_data;
+      test_case "has-data and not- composition" `Quick
+        test_has_data_and_not_composition;
+      test_case "has bracket arguments" `Quick test_has_bracket_arguments;
+      test_case "anchor bracket without ampersand" `Quick
+        test_anchor_bracket_without_ampersand;
+      test_case "anchor bracket reads its remainder" `Quick
+        test_anchor_bracket_reads_remainder;
       test_case "ARIA and data modifiers" `Quick test_aria_and_data_modifiers;
+      test_case "modifier class round-trips" `Quick
+        test_modifier_class_roundtrip;
       test_case "before/after modifiers" `Quick test_before_after_modifiers;
       test_case "nested modifier class names" `Quick
         test_nested_modifier_class_names;

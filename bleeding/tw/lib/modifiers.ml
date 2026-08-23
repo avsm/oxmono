@@ -103,7 +103,8 @@ let arbitrary_length_class prefix (l : Css.length) cls =
   let len_str = compact_length l in
   Css.Selector.Class (prefix ^ "[" ^ len_str ^ "]:" ^ cls)
 
-(** Registry for custom breakpoint names (set via scheme) *)
+(** Legacy registry for callers of [Modifiers.apply] without an explicit
+    breakpoint list. [Tw.of_string] always supplies its threaded scheme. *)
 let custom_breakpoints : (string * float) list ref = ref []
 
 let register_custom_breakpoints bps = custom_breakpoints := bps
@@ -220,6 +221,21 @@ let open_pseudo () =
   let open Css.Selector in
   is_ [ attribute "open" Presence; Popover_open; Open ]
 
+let nest_selector ~parent template =
+  let open Css.Selector in
+  let sel = Css.Selector.read (Cascade.Cursor.of_string template) in
+  if Cascade.Nest.contains sel then Cascade.Nest.substitute ~parent sel
+  else
+    (* No anchor: the template compounds onto the parent. A type selector cannot
+       follow a class in a compound, so it goes in an [:is()]; anything else
+       ([.line], [[data-x]], [:hover]) attaches directly. *)
+    let inner =
+      match sel with
+      | Element _ | Compound (Element _ :: _) -> is_ [ sel ]
+      | _ -> sel
+    in
+    compound [ parent; inner ]
+
 (** Parse arbitrary bracket content into a selector tree. In bracket content:
     [_] = space, [&] = anchor (group/peer). E.g. "&_p" with group anchor ->
     ":where(.group) p" E.g. "&:hover" with group anchor ->
@@ -228,43 +244,7 @@ let parse_arbitrary_selector_content content anchor =
   let open Css.Selector in
   (* Replace _ with space for Tailwind convention *)
   let s = String.map (fun c -> if c = '_' then ' ' else c) content in
-  (* Split on & to find the anchor positions *)
-  let parts = String.split_on_char '&' s in
-  match parts with
-  | [ ""; rest ] ->
-      (* Content starts with & — most common case *)
-      let rest = String.trim rest in
-      if rest = "" then
-        (* Just "&" → :where(.group/peer) descendant *)
-        combine (where [ anchor ]) Descendant universal
-      else if rest.[0] = ':' then
-        (* "&:hover" → :where(.group):hover descendant *)
-        let pseudo_str = String.sub rest 1 (String.length rest - 1) in
-        let pseudo_sel =
-          match pseudo_str with
-          | "hover" -> Hover
-          | "focus" -> Focus
-          | "active" -> Active
-          | "focus-within" -> Focus_within
-          | "focus-visible" -> Focus_visible
-          | "checked" -> Checked
-          | "disabled" -> Disabled
-          | "first-child" -> First_child
-          | "last-child" -> Last_child
-          | _ -> Class (":" ^ pseudo_str)
-        in
-        combine (compound [ where [ anchor ]; pseudo_sel ]) Descendant universal
-      else
-        (* "& p" → :where(.group) p * — content after & is a descendant
-           element *)
-        let trimmed = String.trim rest in
-        let element_sel = Element (None, trimmed) in
-        combine
-          (combine (where [ anchor ]) Descendant element_sel)
-          Descendant universal
-  | _ ->
-      (* Fallback — just use the anchor as descendant *)
-      combine (where [ anchor ]) Descendant universal
+  combine (nest_selector ~parent:(where [ anchor ]) s) Descendant universal
 
 (** Build an anchor-based variant selector: :where(.anchor):pseudo combinator *)
 let anchor_pseudo_selector ~anchor ~combinator cls prefix pseudo =
@@ -948,239 +928,14 @@ let of_string class_str =
   | cls :: modifiers -> (List.rev modifiers, cls)
 
 (* Convert modifier to its string prefix *)
-let rec pp_modifier = function
-  | Hover -> "hover"
-  | Focus -> "focus"
-  | Active -> "active"
-  | Disabled -> "disabled"
-  | Group_hover -> "group-hover"
-  | Group_focus -> "group-focus"
-  | Peer_hover -> "peer-hover"
-  | Peer_focus -> "peer-focus"
-  | Peer_checked -> "peer-checked"
-  | Aria_checked -> "aria-checked"
-  | Aria_expanded -> "aria-expanded"
-  | Aria_selected -> "aria-selected"
-  | Aria_disabled -> "aria-disabled"
-  | Data_state value -> "data-[state=" ^ value ^ "]"
-  | Data_variant value -> "data-[variant=" ^ value ^ "]"
-  | Data_active -> "data-active"
-  | Data_inactive -> "data-inactive"
-  | Data_custom (key, "") -> "data-" ^ key
-  | Data_custom (key, value) -> "data-[" ^ key ^ "=" ^ value ^ "]"
-  | Dark -> "dark"
-  | Responsive breakpoint -> (
-      match breakpoint with
-      | `Sm -> "sm"
-      | `Md -> "md"
-      | `Lg -> "lg"
-      | `Xl -> "xl"
-      | `Xl_2 -> "2xl")
-  | Min_responsive breakpoint -> (
-      match breakpoint with
-      | `Sm -> "min-sm"
-      | `Md -> "min-md"
-      | `Lg -> "min-lg"
-      | `Xl -> "min-xl"
-      | `Xl_2 -> "min-2xl")
-  | Max_responsive breakpoint -> (
-      match breakpoint with
-      | `Sm -> "max-sm"
-      | `Md -> "max-md"
-      | `Lg -> "max-lg"
-      | `Xl -> "max-xl"
-      | `Xl_2 -> "max-2xl")
-  | Min_arbitrary px ->
-      let px_str =
-        if Float.is_integer px then Int.to_string (Float.to_int px)
-        else Float.to_string px
-      in
-      "min-[" ^ px_str ^ "px]"
-  | Max_arbitrary px ->
-      let px_str =
-        if Float.is_integer px then Int.to_string (Float.to_int px)
-        else Float.to_string px
-      in
-      "max-[" ^ px_str ^ "px]"
-  | Container query -> Containers.container_query_to_class_prefix query
-  | Not m -> "not-" ^ pp_modifier m
-  | Has selector -> "has-[" ^ selector ^ "]"
-  | Group_has (selector, None) -> "group-has-[" ^ selector ^ "]"
-  | Group_has (selector, Some name) -> "group-has-[" ^ selector ^ "]/" ^ name
-  | Peer_has (selector, None) -> "peer-has-[" ^ selector ^ "]"
-  | Peer_has (selector, Some name) -> "peer-has-[" ^ selector ^ "]/" ^ name
-  | Starting -> "starting"
-  | Focus_within -> "focus-within"
-  | Focus_visible -> "focus-visible"
-  | Motion_safe -> "motion-safe"
-  | Motion_reduce -> "motion-reduce"
-  | Contrast_more -> "contrast-more"
-  | Contrast_less -> "contrast-less"
-  | Pseudo_before -> "before"
-  | Pseudo_after -> "after"
-  | First -> "first"
-  | Last -> "last"
-  | Only -> "only"
-  | Odd -> "odd"
-  | Even -> "even"
-  | First_of_type -> "first-of-type"
-  | Last_of_type -> "last-of-type"
-  | Only_of_type -> "only-of-type"
-  | Nth expr -> Style.pp_nth "nth" expr
-  | Nth_last expr -> Style.pp_nth "nth-last" expr
-  | Nth_of_type expr -> Style.pp_nth "nth-of-type" expr
-  | Nth_last_of_type expr -> Style.pp_nth "nth-last-of-type" expr
-  | Empty -> "empty"
-  | Checked -> "checked"
-  | Indeterminate -> "indeterminate"
-  | Default -> "default"
-  | Required -> "required"
-  | Valid -> "valid"
-  | Invalid -> "invalid"
-  | In_range -> "in-range"
-  | Out_of_range -> "out-of-range"
-  | Placeholder_shown -> "placeholder-shown"
-  | Autofill -> "autofill"
-  | Read_only -> "read-only"
-  | Read_write -> "read-write"
-  | Optional -> "optional"
-  | Open -> "open"
-  | Enabled -> "enabled"
-  | Target -> "target"
-  | Visited -> "visited"
-  | Inert -> "inert"
-  | User_valid -> "user-valid"
-  | User_invalid -> "user-invalid"
-  | Group_first -> "group-first"
-  | Group_last -> "group-last"
-  | Group_only -> "group-only"
-  | Group_odd -> "group-odd"
-  | Group_even -> "group-even"
-  | Group_first_of_type -> "group-first-of-type"
-  | Group_last_of_type -> "group-last-of-type"
-  | Group_only_of_type -> "group-only-of-type"
-  | Peer_first -> "peer-first"
-  | Peer_last -> "peer-last"
-  | Peer_only -> "peer-only"
-  | Peer_odd -> "peer-odd"
-  | Peer_even -> "peer-even"
-  | Peer_first_of_type -> "peer-first-of-type"
-  | Peer_last_of_type -> "peer-last-of-type"
-  | Peer_only_of_type -> "peer-only-of-type"
-  | Group_active -> "group-active"
-  | Group_visited -> "group-visited"
-  | Group_disabled -> "group-disabled"
-  | Group_checked -> "group-checked"
-  | Group_empty -> "group-empty"
-  | Group_required -> "group-required"
-  | Group_valid -> "group-valid"
-  | Group_invalid -> "group-invalid"
-  | Group_indeterminate -> "group-indeterminate"
-  | Group_default -> "group-default"
-  | Group_open -> "group-open"
-  | Group_target -> "group-target"
-  | Peer_active -> "peer-active"
-  | Peer_visited -> "peer-visited"
-  | Peer_disabled -> "peer-disabled"
-  | Peer_empty -> "peer-empty"
-  | Peer_required -> "peer-required"
-  | Peer_valid -> "peer-valid"
-  | Peer_invalid -> "peer-invalid"
-  | Peer_indeterminate -> "peer-indeterminate"
-  | Peer_default -> "peer-default"
-  | Peer_open -> "peer-open"
-  | Peer_target -> "peer-target"
-  | Group_optional -> "group-optional"
-  | Peer_optional -> "peer-optional"
-  | Group_read_only -> "group-read-only"
-  | Peer_read_only -> "peer-read-only"
-  | Group_read_write -> "group-read-write"
-  | Peer_read_write -> "peer-read-write"
-  | Group_inert -> "group-inert"
-  | Peer_inert -> "peer-inert"
-  | Group_user_valid -> "group-user-valid"
-  | Peer_user_valid -> "peer-user-valid"
-  | Group_user_invalid -> "group-user-invalid"
-  | Peer_user_invalid -> "peer-user-invalid"
-  | Group_placeholder_shown -> "group-placeholder-shown"
-  | Peer_placeholder_shown -> "peer-placeholder-shown"
-  | Group_autofill -> "group-autofill"
-  | Peer_autofill -> "peer-autofill"
-  | Group_in_range -> "group-in-range"
-  | Peer_in_range -> "peer-in-range"
-  | Group_out_of_range -> "group-out-of-range"
-  | Peer_out_of_range -> "peer-out-of-range"
-  | Group_focus_within -> "group-focus-within"
-  | Peer_focus_within -> "peer-focus-within"
-  | Group_focus_visible -> "group-focus-visible"
-  | Peer_focus_visible -> "peer-focus-visible"
-  | Group_enabled -> "group-enabled"
-  | Peer_enabled -> "peer-enabled"
-  | Pseudo_marker -> "marker"
-  | Pseudo_selection -> "selection"
-  | Pseudo_placeholder -> "placeholder"
-  | Pseudo_backdrop -> "backdrop"
-  | Pseudo_file -> "file"
-  | Pseudo_first_letter -> "first-letter"
-  | Pseudo_first_line -> "first-line"
-  | Pseudo_details_content -> "details-content"
-  | Children -> "*"
-  | Descendants -> "**"
-  | Ltr -> "ltr"
-  | Rtl -> "rtl"
-  | Print -> "print"
-  | Portrait -> "portrait"
-  | Landscape -> "landscape"
-  | Forced_colors -> "forced-colors"
-  | Inverted_colors -> "inverted-colors"
-  | Pointer_none -> "pointer-none"
-  | Pointer_coarse -> "pointer-coarse"
-  | Pointer_fine -> "pointer-fine"
-  | Any_pointer_none -> "any-pointer-none"
-  | Any_pointer_coarse -> "any-pointer-coarse"
-  | Any_pointer_fine -> "any-pointer-fine"
-  | Noscript -> "noscript"
-  | Supports cond -> "supports-[" ^ cond ^ "]"
-  | Custom_responsive name -> name
-  | Min_custom name -> "min-" ^ name
-  | Max_custom name -> "max-" ^ name
-  | Group_hocus -> "group-hocus"
-  | Peer_hocus -> "peer-hocus"
-  | Group_arbitrary sel -> "group-[" ^ sel ^ "]"
-  | Peer_arbitrary sel -> "peer-[" ^ sel ^ "]"
-  | Min_arbitrary_length l -> "min-[" ^ compact_length l ^ "]"
-  | Max_arbitrary_length l -> "max-[" ^ compact_length l ^ "]"
-  | Hocus -> "hocus"
-  | Device_hocus -> "device-hocus"
-  | Not_bracket content -> "[" ^ content ^ "]"
-  | Group_not (inner, None) -> "group-not-" ^ pp_modifier inner
-  | Group_not (inner, Some name) ->
-      "group-not-" ^ pp_modifier inner ^ "/" ^ name
-  | Peer_not (inner, None) -> "peer-not-" ^ pp_modifier inner
-  | Peer_not (inner, Some name) -> "peer-not-" ^ pp_modifier inner ^ "/" ^ name
-  | In_bracket content -> "in-[" ^ content ^ "]"
-  | In_data attr -> "in-data-" ^ attr
-  | Data_bracket expr -> "data-[" ^ expr ^ "]"
-  | Group_data (expr, None) -> "group-data-[" ^ expr ^ "]"
-  | Group_data (expr, Some name) -> "group-data-[" ^ expr ^ "]/" ^ name
-  | Peer_data (expr, None) -> "peer-data-[" ^ expr ^ "]"
-  | Peer_data (expr, Some name) -> "peer-data-[" ^ expr ^ "]/" ^ name
-  | Aria_bracket expr -> "aria-[" ^ expr ^ "]"
-  | Group_aria (expr, None) -> "group-aria-" ^ expr
-  | Group_aria (expr, Some name) -> "group-aria-" ^ expr ^ "/" ^ name
-  | Peer_aria (expr, None) -> "peer-aria-" ^ expr
-  | Peer_aria (expr, Some name) -> "peer-aria-" ^ expr ^ "/" ^ name
-  | Not_named_group (inner, name) ->
-      "not-group-" ^ pp_modifier inner ^ "/" ^ name
-  | Has_named_group (inner, name) ->
-      "has-group-" ^ pp_modifier inner ^ "/" ^ name
-  | In_named_group (inner, name) -> "in-group-" ^ pp_modifier inner ^ "/" ^ name
-  | Group_peer_named (inner, name) ->
-      "group-peer-" ^ pp_modifier inner ^ "/" ^ name
-  | Arbitrary_selector content -> "[" ^ content ^ "]"
-  | Custom_variant (token, _) -> token
-  | Container_style (token, _) -> token
-  | Prose_element name -> "prose-" ^ name
+let group_state_modifiers = Style.group_state_modifiers
+let is_has_shorthand = Style.is_has_shorthand
+
+(* One table, in [Style]: this renders the class name that [Utility.to_class]
+   puts in the class attribute, and the selector built here has to be the
+   selector that class matches. Two tables drift, and the drift is invisible
+   until a class fails to select its own rule. *)
+let pp_modifier = Style.pp_modifier
 
 (* Find matching closing bracket, handling nested brackets *)
 let matching_bracket s =
@@ -1213,6 +968,91 @@ let extract_bracket_content ~prefix s =
   else None
 
 (* Extract bracketed content allowing an optional /name suffix *)
+(* Extract name suffix from "rest" after prefix, e.g. "checked/name" ->
+   ("checked", Some "name") *)
+let split_name rest =
+  match String.index_opt rest '/' with
+  | Some i ->
+      let base = String.sub rest 0 i in
+      let name = String.sub rest (i + 1) (String.length rest - i - 1) in
+      if name <> "" then (base, Some name) else (rest, None)
+  | None -> (rest, None)
+
+(* Try parsing has-shorthand modifiers like has-checked,
+   group-has-checked/name *)
+(* Known aria shorthand names that map to [aria-X=true] *)
+let is_aria_shorthand = function
+  | "busy" | "checked" | "disabled" | "expanded" | "hidden" | "pressed"
+  | "readonly" | "required" | "selected" ->
+      true
+  | _ -> false
+
+(* Try parsing group-aria-*/peer-aria-* shorthand with optional /name *)
+let try_aria_shorthand s =
+  if String.length s > 11 && String.sub s 0 11 = "group-aria-" then
+    let rest = String.sub s 11 (String.length s - 11) in
+    let base, name = split_name rest in
+    if is_aria_shorthand base then Some (Group_aria (base, name)) else None
+  else if String.length s > 10 && String.sub s 0 10 = "peer-aria-" then
+    let rest = String.sub s 10 (String.length s - 10) in
+    let base, name = split_name rest in
+    if is_aria_shorthand base then Some (Peer_aria (base, name)) else None
+  else None
+
+let try_has_shorthand s =
+  if String.length s > 4 && String.sub s 0 4 = "has-" then
+    let rest = String.sub s 4 (String.length s - 4) in
+    if is_has_shorthand rest then Some (Has rest) else None
+  else if String.length s > 10 && String.sub s 0 10 = "group-has-" then
+    let rest = String.sub s 10 (String.length s - 10) in
+    let base, name = split_name rest in
+    if is_has_shorthand base then Some (Group_has (base, name)) else None
+  else if String.length s > 9 && String.sub s 0 9 = "peer-has-" then
+    let rest = String.sub s 9 (String.length s - 9) in
+    let base, name = split_name rest in
+    if is_has_shorthand base then Some (Peer_has (base, name)) else None
+  else None
+
+(* A bare arbitrary variant with no [&] anchor compounds onto the utility's own
+   class, so it has to be a single compound selector: [[code]] and [[.line]] are
+   fine, [[>img]] and [[@media_print]] are not. *)
+let is_compound_selector inner =
+  (match inner.[0] with
+    | 'a' .. 'z' | 'A' .. 'Z' | '.' | '#' | '[' | ':' | '*' -> true
+    | _ | (exception _) -> false)
+  && not
+       (String.exists (fun c -> c = '_' || c = '>' || c = '+' || c = '~') inner)
+
+(* A plain identifier: what a group/peer name or a bare data attribute may be
+   spelled with. *)
+let is_plain_ident str =
+  str <> ""
+  && String.for_all
+       (fun c ->
+         (c >= 'a' && c <= 'z')
+         || (c >= 'A' && c <= 'Z')
+         || (c >= '0' && c <= '9')
+         || c = '-' || c = '_')
+       str
+
+(* An aria- or data- variant names an attribute: [aria-[modal]] matches
+   [[aria-modal]]. An argument that leaves the name empty gives [[aria-]], a
+   selector browsers parse and keep although nothing ever matches it, so it is
+   not a variant. An underscore stands for a space, so it is empty as well. *)
+let names_attribute expr =
+  let decoded = String.map (fun c -> if c = '_' then ' ' else c) expr in
+  decoded <> "" && String.equal decoded (String.trim decoded)
+
+(* [group-data-dragging] is [group-data-[dragging]] with a different spelling,
+   so it keeps its own class name. *)
+let try_bare_data s prefix make =
+  let plen = String.length prefix in
+  if String.length s <= plen || String.sub s 0 plen <> prefix then None
+  else
+    let base, name = split_name (String.sub s plen (String.length s - plen)) in
+    if is_plain_ident base && names_attribute base then Some (make base name)
+    else None
+
 let extract_bracket_content_with_name ~prefix s =
   if String.starts_with ~prefix s then
     let rest =
@@ -1274,17 +1114,127 @@ let is_valid_has_selector sel =
     true
   with Cascade.Cursor.Parse_error _ | Invalid_argument _ -> false
 
+(* An at-rule in brackets is a variant too: [[@supports(display:grid)]] and
+   [[@starting-style]] wrap the utility rather than select it. *)
+let try_bracket_at_rule s =
+  if String.length s >= 3 && s.[0] = '[' && s.[String.length s - 1] = ']' then
+    let inner = String.sub s 1 (String.length s - 2) in
+    if
+      inner = "@starting-style"
+      || (String.length inner > 9 && String.sub inner 0 9 = "@supports")
+    then Some (At_rule inner)
+    else None
+  else None
+
+(* Whether every [(] in [s] closes: a compound condition keeps its own parens,
+   so unwrapping one pair only makes sense when what is left is balanced. *)
+let is_balanced s =
+  let rec go i depth =
+    if i >= String.length s then depth = 0
+    else
+      match s.[i] with
+      | '(' -> go (i + 1) (depth + 1)
+      | ')' when depth = 0 -> false
+      | ')' -> go (i + 1) (depth - 1)
+      | _ -> go (i + 1) depth
+  in
+  go 0 0
+
+(* Properties whose [@supports] test Tailwind also runs against the prefixed
+   spelling, so a browser that only ships the prefix still matches. The set is
+   its browser-support data; these are the entries observed against v4.3.3.
+   [text-size-adjust] additionally carries the [-moz-] spelling. *)
+let supports_vendor_prefixes = function
+  | "backdrop-filter" | "background-clip" | "box-decoration-break" | "hyphens"
+  | "mask" | "mask-image" | "mask-origin" | "mask-size" | "print-color-adjust"
+  | "text-decoration-skip-ink" | "user-select" ->
+      [ "-webkit-" ]
+  | "text-size-adjust" -> [ "-webkit-"; "-moz-" ]
+  | _ -> []
+
+(* [(prop: value)] as Tailwind writes it: one test per prefixed spelling, the
+   unprefixed one last, joined with [or]. *)
+let supports_property_test prop value =
+  let one p = String.concat "" [ "("; p; prop; ":"; value; ")" ] in
+  match supports_vendor_prefixes prop with
+  | [] -> one ""
+  | prefixes ->
+      String.concat ""
+        [ "("; String.concat " or " (List.map one prefixes @ [ one "" ]); ")" ]
+
+let normalize_supports_condition condition_str =
+  (* Convert underscores to spaces (Tailwind bracket notation) *)
+  let cond = String.map (fun c -> if c = '_' then ' ' else c) condition_str in
+  if
+    String.length cond > 2
+    && cond.[0] = '-'
+    && cond.[1] = '-'
+    && not (String.contains cond ':')
+  then
+    (* Bare custom property: --test → (--test: var(--tw)) *)
+    "(" ^ cond ^ ": var(--tw))"
+  else if cond <> "" && cond.[0] = '(' && cond.[String.length cond - 1] = ')'
+  then
+    (* Already wrapped. A single [(prop: value)] still has to go through the
+       prefix expansion, so unwrap it and rebuild; anything else (a compound
+       condition, a [not]) is left as written. *)
+    let inner = String.sub cond 1 (String.length cond - 2) in
+    if is_balanced inner && String.contains inner ':' then
+      let i = String.index inner ':' in
+      supports_property_test
+        (String.trim (String.sub inner 0 i))
+        (String.trim (String.sub inner (i + 1) (String.length inner - i - 1)))
+    else cond
+  else if String.contains cond ':' then
+    let i = String.index cond ':' in
+    let prop = String.trim (String.sub cond 0 i) in
+    let value =
+      String.trim (String.sub cond (i + 1) (String.length cond - i - 1))
+    in
+    supports_property_test prop value
+  else if String.contains cond '(' then
+    (* Function call like font-format(opentype) or var(--test) *)
+    cond
+  else
+    (* Bare property name: backdrop-filter -> (backdrop-filter: var(--tw)), the
+       same expansion as the bare custom property above. A lone identifier is
+       not a condition the CSS grammar has a production for, so leaving it
+       raised a parse error out of the scanner. *)
+    "(" ^ cond ^ ": var(--tw))"
+
+(* Validate that a supports-[...] bracket normalizes to a condition the
+   [@supports] grammar has a production for. An empty or half-written one used
+   to reach the condition reader and raise from there. *)
+let is_valid_supports_condition cond =
+  cond <> ""
+  &&
+    try
+      ignore (Css.Supports.of_string (normalize_supports_condition cond));
+      true
+    with Cascade.Cursor.Parse_error _ | Invalid_argument _ -> false
+
+(* Validate that an nth-*-[...] bracket holds an An+B expression (Selectors 4
+   sec. 9.3). The reader raises on anything else, so the expression is checked
+   where the modifier is parsed, like the has- selector above. *)
+let is_valid_nth_expr expr =
+  try
+    ignore (parse_nth_selector expr);
+    true
+  with Cascade.Cursor.Parse_error _ | Invalid_argument _ -> false
+
 (* Try parsing a bracketed modifier, returning Some if matched *)
 (* Build the list of bracket pattern matchers for a given input string *)
 let bracket_named_patterns s =
   let ( let* ) = Option.bind in
-  let try_pattern prefix make =
-    let* content = extract_bracket_content ~prefix s in
-    Some (make content)
+  (* Every aria- and data- bracket here takes an attribute expression, so the
+     argument has to name an attribute. *)
+  let try_attr prefix make =
+    let* expr = extract_bracket_content ~prefix s in
+    if names_attribute expr then Some (make expr) else None
   in
   let try_named prefix make =
     let* expr, name = extract_bracket_content_with_name ~prefix s in
-    Some (make expr name)
+    if names_attribute expr then Some (make expr name) else None
   in
   let try_named_has prefix make =
     let* sel, name = extract_bracket_content_with_name ~prefix s in
@@ -1293,12 +1243,16 @@ let bracket_named_patterns s =
   [
     (fun () -> try_named "group-aria-[" (fun e n -> Group_aria (e, n)));
     (fun () -> try_named "peer-aria-[" (fun e n -> Peer_aria (e, n)));
-    (fun () -> try_pattern "aria-[" (fun expr -> Aria_bracket expr));
-    (fun () -> try_named "group-data-[" (fun e n -> Group_data (e, n)));
-    (fun () -> try_named "peer-data-[" (fun e n -> Peer_data (e, n)));
+    (fun () -> try_attr "aria-[" (fun expr -> Aria_bracket expr));
     (fun () ->
-      let* expr = extract_bracket_content ~prefix:"data-[" s in
-      if expr = "" then None else Some (Data_bracket expr));
+      try_named "group-data-[" (fun e n -> Group_data ("[" ^ e ^ "]", n)));
+    (fun () ->
+      try_named "peer-data-[" (fun e n -> Peer_data ("[" ^ e ^ "]", n)));
+    (* Bare shorthand: [group-data-dragging] is [group-data-[dragging]] with a
+       different spelling, so it keeps its own class name. *)
+    (fun () -> try_bare_data s "group-data-" (fun e n -> Group_data (e, n)));
+    (fun () -> try_bare_data s "peer-data-" (fun e n -> Peer_data (e, n)));
+    (fun () -> try_attr "data-[" (fun expr -> Data_bracket expr));
     (fun () -> try_named_has "group-has-[" (fun s n -> Group_has (s, n)));
     (fun () -> try_named_has "peer-has-[" (fun s n -> Peer_has (s, n)));
     (fun () ->
@@ -1308,14 +1262,14 @@ let bracket_named_patterns s =
 
 let bracket_value_patterns s =
   let ( let* ) = Option.bind in
-  let try_pattern prefix make =
-    let* content = extract_bracket_content ~prefix s in
-    Some (make content)
-  in
   let try_with prefix parse make =
     let* content = extract_bracket_content ~prefix s in
     let* value = parse content in
     Some (make value)
+  in
+  let try_nth prefix make =
+    let* expr = extract_bracket_content ~prefix s in
+    if is_valid_nth_expr expr then Some (make expr) else None
   in
   [
     (fun () -> try_with "min-[" parse_px_value (fun px -> Min_arbitrary px));
@@ -1324,28 +1278,35 @@ let bracket_value_patterns s =
       try_with "min-[" parse_css_length (fun l -> Min_arbitrary_length l));
     (fun () ->
       try_with "max-[" parse_css_length (fun l -> Max_arbitrary_length l));
-    (fun () -> try_pattern "nth-last-of-type-[" (fun e -> Nth_last_of_type e));
-    (fun () -> try_pattern "nth-of-type-[" (fun e -> Nth_of_type e));
-    (fun () -> try_pattern "nth-last-[" (fun e -> Nth_last e));
-    (fun () -> try_pattern "nth-[" (fun e -> Nth e));
-    (fun () -> try_pattern "supports-[" (fun c -> Supports c));
+    (fun () -> try_nth "nth-last-of-type-[" (fun e -> Nth_last_of_type e));
+    (fun () -> try_nth "nth-of-type-[" (fun e -> Nth_of_type e));
+    (fun () -> try_nth "nth-last-[" (fun e -> Nth_last e));
+    (fun () -> try_nth "nth-[" (fun e -> Nth e));
+    (fun () ->
+      let* cond = extract_bracket_content ~prefix:"supports-[" s in
+      if is_valid_supports_condition cond then Some (Supports cond) else None);
     (fun () ->
       try_with "group-["
         (fun sel ->
-          if sel <> "" && String.contains sel '&' then Some sel else None)
+          if sel <> "" && (String.contains sel '&' || is_compound_selector sel)
+          then Some sel
+          else None)
         (fun sel -> Group_arbitrary sel));
     (fun () ->
       try_with "peer-["
         (fun sel ->
-          if sel <> "" && String.contains sel '&' then Some sel else None)
+          if sel <> "" && (String.contains sel '&' || is_compound_selector sel)
+          then Some sel
+          else None)
         (fun sel -> Peer_arbitrary sel));
+    (fun () -> try_bracket_at_rule s);
     (fun () ->
-      if
-        String.length s >= 3
-        && s.[0] = '['
-        && s.[String.length s - 1] = ']'
-        && String.contains s '&'
-      then Some (Arbitrary_selector (String.sub s 1 (String.length s - 2)))
+      if String.length s >= 3 && s.[0] = '[' && s.[String.length s - 1] = ']'
+      then
+        let inner = String.sub s 1 (String.length s - 2) in
+        if String.contains inner '&' || is_compound_selector inner then
+          Some (Arbitrary_selector inner)
+        else None
       else None);
   ]
 
@@ -1581,22 +1542,18 @@ let simple_modifiers =
   ]
 
 (* Try looking up a custom breakpoint (e.g., "10xl", "min-10xl", "max-10xl") *)
-let try_custom_breakpoint s =
+let try_custom_breakpoint breakpoints s =
   (* Direct name: e.g., "10xl" → Custom_responsive *)
-  match List.assoc_opt s !custom_breakpoints with
-  | Some _px -> Some (Custom_responsive s)
-  | None ->
+  match List.mem s breakpoints with
+  | true -> Some (Custom_responsive s)
+  | false ->
       (* min-<name>: e.g., "min-10xl" → Min_custom *)
       if String.length s > 4 && String.sub s 0 4 = "min-" then
         let name = String.sub s 4 (String.length s - 4) in
-        match List.assoc_opt name !custom_breakpoints with
-        | Some _px -> Some (Min_custom name)
-        | None -> None
+        if List.mem name breakpoints then Some (Min_custom name) else None
       else if String.length s > 4 && String.sub s 0 4 = "max-" then
         let name = String.sub s 4 (String.length s - 4) in
-        match List.assoc_opt name !custom_breakpoints with
-        | Some _px -> Some (Max_custom name)
-        | None -> None
+        if List.mem name breakpoints then Some (Max_custom name) else None
       else None
 
 (** Try not-* shorthand patterns that aren't in simple_modifiers or bracket
@@ -1707,95 +1664,6 @@ let parse_group_peer_not_inner rest =
         | Some m -> Some (m, None)
         | None -> None)
 
-(* Valid has-shorthand names. These are stored as-is (without : prefix) so they
-   remain distinct from bracket forms like has-[:checked]. *)
-let is_has_shorthand = function "checked" | "hocus" -> true | _ -> false
-
-(* Extract name suffix from "rest" after prefix, e.g. "checked/name" ->
-   ("checked", Some "name") *)
-let split_name rest =
-  match String.index_opt rest '/' with
-  | Some i ->
-      let base = String.sub rest 0 i in
-      let name = String.sub rest (i + 1) (String.length rest - i - 1) in
-      if name <> "" then (base, Some name) else (rest, None)
-  | None -> (rest, None)
-
-(* Try parsing has-shorthand modifiers like has-checked,
-   group-has-checked/name *)
-(* Known aria shorthand names that map to [aria-X=true] *)
-let is_aria_shorthand = function
-  | "busy" | "checked" | "disabled" | "expanded" | "hidden" | "pressed"
-  | "readonly" | "required" | "selected" ->
-      true
-  | _ -> false
-
-(* Try parsing group-aria-*/peer-aria-* shorthand with optional /name *)
-let try_aria_shorthand s =
-  if String.length s > 11 && String.sub s 0 11 = "group-aria-" then
-    let rest = String.sub s 11 (String.length s - 11) in
-    let base, name = split_name rest in
-    if is_aria_shorthand base then Some (Group_aria (base, name)) else None
-  else if String.length s > 10 && String.sub s 0 10 = "peer-aria-" then
-    let rest = String.sub s 10 (String.length s - 10) in
-    let base, name = split_name rest in
-    if is_aria_shorthand base then Some (Peer_aria (base, name)) else None
-  else None
-
-let try_has_shorthand s =
-  if String.length s > 4 && String.sub s 0 4 = "has-" then
-    let rest = String.sub s 4 (String.length s - 4) in
-    if is_has_shorthand rest then Some (Has rest) else None
-  else if String.length s > 10 && String.sub s 0 10 = "group-has-" then
-    let rest = String.sub s 10 (String.length s - 10) in
-    let base, name = split_name rest in
-    if is_has_shorthand base then Some (Group_has (base, name)) else None
-  else if String.length s > 9 && String.sub s 0 9 = "peer-has-" then
-    let rest = String.sub s 9 (String.length s - 9) in
-    let base, name = split_name rest in
-    if is_has_shorthand base then Some (Peer_has (base, name)) else None
-  else None
-
-(* Map of simple state names to base modifiers for compound variant parsing *)
-let group_state_modifiers =
-  [
-    ("hover", Hover);
-    ("focus", Focus);
-    ("active", Active);
-    ("visited", Visited);
-    ("disabled", Disabled);
-    ("checked", Checked);
-    ("empty", Empty);
-    ("required", Required);
-    ("valid", Valid);
-    ("invalid", Invalid);
-    ("indeterminate", Indeterminate);
-    ("default", Default);
-    ("open", Open);
-    ("target", Target);
-    ("optional", Optional);
-    ("read-only", Read_only);
-    ("read-write", Read_write);
-    ("inert", Inert);
-    ("user-valid", User_valid);
-    ("user-invalid", User_invalid);
-    ("placeholder-shown", Placeholder_shown);
-    ("autofill", Autofill);
-    ("in-range", In_range);
-    ("out-of-range", Out_of_range);
-    ("focus-within", Focus_within);
-    ("focus-visible", Focus_visible);
-    ("enabled", Enabled);
-    ("first", First);
-    ("last", Last);
-    ("only", Only);
-    ("odd", Odd);
-    ("even", Even);
-    ("first-of-type", First_of_type);
-    ("last-of-type", Last_of_type);
-    ("only-of-type", Only_of_type);
-  ]
-
 (* Try to parse compound named group variants: not-group-STATE/name,
    has-group-STATE/name, in-group-STATE/name, group-peer-STATE/name *)
 let try_compound_named_group s =
@@ -1805,23 +1673,26 @@ let try_compound_named_group s =
       let rest = String.sub s plen (String.length s - plen) in
       let base, name_opt = split_name rest in
       match name_opt with
-      | Some name -> (
+      (* [group-hover/[]] is not a name Tailwind accepts. *)
+      | Some name when is_plain_ident name -> (
           match List.assoc_opt base group_state_modifiers with
           | Some m -> Some (make m name)
           | None -> None)
-      | None -> None
+      | Some _ | None -> None
     else None
   in
-  match try_match "not-group-" (fun m n -> Not_named_group (m, n)) with
-  | Some _ as r -> r
-  | None -> (
-      match try_match "has-group-" (fun m n -> Has_named_group (m, n)) with
-      | Some _ as r -> r
-      | None -> (
-          match try_match "in-group-" (fun m n -> In_named_group (m, n)) with
-          | Some _ as r -> r
-          | None -> try_match "group-peer-" (fun m n -> Group_peer_named (m, n))
-          ))
+  (* Longest prefix first: [group-peer-X/n] must not be read as [group-] with
+     the state [peer-X]. *)
+  List.find_map
+    (fun f -> f ())
+    [
+      (fun () -> try_match "not-group-" (fun m n -> Not_named_group (m, n)));
+      (fun () -> try_match "has-group-" (fun m n -> Has_named_group (m, n)));
+      (fun () -> try_match "in-group-" (fun m n -> In_named_group (m, n)));
+      (fun () -> try_match "group-peer-" (fun m n -> Group_peer_named (m, n)));
+      (fun () -> try_match "group-" (fun m n -> Named_group (m, n)));
+      (fun () -> try_match "peer-" (fun m n -> Named_peer (m, n)));
+    ]
 
 (* Try in-* pattern: in-[selector] or in-data-attr *)
 let try_in_modifier s =
@@ -1836,7 +1707,12 @@ let try_in_modifier s =
       | _ -> None
     else if String.length rest > 5 && String.sub rest 0 5 = "data-" then
       Some (In_data (String.sub rest 5 (String.length rest - 5)))
-    else None
+    else
+      (* [in-focus]: an ancestor in that state, the same state names the other
+         variants take. *)
+      match List.assoc_opt rest group_state_modifiers with
+      | Some m -> Some (In_state (m, rest))
+      | None -> None
 
 (* Try not-in-[...] pattern *)
 let try_not_in_modifier s =
@@ -1897,7 +1773,9 @@ let try_bare_data_aria s =
     String.length s > 5
     && String.sub s 0 5 = "aria-"
     && not (String.contains s '[')
-  then Some (Aria_bracket (String.sub s 5 (String.length s - 5)))
+  then
+    let expr = String.sub s 5 (String.length s - 5) in
+    if names_attribute expr then Some (Aria_bracket expr) else None
   else None
 
 (* Ordering of prose element variants (matches Tailwind v4 typography plugin) *)
@@ -1963,7 +1841,35 @@ let container_size_of_string = function
   | "7xl" -> Some Container_7xl
   | _ -> None
 
-let try_container_query s =
+(* A container-query arbitrary value may reference a theme token, e.g.
+   [@min-[theme(--breakpoint-lg)]]. [theme(--breakpoint-lg)] resolves to the
+   [--breakpoint-lg] default (64rem) via the same token table the [lg:] variant
+   publishes, so a plain length parse falls back to token resolution. *)
+let parse_container_length content =
+  match Css.parse_length content with
+  | Some _ as len -> len
+  | None ->
+      let s = String.trim content in
+      (* Tailwind spells the theme lookup [theme(--x)] and [--theme(--x)]. *)
+      let s =
+        if String.length s > 2 && String.sub s 0 2 = "--" then
+          String.sub s 2 (String.length s - 2)
+        else s
+      in
+      let n = String.length s in
+      if n > 7 && String.sub s 0 6 = "theme(" && s.[n - 1] = ')' then
+        let inner = String.trim (String.sub s 6 (n - 7)) in
+        let name =
+          if String.length inner >= 2 && String.sub inner 0 2 = "--" then
+            String.sub inner 2 (String.length inner - 2)
+          else inner
+        in
+        Option.bind (Scheme.token_default name) Css.parse_length
+      else None
+
+(* [@sm/main] aims a size query at the container named [main]. The name is the
+   tail after the last [/]; the head is any other container-query spelling. *)
+let rec try_container_query s =
   (* Match ["<prefix>[<len>]"] and build a modifier from the parsed length. *)
   let bracketed prefix mk =
     let plen = String.length prefix and slen = String.length s in
@@ -1973,8 +1879,9 @@ let try_container_query s =
       && s.[plen] = '['
       && s.[slen - 1] = ']'
     then
-      match Css.parse_length (String.sub s (plen + 1) (slen - plen - 2)) with
-      | Some len -> Some (mk len)
+      let raw = String.sub s (plen + 1) (slen - plen - 2) in
+      match parse_container_length raw with
+      | Some len -> Some (mk raw len)
       | None -> None
     else None
   in
@@ -1994,19 +1901,37 @@ let try_container_query s =
     List.find_map
       (fun f -> f ())
       [
-        (fun () -> bracketed "@" (fun len -> Container (Container_len len)));
         (fun () ->
-          bracketed "@min-" (fun len ->
-              Container (Container_len_cmp (Cq_min, len))));
+          bracketed "@" (fun raw len -> Container (Container_len (raw, len))));
         (fun () ->
-          bracketed "@max-" (fun len ->
-              Container (Container_len_cmp (Cq_max, len))));
-        (fun () -> sized "@min-" Cq_min);
-        (fun () -> sized "@max-" Cq_max);
+          bracketed "@min-" (fun raw len ->
+              Container (Container_len_cmp (Min, raw, len))));
+        (fun () ->
+          bracketed "@max-" (fun raw len ->
+              Container (Container_len_cmp (Max, raw, len))));
+        (fun () -> sized "@min-" Min);
+        (fun () -> sized "@max-" Max);
+        (fun () -> try_scoped_container_query s);
       ]
 
+and try_scoped_container_query s =
+  match String.rindex_opt s '/' with
+  | None -> None
+  | Some i -> (
+      let name = String.sub s (i + 1) (String.length s - i - 1) in
+      if name = "" then None
+      else
+        let head = String.sub s 0 i in
+        match
+          match List.assoc_opt head simple_modifiers with
+          | Some _ as m -> m
+          | None -> try_container_query head
+        with
+        | Some (Container q) -> Some (Container (Container_scoped (name, q)))
+        | _ -> None)
+
 (* Parse a modifier string into a typed Style.modifier *)
-let parse_modifier s : modifier option =
+let rec parse_modifier ~breakpoints s : modifier option =
   let fns =
     [
       (fun () -> List.assoc_opt s simple_modifiers);
@@ -2014,25 +1939,74 @@ let parse_modifier s : modifier option =
       (fun () -> try_bracketed_modifier s);
       (fun () -> try_aria_shorthand s);
       (fun () -> try_has_shorthand s);
+      (fun () -> try_has_variant ~breakpoints s);
       (fun () -> try_numeric_nth s);
       (fun () -> try_compound_named_group s);
       (fun () -> try_in_modifier s);
       (fun () -> try_not_in_modifier s);
       (fun () -> try_group_peer_not s);
+      (fun () -> try_group_peer_not_variant ~breakpoints s);
       (* Before [try_not_modifier]: a container variant handles its own [not-]
          (negating the structural condition), not the generic [Not] wrapper. *)
       (fun () -> try_container_variant s);
       (fun () -> try_not_modifier s);
       (fun () -> try_bare_data_aria s);
       (fun () -> try_prose_element s);
-      (fun () -> try_custom_breakpoint s);
+      (fun () -> try_custom_breakpoint breakpoints s);
       (fun () -> try_custom_variant s);
+      (* Last: a [not-] over any other variant negates the selector it produces.
+         The readings above come first because several [not-] spellings need
+         their own handling. *)
+      (fun () -> try_not_of_modifier ~breakpoints s);
     ]
   in
   List.find_map (fun f -> f ()) fns
 
+(* [group-not-has-[...]] and [peer-not-...]: the inner is any variant, read on
+   its own. The reading above only knows the simple state names and a bare
+   bracket. *)
+and try_group_peer_not_variant ~breakpoints s =
+  let try_prefix prefix make =
+    let plen = String.length prefix in
+    if String.length s <= plen || String.sub s 0 plen <> prefix then None
+    else
+      let base, name =
+        split_name (String.sub s plen (String.length s - plen))
+      in
+      match parse_modifier ~breakpoints base with
+      | Some m when is_not_compatible m -> Some (make m name)
+      | Some _ | None -> None
+  in
+  match try_prefix "group-not-" (fun i n -> Group_not (i, n)) with
+  | Some _ as r -> r
+  | None -> try_prefix "peer-not-" (fun i n -> Peer_not (i, n))
+
+(* [has-<variant>]: the argument is any variant, and that variant's own selector
+   goes inside [:has()]. The shorthand reading only knows the state names and a
+   bracket, so [has-peer-checked] fell through. *)
+and try_has_variant ~breakpoints s =
+  if String.length s > 4 && String.sub s 0 4 = "has-" then
+    match
+      parse_modifier ~breakpoints (String.sub s 4 (String.length s - 4))
+    with
+    | Some m when is_not_compatible m -> Some (Has_variant m)
+    | Some _ | None -> None
+  else None
+
+and try_not_of_modifier ~breakpoints s =
+  if not (String.length s > 4 && String.sub s 0 4 = "not-") then None
+  else
+    match
+      parse_modifier ~breakpoints (String.sub s 4 (String.length s - 4))
+    with
+    | Some m when is_not_compatible m -> Some (Not m)
+    | Some _ | None -> None
+
 (* Apply a list of modifier strings to a base utility *)
-let apply modifiers base_utility =
+let apply ?breakpoints modifiers base_utility =
+  let breakpoints =
+    Option.value ~default:(List.map fst !custom_breakpoints) breakpoints
+  in
   (* Convert utility to a list for wrapping *)
   let to_list = function
     | Utility.Group styles -> styles
@@ -2043,7 +2017,7 @@ let apply modifiers base_utility =
     match acc with
     | None -> None
     | Some u -> (
-        match parse_modifier modifier_str with
+        match parse_modifier ~breakpoints modifier_str with
         | Some m -> Some (wrap m (to_list u))
         | None -> None)
   in
@@ -2099,7 +2073,7 @@ let not_variant_order = function
   | Disabled -> 3100
   | Inert -> 3200
   (* Block 2: complex selectors *)
-  | Has _ -> 3300
+  | Has _ | Has_variant _ -> 3300
   | Aria_selected -> 3340
   | Aria_checked -> 3350
   | Aria_expanded -> 3360

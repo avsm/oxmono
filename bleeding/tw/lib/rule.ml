@@ -47,82 +47,116 @@ let escape_class_name name =
    applying modifiers. This removes brittle string-based handling and keeps
    selector semantics together. *)
 module Rules_selector = struct
-  (* Replace every occurrence of a class name in a selector AST. *)
-  let rec replace_class_in_selector ~old_class ~new_class = function
-    | Css.Selector.Class cls when String.equal cls old_class ->
-        Css.Selector.Class new_class
+  (* Replace every occurrence of a class name in a selector AST with a selector
+     of its own, so a variant can put structure where the class sat and keep
+     whatever the inner rule built around it. *)
+  let rec replace_class_with ~old_class ~replacement = function
+    | Css.Selector.Class cls when String.equal cls old_class -> replacement
     | Css.Selector.Compound selectors ->
         Css.Selector.Compound
-          (List.map (replace_class_in_selector ~old_class ~new_class) selectors)
+          (List.map (replace_class_with ~old_class ~replacement) selectors)
     | Css.Selector.Combined (a, comb, b) ->
         Css.Selector.Combined
-          ( replace_class_in_selector ~old_class ~new_class a,
+          ( replace_class_with ~old_class ~replacement a,
             comb,
-            replace_class_in_selector ~old_class ~new_class b )
+            replace_class_with ~old_class ~replacement b )
     | Css.Selector.Relative (comb, b) ->
         Css.Selector.Relative
-          (comb, replace_class_in_selector ~old_class ~new_class b)
+          (comb, replace_class_with ~old_class ~replacement b)
     | Css.Selector.List selectors ->
         Css.Selector.List
-          (List.map (replace_class_in_selector ~old_class ~new_class) selectors)
+          (List.map (replace_class_with ~old_class ~replacement) selectors)
     | Css.Selector.Is selectors ->
         Css.Selector.Is
-          (List.map (replace_class_in_selector ~old_class ~new_class) selectors)
+          (List.map (replace_class_with ~old_class ~replacement) selectors)
     | Css.Selector.Where selectors ->
         Css.Selector.Where
-          (List.map (replace_class_in_selector ~old_class ~new_class) selectors)
+          (List.map (replace_class_with ~old_class ~replacement) selectors)
     | Css.Selector.Not selectors ->
         Css.Selector.Not
-          (List.map (replace_class_in_selector ~old_class ~new_class) selectors)
+          (List.map (replace_class_with ~old_class ~replacement) selectors)
     | Css.Selector.Has selectors ->
         Css.Selector.Has
-          (List.map (replace_class_in_selector ~old_class ~new_class) selectors)
+          (List.map (replace_class_with ~old_class ~replacement) selectors)
     | Css.Selector.Slotted selectors ->
         Css.Selector.Slotted
-          (List.map (replace_class_in_selector ~old_class ~new_class) selectors)
+          (List.map (replace_class_with ~old_class ~replacement) selectors)
     | Css.Selector.Cue selectors ->
         Css.Selector.Cue
-          (List.map (replace_class_in_selector ~old_class ~new_class) selectors)
+          (List.map (replace_class_with ~old_class ~replacement) selectors)
     | Css.Selector.Cue_region selectors ->
         Css.Selector.Cue_region
-          (List.map (replace_class_in_selector ~old_class ~new_class) selectors)
+          (List.map (replace_class_with ~old_class ~replacement) selectors)
     | Css.Selector.Nth_child (nth, of_) ->
         Css.Selector.Nth_child
           ( nth,
             Option.map
-              (List.map (replace_class_in_selector ~old_class ~new_class))
+              (List.map (replace_class_with ~old_class ~replacement))
               of_ )
     | Css.Selector.Nth_last_child (nth, of_) ->
         Css.Selector.Nth_last_child
           ( nth,
             Option.map
-              (List.map (replace_class_in_selector ~old_class ~new_class))
+              (List.map (replace_class_with ~old_class ~replacement))
               of_ )
     | Css.Selector.Nth_of_type (nth, of_) ->
         Css.Selector.Nth_of_type
           ( nth,
             Option.map
-              (List.map (replace_class_in_selector ~old_class ~new_class))
+              (List.map (replace_class_with ~old_class ~replacement))
               of_ )
     | Css.Selector.Nth_last_of_type (nth, of_) ->
         Css.Selector.Nth_last_of_type
           ( nth,
             Option.map
-              (List.map (replace_class_in_selector ~old_class ~new_class))
+              (List.map (replace_class_with ~old_class ~replacement))
               of_ )
     | other -> other
 
-  (* Extract class name from a modified selector (with or without
-     pseudo-class). *)
+  (* Replace every occurrence of a class name in a selector AST. *)
+  let replace_class_in_selector ~old_class ~new_class =
+    replace_class_with ~old_class ~replacement:(Css.Selector.Class new_class)
+
+  (* The class a modifier's selector carries — the base class with the variant
+     prefixed. It does not always sit at the top: the child variant nests it
+     inside an [:is] with a child combinator, and a group variant puts the
+     anchor class beside it. So look for the class derived from [base_class]
+     anywhere in the selector, rather than taking whichever one comes first. *)
   let extract_modified_class_name modified_base_selector base_class =
-    match modified_base_selector with
-    | Css.Selector.Class cls -> cls
-    | Css.Selector.Compound selectors ->
-        List.find_map
-          (function Css.Selector.Class cls -> Some cls | _ -> None)
-          selectors
-        |> Option.value ~default:base_class
-    | _ -> base_class
+    let derived cls =
+      String.equal cls base_class
+      || String.length cls > String.length base_class + 1
+         && String.equal
+              (String.sub cls
+                 (String.length cls - String.length base_class - 1)
+                 (String.length base_class + 1))
+              (":" ^ base_class)
+    in
+    let rec find sel =
+      match sel with
+      | Css.Selector.Class cls when derived cls -> Some cls
+      | Css.Selector.Compound sels
+      | Css.Selector.List sels
+      | Css.Selector.Is sels
+      | Css.Selector.Where sels
+      | Css.Selector.Not sels
+      | Css.Selector.Has sels ->
+          List.find_map find sels
+      | Css.Selector.Combined (a, _, b) -> (
+          match find a with Some _ as r -> r | None -> find b)
+      | Css.Selector.Relative (_, b) -> find b
+      | _ -> None
+    in
+    Option.value (find modified_base_selector) ~default:base_class
+
+  (* A selector carrying a combinator cannot stand on the right of another one,
+     nor inside a compound, so it goes in [:is()] there - the same rule CSS
+     Nesting applies when substituting [&]. *)
+  let rec is_complex_selector = function
+    | Css.Selector.Combined _ -> true
+    | Css.Selector.Compound sels | Css.Selector.List sels ->
+        List.exists is_complex_selector sels
+    | _ -> false
 
   (* Transform selector by applying modifier to base class and updating
      descendants. *)
@@ -131,19 +165,43 @@ module Rules_selector = struct
     let replace_in_children =
       replace_class_in_selector ~old_class:base_class ~new_class:modified_class
     in
-    let rec transform = function
+    let substitute ~enclose =
+      if enclose && is_complex_selector modified_base_selector then
+        Css.Selector.is_ [ modified_base_selector ]
+      else modified_base_selector
+    in
+    (* [descendant] marks the right of a combinator. A [:where] there holds the
+       utility's own zero-specificity self-reference (as prose's [:where(.prose
+       > :last-child)] does), which only wants the new class name. An [:is] is
+       where the child and descendant variants bury the class, so an outer
+       variant has to reach into it. *)
+    let rec transform ~enclose ~descendant = function
       | Css.Selector.Class cls when String.equal cls base_class ->
-          modified_base_selector
+          substitute ~enclose
       | Css.Selector.Combined (base_sel, combinator, complex_sel) ->
           Css.Selector.Combined
-            (transform base_sel, combinator, replace_in_children complex_sel)
+            ( transform ~enclose ~descendant base_sel,
+              combinator,
+              transform ~enclose:true ~descendant:true complex_sel )
       | Css.Selector.Compound selectors ->
-          Css.Selector.Compound (List.map transform selectors)
+          Css.Selector.Compound
+            (List.map (transform ~enclose:true ~descendant) selectors)
       | Css.Selector.List selectors ->
-          Css.Selector.List (List.map transform selectors)
+          Css.Selector.List
+            (List.map (transform ~enclose ~descendant) selectors)
+      | Css.Selector.Is selectors ->
+          Css.Selector.Is
+            (List.map (transform ~enclose:false ~descendant:false) selectors)
+      | Css.Selector.Where selectors when not descendant ->
+          Css.Selector.Where
+            (List.map (transform ~enclose:false ~descendant) selectors)
+      | Css.Selector.Where _ as sel -> replace_in_children sel
+      | Css.Selector.Relative (comb, sel) ->
+          Css.Selector.Relative
+            (comb, transform ~enclose:true ~descendant:true sel)
       | other -> other
     in
-    transform selector
+    transform ~enclose:false ~descendant:false selector
 end
 
 let resolve_scheme = function Some s -> s | None -> Scheme.default
@@ -154,6 +212,17 @@ let breakpoint_rem = function
   | `Lg -> 64.
   | `Xl -> 80.
   | `Xl_2 -> 96.
+
+(* Publish the breakpoints through the theme-token registry so [theme()] in a
+   project's CSS resolves against the same values the [sm:]/[md:] variants use.
+   [Scheme.token] then answers for [--breakpoint-*] without a second table. *)
+let () =
+  List.iter
+    (fun bp ->
+      Scheme.register_default_token
+        ("breakpoint-" ^ string_of_breakpoint bp)
+        (Css.Pp.to_string Css.pp_length (Css.Rem (breakpoint_rem bp))))
+    [ `Sm; `Md; `Lg; `Xl; `Xl_2 ]
 
 let media_min_width_px px = Css.media_min_width_length (Css.Px px)
 let media_min_width_rem rem = Css.media_min_width_length (Css.Rem rem)
@@ -186,19 +255,19 @@ let negate_media = function
   | Css.Media.List _ as media ->
       Css.Media.of_string ("not " ^ Css.Media.to_string media)
 
-(** Get the media condition for a breakpoint, using px from scheme if available,
-    otherwise rem. *)
+(** Get the media condition for a breakpoint, using the scheme override when
+    available, otherwise the default rem value. *)
 let breakpoint_condition ?theme bp =
   let name = string_of_breakpoint bp in
-  match Scheme.breakpoint (resolve_scheme theme) name with
-  | Some px -> media_min_width_px px
+  match Scheme.breakpoint_length (resolve_scheme theme) name with
+  | Some length -> Css.media_min_width_length length
   | None -> media_min_width_rem (breakpoint_rem bp)
 
 (** Get the negated media condition for max-* breakpoints. *)
 let breakpoint_not_condition ?theme bp =
   let name = string_of_breakpoint bp in
-  match Scheme.breakpoint (resolve_scheme theme) name with
-  | Some px -> media_not_min_width_px px
+  match Scheme.breakpoint_length (resolve_scheme theme) name with
+  | Some length -> Css.media_not_min_width_length length
   | None -> media_not_min_width_rem (breakpoint_rem bp)
 
 (** Get the media condition and class prefix for a responsive modifier. *)
@@ -245,43 +314,57 @@ let responsive_modifier_condition ?theme = function
       let len_str = Modifiers.compact_length l in
       (Css.media_not_min_width_length l, "max-[" ^ len_str ^ "]")
   | Style.Custom_responsive name ->
-      let px =
-        match Scheme.breakpoint (resolve_scheme theme) name with
-        | Some px -> px
+      let length =
+        match Scheme.breakpoint_length (resolve_scheme theme) name with
+        | Some length -> length
         | None -> failwith ("unknown custom breakpoint: " ^ name)
       in
-      (media_min_width_px px, name)
+      (Css.media_min_width_length length, name)
   | Style.Min_custom name ->
-      let px =
-        match Scheme.breakpoint (resolve_scheme theme) name with
-        | Some px -> px
+      let length =
+        match Scheme.breakpoint_length (resolve_scheme theme) name with
+        | Some length -> length
         | None -> failwith ("unknown custom breakpoint: " ^ name)
       in
-      (media_min_width_px px, "min-" ^ name)
+      (Css.media_min_width_length length, "min-" ^ name)
   | Style.Max_custom name ->
-      let px =
-        match Scheme.breakpoint (resolve_scheme theme) name with
-        | Some px -> px
+      let length =
+        match Scheme.breakpoint_length (resolve_scheme theme) name with
+        | Some length -> length
         | None -> failwith ("unknown custom breakpoint: " ^ name)
       in
-      (media_not_min_width_px px, "max-" ^ name)
+      (Css.media_not_min_width_length length, "max-" ^ name)
   | _ -> failwith "not a responsive modifier"
 
 let selector_with_data_key selector key value =
   let attr_selector = Css.Selector.attribute key (Exact value) in
   Css.Selector.combine selector Descendant attr_selector
 
-let media_rule_with_prefix prefix condition base_class selector props =
+(* A [hover:] rule carries its own [@media (hover:hover)]. An outer query nests
+   the two rather than swallowing the inner one, which is the structure Tailwind
+   emits for [lg:hover:X] and [@md:hover:X]. *)
+let nested_hover ~selector ~props =
+  [ Css.media ~condition:hover_media [ Css.rule ~selector props ] ]
+
+let media_rule_with_prefix ?(inner_has_hover = false) prefix condition
+    base_class selector props =
   let modified_class = prefix ^ ":" ^ base_class in
   let new_selector =
     Rules_selector.replace_class_in_selector ~old_class:base_class
       ~new_class:modified_class selector
   in
-  media_query ~condition ~selector:new_selector ~props
-    ~base_class:modified_class ()
+  if inner_has_hover then
+    media_query ~condition ~selector:new_selector ~props:[]
+      ~base_class:modified_class
+      ~nested:(nested_hover ~selector:new_selector ~props)
+      ()
+  else
+    media_query ~condition ~selector:new_selector ~props
+      ~base_class:modified_class ()
 
-let responsive_rule ?theme breakpoint base_class selector props =
-  media_rule_with_prefix
+let responsive_rule ?theme ?inner_has_hover breakpoint base_class selector props
+    =
+  media_rule_with_prefix ?inner_has_hover
     (string_of_breakpoint breakpoint)
     (breakpoint_condition ?theme breakpoint)
     base_class selector props
@@ -297,14 +380,16 @@ let responsive_breakpoint_prefix prefix breakpoint =
   in
   prefix ^ "-" ^ suffix
 
-let min_responsive_rule ?theme breakpoint base_class selector props =
-  media_rule_with_prefix
+let min_responsive_rule ?theme ?inner_has_hover breakpoint base_class selector
+    props =
+  media_rule_with_prefix ?inner_has_hover
     (responsive_breakpoint_prefix "min" breakpoint)
     (breakpoint_condition ?theme breakpoint)
     base_class selector props
 
-let max_responsive_rule ?theme breakpoint base_class selector props =
-  media_rule_with_prefix
+let max_responsive_rule ?theme ?inner_has_hover breakpoint base_class selector
+    props =
+  media_rule_with_prefix ?inner_has_hover
     (responsive_breakpoint_prefix "max" breakpoint)
     (breakpoint_not_condition ?theme breakpoint)
     base_class selector props
@@ -313,59 +398,62 @@ let arbitrary_px_string px =
   if Float.is_integer px then Int.to_string (Float.to_int px)
   else Float.to_string px
 
-let min_arbitrary_rule px base_class selector props =
+let min_arbitrary_rule ?inner_has_hover px base_class selector props =
   let prefix = "min-[" ^ arbitrary_px_string px ^ "px]" in
-  media_rule_with_prefix prefix (media_min_width_px px) base_class selector
-    props
+  media_rule_with_prefix ?inner_has_hover prefix (media_min_width_px px)
+    base_class selector props
 
-let max_arbitrary_rule px base_class selector props =
+let max_arbitrary_rule ?inner_has_hover px base_class selector props =
   let prefix = "max-[" ^ arbitrary_px_string px ^ "px]" in
-  media_rule_with_prefix prefix
+  media_rule_with_prefix ?inner_has_hover prefix
     (media_not_min_width_px px)
     base_class selector props
 
-let arbitrary_length_rule prefix condition l base_class selector props =
+let arbitrary_length_rule ?inner_has_hover prefix condition l base_class
+    selector props =
   let len_str = Modifiers.compact_length l in
-  media_rule_with_prefix
+  media_rule_with_prefix ?inner_has_hover
     (prefix ^ "-[" ^ len_str ^ "]")
     condition base_class selector props
 
-let min_arbitrary_length_rule l base_class selector props =
-  arbitrary_length_rule "min"
+let min_arbitrary_length_rule ?inner_has_hover l base_class selector props =
+  arbitrary_length_rule ?inner_has_hover "min"
     (Css.media_min_width_length l)
     l base_class selector props
 
-let max_arbitrary_length_rule l base_class selector props =
-  arbitrary_length_rule "max"
+let max_arbitrary_length_rule ?inner_has_hover l base_class selector props =
+  arbitrary_length_rule ?inner_has_hover "max"
     (Css.media_not_min_width_length l)
     l base_class selector props
 
 let custom_breakpoint ?theme name =
-  match Scheme.breakpoint (resolve_scheme theme) name with
-  | Some px -> px
+  match Scheme.breakpoint_length (resolve_scheme theme) name with
+  | Some length -> length
   | None -> failwith ("unknown custom breakpoint: " ^ name)
 
-let custom_media_rule ?theme prefix condition_of_px name base_class selector
+let custom_media_rule ?theme ?inner_has_hover prefix condition_of_length name
+    base_class selector props =
+  let length = custom_breakpoint ?theme name in
+  media_rule_with_prefix ?inner_has_hover (prefix name)
+    (condition_of_length length)
+    base_class selector props
+
+let custom_responsive_rule ?theme ?inner_has_hover name base_class selector
     props =
-  let px = custom_breakpoint ?theme name in
-  media_rule_with_prefix (prefix name) (condition_of_px px) base_class selector
-    props
+  custom_media_rule ?theme ?inner_has_hover Fun.id Css.media_min_width_length
+    name base_class selector props
 
-let custom_responsive_rule ?theme name base_class selector props =
-  custom_media_rule ?theme Fun.id media_min_width_px name base_class selector
-    props
-
-let min_custom_rule ?theme name base_class selector props =
-  custom_media_rule ?theme
+let min_custom_rule ?theme ?inner_has_hover name base_class selector props =
+  custom_media_rule ?theme ?inner_has_hover
     (fun name -> "min-" ^ name)
-    media_min_width_px name base_class selector props
+    Css.media_min_width_length name base_class selector props
 
-let max_custom_rule ?theme name base_class selector props =
-  custom_media_rule ?theme
+let max_custom_rule ?theme ?inner_has_hover name base_class selector props =
+  custom_media_rule ?theme ?inner_has_hover
     (fun name -> "max-" ^ name)
-    media_not_min_width_px name base_class selector props
+    Css.media_not_min_width_length name base_class selector props
 
-let container_rule query base_class selector props =
+let container_rule ?(inner_has_hover = false) query base_class selector props =
   let prefix = Containers.container_query_to_class_prefix query in
   let modified_class = prefix ^ ":" ^ base_class in
   let new_selector =
@@ -373,7 +461,14 @@ let container_rule query base_class selector props =
       ~new_class:modified_class selector
   in
   let condition = Containers.container_query_to_condition query in
-  container_query ~condition ~selector:new_selector ~props ~base_class ()
+  if inner_has_hover then
+    container_query ~condition ~selector:new_selector ~props:[]
+      ~base_class:modified_class
+      ~nested:(nested_hover ~selector:new_selector ~props)
+      ()
+  else
+    container_query ~condition ~selector:new_selector ~props
+      ~base_class:modified_class ()
 
 (** Preprocess a has-[...] selector string for CSS parsing. Replaces & with *
     (nesting reference) and ensures combinators (+, >, ~) have proper spacing.
@@ -399,12 +494,70 @@ let preprocess_has_selector s =
   done;
   Buffer.contents buf
 
-let has_like_selector kind ?name ?shorthand ~not_order selector_str base_class
-    props =
+(* The selector a has-shorthand name stands for. [has-<state>] takes the same
+   state names as the group/peer variants and matches what that state matches,
+   so most map straight to their pseudo-class. *)
+let resolve_has_shorthand = function
+  | "hocus" -> ":hover, :focus"
+  | "open" -> ":is([open], :popover-open, :open)"
+  | "inert" -> ":is([inert], [inert] *)"
+  | "odd" -> ":nth-child(odd)"
+  | "even" -> ":nth-child(even)"
+  | "first" -> ":first-child"
+  | "last" -> ":last-child"
+  | "only" -> ":only-child"
+  | s when Style.is_data_attr_name s -> "[" ^ s ^ "]"
+  | s -> ":" ^ s
+
+(* The [:has()] argument a has-variant matches, from the spelling the modifier
+   stored: a state name resolves to its pseudo-class, anything else is already a
+   selector. *)
+let has_inner_selector raw =
+  let str =
+    if Style.is_has_shorthand raw then resolve_has_shorthand raw else raw
+  in
+  match
+    Css.Selector.read_relative
+      (Cascade.Cursor.of_string (preprocess_has_selector str))
+  with
+  | Css.Selector.List sels when not (Style.is_has_shorthand raw) ->
+      Css.Selector.is_ sels
+  | sel -> sel
+
+(* The relative selector a group/peer has-variant scopes to:
+   [:where(.group):has(<inner>) *]. *)
+let has_anchor_rel ~anchor ~combinator ?name inner =
+  let open Css.Selector in
+  let anchor_class =
+    match name with Some n -> anchor ^ "/" ^ n | None -> anchor
+  in
+  combine
+    (compound [ where [ Class anchor_class ]; has [ inner ] ])
+    combinator universal
+
+(* Rebuild [selector] around the [modified] selector a route builds for the bare
+   class, so an inner variant's own work survives: [aria-selected:hover:X] keeps
+   its [:hover]. With no inner variant [selector] is the bare class and the
+   result is [modified] itself. *)
+let route_regular ~selector ~base_class ~modified_class ~modified ?has_hover
+    ~not_order props =
+  let sel =
+    Rules_selector.transform_selector_with_modifier modified base_class
+      modified_class selector
+  in
+  regular ~selector:sel ~props ~base_class:modified_class ?has_hover ~not_order
+    ()
+
+let has_like_selector kind ?name ?shorthand ?(has_hover = false) ~not_order
+    ~selector selector_str base_class props =
   let open Css.Selector in
   let processed = preprocess_has_selector selector_str in
   let parsed_selector =
-    Css.Selector.read_relative (Cascade.Cursor.of_string processed)
+    match Css.Selector.read_relative (Cascade.Cursor.of_string processed) with
+    (* A bracket list is one relative selector, so it goes in an [:is()]. The
+       [hocus] shorthand is genuinely two, and stays a list. *)
+    | List sels when shorthand = None -> is_ sels
+    | sel -> sel
   in
   let has_part s =
     match shorthand with Some sh -> sh | None -> "[" ^ s ^ "]"
@@ -412,38 +565,33 @@ let has_like_selector kind ?name ?shorthand ~not_order selector_str base_class
   match kind with
   | `Has ->
       let class_name = "has-" ^ has_part selector_str ^ ":" ^ base_class in
-      let sel = compound [ class_ class_name; has [ parsed_selector ] ] in
-      regular ~selector:sel ~props ~base_class:class_name ~not_order ()
+      let modified = compound [ class_ class_name; has [ parsed_selector ] ] in
+      route_regular ~selector ~base_class ~modified_class:class_name ~modified
+        ~has_hover ~not_order props
   | `Group_has ->
       let name_suffix = match name with Some n -> "/" ^ n | None -> "" in
       let class_name =
         "group-has-" ^ has_part selector_str ^ name_suffix ^ ":" ^ base_class
       in
-      let group_class =
-        match name with Some n -> "group/" ^ n | None -> "group"
-      in
       let rel =
-        combine
-          (compound [ where [ Class group_class ]; has [ parsed_selector ] ])
-          Descendant universal
+        has_anchor_rel ~anchor:"group" ~combinator:Descendant ?name
+          parsed_selector
       in
-      let sel = compound [ Class class_name; is_ [ rel ] ] in
-      regular ~selector:sel ~props ~base_class:class_name ~not_order ()
+      let modified = compound [ Class class_name; is_ [ rel ] ] in
+      route_regular ~selector ~base_class ~modified_class:class_name ~modified
+        ~has_hover ~not_order props
   | `Peer_has ->
       let name_suffix = match name with Some n -> "/" ^ n | None -> "" in
       let class_name =
         "peer-has-" ^ has_part selector_str ^ name_suffix ^ ":" ^ base_class
       in
-      let peer_class =
-        match name with Some n -> "peer/" ^ n | None -> "peer"
-      in
       let rel =
-        combine
-          (compound [ where [ Class peer_class ]; has [ parsed_selector ] ])
-          Subsequent_sibling universal
+        has_anchor_rel ~anchor:"peer" ~combinator:Subsequent_sibling ?name
+          parsed_selector
       in
-      let sel = compound [ Class class_name; is_ [ rel ] ] in
-      regular ~selector:sel ~props ~base_class:class_name ~not_order ()
+      let modified = compound [ Class class_name; is_ [ rel ] ] in
+      route_regular ~selector ~base_class ~modified_class:class_name ~modified
+        ~has_hover ~not_order props
 
 (* Pseudo-class modifiers: transform the base selector and mark hover when
    needed. *)
@@ -600,26 +748,35 @@ let _is_data_shorthand_name = function
   | _ -> false
 
 (* Route data bracket variants to appropriate handler *)
-let route_data_bracket_modifier modifier base_class props =
+let route_data_bracket_modifier modifier ~selector base_class props =
   let kind, raw_str, name_opt =
     match modifier with
-    | Style.Data_bracket s -> (`Data, s, None)
+    | Style.Data_bracket s -> (`Data, "[" ^ s ^ "]", None)
     | Style.Group_data (s, n) -> (`Group_data, s, n)
     | Style.Peer_data (s, n) -> (`Peer_data, s, n)
     | _ -> failwith "Invalid data bracket modifier"
   in
-  let attr_name, attr_match, attr_flag = parse_data_expr raw_str in
+  (* [raw_str] is the spelling: [[state=open]] bracketed, [dragging] bare. The
+     expression to parse is the same either way. *)
+  let expr =
+    let n = String.length raw_str in
+    if n > 1 && raw_str.[0] = '[' && raw_str.[n - 1] = ']' then
+      String.sub raw_str 1 (n - 2)
+    else raw_str
+  in
+  let attr_name, attr_match, attr_flag = parse_data_expr expr in
   let open Css.Selector in
-  let class_part = "[" ^ raw_str ^ "]" in
+  let class_part = raw_str in
   let not_order = 20 in
   match kind with
   | `Data ->
       let class_name = "data-" ^ class_part ^ ":" ^ base_class in
-      let sel =
+      let modified =
         compound
           [ class_ class_name; attribute ?flag:attr_flag attr_name attr_match ]
       in
-      regular ~selector:sel ~props ~base_class:class_name ~not_order ()
+      route_regular ~selector ~base_class ~modified_class:class_name ~modified
+        ~not_order props
   | `Group_data ->
       let name_suffix = match name_opt with Some n -> "/" ^ n | None -> "" in
       let class_name =
@@ -637,8 +794,9 @@ let route_data_bracket_modifier modifier base_class props =
              ])
           Descendant universal
       in
-      let sel = compound [ Class class_name; is_ [ rel ] ] in
-      regular ~selector:sel ~props ~base_class:class_name ~not_order ()
+      let modified = compound [ Class class_name; is_ [ rel ] ] in
+      route_regular ~selector ~base_class ~modified_class:class_name ~modified
+        ~not_order props
   | `Peer_data ->
       let name_suffix = match name_opt with Some n -> "/" ^ n | None -> "" in
       let class_name =
@@ -656,17 +814,12 @@ let route_data_bracket_modifier modifier base_class props =
              ])
           Subsequent_sibling universal
       in
-      let sel = compound [ Class class_name; is_ [ rel ] ] in
-      regular ~selector:sel ~props ~base_class:class_name ~not_order ()
-
-(* Resolve has-shorthand names to CSS selector strings *)
-let resolve_has_shorthand = function
-  | "checked" -> ":checked"
-  | "hocus" -> ":hover, :focus"
-  | s -> s
+      let modified = compound [ Class class_name; is_ [ rel ] ] in
+      route_regular ~selector ~base_class ~modified_class:class_name ~modified
+        ~not_order props
 
 (* Route :has() variants to appropriate handler *)
-let route_has_modifier modifier base_class props =
+let route_has_modifier modifier ~selector base_class props =
   let kind, raw_str, name =
     match modifier with
     | Style.Has s -> (`Has, s, None)
@@ -674,20 +827,17 @@ let route_has_modifier modifier base_class props =
     | Style.Peer_has (s, name) -> (`Peer_has, s, name)
     | _ -> failwith "Invalid has modifier"
   in
-  (* Shorthand forms like "checked" are stored without colon prefix. Bracket
-     forms like ":checked" start with colon or other CSS chars. *)
-  let is_shorthand =
-    raw_str <> ""
-    && raw_str.[0] <> ':'
-    && raw_str.[0] <> '&'
-    && raw_str.[0] <> '+'
-    && raw_str.[0] <> '>'
-    && raw_str.[0] <> '~'
-    && raw_str.[0] <> '.'
-    && not (String.contains raw_str ' ')
+  (* A shorthand is one of the state names, spelled bare; anything else was
+     written in brackets and keeps them in the class name. Deciding this by
+     punctuation alone read a bare type selector like [has-[a]] as the state
+     name [a] and dropped the brackets. *)
+  let is_shorthand = Style.is_has_shorthand raw_str in
+  let selector_str =
+    if is_shorthand then resolve_has_shorthand raw_str else raw_str
   in
-  let selector_str = resolve_has_shorthand raw_str in
   let shorthand = if is_shorthand then Some raw_str else None in
+  (* [has-hover] gates on the pointer just like [hover] itself does. *)
+  let has_hover = is_shorthand && raw_str = "hover" in
   (* Ordering: shorthands before brackets; pseudo-class brackets before
      combinator brackets. Named vs unnamed ordering handled by
      normalize_for_sort since '/' maps to '|' which sorts after ':' → '!'. *)
@@ -697,8 +847,8 @@ let route_has_modifier modifier base_class props =
     else 30
   in
   let not_order = base_order in
-  has_like_selector kind ?name ?shorthand ~not_order selector_str base_class
-    props
+  has_like_selector kind ?name ?shorthand ~has_hover ~not_order ~selector
+    selector_str base_class props
 
 (* Parse an aria expression string into an attribute name and match. "modal" →
    ("aria-modal", Presence) "valuenow=1" → ("aria-valuenow", Exact "1")
@@ -724,7 +874,7 @@ let parse_aria_expr expr =
       ("aria-" ^ attr, Css.Selector.Exact value)
 
 (* Route aria variants to appropriate handler *)
-let route_aria_modifier modifier base_class props =
+let route_aria_modifier modifier ~selector base_class props =
   let kind, raw_str, name_opt =
     match modifier with
     | Style.Aria_bracket s -> (`Aria, s, None)
@@ -743,10 +893,11 @@ let route_aria_modifier modifier base_class props =
   match kind with
   | `Aria ->
       let class_name = "aria-" ^ class_part ^ ":" ^ base_class in
-      let sel =
+      let modified =
         compound [ class_ class_name; attribute aria_attr aria_match ]
       in
-      regular ~selector:sel ~props ~base_class:class_name ~not_order ()
+      route_regular ~selector ~base_class ~modified_class:class_name ~modified
+        ~not_order props
   | `Group_aria ->
       let name_suffix = match name_opt with Some n -> "/" ^ n | None -> "" in
       let class_name =
@@ -761,8 +912,9 @@ let route_aria_modifier modifier base_class props =
              [ where [ Class group_class ]; attribute aria_attr aria_match ])
           Descendant universal
       in
-      let sel = compound [ Class class_name; is_ [ rel ] ] in
-      regular ~selector:sel ~props ~base_class:class_name ~not_order ()
+      let modified = compound [ Class class_name; is_ [ rel ] ] in
+      route_regular ~selector ~base_class ~modified_class:class_name ~modified
+        ~not_order props
   | `Peer_aria ->
       let name_suffix = match name_opt with Some n -> "/" ^ n | None -> "" in
       let class_name =
@@ -777,8 +929,9 @@ let route_aria_modifier modifier base_class props =
              [ where [ Class peer_class ]; attribute aria_attr aria_match ])
           Subsequent_sibling universal
       in
-      let sel = compound [ Class class_name; is_ [ rel ] ] in
-      regular ~selector:sel ~props ~base_class:class_name ~not_order ()
+      let modified = compound [ Class class_name; is_ [ rel ] ] in
+      route_regular ~selector ~base_class ~modified_class:class_name ~modified
+        ~not_order props
 
 (* Handle fallback for unmatched modifiers. Must extract modified_class so that
    outer modifiers like dark: can properly transform the selector. *)
@@ -795,28 +948,27 @@ let handle_fallback_modifier ?(inner_has_hover = false) modifier base_class
   let has_hover = Modifiers.is_hover modifier || inner_has_hover in
   regular ~selector:new_selector ~props ~base_class:modified_class ~has_hover ()
 
-(** Normalize a supports condition string into a valid CSS [@supports]
-    condition. Converts underscores to spaces and wraps in parens as needed. *)
-let normalize_supports_condition condition_str =
-  (* Convert underscores to spaces (Tailwind bracket notation) *)
-  let cond = String.map (fun c -> if c = '_' then ' ' else c) condition_str in
-  if
-    String.length cond > 2
-    && cond.[0] = '-'
-    && cond.[1] = '-'
-    && not (String.contains cond ':')
-  then
-    (* Bare custom property: --test → (--test: var(--tw)) *)
-    "(" ^ cond ^ ": var(--tw))"
-  else if cond <> "" && cond.[0] = '(' then
-    (* Already wrapped in parens *)
-    cond
-  else if String.contains cond ':' then
-    (* Property: value → wrap in parens *)
-    "(" ^ cond ^ ")"
-  else
-    (* Function call like font-format(opentype) or var(--test) *)
-    cond
+(* [before:]/[after:] always carry a content declaration. They report the class
+   they prefixed, not the bare one, so an outer variant can find it in the
+   selector and prefix its own name in turn. *)
+let handle_pseudo_element_modifier modifier base_class props =
+  let sel = Modifiers.to_selector modifier base_class in
+  let modified_class =
+    Rules_selector.extract_modified_class_name sel base_class
+  in
+  (* [before:]/[after:] need a [content], but a [content-*] utility already
+     brings its own; adding a second one leaves it declared twice. *)
+  let reads_content_var d =
+    Css.declaration_name d = "content"
+    && Css.declaration_value d = "var(--tw-content)"
+  in
+  let props =
+    if List.exists reads_content_var props then props
+    else Css.content (Var (Var.reference Typography.content_var)) :: props
+  in
+  regular ~selector:sel ~props ~base_class:modified_class ()
+
+let normalize_supports_condition = Modifiers.normalize_supports_condition
 
 (** Handle [@supports] modifier: builds modified class name, updates selector,
     normalizes condition, and emits a supports query rule. *)
@@ -888,24 +1040,17 @@ let has_substring s pat =
   in
   check 0
 
-(** Compute variant_order from base_class and selector. Extracts the modifier
-    prefix from base_class (everything before the last ":") and maps it to a
-    variant order number. For before/after, the base_class is the raw utility
-    name without prefix, so we detect them from the selector content. *)
+(** Compute variant_order from base_class and selector. A stacked candidate is
+    placed by its highest-order modifier, matching the descending key list used
+    by the comparator. For before/after, the base_class is the raw utility name
+    without prefix, so we detect them from the selector content. *)
 let compute_variant_order base_class selector =
   let from_base_class bc =
-    match String.rindex_opt bc ':' with
-    | Some i -> (
-        let prefix = String.sub bc 0 i in
-        let vo = Modifiers.variant_order_of_prefix prefix in
-        if vo > 0 then vo
-        else
-          (* For compound prefixes like "dark:group-focus", try the outermost
-             modifier (before the first colon in the prefix). *)
-          match String.index_opt prefix ':' with
-          | Some j -> Modifiers.variant_order_of_prefix (String.sub prefix 0 j)
-          | None -> 0)
-    | None -> 0
+    let modifiers, _ = Modifiers.of_string bc in
+    List.fold_left
+      (fun order modifier ->
+        Int.max order (Modifiers.variant_order_of_prefix modifier))
+      0 modifiers
   in
   let vo = match base_class with None -> 0 | Some bc -> from_base_class bc in
   (* If no variant_order from base_class, check selector for modifier-based
@@ -930,6 +1075,7 @@ let not_class_prefix inner_modifier =
     when String.length pseudo_str > 0 && pseudo_str.[0] = ':' ->
       "has-" ^ String.sub pseudo_str 1 (String.length pseudo_str - 1)
   | Style.Has shorthand_name -> "has-" ^ shorthand_name
+  | Style.Has_variant m -> "has-" ^ Modifiers.pp_modifier m
   | Style.Nth expr -> Style.pp_nth "nth" expr
   | Style.Nth_last expr -> Style.pp_nth "nth-last" expr
   | Style.Nth_of_type expr -> Style.pp_nth "nth-of-type" expr
@@ -939,27 +1085,75 @@ let not_class_prefix inner_modifier =
       "supports-" ^ String.sub cond 0 prop_len
   | inner -> Modifiers.pp_modifier inner
 
+(* The relative selector a [group-not-]/[peer-not-] variant contributes:
+   [:where(.group):not(<conditions>) *]. *)
+
 (** Extract the pseudo-class selector(s) from a modifier for use in :not().
     Returns a list of selectors that go inside :not(sel1, sel2, ...). *)
-let extract_not_conditions inner_modifier base_class =
+let named_rel ~marker ~combinator ~name_opt extra =
+  let marker_class =
+    match name_opt with
+    | Option.None -> Css.Selector.Class marker
+    | Option.Some n -> Css.Selector.Class (marker ^ "/" ^ n)
+  in
+  Css.Selector.combine
+    (Css.Selector.compound (Css.Selector.where [ marker_class ] :: extra))
+    combinator Css.Selector.universal
+
+let named_not_rel ~marker ~combinator ~name_opt conditions =
+  named_rel ~marker ~combinator ~name_opt [ Css.Selector.Not conditions ]
+
+let rec scoped_conditions ~marker ~combinator ~name_opt ~negated m base_class =
+  let inner = extract_not_conditions m base_class in
+  let extra = if negated then [ Css.Selector.Not inner ] else inner in
+  [ Css.Selector.is_ [ named_rel ~marker ~combinator ~name_opt extra ] ]
+
+and extract_not_conditions inner_modifier base_class =
   match inner_modifier with
   | Style.Hocus | Style.Device_hocus ->
       [ Css.Selector.Hover; Css.Selector.Focus ]
   | Style.Has selector_str ->
-      let pseudo_str =
-        if String.length selector_str > 0 && selector_str.[0] = ':' then
-          String.sub selector_str 1 (String.length selector_str - 1)
-        else selector_str
-      in
-      let inner_sel =
-        match pseudo_str with
-        | "checked" -> Css.Selector.Checked
-        | "hover" -> Css.Selector.Hover
-        | "focus" -> Css.Selector.Focus
-        | "disabled" -> Css.Selector.Disabled
-        | _ -> Css.Selector.Class (":" ^ pseudo_str)
-      in
-      [ Css.Selector.Has [ inner_sel ] ]
+      [ Css.Selector.Has [ has_inner_selector selector_str ] ]
+  (* [has-<variant>] holds the variant itself, so its selector - the same one
+     [:not()] would negate - is what goes inside [:has()]. *)
+  | Style.Has_variant m ->
+      [ Css.Selector.Has (extract_not_conditions m base_class) ]
+  (* A scoped variant carries its own relative selector - negated for the [not-]
+     forms - and that is the whole of what an outer variant sees of it. *)
+  | Style.Group_not (m, name_opt) ->
+      scoped_conditions ~marker:"group" ~combinator:Css.Selector.Descendant
+        ~name_opt ~negated:true m base_class
+  | Style.Peer_not (m, name_opt) ->
+      scoped_conditions ~marker:"peer"
+        ~combinator:Css.Selector.Subsequent_sibling ~name_opt ~negated:true m
+        base_class
+  | Style.Named_group (m, name) ->
+      scoped_conditions ~marker:"group" ~combinator:Css.Selector.Descendant
+        ~name_opt:(Option.Some name) ~negated:false m base_class
+  | Style.Named_peer (m, name) ->
+      scoped_conditions ~marker:"peer"
+        ~combinator:Css.Selector.Subsequent_sibling ~name_opt:(Option.Some name)
+        ~negated:false m base_class
+  (* [not-group-has-X] negates the whole scoped relative selector, not just its
+     [:has()] part. *)
+  | Style.Group_has (selector_str, name) ->
+      [
+        Css.Selector.is_
+          [
+            has_anchor_rel ~anchor:"group" ~combinator:Css.Selector.Descendant
+              ?name
+              (has_inner_selector selector_str);
+          ];
+      ]
+  | Style.Peer_has (selector_str, name) ->
+      [
+        Css.Selector.is_
+          [
+            has_anchor_rel ~anchor:"peer"
+              ~combinator:Css.Selector.Subsequent_sibling ?name
+              (has_inner_selector selector_str);
+          ];
+      ]
   | Style.Data_custom (attr, "") ->
       [ Css.Selector.attribute ("data-" ^ attr) Presence ]
   | Style.Data_custom (attr, value) ->
@@ -979,17 +1173,24 @@ let extract_not_conditions inner_modifier base_class =
       match sel with
       | Css.Selector.Compound (Css.Selector.Class _ :: rest) when rest <> [] ->
           rest
+      (* A descendant-style variant anchors the class under an ancestor.
+         Negating it negates the ancestor relation, so the class's own position
+         becomes a universal: [not-in-data-open] negates [:where([data-open]) *]
+         rather than the class itself. *)
+      | Css.Selector.Combined (ancestor, comb, Css.Selector.Class c)
+        when String.equal c base_class ->
+          [ Css.Selector.Combined (ancestor, comb, Css.Selector.universal) ]
       | _ -> [ sel ])
 
 (** Build a regular rule with :not() selector for a not-* modifier. *)
 let not_selector_rule ?(not_order = 0) inner_modifier modified_class base_class
-    props =
+    ~selector props =
   let conditions = extract_not_conditions inner_modifier base_class in
   let not_sel = Css.Selector.Not conditions in
-  regular ~not_order
-    ~selector:
-      (Css.Selector.compound [ Css.Selector.Class modified_class; not_sel ])
-    ~props ~base_class:modified_class ()
+  let modified =
+    Css.Selector.compound [ Css.Selector.Class modified_class; not_sel ]
+  in
+  route_regular ~selector ~base_class ~modified_class ~modified ~not_order props
 
 (* Create a single not-media rule *)
 let not_media_rule ~nvo ~condition modified_class props =
@@ -1002,14 +1203,14 @@ let not_media_rule ~nvo ~condition modified_class props =
 (** Handle :not() pseudo-class modifier: dispatches to the right rule type based
     on the inner modifier. Returns a list of rules since some modifiers (like
     hover) produce both a selector rule and a media rule. *)
-let handle_not_modifier ?theme inner_modifier base_class _selector props =
+let handle_not_modifier ?theme inner_modifier base_class selector props =
   let modified_class =
     "not-" ^ not_class_prefix inner_modifier ^ ":" ^ base_class
   in
   let nvo = Modifiers.not_variant_order inner_modifier in
   let sel_rule () =
     not_selector_rule ~not_order:nvo inner_modifier modified_class base_class
-      props
+      ~selector props
   in
   let not_hover_media () =
     not_media_rule ~nvo ~condition:(negate_media hover_media) modified_class
@@ -1147,10 +1348,9 @@ let handle_in_data attr base_class props =
       ~not_order:200 ();
   ]
 
-(** Handle not-in-[...] bracket modifier. Returns a list of rules. *)
-let handle_not_in_bracket content base_class props =
-  let modified_class = "not-in-[" ^ content ^ "]:" ^ base_class in
-  let ancestor = in_bracket_ancestor content in
+(* [not-in-*] negates the ancestor relation rather than the class, so the
+   class's own position in the negated selector is a universal. *)
+let not_in_rule ~modified_class ~ancestor props =
   let sel =
     Css.Selector.compound
       [
@@ -1166,6 +1366,21 @@ let handle_not_in_bracket content base_class props =
     regular ~selector:sel ~props ~base_class:modified_class ~merge_key:"in"
       ~not_order:100 ();
   ]
+
+(** Handle not-in-[...] bracket modifier. Returns a list of rules. *)
+let handle_not_in_bracket content base_class props =
+  not_in_rule
+    ~modified_class:("not-in-[" ^ content ^ "]:" ^ base_class)
+    ~ancestor:(in_bracket_ancestor content)
+    props
+
+(** Handle the not-in-data-* modifier. Returns a list of rules. *)
+let handle_not_in_data attr base_class props =
+  not_in_rule
+    ~modified_class:("not-in-data-" ^ attr ^ ":" ^ base_class)
+    ~ancestor:
+      (Css.Selector.Attribute (None, Data attr, Css.Selector.Presence, None))
+    props
 
 (** Handle not-[...] bracket modifier. Returns a list of rules. *)
 let handle_not_bracket content base_class props =
@@ -1193,15 +1408,23 @@ let handle_not_bracket content base_class props =
         ~props ~base_class:modified_class ();
     ]
   else
-    (* Unknown bracket content - treat as raw selector *)
+    (* Arbitrary selector content: [_] is a space and [&] is the utility's own
+       element, which inside a negation becomes the universal selector. So
+       [not-[.os-macos_&]] negates the descendant context [.os-macos &] as
+       [:not(.os-macos <star>)]. Parse the transformed string as a selector so
+       combinators and compounds flatten, rather than escaping it as a single
+       class name. *)
+    let sel_str =
+      content
+      |> String.map (fun c -> if c = '_' then ' ' else c)
+      |> String.split_on_char '&' |> String.concat "*"
+    in
+    let inner = Css.Selector.read (Cascade.Cursor.of_string sel_str) in
     [
       regular ~not_order:nvo
         ~selector:
           (Css.Selector.compound
-             [
-               Css.Selector.Class modified_class;
-               Css.Selector.Not [ Css.Selector.Class content ];
-             ])
+             [ Css.Selector.Class modified_class; Css.Selector.Not [ inner ] ])
         ~props ~base_class:modified_class ();
     ]
 
@@ -1227,11 +1450,6 @@ let handle_named_not ~prefix ~base_marker_class ~combinator ~variant inner
   let nvo = Modifiers.not_variant_order (variant inner name_opt) in
   if is_media_inner_modifier inner then []
   else
-    let marker_class =
-      match name_opt with
-      | None -> Css.Selector.Class base_marker_class
-      | Some name -> Css.Selector.Class (base_marker_class ^ "/" ^ name)
-    in
     let not_conditions =
       match inner with
       | Style.Not_bracket content when content <> "" && content.[0] = ':' ->
@@ -1240,9 +1458,8 @@ let handle_named_not ~prefix ~base_marker_class ~combinator ~variant inner
     in
     let open Css.Selector in
     let rel =
-      combine
-        (compound [ where [ marker_class ]; Not not_conditions ])
-        combinator universal
+      named_not_rel ~marker:base_marker_class ~combinator ~name_opt
+        not_conditions
     in
     [
       regular ~not_order:nvo
@@ -1310,6 +1527,53 @@ let named_group_rel name pseudo =
     (compound [ where [ Class ("group/" ^ name) ]; pseudo ])
     Descendant universal
 
+(* [group-X/name] / [peer-X/name]: a state variant scoped to a named anchor. The
+   anchor's own [hover] must still gate on the pointer, so the rule carries
+   [has_hover] like a plain [group-hover] does. *)
+let named_anchor_rule ~anchor ~combinator inner name base_class props =
+  let open Css.Selector in
+  let modified_class =
+    String.concat ""
+      [ anchor; "-"; Modifiers.pp_modifier inner; "/"; name; ":"; base_class ]
+  in
+  let rel =
+    combine
+      (compound
+         [
+           where [ Class (anchor ^ "/" ^ name) ];
+           pseudo_selector_of_modifier inner;
+         ])
+      combinator universal
+  in
+  let sel = compound [ Class modified_class; is_ [ rel ] ] in
+  [
+    regular ~selector:sel ~props ~base_class:modified_class
+      ~has_hover:(Modifiers.is_hover inner) ();
+  ]
+
+let handle_named_group inner name base_class props =
+  named_anchor_rule ~anchor:"group" ~combinator:Css.Selector.Descendant inner
+    name base_class props
+
+let handle_named_peer inner name base_class props =
+  named_anchor_rule ~anchor:"peer" ~combinator:Css.Selector.Subsequent_sibling
+    inner name base_class props
+
+(* [in-focus]: an ancestor in that state. Same shape as [in-data-X], with the
+   state's pseudo-class in place of the attribute. *)
+let handle_in_state inner name base_class props =
+  let modified_class = "in-" ^ name ^ ":" ^ base_class in
+  let sel =
+    Css.Selector.combine
+      (Css.Selector.Where [ pseudo_selector_of_modifier inner ])
+      Css.Selector.Descendant (Css.Selector.Class modified_class)
+  in
+  [
+    (* [in-hover] gates on the pointer just as [hover] itself does. *)
+    regular ~selector:sel ~props ~base_class:modified_class ~merge_key:"in"
+      ~has_hover:(Modifiers.is_hover inner) ~not_order:250 ();
+  ]
+
 (** Handle not-group-STATE/name compound variant *)
 let named_group_modified_class prefix inner name base_class =
   let inner_str = Modifiers.pp_modifier inner in
@@ -1365,30 +1629,71 @@ let handle_group_peer_named inner name base_class props =
   let sel = compound [ Class modified_class; is_ [ group_rel ] ] in
   [ regular ~selector:sel ~props ~base_class:modified_class () ]
 
-(* Arbitrary selector: [&_p] → .class p *)
-let arbitrary_selector_rule content base_class props =
+(* Compound [extra] onto the subject of [sel] — its rightmost compound — so a
+   variant decorates the element the selector actually matches. *)
+let rec attach_to_subject extra sel =
+  let open Css.Selector in
+  match sel with
+  | Combined (a, comb, b) -> Combined (a, comb, attach_to_subject extra b)
+  | Relative (comb, b) -> Relative (comb, attach_to_subject extra b)
+  | Compound parts -> compound (parts @ extra)
+  | other -> compound (other :: extra)
+
+(* Arbitrary selector: [&_p] → .class p. The inner rule may already carry
+   structure around its class ([first:] adds a [:first-child]), and that
+   structure belongs on whatever element this variant makes the subject: for
+   [[&_p]:first:] Tailwind matches the first [p], not a [p] under a first
+   child. *)
+let arbitrary_selector_rule content base_class selector props =
   let open Css.Selector in
   (* In arbitrary variants, [_] denotes a space. *)
   let s = String.map (fun c -> if c = '_' then ' ' else c) content in
   let modified_class = "[" ^ content ^ "]:" ^ base_class in
+  (* What the inner rule compounded onto its own class, if that class is still
+     the subject. Anything else (an inner variant that moved the subject) has no
+     decoration to lift, and the class is rewritten in place instead. *)
+  let decoration =
+    match selector with
+    | Class cls when String.equal cls base_class -> Some []
+    | Compound (Class cls :: rest) when String.equal cls base_class -> Some rest
+    | _ -> None
+  in
+  (* With no decoration to lift, an inner variant has moved the subject, and the
+     variant's selector belongs at the class's own position inside what that
+     inner variant built - not wrapped around the whole of it. *)
+  let rebase modified =
+    Rules_selector.transform_selector_with_modifier modified base_class
+      modified_class selector
+  in
+  (* Each [&] anchor stands for the utility's own class, so combinators
+     ([&>div], [&+p], [&~p]), compounds ([&:hover]) and trailing anchors
+     ([input&]) all flatten correctly. *)
+  let anchored = Modifiers.nest_selector ~parent:(Class modified_class) s in
   let sel =
-    if String.contains s '&' then (
-      (* Replace each [&] anchor with this utility's own class and parse the
-         whole selector, so combinators ([&>div], [&+p], [&~p]), compounds
-         ([&:hover]) and trailing anchors ([input&]) all flatten correctly. A
-         naive split-on-[&] + Descendant combine mis-parses any remainder that
-         starts with a combinator. *)
-      let class_str = Css.Selector.to_string (Class modified_class) in
-      let buf = Buffer.create (String.length s + String.length class_str) in
-      String.iter
-        (fun c ->
-          if c = '&' then Buffer.add_string buf class_str
-          else Buffer.add_char buf c)
-        s;
-      Css.Selector.read (Cascade.Cursor.of_string (Buffer.contents buf)))
-    else Class modified_class
+    match decoration with
+    | Some [] -> anchored
+    | Some extra -> attach_to_subject extra anchored
+    | None -> rebase anchored
   in
   regular ~selector:sel ~props ~base_class:modified_class ()
+
+(* An at-rule written in brackets: [[@supports(display:grid)]] wraps the utility
+   in that query, [[@starting-style]] in [@starting-style]. The class name keeps
+   the brackets, so it cannot go through the [supports-] spelling. *)
+let at_rule_variant content ~selector base_class props =
+  let modified_class = "[" ^ content ^ "]:" ^ base_class in
+  let selector =
+    Rules_selector.transform_selector_with_modifier
+      (Css.Selector.Class modified_class) base_class modified_class selector
+  in
+  if content = "@starting-style" then
+    starting_style ~selector ~props ~base_class:modified_class ()
+  else
+    let cond = String.trim (String.sub content 9 (String.length content - 9)) in
+    let condition =
+      Css.Supports.of_string (normalize_supports_condition cond)
+    in
+    supports_query ~condition ~selector ~props ~base_class:modified_class ()
 
 (* A [matchVariant]-registered custom variant. The class name is the token
    ([is-data-foo]); the selector is the template with [&] replaced by the
@@ -1396,14 +1701,8 @@ let arbitrary_selector_rule content base_class props =
    The canonical optimizer then reduces the single-argument [:is()]. *)
 let custom_variant_rule token template base_class props =
   let modified_class = token ^ ":" ^ base_class in
-  let class_str = Css.Selector.to_string (Css.Selector.Class modified_class) in
-  let buf = Buffer.create (String.length template + String.length class_str) in
-  String.iter
-    (fun c ->
-      if c = '&' then Buffer.add_string buf class_str else Buffer.add_char buf c)
-    template;
   let sel =
-    Css.Selector.read (Cascade.Cursor.of_string (Buffer.contents buf))
+    Modifiers.nest_selector ~parent:(Css.Selector.Class modified_class) template
   in
   regular ~selector:sel ~props ~base_class:modified_class ()
 
@@ -1425,8 +1724,23 @@ let modified_selector_rule modifier base_class selector props =
   in
   regular ~selector:new_selector ~props ~base_class:modified_class ()
 
-let modifier_to_rule_themed ?theme ?(inner_has_hover = false) modifier
-    base_class selector props =
+(* [has-<variant>]: the inner variant's own selector goes inside [:has()]. *)
+let route_has_variant inner ~selector base_class props =
+  let modified_class =
+    "has-" ^ Modifiers.pp_modifier inner ^ ":" ^ base_class
+  in
+  let modified =
+    Css.Selector.compound
+      [
+        Css.Selector.Class modified_class;
+        Css.Selector.Has (extract_not_conditions inner base_class);
+      ]
+  in
+  route_regular ~selector ~base_class ~modified_class ~modified ~not_order:10
+    props
+
+let dispatch_modifier ?theme ?(inner_has_hover = false) modifier base_class
+    selector props =
   match modifier with
   (* Data modifiers *)
   | Style.Data_state _ | Style.Data_variant _ ->
@@ -1444,24 +1758,31 @@ let modifier_to_rule_themed ?theme ?(inner_has_hover = false) modifier
       handle_supports_modifier condition_str base_class selector props
   (* Responsive and container *)
   | Style.Responsive breakpoint ->
-      responsive_rule ?theme breakpoint base_class selector props
+      responsive_rule ?theme ~inner_has_hover breakpoint base_class selector
+        props
   | Style.Min_responsive breakpoint ->
-      min_responsive_rule ?theme breakpoint base_class selector props
+      min_responsive_rule ?theme ~inner_has_hover breakpoint base_class selector
+        props
   | Style.Max_responsive breakpoint ->
-      max_responsive_rule ?theme breakpoint base_class selector props
-  | Style.Min_arbitrary px -> min_arbitrary_rule px base_class selector props
-  | Style.Max_arbitrary px -> max_arbitrary_rule px base_class selector props
+      max_responsive_rule ?theme ~inner_has_hover breakpoint base_class selector
+        props
+  | Style.Min_arbitrary px ->
+      min_arbitrary_rule ~inner_has_hover px base_class selector props
+  | Style.Max_arbitrary px ->
+      max_arbitrary_rule ~inner_has_hover px base_class selector props
   | Style.Min_arbitrary_length l ->
-      min_arbitrary_length_rule l base_class selector props
+      min_arbitrary_length_rule ~inner_has_hover l base_class selector props
   | Style.Max_arbitrary_length l ->
-      max_arbitrary_length_rule l base_class selector props
+      max_arbitrary_length_rule ~inner_has_hover l base_class selector props
   | Style.Custom_responsive name ->
-      custom_responsive_rule ?theme name base_class selector props
+      custom_responsive_rule ?theme ~inner_has_hover name base_class selector
+        props
   | Style.Min_custom name ->
-      min_custom_rule ?theme name base_class selector props
+      min_custom_rule ?theme ~inner_has_hover name base_class selector props
   | Style.Max_custom name ->
-      max_custom_rule ?theme name base_class selector props
-  | Style.Container query -> container_rule query base_class selector props
+      max_custom_rule ?theme ~inner_has_hover name base_class selector props
+  | Style.Container query ->
+      container_rule ~inner_has_hover query base_class selector props
   (* :not(), :not-bracket, group-not, peer-not — handled in
      apply_modifier_to_rule for multi-rule support *)
   | Style.Not _ | Style.Not_bracket _ | Style.Group_not _ | Style.Peer_not _ ->
@@ -1469,7 +1790,9 @@ let modifier_to_rule_themed ?theme ?(inner_has_hover = false) modifier
       regular ~selector ~props ~base_class ()
   (* :has() variants *)
   | Style.Has _ | Style.Group_has _ | Style.Peer_has _ ->
-      route_has_modifier modifier base_class props
+      route_has_modifier modifier ~selector base_class props
+  | Style.Has_variant inner ->
+      route_has_variant inner ~selector base_class props
   (* Aria bracket and group/peer aria variants *)
   | Style.Aria_bracket _ | Style.Group_aria _ | Style.Peer_aria _
   | Style.Aria_checked | Style.Aria_expanded | Style.Aria_selected
@@ -1482,15 +1805,20 @@ let modifier_to_rule_themed ?theme ?(inner_has_hover = false) modifier
         | Style.Aria_disabled -> Style.Aria_bracket "disabled"
         | m -> m
       in
-      route_aria_modifier modifier base_class props
+      route_aria_modifier modifier ~selector base_class props
   (* Data bracket and group/peer data variants *)
   | Style.Data_bracket _ | Style.Group_data _ | Style.Peer_data _ ->
-      route_data_bracket_modifier modifier base_class props
+      route_data_bracket_modifier modifier ~selector base_class props
   (* Starting style - selector includes starting: prefix *)
   | Style.Starting ->
       let modified_class = "starting:" ^ base_class in
-      starting_style ~selector:(Css.Selector.Class modified_class) ~props
-        ~base_class:modified_class ()
+      (* Rebuilding the selector from the bare class would drop what an inner
+         variant put on it, as [open:]'s [:is([open], :popover-open, :open)]. *)
+      let new_selector =
+        Rules_selector.transform_selector_with_modifier
+          (Css.Selector.Class modified_class) base_class modified_class selector
+      in
+      starting_style ~selector:new_selector ~props ~base_class:modified_class ()
   (* Interactive pseudo-classes *)
   | Style.Hover | Style.Focus | Style.Active | Style.Focus_within
   | Style.Focus_visible | Style.Disabled ->
@@ -1498,13 +1826,10 @@ let modifier_to_rule_themed ?theme ?(inner_has_hover = false) modifier
         props
   (* Pseudo-elements ::before and ::after - always prepend content property *)
   | Style.Pseudo_before | Style.Pseudo_after ->
-      let sel = Modifiers.to_selector modifier base_class in
-      let content_ref = Var.reference Typography.content_var in
-      let content_decl = Css.content (Var content_ref) in
-      let final_props = content_decl :: props in
-      regular ~selector:sel ~props:final_props ~base_class ()
+      handle_pseudo_element_modifier modifier base_class props
   | Style.Arbitrary_selector content ->
-      arbitrary_selector_rule content base_class props
+      arbitrary_selector_rule content base_class selector props
+  | Style.At_rule content -> at_rule_variant content ~selector base_class props
   | Style.Custom_variant (token, template) ->
       custom_variant_rule token template base_class props
   | Style.Container_style (token, condition) ->
@@ -1532,6 +1857,19 @@ let modifier_to_rule_themed ?theme ?(inner_has_hover = false) modifier
       handle_fallback_modifier ~inner_has_hover modifier base_class selector
         props
 
+(* An outer modifier must not swallow the [@media (hover:hover)] gate the inner
+   [hover:] carries: [disabled:hover:X] and [has-checked:hover:X] keep it. Only
+   the routes that build a media query of their own consume the flag. *)
+let modifier_to_rule_themed ?theme ?(inner_has_hover = false) modifier
+    base_class selector props =
+  let rule =
+    dispatch_modifier ?theme ~inner_has_hover modifier base_class selector props
+  in
+  match rule with
+  | Output.Regular r when inner_has_hover && not r.has_hover ->
+      Output.Regular { r with has_hover = true }
+  | rule -> rule
+
 let modifier_to_rule ?inner_has_hover modifier base_class selector props =
   modifier_to_rule_themed ?inner_has_hover modifier base_class selector props
 
@@ -1549,9 +1887,45 @@ let pseudo_element_rules ~pseudo_selectors bc props prefix =
        pseudo_selectors
     |> List.concat)
 
+(* An arbitrary selector restructures the rule around the utility's class, which
+   [Modifiers.to_selector] has no spelling for, so the variant would be dropped.
+   Build the selector the way the non-media path does and keep it inside the
+   block. *)
+let arbitrary_selector_in_media content bc selector props ~inner_condition
+    ~nested =
+  match arbitrary_selector_rule content bc selector props with
+  | Regular { selector; props; base_class; _ } ->
+      [
+        media_query ~condition:inner_condition ~selector ~props ?base_class
+          ~nested ();
+      ]
+  | other -> [ other ]
+
+(* An inner media query keeps its own nested blocks - a [hover:] rule carries an
+   [@media (hover:hover)] one - and those hold the utility's class too. Rename
+   it there as well, or the outer variant drops out of the class name. *)
+
 (** Apply a modifier to a Media_query rule by wrapping it in an outer media
     query. Handles media-like modifiers, responsive modifiers, and falls back to
     returning the rule unchanged. *)
+let rec rename_class_in_stmt ~old_class ~new_class stmt =
+  let recurse = rename_class_in_stmt ~old_class ~new_class in
+  match Css.as_rule stmt with
+  | Some (selector, decls, nested) ->
+      Css.rule
+        ~selector:
+          (Rules_selector.replace_class_in_selector ~old_class ~new_class
+             selector)
+        ~nested:(List.map recurse nested) decls
+  | None -> (
+      match Css.as_media stmt with
+      | Some (condition, stmts) -> Css.media ~condition (List.map recurse stmts)
+      | None -> (
+          match Css.as_supports stmt with
+          | Some (condition, stmts) ->
+              Css.supports ~condition (List.map recurse stmts)
+          | None -> stmt))
+
 let apply_modifier_to_media_query ?theme modifier ~inner_condition ~selector
     ~props ~base_class ~nested =
   let bc = Option.value base_class ~default:"" in
@@ -1563,9 +1937,10 @@ let apply_modifier_to_media_query ?theme modifier ~inner_condition ~selector
     Rules_selector.transform_selector_with_modifier modified_base_selector bc
       modified_class selector
   in
-  let inner_rule = Css.rule ~selector:new_selector props in
   let inner_media =
-    Css.media ~condition:inner_condition (inner_rule :: nested)
+    let rename = rename_class_in_stmt ~old_class:bc ~new_class:modified_class in
+    Css.media ~condition:inner_condition
+      (Css.rule ~selector:new_selector props :: List.map rename nested)
   in
   let wrap_in_media condition =
     (* Use the modified class (e.g. "dark:md:block") as the wrapped rule's base
@@ -1597,6 +1972,9 @@ let apply_modifier_to_media_query ?theme modifier ~inner_condition ~selector
             media_query ~condition:hover_media ~selector:new_selector ~props:[]
               ~base_class:modified_class ~nested:[ inner_media ] ();
           ]
+      | Style.Arbitrary_selector content ->
+          arbitrary_selector_in_media content bc selector props ~inner_condition
+            ~nested
       | _ ->
           (* Other state/pseudo modifiers (focus, active, ...) don't add an
              outer media condition; they rewrite the inner rule's selector so a
@@ -1610,11 +1988,36 @@ let apply_modifier_to_media_query ?theme modifier ~inner_condition ~selector
               ~base_class:modified_class ~nested ();
           ])
 
+(* The multi-rule routes below build their selector from the bare class, so an
+   outer variant would discard whatever an inner one already did. Rebuild each
+   rule they produce around the incoming selector; with no inner variant that
+   selector is the bare class and this changes nothing. *)
+let rebase_on_selector ~base_class ~selector rules =
+  match selector with
+  | Css.Selector.Class cls when String.equal cls base_class -> rules
+  | _ ->
+      List.map
+        (fun rule ->
+          match rule with
+          | Output.Regular ({ base_class = Some modified_class; _ } as r) ->
+              Output.Regular
+                {
+                  r with
+                  selector =
+                    Rules_selector.transform_selector_with_modifier r.selector
+                      base_class modified_class selector;
+                }
+          | rule -> rule)
+        rules
+
 (* Extract selector and properties from a single Utility *)
 (* Apply modifier to extracted rule *)
 let rec apply_modifier_to_rule ?theme modifier = function
   | Regular { selector; props; base_class; has_hover; _ } -> (
       let bc = Option.value base_class ~default:"" in
+      let rebase ~selector rules =
+        rebase_on_selector ~base_class:bc ~selector rules
+      in
       match modifier with
       | Style.Pseudo_marker ->
           let open Css.Selector in
@@ -1628,22 +2031,31 @@ let rec apply_modifier_to_rule ?theme modifier = function
       | Style.Not inner_modifier -> (
           match inner_modifier with
           | Style.In_bracket content -> handle_not_in_bracket content bc props
+          | Style.In_data attr -> handle_not_in_data attr bc props
           | _ -> handle_not_modifier ?theme inner_modifier bc selector props)
-      | Style.Not_bracket content -> handle_not_bracket content bc props
-      | Style.In_bracket content -> handle_in_bracket content bc props
-      | Style.In_data attr -> handle_in_data attr bc props
+      | Style.Not_bracket content ->
+          rebase ~selector (handle_not_bracket content bc props)
+      | Style.In_bracket content ->
+          rebase ~selector (handle_in_bracket content bc props)
+      | Style.In_data attr -> rebase ~selector (handle_in_data attr bc props)
+      | Style.In_state (inner, name) ->
+          rebase ~selector (handle_in_state inner name bc props)
       | Style.Group_not (inner, name_opt) ->
-          handle_group_not_modifier inner name_opt bc props
+          rebase ~selector (handle_group_not_modifier inner name_opt bc props)
       | Style.Peer_not (inner, name_opt) ->
-          handle_peer_not_modifier inner name_opt bc props
+          rebase ~selector (handle_peer_not_modifier inner name_opt bc props)
+      | Style.Named_group (inner, name) ->
+          rebase ~selector (handle_named_group inner name bc props)
+      | Style.Named_peer (inner, name) ->
+          rebase ~selector (handle_named_peer inner name bc props)
       | Style.Not_named_group (inner, name) ->
-          handle_not_named_group inner name bc props
+          rebase ~selector (handle_not_named_group inner name bc props)
       | Style.Has_named_group (inner, name) ->
-          handle_has_named_group inner name bc props
+          rebase ~selector (handle_has_named_group inner name bc props)
       | Style.In_named_group (inner, name) ->
-          handle_in_named_group inner name bc props
+          rebase ~selector (handle_in_named_group inner name bc props)
       | Style.Group_peer_named (inner, name) ->
-          handle_group_peer_named inner name bc props
+          rebase ~selector (handle_group_peer_named inner name bc props)
       | _ -> (
           try
             [
@@ -1658,7 +2070,39 @@ let rec apply_modifier_to_rule ?theme modifier = function
   | Supports_query { condition; selector; props; base_class; merge_key; _ } ->
       apply_modifier_to_supports_query ?theme modifier ~condition ~selector
         ~props ~base_class ~merge_key
+  | Container_query { condition; selector; props; base_class; nested } ->
+      apply_modifier_to_container_query ?theme modifier ~condition ~selector
+        ~props ~base_class ~nested
   | other -> [ other ]
+
+(* Apply a modifier to a [@container] rule, the way the [@supports] case does:
+   run it on the inner rule so all the selector and media machinery applies,
+   then put each result back inside [@container]. Without this an outer variant
+   fell through and vanished -- [sm:@max-md:X] lost its breakpoint entirely. *)
+and apply_modifier_to_container_query ?theme modifier ~condition ~selector
+    ~props ~base_class ~nested =
+  let inner = regular ~selector ~props ?base_class ~nested () in
+  let contained sel p = Css.container ~condition [ Css.rule ~selector:sel p ] in
+  apply_modifier_to_rule ?theme modifier inner
+  |> List.map (function
+    | Regular { selector; props; base_class; has_hover; nested; _ } ->
+        if has_hover then
+          media_query ~condition:hover_media ~selector ~props:[] ?base_class
+            ~nested:(contained selector props :: nested)
+            ()
+        else container_query ~condition ~selector ~props ?base_class ~nested ()
+    | Media_query { condition = outer; selector; props; base_class; nested; _ }
+      ->
+        (* Tailwind keeps the outer query outside and nests the container. *)
+        media_query ~condition:outer ~selector ~props:[] ?base_class
+          ~nested:(contained selector props :: nested)
+          ()
+    | Container_query { condition = outer; selector; props; base_class; nested }
+      ->
+        container_query ~condition:outer ~selector ~props:[] ?base_class
+          ~nested:(contained selector props :: nested)
+          ()
+    | other -> other)
 
 (* Apply a modifier to a [@supports] rule (the progressive-enhancement block an
    opacity color or gradient emits). The modifier is applied to the inner rule
@@ -1678,13 +2122,16 @@ and apply_modifier_to_supports_query ?theme modifier ~condition ~selector ~props
   in
   apply_modifier_to_rule ?theme modifier inner
   |> List.map (function
-    | Regular { selector; props; base_class; has_hover; _ } ->
+    | Regular { selector; props; base_class; has_hover; not_order; _ } ->
         (* A bare hover: rule carries [has_hover] instead of an outer media;
            wrap the @supports in @media (hover:hover) to match. *)
         if has_hover then
           wrap_supports_in_media hover_media selector props base_class []
         else
-          supports_query ~condition ~selector ~props ?base_class ?merge_key ()
+          (* Keep the variant's own order: without it the block sorts before the
+             rule it enhances, and the plain fallback wins instead. *)
+          supports_query ~condition ~selector ~props ?base_class ?merge_key
+            ~not_order ()
     | Media_query { condition = outer; selector; props; base_class; nested; _ }
       ->
         wrap_supports_in_media outer selector props base_class nested
@@ -1698,7 +2145,8 @@ let handle_modified ?theme util_inner modifier base_style extract_fn =
      .dark\:aria-selected\:... *)
   let inner_util, style =
     match util_inner with
-    | Utility.Modified (inner_mod, u) when inner_mod = modifier ->
+    | Utility.Modified (inner_mod, u)
+      when Style.equal_modifier inner_mod modifier ->
         (* Same modifier - strip it to avoid doubling *)
         (u, base_style)
     | _ ->
@@ -1838,15 +2286,21 @@ let extract_style_with_rules ~sel ~class_name ?merge_key ~props rule_list =
   else base_rule @ ordered_entries
 
 let outputs ?(theme = Scheme.default) ?order_tbl util =
+  let rec utility_order = function
+    | Utility.Base b -> Some (Utility.order b)
+    | Utility.Modified (_, u) | Utility.Important (_, u)
+    | Utility.Aliased (_, u) -> utility_order u
+    | Utility.Group _ -> None
+  in
   let rec extract_with_class class_name util_inner = function
     | Style.Style { props; rules; merge_key; pseudo_suffix; _ } -> (
         (* Record the base utility's order under the class name we already
            built, so the caller does not have to re-derive it from the
            string. *)
-        (match (order_tbl, util_inner) with
-        | Some tbl, Utility.Base b ->
+        (match (order_tbl, utility_order util_inner) with
+        | Some tbl, Some order ->
             if not (Hashtbl.mem tbl class_name) then
-              Hashtbl.add tbl class_name (Utility.order b)
+              Hashtbl.add tbl class_name order
         | _ -> ());
         let sel =
           match pseudo_suffix with

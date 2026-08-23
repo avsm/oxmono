@@ -125,6 +125,29 @@ let test_arbitrary_selector_combinator () =
   check bool "[&_p] still flattens to a descendant" true
     (Astring.String.is_infix ~affix:"]\\:underline p" (css "[&_p]:underline"))
 
+(* [&] is the CSS nesting anchor and stands for the utility's own class, so it
+   is substituted over the parsed selector. Rewriting the [&] bytes of the
+   source text and re-parsing the result also rewrote an [&] that was part of a
+   quoted attribute value. *)
+let test_arbitrary_anchor_in_quoted_value () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has {|[&[data-x="a&b"]]:flex|}
+    {|.\[\&\[data-x\=\"a\&b\"\]\]\:flex[data-x="a&b"]|};
+  (* the spellings that already worked stay byte-identical *)
+  has "[&>*]:flex" {|.\[\&\>\*\]\:flex>*|};
+  has "[&_p]:flex" {|.\[\&_p\]\:flex p|};
+  has "[&:hover]:flex" {|.\[\&\:hover\]\:flex:hover|};
+  has "[input&]:flex" {|input.\[input\&\]\:flex|};
+  has "[p.foo]:flex" {|.\[p\.foo\]\:flex:is(p.foo)|};
+  has "[.line]:block" {|.\[\.line\]\:block.line|}
+
 (* Regression: an opacity color emits a progressive-enhancement @supports block.
    Under a variant, that block must stay scoped to the variant instead of
    leaking a bare base-class rule. dark:text-white/80 previously emitted a
@@ -162,14 +185,309 @@ let test_hover_dark_media_wrapper () =
     (Astring.String.is_infix ~affix:"prefers-color-scheme:dark" s
     || Astring.String.is_infix ~affix:"prefers-color-scheme: dark" s)
 
+(* An outer variant has to find the class the inner one produced. The child
+   variant buries it inside an [:is] with a child combinator and the
+   pseudo-element variants report the class they prefixed, so both used to be
+   invisible: the outer variant dropped out of the class name, and stacking two
+   child variants collapsed to one. *)
+let test_outer_variant_over_child_and_pseudo () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "max-sm:after:block" ".max-sm\\:after\\:block:after";
+  has "hover:before:underline" ".hover\\:before\\:underline:hover:before";
+  has "sm:*:rotate-0" ":is(.sm\\:\\*\\:rotate-0>*)";
+  has "hover:*:underline" ":is(.hover\\:\\*\\:underline:hover>*)";
+  has "*:*:grow" ":is(:is(.\\*\\:\\*\\:grow>*)>*)"
+
+(* An arbitrary variant with no [&] anchor compounds onto the utility's own
+   class: [[.line]] attaches directly, a type selector goes in an [:is()] since
+   it cannot follow a class. One that is not a single compound ([[>img]]) is not
+   a variant at all. *)
+let test_bare_arbitrary_selector_variant () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "[.line]:block" ".\\[\\.line\\]\\:block.line";
+  has "[code]:pr-4" ".\\[code\\]\\:pr-4:is(code)";
+  has "**:[code]:pr-4" ":is(.\\*\\*\\:\\[code\\]\\:pr-4 *):is(code)";
+  check bool "[>img] is not a variant" true
+    (Result.is_error (Tw.of_string "[>img]:flex"))
+
+(* An arbitrary variant stacks with the variants beside it. What the inner
+   variant compounded onto the class belongs on the element this one makes the
+   subject: [[&_p]:first:] matches the first [p], not a [p] under a first child.
+   A responsive variant in the chain used to drop the arbitrary selector
+   entirely, since the media path rebuilds the selector from a spelling [[svg]]
+   has none of. *)
+let test_arbitrary_selector_stacking () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "[svg]:first:size-4" ".\\[svg\\]\\:first\\:size-4:is(svg):first-child";
+  has "[&_p]:first:size-4" ".\\[\\&_p\\]\\:first\\:size-4 p:first-child";
+  has "[svg]:sm:size-4" ".\\[svg\\]\\:sm\\:size-4:is(svg)";
+  has "**:[svg]:first:sm:size-4"
+    ":is(.\\*\\*\\:\\[svg\\]\\:first\\:sm\\:size-4 *):is(svg):first-child"
+
+(* An opacity colour emits a progressive-enhancement @supports block beside its
+   fallback. Under a variant the block used to carry the theme declaration a
+   second time, and for the variants that set an order of their own it sorted
+   ahead of the rule it enhances, so the fallback won. *)
+let test_opacity_supports_under_variant () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let s = css "hover:bg-red-500/50" in
+  let occurrences sub str =
+    let n = String.length sub in
+    let rec go i acc =
+      if i + n > String.length str then acc
+      else if String.sub str i n = sub then go (i + n) (acc + 1)
+      else go (i + 1) acc
+    in
+    go 0 0
+  in
+  (* once in @layer theme, not again inside the @supports block *)
+  check int "the theme token is declared once" 1
+    (occurrences "--color-red-500:oklch" s);
+  (* the enhancement has to come after the fallback to win *)
+  let d = css "aria-selected:bg-red-500/50" in
+  let idx affix =
+    Option.get (Astring.String.find_sub ~sub:affix d) |> fun (i : int) -> i
+  in
+  check bool "the @supports block follows the fallback" true
+    (idx "#fb2c3680" < idx "@supports")
+
+(* An at-rule written in brackets wraps the utility rather than selecting it,
+   and keeps its own spelling in the class name: reading it as the [supports-]
+   variant gave a class the HTML would not match. A property test also runs
+   against the prefixed spellings, as Tailwind's browser data has it. *)
+let test_bracketed_at_rule_variant () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "[@starting-style]:opacity-0"
+    "@starting-style{.\\[\\@starting-style\\]\\:opacity-0";
+  has "[@supports(display:grid)]:grid" "@supports(display:grid)";
+  has "[@supports(display:grid)]:grid"
+    ".\\[\\@supports\\(display\\:grid\\)\\]\\:grid";
+  has "[@supports(backdrop-filter:blur(0))]:backdrop-blur"
+    "@supports(-webkit-backdrop-filter:blur(0))or (backdrop-filter:blur(0))";
+  (* an unprefixed property stays a single test *)
+  has "supports-[display:grid]:flex" "@supports(display:grid)"
+
+(* [in-focus] scopes to an ancestor in that state, the same state names the
+   group and peer variants take. It used to be an unknown class: only the
+   bracket and data spellings were read. *)
+let test_in_state_variant () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "in-focus:opacity-100" ":where(:focus) .in-focus\\:opacity-100";
+  has "in-checked:flex" ":where(:checked) .in-checked\\:flex";
+  (* in-hover gates on the pointer, as hover itself does *)
+  has "in-hover:flex" "@media(hover:hover)"
+
+(* [before:]/[after:] add the content declaration the pseudo-element needs, but
+   a content-* utility already brings its own: adding a second one left it
+   declared twice. A utility that sets content to something else (content-none)
+   still gets the var indirection. *)
+let test_pseudo_element_content_once () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let occurrences sub str =
+    let n = String.length sub in
+    let rec go i acc =
+      if i + n > String.length str then acc
+      else if String.sub str i n = sub then go (i + n) (acc + 1)
+      else go (i + 1) acc
+    in
+    go 0 0
+  in
+  check int "content declared once" 1
+    (occurrences "content:var(--tw-content)" (css "after:content-['x']"));
+  check int "a plain utility still gets one" 1
+    (occurrences "content:var(--tw-content)" (css "after:underline"))
+
+(* An attribute-style variant (aria/data/has) builds its own selector, so it
+   used to discard whatever an inner variant had already done: the [:hover], the
+   child combinator, the second attribute. *)
+let test_attribute_variant_keeps_inner () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "aria-selected:hover:underline" "[aria-selected=true]:hover";
+  has "data-[closed]:data-[enter]:-translate-x-8" "[data-closed][data-enter]";
+  has "has-checked:hover:bg-indigo-500" ":has(:checked):hover";
+  has "aria-selected:*:font-medium" "[aria-selected=true]>*";
+  (* the inner [hover:] keeps its own @media gate under an outer variant *)
+  has "disabled:hover:bg-indigo-500" "(hover:hover)";
+  has "has-checked:hover:bg-indigo-500" "(hover:hover)"
+
+(* [not-] over a variant that anchors the class under an ancestor negates the
+   ancestor relation, and over an inner variant it keeps that variant's own
+   selector work. *)
+let test_not_variant_keeps_inner () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "not-in-data-open:hidden" ":not(:where([data-open]) *)";
+  has "not-checked:before:hidden" ":not(:checked):before";
+  has "not-data-focus:not-has-checked:ring-inset"
+    ":not([data-focus]):not(:has(:checked))"
+
+(* The in-/named-group/peer routes build their selector from the bare class too,
+   so an outer one used to drop the anchor an inner arbitrary selector had put
+   in place. *)
+let test_in_variant_keeps_inner () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "in-data-stack:[:first-child>&]:underline"
+    ":first-child>:is(:where([data-stack]) .in-data-stack";
+  (* prose's own [:where(.prose > :last-child)] still only gets renamed *)
+  has "hover:prose" ":where(.hover\\:prose>:last-child)"
+
+(* An arbitrary-selector variant anchors the utility's class, so when an inner
+   variant has already moved the subject the anchor belongs at the class's own
+   position - not wrapped around everything the inner variant built. *)
+let test_arbitrary_anchor_over_child () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  check bool "the child variant's tail stays outermost" true
+    (Astring.String.is_infix
+       ~affix:":is(:last-child>:is(:where([data-stack]) .in-data-stack"
+       (css "in-data-stack:[:last-child>&]:*:rounded-b-xl"))
+
+(* [has-<variant>] takes any variant, not only a state name or a bracket: its
+   own selector is what goes inside [:has()]. A scoped variant contributes its
+   whole relative selector, so it composes both ways. *)
+let test_has_variant () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    check bool cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "has-peer-checked:underline" ":has(:is(:where(.peer):checked~*))";
+  has "group-not-has-peer-not-data-active:underline"
+    ":is(:where(.group):not(:has(:is(:where(.peer):not([data-active])~*))) *)";
+  (* a named group scopes on the marker class, and the whole relative selector
+     is what [:has()] sees *)
+  has "has-group-focus/name:underline"
+    ":has(:is(:where(.group\\/name):focus *))"
+
+let variant_css cls =
+  match Tw.of_string cls with
+  | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+  | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+
+let variant_has cls affix =
+  check bool cls true (Astring.String.is_infix ~affix (variant_css cls))
+
+(* An inner media query's nested blocks hold the utility's class too, so an
+   outer responsive variant has to rename it there as well: [sm:] used to drop
+   out of the class name whenever [hover:] had wrapped the rule in its own media
+   block. *)
+let test_outer_media_renames_nested () =
+  variant_has "sm:motion-reduce:hover:translate-y-0"
+    ".sm\\:motion-reduce\\:hover\\:translate-y-0:hover";
+  variant_has "sm:dark:hover:underline" ".sm\\:dark\\:hover\\:underline:hover"
+
+(* [starting:] and the bracketed at-rule variant wrap the utility in an at-rule,
+   and rebuilding the selector from the bare class dropped whatever an inner
+   variant had put on it. *)
+let test_at_rule_keeps_inner () =
+  variant_has "starting:open:opacity-0" ":is([open],:popover-open,:open)";
+  variant_has "[@starting-style]:open:opacity-0"
+    ":is([open],:popover-open,:open)"
+
 let tests =
   [
     test_case "arbitrary selector combinator variants" `Quick
       test_arbitrary_selector_combinator;
+    test_case "arbitrary anchor inside a quoted value" `Quick
+      test_arbitrary_anchor_in_quoted_value;
+    test_case "arbitrary selector stacks with other variants" `Quick
+      test_arbitrary_selector_stacking;
+    test_case "pseudo-element content once" `Quick
+      test_pseudo_element_content_once;
+    test_case "in-state variant" `Quick test_in_state_variant;
+    test_case "bracketed at-rule variant" `Quick test_bracketed_at_rule_variant;
+    test_case "opacity @supports under a variant" `Quick
+      test_opacity_supports_under_variant;
+    test_case "bare arbitrary selector variant" `Quick
+      test_bare_arbitrary_selector_variant;
+    test_case "outer variant over child and pseudo-element" `Quick
+      test_outer_variant_over_child_and_pseudo;
     test_case "opacity color variant does not leak base rule" `Quick
       test_opacity_color_variant_no_leak;
     test_case "hover:dark keeps hover media wrapper" `Quick
       test_hover_dark_media_wrapper;
+    test_case "attribute variant keeps the inner selector" `Quick
+      test_attribute_variant_keeps_inner;
+    test_case "not- variant keeps the inner selector" `Quick
+      test_not_variant_keeps_inner;
+    test_case "in- variant keeps the inner selector" `Quick
+      test_in_variant_keeps_inner;
+    test_case "arbitrary anchor over a child variant" `Quick
+      test_arbitrary_anchor_over_child;
+    test_case "has- takes any variant" `Quick test_has_variant;
+    test_case "outer media renames the nested class" `Quick
+      test_outer_media_renames_nested;
+    test_case "at-rule variant keeps the inner selector" `Quick
+      test_at_rule_keeps_inner;
     test_case "extract selector props - basic" `Quick
       check_extract_selector_props;
     test_case "extract selector props - hover" `Quick check_extract_hover;

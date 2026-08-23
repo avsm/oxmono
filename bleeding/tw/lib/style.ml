@@ -3,7 +3,7 @@
 module Css = Cascade.Css
 
 type breakpoint = [ `Sm | `Md | `Lg | `Xl | `Xl_2 ]
-type container_cmp = Cq_min | Cq_max
+type container_cmp = Min | Max
 
 type container_query =
   | Container_3xs
@@ -21,8 +21,9 @@ type container_query =
   | Container_7xl
   | Container_named of string * int
   | Container_size of container_cmp * container_query
-  | Container_len of Css.length
-  | Container_len_cmp of container_cmp * Css.length
+  | Container_len of string * Css.length
+  | Container_len_cmp of container_cmp * string * Css.length
+  | Container_scoped of string * container_query
 
 type modifier =
   | Hover
@@ -54,6 +55,7 @@ type modifier =
   | Container of container_query
   | Not of modifier
   | Has of string
+  | Has_variant of modifier
   | Group_has of string * string option
   | Peer_has of string * string option
   | Starting
@@ -204,6 +206,9 @@ type modifier =
       *)
   | In_data of string
       (** [in-data-X] — element must be descendant of [data-X] *)
+  | In_state of modifier * string
+      (** [in-focus] — element must be a descendant of one in that state; the
+          string is the state name, for the class *)
   | Group_not of modifier * string option
       (** [group-not-X/name] — inner modifier + optional group name *)
   | Peer_not of modifier * string option
@@ -222,6 +227,10 @@ type modifier =
       (** [group-aria-X/name] — group aria variant with optional name *)
   | Peer_aria of string * string option
       (** [peer-aria-X/name] — peer aria variant with optional name *)
+  | Named_group of modifier * string
+      (** [group-X/name] — a state variant on a named group *)
+  | Named_peer of modifier * string
+      (** [peer-X/name] — a state variant on a named peer *)
   | Not_named_group of modifier * string
       (** [not-group-X/name] — negate named group variant *)
   | Has_named_group of modifier * string
@@ -233,6 +242,9 @@ type modifier =
   | Arbitrary_selector of string
       (** [[&_p]] — arbitrary selector variant, [&] is replaced by the element's
           own class selector *)
+  | At_rule of string
+      (** [[@supports(...)]] / [[@starting-style]] — an at-rule in brackets,
+          kept as written so the class name round-trips *)
   | Custom_variant of string * string
       (** [is-data-foo:] — a [matchVariant]-registered variant. First field is
           the class-name token (e.g. [is-data-foo]); second is the resolved
@@ -247,6 +259,8 @@ type modifier =
       (** [prose-X:] — prose element variant, wraps utility in a descendant
           selector targeting specific HTML elements within prose content. E.g.
           [prose-headings:text-white] targets h1-h6,th inside prose. *)
+
+let equal_modifier (a : modifier) b = a = b
 
 type t =
   | Style of {
@@ -289,7 +303,22 @@ let rec important_stmt stmt =
       Css.rule ~selector
         ~nested:(List.map important_stmt nested)
         (List.map mark_important_decl decls)
-  | None -> stmt
+  | None -> (
+      (* An at-rule holds the declarations the [!] has to reach: the colour
+         utilities put their modern-syntax value behind [@supports], and it has
+         to outrank the fallback the same way. *)
+      match Css.as_supports stmt with
+      | Some (condition, stmts) ->
+          Css.supports ~condition (List.map important_stmt stmts)
+      | None -> (
+          match Css.as_media stmt with
+          | Some (condition, stmts) ->
+              Css.media ~condition (List.map important_stmt stmts)
+          | None -> (
+              match Css.as_container stmt with
+              | Some (name, condition, stmts) ->
+                  Css.container ?name ?condition (List.map important_stmt stmts)
+              | None -> stmt)))
 
 let rec map_important = function
   | Style s ->
@@ -307,7 +336,7 @@ let is_numeric s = s <> "" && String.for_all (fun c -> c >= '0' && c <= '9') s
 let pp_nth prefix expr =
   if is_numeric expr then prefix ^ "-" ^ expr else prefix ^ "-[" ^ expr ^ "]"
 
-let container_cmp_prefix = function Cq_min -> "min-" | Cq_max -> "max-"
+let container_cmp_prefix = function Min -> "min-" | Max -> "max-"
 
 (* The class-name suffix (after the leading [@]) for a container query. *)
 let rec container_size_name = function
@@ -324,17 +353,83 @@ let rec container_size_name = function
   | Container_5xl -> "5xl"
   | Container_6xl -> "6xl"
   | Container_7xl -> "7xl"
+  (* An unnamed container query is an arbitrary width, and its class is the
+     bracket form the parser reads back: [@[600px]], not [@600px]. *)
+  | Container_named ("", size) -> "[" ^ string_of_int size ^ "px]"
   | Container_named (n, size) -> n ^ "/" ^ string_of_int size
   | Container_size (cmp, inner) ->
       container_cmp_prefix cmp ^ container_size_name inner
-  | Container_len l ->
-      "[" ^ Css.Pp.to_string (Css.pp_length ~always:true) l ^ "]"
-  | Container_len_cmp (cmp, l) ->
-      container_cmp_prefix cmp ^ "["
-      ^ Css.Pp.to_string (Css.pp_length ~always:true) l
-      ^ "]"
+  (* The raw bracket token, not the parsed length: [theme(--breakpoint-lg)] must
+     not come back as its resolved [64rem]. *)
+  | Container_len (raw, _) -> "[" ^ raw ^ "]"
+  | Container_len_cmp (cmp, raw, _) ->
+      container_cmp_prefix cmp ^ "[" ^ raw ^ "]"
+  | Container_scoped (name, inner) -> container_size_name inner ^ "/" ^ name
 
 (* Convert modifier to string prefix *)
+(* Map of simple state names to base modifiers for compound variant parsing *)
+let group_state_modifiers =
+  [
+    ("hover", Hover);
+    ("focus", Focus);
+    ("active", Active);
+    ("visited", Visited);
+    ("disabled", Disabled);
+    ("checked", Checked);
+    ("empty", Empty);
+    ("required", Required);
+    ("valid", Valid);
+    ("invalid", Invalid);
+    ("indeterminate", Indeterminate);
+    ("default", Default);
+    ("open", Open);
+    ("target", Target);
+    ("optional", Optional);
+    ("read-only", Read_only);
+    ("read-write", Read_write);
+    ("inert", Inert);
+    ("user-valid", User_valid);
+    ("user-invalid", User_invalid);
+    ("placeholder-shown", Placeholder_shown);
+    ("autofill", Autofill);
+    ("in-range", In_range);
+    ("out-of-range", Out_of_range);
+    ("focus-within", Focus_within);
+    ("focus-visible", Focus_visible);
+    ("enabled", Enabled);
+    ("first", First);
+    ("last", Last);
+    ("only", Only);
+    ("odd", Odd);
+    ("even", Even);
+    ("first-of-type", First_of_type);
+    ("last-of-type", Last_of_type);
+    ("only-of-type", Only_of_type);
+  ]
+
+(* Valid has-shorthand names. These are stored as-is (without : prefix) so they
+   remain distinct from bracket forms like has-[:checked]. *)
+(* [has-data-lg] matches an attribute rather than a state, but spells itself the
+   same way, so it is a shorthand too. *)
+let is_data_attr_name name =
+  String.length name > 5
+  && String.sub name 0 5 = "data-"
+  && String.for_all
+       (fun c ->
+         (c >= 'a' && c <= 'z')
+         || (c >= 'A' && c <= 'Z')
+         || (c >= '0' && c <= '9')
+         || c = '-' || c = '_')
+       (String.sub name 5 (String.length name - 5))
+
+let is_has_shorthand name =
+  name = "hocus"
+  || List.mem_assoc name group_state_modifiers
+  || is_data_attr_name name
+
+let has_part selector =
+  if is_has_shorthand selector then selector else "[" ^ selector ^ "]"
+
 let rec pp_modifier = function
   | Hover -> "hover"
   | Focus -> "focus"
@@ -382,18 +477,25 @@ let rec pp_modifier = function
   | Aria_expanded -> "aria-expanded"
   | Aria_selected -> "aria-selected"
   | Aria_disabled -> "aria-disabled"
-  | Data_state s -> String.concat "" [ "data-state="; s ]
-  | Data_variant s -> String.concat "" [ "data-variant="; s ]
+  | Data_state s -> String.concat "" [ "data-[state="; s; "]" ]
+  | Data_variant s -> String.concat "" [ "data-[variant="; s; "]" ]
   | Data_active -> "data-active"
   | Data_inactive -> "data-inactive"
-  | Data_custom (k, v) -> String.concat "" [ "data-"; k; "="; v ]
-  | Not m -> String.concat "" [ "not("; pp_modifier m; ")" ]
-  | Has s -> String.concat "" [ "has-["; s; "]" ]
-  | Group_has (s, None) -> String.concat "" [ "group-has-["; s; "]" ]
+  (* A valueless data attribute is the bare form; one with a value takes
+     brackets. *)
+  | Data_custom (k, "") -> String.concat "" [ "data-"; k ]
+  | Data_custom (k, v) -> String.concat "" [ "data-["; k; "="; v; "]" ]
+  | Not m -> String.concat "" [ "not-"; pp_modifier m ]
+  (* A shorthand name is stored bare ([Has "focus"]), a bracket form with its
+     CSS punctuation ([Has ":focus"]); only the latter renders brackets. *)
+  | Has s -> String.concat "" [ "has-"; has_part s ]
+  | Has_variant m -> String.concat "" [ "has-"; pp_modifier m ]
+  | Group_has (s, None) -> String.concat "" [ "group-has-"; has_part s ]
   | Group_has (s, Some name) ->
-      String.concat "" [ "group-has-["; s; "]/"; name ]
-  | Peer_has (s, None) -> String.concat "" [ "peer-has-["; s; "]" ]
-  | Peer_has (s, Some name) -> String.concat "" [ "peer-has-["; s; "]/"; name ]
+      String.concat "" [ "group-has-"; has_part s; "/"; name ]
+  | Peer_has (s, None) -> String.concat "" [ "peer-has-"; has_part s ]
+  | Peer_has (s, Some name) ->
+      String.concat "" [ "peer-has-"; has_part s; "/"; name ]
   | Starting -> "starting"
   | Focus_within -> "focus-within"
   | Focus_visible -> "focus-visible"
@@ -546,6 +648,7 @@ let rec pp_modifier = function
   | Not_bracket content -> "not-[" ^ content ^ "]"
   | In_bracket content -> "in-[" ^ content ^ "]"
   | In_data attr -> "in-data-" ^ attr
+  | In_state (_, name) -> "in-" ^ name
   | Group_not (inner, None) ->
       String.concat "" [ "group-not-"; pp_modifier inner ]
   | Group_not (inner, Some name) ->
@@ -555,12 +658,15 @@ let rec pp_modifier = function
   | Peer_not (inner, Some name) ->
       String.concat "" [ "peer-not-"; pp_modifier inner; "/"; name ]
   | Data_bracket expr -> "data-[" ^ expr ^ "]"
-  | Group_data (expr, None) -> "group-data-[" ^ expr ^ "]"
-  | Group_data (expr, Some name) ->
-      String.concat "" [ "group-data-["; expr; "]/"; name ]
-  | Peer_data (expr, None) -> "peer-data-[" ^ expr ^ "]"
-  | Peer_data (expr, Some name) ->
-      String.concat "" [ "peer-data-["; expr; "]/"; name ]
+  (* The spelling as written: [[dragging]] for the bracket form, [dragging] for
+     the bare shorthand. Both mean the same attribute, but the class names
+     differ. *)
+  | Group_data (spelling, None) -> "group-data-" ^ spelling
+  | Group_data (spelling, Some name) ->
+      String.concat "" [ "group-data-"; spelling; "/"; name ]
+  | Peer_data (spelling, None) -> "peer-data-" ^ spelling
+  | Peer_data (spelling, Some name) ->
+      String.concat "" [ "peer-data-"; spelling; "/"; name ]
   | Aria_bracket expr -> "aria-[" ^ expr ^ "]"
   | Group_aria (expr, None) -> "group-aria-" ^ expr
   | Group_aria (expr, Some name) ->
@@ -568,6 +674,10 @@ let rec pp_modifier = function
   | Peer_aria (expr, None) -> "peer-aria-" ^ expr
   | Peer_aria (expr, Some name) ->
       String.concat "" [ "peer-aria-"; expr; "/"; name ]
+  | Named_group (inner, name) ->
+      String.concat "" [ "group-"; pp_modifier inner; "/"; name ]
+  | Named_peer (inner, name) ->
+      String.concat "" [ "peer-"; pp_modifier inner; "/"; name ]
   | Not_named_group (inner, name) ->
       "not-group-" ^ pp_modifier inner ^ "/" ^ name
   | Has_named_group (inner, name) ->
@@ -576,6 +686,7 @@ let rec pp_modifier = function
   | Group_peer_named (inner, name) ->
       "group-peer-" ^ pp_modifier inner ^ "/" ^ name
   | Arbitrary_selector content -> "[" ^ content ^ "]"
+  | At_rule content -> "[" ^ content ^ "]"
   | Custom_variant (token, _) -> token
   | Container_style (token, _) -> token
   | Prose_element name -> "prose-" ^ name

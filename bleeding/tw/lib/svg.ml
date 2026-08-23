@@ -47,7 +47,7 @@ module Handler = struct
   type Utility.base += Self of t
 
   let name = "svg"
-  let priority _ = 21
+  let priority _ = 22
 
   (* Format opacity modifier for class names *)
   let opacity_suffix = function
@@ -60,7 +60,7 @@ module Handler = struct
         else "/[" ^ Pp.float p ^ "%]"
     | Color.Opacity_arbitrary f -> "/[" ^ Pp.float f ^ "]"
     | Color.Opacity_named name -> "/" ^ name
-    | Color.Opacity_var v -> "/[" ^ v ^ "]"
+    | Color.Opacity_var v -> "/" ^ v
 
   (* Fill color style with scheme support *)
   let fill_color_style ?theme color shade =
@@ -452,10 +452,8 @@ module Handler = struct
     | [ "stroke"; "0" ] -> Ok Stroke_0
     | [ "stroke"; "1" ] -> Ok Stroke_1
     | [ "stroke"; "2" ] -> Ok Stroke_2
-    | [ "stroke"; n ] -> (
-        match int_of_string_opt n with
-        | Some width -> Ok (Stroke_width width)
-        | None -> err_not_utility)
+    | [ "stroke"; n ] when int_of_string_opt n <> None ->
+        Ok (Stroke_width (int_of_string n))
     | "stroke" :: color_parts when List.exists has_opacity color_parts -> (
         match Color.shade_and_opacity_of_strings ~theme color_parts with
         | Ok (color, shade, opacity) ->
@@ -466,13 +464,16 @@ module Handler = struct
         | Ok (color, shade) -> Ok (Stroke_color (color, shade))
         | Error e -> Error e)
     | _ -> err_not_utility
+
+  let examples = [ Fill_none; Stroke_none; Stroke_0 ]
 end
 
 let () = Utility.register (module Handler)
 
 open Handler
 
-let color_util property color ?(shade = 500) () =
+let color_util name property color ?(shade = 500) () =
+  Color.check_shade ~utility:name color shade;
   let var_name =
     if Color.is_base_color color then "color-" ^ Color.to_name color
     else "color-" ^ Color.to_name color ^ "-" ^ string_of_int shade
@@ -484,8 +485,8 @@ let color_util property color ?(shade = 500) () =
   Style.style [ def; property (Css.Color (Css.Var css_var) : Css.svg_paint) ]
 
 let utility x = Utility.base (Self x)
-let fill = color_util Css.fill
-let stroke = color_util Css.stroke
+let fill = color_util "fill" Css.fill
+let stroke = color_util "stroke" Css.stroke
 let fill_none = utility Fill_none
 let fill_current = utility Fill_current
 let stroke_none = utility Stroke_none

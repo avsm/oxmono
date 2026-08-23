@@ -65,6 +65,8 @@ module Screen_reader_handler = struct
     | [ "sr"; "only" ] -> Ok Sr_only
     | [ "not"; "sr"; "only" ] -> Ok Not_sr_only
     | _ -> Error (`Msg "Not a screen reader utility")
+
+  let examples = []
 end
 
 (* Theme variable for z-index-auto. When the threaded theme overrides this token
@@ -85,15 +87,24 @@ let z_auto_style ?theme () =
       in
       let decl, ref = Var.binding z_index_auto_var z_value in
       Style.style [ decl; Css.z_index (Var ref) ]
-  | None ->
-      Style.style
-        [
-          Css.z_index
-            (Var
-               (Var.theme_ref "z-index-auto"
-                  ~default:(Auto : Css.z_index)
-                  ~default_css:"auto"));
-        ]
+  (* Without a theme override Tailwind writes the keyword, not a reference to a
+     token nothing declares. *)
+  | None -> Style.style [ Css.z_index Auto ]
+
+(* An [object-[...]] value that is not a var() reference is a position: one or
+   two lengths, with [_] for the space. *)
+let parse_object_position raw : Css.position_value option =
+  let decoded = Parse.decode_arbitrary_value raw in
+  match String.split_on_char ' ' decoded |> List.filter (fun s -> s <> "") with
+  | [ x; y ] -> (
+      match (Css.parse_length x, Css.parse_length y) with
+      | Some xv, Some yv -> Some (XY (xv, yv))
+      | _ -> None)
+  | [ v ] ->
+      Option.map
+        (fun (l : Css.length) : Css.position_value -> Single l)
+        (Css.parse_length v)
+  | _ -> None
 
 module Handler = struct
   open Style
@@ -174,6 +185,8 @@ module Handler = struct
     | (* Box decoration break *)
       Box_decoration_clone
     | Box_decoration_slice
+    | Decoration_clone (* legacy alias, keeps its class name *)
+    | Decoration_slice
     | (* Break before/after/inside - page/column breaks *)
       Break_before_all
     | Break_before_auto
@@ -210,6 +223,14 @@ module Handler = struct
     | Neg_z _ | Z_0 | Z _ | Z_10 | Z_20 | Z_30 | Z_40 | Z_50 | Neg_z_arbitrary _
     | Z_arbitrary _ | Z_auto ->
         0
+    (* isolation (rank 11) sits between inset and z-index. *)
+    | Isolate | Isolation_auto -> 0
+    (* float and clear (ranks 21-22) sit between the grid-column/grid-row group
+       and .container, both at priority 1. *)
+    | Float_end | Float_left | Float_none | Float_right | Float_start
+    | Clear_both | Clear_end | Clear_left | Clear_none | Clear_right
+    | Clear_start ->
+        1
     (* object-fit / object-position (rank ~72): after svg fill/stroke (21),
        before padding (23). *)
     | Object_contain | Object_cover | Object_fill | Object_none
@@ -251,9 +272,10 @@ module Handler = struct
     | Collapse -> -20
     | Invisible -> -19
     | Visible -> -18
-    (* Isolation - order: isolate, isolation-auto *)
-    | Isolate -> 200
-    | Isolation_auto -> 201
+    (* Isolation (priority 0) - after inset (up to ~13M in position.ml), before
+       z-index (20M). Order: isolate, isolation-auto *)
+    | Isolate -> 15_000_000
+    | Isolation_auto -> 15_000_001
     (* Z-index (priority 0) - after inset (up to ~13M in position.ml), before
        container (priority 1). Order: negative, positive, arbitrary, auto. *)
     | Neg_z n -> 20_000_000 + 500 + n (* -z-50, -z-10 *)
@@ -288,22 +310,27 @@ module Handler = struct
     | Object_top_left -> 711
     | Object_top_right -> 712
     | Object_arbitrary _ -> 650
-    (* Float - alphabetical order: end, left, none, right, start *)
-    | Float_end -> 800
-    | Float_left -> 801
-    | Float_none -> 802
-    | Float_right -> 803
-    | Float_start -> 804
-    (* Clear - alphabetical order: both, end, left, none, right, start *)
-    | Clear_both -> 900
-    | Clear_end -> 901
-    | Clear_left -> 902
-    | Clear_none -> 903
-    | Clear_right -> 904
-    | Clear_start -> 905
+    (* Float (priority 1) - after the grid-column/grid-row group (up to ~2.6K in
+       grid_item.ml), before .container (9M). Alphabetical: end, left, none,
+       right, start *)
+    | Float_end -> 3_000_000
+    | Float_left -> 3_000_001
+    | Float_none -> 3_000_002
+    | Float_right -> 3_000_003
+    | Float_start -> 3_000_004
+    (* Clear (priority 1) - right after float. Alphabetical: both, end, left,
+       none, right, start *)
+    | Clear_both -> 3_000_100
+    | Clear_end -> 3_000_101
+    | Clear_left -> 3_000_102
+    | Clear_none -> 3_000_103
+    | Clear_right -> 3_000_104
+    | Clear_start -> 3_000_105
     (* Box decoration break - alphabetical: clone, slice *)
     | Box_decoration_clone -> 1000
     | Box_decoration_slice -> 1001
+    | Decoration_clone -> 1000
+    | Decoration_slice -> 1001
     (* Break before - alphabetical order (Tailwind: break-before < break-inside
        < break-after) *)
     | Break_before_all -> 1100
@@ -397,6 +424,8 @@ module Handler = struct
     | Clear_end -> "clear-end"
     | Box_decoration_clone -> "box-decoration-clone"
     | Box_decoration_slice -> "box-decoration-slice"
+    | Decoration_clone -> "decoration-clone"
+    | Decoration_slice -> "decoration-slice"
     | Break_before_all -> "break-before-all"
     | Break_before_auto -> "break-before-auto"
     | Break_before_avoid -> "break-before-avoid"
@@ -455,13 +484,9 @@ module Handler = struct
     | Z_arbitrary s ->
         style
           [ z_index (Css.Properties.read_z_index (Cascade.Cursor.of_string s)) ]
-    | Neg_z_arbitrary s -> (
-        match int_of_string_opt s with
-        | Some n -> style [ z_index (Index (-n)) ]
-        | None ->
-            let zi = Css.Properties.read_z_index (Cascade.Cursor.of_string s) in
-            style
-              [ z_index (Calc (Css.Calc.mul (Val zi) (Css.Calc.float (-1.)))) ])
+    | Neg_z_arbitrary s ->
+        let zi = Css.Properties.read_z_index (Cascade.Cursor.of_string s) in
+        style [ z_index (Calc (Css.Calc.mul (Val zi) (Css.Calc.float (-1.)))) ]
     | Object_contain -> style [ object_fit Contain ]
     | Object_cover -> style [ object_fit Cover ]
     | Object_fill -> style [ object_fit Fill ]
@@ -471,7 +496,7 @@ module Handler = struct
       | Object_bottom_left | Object_bottom_right | Object_left_bottom
       | Object_left_top | Object_right_bottom | Object_right_top
       | Object_top_left | Object_top_right ) as obj -> (
-        let name, (default : Css.position_value), default_css =
+        let name, (default : Css.position_value), _default_css =
           match obj with
           | Object_center -> ("object-position-center", Center, "center")
           | Object_top -> ("object-position-top", Top, "top")
@@ -501,15 +526,18 @@ module Handler = struct
             in
             let pos_ref : Css.position_value Css.var = Var.bracket name in
             style [ theme_decl; object_position (Var pos_ref) ]
+        (* Without a theme override Tailwind writes the keyword, not a reference
+           to a token nothing declares. *)
+        | None -> style [ object_position default ])
+    | Object_arbitrary raw -> (
+        (* Only a var() reference names a variable; anything else is a position
+           value, which [object-[50%]] used to turn into [var(--50)]. *)
+        match parse_object_position raw with
+        | Some pos -> style [ object_position pos ]
         | None ->
-            let v : Css.position_value =
-              Var (Var.theme_ref name ~default ~default_css)
-            in
-            style [ object_position v ])
-    | Object_arbitrary var_str ->
-        let bare_name = Parse.extract_var_name var_str in
-        let pos_ref : Css.position_value Css.var = Var.bracket bare_name in
-        style [ object_position (Var pos_ref) ]
+            let bare_name = Parse.extract_var_name raw in
+            let pos_ref : Css.position_value Css.var = Var.bracket bare_name in
+            style [ object_position (Var pos_ref) ])
     | Float_left -> style [ Css.float Left ]
     | Float_right -> style [ Css.float Right ]
     | Float_none -> style [ Css.float None ]
@@ -528,6 +556,18 @@ module Handler = struct
             Css.box_decoration_break Clone;
           ]
     | Box_decoration_slice ->
+        style
+          [
+            Css.webkit_box_decoration_break Slice;
+            Css.box_decoration_break Slice;
+          ]
+    | Decoration_clone ->
+        style
+          [
+            Css.webkit_box_decoration_break Clone;
+            Css.box_decoration_break Clone;
+          ]
+    | Decoration_slice ->
         style
           [
             Css.webkit_box_decoration_break Slice;
@@ -599,7 +639,7 @@ module Handler = struct
         else Error (`Msg ("Invalid z-index arbitrary value: " ^ n))
     | [ "z"; n ] -> (
         (* Dynamic z-index: z-5, z-100, etc. *)
-        match int_of_string_opt n with
+        match Parse.decimal_int n with
         | Some i -> Ok (Z i)
         | None -> Error (`Msg ("Invalid z-index value: " ^ n)))
     | "" :: "z" :: rest when rest <> [] -> (
@@ -613,7 +653,7 @@ module Handler = struct
           let inner = String.sub value 1 (String.length value - 2) in
           Ok (Neg_z_arbitrary inner)
         else
-          match int_of_string_opt value with
+          match Parse.decimal_int value with
           | Some i -> Ok (Neg_z i)
           | None -> Error (`Msg ("Invalid negative z-index value: " ^ value)))
     | [ "object"; "contain" ] -> Ok Object_contain
@@ -635,7 +675,12 @@ module Handler = struct
     | [ "object"; "top"; "left" ] -> Ok Object_top_left
     | [ "object"; "top"; "right" ] -> Ok Object_top_right
     | [ "object"; value ] when Parse.is_bracket_value value ->
-        Ok (Object_arbitrary (Parse.bracket_inner value))
+        let inner = Parse.bracket_inner value in
+        (* Only a var() reference names a variable; anything the position parser
+           rejects is not a utility. *)
+        if parse_object_position inner = None && not (Parse.is_var inner) then
+          Error (`Msg ("Invalid object-position value: " ^ inner))
+        else Ok (Object_arbitrary inner)
     | [ "float"; "left" ] -> Ok Float_left
     | [ "float"; "right" ] -> Ok Float_right
     | [ "float"; "none" ] -> Ok Float_none
@@ -649,6 +694,8 @@ module Handler = struct
     | [ "clear"; "end" ] -> Ok Clear_end
     | [ "box"; "decoration"; "clone" ] -> Ok Box_decoration_clone
     | [ "box"; "decoration"; "slice" ] -> Ok Box_decoration_slice
+    | [ "decoration"; "clone" ] -> Ok Decoration_clone
+    | [ "decoration"; "slice" ] -> Ok Decoration_slice
     (* Break before *)
     | [ "break"; "before"; "all" ] -> Ok Break_before_all
     | [ "break"; "before"; "auto" ] -> Ok Break_before_auto
@@ -673,6 +720,18 @@ module Handler = struct
     | [ "break"; "inside"; "avoid"; "column" ] -> Ok Break_inside_avoid_column
     | [ "break"; "inside"; "avoid"; "page" ] -> Ok Break_inside_avoid_page
     | _ -> Error (`Msg "Not a layout utility")
+
+  let examples =
+    [
+      Block;
+      Visible;
+      Z_auto;
+      Isolate;
+      Float_left;
+      Clear_both;
+      Object_contain;
+      Object_center;
+    ]
 end
 
 open Handler

@@ -23,6 +23,7 @@ module Handler = struct
     (* Grow *)
     | Flex_grow
     | Flex_grow_0
+    | Flex_grow_n of int (* grow-N where N is any integer *)
     | Flex_grow_arbitrary of int (* grow-[123] *)
     | Flex_grow_legacy (* flex-grow (deprecated alias, keeps its class name) *)
     | Flex_grow_0_legacy (* flex-grow-0 *)
@@ -120,13 +121,25 @@ module Handler = struct
             ~default_css:"0px"
         in
         style [ decl; flex_basis (Var ref) ]
-    | None ->
-        let ref : Css.flex_basis Css.var =
-          Var.theme_ref var_name
-            ~default:(Css.Zero : Css.flex_basis)
-            ~default_css:"0px"
-        in
-        style [ flex_basis (Var ref) ]
+    (* Without an override the container scale still declares its own default,
+       so the token the utility reads is in the sheet. *)
+    | None -> (
+        match Sizing.container_binding name with
+        | Some (v, d) ->
+            let decl, _ = Var.binding v d in
+            let ref : Css.flex_basis Css.var =
+              Var.theme_ref var_name
+                ~default:(Css.Zero : Css.flex_basis)
+                ~default_css:"0px"
+            in
+            style [ decl; flex_basis (Var ref) ]
+        | None ->
+            let ref : Css.flex_basis Css.var =
+              Var.theme_ref var_name
+                ~default:(Css.Zero : Css.flex_basis)
+                ~default_css:"0px"
+            in
+            style [ flex_basis (Var ref) ])
 
   (* Order *)
   let order_style n = style [ order (Int n) ]
@@ -157,6 +170,7 @@ module Handler = struct
     | Flex_arbitrary n -> flex_n_style n
     | Flex_grow -> flex_grow_utility
     | Flex_grow_0 -> flex_grow_0_utility
+    | Flex_grow_n n -> style [ flex_grow (float_of_int n) ]
     | Flex_grow_arbitrary n -> style [ flex_grow (float_of_int n) ]
     | Flex_grow_legacy -> flex_grow_utility
     | Flex_grow_0_legacy -> flex_grow_0_utility
@@ -175,13 +189,9 @@ module Handler = struct
     | Basis_arbitrary len -> style [ flex_basis len ]
     | Order n -> order_style n
     | Neg_order n -> style [ order (Int (-n)) ]
-    | Neg_order_arbitrary s -> (
-        match int_of_string_opt s with
-        | Some n -> style [ order (Int (-n)) ]
-        | None ->
-            let o = Css.Properties.read_order (Cascade.Cursor.of_string s) in
-            style [ order (Calc (Css.Calc.mul (Val o) (Css.Calc.float (-1.)))) ]
-        )
+    | Neg_order_arbitrary s ->
+        let o = Css.Properties.read_order (Cascade.Cursor.of_string s) in
+        style [ order (Calc (Css.Calc.mul (Val o) (Css.Calc.float (-1.)))) ]
     | Order_arbitrary s ->
         style [ order (Css.Properties.read_order (Cascade.Cursor.of_string s)) ]
     | Order_first -> order_first ()
@@ -224,6 +234,7 @@ module Handler = struct
     | Flex_grow_0_legacy -> 29999
     | Flex_grow -> 30000
     | Flex_grow_0 -> 30001
+    | Flex_grow_n n -> 30000 + n
     | Flex_grow_arbitrary _ -> 30002
     (* Basis: fractions → arbitrary → keywords alphabetical → named *)
     | Basis_fraction (n, m) -> 40000 + (n * 10) + m
@@ -246,6 +257,14 @@ module Handler = struct
         | _ -> None)
     | _ -> None
 
+  (* The container scale, whose digit-led names ([2xl], [3xs])
+     [is_named_spacing] rejects. *)
+  let is_container_size = function
+    | "3xs" | "2xs" | "xs" | "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl"
+    | "5xl" | "6xl" | "7xl" ->
+        true
+    | _ -> false
+
   let of_class _theme class_name =
     let parts = Parse.split_class class_name in
     match parts with
@@ -262,6 +281,10 @@ module Handler = struct
         match int_of_string_opt inner with
         | Some i -> Ok (Flex_grow_arbitrary i)
         | None -> err_not_utility)
+    | [ "grow"; n ] -> (
+        match int_of_string_opt n with
+        | Some i when i > 0 -> Ok (Flex_grow_n i)
+        | _ -> err_not_utility)
     | [ "flex"; "shrink" ] -> Ok Flex_shrink_legacy
     | [ "shrink" ] -> Ok Flex_shrink
     | [ "flex"; "shrink"; "0" ] -> Ok Flex_shrink_0_legacy
@@ -277,25 +300,31 @@ module Handler = struct
     | [ "basis"; "full" ] -> Ok Basis_full
     | [ "basis"; value ] when Parse.is_bracket_value value ->
         let inner = Parse.bracket_inner value in
-        if String.ends_with ~suffix:"px" inner then
-          let n = String.sub inner 0 (String.length inner - 2) in
-          match float_of_string_opt n with
-          | Some f -> Ok (Basis_arbitrary (Css.Px f))
-          | None -> err_not_utility
-        else if String.ends_with ~suffix:"rem" inner then
-          let n = String.sub inner 0 (String.length inner - 3) in
-          match float_of_string_opt n with
-          | Some f -> Ok (Basis_arbitrary (Css.Rem f))
-          | None -> err_not_utility
-        else err_not_utility
+        let cursor =
+          Cascade.Cursor.of_string (Parse.decode_arbitrary_value inner)
+        in
+        (match
+           let value = Css.Properties.read_flex_basis cursor in
+           Cascade.Cursor.ws cursor;
+           Cascade.Cursor.expect_eof cursor;
+           Some value
+         with
+          | value -> value
+          | exception Cascade.Cursor.Parse_error _ -> None)
+        |> Option.fold ~none:err_not_utility ~some:(fun value ->
+            Ok (Basis_arbitrary value))
     | [ "basis"; value ] -> (
-        match int_of_string_opt value with
+        match Parse.decimal_int value with
         | Some n when n >= 0 -> Ok (Basis_spacing n)
         | _ -> (
             match parse_fraction value with
             | Some (n, m) -> Ok (Basis_fraction (n, m))
             | None ->
-                if Spacing.is_named_spacing value then Ok (Basis_named value)
+                (* A container-scale name may lead with a digit ([2xl], [3xs]),
+                   which [is_named_spacing] rejects; [basis] emits
+                   [var(--container-<name>)] for the whole scale. *)
+                if Spacing.is_named_spacing value || is_container_size value
+                then Ok (Basis_named value)
                 else err_not_utility))
     | [ "order"; "first" ] -> Ok Order_first
     | [ "order"; "last" ] -> Ok Order_last
@@ -310,7 +339,7 @@ module Handler = struct
           let inner = String.sub value 1 (String.length value - 2) in
           Ok (Order_arbitrary inner)
         else
-          match int_of_string_opt value with
+          match Parse.decimal_int value with
           | Some n when n >= 0 -> Ok (Order n)
           | _ -> err_not_utility)
     | "" :: "order" :: rest when rest <> [] -> (
@@ -324,7 +353,7 @@ module Handler = struct
           let inner = String.sub value 1 (String.length value - 2) in
           Ok (Neg_order_arbitrary inner)
         else
-          match int_of_string_opt value with
+          match Parse.decimal_int value with
           | Some n when n >= 1 -> Ok (Neg_order n)
           | _ -> err_not_utility)
     | [ "flex"; value ] when String.length value > 0 && value.[0] = '[' ->
@@ -342,7 +371,7 @@ module Handler = struct
         | Some (n, m) -> Ok (Flex_fraction (n, m))
         | None -> (
             (* Try numeric value (e.g., "99") *)
-            match int_of_string_opt value with
+            match Parse.decimal_int value with
             | Some n when n > 1 -> Ok (Flex_n n)
             | _ -> err_not_utility))
     | _ -> err_not_utility
@@ -360,6 +389,7 @@ module Handler = struct
        deprecated aliases that preserve their class name *)
     | Flex_grow -> "grow"
     | Flex_grow_0 -> "grow-0"
+    | Flex_grow_n n -> "grow-" ^ string_of_int n
     | Flex_grow_arbitrary n -> "grow-[" ^ string_of_int n ^ "]"
     | Flex_grow_legacy -> "flex-grow"
     | Flex_grow_0_legacy -> "flex-grow-0"
@@ -378,25 +408,10 @@ module Handler = struct
     | Basis_fraction (n, m) ->
         "basis-" ^ string_of_int n ^ "/" ^ string_of_int m
     | Basis_named s -> "basis-" ^ s
-    | Basis_arbitrary len -> (
-        match len with
-        | Px n ->
-            let s = string_of_float n in
-            let s =
-              if String.ends_with ~suffix:"." s then
-                String.sub s 0 (String.length s - 1)
-              else s
-            in
-            "basis-[" ^ s ^ "px]"
-        | Rem n ->
-            let s = string_of_float n in
-            let s =
-              if String.ends_with ~suffix:"." s then
-                String.sub s 0 (String.length s - 1)
-              else s
-            in
-            "basis-[" ^ s ^ "rem]"
-        | _ -> "basis-[<length>]")
+    | Basis_arbitrary len ->
+        "basis-["
+        ^ Css.Pp.to_string ~minify:true Css.Properties.pp_flex_basis len
+        ^ "]"
     (* Order *)
     | Order n -> "order-" ^ string_of_int n
     | Neg_order n -> "-order-" ^ string_of_int n
@@ -405,6 +420,8 @@ module Handler = struct
     | Order_first -> "order-first"
     | Order_last -> "order-last"
     | Order_none -> "order-none"
+
+  let examples = [ Flex_1; Flex_grow; Flex_shrink; Basis_0 ]
 end
 
 open Handler

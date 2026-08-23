@@ -4,12 +4,11 @@ open Cascade
 
 type breakpoint = [ `Sm | `Md | `Lg | `Xl | `Xl_2 ]
 
-type container_cmp =
-  | Cq_min
-  | Cq_max
-      (** Container-query direction: [Cq_min] is [width >= v], [Cq_max] is
-          [width < v]. *)
+(** Container-query direction: {!constructor-Min} is [width >= v],
+    {!constructor-Max} is [width < v]. *)
+type container_cmp = Min | Max
 
+(** [@min-[<len>]] / [@max-[<len>]]. *)
 type container_query =
   | Container_3xs
   | Container_2xs
@@ -28,9 +27,12 @@ type container_query =
   | Container_size of container_cmp * container_query
       (** [@min-<size>] / [@max-<size>]; the inner query is a bare named size.
       *)
-  | Container_len of Css.length  (** [@[<len>]]: [width >= len]. *)
-  | Container_len_cmp of container_cmp * Css.length
-      (** [@min-[<len>]] / [@max-[<len>]]. *)
+  | Container_len of string * Css.length
+      (** [@[<len>]]: [width >= len]. Carries the raw bracket token so the class
+          name round-trips. *)
+  | Container_len_cmp of container_cmp * string * Css.length
+  | Container_scoped of string * container_query
+      (** [@sm/main]: a size query aimed at the container named [main]. *)
 
 type modifier =
   | Hover
@@ -62,6 +64,9 @@ type modifier =
   | Container of container_query
   | Not of modifier
   | Has of string
+  | Has_variant of modifier
+      (** [has-<variant>]: any variant's own selector inside [:has()], as
+          [has-peer-checked] and [has-not-data-active] need. *)
   | Group_has of string * string option
   | Peer_has of string * string option
   | Starting
@@ -212,6 +217,9 @@ type modifier =
       *)
   | In_data of string
       (** [in-data-X] — element must be descendant of [data-X] *)
+  | In_state of modifier * string
+      (** [in-focus] — element must be a descendant of one in that state; the
+          string is the state name, for the class *)
   | Group_not of modifier * string option
       (** [group-not-X/name] — inner modifier + optional group name *)
   | Peer_not of modifier * string option
@@ -230,6 +238,10 @@ type modifier =
       (** [group-aria-X/name] — group aria variant with optional name *)
   | Peer_aria of string * string option
       (** [peer-aria-X/name] — peer aria variant with optional name *)
+  | Named_group of modifier * string
+      (** [group-X/name] — a state variant on a named group *)
+  | Named_peer of modifier * string
+      (** [peer-X/name] — a state variant on a named peer *)
   | Not_named_group of modifier * string
       (** [not-group-X/name] — negate named group variant *)
   | Has_named_group of modifier * string
@@ -239,6 +251,9 @@ type modifier =
   | Group_peer_named of modifier * string
       (** [group-peer-X/name] — peer-X within named group *)
   | Arbitrary_selector of string  (** [[&_p]] — arbitrary selector variant *)
+  | At_rule of string
+      (** [[@supports(...)]] / [[@starting-style]] — an at-rule in brackets,
+          kept as written so the class name round-trips *)
   | Custom_variant of string * string
       (** [is-data-foo:] — a [matchVariant]-registered variant: the class-name
           token and the resolved selector template ([&] is the own class). *)
@@ -249,6 +264,9 @@ type modifier =
   | Prose_element of string
       (** [prose-X:] — prose element variant for targeting specific HTML
           elements within prose content *)
+
+val equal_modifier : modifier -> modifier -> bool
+(** [equal_modifier a b] is whether [a] and [b] describe the same modifier. *)
 
 type t =
   | Style of {
@@ -279,6 +297,22 @@ val is_numeric : string -> bool
 val pp_nth : string -> string -> string
 (** [pp_nth prefix expr] formats an nth modifier, using numeric or bracket form.
 *)
+
+val group_state_modifiers : (string * modifier) list
+(** [group_state_modifiers] maps a state name (["focus"], ["first"]) to the
+    modifier it stands for. Variants that take a state name — [group-*],
+    [peer-*], [has-*] — share this table. *)
+
+val is_data_attr_name : string -> bool
+(** [is_data_attr_name name] is whether [name] is a [data-<attr>] shorthand. *)
+
+val is_has_shorthand : string -> bool
+(** [is_has_shorthand name] is whether [name] is a state name a [has-*] variant
+    accepts, as opposed to a bracketed CSS selector. *)
+
+val has_part : string -> string
+(** [has_part s] is the class-name fragment a [has-*] variant spells [s] with: a
+    state name bare, a CSS selector in brackets. *)
 
 val pp_modifier : modifier -> string
 (** [pp_modifier m] converts a modifier to its string representation. *)

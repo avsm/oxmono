@@ -187,17 +187,14 @@ let selector_modifier_depth sel =
       String.fold_left (fun acc c -> if c = ':' then acc + 1 else acc) 0 cls
   | None -> 0
 
+(* Shares [any_outside_not]'s traversal: the hand-rolled one missed [Has] and
+   [Relative], so :hover inside a :has() did not count. Both want the same
+   thing, a :hover that is not under a :not(). *)
+
 (** Check if a selector contains :hover pseudo-class at any depth (used to
     detect compound variants like group-hocus that combine hover+focus). *)
-let rec selector_has_hover = function
-  | Css.Selector.Hover -> true
-  | Css.Selector.Compound sels -> List.exists selector_has_hover sels
-  | Css.Selector.Combined (l, _, r) ->
-      selector_has_hover l || selector_has_hover r
-  | Css.Selector.Is sels | Css.Selector.Where sels ->
-      List.exists selector_has_hover sels
-  | Css.Selector.List sels -> List.exists selector_has_hover sels
-  | _ -> false
+let selector_has_hover sel =
+  any_outside_not (function Css.Selector.Hover -> true | _ -> false) sel
 
 (* Determine sort group for rule types. Regular and Media are grouped together
    to preserve utility grouping - media queries appear immediately after their
@@ -215,12 +212,43 @@ let extract_media_sort_key = function
   | `Media cond -> Css.Media.group_order (Css.Media.kind cond)
   | _ -> (0, 0.)
 
+(* Tailwind orders container variants exactly like breakpoints, and every
+   container condition it emits is a width range wrapped in an optional
+   container name and an optional negation. Project one onto the media query it
+   is equivalent to, so the breakpoint ordering applies unchanged: [@max-sm] is
+   a negated lower bound, which is the [not all and (...)] shape media already
+   classifies as an upper bound. The name plays no part -- Tailwind interleaves
+   a named container with the unnamed ones at its width. *)
+let rec container_media_projection (c : Css.Container.t) =
+  match c with
+  | Css.Container.Named (_, inner) -> container_media_projection inner
+  | Css.Container.Feature_query q -> Some q
+  | Css.Container.Not inner -> (
+      match container_media_projection inner with
+      | Some (Css.Media.Cond cond) ->
+          Some
+            (Css.Media.Type
+               {
+                 prefix = Some Css.Media.Not;
+                 type_ = Css.Media.All;
+                 trailing = Some cond;
+               })
+      | _ -> None)
+  | Css.Container.Min_width_rem _ | Css.Container.Min_width_px _
+  | Css.Container.And _ | Css.Container.Or _ | Css.Container.Style _
+  | Css.Container.Scroll_state _ ->
+      None
+
 (* Precompute the sort keys for a rule's own and nested media conditions, so the
    comparators use [Css.Media.compare_keys] (cheap) instead of re-serializing
    the query on every comparison. See [media_key]/[nested_media_key]. *)
 let media_sort_keys rule_type nested =
   let media_key =
-    match rule_type with `Media c -> Some (Css.Media.sort_key c) | _ -> None
+    match rule_type with
+    | `Media c -> Some (Css.Media.sort_key c)
+    | `Container c ->
+        Stdlib.Option.map Css.Media.sort_key (container_media_projection c)
+    | _ -> None
   in
   let nested_media_key =
     match nested with
@@ -252,7 +280,8 @@ let compare_simple_selectors sel_str1 sel_str2 s1 s2 i1 i2 =
 let compare_complex_selectors sel_str1 sel_str2 kind1 kind2 s1 s2 i1 i2 =
   let k1 = complex_selector_order kind1 and k2 = complex_selector_order kind2 in
   if k1 <> k2 then Int.compare k1 k2
-  else if k1 = 60 then
+  else if match kind1 with Complex { has_aria = true; _ } -> true | _ -> false
+  then
     (* Both are aria selectors - compare by selector string (aria attribute)
        before suborder (property shade) to match Tailwind v4 behavior *)
     let sel_cmp = String.compare sel_str1 sel_str2 in
@@ -299,10 +328,19 @@ let compare_by_priority_suborder_alpha kind1 kind2 sel_str1 sel_str2 (p1, s1)
 (* Media Query Comparison *)
 (* ======================================================================== *)
 
+(* The two groups below are compared on something other than their key, so they
+   need naming. Taken from [Css.Media.group_order] rather than written out, so
+   they follow it if it moves. *)
+let responsive_group =
+  fst (Css.Media.group_order (Css.Media.Responsive (0, 0.)))
+
+let accessibility_preference_group =
+  fst (Css.Media.group_order Css.Media.Preference_accessibility)
+
 (** Compare two media conditions within the same group *)
 let compare_media_conditions group1 sub1 sub2 cond1 cond2 key1 key2 =
-  if group1 = 2000 then Float.compare sub1 sub2
-  else if group1 = 1000 then
+  if group1 = responsive_group then Float.compare sub1 sub2
+  else if group1 = accessibility_preference_group then
     match (cond1, cond2) with
     | Some c1, Some c2 ->
         Int.compare
@@ -529,13 +567,18 @@ let compare_by_priority_index r1 r2 =
         if idx_cmp <> 0 then idx_cmp
         else String.compare r1.selector_str r2.selector_str
 
+(* The outline utilities sort after the other focus modifiers. Read the base
+   class with the modifier parser: taking the first colon meant a stacked
+   variant never matched, so dark:focus:outline-none was never recognised. The
+   rule is inert on the current corpus - removing it altogether leaves the suite
+   and the Tailwind diffs green - so this makes the predicate say what it means
+   rather than changing an order that is already right. *)
 let is_outline_utility bc =
   match bc with
-  | Some s ->
-      String.contains s ':' && String.contains s 'o'
-      &&
-      let idx = String.index s ':' in
-      idx + 8 <= String.length s && String.sub s idx 8 = ":outline"
+  | Some s -> (
+      match Modifiers.of_string s with
+      | [], _ -> false
+      | _ :: _, base -> String.starts_with ~prefix:"outline" base)
   | None -> false
 
 (* Natural sort comparison: treats consecutive digit sequences as integers.
@@ -588,6 +631,44 @@ let natural_compare s1 s2 =
           if char_cmp <> 0 then char_cmp else compare_at (i1 + 1) (i2 + 1)
   in
   compare_at 0 0
+
+(* Tailwind orders the values of sizing and flex-basis candidates by the raw
+   candidate spelling. This naturally interleaves digit-led theme names with
+   numeric values (2, 2xl, 10), and puts the [(--var)] shorthand before both.
+   The handler suborders still separate the property families themselves. *)
+let candidate_value_family base_class =
+  let _, base = Modifiers.of_string base_class in
+  List.find_opt
+    (fun prefix ->
+      let n = String.length prefix in
+      String.length base > n && String.starts_with ~prefix:(prefix ^ "-") base)
+    [
+      "min-inline";
+      "max-inline";
+      "min-block";
+      "max-block";
+      "min-w";
+      "max-w";
+      "min-h";
+      "max-h";
+      "inline";
+      "block";
+      "size";
+      "basis";
+      "w";
+      "h";
+    ]
+
+let compare_candidate_values r1 r2 =
+  if fst r1.order <> fst r2.order then None
+  else
+    match
+      ( candidate_value_family r1.base_class_key,
+        candidate_value_family r2.base_class_key )
+    with
+    | Some f1, Some f2 when String.equal f1 f2 ->
+        Some (natural_compare r1.base_class_key r2.base_class_key)
+    | _ -> None
 
 let compare_late_modifiers r1 r2 kind1 kind2 =
   let k1 = complex_selector_order kind1 and k2 = complex_selector_order kind2 in
@@ -696,20 +777,23 @@ let compare_cross_utility_regular r1 r2 =
            kind_str kind2;
            ")\n";
          ]));
-  let same_order = p1 = p2 && s1 = s2 in
-  match
-    if same_order then
-      compare_pseudo_elements kind1 kind2 r1.selector r2.selector
-    else None
-  with
-  | Some cmp -> cmp
-  | None -> (
-      match compare_focus_visible_state r1 r2 kind1 kind2 with
+  match compare_candidate_values r1 r2 with
+  | Some cmp when cmp <> 0 -> cmp
+  | Some _ | None -> (
+      let same_order = p1 = p2 && s1 = s2 in
+      match
+        if same_order then
+          compare_pseudo_elements kind1 kind2 r1.selector r2.selector
+        else None
+      with
       | Some cmp -> cmp
       | None -> (
-          match compare_focus_modifier_ordering r1 r2 kind1 kind2 with
+          match compare_focus_visible_state r1 r2 kind1 kind2 with
           | Some cmp -> cmp
-          | None -> compare_by_prio_sub_late r1 r2 kind1 kind2))
+          | None -> (
+              match compare_focus_modifier_ordering r1 r2 kind1 kind2 with
+              | Some cmp -> cmp
+              | None -> compare_by_prio_sub_late r1 r2 kind1 kind2)))
 
 (** Compare two Regular rules using rule relationship dispatch. *)
 let compare_regular_rules r1 r2 =
@@ -745,15 +829,28 @@ let compare_by_base_class r1 r2 =
   let class_cmp = String.compare r1.base_class_key r2.base_class_key in
   if class_cmp <> 0 then class_cmp else Int.compare r1.index r2.index
 
-(* Sort key for supports modifier variants: named before bracket *)
+let supports_suffix s =
+  if String.length s > 9 && String.sub s 0 9 = "supports-" then
+    Some (String.sub s 9 (String.length s - 9))
+  else if String.length s > 13 && String.sub s 0 13 = "not-supports-" then
+    Some (String.sub s 13 (String.length s - 13))
+  else None
+
+(* Sort key for supports modifier variants: named before bracket. Negating a
+   supports variant changes its condition, not its position within this
+   group. *)
 let supports_sort_key bc =
-  match bc with
-  | Some s when String.length s > 9 && String.sub s 0 9 = "supports-" ->
-      let after = String.sub s 9 (String.length s - 9) in
+  match Option.bind bc supports_suffix with
+  | Some after ->
       if String.length after > 0 && after.[0] = '[' then (1, after)
       else (0, after)
-  | Some s -> (0, s)
   | None -> (0, "")
+
+(* A [supports-*] variant rule, whose @supports condition is the variant itself.
+   A colour utility's progressive-enhancement @supports carries the colour's own
+   base class and must not be ordered by this key. *)
+let is_modifier_supports bc =
+  match bc with Some s -> Option.is_some (supports_suffix s) | None -> false
 
 (* Compare supports modifier rules by sort key *)
 let compare_supports_by_key r1 r2 =
@@ -785,12 +882,12 @@ let compare_nested_media r1 r2 =
       | _ -> 0)
   | _ -> 0
 
-(* Extract the modifier prefix from a base_class, e.g. "hover:p-4" -> "hover" *)
+(* Extract the modifier prefix from a base_class, e.g. "hover:p-4" -> "hover".
+   Split with the modifier parser, not on the last ':': an arbitrary value can
+   hold one, and [hover:bg-[color:var(--x)]] split naively yields the prefix
+   [hover:bg-[color]. *)
 let variant_prefix = function
-  | Some s -> (
-      match String.rindex_opt s ':' with
-      | Some i -> String.sub s 0 i
-      | None -> "")
+  | Some s -> String.concat ":" (fst (Modifiers.of_string s))
   | None -> ""
 
 (* Compute variant order for a modifier prefix, stripping group-/peer-
@@ -983,11 +1080,47 @@ let nested_order rule_type nested =
       | _ -> 1 (* other nested: last *))
   | _ -> 1 (* multiple nested: last *)
 
+(* Last resort for two rules that share a variant group, a breakpoint and a
+   prefix: the utility's own priority, then the selector. *)
+let compare_variant_tail r1 r2 =
+  match compare_candidate_values r1 r2 with
+  | Some cmp when cmp <> 0 -> cmp
+  | Some _ | None -> (
+      let p1, s1 = r1.order and p2, s2 = r2.order in
+      let prio_cmp = Int.compare p1 p2 in
+      if prio_cmp <> 0 then prio_cmp
+      else
+        let sub_cmp = Int.compare s1 s2 in
+        if sub_cmp <> 0 then sub_cmp
+        else
+          match (r1.selector_kind, r2.selector_kind) with
+          | Simple, Simple ->
+              (* Same priority/suborder simple rules (e.g. two arbitrary bg
+                 colors) break ties by selector like the regular layer, matching
+                 Tailwind's alphabetical order. *)
+              natural_compare r1.selector_str r2.selector_str
+          | _ ->
+              (* Complex rules (prose's descendant selectors) keep base class +
+                 source order so a component stays one block. Arbitrary values
+                 in a variant, e.g. hover:from-[rgba(5,...)] vs
+                 hover:from-[rgba(14,...)], share a prefix and differ only in
+                 the numeric part, so order those numerically like Tailwind.
+                 Identical base classes (prose's :where rules all key on
+                 "prose") tie at 0 and fall back to source order, unchanged. *)
+              let class_cmp =
+                natural_compare r1.base_class_key r2.base_class_key
+              in
+              if class_cmp <> 0 then class_cmp
+              else Int.compare r1.index r2.index)
+
 let compare_variant_ordered r1 r2 =
   match (r1.rule_type, r2.rule_type) with
-  | `Supports _, `Supports _ when r1.variant_order = r2.variant_order ->
+  | `Supports _, `Supports _
+    when r1.variant_order = r2.variant_order
+         && is_modifier_supports r1.base_class
+         && is_modifier_supports r2.base_class ->
       compare_supports_by_key r1 r2
-  | _ -> (
+  | _ ->
       let list_cmp =
         compare_variant_order_lists r1.variant_orders r2.variant_orders
       in
@@ -1015,44 +1148,18 @@ let compare_variant_ordered r1 r2 =
           in
           if media_cmp <> 0 then media_cmp
           else
-            let prefix_cmp = compare_bracket_prefixes p1_prefix p2_prefix in
-            if prefix_cmp <> 0 then prefix_cmp
-            else
-              let p1, s1 = r1.order and p2, s2 = r2.order in
-              let prio_cmp = Int.compare p1 p2 in
-              if prio_cmp <> 0 then prio_cmp
-              else
-                let sub_cmp = Int.compare s1 s2 in
-                if sub_cmp <> 0 then sub_cmp
-                else
-                  match (r1.selector_kind, r2.selector_kind) with
-                  | Simple, Simple ->
-                      (* Same priority/suborder simple rules (e.g. two arbitrary
-                         bg colors) break ties by selector like the regular
-                         layer, matching Tailwind's alphabetical order. *)
-                      natural_compare r1.selector_str r2.selector_str
-                  | _ ->
-                      (* Complex rules (prose's descendant selectors) keep base
-                         class + source order so a component stays one block.
-                         Arbitrary values in a variant, e.g.
-                         hover:from-[rgba(5,...)] vs hover:from-[rgba(14,...)],
-                         share a prefix and differ only in the numeric part, so
-                         order those numerically like Tailwind. Identical base
-                         classes (prose's :where rules all key on "prose") tie
-                         at 0 and fall back to source order, unchanged. *)
-                      let class_cmp =
-                        natural_compare r1.base_class_key r2.base_class_key
-                      in
-                      if class_cmp <> 0 then class_cmp
-                      else Int.compare r1.index r2.index)
+            (* Two container variants at the same width are already fully
+               ordered: what remains is the utility's own priority, so the
+               prefix must not step in and group @sm/main away from @sm. *)
+            let prefix_cmp =
+              match (r1.rule_type, r2.rule_type) with
+              | `Container _, `Container _ -> 0
+              | _ -> compare_bracket_prefixes p1_prefix p2_prefix
+            in
+            if prefix_cmp <> 0 then prefix_cmp else compare_variant_tail r1 r2
 
 (* Compare two Supports rules *)
 let compare_supports_rules r1 r2 =
-  let is_modifier_supports bc =
-    match bc with
-    | Some s -> String.length s > 9 && String.sub s 0 9 = "supports-"
-    | None -> false
-  in
   let m1 = is_modifier_supports r1.base_class in
   let m2 = is_modifier_supports r2.base_class in
   if m1 && m2 then compare_supports_by_key r1 r2
@@ -1088,8 +1195,18 @@ let compare_indexed_rules r1 r2 =
   else if r1.variant_order > 0 then 1
   else if r2.variant_order > 0 then -1
   else if r1.not_order > 0 || r2.not_order > 0 then
-    let order_cmp = compare r1.order r2.order in
-    if order_cmp <> 0 then order_cmp else compare_by_base_class r1 r2
+    if r1.not_order = 0 then -1
+    else if r2.not_order = 0 then 1
+    else
+      let not_cmp = Int.compare r1.not_order r2.not_order in
+      if not_cmp <> 0 then not_cmp
+      else
+        match (r1.rule_type, r2.rule_type) with
+        | `Supports _, `Supports _
+          when is_modifier_supports r1.base_class
+               && is_modifier_supports r2.base_class ->
+            compare_supports_by_key r1 r2
+        | _ -> compare_by_base_class r1 r2
   else
     let type_cmp =
       Int.compare (rule_type_order r1.rule_type) (rule_type_order r2.rule_type)

@@ -20,22 +20,26 @@ module Css = Cascade.Css
 (* Resolve the optionally-threaded theme, defaulting to the base scheme. *)
 let resolve_scheme = function Some s -> s | None -> Scheme.default
 
-type rounded_position =
-  | Rp_all
-  | Rp_s
-  | Rp_e
-  | Rp_t
-  | Rp_r
-  | Rp_b
-  | Rp_l
-  | Rp_ss
-  | Rp_se
-  | Rp_ee
-  | Rp_es
-  | Rp_tl
-  | Rp_tr
-  | Rp_br
-  | Rp_bl
+(* Which corners a [rounded-*] utility rounds: every corner, one physical or
+   logical side, or a single corner. *)
+module Corner = struct
+  type t =
+    | All
+    | Start
+    | End
+    | Top
+    | Right
+    | Bottom
+    | Left
+    | Start_start
+    | Start_end
+    | End_end
+    | End_start
+    | Top_left
+    | Top_right
+    | Bottom_right
+    | Bottom_left
+end
 
 (* Border-radius t-shirt sizes. [Rsz_default] is the bare [rounded] (no size
    suffix). [Rsz_arbitrary] carries the bracket inner value. The [Rsz_] prefix
@@ -52,7 +56,7 @@ type rounded_size =
   | Rsz_3xl
   | Rsz_4xl
   | Rsz_full
-  | Rsz_arbitrary of string
+  | Rsz_arbitrary of string * Css.length
 
 module Handler = struct
   open Style
@@ -66,9 +70,13 @@ module Handler = struct
     | Border_4
     | Border_8
     | Border_width of int
-    | Border_width_bracket of string
-    | Border_side_width_bracket of string * string
+    | Border_width_bracket of string * Css.border_width
+    | Border_side_width_bracket of string * string * Css.border_width
       (* side ("t"/"r"/"b"/"l"), arbitrary width inner: border-t-[1px] *)
+    | Border_side_width of string * int
+      (* side ("t"/"r"/"b"/"l") with a width Tailwind spells in px: border-t-16.
+         The 0/2/4/8 constructors below keep their own names, as Border_0/2/4/8
+         do beside Border_width. *)
     | (* Border side/axis utilities *)
       Border_t
     | Border_r
@@ -76,6 +84,17 @@ module Handler = struct
     | Border_l
     | Border_x
     | Border_y
+    | Border_x_width of int
+    | Border_y_width of int
+    | (* Logical single-side borders: inline/block start/end *)
+      Border_s
+    | Border_e
+    | Border_bs
+    | Border_be
+    | Border_s_width of int
+    | Border_e_width of int
+    | Border_bs_width of int
+    | Border_be_width of int
     | (* Border side utilities with widths *)
       Border_t_0
     | Border_t_2
@@ -105,29 +124,23 @@ module Handler = struct
     | Border_transparent
     | Border_current
     | (* Border radius utilities. One parametric variant over (position, size);
-         the bare [rounded] is [Rounded (Rp_all, Rsz_default)] and arbitrary
+         the bare [rounded] is [Rounded (Corner.All, Rsz_default)] and arbitrary
          brackets are [Rounded (pos, Rsz_arbitrary inner)]. *)
-      Rounded of rounded_position * rounded_size
+      Rounded of Corner.t * rounded_size
     | (* Outline utilities *)
       Outline
     | Outline_0
     | Outline_width of int (* outline-1, outline-2, outline-4, outline-8 *)
-    | Outline_width_bracket of string (* outline-[12px], outline-[1.5], etc. *)
+    | Outline_width_bracket of
+        string * Css.length (* outline-[12px], outline-[1.5], etc. *)
     | Outline_width_var of string (* outline-[length:var(...)], etc. *)
     (* Outline style utilities (dashed, dotted, etc.) are in
        Outline_style_handler *)
     | Outline_hidden
-    | Outline_offset_0
-    | Outline_offset_1
-    | Outline_offset_2
-    | Outline_offset_4
-    | Outline_offset_8
+    | Outline_offset of int
     | Outline_offset_var of string (* outline-offset-[var(--value)] *)
     | Outline_offset_arbitrary of string (* outline-offset-[3px] *)
-    | Neg_outline_offset_1
-    | Neg_outline_offset_2
-    | Neg_outline_offset_4
-    | Neg_outline_offset_8
+    | Neg_outline_offset of int
     | Neg_outline_offset_var of string (* -outline-offset-[var(--value)] *)
 
   type Utility.base += Self of t
@@ -140,10 +153,8 @@ module Handler = struct
      28. *)
   let priority = function
     | Outline | Outline_0 | Outline_width _ | Outline_width_bracket _
-    | Outline_width_var _ | Outline_hidden | Outline_offset_0 | Outline_offset_1
-    | Outline_offset_2 | Outline_offset_4 | Outline_offset_8
-    | Outline_offset_var _ | Outline_offset_arbitrary _ | Neg_outline_offset_1
-    | Neg_outline_offset_2 | Neg_outline_offset_4 | Neg_outline_offset_8
+    | Outline_width_var _ | Outline_hidden | Outline_offset _
+    | Outline_offset_var _ | Outline_offset_arbitrary _ | Neg_outline_offset _
     | Neg_outline_offset_var _ ->
         28
     | _ -> 19
@@ -186,44 +197,8 @@ module Handler = struct
   let border_8 = make_border_util [ Css.border_width (Px 8.) ]
   let border_n n = make_border_util [ Css.border_width (Px (float_of_int n)) ]
 
-  let parse_border_width inner : Css.border_width =
-    if
-      String.length inner > 2
-      && String.sub inner (String.length inner - 2) 2 = "px"
-    then
-      let n = String.sub inner 0 (String.length inner - 2) in
-      match float_of_string_opt n with
-      | Some f -> Px f
-      | None -> invalid_arg ("border-[" ^ inner ^ "]: invalid px value")
-    else if
-      String.length inner > 3
-      && String.sub inner (String.length inner - 3) 3 = "rem"
-    then
-      let n = String.sub inner 0 (String.length inner - 3) in
-      match float_of_string_opt n with
-      | Some f -> Rem f
-      | None -> invalid_arg ("border-[" ^ inner ^ "]: invalid rem value")
-    else if
-      String.length inner > 2
-      && String.sub inner (String.length inner - 2) 2 = "em"
-    then
-      let n = String.sub inner 0 (String.length inner - 2) in
-      match float_of_string_opt n with
-      | Some f -> Em f
-      | None -> invalid_arg ("border-[" ^ inner ^ "]: invalid em value")
-    else if String.length inner > 1 && inner.[String.length inner - 1] = '%'
-    then
-      let n = String.sub inner 0 (String.length inner - 1) in
-      match float_of_string_opt n with
-      | Some f -> Pct f
-      | None -> invalid_arg ("border-[" ^ inner ^ "]: invalid % value")
-    else
-      match float_of_string_opt inner with
-      | Some f -> Px f
-      | None -> invalid_arg ("border-[" ^ inner ^ "]: invalid value")
-
-  let border_width_bracket_style inner =
-    make_border_util [ Css.border_width (parse_border_width inner) ]
+  let border_width_bracket_style width =
+    make_border_util [ Css.border_width width ]
 
   (* Helper for border side utilities that reference the variable with @property
      default *)
@@ -252,23 +227,51 @@ module Handler = struct
     make_side_util (fun border_var ->
         [ border_left_style (Var border_var); border_left_width (Px 1.) ])
 
-  let border_x =
-    make_side_util (fun border_var ->
-        [
-          border_left_style (Var border_var);
-          border_left_width (Px 1.);
-          border_right_style (Var border_var);
-          border_right_width (Px 1.);
-        ])
+  (* v4 axis borders paint the logical inline and block axes via the
+     border-inline and border-block longhands, not the two physical edges. *)
+  let border_inline_axis border_var w =
+    [
+      border_inline_style (Var border_var);
+      border_inline_width (logical_border_width (Px w));
+    ]
 
-  let border_y =
-    make_side_util (fun border_var ->
-        [
-          border_top_style (Var border_var);
-          border_top_width (Px 1.);
-          border_bottom_style (Var border_var);
-          border_bottom_width (Px 1.);
-        ])
+  let border_block_axis border_var w =
+    [
+      border_block_style (Var border_var);
+      border_block_width (logical_border_width (Px w));
+    ]
+
+  let border_x = make_side_util (fun v -> border_inline_axis v 1.)
+  let border_y = make_side_util (fun v -> border_block_axis v 1.)
+  let border_x_width n = make_side_util (fun v -> border_inline_axis v n)
+  let border_y_width n = make_side_util (fun v -> border_block_axis v n)
+
+  (* Logical single-side borders paint one inline/block edge, unlike the axis
+     utilities above which paint both edges of an axis. *)
+  let border_s_of w =
+    make_side_util (fun v ->
+        [ border_inline_start_style (Var v); border_inline_start_width (Px w) ])
+
+  let border_e_of w =
+    make_side_util (fun v ->
+        [ border_inline_end_style (Var v); border_inline_end_width (Px w) ])
+
+  let border_bs_of w =
+    make_side_util (fun v ->
+        [ border_block_start_style (Var v); border_block_start_width (Px w) ])
+
+  let border_be_of w =
+    make_side_util (fun v ->
+        [ border_block_end_style (Var v); border_block_end_width (Px w) ])
+
+  let border_s = border_s_of 1.
+  let border_e = border_e_of 1.
+  let border_bs = border_bs_of 1.
+  let border_be = border_be_of 1.
+  let border_s_width n = border_s_of (float_of_int n)
+  let border_e_width n = border_e_of (float_of_int n)
+  let border_bs_width n = border_bs_of (float_of_int n)
+  let border_be_width n = border_be_of (float_of_int n)
 
   (** Border side utilities with specific widths *)
   let border_t_0 =
@@ -358,32 +361,92 @@ module Handler = struct
   let border_transparent' = style [ Css.border_color (Css.hex "#0000") ]
   let border_current' = style [ Css.border_color Current ]
 
-  (* Create radius theme variables with fallback values for inline mode *)
+  (* Arbitrary radii go through the same normalisation as the other arbitrary
+     length utilities, so calc() and var() references parse. *)
   let parse_length str : length option =
-    let len = String.length str in
-    if len >= 1 then (
-      let num_end = ref 0 in
-      while
-        !num_end < len
-        && (str.[!num_end] = '-'
-           || str.[!num_end] = '.'
-           || (str.[!num_end] >= '0' && str.[!num_end] <= '9'))
-      do
-        incr num_end
-      done;
-      let num_str = String.sub str 0 !num_end in
-      let unit_str = String.sub str !num_end (len - !num_end) in
-      match float_of_string_opt num_str with
-      | Some n -> (
-          match unit_str with
-          | "px" -> Some (Px n)
-          | "rem" -> Some (Rem n)
-          | "em" -> Some (Em n)
-          | "%" -> Some (Pct n)
-          | "" when n = 0.0 -> Some Zero
-          | _ -> None)
-      | None -> None)
+    Css.parse_length
+      (Parse.normalize_css_math_operators (Parse.decode_arbitrary_value str))
+
+  (* [Css.length] and [Css.border_width] are distinct types over overlapping
+     unit sets, so an arbitrary width is read as a length and transposed one
+     unit at a time. The units only [length] has (the dynamic-viewport and
+     container-query families) are not border widths. *)
+  let border_width_of_unit value : string -> Css.border_width option = function
+    | "px" -> Some (Px value)
+    | "cm" -> Some (Cm value)
+    | "mm" -> Some (Mm value)
+    | "q" -> Some (Q value)
+    | "in" -> Some (In value)
+    | "pt" -> Some (Pt value)
+    | "pc" -> Some (Pc value)
+    | "rem" -> Some (Rem value)
+    | "em" -> Some (Em value)
+    | "ex" -> Some (Ex value)
+    | "cap" -> Some (Cap value)
+    | "ic" -> Some (Ic value)
+    | "ric" -> Some (Ric value)
+    | "rlh" -> Some (Rlh value)
+    | "ch" -> Some (Ch value)
+    | "lh" -> Some (Lh value)
+    | "vh" -> Some (Vh value)
+    | "vw" -> Some (Vw value)
+    | "vmin" -> Some (Vmin value)
+    | "vmax" -> Some (Vmax value)
+    | "%" -> Some (Pct value)
+    | _ -> None
+
+  let border_width_of_length : Css.length -> Css.border_width option = function
+    | Px f -> border_width_of_unit f "px"
+    | Cm f -> border_width_of_unit f "cm"
+    | Mm f -> border_width_of_unit f "mm"
+    | Q f -> border_width_of_unit f "q"
+    | In f -> border_width_of_unit f "in"
+    | Pt f -> border_width_of_unit f "pt"
+    | Pc f -> border_width_of_unit f "pc"
+    | Rem f -> border_width_of_unit f "rem"
+    | Em f -> border_width_of_unit f "em"
+    | Ex f -> border_width_of_unit f "ex"
+    | Cap f -> border_width_of_unit f "cap"
+    | Ic f -> border_width_of_unit f "ic"
+    | Ric f -> border_width_of_unit f "ric"
+    | Rlh f -> border_width_of_unit f "rlh"
+    | Ch f -> border_width_of_unit f "ch"
+    | Lh f -> border_width_of_unit f "lh"
+    | Vh f -> border_width_of_unit f "vh"
+    | Vw f -> border_width_of_unit f "vw"
+    | Vmin f -> border_width_of_unit f "vmin"
+    | Vmax f -> border_width_of_unit f "vmax"
+    | Pct f -> border_width_of_unit f "%"
+    (* [Dimension] carries a value whose authored spelling differs from the
+       canonical float ([0.5rem]); its unit names the constructor. *)
+    | Dimension { value; unit; _ } ->
+        border_width_of_unit value (String.lowercase_ascii unit)
+    | Zero -> Some Zero
+    | _ -> None
+
+  (* A bare number is not a CSS length, but Tailwind admits [border-[3]] and
+     emits it as a width, so it keeps the px reading it has always had. *)
+  let parse_bare_number str =
+    let is_number_char c = (c >= '0' && c <= '9') || c = '.' || c = '-' in
+    if str <> "" && String.for_all is_number_char str then
+      float_of_string_opt str
     else None
+
+  let parse_border_width inner : Css.border_width option =
+    match parse_length inner with
+    | Some len -> border_width_of_length len
+    | None -> (
+        match parse_bare_number inner with
+        | Some f -> Some (Px f)
+        | None -> None)
+
+  let parse_outline_width inner : Css.length option =
+    match parse_length inner with
+    | Some _ as len -> len
+    | None -> (
+        match parse_bare_number inner with
+        | Some f -> Some (Px f)
+        | None -> None)
 
   let radius_none_var = Var.theme Css.Length "radius-none" ~order:(7, 0)
   let radius_full_var = Var.theme Css.Length "radius-full" ~order:(7, 1)
@@ -405,34 +468,35 @@ module Handler = struct
      per-side/corner "full" utilities share it. *)
   let radius_full_len : Css.length = Css.Px 3.40282e38
 
-  (* Map a [rounded_position] to the corner/side radius declarations for a given
-     length. Shared by both the sized and arbitrary radius utilities; [Rp_all]
-     uses the [border-radius] shorthand, all others target the matching
+  (* Map a [Corner.t] to the corner/side radius declarations for a given length.
+     Shared by both the sized and arbitrary radius utilities; [Corner.All] uses
+     the [border-radius] shorthand, all others target the matching
      corner/logical properties. *)
   let radius_decls_for_position pos (len : Css.length) : Css.declaration list =
     match pos with
-    | Rp_all -> [ Css.border_radius (radius_value len) ]
-    | Rp_t ->
+    | Corner.All -> [ Css.border_radius (radius_value len) ]
+    | Corner.Top ->
         [ Css.border_top_left_radius len; Css.border_top_right_radius len ]
-    | Rp_r ->
+    | Corner.Right ->
         [ Css.border_top_right_radius len; Css.border_bottom_right_radius len ]
-    | Rp_b ->
+    | Corner.Bottom ->
         [
           Css.border_bottom_right_radius len; Css.border_bottom_left_radius len;
         ]
-    | Rp_l ->
+    | Corner.Left ->
         [ Css.border_top_left_radius len; Css.border_bottom_left_radius len ]
-    | Rp_tl -> [ Css.border_top_left_radius len ]
-    | Rp_tr -> [ Css.border_top_right_radius len ]
-    | Rp_br -> [ Css.border_bottom_right_radius len ]
-    | Rp_bl -> [ Css.border_bottom_left_radius len ]
-    | Rp_s ->
+    | Corner.Top_left -> [ Css.border_top_left_radius len ]
+    | Corner.Top_right -> [ Css.border_top_right_radius len ]
+    | Corner.Bottom_right -> [ Css.border_bottom_right_radius len ]
+    | Corner.Bottom_left -> [ Css.border_bottom_left_radius len ]
+    | Corner.Start ->
         [ Css.border_start_start_radius len; Css.border_end_start_radius len ]
-    | Rp_e -> [ Css.border_start_end_radius len; Css.border_end_end_radius len ]
-    | Rp_ss -> [ Css.border_start_start_radius len ]
-    | Rp_se -> [ Css.border_start_end_radius len ]
-    | Rp_ee -> [ Css.border_end_end_radius len ]
-    | Rp_es -> [ Css.border_end_start_radius len ]
+    | Corner.End ->
+        [ Css.border_start_end_radius len; Css.border_end_end_radius len ]
+    | Corner.Start_start -> [ Css.border_start_start_radius len ]
+    | Corner.Start_end -> [ Css.border_start_end_radius len ]
+    | Corner.End_end -> [ Css.border_end_end_radius len ]
+    | Corner.End_start -> [ Css.border_end_start_radius len ]
 
   (* Per-side/corner "full"/"none" radius: reference var(--radius-X) when the
      active theme defines that radius (e.g. an @theme override, as the upstream
@@ -479,11 +543,7 @@ module Handler = struct
     | Rsz_2xl -> sized_radius radius_2xl_var (Css.Rem 1.0) pos
     | Rsz_3xl -> sized_radius radius_3xl_var (Css.Rem 1.5) pos
     | Rsz_4xl -> sized_radius radius_4xl_var (Css.Rem 2.0) pos
-    | Rsz_arbitrary value ->
-        let len =
-          match parse_length value with Some len -> len | None -> Css.Px 0.
-        in
-        style (radius_decls_for_position pos len)
+    | Rsz_arbitrary (_, len) -> style (radius_decls_for_position pos len)
 
   (* Outline style variable - used by outline utilities that set the style *)
   let outline_style_var =
@@ -533,27 +593,12 @@ module Handler = struct
       ]
 
   (* Outline bracket width: outline-[12px], outline-[1.5], outline-[50%] *)
-  let outline_width_bracket_style inner =
+  let outline_width_bracket_style (width : Css.length) =
     let oref = Var.reference outline_style_var in
     let property_rule =
       match Var.property_rule outline_style_var with
       | Some rule -> rule
       | None -> Css.empty
-    in
-    let width : Css.length =
-      if
-        String.length inner > 2
-        && String.sub inner (String.length inner - 2) 2 = "px"
-      then
-        let n = String.sub inner 0 (String.length inner - 2) in
-        Px (float_of_string n)
-      else if String.length inner > 1 && inner.[String.length inner - 1] = '%'
-      then
-        let n = String.sub inner 0 (String.length inner - 1) in
-        Pct (float_of_string n)
-      else
-        (* Bare number → px *)
-        Px (float_of_string inner)
     in
     style ~property_rules:property_rule
       [ Css.outline_style (Css.Var oref); Css.outline_width width ]
@@ -606,12 +651,8 @@ module Handler = struct
     in
     style ~rules:(Some [ media_rule ]) [ decl; Css.outline_style Css.None ]
 
-  (* Outline offset *)
-  let outline_offset_0 = style [ Css.outline_offset (Px 0.) ]
-  let outline_offset_1 = style [ Css.outline_offset (Px 1.) ]
-  let outline_offset_2 = style [ Css.outline_offset (Px 2.) ]
-  let outline_offset_4 = style [ Css.outline_offset (Px 4.) ]
-  let outline_offset_8 = style [ Css.outline_offset (Px 8.) ]
+  (* Outline offset accepts any bare integer, like the border widths. *)
+  let outline_offset_px n = style [ Css.outline_offset (Px (float_of_int n)) ]
 
   (* Negative outline offset - use calc(Npx * -1) format *)
   let neg_outline_offset n =
@@ -619,11 +660,6 @@ module Handler = struct
       Calc (Expr (Val (Px (float_of_int n)), Mul, Num (-1.)))
     in
     style [ Css.outline_offset calc ]
-
-  let neg_outline_offset_1 = neg_outline_offset 1
-  let neg_outline_offset_2 = neg_outline_offset 2
-  let neg_outline_offset_4 = neg_outline_offset 4
-  let neg_outline_offset_8 = neg_outline_offset 8
 
   let outline_offset_var_style v =
     let bare_name = Parse.extract_var_name v in
@@ -648,9 +684,16 @@ module Handler = struct
     | Border_4 -> border_4
     | Border_8 -> border_8
     | Border_width n -> border_n n
-    | Border_width_bracket v -> border_width_bracket_style v
-    | Border_side_width_bracket (side, inner) ->
-        let w = parse_border_width inner in
+    | Border_width_bracket (_, w) -> border_width_bracket_style w
+    | Border_side_width_bracket (side, _, w) ->
+        make_side_util (fun bv ->
+            match side with
+            | "t" -> [ border_top_style (Var bv); border_top_width w ]
+            | "r" -> [ border_right_style (Var bv); border_right_width w ]
+            | "b" -> [ border_bottom_style (Var bv); border_bottom_width w ]
+            | _ -> [ border_left_style (Var bv); border_left_width w ])
+    | Border_side_width (side, n) ->
+        let w : Css.border_width = Px (float_of_int n) in
         make_side_util (fun bv ->
             match side with
             | "t" -> [ border_top_style (Var bv); border_top_width w ]
@@ -664,6 +707,16 @@ module Handler = struct
     | Border_l -> border_l
     | Border_x -> border_x
     | Border_y -> border_y
+    | Border_x_width n -> border_x_width (float_of_int n)
+    | Border_y_width n -> border_y_width (float_of_int n)
+    | Border_s -> border_s
+    | Border_e -> border_e
+    | Border_bs -> border_bs
+    | Border_be -> border_be
+    | Border_s_width n -> border_s_width n
+    | Border_e_width n -> border_e_width n
+    | Border_bs_width n -> border_bs_width n
+    | Border_be_width n -> border_be_width n
     (* Border side utilities with widths *)
     | Border_t_0 -> border_t_0
     | Border_t_2 -> border_t_2
@@ -698,43 +751,36 @@ module Handler = struct
     | Outline -> outline ()
     | Outline_0 -> outline_0
     | Outline_width n -> outline_width_style n
-    | Outline_width_bracket v -> outline_width_bracket_style v
+    | Outline_width_bracket (_, len) -> outline_width_bracket_style len
     | Outline_width_var v -> outline_width_var_style v
     | Outline_hidden -> outline_hidden
-    | Outline_offset_0 -> outline_offset_0
-    | Outline_offset_1 -> outline_offset_1
-    | Outline_offset_2 -> outline_offset_2
-    | Outline_offset_4 -> outline_offset_4
-    | Outline_offset_8 -> outline_offset_8
+    | Outline_offset n -> outline_offset_px n
     | Outline_offset_var v -> outline_offset_var_style v
     | Outline_offset_arbitrary v -> (
         match parse_length v with
         | Some l -> style [ Css.outline_offset l ]
         | None -> style [ Css.outline_offset (Px 0.) ])
-    | Neg_outline_offset_1 -> neg_outline_offset_1
-    | Neg_outline_offset_2 -> neg_outline_offset_2
-    | Neg_outline_offset_4 -> neg_outline_offset_4
-    | Neg_outline_offset_8 -> neg_outline_offset_8
+    | Neg_outline_offset n -> neg_outline_offset n
     | Neg_outline_offset_var v -> neg_outline_offset_var_style v
 
   let err_not_utility = Error (`Msg "Not a border utility")
 
-  (* Parse a rounded position token (the side/corner segment of a class). *)
-  let rounded_position_of_string = function
-    | "s" -> Some Rp_s
-    | "e" -> Some Rp_e
-    | "t" -> Some Rp_t
-    | "r" -> Some Rp_r
-    | "b" -> Some Rp_b
-    | "l" -> Some Rp_l
-    | "ss" -> Some Rp_ss
-    | "se" -> Some Rp_se
-    | "ee" -> Some Rp_ee
-    | "es" -> Some Rp_es
-    | "tl" -> Some Rp_tl
-    | "tr" -> Some Rp_tr
-    | "br" -> Some Rp_br
-    | "bl" -> Some Rp_bl
+  (* Parse the side/corner segment of a class into the corners it rounds. *)
+  let corner_of_string = function
+    | "s" -> Some Corner.Start
+    | "e" -> Some Corner.End
+    | "t" -> Some Corner.Top
+    | "r" -> Some Corner.Right
+    | "b" -> Some Corner.Bottom
+    | "l" -> Some Corner.Left
+    | "ss" -> Some Corner.Start_start
+    | "se" -> Some Corner.Start_end
+    | "ee" -> Some Corner.End_end
+    | "es" -> Some Corner.End_start
+    | "tl" -> Some Corner.Top_left
+    | "tr" -> Some Corner.Top_right
+    | "br" -> Some Corner.Bottom_right
+    | "bl" -> Some Corner.Bottom_left
     | _ -> None
 
   (* Parse a rounded size token (the t-shirt segment of a class). *)
@@ -761,21 +807,21 @@ module Handler = struct
            right, then bottom. Values within a group share a suborder and
            tie-break by class name. *)
         match pos with
-        | Rp_all -> 0
-        | Rp_s -> 10
-        | Rp_ss -> 20
-        | Rp_e -> 30
-        | Rp_se -> 40
-        | Rp_ee -> 50
-        | Rp_es -> 60
-        | Rp_t -> 100
-        | Rp_l -> 110
-        | Rp_tl -> 120
-        | Rp_r -> 130
-        | Rp_tr -> 140
-        | Rp_b -> 150
-        | Rp_br -> 160
-        | Rp_bl -> 170)
+        | Corner.All -> 0
+        | Corner.Start -> 10
+        | Corner.Start_start -> 20
+        | Corner.End -> 30
+        | Corner.Start_end -> 40
+        | Corner.End_end -> 50
+        | Corner.End_start -> 60
+        | Corner.Top -> 100
+        | Corner.Left -> 110
+        | Corner.Top_left -> 120
+        | Corner.Right -> 130
+        | Corner.Top_right -> 140
+        | Corner.Bottom -> 150
+        | Corner.Bottom_right -> 160
+        | Corner.Bottom_left -> 170)
     (* Border width utilities (1000-1099) *)
     | Border -> 1000
     | Border_0 -> 1001
@@ -785,32 +831,49 @@ module Handler = struct
     | Border_width n -> 1001 + n
     | Border_width_bracket _ -> 1005
     (* Border sides are side-major (Tailwind groups each side's bare width, its
-       numeric widths and its arbitrary width together): t, r, b, l, then x, y.
+       numeric widths and its arbitrary width together), and the axes and
+       logical sides come first: x, y, s, e, bs, be, then t, r, b, l. The order
+       decides the width, since border-y and border-b both write the bottom one.
        Within a side: bare, 0, 2, 4, 8, arbitrary. *)
-    | Border_side_width_bracket (side, _) -> (
-        match side with "t" -> 1105 | "r" -> 1115 | "b" -> 1125 | _ -> 1135)
-    | Border_t -> 1100
-    | Border_t_0 -> 1101
-    | Border_t_2 -> 1102
-    | Border_t_4 -> 1103
-    | Border_t_8 -> 1104
-    | Border_r -> 1110
-    | Border_r_0 -> 1111
-    | Border_r_2 -> 1112
-    | Border_r_4 -> 1113
-    | Border_r_8 -> 1114
-    | Border_b -> 1120
-    | Border_b_0 -> 1121
-    | Border_b_2 -> 1122
-    | Border_b_4 -> 1123
-    | Border_b_8 -> 1124
-    | Border_l -> 1130
-    | Border_l_0 -> 1131
-    | Border_l_2 -> 1132
-    | Border_l_4 -> 1133
-    | Border_l_8 -> 1134
-    | Border_x -> 1140
-    | Border_y -> 1150
+    | Border_x -> 1100
+    | Border_x_width n -> 1100 + n
+    | Border_y -> 1110
+    | Border_y_width n -> 1110 + n
+    | Border_s -> 1120
+    | Border_s_width n -> 1120 + n
+    | Border_e -> 1130
+    | Border_e_width n -> 1130 + n
+    | Border_bs -> 1140
+    | Border_bs_width n -> 1140 + n
+    | Border_be -> 1150
+    | Border_be_width n -> 1150 + n
+    | Border_side_width_bracket (side, _, _) -> (
+        match side with "t" -> 1165 | "r" -> 1175 | "b" -> 1185 | _ -> 1195)
+    | Border_side_width (side, n) ->
+        let base =
+          match side with "t" -> 1160 | "r" -> 1170 | "b" -> 1180 | _ -> 1190
+        in
+        base + n
+    | Border_t -> 1160
+    | Border_t_0 -> 1161
+    | Border_t_2 -> 1162
+    | Border_t_4 -> 1163
+    | Border_t_8 -> 1164
+    | Border_r -> 1170
+    | Border_r_0 -> 1171
+    | Border_r_2 -> 1172
+    | Border_r_4 -> 1173
+    | Border_r_8 -> 1174
+    | Border_b -> 1180
+    | Border_b_0 -> 1181
+    | Border_b_2 -> 1182
+    | Border_b_4 -> 1183
+    | Border_b_8 -> 1184
+    | Border_l -> 1190
+    | Border_l_0 -> 1191
+    | Border_l_2 -> 1192
+    | Border_l_4 -> 1193
+    | Border_l_8 -> 1194
     (* Border style utilities (1400-1499) - alphabetical *)
     | Border_dashed -> 1400
     | Border_dotted -> 1401
@@ -826,27 +889,20 @@ module Handler = struct
         1500
     | Border_transparent -> 1500
     | Border_current -> 1500
-    (* Outline utilities — hidden first, then width, then styles last *)
+    (* Outline utilities — hidden first, then width, then offset. The colors
+       (color.ml, 3000-28000) and the styles (Outline_style_handler,
+       30000-30004) close the family. *)
     | Outline_hidden -> 1990
     | Outline -> 1999
     | Outline_0 -> 2000
     | Outline_width n -> 2000 + n
     | Outline_width_bracket _ -> 2009
     | Outline_width_var _ -> 2010
-    (* Outline styles come after colors (which are in Color handler at
-       priority 23 > borders priority 19, so they naturally sort after) *)
     (* Outline offset — negatives before positives *)
-    | Neg_outline_offset_1 -> 2200
-    | Neg_outline_offset_2 -> 2201
-    | Neg_outline_offset_4 -> 2202
-    | Neg_outline_offset_8 -> 2203
-    | Neg_outline_offset_var _ -> 2204
-    | Outline_offset_0 -> 2210
-    | Outline_offset_1 -> 2211
-    | Outline_offset_2 -> 2212
-    | Outline_offset_4 -> 2213
-    | Outline_offset_8 -> 2214
-    | Outline_offset_var _ -> 2215
+    | Neg_outline_offset n -> 2200 + n
+    | Neg_outline_offset_var _ -> 2209
+    | Outline_offset n -> 2210 + n
+    | Outline_offset_var _ -> 2299
     | Outline_offset_arbitrary _ -> 2215
 
   let of_class _theme class_name =
@@ -858,7 +914,7 @@ module Handler = struct
     | [ "border"; "4" ] -> Ok Border_4
     | [ "border"; "8" ] -> Ok Border_8
     | [ "border"; n ]
-      when match int_of_string_opt n with Some w -> w > 0 | None -> false ->
+      when match Parse.decimal_int n with Some w -> w > 0 | None -> false ->
         Ok (Border_width (int_of_string n))
     | [ "border"; "t" ] -> Ok Border_t
     | [ "border"; "r" ] -> Ok Border_r
@@ -866,6 +922,28 @@ module Handler = struct
     | [ "border"; "l" ] -> Ok Border_l
     | [ "border"; "x" ] -> Ok Border_x
     | [ "border"; "y" ] -> Ok Border_y
+    | [ "border"; "x"; n ]
+      when match Parse.decimal_int n with Some w -> w >= 0 | None -> false ->
+        Ok (Border_x_width (int_of_string n))
+    | [ "border"; "y"; n ]
+      when match Parse.decimal_int n with Some w -> w >= 0 | None -> false ->
+        Ok (Border_y_width (int_of_string n))
+    | [ "border"; "s" ] -> Ok Border_s
+    | [ "border"; "e" ] -> Ok Border_e
+    | [ "border"; "bs" ] -> Ok Border_bs
+    | [ "border"; "be" ] -> Ok Border_be
+    | [ "border"; "s"; n ]
+      when match Parse.decimal_int n with Some w -> w >= 0 | None -> false ->
+        Ok (Border_s_width (int_of_string n))
+    | [ "border"; "e"; n ]
+      when match Parse.decimal_int n with Some w -> w >= 0 | None -> false ->
+        Ok (Border_e_width (int_of_string n))
+    | [ "border"; "bs"; n ]
+      when match Parse.decimal_int n with Some w -> w >= 0 | None -> false ->
+        Ok (Border_bs_width (int_of_string n))
+    | [ "border"; "be"; n ]
+      when match Parse.decimal_int n with Some w -> w >= 0 | None -> false ->
+        Ok (Border_be_width (int_of_string n))
     | [ "border"; "t"; "0" ] -> Ok Border_t_0
     | [ "border"; "t"; "2" ] -> Ok Border_t_2
     | [ "border"; "t"; "4" ] -> Ok Border_t_4
@@ -882,6 +960,9 @@ module Handler = struct
     | [ "border"; "l"; "2" ] -> Ok Border_l_2
     | [ "border"; "l"; "4" ] -> Ok Border_l_4
     | [ "border"; "l"; "8" ] -> Ok Border_l_8
+    | [ "border"; (("t" | "r" | "b" | "l") as side); n ]
+      when match Parse.decimal_int n with Some w -> w >= 0 | None -> false ->
+        Ok (Border_side_width (side, int_of_string n))
     | [ "border"; "solid" ] -> Ok Border_solid
     | [ "border"; "dashed" ] -> Ok Border_dashed
     | [ "border"; "dotted" ] -> Ok Border_dotted
@@ -894,7 +975,9 @@ module Handler = struct
         let inner = Parse.bracket_inner v in
         let is_numeric_start c = (c >= '0' && c <= '9') || c = '.' || c = '-' in
         if String.length inner > 0 && is_numeric_start inner.[0] then
-          Ok (Border_width_bracket inner)
+          match parse_border_width inner with
+          | Some w -> Ok (Border_width_bracket (inner, w))
+          | None -> err_not_utility
         else err_not_utility
     | [ "border"; side; v ]
       when (match side with "t" | "r" | "b" | "l" -> true | _ -> false)
@@ -902,7 +985,9 @@ module Handler = struct
         let inner = Parse.bracket_inner v in
         let is_numeric_start c = (c >= '0' && c <= '9') || c = '.' in
         if String.length inner > 0 && is_numeric_start inner.[0] then
-          Ok (Border_side_width_bracket (side, inner))
+          match parse_border_width inner with
+          | Some w -> Ok (Border_side_width_bracket (side, inner, w))
+          | None -> err_not_utility
         else err_not_utility
     | "border" :: color_parts -> (
         match Color.shade_of_strings color_parts with
@@ -911,28 +996,32 @@ module Handler = struct
     (* Border radius utilities (parametric). [rounded] / [rounded-<size>] target
        all corners; [rounded-<pos>] / [rounded-<pos>-<size>] target a side or
        corner. Sizes and positions are disjoint token sets. *)
-    | [ "rounded" ] -> Ok (Rounded (Rp_all, Rsz_default))
-    | [ "rounded"; v ] when Parse.is_bracket_value v ->
-        Ok (Rounded (Rp_all, Rsz_arbitrary (Parse.bracket_inner v)))
+    | [ "rounded" ] -> Ok (Rounded (Corner.All, Rsz_default))
+    | [ "rounded"; v ] when Parse.is_bracket_value v -> (
+        let inner = Parse.bracket_inner v in
+        match parse_length inner with
+        | Some len -> Ok (Rounded (Corner.All, Rsz_arbitrary (inner, len)))
+        | None -> err_not_utility)
     | [ "rounded"; tok ] -> (
         match rounded_size_of_string tok with
-        | Some size -> Ok (Rounded (Rp_all, size))
+        | Some size -> Ok (Rounded (Corner.All, size))
         | None -> (
-            match rounded_position_of_string tok with
+            match corner_of_string tok with
             | Some pos -> Ok (Rounded (pos, Rsz_default))
             | None -> err_not_utility))
     | [ "rounded"; pos; v ] when Parse.is_bracket_value v -> (
-        match rounded_position_of_string pos with
-        | Some pos -> Ok (Rounded (pos, Rsz_arbitrary (Parse.bracket_inner v)))
-        | None -> err_not_utility)
+        let inner = Parse.bracket_inner v in
+        match (corner_of_string pos, parse_length inner) with
+        | Some pos, Some len -> Ok (Rounded (pos, Rsz_arbitrary (inner, len)))
+        | _ -> err_not_utility)
     | [ "rounded"; pos; size ] -> (
-        match (rounded_position_of_string pos, rounded_size_of_string size) with
+        match (corner_of_string pos, rounded_size_of_string size) with
         | Some pos, Some size -> Ok (Rounded (pos, size))
         | _ -> err_not_utility)
     | [ "outline" ] -> Ok Outline
     | [ "outline"; "0" ] -> Ok Outline_0
     | [ "outline"; n ]
-      when match int_of_string_opt n with Some w -> w > 0 | None -> false ->
+      when match Parse.decimal_int n with Some w -> w > 0 | None -> false ->
         Ok (Outline_width (int_of_string n))
     | [ "outline"; v ] when Parse.is_bracket_value v ->
         let inner = Parse.bracket_inner v in
@@ -955,7 +1044,9 @@ module Handler = struct
             (c >= '0' && c <= '9') || c = '.' || c = '-'
           in
           if String.length inner > 0 && is_numeric_start inner.[0] then
-            Ok (Outline_width_bracket inner)
+            match parse_outline_width inner with
+            | Some len -> Ok (Outline_width_bracket (inner, len))
+            | None -> err_not_utility
           else err_not_utility
     (* outline-none/solid/dashed/dotted/double handled by
        Outline_style_handler *)
@@ -966,11 +1057,10 @@ module Handler = struct
         else if parse_length inner <> None then
           Ok (Outline_offset_arbitrary inner)
         else err_not_utility
-    | [ "outline"; "offset"; "0" ] -> Ok Outline_offset_0
-    | [ "outline"; "offset"; "1" ] -> Ok Outline_offset_1
-    | [ "outline"; "offset"; "2" ] -> Ok Outline_offset_2
-    | [ "outline"; "offset"; "4" ] -> Ok Outline_offset_4
-    | [ "outline"; "offset"; "8" ] -> Ok Outline_offset_8
+    | [ "outline"; "offset"; n ] -> (
+        match Parse.decimal_int n with
+        | Some i when i >= 0 -> Ok (Outline_offset i)
+        | _ -> err_not_utility)
     (* Negative outline offset: -outline-offset-N starts with empty string *)
     | "" :: "outline" :: "offset" :: rest when rest <> [] -> (
         let value = String.concat "-" rest in
@@ -979,11 +1069,8 @@ module Handler = struct
           if Parse.is_var inner then Ok (Neg_outline_offset_var inner)
           else err_not_utility
         else
-          match value with
-          | "1" -> Ok Neg_outline_offset_1
-          | "2" -> Ok Neg_outline_offset_2
-          | "4" -> Ok Neg_outline_offset_4
-          | "8" -> Ok Neg_outline_offset_8
+          match Parse.decimal_int value with
+          | Some i when i > 0 -> Ok (Neg_outline_offset i)
           | _ -> err_not_utility)
     (* ring* handled in Effects *)
     | _ -> err_not_utility
@@ -995,15 +1082,26 @@ module Handler = struct
     | Border_4 -> "border-4"
     | Border_8 -> "border-8"
     | Border_width n -> "border-" ^ string_of_int n
-    | Border_width_bracket v -> "border-[" ^ v ^ "]"
-    | Border_side_width_bracket (side, inner) ->
+    | Border_width_bracket (v, _) -> "border-[" ^ v ^ "]"
+    | Border_side_width_bracket (side, inner, _) ->
         "border-" ^ side ^ "-[" ^ inner ^ "]"
+    | Border_side_width (side, n) -> "border-" ^ side ^ "-" ^ string_of_int n
     | Border_t -> "border-t"
     | Border_r -> "border-r"
     | Border_b -> "border-b"
     | Border_l -> "border-l"
     | Border_x -> "border-x"
     | Border_y -> "border-y"
+    | Border_x_width n -> "border-x-" ^ string_of_int n
+    | Border_y_width n -> "border-y-" ^ string_of_int n
+    | Border_s -> "border-s"
+    | Border_e -> "border-e"
+    | Border_bs -> "border-bs"
+    | Border_be -> "border-be"
+    | Border_s_width n -> "border-s-" ^ string_of_int n
+    | Border_e_width n -> "border-e-" ^ string_of_int n
+    | Border_bs_width n -> "border-bs-" ^ string_of_int n
+    | Border_be_width n -> "border-be-" ^ string_of_int n
     | Border_t_0 -> "border-t-0"
     | Border_t_2 -> "border-t-2"
     | Border_t_4 -> "border-t-4"
@@ -1035,21 +1133,21 @@ module Handler = struct
     | Rounded (pos, size) ->
         let pos_str =
           match pos with
-          | Rp_all -> ""
-          | Rp_s -> "-s"
-          | Rp_e -> "-e"
-          | Rp_t -> "-t"
-          | Rp_r -> "-r"
-          | Rp_b -> "-b"
-          | Rp_l -> "-l"
-          | Rp_ss -> "-ss"
-          | Rp_se -> "-se"
-          | Rp_ee -> "-ee"
-          | Rp_es -> "-es"
-          | Rp_tl -> "-tl"
-          | Rp_tr -> "-tr"
-          | Rp_br -> "-br"
-          | Rp_bl -> "-bl"
+          | Corner.All -> ""
+          | Corner.Start -> "-s"
+          | Corner.End -> "-e"
+          | Corner.Top -> "-t"
+          | Corner.Right -> "-r"
+          | Corner.Bottom -> "-b"
+          | Corner.Left -> "-l"
+          | Corner.Start_start -> "-ss"
+          | Corner.Start_end -> "-se"
+          | Corner.End_end -> "-ee"
+          | Corner.End_start -> "-es"
+          | Corner.Top_left -> "-tl"
+          | Corner.Top_right -> "-tr"
+          | Corner.Bottom_right -> "-br"
+          | Corner.Bottom_left -> "-bl"
         in
         let size_str =
           match size with
@@ -1064,27 +1162,22 @@ module Handler = struct
           | Rsz_3xl -> "-3xl"
           | Rsz_4xl -> "-4xl"
           | Rsz_full -> "-full"
-          | Rsz_arbitrary value -> "-[" ^ value ^ "]"
+          | Rsz_arbitrary (raw, _) -> "-[" ^ raw ^ "]"
         in
         "rounded" ^ pos_str ^ size_str
     | Outline -> "outline"
     | Outline_0 -> "outline-0"
     | Outline_width n -> "outline-" ^ string_of_int n
-    | Outline_width_bracket v -> "outline-[" ^ v ^ "]"
+    | Outline_width_bracket (v, _) -> "outline-[" ^ v ^ "]"
     | Outline_width_var v -> "outline-[" ^ v ^ "]"
     | Outline_hidden -> "outline-hidden"
-    | Outline_offset_0 -> "outline-offset-0"
-    | Outline_offset_1 -> "outline-offset-1"
-    | Outline_offset_2 -> "outline-offset-2"
-    | Outline_offset_4 -> "outline-offset-4"
-    | Outline_offset_8 -> "outline-offset-8"
+    | Outline_offset n -> "outline-offset-" ^ string_of_int n
     | Outline_offset_var v -> "outline-offset-[" ^ v ^ "]"
     | Outline_offset_arbitrary v -> "outline-offset-[" ^ v ^ "]"
-    | Neg_outline_offset_1 -> "-outline-offset-1"
-    | Neg_outline_offset_2 -> "-outline-offset-2"
-    | Neg_outline_offset_4 -> "-outline-offset-4"
-    | Neg_outline_offset_8 -> "-outline-offset-8"
+    | Neg_outline_offset n -> "-outline-offset-" ^ string_of_int n
     | Neg_outline_offset_var v -> "-outline-offset-[" ^ v ^ "]"
+
+  let examples = [ Border_0; Border_x; Border_y; Border_solid; Border_current ]
 end
 
 open Handler
@@ -1122,14 +1215,15 @@ module Outline_style_handler = struct
         let decl, _ = Var.binding Handler.outline_style_var Css.Solid in
         style [ decl; Css.outline_style Css.Solid ]
 
-  (* outline-style sorts after outline-width (borders handler, up to ~2009 at
-     priority 28); alphabetical: dashed, dotted, double, none, solid. *)
+  (* outline-style closes the outline family at priority 28, after the widths
+     and offsets here and after color.ml's outline colors (3000-28000);
+     alphabetical: dashed, dotted, double, none, solid. *)
   let suborder = function
-    | Dashed -> 2050
-    | Dotted -> 2051
-    | Double -> 2052
-    | None_ -> 2053
-    | Solid -> 2054
+    | Dashed -> 30000
+    | Dotted -> 30001
+    | Double -> 30002
+    | None_ -> 30003
+    | Solid -> 30004
 
   let err_not_utility = Error (`Msg "Not an outline style utility")
 
@@ -1149,6 +1243,8 @@ module Outline_style_handler = struct
     | Double -> "outline-double"
     | None_ -> "outline-none"
     | Solid -> "outline-solid"
+
+  let examples = [ Solid ]
 end
 
 let () = Utility.register (module Outline_style_handler)
@@ -1180,6 +1276,7 @@ let border_none = utility Border_none
 (** {1 Border Color Utilities} *)
 
 let border_color ?opacity ?(shade = 500) color =
+  Color.check_shade ~utility:"border_color" color shade;
   match opacity with
   | None -> utility (Border_color (color, shade))
   | Some pct -> Color.border_color ~opacity:pct ~shade color
@@ -1199,220 +1296,220 @@ let border_full = border_8 (* 8px *)
 
 (** {1 Border Radius Utilities} *)
 
-let rounded = utility (Rounded (Rp_all, Rsz_default))
-let rounded_none = utility (Rounded (Rp_all, Rsz_none))
-let rounded_xs = utility (Rounded (Rp_all, Rsz_xs))
-let rounded_sm = utility (Rounded (Rp_all, Rsz_sm))
-let rounded_md = utility (Rounded (Rp_all, Rsz_md))
-let rounded_lg = utility (Rounded (Rp_all, Rsz_lg))
-let rounded_xl = utility (Rounded (Rp_all, Rsz_xl))
-let rounded_2xl = utility (Rounded (Rp_all, Rsz_2xl))
-let rounded_3xl = utility (Rounded (Rp_all, Rsz_3xl))
-let rounded_4xl = utility (Rounded (Rp_all, Rsz_4xl))
-let rounded_full = utility (Rounded (Rp_all, Rsz_full))
+let rounded = utility (Rounded (Corner.All, Rsz_default))
+let rounded_none = utility (Rounded (Corner.All, Rsz_none))
+let rounded_xs = utility (Rounded (Corner.All, Rsz_xs))
+let rounded_sm = utility (Rounded (Corner.All, Rsz_sm))
+let rounded_md = utility (Rounded (Corner.All, Rsz_md))
+let rounded_lg = utility (Rounded (Corner.All, Rsz_lg))
+let rounded_xl = utility (Rounded (Corner.All, Rsz_xl))
+let rounded_2xl = utility (Rounded (Corner.All, Rsz_2xl))
+let rounded_3xl = utility (Rounded (Corner.All, Rsz_3xl))
+let rounded_4xl = utility (Rounded (Corner.All, Rsz_4xl))
+let rounded_full = utility (Rounded (Corner.All, Rsz_full))
 
 (** {2 Side-specific rounded utilities - top} *)
 
-let rounded_t = utility (Rounded (Rp_t, Rsz_default))
-let rounded_t_none = utility (Rounded (Rp_t, Rsz_none))
-let rounded_t_xs = utility (Rounded (Rp_t, Rsz_xs))
-let rounded_t_sm = utility (Rounded (Rp_t, Rsz_sm))
-let rounded_t_md = utility (Rounded (Rp_t, Rsz_md))
-let rounded_t_lg = utility (Rounded (Rp_t, Rsz_lg))
-let rounded_t_xl = utility (Rounded (Rp_t, Rsz_xl))
-let rounded_t_2xl = utility (Rounded (Rp_t, Rsz_2xl))
-let rounded_t_3xl = utility (Rounded (Rp_t, Rsz_3xl))
-let rounded_t_4xl = utility (Rounded (Rp_t, Rsz_4xl))
-let rounded_t_full = utility (Rounded (Rp_t, Rsz_full))
+let rounded_t = utility (Rounded (Corner.Top, Rsz_default))
+let rounded_t_none = utility (Rounded (Corner.Top, Rsz_none))
+let rounded_t_xs = utility (Rounded (Corner.Top, Rsz_xs))
+let rounded_t_sm = utility (Rounded (Corner.Top, Rsz_sm))
+let rounded_t_md = utility (Rounded (Corner.Top, Rsz_md))
+let rounded_t_lg = utility (Rounded (Corner.Top, Rsz_lg))
+let rounded_t_xl = utility (Rounded (Corner.Top, Rsz_xl))
+let rounded_t_2xl = utility (Rounded (Corner.Top, Rsz_2xl))
+let rounded_t_3xl = utility (Rounded (Corner.Top, Rsz_3xl))
+let rounded_t_4xl = utility (Rounded (Corner.Top, Rsz_4xl))
+let rounded_t_full = utility (Rounded (Corner.Top, Rsz_full))
 
 (** {2 Side-specific rounded utilities - right} *)
 
-let rounded_r = utility (Rounded (Rp_r, Rsz_default))
-let rounded_r_none = utility (Rounded (Rp_r, Rsz_none))
-let rounded_r_xs = utility (Rounded (Rp_r, Rsz_xs))
-let rounded_r_sm = utility (Rounded (Rp_r, Rsz_sm))
-let rounded_r_md = utility (Rounded (Rp_r, Rsz_md))
-let rounded_r_lg = utility (Rounded (Rp_r, Rsz_lg))
-let rounded_r_xl = utility (Rounded (Rp_r, Rsz_xl))
-let rounded_r_2xl = utility (Rounded (Rp_r, Rsz_2xl))
-let rounded_r_3xl = utility (Rounded (Rp_r, Rsz_3xl))
-let rounded_r_4xl = utility (Rounded (Rp_r, Rsz_4xl))
-let rounded_r_full = utility (Rounded (Rp_r, Rsz_full))
+let rounded_r = utility (Rounded (Corner.Right, Rsz_default))
+let rounded_r_none = utility (Rounded (Corner.Right, Rsz_none))
+let rounded_r_xs = utility (Rounded (Corner.Right, Rsz_xs))
+let rounded_r_sm = utility (Rounded (Corner.Right, Rsz_sm))
+let rounded_r_md = utility (Rounded (Corner.Right, Rsz_md))
+let rounded_r_lg = utility (Rounded (Corner.Right, Rsz_lg))
+let rounded_r_xl = utility (Rounded (Corner.Right, Rsz_xl))
+let rounded_r_2xl = utility (Rounded (Corner.Right, Rsz_2xl))
+let rounded_r_3xl = utility (Rounded (Corner.Right, Rsz_3xl))
+let rounded_r_4xl = utility (Rounded (Corner.Right, Rsz_4xl))
+let rounded_r_full = utility (Rounded (Corner.Right, Rsz_full))
 
 (** {2 Side-specific rounded utilities - bottom} *)
 
-let rounded_b = utility (Rounded (Rp_b, Rsz_default))
-let rounded_b_none = utility (Rounded (Rp_b, Rsz_none))
-let rounded_b_xs = utility (Rounded (Rp_b, Rsz_xs))
-let rounded_b_sm = utility (Rounded (Rp_b, Rsz_sm))
-let rounded_b_md = utility (Rounded (Rp_b, Rsz_md))
-let rounded_b_lg = utility (Rounded (Rp_b, Rsz_lg))
-let rounded_b_xl = utility (Rounded (Rp_b, Rsz_xl))
-let rounded_b_2xl = utility (Rounded (Rp_b, Rsz_2xl))
-let rounded_b_3xl = utility (Rounded (Rp_b, Rsz_3xl))
-let rounded_b_4xl = utility (Rounded (Rp_b, Rsz_4xl))
-let rounded_b_full = utility (Rounded (Rp_b, Rsz_full))
+let rounded_b = utility (Rounded (Corner.Bottom, Rsz_default))
+let rounded_b_none = utility (Rounded (Corner.Bottom, Rsz_none))
+let rounded_b_xs = utility (Rounded (Corner.Bottom, Rsz_xs))
+let rounded_b_sm = utility (Rounded (Corner.Bottom, Rsz_sm))
+let rounded_b_md = utility (Rounded (Corner.Bottom, Rsz_md))
+let rounded_b_lg = utility (Rounded (Corner.Bottom, Rsz_lg))
+let rounded_b_xl = utility (Rounded (Corner.Bottom, Rsz_xl))
+let rounded_b_2xl = utility (Rounded (Corner.Bottom, Rsz_2xl))
+let rounded_b_3xl = utility (Rounded (Corner.Bottom, Rsz_3xl))
+let rounded_b_4xl = utility (Rounded (Corner.Bottom, Rsz_4xl))
+let rounded_b_full = utility (Rounded (Corner.Bottom, Rsz_full))
 
 (** {2 Side-specific rounded utilities - left} *)
 
-let rounded_l = utility (Rounded (Rp_l, Rsz_default))
-let rounded_l_none = utility (Rounded (Rp_l, Rsz_none))
-let rounded_l_xs = utility (Rounded (Rp_l, Rsz_xs))
-let rounded_l_sm = utility (Rounded (Rp_l, Rsz_sm))
-let rounded_l_md = utility (Rounded (Rp_l, Rsz_md))
-let rounded_l_lg = utility (Rounded (Rp_l, Rsz_lg))
-let rounded_l_xl = utility (Rounded (Rp_l, Rsz_xl))
-let rounded_l_2xl = utility (Rounded (Rp_l, Rsz_2xl))
-let rounded_l_3xl = utility (Rounded (Rp_l, Rsz_3xl))
-let rounded_l_4xl = utility (Rounded (Rp_l, Rsz_4xl))
-let rounded_l_full = utility (Rounded (Rp_l, Rsz_full))
+let rounded_l = utility (Rounded (Corner.Left, Rsz_default))
+let rounded_l_none = utility (Rounded (Corner.Left, Rsz_none))
+let rounded_l_xs = utility (Rounded (Corner.Left, Rsz_xs))
+let rounded_l_sm = utility (Rounded (Corner.Left, Rsz_sm))
+let rounded_l_md = utility (Rounded (Corner.Left, Rsz_md))
+let rounded_l_lg = utility (Rounded (Corner.Left, Rsz_lg))
+let rounded_l_xl = utility (Rounded (Corner.Left, Rsz_xl))
+let rounded_l_2xl = utility (Rounded (Corner.Left, Rsz_2xl))
+let rounded_l_3xl = utility (Rounded (Corner.Left, Rsz_3xl))
+let rounded_l_4xl = utility (Rounded (Corner.Left, Rsz_4xl))
+let rounded_l_full = utility (Rounded (Corner.Left, Rsz_full))
 
 (** {2 Corner-specific rounded utilities - top-left} *)
 
-let rounded_tl = utility (Rounded (Rp_tl, Rsz_default))
-let rounded_tl_none = utility (Rounded (Rp_tl, Rsz_none))
-let rounded_tl_xs = utility (Rounded (Rp_tl, Rsz_xs))
-let rounded_tl_sm = utility (Rounded (Rp_tl, Rsz_sm))
-let rounded_tl_md = utility (Rounded (Rp_tl, Rsz_md))
-let rounded_tl_lg = utility (Rounded (Rp_tl, Rsz_lg))
-let rounded_tl_xl = utility (Rounded (Rp_tl, Rsz_xl))
-let rounded_tl_2xl = utility (Rounded (Rp_tl, Rsz_2xl))
-let rounded_tl_3xl = utility (Rounded (Rp_tl, Rsz_3xl))
-let rounded_tl_4xl = utility (Rounded (Rp_tl, Rsz_4xl))
-let rounded_tl_full = utility (Rounded (Rp_tl, Rsz_full))
+let rounded_tl = utility (Rounded (Corner.Top_left, Rsz_default))
+let rounded_tl_none = utility (Rounded (Corner.Top_left, Rsz_none))
+let rounded_tl_xs = utility (Rounded (Corner.Top_left, Rsz_xs))
+let rounded_tl_sm = utility (Rounded (Corner.Top_left, Rsz_sm))
+let rounded_tl_md = utility (Rounded (Corner.Top_left, Rsz_md))
+let rounded_tl_lg = utility (Rounded (Corner.Top_left, Rsz_lg))
+let rounded_tl_xl = utility (Rounded (Corner.Top_left, Rsz_xl))
+let rounded_tl_2xl = utility (Rounded (Corner.Top_left, Rsz_2xl))
+let rounded_tl_3xl = utility (Rounded (Corner.Top_left, Rsz_3xl))
+let rounded_tl_4xl = utility (Rounded (Corner.Top_left, Rsz_4xl))
+let rounded_tl_full = utility (Rounded (Corner.Top_left, Rsz_full))
 
 (** {2 Corner-specific rounded utilities - top-right} *)
 
-let rounded_tr = utility (Rounded (Rp_tr, Rsz_default))
-let rounded_tr_none = utility (Rounded (Rp_tr, Rsz_none))
-let rounded_tr_xs = utility (Rounded (Rp_tr, Rsz_xs))
-let rounded_tr_sm = utility (Rounded (Rp_tr, Rsz_sm))
-let rounded_tr_md = utility (Rounded (Rp_tr, Rsz_md))
-let rounded_tr_lg = utility (Rounded (Rp_tr, Rsz_lg))
-let rounded_tr_xl = utility (Rounded (Rp_tr, Rsz_xl))
-let rounded_tr_2xl = utility (Rounded (Rp_tr, Rsz_2xl))
-let rounded_tr_3xl = utility (Rounded (Rp_tr, Rsz_3xl))
-let rounded_tr_4xl = utility (Rounded (Rp_tr, Rsz_4xl))
-let rounded_tr_full = utility (Rounded (Rp_tr, Rsz_full))
+let rounded_tr = utility (Rounded (Corner.Top_right, Rsz_default))
+let rounded_tr_none = utility (Rounded (Corner.Top_right, Rsz_none))
+let rounded_tr_xs = utility (Rounded (Corner.Top_right, Rsz_xs))
+let rounded_tr_sm = utility (Rounded (Corner.Top_right, Rsz_sm))
+let rounded_tr_md = utility (Rounded (Corner.Top_right, Rsz_md))
+let rounded_tr_lg = utility (Rounded (Corner.Top_right, Rsz_lg))
+let rounded_tr_xl = utility (Rounded (Corner.Top_right, Rsz_xl))
+let rounded_tr_2xl = utility (Rounded (Corner.Top_right, Rsz_2xl))
+let rounded_tr_3xl = utility (Rounded (Corner.Top_right, Rsz_3xl))
+let rounded_tr_4xl = utility (Rounded (Corner.Top_right, Rsz_4xl))
+let rounded_tr_full = utility (Rounded (Corner.Top_right, Rsz_full))
 
 (** {2 Corner-specific rounded utilities - bottom-right} *)
 
-let rounded_br = utility (Rounded (Rp_br, Rsz_default))
-let rounded_br_none = utility (Rounded (Rp_br, Rsz_none))
-let rounded_br_xs = utility (Rounded (Rp_br, Rsz_xs))
-let rounded_br_sm = utility (Rounded (Rp_br, Rsz_sm))
-let rounded_br_md = utility (Rounded (Rp_br, Rsz_md))
-let rounded_br_lg = utility (Rounded (Rp_br, Rsz_lg))
-let rounded_br_xl = utility (Rounded (Rp_br, Rsz_xl))
-let rounded_br_2xl = utility (Rounded (Rp_br, Rsz_2xl))
-let rounded_br_3xl = utility (Rounded (Rp_br, Rsz_3xl))
-let rounded_br_4xl = utility (Rounded (Rp_br, Rsz_4xl))
-let rounded_br_full = utility (Rounded (Rp_br, Rsz_full))
+let rounded_br = utility (Rounded (Corner.Bottom_right, Rsz_default))
+let rounded_br_none = utility (Rounded (Corner.Bottom_right, Rsz_none))
+let rounded_br_xs = utility (Rounded (Corner.Bottom_right, Rsz_xs))
+let rounded_br_sm = utility (Rounded (Corner.Bottom_right, Rsz_sm))
+let rounded_br_md = utility (Rounded (Corner.Bottom_right, Rsz_md))
+let rounded_br_lg = utility (Rounded (Corner.Bottom_right, Rsz_lg))
+let rounded_br_xl = utility (Rounded (Corner.Bottom_right, Rsz_xl))
+let rounded_br_2xl = utility (Rounded (Corner.Bottom_right, Rsz_2xl))
+let rounded_br_3xl = utility (Rounded (Corner.Bottom_right, Rsz_3xl))
+let rounded_br_4xl = utility (Rounded (Corner.Bottom_right, Rsz_4xl))
+let rounded_br_full = utility (Rounded (Corner.Bottom_right, Rsz_full))
 
 (** {2 Corner-specific rounded utilities - bottom-left} *)
 
-let rounded_bl = utility (Rounded (Rp_bl, Rsz_default))
-let rounded_bl_none = utility (Rounded (Rp_bl, Rsz_none))
-let rounded_bl_xs = utility (Rounded (Rp_bl, Rsz_xs))
-let rounded_bl_sm = utility (Rounded (Rp_bl, Rsz_sm))
-let rounded_bl_md = utility (Rounded (Rp_bl, Rsz_md))
-let rounded_bl_lg = utility (Rounded (Rp_bl, Rsz_lg))
-let rounded_bl_xl = utility (Rounded (Rp_bl, Rsz_xl))
-let rounded_bl_2xl = utility (Rounded (Rp_bl, Rsz_2xl))
-let rounded_bl_3xl = utility (Rounded (Rp_bl, Rsz_3xl))
-let rounded_bl_4xl = utility (Rounded (Rp_bl, Rsz_4xl))
-let rounded_bl_full = utility (Rounded (Rp_bl, Rsz_full))
+let rounded_bl = utility (Rounded (Corner.Bottom_left, Rsz_default))
+let rounded_bl_none = utility (Rounded (Corner.Bottom_left, Rsz_none))
+let rounded_bl_xs = utility (Rounded (Corner.Bottom_left, Rsz_xs))
+let rounded_bl_sm = utility (Rounded (Corner.Bottom_left, Rsz_sm))
+let rounded_bl_md = utility (Rounded (Corner.Bottom_left, Rsz_md))
+let rounded_bl_lg = utility (Rounded (Corner.Bottom_left, Rsz_lg))
+let rounded_bl_xl = utility (Rounded (Corner.Bottom_left, Rsz_xl))
+let rounded_bl_2xl = utility (Rounded (Corner.Bottom_left, Rsz_2xl))
+let rounded_bl_3xl = utility (Rounded (Corner.Bottom_left, Rsz_3xl))
+let rounded_bl_4xl = utility (Rounded (Corner.Bottom_left, Rsz_4xl))
+let rounded_bl_full = utility (Rounded (Corner.Bottom_left, Rsz_full))
 
 (** {2 Logical property rounded utilities - start} *)
 
-let rounded_s = utility (Rounded (Rp_s, Rsz_default))
-let rounded_s_none = utility (Rounded (Rp_s, Rsz_none))
-let rounded_s_xs = utility (Rounded (Rp_s, Rsz_xs))
-let rounded_s_sm = utility (Rounded (Rp_s, Rsz_sm))
-let rounded_s_md = utility (Rounded (Rp_s, Rsz_md))
-let rounded_s_lg = utility (Rounded (Rp_s, Rsz_lg))
-let rounded_s_xl = utility (Rounded (Rp_s, Rsz_xl))
-let rounded_s_2xl = utility (Rounded (Rp_s, Rsz_2xl))
-let rounded_s_3xl = utility (Rounded (Rp_s, Rsz_3xl))
-let rounded_s_4xl = utility (Rounded (Rp_s, Rsz_4xl))
-let rounded_s_full = utility (Rounded (Rp_s, Rsz_full))
+let rounded_s = utility (Rounded (Corner.Start, Rsz_default))
+let rounded_s_none = utility (Rounded (Corner.Start, Rsz_none))
+let rounded_s_xs = utility (Rounded (Corner.Start, Rsz_xs))
+let rounded_s_sm = utility (Rounded (Corner.Start, Rsz_sm))
+let rounded_s_md = utility (Rounded (Corner.Start, Rsz_md))
+let rounded_s_lg = utility (Rounded (Corner.Start, Rsz_lg))
+let rounded_s_xl = utility (Rounded (Corner.Start, Rsz_xl))
+let rounded_s_2xl = utility (Rounded (Corner.Start, Rsz_2xl))
+let rounded_s_3xl = utility (Rounded (Corner.Start, Rsz_3xl))
+let rounded_s_4xl = utility (Rounded (Corner.Start, Rsz_4xl))
+let rounded_s_full = utility (Rounded (Corner.Start, Rsz_full))
 
 (** {2 Logical property rounded utilities - end} *)
 
-let rounded_e = utility (Rounded (Rp_e, Rsz_default))
-let rounded_e_none = utility (Rounded (Rp_e, Rsz_none))
-let rounded_e_xs = utility (Rounded (Rp_e, Rsz_xs))
-let rounded_e_sm = utility (Rounded (Rp_e, Rsz_sm))
-let rounded_e_md = utility (Rounded (Rp_e, Rsz_md))
-let rounded_e_lg = utility (Rounded (Rp_e, Rsz_lg))
-let rounded_e_xl = utility (Rounded (Rp_e, Rsz_xl))
-let rounded_e_2xl = utility (Rounded (Rp_e, Rsz_2xl))
-let rounded_e_3xl = utility (Rounded (Rp_e, Rsz_3xl))
-let rounded_e_4xl = utility (Rounded (Rp_e, Rsz_4xl))
-let rounded_e_full = utility (Rounded (Rp_e, Rsz_full))
+let rounded_e = utility (Rounded (Corner.End, Rsz_default))
+let rounded_e_none = utility (Rounded (Corner.End, Rsz_none))
+let rounded_e_xs = utility (Rounded (Corner.End, Rsz_xs))
+let rounded_e_sm = utility (Rounded (Corner.End, Rsz_sm))
+let rounded_e_md = utility (Rounded (Corner.End, Rsz_md))
+let rounded_e_lg = utility (Rounded (Corner.End, Rsz_lg))
+let rounded_e_xl = utility (Rounded (Corner.End, Rsz_xl))
+let rounded_e_2xl = utility (Rounded (Corner.End, Rsz_2xl))
+let rounded_e_3xl = utility (Rounded (Corner.End, Rsz_3xl))
+let rounded_e_4xl = utility (Rounded (Corner.End, Rsz_4xl))
+let rounded_e_full = utility (Rounded (Corner.End, Rsz_full))
 
 (** {2 Logical corner rounded utilities - start-start} *)
 
-let rounded_ss = utility (Rounded (Rp_ss, Rsz_default))
-let rounded_ss_none = utility (Rounded (Rp_ss, Rsz_none))
-let rounded_ss_xs = utility (Rounded (Rp_ss, Rsz_xs))
-let rounded_ss_sm = utility (Rounded (Rp_ss, Rsz_sm))
-let rounded_ss_md = utility (Rounded (Rp_ss, Rsz_md))
-let rounded_ss_lg = utility (Rounded (Rp_ss, Rsz_lg))
-let rounded_ss_xl = utility (Rounded (Rp_ss, Rsz_xl))
-let rounded_ss_2xl = utility (Rounded (Rp_ss, Rsz_2xl))
-let rounded_ss_3xl = utility (Rounded (Rp_ss, Rsz_3xl))
-let rounded_ss_4xl = utility (Rounded (Rp_ss, Rsz_4xl))
-let rounded_ss_full = utility (Rounded (Rp_ss, Rsz_full))
+let rounded_ss = utility (Rounded (Corner.Start_start, Rsz_default))
+let rounded_ss_none = utility (Rounded (Corner.Start_start, Rsz_none))
+let rounded_ss_xs = utility (Rounded (Corner.Start_start, Rsz_xs))
+let rounded_ss_sm = utility (Rounded (Corner.Start_start, Rsz_sm))
+let rounded_ss_md = utility (Rounded (Corner.Start_start, Rsz_md))
+let rounded_ss_lg = utility (Rounded (Corner.Start_start, Rsz_lg))
+let rounded_ss_xl = utility (Rounded (Corner.Start_start, Rsz_xl))
+let rounded_ss_2xl = utility (Rounded (Corner.Start_start, Rsz_2xl))
+let rounded_ss_3xl = utility (Rounded (Corner.Start_start, Rsz_3xl))
+let rounded_ss_4xl = utility (Rounded (Corner.Start_start, Rsz_4xl))
+let rounded_ss_full = utility (Rounded (Corner.Start_start, Rsz_full))
 
 (** {2 Logical corner rounded utilities - start-end} *)
 
-let rounded_se = utility (Rounded (Rp_se, Rsz_default))
-let rounded_se_none = utility (Rounded (Rp_se, Rsz_none))
-let rounded_se_xs = utility (Rounded (Rp_se, Rsz_xs))
-let rounded_se_sm = utility (Rounded (Rp_se, Rsz_sm))
-let rounded_se_md = utility (Rounded (Rp_se, Rsz_md))
-let rounded_se_lg = utility (Rounded (Rp_se, Rsz_lg))
-let rounded_se_xl = utility (Rounded (Rp_se, Rsz_xl))
-let rounded_se_2xl = utility (Rounded (Rp_se, Rsz_2xl))
-let rounded_se_3xl = utility (Rounded (Rp_se, Rsz_3xl))
-let rounded_se_4xl = utility (Rounded (Rp_se, Rsz_4xl))
-let rounded_se_full = utility (Rounded (Rp_se, Rsz_full))
+let rounded_se = utility (Rounded (Corner.Start_end, Rsz_default))
+let rounded_se_none = utility (Rounded (Corner.Start_end, Rsz_none))
+let rounded_se_xs = utility (Rounded (Corner.Start_end, Rsz_xs))
+let rounded_se_sm = utility (Rounded (Corner.Start_end, Rsz_sm))
+let rounded_se_md = utility (Rounded (Corner.Start_end, Rsz_md))
+let rounded_se_lg = utility (Rounded (Corner.Start_end, Rsz_lg))
+let rounded_se_xl = utility (Rounded (Corner.Start_end, Rsz_xl))
+let rounded_se_2xl = utility (Rounded (Corner.Start_end, Rsz_2xl))
+let rounded_se_3xl = utility (Rounded (Corner.Start_end, Rsz_3xl))
+let rounded_se_4xl = utility (Rounded (Corner.Start_end, Rsz_4xl))
+let rounded_se_full = utility (Rounded (Corner.Start_end, Rsz_full))
 
 (** {2 Logical corner rounded utilities - end-end} *)
 
-let rounded_ee = utility (Rounded (Rp_ee, Rsz_default))
-let rounded_ee_none = utility (Rounded (Rp_ee, Rsz_none))
-let rounded_ee_xs = utility (Rounded (Rp_ee, Rsz_xs))
-let rounded_ee_sm = utility (Rounded (Rp_ee, Rsz_sm))
-let rounded_ee_md = utility (Rounded (Rp_ee, Rsz_md))
-let rounded_ee_lg = utility (Rounded (Rp_ee, Rsz_lg))
-let rounded_ee_xl = utility (Rounded (Rp_ee, Rsz_xl))
-let rounded_ee_2xl = utility (Rounded (Rp_ee, Rsz_2xl))
-let rounded_ee_3xl = utility (Rounded (Rp_ee, Rsz_3xl))
-let rounded_ee_4xl = utility (Rounded (Rp_ee, Rsz_4xl))
-let rounded_ee_full = utility (Rounded (Rp_ee, Rsz_full))
+let rounded_ee = utility (Rounded (Corner.End_end, Rsz_default))
+let rounded_ee_none = utility (Rounded (Corner.End_end, Rsz_none))
+let rounded_ee_xs = utility (Rounded (Corner.End_end, Rsz_xs))
+let rounded_ee_sm = utility (Rounded (Corner.End_end, Rsz_sm))
+let rounded_ee_md = utility (Rounded (Corner.End_end, Rsz_md))
+let rounded_ee_lg = utility (Rounded (Corner.End_end, Rsz_lg))
+let rounded_ee_xl = utility (Rounded (Corner.End_end, Rsz_xl))
+let rounded_ee_2xl = utility (Rounded (Corner.End_end, Rsz_2xl))
+let rounded_ee_3xl = utility (Rounded (Corner.End_end, Rsz_3xl))
+let rounded_ee_4xl = utility (Rounded (Corner.End_end, Rsz_4xl))
+let rounded_ee_full = utility (Rounded (Corner.End_end, Rsz_full))
 
 (** {2 Logical corner rounded utilities - end-start} *)
 
-let rounded_es = utility (Rounded (Rp_es, Rsz_default))
-let rounded_es_none = utility (Rounded (Rp_es, Rsz_none))
-let rounded_es_xs = utility (Rounded (Rp_es, Rsz_xs))
-let rounded_es_sm = utility (Rounded (Rp_es, Rsz_sm))
-let rounded_es_md = utility (Rounded (Rp_es, Rsz_md))
-let rounded_es_lg = utility (Rounded (Rp_es, Rsz_lg))
-let rounded_es_xl = utility (Rounded (Rp_es, Rsz_xl))
-let rounded_es_2xl = utility (Rounded (Rp_es, Rsz_2xl))
-let rounded_es_3xl = utility (Rounded (Rp_es, Rsz_3xl))
-let rounded_es_4xl = utility (Rounded (Rp_es, Rsz_4xl))
-let rounded_es_full = utility (Rounded (Rp_es, Rsz_full))
+let rounded_es = utility (Rounded (Corner.End_start, Rsz_default))
+let rounded_es_none = utility (Rounded (Corner.End_start, Rsz_none))
+let rounded_es_xs = utility (Rounded (Corner.End_start, Rsz_xs))
+let rounded_es_sm = utility (Rounded (Corner.End_start, Rsz_sm))
+let rounded_es_md = utility (Rounded (Corner.End_start, Rsz_md))
+let rounded_es_lg = utility (Rounded (Corner.End_start, Rsz_lg))
+let rounded_es_xl = utility (Rounded (Corner.End_start, Rsz_xl))
+let rounded_es_2xl = utility (Rounded (Corner.End_start, Rsz_2xl))
+let rounded_es_3xl = utility (Rounded (Corner.End_start, Rsz_3xl))
+let rounded_es_4xl = utility (Rounded (Corner.End_start, Rsz_4xl))
+let rounded_es_full = utility (Rounded (Corner.End_start, Rsz_full))
 
 (** {1 Outline Utilities} *)
 
 let outline = utility Outline
 let outline_none = outline_style_utility Outline_style_handler.None_
-let outline_offset_0 = utility Outline_offset_0
-let outline_offset_1 = utility Outline_offset_1
-let outline_offset_2 = utility Outline_offset_2
-let outline_offset_4 = utility Outline_offset_4
-let outline_offset_8 = utility Outline_offset_8
+let outline_offset_0 = utility (Outline_offset 0)
+let outline_offset_1 = utility (Outline_offset 1)
+let outline_offset_2 = utility (Outline_offset 2)
+let outline_offset_4 = utility (Outline_offset 4)
+let outline_offset_8 = utility (Outline_offset 8)

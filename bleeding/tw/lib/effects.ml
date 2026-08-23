@@ -16,7 +16,17 @@ module Handler = struct
     let rgb = hex_byte r ^ hex_byte g ^ hex_byte b in
     if a = 255 then rgb else rgb ^ hex_byte a
 
-  type shadow_shape = Two_xs | Xs | Sm | Default | Md | Lg | Xl | Two_xl
+  type shadow_shape =
+    | Two_xs
+    | Xs
+    | Sm
+    | Default
+    | Md
+    | Lg
+    | Xl
+    | Two_xl
+    | Inner
+
   type inset_shadow_shape = Ish_2xs | Ish_xs | Ish_sm
 
   (* Color in an arbitrary shadow value *)
@@ -25,6 +35,15 @@ module Handler = struct
     | Var of string
     | Css_color of Css.color
     | None
+
+  (* One layer of an arbitrary shadow value, read from its bracket. *)
+  type arbitrary_shadow = {
+    h_offset : Css.length;
+    v_offset : Css.length;
+    blur : Css.length option;
+    spread : Css.length option;
+    color : arbitrary;
+  }
 
   type t =
     (* Shadows — shape utilities *)
@@ -48,6 +67,7 @@ module Handler = struct
     | Shadow_current_opacity of Color.opacity_modifier
     | Shadow_inherit
     | Shadow_transparent
+    | Shadow_transparent_opacity of Color.opacity_modifier
     | Shadow_bracket_color of string * Css.color
     | Shadow_bracket_color_opacity of
         string * Css.color * Color.opacity_modifier
@@ -73,6 +93,7 @@ module Handler = struct
     | Inset_shadow_current_opacity of Color.opacity_modifier
     | Inset_shadow_inherit
     | Inset_shadow_transparent
+    | Inset_shadow_transparent_opacity of Color.opacity_modifier
     | Inset_shadow_bracket_color of string * Css.color
     | Inset_shadow_bracket_color_opacity of
         string * Css.color * Color.opacity_modifier
@@ -96,10 +117,12 @@ module Handler = struct
     | Ring_inset
     | Ring_color of Color.color * int
     | Ring_color_opacity of Color.color * int * Color.opacity_modifier
+    | Ring_keyword_opacity of Css.color * string * Color.opacity_modifier
     | Ring_offset_width of int
     | Ring_offset_bracket_length of string
     | Ring_offset_color of Color.color * int
     | Ring_offset_color_opacity of Color.color * int * Color.opacity_modifier
+    | Ring_offset_keyword_opacity of Css.color * string * Color.opacity_modifier
     | Ring_offset_transparent
     | Ring_offset_current
     | Ring_offset_current_opacity of Color.opacity_modifier
@@ -113,6 +136,7 @@ module Handler = struct
     | Ring_offset_bracket_var_opacity of string * Color.opacity_modifier
     | Inset_ring_color of Color.color * int
     | Inset_ring_color_opacity of Color.color * int * Color.opacity_modifier
+    | Inset_ring_keyword_opacity of Css.color * string * Color.opacity_modifier
     | Inset_ring_transparent
     | Inset_ring_current
     | Inset_ring_current_opacity of Color.opacity_modifier
@@ -289,6 +313,15 @@ module Handler = struct
     Css.custom_property ~layer:"utilities" "--tw-shadow-alpha"
       (pp_float percent ^ "%")
 
+  let opacity_css_value opacity =
+    match Color.opacity_var_bare_of opacity with
+    | Some name -> "var(--" ^ name ^ ")"
+    | None -> pp_float (Color.opacity_to_percent opacity) ^ "%"
+
+  let shadow_opacity_decl opacity =
+    Css.custom_property ~layer:"utilities" "--tw-shadow-alpha"
+      (opacity_css_value opacity)
+
   let color_mix_supports decls =
     Css.supports ~condition:Color.color_mix_supports_condition
       [ Css.rule ~selector:(Css.Selector.class_ "_") decls ]
@@ -303,9 +336,9 @@ module Handler = struct
     | Some c -> c
     | None -> make_color_var (Parse.extract_var_name v)
 
-  let relative_oklab_from_var v percent =
+  let relative_oklab_from_color v opacity =
     Css.parse_color
-      (pp_str [ "oklab(from "; v; " l a b / "; pp_float percent; "%)" ])
+      (pp_str [ "oklab(from "; v; " l a b / "; opacity_css_value opacity; ")" ])
 
   let box_shadow_composition v_shadow =
     let v_inset = Var.reference inset_shadow_var in
@@ -326,6 +359,7 @@ module Handler = struct
       list =
     match shape with
     | Two_xs -> [ (Zero, Px 1., None, None, "#0000000d") ]
+    | Inner -> [ (Zero, Px 2., Some (Px 4.), Some Zero, "#0000000d") ]
     | Xs -> [ (Zero, Px 1., Some (Px 2.), Some Zero, "#0000000d") ]
     | Sm ->
         [
@@ -354,18 +388,55 @@ module Handler = struct
         ]
     | Two_xl -> [ (Zero, Px 25., Some (Px 50.), Some (Px (-12.)), "#00000040") ]
 
+  (* Only [shadow-inner] draws inside the box. *)
+  let shape_is_inset = function Inner -> true | _ -> false
+
   let shape_shadow_value shape =
     let data = shadow_shape_data shape in
+    let inset = shape_is_inset shape in
     let shadow_list =
       List.map
         (fun (h_offset, v_offset, blur, spread, fallback_hex) ->
           let color_ref =
             Var.reference_with_fallback shadow_color_var (Css.hex fallback_hex)
           in
-          Css.shadow ~h_offset ~v_offset ?blur ?spread ~color:(Var color_ref) ())
+          Css.shadow ~inset ~h_offset ~v_offset ?blur ?spread
+            ~color:(Var color_ref) ())
         data
     in
     match shadow_list with [ s ] -> s | _ -> List shadow_list
+
+  (* Publish the shadow scales through the theme-token registry, the way rule.ml
+     publishes the breakpoints, so [theme(static)] emits them. The utilities
+     inline the value into [--tw-shadow] rather than referencing a [--shadow-*]
+     token, so nothing else would put them in the sheet. *)
+  let () =
+    let render shadows =
+      Css.Pp.to_string ~minify:true
+        (Css.Pp.list
+           ~sep:(fun ctx () -> Css.Pp.string ctx ", ")
+           Css.Properties.pp_shadow)
+        shadows
+    in
+    List.iter
+      (fun (name, shape) ->
+        let shadows =
+          List.map
+            (fun (h_offset, v_offset, blur, spread, hex) ->
+              Css.shadow ~h_offset ~v_offset ?blur ?spread ~color:(Css.hex hex)
+                ())
+            (shadow_shape_data shape)
+        in
+        Scheme.register_default_token name (render shadows))
+      [
+        ("shadow-2xs", Two_xs);
+        ("shadow-xs", Xs);
+        ("shadow-sm", Sm);
+        ("shadow-md", Md);
+        ("shadow-lg", Lg);
+        ("shadow-xl", Xl);
+        ("shadow-2xl", Two_xl);
+      ]
 
   let shape_shadow_opacity_value shape opacity =
     let data = shadow_shape_data shape in
@@ -418,62 +489,12 @@ module Handler = struct
   let shadow_lg = shadow_shape_style Lg
   let shadow_xl = shadow_shape_style Xl
   let shadow_2xl = shadow_shape_style Two_xl
-
-  let shadow_inner =
-    (* Define inset shadow variable *)
-    let inset_shadow_value =
-      Css.shadow ~inset:true ~h_offset:(Px 0.) ~v_offset:(Px 2.) ~blur:(Px 4.)
-        ()
-    in
-    (* Create the box-shadow declaration with the shadow value *)
-    let box_shadow_decl = Css.box_shadow inset_shadow_value in
-
-    let d_inset, _ = Var.binding inset_shadow_var inset_shadow_value in
-    let d_inset_ring, _ =
-      Var.binding inset_ring_shadow_var
-        (Css.shadow ~h_offset:Zero ~v_offset:Zero ~color:(Css.hex "#0000") ())
-    in
-    let d_ring_offset, _ =
-      Var.binding ring_offset_shadow_var
-        (Css.shadow ~h_offset:Zero ~v_offset:Zero ~color:(Css.hex "#0000") ())
-    in
-    let d_ring, _ =
-      Var.binding ring_shadow_var
-        (Css.shadow ~h_offset:Zero ~v_offset:Zero ~color:(Css.hex "#0000") ())
-    in
-    style
-      (d_inset :: d_inset_ring :: d_ring_offset :: d_ring :: [ box_shadow_decl ])
+  let shadow_inner = shadow_shape_style Inner
 
   (* Parse arbitrary shadow value like "12px_12px_#0088cc" *)
-  let parse_arbitrary_shadow (s : string) :
-      (Css.length * Css.length * Css.length option * arbitrary) option =
+  let parse_arbitrary_shadow (s : string) : arbitrary_shadow option =
     let normalized = String.map (fun c -> if c = '_' then ' ' else c) s in
     let parts = String.split_on_char ' ' normalized in
-    let parse_length str : Css.length option =
-      let len = String.length str in
-      if len >= 1 then (
-        let num_end = ref 0 in
-        while
-          !num_end < len
-          && (str.[!num_end] = '-'
-             || str.[!num_end] = '.'
-             || (str.[!num_end] >= '0' && str.[!num_end] <= '9'))
-        do
-          incr num_end
-        done;
-        let num_str = String.sub str 0 !num_end in
-        let unit_str = String.sub str !num_end (len - !num_end) in
-        match float_of_string_opt num_str with
-        | Some n -> (
-            match unit_str with
-            | "px" -> Some (Px n)
-            | "rem" -> Some (Rem n)
-            | "em" -> Some (Em n)
-            | "" when n = 0.0 -> Some Zero
-            | _ -> None)
-        | None -> None)
-      else None
-    in
     let rec find_color_and_lengths acc (parts : string list) :
         string list * arbitrary =
       match parts with
@@ -491,12 +512,31 @@ module Handler = struct
       | x :: rest -> find_color_and_lengths (x :: acc) rest
     in
     let length_strs, color = find_color_and_lengths [] parts in
-    let lengths = List.filter_map parse_length length_strs in
-    match lengths with
-    | [ h; v ] -> Some (h, v, None, color)
-    | [ h; v; blur ] -> Some (h, v, Some blur, color)
-    | [ h; v; blur; _spread ] -> Some (h, v, Some blur, color)
-    | _ -> None
+    let lengths = List.filter_map Parse.arbitrary_length length_strs in
+    (* A token that is not a length makes the value not a shadow. Dropping it
+       instead would slide the surviving lengths into the wrong slots. A [#]
+       token is only the shadow's colour when it is a hex spelling. *)
+    if List.compare_lengths lengths length_strs <> 0 then None
+    else
+      match color with
+      | Hex h when Option.is_none (Css.hex_opt h) -> None
+      | _ -> (
+          match lengths with
+          | [ h_offset; v_offset ] ->
+              Some { h_offset; v_offset; blur = None; spread = None; color }
+          | [ h_offset; v_offset; blur ] ->
+              Some
+                { h_offset; v_offset; blur = Some blur; spread = None; color }
+          | [ h_offset; v_offset; blur; spread ] ->
+              Some
+                {
+                  h_offset;
+                  v_offset;
+                  blur = Some blur;
+                  spread = Some spread;
+                  color;
+                }
+          | _ -> None)
 
   (** Wrap a shadow's color with [var(--tw-shadow-color, <fallback>)]. Converts
       CSS color functions to hex for Tailwind parity. *)
@@ -523,16 +563,30 @@ module Handler = struct
     | List shadows -> List (List.map (wrap_shadow_color ~color_var) shadows)
     | _ -> wrap_shadow_color ~color_var sh
 
+  (* A shadow bracket is a shadow list or a var(); anything else - the docs'
+     [<value>] placeholder included - is not one. *)
+  let is_shadow_bracket inner =
+    Parse.is_var inner
+    || parse_arbitrary_shadow inner <> None
+    || Css.parse_shadow (String.map (fun c -> if c = '_' then ' ' else c) inner)
+       <> None
+
   let shadow_arbitrary (arb : string) =
     let normalized = String.map (fun c -> if c = '_' then ' ' else c) arb in
-    match parse_arbitrary_shadow arb with
-    | Some (h_offset, v_offset, blur, Var v) ->
+    (* The reading below takes one shadow, so anything with a comma - a layer
+       list, or a colour function carrying one - goes to the value parser
+       instead. *)
+    match
+      if String.contains arb ',' then Option.None
+      else parse_arbitrary_shadow arb
+    with
+    | Some { h_offset; v_offset; blur; spread; color = Var v } ->
         (* A trailing var() is the colour, not the blur (Tailwind). *)
         let color_ref =
           Var.reference_with_fallback shadow_color_var (make_full_color_var v)
         in
         let shadow_value =
-          Css.shadow ~h_offset ~v_offset ?blur ~color:(Var color_ref) ()
+          Css.shadow ~h_offset ~v_offset ?blur ?spread ~color:(Var color_ref) ()
         in
         let d_shadow, v_shadow = Var.binding shadow_var shadow_value in
         style ~property_rules:shadow_property_rules
@@ -550,59 +604,65 @@ module Handler = struct
 
   let shadow_arbitrary_opacity (arb : string) opacity =
     match parse_arbitrary_shadow arb with
-    | Some (h_offset, v_offset, blur, color) -> (
+    | Some { h_offset; v_offset; blur; spread; color } -> (
         let percent = Color.opacity_to_percent opacity in
         let alpha = percent /. 100.0 in
-        let alpha_d = shadow_alpha_decl percent in
+        let dynamic_opacity = Color.opacity_var_bare_of opacity <> None in
+        let alpha_d = shadow_opacity_decl opacity in
         let base_fallback : Css.color =
           match color with
           | Hex c -> Color.hex_to_oklab_alpha c alpha
           | Var v -> make_full_color_var v
-          | Css_color c -> (
-              match Color.css_color_to_hex c with Some h -> h | None -> c)
+          | Css_color c ->
+              let c =
+                match Color.css_color_to_hex c with Some h -> h | None -> c
+              in
+              if dynamic_opacity then c else Color.mix_alpha opacity c
           | None -> Css.Current
         in
         let base_color_ref =
           Var.reference_with_fallback shadow_color_var base_fallback
         in
         let base_shadow =
-          Css.shadow ~h_offset ~v_offset ?blur ~color:(Var base_color_ref) ()
+          Css.shadow ~h_offset ~v_offset ?blur ?spread
+            ~color:(Var base_color_ref) ()
         in
         let d_shadow, v_shadow = Var.binding shadow_var base_shadow in
+        let relative_support origin =
+          match relative_oklab_from_color origin opacity with
+          | Some relative_color ->
+              let enhanced_ref =
+                Var.reference_with_fallback shadow_color_var relative_color
+              in
+              let enhanced_shadow =
+                Css.shadow ~h_offset ~v_offset ?blur ?spread
+                  ~color:(Var enhanced_ref) ()
+              in
+              let d_enhanced, _ = Var.binding shadow_var enhanced_shadow in
+              [
+                Css.supports ~condition:relative_color_supports
+                  [
+                    Css.rule ~selector:(Css.Selector.class_ "_") [ d_enhanced ];
+                  ];
+              ]
+          | None -> []
+        in
         let supports_rules =
           match color with
+          | Hex c when dynamic_opacity -> relative_support c
+          | Css_color c when dynamic_opacity ->
+              let origin = Css.Pp.to_string ~minify:true Css.pp_color c in
+              relative_support origin
           | Hex _ | Css_color _ -> []
-          | Var v -> (
-              match relative_oklab_from_var v percent with
-              | Some relative_color ->
-                  let enhanced_ref =
-                    Var.reference_with_fallback shadow_color_var relative_color
-                  in
-                  let enhanced_shadow =
-                    Css.shadow ~h_offset ~v_offset ?blur
-                      ~color:(Var enhanced_ref) ()
-                  in
-                  let d_enhanced, _ = Var.binding shadow_var enhanced_shadow in
-                  let supports_block =
-                    Css.supports ~condition:relative_color_supports
-                      [
-                        Css.rule ~selector:(Css.Selector.class_ "_")
-                          [ d_enhanced ];
-                      ]
-                  in
-                  [ supports_block ]
-              | None -> [])
+          | Var v -> relative_support v
           | None ->
-              let color_mix_fallback =
-                Css.color_mix ~in_space:Oklab Css.Current Css.Transparent
-                  ~percent1:percent
-              in
+              let color_mix_fallback = Color.mix_alpha opacity Css.Current in
               let enhanced_ref =
                 Var.reference_with_fallback shadow_color_var color_mix_fallback
               in
               let enhanced_shadow =
-                Css.shadow ~h_offset ~v_offset ?blur ~color:(Var enhanced_ref)
-                  ()
+                Css.shadow ~h_offset ~v_offset ?blur ?spread
+                  ~color:(Var enhanced_ref) ()
               in
               let d_enhanced, _ = Var.binding shadow_var enhanced_shadow in
               let supports_block = color_mix_supports [ d_enhanced ] in
@@ -734,6 +794,18 @@ module Handler = struct
     style ~rules:(Some [ supports_block ]) ~property_rules:shadow_property_rules
       [ base_decl ]
 
+  let set_shadow_transparent_opacity opacity =
+    let base_decl, _ = Var.binding shadow_color_var Css.Transparent in
+    let inner_mix = Color.apply_alpha opacity Css.Transparent in
+    let enhanced_color =
+      Css.color_mix_var_percent ~in_space:Oklab ~var_name:"tw-shadow-alpha"
+        inner_mix Css.Transparent
+    in
+    let enhanced_decl, _ = Var.binding shadow_color_var enhanced_color in
+    let supports_block = color_mix_supports [ enhanced_decl ] in
+    style ~rules:(Some [ supports_block ]) ~property_rules:shadow_property_rules
+      [ base_decl ]
+
   let set_shadow_inherit () =
     let base_decl, _ = Var.binding shadow_color_var Css.Inherit in
     style ~property_rules:shadow_property_rules [ base_decl ]
@@ -843,6 +915,23 @@ module Handler = struct
     | Ish_2xs -> (Zero, Px 1., None, "#0000000d")
     | Ish_xs -> (Zero, Px 1., Some (Px 1.), "#0000000d")
     | Ish_sm -> (Zero, Px 2., Some (Px 4.), "#0000000d")
+
+  (* The inset-shadow scale, published the same way. *)
+  let () =
+    List.iter
+      (fun (name, shape) ->
+        let h_offset, v_offset, blur, hex = inset_shadow_shape_data shape in
+        let value =
+          Css.shadow ~inset:true ~h_offset ~v_offset ?blur ~color:(Css.hex hex)
+            ()
+        in
+        Scheme.register_default_token name
+          (Css.Pp.to_string ~minify:true Css.Properties.pp_shadow value))
+      [
+        ("inset-shadow-2xs", Ish_2xs);
+        ("inset-shadow-xs", Ish_xs);
+        ("inset-shadow-sm", Ish_sm);
+      ]
 
   (* Theme token name for a shape's scale value (matches the @theme keys, e.g.
      --inset-shadow-sm). *)
@@ -956,6 +1045,10 @@ module Handler = struct
     Css.custom_property ~layer:"utilities" "--tw-inset-shadow-alpha"
       (pp_float percent ^ "%")
 
+  let inset_shadow_opacity_decl opacity =
+    Css.custom_property ~layer:"utilities" "--tw-inset-shadow-alpha"
+      (opacity_css_value opacity)
+
   let inset_box_shadow_composition v_inset_shadow =
     let v_inset_ring = Var.reference inset_ring_shadow_var in
     let v_ring_offset = Var.reference ring_offset_shadow_var in
@@ -1000,7 +1093,7 @@ module Handler = struct
     | Stdlib.Option.Some parsed_parts ->
         let shadow_values =
           List.map
-            (fun (h_offset, v_offset, blur, color) ->
+            (fun { h_offset; v_offset; blur; spread; color } ->
               let fallback_color : Css.color =
                 match color with
                 | Hex c -> Css.hex (shorten_hex c)
@@ -1015,7 +1108,7 @@ module Handler = struct
                 Var.reference_with_fallback inset_shadow_color_var
                   fallback_color
               in
-              Css.shadow ~inset:true ~h_offset ~v_offset ?blur
+              Css.shadow ~inset:true ~h_offset ~v_offset ?blur ?spread
                 ~color:(Var color_ref) ())
             parsed_parts
         in
@@ -1061,36 +1154,40 @@ module Handler = struct
     | Stdlib.Option.Some parsed_parts -> (
         let percent = Color.opacity_to_percent opacity in
         let alpha = percent /. 100.0 in
-        let alpha_d = inset_shadow_alpha_decl percent in
+        let dynamic_opacity = Color.opacity_var_bare_of opacity <> None in
+        let alpha_d = inset_shadow_opacity_decl opacity in
         (* Check if any part needs @supports FIRST — this affects base
            fallbacks *)
         let needs_supports =
           List.exists
-            (fun (_, _, _, color) ->
-              match color with Var _ | None -> true | _ -> false)
+            (fun { color; _ } ->
+              match color with Var _ | None -> true | _ -> dynamic_opacity)
             parsed_parts
         in
         (* Build base shadow values: when @supports is present, use simple
            fallbacks (shortened hex); otherwise use oklab *)
         let base_shadow_values =
           List.map
-            (fun (h_offset, v_offset, blur, color) ->
+            (fun { h_offset; v_offset; blur; spread; color } ->
               let base_fallback : Css.color =
                 match color with
                 | Hex c ->
                     if needs_supports then Css.hex (shorten_hex c)
                     else Color.hex_to_oklab_alpha c alpha
                 | Var v -> make_full_color_var v
-                | Css_color c -> (
-                    match Color.css_color_to_hex c with
-                    | Some h -> h
-                    | None -> c)
+                | Css_color c ->
+                    let c =
+                      match Color.css_color_to_hex c with
+                      | Some h -> h
+                      | None -> c
+                    in
+                    if needs_supports then c else Color.mix_alpha opacity c
                 | None -> Css.Current
               in
               let color_ref =
                 Var.reference_with_fallback inset_shadow_color_var base_fallback
               in
-              Css.shadow ~inset:true ~h_offset ~v_offset ?blur
+              Css.shadow ~inset:true ~h_offset ~v_offset ?blur ?spread
                 ~color:(Var color_ref) ())
             parsed_parts
         in
@@ -1108,14 +1205,21 @@ module Handler = struct
             (* Build enhanced shadow values with oklab *)
             let enhanced_shadow_values =
               List.map
-                (fun (h_offset, v_offset, blur, color) ->
+                (fun { h_offset; v_offset; blur; spread; color } ->
                   let enhanced_ref =
                     match color with
                     | Hex c ->
-                        let oklab = Color.hex_to_oklab_alpha c alpha in
-                        Var.reference_with_fallback inset_shadow_color_var oklab
+                        let enhanced =
+                          if dynamic_opacity then
+                            match relative_oklab_from_color c opacity with
+                            | Some relative -> relative
+                            | None -> Css.hex c
+                          else Color.hex_to_oklab_alpha c alpha
+                        in
+                        Var.reference_with_fallback inset_shadow_color_var
+                          enhanced
                     | Var v -> (
-                        match relative_oklab_from_var v percent with
+                        match relative_oklab_from_color v opacity with
                         | Some relative_color ->
                             Var.reference_with_fallback inset_shadow_color_var
                               relative_color
@@ -1123,21 +1227,26 @@ module Handler = struct
                             Var.reference_with_fallback inset_shadow_color_var
                               (make_full_color_var v))
                     | Css_color c ->
-                        let hex_c =
-                          match Color.css_color_to_hex c with
-                          | Some h -> h
-                          | None -> c
+                        let origin =
+                          Css.Pp.to_string ~minify:true Css.pp_color c
                         in
-                        Var.reference_with_fallback inset_shadow_color_var hex_c
+                        let enhanced =
+                          if dynamic_opacity then
+                            match relative_oklab_from_color origin opacity with
+                            | Some relative -> relative
+                            | None -> c
+                          else Color.mix_alpha opacity c
+                        in
+                        Var.reference_with_fallback inset_shadow_color_var
+                          enhanced
                     | None ->
                         let color_mix_fallback =
-                          Css.color_mix ~in_space:Oklab Css.Current
-                            Css.Transparent ~percent1:percent
+                          Color.mix_alpha opacity Css.Current
                         in
                         Var.reference_with_fallback inset_shadow_color_var
                           color_mix_fallback
                   in
-                  Css.shadow ~inset:true ~h_offset ~v_offset ?blur
+                  Css.shadow ~inset:true ~h_offset ~v_offset ?blur ?spread
                     ~color:(Css.Var enhanced_ref) ())
                 parsed_parts
             in
@@ -1151,11 +1260,11 @@ module Handler = struct
             in
             let has_real_var =
               List.exists
-                (fun (_, _, _, color) ->
+                (fun { color; _ } ->
                   match color with Var _ -> true | _ -> false)
                 parsed_parts
             in
-            if has_real_var then
+            if has_real_var || dynamic_opacity then
               let supports_block =
                 Css.supports ~condition:relative_color_supports
                   [
@@ -1289,6 +1398,18 @@ module Handler = struct
     let enhanced_color =
       Css.color_mix_var_percent ~in_space:Oklab
         ~var_name:"tw-inset-shadow-alpha" Css.Transparent Css.Transparent
+    in
+    let enhanced_decl, _ = Var.binding inset_shadow_color_var enhanced_color in
+    let supports_block = color_mix_supports [ enhanced_decl ] in
+    style ~rules:(Some [ supports_block ]) ~property_rules:shadow_property_rules
+      [ base_decl ]
+
+  let set_inset_shadow_transparent_opacity opacity =
+    let base_decl, _ = Var.binding inset_shadow_color_var Css.Transparent in
+    let inner_mix = Color.apply_alpha opacity Css.Transparent in
+    let enhanced_color =
+      Css.color_mix_var_percent ~in_space:Oklab
+        ~var_name:"tw-inset-shadow-alpha" inner_mix Css.Transparent
     in
     let enhanced_decl, _ = Var.binding inset_shadow_color_var enhanced_color in
     let supports_block = color_mix_supports [ enhanced_decl ] in
@@ -1917,6 +2038,16 @@ module Handler = struct
     let d, _ = Var.binding ring_color_var Css.Inherit in
     style [ d ]
 
+  let ring_keyword_with_opacity var keyword opacity =
+    let fallback, _ = Var.binding var keyword in
+    let mixed = Color.apply_alpha opacity keyword in
+    let enhanced, _ = Var.binding var mixed in
+    let supports_block =
+      Css.supports ~condition:Color.color_mix_supports_condition
+        [ Css.rule ~selector:(Css.Selector.class_ "_") [ enhanced ] ]
+    in
+    style ~rules:(Some [ supports_block ]) [ fallback ]
+
   let ring_bracket_color (c : Css.color) =
     let c = match Color.css_color_to_hex c with Some h -> h | None -> c in
     let d, _ = Var.binding ring_color_var c in
@@ -2063,6 +2194,7 @@ module Handler = struct
     | Shadow_current_opacity op -> set_shadow_current_opacity op
     | Shadow_inherit -> set_shadow_inherit ()
     | Shadow_transparent -> set_shadow_transparent ()
+    | Shadow_transparent_opacity op -> set_shadow_transparent_opacity op
     | Shadow_bracket_color (_orig, c) -> set_shadow_bracket_color c
     | Shadow_bracket_color_opacity (_orig, c, op) ->
         set_shadow_bracket_color_opacity c op
@@ -2088,6 +2220,8 @@ module Handler = struct
     | Inset_shadow_current_opacity op -> set_inset_shadow_current_opacity op
     | Inset_shadow_inherit -> set_inset_shadow_inherit ()
     | Inset_shadow_transparent -> set_inset_shadow_transparent ()
+    | Inset_shadow_transparent_opacity op ->
+        set_inset_shadow_transparent_opacity op
     | Inset_shadow_bracket_color (_orig, c) -> set_inset_shadow_bracket_color c
     | Inset_shadow_bracket_color_opacity (_orig, c, op) ->
         set_ishadow_bracket_color_opacity c op
@@ -2116,6 +2250,8 @@ module Handler = struct
     | Ring_color (color, shade) -> ring_color color shade
     | Ring_color_opacity (color, shade, opacity) ->
         ring_color_with_opacity color shade opacity
+    | Ring_keyword_opacity (keyword, _, opacity) ->
+        ring_keyword_with_opacity ring_color_var keyword opacity
     | Ring_transparent -> ring_transparent
     | Ring_current -> ring_current
     | Ring_current_opacity opacity -> ring_current_with_opacity opacity
@@ -2179,6 +2315,8 @@ module Handler = struct
     | Ring_offset_color (color, shade) -> ring_offset_color color shade
     | Ring_offset_color_opacity (color, shade, opacity) ->
         ring_offset_color_with_opacity color shade opacity
+    | Ring_offset_keyword_opacity (keyword, _, opacity) ->
+        ring_keyword_with_opacity ring_offset_color_var keyword opacity
     | Ring_offset_transparent -> ring_offset_transparent
     | Ring_offset_current -> ring_offset_current
     | Ring_offset_current_opacity opacity ->
@@ -2196,6 +2334,8 @@ module Handler = struct
     | Inset_ring_color (color, shade) -> inset_ring_color color shade
     | Inset_ring_color_opacity (color, shade, opacity) ->
         inset_ring_color_with_opacity color shade opacity
+    | Inset_ring_keyword_opacity (keyword, _, opacity) ->
+        ring_keyword_with_opacity inset_ring_color_var keyword opacity
     | Inset_ring_transparent -> inset_ring_transparent
     | Inset_ring_current -> inset_ring_current
     | Inset_ring_current_opacity opacity ->
@@ -2305,9 +2445,9 @@ module Handler = struct
       String.length s >= String.length prefix
       && String.sub s 0 (String.length prefix) = prefix
     in
-    if starts "#" inner then
-      let c = Color.hex inner in
-      Some (Color.to_css c 500)
+    (* A [#] prefix only names a colour when what follows is a hex spelling;
+       [Css.hex] raises on anything else, and this runs inside [of_class]. *)
+    if starts "#" inner then Css.hex_opt inner
     else
       let normalized = String.map (fun c -> if c = '_' then ' ' else c) inner in
       if Parse.is_css_color_fn normalized then
@@ -2416,6 +2556,10 @@ module Handler = struct
           match opacity with
           | Color.No_opacity -> Ok (Shadow_bracket_color (inner, c))
           | _ -> Ok (Shadow_bracket_color_opacity (inner, c, opacity)))
+      | None when not (is_shadow_bracket inner) ->
+          (* Not a shadow, so not a utility: it used to fall back to the zero
+             shadow [0 0 #0000]. *)
+          err_not_utility
       | None -> (
           match opacity with
           | Color.No_opacity -> Ok (Shadow_arbitrary inner)
@@ -2446,6 +2590,7 @@ module Handler = struct
           match opacity with
           | Color.No_opacity -> Ok (Inset_shadow_bracket_color (inner, c))
           | _ -> Ok (Inset_shadow_bracket_color_opacity (inner, c, opacity)))
+      | None when not (is_shadow_bracket inner) -> err_not_utility
       | None -> (
           match opacity with
           | Color.No_opacity -> Ok (Inset_shadow_arbitrary inner)
@@ -2494,7 +2639,12 @@ module Handler = struct
         | "lg", op -> Ok (Shadow_shape_opacity (Lg, op))
         | "xl", op -> Ok (Shadow_shape_opacity (Xl, op))
         | "2xl", op -> Ok (Shadow_shape_opacity (Two_xl, op))
-        | _ -> err_not_utility)
+        | "transparent", op -> Ok (Shadow_transparent_opacity op)
+        (* Not a size: a shadeless colour with an alpha, e.g. shadow-white/10 *)
+        | base, op -> (
+            match Color.shade_of_strings [ base ] with
+            | Ok (c, s) -> Ok (Shadow_color_opacity (c, s, op))
+            | Error _ -> err_not_utility))
     | [ "shadow"; color; shade ] -> (
         let shade_str, opacity = Color.parse_opacity_modifier ~theme shade in
         match (Color.of_string color, Parse.int_any shade_str) with
@@ -2503,6 +2653,11 @@ module Handler = struct
             | Color.No_opacity -> Ok (Shadow_color (c, s))
             | _ -> Ok (Shadow_color_opacity (c, s, opacity)))
         | _ -> err_not_utility)
+    (* A shadeless colour has no shade segment: shadow-white, shadow-black. *)
+    | [ "shadow"; color ] -> (
+        match Color.shade_of_strings [ color ] with
+        | Ok (c, s) -> Ok (Shadow_color (c, s))
+        | Error _ -> err_not_utility)
     | [ "inset"; "shadow"; "none" ] -> Ok Inset_shadow_none
     | [ "inset"; "shadow"; "2xs" ] -> Ok Inset_shadow_2xs
     | [ "inset"; "shadow"; "xs" ] -> Ok Inset_shadow_xs
@@ -2535,7 +2690,11 @@ module Handler = struct
         | "2xs", op -> Ok (Inset_shadow_shape_opacity (Ish_2xs, op))
         | "xs", op -> Ok (Inset_shadow_shape_opacity (Ish_xs, op))
         | "sm", op -> Ok (Inset_shadow_shape_opacity (Ish_sm, op))
-        | _ -> err_not_utility)
+        | "transparent", op -> Ok (Inset_shadow_transparent_opacity op)
+        | base, op -> (
+            match Color.shade_of_strings [ base ] with
+            | Ok (c, s) -> Ok (Inset_shadow_color_opacity (c, s, op))
+            | Error _ -> err_not_utility))
     | [ "inset"; "shadow"; color; shade ] -> (
         let shade_str, opacity = Color.parse_opacity_modifier ~theme shade in
         match (Color.of_string color, Parse.int_any shade_str) with
@@ -2544,6 +2703,10 @@ module Handler = struct
             | Color.No_opacity -> Ok (Inset_shadow_color (c, s))
             | _ -> Ok (Inset_shadow_color_opacity (c, s, opacity)))
         | _ -> err_not_utility)
+    | [ "inset"; "shadow"; color ] -> (
+        match Color.shade_of_strings [ color ] with
+        | Ok (c, s) -> Ok (Inset_shadow_color (c, s))
+        | Error _ -> err_not_utility)
     | [ "opacity"; n ] when String.length n > 0 && n.[0] = '[' ->
         let len = String.length n in
         if len > 2 && n.[len - 1] = ']' then
@@ -2573,6 +2736,15 @@ module Handler = struct
     | [ "ring"; "inset" ] -> Ok Ring_inset
     | [ "ring"; "transparent" ] -> Ok Ring_transparent
     | [ "ring"; "inherit" ] -> Ok Ring_inherit
+    | [ "ring"; value ]
+      when let base, opacity = Color.parse_opacity_modifier ~theme value in
+           opacity <> Color.No_opacity
+           && (base = "transparent" || base = "inherit") ->
+        let base, opacity = Color.parse_opacity_modifier ~theme value in
+        let keyword =
+          if base = "transparent" then Css.Transparent else Css.Inherit
+        in
+        Ok (Ring_keyword_opacity (keyword, base, opacity))
     | [ "ring"; current_str ]
       when String.starts_with ~prefix:"current" current_str -> (
         let base, opacity = Color.parse_opacity_modifier ~theme current_str in
@@ -2602,6 +2774,15 @@ module Handler = struct
         | Error _ -> err_not_utility)
     | [ "ring"; "offset"; "transparent" ] -> Ok Ring_offset_transparent
     | [ "ring"; "offset"; "inherit" ] -> Ok Ring_offset_inherit
+    | [ "ring"; "offset"; value ]
+      when let base, opacity = Color.parse_opacity_modifier ~theme value in
+           opacity <> Color.No_opacity
+           && (base = "transparent" || base = "inherit") ->
+        let base, opacity = Color.parse_opacity_modifier ~theme value in
+        let keyword =
+          if base = "transparent" then Css.Transparent else Css.Inherit
+        in
+        Ok (Ring_offset_keyword_opacity (keyword, base, opacity))
     | [ "ring"; "offset"; current_str ]
       when String.starts_with ~prefix:"current" current_str -> (
         let base, opacity = Color.parse_opacity_modifier ~theme current_str in
@@ -2639,6 +2820,15 @@ module Handler = struct
     | [ "inset"; "ring" ] -> Ok Inset_ring_default
     | [ "inset"; "ring"; "transparent" ] -> Ok Inset_ring_transparent
     | [ "inset"; "ring"; "inherit" ] -> Ok Inset_ring_inherit
+    | [ "inset"; "ring"; value ]
+      when let base, opacity = Color.parse_opacity_modifier ~theme value in
+           opacity <> Color.No_opacity
+           && (base = "transparent" || base = "inherit") ->
+        let base, opacity = Color.parse_opacity_modifier ~theme value in
+        let keyword =
+          if base = "transparent" then Css.Transparent else Css.Inherit
+        in
+        Ok (Inset_ring_keyword_opacity (keyword, base, opacity))
     | [ "inset"; "ring"; current_str ]
       when String.starts_with ~prefix:"current" current_str -> (
         let base, opacity = Color.parse_opacity_modifier ~theme current_str in
@@ -2712,6 +2902,10 @@ module Handler = struct
     | [ "bg"; "blend"; "luminosity" ] -> Ok Bg_blend_luminosity
     | _ -> err_not_utility
 
+  (* A shadeless colour (white, black, a theme name) takes no shade suffix. *)
+  let color_shade c s =
+    Color.pp c ^ if Color.is_shadeless c then "" else "-" ^ string_of_int s
+
   let to_class = function
     | Shadow_none -> "shadow-none"
     | Shadow_2xs -> "shadow-2xs"
@@ -2735,16 +2929,18 @@ module Handler = struct
           | Md -> "shadow-md"
           | Lg -> "shadow-lg"
           | Xl -> "shadow-xl"
-          | Two_xl -> "shadow-2xl")
+          | Two_xl -> "shadow-2xl"
+          | Inner -> "shadow-inner")
         ^ "/" ^ Color.pp_opacity op
-    | Shadow_color (c, s) -> "shadow-" ^ Color.pp c ^ "-" ^ string_of_int s
+    | Shadow_color (c, s) -> "shadow-" ^ color_shade c s
     | Shadow_color_opacity (c, s, op) ->
-        "shadow-" ^ Color.pp c ^ "-" ^ string_of_int s ^ "/"
-        ^ Color.pp_opacity op
+        "shadow-" ^ color_shade c s ^ "/" ^ Color.pp_opacity op
     | Shadow_current -> "shadow-current"
     | Shadow_current_opacity op -> "shadow-current/" ^ Color.pp_opacity op
     | Shadow_inherit -> "shadow-inherit"
     | Shadow_transparent -> "shadow-transparent"
+    | Shadow_transparent_opacity op ->
+        "shadow-transparent/" ^ Color.pp_opacity op
     | Shadow_bracket_color (orig, _c) -> "shadow-[" ^ orig ^ "]"
     | Shadow_bracket_color_opacity (orig, _c, op) ->
         "shadow-[" ^ orig ^ "]/" ^ Color.pp_opacity op
@@ -2767,16 +2963,16 @@ module Handler = struct
           | Ish_xs -> "inset-shadow-xs"
           | Ish_sm -> "inset-shadow-sm")
         ^ "/" ^ Color.pp_opacity op
-    | Inset_shadow_color (c, s) ->
-        "inset-shadow-" ^ Color.pp c ^ "-" ^ string_of_int s
+    | Inset_shadow_color (c, s) -> "inset-shadow-" ^ color_shade c s
     | Inset_shadow_color_opacity (c, s, op) ->
-        "inset-shadow-" ^ Color.pp c ^ "-" ^ string_of_int s ^ "/"
-        ^ Color.pp_opacity op
+        "inset-shadow-" ^ color_shade c s ^ "/" ^ Color.pp_opacity op
     | Inset_shadow_current -> "inset-shadow-current"
     | Inset_shadow_current_opacity op ->
         "inset-shadow-current/" ^ Color.pp_opacity op
     | Inset_shadow_inherit -> "inset-shadow-inherit"
     | Inset_shadow_transparent -> "inset-shadow-transparent"
+    | Inset_shadow_transparent_opacity op ->
+        "inset-shadow-transparent/" ^ Color.pp_opacity op
     | Inset_shadow_bracket_color (orig, _c) -> "inset-shadow-[" ^ orig ^ "]"
     | Inset_shadow_bracket_color_opacity (orig, _c, op) ->
         "inset-shadow-[" ^ orig ^ "]/" ^ Color.pp_opacity op
@@ -2806,6 +3002,8 @@ module Handler = struct
           else "ring-" ^ Color.pp color ^ "-" ^ string_of_int shade
         in
         base ^ "/" ^ Color.pp_opacity opacity
+    | Ring_keyword_opacity (_, spelling, opacity) ->
+        "ring-" ^ spelling ^ "/" ^ Color.pp_opacity opacity
     | Ring_transparent -> "ring-transparent"
     | Ring_current -> "ring-current"
     | Ring_current_opacity o -> "ring-current/" ^ Color.pp_opacity o
@@ -2827,6 +3025,8 @@ module Handler = struct
     | Ring_offset_color_opacity (color, shade, opacity) ->
         "ring-offset-" ^ Color.pp color ^ "-" ^ string_of_int shade ^ "/"
         ^ Color.pp_opacity opacity
+    | Ring_offset_keyword_opacity (_, spelling, opacity) ->
+        "ring-offset-" ^ spelling ^ "/" ^ Color.pp_opacity opacity
     | Ring_offset_transparent -> "ring-offset-transparent"
     | Ring_offset_current -> "ring-offset-current"
     | Ring_offset_current_opacity o ->
@@ -2850,6 +3050,8 @@ module Handler = struct
           else "inset-ring-" ^ Color.pp color ^ "-" ^ string_of_int shade
         in
         base ^ "/" ^ Color.pp_opacity opacity
+    | Inset_ring_keyword_opacity (_, spelling, opacity) ->
+        "inset-ring-" ^ spelling ^ "/" ^ Color.pp_opacity opacity
     | Inset_ring_transparent -> "inset-ring-transparent"
     | Inset_ring_current -> "inset-ring-current"
     | Inset_ring_current_opacity o -> "inset-ring-current/" ^ Color.pp_opacity o
@@ -2934,8 +3136,9 @@ module Handler = struct
     (* Shadow color utilities *)
     | Shadow_color _ | Shadow_color_opacity _ | Shadow_current
     | Shadow_current_opacity _ | Shadow_inherit | Shadow_transparent
-    | Shadow_bracket_color _ | Shadow_bracket_color_opacity _
-    | Shadow_bracket_color_var _ | Shadow_bracket_color_var_opacity _ ->
+    | Shadow_transparent_opacity _ | Shadow_bracket_color _
+    | Shadow_bracket_color_opacity _ | Shadow_bracket_color_var _
+    | Shadow_bracket_color_var_opacity _ ->
         35000
     (* Inset shadow opacity utilities — same relative scheme as shadow *)
     | Inset_shadow_arbitrary_opacity (arb, _) ->
@@ -2964,8 +3167,8 @@ module Handler = struct
     | Inset_shadow_color _ | Inset_shadow_color_opacity _ | Inset_shadow_current
     | Inset_shadow_current_opacity _ | Inset_shadow_inherit
     | Inset_shadow_transparent | Inset_shadow_bracket_color _
-    | Inset_shadow_bracket_color_opacity _ | Inset_shadow_bracket_color_var _
-    | Inset_shadow_bracket_cvar_opacity _ ->
+    | Inset_shadow_transparent_opacity _ | Inset_shadow_bracket_color_opacity _
+    | Inset_shadow_bracket_color_var _ | Inset_shadow_bracket_cvar_opacity _ ->
         36000
     (* Background blend modes come after opacity, before mix-blend *)
     | Bg_blend_color -> 22000
@@ -3014,18 +3217,19 @@ module Handler = struct
     | Ring_xl -> 40005
     | Ring_width _ -> 40005
     | Ring_bracket_length _ -> 40010
-    | Ring_color _ | Ring_color_opacity _ | Ring_transparent | Ring_current
-    | Ring_current_opacity _ | Ring_inherit | Ring_bracket_color _
-    | Ring_bracket_color_opacity _ | Ring_bracket_color_var _
-    | Ring_bracket_color_var_opacity _ | Ring_bracket_var _
-    | Ring_bracket_var_opacity _ ->
+    | Ring_color _ | Ring_color_opacity _ | Ring_keyword_opacity _
+    | Ring_transparent | Ring_current | Ring_current_opacity _ | Ring_inherit
+    | Ring_bracket_color _ | Ring_bracket_color_opacity _
+    | Ring_bracket_color_var _ | Ring_bracket_color_var_opacity _
+    | Ring_bracket_var _ | Ring_bracket_var_opacity _ ->
         50000
     | Ring_inset -> 51000
     | Inset_ring_default -> 55000
     | Inset_ring_width n -> 55001 + n
     | Inset_ring_bracket_length _ -> 55100
-    | Inset_ring_color _ | Inset_ring_color_opacity _ | Inset_ring_transparent
-    | Inset_ring_current | Inset_ring_current_opacity _ | Inset_ring_inherit
+    | Inset_ring_color _ | Inset_ring_color_opacity _
+    | Inset_ring_keyword_opacity _ | Inset_ring_transparent | Inset_ring_current
+    | Inset_ring_current_opacity _ | Inset_ring_inherit
     | Inset_ring_bracket_color _ | Inset_ring_bracket_color_opacity _
     | Inset_ring_bracket_color_var _ | Inset_ring_bracket_cvar_opacity _
     | Inset_ring_bracket_var _ | Inset_ring_bracket_var_opacity _ ->
@@ -3033,12 +3237,23 @@ module Handler = struct
     | Ring_offset_width n -> 80000 + n
     | Ring_offset_bracket_length _ -> 80100
     | Ring_offset_color _ | Ring_offset_color_opacity _
-    | Ring_offset_transparent | Ring_offset_current
-    | Ring_offset_current_opacity _ | Ring_offset_inherit
+    | Ring_offset_keyword_opacity _ | Ring_offset_transparent
+    | Ring_offset_current | Ring_offset_current_opacity _ | Ring_offset_inherit
     | Ring_offset_bracket_color _ | Ring_offset_bracket_color_opacity _
     | Ring_offset_bracket_color_var _ | Ring_offset_bracket_cvar_opacity _
     | Ring_offset_bracket_var _ | Ring_offset_bracket_var_opacity _ ->
         100000
+
+  let examples =
+    [
+      Shadow_none;
+      Opacity 50;
+      Mix_blend_normal;
+      Bg_blend_normal;
+      Ring_none;
+      Inset_ring_default;
+      Ring_offset_width 0;
+    ]
 end
 
 open Handler
@@ -3072,6 +3287,7 @@ let ring_lg = utility Ring_lg
 let ring_xl = utility Ring_xl
 
 let ring_color ?opacity ?(shade = 500) color =
+  Color.check_shade ~utility:"ring_color" color shade;
   match opacity with
   | None -> utility (Ring_color (color, shade))
   | Some pct ->

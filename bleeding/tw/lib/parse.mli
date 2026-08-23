@@ -10,6 +10,16 @@ val has_prefix : prefix:string -> string -> bool
     [String.starts_with] but allocation-free (no per-call closure), for hot
     prefix tests in ordering. *)
 
+val decimal_int : string -> int option
+(** [decimal_int s] reads the canonical plain-decimal spelling of an integer.
+    OCaml-only forms such as [0x10] and [1_0], and redundant leading zeroes, are
+    rejected. *)
+
+val decimal_float : string -> float option
+(** [decimal_float s] reads a canonical plain-decimal integer or fraction.
+    Exponents, digit separators, redundant leading or trailing zeroes, and
+    missing digits around the decimal point are rejected. *)
+
 val int_pos : name:string -> string -> (int, [> `Msg of string ]) result
 (** [int_pos ~name s] parses a non-negative integer from [s]. Returns [Ok n] if
     [s] is a decimal integer >= 0, otherwise [Error (`Msg msg)]. [name] is used
@@ -53,11 +63,30 @@ val bracket_inner : string -> string
 (** [bracket_inner s] extracts the inner content from ["[foo]"], returning
     ["foo"]. If [s] is not bracket-wrapped, returns [s] unchanged. *)
 
+val decode_underscores : string -> string
+(** [decode_underscores s] turns the [_] of an arbitrary value into a space, and
+    [\_] into a literal underscore. *)
+
 val decode_arbitrary_value : string -> string
 (** [decode_arbitrary_value s] decodes Tailwind arbitrary-value syntax into a
     CSS value string suitable for Cascade readers. This converts underscores to
     spaces and normalizes omitted whitespace around binary [+] and [-] operators
     inside CSS math functions such as [calc()]. *)
+
+val normalize_css_math_operators : string -> string
+(** [normalize_css_math_operators s] inserts the spaces CSS math functions
+    (calc/min/max/...) require around binary [+] and [-], e.g.
+    [calc(var(--a)-var(--b))] becomes [calc(var(--a) - var(--b))]. *)
+
+val arbitrary_length : string -> Cascade.Css.length option
+(** [arbitrary_length s] reads the inside of an arbitrary value as a CSS length.
+    [s] goes through {!decode_arbitrary_value} first, so underscores, [calc()]
+    and [--spacing()] all read; the whole CSS length grammar is accepted, not a
+    hand-picked subset of units. Returns [None] when [s] is not a length. *)
+
+val is_ident : string -> bool
+(** [is_ident s] is [true] when [s] is a CSS identifier, as a custom-ident or a
+    property name written in an arbitrary value has to be. *)
 
 val is_var : string -> bool
 (** [is_var s] returns [true] if [s] starts with ["var("]. Works on inner

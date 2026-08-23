@@ -74,7 +74,9 @@ module Handler = struct
               Css.custom_property ~layer:"theme" ("--" ^ var_name) value
             in
             style [ theme_decl; columns (Var ref) ]
-        | None -> style [ columns (Var ref) ])
+        (* Without a theme override Tailwind writes the keyword, not a reference
+           to a token nothing declares. *)
+        | None -> style [ columns Auto ])
     | Columns_count n -> style [ columns (Count n) ]
     | Columns_3xs -> columns_with_var Sizing.container_3xs (Rem 16.0)
     | Columns_2xs -> columns_with_var Sizing.container_2xs (Rem 18.0)
@@ -172,7 +174,7 @@ module Handler = struct
               Ok (Columns_arbitrary_len inner)
           | None -> Error (`Msg "Invalid columns arbitrary value")
         else
-          match int_of_string_opt n with
+          match Parse.decimal_int n with
           | Some i -> Ok (Columns_count i)
           | None -> Error (`Msg "Invalid columns value"))
     | _ -> Error (`Msg "Not a columns utility")
@@ -196,6 +198,8 @@ module Handler = struct
     | Columns_arbitrary n -> "columns-[" ^ string_of_int n ^ "]"
     | Columns_arbitrary_len s -> "columns-[" ^ s ^ "]"
     | Columns_bracket_var s -> "columns-[" ^ s ^ "]"
+
+  let examples = [ Columns_auto ]
 end
 
 open Handler

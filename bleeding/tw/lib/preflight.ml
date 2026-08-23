@@ -90,11 +90,18 @@ let var_ref (type a)
 
 (** HTML and body defaults *)
 let root_resets ~default_font_ref ~font_feature_ref ~font_variation_ref =
+  (* Mirrors [Typography.default_sans_stack]; Tailwind v4.3.2 system-font
+     stack. *)
   let fallback_stack : font_family =
     List
       [
-        Ui_sans_serif;
-        System_ui;
+        Name "-apple-system";
+        Name "BlinkMacSystemFont";
+        Segoe_ui;
+        Roboto;
+        Helvetica_neue;
+        Noto_sans;
+        Arial;
         Sans_serif;
         Apple_color_emoji;
         Segoe_ui_emoji;
@@ -254,7 +261,11 @@ let table_resets () =
 (** Interactive elements *)
 let interactive_resets () =
   [
-    rule ~selector:Moz_focusring
+    (* Tailwind v4.3.2 scoped this reset to non-iframe elements. *)
+    rule
+      ~selector:
+        Selector.(
+          Compound [ Moz_focusring; Where [ Not [ element "iframe" ] ] ])
       [ outline (Shorthand { width = None; style = Some Auto; color = None }) ];
     rule ~selector:(Selector.element "progress") [ vertical_align Baseline ];
     rule ~selector:(Selector.element "summary") [ display List_item ];

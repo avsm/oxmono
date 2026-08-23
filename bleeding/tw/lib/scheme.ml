@@ -41,6 +41,8 @@ type t = {
           When defined, responsive media queries use [@media (min-width: Xpx)]
           instead of rem-based values. *)
   token_overrides : (string * string) list;
+  inline_tokens : string list;
+  static_theme : bool;
       (** Per-render theme token overrides (from a [@theme] block). Key is the
           variable name without the leading [--] (e.g. "text-shadow-2xs"), value
           is the CSS string. Threaded replacement for the global
@@ -58,6 +60,9 @@ let default_tokens : (string, string) Hashtbl.t = Hashtbl.create 64
 let register_default_token name css = Hashtbl.replace default_tokens name css
 let token_default name = Hashtbl.find_opt default_tokens name
 
+let all_default_tokens () =
+  Hashtbl.fold (fun k v acc -> (k, v) :: acc) default_tokens []
+
 (** Default scheme - uses oklch colors and calc-based spacing (matches Tailwind
     v4 default) *)
 let default : t =
@@ -70,6 +75,8 @@ let default : t =
     default_outline_width = 1;
     breakpoints = [];
     token_overrides = [];
+    inline_tokens = [];
+    static_theme = false;
   }
 
 let pp t =
@@ -118,6 +125,32 @@ let has_explicit_radius scheme name = Option.is_some (radius scheme name)
 (** Lookup a breakpoint px value in the scheme *)
 let breakpoint scheme name = List.assoc_opt name scheme.breakpoints
 
+(** Lookup the exact CSS length of a breakpoint. Entrypoint [@theme] tokens take
+    precedence over the legacy px-only record field. *)
+let breakpoint_length scheme name =
+  match List.assoc_opt ("breakpoint-" ^ name) scheme.token_overrides with
+  | Some value -> Css.parse_length (String.trim value)
+  | None ->
+      Option.map (fun px -> (Css.Px px : Css.length)) (breakpoint scheme name)
+
+let breakpoint_names scheme =
+  let from_tokens =
+    List.filter_map
+      (fun (name, value) ->
+        let prefix = "breakpoint-" in
+        if
+          String.starts_with ~prefix name
+          && Option.is_some (Css.parse_length (String.trim value))
+        then
+          Some
+            (String.sub name (String.length prefix)
+               (String.length name - String.length prefix))
+        else None)
+      scheme.token_overrides
+  in
+  List.sort_uniq String.compare (List.map fst scheme.breakpoints @ from_tokens)
+  |> List.filter (fun name -> Option.is_some (breakpoint_length scheme name))
+
 (** Lookup a per-render theme token override (from a [@theme] block). *)
 let token_override scheme name = List.assoc_opt name scheme.token_overrides
 
@@ -135,5 +168,27 @@ let token scheme name =
 
 (** [with_overrides scheme overrides] returns [scheme] with [overrides] applied
     on top of any existing token overrides (new entries win). *)
-let with_overrides scheme overrides =
-  { scheme with token_overrides = overrides @ scheme.token_overrides }
+let with_overrides ?(inline = []) scheme overrides =
+  let breakpoints =
+    List.fold_left
+      (fun breakpoints (name, value) ->
+        let prefix = "breakpoint-" in
+        if String.starts_with ~prefix name then
+          let name =
+            String.sub name (String.length prefix)
+              (String.length name - String.length prefix)
+          in
+          match Css.parse_length (String.trim value) with
+          | Some (Css.Px px) -> (name, px) :: List.remove_assoc name breakpoints
+          | _ -> breakpoints
+        else breakpoints)
+      scheme.breakpoints overrides
+  in
+  {
+    scheme with
+    breakpoints;
+    token_overrides = overrides @ scheme.token_overrides;
+    inline_tokens = inline @ scheme.inline_tokens;
+  }
+
+let is_inline_token scheme name = List.mem name scheme.inline_tokens

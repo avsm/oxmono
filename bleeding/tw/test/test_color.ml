@@ -210,12 +210,423 @@ let test_border_side_color () =
   Alcotest.(check bool)
     "border-x-red-500 uses the logical inline color" true
     (Astring.String.is_infix ~affix:"border-inline-color:"
-       (css "border-x-red-500"))
+       (css "border-x-red-500"));
+  Alcotest.(check bool)
+    "border-y-red-500 uses the logical block color" true
+    (Astring.String.is_infix ~affix:"border-block-color:"
+       (css "border-y-red-500"));
+  Alcotest.(check bool)
+    "border-s-red-500 uses the inline-start color" true
+    (Astring.String.is_infix ~affix:"border-inline-start-color:"
+       (css "border-s-red-500"));
+  Alcotest.(check bool)
+    "border-e-red-500 uses the inline-end color" true
+    (Astring.String.is_infix ~affix:"border-inline-end-color:"
+       (css "border-e-red-500"));
+  Alcotest.(check bool)
+    "border-bs-red-500 uses the block-start color" true
+    (Astring.String.is_infix ~affix:"border-block-start-color:"
+       (css "border-bs-red-500"));
+  Alcotest.(check bool)
+    "border-be-red-500 uses the block-end color" true
+    (Astring.String.is_infix ~affix:"border-block-end-color:"
+       (css "border-be-red-500"))
+
+(* A CSS variable in a border color bracket, and its v4 paren shorthand, resolve
+   to var(): border-[var(--x)] and border-(--x) both set border-color. *)
+let test_border_color_var () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error _ -> Alcotest.failf "could not parse %S" cls
+  in
+  Alcotest.(check bool)
+    "border-[var(--pattern-fg)] sets border-color: var()" true
+    (Astring.String.is_infix ~affix:"border-color: var(--pattern-fg)"
+       (css "border-[var(--pattern-fg)]"));
+  Alcotest.(check bool)
+    "border-(--pattern-fg) shorthand sets border-color: var()" true
+    (Astring.String.is_infix ~affix:"border-color: var(--pattern-fg)"
+       (css "border-(--pattern-fg)"));
+  Alcotest.(check bool)
+    "border-t-[var(--x)] sets border-top-color: var()" true
+    (Astring.String.is_infix ~affix:"border-top-color: var(--x)"
+       (css "border-t-[var(--x)]"));
+  (* the paren shorthand keeps its own class name *)
+  Alcotest.(check string)
+    "border-(--pattern-fg) round-trips" "border-(--pattern-fg)"
+    (Tw.pp (Result.get_ok (Tw.of_string "border-(--pattern-fg)")))
+
+(* A per-side border color takes an alpha modifier, like the all-sides one.
+   border-b-white/5 used to be an unknown class. *)
+let test_border_side_color_opacity () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "border-b-white/5" "border-bottom-color:#ffffff0d";
+  has "border-b-white/5"
+    "border-bottom-color:color-mix(in oklab,var(--color-white) 5%,transparent)";
+  (* an axis sets both of its sides *)
+  has "border-x-pink-400/30" "border-inline-color:";
+  Alcotest.(check string)
+    "border-b-white/5 round-trips" "border-b-white/5"
+    (Tw.pp (Result.get_ok (Tw.of_string "border-b-white/5")))
+
+(* An alpha can name a custom property to read the percentage from, written
+   either as [/[var(--x)]] or as the [/(--x)] shorthand. The percentage is not
+   known at build time, so it goes into the [color-mix] as a reference; before,
+   an unresolved alpha counted as 100% and the modifier was dropped. *)
+let test_alpha_from_a_var () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "bg-cyan-400/(--a)"
+    "color-mix(in oklab,var(--color-cyan-400) var(--a),transparent)";
+  has "bg-cyan-400/[var(--a)]"
+    "color-mix(in oklab,var(--color-cyan-400) var(--a),transparent)";
+  has "text-red-500/(--a)"
+    "color-mix(in oklab,var(--color-red-500) var(--a),transparent)";
+  has "fill-red-500/(--a)"
+    "color-mix(in oklab,var(--color-red-500) var(--a),transparent)";
+  has "bg-[#0088cc]/(--a)" "color-mix(in oklab,#08c var(--a),transparent)";
+  (* the fallback is the colour at full opacity, with no alpha folded in *)
+  has "bg-cyan-400/(--a)" "background-color:var(--color-cyan-400)";
+  (* both spellings round-trip *)
+  Alcotest.(check string)
+    "the shorthand round-trips" "bg-cyan-400/(--a)"
+    (Tw.pp (Result.get_ok (Tw.of_string "bg-cyan-400/(--a)")));
+  Alcotest.(check string)
+    "the bracket form round-trips" "bg-cyan-400/[var(--a)]"
+    (Tw.pp (Result.get_ok (Tw.of_string "bg-cyan-400/[var(--a)]")))
+
+(* A bracket colour is read as CSS first and only then as a palette name, so a
+   system colour or a light-dark() both work. The fallback used to admit only
+   colour functions, which left [bg-[Field]] an unknown class. *)
+let test_bracket_css_colors () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "bg-[Field]" "background-color:field";
+  has "text-[FieldText]" "color:fieldtext";
+  has "bg-[light-dark(white,black)]" "background-color:light-dark(";
+  (* a CSS keyword still beats the palette entry of the same name *)
+  has "bg-[red]" "background-color:red"
+
+(* An hsl() hue takes any angle unit. Folding one to a hex colour used to keep
+   only bare numbers and [deg] and read every other unit as 0, so a half turn
+   painted red instead of cyan. *)
+let test_hsl_hue_units () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "bg-[hsl(180deg_100%_50%)]" "background-color: #00ffff";
+  has "bg-[hsl(0.5turn_100%_50%)]" "background-color: #00ffff";
+  has "bg-[hsl(200grad_100%_50%)]" "background-color: #00ffff";
+  has "bg-[hsl(3.14159rad_100%_50%)]" "background-color: #00ffff"
+
+(* hsl() saturation and lightness also accept a bare number, which is the same
+   value as the percentage; both used to be read as 0, which painted the colour
+   black. A channel that is not static cannot fold at all. *)
+let test_hsl_non_percentage_channels () =
+  let fold (c : Css.color) =
+    match Tw.Color.css_color_to_hex c with
+    | Some folded -> Cascade.Pp.to_string Css.pp_color folded
+    | None -> "unfolded"
+  in
+  Alcotest.(check string)
+    "a number saturation and lightness are percentages" "#00ffff"
+    (fold (Hsl { h = Unitless 180.; s = Num 1.0; l = Num 0.5; a = None }));
+  Alcotest.(check string)
+    "a var() saturation does not fold" "unfolded"
+    (fold
+       (Hsl
+          {
+            h = Unitless 180.;
+            s = Var (Cascade.Values.var_ref "x");
+            l = Pct 50.;
+            a = None;
+          }))
+
+(* An rgb() channel is a byte only when it is a static number. A var() channel
+   and the [none] sentinel, which adopts another colour's channel rather than
+   standing for zero, both leave the colour with no hex form; so does an alpha
+   the fold cannot read. *)
+let test_rgb_non_numeric_channels () =
+  let fold (c : Css.color) =
+    match Tw.Color.css_color_to_hex c with
+    | Some folded -> Cascade.Pp.to_string Css.pp_color folded
+    | None -> "unfolded"
+  in
+  Alcotest.(check string)
+    "static channels fold" "#ff0000"
+    (fold (Rgb (Channels { r = Int 255; g = Int 0; b = Int 0 })));
+  Alcotest.(check string)
+    "a var() channel does not fold" "unfolded"
+    (fold
+       (Rgb
+          (Channels
+             { r = Var (Cascade.Values.var_ref "x"); g = Int 0; b = Int 0 })));
+  Alcotest.(check string)
+    "a none channel does not fold" "unfolded"
+    (fold (Rgb (Channels { r = None; g = Int 0; b = Int 0 })));
+  Alcotest.(check string)
+    "a var() alpha does not fold" "unfolded"
+    (fold
+       (Rgba
+          {
+            rgb = Channels { r = Int 255; g = Int 0; b = Int 0 };
+            a = Var (Cascade.Values.var_ref "a");
+          }))
+
+(* A bracket colour the fold refuses keeps the authored function. *)
+let test_bracket_rgb_unresolvable_channels () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "bg-[rgb(var(--x)_0_0)]" "background-color: rgb(var(--x) 0 0)";
+  has "bg-[rgb(none_0_0)]" "background-color: rgb(none 0 0)";
+  has "bg-[rgba(255,0,0,var(--a))]" "background-color: rgb(255 0 0 / var(--a))"
+
+let test_invalid_shade () =
+  Alcotest.check_raises "bg ~shade:250 gray raises at construction"
+    (Invalid_argument
+       "bg: gray has no shade 250 (valid shades: 50, 100, 200, 300, 400, 500, \
+        600, 700, 800, 900, 950)") (fun () -> ignore (Tw.bg ~shade:250 Tw.gray));
+  (match Tw.of_string "bg-gray-250" with
+  | Error (`Msg _) -> ()
+  | Ok _ -> Alcotest.fail "bg-gray-250 should not parse");
+  (* Valid shades still construct, and shadeless colors ignore the shade *)
+  ignore (Tw.bg ~shade:200 Tw.gray);
+  ignore (Tw.bg ~shade:250 (Tw.hex "#aabbcc"))
+
+(* Colour keywords accept an opacity modifier wherever Tailwind exposes a colour
+   family. Keep the original class spelling: several handlers used to either
+   reject these or silently drop [/50] from the round-trip. *)
+let test_keyword_opacity_families () =
+  List.iter
+    (fun cls ->
+      match Tw.of_string cls with
+      | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+      | Ok u -> Alcotest.(check string) cls cls (Tw.pp u))
+    [
+      "bg-transparent/50";
+      "text-inherit/50";
+      "border-transparent/50";
+      "accent-inherit/50";
+      "caret-transparent/50";
+      "outline-inherit/50";
+      "placeholder-transparent/50";
+      "from-inherit/50";
+      "via-transparent/50";
+      "to-inherit/50";
+      "decoration-inherit/50";
+      "divide-transparent/50";
+      "fill-inherit/50";
+      "stroke-transparent/50";
+      "shadow-transparent/50";
+      "inset-shadow-transparent/50";
+      "ring-inherit/50";
+      "ring-offset-transparent/50";
+      "inset-ring-inherit/50";
+      "drop-shadow-inherit/50";
+      "text-shadow-transparent/50";
+    ];
+  (* Tailwind has no inherited text-shadow-with-opacity candidate. *)
+  match Tw.of_string "text-shadow-inherit/50" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "text-shadow-inherit/50 should be rejected"
+
+(* A palette colour with no shade segment must not absorb one and rename the
+   class. Tailwind rejects the candidate instead. *)
+let test_shadeless_colour_rejects_shade_segment () =
+  List.iter
+    (fun cls ->
+      match Tw.of_string cls with
+      | Error _ -> ()
+      | Ok u -> Alcotest.failf "%s was renamed to %s" cls (Tw.pp u))
+    [ "bg-white-500/50"; "text-black-500/50"; "border-white-500/50" ]
+
+(* A project-defined, shadeless colour follows the same opacity path as the
+   built-in shadeless colours. *)
+let test_decoration_theme_colour_opacity () =
+  let theme =
+    Tw.Scheme.with_overrides Tw.Scheme.default
+      [ ("color-brand", "oklch(55% .2 250)") ]
+  in
+  match Tw.of_string ~theme "decoration-brand/50" with
+  | Error (`Msg m) -> Alcotest.fail m
+  | Ok u ->
+      Alcotest.(check string)
+        "custom theme colour round-trips" "decoration-brand/50" (Tw.pp u)
 
 (* Test suite *)
+(* An achromatic palette colour must keep a [none] hue. A numeric hue renders
+   the same but folds to a plain hex, which pins the hue that interpolation is
+   meant to take from the other colour. *)
+let test_achromatic_none_hue () =
+  let css =
+    Css.to_string ~minify:true (Tw.to_css [ Tw.bg ~shade:500 Tw.neutral ])
+  in
+  let contains needle =
+    let n = String.length needle and l = String.length css in
+    let rec go i = i + n <= l && (String.sub css i n = needle || go (i + 1)) in
+    go 0
+  in
+  Alcotest.check Alcotest.bool "neutral-500 keeps a none hue" true
+    (contains "none");
+  Alcotest.check Alcotest.bool "neutral-500 did not fold to hex" false
+    (contains "#737373")
+
+(* v4.3.3 added four colour families to the default theme (mauve/mist/olive/
+   taupe). Each utility reads var(--color-<family>-<shade>). *)
+let test_v433_color_families () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.pp ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool)
+      (cls ^ " uses " ^ affix)
+      true
+      (Astring.String.is_infix ~affix (css cls))
+  in
+  has "bg-mauve-500" "var(--color-mauve-500)";
+  has "text-olive-700" "var(--color-olive-700)";
+  has "border-mist-200" "var(--color-mist-200)";
+  has "bg-taupe-950" "var(--color-taupe-950)"
+
+(* A [/100] modifier is a no-op mix, so the colour itself is the value: the
+   color-mix and its @supports fallback used to be emitted anyway. And [!] has
+   to reach inside that @supports, or the fallback outranks the modern value. *)
+let test_full_opacity_and_important () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.pp ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  let lacks cls affix =
+    Alcotest.(check bool)
+      (cls ^ " without " ^ affix)
+      false
+      (Astring.String.is_infix ~affix (css cls))
+  in
+  has "text-blue-600/100" "color:var(--color-blue-600)";
+  lacks "text-blue-600/100" "color-mix";
+  lacks "divide-gray-200/100" "color-mix";
+  has "bg-white/75!"
+    "color-mix(in oklab,var(--color-white) 75%,transparent)!important"
+
+(* The alpha byte is appended to the six RGB digits, so a shorthand hex has to
+   be expanded first: [#fff] with 10% alpha gave the five-digit [#fff1a], which
+   cascade now rejects outright. *)
+let test_shorthand_hex_alpha () =
+  Alcotest.(check string)
+    "a three-digit hex expands before the alpha" "#ffffff1a"
+    (Tw.Color.hex_with_alpha "#fff" 10.);
+  Alcotest.(check string)
+    "an existing alpha is replaced" "#ffffff1a"
+    (Tw.Color.hex_with_alpha "#ffffffcc" 10.);
+  Alcotest.(check string)
+    "a six-digit hex is unchanged" "#0307121a"
+    (Tw.Color.hex_with_alpha "#030712" 10.)
+
+(* A [#] bracket only names a colour when what follows is a hex spelling. The
+   colour handler handed everything after the [#] to the raising constructor
+   from inside [of_class], so a malformed hex escaped the parser as an exception
+   instead of failing the match. *)
+let test_invalid_bracket_hex () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  let emits cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  List.iter
+    (fun prefix ->
+      rejected (prefix ^ "-[#zz]");
+      rejected (prefix ^ "-[#]");
+      rejected (prefix ^ "-[#12345]");
+      rejected (prefix ^ "-[#zz]/50"))
+    [
+      "text";
+      "bg";
+      "border";
+      "fill";
+      "stroke";
+      "accent";
+      "caret";
+      "outline";
+      "placeholder";
+    ];
+  emits "text-[#abc]" "color:#abc";
+  emits "bg-[#00ff0080]" "background-color:#00ff0080";
+  emits "border-[#123456]" "border-color:#123456";
+  emits "fill-[#abc]" "fill:#abc";
+  emits "stroke-[#abc]" "stroke:#abc";
+  emits "accent-[#abc]" "accent-color:#abc";
+  emits "caret-[#abc]" "caret-color:#abc";
+  emits "outline-[#abc]" "outline-color:#abc";
+  emits "placeholder-[#abc]" "color:#abc"
+
 let tests =
   [
+    ("Invalid bracket hex", `Quick, test_invalid_bracket_hex);
+    ("Achromatic colour keeps a none hue", `Quick, test_achromatic_none_hue);
     ("Per-side border colors", `Quick, test_border_side_color);
+    ("Border color var", `Quick, test_border_color_var);
+    ("Border side color opacity", `Quick, test_border_side_color_opacity);
+    ("Bracket CSS colors", `Quick, test_bracket_css_colors);
+    ("hsl hue units", `Quick, test_hsl_hue_units);
+    ("hsl non-percentage channels", `Quick, test_hsl_non_percentage_channels);
+    ("rgb non-numeric channels", `Quick, test_rgb_non_numeric_channels);
+    ( "bracket rgb unresolvable channels",
+      `Quick,
+      test_bracket_rgb_unresolvable_channels );
+    ("Alpha from a var", `Quick, test_alpha_from_a_var);
+    ("Invalid shades", `Quick, test_invalid_shade);
+    ("Keyword opacity families", `Quick, test_keyword_opacity_families);
+    ( "Shadeless colour rejects a shade segment",
+      `Quick,
+      test_shadeless_colour_rejects_shade_segment );
+    ( "Decoration theme colour opacity",
+      `Quick,
+      test_decoration_theme_colour_opacity );
     ("RGB to OKLCH roundtrip", `Quick, test_rgb_to_oklch_roundtrip);
     ("Hex parsing", `Quick, test_hex_parsing);
     ("RGB to hex", `Quick, test_rgb_to_hex);
@@ -223,6 +634,9 @@ let tests =
     ("Edge cases", `Quick, test_edge_cases);
     ("Color accuracy", `Quick, accuracy);
     ("CSS modes with colors", `Quick, test_css_mode_with_colors);
+    ("v4.3.3 colour families", `Quick, test_v433_color_families);
+    ("Full opacity and important", `Quick, test_full_opacity_and_important);
+    ("Shorthand hex with alpha", `Quick, test_shorthand_hex_alpha);
   ]
 
 let suite = ("color", tests)

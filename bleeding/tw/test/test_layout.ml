@@ -18,6 +18,14 @@ let test_visibility () =
   check "invisible";
   check "collapse"
 
+(* box-decoration-break: the v4 box-decoration-* names and the legacy v3
+   decoration-clone/slice aliases, which keep their own class name. *)
+let test_box_decoration_break () =
+  check "box-decoration-clone";
+  check "box-decoration-slice";
+  check "decoration-clone";
+  check "decoration-slice"
+
 let test_z_index () =
   check "z-0";
   check "z-10";
@@ -152,6 +160,50 @@ let suborder_matches_tailwind () =
   Test_helpers.check_ordering_matches
     ~test_name:"layout suborder matches Tailwind" shuffled
 
+(* isolation sits between inset and z-index in Tailwind's order, and float and
+   clear between the grid-column/grid-row group and .container -- not with the
+   display family their module groups them into. *)
+let isolation_and_float_slots () =
+  let classes =
+    [
+      "inset-0";
+      "isolate";
+      "isolation-auto";
+      "z-10";
+      "col-span-2";
+      "row-span-2";
+      "float-left";
+      "clear-both";
+      "ml-auto";
+      "box-border";
+      "block";
+    ]
+  in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  let css =
+    Cascade.Css.to_string ~minify:true (Tw.to_css ~base:false utilities)
+  in
+  let positions =
+    List.map
+      (fun c ->
+        let needle = "." ^ c ^ "{" in
+        let n = String.length needle and h = String.length css in
+        let rec go i =
+          if i + n > h then -1
+          else if String.sub css i n = needle then i
+          else go (i + 1)
+        in
+        go 0)
+      classes
+  in
+  Alcotest.check bool "every utility is emitted" true
+    (List.for_all (fun p -> p >= 0) positions);
+  Alcotest.check
+    (Alcotest.list Alcotest.int)
+    "the utilities come out in Tailwind's order"
+    (List.sort Int.compare positions)
+    positions
+
 (* Visibility, float and break-* typed constructors are newly exposed in tw.mli;
    check they agree with the parser on class names. *)
 let test_typed () =
@@ -165,12 +217,36 @@ let test_typed () =
   Test_helpers.check_typed_class "break-before-column" Tw.break_before_column;
   Test_helpers.check_typed_class "break-inside-avoid" Tw.break_inside_avoid
 
+(* [object-[50%]] is a position, not a variable name: it used to come out as
+   [object-position: var(--50)]. [z-auto] writes the keyword, since no theme
+   declares [--z-index-auto]. *)
+let test_object_and_z_values () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "object-[50%]" "object-position:50%";
+  has "object-[10px_20px]" "object-position:10px 20px";
+  has "object-[var(--x)]" "object-position:var(--x)";
+  (* not a position and not a var: not a utility *)
+  (match Tw.of_string "object-[<value>]" with
+  | Ok _ -> Alcotest.fail "expected object-[<value>] to be rejected"
+  | Error _ -> ());
+  has "z-auto" "z-index:auto"
+
 let tests =
   [
     test_case "display utilities" `Quick test_display_utilities;
     test_case "visibility" `Quick test_visibility;
+    test_case "box-decoration-break" `Quick test_box_decoration_break;
     test_case "typed constructors" `Quick test_typed;
     test_case "z-index" `Quick test_z_index;
+    test_case "object-position and z-auto values" `Quick
+      test_object_and_z_values;
     test_case "overflow" `Quick test_overflow;
     test_case "screen reader utilities" `Quick test_screen_reader;
     test_case "sr-only declaration order" `Quick test_sr_only_declaration_order;
@@ -180,6 +256,7 @@ let tests =
     test_case "layout container matches Tailwind" `Quick
       test_layout_container_matches_tailwind;
     test_case "layout of_string - invalid values" `Quick of_string_invalid;
+    test_case "isolation and float slots" `Quick isolation_and_float_slots;
     test_case "layout suborder matches Tailwind" `Quick
       suborder_matches_tailwind;
   ]

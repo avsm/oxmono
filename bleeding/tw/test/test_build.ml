@@ -583,20 +583,42 @@ let test_md_media_dedup () =
        css)
 
 let test_md_hover_extra_media () =
-  (* Responsive+hover should not introduce a separate (hover:hover) gate *)
+  (* A responsive prefix wraps the hover rule's own (hover:hover) gate rather
+     than replacing it, which is the structure Tailwind emits. *)
   let css = Tw.Build.to_css [ md [ hover [ p 4 ] ] ] in
-  check bool "no (hover:hover) condition" false
+  check bool "keeps the (hover:hover) gate" true
     (has_media_condition "(hover: hover)" css);
-  (* Selector is inside md media block with :hover pseudo, assert
-     structurally *)
+  (* The rule sits in the inner block, so the md block holds no rule of its
+     own. *)
   let md_sels = selectors_in_media_sel ~condition:"(min-width: 48rem)" css in
+  check
+    (list Test_helpers.selector_testable)
+    "no rule directly in md" [] md_sels;
+  let hover_sels = selectors_in_media_sel ~condition:"(hover: hover)" css in
   let expected =
     Css.Selector.compound
       [ Css.Selector.class_ "md:hover:p-4"; Css.Selector.Hover ]
   in
   check
     (list Test_helpers.selector_testable)
-    "md:hover selector in md block" [ expected ] md_sels
+    "md:hover selector in the hover block" [ expected ] hover_sels
+
+(* A container query wraps the hover gate the same way a media query does, and
+   the rule inside it still reaches its theme token: the declarations live in
+   the nested block, so a collector that stops at the top level prunes
+   --spacing. *)
+let test_container_hover_nests () =
+  let css = Tw.Build.to_css [ Tw.Containers.container_md [ hover [ p 4 ] ] ] in
+  let hover_sels = selectors_in_media_sel ~condition:"(hover: hover)" css in
+  let expected =
+    Css.Selector.compound
+      [ Css.Selector.class_ "@md:hover:p-4"; Css.Selector.Hover ]
+  in
+  check
+    (list Test_helpers.selector_testable)
+    "@md:hover selector in the hover block" [ expected ] hover_sels;
+  check bool "theme layer declares --spacing" true
+    (has_var_in_layer "--spacing" "theme" css)
 
 let test_container_and_media () =
   let statements =
@@ -700,6 +722,34 @@ let test_build_utils_layer_order () =
   check bool "two .a rules are not adjacent" true
     (pos_b > pos_a1 && pos_b < pos_a2)
 
+(* An [extra] rule seeds its order under its base utility's name, and a plain
+   utility of the same name reads that key too. [table] sorts behind [flex] on
+   its own suborder, whatever order a routed [dark:!table] arrives with. *)
+let test_extra_keeps_plain_order () =
+  let extra =
+    [
+      ( "dark:!table",
+        (4, 2),
+        [
+          Css.rule
+            ~selector:(Css.Selector.class_ "dark:!table")
+            [ Css.display Css.Table ];
+        ] );
+    ]
+  in
+  let config = { Tw.Build.base = false; forms = None; layers = true } in
+  let css = Tw.Build.to_css ~config ~extra [ Tw.Flex.flex; Tw.Layout.table ] in
+  let css_str = Css.to_string ~minify:true css in
+  let position sub =
+    match Astring.String.find_sub ~sub css_str with
+    | None -> -1
+    | Some pos -> pos
+  in
+  let flex = position ".flex{" and table = position ".table{" in
+  check bool "flex is emitted" true (flex >= 0);
+  check bool "table is emitted" true (table >= 0);
+  check bool "flex before table" true (flex < table)
+
 let test_style_rules_props () =
   (* Test that when a Style has both props and rules, the props are placed after
      the rules *)
@@ -732,6 +782,7 @@ let test_style_rules_props () =
     let to_style _theme _t = style
     let suborder _t = 0
     let of_class _ _ = Error (`Msg "test utility")
+    let examples = []
   end in
   let () = Tw.Utility.register (module TestHandler) in
   let test_utility = Tw.Utility.base (TestHandler.Self TestHandler.Test) in
@@ -829,8 +880,29 @@ let test_referenced_theme_token () =
     (Astring.String.is_infix ~affix:"--my-color:"
        (css "bg-[color:var(--my-color)]/50"))
 
+(* [@starting-style] takes no condition, so a run of starting: utilities is one
+   block in Tailwind's output. Each utility is wrapped on its own, and the
+   optimizer's merging covers @media and @supports but not this. *)
+let test_starting_style_merges () =
+  let classes = [ "starting:opacity-0"; "starting:scale-90" ] in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  let css = Css.to_string ~minify:true (Tw.to_css ~base:false utilities) in
+  let count needle =
+    let n = String.length needle and h = String.length css in
+    let rec go i acc =
+      if i + n > h then acc
+      else if String.sub css i n = needle then go (i + 1) (acc + 1)
+      else go (i + 1) acc
+    in
+    go 0 0
+  in
+  check int "one @starting-style block" 1 (count "@starting-style");
+  check bool "both utilities are in it" true
+    (count ".starting\\:opacity-0" = 1 && count ".starting\\:scale-90" = 1)
+
 let tests =
   [
+    test_case "starting-style blocks merge" `Quick test_starting_style_merges;
     test_case "referenced theme token emitted" `Quick
       test_referenced_theme_token;
     test_case "spacing-0 prunes --spacing" `Quick check_spacing_zero_prune;
@@ -876,14 +948,16 @@ let tests =
     test_case "rule_sets_groups_md_media_query" `Quick test_rule_sets_md_media;
     test_case "multi-breakpoint grouping+order" `Quick test_media_grouping_order;
     test_case "md media dedup" `Quick test_md_media_dedup;
-    test_case "md:hover has no global hover gate" `Quick
-      test_md_hover_extra_media;
+    test_case "md:hover nests the hover gate" `Quick test_md_hover_extra_media;
+    test_case "container hover nests the gate" `Quick test_container_hover_nests;
     test_case "container + media together" `Quick test_container_and_media;
     test_case "media query deduplication" `Quick test_media_query_deduplication;
     test_case "rule_sets" `Quick test_rule_sets;
     test_case "build_utilities_layer" `Quick test_build_utilities_layer;
     test_case "build_utilities_layer preserves order" `Quick
       test_build_utils_layer_order;
+    test_case "extra keeps a plain utility's order" `Quick
+      test_extra_keeps_plain_order;
     test_case "style with rules and props ordering" `Quick
       test_style_rules_props;
   ]

@@ -8,7 +8,7 @@ module Handler = struct
 
   type margin_value =
     | Standard of margin (* auto, spacing values *)
-    | Arbitrary of Css.length (* mx-[4px] *)
+    | Arbitrary of string * Css.length (* mx-[4px], raw kept for round-trip *)
     | Arbitrary_var of string (* mx-[var(--value)] *)
     | Named of string (* mx-big - custom spacing *)
 
@@ -27,60 +27,18 @@ module Handler = struct
 
   (** {2 Typed Margin Utilities} *)
 
-  (** Convert spacing to (declaration option, length) using
-      Theme.spacing_calc_float. For rem values, checks scheme for explicit
-      spacing variables. *)
-  let spacing_to_decl_len ?theme ~negative (s : Style.spacing) :
-      Css.declaration option * length =
-    match s with
-    | `Px ->
-        let len : length = if negative then Px (-1.) else Px 1. in
-        let decl, _ = Var.binding Spacing.var (Rem 0.25) in
-        (Some decl, len)
-    | `Full ->
-        let len : length = if negative then Pct (-100.) else Pct 100. in
-        let decl, _ = Var.binding Spacing.var (Rem 0.25) in
-        (Some decl, len)
-    | `Named name -> (
-        let prop_name = "spacing-" ^ name in
-        match Scheme.theme_value theme prop_name with
-        | Some value_str ->
-            let decl =
-              Css.custom_property ~layer:"theme" ("--" ^ prop_name) value_str
-            in
-            let ref : Css.length Css.var =
-              Var.theme_ref prop_name
-                ~default:(Css.Zero : Css.length)
-                ~default_css:"0px"
-            in
-            let len : Css.length = Var ref in
-            if negative then
-              ( Some decl,
-                Calc (Calc.mul (Calc.var prop_name) (Calc.float (-1.))) )
-            else (Some decl, len)
-        | None ->
-            let len = Spacing.named_spacing_ref name in
-            if negative then
-              (None, Calc (Calc.mul (Calc.length len) (Calc.float (-1.))))
-            else (None, len))
-    | `Rem f ->
-        let n = f /. 0.25 in
-        let n = if negative then -.n else n in
-        let decl, len = Theme.spacing_calc_float ?theme n in
-        (Some decl, len)
-
   let v ?theme (prop : length -> declaration) (m : margin) =
     match m with
     | `Auto -> style [ prop Auto ]
     | #Style.spacing as s ->
-        let decl, len = spacing_to_decl_len ?theme ~negative:false s in
+        let decl, len = Spacing.to_decl_len ?theme ~negative:false s in
         style (Option.to_list decl @ [ prop len ])
 
   let vs ?theme (prop : length list -> declaration) (m : margin) =
     match m with
     | `Auto -> style [ prop [ Auto ] ]
     | #Style.spacing as s ->
-        let decl, len = spacing_to_decl_len ?theme ~negative:false s in
+        let decl, len = Spacing.to_decl_len ?theme ~negative:false s in
         style (Option.to_list decl @ [ prop [ len ] ])
 
   let named_margin_value ?theme name : Css.declaration option * Css.length =
@@ -104,12 +62,12 @@ module Handler = struct
 
   let margin_util_neg ?theme (prop : length -> declaration) (s : Style.spacing)
       =
-    let decl, len = spacing_to_decl_len ?theme ~negative:true s in
+    let decl, len = Spacing.to_decl_len ?theme ~negative:true s in
     style (Option.to_list decl @ [ prop len ])
 
   let margin_list_util_neg ?theme (prop : length list -> declaration)
       (s : Style.spacing) =
-    let decl, len = spacing_to_decl_len ?theme ~negative:true s in
+    let decl, len = Spacing.to_decl_len ?theme ~negative:true s in
     style (Option.to_list decl @ [ prop [ len ] ])
 
   (* Spacing keywords sort by their suffix's first character, matching
@@ -162,7 +120,7 @@ module Handler = struct
     let named_margin_value name = named_margin_value ~theme name in
     let prop = prop_for_axis axis in
     match value with
-    | Arbitrary len ->
+    | Arbitrary (_, len) ->
         if negative then
           (* For simple values, use direct negation: -4px instead of calc(4px *
              -1) *)
@@ -248,19 +206,6 @@ module Handler = struct
     in
     (side_index * 1000000) + sign_offset + value_order
 
-  let pp_float n =
-    (* Format float without trailing dot: 4. -> 4, 4.5 -> 4.5 *)
-    let s = string_of_float n in
-    if String.ends_with ~suffix:"." s then String.sub s 0 (String.length s - 1)
-    else s
-
-  let pp_length_suffix (len : Css.length) =
-    match len with
-    | Px n -> "[" ^ pp_float n ^ "px]"
-    | Rem n -> "[" ^ pp_float n ^ "rem]"
-    | Pct n -> "[" ^ pp_float n ^ "%]"
-    | _ -> "[<length>]"
-
   let to_class { negative; axis; value } =
     let prefix =
       match axis with
@@ -280,30 +225,24 @@ module Handler = struct
     let value_suffix =
       match value with
       | Standard m -> Spacing.pp_margin_suffix m
-      | Arbitrary len -> pp_length_suffix len
+      | Arbitrary (raw, _) -> "[" ^ raw ^ "]"
       | Arbitrary_var s -> "[" ^ s ^ "]"
       | Named name -> name
     in
     neg_prefix ^ prefix ^ value_suffix
 
   let parse_arbitrary s : margin_value option =
-    (* Parse [4px], [1rem], or [var(--value)] etc. *)
+    (* Parse [4px], [1rem], [50%], [-5cqw], [calc(...)], or [var(--value)]. The
+       raw inner is kept verbatim for the class name; the value goes through the
+       full length grammar so any unit or calc() is accepted. *)
     let len = String.length s in
     if len > 2 && s.[0] = '[' && s.[len - 1] = ']' then
       let inner = String.sub s 1 (len - 2) in
-      (* Check if it's a var reference *)
       if Parse.is_var inner then Some (Arbitrary_var inner)
-      else if String.ends_with ~suffix:"px" inner then
-        let n = String.sub inner 0 (String.length inner - 2) in
-        match float_of_string_opt n with
-        | Some f -> Some (Arbitrary (Css.Px f))
+      else
+        match Css.parse_length (Parse.normalize_css_math_operators inner) with
+        | Some l -> Some (Arbitrary (inner, l))
         | None -> None
-      else if String.ends_with ~suffix:"rem" inner then
-        let n = String.sub inner 0 (String.length inner - 3) in
-        match float_of_string_opt n with
-        | Some f -> Some (Arbitrary (Css.Rem f))
-        | None -> None
-      else None
     else None
 
   let axis_of_prefix_ext = function
@@ -427,6 +366,21 @@ module Handler = struct
                       else Ok { negative = false; axis; value = Standard `Auto }
                   ))
         | None -> Error (`Msg "Not a margin utility"))
+
+  let examples =
+    [
+      { negative = false; axis = `All; value = Standard `Auto };
+      { negative = false; axis = `X; value = Standard `Auto };
+      { negative = false; axis = `Y; value = Standard `Auto };
+      { negative = false; axis = `T; value = Standard `Auto };
+      { negative = false; axis = `R; value = Standard `Auto };
+      { negative = false; axis = `B; value = Standard `Auto };
+      { negative = false; axis = `L; value = Standard `Auto };
+      { negative = false; axis = `S; value = Standard `Auto };
+      { negative = false; axis = `E; value = Standard `Auto };
+      { negative = false; axis = `Bs; value = Standard `Auto };
+      { negative = false; axis = `Be; value = Standard `Auto };
+    ]
 end
 
 open Handler

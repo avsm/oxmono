@@ -6,6 +6,9 @@ the same typed variable-and-layer pipeline Tailwind uses, producing
 byte-for-byte identical output. Unknown utilities are caught at compile time,
 and nothing depends on Node.js, PostCSS, or the Tailwind CLI at run time.
 
+**Tracked version:** `tw` targets **Tailwind CSS v4.3.3** (the latest release).
+Its generated CSS is checked byte-for-byte against that exact version.
+
 ```ocaml
 open Tw
 
@@ -166,6 +169,12 @@ dune runtest       # run all tests, including README examples
 # Compare a single utility with Tailwind
 dune exec -- tw -s "bg-blue-500 hover:bg-blue-600" --diff
 ```
+
+### Parity with Tailwind
+
+[docs/parity.md](docs/parity.md) describes how the claim of identical output is
+checked: which comparisons run in `dune runtest`, how to read a diff, and why a
+small residual remains.
 
 ## License
 

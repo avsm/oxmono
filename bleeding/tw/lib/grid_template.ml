@@ -175,8 +175,8 @@ module Handler = struct
       | Some (Pct n) -> Some (Pct n)
       | Some (Vw n) -> Some (Vw n)
       | Some (Vh n) -> Some (Vh n)
-      | Some _ -> None
-      | None ->
+      | Some l -> Some (Length l)
+      | None -> (
           let len = String.length value in
           if len >= 2 && String.sub value (len - 2) 2 = "fr" then
             match float_of_string_opt (String.sub value 0 (len - 2)) with
@@ -185,7 +185,13 @@ module Handler = struct
           else if value = "auto" then Some Auto
           else if value = "min-content" then Some Min_content
           else if value = "max-content" then Some Max_content
-          else None
+          else
+            (* A math-function track (min()/max()/clamp()/calc()), a var() or
+               the [--spacing()] shorthand: all lengths the suffix-based parse
+               above does not recognise. *)
+            match Css.parse_length (Parse.decode_arbitrary_value value) with
+            | Some l -> Some (Length l)
+            | None -> None)
 
   (* A single grid track: a length/keyword, or one of the grid functions
      minmax()/fit-content()/repeat() (which may nest). *)
@@ -219,7 +225,11 @@ module Handler = struct
           | n -> (
               match int_of_string_opt n with
               | Some i -> Some (Css.Count i)
-              | None -> None)
+              | None ->
+                  (* [repeat(var(--columns), ...)]: the count can be a var. *)
+                  if Parse.is_var n then
+                    Some (Css.Var (Var.bracket (Parse.extract_var_name n)))
+                  else None)
         in
         (* The track list after the count is space-separated (underscores in the
            bracket); commas only separated count from the list. *)
@@ -253,11 +263,31 @@ module Handler = struct
     | Some v -> v
     | None -> invalid_arg ("Unparseable grid template: " ^ s)
 
+  (* A track written with the [--spacing()] shorthand reads the scale, so the
+     token has to be declared alongside it. *)
+  let spacing_decls s =
+    let has_spacing_fn =
+      let n = String.length "--spacing(" in
+      let rec at i =
+        i + n <= String.length s
+        && (String.sub s i n = "--spacing(" || at (i + 1))
+      in
+      at 0
+    in
+    if has_spacing_fn then
+      let decl, _ = Var.binding Theme.spacing_var Theme.spacing_base in
+      [ decl ]
+    else []
+
   let grid_cols_arbitrary s =
-    style [ Css.grid_template_columns (parse_arbitrary_grid_template_exn s) ]
+    style
+      (spacing_decls s
+      @ [ Css.grid_template_columns (parse_arbitrary_grid_template_exn s) ])
 
   let grid_rows_arbitrary s =
-    style [ Css.grid_template_rows (parse_arbitrary_grid_template_exn s) ]
+    style
+      (spacing_decls s
+      @ [ Css.grid_template_rows (parse_arbitrary_grid_template_exn s) ])
 
   let grid_rows n =
     if n < 1 || n > 999 then
@@ -403,7 +433,7 @@ module Handler = struct
           | Some _ -> Ok (Grid_cols_arbitrary inner)
           | None -> err_invalid_cols
         else
-          match int_of_string_opt n with
+          match Parse.decimal_int n with
           | Some i when i >= 1 && i <= 999 -> Ok (Grid_cols i)
           | Some _ | None -> err_invalid_cols)
     | [ "grid"; "rows"; "none" ] -> Ok Grid_rows_none
@@ -416,7 +446,7 @@ module Handler = struct
           | Some _ -> Ok (Grid_rows_arbitrary inner)
           | None -> err_invalid_rows
         else
-          match int_of_string_opt n with
+          match Parse.decimal_int n with
           | Some i when i >= 1 && i <= 999 -> Ok (Grid_rows i)
           | Some _ | None -> err_invalid_rows)
     | [ "grid"; "flow"; "row" ] -> Ok Grid_flow_row
@@ -482,6 +512,15 @@ module Handler = struct
     | Auto_rows_fr -> "auto-rows-fr"
     | Auto_rows_spacing n -> "auto-rows-" ^ pp_float n
     | Auto_rows_arbitrary s -> "auto-rows-[" ^ s ^ "]"
+
+  let examples =
+    [
+      Grid_cols_none;
+      Grid_rows_none;
+      Grid_flow_row;
+      Auto_cols_auto;
+      Auto_rows_auto;
+    ]
 end
 
 open Handler

@@ -31,18 +31,21 @@ module Css = Cascade.Css
 open Cascade_diff
 open Alcotest
 
-(* One tolerance sits on top of the raw upstream fixtures:
-   [is_allowed_canonicalization_diff], and it is pure fixture skew, not a tw
-   bug. The hard-coded expectations in Tailwind's [*.test.ts] predate
-   LightningCSS, so they carry the pre-optimise opacity hex ([#0088cc]/50 ->
-   [#0288cc80]) where the real v4.3.1 CLI -- and tw -- emit [#0088cc80] (checked
-   with [tw -s ... --diff]); only cascade rounding oklab to LightningCSS
-   precision retires it. Set [TW_UPSTREAM_STRICT=1] to disable it and watch for
-   changes that close the gap. (A [--text-*--line-height] allowance, a
-   mask-angle calc allowance, an [@property --spacing] hint and a prose
-   selector-permutation allowance were all dropped earlier, once tw honoured
-   theme line-height overrides, emitted Tailwind's exact mask degrees, and
-   cascade gained typed calc + the custom-property prune.) *)
+(* Colour comparison is normalised the way Tailwind normalises its own
+   snapshots: [color_mix_to_oklab] then [truncate_color_precision] run on both
+   sides before the diff, so an [oklab] fixture and tw's exact colour describe
+   the same value. That is pure fixture skew, not a tw bug: Tailwind's snapshot
+   serialiser truncates oklab axes for cross-OS stability, and the fixtures fold
+   a concrete-colour opacity to [oklab] where tw keeps the shorter exact colour.
+   One tolerance remains on top of that -- [is_allowed_canonicalization_diff],
+   for [--font-sans] / [--tw-prose-*] custom-property skew. Set
+   [TW_UPSTREAM_STRICT=1] to disable it and watch for changes that close the
+   gap. (A [--text-*--line-height] allowance, a mask-angle calc allowance, an
+   [@property --spacing] hint, a prose selector-permutation allowance and the
+   hard-coded stale-colour allowlist were all dropped earlier, once tw honoured
+   theme line-height overrides, emitted Tailwind's exact mask degrees, cascade
+   gained typed calc + the custom-property prune, and the colour normalisation
+   above replaced the allowlist.) *)
 let strict = Sys.getenv_opt "TW_UPSTREAM_STRICT" <> None
 
 type theme_config =
@@ -336,6 +339,8 @@ let scheme_from_expected_css expected : Tw.Scheme.t =
     default_outline_width;
     breakpoints;
     token_overrides = [];
+    inline_tokens = [];
+    static_theme = false;
   }
 
 let setup_scheme_for_test expected =
@@ -443,65 +448,68 @@ let theme_config config expected =
 
 let canonical_stylesheet_css css = String.trim css
 
-(* The upstream fixtures store one opacity-modified arbitrary colour --
-   [#0088cc], at 25% and 50% -- as Tailwind's LightningCSS-rounded oklab, which
-   round-trips back to hex two units high in the red channel ([#0288cc40] /
-   [#0288cc80]). tw keeps full precision and emits the true [#0088cc40] /
-   [#0088cc80]. Those are the *only* fixture colours that skew, and they recur
-   across every colour utility (accent, bg, ring, gradient, shadow, ...), so
-   allow exactly those pairs. A fuzzy [abs (x - y) <= 2] per-channel threshold
-   would also cover them, but it would silently absorb a genuine colour
-   regression of a unit or two -- defeating the comparison -- so prefer an
-   explicit allowlist that only the known stale fixtures match. *)
-let known_stale_colors =
-  [ ("#0288cc40", "#0088cc40"); ("#0288cc80", "#0088cc80") ]
+(* [color-mix(in oklab, C p%, transparent)] denotes the concrete colour C at
+   alpha p, which LightningCSS folds to an [oklab(...)] in the fixtures. tw
+   keeps the colour itself (exact and shorter once cascade folds it to a hex),
+   so re-express it as that oklab -- resolving C through cascade's own colour
+   fold, which handles named colours like [red] that have no public name->rgb
+   table -- and let the shared truncation reconcile it with the fixture. A
+   [var()] or [currentcolor] operand does not fold to a hex (the [[^,()]+]
+   capture also skips [var(...)]), so its color-mix is left untouched. *)
+let color_mix_re =
+  (* [our_css] is minified ([,] with no following space) while the fixtures keep
+     [, ]; match either. *)
+  Re.Pcre.regexp
+    {|color-mix\(in oklab,\s*([^,()]+?)\s+([0-9.]+)%,\s*transparent\)|}
 
-let colors_close expected actual =
-  let e = String.trim expected and a = String.trim actual in
-  String.equal e a
-  || List.exists
-       (fun (stale, correct) -> String.equal e stale && String.equal a correct)
-       known_stale_colors
+let hex_re = Re.Pcre.regexp {|#[0-9a-fA-F]+|}
 
-(* Split a value into its non-hex skeleton and the list of [#...] colours, so a
-   colour embedded in a larger value (e.g. a shadow's [var(--c, #0288cc40)]) can
-   be compared channel-wise like a bare colour. *)
-let split_hexes s =
-  let n = String.length s in
-  let skel = Buffer.create n and hexes = ref [] in
-  let is_hex c =
-    (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
-  in
-  let i = ref 0 in
-  while !i < n do
-    if s.[!i] = '#' then (
-      let j = ref (!i + 1) in
-      while !j < n && is_hex s.[!j] do
-        incr j
-      done;
-      let len = !j - !i - 1 in
-      if len = 3 || len = 4 || len = 6 || len = 8 then (
-        hexes := String.sub s !i (!j - !i) :: !hexes;
-        Buffer.add_char skel '#';
-        i := !j)
-      else (
-        Buffer.add_char skel s.[!i];
-        incr i))
-    else (
-      Buffer.add_char skel s.[!i];
-      incr i)
-  done;
-  (Buffer.contents skel, List.rev !hexes)
+let color_mix_to_oklab s =
+  Re.replace color_mix_re s ~f:(fun g ->
+      let whole = Re.Group.get g 0 in
+      match Fmt.kstr Css.of_string ".x{color:%s}" whole with
+      | Error _ -> whole
+      | Ok { stylesheet; _ } -> (
+          let folded = Css.to_string ~minify:true (Css.optimize stylesheet) in
+          match Re.exec_opt hex_re folded with
+          | None -> whole (* did not fold to a hex: keep (var / currentcolor) *)
+          | Some m -> (
+              (* A short hex parses to [Authored_hex] (source spelling kept);
+                 both it and [Hex] carry decoded [r]/[g]/[b]. *)
+              match Css.parse_color (Re.Group.get m 0) with
+              | Some
+                  ( Css.Hex { r; g = green; b; _ }
+                  | Css.Authored_hex { r; g = green; b; _ } ) ->
+                  let f x = float_of_int x /. 255. in
+                  let l, a, b =
+                    Cascade.Color_space.oklab_of_linear_srgb
+                      (Cascade.Color_space.linear_rgb_of_rgb
+                         (f r, f green, f b))
+                  in
+                  let alpha = float_of_string (Re.Group.get g 2) /. 100. in
+                  Fmt.str "oklab(%.6f%% %.6f %.6f / %.6f)" (l *. 100.) a b alpha
+              | _ -> whole)))
 
-let values_close expected actual =
-  colors_close expected actual
-  ||
-  let skel_e, hexes_e = split_hexes expected in
-  let skel_a, hexes_a = split_hexes actual in
-  skel_e = skel_a
-  && List.length hexes_e = List.length hexes_a
-  && hexes_e <> []
-  && List.for_all2 colors_close hexes_e hexes_a
+(* Reduce the precision of [oklab]/[oklch]/[lab]/[lch] coefficients to three
+   decimals, mirroring Tailwind's own snapshot serialiser
+   ([test-utils/custom-serializer.ts]): it truncates those axes because
+   "lightningcss generat[es] different decimal places in the last position when
+   run on different operating systems". cascade keeps the full-precision colour,
+   so tw's [oklab(59.98238277% -.06725164 -.12414399 / .5)] and the fixture's
+   truncated [oklab(59.9824% -.067 -.124 / .5)] describe the same colour that
+   only differs in serialisation noise. Applied to both sides before the diff,
+   the two spellings collapse to an identical value (and identical folded hex),
+   so no per-colour allowlist is needed. It is truncation, not rounding
+   ([.224863] -> [.224], never [.225]), and a genuine regression that moves a
+   coefficient at the third decimal or coarser still shows as a diff. *)
+let truncate_color_precision =
+  let frac = Re.Pcre.regexp {|\.(\d{3})\d+|} in
+  let color_fn = Re.Pcre.regexp {|\b(oklab|oklch|lab|lch)\(([^()]*)\)|} in
+  fun s ->
+    Re.replace color_fn s ~f:(fun g ->
+        let name = Re.Group.get g 1 and args = Re.Group.get g 2 in
+        let args = Re.replace frac args ~f:(fun d -> "." ^ Re.Group.get d 1) in
+        name ^ "(" ^ args ^ ")")
 
 let is_allowed_canonicalization_diff diff =
   let allowed_custom_property = function
@@ -516,8 +524,7 @@ let is_allowed_canonicalization_diff diff =
         property_changes <> []
         && List.for_all
              (fun (change : Tree_diff.declaration) ->
-               allowed_custom_property change.property_name
-               || values_close change.expected_value change.actual_value)
+               allowed_custom_property change.property_name)
              property_changes
     | _ -> false
   in
@@ -527,11 +534,21 @@ let is_allowed_canonicalization_diff diff =
     | _ -> false
   in
   match Css_compare.as_tree_diff diff with
-  | Some Tree_diff.{ rules; containers } ->
+  | Some Tree_diff.{ rules; containers; layer_order = None } ->
       (rules <> [] || containers <> [])
       && List.for_all allowed_rule_change rules
       && List.for_all allowed_container containers
   | _ -> false
+
+let test_layer_order_not_tolerated () =
+  let expected =
+    "@layer weak, strong;@media (width >= 1px){.x{--font-sans:a}}"
+  in
+  let actual = "@layer strong, weak;@media (width >= 1px){.x{--font-sans:b}}" in
+  let diff = Css_compare.diff ~mode:`Tree expected actual in
+  Alcotest.(check bool)
+    "a tolerated declaration cannot hide a layer-order change" false
+    (is_allowed_canonicalization_diff diff)
 
 (** Extract var(--name, fallback) patterns from expected CSS. Returns (name,
     fallback) pairs where name is without the -- prefix. Handles both concrete
@@ -867,13 +884,17 @@ let run_test_case test () =
     let expected_css = canonical_stylesheet_css expected in
     if our_css = "" && expected = "" then ()
     else
+      let normalize_colors s =
+        truncate_color_precision (color_mix_to_oklab s)
+      in
       let result =
         Css_compare.diff ~mode:`Canonical ~prune_unused_custom_props:true
-          expected_css our_css
+          (normalize_colors expected_css)
+          (normalize_colors our_css)
       in
       if
         (match result.Css_compare.result with
-          | Css_compare.No_diff _ -> true
+          | Css_compare.No_diff -> true
           | _ -> false)
         || ((not strict) && is_allowed_canonicalization_diff result)
       then ()
@@ -906,20 +927,46 @@ let run_test_case test () =
              (String.concat " " test.classes)
              (Buffer.contents buf) expected got rejected_note)
 
-(* Guards [colors_close]: a documented stale fixture pair is accepted, but a
-   near-miss the previous [abs (x - y) <= 2] blanket would have wrongly accepted
-   is now rejected, so a real colour regression cannot hide behind the
-   tolerance. *)
+(* Guards [truncate_color_precision]: it truncates (never rounds) the
+   oklab-family axes to three decimals like Tailwind's snapshot serialiser, so
+   tw's full-precision colour and the fixture's reduced spelling collapse to the
+   same value, while a coarser regression still survives as a diff. *)
 let test_color_tolerance () =
+  let check msg expected input =
+    Alcotest.(check string) msg expected (truncate_color_precision input)
+  in
+  (* Truncates, never rounds: .224863 -> .224 (rounding would give .225). *)
+  check "oklab axes truncated to 3 decimals" "oklab(62.795% .224 .125 / .2)"
+    "oklab(62.7955% .224863 .125846 / .2)";
+  (* tw's full precision and the fixture's reduced form collapse to equal. *)
+  Alcotest.(check string)
+    "full and reduced spellings collapse"
+    (truncate_color_precision "oklab(59.9824% -.067 -.124 / .5)")
+    (truncate_color_precision "oklab(59.98238277% -.06725164 -.12414399 / .5)");
+  (* Leaves the [in oklab] interpolation keyword and short values untouched. *)
+  check "color-mix keyword untouched"
+    "color-mix(in oklab, #0088cc 50%, transparent)"
+    "color-mix(in oklab, #0088cc 50%, transparent)";
+  (* A difference at the third decimal survives truncation. *)
   Alcotest.(check bool)
-    "stale fixture pair tolerated" true
-    (colors_close "#0288cc80" "#0088cc80");
-  Alcotest.(check bool)
-    "one-unit red skew rejected" false
-    (colors_close "#0188cc80" "#0088cc80");
-  Alcotest.(check bool)
-    "unrelated near colour rejected" false
-    (colors_close "#123456" "#123458")
+    "coarse difference preserved" false
+    (String.equal
+       (truncate_color_precision "oklab(62.795% .224 .125 / .2)")
+       (truncate_color_precision "oklab(62.795% .223 .125 / .2)"));
+  (* [color_mix_to_oklab] re-expresses a concrete-colour opacity (resolving the
+     named colour [red]) as the oklab the fixtures store; truncated, it lands on
+     the fixture value. *)
+  Alcotest.(check string)
+    "color-mix(red 20%) re-expressed as the fixture oklab"
+    "oklab(62.795% 0.224 0.125 / 0.200)"
+    (truncate_color_precision
+       (color_mix_to_oklab "color-mix(in oklab, red 20%, transparent)"));
+  (* A var() operand cannot fold to a concrete colour, so its color-mix (which
+     the fixtures also keep) is left alone. *)
+  Alcotest.(check string)
+    "color-mix(var) left untouched"
+    "color-mix(in oklab, var(--x) 50%, transparent)"
+    (color_mix_to_oklab "color-mix(in oklab, var(--x) 50%, transparent)")
 
 let print_parity_report () =
   Fmt.epr "@.=== upstream parity report ===@.";
@@ -935,27 +982,36 @@ let file basename =
   let paths = [ basename; "test/upstream/" ^ basename ] in
   List.find_opt Sys.file_exists paths
 
+(* Both fixtures are checked in and declared as dune deps, so a missing one is a
+   broken checkout rather than an optional extra. A floor on the parsed cases
+   catches the other way this gate can go quiet: a fixture whose format drifts
+   still parses, just into far fewer cases than it holds. The floors are about
+   half the current counts (615 utilities, 166 variants), low enough to absorb
+   upstream churn. *)
+let utilities_floor = 300
+let variants_floor = 80
+
+let load basename floor =
+  match file basename with
+  | None ->
+      Fmt.epr "%s not found. Run extract_tests.exe first.@." basename;
+      exit 1
+  | Some path ->
+      let cases = read_test_cases path in
+      let n = List.length cases in
+      if n < floor then (
+        Fmt.epr "%s yielded %d test cases, fewer than the floor of %d.@." path n
+          floor;
+        exit 1);
+      cases
+
 let () =
-  let utilities_file =
-    file "utilities.txt" |> Option.value ~default:"utilities.txt"
-  in
-  let variants_file = file "variants.txt" in
-
-  if not (Sys.file_exists utilities_file) then (
-    Fmt.epr "No test file found. Run extract_tests.exe first.@.";
-    exit 0);
-
-  let utility_tests = read_test_cases utilities_file in
-  let variant_tests =
-    match variants_file with Some f -> read_test_cases f | None -> []
-  in
-
-  if utility_tests = [] && variant_tests = [] then (
-    Fmt.epr "No test cases with expected CSS found.@.";
-    exit 0);
-
+  let utility_tests = load "utilities.txt" utilities_floor in
+  let variant_tests = load "variants.txt" variants_floor in
   let total = List.length utility_tests + List.length variant_tests in
-  Fmt.epr "Running %d upstream tests...@." total;
+  Fmt.epr "Running %d upstream tests (%d utilities, %d variants)...@." total
+    (List.length utility_tests)
+    (List.length variant_tests);
   at_exit print_parity_report;
 
   let utility_cases =
@@ -969,10 +1025,17 @@ let () =
       variant_tests
   in
   let tolerance_cases =
-    [ test_case "colour stale-fixture allowlist" `Quick test_color_tolerance ]
+    [
+      test_case "oklab precision truncation" `Quick test_color_tolerance;
+      test_case "canonical tolerance rejects layer order" `Quick
+        test_layer_order_not_tolerated;
+    ]
   in
   let suites =
-    [ ("utilities", utility_cases); ("tolerance", tolerance_cases) ]
-    @ if variant_cases <> [] then [ ("variants", variant_cases) ] else []
+    [
+      ("utilities", utility_cases);
+      ("tolerance", tolerance_cases);
+      ("variants", variant_cases);
+    ]
   in
   Alcotest.run "upstream" suites

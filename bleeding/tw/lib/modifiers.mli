@@ -11,6 +11,14 @@ val compact_length : Css.length -> string
 (** [compact_length l] renders a CSS length without spaces (for use in class
     names). *)
 
+val nest_selector : parent:Css.Selector.t -> string -> Css.Selector.t
+(** [nest_selector ~parent template] reads [template] as a selector and replaces
+    each [&] in it with [parent], as CSS nesting does. A template with no [&] at
+    all compounds onto [parent] instead, with a type selector wrapped in [:is()]
+    since it cannot follow a class. Substituting over the parsed selector rather
+    than over the source text leaves an [&] inside a quoted attribute value
+    alone. *)
+
 val to_selector : modifier -> string -> Css.Selector.t
 (** [to_selector modifier base_class] generates the CSS selector for a modifier
     applied to a base class. *)
@@ -23,9 +31,17 @@ val prose_element_inner_selector : string -> Css.Selector.t
 val is_hover : modifier -> bool
 (** [is_hover m] returns true if the modifier generates a :hover rule. *)
 
+val normalize_supports_condition : string -> string
+(** [normalize_supports_condition cond] is the [supports-[...]] bracket content
+    as a CSS [@supports] condition: underscores become spaces, a bare property
+    or custom property expands to a [(prop: var(--tw))] test, and a property
+    test is repeated once per vendor prefix Tailwind checks. The modifier parser
+    validates its result, so only conditions that parse reach a rule. *)
+
 val register_custom_breakpoints : (string * float) list -> unit
-(** [register_custom_breakpoints bps] sets the custom breakpoint names and their
-    px values for modifier parsing. *)
+(** [register_custom_breakpoints bps] sets the legacy custom breakpoint names
+    used only when {!apply} receives no [breakpoints]. Prefer passing a
+    [Scheme.t] to [Tw.of_string]. *)
 
 val clear_custom_breakpoints : unit -> unit
 (** [clear_custom_breakpoints ()] clears the custom breakpoint registry. *)
@@ -684,9 +700,9 @@ val pp_modifier : modifier -> string
 (** [pp_modifier m] returns the string prefix for a modifier (e.g., "hover" for
     Hover). *)
 
-val apply : string list -> t -> t option
-(** [apply modifiers style] applies a list of modifier strings to a base style.
-    Returns [None] if any modifier is unrecognized. Example:
+val apply : ?breakpoints:string list -> string list -> t -> t option
+(** [apply ?breakpoints modifiers style] applies a list of modifier strings to a
+    base style. Returns [None] if any modifier is unrecognized. Example:
     [apply ["hover"; "sm"] (bg blue 500)] creates a hover:sm:bg-blue-500 style.
 *)
 

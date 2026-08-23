@@ -109,6 +109,7 @@ let test_line_clamp () =
 
 let test_text_overflow_wrap () =
   check "text-ellipsis";
+  check "overflow-ellipsis";
   check "text-clip";
   check "text-wrap";
   check "text-nowrap";
@@ -137,7 +138,11 @@ let test_list_style () =
   check "list-outside";
   check "list-image-none"
 
-let test_text_indent () = check "indent-4"
+let test_text_indent () =
+  check "indent-4";
+  check "-indent-8";
+  check "indent-px";
+  check "-indent-px"
 
 let test_vertical_align () =
   check "align-baseline";
@@ -178,7 +183,19 @@ let test_content () =
      double-quoted form already worked, the single-quoted form used to mangle to
      content-[["x"]]. *)
   check "content-[\"x\"]";
-  check "content-['x']"
+  check "content-['x']";
+  (* unquoted function values *)
+  check "content-[attr(before)]";
+  check "content-[counter(x)]";
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "content-[attr(before)] binds attr() to --tw-content" true
+    (Astring.String.is_infix ~affix:"--tw-content:attr(before)"
+       (css "content-[attr(before)]"))
 
 (* content-<token> parses only when the @theme defines --content-<token>; a bare
    word like content-wrapper with no token is rejected (it used to parse as a
@@ -195,6 +212,42 @@ let test_content_named_requires_theme () =
   match Tw.Typography.Typography_late.of_class themed "content-slash" with
   | Ok _ -> ()
   | Error (`Msg m) -> Alcotest.failf "content-slash with theme rejected: %s" m
+
+(* A project @theme can name font families of its own. The token gates the
+   parse, so a stray source word (font-awesome) stays an unknown class; an
+   @theme inline token carries its value into the utility rather than a
+   reference, except when the value refers back to the token itself. *)
+let test_named_font_family () =
+  (match Tw.of_string "font-awesome" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "font-awesome should be rejected without a token");
+  let css theme cls =
+    match Tw.of_string ~theme cls with
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+    | Ok u -> Tw.Css.pp ~minify:true (Tw.to_css ~base:false ~theme [ u ])
+  in
+  let themed =
+    Tw.Scheme.with_overrides Tw.Scheme.default
+      [ ("font-source", "Georgia, serif") ]
+  in
+  Alcotest.(check bool)
+    "font-source references its token" true
+    (Astring.String.is_infix ~affix:"font-family:var(--font-source)"
+       (css themed "font-source"));
+  let inline =
+    Tw.Scheme.with_overrides
+      ~inline:[ "font-source"; "font-self" ]
+      Tw.Scheme.default
+      [ ("font-source", "Georgia, serif"); ("font-self", "var(--font-self)") ]
+  in
+  Alcotest.(check bool)
+    "an inline token is inlined" true
+    (Astring.String.is_infix ~affix:"font-family:Georgia,serif"
+       (css inline "font-source"));
+  Alcotest.(check bool)
+    "a self-referential inline token keeps its declaration" true
+    (Astring.String.is_infix ~affix:"--font-self:var(--font-self)"
+       (css inline "font-self"))
 
 (* text-[<value>] accepts values that CSS font-size accepts: lengths with a
    unit, percentages, font-size keywords (larger/smaller/xxx-large/...),
@@ -229,7 +282,27 @@ let test_text_bracket_size_invalid () =
   (* Hex-looking, missing '#' *)
   bad "text-[FF0000]";
   bad "text-[totallyNotAColor]";
-  bad "text-[16]" (* Missing unit *)
+  (* Missing unit *)
+  bad "text-[16]";
+  (* The unitless zero reads as a colour in v4, not a size *)
+  bad "text-[0]"
+
+(* A bracket font-size is any CSS length, not the px/rem/em/% subset the
+   hand-rolled suffix parser knew. Same for an arbitrary text-indent. *)
+let test_bracket_length_units () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let emits affix cls =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  emits "font-size: 3ch" "text-[3ch]";
+  emits "font-size: 2vh" "text-[2vh]";
+  emits "font-size: calc(1rem + 2px)" "text-[calc(1rem+2px)]";
+  emits "text-indent: 3ch" "indent-[3ch]";
+  emits "text-indent: -3ch" "-indent-[3ch]"
 
 let of_string_invalid () =
   (* Invalid typography values *)
@@ -266,6 +339,15 @@ let of_string_invalid () =
   fail_maybe [ "unknown" ]
 (* Unknown typography type *)
 
+(* line-clamp sits between box-sizing and the display family in Tailwind's
+   order, not among the typography utilities its class name suggests. *)
+let line_clamp_sorts_with_box_sizing () =
+  let classes =
+    [ "indent-4"; "line-clamp-2"; "block"; "box-border"; "ml-auto" ]
+  in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  Test_helpers.check_ordering_matches ~test_name:"line-clamp order" utilities
+
 let suborder_matches_tailwind () =
   let open Tw in
   let utilities =
@@ -295,6 +377,45 @@ let suborder_matches_tailwind () =
 
   Test_helpers.check_ordering_matches
     ~test_name:"typography suborder matches Tailwind" shuffled
+
+(* text-<size> also sets the line height, so a size and a leading on the same
+   element decide between them what the text is laid out with. The quoted
+   content values also pin the harness: a class whose arbitrary value carries
+   quotes has to reach the rendered element intact. *)
+let rendering_matches_tailwind () =
+  let classes =
+    [
+      "content-[\"x\"]";
+      "content-['x']";
+      "text-xs";
+      "text-base";
+      "text-lg";
+      "text-3xl";
+      "font-thin";
+      "font-normal";
+      "font-bold";
+      "leading-none";
+      "leading-relaxed";
+      "leading-6";
+      "tracking-tight";
+      "tracking-wide";
+      "text-left";
+      "text-center";
+      "text-right";
+      "underline";
+      "line-through";
+      "no-underline";
+      "italic";
+      "not-italic";
+      "uppercase";
+      "truncate";
+      "indent-4";
+      "align-middle";
+    ]
+  in
+  Test_helpers.check_rendering_matches
+    ~test_name:"typography renders like Tailwind"
+    (List.map (fun c -> Result.get_ok (Tw.of_string c)) classes)
 
 (* tracking-normal's token must keep the em unit (0em), not collapse to 0. *)
 let test_tracking_normal_unit () =
@@ -354,8 +475,190 @@ let test_text_line_height_override () =
     "text-sm honors --text-sm--line-height override" true
     (Astring.String.is_infix ~affix:"--text-sm--line-height:1.25rem" css)
 
+(* Tailwind's [--spacing(N)] and [--alpha(<color>/<pct>)] are usable inside an
+   arbitrary value. Verified against the real v4.3.3 CLI, which emits
+   [calc(var(--spacing) * 2)] and [color-mix(in oklab, red 20%,
+   transparent)]. *)
+let test_text_bracket_functions () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.pp ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "text-[--spacing(2)] is a spacing calc" true
+    (Astring.String.is_infix ~affix:"calc(var(--spacing)*2)"
+       (css "text-[--spacing(2)]"));
+  Alcotest.(check bool)
+    "text-[--alpha(red/20%)] is a color-mix" true
+    (Astring.String.is_infix ~affix:"color-mix(in oklab,red 20%,transparent)"
+       (css "text-[--alpha(red/20%)]"))
+
+(* A bracket list-style value is read with the CSS parser rather than a
+   hand-rolled keyword table: list-[square] and list-image-[url(...)] used to be
+   unknown classes. *)
+let test_bracket_list_style () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "list-[square]" "list-style-type:square";
+  has "list-image-[url(/carrot.png)]" "list-style-image:url(/carrot.png)";
+  Alcotest.(check bool)
+    "an unknown counter style is rejected" true
+    (Result.is_error (Tw.of_string "list-[nonsense-style]"))
+
+(* CSS Fonts 4 sec. 6.4: a feature setting is a quoted four-character tag with
+   an optional integer / on / off, so the docs' [<value>] placeholder is not
+   one; the underscore in [font-features-["liga"_0]] is a space. *)
+let test_font_features_value () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  rejected "font-features-[<value>]";
+  Alcotest.(check bool)
+    "the underscore is a space" true
+    (Astring.String.is_infix ~affix:"font-feature-settings:\"liga\" 0"
+       (css "font-features-[\"liga\"_0]"))
+
+(* A font family is idents or quoted strings; the docs' [<value>] placeholder
+   used to be quoted into font-family: "<value>". *)
+let test_invalid_font_family () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  let accepted cls =
+    match Tw.of_string cls with
+    | Ok _ -> ()
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  rejected "font-[<value>]";
+  accepted "font-[ui-sans-serif]";
+  accepted "font-[var(--x)]";
+  accepted "font-[600]"
+
+(* An arbitrary decoration thickness takes any CSS length unit, not just the px
+   the hand-rolled suffix parser knew; the percentage form keeps its em
+   conversion. A bracket that is not a length is rejected by the parser rather
+   than raising once the sheet is rendered. *)
+let test_decoration_bracket_thickness () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let emits affix cls =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  emits "text-decoration-thickness: 3rem" "decoration-[3rem]";
+  emits "text-decoration-thickness: 2px" "decoration-[2px]";
+  emits "text-decoration-thickness: 2ch" "decoration-[2ch]";
+  emits "text-decoration-thickness: .5em" "decoration-[50%]";
+  (* The bracket goes through the arbitrary-value decoder, so an escaped space
+     and a [--spacing()] call both read as lengths. *)
+  emits "text-decoration-thickness: calc(1rem + 2px)"
+    "decoration-[calc(1rem_+_2px)]";
+  emits "text-decoration-thickness: calc(var(--spacing) * 2)"
+    "decoration-[--spacing(2)]";
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  rejected "decoration-[.]";
+  rejected "decoration-[1e]"
+
+(* Tailwind treats a unitless arbitrary decoration value as a colour candidate.
+   The resulting colour declaration is invalid CSS and has no browser effect; TW
+   must keep the candidate accepted without turning it into a visible pixel
+   thickness. *)
+let test_decoration_bracket_unitless_is_color () =
+  let css =
+    match Tw.of_string "decoration-[2]" with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.fail m
+  in
+  Alcotest.(check bool)
+    "does not turn the invalid colour into a thickness" false
+    (Astring.String.is_infix ~affix:"text-decoration-thickness" css)
+
+(* A shadeless decoration colour takes an opacity modifier the same way every
+   other colour family does, and keeps its shadeless class name. *)
+let test_decoration_shadeless_opacity () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let emits affix cls =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  check_late "decoration-white/50";
+  check_late "decoration-black/50";
+  check_late "decoration-white/[0.5]";
+  emits "color-mix(in oklab,var(--color-white) 50%,transparent)"
+    "decoration-white/50";
+  emits "color-mix(in oklab,var(--color-black) 50%,transparent)"
+    "decoration-black/50";
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  rejected "decoration-2/50";
+  rejected "decoration-nosuchcolor/50";
+  rejected "decoration-white/"
+
+(* A [#] bracket is only a decoration colour when what follows is a hex
+   spelling. The decoration reader handed everything after the [#] to the
+   raising constructor from inside [of_class], so a malformed hex escaped the
+   parser as an exception instead of failing the match. *)
+let test_invalid_decoration_bracket_hex () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  rejected "decoration-[#zz]";
+  rejected "decoration-[#]";
+  rejected "decoration-[#12345]";
+  rejected "decoration-[#zz]/50";
+  Alcotest.(check bool)
+    "decoration-[#ff0000] still emits the colour" true
+    (Astring.String.is_infix ~affix:"text-decoration-color:#f00"
+       (css "decoration-[#ff0000]"))
+
 let tests =
   [
+    test_case "invalid decoration bracket hex" `Quick
+      test_invalid_decoration_bracket_hex;
+    test_case "decoration bracket thickness" `Quick
+      test_decoration_bracket_thickness;
+    test_case "unitless decoration bracket is a colour" `Quick
+      test_decoration_bracket_unitless_is_color;
+    test_case "decoration shadeless opacity" `Quick
+      test_decoration_shadeless_opacity;
+    test_case "bracket list-style" `Quick test_bracket_list_style;
+    test_case "invalid font family" `Quick test_invalid_font_family;
+    test_case "font-features value" `Quick test_font_features_value;
     test_case "tracking-normal unit" `Quick test_tracking_normal_unit;
     test_case "numeric leading from spacing" `Quick test_numeric_leading_spacing;
     test_case "leading-none inline" `Quick test_leading_none_inline;
@@ -384,9 +687,17 @@ let tests =
       test_text_bracket_size_valid;
     test_case "text-[<font-size>] invalid values" `Quick
       test_text_bracket_size_invalid;
+    test_case "bracket length units" `Quick test_bracket_length_units;
+    test_case "text-[--spacing()/--alpha()] functions" `Quick
+      test_text_bracket_functions;
+    test_case "named font family from the theme" `Quick test_named_font_family;
     test_case "typography of_string - invalid values" `Quick of_string_invalid;
     test_case "typography suborder matches Tailwind" `Quick
       suborder_matches_tailwind;
+    test_case "line-clamp sorts with box-sizing" `Quick
+      line_clamp_sorts_with_box_sizing;
+    test_case "typography renders like Tailwind" `Slow
+      rendering_matches_tailwind;
   ]
 
 let suite = ("typography", tests)

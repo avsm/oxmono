@@ -104,6 +104,31 @@ let negative_suborder_matches_tailwind () =
     ~test_name:"negative margin suborder matches Tailwind"
     (Test_helpers.shuffle utilities)
 
+(* m, mx and ml all write margin-left, so which one an element ends up with is
+   decided by the order the two sheets emit them in. *)
+let rendering_matches_tailwind () =
+  let classes =
+    [
+      "m-0";
+      "m-2";
+      "-m-1";
+      "mx-2";
+      "mx-auto";
+      "my-4";
+      "-mx-1";
+      "mt-2";
+      "-mt-1";
+      "mr-2";
+      "mb-4";
+      "ml-2";
+      "-ml-1";
+      "ms-2";
+      "me-4";
+    ]
+  in
+  Test_helpers.check_rendering_matches ~test_name:"margins render like Tailwind"
+    (List.map (fun c -> Result.get_ok (Tw.of_string c)) classes)
+
 (** Test that CSS values use the correct spacing multiplier. m-64 should
     generate calc(var(--spacing)*64), not calc(var(--spacing)*16) *)
 let test_css_values () =
@@ -122,6 +147,33 @@ let test_css_values () =
   Alcotest.check bool "-m-8 uses spacing*-8" true
     (Astring.String.is_infix ~affix:"*-8)" (css_for (m (-8))))
 
+(* Arbitrary margins accept the full length grammar (percent, container-query
+   units, calc), not just px/rem, and round-trip verbatim. *)
+let test_arbitrary_length_grammar () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "ml-[50%] emits margin-left:50%" true
+    (Astring.String.is_infix ~affix:"margin-left:50%" (css "ml-[50%]"));
+  Alcotest.(check bool)
+    "mb-[-5cqw] keeps the cqw unit" true
+    (Astring.String.is_infix ~affix:"margin-bottom:-5cqw" (css "mb-[-5cqw]"));
+  Alcotest.(check bool)
+    "ml-[calc(5%-2px)] spaces the calc operator" true
+    (Astring.String.is_infix ~affix:"margin-left:calc(5% - 2px)"
+       (css "ml-[calc(5%-2px)]"));
+  (* class names round-trip verbatim *)
+  let check c =
+    match Tw.Margin.Handler.of_class Tw.Scheme.default c with
+    | Ok u -> Alcotest.check string "roundtrip" c (Tw.Margin.Handler.to_class u)
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" c m
+  in
+  check "ml-[50%]";
+  check "mb-[-5cqw]"
+
 let tests =
   [
     test_case "margin of_string - valid values" `Quick of_string_valid;
@@ -133,6 +185,8 @@ let tests =
     test_case "negative margin suborder matches Tailwind" `Quick
       negative_suborder_matches_tailwind;
     test_case "margin CSS values" `Quick test_css_values;
+    test_case "arbitrary length grammar" `Quick test_arbitrary_length_grammar;
+    test_case "margins render like Tailwind" `Slow rendering_matches_tailwind;
   ]
 
 let suite = ("margin", tests)

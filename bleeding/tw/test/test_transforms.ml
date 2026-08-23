@@ -9,7 +9,11 @@ let check class_name =
 
 let test_translate_rotate () =
   check "translate-x-4";
-  check "rotate-90"
+  check "rotate-90";
+  (* the v4.3.3 none keyword on each transform property *)
+  check "translate-none";
+  check "rotate-none";
+  check "scale-none"
 
 (* translate-px (all axes) and the negative px / arbitrary-value variants used
    to be unknown classes: only the per-axis px and positive arbitrary forms
@@ -22,6 +26,11 @@ let test_translate_px_and_neg_arbitrary () =
   check "-translate-y-px";
   check "-translate-y-[110%]";
   check "-translate-x-[3px]";
+  (* A negative value inside the bracket (not a leading -) parses, and the raw
+     token is kept verbatim in the class name (-0.5px, not the folded -.5px). *)
+  check "translate-x-[-0.5px]";
+  check "translate-y-[-110%]";
+  check "translate-x-[-1.15rem]";
   let css cls =
     match Tw.of_string cls with
     | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
@@ -33,7 +42,31 @@ let test_translate_px_and_neg_arbitrary () =
   Alcotest.(check bool)
     "-translate-y-[110%] negates the value" true
     (Astring.String.is_infix ~affix:"calc(110% * -1)"
-       (css "-translate-y-[110%]"))
+       (css "-translate-y-[110%]"));
+  Alcotest.(check bool)
+    "translate-x-[-0.5px] keeps the negative value" true
+    (Astring.String.is_infix ~affix:"--tw-translate-x: -.5px"
+       (css "translate-x-[-0.5px]"))
+
+(* The near/midrange/distant perspective keywords reference their theme token,
+   like the dramatic/normal ones already did. *)
+let test_perspective_keywords () =
+  check "perspective-near";
+  check "perspective-midrange";
+  check "perspective-distant";
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "perspective-near references its token" true
+    (Astring.String.is_infix ~affix:"perspective:var(--perspective-near)"
+       (css "perspective-near"));
+  Alcotest.(check bool)
+    "perspective-distant defines the 1200px token" true
+    (Astring.String.is_infix ~affix:"--perspective-distant:1200px"
+       (css "perspective-distant"))
 
 let test_of_string_invalid () =
   (* Invalid transform utilities *)
@@ -95,6 +128,32 @@ let suborder_matches_tailwind () =
   Test_helpers.check_ordering_matches
     ~test_name:"transforms suborder matches Tailwind" shuffled
 
+(* Every transform utility writes into the same --tw-* slots and the shared
+   transform property, so the composed matrix is what has to agree. *)
+let rendering_matches_tailwind () =
+  let classes =
+    [
+      "translate-x-4";
+      "translate-y-2";
+      "-translate-x-2";
+      "translate-4";
+      "rotate-45";
+      "-rotate-90";
+      "scale-50";
+      "scale-x-75";
+      "scale-y-125";
+      "skew-x-3";
+      "skew-y-6";
+      "origin-center";
+      "origin-top-right";
+      "transform-gpu";
+      "transform-none";
+    ]
+  in
+  Test_helpers.check_rendering_matches
+    ~test_name:"transforms render like Tailwind"
+    (List.map (fun c -> Result.get_ok (Tw.of_string c)) classes)
+
 (* skew_x/skew_y (int) and the transform-origin constructors are newly exposed
    in tw.mli; check they agree with the parser on class names. *)
 let test_typed () =
@@ -104,15 +163,75 @@ let test_typed () =
   Test_helpers.check_typed_class "origin-top-right" Tw.origin_top_right;
   Test_helpers.check_typed_class "origin-bottom-left" Tw.origin_bottom_left
 
+(* [--tw-translate-*] is a custom property, an opaque token stream where [0] and
+   [0px] are different tokens, so the zero has to keep its unit. Leaving it to
+   the length-level zero fold emits a bare [0] and diverges from Tailwind. *)
+let test_translate_zero_keeps_unit () =
+  let css = Tw.to_css ~base:false [ Tw.translate_x 0 ] |> Tw.Css.to_string in
+  Alcotest.(check bool)
+    "translate-x-0 writes 0px" true
+    (Astring.String.is_infix ~affix:"--tw-translate-x: 0px" css)
+
+(* Bare-integer translate-N / -translate-N set both axes to calc(var(--spacing)
+   * n); they used to be unknown classes (only the per-axis translate-x-N /
+   translate-y-N parsed). *)
+let test_translate_spacing () =
+  check "translate-2";
+  check "translate-8";
+  check "translate-60";
+  check "-translate-4";
+  check "-translate-6";
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "translate-2 sets both axes" true
+    (Astring.String.is_infix ~affix:"--tw-translate-x: calc(var(--spacing) * 2)"
+       (css "translate-2")
+    && Astring.String.is_infix
+         ~affix:"--tw-translate-y: calc(var(--spacing) * 2)" (css "translate-2")
+    );
+  Alcotest.(check bool)
+    "-translate-4 negates the multiplier" true
+    (Astring.String.is_infix
+       ~affix:"--tw-translate-x: calc(var(--spacing) * -4)" (css "-translate-4"))
+
+(* A fractional spacing step on translate, in both signs: translate-x-0.5 and
+   -translate-y-0.5 used to be unknown classes since the axis took an int. The
+   unit step folds to the bare variable, as Tailwind writes it. *)
+let test_translate_spacing_steps () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "translate-x-0.5" "--tw-translate-x:calc(var(--spacing)*.5)";
+  has "-translate-y-0.5" "--tw-translate-y:calc(var(--spacing)*-.5)";
+  has "translate-x-1" "--tw-translate-x:var(--spacing)";
+  Alcotest.(check string)
+    "-translate-y-0.5 round-trips" "-translate-y-0.5"
+    (Tw.pp (Result.get_ok (Tw.of_string "-translate-y-0.5")))
+
 let tests =
   [
+    test_case "translate spacing steps" `Quick test_translate_spacing_steps;
+    test_case "translate zero keeps its unit" `Quick
+      test_translate_zero_keeps_unit;
+    test_case "translate spacing (both axes)" `Quick test_translate_spacing;
     test_case "translate+rotate" `Quick test_translate_rotate;
+    test_case "perspective keywords" `Quick test_perspective_keywords;
     test_case "translate-px and negative arbitrary" `Quick
       test_translate_px_and_neg_arbitrary;
     test_case "of_string invalid cases" `Quick test_of_string_invalid;
     test_case "typed constructors" `Quick test_typed;
     test_case "transforms suborder matches Tailwind" `Quick
       suborder_matches_tailwind;
+    test_case "transforms render like Tailwind" `Slow rendering_matches_tailwind;
   ]
 
 let suite = ("transforms", tests)

@@ -59,28 +59,45 @@ let is_allowed_canonicalization_diff diff =
     | _ -> false
   in
   match Css_compare.as_tree_diff diff with
-  | Some Tree_diff.{ rules = []; containers } ->
+  | Some Tree_diff.{ rules = []; containers; layer_order = None } ->
       containers <> [] && List.for_all allowed_container containers
   | _ -> false
+
+let test_layer_order_not_tolerated () =
+  let expected =
+    "@layer weak, strong;@media (width >= 1px){.x{--font-sans:a}}"
+  in
+  let actual = "@layer strong, weak;@media (width >= 1px){.x{--font-sans:b}}" in
+  let diff = Css_compare.diff ~mode:`Tree expected actual in
+  Alcotest.(check bool)
+    "a tolerated declaration cannot hide a layer-order change" false
+    (is_allowed_canonicalization_diff diff)
 
 (* File utilities *)
 let write_file path content =
   let oc = open_out path in
-  output_string oc content;
-  close_out oc
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr oc)
+    (fun () -> output_string oc content)
 
+(* A file name the class list can be read back out of, and that no other class
+   list shares. The readable half keeps whatever is already safe in a path and
+   folds the rest to [_], which alone collides ([p-4 m-2] and [p_4_m_2]) and is
+   truncated on top; the digest of the full name is what separates them. *)
 let slugify s =
   let b = Buffer.create (String.length s) in
   String.iter
     (fun c ->
-      if
-        (c >= 'a' && c <= 'z')
-        || (c >= 'A' && c <= 'Z')
-        || (c >= '0' && c <= '9')
-        || c = '_'
-      then Buffer.add_char b c)
+      match c with
+      | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '.' | '-' | '_' ->
+          Buffer.add_char b c
+      | _ -> Buffer.add_char b '_')
     s;
-  Buffer.contents b
+  let readable = Buffer.contents b in
+  let readable =
+    if String.length readable > 60 then String.sub readable 0 60 else readable
+  in
+  readable ^ "-" ^ String.sub (Digest.to_hex (Digest.string s)) 0 12
 
 (* Test name generation *)
 let test_name_of = function
@@ -90,8 +107,17 @@ let test_name_of = function
       if String.length full_name > 100 then String.sub full_name 0 97 ^ "..."
       else full_name
 
+(* Another test binary may have created it between the two calls. *)
+let mkdir dir =
+  if not (Sys.file_exists dir) then
+    try Sys.mkdir dir 0o755 with Sys_error _ -> ()
+
 let debug_files test_name tw_css tailwind_css =
-  let out_dir = "/tmp" in
+  (* Repo-local, as the debugging docs say: a system temp directory is shared
+     with every other user and run on the machine. *)
+  let out_dir = Filename.concat "tmp" "css_debug" in
+  mkdir "tmp";
+  mkdir out_dir;
   let test_name_slug = slugify test_name in
   let tw_file =
     Filename.concat out_dir ("test_css_tw_" ^ test_name_slug ^ ".css")
@@ -140,20 +166,20 @@ let check_exact_match tw_styles =
     let tailwind_css = canonical_stylesheet_css !tailwind_css_raw in
 
     let test_name = test_name_of classnames in
-    (* Write stripped CSS to test files for better error context *)
-    let tw_file, tailwind_file = debug_files test_name tw_css tailwind_css in
-
     let diff_result =
       Css_compare.diff ~mode:`Canonical ~prune_unused_custom_props:true
         tailwind_css tw_css
     in
     let parity_equal =
       (match diff_result.Css_compare.result with
-        | Css_compare.No_diff _ -> true
+        | Css_compare.No_diff -> true
         | _ -> false)
       || is_allowed_canonicalization_diff diff_result
     in
     if not parity_equal then (
+      (* Only a failure is worth an artefact: a passing run has nothing to diff
+         by hand. *)
+      let tw_file, tailwind_file = debug_files test_name tw_css tailwind_css in
       report_failure test_name tw_file tailwind_file;
 
       (* Show diff statistics *)
@@ -179,6 +205,10 @@ let check_exact_match tw_styles =
       (if parity_equal then tailwind_css else tw_css)
   with
   | Failure msg -> fail ("Test setup failed: " ^ msg)
+  | Sys_error msg ->
+      (* A filesystem error already names the path and the reason; wrapping it
+         as an unexpected exception buries both. *)
+      fail msg
   | Cascade.Reader.Parse_error err ->
       let details = Cascade.Reader.pp_parse_error err in
       (* Print a more helpful parse error with context and callstack. *)
@@ -503,6 +533,32 @@ let check_upstream_positive_fixture_parse filename () =
 
 (* ===== CORE TESTS (renamed to shorter names) ===== *)
 
+(* Debug artefacts are named after the classes under test and belong inside the
+   checkout: a shared system temp directory is written by every user and every
+   concurrent run at once. The name has to separate the runs too - a slug that
+   drops every separator sends [p-4 m-2] and [p4m2] to the same pair of
+   files. *)
+let debug_artefacts () =
+  Alcotest.(check bool)
+    "distinct class lists get distinct slugs" true
+    (slugify "p-4 m-2" <> slugify "p4m2");
+  let is_safe = function
+    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '.' | '_' | '-' -> true
+    | _ -> false
+  in
+  Alcotest.(check bool)
+    "slug is filesystem-safe" true
+    (String.for_all is_safe (slugify "before:content-['*'] w-1/2"));
+  let tw_file, tailwind_file = debug_files "p-4 m-2" "" "" in
+  let expected_dir = Filename.concat "tmp" "css_debug" in
+  List.iter
+    (fun path ->
+      Alcotest.(check string)
+        "artefact sits in the repo-local tmp" expected_dir
+        (Filename.dirname path);
+      Alcotest.(check bool) (path ^ " was written") true (Sys.file_exists path))
+    [ tw_file; tailwind_file ]
+
 let empty_test () =
   (* Test with no styles to see base output *)
   check_list []
@@ -559,6 +615,24 @@ let responsive_breakpoints () =
   check (xl [ hidden ]);
   check (sm [ text_lg ]);
   check (md [ p 8 ])
+
+let custom_breakpoint_theme_is_local () =
+  Tw.Modifiers.clear_custom_breakpoints ();
+  let theme : Tw.Scheme.t =
+    { Tw.Scheme.default with breakpoints = [ ("10xl", 1600.) ] }
+  in
+  let utility =
+    match Tw.of_string ~theme "10xl:flex" with
+    | Ok utility -> utility
+    | Error (`Msg msg) -> Alcotest.fail msg
+  in
+  let css = Tw.to_css ~theme ~base:false [ utility ] |> Tw.Css.to_string in
+  Alcotest.(check bool)
+    "custom breakpoint renders" true
+    (Astring.String.is_infix ~affix:"1600px" css);
+  Alcotest.(check bool)
+    "custom breakpoint does not leak into the default theme" true
+    (Result.is_error (Tw.of_string "10xl:flex"))
 
 let layout () =
   check static;
@@ -856,9 +930,7 @@ let prose_element_variants_combined () =
     ]
 
 (* -- 3. Divide utilities -------------------------------------------------- *)
-(* divide-x and divide-y with width values are parseable by CLI but have no
-   typed API (only divide_x_reverse and divide_y_reverse are exposed).
-   divide-x/divide-y without explicit widths also exist. *)
+(* divide-x/divide-y also exist without an explicit width, defaulting to 1px. *)
 
 let divide_width () =
   (* Basic divide-x and divide-y (1px default) *)
@@ -1057,7 +1129,7 @@ let paren_var_shorthand () =
   (* fallback form keeps the default inside var() *)
   Alcotest.(check bool)
     "top-(--top,0) keeps the fallback" true
-    (Astring.String.is_infix ~affix:"top: var(--top,0)" (css "top-(--top,0)"));
+    (Astring.String.is_infix ~affix:"top: var(--top, 0)" (css "top-(--top,0)"));
   (* typed hint maps to the bracket typed form *)
   Alcotest.(check bool)
     "font-(family-name:--font-x) sets font-family: var(--font-x)" true
@@ -1069,6 +1141,28 @@ let paren_var_shorthand () =
       Alcotest.(check string)
         "p-(--p) round-trips" "p-(--p)" (Tw.to_classes [ u ])
   | Error (`Msg m) -> Alcotest.failf "p-(--p): %s" m
+
+(* [of_string] resolves theme() dot-paths before dispatch, so it is the first
+   thing any scanned class hits. A theme( whose paren never closes - a truncated
+   attribute in real markup - must come back as an error, not run the scanner
+   past the end of the string. *)
+let unterminated_theme_call () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok u -> Alcotest.failf "expected %s to be rejected, got %s" cls (Tw.pp u)
+    | Error _ -> ()
+  in
+  rejected "bg-[theme(colors.red";
+  rejected "theme(colors.red";
+  rejected "bg-[theme(";
+  (* the terminated form still resolves *)
+  match Tw.of_string "bg-[theme(colors.red.500)]" with
+  | Ok u ->
+      Alcotest.(check bool)
+        "theme(colors.red.500) resolves" true
+        (Astring.String.is_infix ~affix:"background-color: oklch("
+           (Tw.to_css ~base:false [ u ] |> Tw.Css.to_string))
+  | Error (`Msg m) -> Alcotest.failf "bg-[theme(colors.red.500)]: %s" m
 
 let all_colors_grays () =
   check_list
@@ -1221,6 +1315,9 @@ let property_order_cross_family () =
 
 let core_tests =
   [
+    test_case "canonical tolerance rejects layer order" `Quick
+      test_layer_order_not_tolerated;
+    test_case "debug artefacts" `Quick debug_artefacts;
     test_case "empty test" `Quick empty_test;
     test_case "upstream utilities parse parity" `Quick
       (check_upstream_positive_fixture_parse "utilities.txt");
@@ -1233,6 +1330,8 @@ let core_tests =
     test_case "hex colors" `Slow hex_colors;
     test_case "gradients" `Slow gradients;
     test_case "responsive breakpoints" `Slow responsive_breakpoints;
+    test_case "custom breakpoint theme is local" `Quick
+      custom_breakpoint_theme_is_local;
     test_case "layout" `Slow layout;
     test_case "opacity" `Slow opacity_effects;
     test_case "extended colors" `Slow extended_colors;
@@ -1291,6 +1390,7 @@ let core_tests =
     test_case "inline styles" `Slow inline_styles;
     test_case "style combination" `Slow style_combination;
     test_case "paren var shorthand" `Quick paren_var_shorthand;
+    test_case "unterminated theme() call" `Quick unterminated_theme_call;
     test_case "responsive classes" `Slow responsive_classes;
     test_case "multiple classes" `Slow multiple_classes;
     test_case "all colors same shade" `Slow all_colors_same_shade;

@@ -20,7 +20,86 @@ let test_invalid () =
   Test_helpers.check_invalid_input (module Tw.Divide.Handler) "divide";
   Test_helpers.check_invalid_input (module Tw.Divide.Handler) "divide-foo"
 
+(* Every divide utility the parser accepts also has a typed constructor, and the
+   two agree on the class name (issue #5). *)
+let test_typed () =
+  let open Tw in
+  Test_helpers.check_typed_class "divide-x-2" (divide_x 2);
+  Test_helpers.check_typed_class "divide-y-4" (divide_y 4);
+  Test_helpers.check_typed_class "divide-x-reverse" divide_x_reverse;
+  Test_helpers.check_typed_class "divide-y-reverse" divide_y_reverse;
+  Test_helpers.check_typed_class "divide-blue-500" (divide_color blue);
+  Test_helpers.check_typed_class "divide-gray-300"
+    (divide_color ~shade:300 gray);
+  Test_helpers.check_typed_class "divide-transparent" divide_transparent;
+  Test_helpers.check_typed_class "divide-current" divide_current;
+  Test_helpers.check_typed_class "divide-inherit" divide_inherit;
+  Test_helpers.check_typed_class "divide-dashed" (divide_style Dashed)
+
+(* The widths lead the family and divide-x-reverse trails it, which is
+   Tailwind's own order; the styles used to sort first, putting divide-dashed
+   ahead of divide-y-4. *)
+let divide_classes =
+  [
+    "divide-x";
+    "divide-x-2";
+    "divide-y";
+    "divide-y-4";
+    "divide-y-reverse";
+    "divide-x-reverse";
+    "divide-solid";
+    "divide-dashed";
+    "divide-current";
+    "divide-gray-200";
+    "border-2";
+    "border-gray-500";
+    "border-dashed";
+  ]
+
+let divide_utilities () =
+  List.map (fun c -> Result.get_ok (Tw.of_string c)) divide_classes
+
+let order_matches_tailwind () =
+  Test_helpers.check_ordering_matches ~test_name:"divide order matches Tailwind"
+    (Test_helpers.shuffle (divide_utilities ()))
+
+(* divide-* and border-* write the same border properties, so what an element is
+   actually bordered with is a rendering question, not only an ordering one. *)
+let rendering_matches_tailwind () =
+  Test_helpers.check_rendering_matches ~test_name:"divide renders like Tailwind"
+    (divide_utilities ())
+
+(* A [#] bracket is only a divide colour when what follows is a hex spelling.
+   The divide reader handed everything after the [#] to the raising constructor
+   from inside [of_class], so a malformed hex escaped the parser as an exception
+   instead of failing the match. *)
+let test_invalid_bracket_hex () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  rejected "divide-[#zz]";
+  rejected "divide-[#]";
+  rejected "divide-[#12345]";
+  rejected "divide-[#zz]/50";
+  Alcotest.(check bool)
+    "divide-[#ff0000] still emits the colour" true
+    (Astring.String.is_infix ~affix:"border-color:#f00" (css "divide-[#ff0000]"))
+
 let tests =
   Test_helpers.standard ~roundtrip:test_roundtrip ~invalid:test_invalid
+  @ [
+      Alcotest.test_case "typed constructors" `Quick test_typed;
+      Alcotest.test_case "order matches Tailwind" `Slow order_matches_tailwind;
+      Alcotest.test_case "renders like Tailwind" `Slow
+        rendering_matches_tailwind;
+      Alcotest.test_case "invalid bracket hex" `Quick test_invalid_bracket_hex;
+    ]
 
 let suite = ("divide", tests)

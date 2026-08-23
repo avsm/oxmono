@@ -13,6 +13,7 @@ module Handler = struct
     | (* 2D Transforms *)
       Rotate of int
     | Rotate_arbitrary of Css.angle
+    | Rotate_none
     | Rotate_3d_arbitrary of float * float * float * Css.angle
     | Rotate_bare_var of string
     | Neg_rotate_bare_var of string
@@ -20,11 +21,13 @@ module Handler = struct
     | Translate_x of int
     | Translate_x_full
     | Translate_x_px
-    | Translate_x_arbitrary of Css.length
+    | Translate_x_step of float
+    | Translate_x_arbitrary of string * Css.length
     | Translate_y of int
     | Translate_y_full
     | Translate_y_px
-    | Translate_y_arbitrary of Css.length
+    | Translate_y_step of float
+    | Translate_y_arbitrary of string * Css.length
     | Scale of int
     | Scale_x of int
     | Scale_x_arbitrary of float
@@ -41,13 +44,16 @@ module Handler = struct
     | Translate_x_fraction of int * int
     | Translate_y_fraction of int * int
     | (* Combined translate utilities *)
-      Translate_full
+      Translate of int
+    | Translate_full
+    | Translate_none
     | Translate_px
     | Translate_1_2
     | Translate_fraction of int * int
-    | Translate_arbitrary of Css.length
+    | Translate_arbitrary of string * Css.length
     | (* Negative translate utilities *)
-      Neg_translate_arbitrary of string
+      Neg_translate of int
+    | Neg_translate_arbitrary of string
     | Neg_translate_full
     | Neg_translate_px
     | Neg_translate_fraction of int * int
@@ -85,9 +91,13 @@ module Handler = struct
     | Scale_z of int
     | Scale_z_arbitrary of string
     | Scale_3d
+    | Scale_none
     | Perspective_none
     | Perspective_dramatic
+    | Perspective_near
     | Perspective_normal
+    | Perspective_midrange
+    | Perspective_distant
     | Perspective_arbitrary of Css.length
     | (* Perspective origin *)
       Perspective_origin_center
@@ -192,15 +202,24 @@ module Handler = struct
     Var.channel ~needs_property:true ~property_order:4 ~family:`Skew
       Css.Transform "tw-skew-y"
 
-  (* Perspective theme variables *)
+  (* Perspective theme variables, ordered by value to match Tailwind's theme *)
   let perspective_dramatic_var =
     Var.theme Css.Length "perspective-dramatic" ~order:(7, 13)
 
+  let perspective_near_var =
+    Var.theme Css.Length "perspective-near" ~order:(7, 14)
+
   let perspective_normal_var =
-    Var.theme Css.Length "perspective-normal" ~order:(7, 14)
+    Var.theme Css.Length "perspective-normal" ~order:(7, 15)
+
+  let perspective_midrange_var =
+    Var.theme Css.Length "perspective-midrange" ~order:(7, 16)
+
+  let perspective_distant_var =
+    Var.theme Css.Length "perspective-distant" ~order:(7, 17)
 
   let perspective_none_var =
-    Var.theme Css.Length "perspective-none" ~order:(7, 15)
+    Var.theme Css.Length "perspective-none" ~order:(7, 18)
 
   (** {1 Helpers} *)
 
@@ -303,7 +322,9 @@ module Handler = struct
     if String.length s >= 3 && s.[0] = '[' && s.[String.length s - 1] = ']' then (
       let inner = String.sub s 1 (String.length s - 2) in
       let slen = String.length inner in
-      let i = ref 0 in
+      (* Allow a leading minus so negative arbitrary values
+         (translate-x-[-0.5px], translate-y-[-110%]) parse. *)
+      let i = ref (if slen > 0 && inner.[0] = '-' then 1 else 0) in
       while
         !i < slen
         && ((inner.[!i] >= '0' && inner.[!i] <= '9') || inner.[!i] = '.')
@@ -413,11 +434,19 @@ module Handler = struct
     let spacing_decl, spacing_ref =
       Var.binding Theme.spacing_var (Css.Rem 0.25)
     in
+    (* [calc(var(--spacing) * 0)] is zero whatever the spacing is, and Tailwind
+       writes that zero with a unit. The target is a [--tw-*] custom property,
+       an opaque token stream where [0] and [0px] are not the same token, so the
+       unit has to be written here rather than left to length-level zero
+       folding. *)
     let spacing_value : Css.length =
-      Css.Calc
-        (Css.Calc.mul
-           (Css.Calc.length (Css.Var spacing_ref))
-           (Css.Calc.float (float_of_int n)))
+      if n = 0 then Css.Px 0.
+      else if n = 1 then Css.Var spacing_ref
+      else
+        Css.Calc
+          (Css.Calc.mul
+             (Css.Calc.length (Css.Var spacing_ref))
+             (Css.Calc.float (float_of_int n)))
     in
     let axis_decl, _ = Var.binding axis_var spacing_value in
     style ~property_rules:translate_props
@@ -425,6 +454,25 @@ module Handler = struct
 
   let translate_x n = translate_axis tw_translate_x_var n
   let translate_y n = translate_axis tw_translate_y_var n
+
+  (* A fractional spacing step ([translate-x-0.5]), signed so the negative form
+     goes through the same path. *)
+  let translate_axis_step axis_var f =
+    let spacing_decl, spacing_ref =
+      Var.binding Theme.spacing_var (Css.Rem 0.25)
+    in
+    let spacing_value : Css.length =
+      Css.Calc
+        (Css.Calc.mul
+           (Css.Calc.length (Css.Var spacing_ref))
+           (Css.Calc.float f))
+    in
+    let axis_decl, _ = Var.binding axis_var spacing_value in
+    style ~property_rules:translate_props
+      (spacing_decl :: axis_decl :: [ translate_xy_refs ])
+
+  let translate_x_step f = translate_axis_step tw_translate_x_var f
+  let translate_y_step f = translate_axis_step tw_translate_y_var f
 
   (** Helper to create a fraction percentage value: calc(n/d * 100%) *)
   let make_fraction_pct num denom : Css.length =
@@ -583,6 +631,27 @@ module Handler = struct
         [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
     in
     style ~property_rules:props (dx :: dy :: [ translate_xy_refs ])
+
+  (* Combined spacing translate (translate-N / -translate-N): both axes bound to
+     calc(var(--spacing) * n); a negative n renders the "* -n" multiplier. *)
+  let translate_spacing n =
+    let spacing_decl, spacing_ref =
+      Var.binding Theme.spacing_var (Css.Rem 0.25)
+    in
+    let spacing_value : Css.length =
+      Css.Calc
+        (Css.Calc.mul
+           (Css.Calc.length (Css.Var spacing_ref))
+           (Css.Calc.float (float_of_int n)))
+    in
+    let dx, _ = Var.binding tw_translate_x_var spacing_value in
+    let dy, _ = Var.binding tw_translate_y_var spacing_value in
+    let props =
+      collect_property_rules
+        [ tw_translate_x_var; tw_translate_y_var; tw_translate_z_var ]
+    in
+    style ~property_rules:props
+      (spacing_decl :: dx :: dy :: [ translate_xy_refs ])
 
   let translate_1_2 =
     (* Tailwind outputs calc(1 / 2 * 100%) rather than 50% *)
@@ -846,8 +915,20 @@ module Handler = struct
     let decl, r = Var.binding perspective_dramatic_var (Px 100.0) in
     style (decl :: [ Css.perspective (Var r) ])
 
+  let perspective_near =
+    let decl, r = Var.binding perspective_near_var (Px 300.0) in
+    style (decl :: [ Css.perspective (Var r) ])
+
   let perspective_normal =
     let decl, r = Var.binding perspective_normal_var (Px 500.0) in
+    style (decl :: [ Css.perspective (Var r) ])
+
+  let perspective_midrange =
+    let decl, r = Var.binding perspective_midrange_var (Px 800.0) in
+    style (decl :: [ Css.perspective (Var r) ])
+
+  let perspective_distant =
+    let decl, r = Var.binding perspective_distant_var (Px 1200.0) in
     style (decl :: [ Css.perspective (Var r) ])
 
   let perspective_arbitrary len = style [ Css.perspective len ]
@@ -865,19 +946,9 @@ module Handler = struct
             (Var.theme_ref name ~default:(Css.Zero : Css.length) ~default_css)
         in
         style [ decl; perspective_origin ref; Css.perspective perspective_ref ]
-    | None ->
-        let v : Css.perspective_origin =
-          Var (Var.theme_ref name ~default ~default_css)
-        in
-        let perspective_ref : Css.length =
-          Css.Var
-            (Var.theme_ref name ~default:(Css.Zero : Css.length) ~default_css)
-        in
-        style
-          [
-            perspective_origin v;
-            Css.theme_guarded ~var_name:name (Css.perspective perspective_ref);
-          ]
+    (* Without a theme override Tailwind writes the keyword, not a reference to
+       a token nothing declares. *)
+    | None -> style [ perspective_origin default ]
 
   let perspective_origin_center ?theme () =
     po_with_ref ?theme "perspective-origin-center" Center "center" ()
@@ -949,11 +1020,7 @@ module Handler = struct
           Var.theme_ref name ~default ~default_css
         in
         style [ decl; transform_origin (Var ref) ]
-    | None ->
-        let v : Css.transform_origin =
-          Var (Var.theme_ref name ~default ~default_css)
-        in
-        style [ transform_origin v ]
+    | None -> style [ transform_origin default ]
 
   let origin_center ?theme () =
     origin_with_ref ?theme "transform-origin-center" Center "center" ()
@@ -1137,6 +1204,7 @@ module Handler = struct
     function
     | Rotate n -> rotate n
     | Rotate_arbitrary a -> rotate_arbitrary a
+    | Rotate_none -> style [ Css.rotate None ]
     | Rotate_3d_arbitrary (x, y, z, a) -> rotate_3d_arbitrary x y z a
     | Rotate_bare_var name -> rotate_bare_var name
     | Neg_rotate_bare_var name -> neg_rotate_bare_var name
@@ -1144,18 +1212,23 @@ module Handler = struct
     | Translate_x n -> translate_x n
     | Translate_x_full -> translate_x_full
     | Translate_x_px -> translate_x_px
-    | Translate_x_arbitrary len -> translate_x_arbitrary len
+    | Translate_x_step f -> translate_x_step f
+    | Translate_x_arbitrary (_, len) -> translate_x_arbitrary len
     | Translate_x_fraction (num, denom) -> translate_x_fraction num denom
     | Translate_y n -> translate_y n
     | Translate_y_full -> translate_y_full
     | Translate_y_px -> translate_y_px
-    | Translate_y_arbitrary len -> translate_y_arbitrary len
+    | Translate_y_step f -> translate_y_step f
+    | Translate_y_arbitrary (_, len) -> translate_y_arbitrary len
     | Translate_y_fraction (num, denom) -> translate_y_fraction num denom
+    | Translate n -> translate_spacing n
+    | Neg_translate n -> translate_spacing (-n)
     | Translate_full -> translate_full
+    | Translate_none -> style [ Css.translate None ]
     | Translate_px -> translate_px
     | Translate_1_2 -> translate_1_2
     | Translate_fraction (num, denom) -> translate_fraction num denom
-    | Translate_arbitrary len -> translate_arbitrary len
+    | Translate_arbitrary (_, len) -> translate_arbitrary len
     | Neg_translate_arbitrary s -> neg_translate_arbitrary_style s
     | Neg_translate_full -> neg_translate_full
     | Neg_translate_px -> neg_translate_px
@@ -1187,6 +1260,7 @@ module Handler = struct
     | Scale_z n -> scale_z n
     | Scale_z_arbitrary s -> scale_z_arbitrary s
     | Scale_3d -> scale_3d
+    | Scale_none -> style [ Css.scale None ]
     | Skew_x n -> skew_x n
     | Skew_x_arbitrary a -> skew_x_arbitrary a
     | Skew_y n -> skew_y n
@@ -1210,7 +1284,10 @@ module Handler = struct
     | Neg_rotate_z_arbitrary a -> neg_rotate_z_arbitrary a
     | Perspective_none -> perspective_none ()
     | Perspective_dramatic -> perspective_dramatic
+    | Perspective_near -> perspective_near
     | Perspective_normal -> perspective_normal
+    | Perspective_midrange -> perspective_midrange
+    | Perspective_distant -> perspective_distant
     | Perspective_arbitrary len -> perspective_arbitrary len
     | Perspective_origin_center -> perspective_origin_center ()
     | Perspective_origin_top -> perspective_origin_top ()
@@ -1262,18 +1339,26 @@ module Handler = struct
     | Transform_cpu -> 2002
     | Transform_gpu -> 2003
     | Transform_none -> 2004
-    (* Combined translate utilities: negative first, then positive *)
-    | Neg_translate_arbitrary _ -> 85
-    | Neg_translate_full -> 86
-    | Neg_translate_px -> 86
-    | Neg_translate_x_px -> 86
-    | Neg_translate_y_px -> 86
-    | Neg_translate_fraction _ -> 86
-    | Translate_1_2 -> 87
-    | Translate_fraction _ -> 87
-    | Translate_arbitrary _ -> 89
-    | Translate_full -> 91
-    | Translate_px -> 91
+    (* Combined translate (CSS `translate`): negatives first, positives second.
+       Within a sign Tailwind orders by class name, so one shared suborder plus
+       the string tiebreak already sorts fractions before small integers before
+       full/px. Positive integers need an explicit magnitude key (32 + n)
+       because lexical order puts translate-8 after translate-45; the spacing
+       scale on real sites keeps 32 + n below the translate-x band at 100. *)
+    | Neg_translate _ -> 20
+    | Neg_translate_arbitrary _ -> 20
+    | Neg_translate_full -> 20
+    | Neg_translate_px -> 20
+    | Neg_translate_x_px -> 20
+    | Neg_translate_y_px -> 20
+    | Neg_translate_fraction _ -> 20
+    | Translate_1_2 -> 31
+    | Translate_fraction _ -> 31
+    | Translate n -> 32 + n
+    | Translate_arbitrary _ -> 95
+    | Translate_full -> 96
+    | Translate_px -> 97
+    | Translate_none -> 98
     (* Translate utilities come first *)
     | Neg_translate_x_arbitrary _ -> 100
     | Neg_translate_x_full -> 101
@@ -1283,6 +1368,7 @@ module Handler = struct
     | Translate_x_fraction _ -> 125
     | Translate_x_full -> 130
     | Translate_x_px -> 131
+    | Translate_x_step f -> 100 + int_of_float (f *. 10.)
     | Translate_x_arbitrary _ -> 199
     | Neg_translate_y_arbitrary _ -> 200
     | Neg_translate_y_full -> 201
@@ -1292,6 +1378,7 @@ module Handler = struct
     | Translate_y_fraction _ -> 225
     | Translate_y_full -> 230
     | Translate_y_px -> 231
+    | Translate_y_step f -> 200 + int_of_float (f *. 10.)
     | Translate_y_arbitrary _ -> 299
     | Neg_translate_z_arbitrary _ -> 299
     | Neg_translate_z_px -> 300
@@ -1309,6 +1396,7 @@ module Handler = struct
     | Scale_z n -> 700 + n
     | Scale_z_arbitrary _ -> 799
     | Scale_3d -> 750
+    | Scale_none -> 750
     (* Rotate utilities - negative before positive, bare var before int/arb *)
     | Neg_rotate_bare_var _ -> 750
     | Neg_rotate_arbitrary _ -> 799
@@ -1319,6 +1407,7 @@ module Handler = struct
        not mid-range. *)
     | Rotate_3d_arbitrary _ -> 982
     | Rotate_arbitrary _ -> 983
+    | Rotate_none -> 983
     | Neg_rotate_x_bare_var _ -> 900
     | Neg_rotate_x_arbitrary _ -> 949
     | Rotate_x_bare_var _ -> 950
@@ -1347,6 +1436,9 @@ module Handler = struct
     | Perspective_dramatic -> 1400
     | Perspective_none -> 1401
     | Perspective_normal -> 1402
+    | Perspective_near -> 1403
+    | Perspective_midrange -> 1404
+    | Perspective_distant -> 1405
     | Perspective_origin_arbitrary _ -> 1499
     | Perspective_origin_bottom -> 1500
     | Perspective_origin_bottom_left -> 1501
@@ -1382,8 +1474,16 @@ module Handler = struct
     | Origin_top_right -> 1708
     | Origin_arbitrary _ -> 1699
 
+  (* A fractional spacing step: [0.5], [2.5]. Integers keep the existing
+     path. *)
+
   (** Parse a fraction string like "1/2", "2/3", etc. Returns (numerator,
       denominator) or None. *)
+  let parse_spacing_step s =
+    match float_of_string_opt s with
+    | Some f when f > 0. && not (Float.is_integer f) -> Some f
+    | _ -> None
+
   let parse_fraction s =
     match String.split_on_char '/' s with
     | [ num_s; denom_s ] -> (
@@ -1422,10 +1522,13 @@ module Handler = struct
             match parse_bracket_angle n with
             | Ok a -> Ok (Rotate_arbitrary a)
             | Error _ -> err_not_utility))
+    | [ "rotate"; "none" ] -> Ok Rotate_none
     | [ "rotate"; n ] -> Parse.int_any n >|= fun n -> Rotate n
     | [ "translate"; "x"; n ] when String.length n > 0 && n.[0] = '[' -> (
         match parse_bracket_length n with
-        | Ok len -> Ok (Translate_x_arbitrary len)
+        | Ok len ->
+            Ok
+              (Translate_x_arbitrary (String.sub n 1 (String.length n - 2), len))
         | Error _ -> err_not_utility)
     | [ "translate"; "x"; "full" ] -> Ok Translate_x_full
     | [ "translate"; "x"; "px" ] -> Ok Translate_x_px
@@ -1433,10 +1536,14 @@ module Handler = struct
         match parse_fraction n with
         | Some (num, denom) -> Ok (Translate_x_fraction (num, denom))
         | None -> err_not_utility)
+    | [ "translate"; "x"; n ] when parse_spacing_step n <> None ->
+        Ok (Translate_x_step (Option.get (parse_spacing_step n)))
     | [ "translate"; "x"; n ] -> Parse.int_any n >|= fun n -> Translate_x n
     | [ "translate"; "y"; n ] when String.length n > 0 && n.[0] = '[' -> (
         match parse_bracket_length n with
-        | Ok len -> Ok (Translate_y_arbitrary len)
+        | Ok len ->
+            Ok
+              (Translate_y_arbitrary (String.sub n 1 (String.length n - 2), len))
         | Error _ -> err_not_utility)
     | [ "translate"; "y"; "full" ] -> Ok Translate_y_full
     | [ "translate"; "y"; "px" ] -> Ok Translate_y_px
@@ -1444,10 +1551,13 @@ module Handler = struct
         match parse_fraction n with
         | Some (num, denom) -> Ok (Translate_y_fraction (num, denom))
         | None -> err_not_utility)
+    | [ "translate"; "y"; n ] when parse_spacing_step n <> None ->
+        Ok (Translate_y_step (Option.get (parse_spacing_step n)))
     | [ "translate"; "y"; n ] -> Parse.int_any n >|= fun n -> Translate_y n
     | [ "translate"; "z"; "px" ] -> Ok Translate_z_px
     | [ "translate"; "z"; n ] -> Parse.int_any n >|= fun n -> Translate_z n
     | [ "translate"; "full" ] -> Ok Translate_full
+    | [ "translate"; "none" ] -> Ok Translate_none
     | [ "translate"; "px" ] -> Ok Translate_px
     | [ "translate"; "1/2" ] -> Ok Translate_1_2
     | [ "translate"; n ] when String.contains n '/' -> (
@@ -1455,6 +1565,8 @@ module Handler = struct
         | Some (num, denom) -> Ok (Translate_fraction (num, denom))
         | None -> err_not_utility)
     | [ "translate"; "3d" ] -> Ok Translate_3d
+    | [ "translate"; n ] when not (Parse.is_bracket_value n) ->
+        Parse.int_any n >|= fun n -> Translate n
     | "translate" :: rest
       when match rest with
            | [] | [ "x"; _ ] | [ "y"; _ ] | [ "z"; _ ] | [ "full" ] | [ "1/2" ]
@@ -1464,7 +1576,10 @@ module Handler = struct
            | _ -> true -> (
         let value = String.concat "-" rest in
         match parse_bracket_length value with
-        | Ok len -> Ok (Translate_arbitrary len)
+        | Ok len ->
+            Ok
+              (Translate_arbitrary
+                 (String.sub value 1 (String.length value - 2), len))
         | Error _ -> err_not_utility)
     (* Negative translate utilities: -translate-x-N, -translate-y-N,
        -translate-z-N Split by '-' gives [""; "translate"; axis; n] *)
@@ -1477,6 +1592,7 @@ module Handler = struct
         match parse_fraction n with
         | Some (num, denom) -> Ok (Neg_translate_fraction (num, denom))
         | None -> err_not_utility)
+    | [ ""; "translate"; n ] -> Parse.int_any n >|= fun n -> Neg_translate n
     | [ ""; "translate"; "x"; value ] when Parse.is_bracket_value value ->
         let inner = Parse.bracket_inner value in
         Ok (Neg_translate_x_arbitrary inner)
@@ -1486,6 +1602,8 @@ module Handler = struct
         match parse_fraction n with
         | Some (num, denom) -> Ok (Neg_translate_x_fraction (num, denom))
         | None -> err_not_utility)
+    | [ ""; "translate"; "x"; n ] when parse_spacing_step n <> None ->
+        Ok (Translate_x_step (-.Option.get (parse_spacing_step n)))
     | [ ""; "translate"; "x"; n ] ->
         Parse.int_pos ~name:"translate-x" n >|= fun n -> Translate_x (-n)
     | [ ""; "translate"; "y"; value ] when Parse.is_bracket_value value ->
@@ -1497,6 +1615,8 @@ module Handler = struct
         match parse_fraction n with
         | Some (num, denom) -> Ok (Neg_translate_y_fraction (num, denom))
         | None -> err_not_utility)
+    | [ ""; "translate"; "y"; n ] when parse_spacing_step n <> None ->
+        Ok (Translate_y_step (-.Option.get (parse_spacing_step n)))
     | [ ""; "translate"; "y"; n ] ->
         Parse.int_pos ~name:"translate-y" n >|= fun n -> Translate_y (-n)
     | [ ""; "translate"; "z"; value ] when Parse.is_bracket_value value ->
@@ -1526,6 +1646,7 @@ module Handler = struct
             | None -> err_not_utility)
         | _ -> err_not_utility)
     | [ "scale"; "3d" ] -> Ok Scale_3d
+    | [ "scale"; "none" ] -> Ok Scale_none
     | [ "scale"; n ] -> Parse.int_pos ~name:"scale" n >|= fun n -> Scale n
     | [ "scale"; "x"; n ] when String.length n > 0 && n.[0] = '[' -> (
         match parse_bracket_number n with
@@ -1629,7 +1750,10 @@ module Handler = struct
     | [ ""; "skew"; n ] -> Parse.int_pos ~name:"skew" n >|= fun n -> Skew (-n)
     | [ "perspective"; "none" ] -> Ok Perspective_none
     | [ "perspective"; "dramatic" ] -> Ok Perspective_dramatic
+    | [ "perspective"; "near" ] -> Ok Perspective_near
     | [ "perspective"; "normal" ] -> Ok Perspective_normal
+    | [ "perspective"; "midrange" ] -> Ok Perspective_midrange
+    | [ "perspective"; "distant" ] -> Ok Perspective_distant
     | "perspective" :: rest
       when match rest with "origin" :: _ | [] -> false | _ -> true -> (
         let value = String.concat "-" rest in
@@ -1697,9 +1821,6 @@ module Handler = struct
 
   let pp_angle_bracket a = "[" ^ Css.Pp.to_string Css.pp_angle a ^ "]"
 
-  let pp_length_bracket len =
-    "[" ^ Css.Pp.to_string (pp_length ~always:true) len ^ "]"
-
   let pp_number_bracket f =
     let s = string_of_float f in
     let s =
@@ -1708,9 +1829,22 @@ module Handler = struct
     in
     "[" ^ s ^ "]"
 
+  (* [translate-x-0.5], and [-translate-x-0.5] for the negative step. Tailwind
+     writes the fraction as the author did, so keep the trailing digits. *)
+  let step_class prefix f =
+    let digits = Float.to_string (Float.abs f) in
+    (* [Float.to_string 0.5] is ["0.5"]; drop a trailing dot from ["2."]. *)
+    let digits =
+      let n = String.length digits in
+      if n > 0 && digits.[n - 1] = '.' then String.sub digits 0 (n - 1)
+      else digits
+    in
+    (if f < 0. then "-" else "") ^ prefix ^ "-" ^ digits
+
   let to_class = function
     | Rotate n -> neg_class "rotate-" n
     | Rotate_arbitrary a -> "rotate-" ^ pp_angle_bracket a
+    | Rotate_none -> "rotate-none"
     | Rotate_3d_arbitrary (x, y, z, a) ->
         let pp f =
           let s = string_of_float f in
@@ -1727,13 +1861,15 @@ module Handler = struct
     | Translate_x n -> neg_class "translate-x-" n
     | Translate_x_full -> "translate-x-full"
     | Translate_x_px -> "translate-x-px"
-    | Translate_x_arbitrary len -> "translate-x-" ^ pp_length_bracket len
+    | Translate_x_step f -> step_class "translate-x" f
+    | Translate_x_arbitrary (raw, _) -> "translate-x-[" ^ raw ^ "]"
     | Translate_x_fraction (num, denom) ->
         "translate-x-" ^ string_of_int num ^ "/" ^ string_of_int denom
     | Translate_y n -> neg_class "translate-y-" n
     | Translate_y_full -> "translate-y-full"
     | Translate_y_px -> "translate-y-px"
-    | Translate_y_arbitrary len -> "translate-y-" ^ pp_length_bracket len
+    | Translate_y_step f -> step_class "translate-y" f
+    | Translate_y_arbitrary (raw, _) -> "translate-y-[" ^ raw ^ "]"
     | Translate_y_fraction (num, denom) ->
         "translate-y-" ^ string_of_int num ^ "/" ^ string_of_int denom
     | Translate_z n -> neg_class "translate-z-" n
@@ -1741,12 +1877,15 @@ module Handler = struct
     | Neg_translate_z_arbitrary s -> "-translate-z-[" ^ s ^ "]"
     | Neg_translate_z_px -> "-translate-z-px"
     | Translate_3d -> "translate-3d"
+    | Translate n -> "translate-" ^ string_of_int n
+    | Neg_translate n -> "-translate-" ^ string_of_int n
     | Translate_full -> "translate-full"
+    | Translate_none -> "translate-none"
     | Translate_px -> "translate-px"
     | Translate_1_2 -> "translate-1/2"
     | Translate_fraction (num, denom) ->
         "translate-" ^ string_of_int num ^ "/" ^ string_of_int denom
-    | Translate_arbitrary len -> "translate-" ^ pp_length_bracket len
+    | Translate_arbitrary (raw, _) -> "translate-" ^ "[" ^ raw ^ "]"
     | Neg_translate_arbitrary s -> "-translate-[" ^ s ^ "]"
     | Neg_translate_full -> "-translate-full"
     | Neg_translate_px -> "-translate-px"
@@ -1788,6 +1927,7 @@ module Handler = struct
     | Scale_z n -> neg_class "scale-z-" n
     | Scale_z_arbitrary s -> "scale-z-[" ^ s ^ "]"
     | Scale_3d -> "scale-3d"
+    | Scale_none -> "scale-none"
     | Skew_x n -> neg_class "skew-x-" n
     | Skew_x_arbitrary a -> "skew-x-" ^ pp_angle_bracket a
     | Skew_y n -> neg_class "skew-y-" n
@@ -1811,7 +1951,10 @@ module Handler = struct
     | Neg_rotate_z_arbitrary a -> "-rotate-z-" ^ pp_angle_bracket a
     | Perspective_none -> "perspective-none"
     | Perspective_dramatic -> "perspective-dramatic"
+    | Perspective_near -> "perspective-near"
     | Perspective_normal -> "perspective-normal"
+    | Perspective_midrange -> "perspective-midrange"
+    | Perspective_distant -> "perspective-distant"
     | Perspective_arbitrary len ->
         "perspective-[" ^ Css.Pp.to_string (pp_length ~always:true) len ^ "]"
     | Perspective_origin_center -> "perspective-origin-center"
@@ -1853,6 +1996,9 @@ module Handler = struct
         (* Convert spaces back to underscores for class name *)
         let s = String.map (fun c -> if c = ' ' then '_' else c) s in
         "origin-[" ^ s ^ "]"
+
+  let examples =
+    [ Origin_top; Perspective_none; Perspective_origin_top; Backface_hidden ]
 end
 
 open Handler
@@ -1880,7 +2026,10 @@ let rotate_z n = utility (Rotate_z n)
 let scale_z n = utility (Scale_z n)
 let perspective_none = utility Perspective_none
 let perspective_dramatic = utility Perspective_dramatic
+let perspective_near = utility Perspective_near
 let perspective_normal = utility Perspective_normal
+let perspective_midrange = utility Perspective_midrange
+let perspective_distant = utility Perspective_distant
 let neg_translate_x_1_2 = utility Neg_translate_x_1_2
 let neg_translate_y_1_2 = utility Neg_translate_y_1_2
 let perspective_origin_center = utility Perspective_origin_center

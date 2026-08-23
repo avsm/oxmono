@@ -22,6 +22,23 @@ let spacing_var = Var.theme Css.Length "spacing" ~runtime:true ~order:(3, 0)
 (* The base spacing value: 0.25rem *)
 let spacing_base : Css.length = Rem 0.25
 
+(* Publish the spacing step through the theme-token registry, the way rule.ml
+   publishes the breakpoints, so [theme()] in a project's CSS resolves against
+   the same value the utilities use. *)
+let () =
+  Scheme.register_default_token "spacing"
+    (Css.Pp.to_string Css.pp_length spacing_base)
+
+(* The spacing step times [n], rendered. Tailwind's v3 [spacing] and
+   [lineHeight] scales are both that product, and v4 keeps no token per step, so
+   a [theme(spacing.4)] has to be computed rather than looked up. *)
+let spacing_times n =
+  match spacing_base with
+  | Css.Rem v -> Some (Css.Pp.to_string Css.pp_length (Css.Rem (v *. n)))
+  | Css.Px v -> Some (Css.Pp.to_string Css.pp_length (Css.Px (v *. n)))
+  | Css.Em v -> Some (Css.Pp.to_string Css.pp_length (Css.Em (v *. n)))
+  | _ -> None
+
 (* Create a spacing variable for explicit spacing values (e.g., --spacing-4) *)
 let spacing_n_var n = Var.theme Css.Length ("spacing-" ^ Pp.int n) ~order:(3, n)
 
@@ -65,7 +82,11 @@ let spacing_calc ?theme n : Css.declaration * Css.length =
          perform the equivalent calc(var(--spacing)) -> var(--spacing) rewrite,
          because it optimises arbitrary CSS and cannot assume that contract. *)
       let decl, spacing_ref = Var.binding spacing_var spacing_base in
-      if n = 1 then (decl, (Css.Var spacing_ref : Css.length))
+      (* The zero step is a plain [0px], as Tailwind emits it: the scale factor
+         makes [calc(var(--spacing) * 0)] zero for any spacing, and only the
+         optimiser can see that once [--spacing] is a literal. *)
+      if n = 0 then (decl, (Px 0. : Css.length))
+      else if n = 1 then (decl, (Css.Var spacing_ref : Css.length))
       else
         let len : Css.length =
           Css.Calc

@@ -22,6 +22,21 @@ let test_gradient_colors () =
   Alcotest.check string "via-blue-600" "via-blue-600" (Utility.to_class via);
   Alcotest.check string "to-green-500" "to-green-500" (Utility.to_class to_)
 
+(* via-none clears the gradient's via stops by resetting the channel var to the
+   CSS initial keyword. *)
+let test_via_none () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.check string "via-none round-trips" "via-none"
+    (Tw.pp (Result.get_ok (Tw.of_string "via-none")));
+  Alcotest.(check bool)
+    "via-none sets --tw-gradient-via-stops:initial" true
+    (Astring.String.is_infix ~affix:"--tw-gradient-via-stops:initial"
+       (css "via-none"))
+
 (* Bare bg-radial / bg-conic (and bg-conic-{angle}) set --tw-gradient-position
    to the default oklab interpolation and the matching gradient image; they used
    to be unknown classes (only the /interp and bracket forms were handled). *)
@@ -108,6 +123,65 @@ let test_bracket_length_keywords () =
     (Astring.String.is_infix ~affix:"background-size: contain"
        (css "bg-[length:contain]"))
 
+(* A two-axis bg-position bracket mixes a keyword edge with a length, e.g.
+   bg-position-[center_-100px] -> background-position: 50% -100px. *)
+let test_bg_position_bracket_keyword_length () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "bg-position-[center_-100px] keeps both axes" true
+    (Astring.String.is_infix ~affix:"background-position: 50% -100px"
+       (css "bg-position-[center_-100px]"));
+  Alcotest.(check bool)
+    "bg-position-[left_top] keeps the edge keywords" true
+    (Astring.String.is_infix ~affix:"background-position: left top"
+       (css "bg-position-[left_top]"))
+
+(* A background-position bracket takes the whole CSS grammar: a single edge
+   keyword, and the four-value edge/offset form. Both used to fall through the
+   hand-rolled parser to a silent [center]. *)
+let test_bracket_position_grammar () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "bg-[position:top]" "background-position: top";
+  has "bg-[position:left_10px_top_20px]"
+    "background-position: left 10px top 20px";
+  has "bg-position-[top]" "background-position: top";
+  has "bg-[top]" "background-position: top";
+  (* the lengths form is unchanged *)
+  has "bg-[position:120px_120px]" "background-position: 120px 120px";
+  has "bg-position-[center_-100px]" "background-position: 50% -100px"
+
+(* A bracket value the property cannot take is not a utility. [bg-[image:...]]
+   used to emit an empty rule and [bg-[position:...]] a plausible-looking
+   [center]: no CSS the class asked for, and no diagnostic. *)
+let test_invalid_bracket_value () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  let accepted cls =
+    match Tw.of_string cls with
+    | Ok _ -> ()
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  rejected "bg-[image:nope]";
+  rejected "bg-[position:nope]";
+  accepted "bg-[image:radial-gradient(white,black)]";
+  accepted "bg-[image:var(--x)]";
+  accepted "bg-[image:url(/a.png)]";
+  accepted "bg-[position:120px_120px]"
+
 let test_bracket_image_literal () =
   let css cls =
     match Tw.of_string cls with
@@ -127,6 +201,21 @@ let test_bracket_image_literal () =
     (Astring.String.is_infix ~affix:"background-image: var(--x)"
        (css "bg-[image:var(--x)]"))
 
+(* An arbitrary gradient angle in radians is converted to degrees. A negative
+   angle used to come out as its floor plus a positive fraction, so
+   bg-linear-[-0.5rad] rendered -29.3521deg instead of -28.6479deg. *)
+let test_bracket_gradient_radians () =
+  let css_of cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css_of cls))
+  in
+  has "bg-linear-[-0.5rad]" "--tw-gradient-position: -28.6479deg";
+  has "bg-linear-[1.3rad]" "--tw-gradient-position: 74.4845deg"
+
 let suborder_matches_tailwind () =
   let open Tw in
   let colors = [ red; blue; green; yellow; purple; pink ] in
@@ -140,6 +229,37 @@ let suborder_matches_tailwind () =
 
   Test_helpers.check_ordering_matches
     ~test_name:"backgrounds suborder matches Tailwind" shuffled
+
+(* A gradient and a background colour both end up in background-image and
+   background-color, and the gradient stops share the --tw-gradient-* slots.
+   Palette colours are left out: tw declares the theme token as a hex where
+   Tailwind keeps oklch, which [tw --diff] already reports on its own. *)
+let rendering_matches_tailwind () =
+  let classes =
+    [
+      "bg-current";
+      "bg-transparent";
+      "bg-black";
+      "bg-white";
+      "bg-linear-to-r";
+      "bg-linear-to-b";
+      "from-current";
+      "via-transparent";
+      "to-black";
+      "from-50%";
+      "bg-cover";
+      "bg-contain";
+      "bg-center";
+      "bg-top";
+      "bg-no-repeat";
+      "bg-repeat-x";
+      "bg-fixed";
+      "bg-local";
+    ]
+  in
+  Test_helpers.check_rendering_matches
+    ~test_name:"backgrounds render like Tailwind"
+    (List.map (fun c -> Result.get_ok (Tw.of_string c)) classes)
 
 (* An arbitrary url() with its own quotes must not be double-wrapped: tw used to
    emit the broken url("'/img/x.png'"); it now canonicalises to a valid
@@ -207,21 +327,97 @@ let test_gradient_stop_position_properties () =
     "from-10% registers @property --tw-gradient-stops" true
     (Astring.String.is_infix ~affix:"@property --tw-gradient-stops" css)
 
+(* A var() background colour with an alpha modifier defers the alpha to
+   color-mix: the variable's value is unknown at build time, so it cannot be
+   folded into a literal colour. *)
+let test_bg_var_opacity () =
+  let css_of cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error _ -> Alcotest.failf "could not parse %S" cls
+  in
+  Alcotest.(check bool)
+    "bg-[var(--x)]/50 mixes at run time" true
+    (Astring.String.is_infix
+       ~affix:"color-mix(in oklab, var(--x) 50%, transparent)"
+       (css_of "bg-[var(--x)]/50"))
+
+(* A gradient stop bracket is a colour or a stop position; the docs' [<value>]
+   placeholder is neither, and it used to land as [0%]. *)
+let test_invalid_gradient_stop () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  let accepted cls =
+    match Tw.of_string cls with
+    | Ok _ -> ()
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  rejected "from-[<value>]";
+  rejected "via-[<value>]";
+  rejected "to-[<value>]";
+  accepted "from-[25%]";
+  accepted "from-[var(--x)]";
+  accepted "from-[#0088cc]"
+
+(* A [#] gradient stop is only a colour when what follows is a hex spelling. The
+   stop reader kept the text after the [#] as-is and the raising constructor saw
+   it when the sheet was rendered, so a malformed hex escaped as an exception
+   instead of failing the parse. *)
+let test_invalid_bracket_hex () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  let emits cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  List.iter
+    (fun prefix ->
+      rejected (prefix ^ "-[#zz]");
+      rejected (prefix ^ "-[#]");
+      rejected (prefix ^ "-[#12345]");
+      rejected (prefix ^ "-[#zz]/50"))
+    [ "from"; "via"; "to" ];
+  emits "from-[#fff]" "--tw-gradient-from:#fff";
+  emits "via-[#abc]" "--tw-gradient-via:#abc";
+  emits "to-[#123456]" "--tw-gradient-to:#123456"
+
 let tests =
   [
+    test_case "invalid bracket hex" `Quick test_invalid_bracket_hex;
     test_case "bg colors" `Quick test_bg_colors;
+    test_case "invalid gradient stop" `Quick test_invalid_gradient_stop;
+    test_case "bg var color with opacity" `Quick test_bg_var_opacity;
     test_case "bg arbitrary url quoting" `Quick test_bg_arbitrary_url;
     test_case "arbitrary rgba gradient stop" `Quick test_gradient_rgba_stop;
     test_case "gradient stop-position @property family" `Quick
       test_gradient_stop_position_properties;
     test_case "gradient direction" `Quick test_gradient_direction;
+    test_case "bracket gradient angle in radians" `Quick
+      test_bracket_gradient_radians;
     test_case "bracket image literal" `Quick test_bracket_image_literal;
     test_case "bracket length keywords" `Quick test_bracket_length_keywords;
+    test_case "bg-position bracket keyword+length" `Quick
+      test_bg_position_bracket_keyword_length;
+    test_case "bracket position grammar" `Quick test_bracket_position_grammar;
+    test_case "invalid bracket value" `Quick test_invalid_bracket_value;
     test_case "bare radial and conic gradients" `Quick test_radial_conic;
     test_case "gradient colors" `Quick test_gradient_colors;
+    test_case "via-none" `Quick test_via_none;
     test_case "of_string invalid cases" `Quick test_of_string_invalid;
     test_case "backgrounds suborder matches Tailwind" `Quick
       suborder_matches_tailwind;
+    test_case "backgrounds render like Tailwind" `Slow
+      rendering_matches_tailwind;
   ]
 
 let suite = ("backgrounds", tests)

@@ -22,6 +22,10 @@ type color =
   | Zinc
   | Neutral
   | Stone
+  | Mauve
+  | Olive
+  | Mist
+  | Taupe
   | Red
   | Orange
   | Amber
@@ -95,6 +99,18 @@ val neutral : color
 
 val stone : color
 (** [stone] is the base stone color. *)
+
+val mauve : color
+(** [mauve] is the base mauve color. *)
+
+val olive : color
+(** [olive] is the base olive color. *)
+
+val mist : color
+(** [mist] is the base mist color. *)
+
+val taupe : color
+(** [taupe] is the base taupe color. *)
 
 val red : color
 (** [red] is the base red color. *)
@@ -185,9 +201,23 @@ val is_base_color : color -> bool
 val is_custom_color : color -> bool
 (** [is_custom_color color] checks if a color is a custom color (hex or rgb). *)
 
+val opacity_keyword : color -> Css.color option
+(** [opacity_keyword color] returns [transparent] or [inherit] when [color] is
+    one of the CSS-wide keywords accepted by opacity-bearing colour utilities.
+*)
+
 val is_shadeless : color -> bool
 (** [is_shadeless color] checks if a color should NOT have a shade suffix in
     class names (base colors, custom colors, or theme-named colors). *)
+
+val is_valid_shade : color -> int -> bool
+(** [is_valid_shade color shade] checks that [shade] is one the Tailwind palette
+    defines for [color]. Shadeless colors accept any shade (it is ignored). *)
+
+val check_shade : utility:string -> color -> int -> unit
+(** [check_shade ~utility color shade] raises [Invalid_argument] if
+    [is_valid_shade color shade] is false. [utility] names the constructor in
+    the error message. *)
 
 val color_var : color -> int -> Css.color Var.theme
 (** [color_var color shade] gets or creates a memoized color variable for the
@@ -311,6 +341,30 @@ type opacity_modifier =
   | Opacity_var of string
       (** e.g., /[var(--x)] - var ref used directly as percentage *)
 
+val opacity_var_bare : string -> string
+(** [opacity_var_bare v] is the bare custom-property name inside an opacity
+    modifier, written either as ["[var(--x)]"] or as the ["(--x)"] shorthand. *)
+
+val opacity_var_bare_of : opacity_modifier -> string option
+(** [opacity_var_bare_of opacity] is the custom property the modifier reads its
+    percentage from, when it names one rather than giving a number. *)
+
+val mix_alpha :
+  ?in_space:Css.color_space -> opacity_modifier -> Css.color -> Css.color
+(** [mix_alpha ?in_space opacity color] is [color] with the modifier's alpha
+    applied: a percentage folds into the [color-mix], an alpha read from a var
+    is referenced by name. *)
+
+val apply_alpha :
+  ?in_space:Css.color_space -> opacity_modifier -> Css.color -> Css.color
+(** [apply_alpha ?in_space opacity color] applies the modifier while preserving
+    the identity that every alpha of [transparent] is still [transparent]. *)
+
+val opacity_of_string : ?theme:Scheme.t -> string -> opacity_modifier option
+(** [opacity_of_string ?theme s] parses the modifier that follows the [/] in a
+    colour class: a percentage, a bracket value, the [(--x)] shorthand, or a
+    theme-defined name. *)
+
 val parse_opacity_modifier :
   ?theme:Scheme.t -> string -> string * opacity_modifier
 (** [parse_opacity_modifier ?theme s] parses an opacity modifier from a string.
@@ -348,6 +402,35 @@ val suborder_with_shade : string -> int
 
 module Handler : sig
   include Utility.Handler
+
+  val all_palette_declarations : ?theme:Scheme.t -> unit -> Css.declaration list
+  (** [all_palette_declarations ?theme ()] is the [\@layer theme] declaration
+      for every colour the palette defines, in theme order. [theme(static)] on
+      the package import emits the whole theme, not only the tokens a utility
+      used. *)
+
+  val color_binding :
+    ?theme:Scheme.t -> color -> int -> Css.declaration * Css.color Css.var
+  (** [color_binding ?theme color shade] is the [\@layer theme] declaration for
+      the palette token and the typed reference to it, for utilities that set a
+      colour var of their own from a palette entry. *)
+
+  val colors_with_opacity_style :
+    ?theme:Scheme.t ->
+    properties:(Css.color -> Css.declaration) list ->
+    ?property_prefix:string ->
+    ?merge_key:string ->
+    color ->
+    int ->
+    opacity_modifier ->
+    Style.t
+  (** [colors_with_opacity_style ~properties color shade opacity] sets every
+      declaration in [properties] to [color] at [opacity]: the srgb fallback
+      plus the [@supports] colour-mix override Tailwind emits. *)
+
+  val theme_color_of_name : string -> (color * int) option
+  (** [theme_color_of_name name] is the palette colour and shade a [color-*]
+      token names, or {!constructor-None} when it names none. *)
 
   val theme_color_decl : ?theme:Scheme.t -> string -> Css.declaration option
   (** [theme_color_decl ?theme name] is the [\@layer theme] declaration for the

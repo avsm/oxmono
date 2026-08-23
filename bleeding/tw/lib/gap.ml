@@ -8,7 +8,7 @@ module Handler = struct
 
   type gap_value =
     | Standard of spacing
-    | Arbitrary of Css.length (* gap-[4px] *)
+    | Arbitrary of string * Css.length (* gap-[4px], raw kept for round-trip *)
     | Arbitrary_var of string (* gap-[var(--value)] *)
 
   type t =
@@ -40,38 +40,17 @@ module Handler = struct
 
   (** {2 Typed Gap Utilities} *)
 
-  (** Convert spacing to (declaration, length) using Theme.spacing_calc_float.
-  *)
-  let spacing_to_decl_len ?theme (s : spacing) : Css.declaration option * length
-      =
-    match s with
-    | `Px ->
-        let len : length = Px 1. in
-        let decl, _ = Var.binding Spacing.var (Rem 0.25) in
-        (Some decl, len)
-    | `Full ->
-        let len : length = Pct 100. in
-        let decl, _ = Var.binding Spacing.var (Rem 0.25) in
-        (Some decl, len)
-    | `Named name ->
-        let len = Spacing.named_spacing_ref name in
-        (None, len)
-    | `Rem f ->
-        let n = f /. 0.25 in
-        let decl, len = Theme.spacing_calc_float ?theme n in
-        (Some decl, len)
-
   let gap_standard ?theme (s : spacing) =
-    let decl, len = spacing_to_decl_len ?theme s in
+    let decl, len = Spacing.to_decl_len ?theme s in
     let gap_value = Lengths { row_gap = Some len; column_gap = Some len } in
     style (Option.to_list decl @ [ gap gap_value ])
 
   let gap_x_standard ?theme (s : spacing) =
-    let decl, len = spacing_to_decl_len ?theme s in
+    let decl, len = Spacing.to_decl_len ?theme s in
     style (Option.to_list decl @ [ column_gap len ])
 
   let gap_y_standard ?theme (s : spacing) =
-    let decl, len = spacing_to_decl_len ?theme s in
+    let decl, len = Spacing.to_decl_len ?theme s in
     style (Option.to_list decl @ [ row_gap len ])
 
   let gap_arb len =
@@ -92,7 +71,7 @@ module Handler = struct
         | `All -> gap_standard ?theme s
         | `X -> gap_x_standard ?theme s
         | `Y -> gap_y_standard ?theme s)
-    | Arbitrary len -> (
+    | Arbitrary (_, len) -> (
         match axis with
         | `All -> gap_arb len
         | `X -> gap_x_arb len
@@ -314,11 +293,6 @@ module Handler = struct
     let rule = Css.rule ~selector [ decl ] in
     style ~rules:(Some [ rule ]) ~property_rules:(Css.concat property_rules) []
 
-  let pp_float n =
-    let s = string_of_float n in
-    if String.ends_with ~suffix:"." s then String.sub s 0 (String.length s - 1)
-    else s
-
   let to_style theme t =
     let gap_value axis value = gap_value ~theme axis value in
     let space_x n = space_x ~theme n in
@@ -387,13 +361,7 @@ module Handler = struct
 
   let pp_gap_value_suffix = function
     | Standard s -> Spacing.pp_spacing_suffix s
-    | Arbitrary len -> (
-        match len with
-        | Zero -> "[0]"
-        | Px n -> "[" ^ pp_float n ^ "px]"
-        | Rem n -> "[" ^ pp_float n ^ "rem]"
-        | Pct n -> "[" ^ pp_float n ^ "%]"
-        | _ -> "[<length>]")
+    | Arbitrary (raw, _) -> "[" ^ raw ^ "]"
     | Arbitrary_var s -> "[" ^ s ^ "]"
 
   let to_class = function
@@ -419,34 +387,27 @@ module Handler = struct
     if len > 2 && s.[0] = '[' && s.[len - 1] = ']' then
       let inner = String.sub s 1 (len - 2) in
       if Parse.is_var inner then Some (Arbitrary_var inner)
-      else if String.ends_with ~suffix:"px" inner then
-        let n = String.sub inner 0 (String.length inner - 2) in
-        match float_of_string_opt n with
-        | Some f -> Some (Arbitrary (Css.Px f))
-        | None -> None
-      else if String.ends_with ~suffix:"rem" inner then
-        let n = String.sub inner 0 (String.length inner - 3) in
-        match float_of_string_opt n with
-        | Some f -> Some (Arbitrary (Css.Rem f))
-        | None -> None
       else
-        (* Unitless zero ([0], [-0]) is a valid CSS length. *)
-        match float_of_string_opt inner with
-        | Some f when f = 0.0 -> Some (Arbitrary Css.Zero)
-        | _ -> None
+        (* Route the value through the full length grammar (percent,
+           container-query units, calc), keeping the raw token for
+           round-trip. *)
+        match Css.parse_length (Parse.normalize_css_math_operators inner) with
+        | Some l -> Some (Arbitrary (inner, l))
+        | None -> None
     else None
 
-  let parse_gap_value value =
+  (* Shared with padding and margin, so a named spacing reaches gap too:
+     [gap-form] is a class Tailwind emits whenever the theme defines
+     [--spacing-form]. *)
+  let parse_gap_value ?theme value =
     if String.length value > 0 && value.[0] = '[' then parse_gap_arbitrary value
     else
-      match Parse.spacing_value ~name:"gap" value with
-      | Ok f -> Some (Standard (`Rem (f *. 0.25)))
-      | Error _ ->
-          if value = "px" then Some (Standard `Px)
-          else if value = "full" then Some (Standard `Full)
-          else None
+      match Spacing.parse_value_string ?theme ~allow_auto:false value with
+      | Some (#Style.spacing as s) -> Some (Standard s)
+      | Some `Auto | None -> None
 
-  let of_class _theme class_name =
+  let of_class theme class_name =
+    let parse_gap_value value = parse_gap_value ~theme value in
     let parts = Parse.split_class class_name in
     let err_not_utility = Error (`Msg "Not a gap utility") in
     let parse_class = function
@@ -468,7 +429,7 @@ module Handler = struct
             Ok (Space { negative = false; axis = `X; value = `Px })
           else
             match parse_gap_arbitrary value with
-            | Some (Arbitrary len) ->
+            | Some (Arbitrary (_, len)) ->
                 Ok (Space_arb { axis = `X; value = len; raw = value })
             | _ -> (
                 match Parse.spacing_value ~name:"space-x" value with
@@ -487,7 +448,7 @@ module Handler = struct
             Ok (Space { negative = false; axis = `Y; value = `Px })
           else
             match parse_gap_arbitrary value with
-            | Some (Arbitrary len) ->
+            | Some (Arbitrary (_, len)) ->
                 Ok (Space_arb { axis = `Y; value = len; raw = value })
             | _ -> (
                 match Parse.spacing_value ~name:"space-y" value with
@@ -523,6 +484,15 @@ module Handler = struct
       | _ -> err_not_utility
     in
     parse_class parts
+
+  let examples =
+    [
+      Gap { axis = `All; value = Standard (`Rem 1.) };
+      Gap { axis = `X; value = Standard (`Rem 1.) };
+      Gap { axis = `Y; value = Standard (`Rem 1.) };
+      Space { negative = false; axis = `X; value = `Rem 1. };
+      Space { negative = false; axis = `Y; value = `Rem 1. };
+    ]
 end
 
 open Handler

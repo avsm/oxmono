@@ -19,8 +19,11 @@
     ([theme_layer_of], [rule_sets], [utilities_layer]) are exposed for testing
     and for the [tw] CLI. *)
 
-open Cascade
+(* [open Cascade] below shadows this library's own [Sort] with cascade's; bind
+   it first so the signature can still name the rule type. *)
+module Rule_sort := Sort
 
+open Cascade
 (** {1 CSS generation} *)
 
 type config = {
@@ -40,12 +43,24 @@ type config = {
 val default_config : config
 (** The default configuration. Base layer enabled. *)
 
-val to_css : ?theme:Scheme.t -> ?config:config -> Utility.t list -> Css.t
+val to_css :
+  ?theme:Scheme.t ->
+  ?config:config ->
+  ?extra:(string * (int * int) * Css.statement list) list ->
+  Utility.t list ->
+  Css.t
 (** [to_css ?theme ?config utilities] generates a full CSS stylesheet for
     [utilities]. This is the main entry point for the library. [theme] (default
     {!Scheme.default}) supplies the theme values utilities read while generating
     CSS. Rendering concerns such as inlining and optimization are handled by
-    {!Css.to_string}. *)
+    {!Css.to_string}.
+
+    [extra] carries rules a project's own [@utility] produced, each as
+    [(class name, order, statements)]. The handlers know nothing about a
+    declared utility, so its order comes in with it - see
+    {!Utility.order_of_property} for where that order is read from - and the
+    statements sort into the utilities layer at that order instead of landing
+    after it. *)
 
 val to_inline_style : ?theme:Scheme.t -> Utility.t list -> string
 (** [to_inline_style ?theme utilities] returns a CSS [style] attribute string
@@ -79,6 +94,19 @@ val conflict_order : string -> int * int
 (** [conflict_order selector] returns the [(priority, suborder)] pair that
     determines cascade position for the utility named by [selector]. Lower
     priority numbers win over higher ones when classes conflict. *)
+
+val indexed_rules : Utility.t list -> Rule_sort.indexed_rule list
+(** [indexed_rules utilities] is the unsorted rule list that {!compare_rules} is
+    applied to, exposed so the comparator can be checked on the values it
+    actually sees rather than on hand-built records. *)
+
+val compare_rules : Rule_sort.indexed_rule -> Rule_sort.indexed_rule -> int
+(** [compare_rules] is the comparator {!val-rule_sets} sorts with. Sorting is
+    only defined for a total order, so this is the function whose antisymmetry
+    and transitivity the sort suite checks. *)
+
+val rule_selector : Rule_sort.indexed_rule -> string
+(** [rule_selector r] is [r]'s selector, for naming a rule in a failure. *)
 
 val selector_props_pairs :
   Output.t list -> (Css.Selector.t * Css.declaration list * (int * int)) list

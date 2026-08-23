@@ -44,11 +44,9 @@ type 'a property_default = ('a, [ `Property_default ]) t
 type 'a channel = ('a, [ `Channel ]) t
 type 'a ref_only = ('a, [ `Ref_only ]) t
 
-(* Global registry to prevent order and name conflicts *)
+(* Global registry of the metadata the layer builders look up by variable name,
+   filled by [v] as each variable definition is evaluated. *)
 module Registry = struct
-  (* Table mapping (priority, suborder) -> variable_name *)
-  let order_registry : (int * int, string) Hashtbl.t = Hashtbl.create 128
-
   (* Table mapping variable_name -> (priority, suborder) *)
   let name_registry : (string, int * int) Hashtbl.t = Hashtbl.create 128
 
@@ -81,19 +79,25 @@ module Registry = struct
   let family_registry : (string, family) Hashtbl.t = Hashtbl.create 128
   let needs_property_registry : (string, bool) Hashtbl.t = Hashtbl.create 128
 
+  (* A slot is shared, not owned: each token family numbers its members from its
+     own base, so several families sit at the same (priority, suborder) — e.g.
+     --radius-4xl, --drop-shadow-md and --ease-out are all (7, 10). The families
+     a project [@theme] names (--font-<name>, --animate-<name>, --inset-<name>)
+     funnel every member into one slot by design. The theme layer breaks a tie
+     on the variable name, so a shared slot is still a total order.
+
+     A name, on the other hand, owns its slot: it is one custom property and one
+     position in the theme layer. The definition that first claims a name fixes
+     that position, and a definition reaching a name that is already placed is
+     answered with the established slot. That is how a project naming one of the
+     built-in tokens lands: [--font-sans] from a project [@theme] arrives
+     through the [--font-<name>] family's shared slot, and keeps (1, 0). *)
   let register_variable ~name ~order =
-    (* Skip registration on order conflict — first registration wins. This can
-       happen when invalid input (e.g. inset-3/4/foo and inset-4/foo) produces
-       variables with the same order slot. *)
-    match Hashtbl.find_opt order_registry order with
-    | Some existing_name when existing_name <> name -> ()
-    | _ -> (
-        (* Also skip on name conflict with different order *)
-        match Hashtbl.find_opt name_registry name with
-        | Some existing_order when existing_order <> order -> ()
-        | _ ->
-            Hashtbl.replace order_registry order name;
-            Hashtbl.replace name_registry name order)
+    match Hashtbl.find_opt name_registry name with
+    | Some established -> established
+    | None ->
+        Hashtbl.replace name_registry name order;
+        order
 
   let register_property_order ~name ~order =
     Hashtbl.replace property_order_registry name order
@@ -237,10 +241,13 @@ let v : type a r.
       failwith ("Variable '" ^ name ^ "' in theme layer must have an order")
   | _ -> ());
 
-  (* Register the variable in the global registry to prevent conflicts *)
-  (match order with
-  | Some ord -> Registry.register_variable ~name ~order:ord
-  | None -> ());
+  (* Claim the name's theme slot, and carry the slot the name settled on: a
+     declaration this variable binds sorts where the name sorts. *)
+  let order =
+    match order with
+    | Some ord -> Some (Registry.register_variable ~name ~order:ord)
+    | None -> None
+  in
 
   (* Register property order if provided *)
   (match property_order with
@@ -394,6 +401,12 @@ let property_rules : type a. (a, [< `Property_default ]) t -> Css.t =
    reference *)
 let binding var ?fallback value = var.binding ?fallback value
 
+(* Reset a channel to the CSS-wide [initial] keyword ([--tw-x: initial]). Used
+   by the [*-initial] / [via-none] utilities, which clear a channel var rather
+   than set it to a typed value. *)
+let binding_initial var =
+  Css.custom_property ~layer:"utilities" ("--" ^ var.name) "initial"
+
 (* Create a variable reference for variables with @property defaults OR
    fallback *)
 let reference : type a b. (a, b) t -> a Css.var =
@@ -542,4 +555,28 @@ let properties vars =
   Css.v filtered
 
 let pp v = Pp.str [ "Var(--"; v.name; ")" ]
-let bracket ?fallback name = Css.var_ref ?fallback name
+
+let bracket ?fallback name =
+  let parsed_reference =
+    match fallback with
+    | Some _ -> None
+    | None ->
+        let expression =
+          if Parse.has_prefix ~prefix:"var(" name then Some name
+          else if String.contains name ',' then Some ("var(--" ^ name ^ ")")
+          else None
+        in
+        Option.bind expression (fun expression ->
+            try
+              Some
+                (Css.Variables.read_reference
+                   (Cascade.Cursor.of_string expression))
+            with Cascade.Cursor.Parse_error _ | Invalid_argument _ -> None)
+  in
+  match parsed_reference with
+  | Some (name, Some fallback) ->
+      Css.var_ref ~runtime:true
+        ~fallback:(Css.Values.syntax_fallback fallback)
+        name
+  | Some (name, None) -> Css.var_ref ~runtime:true name
+  | None -> Css.var_ref ?fallback name

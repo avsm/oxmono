@@ -208,7 +208,15 @@ let rec filter_theme_from_statements statements =
                       | Some (name, condition, content) ->
                           Css.container ?name ?condition
                             (filter_theme_from_statements content)
-                      | None -> stmt)))))
+                      | None -> (
+                          (* An opacity colour's progressive-enhancement block
+                             carries the same theme declaration as the rule it
+                             sits beside; without this it is declared twice. *)
+                          match Css.as_supports stmt with
+                          | Some (condition, content) ->
+                              Css.supports ~condition
+                                (filter_theme_from_statements content)
+                          | None -> stmt))))))
     statements
 
 (* Compute merge key from a base class name as a fallback when the utility
@@ -240,10 +248,23 @@ let merge_key_of_base_class base_class =
       in
       Some key
 
-(* Convert indexed rule to CSS statement *)
-let indexed_rule_to_statement (r : Sort.indexed_rule) =
-  let filtered_props = filter_utility_properties r.props in
-  let filtered_nested = filter_theme_from_statements r.nested in
+(* Convert indexed rule to CSS statement. [verbatim] names the base classes
+   whose rules arrived as finished CSS - a project's own [@utility] - so their
+   declarations are emitted as written. The theme filter exists to split a
+   utility's theme variables out of the utilities layer, and it recognises them
+   by the layer metadata [Var.binding] attaches; a declaration parsed from
+   author CSS carries none, so filtering it drops every [--tw-*] it sets. *)
+let indexed_rule_to_statement ?(verbatim = fun _ -> false)
+    (r : Sort.indexed_rule) =
+  let keep_as_written =
+    match r.base_class with Some c -> verbatim c | None -> false
+  in
+  let filtered_props =
+    if keep_as_written then r.props else filter_utility_properties r.props
+  in
+  let filtered_nested =
+    if keep_as_written then r.nested else filter_theme_from_statements r.nested
+  in
   let merge_key =
     match r.merge_key with
     | Some _ as mk -> mk
@@ -267,8 +288,12 @@ let indexed_rule_to_statement (r : Sort.indexed_rule) =
         Css.media ~condition
           [ Css.rule ~selector:r.selector ?merge_key filtered_props ]
   | `Container condition ->
-      Css.container ~condition
-        [ Css.rule ~selector:r.selector ?merge_key filtered_props ]
+      (* As for [`Media]: a compound like [@md:hover:] carries the inner hover
+         query in [nested] and has no declarations of its own. *)
+      if filtered_nested <> [] then Css.container ~condition filtered_nested
+      else
+        Css.container ~condition
+          [ Css.rule ~selector:r.selector ?merge_key filtered_props ]
   | `Supports condition ->
       Css.supports ~condition
         [ Css.rule ~selector:r.selector ?merge_key filtered_props ]
@@ -351,10 +376,10 @@ let rule_to_triple order_map = function
       in
       triple (`Media condition) ~selector ~props ~order ~nested ~base_class
         ~merge_key:None ~not_order
-  | Container_query { condition; selector; props; base_class } ->
+  | Container_query { condition; selector; props; base_class; nested } ->
       triple (`Container condition) ~selector ~props
         ~order:(order_of_base order_map base_class selector)
-        ~nested:[] ~base_class ~merge_key:None ~not_order:0
+        ~nested ~base_class ~merge_key:None ~not_order:0
   | Starting_style { selector; props; base_class } ->
       triple `Starting ~selector ~props
         ~order:(order_of_base order_map base_class selector)
@@ -442,6 +467,32 @@ let utilities_layer ~layers ~statements =
   if layers then Css.v [ Css.layer ~name:"utilities" statements ]
   else Css.v statements
 
+(* [@starting-style] carries no condition, so a run of [starting:] utilities is
+   one block in Tailwind's output. Each is wrapped on its own here, and the
+   optimizer's merging covers [@media] and [@supports] but not this, so collapse
+   a run before the statements are handed over. *)
+let statements_of_sorted_rules ?verbatim sorted_rules =
+  let is_starting (r : Sort.indexed_rule) = r.rule_type = `Starting in
+  let rec take_run taken = function
+    | (x : Sort.indexed_rule) :: tl when is_starting x ->
+        take_run (x :: taken) tl
+    | tl -> (List.rev taken, tl)
+  in
+  let rec go acc = function
+    | [] -> List.rev acc
+    | (r : Sort.indexed_rule) :: rest when is_starting r ->
+        let run, rest = take_run [ r ] rest in
+        let inner =
+          List.map
+            (fun (x : Sort.indexed_rule) ->
+              Css.rule ~selector:x.selector (filter_utility_properties x.props))
+            run
+        in
+        go (Css.starting_style inner :: acc) rest
+    | r :: rest -> go (indexed_rule_to_statement ?verbatim r :: acc) rest
+  in
+  go [] sorted_rules
+
 (* Get sorted indexed rules - used for extracting first-usage order of
    variables *)
 let sorted_indexed_rules order_map all_rules =
@@ -493,6 +544,15 @@ let rule_sets tw_classes =
   let all_rules = List.concat_map (Rule.outputs ~order_tbl) tw_classes in
   rule_sets_from_selector_props order_tbl all_rules
 
+let indexed_rules tw_classes =
+  let order_tbl = Hashtbl.create 256 in
+  List.concat_map (Rule.outputs ~order_tbl) tw_classes
+  |> List.filter_map (rule_to_triple order_tbl)
+  |> deduplicate_typed_triples |> add_index
+
+let compare_rules = Sort.compare_indexed_rules
+let rule_selector (r : Sort.indexed_rule) = r.selector_str
+
 (* ======================================================================== *)
 (* Layer Generation - CSS @layer directives and theme variable resolution *)
 (* ======================================================================== *)
@@ -542,30 +602,26 @@ let extract_non_tw_custom_declarations selector_props =
   let theme_vars = Hashtbl.create 32 in
   let insertion_order = ref [] in
 
+  let add_props props =
+    Css.custom_declarations ~layer:"theme" props
+    |> List.iter (fun decl ->
+        match Css.custom_declaration_name decl with
+        | Some name when not (Hashtbl.mem theme_vars name) ->
+            Hashtbl.add theme_vars name decl;
+            insertion_order := decl :: !insertion_order
+        | _ -> ())
+  in
   selector_props
   |> List.iter (function
-    | Regular { props; nested; _ } ->
-        (* Extract from top-level props *)
-        Css.custom_declarations ~layer:"theme" props
-        |> List.iter (fun decl ->
-            match Css.custom_declaration_name decl with
-            | Some name when not (Hashtbl.mem theme_vars name) ->
-                Hashtbl.add theme_vars name decl;
-                insertion_order := decl :: !insertion_order
-            | _ -> ());
-        (* Extract from nested statements *)
+    (* A compound variant like [md:hover:] holds its declarations in [nested],
+       so the tokens they declare are only reachable through it. *)
+    | Regular { props; nested; _ }
+    | Media_query { props; nested; _ }
+    | Container_query { props; nested; _ } ->
+        add_props props;
         extract_theme_from_statements theme_vars insertion_order nested
-    | Media_query { props; _ }
-    | Container_query { props; _ }
-    | Starting_style { props; _ }
-    | Supports_query { props; _ } ->
-        Css.custom_declarations ~layer:"theme" props
-        |> List.iter (fun decl ->
-            match Css.custom_declaration_name decl with
-            | Some name when not (Hashtbl.mem theme_vars name) ->
-                Hashtbl.add theme_vars name decl;
-                insertion_order := decl :: !insertion_order
-            | _ -> ()));
+    | Starting_style { props; _ } | Supports_query { props; _ } ->
+        add_props props);
   (* Return in original insertion order *)
   List.rev !insertion_order
 
@@ -627,7 +683,26 @@ let compare_orders order_a order_b =
   | None, Some _ -> 1
   | None, None -> 0
 
-(* Sort declarations by their Var order metadata, alphabetical fallback *)
+(* Tailwind's independently-numbered priority-7 namespaces overlap. Their
+   declaration order at a shared slot follows namespace registration order,
+   rather than the spelling of the complete token name. *)
+let priority_seven_namespace = function
+  | Some name ->
+      let name =
+        if String.starts_with ~prefix:"--" name then
+          String.sub name 2 (String.length name - 2)
+        else name
+      in
+      if String.starts_with ~prefix:"radius-" name then 0
+      else if String.starts_with ~prefix:"drop-shadow-" name then 1
+      else if String.starts_with ~prefix:"ease-" name then 2
+      else if String.starts_with ~prefix:"animate-" name then 3
+      else if String.starts_with ~prefix:"perspective-" name then 4
+      else 5
+  | None -> 5
+
+(* Sort declarations by their Var order metadata, namespace at a shared slot,
+   then alphabetical fallback. *)
 let sort_by_var_order decls =
   decls
   |> List.map (fun d ->
@@ -640,7 +715,17 @@ let sort_by_var_order decls =
       (d, order, name))
   |> List.sort (fun (_, a, na) (_, b, nb) ->
       let c = compare_orders a b in
-      if c <> 0 then c else compare na nb)
+      if c <> 0 then c
+      else
+        let namespace_cmp =
+          match (a, b) with
+          | Some (7, _), Some (7, _) ->
+              Int.compare
+                (priority_seven_namespace na)
+                (priority_seven_namespace nb)
+          | _ -> 0
+        in
+        if namespace_cmp <> 0 then namespace_cmp else compare na nb)
   |> List.map (fun (d, _, _) -> d)
 
 (* Build theme layer rule from declarations *)
@@ -660,9 +745,9 @@ let var_names_of_output = function
          hover:dark:) whose rules reference theme vars; recurse fully so those
          references are collected and their theme tokens declared. *)
       Css.vars_of_declarations props @ Css.vars_of_stylesheet (Css.v nested)
-  | Container_query { props; _ }
-  | Starting_style { props; _ }
-  | Supports_query { props; _ } ->
+  | Container_query { props; nested; _ } ->
+      Css.vars_of_declarations props @ Css.vars_of_stylesheet (Css.v nested)
+  | Starting_style { props; _ } | Supports_query { props; _ } ->
       Css.vars_of_declarations props
 
 (* Theme tokens referenced via var() (e.g. an arbitrary [color:var(--color-red-
@@ -684,7 +769,56 @@ let referenced_theme_decls ~theme ~exclude selector_props =
       then None
       else
         let bare = String.sub full 2 (String.length full - 2) in
-        Color.Handler.theme_color_decl ~theme bare)
+        match bare with
+        (* An arbitrary value may name the spacing scale directly, as
+           [p-[calc(--spacing(2)+1px)]] does. *)
+        | "spacing" ->
+            let decl, _ =
+              Var.binding Theme.spacing_var
+                (Option.value
+                   (Option.bind
+                      (Scheme.theme_value (Some theme) "spacing")
+                      Css.parse_length)
+                   ~default:Theme.spacing_base)
+            in
+            Some decl
+        | _ -> Color.Handler.theme_color_decl ~theme bare)
+
+(* [--default-font-family] points at [--font-sans]. When the project declared
+   that token in an [@theme inline] block it has no declaration of its own, so
+   the default carries its value instead of a reference nothing resolves. *)
+let inline_default_family theme decl =
+  match Css.custom_declaration_name decl with
+  | Some name -> (
+      let token =
+        match name with
+        | "--default-font-family" -> Some "font-sans"
+        | "--default-mono-font-family" -> Some "font-mono"
+        | _ -> None
+      in
+      match token with
+      | Some t
+        when Scheme.is_inline_token theme t
+             && String.trim (Css.declaration_value decl) = "var(--" ^ t ^ ")"
+        -> (
+          match Scheme.theme_value (Some theme) t with
+          | Some v -> Css.custom_property ~layer:"theme" name v
+          | None -> decl)
+      | _ -> decl)
+  | None -> decl
+
+(* Tailwind derives the default font-feature settings from the sans and mono
+   tokens the project declared. *)
+let derived_font_feature_decls ~theme ~have =
+  [
+    ("font-sans--font-feature-settings", "default-font-feature-settings");
+    ("font-mono--font-feature-settings", "default-mono-font-feature-settings");
+  ]
+  |> List.filter_map (fun (token, name) ->
+      match Scheme.theme_value (Some theme) token with
+      | Some v when not (Strings.mem ("--" ^ name) have) ->
+          Some (Css.custom_property ~layer:"theme" ("--" ^ name) v)
+      | _ -> None)
 
 (* Internal helper to compute theme layer from pre-extracted outputs. *)
 let theme_layer_of_props ?(theme = Scheme.default) ?(layers = true)
@@ -698,6 +832,28 @@ let theme_layer_of_props ?(theme = Scheme.default) ?(layers = true)
     @ referenced_theme_decls ~theme ~exclude:(names_set_of extracted)
         selector_props
   in
+  let extracted =
+    extracted @ derived_font_feature_decls ~theme ~have:(names_set_of extracted)
+  in
+  (* [theme(static)] on the package import emits every theme variable, not only
+     the ones a utility used. The palette is by far the biggest part of it. *)
+  let extracted =
+    if not theme.Scheme.static_theme then extracted
+    else
+      let have = names_set_of extracted in
+      let registered =
+        Scheme.all_default_tokens ()
+        |> List.map (fun (name, css) ->
+            Css.custom_property ~layer:"theme" ("--" ^ name) css)
+      in
+      extracted
+      @ List.filter
+          (fun d ->
+            match Css.custom_declaration_name d with
+            | Some n -> not (Strings.mem n have)
+            | None -> true)
+          (Color.Handler.all_palette_declarations ~theme () @ registered)
+  in
   let pre_defaults, post_defaults = split_defaults default_decls in
 
   (* Filter defaults to remove duplicates of extracted vars *)
@@ -709,7 +865,12 @@ let theme_layer_of_props ?(theme = Scheme.default) ?(layers = true)
       post_defaults
   in
 
-  pre @ extracted @ post |> sort_by_var_order |> theme_layer_rule ~layers
+  (* A project [@theme] override wins wherever the declaration came from: the
+     built-in defaults carry the same token names as the extracted ones. *)
+  pre @ extracted @ post
+  |> List.map (apply_token_override theme)
+  |> List.map (inline_default_family theme)
+  |> sort_by_var_order |> theme_layer_rule ~layers
 
 let theme_layer_of ?(default_decls = []) tw_classes =
   let selector_props = collect_selector_props tw_classes in
@@ -1332,19 +1493,173 @@ type config = { base : bool; forms : bool option; layers : bool }
 
 let default_config = { base = true; forms = None; layers = true }
 
-let to_css ?(theme = Scheme.default) ?(config = default_config) tw_classes =
+(* A statement a project's own [@utility] produced, in the shape a built-in
+   utility yields, so the utilities layer sorts it by its order rather than
+   receiving it after everything else. *)
+let rec first_selector stmt =
+  match Css.as_rule stmt with
+  | Some (selector, _, _) -> Some selector
+  | None ->
+      let inner =
+        match Css.as_media stmt with
+        | Some (_, inner) -> inner
+        | None -> (
+            match Css.as_supports stmt with
+            | Some (_, inner) -> inner
+            | None -> (
+                match Css.as_container stmt with
+                | Some (_, _, inner) -> inner
+                | None -> []))
+      in
+      List.find_map first_selector inner
+
+let outputs_of_statement ~base_class stmt =
+  (* An at-rule nested in another - what a project's own [dark] variant builds
+     around a colour utility's [@supports] - keeps the inner one verbatim in
+     [nested], the same shape a compound modifier already uses. Decomposing it
+     instead would emit the inner rule without the outer condition. *)
+  let of_inner wrap inner =
+    if List.for_all (fun st -> Css.as_rule st <> None) inner then
+      List.concat_map
+        (fun st ->
+          match Css.as_rule st with
+          | Some (selector, props, _) -> [ wrap ~selector ~props ~nested:[] ]
+          | None -> [])
+        inner
+    else
+      match List.find_map first_selector inner with
+      | Some selector -> [ wrap ~selector ~props:[] ~nested:inner ]
+      | None -> []
+  in
+  match Css.as_rule stmt with
+  | Some (selector, props, nested) ->
+      [ Output.regular ~selector ~props ~base_class ~nested () ]
+  | None -> (
+      match Css.as_media stmt with
+      | Some (condition, inner) ->
+          of_inner
+            (fun ~selector ~props ~nested ->
+              Output.media_query ~condition ~selector ~props ~base_class ~nested
+                ())
+            inner
+      | None -> (
+          match Css.as_supports stmt with
+          | Some (condition, inner) ->
+              of_inner
+                (fun ~selector ~props ~nested:_ ->
+                  Output.supports_query ~condition ~selector ~props ~base_class
+                    ())
+                inner
+          | None -> (
+              match Css.as_container stmt with
+              | Some (_, Some condition, inner) ->
+                  of_inner
+                    (fun ~selector ~props ~nested ->
+                      Output.container_query ~condition ~selector ~props
+                        ~base_class ~nested ())
+                    inner
+              | _ -> [])))
+
+let output_base_class_and_props = function
+  | Output.Regular { base_class; props; _ }
+  | Media_query { base_class; props; _ }
+  | Container_query { base_class; props; _ }
+  | Starting_style { base_class; props; _ }
+  | Supports_query { base_class; props; _ } ->
+      (base_class, props)
+
+(* Tailwind orders utilities that write the same property by candidate name.
+   Built-in values carry distinct numeric suborders in TW, so when a declared
+   utility joins one of those property families, normalize that family's
+   suborder for this render and let the existing candidate-name tiebreaker
+   interleave both kinds of utility. *)
+let normalize_declared_property_families order_map builtins extra_outputs =
+  List.iter
+    (fun (class_name, (priority, _), outputs) ->
+      match
+        List.find_map
+          (fun output ->
+            let _, props = output_base_class_and_props output in
+            Utility.ordering_property props)
+          outputs
+      with
+      | None -> ()
+      | Some property ->
+          let family =
+            List.filter_map
+              (fun output ->
+                let base_class, props = output_base_class_and_props output in
+                match (base_class, Utility.ordering_property props) with
+                | Some cls, Some key when key = property ->
+                    let base = extract_base_utility cls in
+                    Option.map
+                      (fun order -> (base, order))
+                      (Hashtbl.find_opt order_map base)
+                | _ -> None)
+              builtins
+          in
+          let suborder =
+            List.fold_left
+              (fun acc (_, (p, s)) ->
+                if p <> priority then acc
+                else Some (Option.fold ~none:s ~some:(Int.min s) acc))
+              None family
+          in
+          Option.iter
+            (fun suborder ->
+              List.iter
+                (fun (base, (p, _)) ->
+                  if p = priority then
+                    Hashtbl.replace order_map base (priority, suborder))
+                family;
+              Hashtbl.replace order_map
+                (extract_base_utility class_name)
+                (priority, suborder))
+            suborder)
+    extra_outputs
+
+let to_css ?(theme = Scheme.default) ?(config = default_config) ?(extra = [])
+    tw_classes =
   (* [Rule.outputs ~order_tbl] records each base utility's order under the class
      name it already builds, so [order_of_base] looks it up instead of
      re-parsing the class string while building/sorting rules. *)
   let order_map = Hashtbl.create 256 in
-  let selector_props =
+  let builtin_selector_props =
     List.concat_map (Rule.outputs ~theme ~order_tbl:order_map) tw_classes
+  in
+  (* A declared utility means nothing to the handlers, so its order arrives with
+     it and is seeded under the same key [order_of_base] looks up. The key is
+     the base name, which a plain utility of the same name shares: seed it only
+     when it is free, so an incoming order never moves a rule the handlers
+     already placed. *)
+  let extra_outputs =
+    List.map
+      (fun (class_name, order, statements) ->
+        let key = extract_base_utility class_name in
+        if not (Hashtbl.mem order_map key) then Hashtbl.add order_map key order;
+        ( class_name,
+          order,
+          List.concat_map
+            (outputs_of_statement ~base_class:class_name)
+            statements ))
+      extra
+  in
+  normalize_declared_property_families order_map builtin_selector_props
+    extra_outputs;
+  let selector_props =
+    builtin_selector_props
+    @ List.concat_map (fun (_, _, outputs) -> outputs) extra_outputs
   in
   (* [sorted_rules] (the filter_map/dedup/index/sort pass) feeds both the
      utilities-layer statements and the variable first-usage order, so compute
      it once and share it rather than recomputing inside [layers]. *)
   let sorted_rules = sorted_indexed_rules order_map selector_props in
-  let statements = List.map indexed_rule_to_statement sorted_rules in
+  let verbatim =
+    let names = Hashtbl.create 8 in
+    List.iter (fun (cls, _, _) -> Hashtbl.replace names cls ()) extra;
+    fun cls -> Hashtbl.mem names cls
+  in
+  let statements = statements_of_sorted_rules ~verbatim sorted_rules in
   let layer_results =
     layers ~theme ~layers:config.layers ~include_base:config.base
       ?forms:config.forms ~selector_props ~sorted_rules tw_classes statements

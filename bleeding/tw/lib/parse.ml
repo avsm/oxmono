@@ -8,13 +8,46 @@ let has_prefix ~prefix s =
   let lp = String.length prefix in
   lp <= String.length s && prefix_loop prefix s 0 lp
 
+let is_digits s =
+  s <> "" && String.for_all (function '0' .. '9' -> true | _ -> false) s
+
+let without_sign s =
+  if s <> "" && s.[0] = '-' then String.sub s 1 (String.length s - 1) else s
+
+let is_canonical_digits s = is_digits s && (String.length s = 1 || s.[0] <> '0')
+
+(* A class suffix is written in plain decimal, but OCaml's literal grammar also
+   admits [0x]/[0o]/[0b] bases, [_] digit separators, hex-float exponents and a
+   leading [+]. Handing a suffix straight to [int_of_string_opt] therefore reads
+   [p-0x4] as 4 and emits [.p-4] — a rule nobody wrote, and not a class Tailwind
+   accepts. Both readers below check the spelling first. *)
+let decimal_int s =
+  if is_canonical_digits (without_sign s) then int_of_string_opt s else None
+
+(* Plain decimal: digits, then at most one fractional part with digits of its
+   own. [.5], [1.] and [1e2] are not spellings of a class suffix. *)
+let decimal_float s =
+  let digits = without_sign s in
+  let plain =
+    match String.index_opt digits '.' with
+    | None -> is_canonical_digits digits
+    | Some i ->
+        let whole = String.sub digits 0 i in
+        let fraction =
+          String.sub digits (i + 1) (String.length digits - i - 1)
+        in
+        is_canonical_digits whole && is_digits fraction
+        && fraction.[String.length fraction - 1] <> '0'
+  in
+  if plain then float_of_string_opt s else None
+
 let int_any s =
-  match int_of_string_opt s with
+  match decimal_int s with
   | Some n -> Ok n
   | None -> Error (`Msg ("Invalid number: " ^ s))
 
 let nonnegative_int ~name s =
-  match int_of_string_opt s with
+  match decimal_int s with
   | Some n when n >= 0 -> Some (Ok n)
   | Some _ -> Some (Error (`Msg (name ^ " must be non-negative: " ^ s)))
   | None -> None
@@ -27,14 +60,12 @@ let int_pos ~name s =
 (* Parse decimal values like "0.5", "1.5" for spacing utilities. Valid decimals
    must be multiples of 0.25 (i.e., value * 4 is integer). *)
 let decimal_pos ~name s =
-  try
-    let f = Float.of_string s in
-    if f < 0.0 then Error (`Msg (name ^ " must be non-negative: " ^ s))
-    else
-      let scaled = f *. 4.0 in
-      if Float.is_integer scaled then Ok f
+  match decimal_float s with
+  | None -> Error (`Msg ("Invalid " ^ name ^ " value: " ^ s))
+  | Some f ->
+      if f < 0.0 then Error (`Msg (name ^ " must be non-negative: " ^ s))
+      else if Float.is_integer (f *. 4.0) then Ok f
       else Error (`Msg ("Invalid " ^ name ^ " value: " ^ s))
-  with Failure _ -> Error (`Msg ("Invalid " ^ name ^ " value: " ^ s))
 
 (* Parse spacing values - handles both integers and decimals *)
 let spacing_value ~name s =
@@ -44,7 +75,7 @@ let spacing_value ~name s =
   | None -> decimal_pos ~name s
 
 let int_bounded ~name ~min ~max s =
-  match int_of_string_opt s with
+  match decimal_int s with
   | Some n when n >= min && n <= max -> Ok n
   | Some _ ->
       Error
@@ -75,7 +106,24 @@ let is_bracket_value s =
 let bracket_inner s =
   if is_bracket_value s then String.sub s 1 (String.length s - 2) else s
 
-let decode_underscores s = String.map (fun c -> if c = '_' then ' ' else c) s
+(* In an arbitrary value [_] stands for a space, and [\_] for a literal
+   underscore — otherwise a value that needs one could not be written. *)
+let decode_underscores s =
+  let len = String.length s in
+  let buf = Buffer.create len in
+  let rec go i =
+    if i >= len then ()
+    else if s.[i] = '\\' && i + 1 < len && s.[i + 1] = '_' then begin
+      Buffer.add_char buf '_';
+      go (i + 2)
+    end
+    else begin
+      Buffer.add_char buf (if s.[i] = '_' then ' ' else s.[i]);
+      go (i + 1)
+    end
+  in
+  go 0;
+  Buffer.contents buf
 
 let function_name_before s i =
   let is_name_char = function
@@ -165,8 +213,58 @@ let normalize_css_math_operators s =
   done;
   Buffer.contents buf
 
+(* Tailwind's [--spacing(N)] shorthand: the spacing scale as a function. It is
+   not CSS, so a value holding it fails to parse and the utility drops out. *)
+let expand_spacing_fn s =
+  let len = String.length s in
+  let buf = Buffer.create len in
+  let rec close_paren i depth =
+    if i >= len then (len, len)
+    else
+      match s.[i] with
+      | '(' -> close_paren (i + 1) (depth + 1)
+      | ')' when depth = 1 -> (i, i + 1)
+      | ')' -> close_paren (i + 1) (depth - 1)
+      | _ -> close_paren (i + 1) depth
+  in
+  let rec go i =
+    if i >= len then ()
+    else if i + 10 <= len && String.sub s i 10 = "--spacing(" then (
+      let stop, next = close_paren (i + 9) 0 in
+      let n = String.sub s (i + 10) (stop - i - 10) in
+      (* [--spacing(1)] is the scale itself; only a multiplier needs calc. *)
+      if String.trim n = "1" then Buffer.add_string buf "var(--spacing)"
+      else
+        Buffer.add_string buf
+          (String.concat "" [ "calc(var(--spacing) * "; n; ")" ]);
+      go next)
+    else (
+      Buffer.add_char buf s.[i];
+      go (i + 1))
+  in
+  go 0;
+  Buffer.contents buf
+
 let decode_arbitrary_value s =
-  s |> decode_underscores |> normalize_css_math_operators
+  s |> decode_underscores |> expand_spacing_fn |> normalize_css_math_operators
+
+let arbitrary_length s = Cascade.Css.parse_length (decode_arbitrary_value s)
+
+(* A CSS identifier, which is what a custom-ident or a property name written in
+   an arbitrary value has to be. The docs pages carry [<value>] placeholders
+   that are not CSS, and passing one through emits an invalid declaration. *)
+let is_ident s =
+  s <> ""
+  && (match s.[0] with
+    | 'a' .. 'z' | 'A' .. 'Z' | '_' -> true
+    | '-' -> String.length s > 1
+    | c -> Char.code c >= 0x80)
+  && String.for_all
+       (fun c ->
+         match c with
+         | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' -> true
+         | c -> Char.code c >= 0x80)
+       s
 
 (** Check if a string starts with "var(" — works on inner bracket content *)
 let is_var s = String.length s > 4 && String.sub s 0 4 = "var("
@@ -186,7 +284,7 @@ let is_css_color_fn s =
   in
   starts "rgb" || starts "rgba" || starts "hsl" || starts "hsla" || starts "hwb"
   || starts "oklch" || starts "oklab" || starts "lch" || starts "lab"
-  || starts "color" || starts "color-mix"
+  || starts "color" || starts "color-mix" || starts "light-dark"
 
 (** Check if a string is a bare var reference like "(--name)" *)
 let is_bare_var s =

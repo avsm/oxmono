@@ -47,10 +47,14 @@ let is_candidate_start d i =
   | c when is_ascii_digit c -> true
   | 0x2d | 0x21 | 0x40 | 0x2a -> true
   | 0x5b ->
+      (* [ opens an arbitrary value ([color:red]) or property, whose first
+         character is neither a quote nor whitespace. [ followed by whitespace
+         is a plain array bracket ([rows={[ ...]), not a candidate: consuming it
+         as one would swallow every class named inside the array. *)
       i + 1 < Array.length d.chars
       &&
       let next = char_at d (i + 1) in
-      next <> 0x22 && next <> 0x27 && next <> 0x60
+      next <> 0x22 && next <> 0x27 && next <> 0x60 && not (is_whitespace next)
   | _ -> false
 
 let is_candidate_char = function
@@ -59,6 +63,11 @@ let is_candidate_char = function
   | c when is_ascii_digit c -> true
   | 0x2d | 0x5f | 0x3a | 0x2f | 0x25 | 0x40 | 0x21 | 0x2a -> true
   | _ -> false
+
+(* A [(] opens a group only where a utility can hold one: after the [-] of
+   [bg-(--x)] or the [/] of an alpha shorthand. Elsewhere it ends the token, so
+   a call in the source is not read as a class. *)
+let opens_paren_group prev = prev = 0x2d || prev = 0x2f
 
 let trim_candidate s =
   let len = String.length s in
@@ -75,43 +84,48 @@ let read_candidate d start =
     if i >= len then i
     else
       let c = char_at d i in
-      match quote with
-      | Some q ->
-          if escaped then loop (i + 1) bracket_depth paren_depth quote false
-          else if c = 0x5c then
-            loop (i + 1) bracket_depth paren_depth quote true
-          else if c = q then loop (i + 1) bracket_depth paren_depth None false
-          else loop (i + 1) bracket_depth paren_depth quote false
-      | None when bracket_depth > 0 || paren_depth > 0 -> (
-          match c with
-          | 0x22 | 0x27 | 0x60 ->
-              loop (i + 1) bracket_depth paren_depth (Some c) false
-          | 0x5b -> loop (i + 1) (bracket_depth + 1) paren_depth None false
-          | 0x5d when bracket_depth > 0 ->
-              loop (i + 1) (bracket_depth - 1) paren_depth None false
-          | 0x28 -> loop (i + 1) bracket_depth (paren_depth + 1) None false
-          | 0x29 when paren_depth > 0 ->
-              loop (i + 1) bracket_depth (paren_depth - 1) None false
-          | _ -> loop (i + 1) bracket_depth paren_depth None false)
-      | None -> (
-          match c with
-          | c when is_whitespace c -> i
-          | 0x22 | 0x27 | 0x60 | 0x3c | 0x3e | 0x3d | 0x7b | 0x7d | 0x3b | 0x2c
-          | 0x23 ->
-              i
-          | 0x5b -> loop (i + 1) 1 0 None false
-          | 0x28 when i > start && char_at d (i - 1) = 0x2d ->
-              loop (i + 1) 0 1 None false
-          | 0x28 | 0x29 -> i
-          | 0x2e
-            when i > start
-                 && i + 1 < len
-                 && is_ascii_digit (char_at d (i - 1))
-                 && is_ascii_digit (char_at d (i + 1)) ->
-              loop (i + 1) 0 0 None false
-          | 0x2e -> i
-          | c when is_candidate_char c -> loop (i + 1) 0 0 None false
-          | _ -> i)
+      (* A candidate never spans a line, whatever is open. Without this an
+         unbalanced [[] or quote swallows the rest of the file into one
+         token. *)
+      if c = 0x0a || c = 0x0d then i
+      else
+        match quote with
+        | Some q ->
+            if escaped then loop (i + 1) bracket_depth paren_depth quote false
+            else if c = 0x5c then
+              loop (i + 1) bracket_depth paren_depth quote true
+            else if c = q then loop (i + 1) bracket_depth paren_depth None false
+            else loop (i + 1) bracket_depth paren_depth quote false
+        | None when bracket_depth > 0 || paren_depth > 0 -> (
+            match c with
+            | 0x22 | 0x27 | 0x60 ->
+                loop (i + 1) bracket_depth paren_depth (Some c) false
+            | 0x5b -> loop (i + 1) (bracket_depth + 1) paren_depth None false
+            | 0x5d when bracket_depth > 0 ->
+                loop (i + 1) (bracket_depth - 1) paren_depth None false
+            | 0x28 -> loop (i + 1) bracket_depth (paren_depth + 1) None false
+            | 0x29 when paren_depth > 0 ->
+                loop (i + 1) bracket_depth (paren_depth - 1) None false
+            | _ -> loop (i + 1) bracket_depth paren_depth None false)
+        | None -> (
+            match c with
+            | c when is_whitespace c -> i
+            | 0x22 | 0x27 | 0x60 | 0x3c | 0x3e | 0x3d | 0x7b | 0x7d | 0x3b
+            | 0x2c | 0x23 ->
+                i
+            | 0x5b -> loop (i + 1) 1 0 None false
+            | 0x28 when i > start && opens_paren_group (char_at d (i - 1)) ->
+                loop (i + 1) 0 1 None false
+            | 0x28 | 0x29 -> i
+            | 0x2e
+              when i > start
+                   && i + 1 < len
+                   && is_ascii_digit (char_at d (i - 1))
+                   && is_ascii_digit (char_at d (i + 1)) ->
+                loop (i + 1) 0 0 None false
+            | 0x2e -> i
+            | c when is_candidate_char c -> loop (i + 1) 0 0 None false
+            | _ -> i)
   in
   loop start 0 0 None false
 

@@ -59,7 +59,11 @@ let of_string_valid () =
   check "grid-cols-[repeat(2,1fr_2fr)]";
   check "grid-cols-[repeat(auto-fill,minmax(0,1fr))]";
   check "grid-cols-[fit-content(200px)]";
-  check "grid-rows-[repeat(4,minmax(100px,auto))]"
+  check "grid-rows-[repeat(4,minmax(100px,auto))]";
+  (* a math-function track (min/max/clamp) is a length track *)
+  check "grid-cols-[min(50%,20rem)]";
+  check "grid-cols-[min(50%,20rem)_auto]";
+  check "grid-cols-[max(200px,50%)_1fr]"
 
 let of_string_invalid () =
   let fail_maybe input =
@@ -140,8 +144,26 @@ let test_grid_functions_css () =
   has "grid-cols-[fit-content(200px)]"
     "grid-template-columns:fit-content(200px)"
 
+(* An arbitrary track can name the spacing scale or hold a var(), including as
+   the repeat() count. The token has to be declared alongside the value. *)
+let test_arbitrary_track_values () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "grid-cols-[repeat(auto-fit,--spacing(42))]"
+    "grid-template-columns:repeat(auto-fit,calc(var(--spacing)*42))";
+  has "grid-cols-[repeat(auto-fit,--spacing(42))]" "--spacing:.25rem";
+  has "grid-cols-[repeat(var(--columns),var(--width))]"
+    "grid-template-columns:repeat(var(--columns),var(--width))"
+
 let tests =
   [
+    test_case "arbitrary track values" `Quick test_arbitrary_track_values;
     test_case "grid_template of_string - valid values" `Quick of_string_valid;
     test_case "grid_template of_string - invalid values" `Quick
       of_string_invalid;

@@ -120,6 +120,53 @@ let test_order_consistency () =
   check (pair int int) "first equals second" o1 o2;
   check (pair int int) "second equals third" o2 o3
 
+(* A project's [@utility] sorts at the slot of the property it declares, so a
+   property has to resolve to the order of the utilities that set it. The slots
+   are derived from each handler's examples, not from a table restating the
+   order. *)
+let test_order_of_property () =
+  let open Tw.Utility in
+  let order_of cls =
+    match base_of_class Tw.Scheme.default cls with
+    | Ok b -> order b
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  check
+    (option (pair int int))
+    "display resolves to the display utilities"
+    (Some (order_of "block"))
+    (order_of_property (Key Display));
+  check
+    (option (pair int int))
+    "box-sizing resolves to the box-sizing utilities"
+    (Some (order_of "box-border"))
+    (order_of_property (Key Box_sizing));
+  check
+    (option (pair int int))
+    "isolation keeps its own slot, not the display family's"
+    (Some (order_of "isolate"))
+    (order_of_property (Key Isolation));
+  check
+    (option (pair int int))
+    "padding skips its spacing token declaration"
+    (Some (order_of "p-4"))
+    (order_of_property (Key Padding));
+  check
+    (option (pair int int))
+    "margin skips its spacing token declaration"
+    (Some (order_of "m-auto"))
+    (order_of_property (Key Margin));
+  check
+    (option (pair int int))
+    "color skips its palette token declaration"
+    (Some (order_of "placeholder-transparent"))
+    (order_of_property (Key Color));
+  check
+    (option (pair int int))
+    "border style skips width-utility carrier declarations"
+    (Some (order_of "border-solid"))
+    (order_of_property (Key Border_style))
+
 let tests =
   [
     test_case "base_of_class valid input" `Quick test_base_of_class_valid;
@@ -128,6 +175,7 @@ let tests =
     test_case "deduplicate handles empty list" `Quick test_deduplicate_empty;
     (* test_case "css_of_string valid input" `Quick test_css_of_string_valid; *)
     (* test_case "css_of_string invalid input" `Quick test_css_of_string_invalid; *)
+    test_case "order_of_property" `Quick test_order_of_property;
     test_case "order returns correct priorities" `Quick test_order_priorities;
     test_case "order returns correct suborders" `Quick test_order_suborders;
     test_case "order is consistent" `Quick test_order_consistency;

@@ -11,6 +11,7 @@ let test_widths () =
   check "w-px";
   check "w-0.5";
   check "w-1/2";
+  check "w-9/10";
   check "w-1/3";
   check "w-2/3";
   check "w-1/4";
@@ -25,9 +26,30 @@ let test_widths () =
   check "w-10";
   check "w-32";
   check "w-64";
-  check "w-96"
+  check "w-96";
+  (* container scale: named width sizes read the container theme var, including
+     the digit-led names, and the whole scale beyond xl *)
+  check "w-xs";
+  check "w-sm";
+  check "w-xl";
+  check "w-2xs";
+  check "w-3xs";
+  check "w-2xl";
+  check "w-7xl";
+  check "w-dvh";
+  check "w-lvh";
+  check "w-svh"
 
 let test_heights () =
+  (* both viewport axes on every height family, plus the px step *)
+  check "h-dvw";
+  check "h-lvw";
+  check "h-svw";
+  check "max-h-dvw";
+  check "max-h-svw";
+  check "min-h-lvw";
+  check "max-h-px";
+  check "min-h-px";
   check "h-0";
   check "h-1";
   check "h-4";
@@ -42,8 +64,21 @@ let test_heights () =
 let test_min_sizes () =
   check "min-w-0";
   check "min-w-full";
+  (* container scale across the logical sizing families, digit-led names too *)
+  check "min-w-xl";
+  check "min-w-2xl";
+  check "min-w-2xs";
+  check "min-w-7xl";
+  check "inline-2xl";
+  check "min-inline-3xl";
+  check "max-inline-2xs";
   check "min-h-0";
-  check "min-h-screen"
+  check "min-h-screen";
+  (* fractions resolve to a percentage on the min families *)
+  check "min-w-1/2";
+  check "min-w-2/3";
+  check "min-h-1/2";
+  check "min-h-3/4"
 
 let test_max_sizes () =
   check "max-w-none";
@@ -54,14 +89,44 @@ let test_max_sizes () =
   check "max-w-xl";
   check "max-w-2xl";
   check "max-w-7xl";
+  check "max-w-2xs";
+  check "max-w-3xs";
+  check "max-w-dvw";
+  check "max-w-svh";
+  check "max-w-px";
+  check "max-w-screen";
+  check "min-w-dvw";
+  check "min-w-px";
+  check "min-w-screen";
+  (* logical inline/block max and min families *)
+  check "max-inline-dvw";
+  check "max-inline-screen";
+  check "max-inline-min";
+  check "min-inline-svw";
+  check "min-inline-px";
+  check "max-block-px";
+  check "min-block-px";
   check "max-w-full";
   check "max-w-screen-sm";
   check "max-h-4";
   check "max-h-full";
-  check "max-h-screen"
+  check "max-h-screen";
+  (* fractions resolve to a percentage on the max families *)
+  check "max-w-1/2";
+  check "max-w-1/3";
+  check "max-h-1/2";
+  check "max-h-3/4";
+  (* fractions on the logical min/max inline and block axes *)
+  check "max-block-1/2";
+  check "min-block-1/3";
+  check "max-inline-3/4";
+  check "min-inline-2/3"
 
 let test_square_sizes () =
   check "size-0";
+  check "size-dvw";
+  check "size-svh";
+  check "size-px";
   check "size-4";
   check "size-full";
   check "size-1/2"
@@ -77,15 +142,17 @@ let of_string_invalid () =
   (* Missing value *)
   test_invalid [ "w"; "invalid" ];
   (* Invalid value *)
-  test_invalid [ "w"; "1/7" ];
-  (* Invalid fraction - 1/7 not supported *)
-  test_invalid [ "h"; "1/7" ];
-  (* Invalid fraction *)
+  test_invalid [ "w"; "1/0" ];
+  (* A zero denominator is not a percentage *)
+  test_invalid [ "h"; "9/9" ];
+  (* A fraction of one or more is not a width *)
   test_invalid [ "min" ];
   (* Missing dimension *)
   test_invalid [ "min"; "z"; "4" ];
   (* Invalid dimension *)
   test_invalid [ "max"; "w"; "8xl" ];
+  (* not a container-scale name *)
+  test_invalid [ "inline"; "4xs" ];
   (* Invalid max size *)
   test_invalid [ "max"; "w"; "screen"; "3xl" ];
   (* Invalid screen size *)
@@ -105,6 +172,40 @@ let test_aspect_css () =
     (Astring.String.is_infix ~affix:"aspect-ratio" css);
   Alcotest.check bool "has 16/9" true
     (Astring.String.is_infix ~affix:"16/9" css)
+
+(* A bare-number arbitrary ratio (aspect-[1.333]) is a single-value
+   aspect-ratio; it minifies to just the number, and round-trips. *)
+let test_aspect_bracket_number () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "aspect-[1.333] is aspect-ratio:1.333" true
+    (Astring.String.is_infix ~affix:"aspect-ratio:1.333" (css "aspect-[1.333]"));
+  Alcotest.(check string)
+    "aspect-[1.333] round-trips" "aspect-[1.333]"
+    (Tw.pp (Result.get_ok (Tw.of_string "aspect-[1.333]")))
+
+(* A fraction on a logical min/max inline or block axis resolves to a
+   percentage, like the physical max-w/max-h families do. *)
+let test_logical_size_fractions () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool)
+      (cls ^ " is " ^ affix)
+      true
+      (Astring.String.is_infix ~affix (css cls))
+  in
+  has "max-block-1/2" "max-block-size:50%";
+  has "min-block-1/3" "min-block-size:33.3333%";
+  has "max-inline-3/4" "max-inline-size:75%";
+  has "min-inline-2/3" "min-inline-size:66.6667%"
 
 (* aspect-square inlines the 1/1 ratio in v4; it used to emit aspect-ratio:
    var(--aspect-square) with a stray --aspect-square theme token that bare
@@ -159,6 +260,56 @@ let test_class_generation () =
   (* size-4 => calc(var(--spacing)*4) *)
   Alcotest.check bool "size 4 uses spacing*4" true
     (Astring.String.is_infix ~affix:"*4)" (css_for (size 4)))
+
+(* The logical sizing utilities are registered after every other utility in
+   Tailwind, so they sort last rather than beside w-* and h-*, and among
+   themselves alphabetically. *)
+let logical_sizing_sorts_last () =
+  let classes =
+    [
+      "w-4";
+      "shadow-md";
+      "min-inline-4";
+      "block-4";
+      "max-inline-4";
+      "inline-4";
+      "min-block-4";
+      "max-block-4";
+    ]
+  in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  let css =
+    Cascade.Css.to_string ~minify:true (Tw.to_css ~base:false utilities)
+  in
+  let position needle =
+    let n = String.length needle and h = String.length css in
+    let rec go i =
+      if i + n > h then -1
+      else if String.sub css i n = needle then i
+      else go (i + 1)
+    in
+    go 0
+  in
+  let expected =
+    [
+      ".w-4";
+      ".shadow-md";
+      ".block-4";
+      ".inline-4";
+      ".max-block-4";
+      ".max-inline-4";
+      ".min-block-4";
+      ".min-inline-4";
+    ]
+  in
+  let positions = List.map position expected in
+  Alcotest.check bool "every utility is emitted" true
+    (List.for_all (fun p -> p >= 0) positions);
+  Alcotest.check
+    (Alcotest.list Alcotest.int)
+    "the logical sizing utilities come last, alphabetically"
+    (List.sort Int.compare positions)
+    positions
 
 let suborder_matches_tailwind () =
   let open Tw in
@@ -235,7 +386,7 @@ let test_general_fractions () =
     | Error _ -> ()
     | Ok _ -> Alcotest.fail ("expected rejection of " ^ cls)
   in
-  rejected "w-1/7";
+  rejected "w-9/9";
   rejected "w-13/12"
 
 (* max-w-screen-* references the breakpoint theme var (like the v4 CLI), not an
@@ -249,9 +400,54 @@ let test_max_w_screen () =
     "max-w-screen-xl defines --breakpoint-xl: 80rem" true
     (Astring.String.is_infix ~affix:"--breakpoint-xl: 80rem" xl)
 
+(* Arbitrary sizes accept compact calc() (the bracket value is normalized before
+   going through the length grammar). *)
+let test_arbitrary_calc () =
+  Alcotest.(check bool)
+    "w-[calc(100vh-4rem)] spaces the operator" true
+    (Astring.String.is_infix ~affix:"width: calc(100vh - 4rem)"
+       (css_of "w-[calc(100vh-4rem)]"))
+
+(* A width fraction is read as a percentage, from any denominator: Tailwind has
+   no fixed scale here, and w-3/8 used to be an unknown class. *)
+let test_any_fraction_denominator () =
+  Alcotest.(check bool)
+    "w-3/8 is 37.5%" true
+    (Astring.String.is_infix ~affix:"width: 37.5%" (css_of "w-3/8"));
+  Alcotest.(check bool)
+    "w-7/9 rounds like Tailwind" true
+    (Astring.String.is_infix ~affix:"width: 77.7778%" (css_of "w-7/9"));
+  Alcotest.(check bool)
+    "a fraction of one or more is still rejected" true
+    (Result.is_error (Tw.of_string "w-9/9"))
+
+(* A [/] inside a bracket belongs to the value, not to a fraction: the fraction
+   branch used to claim w-[calc(2px/2)] and reject it. *)
+let test_bracket_keeps_its_slash () =
+  Alcotest.(check bool)
+    "w-[calc(2px/2)] divides" true
+    (Astring.String.is_infix ~affix:"width: calc(2px / 2)"
+       (css_of "w-[calc(2px/2)]"));
+  Alcotest.(check bool)
+    "w-1/2 is still a fraction" true
+    (Astring.String.is_infix ~affix:"width: 50%" (css_of "w-1/2"))
+
+(* The px step exists on the logical sizes too: block-px and inline-px used to
+   be unknown classes. *)
+let test_logical_px_step () =
+  Alcotest.(check bool)
+    "block-px is 1px" true
+    (Astring.String.is_infix ~affix:"block-size: 1px" (css_of "block-px"));
+  Alcotest.(check bool)
+    "inline-px is 1px" true
+    (Astring.String.is_infix ~affix:"inline-size: 1px" (css_of "inline-px"))
+
 let tests =
   [
     test_case "fractional spacing" `Quick test_fractional_spacing;
+    test_case "logical px step" `Quick test_logical_px_step;
+    test_case "bracket keeps its slash" `Quick test_bracket_keeps_its_slash;
+    test_case "any fraction denominator" `Quick test_any_fraction_denominator;
     test_case "general fractions" `Quick test_general_fractions;
     test_case "max-w-screen breakpoint var" `Quick test_max_w_screen;
     test_case "widths" `Quick test_widths;
@@ -259,13 +455,17 @@ let tests =
     test_case "min sizes" `Quick test_min_sizes;
     test_case "max sizes" `Quick test_max_sizes;
     test_case "square sizes" `Quick test_square_sizes;
+    test_case "logical size fractions" `Quick test_logical_size_fractions;
     test_case "sizing of_string - invalid values" `Quick of_string_invalid;
+    test_case "arbitrary calc sizes" `Quick test_arbitrary_calc;
     test_case "aspect classes" `Quick test_aspect_classes;
     test_case "aspect css" `Quick test_aspect_css;
+    test_case "aspect bracket number" `Quick test_aspect_bracket_number;
     test_case "aspect-square inlined 1/1" `Quick test_aspect_square_inlined;
     test_case "class generation" `Quick test_class_generation;
     test_case "sizing suborder matches Tailwind" `Quick
       suborder_matches_tailwind;
+    test_case "logical sizing sorts last" `Quick logical_sizing_sorts_last;
     test_case "sizing fraction interleave matches Tailwind" `Quick
       fraction_interleave_matches_tailwind;
   ]

@@ -14,6 +14,11 @@ let of_string_valid () =
   check "border-3";
   check "outline-3";
   check "outline-5";
+  (* outline-offset accepts any bare integer, positive and negative *)
+  check "outline-offset-6";
+  check "outline-offset-3";
+  check "-outline-offset-6";
+  check "-outline-offset-1";
 
   check "border-t";
   check "border-r";
@@ -24,6 +29,31 @@ let of_string_valid () =
 
   check "border-t-2";
   check "border-r-4";
+  check "border-x-4";
+  check "border-y-2";
+  check "border-x-0";
+  check "border-y-8";
+
+  (* A side or axis takes any integer, as the bare border does: border-x-16 was
+     rejected where Tailwind emits border-inline-width: 16px. *)
+  check "border-x-16";
+  check "border-y-16";
+  check "border-t-16";
+  check "border-x-3";
+  check "border-l-5";
+  check "border-b-12";
+  check "border-bs-12";
+  check "border-e-7";
+
+  (* logical single-side borders: inline/block start and end *)
+  check "border-s";
+  check "border-e";
+  check "border-bs";
+  check "border-be";
+  check "border-s-4";
+  check "border-e-0";
+  check "border-bs-2";
+  check "border-be-8";
 
   check "border-solid";
   check "border-dashed";
@@ -102,6 +132,38 @@ let suborder_matches_tailwind () =
 
   Test_helpers.check_ordering_matches
     ~test_name:"borders suborder matches Tailwind" shuffled
+
+(* A width, a side width and a style all write border-*-width or -style, so what
+   an element is actually bordered with is a rendering question. *)
+let rendering_matches_tailwind () =
+  let classes =
+    [
+      "border";
+      "border-2";
+      "border-4";
+      "border-x-2";
+      "border-y-4";
+      "border-t-4";
+      "border-b-2";
+      "border-solid";
+      "border-dashed";
+      "border-dotted";
+      "border-none";
+      "border-current";
+      "rounded";
+      "rounded-md";
+      "rounded-lg";
+      "rounded-full";
+      "rounded-t-lg";
+      "rounded-br-xl";
+      "outline";
+      "outline-2";
+      "outline-dashed";
+      "outline-offset-2";
+    ]
+  in
+  Test_helpers.check_rendering_matches ~test_name:"borders render like Tailwind"
+    (List.map (fun c -> Result.get_ok (Tw.of_string c)) classes)
 
 (* rounded-sm's default radius is .25rem in v4.3.1, not the old .125rem. *)
 let test_rounded_sm_default () =
@@ -200,6 +262,37 @@ let test_outline_hidden_modifier_forced_colors () =
     "forced-colors block is not the bare .outline-hidden" false
     (Astring.String.is_infix ~affix:" .outline-hidden " out)
 
+(* The outline family sorts as one block: outline-hidden, the widths, the
+   offsets, the colors, then the styles. Order matters beyond byte parity here:
+   outline-hidden's forced-colors reset writes the outline shorthand, so a color
+   rule ahead of it loses its outline-color. *)
+let test_outline_ordering () =
+  let parse cls =
+    match Tw.of_string cls with
+    | Ok u -> u
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let utilities =
+    List.map parse
+      [
+        "outline";
+        "outline-2";
+        "outline-[3px]";
+        "outline-hidden";
+        "outline-offset-2";
+        "-outline-offset-4";
+        "outline-red-500";
+        "outline-blue-500";
+        "outline-current";
+        "outline-transparent";
+        "outline-dashed";
+        "outline-solid";
+        "outline-none";
+      ]
+  in
+  Test_helpers.check_ordering_matches ~test_name:"outline family order"
+    (Test_helpers.shuffle utilities)
+
 (* Arbitrary per-side border widths (border-t-[1px], ...) emit the side width
    plus the side border-style var; they used to be unknown classes. *)
 let test_border_side_arbitrary_width () =
@@ -217,8 +310,69 @@ let test_border_side_arbitrary_width () =
     (Astring.String.is_infix ~affix:"border-left-width: .5rem"
        (css "border-l-[0.5rem]"))
 
+(* Logical single-side borders emit the inline/block start/end style var and
+   width, like the physical per-side borders do. *)
+let test_logical_side_borders () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error _ -> Alcotest.failf "could not parse %S" cls
+  in
+  Alcotest.(check bool)
+    "border-s sets border-inline-start-width: 1px" true
+    (Astring.String.is_infix ~affix:"border-inline-start-width: 1px"
+       (css "border-s"));
+  Alcotest.(check bool)
+    "border-be-2 sets border-block-end-width: 2px" true
+    (Astring.String.is_infix ~affix:"border-block-end-width: 2px"
+       (css "border-be-2"));
+  Alcotest.(check bool)
+    "border-e references the border-style var" true
+    (Astring.String.is_infix
+       ~affix:"border-inline-end-style: var(--tw-border-style)" (css "border-e"))
+
+(* Arbitrary outline and border widths take any CSS length unit, not just the
+   px/rem/em/% the hand-rolled suffix parsers knew: Tailwind emits
+   outline-width: 3rem for outline-[3rem] and border-width: 3vw for
+   border-[3vw]. *)
+let test_bracket_width_units () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let emits affix cls =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  emits "outline-width: 3rem" "outline-[3rem]";
+  emits "outline-width: 2em" "outline-[2em]";
+  emits "outline-width: 3px" "outline-[3px]";
+  emits "outline-width: 50%" "outline-[50%]";
+  emits "border-width: 3vw" "border-[3vw]";
+  emits "border-width: 2ch" "border-[2ch]";
+  emits "border-width: .5rem" "border-[0.5rem]";
+  emits "border-top-width: 3vw" "border-t-[3vw]"
+
+(* A bracket whose content is not a length is not an outline or border width:
+   the parser rejects it, rather than accepting it and raising from the length
+   conversion once the sheet is rendered. *)
+let test_invalid_bracket_widths () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  rejected "outline-[.]";
+  rejected "outline-[1e]";
+  rejected "outline-[-]";
+  rejected "border-[.]";
+  rejected "border-[abc]";
+  rejected "border-t-[1e]"
+
 let tests =
   [
+    test_case "bracket width units" `Quick test_bracket_width_units;
+    test_case "invalid bracket widths" `Quick test_invalid_bracket_widths;
     test_case "rounded-sm default radius" `Quick test_rounded_sm_default;
     test_case "rounded-xs default radius" `Quick test_rounded_xs;
     test_case "rounded-4xl default radius" `Quick test_rounded_4xl;
@@ -229,12 +383,16 @@ let tests =
       test_outline_offset_arbitrary;
     test_case "outline-hidden modifier forced-colors" `Quick
       test_outline_hidden_modifier_forced_colors;
+    test_case "outline family order matches Tailwind" `Quick
+      test_outline_ordering;
     test_case "border side arbitrary widths" `Quick
       test_border_side_arbitrary_width;
+    test_case "logical single-side borders" `Quick test_logical_side_borders;
     test_case "borders of_string - valid values" `Quick of_string_valid;
     test_case "borders of_string - invalid values" `Quick of_string_invalid;
     test_case "borders suborder matches Tailwind" `Quick
       suborder_matches_tailwind;
+    test_case "borders render like Tailwind" `Slow rendering_matches_tailwind;
   ]
 
 let suite = ("borders", tests)

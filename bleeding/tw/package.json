@@ -1,8 +1,9 @@
 {
   "devDependencies": {
-    "@tailwindcss/cli": "4.3.1",
+    "@tailwindcss/cli": "4.3.3",
     "@tailwindcss/forms": "0.5.11",
     "@tailwindcss/typography": "0.5.20",
-    "tailwindcss": "4.3.1"
+    "playwright": "^1.62.1",
+    "tailwindcss": "4.3.3"
   }
 }

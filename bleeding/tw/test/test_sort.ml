@@ -988,6 +988,122 @@ let test_arbitrary_named_by_suffix () =
   Test_helpers.check_ordering_matches
     ~test_name:"arbitrary value sorts by suffix within family" utilities
 
+let test_sizing_values_natural_order () =
+  let classes =
+    [
+      "w-(--w)";
+      "w-2";
+      "w-2xl";
+      "w-10";
+      "w-[50%]";
+      "w-auto";
+      "max-w-(--breakpoint-md)";
+      "max-w-2xl";
+      "max-w-10";
+      "max-w-[50%]";
+      "max-w-sm";
+      "basis-(--basis)";
+      "basis-2";
+      "basis-2xl";
+      "basis-10";
+      "basis-[50%]";
+      "basis-auto";
+    ]
+  in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  Test_helpers.check_ordering_matches
+    ~test_name:"sizing values use natural candidate order" utilities
+
+let test_bracket_value_holding_a_colon () =
+  (* An arbitrary value can hold a colon, so the variant prefix has to be taken
+     with the modifier parser: splitting on the last ':' reads the prefix of
+     hover:bg-[color:var(--x)] as "hover:bg-[color", which sorts it away from
+     the other hover: rules. *)
+  let classes =
+    [
+      "hover:bg-[color:var(--x)]";
+      "hover:bg-red-500";
+      "bg-blue-500";
+      "focus:bg-[color:var(--y)]";
+      "hover:m-2";
+    ]
+  in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  Test_helpers.check_ordering_matches ~test_name:"bracket value holding a colon"
+    utilities
+
+let test_stacked_variant_outline_order () =
+  (* The outline-sorts-last rule reads the base class, so it sees a stacked
+     variant: dark:focus:outline-none is an outline utility as much as
+     focus:outline-none is. Matching from the first colon saw neither. *)
+  let classes =
+    [
+      "dark:focus:outline-none";
+      "dark:focus:bg-blue-500";
+      "dark:focus:ring-2";
+      "first:focus:outline-2";
+      "first:focus:border-2";
+      "focus:outline-none";
+      "focus:bg-red-500";
+    ]
+  in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  Test_helpers.check_ordering_matches ~test_name:"stacked variant outline order"
+    utilities
+
+let test_not_supports_variant_order () =
+  let classes =
+    [
+      "px-4";
+      "not-supports-hanging-punctuation:px-4";
+      "flex";
+      "not-supports-[display:grid]:flex";
+    ]
+  in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  let css = Css.to_string ~minify:true (Tw.to_css ~base:false utilities) in
+  let position needle =
+    match Astring.String.find_sub ~sub:needle css with
+    | Some i -> i
+    | None -> Alcotest.failf "%s not found in %s" needle css
+  in
+  let positions =
+    List.map position
+      [
+        ".flex{";
+        ".px-4{";
+        "not-supports-hanging-punctuation";
+        "not-supports-\\[display";
+      ]
+  in
+  Alcotest.(check (list int))
+    "emission order"
+    (List.sort Int.compare positions)
+    positions;
+  Test_helpers.check_ordering_matches
+    ~test_name:"not-supports variants follow base utilities" utilities
+
+let test_stacked_responsive_variant_order () =
+  let classes =
+    [ "container"; "sm:bg-top"; "**:[svg]:first:sm:size-4"; "md:block" ]
+  in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  let css = Css.to_string ~minify:true (Tw.to_css ~base:false utilities) in
+  let position needle =
+    match Astring.String.find_sub ~sub:needle css with
+    | Some i -> i
+    | None -> Alcotest.failf "%s not found in %s" needle css
+  in
+  let positions =
+    List.map position [ "sm\\:bg-top"; "md\\:block"; "\\*\\*\\:\\[svg\\]" ]
+  in
+  Alcotest.(check (list int))
+    "emission order"
+    (List.sort Int.compare positions)
+    positions;
+  Test_helpers.check_ordering_matches
+    ~test_name:"stacked variants retain their highest-order component" utilities
+
 let test_rounded_position_order () =
   (* Border-radius position groups sort by the CSS corners they write, matching
      Tailwind: the physical ones grouped by first corner clockwise -- top, then
@@ -1029,6 +1145,61 @@ let test_rounded_position_order () =
   check_before ".rounded-tl-full" ".rounded-r-full";
   check_before ".rounded-r-full" ".rounded-b-full";
   check_before ".rounded-b-full" ".rounded-bl-full"
+
+let test_color_mix_supports_companion_order () =
+  (* A colour with an opacity modifier emits a hex fallback plus an @supports
+     block carrying the color-mix version, and the fallback has to come first or
+     it wins in the browsers that support color-mix. Under a variant the
+     @supports rules were ordered by the supports-* variant key, which a colour
+     utility does not have, so they all tied and drifted away from their base
+     rule. *)
+  let classes =
+    [
+      "data-checked:ring-gray-950/10";
+      "data-checked:inset-ring-white/10";
+      "data-checked:bg-blue-500/20";
+      "data-checked:text-red-500/30";
+    ]
+  in
+  let utilities = List.map (fun c -> Result.get_ok (Tw.of_string c)) classes in
+  let css = Css.to_string ~minify:true (Tw.to_css ~base:false utilities) in
+  let occurrences needle =
+    let n = String.length needle and h = String.length css in
+    let rec go i acc =
+      if i + n > h then List.rev acc
+      else if String.sub css i n = needle then go (i + 1) (i :: acc)
+      else go (i + 1) acc
+    in
+    go 0 []
+  in
+  let escape c =
+    String.concat ""
+      (List.map
+         (fun ch ->
+           match ch with
+           | ':' | '/' -> "\\" ^ String.make 1 ch
+           | ch -> String.make 1 ch)
+         (List.init (String.length c) (String.get c)))
+  in
+  (* Every occurrence of every selector, in emitted order. Each utility writes
+     exactly two -- the fallback and its @supports companion -- so the sequence
+     has to read as adjacent identical pairs. *)
+  let emitted =
+    classes
+    |> List.concat_map (fun c ->
+        occurrences ("." ^ escape c ^ "[data-checked]")
+        |> List.map (fun pos -> (pos, c)))
+    |> List.sort (fun (a, _) (b, _) -> Int.compare a b)
+    |> List.map snd
+  in
+  let rec paired = function
+    | [] -> true
+    | a :: b :: rest -> a = b && paired rest
+    | [ _ ] -> false
+  in
+  Alcotest.check Alcotest.bool
+    "each fallback is immediately followed by its own @supports companion" true
+    (List.length emitted = 2 * List.length classes && paired emitted)
 
 let test_margin_value_order () =
   (* Margin values sort by raw suffix: numeric, then arbitrary ('['), then
@@ -1140,6 +1311,199 @@ let test_regular_before_media () =
   Test_helpers.check_ordering_matches ~test_name:"regular always before media"
     utilities
 
+(* Comparator laws.
+
+   [List.sort] is defined only for a total order. When the comparator is not
+   antisymmetric or not transitive, the same set of rules can sort into
+   different sequences depending on the order it happens to arrive in, which is
+   how every ordering bug recorded in this file has presented: a diff that
+   appears and disappears as utilities are added around it.
+
+   Checked over the rules real utilities produce rather than hand-built records,
+   so a field or a branch is covered as soon as some class reaches it. The
+   corpus deliberately spans the branches the comparator dispatches on: plain
+   rules, media and container variants, stacked variants, bracket values holding
+   a colon, not-/has-/group-/peer- variants, @supports and @starting-style, and
+   the outline and prose special cases.
+
+   [compare_by_order_regular_first] returns -1 on a tie on purpose; the
+   Media/Regular arm negates it, so it is the composed comparator - what
+   [List.sort] actually calls - that has to obey the laws, and that is what is
+   tested here. *)
+let comparator_corpus =
+  [
+    "p-4";
+    "px-2";
+    "m-4";
+    "-m-2";
+    "mt-8";
+    "gap-4";
+    "gap-x-2";
+    "block";
+    "flex";
+    "grid";
+    "hidden";
+    "w-4";
+    "h-8";
+    "max-w-4xl";
+    "z-10";
+    "top-0";
+    "absolute";
+    "relative";
+    "border";
+    "border-2";
+    "border-b";
+    "border-gray-200";
+    "border-solid";
+    "divide-x-2";
+    "divide-gray-200";
+    "rounded-sm";
+    "rounded-t-lg";
+    "bg-white";
+    "bg-blue-600";
+    "text-lg";
+    "text-gray-900";
+    "font-bold";
+    "leading-relaxed";
+    "shadow-md";
+    "opacity-50";
+    "outline-none";
+    "outline-2";
+    "grid-cols-2";
+    "flex-col";
+    "items-center";
+    "justify-between";
+    "transition-all";
+    "duration-150";
+    "animate-spin";
+    "blur-sm";
+    "translate-x-4";
+    "rotate-90";
+    "scale-50";
+    "cursor-pointer";
+    "select-none";
+    "sr-only";
+    "container";
+    "prose";
+    "prose-sm";
+    (* Bracket values: the ones holding a colon are what a bracket-blind variant
+       split mis-reads. *)
+    "bg-[color:var(--brand)]";
+    "hover:bg-[color:var(--brand)]";
+    "w-[calc(100%-1rem)]";
+    "text-[14px]";
+    "rotate-[10deg]";
+    (* Single variants. *)
+    "hover:bg-blue-500";
+    "focus:outline-none";
+    "active:bg-blue-700";
+    "disabled:opacity-50";
+    "first:pt-0";
+    "last:pb-0";
+    "odd:bg-gray-50";
+    "before:block";
+    "after:block";
+    "marker:text-gray-500";
+    "placeholder:text-gray-400";
+    "dark:bg-gray-900";
+    "sm:p-2";
+    "md:grid-cols-2";
+    "lg:flex";
+    "xl:hidden";
+    "max-md:block";
+    "min-lg:flex";
+    "motion-safe:animate-pulse";
+    "motion-reduce:transition-none";
+    "contrast-more:border-4";
+    "group-hover:text-white";
+    "peer-checked:bg-blue-500";
+    "peer-focus:ring-2";
+    "aria-checked:bg-blue-500";
+    "data-[state=open]:block";
+    "not-hover:opacity-50";
+    "has-[:focus]:border-2";
+    "supports-grid:flex";
+    "starting:opacity-0";
+    "@container";
+    "@sm:flex";
+    (* Stacked variants: the compound-order path. *)
+    "dark:hover:bg-gray-800";
+    "dark:focus:outline-none";
+    "md:hover:bg-blue-500";
+    "sm:dark:p-4";
+    "lg:group-hover:text-white";
+  ]
+
+let utility_of_corpus_class cls =
+  let modifiers, base_class = Tw.Modifiers.of_string cls in
+  match Tw.Utility.base_of_class Tw.Scheme.default base_class with
+  | Error (`Msg m) -> Alcotest.failf "corpus class %S does not parse: %s" cls m
+  | Ok b -> (
+      match Tw.Modifiers.apply modifiers (Tw.Utility.base b) with
+      | Some u -> u
+      | None -> Alcotest.failf "corpus class %S: unknown modifier" cls)
+
+(* Shuffled so a run does not always present the rules in corpus order: the
+   index tiebreaker is part of the comparator, and a law that only holds for one
+   arrival order is exactly the bug being looked for. *)
+let corpus_rules () =
+  comparator_corpus |> Test_helpers.shuffle
+  |> List.map utility_of_corpus_class
+  |> Tw.Build.indexed_rules
+
+let describe r = Tw.Build.rule_selector r
+
+let test_comparator_antisymmetry () =
+  let rules = Array.of_list (corpus_rules ()) in
+  let n = Array.length rules in
+  Alcotest.check Alcotest.bool "corpus produced rules" true (n > 50);
+  for i = 0 to n - 1 do
+    let c = Tw.Build.compare_rules rules.(i) rules.(i) in
+    if c <> 0 then
+      Alcotest.failf "compare is not reflexive on %s: %d" (describe rules.(i)) c;
+    for j = i + 1 to n - 1 do
+      let ab = Tw.Build.compare_rules rules.(i) rules.(j) in
+      let ba = Tw.Build.compare_rules rules.(j) rules.(i) in
+      if Int.compare ab 0 <> -Int.compare ba 0 then
+        Alcotest.failf
+          "compare is not antisymmetric:\n\
+          \  a = %s\n\
+          \  b = %s\n\
+          \  a vs b = %d, b vs a = %d"
+          (describe rules.(i))
+          (describe rules.(j))
+          ab ba
+    done
+  done
+
+let test_comparator_transitivity () =
+  let rules = Array.of_list (corpus_rules ()) in
+  let n = Array.length rules in
+  let sign x = Int.compare x 0 in
+  let pick () = rules.(Random.State.int Test_helpers.test_rng n) in
+  (* Sampled: the corpus has too many triples to enumerate on every run, and a
+     violation is dense enough in the pairs that reach it for sampling to find
+     it. The seed is printed, so a failure replays. *)
+  for _ = 1 to 200_000 do
+    let a = pick () and b = pick () and c = pick () in
+    let ab = sign (Tw.Build.compare_rules a b) in
+    let bc = sign (Tw.Build.compare_rules b c) in
+    let ac = sign (Tw.Build.compare_rules a c) in
+    let violates =
+      (ab < 0 && bc < 0 && ac >= 0)
+      || (ab > 0 && bc > 0 && ac <= 0)
+      || (ab = 0 && bc = 0 && ac <> 0)
+    in
+    if violates then
+      Alcotest.failf
+        "compare is not transitive:\n\
+        \  a = %s\n\
+        \  b = %s\n\
+        \  c = %s\n\
+        \  a vs b = %d, b vs c = %d, a vs c = %d"
+        (describe a) (describe b) (describe c) ab bc ac
+  done
+
 let prose_p_selector prose_class =
   Css.Selector.combine prose_class Css.Selector.Descendant
     (Css.Selector.where
@@ -1236,7 +1600,18 @@ let tests =
       test_arbitrary_vs_named_order;
     test_case "arbitrary value sorts by suffix within family" `Slow
       test_arbitrary_named_by_suffix;
+    test_case "sizing values use natural candidate order" `Slow
+      test_sizing_values_natural_order;
+    test_case "bracket value holding a colon" `Slow
+      test_bracket_value_holding_a_colon;
+    test_case "stacked variant outline order" `Slow
+      test_stacked_variant_outline_order;
+    test_case "not-supports variant order" `Slow test_not_supports_variant_order;
+    test_case "stacked responsive variant order" `Slow
+      test_stacked_responsive_variant_order;
     test_case "rounded position order" `Slow test_rounded_position_order;
+    test_case "color-mix @supports companion order" `Slow
+      test_color_mix_supports_companion_order;
     test_case "margin value order" `Slow test_margin_value_order;
     test_case "prose margin order" `Slow test_prose_margin_order;
     test_case "variant same-suborder tiebreak" `Slow
@@ -1254,6 +1629,8 @@ let tests =
     test_case "suborder within group" `Slow test_suborder_within_group;
     test_case "random utilities with minimization" `Slow
       test_random_utilities_with_minimization;
+    test_case "comparator is antisymmetric" `Quick test_comparator_antisymmetry;
+    test_case "comparator is transitive" `Quick test_comparator_transitivity;
   ]
 
 let suite = ("sort", tests)

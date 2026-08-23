@@ -17,6 +17,42 @@ let test_position_utilities () =
   check "relative";
   check "sticky"
 
+(* Fractions resolve to a percentage on the inset/top/right/left families,
+   including arbitrary numerators/denominators (not just 1/2 and 3/4). *)
+let test_fractions () =
+  check "inset-1/2";
+  check "inset-x-1/2";
+  check "top-1/2";
+  check "top-3/4";
+  check "right-1/2";
+  check "left-1/2";
+  check "left-1/5";
+  check "left-2/3";
+  (* negative and improper fractions *)
+  check "-left-1/2";
+  check "-top-1/3";
+  check "-inset-x-1/2";
+  check "left-6/5";
+  check "-left-6/5"
+
+(* Negative fractions negate the percentage; an improper fraction resolves past
+   100% (6/5 -> 120%). *)
+let test_negative_and_improper_fractions () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "-left-6/5 is -120%" true
+    (Astring.String.is_infix ~affix:"left: -120%" (css "-left-6/5"));
+  Alcotest.(check bool)
+    "left-6/5 is 120%" true
+    (Astring.String.is_infix ~affix:"left: 120%" (css "left-6/5"));
+  Alcotest.(check bool)
+    "-inset-x-1/2 is -50%" true
+    (Astring.String.is_infix ~affix:"inset-inline: -50%" (css "-inset-x-1/2"))
+
 (* Arbitrary values round-trip verbatim in the class name: the leading zero of
    0.67rem (and the sign of negatives) is preserved, not re-serialised to a
    normalised .67rem that would no longer match the HTML class. *)
@@ -65,6 +101,53 @@ let test_arbitrary_var () =
   (* round-trips the class name *)
   check "top-[var(--t)]";
   check "left-[var(--l)]"
+
+(* Fractional spacing steps (top-2.5) resolve to calc(var(--spacing) * n) and
+   the px step (left-px) to 1px, on the physical/axis inset sides. *)
+let test_spacing_steps () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "top-2.5 uses calc(var(--spacing)*2.5)" true
+    (Astring.String.is_infix ~affix:"top:calc(var(--spacing)*2.5)"
+       (css "top-2.5"));
+  Alcotest.(check bool)
+    "inset-y-0.5 uses the block axis" true
+    (Astring.String.is_infix ~affix:"inset-block:calc(var(--spacing)*.5)"
+       (css "inset-y-0.5"));
+  Alcotest.(check bool)
+    "left-px is 1px" true
+    (Astring.String.is_infix ~affix:"left:1px" (css "left-px"));
+  Alcotest.(check bool)
+    "inset-px is 1px" true
+    (Astring.String.is_infix ~affix:"inset:1px" (css "inset-px"));
+  (* round-trip the class names, escaped dot included *)
+  check "top-2.5";
+  check "right-1.5";
+  check "top-14.25";
+  check "left-px";
+  check "inset-px"
+
+(* Arbitrary calc() insets go through the full length grammar (the bracket
+   parser used to accept only plain <number><unit>). *)
+let test_arbitrary_calc () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "left-[calc(5%-2px)] spaces the operator" true
+    (Astring.String.is_infix ~affix:"left: calc(5% - 2px)"
+       (css "left-[calc(5%-2px)]"));
+  Alcotest.(check bool)
+    "left-[calc(50%+var(--offset))] keeps the var" true
+    (Astring.String.is_infix ~affix:"left: calc(50% + var(--offset))"
+       (css "left-[calc(50%+var(--offset))]"));
+  check "left-[calc(5%-2px)]"
 
 let suborder_matches_tailwind () =
   let open Tw in
@@ -117,9 +200,14 @@ let tests =
     test_case "negative top" `Quick test_negative;
     test_case "arbitrary value roundtrip" `Quick test_arbitrary_roundtrip;
     test_case "position utilities" `Quick test_position_utilities;
+    test_case "position fractions" `Quick test_fractions;
+    test_case "negative and improper fractions" `Quick
+      test_negative_and_improper_fractions;
     test_case "named inset requires theme token" `Quick
       named_inset_requires_theme_token;
     test_case "arbitrary var insets" `Quick test_arbitrary_var;
+    test_case "spacing steps (fractional + px)" `Quick test_spacing_steps;
+    test_case "arbitrary calc insets" `Quick test_arbitrary_calc;
     test_case "position suborder matches Tailwind" `Quick
       suborder_matches_tailwind;
     test_case "inset value order matches Tailwind" `Quick

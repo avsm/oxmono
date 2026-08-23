@@ -11,12 +11,18 @@ module Handler = struct
     | Layout_container (* .container - layout container with width:100% *)
     | Container (* @container - sets container-type: inline-size *)
     | Container_normal (* @container-normal - sets container-type: normal *)
+    | Container_size (* @container-size - sets container-type: size *)
     | Container_named of string (* @container/name *)
 
   type Utility.base += Self of t
 
   let name = "containers"
-  let priority _ = 1
+
+  (* Tailwind's utility order opens with the container utilities; the layout
+     [.container] keeps its own place by its width property. *)
+  let priority = function
+    | Layout_container -> 1
+    | Container | Container_normal | Container_size | Container_named _ -> -2
   (* Tailwind orders .container by its width property: after the position group
      (inset, z-index) and before margin. *)
 
@@ -24,6 +30,7 @@ module Handler = struct
     | Layout_container -> "container"
     | Container -> "@container"
     | Container_normal -> "@container-normal"
+    | Container_size -> "@container-size"
     | Container_named name -> "@container/" ^ name
 
   let layout_container_style =
@@ -52,6 +59,7 @@ module Handler = struct
 
   let container_query = style [ container_type Inline_size ]
   let container_normal_style = style [ container_type Normal ]
+  let container_size_style = style [ container_type Size ]
 
   (* Tailwind v4 emits the [container] shorthand ([container: <name> /
      inline-size]) rather than the longhand pair. *)
@@ -62,12 +70,14 @@ module Handler = struct
     | Layout_container -> layout_container_style
     | Container -> container_query
     | Container_normal -> container_normal_style
+    | Container_size -> container_size_style
     | Container_named name -> container_named_style name
 
   let suborder = function
     | Container_named _ -> 0
     | Container -> 1
     | Container_normal -> 2
+    | Container_size -> 3
     (* The .container utility (rank 15) sorts after grid_item's grid-column /
        grid-row utilities (priority 1, suborder up to ~2000), and after the
        @container query utilities above. *)
@@ -77,10 +87,13 @@ module Handler = struct
     | "container" -> Ok Layout_container
     | "@container" -> Ok Container
     | "@container-normal" -> Ok Container_normal
+    | "@container-size" -> Ok Container_size
     | n when String.starts_with ~prefix:"@container/" n ->
         let name = String.sub n 11 (String.length n - 11) in
         Ok (Container_named name)
     | _ -> Error (`Msg "Not a container utility")
+
+  let examples = [ Container ]
 end
 
 open Handler
@@ -136,7 +149,7 @@ let container_size_rem = function
   | Style.Container_6xl -> Some 72.
   | Style.Container_7xl -> Some 80.
   | Style.Container_named _ | Style.Container_size _ | Style.Container_len _
-  | Style.Container_len_cmp _ ->
+  | Style.Container_len_cmp _ | Style.Container_scoped _ ->
       None
 
 (* A [(width <op> len)] container feature query, matching Tailwind v4's range
@@ -152,11 +165,11 @@ let width_range op len =
    Emitting the negated form keeps parity with Tailwind's optimized output. *)
 let width_cond cmp len =
   match cmp with
-  | Style.Cq_min -> width_range Css.Media.Ge len
-  | Style.Cq_max -> Css.Container.Not (width_range Css.Media.Ge len)
+  | Style.Min -> width_range Css.Media.Ge len
+  | Style.Max -> Css.Container.Not (width_range Css.Media.Ge len)
 
 (** Convert a container query modifier to a structured Container.t condition *)
-let container_query_to_condition q =
+let rec container_query_to_condition q =
   let geq len = width_range Css.Media.Ge len in
   let rem r : Css.length = Css.Values.Rem r in
   match q with
@@ -179,26 +192,11 @@ let container_query_to_condition q =
       Css.Container.Named (name, geq (Css.Values.Px (float_of_int width)))
   | Style.Container_size (cmp, inner) ->
       width_cond cmp (rem (Option.value ~default:0. (container_size_rem inner)))
-  | Style.Container_len len -> geq len
-  | Style.Container_len_cmp (cmp, len) -> width_cond cmp len
+  | Style.Container_len (_, len) -> geq len
+  | Style.Container_len_cmp (cmp, _, len) -> width_cond cmp len
+  | Style.Container_scoped (name, inner) ->
+      Css.Container.Named (name, container_query_to_condition inner)
 
-let container_query_to_class_prefix = function
-  | Style.Container_3xs -> "@3xs"
-  | Style.Container_2xs -> "@2xs"
-  | Style.Container_xs -> "@xs"
-  | Style.Container_sm -> "@sm"
-  | Style.Container_md -> "@md"
-  | Style.Container_lg -> "@lg"
-  | Style.Container_xl -> "@xl"
-  | Style.Container_2xl -> "@2xl"
-  | Style.Container_3xl -> "@3xl"
-  | Style.Container_4xl -> "@4xl"
-  | Style.Container_5xl -> "@5xl"
-  | Style.Container_6xl -> "@6xl"
-  | Style.Container_7xl -> "@7xl"
-  | Style.Container_named ("", width) -> "@" ^ string_of_int width ^ "px"
-  | Style.Container_named (name, width) ->
-      "@" ^ name ^ "/" ^ string_of_int width
-  | (Style.Container_size _ | Style.Container_len _ | Style.Container_len_cmp _)
-    as q ->
-      "@" ^ Style.container_size_name q
+(* The selector's class prefix and the class name [Utility.to_class] emits have
+   to be the same string, so both come from [Style.container_size_name]. *)
+let container_query_to_class_prefix q = "@" ^ Style.container_size_name q

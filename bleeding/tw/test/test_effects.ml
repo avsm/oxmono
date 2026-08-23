@@ -61,6 +61,12 @@ let test_ring_shadeless_color () =
     (Astring.String.is_infix ~affix:"--tw-ring-color" (css "ring-black"));
   Alcotest.check bool "ring-white/10 uses color-mix" true
     (Astring.String.is_infix ~affix:"color-mix" (css "ring-white/10"));
+  (* Palette colours (blue-500) also apply the /opacity modifier on a var-ref
+     theme; the ring family resolves it via oklab like bg/text do. *)
+  Alcotest.check bool "ring-blue-500/50 applies opacity" true
+    (Astring.String.is_infix ~affix:"color-mix" (css "ring-blue-500/50"));
+  Alcotest.check bool "inset-ring-gray-950/10 applies opacity" true
+    (Astring.String.is_infix ~affix:"color-mix" (css "inset-ring-gray-950/10"));
   match Tw.of_string "ring-red" with
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "ring-red (no shade) should be rejected"
@@ -133,6 +139,34 @@ let suborder_matches_tailwind () =
 
   Test_helpers.check_ordering_matches
     ~test_name:"effects suborder matches Tailwind" shuffled
+
+(* A shadow size and a shadow colour meet in --tw-shadow, so which one an
+   element ends up painting is only settled once the sheet is rendered. *)
+let rendering_matches_tailwind () =
+  let classes =
+    [
+      "shadow-2xs";
+      "shadow-xs";
+      "shadow-sm";
+      "shadow";
+      "shadow-md";
+      "shadow-lg";
+      "shadow-none";
+      (* A palette colour would only re-report the known theme-token gap
+         (--color-indigo-500 as a hex where Tailwind keeps oklch), which [tw
+         --diff] already reports; the keyword colours conflict with the sizes
+         just as well. *)
+      "shadow-current";
+      "shadow-transparent";
+      "inset-shadow-sm";
+      "opacity-0";
+      "opacity-50";
+      "opacity-100";
+      "mix-blend-multiply";
+    ]
+  in
+  Test_helpers.check_rendering_matches ~test_name:"effects render like Tailwind"
+    (List.map (fun c -> Result.get_ok (Tw.of_string c)) classes)
 
 (* shadow-2xl's default shadow alpha is .25 (#00000040) in v4, not the .10
    (#0000001a) the smaller shadows use. *)
@@ -211,8 +245,179 @@ let test_inset_shadow_theme_override () =
     "inset-shadow-sm @theme override drops the default [inset 0 2px 4px]" false
     (Astring.String.is_infix ~affix:"inset 0 2px 4px" css)
 
+(* A shadeless colour has no shade segment, so shadow-white never reached the
+   colour parse: the size cases claimed the segment and rejected it. The class
+   name drops the shade too, or it comes back as shadow-white-500. *)
+let test_shadeless_shadow_colors () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "shadow-white" ".shadow-white{--tw-shadow-color:#fff}";
+  has "shadow-white/10" ".shadow-white\\/10{--tw-shadow-color:#ffffff1a}";
+  has "inset-shadow-white" ".inset-shadow-white{--tw-inset-shadow-color:#fff}";
+  has "inset-shadow-white/20"
+    ".inset-shadow-white\\/20{--tw-inset-shadow-color:#fff3}"
+
+(* shadow-inner is a shadow shape like the others: it sets --tw-shadow and
+   composes, rather than writing box-shadow directly. *)
+let test_shadow_inner () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let out = css "shadow-inner" in
+  Alcotest.(check bool)
+    "shadow-inner sets --tw-shadow" true
+    (Astring.String.is_infix ~affix:"--tw-shadow:inset 0 2px 4px 0 " out);
+  Alcotest.(check bool)
+    "shadow-inner composes box-shadow" true
+    (Astring.String.is_infix
+       ~affix:"box-shadow:var(--tw-inset-shadow),var(--tw-inset-ring-shadow)"
+       out)
+
+(* A shadow list is one shadow per layer. The single-shadow reading also drops
+   the spread, so anything with a comma goes to the value parser. *)
+let test_arbitrary_shadow_list () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  Alcotest.(check bool)
+    "both layers survive with their spread" true
+    (Astring.String.is_infix
+       ~affix:
+         "--tw-shadow:-5px 10px 15px -3px \
+          var(--tw-shadow-color,var(--shadow-color)),-5px 4px 6px -4px \
+          var(--tw-shadow-color,var(--shadow-color))"
+       (css
+          "shadow-[-5px_10px_15px_-3px_var(--shadow-color),-5px_4px_6px_-4px_var(--shadow-color)]"))
+
+(* A single arbitrary shadow reads every CSS length, not the px/rem/em subset,
+   and keeps its spread. A token that is not a length makes the whole value not
+   a shadow rather than dropping out and shifting its neighbours along. *)
+let test_arbitrary_shadow_lengths () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let emits affix cls =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  emits "--tw-shadow: 0 1ch 2px var(--tw-shadow-color, oklab(0% 0 0 / .5))"
+    "shadow-[0_1ch_2px_#000]/50";
+  emits "--tw-shadow: 0 1px 2px 3px var(--tw-shadow-color, oklab(0% 0 0 / .5))"
+    "shadow-[0_1px_2px_3px_#000]/50";
+  emits
+    "--tw-shadow: 0 1ch 2px 3vmin var(--tw-shadow-color, oklab(0% 0 0 / .5))"
+    "shadow-[0_1ch_2px_3vmin_#000]/50";
+  (* inset-shadow reads its arbitrary value through the same parser, with no
+     [Css.parse_shadow] fallback to hide the dropped tokens. *)
+  emits
+    "--tw-inset-shadow: inset 0 1ch 2px var(--tw-inset-shadow-color, #000000)"
+    "inset-shadow-[0_1ch_2px_#000]";
+  emits
+    "--tw-inset-shadow: inset 0 1px 2px 3px var(--tw-inset-shadow-color, \
+     #000000)"
+    "inset-shadow-[0_1px_2px_3px_#000]";
+  match Tw.of_string "shadow-[0_bogus_2px]" with
+  | Ok _ -> Alcotest.fail "expected shadow-[0_bogus_2px] to be rejected"
+  | Error _ -> ()
+
+let test_arbitrary_shadow_colour_opacity () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let has cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  has "shadow-[0_0_8px_oklch(50%_0.2_250)]/50"
+    "var(--tw-shadow-color,color-mix(";
+  has "inset-shadow-[0_0_8px_oklch(50%_0.2_250)]/50"
+    "var(--tw-inset-shadow-color,color-mix(";
+  has "shadow-[0_0_8px_#f00]/[var(--x)]" "--tw-shadow-alpha:var(--x)";
+  has "shadow-[0_0_8px_#f00]/[var(--x)]" "oklab(from";
+  has "inset-shadow-[0_0_8px_#f00]/[var(--x)]"
+    "--tw-inset-shadow-alpha:var(--x)";
+  has "inset-shadow-[0_0_8px_#f00]/[var(--x)]" "oklab(from"
+
+(* An arbitrary shadow that is not a shadow is not a utility: it used to fall
+   back to the zero shadow. *)
+let test_invalid_arbitrary_shadow () =
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  let accepted cls =
+    match Tw.of_string cls with
+    | Ok _ -> ()
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  rejected "shadow-[<value>]";
+  rejected "inset-shadow-[<value>]";
+  accepted "shadow-[0_1px_2px_#000]";
+  accepted "inset-shadow-[0_1px_2px_#000]"
+
+(* A [#] bracket only names a shadow or ring colour when what follows is a hex
+   spelling. The bracket-colour reader handed everything after the [#] to the
+   raising constructor from inside [of_class], so a malformed hex escaped the
+   parser as an exception instead of failing the match. *)
+let test_invalid_bracket_hex () =
+  let css cls =
+    match Tw.of_string cls with
+    | Ok u -> Tw.to_css ~base:false [ u ] |> Tw.Css.to_string ~minify:true
+    | Error (`Msg m) -> Alcotest.failf "%s: %s" cls m
+  in
+  let rejected cls =
+    match Tw.of_string cls with
+    | Ok _ -> Alcotest.failf "expected %s to be rejected" cls
+    | Error _ -> ()
+  in
+  let emits cls affix =
+    Alcotest.(check bool) cls true (Astring.String.is_infix ~affix (css cls))
+  in
+  List.iter
+    (fun prefix ->
+      rejected (prefix ^ "-[#zz]");
+      rejected (prefix ^ "-[#]");
+      rejected (prefix ^ "-[#12345]");
+      rejected (prefix ^ "-[#zz]/50"))
+    [ "shadow"; "ring"; "inset-shadow"; "inset-ring"; "ring-offset" ];
+  (* The colour of an arbitrary shadow is read the same way. *)
+  rejected "shadow-[0_1px_2px_#zz]";
+  rejected "shadow-[0_1px_2px_#12345]";
+  rejected "shadow-[0_1px_2px_#zz]/50";
+  rejected "inset-shadow-[0_1px_2px_#zz]";
+  emits "shadow-[#abc]" "--tw-shadow-color:#abc";
+  emits "ring-[#123456]" "--tw-ring-color:#123456";
+  emits "inset-shadow-[#abc]" "--tw-inset-shadow-color:#abc";
+  emits "inset-ring-[#abc]" "--tw-inset-ring-color:#abc";
+  emits "ring-offset-[#abc]" "--tw-ring-offset-color:#abc";
+  emits "shadow-[0_1px_2px_#000]"
+    "--tw-shadow:0 1px 2px var(--tw-shadow-color,#000)";
+  emits "inset-shadow-[0_1px_2px_#000]"
+    "--tw-inset-shadow:inset 0 1px 2px var(--tw-inset-shadow-color,#000)"
+
 let tests =
   [
+    test_case "invalid bracket hex" `Quick test_invalid_bracket_hex;
+    test_case "shadeless shadow colors" `Quick test_shadeless_shadow_colors;
+    test_case "shadow-inner" `Quick test_shadow_inner;
+    test_case "arbitrary shadow list" `Quick test_arbitrary_shadow_list;
+    test_case "arbitrary shadow lengths" `Quick test_arbitrary_shadow_lengths;
+    test_case "arbitrary shadow colour opacity" `Quick
+      test_arbitrary_shadow_colour_opacity;
+    test_case "invalid arbitrary shadow" `Quick test_invalid_arbitrary_shadow;
     test_case "shadow-2xl default alpha" `Quick test_shadow_2xl_alpha;
     test_case "shadow-2xs/xs small sizes" `Quick test_shadow_small_sizes;
     test_case "inset-shadow roundtrip" `Quick test_inset_shadow_roundtrip;
@@ -231,6 +436,7 @@ let tests =
     test_case "filters css generation" `Quick test_filters_css_generation;
     test_case "effects suborder matches Tailwind" `Quick
       suborder_matches_tailwind;
+    test_case "effects render like Tailwind" `Slow rendering_matches_tailwind;
   ]
 
 let suite = ("effects", tests)

@@ -41,13 +41,60 @@ let test_tw_str_html_space () =
     [ "flex"; "items-center"; "p-4" ]
     (Tw.str "flex\titems-center\np-4" |> List.map Tw.pp)
 
+(* A [ that opens an arbitrary value is followed immediately by its content, as
+   in [text-[13px]]. A [ followed by whitespace is a plain array bracket, like
+   the JS [rows={[ ... ]] in a docs table: consuming it as one candidate would
+   swallow every class named inside the array. *)
+let test_scan_bracket_before_whitespace () =
+  let source =
+    {|<ApiTable rows={[
+    ["accent-inherit", "accent-color: inherit;"],
+    ["accent-current", "accent-color: currentColor;"],
+  ]} />|}
+  in
+  check_strings "classes inside the array survive"
+    [ "accent-current"; "accent-inherit" ]
+    (known_classes source)
+
+(* A candidate never spans a line. An unbalanced bracket used to keep the
+   scanner reading to the end of the file, so every class after it was lost. *)
+let test_unbalanced_bracket_stops_at_newline () =
+  let src = "flex\nafter:content-[unbalanced\nblock\ngrid\n" in
+  let found = Tw_tools.Source_scan.candidates src in
+  List.iter
+    (fun cls ->
+      Alcotest.(check bool) (cls ^ " still scanned") true (List.mem cls found))
+    [ "flex"; "block"; "grid" ]
+
+(* A [(] belongs to the candidate where a utility can hold one: after the [-] of
+   [bg-(--x)] and after the [/] of an alpha shorthand. Elsewhere it ends the
+   token, so a call in the source is not read as a class. *)
+let test_scan_paren_shorthands () =
+  let source =
+    {|<div class="bg-(--brand) bg-cyan-400/(--alpha) p-4">x</div>
+const f = fn(arg)|}
+  in
+  let found = Tw_tools.Source_scan.candidates source in
+  List.iter
+    (fun cls ->
+      Alcotest.(check bool) (cls ^ " scanned") true (List.mem cls found))
+    [ "bg-(--brand)"; "bg-cyan-400/(--alpha)"; "p-4" ];
+  Alcotest.(check bool)
+    "a call is not a candidate" false (List.mem "fn(arg)" found)
+
 let tests =
   [
+    test_case "unbalanced bracket stops at the newline" `Quick
+      test_unbalanced_bracket_stops_at_newline;
     test_case "split whitespace" `Quick test_split_whitespace;
     test_case "scan HTML plain text" `Quick test_scan_html_plain_text;
     test_case "scan JS static classes" `Quick test_scan_js_static_classes;
     test_case "scan UTF-8 source" `Quick test_scan_utf8_source;
     test_case "Tw.str splits HTML whitespace" `Quick test_tw_str_html_space;
+    test_case "bracket before whitespace is not a candidate" `Quick
+      test_scan_bracket_before_whitespace;
+    test_case "paren shorthands stay in the candidate" `Quick
+      test_scan_paren_shorthands;
   ]
 
 let suite = ("source_scan", tests)

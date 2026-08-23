@@ -33,7 +33,7 @@ type description = {
   global_ last_modified : float option;
   global_ cache : Cache_control.t option;
   global_ content_type : string or_null;
-  global_ body : Body.t;
+  body : Body.t;
 }
 
 type respond = description @ local -> unit
@@ -138,7 +138,7 @@ let check_no_overlap (headers : Headers.t @ local) (name : Headers.name) set =
    box on top, so a caller naming a content type pays nothing for it. *)
 let v (respond : respond @ local) ?(status = Httpz.Res.Success)
     ~(headers : Headers.t @ local) ?etag ?last_modified ?cache
-    ~(content_type : string or_null) body =
+    ~(content_type : string or_null) (body : Body.t @ local) =
   Headers.iter check_header headers;
   (match content_type with
   | Null -> ()
@@ -165,25 +165,38 @@ let h_local = Headers.h_local
 
 let html (respond : respond @ local) ?status ?etag ?cache
     ?(headers : Headers.t @ local = Headers.empty) s =
-  v respond ?status ?etag ?cache ~headers ~content_type:(This html_type)
-    (Body.String s)
+  let () =
+    v respond ?status ?etag ?cache ~headers ~content_type:(This html_type)
+      (stack_ (Body.String s))
+  in
+  ()
 
 let text (respond : respond @ local) ?status
     ?(headers : Headers.t @ local = Headers.empty) s =
-  v respond ?status ~headers ~content_type:(This text_type) (Body.String s)
+  let () =
+    v respond ?status ~headers ~content_type:(This text_type)
+      (stack_ (Body.String s))
+  in
+  ()
 
 let media (respond : respond @ local) ?status ?etag ?cache
     ?(headers : Headers.t @ local = Headers.empty) ct s =
-  v respond ?status ?etag ?cache ~headers ~content_type:(This ct)
-    (Body.String s)
+  let () =
+    v respond ?status ?etag ?cache ~headers ~content_type:(This ct)
+      (stack_ (Body.String s))
+  in
+  ()
 
 (* [write] is taken at the caller's mode rather than [local], since the
    backend runs it after the description has been consumed, which is past the
    point where a local closure would still be alive. *)
 let stream (respond : respond @ local) ?status ?cache
     ?(headers : Headers.t @ local = Headers.empty) ?length ct write =
-  v respond ?status ?cache ~headers ~content_type:(This ct)
-    (Body.Stream { length; write })
+  let () =
+    v respond ?status ?cache ~headers ~content_type:(This ct)
+      (stack_ (Body.Stream { length; write }))
+  in
+  ()
 
 let empty (respond : respond @ local) ?(status = Httpz.Res.Success)
     ?(headers : Headers.t @ local = Headers.empty) () =

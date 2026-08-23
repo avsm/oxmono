@@ -114,10 +114,17 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
   string-copying fallback at the use site, rather than building a defaulting
   closure over `emit`. A sink is 3 words whether or not a backend supplies
   `emit_sub`, where it used to be 8 without.
-- Together with the decoder work: a complete request and response cycle for a
-  literal route allocates **2 words**, where `Req.v` alone used to cost 175.
-  A 404 is 2 and a streamed body 8.
-  `bleeding/proffer/bench/bench_alloc.exe` prints these and attributes them.
+- `Body.t` carries `global` on its payloads rather than sitting in a `global_`
+  field of the response description, and every constructor builds it
+  `stack_`. What a socket needs at global is the string, the generator or the
+  writer, not the block naming which of them it is.
+- Together with the decoder work: **a complete request and response cycle for
+  a literal route allocates nothing at all.** A 404 allocates nothing, and a
+  response carrying a custom header field in a `stack_` block allocates
+  nothing. What is left is 4 words for an entity-tag, which is the string
+  `Etag.to_string` builds, 3 for the sink a streamed response is lent, and 4
+  for a route pattern's capture. `bleeding/proffer/bench/bench_alloc.exe`
+  prints these and attributes them.
 - A response body goes to the socket through a 64 KB scratch owned by the
   connection rather than one `Cstruct.of_string` of the whole body, so the
   bigstring a large response needs is bounded per connection instead of per

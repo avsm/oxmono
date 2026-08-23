@@ -25,11 +25,14 @@ module Sink = struct
     | Null -> t.emit (Bytes.sub_string b off len)
 end
 
+(* The payloads carry [global], not the value. What reaches a socket has to be
+   readable at global; the block naming which of them it is does not, so a
+   body can be built in the frame that responds. *)
 type t =
   | Empty
-  | String of string
-  | Delayed of { length : int64 option; gen : unit -> string }
-  | Stream of { length : int64 option; write : Sink.t -> unit }
+  | String of string @@ global
+  | Delayed of { length : int64 option; gen : (unit -> string) @@ global }
+  | Stream of { length : int64 option; write : (Sink.t -> unit) @@ global }
 
 (* [declared_length t] is the length the body claims without producing it. It
    is what a HEAD or a 304 reports, so a [Delayed] generator is never run.

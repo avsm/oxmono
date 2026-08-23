@@ -332,7 +332,12 @@ module Body : sig
     val write : t -> string -> unit @@ portable
     (** [write t s] emits [s]. It is valid only during the [Body.Stream] write
         callback and must not escape it. A backend builds the sink with
-        {!Backend.sink}. *)
+        {!Backend.sink}.
+
+        The sink is a heap value, not a local one, and stays that way: a
+        producer driving an encoder has to capture it in the closure the
+        encoder writes through, and those take a global function. Lending one
+        costs 3 words per streamed response. *)
 
     val write_sub : t -> bytes -> off:int -> len:int -> unit @@ portable
     (** [write_sub t b ~off ~len] emits that range of [b], which is not
@@ -347,11 +352,11 @@ module Body : sig
 
   type t =
     | Empty  (** No body, and a Content-Length of zero. *)
-    | String of string  (** A body already in memory. *)
-    | Delayed of { length : int64 option; gen : unit -> string }
+    | String of string @@ global  (** A body already in memory. *)
+    | Delayed of { length : int64 option; gen : (unit -> string) @@ global }
         (** Generated on demand. [gen] is never run for a HEAD or a 304, so
             [length] is what those report when it is known. *)
-    | Stream of { length : int64 option; write : Sink.t -> unit }
+    | Stream of { length : int64 option; write : (Sink.t -> unit) @@ global }
         (** Written incrementally. A backend sends it chunked when [length] is
             [None]. *)
   (** A response body. *)
@@ -402,7 +407,7 @@ module Resp : sig
     global_ last_modified : float option;
     global_ cache : Cache_control.t option;
     global_ content_type : string or_null;
-    global_ body : Body.t;
+    body : Body.t;
   }
   (** What a handler describes. Only a backend and {!Backend.handle} read it:
       a handler builds one through the constructors below.
@@ -428,11 +433,17 @@ module Resp : sig
     ?last_modified:float ->
     ?cache:Cache_control.t ->
     content_type:string or_null ->
-    Body.t ->
+    Body.t @ local ->
     unit
     @@ portable
   (** [v respond ~headers ~content_type body] responds with [body], [`OK]
       unless [status] says otherwise.
+
+      The body is taken at [local], so a caller that writes
+      [stack_ (Body.String s)] pays nothing for the block naming it. The
+      string inside stays global, which is where a socket needs it. Every
+      constructor below does this, so it matters only to a caller reaching
+      for [v] directly.
 
       [headers] and [content_type] are required rather than optional, and that
       is what keeps both off the heap. An optional argument's payload arrives

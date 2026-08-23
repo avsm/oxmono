@@ -30,7 +30,7 @@ let header_site =
                  ~headers:
                    (stack_
                       [ Resp.h_local Httpz.Header_name.X_cache "hit" ])
-                 (Body.String "hi")
+                 (stack_ (Body.String "hi"))
              in
              ())
        ])
@@ -78,8 +78,12 @@ let words ~n f =
   let b = s.Gc.minor_words +. s.Gc.major_words in
   (b -. a) /. float n
 
-let serve ?headers ?(target = "/hello") ?(meth = Httpz.Method.Get)
-    ?(site = compiled) ?(writer = null_writer) () =
+(* [site] and [writer] are required, not optional. A [Some] on a module-level
+   value that is computed rather than constant is a real allocation, and as
+   optional arguments they were charging two words to every row that named
+   one. The harness has to be at least as careful as what it measures. *)
+let serve ?headers ?(target = "/hello") ?(meth = Httpz.Method.Get) ~site
+    ~writer () =
   let () =
     let local_ req = Req.v ~meth ~target ?headers () in
     Backend.handle site () req writer
@@ -91,14 +95,17 @@ let row name v = Printf.printf "%-46s %6.1f words\n" name v
 let () =
   let n = 20_000 in
   row "full serve, literal route, content type only"
-    (words ~n (fun () -> serve ()));
+    (words ~n (fun () -> serve ~site:compiled ~writer:null_writer ()));
   row "the same with an entity-tag"
-    (words ~n (fun () -> serve ~site:etag_site ()));
+    (words ~n (fun () -> serve ~site:etag_site ~writer:null_writer ()));
   row "the same with a header field in a stack_ block"
-    (words ~n (fun () -> serve ~site:header_site ()));
-  row "a 404" (words ~n (fun () -> serve ~target:"/nope" ()));
+    (words ~n (fun () -> serve ~site:header_site ~writer:null_writer ()));
+  row "a 404"
+    (words ~n (fun () ->
+         serve ~target:"/nope" ~site:compiled ~writer:null_writer ()));
   row "a streamed body, written"
-    (words ~n (fun () -> serve ~site:stream_site ~writer:stream_writer ()));
+    (words ~n (fun () ->
+         serve ~site:stream_site ~writer:stream_writer ()));
   row "Req.v alone"
     (words ~n (fun () ->
          let () =
@@ -176,10 +183,17 @@ let () =
      measure nothing. That goes for the content type too: [Some c] on a
      module-level string is static, so only a runtime one shows what the
      argument costs. *)
-  row "  + a string body and its content length"
+  row "  + a string body, built without stack_"
     (run_with (fun r ->
          Resp.v r ~content_type:Null ~headers:Headers.empty
            (Body.String (Sys.opaque_identity "hello"))));
+  row "  the same body, built with stack_"
+    (run_with (fun r ->
+         let () =
+           Resp.v r ~content_type:Null ~headers:Headers.empty
+             (stack_ (Body.String (Sys.opaque_identity "hello")))
+         in
+         ()));
   (* Dispatch itself is free. What a route costs is the [Some] [Route.run]
      returns on a match, and a capture pattern's partial application. *)
   let cheap () _ (r : Resp.respond @ local) =

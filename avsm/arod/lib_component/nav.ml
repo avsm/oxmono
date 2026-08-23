@@ -176,91 +176,6 @@ let mobile_nav_item_el ~current_page = function
   | Link item -> render_mobile_nav_link ~current_page item
   | Divider -> mobile_nav_divider ()
 
-(** {1 Search Modal} *)
-
-let search_filter_pill ~active kind label =
-  let icon = match kind with
-    | "" -> []
-    | k -> [filter_icon_for k]
-  in
-  El.button
-    ~at:[
-      At.class' ("search-filter-pill" ^ (if active then " active" else "")
-        ^ " inline-flex items-center gap-1 text-sm transition-colors");
-      At.v "data-kind" kind;
-    ]
-    (icon @ [ El.txt label ])
-
-let search_modal =
-  let kbd cls txt =
-    El.unsafe_raw (Printf.sprintf
-      {|<kbd class="px-1 py-0.5 bg-surface border border-border-color rounded text-xs %s">%s</kbd>|}
-      cls txt)
-  in
-  El.div
-    ~at:[
-      At.id "search-modal-overlay";
-      At.class' "search-modal-overlay items-center justify-center p-4";
-    ]
-    [
-      El.div
-        ~at:[At.class' "search-modal bg-bg border border-border-color rounded-xl w-full max-w-2xl overflow-hidden";
-             At.v "role" "search"]
-        [
-          (* Search input row *)
-          El.div
-            ~at:[At.class' "flex items-center gap-2 px-4 py-3 border-b border-border-color"]
-            [
-              search_icon;
-              El.span ~at:[At.class' "text-accent font-mono text-sm font-semibold shrink-0"]
-                [ El.txt ">_" ];
-              El.input
-                ~at:[
-                  At.id "search-input";
-                  At.type' "text";
-                  At.v "placeholder" "Search papers, notes, projects...";
-                  At.autocomplete "off";
-                  At.class' "shrink w-full bg-transparent text-sm text-text border-none outline-none placeholder-secondary";
-                ] ();
-              kbd "shrink-0" "esc";
-            ];
-          (* Kind filter pills — toggle individually *)
-          El.div
-            ~at:[At.id "search-filters";
-                 At.class' "flex items-center gap-1.5 px-4 py-1.5 border-b border-border-color overflow-x-auto scrollbar-hide"]
-            [
-              search_filter_pill ~active:false "paper" "Papers";
-              search_filter_pill ~active:false "note" "Notes";
-              search_filter_pill ~active:false "project" "Projects";
-              search_filter_pill ~active:false "idea" "Ideas";
-              search_filter_pill ~active:false "video" "Talks";
-              search_filter_pill ~active:false "link" "Links";
-            ];
-          (* Search results area *)
-          El.div
-            ~at:[ At.id "search-results";
-                  At.class' "search-results-area overflow-y-auto" ]
-            [
-              El.div ~at:[At.class' "search-empty-state"]
-                [ El.unsafe_raw (I.outline ~cl:"text-border-color" ~size:32 I.search_o);
-                  El.span ~at:[At.class' "text-sm text-secondary mt-2"]
-                    [ El.txt "Type to search across all content" ] ];
-            ];
-          (* Footer *)
-          El.div
-            ~at:[At.class' "flex items-center justify-between px-4 py-1.5 border-t border-border-color text-secondary"]
-            [
-              El.span ~at:[At.id "search-count"; At.class' "text-xs font-mono"] [];
-              El.div ~at:[At.class' "flex items-center gap-2.5 text-xs"]
-                [
-                  El.span [ kbd "" "\xE2\x86\x91\xE2\x86\x93"; El.txt " nav" ];
-                  El.span [ kbd "" "\xE2\x86\xB5"; El.txt " open" ];
-                  El.span [ kbd "" "esc"; El.txt " close" ];
-                ];
-            ];
-        ];
-    ]
-
 (** {1 Header} *)
 
 let header ?(current_page : string option) ctx =
@@ -341,10 +256,10 @@ let header ?(current_page : string option) ctx =
                     ~at:[ At.class' "hidden md:flex items-center gap-0.5 text-sm" ]
                     (List.map (nav_item_el ~current_page) nav_items);
 
-                  (* Search button *)
-                  El.button
+                  (* Search link *)
+                  El.a
                     ~at:[
-                      At.id "search-toggle-btn";
+                      At.href "/search";
                       At.v "aria-label" "Search";
                       At.class' "shrink-0 ml-auto p-1.5 rounded-md text-secondary hover:text-link hover:bg-surface transition-all";
                     ]
@@ -386,5 +301,4 @@ let header ?(current_page : string option) ctx =
             ];
         ];
       mobile_menu;
-      search_modal;
     ]

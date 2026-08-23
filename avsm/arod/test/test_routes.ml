@@ -184,7 +184,13 @@ let () =
   check "a .md URL is the markdown variant"
     (let b = body (get "/papers.md") in
      String.starts_with ~prefix:"# Papers\n" b
-     && contains b "[A Paper](https://example.com/papers/x)")
+     && contains b "[A Paper](https://example.com/papers/x)");
+  check "the nav search button is a link to the search page"
+    (contains front {|href="/search"|});
+  check "and the modal is gone"
+    (not (contains front "search-modal-overlay"));
+  check "the site script navigates on the keyboard shortcut"
+    (contains (body (get "/js/site.js")) "location.href = '/search'")
 
 let () =
   check "a feed path is not swallowed by the note route"

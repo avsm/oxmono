@@ -16,8 +16,8 @@ Both axes are now as far as they go without a design change. **Portable**:
 four closures are left in `Arod_env.t`. `feed`, `pagination` and `search`
 render through jsont, whose codecs cannot be given a crossing kind; `report`
 holds a database handle.
-**Local**: a complete request and response cycle allocates 2 words, where
-`Req.v` alone cost 175 when this started.
+**Local**: a complete request and response cycle for a literal route
+allocates **nothing**, where `Req.v` alone cost 175 when this started.
 
 ## Closures
 
@@ -63,15 +63,17 @@ domain-bound `search` closure anyway.
 ## What is left for local
 
 The request and response paths are done. A complete cycle for a literal route
-allocates **2 words**, where `Req.v` alone cost 175 when this started.
+allocates **nothing at all**, where `Req.v` alone cost 175 when this
+started. So does a 404, and so does a response carrying a custom header
+field in a `stack_` block.
 
 | | words |
 | --- | --- |
-| full serve, literal route, content type only | 2 |
-| the same with an entity-tag | 8 |
-| the same with a header field in a `stack_` block | 2 |
-| a streamed body, written | 8 |
-| a 404 | 2 |
+| full serve, literal route, content type only | **0** |
+| the same with an entity-tag | 4 |
+| the same with a header field in a `stack_` block | **0** |
+| a streamed body, written | 3 |
+| a 404 | **0** |
 | `Req.v` (record only, now on the stack) | 0 |
 | one `Req.query_param` | 4, or 0 when absent |
 
@@ -129,11 +131,13 @@ interface asks for:
 | | words |
 | --- | --- |
 | `Backend.run` machinery, cheapest response | 0 |
-| a string body and its content length | 2 |
 | `~content_type` | 0 |
+| a string body and its length, built `stack_` | 0 |
+| the same body without `stack_` | 2 |
 | dispatch, any number of routes, none matched | 0 |
 | a route match | 0 |
-| a capture pattern's partial application | 4 |
+| an entity-tag | 4 |
+| a capture pattern, each | 4 |
 | `Backend.sink`, with or without `emit_sub` | 3 |
 
 Three rules came out of this, and all three generalise past proffer.
@@ -148,12 +152,18 @@ recursive scans taking what they need as arguments. Before reaching for a
 mode, look for a closure.
 
 **A `global_` field forces its whole block to the heap; a `global` modality
-on a payload does not.** `Backend.outcome` held its body as a polymorphic
-variant in a `global_` field, which cost 8 words. What a socket needs at
-global is the string and the writer, not the block naming which of them it
-is, so the body became a declared variant carrying `@@ global` on its
-payloads and the field lost `global_`. The same reasoning applies anywhere a
-local record has to hand a heap value onward.
+on a payload does not.** This was worth more than anything else here, twice.
+`Backend.outcome` held its body as a polymorphic variant in a `global_`
+field, costing 8 words, and `Resp.description` held `Body.t` in another,
+costing 2 more. What a socket needs at global is the string, the generator or
+the writer, not the block naming which of them it is. Both became declared
+variants carrying `@@ global` on their payloads, with the field at the
+record's own mode.
+
+The modality is only half of it: `local` permits stack allocation and does
+not cause it, so every constructor that builds a body now writes
+`stack_ (Body.String s)`. Getting one without the other measures as no change
+at all, which is how this was missed on a first attempt.
 
 **`or_null` is free where `option` is two words.** A value that can never be
 null, which a closure or any block is, does not need a box to say so.
@@ -177,15 +187,26 @@ figure. Replacing `Option.iter (check_value "content_type")` in `Resp.v`,
 a partial application and so a closure, changed no figure either. A measured
 figure decides these, not the shape of the code.
 
-What is left is three things, and none is worth a redesign.
+What is left is three things, and each was tried and found structural. None
+should be reopened without a new language feature.
 
-1. **A string body and its content length, 2 words.** This is the whole cost
-   of an ordinary response now.
-2. **`Backend.sink`, 3 words.** The record itself, on streamed responses only.
-   Removing it means taking the sink at `local` in `Body.Stream`'s writer,
-   which changes every producer's signature for three words.
-3. **A capture pattern, 4 words.** The partial application binding what the
-   segment decoded to, inherent to the final encoding routes use.
+1. **A capture pattern, 4 words each.** The partial application binding what
+   the segment decoded to. Making it local so it lands in the region does not
+   work: **a curried function cannot be applied at `local` in one go.** The
+   compiler groups its arrows, so `h env req r` on a local `h` reads as
+   complete after the first argument, and writing it `((h env) req) r`
+   instead costs **11 words**, nearly three times what it would save. A
+   handler has to be global to be called, so building one from a capture has
+   to allocate. Measured, not reasoned.
+2. **`Backend.sink`, 3 words**, on streamed responses only. Taking the sink at
+   `local` compiles inside proffer but breaks the one real producer:
+   `Arod_json.stream` drives jsont through `Bytesrw.Bytes.Writer.make`, which
+   takes a global closure, so the sink it captures has to be global. This is
+   the "some libraries cannot be annotated" case, one library further out.
+3. **An entity-tag, 4 words.** The string `Etag.to_string` builds to put the
+   quotes on. `Headers.field` holds strings, so the quoted form has to exist.
+   Avoiding it means teaching the header writer to emit an entity-tag without
+   one, which is a change to how every backend renders a field.
 
 `~etag`, `~cache` and `~last_modified` stay optional and cost a couple of
 words each when given, for the reason in the third rule above. Making them

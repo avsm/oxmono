@@ -109,6 +109,11 @@
  (modules test_search)
  (libraries arod.search bushel eio eio_main))
 
+(test
+ (name test_search_page)
+ (modules test_search_page)
+ (libraries arod arod.component arod.search bushel htmlit))
+
 ; A tool, not a test. It needs a corpus of real URLs that is not in this
 ; repository, so it must stay out of the runtest alias. Its header says how
 ; to run it and what it proved.

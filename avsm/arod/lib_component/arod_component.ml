@@ -23,3 +23,4 @@ module List_view = List_view
 module Links = Links
 module Network = Network
 module Markdown_export = Markdown_export
+module Search = Search

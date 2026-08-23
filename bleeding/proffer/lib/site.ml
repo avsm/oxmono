@@ -103,7 +103,7 @@ let with_auth ~scope ~realm ~(check @ portable) t =
         ~headers:
           (stack_
              [ Headers.h_local Httpz.Header_name.Www_authenticate field ])
-        ~content_type:"text/plain; charset=utf-8"
+        ~content_type:(This "text/plain; charset=utf-8")
         (Body.String "Unauthorized\n")
     in
     ()

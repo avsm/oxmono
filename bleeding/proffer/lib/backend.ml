@@ -182,8 +182,8 @@ let block (d : Resp.description @ local) = exclave_
   in
   let local_ extra =
     match d.Resp.content_type with
-    | None -> extra
-    | Some ct -> Headers.h_local Httpz.Header_name.Content_type ct :: extra
+    | Null -> extra
+    | This ct -> Headers.h_local Httpz.Header_name.Content_type ct :: extra
   in
   Headers.cat d.Resp.headers extra
 
@@ -215,7 +215,7 @@ let method_not_allowed allowed (respond : Resp.respond @ local) =
       ~headers:
         (stack_
            [ Headers.h_local Httpz.Header_name.Allow (allow_value allowed) ])
-      ~content_type:text_type (Body.String "Method Not Allowed\n")
+      ~content_type:(This text_type) (Body.String "Method Not Allowed\n")
   in
   ()
 
@@ -318,7 +318,7 @@ let run ?on_error (req : Req.t @ local)
     let local_ d =
       { Resp.status = Httpz.Res.Internal_server_error; headers = Headers.empty;
         etag = None; last_modified = None; cache = None;
-        content_type = Some text_type;
+        content_type = This text_type;
         body = Body.String "Internal Server Error\n" }
     in
     let () = decide req d w in

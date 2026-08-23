@@ -32,7 +32,7 @@ type description = {
   global_ etag : Etag.t option;
   global_ last_modified : float option;
   global_ cache : Cache_control.t option;
-  global_ content_type : string option;
+  global_ content_type : string or_null;
   global_ body : Body.t;
 }
 
@@ -110,8 +110,18 @@ let check_last_modified t =
 (* A typed argument owns its field. Were [headers] allowed to name it too, the
    block would carry the field twice, and the copy a client reads first would
    not be the one [Backend] evaluates a conditional request against. *)
+(* A direct scan rather than [Headers.exists], which would take a closure over
+   [name] and so a heap block. This runs once per typed argument given, on
+   every response, and the closure was most of what naming a content type
+   cost. *)
+let rec names_field (t : Headers.t @ local) (name : Headers.name @ local) =
+  match t with
+  | [] -> false
+  | { Headers.name = n; _ } :: tl ->
+      Headers.same_name n name || names_field tl name
+
 let check_no_overlap (headers : Headers.t @ local) (name : Headers.name) set =
-  if set && Headers.exists (fun n _ _ -> Headers.same_name n name) headers then
+  if set && names_field headers name then
     invalid_arg
       (Printf.sprintf
          "Proffer.Resp.v: header %S is already set by its own argument"
@@ -122,15 +132,21 @@ let check_no_overlap (headers : Headers.t @ local) (name : Headers.name) set =
    a local option, and a local option cannot cross into the optional-argument
    protocol. The friendly constructors below take the optional form and forward
    to the required one. *)
+(* [content_type] is required, and [or_null] rather than an option, for the
+   same reason [headers] is required: an optional argument's payload arrives
+   local, and a local string cannot reach a [global_] field. [or_null] adds no
+   box on top, so a caller naming a content type pays nothing for it. *)
 let v (respond : respond @ local) ?(status = Httpz.Res.Success)
-    ~(headers : Headers.t @ local) ?etag ?last_modified ?cache ?content_type
-    body =
+    ~(headers : Headers.t @ local) ?etag ?last_modified ?cache
+    ~(content_type : string or_null) body =
   Headers.iter check_header headers;
-  Option.iter (check_value "content_type") content_type;
+  (match content_type with
+  | Null -> ()
+  | This ct -> check_value "content_type" ct);
   Option.iter check_etag etag;
   Option.iter check_last_modified last_modified;
-  check_no_overlap headers Httpz.Header_name.Content_type (content_type <>
-    None);
+  check_no_overlap headers Httpz.Header_name.Content_type
+    (match content_type with Null -> false | This _ -> true);
   check_no_overlap headers Httpz.Header_name.Cache_control (cache <> None);
   check_no_overlap headers Httpz.Header_name.Etag (etag <> None);
   check_no_overlap headers Httpz.Header_name.Last_modified (last_modified <>
@@ -149,32 +165,33 @@ let h_local = Headers.h_local
 
 let html (respond : respond @ local) ?status ?etag ?cache
     ?(headers : Headers.t @ local = Headers.empty) s =
-  v respond ?status ?etag ?cache ~headers ~content_type:html_type
+  v respond ?status ?etag ?cache ~headers ~content_type:(This html_type)
     (Body.String s)
 
 let text (respond : respond @ local) ?status
     ?(headers : Headers.t @ local = Headers.empty) s =
-  v respond ?status ~headers ~content_type:text_type (Body.String s)
+  v respond ?status ~headers ~content_type:(This text_type) (Body.String s)
 
 let media (respond : respond @ local) ?status ?etag ?cache
     ?(headers : Headers.t @ local = Headers.empty) ct s =
-  v respond ?status ?etag ?cache ~headers ~content_type:ct (Body.String s)
+  v respond ?status ?etag ?cache ~headers ~content_type:(This ct)
+    (Body.String s)
 
 (* [write] is taken at the caller's mode rather than [local], since the
    backend runs it after the description has been consumed, which is past the
    point where a local closure would still be alive. *)
 let stream (respond : respond @ local) ?status ?cache
     ?(headers : Headers.t @ local = Headers.empty) ?length ct write =
-  v respond ?status ?cache ~headers ~content_type:ct
+  v respond ?status ?cache ~headers ~content_type:(This ct)
     (Body.Stream { length; write })
 
 let empty (respond : respond @ local) ?(status = Httpz.Res.Success)
     ?(headers : Headers.t @ local = Headers.empty) () =
-  v respond ~status ~headers Body.Empty
+  v respond ~status ~headers ~content_type:Null Body.Empty
 
 let see_other (respond : respond @ local) location =
   let () =
-    v respond ~status:Httpz.Res.See_other
+    v respond ~status:Httpz.Res.See_other ~content_type:Null
       ~headers:(stack_ [ h_local Httpz.Header_name.Location location ])
       Body.Empty
   in
@@ -185,6 +202,7 @@ let redirect (respond : respond @ local) ?(permanent = false) location =
     v respond
       ~status:
         (if permanent then Httpz.Res.Moved_permanently else Httpz.Res.Found)
+      ~content_type:Null
       ~headers:(stack_ [ h_local Httpz.Header_name.Location location ])
       Body.Empty
   in
@@ -193,10 +211,9 @@ let redirect (respond : respond @ local) ?(permanent = false) location =
 let not_found (respond : respond @ local)
     ?(html = "<!doctype html>\n<title>Not Found</title>\n") () =
   v respond ~status:Httpz.Res.Not_found ~headers:Headers.empty
-    ~content_type:html_type
-    (Body.String html)
+    ~content_type:(This html_type) (Body.String html)
 
 let bad_request (respond : respond @ local)
     ?(html = "<!doctype html>\n<title>Bad Request</title>\n") () =
   v respond ~status:Httpz.Res.Bad_request ~headers:Headers.empty
-    ~content_type:html_type (Body.String html)
+    ~content_type:(This html_type) (Body.String html)

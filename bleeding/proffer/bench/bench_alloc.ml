@@ -26,7 +26,7 @@ let header_site =
     (Site.of_routes
        [ Route.(get (s "hello" /? nil)) (fun () _req respond ->
              let () =
-               Resp.v respond ~content_type:"text/plain"
+               Resp.v respond ~content_type:(This "text/plain")
                  ~headers:
                    (stack_
                       [ Resp.h_local Httpz.Header_name.X_cache "hit" ])
@@ -42,18 +42,16 @@ let etag_site =
              Resp.html respond ~etag:(`Strong "v1") "hi")
        ])
 
-(* A stream, to see what the streaming path adds over a string body. The
-   producer hands over bytes, which is the path an encoder takes. The buffer
-   is made inside the handler because [bytes] is mutable, so a module-level
-   one is [contended] and a portable handler cannot read it. A real encoder
-   allocates its slice per encode for the same reason. *)
+(* A stream, to see what the streaming path costs beyond a string body. The
+   producer writes a constant, so the row is the framework and not the
+   producer: an encoder allocates its own buffer, and an earlier version of
+   this row made a [Bytes.of_string] per request and charged it here. *)
 let stream_site =
   Compiled.compile
     (Site.of_routes
        [ Route.(get (s "hello" /? nil)) (fun () _req respond ->
-             let payload = Bytes.of_string "hi" in
              Resp.stream respond "text/plain" (fun sink ->
-                 Body.Sink.write_sub sink payload ~off:0 ~len:2))
+                 Body.Sink.write sink "hi"))
        ])
 
 let null_writer (_ : Backend.outcome @ local) = ()
@@ -157,31 +155,35 @@ let () =
         ())
   in
   row "Backend.run machinery, cheapest response"
-    (run_with (fun r -> Resp.v r ~headers:Headers.empty Body.Empty));
-  row "  + a content type, as ?content_type"
     (run_with (fun r ->
-         Resp.v r ~headers:Headers.empty ~content_type:"text/plain"
+         Resp.v r ~content_type:Null ~headers:Headers.empty Body.Empty));
+  row "  + a content type, as ~content_type"
+    (run_with (fun r ->
+         Resp.v r ~headers:Headers.empty
+           ~content_type:(This (Sys.opaque_identity "text/plain"))
            Body.Empty));
   row "  same content type, in a stack_ block instead"
     (run_with (fun r ->
          let () =
-           Resp.v r
+           Resp.v r ~content_type:Null
              ~headers:
                (stack_
                   [ Resp.h_local Httpz.Header_name.Content_type "text/plain" ])
              Body.Empty
          in
          ()));
-  (* [Sys.opaque_identity], because [Body.String "hi"] on a literal is a
-     static constant and would measure nothing. *)
+  (* [Sys.opaque_identity], because a literal is a static constant and would
+     measure nothing. That goes for the content type too: [Some c] on a
+     module-level string is static, so only a runtime one shows what the
+     argument costs. *)
   row "  + a string body and its content length"
     (run_with (fun r ->
-         Resp.v r ~headers:Headers.empty
+         Resp.v r ~content_type:Null ~headers:Headers.empty
            (Body.String (Sys.opaque_identity "hello"))));
   (* Dispatch itself is free. What a route costs is the [Some] [Route.run]
      returns on a match, and a capture pattern's partial application. *)
   let cheap () _ (r : Resp.respond @ local) =
-    Resp.v r ~headers:Headers.empty Body.Empty
+    Resp.v r ~content_type:Null ~headers:Headers.empty Body.Empty
   in
   let site routes =
     Compiled.compile

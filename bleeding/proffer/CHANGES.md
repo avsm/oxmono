@@ -99,9 +99,24 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
 - A route match allocates nothing. `Route.run` returns `'env handler or_null`
   rather than `'env handler option`: a handler is a closure and so never null,
   and `or_null` needs no box to say so.
+- `Resp.v`'s validation no longer builds a closure. The check that a typed
+  argument does not collide with a field in the block went through a
+  `Headers.exists` taking a closure over the name, which was a heap block on
+  every response naming a content type. It is a direct scan now, and worth 5
+  words a response.
+- `Resp.v` takes `~content_type` required, as `string or_null` rather than
+  `?content_type:string`. Same reason `~headers` is required: an optional
+  argument's payload arrives local and cannot reach the `global_` field a
+  header value lives in. Worth 2 words whenever the content type is a runtime
+  value rather than a module-level constant, which is every `Resp.media` and
+  every cached page. The sugar constructors are unchanged.
+- `Body.Sink` holds its `emit_sub` as an `or_null` and writes the
+  string-copying fallback at the use site, rather than building a defaulting
+  closure over `emit`. A sink is 3 words whether or not a backend supplies
+  `emit_sub`, where it used to be 8 without.
 - Together with the decoder work: a complete request and response cycle for a
-  literal route allocates **7 words**, where `Req.v` alone used to cost 175.
-  A 404 is 7 and a written streamed body 21.
+  literal route allocates **2 words**, where `Req.v` alone used to cost 175.
+  A 404 is 2 and a streamed body 8.
   `bleeding/proffer/bench/bench_alloc.exe` prints these and attributes them.
 - A response body goes to the socket through a 64 KB scratch owned by the
   connection rather than one `Cstruct.of_string` of the whole body, so the

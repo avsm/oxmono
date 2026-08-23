@@ -26,7 +26,7 @@ let routes =
     get (s "cached" /? nil) (fun _env _req respond ->
         Resp.html respond ~etag:(`Strong "v1") "<p>cached</p>");
     get (s "stream" /? nil) (fun _env _req respond ->
-        Resp.v respond ~headers:Headers.empty ~content_type:"text/plain"
+        Resp.v respond ~headers:Headers.empty ~content_type:(This "text/plain")
           (Body.Stream
              {
                length = None;
@@ -36,7 +36,7 @@ let routes =
                    Body.Sink.write sink "cd");
              }));
     get (s "known" /? nil) (fun _env _req respond ->
-        Resp.v respond ~headers:Headers.empty ~content_type:"text/plain"
+        Resp.v respond ~headers:Headers.empty ~content_type:(This "text/plain")
           (Body.Stream
              {
                length = Some 4L;
@@ -46,7 +46,7 @@ let routes =
                    Body.Sink.write sink "cd");
              }));
     get (s "logged" /? nil) (fun _env _req respond ->
-        Resp.v respond ~content_type:"text/html; charset=utf-8"
+        Resp.v respond ~content_type:(This "text/html; charset=utf-8")
           ~headers:[ Resp.other "X-Cache" "hit" ]
           (Body.String "hi"));
     get (s "dup" /? nil) (fun _env req respond ->

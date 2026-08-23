@@ -47,7 +47,7 @@ let cached (respond : Resp.respond @ local) env ~key ~content_type gen =
   let () =
     Resp.v respond ~etag
       ~headers:(stack_ [ Resp.h_local H.X_cache status ])
-      ~content_type (Body.String body)
+      ~content_type:(This content_type) (Body.String body)
   in
   ()
 

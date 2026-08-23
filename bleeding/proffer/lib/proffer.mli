@@ -401,7 +401,7 @@ module Resp : sig
     global_ etag : Etag.t option;
     global_ last_modified : float option;
     global_ cache : Cache_control.t option;
-    global_ content_type : string option;
+    global_ content_type : string or_null;
     global_ body : Body.t;
   }
   (** What a handler describes. Only a backend and {!Backend.handle} read it:
@@ -427,18 +427,21 @@ module Resp : sig
     ?etag:Etag.t ->
     ?last_modified:float ->
     ?cache:Cache_control.t ->
-    ?content_type:string ->
+    content_type:string or_null ->
     Body.t ->
     unit
     @@ portable
-  (** [v respond ~headers body] responds with [body], [`OK] unless [status]
-      says otherwise.
+  (** [v respond ~headers ~content_type body] responds with [body], [`OK]
+      unless [status] says otherwise.
 
-      [headers] is required rather than optional, and that is what lets a
-      block reach the responder on the stack. An optional argument is passed
-      as an allocated [Some] which the block cannot cross, so the constructors
-      below, which take [?headers] for convenience, put the block on the heap
-      whenever one is given.
+      [headers] and [content_type] are required rather than optional, and that
+      is what keeps both off the heap. An optional argument's payload arrives
+      [local], so a local block cannot cross into it and a local string cannot
+      reach the [global_] field a header value has to live in. The
+      constructors below take [?headers] for convenience and put the block on
+      the heap whenever one is given. [content_type] is [or_null] rather than
+      an option because a value that cannot be null needs no box to say so, so
+      naming a content type here costs nothing at all.
 
       Two things are needed to keep a block off the heap, and neither is
       visible at a call site that omits them. The block must be written
@@ -461,16 +464,13 @@ module Resp : sig
       constructor below with no [~headers] at all allocates nothing for the
       block either way, since the default is a constant.
 
-      The typed arguments below cut the other way from what their convenience
-      suggests. Measured on a body-less response, [~content_type] costs 5
-      words where naming the same field in a [stack_] block costs none. It is
-      not the calling convention: an optional argument's [Some] is
-      stack-allocated when the callee does not let it escape. It is the
-      [global_] field it lands in, which is [global_] because a header value
-      reaches a socket. They earn it back on a route that is revalidated,
-      since {!Backend.handle} renders them only once it knows the response is
-      being sent, so a 304 pays for no block at all. On a route that is never
-      conditional, a field in the block is cheaper.
+      [etag], [cache] and [last_modified] are still optional, and each costs
+      a couple of words when given, because an optional argument's payload
+      arrives [local] and the [global_] field it lands in forces the [Some]
+      onto the heap. They earn it back on a route that is revalidated, since
+      {!Backend.handle} renders them only once it knows the response is being
+      sent, so a 304 pays for no block at all. On a route that is never
+      conditional, naming the field in the block instead is cheaper.
 
       [last_modified] is seconds since the epoch. Each of [content_type],
       [cache], [etag] and [last_modified] adds its header and owns that field,
@@ -990,9 +990,7 @@ module Backend : sig
       A backend that can write a range of bytes without making a string of it
       should pass [emit_sub] as well, so that a producer streaming through a
       buffer costs nothing per slice. Without it {!Body.Sink.write_sub} copies
-      the range into a string and calls [f].
-
-      Passing it is also cheaper per response, not only per slice: the sink
-      costs 3 words built with [emit_sub] and 8 without, because the default
-      is a closure over [f] rather than a function the caller already had. *)
+      the range into a string and calls [f], which costs no more to build:
+      the fallback is written at the use site rather than made as a defaulting
+      closure, so a sink is 3 words either way. *)
 end

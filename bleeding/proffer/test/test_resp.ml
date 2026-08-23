@@ -110,7 +110,8 @@ let () =
     (header r H.Etag = Some "\"v1\"");
   let r =
     describe (fun respond ->
-        Resp.v respond ~headers:Headers.empty ~last_modified:0.
+        Resp.v respond ~content_type:Null ~headers:Headers.empty
+          ~last_modified:0.
           ~cache:Cache_control.no_store Body.Empty)
   in
   check "last_modified renders its field"
@@ -125,22 +126,23 @@ let () =
          Resp.see_other respond "/next\r\nSet-Cookie: x"));
   check "a lone LF is rejected"
     (refused (fun respond ->
-         Resp.v respond
+         Resp.v respond ~content_type:Null
            ~headers:[ Resp.other "X-A" "a\nb" ]
            Body.Empty));
   check "a NUL is rejected"
     (refused (fun respond ->
-         Resp.v respond
+         Resp.v respond ~content_type:Null
            ~headers:[ Resp.other "X-A" "a\000b" ]
            Body.Empty));
   check "a header name that is not a token is rejected"
     (refused (fun respond ->
-         Resp.v respond
+         Resp.v respond ~content_type:Null
            ~headers:[ Resp.other "X Bad" "1" ]
            Body.Empty));
   check "an empty header name is rejected"
     (refused (fun respond ->
-         Resp.v respond ~headers:[ Resp.other "" "1" ] Body.Empty));
+         Resp.v respond ~content_type:Null
+           ~headers:[ Resp.other "" "1" ] Body.Empty));
   check "a content type with a newline is rejected"
     (refused (fun respond ->
          Resp.media respond "text/plain\r\nX-A: b" "hi"));
@@ -151,18 +153,21 @@ let () =
     (refused (fun respond -> Resp.html respond ~etag:(`Weak "a\rb") "hi"));
   check "a last_modified that is not a number is rejected"
     (refused (fun respond ->
-         Resp.v respond ~headers:Headers.empty ~last_modified:Float.nan
+         Resp.v respond ~content_type:Null ~headers:Headers.empty
+           ~last_modified:Float.nan
            Body.Empty));
   check "an infinite last_modified is rejected"
     (refused (fun respond ->
-         Resp.v respond ~headers:Headers.empty ~last_modified:Float.infinity
+         Resp.v respond ~content_type:Null ~headers:Headers.empty
+           ~last_modified:Float.infinity
            Body.Empty));
   check "a last_modified past year 9999 is rejected"
     (refused (fun respond ->
-         Resp.v respond ~headers:Headers.empty ~last_modified:1e30 Body.Empty));
+         Resp.v respond ~content_type:Null ~headers:Headers.empty
+           ~last_modified:1e30 Body.Empty));
   check "an ordinary response is built"
     (accepted (fun respond ->
-         Resp.v respond
+         Resp.v respond ~content_type:Null
            ~headers:[ Resp.other "X-Frame-Options" "DENY" ]
            ~etag:(`Strong "v1") ~last_modified:0. Body.Empty))
 
@@ -241,7 +246,7 @@ let () =
     header
       (describe (fun respond ->
            Resp.v respond ~headers:Headers.empty ~last_modified:t
-             ~content_type:"text/plain" Body.Empty))
+             ~content_type:(This "text/plain") Body.Empty))
       H.Last_modified
   in
   check "epoch renders" (at 0. = Some "Thu, 01 Jan 1970 00:00:00 GMT");
@@ -274,20 +279,20 @@ let () =
     (refused (fun respond ->
          Resp.v respond
            ~headers:[ Resp.h H.Content_type "text/plain" ]
-           ~content_type:"text/html" Body.Empty));
+           ~content_type:(This "text/html") Body.Empty));
   check "headers may not repeat cache"
     (refused (fun respond ->
-         Resp.v respond
+         Resp.v respond ~content_type:Null
            ~headers:[ Resp.h H.Cache_control "no-cache" ]
            ~cache:Cache_control.no_store Body.Empty));
   check "headers may not repeat etag"
     (refused (fun respond ->
-         Resp.v respond
+         Resp.v respond ~content_type:Null
            ~headers:[ Resp.h H.Etag "\"raw\"" ]
            ~etag:(`Strong "v1") Body.Empty));
   check "headers may not repeat last_modified"
     (refused (fun respond ->
-         Resp.v respond
+         Resp.v respond ~content_type:Null
            ~headers:
              [ Resp.h H.Last_modified "Thu, 01 Jan 1970 00:00:00 GMT" ]
            ~last_modified:784111777. Body.Empty));
@@ -296,7 +301,7 @@ let () =
        describe (fun respond ->
            Resp.v respond
              ~headers:[ Resp.h H.Vary "Accept" ]
-             ~content_type:"text/html" ~etag:(`Strong "v1") Body.Empty)
+             ~content_type:(This "text/html") ~etag:(`Strong "v1") Body.Empty)
      in
      header r H.Vary = Some "Accept"
      && header r H.Content_type = Some "text/html"

@@ -30,13 +30,13 @@ let routes =
     get (s "weak" /? nil) (fun _env _req respond ->
         Resp.v respond ~etag:(`Weak "v1") ~cache
           ~headers:[ Resp.h H.Vary "Accept"; Resp.other "X-Extra" "1" ]
-          ~content_type:"text/plain" (Body.String "weak"));
+          ~content_type:(This "text/plain") (Body.String "weak"));
     get (s "dated" /? nil) (fun _env _req respond ->
         Resp.v respond ~last_modified:mtime ~headers:Headers.empty
-          ~content_type:"text/plain" (Body.String "dated"));
+          ~content_type:(This "text/plain") (Body.String "dated"));
     get (s "delayed" /? nil) (fun env _req respond ->
         Resp.v respond ~etag:(`Strong "d1") ~headers:Headers.empty
-          ~content_type:"text/plain"
+          ~content_type:(This "text/plain")
           (Body.Delayed
              {
                length = Some 7L;
@@ -48,7 +48,7 @@ let routes =
     post (s "page" /? nil) (fun _env _req respond ->
         Resp.html respond ~etag:(`Strong "v1") ~cache "<p>posted</p>");
     get (s "boom" /? nil) (fun _env _req respond ->
-        Resp.v respond ~headers:Headers.empty ~content_type:"text/plain"
+        Resp.v respond ~headers:Headers.empty ~content_type:(This "text/plain")
           (Body.Delayed
              {
                length = None;
@@ -60,9 +60,9 @@ let routes =
       (s "at" / conv ~name:"epoch" float_of_string_opt /? nil)
       (fun t _env _req respond ->
         Resp.v respond ~last_modified:t ~headers:Headers.empty
-          ~content_type:"text/plain" (Body.String "at"));
+          ~content_type:(This "text/plain") (Body.String "at"));
     get (s "stream" /? nil) (fun _env _req respond ->
-        Resp.v respond ~headers:Headers.empty ~content_type:"text/plain"
+        Resp.v respond ~headers:Headers.empty ~content_type:(This "text/plain")
           (Body.Stream
              {
                length = None;

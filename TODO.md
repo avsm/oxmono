@@ -16,7 +16,7 @@ Both axes are now as far as they go without a design change. **Portable**:
 four closures are left in `Arod_env.t`. `feed`, `pagination` and `search`
 render through jsont, whose codecs cannot be given a crossing kind; `report`
 holds a database handle.
-**Local**: a complete request and response cycle allocates 7 words, where
+**Local**: a complete request and response cycle allocates 2 words, where
 `Req.v` alone cost 175 when this started.
 
 ## Closures
@@ -63,15 +63,15 @@ domain-bound `search` closure anyway.
 ## What is left for local
 
 The request and response paths are done. A complete cycle for a literal route
-allocates **7 words**, where `Req.v` alone cost 175 when this started.
+allocates **2 words**, where `Req.v` alone cost 175 when this started.
 
 | | words |
 | --- | --- |
-| full serve, literal route, content type only | 7 |
-| the same with an entity-tag | 18 |
-| the same with a header field in a `stack_` block | 7 |
-| a streamed body, written | 21 |
-| a 404 | 7 |
+| full serve, literal route, content type only | 2 |
+| the same with an entity-tag | 8 |
+| the same with a header field in a `stack_` block | 2 |
+| a streamed body, written | 8 |
+| a 404 | 2 |
 | `Req.v` (record only, now on the stack) | 0 |
 | one `Req.query_param` | 4, or 0 when absent |
 
@@ -130,15 +130,22 @@ interface asks for:
 | --- | --- |
 | `Backend.run` machinery, cheapest response | 0 |
 | a string body and its content length | 2 |
-| `~content_type` as an optional argument | 5 |
-| the same field in a `stack_` block instead | 0 |
+| `~content_type` | 0 |
 | dispatch, any number of routes, none matched | 0 |
 | a route match | 0 |
 | a capture pattern's partial application | 4 |
-| `Backend.sink` built without `emit_sub` | 8 |
-| `Backend.sink` built with `emit_sub` | 3 |
+| `Backend.sink`, with or without `emit_sub` | 3 |
 
-Two rules came out of this, and both generalise past proffer.
+Three rules came out of this, and all three generalise past proffer.
+
+**A closure that captures is a heap block, and a higher-order library
+function forces one.** This was the largest cost in two separate places and
+neither was visible at the call site. `Backend`'s route scan closed over the
+method and the path, costing 13 words on every request. `Resp.v`'s
+overlap check went through `Headers.exists` with a closure over the field
+name, costing 5 on every response naming a content type. Both became direct
+recursive scans taking what they need as arguments. Before reaching for a
+mode, look for a closure.
 
 **A `global_` field forces its whole block to the heap; a `global` modality
 on a payload does not.** `Backend.outcome` held its body as a polymorphic
@@ -150,31 +157,40 @@ local record has to hand a heap value onward.
 
 **`or_null` is free where `option` is two words.** A value that can never be
 null, which a closure or any block is, does not need a box to say so.
-`Route.run` returned `'env handler option` and now returns `'env handler
-or_null`, so a route match allocates nothing.
+`Route.run` returns `'env handler or_null`, so a route match allocates
+nothing. `Body.Sink` holds its `emit_sub` the same way, with the fallback
+written at the use site rather than built as a defaulting closure, which took
+a sink from 8 words to 3.
+
+**An optional argument's payload arrives local, and that is what costs, not
+the calling convention.** The `Some` itself is stack-allocated when the callee
+does not let it escape, measured at 0. What forces it to the heap is landing
+in a `global_` field, and a header value has to be global because it reaches
+a socket. So `Resp.v` takes `~content_type` required and as `string or_null`,
+alongside the already-required `~headers`. Worth 2 words whenever the content
+type is a runtime value; a module-level constant was already static.
 
 Two things were tried and reverted because they measured nothing, which is
 worth recording so they are not tried again. Putting `@@ global` on `Body.t`'s
 payloads and dropping `global_` from `Resp.description.body` changed no
 figure. Replacing `Option.iter (check_value "content_type")` in `Resp.v`,
-a partial application and so a closure, changed no figure either.
+a partial application and so a closure, changed no figure either. A measured
+figure decides these, not the shape of the code.
 
-What is left is small and each piece has a reason.
+What is left is three things, and none is worth a redesign.
 
-1. **The typed optional arguments, 5 words for `~content_type`.** Not the
-   calling convention: an optional argument's `Some` is stack-allocated when
-   the callee does not let it escape, measured at 0. It is the `global_` field
-   it lands in, and that field is `global_` because `Headers.field`'s value is,
-   because a header value reaches the socket. The same field named in a
-   `stack_` block costs nothing, and `Resp.v`'s documentation now says so.
-   They earn their keep on a revalidated route, where `Backend.handle` renders
-   them only once it knows the response is being sent, so a 304 pays for no
-   block at all.
-2. **`Backend.sink`, 8 words without `emit_sub` and 3 with.** The 8 is the
-   defaulting closure over `emit`; the 3 is the record. Only a streamed
-   response pays it, and `proffer-httpz` passes `emit_sub`.
+1. **A string body and its content length, 2 words.** This is the whole cost
+   of an ordinary response now.
+2. **`Backend.sink`, 3 words.** The record itself, on streamed responses only.
+   Removing it means taking the sink at `local` in `Body.Stream`'s writer,
+   which changes every producer's signature for three words.
 3. **A capture pattern, 4 words.** The partial application binding what the
-   segment decoded to.
+   segment decoded to, inherent to the final encoding routes use.
+
+`~etag`, `~cache` and `~last_modified` stay optional and cost a couple of
+words each when given, for the reason in the third rule above. Making them
+required would buy that back and is not worth the ergonomics on arguments
+most routes never pass.
 
 A streamed body costs 12 words over a string one, for the sink record and the
 closure the outcome carries. Beyond that the remaining allocation is the

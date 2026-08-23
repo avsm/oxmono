@@ -4,21 +4,25 @@ module Sink = struct
      the encoder's own slice; one holding a finished string hands that. A
      backend that can only take strings passes no [emit_sub] and pays a copy
      per slice, which is what the mock does. *)
+  (* [or_null] rather than an option, and the fallback written at the use
+     site rather than built as a closure. A defaulting closure over [emit] is
+     a heap block made on every streamed response, and a backend that supplies
+     [emit_sub] should not pay for the one it does not use. *)
   type t = {
     emit : string -> unit;
-    emit_sub : bytes -> int -> int -> unit;
+    emit_sub : (bytes -> int -> int -> unit) or_null;
   }
 
   let v ?emit_sub emit =
-    let emit_sub =
-      match emit_sub with
-      | Some f -> f
-      | None -> fun b off len -> emit (Bytes.sub_string b off len)
-    in
+    let emit_sub = match emit_sub with Some f -> This f | None -> Null in
     { emit; emit_sub }
 
   let write t s = t.emit s
-  let write_sub t b ~off ~len = t.emit_sub b off len
+
+  let write_sub t b ~off ~len =
+    match t.emit_sub with
+    | This f -> f b off len
+    | Null -> t.emit (Bytes.sub_string b off len)
 end
 
 type t =

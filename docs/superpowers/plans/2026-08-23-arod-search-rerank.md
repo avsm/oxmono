@@ -54,7 +54,7 @@
 - Modify: `test/dune`
 
 **Interfaces:**
-- Produces: `val index : t -> ?own_host:string -> contact_name:(string -> string option) -> entries:Bushel.Entry.entry list -> links:Bushel.Link.t list -> unit`. `rebuild t ctx` becomes a call to it. `own_host` is stored on `t` for Task 2, and is the host of the site's base URL with any leading `www.` removed.
+- Produces: `val index : t -> own_host:string -> contact_name:(string -> string option) -> entries:Bushel.Entry.entry list -> links:Bushel.Link.t list -> unit`. `rebuild t ctx` becomes a call to it. `own_host` is stored on `t` for Task 2, and is the host of the site's base URL with any leading `www.` removed.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -119,11 +119,11 @@ let link ?(title = "") ?(slugs = []) ?(date = (2024, 1, 1)) url : Bushel.Link.t 
     bushel = Some { Bushel.Link.slugs; tags = [] };
   }
 
-let index ?own_host ~notes ~links () =
+let index ?(own_host = "") ~notes ~links () =
   Eio_main.run @@ fun _env ->
   Eio.Switch.run @@ fun sw ->
   let t = Arod_search.create_memory ~sw () in
-  Arod_search.index t ?own_host
+  Arod_search.index t ~own_host
     ~contact_name:(fun _ -> None)
     ~entries:(List.map (fun n -> `Note n) notes)
     ~links;
@@ -205,7 +205,7 @@ let host_of_url url =
   | Some i -> String.sub u 0 i
   | None -> u
 
-let index t ?(own_host = "") ~contact_name ~entries ~links =
+let index t ~own_host ~contact_name ~entries ~links =
   t.own_host <- own_host;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "BEGIN");
   List.iter (fun kind ->
@@ -246,7 +246,7 @@ In `lib_search/arod_search.mli`, after `rebuild`:
 ```ocaml
 val index :
   t ->
-  ?own_host:string ->
+  own_host:string ->
   contact_name:(string -> string option) ->
   entries:Bushel.Entry.entry list ->
   links:Bushel.Link.t list ->
@@ -1106,7 +1106,7 @@ let () =
     Eio_main.run @@ fun _env ->
     Eio.Switch.run @@ fun sw ->
     let t = Arod_search.create_memory ~sw () in
-    Arod_search.index t
+    Arod_search.index t ~own_host:""
       ~contact_name:(fun _ -> None)
       ~entries:
         [

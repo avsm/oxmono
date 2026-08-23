@@ -190,7 +190,13 @@ let () =
   check "and the modal is gone"
     (not (contains front "search-modal-overlay"));
   check "the site script navigates on the keyboard shortcut"
-    (contains (body (get "/js/site.js")) "location.href = '/search'")
+    (contains (body (get "/js/site.js")) "location.href = '/search'");
+  check "and it still handles tag chips"
+    (contains (body (get "/js/site.js")) "data-tag");
+  check "and kind chips"
+    (contains (body (get "/js/site.js")) "data-kind");
+  check "and the tag hash redirect"
+    (contains (body (get "/js/site.js")) "'#tag='")
 
 let () =
   check "a feed path is not swallowed by the note route"

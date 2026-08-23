@@ -341,7 +341,9 @@ window.addEventListener('load', () => { setTimeout(setupTOC, 150); });
 |}
 
 let search_shortcut_js = {|
-// Cmd-K or Ctrl-K opens the search page
+// Global search navigation: Cmd-K/Ctrl-K opens the search page, and
+// [data-tag]/[data-kind] chips and #tag=/#kind= hashes route to it. The
+// search page itself owns these on /search, so bail out there.
 (function() {
   document.addEventListener('keydown', function(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -349,6 +351,32 @@ let search_shortcut_js = {|
       window.location.href = '/search';
     }
   });
+
+  document.addEventListener('click', function(e) {
+    if (document.getElementById('search-page-input')) return;
+    var tagEl = e.target.closest('[data-tag]');
+    if (tagEl) {
+      e.preventDefault();
+      window.location.href = '/search?q=' + encodeURIComponent('#' + tagEl.getAttribute('data-tag'));
+      return;
+    }
+    var kindEl = e.target.closest('[data-kind]');
+    if (kindEl) {
+      e.preventDefault();
+      window.location.href = '/search?q=' + encodeURIComponent('kind:' + kindEl.getAttribute('data-kind'));
+    }
+  });
+
+  if (!document.getElementById('search-page-input')) {
+    var hash = location.hash;
+    if (hash.indexOf('#tag=') === 0) {
+      var tag = decodeURIComponent(hash.slice(5));
+      location.replace('/search?q=' + encodeURIComponent('#' + tag));
+    } else if (hash.indexOf('#kind=') === 0) {
+      var kind = decodeURIComponent(hash.slice(6));
+      location.replace('/search?q=' + encodeURIComponent('kind:' + kind));
+    }
+  }
 })();
 |}
 

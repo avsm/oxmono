@@ -287,14 +287,18 @@ let index_link t (link : Bushel.Link.t) =
     insert_tag_row t ~tag ~kind ~slug ~url ~title ~date
   ) all_tags
 
+(* An index written before search_meta existed has no such table, so
+   prepare raises: treat that as no stored host rather than crash. *)
 let load_own_host t =
-  let stmt = Sqlite3_eio.prepare t.db
-    {|SELECT value FROM search_meta WHERE key = 'own_host'|} in
-  let _rc, host = Sqlite3_eio.fold t.db stmt ~init:"" ~f:(fun _acc row ->
-    match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> ""
-  ) in
-  ignore (Sqlite3_eio.finalize t.db stmt);
-  host
+  try
+    let stmt = Sqlite3_eio.prepare t.db
+      {|SELECT value FROM search_meta WHERE key = 'own_host'|} in
+    let _rc, host = Sqlite3_eio.fold t.db stmt ~init:"" ~f:(fun _acc row ->
+      match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> ""
+    ) in
+    ignore (Sqlite3_eio.finalize t.db stmt);
+    host
+  with Eio.Exn.Io _ -> ""
 
 (* Both lists are read on every query and never change between rebuilds,
    so they are computed once here rather than queried each time. *)

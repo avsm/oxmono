@@ -15,6 +15,15 @@ let contains hay needle =
   let rec go i = i + n <= h && (String.sub hay i n = needle || go (i + 1)) in
   go 0
 
+(* Each on-disk test below opens its own temp directory, so it removes it
+   again once done rather than leaking it into the system temp dir. *)
+let rm_rf dir =
+  (try
+     Array.iter (fun f -> Sys.remove (Filename.concat dir f))
+       (Sys.readdir dir)
+   with Sys_error _ -> ());
+  (try Unix.rmdir dir with Unix.Unix_error _ -> ())
+
 let note ?(tags = []) ?(date = (2024, 2, 3)) ~slug ~title body : Bushel.Note.t =
   {
     Bushel.Note.title;
@@ -345,6 +354,46 @@ let () =
     check "and offers a tag go-to hit"
       (List.exists
          (fun (g : Arod_search.goto) -> g.goto_kind = `Tag)
-         r.goto))
+         r.goto));
+  rm_rf dir
+
+(* An index written before the search_meta table existed has no such
+   table, so [open_readonly] must not crash on it: own_host behaviour is
+   simply off, as it always was for that older index. *)
+let () =
+  Eio_main.run @@ fun env ->
+  let fs = Eio.Stdenv.fs env in
+  let dir = Filename.temp_dir "arod_search_test" "" in
+  let db_path = Eio.Path.(fs / dir / "search.db") in
+  Eio.Switch.run (fun sw ->
+    let t = Arod_search.create ~sw db_path in
+    Arod_search.index t ~own_host:"example.com"
+      ~contact_name:(fun _ -> None)
+      ~entries:
+        [
+          `Note
+            (note ~slug:"n" ~tags:[ "ocaml" ] ~title:"OCaml notes"
+               "About ocaml unikernels.");
+        ]
+      ~links:
+        [
+          link ~title:"Own copy" ~slugs:[ "n" ]
+            "https://example.com/ocaml-copy";
+        ];
+    (* A second writable connection to the same file drops the table,
+       since Arod_search.t's handle is abstract and cannot reach it. *)
+    let raw = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 db_path in
+    Sqlite3.Rc.check (Sqlite3_eio.exec raw "DROP TABLE search_meta"));
+  Eio.Switch.run (fun sw ->
+    let t = Arod_search.open_readonly ~sw db_path in
+    let r = Arod_search.search t ~today "ocaml" in
+    check "a search over an index with no search_meta table still answers"
+      (r.work <> [] || r.links <> []);
+    check "own_host is empty, so its own-host link is not dropped"
+      (List.exists
+         (fun (h : Arod_search.hit) ->
+           Arod_search.host_of_url h.url = "example.com")
+         r.links));
+  rm_rf dir
 
 let () = Printf.printf "test_search: %d checks ok\n" !checks

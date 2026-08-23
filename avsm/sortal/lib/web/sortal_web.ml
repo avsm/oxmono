@@ -18,7 +18,7 @@ type env = {
    read from a portable handler. *)
 let thumb_cache = Cache_control.private' ~max_age:(`Hours 1) ()
 let css_cache = Cache_control.public ~max_age:(`Days 365) ~immutable:true ()
-let css_etag : Etag.t = `Strong (Digest.to_hex (Digest.string Html.css))
+let css_etag : Etag.t = Etag.strong (Digest.to_hex (Digest.string Html.css))
 
 (* Form and query reading. A missing field and an empty one are the same
    thing to every handler here. *)
@@ -333,7 +333,7 @@ let routes =
         | None -> not_found respond
         | Some png ->
             Resp.media respond
-              ~etag:(`Strong (Digest.to_hex (Digest.string png)))
+              ~etag:(Etag.strong (Digest.to_hex (Digest.string png)))
               ~cache:thumb_cache "image/png" png);
     get (s "static" / s "style.css" /? nil) (fun _env _req respond ->
         Resp.media respond ~etag:css_etag ~cache:css_cache

@@ -365,9 +365,31 @@ end
 module Etag : sig
   (** Entity-tags, the validator a conditional request is answered from. *)
 
-  type t = [ `Strong of string | `Weak of string ]
-  (** An entity-tag, held without its quotes. The value must not contain a
-      double quote, a CR, an LF or a NUL, which {!Resp.v} enforces. *)
+  type t : immutable_data
+  (** An entity-tag. The opaque value must not contain a double quote, a CR,
+      an LF or a NUL, which {!Resp.v} enforces.
+
+      The kind is declared because the type is abstract. A site that builds a
+      tag once at the top level and serves it from a portable handler, which
+      is what a static asset does, needs it to cross into that closure, and an
+      abstract type carries no kind unless it says so.
+
+      Abstract, because a tag carries its wire form alongside its opaque
+      value and renders it once, when it is built. A memoised page builds its
+      tag when it fills the cache and answers from it thereafter, so putting
+      the quotes on costs nothing per request. *)
+
+  val strong : string -> t @@ portable
+  (** [strong s] is the strong entity-tag with opaque value [s]. *)
+
+  val weak : string -> t @@ portable
+  (** [weak s] is the weak entity-tag with opaque value [s]. *)
+
+  val opaque : t -> string @@ portable
+  (** [opaque t] is the value without quotes or a [W/] prefix. *)
+
+  val is_weak : t -> bool @@ portable
+  (** [is_weak t] is whether [t] was declared weak. *)
 
   val to_string : t -> string @@ portable
   (** [to_string t] is the ETag field value, quoted and prefixed with ["W/"]

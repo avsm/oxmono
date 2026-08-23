@@ -124,8 +124,24 @@ type conn = {
           scratch bounds that at its length per connection. Eio's write
           completes before it returns, so the scratch is free to reuse on the
           next chunk. *)
+  chunk_buf : bytes;
+      (** Scratch for a chunk's size line and its trailing CRLF, reused like
+          {!body_cs}. Building these per chunk cost two [Bytes.create] and two
+          [Cstruct.of_bytes] on every 64KB of a streamed body. *)
+  chunk_cs : Cstruct.t;
+      (** The same bytes as a cstruct, so a chunk's framing reaches the socket
+          through [Cstruct.sub], which is a record, rather than
+          [Cstruct.of_bytes], which mallocs a bigstring per call. *)
+  mutable sink : Proffer.Body.Sink.t option;
+      (** The sink lent to a streamed body, built once for the connection
+          rather than per response. Its closures read [body_written] and
+          [body_chunked] out of this record instead of capturing a [ref] and
+          a [bool] made per response, which is what lets them be built once.
+          [None] until the first streamed response on this connection. *)
   mutable read_len : int;
   mutable keep_alive : bool;
+  mutable body_written : int;  (** Body bytes sent for the response in hand. *)
+  mutable body_chunked : bool;  (** Whether that response is framed chunked. *)
 }
 
 let create_conn flow ~clock =
@@ -143,8 +159,13 @@ let create_conn flow ~clock =
     read_cs = Cstruct.create Httpz.buffer_size;
     write_buf = Bytes.create write_buffer_size;
     body_cs = Cstruct.create body_chunk_size;
+    chunk_buf = Bytes.create 32;
+    chunk_cs = Cstruct.create 32;
+    sink = None;
     read_len = 0;
     keep_alive = true;
+    body_written = 0;
+    body_chunked = false;
   }
 
 let read_more conn ~deadline =
@@ -273,6 +294,52 @@ let write_through_bytes conn b ~off ~len ~before ~after =
       Cstruct.blit_from_bytes b (off + src) conn.body_cs dst n)
     ~before ~after
 
+(* A chunk's size line and trailing CRLF go through the connection's own
+   scratch. Built per chunk, as they were, this cost two [Bytes.create] and
+   two [Cstruct.of_bytes] for every 64KB of a streamed body. The header and
+   the footer do not overlap in the buffer, so one buffer serves both. *)
+let framing conn n =
+  if not conn.body_chunked then ([], [])
+  else begin
+    let hoff = to_int (St.write_chunk_header conn.chunk_buf ~off:(i16 0)
+                         ~size:n) in
+    let foff = to_int (St.write_chunk_footer conn.chunk_buf ~off:(i16 hoff)) in
+    Cstruct.blit_from_bytes conn.chunk_buf 0 conn.chunk_cs 0 foff;
+    ([ Cstruct.sub conn.chunk_cs 0 hoff ],
+     [ Cstruct.sub conn.chunk_cs hoff (foff - hoff) ])
+  end
+
+(* [sink_for conn] is the sink lent to a streamed body, made once for the
+   connection. The emitters read the response's framing and byte count out of
+   [conn] rather than closing over values made per response, which is what
+   lets them, and the sink record holding them, be built once rather than on
+   every streamed response.
+
+   A zero-length write is dropped rather than sent, because a zero-length
+   chunk is what ends a chunked body. *)
+let sink_for conn =
+  match conn.sink with
+  | Some k -> k
+  | None ->
+      let emit s =
+        let n = String.length s in
+        if n > 0 then begin
+          let before, after = framing conn n in
+          write_through conn s ~before ~after;
+          conn.body_written <- conn.body_written + n
+        end
+      in
+      let emit_sub b off len =
+        if len > 0 then begin
+          let before, after = framing conn len in
+          write_through_bytes conn b ~off ~len ~before ~after;
+          conn.body_written <- conn.body_written + len
+        end
+      in
+      let k = Proffer.Backend.sink ~emit_sub emit in
+      conn.sink <- Some k;
+      k
+
 (* [write_outcome conn ~keep_alive ~chunked ~version o] sends [o] and is the
    number of body bytes it wrote. *)
 let write_outcome conn ~keep_alive ~chunked ~version
@@ -297,52 +364,21 @@ let write_outcome conn ~keep_alive ~chunked ~version
       else write_through conn s ~before:[ head ] ~after:[];
       n
   | Proffer.Backend.Stream { length; write } ->
-      let written = ref 0 in
       let mode =
         match length with
         | Some n -> Known (Int64.to_int n)
         | None -> if chunked then Chunked else Omit
       in
       conn.write [ head mode ];
-      (* A chunk's header and footer are the same whichever way the body
-         arrived, so they are computed once here and the two emitters differ
-         only in where the bytes come from. *)
-      let framing n =
-        if not chunked then ([], [])
-        else begin
-          let scratch = Bytes.create 32 in
-          let off = St.write_chunk_header scratch ~off:(i16 0) ~size:n in
-          let hdr = Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) in
-          let scratch = Bytes.create 32 in
-          let off = St.write_chunk_footer scratch ~off:(i16 0) in
-          let ftr = Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) in
-          ([ hdr ], [ ftr ])
-        end
-      in
-      (* A zero-length chunk ends the body, so an empty write is dropped
-         rather than sent. *)
-      let emit s =
-        let n = String.length s in
-        if n > 0 then begin
-          let before, after = framing n in
-          write_through conn s ~before ~after;
-          written := !written + n
-        end
-      in
-      let emit_sub b off len =
-        if len > 0 then begin
-          let before, after = framing len in
-          write_through_bytes conn b ~off ~len ~before ~after;
-          written := !written + len
-        end
-      in
-      write (Proffer.Backend.sink ~emit_sub emit);
+      conn.body_written <- 0;
+      conn.body_chunked <- chunked;
+      write (sink_for conn);
       if chunked then begin
-        let scratch = Bytes.create 8 in
-        let off = St.write_final_chunk scratch ~off:(i16 0) in
-        conn.write [ Cstruct.of_bytes scratch ~off:0 ~len:(to_int off) ]
+        let off = to_int (St.write_final_chunk conn.chunk_buf ~off:(i16 0)) in
+        Cstruct.blit_from_bytes conn.chunk_buf 0 conn.chunk_cs 0 off;
+        conn.write [ Cstruct.sub conn.chunk_cs 0 off ]
       end;
-      !written
+      conn.body_written
 
 (** {1 Serving one request} *)
 

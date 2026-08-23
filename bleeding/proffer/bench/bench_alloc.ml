@@ -35,11 +35,28 @@ let header_site =
              ())
        ])
 
+(* Built once, which is what a memoised page or a static asset does: the
+   cache holds the tag, not the digest it came from. A tag renders its wire
+   form when it is built, so serving it costs nothing. *)
+let reused_etag = Etag.strong "v1"
+
 let etag_site =
   Compiled.compile
     (Site.of_routes
        [ Route.(get (s "hello" /? nil)) (fun () _req respond ->
-             Resp.html respond ~etag:(`Strong "v1") "hi")
+             Resp.html respond ~etag:reused_etag "hi")
+       ])
+
+(* The other case, for contrast: a route that computes a fresh tag per
+   request pays to build one. Rendering moved to construction, so this is
+   where it is now paid. *)
+let fresh_etag_site =
+  Compiled.compile
+    (Site.of_routes
+       [ Route.(get (s "hello" /? nil)) (fun () _req respond ->
+             Resp.html respond
+               ~etag:(Etag.strong (Sys.opaque_identity "v1"))
+               "hi")
        ])
 
 (* A stream, to see what the streaming path costs beyond a string body. The
@@ -96,8 +113,10 @@ let () =
   let n = 20_000 in
   row "full serve, literal route, content type only"
     (words ~n (fun () -> serve ~site:compiled ~writer:null_writer ()));
-  row "the same with an entity-tag"
+  row "the same with an entity-tag, built once and reused"
     (words ~n (fun () -> serve ~site:etag_site ~writer:null_writer ()));
+  row "the same with an entity-tag built per request"
+    (words ~n (fun () -> serve ~site:fresh_etag_site ~writer:null_writer ()));
   row "the same with a header field in a stack_ block"
     (words ~n (fun () -> serve ~site:header_site ~writer:null_writer ()));
   row "a 404"

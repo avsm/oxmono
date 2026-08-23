@@ -70,7 +70,8 @@ field in a `stack_` block.
 | | words |
 | --- | --- |
 | full serve, literal route, content type only | **0** |
-| the same with an entity-tag | 4 |
+| the same with an entity-tag, built once | **0** |
+| the same with an entity-tag built per request | 10 |
 | the same with a header field in a `stack_` block | **0** |
 | a streamed body, written | 3 |
 | a 404 | **0** |
@@ -136,7 +137,7 @@ interface asks for:
 | the same body without `stack_` | 2 |
 | dispatch, any number of routes, none matched | 0 |
 | a route match | 0 |
-| an entity-tag | 4 |
+| an entity-tag built once and reused | 0 |
 | a capture pattern, each | 4 |
 | `Backend.sink`, with or without `emit_sub` | 3 |
 
@@ -198,15 +199,30 @@ should be reopened without a new language feature.
    instead costs **11 words**, nearly three times what it would save. A
    handler has to be global to be called, so building one from a capture has
    to allocate. Measured, not reasoned.
-2. **`Backend.sink`, 3 words**, on streamed responses only. Taking the sink at
-   `local` compiles inside proffer but breaks the one real producer:
-   `Arod_json.stream` drives jsont through `Bytesrw.Bytes.Writer.make`, which
-   takes a global closure, so the sink it captures has to be global. This is
-   the "some libraries cannot be annotated" case, one library further out.
-3. **An entity-tag, 4 words.** The string `Etag.to_string` builds to put the
-   quotes on. `Headers.field` holds strings, so the quoted form has to exist.
-   Avoiding it means teaching the header writer to emit an entity-tag without
-   one, which is a change to how every backend renders a field.
+2. **`Backend.sink`, 3 words**, on streamed responses only, and no longer
+   paid per response. Taking the sink at `local` compiles inside proffer but
+   breaks the one real producer: `Arod_json.stream` drives jsont through
+   `Bytesrw.Bytes.Writer.make`, which takes a global closure, so the sink it
+   captures has to be global. This is the "some libraries cannot be
+   annotated" case, one library further out. What was done instead costs
+   nothing in the interface: `proffer-httpz` builds one sink per connection
+   and keeps the response's framing and byte count in mutable fields of the
+   connection, so the sink, its two closures and the per-chunk framing
+   buffers are all built once. Measured at 151 fewer words per streamed
+   response of four chunks, which is where the real saving was: the per-chunk
+   cost, not the 3.
+3. **An entity-tag built per request, 10 words.** Fixed for the case that
+   matters and deliberately not for the other. `Etag.t` is abstract now and
+   renders its wire form when it is built, so a memoised page, which is every
+   HTML route arod serves, pays nothing for its validator. A route computing
+   a fresh digest per request pays more than it did, which is noise beside
+   the digest itself. Rendering belongs at construction, and the type now
+   makes hoisting the obvious thing to do.
+
+   Making the type abstract dropped its kind, and a static asset serving a
+   top-level tag from a portable handler stopped compiling. `type t :
+   immutable_data` restores it, guarded by a test in `test_resp.ml` that was
+   checked to fail without the annotation.
 
 `~etag`, `~cache` and `~last_modified` stay optional and cost a couple of
 words each when given, for the reason in the third rule above. Making them

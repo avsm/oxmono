@@ -56,12 +56,31 @@ let () =
        must-revalidate, immutable")
 
 let () =
-  check "strong etag" (Etag.to_string (`Strong "abc") = "\"abc\"");
-  check "weak etag" (Etag.to_string (`Weak "abc") = "W/\"abc\"");
+  check "strong etag" (Etag.to_string (Etag.strong "abc") = "\"abc\"");
+  check "weak etag" (Etag.to_string (Etag.weak "abc") = "W/\"abc\"");
   check "weak_equal ignores strength"
-    (Etag.weak_equal (`Weak "abc") (`Strong "abc"));
+    (Etag.weak_equal (Etag.weak "abc") (Etag.strong "abc"));
   check "weak_equal compares the value"
-    (not (Etag.weak_equal (`Weak "abc") (`Weak "abd")))
+    (not (Etag.weak_equal (Etag.weak "abc") (Etag.weak "abd")));
+  (* A tag renders its wire form once, when it is built, so the same tag hands
+     back the same string rather than making one per call. Physical equality
+     is the only way to see that, and it is what a memoised page depends on. *)
+  let t = Etag.strong "abc" in
+  check "the wire form is rendered once, not per call"
+    (Etag.to_string t == Etag.to_string t)
+
+(* [Etag.t] is abstract, so it carries no kind unless its signature declares
+   one, and without a kind it cannot cross into a portable handler. A static
+   asset builds its tag at the top level and serves it from one, so this
+   closure has that shape and fails to compile if the kind is dropped. *)
+let module_level_etag = Etag.strong "static"
+
+let () =
+  let through_handler : (unit -> string) @ portable =
+   fun () -> Etag.to_string module_level_etag
+  in
+  check "an entity-tag crosses into a portable handler"
+    (through_handler () = "\"static\"")
 
 let () =
   let r = describe (fun respond -> Resp.see_other respond "/contact/avsm") in
@@ -104,7 +123,7 @@ let () =
   check "a known name renders its canonical spelling"
     (List.mem_assoc "Content-Type" (Headers.to_list (Proffer_mock.headers hi)));
   let r =
-    describe (fun respond -> Resp.html respond ~etag:(`Strong "v1") "hi")
+    describe (fun respond -> Resp.html respond ~etag:(Etag.strong "v1") "hi")
   in
   check "the etag is quoted on the wire"
     (header r H.Etag = Some "\"v1\"");
@@ -148,9 +167,9 @@ let () =
          Resp.media respond "text/plain\r\nX-A: b" "hi"));
   check "an etag holding a quote is rejected"
     (refused (fun respond ->
-         Resp.html respond ~etag:(`Strong "a\"b") "hi"));
+         Resp.html respond ~etag:(Etag.strong "a\"b") "hi"));
   check "a weak etag holding a CR is rejected"
-    (refused (fun respond -> Resp.html respond ~etag:(`Weak "a\rb") "hi"));
+    (refused (fun respond -> Resp.html respond ~etag:(Etag.weak "a\rb") "hi"));
   check "a last_modified that is not a number is rejected"
     (refused (fun respond ->
          Resp.v respond ~content_type:Null ~headers:Headers.empty
@@ -169,7 +188,7 @@ let () =
     (accepted (fun respond ->
          Resp.v respond ~content_type:Null
            ~headers:[ Resp.other "X-Frame-Options" "DENY" ]
-           ~etag:(`Strong "v1") ~last_modified:0. Body.Empty))
+           ~etag:(Etag.strong "v1") ~last_modified:0. Body.Empty))
 
 (* Two mistakes a handler can make that only the responder can catch. *)
 let () =
@@ -289,7 +308,7 @@ let () =
     (refused (fun respond ->
          Resp.v respond ~content_type:Null
            ~headers:[ Resp.h H.Etag "\"raw\"" ]
-           ~etag:(`Strong "v1") Body.Empty));
+           ~etag:(Etag.strong "v1") Body.Empty));
   check "headers may not repeat last_modified"
     (refused (fun respond ->
          Resp.v respond ~content_type:Null
@@ -301,7 +320,8 @@ let () =
        describe (fun respond ->
            Resp.v respond
              ~headers:[ Resp.h H.Vary "Accept" ]
-             ~content_type:(This "text/html") ~etag:(`Strong "v1") Body.Empty)
+             ~content_type:(This "text/html") ~etag:(Etag.strong "v1")
+             Body.Empty)
      in
      header r H.Vary = Some "Accept"
      && header r H.Content_type = Some "text/html"

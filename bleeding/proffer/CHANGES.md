@@ -118,13 +118,25 @@ First release, of the `proffer`, `proffer.mock` and `proffer-httpz` libraries.
   field of the response description, and every constructor builds it
   `stack_`. What a socket needs at global is the string, the generator or the
   writer, not the block naming which of them it is.
+- `Etag.t` is abstract and renders its wire form once, when it is built,
+  rather than on every use. Build one with `Etag.strong` or `Etag.weak`
+  instead of the `` `Strong ``/`` `Weak `` constructors, and read it back with
+  `Etag.opaque` and `Etag.is_weak`. `Cache.memoize` holds the tag rather than
+  the digest it came from, so a page answered from the cache pays nothing for
+  its validator. A route that computes a fresh tag per request pays a little
+  more than before, next to the digest it already computes.
+- `proffer-httpz` builds the sink it lends a streamed body once per
+  connection rather than per response, and frames each chunk through a
+  scratch buffer and cstruct the connection owns. Building those per chunk
+  cost two `Bytes.create` and two `Cstruct.of_bytes` for every 64KB of body.
+  Measured over 3000 streamed responses of four chunks each, this is 151
+  fewer words per response, so about 38 per chunk.
 - Together with the decoder work: **a complete request and response cycle for
-  a literal route allocates nothing at all.** A 404 allocates nothing, and a
-  response carrying a custom header field in a `stack_` block allocates
-  nothing. What is left is 4 words for an entity-tag, which is the string
-  `Etag.to_string` builds, 3 for the sink a streamed response is lent, and 4
-  for a route pattern's capture. `bleeding/proffer/bench/bench_alloc.exe`
-  prints these and attributes them.
+  a literal route allocates nothing at all.** So does a 404, a response
+  carrying a custom header field in a `stack_` block, and a response carrying
+  an entity-tag that was built once. What is left is 3 words for the sink a
+  streamed response is lent and 4 for a route pattern's capture.
+  `bleeding/proffer/bench/bench_alloc.exe` prints these and attributes them.
 - A response body goes to the socket through a 64 KB scratch owned by the
   connection rather than one `Cstruct.of_string` of the whole body, so the
   bigstring a large response needs is bounded per connection instead of per

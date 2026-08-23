@@ -24,7 +24,7 @@ let routes =
     get (s "hello" / str /? nil) (fun who env _req respond ->
         Resp.html respond (env.greet who));
     get (s "cached" /? nil) (fun _env _req respond ->
-        Resp.html respond ~etag:(`Strong "v1") "<p>cached</p>");
+        Resp.html respond ~etag:(Etag.strong "v1") "<p>cached</p>");
     get (s "stream" /? nil) (fun _env _req respond ->
         Resp.v respond ~headers:Headers.empty ~content_type:(This "text/plain")
           (Body.Stream

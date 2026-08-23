@@ -26,16 +26,16 @@ type env = { forced : int ref }
 let routes =
   [
     get (s "page" /? nil) (fun _env _req respond ->
-        Resp.html respond ~etag:(`Strong "v1") ~cache "<p>page</p>");
+        Resp.html respond ~etag:(Etag.strong "v1") ~cache "<p>page</p>");
     get (s "weak" /? nil) (fun _env _req respond ->
-        Resp.v respond ~etag:(`Weak "v1") ~cache
+        Resp.v respond ~etag:(Etag.weak "v1") ~cache
           ~headers:[ Resp.h H.Vary "Accept"; Resp.other "X-Extra" "1" ]
           ~content_type:(This "text/plain") (Body.String "weak"));
     get (s "dated" /? nil) (fun _env _req respond ->
         Resp.v respond ~last_modified:mtime ~headers:Headers.empty
           ~content_type:(This "text/plain") (Body.String "dated"));
     get (s "delayed" /? nil) (fun env _req respond ->
-        Resp.v respond ~etag:(`Strong "d1") ~headers:Headers.empty
+        Resp.v respond ~etag:(Etag.strong "d1") ~headers:Headers.empty
           ~content_type:(This "text/plain")
           (Body.Delayed
              {
@@ -46,7 +46,7 @@ let routes =
                    "delayed");
              }));
     post (s "page" /? nil) (fun _env _req respond ->
-        Resp.html respond ~etag:(`Strong "v1") ~cache "<p>posted</p>");
+        Resp.html respond ~etag:(Etag.strong "v1") ~cache "<p>posted</p>");
     get (s "boom" /? nil) (fun _env _req respond ->
         Resp.v respond ~headers:Headers.empty ~content_type:(This "text/plain")
           (Body.Delayed

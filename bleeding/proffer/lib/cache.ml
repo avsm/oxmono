@@ -4,7 +4,11 @@
    the list holds only the keys asked for within one [ttl] window and a linear
    scan stays cheap even when the keys come from the request. *)
 
-type entry = { body : string; etag : string; expires : float }
+(* The entry holds the entity-tag itself, not the digest it was made from. A
+   tag renders its wire form when it is built, so building it here, once per
+   entry, is what stops every request that hits the cache paying to put the
+   quotes back on. *)
+type entry = { body : string; etag : Etag.t; expires : float }
 
 type state = { entries : (string * entry) list; hits : int; misses : int }
 type t = { ttl : float; state : state Atomic.t }
@@ -27,10 +31,10 @@ let memoize t ~now ~key gen =
   match List.assoc_opt key cur.entries with
   | Some e when now < e.expires ->
       bump t (fun s -> { s with hits = s.hits + 1 });
-      (e.body, `Weak e.etag)
+      (e.body, e.etag)
   | _ ->
       let body = gen () in
-      let etag = etag_of body in
+      let etag = Etag.weak (etag_of body) in
       let e = { body; etag; expires = now +. t.ttl } in
       bump t (fun s ->
           (* A miss is the only point at which anything leaves the cache. The
@@ -42,7 +46,7 @@ let memoize t ~now ~key gen =
             hits = s.hits;
             misses = s.misses + 1;
           });
-      (body, `Weak etag)
+      (body, etag)
 
 let stats t =
   let s = Atomic.get t.state in

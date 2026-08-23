@@ -5,6 +5,11 @@
    that changes is a change to what the search box reads, so it has to be a
    deliberate edit to a string below rather than a silent one.
 
+   The search page render is exercised directly here too, for the same
+   reason: the route tests stub [Env.t.search_page] rather than reach
+   [Arod_render.search_page], so nothing else calls it on a query the
+   handler itself would answer.
+
    The stats views are not pinned here. Each takes a database handle, and the
    route that serves it needs an access log the test corpus does not have. *)
 
@@ -163,5 +168,39 @@ let () =
        (Arod_handlers.Render.pagination ~ctx ~collection:(Some "nope")
           ~offset:0 ~limit:10 ~types:[]))
     {|{"error":"Invalid collection type"}|}
+
+(* [search_page] is reached directly here, since the route tests stub
+   [Env.t.search_page] and never call through to it. Whole pages are not
+   pinned byte for byte, as they are elsewhere: only the fragment/page
+   branching and the title it picks are checked, with [contains]. *)
+let check name b =
+  incr checks;
+  if not b then (
+    prerr_endline ("FAIL: " ^ name);
+    exit 1)
+
+let contains hay needle =
+  let n = String.length needle and h = String.length hay in
+  let rec go i = i + n <= h && (String.sub hay i n = needle || go (i + 1)) in
+  go 0
+
+let search_page q ~fragment =
+  Arod_handlers.Render.search_page ~ctx ~q ~fragment Arod_search.empty
+
+let () =
+  let p = search_page "" ~fragment:false in
+  check "an empty query is a full page"
+    (String.starts_with ~prefix:"<!DOCTYPE html>" p);
+  check "titled plainly" (contains p "<title>Search |");
+  check "the input autofocuses on an empty query" (contains p "autofocus");
+  check "the results region is present" (contains p "id=\"search-results\"");
+  let p = search_page "xen" ~fragment:false in
+  check "a query names itself in the title"
+    (contains p "<title>Search: xen |");
+  let f = search_page "xen" ~fragment:true in
+  check "a fragment carries no document shell"
+    (not (contains f "<!DOCTYPE html>"));
+  check "a fragment is the results region alone"
+    (String.starts_with ~prefix:"<div id=\"search-results\"" f)
 
 let () = Printf.printf "test_json: %d checks ok\n" !checks

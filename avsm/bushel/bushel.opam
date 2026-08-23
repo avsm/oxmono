@@ -24,6 +24,7 @@ depends: [
   "frontmatter" {>= "0.1"}
   "frontmatter-eio" {>= "0.1"}
   "cmarkit" {>= "0.3"}
+  "tw" {>= "0.1"}
   "jsont" {>= "0.1"}
   "bytesrw"
   "ptime" {>= "1.2"}

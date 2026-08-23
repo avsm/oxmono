@@ -19,7 +19,6 @@ depends: [
   "proffer-httpz" {>= "0.1"}
   "base64" {>= "3.5"}
   "htmlit" {>= "0.1"}
-  "tw" {>= "0.1"}
   "cmarkit" {>= "0.3"}
   "uri" {>= "4.4"}
   "uriz"

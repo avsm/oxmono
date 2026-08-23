@@ -20,8 +20,10 @@ type goto = {
   detail : string;
   goto_kind : goto_kind;
 }
-(** A direct jump offered above the ranked tiers, such as a project or a
-    tag page whose name matches the query outright. *)
+(** A page the query names rather than describes: a site section, a
+    project or a tag, offered when every query word prefixes its label or
+    one of its words. [detail] is the short line shown beside it, such as
+    ["2012 project"] or ["2 entries"]. *)
 
 type hit = {
   slug : string;
@@ -50,8 +52,11 @@ type results = {
 }
 (** The tiers of one search. [work] and [links] are ranked and cut to the
     caller's limits, [work_total] and [links_total] count the matches before
-    the cut, and [kinds], [years] and [tags] count over every work match.
-    [terms] is the query's words, lowercased, for marking matches. *)
+    the cut, and [kinds], [years] and [tags] count over every work match
+    before that cut, not just what [work] carries. [kinds] is sorted by
+    name and [years] ascending; [tags] is sorted by count descending then
+    name, cut to the 8 most used. [terms] is the query's words, lowercased,
+    for marking matches. *)
 
 val empty : results
 (** [empty] is the result of a query that asked for nothing. *)
@@ -94,7 +99,8 @@ val search :
     defaults to the current date and fixes freshness for tests. [limit]
     defaults to 20 and [link_limit] to 12. The syntax is as before: words,
     ["exact phrase"], [prefix*], [kind:paper] and [#tag]. A query with only
-    filters browses the filtered set by date. *)
+    filters browses the filtered set by date, and a browse leaves [goto]
+    empty since there is no query text to match a page's name against. *)
 
 val kind_prior : string -> float
 (** [kind_prior kind] is the multiplier the work tier applies to [kind]. *)

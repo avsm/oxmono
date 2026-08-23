@@ -15,6 +15,8 @@ module StringSet = Set.Make(String)
 type t = {
   db : Sqlite3_eio.t;
   mutable own_host : string;
+  mutable tag_counts : (string * int) list;
+  mutable projects : (string * string * string * string) list;
 }
 
 type goto_kind = [ `Section | `Project | `Tag ]
@@ -146,16 +148,16 @@ let create_all_tables db =
 let create ~sw path =
   let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 path in
   create_all_tables db;
-  { db; own_host = "" }
+  { db; own_host = ""; tag_counts = []; projects = [] }
 
 let create_memory ~sw () =
   let db = Sqlite3_eio.open_memory ~sw () in
   create_all_tables db;
-  { db; own_host = "" }
+  { db; own_host = ""; tag_counts = []; projects = [] }
 
 let open_readonly ~sw path =
   let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 ~mode:`READONLY path in
-  { db; own_host = "" }
+  { db; own_host = ""; tag_counts = []; projects = [] }
 
 (** {1 Date formatting} *)
 
@@ -279,6 +281,30 @@ let index_link t (link : Bushel.Link.t) =
     insert_tag_row t ~tag ~kind ~slug ~url ~title ~date
   ) all_tags
 
+(* Both lists are read on every query and never change between rebuilds,
+   so they are computed once here rather than queried each time. *)
+let load_tag_counts t =
+  let stmt = Sqlite3_eio.prepare t.db
+    {|SELECT tag, COUNT(*) AS cnt FROM entry_tags
+      WHERE kind <> 'link' GROUP BY tag ORDER BY cnt DESC, tag|} in
+  let _rc, tags = Sqlite3_eio.fold t.db stmt ~init:[] ~f:(fun acc row ->
+    match row.(0), row.(1) with
+    | Sqlite3.Data.TEXT tag, Sqlite3.Data.INT n -> (tag, Int64.to_int n) :: acc
+    | _ -> acc
+  ) in
+  ignore (Sqlite3_eio.finalize t.db stmt);
+  List.rev tags
+
+let load_projects t =
+  let stmt = Sqlite3_eio.prepare t.db
+    {|SELECT slug, title, url, date FROM search_project ORDER BY date DESC|} in
+  let text = function Sqlite3.Data.TEXT s -> s | _ -> "" in
+  let _rc, ps = Sqlite3_eio.fold t.db stmt ~init:[] ~f:(fun acc row ->
+    (text row.(0), text row.(1), text row.(2), text row.(3)) :: acc
+  ) in
+  ignore (Sqlite3_eio.finalize t.db stmt);
+  List.rev ps
+
 let index t ~own_host ~contact_name ~entries ~links =
   t.own_host <- own_host;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "BEGIN");
@@ -300,7 +326,9 @@ let index t ~own_host ~contact_name ~entries ~links =
     ) in
     ignore (Sqlite3_eio.finalize t.db stmt);
     Logs.info (fun m -> m "Search index: %s has %d rows" tbl count)
-  ) kinds
+  ) kinds;
+  t.tag_counts <- load_tag_counts t;
+  t.projects <- load_projects t
 
 let rebuild t ctx =
   let contacts = Arod.Ctx.contacts ctx in
@@ -541,6 +569,90 @@ let make_results ~terms ~limit ~link_limit work links =
     work_total = List.length work; links = take link_limit links;
     links_total = List.length links }
 
+(** {1 Go-to tier} *)
+
+let sections = [
+  "Papers", "/papers"; "Notes", "/notes"; "Projects", "/projects";
+  "Ideas", "/ideas"; "Talks", "/talks"; "Links", "/links";
+  "Network", "/network";
+]
+
+let name_words s =
+  String.lowercase_ascii s
+  |> String.split_on_char ' '
+  |> List.concat_map (String.split_on_char '-')
+  |> List.filter (fun w -> w <> "")
+
+let is_prefix_of_name ~term name =
+  List.exists (String.starts_with ~prefix:term) (name_words name)
+
+(* Every query word must match something in a hit for it to be offered as a
+   go-to, so a two-word query only jumps to a project or tag whose name
+   accounts for both words. *)
+let goto_hits t terms =
+  let terms = List.filter (fun w -> String.length w >= 2) terms in
+  if terms = [] then []
+  else
+    let every_term f = List.for_all f terms in
+    let sections =
+      List.filter_map (fun (name, url) ->
+        if List.exists (fun term ->
+             String.starts_with ~prefix:term (String.lowercase_ascii name))
+             terms
+        then Some { label = name; url; detail = "section";
+                    goto_kind = `Section }
+        else None) sections
+    in
+    let projects =
+      List.filter_map (fun (slug, title, url, date) ->
+        if every_term (fun term ->
+             String.starts_with ~prefix:term slug
+             || is_prefix_of_name ~term title)
+        then Some { label = title; url;
+                    detail = String.sub date 0 4 ^ " project";
+                    goto_kind = `Project }
+        else None) t.projects
+    in
+    let tags =
+      List.filter_map (fun (tag, n) ->
+        if every_term (fun term ->
+             String.starts_with ~prefix:term tag
+             || is_prefix_of_name ~term tag)
+        then Some { label = tag; url = "/#tag=" ^ tag;
+                    detail = Printf.sprintf "%d %s" n
+                        (if n = 1 then "entry" else "entries");
+                    goto_kind = `Tag }
+        else None) t.tag_counts
+    in
+    take 7 (sections @ projects @ take 5 tags)
+
+(** {1 Facets} *)
+
+let count_by key hits =
+  let tbl = Hashtbl.create 16 in
+  List.iter (fun h ->
+    List.iter (fun k ->
+      Hashtbl.replace tbl k
+        (1 + Option.value ~default:0 (Hashtbl.find_opt tbl k)))
+      (key h)) hits;
+  Hashtbl.fold (fun k n acc -> (k, n) :: acc) tbl []
+
+(* Every field counts over the work tier, never the links tier, so a facet
+   click narrows the same set the results came from. *)
+let facets (work : hit list) =
+  let kinds = count_by (fun (h : hit) -> [h.kind]) work
+              |> List.sort (fun (a, _) (b, _) -> compare a b) in
+  let years = count_by (fun (h : hit) ->
+      match int_of_string_opt
+              (String.sub h.date 0 (min 4 (String.length h.date)))
+      with Some y -> [y] | None -> []) work
+    |> List.sort (fun (a, _) (b, _) -> compare a b) in
+  let tags = count_by (fun (h : hit) -> h.tags) work
+    |> List.sort (fun (a, n) (b, m) ->
+         match compare m n with 0 -> compare a b | c -> c)
+    |> take 8 in
+  (kinds, years, tags)
+
 let search t ?today ?(limit = 20) ?(link_limit = 12) input =
   let today = match today with
     | Some d -> d
@@ -555,13 +667,18 @@ let search t ?today ?(limit = 20) ?(link_limit = 12) input =
     let work, links = split_tiers hits in
     let work = rank_work ~today work in
     let links = rank_links ~today ~own_host:t.own_host links in
-    make_results ~terms ~limit ~link_limit work links
+    let kinds, years, tags = facets work in
+    { (make_results ~terms ~limit ~link_limit work links) with
+      goto = goto_hits t terms; kinds; years; tags }
   in
   let browse hits =
     let work, links = split_tiers hits in
     let by_date = List.sort (fun a b -> compare b.date a.date) in
+    let work = by_date work in
     let links = by_date links |> dedupe_links ~own_host:t.own_host in
-    make_results ~terms ~limit ~link_limit (by_date work) links
+    let kinds, years, tags = facets work in
+    { (make_results ~terms ~limit ~link_limit work links) with
+      kinds; years; tags }
   in
   match found_tags, fts_query with
   | [], "" when found_kinds = [] -> empty

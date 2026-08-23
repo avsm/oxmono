@@ -210,4 +210,54 @@ let () =
   check "host_of_url drops scheme and www"
     (Arod_search.host_of_url "https://www.Example.com/a/b" = "example.com")
 
+let project ~slug ~title ~start : Bushel.Project.t =
+  { Bushel.Project.slug; title; start; finish = None; tags = []; ideas = "";
+    body = "Body."; social = None }
+
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t = Arod_search.create_memory ~sw () in
+  Arod_search.index t ~own_host:""
+    ~contact_name:(fun _ -> None)
+    ~entries:
+      [
+        `Project (project ~slug:"ocamllabs" ~title:"OCaml Labs" ~start:2012);
+        `Note (note ~slug:"n1" ~date:(2020, 1, 1) ~tags:[ "ocaml"; "eio" ]
+                 ~title:"OCaml one" "x");
+        `Note (note ~slug:"n2" ~date:(2021, 1, 1) ~tags:[ "ocaml" ]
+                 ~title:"OCaml two" "x");
+        `Note (note ~slug:"n3" ~date:(2022, 6, 1) ~tags:[ "ocaml-labs" ]
+                 ~title:"Other" "x");
+      ]
+    ~links:[ link ~title:"OCaml site" ~slugs:[ "n1" ] "https://ocaml.org" ];
+  let r = Arod_search.search t ~today "ocaml" in
+  let gotos = List.map (fun (g : Arod_search.goto) ->
+      (g.goto_kind, g.label, g.url, g.detail)) r.goto in
+  check "a project whose title starts with the word is a go-to hit"
+    (List.mem (`Project, "OCaml Labs", "/projects/ocamllabs", "2012 project")
+       gotos);
+  check "a tag is a go-to hit with its entry count, most used first"
+    (List.filter (fun (k, _, _, _) -> k = `Tag) gotos
+     = [ (`Tag, "ocaml", "/#tag=ocaml", "2 entries");
+         (`Tag, "ocaml-labs", "/#tag=ocaml-labs", "1 entry") ]);
+  check "projects come before tags"
+    (match gotos with (`Project, _, _, _) :: _ -> true | _ -> false);
+  (* n3 matches through its tag, since the tags column tokenises
+     "ocaml-labs" into two words. A project indexes at its start year. *)
+  check "kinds count work matches per kind, by name"
+    (r.kinds = [ ("note", 3); ("project", 1) ]);
+  check "years count work matches ascending"
+    (r.years = [ (2012, 1); (2020, 1); (2021, 1); (2022, 1) ]);
+  check "tags are the most used among work matches, then by name"
+    (r.tags = [ ("ocaml", 2); ("eio", 1); ("ocaml-labs", 1) ]);
+  let r = Arod_search.search t ~today "pap" in
+  check "a section matches on a prefix of its name"
+    (List.exists (fun (g : Arod_search.goto) ->
+         g.goto_kind = `Section && g.url = "/papers") r.goto);
+  let r = Arod_search.search t ~today "lab" in
+  check "a project matches on a prefix of any title word"
+    (List.exists (fun (g : Arod_search.goto) ->
+         g.goto_kind = `Project) r.goto)
+
 let () = Printf.printf "test_search: %d checks ok\n" !checks

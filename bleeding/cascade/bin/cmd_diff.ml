@@ -119,7 +119,8 @@ let print_diff_report ~color ~file1 ~file2 ~css1 ~css2 ~depth ~mode result =
   (match elided_at with
   | None -> ()
   | Some level ->
-      List.iter (Buffer.add_string buf)
+      (* eta-expanded: oxcaml treats the partial application as stack-local *)
+      List.iter (fun s -> Buffer.add_string buf s)
         [
           "(depth ";
           string_of_int level;

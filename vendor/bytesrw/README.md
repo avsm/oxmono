@@ -30,6 +30,14 @@ Arod does not call bytesrw itself. It reaches this copy through jsont.
   and here.
 * The `base` dependency, and the patch below.
 
+### Consumers to check on a re-vendor
+
+0.4.0 deprecated `Bytes.Slice.take`, `drop` and `break` in favour of
+`take_first`, `drop_first` and `cut_first`, which have the same signatures.
+`bleeding/bytesrw-eio` used `drop` and now uses `drop_first`. A deprecation
+alert does not fail a default build, so grep the tree for the old three names
+rather than waiting for a warning.
+
 ### Local patches
 
 Thirty hunks. They came from `opam/bytesrw` on `main`, last present at

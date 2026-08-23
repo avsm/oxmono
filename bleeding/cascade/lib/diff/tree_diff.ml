@@ -162,7 +162,8 @@ let tree_continuation ~style ~is_last ~parent_prefix =
 let child_indent ~style ~parent_prefix =
   if style.use_tree then parent_prefix ^ "   " else parent_prefix ^ "    "
 
-let add_strings buf ls = List.iter (Buffer.add_string buf) ls
+(* eta-expanded: oxcaml treats the partial application as stack-local *)
+let add_strings buf ls = List.iter (fun s -> Buffer.add_string buf s) ls
 
 let count_lines buf =
   let n = ref 0 in

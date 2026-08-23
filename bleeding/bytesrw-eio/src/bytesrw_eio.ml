@@ -51,7 +51,7 @@ let bytes_writer_of_flow ?(slice_length = Bytes.Slice.unix_io_buffer_size)
       let cstruct = Cstruct.of_bytes ~off:first ~len:length bytes in
       match Eio.Flow.single_write flow [ cstruct ] with
       | count when count = length -> ()
-      | count -> write (Option.get (Bytes.Slice.drop count slice))
+      | count -> write (Option.get (Bytes.Slice.drop_first count slice))
     end
   in
   Bytes.Writer.make ~slice_length write

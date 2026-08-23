@@ -18,9 +18,12 @@ building the consumer rather than by reading the changelog.
 
 Four hunks, one of them library code.
 
-* `lib/diff/css_compare.ml`: `add_strings` is eta-expanded. OxCaml infers the
-  partial application `List.iter (Buffer.add_string b)` as stack-local and
-  rejects it.
+* Three eta-expansions, in `lib/diff/css_compare.ml`, `lib/diff/tree_diff.ml`
+  and `bin/cmd_diff.ml`. OxCaml infers the partial application
+  `List.iter (Buffer.add_string b)` as stack-local and rejects it. Grep for
+  `Buffer.add_string` applied to one argument before declaring a re-vendor
+  done: only the first of the three shows up in a build of the consumer, and
+  the other two need `bin/` and a repo-wide build to surface.
 * `dune` and `lib/dune`: each `(mdx ...)` stanza gains `unix`, for the reason
   given in `bleeding/tw/VENDORING.md`.
 * `lib/info/dune`: `-w -58`. The switch's `dune-build-info` ships no `cmx` for

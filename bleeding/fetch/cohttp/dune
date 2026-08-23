@@ -1,5 +1,13 @@
+; Not built in this workspace. This backend reaches the switch's cohttp, which
+; was compiled against the switch's base64, while vendor/base64 shadows base64
+; for the whole workspace. Two base64 libraries in one link is what dune
+; reports as a conflict. Vendoring cohttp as well would settle it, which is a
+; large dependency to carry for a backend nothing here uses: every consumer in
+; this tree takes fetch-curl. The sources stay so the package remains complete
+; for its own repository.
 (library
  (name fetch_cohttp)
  (public_name fetch-cohttp)
+ (enabled_if false)
  (libraries fetch fetch.cookies eio http uri cohttp-eio decompress.de
    decompress.gz fmt))

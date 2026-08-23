@@ -606,7 +606,7 @@ let goto_hits t terms =
     let projects =
       List.filter_map (fun (slug, title, url, date) ->
         if every_term (fun term ->
-             String.starts_with ~prefix:term slug
+             String.starts_with ~prefix:term (String.lowercase_ascii slug)
              || is_prefix_of_name ~term title)
         then Some { label = title; url;
                     detail = String.sub date 0 4 ^ " project";

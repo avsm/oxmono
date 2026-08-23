@@ -97,17 +97,25 @@ module Bytes = struct
 
     (* Breaking slices *)
 
-    let take n s =
-      if n <= 0 || is_eod s then None else
-      if n >= s.length then Some s else
-      Some { s with length = n }
+    let take_first_or_eod n s =
+      if n <= 0 || is_eod s then eod else
+      if n >= s.length then s else { s with length = n }
 
-    let drop n s =
-      if n >= s.length || is_eod s then None else
-      if n <= 0 then Some s else
-      Some { s with first = s.first + n; length = s.length - n }
+    let take_first n s = match take_first_or_eod n s with
+    | s when is_eod s -> None | s -> Some s
 
-    let break n s = take n s, drop n s
+    let drop_first_or_eod n s =
+      if n >= s.length || is_eod s then eod else
+      if n <= 0 then s else { s with first = s.first + n; length = s.length - n}
+
+    let drop_first n s = match drop_first_or_eod n s with
+    | s when is_eod s -> None | s -> Some s
+
+    let cut_first n s = take_first n s, drop_first n s
+
+    let take = take_first (* deprecated *)
+    let drop = drop_first (* deprecated *)
+    let break = cut_first (* deprecated *)
 
     let sub' ~allow_eod s ~first ~length =
       let len = s.length in
@@ -740,6 +748,12 @@ module Bytes = struct
     let of_buffer ?pos ?slice_length b =
       let write s = if Slice.is_eod s then () else Slice.add_to_buffer b s in
       make ?pos ?slice_length write
+
+    let writes_to_string ?buffer ?pos ?slice_length f =
+      let b = match buffer with None -> Buffer.create 1024 | Some b -> b in
+      let w = of_buffer ?pos ?slice_length b in
+      f w;
+      Buffer.contents b
 
     (* Filters *)
 

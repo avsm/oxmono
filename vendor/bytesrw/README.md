@@ -1,10 +1,11 @@
 ## bytesrw - composable byte stream readers and writers for OCaml
 
-This is bytesrw 0.3.0, vendored from https://erratique.ch/software/bytesrw and
-patched so that its `Bytes.Slice` operations borrow their argument at the
-`local` mode rather than requiring a heap value, and so that `Slice.equal` and
-`Slice.compare` read the whole slice. The patch is the thirty hunks inventoried
-below, in five files. Everything else is the 0.3.0 release text.
+This is bytesrw 0.4.0, vendored from the `v0.4.0` tag of
+https://github.com/dbuenzli/bytesrw and patched so that its `Bytes.Slice`
+operations borrow their argument at the `local` mode rather than requiring a
+heap value, and so that the `Slice` formatters print their ellipsis. The patch
+is the hunks inventoried below, in five files. Everything else is the 0.4.0
+release text.
 
 The copy exists because `vendor/jsont` shadows the installed jsont, and jsont
 requires bytesrw. Two libraries named `bytesrw` cannot go into one executable,
@@ -38,6 +39,12 @@ annotations" and "bytesrw: add Base dependency for local-aware Slice
 operations". That copy was the same 0.3.0 release, so the hunks transfer
 unchanged.
 
+The 0.4.0 update was a three-way merge: pristine 0.3.0 as the base, this copy
+as ours, pristine 0.4.0 as theirs. Only `bytesrw.ml` and `bytesrw.mli` changed
+upstream between the two releases, so the other three patched files carried
+over unchanged. Two hunks conflicted and both resolved to this copy, for the
+reasons under "Two behaviour changes" below.
+
 `bytesrw.mli`, six hunks. Eighteen `val`s in `Slice`, `Reader` and `Writer`
 take their subject at `t @ local`: `first`, `last`, `length`, `copy`,
 `is_eod`, `equal`, `compare`, `to_bytes`, `to_bigbytes`, `to_string`,
@@ -59,21 +66,31 @@ its region.
 rewrites of the same kind, plus an unboxed `char#` UTF-8 decode-length match in
 `bytesrw_utf`. The three `.mli` files are untouched.
 
-### Two behaviour changes, both fixes
+### Two behaviour changes, one of them now upstream
 
 These are not mode annotations and they are the reason this copy cannot be
 swapped for the installed one without thinking.
 
-**`Slice.equal` and `Slice.compare`.** Upstream's loop runs `while !cmp = 0 &&
-!i < max` with `max = len - 1`, so for two slices of equal length it never
-reads the last byte. `Slice.equal` answers `true` for `"a"` and `"b"`, and for
-any two strings differing only in their final byte. This was reproduced against
-a pristine 0.3.0 built from the release sources before the copy was patched.
-The vendored loop runs `while cmp = 0 && i <= max`. `test_bytesrw` checks all
-65536 single-byte pairs and 256 two-byte pairs differing in the last byte
-against the strings the slices were built from.
+**`Slice.equal` and `Slice.compare`, fixed upstream in 0.4.0.** Upstream's
+0.3.0 loop ran `while !cmp = 0 && !i < max` with `max = len - 1`, so for two
+slices of equal length it never read the last byte, and `Slice.equal` answered
+`true` for `"a"` and `"b"`. It was reported and 0.4.0 fixes it the same way
+this copy did, by running the loop to `i <= max`. That is one of the two merge
+conflicts: both sides had made the same fix, and this copy's version was kept
+because it also carries the `let mutable` and `unsafe_get` rewrite the local
+mode needs. `test_bytesrw` still checks all 65536 single-byte pairs and 256
+two-byte pairs differing in the last byte, and now agrees with upstream rather
+than diverging from it.
 
-**The `Slice` formatters.** Upstream tests the head cut with `len - 1 > max`
+**`Bytes.Reader.of_slice` on a slice that does not start at 0**, upstream
+issue 13, fixed in 0.4.0. This copy never had it. The OxCaml rewrite had
+already inlined `read_bytes` into `of_bytes` and `of_slice` and threaded the
+slice's own offset through, so the second merge conflict resolved to this copy
+and upstream's `read_bytes` is not present here. It has no other caller.
+
+**The `Slice` formatters**, still unfixed upstream. `bytesrw_fmt.ml` is
+byte-identical between 0.3.0 and 0.4.0, so this remains the one behaviour
+difference from the release. Upstream tests the head cut with `len - 1 > max`
 and the empty case with `max < 0`, both of which forget that a slice may start
 away from zero. A truncated slice with `first > 0` therefore printed without
 the ellipsis that says it was truncated. The vendored copy compares against

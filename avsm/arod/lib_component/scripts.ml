@@ -1162,7 +1162,7 @@ let search_page_js = {|
     var more = e.target.closest('[data-more]');
     if (more) {
       var p = more.getAttribute('data-more');
-      limits[p] = limits[p] * 2;
+      limits[p] = Math.min(100, limits[p] * 2);
       load(input.value.trim());
       return;
     }

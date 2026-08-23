@@ -158,8 +158,10 @@ let facets ~q (r : S.results) =
         El.div ~at:[At.class' "sp-facets"] (List.map kind_chip r.kinds);
         El.div ~at:[At.class' "sp-facets"] (List.map tag_chip r.tags) ]
 
+(* A corrupt year outside this range would otherwise size the bar list, and
+   a bad one such as 1 would render thousands of empty divs. *)
 let histogram (r : S.results) =
-  match r.years with
+  match List.filter (fun (y, _) -> y >= 1970 && y <= 2100) r.years with
   | [] -> El.void
   | years ->
     let lo = fst (List.hd years) and hi = fst (List.hd (List.rev years)) in

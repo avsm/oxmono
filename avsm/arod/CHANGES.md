@@ -16,3 +16,6 @@
   third-party link summary under a match can no longer inject HTML.
 - A tag go-to hit links straight to the search page instead of a `/#tag=`
   hash that bounced through the home page first.
+- The search page's "Show N more" button stops growing past the server's
+  100-hit limit, and its year histogram ignores a corrupt year instead of
+  rendering thousands of bars.

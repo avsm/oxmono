@@ -331,6 +331,8 @@ let () =
      = Some "text/html; charset=utf-8");
   check "the page script is served"
     (contains (body (get "/js/search.js")) "search-results");
+  check "and binds to the input id the page renders"
+    (contains (body (get "/js/search.js")) "search-page-input");
   check "a known well-known key is served"
     (body (get "/.well-known/known") = "value");
   check "an unknown one is a 404" (code (get "/.well-known/other") = 404);

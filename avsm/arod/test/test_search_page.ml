@@ -38,7 +38,7 @@ let hit ?(kind = "note") ?(url = "/notes/xen") ?(parent_slugs = [])
 
 let results : Arod_search.results =
   { Arod_search.terms = [ "xen" ];
-    goto = [ { Arod_search.label = "xen"; url = "/#tag=xen";
+    goto = [ { Arod_search.label = "xen"; url = "/search?q=%23xen";
                detail = "1 entry"; goto_kind = `Tag } ];
     work = [ hit ~tags:[ "xen"; "systems" ] "Xen Hypervisor" ];
     work_total = 30;
@@ -62,7 +62,7 @@ let () =
   check "the count line states both totals"
     (contains f "30 on this site" && contains f "5 links");
   check "a go-to chip links to the tag filter"
-    (contains f {|href="/#tag=xen"|} && contains f "1 entry");
+    (contains f {|href="/search?q=%23xen"|} && contains f "1 entry");
   check "a work row marks the matched title word"
     (contains f "<b>Xen</b> Hypervisor");
   check "a work row shows its tags"
@@ -92,6 +92,8 @@ let () =
     (contains a {|action="/search"|} && contains a {|name="q"|}
     && contains a {|value="xen"|});
   check "and contains the fragment" (contains a {|id="search-results"|});
+  check "the input carries the id the page script binds to"
+    (contains a {|id="search-page-input"|});
   let article, _ =
     Arod_component.Search.page_body ~ctx ~q:"" Arod_search.empty in
   check "an empty query shows the prompt and autofocuses"

@@ -1,0 +1,8 @@
+(library
+ (name zstdz)
+ (public_name zstdz)
+ (libraries base_bigstring)
+ (foreign_stubs
+  (language c)
+  (names zstdz_stubs))
+ (c_library_flags (-lzstd)))

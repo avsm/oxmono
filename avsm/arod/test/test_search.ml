@@ -118,6 +118,20 @@ let () =
   check "kind:weekly filters weeklies apart from notes"
     (List.map (fun (h : Arod_search.hit) -> h.slug) r.work = [ "w1" ])
 
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t = index ~sw
+      ~notes:[ note ~slug:"cng" ~title:"A scorching CNG London week" "x" ]
+      ~links:[ link ~title:"Zarr" ~slugs:[ "cng" ] "https://zarr.dev" ]
+      ()
+  in
+  let today = (2026, 8, 23) in
+  let r = Arod_search.search t ~today "cng london" in
+  check "a link surfaces for the words of the entry citing it"
+    (List.exists (fun (h : Arod_search.hit) -> h.url = "https://zarr.dev")
+       r.links)
+
 let today = (2026, 8, 23)
 
 let slugs (hits : Arod_search.hit list) =
@@ -422,11 +436,13 @@ let () =
     (* A second writable connection to the same file drops the table,
        since Arod_search.t's handle is abstract and cannot reach it. *)
     let raw = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 db_path in
-    Sqlite3.Rc.check (Sqlite3_eio.exec raw "DROP TABLE search_meta"));
+    Sqlite3.Rc.check (Sqlite3_eio.exec raw "DROP TABLE search_meta");
+    (* An index from before a kind existed has no table for it either. *)
+    Sqlite3.Rc.check (Sqlite3_eio.exec raw "DROP TABLE search_weekly"));
   Eio.Switch.run (fun sw ->
     let t = Arod_search.open_readonly ~sw db_path in
     let r = Arod_search.search t ~today "ocaml" in
-    check "a search over an index with no search_meta table still answers"
+    check "a search over an index missing new tables still answers"
       (r.work <> [] || r.links <> []);
     check "own_host is empty, so its own-host link is not dropped"
       (List.exists

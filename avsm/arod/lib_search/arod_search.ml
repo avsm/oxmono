@@ -255,7 +255,7 @@ let strip_scheme url =
   | Some p -> String.sub url (String.length p) (String.length url - String.length p)
   | None -> url
 
-let index_link t (link : Bushel.Link.t) =
+let index_link t ~entry_title (link : Bushel.Link.t) =
   let url = Bushel.Link.url link in
   let slug = url in
   let kind = "link" in
@@ -272,12 +272,20 @@ let index_link t (link : Bushel.Link.t) =
     | Some s when s <> "" -> s
     | _ -> ""
   in
+  (* The titles of the citing entries are part of what a link is about:
+     a search for the entry's subject should surface the links it cites,
+     not only the entry itself. *)
+  let parent_titles = match link.bushel with
+    | None -> []
+    | Some b -> List.filter_map entry_title b.slugs
+  in
   let body =
     let desc = Bushel.Link.description link in
     let parts =
       (if karakeep_summary <> "" then [karakeep_summary] else [])
       @ (if desc <> "" then [desc] else [])
       @ [strip_scheme url]
+      @ parent_titles
     in
     String.concat "\n" parts
   in
@@ -369,7 +377,12 @@ let index t ~own_host ~body_text ~entries ~links =
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "DELETE FROM entry_tags");
   save_own_host t own_host;
   List.iter (fun ent -> index_entry t ~body_text ent) entries;
-  List.iter (fun link -> index_link t link) links;
+  let titles = Hashtbl.create (List.length entries) in
+  List.iter (fun ent ->
+    Hashtbl.replace titles (Bushel.Entry.slug ent) (Bushel.Entry.title ent)
+  ) entries;
+  let entry_title slug = Hashtbl.find_opt titles slug in
+  List.iter (fun link -> index_link t ~entry_title link) links;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "COMMIT");
   (* Log per-table counts *)
   List.iter (fun kind ->
@@ -464,7 +477,11 @@ let query_table t ~kind q =
       LIMIT ?2|}
     tbl tbl tbl tbl tbl
   in
-  let stmt = Sqlite3_eio.prepare t.db sql in
+  (* An index written before a kind existed has no table for it. Reading
+     it as empty keeps an old database searchable until the next index. *)
+  match Sqlite3_eio.prepare t.db sql with
+  | exception Eio.Exn.Io _ -> []
+  | stmt ->
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 1 q);
   Sqlite3.Rc.check (Sqlite3.bind_int stmt 2 (fetch_depth kind));
   let text i row = match row.(i) with Sqlite3.Data.TEXT s -> s | _ -> "" in
@@ -652,7 +669,9 @@ let browse_kinds t ~kinds:target_kinds =
         LIMIT 1000|}
       tbl
     in
-    let stmt = Sqlite3_eio.prepare t.db sql in
+    match Sqlite3_eio.prepare t.db sql with
+    | exception Eio.Exn.Io _ -> []
+    | stmt ->
     let text i row = match row.(i) with Sqlite3.Data.TEXT s -> s | _ -> "" in
     let _rc, results = Sqlite3_eio.fold t.db stmt ~init:[] ~f:(fun acc row ->
       { slug = text 0 row; kind; url = text 1 row; title = text 4 row;

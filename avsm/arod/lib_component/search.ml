@@ -197,7 +197,8 @@ let link_row ~ctx ~terms (h : S.hit) =
       El.span ~at:[At.class' "sp-body"]
         [ El.span ~at:[At.class' "sp-line"]
             [ El.a ~at:[At.href h.url; At.class' "sp-t";
-                        At.v "rel" "noopener"] [mark ~terms h.title];
+                        At.title h.title; At.v "rel" "noopener"]
+                [mark ~terms h.title];
               El.span ~at:[At.class' "sp-d"]
                 [El.txt (pretty_month h.date)] ];
           El.span ~at:[At.class' "sp-meta"]

@@ -2402,7 +2402,7 @@ let custom_css = {|
 .sp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
 .sp-line { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
 .sp-line .sp-t { font-weight: 500; font-size: 0.88rem; flex: 1; min-width: 0; }
-.sp-link .sp-t { font-size: 0.78rem; overflow-wrap: anywhere; }
+.sp-link .sp-t { font-size: 0.78rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .sp-d { font-size: 0.7rem; color: var(--color-muted); flex-shrink: 0; white-space: nowrap; }
 .sp-snip { font-size: 0.78rem; color: var(--color-secondary); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .sp-snip b, .sp-t b { background: var(--color-highlight); font-weight: 600; border-radius: 2px; }

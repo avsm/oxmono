@@ -1,0 +1,5 @@
+(executable
+ (name zarrz_conformance)
+ (public_name zarrz_conformance)
+ (package zarrz-eio)
+ (libraries zarrz zarrz_eio eio_main jsont base_bigstring stdlib_stable))

@@ -38,6 +38,25 @@ beside `zarr.json` under `v3/`.
   codecs `bytes` little endian then `crc32c`, index at the end. Element
   `(i, j)` is `8 * i + j`, from the example's write loop.
 
+Hierarchy fixtures, for the store and node layers.
+
+- `hierarchy.zarr`. The tree `zarrs/tests/hierarchy.rs` walks: a root group, a
+  group `a` holding the arrays `a/foo` and `a/baz`, and a group `b` with
+  the attribute `test_key`. Both arrays are 10000 by 1000 `float64` in
+  1000 by 100 chunks, `bytes` little endian then `gzip` level 1, fill
+  value `NaN`, dimension names `rows` and `columns`, and the attributes
+  `foo`, `bar` and `baz`. No chunk is stored, so every element is the
+  fill value.
+- `array_write_read.zarr`. The final state of
+  `zarrs/examples/array_write_read.rs`, whose write, overwrite and erase
+  sequence the example lists in order. A root group, a group `group`
+  with the attribute `foo`, and an 8 by 8 `float32` array `group/array`
+  in 4 by 4 chunks, `bytes` little endian, fill value `NaN`, dimension
+  names `y` and `x`. Chunk `[0, 0]` is erased at the end of the example
+  and is absent, so the top left quarter reads as `NaN`. The other three
+  chunks are the values `test_eio.ml` names, read out of the fixture
+  bytes and cross checked against the example's write calls.
+
 Re-vendoring: copy the file again from the same path in a newer `zarrs`
 checkout and update the commit above. A test that fails afterwards means
 the oracle changed, so change this library rather than the fixture.

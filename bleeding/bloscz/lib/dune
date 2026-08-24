@@ -1,0 +1,8 @@
+(library
+ (name bloscz)
+ (public_name bloscz)
+ (libraries base_bigstring)
+ (foreign_stubs
+  (language c)
+  (names bloscz_stubs))
+ (c_library_flags (-lblosc)))

@@ -1,0 +1,4 @@
+(test
+ (name test_bloscz)
+ (package bloscz)
+ (libraries bloscz base_bigstring alcotest))

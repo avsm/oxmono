@@ -1,0 +1,25 @@
+(lang dune 3.21)
+(name bloscz)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-bloscz))
+
+(package
+ (name bloscz)
+ (synopsis "Blosc1 compression for OxCaml")
+ (description
+  "Bindings to the C-Blosc1 context interface for OxCaml. Compression and
+decompression work directly on caller-supplied bigstrings and the runtime
+lock is released around the larger calls. No opam package provides the C
+library, so libblosc 1.21 or later and its headers must be installed
+already: Debian and Ubuntu call them libblosc1 and libblosc-dev,
+Homebrew and Nix call them c-blosc.")
+ (depends
+  (ocaml (>= 5.2.0))
+  base_bigstring
+  (odoc :with-doc)
+  (alcotest :with-test)))

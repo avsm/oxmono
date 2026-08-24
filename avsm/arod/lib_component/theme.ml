@@ -2337,23 +2337,29 @@ let custom_css = {|
 .sp-link:hover .sp-t, .sp-link .sp-t:hover { text-decoration: underline !important; }
 .sp-via { text-decoration: none !important; }
 .sp-via:hover { text-decoration: underline !important; color: var(--color-link) !important; }
-/* The notes ledger's image slice, on a search hit: same crop, same wash,
-   sharpened when the row is hovered. Unlayered so the fixed height beats
+/* A hit's image, as a small square at the row's edge: washed into the
+   background until the row is hovered. Unlayered so the fixed crop beats
    the Tailwind preflight img reset. */
-.sp-slice {
-  display: block;
-  width: 100%;
-  height: 2.9rem;
-  object-fit: cover;
-  opacity: 0.75;
-  filter: sepia(0.7) saturate(0.7);
-  transition: opacity 0.15s, filter 0.15s;
+.sp-thumb {
+  width: 3rem;
+  height: 3rem;
+  flex-shrink: 0;
+  align-self: center;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  margin-top: 0.35rem;
+  border-radius: 6px;
+  overflow: hidden;
+  opacity: 0.4;
+  filter: sepia(0.5) saturate(0.6);
+  transition: opacity 0.15s, filter 0.15s;
 }
-.sp-work:hover .sp-slice { opacity: 1; filter: none; }
-@media (prefers-reduced-motion: reduce) { .sp-slice { transition: none; } }
+.sp-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sp-work:hover .sp-thumb { opacity: 1; filter: none; }
+@media (prefers-reduced-motion: reduce) { .sp-thumb { transition: none; } }
 /* Each tier is a card: a surface header strip naming the tier and how it
    is ordered, hairline-separated rows, and a footer strip for more. */
 .sp-sec { margin-bottom: 1.25rem; border: 1px solid var(--color-border-light); border-radius: 8px; background: var(--color-bg); overflow: hidden; }

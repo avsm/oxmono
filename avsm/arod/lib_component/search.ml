@@ -96,16 +96,17 @@ let tags_el tags =
       (List.map (fun t -> El.span [El.txt ("#" ^ t)]) (Common.take 5 ts))
 
 let work_row ~ctx ~terms (h : S.hit) =
-  (* The same image slice the notes ledger draws: washed out until the
-     row is hovered, so twenty rows read as text first. *)
-  let slice = match Arod.Ctx.lookup ctx h.slug with
+  (* A small square at the row's edge, washed into the background until
+     the row is hovered, so the list still reads as text first and the
+     row keeps its shape. *)
+  let thumb = match Arod.Ctx.lookup ctx h.slug with
     | None -> El.void
     | Some ent ->
       match Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) ent with
       | None -> El.void
       | Some src ->
-        El.img ~at:[At.src src; At.alt ""; At.v "loading" "lazy";
-                    At.class' "sp-slice"] ()
+        El.span ~at:[At.class' "sp-thumb"]
+          [ El.img ~at:[At.src src; At.alt ""; At.v "loading" "lazy"] () ]
   in
   El.a ~at:[At.href h.url; At.class' ("sp-hit sp-work sp-k-" ^ h.kind)]
     [ El.span ~at:[At.class' ("sp-ic sp-ic-" ^ h.kind)] [kind_icon h.kind];
@@ -115,8 +116,8 @@ let work_row ~ctx ~terms (h : S.hit) =
               El.span ~at:[At.class' "sp-d"] [El.txt h.date] ];
           (if h.snippet = "" then El.void
            else El.span ~at:[At.class' "sp-snip"] [El.unsafe_raw h.snippet]);
-          tags_el h.tags;
-          slice ] ]
+          tags_el h.tags ];
+      thumb ]
 
 let link_row ~ctx ~terms (h : S.hit) =
   let fav = match favicon_for ~ctx h.url with

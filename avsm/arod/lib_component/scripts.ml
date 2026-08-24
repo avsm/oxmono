@@ -1094,28 +1094,44 @@ let search_page_js = {|
   var form = input && input.closest('form');
   if (!input) return;
   var limits = { limit: 20, link_limit: 12 };
-  var timer = null, sel = -1, controller = null;
+  var sort = new URLSearchParams(location.search).get('sort') === 'date'
+    ? 'date' : 'relevance';
+  var spinner = document.getElementById('search-spinner');
+  var timer = null, sel = -1, controller = null, pending = 0;
 
   function results() { return document.getElementById('search-results'); }
   function hits() { return results().querySelectorAll('.sp-hit'); }
 
   function url(q) {
     return '/search?q=' + encodeURIComponent(q)
-      + '&limit=' + limits.limit + '&link_limit=' + limits.link_limit;
+      + '&limit=' + limits.limit + '&link_limit=' + limits.link_limit
+      + (sort === 'date' ? '&sort=date' : '');
+  }
+
+  // The spinner shows only while a request is in flight. Overlapping
+  // fetches keep it up until the last one settles.
+  function busy(on) {
+    if (!spinner) return;
+    pending += on ? 1 : -1;
+    spinner.classList.toggle('busy', pending > 0);
   }
 
   function load(q) {
     if (controller) controller.abort();
     controller = new AbortController();
+    busy(true);
     fetch(url(q) + '&fragment=1', { signal: controller.signal })
       .then(function(r) { return r.text(); })
       .then(function(html) {
         var box = results();
         box.outerHTML = html;
         sel = -1;
-        history.replaceState(null, '', q ? '/search?q=' + encodeURIComponent(q) : '/search');
+        var page = q ? '/search?q=' + encodeURIComponent(q)
+          + (sort === 'date' ? '&sort=date' : '') : '/search';
+        history.replaceState(null, '', page);
       })
-      .catch(function() {});
+      .catch(function() {})
+      .finally(function() { busy(false); });
   }
 
   function search() {
@@ -1144,7 +1160,10 @@ let search_page_js = {|
     else if (e.key === 'Enter' && sel >= 0) {
       e.preventDefault();
       var h = hits()[sel];
-      if (h) window.location.href = h.getAttribute('href');
+      if (h) {
+        var to = h.getAttribute('href') || h.getAttribute('data-href');
+        if (to) window.location.href = to;
+      }
     }
     else if (e.key === 'Escape') { input.value = ''; search(); }
   });
@@ -1159,6 +1178,20 @@ let search_page_js = {|
   }
 
   document.addEventListener('click', function(e) {
+    var s = e.target.closest('[data-sort]');
+    if (s) {
+      e.preventDefault();
+      sort = s.getAttribute('data-sort') === 'date' ? 'date' : 'relevance';
+      load(input.value.trim());
+      return;
+    }
+    // A link row is a div holding two anchors; a click on its background
+    // follows the row's own destination.
+    var row = e.target.closest('.sp-hit[data-href]');
+    if (row && !e.target.closest('a')) {
+      window.location.href = row.getAttribute('data-href');
+      return;
+    }
     var more = e.target.closest('[data-more]');
     if (more) {
       var p = more.getAttribute('data-more');

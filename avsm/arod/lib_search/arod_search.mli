@@ -95,16 +95,24 @@ val index :
     site's own base URL, and links on it are left out of search results. It
     is what {!rebuild} calls with a context's contents. *)
 
+type order = [ `Relevance | `Date ]
+(** How the work and links tiers are ordered. [`Relevance] is the ranking
+    described under {!search}. [`Date] shows the same matched sets newest
+    first. *)
+
 val search :
   t -> ?today:int * int * int -> ?limit:int -> ?link_limit:int ->
-  string -> results
-(** [search t ?today ?limit ?link_limit input] ranks what matches [input]
-    in three strict tiers. Papers, notes, projects, ideas and videos are
-    ordered by [bm25 × kind prior × freshness]. Links are ordered by
-    [bm25 × freshness × citation bonus], deduplicated by normalised URL and
-    by host and title, and never include the site's own host. [today]
-    defaults to the current date and fixes freshness for tests. [limit]
-    defaults to 20 and [link_limit] to 12. The syntax is as before: words,
+  ?order:order -> string -> results
+(** [search t ?today ?limit ?link_limit ?order input] ranks what matches
+    [input] in three strict tiers. Papers, notes, projects, ideas and
+    videos are ordered by [bm25 × kind prior × freshness]. Links are
+    ordered by [bm25 × freshness × citation bonus], deduplicated by
+    normalised URL and by host and title, and never include the site's own
+    host. [order] defaults to [`Relevance], and [`Date] re-sorts both
+    tiers newest first after ranking, so link dedupe still keeps the
+    better-scoring copy. [today] defaults to the current date and fixes
+    freshness for tests. [limit] defaults to 20 and [link_limit] to 12.
+    The syntax is as before: words,
     ["exact phrase"], [prefix*], [kind:paper] and [#tag]. A query with only
     filters browses the filtered set by date, and a browse leaves [goto]
     empty since there is no query text to match a page's name against. *)

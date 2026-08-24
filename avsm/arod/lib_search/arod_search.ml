@@ -40,6 +40,8 @@ type hit = {
   score : float;
 }
 
+type order = [ `Relevance | `Date ]
+
 type results = {
   terms : string list;
   goto : goto list;
@@ -730,7 +732,8 @@ let facets (work : hit list) =
     |> take 8 in
   (kinds, years, tags)
 
-let search t ?today ?(limit = 20) ?(link_limit = 12) input =
+let search t ?today ?(limit = 20) ?(link_limit = 12) ?(order = `Relevance)
+    input =
   let today = match today with
     | Some d -> d
     | None -> let (d, _) = Ptime.to_date_time (Ptime_clock.now ()) in d
@@ -740,10 +743,19 @@ let search t ?today ?(limit = 20) ?(link_limit = 12) input =
     input (String.concat "," found_kinds) (String.concat "," found_tags)
     fts_query);
   let target_kinds = match found_kinds with [] -> kinds | ks -> ks in
+  (* Date order re-sorts the matched set, so an old but relevant hit gives
+     way to every newer match, not just to the newer ones in the shown
+     slice. Ranking still runs first: dedupe keeps the better-scoring copy
+     of a link whichever order is shown. *)
+  let reorder hits = match order with
+    | `Relevance -> hits
+    | `Date -> List.sort (fun a b -> compare b.date a.date) hits
+  in
   let finish hits =
     let work, links = split_tiers hits in
-    let work = rank_work ~today work in
-    let links = rank_links ~today ~own_host:t.own_host links in
+    let work = rank_work ~today work |> reorder in
+    let links =
+      rank_links ~today ~own_host:t.own_host links |> reorder in
     let kinds, years, tags = facets work in
     { (make_results ~terms ~limit ~link_limit work links) with
       goto = goto_hits t terms; kinds; years; tags }

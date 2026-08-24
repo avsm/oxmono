@@ -2322,7 +2322,21 @@ let custom_css = {|
 .sp-form input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--color-text); font: inherit; font-size: 1rem; }
 .sp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 2rem; }
 @media (max-width: 56rem) { .sp-grid { grid-template-columns: minmax(0, 1fr); } }
-.sp-count { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.75rem; color: var(--color-muted); margin-bottom: 0.75rem; }
+.sp-count { grid-column: 1 / -1; font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.75rem; color: var(--color-muted); }
+.sp-grid { row-gap: 0.9rem; }
+.sp-sort { display: inline-flex; border: 1px solid var(--color-border); border-radius: 999px; overflow: hidden; background: var(--color-bg); }
+.sp-sort-opt { font-size: 0.68rem; padding: 0.05rem 0.55rem; color: var(--color-muted); text-decoration: none !important; }
+.sp-sort-opt.on { background: var(--color-accent); color: #fff; }
+.sp-sort-opt:not(.on):hover { color: var(--color-text); }
+.sp-spin { display: none; width: 0.95rem; height: 0.95rem; border: 2px solid var(--color-border); border-top-color: var(--color-accent); border-radius: 50%; flex-shrink: 0; }
+.sp-spin.busy { display: inline-block; animation: sp-rotate 0.7s linear infinite; }
+@keyframes sp-rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sp-spin.busy { animation: none; } }
+.sp-link[data-href] { cursor: pointer; }
+.sp-link .sp-t { text-decoration: none !important; color: var(--color-text) !important; }
+.sp-link:hover .sp-t, .sp-link .sp-t:hover { text-decoration: underline !important; }
+.sp-via { text-decoration: none !important; }
+.sp-via:hover { text-decoration: underline !important; color: var(--color-link) !important; }
 /* Each tier is a card: a surface header strip naming the tier and how it
    is ordered, hairline-separated rows, and a footer strip for more. */
 .sp-sec { margin-bottom: 1.25rem; border: 1px solid var(--color-border-light); border-radius: 8px; background: var(--color-bg); overflow: hidden; }

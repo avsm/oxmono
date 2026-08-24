@@ -47,15 +47,16 @@ type t = {
           because it renders through jsont, whose codecs cannot cross a domain
           boundary. *)
   search :
-    q:string -> limit:int -> link_limit:int ->
+    q:string -> limit:int -> link_limit:int -> order:Arod_search.order ->
     (Proffer.Body.Sink.t -> unit) * int;
-      (** [search ~q ~limit ~link_limit] is the tiers for [q], at most
+      (** [search ~q ~limit ~link_limit ~order] is the tiers for [q], at most
           [limit] work hits and [link_limit] links, as the JSON [/api/search]
           serves, paired with the number of hits in both tiers. An empty
           [q] is an empty result set and queries nothing. *)
   search_page :
-    q:string -> limit:int -> link_limit:int -> fragment:bool -> string;
-      (** [search_page ~q ~limit ~link_limit ~fragment] is the search page
+    q:string -> limit:int -> link_limit:int -> order:Arod_search.order ->
+    fragment:bool -> string;
+      (** [search_page ~q ~limit ~link_limit ~order ~fragment] is the page
           for [q], or with [fragment] only its results region. It is a
           closure because the search handle is bound to the domain that
           built this record. *)
@@ -84,7 +85,9 @@ type t = {
 val create :
   ctx:Arod.Ctx.t ->
   cache:Proffer.Cache.t ->
-  search:(limit:int -> link_limit:int -> string -> Arod_search.results) ->
+  search:
+    (limit:int -> link_limit:int -> order:Arod_search.order -> string ->
+     Arod_search.results) ->
   log_search:(query:string -> limit:int -> results:int option -> unit) ->
   read_image:(string list -> string option) ->
   read_paper:(string -> string option) ->

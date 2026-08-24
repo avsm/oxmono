@@ -143,7 +143,12 @@ let () =
   check "totals count matches before the limit"
     (r.work_total = 3 && r.links_total = 3);
   check "the query words are returned lowercased without the prefix star"
-    (r.terms = [ "unikernel" ])
+    (r.terms = [ "unikernel" ]);
+  let rd = Arod_search.search t ~today ~order:`Date "unikernel" in
+  check "date order shows the matched set newest first"
+    (slugs rd.work = [ "new"; "body-only"; "old" ]);
+  check "date order still dedupes links and drops the own host"
+    (rd.links_total = 3)
 
 let () =
   Eio_main.run @@ fun _env ->

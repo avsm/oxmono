@@ -127,12 +127,14 @@ let env =
         in
         fun sink -> Proffer.Body.Sink.write sink s);
     search =
-      (fun ~q ~limit ~link_limit ->
-        let s = Printf.sprintf "%s/%d/%d" q limit link_limit in
+      (fun ~q ~limit ~link_limit ~order ->
+        let o = match order with `Relevance -> "rel" | `Date -> "date" in
+        let s = Printf.sprintf "%s/%d/%d/%s" q limit link_limit o in
         ((fun sink -> Proffer.Body.Sink.write sink s), String.length q));
     search_page =
-      (fun ~q ~limit ~link_limit ~fragment ->
-        Printf.sprintf "page:%s/%d/%d/%b" q limit link_limit fragment);
+      (fun ~q ~limit ~link_limit ~order ~fragment ->
+        let o = match order with `Relevance -> "rel" | `Date -> "date" in
+        Printf.sprintf "page:%s/%d/%d/%s/%b" q limit link_limit o fragment);
     log_search =
       (fun ~query ~limit ~results ->
         let results =
@@ -316,16 +318,23 @@ let () =
   check "an out of range limit is clamped"
     (body (get "/api/entries?collection=links&limit=9999") = "links/0/100");
   check "the search API reads its query"
-    (body (get "/api/search?q=ocaml&limit=3&link_limit=2") = "ocaml/3/2");
+    (body (get "/api/search?q=ocaml&limit=3&link_limit=2") = "ocaml/3/2/rel");
   check "and logs before and after"
     (List.rev !searches = [ "ocaml/3/?"; "ocaml/3/5" ]);
   searches := [];
   check "an absent query is the empty string"
-    (body (get "/api/search") = "/20/12");
+    (body (get "/api/search") = "/20/12/rel");
+  check "the search API reads its sort"
+    (body (get "/api/search?q=x&sort=date") = "x/20/12/date");
   check "the search page reads its query and limits"
-    (body (get "/search?q=xen&limit=5&link_limit=3") = "page:xen/5/3/false");
+    (body (get "/search?q=xen&limit=5&link_limit=3")
+    = "page:xen/5/3/rel/false");
+  check "the search page reads its sort"
+    (body (get "/search?q=xen&sort=date") = "page:xen/20/12/date/false");
+  check "an unknown sort is relevance"
+    (body (get "/search?q=xen&sort=up") = "page:xen/20/12/rel/false");
   check "a fragment request is marked"
-    (body (get "/search?q=xen&fragment=1") = "page:xen/20/12/true");
+    (body (get "/search?q=xen&fragment=1") = "page:xen/20/12/rel/true");
   check "the search page is HTML"
     (header (get "/search") H.Content_type
      = Some "text/html; charset=utf-8");

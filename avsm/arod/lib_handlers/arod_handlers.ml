@@ -222,12 +222,18 @@ let pagination_api env req respond =
        ~collection:(Req.query_param req "collection")
        ~offset ~limit ~types)
 
+let sort_param req =
+  match Req.query_param req "sort" with
+  | Some "date" -> `Date
+  | _ -> `Relevance
+
 let search_api env req respond =
   let q = match Req.query_param req "q" with Some q -> q | None -> "" in
   let limit = int_param req "limit" ~default:20 ~lo:1 ~hi:100 in
   let link_limit = int_param req "link_limit" ~default:12 ~lo:1 ~hi:100 in
+  let order = sort_param req in
   env.E.log_search ~query:q ~limit ~results:None;
-  let write, results = env.E.search ~q ~limit ~link_limit in
+  let write, results = env.E.search ~q ~limit ~link_limit ~order in
   env.E.log_search ~query:q ~limit ~results:(Some results);
   Resp.stream respond json_type write
 
@@ -236,7 +242,9 @@ let search_page env req respond =
   let limit = int_param req "limit" ~default:20 ~lo:1 ~hi:100 in
   let link_limit = int_param req "link_limit" ~default:12 ~lo:1 ~hi:100 in
   let fragment = Req.query_param req "fragment" = Some "1" in
-  Resp.html respond (env.E.search_page ~q ~limit ~link_limit ~fragment)
+  let order = sort_param req in
+  Resp.html respond
+    (env.E.search_page ~q ~limit ~link_limit ~order ~fragment)
 
 (** {1 Files} *)
 

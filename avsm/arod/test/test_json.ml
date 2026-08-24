@@ -185,7 +185,8 @@ let contains hay needle =
   go 0
 
 let search_page q ~fragment =
-  Arod_handlers.Render.search_page ~ctx ~q ~fragment Arod_search.empty
+  Arod_handlers.Render.search_page ~ctx ~q ~order:`Relevance ~fragment
+    Arod_search.empty
 
 let () =
   let p = search_page "" ~fragment:false in

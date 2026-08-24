@@ -116,27 +116,62 @@ let link_row ~ctx ~terms (h : S.hit) =
   let via = match h.parent_slugs with
     | [] -> El.void
     | slug :: rest -> (
-      let title = Bushel.Entry.lookup_title (Arod.Ctx.entries ctx) slug in
-      (* An unresolved slug looks up to "", which would render a dangling
-         "in " with nothing after it, so it is treated as no via at all. *)
-      match title with
-      | "" -> El.void
-      | title ->
-        let extra = if rest = [] then "" else
-            Printf.sprintf " +%d" (List.length rest) in
-        El.span ~at:[At.class' "sp-via"]
-          [ El.span ~at:[At.class' "sp-via-in"] [El.txt "in "];
-            El.txt (title ^ extra) ])
+      (* An unresolved slug renders no via at all rather than a dangling
+         "in ". A resolved one links to the citing entry, so the row
+         offers both ends of the citation. *)
+      match Arod.Ctx.lookup ctx slug with
+      | None -> El.void
+      | Some ent ->
+        let title = Bushel.Entry.title ent in
+        if title = "" then El.void
+        else
+          let extra = if rest = [] then "" else
+              Printf.sprintf " +%d" (List.length rest) in
+          El.a ~at:[At.href (Bushel.Entry.site_url ent);
+                    At.class' "sp-via"]
+            [ El.span ~at:[At.class' "sp-via-in"] [El.txt "in "];
+              El.txt (title ^ extra) ])
   in
-  El.a ~at:[At.href h.url; At.class' "sp-hit sp-link"; At.v "rel" "noopener"]
+  (* The row holds two destinations, the link and the entry citing it, so
+     it is a div rather than one anchor: HTML forbids nesting them. The
+     script treats [data-href] as the row's own destination. *)
+  El.div ~at:[At.class' "sp-hit sp-link"; At.v "data-href" h.url]
     [ El.span ~at:[At.class' "sp-fav"] [fav];
       El.span ~at:[At.class' "sp-body"]
         [ El.span ~at:[At.class' "sp-line"]
-            [ El.span ~at:[At.class' "sp-t"] [mark ~terms h.title];
+            [ El.a ~at:[At.href h.url; At.class' "sp-t";
+                        At.v "rel" "noopener"] [mark ~terms h.title];
               El.span ~at:[At.class' "sp-d"]
                 [El.txt (String.sub h.date 0 (min 7 (String.length h.date)))] ];
           El.span ~at:[At.class' "sp-meta"]
             [ El.span ~at:[At.class' "sp-dom"] [El.txt (host h.url)]; via ] ] ]
+
+(* Enough encoding for a query-string value: the characters that would
+   end or split it. Tags and search words never need more. *)
+let pct_query s =
+  let b = Buffer.create (String.length s) in
+  String.iter (fun c -> match c with
+    | '#' -> Buffer.add_string b "%23"
+    | '&' -> Buffer.add_string b "%26"
+    | '+' -> Buffer.add_string b "%2B"
+    | '%' -> Buffer.add_string b "%25"
+    | ' ' -> Buffer.add_string b "%20"
+    | c -> Buffer.add_char b c) s;
+  Buffer.contents b
+
+(* The toggle doubles as the ordering statement in the header: the active
+   side says how the tiers below are sorted. Real links, so the choice
+   works without the script, which intercepts them via [data-sort]. *)
+let sort_toggle ~q ~(order : S.order) =
+  let opt this label =
+    let sort = match this with `Relevance -> "relevance" | `Date -> "date" in
+    let cls = "sp-sort-opt" ^ (if order = this then " on" else "") in
+    El.a ~at:[At.href ("/search?q=" ^ pct_query q ^ "&sort=" ^ sort);
+              At.class' cls; At.v "data-sort" sort]
+      [El.txt label]
+  in
+  El.span ~at:[At.class' "sp-sort"]
+    [ opt `Relevance "relevance"; opt `Date "date" ]
 
 let kind_label = function
   | "paper" -> "Papers" | "note" -> "Notes" | "project" -> "Projects"
@@ -210,23 +245,24 @@ let rail ~ctx ~q (r : S.results) =
   in
   El.aside ~at:[At.class' "sp-rail"] [ narrow; links ]
 
-let main_column ~q (r : S.results) =
+let main_column ~q ~order (r : S.results) =
   let work = match r.work with
     | [] -> El.void
     | ws ->
+      let head =
+        El.div ~at:[At.class' "sp-sec-h"]
+          [ El.span ~at:[At.class' "sp-eyebrow"] [El.txt "On this site"];
+            sort_toggle ~q ~order;
+            El.span ~at:[At.class' "sp-n"]
+              [El.txt (string_of_int r.work_total)] ]
+      in
       El.div ~at:[At.class' "sp-sec"]
-        ([ section_head ~note:"ranked by relevance"
-             ~total:r.work_total "On this site" ]
+        ([ head ]
          @ [ El.div ~at:[At.class' "sp-rows"]
                (List.map (work_row ~terms:r.terms) ws) ]
          @ [ more ~shown:(List.length ws) ~total:r.work_total ~param:"limit" ])
   in
-  let count =
-    El.div ~at:[At.class' "sp-count"]
-      [ El.txt (Printf.sprintf "%d on this site · %d links"
-                  r.work_total r.links_total) ]
-  in
-  El.div ~at:[At.class' "sp-main"] [ count; goto_section r; work ]
+  El.div ~at:[At.class' "sp-main"] [ goto_section r; work ]
 
 let empty_state ~q =
   let msg =
@@ -238,14 +274,19 @@ let empty_state ~q =
   in
   El.div ~at:[At.class' "sp-empty"] [El.txt msg]
 
-let fragment ~ctx ~q (r : S.results) =
+let fragment ~ctx ~q ~order (r : S.results) =
+  let count =
+    El.div ~at:[At.class' "sp-count"]
+      [ El.txt (Printf.sprintf "%d on this site · %d links"
+                  r.work_total r.links_total) ]
+  in
   let body =
     if r.goto = [] && r.work = [] && r.links = [] then [ empty_state ~q ]
-    else [ main_column ~q r; rail ~ctx ~q r ]
+    else [ count; main_column ~q ~order r; rail ~ctx ~q r ]
   in
   El.div ~at:[At.id "search-results"; At.class' "sp-grid"] body
 
-let page_body ~ctx ~q r =
+let page_body ~ctx ~q ~order r =
   let placeholder = "Search papers, notes, projects, links" in
   let form =
     El.form ~at:[At.action "/search"; At.method' "get"; At.class' "sp-form";
@@ -254,6 +295,9 @@ let page_body ~ctx ~q r =
         El.input ~at:([ At.id "search-page-input"; At.type' "search";
                         At.name "q"; At.value q; At.autocomplete "off";
                         At.v "placeholder" placeholder ]
-                      @ (if q = "" then [At.autofocus] else [])) () ]
+                      @ (if q = "" then [At.autofocus] else [])) ();
+        El.span ~at:[At.id "search-spinner"; At.class' "sp-spin";
+                     At.v "aria-hidden" "true"] [] ]
   in
-  (El.div ~at:[At.class' "sp-page"] [ form; fragment ~ctx ~q r ], El.void)
+  (El.div ~at:[At.class' "sp-page"] [ form; fragment ~ctx ~q ~order r ],
+   El.void)

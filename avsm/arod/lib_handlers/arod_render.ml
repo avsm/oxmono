@@ -614,12 +614,12 @@ let search ~ctx (r : Arod_search.results) =
       links_total = r.links_total; kinds = r.kinds; years = r.years;
       tags = r.tags }
 
-let search_page ~ctx ~q ~fragment (r : Arod_search.results) =
+let search_page ~ctx ~q ~order ~fragment (r : Arod_search.results) =
   if fragment then
     Htmlit.El.to_string ~doctype:false
-      (C.Search.fragment ~ctx ~q r)
+      (C.Search.fragment ~ctx ~q ~order r)
   else
-    let article, _sidebar = C.Search.page_body ~ctx ~q r in
+    let article, _sidebar = C.Search.page_body ~ctx ~q ~order r in
     let title = if q = "" then "Search" else "Search: " ^ q in
     C.Layout.page ~ctx ~title ~description:"Search this site" ~url:"/search"
       ~current_page:"Search" ~page_scripts:[Search] ~main_cls:"max-w-6xl"

@@ -80,8 +80,8 @@ let serve_cmd =
     let henv =
       Arod_handlers.Env.create ~ctx
         ~cache:(Proffer.Cache.create ~ttl:300.0)
-        ~search:(fun ~limit ~link_limit q ->
-          Arod_search.search search ~limit ~link_limit q)
+        ~search:(fun ~limit ~link_limit ~order q ->
+          Arod_search.search search ~limit ~link_limit ~order q)
         ~log_search:(fun ~query ~limit ~results ->
           match results with
           | None ->

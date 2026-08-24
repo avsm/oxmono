@@ -56,7 +56,11 @@ let unresolved_via_results : Arod_search.results =
 let html = Htmlit.El.to_string ~doctype:false
 
 let () =
-  let f = html (Arod_component.Search.fragment ~ctx ~q:"xen" results) in
+  let f =
+    html
+      (Arod_component.Search.fragment ~ctx ~q:"xen" ~order:`Relevance
+         results)
+  in
   check "the fragment has the id the script swaps"
     (contains f {|id="search-results"|});
   check "the count line states both totals"
@@ -69,12 +73,23 @@ let () =
     (contains f "#systems");
   check "a link row falls back to the glyph when there is no favicon"
     (contains f {|class="sp-fav"|} && not (contains f "<img"));
-  check "a link row names the citing entry"
-    (contains f {|<span class="sp-via-in">in </span>Xen Hypervisor</span>|});
+  check "a link row links the citing entry to its page"
+    (contains f
+       {|<a href="/notes/xen" class="sp-via"><span class="sp-via-in">in |});
+  check "and names it"
+    (contains f {|in </span>Xen Hypervisor</a>|});
+  check "the row carries its own destination for the script"
+    (contains f {|data-href="https://wiki.xen.org/XenStore"|});
+  check "the sort toggle marks the active order"
+    (contains f {|data-sort="relevance"|} && contains f {|data-sort="date"|}
+    && contains f {|class="sp-sort-opt on" data-sort="relevance"|}
+    || contains f {|data-sort="relevance" class="sp-sort-opt on"|});
   check "the link row shows the host"
     (contains f "wiki.xen.org");
   let f2 =
-    html (Arod_component.Search.fragment ~ctx ~q:"xen" unresolved_via_results)
+    html
+      (Arod_component.Search.fragment ~ctx ~q:"xen" ~order:`Relevance
+         unresolved_via_results)
   in
   check "a link row with an unresolved parent slug shows no via span"
     (not (contains f2 {|class="sp-via"|}));
@@ -86,16 +101,21 @@ let () =
     (contains f {|class="sp-year hot"|})
 
 let () =
-  let article, _ = Arod_component.Search.page_body ~ctx ~q:"xen" results in
+  let article, _ =
+    Arod_component.Search.page_body ~ctx ~q:"xen" ~order:`Relevance results
+  in
   let a = html article in
   check "the page has a form that submits q to /search"
     (contains a {|action="/search"|} && contains a {|name="q"|}
     && contains a {|value="xen"|});
   check "and contains the fragment" (contains a {|id="search-results"|});
+  check "and the spinner the script animates"
+    (contains a {|id="search-spinner"|});
   check "the input carries the id the page script binds to"
     (contains a {|id="search-page-input"|});
   let article, _ =
-    Arod_component.Search.page_body ~ctx ~q:"" Arod_search.empty in
+    Arod_component.Search.page_body ~ctx ~q:"" ~order:`Relevance
+      Arod_search.empty in
   check "an empty query shows the prompt and autofocuses"
     (contains (html article) "autofocus"
     && contains (html article) "Type to search")

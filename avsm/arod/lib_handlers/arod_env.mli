@@ -18,7 +18,8 @@
     A response a handler can compute itself has no field: it reads {!t.config}
     or {!t.ctx} and calls {!Arod_render} directly. Most page renders are
     reached that way, as is the sitemap, and the header of {!Arod_render}
-    names the four kept behind a closure because they render through jsont.
+    names the four kept behind a closure: three render through jsont, and
+    the report also holds a domain-bound database handle.
     {!t.search_page} is a fifth: it renders a page directly, but stays behind
     a closure because it needs the search handle, which is bound to the
     domain that built this record. *)

@@ -55,8 +55,9 @@ type results = {
     caller's limits, and [work_total] and [links_total] count the matches
     before that cut. A full-text query fetches at most a fixed depth per
     kind (200 for a local kind, 500 for links), so its total is bounded by
-    what was fetched, not by what exists. A browse (no query text) or a
-    tags-only query instead fetches up to 1000 rows per kind. [kinds],
+    what was fetched, not by what exists. A browse (no query text)
+    instead fetches up to 1000 rows per kind, and a tags-only query up to
+    1000 rows across all kinds. [kinds],
     [years] and [tags] count the same way, over every work match before
     the cut, except on a tags-only query, where [tags] counts only the
     shown page of [work]. [kinds] is sorted by name and [years] ascending.

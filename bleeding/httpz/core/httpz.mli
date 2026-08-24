@@ -6,7 +6,11 @@
     {2 Architecture}
 
     The library is split into three packages:
-    - [httpz] (this package): Core protocol types, parsing, and response writing
+    - [httpz] (this package): Core protocol types, parsing, and message
+      writing, for both sides of the protocol. A server parses requests
+      with {!parse} and writes responses with {!Res}; a client writes
+      requests with {!Req.write_request_line} and the {!Res} header
+      writers, and parses responses with {!Res.parse}.
     - [httpz.route]: Segment routing with zero-allocation trie dispatch
     - [httpz.eio_server]: Eio connection handling and static file serving
 

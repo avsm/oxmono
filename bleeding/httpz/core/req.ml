@@ -61,6 +61,18 @@ let[@zero_alloc] body_bytes_needed ~(len : int16#) (req : t @ local) : int16# =
     if body_len < 0 || in_buffer then i16 0 else i16 (body_end - to_int len)
 ;;
 
+(* Request writing - the client side of the protocol. The method is a
+   string rather than {!Method.t} so a client can send an extension
+   method this library's parser does not enumerate. *)
+let[@inline] write_request_line dst ~off ~meth ~target version =
+  let off = Buf_write.string dst ~off meth in
+  let off = Buf_write.char dst ~off ' ' in
+  let off = Buf_write.string dst ~off target in
+  let off = Buf_write.char dst ~off ' ' in
+  let off = Buf_write.string dst ~off (Version.to_string version) in
+  Buf_write.crlf dst ~off
+;;
+
 let pp_with_buf (buf : bytes) fmt (req : t) =
   Stdlib.Format.fprintf fmt "%s %s %s"
     (Method.to_string req.#meth)

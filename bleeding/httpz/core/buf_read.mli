@@ -31,6 +31,9 @@ type status =
           414. *)
   | Invalid_version
       (** Unrecognized HTTP version. *)
+  | Invalid_status
+      (** Malformed status line in a response: the status code is not
+          three digits, or the line is not terminated by CRLF. *)
   | Invalid_header
       (** Malformed header line. *)
   | Headers_too_large

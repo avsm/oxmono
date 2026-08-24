@@ -13,6 +13,7 @@ type status = Buf_read.status =
   | Invalid_target
   | Uri_too_long
   | Invalid_version
+  | Invalid_status
   | Invalid_header
   | Headers_too_large
   | Malformed

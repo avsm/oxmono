@@ -1,9 +1,14 @@
-(** HTTP response status codes and header writing.
+(** HTTP responses: status codes, header writing, and parsing.
 
     This module provides:
     - Status code enumeration per {{:https://datatracker.ietf.org/doc/html/rfc7231#section-6}RFC 7231 Section 6}
     - Low-level response header writing functions
     - Chunked transfer encoding support
+    - Response parsing for clients ({!parse})
+
+    The header writers are direction-neutral: a client writes its
+    request head with {!Req.write_request_line} followed by the same
+    {!write_header} family a server uses.
 
     All write functions operate on bytes buffers using [int16#] offsets
     and return the new offset after writing.
@@ -190,3 +195,60 @@ val write_final_chunk : bytes -> off:int16# -> int16# @@ portable
       (* ... write chunks ... *)
       let off = Res.write_final_chunk buf ~off in
     ]} *)
+
+(** {1 Response Parsing}
+
+    The client side of the protocol: the head of a response a server
+    sent, parsed out of a caller-owned buffer exactly as {!Httpz.parse}
+    parses a request. *)
+
+type t =
+  #{ version : Version.t  (** HTTP version of the status line *)
+   ; code : int16#
+       (** Numeric status code. Any three-digit code is accepted, so an
+           unregistered code arrives as its number; {!status_of_int}
+           maps the known ones to {!status}. *)
+   ; reason : Span.t
+       (** Reason phrase, possibly empty. Informational only. *)
+   ; body_off : int16#  (** Byte offset where the body starts *)
+   ; content_length : int64#
+       (** Content-Length value, or [-1L] if the header is absent. A
+           response with neither a length nor chunked framing ends with
+           the connection. *)
+   ; is_chunked : bool  (** [true] if Transfer-Encoding: chunked *)
+   ; keep_alive : bool
+       (** [true] for a persistent connection, from the Connection
+           header and the version default. *)
+   }
+(** Unboxed parsed response head. Span fields reference the parse
+    buffer. *)
+
+val parse :
+  bytes -> len:int16# -> limits:Buf_read.limits
+  -> #(Buf_read.status * t * Header.t list) @ local
+  @@ portable
+(** [parse buf ~len ~limits] parses a response head from [buf].
+
+    Returns [(status, res, headers)] as {!Httpz.parse} does for a
+    request, with two differences a client needs. Every header is in
+    [headers], including the framing headers also cached on [res],
+    since an application may want to see them. And [len] may cover body
+    bytes that arrived in the same read as the head, so only the header
+    block itself, once its end is found, is held to
+    [limits.max_header_size].
+
+    The returned list is in reverse arrival order, as the parser conses
+    each header. A caller that materialises it and cares about the
+    order of repeated fields, as with [Set-Cookie], must reverse it.
+
+    {b Security checks:} Content-Length within
+    [limits.max_content_length], no bare CR, a rejection of ambiguous
+    framing (both Content-Length and Transfer-Encoding, per
+    {{:https://www.rfc-editor.org/rfc/rfc9112#section-6.3}RFC 9112
+    §6.3}), and only [chunked] or [identity] transfer codings. *)
+
+val pp : Stdlib.Format.formatter -> t -> unit @@ portable
+(** [pp fmt res] prints the response structure (offsets and flags). *)
+
+val pp_with_buf : bytes -> Stdlib.Format.formatter -> t -> unit @@ portable
+(** [pp_with_buf buf fmt res] prints the status line from [buf]. *)

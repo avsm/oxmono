@@ -1,6 +1,7 @@
 (tests
  (names
   test_httpz
+  test_client
   test_scan
   test_tchar
   test_writers

@@ -360,3 +360,157 @@ let[@inline] write_final_chunk dst ~off =
   let off = Buf_write.crlf dst ~off in
   Buf_write.crlf dst ~off
 ;;
+
+(* Response parsing - the client side of the protocol *)
+
+open Base
+
+module I16 = Stdlib_stable.Int16_u
+module I64 = Stdlib_upstream_compatible.Int64_u
+
+let[@inline always] i16 x = I16.of_int x
+let[@inline always] to_int x = I16.to_int x
+let[@inline always] add16 a b = I16.add a b
+let[@inline always] gt16 a b = I16.compare a b > 0
+let[@inline always] gte16 a b = I16.compare a b >= 0
+let one16 : int16# = i16 1
+let minus_one_i64 : int64# = I64.of_int64 (-1L)
+
+type t =
+  #{ version : Version.t
+   ; code : int16#
+   ; reason : Span.t
+   ; body_off : int16#
+   ; content_length : int64#
+   ; is_chunked : bool
+   ; keep_alive : bool
+   }
+
+type conn_value = Conn_default | Conn_close | Conn_keep_alive
+
+(* Framing state folded out of the header block as it is scanned. Unlike
+   the request loop in httpz.ml, every header stays in the returned list:
+   a client hands the block on to its application, which may inspect the
+   framing headers a router never needs. *)
+type header_state =
+  #{ count : int16#
+   ; content_len : int64#
+   ; chunked : bool
+   ; conn : conn_value
+   ; has_cl : bool
+   ; has_te : bool
+   }
+
+let initial_header_state : header_state =
+  #{ count = i16 0
+   ; content_len = minus_one_i64
+   ; chunked = false
+   ; conn = Conn_default
+   ; has_cl = false
+   ; has_te = false
+   }
+
+let[@inline] error_result status = exclave_
+  #( status
+   , #{ version = Version.Http_1_1
+      ; code = i16 0
+      ; reason = Span.make ~off:(i16 0) ~len:(i16 0)
+      ; body_off = i16 0
+      ; content_length = minus_one_i64
+      ; is_chunked = false
+      ; keep_alive = false
+      }
+   , ([] : Header.t list) )
+
+let rec parse_headers_loop (pst : Parser.pstate) ~pos ~acc
+    (st : header_state) ~(limits : Buf_read.limits)
+  : #(int16# * header_state * Header.t list) = exclave_
+  if Parser.is_headers_end pst ~pos then (
+    let pos = Parser.end_headers pst ~pos in
+    #(pos, st, acc))
+  else (
+    Err.when_ (gte16 st.#count limits.#max_header_count) Err.Headers_too_large;
+    let #(name, name_span, value_span, pos, has_bare_cr) =
+      Parser.parse_header pst ~pos
+    in
+    Err.when_ has_bare_cr Err.Bare_cr_detected;
+    let next_count = add16 st.#count one16 in
+    let hdr = { Header.name; name_span; value = value_span } in
+    let acc = hdr :: acc in
+    match name with
+    | Header_name.Content_length ->
+      Err.when_ st.#has_te Err.Ambiguous_framing;
+      let #(parsed_len, overflow) = Span.parse_int64 pst.#buf value_span in
+      Err.when_
+        (overflow || I64.compare parsed_len limits.#max_content_length > 0)
+        Err.Content_length_overflow;
+      parse_headers_loop pst ~pos ~acc ~limits
+        #{ st with count = next_count; content_len = parsed_len; has_cl = true }
+    | Header_name.Transfer_encoding ->
+      Err.when_ st.#has_cl Err.Ambiguous_framing;
+      let is_chunked = Span.equal_caseless pst.#buf value_span "chunked" in
+      let is_identity = Span.equal_caseless pst.#buf value_span "identity" in
+      Err.when_ (not (is_chunked || is_identity))
+        Err.Unsupported_transfer_encoding;
+      parse_headers_loop pst ~pos ~acc ~limits
+        #{ st with count = next_count; chunked = is_chunked; has_te = true }
+    | Header_name.Connection ->
+      let new_conn =
+        if Span.equal_caseless pst.#buf value_span "close" then Conn_close
+        else if Span.equal_caseless pst.#buf value_span "keep-alive" then
+          Conn_keep_alive
+        else st.#conn
+      in
+      parse_headers_loop pst ~pos ~acc ~limits
+        #{ st with count = next_count; conn = new_conn }
+    | _ ->
+      parse_headers_loop pst ~pos ~acc ~limits #{ st with count = next_count })
+
+(* [len] may cover body bytes that arrived with the head, so only the
+   header block, measured once its end is found, is held to
+   [max_header_size]. A head still arriving is Partial until the buffer
+   itself is full, which the caller can see. *)
+let parse (buf : bytes) ~(len : int16#) ~(limits : Buf_read.limits) = exclave_
+  if to_int len > Buf_read.buffer_size then
+    error_result Buf_read.Headers_too_large
+  else
+    try
+      let pst = Parser.make buf ~len in
+      let #(version, code, reason, pos) =
+        Parser.status_line pst ~pos:(i16 0)
+      in
+      let #(body_off, st, headers) =
+        parse_headers_loop pst ~pos ~acc:[] initial_header_state ~limits
+      in
+      Err.when_ (gt16 body_off limits.#max_header_size) Err.Headers_too_large;
+      let keep_alive =
+        match st.#conn with
+        | Conn_close -> false
+        | Conn_keep_alive -> true
+        | Conn_default -> phys_equal version Version.Http_1_1
+      in
+      #( Buf_read.Complete
+       , #{ version
+          ; code
+          ; reason
+          ; body_off
+          ; content_length = st.#content_len
+          ; is_chunked = st.#chunked
+          ; keep_alive
+          }
+       , headers )
+    with Err.Parse_error status -> error_result status
+
+let pp fmt (r : t) =
+  Stdlib.Format.fprintf fmt
+    "#{ version = %a; code = %d; body_off = %d; content_length = %Ld; \
+     is_chunked = %b; keep_alive = %b }"
+    Version.pp r.#version (to_int r.#code) (to_int r.#body_off)
+    (I64.to_int64 r.#content_length) r.#is_chunked r.#keep_alive
+;;
+
+let pp_with_buf (buf : bytes) fmt (r : t) =
+  Stdlib.Format.fprintf fmt "%s %d %s"
+    (Version.to_string r.#version) (to_int r.#code)
+    (Span.to_string buf r.#reason)
+;;

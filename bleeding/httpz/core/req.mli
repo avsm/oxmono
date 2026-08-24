@@ -129,6 +129,25 @@ val body_bytes_needed : len:int16# -> t @ local -> int16# @@ portable
         (* retry with increased len *)
     ]} *)
 
+(** {1 Request Writing}
+
+    The client side of the protocol, mirroring
+    {!Res.write_status_line}. Headers follow with the direction-neutral
+    {!Res.write_header} family, and the head ends with
+    {!Res.write_crlf}. *)
+
+val write_request_line :
+  bytes -> off:int16# -> meth:local_ string -> target:local_ string
+  -> Version.t -> int16#
+  @@ portable
+(** [write_request_line buf ~off ~meth ~target version] writes
+    [METHOD SP target SP version CRLF] and returns the new offset.
+
+    [meth] is the method name as it goes on the wire, which
+    {!Method.to_string} supplies for the enumerated methods. Neither
+    argument is validated, and as with every writer the offsets are
+    unchecked: the caller bounds the head it emits. *)
+
 (** {1 Pretty Printing} *)
 
 val pp : Stdlib.Format.formatter -> t -> unit @@ portable

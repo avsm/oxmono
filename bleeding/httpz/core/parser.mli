@@ -28,6 +28,20 @@ val request_line :
     [limits.max_target_length], and with [Partial] when it has not yet been
     terminated by SP or CR. *)
 
+(** {1 Response Parsing} *)
+
+val status_line :
+  pstate -> pos:int16# -> #(Version.t * int16# * Span.t * int16#) @@ portable
+(** [status_line st ~pos] parses version SP 3DIGIT [SP reason] CRLF.
+    Returns [(version, code, reason_span, new_pos)]. The reason phrase
+    may be empty, and the SP before it may be absent, as some servers
+    omit it.
+
+    Raises {!Parse_error} with [Partial] when the line has not yet
+    arrived in full, with [Invalid_status] when the status code is not
+    exactly three digits, and with [Bare_cr_detected] for a CR in the
+    reason phrase that is not part of the terminating CRLF. *)
+
 val parse_header : pstate -> pos:int16# -> #(Header_name.t * Span.t * Span.t * int16# * bool) @@ portable
 (** [parse_header st ~pos] parses a single header line.
     Returns [(header_name, name_span, value_span, new_pos, has_bare_cr)].

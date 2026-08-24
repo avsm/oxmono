@@ -178,6 +178,42 @@ let[@inline] request_line st ~(pos : int16#) ~(limits : Buf_read.limits)
   let pos = crlf st ~pos in
   #(meth, target, target_parsed, version, pos)
 
+(* The status code is exactly three digits (RFC 9112 s4). The reason
+   phrase is informational bytes up to CRLF and may be empty; some
+   servers also omit the SP that precedes it, which every deployed
+   client accepts, so it is accepted here. A bare CR inside the phrase
+   is refused as it is in a header value. *)
+let[@inline] status_line st ~(pos : int16#)
+  : #(Version.t * int16# * Span.t * int16#)
+  =
+  let #(version, pos) = http_version st ~pos in
+  let pos = sp st ~pos in
+  Err.partial_when (to_int (sub16 st.#len pos) < 3);
+  let d1 = Buf_read.digit_value (Buf_read.peek st.#buf pos) in
+  let d2 = Buf_read.digit_value (Buf_read.peek st.#buf (add16 pos one16)) in
+  let d3 = Buf_read.digit_value (Buf_read.peek st.#buf (add16 pos (i16 2))) in
+  Err.when_ (d1 < 0 || d2 < 0 || d3 < 0) Err.Invalid_status;
+  let code = i16 ((d1 * 100) + (d2 * 10) + d3) in
+  let pos = add16 pos (i16 3) in
+  Err.partial_when (at_end st ~pos);
+  (* A fourth digit means the code was not three digits; refuse it
+     rather than truncate "2000" to 200. *)
+  Err.when_
+    (Buf_read.digit_value (Buf_read.peek st.#buf pos) >= 0)
+    Err.Invalid_status;
+  let pos =
+    if Buf_read.( =. ) (Buf_read.peek st.#buf pos) #' ' then add16 pos one16
+    else pos
+  in
+  let #(crlf_pos, has_bare_cr) =
+    Buf_read.find_crlf_check_bare_cr st.#buf ~pos ~len:st.#len
+  in
+  Err.partial_when (to_int crlf_pos < 0);
+  Err.when_ has_bare_cr Err.Bare_cr_detected;
+  let reason = Span.make ~off:pos ~len:(sub16 crlf_pos pos) in
+  let pos = add16 crlf_pos (i16 2) in
+  #(version, code, reason, pos)
+
 let[@inline] parse_header st ~(pos : int16#) : #(Header_name.t * Span.t * Span.t * int16# * bool) =
   let #(name_span, pos) = token st ~pos in
   let pos = char #':' st ~pos in

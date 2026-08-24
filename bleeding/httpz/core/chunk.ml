@@ -157,6 +157,33 @@ let parse (buf : bytes) ~(off : int16#) ~(len : int16#) =
   parse_with_limit buf ~off ~len ~max_chunk_size:Int.max_value
 ;;
 
+(* The size line alone, for a caller streaming chunk data that need not
+   fit the parse buffer. [parse] can only answer [Complete] once the
+   whole chunk is in the buffer, which caps a chunk at the buffer size;
+   a client receiving a response has no say in how large a server's
+   chunks are. *)
+let parse_header (buf : bytes) ~(off : int16#) ~(len : int16#) ~max_chunk_size =
+  let module P = Buf_read in
+  let off = to_int off in
+  let len = to_int len in
+  if off >= len then #(Partial, 0, i16 0)
+  else (
+    let #(size, hex_end, overflow) =
+      parse_hex_size_limited buf ~off ~len ~max_size:max_chunk_size
+    in
+    if overflow then #(Chunk_too_large, 0, i16 0)
+    else if hex_end = off then #(Malformed, 0, i16 0)
+    else (
+      let crlf_pos = skip_to_crlf buf ~pos:hex_end ~len in
+      if crlf_pos + 1 >= len then #(Partial, 0, i16 0)
+      else if P.(P.peek buf (i16 (crlf_pos + 1)) <>. #'\n') then
+        #(Malformed, 0, i16 0)
+      else (
+        let data_off = crlf_pos + 2 in
+        if size = 0 then #(Done, 0, i16 data_off)
+        else #(Complete, size, i16 data_off))))
+;;
+
 let pp fmt (chunk : t) =
   Stdlib.Format.fprintf fmt "{ data_off = %d; data_len = %d; next_off = %d }"
     (to_int chunk.#data_off)

@@ -87,6 +87,24 @@ val parse_with_limit : bytes -> off:int16# -> len:int16# -> max_chunk_size:int -
 
     Returns {!Chunk_too_large} if chunk size exceeds [max_chunk_size]. *)
 
+val parse_header :
+  bytes -> off:int16# -> len:int16# -> max_chunk_size:int
+  -> #(status * int * int16#)
+  @@ portable
+(** [parse_header buf ~off ~len ~max_chunk_size] parses a chunk-size
+    line alone, without requiring the chunk data to be in the buffer.
+    This is what a client streaming a response body uses, since a
+    server's chunk may be larger than any buffer the client planned.
+
+    Returns [(status, size, data_off)] where:
+    - For {!Complete}: [size] bytes of data begin at [data_off], only
+      as many of them in the buffer as have arrived. After the data
+      comes a CRLF the caller must also consume.
+    - For {!Done}: the final chunk; trailers, if any, start at
+      [data_off].
+    - For {!Partial}: the size line has not yet fully arrived.
+    - For {!Malformed} / {!Chunk_too_large}: as {!parse}. *)
+
 val pp : Stdlib.Format.formatter -> t -> unit @@ portable
 (** Pretty-print chunk. *)
 

@@ -7,6 +7,7 @@ type status =
   | Invalid_target
   | Uri_too_long               (* Request-target longer than max_target_length *)
   | Invalid_version
+  | Invalid_status             (* Malformed status line in a response *)
   | Invalid_header
   | Headers_too_large
   | Malformed
@@ -23,6 +24,7 @@ let status_to_string = function
   | Invalid_target -> "Invalid_target"
   | Uri_too_long -> "Uri_too_long"
   | Invalid_version -> "Invalid_version"
+  | Invalid_status -> "Invalid_status"
   | Invalid_header -> "Invalid_header"
   | Headers_too_large -> "Headers_too_large"
   | Malformed -> "Malformed"

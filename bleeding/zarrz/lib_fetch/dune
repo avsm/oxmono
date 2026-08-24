@@ -1,0 +1,4 @@
+(library
+ (name zarrz_fetch)
+ (public_name zarrz-fetch)
+ (libraries zarrz fetch eio cstruct))

@@ -1,0 +1,56 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "zarr_conventions": [
+      {
+        "schema_url": "https://raw.githubusercontent.com/geo-embeddings/embeddings-zarr-convention/refs/tags/v1/schema.json",
+        "spec_url": "https://github.com/geo-embeddings/embeddings-zarr-convention/blob/v1/README.md",
+        "uuid": "61c12cc5-0e28-4056-999a-480cf3fb7e4c",
+        "name": "geoemb:",
+        "description": "Geoembeddings convention for geospatial embedding arrays with model provenance"
+      },
+      {
+        "uuid": "689b58e2-cf7b-45e0-9fff-9cfc0883d6b4",
+        "schema_url": "https://raw.githubusercontent.com/zarr-conventions/spatial/refs/tags/v1/schema.json",
+        "spec_url": "https://github.com/zarr-conventions/spatial/blob/v1/README.md",
+        "name": "spatial:",
+        "description": "Spatial coordinate information"
+      },
+      {
+        "uuid": "f17cb550-5864-4468-aeb7-f3180cfb622f",
+        "schema_url": "https://raw.githubusercontent.com/zarr-experimental/geo-proj/refs/tags/v1/schema.json",
+        "spec_url": "https://github.com/zarr-experimental/geo-proj/blob/v1/README.md",
+        "name": "proj:",
+        "description": "Coordinate reference system information for geospatial data"
+      }
+    ],
+    "geoemb:type": "pixel",
+    "geoemb:dimensions": 128,
+    "geoemb:model": "https://geotessera.org/model/1.0",
+    "geoemb:source_data": [
+      "https://sentinel.esa.int/web/sentinel/missions/sentinel-1",
+      "https://sentinel.esa.int/web/sentinel/missions/sentinel-2"
+    ],
+    "geoemb:data_type": "int8",
+    "geoemb:gsd": 10.0,
+    "geoemb:spatial_layout": "utm_zones",
+    "geoemb:build_version": "0.7.5",
+    "geoemb:quantization": {
+      "method": "per_pixel_scale",
+      "original_dtype": "float32",
+      "quantized_dtype": "int8",
+      "scale": {
+        "type": "array",
+        "array_name": "scales",
+        "nodata": "+inf"
+      }
+    },
+    "proj:code": "EPSG:32630",
+    "spatial:dimensions": ["y", "x"],
+    "spatial:transform": [10.0, 0.0, 167130.0, 0.0, -10.0, 6765170.0],
+    "spatial:shape": [856064, 69632],
+    "spatial:bbox": [167130.0, -1795470.0, 863450.0, 6765170.0],
+    "spatial:registration": "pixel"
+  }
+}

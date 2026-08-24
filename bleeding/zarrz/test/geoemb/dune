@@ -1,0 +1,6 @@
+(test
+ (name test_geoemb)
+ (package zarrz)
+ (libraries zarrz_geoemb jsont jsont.bytesrw alcotest)
+ (deps
+  (source_tree fixtures)))

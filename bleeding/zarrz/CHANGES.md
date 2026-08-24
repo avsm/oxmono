@@ -1,5 +1,9 @@
 ## Unreleased
 
+- The `blosc` codec decodes and encodes Blosc1 frames through the new
+  `bloscz` bindings, covering the chains the Tessera store uses.
+- `zarrz.geoemb` gives typed jsont codecs for the geo-embeddings Zarr
+  convention, preserving unknown members across round trips.
 - Initial Zarr V3 core: metadata, codecs, stores, unboxed slab access.
 - `Slab` holds a decoded chunk and reads and writes its elements through
   unboxed accessors, one module per data type, all zero-allocating.

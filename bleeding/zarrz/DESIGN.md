@@ -14,18 +14,17 @@ In scope for the first release:
 - Data types: `bool`, `int8..int64`, `uint8..uint64`, `float16`, `bfloat16`,
   `float32`, `float64`, `complex64`, `complex128`, `r*` (multiple of 8 bits).
 - Codecs: `bytes` (endian), `transpose`, `gzip`, `zstd`, `crc32c`,
-  `sharding_indexed`.
+  `blosc` (via the `bloscz` bindings) and `sharding_indexed`.
 - Chunk grid: `regular`. Chunk key encodings: `default` and `v2`.
 - Stores: memory, Eio filesystem, fetch HTTP (read only).
 - Reading chunks, chunk subsets and array subsets. Writing whole chunks and
   whole shards, and creating arrays and groups, on writable stores.
 - A conformance CLI compatible with `zarrs_conformance`.
 
-Deferred, with representation slots reserved where noted: `blosc` (user
-decision), variable-length `string`/`bytes` and the vlen codecs (the decoded
-value type has a `Variable` slot), Zarr V2 metadata, storage transformers,
-consolidated metadata, `numpy.datetime64`/`timedelta64`, partial shard
-append on write.
+Deferred, with representation slots reserved where noted: variable-length
+`string`/`bytes` and the vlen codecs (the decoded value type has a
+`Variable` slot), Zarr V2 metadata, storage transformers, consolidated
+metadata, `numpy.datetime64`/`timedelta64`, partial shard append on write.
 
 ## Packages
 
@@ -48,6 +47,8 @@ Single library `zstdz` in `lib/` with `zstdz_stubs.c`. Independent of Zarr.
 - `lib_eio/` -> package `zarrz-eio`: filesystem store over `Eio.Path`, plus
   the conformance executable in `conformance/`.
 - `lib_fetch/` -> package `zarrz-fetch`: HTTP store over `Fetch`.
+- `lib_geoemb/` -> sublibrary `zarrz.geoemb`: jsont codecs for the
+  geo-embeddings Zarr convention. Depends only on `jsont`.
 - `test/` per package stanza, alcotest. `test/fixtures/` holds golden data
   copied from the oracle (see Testing).
 

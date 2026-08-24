@@ -1,0 +1,29 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "zarr_conventions": [
+      {
+        "schema_url": "https://raw.githubusercontent.com/geo-embeddings/embeddings-zarr-convention/refs/tags/v1/schema.json",
+        "spec_url": "https://github.com/geo-embeddings/embeddings-zarr-convention/blob/v1/README.md",
+        "uuid": "61c12cc5-0e28-4056-999a-480cf3fb7e4c",
+        "name": "geoemb:",
+        "description": "Geoembeddings convention for geospatial embedding arrays with model provenance"
+      }
+    ],
+    "geoemb:type": "chip",
+    "geoemb:dimensions": 768,
+    "geoemb:model": "https://huggingface.co/made-with-clay/Clay",
+    "geoemb:source_data": ["https://registry.opendata.aws/sentinel-2-l2a-cogs/"],
+    "geoemb:data_type": "float32",
+    "geoemb:gsd": 10.0,
+    "geoemb:chip_layout": {
+      "layout_type": "regular_grid",
+      "chip_size": [256, 256],
+      "stride": [256, 256]
+    },
+    "geoemb:benchmark": [
+      "https://clay-foundation.github.io/model/benchmarks"
+    ]
+  }
+}

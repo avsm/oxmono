@@ -6,6 +6,8 @@
 - Search moves from a modal to a `/search` page with facets, a year
   histogram and a links rail. Search URLs can be shared. `Cmd-K` opens it.
 - `arod search` prints results by tier with scores.
+- Weeknotes are indexed as their own search kind, so `kind:weekly` and
+  the search page's facets filter them apart from notes.
 - `arod search`, which opens the index read-only, now drops the site's own
   host from links and offers project and tag go-to hits, matching the
   server's in-memory index. It reports "No results." for an empty query

@@ -61,7 +61,10 @@ let empty = {
 
 (** {1 Kinds} *)
 
-let kinds = ["paper"; "note"; "project"; "idea"; "video"; "link"]
+(* A weeknote is filed apart from other notes so the two can be searched
+   and filtered separately, though both live under /notes. It shares the
+   note's ranking prior: it is a diary of the same writing. *)
+let kinds = ["paper"; "note"; "weekly"; "project"; "idea"; "video"; "link"]
 
 let table_for kind = "search_" ^ kind
 
@@ -225,7 +228,10 @@ let plain_body ~contact_name ent =
 
 let index_entry t ~body_text (ent : Bushel.Entry.entry) =
   let slug = Bushel.Entry.slug ent in
-  let kind = Bushel.Entry.to_type_string ent in
+  let kind = match ent with
+    | `Note n when n.Bushel.Note.weeknote -> "weekly"
+    | _ -> Bushel.Entry.to_type_string ent
+  in
   let url = Bushel.Entry.site_url ent in
   let date = date_string_of_triple (Bushel.Entry.date ent) in
   let title = Bushel.Entry.title ent in

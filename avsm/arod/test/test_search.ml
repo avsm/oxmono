@@ -24,7 +24,8 @@ let rm_rf dir =
    with Sys_error _ -> ());
   (try Unix.rmdir dir with Unix.Unix_error _ -> ())
 
-let note ?(tags = []) ?(date = (2024, 2, 3)) ~slug ~title body : Bushel.Note.t =
+let note ?(tags = []) ?(date = (2024, 2, 3)) ?(weeknote = false) ~slug
+    ~title body : Bushel.Note.t =
   {
     Bushel.Note.title;
     date;
@@ -36,7 +37,7 @@ let note ?(tags = []) ?(date = (2024, 2, 3)) ~slug ~title body : Bushel.Note.t =
     sidebar = None;
     index_page = false;
     perma = false;
-    weeknote = false;
+    weeknote;
     featured = false;
     doi = None;
     synopsis = None;
@@ -98,6 +99,24 @@ let () =
     && (Arod_search.search t ~today "http").work = []);
   check "the link's text is indexed in its place"
     (List.length (Arod_search.search t ~today "spec").work = 1)
+
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t = index ~sw
+      ~notes:[ note ~slug:"w1" ~title:"Plan week" ~weeknote:true "x";
+               note ~slug:"n1" ~title:"Plain note" "x" ]
+      ~links:[] ()
+  in
+  let today = (2026, 8, 23) in
+  let r = Arod_search.search t ~today "x" in
+  check "a weeknote indexes as its own kind"
+    (List.exists (fun (h : Arod_search.hit) ->
+         h.slug = "w1" && h.kind = "weekly") r.work
+    && r.kinds = [ ("note", 1); ("weekly", 1) ]);
+  let r = Arod_search.search t ~today "kind:weekly x" in
+  check "kind:weekly filters weeklies apart from notes"
+    (List.map (fun (h : Arod_search.hit) -> h.slug) r.work = [ "w1" ])
 
 let today = (2026, 8, 23)
 

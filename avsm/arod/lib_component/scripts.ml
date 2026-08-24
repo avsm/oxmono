@@ -1200,9 +1200,15 @@ let search_page_js = {|
       return;
     }
     var k = e.target.closest('[data-kind]');
-    if (k) { toggleWord('kind:' + k.getAttribute('data-kind')); return; }
+    if (k) {
+      e.preventDefault();
+      toggleWord('kind:' + k.getAttribute('data-kind'));
+      return;
+    }
+    // A row tag sits inside the row's own anchor, so stop the row
+    // navigation and narrow the query instead.
     var t = e.target.closest('[data-tag]');
-    if (t) { toggleWord('#' + t.getAttribute('data-tag')); }
+    if (t) { e.preventDefault(); toggleWord('#' + t.getAttribute('data-tag')); }
   });
 })();
 |}

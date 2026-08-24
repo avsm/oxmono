@@ -13,7 +13,18 @@ open Htmlit
 module I = Arod.Icons
 module S = Arod_search
 
-let kind_icon kind = Nav.filter_icon_for kind
+let kind_paths = function
+  | "paper" -> I.paper_o
+  | "note" -> I.note_o
+  | "weekly" -> I.calendar_o
+  | "video" -> I.video_o
+  | "project" -> I.folder_o
+  | "idea" -> I.bulb_o
+  | "link" -> I.link_o
+  | _ -> I.tag_o
+
+let kind_icon ?(size = 14) kind =
+  El.unsafe_raw (I.outline ~size (kind_paths kind))
 
 let favicon_for ~ctx url =
   match Arod.Ctx.link_for_url ctx url with
@@ -43,6 +54,30 @@ let mark ~terms title =
   El.splice (go [] words)
 
 let host url = S.host_of_url url
+
+(* "26th Oct 2026" rather than an ISO stamp: a result list is read, not
+   collated. *)
+let ordinal d =
+  if d mod 100 >= 11 && d mod 100 <= 13 then "th"
+  else match d mod 10 with 1 -> "st" | 2 -> "nd" | 3 -> "rd" | _ -> "th"
+
+let pretty_date date =
+  match String.split_on_char '-' date with
+  | y :: m :: d :: _ -> (
+    match int_of_string_opt m, int_of_string_opt d with
+    | Some m, Some d when m >= 1 && m <= 12 ->
+      Printf.sprintf "%d%s %s %s" d (ordinal d) (Common.month_name m) y
+    | _ -> date)
+  | _ -> date
+
+let pretty_month date =
+  match String.split_on_char '-' date with
+  | y :: m :: _ -> (
+    match int_of_string_opt m with
+    | Some m when m >= 1 && m <= 12 ->
+      Printf.sprintf "%s %s" (Common.month_name m) y
+    | _ -> date)
+  | _ -> date
 
 (* Every section shares one header anatomy so the tiers read as one
    system: the label names the tier, the note says how it is ordered,
@@ -93,31 +128,40 @@ let tags_el tags =
   | [] -> El.void
   | ts ->
     El.span ~at:[At.class' "sp-tags"]
-      (List.map (fun t -> El.span [El.txt ("#" ^ t)]) (Common.take 5 ts))
+      (List.map
+         (fun t ->
+           El.span ~at:[At.class' "sp-tag"; At.v "data-tag" t]
+             [El.txt ("#" ^ t)])
+         (Common.take 5 ts))
 
 let work_row ~ctx ~terms (h : S.hit) =
-  (* A small square at the row's edge, washed into the background until
-     the row is hovered, so the list still reads as text first and the
-     row keeps its shape. *)
+  (* One media block on the left: the entry's image washed into the
+     background with the kind icon as a corner badge, or the icon alone,
+     larger, when the entry has no image. Hovering the row brings the
+     image to full colour. *)
   let thumb = match Arod.Ctx.lookup ctx h.slug with
-    | None -> El.void
-    | Some ent ->
-      match Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) ent with
-      | None -> El.void
-      | Some src ->
-        El.span ~at:[At.class' "sp-thumb"]
-          [ El.img ~at:[At.src src; At.alt ""; At.v "loading" "lazy"] () ]
+    | None -> None
+    | Some ent -> Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) ent
+  in
+  let media = match thumb with
+    | Some src ->
+      El.span ~at:[At.class' ("sp-media sp-ic-" ^ h.kind)]
+        [ El.img ~at:[At.src src; At.alt ""; At.v "loading" "lazy"] ();
+          El.span ~at:[At.class' "sp-media-badge"]
+            [kind_icon ~size:12 h.kind] ]
+    | None ->
+      El.span ~at:[At.class' ("sp-media sp-media-solo sp-ic-" ^ h.kind)]
+        [ kind_icon ~size:22 h.kind ]
   in
   El.a ~at:[At.href h.url; At.class' ("sp-hit sp-work sp-k-" ^ h.kind)]
-    [ El.span ~at:[At.class' ("sp-ic sp-ic-" ^ h.kind)] [kind_icon h.kind];
+    [ media;
       El.span ~at:[At.class' "sp-body"]
         [ El.span ~at:[At.class' "sp-line"]
             [ El.span ~at:[At.class' "sp-t"] [mark ~terms h.title];
-              El.span ~at:[At.class' "sp-d"] [El.txt h.date] ];
+              El.span ~at:[At.class' "sp-d"] [El.txt (pretty_date h.date)] ];
           (if h.snippet = "" then El.void
            else El.span ~at:[At.class' "sp-snip"] [El.unsafe_raw h.snippet]);
-          tags_el h.tags ];
-      thumb ]
+          tags_el h.tags ] ]
 
 let link_row ~ctx ~terms (h : S.hit) =
   let fav = match favicon_for ~ctx h.url with
@@ -155,7 +199,7 @@ let link_row ~ctx ~terms (h : S.hit) =
             [ El.a ~at:[At.href h.url; At.class' "sp-t";
                         At.v "rel" "noopener"] [mark ~terms h.title];
               El.span ~at:[At.class' "sp-d"]
-                [El.txt (String.sub h.date 0 (min 7 (String.length h.date)))] ];
+                [El.txt (pretty_month h.date)] ];
           El.span ~at:[At.class' "sp-meta"]
             [ El.span ~at:[At.class' "sp-dom"] [El.txt (host h.url)]; via ] ] ]
 
@@ -187,9 +231,9 @@ let sort_toggle ~q ~(order : S.order) =
     [ opt `Relevance "relevance"; opt `Date "date" ]
 
 let kind_label = function
-  | "paper" -> "Papers" | "note" -> "Notes" | "project" -> "Projects"
-  | "idea" -> "Ideas" | "video" -> "Talks" | "link" -> "Links"
-  | k -> k
+  | "paper" -> "Papers" | "note" -> "Notes" | "weekly" -> "Weeklies"
+  | "project" -> "Projects" | "idea" -> "Ideas" | "video" -> "Talks"
+  | "link" -> "Links" | k -> k
 
 let has_filter ~q prefix v =
   List.mem (prefix ^ v) (String.split_on_char ' ' q)
@@ -218,7 +262,10 @@ let histogram (r : S.results) =
   match List.filter (fun (y, _) -> y >= 1970 && y <= 2100) r.years with
   | [] -> El.void
   | years ->
-    let lo = fst (List.hd years) and hi = fst (List.hd (List.rev years)) in
+    let hi = fst (List.hd (List.rev years)) in
+    (* A one-year match would otherwise draw one huge bar. Padding the
+       span to a decade keeps a sparse result readable as a timeline. *)
+    let lo = min (fst (List.hd years)) (hi - 9) in
     let max_n = List.fold_left (fun m (_, n) -> max m n) 1 years in
     let bars = List.init (hi - lo + 1) (fun i ->
       let y = lo + i in

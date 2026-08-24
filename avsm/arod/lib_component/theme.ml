@@ -2337,29 +2337,47 @@ let custom_css = {|
 .sp-link:hover .sp-t, .sp-link .sp-t:hover { text-decoration: underline !important; }
 .sp-via { text-decoration: none !important; }
 .sp-via:hover { text-decoration: underline !important; color: var(--color-link) !important; }
-/* A hit's image, as a small square at the row's edge: washed into the
-   background until the row is hovered. Unlayered so the fixed crop beats
-   the Tailwind preflight img reset. */
-.sp-thumb {
+/* A hit's media block: the entry image washed into the background with
+   the kind icon as a corner badge, or the icon alone on a tinted square.
+   Unlayered so the fixed crop beats the Tailwind preflight img reset. */
+.sp-media {
+  position: relative;
   width: 3rem;
   height: 3rem;
   flex-shrink: 0;
-  align-self: center;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   overflow: hidden;
-  opacity: 0.4;
-  filter: sepia(0.5) saturate(0.6);
-  transition: opacity 0.15s, filter 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.sp-thumb img {
+.sp-media img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  opacity: 0.45;
+  filter: sepia(0.5) saturate(0.6);
+  transition: opacity 0.15s, filter 0.15s;
 }
-.sp-work:hover .sp-thumb { opacity: 1; filter: none; }
-@media (prefers-reduced-motion: reduce) { .sp-thumb { transition: none; } }
+.sp-work:hover .sp-media img { opacity: 1; filter: none; }
+.sp-media-badge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  line-height: 0;
+}
+.sp-media-solo {
+  background: color-mix(in srgb, currentColor 12%, var(--color-surface));
+}
+.sp-ic-weekly { color: #14b8a6; }
+@media (prefers-reduced-motion: reduce) { .sp-media img { transition: none; } }
 /* Each tier is a card: a surface header strip naming the tier and how it
    is ordered, hairline-separated rows, and a footer strip for more. */
 .sp-sec { margin-bottom: 1.25rem; border: 1px solid var(--color-border-light); border-radius: 8px; background: var(--color-bg); overflow: hidden; }
@@ -2385,11 +2403,12 @@ let custom_css = {|
 .sp-line { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
 .sp-line .sp-t { font-weight: 500; font-size: 0.88rem; flex: 1; min-width: 0; }
 .sp-link .sp-t { font-size: 0.78rem; overflow-wrap: anywhere; }
-.sp-d { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.7rem; color: var(--color-muted); flex-shrink: 0; }
+.sp-d { font-size: 0.7rem; color: var(--color-muted); flex-shrink: 0; white-space: nowrap; }
 .sp-snip { font-size: 0.78rem; color: var(--color-secondary); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .sp-snip b, .sp-t b { background: var(--color-highlight); font-weight: 600; border-radius: 2px; }
 .sp-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-.sp-tags span { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.64rem; color: var(--color-muted); }
+.sp-tag { font-size: 0.66rem; padding: 0.05rem 0.45rem; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-secondary); cursor: pointer; }
+.sp-tag:hover { border-color: var(--color-accent); color: var(--color-text); }
 .sp-meta { display: flex; gap: 0.6rem; align-items: baseline; min-width: 0; font-size: 0.7rem; }
 .sp-dom { color: var(--color-muted); flex-shrink: 0; }
 .sp-via { color: var(--color-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

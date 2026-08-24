@@ -73,11 +73,10 @@ let () =
     (contains f "#systems");
   check "a link row falls back to the glyph when there is no favicon"
     (contains f {|class="sp-fav"|} && not (contains f "<img"));
-  check "a link row links the citing entry to its page"
-    (contains f
-       {|<a href="/notes/xen" class="sp-via"><span class="sp-via-in">in |});
-  check "and names it"
-    (contains f {|in </span>Xen Hypervisor</a>|});
+  check "a link row links the citing entry to its page with its kind icon"
+    (contains f {|<a href="/notes/xen" class="sp-via sp-ic-note">|});
+  check "and names it in full after the icon"
+    (contains f "Xen Hypervisor</a>");
   check "the row carries its own destination for the script"
     (contains f {|data-href="https://wiki.xen.org/XenStore"|});
   check "the sort toggle marks the active order"

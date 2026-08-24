@@ -182,12 +182,18 @@ let link_row ~ctx ~terms (h : S.hit) =
         let title = Bushel.Entry.title ent in
         if title = "" then El.void
         else
+          let kind = match ent with
+            | `Note n when Bushel.Note.weeknote n -> "weekly"
+            | _ -> Bushel.Entry.to_type_string ent
+          in
           let extra = if rest = [] then "" else
               Printf.sprintf " +%d" (List.length rest) in
-          El.a ~at:[At.href (Bushel.Entry.site_url ent);
-                    At.class' "sp-via"]
-            [ El.span ~at:[At.class' "sp-via-in"] [El.txt "in "];
-              El.txt (title ^ extra) ])
+          El.splice
+            [ El.span ~at:[At.class' "sp-via-in"] [El.txt " in "];
+              El.a ~at:[At.href (Bushel.Entry.site_url ent);
+                        At.class' ("sp-via sp-ic-" ^ kind)]
+                [ kind_icon ~size:11 kind;
+                  El.txt (" " ^ title ^ extra) ] ])
   in
   (* The row holds two destinations, the link and the entry citing it, so
      it is a div rather than one anchor: HTML forbids nesting them. The
@@ -201,6 +207,7 @@ let link_row ~ctx ~terms (h : S.hit) =
                 [mark ~terms h.title];
               El.span ~at:[At.class' "sp-d"]
                 [El.txt (pretty_month h.date)] ];
+          (* One sentence: "host in <icon> title", wrapping freely. *)
           El.span ~at:[At.class' "sp-meta"]
             [ El.span ~at:[At.class' "sp-dom"] [El.txt (S.host_of_url h.url)];
               via ] ] ]

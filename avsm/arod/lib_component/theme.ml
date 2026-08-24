@@ -2398,9 +2398,10 @@ let custom_css = {|
 .sp-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .sp-tag { font-size: 0.66rem; padding: 0.05rem 0.45rem; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-secondary); cursor: pointer; }
 .sp-tag:hover { border-color: var(--color-accent); color: var(--color-text); }
-.sp-meta { display: flex; gap: 0.6rem; align-items: baseline; min-width: 0; font-size: 0.7rem; }
-.sp-dom { color: var(--color-muted); flex-shrink: 0; }
-.sp-via { text-decoration: none !important; color: var(--color-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-meta { display: block; font-size: 0.7rem; color: var(--color-secondary); }
+.sp-dom { color: var(--color-muted); }
+.sp-via { text-decoration: none !important; color: var(--color-secondary); }
+.sp-via svg { vertical-align: -0.12em; }
 .sp-via-in { color: var(--color-muted); }
 .sp-more { display: block; width: 100%; text-align: left; padding: 0.35rem 0.75rem; font: inherit; font-size: 0.76rem; color: var(--color-link); background: var(--color-surface); border: 0; border-top: 1px solid var(--color-border); cursor: pointer; }
 .sp-more:hover { text-decoration: underline; }

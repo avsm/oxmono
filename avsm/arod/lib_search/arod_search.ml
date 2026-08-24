@@ -226,6 +226,13 @@ let entry_markdown (ent : Bushel.Entry.entry) = match ent with
 let plain_body ~contact_name ent =
   Bushel.Md.plain_text_of_markdown ~contact_name (entry_markdown ent)
 
+let entry_tags (ent : Bushel.Entry.entry) = match ent with
+  | `Paper p -> Bushel.Paper.tags p
+  | `Note n -> Bushel.Note.tags n
+  | `Project p -> Bushel.Project.tags p
+  | `Idea i -> Bushel.Idea.tags i
+  | `Video v -> Bushel.Video.tags v
+
 let index_entry t ~body_text (ent : Bushel.Entry.entry) =
   let slug = Bushel.Entry.slug ent in
   let kind = match ent with
@@ -235,13 +242,7 @@ let index_entry t ~body_text (ent : Bushel.Entry.entry) =
   let url = Bushel.Entry.site_url ent in
   let date = date_string_of_triple (Bushel.Entry.date ent) in
   let title = Bushel.Entry.title ent in
-  let tags_list = match ent with
-    | `Paper p -> Bushel.Paper.tags p
-    | `Note n -> Bushel.Note.tags n
-    | `Project p -> Bushel.Project.tags p
-    | `Idea i -> Bushel.Idea.tags i
-    | `Video v -> Bushel.Video.tags v
-  in
+  let tags_list = entry_tags ent in
   let tags = String.concat " " tags_list in
   let body = body_text ent in
   insert_row t ~kind ~slug ~url ~date ~parent_slugs:"" ~title ~body ~tags;
@@ -255,7 +256,7 @@ let strip_scheme url =
   | Some p -> String.sub url (String.length p) (String.length url - String.length p)
   | None -> url
 
-let index_link t ~entry_title (link : Bushel.Link.t) =
+let index_link t ~entry_meta (link : Bushel.Link.t) =
   let url = Bushel.Link.url link in
   let slug = url in
   let kind = "link" in
@@ -275,10 +276,11 @@ let index_link t ~entry_title (link : Bushel.Link.t) =
   (* The titles of the citing entries are part of what a link is about:
      a search for the entry's subject should surface the links it cites,
      not only the entry itself. *)
-  let parent_titles = match link.bushel with
+  let parents = match link.bushel with
     | None -> []
-    | Some b -> List.filter_map entry_title b.slugs
+    | Some b -> List.filter_map entry_meta b.slugs
   in
+  let parent_titles = List.map fst parents in
   let body =
     let desc = Bushel.Link.description link in
     let parts =
@@ -299,6 +301,17 @@ let index_link t ~entry_title (link : Bushel.Link.t) =
   in
   let all_tags = karakeep_tags @ bushel_tags in
   let tags = String.concat " " all_tags in
+  (* Tag filtering matches exactly, and Karakeep writes phrases such as
+     "Open Source Software" that no #tag can name. The rows a #tag query
+     reads are therefore the lowercased union of the link's own tags and
+     its citing entries' tags, so a link filters under the tags of the
+     entries that cite it. The FTS tags column keeps only the link's own
+     tags, so tag words do not over-boost ranked text queries. *)
+  let filter_tags =
+    List.sort_uniq compare
+      (List.map String.lowercase_ascii
+         (all_tags @ List.concat_map snd parents))
+  in
   let parent_slugs = match link.bushel with
     | Some b -> String.concat "," b.slugs
     | None -> ""
@@ -306,7 +319,7 @@ let index_link t ~entry_title (link : Bushel.Link.t) =
   insert_row t ~kind ~slug ~url ~date ~parent_slugs ~title ~body ~tags;
   List.iter (fun tag ->
     insert_tag_row t ~tag ~kind ~slug ~url ~title ~date
-  ) all_tags
+  ) filter_tags
 
 (* An index written before search_meta existed has no such table, so
    prepare raises: treat that as no stored host rather than crash. *)
@@ -377,12 +390,13 @@ let index t ~own_host ~body_text ~entries ~links =
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "DELETE FROM entry_tags");
   save_own_host t own_host;
   List.iter (fun ent -> index_entry t ~body_text ent) entries;
-  let titles = Hashtbl.create (List.length entries) in
+  let meta = Hashtbl.create (List.length entries) in
   List.iter (fun ent ->
-    Hashtbl.replace titles (Bushel.Entry.slug ent) (Bushel.Entry.title ent)
+    Hashtbl.replace meta (Bushel.Entry.slug ent)
+      (Bushel.Entry.title ent, entry_tags ent)
   ) entries;
-  let entry_title slug = Hashtbl.find_opt titles slug in
-  List.iter (fun link -> index_link t ~entry_title link) links;
+  let entry_meta slug = Hashtbl.find_opt meta slug in
+  List.iter (fun link -> index_link t ~entry_meta link) links;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "COMMIT");
   (* Log per-table counts *)
   List.iter (fun kind ->
@@ -628,7 +642,11 @@ let parse_search_input input =
     | _ ->
       if w = "" then None
       else if String.length w > 1 && w.[0] = '#' then begin
-        found_tags := String.sub w 1 (String.length w - 1) :: !found_tags;
+        (* Tag rows are stored lowercased, so the filter matches any case
+           the reader types. *)
+        found_tags :=
+          String.lowercase_ascii (String.sub w 1 (String.length w - 1))
+          :: !found_tags;
         None
       end
       else Some w

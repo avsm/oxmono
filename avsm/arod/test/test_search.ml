@@ -132,6 +132,35 @@ let () =
     (List.exists (fun (h : Arod_search.hit) -> h.url = "https://zarr.dev")
        r.links)
 
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t = index ~sw
+      ~notes:[ note ~slug:"n1" ~tags:[ "opensource" ] ~title:"Open note" "x" ]
+      ~links:
+        [
+          { (link ~title:"Repo" ~slugs:[ "n1" ] "https://r.org/a") with
+            karakeep =
+              Some
+                {
+                  Bushel.Link.remote_url = "https://r.org/a";
+                  id = "k";
+                  tags = [ "OCaml" ];
+                  metadata = [ ("title", "Repo") ];
+                };
+          };
+        ]
+      ()
+  in
+  let today = (2026, 8, 23) in
+  let r = Arod_search.search t ~today "#opensource #ocaml" in
+  check "a tag filter matches a link's inherited and lowercased tags"
+    (List.exists (fun (h : Arod_search.hit) -> h.url = "https://r.org/a")
+       r.links);
+  let r = Arod_search.search t ~today "#OpenSource" in
+  check "a #tag filter is case insensitive"
+    (r.links <> [] || r.work <> [])
+
 let today = (2026, 8, 23)
 
 let slugs (hits : Arod_search.hit list) =

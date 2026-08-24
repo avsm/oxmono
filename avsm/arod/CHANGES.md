@@ -1,5 +1,8 @@
 ## Unreleased
 
+- The search page's facet row no longer reserves empty space when a
+  browse has no tag facet, and the sort-toggle links percent-encode the
+  query correctly.
 - Search ranks results in tiers: pages and tags the query names, then papers,
   notes, projects, ideas and talks by relevance, then the links they cite.
   Links are deduplicated and links to this site are left out.

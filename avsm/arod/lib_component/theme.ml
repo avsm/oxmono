@@ -231,13 +231,6 @@ let custom_css = {|
   a.no-underline, a.no-underline:hover {
     text-decoration: none;
   }
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
   .sidenote-ref {
     cursor: help;
   }
@@ -2320,10 +2313,9 @@ let custom_css = {|
 .sp-form:focus-within { border-color: var(--color-accent); }
 .sp-prompt { color: var(--color-accent); font-family: ui-monospace, 'SF Mono', monospace; font-weight: 600; font-size: 0.85rem; }
 .sp-form input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--color-text); font: inherit; font-size: 1rem; }
-.sp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 2rem; }
+.sp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 2rem; row-gap: 0.9rem; }
 @media (max-width: 56rem) { .sp-grid { grid-template-columns: minmax(0, 1fr); } }
 .sp-count { grid-column: 1 / -1; font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.75rem; color: var(--color-muted); }
-.sp-grid { row-gap: 0.9rem; }
 .sp-sort { display: inline-flex; border: 1px solid var(--color-border); border-radius: 999px; overflow: hidden; background: var(--color-bg); }
 .sp-sort-opt { font-size: 0.68rem; padding: 0.05rem 0.55rem; color: var(--color-muted); text-decoration: none !important; }
 .sp-sort-opt.on { background: var(--color-accent); color: #fff; }
@@ -2333,9 +2325,7 @@ let custom_css = {|
 @keyframes sp-rotate { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sp-spin.busy { animation: none; } }
 .sp-link[data-href] { cursor: pointer; }
-.sp-link .sp-t { text-decoration: none !important; color: var(--color-text) !important; }
 .sp-link:hover .sp-t, .sp-link .sp-t:hover { text-decoration: underline !important; }
-.sp-via { text-decoration: none !important; }
 .sp-via:hover { text-decoration: underline !important; color: var(--color-link) !important; }
 /* A hit's media block: the entry image washed into the background with
    the kind icon as a corner badge, or the icon alone on a tinted square.
@@ -2376,7 +2366,6 @@ let custom_css = {|
 .sp-media-solo {
   background: color-mix(in srgb, currentColor 12%, var(--color-surface));
 }
-.sp-ic-weekly { color: #14b8a6; }
 @media (prefers-reduced-motion: reduce) { .sp-media img { transition: none; } }
 /* Each tier is a card: a surface header strip naming the tier and how it
    is ordered, hairline-separated rows, and a footer strip for more. */
@@ -2398,11 +2387,11 @@ let custom_css = {|
 .sp-ic, .sp-fav { width: 1.3rem; height: 1.3rem; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem; color: var(--color-secondary); }
 .sp-fav img { width: 16px; height: 16px; border-radius: 3px; }
 .sp-ic-paper { color: #3b82f6; } .sp-ic-note { color: #10b981; } .sp-ic-project { color: #8b5cf6; }
-.sp-ic-idea { color: #f59e0b; } .sp-ic-video { color: #ef4444; }
+.sp-ic-idea { color: #f59e0b; } .sp-ic-video { color: #ef4444; } .sp-ic-weekly { color: #14b8a6; }
 .sp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
 .sp-line { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
 .sp-line .sp-t { font-weight: 500; font-size: 0.88rem; flex: 1; min-width: 0; }
-.sp-link .sp-t { font-size: 0.78rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sp-link .sp-t { text-decoration: none !important; color: var(--color-text) !important; font-size: 0.78rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .sp-d { font-size: 0.7rem; color: var(--color-muted); flex-shrink: 0; white-space: nowrap; }
 .sp-snip { font-size: 0.78rem; color: var(--color-secondary); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .sp-snip b, .sp-t b { background: var(--color-highlight); font-weight: 600; border-radius: 2px; }
@@ -2411,7 +2400,7 @@ let custom_css = {|
 .sp-tag:hover { border-color: var(--color-accent); color: var(--color-text); }
 .sp-meta { display: flex; gap: 0.6rem; align-items: baseline; min-width: 0; font-size: 0.7rem; }
 .sp-dom { color: var(--color-muted); flex-shrink: 0; }
-.sp-via { color: var(--color-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-via { text-decoration: none !important; color: var(--color-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-via-in { color: var(--color-muted); }
 .sp-more { display: block; width: 100%; text-align: left; padding: 0.35rem 0.75rem; font: inherit; font-size: 0.76rem; color: var(--color-link); background: var(--color-surface); border: 0; border-top: 1px solid var(--color-border); cursor: pointer; }
 .sp-more:hover { text-decoration: underline; }

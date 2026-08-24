@@ -44,10 +44,20 @@ let mark ~terms title =
 
 let host url = S.host_of_url url
 
-let section_head label total =
+(* Every section shares one header anatomy so the tiers read as one
+   system: the label names the tier, the note says how it is ordered,
+   and the badge carries the total. *)
+let section_head ?note ?total label =
+  let note = match note with
+    | Some n -> [El.span ~at:[At.class' "sp-note"] [El.txt n]]
+    | None -> []
+  in
+  let badge = match total with
+    | Some n -> [El.span ~at:[At.class' "sp-n"] [El.txt (string_of_int n)]]
+    | None -> []
+  in
   El.div ~at:[At.class' "sp-sec-h"]
-    [ El.span ~at:[At.class' "sp-eyebrow"] [El.txt label];
-      El.span ~at:[At.class' "sp-n"] [El.txt (string_of_int total)] ]
+    ([ El.span ~at:[At.class' "sp-eyebrow"] [El.txt label] ] @ note @ badge)
 
 let more ~shown ~total ~param =
   if total > shown then
@@ -75,8 +85,7 @@ let goto_section (r : S.results) =
   | [] -> El.void
   | gs ->
     El.div ~at:[At.class' "sp-sec"]
-      [ El.div ~at:[At.class' "sp-sec-h"]
-          [El.span ~at:[At.class' "sp-eyebrow"] [El.txt "Go to"]];
+      [ section_head ~note:"pages this query names" "Go to";
         El.div ~at:[At.class' "sp-gotos"] (List.map goto_chip gs) ]
 
 let tags_el tags =
@@ -150,13 +159,10 @@ let facets ~q (r : S.results) =
       [ El.txt ("#" ^ t); El.txt " ";
         El.span ~at:[At.class' "sp-n"] [El.txt (string_of_int n)] ]
   in
-  if r.kinds = [] && r.tags = [] then El.void
+  if r.kinds = [] && r.tags = [] then []
   else
-    El.div ~at:[At.class' "sp-sec"]
-      [ El.div ~at:[At.class' "sp-sec-h"]
-          [El.span ~at:[At.class' "sp-eyebrow"] [El.txt "Narrow"]];
-        El.div ~at:[At.class' "sp-facets"] (List.map kind_chip r.kinds);
-        El.div ~at:[At.class' "sp-facets"] (List.map tag_chip r.tags) ]
+    [ El.div ~at:[At.class' "sp-facets"] (List.map kind_chip r.kinds);
+      El.div ~at:[At.class' "sp-facets"] (List.map tag_chip r.tags) ]
 
 (* A corrupt year outside this range would otherwise size the bar list, and
    a bad one such as 1 would render thousands of empty divs. *)
@@ -180,24 +186,39 @@ let histogram (r : S.results) =
     El.div ~at:[At.class' "sp-years"] bars
 
 let rail ~ctx ~q (r : S.results) =
+  let chips = facets ~q r in
+  let has_years =
+    List.exists (fun (y, _) -> y >= 1970 && y <= 2100) r.years
+  in
+  let narrow =
+    if chips = [] && not has_years then El.void
+    else
+      El.div ~at:[At.class' "sp-sec"]
+        ([ section_head ~note:"filter these results" "Narrow" ]
+         @ chips @ [ histogram r ])
+  in
   let links = match r.links with
     | [] -> El.void
     | ls ->
-      El.div ~at:[At.class' "sp-sec"]
-        ([ section_head "Links cited on this site" r.links_total ]
-         @ List.map (link_row ~ctx ~terms:r.terms) ls
+      El.div ~at:[At.class' "sp-sec sp-links"]
+        ([ section_head ~note:"cited from entries here"
+             ~total:r.links_total "Links" ]
+         @ [ El.div ~at:[At.class' "sp-rows"]
+               (List.map (link_row ~ctx ~terms:r.terms) ls) ]
          @ [ more ~shown:(List.length ls) ~total:r.links_total
                ~param:"link_limit" ])
   in
-  El.aside ~at:[At.class' "sp-rail"] [ facets ~q r; histogram r; links ]
+  El.aside ~at:[At.class' "sp-rail"] [ narrow; links ]
 
 let main_column ~q (r : S.results) =
   let work = match r.work with
     | [] -> El.void
     | ws ->
       El.div ~at:[At.class' "sp-sec"]
-        ([ section_head "On this site" r.work_total ]
-         @ List.map (work_row ~terms:r.terms) ws
+        ([ section_head ~note:"ranked by relevance"
+             ~total:r.work_total "On this site" ]
+         @ [ El.div ~at:[At.class' "sp-rows"]
+               (List.map (work_row ~terms:r.terms) ws) ]
          @ [ more ~shown:(List.length ws) ~total:r.work_total ~param:"limit" ])
   in
   let count =

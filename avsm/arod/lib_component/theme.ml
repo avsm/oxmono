@@ -1460,56 +1460,6 @@ let custom_css = {|
     z-index: 71;
   }
   .lightbox-close:hover { color: #fff; }
-  /* Search page */
-  .sp-page { max-width: 72rem; margin: 0 auto; }
-  .sp-form { display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--color-border-faint); border-radius: 6px; padding: 0.4rem 0.7rem; margin-bottom: 0.9rem; }
-  .sp-form:focus-within { border-color: var(--color-accent); }
-  .sp-prompt { color: var(--color-accent); font-family: ui-monospace, 'SF Mono', monospace; font-weight: 600; font-size: 0.85rem; }
-  .sp-form input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--color-text); font: inherit; font-size: 1rem; }
-  .sp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 2rem; }
-  @media (max-width: 56rem) { .sp-grid { grid-template-columns: 1fr; } }
-  .sp-count { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.78rem; color: var(--color-secondary); margin-bottom: 0.6rem; }
-  .sp-sec { margin-bottom: 1.1rem; }
-  .sp-sec-h { display: flex; justify-content: space-between; align-items: baseline; padding: 0.2rem 0; }
-  .sp-eyebrow { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-muted); }
-  .sp-n { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.68rem; color: var(--color-faint); }
-  .sp-gotos { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.25rem 0 0.45rem; }
-  .sp-goto { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.6rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.82rem; text-decoration: none !important; color: var(--color-text) !important; }
-  .sp-goto .sp-t { font-weight: 500; }
-  .sp-goto .sp-sub { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.68rem; color: var(--color-muted); }
-  .sp-goto:hover, .sp-goto.selected { border-color: var(--color-accent); background: var(--color-surface); }
-  .sp-hit { text-decoration: none !important; color: inherit !important; }
-  .sp-work, .sp-link { display: flex; gap: 0.55rem; padding: 0.4rem 0.5rem; margin-left: -0.5rem; border-left: 2px solid transparent; border-radius: 4px; }
-  .sp-work:hover, .sp-work.selected, .sp-link:hover, .sp-link.selected { background: var(--color-surface); border-left-color: var(--color-accent); }
-  .sp-ic, .sp-fav { width: 1.3rem; height: 1.3rem; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem; color: var(--color-secondary); }
-  .sp-fav img { width: 16px; height: 16px; border-radius: 3px; }
-  .sp-ic-paper { color: #3b82f6; } .sp-ic-note { color: #10b981; } .sp-ic-project { color: #8b5cf6; }
-  .sp-ic-idea { color: #f59e0b; } .sp-ic-video { color: #ef4444; }
-  .sp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
-  .sp-line { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
-  .sp-line .sp-t { font-weight: 500; font-size: 0.88rem; flex: 1; min-width: 0; }
-  .sp-link .sp-t { font-size: 0.82rem; }
-  .sp-d { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.7rem; color: var(--color-muted); flex-shrink: 0; }
-  .sp-snip { font-size: 0.78rem; color: var(--color-secondary); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .sp-snip b, .sp-t b { background: var(--color-highlight); font-weight: 600; border-radius: 2px; }
-  .sp-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-  .sp-tags span { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.64rem; color: var(--color-muted); }
-  .sp-meta { display: flex; gap: 0.6rem; align-items: baseline; min-width: 0; font-size: 0.7rem; }
-  .sp-dom { font-family: ui-monospace, 'SF Mono', monospace; color: var(--color-muted); flex-shrink: 0; }
-  .sp-via { color: var(--color-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sp-via-in { color: var(--color-muted); }
-  .sp-more { display: block; padding: 0.3rem 0; font: inherit; font-size: 0.76rem; color: var(--color-link); background: transparent; border: 0; cursor: pointer; }
-  .sp-more:hover { text-decoration: underline; }
-  .sp-rail { border-left: 1px solid var(--color-border); padding-left: 1.25rem; font-size: 0.82rem; }
-  @media (max-width: 56rem) { .sp-rail { border-left: 0; padding-left: 0; border-top: 1px solid var(--color-border); padding-top: 1rem; } }
-  .sp-facets { display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.2rem 0 0.5rem; }
-  .sp-f { display: inline-flex; gap: 0.3rem; align-items: baseline; font: inherit; font-size: 0.74rem; padding: 0.1rem 0.5rem; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-secondary); cursor: pointer; background: var(--color-bg); }
-  .sp-f:hover, .sp-f.on { border-color: var(--color-accent); color: var(--color-text); }
-  .sp-years { display: flex; align-items: flex-end; gap: 2px; height: 2.2rem; margin: 0.2rem 0 1.2rem; }
-  .sp-year { flex: 1; background: var(--color-border-faint); border-radius: 1px 1px 0 0; position: relative; min-height: 2px; }
-  .sp-year.hot { background: var(--color-accent); }
-  .sp-year span { position: absolute; bottom: -0.95rem; left: 0; font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.58rem; color: var(--color-faint); }
-  .sp-empty { padding: 2rem 1rem; text-align: center; color: var(--color-secondary); font-size: 0.85rem; grid-column: 1 / -1; }
   /* Project grid — two-column CSS Grid layout */
   .proj-grid {
     display: grid;
@@ -2361,6 +2311,64 @@ let custom_css = {|
     display: block;
   }
 }
+
+/* Search page */
+/* Unlayered: the section cards, rows and form draw 1px borders, and
+   Tailwind's unlayered preflight zeroes border-width inside @layer. */
+.sp-page { max-width: 72rem; margin: 0 auto; }
+.sp-form { display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--color-border-faint); border-radius: 6px; padding: 0.4rem 0.7rem; margin-bottom: 0.9rem; }
+.sp-form:focus-within { border-color: var(--color-accent); }
+.sp-prompt { color: var(--color-accent); font-family: ui-monospace, 'SF Mono', monospace; font-weight: 600; font-size: 0.85rem; }
+.sp-form input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--color-text); font: inherit; font-size: 1rem; }
+.sp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 2rem; }
+@media (max-width: 56rem) { .sp-grid { grid-template-columns: minmax(0, 1fr); } }
+.sp-count { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.75rem; color: var(--color-muted); margin-bottom: 0.75rem; }
+/* Each tier is a card: a surface header strip naming the tier and how it
+   is ordered, hairline-separated rows, and a footer strip for more. */
+.sp-sec { margin-bottom: 1.25rem; border: 1px solid var(--color-border-light); border-radius: 8px; background: var(--color-bg); overflow: hidden; }
+.sp-sec-h { display: flex; align-items: baseline; gap: 0.6rem; padding: 0.4rem 0.75rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); }
+.sp-eyebrow { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-dim); font-weight: 600; }
+.sp-note { font-size: 0.7rem; color: var(--color-muted); }
+.sp-sec-h .sp-n { margin-left: auto; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-bg); }
+.sp-n { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.68rem; color: var(--color-faint); font-variant-numeric: tabular-nums; }
+.sp-rows .sp-hit + .sp-hit { border-top: 1px solid var(--color-border); }
+.sp-gotos { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.6rem 0.75rem; }
+.sp-goto { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.6rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.82rem; text-decoration: none !important; color: var(--color-text) !important; }
+.sp-goto .sp-t { font-weight: 500; }
+.sp-goto .sp-sub { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.68rem; color: var(--color-muted); }
+.sp-goto:hover, .sp-goto.selected { border-color: var(--color-accent); background: var(--color-surface); }
+.sp-hit { text-decoration: none !important; color: inherit !important; }
+.sp-work, .sp-link { display: flex; gap: 0.55rem; padding: 0.5rem 0.75rem; border-left: 2px solid transparent; }
+.sp-work:hover, .sp-work.selected, .sp-link:hover, .sp-link.selected { background: var(--color-surface); border-left-color: var(--color-accent); }
+.sp-ic, .sp-fav { width: 1.3rem; height: 1.3rem; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem; color: var(--color-secondary); }
+.sp-fav img { width: 16px; height: 16px; border-radius: 3px; }
+.sp-ic-paper { color: #3b82f6; } .sp-ic-note { color: #10b981; } .sp-ic-project { color: #8b5cf6; }
+.sp-ic-idea { color: #f59e0b; } .sp-ic-video { color: #ef4444; }
+.sp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.sp-line { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.sp-line .sp-t { font-weight: 500; font-size: 0.88rem; flex: 1; min-width: 0; }
+.sp-link .sp-t { font-size: 0.82rem; overflow-wrap: anywhere; }
+.sp-d { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.7rem; color: var(--color-muted); flex-shrink: 0; }
+.sp-snip { font-size: 0.78rem; color: var(--color-secondary); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sp-snip b, .sp-t b { background: var(--color-highlight); font-weight: 600; border-radius: 2px; }
+.sp-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.sp-tags span { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.64rem; color: var(--color-muted); }
+.sp-meta { display: flex; gap: 0.6rem; align-items: baseline; min-width: 0; font-size: 0.7rem; }
+.sp-dom { font-family: ui-monospace, 'SF Mono', monospace; color: var(--color-muted); flex-shrink: 0; }
+.sp-via { color: var(--color-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-via-in { color: var(--color-muted); }
+.sp-more { display: block; width: 100%; text-align: left; padding: 0.35rem 0.75rem; font: inherit; font-size: 0.76rem; color: var(--color-link); background: var(--color-surface); border: 0; border-top: 1px solid var(--color-border); cursor: pointer; }
+.sp-more:hover { text-decoration: underline; }
+.sp-rail { font-size: 0.82rem; }
+.sp-facets { display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.5rem 0.75rem 0.15rem; }
+.sp-facets:last-of-type { padding-bottom: 0.5rem; }
+.sp-f { display: inline-flex; gap: 0.3rem; align-items: baseline; font: inherit; font-size: 0.74rem; padding: 0.1rem 0.5rem; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-secondary); cursor: pointer; background: var(--color-bg); }
+.sp-f:hover, .sp-f.on { border-color: var(--color-accent); color: var(--color-text); }
+.sp-years { display: flex; align-items: flex-end; gap: 2px; height: 2.2rem; margin: 0.4rem 0.75rem 1.3rem; }
+.sp-year { flex: 1; background: var(--color-border-faint); border-radius: 1px 1px 0 0; position: relative; min-height: 2px; }
+.sp-year.hot { background: var(--color-accent); }
+.sp-year span { position: absolute; bottom: -0.95rem; left: 0; font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.58rem; color: var(--color-faint); }
+.sp-empty { padding: 2rem 1rem; text-align: center; color: var(--color-secondary); font-size: 0.85rem; grid-column: 1 / -1; }
 
 /* Weeknote ledger slice — unlayered so the fixed crop height wins over the
    Tailwind preflight img { height: auto } reset */

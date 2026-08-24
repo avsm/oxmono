@@ -1,8 +1,8 @@
-# The cohttp-eio backend, against a local Eio server
+# The httpz backend, against a local Eio server
 
 ```ocaml
 # #require "checkseum.c";;
-# #require "fetch-cohttp";;
+# #require "fetch-httpz";;
 # #require "eio_main";;
 ```
 
@@ -140,7 +140,7 @@ let with_server_env fn =
   fn env (fun path -> Fmt.str "http://127.0.0.1:%d%s" port path)
 
 let with_server fn =
-  with_server_env (fun env url -> fn (Fetch_cohttp.v (Eio.Stdenv.net env) ()) url)
+  with_server_env (fun env url -> fn (Fetch_httpz.v (Eio.Stdenv.net env) ()) url)
 
 (* The server speaks plaintext, so an https URL naming it is only useful
    alongside a TLS wrapper that does nothing. *)
@@ -167,7 +167,7 @@ let with_loopback_server fn =
   in
   Fiber.fork_daemon ~sw (fun () ->
       Eio.Net.run_server sock handle_client ~on_error:(fun _ -> ()));
-  fn (Fetch_cohttp.v net ()) (fun path -> Fmt.str "http://%s:%d%s" host port path)
+  fn (Fetch_httpz.v net ()) (fun path -> Fmt.str "http://%s:%d%s" host port path)
 ```
 
 ## Basic fetch
@@ -203,7 +203,7 @@ server sees a request per hop and policy applies to each:
 - : int = 302
 ```
 
-## Narrowing and appending work over cohttp
+## Narrowing and appending work over httpz
 
 The same wrappers tested against the mock apply unchanged. The test
 server speaks plaintext http, so attaching a credential needs the
@@ -247,6 +247,10 @@ server intact:
 
 ## What a bare GET puts on the wire
 
+A request with no content carries no framing header, which is
+[RFC 9110 §8.6](https://www.rfc-editor.org/rfc/rfc9110#section-8.6)'s
+`SHOULD NOT` for a user agent:
+
 ```ocaml
 # with_server @@ fun t url ->
   (* [Host] must name the origin, port included. The port changes per
@@ -258,14 +262,13 @@ server intact:
   |> List.map (fun l -> if l = expected then "host: <the origin>" else l);;
 > GET /dump HTTP/1.1
 - : string list =
-["accept-encoding: gzip"; "connection: close"; "content-length: 0";
- "host: <the origin>"; "user-agent: fetch-cohttp"]
+["accept-encoding: gzip"; "connection: close"; "host: <the origin>";
+ "user-agent: fetch-httpz"]
 ```
 
-`Host` is derived from the URL rather than left to cohttp, which
-reconstructs it by appending the port to the unbracketed host and so
-writes `::1:80` for an IPv6 literal. It matches the URL's authority
-whichever address family the server is on:
+`Host` is derived from the URL the policy layer approved. It matches the
+URL's authority whichever address family the server is on, brackets
+included for an IPv6 literal:
 
 ```ocaml
 # with_loopback_server @@ fun t url ->
@@ -276,11 +279,6 @@ whichever address family the server is on:
 > GET /dump HTTP/1.1
 - : bool = true
 ```
-
-`Content-Length: 0` on a request that has no content is
-[RFC 9110 §8.6](https://www.rfc-editor.org/rfc/rfc9110#section-8.6)'s
-`SHOULD NOT`; cohttp derives the framing headers itself and offers no way
-to leave both of them off.
 
 ## Request bodies
 
@@ -359,9 +357,9 @@ fails the request:
 ```
 
 Every response framing an HTTP/1.1 server may use is read: a length, a
-chunked body, or a body that simply ends with the connection. Trailer
-fields are discarded, which is why {!Fetch.trailers} answers `None` for
-the chunked one:
+chunked body, or a body that simply ends with the connection. The
+trailer fields of the chunked one are kept, and `Fetch.trailers`
+answers with them once the body has been read to its end:
 
 ```ocaml
 # with_server @@ fun t url ->
@@ -377,7 +375,17 @@ the chunked one:
 > GET /chunked HTTP/1.1
 > GET /eof HTTP/1.1
 - : (string * bool) * (string * bool) =
-(("hello world", false), ("no length here", false))
+(("hello world", true), ("no length here", false))
+```
+
+```ocaml
+# with_server @@ fun t url ->
+  Eio.Switch.run @@ fun sw ->
+  let resp = Fetch.get ~sw t (url "/chunked") in
+  ignore (Eio.Buf_read.(parse_exn ~max_size:1000 take_all) (body resp) : string);
+  Option.map (fun h -> Http.Header.get h "x-checksum") (Fetch.trailers resp);;
+> GET /chunked HTTP/1.1
+- : string option option = Some (Some "abc123")
 ```
 
 An abandoned body does not wedge the client: its connection is dropped
@@ -403,7 +411,7 @@ dropped rather than read on:
 
 ```ocaml
 # with_server_env @@ fun env url ->
-  let t = Fetch_cohttp.v ~max_response:1024 (Eio.Stdenv.net env) () in
+  let t = Fetch_httpz.v ~max_response:1024 (Eio.Stdenv.net env) () in
   (try ignore (Fetch.read t (url "/big") : string); "read it all!"
    with Eio.Io (E (Protocol_error msg), _) -> msg);;
 > GET /big HTTP/1.1
@@ -483,46 +491,44 @@ block until the peer gave up:
   (agent (), agent ~headers:Header.[ user_agent, "mine/1.0" ] ());;
 > GET /agent HTTP/1.1
 > GET /agent HTTP/1.1
-- : string * string = ("fetch-cohttp", "mine/1.0")
+- : string * string = ("fetch-httpz", "mine/1.0")
 ```
 
 ## Oversized header blocks are refused
 
-A server that never finishes its header block would otherwise be able to
-make the client allocate without bound:
+The response head must fit httpz's parse window, so a server that never
+finishes its header block cannot make the client allocate without
+bound:
 
 ```ocaml
 # with_server @@ fun t url ->
   (try ignore (Fetch.read t (url "/manyheaders") : string); "read it all!"
    with Eio.Io (E (Protocol_error msg), _) -> msg);;
 > GET /manyheaders HTTP/1.1
-- : string = "response headers exceed 262144 bytes"
+- : string = "response headers exceed 30000 bytes"
 ```
 
-## Interim responses
+## Interim responses are skipped
 
-cohttp-eio hands back the first response block it reads, so an
-unsolicited `1xx` cannot be skipped over to reach the response it
-precedes. Rather than return the interim block as though it were the
-answer, the backend refuses it:
+An unsolicited `1xx` is a bare head that precedes the response proper
+([RFC 9110 §15.2](https://www.rfc-editor.org/rfc/rfc9110#section-15.2)).
+The backend reads past it to the answer:
 
 ```ocaml
 # with_server @@ fun t url ->
-  (try ignore (Fetch.read t (url "/early") : string); "read the 200"
-   with Eio.Io (E (Protocol_error msg), _) -> msg);;
+  Fetch.read t (url "/early");;
 > GET /early HTTP/1.1
-- : string =
-"server sent an interim 103 response, which this backend cannot skip"
+- : string = "hi"
 ```
 
 ## https needs a TLS provider
 
-cohttp-eio does the TLS wrapping through a caller-supplied function, so
-without one an https URL is refused before any connection is made:
+The TLS wrapping comes from a caller-supplied function, so without one
+an https URL is refused before any connection is made:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
-  let t = Fetch_cohttp.v (Eio.Stdenv.net env) () in
+  let t = Fetch_httpz.v (Eio.Stdenv.net env) () in
   (try ignore (Fetch.read t "https://example.com/" : string); "connected!"
    with Eio.Io (E (Tls_failure msg), _) -> msg);;
 - : string = "no TLS provider: pass ~https to fetch https URLs"
@@ -536,7 +542,7 @@ URL:
 ```ocaml
 # with_server_env @@ fun env url ->
   let https uri conn = Fmt.pr "wrapping %s@." (Option.get (Uri.host uri)); conn in
-  let t = Fetch_cohttp.v ~https (Eio.Stdenv.net env) () in
+  let t = Fetch_httpz.v ~https (Eio.Stdenv.net env) () in
   Fetch.read t (as_https (url "/hello"));;
 wrapping 127.0.0.1
 > GET /hello HTTP/1.1
@@ -549,7 +555,7 @@ Whatever a wrapper raises when it rejects a certificate is reported as a
 ```ocaml
 # with_server_env @@ fun env url ->
   let https _uri _conn = failwith "certificate rejected" in
-  let t = Fetch_cohttp.v ~https (Eio.Stdenv.net env) () in
+  let t = Fetch_httpz.v ~https (Eio.Stdenv.net env) () in
   (try ignore (Fetch.read t (as_https (url "/hello")) : string); "connected!"
    with Eio.Io (E (Tls_failure msg), _) -> msg);;
 - : string = "Failure(\"certificate rejected\")"
@@ -562,7 +568,7 @@ port is one nothing listens on:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
-  let t = Fetch_cohttp.v (Eio.Stdenv.net env) () in
+  let t = Fetch_httpz.v (Eio.Stdenv.net env) () in
   (try ignore (Fetch.read t "http://127.0.0.1:9/" : string); "connected!"
    with Eio.Io (E (Connection_failure (Refused _)), _) -> "refused");;
 - : string = "refused"
@@ -573,7 +579,7 @@ connection that is refused rather than a name that cannot be found:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
-  let t = Fetch_cohttp.v (Eio.Stdenv.net env) () in
+  let t = Fetch_httpz.v (Eio.Stdenv.net env) () in
   (try ignore (Fetch.read t "http://[::1]:9/" : string); "connected!"
    with Eio.Io (E (Connection_failure (Refused _)), _) -> "refused");;
 - : string = "refused"
@@ -581,14 +587,14 @@ connection that is refused rather than a name that cannot be found:
 
 ## The std client
 
-`Fetch_cohttp.std env` is the recommended real-world stack in one call:
-the cohttp backend plus a cookie jar, per-origin flow control and
+`Fetch_httpz.std env` is the recommended real-world stack in one call:
+the httpz backend plus a cookie jar, per-origin flow control and
 retries, minted from stdenv capabilities. Cookies flow without further
 setup:
 
 ```ocaml
 # with_server_env @@ fun env url ->
-  let t = Fetch_cohttp.std env in
+  let t = Fetch_httpz.std env in
   ignore (Fetch.read t (url "/setcookie") : string);
   Fetch.read t (url "/cookie-echo");;
 > GET /setcookie HTTP/1.1
@@ -600,7 +606,7 @@ Policy narrows it like any other client:
 
 ```ocaml
 # with_server_env @@ fun env url ->
-  let t = Fetch.restrict (Fetch_cohttp.std env)
+  let t = Fetch.restrict (Fetch_httpz.std env)
       ~under:[ "https://allowed.example" ] in
   (try ignore (Fetch.read t (url "/hello") : string); "reached the network!"
    with Eio.Io (E (Denied _), _) -> "denied before the network");;

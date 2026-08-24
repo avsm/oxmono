@@ -1,3 +1,0 @@
-(mdx
- (package fetch-cohttp)
- (deps (package fetch-cohttp) (package fetch)))

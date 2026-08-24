@@ -1,0 +1,8 @@
+; The mdx suite (httpz.md) needs ocaml-mdx, which this workspace's
+; switch does not carry; it runs in the standalone fetch repository.
+; test_backend.ml covers the same behaviour with alcotest so the
+; backend stays verified here.
+(test
+ (name test_backend)
+ (package fetch-httpz)
+ (libraries fetch fetch-httpz http uri alcotest cstruct fmt eio eio_main))

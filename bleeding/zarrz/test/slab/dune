@@ -1,0 +1,9 @@
+(test
+ (name test_slab)
+ (package zarrz)
+ (libraries
+  zarrz
+  alcotest
+  base_bigstring
+  stdlib_stable
+  stdlib_upstream_compatible))

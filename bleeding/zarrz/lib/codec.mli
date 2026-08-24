@@ -86,8 +86,9 @@ val encode_chunk : chain -> Slab.t -> Base_bigstring.t
 (** [encode_chunk c slab] encodes one whole chunk. *)
 
 val supports_partial : chain -> bool
-(** [supports_partial c] is true when [c] has no bytes to bytes codecs
-    and its array to bytes codec can decode ranges. *)
+(** [supports_partial c] is true when [c] has no array to array and no
+    bytes to bytes codecs and its array to bytes codec can decode
+    ranges. *)
 
 val partial_decode :
   chain -> repr -> Byte_source.t -> Subset.t -> Slab.t option

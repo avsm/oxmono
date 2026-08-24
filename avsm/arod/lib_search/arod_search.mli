@@ -85,15 +85,23 @@ val rebuild : t -> Arod.Ctx.t -> unit
 val index :
   t ->
   own_host:string ->
-  contact_name:(string -> string option) ->
+  body_text:(Bushel.Entry.entry -> string) ->
   entries:Bushel.Entry.entry list ->
   links:Bushel.Link.t list ->
   unit
-(** [index t ~own_host ~contact_name ~entries ~links] drops every table and
-    indexes [entries] and [links]. [contact_name handle] is the display name
-    a body mention of [handle] expands to. [own_host] is the host of the
-    site's own base URL, and links on it are left out of search results. It
-    is what {!rebuild} calls with a context's contents. *)
+(** [index t ~own_host ~body_text ~entries ~links] drops every table and
+    indexes [entries] and [links]. [body_text ent] is the prose indexed
+    for [ent], so markup never reaches the index or a snippet. {!rebuild}
+    renders it through the site's HTML pipeline, and {!plain_body} is the
+    context-free fallback. [own_host] is the host of the site's own base
+    URL, and links on it are left out of search results. *)
+
+val plain_body :
+  contact_name:(string -> string option) -> Bushel.Entry.entry -> string
+(** [plain_body ~contact_name ent] is the body of [ent] with its markdown
+    removed. [contact_name handle] is the display name a mention of
+    [handle] expands to. A [body_text] for callers with no context to
+    render through. *)
 
 type order = [ `Relevance | `Date ]
 (** How the work and links tiers are ordered. [`Relevance] is the ranking

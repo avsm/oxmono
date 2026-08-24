@@ -79,10 +79,25 @@ let link ?(title = "") ?(slugs = []) ?(date = (2024, 1, 1))
 let index ~sw ?(own_host = "") ~notes ~links () =
   let t = Arod_search.create_memory ~sw () in
   Arod_search.index t ~own_host
-    ~contact_name:(fun _ -> None)
+    ~body_text:(Arod_search.plain_body ~contact_name:(fun _ -> None))
     ~entries:(List.map (fun n -> `Note n) notes)
     ~links;
   t
+
+let () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let t = index ~sw
+      ~notes:[ note ~slug:"m" ~title:"Spec note"
+                 "Read [the spec](http://spec.example.org/deep) today." ]
+      ~links:[] ()
+  in
+  let today = (2026, 8, 23) in
+  check "markup targets are not indexed"
+    ((Arod_search.search t ~today "example").work = []
+    && (Arod_search.search t ~today "http").work = []);
+  check "the link's text is indexed in its place"
+    (List.length (Arod_search.search t ~today "spec").work = 1)
 
 let today = (2026, 8, 23)
 
@@ -238,7 +253,7 @@ let () =
   Eio.Switch.run @@ fun sw ->
   let t = Arod_search.create_memory ~sw () in
   Arod_search.index t ~own_host:""
-    ~contact_name:(fun _ -> None)
+    ~body_text:(Arod_search.plain_body ~contact_name:(fun _ -> None))
     ~entries:
       [
         `Project (project ~slug:"ocamllabs" ~title:"OCaml Labs" ~start:2012);
@@ -334,7 +349,7 @@ let () =
   Eio.Switch.run (fun sw ->
     let t = Arod_search.create ~sw db_path in
     Arod_search.index t ~own_host:"example.com"
-      ~contact_name:(fun _ -> None)
+      ~body_text:(Arod_search.plain_body ~contact_name:(fun _ -> None))
       ~entries:
         [
           `Note
@@ -373,7 +388,7 @@ let () =
   Eio.Switch.run (fun sw ->
     let t = Arod_search.create ~sw db_path in
     Arod_search.index t ~own_host:"example.com"
-      ~contact_name:(fun _ -> None)
+      ~body_text:(Arod_search.plain_body ~contact_name:(fun _ -> None))
       ~entries:
         [
           `Note

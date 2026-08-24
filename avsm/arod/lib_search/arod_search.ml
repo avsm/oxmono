@@ -211,7 +211,19 @@ let insert_tag_row t ~tag ~kind ~slug ~url ~title ~date =
   | Sqlite3.Rc.DONE -> ()
   | rc -> Sqlite3.Rc.check rc
 
-let index_entry t ~contact_name (ent : Bushel.Entry.entry) =
+(* The markdown source of an entry, before [body_text] turns it into the
+   prose a reader sees. *)
+let entry_markdown (ent : Bushel.Entry.entry) = match ent with
+  | `Paper p -> Bushel.Paper.abstract p
+  | `Note n -> Bushel.Note.body n
+  | `Project p -> Bushel.Project.body p
+  | `Idea i -> Bushel.Idea.body i
+  | `Video v -> Bushel.Video.description v
+
+let plain_body ~contact_name ent =
+  Bushel.Md.plain_text_of_markdown ~contact_name (entry_markdown ent)
+
+let index_entry t ~body_text (ent : Bushel.Entry.entry) =
   let slug = Bushel.Entry.slug ent in
   let kind = Bushel.Entry.to_type_string ent in
   let url = Bushel.Entry.site_url ent in
@@ -225,14 +237,7 @@ let index_entry t ~contact_name (ent : Bushel.Entry.entry) =
     | `Video v -> Bushel.Video.tags v
   in
   let tags = String.concat " " tags_list in
-  let plain = Bushel.Md.plain_text_of_markdown ~contact_name in
-  let body = match ent with
-    | `Paper p -> Bushel.Paper.abstract p
-    | `Note n -> plain (Bushel.Note.body n)
-    | `Project p -> plain (Bushel.Project.body p)
-    | `Idea i -> plain (Bushel.Idea.body i)
-    | `Video v -> Bushel.Video.description v
-  in
+  let body = body_text ent in
   insert_row t ~kind ~slug ~url ~date ~parent_slugs:"" ~title ~body ~tags;
   List.iter (fun tag ->
     insert_tag_row t ~tag ~kind ~slug ~url ~title ~date
@@ -348,7 +353,7 @@ let save_own_host t own_host =
   | Sqlite3.Rc.DONE -> ()
   | rc -> Sqlite3.Rc.check rc
 
-let index t ~own_host ~contact_name ~entries ~links =
+let index t ~own_host ~body_text ~entries ~links =
   t.own_host <- own_host;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "BEGIN");
   List.iter (fun kind ->
@@ -357,7 +362,7 @@ let index t ~own_host ~contact_name ~entries ~links =
   ) kinds;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "DELETE FROM entry_tags");
   save_own_host t own_host;
-  List.iter (fun ent -> index_entry t ~contact_name ent) entries;
+  List.iter (fun ent -> index_entry t ~body_text ent) entries;
   List.iter (fun link -> index_link t link) links;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "COMMIT");
   (* Log per-table counts *)
@@ -374,17 +379,39 @@ let index t ~own_host ~contact_name ~entries ~links =
   t.tag_counts <- load_tag_counts t;
   t.projects <- load_projects t
 
+(* What the renderer escaped comes back as text once the tags are gone,
+   or a snippet would show &amp;quot; where the page shows a quote. The
+   ampersand is decoded last so an escaped entity stays escaped. *)
+let html_unescape s =
+  let buf = Buffer.create (String.length s) in
+  let n = String.length s in
+  let i = ref 0 in
+  while !i < n do
+    let ate entity by =
+      let l = String.length entity in
+      if !i + l <= n && String.sub s !i l = entity then begin
+        Buffer.add_string buf by; i := !i + l; true
+      end else false
+    in
+    if not (ate "&lt;" "<" || ate "&gt;" ">" || ate "&quot;" "\""
+            || ate "&#39;" "'" || ate "&apos;" "'" || ate "&amp;" "&")
+    then begin Buffer.add_char buf s.[!i]; incr i end
+  done;
+  Buffer.contents buf
+
 let rebuild t ctx =
-  let contacts = Arod.Ctx.contacts ctx in
-  let contact_name handle =
-    List.find_map (fun c ->
-      if Sortal_schema.Contact.handle c = handle
-      then Some (Sortal_schema.Contact.name c)
-      else None
-    ) contacts
+  (* Index the prose a reader sees, not its markup: the body renders
+     through the site's own HTML pipeline, the tags are stripped and the
+     entities decoded, so a search for "http" matches text about HTTP
+     rather than every [foo](http://...) target, and a snippet shows
+     resolved references rather than bushel syntax. *)
+  let body_text ent =
+    fst (Arod.Md.to_html ~ctx (entry_markdown ent))
+    |> Arod.Text.strip_html |> html_unescape
+    |> Arod.Text.collapse_whitespace
   in
   let own_host = host_of_url (Arod.Ctx.base_url ctx) in
-  index t ~own_host ~contact_name
+  index t ~own_host ~body_text
     ~entries:(Arod.Ctx.all_entries ctx) ~links:(Arod.Ctx.all_links ctx)
 
 (** {1 Querying} *)
@@ -794,7 +821,7 @@ let search t ?today ?(limit = 20) ?(link_limit = 12) ?(order = `Relevance)
     |> finish
 
 let pp_hit ppf h =
-  let snippet = Arod.Text.strip_html h.snippet in
+  let snippet = html_unescape (Arod.Text.strip_html h.snippet) in
   let tags = match h.tags with
     | [] -> "" | ts -> " #" ^ String.concat " #" ts in
   let parents = match h.parent_slugs with

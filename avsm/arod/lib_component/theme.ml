@@ -2337,6 +2337,23 @@ let custom_css = {|
 .sp-link:hover .sp-t, .sp-link .sp-t:hover { text-decoration: underline !important; }
 .sp-via { text-decoration: none !important; }
 .sp-via:hover { text-decoration: underline !important; color: var(--color-link) !important; }
+/* The notes ledger's image slice, on a search hit: same crop, same wash,
+   sharpened when the row is hovered. Unlayered so the fixed height beats
+   the Tailwind preflight img reset. */
+.sp-slice {
+  display: block;
+  width: 100%;
+  height: 2.9rem;
+  object-fit: cover;
+  opacity: 0.75;
+  filter: sepia(0.7) saturate(0.7);
+  transition: opacity 0.15s, filter 0.15s;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  margin-top: 0.35rem;
+}
+.sp-work:hover .sp-slice { opacity: 1; filter: none; }
+@media (prefers-reduced-motion: reduce) { .sp-slice { transition: none; } }
 /* Each tier is a card: a surface header strip naming the tier and how it
    is ordered, hairline-separated rows, and a footer strip for more. */
 .sp-sec { margin-bottom: 1.25rem; border: 1px solid var(--color-border-light); border-radius: 8px; background: var(--color-bg); overflow: hidden; }
@@ -2361,14 +2378,14 @@ let custom_css = {|
 .sp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
 .sp-line { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
 .sp-line .sp-t { font-weight: 500; font-size: 0.88rem; flex: 1; min-width: 0; }
-.sp-link .sp-t { font-size: 0.82rem; overflow-wrap: anywhere; }
+.sp-link .sp-t { font-size: 0.78rem; overflow-wrap: anywhere; }
 .sp-d { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.7rem; color: var(--color-muted); flex-shrink: 0; }
 .sp-snip { font-size: 0.78rem; color: var(--color-secondary); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .sp-snip b, .sp-t b { background: var(--color-highlight); font-weight: 600; border-radius: 2px; }
 .sp-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .sp-tags span { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.64rem; color: var(--color-muted); }
 .sp-meta { display: flex; gap: 0.6rem; align-items: baseline; min-width: 0; font-size: 0.7rem; }
-.sp-dom { font-family: ui-monospace, 'SF Mono', monospace; color: var(--color-muted); flex-shrink: 0; }
+.sp-dom { color: var(--color-muted); flex-shrink: 0; }
 .sp-via { color: var(--color-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-via-in { color: var(--color-muted); }
 .sp-more { display: block; width: 100%; text-align: left; padding: 0.35rem 0.75rem; font: inherit; font-size: 0.76rem; color: var(--color-link); background: var(--color-surface); border: 0; border-top: 1px solid var(--color-border); cursor: pointer; }

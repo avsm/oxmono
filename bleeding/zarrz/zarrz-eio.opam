@@ -11,6 +11,8 @@ depends: [
   "ocaml" {>= "5.2.0"}
   "zarrz" {= version}
   "eio" {>= "1.3"}
+  "cstruct"
+  "optint"
   "odoc" {with-doc}
   "alcotest" {with-test & >= "1.7.0"}
   "eio_main" {with-test}

@@ -28,11 +28,12 @@ packages provide Eio filesystem and HTTP stores.")
 (package
  (name zarrz-eio)
  (synopsis "Eio filesystem store for zarrz")
- (allow_empty)
  (depends
   (ocaml (>= 5.2.0))
   (zarrz (= :version))
   (eio (>= 1.3))
+  cstruct
+  optint
   (odoc :with-doc)
   (alcotest (and :with-test (>= 1.7.0)))
   (eio_main :with-test)))
@@ -40,12 +41,13 @@ packages provide Eio filesystem and HTTP stores.")
 (package
  (name zarrz-fetch)
  (synopsis "HTTP store for zarrz over the fetch client")
- (allow_empty)
  (depends
   (ocaml (>= 5.2.0))
   (zarrz (= :version))
   (eio (>= 1.3))
   fetch
+  cstruct
+  (http :with-test)
   (odoc :with-doc)
   (alcotest (and :with-test (>= 1.7.0)))
   (eio_main :with-test)))

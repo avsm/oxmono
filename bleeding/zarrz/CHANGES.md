@@ -23,3 +23,28 @@
   straight to that chunk, a chunk is read through store byte ranges
   when the codec chain and the store both allow it, and a write covers
   whole chunks without reading them back.
+- New package `zarrz-eio`. `Zarrz_eio.store` is a store over a
+  directory, taking an `Eio.Path.t` rather than an environment, with the
+  key to path mapping `zarrs_filesystem` uses. Reads land in a bigstring
+  through `pread` with no intermediate string, a ranged read seeks
+  inside the open file and a batch of ranges opens it once, `list` walks
+  only the directories a matching key can lie in, and writing is off
+  unless `~writable:true` is passed. A key that is absolute or carries a
+  `..` component is refused rather than followed.
+- New `zarrz_conformance` executable in `zarrz-eio`, the
+  `zarrs_conformance` command line contract: `--array_path <dir>` reads
+  the whole array rooted at that directory and prints one line per
+  element in C order, each the element's fill value metadata as compact
+  JSON.
+- New package `zarrz-fetch`. `Zarrz_fetch.store` is a read only HTTP
+  store over a `Fetch.t`, mapping a key to `base_url ^ "/" ^ key`. It
+  reads bodies straight into a bigstring, sends one `Range` header per
+  ranged read and slices locally when the origin ignores it, runs the
+  ranges of one `get_ranges` as up to six concurrent fibers, and sizes
+  an object with `HEAD`. Transport failures propagate as `Fetch` raises
+  them and an unusable status raises `Error.Store`.
+- New `bench/bench_zarrz.exe`, a private executable outside `runtest`,
+  reporting chunk decode throughput per codec chain, `Slab.F64` element
+  access against the equivalent `Bigarray.Array1` loop, and the store
+  calls and bytes a sharded partial read moves against a whole shard
+  fetch.

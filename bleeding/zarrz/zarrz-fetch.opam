@@ -12,6 +12,8 @@ depends: [
   "zarrz" {= version}
   "eio" {>= "1.3"}
   "fetch"
+  "cstruct"
+  "http" {with-test}
   "odoc" {with-doc}
   "alcotest" {with-test & >= "1.7.0"}
   "eio_main" {with-test}

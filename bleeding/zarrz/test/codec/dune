@@ -1,0 +1,6 @@
+(test
+ (name test_codec)
+ (package zarrz)
+ (libraries zarrz jsont jsont.bytesrw alcotest)
+ (deps
+  (source_tree ../fixtures)))

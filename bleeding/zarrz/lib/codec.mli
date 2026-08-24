@@ -67,7 +67,9 @@ val chain_of_exts :
     array, array to bytes and bytes to bytes codecs, preserving list
     order within each bucket, and binds each. An unknown name whose
     [must_understand] is false is skipped. Errors on an unknown name
-    otherwise, on no array to bytes codec and on more than one. *)
+    otherwise, on no array to bytes codec and on more than one.
+    [resolver] does not reach chains nested inside [sharding_indexed],
+    whose inner and index codecs resolve against the built-ins only. *)
 
 val chain_exts : chain -> Ext.t list
 (** [chain_exts c] is the metadata [c] was built from, with skipped
@@ -79,11 +81,13 @@ val encoded_size : chain -> repr -> size
 
 val decode_chunk : chain -> repr -> Base_bigstring.t -> Slab.t
 (** [decode_chunk c r bytes] decodes one whole chunk. [r] is the chunk's
-    decoded representation, with the full chunk shape. Raises
-    {!Error.E} on malformed input. *)
+    decoded representation, with the full chunk shape. The result may
+    alias [bytes], so the caller must treat [bytes] as owned by the
+    slab afterwards. Raises {!Error.E} on malformed input. *)
 
 val encode_chunk : chain -> Slab.t -> Base_bigstring.t
-(** [encode_chunk c slab] encodes one whole chunk. *)
+(** [encode_chunk c slab] encodes one whole chunk. The result may alias
+    the slab's buffer, so store it or copy it before mutating [slab]. *)
 
 val supports_partial : chain -> bool
 (** [supports_partial c] is true when [c] has no array to array and no

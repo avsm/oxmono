@@ -36,7 +36,10 @@
     records what that would take and where it stops. {!report} also takes a
     database handle, which is bound to the domain that opened it, so
     annotating the renderer alone would not free the route. Those four keep
-    their closures in {!Arod_env}. *)
+    their closures in {!Arod_env}. {!search_page} is portable and takes no
+    database handle, but {!Arod_env.t.search_page} still closes over the
+    search handle that produces its [results] argument, so it keeps a
+    closure of its own for that reason. *)
 
 type flavour = [ `Html | `Markdown ]
 (** Which rendering of a page is wanted. *)

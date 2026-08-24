@@ -16,9 +16,12 @@
     A closure field is named for the response it produces, not for the module
     it came from, so a handler reads as a description of the route it answers.
     A response a handler can compute itself has no field: it reads {!t.config}
-    or {!t.ctx} and calls {!Arod_render} directly. Every page render is now
-    reached that way, as is the sitemap, and the header of {!Arod_render} names
-    what keeps the four that are left behind a closure. *)
+    or {!t.ctx} and calls {!Arod_render} directly. Most page renders are
+    reached that way, as is the sitemap, and the header of {!Arod_render}
+    names the four kept behind a closure because they render through jsont.
+    {!t.search_page} is a fifth: it renders a page directly, but stays behind
+    a closure because it needs the search handle, which is bound to the
+    domain that built this record. *)
 
 type t = {
   ctx : Arod.Ctx.t;

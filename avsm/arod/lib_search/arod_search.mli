@@ -53,14 +53,15 @@ type results = {
 }
 (** The tiers of one search. [work] and [links] are ranked and cut to the
     caller's limits, and [work_total] and [links_total] count the matches
-    before that cut. Each per-kind query fetches at most a fixed depth (200
-    for a local kind, 500 for links), so a total is bounded by what was
-    fetched, not by what exists. [kinds], [years] and [tags] count the same
-    way, over every work match before the cut, except on a tags-only query,
-    where [tags] counts only the shown page of [work]. [kinds] is sorted by
-    name and [years] ascending. [tags] is sorted by count descending then
-    name, cut to the 8 most used. [terms] is the query's words, lowercased,
-    for marking matches. *)
+    before that cut. A full-text query fetches at most a fixed depth per
+    kind (200 for a local kind, 500 for links), so its total is bounded by
+    what was fetched, not by what exists. A browse (no query text) or a
+    tags-only query instead fetches up to 1000 rows per kind. [kinds],
+    [years] and [tags] count the same way, over every work match before
+    the cut, except on a tags-only query, where [tags] counts only the
+    shown page of [work]. [kinds] is sorted by name and [years] ascending.
+    [tags] is sorted by count descending then name, cut to the 8 most
+    used. [terms] is the query's words, lowercased, for marking matches. *)
 
 val empty : results
 (** [empty] is the result of a query that asked for nothing. *)
@@ -142,17 +143,9 @@ val normalise_url : string -> string
 val host_of_url : string -> string
 (** [host_of_url u] is the host of {!normalise_url}[ u]. *)
 
-val search_tags :
-  t -> ?kinds:string list -> ?limit:int -> string list -> hit list
-(** [search_tags t ?kinds ?limit tags] returns entries matching ALL given
-    tags exactly. Uses the entry_tags table for exact matching. *)
-
-val all_tags : t -> (string * int) list
-(** [all_tags t] returns all unique tags with their counts, sorted by
-    count descending. *)
-
 val kinds : string list
-(** The valid kind values: paper, note, project, idea, video, link. *)
+(** The valid kind values: paper, note, weekly, project, idea, video,
+    link. *)
 
 val pp_results : Format.formatter -> results -> unit
 (** [pp_results ppf r] prints each tier under a heading. *)

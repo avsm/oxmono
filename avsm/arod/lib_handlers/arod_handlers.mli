@@ -144,8 +144,9 @@ val pagination_api : handler @@ portable
     [offset], [limit] and any number of [type] query parameters. *)
 
 val search_api : handler @@ portable
-(** [search_api] is the full-text search results for the [q] query parameter,
-    at most [limit] of them. *)
+(** [search_api] is the full-text search results for the [q] query
+    parameter, at most [limit] of them and [link_limit] links, ordered by
+    [sort]. *)
 
 val search_page : handler @@ portable
 (** The search page at [/search], or its results fragment when the query

@@ -1091,9 +1091,10 @@ let search_page_js = {|
 // Search page: live results as you type, facets, keyboard selection
 (function() {
   var input = document.getElementById('search-page-input');
-  var form = input && input.closest('form');
   if (!input) return;
-  var limits = { limit: 20, link_limit: 12 };
+  var form = input.closest('form');
+  var DEFAULTS = { limit: 20, link_limit: 12 };
+  var limits = { limit: DEFAULTS.limit, link_limit: DEFAULTS.link_limit };
   var sort = new URLSearchParams(location.search).get('sort') === 'date'
     ? 'date' : 'relevance';
   var spinner = document.getElementById('search-spinner');
@@ -1135,7 +1136,7 @@ let search_page_js = {|
   }
 
   function search() {
-    limits = { limit: 20, link_limit: 12 };
+    limits = { limit: DEFAULTS.limit, link_limit: DEFAULTS.link_limit };
     load(input.value.trim());
   }
 

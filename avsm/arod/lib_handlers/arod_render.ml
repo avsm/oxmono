@@ -572,7 +572,6 @@ module Search_response = struct
 end
 
 let search_hit ~ctx (r : Arod_search.hit) =
-  let entries = Arod.Ctx.entries ctx in
   let parents = List.filter_map (fun slug ->
     match Arod.Ctx.lookup ctx slug with
     | Some ent ->
@@ -585,17 +584,10 @@ let search_hit ~ctx (r : Arod_search.hit) =
     | None -> None
   ) r.parent_slugs in
   let thumbnail = match r.kind with
-    | "link" ->
-      (match Arod.Ctx.link_for_url ctx r.url with
-       | Some link ->
-         let meta = match link.karakeep with Some k -> k.metadata | None -> [] in
-         (match List.assoc_opt "favicon" meta with
-          | Some f when f <> "" -> Some f
-          | _ -> None)
-       | None -> None)
+    | "link" -> C.Search.favicon_for ~ctx r.url
     | _ ->
       (match Arod.Ctx.lookup ctx r.slug with
-       | Some ent -> Bushel.Entry.thumbnail entries ent
+       | Some ent -> Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) ent
        | None -> None)
   in
   { Search_hit.slug = r.slug; kind = r.kind; url = r.url; title = r.title;
@@ -619,7 +611,7 @@ let search_page ~ctx ~q ~order ~fragment (r : Arod_search.results) =
     Htmlit.El.to_string ~doctype:false
       (C.Search.fragment ~ctx ~q ~order r)
   else
-    let article, _sidebar = C.Search.page_body ~ctx ~q ~order r in
+    let article = C.Search.page_body ~ctx ~q ~order r in
     let title = if q = "" then "Search" else "Search: " ^ q in
     C.Layout.page ~ctx ~title ~description:"Search this site" ~url:"/search"
       ~current_page:"Search" ~page_scripts:[Search] ~main_cls:"max-w-6xl"

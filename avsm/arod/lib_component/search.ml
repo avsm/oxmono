@@ -53,8 +53,6 @@ let mark ~terms title =
   in
   El.splice (go [] words)
 
-let host url = S.host_of_url url
-
 (* "26th Oct 2026" rather than an ISO stamp: a result list is read, not
    collated. *)
 let ordinal d =
@@ -82,17 +80,19 @@ let pretty_month date =
 (* Every section shares one header anatomy so the tiers read as one
    system: the label names the tier, the note says how it is ordered,
    and the badge carries the total. *)
-let section_head ?note ?total label =
+let section_head ?note ?mid ?total label =
   let note = match note with
     | Some n -> [El.span ~at:[At.class' "sp-note"] [El.txt n]]
     | None -> []
   in
+  let mid = Option.value ~default:[] mid in
   let badge = match total with
     | Some n -> [El.span ~at:[At.class' "sp-n"] [El.txt (string_of_int n)]]
     | None -> []
   in
   El.div ~at:[At.class' "sp-sec-h"]
-    ([ El.span ~at:[At.class' "sp-eyebrow"] [El.txt label] ] @ note @ badge)
+    ([ El.span ~at:[At.class' "sp-eyebrow"] [El.txt label] ]
+     @ note @ mid @ badge)
 
 let more ~shown ~total ~param =
   if total > shown then
@@ -153,7 +153,7 @@ let work_row ~ctx ~terms (h : S.hit) =
       El.span ~at:[At.class' ("sp-media sp-media-solo sp-ic-" ^ h.kind)]
         [ kind_icon ~size:22 h.kind ]
   in
-  El.a ~at:[At.href h.url; At.class' ("sp-hit sp-work sp-k-" ^ h.kind)]
+  El.a ~at:[At.href h.url; At.class' "sp-hit sp-work"]
     [ media;
       El.span ~at:[At.class' "sp-body"]
         [ El.span ~at:[At.class' "sp-line"]
@@ -202,20 +202,8 @@ let link_row ~ctx ~terms (h : S.hit) =
               El.span ~at:[At.class' "sp-d"]
                 [El.txt (pretty_month h.date)] ];
           El.span ~at:[At.class' "sp-meta"]
-            [ El.span ~at:[At.class' "sp-dom"] [El.txt (host h.url)]; via ] ] ]
-
-(* Enough encoding for a query-string value: the characters that would
-   end or split it. Tags and search words never need more. *)
-let pct_query s =
-  let b = Buffer.create (String.length s) in
-  String.iter (fun c -> match c with
-    | '#' -> Buffer.add_string b "%23"
-    | '&' -> Buffer.add_string b "%26"
-    | '+' -> Buffer.add_string b "%2B"
-    | '%' -> Buffer.add_string b "%25"
-    | ' ' -> Buffer.add_string b "%20"
-    | c -> Buffer.add_char b c) s;
-  Buffer.contents b
+            [ El.span ~at:[At.class' "sp-dom"] [El.txt (S.host_of_url h.url)];
+              via ] ] ]
 
 (* The toggle doubles as the ordering statement in the header: the active
    side says how the tiers below are sorted. Real links, so the choice
@@ -224,7 +212,9 @@ let sort_toggle ~q ~(order : S.order) =
   let opt this label =
     let sort = match this with `Relevance -> "relevance" | `Date -> "date" in
     let cls = "sp-sort-opt" ^ (if order = this then " on" else "") in
-    El.a ~at:[At.href ("/search?q=" ^ pct_query q ^ "&sort=" ^ sort);
+    El.a ~at:[At.href ("/search?q="
+                        ^ Uriz.pct_encode ~component:`Query_value q
+                        ^ "&sort=" ^ sort);
               At.class' cls; At.v "data-sort" sort]
       [El.txt label]
   in
@@ -236,31 +226,34 @@ let kind_label = function
   | "project" -> "Projects" | "idea" -> "Ideas" | "video" -> "Talks"
   | "link" -> "Links" | k -> k
 
-let has_filter ~q prefix v =
-  List.mem (prefix ^ v) (String.split_on_char ' ' q)
+let has_filter ~words prefix v =
+  List.mem (prefix ^ v) words
 
 let facets ~q (r : S.results) =
+  let words = String.split_on_char ' ' q in
   let kind_chip (k, n) =
-    let on = if has_filter ~q "kind:" k then " on" else "" in
+    let on = if has_filter ~words "kind:" k then " on" else "" in
     El.button ~at:[At.class' ("sp-f" ^ on); At.v "data-kind" k]
       [ El.txt (kind_label k); El.txt " ";
         El.span ~at:[At.class' "sp-n"] [El.txt (string_of_int n)] ]
   in
   let tag_chip (t, n) =
-    let on = if has_filter ~q "#" t then " on" else "" in
+    let on = if has_filter ~words "#" t then " on" else "" in
     El.button ~at:[At.class' ("sp-f" ^ on); At.v "data-tag" t]
       [ El.txt ("#" ^ t); El.txt " ";
         El.span ~at:[At.class' "sp-n"] [El.txt (string_of_int n)] ]
   in
-  if r.kinds = [] && r.tags = [] then []
-  else
-    [ El.div ~at:[At.class' "sp-facets"] (List.map kind_chip r.kinds);
-      El.div ~at:[At.class' "sp-facets"] (List.map tag_chip r.tags) ]
+  let row chip = function
+    | [] -> []
+    | xs -> [ El.div ~at:[At.class' "sp-facets"] (List.map chip xs) ]
+  in
+  row kind_chip r.kinds @ row tag_chip r.tags
 
 (* A corrupt year outside this range would otherwise size the bar list, and
-   a bad one such as 1 would render thousands of empty divs. *)
-let histogram (r : S.results) =
-  match List.filter (fun (y, _) -> y >= 1970 && y <= 2100) r.years with
+   a bad one such as 1 would render thousands of empty divs. [years] is
+   already filtered to that range by the caller. *)
+let histogram years =
+  match years with
   | [] -> El.void
   | years ->
     let hi = fst (List.hd (List.rev years)) in
@@ -283,15 +276,13 @@ let histogram (r : S.results) =
 
 let rail ~ctx ~q (r : S.results) =
   let chips = facets ~q r in
-  let has_years =
-    List.exists (fun (y, _) -> y >= 1970 && y <= 2100) r.years
-  in
+  let years = List.filter (fun (y, _) -> y >= 1970 && y <= 2100) r.years in
   let narrow =
-    if chips = [] && not has_years then El.void
+    if chips = [] && years = [] then El.void
     else
       El.div ~at:[At.class' "sp-sec"]
         ([ section_head ~note:"filter these results" "Narrow" ]
-         @ chips @ [ histogram r ])
+         @ chips @ [ histogram years ])
   in
   let links = match r.links with
     | [] -> El.void
@@ -311,11 +302,8 @@ let main_column ~ctx ~q ~order (r : S.results) =
     | [] -> El.void
     | ws ->
       let head =
-        El.div ~at:[At.class' "sp-sec-h"]
-          [ El.span ~at:[At.class' "sp-eyebrow"] [El.txt "On this site"];
-            sort_toggle ~q ~order;
-            El.span ~at:[At.class' "sp-n"]
-              [El.txt (string_of_int r.work_total)] ]
+        section_head ~mid:[ sort_toggle ~q ~order ] ~total:r.work_total
+          "On this site"
       in
       El.div ~at:[At.class' "sp-sec"]
         ([ head ]
@@ -360,5 +348,4 @@ let page_body ~ctx ~q ~order r =
         El.span ~at:[At.id "search-spinner"; At.class' "sp-spin";
                      At.v "aria-hidden" "true"] [] ]
   in
-  (El.div ~at:[At.class' "sp-page"] [ form; fragment ~ctx ~q ~order r ],
-   El.void)
+  El.div ~at:[At.class' "sp-page"] [ form; fragment ~ctx ~q ~order r ]

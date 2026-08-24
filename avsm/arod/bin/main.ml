@@ -188,8 +188,9 @@ let search_cmd =
     `S Manpage.s_description;
     `P "Search across all indexed content (notes, papers, projects, \
         ideas, videos, links) using the FTS5 full-text search engine.";
-    `P "Use $(b,kind:TYPE) to restrict results to a specific type. \
-        Valid types are: paper, note, project, idea, video, link.";
+    `P (Printf.sprintf
+          "Use $(b,kind:TYPE) to restrict results to a specific type. \
+           Valid types are: %s." (String.concat ", " Arod_search.kinds));
     `S Manpage.s_examples;
     `P "Search for OCaml-related content:";
     `Pre "  arod search ocaml";

@@ -457,6 +457,10 @@ let parse_parent_slugs s =
    upper bound on a total. *)
 let fetch_depth kind = if kind = "link" then 500 else 200
 
+(* A browse (no query text) or a tags-only query fetches this many rows
+   per kind, in place of the per-query fetch_depth above. *)
+let browse_depth = 1000
+
 let split_tags s =
   String.split_on_char ' ' s |> List.filter (fun t -> t <> "")
 
@@ -534,8 +538,10 @@ let dedupe_links ~own_host hits =
   let seen = Hashtbl.create 64 in
   List.filter (fun h ->
     let url_key = normalise_url h.url in
-    let title_key = host_of_url h.url ^ "|" ^ String.lowercase_ascii h.title in
-    if host_of_url h.url = own_host && own_host <> "" then false
+    let host = match String.index_opt url_key '/' with
+      | Some i -> String.sub url_key 0 i | None -> url_key in
+    let title_key = host ^ "|" ^ String.lowercase_ascii h.title in
+    if host = own_host && own_host <> "" then false
     else if Hashtbl.mem seen url_key || Hashtbl.mem seen title_key then false
     else begin
       Hashtbl.replace seen url_key ();
@@ -555,7 +561,7 @@ let rank_links ~today ~own_host hits =
 (** {1 Tag queries} *)
 
 (** Query entries matching ALL given tags exactly. *)
-let search_tags t ?(kinds=[]) ?(limit=20) tags =
+let search_tags t ~kinds ~limit tags =
   if tags = [] then []
   else
     let n_tags = List.length tags in
@@ -616,19 +622,6 @@ let tags_for_slug t slug =
   ignore (Sqlite3_eio.finalize t.db stmt);
   List.rev tags
 
-(** Return all unique tags with counts. *)
-let all_tags t =
-  let stmt = Sqlite3_eio.prepare t.db
-    {|SELECT tag, COUNT(*) as cnt FROM entry_tags
-      GROUP BY tag ORDER BY cnt DESC|} in
-  let _rc, tags = Sqlite3_eio.fold t.db stmt ~init:[] ~f:(fun acc row ->
-    let tag = match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> "" in
-    let count = match row.(1) with Sqlite3.Data.INT i -> Int64.to_int i | _ -> 0 in
-    (tag, count) :: acc
-  ) in
-  ignore (Sqlite3_eio.finalize t.db stmt);
-  List.rev tags
-
 (** {1 Search syntax} *)
 
 let parse_search_input input =
@@ -684,8 +677,8 @@ let browse_kinds t ~kinds:target_kinds =
       {|SELECT slug, url, date, parent_slugs, title, tags
         FROM %s
         ORDER BY date DESC
-        LIMIT 1000|}
-      tbl
+        LIMIT %d|}
+      tbl browse_depth
     in
     match Sqlite3_eio.prepare t.db sql with
     | exception Eio.Exn.Io _ -> []
@@ -786,6 +779,12 @@ let count_by key hits =
       (key h)) hits;
   Hashtbl.fold (fun k n acc -> (k, n) :: acc) tbl []
 
+let tag_facet (work : hit list) =
+  count_by (fun (h : hit) -> h.tags) work
+  |> List.sort (fun (a, n) (b, m) ->
+       match compare m n with 0 -> compare a b | c -> c)
+  |> take 8
+
 (* Every field counts over the work tier, never the links tier, so a facet
    click narrows the same set the results came from. *)
 let facets (work : hit list) =
@@ -796,11 +795,7 @@ let facets (work : hit list) =
               (String.sub h.date 0 (min 4 (String.length h.date)))
       with Some y -> [y] | None -> []) work
     |> List.sort (fun (a, _) (b, _) -> compare a b) in
-  let tags = count_by (fun (h : hit) -> h.tags) work
-    |> List.sort (fun (a, n) (b, m) ->
-         match compare m n with 0 -> compare a b | c -> c)
-    |> take 8 in
-  (kinds, years, tags)
+  (kinds, years, tag_facet work)
 
 let search t ?today ?(limit = 20) ?(link_limit = 12) ?(order = `Relevance)
     input =
@@ -849,15 +844,16 @@ let search t ?today ?(limit = 20) ?(link_limit = 12) ?(order = `Relevance)
     (* search_tags rows carry no tags of their own, so the work tier
        and the tag facet are enriched after the browse limit cuts them
        down to size: at most [limit] small lookups, not one per match. *)
-    let r = browse (search_tags t ~kinds:target_kinds ~limit:1000 tags) in
+    let r =
+      browse (search_tags t ~kinds:target_kinds ~limit:browse_depth tags)
+    in
     let work = List.map
         (fun (h : hit) -> { h with tags = tags_for_slug t h.slug }) r.work in
-    let _, _, tag_facets = facets work in
-    { r with work; tags = tag_facets }
+    { r with work; tags = tag_facet work }
   | tags, _ ->
     let tag_slugs =
       List.fold_left (fun s r -> StringSet.add r.slug s) StringSet.empty
-        (search_tags t ~kinds:target_kinds ~limit:1000 tags)
+        (search_tags t ~kinds:target_kinds ~limit:browse_depth tags)
     in
     List.concat_map (fun kind -> query_table t ~kind fts_query) target_kinds
     |> List.filter (fun r -> StringSet.mem r.slug tag_slugs)

@@ -227,22 +227,24 @@ let sort_param req =
   | Some "date" -> `Date
   | _ -> `Relevance
 
-let search_api env req respond =
+(* [search_api] and [search_page] read the same three parameters. Pure
+   [Req] reads, so this stays portable. *)
+let search_params req =
   let q = match Req.query_param req "q" with Some q -> q | None -> "" in
   let limit = int_param req "limit" ~default:20 ~lo:1 ~hi:100 in
   let link_limit = int_param req "link_limit" ~default:12 ~lo:1 ~hi:100 in
-  let order = sort_param req in
+  (q, limit, link_limit, sort_param req)
+
+let search_api env req respond =
+  let q, limit, link_limit, order = search_params req in
   env.E.log_search ~query:q ~limit ~results:None;
   let write, results = env.E.search ~q ~limit ~link_limit ~order in
   env.E.log_search ~query:q ~limit ~results:(Some results);
   Resp.stream respond json_type write
 
 let search_page env req respond =
-  let q = match Req.query_param req "q" with Some q -> q | None -> "" in
-  let limit = int_param req "limit" ~default:20 ~lo:1 ~hi:100 in
-  let link_limit = int_param req "link_limit" ~default:12 ~lo:1 ~hi:100 in
+  let q, limit, link_limit, order = search_params req in
   let fragment = Req.query_param req "fragment" = Some "1" in
-  let order = sort_param req in
   Resp.html respond
     (env.E.search_page ~q ~limit ~link_limit ~order ~fragment)
 

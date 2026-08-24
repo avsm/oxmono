@@ -47,18 +47,6 @@ let nav_icon_for label =
   | Some p -> Some (El.unsafe_raw (I.outline ~size:16 p))
   | None -> None
 
-let filter_icon_for collection =
-  let paths = match collection with
-    | "papers" | "paper" -> I.paper_o
-    | "notes" | "note" -> I.note_o
-    | "videos" | "video" -> I.video_o
-    | "projects" | "project" -> I.folder_o
-    | "ideas" | "idea" -> I.bulb_o
-    | "links" | "link" -> I.link_o
-    | _ -> I.tag_o
-  in
-  El.unsafe_raw (I.outline ~size:14 paths)
-
 (** {1 Flow Line SVG}
 
     Decorative gradient line connecting nav items, visible only on desktop. *)

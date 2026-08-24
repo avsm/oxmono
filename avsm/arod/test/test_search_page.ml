@@ -82,8 +82,8 @@ let () =
     (contains f {|data-href="https://wiki.xen.org/XenStore"|});
   check "the sort toggle marks the active order"
     (contains f {|data-sort="relevance"|} && contains f {|data-sort="date"|}
-    && contains f {|class="sp-sort-opt on" data-sort="relevance"|}
-    || contains f {|data-sort="relevance" class="sp-sort-opt on"|});
+    && (contains f {|class="sp-sort-opt on" data-sort="relevance"|}
+        || contains f {|data-sort="relevance" class="sp-sort-opt on"|}));
   check "the link row shows the host"
     (contains f "wiki.xen.org");
   let f2 =
@@ -101,7 +101,7 @@ let () =
     (contains f {|class="sp-year hot"|})
 
 let () =
-  let article, _ =
+  let article =
     Arod_component.Search.page_body ~ctx ~q:"xen" ~order:`Relevance results
   in
   let a = html article in
@@ -113,7 +113,7 @@ let () =
     (contains a {|id="search-spinner"|});
   check "the input carries the id the page script binds to"
     (contains a {|id="search-page-input"|});
-  let article, _ =
+  let article =
     Arod_component.Search.page_body ~ctx ~q:"" ~order:`Relevance
       Arod_search.empty in
   check "an empty query shows the prompt and autofocuses"

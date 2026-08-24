@@ -103,35 +103,36 @@ let render write =
 
 let search r = render (Arod_handlers.Render.search ~ctx r)
 
-let empty_tail =
-  {|,"work_total":0,"links":[],"links_total":0,"kinds":[],"years":[],|}
+(* The suffix every hit-bearing assertion below shares once [work] has
+   been closed off, parameterised by the one field that varies. *)
+let tail work_total =
+  Printf.sprintf
+    {|,"work_total":%d,"links":[],"links_total":0,"kinds":[],"years":[],|}
+    work_total
   ^ {|"tags":[]}|}
 
 let () =
   eq "an empty result set is every member, empty"
     (search Arod_search.empty)
-    ({|{"goto":[],"work":[]|} ^ empty_tail);
+    ({|{"goto":[],"work":[]|} ^ tail 0);
   eq "a bare hit omits tags, thumbnail and parents"
     (search (results [ hit "a-note" ]))
     ({|{"goto":[],"work":[{"slug":"a-note","kind":"note",|}
      ^ {|"url":"/notes/a-note",|}
-     ^ {|"title":"T","snippet":"s","date":"2024-02-03"}],"work_total":1,|}
-     ^ {|"links":[],"links_total":0,"kinds":[],"years":[],"tags":[]}|});
+     ^ {|"title":"T","snippet":"s","date":"2024-02-03"}]|} ^ tail 1);
   eq "tags are emitted when the entry has them"
     (search (results [ hit ~tags:[ "ocaml"; "mirage" ] "a-note" ]))
     ({|{"goto":[],"work":[{"slug":"a-note","kind":"note",|}
      ^ {|"url":"/notes/a-note",|}
      ^ {|"title":"T","snippet":"s","date":"2024-02-03",|}
-     ^ {|"tags":["ocaml","mirage"]}],"work_total":1,|}
-     ^ {|"links":[],"links_total":0,"kinds":[],"years":[],"tags":[]}|});
+     ^ {|"tags":["ocaml","mirage"]}]|} ^ tail 1);
   eq "a parent the context knows is expanded, one it does not is dropped"
     (search (results [ hit ~parent_slugs:[ "a-note"; "absent" ] "a-note" ]))
     ({|{"goto":[],"work":[{"slug":"a-note","kind":"note",|}
      ^ {|"url":"/notes/a-note",|}
      ^ {|"title":"T","snippet":"s","date":"2024-02-03",|}
      ^ {|"parents":[{"slug":"a-note","title":"A Note",|}
-     ^ {|"url":"/notes/a-note","kind":"note"}]}],"work_total":1,|}
-     ^ {|"links":[],"links_total":0,"kinds":[],"years":[],"tags":[]}|});
+     ^ {|"url":"/notes/a-note","kind":"note"}]}]|} ^ tail 1);
   eq "go-to hits and facets are objects"
     (search
        (results
@@ -154,8 +155,7 @@ let () =
     ({|{"goto":[],"work":[{"slug":"a-note","kind":"note",|}
      ^ {|"url":"/notes/a-note",|}
      ^ {|"title":"T","snippet":"q\"b s\\b lt< amp& nl\n tab\t cr\r |}
-     ^ "del\\u007F e\xc3\xa9\"" ^ {|,"date":"2024-02-03"}],"work_total":1,|}
-     ^ {|"links":[],"links_total":0,"kinds":[],"years":[],"tags":[]}|})
+     ^ "del\\u007F e\xc3\xa9\"" ^ {|,"date":"2024-02-03"}]|} ^ tail 1)
 
 let () =
   eq "an absent collection is a JSON error object"

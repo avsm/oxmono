@@ -52,11 +52,17 @@ let serve_cmd =
           (List.length (Arod.Ctx.feed_items ctx)));
     (* Run inside switch so search DB and log DB stay open for server lifetime *)
     Eio.Switch.run @@ fun sw ->
-    (* Build in-memory search index on startup *)
-    let search = Arod_search.create_memory ~sw () in
-    Arod_search.rebuild search ctx;
-    Log.info (fun m -> m "Search index built (%d entries)"
-      (List.length (Arod.Ctx.all_entries ctx) + List.length (Arod.Ctx.all_links ctx)));
+    (* The search index builds on a background fibre so the server
+       answers as soon as the context is loaded. Until the fibre swaps
+       the handle in, a search answers with the empty result set. *)
+    let search_ref = ref None in
+    Eio.Fiber.fork ~sw (fun () ->
+      let search = Arod_search.create_memory ~sw () in
+      Arod_search.rebuild search ctx;
+      search_ref := Some search;
+      Log.info (fun m -> m "Search index built (%d entries)"
+        (List.length (Arod.Ctx.all_entries ctx)
+        + List.length (Arod.Ctx.all_links ctx))));
     (* Open access log database *)
     let xdg = Xdge.create fs "arod" in
     let log_path = Eio.Path.(Xdge.data_dir xdg / "access.db") in
@@ -81,7 +87,10 @@ let serve_cmd =
       Arod_handlers.Env.create ~ctx
         ~cache:(Proffer.Cache.create ~ttl:300.0)
         ~search:(fun ~limit ~link_limit ~order q ->
-          Arod_search.search search ~limit ~link_limit ~order q)
+          match !search_ref with
+          | None -> Arod_search.empty
+          | Some search ->
+            Arod_search.search search ~limit ~link_limit ~order q)
         ~log_search:(fun ~query ~limit ~results ->
           match results with
           | None ->

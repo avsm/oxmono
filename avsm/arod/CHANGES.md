@@ -9,6 +9,10 @@
 - Search moves from a modal to a `/search` page with facets, a year
   histogram and a links rail. Search URLs can be shared. `Cmd-K` opens it.
 - `arod search` prints results by tier with scores.
+- The server starts serving as soon as its content is loaded and builds
+  the search index on a background fibre, answering empty until it is
+  ready. A rebuild also reuses its insert statements, which roughly
+  halves the indexing time.
 - Weeknotes are indexed as their own search kind, so `kind:weekly` and
   the search page's facets filter them apart from notes.
 - `arod search`, which opens the index read-only, now drops the site's own

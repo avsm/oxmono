@@ -183,8 +183,37 @@ let insert_sql kind =
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)|}
     (table_for kind)
 
-let insert_row t ~kind ~slug ~url ~date ~parent_slugs ~title ~body ~tags =
-  let stmt = Sqlite3_eio.prepare t.db (insert_sql kind) in
+(* One rebuild writes tens of thousands of rows. Each statement is
+   prepared once here and rebound per row, since preparing per row costs
+   more than the insert itself. *)
+type insert_stmts = {
+  rows : (string * Sqlite3.stmt) list;  (* one INSERT per kind table *)
+  tag : Sqlite3.stmt;
+}
+
+let prepare_inserts t =
+  {
+    rows = List.map (fun kind ->
+      (kind, Sqlite3_eio.prepare t.db (insert_sql kind))) kinds;
+    tag = Sqlite3_eio.prepare t.db
+      {|INSERT INTO entry_tags (tag, kind, slug, url, title, date)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)|};
+  }
+
+let finalize_inserts t stmts =
+  List.iter (fun (_, stmt) -> ignore (Sqlite3_eio.finalize t.db stmt))
+    stmts.rows;
+  ignore (Sqlite3_eio.finalize t.db stmts.tag)
+
+let step_reset t stmt =
+  (match Sqlite3_eio.step t.db stmt with
+   | Sqlite3.Rc.DONE -> ()
+   | rc -> Sqlite3.Rc.check rc);
+  Sqlite3.Rc.check (Sqlite3_eio.reset t.db stmt)
+
+let insert_row t stmts ~kind ~slug ~url ~date ~parent_slugs ~title ~body
+    ~tags =
+  let stmt = List.assoc kind stmts.rows in
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 1 slug);
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 2 url);
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 3 date);
@@ -192,27 +221,17 @@ let insert_row t ~kind ~slug ~url ~date ~parent_slugs ~title ~body ~tags =
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 5 title);
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 6 body);
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 7 tags);
-  let rc = Sqlite3_eio.step t.db stmt in
-  ignore (Sqlite3_eio.finalize t.db stmt);
-  match rc with
-  | Sqlite3.Rc.DONE -> ()
-  | rc -> Sqlite3.Rc.check rc
+  step_reset t stmt
 
-let insert_tag_row t ~tag ~kind ~slug ~url ~title ~date =
-  let stmt = Sqlite3_eio.prepare t.db
-    {|INSERT INTO entry_tags (tag, kind, slug, url, title, date)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6)|} in
+let insert_tag_row t stmts ~tag ~kind ~slug ~url ~title ~date =
+  let stmt = stmts.tag in
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 1 tag);
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 2 kind);
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 3 slug);
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 4 url);
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 5 title);
   Sqlite3.Rc.check (Sqlite3.bind_text stmt 6 date);
-  let rc = Sqlite3_eio.step t.db stmt in
-  ignore (Sqlite3_eio.finalize t.db stmt);
-  match rc with
-  | Sqlite3.Rc.DONE -> ()
-  | rc -> Sqlite3.Rc.check rc
+  step_reset t stmt
 
 (* The markdown source of an entry, before [body_text] turns it into the
    prose a reader sees. *)
@@ -233,7 +252,7 @@ let entry_tags (ent : Bushel.Entry.entry) = match ent with
   | `Idea i -> Bushel.Idea.tags i
   | `Video v -> Bushel.Video.tags v
 
-let index_entry t ~body_text (ent : Bushel.Entry.entry) =
+let index_entry t stmts ~body_text (ent : Bushel.Entry.entry) =
   let slug = Bushel.Entry.slug ent in
   let kind = match ent with
     | `Note n when n.Bushel.Note.weeknote -> "weekly"
@@ -245,9 +264,10 @@ let index_entry t ~body_text (ent : Bushel.Entry.entry) =
   let tags_list = entry_tags ent in
   let tags = String.concat " " tags_list in
   let body = body_text ent in
-  insert_row t ~kind ~slug ~url ~date ~parent_slugs:"" ~title ~body ~tags;
+  insert_row t stmts ~kind ~slug ~url ~date ~parent_slugs:"" ~title ~body
+    ~tags;
   List.iter (fun tag ->
-    insert_tag_row t ~tag ~kind ~slug ~url ~title ~date
+    insert_tag_row t stmts ~tag ~kind ~slug ~url ~title ~date
   ) tags_list
 
 let strip_scheme url =
@@ -256,7 +276,7 @@ let strip_scheme url =
   | Some p -> String.sub url (String.length p) (String.length url - String.length p)
   | None -> url
 
-let index_link t ~entry_meta (link : Bushel.Link.t) =
+let index_link t stmts ~entry_meta (link : Bushel.Link.t) =
   let url = Bushel.Link.url link in
   let slug = url in
   let kind = "link" in
@@ -316,9 +336,10 @@ let index_link t ~entry_meta (link : Bushel.Link.t) =
     | Some b -> String.concat "," b.slugs
     | None -> ""
   in
-  insert_row t ~kind ~slug ~url ~date ~parent_slugs ~title ~body ~tags;
+  insert_row t stmts ~kind ~slug ~url ~date ~parent_slugs ~title ~body
+    ~tags;
   List.iter (fun tag ->
-    insert_tag_row t ~tag ~kind ~slug ~url ~title ~date
+    insert_tag_row t stmts ~tag ~kind ~slug ~url ~title ~date
   ) filter_tags
 
 (* An index written before search_meta existed has no such table, so
@@ -389,14 +410,16 @@ let index t ~own_host ~body_text ~entries ~links =
   ) kinds;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "DELETE FROM entry_tags");
   save_own_host t own_host;
-  List.iter (fun ent -> index_entry t ~body_text ent) entries;
+  let stmts = prepare_inserts t in
+  List.iter (fun ent -> index_entry t stmts ~body_text ent) entries;
   let meta = Hashtbl.create (List.length entries) in
   List.iter (fun ent ->
     Hashtbl.replace meta (Bushel.Entry.slug ent)
       (Bushel.Entry.title ent, entry_tags ent)
   ) entries;
   let entry_meta slug = Hashtbl.find_opt meta slug in
-  List.iter (fun link -> index_link t ~entry_meta link) links;
+  List.iter (fun link -> index_link t stmts ~entry_meta link) links;
+  finalize_inserts t stmts;
   Sqlite3.Rc.check (Sqlite3_eio.exec t.db "COMMIT");
   (* Log per-table counts *)
   List.iter (fun kind ->

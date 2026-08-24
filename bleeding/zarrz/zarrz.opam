@@ -18,6 +18,7 @@ depends: [
   "decompress"
   "checkseum"
   "zstdz"
+  "bloscz"
   "odoc" {with-doc}
   "alcotest" {with-test}
 ]

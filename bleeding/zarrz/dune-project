@@ -22,6 +22,7 @@ packages provide Eio filesystem and HTTP stores.")
   decompress
   checkseum
   zstdz
+  bloscz
   (odoc :with-doc)
   (alcotest :with-test)))
 

@@ -6,6 +6,7 @@
   jsont.bytesrw
   base_bigstring
   zstdz
+  bloscz
   decompress.de
   decompress.gz
   checkseum

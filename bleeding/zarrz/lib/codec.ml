@@ -638,6 +638,151 @@ module Zstd = struct
     Ok (B2b { name = "zstd"; encoded_size; encode; decode })
 end
 
+(* {1 The blosc codec}
+
+   Blosc is a container rather than a compressor: it splits the input
+   into blocks, optionally shuffles the bytes or bits of each block so
+   that the like-numbered bytes of an element sit together, and hands
+   each block to an inner compressor named by [cname]. The frame records
+   the decompressed size, the type size and the shuffle applied, so
+   decoding needs none of the configuration and this codec reads a frame
+   whatever parameters wrote it. *)
+
+module Blosc = struct
+  (* The compressors the Zarr configuration may name, which is the
+     oracle's [BloscCompressor] enum. A build of the C library may lack
+     some of them, so a name in this list is still checked against
+     {!Bloscz.compressors} before the codec is bound. *)
+  let cnames = [ "blosclz"; "lz4"; "lz4hc"; "snappy"; "zlib"; "zstd" ]
+
+  let of_error f = try f () with Bloscz.Error (_, m) -> err "blosc: %s" m
+
+  let make ext ~dtype =
+    let mems = Ext.config_mems ext in
+    let* () =
+      check_members
+        ~known:[ "cname"; "clevel"; "shuffle"; "typesize"; "blocksize" ] mems
+    in
+    let* cname = mem_string mems "cname" in
+    let* clevel = mem_int mems "clevel" in
+    let* shuffle = mem_string mems "shuffle" in
+    let* typesize = mem_int mems "typesize" in
+    let* blocksize = mem_int mems "blocksize" in
+    let* cname =
+      match cname with
+      | None -> Error "cname is required"
+      | Some c when not (List.mem c cnames) ->
+          Error
+            (Printf.sprintf "cname %S is not one of %s" c
+               (String.concat ", " cnames))
+      | Some c when not (List.mem c (Bloscz.compressors ())) ->
+          Error
+            (Printf.sprintf
+               "cname %S is not in this build of blosc, which has %s" c
+               (String.concat ", " (Bloscz.compressors ())))
+      | Some c -> Ok c
+    in
+    (* [clevel] is mandatory, as in the oracle, which has no default for
+       it anywhere in its metadata layer. *)
+    let* clevel =
+      match clevel with
+      | None -> Error "clevel is required"
+      | Some l when l < 0 || l > 9 ->
+          Error (Printf.sprintf "clevel %d is outside [0, 9]" l)
+      | Some l -> Ok l
+    in
+    let* shuffle =
+      match shuffle with
+      | None | Some "noshuffle" -> Ok `No
+      | Some "shuffle" -> Ok `Byte
+      | Some "bitshuffle" -> Ok `Bit
+      | Some s ->
+          Error
+            (Printf.sprintf
+               "shuffle %S is not \"noshuffle\", \"shuffle\" or \"bitshuffle\""
+               s)
+    in
+    (* The type size the shuffle filter permutes around. The oracle
+       demands it in the configuration whenever a shuffle is asked for
+       and this defaults it to the data type size instead, which is what
+       the oracle itself substitutes when it lifts a Zarr V2
+       configuration. Under [`No] the value reaches the frame header and
+       nothing reads it back, so only the encoded bytes depend on the
+       choice. *)
+    let* typesize =
+      match typesize with
+      | None -> Ok (Dtype.size dtype)
+      | Some t when t < 1 ->
+          Error (Printf.sprintf "typesize %d is below 1" t)
+      | Some t -> Ok t
+    in
+    let* blocksize =
+      match blocksize with
+      | None -> Ok 0
+      | Some b when b < 0 ->
+          Error (Printf.sprintf "blocksize %d is negative" b)
+      | Some b -> Ok b
+    in
+    let encode src =
+      let src_len = Base_bigstring.length src in
+      let dst_len = src_len + Bloscz.max_overhead in
+      let dst = Base_bigstring.create dst_len in
+      let n =
+        of_error (fun () ->
+            Bloscz.compress cname ~level:clevel ~shuffle ~blocksize ~typesize
+              ~src ~src_off:0 ~src_len ~dst ~dst_off:0 ~dst_len)
+      in
+      if n = dst_len then dst else Base_bigstring.sub dst ~pos:0 ~len:n
+    in
+    (* The frame length comes from the header rather than from the
+       buffer, because a chain that ends in blosc may be handed trailing
+       bytes, and [Bloscz.validate] insists on the exact length. The
+       validation is what makes decoding a stranger's bytes safe: it
+       checks the block offsets against the frame before the decompressor
+       follows them. *)
+    let decode src ~decoded_size =
+      let src_len = Base_bigstring.length src in
+      if src_len < Bloscz.max_overhead then
+        err "blosc: %d bytes cannot hold a frame header" src_len;
+      let ~nbytes:_, ~cbytes, ~blocksize:_ =
+        Bloscz.buffer_sizes src ~off:0 ~len:src_len
+      in
+      if cbytes < Bloscz.max_overhead || cbytes > src_len then
+        err "blosc: the frame declares %d bytes, %d are present" cbytes
+          src_len;
+      let nbytes =
+        match Bloscz.validate src ~off:0 ~len:cbytes with
+        | Some n -> n
+        | None -> err "blosc: the frame is malformed"
+      in
+      let want =
+        match decoded_size with
+        | Fixed m when nbytes <> m ->
+            err "blosc: the frame declares %d bytes where %d were expected"
+              nbytes m
+        | Fixed m -> m
+        | Bounded m when nbytes > m ->
+            err "blosc: the frame declares %d bytes, at most %d allowed"
+              nbytes m
+        | Bounded _ | Unbounded -> nbytes
+      in
+      let dst = Base_bigstring.create want in
+      let w =
+        of_error (fun () ->
+            Bloscz.decompress ~src ~src_off:0 ~src_len:cbytes ~dst ~dst_off:0
+              ~dst_len:want)
+      in
+      if w <> want then
+        err "blosc: decompressed %d bytes where %d were expected" w want;
+      dst
+    in
+    let encoded_size = function
+      | Fixed n | Bounded n -> Bounded (n + Bloscz.max_overhead)
+      | Unbounded -> Unbounded
+    in
+    Ok (B2b { name = "blosc"; encoded_size; encode; decode })
+end
+
 (* {1 The crc32c codec} *)
 
 module Crc32c = struct
@@ -746,6 +891,7 @@ let rec builtins : resolver =
   | "transpose" -> Some (Transpose.make ext)
   | "gzip" -> Some (Gzip.make ext)
   | "zstd" -> Some (Zstd.make ext)
+  | "blosc" -> Some (Blosc.make ext ~dtype)
   | "crc32c" -> Some (Crc32c.make ext)
   | "sharding_indexed" -> Some (sharding ext ~dtype ~fill_value)
   | _ -> None

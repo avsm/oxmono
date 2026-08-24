@@ -32,6 +32,13 @@ beside `zarr.json` under `v3/`.
   with `zarr` 3.0.8 and `numcodecs` 0.16.1, holding the same 10 by 10
   `float32` values, and read back by `array_v3_none`, `array_v3_gzip` and
   `array_v3_zstd`. The chunk keys use the `default` encoding.
+- `v3/array_blosc.zarr`, `v3/array_blosc_transpose.zarr`. The same
+  family, written by the `zarrs` tests `array_v2_blosc_c` and
+  `array_v2_blosc_f` in `zarrs/src/array.rs`. Both are `blosc` with
+  `cname` zstd, `clevel` 1, `bitshuffle` and `typesize` 4, the
+  transposed one with a `transpose` codec of order `[1, 0]` ahead of
+  `bytes`. Blosc frames are not reproducible across builds of the C
+  library, so these are read and not re-encoded.
 - `sharded_array_write_read.zarr`. Written by
   `zarrs/examples/sharded_array_write_read.rs`. An 8 by 8 `uint16` array
   in 4 by 8 shards of 4 by 4 inner chunks, gzip level 5 inside, index
@@ -60,3 +67,21 @@ Hierarchy fixtures, for the store and node layers.
 Re-vendoring: copy the file again from the same path in a newer `zarrs`
 checkout and update the commit above. A test that fails afterwards means
 the oracle changed, so change this library rather than the fixture.
+
+## Real-world data
+
+`tessera_band/` is not from the oracle. It is one array of the Tessera
+geospatial embeddings, copied on 2026-08-24 from
+<https://data.source.coop/tessera/tessera/zarr/v1/utm30/band>, which is
+the `band` coordinate of the UTM zone 30 store. `zarr.json` and the
+single chunk `c/0` are the store's own bytes, unaltered. The store
+publishes no licence in its metadata, so it is named by its URL rather
+than by a licence here; check the Source Cooperative repository page
+before redistributing it further.
+
+The array is 128 `int32` in one chunk, with the chain `bytes` little
+endian then `blosc` with `cname` zstd, `clevel` 3, `shuffle` and
+`typesize` 4. It is the chain the whole store uses, which is why one
+chunk of it is worth keeping: it is the evidence that this library reads
+a blosc store nobody here wrote. The 128 values are the band indices, 0
+to 127.

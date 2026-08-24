@@ -414,6 +414,219 @@ let compressor_tests =
     ("gzip corruption", `Quick, test_gzip_corrupt);
   ]
 
+(* {1 The blosc codec}
+
+   Blosc frames are not reproducible across builds of the C library, so
+   nothing here compares encoded bytes. What is checked is that a frame
+   this codec writes reads back, that the parameters reach blosc, and
+   that the frames the oracle and the Tessera store wrote decode to the
+   values they were written from. *)
+
+let blosc_json ?(cname = "zstd") ?(clevel = 5) ?(shuffle = "shuffle")
+    ?typesize ?(blocksize = 0) () =
+  Printf.sprintf
+    {|[{"name":"bytes","configuration":{"endian":"little"}},
+       {"name":"blosc","configuration":{"cname":"%s","clevel":%d,
+        "shuffle":"%s"%s,"blocksize":%d}}]|}
+    cname clevel shuffle
+    (match typesize with
+    | None -> ""
+    | Some t -> Printf.sprintf {|,"typesize":%d|} t)
+    blocksize
+
+(* Elements rather than bytes, so that a chunk shape can be derived for
+   any data type. Values that repeat across elements are what the
+   shuffle filter is for, so the payloads include some. *)
+let blosc_payloads =
+  lazy
+    [
+      ("empty", "");
+      ("one element", "\x01\x02\x03\x04\x05\x06\x07\x08");
+      ( "a ramp",
+        String.concat ""
+          (List.init 4096 (fun i ->
+               let b n = Char.chr ((i lsr n) land 0xff) in
+               String.init 8 (fun k -> b (8 * k)))) );
+      ("random 64k", rand_string 65536);
+      ("zeros", String.make 65536 '\000');
+    ]
+
+let blosc_round_trip ~dtype ~cname ~shuffle =
+  let esize = Dtype.size dtype in
+  List.iter
+    (fun (what, data) ->
+      let n = String.length data in
+      if n mod esize = 0 then begin
+        let json = blosc_json ~cname ~shuffle ~typesize:esize () in
+        let _, dec = round_trip ~dtype ~shape:[| n / esize |] json data in
+        Alcotest.(check string)
+          (Printf.sprintf "%s %s %s %s" cname shuffle (Dtype.name dtype) what)
+          data dec
+      end)
+    (Lazy.force blosc_payloads)
+
+(* The chains the Tessera store uses: zstd inside blosc, with a shuffle
+   over a four byte element and a bitshuffle over a one byte one. *)
+let test_blosc_round_trip () =
+  List.iter
+    (fun shuffle ->
+      blosc_round_trip ~dtype:Dtype.Float32 ~cname:"zstd" ~shuffle;
+      blosc_round_trip ~dtype:Dtype.Int8 ~cname:"zstd" ~shuffle)
+    [ "shuffle"; "bitshuffle"; "noshuffle" ]
+
+(* Every build of the C library has blosclz, and lz4 is all but
+   universal. A build without one is skipped rather than failed, but a
+   build without zstd is not: the Tessera store needs it and the round
+   trips above would pass without noticing. *)
+let test_blosc_compressors () =
+  Alcotest.(check bool)
+    (Printf.sprintf "zstd is in [%s]"
+       (String.concat ", " (Bloscz.compressors ())))
+    true
+    (List.mem "zstd" (Bloscz.compressors ()));
+  List.iter
+    (fun cname ->
+      if List.mem cname (Bloscz.compressors ()) then
+        blosc_round_trip ~dtype:Dtype.Float32 ~cname ~shuffle:"shuffle")
+    [ "blosclz"; "lz4" ]
+
+(* typesize is optional in the metadata and defaults to the size of one
+   element of the data type, so a configuration without it still
+   shuffles the right width. *)
+let test_blosc_typesize_default () =
+  let data = rand_string 4096 in
+  let _, dec =
+    round_trip ~dtype:Dtype.Float32 ~shape:[| 1024 |]
+      (blosc_json ~shuffle:"bitshuffle" ())
+      data
+  in
+  Alcotest.(check string) "no typesize" data dec;
+  (* A blocksize blosc is told rather than one it picks. *)
+  let _, dec =
+    round_trip ~dtype:Dtype.Float32 ~shape:[| 1024 |]
+      (blosc_json ~typesize:4 ~blocksize:1024 ())
+      data
+  in
+  Alcotest.(check string) "an explicit blocksize" data dec
+
+let test_blosc_config () =
+  Alcotest.(check string)
+    "cname required" "codec \"blosc\": cname is required"
+    (chain_error ~dtype:Dtype.Uint8
+       {|[{"name":"bytes"},{"name":"blosc","configuration":{"clevel":5}}]|});
+  Alcotest.(check string)
+    "unknown cname"
+    "codec \"blosc\": cname \"lzma\" is not one of blosclz, lz4, lz4hc, \
+     snappy, zlib, zstd"
+    (chain_error ~dtype:Dtype.Uint8
+       (blosc_json ~cname:"lzma" ()));
+  Alcotest.(check string)
+    "clevel required" "codec \"blosc\": clevel is required"
+    (chain_error ~dtype:Dtype.Uint8
+       {|[{"name":"bytes"},
+          {"name":"blosc","configuration":{"cname":"zstd"}}]|});
+  Alcotest.(check string)
+    "clevel range" "codec \"blosc\": clevel 10 is outside [0, 9]"
+    (chain_error ~dtype:Dtype.Uint8 (blosc_json ~clevel:10 ()));
+  Alcotest.(check string)
+    "clevel range below" "codec \"blosc\": clevel -1 is outside [0, 9]"
+    (chain_error ~dtype:Dtype.Uint8 (blosc_json ~clevel:(-1) ()));
+  Alcotest.(check string)
+    "unknown shuffle"
+    "codec \"blosc\": shuffle \"auto\" is not \"noshuffle\", \"shuffle\" or \
+     \"bitshuffle\""
+    (chain_error ~dtype:Dtype.Uint8 (blosc_json ~shuffle:"auto" ()));
+  Alcotest.(check string)
+    "typesize range" "codec \"blosc\": typesize 0 is below 1"
+    (chain_error ~dtype:Dtype.Uint8 (blosc_json ~typesize:0 ()));
+  Alcotest.(check string)
+    "negative blocksize" "codec \"blosc\": blocksize -1 is negative"
+    (chain_error ~dtype:Dtype.Uint8 (blosc_json ~blocksize:(-1) ()));
+  Alcotest.(check string)
+    "unknown member"
+    "codec \"blosc\": unknown configuration member \"nthreads\""
+    (chain_error ~dtype:Dtype.Uint8
+       {|[{"name":"bytes"},
+          {"name":"blosc","configuration":{"cname":"zstd","clevel":5,
+           "nthreads":4}}]|});
+  (* shuffle defaults to noshuffle, as the oracle's serde default does. *)
+  Alcotest.(check bool)
+    "no shuffle member" true
+    (match
+       Codec.chain_of_exts ~dtype:Dtype.Uint8 ~fill_value:(zeros Dtype.Uint8)
+         (exts_of_string
+            {|[{"name":"bytes"},
+               {"name":"blosc","configuration":{"cname":"zstd","clevel":5}}]|})
+     with
+    | Ok _ -> true
+    | Error _ -> false)
+
+(* A frame from a stranger must fail rather than read past its own
+   bytes. The header records the frame length and the block offsets, so
+   each of these is a different lie about them. *)
+let test_blosc_corrupt () =
+  let data = String.make 4096 'a' in
+  let c = chain ~dtype:Dtype.Uint8 (blosc_json ~typesize:1 ()) in
+  let enc = str (Codec.encode_chunk c (slab_of Dtype.Uint8 [| 4096 |] data)) in
+  let fails what s =
+    Alcotest.(check bool)
+      what true
+      (match Codec.decode_chunk c (repr Dtype.Uint8 [| 4096 |]) (bs s) with
+      | _ -> false
+      | exception Error.E _ -> true)
+  in
+  let n = String.length enc in
+  fails "empty" "";
+  fails "a partial header" (String.sub enc 0 8);
+  fails "garbage" (String.make 200 '\xab');
+  fails "a truncated frame" (String.sub enc 0 (n / 2));
+  fails "a header alone" (String.sub enc 0 16);
+  let flip i =
+    let b = Bytes.of_string enc in
+    Bytes.set b i (Char.chr (Char.code (Bytes.get b i) lxor 0xff));
+    Bytes.to_string b
+  in
+  fails "a flipped header byte" (flip 4);
+  fails "a flipped body byte" (flip (n - 3))
+
+(* The decoded size the chain asks for is checked against the size the
+   frame records, so a chunk of the wrong shape is caught before the
+   decompressor writes anything. *)
+let test_blosc_wrong_size () =
+  let data = String.make 4096 'a' in
+  let c = chain ~dtype:Dtype.Uint8 (blosc_json ~typesize:1 ()) in
+  let enc = Codec.encode_chunk c (slab_of Dtype.Uint8 [| 4096 |] data) in
+  Alcotest.(check bool)
+    "a chunk of another shape" true
+    (match Codec.decode_chunk c (repr Dtype.Uint8 [| 2048 |]) enc with
+    | _ -> false
+    | exception Error.E _ -> true)
+
+(* blosc adds at most a header to an input it cannot compress. *)
+let test_blosc_size () =
+  let c = chain ~dtype:Dtype.Uint8 (blosc_json ~typesize:1 ()) in
+  Alcotest.(check bool)
+    "bounded by the overhead" true
+    (match Codec.encoded_size c (repr Dtype.Uint8 [| 1000 |]) with
+    | Codec.Bounded n -> n = 1000 + Bloscz.max_overhead
+    | _ -> false);
+  let data = rand_string 8192 in
+  let enc = Codec.encode_chunk c (slab_of Dtype.Uint8 [| 8192 |] data) in
+  Alcotest.(check bool)
+    "a random chunk stays inside the bound" true
+    (Base_bigstring.length enc <= 8192 + Bloscz.max_overhead)
+
+let blosc_tests =
+  [
+    ("round trip", `Quick, test_blosc_round_trip);
+    ("compressors", `Quick, test_blosc_compressors);
+    ("typesize and blocksize", `Quick, test_blosc_typesize_default);
+    ("configuration", `Quick, test_blosc_config);
+    ("corrupt frames", `Quick, test_blosc_corrupt);
+    ("the wrong decoded size", `Quick, test_blosc_wrong_size);
+    ("encoded size", `Quick, test_blosc_size);
+  ]
+
 (* {1 The crc32c codec} *)
 
 let crc32c_json =
@@ -835,7 +1048,10 @@ let default_key ci cj = Printf.sprintf "c/%d/%d" ci cj
 let test_fixture_v3 () =
   List.iter
     (fun d -> check_10x10 ("v3/" ^ d ^ ".zarr") v2_key)
-    [ "array_none"; "array_gzip"; "array_zstd"; "array_none_transpose" ]
+    [
+      "array_none"; "array_gzip"; "array_zstd"; "array_none_transpose";
+      "array_blosc"; "array_blosc_transpose";
+    ]
 
 let test_fixture_zarr_python () =
   List.iter
@@ -922,9 +1138,37 @@ let test_fixture_reencode () =
       ("v3_zarr_python/array_none.zarr", default_key);
     ]
 
+(* A chunk of a real store rather than of a test fixture: the band
+   coordinate of the Tessera embeddings, whose chain is [bytes] little
+   endian then [blosc] with zstd inside and a byte shuffle over its four
+   byte elements. The 128 values are the band indices themselves, 0 to
+   127, which is what a coordinate array of a 128 band embedding holds. *)
+let test_fixture_tessera () =
+  let dir = "tessera_band" in
+  let m = array_meta (dir ^ "/zarr.json") in
+  Alcotest.(check (array int)) "shape" [| 128 |] m.shape;
+  let dt, c, cs = bind_meta m in
+  Alcotest.(check string) "data type" "int32" (Dtype.name dt);
+  Alcotest.(check (array int)) "chunk shape" [| 128 |] cs;
+  Alcotest.(check (list string))
+    "chain" [ "blosc" ]
+    (List.filter_map
+       (fun (e : Ext.t) -> if e.name = "blosc" then Some e.name else None)
+       (Codec.chain_exts c));
+  let buf = bs (read_file (fixture (dir ^ "/c/0"))) in
+  let slab = Codec.decode_chunk c (repr dt cs) buf in
+  Alcotest.(check int) "elements" 128 (Slab.num_elements slab);
+  for i = 0 to 127 do
+    Alcotest.(check int)
+      (Printf.sprintf "band %d" i)
+      i
+      (Int32.to_int (I32u.to_int32 (Slab.I32.get slab i)))
+  done
+
 let fixture_tests =
   [
     ("zarrs v3", `Quick, test_fixture_v3);
+    ("tessera band", `Quick, test_fixture_tessera);
     ("zarr python v3", `Quick, test_fixture_zarr_python);
     ("transposed bytes", `Quick, test_fixture_transpose_bytes);
     ("sharded", `Quick, test_fixture_shard);
@@ -938,6 +1182,7 @@ let () =
       ("bytes", bytes_tests);
       ("transpose", transpose_tests);
       ("compressors", compressor_tests);
+      ("blosc", blosc_tests);
       ("crc32c", crc32c_tests);
       ("chain", chain_tests);
       ("sharding", shard_tests);

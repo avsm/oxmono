@@ -1,0 +1,4 @@
+(test
+ (name test_consolidated)
+ (package zarrz)
+ (libraries zarrz jsont jsont.bytesrw alcotest))

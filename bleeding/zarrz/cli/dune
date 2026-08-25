@@ -1,0 +1,15 @@
+(executable
+ (name zarr_cli)
+ (public_name zarr)
+ (package zarrz-cli)
+ (libraries
+  zarrz
+  zarrz.geoemb
+  zarrz_eio
+  zarrz_fetch
+  base_bigstring
+  fetch-curl
+  eio_main
+  cmdliner
+  jsont
+  jsont.bytesrw))

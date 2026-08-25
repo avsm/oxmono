@@ -1,0 +1,5 @@
+(cram
+ (package zarrz-cli)
+ (deps
+  %{bin:zarr}
+  (source_tree ../../test/fixtures)))

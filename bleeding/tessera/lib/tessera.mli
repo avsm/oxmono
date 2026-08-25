@@ -35,6 +35,8 @@ module Affine = Affine
 module Consolidated = Consolidated
 module Crs = Crs
 module Dataset = Dataset
+module Npy = Npy
+module Patch = Patch
 module Zone = Zone
 
 type status = Dataset.status = Valid | Water | Nodata | Outside
@@ -168,3 +170,15 @@ val read_region :
 
     @raise Zarrz.Error.E [(Store _)] when the centre's zone is not in
     the store. *)
+
+val read_patch :
+  t -> lon:float -> lat:float -> year:int -> size_px:int -> Patch.t
+(** [read_patch t ~lon ~lat ~year ~size_px] is the square patch of
+    [year] centred on the WGS84 point [(lon, lat)], exactly
+    [(size_px, size_px, bands)] float32 with the point on the centre of
+    pixel [(size_px / 2, size_px / 2)].
+
+    A patch inside one zone keeps that zone's grid and CRS untouched.
+    One straddling a seam is merged onto a patch-centred transverse
+    Mercator grid. See {!Patch.read}, which this calls with
+    {!zone_opt}. *)

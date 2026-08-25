@@ -1,0 +1,15 @@
+(test
+ (name test_patch)
+ (package tessera)
+ (libraries tessera zarrz jsont jsont.bytesrw alcotest))
+
+; The CLI must at least start, parse and print its own manual. Anything
+; past that needs a store, which runtest does not have.
+
+(rule
+ (alias runtest)
+ (package tessera)
+ (action
+  (with-stdout-to
+   cli-help.txt
+   (run %{exe:../../bin/tessera_cli.exe} --help=plain))))

@@ -7,6 +7,8 @@ module Affine = Affine
 module Consolidated = Consolidated
 module Crs = Crs
 module Dataset = Dataset
+module Npy = Npy
+module Patch = Patch
 module Zone = Zone
 
 type status = Dataset.status = Valid | Water | Nodata | Outside
@@ -179,3 +181,6 @@ let read_region t ~bbox ~year =
     ~n_min:(Float.min n_nw n_se)
     ~n_max:(Float.max n_nw n_se)
     ~year
+
+let read_patch t ~lon ~lat ~year ~size_px =
+  Patch.read ~zone:(zone_opt t) ~lon ~lat ~year ~size_px

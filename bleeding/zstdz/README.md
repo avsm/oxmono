@@ -1,4 +1,4 @@
-# zstdz — Zstandard for OxCaml
+# zstdz - Zstandard for OxCaml
 
 Bindings to the system [libzstd](https://facebook.github.io/zstd/) (1.5 or
 later). The API is one shot rather than streaming: the caller sizes the
@@ -11,7 +11,7 @@ codec pipeline can hand its own buffers straight to the compressor.
   lets other domains run during a large compression.
 - `Zstdz.frame_info` and `Zstdz.error_name` return values allocated in the
   caller's stack region, so probing a frame or naming an error does not touch
-  the minor heap.
+  the minor heap. `Zstdz.content_size` is checked `[@zero_alloc]`.
 
 ## Build
 

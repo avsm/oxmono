@@ -145,10 +145,10 @@ CAMLprim value bloscz_decompress_bytecode(value *argv, int argn)
                                   argv[5]);
 }
 
-/* Fields, in the order of the labelled tuple in bloscz.mli: nbytes,
-   cbytes, blocksize. A labelled tuple has the representation of the
-   plain tuple of its components, so this is an ordinary three word
-   block of immediates. blosc_cbuffer_sizes fills all three with zero
+/* The three fields are stored in the order the labelled tuple in
+   bloscz.mli declares them. A labelled tuple has the representation of
+   the plain tuple of its components, so an ordinary tuple block is what
+   the OCaml side expects. blosc_cbuffer_sizes fills all three with zero
    when it does not recognise the header. */
 CAMLprim value bloscz_buffer_sizes(value vbuf, value voff)
 {
@@ -165,9 +165,10 @@ CAMLprim value bloscz_buffer_sizes(value vbuf, value voff)
   CAMLreturn(v);
 }
 
-/* -1 for a range that is not exactly one safe frame, otherwise the
-   decompressed size. blosc_cbuffer_validate checks the length itself,
-   so a range shorter than a header is rejected rather than read. */
+/* -1 is the sentinel the OCaml side reads as None. No length guard is
+   needed here, because blosc_cbuffer_validate is told how far it may
+   read and rejects a range shorter than a header rather than reading
+   it. */
 CAMLprim value bloscz_validate(value vbuf, value voff, value vlen)
 {
   const char *p = (const char *)Caml_ba_data_val(vbuf) + Long_val(voff);

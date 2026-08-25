@@ -1,4 +1,4 @@
-# bloscz — Blosc1 for OxCaml
+# bloscz - Blosc1 for OxCaml
 
 Bindings to the system [C-Blosc1](https://www.blosc.org/) (1.21 or later).
 Blosc splits a buffer into blocks, optionally shuffles the bytes or bits of

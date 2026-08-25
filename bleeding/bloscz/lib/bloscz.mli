@@ -8,21 +8,18 @@
     Bindings to the system C-Blosc1, 1.21 or later. Only the context
     interface is bound. It takes no global lock, holds no state between
     calls and needs no initialisation, so a call is a pure function of
-    its arguments and safe from any domain. The blocking interface, the
-    global thread pool and [blosc_init] are deliberately absent.
+    its arguments and safe from any domain.
 
-    Blosc is a container: it splits the input into blocks, optionally
+    Blosc is a container. It splits the input into blocks, optionally
     shuffles the bytes or bits of each block so that like-valued bytes of
     an element sit together, and hands each block to an inner compressor
     named by {!compressors}. A frame carries a 16 byte header recording
     the decompressed size, so a reader does not have to be told it.
 
     Compression and decompression are one shot: the caller sizes the
-    destination and the codec writes into it. Data lives in
-    [Base_bigstring.t], which is off heap and readable from the stubs
-    without copying.
-
-    Everything here is [portable]. The stubs close over no state.
+    destination and the codec writes into it. Buffers are
+    [Base_bigstring.t], which is off heap and read by the stubs without
+    copying. Everything here is [portable].
 
     {2 Quick Start}
 
@@ -49,13 +46,17 @@
 
 exception Error of int * string
 (** [Error (code, what)] is raised by {!compress} and {!decompress}.
-    [code] is the value the C function returned and [what] describes it.
-    Blosc1 publishes no error name table, so [what] is this binding's own
-    wording for the codes observed from 1.21: [-5] is a compressor the
-    library was not built with, [-10] a parameter outside its range and
-    [-1] an unspecified failure, which is what a corrupt or truncated
-    frame and a destination that is too small both give. A code with no
-    wording is reported as such, and the code is always in the payload. *)
+    [code] is the value the C function returned and [what] is this
+    binding's own wording for it, since Blosc1 publishes no error name
+    table. Match on [code] rather than on [what].
+
+    [0] comes only from {!compress} and means the frame did not fit
+    [dst_len]. [-5] is a compressor this build of the library does not
+    have, [-10] a parameter outside its range and [-1] an unspecified
+    failure, which is what a corrupt frame, a truncated frame and a
+    {!decompress} destination that is too small all give. Any other code
+    is described only in general terms and still reaches the caller in
+    the payload. *)
 
 (** {2 Library facts} *)
 
@@ -69,10 +70,9 @@ val compressors : unit -> string list
 (** [compressors ()] are the inner compressors this build of the C
     library supports, in its own order. A name outside this list makes
     {!compress} raise [Error (-5, _)]. The full set is ["blosclz"],
-    ["lz4"], ["lz4hc"], ["snappy"], ["zlib"] and ["zstd"], but a
-    distribution may build without some of them, so a caller that needs
-    a particular compressor must check for it here rather than assume
-    it. *)
+    ["lz4"], ["lz4hc"], ["snappy"], ["zlib"] and ["zstd"], and a
+    distribution may build without some of them, so a caller that needs a
+    particular compressor must check for it here rather than assume it. *)
 
 (** {2 Compression} *)
 
@@ -96,12 +96,10 @@ val compress :
     input still produces the 16 byte header.
 
     [cname] names the inner compressor and must be one of
-    {!compressors}. It is the one argument that is not named, so that
-    the three optional ones can be left out. [typesize] is the size in
-    bytes of one element of
-    the input, which is what the shuffle filter permutes around; it must
-    be at least 1 even under [`No], because blosc divides by it. Sizes
-    above 255 are accepted and treated as an unstructured byte stream.
+    {!compressors}. [typesize] is the size in bytes of one element of the
+    input, which is what the shuffle filter permutes around. It must be
+    at least 1 even under [`No]. A size above 255 is accepted and treated
+    as an unstructured byte stream.
 
     [level] defaults to 5 and must be in [0, 9], where 0 stores the
     blocks uncompressed. [shuffle] defaults to [`No]. [`Byte] gathers
@@ -120,9 +118,8 @@ val compress :
       [typesize] is below 1, if [level] is outside [0, 9], if
       [blocksize] is negative, or if [cname] is empty or longer than 31
       bytes, which is longer than any name blosc knows.
-    @raise Error if blosc fails, including when [dst_len] leaves no room
-      for the frame, which it reports as a zero-length result rather
-      than a code of its own. *)
+    @raise Error if blosc fails, with [code] 0 when [dst_len] leaves no
+      room for the frame. *)
 
 (** {2 Decompression} *)
 
@@ -162,11 +159,11 @@ val buffer_sizes :
     frame and [blocksize] the size of one compressed block. A header
     whose format this build does not know gives three zeroes.
 
-    The C function reads the header without looking at [len], so [len]
-    is checked here instead: it must be at least 16 bytes, the header
-    length. Nothing else about the frame is checked, so a header that
-    survives this can still be a lie about the bytes that follow. Use
-    {!validate} before decompressing anything a stranger wrote.
+    [len] must be at least 16, the header length, because the C function
+    reads the header without being told how far it may read. Nothing else
+    about the frame is checked, so a header that survives this can still
+    be a lie about the bytes that follow. Use {!validate} before
+    decompressing anything a stranger wrote.
 
     @raise Invalid_argument if the range falls outside [buf] or if [len]
       is below 16. *)

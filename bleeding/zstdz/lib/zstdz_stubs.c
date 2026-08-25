@@ -18,9 +18,7 @@
    zstdz_frame_info and zstdz_error_name return blocks allocated with
    caml_alloc_local and caml_alloc_local_string. These live in the
    caller's local stack region, not the minor heap, and the OCaml side
-   receives them at mode local so they cannot escape.
-
-   The contract, which is the reason this comment exists:
+   receives them at mode local so they cannot escape. Two rules hold:
 
    - caml_alloc_local returns an uninitialised block. Its words hold
      whatever the local region last held, so a collector that scanned
@@ -34,9 +32,6 @@
      ..., never with caml_modify or Store_field. Only immediates are
      stored here, which is safe under either rule, but the direct form is
      the one that stays correct if a pointer field is ever added.
-
-   - Local allocation itself never triggers a collection and never moves
-     an existing block, so nesting local allocations is safe.
 
    ZSTD_getFrameHeader is declared under ZSTD_STATIC_LINKING_ONLY. It is
    exported from the shared library and has been stable since 1.4, but it
@@ -62,8 +57,6 @@
 /* Releasing and reacquiring the runtime lock costs more than compressing
    a small buffer, so only the larger calls pay for it. */
 #define ZSTDZ_UNLOCK_THRESHOLD 65536
-
-/* Compression contexts. */
 
 #define Cctx_val(v) (*((ZSTD_CCtx **)Data_custom_val(v)))
 #define Dctx_val(v) (*((ZSTD_DCtx **)Data_custom_val(v)))
@@ -146,9 +139,8 @@ CAMLprim value zstdz_create_dctx(value unit)
   CAMLreturn(v);
 }
 
-/* An error result from libzstd is the size_t (0 - code). Both directions
-   of that mapping are needed: here to hand the code to OCaml, and in
-   zstdz_error_name to hand it back for naming. */
+/* An error result from libzstd is the size_t (0 - code). It reaches OCaml
+   as the negated code, which zstdz_error_name maps back. */
 static intnat zstdz_result(size_t r)
 {
   if (ZSTD_isError(r)) return -(intnat)ZSTD_getErrorCode(r);
@@ -230,7 +222,9 @@ CAMLprim value zstdz_decompress_bytecode(value *argv, int argn)
 }
 
 /* The native half of an external whose result type is int64# returns the
-   raw int64_t. The bytecode half boxes it. */
+   raw int64_t. The bytecode half boxes it, and only the native half is
+   held to [@@noalloc]: it reads the frame header and nothing else, so it
+   neither allocates on the OCaml heap nor raises. */
 int64_t zstdz_content_size_native(value vbuf, value voff, value vlen)
 {
   const char *p = (const char *)Caml_ba_data_val(vbuf) + Long_val(voff);
@@ -246,10 +240,9 @@ CAMLprim value zstdz_content_size_bytecode(value vbuf, value voff, value vlen)
   return caml_copy_int64(zstdz_content_size_native(vbuf, voff, vlen));
 }
 
-/* Fields, in the order of the frame_info record in zstdz.mli:
-   content_size, window_size, dict_id, has_checksum. All four are
-   immediates, so the block is filled without a write barrier. See the
-   local allocation contract at the top of this file. */
+/* The four fields are stored in the order the frame_info record declares
+   them in zstdz.mli. See the local allocation contract at the top of this
+   file. */
 CAMLprim value zstdz_frame_info(value vbuf, value voff, value vlen)
 {
   const char *p = (const char *)Caml_ba_data_val(vbuf) + Long_val(voff);
@@ -284,9 +277,7 @@ CAMLprim value zstdz_frame_info(value vbuf, value voff, value vlen)
 }
 
 /* ZSTD_getErrorName takes a function result, not an error code, so the
-   code is mapped back to the (0 - code) form libzstd uses. A code that
-   names no error yields "No error detected", and one out of range yields
-   "Unspecified error code". */
+   code is mapped back to the (0 - code) form libzstd uses. */
 CAMLprim value zstdz_error_name(value vcode)
 {
   const char *s = ZSTD_getErrorName((size_t)0 - (size_t)Long_val(vcode));

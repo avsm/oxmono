@@ -13,11 +13,9 @@ external list_compressors : unit -> string @@ portable
   = "bloscz_list_compressors"
 
 (* The two working stubs return the byte count written, or a negative
-   blosc code. Their arguments are positional in the order the labelled
-   wrappers below pass them. Neither carries [@@noalloc], because both
-   release the runtime lock and reacquiring it can run a pending signal
-   handler, which needs a frame descriptor the compiler only emits for
-   an allocating call. *)
+   blosc code. Neither may carry [@@noalloc]: both release the runtime
+   lock, and reacquiring it can run a pending signal handler, which needs
+   a frame descriptor the compiler only emits for an allocating call. *)
 
 external compress_raw :
   string ->
@@ -63,8 +61,10 @@ let compressors () =
 
 (* The stubs trust their offsets, so every range reaches them checked.
    The subtraction cannot overflow: both operands are bigstring lengths
-   or already-checked offsets. *)
-let check fn buf_len off len =
+   or already-checked offsets. The message is built only on the failing
+   branch, which is what keeps the guard allocation free. *)
+let[@zero_alloc] check fn buf off len =
+  let buf_len = Base_bigstring.length buf in
   if off < 0 || len < 0 || len > buf_len - off then
     invalid_arg
       (Printf.sprintf "Bloscz.%s: %d bytes at offset %d outside a buffer of %d"
@@ -92,8 +92,8 @@ let fail fn code = raise (Error (code, Printf.sprintf "%s: %s" fn (what code)))
    lock, so 31 is the limit here. *)
 let compress ?(level = 5) ?(shuffle = `No) ?(blocksize = 0) cname ~typesize
     ~src ~src_off ~src_len ~dst ~dst_off ~dst_len =
-  check "compress" (Base_bigstring.length src) src_off src_len;
-  check "compress" (Base_bigstring.length dst) dst_off dst_len;
+  check "compress" src src_off src_len;
+  check "compress" dst dst_off dst_len;
   if typesize < 1 then
     invalid_arg (Printf.sprintf "Bloscz.compress: typesize %d is below 1"
                    typesize);
@@ -115,15 +115,15 @@ let compress ?(level = 5) ?(shuffle = `No) ?(blocksize = 0) cname ~typesize
   if r <= 0 then fail "compress" r else r
 
 let decompress ~src ~src_off ~src_len ~dst ~dst_off ~dst_len =
-  check "decompress" (Base_bigstring.length src) src_off src_len;
-  check "decompress" (Base_bigstring.length dst) dst_off dst_len;
+  check "decompress" src src_off src_len;
+  check "decompress" dst dst_off dst_len;
   let r = decompress_raw src src_off src_len dst dst_off dst_len in
   if r < 0 then fail "decompress" r else r
 
 (* blosc_cbuffer_sizes reads the header without being told how much it
    may read, so the header must be known to be there before the call. *)
 let buffer_sizes buf ~off ~len =
-  check "buffer_sizes" (Base_bigstring.length buf) off len;
+  check "buffer_sizes" buf off len;
   if len < max_overhead then
     invalid_arg
       (Printf.sprintf "Bloscz.buffer_sizes: %d bytes cannot hold a %d byte \
@@ -132,5 +132,5 @@ let buffer_sizes buf ~off ~len =
   buffer_sizes_raw buf off
 
 let validate buf ~off ~len =
-  check "validate" (Base_bigstring.length buf) off len;
+  check "validate" buf off len;
   match validate_raw buf off len with n when n < 0 -> None | n -> Some n

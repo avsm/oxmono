@@ -6,6 +6,10 @@
 module A1 = Bigarray.Array1
 module Arr = Zarrz.Arr
 module Dtype = Zarrz.Dtype
+module F32_u = Stdlib_stable.Float32_u
+module Float_u = Stdlib_upstream_compatible.Float_u
+module I8_u = Stdlib_stable.Int8_u
+module I32_u = Stdlib_upstream_compatible.Int32_u
 module Slab = Zarrz.Slab
 module Subset = Zarrz.Subset
 
@@ -41,24 +45,56 @@ type t = {
 let err fmt =
   Format.kasprintf (fun m -> Zarrz.Error.raise_ (Zarrz.Error.Metadata m)) fmt
 
-(* {1 Views over a slab} *)
+(* {1 Dequantisation}
 
-(* A [float32] bigarray presents its elements as OCaml doubles, widening
-   on a read and rounding to nearest even on a write. The rounding is
-   what the dequantiser needs: the exact product of two float32 values
-   fits a double, so a double multiply stored back through this view is
-   the float32 product, with no double rounding. *)
-let f32 s = Bigarray.reshape_1 (Slab.to_genarray s Bigarray.float32)
+   A [float32] bigarray presents its elements as OCaml doubles, widening
+   on a read and rounding to nearest even on a write. That write is the
+   only rounding a dequantised value needs: an [int8] carries 8
+   significant bits and a float32 24, so their real product needs 32 and
+   is exact in a double, and rounding it once gives the float32 product.
+
+   Bulk work goes through the views below and point work through
+   {!Zarrz.Slab}'s unboxed accessors. Building a view allocates, which a
+   walk of millions of elements amortises and a walk of one pixel column
+   does not, and over a whole region the doubles above beat the unboxed
+   float32 accessors by half as much again. Both spellings were measured
+   to produce identical bytes.
+
+   The element type has to be spelt out wherever a view crosses a
+   function boundary. A view left polymorphic goes through the generic
+   bigarray accessor, which is a C call per element. *)
+
+type f32v = (float, Bigarray.float32_elt, Bigarray.c_layout) A1.t
+type i8v = (int, Bigarray.int8_signed_elt, Bigarray.c_layout) A1.t
+
+let f32 s : f32v = Bigarray.reshape_1 (Slab.to_genarray s Bigarray.float32)
     (Slab.num_elements s)
 
-let i8 s = Bigarray.reshape_1 (Slab.to_genarray s Bigarray.int8_signed)
+let i8 s : i8v = Bigarray.reshape_1 (Slab.to_genarray s Bigarray.int8_signed)
     (Slab.num_elements s)
 
-let i32 s = Bigarray.reshape_1 (Slab.to_genarray s Bigarray.int32)
-    (Slab.num_elements s)
+(* [dequantise ~ov ~ev ~sv ~n ~bands] writes the [bands] float32 of each
+   of the [n] pixels of [ev], band-major as the store holds them, into
+   [ov] pixel-major, scaled by that pixel's entry in [sv]. A pixel whose
+   scale is not finite becomes a row of [NaN].
 
-(* Rounding a double to float32 the same way the store would. *)
-let to_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
+   The accessors are unchecked. {!Arr.read} answers with a slab of
+   exactly the shape asked for, and the only caller derives [n] and
+   [bands] from those same shapes, so every index below is in range. *)
+let[@zero_alloc] dequantise ~(ov : f32v) ~(ev : i8v) ~(sv : f32v) ~n ~bands =
+  for k = 0 to n - 1 do
+    let s = A1.unsafe_get sv k in
+    let dst = k * bands in
+    if Float.is_finite s then
+      for b = 0 to bands - 1 do
+        A1.unsafe_set ov (dst + b)
+          (float_of_int (A1.unsafe_get ev ((b * n) + k)) *. s)
+      done
+    else
+      for b = 0 to bands - 1 do
+        A1.unsafe_set ov (dst + b) Float.nan
+      done
+  done
 
 (* {1 Opening} *)
 
@@ -192,8 +228,7 @@ let years t =
   | None ->
       let n = (Arr.shape t.time).(0) in
       let s = Arr.read t.time { Subset.start = [: 0 :]; shape = [: n :] } in
-      let v = i32 s in
-      let y = List.init n (fun i -> Int32.to_int (A1.get v i)) in
+      let y = List.init n (fun i -> I32_u.to_int (Slab.I32.get s i)) in
       t.years <- Some y;
       y
 
@@ -235,23 +270,36 @@ let tile t kind ti ty tx =
       Lru.add t.cache (kind, ti, ty, tx) s;
       s
 
+(* A scale widened to a double. Widening is exact, so [Float.is_finite]
+   and [Float.is_nan] on the result answer for the stored float32. *)
 let scale_at t ~ti ~row ~col =
   let ty = row / tile_px and tx = col / tile_px in
   let s = tile t Scale ti ty tx in
   let tw = min tile_px (t.width - (tx * tile_px)) in
-  A1.get (f32 s) (((row - (ty * tile_px)) * tw) + (col - (tx * tile_px)))
+  Float_u.to_float
+    (F32_u.to_float
+       (Slab.F32.unsafe_get s
+          (((row - (ty * tile_px)) * tw) + (col - (tx * tile_px)))))
 
 (* One pixel's whole vector, dequantised. Taken in one pass so that the
-   tile and its view are found once rather than once per band. *)
+   tile is found once rather than once per band. Narrowing [scale] undoes
+   the widening {!scale_at} did, so the multiply is the same float32 one
+   {!dequantise} performs. *)
 let emb_column t ~ti ~row ~col ~scale =
   let ty = row / tile_px and tx = col / tile_px in
   let s = tile t Emb ti ty tx in
   let th = min tile_px (t.height - (ty * tile_px)) in
   let tw = min tile_px (t.width - (tx * tile_px)) in
-  let v = i8 s in
   let off = ((row - (ty * tile_px)) * tw) + (col - (tx * tile_px)) in
-  Array.init t.bands (fun b ->
-      to_f32 (float_of_int (A1.get v ((b * th * tw) + off)) *. scale))
+  let plane = th * tw in
+  let sc = F32_u.of_float (Float_u.of_float scale) in
+  let v = Array.make t.bands 0. in
+  for b = 0 to t.bands - 1 do
+    let q = I8_u.to_int (Slab.I8.unsafe_get s ((b * plane) + off)) in
+    v.(b) <-
+      Float_u.to_float (F32_u.to_float (F32_u.mul (F32_u.of_int q) sc))
+  done;
+  v
 
 (* {1 Point reads} *)
 
@@ -267,6 +315,11 @@ let nearest f n =
   else if g >= float_of_int (n - 1) then n - 1
   else int_of_float g
 
+(* The residual is settled before the window, and so before [time_index]
+   and any read: a point off this grid is [Outside] whatever the store
+   holds, so it costs no request, and a caller sweeping many zones for
+   one point is not made to hear about a year the zone it missed does
+   not have. *)
 let probe t ~e ~n ~year ?(search_px = 1) () =
   let col = nearest (Affine.col_of_x t.transform ~x:e) t.width in
   let row = nearest (Affine.row_of_y t.transform ~y:n) t.height in
@@ -281,10 +334,12 @@ let probe t ~e ~n ~year ?(search_px = 1) () =
     let x0 = max 0 (col - r) and x1 = min t.width (col + r + 1) in
     let y0 = max 0 (row - r) and y1 = min t.height (row + r + 1) in
     let wh = y1 - y0 and ww = x1 - x0 in
-    let win =
-      Array.init (wh * ww) (fun k ->
-          scale_at t ~ti ~row:(y0 + (k / ww)) ~col:(x0 + (k mod ww)))
-    in
+    let win = Array.make (wh * ww) 0. in
+    for i = 0 to wh - 1 do
+      for j = 0 to ww - 1 do
+        win.((i * ww) + j) <- scale_at t ~ti ~row:(y0 + i) ~col:(x0 + j)
+      done
+    done;
     let ci = row - y0 and cj = col - x0 in
     let centre = win.((ci * ww) + cj) in
     if Float.is_nan centre then (None, Water)
@@ -292,8 +347,9 @@ let probe t ~e ~n ~year ?(search_px = 1) () =
       let best =
         if Float.is_finite centre then Some (ci, cj)
         else begin
-          (* Row-major scan with a strict improvement, which is where
-             [numpy.argmin] over the nonzero indices lands too. *)
+          (* Strict improvement, so the first of equal distances in
+             row-major order wins. That is the index [numpy.argmin]
+             picks. *)
           let best = ref None and dist = ref max_int in
           for i = 0 to wh - 1 do
             for j = 0 to ww - 1 do
@@ -362,24 +418,10 @@ let read_region t ~e_min ~e_max ~n_min ~n_max ~year =
       Arr.read t.scales
         { Subset.start = [: ti; row0; col0 :]; shape = [: 1; h; w :] }
     in
-    let ov = f32 out and ev = i8 emb and sv = f32 scl in
     (* One fused pass: the transpose from (band, y, x) to (y, x, band)
        and the scale multiply cost the same walk. *)
-    for r = 0 to h - 1 do
-      for c = 0 to w - 1 do
-        let s = A1.get sv ((r * w) + c) in
-        let dst = ((r * w) + c) * t.bands in
-        if Float.is_finite s then
-          for b = 0 to t.bands - 1 do
-            A1.set ov (dst + b)
-              (float_of_int (A1.get ev ((b * h * w) + (r * w) + c)) *. s)
-          done
-        else
-          for b = 0 to t.bands - 1 do
-            A1.set ov (dst + b) Float.nan
-          done
-      done
-    done
+    dequantise ~ov:(f32 out) ~ev:(i8 emb) ~sv:(f32 scl) ~n:(h * w)
+      ~bands:t.bands
   end;
   let transform =
     {

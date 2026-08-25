@@ -46,7 +46,10 @@ let rec chop_slash s =
   let n = String.length s in
   if n > 1 && s.[n - 1] = '/' then chop_slash (String.sub s 0 (n - 1)) else s
 
-let with_store spec f =
+(* [run spec f] opens the store [spec] names and hands it to [f], under
+   the one guard and the one switch every subcommand needs. *)
+let run spec f =
+  guard @@ fun () ->
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let store =
@@ -58,8 +61,6 @@ let with_store spec f =
   f (Tessera.of_store store)
 
 (* {1 Printing} *)
-
-let pr fmt = Printf.printf fmt
 
 (* One field a line, the name padded past the longest of them so the
    values line up whatever the subcommand. *)
@@ -111,8 +112,7 @@ let write_npy path slab =
 (* {1 Commands} *)
 
 let info_cmd store =
-  guard @@ fun () ->
-  with_store store @@ fun t ->
+  run store @@ fun t ->
   let g = Tessera.geoemb t in
   let zones = Tessera.zones t in
   let head = List.filteri (fun i _ -> i < 8) zones in
@@ -137,8 +137,7 @@ let info_cmd store =
   0
 
 let probe_cmd store lon lat year cross_zone search_px =
-  guard @@ fun () ->
-  with_store store @@ fun t ->
+  run store @@ fun t ->
   let v, st = Tessera.probe t ~lon ~lat ~year ~cross_zone ~search_px () in
   field "point" "%.6f %.6f" lon lat;
   field "zone" "utm%02d" (Tessera.Zone.for_lon lon);
@@ -151,12 +150,11 @@ let probe_cmd store lon lat year cross_zone search_px =
       field "values" "%s"
         (String.concat " "
            (List.init n (fun i -> Printf.sprintf "%.6g" v.(i))));
-      if Array.length v > n then pr "%-11s...\n" "");
+      if Array.length v > n then field "" "%s" "...");
   if st = Tessera.Valid then 0 else exit_failure
 
 let region_cmd store min_lon min_lat max_lon max_lat year out =
-  guard @@ fun () ->
-  with_store store @@ fun t ->
+  run store @@ fun t ->
   let r =
     Tessera.read_region t ~bbox:(min_lon, min_lat, max_lon, max_lat) ~year
   in
@@ -168,17 +166,19 @@ let region_cmd store min_lon min_lat max_lon max_lat year out =
   0
 
 let patch_cmd store lon lat year size out =
-  guard @@ fun () ->
-  with_store store @@ fun t ->
+  run store @@ fun t ->
   let p = Tessera.read_patch t ~lon ~lat ~year ~size_px:size in
   write_npy out p.Tessera.Patch.data;
   let v = f32 p.Tessera.Patch.data in
   let d = dims p.Tessera.Patch.data in
+  let pixels = d.(0) * d.(1) and bands = d.(2) in
+  (* A pixel counts as covered when any band is finite, which is how the
+     patch marks one it found nothing for. *)
   let covered = ref 0 in
-  for i = 0 to (d.(0) * d.(1)) - 1 do
+  for i = 0 to pixels - 1 do
     let live = ref false in
-    for b = 0 to d.(2) - 1 do
-      if Float.is_finite (Bigarray.Array1.get v ((i * d.(2)) + b)) then
+    for b = 0 to bands - 1 do
+      if Float.is_finite (Bigarray.Array1.get v ((i * bands) + b)) then
         live := true
     done;
     if !live then incr covered
@@ -187,7 +187,7 @@ let patch_cmd store lon lat year size out =
   field "shape" "%s" (pp_shape p.Tessera.Patch.data);
   field "transform" "%s" (pp_transform p.Tessera.Patch.transform);
   field "crs" "%s" (Tessera.Patch.crs_name p.Tessera.Patch.crs);
-  field "covered" "%d of %d pixels" !covered (d.(0) * d.(1));
+  field "covered" "%d of %d pixels" !covered pixels;
   0
 
 (* {1 Arguments} *)

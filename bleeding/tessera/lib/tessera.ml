@@ -145,16 +145,14 @@ let sample t ~lon ~lat ~year ?cross_zone ?search_px () =
 
 let sample_points t pts ~year ?cross_zone ?search_px () =
   let n = Array.length pts in
+  let zs = Array.map (fun (lon, _) -> Zone.for_lon lon) pts in
   let order = Array.init n Fun.id in
   (* Visiting a zone's points together keeps its tile cache warm. The
      sort is stable, so points of one zone keep their input order and
-     the walk stays close to the caller's own locality. *)
-  Array.stable_sort
-    (fun i j ->
-      Int.compare
-        (Zone.for_lon (fst pts.(i)))
-        (Zone.for_lon (fst pts.(j))))
-    order;
+     the walk stays close to the caller's own locality. Routing each
+     point once keeps the comparator from re-deciding it at every
+     comparison. *)
+  Array.stable_sort (fun i j -> Int.compare zs.(i) zs.(j)) order;
   let out = Array.make n None in
   Array.iter
     (fun i ->

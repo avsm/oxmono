@@ -17,17 +17,7 @@
     EPSG codes are resolved against the PROJ database, so
     [/usr/share/proj/proj.db] must be present at run time. The transverse
     Mercator strings of {!patch} carry their own datum and need no
-    lookup.
-
-    {2 Input precision}
-
-    The vendored binding declares [proj_coord]'s four doubles as C
-    floats, so PROJ sees every coordinate rounded to single precision.
-    Results are full precision, but an easting or northing given to
-    {!inverse} is displaced by up to half a metre first, and a longitude
-    or latitude given to {!forward} by up to a third of a metre. The fix
-    is one word in [vendor/ocaml-proj/src/lib_c/function_description.ml];
-    the geodesy tests pin the current behaviour and fail once it lands. *)
+    lookup. *)
 
 type t
 (** A projection from [EPSG:4326] to one target grid. *)

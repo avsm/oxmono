@@ -20,7 +20,7 @@ let normalise path =
   while !j > !i && path.[!j - 1] = '/' do
     decr j
   done;
-  String.sub path !i (!j - !i)
+  if !i = 0 && !j = n then path else String.sub path !i (!j - !i)
 
 let inline_map mems =
   match Jsont.Json.find_mem "consolidated_metadata" mems with

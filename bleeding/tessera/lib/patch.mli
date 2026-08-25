@@ -7,9 +7,11 @@
 
     A patch is exactly [(size_px, size_px, bands)] float32 with the
     requested point on the centre of pixel [(size_px / 2, size_px / 2)],
-    [NaN] wherever the store holds nothing. It is the port of
-    [GeoTesseraZarr.read_patch] in the Python reference, and
-    {!Tessera.read_patch} is how a caller reaches it.
+    [NaN] wherever the store holds nothing. {!Tessera.read_patch} is how
+    a caller reaches it. It is the port of [GeoTesseraZarr.read_patch]
+    in the Python reference, less that function's [dst_crs], so a patch
+    comes back on one of the two grids below and never on a
+    caller-chosen one.
 
     {2 The two paths}
 
@@ -19,16 +21,12 @@
     on the patch, {!Crs.patch}, since no one zone's grid holds it all.
     Which path runs is decided by projecting the four corners of the
     patch out of the centre zone's grid and asking {!Zone.spanned} what
-    they cover, exactly as the reference does.
+    they cover.
 
     The merged path relocates pixels whole, nearest neighbour, so a
     vector is never blended with its neighbours. Ownership settles the
     overlap: a pixel is taken from the zone owning its longitude, and
-    any other zone only fills pixels the owner has nothing for.
-
-    Python's [dst_crs], which forces a patch onto a caller-chosen CRS,
-    has no counterpart here. A patch comes back either in its zone's
-    CRS or in the patch CRS. *)
+    any other zone only fills pixels the owner has nothing for. *)
 
 type crs = [ `Epsg of int | `Proj of string ]
 (** The type for the CRS a patch is on. [`Epsg] is a UTM zone of the
@@ -50,7 +48,7 @@ type t = {
 val crs_name : crs -> string
 (** [crs_name c] is ["EPSG:32631"] for a zone code and the proj string
     itself for a patch grid, which is what {!Crs.name} gives for the
-    same grid and what the Python reference returns. *)
+    same grid. *)
 
 val read :
   zone:(int -> Dataset.t option) ->

@@ -5,7 +5,7 @@
 
 module A1 = Bigarray.Array1
 module Dtype = Zarrz.Dtype
-module Ga = Bigarray.Genarray
+module Iarray = Stdlib_stable.Iarray
 module Slab = Zarrz.Slab
 
 type crs = [ `Epsg of int | `Proj of string ]
@@ -17,22 +17,34 @@ let crs_name = function
 
 (* {1 Slab helpers} *)
 
-let f32 s =
+(* The element type must be spelt out wherever a view crosses a function
+   boundary. A view left polymorphic goes through the generic bigarray
+   accessor, a C call per element. *)
+type f32v = (float, Bigarray.float32_elt, Bigarray.c_layout) A1.t
+
+let f32 s : f32v =
   Bigarray.reshape_1 (Slab.to_genarray s Bigarray.float32) (Slab.num_elements s)
 
-(* The height and width of a rank 3 float32 slab. Taken through the
-   bigarray view so that this module needs no iarray accessors. *)
+(* The height and width of a rank 3 slab. *)
 let dims2 s =
-  let g = Slab.to_genarray s Bigarray.float32 in
-  (Ga.nth_dim g 0, Ga.nth_dim g 1)
+  let d = Slab.shape s in
+  (Iarray.get d 0, Iarray.get d 1)
 
 let nan_slab shape =
   let s = Slab.create Dtype.Float32 shape in
   let v = f32 s in
   for i = 0 to Slab.num_elements s - 1 do
-    A1.set v i Float.nan
+    A1.unsafe_set v i Float.nan
   done;
   s
+
+(* One pixel's vector moved between two float32 views. The accessors are
+   unchecked: every caller derives both offsets from the shapes of the
+   slabs the views came from. *)
+let[@zero_alloc] blit ~(src : f32v) ~src_off ~(dst : f32v) ~dst_off ~bands =
+  for b = 0 to bands - 1 do
+    A1.unsafe_set dst (dst_off + b) (A1.unsafe_get src (src_off + b))
+  done
 
 (* {1 Index arithmetic} *)
 
@@ -98,19 +110,20 @@ let native d ~ce ~cn ~year ~size_px =
     let off x0 x step = int_of_float (Float.round ((x -. x0) /. step)) in
     let dc = off tr.Affine.c rt.Affine.c tr.Affine.a in
     let dr = off tr.Affine.f rt.Affine.f tr.Affine.e in
-    for r = 0 to rh - 1 do
-      let tr_row = r + dr - row0 in
-      if tr_row >= 0 && tr_row < size_px then
-        for c = 0 to rw - 1 do
-          let tr_col = c + dc - col0 in
-          if tr_col >= 0 && tr_col < size_px then begin
-            let src = (((r * rw) + c) * bands) in
-            let dst = (((tr_row * size_px) + tr_col) * bands) in
-            for b = 0 to bands - 1 do
-              A1.set ov (dst + b) (A1.get rv (src + b))
-            done
-          end
-        done
+    (* Window index plus this offset is patch index. Where the two
+       overlap is settled once per axis rather than tested per pixel. *)
+    let ro = dr - row0 and co = dc - col0 in
+    let r0 = max 0 (-ro) and r1 = min (rh - 1) (size_px - 1 - ro) in
+    let c0 = max 0 (-co) and c1 = min (rw - 1) (size_px - 1 - co) in
+    for r = r0 to r1 do
+      let src_row = r * rw and dst_row = (r + ro) * size_px in
+      for c = c0 to c1 do
+        blit ~src:rv
+          ~src_off:((src_row + c) * bands)
+          ~dst:ov
+          ~dst_off:((dst_row + c + co) * bands)
+          ~bands
+      done
     done
   end;
   let transform =
@@ -204,27 +217,26 @@ let merged zone_of ~centre ~zones ~lon ~lat ~year ~size_px =
               if c >= 0 && r >= 0 then begin
                 let src = ((r * rw) + c) * bands in
                 (* A pixel with no data is a row of [NaN], which the
-                   reference drops the same way. *)
-                let live = ref false in
-                for b = 0 to bands - 1 do
-                  if Float.is_finite (A1.get rv (src + b)) then live := true
+                   reference drops the same way. One finite band settles
+                   it, so the walk stops there. *)
+                let mutable live = false in
+                let mutable b = 0 in
+                while (not live) && b < bands do
+                  if Float.is_finite (A1.unsafe_get rv (src + b)) then
+                    live <- true;
+                  b <- b + 1
                 done;
-                if !live then begin
-                  let copy dst_v =
-                    let dst = i * bands in
-                    for b = 0 to bands - 1 do
-                      A1.set dst_v (dst + b) (A1.get rv (src + b))
-                    done
-                  in
+                if live then
                   if owner.(i) = z then begin
-                    copy ov;
-                    Bytes.set owned i '\001'
+                    blit ~src:rv ~src_off:src ~dst:ov
+                      ~dst_off:(i * bands) ~bands;
+                    Bytes.unsafe_set owned i '\001'
                   end
-                  else if Bytes.get spared i = '\000' then begin
-                    copy sv;
-                    Bytes.set spared i '\001'
+                  else if Bytes.unsafe_get spared i = '\000' then begin
+                    blit ~src:rv ~src_off:src ~dst:sv
+                      ~dst_off:(i * bands) ~bands;
+                    Bytes.unsafe_set spared i '\001'
                   end
-                end
               end
             done
           end)
@@ -232,10 +244,9 @@ let merged zone_of ~centre ~zones ~lon ~lat ~year ~size_px =
   (* A pixel its owner had nothing for takes whatever a neighbour
      relocated onto it. *)
   for i = 0 to n - 1 do
-    if Bytes.get owned i = '\000' && Bytes.get spared i = '\001' then
-      for b = 0 to bands - 1 do
-        A1.set ov ((i * bands) + b) (A1.get sv ((i * bands) + b))
-      done
+    if Bytes.unsafe_get owned i = '\000' && Bytes.unsafe_get spared i = '\001'
+    then
+      blit ~src:sv ~src_off:(i * bands) ~dst:ov ~dst_off:(i * bands) ~bands
   done;
   { data = out; transform; crs = `Proj (Crs.name target) }
 

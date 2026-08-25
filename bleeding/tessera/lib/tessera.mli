@@ -19,8 +19,8 @@
     store.
 
     It is a port of the Zarr read path of the Python [geotessera]
-    package, and {!probe} matches its [GeoTesseraZarr.probe] decision
-    for decision.
+    package and selects the same pixels, decision for decision, from
+    {!probe} down.
 
     {2 Cost}
 
@@ -77,8 +77,9 @@ val zones : t -> int list
     answer is kept, so it is sixty requests once. *)
 
 val years : t -> int list
-(** [years t] are the years of the first zone present in the store. The
-    zones share a time axis, so one zone answers for all of them. *)
+(** [years t] are the years of the first zone present in the store, and
+    the empty list for a store holding no zone. The zones share a time
+    axis, so one zone answers for all of them. *)
 
 val zone : t -> int -> Dataset.t
 (** [zone t z] is the dataset of zone [z], opened once per handle and
@@ -134,9 +135,9 @@ val sample :
   unit ->
   float array option
 (** [sample t ~lon ~lat ~year ()] is the vector {!probe} finds, or
-    [None] for any status but [Valid]. The Python [sample_at] returns a
-    row of [NaN] there instead, which cannot be told from a real vector
-    of [NaN]. [None] can. *)
+    [None] for any status but [Valid]. A real vector may itself hold
+    [NaN], so a caller that must know why there is nothing calls
+    {!probe}. *)
 
 val sample_points :
   t ->
@@ -159,9 +160,10 @@ val read_region :
 (** [read_region t ~bbox ~year] is every pixel of [year] inside the
     WGS84 box [(min_lon, min_lat, max_lon, max_lat)], dequantised.
 
-    The zone holding the centre of the box serves the whole request, as
-    in the Python reference. A box spanning a seam is therefore answered
-    from one zone alone and is short on the far side of it.
+    The zone holding the centre of the box serves the whole request, so
+    a box spanning a seam is answered from one zone alone and is short
+    on the far side of it. Use {!read_patch} for a square that crosses
+    a seam.
 
     Pixels come back on that zone's grid in its own CRS, untouched. The
     box is projected to pick the window, so the region is the enclosing

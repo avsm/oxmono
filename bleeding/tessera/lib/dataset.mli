@@ -14,11 +14,11 @@
 
     {2 Pixel states}
 
-    A [scales] value says what a pixel is. Finite and positive is real
-    data and dequantises the [embeddings] column beneath it. [NaN] is
-    open water or nodata inside a written tile. The array's fill value
-    is [+inf], so a region no tile ever covered reads as [+inf] without
-    a chunk being stored. {!probe} reports the three apart.
+    A [scales] value says what a pixel is. A finite one is real data and
+    dequantises the [embeddings] column beneath it. [NaN] is open water,
+    or nodata inside a tile the producer did write. The array's fill
+    value is [+inf], so a region no tile ever covered reads as [+inf]
+    with no chunk stored at all. {!probe} tells the three apart.
 
     {2 Reads}
 
@@ -64,8 +64,8 @@ val open_ :
     [consolidated] is the root group's node map, which supplies the
     metadata of any node it holds so that opening the zone costs no
     request. A node it lacks is fetched. [cache_capacity] is the tile
-    cache bound and defaults to 256, about 33 MiB at the store's 128
-    bands.
+    cache bound and defaults to 256, which is 32 MiB when every entry is
+    an embedding tile of the store's 128 bands.
 
     @raise Zarrz.Error.E [(Store _)] when the group or an array is
     absent, and [(Metadata _)] when the group has no [proj:code] or
@@ -123,10 +123,10 @@ val probe :
     why when there is none. It is the OCaml of [TesseraAccessor.probe]
     in the Python reference, decision for decision.
 
-    The column and row are the nearest pixel centres, ties going to the
-    lower index as [numpy.argmin] does, clamped to the grid. A residual
-    above one pixel in either axis is [Outside], which is what stops a
-    distant point from snapping onto an edge pixel.
+    The column and row are those of the nearest pixel centre, ties going
+    to the lower index as [numpy.argmin] does, clamped to the grid. A
+    residual above one pixel in either axis is [Outside], which is what
+    stops a distant point from snapping onto an edge pixel.
 
     The [(2 * search_px + 1)] squared window of [scales] around that
     pixel then decides. A [NaN] centre is [Water] and is never searched
@@ -139,16 +139,16 @@ val probe :
     of {!bands} doubles, each the float32 product of the stored [int8]
     and the scale. [search_px] defaults to 1 and 0 disables the search.
 
-    @raise Invalid_argument if [year] is not in {!years}, with a message
-    listing them. *)
+    @raise Invalid_argument if the point is on the grid and [year] is not
+    in {!years}, with a message listing them. An [Outside] point is
+    settled before the year is, so it answers rather than raises. *)
 
 val sample :
   t -> e:float -> n:float -> year:int -> ?search_px:int -> unit ->
   float array option
 (** [sample t ~e ~n ~year ()] is the vector {!probe} finds, or [None]
-    for any status but [Valid]. The Python [sample_at] returns a row of
-    [NaN] there instead, which cannot be told from a real vector of
-    [NaN]. [None] can. *)
+    for any status but [Valid]. A real vector may itself hold [NaN], so
+    a caller that must know why there is nothing calls {!probe}. *)
 
 val read_region :
   t ->
@@ -162,8 +162,7 @@ val read_region :
     [year] whose centre lies in the closed box, dequantised.
 
     The bounds are taken as given and swapped if reversed. Selection is
-    inclusive on pixel centres, matching the [xarray] label slice the
-    Python reference uses, so the first column is
+    inclusive on pixel centres, so the first column is
     [ceil (Affine.col_of_x t e_min)] and the last is
     [floor (Affine.col_of_x t e_max)], clamped to the grid. Rows run
     north to south, so [n_max] picks the first.

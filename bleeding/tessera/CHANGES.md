@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Point probes run about a third faster and patch and region reads
+  somewhat faster, with identical results.
 - Initial Tessera client: zone routing, projection, probe, region and
   patch reads over the zarrz store backends.
 

@@ -9,6 +9,9 @@
     evicts the least recently used binding. A lookup that hits counts as
     a use, so a binding that is read stays.
 
+    Every operation is constant time, and a hit allocates nothing beyond
+    the key the caller built and the option it answers with.
+
     The table and the recency list both live in the value, so two caches
     share nothing and nothing here is global.
 

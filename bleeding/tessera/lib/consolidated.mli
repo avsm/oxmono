@@ -16,7 +16,7 @@
     ]}
 
     Reading the root document therefore describes the whole store, and
-    opening a node below it costs no request at all. The TESSERA store
+    opening a node below it costs no request at all. The Tessera store
     holds 871 nodes this way, so the map is kept as raw JSON and each
     node is parsed only when it is opened.
 

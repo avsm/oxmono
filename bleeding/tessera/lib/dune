@@ -1,0 +1,4 @@
+(library
+ (name tessera)
+ (public_name tessera)
+ (libraries proj proj.c zarrz zarrz.geoemb jsont base_bigstring))

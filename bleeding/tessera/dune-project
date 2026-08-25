@@ -1,0 +1,30 @@
+(lang dune 3.21)
+(name tessera)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-tessera))
+
+(package
+ (name tessera)
+ (synopsis "Client for Tessera geospatial embeddings over Zarr")
+ (description
+  "Reads Tessera satellite embedding stores: UTM zone routing, pure
+OCaml transverse Mercator projection, point probing, region and patch
+reads and dequantisation, over any zarrz store backend.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (zarrz (= :version))
+  (zarrz-eio (= :version))
+  (zarrz-fetch (= :version))
+  proj
+  jsont
+  base_bigstring
+  cmdliner
+  fetch-curl
+  eio_main
+  (odoc :with-doc)
+  (alcotest :with-test)))

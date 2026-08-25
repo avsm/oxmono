@@ -1,0 +1,4 @@
+(library
+ (name proj)
+ (public_name proj)
+ (virtual_modules proj))

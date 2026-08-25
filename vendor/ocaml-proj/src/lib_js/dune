@@ -1,0 +1,4 @@
+(library
+ (name proj_js)
+ (public_name proj_js)
+ (libraries brr))

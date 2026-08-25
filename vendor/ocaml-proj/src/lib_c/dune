@@ -1,0 +1,18 @@
+(library
+ (name proj_c)
+ (public_name proj_c)
+ (libraries ctypes)
+ (ctypes
+  (external_library_name proj)
+  (build_flags_resolver pkg_config)
+  (headers
+   (include "proj.h"))
+  (type_description
+   (instance Types)
+   (functor Type_description))
+  (function_description
+   (concurrency unlocked)
+   (instance Functions)
+   (functor Function_description))
+  (generated_types Types_generated)
+  (generated_entry_point C)))

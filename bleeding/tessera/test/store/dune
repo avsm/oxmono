@@ -1,0 +1,4 @@
+(test
+ (name test_store_tessera)
+ (package tessera)
+ (libraries tessera zarrz jsont jsont.bytesrw alcotest))

@@ -1,10 +1,22 @@
 # ocaml-proj, vendored
 
-Bindings to the PROJ coordinate transformation library, vendored
-unpatched from https://github.com/geocaml/ocaml-proj at commit
+Bindings to the PROJ coordinate transformation library, vendored from
+https://github.com/geocaml/ocaml-proj at commit
 440c7e0084352f314f16d91e6b26a1699598596d (no upstream release exists).
 Every file under `src/`, `test/` and `example/` is byte identical to
-that commit. Only this README replaces the upstream one.
+that commit except for the one patch below. This README replaces the
+upstream one.
+
+## Patches
+
+`src/lib_c/function_description.ml:84`: `proj_coord` bound its four
+arguments as ctypes `float`, which is C `float`, while PROJ declares
+`PJ_COORD proj_coord(double, double, double, double)`. Every input
+coordinate was truncated to single precision, displacing a UTM
+northing by up to 0.5 m before PROJ ever saw it. Changed the four
+`float` to `double`. Found by the tessera geodesy golden tests
+(2026-08-25), which showed `Crs.inverse` off by 0.21 m against pyproj
+until the fix. Worth an upstream pull request.
 
 The copy is here because no opam release of `proj` exists to install,
 and `bleeding/tessera` needs CRS transformations (WGS84 to the UTM

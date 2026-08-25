@@ -81,7 +81,7 @@ module Functions (F : Ctypes.FOREIGN) = struct
 
   let proj_coord =
     foreign "proj_coord"
-      (float @-> float @-> float @-> float @-> returning T.pj_coord)
+      (double @-> double @-> double @-> double @-> returning T.pj_coord)
 
   let proj_trans =
     foreign "proj_trans"

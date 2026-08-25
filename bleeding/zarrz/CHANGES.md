@@ -1,5 +1,9 @@
 ## Unreleased
 
+- The bytes codec swaps foreign-endian chunks with word-wide unboxed
+  loads, decoding about twelve times faster than before.
+- `Subset.copy` copies a region between two C-order arrays in coalesced
+  runs, and the codecs now share it.
 - The `blosc` codec decodes and encodes Blosc1 frames through the new
   `bloscz` bindings, covering the chains the Tessera store uses.
 - `zarrz.geoemb` gives typed jsont codecs for the geo-embeddings Zarr

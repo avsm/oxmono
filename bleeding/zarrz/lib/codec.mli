@@ -11,7 +11,17 @@
     fill value, and {!decode_chunk}, {!encode_chunk} and
     {!partial_decode} run it. Bound codecs are records of closures, so
     user extensions are ordinary values supplied through a
-    {!type-resolver}. *)
+    {!type-resolver}.
+
+    The built-in codecs are [bytes], [transpose], [gzip], [zstd],
+    [blosc], [crc32c] and [sharding_indexed]. [bytes] hands back the
+    stored buffer unchanged when the declared endianness is the host's,
+    which is what lets a whole chunk decode without a copy, and reverses
+    the bytes of each component otherwise. [crc32c] and [gzip] raise
+    {!Error.Checksum_mismatch} on a payload that does not match its
+    recorded checksum. An inner chunk of a shard that was never written
+    reads as the fill value, and one that holds the fill value
+    everywhere is omitted when the shard is encoded. *)
 
 type size = Fixed of int | Bounded of int | Unbounded
 (** Encoded byte size of a stage. [Bounded n] is at most [n] bytes. *)

@@ -86,10 +86,14 @@ let rule () = print_endline (String.make 72 '-')
 (* {1 Chunk decode throughput} *)
 
 let bytes_le = {|{"name":"bytes","configuration":{"endian":"little"}}|}
+let bytes_be = {|{"name":"bytes","configuration":{"endian":"big"}}|}
 
 let chains =
   [
     ("bytes le", Printf.sprintf "[%s]" bytes_le);
+    (* The declared endianness is not the host's, so this chain is the
+       swap loop and nothing else. *)
+    ("bytes be", Printf.sprintf "[%s]" bytes_be);
     ( "bytes le, zstd",
       Printf.sprintf {|[%s,{"name":"zstd","configuration":{"level":3,
         "checksum":false}}]|} bytes_le );

@@ -4,6 +4,7 @@
   ---------------------------------------------------------------------------*)
 
 module Ia = Stdlib_stable.Iarray
+module I32u = Stdlib_upstream_compatible.Int32_u
 module I64u = Stdlib_upstream_compatible.Int64_u
 
 type size = Fixed of int | Bounded of int | Unbounded
@@ -60,73 +61,24 @@ let[@inline] u8 b off = Char.code (Base_bigstring.get b off)
 let[@inline] set_u8 b off v =
   Base_bigstring.set b off (Char.unsafe_chr (v land 0xff))
 
-let get_u32_le b off =
-  let low = u8 b off lor (u8 b (off + 1) lsl 8) lor (u8 b (off + 2) lsl 16) in
-  Int32.logor (Int32.of_int low)
-    (Int32.shift_left (Int32.of_int (u8 b (off + 3))) 24)
+(* Thirty-two bits fit an OCaml int, so the little endian scalars a
+   stream header carries are assembled in tagged arithmetic and reach
+   [int32] only where a checksum is compared. *)
+
+let[@inline] u32_le b off =
+  u8 b off
+  lor (u8 b (off + 1) lsl 8)
+  lor (u8 b (off + 2) lsl 16)
+  lor (u8 b (off + 3) lsl 24)
+
+let[@inline] get_u32_le b off = Int32.of_int (u32_le b off)
 
 let set_u32_le b off (v : int32) =
-  for i = 0 to 3 do
-    set_u8 b (off + i)
-      (Int32.to_int (Int32.logand (Int32.shift_right_logical v (8 * i)) 0xffl))
-  done
-
-(* [copy_region] copies the [shape] block at [src_start] of the C-order
-   array of extent [src_outer] into the block at [dst_start] of the
-   C-order array of extent [dst_outer]. The trailing dimensions that both
-   blocks span in full are coalesced, exactly as {!Subset.iter_runs} does
-   for one array, so every iteration of the loop is a single memcpy and
-   no element is ever touched individually. *)
-let copy_region ~esize ~src ~src_outer ~src_start ~dst ~dst_outer ~dst_start
-    ~shape =
-  let r = Array.length shape in
-  if r = 0 then
-    Base_bigstring.blit ~src ~src_pos:0 ~dst ~dst_pos:0 ~len:esize
-  else if product shape > 0 then begin
-    let sstride = Array.make r 1 and dstride = Array.make r 1 in
-    for d = r - 2 downto 0 do
-      sstride.(d) <- sstride.(d + 1) * src_outer.(d + 1);
-      dstride.(d) <- dstride.(d + 1) * dst_outer.(d + 1)
-    done;
-    let split = ref (r - 1) and len = ref shape.(r - 1) in
-    while
-      !split > 0
-      && shape.(!split) = src_outer.(!split)
-      && shape.(!split) = dst_outer.(!split)
-    do
-      decr split;
-      len := !len * shape.(!split)
-    done;
-    let split = !split and len = !len in
-    let soff = ref 0 and doff = ref 0 in
-    for d = 0 to r - 1 do
-      soff := !soff + (src_start.(d) * sstride.(d));
-      doff := !doff + (dst_start.(d) * dstride.(d))
-    done;
-    let runs = ref 1 in
-    for d = 0 to split - 1 do
-      runs := !runs * shape.(d)
-    done;
-    let idx = Array.make (max split 1) 0 in
-    for _ = 1 to !runs do
-      Base_bigstring.blit ~src ~src_pos:(!soff * esize) ~dst
-        ~dst_pos:(!doff * esize) ~len:(len * esize);
-      let d = ref (split - 1) and carry = ref true in
-      while !carry && !d >= 0 do
-        let i = !d in
-        idx.(i) <- idx.(i) + 1;
-        soff := !soff + sstride.(i);
-        doff := !doff + dstride.(i);
-        if idx.(i) = shape.(i) then begin
-          soff := !soff - (idx.(i) * sstride.(i));
-          doff := !doff - (idx.(i) * dstride.(i));
-          idx.(i) <- 0;
-          decr d
-        end
-        else carry := false
-      done
-    done
-  end
+  let v = Int32.to_int v in
+  set_u8 b off v;
+  set_u8 b (off + 1) (v asr 8);
+  set_u8 b (off + 2) (v asr 16);
+  set_u8 b (off + 3) (v asr 24)
 
 (* {1 Configuration decoding}
 
@@ -196,6 +148,43 @@ let ( let* ) = Result.bind
 (* {1 The bytes codec} *)
 
 module Bytes_codec = struct
+  (* Word wide unchecked bigstring access. The trailing [#] on the
+     primitive name unboxes the result and the [u] before it drops the
+     bounds check, which {!swap_into} replaces with one length check per
+     call. *)
+
+  external ld_i32 : Base_bigstring.t -> int -> int32#
+    = "%caml_bigstring_get32u#"
+
+  external st_i32 : Base_bigstring.t -> int -> int32# -> unit
+    = "%caml_bigstring_set32u#"
+
+  external ld_i64 : Base_bigstring.t -> int -> int64#
+    = "%caml_bigstring_get64u#"
+
+  external st_i64 : Base_bigstring.t -> int -> int64# -> unit
+    = "%caml_bigstring_set64u#"
+
+  external ld_u16 : Base_bigstring.t -> int -> int = "%caml_bigstring_get16u"
+
+  external st_u16 : Base_bigstring.t -> int -> int -> unit
+    = "%caml_bigstring_set16u"
+
+  (* The byte reversal primitives take boxed operands and have no
+     unboxed spelling. The boxes the two conversions name are erased:
+     {!swap_words} passes the zero-alloc check under the release-check
+     profile, which is what proves it. *)
+
+  external bswap16 : int -> int = "%bswap16"
+  external bswap32 : int32 -> int32 = "%bswap_int32"
+  external bswap64 : int64 -> int64 = "%bswap_int64"
+
+  let[@inline] bswap32u (x : int32#) : int32# =
+    I32u.of_int32 (bswap32 (I32u.to_int32 x))
+
+  let[@inline] bswap64u (x : int64#) : int64# =
+    I64u.of_int64 (bswap64 (I64u.to_int64 x))
+
   (* The width the declared endianness applies to. A complex value is a
      pair of reals and swaps each half on its own, and a raw type is an
      opaque byte string that never swaps. *)
@@ -206,16 +195,46 @@ module Bytes_codec = struct
     | Raw _ | Bool | Int8 | Uint8 -> 1
     | d -> Dtype.size d
 
+  (* [swap_words ~width ~src ~dst ~n] reverses the bytes of every [width]
+     byte group of the first [n] bytes of [src] into [dst]. The word
+     paths load and store without a bounds check, so [n] must be a
+     multiple of [width] and both buffers at least [n] bytes. *)
+  let[@zero_alloc] swap_words ~width ~src ~dst ~n =
+    let mutable i = 0 in
+    match width with
+    | 8 ->
+        while i < n do
+          st_i64 dst i (bswap64u (ld_i64 src i));
+          i <- i + 8
+        done
+    | 4 ->
+        while i < n do
+          st_i32 dst i (bswap32u (ld_i32 src i));
+          i <- i + 4
+        done
+    | 2 ->
+        while i < n do
+          st_u16 dst i (bswap16 (ld_u16 src i));
+          i <- i + 2
+        done
+    | _ ->
+        while i < n do
+          for k = 0 to width - 1 do
+            Base_bigstring.set dst (i + k)
+              (Base_bigstring.get src (i + width - 1 - k))
+          done;
+          i <- i + width
+        done
+
+  (* Every element size the Zarr data types give is a multiple of its
+     swap width and both buffers are sized from it, so a failure here
+     means a caller sized a buffer wrongly rather than that the stored
+     bytes are bad. *)
   let swap_into ~width ~src ~dst =
     let n = Base_bigstring.length src in
-    let i = ref 0 in
-    while !i < n do
-      for k = 0 to width - 1 do
-        Base_bigstring.set dst (!i + k)
-          (Base_bigstring.get src (!i + width - 1 - k))
-      done;
-      i := !i + width
-    done
+    if Base_bigstring.length dst <> n || n mod width <> 0 then
+      err "bytes: cannot swap %d bytes as %d byte elements" n width;
+    swap_words ~width ~src ~dst ~n
 
   (* [endian] is [None] when the configuration left it out, which only a
      data type of a single byte per component may do. *)
@@ -491,7 +510,7 @@ module Gzip = struct
   let decompress ~decoded_size src =
     let n = Base_bigstring.length src in
     let off = body_off src in
-    let isize = Int32.to_int (get_u32_le src (n - 4)) land 0xffffffff in
+    let isize = u32_le src (n - 4) in
     let want =
       match decoded_size with
       | Fixed m -> m
@@ -860,19 +879,18 @@ let shard_index_repr grid =
   { dtype = Dtype.Uint64;
     shape = Array.init (r + 1) (fun i -> if i < r then grid.(i) else 2) }
 
+let shard_to_int i what v =
+  if Int64.compare v 0L < 0 || Int64.compare v (Int64.of_int max_int) > 0 then
+    err "sharding_indexed: inner chunk %d has an unusable %s" i what
+  else Int64.to_int v
+
 (* [shard_entry slab i] is the offset and length of inner chunk [i], or
    [None] when the entry is the absent sentinel. *)
 let shard_entry slab i =
   let off = I64u.to_int64 (Slab.U64.get slab (2 * i)) in
   let len = I64u.to_int64 (Slab.U64.get slab ((2 * i) + 1)) in
   if Int64.equal off shard_absent && Int64.equal len shard_absent then None
-  else
-    let to_int what v =
-      if Int64.compare v 0L < 0 || Int64.compare v (Int64.of_int max_int) > 0
-      then err "sharding_indexed: inner chunk %d has an unusable %s" i what
-      else Int64.to_int v
-    in
-    Some (to_int "offset" off, to_int "length" len)
+  else Some (shard_to_int i "offset" off, shard_to_int i "length" len)
 
 let shard_set_entry slab i v =
   Slab.U64.set slab i (I64u.of_int64 v)
@@ -883,7 +901,7 @@ let shard_set_entry slab i v =
    chains through {!chain_of_exts}, which is why this is one recursive
    group with the chain operations. Known limitation: a nested chain sees
    only the built-ins, because a resolver is not threaded through the
-   codec metadata. A user codec inside a shard is a follow-up. *)
+   codec metadata. *)
 let rec builtins : resolver =
  fun ext ~dtype ~fill_value ->
   match ext.Ext.name with
@@ -956,6 +974,7 @@ and sharding ext ~dtype ~fill_value =
     Subset.validate ~outer sub;
     let rank = Array.length r.shape in
     let esize = Dtype.size r.dtype in
+    let cshape = Ia.of_array chunk_shape in
     let start = Ia.to_array sub.Subset.start in
     let extent = Ia.to_array sub.Subset.shape in
     let out = Slab.create r.dtype sub.Subset.shape in
@@ -968,14 +987,17 @@ and sharding ext ~dtype ~fill_value =
           if e <= start.(d) then lo.(d)
           else ((e + chunk_shape.(d) - 1) / chunk_shape.(d)))
     in
-    let touched = ref [] in
+    let present = ref [] and any_absent = ref false in
     let rec walk d coord =
       if d = rank then begin
         let linear = ref 0 in
         for k = 0 to rank - 1 do
           linear := (!linear * grid.(k)) + coord.(k)
         done;
-        touched := (Array.copy coord, !linear) :: !touched
+        match shard_entry idx !linear with
+        | None -> any_absent := true
+        | Some (off, len) ->
+            present := (Array.copy coord, off, len) :: !present
       end
       else
         for i = lo.(d) to hi.(d) - 1 do
@@ -984,21 +1006,11 @@ and sharding ext ~dtype ~fill_value =
         done
     in
     if product extent > 0 then walk 0 (Array.make (max rank 1) 0);
-    let touched = List.rev !touched in
-    let entries =
-      List.map (fun (coord, linear) -> (coord, shard_entry idx linear)) touched
-    in
+    let present = List.rev !present in
     (* An absent inner chunk reads as fill value. Painting the whole
        output first costs one pass and keeps the assembly loop free of a
        second region walker. *)
-    if List.exists (fun (_, e) -> Option.is_none e) entries then
-      Slab.fill out (Fill_value.to_bytes fill_value);
-    let present =
-      List.filter_map
-        (fun (coord, e) ->
-          match e with Some (off, len) -> Some (coord, off, len) | None -> None)
-        entries
-    in
+    if !any_absent then Slab.fill out (Fill_value.to_bytes fill_value);
     let ranges =
       List.map
         (fun (_, off, len) -> Byte_range.From_start { off; len = Some len })
@@ -1020,7 +1032,7 @@ and sharding ext ~dtype ~fill_value =
         let chunk = decode_chunk inner irepr buf in
         let origin = Array.init rank (fun d -> coord.(d) * chunk_shape.(d)) in
         let shape =
-          Array.init rank (fun d ->
+          Ia.init rank (fun d ->
               let a = max start.(d) origin.(d) in
               let b =
                 min (start.(d) + extent.(d)) (origin.(d) + chunk_shape.(d))
@@ -1028,14 +1040,14 @@ and sharding ext ~dtype ~fill_value =
               b - a)
         in
         let src_start =
-          Array.init rank (fun d -> max start.(d) origin.(d) - origin.(d))
+          Ia.init rank (fun d -> max start.(d) origin.(d) - origin.(d))
         in
         let dst_start =
-          Array.init rank (fun d -> max start.(d) origin.(d) - start.(d))
+          Ia.init rank (fun d -> max start.(d) origin.(d) - start.(d))
         in
-        copy_region ~esize ~src:(Slab.bigstring chunk) ~src_outer:chunk_shape
-          ~src_start ~dst:(Slab.bigstring out) ~dst_outer:extent ~dst_start
-          ~shape)
+        Subset.copy ~elem_size:esize ~src:(Slab.bigstring chunk)
+          ~src_outer:cshape ~src_start ~dst:(Slab.bigstring out)
+          ~dst_outer:sub.Subset.shape ~dst_start ~shape)
       present bufs;
     out
   in

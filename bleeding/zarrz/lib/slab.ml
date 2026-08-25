@@ -43,19 +43,20 @@ external ld_f32 : Base_bigstring.t -> int -> float32#
 external st_f32 : Base_bigstring.t -> int -> float32# -> unit
   = "%caml_bigstring_setf32u#"
 
-(* There is no 16 bit unboxed load, so the half formats go through a
-   tagged int. The result of [%caml_bigstring_get16u] is masked because
-   only the low 16 bits are specified. *)
+(* The half formats do their field arithmetic on a tagged int, so they
+   load the sixteen stored bits through the tagged primitive and mask
+   them to an unsigned value rather than through the signed [int16#]
+   the accessor modules use. *)
 
 external ld_u16 : Base_bigstring.t -> int -> int = "%caml_bigstring_get16u"
 
 external st_u16 : Base_bigstring.t -> int -> int -> unit
   = "%caml_bigstring_set16u"
 
-(* There is no unboxed 64 bit float load either. Going through the
-   integer load and a bit cast costs one register move, and the boxes
-   the two conversions name are erased by the optimiser: the zero-alloc
-   probe under the release-check profile is what proves it. *)
+(* There is no unboxed 64 bit float load. Going through the integer load
+   and a bit cast costs one register move, and the boxes the two
+   conversions name are erased by the optimiser: the zero-alloc probe
+   under the release-check profile is what proves it. *)
 
 let[@inline] ld_f64 b off : float# =
   Fu.of_float (I64u.float_of_bits (ld_i64 b off))

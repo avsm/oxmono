@@ -446,7 +446,6 @@ let test_runs_2d () =
     (runs ~outer:[: 6; 10 :] { start = [: 0; 0 :]; shape = [: 6; 10 :] })
 
 let test_runs_3d () =
-  (* Full trailing dimensions coalesce into one run per outer slice. *)
   (* Two full trailing dimensions make the slices adjacent, so the two
      outer slices coalesce into a single run. *)
   Alcotest.check run_list "full trailing pair"

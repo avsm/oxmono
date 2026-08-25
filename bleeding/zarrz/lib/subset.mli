@@ -9,12 +9,12 @@
     origin and its extent. It carries no reference to the array, so the
     enclosing shape is passed at every operation as [~outer].
 
-    The whole read and write path is built on {!iter_runs}, which walks
-    the region as maximal contiguous element runs. A run is a stretch
-    that is contiguous in the enclosing array and contiguous in the
-    subset's own dense layout at the same time, so an assembler turns
-    each run into one [Base_bigstring.blit] and never touches
-    elements. *)
+    Every operation here walks the region as maximal contiguous element
+    runs. A run is a stretch that is contiguous in the source array and
+    in the destination array at the same time, so {!copy}, {!gather} and
+    {!scatter} turn each run into one [Base_bigstring.blit] and never
+    touch an element. {!iter_runs} exposes the same walk to a caller
+    that moves the bytes itself. *)
 
 type t = { start : int iarray; shape : int iarray }
 (** The region starting at [start] and extending [shape] elements in each
@@ -51,6 +51,33 @@ val iter_runs :
 
     Validates as {!validate} does. *)
 
+val copy :
+  elem_size:int ->
+  src:Base_bigstring.t ->
+  src_outer:int iarray ->
+  src_start:int iarray ->
+  dst:Base_bigstring.t ->
+  dst_outer:int iarray ->
+  dst_start:int iarray ->
+  shape:int iarray ->
+  unit
+(** [copy ~elem_size ~src ~src_outer ~src_start ~dst ~dst_outer
+    ~dst_start ~shape] copies the block of extent [shape] at [src_start]
+    of the C-order array of extent [src_outer] held in [src] onto the
+    block at [dst_start] of the C-order array of extent [dst_outer] held
+    in [dst]. [elem_size] is the element size in bytes and every other
+    argument counts elements.
+
+    A trailing dimension coalesces into a run only when [shape] spans it
+    in full on both sides, so a block that is a whole array on both sides
+    moves in one [Base_bigstring.blit]. The result is unspecified if the
+    two blocks overlap in one buffer.
+
+    Raises [Invalid_argument] if the ranks differ, if either block falls
+    outside its array, or if either buffer is shorter than the array it
+    holds. Buffers longer than needed are accepted and the excess is
+    untouched. *)
+
 val gather :
   elem_size:int ->
   src:Base_bigstring.t ->
@@ -60,11 +87,9 @@ val gather :
   unit
 (** [gather ~elem_size ~src ~outer t ~dst] copies the region [t] out of
     [src], which holds an array of shape [outer], into [dst], which
-    receives it densely in C order. [elem_size] is the element size in
-    bytes. Raises [Invalid_argument] if [t] does not validate against
-    [outer], if [src] is shorter than the enclosing array, or if [dst] is
-    shorter than [num_elements t * elem_size]. Buffers longer than
-    needed are accepted and the excess is untouched. *)
+    receives it densely in C order. It is {!copy} with [t.shape] as the
+    destination array and its origin as the destination block. The same
+    length rules and exceptions apply. *)
 
 val scatter :
   elem_size:int ->

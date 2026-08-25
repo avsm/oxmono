@@ -5,17 +5,17 @@
 
 (** Chunk key encodings.
 
-    The two encodings of the Zarr V3 core, matching
-    [zarrs::array::chunk_key_encoding]. A chunk key names a chunk within
-    a node. {!data_key} and {!meta_key} turn it and a node path into the
-    store key. *)
+    The two encodings of the Zarr V3 core. A chunk key names a chunk
+    within a node. {!data_key} and {!meta_key} turn it and a node path
+    into the store key. *)
 
 type t =
   | Default of { separator : char }
-      (** ["c"] then the separator then each index, separator default
-          ['/']. *)
+      (** The key is ["c"] then the indices, all joined by [separator],
+          which defaults to ['/']. *)
   | V2 of { separator : char }
-      (** The indices joined by the separator, default ['.']. *)
+      (** The key is the indices joined by [separator], which defaults
+          to ['.']. *)
 
 val default : t
 (** [default] is [Default { separator = '/' }]. *)

@@ -5,9 +5,9 @@
 
 (** Key to bytes stores.
 
-    A store is a record of closures rather than a functor, so a backend
-    is an ordinary runtime value. Keys are the relative paths the Zarr
-    specification defines, such as ["a/b/zarr.json"] and ["a/b/c/0/0"].
+    A store is a record of closures, so a backend is an ordinary runtime
+    value. Keys are the relative paths the Zarr specification defines,
+    such as ["a/b/zarr.json"] and ["a/b/c/0/0"].
 
     A key that is not in the store is [None] everywhere. Any other
     failure raises {!Error.E} with a {!Error.Store} payload. A store
@@ -21,8 +21,9 @@ type t = {
       (** [get_range ~key r] is the bytes of [r] in the object at [key],
           truncated to the object as {!Byte_range.resolve} truncates. *)
   get_ranges : key:string -> Byte_range.t list -> Base_bigstring.t list option;
-      (** [get_ranges ~key rs] is one buffer per range, in order,
-          possibly fetched in one batch. *)
+      (** [get_ranges ~key rs] is one buffer per range of [rs], in that
+          order, each as [get_range] gives it. A backend is free to
+          serve them in one batch. *)
   size : key:string -> int option;
       (** [size ~key] is the byte length of the object at [key]. A store
           that cannot answer without fetching the object reports [None],
@@ -33,7 +34,8 @@ type t = {
           a partial read is cheaper than a full one. *)
   set : (key:string -> Base_bigstring.t -> unit) option;
       (** [set ~key b] stores [b] at [key], replacing any earlier
-          object. *)
+          object. A backend must not hold on to [b], which the caller
+          may reuse as soon as [set] returns. *)
   erase : (key:string -> unit) option;
       (** [erase ~key] removes [key]. Removing an absent key is not an
           error. *)
@@ -47,13 +49,14 @@ val memory : unit -> t
 (** [memory ()] is a fresh store holding its objects in a hash table.
     Every operation is supported.
 
-    [set] and [get] both copy, so a caller can neither mutate a stored
-    object through the buffer it wrote nor through one it read.
+    [set] and [get] both copy, so a caller can reach a stored object
+    neither through the buffer it wrote nor through one it read.
+    [get_range] and [get_ranges] copy for the same reason.
 
-    [ranged] is [true]. Slicing a buffer in memory is free, so a ranged
-    read really is no more expensive than a whole one, and the flag
-    keeps the memory store on the same code path as a store that
-    fetches over a network. *)
+    [ranged] is [true], since slicing a buffer in memory really is
+    cheaper than copying it whole. A memory store therefore exercises
+    the same partial read path as a store that fetches over a
+    network. *)
 
 val get_json : t -> key:string -> Jsont.json
 (** [get_json t ~key] is the JSON document stored at [key].

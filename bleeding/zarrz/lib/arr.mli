@@ -14,14 +14,8 @@
     [int iarray], which [Stdlib_stable.Iarray.of_array] converts.
 
     Every failure raises {!Error.E}. A shape or an index that does not
-    fit the array is a programming error and raises [Invalid_argument].
-
-    The design document calls this module [Array]. A module of that name
-    inside a wrapped library shadows the standard library's for every
-    other module of the library, and for every user who writes
-    [open Zarrz]. Renaming it needs [module Array = Stdlib.Array] in
-    each module that relies on the standard library one, so the rename
-    waits until the library's own modules are ready for it. *)
+    fit the array is a programming error and raises
+    [Invalid_argument]. *)
 
 type t
 (** The type for open arrays. *)
@@ -128,19 +122,24 @@ val read_chunk : t -> int array -> Slab.t
 
 val read_chunk_opt : t -> int array -> Slab.t option
 (** [read_chunk_opt t i] is {!read_chunk} but [None] when the chunk is
-    not in the store. *)
+    not in the store, for a caller that must tell an absent chunk from
+    one written full of fill values.
+
+    @raise Invalid_argument if [i] is not an index of {!grid_shape}. *)
 
 val read : t -> Subset.t -> Slab.t
-(** [read t sub] is [sub] of [t], assembled from every chunk it
-    overlaps, as a slab of shape [sub.shape]. A region whose chunk is
-    absent reads as {!fill_value}.
+(** [read t sub] is the region [sub] of [t] as a slab of shape
+    [sub.shape], assembled from every chunk [sub] overlaps. The part of
+    [sub] whose chunk is absent from the store reads as {!fill_value},
+    and an absent region costs one fill chunk however many chunks it
+    spans.
 
-    A subset that is exactly one whole chunk is served by
-    {!read_chunk}. Otherwise the chunks are read in C order, and a
-    chunk is read through ranged store requests when
-    {!Codec.supports_partial} holds of the chain, the store's
-    [ranged] is set and its [size] answers. Everything else is one
-    whole chunk fetch.
+    A subset that is exactly one whole chunk is {!read_chunk}, with no
+    assembly. Otherwise the chunks are read in C order, each whole,
+    save that a chunk is read through ranged store requests when
+    {!Codec.supports_partial} holds of the chain, the store's [ranged]
+    is set and its [size] answers. That is the path on which a shard
+    costs the inner chunks [sub] touches rather than the whole object.
 
     @raise Invalid_argument if [sub] does not lie within {!shape}. *)
 
@@ -160,7 +159,9 @@ val write : t -> Subset.t -> Slab.t -> unit
     A chunk the subset covers whole is built from [s] alone. Any other
     chunk is read first, so that the elements outside [sub] and the part
     of an edge chunk beyond the array keep the values they had, or the
-    fill value when the chunk was absent.
+    fill value when the chunk was absent. An edge chunk is never covered
+    whole, since [sub] cannot reach past the array, so writing to one
+    always costs a read.
 
     @raise Invalid_argument if [sub] does not lie within {!shape} or [s]
     does not match [sub].

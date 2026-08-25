@@ -10,13 +10,13 @@
     are [None], so an attempt to write through it raises.
 
     Two failure modes reach a caller, and they are distinct on purpose.
-    Transport, protocol and policy failures propagate exactly as
-    {!Fetch} raises them, as [Eio.Io (Fetch.E _, _)], so a caller that
+    A transport, protocol or policy failure propagates exactly as
+    {!Fetch} raises it, as [Eio.Io (Fetch.E _, _)], so a caller that
     already handles [fetch] errors keeps handling them and loses no
-    context. An HTTP exchange that completes but answers something the
-    store cannot use, such as a 500 or a 416, raises
-    {!Zarrz.Error.E} with a {!Zarrz.Error.Store} payload naming the
-    method, the URL and the status. *)
+    context. An exchange that completes but answers something the store
+    cannot use, such as a 500 or a 416, raises {!Zarrz.Error.E} with a
+    {!Zarrz.Error.Store} payload naming the method, the URL and the
+    status. *)
 
 val store : ?ranged:bool -> base_url:string -> _ Fetch.t -> Zarrz.Store.t
 (** [store ~base_url client] is a store serving the key [k] from the URL
@@ -32,16 +32,17 @@ val store : ?ranged:bool -> base_url:string -> _ Fetch.t -> Zarrz.Store.t
     The operations behave as follows.
 
     - [get] issues [GET]. 200 buffers the body, 404 and 410 are [None].
-    - [get_range] issues [GET] with a [Range] header, one byte range.
-      206 returns the body as sent. 200 means the origin ignored the
-      range, so the whole body is buffered and sliced locally with the
-      truncation {!Zarrz.Byte_range.resolve} applies. 404 and 410 are
-      [None]. A range of zero bytes is answered from nothing, with no
-      request at all.
+    - [get_range] issues [GET] with a [Range] header carrying one byte
+      range. 206 is the body as sent. 200 means the origin ignored the
+      range, which it is entitled to do, so the whole body is buffered
+      and sliced locally with the truncation
+      {!Zarrz.Byte_range.resolve} applies. 404 and 410 are [None]. A
+      range of zero bytes is answered from nothing, with no request at
+      all, since no [Range] header spells one.
     - [get_ranges] runs its ranges as concurrent fibers, at most six in
-      flight. Any range answering 404 or 410 means the object went away
-      mid read, so the whole call is [None]. An empty range list is
-      [Some []] and makes no request.
+      flight, each an independent [get_range]. A range answering 404 or
+      410 means the object went away mid read, so the whole call is
+      [None]. An empty range list is [Some []] and makes no request.
     - [size] issues [HEAD] and reports [Content-Length]. It is [None]
       when the header is absent as well as when the object is, which is
       the ambiguity {!Zarrz.Store.size} documents.
@@ -49,10 +50,12 @@ val store : ?ranged:bool -> base_url:string -> _ Fetch.t -> Zarrz.Store.t
     A response body is read straight into the result buffer through
     [Cstruct] views, so no intermediate string is built. When the
     response declares a [Content-Length] the buffer is allocated once at
-    that size and a body that ends early is an error. Otherwise the
-    buffer grows by doubling.
+    that size, a body longer than that is truncated to it, and one that
+    ends early is an error. Otherwise the buffer grows by doubling and
+    is trimmed to the length that arrived.
 
-    @raise Invalid_argument if [base_url] is empty or ends in ["/"].
+    @raise Invalid_argument if [base_url] is empty or ends in ["/"], or
+      if a range offset, length or suffix is negative.
     @raise Zarrz.Error.E [(Store _)] on any other status, including 416
       from a range the origin declares unsatisfiable, and on a body that
       is shorter than the [Content-Length] it declared. *)

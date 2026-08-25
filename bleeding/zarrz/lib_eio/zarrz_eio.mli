@@ -20,20 +20,22 @@ val store : ?writable:bool -> _ Eio.Path.t -> Zarrz.Store.t
     it opened until the first operation, so a store over a directory
     that does not exist is a store where every key is absent.
 
-    Every read opens the file, reads its size from the open descriptor
-    and copies the bytes it wants straight into a fresh
+    Every read opens the file, takes its size from the open descriptor
+    and reads the bytes it wants straight into a fresh
     {!Base_bigstring.t}, so a chunk never passes through an OCaml
     string. An entry that is not a regular file, a directory in
     particular, is absent: [c/0] is a key of a chunk, not of the
     directory holding [c/0/0].
 
-    [ranged] is [true]. [get_range] and [get_ranges] seek within the
-    open file rather than read it whole, and [get_ranges] opens once for
-    all of its ranges. A {!Zarrz.Byte_range.Suffix} resolves against the
-    size of the open file, which is what the sharding index at the end
-    of a shard needs.
+    [ranged] is [true]. [get_range] and [get_ranges] read at an offset
+    within the open file rather than read it whole, and [get_ranges]
+    opens once for all of its ranges, which is why a batch is worth
+    asking for. A {!Zarrz.Byte_range.Suffix} resolves against the size
+    of the open file, which is what the sharding index at the end of a
+    shard needs.
 
-    [size] is the file size, [None] for an absent key.
+    [size] is the file size, and [None] for a key that is absent or is
+    not a regular file.
 
     [list] walks the directory tree below [root] and is the keys of the
     regular files that start with the prefix, sorted. It descends only

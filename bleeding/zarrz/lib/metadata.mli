@@ -29,16 +29,18 @@ type array_meta = {
       (** A [None] entry is a JSON [null], an unnamed dimension. *)
   storage_transformers : Ext.t list;
   unknown : Jsont.mem list;
-      (** Members of the document this version does not model, kept so
-          that a decode followed by an encode is lossless. Every one of
-          them has [must_understand] [false]. *)
+      (** Members of the document this version does not model, kept in
+          document order so that a decode followed by an encode is
+          lossless. Every one of them has [must_understand] [false]. A
+          [null] [consolidated_metadata] is dropped rather than kept. *)
 }
 (** The type for array metadata. *)
 
 type group_meta = {
   group_attributes : Jsont.json option;  (** A JSON object when present. *)
   group_unknown : Jsont.mem list;
-      (** Unmodelled members, kept for lossless round trips. *)
+      (** Unmodelled members, under the same rules as the [unknown] of
+          {!array_meta}. *)
 }
 (** The type for group metadata. *)
 
@@ -47,21 +49,22 @@ val array_jsont : array_meta Jsont.t
 
     Decoding requires [zarr_format] to be [3] and [node_type] to be
     ["array"]. [attributes], [storage_transformers] and
-    [dimension_names] may be absent. An unknown top level member is an
-    error unless it is a JSON object carrying [{"must_understand":
-    false}], matching [zarrs_metadata::v3::AdditionalFieldV3]. A
+    [dimension_names] may be absent, every other modelled member is
+    required. An unknown top level member is an error unless it is a
+    JSON object carrying [{"must_understand": false}]. A
     [consolidated_metadata] member whose value is [null] is dropped
     before that check.
 
     Encoding writes [zarr_format], [node_type], [shape], [data_type],
     [chunk_grid], [chunk_key_encoding], [fill_value], [codecs],
     [attributes], [storage_transformers], [dimension_names] and then the
-    kept unknown members, which is the oracle's order. Absent optionals
-    and an empty [storage_transformers] are omitted. *)
+    kept unknown members, in that order. Absent optionals and an empty
+    [storage_transformers] are omitted. *)
 
 val group_jsont : group_meta Jsont.t
-(** [group_jsont] is the JSON type of group metadata, with the same
-    rules as {!array_jsont} and [node_type] ["group"]. *)
+(** [group_jsont] is the JSON type of group metadata. [node_type] must
+    be ["group"] and [attributes] is the only modelled member besides
+    [zarr_format]. Unknown members follow the rule of {!array_jsont}. *)
 
 val array_of_json : Jsont.json -> (array_meta, string) result
 (** [array_of_json j] decodes [j] with {!array_jsont}. *)

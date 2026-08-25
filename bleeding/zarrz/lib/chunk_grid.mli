@@ -5,9 +5,8 @@
 
 (** Regular chunk grids.
 
-    The only grid Zarr V3 defines in its core, matching
-    [zarrs::array::chunk_grid::regular]. Every chunk is stored at the
-    full chunk shape, edge chunks included, and the part of an edge
+    The only grid Zarr V3 defines in its core. Every chunk is stored at
+    the full chunk shape, edge chunks included, and the part of an edge
     chunk that lies beyond the array holds fill values. Use {!clip} to
     get the part that is inside the array.
 
@@ -26,8 +25,9 @@ val v : array_shape:int array -> chunk_shape:int array -> (t, string) result
 val of_ext : Ext.t -> array_shape:int array -> (t, string) result
 (** [of_ext e ~array_shape] is the grid described by the [chunk_grid]
     member [e]. The name must be ["regular"] and the configuration must
-    be an object whose only member is [chunk_shape], an array of
-    positive integers. *)
+    be present, an object, and have [chunk_shape] as its only member.
+    [chunk_shape] is an array of positive integers no greater than
+    2{^52}, of the length of [array_shape]. *)
 
 val to_ext : t -> Ext.t
 (** [to_ext t] is the [chunk_grid] member for [t]. *)
@@ -68,7 +68,8 @@ val chunks_overlapping :
   t -> start:int array -> shape:int array -> (int array -> unit) -> unit
 (** [chunks_overlapping t ~start ~shape f] calls [f] on the index of
     each chunk that intersects the array subset starting at [start] and
-    extending by [shape], in C order. Indices outside {!grid_shape} are
+    extending by [shape], in C order. Indices beyond {!grid_shape} are
     not visited, so a subset reaching past the array yields only the
-    chunks that exist. Each [f] gets a fresh array. A zero dimensional
-    grid has one chunk, so [f] is called once with [[||]]. *)
+    chunks that exist, and a [shape] with a zero length dimension yields
+    none. Each [f] gets a fresh array. A zero dimensional grid has one
+    chunk, so [f] is called once with [[||]]. *)

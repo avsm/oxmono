@@ -14,12 +14,11 @@ let mem_list_mems =
   Jsont.Object.Mems.map ~kind:"unknown" ~dec_empty ~dec_add ~dec_finish
     ~enc:{ Jsont.Object.Mems.enc } Jsont.json
 
-let mems_equal a b =
-  List.length a = List.length b
-  && List.for_all2
-       (fun ((n0, _), v0) ((n1, _), v1) ->
-         String.equal n0 n1 && Jsont.Json.equal v0 v1)
-       a b
+let mems_equal (a : Jsont.mem list) b =
+  List.equal
+    (fun ((n0, _), v0) ((n1, _), v1) ->
+      String.equal n0 n1 && Jsont.Json.equal v0 v1)
+    a b
 
 let pp_of_jsont t ppf v =
   match Jsont.Json.encode t v with
@@ -412,8 +411,7 @@ let to_json t =
   | Error m -> invalid_arg ("Zarrz_geoemb.to_json: " ^ m)
 
 let equal a b =
-  List.length a.conventions = List.length b.conventions
-  && List.for_all2 Convention.equal a.conventions b.conventions
+  List.equal Convention.equal a.conventions b.conventions
   && a.kind = b.kind
   && a.dimensions = b.dimensions
   && String.equal a.model b.model

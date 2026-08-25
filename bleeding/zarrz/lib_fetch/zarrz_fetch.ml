@@ -49,8 +49,8 @@ let read_exact src buf n =
    with End_of_file -> ());
   !filled
 
-(* [read_growing src] buffers [src] to its end, doubling a bigstring as
-   it goes. The final buffer is exact, so the caller never sees slack. *)
+(* [read_growing src] buffers [src] to its end. The result is trimmed to
+   the bytes that arrived, so a caller never sees slack. *)
 let read_growing src =
   let buf = ref (Base_bigstring.create initial_body_buffer) in
   let filled = ref 0 in
@@ -71,9 +71,7 @@ let read_growing src =
   if !filled = Base_bigstring.length !buf then !buf
   else Base_bigstring.sub !buf ~pos:0 ~len:!filled
 
-(* [read_body ~meth ~url resp] is [resp]'s body in a fresh bigstring.
-   Bytes land in the result buffer through [Cstruct] views over it, so
-   no intermediate string exists at any point. *)
+(* [read_body ~meth ~url resp] is [resp]'s body in a fresh bigstring. *)
 let read_body ~meth ~url resp =
   let src = Fetch.body resp in
   match declared_length resp with
@@ -141,8 +139,8 @@ let store ?(ranged = true) ~base_url client =
           | 206 -> Some (read_body ~meth:"GET" ~url resp)
           | 200 ->
               (* The origin ignored the range and sent the whole object,
-                 which it is entitled to do. Slice locally, truncating
-                 exactly as a resolved range truncates. *)
+                 which RFC 9110 lets it do. Slicing here keeps the
+                 answer the one the caller asked for. *)
               let whole = read_body ~meth:"GET" ~url resp in
               let pos, len =
                 Byte_range.resolve ~size:(Base_bigstring.length whole) r
@@ -160,11 +158,7 @@ let store ?(ranged = true) ~base_url client =
     | _ ->
         (* One fiber per range. Each [with_response] scopes its own
            switch, so no switch is needed here, and a failing fiber
-           cancels its siblings through [Fiber.List.map].
-
-           Coalescing adjacent ranges whose gap is under a megabyte into
-           one request is a follow-up: it would turn the inner chunks of
-           a densely read shard into a single GET. *)
+           cancels its siblings through [Fiber.List.map]. *)
         let bufs = Eio.Fiber.List.map ~max_fibers (get_range ~key) rs in
         if List.exists Option.is_none bufs then None
         else Some (List.map Option.get bufs)

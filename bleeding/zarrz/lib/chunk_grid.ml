@@ -54,11 +54,10 @@ let chunk_indices t j =
 let clip t i =
   check t "chunk index" i;
   let n = dimensionality t in
-  let outside = ref false in
-  for d = 0 to n - 1 do
-    if i.(d) < 0 || i.(d) >= t.grid_shape.(d) then outside := true
-  done;
-  if !outside then None
+  let rec outside d =
+    d < n && (i.(d) < 0 || i.(d) >= t.grid_shape.(d) || outside (d + 1))
+  in
+  if outside 0 then None
   else
     let start = Array.mapi (fun d x -> x * t.chunk_shape.(d)) i in
     let shape =
@@ -73,21 +72,27 @@ let chunks_overlapping t ~start ~shape f =
   check t "subset shape" shape;
   let n = dimensionality t in
   if n = 0 then f [||]
-  else begin
+  else
+    (* The chunk index box, closed at both ends. *)
     let lo = Array.make n 0 and hi = Array.make n 0 in
-    let empty = ref false in
+    let mutable empty = false in
     for d = 0 to n - 1 do
-      if shape.(d) <= 0 || t.grid_shape.(d) = 0 then empty := true
+      if shape.(d) <= 0 || t.grid_shape.(d) = 0 then empty <- true
       else begin
         let first = start.(d) / t.chunk_shape.(d) in
-        let last = (start.(d) + shape.(d) - 1) / t.chunk_shape.(d) in
-        let last = min last (t.grid_shape.(d) - 1) in
+        let last =
+          min
+            ((start.(d) + shape.(d) - 1) / t.chunk_shape.(d))
+            (t.grid_shape.(d) - 1)
+        in
         lo.(d) <- first;
         hi.(d) <- last;
-        if first > last then empty := true
+        if first > last then empty <- true
       end
     done;
-    if not !empty then begin
+    if not empty then begin
+      (* Odometer over the box. The last dimension varies fastest, so
+         the indices come out in C order. *)
       let cur = Array.copy lo in
       let rec next d =
         if d < 0 then false
@@ -106,7 +111,6 @@ let chunks_overlapping t ~start ~shape f =
       in
       loop ()
     end
-  end
 
 let of_ext e ~array_shape =
   if not (String.equal e.Ext.name "regular") then
@@ -115,39 +119,31 @@ let of_ext e ~array_shape =
     match e.Ext.config with
     | None -> Error "chunk grid: regular requires a chunk_shape configuration"
     | Some (Jsont.Object (mems, _)) -> (
-        let unknown =
-          List.filter
-            (fun ((n, _), _) -> not (String.equal n "chunk_shape"))
+        match
+          List.find_opt (fun ((n, _), _) -> not (String.equal n "chunk_shape"))
             mems
-        in
-        match unknown with
-        | ((n, _), _) :: _ ->
+        with
+        | Some ((n, _), _) ->
             Error
               (Printf.sprintf "chunk grid: unknown configuration member %S" n)
-        | [] -> (
+        | None -> (
             match Jsont.Json.find_mem "chunk_shape" mems with
             | None -> Error "chunk grid: missing chunk_shape"
-            | Some (_, Jsont.Array (l, _)) ->
-                let exception Bad of string in
-                let chunk_shape () =
-                  Array.of_list
-                    (List.map
-                       (fun j ->
-                         match j with
-                         | Jsont.Number (f, _)
-                           when Float.is_integer f && f > 0.0
-                                && f <= 4503599627370496.0 ->
-                             int_of_float f
-                         | _ ->
-                             raise
-                               (Bad
-                                "chunk grid: chunk_shape must hold \
-                                 positive integers"))
-                       l)
+            | Some (_, Jsont.Array (l, _)) -> (
+                let exception Bad in
+                (* A [jsont] number is a float, so bound the value at
+                   2^52 to keep [int_of_float] exact. *)
+                let dim j =
+                  match j with
+                  | Jsont.Number (f, _)
+                    when Float.is_integer f && f > 0.0 && f <= ldexp 1.0 52 ->
+                      int_of_float f
+                  | _ -> raise Bad
                 in
-                (match chunk_shape () with
+                match Array.of_list (List.map dim l) with
                 | chunk_shape -> v ~array_shape ~chunk_shape
-                | exception Bad m -> Error m)
+                | exception Bad ->
+                    Error "chunk grid: chunk_shape must hold positive integers")
             | Some _ -> Error "chunk grid: chunk_shape must be an array"))
     | Some _ -> Error "chunk grid: configuration must be an object"
 

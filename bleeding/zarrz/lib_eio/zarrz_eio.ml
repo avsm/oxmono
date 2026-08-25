@@ -183,12 +183,12 @@ let list root ~prefix =
 
 let store ?(writable = false) root =
   {
-    Store.get = (fun ~key -> get root ~key);
-    get_range = (fun ~key r -> get_range root ~key r);
-    get_ranges = (fun ~key rs -> get_ranges root ~key rs);
-    size = (fun ~key -> size root ~key);
+    Store.get = get root;
+    get_range = get_range root;
+    get_ranges = get_ranges root;
+    size = size root;
     ranged = true;
-    set = (if writable then Some (fun ~key b -> set root ~key b) else None);
-    erase = (if writable then Some (fun ~key -> erase root ~key) else None);
-    list = Some (fun ~prefix -> list root ~prefix);
+    set = (if writable then Some (set root) else None);
+    erase = (if writable then Some (erase root) else None);
+    list = Some (list root);
   }

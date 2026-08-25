@@ -120,7 +120,7 @@ let print_elements arr =
   let shape = Arr.shape arr in
   let sub =
     {
-      Subset.start = Ia.of_array (Array.map (fun _ -> 0) shape);
+      Subset.start = Ia.init (Array.length shape) (fun _ -> 0);
       shape = Ia.of_array shape;
     }
   in

@@ -42,23 +42,25 @@ let native_of_bits ~size bits =
   Bytes.unsafe_to_string b
 
 let bits_of_native ~size s off =
-  let v = ref 0L in
+  let mutable v = 0L in
   for i = 0 to size - 1 do
     let idx = off + if Sys.big_endian then size - 1 - i else i in
-    v :=
-      Int64.logor !v
+    v <-
+      Int64.logor v
         (Int64.shift_left (Int64.of_int (Char.code s.[idx])) (8 * i))
   done;
-  !v
+  v
+
+let hex_digits = "0123456789abcdef"
 
 let hex_of_bits ~size bits =
   let b = Buffer.create (2 + (2 * size)) in
   Buffer.add_string b "0x";
-  for i = size - 1 downto 0 do
-    let byte =
-      Int64.to_int (Int64.logand (Int64.shift_right_logical bits (8 * i)) 0xFFL)
+  for i = (2 * size) - 1 downto 0 do
+    let nibble =
+      Int64.to_int (Int64.shift_right_logical bits (4 * i)) land 0xF
     in
-    Buffer.add_string b (Printf.sprintf "%02x" byte)
+    Buffer.add_char b hex_digits.[nibble]
   done;
   Buffer.contents b
 
@@ -96,56 +98,49 @@ let base64_digit c =
   | '/' -> 63
   | _ -> -1
 
-(* Standard base64 with mandatory padding, as the oracle's decoder. *)
+(* Standard base64. Padding is mandatory, so the length is a multiple of
+   four and only the final quad may carry '='. *)
 let base64_decode s =
   let n = String.length s in
   if n mod 4 <> 0 then None
-  else begin
+  else
     let pad =
       if n = 0 then 0
       else if s.[n - 1] <> '=' then 0
       else if s.[n - 2] = '=' then 2
       else 1
     in
+    let exception Bad_base64 in
     let out = Buffer.create (n / 4 * 3) in
-    let ok = ref true in
-    let i = ref 0 in
-    while !ok && !i < n do
-      let last = !i + 4 = n in
+    let quad i =
+      let last = i + 4 = n in
       let digit k =
-        let c = s.[!i + k] in
-        if last && k >= 4 - pad then
-          if c = '=' then 0
-          else begin
-            ok := false;
-            0
-          end
+        let c = s.[i + k] in
+        if last && k >= 4 - pad then if c = '=' then 0 else raise Bad_base64
         else
           let v = base64_digit c in
-          if v < 0 then begin
-            ok := false;
-            0
-          end
-          else v
+          if v < 0 then raise Bad_base64 else v
       in
       let a = digit 0 in
       let b = digit 1 in
       let c = digit 2 in
       let d = digit 3 in
-      if !ok then begin
-        let v = (a lsl 18) lor (b lsl 12) lor (c lsl 6) lor d in
-        let emit = if last then 3 - pad else 3 in
-        if emit >= 1 then Buffer.add_char out (Char.chr ((v lsr 16) land 0xFF));
-        if emit >= 2 then Buffer.add_char out (Char.chr ((v lsr 8) land 0xFF));
-        if emit >= 3 then Buffer.add_char out (Char.chr (v land 0xFF))
-      end;
-      i := !i + 4
-    done;
-    if !ok then Some (Buffer.contents out) else None
-  end
+      let v = (a lsl 18) lor (b lsl 12) lor (c lsl 6) lor d in
+      let emit = if last then 3 - pad else 3 in
+      if emit >= 1 then Buffer.add_char out (Char.chr ((v lsr 16) land 0xFF));
+      if emit >= 2 then Buffer.add_char out (Char.chr ((v lsr 8) land 0xFF));
+      if emit >= 3 then Buffer.add_char out (Char.chr (v land 0xFF))
+    in
+    match
+      for q = 0 to (n / 4) - 1 do
+        quad (4 * q)
+      done
+    with
+    | () -> Some (Buffer.contents out)
+    | exception Bad_base64 -> None
 
-(* Floating point. [float16] and [bfloat16] have no hardware support in
-   the switch, so narrowing and widening are done on the bits. *)
+(* OCaml has no binary16 or bfloat16 type, so narrowing and widening for
+   those two are done on the bit patterns. *)
 
 type fkind = F16 | BF16 | F32 | F64
 
@@ -322,8 +317,6 @@ let int_json_of_bits ~signed ~size bits =
   in
   Jsont.Json.number f
 
-(* Decoding *)
-
 let scalar_int ~signed ~size j =
   native_of_bits ~size (int_bits_of_json ~signed ~size j)
 
@@ -399,6 +392,14 @@ let to_json dt t =
     int_json_of_bits ~signed ~size (bits_of_native ~size t 0)
   in
   let float k = float_json_of_bits k (bits_of_native ~size:(fsize k) t 0) in
+  let complex k =
+    let size = fsize k in
+    Jsont.Json.list
+      [
+        float_json_of_bits k (bits_of_native ~size t 0);
+        float_json_of_bits k (bits_of_native ~size t size);
+      ]
+  in
   match dt with
   | Dtype.Bool -> Jsont.Json.bool (t.[0] <> '\000')
   | Dtype.Int8 -> int ~signed:true ~size:1
@@ -413,18 +414,8 @@ let to_json dt t =
   | Dtype.Bfloat16 -> float BF16
   | Dtype.Float32 -> float F32
   | Dtype.Float64 -> float F64
-  | Dtype.Complex64 ->
-      Jsont.Json.list
-        [
-          float_json_of_bits F32 (bits_of_native ~size:4 t 0);
-          float_json_of_bits F32 (bits_of_native ~size:4 t 4);
-        ]
-  | Dtype.Complex128 ->
-      Jsont.Json.list
-        [
-          float_json_of_bits F64 (bits_of_native ~size:8 t 0);
-          float_json_of_bits F64 (bits_of_native ~size:8 t 8);
-        ]
+  | Dtype.Complex64 -> complex F32
+  | Dtype.Complex128 -> complex F64
   | Dtype.Raw n ->
       Jsont.Json.list
         (List.init n (fun i ->

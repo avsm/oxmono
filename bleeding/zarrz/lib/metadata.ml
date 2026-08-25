@@ -63,8 +63,7 @@ let drop_consolidated_null mems =
     mems
 
 (* A non-object member, or an object without an explicit
-   "must_understand": false, must be understood. Matches
-   [AdditionalFieldV3]. *)
+   "must_understand": false, must be understood. *)
 let must_understand j =
   match j with
   | Jsont.Object (mems, _) -> (
@@ -82,6 +81,10 @@ let check_unknown mems =
           "unknown member %S must be understood but is not supported" n)
     mems;
   mems
+
+let attributes_mem ~enc map =
+  Jsont.Object.mem "attributes" (Jsont.option Jsont.json_object)
+    ~dec_absent:None ~enc ~enc_omit:Option.is_none map
 
 let array_jsont =
   Jsont.Object.map ~kind:"ArrayMetadata"
@@ -108,11 +111,7 @@ let array_jsont =
          m.chunk_key_encoding)
   |> Jsont.Object.mem "fill_value" Jsont.json ~enc:(fun m -> m.fill_value)
   |> Jsont.Object.mem "codecs" (Jsont.list Ext.jsont) ~enc:(fun m -> m.codecs)
-  |> Jsont.Object.mem "attributes"
-       (Jsont.option Jsont.json_object)
-       ~dec_absent:None
-       ~enc:(fun m -> m.attributes)
-       ~enc_omit:Option.is_none
+  |> attributes_mem ~enc:(fun m -> m.attributes)
   |> Jsont.Object.mem "storage_transformers" (Jsont.list Ext.jsont)
        ~dec_absent:[]
        ~enc:(fun m -> m.storage_transformers)
@@ -131,11 +130,7 @@ let group_jsont =
       { group_attributes; group_unknown = check_unknown group_unknown })
   |> Jsont.Object.mem "zarr_format" zarr_format_jsont ~enc:(fun _ -> ())
   |> Jsont.Object.mem "node_type" (node_type_jsont "group") ~enc:(fun _ -> ())
-  |> Jsont.Object.mem "attributes"
-       (Jsont.option Jsont.json_object)
-       ~dec_absent:None
-       ~enc:(fun m -> m.group_attributes)
-       ~enc_omit:Option.is_none
+  |> attributes_mem ~enc:(fun m -> m.group_attributes)
   |> Jsont.Object.keep_unknown mem_list_mems ~enc:(fun m -> m.group_unknown)
   |> Jsont.Object.finish
 

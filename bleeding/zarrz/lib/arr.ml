@@ -244,24 +244,20 @@ let intersect ~start ~shape ~origin ~extent =
   done;
   if !empty then None else Some (istart, ishape)
 
-(* [rel ~base istart ishape] moves a box from array coordinates into the
-   frame whose origin is [base], which is a chunk origin for a chunk
-   local box and the subset start for a destination box. *)
-let rel ~base istart ishape =
-  {
-    Subset.start = Ia.of_array (Array.mapi (fun d x -> x - base.(d)) istart);
-    shape = Ia.of_array ishape;
-  }
+(* [rel ~base istart shape] moves the box starting at [istart] in array
+   coordinates into the frame whose origin is [base], which is a chunk
+   origin for a chunk local box and the subset start for a destination
+   box. *)
+let rel ~base istart shape =
+  let n = Array.length istart in
+  { Subset.start = Ia.init n (fun d -> istart.(d) - base.(d)); shape }
 
 (* Reading *)
 
-(* A chunk that is present can be read through ranged requests when the
-   chain has nothing but a partial capable array to bytes codec and the
-   store answers ranges without fetching the object whole. [size] is
-   also how absence is detected here: a store that cannot answer it
-   reports [None], which sends the caller down the whole fetch path
-   where absence is handled again. *)
-let byte_source t ~key =
+(* [size] is how absence is detected on the ranged path: a store that
+   cannot answer it reports [None], which sends the caller down the
+   whole fetch path where absence is handled again. *)
+let partial_chunk t ~key repr sub =
   match t.store.Store.size ~key with
   | None -> None
   | Some n ->
@@ -279,14 +275,8 @@ let byte_source t ~key =
         | Some bs -> bs
         | None -> missing ()
       in
-      Some { Byte_source.size = (fun () -> n); read; read_many }
-
-let partial_chunk t ~key repr sub =
-  if not (Codec.supports_partial t.chain && t.store.Store.ranged) then None
-  else
-    match byte_source t ~key with
-    | None -> None
-    | Some src -> Codec.partial_decode t.chain repr src sub
+      let src = { Byte_source.size = (fun () -> n); read; read_many } in
+      Codec.partial_decode t.chain repr src sub
 
 (* The whole array subset assembler. Every chunk contributes the box
    where it meets the subset, expressed once in the chunk's frame and
@@ -297,55 +287,50 @@ let assemble t (sub : Subset.t) start shp =
   let out = Slab.create t.dtype sub.shape in
   let out_buf = Slab.bigstring out in
   let esz = t.elem_size in
-  let tmp = ref None in
-  let filled = ref None in
-  let get_tmp () =
-    match !tmp with
-    | Some b -> b
-    | None ->
-        let b = Base_bigstring.create (t.chunk_elements * esz) in
-        tmp := Some b;
-        b
-  in
-  let get_fill () =
-    match !filled with
-    | Some s -> s
-    | None ->
-        let s = fill_chunk t in
-        filled := Some s;
-        s
-  in
+  let repr = chunk_repr t in
+  (* The gate is decided once. A ranged read costs a [size] request
+     before it can start, which is wasted on a chain that cannot decode
+     part of a chunk or a store that answers a range by fetching the
+     object whole. *)
+  let ranged = Codec.supports_partial t.chain && t.store.Store.ranged in
+  let tmp = lazy (Base_bigstring.create (t.chunk_elements * esz)) in
+  let filled = lazy (fill_chunk t) in
   Chunk_grid.chunks_overlapping t.grid ~start ~shape:shp (fun ci ->
       let origin = Chunk_grid.chunk_origin t.grid ci in
       match intersect ~start ~shape:shp ~origin ~extent:t.chunk_shape with
       | None -> ()
       | Some (istart, ishape) -> (
-          let dst = rel ~base:start istart ishape in
-          let src = rel ~base:origin istart ishape in
+          let box = Ia.of_array ishape in
+          let dst = rel ~base:start istart box in
+          let src = rel ~base:origin istart box in
           let key = chunk_key t ci in
-          match partial_chunk t ~key (chunk_repr t) src with
+          let partial =
+            if ranged then partial_chunk t ~key repr src else None
+          in
+          match partial with
           | Some s ->
-              if Slab.num_elements s <> Array.fold_left ( * ) 1 ishape then
+              let want = Array.fold_left ( * ) 1 ishape in
+              if Slab.num_elements s <> want then
                 codec_err "partial decode of %s returned %d elements, wanted %d"
-                  key (Slab.num_elements s)
-                  (Array.fold_left ( * ) 1 ishape);
+                  key (Slab.num_elements s) want;
               Subset.scatter ~elem_size:esz ~src:(Slab.bigstring s)
                 ~dst:out_buf ~outer:sub.shape dst
           | None ->
               let chunk =
                 match t.store.Store.get ~key with
-                | Some b -> Codec.decode_chunk t.chain (chunk_repr t) b
-                | None -> get_fill ()
+                | Some b -> Codec.decode_chunk t.chain repr b
+                | None -> Lazy.force filled
               in
-              let mid = get_tmp () in
+              let mid = Lazy.force tmp in
               Subset.gather ~elem_size:esz ~src:(Slab.bigstring chunk)
                 ~outer:t.chunk_shape_ia src ~dst:mid;
               Subset.scatter ~elem_size:esz ~src:mid ~dst:out_buf
                 ~outer:sub.shape dst));
   out
 
-(* A subset that is exactly one whole chunk is the oracle's fast path:
-   the chunk decodes straight into the result with no assembly. *)
+(* [whole_chunk t start shp] is the grid index of the chunk the subset
+   covers exactly, if there is one. Such a chunk decodes straight into
+   the result, with no scratch buffer and no assembly. *)
 let whole_chunk t start shp =
   let n = Array.length t.chunk_shape in
   let i = Array.make n 0 in
@@ -378,21 +363,14 @@ let write t (sub : Subset.t) s =
     invalid_arg "Zarrz.Arr: slab shape is not the subset shape";
   let esz = t.elem_size in
   let src_buf = Slab.bigstring s in
-  let tmp = ref None in
-  let get_tmp () =
-    match !tmp with
-    | Some b -> b
-    | None ->
-        let b = Base_bigstring.create (t.chunk_elements * esz) in
-        tmp := Some b;
-        b
-  in
+  let tmp = lazy (Base_bigstring.create (t.chunk_elements * esz)) in
   Chunk_grid.chunks_overlapping t.grid ~start ~shape:shp (fun ci ->
       let origin = Chunk_grid.chunk_origin t.grid ci in
       match intersect ~start ~shape:shp ~origin ~extent:t.chunk_shape with
       | None -> ()
       | Some (istart, ishape) ->
-          let from = rel ~base:start istart ishape in
+          let box = Ia.of_array ishape in
+          let from = rel ~base:start istart box in
           let covered = ref true in
           for d = 0 to Array.length ishape - 1 do
             if ishape.(d) <> t.chunk_shape.(d) then covered := false
@@ -410,11 +388,11 @@ let write t (sub : Subset.t) s =
                the part of an edge chunk beyond the array, keep what the
                store had, or the fill value when it had nothing. *)
             let chunk = read_chunk t ci in
-            let mid = get_tmp () in
+            let mid = Lazy.force tmp in
             Subset.gather ~elem_size:esz ~src:src_buf ~outer:sub.shape from
               ~dst:mid;
             Subset.scatter ~elem_size:esz ~src:mid
               ~dst:(Slab.bigstring chunk) ~outer:t.chunk_shape_ia
-              (rel ~base:origin istart ishape);
+              (rel ~base:origin istart box);
             write_chunk t ci chunk
           end)

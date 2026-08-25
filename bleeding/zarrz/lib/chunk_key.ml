@@ -21,27 +21,26 @@ let config_separator ~default e =
   match e.Ext.config with
   | None -> Ok default
   | Some (Jsont.Object (mems, _)) -> (
-      let unknown =
-        List.filter (fun ((n, _), _) -> not (String.equal n "separator")) mems
-      in
-      match unknown with
-      | ((n, _), _) :: _ ->
+      match
+        List.find_opt (fun ((n, _), _) -> not (String.equal n "separator")) mems
+      with
+      | Some ((n, _), _) ->
           Error
             (Printf.sprintf
                "chunk key encoding: unknown configuration member %S" n)
-      | [] -> separator_of_config ~default mems)
+      | None -> separator_of_config ~default mems)
   | Some _ -> Error "chunk key encoding: configuration must be an object"
 
 let of_ext e =
   match e.Ext.name with
-  | "default" -> (
-      match config_separator ~default:'/' e with
-      | Ok separator -> Ok (Default { separator })
-      | Error _ as err -> err)
-  | "v2" -> (
-      match config_separator ~default:'.' e with
-      | Ok separator -> Ok (V2 { separator })
-      | Error _ as err -> err)
+  | "default" ->
+      Result.map
+        (fun separator -> Default { separator })
+        (config_separator ~default:'/' e)
+  | "v2" ->
+      Result.map
+        (fun separator -> V2 { separator })
+        (config_separator ~default:'.' e)
   | n -> Error (Printf.sprintf "chunk key encoding: unsupported name %S" n)
 
 let to_ext t =
@@ -60,12 +59,14 @@ let to_ext t =
   Ext.v name ~config
 
 let join sep i =
-  String.concat (String.make 1 sep)
-    (List.map
-       (fun x ->
-         if x < 0 then invalid_arg "Chunk_key.encode: negative chunk index";
-         string_of_int x)
-       (Array.to_list i))
+  let b = Buffer.create 32 in
+  Array.iteri
+    (fun d x ->
+      if x < 0 then invalid_arg "Chunk_key.encode: negative chunk index";
+      if d > 0 then Buffer.add_char b sep;
+      Buffer.add_string b (string_of_int x))
+    i;
+  Buffer.contents b
 
 let encode t i =
   match t with

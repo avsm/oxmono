@@ -33,8 +33,8 @@ let pp ppf t =
   | None -> Format.pp_print_string ppf t.name
   | Some c -> Format.fprintf ppf "%s %a" t.name Jsont.Json.pp c
 
-(* The three shapes the oracle serialises into. [name_jsont] is also the
-   only decoder for the bare string form. *)
+(* The three encoded shapes. [name_jsont] doubles as the decoder for the
+   bare string form. *)
 
 let name_jsont =
   Jsont.map ~kind:"Ext"

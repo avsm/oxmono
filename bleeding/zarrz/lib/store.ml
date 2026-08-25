@@ -20,8 +20,11 @@ let has_prefix ~prefix s =
 
 let memory () =
   let h : (string, Base_bigstring.t) Hashtbl.t = Hashtbl.create 16 in
-  (* Both directions copy. A stored buffer is never aliased by a caller,
-     so a later mutation on either side cannot reach the other. *)
+  (* Both directions copy. The [bytes] codec gives a decoded slab a view
+     of the buffer the store handed back, so without the copy on [get] a
+     write through the slab would reach into the stored object, and
+     without the one on [set] a later write through the slab a caller
+     encoded from would. *)
   let get ~key = Option.map Base_bigstring.copy (Hashtbl.find_opt h key) in
   let slice b r =
     let pos, len = Byte_range.resolve ~size:(Base_bigstring.length b) r in

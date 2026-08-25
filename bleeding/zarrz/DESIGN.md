@@ -49,12 +49,15 @@ Single library `zstdz` in `lib/` with `zstdz_stubs.c`. Independent of Zarr.
 - `lib_fetch/` -> package `zarrz-fetch`: HTTP store over `Fetch`.
 - `lib_geoemb/` -> sublibrary `zarrz.geoemb`: jsont codecs for the
   geo-embeddings Zarr convention. Depends only on `jsont`.
+- `cli/` -> package `zarrz-cli`, public executable `zarr`: inspects a
+  remote or local store. See the CLI section.
 - `test/` per package stanza, alcotest. `test/fixtures/` holds golden data
   copied from the oracle (see Testing).
 
 The core is a wrapped library. Public modules: `Error`, `Dtype`,
 `Fill_value`, `Ext`, `Metadata`, `Chunk_grid`, `Chunk_key`, `Byte_range`,
-`Store`, `Byte_source`, `Slab`, `Subset`, `Codec`, `Node`, `Group`, `Arr`.
+`Store`, `Byte_source`, `Slab`, `Subset`, `Codec`, `Node`, `Group`,
+`Arr`, `Consolidated`.
 The array module is `Arr`, not `Array`: the library is wrapped, so a
 module named `Array` would shadow `Stdlib.Array` in every module of the
 library and in any scope that opens `Zarrz`.
@@ -509,6 +512,89 @@ val v : ?ranged:bool -> base_url:string -> _ Fetch.t -> Zarrz.Store.t
 The Eio filesystem store mirrors `zarrs_filesystem` key mapping (key is a
 relative path) using `Eio.Path.load`/`save` and `Eio.File.pread` for
 ranges, with `list` via directory walks.
+
+## Consolidated metadata
+
+`Consolidated` parses the metadata map zarr-python writes into a root
+group under a `consolidated_metadata` member with `must_understand`
+false. The member survives group parsing in `Metadata.group_meta`'s
+unknown list, and this module gives it a type:
+
+```ocaml
+type t
+val of_group : Metadata.group_meta -> t option
+    (* None when the member is absent. Requires kind "inline". *)
+val paths : t -> string list          (* document order, no leading / *)
+val node : t -> string -> Jsont.json option
+val children : t -> string -> (string * [ `Array | `Group ]) list
+    (* immediate children of a path, by name *)
+```
+
+Node JSON is kept raw and parsed only on demand, so a map of hundreds
+of nodes costs nothing to hold. Consumers open arrays from it with
+`Arr.of_json`, which fetches no further metadata.
+
+## The zarr CLI
+
+Package `zarrz-cli`, directory `cli/`, public executable `zarr`,
+cmdliner. It answers three questions about a store a user has only a
+URL for: what is in it, what one node is exactly, and what it costs.
+The store argument accepts an `http://` or `https://` URL (fetch store
+over `Fetch_curl.std`) or a local directory (`zarrz-eio` store). An
+optional second positional argument is the node path, default `/`.
+
+    zarr tree  STORE [PATH] [--depth N]
+    zarr info  STORE [PATH]
+    zarr stats STORE [PATH] [--sample N]
+
+Discovery has three tiers, tried in order and reported honestly:
+consolidated metadata at the root (one request, full hierarchy), a
+listable store (directory walk for `zarr.json` files), and neither, in
+which case only the named node is shown and the output says why the
+tree cannot be enumerated.
+
+`tree` prints the hierarchy with one summary line per node: name, node
+type, and for arrays the dtype, shape, chunk shape, and the codec
+chain compressed to names with their salient configuration, for
+example `bytes(le) zstd(3)` or `sharding(32x32; bytes blosc(zstd))`.
+`--depth` bounds recursion.
+
+`info` prints one node in full. For an array: shape, dtype, fill value
+(as its JSON form), chunk grid and key encoding, the codec chain with
+every configuration member, shard geometry when the chain is
+`sharding_indexed` (shard shape, inner chunk shape, index location and
+index size), dimension names, storage transformers, and attributes.
+For a group: attributes and child counts. Both end with an extensions
+block: every `zarr_conventions` entry (name, uuid, spec URL), every
+unknown metadata member with its `must_understand`, whether
+consolidated metadata is present, and any non-core data type, chunk
+grid or chunk key encoding name. When the geo-embeddings convention is
+present the block renders the parsed summary through `zarrz.geoemb`
+(type, dimensions, model, quantisation).
+
+`stats` reports what can be known at the store's access level. Always,
+from metadata alone: element count, nominal byte size, chunk and shard
+counts per array, and totals per group subtree. On a listable store:
+exact stored object counts and byte totals per array, and the ratio to
+nominal. On a ranged HTTP store with `--sample N` (default 0, no
+requests): `size` on N chunk keys evenly spaced through the grid of
+each array, reporting objects found, mean stored size, and an
+extrapolated total clearly labelled as a sampled estimate.
+
+Output is aligned plain text on stdout. `--json` on each command
+emits one JSON document instead, built with jsont, so scripts can
+consume the same information. Errors are one-line messages on stderr
+with exit code 1. Network use is bounded: `tree` and `info` fetch
+metadata only, `stats` fetches metadata plus exactly the sampled HEAD
+requests it reports.
+
+The CLI package depends on `zarrz`, `zarrz-eio`, `zarrz-fetch`,
+`zarrz.geoemb`, `fetch-curl`, `eio_main` and `cmdliner`. Rendering
+lives in the executable, not the library. Tests are cram tests over
+the committed fixture hierarchies through the filesystem store, plus
+alcotest units for the tree assembly and codec summaries against
+hand-built metadata. Sampling is deterministic (evenly spaced, no
+randomness), so its output is testable.
 
 ## Testing
 

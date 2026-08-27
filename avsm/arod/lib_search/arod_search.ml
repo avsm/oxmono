@@ -438,23 +438,6 @@ let index t ~own_host ~body_text ~entries ~links =
 (* What the renderer escaped comes back as text once the tags are gone,
    or a snippet would show &amp;quot; where the page shows a quote. The
    ampersand is decoded last so an escaped entity stays escaped. *)
-let html_unescape s =
-  let buf = Buffer.create (String.length s) in
-  let n = String.length s in
-  let i = ref 0 in
-  while !i < n do
-    let ate entity by =
-      let l = String.length entity in
-      if !i + l <= n && String.sub s !i l = entity then begin
-        Buffer.add_string buf by; i := !i + l; true
-      end else false
-    in
-    if not (ate "&lt;" "<" || ate "&gt;" ">" || ate "&quot;" "\""
-            || ate "&#39;" "'" || ate "&apos;" "'" || ate "&amp;" "&")
-    then begin Buffer.add_char buf s.[!i]; incr i end
-  done;
-  Buffer.contents buf
-
 let rebuild t ctx =
   (* Index the prose a reader sees, not its markup: the body renders
      through the site's own HTML pipeline, the tags are stripped and the
@@ -463,7 +446,7 @@ let rebuild t ctx =
      resolved references rather than bushel syntax. *)
   let body_text ent =
     fst (Arod.Md.to_html ~ctx (entry_markdown ent))
-    |> Arod.Text.strip_html |> html_unescape
+    |> Arod.Text.strip_html |> Arod.Text.html_unescape
     |> Arod.Text.collapse_whitespace
   in
   let own_host = host_of_url (Arod.Ctx.base_url ctx) in
@@ -883,7 +866,7 @@ let search t ?today ?(limit = 20) ?(link_limit = 12) ?(order = `Relevance)
     |> finish
 
 let pp_hit ppf h =
-  let snippet = html_unescape (Arod.Text.strip_html h.snippet) in
+  let snippet = Arod.Text.html_unescape (Arod.Text.strip_html h.snippet) in
   let tags = match h.tags with
     | [] -> "" | ts -> " #" ^ String.concat " #" ts in
   let parents = match h.parent_slugs with

@@ -322,14 +322,19 @@ let rec thumbnail_slug entries = function
   | `Video v -> Some (Bushel_video.uuid v)
   | `Project p -> Some (Printf.sprintf "project-%s" (Bushel_project.slug p))
   | `Idea i ->
-    (* Use project logo; fall back to first supervisor's face *)
-    let project_slug = Bushel_idea.project i in
-    (match lookup entries project_slug with
-     | Some p -> thumbnail_slug entries p
-     | None ->
-       match Bushel_idea.supervisors i with
-       | c :: _ -> Some (Sortal_schema.Contact.handle c)
-       | [] -> None)
+    (* A picture in the body belongs to this idea alone, so it wins over the
+       project logo that every sibling idea would otherwise share. *)
+    (match extract_first_image (Bushel_idea.body i) with
+     | Some url when String.starts_with ~prefix:":" url ->
+       Some (String.sub url 1 (String.length url - 1))
+     | _ ->
+       let project_slug = Bushel_idea.project i in
+       match lookup entries project_slug with
+       | Some p -> thumbnail_slug entries p
+       | None ->
+         match Bushel_idea.supervisors i with
+         | c :: _ -> Some (Sortal_schema.Contact.handle c)
+         | [] -> None)
   | `Note n ->
     (* Use titleimage if set, otherwise extract first image from body,
        then try video, otherwise use slug_ent's thumbnail *)

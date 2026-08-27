@@ -1033,6 +1033,149 @@ let tag_cloud_filter_js = {|
 })();
 |}
 
+let idea_filter_js = {|
+// Ideas index filter. Every idea carries data-idea-item and data-level,
+// whether it is an open card or a folded past line, so one pass filters
+// both. Levels are OR against each other and AND against the keywords. The
+// keyword text of an item includes the name of the project it sits under,
+// which is why searching for a project name finds its ideas even though the
+// name is only on the group head, and it includes the folded panel of a past
+// idea, so a keyword reaches text the reader cannot see yet.
+(function() {
+  var root = document.querySelector('[data-idea-index]');
+  if (!root) return;
+  var box = document.getElementById('idea-search');
+  var count = document.getElementById('idea-count');
+  var empty = document.getElementById('idea-empty');
+  var clear = document.getElementById('idea-clear');
+  var totalOpen = parseInt(root.getAttribute('data-idea-open'), 10) || 0;
+
+  var items = [];
+  root.querySelectorAll('[data-idea-item]').forEach(function(el) {
+    var group = el.closest('[data-idea-group]');
+    items.push({
+      el: el,
+      past: el.tagName === 'DETAILS',
+      level: el.getAttribute('data-level') || '',
+      text: (el.textContent + ' ' +
+             (group ? group.getAttribute('data-idea-group') : '')).toLowerCase()
+    });
+  });
+  if (!items.length) return;
+
+  var levels = new Set(), words = [];
+
+  function matches(it) {
+    if (levels.size && !levels.has(it.level)) return false;
+    for (var i = 0; i < words.length; i++) {
+      if (it.text.indexOf(words[i]) === -1) return false;
+    }
+    return true;
+  }
+
+  function syncLevels() {
+    root.querySelectorAll('.idea-level').forEach(function(el) {
+      el.classList.toggle('active', levels.has(el.getAttribute('data-level')));
+    });
+  }
+
+  function syncExpand(group) {
+    var btn = group.querySelector('[data-expand-all]');
+    if (!btn) return;
+    var shut = false;
+    group.querySelectorAll('details.idea-past-card').forEach(function(d) {
+      if (d.style.display !== 'none' && !d.open) shut = true;
+    });
+    btn.setAttribute('aria-expanded', shut ? 'false' : 'true');
+  }
+
+  function apply() {
+    var nOpen = 0, nPast = 0;
+    var searching = words.length > 0;
+    items.forEach(function(it) {
+      var ok = matches(it);
+      it.el.style.display = ok ? '' : 'none';
+      // A keyword can only match a past idea through text inside its folded
+      // panel, so a hit has to open the panel or it looks like a false one.
+      if (it.past) it.el.open = ok && searching;
+      if (ok) { if (it.past) nPast++; else nOpen++; }
+    });
+    root.querySelectorAll('[data-idea-group]').forEach(function(g) {
+      var visible = false;
+      g.querySelectorAll('[data-idea-item]').forEach(function(el) {
+        if (el.style.display !== 'none') visible = true;
+      });
+      g.style.display = visible ? '' : 'none';
+      syncExpand(g);
+    });
+    var filtering = searching || levels.size > 0;
+    if (count) {
+      count.textContent = filtering
+        ? nOpen + ' open, ' + nPast + ' previously offered'
+        : totalOpen + ' open for takers';
+    }
+    if (clear) clear.hidden = !filtering;
+    if (empty) empty.hidden = !(filtering && nOpen === 0 && nPast === 0);
+  }
+
+  root.addEventListener('click', function(e) {
+    var lv = e.target.closest('.idea-level');
+    if (lv) {
+      e.preventDefault();
+      var v = lv.getAttribute('data-level');
+      if (levels.has(v)) levels.delete(v); else levels.add(v);
+      syncLevels();
+      apply();
+      return;
+    }
+    var ex = e.target.closest('[data-expand-all]');
+    if (ex) {
+      e.preventDefault();
+      var group = ex.closest('[data-idea-group]');
+      var open = ex.getAttribute('aria-expanded') !== 'true';
+      group.querySelectorAll('details.idea-past-card').forEach(function(d) {
+        if (d.style.display !== 'none') d.open = open;
+      });
+      ex.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+  });
+
+  // The link on a folded line sits inside its <summary>, whose activation
+  // behaviour would open the panel as well as follow the link. Stopping the
+  // click here keeps it from reaching the summary at all.
+  root.querySelectorAll('.idea-past-open').forEach(function(a) {
+    a.addEventListener('click', function(e) { e.stopPropagation(); });
+  });
+
+  // A reader folding one line by hand leaves the group chevron claiming
+  // everything is open, so the head follows what the lines actually do.
+  root.addEventListener('toggle', function(e) {
+    var d = e.target;
+    if (!d.classList || !d.classList.contains('idea-past-card')) return;
+    var group = d.closest('[data-idea-group]');
+    if (group) syncExpand(group);
+  }, true);
+
+  if (box) {
+    box.addEventListener('input', function() {
+      words = box.value.toLowerCase().split(/\s+/).filter(Boolean);
+      apply();
+    });
+  }
+
+  if (clear) {
+    clear.addEventListener('click', function() {
+      levels.clear(); words = [];
+      if (box) box.value = '';
+      syncLevels();
+      apply();
+    });
+  }
+
+  apply();
+})();
+|}
+
 let feed_dropdown_js = {|
 (function() {
   var btn = document.getElementById('feed-dropdown-btn');
@@ -1228,5 +1371,6 @@ let by_name = [
   "filter.js", checkbox_filter_js;
   "calendar.js", calendar_js;
   "tag-filter.js", tag_cloud_filter_js;
+  "idea-filter.js", idea_filter_js;
   "search.js", search_page_js;
 ]

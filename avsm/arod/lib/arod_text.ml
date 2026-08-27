@@ -29,12 +29,32 @@ let collapse_whitespace s =
   ) s;
   Buffer.contents buf
 
+(* Entity decoding is the other half of tag stripping: text taken out of
+   rendered HTML still carries the escapes the renderer put in, and a caller
+   handing that to a text node would escape them a second time. *)
+let html_unescape s =
+  let buf = Buffer.create (String.length s) in
+  let n = String.length s in
+  let i = ref 0 in
+  while !i < n do
+    let ate entity by =
+      let l = String.length entity in
+      if !i + l <= n && String.sub s !i l = entity then begin
+        Buffer.add_string buf by; i := !i + l; true
+      end else false
+    in
+    if not (ate "&lt;" "<" || ate "&gt;" ">" || ate "&quot;" "\""
+            || ate "&#39;" "'" || ate "&apos;" "'" || ate "&amp;" "&")
+    then begin Buffer.add_char buf s.[!i]; incr i end
+  done;
+  Buffer.contents buf
+
 let truncate n s =
   if String.length s <= n then s
   else String.sub s 0 n ^ "\xe2\x80\xa6"
 
 let plain_summary ?(max_len=150) html =
-  let plain = strip_html html in
+  let plain = html_unescape (strip_html html) in
   let trimmed = String.trim (collapse_whitespace plain) in
   if String.length trimmed > 0 then
     Some (truncate max_len trimmed)

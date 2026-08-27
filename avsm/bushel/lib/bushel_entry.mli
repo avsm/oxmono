@@ -230,7 +230,8 @@ val contact_thumbnail : t -> Sortal_schema.Contact.t -> string option
 val thumbnail_slug : t -> entry -> string option
 (** [thumbnail_slug es e] is the image slug of [e]. A note falls back through
     its title image, the first image in its body, the first video it links and
-    the entry it is about. *)
+    the entry it is about. An idea takes the first image in its body, then the
+    logo of its project, then the face of its first supervisor. *)
 
 val thumbnail : t -> entry -> string option
 (** [thumbnail es e] is the path of the thumbnail of [e]. A project with no

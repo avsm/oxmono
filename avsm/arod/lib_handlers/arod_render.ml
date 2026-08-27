@@ -71,15 +71,15 @@ let notes_list_html ~ctx =
   C.Layout.page ~ctx ~title:"Notes" ~description:"Notes and blog posts" ~url:"/notes" ~current_page:"Notes" ~jsonld ~page_scripts:[Pagination; Toc] ~main_cls:"max-w-4xl" ~article ~sidebar ()
 
 let ideas_list_html ~ctx =
-  let article, sidebar = C.Idea.ideas_list ~ctx in
+  let article = C.Idea.ideas_list ~ctx in
   let cfg = Arod.Ctx.config ctx in
   let base_url = cfg.site.base_url in
   let count = List.length (Arod.Ctx.ideas ctx) in
   let jsonld = [
-    Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/ideas" ~title:"Research Ideas" ~description:"Research ideas by year" ~count ();
+    Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/ideas" ~title:"Research Ideas" ~description:"Research ideas open to students" ~count ();
     Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/"); ("Ideas", "/ideas")];
   ] in
-  C.Layout.page ~ctx ~title:"Research Ideas" ~description:"Research ideas by year" ~url:"/ideas" ~current_page:"Ideas" ~jsonld ~page_scripts:[Checkbox_filter; Toc] ~article ~sidebar ()
+  C.Layout.wide_page ~ctx ~title:"Research Ideas" ~description:"Research ideas open to students" ~url:"/ideas" ~current_page:"Ideas" ~jsonld ~page_scripts:[Idea_filter] ~article ()
 
 let projects_list_html ~ctx =
   let article = C.Project.projects_list ~ctx in

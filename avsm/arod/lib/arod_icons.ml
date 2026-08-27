@@ -164,6 +164,12 @@ let circle_f =
 let bookmark_o =
   {|<path d="M18 7v14l-6 -4l-6 4v-14a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4"/>|}
 
+let arrow_up_right_o =
+  {|<path d="M17 7l-10 10"/><path d="M8 7l9 0l0 9"/>|}
+
+let chevron_down_o =
+  {|<path d="M6 9l6 6l6 -6"/>|}
+
 let arrow_right_sm_o =
   {|<path d="M5 12h14"/><path d="M13 18l6 -6"/><path d="M13 6l6 6"/>|}
 

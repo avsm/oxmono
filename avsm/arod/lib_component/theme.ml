@@ -67,6 +67,7 @@ let custom_css = {|
   --color-toc-bg: #e0e7ff;
   --color-bq-text: #4a4a4a;
   --color-weeknote-accent: #dde8d8;
+  --idea-art: 0.12;
 }
 
 .dark {
@@ -93,6 +94,7 @@ let custom_css = {|
   --color-st-done: #8b949e;
   --color-st-expired: #f85149;
   --color-sidenote-ref: #7dd3a0;
+  --idea-art: 0.2;
   --color-highlight: #634d15;
   --color-toc-bg: #1c2654;
   --color-bq-text: #b1bac4;
@@ -408,41 +410,6 @@ let custom_css = {|
   }
   .text-body { font-size: 0.88rem; line-height: 1.45; }
   /* idea status colours are now Tailwind utilities (font-medium text-st-*) */
-  /* Idea list page — project cards */
-  .idea-project-section {
-    border-bottom: 1px solid var(--color-border);
-    padding-bottom: 1rem;
-  }
-  .idea-project-section:last-child { border-bottom: none; }
-  .idea-project-brief {
-    font-size: 0.75rem;
-    color: var(--color-secondary);
-    line-height: 1.4;
-    margin: 0.4rem 0 0.5rem;
-  }
-  .idea-project-brief p { margin: 0 0 0.3em; }
-  .idea-project-brief a { color: var(--color-link); }
-  .idea-project-brief ul, .idea-project-brief ol {
-    list-style-position: outside;
-    padding-left: 1.2em;
-    margin: 0.2em 0;
-  }
-  .idea-project-brief li { margin: 0; }
-  .idea-project-section > .proj-card-header {
-    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-    background: var(--color-surface);
-    border-radius: 4px;
-  }
-  .idea-project-thumb {
-    float: right;
-    margin: 0 0 0.3rem 0.5rem;
-  }
-  .idea-project-thumb img {
-    width: 36px;
-    height: 36px;
-    object-fit: cover;
-    border-radius: 3px;
-  }
   /* Idea list items */
   .idea-list {
     display: flex;
@@ -494,68 +461,6 @@ let custom_css = {|
     display: block;
     font-size: 0.85rem;
     color: var(--color-secondary);
-  }
-  /* Idea sidebar — filter rows with inline stats */
-  .idea-filter-row {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.05rem 0;
-    cursor: pointer;
-  }
-  .idea-filter-row input[type="checkbox"] {
-    flex-shrink: 0;
-  }
-  .idea-filter-row:has(input:not(:checked)) {
-    opacity: 0.4;
-  }
-  .idea-filter-label {
-    color: var(--color-dim);
-    flex: 1;
-  }
-  .idea-stat-count {
-    color: var(--color-secondary);
-    font-variant-numeric: tabular-nums;
-    font-size: 0.68rem;
-  }
-  /* Idea sidebar — project jump list */
-  .idea-jump-list {
-    display: flex;
-    flex-direction: column;
-  }
-  .idea-jump-link {
-    display: flex;
-    align-items: center;
-    padding: 0.15rem 0;
-    color: var(--color-dim) !important;
-    text-decoration: none !important;
-    transition: color 0.1s;
-    font-family: system-ui, -apple-system, sans-serif;
-    font-size: 0.72rem;
-  }
-  .idea-jump-link:hover {
-    color: var(--color-link) !important;
-  }
-  .idea-jump-title {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .idea-jump-count {
-    color: var(--color-secondary);
-    font-variant-numeric: tabular-nums;
-    margin-left: 0.3rem;
-    flex-shrink: 0;
-  }
-  .idea-proj-bar {
-    flex-direction: row;
-    height: 0.45rem;
-    border-radius: 2px;
-    flex-shrink: 0;
-    margin-left: 0.35rem;
-    max-width: 4rem;
   }
   /* hash-prefix opacity is now a Tailwind utility (opacity-50) */
   .tag-search-link, .kind-search-link {
@@ -2033,28 +1938,6 @@ let custom_css = {|
   .heatmap-cell[data-state="future"]:hover .heatmap-circle {
     transform: none;
   }
-  /* Idea heatmap — stacked status bar instead of circle */
-  .idea-status-bar {
-    display: flex;
-    width: 1.15rem;
-    height: 1.15rem; /* default, overridden by JS */
-    align-self: flex-end;
-    border-radius: 3px;
-    overflow: hidden;
-    gap: 1px;
-    transition: transform 0.1s;
-  }
-  .heatmap-cell:hover .idea-status-bar {
-    transform: scale(1.15);
-  }
-  .idea-status-bar > span {
-    min-width: 1px;
-  }
-  .bar-available { background: var(--color-st-avail); }
-  .bar-discussion { background: var(--color-st-discuss); }
-  .bar-ongoing { background: var(--color-st-ongoing); }
-  .bar-completed { background: var(--color-st-done); }
-  .bar-expired { background: var(--color-st-expired); }
   .cal-divider {
     border-top: 1px dashed var(--color-border);
     margin: 0.35rem 0;
@@ -2303,6 +2186,339 @@ let custom_css = {|
   .vid-embed iframe {
     display: block;
   }
+}
+
+/* Ideas index */
+/* Unlayered: the cards, rows and search box draw 1px borders and the level
+   rows are buttons, and Tailwind's unlayered preflight zeroes border-width
+   and button padding inside @layer. */
+/* Ideas index — filter band */
+/* Not sticky. The nav header is sticky at the top of the viewport with a
+   higher stacking order, so a band pinned there would scroll underneath it
+   and disappear. */
+.idea-band {
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.5rem 0 0.7rem;
+  margin-bottom: 1.1rem;
+}
+.idea-band-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.idea-band-icon {
+  display: inline-flex;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+.idea-search {
+  flex: 1 1 14rem;
+  min-width: 0;
+  max-width: 26rem;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.idea-search:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.idea-band-status {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--color-dim);
+}
+.idea-clear {
+  font: inherit;
+  color: var(--color-link);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+/* Ideas index — one filter row per academic level. Held to a reading width
+   so the count stays beside the name rather than a page away from it. */
+.idea-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 34rem;
+  margin-top: 0.55rem;
+}
+.idea-level {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.65;
+  text-align: left;
+  color: var(--color-dim);
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  padding: 0 0.4rem;
+  cursor: pointer;
+}
+.idea-level:hover {
+  background: var(--color-surface);
+  border-left-color: var(--color-border);
+}
+.idea-level.active {
+  color: var(--color-accent);
+  background: var(--color-surface);
+  border-left-color: var(--color-accent);
+}
+.idea-level-name {
+  flex-shrink: 0;
+  min-width: 6rem;
+  font-weight: 600;
+}
+.idea-level-note {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-secondary);
+}
+.idea-level.active .idea-level-note { color: inherit; opacity: 0.8; }
+.idea-level-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+/* Ideas index — project groups in two columns, filled left to right so the
+   first row holds the first two projects. A grid rather than the shorter
+   masonry columns, which fill the first column to the bottom before starting
+   the second and so read down the page, not across it. */
+.idea-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 2.75rem;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .idea-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.idea-group {
+  min-width: 0;
+  margin: 0 0 1.75rem;
+}
+/* A filled bar, as a card header is on the projects page, since the two name
+   the same thing. In two columns a rule alone is not enough to tell a project
+   heading from the cards under it. */
+.idea-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  color: var(--color-secondary);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.idea-group-prompt {
+  color: var(--color-accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+/* The name wraps rather than truncating. A project heading that reads
+   "TESSERA, a pixelwise geospatial foundation mo…" is the one thing on this
+   page a reader cannot afford to lose. */
+.idea-group-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-text) !important;
+  text-decoration: none !important;
+}
+.idea-group-title:hover { color: var(--color-link) !important; }
+.idea-group-count {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.idea-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--color-secondary);
+  background: none;
+  border: none;
+  padding: 0 0 0 0.3rem;
+  cursor: pointer;
+}
+.idea-expand:hover { color: var(--color-accent); }
+.idea-expand-count { font-variant-numeric: tabular-nums; }
+.idea-expand-icon {
+  display: inline-flex;
+  transition: transform 0.15s;
+}
+.idea-expand[aria-expanded='true'] .idea-expand-icon {
+  transform: rotate(180deg);
+}
+/* Ideas index — the status of an idea as a colour a card can draw with. The
+   dot beside a folded line reads from the same palette, so a border and a dot
+   never disagree. */
+.idea-st-avail { --idea-status: var(--color-st-avail); }
+.idea-st-discuss { --idea-status: var(--color-st-discuss); }
+.idea-st-ongoing { --idea-status: var(--color-st-ongoing); }
+.idea-st-done { --idea-status: var(--color-st-done); }
+.idea-st-expired { --idea-status: var(--color-st-expired); }
+/* Ideas index — a card for an idea open for takers. The plain border above
+   the mixed one is the fallback a browser without color-mix keeps. */
+.idea-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, var(--idea-status) 40%, transparent);
+  border-left: 3px solid var(--idea-status);
+  border-radius: 3px;
+  padding: 0.6rem 0.7rem;
+  margin-bottom: 0.85rem;
+  transition: border-color 0.15s;
+}
+.idea-card:hover { border-color: var(--idea-status); }
+/* The picture is a wash behind the words, not an illustration beside them.
+   It is faded to a token that differs by theme, and masked away towards the
+   left so it never reaches the start of a line of text. */
+.idea-card-art {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 60%;
+  opacity: var(--idea-art);
+  /* Desaturated, so a bright photograph does not pull the eye off the words
+     sitting on top of it. */
+  filter: grayscale(0.4);
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to left, #000 5%, transparent 90%);
+  mask-image: linear-gradient(to left, #000 5%, transparent 90%);
+  transition: opacity 0.15s;
+}
+.idea-card-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.idea-card:hover .idea-card-art { opacity: calc(var(--idea-art) * 1.5); }
+.idea-card-main {
+  position: relative;
+  max-width: 30rem;
+}
+.idea-card-title {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text) !important;
+  text-decoration: none !important;
+}
+.idea-card-title:hover { color: var(--color-link) !important; }
+.idea-card-meta {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--color-secondary);
+  margin: 0.15rem 0 0;
+}
+.idea-card-meta a { color: var(--color-link); }
+.idea-card-discuss { color: var(--color-st-discuss); }
+.idea-card-summary {
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--color-dim);
+  margin: 0.35rem 0 0;
+}
+/* Ideas index — an idea offered previously, folded to one line under its
+   project until the reader or the group chevron opens it */
+.idea-past-card {
+  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, var(--idea-status) 22%, transparent);
+  border-left: 2px solid var(--idea-status);
+  border-radius: 3px;
+  padding: 0.3rem 0.45rem;
+  margin-bottom: 0.35rem;
+}
+/* The folded history starts a little clear of the last open card, so the two
+   kinds of entry do not run together. */
+.idea-card + .idea-past-card { margin-top: 0.35rem; }
+.idea-past-card[open] {
+  border-color: color-mix(in srgb, var(--idea-status) 45%, transparent);
+  border-left-color: var(--idea-status);
+}
+/* One column: the title on its own line and the sentence about who took the
+   idea under it, so a run of four names cannot squeeze the title beside it
+   down to one word a line. */
+.idea-past-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.idea-past-head::-webkit-details-marker { display: none; }
+.idea-past-head:hover .idea-past-title { color: var(--color-link); }
+.idea-past-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+.idea-past-card .idea-dot { margin-top: 0; align-self: center; }
+.idea-past-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text);
+}
+.idea-past-open {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-self: center;
+  color: var(--color-muted);
+}
+.idea-past-open:hover { color: var(--color-link); }
+/* Indented to clear the status dot, so it starts under the title above. */
+.idea-past-meta {
+  padding-left: 0.85rem;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--color-secondary);
+}
+.idea-past-detail {
+  padding: 0.35rem 0 0.15rem 0.85rem;
+  max-width: 34rem;
+}
+.idea-past-text, .idea-past-sups {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--color-dim);
+  margin: 0 0 0.3rem;
+}
+.idea-past-sups a { color: var(--color-link); }
+.idea-empty {
+  font-size: 0.88rem;
+  color: var(--color-dim);
+  padding: 0.75rem 0;
 }
 
 /* Search page */

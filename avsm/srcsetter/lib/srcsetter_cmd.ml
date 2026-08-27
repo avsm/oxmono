@@ -264,32 +264,12 @@ let copy_to_dst { src_dir; dst_dir; dummy; preserve; _ } src dst =
     end
   end
 
-(** [convert_animated cfg (src, dst, size)] converts an animated image (GIF)
-    to animated WebP, preserving all frames. Uses [-resize] instead of
-    [-thumbnail] which would strip frames. *)
-let convert_animated ({ src_dir; dst_dir; dummy; _ } as cfg) (src, dst, size) =
-  if not dummy then begin
-    let dir =
-      if Filename.dirname dst = "." then dst_dir
-      else Path.(dst_dir / Filename.dirname dst)
-    in
-    Path.mkdirs ~exists_ok:true ~perm:0o755 dir;
-    let src_path = Path.(native_exn (src_dir / src)) in
-    let dst_path = Path.(native_exn (dst_dir / dst)) in
-    let sz = Printf.sprintf "%dx" size in
-    run cfg
-      [
-        "magick"; src_path;
-        "-resize"; sz;
-        "-quality"; "90";
-        dst_path;
-      ]
-  end
-
 let process_file cfg (display, main_rep) src =
   let w, h = dims cfg src in
   if is_gif src then begin
-    (* GIF: copy as-is (animated WebP has Safari rendering bugs), no variants *)
+    (* Copied whole, with no variants. Animated WebP is not rendered reliably
+       enough to convert to, so what is served is the GIF itself. Nothing
+       here resizes it, so a large GIF stays large at every use. *)
     let base_src, base_dst, _, needs_work = translate cfg src in
     let slug = Filename.basename base_dst |> Filename.chop_extension in
     let ent = Srcsetter.v base_dst slug base_src Srcsetter.MS.empty (w, h) in

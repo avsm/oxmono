@@ -56,6 +56,17 @@ let render_image_html ?(cl="content-image") ?link_url ~alt ~title img_ent =
     (List.map (fun (f,(w,_h)) -> Printf.sprintf "/images/%s %dw" f w)
       (Img.MS.bindings img_ent.Img.variants)) in
 
+  (* An image srcsetter passed through whole, such as an animated GIF, has no
+     generated variants and so nothing to offer a srcset. The attribute is
+     left out rather than written empty, and [sizes] goes with it, since it
+     selects among candidates that are not there. *)
+  let srcset_at sizes =
+    if srcsets = "" then ""
+    else Printf.sprintf {| srcset="%s" sizes="%s"|} srcsets sizes
+  in
+  let srcset_thumb = srcset_at "112px" in
+  let srcset_wide = srcset_at "(max-width: 768px) 100vw, 768px" in
+
   (* Build JSON-encoded variant list for lightbox download links *)
   let variants_json =
     let items = List.map (fun (f,(w,h)) ->
@@ -76,15 +87,15 @@ let render_image_html ?(cl="content-image") ?link_url ~alt ~title img_ent =
     (match link_url with
      | Some url ->
        let img_html = Printf.sprintf
-         {|<img class="%s rounded-full w-28 h-28 object-cover" src="%s" alt="%s" title="%s" loading="lazy" srcset="%s" sizes="112px">|}
-         cl origin_url alt title srcsets
+         {|<img class="%s rounded-full w-28 h-28 object-cover" src="%s" alt="%s" title="%s" loading="lazy"%s>|}
+         cl origin_url alt title srcset_thumb
        in
        Printf.sprintf {|<figure class="float-img %s"><div class="relative"><a href="%s">%s</a>%s</div></figure>|}
          float_class (html_escape_attr url) img_html (expand_btn lightbox_attrs)
      | None ->
        let img_html = Printf.sprintf
-         {|<img class="%s rounded-full w-28 h-28 object-cover lightbox-trigger cursor-pointer" src="%s" alt="%s" title="%s" loading="lazy" srcset="%s" sizes="112px"%s>|}
-         cl origin_url alt title srcsets lightbox_attrs
+         {|<img class="%s rounded-full w-28 h-28 object-cover lightbox-trigger cursor-pointer" src="%s" alt="%s" title="%s" loading="lazy"%s%s>|}
+         cl origin_url alt title srcset_thumb lightbox_attrs
        in
        Printf.sprintf
          {|<figure class="float-img %s">%s</figure>|}
@@ -95,15 +106,15 @@ let render_image_html ?(cl="content-image") ?link_url ~alt ~title img_ent =
     (match link_url with
      | Some url ->
        let img_html = Printf.sprintf
-         {|<img class="%s rounded-lg%s" src="%s" alt="%s" title="%s" loading="lazy" srcset="%s" sizes="(max-width: 768px) 100vw, 768px">|}
-         cl img_extra origin_url title title srcsets
+         {|<img class="%s rounded-lg%s" src="%s" alt="%s" title="%s" loading="lazy"%s>|}
+         cl img_extra origin_url title title srcset_wide
        in
        Printf.sprintf {|<figure class="%s"><div class="relative inline-block w-full"><a href="%s">%s</a>%s</div><figcaption class="text-sm text-secondary mt-2 text-center">%s</figcaption></figure>|}
          fig_class (html_escape_attr url) img_html (expand_btn lightbox_attrs) title
      | None ->
        let img_html = Printf.sprintf
-         {|<img class="%s rounded-lg%s lightbox-trigger" src="%s" alt="%s" title="%s" loading="lazy" srcset="%s" sizes="(max-width: 768px) 100vw, 768px"%s>|}
-         cl img_extra origin_url title title srcsets lightbox_attrs
+         {|<img class="%s rounded-lg%s lightbox-trigger" src="%s" alt="%s" title="%s" loading="lazy"%s%s>|}
+         cl img_extra origin_url title title srcset_wide lightbox_attrs
        in
        Printf.sprintf {|<figure class="%s">%s<figcaption class="text-sm text-secondary mt-2 text-center">%s</figcaption></figure>|}
          fig_class img_html title)
@@ -111,15 +122,15 @@ let render_image_html ?(cl="content-image") ?link_url ~alt ~title img_ent =
     (match link_url with
      | Some url ->
        let img_html = Printf.sprintf
-         {|<img class="%s" src="%s" alt="%s" title="%s" loading="lazy" srcset="%s" sizes="(max-width: 768px) 100vw, 768px">|}
-         cl origin_url alt title srcsets
+         {|<img class="%s" src="%s" alt="%s" title="%s" loading="lazy"%s>|}
+         cl origin_url alt title srcset_wide
        in
        Printf.sprintf {|<span class="relative inline-block"><a href="%s">%s</a>%s</span>|}
          (html_escape_attr url) img_html (expand_btn lightbox_attrs)
      | None ->
        Printf.sprintf
-         {|<img class="%s lightbox-trigger" src="%s" alt="%s" title="%s" loading="lazy" srcset="%s" sizes="(max-width: 768px) 100vw, 768px"%s>|}
-         cl origin_url alt title srcsets lightbox_attrs)
+         {|<img class="%s lightbox-trigger" src="%s" alt="%s" title="%s" loading="lazy"%s%s>|}
+         cl origin_url alt title srcset_wide lightbox_attrs)
 
 let render_image_html_simple ?link_url ~cl ~alt ~title ~src () =
   match alt with

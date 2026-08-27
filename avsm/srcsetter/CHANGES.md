@@ -1,5 +1,9 @@
 ## Unreleased
 
+- The unused GIF to animated WebP conversion is gone. A GIF is copied to the
+  destination whole and given no variants, which is what the pipeline has done
+  for some time, because animated WebP is not rendered reliably enough to
+  convert to.
 - `Srcsetter.MS` is no longer `Map.Make (String)`. It keeps `empty`, `of_list`,
   `bindings`, `cardinal` and `fold`, and its type now declares a kind, so a
   `Srcsetter.t` can be read by a function marked `portable`. The JSON written

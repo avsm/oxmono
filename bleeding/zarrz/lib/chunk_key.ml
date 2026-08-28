@@ -31,17 +31,23 @@ let config_separator ~default e =
       | None -> separator_of_config ~default mems)
   | Some _ -> Error "chunk key encoding: configuration must be an object"
 
+(* A reader cannot skip a chunk key encoding it does not know, so the
+   spec does not allow the chunk key encoding extension point to carry
+   must_understand false. *)
 let of_ext e =
-  match e.Ext.name with
-  | "default" ->
-      Result.map
-        (fun separator -> Default { separator })
-        (config_separator ~default:'/' e)
-  | "v2" ->
-      Result.map
-        (fun separator -> V2 { separator })
-        (config_separator ~default:'.' e)
-  | n -> Error (Printf.sprintf "chunk key encoding: unsupported name %S" n)
+  if not e.Ext.must_understand then
+    Error "chunk key encoding: must_understand must be true"
+  else
+    match e.Ext.name with
+    | "default" ->
+        Result.map
+          (fun separator -> Default { separator })
+          (config_separator ~default:'/' e)
+    | "v2" ->
+        Result.map
+          (fun separator -> V2 { separator })
+          (config_separator ~default:'.' e)
+    | n -> Error (Printf.sprintf "chunk key encoding: unsupported name %S" n)
 
 let to_ext t =
   let name, separator =
@@ -76,7 +82,7 @@ let encode t i =
   | V2 { separator } -> if Array.length i = 0 then "0" else join separator i
 
 let strip_root path =
-  if String.length path > 0 && path.[0] = '/' then
+  if String.starts_with ~prefix:"/" path then
     String.sub path 1 (String.length path - 1)
   else path
 

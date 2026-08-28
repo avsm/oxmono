@@ -89,55 +89,12 @@ let hex_bits ~size s =
     in
     loop 2 0L
 
-let base64_digit c =
-  match c with
-  | 'A' .. 'Z' -> Char.code c - Char.code 'A'
-  | 'a' .. 'z' -> Char.code c - Char.code 'a' + 26
-  | '0' .. '9' -> Char.code c - Char.code '0' + 52
-  | '+' -> 62
-  | '/' -> 63
-  | _ -> -1
-
-(* Standard base64. Padding is mandatory, so the length is a multiple of
-   four and only the final quad may carry '='. *)
+(* Standard RFC 4648 base64 with mandatory padding, which is what the
+   writers that spell an [r*] fill value as a string emit. *)
 let base64_decode s =
-  let n = String.length s in
-  if n mod 4 <> 0 then None
-  else
-    let pad =
-      if n = 0 then 0
-      else if s.[n - 1] <> '=' then 0
-      else if s.[n - 2] = '=' then 2
-      else 1
-    in
-    let exception Bad_base64 in
-    let out = Buffer.create (n / 4 * 3) in
-    let quad i =
-      let last = i + 4 = n in
-      let digit k =
-        let c = s.[i + k] in
-        if last && k >= 4 - pad then if c = '=' then 0 else raise Bad_base64
-        else
-          let v = base64_digit c in
-          if v < 0 then raise Bad_base64 else v
-      in
-      let a = digit 0 in
-      let b = digit 1 in
-      let c = digit 2 in
-      let d = digit 3 in
-      let v = (a lsl 18) lor (b lsl 12) lor (c lsl 6) lor d in
-      let emit = if last then 3 - pad else 3 in
-      if emit >= 1 then Buffer.add_char out (Char.chr ((v lsr 16) land 0xFF));
-      if emit >= 2 then Buffer.add_char out (Char.chr ((v lsr 8) land 0xFF));
-      if emit >= 3 then Buffer.add_char out (Char.chr (v land 0xFF))
-    in
-    match
-      for q = 0 to (n / 4) - 1 do
-        quad (4 * q)
-      done
-    with
-    | () -> Some (Buffer.contents out)
-    | exception Bad_base64 -> None
+  match Base64.decode ~pad:true s with
+  | Ok bytes -> Some bytes
+  | Error (`Msg _) -> None
 
 (* OCaml has no binary16 or bfloat16 type, so narrowing and widening for
    those two are done on the bit patterns. *)

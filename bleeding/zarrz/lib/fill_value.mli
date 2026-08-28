@@ -41,7 +41,8 @@ val of_json : Dtype.t -> Jsont.json -> (t, string) result
        range of the type. Because [jsont] represents every JSON number
        as a [float], [int64] and [uint64] additionally reject any
        magnitude above 2{^53}, where a [float] no longer names each
-       integer.}
+       integer, and an integer written with an exponent, such as
+       [1e2], is accepted where the specification asks for none.}
     {- floats: a JSON number, or one of the strings ["Infinity"],
        ["-Infinity"], ["NaN"], or a hex string of the big endian byte
        image. The hex string must carry a [0x] prefix and exactly two
@@ -56,7 +57,10 @@ val of_json : Dtype.t -> Jsont.json -> (t, string) result
        the component type.}
     {- [Raw n]: a JSON array of [n] numbers in \[0;255\], or a standard
        base64 string, padded to a multiple of four characters, decoding
-       to exactly [n] bytes.}}
+       to exactly [n] bytes. The array is the only form the
+       specification defines. The base64 string is accepted on decoding
+       alone, because writers emit it, and {!to_json} never produces
+       one.}}
 
     The result is [Error msg] with a message naming the data type when
     [j] is not one of these. *)

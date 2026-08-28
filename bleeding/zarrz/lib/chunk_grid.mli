@@ -24,8 +24,10 @@ val v : array_shape:int array -> chunk_shape:int array -> (t, string) result
 
 val of_ext : Ext.t -> array_shape:int array -> (t, string) result
 (** [of_ext e ~array_shape] is the grid described by the [chunk_grid]
-    member [e]. The name must be ["regular"] and the configuration must
-    be present, an object, and have [chunk_shape] as its only member.
+    member [e]. The name must be ["regular"], [must_understand] must be
+    [true], which the spec requires of this extension point, and the
+    configuration must be present, an object, and have [chunk_shape] as
+    its only member.
     [chunk_shape] is an array of positive integers no greater than
     2{^52}, of the length of [array_shape]. *)
 

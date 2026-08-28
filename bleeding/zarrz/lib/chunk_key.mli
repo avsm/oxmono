@@ -25,10 +25,11 @@ val v2 : t
 
 val of_ext : Ext.t -> (t, string) result
 (** [of_ext e] is the encoding described by the [chunk_key_encoding]
-    member [e]. The name must be ["default"] or ["v2"]. The
-    configuration, when present, must be an object with no member other
-    than [separator], a string that is ["/"] or ["."]. An absent
-    separator is the encoding's default. *)
+    member [e]. The name must be ["default"] or ["v2"] and
+    [must_understand] must be [true], which the spec requires of this
+    extension point. The configuration, when present, must be an object
+    with no member other than [separator], a string that is ["/"] or
+    ["."]. An absent separator is the encoding's default. *)
 
 val to_ext : t -> Ext.t
 (** [to_ext t] is the [chunk_key_encoding] member for [t]. The separator

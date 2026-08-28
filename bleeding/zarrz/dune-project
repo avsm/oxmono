@@ -19,6 +19,7 @@ access to decoded chunk values. The core is store-agnostic. Companion
 packages provide Eio filesystem and HTTP stores.")
  (depends
   (ocaml (>= 5.2.0))
+  base64
   jsont
   base_bigstring
   decompress

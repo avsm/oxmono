@@ -112,8 +112,13 @@ let chunks_overlapping t ~start ~shape f =
       loop ()
     end
 
+(* A reader cannot skip a chunk grid it does not know, so the spec does
+   not allow the chunk grid extension point to carry
+   must_understand false. *)
 let of_ext e ~array_shape =
-  if not (String.equal e.Ext.name "regular") then
+  if not e.Ext.must_understand then
+    Error "chunk grid: must_understand must be true"
+  else if not (String.equal e.Ext.name "regular") then
     Error (Printf.sprintf "chunk grid: unsupported name %S" e.Ext.name)
   else
     match e.Ext.config with

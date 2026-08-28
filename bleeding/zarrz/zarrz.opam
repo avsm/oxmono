@@ -13,6 +13,7 @@ bug-reports: "https://tangled.org/anil.recoil.org/ocaml-zarrz/issues"
 depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.2.0"}
+  "base64"
   "jsont"
   "base_bigstring"
   "decompress"

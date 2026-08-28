@@ -114,6 +114,8 @@ let ext_tests =
     ext_dec_fails "missing name" {|{"configuration":{}}|};
     ext_dec_fails "non object configuration" {|{"name":"x","configuration":1}|};
     ext_dec_fails "number" {|1|};
+    ext_dec_fails "empty bare name" {|""|};
+    ext_dec_fails "empty object name" {|{"name":""}|};
     ext_enc "no configuration is a bare string" (Ext.v "bytes") {|"bytes"|};
     ext_enc "empty configuration keeps the object"
       (Ext.v "bytes" ?config:(obj "{}"))
@@ -127,14 +129,31 @@ let ext_tests =
     ext_enc "must_understand true is omitted"
       (Ext.v "gzip" ~must_understand:true ?config:(obj {|{"level":5}|}))
       {|{"name":"gzip","configuration":{"level":5}}|};
-    (* The oracle drops must_understand when the configuration is
-       empty, because it serialises a one entry map. *)
-    ext_enc "empty configuration drops must_understand"
+    (* A short form means must_understand true, so a false one keeps the
+       object form whatever the configuration is. The zarrs oracle drops
+       the member in both of these cases, which promotes the extension
+       to must_understand true. *)
+    ext_enc "empty configuration keeps must_understand"
       (Ext.v "x" ~must_understand:false ?config:(obj "{}"))
-      {|{"name":"x"}|};
-    ext_enc "no configuration drops must_understand"
+      {|{"name":"x","configuration":{},"must_understand":false}|};
+    ext_enc "no configuration keeps must_understand"
       (Ext.v "x" ~must_understand:false)
-      {|"x"|};
+      {|{"name":"x","must_understand":false}|};
+    ( "must_understand false round trips",
+      `Quick,
+      fun () ->
+        let round e =
+          match Jsont.Json.encode Ext.jsont e with
+          | Error m -> Alcotest.failf "%s" m
+          | Ok j -> (
+              match Jsont.Json.decode Ext.jsont j with
+              | Ok e -> e
+              | Error m -> Alcotest.failf "%s" m)
+        in
+        let e = Ext.v "x" ~must_understand:false in
+        Alcotest.check ext "no configuration" e (round e);
+        let e = Ext.v "x" ~must_understand:false ?config:(obj "{}") in
+        Alcotest.check ext "empty configuration" e (round e) );
     ( "config_mem",
       `Quick,
       fun () ->
@@ -250,6 +269,28 @@ let test_dimension_names_null () =
   Alcotest.check json "round trip" (json_of_string doc)
     (Metadata.array_to_json m)
 
+(* The spec requires one dimension name per dimension of the shape, and
+   a codec list that is not empty. *)
+let test_array_list_lengths () =
+  Alcotest.(check bool)
+    "too few dimension names" true
+    (Result.is_error
+       (decode_array
+          (array_doc ~shape:{|,"shape":[4,4]|}
+             ~extra:{|,"dimension_names":["x"]|} ())));
+  Alcotest.(check bool)
+    "too many dimension names" true
+    (Result.is_error
+       (decode_array
+          (array_doc ~extra:{|,"dimension_names":["x",null]|} ())));
+  Alcotest.(check bool)
+    "a matching length decodes" true
+    (Result.is_ok
+       (decode_array (array_doc ~extra:{|,"dimension_names":["x"]|} ())));
+  Alcotest.(check bool)
+    "empty codecs" true
+    (Result.is_error (decode_array (array_doc ~codecs:"[]" ())))
+
 let test_unknown_members () =
   let understood =
     array_doc ~extra:{|,"x":{"k":1,"must_understand":false}|} ()
@@ -284,7 +325,23 @@ let test_array_header () =
     (Result.is_error (decode_array (array_doc ~node:{|"group"|} ())));
   Alcotest.(check bool)
     "missing shape rejected" true
-    (Result.is_error (decode_array (array_doc ~shape:"" ())))
+    (Result.is_error (decode_array (array_doc ~shape:"" ())));
+  (* Jsont.int truncates and coerces, so the strict decoder must catch
+     what it would let through. *)
+  Alcotest.(check bool)
+    "fractional zarr_format rejected" true
+    (Result.is_error (decode_array (array_doc ~format:"3.9" ())));
+  Alcotest.(check bool)
+    "string zarr_format rejected" true
+    (Result.is_error (decode_array (array_doc ~format:{|"3"|} ())));
+  Alcotest.(check bool)
+    "fractional shape element rejected" true
+    (Result.is_error
+       (decode_array (array_doc ~shape:{|,"shape":[1.9,4]|} ())));
+  Alcotest.(check bool)
+    "string shape element rejected" true
+    (Result.is_error
+       (decode_array (array_doc ~shape:{|,"shape":["2",4]|} ())))
 
 let test_group_fixture () =
   let src = fixture "group_metadata.json" in
@@ -333,6 +390,7 @@ let metadata_tests =
     ("array round trip", `Quick, test_array_round_trip);
     ("codec forms", `Quick, test_codec_forms);
     ("dimension names null", `Quick, test_dimension_names_null);
+    ("list lengths", `Quick, test_array_list_lengths);
     ("unknown members", `Quick, test_unknown_members);
     ("array header", `Quick, test_array_header);
     ("group fixture", `Quick, test_group_fixture);
@@ -509,6 +567,10 @@ let fill_value_tests =
     fv_dec "base64 padded" (Dtype.Raw 4) {|"AAECAw=="|} "00010203";
     fv_dec_fails "base64 wrong length" (Dtype.Raw 3) {|"AAECAw=="|};
     fv_dec_fails "not base64" (Dtype.Raw 3) {|"!!!"|};
+    fv_dec_fails "base64 unpadded" (Dtype.Raw 3) {|"AAH"|};
+    fv_dec_fails "base64 with whitespace" (Dtype.Raw 3) {|"AA H/"|};
+    fv_dec_fails "base64 padding in the middle" (Dtype.Raw 6) {|"AAH=AAH/"|};
+    fv_dec_fails "base64 empty" (Dtype.Raw 3) {|""|};
     fv_enc "array" (Dtype.Raw 3) "0001ff" "[0,1,255]";
     fv_round "base64 encodes as an array" (Dtype.Raw 3) {|"AAH/"|} "[0,1,255]";
   ]
@@ -643,7 +705,13 @@ let test_grid_ext () =
     (bad (Ext.v "regular" ?config:(obj {|{"chunk_shape":[0]}|})));
   Alcotest.(check bool)
     "dimension mismatch" true
-    (bad (Ext.v "regular" ?config:(obj {|{"chunk_shape":[2,2]}|})))
+    (bad (Ext.v "regular" ?config:(obj {|{"chunk_shape":[2,2]}|})));
+  (* The spec does not allow the chunk grid to be ignorable. *)
+  Alcotest.(check bool)
+    "must_understand false" true
+    (bad
+       (Ext.v "regular" ~must_understand:false
+          ?config:(obj {|{"chunk_shape":[2]}|})))
 
 let chunk_grid_tests =
   [
@@ -706,6 +774,10 @@ let test_key_ext () =
   Alcotest.(check bool)
     "unknown configuration member" true
     (bad (Ext.v "default" ?config:(obj {|{"other":1}|})));
+  (* The spec does not allow the chunk key encoding to be ignorable. *)
+  Alcotest.(check bool)
+    "must_understand false" true
+    (bad (Ext.v "default" ~must_understand:false));
   Alcotest.check ext "to_ext default"
     (Ext.v "default" ?config:(obj {|{"separator":"/"}|}))
     (Chunk_key.to_ext Chunk_key.default);

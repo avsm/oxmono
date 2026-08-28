@@ -35,14 +35,15 @@ val jsont : t Jsont.t
     required [name], an optional [configuration] object and an optional
     [must_understand] boolean. An absent [must_understand] is [true].
     Any other member is an error, as is a [configuration] that is not an
-    object. A JSON [null] configuration decodes as absent.
+    object and a [name] that is empty. A JSON [null] configuration
+    decodes as absent.
 
-    Encoding emits a bare string when [config] is [None], the object
-    [{"name": n}] when [config] is an empty object, and otherwise
-    [{"name": n, "configuration": c}] with [must_understand] appended
-    only when it is [false]. The first two forms carry no
-    [must_understand], so a [false] one is lost unless the configuration
-    is a non empty object. *)
+    Encoding a [must_understand] [true] extension emits a bare string
+    when [config] is [None], the object [{"name": n}] when [config] is
+    an empty object, and otherwise
+    [{"name": n, "configuration": c}]. A [must_understand] [false] one
+    always takes the object form and carries the member, because the two
+    short forms mean [true]. *)
 
 val config_mem : t -> string -> Jsont.json option
 (** [config_mem t n] is the value of the member named [n] of [t]'s

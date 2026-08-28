@@ -24,9 +24,12 @@ type array_meta = {
       (** Uninterpreted. Pass it to {!Fill_value.of_json} with the data
           type. *)
   codecs : Ext.t list;
-  attributes : Jsont.json option;  (** A JSON object when present. *)
+  attributes : Jsont.json option;
+      (** A JSON object when present. A JSON null decodes as absent,
+          a read side leniency. *)
   dimension_names : string option list option;
-      (** A [None] entry is a JSON [null], an unnamed dimension. *)
+      (** One entry per dimension of [shape] when present. A [None]
+          entry is a JSON [null], an unnamed dimension. *)
   storage_transformers : Ext.t list;
   unknown : Jsont.mem list;
       (** Members of the document this version does not model, kept in
@@ -50,10 +53,12 @@ val array_jsont : array_meta Jsont.t
     Decoding requires [zarr_format] to be [3] and [node_type] to be
     ["array"]. [attributes], [storage_transformers] and
     [dimension_names] may be absent, every other modelled member is
-    required. An unknown top level member is an error unless it is a
-    JSON object carrying [{"must_understand": false}]. A
-    [consolidated_metadata] member whose value is [null] is dropped
-    before that check.
+    required. [codecs] must not be empty, since the list holds the array
+    to bytes codec, and [dimension_names], when present, must have one
+    entry per dimension of [shape]. An unknown top level member is an
+    error unless it is a JSON object carrying
+    [{"must_understand": false}]. A [consolidated_metadata] member whose
+    value is [null] is dropped before that check.
 
     Encoding writes [zarr_format], [node_type], [shape], [data_type],
     [chunk_grid], [chunk_key_encoding], [fill_value], [codecs],

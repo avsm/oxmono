@@ -21,6 +21,19 @@ type group_meta = {
   group_unknown : Jsont.mem list;
 }
 
+(* [Jsont.int] truncates fractional numbers and coerces strings, which
+   the specification's integer members must not admit. *)
+let strict_int_jsont ~kind =
+  Jsont.map ~kind
+    ~dec:(fun j ->
+      match j with
+      | Jsont.Number (f, _)
+        when Float.is_integer f && Float.abs f <= 0x1p53 ->
+          int_of_float f
+      | _ -> Jsont.Error.msgf Jsont.Meta.none "%s must be an integer" kind)
+    ~enc:(fun i -> Jsont.Json.number (float_of_int i))
+    Jsont.json
+
 let zarr_format_jsont =
   Jsont.map ~kind:"zarr_format"
     ~dec:(fun v ->
@@ -28,7 +41,7 @@ let zarr_format_jsont =
       else
         Jsont.Error.msgf Jsont.Meta.none "expected zarr_format 3, found %d" v)
     ~enc:(fun () -> 3)
-    Jsont.int
+    (strict_int_jsont ~kind:"zarr_format")
 
 let node_type_jsont expect =
   Jsont.map ~kind:"node_type"
@@ -82,6 +95,24 @@ let check_unknown mems =
     mems;
   mems
 
+(* The spec ties both lists to the rest of the document. The codec list
+   holds the array to bytes codec, so it cannot be empty, and each
+   dimension name stands for one dimension of the shape. *)
+
+let check_codecs codecs =
+  if codecs = [] then
+    Jsont.Error.msg Jsont.Meta.none
+      "codecs must hold at least an array to bytes codec"
+  else codecs
+
+let check_dimension_names ~shape names =
+  match names with
+  | Some l when List.length l <> Array.length shape ->
+      Jsont.Error.msgf Jsont.Meta.none
+        "%d dimension names for an array of rank %d" (List.length l)
+        (Array.length shape)
+  | names -> names
+
 let attributes_mem ~enc map =
   Jsont.Object.mem "attributes" (Jsont.option Jsont.json_object)
     ~dec_absent:None ~enc ~enc_omit:Option.is_none map
@@ -96,15 +127,17 @@ let array_jsont =
         chunk_grid;
         chunk_key_encoding;
         fill_value;
-        codecs;
+        codecs = check_codecs codecs;
         attributes;
-        dimension_names;
+        dimension_names = check_dimension_names ~shape dimension_names;
         storage_transformers;
         unknown = check_unknown unknown;
       })
   |> Jsont.Object.mem "zarr_format" zarr_format_jsont ~enc:(fun _ -> ())
   |> Jsont.Object.mem "node_type" (node_type_jsont "array") ~enc:(fun _ -> ())
-  |> Jsont.Object.mem "shape" (Jsont.array Jsont.int) ~enc:(fun m -> m.shape)
+  |> Jsont.Object.mem "shape"
+       (Jsont.array (strict_int_jsont ~kind:"shape element"))
+       ~enc:(fun m -> m.shape)
   |> Jsont.Object.mem "data_type" Ext.jsont ~enc:(fun m -> m.data_type)
   |> Jsont.Object.mem "chunk_grid" Ext.jsont ~enc:(fun m -> m.chunk_grid)
   |> Jsont.Object.mem "chunk_key_encoding" Ext.jsont ~enc:(fun m ->

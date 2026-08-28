@@ -33,12 +33,21 @@ let pp ppf t =
   | None -> Format.pp_print_string ppf t.name
   | Some c -> Format.fprintf ppf "%s %a" t.name Jsont.Json.pp c
 
+(* The name must conform to the extension name rules, which admit a
+   registered name or, for backwards compatibility, a URI. Neither can
+   be empty, and that is all the two forms have in common. *)
+let check_name name =
+  if String.equal name "" then
+    Jsont.Error.msg Jsont.Meta.none "extension name is empty"
+  else name
+
 (* The three encoded shapes. [name_jsont] doubles as the decoder for the
    bare string form. *)
 
 let name_jsont =
   Jsont.map ~kind:"Ext"
-    ~dec:(fun name -> { name; config = None; must_understand = true })
+    ~dec:(fun name ->
+      { name = check_name name; config = None; must_understand = true })
     ~enc:(fun t -> t.name) Jsont.string
 
 let name_only_jsont =
@@ -48,7 +57,7 @@ let name_only_jsont =
 
 let object_jsont =
   Jsont.Object.map ~kind:"Ext" (fun name config must_understand ->
-      { name; config; must_understand })
+      { name = check_name name; config; must_understand })
   |> Jsont.Object.mem "name" Jsont.string ~enc:(fun t -> t.name)
   |> Jsont.Object.mem "configuration"
        (Jsont.option Jsont.json_object)
@@ -60,11 +69,17 @@ let object_jsont =
        ~enc_omit:Fun.id
   |> Jsont.Object.error_unknown |> Jsont.Object.finish
 
+(* The bare string and the name only object both mean must_understand
+   true, so an extension that carries [false] takes the full object form
+   whatever its configuration is. Writing it as a short form would
+   promote it to true. *)
 let jsont =
   Jsont.any ~kind:"Ext" ~dec_string:name_jsont ~dec_object:object_jsont
     ~enc:(fun t ->
-      match t.config with
-      | None -> name_jsont
-      | Some (Jsont.Object ([], _)) -> name_only_jsont
-      | Some _ -> object_jsont)
+      if not t.must_understand then object_jsont
+      else
+        match t.config with
+        | None -> name_jsont
+        | Some (Jsont.Object ([], _)) -> name_only_jsont
+        | Some _ -> object_jsont)
     ()

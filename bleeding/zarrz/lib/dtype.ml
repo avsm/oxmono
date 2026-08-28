@@ -64,6 +64,9 @@ let of_name = function
   | "complex64" -> Some Complex64
   | "complex128" -> Some Complex128
   | s ->
+      (* [int_of_string] accepts a sign, underscores and other bases, none
+         of which spell an [r*] identifier, so the digits are checked
+         first and the conversion only bounds the value. *)
       let is_digits s =
         s <> "" && String.for_all (fun c -> c >= '0' && c <= '9') s
       in

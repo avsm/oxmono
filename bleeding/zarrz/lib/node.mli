@@ -14,7 +14,9 @@ type t = [ `Array of Arr.t | `Group of Group.t ]
 val open_ : ?codecs:Codec.resolver -> Store.t -> path:string -> t
 (** [open_ store ~path] reads [<path>/zarr.json] once, dispatches on its
     [node_type] member and opens the node with {!Arr.of_json} or
-    {!Group.of_json}. [codecs] is passed on to {!Arr.of_json}.
+    {!Group.of_json}. [codecs] is passed on to {!Arr.of_json}. [path] is
+    not checked against the node path rules {!Node_path} states, as in
+    {!Arr.open_}.
 
     @raise Error.E [(Store _)] when there is no metadata document at
     [path], with a message naming the key as not found. [(Metadata _)]

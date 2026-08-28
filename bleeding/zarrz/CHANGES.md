@@ -1,5 +1,15 @@
 ## Unreleased
 
+- Creating a node validates its path against the specification's name
+  rules, and reading tolerates foreign names.
+- Metadata keeps `must_understand: false` across a round trip, requires
+  `dimension_names` to match the shape, rejects fractional or string
+  integers, and re-emits codec lists in canonical kind order.
+- The blosc `typesize` and the sharding `codecs` and `index_codecs`
+  members are required as the specification says, a shard index is
+  bounds checked before any range is fetched, and the `endian` alias of
+  the bytes codec is accepted.
+- Raw fill values decode base64 through the vendored `base64` library.
 - `Consolidated` reads the node map a writer puts into the root group,
   so a hierarchy of hundreds of nodes opens in one request.
 - The `zarrz-cli` package adds the `zarr` command, which prints the

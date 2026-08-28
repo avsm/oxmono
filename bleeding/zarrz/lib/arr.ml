@@ -44,12 +44,20 @@ let ia_eq a b =
 
 (* Binding *)
 
+(* The specification refuses [must_understand] false on a data type, a
+   chunk grid and a chunk key encoding. A reader that skipped one of
+   those could not find a chunk, let alone decode it. *)
+let require_understood what (e : Ext.t) =
+  if not e.Ext.must_understand then
+    meta_err "%s %S: must_understand must be true" what e.Ext.name
+
 let of_meta ?codecs store ~path (meta : Metadata.array_meta) =
   let dt = meta.data_type in
   if Option.is_some dt.Ext.config then
     meta_err "data type %S: a configuration is not supported" dt.Ext.name;
-  if not dt.Ext.must_understand then
-    meta_err "data type %S: must_understand must be true" dt.Ext.name;
+  require_understood "data type" dt;
+  require_understood "chunk grid" meta.chunk_grid;
+  require_understood "chunk key encoding" meta.chunk_key_encoding;
   let dtype =
     match Dtype.of_name dt.Ext.name with
     | Some d -> d
@@ -124,6 +132,7 @@ let default_codecs =
 
 let create ?attributes ?dimension_names ?codecs ?chunk_key_encoding ?resolver
     ~shape ~chunk_shape ~dtype ~fill_value store ~path =
+  Node_path.check path;
   let grid =
     of_result
       (fun m -> meta_err "%s" m)

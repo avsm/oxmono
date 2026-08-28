@@ -10,10 +10,17 @@
     document then describes the whole hierarchy, so a reader that has
     it opens any node without a request of its own.
 
-    The member carries [must_understand] [false], so
-    {!Metadata.group_jsont} keeps it among the [group_unknown] members
-    of {!Metadata.group_meta} rather than rejecting it. This module
-    gives that member a type.
+    The specification keeps this member for historical reasons and
+    pins its value to an object of exactly [must_understand] [false],
+    [kind] ["inline"] and [metadata]. It is not an extension object,
+    having no [name]. The [must_understand] is what makes
+    {!Metadata.group_jsont} keep it among the [group_unknown] members
+    of {!Metadata.group_meta} rather than reject it. This module gives
+    that member a type.
+
+    The [metadata] object is flat: a member name is a node's whole
+    path below the root, not one name, so a hierarchy three deep is
+    three members and not three nestings.
 
     A node document is kept exactly as it was parsed and is decoded
     only when a caller asks for it, so a map of hundreds of nodes costs

@@ -14,10 +14,6 @@ type t = {
   list : (prefix:string -> string list) option;
 }
 
-let has_prefix ~prefix s =
-  let n = String.length prefix in
-  String.length s >= n && String.equal (String.sub s 0 n) prefix
-
 let memory () =
   let h : (string, Base_bigstring.t) Hashtbl.t = Hashtbl.create 16 in
   (* Both directions copy. The [bytes] codec gives a decoded slab a view
@@ -42,7 +38,7 @@ let memory () =
   let list ~prefix =
     let keys =
       Hashtbl.fold
-        (fun k _ acc -> if has_prefix ~prefix k then k :: acc else acc)
+        (fun k _ acc -> if String.starts_with ~prefix k then k :: acc else acc)
         h []
     in
     List.sort String.compare keys

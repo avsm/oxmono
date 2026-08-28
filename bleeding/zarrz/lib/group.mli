@@ -14,7 +14,9 @@ type t
 
 val open_ : Store.t -> path:string -> t
 (** [open_ store ~path] reads [<path>/zarr.json] and parses it as group
-    metadata.
+    metadata. [path] is not checked against the node path rules
+    {!Node_path} states, so a group another writer named as this library
+    would not is still readable.
 
     @raise Error.E [(Store _)] when there is no metadata document at
     [path], with a message naming the key as not found, and
@@ -27,9 +29,11 @@ val of_json : Store.t -> path:string -> Jsont.json -> t
 
 val create : ?attributes:Jsont.json -> Store.t -> path:string -> t
 (** [create store ~path] writes [<path>/zarr.json] and is the group it
-    describes.
+    describes. [path] must obey the node path rules, which
+    {!Node_path.check} states.
 
-    @raise Error.E [(Store _)] when [store] cannot be written. *)
+    @raise Error.E [(Metadata _)] when [path] is not a node path, and
+    [(Store _)] when [store] cannot be written. *)
 
 val store : t -> Store.t
 (** [store t] is the store [t] was opened in. *)

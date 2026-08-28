@@ -62,6 +62,13 @@ val store : ?writable:bool -> _ Eio.Path.t -> Zarrz.Store.t
     of [root]. A prefix passed to [list] is held to the same rule, save
     that it may be empty and may end in ['/'].
 
+    That is stricter than the specification twice over, deliberately.
+    ["."] and [".."] are ordinary characters to a key and name
+    directories to a filesystem, so a key holding one would leave
+    [root]. The empty key is a key the specification allows, and it
+    names [root] itself, which is a directory here rather than an
+    object.
+
     Every other failure of the filesystem raises {!Zarrz.Error.E}
     [(Store _)] carrying the rendering of the Eio exception. Only the
     Eio not-found error becomes an absent key. *)

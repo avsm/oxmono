@@ -540,7 +540,7 @@ let dim_names = function
   | Some l ->
       String.concat " " (List.map (Option.value ~default:"_") l)
 
-let info_array t ~path (m : Metadata.array_meta) =
+let info_array t (m : Metadata.array_meta) =
   let elements = R.product m.shape in
   R.field "node type" "%s" "array";
   R.field "data type" "%s" m.data_type.Ext.name;
@@ -574,8 +574,7 @@ let info_array t ~path (m : Metadata.array_meta) =
     | l -> String.concat " " (List.map (fun e -> e.Ext.name) l));
   print_attributes m.attributes;
   print_extensions t ~attrs:m.attributes ~unknown:(unknown_members m.unknown)
-    ~nc:(non_core m);
-  ignore path
+    ~nc:(non_core m)
 
 let info_group t ~path (m : Metadata.group_meta) =
   R.field "node type" "%s" "group";
@@ -746,7 +745,7 @@ let info_cmd spec path as_json =
     R.field "store" "%s" t.W.spec;
     R.field "path" "%s" (W.disp p);
     match m with
-    | `Array a -> info_array t ~path:p a
+    | `Array a -> info_array t a
     | `Group g -> info_group t ~path:p g
   end;
   0
@@ -816,7 +815,7 @@ let exact_array t ~path =
   match t.W.store.Store.list with
   | None -> None
   | Some list ->
-      let prefix = if String.equal path "" then "" else path ^ "/" in
+      let prefix = W.data_prefix path in
       let keys =
         List.filter
           (fun k -> not (String.equal (Filename.basename k) "zarr.json"))

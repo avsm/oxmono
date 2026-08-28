@@ -394,12 +394,12 @@ let test_create_errors () =
 
 let meta_str ?(node = "array") ?(dt = {|"int32"|}) ?(codecs = {|["test.raw"]|})
     ?(grid = {|{"name":"regular","configuration":{"chunk_shape":[2,2]}}|})
-    ?(extra = "") () =
+    ?(key_enc = {|{"name":"default"}|}) ?(extra = "") () =
   Printf.sprintf
     {|{"zarr_format":3,"node_type":"%s","shape":[4,4],"data_type":%s,
-       "chunk_grid":%s,"chunk_key_encoding":{"name":"default"},
+       "chunk_grid":%s,"chunk_key_encoding":%s,
        "fill_value":0,"codecs":%s%s}|}
-    node dt grid codecs extra
+    node dt grid key_enc codecs extra
 
 let open_with doc =
   let s = Store.memory () in
@@ -435,6 +435,19 @@ let test_open_errors () =
     (raises_error "grid"
        (open_with
           (meta_str ~grid:{|{"name":"rectangular","configuration":{}}|} ())));
+  check_msg "grid must_understand" "must_understand"
+    (raises_error "grid mu"
+       (open_with
+          (meta_str
+             ~grid:
+               {|{"name":"regular","must_understand":false,
+                  "configuration":{"chunk_shape":[2,2]}}|}
+             ())));
+  check_msg "key encoding must_understand" "must_understand"
+    (raises_error "key encoding mu"
+       (open_with
+          (meta_str
+             ~key_enc:{|{"name":"default","must_understand":false}|} ())));
   check_msg "transformer" "storage transformer"
     (raises_error "transformer"
        (open_with
@@ -460,6 +473,22 @@ let test_open_ignored () =
       ()
   in
   Alcotest.(check (array int)) "shape" [| 4; 4 |] (Arr.shape a)
+
+(* A name this library will not write is still one it reads. The
+   specification says nothing a reader must do about a name it would
+   not have chosen, so a hierarchy another writer produced opens. *)
+let test_open_reserved_name () =
+  let s = Store.memory () in
+  put s "__x/zarr.json" (meta_str ());
+  let a = Arr.open_ ~codecs:resolver s ~path:"/__x" in
+  Alcotest.(check (array int)) "shape" [| 4; 4 |] (Arr.shape a);
+  put s ".../zarr.json" {|{"zarr_format":3,"node_type":"group"}|};
+  Alcotest.(check string)
+    "path" "/..."
+    (Group.path (Group.open_ s ~path:"/..."));
+  match Node.open_ ~codecs:resolver s ~path:"/__x" with
+  | `Array _ -> ()
+  | `Group _ -> Alcotest.fail "expected an array"
 
 (* Chunks *)
 
@@ -737,6 +766,54 @@ let test_children () =
   Alcotest.(check bool) "no list" true
     (Group.children (Group.open_ no_list ~path:"/") = None)
 
+(* The node name rules of the specification, on the side that writes.
+   Each bad name is refused whichever kind of node is being created and
+   wherever in the path it sits, and nothing is written for one. *)
+
+let bad_names =
+  [
+    ("empty", "/a//b");
+    ("trailing separator", "/a/");
+    ("leading double separator", "//a");
+    ("here", "/a/./b");
+    ("parent", "/a/../b");
+    ("periods alone", "/...");
+    ("reserved prefix", "/__zarr");
+    ("reserved prefix inside", "/a/__x/b");
+    ("the metadata key", "/a/zarr.json");
+  ]
+
+let test_create_node_names () =
+  List.iter
+    (fun (what, path) ->
+      let s = Store.memory () in
+      check_msg ("group " ^ what) "node path"
+        (raises_error what (fun () -> Group.create s ~path));
+      check_msg ("array " ^ what) "node path"
+        (raises_error what (fun () ->
+             create s ~shape:[| 4 |] ~chunk_shape:[| 2 |] ~path));
+      Alcotest.(check (list string))
+        (what ^ ": nothing written")
+        []
+        ((Option.get s.Store.list) ~prefix:""))
+    bad_names
+
+let test_create_node_names_allowed () =
+  let s = Store.memory () in
+  (* The root either way it is spelled, a name that only holds the
+     reserved prefix or a period rather than starting with or being
+     one, and a path with no leading separator. *)
+  List.iter
+    (fun path -> ignore (Group.create s ~path))
+    [ "/"; ""; "/foo__bar"; "/a/..b"; "/a/b.."; "/a./b"; "c/d" ];
+  Alcotest.(check (list string))
+    "one document a node, both spellings of the root being one node"
+    [
+      "a./b/zarr.json"; "a/..b/zarr.json"; "a/b../zarr.json"; "c/d/zarr.json";
+      "foo__bar/zarr.json"; "zarr.json";
+    ]
+    ((Option.get s.Store.list) ~prefix:"")
+
 let test_node () =
   let s = Store.memory () in
   let _ = Group.create s ~path:"/g" in
@@ -780,6 +857,8 @@ let () =
           ("missing", `Quick, test_open_missing);
           ("errors", `Quick, test_open_errors);
           ("ignored extensions", `Quick, test_open_ignored);
+          ("a name this library would not write", `Quick,
+           test_open_reserved_name);
         ] );
       ( "chunks",
         [
@@ -809,5 +888,8 @@ let () =
           ("group", `Quick, test_group);
           ("children", `Quick, test_children);
           ("node", `Quick, test_node);
+          ("node names are checked on create", `Quick, test_create_node_names);
+          ("node names a writer may use", `Quick,
+           test_create_node_names_allowed);
         ] );
     ]

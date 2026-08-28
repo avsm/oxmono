@@ -27,14 +27,19 @@ val open_ : ?codecs:Codec.resolver -> Store.t -> path:string -> t
     is consulted before the built-in codecs, so a caller can supply its
     own.
 
+    [path] is not checked against the node path rules {!Node_path}
+    states, so an array another writer named as this library would not
+    is still readable.
+
     @raise Error.E [(Store _)] when there is no metadata document at
     [path], with a message naming the key as not found. [(Metadata _)]
     when the document is not array metadata this library supports, which
-    covers an unknown data type, a data type carrying a configuration or
-    [must_understand] [false], a chunk grid other than ["regular"], an
-    unknown chunk key encoding, a fill value that does not match the data
-    type, and a storage transformer whose [must_understand] is true.
-    [(Codec _)] when the codec chain cannot be built. *)
+    covers an unknown data type, a data type carrying a configuration, a
+    data type, chunk grid or chunk key encoding whose [must_understand]
+    is [false], a chunk grid other than ["regular"], an unknown chunk key
+    encoding, a fill value that does not match the data type, and a
+    storage transformer whose [must_understand] is true. [(Codec _)] when
+    the codec chain cannot be built. *)
 
 val of_json : ?codecs:Codec.resolver -> Store.t -> path:string ->
   Jsont.json -> t
@@ -65,11 +70,14 @@ val create :
     plays the part [codecs] plays in {!open_}, resolving names the
     built-ins do not know.
 
-    @raise Error.E [(Metadata _)] when the shapes disagree, when a chunk
-    length is not positive, when [dimension_names] is not as long as
-    [shape], or when [fill_value] is not one element of [dtype] wide.
-    [(Codec _)] when the chain cannot be built. [(Store _)] when [store]
-    cannot be written. *)
+    [path] must obey the node path rules, which {!Node_path.check}
+    states.
+
+    @raise Error.E [(Metadata _)] when [path] is not a node path, when
+    the shapes disagree, when a chunk length is not positive, when
+    [dimension_names] is not as long as [shape], or when [fill_value] is
+    not one element of [dtype] wide. [(Codec _)] when the chain cannot be
+    built. [(Store _)] when [store] cannot be written. *)
 
 (** {1 Properties} *)
 

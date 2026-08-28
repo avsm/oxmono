@@ -14,6 +14,7 @@ let open_ store ~path =
   of_json store ~path (Store.get_json store ~key:(Chunk_key.meta_key ~path))
 
 let create ?attributes store ~path =
+  Node_path.check path;
   let meta = { Metadata.group_attributes = attributes; group_unknown = [] } in
   let json = Metadata.group_to_json meta in
   let s =
@@ -41,17 +42,15 @@ let children t =
   | Some list ->
       let prefix = Chunk_key.data_key ~path:t.path "" in
       let plen = String.length prefix in
-      let leaf = "/zarr.json" in
-      let llen = String.length leaf in
+      let suffix = "/zarr.json" in
+      let slen = String.length suffix in
       let name k =
-        let n = String.length k in
-        if n <= plen + llen then None
+        if not (String.starts_with ~prefix k) then None
         else
-          let rest = String.sub k plen (n - plen) in
-          let cut = String.length rest - llen in
-          if not (String.equal (String.sub rest cut llen) leaf) then None
+          let rest = String.sub k plen (String.length k - plen) in
+          if not (String.ends_with ~suffix rest) then None
           else
-            let n = String.sub rest 0 cut in
-            if String.contains n '/' then None else Some n
+            let n = String.sub rest 0 (String.length rest - slen) in
+            if String.equal n "" || String.contains n '/' then None else Some n
       in
       Some (List.sort_uniq String.compare (List.filter_map name (list ~prefix)))

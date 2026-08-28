@@ -41,10 +41,6 @@ let check_prefix prefix =
     in
     check cs
 
-let has_prefix ~prefix s =
-  let n = String.length prefix in
-  String.length s >= n && String.equal (String.sub s 0 n) prefix
-
 (* {1 Failures}
 
    Eio reports every filesystem failure as [Eio.Io]. Not-found is the
@@ -140,7 +136,8 @@ let erase root ~key =
 
 let worth_entering ~prefix key =
   let n = String.length prefix and m = String.length key in
-  if m >= n then has_prefix ~prefix key else has_prefix ~prefix:key prefix
+  if m >= n then String.starts_with ~prefix key
+  else String.starts_with ~prefix:key prefix
 
 let list root ~prefix =
   check_prefix prefix;
@@ -173,7 +170,8 @@ let list root ~prefix =
           | k -> k
         in
         match kind with
-        | `Regular_file -> if has_prefix ~prefix key then acc := key :: !acc
+        | `Regular_file ->
+            if String.starts_with ~prefix key then acc := key :: !acc
         | `Directory -> if worth_entering ~prefix key then walk key
         | _ -> ())
       entries

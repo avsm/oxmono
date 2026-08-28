@@ -18,6 +18,7 @@
 
 module Store = Zarrz.Store
 module Metadata = Zarrz.Metadata
+module Chunk_key = Zarrz.Chunk_key
 module Consolidated = Zarrz.Consolidated
 
 type meta = [ `Array of Metadata.array_meta | `Group of Metadata.group_meta ]
@@ -51,7 +52,12 @@ let norm p =
 
 let disp p = if String.equal p "" then "/" else "/" ^ p
 let join base p = if String.equal base "" then p else base ^ "/" ^ p
-let meta_key p = if String.equal p "" then "zarr.json" else p ^ "/zarr.json"
+
+(* The two key mappings the specification defines, taken from the
+   library rather than spelled again, so the command reads the keys the
+   library writes. *)
+let meta_key p = Chunk_key.meta_key ~path:p
+let data_prefix p = Chunk_key.data_key ~path:p ""
 
 let base_name p =
   match String.rindex_opt p '/' with
@@ -167,7 +173,7 @@ let listing t ~path =
   match t.store.Store.list with
   | None -> None
   | Some list ->
-      let prefix = if String.equal path "" then "" else path ^ "/" in
+      let prefix = data_prefix path in
       let keep k =
         if String.equal (Filename.basename k) "zarr.json" then
           let d = Filename.dirname k in

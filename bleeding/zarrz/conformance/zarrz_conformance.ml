@@ -156,8 +156,8 @@ let array_path argv =
     else
       let a = argv.(i) in
       if String.equal a flag then if i + 1 < n then Some argv.(i + 1) else None
-      else if String.length a > elen && String.equal (String.sub a 0 elen) eq
-      then Some (String.sub a elen (String.length a - elen))
+      else if String.length a > elen && String.starts_with ~prefix:eq a then
+        Some (String.sub a elen (String.length a - elen))
       else go (i + 1)
   in
   go 1

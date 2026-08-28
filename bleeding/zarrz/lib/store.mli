@@ -7,7 +7,13 @@
 
     A store is a record of closures, so a backend is an ordinary runtime
     value. Keys are the relative paths the Zarr specification defines,
-    such as ["a/b/zarr.json"] and ["a/b/c/0/0"].
+    such as ["a/b/zarr.json"] and ["a/b/c/0/0"]. The specification asks
+    only that a key not end in ['/'] and that a prefix does, and it is
+    this library that never builds a key with a leading ['/'] or an
+    empty component. Whether a backend polices what it is handed is the
+    backend's own to state: {!memory} does not, and the [Zarrz_eio]
+    store refuses anything that is not a relative path, since there a
+    key reaches the filesystem.
 
     A key that is not in the store is [None] everywhere. Any other
     failure raises {!Error.E} with a {!Error.Store} payload. A store

@@ -57,7 +57,7 @@ Single library `zstdz` in `lib/` with `zstdz_stubs.c`. Independent of Zarr.
 The core is a wrapped library. Public modules: `Error`, `Dtype`,
 `Fill_value`, `Ext`, `Metadata`, `Chunk_grid`, `Chunk_key`, `Byte_range`,
 `Store`, `Byte_source`, `Slab`, `Subset`, `Codec`, `Node`, `Group`,
-`Arr`, `Consolidated`.
+`Arr`, `Consolidated`, `Node_path`.
 The array module is `Arr`, not `Array`: the library is wrapped, so a
 module named `Array` would shadow `Stdlib.Array` in every module of the
 library and in any scope that opens `Zarrz`.

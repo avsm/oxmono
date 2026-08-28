@@ -14,12 +14,15 @@
 type t = {
   size : unit -> int;  (** Total byte length of the chunk. *)
   read : Byte_range.t -> Base_bigstring.t;
-      (** [read r] is the bytes of [r]. Raises {!Error.E} on a range
-          beyond the end. *)
+      (** [read r] is the bytes of [r]. A range that runs past the end of
+          the chunk yields only the bytes that are there, so a caller
+          needing the whole of a range must compare the length of the
+          result against the length it asked for. Raises {!Error.E} when
+          the chunk cannot be read at all. *)
   read_many : Byte_range.t list -> Base_bigstring.t list;
       (** [read_many rs] is [List.map read rs], possibly batched. *)
 }
 
 val of_bigstring : Base_bigstring.t -> t
-(** [of_bigstring b] serves ranges of [b] from memory. Reads return
-    copies, so callers may mutate the results freely. *)
+(** [of_bigstring b] serves ranges of [b] from memory. Reads never raise
+    and return copies, so callers may mutate the results freely. *)

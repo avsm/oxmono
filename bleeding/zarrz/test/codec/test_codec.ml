@@ -178,11 +178,26 @@ let test_bytes_length () =
     (fun () ->
       ignore (Codec.decode_chunk c (repr Dtype.Uint16 [| 4 |]) (bs "1234567")))
 
+(* [endian] is the name the bytes codec carried before the
+   specification settled on [bytes], and the oracle registers it as an
+   alias, so a chain naming it binds the same codec. *)
+let test_bytes_alias () =
+  let data = "\x01\x02\x03\x04" in
+  let enc, dec =
+    round_trip ~dtype:Dtype.Uint16 ~shape:[| 2 |]
+      {|[{"name":"endian","configuration":{"endian":"big"}}]|}
+      data
+  in
+  let want = if Sys.big_endian then data else "\x02\x01\x04\x03" in
+  Alcotest.(check string) "alias encode" want enc;
+  Alcotest.(check string) "alias decode" data dec
+
 let bytes_tests =
   [
     ("round trip", `Quick, test_bytes_round_trip);
     ("bit exact", `Quick, test_bytes_bit_exact);
     ("endian required", `Quick, test_bytes_endian_required);
+    ("the endian alias", `Quick, test_bytes_alias);
     ("length", `Quick, test_bytes_length);
   ]
 
@@ -266,6 +281,19 @@ let test_transpose_errors () =
     "missing order" "codec \"transpose\": order is required"
     (chain_error ~dtype:Dtype.Uint8
        {|[{"name":"transpose","configuration":{}},{"name":"bytes"}]|});
+  (* The oracle rejects an empty permutation too. *)
+  Alcotest.(check string)
+    "empty order" "codec \"transpose\": order is empty"
+    (chain_error ~dtype:Dtype.Uint8
+       {|[{"name":"transpose","configuration":{"order":[]}},
+          {"name":"bytes"}]|});
+  (* Negative entries are not indices, so they are not a permutation. *)
+  Alcotest.(check string)
+    "negative order"
+    "codec \"transpose\": order is not a permutation of its own indices"
+    (chain_error ~dtype:Dtype.Uint8
+       {|[{"name":"transpose","configuration":{"order":[-1,1]}},
+          {"name":"bytes"}]|});
   let c = chain ~dtype:Dtype.Uint8 (transpose_json [| 1; 0 |]) in
   Alcotest.check_raises "rank mismatch"
     (Error.E
@@ -376,19 +404,26 @@ let test_gzip_corrupt () =
   fails "magic" (flip 0);
   fails "trailer crc" (flip (String.length enc - 5))
 
-(* Every optional header field RFC 1952 defines is skipped on decode,
-   whatever a foreign encoder chose to write. *)
-let test_gzip_header_fields () =
+(* A gzip member RFC 1952 section 2.3 describes, assembled by hand
+   around the deflate stream and trailer of a real one. [flg] names the
+   optional fields and [fields] carries them in the order the RFC gives:
+   FEXTRA, then FNAME, then FCOMMENT, then the FHCRC that closes the
+   header. FTEXT is a hint about the payload and adds no field. *)
+let gzip_parts () =
   let data = String.make 500 'q' in
   let c = chain ~dtype:Dtype.Uint8 (gzip_json 6) in
   let enc = str (Codec.encode_chunk c (slab_of Dtype.Uint8 [| 500 |] data)) in
   let n = String.length enc in
-  let body = String.sub enc 10 (n - 18) in
-  let trailer = String.sub enc (n - 8) 8 in
   let header flg fields =
-    Printf.sprintf "\x1f\x8b\x08%c\x00\x00\x00\x00\x00\xff%s"
-      (Char.chr flg) fields
+    Printf.sprintf "\x1f\x8b\x08%c\x00\x00\x00\x00\x00\xff%s" (Char.chr flg)
+      fields
   in
+  (data, c, header, String.sub enc 10 (n - 18), String.sub enc (n - 8) 8)
+
+(* Every optional header field RFC 1952 defines is skipped on decode,
+   whatever a foreign encoder chose to write. *)
+let test_gzip_header_fields () =
+  let data, c, header, body, trailer = gzip_parts () in
   List.iter
     (fun (what, h) ->
       let s = h ^ body ^ trailer in
@@ -398,17 +433,49 @@ let test_gzip_header_fields () =
            (Slab.bigstring
               (Codec.decode_chunk c (repr Dtype.Uint8 [| 500 |]) (bs s)))))
     [
+      ("no flags", header 0x00 "");
+      ("ftext", header 0x01 "");
       ("fextra", header 0x04 "\x03\x00abc");
+      ("an empty fextra", header 0x04 "\x00\x00");
       ("fname", header 0x08 "chunk\000");
+      ("an empty fname", header 0x08 "\000");
       ("fcomment", header 0x10 "a comment\000");
       ("fhcrc", header 0x02 "\x12\x34");
       ("all four", header 0x1e "\x03\x00abcchunk\000c\000\x12\x34");
+      ("ftext and all four", header 0x1f "\x03\x00abcchunk\000c\000\x12\x34");
     ]
+
+(* A header the RFC forbids, or one whose fields run past the deflate
+   stream, is refused rather than parsed into a body offset that lands
+   somewhere in the middle of the compressed data. *)
+let test_gzip_header_errors () =
+  let _, c, header, body, trailer = gzip_parts () in
+  let fails what s =
+    Alcotest.(check bool)
+      what true
+      (match Codec.decode_chunk c (repr Dtype.Uint8 [| 500 |]) (bs s) with
+      | _ -> false
+      | exception Error.E _ -> true)
+  in
+  (* "Reserved FLG bits must be zero." *)
+  List.iter
+    (fun bit ->
+      fails
+        (Printf.sprintf "reserved flag bit 0x%x" bit)
+        (header bit "" ^ body ^ trailer))
+    [ 0x20; 0x40; 0x80 ];
+  fails "an unsupported compression method"
+    ("\x1f\x8b\x09\x00\x00\x00\x00\x00\x00\xff" ^ body ^ trailer);
+  fails "an fextra longer than the stream"
+    (header 0x04 "\xff\xff" ^ body ^ trailer);
+  fails "an unterminated fname" (header 0x08 "chunk" ^ body ^ trailer);
+  fails "a header alone" (header 0x00 "")
 
 let compressor_tests =
   [
     ("gzip", `Quick, test_gzip);
     ("gzip header fields", `Quick, test_gzip_header_fields);
+    ("gzip header errors", `Quick, test_gzip_header_errors);
     ("zstd", `Slow, test_zstd);
     ("configuration", `Quick, test_compressor_config);
     ("gzip corruption", `Quick, test_gzip_corrupt);
@@ -490,17 +557,29 @@ let test_blosc_compressors () =
         blosc_round_trip ~dtype:Dtype.Float32 ~cname ~shuffle:"shuffle")
     [ "blosclz"; "lz4" ]
 
-(* typesize is optional in the metadata and defaults to the size of one
-   element of the data type, so a configuration without it still
-   shuffles the right width. *)
-let test_blosc_typesize_default () =
+(* NOTE: this test previously asserted the opposite of what it asserts
+   now, that a missing typesize defaults to the size of one element of
+   the data type. That contradicts the blosc registration, which says of
+   typesize "Required unless [shuffle] is [noshuffle], in which case the
+   value is ignored", and it contradicts the oracle, which refuses a
+   shuffling blosc codec with "typesize is a positive integer required
+   if shuffling is enabled." The codec now refuses it too. *)
+let test_blosc_typesize () =
+  List.iter
+    (fun shuffle ->
+      Alcotest.(check string)
+        ("typesize is required for " ^ shuffle)
+        "codec \"blosc\": typesize is required unless shuffle is \"noshuffle\""
+        (chain_error ~dtype:Dtype.Float32 (blosc_json ~shuffle ())))
+    [ "shuffle"; "bitshuffle" ];
+  (* Under noshuffle the value is ignored, so leaving it out is fine. *)
   let data = rand_string 4096 in
   let _, dec =
     round_trip ~dtype:Dtype.Float32 ~shape:[| 1024 |]
-      (blosc_json ~shuffle:"bitshuffle" ())
+      (blosc_json ~shuffle:"noshuffle" ())
       data
   in
-  Alcotest.(check string) "no typesize" data dec;
+  Alcotest.(check string) "noshuffle without typesize" data dec;
   (* A blocksize blosc is told rather than one it picks. *)
   let _, dec =
     round_trip ~dtype:Dtype.Float32 ~shape:[| 1024 |]
@@ -540,8 +619,9 @@ let test_blosc_config () =
     "typesize range" "codec \"blosc\": typesize 0 is below 1"
     (chain_error ~dtype:Dtype.Uint8 (blosc_json ~typesize:0 ()));
   Alcotest.(check string)
-    "negative blocksize" "codec \"blosc\": blocksize -1 is negative"
-    (chain_error ~dtype:Dtype.Uint8 (blosc_json ~blocksize:(-1) ()));
+    "negative blocksize" "codec \"blosc\": blocksize -1 is below 0"
+    (chain_error ~dtype:Dtype.Uint8
+       (blosc_json ~typesize:1 ~blocksize:(-1) ()));
   Alcotest.(check string)
     "unknown member"
     "codec \"blosc\": unknown configuration member \"nthreads\""
@@ -620,7 +700,7 @@ let blosc_tests =
   [
     ("round trip", `Quick, test_blosc_round_trip);
     ("compressors", `Quick, test_blosc_compressors);
-    ("typesize and blocksize", `Quick, test_blosc_typesize_default);
+    ("typesize and blocksize", `Quick, test_blosc_typesize);
     ("configuration", `Quick, test_blosc_config);
     ("corrupt frames", `Quick, test_blosc_corrupt);
     ("the wrong decoded size", `Quick, test_blosc_wrong_size);
@@ -738,7 +818,18 @@ let test_chain_shape () =
     (List.map (fun (e : Ext.t) -> e.name) (Codec.chain_exts c));
   let data = "hello" in
   let enc = Codec.encode_chunk c (slab_of Dtype.Uint8 [| 5 |] data) in
-  Alcotest.(check string) "skipped chain still works" data (str enc)
+  Alcotest.(check string) "skipped chain still works" data (str enc);
+  (* An interleaved document is accepted, but the chain re-emits it in
+     the canonical kind order the specification requires. *)
+  let c =
+    chain ~dtype:Dtype.Uint8
+      {|[{"name":"crc32c"},{"name":"bytes"},
+         {"name":"transpose","configuration":{"order":[0]}}]|}
+  in
+  Alcotest.(check (list string))
+    "canonical order on re-emission"
+    [ "transpose"; "bytes"; "crc32c" ]
+    (List.map (fun (e : Ext.t) -> e.name) (Codec.chain_exts c))
 
 let chain_tests =
   [
@@ -955,6 +1046,25 @@ let test_shard_errors () =
     "codec \"sharding_indexed\": index_location \"middle\" is not \"start\" \
      or \"end\""
     (chain_error ~dtype:Dtype.Uint8 (shard_json ~loc:"middle" [| 2; 2 |]));
+  (* Both codec lists are required by the specification. Neither may be
+     defaulted, because the default would be a guess about how the bytes
+     of the shard are laid out. *)
+  Alcotest.(check string)
+    "missing codecs" "codec \"sharding_indexed\": codecs is required"
+    (chain_error ~dtype:Dtype.Uint8
+       {|[{"name":"sharding_indexed","configuration":{
+            "chunk_shape":[2,2],
+            "index_codecs":[{"name":"bytes",
+                             "configuration":{"endian":"little"}},
+                            {"name":"crc32c"}]}}]|});
+  Alcotest.(check string)
+    "missing index_codecs"
+    "codec \"sharding_indexed\": index_codecs is required"
+    (chain_error ~dtype:Dtype.Uint8
+       {|[{"name":"sharding_indexed","configuration":{
+            "chunk_shape":[2,2],
+            "codecs":[{"name":"bytes",
+                       "configuration":{"endian":"little"}}]}}]|});
   (* A variable size index chain cannot be located by a ranged read. *)
   let c =
     chain ~dtype:Dtype.Uint8
@@ -970,6 +1080,53 @@ let test_shard_errors () =
           "sharding_indexed: index_codecs must have a fixed encoded size"))
     (fun () -> ignore (Codec.encoded_size c (repr Dtype.Uint8 [| 4; 4 |])))
 
+(* A shard index is stored data, so an entry that points outside the
+   shard is corruption rather than a short read. Each of these rebuilds
+   the index with a matching checksum, so nothing but the bounds check
+   stands between a lie and a read past the end of the shard. *)
+let test_shard_bad_index () =
+  let shape = [| 4; 4 |] in
+  let dt = Dtype.Uint8 in
+  let data = shard_data dt shape (fun i -> i + 1) in
+  let c = chain ~dtype:dt (shard_json [| 2; 2 |]) in
+  let enc = str (Codec.encode_chunk c (slab_of dt shape data)) in
+  let n = String.length enc in
+  let entries = shard_entries ~loc:"end" ~chunks:4 enc in
+  let index_chain = chain ~dtype:Dtype.Uint64 crc32c_json in
+  let reindex f =
+    let idx = Slab.create Dtype.Uint64 (Ia.of_array [| 2; 2; 2 |]) in
+    for i = 0 to 7 do
+      Slab.U64.set idx i (I64u.of_int64 (f i entries.(i)))
+    done;
+    let ib = str (Codec.encode_chunk index_chain idx) in
+    Alcotest.(check int) "the rebuilt index is the same size" 68
+      (String.length ib);
+    String.sub enc 0 (n - 68) ^ ib
+  in
+  let fails what s =
+    Alcotest.(check bool)
+      what true
+      (match Codec.decode_chunk c (repr dt shape) (bs s) with
+      | _ -> false
+      | exception Error.E (Error.Codec _) -> true)
+  in
+  let at k v i e = if i = k then v else e in
+  fails "a length reaching past the end" (reindex (at 1 (Int64.of_int n)));
+  fails "an offset past the end" (reindex (at 0 (Int64.of_int (n + 1))));
+  (* An offset whose sum with its length would overflow an int. *)
+  fails "an offset at max_int" (reindex (at 0 (Int64.of_int max_int)));
+  (* Only both halves at 2^64-1 mean an absent chunk. One half alone is
+     an unusable entry. *)
+  fails "a half sentinel" (reindex (at 1 (-1L)));
+  (* A present entry of no bytes cannot hold an inner chunk. *)
+  fails "a zero length entry" (reindex (at 1 0L));
+  (* A shard too short to hold the index it must carry. *)
+  Alcotest.check_raises "a shard shorter than its index"
+    (Error.E
+       (Error.Codec
+          "sharding_indexed: a 4 byte shard cannot hold its 68 byte index"))
+    (fun () -> ignore (Codec.decode_chunk c (repr dt shape) (bs "abcd")))
+
 let shard_tests =
   [
     ("round trip", `Quick, test_shard_round_trip);
@@ -979,6 +1136,7 @@ let shard_tests =
     ("partial decode of an absent chunk", `Quick, test_shard_partial_absent);
     ("nested", `Quick, test_shard_nested);
     ("errors", `Quick, test_shard_errors);
+    ("a corrupt index", `Quick, test_shard_bad_index);
   ]
 
 (* {1 Golden fixtures} *)

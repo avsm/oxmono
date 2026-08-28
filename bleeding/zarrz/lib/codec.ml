@@ -143,6 +143,42 @@ let mem_exts mems name =
       | Ok l -> Ok (Some l)
       | Error e -> Error (Printf.sprintf "%s: %s" name e))
 
+(* The alternatives an enumerated member allows, written the way a
+   reader of the metadata would say them: [{|"a", "b" or "c"|}]. *)
+let rec or_list = function
+  | [] -> ""
+  | [ x ] -> Printf.sprintf "%S" x
+  | [ x; y ] -> Printf.sprintf "%S or %S" x y
+  | x :: tl -> Printf.sprintf "%S, %s" x (or_list tl)
+
+(* [mem_enum mems name cases] is the value [cases] pairs with the string
+   member [name] holds. The order of [cases] is the order the error
+   lists them in, so it is the order the specification uses. *)
+let mem_enum mems name cases =
+  match Jsont.Json.find_mem name mems with
+  | None -> Ok None
+  | Some (_, Jsont.String (s, _)) -> (
+      match List.assoc_opt s cases with
+      | Some v -> Ok (Some v)
+      | None ->
+          Error
+            (Printf.sprintf "%s %S is not %s" name s
+               (or_list (List.map fst cases))))
+  | Some _ -> Error (Printf.sprintf "%s must be a string" name)
+
+let required name = function
+  | None -> Error (Printf.sprintf "%s is required" name)
+  | Some v -> Ok v
+
+let in_range name ~lo ~hi v =
+  if v < lo || v > hi then
+    Error (Printf.sprintf "%s %d is outside [%d, %d]" name v lo hi)
+  else Ok v
+
+let at_least name ~lo v =
+  if v < lo then Error (Printf.sprintf "%s %d is below %d" name v lo)
+  else Ok v
+
 let ( let* ) = Result.bind
 
 (* {1 The bytes codec} *)
@@ -251,13 +287,7 @@ module Bytes_codec = struct
     let mems = Ext.config_mems ext in
     let* () = check_members ~known:[ "endian" ] mems in
     let* endian =
-      match Jsont.Json.find_mem "endian" mems with
-      | None -> Ok None
-      | Some (_, Jsont.String ("little", _)) -> Ok (Some false)
-      | Some (_, Jsont.String ("big", _)) -> Ok (Some true)
-      | Some (_, Jsont.String (s, _)) ->
-          Error (Printf.sprintf "endian %S is not \"little\" or \"big\"" s)
-      | Some _ -> Error "endian must be a string"
+      mem_enum mems "endian" [ ("little", false); ("big", true) ]
     in
     if Option.is_none endian && swap_width dtype > 1 then
       Error
@@ -399,28 +429,27 @@ module Transpose = struct
     let mems = Ext.config_mems ext in
     let* () = check_members ~known:[ "order" ] mems in
     let* order = mem_ints mems "order" in
-    match order with
-    | None -> Error "order is required"
-    | Some order when Array.length order = 0 -> Error "order is empty"
-    | Some order when not (permutation order) ->
-        Error "order is not a permutation of its own indices"
-    | Some order ->
-        let inv = inverse order in
-        let encoded_repr r =
-          check_rank order r.shape;
-          { r with
-            shape =
-              Array.init (Array.length order) (fun i -> r.shape.(order.(i)))
-          }
-        in
-        let encode slab = apply ~order slab in
-        let decode slab r =
-          let out = apply ~order:inv slab in
-          if Ia.to_array (Slab.shape out) <> r.shape then
-            err "transpose: the inverse order does not restore the chunk shape";
-          out
-        in
-        Ok (A2a { name = "transpose"; encoded_repr; encode; decode })
+    let* order = required "order" order in
+    if Array.length order = 0 then Error "order is empty"
+    else if not (permutation order) then
+      Error "order is not a permutation of its own indices"
+    else begin
+      let inv = inverse order in
+      let encoded_repr r =
+        check_rank order r.shape;
+        { r with
+          shape = Array.init (Array.length order) (fun i -> r.shape.(order.(i)))
+        }
+      in
+      let encode slab = apply ~order slab in
+      let decode slab r =
+        let out = apply ~order:inv slab in
+        if Ia.to_array (Slab.shape out) <> r.shape then
+          err "transpose: the inverse order does not restore the chunk shape";
+        out
+      in
+      Ok (A2a { name = "transpose"; encoded_repr; encode; decode })
+    end
 end
 
 (* {1 The gzip codec} *)
@@ -541,29 +570,27 @@ module Gzip = struct
     let mems = Ext.config_mems ext in
     let* () = check_members ~known:[ "level" ] mems in
     let* level = mem_int mems "level" in
-    (* The oracle makes [level] mandatory, with no default anywhere in
-       its metadata layer, so a configuration without it is refused. *)
-    match level with
-    | None -> Error "level is required"
-    | Some level when level < 0 || level > 9 ->
-        Error (Printf.sprintf "level %d is outside [0, 9]" level)
-    | Some level ->
-      (* The oracle's bound, which is zlib's [deflateBound] plus the
-         eighteen bytes of framing. *)
-      let ceil_div a b = (a + b - 1) / b in
-      let encoded_size = function
-        | Fixed n | Bounded n ->
-            Bounded (n + 18 + ceil_div n 8 + ceil_div n 64 + 5)
-        | Unbounded -> Unbounded
-      in
-      Ok
-        (B2b
-           {
-             name = "gzip";
-             encoded_size;
-             encode = compress ~level;
-             decode = (fun src ~decoded_size -> decompress ~decoded_size src);
-           })
+    (* The specification gives the range and the oracle makes [level]
+       mandatory, with no default anywhere in its metadata layer, so a
+       configuration without it is refused. *)
+    let* level = required "level" level in
+    let* level = in_range "level" ~lo:0 ~hi:9 level in
+    (* The oracle's bound, which is zlib's [deflateBound] plus the
+       eighteen bytes of framing. *)
+    let ceil_div a b = (a + b - 1) / b in
+    let encoded_size = function
+      | Fixed n | Bounded n ->
+          Bounded (n + 18 + ceil_div n 8 + ceil_div n 64 + 5)
+      | Unbounded -> Unbounded
+    in
+    Ok
+      (B2b
+         {
+           name = "gzip";
+           encoded_size;
+           encode = compress ~level;
+           decode = (fun src ~decoded_size -> decompress ~decoded_size src);
+         })
 end
 
 (* {1 The zstd codec} *)
@@ -582,18 +609,11 @@ module Zstd = struct
     let* level = mem_int mems "level" in
     let* checksum = mem_bool mems "checksum" in
     (* [level] is mandatory, as in the oracle. [checksum] is defaulted to
-       [false] rather than demanded, which is what the oracle does when
-       it lifts a numcodecs configuration, and accepts the shorter form
-       some writers emit. *)
-    let* level =
-      match level with
-      | None -> Error "level is required"
-      | Some l when l < min_level || l > max_level ->
-          Error
-            (Printf.sprintf "level %d is outside [%d, %d]" l min_level
-               max_level)
-      | Some l -> Ok l
-    in
+       [false] rather than demanded: the registration marks it optional,
+       and the oracle reaches the same answer by falling through to its
+       numcodecs variant when the member is absent. *)
+    let* level = required "level" level in
+    let* level = in_range "level" ~lo:min_level ~hi:max_level level in
     let checksum = Option.value checksum ~default:false in
     (* One context per bound codec. libzstd contexts are not thread safe
        and carry no lock, so a chain must not be shared across domains.
@@ -684,63 +704,47 @@ module Blosc = struct
     in
     let* cname = mem_string mems "cname" in
     let* clevel = mem_int mems "clevel" in
-    let* shuffle = mem_string mems "shuffle" in
+    let* shuffle =
+      mem_enum mems "shuffle"
+        [ ("noshuffle", `No); ("shuffle", `Byte); ("bitshuffle", `Bit) ]
+    in
     let* typesize = mem_int mems "typesize" in
     let* blocksize = mem_int mems "blocksize" in
+    let* cname = required "cname" cname in
     let* cname =
-      match cname with
-      | None -> Error "cname is required"
-      | Some c when not (List.mem c cnames) ->
-          Error
-            (Printf.sprintf "cname %S is not one of %s" c
-               (String.concat ", " cnames))
-      | Some c when not (List.mem c (Bloscz.compressors ())) ->
-          Error
-            (Printf.sprintf
-               "cname %S is not in this build of blosc, which has %s" c
-               (String.concat ", " (Bloscz.compressors ())))
-      | Some c -> Ok c
+      if not (List.mem cname cnames) then
+        Error
+          (Printf.sprintf "cname %S is not one of %s" cname
+             (String.concat ", " cnames))
+      else if not (List.mem cname (Bloscz.compressors ())) then
+        Error
+          (Printf.sprintf
+             "cname %S is not in this build of blosc, which has %s" cname
+             (String.concat ", " (Bloscz.compressors ())))
+      else Ok cname
     in
     (* [clevel] is mandatory, as in the oracle, which has no default for
        it anywhere in its metadata layer. *)
-    let* clevel =
-      match clevel with
-      | None -> Error "clevel is required"
-      | Some l when l < 0 || l > 9 ->
-          Error (Printf.sprintf "clevel %d is outside [0, 9]" l)
-      | Some l -> Ok l
-    in
-    let* shuffle =
-      match shuffle with
-      | None | Some "noshuffle" -> Ok `No
-      | Some "shuffle" -> Ok `Byte
-      | Some "bitshuffle" -> Ok `Bit
-      | Some s ->
-          Error
-            (Printf.sprintf
-               "shuffle %S is not \"noshuffle\", \"shuffle\" or \"bitshuffle\""
-               s)
-    in
-    (* The type size the shuffle filter permutes around. The oracle
-       demands it in the configuration whenever a shuffle is asked for
-       and this defaults it to the data type size instead, which is what
-       the oracle itself substitutes when it lifts a Zarr V2
-       configuration. Under [`No] the value reaches the frame header and
-       nothing reads it back, so only the encoded bytes depend on the
-       choice. *)
+    let* clevel = required "clevel" clevel in
+    let* clevel = in_range "clevel" ~lo:0 ~hi:9 clevel in
+    (* [shuffle] absent is no shuffling, as the oracle's serde default
+       does. *)
+    let shuffle = Option.value shuffle ~default:`No in
+    (* The type size the shuffle filter permutes around. The registration
+       makes it required unless [shuffle] is [noshuffle], in which case
+       the value is ignored, and the oracle refuses a shuffling codec
+       that leaves it out. Nothing reads it back when decoding: the frame
+       header records the type size the encoder used, so this only
+       constrains what may be written. *)
     let* typesize =
-      match typesize with
-      | None -> Ok (Dtype.size dtype)
-      | Some t when t < 1 ->
-          Error (Printf.sprintf "typesize %d is below 1" t)
-      | Some t -> Ok t
+      match (typesize, shuffle) with
+      | None, `No -> Ok (Dtype.size dtype)
+      | None, (`Byte | `Bit) ->
+          Error "typesize is required unless shuffle is \"noshuffle\""
+      | Some t, _ -> at_least "typesize" ~lo:1 t
     in
     let* blocksize =
-      match blocksize with
-      | None -> Ok 0
-      | Some b when b < 0 ->
-          Error (Printf.sprintf "blocksize %d is negative" b)
-      | Some b -> Ok b
+      match blocksize with None -> Ok 0 | Some b -> at_least "blocksize" ~lo:0 b
     in
     let encode src =
       let src_len = Base_bigstring.length src in
@@ -847,16 +851,6 @@ end
 let shard_absent = -1L
 let shard_sentinel = String.make 8 '\xff'
 
-let shard_default_codecs =
-  [
-    Ext.v "bytes"
-      ~config:
-        (Jsont.Json.object'
-           [ (Jsont.Json.name "endian", Jsont.Json.string "little") ]);
-  ]
-
-let shard_default_index_codecs = shard_default_codecs @ [ Ext.v "crc32c" ]
-
 (* [shard_grid ~chunk_shape shape] is the number of inner chunks along
    each dimension. The inner shape must divide the shard shape exactly:
    the sharding codec has no notion of a partial inner chunk. *)
@@ -905,7 +899,10 @@ let shard_set_entry slab i v =
 let rec builtins : resolver =
  fun ext ~dtype ~fill_value ->
   match ext.Ext.name with
-  | "bytes" -> Some (Bytes_codec.make ext ~dtype)
+  (* [endian] is the name the bytes codec carried in the drafts before
+     the specification settled. The oracle registers it as an alias, so
+     data written under it stays readable. *)
+  | "bytes" | "endian" -> Some (Bytes_codec.make ext ~dtype)
   | "transpose" -> Some (Transpose.make ext)
   | "gzip" -> Some (Gzip.make ext)
   | "zstd" -> Some (Zstd.make ext)
@@ -929,20 +926,17 @@ and sharding ext ~dtype ~fill_value =
         Error "chunk_shape must hold positive integers"
     | Some cs -> Ok cs
   in
+  (* Both codec lists are required. Defaulting them would guess at the
+     byte layout of a shard rather than at a parameter, and a wrong guess
+     reads the index as garbage rather than failing. *)
   let* inner_exts = mem_exts mems "codecs" in
-  let inner_exts = Option.value inner_exts ~default:shard_default_codecs in
+  let* inner_exts = required "codecs" inner_exts in
   let* index_exts = mem_exts mems "index_codecs" in
-  let index_exts =
-    Option.value index_exts ~default:shard_default_index_codecs
-  in
-  let* location = mem_string mems "index_location" in
+  let* index_exts = required "index_codecs" index_exts in
   let* at_start =
-    match location with
-    | None | Some "end" -> Ok false
-    | Some "start" -> Ok true
-    | Some s ->
-        Error (Printf.sprintf "index_location %S is not \"start\" or \"end\"" s)
+    mem_enum mems "index_location" [ ("start", true); ("end", false) ]
   in
+  let at_start = Option.value at_start ~default:false in
   let* inner = chain_of_exts ~dtype ~fill_value inner_exts in
   let* index =
     chain_of_exts ~dtype:Dtype.Uint64
@@ -958,6 +952,10 @@ and sharding ext ~dtype ~fill_value =
   in
   let read_index src grid =
     let n = index_size grid in
+    let size = src.Byte_source.size () in
+    if size < n then
+      err "sharding_indexed: a %d byte shard cannot hold its %d byte index"
+        size n;
     let range =
       if at_start then Byte_range.From_start { off = 0; len = Some n }
       else Byte_range.Suffix n
@@ -979,6 +977,7 @@ and sharding ext ~dtype ~fill_value =
     let extent = Ia.to_array sub.Subset.shape in
     let out = Slab.create r.dtype sub.Subset.shape in
     let idx = read_index src grid in
+    let size = src.Byte_source.size () in
     (* The inner chunks the subset touches, in C order. *)
     let lo = Array.init rank (fun d -> start.(d) / chunk_shape.(d)) in
     let hi =
@@ -997,6 +996,16 @@ and sharding ext ~dtype ~fill_value =
         match shard_entry idx !linear with
         | None -> any_absent := true
         | Some (off, len) ->
+            (* The index is stored data like any other. An entry reaching
+               past the shard means the shard is corrupt, and refusing it
+               here is what keeps a ranged store from being asked for
+               bytes that cannot exist. The comparison is written as a
+               subtraction because [off + len] can overflow. *)
+            if off > size || len > size - off then
+              err
+                "sharding_indexed: inner chunk %d is %d bytes at offset %d of \
+                 a %d byte shard"
+                !linear len off size;
             present := (Array.copy coord, off, len) :: !present
       end
       else
@@ -1165,33 +1174,38 @@ and chain_of_exts ?resolver ~dtype ~fill_value exts =
     in
     match user with Some _ -> user | None -> builtins ext ~dtype ~fill_value
   in
-  let rec go a2a a2b b2b kept = function
+  let rec go a2a ea2a a2b ea2b b2b eb2b = function
     | [] -> (
-        match a2b with
-        | None -> Error "missing array to bytes codec"
-        | Some a2b ->
+        match (a2b, ea2b) with
+        | Some a2b, Some ea2b ->
+            (* Canonical kind order, so metadata written back from a
+               chain satisfies the specification's list form even when
+               the source document interleaved the kinds. *)
             Ok
               {
                 a2a = List.rev a2a;
                 a2b;
                 b2b = List.rev b2b;
-                exts = List.rev kept;
-              })
+                exts = List.rev_append ea2a (ea2b :: List.rev eb2b);
+              }
+        | _ -> Error "missing array to bytes codec")
     | (ext : Ext.t) :: tl -> (
         match resolve ext with
         | None ->
             if ext.must_understand then
               Error (Printf.sprintf "unknown codec %S" ext.name)
-            else go a2a a2b b2b kept tl
+            else go a2a ea2a a2b ea2b b2b eb2b tl
         | Some (Error e) -> Error (Printf.sprintf "codec %S: %s" ext.name e)
-        | Some (Ok (A2a c)) -> go (c :: a2a) a2b b2b (ext :: kept) tl
+        | Some (Ok (A2a c)) ->
+            go (c :: a2a) (ext :: ea2a) a2b ea2b b2b eb2b tl
         | Some (Ok (A2b c)) -> (
             match a2b with
             | Some _ -> Error "multiple array to bytes codecs"
-            | None -> go a2a (Some c) b2b (ext :: kept) tl)
-        | Some (Ok (B2b c)) -> go a2a a2b (c :: b2b) (ext :: kept) tl)
+            | None -> go a2a ea2a (Some c) (Some ext) b2b eb2b tl)
+        | Some (Ok (B2b c)) ->
+            go a2a ea2a a2b ea2b (c :: b2b) (ext :: eb2b) tl)
   in
-  go [] None [] [] exts
+  go [] [] None None [] [] exts
 
 (* [reprs_through c r] pairs each array to array codec with the decoded
    representation entering it, and gives the representation reaching the
@@ -1234,12 +1248,14 @@ and encode_chunk c slab =
 
 let chain_exts c = c.exts
 
+(* The buckets hold closures, so they are compared by emptiness rather
+   than with a structural equality that would have to descend into a
+   functional value. *)
 let supports_partial c =
-  c.a2a = [] && c.b2b = [] && c.a2b.partial_decode <> None
+  List.is_empty c.a2a && List.is_empty c.b2b
+  && Option.is_some c.a2b.partial_decode
 
 let partial_decode c r src sub =
   if supports_partial c then
-    match c.a2b.partial_decode with
-    | Some f -> Some (f src r sub)
-    | None -> None
+    Option.map (fun f -> f src r sub) c.a2b.partial_decode
   else None

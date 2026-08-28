@@ -14,7 +14,9 @@
     {!type-resolver}.
 
     The built-in codecs are [bytes], [transpose], [gzip], [zstd],
-    [blosc], [crc32c] and [sharding_indexed]. [bytes] hands back the
+    [blosc], [crc32c] and [sharding_indexed], and [endian] is accepted
+    as an older name for [bytes]. A configuration member a codec does
+    not know is refused rather than ignored. [bytes] hands back the
     stored buffer unchanged when the declared endianness is the host's,
     which is what lets a whole chunk decode without a copy, and reverses
     the bytes of each component otherwise. [crc32c] and [gzip] raise
@@ -78,12 +80,21 @@ val chain_of_exts :
     order within each bucket, and binds each. An unknown name whose
     [must_understand] is false is skipped. Errors on an unknown name
     otherwise, on no array to bytes codec and on more than one.
+
+    The specification has the document list the three kinds in that
+    order. A document that interleaves them is bucketed rather than
+    refused, which is what the oracle does, so a chain runs in kind order
+    whatever order it was written in.
+
     [resolver] does not reach chains nested inside [sharding_indexed],
     whose inner and index codecs resolve against the built-ins only. *)
 
 val chain_exts : chain -> Ext.t list
 (** [chain_exts c] is the metadata [c] was built from, with skipped
-    entries removed. *)
+    entries removed and the codecs in the canonical order the
+    specification requires, array to array first, then the array to
+    bytes codec, then bytes to bytes, whatever order the source
+    document used. *)
 
 val encoded_size : chain -> repr -> size
 (** [encoded_size c r] is the stored byte size of a chunk whose decoded

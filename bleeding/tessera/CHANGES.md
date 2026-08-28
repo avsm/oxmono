@@ -1,5 +1,9 @@
 ## Unreleased
 
+- `Tessera.Consolidated` is now `Zarrz.Consolidated` extended with
+  `zones`, so the two node maps are one type and `children` is
+  available on it.
+
 - Point probes run about a third faster and patch and region reads
   somewhat faster, with identical results.
 - Initial Tessera client: zone routing, projection, probe, region and

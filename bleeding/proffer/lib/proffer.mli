@@ -223,15 +223,19 @@ module Req : sig
   val v :
     meth:Method.t ->
     target:string ->
+    ?path:string ->
+    ?query:string ->
     ?headers:Headers.t ->
     ?body:string ->
     unit ->
     t @ local
     @@ portable
-  (** [v ~meth ~target ()] is a request. [headers] is a block rather than an
-      association list, so a backend that already has one built from its own
-      parse hands it over without a second copy, and there is one way to build
-      a block rather than two. Use {!Headers.of_list} for a literal. *)
+  (** [v ~meth ~target ()] is a request. [path] and [query] let a wire backend
+      provide components already parsed from an absolute-form target while
+      preserving [target] exactly as received; otherwise they are split from
+      [target]. [headers] is a block rather than an association list, so a
+      backend that already has one built from its own parse hands it over
+      without a second copy. Use {!Headers.of_list} for a literal. *)
 
   val meth : t @ local -> Method.t @@ portable
   (** [meth t] is the request method. *)
@@ -354,8 +358,9 @@ module Body : sig
     | Empty  (** No body, and a Content-Length of zero. *)
     | String of string @@ global  (** A body already in memory. *)
     | Delayed of { length : int64 option; gen : (unit -> string) @@ global }
-        (** Generated on demand. [gen] is never run for a HEAD or a 304, so
-            [length] is what those report when it is known. *)
+        (** Generated on demand. [gen] is never run for HEAD or a status that
+            cannot carry content, so [length] is what HEAD and 304 report when
+            it is known. *)
     | Stream of { length : int64 option; write : (Sink.t -> unit) @@ global }
         (** Written incrementally. A backend sends it chunked when [length] is
             [None]. *)
@@ -526,6 +531,10 @@ module Resp : sig
         [last_modified] already sets. Emitting both would leave the copy a
         client reads first disagreeing with the one a conditional request is
         evaluated against.
+      @raise Invalid_argument
+        if [headers] names Content-Length, Transfer-Encoding or Connection,
+        which the backend derives from the response body, request method and
+        connection lifecycle.
 
       The message names the field. A handler runs under {!Backend.handle}'s
       guard, so either mistake becomes a 500 reported to [on_error] rather
@@ -594,8 +603,8 @@ module Resp : sig
 
       Omit [length] unless it is known before [write] runs, which for an
       encoder it is not. Without it the backend frames the body chunked, so
-      the response carries no Content-Length. [write] is not run for a HEAD,
-      which then reports no length either.
+      the response carries no Content-Length. [write] is not run for HEAD or
+      a status that cannot carry content; HEAD then reports no length either.
 
       [write] runs after the response head is on the wire, so a failure part
       way through it cannot become an error status. It is reported to
@@ -931,8 +940,8 @@ module Backend : sig
         write : (Body.Sink.t -> unit) @@ global;
       }
   (** The body a backend is asked to write, with the choice already made:
-      there is no [Delayed], because {!handle} has run the generator, and a
-      HEAD or a 304 arrives as {!Empty}.
+      there is no [Delayed], because {!handle} has run the generator, and HEAD
+      or a status that cannot carry content arrives as {!Empty}.
 
       The payloads carry [global], not the block. A socket write needs the
       string and the writer at global; it does not need the block holding
@@ -945,8 +954,9 @@ module Backend : sig
             Content-Type. Content-Length is the backend's job. *)
     body : body;
     content_length : int64 option;
-        (** The length the response would have, kept accurate for HEAD and 304
-            so a backend can send Content-Length without a body. [None] means
+        (** The length the response would have, kept accurate for HEAD and
+            304 so a backend can send Content-Length without a body. It is
+            zero for 205 and absent for 1xx and 204. [None] otherwise means
             unknown, which for a stream means chunked. *)
   }
   (** One response, decided but not yet written. Every field is at the
@@ -984,11 +994,13 @@ module Backend : sig
         response is checked against If-Modified-Since. The dates are compared
         at whole-second resolution, which is all an IMF-fixdate can express. A
         date that does not parse leaves the request unconditional.
-      - HEAD empties the body and keeps [content_length].
+      - HEAD empties the body and keeps [content_length]. Statuses that cannot
+        carry content also empty it without running a stream or generator;
+        205 declares zero length, while 1xx and 204 omit framing.
       - A {!Body.Delayed} generator runs once, here, so the outcome of a sent
-        body is always [`String]. It never runs for a HEAD or a 304, and an
-        exception it raises goes to [on_error] and gives a 500 like any other
-        handler failure.
+        body is always [`String]. It never runs for HEAD or a contentless
+        status, and an exception it raises goes to [on_error] and gives a 500
+        like any other handler failure.
 
       A handler that raises, including one whose response is rejected as
       unwritable, is answered 500, so [handle] itself does not raise.

@@ -47,6 +47,17 @@ let () =
   check "path stops at the query" (Req.path r = "/s")
 
 let () =
+  let r =
+    Req.v ~meth:M.Get ~target:"http://example.test/from-wire?q=wire"
+      ~path:"/from-wire" ~query:"q=parsed" ()
+  in
+  check "parsed path overrides absolute target" (Req.path r = "/from-wire");
+  check "parsed query overrides absolute target"
+    (Req.query_param r "q" = Some "parsed");
+  check "absolute target is preserved"
+    (Req.target r = "http://example.test/from-wire?q=wire")
+
+let () =
   let form = [ ("Content-Type", "application/x-www-form-urlencoded") ] in
   let r = req ~headers:form ~body:"name=Ada+L.&org=%C3%89cole" "/new" in
   check "form decoded"

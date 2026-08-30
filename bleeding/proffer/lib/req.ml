@@ -15,13 +15,22 @@ type t = {
   global_ body : string;
 }
 
-let v ~meth ~target ?(headers = Headers.empty) ?(body = "") () = exclave_
-  let path, qs =
-    match String.index_opt target '?' with
-    | None -> (target, "")
-    | Some i ->
-        ( String.sub target 0 i,
-          String.sub target (i + 1) (String.length target - i - 1) )
+let split_target target =
+  match String.index_opt target '?' with
+  | None -> #(target, "")
+  | Some i ->
+      #( String.sub target 0 i,
+         String.sub target (i + 1) (String.length target - i - 1) )
+
+let v ~meth ~target ?path ?query ?(headers = Headers.empty) ?(body = "") () =
+  exclave_
+  let #(path, qs) =
+    match path, query with
+    | Some path, Some query -> #(path, query)
+    | _ ->
+      let #(default_path, default_query) = split_target target in
+      #( Option.value path ~default:default_path,
+         Option.value query ~default:default_query )
   in
   {
     meth;

@@ -63,10 +63,7 @@ let ref_skip_token buf ~pos ~limit =
   p
 ;;
 
-(* Returns the first CRLF and whether a bare CR was seen before it, exactly as
-   RFC 7230 section 3.5 requires: a CR not followed by LF, including one in the
-   final byte, is a smuggling signal and must be reported even when a valid
-   CRLF follows it. *)
+(* Returns the first CRLF and whether a bare CR or LF was seen before it. *)
 let ref_find_crlf buf ~pos ~len : #(int * bool) =
   if len - pos < 2
   then #(-1, false)
@@ -74,19 +71,23 @@ let ref_find_crlf buf ~pos ~len : #(int * bool) =
     let mutable p = pos in
     let mutable found_crlf = false in
     let mutable found_bare_cr = false in
-    let last_check = len - 2 in
-    while (not found_crlf) && p <= last_check do
+    let mutable stop = false in
+    while not stop && p < len do
       if Char.( = ) (Bytes.unsafe_get buf p) '\r'
-      then
-        if Char.( = ) (Bytes.unsafe_get buf (p + 1)) '\n'
-        then found_crlf <- true
-        else (
-          found_bare_cr <- true;
-          p <- p + 1)
+      then if p + 1 >= len then (
+        found_bare_cr <- true;
+        stop <- true)
+      else if Char.( = ) (Bytes.unsafe_get buf (p + 1)) '\n' then (
+        found_crlf <- true;
+        stop <- true)
+      else (
+        found_bare_cr <- true;
+        p <- p + 1)
+      else if Char.( = ) (Bytes.unsafe_get buf p) '\n' then (
+        found_bare_cr <- true;
+        p <- p + 1)
       else p <- p + 1
     done;
-    if (not found_crlf) && (not found_bare_cr) && p = last_check + 1 && p < len
-    then if Char.( = ) (Bytes.unsafe_get buf p) '\r' then found_bare_cr <- true;
     #((if found_crlf then p else -1), found_bare_cr))
 ;;
 

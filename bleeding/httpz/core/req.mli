@@ -73,6 +73,10 @@ type t =
    ; expect_continue : bool
        (** [true] if Expect: 100-continue was present.
            See {{:https://datatracker.ietf.org/doc/html/rfc7231#section-5.1.1}RFC 7231 Section 5.1.1}. *)
+   ; unsupported_expectation : bool
+       (** [true] if an Expect field requested anything other than
+           [100-continue]. A server should answer 417 before reading the body or
+           dispatching the request. *)
    }
 (** Unboxed parsed HTTP request.
 

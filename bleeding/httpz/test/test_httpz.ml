@@ -26,6 +26,14 @@ let parse_ok buf request = exclave_
   #(len, buf, req, headers)
 ;;
 
+let parse_status buf request =
+  let len = copy_to_buffer buf request in
+  let #(status, _req, _headers) =
+    Httpz.parse buf ~len:(i16 len) ~limits
+  in
+  status
+;;
+
 let test_simple_get () =
   let buf = Bytes.create Httpz.buffer_size in
   let request =
@@ -73,6 +81,10 @@ let test_unknown_method () =
   let request = "PURGE /cache HTTP/1.1\r\nHost: cdn.example.com\r\n\r\n" in
   let len = copy_to_buffer buf request in
   let #(status, _req, _headers) = Httpz.parse buf ~len:(i16 len) ~limits in
+  assert (Poly.( = ) status Httpz.Buf_read.Unsupported_method);
+  let malformed = "GE(T /cache HTTP/1.1\r\nHost: cdn.example.com\r\n\r\n" in
+  let len = copy_to_buffer buf malformed in
+  let #(status, _req, _headers) = Httpz.parse buf ~len:(i16 len) ~limits in
   assert (Poly.( = ) status Httpz.Buf_read.Invalid_method);
   Stdio.printf "test_unknown_method: PASSED\n"
 ;;
@@ -116,6 +128,30 @@ let test_http10 () =
   Stdio.printf "test_http10: PASSED\n"
 ;;
 
+let test_higher_minor_request_version () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let len =
+    copy_to_buffer buf "GET / HTTP/1.2\r\nHost: example.com\r\n\r\n"
+  in
+  let #(status, req, _headers) = Httpz.parse buf ~len:(i16 len) ~limits in
+  assert (Poly.( = ) status Httpz.Buf_read.Complete);
+  assert (Poly.( = ) req.#version Httpz.Version.Http_1_1);
+  Stdio.printf "test_higher_minor_request_version: PASSED\n"
+;;
+
+let test_leading_empty_request_lines () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let request = "\r\n\r\nGET / HTTP/1.1\r\nHost: example.com\r\n\r\n" in
+  let len = copy_to_buffer buf request in
+  let #(status, req, _headers) = Httpz.parse buf ~len:(i16 len) ~limits in
+  assert (Poly.( = ) status Httpz.Buf_read.Complete);
+  assert (Poly.( = ) req.#meth Httpz.Method.Get);
+  let len = copy_to_buffer buf "\r" in
+  let #(status, _req, _headers) = Httpz.parse buf ~len:(i16 len) ~limits in
+  assert (Poly.( = ) status Httpz.Buf_read.Partial);
+  Stdio.printf "test_leading_empty_request_lines: PASSED\n"
+;;
+
 let test_keep_alive () =
   let buf = Bytes.create Httpz.buffer_size in
   (* HTTP/1.1 default is keep-alive *)
@@ -140,6 +176,10 @@ let test_chunked () =
   assert req.#is_chunked;
   (* Only Host header remains *)
   assert (List.length headers = 1);
+  let request = "POST /upload HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n" in
+  let len = copy_to_buffer buf request in
+  let #(status, _req, _headers) = Httpz.parse buf ~len:(i16 len) ~limits in
+  assert (Poly.( = ) status Httpz.Buf_read.Unsupported_transfer_encoding);
   Stdio.printf "test_chunked: PASSED\n"
 ;;
 
@@ -229,6 +269,161 @@ let test_transfer_encoding_identity () =
   Stdio.printf "test_transfer_encoding_identity: PASSED\n"
 ;;
 
+let test_strict_content_length () =
+  let buf = Bytes.create Httpz.buffer_size in
+  List.iter
+    [ "abc"; "+5"; "-5"; "12x"; "1_0"; "0x10"; "5 5"; "" ]
+    ~f:(fun value ->
+      let request =
+        Printf.sprintf
+          "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: %s\r\n\r\n"
+          value
+      in
+      assert
+        (Poly.( = )
+           (parse_status buf request)
+           Httpz.Buf_read.Invalid_header));
+  assert
+    (Poly.( = )
+       (parse_status buf
+          "POST / HTTP/1.1\r\nHost: x\r\n\
+           Content-Length: 9223372036854775808\r\n\r\n")
+       Httpz.Buf_read.Content_length_overflow);
+  let #(_len, _buf, req, _) =
+    parse_ok buf
+      "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 007\r\n\r\n"
+  in
+  assert (I64.equal req.#content_length #7L);
+  Stdio.printf "test_strict_content_length: PASSED\n"
+;;
+
+let test_duplicate_content_length () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let #(_len, _buf, req, _) =
+    parse_ok buf
+      "POST / HTTP/1.1\r\nHost: x\r\n\
+       Content-Length: 5, 5\r\nContent-Length: 5\r\n\r\n"
+  in
+  assert (I64.equal req.#content_length #5L);
+  List.iter
+    [ "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 5, 6\r\n\r\n"
+    ; "POST / HTTP/1.1\r\nHost: x\r\n\
+       Content-Length: 5\r\nContent-Length: 6\r\n\r\n"
+    ]
+    ~f:(fun request ->
+      assert
+        (Poly.( = )
+           (parse_status buf request)
+           Httpz.Buf_read.Ambiguous_framing));
+  Stdio.printf "test_duplicate_content_length: PASSED\n"
+;;
+
+let test_framing_token_lists () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let #(_len, _buf, req, _) =
+    parse_ok buf
+      "GET / HTTP/1.1\r\nHost: x\r\n\
+       Connection: upgrade, close\r\n\r\n"
+  in
+  assert (not req.#keep_alive);
+  let #(_len, _buf, req, _) =
+    parse_ok buf
+      "GET / HTTP/1.0\r\nConnection: foo, keep-alive\r\n\r\n"
+  in
+  assert req.#keep_alive;
+  let #(_len, _buf, req, _) =
+    parse_ok buf
+      "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\
+       Connection: keep-alive\r\n\r\n"
+  in
+  assert (not req.#keep_alive);
+  List.iter
+    [ "POST / HTTP/1.1\r\nHost: x\r\n\
+       Transfer-Encoding: chunked, chunked\r\n\r\n"
+    ; "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\
+       Transfer-Encoding: chunked\r\n\r\n"
+    ]
+    ~f:(fun request ->
+      assert
+        (Poly.( = )
+           (parse_status buf request)
+           Httpz.Buf_read.Unsupported_transfer_encoding));
+  Stdio.printf "test_framing_token_lists: PASSED\n"
+;;
+
+let test_host_and_field_validation () =
+  let buf = Bytes.create Httpz.buffer_size in
+  List.iter
+    [ "example.com"; "example.com:8080"; "[::1]"; "[::1]:8080" ]
+    ~f:(fun host ->
+      let request = Printf.sprintf "GET / HTTP/1.1\r\nHost: %s\r\n\r\n" host in
+      assert (Poly.( = ) (parse_status buf request) Httpz.Buf_read.Complete));
+  assert
+    (Poly.( = )
+       (parse_status buf
+          "GET / HTTP/1.1\r\nHost: a.example\r\nHost: b.example\r\n\r\n")
+       Httpz.Buf_read.Missing_host_header);
+  assert
+    (Poly.( = )
+       (parse_status buf
+          "GET / HTTP/1.1\r\nHost: x\nSmuggle: 1\r\n\r\n")
+       Httpz.Buf_read.Bare_cr_detected);
+  assert
+    (Poly.( = )
+       (parse_status buf
+          "GET / HTTP/1.1\r\nHost: x\r\nX: a\000b\r\n\r\n")
+       Httpz.Buf_read.Invalid_header);
+  List.iter
+    [ "localhost, attacker.invalid"; "user@localhost"; "[::1"; "x:65536" ]
+    ~f:(fun host ->
+      let request = Printf.sprintf "GET / HTTP/1.1\r\nHost: %s\r\n\r\n" host in
+      assert
+        (Poly.( = ) (parse_status buf request) Httpz.Buf_read.Invalid_header));
+  Stdio.printf "test_host_and_field_validation: PASSED\n"
+;;
+
+let test_chunk_framing_hardening () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let status ?(max_chunk_size = Int.max_value) line =
+    let len = copy_to_buffer buf line in
+    let #(status, _, _) =
+      Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
+        ~max_chunk_size
+    in
+    status
+  in
+  List.iter [ "+5\r\n"; "-1\r\n"; "0x10\r\n"; "5 5\r\n"; "5\n" ]
+    ~f:(fun line ->
+      assert (Poly.( = ) (status line) Httpz.Chunk.Malformed));
+  assert
+    (Poly.( = )
+       (status ~max_chunk_size:4 "5\r\n")
+       Httpz.Chunk.Chunk_too_large);
+  assert
+    (Poly.( = )
+       (status "5 ; ext = value\r\nhello")
+       Httpz.Chunk.Complete);
+  assert
+    (Poly.( = )
+       (status "ffffffffffffffff\r\n")
+       Httpz.Chunk.Chunk_too_large);
+  let data = "X-One: 1\r\nX-Two: 2\r\n\r\n" in
+  let len = copy_to_buffer buf data in
+  let #(trailer_status, _, _) =
+    Httpz.Chunk.parse_trailers ~max_trailer_size:20 buf ~off:(i16 0)
+      ~len:(i16 len) ~max_header_count:(i16 10)
+  in
+  assert (Poly.( = ) trailer_status Httpz.Chunk.Trailer_malformed);
+  let data = "X: one\nInjected: yes\r\n\r\n" in
+  let len = copy_to_buffer buf data in
+  let #(trailer_status, _, _) =
+    Httpz.Chunk.parse_trailers buf ~off:(i16 0) ~len:(i16 len)
+      ~max_header_count:(i16 10)
+  in
+  assert (Poly.( = ) trailer_status Httpz.Chunk.Trailer_bare_cr);
+  Stdio.printf "test_chunk_framing_hardening: PASSED\n"
+;;
+
 let test_expect_continue () =
   let buf = Bytes.create Httpz.buffer_size in
   (* RFC 7231 Section 5.1.1 - Expect: 100-continue *)
@@ -237,6 +432,7 @@ let test_expect_continue () =
   in
   let #(_len, _parse_buf, req, headers) = parse_ok buf request in
   assert req.#expect_continue;
+  assert (not req.#unsupported_expectation);
   (* Expect header is cached in request struct, not in headers list *)
   assert (List.length headers = 1);  (* Only Host header *)
   Stdio.printf "test_expect_continue: PASSED\n"
@@ -247,6 +443,17 @@ let test_expect_continue_absent () =
   let request = "POST /upload HTTP/1.1\r\nHost: example.com\r\nContent-Length: 100\r\n\r\n" in
   let #(_len, _parse_buf, req, _headers) = parse_ok buf request in
   assert (not req.#expect_continue);
+  assert (not req.#unsupported_expectation);
+  let request =
+    "POST /upload HTTP/1.1\r\n\
+     Host: example.com\r\n\
+     Expect: fancy-feature\r\n\
+     Content-Length: 100\r\n\
+     \r\n"
+  in
+  let #(_len, _parse_buf, req, _headers) = parse_ok buf request in
+  assert (not req.#expect_continue);
+  assert req.#unsupported_expectation;
   Stdio.printf "test_expect_continue_absent: PASSED\n"
 ;;
 
@@ -623,6 +830,8 @@ let () =
   test_unknown_header ();
   test_partial ();
   test_http10 ();
+  test_higher_minor_request_version ();
+  test_leading_empty_request_lines ();
   test_keep_alive ();
   test_chunked ();
   test_find_header ();
@@ -633,6 +842,11 @@ let () =
   test_bare_cr ();
   test_unsupported_transfer_encoding ();
   test_transfer_encoding_identity ();
+  test_strict_content_length ();
+  test_duplicate_content_length ();
+  test_framing_token_lists ();
+  test_host_and_field_validation ();
+  test_chunk_framing_hardening ();
   (* RFC 7231 tests *)
   test_expect_continue ();
   test_expect_continue_absent ();

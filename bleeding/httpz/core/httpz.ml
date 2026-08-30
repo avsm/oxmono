@@ -62,6 +62,7 @@ type header_state =
   ; has_te : bool
   ; has_host : bool
   ; expect_continue : bool
+  ; unsupported_expectation : bool
   }
 
 let minus_one_i64 : int64# = I64.of_int64 (-1L)
@@ -75,6 +76,7 @@ let initial_header_state : header_state =
   ; has_te = false
   ; has_host = false
   ; expect_continue = false
+  ; unsupported_expectation = false
   }
 
 (* Helper to create error result with empty request *)
@@ -90,6 +92,7 @@ let[@inline] error_result status = exclave_
       ; is_chunked = false
       ; keep_alive = true
       ; expect_continue = false
+      ; unsupported_expectation = false
       }
    , ([] : Header.t list) )
 
@@ -113,14 +116,16 @@ let[@inline] build_request ~meth ~target ~target_parsed ~version ~(body_off : in
      ; is_chunked = st.#chunked
      ; keep_alive
      ; expect_continue = st.#expect_continue
+     ; unsupported_expectation = st.#unsupported_expectation
      }
   in
   #(Buf_read.Complete, req, headers)
 
 (* Determine Connection header value *)
 let[@inline] parse_connection_value buf value_span ~default =
-  if Span.equal_caseless buf value_span "close" then Conn_close
-  else if Span.equal_caseless buf value_span "keep-alive" then Conn_keep_alive
+  if Span.token_list_contains buf value_span "close" then Conn_close
+  else if phys_equal default Conn_close then Conn_close
+  else if Span.token_list_contains buf value_span "keep-alive" then Conn_keep_alive
   else default
 
 (* Parse headers using Parser combinators. Raises Err.Parse_error on failure.
@@ -140,19 +145,36 @@ let rec parse_headers_loop (pst : Parser.pstate) ~pos ~acc (st : header_state) ~
     match name with
     | Header_name.Content_length ->
       Err.when_ st.#has_te Err.Ambiguous_framing;
-      let #(parsed_len, overflow) = Span.parse_int64 pst.#buf value_span in
-      Err.when_ (overflow || I64.compare parsed_len limits.#max_content_length > 0)
+      let #(parsed_len, overflow, conflicting) =
+        Span.parse_content_length pst.#buf value_span
+      in
+      Err.when_ overflow Err.Content_length_overflow;
+      Err.when_ conflicting Err.Ambiguous_framing;
+      Err.when_ (I64.compare parsed_len #0L < 0) Err.Invalid_header;
+      Err.when_
+        (st.#has_cl && not (I64.equal parsed_len st.#content_len))
+        Err.Ambiguous_framing;
+      Err.when_ (I64.compare parsed_len limits.#max_content_length > 0)
         Err.Content_length_overflow;
       parse_headers_loop pst ~pos ~acc ~limits
         #{ st with count = next_count; content_len = parsed_len; has_cl = true }
     | Header_name.Transfer_encoding ->
       Err.when_ st.#has_cl Err.Ambiguous_framing;
-      let is_chunked = Span.equal_caseless pst.#buf value_span "chunked" in
-      let is_identity = Span.equal_caseless pst.#buf value_span "identity" in
-      Err.when_ (not (is_chunked || is_identity)) Err.Unsupported_transfer_encoding;
+      Err.when_ st.#has_te Err.Unsupported_transfer_encoding;
+      let #(count, is_chunked) =
+        Span.token_list_last_is pst.#buf value_span "chunked"
+      in
+      let #(_, is_identity) =
+        Span.token_list_last_is pst.#buf value_span "identity"
+      in
+      Err.when_
+        (count <> 1 || not (is_chunked || is_identity))
+        Err.Unsupported_transfer_encoding;
       parse_headers_loop pst ~pos ~acc ~limits
         #{ st with count = next_count; chunked = is_chunked; has_te = true }
     | Header_name.Host ->
+      Err.when_ st.#has_host Err.Missing_host_header;
+      Err.when_ (not (Target.valid_host pst.#buf value_span)) Err.Invalid_header;
       let hdr = { Header.name; name_span; value = value_span } in
       parse_headers_loop pst ~pos ~acc:(hdr :: acc) ~limits
         #{ st with count = next_count; has_host = true }
@@ -163,7 +185,11 @@ let rec parse_headers_loop (pst : Parser.pstate) ~pos ~acc (st : header_state) ~
     | Header_name.Expect ->
       let is_continue = Span.equal_caseless pst.#buf value_span "100-continue" in
       parse_headers_loop pst ~pos ~acc ~limits
-        #{ st with count = next_count; expect_continue = is_continue || st.#expect_continue }
+        #{ st with
+           count = next_count
+         ; expect_continue = is_continue || st.#expect_continue
+         ; unsupported_expectation = (not is_continue) || st.#unsupported_expectation
+         }
     | _ ->
       let hdr = { Header.name; name_span; value = value_span } in
       parse_headers_loop pst ~pos ~acc:(hdr :: acc) ~limits
@@ -185,10 +211,12 @@ let parse (buf : buffer) ~(len : int16#) ~limits = exclave_
       let #(body_off, st, headers) =
         parse_headers_loop pst ~pos ~acc:[] initial_header_state ~limits
       in
+      Err.when_
+        (phys_equal version Version.Http_1_0 && st.#has_te)
+        Err.Unsupported_transfer_encoding;
       (* Only missing Host header needs end-of-parse check *)
       match (version, st.#has_host) with
       | (Version.Http_1_1, false) -> error_result Missing_host_header
       | _ -> build_request ~meth ~target ~target_parsed ~version ~body_off st ~headers
     with Err.Parse_error status ->
       error_result status
-

@@ -4,6 +4,7 @@ type status =
   | Complete
   | Partial
   | Invalid_method
+  | Unsupported_method
   | Invalid_target
   | Uri_too_long               (* Request-target longer than max_target_length *)
   | Invalid_version
@@ -11,9 +12,9 @@ type status =
   | Invalid_header
   | Headers_too_large
   | Malformed
-  | Content_length_overflow    (* Content-Length value too large or invalid *)
+  | Content_length_overflow    (* Content-Length value too large *)
   | Ambiguous_framing          (* Both Content-Length and Transfer-Encoding present *)
-  | Bare_cr_detected           (* CR without LF - HTTP smuggling attempt *)
+  | Bare_cr_detected           (* Bare CR or LF - HTTP smuggling attempt *)
   | Missing_host_header        (* HTTP/1.1 requires Host header *)
   | Unsupported_transfer_encoding (* Transfer-Encoding other than chunked/identity *)
 
@@ -21,6 +22,7 @@ let status_to_string = function
   | Complete -> "Complete"
   | Partial -> "Partial"
   | Invalid_method -> "Invalid_method"
+  | Unsupported_method -> "Unsupported_method"
   | Invalid_target -> "Invalid_target"
   | Uri_too_long -> "Uri_too_long"
   | Invalid_version -> "Invalid_version"
@@ -106,9 +108,10 @@ let[@inline always] to_lower (c : char#) : char# =
   | _ -> c
 ;;
 
-(* Find CRLF and check for bare CR in one pass.
+(* Find CRLF and check for a bare CR or LF in one pass.
    Returns #(crlf_pos, has_bare_cr) where crlf_pos is -1 if not found.
-   A bare CR is any CR not immediately followed by LF (RFC 7230 Section 3.5).
+   A bare CR is any CR not immediately followed by LF. A bare LF is any LF not
+   immediately preceded by CR (RFC 9112 section 2.2).
 
    The scan between candidate CRs is delegated to {!Scan.find_cr}, which
    examines sixteen bytes at a time. Each CR is then classified here: followed
@@ -128,6 +131,12 @@ let find_crlf_check_bare_cr (local_ buf : bytes) ~(pos : int16#) ~(len : int16#)
     let mutable stop = false in
     while not stop do
       let cr = Scan.find_cr buf ~pos:p ~limit:len in
+      let segment_stop = if cr < len then cr else len in
+      let mutable i = p in
+      while i < segment_stop do
+        if peek buf (i16 i) =. #'\n' then found_bare_cr <- true;
+        i <- i + 1
+      done;
       if cr >= len
       then stop <- true (* no CR at all *)
       else if cr > last_check
@@ -144,6 +153,18 @@ let find_crlf_check_bare_cr (local_ buf : bytes) ~(pos : int16#) ~(len : int16#)
         p <- cr + 1)
     done;
     #(i16 crlf_pos, found_bare_cr))
+;;
+
+let valid_field_value (local_ buf : bytes) ~(pos : int16#) ~(len : int16#) =
+  let mutable p = to_int pos in
+  let stop = to_int len in
+  let mutable valid = true in
+  while valid && p < stop do
+    let c = Char_u.code (peek buf (i16 p)) in
+    valid <- c = 0x09 || (c >= 0x20 && c <> 0x7f);
+    p <- p + 1
+  done;
+  valid
 ;;
 
 let pp fmt _t = Stdlib.Format.fprintf fmt "<buffer %d bytes>" buffer_size
@@ -164,4 +185,3 @@ let default_limits =
    ; max_chunk_size = 16777216         (* 16MB *)
    ; max_target_length = i16 8192      (* 8KB *)
    }
-

@@ -80,12 +80,24 @@ let[@inline] http_version st ~(pos : int16#) : #(Version.t * int16#) =
   let version =
     if I64.equal v64 http11_int64 then Version.Http_1_1
     else if I64.equal v64 http10_int64 then Version.Http_1_0
+    else if
+      Span.equal st.#buf (Span.make ~off:pos ~len:(i16 7)) "HTTP/1."
+      && (match Buf_read.peek st.#buf (add16 pos (i16 7)) with
+          | #'2' .. #'9' -> true
+          | _ -> false)
+    then Version.Http_1_1
     else Err.fail Err.Invalid_version
   in
   #(version, new_pos)
 
 let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
   let #(sp, pos) = token st ~pos in
+  let unknown () =
+    Err.fail
+      (if Buf_read.( =. ) (Buf_read.peek st.#buf pos) #' '
+       then Err.Unsupported_method
+       else Err.Invalid_method)
+  in
   let len = Span.len sp in
   let off = Span.off sp in
   let meth = match len with
@@ -93,7 +105,7 @@ let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
     let v : int32# = I32.bit_and (I32.of_int32 (Bytes.unsafe_get_int32 st.#buf off)) method_3byte_mask in
     if I32.equal v get_int32 then Method.Get
     else if I32.equal v put_int32 then Method.Put
-    else Err.fail Err.Invalid_method
+    else unknown ()
   | 4 ->
     let v : int32# = I32.of_int32 (Bytes.unsafe_get_int32 st.#buf off) in
     if I32.equal v post_int32 then Method.Post
@@ -102,28 +114,28 @@ let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
     else if I32.equal v copy_int32 then Method.Copy
     else if I32.equal v lock_int32 then Method.Lock
     else if I32.equal v move_int32 then Method.Move
-    else Err.fail Err.Invalid_method
+    else unknown ()
   | 5 ->
     if Span.equal st.#buf sp "PATCH" then Method.Patch
     else if Span.equal st.#buf sp "TRACE" then Method.Trace
     else if Span.equal st.#buf sp "MKCOL" then Method.Mkcol
-    else Err.fail Err.Invalid_method
+    else unknown ()
   | 6 ->
     if Span.equal st.#buf sp "DELETE" then Method.Delete
     else if Span.equal st.#buf sp "REPORT" then Method.Report
     else if Span.equal st.#buf sp "UNLOCK" then Method.Unlock
-    else Err.fail Err.Invalid_method
+    else unknown ()
   | 7 ->
     if Span.equal st.#buf sp "OPTIONS" then Method.Options
     else if Span.equal st.#buf sp "CONNECT" then Method.Connect
-    else Err.fail Err.Invalid_method
+    else unknown ()
   | 8 ->
     if Span.equal st.#buf sp "PROPFIND" then Method.Propfind
-    else Err.fail Err.Invalid_method
+    else unknown ()
   | 9 ->
     if Span.equal st.#buf sp "PROPPATCH" then Method.Proppatch
-    else Err.fail Err.Invalid_method
-  | _ -> Err.fail Err.Invalid_method
+    else unknown ()
+  | _ -> unknown ()
   in
   #(meth, pos)
 
@@ -170,6 +182,21 @@ let[@inline] parse_target st ~(pos : int16#) ~(meth : Method.t) ~(limits : Buf_r
 let[@inline] request_line st ~(pos : int16#) ~(limits : Buf_read.limits)
   : #(Method.t * Span.t * Target.t * Version.t * int16#)
   =
+  (* RFC 9112 section 2.2 recommends that a server ignore at least one empty
+     line before a request-line. Skip the complete leading CRLF sequence, but
+     keep a lone trailing CR partial so a fragmented empty line is retried. *)
+  let rec skip_empty_lines pos =
+    if at_end st ~pos
+    then pos
+    else if Buf_read.( <>. ) (Buf_read.peek st.#buf pos) #'\r'
+    then pos
+    else (
+      Err.partial_when (to_int (sub16 st.#len pos) < 2);
+      if Buf_read.( =. ) (Buf_read.peek st.#buf (add16 pos one16)) #'\n'
+      then skip_empty_lines (add16 pos (i16 2))
+      else pos)
+  in
+  let pos = skip_empty_lines pos in
   let #(meth, pos) = parse_method st ~pos in
   let pos = sp st ~pos in
   let #(target, target_parsed, pos) = parse_target st ~pos ~meth ~limits in
@@ -210,6 +237,9 @@ let[@inline] status_line st ~(pos : int16#)
   in
   Err.partial_when (to_int crlf_pos < 0);
   Err.when_ has_bare_cr Err.Bare_cr_detected;
+  Err.when_
+    (not (Buf_read.valid_field_value st.#buf ~pos ~len:crlf_pos))
+    Err.Invalid_status;
   let reason = Span.make ~off:pos ~len:(sub16 crlf_pos pos) in
   let pos = add16 crlf_pos (i16 2) in
   #(version, code, reason, pos)
@@ -219,8 +249,57 @@ let[@inline] parse_header st ~(pos : int16#) : #(Header_name.t * Span.t * Span.t
   let pos = char #':' st ~pos in
   let pos = ows st ~pos in
   let value_start = pos in
-  let #(crlf_pos, has_bare_cr) = Buf_read.find_crlf_check_bare_cr st.#buf ~pos ~len:st.#len in
-  Err.partial_when (to_int crlf_pos < 0);
+  let #(first_crlf, first_has_bare_cr) =
+    Buf_read.find_crlf_check_bare_cr st.#buf ~pos ~len:st.#len
+  in
+  Err.partial_when (to_int first_crlf < 0);
+  (* RFC 9112 section 5.2 requires clients to unfold obsolete response field
+     lines before interpreting them. The same normalization is an allowed
+     server-side recovery, so doing it in the shared parser keeps framing
+     fields and ordinary fields on one path.
+
+     Do not mutate until the complete folded field is present. A caller
+     retries [parse] after [Partial], and changing a CRLF into spaces before
+     then would make that retry see a different grammar. *)
+  let mutable crlf_pos = first_crlf in
+  let mutable has_bare_cr = first_has_bare_cr in
+  let mutable scanning = true in
+  while scanning do
+    let next = add16 crlf_pos (i16 2) in
+    Err.partial_when (at_end st ~pos:next);
+    if Buf_read.is_space (Buf_read.peek st.#buf next)
+    then (
+      let #(next_crlf, next_has_bare_cr) =
+        Buf_read.find_crlf_check_bare_cr st.#buf ~pos:next ~len:st.#len
+      in
+      Err.partial_when (to_int next_crlf < 0);
+      has_bare_cr <- has_bare_cr || next_has_bare_cr;
+      crlf_pos <- next_crlf)
+    else scanning <- false
+  done;
+  (* Replace each CRLF plus the continuation's leading whitespace with SP.
+     The resulting value remains one span into the caller's buffer. *)
+  let mutable fold = first_crlf in
+  while I16.compare fold crlf_pos < 0 do
+    Bytes.unsafe_set st.#buf (to_int fold) ' ';
+    Bytes.unsafe_set st.#buf (to_int (add16 fold one16)) ' ';
+    let mutable part = add16 fold (i16 2) in
+    while
+      I16.compare part crlf_pos < 0
+      && Buf_read.is_space (Buf_read.peek st.#buf part)
+    do
+      Bytes.unsafe_set st.#buf (to_int part) ' ';
+      part <- add16 part one16
+    done;
+    let #(next_crlf, _) =
+      Buf_read.find_crlf_check_bare_cr st.#buf ~pos:part ~len:st.#len
+    in
+    fold <- next_crlf
+  done;
+  Err.when_
+    (not has_bare_cr
+     && not (Buf_read.valid_field_value st.#buf ~pos:value_start ~len:crlf_pos))
+    Err.Invalid_header;
   let mutable value_end = crlf_pos in
   while I16.compare value_end value_start > 0 &&
         Buf_read.is_space (Buf_read.peek st.#buf (sub16 value_end one16)) do

@@ -139,29 +139,51 @@ let[@inline] reg_name_end (local_ s : string) ~pos ~limit : int =
   if bad then -1 else i
 ;;
 
+(* The URI host shared by authority-form and Host field parsing. The span of
+   an IP-literal excludes its brackets, matching {!Uriz.Raw}. [after] is the
+   first byte after the host, or [-1] when the host is malformed. *)
+let[@inline] parse_host (local_ s : string) ~pos ~limit =
+  if Char.equal (String.unsafe_get s pos) '['
+  then (
+    let e6 = Raw.ipv6_end s (pos + 1) limit in
+    let e =
+      if e6 >= 0 && e6 < limit && Char.equal (String.unsafe_get s e6) ']'
+      then e6
+      else (
+        let ef = Raw.ipvfuture_end s (pos + 1) limit in
+        if ef >= 0 && ef < limit && Char.equal (String.unsafe_get s ef) ']'
+        then ef
+        else -1)
+    in
+    if e < 0 then #(0, 0, -1) else #(pos + 1, e - pos - 1, e + 1))
+  else (
+    let e = reg_name_end s ~pos ~limit in
+    if e <= pos then #(0, 0, -1) else #(pos, e - pos, e))
+;;
+
+(* Scan the non-empty decimal port shared by authority-form and Host. The
+   result is [#(stop, value)], with a negative value for malformed input. *)
+let[@inline] parse_port (local_ s : string) ~pos ~limit =
+  let mutable i = pos in
+  let mutable value = 0 in
+  let mutable valid = true in
+  while valid && i < limit do
+    let digit = Char.to_int (String.unsafe_get s i) - 48 in
+    if digit < 0 || digit > 9 || value > 6553
+    then valid <- false
+    else (
+      value <- (value * 10) + digit;
+      i <- i + 1)
+  done;
+  #(i, if valid && i > pos && value <= 65535 then value else -1)
+;;
+
 let[@inline] parse_authority (local_ s : string) ~toff ~tlen : t =
   let limit = toff + tlen in
-  let bracket = Char.equal (String.unsafe_get s toff) '[' in
   (* [#(host_off, host_len, after)]: [after] is the offset of the byte that
      must be the ':', or [-1] when the host itself is malformed. An IP-literal
      reports the span inside the brackets, as {!Uriz.Raw} does. *)
-  let #(host_off, host_len, after) =
-    if bracket
-    then (
-      let e6 = Raw.ipv6_end s (toff + 1) limit in
-      let e =
-        if e6 >= 0 && e6 < limit && Char.equal (String.unsafe_get s e6) ']'
-        then e6
-        else (
-          let ef = Raw.ipvfuture_end s (toff + 1) limit in
-          if ef >= 0 && ef < limit && Char.equal (String.unsafe_get s ef) ']' then ef
-          else -1)
-      in
-      if e < 0 then #(0, 0, -1) else #(toff + 1, e - toff - 1, e + 1))
-    else (
-      let e = reg_name_end s ~pos:toff ~limit in
-      if e <= toff then #(0, 0, -1) else #(toff, e - toff, e))
-  in
+  let #(host_off, host_len, after) = parse_host s ~pos:toff ~limit in
   if after < 0
   then invalid ~err:toff
   else if after >= limit || not (Char.equal (String.unsafe_get s after) ':')
@@ -169,26 +191,16 @@ let[@inline] parse_authority (local_ s : string) ~toff ~tlen : t =
   else (
     (* port = 1*DIGIT. RFC 3986 allows it to be empty but RFC 9112 §3.2.3
        requires it here, and a port above 65535 addresses nothing. *)
-    let mutable i = after + 1 in
-    let mutable v = 0 in
-    let mutable ok = true in
-    while ok && i < limit do
-      let d = Char.to_int (String.unsafe_get s i) - 48 in
-      if d < 0 || d > 9 || v > 6553
-      then ok <- false
-      else (
-        v <- (v * 10) + d;
-        i <- i + 1)
-    done;
-    if (not ok) || i = after + 1 || v > 65535
-    then invalid ~err:i
+    let #(port_end, port) = parse_port s ~pos:(after + 1) ~limit in
+    if port < 0
+    then invalid ~err:port_end
     else
       #{ form = Authority
        ; path = empty_span
        ; query = empty_span
        ; scheme = empty_span
        ; host = span ~off:host_off ~len:host_len
-       ; port = v
+       ; port
        ; err = -1
        })
 ;;
@@ -257,6 +269,39 @@ let[@inline] is_valid (t : t) =
 ;;
 
 let[@inline] error_offset (t : t) = t.#err
+
+(* Host = uri-host [ ":" port ]. Keep this beside the request-target
+   authority parser so the two uses of RFC 3986 cannot drift apart. A comma is
+   rejected even though it is a URI sub-delimiter: Host is not a list field,
+   and accepting a comma-separated-looking value creates routing ambiguity
+   across intermediaries. *)
+let valid_host (local_ buf : bytes) (value : Span.t) =
+  let off = Span.off value in
+  let limit = off + Span.len value in
+  let local_ s = Stdlib.Bytes.unsafe_to_string buf in
+  if off = limit
+  then true
+  else (
+    let mutable comma = false in
+    let mutable i = off in
+    while not comma && i < limit do
+      comma <- Char.equal (String.unsafe_get s i) ',';
+      i <- i + 1
+    done;
+    if comma
+    then false
+    else
+      let #(_host_off, host_len, after) = parse_host s ~pos:off ~limit in
+      if host_len <= 0
+      then false
+      else if after = limit
+      then true
+      else if after < limit && Char.equal (String.unsafe_get s after) ':'
+      then (
+        let #(port_end, port) = parse_port s ~pos:(after + 1) ~limit in
+        port_end = limit && port >= 0)
+      else false)
+;;
 
 (** {1 Path Segment Matching} *)
 

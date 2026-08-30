@@ -22,7 +22,10 @@ type status =
   | Partial
       (** Need more data - request is incomplete. *)
   | Invalid_method
-      (** Unknown HTTP method. *)
+      (** Malformed HTTP method token. *)
+  | Unsupported_method
+      (** Syntactically valid method token that this parser does not implement.
+          A server can distinguish this from malformed syntax and answer 501. *)
   | Invalid_target
       (** Malformed request target: not one of the four RFC 9112 §3.2 forms,
           outside the RFC 3986 grammar, or a form the method does not allow. *)
@@ -47,9 +50,9 @@ type status =
           This is a security violation per
           {{:https://datatracker.ietf.org/doc/html/rfc7230#section-3.3.3}RFC 7230 Section 3.3.3}. *)
   | Bare_cr_detected
-      (** CR without LF detected in headers.
+      (** Bare CR or LF detected in a message head.
           This is a security violation per
-          {{:https://datatracker.ietf.org/doc/html/rfc7230#section-3.5}RFC 7230 Section 3.5}
+          {{:https://www.rfc-editor.org/rfc/rfc9112#section-2.2}RFC 9112 Section 2.2}
           that can enable HTTP request smuggling. *)
   | Missing_host_header
       (** HTTP/1.1 request without Host header.
@@ -64,6 +67,11 @@ val status_to_string : status -> string @@ portable
 
 val pp_status : Stdlib.Format.formatter -> status -> unit @@ portable
 (** Pretty-print status. *)
+
+val valid_field_value :
+  local_ bytes -> pos:int16# -> len:int16# -> bool @@ portable
+(** [valid_field_value buf ~pos ~len] checks the RFC 9110 field-value byte
+    grammar over [[pos, len)]. *)
 
 (** {1 Security Limits} *)
 
@@ -119,13 +127,14 @@ val max_headers : int16# @@ portable
     won't need them directly. *)
 
 val find_crlf_check_bare_cr : local_ bytes -> pos:int16# -> len:int16# -> #(int16# * bool) @@ portable
-(** [find_crlf_check_bare_cr buf ~pos ~len] finds CRLF and checks for bare CR.
+(** [find_crlf_check_bare_cr buf ~pos ~len] finds CRLF and checks for bare CR
+    or LF.
 
     Returns [#(crlf_pos, has_bare_cr)] where:
     - [crlf_pos]: Position of CRLF, or [-1] if not found
-    - [has_bare_cr]: [true] if a bare CR (CR not followed by LF) was detected
+    - [has_bare_cr]: [true] if a bare CR or LF was detected
 
-    Bare CR detection is required by RFC 7230 Section 3.5 to prevent
+    Bare newline detection is required by RFC 9112 Section 2.2 to prevent
     HTTP request smuggling attacks. *)
 
 val i16 : int -> int16# @@ portable

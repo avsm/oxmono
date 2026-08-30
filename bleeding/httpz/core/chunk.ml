@@ -73,23 +73,18 @@ let[@inline] parse_hex_size_limited (buf : bytes) ~off ~len ~max_size =
   let mutable size = 0 in
   let mutable valid = true in
   let mutable overflow = false in
-  let mutable digit_count = 0 in
   while valid && pos < len do
     let digit = hex_digit_value (P.peek buf (i16 pos)) in
     if digit >= 0 then (
-      digit_count <- digit_count + 1;
-      if digit_count > to_int max_hex_digits then (
+      if max_size < 0 || digit > max_size
+         || size > (max_size - digit) / 16
+      then (
         overflow <- true;
         valid <- false
       ) else (
         let new_size = (size * 16) + digit in
-        if new_size > max_size then (
-          overflow <- true;
-          valid <- false
-        ) else (
-          size <- new_size;
-          pos <- pos + 1
-        )
+        size <- new_size;
+        pos <- pos + 1
       )
     ) else
       valid <- false
@@ -98,14 +93,83 @@ let[@inline] parse_hex_size_limited (buf : bytes) ~off ~len ~max_size =
 ;;
 
 
-(* Skip to CRLF after chunk size (handles optional chunk extensions) *)
-let[@inline] skip_to_crlf (buf : bytes) ~pos ~len =
+(* Validate the optional chunk extensions and return the first data byte.
+   This rejects signed sizes, OCaml-style integer literals, bare newlines and
+   arbitrary bytes that an intermediary might frame differently. *)
+let[@inline] parse_size_line_end (buf : bytes) ~pos ~len =
   let module P = Buf_read in
   let mutable p = pos in
-  while p < len && P.(P.peek buf (i16 p) <>. #'\r') do
-    p <- p + 1
+  let mutable malformed = false in
+  let mutable complete = false in
+  let mutable data_off = 0 in
+  while not malformed && not complete && p < len do
+    let ows_start = p in
+    while p < len && P.is_space (P.peek buf (i16 p)) do p <- p + 1 done;
+    let had_ows = p > ows_start in
+    if p < len then
+      if P.(P.peek buf (i16 p) =. #'\r') then
+        if had_ows then malformed <- true
+        else if p + 1 < len then
+          if P.(P.peek buf (i16 (p + 1)) =. #'\n') then (
+            data_off <- p + 2;
+            complete <- true)
+          else malformed <- true
+        else p <- len
+      else if P.(P.peek buf (i16 p) <>. #';') then malformed <- true
+      else (
+        p <- p + 1;
+        while p < len && P.is_space (P.peek buf (i16 p)) do p <- p + 1 done;
+        let name_start = p in
+        while p < len && P.is_token_char (P.peek buf (i16 p)) do
+          p <- p + 1
+        done;
+        if p = name_start then malformed <- true
+        else (
+          let mutable equals = p in
+          while equals < len && P.is_space (P.peek buf (i16 equals)) do
+            equals <- equals + 1
+          done;
+          if equals < len && P.(P.peek buf (i16 equals) =. #'=') then (
+            p <- equals + 1;
+            while p < len && P.is_space (P.peek buf (i16 p)) do
+              p <- p + 1
+            done;
+            if p < len then
+              if P.(P.peek buf (i16 p) =. #'"') then (
+                p <- p + 1;
+                let mutable closed = false in
+                while not malformed && not closed && p < len do
+                  let c = P.peek buf (i16 p) in
+                  let code = Char_u.code c in
+                  if P.(c =. #'"') then (
+                    closed <- true;
+                    p <- p + 1)
+                  else if P.(c =. #'\\') then
+                    if p + 1 >= len then p <- len
+                    else (
+                      let escaped = Char_u.code (P.peek buf (i16 (p + 1))) in
+                      if escaped = 0x09 || escaped = 0x20
+                         || (escaped >= 0x21 && escaped <= 0x7e)
+                         || escaped >= 0x80
+                      then p <- p + 2
+                      else malformed <- true)
+                  else if code = 0x09 || code = 0x20 || code = 0x21
+                          || (code >= 0x23 && code <= 0x5b)
+                          || (code >= 0x5d && code <= 0x7e) || code >= 0x80
+                  then p <- p + 1
+                  else malformed <- true
+                done;
+                if p < len && not closed then malformed <- true)
+              else (
+                let value_start = p in
+                while p < len && P.is_token_char (P.peek buf (i16 p)) do
+                  p <- p + 1
+                done;
+                if p = value_start then malformed <- true))))
   done;
-  p
+  if malformed then #(Malformed, i16 0)
+  else if complete then #(Complete, i16 data_off)
+  else #(Partial, i16 0)
 ;;
 
 (* Check for CRLF at position *)
@@ -133,7 +197,6 @@ let[@inline] parse_data_chunk (buf : bytes) ~data_off ~size ~len =
 
 (* Parse chunk with configurable size limit - returns Chunk_too_large on overflow *)
 let parse_with_limit (buf : bytes) ~(off : int16#) ~(len : int16#) ~max_chunk_size =
-  let module P = Buf_read in
   let off = to_int off in
   let len = to_int len in
   if off >= len then #(Partial, empty)
@@ -142,11 +205,14 @@ let parse_with_limit (buf : bytes) ~(off : int16#) ~(len : int16#) ~max_chunk_si
     if overflow then #(Chunk_too_large, empty)
     else if hex_end = off then #(Malformed, empty)
     else
-      let crlf_pos = skip_to_crlf buf ~pos:hex_end ~len in
-      if crlf_pos + 1 >= len then #(Partial, empty)
-      else if P.(P.peek buf (i16 (crlf_pos + 1)) <>. #'\n') then #(Malformed, empty)
-      else
-        let data_off = crlf_pos + 2 in
+      let #(line_status, data_off) =
+        parse_size_line_end buf ~pos:hex_end ~len
+      in
+      match line_status with
+      | Partial -> #(Partial, empty)
+      | Malformed | Chunk_too_large | Done -> #(Malformed, empty)
+      | Complete ->
+        let data_off = to_int data_off in
         if size = 0
         then parse_final_chunk buf ~data_off ~len
         else parse_data_chunk buf ~data_off ~size ~len
@@ -163,7 +229,6 @@ let parse (buf : bytes) ~(off : int16#) ~(len : int16#) =
    a client receiving a response has no say in how large a server's
    chunks are. *)
 let parse_header (buf : bytes) ~(off : int16#) ~(len : int16#) ~max_chunk_size =
-  let module P = Buf_read in
   let off = to_int off in
   let len = to_int len in
   if off >= len then #(Partial, 0, i16 0)
@@ -174,14 +239,15 @@ let parse_header (buf : bytes) ~(off : int16#) ~(len : int16#) ~max_chunk_size =
     if overflow then #(Chunk_too_large, 0, i16 0)
     else if hex_end = off then #(Malformed, 0, i16 0)
     else (
-      let crlf_pos = skip_to_crlf buf ~pos:hex_end ~len in
-      if crlf_pos + 1 >= len then #(Partial, 0, i16 0)
-      else if P.(P.peek buf (i16 (crlf_pos + 1)) <>. #'\n') then
-        #(Malformed, 0, i16 0)
-      else (
-        let data_off = crlf_pos + 2 in
-        if size = 0 then #(Done, 0, i16 data_off)
-        else #(Complete, size, i16 data_off))))
+      let #(line_status, data_off) =
+        parse_size_line_end buf ~pos:hex_end ~len
+      in
+      match line_status with
+      | Partial -> #(Partial, 0, i16 0)
+      | Malformed | Chunk_too_large | Done -> #(Malformed, 0, i16 0)
+      | Complete ->
+        if size = 0 then #(Done, 0, data_off)
+        else #(Complete, size, data_off)))
 ;;
 
 let pp fmt (chunk : t) =
@@ -215,6 +281,8 @@ let is_forbidden_trailer = function
   (* Message framing headers *)
   | Header_name.Transfer_encoding -> true
   | Header_name.Content_length -> true
+  | Header_name.Connection -> true
+  | Header_name.Upgrade -> true
   (* Routing headers *)
   | Header_name.Host -> true
   (* Control headers *)
@@ -228,6 +296,8 @@ let is_forbidden_trailer = function
   (* Authentication headers *)
   | Header_name.Www_authenticate -> true
   | Header_name.Authorization -> true
+  | Header_name.Cookie -> true
+  | Header_name.Set_cookie -> true
   | _ -> false
 ;;
 
@@ -255,6 +325,8 @@ let[@inline] parse_trailer_header (buf : bytes) ~pos ~len =
     then #(Trailer_partial, Header_name.Host, i16 0, i16 0, i16 0, i16 0, i16 0)
     else if has_bare_cr
     then #(Trailer_bare_cr, Header_name.Host, i16 0, i16 0, i16 0, i16 0, i16 0)
+    else if not (P.valid_field_value buf ~pos:(i16 value_start) ~len:crlf_pos)
+    then #(Trailer_malformed, Header_name.Host, i16 0, i16 0, i16 0, i16 0, i16 0)
     else (
       let mutable value_end = crlf_pos_int in
       while value_end > value_start && P.is_space (P.peek buf (i16 (value_end - 1))) do
@@ -264,25 +336,36 @@ let[@inline] parse_trailer_header (buf : bytes) ~pos ~len =
 ;;
 
 (* Parse trailer headers after final chunk *)
-let rec parse_trailers_loop (buf : bytes) ~pos ~len ~count ~acc ~max_header_count = exclave_
+let rec parse_trailers_loop (buf : bytes) ~start ~pos ~len ~count ~acc
+    ~max_header_count ~max_trailer_size = exclave_
   let module P = Buf_read in
   if pos + 1 >= len then
-    #(Trailer_partial, i16 pos, acc)
+    if len - start >= max_trailer_size then
+      #(Trailer_malformed, i16 pos, acc)
+    else #(Trailer_partial, i16 pos, acc)
   else if P.(P.peek buf (i16 pos) =. #'\r') && P.(P.peek buf (i16 (pos + 1)) =. #'\n') then
     (* Empty line marks end of trailers *)
-    #(Trailer_complete, i16 (pos + 2), acc)
-  else if count >= max_header_count then
+    if pos + 2 - start > max_trailer_size then
+      #(Trailer_malformed, i16 pos, acc)
+    else #(Trailer_complete, i16 (pos + 2), acc)
+  else if count >= max_header_count || pos - start >= max_trailer_size then
     #(Trailer_malformed, i16 pos, acc)
   else
     let #(s, name, noff, nlen, voff, vlen, new_pos) = parse_trailer_header buf ~pos ~len in
     match s with
-    | Trailer_partial -> #(Trailer_partial, i16 pos, acc)
+    | Trailer_partial ->
+      if len - start >= max_trailer_size then
+        #(Trailer_malformed, i16 pos, acc)
+      else #(Trailer_partial, i16 pos, acc)
     | Trailer_malformed -> #(Trailer_malformed, i16 pos, acc)
     | Trailer_bare_cr -> #(Trailer_bare_cr, i16 pos, acc)
     | Trailer_complete ->
       (* Skip forbidden trailer headers per RFC 7230 Section 4.1.2 *)
-      if is_forbidden_trailer name then
-        parse_trailers_loop buf ~pos:(to_int new_pos) ~len ~count:(count + 1) ~acc ~max_header_count
+      if to_int new_pos - start > max_trailer_size then
+        #(Trailer_malformed, i16 pos, acc)
+      else if is_forbidden_trailer name then
+        parse_trailers_loop buf ~start ~pos:(to_int new_pos) ~len
+          ~count:(count + 1) ~acc ~max_header_count ~max_trailer_size
       else
         let value_span = Span.make ~off:voff ~len:vlen in
         let hdr =
@@ -291,9 +374,14 @@ let rec parse_trailers_loop (buf : bytes) ~pos ~len ~count ~acc ~max_header_coun
           ; value = value_span
           }
         in
-        parse_trailers_loop buf ~pos:(to_int new_pos) ~len ~count:(count + 1) ~acc:(hdr :: acc) ~max_header_count
+        parse_trailers_loop buf ~start ~pos:(to_int new_pos) ~len
+          ~count:(count + 1) ~acc:(hdr :: acc) ~max_header_count
+          ~max_trailer_size
 ;;
 
-let parse_trailers (buf : bytes) ~(off : int16#) ~(len : int16#) ~(max_header_count : int16#) = exclave_
-  parse_trailers_loop buf ~pos:(to_int off) ~len:(to_int len) ~count:0 ~acc:[] ~max_header_count:(to_int max_header_count)
+let parse_trailers ?(max_trailer_size = 16384) (buf : bytes)
+    ~(off : int16#) ~(len : int16#) ~(max_header_count : int16#) = exclave_
+  let start = to_int off in
+  parse_trailers_loop buf ~start ~pos:start ~len:(to_int len) ~count:0 ~acc:[]
+    ~max_header_count:(to_int max_header_count) ~max_trailer_size
 ;;

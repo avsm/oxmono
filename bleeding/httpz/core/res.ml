@@ -9,6 +9,7 @@ type status =
   | Created                 (* 201 *)
   | Accepted                (* 202 *)
   | No_content              (* 204 *)
+  | Reset_content           (* 205 *)
   | Partial_content         (* 206 - for Range requests *)
   | Multi_status            (* 207 - WebDAV multistatus *)
   (* 3xx Redirection *)
@@ -57,6 +58,7 @@ let status_code = function
   | Created -> 201
   | Accepted -> 202
   | No_content -> 204
+  | Reset_content -> 205
   | Partial_content -> 206
   | Multi_status -> 207
   | Moved_permanently -> 301
@@ -103,6 +105,7 @@ let status_of_int = function
   | 201 -> Some Created
   | 202 -> Some Accepted
   | 204 -> Some No_content
+  | 205 -> Some Reset_content
   | 206 -> Some Partial_content
   | 207 -> Some Multi_status
   | 301 -> Some Moved_permanently
@@ -150,6 +153,7 @@ let status_reason = function
   | Created -> "Created"
   | Accepted -> "Accepted"
   | No_content -> "No Content"
+  | Reset_content -> "Reset Content"
   | Partial_content -> "Partial Content"
   | Multi_status -> "Multi-Status"
   | Moved_permanently -> "Moved Permanently"
@@ -199,6 +203,7 @@ let status_code_reason = function
   | Created -> "201 Created"
   | Accepted -> "202 Accepted"
   | No_content -> "204 No Content"
+  | Reset_content -> "205 Reset Content"
   | Partial_content -> "206 Partial Content"
   | Multi_status -> "207 Multi-Status"
   | Moved_permanently -> "301 Moved Permanently"
@@ -247,6 +252,7 @@ let status_line_http_1_1 = function
   | Created -> "HTTP/1.1 201 Created\r\n"
   | Accepted -> "HTTP/1.1 202 Accepted\r\n"
   | No_content -> "HTTP/1.1 204 No Content\r\n"
+  | Reset_content -> "HTTP/1.1 205 Reset Content\r\n"
   | Partial_content -> "HTTP/1.1 206 Partial Content\r\n"
   | Multi_status -> "HTTP/1.1 207 Multi-Status\r\n"
   | Moved_permanently -> "HTTP/1.1 301 Moved Permanently\r\n"
@@ -383,6 +389,7 @@ type t =
    ; body_off : int16#
    ; content_length : int64#
    ; is_chunked : bool
+   ; bodyless : bool
    ; keep_alive : bool
    }
 
@@ -418,6 +425,7 @@ let[@inline] error_result status = exclave_
       ; body_off = i16 0
       ; content_length = minus_one_i64
       ; is_chunked = false
+      ; bodyless = false
       ; keep_alive = false
       }
    , ([] : Header.t list) )
@@ -439,25 +447,37 @@ let rec parse_headers_loop (pst : Parser.pstate) ~pos ~acc
     let acc = hdr :: acc in
     match name with
     | Header_name.Content_length ->
-      Err.when_ st.#has_te Err.Ambiguous_framing;
-      let #(parsed_len, overflow) = Span.parse_int64 pst.#buf value_span in
+      let #(parsed_len, overflow, conflicting) =
+        Span.parse_content_length pst.#buf value_span
+      in
+      Err.when_ overflow Err.Content_length_overflow;
+      Err.when_ conflicting Err.Ambiguous_framing;
+      Err.when_ (I64.compare parsed_len #0L < 0) Err.Invalid_header;
       Err.when_
-        (overflow || I64.compare parsed_len limits.#max_content_length > 0)
+        (st.#has_cl && not (I64.equal parsed_len st.#content_len))
+        Err.Ambiguous_framing;
+      Err.when_ (I64.compare parsed_len limits.#max_content_length > 0)
         Err.Content_length_overflow;
       parse_headers_loop pst ~pos ~acc ~limits
         #{ st with count = next_count; content_len = parsed_len; has_cl = true }
     | Header_name.Transfer_encoding ->
-      Err.when_ st.#has_cl Err.Ambiguous_framing;
-      let is_chunked = Span.equal_caseless pst.#buf value_span "chunked" in
-      let is_identity = Span.equal_caseless pst.#buf value_span "identity" in
-      Err.when_ (not (is_chunked || is_identity))
+      let #(count, chunked_count, is_chunked, valid) =
+        Span.parse_transfer_encoding pst.#buf value_span
+      in
+      Err.when_
+        ((not valid)
+         || count = 0
+         || chunked_count > 1
+         || (chunked_count > 0 && not is_chunked)
+         || (st.#chunked && count > 0))
         Err.Unsupported_transfer_encoding;
       parse_headers_loop pst ~pos ~acc ~limits
         #{ st with count = next_count; chunked = is_chunked; has_te = true }
     | Header_name.Connection ->
       let new_conn =
-        if Span.equal_caseless pst.#buf value_span "close" then Conn_close
-        else if Span.equal_caseless pst.#buf value_span "keep-alive" then
+        if Span.token_list_contains pst.#buf value_span "close" then Conn_close
+        else if phys_equal st.#conn Conn_close then Conn_close
+        else if Span.token_list_contains pst.#buf value_span "keep-alive" then
           Conn_keep_alive
         else st.#conn
       in
@@ -470,7 +490,16 @@ let rec parse_headers_loop (pst : Parser.pstate) ~pos ~acc
    header block, measured once its end is found, is held to
    [max_header_size]. A head still arriving is Partial until the buffer
    itself is full, which the caller can see. *)
-let parse (buf : bytes) ~(len : int16#) ~(limits : Buf_read.limits) = exclave_
+let[@inline] bodyless ~request_method code =
+  match request_method with
+  | Some Method.Head -> true
+  | Some Method.Connect when code >= 200 && code < 300 -> true
+  | Some _ | None ->
+    (code >= 100 && code < 200) || code = 204 || code = 205 || code = 304
+;;
+
+let parse ?request_method (buf : bytes) ~(len : int16#)
+    ~(limits : Buf_read.limits) = exclave_
   if to_int len > Buf_read.buffer_size then
     error_result Buf_read.Headers_too_large
   else
@@ -483,11 +512,22 @@ let parse (buf : bytes) ~(len : int16#) ~(limits : Buf_read.limits) = exclave_
         parse_headers_loop pst ~pos ~acc:[] initial_header_state ~limits
       in
       Err.when_ (gt16 body_off limits.#max_header_size) Err.Headers_too_large;
+      let bodyless = bodyless ~request_method (to_int code) in
+      Err.when_ (not bodyless && st.#has_cl && st.#has_te)
+        Err.Ambiguous_framing;
+      let is_chunked = not bodyless && st.#has_te && st.#chunked in
+      let close_delimited =
+        not bodyless
+        && ((st.#has_te && not st.#chunked)
+            || (not st.#has_te && not st.#has_cl))
+      in
       let keep_alive =
-        match st.#conn with
-        | Conn_close -> false
-        | Conn_keep_alive -> true
-        | Conn_default -> phys_equal version Version.Http_1_1
+        if close_delimited then false
+        else
+          match st.#conn with
+          | Conn_close -> false
+          | Conn_keep_alive -> true
+          | Conn_default -> phys_equal version Version.Http_1_1
       in
       #( Buf_read.Complete
        , #{ version
@@ -495,7 +535,8 @@ let parse (buf : bytes) ~(len : int16#) ~(limits : Buf_read.limits) = exclave_
           ; reason
           ; body_off
           ; content_length = st.#content_len
-          ; is_chunked = st.#chunked
+          ; is_chunked
+          ; bodyless
           ; keep_alive
           }
        , headers )
@@ -504,9 +545,9 @@ let parse (buf : bytes) ~(len : int16#) ~(limits : Buf_read.limits) = exclave_
 let pp fmt (r : t) =
   Stdlib.Format.fprintf fmt
     "#{ version = %a; code = %d; body_off = %d; content_length = %Ld; \
-     is_chunked = %b; keep_alive = %b }"
+     is_chunked = %b; bodyless = %b; keep_alive = %b }"
     Version.pp r.#version (to_int r.#code) (to_int r.#body_off)
-    (I64.to_int64 r.#content_length) r.#is_chunked r.#keep_alive
+    (I64.to_int64 r.#content_length) r.#is_chunked r.#bodyless r.#keep_alive
 ;;
 
 let pp_with_buf (buf : bytes) fmt (r : t) =

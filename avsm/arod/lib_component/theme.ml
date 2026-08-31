@@ -2505,11 +2505,17 @@ let custom_css = {|
 .idea-group-title,
 .idea-group-tail,
 .idea-group-note { position: relative; }
+/* The prompt doubles as the link to the block, in the manner of the numbers
+   beside a heading in an article. It stays the accent colour rather than the
+   muted one those use, since it is a mark of the page as well as a link. */
 .idea-group-prompt {
   grid-column: 1;
-  color: var(--color-accent);
+  color: var(--color-accent) !important;
   font-weight: 600;
+  text-decoration: none !important;
+  transition: color 0.15s;
 }
+.idea-group-prompt:hover { color: var(--color-link) !important; }
 /* One box for the counts and the chevron, so the bar keeps three columns
    however many counts a project has. */
 .idea-group-tail {

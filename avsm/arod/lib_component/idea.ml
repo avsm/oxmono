@@ -130,7 +130,7 @@ let full_page ~ctx i =
      rest of the work on the same subject is. *)
   let back =
     El.p ~at:[At.class' "idea-back"] [
-      El.a ~at:[At.href ("/ideas#idea-p-" ^ Idea.project i);
+      El.a ~at:[At.href ("/ideas#" ^ Idea.project i);
                 At.class' "idea-back-link"] [
         El.unsafe_raw (I.outline ~size:12 I.arrow_left_o);
         El.txt "All research ideas"]]
@@ -495,7 +495,14 @@ let group_head ~ctx proj ~n_open ~n_going ~n_past =
   in
   El.div ~at:[At.class' "idea-group-head"] [
     art;
-    El.span ~at:[At.class' "idea-group-prompt"] [El.txt ">_"];
+    (* The prompt is the anchor for the block, so a project's own ideas can
+       be linked to directly. The section carries the id and the contents
+       already points at it, so this is the same target from the heading
+       itself. *)
+    El.a ~at:[At.href ("#" ^ proj.Bushel.Project.slug);
+              At.class' "idea-group-prompt";
+              At.v "aria-label" ("Link to " ^ proj.Bushel.Project.title)]
+      [El.txt ">_"];
     El.a ~at:[At.href ("/projects/" ^ proj.Bushel.Project.slug);
               At.class' "idea-group-title"]
       [El.txt proj.Bushel.Project.title];
@@ -533,7 +540,7 @@ let toc_row ~slots ~widest proj is =
                          (Printf.sprintf "%d %s" n (status_label s))] [])
     ) counts
   in
-  El.a ~at:[At.href ("#idea-p-" ^ slug); At.class' "idea-toc-row";
+  El.a ~at:[At.href ("#" ^ slug); At.class' "idea-toc-row";
             At.v "data-toc" slug;
             At.v "aria-label" (proj.Bushel.Project.title ^ ": " ^ spoken)] [
     El.span ~at:[At.class' "idea-toc-name"] [El.txt proj.Bushel.Project.title];
@@ -607,7 +614,13 @@ let ideas_list ~ctx =
   let groups =
     List.map (fun (proj, live, past, _) ->
       El.section ~at:[At.class' "idea-group";
-                      At.id ("idea-p-" ^ proj.Bushel.Project.slug);
+                      (* The slug alone, so a project's ideas are at
+                         /ideas#plancomp rather than behind a prefix. A slug
+                         can begin with a digit, as 4c does, which is a legal
+                         id and a legal fragment but not a legal bare CSS
+                         selector, so reach these by getElementById and never
+                         by querySelector. *)
+                      At.id proj.Bushel.Project.slug;
                       At.v "data-idea-slug" proj.Bushel.Project.slug;
                       At.v "data-idea-group" proj.Bushel.Project.title] (
         group_head ~ctx proj

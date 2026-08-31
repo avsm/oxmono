@@ -161,6 +161,7 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
                  At.href "/favicon.png" ] ();
       El.link ~at:[ At.rel "apple-touch-icon";
                  At.href "/apple-touch-icon.png" ] ();
+      El.link ~at:[ At.rel "manifest"; At.href "/site.webmanifest" ] ();
 
       El.link ~at:[ At.rel "author"; At.href "/about" ] ();
       El.link ~at:[ At.rel "blogroll"; At.v "type" "text/x-opml";
@@ -208,6 +209,12 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
         (match Contact.handle_on author_contact (Simple Twitter) with
          | Some t -> Some (El.link ~at:[ At.rel "me";
              At.href ("https://twitter.com/" ^ t) ] ())
+         | None -> None);
+        (* The user@host handle gets author attribution on Mastodon link
+           previews. *)
+        (match Contact.handle_on author_contact (Federated Mastodon) with
+         | Some h -> Some (meta_tag ~name:"fediverse:creator"
+             ~content:("@" ^ h))
          | None -> None);
       ] in
       head_els @ me_links

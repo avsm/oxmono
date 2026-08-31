@@ -9,6 +9,16 @@ than vendored (unlike the predecessor `oxmono` repository, which vendored
 
 ## Setup
 
+The Zarr and Tessera packages use system C libraries. On Debian or Ubuntu,
+install them before creating the switch:
+
+```sh
+sudo apt install pkg-config libproj-dev proj-data libblosc-dev libzstd-dev
+```
+
+[PROJ](https://proj.org/) supplies both `proj.h` at build time and `proj.db`
+at run time. The repository vendors its OCaml binding, not the C library.
+
 ```sh
 opam switch create . --no-install \
   --repos ox=git+https://github.com/oxcaml/opam-repository.git,default \

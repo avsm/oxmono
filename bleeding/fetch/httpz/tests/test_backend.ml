@@ -75,6 +75,10 @@ let handle_client flow _addr =
   | [ _; "/echo"; _ ] -> respond "200 OK" body
   | [ _; "/gzip"; _ ] ->
     respond ~extra:"Content-Encoding: gzip\r\n" "200 OK" gzip_body
+  | [ _; "/gzip-concat"; _ ] ->
+    respond ~extra:"Content-Encoding: gzip\r\n" "200 OK" (gzip_body ^ gzip_body)
+  | [ _; "/gzip-junk"; _ ] ->
+    respond ~extra:"Content-Encoding: gzip\r\n" "200 OK" (gzip_body ^ "junk")
   | [ _; "/setcookie"; _ ] ->
     respond ~extra:"Set-Cookie: sid=s3; Path=/\r\n" "200 OK" "set"
   | [ _; "/cookie-echo"; _ ] ->
@@ -277,6 +281,22 @@ let test_gzip () =
   Alcotest.(check (option string)) "coding header intact" (Some "gzip")
     (Http.Header.get (headers resp) "content-encoding")
 
+let test_gzip_members () =
+  with_server @@ fun t url ->
+  check
+    "concatenated members"
+    "hello gzip from eiohello gzip from eio"
+    (Fetch.read t (url "/gzip-concat"));
+  Alcotest.(check bool)
+    "trailing junk rejected"
+    true
+    (try
+       ignore (Fetch.read t (url "/gzip-junk") : string);
+       false
+     with
+     | Eio.Io (E (Protocol_error msg), _) ->
+       String.starts_with ~prefix:"malformed gzip response:" msg)
+
 let test_head () =
   with_server @@ fun t url ->
   Eio.Switch.run @@ fun sw ->
@@ -374,6 +394,7 @@ let () =
           Alcotest.test_case "abandoned body" `Quick test_abandoned_body;
           Alcotest.test_case "max_response cap" `Quick test_max_response;
           Alcotest.test_case "transparent gzip" `Quick test_gzip;
+          Alcotest.test_case "gzip member sequence" `Quick test_gzip_members;
           Alcotest.test_case "HEAD" `Quick test_head;
           Alcotest.test_case "empty header value" `Quick
             test_empty_header_value;

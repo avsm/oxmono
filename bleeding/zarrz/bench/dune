@@ -1,0 +1,17 @@
+; A private executable, so it is never installed and never runs under
+; runtest. Run it with:
+;
+;   dune exec --profile release-check bleeding/zarrz/bench/bench_zarrz.exe
+;
+; The profile matters. See the header of bench_zarrz.ml.
+
+(executable
+ (name bench_zarrz)
+ (libraries
+  zarrz
+  unix
+  jsont
+  jsont.bytesrw
+  base_bigstring
+  stdlib_stable
+  stdlib_upstream_compatible))

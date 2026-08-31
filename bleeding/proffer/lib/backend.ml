@@ -221,56 +221,53 @@ let method_not_allowed allowed (respond : Resp.respond @ local) =
 
 (* [decide req d write] turns one description into the outcome a backend
    writes. It is where the protocol mechanics that need no socket happen. *)
+let send (write : writer @ local) status (headers : Headers.t @ local)
+    (body : body @ local) (content_length : int64 option @ local) =
+  let local_ o = { status; headers; body; content_length } in
+  let () = write o in
+  ()
+
 let decide (req : Req.t @ local) (d : Resp.description @ local)
     (write : writer @ local) =
   let local_ b = block d in
   if not_modified req d then
-    let local_ o =
-      { status = Httpz.Res.Not_modified; headers = revalidation b; body = Empty;
-        content_length = None }
-    in
-    let () = write o in
-    ()
-  else if Method.equal (Req.meth req) Httpz.Method.Head then
-    let local_ o =
-      { status = d.Resp.status; headers = b; body = Empty;
-        content_length = Body.declared_length d.Resp.body }
-    in
-    let () = write o in
+    let local_ headers = revalidation b in
+    let () = send write Httpz.Res.Not_modified headers Empty None in
     ()
   else
+    let code = Status.code d.Resp.status in
+    if (code >= 100 && code < 200) || code = 204
+    then (
+      let () = send write d.Resp.status b Empty None in
+      ())
+    else if code = 205
+    then (
+      let () = send write d.Resp.status b Empty (Some 0L) in
+      ())
+    else if code = 304 || Method.equal (Req.meth req) Httpz.Method.Head
+    then (
+      let local_ content_length = Body.declared_length d.Resp.body in
+      let () = send write d.Resp.status b Empty content_length in
+      ())
+    else
     match d.Resp.body with
     | Body.Empty ->
-        let local_ o =
-          { status = d.Resp.status; headers = b; body = Empty;
-            content_length = Some 0L }
-        in
-        let () = write o in
+        let () = send write d.Resp.status b Empty (Some 0L) in
         ()
     | Body.String s ->
-        let local_ o =
-          { status = d.Resp.status; headers = b; body = String s;
-            content_length = len s }
-        in
-        let () = write o in
+        let local_ content_length = len s in
+        let () = send write d.Resp.status b (String s) content_length in
         ()
     | Body.Stream { length; write = w } ->
-        let local_ o =
-          { status = d.Resp.status; headers = b;
-            body = Stream { length; write = w }; content_length = length }
-        in
-        let () = write o in
+        let () = send write d.Resp.status b (Stream { length; write = w }) length in
         ()
     | Body.Delayed { gen; _ } ->
-        (* Run here, so a HEAD and a 304 never pay for a body they drop. The
-           generator runs under [handle]'s guard, which is why it is handed
-           back rather than run in the handler. *)
+        (* Run here, so HEAD and contentless statuses never pay for a body
+        they drop. The generator runs under [handle]'s guard, which is why
+           it is handed back rather than run in the handler. *)
         let s = gen () in
-        let local_ o =
-          { status = d.Resp.status; headers = b; body = String s;
-            content_length = len s }
-        in
-        let () = write o in
+        let local_ content_length = len s in
+        let () = send write d.Resp.status b (String s) content_length in
         ()
 
 (* [run ?on_error req describe write] gives [describe] a responder and writes

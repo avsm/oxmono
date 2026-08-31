@@ -17,8 +17,10 @@
 
     {2 Unknown Methods}
 
-    This library only accepts the standard and WebDAV methods. Custom or
-    extension methods will cause parsing to fail with {!Buf_read.Invalid_method}. *)
+    This library only accepts the standard and WebDAV methods. A valid custom
+    or extension method causes parsing to stop with
+    {!Buf_read.Unsupported_method}; malformed method syntax remains
+    {!Buf_read.Invalid_method}. *)
 
 (** {1 Types} *)
 

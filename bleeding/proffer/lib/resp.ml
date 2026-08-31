@@ -81,6 +81,10 @@ let check_value what value =
    runs on the few a site invents. *)
 let check_header (name : Headers.name @ local) spelling value =
   (match name with
+  | (H.Content_length | H.Transfer_encoding | H.Connection) as name ->
+      invalid_arg
+        (Printf.sprintf "Proffer.Resp.v: %s is set by the response backend"
+           (H.canonical name))
   | H.Other -> check_name spelling
   | _ -> ());
   if has_control value then

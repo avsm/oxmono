@@ -77,7 +77,8 @@ type event = {
   cache_status : string option;
       (** What the handler put in X-Cache, or [None] when it set nothing.
           The field is the site's own, so what a value means is too. *)
-  body_size : int;  (** Bytes of body sent, so zero for HEAD and 304. *)
+  body_size : int;
+      (** Bytes of body sent, so zero for HEAD and contentless statuses. *)
   duration_us : int;
       (** Microseconds from the parse of the request line to the last byte of
           the response. *)

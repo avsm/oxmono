@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Geoembeddings Convention",
+  "description": "Schema for Geoembeddings Zarr convention, describing geospatial embedding groups with model provenance and processing metadata",
+  "type": "object",
+  "properties": {
+    "zarr_format": {
+      "type": "integer",
+      "description": "Zarr format version"
+    },
+    "node_type": {
+      "type": "string",
+      "const": "group",
+      "description": "Type of Zarr node (must be group)"
+    },
+    "attributes": {
+      "type": "object",
+      "description": "Zarr attributes containing convention metadata and properties",
+      "properties": {
+        "zarr_conventions": {
+          "type": "array",
+          "description": "Array of convention metadata objects",
+          "contains": {
+            "$ref": "#/$defs/conventionMetadata"
+          }
+        },
+        "geoemb:type": {
+          "type": "string",
+          "enum": ["pixel", "chip"],
+          "description": "REQUIRED. Type of embedding: 'pixel' for per-pixel embeddings, 'chip' for image patch embeddings"
+        },
+        "geoemb:dimensions": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "REQUIRED. Dimensionality of the embedding vector"
+        },
+        "geoemb:model": {
+          "type": "string",
+          "format": "uri",
+          "description": "REQUIRED. URL reference to the encoder model used to generate embeddings"
+        },
+        "geoemb:source_data": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri" },
+          "minItems": 1,
+          "description": "REQUIRED. URL references to the source datasets from which embeddings were derived"
+        },
+        "geoemb:data_type": {
+          "type": "string",
+          "description": "REQUIRED. Data type of stored embeddings (e.g., 'float32', 'int8', 'uint16')"
+        },
+        "geoemb:gsd": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Ground sample distance in meters"
+        },
+        "geoemb:chip_layout": {
+          "$ref": "#/$defs/chipLayoutObject"
+        },
+        "geoemb:quantization": {
+          "$ref": "#/$defs/quantizationObject"
+        },
+        "geoemb:spatial_layout": {
+          "type": "string",
+          "enum": ["utm_zones", "global"],
+          "description": "Spatial organization scheme. 'utm_zones': one group per UTM zone (utm01-utm60). 'global': single array in a global CRS."
+        },
+        "geoemb:build_version": {
+          "type": "string",
+          "description": "Version of the software that built this store"
+        },
+        "geoemb:benchmark": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "description": "List of URLs to benchmark evaluation results"
+        }
+      },
+      "required": ["zarr_conventions", "geoemb:type", "geoemb:dimensions", "geoemb:model", "geoemb:source_data", "geoemb:data_type"],
+      "if": {
+        "properties": {
+          "geoemb:type": { "const": "chip" }
+        }
+      },
+      "then": {
+        "required": ["zarr_conventions", "geoemb:type", "geoemb:dimensions", "geoemb:model", "geoemb:source_data", "geoemb:data_type", "geoemb:chip_layout"]
+      },
+      "additionalProperties": true
+    }
+  },
+  "required": ["zarr_format", "node_type", "attributes"],
+  "additionalProperties": true,
+  "$defs": {
+    "conventionMetadata": {
+      "type": "object",
+      "description": "Geoembeddings convention metadata object for use in zarr_conventions array",
+      "properties": {
+        "schema_url": {
+          "type": "string",
+          "const": "https://raw.githubusercontent.com/geo-embeddings/embeddings-zarr-convention/refs/tags/v1/schema.json",
+          "description": "URL to the JSON Schema definition for this convention"
+        },
+        "spec_url": {
+          "type": "string",
+          "const": "https://github.com/geo-embeddings/embeddings-zarr-convention/blob/v1/README.md",
+          "description": "URL to the full specification document"
+        },
+        "uuid": {
+          "type": "string",
+          "const": "61c12cc5-0e28-4056-999a-480cf3fb7e4c",
+          "description": "UUID that permanently identifies this convention"
+        },
+        "name": {
+          "type": "string",
+          "const": "geoemb:",
+          "description": "Human-readable name of the convention using key-prefixed pattern"
+        },
+        "description": {
+          "type": "string",
+          "const": "Geoembeddings convention for geospatial embedding arrays with model provenance",
+          "description": "Brief description of the convention's purpose and usage"
+        }
+      },
+      "anyOf": [
+        { "required": ["schema_url"] },
+        { "required": ["spec_url"] },
+        { "required": ["uuid"] }
+      ],
+      "additionalProperties": false
+    },
+    "chipLayoutObject": {
+      "type": "object",
+      "description": "Chip layout configuration for chip-type embeddings",
+      "properties": {
+        "layout_type": {
+          "type": "string",
+          "enum": ["regular_grid", "irregular"],
+          "description": "REQUIRED. Type of chip layout"
+        },
+        "chip_size": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "REQUIRED. Chip dimensions in pixels [height, width]"
+        },
+        "stride": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Stride between chips [y, x]. Defaults to chip_size if not specified"
+        },
+        "grid_id": {
+          "type": "string",
+          "description": "Identifier for a predefined grid system"
+        },
+        "grid_definition": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to grid definition document"
+        }
+      },
+      "required": ["layout_type", "chip_size"],
+      "additionalProperties": false
+    },
+    "quantizationObject": {
+      "type": "object",
+      "description": "Quantization details for compressed embeddings",
+      "properties": {
+        "method": {
+          "type": "string",
+          "description": "REQUIRED. Quantization method used (e.g., 'linear', 'per_pixel_scale', 'product_quantization', 'binary')"
+        },
+        "original_dtype": {
+          "type": "string",
+          "description": "REQUIRED. Original data type before quantization (e.g., 'float32')"
+        },
+        "quantized_dtype": {
+          "type": "string",
+          "description": "Data type after quantization (e.g., 'int8', 'uint8')"
+        },
+        "scale": {
+          "$ref": "#/$defs/scaleObject"
+        },
+        "link": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to quantization codebook or lookup table"
+        }
+      },
+      "required": ["method", "original_dtype"],
+      "additionalProperties": false
+    },
+    "scaleObject": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Scalar scale: a single global scale and offset for linear dequantization",
+          "properties": {
+            "type": { "type": "string", "const": "scalar" },
+            "scale": { "type": "number", "description": "Scale factor for linear dequantization" },
+            "offset": { "type": "number", "description": "Offset for linear dequantization (default: 0.0)" }
+          },
+          "required": ["type", "scale"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Array scale: per-pixel scale factors stored in a separate zarr array",
+          "properties": {
+            "type": { "type": "string", "const": "array" },
+            "array_name": { "type": "string", "description": "Name of the zarr array containing per-pixel scales" },
+            "nodata": {
+              "description": "Value in the scale array indicating no data (e.g., '+inf')",
+              "oneOf": [
+                { "type": "number" },
+                { "type": "string" }
+              ]
+            }
+          },
+          "required": ["type", "array_name"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

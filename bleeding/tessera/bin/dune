@@ -1,0 +1,5 @@
+(executable
+ (name tessera_cli)
+ (public_name tessera)
+ (package tessera)
+ (libraries tessera zarrz zarrz-eio zarrz-fetch fetch-curl eio_main cmdliner))

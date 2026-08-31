@@ -86,6 +86,8 @@ module type INF = sig
 
   val src : decoder -> De.bigstring -> int -> int -> decoder
   val dst_rem : decoder -> int
+  val src_rem : decoder -> int
+  val reset : decoder -> decoder
   val flush : decoder -> decoder
 end
 
@@ -94,6 +96,11 @@ end
    from the transport when the decoder asks for more. Nothing buffers the
    whole body. *)
 module Inflate (Inf : INF) = struct
+  type phase =
+    | Decoding
+    | Member_ended
+    | Ended
+
   type t = {
     src : Eio.Flow.source_ty Eio.Resource.t;
     i : De.bigstring;  (* input, handed to the decoder *)
@@ -102,12 +109,13 @@ module Inflate (Inf : INF) = struct
     i_cs : Cstruct.t;
     mutable d : Inf.decoder;
     mutable ready : (int * int) option;  (* undrained window into [o] *)
-    mutable ended : bool;
+    mutable phase : phase;
+    mutable input_len : int;
   }
 
   let v ~src ~i ~o d =
     { src; i; o; o_cs = Cstruct.of_bigarray o; i_cs = Cstruct.of_bigarray i;
-      d; ready = None; ended = false }
+      d; ready = None; phase = Decoding; input_len = 0 }
 
   let read_methods = []
 
@@ -123,13 +131,38 @@ module Inflate (Inf : INF) = struct
         t.ready <- None;
         (* [o] is the decoder's own buffer, and may only be reused once
            every byte of the window has been handed on. *)
-        if not t.ended then t.d <- Inf.flush t.d
+        if t.phase = Decoding then t.d <- Inf.flush t.d
       end
       else t.ready <- Some (pos + n, len - n);
       n
     | None ->
-      if t.ended then raise End_of_file
-      else begin
+      (match t.phase with
+      | Ended -> raise End_of_file
+      | Member_ended -> begin
+        (* A gzip representation is a sequence of members. [src_rem] belongs
+           to the input range most recently handed to the decoder, so retain
+           that suffix when resetting for the next member. If the member ended
+           exactly at a read boundary, probe the underlying framed body once:
+           EOF ends the representation; any byte starts another member and
+           malformed trailing data is rejected by its header parser. *)
+        let rem = Inf.src_rem t.d in
+        let d = Inf.reset t.d in
+        t.phase <- Decoding;
+        if rem > 0 then begin
+          t.d <- Inf.src d t.i (t.input_len - rem) rem;
+          single_read t buf
+        end
+        else
+          match Eio.Flow.single_read t.src t.i_cs with
+          | n ->
+            t.input_len <- n;
+            t.d <- Inf.src d t.i 0 n;
+            single_read t buf
+          | exception End_of_file ->
+            t.phase <- Ended;
+            raise End_of_file
+        end
+      | Decoding ->
         match Inf.decode t.d with
         | `Await d ->
           t.d <- d;
@@ -138,6 +171,7 @@ module Inflate (Inf : INF) = struct
             | n -> n
             | exception End_of_file -> 0  (* [l = 0] signals end of input *)
           in
+          t.input_len <- n;
           t.d <- Inf.src t.d t.i 0 n;
           single_read t buf
         | `Flush d ->
@@ -150,14 +184,14 @@ module Inflate (Inf : INF) = struct
           single_read t buf
         | `End d ->
           t.d <- d;
-          t.ended <- true;
+          t.phase <- Member_ended;
           (match window t with
-           | 0 -> raise End_of_file
+           | 0 -> single_read t buf
            | len -> t.ready <- Some (0, len); single_read t buf)
         | `Malformed msg ->
           raise (err (Protocol_error
                         (Fmt.str "malformed gzip response: %s" msg)))
-      end
+      )
 end
 
 module Gunzip = Inflate (Gz.Inf)
@@ -335,6 +369,7 @@ type head_info = {
   resp_headers : (string * string) list;  (* wire order *)
   content_length : int64;  (* -1 when absent *)
   chunked : bool;
+  bodyless : bool;
 }
 
 (* The parse window over the head, which then carries the leftover
@@ -377,7 +412,7 @@ let refill w ~what =
    that refers to the parse buffer before returning. The parser starts
    at offset zero, so bytes an earlier head consumed are shifted out
    first. *)
-let read_head w =
+let read_head w request_method =
   if w.pos > 0 then begin
     Bytes.blit w.wbuf w.pos w.wbuf 0 (w.len - w.pos);
     w.len <- w.len - w.pos;
@@ -385,7 +420,7 @@ let read_head w =
   end;
   let rec loop () =
     let #(status, res, headers) =
-      Httpz.Res.parse w.wbuf ~len:(i16 w.len) ~limits
+      Httpz.Res.parse ?request_method w.wbuf ~len:(i16 w.len) ~limits
     in
     match status with
     | Httpz.Buf_read.Complete ->
@@ -402,7 +437,8 @@ let read_head w =
         version;
         resp_headers;
         content_length = I64.to_int64 res.#content_length;
-        chunked = res.#is_chunked }
+        chunked = res.#is_chunked;
+        bodyless = res.#bodyless }
     | Httpz.Buf_read.Partial ->
       if w.len >= window_size then head_overflow ()
       else begin
@@ -596,8 +632,6 @@ let response_body_handler = Eio.Flow.Pi.source (module Response_body)
 
 (* {2 One exchange} *)
 
-let meth_is_head = function `HEAD -> true | _ -> false
-
 module Backend = struct
   type t = config
   type tag = [ `Generic | `Httpz ]
@@ -697,12 +731,18 @@ module Backend = struct
       let w =
         { tr; wbuf = head; wcs = Cstruct.of_bytes head; pos = 0; len = 0 }
       in
+      let request_method =
+        match req.meth with
+        | `HEAD -> Some Httpz.Method.Head
+        | `CONNECT -> Some Httpz.Method.Connect
+        | _ -> None
+      in
       (* An interim response precedes the one it announces (RFC 9110
          s15.2). Nothing here asks for one, but a server may volunteer
          an unsolicited [103]; each is a bare head to skip. The count is
          bounded so a server cannot feed us interim heads forever. *)
       let rec final_head interim_left =
-        let info = read_head w in
+        let info = read_head w request_method in
         if info.code >= 200 || info.code < 100 then info
         else if info.code = 101 then
           raise (err (Protocol_error
@@ -714,11 +754,7 @@ module Backend = struct
       in
       let info = final_head 8 in
       let headers = Http.Header.of_list info.resp_headers in
-      let bodyless =
-        (* A HEAD response carries the headers of a body that is not
-           there: reading one would block until the peer gave up. *)
-        meth_is_head req.meth || info.code = 204 || info.code = 304
-      in
+      let bodyless = info.bodyless in
       let framing =
         if info.chunked then Chunk_header
         else if Int64.compare info.content_length 0L >= 0 then

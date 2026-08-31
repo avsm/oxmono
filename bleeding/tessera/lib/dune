@@ -1,0 +1,12 @@
+(library
+ (name tessera)
+ (public_name tessera)
+ (libraries
+  proj
+  proj.c
+  zarrz
+  zarrz.geoemb
+  jsont
+  base_bigstring
+  stdlib_stable
+  stdlib_upstream_compatible))

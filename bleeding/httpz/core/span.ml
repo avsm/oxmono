@@ -212,11 +212,12 @@ let[@inline] split_on_char (local_ buf : bytes) (sp : t) (c : char#) : #(t * t) 
     #(before, after)
 
 let minus_one_i64 : int64# = I64.of_int64 (-1L)
+let max_int64_div_10 : int64# = I64.of_int64 922337203685477580L
+let max_int64_last_digit = 7
 
 let[@inline] parse_int64 (local_ buf) (sp : t) : #(int64# * bool) =
   let sp_len = len sp in
   if sp_len = 0 then #(minus_one_i64, false)
-  else if sp_len > 19 then #(minus_one_i64, true)
   else (
     let mutable acc : int64# = #0L in
     let mutable i = 0 in
@@ -227,20 +228,258 @@ let[@inline] parse_int64 (local_ buf) (sp : t) : #(int64# * bool) =
       let c = Buf_read.peek buf (I16.of_int (sp_off + i)) in
       match c with
       | #'0' .. #'9' ->
-        let digit = I64.of_int (Char_u.code c - 48) in
-        let new_acc = I64.add (I64.mul acc #10L) digit in
-        if I64.compare new_acc acc < 0 then (
+        let digit_int = Char_u.code c - 48 in
+        if I64.compare acc max_int64_div_10 > 0
+           || (I64.equal acc max_int64_div_10
+               && digit_int > max_int64_last_digit)
+        then (
           overflow <- true;
           valid <- false
         ) else (
-          acc <- new_acc;
+          let digit = I64.of_int digit_int in
+          acc <- I64.add (I64.mul acc #10L) digit;
           i <- i + 1
         )
       | _ -> valid <- false
     done;
-    if i = 0 then #(minus_one_i64, false)
+    if i <> sp_len then #(minus_one_i64, overflow)
     else if overflow then #(minus_one_i64, true)
     else #(acc, false))
+
+(* RFC 9110 section 8.6 permits a combined field containing repeated,
+   identical decimal values. Return the value, whether it overflowed [int64],
+   and whether two valid members disagreed. Any other malformed input returns
+   [-1L] with both flags clear. *)
+let[@inline] parse_content_length (local_ buf : bytes) (sp : t)
+  : #(int64# * bool * bool) =
+  let mutable first : int64# = minus_one_i64 in
+  let mutable pos = off sp in
+  let stop = pos + len sp in
+  let mutable invalid = false in
+  let mutable overflow = false in
+  let mutable conflicting = false in
+  let mutable members = 0 in
+  while not invalid && not overflow && not conflicting && pos < stop do
+    while pos < stop && Buf_read.is_space (Buf_read.peek buf (I16.of_int pos)) do
+      pos <- pos + 1
+    done;
+    let mutable acc : int64# = #0L in
+    let mutable digits = 0 in
+    let mutable reading_digits = true in
+    while reading_digits && pos < stop do
+      match Buf_read.peek buf (I16.of_int pos) with
+      | #'0' .. #'9' as c ->
+        let digit_int = Char_u.code c - 48 in
+        if I64.compare acc max_int64_div_10 > 0
+           || (I64.equal acc max_int64_div_10
+               && digit_int > max_int64_last_digit)
+        then (
+          overflow <- true;
+          reading_digits <- false)
+        else (
+          acc <- I64.add (I64.mul acc #10L) (I64.of_int digit_int);
+          digits <- digits + 1;
+          pos <- pos + 1)
+      | _ -> reading_digits <- false
+    done;
+    if digits = 0 then invalid <- true
+    else if not overflow then (
+      while pos < stop && Buf_read.is_space (Buf_read.peek buf (I16.of_int pos)) do
+        pos <- pos + 1
+      done;
+      members <- members + 1;
+      if members = 1 then first <- acc
+      else if not (I64.equal first acc) then conflicting <- true;
+      if not conflicting && pos < stop then
+        if Buf_read.( =. ) (Buf_read.peek buf (I16.of_int pos)) #',' then (
+          pos <- pos + 1;
+          if pos = stop then invalid <- true)
+        else invalid <- true)
+  done;
+  if overflow then #(minus_one_i64, true, false)
+  else if conflicting then #(minus_one_i64, false, true)
+  else if invalid || members = 0 then #(minus_one_i64, false, false)
+  else #(first, false, false)
+
+let[@inline] equal_caseless_range (local_ buf) start stop literal =
+  let n = stop - start in
+  if n <> String.length literal then false
+  else (
+    let mutable i = 0 in
+    let mutable same = true in
+    while same && i < n do
+      let c = Buf_read.to_lower (Buf_read.peek buf (I16.of_int (start + i))) in
+      if not (Char_u.equal c (Char_u.of_char (String.unsafe_get literal i)))
+      then same <- false
+      else i <- i + 1
+    done;
+    same)
+
+(* Parse the HTTP comma-list shape without allocating its members. Empty list
+   elements are ignored as RFC 9110 section 5.6.1 permits. *)
+let[@inline] token_list_last_is (local_ buf : bytes) (sp : t) literal =
+  let mutable pos = off sp in
+  let stop = pos + len sp in
+  let mutable count = 0 in
+  let mutable last_equal = false in
+  while pos < stop do
+    let item_start = pos in
+    while pos < stop && Buf_read.( <>. ) (Buf_read.peek buf (I16.of_int pos)) #',' do
+      pos <- pos + 1
+    done;
+    let mutable left = item_start in
+    let mutable right = pos in
+    while left < right
+          && Buf_read.is_space (Buf_read.peek buf (I16.of_int left))
+    do left <- left + 1 done;
+    while right > left
+          && Buf_read.is_space (Buf_read.peek buf (I16.of_int (right - 1)))
+    do right <- right - 1 done;
+    if right > left then (
+      count <- count + 1;
+      last_equal <- equal_caseless_range buf left right literal);
+    if pos < stop then pos <- pos + 1
+  done;
+  #(count, last_equal)
+
+let[@inline] token_list_contains (local_ buf : bytes) (sp : t) literal =
+  let mutable pos = off sp in
+  let stop = pos + len sp in
+  let mutable found = false in
+  while not found && pos < stop do
+    let item_start = pos in
+    while pos < stop && Buf_read.( <>. ) (Buf_read.peek buf (I16.of_int pos)) #',' do
+      pos <- pos + 1
+    done;
+    let mutable left = item_start in
+    let mutable right = pos in
+    while left < right
+          && Buf_read.is_space (Buf_read.peek buf (I16.of_int left))
+    do left <- left + 1 done;
+    while right > left
+          && Buf_read.is_space (Buf_read.peek buf (I16.of_int (right - 1)))
+    do right <- right - 1 done;
+    found <- equal_caseless_range buf left right literal;
+    if pos < stop then pos <- pos + 1
+  done;
+  found
+
+(* Parse the Transfer-Encoding list grammar and report its framing-relevant
+   facts: non-empty member count, chunked member count, whether chunked is the
+   final member, and whether every non-empty member is syntactically valid.
+   Empty list members are ignored as RFC 9110 section 5.6.1 requires. *)
+let parse_transfer_encoding (local_ buf : bytes) (sp : t) =
+  let stop = off sp + len sp in
+  let mutable pos = off sp in
+  let mutable count = 0 in
+  let mutable chunked_count = 0 in
+  let mutable last_chunked = false in
+  let mutable valid = true in
+  let skip_ows p =
+    let mutable p = p in
+    while p < stop && Buf_read.is_space (Buf_read.peek buf (I16.of_int p)) do
+      p <- p + 1
+    done;
+    p
+  in
+  let token_end start =
+    let mutable p = start in
+    while p < stop && Buf_read.is_token_char (Buf_read.peek buf (I16.of_int p)) do
+      p <- p + 1
+    done;
+    p
+  in
+  let quoted_string p =
+    let mutable p = p + 1 in
+    let mutable closed = false in
+    let mutable ok = true in
+    while ok && not closed && p < stop do
+      let c = Char_u.code (Buf_read.peek buf (I16.of_int p)) in
+      if c = 0x22
+      then (
+        closed <- true;
+        p <- p + 1)
+      else if c = 0x5c
+      then
+        if p + 1 >= stop
+        then ok <- false
+        else (
+          let escaped = Char_u.code (Buf_read.peek buf (I16.of_int (p + 1))) in
+          if
+            escaped = 0x09
+            || escaped = 0x20
+            || (escaped >= 0x21 && escaped <= 0x7e)
+            || escaped >= 0x80
+          then p <- p + 2
+          else ok <- false)
+      else if
+        c = 0x09
+        || c = 0x20
+        || c = 0x21
+        || (c >= 0x23 && c <= 0x5b)
+        || (c >= 0x5d && c <= 0x7e)
+        || c >= 0x80
+      then p <- p + 1
+      else ok <- false
+    done;
+    #(p, closed && ok)
+  in
+  while valid && pos < stop do
+    pos <- skip_ows pos;
+    if pos < stop
+    then
+      if Buf_read.( =. ) (Buf_read.peek buf (I16.of_int pos)) #','
+      then pos <- pos + 1
+      else (
+        let coding_end = token_end pos in
+        if coding_end = pos
+        then valid <- false
+        else (
+          let is_chunked = equal_caseless_range buf pos coding_end "chunked" in
+          count <- count + 1;
+          if is_chunked then chunked_count <- chunked_count + 1;
+          last_chunked <- is_chunked;
+          pos <- skip_ows coding_end;
+          while
+            valid
+            && not is_chunked
+            && pos < stop
+            && Buf_read.( =. ) (Buf_read.peek buf (I16.of_int pos)) #';'
+          do
+            pos <- skip_ows (pos + 1);
+            let name_end = token_end pos in
+            if name_end = pos
+            then valid <- false
+            else (
+              pos <- skip_ows name_end;
+              if
+                pos >= stop
+                || Buf_read.( <>. ) (Buf_read.peek buf (I16.of_int pos)) #'='
+              then valid <- false
+              else (
+                pos <- skip_ows (pos + 1);
+                if pos >= stop
+                then valid <- false
+                else if Buf_read.( =. ) (Buf_read.peek buf (I16.of_int pos)) #'"'
+                then (
+                  let #(next, ok) = quoted_string pos in
+                  pos <- next;
+                  valid <- ok)
+                else (
+                  let value_end = token_end pos in
+                  if value_end = pos
+                  then valid <- false
+                  else pos <- value_end));
+              pos <- skip_ows pos)
+          done;
+          if valid && pos < stop
+          then
+            if Buf_read.( =. ) (Buf_read.peek buf (I16.of_int pos)) #','
+            then pos <- pos + 1
+            else valid <- false))
+  done;
+  #(count, chunked_count, last_chunked, valid)
+;;
 
 let to_string (local_ buf : bytes) (sp : t) : string =
   let sp_off = off sp in

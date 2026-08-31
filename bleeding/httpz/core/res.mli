@@ -41,6 +41,7 @@ type status =
   | Created               (** 201 - resource created *)
   | Accepted              (** 202 - accepted for processing *)
   | No_content            (** 204 - no body *)
+  | Reset_content         (** 205 - reset the document view; no body *)
   | Partial_content       (** 206 - range request *)
   | Multi_status          (** 207 - WebDAV multistatus (RFC 4918) *)
   (* 3xx Redirection *)
@@ -216,6 +217,10 @@ type t =
            response with neither a length nor chunked framing ends with
            the connection. *)
    ; is_chunked : bool  (** [true] if Transfer-Encoding: chunked *)
+   ; bodyless : bool
+       (** [true] for a response to HEAD, a successful CONNECT, or a status
+           that never carries a body. Requires [request_method] for HEAD and
+           CONNECT. *)
    ; keep_alive : bool
        (** [true] for a persistent connection, from the Connection
            header and the version default. *)
@@ -224,7 +229,7 @@ type t =
     buffer. *)
 
 val parse :
-  bytes -> len:int16# -> limits:Buf_read.limits
+  ?request_method:Method.t -> bytes -> len:int16# -> limits:Buf_read.limits
   -> #(Buf_read.status * t * Header.t list) @ local
   @@ portable
 (** [parse buf ~len ~limits] parses a response head from [buf].
@@ -241,11 +246,16 @@ val parse :
     each header. A caller that materialises it and cares about the
     order of repeated fields, as with [Set-Cookie], must reverse it.
 
+    [request_method] lets the parser apply the bodyless response rules for
+    HEAD and successful CONNECT. Status-based bodyless rules are always
+    applied.
+
     {b Security checks:} Content-Length within
-    [limits.max_content_length], no bare CR, a rejection of ambiguous
+    [limits.max_content_length], no bare CR or LF, a rejection of ambiguous
     framing (both Content-Length and Transfer-Encoding, per
     {{:https://www.rfc-editor.org/rfc/rfc9112#section-6.3}RFC 9112
-    §6.3}), and only [chunked] or [identity] transfer codings. *)
+    §6.3}), a syntactically valid Transfer-Encoding list, and [chunked] at
+    most once and only as the final coding. *)
 
 val pp : Stdlib.Format.formatter -> t -> unit @@ portable
 (** [pp fmt res] prints the response structure (offsets and flags). *)

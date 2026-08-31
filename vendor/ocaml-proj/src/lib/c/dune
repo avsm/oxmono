@@ -1,0 +1,6 @@
+(library
+ (name projc)
+ (optional)
+ (implements proj)
+ (libraries proj_c)
+ (public_name proj.c))

@@ -60,6 +60,11 @@ val error_offset : t -> int @@ portable
 (** Offset into the parse buffer of the first byte that failed validation, or
     [-1] when the target is valid. *)
 
+val valid_host : local_ bytes -> Span.t -> bool @@ portable
+(** [valid_host buf value] checks a Host field value as
+    [uri-host [ ":" port ]], rejecting userinfo, out-of-range ports, and
+    comma-separated-looking values. *)
+
 (** {1 Path Segment Matching}
 
     Match path segments against expected patterns without allocation.

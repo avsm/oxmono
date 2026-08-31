@@ -1,0 +1,4 @@
+(library
+ (name zarrz_geoemb)
+ (public_name zarrz.geoemb)
+ (libraries jsont))

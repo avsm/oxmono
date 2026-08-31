@@ -1,0 +1,4 @@
+(library
+ (name zarrz_eio)
+ (public_name zarrz-eio)
+ (libraries zarrz eio cstruct optint base_bigstring))

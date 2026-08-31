@@ -49,6 +49,10 @@ let routes =
         Resp.v respond ~content_type:(This "text/html; charset=utf-8")
           ~headers:[ Resp.other "X-Cache" "hit" ]
           (Body.String "hi"));
+    get (s "no-content" /? nil) (fun _env _req respond ->
+        Resp.text respond ~status:St.No_content "forbidden");
+    get (s "reset-content" /? nil) (fun _env _req respond ->
+        Resp.text respond ~status:St.Reset_content "forbidden");
     get (s "dup" /? nil) (fun _env req respond ->
         Resp.text respond
           (Option.value ~default:"none"
@@ -199,6 +203,16 @@ let tests ~clock ~net addr =
   let resp = request (get_req "/hello/a%20b") in
   check "decoded segment" (resp.body = "<p>hello a b</p>");
 
+  let resp =
+    request "GET http://localhost HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  in
+  check "empty absolute path routes as slash" (resp.body = index);
+  let resp =
+    request
+      "GET http://localhost/hello/proxy?q=1 HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  in
+  check "absolute-form path is routed" (resp.body = "<p>hello proxy</p>");
+
   let resp = request (get_req "/nowhere") in
   check "404 status line" (resp.line = "HTTP/1.1 404 Not Found");
   check "404 body" (resp.body = "<p>missing</p>");
@@ -227,6 +241,17 @@ let tests ~clock ~net addr =
   check "304 has no length" (field resp "content-length" = None);
   check "304 keeps the etag" (field resp "etag" = Some "\"v1\"");
 
+  let resp = request (get_req "/no-content") in
+  check "204 status line" (resp.line = "HTTP/1.1 204 No Content");
+  check "204 body is suppressed" (resp.body = "");
+  check "204 has no length" (field resp "content-length" = None);
+  check "204 is not chunked" (field resp "transfer-encoding" = None);
+
+  let resp = request (get_req "/reset-content") in
+  check "205 status line" (resp.line = "HTTP/1.1 205 Reset Content");
+  check "205 body is suppressed" (resp.body = "");
+  check "205 has zero length" (field resp "content-length" = Some "0");
+
   (* The GET that follows on the same connection is what proves the HEAD
      sent no body: a stray one would be read as the next status line. *)
   session ~net addr (fun send recv ->
@@ -251,12 +276,40 @@ let tests ~clock ~net addr =
     request
       "POST /form HTTP/1.1\r\n\
        Host: localhost\r\n\
+       Content-Type: application/x-www-form-urlencoded\r\n\
        Transfer-Encoding: chunked\r\n\
        \r\n\
-       0\r\n\r\n"
+       3;part=one\r\n\
+       who\r\n\
+       5\r\n\
+       =avsm\r\n\
+       0\r\n\
+       X-Trailer: yes\r\n\
+       \r\n"
   in
-  check "chunked request is 411" (resp.line = "HTTP/1.1 411 Length Required");
-  check "411 closes" (field resp "connection" = Some "close");
+  check "chunked request is decoded" (resp.line = "HTTP/1.1 303 See Other");
+  check "chunked form reaches handler"
+    (field resp "location" = Some "/hello/avsm");
+
+  let resp =
+    request
+      "POST /form HTTP/1.1\r\nHost: localhost\r\n\
+       Transfer-Encoding: chunked\r\n\r\nz\r\n"
+  in
+  check "malformed chunked request is 400"
+    (resp.line = "HTTP/1.1 400 Bad Request");
+
+  let resp =
+    request
+      "POST /form HTTP/1.1\r\nHost: localhost\r\n\
+       Expect: fancy-feature\r\nContent-Length: 0\r\n\r\n"
+  in
+  check "unsupported expectation is 417"
+    (resp.line = "HTTP/1.1 417 Expectation Failed");
+
+  let resp = request "PURGE / HTTP/1.1\r\nHost: localhost\r\n\r\n" in
+  check "unsupported method is 501"
+    (resp.line = "HTTP/1.1 501 Not Implemented");
 
   (* Answered from the header block alone: none of those 40000 bytes is
      ever read, since there is nowhere to put them. *)
@@ -373,7 +426,7 @@ let tests ~clock ~net addr =
       check "keep-alive second" (second.body = "<p>hello again</p>"));
 
   Eio.Time.sleep clock 0.05;
-  check "one event per request" (List.length !events = 21);
+  check "one event per parsed request" (List.length !events = 27);
   match !events with
   | last :: _ ->
       check "event method" (Method.equal last.Proffer_httpz.meth M.Get);

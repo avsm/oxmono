@@ -1,0 +1,3 @@
+(executable
+ (name main)
+ (libraries example proj_c proj.c))

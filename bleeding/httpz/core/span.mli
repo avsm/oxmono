@@ -74,6 +74,29 @@ val parse_int64 : local_ bytes -> t -> #(int64# * bool) @@ portable
     - [value]: The parsed value, or [-1L] if empty/invalid
     - [overflow]: [true] if the value overflows int64 *)
 
+val parse_content_length :
+  local_ bytes -> t -> #(int64# * bool * bool) @@ portable
+(** [parse_content_length buf span] parses one or more comma-separated,
+    identical decimal Content-Length values. It returns
+    [#(value, overflow, conflicting)]. [value] is [-1L] for malformed input. *)
+
+val token_list_last_is :
+  local_ bytes -> t -> string -> #(int * bool) @@ portable
+(** [token_list_last_is buf span token] returns the number of non-empty
+    comma-separated tokens and whether the final token equals [token],
+    ignoring ASCII case and surrounding whitespace. *)
+
+val token_list_contains : local_ bytes -> t -> string -> bool @@ portable
+(** [token_list_contains buf span token] tests a comma-separated token list,
+    ignoring ASCII case and surrounding whitespace. *)
+
+val parse_transfer_encoding :
+  local_ bytes -> t -> #(int * int * bool * bool) @@ portable
+(** [parse_transfer_encoding buf span] returns the number of non-empty
+    transfer codings, the number of [chunked] codings, whether [chunked] is
+    final, and whether the list is syntactically valid. Empty list members are
+    ignored. *)
+
 (** {1 String Conversion} *)
 
 val to_string : local_ bytes -> t -> string @@ portable

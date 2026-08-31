@@ -20,6 +20,7 @@ type t =
    ; is_chunked : bool
    ; keep_alive : bool
    ; expect_continue : bool
+   ; unsupported_expectation : bool
    }
 
 (* Body length and end position for non-chunked requests. A negative
@@ -82,7 +83,7 @@ let pp_with_buf (buf : bytes) fmt (req : t) =
 
 let pp fmt (req : t) =
   Stdlib.Format.fprintf fmt
-    "#{ meth = %a; target = #{ off = %d; len = %d }; version = %a; body_off = %d; content_length = %Ld; is_chunked = %b; keep_alive = %b; expect_continue = %b }"
+    "#{ meth = %a; target = #{ off = %d; len = %d }; version = %a; body_off = %d; content_length = %Ld; is_chunked = %b; keep_alive = %b; expect_continue = %b; unsupported_expectation = %b }"
     Method.pp req.#meth
     (Span.off req.#target) (Span.len req.#target)
     Version.pp req.#version
@@ -91,4 +92,5 @@ let pp fmt (req : t) =
     req.#is_chunked
     req.#keep_alive
     req.#expect_continue
+    req.#unsupported_expectation
 ;;

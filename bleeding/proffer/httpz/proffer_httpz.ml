@@ -384,34 +384,91 @@ let write_outcome conn ~keep_alive ~chunked ~version
 
 let continue_line = "HTTP/1.1 100 Continue\r\n\r\n"
 
-(* [request_body conn ~deadline req] brings the whole request body into
-   [conn.read_buf] and is where it lies, or why it cannot be served.
+(* Compact the unread suffix to [dst]. This is also what preserves a pipelined
+   request after dechunking: once the handler consumes the decoded body, the
+   next request begins exactly at that boundary. *)
+let compact_suffix conn ~src ~dst =
+  let suffix = conn.read_len - src in
+  if suffix > 0 then Bytes.blit conn.read_buf src conn.read_buf dst suffix;
+  conn.read_len <- dst + suffix
 
-   A chunked body is refused with 411 rather than dechunked: this backend
-   serves forms and small uploads, and the parse buffer is the only place a
-   body goes. For the same reason a declared length that cannot fit is 413,
-   decided before a byte of it is read. *)
+(* Decode a chunked body in place. At every step the buffer is
+   [head][decoded content][unparsed wire bytes], so completed framing is
+   discarded as it is consumed and does not reduce the bounded body's useful
+   capacity. Trailer fields are validated even though Proffer v1 does not
+   expose them to handlers. *)
+let request_chunked conn ~deadline (req : Httpz.Req.t) =
+  let body_off = to_int req.#body_off in
+  let rec chunks decoded =
+    let #(status, chunk) =
+      Httpz.Chunk.parse_with_limit conn.read_buf ~off:(i16 decoded)
+        ~len:(i16 conn.read_len)
+        ~max_chunk_size:Httpz.default_limits.#max_chunk_size
+    in
+    match status with
+    | Httpz.Chunk.Complete ->
+        let data_off = to_int chunk.#data_off in
+        let data_len = to_int chunk.#data_len in
+        let next_off = to_int chunk.#next_off in
+        Bytes.blit conn.read_buf data_off conn.read_buf decoded data_len;
+        let decoded = decoded + data_len in
+        compact_suffix conn ~src:next_off ~dst:decoded;
+        chunks decoded
+    | Httpz.Chunk.Done -> trailers decoded (to_int chunk.#data_off)
+    | Httpz.Chunk.Partial -> more (fun () -> chunks decoded)
+    | Httpz.Chunk.Malformed -> `Malformed
+    | Httpz.Chunk.Chunk_too_large -> `Too_large
+  and trailers decoded trailer_off =
+    let #(status, end_off, _headers) =
+      Httpz.Chunk.parse_trailers conn.read_buf ~off:(i16 trailer_off)
+        ~len:(i16 conn.read_len)
+        ~max_header_count:Httpz.default_limits.#max_header_count
+    in
+    match status with
+    | Httpz.Chunk.Trailer_complete ->
+        compact_suffix conn ~src:(to_int end_off) ~dst:decoded;
+        `Body (body_off, decoded - body_off)
+    | Httpz.Chunk.Trailer_partial ->
+        more (fun () -> trailers decoded trailer_off)
+    | Httpz.Chunk.Trailer_malformed | Httpz.Chunk.Trailer_bare_cr -> `Malformed
+  and more resume =
+    match read_more conn ~deadline with
+    | `Ok _ -> resume ()
+    | `Timeout -> `Timed_out
+    | `Eof -> `Incomplete
+    | `Buffer_full -> `Too_large
+  in
+  chunks body_off
+
+(* [request_body conn ~deadline req] brings the whole decoded request body
+   into [conn.read_buf] and reports where it lies, or why it cannot be served.
+   A body that cannot fit the bounded connection buffer is answered with 413. *)
 let request_body conn ~deadline (req : Httpz.Req.t) =
-  if req.#is_chunked then `Length_required
-  else
-    let cl = I64.to_int req.#content_length in
-    let cl = if cl < 0 then 0 else cl in
-    let body_off = to_int req.#body_off in
-    if body_off + cl > read_capacity then `Too_large
-    else begin
-      if req.#expect_continue then conn.write [ Cstruct.of_string
-        continue_line ];
-      let body_end = body_off + cl in
-      let rec fill () =
-        if conn.read_len >= body_end then `Body (body_off, cl)
-        else
-          match read_more conn ~deadline with
-          | `Ok _ -> fill ()
-          | `Timeout -> `Timed_out
-          | `Eof | `Buffer_full -> `Incomplete
-      in
-      fill ()
-    end
+  if req.#unsupported_expectation
+  then `Expectation_failed
+  else (
+    if req.#expect_continue then
+      conn.write [ Cstruct.of_string continue_line ];
+    if req.#is_chunked
+    then request_chunked conn ~deadline req
+    else
+      let cl = I64.to_int req.#content_length in
+      let cl = if cl < 0 then 0 else cl in
+      let body_off = to_int req.#body_off in
+      if body_off + cl > read_capacity
+      then `Too_large
+      else (
+        let body_end = body_off + cl in
+        let rec fill () =
+          if conn.read_len >= body_end
+          then `Body (body_off, cl)
+          else
+            match read_more conn ~deadline with
+            | `Ok _ -> fill ()
+            | `Timeout -> `Timed_out
+            | `Eof | `Buffer_full -> `Incomplete
+        in
+        fill ()))
 
 (* [handle_request conn ~deadline ...] serves at most one request from the
    buffered bytes, and is `Continue, `Close or `Need_more. [deadline] is the
@@ -466,9 +523,10 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
         `Close
       in
       (match request_body conn ~deadline req with
-      | `Length_required ->
-          refuse St.Length_required "Length Required\n"
+      | `Expectation_failed ->
+          refuse St.Expectation_failed "Expectation Failed\n"
       | `Too_large -> refuse St.Payload_too_large "Payload Too Large\n"
+      | `Malformed -> refuse St.Bad_request "Bad Request\n"
       (* The request line parsed, so this timeout has a method and a target
          to report and the client is still in the exchange. *)
       | `Timed_out -> refuse St.Request_timeout "Request Timeout\n"
@@ -482,9 +540,24 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
             if body_len = 0 then "" else Bytes.sub_string buf body_off body_len
           in
           let preq =
-            Proffer.Req.v ~meth ~target ~headers:req_headers ~body ()
+            if
+              Httpz.Span.len req.#path = 0
+              &&
+              (match meth with
+              | Httpz.Method.Connect -> true
+              | Httpz.Method.Options -> String.equal target "*"
+              | _ -> false)
+            then Proffer.Req.v ~meth ~target ~headers:req_headers ~body ()
+            else (
+              let path =
+                if Httpz.Span.len req.#path = 0
+                then "/"
+                else Httpz.Span.to_string buf req.#path
+              in
+              let query = Httpz.Span.to_string buf req.#query in
+              Proffer.Req.v ~meth ~target ~path ~query ~headers:req_headers ~body ())
           in
-          let path = Proffer.Req.path preq in
+          let routed_path = Proffer.Req.path preq in
           (* The outcome reaches the writer at [local] and is written from
              inside [handle], so nothing about the response is ever a heap
              value here either. *)
@@ -507,7 +580,7 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
                 outcome
             with
             | body_size ->
-                emit ~path
+                emit ~path:routed_path
                   ?content_type:(field H.Content_type)
                   ?cache:(field H.X_cache)
                   outcome.Proffer.Backend.status body_size
@@ -519,7 +592,7 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
                   ~status:St.Internal_server_error message;
                 (* The handler's response never reached the wire, so none of it
                    is what was served. *)
-                emit ~path St.Internal_server_error (String.length
+                emit ~path:routed_path St.Internal_server_error (String.length
                   message)
           in
           let () = Proffer.Backend.handle ~on_error compiled env preq write in
@@ -533,6 +606,11 @@ let handle_request conn ~deadline ~addr_str ~compiled ~env ~on_event ~on_error =
       conn.keep_alive <- false;
       send_error conn ~version:Httpz.Version.Http_1_1
         ~status:St.Payload_too_large "Payload Too Large\n";
+      `Close
+  | Httpz.Buf_read.Unsupported_method ->
+      conn.keep_alive <- false;
+      send_error conn ~version:Httpz.Version.Http_1_1
+        ~status:St.Not_implemented "Not Implemented\n";
       `Close
   | _ ->
       conn.keep_alive <- false;

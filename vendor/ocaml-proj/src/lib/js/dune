@@ -1,0 +1,5 @@
+(library
+ (name projjs)
+ (implements proj)
+ (libraries proj_js)
+ (public_name proj.js))

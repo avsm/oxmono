@@ -1,0 +1,17 @@
+(test
+ (name test_fetch)
+ (package zarrz-fetch)
+ (libraries
+  zarrz
+  zarrz_fetch
+  fetch
+  fetch.mock
+  http
+  eio
+  eio_main
+  alcotest
+  jsont
+  jsont.bytesrw
+  base_bigstring
+  stdlib_stable
+  stdlib_upstream_compatible))

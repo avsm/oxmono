@@ -63,7 +63,8 @@ type t =
 (** {2 Limits} *)
 
 val max_hex_digits : int16# @@ portable
-(** Maximum hex digits in chunk size (16 = 64-bit max). *)
+(** Legacy chunk-size digit constant. Parsing is bounded by numeric value and
+    permits additional leading zeroes. *)
 
 val default_max_chunk_size : int @@ portable
 (** Default maximum chunk size: 16MB. *)
@@ -135,12 +136,15 @@ val is_forbidden_trailer : Header_name.t -> bool @@ portable
     - Cache-Control, Expect, etc. (must be in headers) *)
 
 val parse_trailers
-  :  bytes
+  :  ?max_trailer_size:int
+  -> bytes
   -> off:int16#
   -> len:int16#
   -> max_header_count:int16#
   -> #(trailer_status * int16# * Header.t list) @ local @@ portable
-(** [parse_trailers buf ~off ~len ~max_header_count] parses trailer headers.
+(** [parse_trailers ?max_trailer_size buf ~off ~len ~max_header_count] parses
+    trailer headers. [max_trailer_size] bounds the complete trailer section and
+    defaults to 16 KiB.
 
     Call after {!parse} returns {!Done}, using the [next_off] from the
     final chunk.

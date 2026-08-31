@@ -119,6 +119,28 @@ let () =
     (code (describe (fun respond -> Resp.bad_request respond ())) = 400)
 
 let () =
+  let contentless status expected_length =
+    let generated = ref false in
+    let r =
+      describe (fun respond ->
+          Resp.v respond ~status ~headers:Headers.empty ~content_type:Null
+            (Body.Delayed
+               {
+                 length = Some 9L;
+                 gen = (fun () -> generated := true; "forbidden");
+               }))
+    in
+    check "a contentless status suppresses its body"
+      (String.equal (Proffer_mock.body r) "");
+    check "a contentless status does not generate its body" (not !generated);
+    check "a contentless status has the right declared length"
+      (Proffer_mock.content_length r = expected_length)
+  in
+  contentless St.No_content None;
+  contentless St.Reset_content (Some 0L);
+  contentless St.Not_modified (Some 9L)
+
+let () =
   let hi = describe (fun respond -> Resp.html respond "hi") in
   check "a known name renders its canonical spelling"
     (List.mem_assoc "Content-Type" (Headers.to_list (Proffer_mock.headers hi)));
@@ -162,6 +184,12 @@ let () =
     (refused (fun respond ->
          Resp.v respond ~content_type:Null
            ~headers:[ Resp.other "" "1" ] Body.Empty));
+  List.iter
+    (fun name ->
+      check ("an application " ^ name ^ " is rejected")
+        (refused (fun respond ->
+             Resp.text respond ~headers:[ Resp.other name "invalid" ] "hello")))
+    [ "Content-Length"; "Transfer-Encoding"; "Connection" ];
   check "a content type with a newline is rejected"
     (refused (fun respond ->
          Resp.media respond "text/plain\r\nX-A: b" "hi"));

@@ -1,0 +1,31 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "zarr_conventions": [
+      {
+        "schema_url": "https://raw.githubusercontent.com/geo-embeddings/embeddings-zarr-convention/refs/tags/v1/schema.json",
+        "spec_url": "https://github.com/geo-embeddings/embeddings-zarr-convention/blob/v1/README.md",
+        "uuid": "61c12cc5-0e28-4056-999a-480cf3fb7e4c",
+        "name": "geoemb:",
+        "description": "Geoembeddings convention for geospatial embedding arrays with model provenance"
+      }
+    ],
+    "geoemb:type": "pixel",
+    "geoemb:dimensions": 64,
+    "geoemb:model": "https://arxiv.org/abs/2507.22291",
+    "geoemb:source_data": ["https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_SATELLITE_EMBEDDING_V1_ANNUAL"],
+    "geoemb:data_type": "int8",
+    "geoemb:gsd": 10.0,
+    "geoemb:quantization": {
+      "method": "linear",
+      "original_dtype": "float32",
+      "quantized_dtype": "int8",
+      "scale": {
+        "type": "scalar",
+        "scale": 0.0078125,
+        "offset": 0.0
+      }
+    }
+  }
+}

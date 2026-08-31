@@ -1,0 +1,77 @@
+(lang dune 3.21)
+(name zarrz)
+
+(generate_opam_files true)
+
+(cram enable)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-zarrz))
+
+(package
+ (name zarrz)
+ (synopsis "Zarr V3 chunked N-dimensional arrays for OxCaml")
+ (description
+  "Reads and writes Zarr V3 hierarchies with unboxed, zero-allocation
+access to decoded chunk values. The core is store-agnostic. Companion
+packages provide Eio filesystem and HTTP stores.")
+ (depends
+  (ocaml (>= 5.2.0))
+  base64
+  jsont
+  base_bigstring
+  decompress
+  checkseum
+  zstdz
+  bloscz
+  (odoc :with-doc)
+  (alcotest :with-test)))
+
+(package
+ (name zarrz-eio)
+ (synopsis "Eio filesystem store for zarrz")
+ (depends
+  (ocaml (>= 5.2.0))
+  (zarrz (= :version))
+  (eio (>= 1.3))
+  cstruct
+  optint
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))
+  (eio_main :with-test)))
+
+(package
+ (name zarrz-cli)
+ (synopsis "Inspect Zarr V3 stores")
+ (description
+  "The zarr command reads the metadata of a local or remote Zarr V3
+store and prints what is in it, what one node is, and what it costs to
+read. Consolidated metadata makes the whole hierarchy one request.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (zarrz (= :version))
+  (zarrz-eio (= :version))
+  (zarrz-fetch (= :version))
+  base_bigstring
+  fetch-curl
+  eio_main
+  cmdliner
+  jsont
+  (odoc :with-doc)
+  (alcotest :with-test)))
+
+(package
+ (name zarrz-fetch)
+ (synopsis "HTTP store for zarrz over the fetch client")
+ (depends
+  (ocaml (>= 5.2.0))
+  (zarrz (= :version))
+  (eio (>= 1.3))
+  fetch
+  cstruct
+  (http :with-test)
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))
+  (eio_main :with-test)))

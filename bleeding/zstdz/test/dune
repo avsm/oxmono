@@ -1,0 +1,4 @@
+(test
+ (name test_zstdz)
+ (package zstdz)
+ (libraries zstdz base_bigstring alcotest stdlib_upstream_compatible))

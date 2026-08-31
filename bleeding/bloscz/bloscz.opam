@@ -16,6 +16,7 @@ bug-reports: "https://tangled.org/anil.recoil.org/ocaml-bloscz/issues"
 depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.2.0"}
+  "dune-configurator"
   "base_bigstring"
   "odoc" {with-doc}
   "alcotest" {with-test}

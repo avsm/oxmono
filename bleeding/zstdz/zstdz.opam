@@ -14,6 +14,7 @@ bug-reports: "https://tangled.org/anil.recoil.org/ocaml-zstdz/issues"
 depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.2.0"}
+  "dune-configurator"
   "conf-zstd"
   "base_bigstring"
   "odoc" {with-doc}

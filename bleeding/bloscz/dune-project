@@ -20,6 +20,7 @@ already: Debian and Ubuntu call them libblosc1 and libblosc-dev,
 Homebrew and Nix call them c-blosc.")
  (depends
   (ocaml (>= 5.2.0))
+  dune-configurator
   base_bigstring
   (odoc :with-doc)
   (alcotest :with-test)))

@@ -18,6 +18,7 @@ stack-allocated results, and the runtime lock is released around the
 larger calls.")
  (depends
   (ocaml (>= 5.2.0))
+  dune-configurator
   conf-zstd
   base_bigstring
   (odoc :with-doc)

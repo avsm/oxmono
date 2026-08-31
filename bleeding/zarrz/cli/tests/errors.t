@@ -18,10 +18,10 @@ since a bare -1 is an option name.
 
   $ zarr stats ../../test/fixtures/hierarchy.zarr --sample=-1
   Usage: zarr stats [--help] [--json] [--sample=N] [OPTION]… STORE [PATH]
-  zarr: option --sample: -1 is negative
+  zarr: option '--sample': -1 is negative
   [124]
 
   $ zarr tree ../../test/fixtures/hierarchy.zarr --depth=-1
   Usage: zarr tree [--help] [--depth=N] [--json] [OPTION]… STORE [PATH]
-  zarr: option --depth: -1 is negative
+  zarr: option '--depth': -1 is negative
   [124]

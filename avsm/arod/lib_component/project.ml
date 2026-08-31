@@ -162,6 +162,9 @@ let full ~ctx proj =
   in
   (El.div ~at:[At.class' "mb-4 h-entry"] [
     El.h1 ~at:[At.class' "page-title text-xl font-semibold mb-3 p-name"] [El.txt (Project.title proj)];
+    Common.hidden_author_hcard ~ctx;
+    Common.hidden_dt_published (Bushel.Entry.date (`Project proj));
+    Common.hidden_entry_meta ~ctx (`Project proj);
     El.div ~at:[At.class' "e-content"] [logo_el; El.unsafe_raw body_html];
     ideas_section;
     activity_section], sidenotes)
@@ -221,8 +224,9 @@ let projects_list ~ctx =
     let first, _ = Bushel.Util.first_and_last_hunks body in
     let summary_html = El.unsafe_raw (Arod.Md.to_plain_html ~ctx first) in
     let tags_el = Common.card_tags (Project.tags proj) in
-    El.div ~at:[At.class' "proj-card not-prose"] [
-      Common.card_header ~prompt:">_" ~title:proj.Project.title
+    El.div ~at:[At.class' "proj-card not-prose h-entry"] [
+      Common.card_header ~title_cls:"p-name u-url"
+        ~prompt:">_" ~title:proj.Project.title
         ~href:("/projects/" ^ project_slug)
         (El.span ~at:[At.class' "proj-card-date"] [El.txt date_range]);
       El.div ~at:[At.class' "proj-card-body"] [
@@ -237,7 +241,8 @@ let projects_list ~ctx =
     El.a ~at:[At.href "https://eeg.zulipchat.com"] [El.txt "EEG Zulip"];
     El.txt " which is open for registration, so feel free to sign up and get involved."]
   in
-  let article = El.article [
+  let article = El.article ~at:[At.class' "h-feed"] [
+    Common.hidden_feed_meta ~ctx "Projects";
     intro;
     El.div ~at:[At.class' "proj-grid"] cards]
   in

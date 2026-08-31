@@ -43,13 +43,14 @@ let heading ~ctx ent =
     in
     let display_title = Bushel.Entry.title ent in
     El.h2 ~at:[At.class' "text-xl font-semibold mb-2"] [
-      El.a ~at:[At.href (Bushel.Entry.site_url ent)] [
+      El.a ~at:[At.href (Bushel.Entry.site_url ent); At.class' "p-name u-url"] [
         El.txt display_title];
       El.txt " "; via_el;
       El.span ~at:[At.class' "text-sm text-secondary"] [
         El.txt " / ";
         (let (y, m, d) = Bushel.Entry.date ent in
-         El.time ~at:[At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+         El.time ~at:[At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d);
+                      At.class' "dt-published"]
            [El.txt (Common.ptime_date_short (y, m, d))])];
       doi_el]
 
@@ -93,9 +94,13 @@ let full_page ~ctx n =
     | None -> []
   in
   let dt_el = El.time ~at:[At.v "datetime" datetime_str; At.class' "dt-published hidden"] [El.txt date_str] in
+  let dt_upd_el = match n.Note.updated with
+    | Some d -> [Common.hidden_dt_updated d]
+    | None -> []
+  in
   let header_el =
     El.header ~at:[At.id "intro"; At.class' "mb-6"]
-      ([title_el; tags_el; dt_el] @ synopsis_el)
+      ([title_el; tags_el; dt_el] @ dt_upd_el @ synopsis_el)
   in
   let body = Note.body n in
   let body_with_ref = match Note.slug_ent n with
@@ -117,10 +122,11 @@ let full_page ~ctx n =
           icons
   in
   let hidden_author = Common.hidden_author_hcard ~ctx in
+  let hidden_meta = Common.hidden_entry_meta ~ctx ?doi:(Note.doi n) (`Note n) in
   let article_el =
     El.article ~at:[At.class' "e-content"] [El.unsafe_raw body_html; discuss_el]
   in
-  (El.div ~at:[At.class' "h-entry"] [header_el; hidden_author; article_el], sidenotes, headings)
+  (El.div ~at:[At.class' "h-entry"] [header_el; hidden_author; hidden_meta; article_el], sidenotes, headings)
 
 (** [format_number n] is [n] with comma thousands separators. *)
 let format_number n =
@@ -155,7 +161,7 @@ let compact ?(cls="") ~ctx note =
     | tags ->
       El.div ~at:[At.class' "note-compact-tags"] (
         List.map (fun t ->
-          El.a ~at:[At.class' "note-tag-chip"; At.v "data-tag" t;
+          El.a ~at:[At.class' "note-tag-chip p-category"; At.v "data-tag" t;
                     At.href ("#tag=" ^ t)]
             [El.txt ("#" ^ t)]
         ) tags)
@@ -321,6 +327,7 @@ let notes_list ~ctx =
   ) months in
   let article =
     El.article ~at:[At.class' "h-feed"] [
+      Common.hidden_feed_meta ~ctx "Notes";
       El.div ~at:[At.class' "notes-split"] [
         weeknote_ledger ~ctx weeknotes;
         El.div ~at:[At.class' "notes-journal min-w-0"] month_sections]]

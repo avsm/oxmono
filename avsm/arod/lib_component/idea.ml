@@ -14,11 +14,14 @@ module I = Arod.Icons
 (** [heading ~ctx ent] is the linked heading of [ent]. *)
 let heading ~ctx:_ ent =
   El.h2 ~at:[At.class' "text-xl font-semibold mb-2"] [
-    El.a ~at:[At.href (Bushel.Entry.site_url ent)] [
+    El.a ~at:[At.href (Bushel.Entry.site_url ent); At.class' "p-name u-url"] [
       El.txt (Bushel.Entry.title ent)];
     El.span ~at:[At.class' "text-sm text-secondary"] [
       El.txt " / ";
-      El.txt (Common.ptime_date_short (Bushel.Entry.date ent))]]
+      (let (y, m, d) = Bushel.Entry.date ent in
+       El.time ~at:[At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d);
+                    At.class' "dt-published"]
+         [El.txt (Common.ptime_date_short (y, m, d))])]]
 
 let status_class = function
   | Idea.Available -> "font-medium text-st-avail"
@@ -175,7 +178,8 @@ let full_page ~ctx i =
   in
   let hidden_author = Common.hidden_author_hcard ~ctx in
   let published_dt = Common.hidden_dt_published (Bushel.Entry.date (`Idea i)) in
-  (El.div ~at:[At.class' "h-entry"] [header_el; hidden_author; published_dt; article_el; activity_el], sidenotes, headings)
+  let hidden_meta = Common.hidden_entry_meta ~ctx (`Idea i) in
+  (El.div ~at:[At.class' "h-entry"] [header_el; hidden_author; published_dt; hidden_meta; article_el; activity_el], sidenotes, headings)
 
 (** [compact ~ctx i] is a compact list card for [i]. *)
 let compact ~ctx idea =
@@ -561,6 +565,7 @@ let ideas_list ~ctx =
                the ideas offered previously."]
   in
   El.article ~at:[At.class' "h-feed"; At.v "data-idea-index" ""] [
+    Common.hidden_feed_meta ~ctx "Research Ideas";
     intro; band;
     El.div ~at:[At.class' "idea-grid not-prose"] groups;
     empty]

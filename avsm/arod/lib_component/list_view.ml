@@ -63,12 +63,15 @@ let entry_heading ~ctx:_ ent =
       | _ -> El.void
     in
     El.h2 ~at:[At.class' "text-xl font-semibold mb-2"] [
-      El.a ~at:[At.href (Bushel.Entry.site_url ent)] [
+      El.a ~at:[At.href (Bushel.Entry.site_url ent); At.class' "p-name u-url"] [
         El.txt (Bushel.Entry.title ent)];
       El.txt " "; via_el;
       El.span ~at:[At.class' "text-sm text-secondary"] [
         El.txt " / ";
-        El.txt (Common.ptime_date_short (Bushel.Entry.date ent))];
+        (let (y, m, d) = Bushel.Entry.date ent in
+         El.time ~at:[At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d);
+                      At.class' "dt-published"]
+           [El.txt (Common.ptime_date_short (y, m, d))])];
       doi_el]
 
 (** {1 Tags Metadata} *)
@@ -88,7 +91,7 @@ let tags_meta ~ctx ent =
         let tag_str = Bushel.Tags.to_raw_string tag in
         El.a ~at:[At.v "data-tag" tag_str;
                   At.href ("#tag=" ^ tag_str);
-                  At.class' "text-xs text-secondary"] [
+                  At.class' "text-xs text-secondary p-category"] [
           El.span ~at:[At.class' "hash-prefix opacity-50"] [El.txt "#"];
           El.txt tag_str]
       ) tags in
@@ -111,7 +114,7 @@ let render_entry ~ctx ent =
     | `Idea i -> fst (Idea.brief ~ctx i)
     | `Project p -> fst (Project.for_feed ~ctx p)
   in
-  El.div [entry_html; tags_meta ~ctx ent]
+  El.div ~at:[At.class' "h-entry"] [entry_html; tags_meta ~ctx ent]
 
 (** Render an entry for feed view. *)
 let render_feed ~ctx ent =
@@ -122,7 +125,8 @@ let render_feed ~ctx ent =
     | `Idea i -> fst (Idea.for_feed ~ctx i)
     | `Project p -> fst (Project.for_feed ~ctx p)
   in
-  El.div [entry_heading ~ctx ent; entry_html; tags_meta ~ctx ent]
+  El.div ~at:[At.class' "h-entry"]
+    [entry_heading ~ctx ent; entry_html; tags_meta ~ctx ent]
 
 (** {1 Page Functions} *)
 

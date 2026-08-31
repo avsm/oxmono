@@ -108,7 +108,9 @@ let videos_list ~ctx =
     compare (Video.date b) (Video.date a)
   ) talks in
   let cards = List.map (fun v -> video_card ~ctx v) talks in
-  El.article ~at:[At.class' "h-feed"] [El.div ~at:[At.class' "vid-grid"] cards]
+  El.article ~at:[At.class' "h-feed"]
+    [Common.hidden_feed_meta ~ctx "Talks";
+     El.div ~at:[At.class' "vid-grid"] cards]
 
 (** [full_page ~ctx v] is the article and sidebar for [v]. *)
 let full_page ~ctx v =
@@ -120,10 +122,11 @@ let full_page ~ctx v =
   let tags_el = Common.detail_tags (Video.tags v) in
   let hidden_author = Common.hidden_author_hcard ~ctx in
   let hidden_dt = Common.hidden_dt_published (y, m, d) in
+  let hidden_meta = Common.hidden_entry_meta ~ctx (`Video v) in
   let article = El.div ~at:[At.class' "h-entry"] [
     Common.page_title ~cls:"page-title text-xl font-semibold mb-1 p-name"
       (Video.title v);
-    hidden_author; hidden_dt;
+    hidden_author; hidden_dt; hidden_meta;
     tags_el;
     El.div ~at:[At.class' "vid-embed mb-6"] [El.unsafe_raw embed_html];
     El.div ~at:[At.class' "e-content p-summary"] [El.unsafe_raw desc_html]]
@@ -207,12 +210,14 @@ let brief ~ctx v =
   let heading =
     let y, m, _ = Video.date v in
     El.h2 ~at:[At.class' "text-xl font-semibold mb-2"] [
-      El.a ~at:[At.href (Bushel.Entry.site_url (`Video v))] [
+      El.a ~at:[At.href (Bushel.Entry.site_url (`Video v));
+                At.class' "p-name u-url"] [
         El.txt (Video.title v)];
       El.span ~at:[At.class' "text-sm text-secondary"] [
         El.txt " / ";
-        El.txt (Printf.sprintf "%s %4d"
-          (Common.month_name m) y)]]
+        El.time ~at:[At.v "datetime" (Printf.sprintf "%04d-%02d" y m);
+                     At.class' "dt-published"]
+          [El.txt (Printf.sprintf "%s %4d" (Common.month_name m) y)]]]
   in
   let body = [
     heading;

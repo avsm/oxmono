@@ -142,7 +142,8 @@ let card ~ctx paper =
   let content =
     El.div ~at:[At.class' "flex-1 min-w-0"] [
       El.p ~at:[At.class' "font-semibold leading-snug"] [
-        El.a ~at:[At.href (Bushel.Entry.site_url (`Paper paper))] [El.txt (Paper.title paper)]];
+        El.a ~at:[At.href (Bushel.Entry.site_url (`Paper paper));
+                  At.class' "p-name u-url"] [El.txt (Paper.title paper)]];
       El.p ~at:[At.class' "text-sm text-secondary leading-snug mt-0.5"]
         [authors ~ctx paper; El.txt "."];
       El.p ~at:[At.class' "text-sm text-secondary"]
@@ -252,9 +253,13 @@ let full ~ctx paper =
     else (img_el, [])
   in
   let abstract_el, sidenotes = abstract_with_img in
+  let hidden_meta =
+    Common.hidden_entry_meta ~ctx ?doi:(Paper.doi paper) (`Paper paper)
+  in
   (El.div ~at:[At.class' "h-entry"] [
     Common.page_title (Paper.title paper);
     citation_el;
+    hidden_meta;
     links_and_tags;
     abstract_el], sidenotes)
 
@@ -427,7 +432,8 @@ let papers_list ~ctx =
       El.div ~at:[At.class' "note-month-list"] paper_cards]
   ) years in
   let article =
-    El.article ~at:[At.class' "h-feed"] [El.div year_sections]
+    El.article ~at:[At.class' "h-feed"]
+      [Common.hidden_feed_meta ~ctx "Papers"; El.div year_sections]
   in
   let filter_box = classification_filter_box ~total ~counts in
   let first_year = match years with

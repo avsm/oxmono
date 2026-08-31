@@ -206,6 +206,41 @@ let hidden_dt_published (y, m, d) =
   El.time ~at:[At.class' "dt-published"; At.v "datetime" iso;
                At.v "style" "display:none"] [El.txt iso]
 
+let hidden_dt_updated (y, m, d) =
+  let iso = Printf.sprintf "%04d-%02d-%02d" y m d in
+  El.time ~at:[At.class' "dt-updated"; At.v "datetime" iso;
+               At.v "style" "display:none"] [El.txt iso]
+
+(** [hidden_entry_meta ~ctx ?doi ent] is the hidden microformat identity of
+    [ent]: its canonical URL as [u-url], its DOI or canonical URL as
+    [u-uid], and its thumbnail as [u-featured]. Parsers only read these
+    inside an [h-entry], so callers place it in the entry wrapper. *)
+let hidden_entry_meta ~ctx ?doi ent =
+  let cfg = Arod.Ctx.config ctx in
+  let abs = cfg.site.base_url ^ Bushel.Entry.site_url ent in
+  let url_els = match doi with
+    | Some d ->
+      [El.a ~at:[At.class' "u-url"; At.href abs] [El.txt abs];
+       El.a ~at:[At.class' "u-uid"; At.href ("https://doi.org/" ^ d)]
+         [El.txt d]]
+    | None ->
+      [El.a ~at:[At.class' "u-url u-uid"; At.href abs] [El.txt abs]]
+  in
+  let featured = match Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) ent with
+    | Some t ->
+      [El.a ~at:[At.class' "u-featured"; At.href (cfg.site.base_url ^ t)]
+         [El.txt "image"]]
+    | None -> []
+  in
+  El.span ~at:[At.v "style" "display:none"] (url_els @ featured)
+
+(** [hidden_feed_meta ~ctx name] is the hidden [p-name] and [p-author] of an
+    [h-feed] container, which parsers cannot infer on their own. *)
+let hidden_feed_meta ~ctx name =
+  El.span ~at:[At.v "style" "display:none"] [
+    El.span ~at:[At.class' "p-name"] [El.txt name];
+    hidden_author_hcard ~ctx]
+
 (** {1 Shared Card Helpers} *)
 
 let card_header ?(title_cls="") ~prompt ~title ~href meta =
@@ -231,7 +266,7 @@ let card_tags tags =
   else
     El.div ~at:[At.class' "proj-card-tags"]
       (List.map (fun t ->
-        El.a ~at:[At.class' "proj-card-tag"; At.v "data-tag" t;
+        El.a ~at:[At.class' "proj-card-tag p-category"; At.v "data-tag" t;
                   At.href ("#tag=" ^ t)] [El.txt t]
       ) tags)
 

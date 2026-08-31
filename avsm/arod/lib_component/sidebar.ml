@@ -428,7 +428,7 @@ let contact_inline ~ctx contact =
 (** [social_icon_links ~size social] is the linked icon list for [social]. *)
 let social_icon_links ~size (soc : Bushel.Types.social) =
   let icon_link ~icon ~label urls = List.map (fun url ->
-    El.a ~at:[At.href url; At.class' "no-underline social-icon text-text opacity-70 hover:opacity-100";
+    El.a ~at:[At.href url; At.class' "no-underline social-icon text-text opacity-70 hover:opacity-100 u-syndication";
              At.v "title" label; At.v "rel" "noopener"]
       [El.unsafe_raw icon]
   ) urls in

@@ -2560,6 +2560,23 @@ let custom_css = {|
   border: 1px solid var(--color-border);
   background: none;
 }
+/* Too narrow to keep the counts beside the title. Sharing the row leaves the
+   title a column so thin it breaks to two words a line, which is what a long
+   project name does on a phone. Title, then what working on it involves,
+   then the counts, all indented under the title. The width is the one the
+   contents switches at, so the page has one fewer breakpoint to keep. */
+@media (max-width: 40rem) {
+  .idea-group-head { grid-template-columns: auto minmax(0, 1fr); }
+  .idea-group-title { grid-row: 1; }
+  .idea-group-note { grid-column: 2; grid-row: 2; }
+  .idea-group-tail {
+    grid-column: 2;
+    grid-row: 3;
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+    margin-top: 0.35rem;
+  }
+}
 /* Ideas index — the status of an idea as a colour a card can draw with. A
    card, the line of a finished idea and the count on a project heading all
    read from this palette, so none of them can disagree about a status. */

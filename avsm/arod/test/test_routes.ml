@@ -180,7 +180,8 @@ let () =
      page-shaped stub. *)
   check "a markdown Accept picks the markdown variant"
     (body (get ~headers:[ ("Accept", "text/markdown") ] "/")
-    = "# Index\n\nHello from the index.\n\n---\nCanonical: https://example.com\n");
+    = "# Index\n\nHello from the index.\n\n---\nCanonical: https://example.com\n\
+       License: CC BY 4.0 <https://creativecommons.org/licenses/by/4.0/>\n");
   check "a negotiated response varies on Accept"
     (header (get "/") H.Vary = Some "Accept");
   check "a .md URL is the markdown variant"

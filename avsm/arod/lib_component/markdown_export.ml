@@ -35,11 +35,14 @@ let tags_line ~ctx ent =
     let strs = List.map Bushel.Tags.to_string tags in
     "Tags: " ^ String.concat ", " strs ^ "\n"
 
+let license_line =
+  "License: CC BY 4.0 <https://creativecommons.org/licenses/by/4.0/>\n"
+
 let footer ~ctx ent =
   let url = entry_url ~ctx ent in
   let type_str = Entry.to_type_string ent in
-  Printf.sprintf "\n---\nCanonical: %s\nType: %s\n%s"
-    url type_str (tags_line ~ctx ent)
+  Printf.sprintf "\n---\nCanonical: %s\nType: %s\n%s%s"
+    url type_str license_line (tags_line ~ctx ent)
 
 let social_links (s : Bushel.Types.social) =
   let add label urls acc =
@@ -210,8 +213,8 @@ let entry_to_markdown ~ctx ent =
 
 let list_header ~ctx ~title ~description ~path =
   let base = Arod.Ctx.base_url ctx in
-  let footer = Printf.sprintf "\n---\nCanonical: %s%s\nFeeds: [Atom](%s/news.xml), [JSON](%s/feed.json)\n"
-    base path base base
+  let footer = Printf.sprintf "\n---\nCanonical: %s%s\nFeeds: [Atom](%s/news.xml), [JSON](%s/feed.json)\n%s"
+    base path base base license_line
   in
   (Printf.sprintf "# %s\n\n%s\n\n" title description, footer)
 
@@ -345,7 +348,7 @@ let links_list_md ~ctx =
     ) links in
     Printf.sprintf "- **[%s](%s)**\n%s" title url (String.concat "\n" link_lines)
   ) groups in
-  let footer = Printf.sprintf "\n---\nCanonical: %s/links\n" base in
+  let footer = Printf.sprintf "\n---\nCanonical: %s/links\n%s" base license_line in
   header ^ String.concat "\n" sections ^ "\n" ^ footer
 
 let network_md ~ctx =
@@ -414,7 +417,7 @@ let network_md ~ctx =
       Printf.sprintf "- **%s**: %s%s%s" name title date_line links_line
   ) feed_items in
   let feed_section = "## Timeline\n\n" ^ String.concat "\n" feed_lines ^ "\n" in
-  let footer = Printf.sprintf "\n---\nCanonical: %s/network\n" base in
+  let footer = Printf.sprintf "\n---\nCanonical: %s/network\n%s" base license_line in
   header ^ blogroll_section ^ feed_section ^ footer
 
 let index_md ~ctx =
@@ -425,4 +428,5 @@ let index_md ~ctx =
     let body = Entry.body ent in
     let base = Arod.Ctx.base_url ctx in
     let body_md = if body <> "" then render_body ~ctx body else "" in
-    Printf.sprintf "# %s\n\n%s\n\n---\nCanonical: %s\n" title body_md base
+    Printf.sprintf "# %s\n\n%s\n\n---\nCanonical: %s\n%s" title body_md base
+      license_line

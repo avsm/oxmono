@@ -8,7 +8,9 @@ module N = Bushel.Note
 module C = Sortal_schema.Contact
 module X = Syndic.Atom
 
-let anil_copyright = "(c) 1998-2026 Anil Madhavapeddy, all rights reserved"
+let anil_copyright =
+  "(c) 1998-2026 Anil Madhavapeddy, licensed under CC BY 4.0 \
+   <https://creativecommons.org/licenses/by/4.0/>"
 
 let author c =
   let uri = Option.map Syndic.XML.uri_of_string (C.best_url c) in

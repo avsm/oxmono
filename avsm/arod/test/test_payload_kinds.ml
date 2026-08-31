@@ -396,6 +396,7 @@ let () =
           "Canonical: http://localhost:8080/notes";
           "Feeds: [Atom](http://localhost:8080/news.xml), \
            [JSON](http://localhost:8080/feed.json)";
+          "License: CC BY 4.0 <https://creativecommons.org/licenses/by/4.0/>";
           "";
         ]);
   check "and an entry page through the same context"
@@ -410,6 +411,7 @@ let () =
           "---";
           "Canonical: http://localhost:8080/notes/hello-note";
           "Type: note";
+          "License: CC BY 4.0 <https://creativecommons.org/licenses/by/4.0/>";
           "";
         ]);
   check "a video watch URL is rewritten to an embed URL portably"

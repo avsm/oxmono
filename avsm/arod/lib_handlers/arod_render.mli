@@ -50,7 +50,10 @@ val feed : ctx:Arod.Ctx.t -> feed -> string
 (** [feed ~ctx which] is the feed [which]. *)
 
 val sitemap : ctx:Arod.Ctx.t -> string @@ portable
-(** [sitemap ~ctx] is the XML sitemap of every entry. *)
+(** [sitemap ~ctx] is the XML sitemap of every entry and listing page. *)
+
+val llms_txt : ctx:Arod.Ctx.t -> string @@ portable
+(** [llms_txt ~ctx] is the llms.txt index of every entry's Markdown twin. *)
 
 val blogroll : ctx:Arod.Ctx.t -> string @@ portable
 (** [blogroll ~ctx] is the OPML blogroll of every contact that has a feed. *)

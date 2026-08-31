@@ -186,6 +186,9 @@ let robots_txt env _req respond =
     (Printf.sprintf "User-agent: *\nAllow: /\n\nSitemap: %s/sitemap.xml\n"
        env.E.config.site.base_url)
 
+let llms_txt env _req respond =
+  Resp.media respond markdown_type (Render.llms_txt ~ctx:env.E.ctx)
+
 let well_known key env _req respond =
   match
     List.find_opt

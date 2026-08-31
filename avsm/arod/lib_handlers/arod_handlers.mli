@@ -110,6 +110,9 @@ val blogroll_opml : handler @@ portable
 val robots_txt : handler @@ portable
 (** [robots_txt] allows every crawler and points at the sitemap. *)
 
+val llms_txt : handler @@ portable
+(** [llms_txt] is the llms.txt index of every entry's Markdown twin. *)
+
 val well_known : string -> handler @@ portable
 (** [well_known key] is the configured value under [key], and a 404 when the
     configuration names no such key. *)

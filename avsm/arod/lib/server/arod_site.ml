@@ -99,6 +99,7 @@ let routes =
     (* Machine-readable pages *)
     get (s "sitemap.xml" /? nil) H.sitemap;
     get (s "robots.txt" /? nil) H.robots_txt;
+    get (s "llms.txt" /? nil) H.llms_txt;
     get (s ".well-known" / str /? nil) H.well_known;
     get (s "search" /? nil) H.search_page;
     (* JSON APIs *)

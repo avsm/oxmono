@@ -361,7 +361,66 @@ let sitemap ~ctx =
     let loc = cfg.site.base_url ^ Entry.site_url ent in
     Sitemap.v ~lastmod loc
   in
-  List.map url_of_entry all_feed |> Sitemap.output
+  (* A listing changes when its newest entry does, so that entry's date is
+     its lastmod. [all_feed] is sorted newest first. *)
+  let listing_url path kind =
+    let loc = cfg.site.base_url ^ path in
+    match List.find_opt kind all_feed with
+    | Some ent -> Sitemap.v ~lastmod:(Entry.date ent) loc
+    | None -> Sitemap.v loc
+  in
+  let listings = [
+    listing_url "/" (fun _ -> true);
+    listing_url "/papers" (function `Paper _ -> true | _ -> false);
+    listing_url "/notes" (function `Note _ -> true | _ -> false);
+    listing_url "/ideas" (function `Idea _ -> true | _ -> false);
+    listing_url "/projects" (function `Project _ -> true | _ -> false);
+    listing_url "/videos" (function `Video _ -> true | _ -> false);
+    Sitemap.v (cfg.site.base_url ^ "/links");
+    Sitemap.v (cfg.site.base_url ^ "/network");
+  ] in
+  listings @ List.map url_of_entry all_feed |> Sitemap.output
+
+(* The llms.txt convention from llmstxt.org: an H1, a blockquote summary,
+   then H2 sections of markdown links. Every entry links its Markdown twin
+   rather than the HTML page. *)
+let llms_txt ~ctx =
+  let cfg = Arod.Ctx.config ctx in
+  let base = cfg.site.base_url in
+  let buf = Buffer.create 65536 in
+  Printf.bprintf buf "# %s\n\n> %s\n\n" cfg.site.name cfg.site.description;
+  Printf.bprintf buf
+    "Every page on this site has a Markdown twin at the same URL with .md \
+     appended. The front page is %s/index.md. Feeds: Atom %s/news.xml and \
+     JSON Feed %s/feed.json. License: CC BY 4.0 \
+     <https://creativecommons.org/licenses/by/4.0/>.\n"
+    base base base;
+  let all_feed =
+    Arod.Ctx.all_entries ctx |> List.sort Entry.compare |> List.rev
+  in
+  let section title kind =
+    match List.filter kind all_feed with
+    | [] -> ()
+    | ents ->
+      Printf.bprintf buf "\n## %s\n\n" title;
+      List.iter (fun ent ->
+        let url = base ^ Entry.site_url ent ^ ".md" in
+        let (y, m, d) = Entry.date ent in
+        match Entry.synopsis ent with
+        | Some s when s <> "" ->
+          Printf.bprintf buf "- [%s](%s): %s (%04d-%02d-%02d)\n"
+            (Entry.title ent) url s y m d
+        | _ ->
+          Printf.bprintf buf "- [%s](%s) (%04d-%02d-%02d)\n"
+            (Entry.title ent) url y m d
+      ) ents
+  in
+  section "Notes" (function `Note _ -> true | _ -> false);
+  section "Papers" (function `Paper _ -> true | _ -> false);
+  section "Talks" (function `Video _ -> true | _ -> false);
+  section "Projects" (function `Project _ -> true | _ -> false);
+  section "Research Ideas" (function `Idea _ -> true | _ -> false);
+  Buffer.contents buf
 
 let blogroll ~ctx =
   let module Contact = Sortal_schema.Contact in

@@ -3,8 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Video entry type for Bushel *)
-
 type t = {
   slug : string;
   title : string;
@@ -22,14 +20,11 @@ type t = {
 
 type ts = t list
 
-(** {1 Accessors} *)
-
 let slug { slug; _ } = slug
 let title { title; _ } = title
 let uuid { uuid; _ } = uuid
 let url { url; _ } = url
 let description { description; _ } = description
-let body = description  (* Alias for consistency *)
 let talk { talk; _ } = talk
 let vertical { vertical; _ } = vertical
 let paper { paper; _ } = paper
@@ -40,16 +35,7 @@ let social { social; _ } = social
 let date { published_date; _ } = Ptime.to_date published_date
 let datetime { published_date; _ } = published_date
 
-(** {1 Comparison} *)
-
 let compare a b = Ptime.compare b.published_date a.published_date
-
-(** {1 Lookup} *)
-
-let lookup videos uuid = List.find_opt (fun v -> v.uuid = uuid) videos
-let lookup_by_slug videos slug = List.find_opt (fun v -> v.slug = slug) videos
-
-(** {1 Jsont Codec} *)
 
 let jsont : t Jsont.t =
   let open Jsont in
@@ -74,42 +60,11 @@ let jsont : t Jsont.t =
        ~enc_omit:Option.is_none ~enc:(fun v -> v.social)
   |> finish
 
-(** {1 Parsing} *)
-
 let of_frontmatter (fm : Frontmatter.t) : (t, string) result =
   match Frontmatter.decode jsont fm with
   | Error e -> Error e
   | Ok v ->
-    Ok { v with
-         slug = v.uuid;
-         description = Frontmatter.body fm }
-
-(** {1 YAML Serialization} *)
-
-let to_yaml t =
-  let open Yamlrw.Util in
-  let fields = [
-    ("title", string t.title);
-    ("description", string t.description);
-    ("url", string t.url);
-    ("uuid", string t.uuid);
-    ("slug", string t.slug);
-    ("published_date", string (Ptime.to_rfc3339 t.published_date));
-    ("talk", bool t.talk);
-    ("vertical", bool t.vertical);
-    ("tags", strings t.tags);
-  ] in
-  let fields = match t.paper with
-    | None -> fields
-    | Some p -> ("paper", string p) :: fields
-  in
-  let fields = match t.project with
-    | None -> fields
-    | Some p -> ("project", string p) :: fields
-  in
-  obj fields
-
-(** {1 Pretty Printing} *)
+    Ok { v with slug = v.uuid; description = Frontmatter.body fm }
 
 let pp ppf v =
   let open Fmt in

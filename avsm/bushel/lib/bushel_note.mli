@@ -3,12 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Note entry type for Bushel.
-
-    A note is a blog post, a weeknote, a permanent article carrying a DOI or a
-    news-style link post. Everything here is portable except
-    {!of_frontmatter} and {!pp}, which is what lets a renderer read a note
-    from inside a function marked [portable]. *)
+(** Notes, weeknotes and link posts. *)
 
 @@ portable
 
@@ -43,8 +38,7 @@ type t = {
       (** Path the note was loaded from, set by the loader rather than by
           frontmatter. *)
 }
-(** A note entry. The record is public because the loader builds one field by
-    field and the renderers read fields directly. *)
+(** A note entry. *)
 
 type ts = t list
 (** A list of notes, in load order. *)
@@ -52,8 +46,7 @@ type ts = t list
 (** {1 Accessors} *)
 
 val title : t -> string
-(** [title n] is the title of [n]. For a weeknote this is the title
-    {!of_frontmatter} rewrote to carry the week number. *)
+(** [title n] is the title of [n]. Weeknote titles include the week number. *)
 
 val slug : t -> string
 (** [slug n] is the slug of [n]. *)
@@ -125,25 +118,20 @@ val datetime : t -> Ptime.t
 (** [datetime n] is {!date} as a timestamp at midnight UTC. *)
 
 val origdate : t -> Ptime.t
-(** [origdate n] is the date of first publication of [n] as a timestamp,
-    ignoring any revision. Feeds order by this so that editing an old note
-    does not move it. *)
+(** [origdate n] is the first publication date of [n] at midnight UTC. *)
 
 (** {1 Weeknotes} *)
 
 val iso_week_number : Ptime.date -> int * int
 (** [iso_week_number d] is the ISO 8601 [(year, week)] of [d]. The year
-    differs from the calendar year for the days at a year boundary that ISO
-    8601 assigns to the neighbouring year. *)
+    may differ from the calendar year near a year boundary. *)
 
 val week_number : t -> int * int
 (** [week_number n] is [iso_week_number (date n)]. *)
 
 val week_date_range_string : t -> string
 (** [week_date_range_string n] is the Monday to Sunday span of the ISO week
-    of [n], written for a reader, as in ["Feb 3rd–7th"] within one month and
-    ["Mar 28th–Apr 4th"] across two. The separator is an en dash, which is
-    what the code emits. *)
+    of [n], such as ["Feb 3rd–7th"] or ["Mar 28th–Apr 4th"]. *)
 
 val adjacent_weeknotes : t list -> t -> t option * t option
 (** [adjacent_weeknotes notes n] is the weeknote before and the weeknote
@@ -159,10 +147,7 @@ val compare : t -> t -> int
 
 val link : t -> [> `Ext of string * string | `Local of string ]
 (** [link n] is [`Ext (label, url)] if [n] has an empty body and a [via]
-    field, and [`Local slug] otherwise. A feed points at the external URL for
-    the first and at the note itself for the second. The row is open because
-    a caller in [bushel_web] matches a third tag that this function never
-    returns.
+    field, and [`Local slug] otherwise.
 
     @raise Failure if [n] has an empty body and no [via] field, because such
     a note has nothing to point at. *)
@@ -171,10 +156,8 @@ val link : t -> [> `Ext of string * string | `Local of string ]
 
 val of_frontmatter : Frontmatter.t -> (t, string) result @@ nonportable
 (** [of_frontmatter fm] is the note described by [fm]. The slug and the date
-    default to those parsed from the file name. A weeknote has its date moved
-    to the Sunday of its ISO week and its title prefixed with the week
-    number, so that weeknotes sort and read consistently however they were
-    filed. *)
+    default to the file name. A weeknote is dated on Sunday and its title is
+    prefixed with the ISO week number. *)
 
 val pp : Format.formatter -> t -> unit @@ nonportable
 (** [pp ppf n] prints [n] to [ppf] as a styled multi-line summary. *)

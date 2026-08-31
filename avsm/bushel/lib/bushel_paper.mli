@@ -3,13 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Paper entry type for Bushel.
-
-    A paper is one version of one publication. A publication with several
-    versions has one entry per version, all sharing a slug, and {!tv} marks
-    the newest of them. Everything here is portable except {!of_frontmatter}
-    and {!pp}, which is what lets a renderer read a paper from inside a
-    function marked [portable]. *)
+(** Versioned publication entries. *)
 
 @@ portable
 
@@ -51,8 +45,7 @@ type t = {
   note : string option;
   social : Bushel_types.social option;
 }
-(** A paper entry. The record is public because the loader builds one field by
-    field and the renderers read fields directly. *)
+(** One version of a publication. *)
 
 type ts = t list
 (** A list of papers, in load order. *)
@@ -143,8 +136,7 @@ val social : t -> Bushel_types.social option
 
 val classification : t -> classification
 (** [classification p] is the recorded classification of [p]. When none was
-    recorded it is guessed from the bibtype, journal, booktitle and title, so
-    the answer can change when those change. *)
+    recorded it is inferred from the publication metadata. *)
 
 val date : t -> int * int * int
 (** [date p] is [(year, month, 1)]. A paper records no day. *)
@@ -152,15 +144,14 @@ val date : t -> int * int * int
 (** {1 Ordering} *)
 
 val compare : t -> t -> int
-(** [compare a b] orders by date, most recent first. A date that cannot be
-    represented counts as 1977-01-01. *)
+(** [compare a b] orders by date, most recent first. Invalid dates sort as
+    1977-01-01. *)
 
 (** {1 Versions and lookup} *)
 
 val tv : t list -> t list
 (** [tv ps] is [ps] with the [latest] field of each entry set, marking the
-    highest [ver] of each slug. The loader must call this before a lookup
-    will find anything. *)
+    greatest [ver] for each slug. *)
 
 val lookup : t list -> string -> t option
 (** [lookup ps slug] is the latest version of [slug] in [ps], or [None] if

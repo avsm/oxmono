@@ -3,7 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Paper component rendering using htmlit. *)
+(** Paper components. *)
 
 open Htmlit
 
@@ -11,7 +11,7 @@ module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
 module I = Arod.Icons
 
-(** Render a single author with optional link from contacts. *)
+(** [one_author ~ctx name] is a linked author when [name] is known. *)
 let one_author ~ctx author_name_str =
   match Arod.Ctx.lookup_by_name ctx author_name_str with
   | None ->
@@ -22,7 +22,7 @@ let one_author ~ctx author_name_str =
      | None -> El.span ~at:[At.class' "whitespace-nowrap"] [El.txt name]
      | Some url -> El.a ~at:[At.href url; At.class' "whitespace-nowrap"] [El.txt name])
 
-(** Render the full author list with commas and "and". *)
+(** [authors ~ctx paper] is the author list for [paper]. *)
 let authors ~ctx paper =
   let author_names = Paper.authors paper in
   let author_els = List.map (one_author ~ctx) author_names in
@@ -38,13 +38,13 @@ let authors ~ctx paper =
     let children = make_list els in
     El.span children
 
-(** Extract hostname without www. prefix from a URL. *)
+(** [host_without_www u] is the host of [u] without a [www.] prefix. *)
 let host_without_www u =
   match Common.url_host u with
   | Null -> ""
   | This h -> Common.strip_www h
 
-(** Render publisher description based on bibtype. *)
+(** [publisher paper] is the publication description for [paper]. *)
 let publisher paper =
   let bibty = Paper.bibtype paper in
   let ourl l = function
@@ -82,7 +82,7 @@ let publisher paper =
   in
   El.unsafe_raw result
 
-(** Render PDF/BIB/DOI/URL links inline with icons. *)
+(** [bar ~ctx paper] is the resource link bar for [paper]. *)
 let bar ~ctx ?(nopdf = false) paper =
   let cfg = Arod.Ctx.config ctx in
   let icon_link ~icon ~label ~href =
@@ -127,7 +127,7 @@ let bar ~ctx ?(nopdf = false) paper =
   let bits = [doi; bib; pdf; url_el] |> List.filter_map Fun.id in
   El.div ~at:[At.class' "flex items-center gap-4 flex-wrap text-sm mt-1"] bits
 
-(** Brief paper card for lists. *)
+(** [card ~ctx paper] is a list card for [paper]. *)
 let card ~ctx paper =
   let entries = Arod.Ctx.entries ctx in
   let thumb_el =
@@ -151,7 +151,7 @@ let card ~ctx paper =
   in
   El.div ~at:[At.class' "flex gap-4 items-start"] (content :: thumb_el)
 
-(** Prominent action pills for the detail page. *)
+(** [detail_bar ~ctx paper] is the detail-page link bar for [paper]. *)
 let detail_bar ~ctx paper =
   let cfg = Arod.Ctx.config ctx in
   let pill ~icon ~label ~href ~cls =
@@ -189,8 +189,7 @@ let detail_bar ~ctx paper =
   let bits = [pdf; bib; doi; url_el] |> List.filter_map Fun.id in
   El.div ~at:[At.class' "paper-action-pills"] bits
 
-(** Full paper view with abstract and image.
-    Metadata (authors, publisher, links) is now in the sidebar. *)
+(** [full ~ctx paper] is the full rendering of [paper]. *)
 let full ~ctx paper =
   let (y, m, _) = Paper.date paper in
   let img_el =
@@ -207,7 +206,6 @@ let full ~ctx paper =
     | None -> El.void
   in
   let abstract_text = Paper.abstract paper in
-  (* Venue line *)
   let venue = Common.venue_of_paper paper in
   let venue_el =
     if venue <> "" then
@@ -220,7 +218,6 @@ let full ~ctx paper =
   let date_el = El.time ~at:[At.v "datetime" (Printf.sprintf "%04d-%02d" y m);
                              At.class' "dt-published"]
     [El.txt date_str] in
-  (* Citation as normal paragraph *)
   let author_els_mf = List.map (fun name ->
     El.span ~at:[At.class' "p-author"] [El.txt name]
   ) (Paper.authors paper) in
@@ -236,17 +233,14 @@ let full ~ctx paper =
          [El.span ~at:[At.class' "paper-cite-authors"] [authors ~ctx paper];
           El.txt ". "; date_el; El.txt "."; hidden_authors])
   in
-  (* Action links — prominent pills with icons *)
   let action_links = detail_bar ~ctx paper in
-  (* Tags *)
-  let all_tags = Arod.Ctx.tags_of_ent ctx (`Paper paper) in
+  let all_tags = Bushel.Entry.tags_of_ent (`Paper paper) in
   let tags_el = Common.detail_tags (List.map Bushel.Tags.to_raw_string all_tags) in
   let links_and_tags =
     El.div ~at:[At.class' "paper-detail-actions"] [
       action_links;
       tags_el]
   in
-  (* Float image right so abstract flows around it *)
   let abstract_with_img =
     if abstract_text <> "" then
       let html, sns = Arod.Md.to_html ~ctx abstract_text in
@@ -264,7 +258,7 @@ let full ~ctx paper =
     links_and_tags;
     abstract_el], sidenotes)
 
-(** Render older versions section using the same activity-row style as Related. *)
+(** [extra ~ctx paper] is the older-versions section for [paper]. *)
 let extra ~ctx paper =
   let entries = Arod.Ctx.entries ctx in
   let all =
@@ -305,8 +299,6 @@ let extra ~ctx paper =
         [El.txt "Older Versions"];
       El.div ~at:[At.class' "project-activity-list not-prose"] rows]
 
-(** {1 Papers List Page} *)
-
 let classification_label = function
   | Paper.Full -> "Full paper"
   | Short -> "Short / workshop"
@@ -328,7 +320,7 @@ let classification_icon cls =
     {|<svg class="inline-block shrink-0 %s" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">%s</svg>|}
     css_cls svg)
 
-(** Filter/stats sidebar for papers list page. *)
+(** [classification_filter_box ~total ~counts] is the paper filter box. *)
 let classification_filter_box ~total ~counts =
   let rows = List.map (fun (cls, count) ->
     let label = classification_label cls in
@@ -348,7 +340,7 @@ let classification_filter_box ~total ~counts =
              El.span [El.txt (Printf.sprintf "filter: %d papers" total)]]
     rows
 
-(** Compact paper card for list view. *)
+(** [compact_card ~ctx paper] is a compact list card for [paper]. *)
 let compact_card ~ctx paper =
   let (y, m, _) = Bushel.Entry.date (`Paper paper) in
   let cls = Paper.classification paper in
@@ -356,32 +348,28 @@ let compact_card ~ctx paper =
     | Full -> "full" | Short -> "short" | Preprint -> "preprint"
   in
   let url = Bushel.Entry.site_url (`Paper paper) in
-  let all_tags = Arod.Ctx.tags_of_ent ctx (`Paper paper) in
+  let all_tags = Bushel.Entry.tags_of_ent (`Paper paper) in
   let tag_strs = List.map Bushel.Tags.to_raw_string all_tags in
   let tags_data = String.concat "," tag_strs in
   El.div ~at:[At.class' "note-compact hover:bg-surface paper-item note-item h-entry px-1 py-1 md:px-2 md:py-1 md:pl-5";
               At.v "data-filter-item" cls_str;
               At.v "data-tags" tags_data;
               At.v "data-year" (string_of_int y)] [
-    (* Classification icon — positioned absolutely to the left *)
     El.span ~at:[At.class' "paper-cls-icon"] [classification_icon cls];
-    (* Row 1: title + date (date hidden on mobile) *)
     El.div ~at:[At.class' "note-compact-row"] [
       El.a ~at:[At.href url; At.class' "note-compact-title flex-1 min-w-0 font-medium !text-text !no-underline p-name u-url"]
         [El.txt (Paper.title paper)];
       El.time ~at:[At.class' "note-compact-meta shrink-0 text-[0.82rem] text-secondary whitespace-nowrap tabular-nums hidden md:inline dt-published";
                    At.v "datetime" (Printf.sprintf "%04d-%02d" y m)]
         [El.txt (Printf.sprintf "%s %d" (Common.month_name m) y)]];
-    (* Row 2: authors + publisher + date on mobile *)
     El.div ~at:[At.class' "paper-compact-authors pl-0 md:pl-3"]
       [authors ~ctx paper; El.txt ". "; publisher paper; El.txt ". ";
        El.time ~at:[At.class' "md:hidden";
                     At.v "datetime" (Printf.sprintf "%04d-%02d" y m)]
          [El.txt (Printf.sprintf "%s %d" (Common.month_name m) y)]];
-    (* Row 3: action links *)
     El.div ~at:[At.class' "paper-compact-links pl-0 md:pl-3"] [bar ~ctx paper]]
 
-(** Full papers list page grouped by year, returns (article, sidebar). *)
+(** [papers_list ~ctx] is the paper list and its sidebar. *)
 let papers_list ~ctx =
   let entries = Arod.Ctx.entries ctx in
   let all_papers =
@@ -390,15 +378,13 @@ let papers_list ~ctx =
     |> List.sort (fun a b -> Paper.compare a b)
   in
   let total = List.length all_papers in
-  (* Count by classification *)
   let count_full = List.length (List.filter (fun p -> Paper.classification p = Paper.Full) all_papers) in
   let count_short = List.length (List.filter (fun p -> Paper.classification p = Paper.Short) all_papers) in
   let count_preprint = List.length (List.filter (fun p -> Paper.classification p = Paper.Preprint) all_papers) in
   let counts = [Paper.Full, count_full; Short, count_short; Preprint, count_preprint] in
-  (* Build tag frequency map *)
   let tag_counts = Hashtbl.create 64 in
   List.iter (fun p ->
-    let tags = Arod.Ctx.tags_of_ent ctx (`Paper p) in
+    let tags = Bushel.Entry.tags_of_ent (`Paper p) in
     List.iter (fun tag ->
       let t = Bushel.Tags.to_raw_string tag in
       let cur = try Hashtbl.find tag_counts t with Not_found -> 0 in
@@ -410,7 +396,6 @@ let papers_list ~ctx =
     |> List.sort (fun (_, a) (_, b) -> compare b a)
   in
   let top_tags = List.filteri (fun i _ -> i < 20) sorted_tags in
-  (* Group by year *)
   let by_year = Hashtbl.create 32 in
   List.iter (fun p ->
     let y = Paper.year p in
@@ -419,9 +404,6 @@ let papers_list ~ctx =
   ) all_papers;
   let years = Hashtbl.fold (fun y _ acc -> y :: acc) by_year []
     |> List.sort (fun a b -> compare b a) in
-  (* Build calendar data JSON: { "YYYY": [month, month, ...], ... }
-     Each paper contributes its month number; JS uses length for count
-     and Set for unique months. *)
   let calendar_json =
     let year_entries = List.map (fun y ->
       let papers = Hashtbl.find by_year y in
@@ -433,7 +415,6 @@ let papers_list ~ctx =
     ) years in
     "{" ^ String.concat "," year_entries ^ "}"
   in
-  (* Render year sections *)
   let year_sections = List.map (fun y ->
     let papers = List.rev (Hashtbl.find by_year y) in
     let paper_cards = List.map (fun p -> compact_card ~ctx p) papers in
@@ -448,9 +429,7 @@ let papers_list ~ctx =
   let article =
     El.article ~at:[At.class' "h-feed"] [El.div year_sections]
   in
-  (* Sidebar: classification filter *)
   let filter_box = classification_filter_box ~total ~counts in
-  (* Sidebar: calendar box — year heatmap + month grid *)
   let first_year = match years with
     | y :: _ -> string_of_int y
     | [] -> ""
@@ -469,7 +448,6 @@ let papers_list ~ctx =
        El.div ~at:[At.class' "cal-divider"] [];
        El.div ~at:[At.class' "cal-grid"] []]
   in
-  (* Sidebar: tag cloud box *)
   let tag_cloud_box = match top_tags with
     | [] -> El.void
     | _ ->
@@ -490,7 +468,7 @@ let papers_list ~ctx =
   in
   (article, sidebar)
 
-(** Paper entry for feeds. *)
+(** [for_feed ~ctx paper] is the feed rendering of [paper]. *)
 let for_feed ~ctx paper =
   El.blockquote ~at:[At.class' "border-l pl-4 ml-0"] [
     El.div [

@@ -3,17 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** External link tracking for Bushel.
-
-    A link records one external URL the site points at, together with what
-    the Karakeep bookmarking service knows about it and which Bushel entries
-    mention it. Links live in one YAML file that the sync pipeline rewrites.
-
-    Everything here is portable except the two file operations, which is what
-    lets a renderer read a link and classify its URL from inside a function
-    marked [portable]. {!is_paper_url} is what needs that, because it runs at
-    render time on the links listing, and it is the disjunction of the other
-    two, so both of them had to move for either to be worth moving. *)
+(** External links and their imported metadata. *)
 
 @@ portable
 
@@ -25,13 +15,13 @@ type karakeep_data = {
   tags : string list;
   metadata : (string * string) list;  (** In increasing key order. *)
 }
-(** What Karakeep knows about a link. *)
+(** Karakeep metadata for a link. *)
 
 type bushel_data = {
   slugs : string list;  (** Entries that mention the link. *)
   tags : string list;
 }
-(** What this site knows about a link. *)
+(** Bushel metadata for a link. *)
 
 type t = {
   url : string;
@@ -40,8 +30,7 @@ type t = {
   karakeep : karakeep_data option;
   bushel : bushel_data option;
 }
-(** An external link. The record is public because the sync pipeline builds
-    one field by field and the renderers read fields directly. *)
+(** An external link. *)
 
 type ts = t list
 (** A list of links. *)
@@ -65,11 +54,8 @@ val is_doi_url : string -> bool
 
 val is_academic_url : string -> bool
 (** [is_academic_url u] is [true] if [u] is on a publisher or preprint host
-    that the Zotero translation server can resolve. Matching ignores a
-    leading ["www."] and accepts any subdomain of a listed host. Some hosts
-    match only under a given path prefix, so that a journal's front page is
-    not taken for an article. A [u] that is not a URI-reference is [false]
-    rather than being coerced into one. *)
+    supported by the Zotero translation server. Subdomains are accepted and
+    malformed URI references return [false]. *)
 
 val is_paper_url : string -> bool
 (** [is_paper_url u] is [is_doi_url u || is_academic_url u]. *)
@@ -86,11 +72,6 @@ val save_links_file : string -> t list -> unit @@ nonportable
 
 val merge_links : ?prefer_new_date:bool -> t list -> t list -> t list
 (** [merge_links existing new_links] is the union of the two lists keyed by
-    URL, sorted most recent first. Where both sides hold a URL the new
-    description wins unless it is empty, and the date kept is the earlier of
-    the two, which is the date the link was first recorded. The Bushel slugs
-    and tags are unioned. The Karakeep tags and metadata are unioned only when
-    both records name the same [remote_url], and the new record replaces the
-    old one wholesale when they do not. Set [prefer_new_date] to take the new
-    date whatever the old one was, which is what a re-import from an
-    authoritative source wants. *)
+    URL, sorted most recent first. New non-empty descriptions win, dates keep
+    the earliest value, and tags, slugs and compatible Karakeep metadata are
+    combined. [prefer_new_date] always keeps the new date. *)

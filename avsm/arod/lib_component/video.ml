@@ -3,29 +3,32 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Video component rendering using htmlit. *)
+(** Video components. *)
 
 open Htmlit
 
 module Video = Bushel.Video
 module I = Arod.Icons
 
-(** {1 Video Card} *)
+let strip_scheme url =
+  if String.starts_with ~prefix:"https://" url then
+    String.sub url 8 (String.length url - 8)
+  else if String.starts_with ~prefix:"http://" url then
+    String.sub url 7 (String.length url - 7)
+  else url
 
-(** Terminal-style video card for listings. *)
+(** [video_card ~ctx v] is a list card for [v]. *)
 let video_card ~ctx v =
   let (y, m, _d) = Video.date v in
   let date_str = Printf.sprintf "%s %d" (Common.month_name m) y in
   let slug = Video.slug v in
   let url = "/videos/" ^ slug in
-  (* Inline embed — rendered via bushel markdown, scaled down in CSS *)
   let embed_md = Printf.sprintf "![%%c](:%s)" slug in
   let embed_html = fst (Arod.Md.to_html ~ctx embed_md) in
   let embed_el =
     El.div ~at:[At.class' "vid-card-embed"]
       [El.unsafe_raw embed_html]
   in
-  (* Description summary — first paragraph only *)
   let desc = Bushel.Util.first_hunk (Video.description v) in
   let desc_el =
     if desc = "" then El.void
@@ -33,9 +36,7 @@ let video_card ~ctx v =
       El.div ~at:[At.class' "vid-card-desc"]
         [El.unsafe_raw (Arod.Md.to_plain_html ~ctx desc)]
   in
-  (* Tags *)
   let tags_el = Common.card_tags (Video.tags v) in
-  (* Linked project/paper *)
   let links_els = List.filter_map Fun.id [
     (match Video.project v with
      | Some proj_slug ->
@@ -58,16 +59,12 @@ let video_card ~ctx v =
                ~href:("/papers/" ^ paper_slug) ~title)
      | None -> None);
   ] in
-  (* Backlinks — other entries that reference this video *)
   let entries = Arod.Ctx.entries ctx in
   let backlink_slugs = Arod.Ctx.backlinks ctx slug in
   let outbound_slugs = Arod.Ctx.outbound ctx slug in
-  let all_linked = List.filter_map (fun s ->
-    match Bushel.Entry.lookup entries s with
-    | Some ent -> Some ent
-    | None -> None
-  ) (backlink_slugs @ outbound_slugs) in
-  (* Deduplicate and exclude self + already-shown project/paper *)
+  let all_linked =
+    List.filter_map (Bushel.Entry.lookup entries) (backlink_slugs @ outbound_slugs)
+  in
   let seen = Hashtbl.create 8 in
   let exclude_slugs = List.filter_map Fun.id [
     Video.project v; Video.paper v
@@ -90,21 +87,16 @@ let video_card ~ctx v =
     | els -> El.div ~at:[At.class' "vid-card-refs"] els
   in
   El.div ~at:[At.class' "vid-card not-prose h-entry"] [
-    (* Header — terminal style with ▶ prompt *)
     Common.card_header ~title_cls:"p-name u-url"
       ~prompt:"\xe2\x96\xb6" ~title:(Video.title v) ~href:url
       (El.time ~at:[At.class' "proj-card-date dt-published";
                     At.v "datetime" (Printf.sprintf "%04d-%02d" y m)]
          [El.txt date_str]);
-    (* Embed *)
     embed_el;
-    (* Body *)
     El.div ~at:[At.class' "vid-card-body"] [
       desc_el; tags_el; refs_el]]
 
-(** {1 Videos List Page} *)
-
-(** Masonry grid of talk cards (talks only, no year grouping). *)
+(** [videos_list ~ctx] is the list of talks. *)
 let videos_list ~ctx =
   let all_entries = Arod.Ctx.all_entries ctx in
   let talks = List.filter_map (fun e ->
@@ -118,19 +110,13 @@ let videos_list ~ctx =
   let cards = List.map (fun v -> video_card ~ctx v) talks in
   El.article ~at:[At.class' "h-feed"] [El.div ~at:[At.class' "vid-grid"] cards]
 
-(** {1 Full Video Page} *)
-
-(** Full video page with embed and sidebar infobox.
-    Returns [(article, sidebar)]. *)
+(** [full_page ~ctx v] is the article and sidebar for [v]. *)
 let full_page ~ctx v =
   let slug = Video.slug v in
   let (y, m, d) = Video.date v in
-  (* Video embed *)
   let embed_md = Printf.sprintf "![%%c](:%s)" slug in
   let embed_html = fst (Arod.Md.to_html ~ctx embed_md) in
-  (* Description rendered as markdown *)
   let desc_html = Arod.Md.to_plain_html ~ctx (Video.description v) in
-  (* Tags below title, like notes/papers *)
   let tags_el = Common.detail_tags (Video.tags v) in
   let hidden_author = Common.hidden_author_hcard ~ctx in
   let hidden_dt = Common.hidden_dt_published (y, m, d) in
@@ -142,7 +128,6 @@ let full_page ~ctx v =
     El.div ~at:[At.class' "vid-embed mb-6"] [El.unsafe_raw embed_html];
     El.div ~at:[At.class' "e-content p-summary"] [El.unsafe_raw desc_html]]
   in
-  (* Sidebar infobox *)
   let datetime_str = Printf.sprintf "%04d-%02d-%02d" y m d in
   let date_el =
     Sidebar.meta_line
@@ -158,22 +143,10 @@ let full_page ~ctx v =
   in
   let url_el =
     let host =
-      let u = Video.url v in
-      if String.length u > 8 then
-        let after_scheme =
-          try
-            let i = String.index_from u 8 '/' in
-            String.sub u 0 i
-          with Not_found -> u
-        in
-        (* Strip https:// *)
-        let prefix = "https://" in
-        if String.length after_scheme > String.length prefix
-           && String.sub after_scheme 0 (String.length prefix) = prefix then
-          String.sub after_scheme (String.length prefix)
-            (String.length after_scheme - String.length prefix)
-        else after_scheme
-      else "Watch"
+      let u = strip_scheme (Video.url v) in
+      match String.index_opt u '/' with
+      | Some i -> String.sub u 0 i
+      | None -> if u = "" then "Watch" else u
     in
     Sidebar.meta_line
       ~icon:(I.outline ~cl:"opacity-50" ~size:12 I.external_link_o)
@@ -208,16 +181,8 @@ let full_page ~ctx v =
     | None -> El.void
   in
   let links_el, links_modal_el = Sidebar.entry_links ~ctx slug in
-  (* Abbreviated URL for header — strip scheme, truncate path *)
   let abbrev_url =
-    let u = Video.url v in
-    let stripped =
-      if String.length u > 8 && String.sub u 0 8 = "https://" then
-        String.sub u 8 (String.length u - 8)
-      else if String.length u > 7 && String.sub u 0 7 = "http://" then
-        String.sub u 7 (String.length u - 7)
-      else u
-    in
+    let stripped = strip_scheme (Video.url v) in
     if String.length stripped > 30 then
       String.sub stripped 0 30 ^ "\xe2\x80\xa6"
     else stripped
@@ -234,30 +199,27 @@ let full_page ~ctx v =
   in
   (article, sidebar)
 
-(** Brief video rendering with embed/image and description. *)
+(** [brief ~ctx v] is a brief rendering of [v]. *)
 let brief ~ctx v =
   let md =
     Printf.sprintf "![%%c](:%s)\n\n%s" v.Video.slug v.Video.description
   in
   let heading =
+    let y, m, _ = Video.date v in
     El.h2 ~at:[At.class' "text-xl font-semibold mb-2"] [
       El.a ~at:[At.href (Bushel.Entry.site_url (`Video v))] [
         El.txt (Video.title v)];
       El.span ~at:[At.class' "text-sm text-secondary"] [
         El.txt " / ";
         El.txt (Printf.sprintf "%s %4d"
-          (Common.month_name (let (_, m, _) = Video.date v in m))
-          (let (y, _, _) = Video.date v in y))]]
+          (Common.month_name m) y)]]
   in
   let body = [
     heading;
     El.unsafe_raw (fst (Arod.Md.to_html ~ctx md))] in
   (El.div body, None)
 
-(** Kept for backward compat — simple rendering for use in other contexts. *)
-let full ~ctx v = fst (full_page ~ctx v)
-
-(** Video for feeds. *)
+(** [for_feed ~ctx v] is the feed rendering of [v]. *)
 let for_feed ~ctx v =
   let md = Printf.sprintf "![%%c](:%s)\n\n" v.Video.slug in
   (El.unsafe_raw (fst (Arod.Md.to_html ~ctx md)), None)

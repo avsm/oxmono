@@ -3,8 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** External link tracking for Bushel *)
-
 type karakeep_data = {
   remote_url : string;
   id : string;
@@ -27,62 +25,45 @@ type t = {
 
 type ts = t list
 
-(** {1 Accessors} *)
-
 let url { url; _ } = url
 let date { date; _ } = date
 let description { description; _ } = description
 let datetime v = Bushel_types.ptime_of_date_exn (date v)
 
-(** {1 Comparison} *)
-
 let compare a b = Ptime.compare (datetime b) (datetime a)
 
-(** {1 YAML Parsing} *)
+let string_field ?default key fields =
+  match List.assoc_opt key fields, default with
+  | Some (`String value), _ -> value
+  | _, Some value -> value
+  | _ -> failwith ("link: missing or invalid " ^ key)
+
+let strings_field key fields =
+  match List.assoc_opt key fields with
+  | Some (`A values) ->
+    List.filter_map (function `String value -> Some value | _ -> None) values
+  | _ -> []
+
+let date_field fields =
+  let value = string_field "date" fields in
+  match Bushel_types.date_of_string ~kind:"date" value with
+  | Ok date -> date
+  | Error _ -> (
+    match Ptime.of_rfc3339 value with
+    | Ok (time, _, _) -> Ptime.to_date time
+    | Error _ -> failwith "link: missing or invalid date")
 
 let t_of_yaml = function
   | `O fields ->
-    let url =
-      match List.assoc_opt "url" fields with
-      | Some (`String v) -> v
-      | _ -> failwith "link: missing or invalid url"
-    in
-    let date =
-      match List.assoc_opt "date" fields with
-      | Some (`String v) ->
-        (try
-           match String.split_on_char '-' v with
-           | [y; m; d] -> (int_of_string y, int_of_string m, int_of_string d)
-           | _ ->
-             v |> Ptime.of_rfc3339 |> Result.get_ok |> fun (a, _, _) -> Ptime.to_date a
-         with _ ->
-           v |> Ptime.of_rfc3339 |> Result.get_ok |> fun (a, _, _) -> Ptime.to_date a)
-      | _ -> failwith "link: missing or invalid date"
-    in
-    let description =
-      match List.assoc_opt "description" fields with
-      | Some (`String v) -> v
-      | _ -> ""
-    in
+    let url = string_field "url" fields in
+    let date = date_field fields in
+    let description = string_field ~default:"" "description" fields in
     let karakeep =
       match List.assoc_opt "karakeep" fields with
       | Some (`O k_fields) ->
-        let remote_url =
-          match List.assoc_opt "remote_url" k_fields with
-          | Some (`String v) -> v
-          | _ -> failwith "link: invalid karakeep.remote_url"
-        in
-        let id =
-          match List.assoc_opt "id" k_fields with
-          | Some (`String v) -> v
-          | _ -> failwith "link: invalid karakeep.id"
-        in
-        let tags =
-          match List.assoc_opt "tags" k_fields with
-          | Some (`A tag_list) ->
-            List.filter_map (function `String t -> Some t | _ -> None) tag_list
-          | _ -> []
-        in
+        let remote_url = string_field "remote_url" k_fields in
+        let id = string_field "id" k_fields in
+        let tags = strings_field "tags" k_fields in
         let metadata =
           match List.assoc_opt "metadata" k_fields with
           | Some (`O meta_fields) ->
@@ -97,25 +78,13 @@ let t_of_yaml = function
     let bushel =
       match List.assoc_opt "bushel" fields with
       | Some (`O b_fields) ->
-        let slugs =
-          match List.assoc_opt "slugs" b_fields with
-          | Some (`A slug_list) ->
-            List.filter_map (function `String s -> Some s | _ -> None) slug_list
-          | _ -> []
-        in
-        let tags =
-          match List.assoc_opt "tags" b_fields with
-          | Some (`A tag_list) ->
-            List.filter_map (function `String t -> Some t | _ -> None) tag_list
-          | _ -> []
-        in
+        let slugs = strings_field "slugs" b_fields in
+        let tags = strings_field "tags" b_fields in
         Some { slugs; tags }
       | _ -> None
     in
     { url; date; description; karakeep; bushel }
   | _ -> failwith "link: invalid yaml"
-
-(** {1 YAML Serialization} *)
 
 let to_yaml t =
   let (year, month, day) = t.date in
@@ -163,8 +132,6 @@ let to_yaml t =
 
   `O (base_fields @ karakeep_fields @ bushel_fields)
 
-(** {1 File Operations} *)
-
 let load_links_file path =
   try
     let yaml_str = In_channel.(with_open_bin path input_all) in
@@ -176,20 +143,8 @@ let load_links_file path =
 let save_links_file path links =
   let yaml = `A (List.map to_yaml links) in
   let yaml_str = Yamlrw.to_string yaml in
-  let oc = open_out path in
-  output_string oc yaml_str;
-  close_out oc
+  Out_channel.with_open_bin path (fun oc -> output_string oc yaml_str)
 
-(** {1 URL Classification}
-
-    Classify external URLs by type. Used by the sync pipeline to decide
-    which links to send to Zotero Translation Server, and by the UI to
-    filter links (e.g. "papers only"). *)
-
-(** Academic/journal URL patterns for Zotero Translation Server resolution.
-    Each entry is [(domain, path_prefixes)] where [path_prefixes] is a list of
-    required path prefixes. If empty, any path on the domain matches.
-    Domains are stored without [www.] prefix; matching strips it before comparing. *)
 let academic_patterns = [
   ("arxiv.org", ["/abs/"; "/pdf/"]);
   ("dl.acm.org", ["/doi/10."]);
@@ -218,22 +173,12 @@ let academic_patterns = [
   ("mdpi.com", []);
 ]
 
-(* [Stdlib.String] has [starts_with] and [ends_with] but no substring search,
-   and the one affix these predicates look for is eight bytes, so the naive
-   scan is the right one. *)
 let is_infix ~affix s =
   let n = String.length affix and m = String.length s in
   let rec matches i j = j = n || (s.[i + j] = affix.[j] && matches i (j + 1)) in
   let rec scan i = i + n <= m && (matches i 0 || scan (i + 1)) in
   scan 0
 
-(* [Uriz.of_string] refuses a string that is not a URI-reference where the
-   opam [Uri] coerced one, so a URL carrying a space, a non-ASCII byte, a
-   brace, a bar, a caret, a backslash, a quote or an angle bracket answers
-   [false] here rather than being parsed. That is the
-   right answer for a predicate that asks whether a URL names a paper. No URL
-   in the links file takes the branch: the two spellings agree on all 4659 of
-   them. *)
 let is_academic_url url =
   match Uriz.of_string url with
   | Null -> false
@@ -262,8 +207,6 @@ let is_doi_url url = is_infix ~affix:"doi.org/" url
 
 let is_paper_url url =
   is_doi_url url || is_academic_url url
-
-(** {1 Merging} *)
 
 let merge_links ?(prefer_new_date=false) existing new_links =
   let links_by_url = Hashtbl.create (List.length existing) in

@@ -3,15 +3,11 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Arod webserver - a proffer-based server for Bushel content *)
-
-(** {1 Logging} *)
+(** Proffer web server for Bushel content. *)
 
 let src = Logs.Src.create "arod" ~doc:"Arod webserver"
 
 module Log = (val Logs.src_log src : Logs.LOG)
-
-(** {1 CLI} *)
 
 open Cmdliner
 
@@ -39,7 +35,6 @@ let serve_cmd =
     let net = Eio.Stdenv.net env in
     let clock = Eio.Stdenv.clock env in
     Log.info (fun m -> m "Loading entries from %s" cfg.paths.data_dir);
-    (* Create context (loads Bushel entries) *)
     let ctx = Arod.Ctx.create ~config:cfg fs in
     Log.info (fun m ->
         m "Loaded %d notes, %d papers, %d projects, %d ideas, %d videos, %d images, %d feed items"
@@ -50,11 +45,8 @@ let serve_cmd =
           (List.length (Arod.Ctx.videos ctx))
           (List.length (Arod.Ctx.images ctx))
           (List.length (Arod.Ctx.feed_items ctx)));
-    (* Run inside switch so search DB and log DB stay open for server lifetime *)
     Eio.Switch.run @@ fun sw ->
-    (* The search index builds on a background fibre so the server
-       answers as soon as the context is loaded. Until the fibre swaps
-       the handle in, a search answers with the empty result set. *)
+    (* Searches remain empty until the background rebuild completes. *)
     let search_ref = ref None in
     Eio.Fiber.fork ~sw (fun () ->
       let search = Arod_search.create_memory ~sw () in
@@ -63,14 +55,11 @@ let serve_cmd =
       Log.info (fun m -> m "Search index built (%d entries)"
         (List.length (Arod.Ctx.all_entries ctx)
         + List.length (Arod.Ctx.all_links ctx))));
-    (* Open access log database *)
     let xdg = Xdge.create fs "arod" in
     let log_path = Eio.Path.(Xdge.data_dir xdg / "access.db") in
     let log = Arod_log.create ~sw log_path in
     Log.info (fun m -> m "Access log: %a" Eio.Path.pp log_path);
-    (* A relative configured path is resolved against cwd. Only an absolute
-       one needs fs, and the subtree capability is all the server keeps: the
-       OS refuses an escape from it even if the path check were wrong. *)
+    (* Retain only subtree capabilities for served files. *)
     let confined_dir dir =
       let base = if Filename.is_relative dir then cwd else fs in
       Eio.Path.open_subtree ~sw Eio.Path.(base / dir)
@@ -106,7 +95,6 @@ let serve_cmd =
     let serve () =
       Arod_server.run ~sw ~net ~clock ~config:cfg ~log ~env:henv site
     in
-    (* Start finger server alongside HTTP if configured *)
     (match cfg.server.finger_port with
      | Some finger_port ->
        Eio.Fiber.both serve
@@ -388,7 +376,7 @@ let publish_note ~ctx ~(cfg : Arod.Config.t) ~fs ~api ~did ~site ~dry_run ?bsky_
   let published_at = date_to_rfc3339 n.Bushel.Note.date in
   let updated_at = Option.map date_to_rfc3339 n.Bushel.Note.updated in
   let tags =
-    Arod.Ctx.tags_of_ent ctx ent
+    Bushel.Entry.tags_of_ent ent
     |> List.filter_map (fun tag ->
       match tag with
       | `Text t -> Some t

@@ -3,11 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Union entry type for all Bushel content.
-
-    Everything here is portable, which is what lets a renderer hold a loaded
-    collection and read entries out of it from inside a function marked
-    [portable]. *)
+(** Bushel entry collections. *)
 
 @@ portable
 
@@ -21,15 +17,10 @@ type entry =
 (** A single entry in the knowledge base. *)
 
 type slugs = entry Bushel_smap.t
-(** Slug-to-entry lookup table. A slug claimed by more than one entry resolves
-    to the entry that was loaded last, in the order note, project, idea, video,
-    paper. *)
+(** A slug-to-entry lookup table. *)
 
 type t : immutable_data
-(** The complete entry collection. The kind is what lets a loaded collection be
-    captured and read by a portable function: every field is an immutable list,
-    string or {!Bushel_smap.t}, and the collection is built once by {!v} and
-    never written to again. *)
+(** A loaded entry collection. *)
 
 (** {1 Constructors} *)
 
@@ -46,15 +37,11 @@ val v :
   unit ->
   t
 (** [v ~papers ~notes ~projects ~ideas ~videos ~contacts ~data_dir ()] is the
-    collection holding those entries. A paper whose [latest] field is unset is
-    filed as an old version and is left out of {!all_entries}. The link graph
-    is empty, since it is built from the entries and so cannot exist yet.
-    {!with_graph} fills it in. *)
+    collection holding those values. Papers not marked [latest] are available
+    through {!old_papers} but omitted from {!all_entries}. *)
 
 val with_graph : t -> Bushel_link_graph.t -> t
-(** [with_graph es g] is [es] carrying [g] as its link graph. This is the
-    loader's job, and it is the only way the graph is set: a collection that
-    has not been through it answers every graph query with the empty list. *)
+(** [with_graph es g] is [es] with link graph [g]. *)
 
 (** {1 Accessors} *)
 
@@ -88,10 +75,7 @@ val data_dir : t -> string
 val doi_entries : t -> Bushel_doi_entry.ts
 (** [doi_entries es] is the resolved DOI records of [es]. *)
 
-(** {1 Link Graph}
-
-    The graph the loader built over [es]. Every one of these answers the empty
-    list on a collection that has not been through {!with_graph}. *)
+(** {1 Link graph} *)
 
 val graph : t -> Bushel_link_graph.t
 (** [graph es] is the link graph of [es]. *)
@@ -110,9 +94,7 @@ val external_urls : t -> string -> string list
 
 val all_external_links : t -> Bushel_link_graph.external_link list
 (** [all_external_links es] is every web link written in an entry of [es], in
-    the order the graph was built with. A graph built by the loader is in
-    increasing source slug and then URL order, but the order is the builder's
-    to choose and {!with_graph} accepts any. *)
+    graph order. *)
 
 (** {1 Lookup Functions} *)
 
@@ -182,8 +164,7 @@ val notes_for_slug : t -> string -> Bushel_note.t list
 
 val all_entries : t -> entry list
 (** [all_entries es] is every entry, grouped by kind in the order note,
-    project, idea, video and paper, and within a kind in load order. Old paper
-    versions are not included. Callers that need another order must sort. *)
+    project, idea, video and paper. Superseded papers are omitted. *)
 
 val all_papers : t -> entry list
 (** [all_papers es] is every paper of [es], latest versions first and
@@ -199,13 +180,12 @@ val compare : entry -> entry -> int
 
 val lookup_by_name : t -> string -> Sortal_schema.Contact.t option
 (** [lookup_by_name es name] is the one contact of [es] carrying [name], case
-    insensitively. It is [None] when no contact or more than one carries it,
-    because an ambiguous name must not silently pick a side. *)
+    insensitively, or [None] if the name is absent or ambiguous. *)
 
 (** {1 Tag Functions} *)
 
-val tags_of_ent : t -> entry -> Bushel_tags.t list
-(** [tags_of_ent es e] is the parsed tags of [e]. *)
+val tags_of_ent : entry -> Bushel_tags.t list
+(** [tags_of_ent e] is the parsed tag list of [e]. *)
 
 val mention_entries : t -> Bushel_tags.t list -> entry list
 (** [mention_entries es tags] is the entries of [es] named by the slug tags in
@@ -215,13 +195,8 @@ val mention_entries : t -> Bushel_tags.t list -> entry list
 
 val smallest_webp_variant : Srcsetter.t -> string
 (** [smallest_webp_variant img] is the path of the narrowest WebP variant of
-    [img] wider than 480 pixels, falling back to the narrowest variant of any
-    width and then to the image itself. *)
-
-val contact_thumbnail_slug : Sortal_schema.Contact.t -> string option
-(** [contact_thumbnail_slug c] is the image slug of [c], which is its handle.
-    It is never [None]. The option is there to match {!thumbnail_slug}, which
-    the same callers use and which can answer [None]. *)
+    [img] wider than 480 pixels. It falls back to the narrowest WebP variant,
+    then to the original image. *)
 
 val contact_thumbnail : t -> Sortal_schema.Contact.t -> string option
 (** [contact_thumbnail es c] is the path of the thumbnail of [c], or [None] if
@@ -229,9 +204,8 @@ val contact_thumbnail : t -> Sortal_schema.Contact.t -> string option
 
 val thumbnail_slug : t -> entry -> string option
 (** [thumbnail_slug es e] is the image slug of [e]. A note falls back through
-    its title image, the first image in its body, the first video it links and
-    the entry it is about. An idea takes the first image in its body, then the
-    logo of its project, then the face of its first supervisor. *)
+    its title image, body, linked video and related entry. An idea falls back
+    through its body, project and first supervisor. *)
 
 val thumbnail : t -> entry -> string option
 (** [thumbnail es e] is the path of the thumbnail of [e]. A project with no

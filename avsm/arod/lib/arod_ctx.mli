@@ -3,10 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Context record for Arod - replaces global state.
-
-    The context holds loaded Bushel entries and site configuration.
-    Created once at server startup and passed to all handlers. *)
+(** Loaded content and site configuration. *)
 
 @@ portable
 
@@ -16,72 +13,76 @@ type feed_item = {
   mentions : Bushel.Entry.entry list;
 }
 
-(** A record of a feed entry that mentions a bushel entry. *)
+(** A feed entry that mentions a Bushel entry. *)
 type feed_backlink = {
   contact : Sortal_schema.Contact.t;
   feed_entry : Sortal_feed.Entry.t;
 }
 
 type t : immutable_data
-(** The context type containing entries and configuration. The kind is what
-    lets a handler marked [portable] capture a context and read through it. It
-    is honest because the context is built once, by {!create} or
-    {!of_entries}, and every field is a config record, a {!Bushel.Entry.t}, a
-    list or a {!Bushel.Smap.t}. Adding a mutable or function-valued field would
-    make the compiler reject this line. *)
+(** A loaded Arod context. *)
 
 val create :
   config:Arod_config.t -> Eio.Fs.dir_ty Eio.Path.t -> t @@ nonportable
-(** [create ~config fs] loads Bushel entries from the configured data directory
-    and returns a context. This should be called once at server startup. *)
+(** [create ~config fs] is the context loaded from [config]'s data directory. *)
 
 val of_entries : config:Arod_config.t -> Bushel.Entry.t -> t @@ nonportable
-(** [of_entries ~config entries] is a context over [entries] alone, with no
-    feed items, no feed backlinks and no link table. It reads no filesystem
-    and needs no Eio. It is not portable because it scans every note for the
-    works it cites, which {!note_references} then serves.
-
-    {!Arod_md.to_html}, {!Arod_md.to_plain_html} and {!Arod_md.to_atom_html}
-    take nothing else out of a context, so this is enough to render a body.
-    It is not enough for the rest of {!Arod_md}: {!Arod_md.with_feed_references}
-    reads {!author_exn}, which raises unless [entries] holds a contact whose
-    handle is the configured one. The server builds its context with
-    {!create}. *)
+(** [of_entries ~config entries] is a filesystem-free context over [entries].
+    Feed items, backlinks and link metadata are empty. *)
 
 (** {1 Config Accessors} *)
 
 val config : t -> Arod_config.t
+(** [config t] is the configuration of [t]. *)
 val base_url : t -> string
+(** [base_url t] is the configured public URL. *)
 val author : t -> Sortal_schema.Contact.t option
+(** [author t] is the configured author contact, if present. *)
 val author_exn : t -> Sortal_schema.Contact.t
+(** [author_exn t] is the configured author contact.
+
+    @raise Not_found if it is absent. *)
 val author_name : t -> string
+(** [author_name t] is the configured author's display name. *)
 
 (** {1 Entry Lookup} *)
 
 val lookup : t -> string -> Bushel.Entry.entry option @@ portable
+(** [lookup t slug] is the entry named by [slug], if present. *)
 val lookup_exn : t -> string -> Bushel.Entry.entry
+(** [lookup_exn t slug] is the entry named by [slug].
+
+    @raise Not_found if it is absent. *)
 val lookup_image : t -> string -> Srcsetter.t option @@ portable
+(** [lookup_image t slug] is the image named by [slug], if present. *)
 val lookup_by_name : t -> string -> Sortal_schema.Contact.t option
+(** [lookup_by_name t name] is the unambiguous contact named [name], if any. *)
 val lookup_by_handle : t -> string -> Sortal_schema.Contact.t option
+(** [lookup_by_handle t handle] is the contact named by [handle], if any. *)
 
 (** {1 Entry Lists} *)
 
 val entries : t -> Bushel.Entry.t
+(** [entries t] is the Bushel collection of [t]. *)
 val papers : t -> Bushel.Paper.t list
+(** [papers t] is the current papers of [t]. *)
 val notes : t -> Bushel.Note.t list
+(** [notes t] is the notes of [t]. *)
 val ideas : t -> Bushel.Idea.t list
+(** [ideas t] is the ideas of [t]. *)
 val projects : t -> Bushel.Project.t list
+(** [projects t] is the projects of [t]. *)
 val videos : t -> Bushel.Video.t list
+(** [videos t] is the videos of [t]. *)
 val contacts : t -> Sortal_schema.Contact.t list
+(** [contacts t] is the contacts of [t]. *)
 val images : t -> Srcsetter.t list
+(** [images t] is the images of [t]. *)
 val all_entries : t -> Bushel.Entry.entry list
 (** [all_entries t] is {!Bushel.Entry.all_entries} over the context's entries,
     so it is grouped by kind rather than sorted. *)
 
-(** {1 Link Graph}
-
-    The graph the loader built over the context's entries. A context made by
-    {!of_entries} has no graph, so each of these answers the empty list. *)
+(** {1 Link Graph} *)
 
 val backlinks : t -> string -> string list
 (** [backlinks t slug] is the slugs of the entries that link to [slug], sorted
@@ -92,77 +93,52 @@ val outbound : t -> string -> string list
     sorted and without repeats. *)
 
 val all_external_links : t -> Bushel.Link_graph.external_link list
-(** [all_external_links t] is every web link written in an entry, in the order
-    the graph was built with, which for a loaded collection is increasing
-    source slug and then URL order. *)
+(** [all_external_links t] is every web link written in an entry. *)
 
 (** {1 References} *)
 
 val note_references :
   t -> string -> (string * string * Bushel.Md.reference_source) list
-(** [note_references t slug] is the works the note [slug] cites, as
-    {!Bushel.Md.note_references} answers them, and the empty list for a note
-    that cites nothing or a slug that names no note. The scan runs on [Re] and
-    opam [Uri], so it is settled once when the context is built and the render
-    reads it from here. A context whose entries hold no contact under the
-    configured author handle has no references at all, matching what the
-    render did when it looked the author up itself. *)
+(** [note_references t slug] is the works cited by the note [slug]. *)
 
 (** {1 Feed Items} *)
 
 val feed_items : t -> feed_item list
-(** [feed_items t] returns all feed entries from contacts, sorted newest first. *)
+(** [feed_items t] is every contact feed entry, newest first. *)
 
 val feed_items_for_contact : t -> string -> feed_item list
-(** [feed_items_for_contact t handle] returns feed entries for a given contact handle. *)
+(** [feed_items_for_contact t handle] is the feed of contact [handle]. *)
 
 val feed_backlinks_for_slug : t -> string -> feed_backlink list
-(** [feed_backlinks_for_slug t slug] returns feed entries that link to [slug]. *)
+(** [feed_backlinks_for_slug t slug] is the feed entries that link to [slug]. *)
 
 val feed_items_for_outbound : t -> string -> feed_backlink list
-(** [feed_items_for_outbound t slug] is the feed entries whose URL matches an
-    outbound external link from [slug], in the order the sorted outbound URLs
-    reach them and without repeats. The match is made through
-    {!normalise_url} when the context is built, for the reason given on
-    {!forward_slugs}. *)
+(** [feed_items_for_outbound t slug] is the feed entries linked from [slug],
+    without repeats. *)
 
 val forward_slugs : t -> string -> string list
-(** [forward_slugs t url] is the slugs of the entries whose bodies link to
-    [url], where [url] is a feed entry URL spelled as {!Uriz.to_string}
-    spells it, and the empty list when no entry links to it. The match is
-    made through {!normalise_url} when the context is built, because the
-    render that reads it is portable and {!normalise_url} is not. *)
+(** [forward_slugs t url] is the slugs of entries whose bodies link to [url]. *)
 
 (** {1 Feed Annotations} *)
 
 val normalise_url : string -> string @@ nonportable
-(** [normalise_url u] is [u] with a [www.] host prefix and a trailing slash
-    removed, re-parsed and re-rendered through a URI parser. Every table in
-    this module that is looked up by URL is keyed on this form, and so is the
-    annotation file that [arod feed associate] writes. *)
+(** [normalise_url u] is [u] without a [www.] host prefix or trailing slash. *)
 
 type annotation_index
 (** An annotations file re-keyed by {!normalise_url}. *)
 
 val annotation_index : Sortal_feed.Annotations.t -> annotation_index @@ nonportable
-(** [annotation_index ann] re-keys [ann] on {!normalise_url}. The stored keys
-    are entry URLs as some earlier run rendered them, and that rendering
-    changed when Syndic moved from [uri] to [uriz]. A key written under either
-    spelling resolves through this index. Slugs recorded under two spellings
-    of one URL are unioned. *)
+(** [annotation_index ann] is [ann] keyed by {!normalise_url}. Duplicate URL
+    spellings are unioned. *)
 
 val annotation_slugs : annotation_index -> string -> string list @@ nonportable
 (** [annotation_slugs idx url] is the slugs annotated for [url], or the empty
     list if there are none. *)
 
-(** {1 Tags} *)
-
-val tags_of_ent : t -> Bushel.Entry.entry -> Bushel.Tags.t list
-
 (** {1 Links} *)
 
 val link_for_url : t -> string -> Bushel.Link.t option
-(** [link_for_url t url] returns the link metadata for [url] if present in links.yml. *)
+(** [link_for_url t url] is the metadata for [url], if present. *)
 
 val all_links : t -> Bushel.Link.t list
 (** [all_links t] is every link loaded from links.yml, in increasing URL
@@ -173,8 +149,8 @@ val all_links : t -> Bushel.Link.t list
 type entry_type = [ `Paper | `Note | `Video | `Idea | `Project ]
 
 val get_entries : t -> types:entry_type list -> Bushel.Entry.entry list
-(** [get_entries t ~types] returns entries matching [types] (or all if empty),
-    filtered to exclude non-talk videos and index pages, sorted newest first. *)
+(** [get_entries t ~types] is the matching public entries, newest first. An
+    empty [types] selects every entry type. *)
 
 val perma_entries : t -> Bushel.Entry.entry list
-(** [perma_entries t] returns permanent notes sorted newest first. *)
+(** [perma_entries t] is the permanent notes, newest first. *)

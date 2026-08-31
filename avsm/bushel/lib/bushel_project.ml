@@ -3,22 +3,18 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Project entry type for Bushel *)
-
 type t = {
   slug : string;
   title : string;
-  start : int;          (** Start year *)
-  finish : int option;  (** End year, None if ongoing *)
+  start : int;
+  finish : int option;
   tags : string list;
-  ideas : string;       (** Ideas page reference *)
+  ideas : string;
   body : string;
   social : Bushel_types.social option;
 }
 
 type ts = t list
-
-(** {1 Accessors} *)
 
 let slug { slug; _ } = slug
 let title { title; _ } = title
@@ -29,10 +25,7 @@ let ideas { ideas; _ } = ideas
 let body { body; _ } = body
 let social { social; _ } = social
 
-(** {1 Comparison} *)
-
 let compare a b =
-  (* Ongoing (no finish) before finished, then by relevant year descending *)
   match a.finish, b.finish with
   | None, None -> Int.compare b.start a.start
   | None, Some _ -> -1
@@ -42,14 +35,7 @@ let compare a b =
     | 0 -> Int.compare b.start a.start
     | n -> n
 
-(** {1 Lookup} *)
-
-let lookup projects slug = List.find_opt (fun p -> p.slug = slug) projects
-
-(** {1 Parsing} *)
-
 let of_frontmatter (fm : Frontmatter.t) : (t, string) result =
-  (* Extract slug from filename *)
   let slug =
     match Frontmatter.fname fm with
     | Some fname ->
@@ -58,7 +44,6 @@ let of_frontmatter (fm : Frontmatter.t) : (t, string) result =
        | Error _ -> "")
     | None -> ""
   in
-  (* Extract date to get start year *)
   let start =
     match Frontmatter.find "date" fm with
     | Some (`String s) ->
@@ -69,7 +54,6 @@ let of_frontmatter (fm : Frontmatter.t) : (t, string) result =
        with _ -> 2000)
     | _ -> 2000
   in
-  (* Extract finish year *)
   let finish =
     match Frontmatter.find_string "finish" fm with
     | Some s ->
@@ -85,8 +69,6 @@ let of_frontmatter (fm : Frontmatter.t) : (t, string) result =
   let ideas = Frontmatter.find_string "ideas" fm |> Option.value ~default:"" in
   let body = Frontmatter.body fm in
   Ok { slug; title; start; finish; tags; ideas; body; social = None }
-
-(** {1 Pretty Printing} *)
 
 let pp ppf p =
   let open Fmt in

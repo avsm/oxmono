@@ -3,9 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Idea entry type for Bushel *)
-
-(** Academic level for research ideas *)
 type level =
   | Any
   | PartII
@@ -28,14 +25,6 @@ let level_to_string = function
   | PhD -> "PhD"
   | Postdoc -> "postdoctoral"
 
-let level_to_tag = function
-  | Any -> "idea-beginner"
-  | PartII -> "idea-medium"
-  | MPhil -> "idea-hard"
-  | PhD -> "idea-phd"
-  | Postdoc -> "idea-postdoc"
-
-(** Status of research idea *)
 type status =
   | Available
   | Discussion
@@ -58,13 +47,6 @@ let status_to_string = function
   | Completed -> "Completed"
   | Expired -> "Expired"
 
-let status_to_tag = function
-  | Available -> "idea-available"
-  | Discussion -> "idea-discuss"
-  | Ongoing -> "idea-ongoing"
-  | Completed -> "idea-done"
-  | Expired -> "idea-expired"
-
 type t = {
   slug : string;
   title : string;
@@ -86,8 +68,6 @@ type t = {
 
 type ts = t list
 
-(** {1 Accessors} *)
-
 let slug { slug; _ } = slug
 let title { title; _ } = title
 let level { level; _ } = level
@@ -105,8 +85,6 @@ let url { url; _ } = url
 let tags { tags; _ } = tags
 let social { social; _ } = social
 
-(** {1 Comparison} *)
-
 let compare a b =
   match Stdlib.compare a.status b.status with
   | 0 ->
@@ -120,12 +98,6 @@ let compare a b =
           | n -> n)
        | n -> n)
   | n -> n
-
-(** {1 Lookup} *)
-
-let lookup ideas slug = List.find_opt (fun i -> i.slug = slug) ideas
-
-(** {1 Jsont Codec} *)
 
 let level_jsont : level Jsont.t =
   Jsont.of_of_string ~kind:"level"
@@ -164,10 +136,7 @@ let jsont : t Jsont.t =
        ~enc_omit:Option.is_none ~enc:(fun i -> i.social)
   |> finish
 
-(** {1 Parsing} *)
-
 let of_frontmatter (fm : Frontmatter.t) : (t, string) result =
-  (* Extract slug from filename *)
   let slug, date_opt =
     match Frontmatter.fname fm with
     | Some fname ->
@@ -179,8 +148,6 @@ let of_frontmatter (fm : Frontmatter.t) : (t, string) result =
   match Frontmatter.decode jsont fm with
   | Error e -> Error e
   | Ok i ->
-    (* If the codec got a date from frontmatter, use it; otherwise
-       fall back to the filename-derived date *)
     let year, month =
       if i.year <> 2000 || i.month <> 1 then (i.year, i.month)
       else match date_opt with
@@ -192,8 +159,6 @@ let of_frontmatter (fm : Frontmatter.t) : (t, string) result =
          year;
          month;
          body = Frontmatter.body fm }
-
-(** {1 Contact Resolution} *)
 
 let resolve_handle contacts handle =
   let h = if String.length handle > 0 && handle.[0] = '@'
@@ -212,8 +177,6 @@ let resolve_contacts contacts idea =
 
 let resolve_all_contacts contacts ideas =
   List.map (resolve_contacts contacts) ideas
-
-(** {1 Pretty Printing} *)
 
 let pp ppf i =
   let open Fmt in

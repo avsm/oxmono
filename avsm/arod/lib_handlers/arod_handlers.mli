@@ -3,33 +3,18 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Route handlers for arod, described as proffer responses.
-
-    Each handler is a {!Proffer.Route.handler} over {!Env.t}, so it reads
-    every capability it needs from that record and captures nothing. The site
-    builder assembles them into the route table.
-
-    A page that has both an HTML and a markdown rendering is a
-    {!Proffer.Negotiate.v} handler over two cached renders. A cached response
-    carries a weak entity-tag, which the backend answers a conditional request
-    from, and an [X-Cache] field of ["hit"] or ["miss"], which the stats
-    dashboard breaks traffic down by. *)
+(** Proffer route handlers for Arod. *)
 
 module Env = Arod_env
-(** The capabilities every handler here reads. It is re-exported so that a
-    caller assembling the site names one module. *)
+(** Handler capabilities. *)
 
 module Render = Arod_render
-(** The rendering {!Env.create} closes over. A caller needs it only to name
-    the types {!Env}'s fields are written in. *)
+(** Response rendering. *)
 
 type handler = Env.t Proffer.Route.handler
 (** What every route runs. *)
 
-(** {1 Content pages}
-
-    Each of these negotiates between HTML and markdown on the request's Accept
-    field, and caches both renderings. *)
+(** {1 Content pages} *)
 
 val index : handler @@ portable
 (** [index] is the front page. *)
@@ -56,10 +41,8 @@ val network_page : handler @@ portable
 (** [network_page] is the network activity page. *)
 
 val paper : string -> handler @@ portable
-(** [paper slug] is the paper named by [slug]. A [slug] ending in [".pdf"] is
-    the paper's PDF read from the served paper directory, one ending in
-    [".bib"] is its BibTeX entry, and one ending in [".md"] is the entry as
-    markdown. Anything else is the negotiated page. *)
+(** [paper slug] is the paper named by [slug]. The suffixes [".pdf"], [".bib"]
+    and [".md"] select its alternate representations. *)
 
 val note : string -> handler @@ portable
 (** [note slug] is the note named by [slug], or that entry as markdown when
@@ -77,28 +60,30 @@ val video : string -> handler @@ portable
 (** [video slug] is the talk named by [slug], or that entry as markdown when
     [slug] ends in [".md"]. *)
 
-(** {1 Markdown pages}
-
-    A ["<page>.md"] URL asks for a list page as markdown without negotiating.
-    Each one shares its cache entry with the markdown variant of the page it
-    names. *)
+(** {1 Markdown pages} *)
 
 val index_markdown : handler @@ portable
+(** [index_markdown] is the front page as markdown. *)
 val papers_markdown : handler @@ portable
+(** [papers_markdown] is the paper list as markdown. *)
 val notes_markdown : handler @@ portable
+(** [notes_markdown] is the note list as markdown. *)
 val ideas_markdown : handler @@ portable
+(** [ideas_markdown] is the idea list as markdown. *)
 val projects_markdown : handler @@ portable
+(** [projects_markdown] is the project list as markdown. *)
 val videos_markdown : handler @@ portable
+(** [videos_markdown] is the video list as markdown. *)
 val links_markdown : handler @@ portable
+(** [links_markdown] is the outbound-link list as markdown. *)
 val network_markdown : handler @@ portable
+(** [network_markdown] is the network page as markdown. *)
 
 (** {1 Feeds} *)
 
 val atom_feed : string -> handler @ portable @@ portable
-(** [atom_feed path] is the Atom feed of every entry, naming itself [path].
-    Two routes serve it, so [path] is the one the route table gives and never
-    the request target, which a client controls and could use to fill the
-    cache. The response is cached under [path]. *)
+(** [atom_feed path] is the Atom feed of every entry, named and cached as
+    [path]. *)
 
 val json_feed : handler @@ portable
 (** [json_feed] is the JSON feed of every entry. *)
@@ -112,14 +97,7 @@ val perma_json : handler @@ portable
 (** {1 Redirect targets} *)
 
 val encode_segment : string -> string @@ portable
-(** [encode_segment s] is [s] with every byte outside the unreserved set of
-    RFC 3986 section 2.3 percent-encoded, sub-delimiters included. That is
-    stricter than what the RFC allows in a path segment, which also admits a
-    sub-delimiter, [':'] and ['@']. A route capture arrives decoded, so a
-    redirect built from one passes it through this first. Without it a segment
-    holding a space redirects to the wrong place, and one holding a CR makes
-    {!Proffer.Resp.redirect} refuse the field and the request answer 500. An
-    ordinary slug is unchanged. *)
+(** [encode_segment s] is [s] percent-encoded as an RFC 3986 path segment. *)
 
 (** {1 Machine-readable pages} *)
 
@@ -144,13 +122,11 @@ val pagination_api : handler @@ portable
     [offset], [limit] and any number of [type] query parameters. *)
 
 val search_api : handler @@ portable
-(** [search_api] is the full-text search results for the [q] query
-    parameter, at most [limit] of them and [link_limit] links, ordered by
-    [sort]. *)
+(** [search_api] is the full-text result set selected by [q], [limit],
+    [link_limit] and [sort]. *)
 
 val search_page : handler @@ portable
-(** The search page at [/search], or its results fragment when the query
-    string carries [fragment=1]. *)
+(** [search_page] is [/search], or its results fragment for [fragment=1]. *)
 
 (** {1 Files} *)
 
@@ -172,16 +148,11 @@ val js_file : string -> handler @@ portable
 (** [js_file name] is the compiled script [name], cached as
     {!embedded_file_immutable} is. *)
 
-(** {1 Stats dashboard}
-
-    These are gated by {!Proffer.Site.with_auth} at the site level rather than
-    one at a time, so none of them checks credentials itself. *)
+(** {1 Statistics} *)
 
 val stats_auth : password:string -> string option -> bool @@ portable
-(** [stats_auth ~password auth] is whether the Authorization field [auth]
-    carries HTTP Basic credentials whose password is [password]. The user name
-    is ignored. It is [false] when [auth] is absent, is not Basic, or does not
-    decode. *)
+(** [stats_auth ~password auth] is [true] if [auth] is valid Basic
+    authentication with [password]. *)
 
 val stats_dashboard : handler @@ portable
 (** [stats_dashboard] is the access log dashboard over the range named by the

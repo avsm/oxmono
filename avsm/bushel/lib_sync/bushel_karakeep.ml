@@ -3,12 +3,10 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Sync bushel links with karakeep bookmark service *)
+(** Synchronization with the Karakeep bookmark service. *)
 
 let src = Logs.Src.create "bushel.karakeep" ~doc:"Bushel-Karakeep sync"
 module Log = (val Logs.src_log src : Logs.LOG)
-
-(** {1 JSON Helpers} *)
 
 let json_obj fields =
   let m = Jsont.Meta.none in
@@ -36,8 +34,6 @@ let get_array key json =
 let extract_tag_name (json : Jsont.json) =
   get_string "name" json
 
-(** {1 Pagination} *)
-
 let fetch_all_bookmarks api =
   let all = ref [] in
   let cursor = ref None in
@@ -54,8 +50,6 @@ let fetch_all_bookmarks api =
   done;
   !all
 
-(** {1 URL-to-Bookmark Index} *)
-
 let build_url_index bookmarks =
   let tbl = Hashtbl.create (List.length bookmarks) in
   List.iter (fun (b : Karakeep.Bookmark.T.t) ->
@@ -66,21 +60,27 @@ let build_url_index bookmarks =
   ) bookmarks;
   tbl
 
-(** {1 Sync Logic} *)
+let karakeep_data id : Bushel.Link.karakeep_data =
+  {
+    remote_url = "https://hoard.recoil.org";
+    id;
+    tags = [];
+    metadata = [];
+  }
 
+(** [sync_links ~dry_run ~api ~data_dir] is the result of synchronizing
+    [links.yml] with [api]. *)
 let sync_links ~dry_run ~api ~data_dir =
   let links_file = Filename.concat data_dir "links.yml" in
   let links = Bushel.Link.load_links_file links_file in
 
   Log.info (fun m -> m "Loaded %d links from %s" (List.length links) links_file);
 
-  (* Fetch all karakeep bookmarks and build URL index *)
   Log.info (fun m -> m "Fetching all karakeep bookmarks...");
   let bookmarks = fetch_all_bookmarks api in
   Log.info (fun m -> m "Fetched %d bookmarks from karakeep" (List.length bookmarks));
   let url_index = build_url_index bookmarks in
 
-  (* Build id index for pull phase *)
   let id_index = Hashtbl.create (List.length bookmarks) in
   List.iter (fun (b : Karakeep.Bookmark.T.t) ->
     Hashtbl.replace id_index (Karakeep.Bookmark.T.id b) b
@@ -90,27 +90,18 @@ let sync_links ~dry_run ~api ~data_dir =
   let pulled = ref 0 in
   let details = ref [] in
 
-  (* Process each link *)
   let updated_links = List.map (fun (link : Bushel.Link.t) ->
     let url = Bushel.Link.url link in
 
     match link.karakeep with
     | None ->
-      (* Push: link has no karakeep data yet *)
       (match Hashtbl.find_opt url_index url with
        | Some existing_bookmark ->
-         (* URL already exists in karakeep, just record the ID *)
          let id = Karakeep.Bookmark.T.id existing_bookmark in
          Log.info (fun m -> m "Link %s already in karakeep as %s" url id);
          incr pushed;
          details := Printf.sprintf "Linked %s -> %s" url id :: !details;
-         let karakeep : Bushel.Link.karakeep_data = {
-           remote_url = "https://hoard.recoil.org";
-           id;
-           tags = [];
-           metadata = [];
-         } in
-         { link with karakeep = Some karakeep }
+         { link with karakeep = Some (karakeep_data id) }
        | None ->
          if dry_run then begin
            Log.info (fun m -> m "Would create karakeep bookmark for %s" url);
@@ -128,24 +119,16 @@ let sync_links ~dry_run ~api ~data_dir =
              let id = Karakeep.Bookmark.T.id bookmark in
              incr pushed;
              details := Printf.sprintf "Created: %s -> %s" url id :: !details;
-             let karakeep : Bushel.Link.karakeep_data = {
-               remote_url = "https://hoard.recoil.org";
-               id;
-               tags = [];
-               metadata = [];
-             } in
-             { link with karakeep = Some karakeep }
+             { link with karakeep = Some (karakeep_data id) }
            with e ->
              Log.err (fun m -> m "Failed to create bookmark for %s: %s"
                url (Printexc.to_string e));
              link
          end)
     | Some kd ->
-      (* Pull: link has karakeep data, update metadata from karakeep *)
       let bookmark = match Hashtbl.find_opt id_index kd.id with
         | Some b -> Some b
         | None ->
-          (* Bookmark might have been deleted from karakeep *)
           Log.warn (fun m -> m "Bookmark %s not found in karakeep" kd.id);
           None
       in
@@ -189,7 +172,6 @@ let sync_links ~dry_run ~api ~data_dir =
          { link with karakeep = Some updated_kd })
   ) links in
 
-  (* Save updated links *)
   if not dry_run && (!pushed > 0 || !pulled > 0) then
     Bushel.Link.save_links_file links_file updated_links;
 

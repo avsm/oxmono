@@ -3,41 +3,25 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Bushel configuration management with XDG paths *)
-
-(** {1 Types} *)
-
 type peertube_server = {
   name : string;
   endpoint : string;
 }
 
 type t = {
-  (* Data paths *)
   data_dir : string;
-
-  (* Image configuration *)
   images_dir : string;
   images_output_dir : string;
   paper_thumbs_subdir : string;
   contact_faces_subdir : string;
   video_thumbs_subdir : string;
 
-  (* Paper PDFs *)
   paper_pdfs_dir : string;
-
-  (* PeerTube *)
   peertube_servers : peertube_server list;
-
-  (* Zotero *)
   zotero_translation_server : string;
-
-  (* Git sync *)
   sync : Gitops.Sync.Config.t;
   images_sync : Gitops.Sync.Config.t;
 }
-
-(** {1 XDG Paths} *)
 
 let xdg_config_home () =
   match Sys.getenv_opt "XDG_CONFIG_HOME" with
@@ -49,8 +33,6 @@ let xdg_config_home () =
 
 let config_dir () = Filename.concat (xdg_config_home ()) "bushel"
 let config_file () = Filename.concat (config_dir ()) "config.toml"
-
-(** {1 Default Configuration} *)
 
 let default () =
   let home = Sys.getenv_opt "HOME" |> Option.value ~default:"." in
@@ -68,8 +50,6 @@ let default () =
     images_sync = Gitops.Sync.Config.default;
   }
 
-(** {1 Path Helpers} *)
-
 let expand_path path =
   if String.length path > 0 && path.[0] = '~' then
     match Sys.getenv_opt "HOME" with
@@ -80,8 +60,6 @@ let expand_path path =
 let paper_thumbs_dir t = Filename.concat t.images_dir t.paper_thumbs_subdir
 let contact_faces_dir t = Filename.concat t.images_dir t.contact_faces_subdir
 let video_thumbs_dir t = Filename.concat t.images_dir t.video_thumbs_subdir
-
-(** {1 Tomlt Codecs} *)
 
 let peertube_server_codec =
   let open Tomlt in
@@ -180,8 +158,6 @@ let config_codec =
        ~enc:(fun c -> c.images_sync)
   |> finish
 
-(** {1 Loading} *)
-
 let of_string s =
   match Tomlt_bytesrw.decode_string config_codec s with
   | Ok config -> Ok config
@@ -189,10 +165,8 @@ let of_string s =
 
 let load_file path =
   try
-    let ic = open_in path in
-    let content = really_input_string ic (in_channel_length ic) in
-    close_in ic;
-    of_string content
+    In_channel.with_open_bin path (fun ic ->
+      of_string (really_input_string ic (in_channel_length ic)))
   with
   | Sys_error msg -> Error (Printf.sprintf "Failed to read config: %s" msg)
 
@@ -203,20 +177,13 @@ let load () =
   else
     Ok (default ())
 
-(** {1 API Key Loading} *)
-
 let read_api_key path =
   let path = expand_path path in
   try
-    let ic = open_in path in
-    let key = input_line ic |> String.trim in
-    close_in ic;
-    Ok key
+    In_channel.with_open_bin path (fun ic -> Ok (input_line ic |> String.trim))
   with
   | Sys_error msg -> Error (Printf.sprintf "Failed to read API key from %s: %s" path msg)
   | End_of_file -> Error (Printf.sprintf "API key file %s is empty" path)
-
-(** {1 Pretty Printing} *)
 
 let pp ppf t =
   let open Fmt in
@@ -233,8 +200,6 @@ let pp ppf t =
   pf ppf "  sync remote: %s@," t.sync.Gitops.Sync.Config.remote;
   pf ppf "  images_sync remote: %s@," t.images_sync.Gitops.Sync.Config.remote;
   pf ppf "@]"
-
-(** {1 Default Config Generation} *)
 
 let default_config_toml () =
   let home = Sys.getenv_opt "HOME" |> Option.value ~default:"~" in
@@ -297,19 +262,13 @@ let write_default_config ?(force=false) () =
   let dir = config_dir () in
   let path = config_file () in
 
-  (* Check if config already exists *)
   if Sys.file_exists path && not force then
     Error (Printf.sprintf "Config file already exists: %s\nUse --force to overwrite." path)
   else begin
-    (* Create directory if needed *)
     if not (Sys.file_exists dir) then begin
       Unix.mkdir dir 0o755
     end;
-
-    (* Write config file *)
     let content = default_config_toml () in
-    let oc = open_out path in
-    output_string oc content;
-    close_out oc;
+    Out_channel.with_open_bin path (fun oc -> output_string oc content);
     Ok path
   end

@@ -3,8 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Union entry type for all Bushel content *)
-
 type entry =
   [ `Paper of Bushel_paper.t
   | `Project of Bushel_project.t
@@ -31,11 +29,6 @@ type t = {
   graph : Bushel_link_graph.t;
 }
 
-(** {1 Constructors} *)
-
-(* The five entry lists are concatenated in the order the slug table used to be
-   filled, because a slug claimed by two entries resolves to the one added
-   last and that resolution is what callers see. *)
 let slugged_entries ~notes ~projects ~ideas ~videos ~papers =
   List.map (fun n -> (n.Bushel_note.slug, `Note n)) notes
   @ List.map (fun p -> (p.Bushel_project.slug, `Project p)) projects
@@ -48,20 +41,13 @@ let v ~papers ~notes ~projects ~ideas ~videos ~contacts ?(images=[]) ?(doi_entri
   let slugs : slugs =
     Bushel_smap.of_list (slugged_entries ~notes ~projects ~ideas ~videos ~papers)
   in
-  (* Build image index *)
   let image_index =
     Bushel_smap.of_list (List.map (fun img -> (Srcsetter.slug img, img)) images)
   in
   { slugs; papers; old_papers; notes; projects; ideas; videos; contacts; images; image_index; data_dir; doi_entries;
     graph = Bushel_link_graph.empty }
 
-(* The graph is built from the entries, so it cannot exist when they are, and
-   the loader hands it back here once it does. A collection that never goes
-   through this answers every graph query with the empty list, which is what
-   the module level graph answered before it was set. *)
 let with_graph t graph = { t with graph }
-
-(** {1 Accessors} *)
 
 let contacts { contacts; _ } = contacts
 let videos { videos; _ } = videos
@@ -79,17 +65,11 @@ let outbound { graph; _ } slug = Bushel_link_graph.outbound graph slug
 let external_urls { graph; _ } slug = Bushel_link_graph.external_urls graph slug
 let all_external_links { graph; _ } = Bushel_link_graph.all_external_links graph
 
-(** {1 Image Lookup} *)
-
 let lookup_image { image_index; _ } slug =
   Bushel_smap.find_opt slug image_index
 
-(** {1 Lookup Functions} *)
-
 let lookup { slugs; _ } slug = Bushel_smap.find_opt slug slugs
 let lookup_exn { slugs; _ } slug = Bushel_smap.find slug slugs
-
-(** {1 Entry Properties} *)
 
 let to_type_string = function
   | `Paper _ -> "paper"
@@ -158,8 +138,6 @@ let is_index_entry = function
   | `Note n -> n.Bushel_note.index_page
   | _ -> false
 
-(** {1 Derived Lookups} *)
-
 let lookup_site_url t slug =
   match lookup t slug with
   | Some ent -> site_url ent
@@ -177,24 +155,17 @@ let notes_for_slug { notes; _ } slug =
     | None -> false
   ) notes
 
-(* Reconstructed from the typed lists rather than read out of [slugs], so that
-   two entries sharing a slug both survive here as they did when the table
-   held one binding per addition. *)
 let all_entries { notes; projects; ideas; videos; papers; _ } =
   List.map snd (slugged_entries ~notes ~projects ~ideas ~videos ~papers)
 
 let all_papers { papers; old_papers; _ } =
   List.map (fun x -> `Paper x) (papers @ old_papers)
 
-(** {1 Comparison} *)
-
 let compare a b =
   let da = datetime a in
   let db = datetime b in
   if Ptime.equal da db then String.compare (title a) (title b)
   else Ptime.compare da db
-
-(** {1 Contact Lookups} *)
 
 let lookup_by_name { contacts; _ } n =
   let name_lower = String.lowercase_ascii n in
@@ -206,9 +177,7 @@ let lookup_by_name { contacts; _ } n =
   | [contact] -> Some contact
   | _ -> None
 
-(** {1 Tag Functions} *)
-
-let tags_of_ent _entries ent : Bushel_tags.t list =
+let tags_of_ent ent : Bushel_tags.t list =
   match ent with
   | `Paper p -> Bushel_tags.of_string_list @@ Bushel_paper.tags p
   | `Video v -> Bushel_tags.of_string_list @@ Bushel_video.tags v
@@ -228,9 +197,6 @@ let mention_entries entries tags =
     | _ -> None
   ) tags
 
-(** {1 Thumbnail Functions} *)
-
-(** Get the smallest webp variant from a srcsetter image - prefers size just above 480px *)
 let smallest_webp_variant img =
   let variants = Srcsetter.variants img in
   let webp_variants =
@@ -238,92 +204,70 @@ let smallest_webp_variant img =
     |> List.filter (fun (name, _) -> String.ends_with ~suffix:".webp" name)
   in
   match webp_variants with
-  | [] ->
-    (* No webp variants - use the name field which is always webp *)
-    "/images/" ^ Srcsetter.name img
+  | [] -> "/images/" ^ Srcsetter.name img
   | variants ->
-    (* Prefer variants with width > 480px, choosing the smallest one above 480 *)
     let large_variants = List.filter (fun (_, (w, _)) -> w > 480) variants in
     let candidates = if large_variants = [] then variants else large_variants in
-    (* Find the smallest variant from candidates *)
-    let smallest = List.fold_left (fun acc (name, (w, h)) ->
-      match acc with
-      | None -> Some (name, w, h)
-      | Some (_, min_w, _) when w < min_w -> Some (name, w, h)
-      | _ -> acc
-    ) None candidates in
-    match smallest with
-    | Some (name, _, _) -> "/images/" ^ name
-    | None -> "/images/" ^ Srcsetter.name img
+    let name, _ =
+      match candidates with
+      | [] -> assert false
+      | first :: rest ->
+        List.fold_left
+          (fun ((_, (best, _)) as current) ((_, (width, _)) as candidate) ->
+            if width < best then candidate else current)
+          first rest
+    in
+    "/images/" ^ name
 
-(** Get thumbnail slug for a contact *)
-let contact_thumbnail_slug contact =
-  (* Contact images use just the handle as slug *)
-  Some (Sortal_schema.Contact.handle contact)
+let thumbnail_for_slug entries slug =
+  Option.map smallest_webp_variant (lookup_image entries slug)
 
-(** Get thumbnail URL for a contact - resolved through srcsetter *)
 let contact_thumbnail entries contact =
-  match contact_thumbnail_slug contact with
-  | None -> None
-  | Some thumb_slug ->
-    match lookup_image entries thumb_slug with
-    | Some img -> Some (smallest_webp_variant img)
-    | None -> None
+  thumbnail_for_slug entries (Sortal_schema.Contact.handle contact)
 
-(** Extract the first image URL from markdown text *)
+let inline_destination link =
+  let open Cmarkit in
+  match Inline.Link.reference link with
+  | `Inline (definition, _) -> Option.map fst (Link_definition.dest definition)
+  | `Ref _ -> None
+
+let first_inline_value select md =
+  let open Cmarkit in
+  let doc = Doc.of_string md in
+  let found = ref None in
+  let visit _ inline =
+    if Option.is_none !found then found := select inline;
+    `Default
+  in
+  ignore (Mapper.map_doc (Mapper.make ~inline:visit ()) doc);
+  !found
+
 let extract_first_image md =
   let open Cmarkit in
-  let doc = Doc.of_string md in
-  let found_image = ref None in
-  let find_image_in_inline _mapper = function
-    | Inline.Image (img, _) ->
-      (match Inline.Link.reference img with
-       | `Inline (ld, _) ->
-         (match Link_definition.dest ld with
-          | Some (url, _) when !found_image = None ->
-            found_image := Some url;
-            `Default
-          | _ -> `Default)
-       | _ -> `Default)
-    | _ -> `Default
-  in
-  let mapper = Mapper.make ~inline:find_image_in_inline () in
-  let _ = Mapper.map_doc mapper doc in
-  !found_image
+  first_inline_value
+    (function Inline.Image (image, _) -> inline_destination image | _ -> None)
+    md
 
-(** Extract the first video slug from markdown text by looking for bushel video links *)
 let extract_first_video entries md =
   let open Cmarkit in
-  let doc = Doc.of_string md in
-  let found_video = ref None in
-  let find_video_in_inline _mapper = function
-    | Inline.Link (link, _) ->
-      (match Inline.Link.reference link with
-       | `Inline (ld, _) ->
-         (match Link_definition.dest ld with
-          | Some (url, _) when !found_video = None && String.starts_with ~prefix:":" url ->
-            let slug = String.sub url 1 (String.length url - 1) in
-            (match lookup entries slug with
-             | Some (`Video v) ->
-               found_video := Some (Bushel_video.uuid v);
-               `Default
-             | _ -> `Default)
-          | _ -> `Default)
-       | _ -> `Default)
-    | _ -> `Default
-  in
-  let mapper = Mapper.make ~inline:find_video_in_inline () in
-  let _ = Mapper.map_doc mapper doc in
-  !found_video
+  first_inline_value
+    (function
+      | Inline.Link (link, _) -> (
+        match inline_destination link with
+        | Some url when String.starts_with ~prefix:":" url -> (
+          let slug = String.sub url 1 (String.length url - 1) in
+          match lookup entries slug with
+          | Some (`Video video) -> Some (Bushel_video.uuid video)
+          | _ -> None)
+        | _ -> None)
+      | _ -> None)
+    md
 
-(** Get thumbnail slug for an entry with fallbacks *)
 let rec thumbnail_slug entries = function
   | `Paper p -> Some (Bushel_paper.slug p)
   | `Video v -> Some (Bushel_video.uuid v)
   | `Project p -> Some (Printf.sprintf "project-%s" (Bushel_project.slug p))
   | `Idea i ->
-    (* A picture in the body belongs to this idea alone, so it wins over the
-       project logo that every sibling idea would otherwise share. *)
     (match extract_first_image (Bushel_idea.body i) with
      | Some url when String.starts_with ~prefix:":" url ->
        Some (String.sub url 1 (String.length url - 1))
@@ -336,8 +280,6 @@ let rec thumbnail_slug entries = function
          | c :: _ -> Some (Sortal_schema.Contact.handle c)
          | [] -> None)
   | `Note n ->
-    (* Use titleimage if set, otherwise extract first image from body,
-       then try video, otherwise use slug_ent's thumbnail *)
     (match Bushel_note.titleimage n with
      | Some slug -> Some slug
      | None ->
@@ -349,7 +291,6 @@ let rec thumbnail_slug entries = function
          match extract_first_video entries (Bushel_note.body n) with
          | Some video_uuid -> Some video_uuid
          | None ->
-           (* Fallback to slug_ent's thumbnail if present *)
            match Bushel_note.slug_ent n with
            | Some slug_ent ->
              (match lookup entries slug_ent with
@@ -357,22 +298,18 @@ let rec thumbnail_slug entries = function
               | None -> None)
            | None -> None)
 
-(** Get thumbnail URL for an entry with fallbacks - resolved through srcsetter *)
 let thumbnail entries entry =
   match thumbnail_slug entries entry with
   | None -> None
-  | Some thumb_slug ->
-    match lookup_image entries thumb_slug with
-    | Some img -> Some (smallest_webp_variant img)
+  | Some thumb_slug -> (
+    match thumbnail_for_slug entries thumb_slug with
+    | Some _ as thumbnail -> thumbnail
     | None ->
-      (* For projects, fallback to supervisor faces if project image doesn't exist *)
       (match entry with
        | `Project p ->
-         (* Find ideas for this project *)
          let project_ideas = List.filter (fun idea ->
            Bushel_idea.project idea = ":" ^ Bushel_project.slug p
          ) (ideas entries) in
-         (* Collect all unique supervisor contacts from these ideas *)
          let all_supervisors =
            List.fold_left (fun acc idea ->
              List.fold_left (fun acc2 c ->
@@ -382,18 +319,11 @@ let thumbnail entries entry =
              ) acc (Bushel_idea.supervisors idea)
            ) [] project_ideas
          in
-         (* Split into avsm and others, preferring others first *)
          let (others, avsm) = List.partition (fun c ->
            Sortal_schema.Contact.handle c <> "avsm"
          ) all_supervisors in
-         let ordered_supervisors = others @ avsm in
-         let rec try_supervisors = function
-           | [] -> None
-           | c :: rest ->
-             let handle = Sortal_schema.Contact.handle c in
-             (match lookup_image entries handle with
-              | Some img -> Some (smallest_webp_variant img)
-              | None -> try_supervisors rest)
-         in
-         try_supervisors ordered_supervisors
-       | _ -> None)
+         List.find_map
+           (fun c ->
+             thumbnail_for_slug entries (Sortal_schema.Contact.handle c))
+           (others @ avsm)
+       | _ -> None))

@@ -3,32 +3,14 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Bushel markdown extensions.
-
-    Bushel extends CommonMark with three link forms that name things inside
-    the knowledge base rather than URLs.
+(** CommonMark with Bushel link extensions.
 
     - [:slug] links to the entry with that slug.
     - [@handle] links to the contact with that handle.
     - [##tag] links to a tag, and [###kind] to an entry kind.
 
-    Both the inline form [[text](:slug)] and the reference form [[text][:slug]]
-    are recognised. The reference form only works if the document was parsed
-    with {!with_bushel_links} as its resolver, because CommonMark would
-    otherwise drop a reference with no definition.
-
-    This module supplies the resolver and three mappers that rewrite those
-    links. A mapper is chosen by what the output is for. {!make_sidenote_mapper}
-    produces {!Side_note} nodes for the website, which renders them as hover
-    previews. {!make_link_only_mapper} produces ordinary links for feeds and
-    for search indexing. {!to_markdown} produces standard markdown.
-
-    The link predicates, {!with_bushel_links}, the three mappers and two of
-    the three whole-document conversions are portable, so a renderer running
-    inside a function marked [portable] can parse with the resolver, map the
-    result and render it back to markdown. {!extract_all_links} is the one
-    conversion that is not, and it says why, as does {!note_references}
-    below. *)
+    Inline and reference links are accepted. Reference links require
+    {!with_bushel_links} when parsing. *)
 
 @@ portable
 
@@ -41,16 +23,10 @@ type sidenote_data =
   | Note_note of Bushel_note.t * string
   | Project_note of Bushel_project.t * string
   | Video_note of Bushel_video.t * string
-  | Footnote_note of string * Cmarkit.Block.t * string
-      (** Nothing constructs this. It is kept because removing a constructor
-          from a public type is a wider change than this file. *)
-(** What a sidenote shows. The second field of each case is the text that
-    triggered it, which is the link text with a slug resolved to a title. *)
+(** The entry and link text shown by a sidenote. *)
 
 type Cmarkit.Inline.t += Side_note of sidenote_data
-(** The inline node {!make_sidenote_mapper} writes in place of a Bushel link.
-    A renderer that does not handle it falls through to the default
-    rendering, which prints nothing. *)
+(** The inline node produced by {!make_sidenote_mapper}. *)
 
 (** {1 Link Detection} *)
 
@@ -75,55 +51,28 @@ val strip_handle : string -> string
 
 val with_bushel_links : Cmarkit.Label.resolver
 (** [with_bushel_links] is a resolver that answers an undefined reference
-    label starting with [":"], ["@"] or ["##"] with that same label tagged, so
-    that the mappers below can tell a slug reference from a contact reference.
-    It is a [Cmarkit.Label.t] and not a definition: it carries no destination,
-    and a renderer that does not consume the tag reports the label as
-    undefined. Any other label resolves as CommonMark says. Parse with this or
-    the reference form of a Bushel link is dropped before a mapper ever sees
-    it. *)
+    label beginning with [":"], ["@"] or ["##"] as a Bushel link. Other labels
+    use CommonMark resolution. *)
 
-(** {1 Mappers}
-
-    All three are portable, and one thing about how they are written keeps
-    them so. Each writes a default result as the literal [`Default] rather
-    than as [Cmarkit.Mapper.default]. That constant is a module-level value of
-    a polymorphic variant type, which crosses nothing, so a portable function
-    that reads it may only return a [contended] result, and
-    [Cmarkit.Mapper.mapper] does not admit one. A mapper here that reads the
-    constant cannot be passed to [Cmarkit.Mapper.make]. [Cmarkit.Mapper.ret]
-    is a function call and is used as it stands. *)
+(** {1 Mappers} *)
 
 val make_sidenote_mapper :
   Bushel_entry.t -> Cmarkit.Inline.t Cmarkit.Mapper.mapper
 (** [make_sidenote_mapper es] is an inline mapper that rewrites a Bushel link
-    into a {!Side_note} carrying the entry or contact it names. A tag or kind
-    link stays an ordinary link, and a link to a slug that [es] does not hold
-    becomes a link to the site path for that slug. An image whose target is a
-    slug becomes an image under [/images], or a link under [/videos] if the
-    slug names a video. *)
+    into a {!Side_note}. Tag and kind links remain ordinary links. *)
 
 val make_link_only_mapper :
   Bushel_entry.t -> Cmarkit.Inline.t Cmarkit.Mapper.mapper
 (** [make_link_only_mapper es] is an inline mapper that rewrites a Bushel link
-    into an ordinary link to the site path of what it names. A contact link
-    becomes a link to that contact's best URL, or plain text if the contact
-    has none. Use this where a sidenote cannot be shown, such as in a feed. *)
-
-val make_bushel_link_only_mapper :
-  'a -> Bushel_entry.t -> Cmarkit.Inline.t Cmarkit.Mapper.mapper
-(** [make_bushel_link_only_mapper defs es] is [make_link_only_mapper es].
-    [defs] is ignored and is there for callers that hold a definition map. *)
+    into an ordinary site link. Contacts without URLs become plain text. *)
 
 (** {1 Whole-document conversions} *)
 
 val plain_text_of_markdown :
   ?contact_name:(string -> string option) -> string -> string
 (** [plain_text_of_markdown md] is the prose of [md] with its markup removed,
-    one paragraph or heading per line and a blank line before each heading. A
-    Bushel link becomes its text, a contact link becomes the contact's name if
-    [contact_name] maps its handle and the handle otherwise, and an image with
-    a slug target is dropped. *)
+    preserving paragraph and heading boundaries. [contact_name] may expand
+    contact handles. *)
 
 val to_markdown :
   ?base_url:string ->
@@ -132,17 +81,12 @@ val to_markdown :
   string ->
   string
 (** [to_markdown ~entries md] is [md] as standard markdown, with every Bushel
-    link resolved to a URL under [base_url], which defaults to the empty
-    string, and every slug image resolved under [image_base], which defaults
-    to ["/images"]. A video embed and an image carrying a placement directive
-    become raw HTML, because markdown cannot express either. *)
+    link resolved below [base_url] and every image below [image_base]. The
+    defaults are [""] and ["/images"]. *)
 
 val extract_all_links : string -> string list @@ nonportable
-(** [extract_all_links md] is every link and image target in [md], including
-    Bushel reference labels, sorted and without duplicates.
-
-    This is not portable because it collects into a locally applied
-    [Set.Make], whose module-level values cross nothing. *)
+(** [extract_all_links md] is every distinct link and image target in [md],
+    sorted lexically. *)
 
 (** {1 Validation} *)
 
@@ -167,14 +111,5 @@ val note_references :
   Bushel_note.t ->
   (string * string * reference_source) list @@ nonportable
 (** [note_references es default_author n] is the works [n] cites, as
-    [(doi, citation, source)] triples in the order they were found. It gathers
-    the entry [n] is about, the entries its body links to, the DOI URLs in its
-    body and the publisher URLs in its body that the DOI cache of [es]
-    resolves. A DOI already seen is not repeated, and the note's own DOI is
-    left out. [default_author] supplies the author of a cited note that names
-    none.
-
-    This is not portable because it scans for URLs with [Re] and decodes them
-    with [Uri]. It is called once per note when a context is built rather than
-    on the render path, so a portable render can serve a note's references
-    without reaching either library. *)
+    [(doi, citation, source)] triples in document order. Duplicate and self
+    citations are omitted. [default_author] supplies missing note authors. *)

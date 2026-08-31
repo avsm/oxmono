@@ -3,52 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Bushel configuration management with XDG paths
-
-    Configuration is loaded from [~/.config/bushel/config.toml] by default,
-    with support for environment variable overrides via [XDG_CONFIG_HOME].
-
-    {1 Example config.toml}
-
-    {v
-    [data]
-    local_dir = "/path/to/bushel/data"
-
-    [images]
-    images_dir = "/path/to/images"
-    images_output_dir = "/path/to/images-web"
-    paper_thumbs = "papers"
-    contact_faces = "faces"
-    video_thumbs = "videos"
-
-    [papers]
-    pdfs_dir = "/path/to/paper-pdfs"
-
-    [peertube]
-    [[peertube.servers]]
-    name = "crank"
-    endpoint = "https://crank.recoil.org"
-
-    [[peertube.servers]]
-    name = "talks"
-    endpoint = "https://talks.example.com"
-
-    [zotero]
-    translation_server = "http://localhost:1969"
-
-    [sync]
-    remote = "ssh://server/path/to/bushel.git"
-    branch = "main"
-    auto_commit = true
-    commit_message = "sync"
-
-    [images_sync]
-    remote = "ssh://server/path/to/images.git"
-    branch = "main"
-    auto_commit = true
-    commit_message = "images sync"
-    v}
-*)
+(** Bushel configuration and XDG paths. *)
 
 (** {1 Types} *)
 
@@ -71,64 +26,62 @@ type t = {
   sync : Gitops.Sync.Config.t;
   images_sync : Gitops.Sync.Config.t;
 }
-(** Complete bushel configuration. *)
+(** A complete Bushel configuration. *)
 
 (** {1 XDG Paths} *)
 
 val xdg_config_home : unit -> string
-(** Return the XDG config home directory. *)
+(** [xdg_config_home ()] is the XDG configuration directory. *)
 
 val config_dir : unit -> string
-(** Return the bushel config directory ([~/.config/bushel]). *)
+(** [config_dir ()] is the Bushel configuration directory. *)
 
 val config_file : unit -> string
-(** Return the path to the config file ([~/.config/bushel/config.toml]). *)
+(** [config_file ()] is the default configuration file. *)
 
 (** {1 Loading} *)
 
 val default : unit -> t
-(** Return the default configuration. *)
+(** [default ()] is the default configuration. *)
 
 val load : unit -> (t, string) result
-(** Load configuration from the default config file.
-    Returns default config if file doesn't exist. *)
+(** [load ()] is the default configuration file, or {!default} if absent. *)
 
 val load_file : string -> (t, string) result
-(** Load configuration from a specific file path. *)
+(** [load_file path] is the configuration in [path]. *)
 
 val of_string : string -> (t, string) result
-(** Parse configuration from a TOML string. *)
+(** [of_string s] is the configuration encoded by TOML string [s]. *)
 
 (** {1 Path Helpers} *)
 
 val expand_path : string -> string
-(** Expand [~] in paths to the home directory. *)
+(** [expand_path path] is [path] with a leading [~] expanded. *)
 
 val paper_thumbs_dir : t -> string
-(** Full path to paper thumbnails directory. *)
+(** [paper_thumbs_dir config] is the paper thumbnail directory. *)
 
 val contact_faces_dir : t -> string
-(** Full path to contact faces directory. *)
+(** [contact_faces_dir config] is the contact image directory. *)
 
 val video_thumbs_dir : t -> string
-(** Full path to video thumbnails directory. *)
+(** [video_thumbs_dir config] is the video thumbnail directory. *)
 
 (** {1 API Keys} *)
 
 val read_api_key : string -> (string, string) result
-(** Read an API key from a file. *)
+(** [read_api_key path] is the trimmed API key in [path]. *)
 
 (** {1 Pretty Printing} *)
 
 val pp : t Fmt.t
-(** Pretty-print the configuration. *)
+(** [pp] prints a configuration. *)
 
 (** {1 Initialization} *)
 
 val default_config_toml : unit -> string
-(** Generate a default config.toml content with comments. *)
+(** [default_config_toml ()] is a commented default configuration. *)
 
 val write_default_config : ?force:bool -> unit -> (string, string) result
-(** Write a default config file to the config directory.
-    Returns [Ok path] on success, or [Error msg] if the file exists
-    and [force] is not set, or if writing fails. *)
+(** [write_default_config ()] writes the default configuration and returns its
+    path. [force] permits replacing an existing file. *)

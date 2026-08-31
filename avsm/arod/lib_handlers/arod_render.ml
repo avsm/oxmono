@@ -151,7 +151,7 @@ let paper_html ~ctx slug p =
   let image = match Bushel.Entry.thumbnail entries (`Paper p) with
     | Some t -> Some (cfg.site.base_url ^ t) | None -> None in
   let published = Paper.date p in
-  let tags = List.map Bushel.Tags.to_raw_string (Arod.Ctx.tags_of_ent ctx (`Paper p)) in
+  let tags = List.map Bushel.Tags.to_raw_string (Bushel.Entry.tags_of_ent (`Paper p)) in
   let journal =
     let bibty = String.lowercase_ascii (Paper.bibtype p) in
     match bibty with
@@ -198,7 +198,7 @@ let note_html ~ctx slug n =
     | Some t -> Some (cfg.site.base_url ^ t) | None -> None in
   let published = Bushel.Entry.date (`Note n) in
   let modified = n.Bushel.Note.updated in
-  let tags = List.map Bushel.Tags.to_raw_string (Arod.Ctx.tags_of_ent ctx (`Note n)) in
+  let tags = List.map Bushel.Tags.to_raw_string (Bushel.Entry.tags_of_ent (`Note n)) in
   let citation = match Bushel.Note.doi n with
     | Some doi -> Some C.Layout.{
         citation_title = Bushel.Note.title n;

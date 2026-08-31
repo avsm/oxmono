@@ -3,52 +3,30 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Common types and Jsont codecs for Bushel *)
-
-(** {1 Date Types} *)
-
 type date = Ptime.date
-(** A calendar date (year, month, day). *)
 
-(** {1 Jsont Codecs} *)
+let date_of_string ~kind s =
+  try
+    match String.split_on_char '-' s with
+    | [ y; m; d ] -> Ok (int_of_string y, int_of_string m, int_of_string d)
+    | _ -> Error (Printf.sprintf "Invalid %s: %s" kind s)
+  with Failure _ -> Error (Printf.sprintf "Invalid %s: %s" kind s)
 
 let ptime_date_jsont : Ptime.date Jsont.t =
-  let dec s =
-    try
-      match String.split_on_char '-' s with
-      | [y; m; d] ->
-        let year = int_of_string y in
-        let month = int_of_string m in
-        let day = int_of_string d in
-        Ok (year, month, day)
-      | _ ->
-        Error (Printf.sprintf "Invalid date format: %s (expected YYYY-MM-DD)" s)
-    with _ ->
-      Error (Printf.sprintf "Invalid date: %s" s)
-  in
   let enc (y, m, d) = Printf.sprintf "%04d-%02d-%02d" y m d in
-  Jsont.of_of_string ~kind:"Ptime.date" dec ~enc
+  Jsont.of_of_string ~kind:"Ptime.date" (date_of_string ~kind:"date") ~enc
 
 let ptime_jsont : Ptime.t Jsont.t =
   let dec s =
-    (* Try RFC3339 first *)
     match Ptime.of_rfc3339 s with
     | Ok (t, _, _) -> Ok t
-    | Error _ ->
-      (* Try date-only format *)
-      try
-        match String.split_on_char '-' s with
-        | [y; m; d] ->
-          let year = int_of_string y in
-          let month = int_of_string m in
-          let day = int_of_string d in
-          (match Ptime.of_date (year, month, day) with
-           | Some t -> Ok t
-           | None -> Error (Printf.sprintf "Invalid date: %s" s))
-        | _ ->
-          Error (Printf.sprintf "Invalid timestamp: %s" s)
-      with _ ->
-        Error (Printf.sprintf "Invalid timestamp: %s" s)
+    | Error _ -> (
+      match date_of_string ~kind:"timestamp" s with
+      | Error _ as e -> e
+      | Ok date -> (
+        match Ptime.of_date date with
+        | Some t -> Ok t
+        | None -> Error (Printf.sprintf "Invalid timestamp: %s" s)))
   in
   let enc t =
     let (y, m, d), ((hh, mm, ss), _) = Ptime.to_date_time t in
@@ -67,8 +45,6 @@ let ptime_option_jsont : Ptime.t option Jsont.t =
 let string_option_jsont : string option Jsont.t =
   Jsont.option Jsont.string
 
-(** {1 Social Links} *)
-
 type social = {
   bluesky : string list;
   hn : string list;
@@ -79,7 +55,6 @@ type social = {
   twitter : string list;
 }
 
-(** Accepts either a single string ["url"] or an array [["url1", "url2"]]. *)
 let string_or_list_jsont : string list Jsont.t =
   let as_string =
     Jsont.map ~dec:(fun s -> [s]) ~enc:List.hd Jsont.string in
@@ -99,7 +74,6 @@ let merge_social a b = {
   twitter = a.twitter @ b.twitter;
 }
 
-(** Decode a single object with social platform keys. *)
 let social_object_jsont : social Jsont.t =
   let open Jsont in
   let open Jsont.Object in
@@ -121,8 +95,6 @@ let social_object_jsont : social Jsont.t =
        ~enc_omit:is_empty ~enc:(fun s -> s.twitter)
   |> finish
 
-(** Accept either a single object or an array of single-key objects
-    (for YAML with duplicate keys like multiple bluesky entries). *)
 let social_jsont : social Jsont.t =
   let as_array =
     Jsont.map
@@ -133,8 +105,6 @@ let social_jsont : social Jsont.t =
   Jsont.any ~dec_object:social_object_jsont ~dec_array:as_array
     ~enc:(fun _ -> social_object_jsont) ()
 
-(** {1 Helper Functions} *)
-
 let ptime_of_date_exn date =
   match Ptime.of_date date with
   | Some t -> t
@@ -142,21 +112,8 @@ let ptime_of_date_exn date =
     let (y, m, d) = date in
     failwith (Printf.sprintf "Invalid date: %04d-%02d-%02d" y m d)
 
-let date_of_ptime t = Ptime.to_date t
-
-let compare_dates (d1 : date) (d2 : date) =
-  let t1 = ptime_of_date_exn d1 in
-  let t2 = ptime_of_date_exn d2 in
-  Ptime.compare t1 t2
-
-let format_date (y, m, d) =
-  Printf.sprintf "%04d-%02d-%02d" y m d
-
 let month_name = function
   | 1 -> "January" | 2 -> "February" | 3 -> "March" | 4 -> "April"
   | 5 -> "May" | 6 -> "June" | 7 -> "July" | 8 -> "August"
   | 9 -> "September" | 10 -> "October" | 11 -> "November" | 12 -> "December"
   | _ -> "Unknown"
-
-let format_date_human (y, m, _d) =
-  Printf.sprintf "%s %d" (month_name m) y

@@ -3,9 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Paper entry type for Bushel *)
-
-(** Classification of paper type *)
 type classification = Full | Short | Preprint
 
 let string_of_classification = function
@@ -53,8 +50,6 @@ type t = {
 
 type ts = t list
 
-(** {1 Accessors} *)
-
 let slug { slug; _ } = slug
 let title { title; _ } = title
 let authors { authors; _ } = authors
@@ -84,7 +79,6 @@ let classification { classification; bibtype; journal; booktitle; title; _ } =
   match classification with
   | Some c -> c
   | None ->
-    (* Heuristic classification based on metadata *)
     let bibtype_lower = String.lowercase_ascii bibtype in
     let journal_lower = String.lowercase_ascii journal in
     let booktitle_lower = String.lowercase_ascii booktitle in
@@ -110,24 +104,13 @@ let classification { classification; bibtype; journal; booktitle; title; _ } =
 let date { year; month; _ } = (year, month, 1)
 let datetime p = Bushel_types.ptime_of_date_exn (date p)
 
-(** {1 Comparison} *)
-
 let compare p2 p1 =
   let d1 = try datetime p1 with _ -> Bushel_types.ptime_of_date_exn (1977, 1, 1) in
   let d2 = try datetime p2 with _ -> Bushel_types.ptime_of_date_exn (1977, 1, 1) in
   Ptime.compare d1 d2
 
-(** {1 Lookup} *)
-
-let slugs ts =
-  List.fold_left (fun acc t -> if List.mem t.slug acc then acc else t.slug :: acc) [] ts
-
 let lookup ts slug = List.find_opt (fun t -> t.slug = slug && t.latest) ts
 
-let get_papers ~slug ts =
-  List.filter (fun p -> p.slug = slug && p.latest <> true) ts |> List.sort compare
-
-(** Convert bibtype to tag *)
 let tag_of_bibtype bt =
   match String.lowercase_ascii bt with
   | "article" -> "journal"
@@ -137,7 +120,6 @@ let tag_of_bibtype bt =
   | "book" -> "book"
   | x -> x
 
-(** Compute version tracking *)
 let tv (l : t list) =
   let h = Hashtbl.create 7 in
   List.iter (fun { slug; ver; _ } ->
@@ -155,8 +137,6 @@ let tv (l : t list) =
   ) l
 
 let best_url p = url p
-
-(** {1 Jsont Codec} *)
 
 let month_of_string s =
   match String.lowercase_ascii s with
@@ -218,13 +198,10 @@ let jsont : t Jsont.t =
        ~enc_omit:Option.is_none ~enc:(fun p -> p.social)
   |> finish
 
-(** {1 Parsing} *)
-
 let of_frontmatter ~slug ~ver (fm : Frontmatter.t) : (t, string) result =
   match Frontmatter.decode jsont fm with
   | Error e -> Error e
   | Ok p ->
-    (* Compute full tags including bibtype and projects *)
     let keywords = Frontmatter.find_strings "keywords" fm in
     let all_tags =
       List.flatten [p.tags; keywords; [tag_of_bibtype p.bibtype]; p.projects]
@@ -234,8 +211,6 @@ let of_frontmatter ~slug ~ver (fm : Frontmatter.t) : (t, string) result =
          ver;
          abstract = Frontmatter.body fm;
          tags = all_tags }
-
-(** {1 Pretty Printing} *)
 
 let pp ppf p =
   let open Fmt in

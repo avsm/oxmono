@@ -3,7 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Structured reference types for citation management *)
+(** Structured citation references. *)
 
 type source = Paper | Note | External
 
@@ -19,7 +19,6 @@ type t = {
 
 type ts = t list
 
-(** Conversion from Bushel_md.reference_source *)
 let source_of_md_source = function
   | Bushel_md.Paper -> Paper
   | Bushel_md.Note -> Note
@@ -28,7 +27,7 @@ let source_of_md_source = function
 let source_to_string = function
   | Paper -> "paper" | Note -> "note" | External -> "external"
 
-(** Extract structured references from a note *)
+(** [of_note ~entries ~default_author note] is the references cited by [note]. *)
 let of_note ~entries ~default_author note =
   let raw_refs = Bushel_md.note_references entries default_author note in
   let doi_entries = Bushel_entry.doi_entries entries in
@@ -42,8 +41,6 @@ let of_note ~entries ~default_author note =
       { doi; title = ""; authors = []; year = 0;
         publisher = None; source; citation }
   ) raw_refs
-
-(** {1 YAML Serialization} *)
 
 let to_yaml t =
   let base = [
@@ -60,8 +57,6 @@ let to_yaml t =
   `O (base @ meta @ pub)
 
 let to_yaml_string refs = Yamlrw.to_string (`A (List.map to_yaml refs))
-
-(** {1 JSON Codec} *)
 
 let source_jsont =
   Jsont.enum ~kind:"source" [("paper", Paper); ("note", Note); ("external", External)]

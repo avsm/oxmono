@@ -3,19 +3,12 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** The links between entries of one collection.
-
-    A graph is built once, from the links found in entry bodies and
-    frontmatter, and is then read only. It is a value rather than a module
-    level table, and {!Bushel_entry.t} carries it, so a portable render reads
-    backlinks out of the collection it already holds instead of reaching for
-    global state. *)
+(** Links between entries and external URLs. *)
 
 @@ portable
 
 type entry_type = [ `Paper | `Project | `Note | `Idea | `Video | `Contact ]
-(** The kind of thing an internal link points at. A contact is not a
-    {!Bushel_entry.entry}, which is why this is its own type. *)
+(** The kind of an internal link target. *)
 
 type internal_link = {
   source : string;  (** Slug of the entry the link is written in. *)
@@ -32,27 +25,19 @@ type external_link = {
 (** A link from an entry out to the web. *)
 
 type t : immutable_data
-(** A link graph. The kind is what lets a graph be read after it crosses into
-    a portable closure: the link lists are plain lists and the by-slug tables
-    are {!Bushel_smap.t}. *)
+(** A link graph. *)
 
 (** {1 Constructors} *)
 
 val empty : t
-(** [empty] is the graph with no links in it. Every lookup on it answers the
-    empty list. A collection that has not been through
-    {!Bushel_entry.with_graph} carries this, so a caller that reads backlinks
-    before the loader has built the graph sees nothing rather than failing. *)
+(** [empty] is a graph with no links. *)
 
 val v :
   internal_links:internal_link list ->
   external_links:external_link list ->
   t
   @@ nonportable
-(** [v ~internal_links ~external_links] is the graph over those links. The two
-    lists are kept exactly as given, because {!all_external_links} answers
-    [external_links] in that order and the links listing renders it in that
-    order. The by-slug tables are derived from them. *)
+(** [v ~internal_links ~external_links] is the graph over the supplied links. *)
 
 (** {1 Queries} *)
 
@@ -83,5 +68,4 @@ val entry_type_to_string : entry_type -> string
 (** [entry_type_to_string k] is [k] in lower case. *)
 
 val pp : Format.formatter -> t -> unit @@ nonportable
-(** [pp ppf g] prints the size of [g], which is what the loader reports when a
-    load finishes. *)
+(** [pp ppf g] prints the size of [g] on [ppf]. *)

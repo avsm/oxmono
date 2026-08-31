@@ -3,16 +3,14 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Note component rendering using htmlit. *)
+(** Note components. *)
 
 open Htmlit
 
 module Note = Bushel.Note
 module I = Arod.Icons
 
-(** {1 Helpers} *)
-
-(** Render a heading for an entry with date, via link, and DOI. *)
+(** [heading ~ctx ent] is the heading for [ent]. *)
 let heading ~ctx ent =
   let via, via_url = match ent with
     | `Note n ->
@@ -55,13 +53,13 @@ let heading ~ctx ent =
            [El.txt (Common.ptime_date_short (y, m, d))])];
       doi_el]
 
-(** Brief note for lists with truncated body. *)
+(** [brief ~ctx n] is a truncated rendering of [n]. *)
 let brief ~ctx n =
   let body_html, word_count_info = Common.truncated_body ~ctx (`Note n) in
   let children = [heading ~ctx (`Note n); body_html] in
   (El.div children, word_count_info)
 
-(** Full note rendering with parent reference link. *)
+(** [full ~ctx n] is the full rendering of [n]. *)
 let full ~ctx n =
   let body = Note.body n in
   let body_with_ref = match Note.slug_ent n with
@@ -76,35 +74,29 @@ let full ~ctx n =
     heading ~ctx (`Note n);
     El.unsafe_raw html], sidenotes)
 
-(** Full note page with proper header and article structure. *)
+(** [full_page ~ctx n] is the article page for [n]. *)
 let full_page ~ctx n =
   let (y, m, d) = Bushel.Entry.date (`Note n) in
   let date_str = Common.ptime_date_full (y, m, d) in
   let datetime_str = Printf.sprintf "%04d-%02d-%02d" y m d in
-  let all_tags = Arod.Ctx.tags_of_ent ctx (`Note n) in
-  (* H1 title *)
+  let all_tags = Bushel.Entry.tags_of_ent (`Note n) in
   let display_title = Note.title n in
   let title_el =
     Common.page_title ~cls:"page-title text-xl font-semibold tracking-tight mb-2 p-name"
       display_title
   in
-  (* Tags + date + optional DOI cite link *)
   let tags_el = Common.detail_tags ~date:(y, m, d) ?doi:(Note.doi n)
     (List.map Bushel.Tags.to_raw_string all_tags) in
-  (* Synopsis — hidden on desktop where sidebar shows it *)
   let synopsis_el = match Note.synopsis n with
     | Some syn ->
       [El.p ~at:[At.class' "detail-synopsis lg:hidden p-summary"] [El.txt syn]]
     | None -> []
   in
-  (* Hidden microformat datetime *)
   let dt_el = El.time ~at:[At.v "datetime" datetime_str; At.class' "dt-published hidden"] [El.txt date_str] in
-  (* Header *)
   let header_el =
     El.header ~at:[At.id "intro"; At.class' "mb-6"]
       ([title_el; tags_el; dt_el] @ synopsis_el)
   in
-  (* Body with parent reference *)
   let body = Note.body n in
   let body_with_ref = match Note.slug_ent n with
     | None -> body
@@ -115,7 +107,6 @@ let full_page ~ctx n =
   in
   let body_html, sidenotes = Arod.Md.to_html ~ctx body_with_ref in
   let headings = Arod.Md.extract_headings body_with_ref in
-  (* Social discussion icon links at the end of the post *)
   let discuss_el = match Note.social n with
     | None -> El.void
     | Some soc ->
@@ -131,7 +122,7 @@ let full_page ~ctx n =
   in
   (El.div ~at:[At.class' "h-entry"] [header_el; hidden_author; article_el], sidenotes, headings)
 
-(** Format a number with comma thousands separators. *)
+(** [format_number n] is [n] with comma thousands separators. *)
 let format_number n =
   let s = string_of_int n in
   let len = String.length s in
@@ -145,14 +136,12 @@ let format_number n =
     done;
     Buffer.contents buf
 
-(** Compact note card for the journal stream. On desktop weeknotes render
-    in the ledger via [weeknote_ledger] instead, so weeknote cards are
-    emitted with [cls] set to hide them at large widths. *)
+(** [compact ~ctx note] is a compact journal card for [note]. *)
 let compact ?(cls="") ~ctx note =
   let (y, m, d) = Bushel.Entry.date (`Note note) in
   let date_str = Printf.sprintf "%d %s %d" d (Common.month_name m) y in
   let url = Bushel.Entry.site_url (`Note note) in
-  let all_tags = Arod.Ctx.tags_of_ent ctx (`Note note) in
+  let all_tags = Bushel.Entry.tags_of_ent (`Note note) in
   let tag_strs = List.map Bushel.Tags.to_raw_string all_tags in
   let tags_data = String.concat "," tag_strs in
   let month_data = Printf.sprintf "%04d-%02d" y m in
@@ -194,28 +183,20 @@ let compact ?(cls="") ~ctx note =
               At.class' card_cls;
               At.v "data-tags" tags_data;
               At.v "data-month" month_data] [
-    (* Row 1: title + meta *)
     El.div ~at:[At.class' "note-compact-row"] [
       El.a ~at:[At.href url; At.class' "note-compact-title flex-1 min-w-0 font-medium !text-text !no-underline p-name u-url"]
         [El.txt display_title];
       El.time ~at:[At.class' "note-compact-meta shrink-0 text-[0.82rem] text-secondary whitespace-nowrap tabular-nums dt-published";
                    At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
         [El.txt date_str]];
-    (* Row 2: synopsis *)
     (if synopsis <> "" then
        El.div ~at:[At.class' "note-compact-synopsis text-[0.85rem] text-secondary leading-[1.4] mt-[0.1rem] p-summary"]
          [El.txt synopsis]
      else El.void);
-    (* Row 3: slug_ent reference *)
     ref_el;
-    (* Row 4: tags *)
     tag_chips]
 
-(** {1 Weeknote Ledger} *)
-
-(** [strip_weeknote_prefix t] removes the ".plan-YY-WW: " prefix that
-    [Bushel.Note.of_frontmatter] prepends to weeknote titles. The ledger
-    rows carry the week number in a badge, so the prefix is redundant. *)
+(** [strip_weeknote_prefix t] is [t] without its weeknote prefix. *)
 let strip_weeknote_prefix t =
   if String.length t >= 6 && String.sub t 0 6 = ".plan-" then
     match String.index_opt t ':' with
@@ -224,10 +205,7 @@ let strip_weeknote_prefix t =
     | _ -> t
   else t
 
-(** Weeknote ledger column. Renders one row per ISO week from the newest
-    weeknote back to the oldest, newest first. Weeks without a weeknote
-    collapse into quiet-week markers so the writing cadence stays honest.
-    Returns [El.void] when there are no weeknotes. *)
+(** [weeknote_ledger ~ctx weeknotes] is the weeknote ledger. *)
 let weeknote_ledger ~ctx weeknotes =
   match weeknotes with
   | [] -> El.void
@@ -244,7 +222,6 @@ let weeknote_ledger ~ctx weeknotes =
     let entries = Arod.Ctx.entries ctx in
     let week_step pt =
       Option.get (Ptime.sub_span pt (Ptime.Span.of_int_s (7 * 86400))) in
-    (* Walk newest to oldest, one ISO week at a time. *)
     let rows =
       let rec go pt quiet =
         let wk = Note.iso_week_number (Ptime.to_date pt) in
@@ -263,7 +240,7 @@ let weeknote_ledger ~ctx weeknotes =
       let (_, wk) = week in
       let (y, m, d) = Note.date n in
       let is_current = week = current_week in
-      let all_tags = Arod.Ctx.tags_of_ent ctx (`Note n) in
+      let all_tags = Bushel.Entry.tags_of_ent (`Note n) in
       let tags_data =
         String.concat "," (List.map Bushel.Tags.to_raw_string all_tags) in
       let range_str =
@@ -306,9 +283,7 @@ let weeknote_ledger ~ctx weeknotes =
       El.div ~at:[At.class' "paper-year-header"] [El.txt "Weeknotes"];
       El.div ~at:[At.class' "week-rail-list"] (List.map row_el rows)]
 
-(** Notes list page split into a journal stream of regular notes and a
-    weeknote ledger column, with calendar sidebar.
-    Returns [(article, sidebar)]. *)
+(** [notes_list ~ctx] is the journal article and its sidebar. *)
 let notes_list ~ctx =
   let all_notes =
     Arod.Ctx.notes ctx
@@ -316,8 +291,6 @@ let notes_list ~ctx =
     |> List.rev
   in
   let weeknotes, journal_notes = List.partition Note.weeknote all_notes in
-  (* Group all notes by (year, month). Weeknote cards only show in the
-     stream on small screens where the ledger column is hidden. *)
   let by_month = Hashtbl.create 32 in
   List.iter (fun n ->
     let (y, m, _d) = Bushel.Entry.date (`Note n) in
@@ -330,8 +303,6 @@ let notes_list ~ctx =
     |> List.sort (fun (y1, m1) (y2, m2) ->
       let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
   in
-  (* Render month sections. Weeknote cards are mobile-only, and a month
-     holding nothing but weeknotes hides with them on desktop. *)
   let month_sections = List.map (fun (y, m) ->
     let notes = List.rev (Hashtbl.find by_month (y, m)) in
     let has_journal = List.exists (fun n -> not (Note.weeknote n)) notes in
@@ -348,16 +319,12 @@ let notes_list ~ctx =
         El.txt (Printf.sprintf "%s %d" (Common.month_name_full m) y)];
       El.div ~at:[At.class' "note-month-list"] note_cards]
   ) months in
-  (* Article: weeknote ledger on the left of the journal stream *)
   let article =
     El.article ~at:[At.class' "h-feed"] [
       El.div ~at:[At.class' "notes-split"] [
         weeknote_ledger ~ctx weeknotes;
         El.div ~at:[At.class' "notes-journal min-w-0"] month_sections]]
   in
-  (* Sidebar: featured rail of curated notes, styled to match the weeknote
-     ledger cards. Falls back to recent perma articles when nothing is
-     marked featured in the store. *)
   let featured_rail =
     let featured =
       match List.filter Note.featured journal_notes with
@@ -400,17 +367,16 @@ let notes_list ~ctx =
         El.div ~at:[At.class' "paper-year-header"] [El.txt "Featured"];
         El.div ~at:[At.class' "feat-list"] (List.map feat_card featured)]
   in
-  (* The ledger is narrow enough that all three columns fit from lg up. *)
   let sidebar =
     El.aside ~at:[At.class' "hidden lg:block lg:w-52 shrink-0"]
       [featured_rail]
   in
   (article, sidebar)
 
-(** Truncated note for feeds. *)
+(** [for_feed ~ctx n] is the truncated feed rendering of [n]. *)
 let for_feed ~ctx n = Common.truncated_body ~ctx (`Note n)
 
-(** Citation references section for notes with DOI-bearing links. *)
+(** [references ~ctx n] is the citation list for [n]. *)
 let references ~ctx n =
   match Arod.Ctx.note_references ctx (Bushel.Note.slug n) with
   | [] -> El.void

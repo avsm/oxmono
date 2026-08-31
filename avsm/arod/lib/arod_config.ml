@@ -3,8 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Configuration for the Arod webserver *)
-
 type server = {
   host : string;
   port : int;
@@ -44,14 +42,12 @@ type t = {
   well_known : well_known_entry list;
 }
 
-(** Path expansion helper - expands ~ to home directory *)
 let expand_path p =
   if String.length p > 0 && p.[0] = '~' then
     let home = Sys.getenv_opt "HOME" |> Option.value ~default:"/tmp" in
     home ^ String.sub p 1 (String.length p - 1)
   else p
 
-(** Default configuration *)
 let default =
   let home = Sys.getenv_opt "HOME" |> Option.value ~default:"/tmp" in
   {
@@ -80,9 +76,6 @@ let default =
     well_known = [];
   }
 
-(** {1 TOML Codecs} *)
-
-(** String codec with path expansion *)
 let path_string =
   Tomlt.(map string ~dec:expand_path)
 
@@ -126,7 +119,6 @@ let feeds_codec =
     |> finish
   ))
 
-(** Codec for well_known as a table of key-value pairs *)
 let well_known_codec =
   Tomlt.(Table.(
     keep_unknown
@@ -154,10 +146,8 @@ let of_toml_string s =
   | Error e -> failwith (Tomlt.Error.to_string e)
 
 let of_file path =
-  let ic = open_in path in
-  let content = really_input_string ic (in_channel_length ic) in
-  close_in ic;
-  of_toml_string content
+  In_channel.with_open_bin path (fun ic ->
+    of_toml_string (really_input_string ic (in_channel_length ic)))
 
 let config_file () =
   let xdg_config = Sys.getenv_opt "XDG_CONFIG_HOME" in
@@ -176,8 +166,6 @@ let load_or_default ?path () =
     of_file path
   else
     default
-
-(** {1 Sample Config Generation} *)
 
 let sample_config = {|# Arod Webserver Configuration
 
@@ -210,8 +198,6 @@ title = "Site Feed"
 # [well_known]
 # "site.standard.publication" = "at://did:plc:example/app.bsky.feed.post/id"
 |}
-
-(** {1 Pretty Printing} *)
 
 let pp ppf t =
   let open Fmt in

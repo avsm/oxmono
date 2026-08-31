@@ -3,11 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Common utilities shared across Arod components.
-
-    Centralises date formatting, list helpers, feed rendering,
-    and other functions that were previously duplicated across
-    multiple component files. *)
+(** Shared component utilities. *)
 
 open Htmlit
 
@@ -61,9 +57,7 @@ let strip_www h =
   if String.length h > 4 && String.sub h 0 4 = "www."
   then String.sub h 4 (String.length h - 4) else h
 
-(** [url_host u] is the host of [u], or [Null] when [u] names no host or is
-    not a URI reference at all. A URL reaching this module comes from a data
-    file, so both cases are ordinary and neither may stop a render. *)
+(** [url_host u] is the host of [u], or [Null] if it has no host. *)
 let url_host u =
   match Uriz.of_string u with
   | Null -> Null

@@ -3,12 +3,12 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Eio-based directory scanner and file loader for Bushel entries *)
+(** Eio loaders for Bushel entries. *)
 
 let src = Logs.Src.create "bushel.loader" ~doc:"Bushel loader"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-(** Load images from srcsetter index.json *)
+(** [load_images fs ~output_dir] is the Srcsetter index in [output_dir]. *)
 let load_images fs ~output_dir =
   let index_path = Filename.concat output_dir "index.json" in
   let path = Eio.Path.(fs / index_path) in
@@ -26,7 +26,6 @@ let load_images fs ~output_dir =
     Log.info (fun m -> m "No image index found at %s" index_path);
     []
 
-(** List markdown files in a directory *)
 let list_md_files fs dir =
   let path = Eio.Path.(fs / dir) in
   try
@@ -38,7 +37,6 @@ let list_md_files fs dir =
     Log.warn (fun m -> m "Directory not found: %s" dir);
     []
 
-(** Load and map files from a directory *)
 let map_category fs base subdir parse_fn =
   let dir = Filename.concat base subdir in
   Log.debug (fun m -> m "Loading %s" subdir);
@@ -56,31 +54,25 @@ let map_category fs base subdir parse_fn =
       None
   ) files
 
-(** Load contacts from Sortal XDG store *)
-let load_contacts fs _base =
+let load_contacts fs =
   let store = Sortal.Store.create fs "sortal" in
   Sortal.Store.list store
 
-(** Load projects from projects/ *)
 let load_projects fs base =
   map_category fs base "projects" Bushel.Project.of_frontmatter
 
-(** Load notes from notes/ and news/ *)
 let load_notes fs base =
   let notes_dir = map_category fs base "notes" Bushel.Note.of_frontmatter in
   let news_dir = map_category fs base "news" Bushel.Note.of_frontmatter in
   let weeklies_dir = map_category fs base "weeklies" Bushel.Note.of_frontmatter in
   notes_dir @ news_dir @ weeklies_dir
 
-(** Load ideas from ideas/ *)
 let load_ideas fs base =
   map_category fs base "ideas" Bushel.Idea.of_frontmatter
 
-(** Load videos from videos/ *)
 let load_videos fs base =
   map_category fs base "videos" Bushel.Video.of_frontmatter
 
-(** Load papers from papers/ (nested directory structure) *)
 let load_papers fs base =
   let papers_dir = Filename.concat base "papers" in
   Log.debug (fun m -> m "Loading papers from %s" papers_dir);
@@ -120,15 +112,14 @@ let load_papers fs base =
   ) slug_dirs in
   Bushel.Paper.tv papers
 
-(** Load all entries from a base directory *)
+(** [load fs base] is the entry collection loaded from [base]. *)
 let rec load ?image_output_dir fs base =
   Log.info (fun m -> m "Loading bushel data from %s" base);
-  let contacts = load_contacts fs base in
+  let contacts = load_contacts fs in
   Log.info (fun m -> m "Loaded %d contacts" (List.length contacts));
   let projects = load_projects fs base in
   Log.info (fun m -> m "Loaded %d projects" (List.length projects));
   let notes = load_notes fs base in
-  (* Validate no duplicate weeknotes for same year/week *)
   let weeknotes = List.filter Bushel.Note.weeknote notes in
   let seen_weeks = Hashtbl.create 16 in
   List.iter (fun wn ->
@@ -175,7 +166,6 @@ let rec load ?image_output_dir fs base =
   Log.info (fun m -> m "Load complete: %a" Bushel.Link_graph.pp graph);
   entries
 
-(** Build link graph from entries *)
 and build_link_graph entries =
   let internal = ref [] in
   let external_ = ref [] in
@@ -189,7 +179,15 @@ and build_link_graph entries =
     external_ := { Bushel.Link_graph.source; domain; url } :: !external_
   in
 
-  (* Process each entry *)
+  let add_entry_link source target =
+    match Bushel.Entry.lookup entries target with
+    | Some entry ->
+      add_internal_link source target
+        (Bushel.Link_graph.entry_type_of_entry entry)
+    | None -> ()
+  in
+
+  let contacts = Bushel.Entry.contacts entries in
   List.iter (fun entry ->
     let source_slug = Bushel.Entry.slug entry in
     let md_content = Bushel.Entry.body entry in
@@ -198,40 +196,28 @@ and build_link_graph entries =
     List.iter (fun link ->
       if Bushel.Md.is_bushel_slug link then
         let target_slug = Bushel.Md.strip_handle link in
-        (match Bushel.Entry.lookup entries target_slug with
-         | Some target_entry ->
-           let target_type = Bushel.Link_graph.entry_type_of_entry target_entry in
-           add_internal_link source_slug target_slug target_type
-         | None -> ())
+        add_entry_link source_slug target_slug
       else if Bushel.Md.is_contact_slug link then
         let handle = Bushel.Md.strip_handle link in
-        let contacts = Bushel.Entry.contacts entries in
-        (match List.find_opt (fun c -> Sortal_schema.Contact.handle c = handle) contacts with
-         | Some c ->
-           add_internal_link source_slug (Sortal_schema.Contact.handle c) `Contact
-         | None -> ())
+        if List.exists
+          (fun c -> Sortal_schema.Contact.handle c = handle) contacts
+        then add_internal_link source_slug handle `Contact
       else if Bushel.Md.is_tag_slug link || Bushel.Md.is_kind_slug link then
-        ()  (* Skip tag links *)
+        ()
       else if String.starts_with ~prefix:"http://" link ||
               String.starts_with ~prefix:"https://" link then
         add_external_link source_slug link
     ) all_links
   ) (Bushel.Entry.all_entries entries);
 
-  (* Process slug_ent references from notes *)
   List.iter (fun note ->
     match Bushel.Note.slug_ent note with
     | Some target_slug ->
       let source_slug = Bushel.Note.slug note in
-      (match Bushel.Entry.lookup entries target_slug with
-       | Some target_entry ->
-         let target_type = Bushel.Link_graph.entry_type_of_entry target_entry in
-         add_internal_link source_slug target_slug target_type
-       | None -> ())
+      add_entry_link source_slug target_slug
     | None -> ()
   ) (Bushel.Entry.notes entries);
 
-  (* Process project references from papers *)
   List.iter (fun paper ->
     let source_slug = Bushel.Paper.slug paper in
     List.iter (fun project_slug ->
@@ -242,7 +228,6 @@ and build_link_graph entries =
     ) (Bushel.Paper.project_slugs paper)
   ) (Bushel.Entry.papers entries);
 
-  (* Process paper/project references from videos *)
   List.iter (fun video ->
     let source_slug = Bushel.Video.slug video in
     (match Bushel.Video.paper video with
@@ -261,23 +246,18 @@ and build_link_graph entries =
      | None -> ())
   ) (Bushel.Entry.videos entries);
 
-  (* Deduplicate links *)
-  let module LinkSet = Set.Make(struct
-    type t = Bushel.Link_graph.internal_link
-    let compare (a : t) (b : t) =
-      match String.compare a.source b.source with
-      | 0 -> String.compare a.target b.target
-      | n -> n
-  end) in
-
-  let module ExtLinkSet = Set.Make(struct
-    type t = Bushel.Link_graph.external_link
-    let compare (a : t) (b : t) =
-      match String.compare a.source b.source with
-      | 0 -> String.compare a.url b.url
-      | n -> n
-  end) in
-
+  let compare_internal (a : Bushel.Link_graph.internal_link)
+      (b : Bushel.Link_graph.internal_link) =
+    match String.compare a.source b.source with
+    | 0 -> String.compare a.target b.target
+    | n -> n
+  in
+  let compare_external (a : Bushel.Link_graph.external_link)
+      (b : Bushel.Link_graph.external_link) =
+    match String.compare a.source b.source with
+    | 0 -> String.compare a.url b.url
+    | n -> n
+  in
   Bushel.Link_graph.v
-    ~internal_links:(LinkSet.elements (LinkSet.of_list !internal))
-    ~external_links:(ExtLinkSet.elements (ExtLinkSet.of_list !external_))
+    ~internal_links:(List.sort_uniq compare_internal !internal)
+    ~external_links:(List.sort_uniq compare_external !external_)

@@ -3,9 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Utility functions for Bushel *)
-
-(** Count words in a string. *)
 let count_words (text : string) : int =
   let len = String.length text in
   let rec count_words_helper (index : int) (in_word : bool) (count : int) : int =
@@ -26,7 +23,6 @@ let count_words (text : string) : int =
   in
   count_words_helper 0 false 0
 
-(** Get the first paragraph/hunk from text (up to double newline). *)
 let first_hunk s =
   let lines = String.split_on_char '\n' s in
   let rec aux acc = function
@@ -36,7 +32,6 @@ let first_hunk s =
   in
   aux [] lines
 
-(** Get first and last hunks from text. *)
 let first_and_last_hunks s =
   let lines = String.split_on_char '\n' s in
   let rec aux acc = function
@@ -47,7 +42,6 @@ let first_and_last_hunks s =
   in
   aux [] lines
 
-(** Find all footnote definition lines in text. *)
 let find_footnote_lines s =
   let lines = String.split_on_char '\n' s in
   let is_footnote_def line =
@@ -73,21 +67,6 @@ let find_footnote_lines s =
   in
   collect_footnotes [] false lines
 
-(** Augment first hunk with footnote definitions from last hunk. *)
-let first_hunk_with_footnotes s =
-  let first, last = first_and_last_hunks s in
-  let footnote_lines = find_footnote_lines last in
-  if footnote_lines = [] then first
-  else first ^ "\n\n" ^ String.concat "\n" footnote_lines
-
-(** Trim leading/trailing whitespace and normalize multiple blank lines. *)
-let normalize_body s =
-  let trimmed = String.trim s in
-  (* Replace 3+ consecutive newlines with exactly 2 newlines *)
-  let re = Re.compile (Re.seq [Re.char '\n'; Re.char '\n'; Re.rep1 (Re.char '\n')]) in
-  Re.replace_string re ~by:"\n\n" trimmed
-
-(** Extract domain from URL. *)
 let extract_domain url =
   try
     let uri = Uri.of_string url in
@@ -95,7 +74,3 @@ let extract_domain url =
     | Some host -> host
     | None -> "unknown"
   with _ -> "unknown"
-
-(** Check if a string is a valid URL. *)
-let is_url s =
-  String.starts_with ~prefix:"http://" s || String.starts_with ~prefix:"https://" s

@@ -3,11 +3,10 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Bushel CLI - knowledge base management tool *)
+(** Bushel command-line interface. *)
 
 open Cmdliner
 
-(** Simple table formatting *)
 module Table = struct
   type row = string list
   type t = { headers : string list; rows : row list }
@@ -17,9 +16,7 @@ module Table = struct
   let column_widths t =
     let num_cols = List.length t.headers in
     let widths = Array.make num_cols 0 in
-    (* Headers *)
     List.iteri (fun i h -> widths.(i) <- String.length h) t.headers;
-    (* Rows *)
     List.iter (fun row ->
       List.iteri (fun i cell ->
         if i < num_cols then
@@ -41,33 +38,25 @@ module Table = struct
       ) row widths;
       print_newline ()
     in
-    (* Print header *)
     print_row t.headers;
-    (* Print separator *)
     List.iter (fun w -> Printf.printf "%s  " (String.make w '-')) widths;
     print_newline ();
-    (* Print rows *)
     List.iter print_row t.rows
 end
 
-(** Truncate string to max length with ellipsis *)
 let truncate max_len s =
   if String.length s <= max_len then s
   else String.sub s 0 (max_len - 3) ^ "..."
 
-(** Format date tuple *)
 let format_date (year, month, day) =
   Printf.sprintf "%04d-%02d-%02d" year month day
 
-(** Entry type to string *)
 let type_string = function
   | `Paper _ -> "paper"
   | `Project _ -> "project"
   | `Idea _ -> "idea"
   | `Video _ -> "video"
   | `Note _ -> "note"
-
-(** {1 Common Options} *)
 
 let data_dir =
   let doc = "Path to the bushel data repository." in
@@ -78,7 +67,6 @@ let config_file =
   let doc = "Path to config file (default: ~/.config/bushel/config.toml)." in
   Arg.(value & opt (some string) None & info ["c"; "config"] ~docv:"FILE" ~doc)
 
-(** Setup logging *)
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
   Logs.set_level level;
@@ -87,26 +75,21 @@ let setup_log style_renderer level =
 let logging_t =
   Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ())
 
-(** Load config *)
 let load_config config_file =
   match config_file with
   | Some path -> Bushel_config.load_file path
   | None -> Bushel_config.load ()
 
-(** Get data directory from config or CLI *)
 let get_data_dir config data_dir_opt =
   match data_dir_opt with
   | Some d -> d
   | None -> config.Bushel_config.data_dir
 
-(** Load entries using Eio *)
 let with_entries ?image_output_dir data_dir f =
   Eio_main.run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
   let entries = Bushel_eio.Bushel_loader.load ?image_output_dir fs data_dir in
   f env entries
-
-(** {1 List Command} *)
 
 let list_cmd =
   let type_filter =
@@ -128,7 +111,6 @@ let list_cmd =
       let data_dir = get_data_dir config data_dir in
       with_entries data_dir @@ fun _env entries ->
       let all = Bushel.Entry.all_entries entries in
-      (* Filter by type *)
       let filtered = match type_filter with
         | None -> all
         | Some t ->
@@ -136,7 +118,6 @@ let list_cmd =
             String.lowercase_ascii (type_string e) = String.lowercase_ascii t
           ) all
       in
-      (* Sort *)
       let sorted = match sort_by with
         | "title" ->
           List.sort (fun a b ->
@@ -148,15 +129,13 @@ let list_cmd =
             if cmp <> 0 then cmp
             else Bushel.Entry.compare a b
           ) filtered
-        | _ -> (* date, default *)
-          List.sort (fun a b -> Bushel.Entry.compare b a) filtered (* newest first *)
+        | _ ->
+          List.sort (fun a b -> Bushel.Entry.compare b a) filtered
       in
-      (* Limit *)
       let limited = match limit with
         | None -> sorted
         | Some n -> List.filteri (fun i _ -> i < n) sorted
       in
-      (* Build table *)
       let rows = List.map (fun e ->
         let thumb = match Bushel.Entry.thumbnail_slug entries e with
           | Some s -> s
@@ -180,8 +159,6 @@ let list_cmd =
   let doc = "List all entries in the knowledge base." in
   let info = Cmd.info "list" ~doc in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ type_filter $ limit $ sort_by)
-
-(** {1 Stats Command} *)
 
 let stats_cmd =
   let run () config_file data_dir =
@@ -217,8 +194,6 @@ let stats_cmd =
   let info = Cmd.info "stats" ~doc in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir)
 
-(** {1 Show Command} *)
-
 let show_cmd =
   let slug_arg =
     let doc = "The slug of the entry to show." in
@@ -248,8 +223,6 @@ let show_cmd =
   let doc = "Show details of a specific entry." in
   let info = Cmd.info "show" ~doc in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ slug_arg)
-
-(** {1 Render Command} *)
 
 let render_cmd =
   let slug_arg =
@@ -293,8 +266,6 @@ let render_cmd =
   let info = Cmd.info "render" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ slug_arg $ base_url $ image_base)
 
-(** {1 Pull Command} *)
-
 let pull_cmd =
   let dry_run =
     let doc = "Show what commands would be run without executing them." in
@@ -313,7 +284,6 @@ let pull_cmd =
     | Error e -> Printf.eprintf "Config error: %s\n" e; 1
     | Ok config ->
       let data_dir = get_data_dir config data_dir in
-      (* Determine which steps to run *)
       let steps = match only with
         | Some step_name ->
           (match Bushel_sync.step_of_string step_name with
@@ -372,8 +342,6 @@ let pull_cmd =
   let info = Cmd.info "pull" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ dry_run $ retry_errors $ only)
 
-(** {1 Paper Add Command} *)
-
 let paper_add_cmd =
   let doi_arg =
     let doc = "The DOI to resolve." in
@@ -399,12 +367,10 @@ let paper_add_cmd =
       let http = Bushel_sync.Http.create ~sw env in
       let entries = Bushel_eio.Bushel_loader.load fs data_dir in
 
-      (* Determine version *)
       let papers_dir = Filename.concat data_dir ("papers/" ^ slug) in
       let version = match version with
         | Some v -> v
         | None ->
-          (* Auto-increment: find highest existing version *)
           if Sys.file_exists papers_dir then begin
             let files = Sys.readdir papers_dir |> Array.to_list in
             let versions = List.filter_map (fun f ->
@@ -436,7 +402,6 @@ let paper_add_cmd =
         Printf.printf "Authors: %s\n" (String.concat ", " metadata.authors);
         Printf.printf "Year: %d\n" metadata.year;
 
-        (* Check for existing versions and merge *)
         let metadata =
           let existing_papers = Bushel.Entry.papers entries in
           match Bushel.Paper.lookup existing_papers slug with
@@ -446,14 +411,11 @@ let paper_add_cmd =
           | None -> metadata
         in
 
-        (* Generate file content *)
         let content = Bushel_sync.Zotero.to_yaml_frontmatter ~slug ~ver:version metadata in
 
-        (* Create directory if needed *)
         if not (Sys.file_exists papers_dir) then
           Unix.mkdir papers_dir 0o755;
 
-        (* Write file *)
         let filepath = Filename.concat papers_dir (version ^ ".md") in
         let oc = open_out filepath in
         output_string oc content;
@@ -472,9 +434,6 @@ let paper_add_cmd =
   let info = Cmd.info "paper" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ doi_arg $ slug $ version)
 
-(** {1 Video Fetch Command} *)
-
-(** Helper to create a video markdown file *)
 let create_video_file ~videos_dir ~index ~server ~endpoint (video : Bushel_sync.Peertube.video) =
   let video_path = Filename.concat videos_dir (video.uuid ^ ".md") in
   if Sys.file_exists video_path then begin
@@ -533,7 +492,6 @@ let video_fetch_cmd =
         Unix.mkdir videos_dir 0o755;
 
       match url_arg, server, channel with
-      (* Single video mode: fetch by URL *)
       | Some url, _, _ ->
         (match Bushel_sync.Peertube.find_server_for_url config.peertube_servers url with
          | None ->
@@ -568,7 +526,6 @@ let video_fetch_cmd =
                  Printf.printf "\nVideo already exists: %s\n" video.name;
                0)
 
-      (* Channel mode: fetch all videos from channel *)
       | None, Some server, Some channel ->
         let endpoint = List.find_map (fun (s : Bushel_config.peertube_server) ->
           if s.name = server then Some s.endpoint else None
@@ -598,7 +555,6 @@ let video_fetch_cmd =
            Printf.printf "Updated index: %s\n" index_path;
            0)
 
-      (* Missing arguments *)
       | None, None, _ | None, _, None ->
         Printf.eprintf "Usage: bushel video <URL>\n";
         Printf.eprintf "   or: bushel video --server NAME --channel CHANNEL\n";
@@ -615,8 +571,6 @@ let video_fetch_cmd =
   ] in
   let info = Cmd.info "video" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ url_arg $ server $ channel)
-
-(** {1 Images Command} *)
 
 let images_cmd =
   let limit =
@@ -640,37 +594,34 @@ let images_cmd =
         Printf.printf "Run 'bushel pull' to process images and generate the index.\n";
         0
       end else begin
-        (* Sort *)
         let sorted = match sort_by with
           | "width" ->
             List.sort (fun a b ->
               let (wa, _) = Srcsetter.dims a in
               let (wb, _) = Srcsetter.dims b in
-              compare wb wa  (* largest first *)
+              compare wb wa
             ) images
           | "height" ->
             List.sort (fun a b ->
               let (_, ha) = Srcsetter.dims a in
               let (_, hb) = Srcsetter.dims b in
-              compare hb ha  (* largest first *)
+              compare hb ha
             ) images
           | "variants" ->
             List.sort (fun a b ->
               let va = Srcsetter.MS.cardinal (Srcsetter.variants a) in
               let vb = Srcsetter.MS.cardinal (Srcsetter.variants b) in
-              compare vb va  (* most variants first *)
+              compare vb va
             ) images
-          | _ -> (* slug, default *)
+          | _ ->
             List.sort (fun a b ->
               String.compare (Srcsetter.slug a) (Srcsetter.slug b)
             ) images
         in
-        (* Limit *)
         let limited = match limit with
           | None -> sorted
           | Some n -> List.filteri (fun i _ -> i < n) sorted
         in
-        (* Build table *)
         let rows = List.map (fun img ->
           let (w, h) = Srcsetter.dims img in
           let num_variants = Srcsetter.MS.cardinal (Srcsetter.variants img) in
@@ -700,8 +651,6 @@ let images_cmd =
   let info = Cmd.info "images" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ config_file $ limit $ sort_by)
 
-(** {1 Config Command} *)
-
 let config_cmd =
   let run () config_file =
     match load_config config_file with
@@ -715,8 +664,6 @@ let config_cmd =
   let doc = "Show current configuration." in
   let info = Cmd.info "config" ~doc in
   Cmd.v info Term.(const run $ logging_t $ config_file)
-
-(** {1 Init Command} *)
 
 let init_cmd =
   let force =
@@ -746,8 +693,6 @@ let init_cmd =
   ] in
   let info = Cmd.info "init" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ force)
-
-(** {1 Push Command} *)
 
 let push_cmd =
   let dry_run =
@@ -786,7 +731,6 @@ let push_cmd =
         Eio_main.run @@ fun env ->
         let git = Gitops.v ~dry_run env in
 
-        (* Push data repo *)
         if sync_config.Gitops.Sync.Config.remote <> "" then begin
           let repo = Eio.Path.(env#fs / data_dir) in
           Printf.printf "%s data to %s\n"
@@ -799,7 +743,6 @@ let push_cmd =
             Printf.printf "  Data already up to date\n"
         end;
 
-        (* Push images repo *)
         if images_sync_config.Gitops.Sync.Config.remote <> "" then begin
           let images_repo = Eio.Path.(env#fs / config.Bushel_config.images_dir) in
           Printf.printf "%s images to %s\n"
@@ -828,8 +771,6 @@ let push_cmd =
   ] in
   let info = Cmd.info "push" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ dry_run $ remote_override $ message)
-
-(** {1 Status Command} *)
 
 let print_repo_status git ~label ~path =
   if not (Gitops.is_repo git ~repo:path) then
@@ -889,8 +830,6 @@ let status_cmd =
   let info = Cmd.info "status" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir)
 
-(** {1 Commit Command} *)
-
 let commit_cmd =
   let message =
     let doc = "Commit message." in
@@ -939,8 +878,6 @@ let commit_cmd =
   let info = Cmd.info "commit" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir $ message)
 
-(** {1 References Command} *)
-
 let references_cmd =
   let slug_arg =
     Arg.(required & pos 0 (some string) None &
@@ -988,8 +925,6 @@ let references_cmd =
   Cmd.v (Cmd.info "references" ~doc:"Extract references from a note")
     Term.(const run $ logging_t $ config_file $ data_dir $ slug_arg $ format_arg $ author_arg)
 
-(** {1 Serve Command} *)
-
 let serve_cmd =
   let port =
     let doc = "Port to listen on." in
@@ -1034,8 +969,6 @@ let serve_cmd =
   ] in
   Cmd.v (Cmd.info "serve" ~doc ~man)
     Term.(const run $ logging_t $ config_file $ data_dir $ port)
-
-(** {1 Links Commands} *)
 
 let links_list_cmd =
   let run () config_file data_dir =
@@ -1115,55 +1048,14 @@ let links_generate_cmd =
     | Ok config ->
       let data_dir = get_data_dir config data_dir in
       with_entries data_dir @@ fun _env entries ->
-      let external_links = Bushel.Entry.all_external_links entries in
-      if external_links = [] then begin
+      let result = Bushel_sync.generate_links ~dry_run:false ~data_dir ~entries in
+      if result.generated = 0 then begin
         Printf.printf "No external links found in entries.\n";
         0
       end else begin
-        (* Deduplicate by URL, collecting source slugs *)
-        let by_url : (string, Bushel.Link_graph.external_link list) Hashtbl.t =
-          Hashtbl.create 256
-        in
-        let open Bushel.Link_graph in
-        List.iter (fun (link : external_link) ->
-          let cur = try Hashtbl.find by_url link.url with Not_found -> [] in
-          if not (List.exists (fun (l : external_link) ->
-            l.source = link.source) cur) then
-            Hashtbl.replace by_url link.url (link :: cur)
-        ) external_links;
-        let urls = Hashtbl.fold (fun url links acc -> (url, links) :: acc) by_url [] in
-        (* Build Link.t values from external links *)
-        let new_links = List.map (fun (url, sources) ->
-          (* Use the date from the first source entry *)
-          let date = match sources with
-            | link :: _ ->
-              (match Bushel.Entry.lookup entries link.source with
-               | Some entry -> Bushel.Entry.date entry
-               | None -> let t = Unix.gmtime (Unix.gettimeofday ()) in
-                 (t.tm_year + 1900, t.tm_mon + 1, t.tm_mday))
-            | [] -> let t = Unix.gmtime (Unix.gettimeofday ()) in
-              (t.tm_year + 1900, t.tm_mon + 1, t.tm_mday)
-          in
-          let slugs = List.map (fun (l : external_link) ->
-            l.source) sources in
-          let link : Bushel.Link.t = {
-            url;
-            date;
-            description = "";
-            karakeep = None;
-            bushel = Some { slugs; tags = [] };
-          } in
-          link
-        ) urls in
-        (* Merge with existing links.yml *)
         let links_file = Filename.concat data_dir "links.yml" in
-        let existing = Bushel.Link.load_links_file links_file in
-        let merged = Bushel.Link.merge_links existing new_links in
-        Bushel.Link.save_links_file links_file merged;
         Printf.printf "Generated %d links (%d new, %d total) in %s\n"
-          (List.length new_links)
-          (List.length merged - List.length existing)
-          (List.length merged)
+          result.generated result.added result.total
           links_file;
         0
       end
@@ -1184,8 +1076,6 @@ let links_cmd =
   let doc = "Link management commands." in
   let info = Cmd.info "links" ~doc in
   Cmd.group info [links_list_cmd; links_add_cmd; links_generate_cmd]
-
-(** {1 Lint Command} *)
 
 let yaml_keys_of_frontmatter fm =
   match Frontmatter.yaml fm with
@@ -1275,9 +1165,7 @@ let lint_cmd =
       let data_dir = get_data_dir config data_dir in
       with_entries data_dir @@ fun env entries ->
       let fs = Eio.Stdenv.fs env in
-      (* Run entry-based checks *)
       let issues = Bushel.Lint.run entries in
-      (* Scan disk for unknown field checks *)
       let field_issues = scan_frontmatter_fields fs data_dir in
       let all_issues = issues @ field_issues in
       if all_issues = [] then
@@ -1303,8 +1191,6 @@ let lint_cmd =
   let doc = "Lint the knowledge base for broken references and issues." in
   let info = Cmd.info "lint" ~doc in
   Cmd.v info Term.(const run $ logging_t $ config_file $ data_dir)
-
-(** {1 Main Command Group} *)
 
 let main_cmd =
   let doc = "Bushel knowledge base CLI" in

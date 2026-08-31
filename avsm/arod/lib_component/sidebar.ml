@@ -3,11 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Sidebar component for entry pages.
-
-    Shows contextual information including thumbnail, DOI link,
-    related entries via backlinks, PDF download link for papers,
-    and a container for JS-populated sidenotes. *)
+(** Entry-page sidebars. *)
 
 open Htmlit
 
@@ -21,9 +17,8 @@ let meta_line ~icon value =
     El.span ~at:[At.class' "sidebar-meta-icon"] [El.unsafe_raw icon];
     El.span ~at:[At.class' "sidebar-meta-val text-dim"] [value]]
 
-(** Like [meta_line] but uses div elements so block-level children
-    (e.g. popover cards) are valid HTML and don't get restructured
-    by the browser. *)
+(** [meta_line_block ~icon value] is a metadata row containing block-level
+    [value]. *)
 let meta_line_block ~icon value =
   El.div ~at:[At.class' "sidebar-meta-line"] [
     El.span ~at:[At.class' "sidebar-meta-icon"] [El.unsafe_raw icon];
@@ -31,12 +26,7 @@ let meta_line_block ~icon value =
 
 let contact_initials = Common.contact_initials
 
-(** {1 Shared Links Section}
-
-    Resolves forward + backlinks for a slug, renders a compact list
-    with overflow modal. Returns [(links_el, modal_el)]. *)
-
-(** Icon for an entry's type (note, paper, idea, etc.). *)
+(** [entry_type_icon entry] is the icon for [entry]'s type. *)
 let entry_type_icon ?(opacity="opacity-50") ?(size=10) entry =
   let svg = match entry with
     | `Note _ -> I.writing_o
@@ -47,9 +37,8 @@ let entry_type_icon ?(opacity="opacity-50") ?(size=10) entry =
   in
   I.outline ~cl:opacity ~size svg
 
-(** [link_rows ~ctx slug] is every link touching [slug], forward links and
-    backlinks from the entry graph followed by feed backlinks, deduplicated
-    and newest first. Each row is [(dir, title, url, date, entry)]. *)
+(** [link_rows ~ctx slug] is every entry and feed link touching [slug], newest
+    first and without repeats. *)
 let link_rows ~ctx slug =
   let entries = Arod.Ctx.entries ctx in
   let outbound_slugs = Arod.Ctx.outbound ctx slug in
@@ -62,7 +51,6 @@ let link_rows ~ctx slug =
   ) slugs in
   let all_links =
     resolve `Forward outbound_slugs @ resolve `Back backlink_slugs in
-  (* Deduplicate by slug, keeping first occurrence *)
   let seen = Hashtbl.create 16 in
   let all_links = List.filter (fun (_, entry) ->
     let s = Entry.slug entry in
@@ -73,7 +61,6 @@ let link_rows ~ctx slug =
     let (ay, am, ad) = Entry.date b and (by, bm, bd) = Entry.date a in
     compare (ay, am, ad) (by, bm, bd)
   ) all_links in
-  (* Convert feed backlinks + outbound feed matches into link rows *)
   let outbound_feed = Arod.Ctx.feed_items_for_outbound ctx slug in
   let all_feed_bls =
     let seen = Hashtbl.create 16 in
@@ -94,7 +81,6 @@ let link_rows ~ctx slug =
       Some (`Feed, title, url)
     else None
   ) all_feed_bls in
-  (* Merge all link types into one list *)
   let entry_rows = List.map (fun (dir, entry) ->
     let d = match dir with `Forward -> `Forward | `Back -> `Back in
     (d, Entry.title entry, Entry.site_url entry, Some (Entry.date entry), Some entry)
@@ -104,9 +90,7 @@ let link_rows ~ctx slug =
   ) feed_link_rows in
   entry_rows @ feed_rows
 
-(** [links_modal combined] is the overlay listing every row of [combined],
-    opened by any button carrying [data-modal-target="links-modal-overlay"].
-    Empty when there are no links. *)
+(** [links_modal rows] is the link-list overlay for [rows]. *)
 let links_modal combined =
   match combined with
   | [] -> El.void
@@ -148,9 +132,7 @@ let links_modal combined =
             [El.txt "\xC3\x97"]];
         El.div ~at:[At.class' "links-modal-body"] all_rows]]
 
-(** [entry_links_icon ~ctx slug] is [(icon, modal)] for a box that keeps its
-    links behind a header button rather than listing them inline. Both are
-    empty when the entry has no links. *)
+(** [entry_links_icon ~ctx slug] is the link button and overlay for [slug]. *)
 let entry_links_icon ~ctx slug =
   let combined = link_rows ~ctx slug in
   match combined with
@@ -211,13 +193,9 @@ let entry_links ~ctx slug =
   let modal_el = if total > max_shown then links_modal combined else El.void in
   (links_el, modal_el)
 
-(** {1 Activity Stream}
-
-    Shared rendering for activity rows used by project and paper detail pages. *)
-
 let ptime_date_short = Common.ptime_date_short
 
-(** Render a single activity row with type icon, title, date, and detail. *)
+(** [activity_row ~ctx ent] is an activity row for [ent]. *)
 let activity_row ~ctx ent =
   let open Htmlit in
   let contacts = Arod.Ctx.contacts ctx in
@@ -286,13 +264,7 @@ let activity_row ~ctx ent =
           [El.txt date_str]];
       detail_el]]
 
-(** {1 Related Stream}
-
-    Unified "Related" section combining bushel entry backlinks and feed
-    backlinks at the very bottom of article pages, using type icons
-    for entries and RSS icons for feed items. *)
-
-(** Render a feed backlink as an activity row with RSS icon and contact name. *)
+(** [feed_backlink_row bl] is an activity row for [bl]. *)
 let feed_backlink_row (bl : Arod.Ctx.feed_backlink) =
   let open Htmlit in
   let fe = bl.feed_entry in
@@ -321,18 +293,16 @@ let feed_backlink_row (bl : Arod.Ctx.feed_backlink) =
            | Some text -> [El.txt (" " ^ text)]
            | None -> []))]]
 
-(** A unified item for sorting entry backlinks and feed backlinks together. *)
+(** An item in a related-content stream. *)
 type related_item =
   | Entry_item of Entry.entry * (int * int * int)
   | Feed_item of Arod.Ctx.feed_backlink * (int * int * int)
 
-(** Build a unified "Related" section combining bushel entry backlinks
-    and feed backlinks, sorted newest-first.
-    Returns [El.void] if there are no related items. *)
+(** [related_stream ~ctx slug] is the related-content stream for [slug],
+    newest first. *)
 let related_stream ~ctx slug =
   let open Htmlit in
   let entries = Arod.Ctx.entries ctx in
-  (* Bushel entry backlinks *)
   let backlink_slugs = Arod.Ctx.backlinks ctx slug in
   let outbound_slugs = Arod.Ctx.outbound ctx slug in
   let seen = Hashtbl.create 16 in
@@ -349,7 +319,6 @@ let related_stream ~ctx slug =
     (resolve_unique backlink_slugs @ resolve_unique outbound_slugs)
     |> List.map (fun ent -> Entry_item (ent, Entry.date ent))
   in
-  (* Feed backlinks + outbound feed matches *)
   let feed_bls = Arod.Ctx.feed_backlinks_for_slug ctx slug in
   let outbound_feed = Arod.Ctx.feed_items_for_outbound ctx slug in
   let feed_seen = Hashtbl.create 16 in
@@ -384,12 +353,10 @@ let related_stream ~ctx slug =
         [El.txt "Related"];
       El.div ~at:[At.class' "project-activity-list"] rows]
 
-(** {1 Contacts} *)
-
 module Contact = Sortal_schema.Contact
 module Account = Sortal_schema.Contact.Account
 
-(** Inline contact row with name + social icons (no popover). *)
+(** [contact_inline ~ctx contact] is an inline identity row for [contact]. *)
 let contact_inline ~ctx contact =
   let entries = Arod.Ctx.entries ctx in
   let name = Contact.name contact in
@@ -458,12 +425,7 @@ let contact_inline ~ctx contact =
     El.span ~at:[At.class' "sidebar-meta-val text-dim"] [name_el];
     El.span ~at:[At.class' "contact-inline-socials"] (social_icons)]
 
-(** {1 Entry-type Meta Boxes} *)
-
-(** Note-specific metadata for sidebar. *)
-(** Shared social discussion icons for sidebar infoboxes. *)
-(** Build a list of social icon link elements from a social record.
-    [~size] controls the icon size (e.g. 12 for sidebar, 16 for inline). *)
+(** [social_icon_links ~size social] is the linked icon list for [social]. *)
 let social_icon_links ~size (soc : Bushel.Types.social) =
   let icon_link ~icon ~label urls = List.map (fun url ->
     El.a ~at:[At.href url; At.class' "no-underline social-icon text-text opacity-70 hover:opacity-100";
@@ -578,8 +540,6 @@ let note_meta ~ctx n =
         El.div ~at:[At.class' "weeknote-nav"] [prev_el; next_el]
     else El.void
   in
-  (* Notes carry enough links to crowd the box, so they sit behind the
-     header button instead of being listed. *)
   let links_icon_el, links_modal_el = entry_links_icon ~ctx slug in
   El.div [
     Common.meta_box ~id:"note-meta"
@@ -592,7 +552,7 @@ let note_meta ~ctx n =
 
 module Idea = Bushel.Idea
 
-(** Idea-specific metadata for sidebar. *)
+(** [idea_meta ~ctx i] is the sidebar metadata for [i]. *)
 let idea_meta ~ctx i =
   let slug = Idea.slug i in
   let status_el =
@@ -682,14 +642,13 @@ let idea_meta ~ctx i =
     studs_el;
     links_modal_el]
 
-(** Paper-specific metadata for sidebar. *)
+(** [paper_meta ~ctx paper] is the sidebar metadata for [paper]. *)
 let paper_meta ~ctx paper =
   let slug = Paper.slug paper in
   let (y, m, _) = Paper.date paper in
   let cfg = Arod.Ctx.config ctx in
   let entries = Arod.Ctx.entries ctx in
 
-  (* Classification *)
   let cls_label = match Paper.classification paper with
     | Paper.Full -> "Full paper"
     | Short -> "Short / workshop"
@@ -699,12 +658,10 @@ let paper_meta ~ctx paper =
     meta_line ~icon:(I.outline ~cl:"opacity-50" ~size:12 I.paper_o)
       (El.txt cls_label)
   in
-  (* Date *)
   let date_el =
     meta_line ~icon:(I.outline ~cl:"opacity-50" ~size:12 I.calendar_o)
       (El.txt (Printf.sprintf "%s %d" (Common.month_name_full m) y))
   in
-  (* Venue/publisher *)
   let venue_el =
     let venue = Common.venue_of_paper paper in
     if venue <> "" then
@@ -717,9 +674,6 @@ let paper_meta ~ctx paper =
            | None -> El.txt venue]]
     else El.void
   in
-  (* DOI is shown inline with action links below *)
-
-  (* Authors with inline social icons *)
   let author_names = Paper.authors paper in
   let author_els = List.map (fun name ->
     match Arod.Ctx.lookup_by_name ctx name with
@@ -728,13 +682,11 @@ let paper_meta ~ctx paper =
       meta_line ~icon:(I.outline ~cl:"opacity-50" ~size:12 I.user_o)
         (El.txt name)
   ) author_names in
-  (* Human-readable file size *)
   let human_size bytes =
     if bytes < 1024 then Printf.sprintf "%d B" bytes
     else if bytes < 1024 * 1024 then Printf.sprintf "%d KB" (bytes / 1024)
     else Printf.sprintf "%.1f MB" (float_of_int bytes /. (1024.0 *. 1024.0))
   in
-  (* Action links *)
   let bibtype = Paper.bibtype paper in
   let action_links =
     let links = List.filter_map Fun.id [
@@ -777,7 +729,6 @@ let paper_meta ~ctx paper =
           El.p ~at:[At.class' "sidebar-meta-linkline"] [l]
         ) links)
   in
-  (* Volume/issue/ISBN *)
   let vol_el = match Paper.volume paper, Paper.number paper with
     | Some v, Some n ->
       meta_line ~icon:(I.outline ~cl:"opacity-50" ~size:12 I.hash_o)
@@ -790,7 +741,6 @@ let paper_meta ~ctx paper =
         (El.txt (Printf.sprintf "Issue %s" n))
     | None, None -> El.void
   in
-  (* Related projects *)
   let proj_els = List.filter_map (fun proj_slug ->
     match Arod.Ctx.lookup ctx proj_slug with
     | Some (`Project proj) ->
@@ -800,9 +750,7 @@ let paper_meta ~ctx paper =
            [El.txt (Bushel.Project.title proj)]))
     | _ -> None
   ) (Paper.project_slugs paper) in
-  (* Forward/backlinks *)
   let links_el, links_modal_el = entry_links ~ctx slug in
-  (* Older versions count *)
   let old_papers = Bushel.Entry.old_papers entries
     |> List.filter (fun op -> Paper.slug op = slug) in
   let versions_el = match old_papers with
@@ -815,14 +763,12 @@ let paper_meta ~ctx paper =
   in
   let social_el = social_icons_el (Bushel.Paper.social paper) in
   El.div [
-    (* Meta box *)
     Common.meta_box
       ~header:[El.txt " ";
                El.a ~at:[At.href (Bushel.Entry.site_url (`Paper paper));
                          At.class' "sidebar-meta-link"] [El.txt slug]]
       ([cls_el; date_el; venue_el; vol_el; versions_el]
        @ proj_els @ [social_el; action_links; links_el]);
-    (* Authors box *)
     Common.meta_box
       ~header:[El.txt (Printf.sprintf " %d author%s"
                  (List.length author_names) (if List.length author_names > 1 then "s" else ""))]
@@ -831,11 +777,10 @@ let paper_meta ~ctx paper =
 
 module Project = Bushel.Project
 
-(** Project-specific metadata for sidebar. *)
+(** [project_meta ~ctx proj] is the sidebar metadata for [proj]. *)
 let project_meta ~ctx proj =
   let slug = Project.slug proj in
   let all_entries = Arod.Ctx.all_entries ctx in
-  (* Date range *)
   let date_range = match proj.Project.finish with
     | Some y -> Printf.sprintf "%d\xe2\x80\x93%d" proj.Project.start y
     | None -> Printf.sprintf "%d\xe2\x80\x93present" proj.Project.start
@@ -844,7 +789,6 @@ let project_meta ~ctx proj =
     meta_line ~icon:(I.outline ~cl:"opacity-50" ~size:12 I.calendar_o)
       (El.txt date_range)
   in
-  (* Tags *)
   let tags_el = match Project.tags proj with
     | [] -> El.void
     | tags ->
@@ -856,7 +800,6 @@ let project_meta ~ctx proj =
       meta_line_block ~icon:(I.outline ~cl:"opacity-50" ~size:12 I.tag_o)
         (El.div ~at:[At.class' "sidebar-meta-tags"] tag_chips)
   in
-  (* Collect people from related ideas *)
   let related_ideas =
     List.filter_map (fun e ->
       match e with
@@ -881,17 +824,14 @@ let project_meta ~ctx proj =
   let stu_els = collect_handles
     (List.concat_map (fun i -> Bushel.Idea.student_handles i) related_ideas) in
   let people_els = sup_els @ stu_els in
-  (* Forward/backlinks *)
   let links_el, links_modal_el = entry_links ~ctx slug in
   let social_el = social_icons_el (Bushel.Project.social proj) in
   El.div [
-    (* Meta box *)
     Common.meta_box
       ~header:[El.txt " ";
                El.a ~at:[At.href (Bushel.Entry.site_url (`Project proj));
                          At.class' "sidebar-meta-link"] [El.txt slug]]
       [date_el; tags_el; social_el; links_el];
-    (* People box *)
     (if people_els = [] then El.void
      else
        Common.meta_box
@@ -901,10 +841,7 @@ let project_meta ~ctx proj =
          people_els);
     links_modal_el]
 
-(** {1 Socials Box}
-
-    Renders a sidebar box with the author's social links from Sortal contact data. *)
-
+(** [socials_box ~ctx] is the author's social-link box. *)
 let socials_box ~ctx =
   match Arod.Ctx.author ctx with
   | None -> El.void
@@ -931,7 +868,6 @@ let socials_box ~ctx =
       | _ -> Some (El.div ~at:[At.class' "social-group"]
                      (group_label label :: items))
     in
-    (* Code group: GitHub + Tangled *)
     let code_items = List.filter_map Fun.id [
       (match Contact.handle_on author_contact (Simple Github) with
        | Some g ->
@@ -953,7 +889,6 @@ let socials_box ~ctx =
            ~title:"Tangled" ~service:"Tangled" ~label url)
        | _ -> None);
     ] in
-    (* Identities group: ORCID + emails + website *)
     let id_items =
       List.filter_map Fun.id [
         (match Contact.handle_on author_contact (Simple Orcid) with
@@ -962,8 +897,7 @@ let socials_box ~ctx =
              ~title:"ORCID" ~service:"ORCID" ~label:o ("https://orcid.org/" ^ o))
          | None -> None);
       ]
-      @ (* V2 emails carry no type or validity range, so every address shows. *)
-        List.map (fun address ->
+      @ List.map (fun address ->
            El.a ~at:[At.href ("mailto:" ^ address);
                At.v "title" "Email"; At.class' "social-box-link no-underline u-email"]
                [El.unsafe_raw (outline ~size:16 mail_o);
@@ -980,7 +914,6 @@ let socials_box ~ctx =
          | None -> None);
       ]
     in
-    (* Social group: Bluesky + Mastodon + X + LinkedIn *)
     let social_items = List.filter_map Fun.id [
       (match Contact.atproto_handle author_contact with
        | Some b ->
@@ -1030,7 +963,6 @@ let socials_box ~ctx =
             (Account.url svc)
       ) (Contact.accounts_on author_contact (Federated Discourse))
     in
-    (* Media group: photo + video services *)
     let media_items =
       let photo_items = List.filter_map (fun svc ->
           let icon_paths, title = match Account.platform svc with
@@ -1052,9 +984,6 @@ let socials_box ~ctx =
       ] in
       photo_items @ peertube_items
     in
-    (* Office group: every affiliation. V2 has no notion of "current" beyond
-       the single {!Contact.current_affiliation}, so past affiliations show
-       here too where V1 hid them. *)
     let office_items =
       let affiliations = Contact.affiliations author_contact in
       List.concat_map (fun (a : Contact.affiliation) ->
@@ -1125,12 +1054,7 @@ let socials_box ~ctx =
         ~header:[El.txt " 'bout ye?"]
         (hidden_hcard @ hidden_org @ groups)
 
-(** {1 Table of Contents} *)
-
-(** [toc_box sections] is a sidebar box listing [sections], one row per
-    heading, with h3 rows threaded under the h2 they belong to. The rows
-    carry [data-level] and the [toc-link] class that [toc.js] fills with
-    scroll progress. Empty for an entry with no headings. *)
+(** [toc_box sections] is the hierarchical table of contents for [sections]. *)
 let toc_box sections =
   match sections with
   | [] -> El.void
@@ -1159,7 +1083,6 @@ let toc_box sections =
 let for_entry ~ctx ?(sidenotes=[]) ?(toc=[]) ent =
   let entries = Arod.Ctx.entries ctx in
 
-  (* Entry-specific metadata *)
   let note_meta_el = match ent with
     | `Note n -> note_meta ~ctx n
     | `Idea i -> idea_meta ~ctx i
@@ -1168,7 +1091,6 @@ let for_entry ~ctx ?(sidenotes=[]) ?(toc=[]) ent =
     | _ -> El.void
   in
 
-  (* Related links from backlinks — for entries without links in meta box *)
   let related_el = match ent with
     | `Note _ | `Idea _ | `Paper _ | `Project _ -> El.void
     | _ ->
@@ -1194,7 +1116,6 @@ let for_entry ~ctx ?(sidenotes=[]) ?(toc=[]) ent =
           El.ul ~at:[At.class' "text-sm space-y-0.5"] items]
   in
 
-  (* Sidenotes container - rendered server-side *)
   let sidenotes_el =
     let sidenote_divs = List.map (fun (sn : Arod.Md.sidenote) ->
       let thumb_attr = match sn.thumb_url with
@@ -1208,15 +1129,11 @@ let for_entry ~ctx ?(sidenotes=[]) ?(toc=[]) ent =
     El.div ~at:[At.id "sidenotes-container"; At.class' "relative"] sidenote_divs
   in
 
-  (* Assemble sidebar *)
   El.aside
     ~at:[At.class' "lg:w-72 shrink-0"]
     [El.div ~at:[At.class' "relative h-full"]
-       [(* Contents: desktop only, pinned as the article scrolls *)
-        toc_box toc;
-        (* Meta boxes + related: visible on all screens *)
+       [toc_box toc;
         El.div ~at:[At.class' "mb-4 lg:mb-4 border-t border-border-color pt-4 mt-2 lg:border-t-0 lg:pt-0 lg:mt-0"]
           [note_meta_el; related_el];
-        (* Sidenotes: desktop only — on mobile they appear inline *)
         El.div ~at:[At.class' "hidden lg:block"]
           [sidenotes_el]]]

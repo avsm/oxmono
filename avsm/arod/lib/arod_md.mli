@@ -3,19 +3,11 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Markdown rendering with Bushel extensions.
-
-    Converts Bushel-flavored markdown to HTML with support for:
-    - Internal links to entries ([:slug] syntax)
-    - Image handling with responsive srcset
-    - Video embedding
-    - Sidenotes (contact, paper, idea, note, project, video popups)
-    - Tag search links
-    - Footnotes *)
+(** HTML rendering of Bushel markdown. *)
 
 @@ portable
 
-(** A sidenote extracted during markdown rendering. *)
+(** A sidenote extracted from a rendered document. *)
 type sidenote = {
   slug : string;
   content_html : string;
@@ -23,22 +15,17 @@ type sidenote = {
 }
 
 val sidenote_div_class : string
-(** CSS classes for sidenote sidebar divs. *)
+(** [sidenote_div_class] is the CSS class list for a sidenote. *)
 
 val to_html : ctx:Arod_ctx.t -> string -> string * sidenote list
-(** [to_html ~ctx content] converts markdown to HTML with full Bushel
-    extension support. Returns the article HTML and a list of sidenotes
-    collected during rendering for sidebar placement. *)
+(** [to_html ~ctx content] is the rendered article and its sidenotes. *)
 
 val to_plain_html : ctx:Arod_ctx.t -> string -> string
-(** [to_plain_html ~ctx content] converts markdown to HTML with Bushel
-    link resolution but without sidenotes. Bushel references become
-    plain links. Suitable for summaries and excerpts. *)
+(** [to_plain_html ~ctx content] is rendered HTML with Bushel links but no
+    sidenotes. *)
 
 val to_atom_html : ctx:Arod_ctx.t -> string -> string
-(** [to_atom_html ~ctx content] converts markdown to feed-safe HTML.
-    Handles footnotes with numbered references and ensures proper
-    link resolution for feed readers. *)
+(** [to_atom_html ~ctx content] is feed-safe HTML with numbered footnotes. *)
 
 type heading = {
   id : string;  (** Anchor id, matching the [id] on the rendered heading. *)
@@ -49,25 +36,21 @@ type heading = {
 (** A heading in a table of contents. *)
 
 val extract_headings : string -> heading list
-(** [extract_headings content] is the h2 and h3 headings of [content] in
-    document order, for table-of-contents generation. Each [number] is the
-    one {!to_html} prints beside the heading, so a contents row and its
-    section agree. Deeper headings are skipped, as are h3s with no h2
-    above them. *)
+(** [extract_headings content] is its numbered h2 and h3 headings in document
+    order. *)
 
 (** {1 Utilities} *)
 
 val html_escape_attr : string -> string
-(** Escape a string for use in an HTML attribute. *)
+(** [html_escape_attr s] is [s] escaped for an HTML attribute. *)
 
 val doi_to_id : string -> string
-(** [doi_to_id doi] converts a DOI to a CSS-safe HTML id like ["cite-10-1234-abc"]. *)
+(** [doi_to_id doi] is a CSS-safe HTML identifier for [doi]. *)
 
 val string_drop_prefix : prefix:string -> string -> string
-(** [string_drop_prefix ~prefix s] removes [prefix] from [s] if present. *)
+(** [string_drop_prefix ~prefix s] is [s] without a leading [prefix]. *)
 
 val with_feed_references :
-  ctx:Arod_ctx.t -> Bushel.Note.t -> string -> string @@ nonportable
-(** [with_feed_references ~ctx note base_html] appends an HTML references
-    section to [base_html] if the note is a perma or DOI entry with
-    references. Used by both Atom and JSON feed generators. *)
+  ctx:Arod_ctx.t -> Bushel.Note.t -> string -> string @@ portable
+(** [with_feed_references ~ctx note html] is [html] followed by the references
+    of [note] when it is a permanent or DOI entry. *)

@@ -3,14 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Schema.org JSON-LD structured data generation.
-
-    Generates JSON-LD strings for embedding in HTML pages as
-    [<script type="application/ld+json">] blocks. Uses Printf.sprintf
-    for simple, dependency-free JSON construction. *)
-
-(** {1 Helpers} *)
-
 let encode_json_string s =
   let buf = Buffer.create (String.length s + 8) in
   String.iter (fun c ->
@@ -37,8 +29,6 @@ let json_array items =
 let ptime_to_iso (y, m, d) =
   Printf.sprintf "%04d-%02d-%02d" y m d
 
-(** {1 WebSite} *)
-
 let website_jsonld ~base_url ~site_name ~description =
   Printf.sprintf
     {|{"@context": "https://schema.org", "@type": "WebSite", "@id": "%s/#website", "url": %s, "name": %s, "description": %s}|}
@@ -46,8 +36,6 @@ let website_jsonld ~base_url ~site_name ~description =
     (json_string base_url)
     (json_string site_name)
     (json_string description)
-
-(** {1 Person} *)
 
 let person_jsonld ~ctx =
   let module Contact = Sortal_schema.Contact in
@@ -84,7 +72,6 @@ let person_jsonld ~ctx =
         (jt, af)
       | None -> ("", "")
     in
-    (* Collect sameAs URLs *)
     let same_as_urls = List.filter_map Fun.id [
       Contact.url_on author (Simple Github);
       Contact.url_on author Atproto;
@@ -122,8 +109,6 @@ let person_jsonld ~ctx =
       (json_string base_url)
       image job_title affiliation same_as orcid_id
 
-(** {1 ProfilePage} *)
-
 let profile_page_jsonld ~ctx =
   let config = Arod_ctx.config ctx in
   let base_url = config.site.base_url in
@@ -134,8 +119,6 @@ let profile_page_jsonld ~ctx =
     (json_string config.site.name)
     (json_string config.site.description)
 
-(** {1 CollectionPage} *)
-
 let collection_page_jsonld ~base_url ~url ~title ~description ~count () =
   Printf.sprintf
     {|{"@context": "https://schema.org", "@type": "CollectionPage", "name": %s, "description": %s, "url": %s, "mainEntity": {"@type": "ItemList", "numberOfItems": %d}}|}
@@ -143,8 +126,6 @@ let collection_page_jsonld ~base_url ~url ~title ~description ~count () =
     (json_string description)
     (json_string (base_url ^ url))
     count
-
-(** {1 Article} *)
 
 let article_jsonld ~base_url ~url ~title ~description ~author_name
     ~date ?modified ?image ?(tags=[]) () =
@@ -171,8 +152,6 @@ let article_jsonld ~base_url ~url ~title ~description ~author_name
     image_str
     (json_string (base_url ^ url))
     tags_str
-
-(** {1 ScholarlyArticle} *)
 
 let scholarly_article_jsonld ~base_url ~url ~title ~description
     ~authors ~date ?doi ?image ?journal ?(tags=[]) () =
@@ -209,8 +188,6 @@ let scholarly_article_jsonld ~base_url ~url ~title ~description
     doi_str image_str journal_str tags_str
     (json_string (base_url ^ url))
 
-(** {1 SoftwareSourceCode (Projects)} *)
-
 let project_jsonld ~base_url ~url ~title ~description ~date_start
     ?date_end ?(tags=[]) () =
   let date_end_str = match date_end with
@@ -228,8 +205,6 @@ let project_jsonld ~base_url ~url ~title ~description ~date_start
     (json_string (Printf.sprintf "%d" date_start))
     date_end_str tags_str
     (json_string (base_url ^ url))
-
-(** {1 VideoObject} *)
 
 let video_jsonld ~base_url ~url ~title ~description ~datetime ?image
     ~embed_url ?is_talk () =
@@ -258,8 +233,6 @@ let video_jsonld ~base_url ~url ~title ~description ~datetime ?image
     (json_string date_str)
     image_str url_str genre_str
     (json_string full_url)
-
-(** {1 BreadcrumbList} *)
 
 let breadcrumb_jsonld ~base_url items =
   let list_items = List.mapi (fun i (name, item_url) ->

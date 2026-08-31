@@ -3,10 +3,10 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Serving the arod site over proffer-httpz. *)
+(** Proffer-httpz serving. *)
 
 module Site = Arod_site
-(** The compiled route table this module serves. *)
+(** The served route table. *)
 
 val run :
   sw:Eio.Switch.t ->
@@ -17,9 +17,5 @@ val run :
   env:'env ->
   'env Proffer.Compiled.t ->
   unit
-(** [run ~sw ~net ~clock ~config ~log ~env compiled] listens on every address
-    at [config]'s port and serves [compiled] until [sw] is cancelled, which is
-    the only way it returns. Each served request is written to [log] and
-    reported on the [arod.server] log source. [env] is the capability record
-    the handlers read, and it may hold state bound to the calling domain,
-    since serving is single-domain. *)
+(** [run ~sw ~net ~clock ~config ~log ~env compiled] serves [compiled] on the
+    configured port until [sw] is cancelled. Requests are written to [log]. *)

@@ -3,12 +3,10 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Zotero Translation Server client for DOI resolution *)
+(** Zotero Translation Server client. *)
 
 let src = Logs.Src.create "bushel.zotero" ~doc:"Zotero DOI resolution"
 module Log = (val Logs.src_log src : Logs.LOG)
-
-(** {1 Types} *)
 
 type paper_metadata = {
   title : string;
@@ -28,8 +26,6 @@ type paper_metadata = {
   abstract : string option;
   bib : string;
 }
-
-(** {1 Month Parsing} *)
 
 let month_of_string s =
   match String.lowercase_ascii s with
@@ -53,11 +49,6 @@ let string_of_month = function
   | 9 -> "sep" | 10 -> "oct" | 11 -> "nov" | 12 -> "dec"
   | _ -> "jan"
 
-(** {1 JSON Helpers for Zotero JSON}
-
-    Zotero returns complex JSON with varying structure.
-    We use pattern matching on the generic json type. *)
-
 type creator = {
   first_name : string;
   last_name : string;
@@ -71,7 +62,6 @@ let creator_jsont : creator Jsont.t =
   |> mem "lastName" string ~dec_absent:"" ~enc:(fun c -> c.last_name)
   |> finish
 
-(** Extract string from generic JSON, returning None if missing or wrong type *)
 let rec find_in_json json path =
   match path with
   | [] -> Some json
@@ -111,9 +101,6 @@ let get_creators json =
     ) items
   | _ -> []
 
-(** {1 BibTeX Parsing} *)
-
-(** Simple BibTeX field extraction *)
 let extract_bibtex_field bib field =
   let pattern = Printf.sprintf "%s\\s*=\\s*[{\"](.*?)[}\"]" field in
   try
@@ -129,9 +116,6 @@ let extract_bibtex_type bib =
     String.lowercase_ascii (Re.Group.get groups 1)
   with _ -> "misc"
 
-(** {1 Author Parsing} *)
-
-(** Split "Last, First and Last2, First2" into list of names *)
 let parse_authors author_str =
   let parts = String.split_on_char '&' author_str in
   let parts = List.concat_map (fun s ->
@@ -139,14 +123,11 @@ let parse_authors author_str =
   ) parts in
   List.map (fun name ->
     let name = String.trim name in
-    (* Handle "Last, First" format *)
     match Astring.String.cut ~sep:"," name with
     | Some (last, first) ->
       Printf.sprintf "%s %s" (String.trim first) (String.trim last)
     | None -> name
   ) parts
-
-(** {1 Zotero Translation Server API} *)
 
 let web_endpoint base_url =
   if String.ends_with ~suffix:"/" base_url then base_url ^ "web"
@@ -183,9 +164,6 @@ let export_bibtex ~http ~server_url json =
   | Error e -> Error e
   | Ok body -> Bushel_http.post ~http ~content_type:"application/json" ~body url
 
-(** {1 Metadata Extraction} *)
-
-(** Extract paper metadata from Zotero JSON + BibTeX response. *)
 let extract_metadata ~http ~server_url ~slug ~doi json =
   match export_bibtex ~http ~server_url json with
   | Error e -> Error (Printf.sprintf "BibTeX export failed: %s" e)
@@ -238,7 +216,6 @@ let extract_metadata ~http ~server_url ~slug ~doi json =
     let url = get_string item ["url"] in
     let abstract = get_string item ["abstractNote"] in
 
-    (* DOI: use provided DOI, or try to extract from JSON/BibTeX *)
     let doi = match doi with
       | Some d -> Some d
       | None ->
@@ -265,27 +242,26 @@ let extract_metadata ~http ~server_url ~slug ~doi json =
       volume;
       number;
       doi;
-        url;
-        abstract;
-        bib = String.trim bib;
-      }
+      url;
+      abstract;
+      bib = String.trim bib;
+    }
 
-(** {1 DOI Resolution} *)
-
+(** [resolve ~http ~server_url ~slug doi] is the paper metadata for [doi]. *)
 let resolve ~http ~server_url ~slug doi =
   match resolve_doi ~http ~server_url doi with
   | Error e -> Error e
   | Ok json -> extract_metadata ~http ~server_url ~slug ~doi:(Some doi) json
 
-(** Resolve metadata from an arbitrary URL (e.g. a journal article page).
-    The DOI is extracted from the Zotero response if available. *)
+(** [resolve_from_url ~http ~server_url ~slug url] is the paper metadata at
+    [url]. *)
 let resolve_from_url ~http ~server_url ~slug source_url =
   match resolve_url ~http ~server_url source_url with
   | Error e -> Error e
   | Ok json -> extract_metadata ~http ~server_url ~slug ~doi:None json
 
-(** {1 Paper File Generation} *)
-
+(** [to_yaml_frontmatter ~slug ~ver metadata] is [metadata] encoded as a paper
+    file. *)
 let to_yaml_frontmatter ~slug:_ ~ver:_ metadata =
   let buf = Buffer.create 1024 in
   let add key value =
@@ -304,7 +280,6 @@ let to_yaml_frontmatter ~slug:_ ~ver:_ metadata =
   Buffer.add_string buf "---\n";
   add "title" metadata.title;
 
-  (* Authors as list *)
   Buffer.add_string buf "author:\n";
   List.iter (fun a ->
     Buffer.add_string buf (Printf.sprintf "  - %s\n" a)
@@ -324,7 +299,6 @@ let to_yaml_frontmatter ~slug:_ ~ver:_ metadata =
   add_opt "doi" metadata.doi;
   add_opt "url" metadata.url;
 
-  (* BibTeX entry *)
   Buffer.add_string buf "bib: |\n";
   String.split_on_char '\n' metadata.bib |> List.iter (fun line ->
     Buffer.add_string buf (Printf.sprintf "  %s\n" line)
@@ -332,7 +306,6 @@ let to_yaml_frontmatter ~slug:_ ~ver:_ metadata =
 
   Buffer.add_string buf "---\n";
 
-  (* Abstract as body *)
   (match metadata.abstract with
    | Some abstract when abstract <> "" ->
      Buffer.add_string buf "\n";
@@ -342,15 +315,12 @@ let to_yaml_frontmatter ~slug:_ ~ver:_ metadata =
 
   Buffer.contents buf
 
-(** {1 Merging with Existing Papers} *)
-
+(** [merge_with_existing ~existing metadata] is [metadata] with a missing
+    abstract taken from [existing]. *)
 let merge_with_existing ~existing metadata =
-  (* Preserve fields from existing paper if new ones are empty *)
   {
     metadata with
     abstract = (match metadata.abstract with
       | Some a when a <> "" -> Some a
       | _ -> if Bushel.Paper.abstract existing <> "" then Some (Bushel.Paper.abstract existing) else None);
   }
-  (* Note: tags, projects, selected, slides, video are preserved at a higher level
-     when writing the file - they're not part of paper_metadata *)

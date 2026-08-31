@@ -3,9 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Arod component library for rendering with ocaml-tw.
-
-    Re-exports all component modules for use in Arod handlers. *)
+(** HTML components used by Arod handlers. *)
 
 module Common = Common
 module Theme = Theme

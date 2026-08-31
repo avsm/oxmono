@@ -3,10 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** FTS5 full-text search index for Arod content.
-
-    Uses one FTS5 table per entry kind so that kind filtering queries only
-    the relevant tables. *)
+(** FTS5 full-text search over Arod content. *)
 
 type t
 (** A handle to the search database. *)
@@ -68,21 +65,16 @@ val empty : results
 (** [empty] is the result of a query that asked for nothing. *)
 
 val create : sw:Eio.Switch.t -> _ Eio.Path.t -> t
-(** [create ~sw path] opens or creates the search database at [path]. *)
+(** [create ~sw path] is the search database at [path]. *)
 
 val create_memory : sw:Eio.Switch.t -> unit -> t
-(** [create_memory ~sw ()] creates an in-memory search database.
-    Ideal for the server where the index is rebuilt on startup. *)
+(** [create_memory ~sw ()] is an in-memory search database. *)
 
 val open_readonly : sw:Eio.Switch.t -> _ Eio.Path.t -> t
-(** [open_readonly ~sw path] opens the search database read-only for queries.
-    It never calls {!index}, so [own_host], the tag counts and the projects
-    a {!search} needs are read back from what the last {!index} left in
-    [path] rather than computed. *)
+(** [open_readonly ~sw path] is a read-only search database at [path]. *)
 
 val rebuild : t -> Arod.Ctx.t -> unit
-(** [rebuild t ctx] drops and rebuilds all per-kind search tables from all
-    entries and links in [ctx]. *)
+(** [rebuild t ctx] replaces the index with the entries and links of [ctx]. *)
 
 val index :
   t ->
@@ -91,8 +83,8 @@ val index :
   entries:Bushel.Entry.entry list ->
   links:Bushel.Link.t list ->
   unit
-(** [index t ~own_host ~body_text ~entries ~links] drops every table and
-    indexes [entries] and [links]. [body_text ent] is the prose indexed
+(** [index t ~own_host ~body_text ~entries ~links] replaces the index with
+    [entries] and [links]. [body_text ent] is the prose indexed
     for [ent], so markup never reaches the index or a snippet. {!rebuild}
     renders it through the site's HTML pipeline, and {!plain_body} is the
     context-free fallback. [own_host] is the host of the site's own base
@@ -113,8 +105,8 @@ type order = [ `Relevance | `Date ]
 val search :
   t -> ?today:int * int * int -> ?limit:int -> ?link_limit:int ->
   ?order:order -> string -> results
-(** [search t ?today ?limit ?link_limit ?order input] ranks what matches
-    [input] in three strict tiers. Papers, notes, projects, ideas and
+(** [search t ?today ?limit ?link_limit ?order input] is what matches [input]
+    in three strict tiers. Papers, notes, projects, ideas and
     videos are ordered by [bm25 × kind prior × freshness]. Links are
     ordered by [bm25 × freshness × citation bonus], deduplicated by
     normalised URL and by host and title, and never include the site's own
@@ -145,8 +137,7 @@ val host_of_url : string -> string
 (** [host_of_url u] is the host of {!normalise_url}[ u]. *)
 
 val kinds : string list
-(** The valid kind values: paper, note, weekly, project, idea, video,
-    link. *)
+(** [kinds] is the valid search kind list. *)
 
 val pp_results : Format.formatter -> results -> unit
 (** [pp_results ppf r] prints each tier under a heading. *)

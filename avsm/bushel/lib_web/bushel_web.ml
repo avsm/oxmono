@@ -3,13 +3,11 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Bushel Web UI - dense debug-style knowledge base browser *)
+(** Web views for browsing Bushel entries. *)
 
 module R = Httpz_route
 module H = Tw_html
 module Entry = Bushel.Entry
-
-(** {1 Helpers} *)
 
 let format_date (year, month, day) =
   Printf.sprintf "%04d-%02d-%02d" year month day
@@ -39,12 +37,7 @@ let opt_str_raw = function
 
 let bool_str b = if b then "true" else "false"
 
-(** {1 Styles} *)
-
-(* Reusable style fragments for the dense UI *)
 let mono = Tw.[font_mono; text_xs]
-
-(** {1 Layout} *)
 
 let tab_item ~active_tab label href =
   let is_active = active_tab = label in
@@ -82,8 +75,6 @@ let layout ~title:page_title ~active_tab content =
     H.raw "<style>img{max-height:48px;width:auto}ul.kv li::marker{content:'\b7  ';color:#d1d5db}</style>";
   ] in
   H.page ~title:page_title ~tw_css:(H.Link "/tw.css") head_extra body_content
-
-(** {1 Common UI components} *)
 
 let kv_row k v =
   H.li ~tw:mono [
@@ -145,8 +136,6 @@ let external_link_list urls =
     ]
   ) urls
 
-(** {1 Link graph section} *)
-
 let link_graph_section ~entries slug =
   let backlinks = Entry.backlinks entries slug in
   let outbound = Entry.outbound entries slug in
@@ -161,10 +150,8 @@ let link_graph_section ~entries slug =
     kv_row "external_count" (string_of_int (List.length external_links));
   ]
 
-(** {1 Tags section} *)
-
 let tags_section ~entries entry =
-  let tags = Entry.tags_of_ent entries entry in
+  let tags = Entry.tags_of_ent entry in
   let tag_strs = List.filter_map (fun tag ->
     match tag with
     | `Text s -> Some s
@@ -177,8 +164,6 @@ let tags_section ~entries entry =
     kv_row_html "tags" (tag_list tag_strs);
     kv_row "tag_count" (string_of_int (List.length tag_strs));
   ]
-
-(** {1 Type-specific detail tables} *)
 
 let note_metadata (n : Bushel.Note.t) =
   let words = Bushel.Note.words n in
@@ -301,8 +286,6 @@ let video_metadata (v : Bushel.Video.t) =
     kv_row "project" (opt_str (Bushel.Video.project v));
     kv_row_html "tags" (tag_list (Bushel.Video.tags v));
   ]
-
-(** {1 List Views} *)
 
 let list_header columns =
   H.thead [
@@ -477,8 +460,6 @@ let videos_page entries =
   ] in
   layout ~title:"videos" ~active_tab:"videos" content
 
-(** {1 Detail Views} *)
-
 let render_markdown ~entries body =
   let md = Bushel.Md.to_markdown ~base_url:"" ~image_base:"/images" ~entries body in
   let doc = Cmarkit.Doc.of_string ~strict:false md in
@@ -502,7 +483,6 @@ let detail_page ~entries entry ~view =
     | `Rendered -> "view=source"
     | `Source -> "view=rendered"
   in
-  (* Type-specific metadata table *)
   let type_meta = match entry with
     | `Note n -> note_metadata n
     | `Paper p -> paper_metadata p
@@ -510,7 +490,6 @@ let detail_page ~entries entry ~view =
     | `Idea i -> idea_metadata i
     | `Video v -> video_metadata v
   in
-  (* Body content *)
   let body_content = match view with
     | `Rendered ->
       let body = Entry.body entry in
@@ -529,7 +508,6 @@ let detail_page ~entries entry ~view =
           H.code [H.txt body]
         ]
   in
-  (* Paper-specific: abstract and bibtex *)
   let extra_content = match entry with
     | `Paper p ->
       let abstract = Bushel.Paper.abstract p in
@@ -584,11 +562,9 @@ let detail_page ~entries entry ~view =
        | _ -> [])
     | _ -> []
   in
-  (* Images *)
   let images_section =
     let thumb = Entry.thumbnail entries entry in
     let thumb_slug = Entry.thumbnail_slug entries entry in
-    (* Collect image slugs referenced in the body via :slug syntax *)
     let body = Entry.body entry in
     let body_image_slugs =
       let re = Re.(compile (seq [char ':'; group (rep1 (alt [wordc; char '-']))])) in
@@ -600,7 +576,6 @@ let detail_page ~entries entry ~view =
         | None -> None
       ) matches
     in
-    (* Deduplicate and build image list *)
     let all_image_slugs =
       (match thumb_slug with Some s -> [s] | None -> []) @
       List.filter (fun s -> Some s <> thumb_slug) body_image_slugs
@@ -637,7 +612,6 @@ let detail_page ~entries entry ~view =
         image_rows
       )
   in
-  (* Related notes *)
   let related_notes = Entry.notes_for_slug entries slug in
   let related_section =
     if related_notes = [] then H.empty
@@ -655,7 +629,6 @@ let detail_page ~entries entry ~view =
       ]
   in
   let content = [
-    (* Header bar *)
     H.div ~tw:Tw.[flex; items_center; justify_between; py 1; border_b; border_color ~shade:200 gray] [
       H.div ~tw:Tw.[flex; items_center; gap 1] [
         H.a ~at:[H.At.href (type_url entry)]
@@ -670,17 +643,11 @@ let detail_page ~entries entry ~view =
         ~tw:(mono @ Tw.[text ~shade:500 blue; no_underline; hover [underline]])
         [H.txt toggle_label];
     ];
-    (* Metadata *)
     H.div ~tw:Tw.[mt 2] [type_meta];
-    (* Tags *)
     H.div ~tw:Tw.[mt 2] [tags_section ~entries entry];
-    (* Link graph *)
     H.div ~tw:Tw.[mt 2] [link_graph_section ~entries slug];
-    (* Images *)
     H.div ~tw:Tw.[mt 2] [images_section];
-    (* Related notes *)
     related_section;
-    (* Body *)
     H.div ~tw:Tw.[mt 2] [
       kv_table [section_row (match view with `Rendered -> "BODY (RENDERED)" | `Source -> "BODY (SOURCE)")];
     ];
@@ -688,19 +655,15 @@ let detail_page ~entries entry ~view =
   ] @ extra_content in
   layout ~title:(Printf.sprintf "%s | %s" slug active_tab) ~active_tab content
 
-(** {1 CSS Generation} *)
-
 let reference_page entries =
   let all = Entry.all_entries entries in
   let sample_entry = match all with
     | e :: _ -> Some e
     | [] -> None
   in
-  (* Build a page that exercises all Tw utilities used in the UI *)
   layout ~title:"Reference" ~active_tab:"notes" [
     navbar ~active_tab:"notes";
     navbar ~active_tab:"papers";
-    (* List table styles *)
     H.table ~tw:Tw.[w_full; border_collapse; table_auto] [
       list_header ["a"; "b"; "c"];
       H.tbody [
@@ -711,30 +674,24 @@ let reference_page entries =
         ];
       ];
     ];
-    (* KV list styles *)
     kv_table [
       section_row "SECTION";
       kv_row "key" "val";
       kv_row_html "key2" [H.txt "val2"];
     ];
-    (* Extra content list items *)
     H.li ~tw:Tw.[text_xs; font_mono; text ~shade:800 gray; list_none] [H.txt "content"];
     H.li ~tw:Tw.[list_none] [H.txt "block"];
-    (* Tag pills *)
     H.div ~tw:Tw.[flex; flex_wrap; gap 1] (tag_list ["a"; "b"]);
     tag_pill "x";
-    (* Links *)
     slug_link "slug" "/url";
     H.a ~tw:Tw.[text_xs; font_mono; text ~shade:500 blue; no_underline; hover [underline]; break_all]
       [H.txt "ext"];
-    (* Entry links *)
     (match sample_entry with
      | Some e -> entry_link e
      | None -> H.empty);
     (match sample_entry with
      | Some e -> entry_link_with_title e
      | None -> H.empty);
-    (* Mono styles *)
     H.span ~tw:(mono @ Tw.[font_bold; text ~shade:700 gray]) [H.txt "header"];
     H.span ~tw:(mono @ Tw.[text ~shade:400 gray]) [H.txt "count"];
     H.span ~tw:(mono @ Tw.[text ~shade:300 gray]) [H.txt "sep"];
@@ -743,7 +700,6 @@ let reference_page entries =
     H.span ~tw:(mono @ Tw.[text ~shade:500 blue; no_underline; hover [underline]]) [H.txt "l"];
     H.span ~tw:Tw.[text ~shade:500 gray] [H.txt "label"];
     H.span ~tw:Tw.[text ~shade:900 gray] [H.txt "value"];
-    (* Body styles *)
     H.div ~tw:Tw.[prose; prose_sm; max_w_none; font_mono; text_xs] [H.txt "body"];
     H.pre ~tw:Tw.[bg ~shade:50 gray; p 2; text_xs; font_mono; overflow_auto;
                    border; border_color ~shade:200 gray] [
@@ -753,20 +709,17 @@ let reference_page entries =
                    border; border_color ~shade:100 gray; m 0] [
       H.code [H.txt "bib"]
     ];
-    (* Detail page styles *)
     H.div ~tw:Tw.[flex; items_center; justify_between; py 1; border_b; border_color ~shade:200 gray] [H.txt "x"];
     H.div ~tw:Tw.[mt 1; border; border_color ~shade:200 gray; p 2] [H.txt "body"];
     H.div ~tw:Tw.[mt 2] [H.txt "mt2"];
     H.div ~tw:(mono @ Tw.[text ~shade:400 gray; p 2]) [H.txt "empty"];
     H.div ~tw:Tw.[flex; items_center; gap 2] [H.txt "img row"];
-    (* Tab styles *)
     H.a ~tw:Tw.[px 2; py 1; text_xs; font_mono; no_underline;
                  text white; bg ~shade:700 gray; hover [text white; bg ~shade:600 gray]]
       [H.txt "active"];
     H.a ~tw:Tw.[px 2; py 1; text_xs; font_mono; no_underline;
                  text ~shade:400 gray; bg_transparent; hover [text white; bg ~shade:600 gray]]
       [H.txt "inactive"];
-    (* Navbar *)
     H.span ~tw:Tw.[text ~shade:600 gray; text_xs] [H.txt "|"];
     H.a ~tw:Tw.[font_mono; font_bold; text_xs; text ~shade:400 green; py 1; px 2; no_underline]
       [H.txt "brand"];
@@ -776,8 +729,6 @@ let generate_css entries =
   let page = reference_page entries in
   let (_css_name, css) = H.css page in
   Tw.Css.to_string ~minify:true css
-
-(** {1 Response Helpers} *)
 
 let[@inline] send_css (local_ respond) s =
   respond ~status:Httpz.Res.Success
@@ -817,8 +768,7 @@ let static_file ~dir path _ctx (local_ respond) =
     else send_not_found respond
   with _ -> send_not_found respond
 
-(** {1 Route Handlers} *)
-
+(** [routes ?image_dir entries] is the route tree for browsing [entries]. *)
 let routes ?image_dir entries =
   let css_content = generate_css entries in
   let open R in
@@ -828,15 +778,12 @@ let routes ?image_dir entries =
     | None -> []
   in
   of_list (image_routes @ [
-    (* Root redirect *)
     get_ [] (fun _ctx (local_ respond) ->
       redirect respond ~status:Httpz.Res.Moved_permanently ~location:"/notes");
 
-    (* CSS *)
     get_ ["tw.css"] (fun _ctx (local_ respond) ->
       send_css respond css_content);
 
-    (* List pages *)
     get_ ["notes"] (fun ctx (local_ respond) ->
       html_gen ctx respond (fun () ->
         let page = notes_page entries in
@@ -862,7 +809,6 @@ let routes ?image_dir entries =
         let page = videos_page entries in
         H.html page));
 
-    (* Detail pages *)
     get ("notes" / seg root) (fun (slug, ()) ctx (local_ respond) ->
       match Entry.lookup entries slug with
       | Some ((`Note _) as entry) ->

@@ -3,7 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Project component rendering using htmlit. *)
+(** Project components. *)
 
 open Htmlit
 
@@ -13,33 +13,42 @@ module I = Arod.Icons
 
 module StringSet = Set.MakePortable (String)
 
-(** {1 Main Rendering Functions} *)
+let newest_first a b =
+  compare (Bushel.Entry.date b) (Bushel.Entry.date a)
 
-(** Project card with recent papers/notes. *)
+let project_papers slug entries =
+  List.filter (function
+    | `Paper paper -> List.mem slug (B_paper.project_slugs paper)
+    | _ -> false)
+    entries
+  |> List.sort newest_first
+
+let project_ideas slug entries =
+  List.filter (function
+    | `Idea idea -> Bushel.Idea.project idea = slug
+    | _ -> false)
+    entries
+  |> List.sort newest_first
+
+let backlink_set ctx slug =
+  Arod.Ctx.backlinks ctx slug |> StringSet.of_list
+
+(** [card ~ctx proj] is a project card with recent activity. *)
 let card ~ctx proj =
   let all_entries = Arod.Ctx.all_entries ctx in
   let project_slug = proj.Project.slug in
   let recent_papers =
-    List.filter (fun e ->
-      match e with
-      | `Paper paper -> List.mem project_slug (B_paper.project_slugs paper)
-      | _ -> false
-    ) all_entries
-    |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
-    |> (fun l -> Common.take 3 l)
+    project_papers project_slug all_entries |> Common.take 3
   in
-  let backlink_slugs = Arod.Ctx.backlinks ctx project_slug in
-  let backlink_set =
-    List.fold_left (fun acc slug -> StringSet.add slug acc) (StringSet.of_list []) backlink_slugs
-  in
+  let backlinks = backlink_set ctx project_slug in
   let recent_notes =
     List.filter (fun e ->
       match e with
-      | `Note _ -> StringSet.mem (Bushel.Entry.slug e) backlink_set
+      | `Note _ -> StringSet.mem (Bushel.Entry.slug e) backlinks
       | _ -> false
     ) all_entries
-    |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
-    |> (fun l -> Common.take 3 l)
+    |> List.sort newest_first
+    |> Common.take 3
   in
   let entry_row icon_svg ent =
     Common.card_entry_row
@@ -61,45 +70,23 @@ let card ~ctx proj =
     El.div ~at:[At.class' "mb-2"] [body_html];
     recent_items_display]
 
-(** Full project with activity stream and references. *)
+(** [full ~ctx proj] is the full rendering of [proj]. *)
 let full ~ctx proj =
   let project_slug = proj.Project.slug in
-  let backlink_slugs = Arod.Ctx.backlinks ctx project_slug in
   let outbound_slugs = Arod.Ctx.outbound ctx project_slug in
-  let backlink_set =
-    List.fold_left (fun acc slug -> StringSet.add slug acc) (StringSet.of_list []) backlink_slugs
-  in
+  let backlinks = backlink_set ctx project_slug in
   let all_entries = Arod.Ctx.all_entries ctx in
   let entries = Arod.Ctx.entries ctx in
-  (* Papers explicitly tagged with this project *)
-  let project_papers =
-    List.filter (fun e ->
-      match e with
-      | `Paper paper -> List.mem project_slug (B_paper.project_slugs paper)
-      | _ -> false
-    ) all_entries
-    |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
-  in
-  (* Ideas belonging to this project *)
-  let project_ideas =
-    List.filter (fun e ->
-      match e with
-      | `Idea i -> Bushel.Idea.project i = project_slug
-      | _ -> false
-    ) all_entries
-    |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
-  in
-  (* Backlinked entries (notes, videos, etc.) *)
+  let project_papers = project_papers project_slug all_entries in
+  let project_ideas = project_ideas project_slug all_entries in
   let backlinked_entries =
     List.filter (fun e ->
       match e with
-      | `Paper _ -> false  (* papers shown separately *)
-      | `Idea _ -> false   (* ideas shown separately *)
-      | _ -> StringSet.mem (Bushel.Entry.slug e) backlink_set
+      | `Paper _ | `Idea _ -> false
+      | _ -> StringSet.mem (Bushel.Entry.slug e) backlinks
     ) all_entries
-    |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
+    |> List.sort newest_first
   in
-  (* Outbound entries not already covered *)
   let covered = Hashtbl.create 32 in
   List.iter (fun e -> Hashtbl.replace covered (Bushel.Entry.slug e) ()) project_papers;
   List.iter (fun e -> Hashtbl.replace covered (Bushel.Entry.slug e) ()) project_ideas;
@@ -112,9 +99,8 @@ let full ~ctx proj =
       | Some ent -> Hashtbl.replace covered s (); Some ent
       | None -> None
     ) outbound_slugs
-    |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
+    |> List.sort newest_first
   in
-  (* Feed backlinks — network entries annotated as related to this project *)
   let feed_bls = Arod.Ctx.feed_backlinks_for_slug ctx project_slug in
   let outbound_feed = Arod.Ctx.feed_items_for_outbound ctx project_slug in
   let feed_seen = Hashtbl.create 16 in
@@ -124,7 +110,6 @@ let full ~ctx proj =
     if u = "" || Hashtbl.mem feed_seen u then false
     else (Hashtbl.add feed_seen u (); true)
   ) (feed_bls @ outbound_feed) in
-  (* Unified activity stream — entries + feed backlinks sorted by date *)
   let entry_items =
     List.map (fun ent ->
       Sidebar.Entry_item (ent, Bushel.Entry.date ent))
@@ -154,7 +139,6 @@ let full ~ctx proj =
         El.h2 ~at:[At.class' "text-lg font-semibold mb-3"] [El.txt "Activity"];
         El.div ~at:[At.class' "project-activity-list not-prose"] rows]
   in
-  (* Ideas summary section — compact cards like the ideas index page *)
   let ideas_section =
     let idea_values = List.filter_map (fun e ->
       match e with `Idea i -> Some i | _ -> None
@@ -182,7 +166,7 @@ let full ~ctx proj =
     ideas_section;
     activity_section], sidenotes)
 
-(** Masonry-style two-column project grid with terminal-inspired cards. *)
+(** [projects_list ~ctx] is the project list. *)
 let projects_list ~ctx =
   let all_projects =
     Arod.Ctx.projects ctx |> List.sort Project.compare
@@ -195,47 +179,26 @@ let projects_list ~ctx =
       | Some y -> Printf.sprintf "%d\u{2013}%d" start_year y
       | None -> Printf.sprintf "%d\u{2013}now" start_year
     in
-    let recent_papers =
-      List.filter (fun e ->
-        match e with
-        | `Paper paper -> List.mem project_slug (B_paper.project_slugs paper)
-        | _ -> false
-      ) all_entries
-      |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
-      |> (fun l -> Common.take 3 l)
-    in
-    let backlink_slugs = Arod.Ctx.backlinks ctx project_slug in
-    let backlink_set =
-      List.fold_left (fun acc slug ->
-        StringSet.add slug acc) (StringSet.of_list []) backlink_slugs
-    in
+    let recent_papers = project_papers project_slug all_entries |> Common.take 3 in
+    let backlinks = backlink_set ctx project_slug in
     let recent_notes =
       List.filter (fun e ->
         match e with
-        | `Note _ -> StringSet.mem (Bushel.Entry.slug e) backlink_set
+        | `Note _ -> StringSet.mem (Bushel.Entry.slug e) backlinks
         | _ -> false
       ) all_entries
-      |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
-      |> (fun l -> Common.take 3 l)
+      |> List.sort newest_first
+      |> Common.take 3
     in
-    let recent_ideas =
-      List.filter (fun e ->
-        match e with
-        | `Idea i -> Bushel.Idea.project i = project_slug
-        | _ -> false
-      ) all_entries
-      |> List.sort (fun a b -> compare (Bushel.Entry.date b) (Bushel.Entry.date a))
-      |> (fun l -> Common.take 3 l)
-    in
+    let recent_ideas = project_ideas project_slug all_entries |> Common.take 3 in
     let all_recent =
       (List.map (fun e -> (I.paper_o, e)) recent_papers) @
       (List.map (fun e -> (I.writing_o, e)) recent_notes) @
       (List.map (fun e -> (I.bulb_o, e)) recent_ideas)
     in
     let all_recent =
-      List.sort (fun (_, a) (_, b) ->
-        compare (Bushel.Entry.date b) (Bushel.Entry.date a)) all_recent
-      |> (fun l -> Common.take 5 l)
+      List.sort (fun (_, a) (_, b) -> newest_first a b) all_recent
+      |> Common.take 5
     in
     let recent_items =
       if all_recent = [] then El.void
@@ -249,29 +212,23 @@ let projects_list ~ctx =
               ~href:(Bushel.Entry.site_url ent)
               ~title:(Bushel.Entry.title ent)) all_recent)
     in
-    (* Thumbnail *)
     let thumbnail_md =
       Printf.sprintf "![%%lc](:project-%s \"%s\")"
         proj.Project.slug proj.Project.title
     in
     let thumbnail_html = El.unsafe_raw (fst (Arod.Md.to_html ~ctx thumbnail_md)) in
-    (* Summary — first paragraph *)
     let body = Project.body proj in
     let first, _ = Bushel.Util.first_and_last_hunks body in
     let summary_html = El.unsafe_raw (Arod.Md.to_plain_html ~ctx first) in
-    (* Tags *)
     let tags_el = Common.card_tags (Project.tags proj) in
     El.div ~at:[At.class' "proj-card not-prose"] [
-      (* Header *)
       Common.card_header ~prompt:">_" ~title:proj.Project.title
         ~href:("/projects/" ^ project_slug)
         (El.span ~at:[At.class' "proj-card-date"] [El.txt date_range]);
-      (* Body *)
       El.div ~at:[At.class' "proj-card-body"] [
         El.div ~at:[At.class' "proj-card-thumb"] [thumbnail_html];
         El.div ~at:[At.class' "proj-card-summary"] [summary_html];
         tags_el];
-      (* Recent items *)
       recent_items]
   in
   let cards = List.map project_card all_projects in
@@ -286,6 +243,6 @@ let projects_list ~ctx =
   in
   article
 
-(** Project for feeds. *)
+(** [for_feed ~ctx proj] is the feed rendering of [proj]. *)
 let for_feed ~ctx proj =
   Common.truncated_body ~ctx (`Project proj)

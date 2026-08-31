@@ -29,9 +29,6 @@ let collapse_whitespace s =
   ) s;
   Buffer.contents buf
 
-(* Entity decoding is the other half of tag stripping: text taken out of
-   rendered HTML still carries the escapes the renderer put in, and a caller
-   handing that to a text node would escape them a second time. *)
 let html_unescape s =
   let buf = Buffer.create (String.length s) in
   let n = String.length s in

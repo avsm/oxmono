@@ -3,8 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Atom feed generation for Arod webserver *)
-
 module E = Bushel.Entry
 module N = Bushel.Note
 module C = Sortal_schema.Contact
@@ -12,19 +10,11 @@ module X = Syndic.Atom
 
 let anil_copyright = "(c) 1998-2026 Anil Madhavapeddy, all rights reserved"
 
-(* A contact's URL is whatever was recorded for that person, so it goes
-   through Syndic's lax parser rather than the raising one. *)
 let author c =
   let uri = Option.map Syndic.XML.uri_of_string (C.best_url c) in
   let email = match C.emails c with e :: _ -> Some e | [] -> None in
   {X.name=(C.name c); email; uri}
 
-(* [form_uri cfg path] is the site's own base URL with [path] appended. The
-   base comes from the configuration and the path from a slug, which for
-   [atom_id] is a note's frontmatter or its filename. Both are site-owner
-   content, so a parse failure is a mistake in this tree and must be loud
-   rather than coerced into a URL nobody meant. It costs the whole feed route,
-   which re-raises, not just the one entry. *)
 let form_uri cfg path =
   Uriz.of_string_exn (cfg.Arod_config.site.base_url ^ path)
 
@@ -48,8 +38,6 @@ let news_feed_link cfg =
   let hreflang = None in
   {X.href; rel; type_media; title; length; hreflang}
 
-(* [l] is a note's [via] target, an external URL typed into frontmatter, so
-   it is repaired rather than rejected. *)
 let ext_link ~title l =
   let href = Syndic.XML.uri_of_string l in
   let rel = X.Alternate in

@@ -3,7 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** HTTP client using the fetch library *)
+(** HTTP client backed by Fetch. *)
 
 let src = Logs.Src.create "bushel.http" ~doc:"HTTP client"
 module Log = (val Logs.src_log src : Logs.LOG)
@@ -11,10 +11,8 @@ module Log = (val Logs.src_log src : Logs.LOG)
 type t = Fetch.plain
 
 let create ~sw env =
-  (* fetch follows redirects by default (10 hops) *)
   Fetch_curl.std ~sw env
 
-(* [Fetch] has no [Response.ok]; 2xx is success. *)
 let ok response =
   let status = Fetch.status response in
   status >= 200 && status < 300
@@ -37,7 +35,6 @@ let get ~http url =
 let get_with_header ~http ~header url =
   Log.debug (fun m -> m "GET %s (with header)" url);
   try
-    (* Parse header "Name: Value" format *)
     let name, value = match String.index_opt header ':' with
       | Some i ->
         let name = String.sub header 0 i in
@@ -45,7 +42,6 @@ let get_with_header ~http ~header url =
         (name, value)
       | None -> (header, "")
     in
-    (* [name] and [value] are rebound: [Fetch.Header] shadows [name]. *)
     let hname = name and hvalue = value in
     let headers = Fetch.Header.[ raw hname hvalue ] in
     Fetch.with_response ~headers http `GET url read_body

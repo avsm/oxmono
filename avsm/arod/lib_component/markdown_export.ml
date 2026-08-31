@@ -29,7 +29,7 @@ let render_body ~ctx body =
   Bushel.Md.to_markdown ~base_url ~image_base:"/images" ~entries body
 
 let tags_line ~ctx ent =
-  match Arod.Ctx.tags_of_ent ctx ent with
+  match Bushel.Entry.tags_of_ent ent with
   | [] -> ""
   | tags ->
     let strs = List.map Bushel.Tags.to_string tags in
@@ -426,4 +426,3 @@ let index_md ~ctx =
     let base = Arod.Ctx.base_url ctx in
     let body_md = if body <> "" then render_body ~ctx body else "" in
     Printf.sprintf "# %s\n\n%s\n\n---\nCanonical: %s\n" title body_md base
-

@@ -74,7 +74,7 @@ let entry_heading ~ctx:_ ent =
 (** {1 Tags Metadata} *)
 
 let tags_meta ~ctx ent =
-  let all_tags = Arod.Ctx.tags_of_ent ctx ent in
+  let all_tags = Bushel.Entry.tags_of_ent ent in
   let date_str = Common.ptime_date_short (Bushel.Entry.date ent) in
   let link_el =
     El.a ~at:[At.href (Bushel.Entry.site_url ent);

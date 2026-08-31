@@ -3,8 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Link graph for tracking relationships between Bushel entries *)
-
 module StringSet = Set.Make (String)
 module StringMap = Map.Make (String)
 
@@ -30,8 +28,6 @@ type t = {
   external_by_entry : string list Bushel_smap.t;
 }
 
-(** {1 Constructors} *)
-
 let empty =
   {
     internal_links = [];
@@ -41,8 +37,6 @@ let empty =
     external_by_entry = Bushel_smap.empty;
   }
 
-(* A key's values are collected into a set so that a table answers the same
-   sorted, repeat-free list the mutable graph answered from a [StringSet]. *)
 let group pairs =
   let m =
     List.fold_left
@@ -70,8 +64,6 @@ let v ~internal_links ~external_links =
       group (List.map (fun (l : external_link) -> (l.source, l.url)) external_links);
   }
 
-(** {1 Queries} *)
-
 let find tbl slug =
   match Bushel_smap.find_opt slug tbl with Some l -> l | None -> []
 
@@ -79,8 +71,6 @@ let backlinks g slug = find g.backlinks slug
 let outbound g slug = find g.outbound slug
 let external_urls g slug = find g.external_by_entry slug
 let all_external_links g = g.external_links
-
-(** {1 Utilities} *)
 
 let entry_type_of_entry = function
   | `Paper _ -> `Paper

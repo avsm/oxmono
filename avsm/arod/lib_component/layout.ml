@@ -3,15 +3,16 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Page shell layout component for the Arod website.
-
-    Provides the overall page structure: head meta tags, header navigation,
-    content grid with optional sidebar, footer, and scripts. *)
+(** Page layout components. *)
 
 open Htmlit
 
-(** {1 Footer} *)
+let markdown_url = function
+  | Some "/" -> Some "/index.md"
+  | Some url -> Some (url ^ ".md")
+  | None -> None
 
+(** [footer_el ~ctx ?url ()] is the site footer. *)
 let footer_el ~ctx ?url () =
   let module Contact = Sortal_schema.Contact in
   let open Arod.Icons in
@@ -75,12 +76,7 @@ let footer_el ~ctx ?url () =
       ] in
       main_icons @ photo_icons
   in
-  let md_url = match url with
-    | Some "/" -> Some "/index.md"
-    | Some u -> Some (u ^ ".md")
-    | None -> None
-  in
-  let md_link = match md_url with
+  let md_link = match markdown_url url with
     | Some href ->
       [El.a ~at:[At.href href;
                  At.v "title" "View as Markdown";
@@ -96,20 +92,14 @@ let footer_el ~ctx ?url () =
         ]
     ]
 
-(** {1 Asset Versions}
-
-    Static assets are served with far-future cache headers, so their URLs
-    carry a content hash that changes whenever the content does. *)
+let asset_version content =
+  String.sub (Digest.to_hex (Digest.string content)) 0 8
 
 let js_version =
-  let all = String.concat "" (List.map snd Scripts.by_name) in
-  String.sub (Digest.to_hex (Digest.string all)) 0 8
+  String.concat "" (List.map snd Scripts.by_name) |> asset_version
 
 let tw_version =
-  let css = Option.value ~default:"" (Arod_assets.read "tw.css") in
-  String.sub (Digest.to_hex (Digest.string css)) 0 8
-
-(** {1 Head Elements} *)
+  Option.value ~default:"" (Arod_assets.read "tw.css") |> asset_version
 
 let meta_tag ~name ~content =
   El.meta ~at:[ At.name name; At.content content ] ()
@@ -117,11 +107,11 @@ let meta_tag ~name ~content =
 let og_tag ~property ~content =
   El.meta ~at:[ At.v "property" property; At.content content ] ()
 
-(** Citation metadata for Google Scholar. *)
+(** Google Scholar citation metadata. *)
 type citation = {
   citation_title : string;
   citation_authors : string list;
-  citation_date : string; (** YYYY/MM/DD format *)
+  citation_date : string; (** [YYYY/MM/DD]. *)
   citation_doi : string option;
   citation_pdf_url : string option;
   citation_journal : string option;
@@ -133,6 +123,7 @@ let ptime_to_iso (y, m, d) =
 let ptime_to_citation_date (y, m, d) =
   Printf.sprintf "%04d/%02d/%02d" y m d
 
+(** [head_elements ~ctx ~config ~title ~description ()] is the page metadata. *)
 let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?standardsite
     ?(og_type="website") ?published ?modified ?(tags=[]) ?citation () =
   let module Contact = Sortal_schema.Contact in
@@ -140,28 +131,23 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
   let base_url = site.base_url in
   let page_url = match url with Some u -> base_url ^ u | None -> base_url in
   let head_els =
-    [ (* Basic meta *)
-      meta_tag ~name:"description" ~content:description;
+    [ meta_tag ~name:"description" ~content:description;
       meta_tag ~name:"author" ~content:site.author_name;
       El.meta ~at:[ At.name "theme-color"; At.content "#fffffc"; At.id "meta-theme-color" ] ();
 
-      (* Canonical URL *)
       El.link ~at:[ At.rel "canonical"; At.href page_url ] ();
 
-      (* Open Graph *)
       og_tag ~property:"og:type" ~content:og_type;
       og_tag ~property:"og:title" ~content:title;
       og_tag ~property:"og:description" ~content:description;
       og_tag ~property:"og:site_name" ~content:site.name;
       og_tag ~property:"og:url" ~content:page_url;
 
-      (* Twitter Card *)
       meta_tag ~name:"twitter:card"
         ~content:(if image <> None then "summary_large_image" else "summary");
       meta_tag ~name:"twitter:title" ~content:title;
       meta_tag ~name:"twitter:description" ~content:description;
 
-      (* Feeds *)
       El.link ~at:[ At.rel "alternate"; At.v "type" "application/atom+xml";
                  At.v "title" (site.name ^ " (Atom)");
                  At.href "/news.xml" ] ();
@@ -169,7 +155,6 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
                  At.v "title" (site.name ^ " (JSON Feed)");
                  At.href "/feed.json" ] ();
 
-      (* Favicon *)
       El.link ~at:[ At.rel "icon"; At.v "type" "image/svg+xml";
                  At.href "/favicon.svg" ] ();
       El.link ~at:[ At.rel "icon"; At.v "type" "image/png";
@@ -177,26 +162,18 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       El.link ~at:[ At.rel "apple-touch-icon";
                  At.href "/apple-touch-icon.png" ] ();
 
-      (* rel=me verification — dynamic from author contact *)
-
-      (* rel=author, blogroll, license *)
       El.link ~at:[ At.rel "author"; At.href "/about" ] ();
       El.link ~at:[ At.rel "blogroll"; At.v "type" "text/x-opml";
                  At.v "title" "Blogroll"; At.href "/network/blogroll.opml" ] ();
       El.link ~at:[ At.rel "license";
                  At.href "https://creativecommons.org/licenses/by/4.0/" ] ();
 
-      (* Theme init — must run before stylesheets apply to prevent FOUC *)
+      (* Run before stylesheets to prevent a theme flash. *)
       El.script [El.unsafe_raw Theme.theme_init_js];
 
-      (* Tailwind stylesheet, prebuilt by tailwind/regen.sh and committed *)
       El.link ~at:[ At.rel "stylesheet";
                  At.href ("/tw.css?v=" ^ tw_version) ] ();
 
-      (* Highlight.js — both themes, JS toggles which one is active.
-         Deferred so it never blocks parsing; the site bundle that calls
-         hljs.highlightAll() is also deferred and comes later in the
-         document, which guarantees it runs after this. *)
       El.link ~at:[ At.rel "stylesheet"; At.id "hljs-light";
                  At.href "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" ] ();
       El.link ~at:[ At.rel "stylesheet"; At.id "hljs-dark"; At.disabled;
@@ -204,11 +181,9 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       El.script ~at:[ At.defer;
                  At.src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" ] [];
 
-      (* Custom CSS *)
       El.style [El.unsafe_raw Theme.custom_css];
     ]
   in
-  (* Dynamic rel=me links from author contact *)
   let head_els =
     match Arod.Ctx.author ctx with
     | None -> head_els
@@ -237,14 +212,8 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       ] in
       head_els @ me_links
   in
-  (* Markdown alternate link *)
   let head_els =
-    let md_href = match url with
-      | Some "/" -> Some "/index.md"
-      | Some u -> Some (u ^ ".md")
-      | None -> None
-    in
-    match md_href with
+    match markdown_url url with
     | Some href ->
       head_els @ [
         El.link ~at:[ At.rel "alternate"; At.v "type" "text/markdown";
@@ -253,7 +222,6 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       ]
     | None -> head_els
   in
-  (* OG image — use page image, or fall back to author photo *)
   let head_els =
     let img = match image with
       | Some _ -> image
@@ -271,7 +239,6 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
                    meta_tag ~name:"twitter:image" ~content:img_url ]
     | None -> head_els
   in
-  (* Article OG tags when og_type = "article" *)
   let head_els =
     if og_type = "article" then
       let article_els = List.filter_map Fun.id [
@@ -288,7 +255,6 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       head_els @ article_els
     else head_els
   in
-  (* Google Scholar citation tags *)
   let head_els = match citation with
     | Some c ->
       let cite_els =
@@ -306,7 +272,6 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       head_els @ cite_els
     | None -> head_els
   in
-  (* JSON-LD — always include WebSite, plus any page-specific blocks *)
   let head_els =
     let site = config.Arod.Config.site in
     let website_ld = Arod.Jsonld.website_jsonld
@@ -317,7 +282,6 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       El.script ~at:[ At.v "type" "application/ld+json" ] [ El.unsafe_raw ld ]
     ) all_ld
   in
-  (* Optional standardsite link *)
   let head_els = match standardsite with
     | Some ss_url ->
       head_els @ [
@@ -326,8 +290,6 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
     | None -> head_els
   in
   head_els
-
-(** {1 Script Elements} *)
 
 type page_script =
   | Toc | Pagination | Lightbox | Links_modal
@@ -345,9 +307,7 @@ let script_file_of = function
   | Idea_filter -> "idea-filter.js"
   | Search -> "search.js"
 
-(* Deferred external scripts. Placing them in the head lets the browser
-   fetch early, and defer preserves document order while running only
-   after the DOM is parsed. *)
+(** [build_scripts scripts] is the deferred site bundle for [scripts]. *)
 let build_scripts page_scripts =
   let script_el name =
     El.script ~at:[ At.defer; At.src ("/js/" ^ name ^ "?v=" ^ js_version) ] []
@@ -355,8 +315,7 @@ let build_scripts page_scripts =
   script_el "site.js"
   :: List.map (fun s -> script_el (script_file_of s)) page_scripts
 
-(** {1 Content Grid} *)
-
+(** [content_grid ~article ?sidebar ()] is the responsive content grid. *)
 let content_grid ?(main_cls="max-w-2xl") ~article ?sidebar () =
   El.div
     ~at:[At.class' "max-w-6xl mx-auto px-2 md:px-6 py-8 flex flex-col lg:flex-row gap-6 lg:gap-10"]
@@ -365,8 +324,7 @@ let content_grid ?(main_cls="max-w-2xl") ~article ?sidebar () =
          [ article ] ]
      @ Option.to_list sidebar)
 
-(** {1 Page Assembly} *)
-
+(** [page ~ctx ~title ~description ~article ()] is a complete HTML page. *)
 let page ~ctx ~title ~description ?url ?image ?(jsonld=[]) ?standardsite ?current_page
     ?og_type ?published ?modified ?tags ?citation ?(page_scripts=[]) ?main_cls ~article ?sidebar ?mobile_footer () =
   let config = Arod.Ctx.config ctx in
@@ -426,4 +384,3 @@ let wide_page ~ctx ~title ~description ?url ?current_page ?(jsonld=[]) ?(page_sc
   in
   El.to_string ~doctype:true
     (El.html ~at:[At.lang "en"] [head_el; body_el])
-

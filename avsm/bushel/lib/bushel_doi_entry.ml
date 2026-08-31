@@ -3,7 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** DOI entries resolved from external sources via Zotero Translation Server *)
+(** DOI metadata cached from Zotero Translation Server. *)
 
 type status =
   | Resolved
@@ -79,7 +79,8 @@ let of_yaml_value = function
               resolved_at; source_urls; status = Resolved; ignore })
   | _ -> None
 
-(** Load DOI entries from a YAML string *)
+(** [of_yaml_string s] is the DOI cache encoded by [s], or the empty list if
+    [s] is invalid. *)
 let of_yaml_string str =
   try
     match Yamlrw.of_string str with
@@ -87,32 +88,29 @@ let of_yaml_string str =
     | _ -> []
   with Yamlrw.Yamlrw_error _ -> []
 
-(** Find entry by DOI (excludes ignored entries) *)
+(** [find_by_doi entries doi] is the non-ignored entry for [doi], if any. *)
 let find_by_doi entries doi =
   List.find_opt (fun entry -> not entry.ignore && entry.doi = doi) entries
 
-(** Find entry by source URL (excludes ignored entries) *)
+(** [find_by_url entries url] is the non-ignored entry sourced from [url], if
+    any. *)
 let find_by_url entries url =
   List.find_opt (fun entry ->
     not entry.ignore && List.mem url entry.source_urls
   ) entries
 
-(** Check if an entry has failed status *)
+(** [is_failed entry] is [true] if resolving [entry] failed. *)
 let is_failed entry =
   match entry.status with Failed _ -> true | Resolved -> false
 
-(** Remove failed entries so they can be retried *)
+(** [remove_failed entries] is [entries] without failed resolutions. *)
 let remove_failed entries =
   List.filter (fun entry -> not (is_failed entry)) entries
 
-(** {1 YAML Serialization (Write)} *)
-
-(** Convert status to YAML fields *)
 let status_to_yaml = function
   | Resolved -> []
   | Failed err -> [("error", `String err)]
 
-(** Convert a DOI entry to YAML *)
 let to_yaml t =
   let base = [
     ("doi", `String t.doi);
@@ -134,21 +132,23 @@ let to_yaml t =
   let ignore_field = if t.ignore then [("ignore", `Bool true)] else [] in
   `O (base @ source_url_field @ status_fields @ metadata @ ignore_field)
 
-(** Convert entries to YAML string *)
+(** [to_yaml_string entries] is [entries] encoded as YAML. *)
 let to_yaml_string entries =
   Yamlrw.to_string (`A (List.map to_yaml entries))
 
-(** Load DOI entries from file *)
+(** [load_file path] is the DOI cache in [path], or the empty list if it cannot
+    be read. *)
 let load_file path =
   try In_channel.(with_open_bin path input_all) |> of_yaml_string
   with _ -> []
 
-(** Save DOI entries to file *)
+(** [save_file path entries] writes [entries] to [path]. *)
 let save_file path entries =
   Out_channel.with_open_bin path (fun oc ->
     output_string oc (to_yaml_string entries))
 
-(** Merge entries, preserving existing by DOI and combining source_urls *)
+(** [merge_entries old fresh] is their union by DOI. Existing metadata wins
+    and source URLs are combined. *)
 let merge_entries existing new_entries =
   let tbl = Hashtbl.create (List.length existing) in
   List.iter (fun e -> Hashtbl.replace tbl e.doi e) existing;

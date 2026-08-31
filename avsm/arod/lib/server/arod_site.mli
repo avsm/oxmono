@@ -3,10 +3,8 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** The arod route table, compiled for serving. *)
+(** Compiled Arod routes. *)
 
 val build : Arod.Config.t -> Arod_handlers.Env.t Proffer.Compiled.t
-(** [build cfg] is the site every domain serves. Its routes are the handlers
-    of {!Arod_handlers}, everything under [/action] is behind HTTP Basic
-    authentication when [cfg] names a stats password, and every response
-    carries the site's security headers. Compile once, at startup. *)
+(** [build cfg] is the site configured by [cfg]. Statistics routes use Basic
+    authentication when a password is configured. *)

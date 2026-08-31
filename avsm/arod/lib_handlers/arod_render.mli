@@ -3,43 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Rendering, separated from serving.
-
-    Every function here turns the context into the bytes of one response. None
-    of them decides a status, a content type or a cache policy, which is
-    {!Arod_handlers}' business.
-
-    Every page render is portable: {!listing}, {!entry}, {!entry_markdown},
-    {!paper_bib} and {!blogroll}. A proffer handler is portable too, so it
-    calls them directly, passing the context out of {!Arod_env.t}. None of
-    them has a closure field in {!Arod_env} any more.
-
-    Getting there took the whole render path. Htmlit, Ptime, Cmarkit and uriz
-    are annotated, {!Arod.Ctx}, {!Arod.Md}, {!Arod.Jsonld}, {!Arod.Text} and
-    the Bushel accessors are annotated, the URL matching that ran on opam Uri
-    is settled when the context is built, the link graph is an immutable field
-    of {!Bushel.Entry.t} rather than a module-level [ref], and
-    {!Bushel.Md.note_references}, which scans a note body with [Re] and
-    decodes a DOI with [Uri.pct_decode], is settled once per note when the
-    context is built.
-
-    {!sitemap} is portable too, since the vendored sitemap library carries a
-    floating [@@ portable] and its [url] type is a private record whose kind
-    the compiler reads off its fields.
-
-    Four renders are still not portable, and each was measured by annotating it
-    and reading what the compiler named. {!feed} closes over
-    [Arod.Feed.feed_string], {!pagination} and {!search} over
-    [Arod_json.stream], and {!report} over
-    [Arod_handlers_stats.render_dashboard]. The first three reach jsont, whose
-    codecs cannot be given a kind that crosses a domain boundary; [TODO.md]
-    records what that would take and where it stops. {!report} also takes a
-    database handle, which is bound to the domain that opened it, so
-    annotating the renderer alone would not free the route. Those four keep
-    their closures in {!Arod_env}. {!search_page} is portable and takes no
-    database handle, but {!Arod_env.t.search_page} still closes over the
-    search handle that produces its [results] argument, so it keeps a
-    closure of its own for that reason. *)
+(** Response rendering without serving policy. *)
 
 type flavour = [ `Html | `Markdown ]
 (** Which rendering of a page is wanted. *)
@@ -98,21 +62,12 @@ val pagination :
   limit:int ->
   types:string list ->
   (Proffer.Body.Sink.t -> unit)
-(** [pagination ~ctx ~collection ~offset ~limit ~types] writes one page of
-    [collection] as rendered HTML with the counts a client needs to ask for
-    the next. [types] filters an entry collection and is ignored by the
-    others. An unknown or absent [collection] writes a JSON error object.
-
-    The page is selected and its HTML rendered when this is called, so a
-    caller holds the cost of the page as soon as it has the writer. Only the
-    JSON is deferred, and it goes to the socket a slice at a time rather than
-    through a string: this route answers over a megabyte, which used to exist
-    twice. *)
+(** [pagination ~ctx ~collection ~offset ~limit ~types] is a writer for one
+    JSON page of [collection]. [types] filters entry collections. *)
 
 val search :
   ctx:Arod.Ctx.t -> Arod_search.results -> (Proffer.Body.Sink.t -> unit)
-(** [search ~ctx results] writes [results] as the JSON [/api/search]
-    serves, streamed as {!pagination} is. *)
+(** [search ~ctx results] is a writer for [results] as search API JSON. *)
 
 val search_page :
   ctx:Arod.Ctx.t -> q:string -> order:Arod_search.order -> fragment:bool ->
@@ -122,6 +77,5 @@ val search_page :
     the results region the page script swaps in. *)
 
 val report : db:Sqlite3_eio.t -> report -> range:string -> string
-(** [report ~db which ~range] is the access log view [which] over [range],
-    which names a time span such as ["7d"]. An unrecognised [range] is seven
-    days. [`Recent] ignores it. *)
+(** [report ~db which ~range] is the access log view [which] over [range]. An
+    unknown range defaults to seven days. *)

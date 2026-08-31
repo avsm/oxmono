@@ -3,12 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Links page component.
-
-    Shows all outbound external links ordered by date (newest first),
-    with enriched display: GitHub shortnames, arxiv IDs, contact
-    associations, karakeep titles, and favicons. Paginated via
-    infinite scrolling. *)
+(** External-link page components. *)
 
 open Htmlit
 
@@ -16,13 +11,7 @@ module Entry = Bushel.Entry
 module Contact = Sortal_schema.Contact
 module I = Arod.Icons
 
-(** {1 Helpers} *)
-
-(** [host_and_path url] is the host and path of [url]. The host is [""] when
-    [url] names none, the path is ["/"] when it is empty, and a [url] that is
-    not a URI reference yields both defaults: link URLs come from a data file,
-    so a malformed one classifies as a plain web link rather than stopping the
-    page. *)
+(** [host_and_path url] is the host and path of [url], or [("", "/")]. *)
 let host_and_path url =
   match Uriz.of_string url with
   | Null -> ("", "/")
@@ -30,7 +19,7 @@ let host_and_path url =
     ( (match Uriz.host u with Null -> "" | This h -> h),
       match Uriz.path u with "" -> "/" | p -> p )
 
-(** Format a URL as "domain /path" with truncated path. *)
+(** [domain_and_path url] is the domain and abbreviated path of [url]. *)
 let domain_and_path url =
   let domain, path =
     match Uriz.of_string url with
@@ -44,8 +33,6 @@ let domain_and_path url =
     else path
   in
   (domain, path)
-
-(** {1 URL Classification} *)
 
 type link_kind =
   | Github | Code | Arxiv | Doi | Rfc | Contact | Paper | Web | Untitled
@@ -63,7 +50,7 @@ type link_display = {
   contact : Contact.t option;
 }
 
-(** Extract path segments from a URL. *)
+(** [path_segments url] is the non-empty path segments of [url]. *)
 let path_segments url =
   match Uriz.of_string url with
   | Null -> []
@@ -74,7 +61,7 @@ let path_segments url =
       String.split_on_char '/' path
       |> List.filter (fun s -> s <> "")
 
-(** Try to extract an RFC number from a URL path. *)
+(** [extract_rfc_number url] is the RFC number named by [url], if any. *)
 let extract_rfc_number url =
   let segs = path_segments url in
   let rec find = function
@@ -90,7 +77,7 @@ let extract_rfc_number url =
   in
   find segs
 
-(** Shared platforms that should not be contact-matched. *)
+(** Domains that do not identify a single contact. *)
 let shared_platforms = [
   "github.com"; "gitlab.com"; "codeberg.org"; "tangled.org"; "bitbucket.org";
   "twitter.com"; "x.com"; "bsky.app"; "bsky.social";
@@ -109,9 +96,7 @@ let shared_platforms = [
 
 let strip_www = Common.strip_www
 
-(** Build a domain-to-contact hashtable with path prefixes.
-    Each domain maps to a list of (path_prefix, contact) pairs so that
-    e.g. cl.cam.ac.uk/~sv440/ does not match cl.cam.ac.uk/~avsm2/. *)
+(** [build_contact_by_domain contacts] indexes contact URLs by domain and path. *)
 let build_contact_by_domain contacts =
   let tbl : (string, (string * Contact.t) list) Hashtbl.t = Hashtbl.create 64 in
   let is_shared h = List.mem h shared_platforms in
@@ -121,7 +106,7 @@ let build_contact_by_domain contacts =
     | h, path ->
       let bare = strip_www (String.lowercase_ascii h) in
       if not (is_shared bare) then begin
-        let cur = try Hashtbl.find tbl bare with Not_found -> [] in
+        let cur = Option.value ~default:[] (Hashtbl.find_opt tbl bare) in
         if not (List.exists (fun (p, _) -> p = path) cur) then
           Hashtbl.replace tbl bare ((path, c) :: cur)
       end
@@ -132,55 +117,40 @@ let build_contact_by_domain contacts =
   ) contacts;
   tbl
 
-(** Find a contact for a URL by matching domain and longest path prefix. *)
+(** [find_contact_for_url index host path] is the best matching contact. *)
 let find_contact_for_url contact_by_domain bare_host url_path =
   match Hashtbl.find_opt contact_by_domain bare_host with
   | None -> None
   | Some entries ->
-    (* Find the entry with the longest path prefix that matches *)
-    let matches = List.filter (fun (prefix, _) ->
-      prefix = "/" || String.length url_path >= String.length prefix
-        && String.sub url_path 0 (String.length prefix) = prefix
-    ) entries in
-    match matches with
-    | [] -> None
-    | _ ->
-      (* Pick the longest prefix match; "/" is weakest *)
-      let best = List.fold_left (fun acc (p, c) ->
-        match acc with
-        | None -> Some (p, c)
-        | Some (bp, _) -> if String.length p > String.length bp then Some (p, c) else acc
-      ) None matches in
-      Option.map snd best
+    List.fold_left (fun best (prefix, contact) ->
+      if not (String.starts_with ~prefix url_path) then best
+      else match best with
+        | Some (old, _) when String.length old >= String.length prefix -> best
+        | _ -> Some (prefix, contact)
+    ) None entries
+    |> Option.map snd
 
-(** Classify a URL into a structured display. *)
+(** [classify_url ~contact_by_domain ~doi_entries ~ctx url] describes [url]. *)
 let classify_url ~contact_by_domain ~doi_entries ~ctx url =
   let host, url_path = host_and_path url in
   let host_lc = String.lowercase_ascii host in
   let bare_host = strip_www host_lc in
-  (* Get favicon from links.yml if available *)
-  let favicon = match Arod.Ctx.link_for_url ctx url with
+  let metadata = match Arod.Ctx.link_for_url ctx url with
     | Some l ->
-      let meta = match l.karakeep with Some k -> k.metadata | None -> [] in
-      (match List.assoc_opt "favicon" meta with
-       | Some f when f <> "" -> Some f
-       | _ -> None)
-    | None -> None
+      (match l.karakeep with Some k -> k.metadata | None -> [])
+    | None -> []
   in
-  (* Get title from links.yml *)
-  let karakeep_title = match Arod.Ctx.link_for_url ctx url with
-    | Some l ->
-      let meta = match l.karakeep with Some k -> k.metadata | None -> [] in
-      (match List.assoc_opt "title" meta with
-       | Some t when t <> "" -> Some t
-       | _ -> None)
-    | None -> None
+  let metadata_value key =
+    match List.assoc_opt key metadata with
+    | Some value when value <> "" -> Some value
+    | _ -> None
   in
+  let favicon = metadata_value "favicon" in
+  let karakeep_title = metadata_value "title" in
   let segs = path_segments url in
   let mk ?secondary kind label =
     { label; secondary; kind; favicon; contact = None }
   in
-  (* 1. Contact match — requires path prefix match *)
   match find_contact_for_url contact_by_domain bare_host url_path with
   | Some contact ->
     let name = Contact.name contact in
@@ -191,7 +161,6 @@ let classify_url ~contact_by_domain ~doi_entries ~ctx url =
     { label; secondary = None; kind = Contact; favicon;
       contact = Some contact }
   | None ->
-  (* 2. GitHub — intelligent URL breakdown *)
   if bare_host = "github.com" then begin
     match segs with
     | user :: repo :: "issues" :: num :: _ ->
@@ -228,7 +197,6 @@ let classify_url ~contact_by_domain ~doi_entries ~ctx url =
     | [user] -> mk Github user
     | [] -> mk Github "github.com"
   end
-  (* 2b. Other code hosts — gitlab, codeberg, tangled *)
   else if bare_host = "gitlab.com" || bare_host = "codeberg.org"
           || bare_host = "tangled.org" then begin
     let label = match segs with
@@ -242,7 +210,6 @@ let classify_url ~contact_by_domain ~doi_entries ~ctx url =
     in
     mk Code label
   end
-  (* 3. ArXiv — title from doi.yml or karakeep, fallback to arXiv ID *)
   else if bare_host = "arxiv.org" then begin
     let arxiv_id = match segs with
       | ("abs" | "pdf") :: id :: _ -> Some id
@@ -264,7 +231,6 @@ let classify_url ~contact_by_domain ~doi_entries ~ctx url =
         in
         mk Arxiv label
   end
-  (* 4. DOI — look up title from doi.yml first, then karakeep *)
   else if bare_host = "doi.org" then begin
     let doi_id =
       if String.length url_path > 1 then
@@ -287,7 +253,6 @@ let classify_url ~contact_by_domain ~doi_entries ~ctx url =
         let label = if doi_id <> "" then "doi:" ^ doi_id else "doi.org" in
         mk Doi label
   end
-  (* 5. IETF / RFC *)
   else if bare_host = "datatracker.ietf.org" || bare_host = "rfc-editor.org"
           || bare_host = "www.rfc-editor.org" then begin
     let label = match extract_rfc_number url with
@@ -296,7 +261,6 @@ let classify_url ~contact_by_domain ~doi_entries ~ctx url =
     in
     mk ?secondary:karakeep_title Rfc label
   end
-  (* 6. Paper URL — look up title from doi.yml, then karakeep *)
   else if Bushel.Link.is_paper_url url then begin
     let doi_title = match Bushel.Doi_entry.find_by_url doi_entries url with
       | Some e when e.status = Resolved && e.title <> "" -> Some e.title
@@ -312,37 +276,32 @@ let classify_url ~contact_by_domain ~doi_entries ~ctx url =
         let label = if path = "" then domain else domain ^ " " ^ path in
         mk Paper label
   end
-  (* 7. Title from links.yml *)
   else match karakeep_title with
   | Some title ->
     mk Web title
-  (* 8. Fallback — untitled *)
   | None ->
     let (domain, path) = domain_and_path url in
     let label = if path = "" then domain else domain ^ " " ^ path in
     mk Untitled label
 
-(** Code hosting platforms for filter classification. *)
+(** Code-hosting domains. *)
 let code_hosts = [
   "github.com"; "gitlab.com"; "codeberg.org"; "tangled.org"
 ]
 
-(** Filter categories for the sidebar infobox. *)
 type filter_kind = Fp_paper | Fp_contact | Fp_code | Fp_titled | Fp_untitled
 
 let string_of_filter_kind = function
   | Fp_paper -> "paper" | Fp_contact -> "contact" | Fp_code -> "code"
   | Fp_titled -> "titled" | Fp_untitled -> "untitled"
 
-(** Map fine-grained display kind to filter category. *)
+(** [filter_of_kind kind] is the filter category for [kind]. *)
 let filter_of_kind = function
   | Arxiv | Doi | Paper -> Fp_paper
   | Contact -> Fp_contact
   | Github | Code -> Fp_code
   | Rfc | Web -> Fp_titled
   | Untitled -> Fp_untitled
-
-(** {1 Kind Badge} *)
 
 let kind_badge ~entries display =
   match display.kind with
@@ -400,21 +359,19 @@ let kind_badge ~entries display =
                   At.v "alt" ""] ()
     | None -> El.span ~at:[At.class' "link-kind-badge"] [El.txt "\xc2\xb7"]
 
-(** {1 Group Computation} *)
-
 type link_group = {
   ent : Entry.entry;
   links : Bushel.Link_graph.external_link list;
 }
 
-(** Compute all link groups sorted by entry date descending. *)
+(** [compute_groups ~ctx] is the external-link groups in reverse date order. *)
 let compute_groups ~ctx =
   let entries = Arod.Ctx.entries ctx in
   let all_links = Arod.Ctx.all_external_links ctx in
   let by_source : (string, Bushel.Link_graph.external_link list) Hashtbl.t =
     Hashtbl.create 128 in
   List.iter (fun (link : Bushel.Link_graph.external_link) ->
-    let cur = try Hashtbl.find by_source link.source with Not_found -> [] in
+    let cur = Option.value ~default:[] (Hashtbl.find_opt by_source link.source) in
     if List.exists (fun (l : Bushel.Link_graph.external_link) -> l.url = link.url) cur then ()
     else Hashtbl.replace by_source link.source (link :: cur)
   ) all_links;
@@ -427,9 +384,7 @@ let compute_groups ~ctx =
     compare (Entry.date b.ent) (Entry.date a.ent)
   ) groups
 
-(** {1 Group Rendering} *)
-
-(** Render a single link group with a data-month-id for scroll tracking. *)
+(** [render_group ~contact_by_domain ~doi_entries ~entries ~ctx group] renders [group]. *)
 let render_group ~contact_by_domain ~doi_entries ~entries ~ctx group =
   let (y, m, d) = Entry.date group.ent in
   let date_str = Printf.sprintf "%s %d" (Common.month_name m) y in
@@ -480,7 +435,7 @@ let render_group ~contact_by_domain ~doi_entries ~entries ~ctx group =
               At.v "data-day" day_str]
     (header :: link_rows)
 
-(** Render a slice of link groups as an HTML string for the pagination API. *)
+(** [render_groups_html ~ctx groups] is the pagination fragment for [groups]. *)
 let render_groups_html ~ctx groups =
   let contacts = Arod.Ctx.contacts ctx in
   let entries = Arod.Ctx.entries ctx in
@@ -489,27 +444,25 @@ let render_groups_html ~ctx groups =
   let els = List.map (render_group ~contact_by_domain ~doi_entries ~entries ~ctx) groups in
   El.to_string ~doctype:false (El.div els)
 
-(** Return all computed groups for use by the pagination API. *)
+(** [all_groups ~ctx] is all external-link groups. *)
 let all_groups ~ctx = compute_groups ~ctx
-
-(** {1 Links List Page} *)
 
 let page_size = 25
 
+(** [links_list ~ctx] is the external-link list and its sidebar. *)
 let links_list ~ctx =
   let groups = compute_groups ~ctx in
   let entries = Arod.Ctx.entries ctx in
   let contacts = Arod.Ctx.contacts ctx in
   let contact_by_domain = build_contact_by_domain contacts in
 
-  (* Domain stats for sidebar (computed over all groups) *)
   let url_set = Hashtbl.create 256 in
   let domain_tbl : (string, int) Hashtbl.t = Hashtbl.create 64 in
   List.iter (fun group ->
     List.iter (fun (link : Bushel.Link_graph.external_link) ->
       if not (Hashtbl.mem url_set link.url) then begin
         Hashtbl.add url_set link.url ();
-        let cur = try Hashtbl.find domain_tbl link.domain with Not_found -> 0 in
+        let cur = Option.value ~default:0 (Hashtbl.find_opt domain_tbl link.domain) in
         Hashtbl.replace domain_tbl link.domain (cur + 1)
       end
     ) group.links
@@ -517,10 +470,9 @@ let links_list ~ctx =
   let domain_counts = Hashtbl.fold (fun d c acc -> (d, c) :: acc) domain_tbl [] in
   let domain_counts = List.sort (fun (_, a) (_, b) -> compare b a) domain_counts in
 
-  (* Filter-kind counts for sidebar (quick classification per unique URL) *)
   let filter_counts : (filter_kind, int) Hashtbl.t = Hashtbl.create 8 in
   let bump_filter k =
-    let cur = try Hashtbl.find filter_counts k with Not_found -> 0 in
+    let cur = Option.value ~default:0 (Hashtbl.find_opt filter_counts k) in
     Hashtbl.replace filter_counts k (cur + 1)
   in
   Hashtbl.iter (fun url () ->
@@ -547,12 +499,11 @@ let links_list ~ctx =
   let total_domains = List.length domain_counts in
   let total_groups = List.length groups in
 
-  (* Build calendar data: { "YYYY-MM": [link_count_day1, ...], ... } *)
   let month_links : (string, int list) Hashtbl.t = Hashtbl.create 64 in
   List.iter (fun group ->
     let (y, m, d) = Entry.date group.ent in
     let key = Printf.sprintf "%04d-%02d" y m in
-    let cur = try Hashtbl.find month_links key with Not_found -> [] in
+    let cur = Option.value ~default:[] (Hashtbl.find_opt month_links key) in
     Hashtbl.replace month_links key (d :: cur)
   ) groups;
   let calendar_months =
@@ -572,7 +523,6 @@ let links_list ~ctx =
     | m :: _ -> m | [] -> ""
   in
 
-  (* Render only first page of groups *)
   let visible_groups =
     if List.length groups > page_size then Common.take page_size groups
     else groups
@@ -600,7 +550,6 @@ let links_list ~ctx =
       El.div ~at:[At.class' "link-list"] group_els]
   in
 
-  (* Sidebar *)
   let calendar_box =
     Common.meta_box
       ~body_cls:"sidebar-meta-body notes-calendar"
@@ -660,19 +609,14 @@ let links_list ~ctx =
     let filter_icon kind =
       let svg_inner = match kind with
         | Fp_paper ->
-          (* heroicons/16/solid/academic-cap *)
           {|<path d="M7.702 1.368a.75.75 0 0 1 .597 0c2.098.91 4.105 1.99 6.004 3.223a.75.75 0 0 1-.194 1.348A34.27 34.27 0 0 0 8.341 8.25a.75.75 0 0 1-.682 0c-.625-.32-1.262-.62-1.909-.901v-.542a36.878 36.878 0 0 1 2.568-1.33.75.75 0 0 0-.636-1.357 38.39 38.39 0 0 0-3.06 1.605.75.75 0 0 0-.372.648v.365c-.773-.294-1.56-.56-2.359-.8a.75.75 0 0 1-.194-1.347 40.901 40.901 0 0 1 6.005-3.223ZM4.25 8.348c-.53-.212-1.067-.411-1.611-.596a40.973 40.973 0 0 0-.418 2.97.75.75 0 0 0 .474.776c.175.068.35.138.524.21a5.544 5.544 0 0 1-.58.681.75.75 0 1 0 1.06 1.06c.35-.349.655-.726.915-1.124a29.282 29.282 0 0 0-1.395-.617A5.483 5.483 0 0 0 4.25 8.5v-.152Z"/><path d="M7.603 13.96c-.96-.6-1.958-1.147-2.989-1.635a6.981 6.981 0 0 0 1.12-3.341c.419.192.834.393 1.244.602a2.25 2.25 0 0 0 2.045 0 32.787 32.787 0 0 1 4.338-1.834c.175.978.315 1.969.419 2.97a.75.75 0 0 1-.474.776 29.385 29.385 0 0 0-4.909 2.461.75.75 0 0 1-.794 0Z"/>|}
         | Fp_contact ->
-          (* heroicons/16/solid/user *)
           {|<path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z"/>|}
         | Fp_code ->
-          (* heroicons/16/solid/code-bracket *)
           {|<path fill-rule="evenodd" d="M4.78 4.97a.75.75 0 0 1 0 1.06L2.81 8l1.97 1.97a.75.75 0 1 1-1.06 1.06l-2.5-2.5a.75.75 0 0 1 0-1.06l2.5-2.5a.75.75 0 0 1 1.06 0ZM11.22 4.97a.75.75 0 0 0 0 1.06L13.19 8l-1.97 1.97a.75.75 0 1 0 1.06 1.06l2.5-2.5a.75.75 0 0 0 0-1.06l-2.5-2.5a.75.75 0 0 0-1.06 0ZM8.856 2.008a.75.75 0 0 1 .636.848l-1.5 10.5a.75.75 0 0 1-1.484-.212l1.5-10.5a.75.75 0 0 1 .848-.636Z" clip-rule="evenodd"/>|}
         | Fp_titled ->
-          (* heroicons/16/solid/link *)
           {|<path fill-rule="evenodd" d="M8.914 6.025a.75.75 0 0 1 1.06 0 3.5 3.5 0 0 1 0 4.95l-2 2a3.5 3.5 0 0 1-5.396-4.402.75.75 0 0 1 1.251.827 2 2 0 0 0 3.085 2.514l2-2a2 2 0 0 0 0-2.828.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/><path fill-rule="evenodd" d="M7.086 9.975a.75.75 0 0 1-1.06 0 3.5 3.5 0 0 1 0-4.95l2-2a3.5 3.5 0 0 1 5.396 4.402.75.75 0 0 1-1.251-.827 2 2 0 0 0-3.085-2.514l-2 2a2 2 0 0 0 0 2.828.75.75 0 0 1 0 1.06Z" clip-rule="evenodd"/>|}
         | Fp_untitled ->
-          (* heroicons/16/solid/ellipsis-horizontal *)
           {|<path d="M2 8a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0ZM6.5 8a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0ZM12.5 6.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/>|}
       in
       El.unsafe_raw (Printf.sprintf

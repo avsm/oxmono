@@ -3,11 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Markdown rendering with Bushel extensions *)
-
 module Img = Srcsetter
-
-(** {1 HTML Escaping} *)
 
 let html_escape_attr s =
   let buf = Buffer.create (String.length s) in
@@ -19,8 +15,6 @@ let html_escape_attr s =
     | c -> Buffer.add_char buf c
   ) s;
   Buffer.contents buf
-
-(** {1 String Helpers} *)
 
 let doi_to_id doi =
   let buf = Buffer.create (String.length doi + 5) in
@@ -41,9 +35,6 @@ let string_drop_prefix ~prefix str =
   else
     str
 
-(** {1 Image Rendering} *)
-
-(* SVG expand icon for lightbox button — arrows-pointing-out *)
 let expand_icon = {|<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z"/></svg>|}
 
 let expand_btn attrs =
@@ -56,10 +47,6 @@ let render_image_html ?(cl="content-image") ?link_url ~alt ~title img_ent =
     (List.map (fun (f,(w,_h)) -> Printf.sprintf "/images/%s %dw" f w)
       (Img.MS.bindings img_ent.Img.variants)) in
 
-  (* An image srcsetter passed through whole, such as an animated GIF, has no
-     generated variants and so nothing to offer a srcset. The attribute is
-     left out rather than written empty, and [sizes] goes with it, since it
-     selects among candidates that are not there. *)
   let srcset_at sizes =
     if srcsets = "" then ""
     else Printf.sprintf {| srcset="%s" sizes="%s"|} srcsets sizes
@@ -67,7 +54,6 @@ let render_image_html ?(cl="content-image") ?link_url ~alt ~title img_ent =
   let srcset_thumb = srcset_at "112px" in
   let srcset_wide = srcset_at "(max-width: 768px) 100vw, 768px" in
 
-  (* Build JSON-encoded variant list for lightbox download links *)
   let variants_json =
     let items = List.map (fun (f,(w,h)) ->
       Printf.sprintf {|{"url":"/images/%s","w":%d,"h":%d}|} f w h
@@ -183,11 +169,6 @@ let render_image_html_simple ?link_url ~cl ~alt ~title ~src () =
          {|<img class="%s" src="%s" alt="%s" title="%s" loading="lazy" sizes="(max-width: 768px) 100vw, 768px">|}
          cl src alt title)
 
-(** {1 Video Embedding} *)
-
-(* A video URL comes from a data file. One that does not parse is embedded as
-   it stands, since an iframe with the author's own text in [src] is a better
-   answer than a failed page. *)
 let rewrite_watch_to_embed url =
   match Uriz.of_string url with
   | Null -> url
@@ -210,8 +191,6 @@ let render_video_iframe ?(vertical=false) ~title url =
       {|<div class="video-center"><iframe title="%s" width="100%%" height="315px" src="%s" frameborder="0" allowfullscreen sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe></div>|}
       title embed_url
 
-(** {1 Sidenote Types} *)
-
 type sidenote = {
   slug : string;
   content_html : string;
@@ -223,14 +202,20 @@ let sidenote_div_class =
    border-l-2 border-gray-200 pl-2 py-0.5 transition-colors duration-200 \
    hover:border-green-500 hover:text-text sidenote-hidden"
 
-(** {1 Sidenote Rendering} *)
-
 let sidenote_seen sidenotes slug =
   List.exists (fun sn -> sn.slug = slug) !sidenotes
 
 let add_sidenote sidenotes sn =
   if not (sidenote_seen sidenotes sn.slug) then
     sidenotes := sn :: !sidenotes
+
+let emit_sidenote_ref ?id c ~url ~slug text =
+  let id_attr =
+    match id with Some id -> Printf.sprintf {| id="%s"|} id | None -> ""
+  in
+  Cmarkit_renderer.Context.string c (Printf.sprintf
+    {|<span class="sidenote-anchor"%s><a href="%s" class="sidenote-ref" data-sidenote="%s">%s</a></span>|}
+    id_attr url slug text)
 
 let render_sidenote ~entries ~sidenotes c = function
   | Bushel.Md.Contact_note (contact, trigger_text) ->
@@ -239,12 +224,9 @@ let render_sidenote ~entries ~sidenotes c = function
     let name = name contact in
     let link_url = best_url contact |> Option.value ~default:"" in
     let thumbnail_url = Bushel.Entry.contact_thumbnail entries contact in
-    (* Emit inline ref as clickable link *)
-    Cmarkit_renderer.Context.string c (Printf.sprintf
-      {|<span class="sidenote-anchor"><a href="%s" class="sidenote-ref" data-sidenote="%s">%s</a></span>|}
-      (if link_url <> "" then link_url else "#") handle trigger_text);
+    emit_sidenote_ref c ~url:(if link_url <> "" then link_url else "#")
+      ~slug:handle trigger_text;
 
-    (* Build sidebar content — icon + name + social icons (thumbnail on hover) *)
     let html = Buffer.create 256 in
     Buffer.add_string html {|<span class="sn-contact-row">|};
     Buffer.add_string html Arod_icons.sn_contact;
@@ -252,7 +234,6 @@ let render_sidenote ~entries ~sidenotes c = function
       Buffer.add_string html (Printf.sprintf {|<a href="%s">%s</a>|} link_url (html_escape_attr name))
     else
       Buffer.add_string html (html_escape_attr name);
-    (* Social icons *)
     let social_icon href title svg =
       Printf.sprintf {|<a href="%s" title="%s" class="sn-social-icon">%s</a>|}
         href title (Arod_icons.outline ~size:11 svg)
@@ -316,16 +297,9 @@ let render_sidenote ~entries ~sidenotes c = function
         last_name ^ " et al"
     in
 
-    (* Emit inline ref as clickable link *)
-    let id_attr = match doi with
-      | Some d -> Printf.sprintf {| id="%s"|} (doi_to_id d)
-      | None -> ""
-    in
-    Cmarkit_renderer.Context.string c (Printf.sprintf
-      {|<span class="sidenote-anchor"%s><a href="%s" class="sidenote-ref" data-sidenote="%s">%s</a></span>|}
-      id_attr link_url paper_slug trigger_text);
+    let id = Option.map doi_to_id doi in
+    emit_sidenote_ref ?id c ~url:link_url ~slug:paper_slug trigger_text;
 
-    (* Build sidebar content *)
     let html = Printf.sprintf {|%s<a href="%s">%s</a>|} Arod_icons.sn_paper link_url (html_escape_attr title) in
     let html = if author_str <> "" || year > 0 then
       html ^ " · " ^ (html_escape_attr author_str) ^ (if year > 0 then Printf.sprintf " (%d)" year else "")
@@ -344,12 +318,8 @@ let render_sidenote ~entries ~sidenotes c = function
     let level = Bushel.Idea.level idea |> Bushel.Idea.level_to_string in
     let link_url = Printf.sprintf "/ideas/%s" idea_slug in
     let thumbnail_url = Bushel.Entry.thumbnail entries (`Idea idea) in
-    (* Emit inline ref as clickable link *)
-    Cmarkit_renderer.Context.string c (Printf.sprintf
-      {|<span class="sidenote-anchor"><a href="%s" class="sidenote-ref" data-sidenote="%s">%s</a></span>|}
-      link_url idea_slug trigger_text);
+    emit_sidenote_ref c ~url:link_url ~slug:idea_slug trigger_text;
 
-    (* Build sidebar content *)
     let html = Printf.sprintf {|%s<a href="%s">%s</a>|} Arod_icons.sn_idea link_url (html_escape_attr title) in
     let html = if status <> "" then html ^ " · " ^ (html_escape_attr status) else html in
     let html = if level <> "" then html ^ " · " ^ (html_escape_attr level) else html in
@@ -364,16 +334,9 @@ let render_sidenote ~entries ~sidenotes c = function
     let note_doi = Bushel.Note.doi note in
     let link_url = Printf.sprintf "/notes/%s" note_slug in
     let thumbnail_url = Bushel.Entry.thumbnail entries (`Note note) in
-    (* Emit inline ref as clickable link *)
-    let id_attr = match note_doi with
-      | Some d -> Printf.sprintf {| id="%s"|} (doi_to_id d)
-      | None -> ""
-    in
-    Cmarkit_renderer.Context.string c (Printf.sprintf
-      {|<span class="sidenote-anchor"%s><a href="%s" class="sidenote-ref" data-sidenote="%s">%s</a></span>|}
-      id_attr link_url note_slug trigger_text);
+    let id = Option.map doi_to_id note_doi in
+    emit_sidenote_ref ?id c ~url:link_url ~slug:note_slug trigger_text;
 
-    (* Build sidebar content *)
     let html = Printf.sprintf {|%s<a href="%s">%s</a>|} Arod_icons.sn_note link_url (html_escape_attr title) in
     let html = if year > 0 then html ^ Printf.sprintf " · %d" year else html in
     let html = if word_count > 0 then html ^ Printf.sprintf " · %dw" word_count else html in
@@ -387,12 +350,8 @@ let render_sidenote ~entries ~sidenotes c = function
     let finish = project.Bushel.Project.finish in
     let link_url = Printf.sprintf "/projects/%s" project_slug in
     let thumbnail_url = Bushel.Entry.thumbnail entries (`Project project) in
-    (* Emit inline ref as clickable link *)
-    Cmarkit_renderer.Context.string c (Printf.sprintf
-      {|<span class="sidenote-anchor"><a href="%s" class="sidenote-ref" data-sidenote="%s">%s</a></span>|}
-      link_url project_slug trigger_text);
+    emit_sidenote_ref c ~url:link_url ~slug:project_slug trigger_text;
 
-    (* Build sidebar content *)
     let html = Printf.sprintf {|%s<a href="%s">%s</a>|} Arod_icons.sn_project link_url (html_escape_attr title) in
     let html = if start > 0 then
       html ^ " · " ^ string_of_int start ^
@@ -408,33 +367,13 @@ let render_sidenote ~entries ~sidenotes c = function
     let year, _month, _day = Bushel.Video.date video in
     let link_url = Printf.sprintf "/videos/%s" video_slug in
     let thumbnail_url = Bushel.Entry.thumbnail entries (`Video video) in
-    (* Emit inline ref as clickable link *)
-    Cmarkit_renderer.Context.string c (Printf.sprintf
-      {|<span class="sidenote-anchor"><a href="%s" class="sidenote-ref" data-sidenote="%s">%s</a></span>|}
-      link_url video_slug trigger_text);
+    emit_sidenote_ref c ~url:link_url ~slug:video_slug trigger_text;
 
-    (* Build sidebar content *)
     let html = Printf.sprintf {|%s<a href="%s">%s</a>|} Arod_icons.sn_video link_url (html_escape_attr title) in
     let html = if year > 0 then html ^ Printf.sprintf " · %d" year else html in
     let html = html ^ " · " ^ (if is_talk then "talk" else "video") in
     add_sidenote sidenotes { slug = video_slug; content_html = html; thumb_url = thumbnail_url };
     true
-
-  | Bushel.Md.Footnote_note (slug, block, trigger_text) ->
-    let temp_doc = Cmarkit.Doc.make block in
-    let footnote_renderer = Cmarkit_html.renderer ~safe:false () in
-    let content_html = Cmarkit_renderer.doc_to_string footnote_renderer temp_doc in
-
-    (* Emit inline ref with label *)
-    Cmarkit_renderer.Context.string c (Printf.sprintf
-      {|<span class="sidenote-anchor"><span class="sidenote-ref" data-sidenote="%s">%s</span></span>|}
-      slug trigger_text);
-
-    let content_html = Arod_icons.sn_footnote ^ content_html in
-    add_sidenote sidenotes { slug; content_html; thumb_url = None };
-    true
-
-(** {1 Link Renderers} *)
 
 let bushel_link c l =
   let inline_text l =
@@ -447,7 +386,6 @@ let bushel_link c l =
   | Some Cmarkit.Link_definition.Def (ld, _) -> begin
       match Cmarkit.Link_definition.dest ld with
       | Some (dest, _) when String.starts_with ~prefix:"###" dest ->
-        (* Kind/category link: ###papers -> opens search with kind:papers *)
         let kind = String.sub dest 3 (String.length dest - 3) in
         let text = inline_text l in
         Cmarkit_renderer.Context.string c
@@ -456,7 +394,6 @@ let bushel_link c l =
         true
       | Some (dest, _) when String.starts_with ~prefix:"##" dest
                          && not (String.starts_with ~prefix:"###" dest) ->
-        (* Tag link: ##tag → opens search with #tag *)
         let tag = String.sub dest 2 (String.length dest - 2) in
         let text = inline_text l in
         Cmarkit_renderer.Context.string c
@@ -509,13 +446,10 @@ let media_link ~entries c l =
     end
   | None | Some _ -> false
 
-(** {1 Custom Heading Renderer} *)
-
 let custom_heading_renderer ~h2_count ~h3_count ~h4_count c h =
   let open Cmarkit in
   let level = Block.Heading.level h in
   let level_str = string_of_int level in
-  (* Update numbering counters *)
   let number_str = match level with
     | 2 ->
       incr h2_count; h3_count := 0; h4_count := 0;
@@ -545,7 +479,6 @@ let custom_heading_renderer ~h2_count ~h3_count ~h4_count c h =
      Cmarkit_renderer.Context.string c "\"");
   Cmarkit_renderer.Context.string c cls;
   Cmarkit_renderer.Context.string c ">";
-  (* Section number prefix before heading text *)
   (if number_str <> "" then
      match Block.Heading.id h with
      | Some (`Auto id | `Id id) when id <> "" ->
@@ -561,12 +494,6 @@ let custom_heading_renderer ~h2_count ~h3_count ~h4_count c h =
   Cmarkit_renderer.Context.string c level_str;
   Cmarkit_renderer.Context.string c ">\n";
   true
-
-(** {1 Linked Image Handler}
-
-    When a Link wraps an image ([![...](/images/...)](url)), we handle
-    the entire Link ourselves: the <a> wraps the <img> so clicking
-    follows the link, and a separate expand button triggers the lightbox. *)
 
 let try_render_linked_image ~entries c l =
   match Cmarkit.Inline.Link.text l with
@@ -605,8 +532,6 @@ let try_render_linked_image ~entries c l =
     end
   | _ -> false
 
-(** {1 Custom HTML Renderer} *)
-
 let custom_inline_renderer ~entries ~sidenotes c = function
   | Cmarkit.Inline.Link (l, _) ->
     if try_render_linked_image ~entries c l then true
@@ -621,9 +546,6 @@ let custom_block_quote c bq =
   Cmarkit_renderer.Context.string c "</blockquote>\n";
   true
 
-(** Check if an inline is a single image/linked-image that will produce a
-    block-level element (figure or video iframe), so we can skip the [<p>]
-    wrapper and avoid invalid [<p><figure>…</figure></p>]. *)
 let is_block_level_image inline =
   let is_figure_alt s =
     s = "%r" || s = "%c" || s = "%lc" || s = "%rc" in
@@ -646,7 +568,6 @@ let is_block_level_image inline =
   | Cmarkit.Inline.Image (l, _) ->
     is_bushel_media_dest l && is_figure_alt (alt_of l)
   | Cmarkit.Inline.Link (l, _) ->
-    (* Linked image: [![%r](/images/...)](url) *)
     (match Cmarkit.Inline.Link.text l with
      | Cmarkit.Inline.Image (img_l, _) ->
        is_bushel_media_dest img_l && is_figure_alt (alt_of img_l)
@@ -679,9 +600,6 @@ let custom_html_renderer ~entries ~sidenotes =
        ~block:(custom_block_renderer ~h2_count ~h3_count ~h4_count)
        ())
 
-(** {1 Markdown to HTML} *)
-
-(** Strip leading empty paragraph tags from rendered HTML. *)
 let rec strip_leading_empty_p s =
   let s = String.trim s in
   let prefix = "<p></p>" in
@@ -689,30 +607,23 @@ let rec strip_leading_empty_p s =
     strip_leading_empty_p (String.sub s (String.length prefix) (String.length s - String.length prefix))
   else s
 
-let to_html ~(ctx : Arod_ctx.t) content =
+let render_html ~entries ~inline content =
   let open Cmarkit in
-  let entries = Arod_ctx.entries ctx in
   let sidenotes = ref [] in
   let doc = Doc.of_string ~strict:false ~heading_auto_ids:true ~resolver:Bushel.Md.with_bushel_links content in
-  let mapper = Mapper.make ~inline:(Bushel.Md.make_sidenote_mapper entries) () in
+  let mapper = Mapper.make ~inline () in
   let mapped_doc = Mapper.map_doc mapper doc in
   let renderer = custom_html_renderer ~entries ~sidenotes in
   let html = Cmarkit_renderer.doc_to_string renderer mapped_doc in
   (strip_leading_empty_p html, List.rev !sidenotes)
 
-let to_plain_html ~(ctx : Arod_ctx.t) content =
-  let open Cmarkit in
+let to_html ~(ctx : Arod_ctx.t) content =
   let entries = Arod_ctx.entries ctx in
-  let sidenotes = ref [] in
-  let doc = Doc.of_string ~strict:false ~heading_auto_ids:true ~resolver:Bushel.Md.with_bushel_links content in
-  let mapper = Mapper.make ~inline:(Bushel.Md.make_link_only_mapper entries) () in
-  let mapped_doc = Mapper.map_doc mapper doc in
-  let renderer = custom_html_renderer ~entries ~sidenotes in
-  strip_leading_empty_p (Cmarkit_renderer.doc_to_string renderer mapped_doc)
+  render_html ~entries ~inline:(Bushel.Md.make_sidenote_mapper entries) content
 
-(** {1 Heading Extraction}
-
-    Extract h2 and h3 headings from markdown content for TOC generation. *)
+let to_plain_html ~(ctx : Arod_ctx.t) content =
+  let entries = Arod_ctx.entries ctx in
+  fst (render_html ~entries ~inline:(Bushel.Md.make_link_only_mapper entries) content)
 
 type heading = { id : string; level : int; number : string; text : string }
 
@@ -724,9 +635,6 @@ let extract_headings content =
   let collect_heading _mapper = function
     | Block.Heading (h, _) ->
       let level = Block.Heading.level h in
-      (* Run the same counters as [custom_heading_renderer] over every
-         heading, so a contents row carries the number the article prints
-         beside its section. An h4 changes neither counter. *)
       let number =
         match level with
         | 2 ->
@@ -735,8 +643,6 @@ let extract_headings content =
           Some (string_of_int !h2_count)
         | 3 ->
           incr h3_count;
-          (* A note whose top level is h3 numbers from zero. Those rows
-             have no parent to thread under, so leave them out. *)
           if !h2_count = 0 then None
           else Some (Printf.sprintf "%d.%d" !h2_count !h3_count)
         | _ -> None
@@ -756,10 +662,6 @@ let extract_headings content =
   let mapper = Mapper.make ~block:collect_heading () in
   let _ = Mapper.map_doc mapper doc in
   List.rev !headings
-
-(** {1 Atom Feed HTML}
-
-    For feeds, we need to handle footnotes differently and ensure absolute URLs. *)
 
 let to_atom_html ~(ctx : Arod_ctx.t) content =
   let open Cmarkit in
@@ -813,8 +715,7 @@ let to_atom_html ~(ctx : Arod_ctx.t) content =
                   failwith (Printf.sprintf "%s slug not found in atom markdown" slug)))
           | _ -> `Default)
        | _ -> `Default)
-    | _ ->
-      Bushel.Md.make_bushel_link_only_mapper defs entries _m inline
+    | _ -> Bushel.Md.make_link_only_mapper entries _m inline
   in
   let doc =
     Mapper.map_doc
@@ -886,20 +787,16 @@ let to_atom_html ~(ctx : Arod_ctx.t) content =
     let footnotes_html = Printf.sprintf "<div class=\"footnotes\"><ol>%s</ol></div>" footnote_items in
     main_html ^ "\n" ^ footnotes_html
 
-(** {1 Feed References}
-
-    Append an HTML references section to feed content for perma/DOI notes. *)
-
 let with_feed_references ~(ctx : Arod_ctx.t) note base_html =
-  let me = Arod_ctx.author_exn ctx in
-    let entries = Arod_ctx.entries ctx in
-    let references = Bushel.Md.note_references entries me note in
-    if references = [] then base_html
-    else
-      let ref_items = List.map (fun (doi, citation, _) ->
-        let doi_url = Printf.sprintf "https://doi.org/%s" doi in
-        Printf.sprintf "<li>%s<a href=\"%s\" target=\"_blank\"><i>%s</i></a></li>"
-          citation doi_url doi
-      ) references |> String.concat "\n" in
-      let refs_html = Printf.sprintf "<h1>References</h1><ul>%s</ul>" ref_items in
-      base_html ^ refs_html
+  let references =
+    Arod_ctx.note_references ctx (Bushel.Note.slug note)
+  in
+  if references = [] then base_html
+  else
+    let ref_items = List.map (fun (doi, citation, _) ->
+      let doi_url = Printf.sprintf "https://doi.org/%s" doi in
+      Printf.sprintf "<li>%s<a href=\"%s\" target=\"_blank\"><i>%s</i></a></li>"
+        citation doi_url doi
+    ) references |> String.concat "\n" in
+    let refs_html = Printf.sprintf "<h1>References</h1><ul>%s</ul>" ref_items in
+    base_html ^ refs_html

@@ -3,12 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Project entry type for Bushel.
-
-    A project is a named piece of work with a start year and an optional
-    finish year. Everything here is portable except {!of_frontmatter} and
-    {!pp}, which is what lets a renderer read a project from inside a
-    function marked [portable]. *)
+(** Project entries. *)
 
 @@ portable
 
@@ -25,8 +20,7 @@ type t = {
   body : string;
   social : Bushel_types.social option;
 }
-(** A project entry. The record is public because the loader builds one field
-    by field and the renderers read fields directly. *)
+(** A project entry. *)
 
 type ts = t list
 (** A list of projects, in load order. *)
@@ -68,8 +62,7 @@ val compare : t -> t -> int
 
 val of_frontmatter : Frontmatter.t -> (t, string) result @@ nonportable
 (** [of_frontmatter fm] is the project described by [fm]. The slug comes from
-    the file name and the start year from the [date] field. A field that is
-    absent takes its empty value rather than failing. *)
+    the file name and the start year from its [date] field. *)
 
 val pp : Format.formatter -> t -> unit @@ nonportable
 (** [pp ppf p] prints [p] to [ppf] as a styled multi-line summary. *)

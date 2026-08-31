@@ -3,15 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Arod - Webserver for Bushel content
-
-    Arod is a proffer-based webserver that serves Bushel content
-    (notes, papers, projects, ideas, videos) as a website.
-
-    {1 Core Modules}
-
-    - {!Config} - TOML configuration
-    - {!Ctx} - Context record (replaces global state) *)
+(** Proffer web server for Bushel content. *)
 
 module Config = Arod_config
 (** TOML-based configuration for the webserver. *)
@@ -36,7 +28,3 @@ module Jsonfeed = Arod_jsonfeed
 
 module Jsonld = Arod_jsonld
 (** Schema.org JSON-LD structured data generation. *)
-
-(* Handlers are in the separate arod.handlers library to avoid
-   circular dependency with arod.component. *)
-

@@ -3,12 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Video entry type for Bushel.
-
-    A video is a talk recording or screencast held on a PeerTube instance.
-    Its slug is its UUID. Everything here is portable except
-    {!of_frontmatter} and {!pp}, which is what lets a renderer read a video
-    from inside a function marked [portable]. *)
+(** Video entries. *)
 
 @@ portable
 
@@ -28,8 +23,7 @@ type t = {
   tags : string list;
   social : Bushel_types.social option;
 }
-(** A video entry. The record is public because the loader builds one field by
-    field and the renderers read fields directly. *)
+(** A talk or screencast hosted on PeerTube. *)
 
 type ts = t list
 (** A list of videos, in load order. *)

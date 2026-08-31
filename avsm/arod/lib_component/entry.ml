@@ -107,7 +107,7 @@ let full_body ~ctx ent =
 
 let meta ~ctx ent =
   let date_str = ptime_date ~with_d:true (Entry.date ent) in
-  let all_tags = Arod.Ctx.tags_of_ent ctx ent in
+  let all_tags = Bushel.Entry.tags_of_ent ent in
   (* Date element *)
   let date_el =
     El.time ~at:[At.v "datetime" (let (y,m,d) = Entry.date ent in

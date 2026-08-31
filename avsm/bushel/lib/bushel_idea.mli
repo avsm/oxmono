@@ -3,12 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Idea entry type for Bushel.
-
-    An idea is a research project proposal offered to a student at a given
-    academic level. Everything here is portable except {!of_frontmatter} and
-    {!pp}, which is what lets a renderer read an idea and its contacts from
-    inside a function marked [portable]. *)
+(** Research idea entries. *)
 
 @@ portable
 
@@ -29,10 +24,9 @@ type t = {
   month : int;
   year : int;
   supervisors : Sortal_schema.Contact.t list;
-      (** Contacts resolved from {!field-supervisor_handles} by
-          {!resolve_all_contacts}. Empty until the loader has run it. *)
+      (** Contacts resolved by {!resolve_all_contacts}. *)
   students : Sortal_schema.Contact.t list;
-      (** Contacts resolved from {!field-student_handles}. *)
+      (** Student contacts resolved by {!resolve_all_contacts}. *)
   supervisor_handles : string list;
   student_handles : string list;
   reading : string;  (** Bushel markdown reading list. *)
@@ -41,15 +35,13 @@ type t = {
   tags : string list;
   social : Bushel_types.social option;
 }
-(** An idea entry. The record is public because the loader builds one field by
-    field and the renderers read fields directly. *)
+(** A research idea. *)
 
 type ts = t list
 (** A list of ideas, in load order. *)
 
 val level_to_string : level -> string
-(** [level_to_string l] is the level written for a reader, which is
-    ["postdoctoral"] for {!Postdoc} and the constructor name otherwise. *)
+(** [level_to_string level] is the display name of [level]. *)
 
 val status_to_string : status -> string
 (** [status_to_string s] is the constructor name of [s]. *)
@@ -107,24 +99,21 @@ val social : t -> Bushel_types.social option
 (** {1 Ordering} *)
 
 val compare : t -> t -> int
-(** [compare a b] orders by status in constructor order, then for a completed
-    idea by year descending and otherwise by level, year descending and month
-    descending. *)
+(** [compare a b] orders by status, level and reverse date. Completed ideas
+    are ordered by reverse year only. *)
 
 (** {1 Contact resolution} *)
 
 val resolve_all_contacts :
   Sortal_schema.Contact.t list -> t list -> t list
 (** [resolve_all_contacts contacts ideas] is [ideas] with the supervisor and
-    student handles of each idea looked up in [contacts]. A handle with no
-    contact is dropped. A leading ["@"] on a handle is ignored. *)
+    student handles resolved against [contacts]. Unknown handles are dropped. *)
 
 (** {1 Parsing and printing} *)
 
 val of_frontmatter : Frontmatter.t -> (t, string) result @@ nonportable
 (** [of_frontmatter fm] is the idea described by [fm]. The slug comes from the
-    file name, and so does the date unless the frontmatter gives one. The
-    contact lists are left empty for {!resolve_all_contacts} to fill. *)
+    file name. Its date also comes from the file name when absent. *)
 
 val pp : Format.formatter -> t -> unit @@ nonportable
 (** [pp ppf i] prints [i] to [ppf] as a styled multi-line summary. *)

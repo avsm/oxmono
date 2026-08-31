@@ -22,10 +22,6 @@
     argument. Domains are canonical throughout, meaning lowercase ASCII
     with no leading dot. *)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-fable-5"]
-[@@@ai_provider "Anthropic"]
-
 module Same_site : sig
   type t = [ `Strict | `Lax | `None ]
   (** The [SameSite] attribute of RFC 6265bis §5.4.7. It is parsed and

@@ -16,10 +16,6 @@
  *
  *)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-opus-5"]
-[@@@ai_provider "Anthropic"]
-
 open OUnit2
 open Printf
 

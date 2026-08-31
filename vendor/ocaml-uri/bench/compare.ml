@@ -1,8 +1,5 @@
 (* Head-to-head core_bench comparison of upstream uri (4.4.0, angstrom-based)
-   against uriz on parsing, printing, query lookup and reference resolution.
-
-   [@@@ai: The comparison harness in this file was written by Claude
-   (claude-fable-5) under human direction; see uriz.opam x-ai-* fields.] *)
+   against uriz on parsing, printing, query lookup and reference resolution. *)
 
 open Core
 open Core_bench

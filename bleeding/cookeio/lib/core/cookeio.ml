@@ -10,10 +10,6 @@
    Cookie module) and folded back here, replacing the original, laxer
    parser. *)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-fable-5"]
-[@@@ai_provider "Anthropic"]
-
 module Same_site = struct
   type t = [ `Strict | `Lax | `None ]
 

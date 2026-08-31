@@ -20,10 +20,6 @@
     request. Both take the request's canonical (lowercase) host, its
     path, and whether the scheme is https. *)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-fable-5"]
-[@@@ai_provider "Anthropic"]
-
 type t
 (** A cookie store. All operations are safe to call from concurrent
     fibers. *)

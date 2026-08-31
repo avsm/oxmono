@@ -5,10 +5,6 @@
  * fixpoint of parsing, normalization and the percent codecs are idempotent,
  * and reference resolution stays inside the language it claims to produce. *)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-opus-5"]
-[@@@ai_provider "Anthropic"]
-
 open Crowbar
 
 let bases =

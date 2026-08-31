@@ -16,10 +16,6 @@
  *
  *)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-opus-5"]
-[@@@ai_provider "Anthropic"]
-
 module Raw = Uriz_raw
 
 let hex_upper = "0123456789ABCDEF"

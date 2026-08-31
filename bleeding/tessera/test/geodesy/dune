@@ -1,4 +1,4 @@
 (test
  (name test_geodesy)
  (package tessera)
- (libraries tessera proj proj.c alcotest))
+ (libraries tessera proj proj_c alcotest))

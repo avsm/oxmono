@@ -5,10 +5,6 @@
    design.md s21). This module contributes only what Fetch knows: the
    URL of each request in flight and the middleware hook. *)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-fable-5"]
-[@@@ai_provider "Anthropic"]
-
 open Fetch
 
 (* The host a URL names, for domain matching, and whether it was reached

@@ -3,10 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-fable-5"]
-[@@@ai_provider "Anthropic"]
-
 let () =
   Eio_main.run @@ fun env ->
   let args = Sys.argv in

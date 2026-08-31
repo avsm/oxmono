@@ -3,7 +3,7 @@
  (public_name tessera)
  (libraries
   proj
-  proj.c
+  proj_c
   zarrz
   zarrz.geoemb
   jsont

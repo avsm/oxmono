@@ -8,10 +8,6 @@
    from fetch's Fetch_cookies.Jar, which carried the bounds, shadowing
    and prefix rules the original server-oriented jar lacked. *)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-fable-5"]
-[@@@ai_provider "Anthropic"]
-
 module Cookie = Cookeio
 
 type t = {

@@ -5,10 +5,6 @@
 
 (* Tests for the cookeio cookie model and the client jar. *)
 
-[@@@ai_disclosure "ai-generated"]
-[@@@ai_model "claude-fable-5"]
-[@@@ai_provider "Anthropic"]
-
 let time f = Option.get (Ptime.of_float_s f)
 let date d t = Option.get (Ptime.of_date_time (d, (t, 0)))
 

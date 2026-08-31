@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Link the `proj.c` implementation of the virtual `proj` library from
+  the tessera library itself, so every executable that links tessera
+  builds without naming the implementation.
+
 - `Tessera.Consolidated` is now `Zarrz.Consolidated` extended with
   `zones`, so the two node maps are one type and `children` is
   available on it.

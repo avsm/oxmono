@@ -20,7 +20,8 @@ type t = {
   start : int;  (** Start year. *)
   finish : int option;  (** End year, or [None] while the project runs. *)
   tags : string list;
-  ideas : string;  (** Slug of the ideas page for this project. *)
+  ideas : string;  (** One line on what working on this project's ideas
+                       involves, shown to a student on the ideas index. *)
   body : string;
   social : Bushel_types.social option;
 }
@@ -48,8 +49,8 @@ val tags : t -> string list
 (** [tags p] is the tags of [p]. *)
 
 val ideas : t -> string
-(** [ideas p] is the slug of the ideas page for [p], or the empty string if
-    there is none. *)
+(** [ideas p] is one line on what working on the ideas of [p] involves, or the
+    empty string if [p] sets none. *)
 
 val body : t -> string
 (** [body p] is the Bushel markdown body of [p]. *)

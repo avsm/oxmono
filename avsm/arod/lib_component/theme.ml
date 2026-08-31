@@ -60,8 +60,8 @@ let custom_css = {|
   --color-st-avail: #22c55e;
   --color-st-discuss: #3b82f6;
   --color-st-ongoing: #f59e0b;
-  --color-st-done: #6b7280;
-  --color-st-expired: #ef4444;
+  --color-st-done: #8b5cf6;
+  --color-st-expired: #6b7280;
   --color-sidenote-ref: #5b6abf;
   --color-highlight: #fde68a;
   --color-toc-bg: #e0e7ff;
@@ -91,8 +91,8 @@ let custom_css = {|
   --color-st-avail: #3fb950;
   --color-st-discuss: #58a6ff;
   --color-st-ongoing: #d29922;
-  --color-st-done: #8b949e;
-  --color-st-expired: #f85149;
+  --color-st-done: #a371f7;
+  --color-st-expired: #8b949e;
   --color-sidenote-ref: #7dd3a0;
   --idea-art: 0.2;
   --color-highlight: #634d15;
@@ -2202,42 +2202,79 @@ let custom_css = {|
   padding: 0.5rem 0 0.7rem;
   margin-bottom: 1.1rem;
 }
-.idea-band-top {
+/* Two compact rows of checkboxes, first on the page. They are meant to be
+   read at a glance, so a row wraps rather than scrolling and the whole of
+   each label is the hit area. */
+.idea-facet {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.45rem;
+  margin-bottom: 0.25rem;
 }
-.idea-band-icon {
-  display: inline-flex;
-  color: var(--color-muted);
+.idea-facet-label {
   flex-shrink: 0;
+  width: 3.4rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
 }
-.idea-search {
-  flex: 1 1 14rem;
-  min-width: 0;
-  max-width: 26rem;
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 0.2rem 0.45rem;
-  border: 1px solid var(--color-border);
+.idea-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid transparent;
   border-radius: 3px;
+  color: var(--color-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.idea-box:hover { background: var(--color-surface); }
+.idea-box.on {
+  border-color: var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
 }
-.idea-search:focus {
-  outline: none;
-  border-color: var(--color-accent);
+/* Drawn rather than left to the browser, so the box carries the colour of the
+   status it stands for and the row is the key to the bars in the contents. A
+   level box has no status and falls back to the page accent. Ticked is the
+   swatch filled and unticked is the same swatch outlined, which needs no tick
+   glyph and so no colour that has to stay legible against five fills in two
+   themes. */
+.idea-box-in {
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin: 0;
+  border: 1.5px solid var(--idea-status, var(--color-accent));
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
 }
-.idea-band-status {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  font-size: 0.78rem;
-  color: var(--color-dim);
+.idea-box-in:checked { background: var(--idea-status, var(--color-accent)); }
+.idea-box-in:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
+.idea-box-n {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Pushed to the end of the row it sits in, so it never shifts a box along
+   when it appears. */
 .idea-clear {
+  flex-shrink: 0;
+  margin-left: auto;
   font: inherit;
+  font-size: 0.78rem;
   color: var(--color-link);
   background: none;
   border: none;
@@ -2245,138 +2282,281 @@ let custom_css = {|
   cursor: pointer;
   text-decoration: underline dotted;
 }
-/* Ideas index — one filter row per academic level. Held to a reading width
-   so the count stays beside the name rather than a page away from it. */
-.idea-levels {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  max-width: 34rem;
-  margin-top: 0.55rem;
+.idea-band-part { margin-top: 0.9rem; }
+.idea-band-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin: 0 0 0.3rem;
 }
-.idea-level {
+/* Ideas index — the contents. Two columns of project names, each with its
+   ideas as a bar stacked by status. */
+.idea-toc {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 1.5rem;
+  row-gap: 1px;
+}
+@media (max-width: 640px) {
+  .idea-toc { grid-template-columns: minmax(0, 1fr); }
+}
+.idea-toc-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
-  width: 100%;
-  font: inherit;
-  font-size: 0.82rem;
-  line-height: 1.65;
-  text-align: left;
-  color: var(--color-dim);
-  background: none;
-  border: none;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  padding: 0 0.35rem;
   border-left: 2px solid transparent;
-  padding: 0 0.4rem;
-  cursor: pointer;
+  color: var(--color-secondary) !important;
+  text-decoration: none !important;
 }
-.idea-level:hover {
-  background: var(--color-surface);
-  border-left-color: var(--color-border);
-}
-.idea-level.active {
-  color: var(--color-accent);
+.idea-toc-row:hover {
   background: var(--color-surface);
   border-left-color: var(--color-accent);
+  color: var(--color-link) !important;
 }
-.idea-level-name {
-  flex-shrink: 0;
-  min-width: 6rem;
-  font-weight: 600;
-}
-.idea-level-note {
+/* A filter that empties a project greys its line rather than dropping it, so
+   the contents keeps its shape and a reader sees what was ruled out. */
+.idea-toc-row.idea-toc-out { opacity: 0.3; }
+.idea-toc-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--color-secondary);
 }
-.idea-level.active .idea-level-note { color: inherit; opacity: 0.8; }
-.idea-level-count {
+/* The bar is scaled against the largest project on the page, so its length
+   compares across the contents and its bands compare within one. The track
+   behind it is the rest of that scale, which is what makes a short bar read
+   as few rather than as narrow. */
+.idea-toc-bar {
   flex-shrink: 0;
+  display: flex;
+  gap: 1px;
+  width: 7rem;
+  height: 0.45rem;
+  border-radius: 2px;
+  background: var(--color-border-faint);
+  overflow: hidden;
+}
+.idea-toc-seg {
+  flex-shrink: 0;
+  min-width: 2px;
+  background: var(--idea-status);
+}
+.idea-toc-total {
+  flex-shrink: 0;
+  width: 1.2rem;
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--color-muted);
   font-variant-numeric: tabular-nums;
 }
-/* Ideas index — project groups in two columns, filled left to right so the
-   first row holds the first two projects. A grid rather than the shorter
-   masonry columns, which fill the first column to the bottom before starting
-   the second and so read down the page, not across it. */
+/* As a rail the band has a column to itself, so the two facets stack, each
+   box takes a line of its own and the contents runs down one column instead
+   of two. The rule on the left is what makes the column read as a rail
+   rather than as a stray block of text. */
+@media (min-width: 76rem) {
+  .idea-band {
+    border-bottom: none;
+    border-left: 1px solid var(--color-border);
+    padding: 0.15rem 0 0.7rem 1.25rem;
+    margin-bottom: 0;
+  }
+  .idea-facet { display: block; margin-bottom: 1rem; }
+  .idea-facet-label { display: block; width: auto; margin-bottom: 0.25rem; }
+  .idea-box { display: flex; padding: 0.05rem 0.3rem; }
+  /* Pushed to the right edge of the rail, so the counts line up down it. */
+  .idea-box-n { margin-left: auto; }
+  .idea-clear { margin-top: 0.35rem; }
+  .idea-band-part { margin-top: 0; }
+  .idea-toc { grid-template-columns: minmax(0, 1fr); row-gap: 0.2rem; }
+  /* The name takes a line to itself and wraps, since a rail is too narrow to
+     hold a project name and its bar side by side without cutting the name,
+     and the name is the half a reader needs. */
+  .idea-toc-row { flex-wrap: wrap; gap: 0.1rem 0.4rem; padding: 0.1rem 0.3rem; }
+  .idea-toc-name {
+    flex: 1 0 100%;
+    white-space: normal;
+    overflow: visible;
+    line-height: 1.35;
+  }
+  .idea-toc-bar { flex: 1; width: auto; }
+}
+/* The way back from an idea to the list it belongs to. Quiet, above the
+   title, and the arrow is what makes it read as a way back rather than as
+   another link into the page. */
+.idea-back {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.idea-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--color-secondary) !important;
+  text-decoration: none !important;
+}
+.idea-back-link:hover { color: var(--color-link) !important; }
+/* Ideas index — project groups in one column, in project order. The page is
+   served by the full width layout, so the cap is here rather than there. The
+   ideas keep the measure they had, and the filter takes a rail beside them
+   in room the cap left blank. Below the width that fits both, the rail goes
+   back to being a band above the ideas, which is the order it reads in. */
+[data-idea-index] { max-width: 48rem; }
+@media (min-width: 76rem) {
+  [data-idea-index] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 15rem;
+    column-gap: 2rem;
+    align-items: start;
+    max-width: 65rem;
+  }
+  .idea-intro { grid-column: 1; grid-row: 1; }
+  .idea-grid { grid-column: 1; grid-row: 2; }
+  .idea-empty { grid-column: 1; grid-row: 3; }
+  /* Spans the rows so the rail runs the length of the ideas rather than
+     stopping level with the first of them. */
+  .idea-band { grid-column: 2; grid-row: 1 / span 3; }
+}
 .idea-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 2.75rem;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-}
-@media (max-width: 900px) {
-  .idea-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .idea-group {
   min-width: 0;
-  margin: 0 0 1.75rem;
+  margin: 0 0 2.25rem;
+  /* The nav header is sticky, so a project jumped to from the contents would
+     otherwise land underneath it. */
+  scroll-margin-top: 4.5rem;
 }
 /* A filled bar, as a card header is on the projects page, since the two name
-   the same thing. In two columns a rule alone is not enough to tell a project
-   heading from the cards under it. */
+   the same thing. A rule alone is not enough to tell a project heading from
+   the cards under it. It is told apart from them by three things a card has
+   none of: it reaches past them on both sides, its fill is a step darker
+   than the page, and its left edge is drawn in the text colour. That last is
+   deliberately not a colour from the status palette, so the edge of a
+   heading can never be read as the status of a card. */
 .idea-group-head {
-  display: flex;
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 0.4rem;
-  font-size: 0.95rem;
+  column-gap: 0.45rem;
+  font-size: 1rem;
   color: var(--color-secondary);
-  background: var(--color-surface);
+  background: var(--color-surface-alt);
   border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-text);
   border-radius: 3px;
-  padding: 0.4rem 0.6rem;
-  margin-bottom: 0.75rem;
+  padding: 0.45rem 0.7rem;
+  margin: 0 0 0.85rem;
 }
+/* The reach past the cards costs the page gutter, which is only 0.5rem until
+   the layout widens it. Below that the fill, the edge and the size are what
+   tell the heading apart, and it sits flush with the cards. */
+@media (min-width: 48rem) {
+  .idea-group-head { margin-left: -0.55rem; margin-right: -0.55rem; }
+}
+/* A subtitle inside the heading bar rather than a caption loose beneath it.
+   It takes the column the title is in, so it lines up under the title rather
+   than under the prompt, with no indent of its own to keep in step. */
+.idea-group-note {
+  grid-column: 2;
+  max-width: 34rem;
+  margin: 0.12rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--color-secondary);
+}
+/* The picture of the project washed across its heading, not an illustration
+   beside the title. It is faded to a token that differs by theme, and masked
+   away towards the left so it never reaches the start of the title. */
+.idea-group-art {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 55%;
+  opacity: var(--idea-art);
+  /* Desaturated, so a bright photograph does not pull the eye off the words
+     sitting on top of it. */
+  filter: grayscale(0.4);
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to left, #000 5%, transparent 92%);
+  mask-image: linear-gradient(to left, #000 5%, transparent 92%);
+}
+.idea-group-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* The wash is a positioned box, so the words need to be positioned too or
+   they paint under it. */
+.idea-group-prompt,
+.idea-group-title,
+.idea-group-tail,
+.idea-group-note { position: relative; }
 .idea-group-prompt {
+  grid-column: 1;
   color: var(--color-accent);
   font-weight: 600;
-  flex-shrink: 0;
+}
+/* One box for the counts and the chevron, so the bar keeps three columns
+   however many counts a project has. */
+.idea-group-tail {
+  grid-column: 3;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
 }
 /* The name wraps rather than truncating. A project heading that reads
    "TESSERA, a pixelwise geospatial foundation mo…" is the one thing on this
    page a reader cannot afford to lose. */
 .idea-group-title {
-  flex: 1;
+  grid-column: 2;
   min-width: 0;
+  font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--color-text) !important;
   text-decoration: none !important;
 }
 .idea-group-title:hover { color: var(--color-link) !important; }
+/* Each count is a chip in the colour of the status it counts, so a heading
+   reads against the same key as the filter row and the card borders. The
+   plain colour above the mixed one is the fallback a browser without
+   color-mix keeps. */
 .idea-group-count {
-  flex-shrink: 0;
-  font-size: 0.78rem;
+  white-space: nowrap;
+  padding: 0.02rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, var(--idea-status) 38%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--idea-status) 9%, var(--color-bg));
+  font-size: 0.72rem;
   color: var(--color-secondary);
   font-variant-numeric: tabular-nums;
 }
-.idea-expand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
-  flex-shrink: 0;
-  font: inherit;
-  font-size: 0.78rem;
-  color: var(--color-secondary);
+/* Finished work covers two statuses, so its count takes neither colour. The
+   whole border is restated rather than only its colour: the rule above
+   resolves to a colour that does not exist without a status, which drops the
+   style with it and leaves no border at all. */
+.idea-group-count-past {
+  border: 1px solid var(--color-border);
   background: none;
-  border: none;
-  padding: 0 0 0 0.3rem;
-  cursor: pointer;
 }
-.idea-expand:hover { color: var(--color-accent); }
-.idea-expand-count { font-variant-numeric: tabular-nums; }
-.idea-expand-icon {
-  display: inline-flex;
-  transition: transform 0.15s;
-}
-.idea-expand[aria-expanded='true'] .idea-expand-icon {
-  transform: rotate(180deg);
-}
-/* Ideas index — the status of an idea as a colour a card can draw with. The
-   dot beside a folded line reads from the same palette, so a border and a dot
-   never disagree. */
+/* Ideas index — the status of an idea as a colour a card can draw with. A
+   card, the line of a finished idea and the count on a project heading all
+   read from this palette, so none of them can disagree about a status. */
 .idea-st-avail { --idea-status: var(--color-st-avail); }
 .idea-st-discuss { --idea-status: var(--color-st-discuss); }
 .idea-st-ongoing { --idea-status: var(--color-st-ongoing); }
@@ -2385,8 +2565,6 @@ let custom_css = {|
 /* Ideas index — a card for an idea open for takers. The plain border above
    the mixed one is the fallback a browser without color-mix keeps. */
 .idea-card {
-  position: relative;
-  overflow: hidden;
   border: 1px solid var(--color-border);
   border: 1px solid color-mix(in srgb, var(--idea-status) 40%, transparent);
   border-left: 3px solid var(--idea-status);
@@ -2396,37 +2574,19 @@ let custom_css = {|
   transition: border-color 0.15s;
 }
 .idea-card:hover { border-color: var(--idea-status); }
-/* The picture is a wash behind the words, not an illustration beside them.
-   It is faded to a token that differs by theme, and masked away towards the
-   left so it never reaches the start of a line of text. */
-.idea-card-art {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 60%;
-  opacity: var(--idea-art);
-  /* Desaturated, so a bright photograph does not pull the eye off the words
-     sitting on top of it. */
-  filter: grayscale(0.4);
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(to left, #000 5%, transparent 90%);
-  mask-image: linear-gradient(to left, #000 5%, transparent 90%);
-  transition: opacity 0.15s;
-}
-.idea-card-art img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.idea-card:hover .idea-card-art { opacity: calc(var(--idea-art) * 1.5); }
-.idea-card-main {
-  position: relative;
-  max-width: 30rem;
+/* Two columns wide enough apart to read as separate things: prose on the
+   left at the measure a line of text wants, and the level, the year and the
+   supervisors in a fixed column on the right. Positioned so both sit over
+   the picture rather than under it. */
+.idea-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 12rem;
+  column-gap: 1.5rem;
+  align-items: start;
 }
 .idea-card-title {
   display: block;
+  grid-column: 1;
   font-size: 0.95rem;
   font-weight: 600;
   line-height: 1.3;
@@ -2434,7 +2594,11 @@ let custom_css = {|
   text-decoration: none !important;
 }
 .idea-card-title:hover { color: var(--color-link) !important; }
+/* Spans both rows so it keeps the top of the card whatever the summary does
+   below the title. */
 .idea-card-meta {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   font-size: 0.78rem;
   line-height: 1.45;
   color: var(--color-secondary);
@@ -2443,78 +2607,90 @@ let custom_css = {|
 .idea-card-meta a { color: var(--color-link); }
 .idea-card-discuss { color: var(--color-st-discuss); }
 .idea-card-summary {
+  grid-column: 1;
   font-size: 0.84rem;
   line-height: 1.5;
   color: var(--color-dim);
   margin: 0.35rem 0 0;
 }
-/* Ideas index — an idea offered previously, folded to one line under its
-   project until the reader or the group chevron opens it */
+/* Too narrow for a second column, so the three fall back to the one order
+   they read in as a block. */
+@media (max-width: 56rem) {
+  .idea-card-body { grid-template-columns: minmax(0, 1fr); }
+  .idea-card-title, .idea-card-meta, .idea-card-summary {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+/* Ideas index — an idea no longer on offer, on one line that links straight
+   to it. It runs over the tracks a card runs over, so a line and a card put
+   their facts in the same place. */
 .idea-past-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 12rem;
+  column-gap: 1.5rem;
+  align-items: baseline;
   border: 1px solid var(--color-border);
   border: 1px solid color-mix(in srgb, var(--idea-status) 22%, transparent);
   border-left: 2px solid var(--idea-status);
   border-radius: 3px;
   padding: 0.3rem 0.45rem;
   margin-bottom: 0.35rem;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  transition: border-color 0.15s;
 }
-/* The folded history starts a little clear of the last open card, so the two
-   kinds of entry do not run together. */
+/* The history starts a little clear of the last open card, so the two kinds
+   of entry do not run together. */
 .idea-card + .idea-past-card { margin-top: 0.35rem; }
-.idea-past-card[open] {
+.idea-past-card:hover {
   border-color: color-mix(in srgb, var(--idea-status) 45%, transparent);
   border-left-color: var(--idea-status);
 }
-/* One column: the title on its own line and the sentence about who took the
-   idea under it, so a run of four names cannot squeeze the title beside it
-   down to one word a line. */
-.idea-past-head {
-  display: flex;
-  flex-direction: column;
-  gap: 0.05rem;
-  cursor: pointer;
-  list-style: none;
-  font-size: 0.84rem;
-  line-height: 1.45;
-}
-.idea-past-head::-webkit-details-marker { display: none; }
-.idea-past-head:hover .idea-past-title { color: var(--color-link); }
-.idea-past-line {
-  display: flex;
-  align-items: baseline;
-  gap: 0.35rem;
-}
-.idea-past-card .idea-dot { margin-top: 0; align-self: center; }
+.idea-past-card:hover .idea-past-title { color: var(--color-link) !important; }
+.idea-past-card:hover .idea-past-open { color: var(--color-link); }
+.idea-past-line { grid-column: 1; min-width: 0; }
 .idea-past-title {
-  flex: 1;
-  min-width: 0;
-  color: var(--color-text);
+  color: var(--color-text) !important;
+  text-decoration: none !important;
 }
-.idea-past-open {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-self: center;
-  color: var(--color-muted);
+/* The box that makes the whole row the link. It is on the title rather than
+   on the row, so the row stays a plain element and the students named in the
+   facts can be links of their own inside it. Those sit above this box by
+   being positioned themselves, which paints them later. */
+.idea-past-title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
 }
-.idea-past-open:hover { color: var(--color-link); }
-/* Indented to clear the status dot, so it starts under the title above. */
 .idea-past-meta {
-  padding-left: 0.85rem;
+  grid-column: 2;
+  padding-right: 1rem;
   font-size: 0.76rem;
   line-height: 1.4;
   color: var(--color-secondary);
 }
-.idea-past-detail {
-  padding: 0.35rem 0 0.15rem 0.85rem;
-  max-width: 34rem;
+.idea-past-meta a {
+  position: relative;
+  color: var(--color-link);
 }
-.idea-past-text, .idea-past-sups {
-  font-size: 0.82rem;
-  line-height: 1.5;
-  color: var(--color-dim);
-  margin: 0 0 0.3rem;
+/* Pinned to the corner rather than given a track, so the row runs over the
+   two columns a card has and not three. */
+.idea-past-open {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.45rem;
+  display: inline-flex;
+  color: var(--color-muted);
+  pointer-events: none;
 }
-.idea-past-sups a { color: var(--color-link); }
+/* Too narrow for a second column, so the facts fall back under the title,
+   which is what an open card does at this width. */
+@media (max-width: 56rem) {
+  .idea-past-card { grid-template-columns: minmax(0, 1fr); }
+  .idea-past-meta { grid-column: 1; }
+}
 .idea-empty {
   font-size: 0.88rem;
   color: var(--color-dim);

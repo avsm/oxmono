@@ -44,7 +44,7 @@ let index_html ~ctx =
       Arod.Jsonld.profile_page_jsonld ~ctx;
       Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/")];
     ] in
-    C.Layout.page ~ctx ~title:(Bushel.Entry.title ent) ~description:"" ~url:"/" ~current_page:"About" ~jsonld ~page_scripts:[] ~article ~sidebar ~mobile_footer:socials ()
+    C.Layout.page ~ctx ~title:(Bushel.Entry.title ent) ~description:cfg.site.description ~url:"/" ~current_page:"About" ~jsonld ~page_scripts:[] ~article ~sidebar ~mobile_footer:socials ()
 
 (** {1 List pages} *)
 
@@ -147,7 +147,10 @@ let paper_html ~ctx slug p =
   let article = Htmlit.El.div [paper_el; C.Paper.extra ~ctx p; related] in
   let sidebar = C.Sidebar.for_entry ~ctx ~sidenotes (`Paper p) in
   let entries = Arod.Ctx.entries ctx in
-  let description = let a = Paper.abstract p in if a <> "" then a else Paper.title p in
+  let description =
+    let a = String.trim (Paper.abstract p) in
+    if a <> "" then a else Paper.title p
+  in
   let image = match Bushel.Entry.thumbnail entries (`Paper p) with
     | Some t -> Some (cfg.site.base_url ^ t) | None -> None in
   let published = Paper.date p in

@@ -32,6 +32,9 @@ module Md = Bushel_md
 module Link = Bushel_link
 (** External link tracking and merging. *)
 
+module Release = Bushel_release
+(** Code releases, tracked per repository. *)
+
 module Link_graph = Bushel_link_graph
 (** Links between entries and external URLs. *)
 

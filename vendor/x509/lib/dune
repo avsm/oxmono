@@ -7,4 +7,4 @@
                   key_type)
  (libraries asn1-combinators fmt ptime mirage-crypto mirage-crypto-pk
             gmap domain-name base64 logs mirage-crypto-ec kdf.pbkdf
-            mirage-crypto-rng ipaddr ohex))
+            mirage-crypto-rng ipaddr ohex stdlib_stable))

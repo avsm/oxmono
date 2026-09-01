@@ -1,0 +1,3 @@
+(executable
+ (name credentials)
+ (libraries fetch fetch-httpz eio_main localhost))

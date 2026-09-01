@@ -1,5 +1,3 @@
-@@ portable
-
 (** Flows are used to represent byte streams, such as open files and network sockets.
     A {!source} provides a stream of bytes. A {!sink} consumes a stream.
     A {!two_way} can do both.
@@ -32,7 +30,7 @@ type shutdown_command = [
 
 (** {2 Reading} *)
 
-val single_read : _ source -> Cstruct.t -> int
+val single_read : _ source -> Cstruct.t @ local -> int @@ portable
 (** [single_read src buf] reads one or more bytes into [buf].
 
     It returns the number of bytes read (which may be less than the
@@ -46,7 +44,7 @@ val single_read : _ source -> Cstruct.t -> int
 
     @raise End_of_file if there is no more data to read *)
 
-val read_exact : _ source -> Cstruct.t -> unit
+val read_exact : _ source -> Cstruct.t @ local -> unit @@ portable
 (** [read_exact src dst] keeps reading into [dst] until it is full.
     @raise End_of_file if the buffer could not be filled. *)
 
@@ -56,7 +54,8 @@ val string_source : string -> source_ty r
 val cstruct_source : Cstruct.t list -> source_ty r
 (** [cstruct_source cs] is a source that gives the bytes of [cs]. *)
 
-type 't read_method += Read_source_buffer of ('t -> (Cstruct.t list -> int) -> unit)
+type 't read_method +=
+  Read_source_buffer of ('t -> (Cstruct.t list @ local -> int) -> unit)
 (** If a source offers [Read_source_buffer rsb] then the user can call [rsb t fn]
     to borrow a view of the source's buffers. [fn] returns the number of bytes it consumed.
 
@@ -67,7 +66,7 @@ type 't read_method += Read_source_buffer of ('t -> (Cstruct.t list -> int) -> u
 
 (** {2 Writing} *)
 
-val write : _ sink -> Cstruct.t list -> unit
+val write : _ sink -> Cstruct.t list @ local -> unit @@ portable
 (** [write dst bufs] writes all bytes from [bufs].
 
     You should not perform multiple concurrent writes on the same flow
@@ -78,13 +77,13 @@ val write : _ sink -> Cstruct.t list -> unit
     - {!Buf_write} to combine multiple small writes.
     - {!copy} for bulk transfers, as it allows some extra optimizations. *)
 
-val single_write : _ sink -> Cstruct.t list -> int
+val single_write : _ sink -> Cstruct.t list @ local -> int @@ portable
 (** [single_write dst bufs] writes at least one byte from [bufs] and returns the number of bytes written. *)
 
 val copy : _ source -> _ sink -> unit
 (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
 
-val copy_string : string -> _ sink -> unit
+val copy_string : string -> _ sink -> unit @@ portable
 (** [copy_string s = copy (string_source s)] *)
 
 val buffer_sink : Buffer.t -> sink_ty r
@@ -123,13 +122,13 @@ module Pi : sig
   module type SOURCE = sig
     type t
     val read_methods : t read_method list
-    val single_read : t -> Cstruct.t -> int
+    val single_read : t -> Cstruct.t @ local -> int
   end
 
   module type SINK = sig
     type t
 
-    val single_write : t -> Cstruct.t list -> int
+    val single_write : t -> Cstruct.t list @ local -> int
 
     val copy : t -> src:_ source -> unit
     (** [copy t ~src] allows for optimising copy operations.
@@ -159,7 +158,7 @@ module Pi : sig
     | Sink : ('t, (module SINK with type t = 't), [> sink_ty]) Resource.pi
     | Shutdown : ('t, (module SHUTDOWN with type t = 't), [> shutdown_ty]) Resource.pi
 
-  val simple_copy : single_write:('t -> Cstruct.t list -> int) -> 't -> src:_ source -> unit
+  val simple_copy : single_write:('t -> Cstruct.t list @ local -> int) -> 't ->
+    src:_ source -> unit @@ portable
   (** [simple_copy ~single_write] implements {!SINK}'s [copy] API using [single_write]. *)
 end
-

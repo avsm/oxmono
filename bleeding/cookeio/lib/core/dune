@@ -1,4 +1,0 @@
-(library
- (name cookeio)
- (public_name cookeio)
- (libraries fmt ptime publicsuffix))

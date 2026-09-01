@@ -2,10 +2,11 @@
 
 A slim OxCaml monorepo containing only bleeding-edge code: work-in-progress
 libraries in [bleeding/](bleeding/) and deployed binaries in [avsm/](avsm/).
-All third-party dependencies are installed from opam via the
-[oxcaml opam repository](https://github.com/oxcaml/opam-repository) rather
-than vendored (unlike the predecessor `oxmono` repository, which vendored
-~400 packages under `opam/`).
+Most third-party dependencies are installed from opam via the
+[oxcaml opam repository](https://github.com/oxcaml/opam-repository). A focused
+set of portability-sensitive dependencies is kept under [vendor/](vendor/);
+this remains much smaller than the predecessor `oxmono` repository, which
+vendored roughly 400 packages under `opam/`.
 
 ## Setup
 
@@ -42,22 +43,21 @@ executables.
 
 ## Vendored packages
 
-A small number of packages are vendored under [vendor/](vendor/) (declared
-via `(vendored_dirs vendor)` in the root `dune` file) because they cannot
-currently be installed from opam on `oxcaml-compiler.5.2.0minus39`:
+A focused set of packages is vendored under [vendor/](vendor/) (declared via
+`(vendored_dirs vendor)` in the root `dune` file) because the TLS/X.509
+closure needs OxCaml mode annotations that are not all available from opam.
+The closure currently includes Zarith 1.14+ox, Cstruct 6.2.0, Digestif 1.3.1,
+Mirage Crypto 2.4.1, TLS 2.1.2, X.509 1.1.1, CA certificates 1.0.3, and their
+smaller dependencies. The client-facing Eio resource/flow boundary contains no
+`Obj.magic_portable`.
 
-- `Zarith` — the dune-ported OxCaml build; opam's `zarith.1.14+ox` conflicts
-  with compilers newer than 5.2.0minus38, and `1.12+ox3` is too old for
-  mirage-crypto 2.x.
-- `mirage-crypto`, `tls`, `x509`, `ca-certs`, `asn1-combinators`, `kdf`,
-  `gmap` — the modern (2.x/1.x, cstruct-free) TLS stack requires
-  `zarith >= 1.13`, so it is transitively blocked from opam by the above.
-- `digestif` — upstream 1.3.x fails to compile under minus39's stricter
-  mode inference (in the pure-OCaml backend); the workspace build only
-  demands the C backend, which is fine.
+The source revision, path mapping, monorepo adaptations and update procedure
+are recorded in
+[HTTPZ_SYNC.md](HTTPZ_SYNC.md). The shared HTTP stack contract is in
+[HTTPZ_RELEASE.md](HTTPZ_RELEASE.md).
 
 These should be re-checked against the ox opam repository on each compiler
-upgrade and dropped once installable.
+upgrade and dropped once upstream packages expose the required modes.
 
 `base64` is vendored for a different reason: it installs from opam, but its
 interface carries no mode annotations, so a `portable` function cannot call it.

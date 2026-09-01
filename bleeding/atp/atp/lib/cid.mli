@@ -30,7 +30,7 @@ type codec = [ `Raw | `Dag_cbor ]
     - [`Raw] (0x55): arbitrary bytes
     - [`Dag_cbor] (0x71): DAG-CBOR encoded IPLD data *)
 
-type t
+type t : immutable_data
 (** Opaque CIDv1 content identifier. *)
 
 (** {1 Errors} *)
@@ -100,6 +100,9 @@ val of_string : string -> t
 
     @raise Eio.Io on invalid format. *)
 
+val of_string_result : string -> (t, error) result @@ portable
+(** [of_string_result s] parses a base32-encoded CID without raising. *)
+
 (** {1 Serialization} *)
 
 val to_bytes : t -> string
@@ -112,7 +115,7 @@ val to_raw_bytes : t -> string
 
     Returns 36 bytes for full CID, 4 bytes for empty CID. *)
 
-val to_string : t -> string
+val to_string : t -> string @@ portable
 (** [to_string cid] encodes as base32 string with 'b' prefix.
 
     Returns 59 characters for full CID, 8 characters for empty CID.

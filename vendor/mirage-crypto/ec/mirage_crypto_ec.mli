@@ -53,7 +53,12 @@ module type Dh = sig
       than the group order meaning the public key cannot be the point at
       inifinity. *)
 
-  val key_exchange : secret -> string -> (string, error) result
+  val gen_key_with : g:Mirage_crypto_rng.portable_g -> ?compress:bool ->
+    unit -> secret * string @@ portable
+  (** [gen_key_with ~g ()] is {!gen_key} using an explicit portable generator
+      rather than the process-global default. *)
+
+  val key_exchange : secret -> string -> (string, error) result @@ portable
   (** [key_exchange secret received_public_key] performs Diffie-Hellman key
       exchange using your secret and the data received from the other party.
       Returns the shared secret or an error if the received data is wrongly
@@ -73,7 +78,7 @@ module type Dsa = sig
   type priv
   (** The type for private keys. *)
 
-  type pub
+  type pub : immutable_data
   (** The type for public keys. *)
 
   val byte_length : int
@@ -84,14 +89,14 @@ module type Dsa = sig
 
   (** {2 Serialisation} *)
 
-  val priv_of_octets : string -> (priv, error) result
+  val priv_of_octets : string -> (priv, error) result @@ portable
   (** [priv_of_octets buf] decodes a private key from the buffer [buf]. If the
       provided data is invalid, an error is returned. *)
 
   val priv_to_octets : priv -> string
   (** [priv_to_octets p] encode the private key [p] to a buffer. *)
 
-  val pub_of_octets : string -> (pub, error) result
+  val pub_of_octets : string -> (pub, error) result @@ portable
   (** [pub_of_octets buf] decodes a public key from the buffer [buf]. If the
       provided data is invalid, an error is returned. *)
 
@@ -112,12 +117,14 @@ module type Dsa = sig
 
   (** {2 Cryptographic operations} *)
 
-  val sign : key:priv -> ?k:string -> string -> string * string
-  (** [sign ~key ~k digest] signs the message [digest] using the private
+  val sign : ?mask:[ `No | `Yes | `Yes_with of Mirage_crypto_rng.g ] ->
+    key:priv -> ?k:string -> string -> string * string
+  (** [sign ~mask ~key ~k digest] signs the message [digest] using the private
       [key]. The [digest] is not processed further - it should be the hash of
-      the message to sign. If [k] is not provided, it is computed using the
-      deterministic construction from RFC 6979. The result is a pair of [r]
-      and [s].
+      the message to sign. If [mask] is provided, the computation is blinded to
+      protect the private key operation. If [k] is not provided, it is computed
+      using the deterministic construction from RFC 6979. The result is a pair
+      of [r] and [s].
 
       Warning: there {{:https://www.hertzbleed.com/2h2b.pdf}are}
       {{:https://www.hertzbleed.com/hertzbleed.pdf}attacks} that recover the
@@ -128,7 +135,7 @@ module type Dsa = sig
       @raise Invalid_argument if [k] is not suitable or not in range.
       @raise Message_too_long if the bit size of [msg] exceeds the curve. *)
 
-  val verify : key:pub -> string * string -> string -> bool
+  val verify : key:pub -> string * string -> string -> bool @@ portable
   (** [verify ~key (r, s) digest] verifies the signature [r, s] on the message
       [digest] with the public [key]. The return value is [true] if verification
       was successful, [false] otherwise. If the message has more bits than the
@@ -162,7 +169,21 @@ module type Dh_dsa = sig
   module Dh : Dh
 
   (** Digital signature algorithm. *)
-  module Dsa : Dsa
+  module Dsa : sig
+    include Dsa
+
+    (** Low-level arithmetic operations. *)
+    module Primitive : sig
+      val generator : pub
+      (** [generator] is the generator point (base point) of the curve. *)
+
+      val add : pub -> pub -> pub
+      (** [add p q] is the sum of points [p] and [q]. *)
+
+      val scalar_mult : priv -> pub -> pub
+      (** [scalar_mult s p] is the scalar multiplication of [p] by [s]. *)
+    end
+  end
 end
 
 (** The NIST P-256 curve, also known as SECP256R1. *)
@@ -182,19 +203,19 @@ module Ed25519 : sig
   type priv
   (** The type for private keys. *)
 
-  type pub
+  type pub : immutable_data
   (** The type for public keys. *)
 
   (** {2 Serialisation} *)
 
-  val priv_of_octets : string -> (priv, error) result
+  val priv_of_octets : string -> (priv, error) result @@ portable
   (** [priv_of_octets buf] decodes a private key from the buffer [buf]. If the
       provided data is invalid, an error is returned. *)
 
   val priv_to_octets : priv -> string
   (** [priv_to_octets p] encode the private key [p] to a buffer. *)
 
-  val pub_of_octets : string -> (pub, error) result
+  val pub_of_octets : string -> (pub, error) result @@ portable
   (** [pub_of_octets buf] decodes a public key from the buffer [buf]. If the
       provided data is invalid, an error is returned. *)
 
@@ -217,7 +238,7 @@ module Ed25519 : sig
   (** [sign ~key msg] signs the message [msg] using the private [key]. The
       result is the concatenation of [r] and [s], as specified in RFC 8032. *)
 
-  val verify : key:pub -> string -> msg:string -> bool
+  val verify : key:pub -> string -> msg:string -> bool @@ portable
   (** [verify ~key signature msg] verifies the [signature] on the message
       [msg] with the public [key]. The return value is [true] if verification
       was successful, [false] otherwise. *)

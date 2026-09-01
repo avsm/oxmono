@@ -2,4 +2,9 @@
  (package fetch-main)
  (enabled_if
   (= %{system} macosx))
- (deps (package fetch-main) (package fetch)))
+ (deps
+  (package cmarkit)
+  (package fetch-main)
+  (package fetch)
+  (package httpz)
+  (package jsont)))

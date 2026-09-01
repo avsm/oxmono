@@ -10,6 +10,16 @@ val authenticator :
     authenticator can be used for {!Tls.Config.client}. Returns [Error `Msg msg]
     if detection did not succeed. *)
 
+val system_authenticator :
+  unit ->
+  (X509.Authenticator.t, [> `Msg of string ]) result @ portable
+(** [system_authenticator ()] loads the operating system trust anchors and
+    constructs the usual HTTPS authenticator. Unlike {!authenticator}, it has
+    no CRL or digest-policy customization, so its successful result is
+    portable and can be captured by a cross-domain client capability. The
+    loading operation itself is ordinary because it performs platform-specific
+    process and file-system discovery. *)
+
 val trust_anchors : unit -> (string, [> `Msg of string ]) result
 (** [trust_anchors ()] detects the root CAs (trust anchors) in the operating
     system's trust store. Additional CAs can be provided by setting the

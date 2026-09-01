@@ -1,4 +1,0 @@
-(library
- (name cookeio_jar)
- (public_name cookeio.jar)
- (libraries cookeio eio fmt ptime))

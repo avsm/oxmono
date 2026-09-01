@@ -43,7 +43,7 @@
           (fun title date tags -> { title; date; tags })
         |> Jsont.Object.mem "title" Jsont.string ~enc:(fun p -> p.title)
         |> Jsont.Object.mem "date" ptime_jsont ~enc:(fun p -> p.date)
-        |> Jsont.Object.mem "tags" Jsont.(list string) ~dec_absent:[]
+        |> Jsont.Object.mem "tags" Jsont.(list string) ~dec_absent:(fun () -> [])
              ~enc:(fun p -> p.tags)
         |> Jsont.Object.finish
 

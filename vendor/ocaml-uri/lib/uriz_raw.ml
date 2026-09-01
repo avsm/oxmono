@@ -560,6 +560,11 @@ let[@zero_alloc] parse_sub s ~pos ~len =
             host_kind <- host_ipvfuture;
             host_off <- p + 1;
             host_len <- ef - p - 1;
+            let mutable k = host_off in
+            while k < ef do
+              if is_upper (String.unsafe_get s k) then dirty <- 1;
+              k <- k + 1
+            done;
             p <- ef + 1
           end
           else err <- p + 1

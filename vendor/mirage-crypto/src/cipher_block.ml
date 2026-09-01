@@ -8,15 +8,17 @@ module Block = struct
     type dkey
 
     val of_secret   : string -> ekey * dkey
-    val e_of_secret : string -> ekey
-    val d_of_secret : string -> dkey
+    val e_of_secret : string -> ekey @@ portable
+    val d_of_secret : string -> dkey @@ portable
 
     val key   : int array
     val block : int
 
     (* XXX currently unsafe point *)
     val encrypt : key:ekey -> blocks:int -> string -> int -> bytes -> int -> unit
+      @@ portable
     val decrypt : key:dkey -> blocks:int -> string -> int -> bytes -> int -> unit
+      @@ portable
   end
 
   module type ECB = sig
@@ -68,9 +70,9 @@ module Block = struct
     val block_size : int
 
     type ctr
-    val add_ctr        : ctr -> int64 -> ctr
+    val add_ctr        : ctr -> int64 -> ctr @@ portable
     val next_ctr       : ?off:int -> string -> ctr:ctr -> ctr
-    val ctr_of_octets  : string -> ctr
+    val ctr_of_octets  : string -> ctr @@ portable
 
     val stream  : key:key -> ctr:ctr -> int -> string
     val encrypt : key:key -> ctr:ctr -> string -> string
@@ -84,7 +86,7 @@ module Block = struct
 
     val unsafe_stream_into  : key:key -> ctr:ctr -> bytes -> off:int -> int -> unit
     val unsafe_encrypt_into : key:key -> ctr:ctr -> string -> src_off:int ->
-      bytes -> dst_off:int -> int -> unit
+      bytes -> dst_off:int -> int -> unit @@ portable
     val unsafe_decrypt_into : key:key -> ctr:ctr -> string -> src_off:int ->
       bytes -> dst_off:int -> int -> unit
   end
@@ -105,20 +107,29 @@ module Block = struct
 end
 
 module Counters = struct
+  let (check_block_count @ portable) max blocks =
+    if Int64.unsigned_compare (Int64.of_int blocks) max > 0 then
+      Stdlib.invalid_arg "CTR: too many blocks"
+  [@@inline always]
+
   module type S = sig
     type ctr
     val size : int
-    val add  : ctr -> int64 -> ctr
-    val of_octets : string -> ctr
+    val add  : ctr -> int64 -> ctr @@ portable
+    val check_blocks : int -> unit @@ portable
+    val of_octets : string -> ctr @@ portable
     val unsafe_count_into : ctr -> bytes -> off:int -> blocks:int -> unit
+      @@ portable
   end
 
   module C64be = struct
     type ctr = int64
     let size = 8
-    let of_octets cs = String.get_int64_be cs 0
-    let add = Int64.add
-    let unsafe_count_into t buf ~off ~blocks =
+    let (of_octets @ portable) cs = String.get_int64_be cs 0
+    let (add @ portable) = Int64.add
+    let (check_blocks @ portable) blocks =
+      check_block_count Int64.minus_one blocks
+    let (unsafe_count_into @ portable) t buf ~off ~blocks =
       let ctr = Bytes.create 8 in
       Bytes.set_int64_be ctr 0 t;
       Native.count8be ~ctr buf ~off ~blocks
@@ -127,14 +138,15 @@ module Counters = struct
   module C128be = struct
     type ctr = int64 * int64
     let size = 16
-    let of_octets cs =
+    let (of_octets @ portable) cs =
       let buf = Bytes.unsafe_of_string cs in
       Bytes.(get_int64_be buf 0, get_int64_be buf 8)
-    let add (w1, w0) n =
-      let w0'  = Int64.add w0 n in
-      let flip = if Int64.logxor w0 w0' < 0L then w0' > w0 else w0' < w0 in
-      ((if flip then Int64.succ w1 else w1), w0')
-    let unsafe_count_into (w1, w0) buf ~off ~blocks =
+    let (add @ portable) (w1, w0) n =
+      let w0' = Int64.add w0 n in
+      let carry = Int64.unsigned_compare w0' w0 < 0 in
+      ((if carry then Int64.succ w1 else w1), w0')
+    let (check_blocks @ portable) _ = ()
+    let (unsafe_count_into @ portable) (w1, w0) buf ~off ~blocks =
       let ctr = Bytes.create 16 in
       Bytes.set_int64_be ctr 0 w1; Bytes.set_int64_be ctr 8 w0;
       Native.count16be ~ctr buf ~off ~blocks
@@ -142,24 +154,25 @@ module Counters = struct
 
   module C128be32 = struct
     include C128be
-    let add (w1, w0) n =
+    let (add @ portable) (w1, w0) n =
       let hi = 0xffffffff00000000L and lo = 0x00000000ffffffffL in
       (w1, Int64.(logor (logand hi w0) (add n w0 |> logand lo)))
-    let unsafe_count_into (w1, w0) buf ~off ~blocks =
+    let (check_blocks @ portable) blocks = check_block_count 0xfffffffeL blocks
+    let (unsafe_count_into @ portable) (w1, w0) buf ~off ~blocks =
       let ctr = Bytes.create 16 in
       Bytes.set_int64_be ctr 0 w1; Bytes.set_int64_be ctr 8 w0;
       Native.count16be4 ~ctr buf ~off ~blocks
   end
 end
 
-let check_offset ~tag ~buf ~off ~len actual_len =
+let (check_offset @ portable) ~tag:_ ~buf:_ ~off ~len actual_len =
   if off < 0 then
-    invalid_arg "%s: %s off %u < 0"
-      tag buf off;
+    Stdlib.invalid_arg "cipher: negative offset";
+  if len < 0 then
+    Stdlib.invalid_arg "cipher: negative length";
   if actual_len - off < len then
-    invalid_arg "%s: %s length %u - off %u < len %u"
-      tag buf actual_len off len
-[@@inline]
+    Stdlib.invalid_arg "cipher: buffer too short"
+[@@inline always]
 
 module Modes = struct
   module ECB_of (Core : Block.Core) : Block.ECB = struct
@@ -220,7 +233,7 @@ module Modes = struct
       if len mod block <> 0 then
         invalid_arg "CBC: argument length %u not of block size"
           len
-    [@@inline]
+    [@@inline always]
 
     let next_iv ?(off = 0) cs ~iv =
       check_block_size ~iv (String.length cs - off) ;
@@ -286,11 +299,12 @@ module Modes = struct
     let (key_sizes, block_size) = Core.(key, block)
     let of_secret = Core.e_of_secret
 
-    let unsafe_stream_into ~key ~ctr buf ~off len =
+    let (unsafe_stream_into @ portable) ~key ~ctr buf ~off len =
       let blocks = imax 0 len / block_size in
+      let slack = imax 0 len mod block_size in
+      Ctr.check_blocks (blocks + if slack = 0 then 0 else 1);
       Ctr.unsafe_count_into ctr buf ~off ~blocks ;
       Core.encrypt ~key ~blocks (Bytes.unsafe_to_string buf) off buf off ;
-      let slack = imax 0 len mod block_size in
       if slack <> 0 then begin
         let buf' = Bytes.create block_size in
         let ctr = Ctr.add ctr (Int64.of_int blocks) in
@@ -308,7 +322,8 @@ module Modes = struct
       unsafe_stream_into ~key ~ctr buf ~off:0 n;
       Bytes.unsafe_to_string buf
 
-    let unsafe_encrypt_into ~key ~ctr src ~src_off dst ~dst_off len =
+    let (unsafe_encrypt_into @ portable) ~key ~ctr src ~src_off dst ~dst_off
+        len =
       unsafe_stream_into ~key ~ctr dst ~off:dst_off len;
       Uncommon.unsafe_xor_into src ~src_off dst ~dst_off len
 
@@ -329,32 +344,33 @@ module Modes = struct
 
     let unsafe_decrypt_into = unsafe_encrypt_into
 
-    let add_ctr = Ctr.add
+    let (add_ctr @ portable) = Ctr.add
     let next_ctr ?(off = 0) msg ~ctr =
       add_ctr ctr (Int64.of_int @@ (String.length msg - off) // block_size)
-    let ctr_of_octets = Ctr.of_octets
+    let (ctr_of_octets @ portable) = Ctr.of_octets
   end
 
   module GHASH : sig
     type key
-    val derive  : string -> key
-    val digesti : key:key -> (string Uncommon.iter) -> string
+    val derive  : string -> key @@ portable
+    val digesti : key:key -> (string Uncommon.iter) -> string @@ portable
     val digesti_off_len : key:key -> (string * int * int) Uncommon.iter -> string
+      @@ portable
     val tagsize : int
   end = struct
     type key = string
     let keysize = Native.GHASH.keysize ()
     let tagsize = 16
-    let derive cs =
+    let (derive @ portable) cs =
       assert (String.length cs >= tagsize);
       let k = Bytes.create keysize in
       Native.GHASH.keyinit cs k;
       Bytes.unsafe_to_string k
-    let digesti_off_len ~key i =
+    let (digesti_off_len @ portable) ~key i =
       let res = Bytes.make tagsize '\x00' in
       i (fun (cs, off, len) -> Native.GHASH.ghash key res cs off len);
       Bytes.unsafe_to_string res
-    let digesti ~key i =
+    let (digesti @ portable) ~key i =
       let res = Bytes.make tagsize '\x00' in
       i (fun cs -> Native.GHASH.ghash key res cs 0 (String.length cs));
       Bytes.unsafe_to_string res
@@ -372,22 +388,22 @@ module Modes = struct
     let key_sizes, block_size = C.(key, block)
     let z128 = String.make block_size '\x00'
 
-    let of_secret cs =
+    let (of_secret @ portable) cs =
       let h = Bytes.create block_size in
       let key = C.e_of_secret cs in
       C.encrypt ~key ~blocks:1 z128 0 h 0;
       { key ; hkey = GHASH.derive (Bytes.unsafe_to_string h) }
 
-    let bits64 cs = Int64.of_int (String.length cs * 8)
+    let (bits64 @ portable) cs = Int64.of_int (String.length cs * 8)
 
-    let pack64s a b =
+    let (pack64s @ portable) a b =
       let cs = Bytes.create 16 in
       Bytes.set_int64_be cs 0 a;
       Bytes.set_int64_be cs 8 b;
       Bytes.unsafe_to_string cs
 
-    let counter ~hkey nonce = match String.length nonce with
-      | 0 -> invalid_arg "GCM: invalid nonce of length 0"
+    let (counter @ portable) ~hkey nonce = match String.length nonce with
+      | 0 -> Stdlib.invalid_arg "GCM: empty nonce"
       | 12 ->
         let (w1, w2) = String.get_int64_be nonce 0, String.get_int32_be nonce 8 in
         (w1, Int64.(shift_left (of_int32 w2) 32 |> add 1L))
@@ -402,7 +418,13 @@ module Modes = struct
               (pack64s (bits64 adata) (Int64.of_int (len * 8)), 0, 16)))
         ~src_off:0 dst ~dst_off:tag_off tag_size
 
-    let unsafe_authenticate_encrypt_into ~key:{ key; hkey } ~nonce ?adata src ~src_off dst ~dst_off ~tag_off len =
+    let (check_blocks @ portable) len =
+      Counters.C128be32.check_blocks (len // block_size)
+    [@@inline always]
+
+    let (unsafe_authenticate_encrypt_into @ portable) ~key:{ key; hkey }
+        ~nonce ?adata src ~src_off dst ~dst_off ~tag_off len =
+      check_blocks len;
       let ctr = counter ~hkey nonce in
       CTR.(unsafe_encrypt_into ~key ~ctr:(add_ctr ctr 1L) src ~src_off dst ~dst_off len);
       unsafe_tag_into ~key ~hkey ~ctr ?adata (Bytes.unsafe_to_string dst) ~off:dst_off ~len dst ~tag_off
@@ -413,7 +435,7 @@ module Modes = struct
       check_offset ~tag:"GCM" ~buf:"dst tag" ~off:tag_off ~len:tag_size (Bytes.length dst);
       unsafe_authenticate_encrypt_into ~key ~nonce ?adata src ~src_off dst ~dst_off ~tag_off len
 
-    let authenticate_encrypt ~key ~nonce ?adata data =
+    let (authenticate_encrypt @ portable) ~key ~nonce ?adata data =
       let l = String.length data in
       let dst = Bytes.create (l + tag_size) in
       unsafe_authenticate_encrypt_into ~key ~nonce ?adata data ~src_off:0 dst ~dst_off:0 ~tag_off:l l;
@@ -424,20 +446,24 @@ module Modes = struct
       String.sub r 0 (String.length data),
       String.sub r (String.length data) tag_size
 
-    let unsafe_authenticate_decrypt_into ~key:{ key; hkey } ~nonce ?adata src ~src_off ~tag_off dst ~dst_off len =
+    let (unsafe_authenticate_decrypt_into @ portable) ~key:{ key; hkey }
+        ~nonce ?adata src ~src_off ~tag_off dst ~dst_off len =
+      check_blocks len;
       let ctr = counter ~hkey nonce in
-      CTR.(unsafe_encrypt_into ~key ~ctr:(add_ctr ctr 1L) src ~src_off dst ~dst_off len);
       let ctag = Bytes.create tag_size in
       unsafe_tag_into ~key ~hkey ~ctr ?adata src ~off:src_off ~len ctag ~tag_off:0;
-      Eqaf.equal (String.sub src tag_off tag_size) (Bytes.unsafe_to_string ctag)
+      let r = Eqaf.equal (String.sub src tag_off tag_size) (Bytes.unsafe_to_string ctag) in
+      if r then CTR.(unsafe_encrypt_into ~key ~ctr:(add_ctr ctr 1L) src ~src_off dst ~dst_off len);
+      r
 
-    let authenticate_decrypt_into ~key ~nonce ?adata src ~src_off ~tag_off dst ~dst_off len =
+    let (authenticate_decrypt_into @ portable) ~key ~nonce ?adata src
+        ~src_off ~tag_off dst ~dst_off len =
       check_offset ~tag:"GCM" ~buf:"src" ~off:src_off ~len (String.length src);
       check_offset ~tag:"GCM" ~buf:"src tag" ~off:tag_off ~len:tag_size (String.length src);
       check_offset ~tag:"GCM" ~buf:"dst" ~off:dst_off ~len (Bytes.length dst);
       unsafe_authenticate_decrypt_into ~key ~nonce ?adata src ~src_off ~tag_off dst ~dst_off len
 
-    let authenticate_decrypt ~key ~nonce ?adata cdata =
+    let (authenticate_decrypt @ portable) ~key ~nonce ?adata cdata =
       if String.length cdata < tag_size then
         None
       else
@@ -461,31 +487,25 @@ module Modes = struct
 
     type key = C.ekey
 
-    let of_secret sec = C.e_of_secret sec
+    let (of_secret @ portable) sec = C.e_of_secret sec
 
     let (key_sizes, block_size) = C.(key, block)
 
     let cipher ~key src ~src_off dst ~dst_off =
       C.encrypt ~key ~blocks:1 src src_off dst dst_off
 
-    let unsafe_authenticate_encrypt_into ~key ~nonce ?(adata = "") src ~src_off dst ~dst_off ~tag_off len =
+    let (unsafe_authenticate_encrypt_into @ portable) ~key ~nonce
+        ?(adata = "") src ~src_off dst ~dst_off ~tag_off len =
       Ccm.unsafe_generation_encryption_into ~cipher ~key ~nonce ~adata
         src ~src_off dst ~dst_off ~tag_off len
-
-    let valid_nonce nonce =
-      let nsize = String.length nonce in
-      if nsize < 7 || nsize > 13 then
-        invalid_arg "CCM: nonce length not between 7 and 13: %u" nsize
 
     let authenticate_encrypt_into ~key ~nonce ?adata src ~src_off dst ~dst_off ~tag_off len =
       check_offset ~tag:"CCM" ~buf:"src" ~off:src_off ~len (String.length src);
       check_offset ~tag:"CCM" ~buf:"dst" ~off:dst_off ~len (Bytes.length dst);
       check_offset ~tag:"CCM" ~buf:"dst tag" ~off:tag_off ~len:tag_size (Bytes.length dst);
-      valid_nonce nonce;
       unsafe_authenticate_encrypt_into ~key ~nonce ?adata src ~src_off dst ~dst_off ~tag_off len
 
-    let authenticate_encrypt ~key ~nonce ?adata cs =
-      valid_nonce nonce;
+    let (authenticate_encrypt @ portable) ~key ~nonce ?adata cs =
       let l = String.length cs in
       let dst = Bytes.create (l + tag_size) in
       unsafe_authenticate_encrypt_into ~key ~nonce ?adata cs ~src_off:0 dst ~dst_off:0 ~tag_off:l l;
@@ -495,17 +515,17 @@ module Modes = struct
       let res = authenticate_encrypt ~key ~nonce ?adata cs in
       String.sub res 0 (String.length cs), String.sub res (String.length cs) tag_size
 
-    let unsafe_authenticate_decrypt_into ~key ~nonce ?(adata = "") src ~src_off ~tag_off dst ~dst_off len =
+    let (unsafe_authenticate_decrypt_into @ portable) ~key ~nonce
+        ?(adata = "") src ~src_off ~tag_off dst ~dst_off len =
       Ccm.unsafe_decryption_verification_into ~cipher ~key ~nonce ~adata src ~src_off ~tag_off dst ~dst_off len
 
     let authenticate_decrypt_into ~key ~nonce ?adata src ~src_off ~tag_off dst ~dst_off len =
       check_offset ~tag:"CCM" ~buf:"src" ~off:src_off ~len (String.length src);
       check_offset ~tag:"CCM" ~buf:"src tag" ~off:tag_off ~len:tag_size (String.length src);
       check_offset ~tag:"CCM" ~buf:"dst" ~off:dst_off ~len (Bytes.length dst);
-      valid_nonce nonce;
       unsafe_authenticate_decrypt_into ~key ~nonce ?adata src ~src_off ~tag_off dst ~dst_off len
 
-    let authenticate_decrypt ~key ~nonce ?adata data =
+    let (authenticate_decrypt @ portable) ~key ~nonce ?adata data =
       if String.length data < tag_size then
         None
       else
@@ -531,20 +551,20 @@ module AES = struct
     type ekey = string * int
     type dkey = string * int
 
-    let of_secret_with init key =
+    let (of_secret_with @ portable) init key =
       let rounds =
         match String.length key with
         | 16 | 24 | 32 -> String.length key / 4 + 6
-        | _ -> invalid_arg "AES.of_secret: key length %u" (String.length key)
+        | _ -> Stdlib.invalid_arg "AES.of_secret: invalid key length"
       in
       let rk = Bytes.create (Native.AES.rk_s rounds) in
       init key rk rounds ;
       Bytes.unsafe_to_string rk, rounds
 
-    let derive_d ?e buf rk rs = Native.AES.derive_d buf rk rs e
+    let (derive_d @ portable) ?e buf rk rs = Native.AES.derive_d buf rk rs e
 
-    let e_of_secret = of_secret_with Native.AES.derive_e
-    let d_of_secret = of_secret_with (derive_d ?e:None)
+    let (e_of_secret @ portable) = of_secret_with Native.AES.derive_e
+    let (d_of_secret @ portable) = of_secret_with (derive_d ?e:None)
 
     let of_secret secret =
       let (e, _) as ekey = e_of_secret secret in
@@ -553,10 +573,10 @@ module AES = struct
     (* XXX arg order ocaml<->c slows down *)
     (* XXX bounds checks *)
 
-    let encrypt ~key:(e, rounds) ~blocks src off1 dst off2 =
+    let (encrypt @ portable) ~key:(e, rounds) ~blocks src off1 dst off2 =
       Native.AES.enc src off1 dst off2 e rounds blocks
 
-    let decrypt ~key:(d, rounds) ~blocks src off1 dst off2 =
+    let (decrypt @ portable) ~key:(d, rounds) ~blocks src off1 dst off2 =
       Native.AES.dec src off1 dst off2 d rounds blocks
 
   end
@@ -581,23 +601,23 @@ module DES = struct
 
     let k_s = Native.DES.k_s ()
 
-    let gen_of_secret ~direction key =
+    let (gen_of_secret @ portable) ~direction key =
       if String.length key <> 24 then
-        invalid_arg "DES.of_secret: key length %u" (String.length key) ;
+        Stdlib.invalid_arg "DES.of_secret: invalid key length" ;
       let key = Bytes.of_string key in
       let keybuf = Bytes.create k_s in
       Native.DES.des3key key direction keybuf;
       Bytes.unsafe_to_string keybuf
 
-    let e_of_secret = gen_of_secret ~direction:0
-    let d_of_secret = gen_of_secret ~direction:1
+    let (e_of_secret @ portable) = gen_of_secret ~direction:0
+    let (d_of_secret @ portable) = gen_of_secret ~direction:1
 
     let of_secret secret = (e_of_secret secret, d_of_secret secret)
 
-    let encrypt ~key ~blocks src off1 dst off2 =
+    let (encrypt @ portable) ~key ~blocks src off1 dst off2 =
       Native.DES.ddes src off1 dst off2 blocks key
 
-    let decrypt = encrypt
+    let (decrypt @ portable) = encrypt
   end
 
   module ECB = Modes.ECB_of (Core)

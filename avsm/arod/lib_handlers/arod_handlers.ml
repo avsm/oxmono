@@ -217,12 +217,18 @@ let pagination_api env req respond =
   let limit = int_param req "limit" ~default:25 ~lo:1 ~hi:100 in
   let types =
     List.filter_map
-      (fun (k, v) -> if String.equal k "type" then Some v else None)
+      (fun (k, v) ->
+        if String.equal k "type" then Some (Req.globalize v) else None)
       (Req.query req)
+  in
+  let collection =
+    match Req.query_param req "collection" with
+    | None -> None
+    | Some collection -> Some (Req.globalize collection)
   in
   Resp.stream respond json_type
     (env.E.pagination
-       ~collection:(Req.query_param req "collection")
+       ~collection
        ~offset ~limit ~types)
 
 let sort_param req =
@@ -233,7 +239,11 @@ let sort_param req =
 (* [search_api] and [search_page] read the same three parameters. Pure
    [Req] reads, so this stays portable. *)
 let search_params req =
-  let q = match Req.query_param req "q" with Some q -> q | None -> "" in
+  let q =
+    match Req.query_param req "q" with
+    | Some q -> Req.globalize q
+    | None -> ""
+  in
   let limit = int_param req "limit" ~default:20 ~lo:1 ~hi:100 in
   let link_limit = int_param req "link_limit" ~default:12 ~lo:1 ~hi:100 in
   (q, limit, link_limit, sort_param req)
@@ -253,7 +263,13 @@ let search_page env req respond =
 
 (** {1 Files} *)
 
-let image_file segs env _req respond =
+let image_file (segs @ local) env _req respond =
+  let rec globalize (segs @ local) =
+    match segs with
+    | [] -> []
+    | segment :: rest -> Req.globalize segment :: globalize rest
+  in
+  let segs = globalize segs in
   match env.E.read_image segs with
   | Some body ->
       Resp.media respond (Mime.of_path (String.concat "/" segs)) body
@@ -306,7 +322,9 @@ let stats_auth ~password auth =
             password))
 
 let stats_range req =
-  match Req.query_param req "range" with Some s -> s | None -> "7d"
+  match Req.query_param req "range" with
+  | Some range -> Req.globalize range
+  | None -> "7d"
 
 let stats_dashboard env req respond =
   Resp.html respond (env.E.report `Dashboard ~range:(stats_range req))

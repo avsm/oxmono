@@ -22,7 +22,7 @@ let () =
   require_portable Httpz.Scan.skip_token;
   require_portable Httpz.Scan.find_sp_or_cr;
   require_portable Httpz.Span.equal_caseless;
-  require_portable Httpz.Span.parse_int64;
+  require_portable Httpz.Span.parse_content_length;
   require_portable Httpz.Buf_read.find_crlf_check_bare_cr;
   require_portable Httpz.Buf_write.int;
   require_portable Httpz.Version.to_string;

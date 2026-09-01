@@ -1,3 +1,19 @@
+# v1.1.1 (2026-08-31)
+
+* hkdf: enforce the RFC 5869 length bound in expand (len <= 255 * hash output
+  size) - larger requests were accepted, with the one-octet block counter
+  wrapping to 0 for block 256, and reject negative len (raising Failure for
+  both) (@thevilledev #4)
+* hkdf: avoid computing a superfluous block in expand when len is a multiple
+  of the hash output size (@thevilledev #4)
+
+# v1.1.0 (2026-06-30)
+
+* scrypt: fix for r > 8 (reported by @samoht #1, fix by @hannesm in #3 (inspired
+  by @samoht #2))
+* scrypt: add tests for r > 8 and bad input (@hannesm #3)
+* scrypt, pbkdf: raise Failure instead of Invalid_argument (@hannesm #3)
+
 # v1.0.0 (2024-08-28)
 
 * Migrate scrypt from Cstruct.t to string

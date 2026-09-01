@@ -3,6 +3,46 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
+module Ox = Base
+module Portable_lazy = Ox.Portable_lazy
+
+module String_map = struct
+  type 'a t : value mod portable contended with 'a =
+    (string, 'a) Ox.Map.Poly.t
+
+  let empty : 'a. 'a t = Ox.Map.Poly.empty
+  let create () = Ox.Map.Poly.of_alist_exn []
+  let is_empty = Ox.Map.is_empty
+  let mem key map = Ox.Map.mem map key
+  let find_opt key map = Ox.Map.find map key
+  let add key data map = Ox.Map.set map ~key ~data
+  let singleton key data = Ox.Map.Poly.singleton key data
+  let remove key map = Ox.Map.remove map key
+
+  let update key f map =
+    match f (find_opt key map) with
+    | None -> remove key map
+    | Some data -> add key data map
+
+  let fold f map init =
+    Ox.Map.fold map ~init ~f:(fun ~key ~data acc -> f key data acc)
+
+  let filter f map =
+    fold (fun key data acc -> if f key data then add key data acc else acc)
+      map (Ox.Map.Poly.of_alist_exn [])
+
+  let union f left right =
+    fold
+      (fun key right_data acc ->
+        match find_opt key acc with
+        | None -> add key right_data acc
+        | Some left_data ->
+            match f key left_data right_data with
+            | None -> remove key acc
+            | Some data -> add key data acc)
+      right left
+end
+
 module Fmt = Jsont_base.Fmt
 type 'a fmt = 'a Fmt.t
 let pp_kind = Fmt.code
@@ -21,9 +61,9 @@ type error_kind = string
 type context_index = string node * Path.index
 type context = context_index list
 type error = context * Meta.t * error_kind
-exception Error of error
+exception Error of error @@ portable
 
-module Error = struct
+module Error_impl = struct
 
   (* Kinds of errors *)
 
@@ -153,31 +193,41 @@ module Error = struct
 
   (* Maps *)
 
-  let no_decoder meta ~kind = msgf meta "No decoder for %a" pp_kind kind
-  let no_encoder meta ~kind = msgf meta "No encoder for %a" pp_kind kind
+  let no_decoder : 'a. (Meta.t -> kind:string -> 'a) @ portable =
+    fun meta ~kind -> msgf meta "No decoder for %a" pp_kind kind
+
+  let no_encoder : 'a. (Meta.t -> kind:string -> 'a) @ portable =
+    fun meta ~kind -> msgf meta "No encoder for %a" pp_kind kind
   let decode_todo meta ~kind_opt:k = msgf meta "TODO: decode%a" pp_kind_opt k
   let encode_todo meta ~kind_opt:k = msgf meta "TODO: encode%a" pp_kind_opt k
   let for' meta ~kind e = msgf meta "%a: %s" pp_kind kind e
 end
 
+module Error : sig
+  @@ portable
+  include module type of Error_impl
+end = Error_impl
+
 (* Types *)
 
 module Repr = struct (* See the .mli for documentation *)
-  module String_map = Map.Make (String)
+  module String_map = String_map
   module Type = Jsont_base.Type
 
-  type ('ret, 'f) dec_fun =
-  | Dec_fun : 'f -> ('ret, 'f) dec_fun
+  type ('ret, 'f) dec_fun : value mod portable contended =
+  | Dec_fun : ('ret : value) ('f : value mod contended).
+      'f @@ portable contended ->
+      ('ret, 'f) dec_fun
   | Dec_app : ('ret, 'a -> 'b) dec_fun * 'a Type.Id.t -> ('ret, 'b) dec_fun
 
-  type ('a, 'b) base_map =
+  type ('a, 'b) base_map : value mod portable contended =
   { kind : string;
     doc : string;
-    dec : Meta.t -> 'a -> 'b;
-    enc : 'b -> 'a;
-    enc_meta : 'b -> Meta.t; }
+    dec : Meta.t -> 'a -> 'b @@ portable contended;
+    enc : 'b -> 'a @@ portable contended;
+    enc_meta : 'b -> Meta.t @@ portable contended; }
 
-  type 'a t =
+  type 'a t : value mod portable contended =
   | Null : (unit, 'a) base_map -> 'a t
   | Bool : (bool, 'a) base_map -> 'a t
   | Number : (float, 'a) base_map -> 'a t
@@ -186,86 +236,95 @@ module Repr = struct (* See the .mli for documentation *)
   | Object : ('o, 'o) object_map -> 'o t
   | Any : 'a any_map -> 'a t
   | Map : ('a, 'b) map -> 'b t
-  | Rec : 'a t Lazy.t -> 'a t
+  | Rec : 'a t Portable_lazy.t -> 'a t
 
-  and ('array, 'elt, 'builder) array_map =
+  and ('array, 'elt, 'builder) array_map : value mod portable contended =
   { kind : string;
     doc : string;
     elt : 'elt t;
-    dec_empty : unit -> 'builder;
-    dec_skip : int -> 'builder -> bool;
-    dec_add : int -> 'elt -> 'builder -> 'builder;
-    dec_finish : Meta.t -> int -> 'builder -> 'array;
-    enc : 'acc. ('acc -> int -> 'elt -> 'acc) -> 'acc -> 'array -> 'acc;
-    enc_meta : 'array -> Meta.t; }
+    dec_empty : unit -> 'builder @@ portable contended;
+    dec_skip : int -> 'builder -> bool @@ portable contended;
+    dec_add : int -> 'elt -> 'builder -> 'builder @@ portable contended;
+    dec_finish : Meta.t -> int -> 'builder -> 'array @@ portable contended;
+    enc : 'acc. ('acc -> int -> 'elt -> 'acc) -> 'acc -> 'array -> 'acc
+      @@ portable contended;
+    enc_meta : 'array -> Meta.t @@ portable contended; }
 
-  and ('o, 'dec) object_map =
+  and ('o, 'dec) object_map : value mod portable contended =
   { kind : string;
     doc : string;
     dec : ('o, 'dec) dec_fun;
     mem_decs : mem_dec String_map.t;
     mem_encs : 'o mem_enc list;
-    enc_meta : 'o -> Meta.t;
+    enc_meta : 'o -> Meta.t @@ portable contended;
     shape : 'o object_shape; }
 
-  and mem_dec = Mem_dec : ('o, 'a) mem_map -> mem_dec
-  and 'o mem_enc = Mem_enc : ('o, 'a) mem_map -> 'o mem_enc
-  and ('o, 'a) mem_map =
+  and mem_dec : value mod portable contended =
+    Mem_dec : ('o, 'a) mem_map -> mem_dec
+  and 'o mem_enc : value mod portable contended =
+    Mem_enc : ('o, 'a) mem_map -> 'o mem_enc
+  and ('o, 'a) mem_map : value mod portable contended =
   { name : string;
     doc : string;
     type' : 'a t;
     id : 'a Type.Id.t;
-    dec_absent : 'a option;
-    enc : 'o -> 'a;
+    dec_absent : (unit -> 'a) option @@ portable contended;
+    enc : 'o -> 'a @@ portable contended;
     (* enc_name_meta : 'a -> Meta.t; See comment in .mli *)
-    enc_omit : 'a -> bool; }
+    enc_omit : 'a -> bool @@ portable contended; }
 
-  and 'o object_shape =
+  and 'o object_shape : value mod portable contended =
   | Object_basic : ('o, 'mems, 'builder) unknown_mems -> 'o object_shape
   | Object_cases :
       ('o, 'mems, 'builder) unknown_mems option *
       ('o, 'cases, 'tag) object_cases -> 'o object_shape
 
-  and ('o, 'mems, 'builder) unknown_mems =
+  and ('o, 'mems, 'builder) unknown_mems : value mod portable contended =
   | Unknown_skip : ('o, unit, unit) unknown_mems
   | Unknown_error : ('o, unit, unit) unknown_mems
   | Unknown_keep :
-      ('mems, 'a, 'builder) mems_map * ('o -> 'mems) ->
+      ('mems, 'a, 'builder) mems_map *
+      ('o -> 'mems) @@ portable contended ->
       ('o, 'mems, 'builder) unknown_mems
 
-  and ('mems, 'a, 'builder) mems_map =
+  and ('mems, 'a, 'builder) mems_map : value mod portable contended =
   { kind : string;
     doc : string;
     mems_type : 'a t;
     id : 'mems Type.Id.t;
-    dec_empty : unit -> 'builder;
-    dec_add : Meta.t -> string -> 'a -> 'builder -> 'builder;
-    dec_finish : Meta.t -> 'builder -> 'mems;
+    dec_empty : unit -> 'builder @@ portable contended;
+    dec_add : Meta.t -> string -> 'a -> 'builder -> 'builder
+      @@ portable contended;
+    dec_finish : Meta.t -> 'builder -> 'mems @@ portable contended;
     enc :
-      'acc. (Meta.t -> string -> 'a -> 'acc -> 'acc) -> 'mems -> 'acc -> 'acc }
+      'acc. (Meta.t -> string -> 'a -> 'acc -> 'acc) -> 'mems -> 'acc -> 'acc
+      @@ portable contended }
 
-  and ('o, 'cases, 'tag) object_cases =
+  and ('o, 'cases, 'tag : value mod contended) object_cases
+      : value mod portable contended =
   { tag : ('tag, 'tag) mem_map;
-    tag_compare : 'tag -> 'tag -> int;
-    tag_to_string : ('tag -> string) option;
+    tag_compare : 'tag -> 'tag -> int @@ portable contended;
+    tag_to_string : ('tag -> string) option @@ portable contended;
     id : 'cases Type.Id.t;
     cases : ('cases, 'tag) case list;
-    enc : 'o -> 'cases;
-    enc_case : 'cases -> ('cases, 'tag) case_value; }
+    enc : 'o -> 'cases @@ portable contended;
+    enc_case : 'cases -> ('cases, 'tag) case_value @@ portable contended; }
 
-  and ('cases, 'case, 'tag) case_map =
-  { tag : 'tag;
+  and ('cases, 'case, 'tag : value mod contended) case_map
+      : value mod portable contended =
+  { tag : 'tag @@ portable;
     object_map : ('case, 'case) object_map;
-    dec : 'case -> 'cases; }
+    dec : 'case -> 'cases @@ portable contended; }
 
-  and ('cases, 'tag) case_value =
+  and ('cases, 'tag : value mod contended) case_value =
   | Case_value :
       ('cases, 'case, 'tag) case_map * 'case -> ('cases, 'tag) case_value
 
-  and ('cases, 'tag) case =
+  and ('cases, 'tag : value mod contended) case
+      : value mod portable contended =
   | Case : ('cases, 'case, 'tag) case_map -> ('cases, 'tag) case
 
-  and 'a any_map =
+  and 'a any_map : value mod portable contended =
   { kind : string;
     doc : string;
     dec_null : 'a t option;
@@ -274,14 +333,14 @@ module Repr = struct (* See the .mli for documentation *)
     dec_string : 'a t option;
     dec_array : 'a t option;
     dec_object : 'a t option;
-    enc : 'a -> 'a t; }
+    enc : 'a -> 'a t @@ portable contended; }
 
-  and ('a, 'b) map =
+  and ('a, 'b) map : value mod portable contended =
   { kind : string;
     doc : string;
     dom : 'a t;
-    dec : 'a -> 'b;
-    enc : 'b -> 'a; }
+    dec : 'a -> 'b @@ portable contended;
+    enc : 'b -> 'a @@ portable contended; }
 
   (* Convert *)
 
@@ -324,7 +383,7 @@ module Repr = struct (* See the .mli for documentation *)
   | Object map -> Object (object_map_with_doc ?kind ?doc map)
   | Any map -> Any (any_map_with_doc ?kind ?doc map)
   | Map map -> Map (map_with_doc ?kind ?doc map)
-  | Rec l -> with_doc ?kind ?doc (Lazy.force l)
+  | Rec l -> with_doc ?kind ?doc (Portable_lazy.force l)
 
   let object_map_kinded_sort (map : ('o, 'dec) object_map) =
     Sort.kinded ~kind:map.kind Object
@@ -338,7 +397,7 @@ module Repr = struct (* See the .mli for documentation *)
   | Object map -> object_map_kinded_sort map
   | Any map -> if map.kind = "" then any_map_kinded_sort map else map.kind
   | Map map -> if map.kind = "" then kinded_sort map.dom else map.kind
-  | Rec l -> kinded_sort (Lazy.force l)
+  | Rec l -> kinded_sort (Portable_lazy.force l)
 
   and array_map_kinded_sort : type a e b. (a, e, b) array_map -> string =
   fun map ->
@@ -371,12 +430,13 @@ module Repr = struct (* See the .mli for documentation *)
   | Object map -> Sort.or_kind ~kind:map.kind Object
   | Any map -> if map.kind <> "" then map.kind else "any"
   | Map map -> if map.kind <> "" then map.kind else kind map.dom
-  | Rec l -> kind (Lazy.force l)
+  | Rec l -> kind (Portable_lazy.force l)
 
   let rec doc : type a. a t -> string = function
   | Null map -> map.doc | Bool map -> map.doc | Number map -> map.doc
   | String map -> map.doc | Array map -> map.doc | Object map -> map.doc
-  | Any map -> map.doc | Map map -> map.doc | Rec l -> doc (Lazy.force l)
+  | Any map -> map.doc | Map map -> map.doc
+  | Rec l -> doc (Portable_lazy.force l)
 
   (* Errors *)
 
@@ -424,25 +484,33 @@ module Repr = struct (* See the .mli for documentation *)
   let object_meta_arg : Meta.t Type.Id.t = Type.Id.make ()
 
   module Dict = struct
-    module M = Map.Make (Int)
     type binding = B : 'a Type.Id.t * 'a -> binding
-    type t = binding M.t
-    let empty = M.empty
-    let mem k m = M.mem (Type.Id.uid k) m
-    let add k v m = M.add (Type.Id.uid k) (B (k, v)) m
-    let remove k m = M.remove (Type.Id.uid k) m
+    type t = (int, binding) Ox.Map.Poly.t
+    let empty () : t = Ox.Map.Poly.of_alist_exn []
+    let mem k m = Ox.Map.mem m (Type.Id.uid k)
+    let add k v m = Ox.Map.set m ~key:(Type.Id.uid k) ~data:(B (k, v))
+    let remove k m = Ox.Map.remove m (Type.Id.uid k)
     let find : type a. a Type.Id.t -> t -> a option =
-    fun k m -> match M.find_opt (Type.Id.uid k) m with
+    fun k m -> match Ox.Map.find m (Type.Id.uid k) with
     | None -> None
     | Some B (k', v) ->
         match Type.Id.provably_equal k k' with
         | Some Type.Equal -> Some v | None -> assert false
   end
 
-  let rec apply_dict : type ret f. (ret, f) dec_fun -> Dict.t -> f =
+  let rec apply_dict_partial : type ret f.
+    (ret, f) dec_fun -> Dict.t -> f @ contended
+  =
   fun dec dict -> match dec with
   | Dec_fun f -> f
-  | Dec_app (f, arg) -> (apply_dict f dict) (Option.get (Dict.find arg dict))
+  | Dec_app (f, arg) ->
+      (apply_dict_partial f dict) (Option.get (Dict.find arg dict))
+
+  let apply_dict : type ret. (ret, ret) dec_fun -> Dict.t -> ret =
+  fun dec dict -> match dec with
+  | Dec_fun f -> f
+  | Dec_app (f, arg) ->
+      (apply_dict_partial f dict) (Option.get (Dict.find arg dict))
 
   type unknown_mems_option =
   | Unknown_mems :
@@ -471,7 +539,7 @@ module Repr = struct (* See the .mli for documentation *)
     | Unknown_keep (map, _) -> Dict.add map.id (map.dec_finish meta umap) dict
     in
     let add_default _ (Mem_dec mem_map) dict = match mem_map.dec_absent with
-    | Some v -> Dict.add mem_map.id v dict
+    | Some default -> Dict.add mem_map.id (default ()) dict
     | None -> raise Exit
     in
     (try String_map.fold add_default mem_decs dict with
@@ -498,7 +566,14 @@ module Base = struct
 
   let base_map_sort = "base map"
 
-  let map ?(kind = "") ?(doc = "") ?dec ?enc ?(enc_meta = enc_meta_none) () =
+  let map
+      ?(kind = "") ?(doc = "") ?(dec @ portable) ?(enc @ portable)
+      ?(enc_meta @ portable) ()
+    =
+    let enc_meta = match enc_meta with
+    | None -> enc_meta_none
+    | Some enc_meta -> enc_meta
+    in
     let dec = match dec with
     | Some dec -> dec
     | None ->
@@ -531,23 +606,23 @@ module Base = struct
   let number map = Repr.Number map
   let string map = Repr.String map
 
-  let dec dec = fun _meta v -> dec v
-  let dec_result ?(kind = "") dec =
+  let dec (dec @ portable) = fun _meta v -> dec v
+  let dec_result ?(kind = "") (dec @ portable) =
     let kind = Sort.kinded' ~kind base_map_sort in
     fun meta v -> match dec v with
     | Ok v -> v | Error e -> Error.for' meta ~kind e
 
-  let dec_failure ?(kind = "") dec =
+  let dec_failure ?(kind = "") (dec @ portable) =
     let kind = Sort.kinded' ~kind base_map_sort in
     fun meta v -> try dec v with Failure e -> Error.for' meta ~kind e
 
-  let enc = Fun.id
-  let enc_result ?(kind = "") enc =
+  let enc (enc @ portable) = enc
+  let enc_result ?(kind = "") (enc @ portable) =
     let kind = Sort.kinded' ~kind base_map_sort in
     fun v -> match enc v with
     | Ok v -> v | Error e -> Error.for' Meta.none ~kind e
 
-  let enc_failure ?(kind = "") enc =
+  let enc_failure ?(kind = "") (enc @ portable) =
     let kind = Sort.kinded' ~kind base_map_sort in
     fun v -> try enc v with Failure e -> Error.for' Meta.none ~kind e
 end
@@ -569,7 +644,7 @@ let any
 
 (* Maps and recursion *)
 
-let map ?(kind = "") ?(doc = "") ?dec ?enc dom =
+let map ?(kind = "") ?(doc = "") ?(dec @ portable) ?(enc @ portable) dom =
   let map_sort = "map" in
   let dec = match dec with
   | Some dec -> dec
@@ -585,7 +660,7 @@ let map ?(kind = "") ?(doc = "") ?dec ?enc dom =
   in
   Repr.Map { kind; doc; dom; dec; enc }
 
-let iter ?(kind = "") ?(doc = "") ?dec ?enc dom =
+let iter ?(kind = "") ?(doc = "") ?(dec @ portable) ?(enc @ portable) dom =
   let dec = match dec with
   | None -> Fun.id | Some dec -> fun v -> dec v; v
   in
@@ -598,7 +673,7 @@ let rec' t = Repr.Rec t
 
 (* Nulls and options *)
 
-let null ?kind ?doc v =
+let null (type a : value mod contended) ?kind ?doc (v : a @ portable) =
   let dec _meta () = v and enc _meta = () in
   Repr.Null (Base.map ?doc ?kind ~dec ~enc ())
 
@@ -736,13 +811,24 @@ let int64_number =
   in
   Base.number (Base.map ~kind ~dec ~enc:Int64.to_float ())
 
-let int64 =
-  let dec_number = int64_number and dec_string = int64_as_string in
+let legacy_int64_number = (* to decode encodes made with <= 0.2.0  *)
+  let kind = "int64" in
+  let dec meta v =
+    if Jsont_base.Number.legacy_in_exact_int64_range v
+    then Int64.of_float v
+    else Error.number_range meta ~kind v
+  in
+  Base.number (Base.map ~kind ~dec ~enc:Int64.to_float ())
+
+let int64 ~dec_number =
   let enc v =
     if Jsont_base.Number.can_store_exact_int64 v then int64_number else
     int64_as_string
   in
-  any ~kind:"int64" ~dec_number ~dec_string ~enc ()
+  any ~kind:"int64" ~dec_number ~dec_string:int64_as_string ~enc ()
+
+let legacy_int64 = int64 ~dec_number:legacy_int64_number
+let int64 = int64 ~dec_number:int64_number
 
 let int_as_string =
   let kind = "OCaml int" in
@@ -761,44 +847,61 @@ let int_number =
   in
   Base.number (Base.map ~kind ~dec ~enc:Int.to_float ())
 
-let int =
+let legacy_int_number = (* to decode encodes made with <= 0.2.0  *)
+  let kind = "OCaml int" in
+  let dec meta v =
+    if Jsont_base.Number.legacy_in_exact_int_range v then Int.of_float v else
+    Error.number_range meta ~kind v
+  in
+  Base.number (Base.map ~kind ~dec ~enc:Int.to_float ())
+
+let int ~dec_number =
   let enc v =
     if Jsont_base.Number.can_store_exact_int v then int_number else
     int_as_string
   in
-  let dec_number = int_number and dec_string = int_as_string in
-  any ~kind:"OCaml int" ~dec_number ~dec_string ~enc ()
+  any ~kind:"OCaml int" ~dec_number ~dec_string:int_as_string ~enc ()
+
+let legacy_int = int ~dec_number:legacy_int_number
+let int = int ~dec_number:int_number
 
 (* String and enums *)
 
 let string = Repr.String Base.id
 
-let of_of_string ?kind ?doc ?enc of_string =
+let of_of_string ?kind ?doc ?(enc @ portable) (of_string @ portable) =
   let dec = Base.dec_result ?kind of_string in
   let enc = match enc with None -> None | Some enc -> Some (Base.enc enc) in
   Base.string (Base.map ?kind ?doc ?enc ~dec ())
 
-let enum (type a) ?(cmp = Stdlib.compare) ?(kind = "") ?doc assoc =
+let enum
+    (type a : value mod contended) ?(cmp @ portable = Stdlib.compare)
+    ?(kind = "") ?doc (assoc : (string * a) list @ portable)
+  =
   let kind = Sort.kinded' ~kind "enum" in
-  let dec_map =
-    let add m (k, v) = Repr.String_map.add k v m in
-    let m = List.fold_left add Repr.String_map.empty assoc in
-    fun k -> Repr.String_map.find_opt k m
+  let rec dec_map key found = function
+  | [] -> found
+  | (candidate, value) :: rest ->
+      let found =
+        if String.equal key candidate then Some value else found
+      in
+      dec_map key found rest
   in
-  let enc_map =
-    let module M = Map.Make (struct type t = a let compare = cmp end) in
-    let add m (k, v) = M.add v k m in
-    let m = List.fold_left add M.empty assoc in
-    fun v -> M.find_opt v m
+  let rec enc_map value found = function
+  | [] -> found
+  | (key, candidate) :: rest ->
+      let found = if cmp value candidate = 0 then Some key else found in
+      enc_map value found rest
   in
-  let dec meta s = match dec_map s with
+  (* Like the maps used upstream, later bindings take precedence. *)
+  let dec meta s = match dec_map s None assoc with
   | Some v -> v
   | None ->
       let kind = Sort.kinded ~kind String in
       let pp_kind ppf () = Fmt.pf ppf "%a value" Repr.pp_kind kind in
       Error.msgf meta "%a" (Fmt.out_of_dom ~pp_kind ()) (s, List.map fst assoc)
   in
-  let enc v = match enc_map v with
+  let enc v = match enc_map v None assoc with
   | Some s -> s
   | None ->
       Error.msgf Meta.none "Encode %a: unknown enum value" Repr.pp_kind kind
@@ -816,20 +919,30 @@ let binary_string =
 
 module Array = struct
   type ('array, 'elt, 'builder) map = ('array, 'elt, 'builder) Repr.array_map
-  type ('array, 'elt) enc =
-    { enc : 'acc. ('acc -> int -> 'elt -> 'acc) -> 'acc -> 'array -> 'acc }
+  type ('array, 'elt) enc : value mod portable contended =
+    { enc :
+        'acc. ('acc -> int -> 'elt -> 'acc) -> 'acc -> 'array -> 'acc
+        @@ portable contended }
 
   let array_kind kind = Sort.kinded ~kind Sort.Array
   let default_skip _i _builder = false
   let map
-      ?(kind = "") ?(doc = "") ?dec_empty ?dec_skip ?dec_add ?dec_finish
-      ?enc ?(enc_meta = enc_meta_none) elt
+      ?(kind = "") ?(doc = "") ?(dec_empty @ portable)
+      ?(dec_skip @ portable) ?(dec_add @ portable) ?(dec_finish @ portable)
+      ?enc ?(enc_meta @ portable) elt
     =
+    let enc_meta = match enc_meta with
+    | None -> enc_meta_none
+    | Some enc_meta -> enc_meta
+    in
     let dec_empty = match dec_empty with
     | Some dec_empty -> dec_empty
     | None -> fun () -> Error.no_decoder Meta.none ~kind:(array_kind kind)
     in
-    let dec_skip = Option.value ~default:default_skip dec_skip in
+    let dec_skip = match dec_skip with
+    | None -> default_skip
+    | Some dec_skip -> dec_skip
+    in
     let dec_add = match dec_add with
     | Some dec_add -> dec_add
     | None -> fun _ _ _ -> Error.no_decoder Meta.none ~kind:(array_kind kind)
@@ -851,7 +964,7 @@ module Array = struct
     in
     loop f acc 0 l
 
-  let list_map ?kind ?doc ?dec_skip elt =
+  let list_map ?kind ?doc ?(dec_skip @ portable) elt =
     let dec_empty () = [] in
     let dec_add _i v l = v :: l in
     let dec_finish _meta _len l = List.rev l in
@@ -861,12 +974,12 @@ module Array = struct
   type 'a array_builder = 'a Jsont_base.Rarray.t
 
   let array_enc f acc a =
-    let acc = ref acc in
+    let mutable acc = acc in
     for i = 0 to Array.length a - 1
-    do acc := f !acc i (Array.unsafe_get a i) done;
-    !acc
+    do acc <- f acc i (Array.unsafe_get a i) done;
+    acc
 
-  let array_map ?kind ?doc ?dec_skip elt =
+  let array_map ?kind ?doc ?(dec_skip @ portable) elt =
     let dec_empty () = Jsont_base.Rarray.empty () in
     let dec_add _i v a = Jsont_base.Rarray.add_last v a in
     let dec_finish _meta _len a = Jsont_base.Rarray.to_array a in
@@ -875,15 +988,15 @@ module Array = struct
 
   type ('a, 'b, 'c) bigarray_builder = ('a, 'b, 'c) Jsont_base.Rbigarray1.t
 
-  let bigarray_map ?kind ?doc ?dec_skip k l elt =
+  let bigarray_map ?kind ?doc ?(dec_skip @ portable) k l elt =
     let dec_empty _meta = Jsont_base.Rbigarray1.empty k l in
     let dec_add _i v a = Jsont_base.Rbigarray1.add_last v a in
     let dec_finish _meta _len a = Jsont_base.Rbigarray1.to_bigarray a in
     let enc f acc a =
-      let acc = ref acc in
+      let mutable acc = acc in
       for i = 0 to Bigarray.Array1.dim a - 1
-      do acc := f !acc i (Bigarray.Array1.unsafe_get a i) done;
-      !acc
+      do acc <- f acc i (Bigarray.Array1.unsafe_get a i) done;
+      acc
     in
     let enc = { enc } in
     map ?kind ?doc ~dec_empty ?dec_skip ~dec_add ~dec_finish ~enc elt
@@ -913,8 +1026,8 @@ end
 
 let list ?kind ?doc t = Repr.Array (Array.list_map ?kind ?doc t)
 let array ?kind ?doc t = Repr.Array (Array.array_map ?kind ?doc t)
-let array_as_string_map ?kind ?doc ~key t =
-  let dec_empty () = Repr.String_map.empty in
+let array_as_string_map ?kind ?doc ~(key @ portable) t =
+  let dec_empty () = Ox.Map.Poly.of_alist_exn [] in
   let dec_add _i elt acc = Repr.String_map.add (key elt) elt acc in
   let dec_finish _meta _len acc = acc in
   let enc f acc m =
@@ -1020,15 +1133,25 @@ module Object = struct
 
   let default_shape = Object_basic Unknown_skip
 
-  let _map ?(kind = "") ?(doc = "") ?(enc_meta = enc_meta_none) dec =
+  let _map
+      ?(kind = "") ?(doc = "") ?(enc_meta @ portable) (dec @ portable)
+    =
+    let enc_meta = match enc_meta with
+    | None -> enc_meta_none
+    | Some enc_meta -> enc_meta
+    in
     { kind; doc; dec; mem_decs = String_map.empty; mem_encs = [];
       enc_meta; shape = default_shape }
 
-  let map ?kind ?doc dec = _map ?kind ?doc (Dec_fun dec)
-  let map' ?kind ?doc ?enc_meta dec =
+  let map
+      (type dec : value mod contended)
+      ?kind ?doc (dec : dec @ portable)
+    =
+    _map ?kind ?doc (Dec_fun dec)
+  let map' ?kind ?doc ?(enc_meta @ portable) (dec @ portable) =
     _map ?kind ?doc ?enc_meta (Dec_app (Dec_fun dec, object_meta_arg))
 
-  let enc_only ?(kind = "") ?doc ?enc_meta () =
+  let enc_only ?(kind = "") ?doc ?(enc_meta @ portable) () =
     let dec meta = Error.no_decoder meta ~kind:(Sort.kinded ~kind Object) in
     map' ~kind ?doc ?enc_meta dec
 
@@ -1071,14 +1194,21 @@ module Object = struct
   module Mem = struct
     type ('o, 'a) map = ('o, 'a) Repr.mem_map
 
-    let no_enc name = fun _v ->
-      Error.msgf Meta.none "No encoder for member %a" pp_code name
+    let no_enc (name : string) : ('a -> 'b) @ portable =
+      fun _v -> Error.msgf Meta.none "No encoder for member %a" pp_code name
 
-    let map ?(doc = "") ?dec_absent ?enc ?enc_omit name type' =
+    let map
+        ?(doc = "") ?(dec_absent @ portable) ?(enc @ portable)
+        ?(enc_omit @ portable) name type'
+      =
       let id = Type.Id.make () in
-      let enc = match enc with None -> no_enc name | Some enc -> enc in
-      let enc_omit = match enc_omit with
-      | None -> Fun.const false | Some omit -> omit
+      let enc = (match enc with
+      | None -> no_enc name
+      | Some enc -> enc : @ portable)
+      in
+      let enc_omit = (match enc_omit with
+      | None -> (fun _ -> false) | Some omit -> omit
+        : @ portable)
       in
       { name; doc; type'; id; dec_absent; enc; enc_omit }
 
@@ -1089,17 +1219,21 @@ module Object = struct
       { object_map with dec; mem_decs; mem_encs }
   end
 
-  let mem ?(doc = "") ?dec_absent ?enc ?enc_omit name type' map =
+  let mem
+      ?(doc = "") ?(dec_absent @ portable) ?(enc @ portable)
+      ?(enc_omit @ portable) name type' map
+    =
     let mmap =  Mem.map ~doc ?dec_absent ?enc ?enc_omit name type' in
     let mem_decs = String_map.add name (Mem_dec mmap) map.mem_decs in
     let mem_encs = Mem_enc mmap :: map.mem_encs in
     let dec = Dec_app (map.dec, mmap.id) in
     { map with dec; mem_decs; mem_encs }
 
-  let opt_mem ?doc ?enc:e name dom map =
+  let opt_mem ?doc ?enc:(e @ portable) name dom map =
     let dec = Option.some and enc = Option.get in
     let some = Map { kind = ""; doc = ""; dom; dec; enc} in
-    mem ?doc ~dec_absent:None ?enc:e ~enc_omit:Option.is_none name some map
+    mem ?doc ~dec_absent:(fun () -> None) ?enc:e
+      ~enc_omit:Option.is_none name some map
 
   (* Case objects *)
 
@@ -1109,7 +1243,11 @@ module Object = struct
     type ('cases, 'tag) value = ('cases, 'tag) case_value
 
     let no_dec _ = Error.msgf Meta.none "No decoder for case"
-    let map ?(dec = no_dec) tag obj =
+    let map
+        (type tag : value mod contended) ?(dec @ portable)
+        (tag : tag @ portable) obj
+      =
+      let dec = match dec with None -> no_dec | Some dec -> dec in
       { tag; object_map = get_object_map obj; dec; }
 
     let map_tag c = c.tag
@@ -1133,26 +1271,40 @@ module Object = struct
               in
               invalid_arg ("No case for dec_absent case member value" ^ tag)
 
-  let case_tag_mem ?(doc = "") name type' ~dec_absent ~enc_omit =
+  let case_tag_mem
+      ?(doc = "") name type' ~(dec_absent @ portable)
+      ~(enc_omit @ portable)
+    =
     let id = Type.Id.make () in
     let enc t = t (* N.B. this fact may be used by encoders. *) in
-    let enc_omit = match enc_omit with
-    | None -> Fun.const false | Some omit -> omit
+    let enc_omit = (match enc_omit with
+    | None -> (fun _ -> false) | Some omit -> omit : @ portable)
     in
     { name; doc; type'; id; dec_absent; enc; enc_omit }
 
   let case_mem
-      ?doc ?(tag_compare = Stdlib.compare) ?tag_to_string ?dec_absent
-      ?enc ?enc_omit ?enc_case name type' cases map
+      (type tag : value mod contended)
+      ?doc ?(tag_compare @ portable = Stdlib.compare)
+      ?(tag_to_string @ portable)
+      ?(dec_absent @ portable)
+      ?(enc @ portable) ?(enc_omit @ portable) ?(enc_case @ portable)
+      name (type' : tag t) cases map
     =
     let () = check_case_mem map cases ~dec_absent ~tag_compare ~tag_to_string in
+    let dec_absent = match dec_absent with
+    | None -> None
+    | Some tag -> Some (fun () -> tag)
+    in
     let tag = case_tag_mem ?doc name type' ~dec_absent ~enc_omit in
-    let enc = match enc with None -> Mem.no_enc name | Some e -> e in
-    let enc_case = match enc_case with
+    let enc = (match enc with
+    | None -> Mem.no_enc name | Some e -> e : @ portable)
+    in
+    let enc_case = (match enc_case with
     | Some enc_case -> enc_case
     | None ->
         fun _case ->
           Error.msgf Meta.none "No case encoder for member %a" pp_code name
+      : @ portable)
     in
     let id = Type.Id.make () in
     let cases = {tag; tag_compare; tag_to_string; id; cases; enc; enc_case} in
@@ -1162,16 +1314,17 @@ module Object = struct
   (* Unknown members *)
 
   module Mems = struct
-    type ('mems, 'a) enc =
+    type ('mems, 'a) enc : value mod portable contended =
       { enc :
           'acc. (Meta.t -> string -> 'a -> 'acc -> 'acc) -> 'mems -> 'acc ->
-          'acc }
+          'acc @@ portable contended }
 
     type ('mems, 'a, 'builder) map = ('mems, 'a, 'builder) mems_map
 
     let mems_kind kind = Sort.kinded' ~kind "members map"
     let map
-        ?(kind = "") ?(doc = "") ?dec_empty ?dec_add ?dec_finish
+        ?(kind = "") ?(doc = "") ?(dec_empty @ portable)
+        ?(dec_add @ portable) ?(dec_finish @ portable)
         ?enc mems_type
       =
       let dec_empty = match dec_empty with
@@ -1194,7 +1347,7 @@ module Object = struct
       { kind; doc; mems_type; id; dec_empty; dec_add; dec_finish; enc }
 
     let string_map ?kind ?doc type' =
-      let dec_empty () = String_map.empty in
+      let dec_empty () = Ox.Map.Poly.of_alist_exn [] in
       let dec_add _meta n v mems = String_map.add n v mems in
       let dec_finish _meta mems = mems in
       let enc f mems acc =
@@ -1219,8 +1372,10 @@ module Object = struct
     let kind = Sort.kinded' ~kind:mems.kind "members" in
     Error.no_encoder Meta.none ~kind
 
-  let keep_unknown ?enc mems (map : ('o, 'dec) object_map) =
-    let enc = match enc with None -> mems_noenc mems | Some enc -> enc in
+  let keep_unknown ?(enc @ portable) mems (map : ('o, 'dec) object_map) =
+    let enc = (match enc with
+    | None -> mems_noenc mems | Some enc -> enc : @ portable)
+    in
     let dec = Dec_app (map.dec, mems.id) in
     let unknown = Unknown_keep (mems, enc) in
     { map with dec; shape = set_shape_unknown_mems map.shape unknown }
@@ -1255,9 +1410,9 @@ let zero =
   any ~kind ~dec_null:null ~dec_bool ~dec_number ~dec_string ~dec_array
     ~dec_object ~enc ()
 
-let todo ?(kind = "") ?doc ?dec_stub () =
+let todo ?(kind = "") ?doc ?(dec_stub @ portable) () =
   let dec = match dec_stub with
-  | Some v -> Fun.const v
+  | Some default -> (fun _ -> default ())
   | None -> fun _v -> Error.decode_todo Meta.none ~kind_opt:kind
   in
   let enc _v = Error.encode_todo Meta.none ~kind_opt:kind in
@@ -1265,10 +1420,10 @@ let todo ?(kind = "") ?doc ?dec_stub () =
 
 (* Generic JSON *)
 
-type name = string node
-type mem = name * json
-and object' = mem list
-and json =
+type name : immutable_data = string node
+type mem : immutable_data = name * json
+and object' : immutable_data = mem list
+and json : immutable_data =
 | Null of unit node
 | Bool of bool node
 | Number of float node
@@ -1321,7 +1476,7 @@ let pp_json ppf j = pp_json' () ppf j
 
 (* Generic JSON *)
 
-module Json = struct
+module Json_impl = struct
   type 'a cons = ?meta:Meta.t -> 'a -> json
   type t = json
 
@@ -1418,6 +1573,16 @@ module Json = struct
       if String.equal n n' then Some m else find_mem n ms
 
   let find_mem' (n, _) ms = find_mem n ms
+  let remove_mem n ms =
+    let rec loop ms n acc = function
+    | [] -> ms
+    | ((n', _), _ as m) :: rest ->
+        if String.equal n n' then List.rev_append acc rest else
+        loop ms n (m :: acc) rest
+    in
+    loop ms n [] ms
+
+  let remove_mem' (n, _) ms = remove_mem n ms
   let object_names mems = List.map (fun ((n, _), _) -> n) mems
   let object_names' mems = List.map fst mems
 
@@ -1468,7 +1633,7 @@ module Json = struct
       | j -> error_type t j)
   | Map map -> map.dec (decode map.dom j)
   | Any map -> decode_any t map j
-  | Rec t -> decode (Lazy.force t) j
+  | Rec t -> decode (Portable_lazy.force t) j
 
   and decode_array :
     type a elt b. (a, elt, b) array_map -> Meta.t -> json list -> a
@@ -1489,10 +1654,11 @@ module Json = struct
 
   and decode_object : type o. (o, o) Object.map -> Meta.t -> object' -> o =
   fun map meta mems ->
-    let dict = Dict.empty in
+    let dict = Dict.empty () in
     let umems = Unknown_mems None in
     apply_dict map.dec @@
-    decode_object_map map meta umems String_map.empty String_map.empty dict mems
+    decode_object_map map meta umems String_map.empty
+      String_map.empty dict mems
 
   and decode_object_map : type o.
     (o, o) Object.map -> Meta.t -> unknown_mems_option ->
@@ -1550,7 +1716,7 @@ module Json = struct
               decode_object_basic
                 map meta umems umap mem_miss mem_decs dict mems
 
-  and decode_object_cases : type o cs t.
+  and decode_object_cases : type o cs (t : value mod contended).
     (o, o) object_map -> Meta.t -> unknown_mems_option ->
     (o, cs, t) object_cases -> mem_dec String_map.t -> mem_dec String_map.t ->
     Dict.t -> object' -> object' -> Dict.t
@@ -1572,7 +1738,7 @@ module Json = struct
     match mems with
     | [] ->
         (match cases.tag.dec_absent with
-        | Some tag -> decode_case_tag map meta tag delay []
+        | Some default -> decode_case_tag map meta (default ()) delay []
         | None ->
             let kinded_sort = Repr.object_map_kinded_sort map in
             Error.missing_mems meta ~kinded_sort
@@ -1634,7 +1800,7 @@ module Json = struct
       Object (List.rev mems, map.enc_meta v)
   | Any map -> encode (map.enc v) v
   | Map map -> encode map.dom (map.enc v)
-  | Rec t -> encode (Lazy.force t) v
+  | Rec t -> encode (Portable_lazy.force t) v
 
   and encode_object : type o dec.
     (o, o) object_map -> do_unknown:bool -> o -> object' -> object'
@@ -1695,6 +1861,11 @@ module Json = struct
    let recode t v = Result.map_error Error.to_string (recode' t v)
 end
 
+module Json : sig
+  @@ portable
+  include module type of Json_impl
+end = Json_impl
+
 let json_null =
   let dec meta () = Json.null ~meta () in
   let enc = function
@@ -1724,8 +1895,12 @@ let json_string =
   Repr.String (Base.map ~dec ~enc ~enc_meta:Json.meta ())
 
 let json, json_array, mem_list, json_object =
-  let rec elt = Repr.Rec any
-  and array_map = lazy begin
+  let make all =
+    let elt =
+      Repr.Rec
+        (Portable_lazy.map all ~f:(fun (json, _array, _mems, _object) ->
+           json))
+    in
     let dec_empty () = [] in
     let dec_add _i v a = v :: a in
     let dec_finish meta _len a = Json.list ~meta (List.rev a) in
@@ -1734,20 +1909,18 @@ let json, json_array, mem_list, json_object =
     | j -> Json.error_sort ~exp:Sort.Array j
     in
     let enc = { Array.enc = enc } in
-    Array.map ~dec_empty ~dec_add ~dec_finish ~enc ~enc_meta:Json.meta elt
-  end
-
-  and array = lazy (Array.array (Lazy.force array_map))
-  and mems = lazy begin
+    let array_map =
+      Array.map ~dec_empty ~dec_add ~dec_finish ~enc ~enc_meta:Json.meta elt
+    in
+    let json_array = Array.array array_map in
     let dec_empty () = [] in
     let dec_add meta n v mems = ((n, meta), v) :: mems in
     let dec_finish _meta mems = List.rev mems in
     let enc f l a = List.fold_left (fun a ((n, m), v) -> f m n v a) a l in
     let enc = { Object.Mems.enc = enc } in
-    Object.Mems.map ~dec_empty ~dec_add ~dec_finish ~enc elt
-  end
-
-  and object' = lazy begin
+    let mem_list =
+      Object.Mems.map ~dec_empty ~dec_add ~dec_finish ~enc elt
+    in
     let enc_meta = function
     | Object (_, meta) -> meta | j -> Json.error_sort ~exp:Sort.Object j
     in
@@ -1755,27 +1928,25 @@ let json, json_array, mem_list, json_object =
     | Object (mems, _) -> mems | j -> Json.error_sort ~exp:Sort.Object j
     in
     let dec meta mems = Object (mems, meta) in
-    Object.map' dec ~enc_meta
-    |> Object.keep_unknown (Lazy.force mems) ~enc
-    |> Object.finish
-  end
-
-  and any = lazy begin
-    let json_array = Lazy.force array in
-    let json_object = Lazy.force object' in
+    let json_object =
+      Object.map' dec ~enc_meta
+      |> Object.keep_unknown mem_list ~enc
+      |> Object.finish
+    in
     let enc = function
     | Null _ -> json_null | Bool _ -> json_bool
     | Number _ -> json_number | String _ -> json_string
     | Array _ -> json_array | Object _ -> json_object
     in
-    Repr.Any { kind = "json"; doc = "";
+    let any = Repr.Any { kind = "json"; doc = "";
                dec_null = Some json_null; dec_bool = Some json_bool;
                dec_number = Some json_number; dec_string = Some json_string;
                dec_array = Some json_array;
                dec_object = Some json_object; enc }
-   end
+    in
+    any, json_array, mem_list, json_object
   in
-  Lazy.force any, Lazy.force array, Lazy.force mems, Lazy.force object'
+  Portable_lazy.force (Portable_lazy.from_fun_fixed make)
 
 let json_mems =
   let dec_empty () = [] in
@@ -1795,7 +1966,7 @@ let json_mems =
    val bind : 'a t -> ('a -> 'b t) -> 'b t
    val map : ('a -> 'b) -> 'a t -> 'b t *)
 
-let const t v =
+let const (type a : value mod contended) (t : a t) (v : a @ portable) =
   let const _ = v in
   let dec = map ~dec:const ignore in
   let enc = map ~enc:const t in
@@ -1803,9 +1974,11 @@ let const t v =
   any ~dec_null:dec ~dec_bool:dec ~dec_number:dec ~dec_string:dec ~dec_array:dec
     ~dec_object:dec ~enc ()
 
-let recode ~dec:dom f ~enc =
+let recode ~dec:dom (f @ portable) ~enc =
   let m = map ~dec:f dom in
-  let enc _v = enc in
+  (* [any.enc] is invoked through a contended description; ['a t]'s kind
+     guarantees this crossing even though [enc] was bound uncontended here. *)
+  let enc _v = Ox.Modes.Contended.cross enc in
   any ~dec_null:m ~dec_bool:m ~dec_number:m ~dec_string:m ~dec_array:m
     ~dec_object:m ~enc ()
 
@@ -1817,25 +1990,25 @@ let update t =
 
 let rec list_repeat n v l = if n <= 0 then l else list_repeat (n - 1) v (v :: l)
 
-let nth ?absent n t =
+let nth ?(absent @ portable) n t =
   let dec_empty () = None in
-  let dec_skip i _v = i <> n in
+  let dec_skip i _v = not (Int.equal i n) in
   let dec_add _i v _acc = Some v in
   let dec_finish meta len v = match v with
   | Some v -> v
   | None ->
       match absent with
-      | Some v -> v
+      | Some default -> default ()
       | None -> Error.index_out_of_range meta ~n ~len
   in
   let enc f acc v = f acc 0 v in
   let enc = { Array.enc } in
   Array.array (Array.map ~dec_empty ~dec_skip ~dec_add ~dec_finish ~enc t)
 
-let update_nth ?stub ?absent n t =
+let update_nth ?stub ?(absent @ portable) n t =
   let update_elt n t v = Json.copy_layout v ~dst:(Json.update t v) in
   let rec update_array ~seen n t i acc = function
-  | v :: vs when i = n ->
+  | v :: vs when Int.equal i n ->
       let elt = update_elt (i, Json.meta v) t v in
       update_array ~seen:true n t (i + 1) (elt :: acc) vs
   | v :: vs -> update_array ~seen n t (i + 1) (v :: acc) vs
@@ -1849,8 +2022,8 @@ let update_nth ?stub ?absent n t =
       | Either.Left (acc, len) ->
           match absent with
           | None -> Error.index_out_of_range meta ~n ~len
-          | Some absent ->
-              let elt = Json.enc t absent in
+          | Some default ->
+              let elt = Json.enc t (default ()) in
               let stub = match stub with
               | None -> Json.zero elt | Some j -> j
               in
@@ -1862,15 +2035,19 @@ let update_nth ?stub ?absent n t =
   let enc j = j in
   map ~dec ~enc json
 
-let set_nth ?stub ?(allow_absent = false) t n v =
-  let absent = if allow_absent then Some v else None in
+let set_nth
+    (type a : value mod contended) ?stub ?(allow_absent = false) (t : a t) n
+    (v : a @ portable)
+  =
+  let absent = if allow_absent then Some (fun () -> v) else None in
   update_nth ?stub ?absent n (const t v)
 
 let delete_nth ?(allow_absent = false) n =
   let dec_empty () = [] in
-  let dec_add i v a = if i = n then a else (v :: a) in
+  let dec_add i v a = if Int.equal i n then a else (v :: a) in
   let dec_finish meta len a =
-    if n < len || allow_absent then Json.list ~meta (List.rev a) else
+    if Int.compare n len < 0 || allow_absent then Json.list ~meta (List.rev a)
+    else
     Error.index_out_of_range meta ~n ~len
   in
   let enc f acc = function
@@ -1881,7 +2058,7 @@ let delete_nth ?(allow_absent = false) n =
   let enc = { Array.enc = enc } in
   Array.array (Array.map ~dec_empty ~dec_add ~dec_finish ~enc ~enc_meta json)
 
-let filter_map_array a b f =
+let filter_map_array a b (f @ portable) =
   let dec_empty () = [] in
   let dec_add i v acc = match f i (Json.dec a v) with
   | None -> acc | Some v' -> (Json.enc b v') :: acc
@@ -1895,8 +2072,8 @@ let filter_map_array a b f =
   let enc_meta j = Json.meta j in
   Array.array (Array.map ~dec_empty ~dec_add ~dec_finish ~enc ~enc_meta json)
 
-let fold_array t f acc =
-  let dec_empty () = acc in
+let fold_array t (f @ portable) ~(init @ portable) =
+  let dec_empty = init in
   let dec_add = f in
   let dec_finish _meta _len acc = acc in
   let enc _f acc _a = acc in
@@ -1905,12 +2082,12 @@ let fold_array t f acc =
 
 (* Object queries *)
 
-let mem ?absent name t =
+let mem ?(absent @ portable) name t =
   Object.map Fun.id
   |> Object.mem name t ~enc:Fun.id ?dec_absent:absent
   |> Object.finish
 
-let update_mem ?absent name t =
+let update_mem ?(absent @ portable) name t =
   let update_mem n t v = n, Json.copy_layout v ~dst:(Json.update t v) in
   let rec update_object ~seen name t acc = function
   | ((name', _ as n), v) :: mems when String.equal name name' ->
@@ -1928,8 +2105,8 @@ let update_mem ?absent name t =
           | None ->
               let fnd = Json.object_names mems in
               Error.missing_mems meta ~kinded_sort:"" ~exp:[name] ~fnd
-          | Some absent ->
-              let m = (name, Meta.none), Json.enc t absent in
+          | Some default ->
+              let m = (name, Meta.none), Json.enc t (default ()) in
               List.rev (m :: acc)
       in
       Object (mems, meta)
@@ -1939,11 +2116,14 @@ let update_mem ?absent name t =
   let enc j = j in
   map ~dec:update ~enc json
 
-let set_mem ?(allow_absent = false) t name v =
-  let absent = if allow_absent then Some v else None in
+let set_mem
+    (type a : value mod contended) ?(allow_absent = false) (t : a t) name
+    (v : a @ portable)
+  =
+  let absent = if allow_absent then Some (fun () -> v) else None in
   update_mem ?absent name (const t v)
 
-let update_json_object ~name ~dec_add ~dec_finish =
+let update_json_object ~name ~(dec_add @ portable) ~(dec_finish @ portable) =
   let mems =
     let dec_empty () = false, [] in
     let enc f (_, l) a = List.fold_left (fun a ((n, m), v) -> f m n v a) a l in
@@ -1968,14 +2148,14 @@ let update_json_object ~name ~dec_add ~dec_finish =
 
 let delete_mem ?(allow_absent = false) name =
   let dec_add meta n v (ok, mems) =
-    if n = name then true, mems else ok, ((n, meta), v) :: mems
+    if String.equal n name then true, mems else ok, ((n, meta), v) :: mems
   in
   let dec_finish _meta (ok, ms as a) = if allow_absent then (true, ms) else a in
   update_json_object ~name ~dec_add ~dec_finish
 
-let fold_object t f acc =
+let fold_object t (f @ portable) ~(init @ portable) =
   let mems =
-    let dec_empty () = acc and dec_add = f and dec_finish _meta acc = acc in
+    let dec_empty = init and dec_add = f and dec_finish _meta acc = acc in
     let enc f _ acc = acc in
     Object.Mems.map t ~dec_empty ~dec_add ~dec_finish ~enc:{ Object.Mems.enc }
   in
@@ -1983,7 +2163,7 @@ let fold_object t f acc =
   |> Object.keep_unknown mems ~enc:Fun.id
   |> Object.finish
 
-let filter_map_object a b f =
+let filter_map_object a b (f @ portable) =
   let dec_add meta n v (_, mems) =
     match f meta n (Json.dec a v) with
     | None -> (true, mems)
@@ -1994,15 +2174,19 @@ let filter_map_object a b f =
 
 (* Index queries *)
 
-let index ?absent i t = match i with
+let index ?(absent @ portable) i t = match i with
 | Path.Nth (n, _) -> nth ?absent n t
 | Path.Mem (n, _) -> mem ?absent n t
 
-let set_index ?allow_absent t i v = match i with
+let set_index
+    (type a : value mod contended) ?allow_absent (t : a t) i
+    (v : a @ portable)
+  =
+  match i with
 | Path.Nth (n, _) -> set_nth ?allow_absent t n v
 | Path.Mem (n, _) -> set_mem ?allow_absent t n v
 
-let update_index ?stub ?absent i t = match i with
+let update_index ?stub ?(absent @ portable) i t = match i with
 | Path.Nth (n, _) -> update_nth ?stub ?absent n t
 | Path.Mem (n, _) -> update_mem ?absent n t
 
@@ -2012,10 +2196,10 @@ let delete_index ?allow_absent = function
 
 (* Path queries *)
 
-let path ?absent p q =
+let path ?(absent @ portable) p q =
   List.fold_left (fun q i -> index ?absent i q) q (Path.rev_indices p)
 
-let update_path ?stub ?absent p t = match Path.rev_indices p with
+let update_path ?stub ?(absent @ portable) p t = match Path.rev_indices p with
 | [] -> update t
 | i :: is ->
     match absent with
@@ -2025,16 +2209,16 @@ let update_path ?stub ?absent p t = match Path.rev_indices p with
     | Some absent ->
         let rec loop absent t = function
         | Path.Nth (n, _) :: is ->
-            loop Json.empty_array (update_nth ~absent n t) is
+            loop (fun () -> Json.empty_array) (update_nth ~absent n t) is
         | Path.Mem (n, _) :: is ->
-            loop Json.empty_object (update_mem ~absent n t) is
+            loop (fun () -> Json.empty_object) (update_mem ~absent n t) is
         | [] -> t
         in
         match i with
         | Path.Nth (n, _) ->
-            loop Json.empty_array (update_nth ?stub ~absent n t) is
+            loop (fun () -> Json.empty_array) (update_nth ?stub ~absent n t) is
         | Path.Mem (n, _) ->
-            loop Json.empty_object (update_mem ~absent n t) is
+            loop (fun () -> Json.empty_object) (update_mem ~absent n t) is
 
 let delete_path ?allow_absent p = match Path.rev_indices p with
 | [] -> recode ~dec:ignore (fun () -> Json.null') ~enc:json
@@ -2042,15 +2226,19 @@ let delete_path ?allow_absent p = match Path.rev_indices p with
     let upd del i = update_index i del in
     List.fold_left upd (delete_index ?allow_absent i) is
 
-let set_path ?stub ?(allow_absent = false) t p v = match Path.rev_indices p with
+let set_path
+    (type a : value mod contended) ?stub ?(allow_absent = false) (t : a t) p
+    (v : a @ portable)
+  =
+  match Path.rev_indices p with
 | [] -> recode ~dec:ignore (fun () -> Json.enc t v) ~enc:json
 | i :: is ->
-    let absent = if allow_absent then Some v else None in
+    let absent = if allow_absent then Some (fun () -> v) else None in
     update_path ?stub ?absent p (const t v)
 
 (* Formatting *)
 
-type format = Minify | Indent | Layout
+type format : immediate = Minify | Indent | Layout
 type number_format = Fmt.json_number_format
 let default_number_format = Fmt.json_default_number_format
 let pp_value ?number_format t () = fun ppf v -> match Json.encode t v with

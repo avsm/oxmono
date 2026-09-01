@@ -31,6 +31,10 @@ module R = struct
 
   module G = Generic
 
+  let rec map_portable (f @ portable) = function
+    | [] -> []
+    | x :: xs -> f x :: map_portable f xs
+
   type config = { strict : bool }
 
   type coding =
@@ -38,7 +42,7 @@ module R = struct
     | Constructed of int
     | Constructed_indefinite
 
-  module Header = struct
+  module Header @ portable = struct
 
     let error cs fmt =
       parse_error ("Header: at %a: " ^^ fmt) pp_octets cs
@@ -122,7 +126,7 @@ module R = struct
       tag, off + off_end, coding
   end
 
-  module Gen = struct
+  module Gen @ portable = struct
     let eof1 off cs = String.length cs - off = 0
     and eof2 off cs = String.get_uint16_be cs off = 0
 
@@ -159,81 +163,82 @@ module R = struct
   end
 
 
-  module TM = Map.Make (Tag)
-
-  module Cache = Asn_cache.Make ( struct
-    type 'a k = 'a asn endo
-    type 'a v = G.t -> 'a
-    let mapv = (&.)
-  end )
-
   let err_type ?(form=`Both) t g =
     parse_error "Type mismatch: expected: (%a %a) got: %a"
       G.pp_form_name form Tag.pp t G.pp_tag g
 
-  let primitive t f = function
+  let primitive t (f @ portable) : _ @ portable = function
     | G.Prim (t1, bs) when Tag.equal t t1 -> f bs
     | g -> err_type ~form:`Prim t g
 
-  let constructed t f = function
+  let constructed t (f @ portable) : _ @ portable = function
     | G.Cons (t1, gs) when Tag.equal t t1 -> f gs
     | g -> err_type ~form:`Cons t g
 
-  let string_like (type a) c t (module P : Prim.Prim_s with type t = a) =
+  let string_like c t (of_octets @ portable) (concat @ portable) : _ @ portable =
     let rec p = function
-      | G.Prim (t1, bs) when Tag.equal t t1 -> P.of_octets bs
+      | G.Prim (t1, bs) when Tag.equal t t1 -> of_octets bs
       | G.Cons (t1, gs) when Tag.equal t t1 && not c.strict ->
-          P.concat (List.map p gs)
+          concat (List.map p gs)
       | g -> err_type t g in
     p
 
-  let c_prim : type a. config -> tag -> a prim -> G.t -> a = fun c tag -> function
+  let c_prim : type a. config -> tag -> a prim -> (G.t -> a) @ portable =
+    fun c tag -> function
     | Bool       -> primitive tag Prim.Boolean.of_octets
     | Int        -> primitive tag Prim.Integer.of_octets
-    | Bits       -> string_like c tag (module Prim.Bits)
-    | Octets     -> string_like c tag (module Prim.Octets)
+    | Bits       -> string_like c tag Prim.Bits.of_octets Prim.Bits.concat
+    | Octets     -> string_like c tag Prim.Octets.of_octets Prim.Octets.concat
     | Null       -> primitive tag Prim.Null.of_octets
     | OID        -> primitive tag Prim.OID.of_octets
-    | CharString -> string_like c tag (module Prim.Gen_string)
+    | CharString ->
+        string_like c tag Prim.Gen_string.of_octets Prim.Gen_string.concat
 
-  let peek asn =
+  let peek asn : _ @ portable =
     match tag_set asn with
     | [tag] -> fun g -> Tag.equal (G.tag g) tag
     | tags  -> fun g ->
         let tag = G.tag g in List.exists (fun t -> Tag.equal t tag) tags
 
-  type opt = Cache.t * config
+  type opt = config
 
-  let rec c_asn : type a. a asn -> opt:opt -> G.t -> a = fun asn ~opt ->
+  let rec c_asn : type a. a asn -> opt:opt -> (G.t -> a) @ portable =
+    fun asn ~opt ->
 
-    let rec go : type a. ?t:tag -> a asn -> G.t -> a = fun ?t -> function
-      | Iso (f, _, _, a) -> f &. go ?t a
-      | Fix (fa, var) as fix ->
-          let p = lazy (go ?t (fa fix)) in
-          Cache.intern (fst opt) var fa @@ fun g -> Lazy.force p g
+    let rec go : type a. ?t:tag -> a asn -> (G.t -> a) @ portable =
+      fun ?t -> function
+      | Iso { project = f; syntax = a; _ } -> f &. go ?t a
+      | Fix ({ unfold = fa } as body) ->
+          fun g -> (go ?t (fa (Fix body))) g
       | Sequence s       -> constructed (t @? seq_tag) (c_seq s ~opt)
-      | Sequence_of a    -> constructed (t @? seq_tag) (List.map (c_asn a ~opt))
+      | Sequence_of a    ->
+          let p = c_asn a ~opt in
+          constructed (t @? seq_tag) (fun values -> map_portable p values)
       | Set s            -> constructed (t @? set_tag) (c_set s ~opt)
-      | Set_of a         -> constructed (t @? set_tag) (List.map (c_asn a ~opt))
+      | Set_of a         ->
+          let p = c_asn a ~opt in
+          constructed (t @? set_tag) (fun values -> map_portable p values)
       | Implicit (t0, a) -> go ~t:(t @? t0) a
       | Explicit (t0, a) -> constructed (t @? t0) (c_explicit a ~opt)
       | Choice (a1, a2)  ->
           let (p1, p2) = (c_asn a1 ~opt, c_asn a2 ~opt)
           and accepts1 = peek a1 in
           fun g -> if accepts1 g then L (p1 g) else R (p2 g)
-      | Prim p -> c_prim (snd opt) (t @? tag_of_p p) p in
+      | Prim p -> c_prim opt (t @? tag_of_p p) p in
 
     go asn
 
-  and c_explicit : type a. a asn -> opt:opt -> G.t list -> a = fun a ~opt ->
+  and c_explicit : type a. a asn -> opt:opt -> (G.t list -> a) @ portable =
+    fun a ~opt ->
 
     let p = c_asn a ~opt in function
       | [g] -> p g
       | gs  -> parse_error "EXPLICIT: sequence: %a" (pp_dump_list G.pp_tag) gs
 
-  and c_seq : type a. a sequence -> opt:opt -> G.t list -> a = fun s ~opt ->
+  and c_seq : type a. a sequence -> opt:opt -> (G.t list -> a) @ portable =
+    fun s ~opt ->
 
-    let rec seq : type a. a sequence -> G.t list -> a = function
+    let rec seq : type a. a sequence -> (G.t list -> a) @ portable = function
       | Pair (e, s) ->
           let (p1, p2) = (element e, c_seq s ~opt) in
           fun gs -> let (r, gs') = p1 gs in (r, p2 gs')
@@ -242,7 +247,8 @@ module R = struct
             match p gs with (a, []) -> a | (_, gs) ->
               parse_error "SEQUENCE: trailing: %a" (pp_dump_list G.pp_tag) gs
 
-    and element : type a. a element -> G.t list -> a * G.t list = function
+    and element : type a. a element ->
+      (G.t list -> a * G.t list) @ portable = function
       | Required (lbl, a) ->
           let p = c_asn a ~opt in (function
             | g::gs -> (p g, gs)
@@ -253,91 +259,66 @@ module R = struct
                    | gs                   -> (None, gs)
     in seq s
 
-  and c_set : type a. a sequence -> opt:opt -> G.t list -> a = fun s ~opt ->
-
-    let module P = struct
-
-      module C = Asn_core
-
-      type 'a or_missing = Found of 'a | Miss of string option
-
-      type _ element =
-        | Required : 'a or_missing -> 'a element
-        | Optional : 'a or_missing -> 'a option element
-
-      type _ sequence =
-        | Last : 'a element -> 'a sequence
-        | Pair : 'a element * 'b sequence -> ('a * 'b) sequence
-
-      let rec of_sequence : type a. a C.sequence -> a sequence = function
-        | C.Last (C.Required (lbl, _))    -> Last (Required (Miss lbl))
-        | C.Last (C.Optional (lbl, _))    -> Last (Optional (Miss lbl))
-        | C.Pair (C.Required (lbl, _), t) -> Pair (Required (Miss lbl), of_sequence t)
-        | C.Pair (C.Optional (lbl, _), t) -> Pair (Optional (Miss lbl), of_sequence t)
-
-      let to_tuple =
-        let rec element : type a. a element -> a = function
-          | Required (Miss  lbl) -> parse_error "SET: missing required: %s" (label lbl)
-          | Required (Found a  ) -> a
-          | Optional (Miss  _  ) -> None
-          | Optional (Found a  ) -> Some a
-        and seq : type a. a sequence -> a = function
-          | Last e       -> element e
-          | Pair (e, tl) -> (element e, seq tl) in
-        seq
-
-      let found_r a = Required (Found a)
-      and found_o a = Optional (Found a)
-    end in
-
-    let put  r = function P.Pair (_, tl) -> P.Pair (r,   tl) | _ -> assert false
-    and wrap f = function P.Pair (e, tl) -> P.Pair (e, f tl) | _ -> assert false in
-
-    let rec element : type a. a element -> tags * (G.t -> a P.element) = function
-      | Required (_, a) -> (tag_set a, P.found_r &. c_asn a ~opt)
-      | Optional (_, a) -> (tag_set a, P.found_o &. c_asn a ~opt)
-
-    and seq :
-      type a b. (a P.sequence endo -> b P.sequence endo)
-             -> a sequence -> (tags * (G.t -> b P.sequence endo)) list =
-      fun k -> function
-      | Last e ->
-          let (tags, p) = element e in
-          [(tags, (fun e' -> k (fun _ -> P.Last e')) &. p)]
-      | Pair (e, tl) ->
-          let (tags, p) = element e in
-          (tags, k &. put &. p) :: seq (k &. wrap) tl in
-
-    let parsers =
-      List.fold_right (fun (tags, p) ->
-          List.fold_right (fun tag -> TM.add tag p) tags)
-        (seq id s) TM.empty in
-
-    let rec step acc ps = function
-      | []    -> P.to_tuple acc
-      | g::gs ->
-          let p =
-            try TM.find (G.tag g) ps
-            with Not_found -> parse_error "SET: unexpected: %a" G.pp_tag g in
-          step (p g acc) (TM.remove (G.tag g) ps) gs in
-
-    step (P.of_sequence s) parsers
-
-  let (compile_ber, compile_der) =
-    let compile cfg asn =
-      let p = c_asn asn ~opt:(Cache.create (), cfg) in
-      fun cs ->
-        let g, off = Gen.parse cfg cs in
-        let remaining =
-          if String.length cs - off = 0 then
-            ""
-          else
-            String.sub cs off (String.length cs - off)
-        in
-        p g, remaining
+  and c_set : type a. a sequence -> opt:opt -> (G.t list -> a) @ portable =
+    fun s ~opt ->
+    let take (accepts @ portable) values =
+      let rec scan before = function
+        | [] -> None
+        | value :: after when accepts value ->
+          Some (value, List.rev_append before after)
+        | value :: after -> scan (value :: before) after
+      in
+      scan [] values
     in
-    (fun asn -> compile { strict = false } asn),
-    (fun asn -> compile { strict = true  } asn)
+    let rec sequence : type a. a sequence -> (G.t list -> a) @ portable =
+      function
+      | Last elt ->
+        let parser = element elt in
+        fun values ->
+          let value, remaining = parser values in
+          (match remaining with
+          | [] -> value
+          | values ->
+            parse_error "SET: unexpected: %a" (pp_dump_list G.pp_tag) values)
+      | Pair (head, tail) ->
+        let parse_head = element head
+        and parse_tail = sequence tail in
+        fun values ->
+          let head, remaining = parse_head values in
+          head, parse_tail remaining
+    and element : type a. a element ->
+      (G.t list -> a * G.t list) @ portable = function
+      | Required (lbl, syntax) ->
+        let parser = c_asn syntax ~opt
+        and accepts = peek syntax in
+        fun values ->
+          (match take accepts values with
+          | Some (value, remaining) -> parser value, remaining
+          | None -> parse_error "SET: missing required: %s" (label lbl))
+      | Optional (_, syntax) ->
+        let parser = c_asn syntax ~opt
+        and accepts = peek syntax in
+        fun values ->
+          (match take accepts values with
+          | Some (value, remaining) -> Some (parser value), remaining
+          | None -> None, values)
+    in
+    sequence s
+
+  let compile cfg asn =
+    let p = c_asn asn ~opt:cfg in
+    (fun cs ->
+       let g, off = Gen.parse cfg cs in
+       let remaining =
+         if String.length cs - off = 0 then
+           ""
+         else
+           String.sub cs off (String.length cs - off)
+       in
+       p g, remaining : _ @ portable)
+
+  let compile_ber asn : _ @ portable = compile { strict = false } asn
+  let compile_der asn : _ @ portable = compile { strict = true } asn
 
 end
 
@@ -402,9 +383,9 @@ module W = struct
   let rec encode : type a. conf -> tag option -> a -> a asn -> Writer.t
   = fun conf tag a -> function
 
-    | Iso (_, g, _, asn) -> encode conf tag (g a) asn
+    | Iso { inject = g; syntax = asn; _ } -> encode conf tag (g a) asn
 
-    | Fix (fa, _) as fix -> encode conf tag a (fa fix)
+    | Fix ({ unfold = fa } as body) -> encode conf tag a (fa (Fix body))
 
     | Sequence asns ->
         e_constructed (tag @? seq_tag) (e_seq conf a asns)

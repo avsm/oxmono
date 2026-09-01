@@ -395,3 +395,7 @@ the workspace build. The four in-tree consumers, `avsm/arod/lib`,
    directory, each with the driver and `(flags (:standard -w -a))`, and the
    two transcripts diffed. The driver is not checked in, because it has to be
    written against whichever release is being vendored.
+
+The vendored parser includes the linear bracket-matching correction from
+`avsm/cmarkit` commit `6a64f63`, required by the HTTP stack's bounded Markdown
+regressions.

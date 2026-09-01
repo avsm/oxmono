@@ -1,6 +1,3 @@
-(* Request parsing: percent-decoding of segments, query and form, and header
-   lookup. *)
-
 open Proffer
 module H = Httpz.Header_name
 module M = Httpz.Method
@@ -13,13 +10,18 @@ let check name b =
     prerr_endline ("FAIL: " ^ name);
     exit 1)
 
-(* [Req.v] takes a block, so the association-list spelling a test finds
-   readable is converted here rather than in the library. *)
 (* A request is local, so a helper that makes one returns it into the
    caller's region. *)
 let req ?headers ?body target = exclave_
   let headers = Option.map Headers.of_list headers in
   Req.v ~meth:M.Get ~target ?headers ?body ()
+
+(* The block's strings are local, so the list is walked rather than searched
+   with [List.mem_assoc]. *)
+let rec mem_assoc_local name (l : (string * string) list @ local) =
+  match l with
+  | [] -> false
+  | (k, _) :: tl -> String.equal k name || mem_assoc_local name tl
 
 let () =
   let r = req "/caf%C3%A9/a%2Fb//x" in
@@ -97,7 +99,7 @@ let () =
     (Req.forwarded_for r = Some "203.0.113.7");
   check "forwarded_proto is lowercased" (Req.forwarded_proto r = Some "https");
   check "to_list keeps the name as written"
-    (List.mem_assoc "X-Forwarded-Proto" (Headers.to_list (Req.headers r)));
+    (mem_assoc_local "X-Forwarded-Proto" (Headers.to_list (Req.headers r)));
   check "mem folds case" (Headers.mem (Req.headers r) H.If_none_match);
   check "mem is not a prefix test"
     (not (Headers.mem (Req.headers r) (Headers.of_string "if-none")))
@@ -118,7 +120,9 @@ let () =
     (Headers.to_list (Req.headers r)
     = [ ("X-Dup", "one"); ("x-dup", "two"); ("X-Dup", "three") ]);
   check "mem folds case across a repeat"
-    (Option.is_some (Headers.find_other (Req.headers r) "X-Dup"))
+    (match Headers.find_other (Req.headers r) "X-Dup" with
+     | Some _ -> true
+     | None -> false)
 
 let () =
   let r = req "/s?" in
@@ -138,5 +142,94 @@ let () =
     = [ ("k", "1"); ("k", "2"); ("bare", ""); ("e", ""); ("s", "a b") ]);
   check "form_param is the first value" (Req.form_param r "k" = Some "1");
   check "a form field with no = is empty" (Req.form_param r "bare" = Some "")
+
+(* [form_param] scans the body while [form] builds the list; the two must not
+   disagree about a name. *)
+let () =
+  let headers = [ ("Content-Type", "application/x-www-form-urlencoded") ] in
+  let bodies =
+    [
+      "";
+      "a=1";
+      "a=1&a=2&a=3";
+      "a+b=c+d&a%2Bb=c%2Bd";
+      "bare";
+      "bare&bare=1";
+      "e=&f";
+      "%zz=%4&x=%C3%A9";
+      "&&a=1&&";
+      "=novalue&k=v";
+      "a=b=c&d";
+    ]
+  in
+  let names =
+    [ "a"; "a b"; "a+b"; "bare"; "e"; "f"; "%zz"; ""; "k"; "d"; "z" ]
+  in
+  (* A request is local, so it cannot cross into the closure [List.iter]
+     wants: build one per name instead. *)
+  let rec each body = function
+    | [] -> ()
+    | name :: rest ->
+        let r = req ~headers ~body "/t" in
+        check
+          ("form_param agrees with form for " ^ body ^ " / " ^ name)
+          (Req.form_param r name = List.assoc_opt name (Req.form r));
+        each body rest
+  in
+  List.iter (fun body -> each body names) bodies
+
+let () =
+  let headers = [ ("Content-Type", "application/x-www-form-urlencoded") ] in
+  let r = req ~headers ~body:"a=1" "/new" in
+  check "is_form" (Req.is_form r);
+  check "form_result ok" (Req.form_result r = Ok [ ("a", "1") ]);
+  let r = req ~headers ~body:"" "/new" in
+  check "an empty form body is a form" (Req.is_form r);
+  check "an empty form body decodes to nothing" (Req.form_result r = Ok []);
+  let r =
+    req
+      ~headers:[ ("Content-Type", "application/json") ]
+      ~body:"{\"a\":1}" "/new"
+  in
+  check "another media type is not a form" (not (Req.is_form r));
+  check "form_result on another media type"
+    (Req.form_result r
+    = Error (Media.Unsupported (Some "application/json")));
+  check "form_param on another media type" (Req.form_param r "a" = None);
+  let r = req ~body:"a=1" "/new" in
+  check "a body with no type is not a form" (not (Req.is_form r));
+  check "form_result with no type"
+    (Req.form_result r = Error (Media.Unsupported None))
+
+(* A codec's callbacks are portable, so a portable route can capture a
+   module-level codec directly. The annotation makes this a compile-time
+   regression test for the whole [Media.t] value. *)
+let form_from_unit
+  : (unit -> (string * string) list Media.t) @ portable =
+  fun () -> Media.form
+
+let () =
+  let site =
+    Site.of_routes
+      [
+        Route.post (Route.s "greet")
+          (Route.with_body
+             form_from_unit
+             (fun ps () _req respond ->
+               Resp.text respond
+                 (String.concat ","
+                    (List.map (fun (k, v) -> k ^ "=" ^ v) ps))));
+      ]
+  in
+  let request ?headers ?body () =
+    Proffer_mock.request site () M.Post "/greet" ?headers ?body
+  in
+  let headers = [ ("Content-Type", "application/x-www-form-urlencoded") ] in
+  let r = request ~headers ~body:"name=Ada+L.&k=1&k=2" () in
+  check "with_body form ok"
+    (Status.code (Proffer_mock.status r) = 200
+    && Proffer_mock.body r = "name=Ada L.,k=1,k=2");
+  let r = request ~headers:[ ("Content-Type", "text/plain") ] ~body:"a=1" () in
+  check "with_body form 415" (Status.code (Proffer_mock.status r) = 415)
 
 let () = Printf.printf "test_req: %d checks ok\n" !checks

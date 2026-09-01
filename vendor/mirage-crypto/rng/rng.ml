@@ -17,7 +17,7 @@ let setup_rng =
    `let main = Mirage.main \"Unikernel.Main\" (random @-> job)`, \
    and `let () = register \"my_unikernel\" [main $ default_random]`. \
    \n  If you are using miou, execute \
-   `Mirage_crypto_rng_miou_unix.initialize (module Mirage_crypto_rng.Fortuna)` \
+   `Mirage_crypto_rng_mkernel.(initialize (module Pfortuna))` \
    at startup."
 
 let () = Printexc.register_printer (function
@@ -39,6 +39,17 @@ module type Generator = sig
   val pools : int
 end
 
+module type Portable_generator = sig @@ portable
+  type g
+  val block : int
+  val create : ?time:(unit -> int64) -> unit -> g
+  val generate_into : g:g -> bytes -> off:int -> int -> unit
+  val reseed : g:g -> string -> unit
+  val accumulate : g:g -> source -> [`Acc of string -> unit]
+  val seeded : g:g -> bool
+  val pools : int
+end
+
 type 'a generator = (module Generator with type g = 'a)
 type g = Generator : ('a * bool * 'a generator) -> g
 
@@ -47,6 +58,31 @@ let create (type a) ?g ?seed ?(strict=false) ?time (m : a generator) =
   let g = Option.value g ~default:(M.create ?time ()) in
   Option.iter (M.reseed ~g) seed;
   Generator (g, strict, m)
+
+type 'a portable_generator =
+  (module Portable_generator with type g = 'a)
+
+type portable_g =
+  Portable_generator : ('a * bool * 'a portable_generator) -> portable_g
+
+let (create_portable @ portable) (type a) ?g ?seed ?(strict = false) ?time
+    (m : a portable_generator) =
+  let module M = (val m) in
+  let g = match g with Some g -> g | None -> M.create ?time () in
+  (match seed with None -> () | Some seed -> M.reseed ~g seed);
+  Portable_generator (g, strict, m)
+
+let (generate_into_portable @ portable) ~g b ?(off = 0) n =
+  let Portable_generator (state, _, implementation) = g in
+  let module M = (val implementation) in
+  if off < 0 || n < 0 || Bytes.length b - off < n then
+    invalid_arg "invalid portable RNG buffer range";
+  M.generate_into ~g:state b ~off n
+
+let (generate_portable @ portable) ~g n =
+  let data = Bytes.create n in
+  generate_into_portable ~g data ~off:0 n;
+  Bytes.unsafe_to_string data
 
 let _default_generator = Atomic.make None
 

@@ -1,6 +1,3 @@
-(* Conditional GET, HEAD and the body variants, all through the code a socket
-   backend runs. *)
-
 open Proffer
 open Proffer.Route
 module H = Httpz.Header_name
@@ -25,16 +22,22 @@ type env = { forced : int ref }
 
 let routes =
   [
-    get (s "page" /? nil) (fun _env _req respond ->
+    get (s "page") (fun _env _req respond ->
         Resp.html respond ~etag:(Etag.strong "v1") ~cache "<p>page</p>");
-    get (s "weak" /? nil) (fun _env _req respond ->
+    get (s "weak") (fun _env _req respond ->
         Resp.v respond ~etag:(Etag.weak "v1") ~cache
-          ~headers:[ Resp.h H.Vary "Accept"; Resp.other "X-Extra" "1" ]
+          ~headers:
+            [
+              Resp.h H.Vary "Accept";
+              Resp.h H.Content_location "/weak";
+              Resp.h H.Expires "Sun, 06 Nov 1994 09:49:37 GMT";
+              Resp.other "X-Extra" "1";
+            ]
           ~content_type:(This "text/plain") (Body.String "weak"));
-    get (s "dated" /? nil) (fun _env _req respond ->
+    get (s "dated") (fun _env _req respond ->
         Resp.v respond ~last_modified:mtime ~headers:Headers.empty
           ~content_type:(This "text/plain") (Body.String "dated"));
-    get (s "delayed" /? nil) (fun env _req respond ->
+    get (s "delayed") (fun env _req respond ->
         Resp.v respond ~etag:(Etag.strong "d1") ~headers:Headers.empty
           ~content_type:(This "text/plain")
           (Body.Delayed
@@ -45,23 +48,28 @@ let routes =
                    incr env.forced;
                    "delayed");
              }));
-    post (s "page" /? nil) (fun _env _req respond ->
+    post (s "page") (fun _env _req respond ->
         Resp.html respond ~etag:(Etag.strong "v1") ~cache "<p>posted</p>");
-    get (s "boom" /? nil) (fun _env _req respond ->
+    route M.Put (s "page") (fun _env _req respond ->
+        Resp.html respond ~etag:(Etag.strong "v1") ~cache "<p>put</p>");
+    route M.Put (s "dated") (fun _env _req respond ->
+        Resp.v respond ~last_modified:mtime ~headers:Headers.empty
+          ~content_type:(This "text/plain") (Body.String "dated"));
+    route M.Put (s "plain") (fun _env _req respond ->
+        Resp.text respond "plain");
+    get (s "boom") (fun _env _req respond ->
         Resp.v respond ~headers:Headers.empty ~content_type:(This "text/plain")
           (Body.Delayed
              {
                length = None;
                gen = (fun () -> failwith "generator blew up");
              }));
-    (* The instant travels in the path so that one route can serve the whole
-       spread of dates the round trip covers. *)
     get
-      (s "at" / conv ~name:"epoch" float_of_string_opt /? nil)
+      (s "at" / conv ~name:"epoch" float_of_string_opt)
       (fun t _env _req respond ->
         Resp.v respond ~last_modified:t ~headers:Headers.empty
           ~content_type:(This "text/plain") (Body.String "at"));
-    get (s "stream" /? nil) (fun _env _req respond ->
+    get (s "stream") (fun _env _req respond ->
         Resp.v respond ~headers:Headers.empty ~content_type:(This "text/plain")
           (Body.Stream
              {
@@ -70,10 +78,11 @@ let routes =
                  (fun sink ->
                    Body.Sink.write sink "a";
                    Body.Sink.write sink "bc");
+               trailers = Headers.empty;
              }));
   ]
 
-let compiled = Compiled.compile (Site.of_routes routes)
+let compiled = (Site.of_routes routes)
 let env = { forced = ref 0 }
 
 let run ?headers meth target =
@@ -111,19 +120,144 @@ let () =
   check "etag list matches" (code o = 304);
   let o = run ~headers:[ ("If-None-Match", "*") ] M.Get "/page" in
   check "star matches" (code o = 304);
+  let o = run ~headers:[ ("If-None-Match", "\"other\", *") ] M.Get "/page" in
+  check "a mixed star list fails closed as a match" (code o = 304);
+  let o =
+    run ~headers:[ ("If-None-Match", "\"other\""); ("If-None-Match", "*") ]
+      M.Get "/page"
+  in
+  check "a repeated star condition matches" (code o = 304);
   let o = run ~headers:[ ("If-None-Match", "v1") ] M.Get "/page" in
-  check "unquoted tag does not match" (code o = 200)
+  check "unquoted tag does not match" (code o = 200);
+  let o =
+    run
+      ~headers:[ ("If-None-Match", "\"other\""); ("If-None-Match", "W/\"v1\"") ]
+      M.Get "/page"
+  in
+  check "repeated etag conditions are combined" (code o = 304)
 
 let () =
   let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] M.Get "/weak" in
   check "weak against strong matches" (code o = 304);
   check "304 keeps Vary" (header o H.Vary = Some "Accept");
+  check "304 keeps Content-Location"
+    (header o H.Content_location = Some "/weak");
+  check "304 keeps Expires"
+    (header o H.Expires = Some "Sun, 06 Nov 1994 09:49:37 GMT");
   check "304 drops other headers" (header_other o "X-Extra" = None)
 
+(* The generic handler API cannot obtain validators before invoking a mutating
+   handler. Conditional writes therefore fail closed before dispatch. *)
 let () =
   let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] M.Post "/page" in
-  check "a non-GET is not revalidated" (code o = 200);
-  check "the posted body is sent" (body o = "<p>posted</p>")
+  check "a matching etag on a non-GET is 412" (code o = 412);
+  check "412 says so" (body o = "Precondition Failed\n");
+  check "412 is plain text"
+    (header o H.Content_type = Some "text/plain; charset=utf-8");
+  let o = run ~headers:[ ("If-None-Match", "\"other\"") ] M.Post "/page" in
+  check "an unevaluated etag on a non-GET is 412" (code o = 412);
+  let o = run ~headers:[ ("If-None-Match", "*") ] M.Put "/page" in
+  check "star on a non-GET is 412" (code o = 412);
+  let o = run ~headers:[ ("If-None-Match", "*") ] M.Put "/plain" in
+  check "star is rejected without pre-state" (code o = 412);
+  let o = run ~headers:[ ("If-None-Match", "\"v1\"") ] M.Put "/plain" in
+  check "a tag list without pre-state is rejected" (code o = 412)
+
+(* If-Match is a strong comparison and comes before every other condition. *)
+let () =
+  let o = run ~headers:[ ("If-Match", "\"v1\"") ] M.Put "/page" in
+  check "If-Match is rejected before an unsafe handler" (code o = 412);
+  let o = run ~headers:[ ("If-Match", "\"other\"") ] M.Put "/page" in
+  check "a mismatched If-Match is 412" (code o = 412);
+  let o = run ~headers:[ ("If-Match", "*") ] M.Put "/page" in
+  check "If-Match star is rejected without pre-state" (code o = 412);
+  let o = run ~headers:[ ("If-Match", "W/\"v1\"") ] M.Put "/page" in
+  check "a weak tag never matches strongly" (code o = 412);
+  let o = run ~headers:[ ("If-Match", "\"v1\"") ] M.Put "/plain" in
+  check "If-Match without an etag is 412" (code o = 412);
+  let o =
+    run
+      ~headers:[ ("If-Match", "\"v1\""); ("If-None-Match", "\"v1\"") ]
+      M.Put "/page"
+  in
+  check "If-Match is evaluated before If-None-Match" (code o = 412);
+  let o = run ~headers:[ ("If-Match", "\"v1\"") ] M.Get "/page" in
+  check "If-Match applies to GET too" (code o = 200);
+  let o = run ~headers:[ ("If-Match", "\"other\"") ] M.Head "/page" in
+  check "a 412 on HEAD has no body" (code o = 412 && body o = "");
+  check "a 412 on HEAD keeps its length"
+    (length (run ~headers:[ ("If-Match", "\"other\"") ] M.Head "/page")
+    = Some 20L)
+
+(* If-Unmodified-Since is evaluated only when If-Match is absent. *)
+let () =
+  let o = run ~headers:[ ("If-Unmodified-Since", imf) ] M.Put "/dated" in
+  check "a dated conditional write is rejected" (code o = 412);
+  let o = run ~headers:[ ("If-Unmodified-Since", later) ] M.Put "/dated" in
+  check "a future write condition is rejected" (code o = 412);
+  let o = run ~headers:[ ("If-Unmodified-Since", earlier) ] M.Put "/dated" in
+  check "an earlier date is 412" (code o = 412);
+  let o = run ~headers:[ ("If-Unmodified-Since", "yesterday") ] M.Put "/dated" in
+  check "an unparsable If-Unmodified-Since is ignored" (code o = 200);
+  let o = run ~headers:[ ("If-Unmodified-Since", earlier) ] M.Put "/plain" in
+  check "a write condition is rejected without pre-state" (code o = 412);
+  let o =
+    run
+      ~headers:[ ("If-Match", "*"); ("If-Unmodified-Since", earlier) ]
+      M.Put "/dated"
+  in
+  check "If-Match rejects before If-Unmodified-Since" (code o = 412);
+  let o = run ~headers:[ ("If-Unmodified-Since", earlier) ] M.Get "/dated" in
+  check "If-Unmodified-Since applies to GET too" (code o = 412)
+
+let () =
+  let hits = Atomic.make 0 in
+  let site =
+    Site.of_routes
+      [
+        post (s "effect") (fun _env _req respond ->
+            Atomic.set hits (Atomic.get hits + 1);
+            Resp.v respond ~etag:(Etag.strong "v1") ~headers:Headers.empty
+              ~content_type:(This "text/plain") (Body.String "changed"));
+      ]
+  in
+  let request headers =
+    Proffer_mock.request ~headers site () M.Post "/effect"
+  in
+  let o = request [ ("If-Match", "\"v1\"") ] in
+  check "a rejected conditional write is 412" (code o = 412);
+  check "a rejected conditional write has no effect" (Atomic.get hits = 0);
+  let o =
+    request
+      [
+        ("If-Unmodified-Since", earlier);
+        ("If-Unmodified-Since", later);
+      ]
+  in
+  check "a repeated date condition is ignored" (code o = 200);
+  check "an ignored repeated condition dispatches once" (Atomic.get hits = 1);
+  let o = request [ ("If-Modified-Since", later) ] in
+  check "If-Modified-Since is ignored on POST" (code o = 200);
+  check "an ignored read condition dispatches once" (Atomic.get hits = 2)
+
+(* An If-Modified-Since the server has not reached yet is meaningless; without
+   a clock there is nothing to compare it against, so it still counts. *)
+let () =
+  let future = "Fri, 01 Jan 2100 00:00:00 GMT" in
+  let o = run ~headers:[ ("If-Modified-Since", future) ] M.Get "/dated" in
+  check "a future date is 304 without a clock" (code o = 304);
+  let o =
+    Proffer_mock.request
+      ~headers:[ ("If-Modified-Since", future) ]
+      ~now:1755561600. compiled env M.Get "/dated"
+  in
+  check "a future date is ignored against a clock" (code o = 200);
+  let o =
+    Proffer_mock.request
+      ~headers:[ ("If-Modified-Since", imf) ]
+      ~now:1755561600. compiled env M.Get "/dated"
+  in
+  check "a past date still revalidates against a clock" (code o = 304)
 
 let () =
   let o = run M.Get "/dated" in
@@ -136,7 +270,17 @@ let () =
   let o = run ~headers:[ ("If-Modified-Since", earlier) ] M.Get "/dated" in
   check "an earlier date is 200" (code o = 200);
   let o = run ~headers:[ ("If-Modified-Since", "yesterday") ] M.Get "/dated" in
-  check "an unparsable date is ignored" (code o = 200)
+  check "an unparsable date is ignored" (code o = 200);
+  let o =
+    run
+      ~headers:
+        [
+          ("If-Modified-Since", imf);
+          ("If-Modified-Since", earlier);
+        ]
+      M.Get "/dated"
+  in
+  check "a repeated date condition is ignored" (code o = 200)
 
 let () =
   let o =
@@ -171,13 +315,11 @@ let () =
 let () =
   let o = run M.Get "/stream" in
   check "mock collects the stream" (body o = "abc");
-  check "mock reports the collected length" (length o = Some 3L);
+  check "an unknown stream length stays unknown" (length o = None);
   let o = run M.Head "/stream" in
   check "head on a stream has no body" (body o = "");
   check "unknown stream length stays unknown" (length o = None)
 
-(* The generator runs under the same guard as the handler, so a failure is a
-   500 and not a dropped connection. *)
 let () =
   let seen = ref None in
   let o =
@@ -192,8 +334,6 @@ let () =
   let o = Proffer_mock.request compiled env M.Head "/boom" in
   check "head does not run the generator" (code o = 200)
 
-(* An impossible date is no date, so the condition is dropped and the full
-   response goes out. *)
 let () =
   let since v = run ~headers:[ ("If-Modified-Since", v) ] M.Get "/dated" in
   check "31 February is not a date"
@@ -207,17 +347,22 @@ let () =
   check "a disagreeing weekday is still a date"
     (code (since "Mon, 29 Feb 2000 00:00:00 GMT") = 304)
 
-(* RFC 9110 section 5.6.7 requires a recipient to accept the two obsolete
-   forms as well as IMF-fixdate. Dates are httpz's now and it parses all
-   three, so both of these name the same instant as [imf] and answer 304.
-   Proffer's own parser read IMF-fixdate alone and dropped the condition. *)
+(* RFC 9110 section 5.6.7 requires recipients to accept both obsolete HTTP-date
+   forms, although servers emit only IMF-fixdate. *)
 let () =
   let since v =
     run ~headers:[ ("If-Modified-Since", v) ] M.Get "/dated"
   in
   check "RFC 850 is a date"
     (code (since "Sunday, 06-Nov-94 08:49:37 GMT") = 304);
-  check "asctime is a date" (code (since "Sun Nov  6 08:49:37 1994") = 304)
+  check "asctime is a date" (code (since "Sun Nov  6 08:49:37 1994") = 304);
+  let moving =
+    Proffer_mock.request ~now:2840140800.
+      ~headers:[ "If-Modified-Since", "Sunday, 06-Nov-70 08:49:37 GMT" ]
+      compiled env M.Get "/at/-315619200"
+  in
+  check "RFC 850 two-digit years use the supplied current year"
+    (code moving = 200)
 
 (* [Resp.v ~last_modified] prints an IMF-fixdate and If-Modified-Since reads
    one back. A date survives the pair when its printed form gives a 304
@@ -252,9 +397,7 @@ let () =
         (name ^ " is later than the second before it")
         (since t (printed (t -. 1.)) = 200))
     spread;
-  (* The first representable second has nothing before it, so the pair is read
-     from the other side. *)
-  (* httpz clamps below year 1, so that is the floor now. *)
+  (* The first representable second has no earlier comparison value. *)
   let t = -62135596800. in
   check "the first representable second round trips"
     (since t (printed t) = 304);

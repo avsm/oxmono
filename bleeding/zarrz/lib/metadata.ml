@@ -115,7 +115,7 @@ let check_dimension_names ~shape names =
 
 let attributes_mem ~enc map =
   Jsont.Object.mem "attributes" (Jsont.option Jsont.json_object)
-    ~dec_absent:None ~enc ~enc_omit:Option.is_none map
+    ~dec_absent:(fun () -> None) ~enc ~enc_omit:Option.is_none map
 
 let array_jsont =
   Jsont.Object.map ~kind:"ArrayMetadata"
@@ -146,12 +146,12 @@ let array_jsont =
   |> Jsont.Object.mem "codecs" (Jsont.list Ext.jsont) ~enc:(fun m -> m.codecs)
   |> attributes_mem ~enc:(fun m -> m.attributes)
   |> Jsont.Object.mem "storage_transformers" (Jsont.list Ext.jsont)
-       ~dec_absent:[]
+       ~dec_absent:(fun () -> [])
        ~enc:(fun m -> m.storage_transformers)
        ~enc_omit:(function [] -> true | _ -> false)
   |> Jsont.Object.mem "dimension_names"
        (Jsont.option (Jsont.list (Jsont.option Jsont.string)))
-       ~dec_absent:None
+       ~dec_absent:(fun () -> None)
        ~enc:(fun m -> m.dimension_names)
        ~enc_omit:Option.is_none
   |> Jsont.Object.keep_unknown mem_list_mems ~enc:(fun m -> m.unknown)

@@ -1,134 +1,160 @@
-(* A site is its routes, its fallback, and a decorator. A wrapper such as
-   [with_auth] cannot rewrite the routes, because a route hides its handler
-   behind a matcher, so it composes onto [decorate] instead. [Backend] applies
-   [decorate] to the handler it selects, and to the fallback, passing the
-   request's path segments so a wrapper can act on a subtree alone. *)
+(* Wrappers compose through [decorate] because routes hide handlers behind matchers. The
+   backend decorates matched handlers and generated responses. *)
 
 module St = Httpz.Res
 
-type 'env t = {
-  routes : 'env Route.t list;
-  fallback : 'env Route.handler @@ portable;
-  decorate :
-    (string -> 'env Route.handler -> 'env Route.handler) @@ portable;
-  (* Whether a wrapper has composed onto [decorate]. [mount] reads it, because
-     it takes a sub-site's routes and nothing else, and a decoration silently
-     dropped from a gated sub-site would serve it unauthenticated. *)
-  decorated : bool;
-}
-
-let default_fallback _env (_req : Req.t @ local)
-    (respond : Resp.respond @ local) =
-  Resp.text respond ~status:St.Not_found "Not Found\n"
-let no_decoration _path h = h
-
-let of_routes routes =
-  {
-    routes;
-    fallback = default_fallback;
-    decorate = no_decoration;
-    decorated = false;
+type 'env t =
+  { routes : 'env Route.t list
+  ; fallback : 'env Route.handler @@ portable
+  ; (* A decorator runs the handler rather than returning a wrapped one, which
+       would be a heap closure on every response of a decorated site. *)
+    decorate :
+      string @ local
+      -> 'env Route.handler @ local
+      -> 'env
+      -> Req.t @ local
+      -> Resp.respond @ local
+      -> unit
+      @@ portable
+  ; (* Mounting a decorated sub-site is rejected to avoid dropping wrappers. *)
+    decorated : bool
   }
 
-let with_fallback (fallback : _ Route.handler @ portable) t =
-  { t with fallback }
+let default_fallback _env (_req : Req.t @ local) (respond : Resp.respond @ local) =
+  Resp.text respond ~status:St.Not_found "Not Found\n"
+;;
 
-(* A wrapper runs outside the wrappers already applied, so the site's own
-   decoration is what it wraps. Stacking [with_headers] over [with_auth] puts
-   the headers on the challenge too. *)
+let no_decoration _path (h : _ Route.handler @ local) env (req : Req.t @ local)
+    (respond : Resp.respond @ local) =
+  let () = (h env) req respond in
+  ()
+;;
 
-(* The decorator extends the block on its way past rather than rebuilding a
-   response, since a handler no longer returns one. [Headers.cat] puts the
-   joined block in the caller's region, so a site-wide header costs no heap.
-   Appended rather than merged, so a name a handler already set is the copy a
-   client reads first. The names and values go through the same check [Resp.v]
-   applies, which is what stops a decorator injecting a response split, and it
-   runs once here rather than on every response. *)
+let of_routes routes =
+  { routes; fallback = default_fallback; decorate = no_decoration; decorated = false }
+;;
+
+let with_fallback (fallback : _ Route.handler @ portable) t = { t with fallback }
+
+(* A wrapper runs outside the wrappers already applied, so the site's own decoration is
+   what it wraps. Stacking [with_headers] over [with_auth] puts the headers on the
+   challenge too. *)
+
+(* Validate field syntax once; response-specific overlap checks run when the
+   decorated response is known. Handler fields come first when a name repeats. *)
 let with_headers extra t =
   let extra = Headers.of_list extra in
-  Headers.iter Resp.check_header extra;
-  let decorate segs h =
-    let inner = t.decorate segs h in
-    fun env (req : Req.t @ local) (respond : Resp.respond @ local) ->
-      let local_ decorated : Resp.respond =
-       fun d ->
-        let local_ d =
-          { d with Resp.headers = Headers.cat d.Resp.headers extra }
-        in
-        let () = respond d in
-        ()
-      in
-      let () = inner env req decorated in
+  Resp.check_headers extra;
+  let decorate (segs : string @ local) (h : _ Route.handler @ local) env
+    (req : Req.t @ local) (respond : Resp.respond @ local) =
+    let local_ decorated : Resp.respond =
+      fun d ->
+      let local_ d = Resp.with_headers d extra in
+      let () = respond d in
       ()
+    in
+    let () = t.decorate segs h env req decorated in
+    ()
   in
   { t with decorate; decorated = true }
+;;
 
-(* [under scope path] is whether [path] starts with one of the prefixes in
-   [scope]. An empty prefix matches every path, which is how a caller gates a
-   whole site. The prefix is walked against the path where it lies, for the
-   same reason dispatch is: a gate that ran on every request should not build
-   a list to do it. *)
-let under scope path =
-  let n = String.length path in
-  let rec starts pfx i =
-    match pfx with
-    | [] -> true
-    | pc :: pt ->
-        let off = Pct.seg_start path i n in
-        off < n
-        &&
-        let stop = Pct.seg_stop path off n in
-        Pct.seg_is path off stop pc && starts pt stop
+(* Plain recursion rather than closures over [path], so a scope test
+   allocates nothing. *)
+let rec starts (path : string @ local) n pfx i =
+  match pfx with
+  | [] -> true
+  | pc :: pt ->
+    let off = Pct.seg_start path i n in
+    off < n
+    &&
+    let stop = Pct.seg_stop path off n in
+    Pct.seg_is path off stop pc && starts path n pt stop
+;;
+
+let rec under scope (path : string @ local) =
+  match scope with
+  | [] -> false
+  | pfx :: rest -> starts path (String.length path) pfx 0 || under rest path
+;;
+
+let with_auth ~scope ~realm ~(check : (string option @ local -> bool) @ portable) t =
+  (* Refuse a likely typo that would otherwise leave the site unprotected. *)
+  if scope = []
+  then
+    invalid_arg
+      "Proffer.Site.with_auth: an empty scope gates nothing, so pass [[]] to gate the \
+       whole site";
+  let invalid_segment segment =
+    String.equal segment "" || String.equal segment "."
+    || String.equal segment ".."
+    || String.contains segment '/' || String.contains segment '\\'
+    || String.exists
+         (fun c ->
+           let code = Char.code c in
+           code < 0x20 || code = 0x7f)
+         segment
   in
-  List.exists (fun pfx -> starts pfx 0) scope
-
-let with_auth ~scope ~realm ~(check @ portable) t =
-  (* An empty scope gates nothing, so the wrapper would serve the site open
-     while reading as a gate. The prefix that gates everything is [[]], one
-     keystroke away, so the empty list is refused rather than obeyed. *)
-  if scope = [] then
-    invalid_arg
-      "Proffer.Site.with_auth: an empty scope gates nothing, so pass [[]] to \
-       gate the whole site";
-  (* [%S] quotes and escapes the realm, which is what a quoted-string wants.
-     A realm holding a backslash or a double quote would need HTTP's escaping
-     rather than OCaml's, so it is rejected here instead. *)
-  if String.exists (fun c -> c = '"' || c = '\\') realm then
-    invalid_arg
-      (Printf.sprintf "Proffer.Site.with_auth: realm %S is not quotable" realm);
-  let field = Printf.sprintf "Basic realm=%S" realm in
+  List.iter
+    (List.iter (fun segment ->
+       if invalid_segment segment then
+         invalid_arg
+           (Printf.sprintf
+              "Proffer.Site.with_auth: scope segment %S is ambiguous or invalid"
+              segment)))
+    scope;
+  let invalid_realm_char c =
+    let n = Char.code c in
+    c = '"' || c = '\\' || (n < 0x20 && c <> '\t') || n = 0x7f
+  in
+  if String.exists invalid_realm_char realm
+  then
+    invalid_arg (Printf.sprintf "Proffer.Site.with_auth: realm %S is not quotable" realm);
+  let field = "Basic realm=\"" ^ realm ^ "\"" in
   let challenge (respond : Resp.respond @ local) =
     let () =
-      Resp.v respond ~status:St.Unauthorized
-        ~headers:
-          (stack_
-             [ Headers.h_local Httpz.Header_name.Www_authenticate field ])
+      Resp.v
+        respond
+        ~status:St.Unauthorized
+        ~headers:(stack_ [ Headers.h_local Httpz.Header_name.Www_authenticate field ])
         ~content_type:(This "text/plain; charset=utf-8")
         (Body.String "Unauthorized\n")
     in
     ()
   in
-  let decorate segs h =
-    let inner = t.decorate segs h in
-    if under scope segs then
-      fun env (req : Req.t @ local) (respond : Resp.respond @ local) ->
-        if check (Req.header req Httpz.Header_name.Authorization) then
-          let () = inner env req respond in
-          ()
-        else challenge respond
-    else inner
+  let decorate (segs : string @ local) (h : _ Route.handler @ local) env
+      (req : Req.t @ local) (respond : Resp.respond @ local) =
+    let rec authorization_count count = function
+      | [] -> count
+      | (field : Headers.field) :: rest ->
+        authorization_count
+          (if Headers.same_name field.name Httpz.Header_name.Authorization
+           then count + 1
+           else count)
+          rest
+    in
+    if
+      (not (under scope segs))
+      || (authorization_count 0 (Req.headers req) <= 1
+          && check (Req.header req Httpz.Header_name.Authorization))
+    then (
+      let () = t.decorate segs h env req respond in
+      ())
+    else challenge respond
   in
   { t with decorate; decorated = true }
+;;
 
-(* Only the routes of [sub] are taken. Its fallback belongs to it alone, and
-   its decorator would have to run under this site's, a composition the caller
-   writes directly by wrapping the mounted result. Taking the routes of a
-   decorated sub-site would drop a gate the caller believes is in place, so
-   that is refused rather than documented. *)
+(* Mount only routes. Reject wrappers that would otherwise be silently lost. *)
 let mount ~at sub t =
-  if sub.decorated then
+  if sub.decorated
+  then
     invalid_arg
-      "Proffer.Site.mount: the sub-site is wrapped, so wrap the result of \
-       mount instead";
+      "Proffer.Site.mount: the sub-site is wrapped, so wrap the result of mount instead";
   let prefixed = List.map (fun r -> Route.prefix at r) sub.routes in
   { t with routes = t.routes @ prefixed }
+;;
+
+let routes t = t.routes
+let fallback t = t.fallback
+let decorate t = t.decorate

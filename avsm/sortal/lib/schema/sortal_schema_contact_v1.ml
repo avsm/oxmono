@@ -391,64 +391,52 @@ let email_type_of_string = function
 
 (* JSON encoding *)
 
-(* Helper: case-insensitive enum decoder *)
-let case_insensitive_enum ~kind:kind_name cases =
-  let open Jsont in
-  let lowercase_cases = List.map (fun (s, v) -> (String.lowercase_ascii s, v)) cases in
-  let dec s =
-    match List.assoc_opt (String.lowercase_ascii s) lowercase_cases with
-    | Some v -> v
-    | None -> failwith ("unknown " ^ kind_name ^ ": " ^ s)
-  in
-  let enc v =
-    match List.find_opt (fun (_, v') -> v = v') cases with
-    | Some (s, _) -> s
-    | None -> failwith ("invalid " ^ kind_name)
-  in
-  let t = map ~kind:kind_name ~dec ~enc string in
-  t
-
 let contact_kind_json =
-  case_insensitive_enum ~kind:"ContactKind" [
-    "person", Person;
-    "organization", Organization;
-  ]
+  let dec s =
+    match String.lowercase_ascii s with
+    | "person" -> Person
+    | "organization" -> Organization
+    | _ -> failwith ("unknown ContactKind: " ^ s)
+  in
+  let enc = function Person -> "person" | Organization -> "organization" in
+  Jsont.map ~kind:"ContactKind" ~dec ~enc Jsont.string
 
 let service_json : service Jsont.t =
   let open Jsont in
   let open Jsont.Object in
-  let mem_opt f v ~enc = mem f v ~dec_absent:None ~enc_omit:Option.is_none ~enc in
+  let mem_opt f v ~enc = mem f v ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc in
   (* Convert string option to/from service_kind option *)
-  let dec_kind_opt kind_str =
-    match kind_str with
-    | None -> None
-    | Some s -> service_kind_of_string s
-  in
-  let enc_kind_opt = Option.map service_kind_to_string in
   let make url kind_str handle label range primary : service =
-    let kind = dec_kind_opt kind_str in
+    let kind =
+      match kind_str with None -> None | Some s -> service_kind_of_string s
+    in
     { url; kind; handle; label; range; primary }
   in
   map ~kind:"Service" make
   |> mem "url" string ~enc:(fun (s : service) -> s.url)
-  |> mem_opt "kind" (some string) ~enc:(fun (s : service) -> enc_kind_opt s.kind)
+  |> mem_opt "kind" (some string) ~enc:(fun (s : service) ->
+       match s.kind with
+       | None -> None
+       | Some kind -> Some (service_kind_to_string kind))
   |> mem_opt "handle" (some string) ~enc:(fun (s : service) -> s.handle)
   |> mem_opt "label" (some string) ~enc:(fun (s : service) -> s.label)
   |> mem_opt "range" (some Sortal_schema_temporal.json_t) ~enc:(fun (s : service) -> s.range)
-  |> mem "primary" bool ~dec_absent:false ~enc:(fun (s : service) -> s.primary)
+  |> mem "primary" bool ~dec_absent:(fun () -> false) ~enc:(fun (s : service) -> s.primary)
   |> finish
 
 let email_type_json =
-  case_insensitive_enum ~kind:"EmailType" [
-    "work", Work;
-    "personal", Personal;
-    "other", Other;
-  ]
+  let dec s =
+    match email_type_of_string (String.lowercase_ascii s) with
+    | Some t -> t
+    | None -> failwith ("unknown EmailType: " ^ s)
+  in
+  Jsont.map ~kind:"EmailType" ~dec
+    ~enc:(fun t -> email_type_to_string t) Jsont.string
 
 let email_json : email Jsont.t =
   let open Jsont in
   let open Jsont.Object in
-  let mem_opt f v ~enc = mem f v ~dec_absent:None ~enc_omit:Option.is_none ~enc in
+  let mem_opt f v ~enc = mem f v ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc in
   let make address type_ range note : email = { address; type_; range; note } in
   map ~kind:"Email" make
   |> mem "address" string ~enc:(fun (e : email) -> e.address)
@@ -460,7 +448,7 @@ let email_json : email Jsont.t =
 let organization_json : organization Jsont.t =
   let open Jsont in
   let open Jsont.Object in
-  let mem_opt f v ~enc = mem f v ~dec_absent:None ~enc_omit:Option.is_none ~enc in
+  let mem_opt f v ~enc = mem f v ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc in
   let make name title department range email url address : organization =
     { name; title; department; range; email; url; address }
   in
@@ -477,7 +465,7 @@ let organization_json : organization Jsont.t =
 let url_entry_json : url_entry Jsont.t =
   let open Jsont in
   let open Jsont.Object in
-  let mem_opt f v ~enc = mem f v ~dec_absent:None ~enc_omit:Option.is_none ~enc in
+  let mem_opt f v ~enc = mem f v ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc in
   let make url label range : url_entry = { url; label; range } in
   map ~kind:"URL" make
   |> mem "url" string ~enc:(fun (u : url_entry) -> u.url)
@@ -503,20 +491,20 @@ let atproto_service_json : atproto_service Jsont.t =
 let atproto_json : atproto Jsont.t =
   let open Jsont in
   let open Jsont.Object in
-  let mem_opt f v ~enc = mem f v ~dec_absent:None ~enc_omit:Option.is_none ~enc in
+  let mem_opt f v ~enc = mem f v ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc in
   let make atp_handle atp_did atp_services : atproto =
     { atp_handle; atp_did; atp_services }
   in
   map ~kind:"ATProto" make
   |> mem "handle" string ~enc:(fun (a : atproto) -> a.atp_handle)
   |> mem_opt "did" (some string) ~enc:(fun (a : atproto) -> a.atp_did)
-  |> mem "services" (list atproto_service_json) ~dec_absent:[] ~enc:(fun (a : atproto) -> a.atp_services)
+  |> mem "services" (list atproto_service_json) ~dec_absent:(fun () -> []) ~enc:(fun (a : atproto) -> a.atp_services)
   |> finish
 
 let json_t =
   let open Jsont in
   let open Jsont.Object in
-  let mem_opt f v ~enc = mem f v ~dec_absent:None ~enc_omit:Option.is_none ~enc in
+  let mem_opt f v ~enc = mem f v ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc in
   let make version kind handle names emails organizations urls services
            icon thumbnail orcid feeds atproto =
     if version <> 1 then
@@ -526,13 +514,13 @@ let json_t =
   in
   map ~kind:"Contact" make
   |> mem "version" int ~enc:(fun _ -> 1)
-  |> mem "kind" contact_kind_json ~dec_absent:Person ~enc:(fun c -> c.kind)
+  |> mem "kind" contact_kind_json ~dec_absent:(fun () -> Person) ~enc:(fun c -> c.kind)
   |> mem "handle" string ~enc:(fun c -> c.handle)
-  |> mem "names" (list string) ~dec_absent:[] ~enc:(fun c -> c.names)
-  |> mem "emails" (list email_json) ~dec_absent:[] ~enc:(fun c -> c.emails)
-  |> mem "organizations" (list organization_json) ~dec_absent:[] ~enc:(fun c -> c.organizations)
-  |> mem "urls" (list url_entry_json) ~dec_absent:[] ~enc:(fun c -> c.urls)
-  |> mem "services" (list service_json) ~dec_absent:[] ~enc:(fun c -> c.services)
+  |> mem "names" (list string) ~dec_absent:(fun () -> []) ~enc:(fun c -> c.names)
+  |> mem "emails" (list email_json) ~dec_absent:(fun () -> []) ~enc:(fun c -> c.emails)
+  |> mem "organizations" (list organization_json) ~dec_absent:(fun () -> []) ~enc:(fun c -> c.organizations)
+  |> mem "urls" (list url_entry_json) ~dec_absent:(fun () -> []) ~enc:(fun c -> c.urls)
+  |> mem "services" (list service_json) ~dec_absent:(fun () -> []) ~enc:(fun c -> c.services)
   |> mem_opt "icon" (some string) ~enc:(fun c -> c.icon)
   |> mem_opt "thumbnail" (some string) ~enc:(fun c -> c.thumbnail)
   |> mem_opt "orcid" (some string) ~enc:(fun c -> c.orcid)

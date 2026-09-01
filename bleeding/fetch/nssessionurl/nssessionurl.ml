@@ -67,7 +67,7 @@ type error = { domain : string; code : int; message : string }
 exception Error of error
 
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
       | Error { domain; code; message } ->
         Some (Printf.sprintf "Nssessionurl.Error(%s %d: %s)" domain code message)
       | _ -> None)
@@ -142,9 +142,10 @@ module Body_flow = struct
 
   let read_methods = []
 
-  let single_read t (buf : Cstruct.t) =
+  let single_read t (buf : Cstruct.t @ local) =
+    let buffer = buf.buffer and off = buf.off and len = buf.len in
     wait t.r (fun () ->
-        match read_into t.h buf.buffer buf.off buf.len with
+        match read_into t.h buffer off len with
         | 0 -> None
         | n when n > 0 -> Some n
         | -1 -> raise End_of_file

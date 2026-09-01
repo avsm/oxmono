@@ -288,7 +288,7 @@ let gen_object_type_and_jsont ?(first = true) nsid out name (spec : object_spec)
       (Printf.sprintf "    (fun _typ %s -> { %s })" params_str record_str);
     emitln out
       (Printf.sprintf
-         "  |> Jsont.Object.mem \"$type\" Jsont.string ~dec_absent:\"%s\" \
+         "  |> Jsont.Object.mem \"$type\" Jsont.string ~dec_absent:(fun () -> \"%s\") \
           ~enc:(fun _ -> \"%s\")"
          type_id type_id);
 
@@ -1140,7 +1140,7 @@ let gen_unified_object_type ?(first = true) ctx out name (spec : object_spec) =
       (Printf.sprintf "    (fun _typ %s -> { %s })" params_str record_str);
     emitln out
       (Printf.sprintf
-         "  |> Jsont.Object.mem \"$type\" Jsont.string ~dec_absent:\"%s\" \
+         "  |> Jsont.Object.mem \"$type\" Jsont.string ~dec_absent:(fun () -> \"%s\") \
           ~enc:(fun _ -> \"%s\")"
          type_id type_id);
 

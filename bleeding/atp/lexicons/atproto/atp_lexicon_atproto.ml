@@ -25,7 +25,7 @@ type main = {
 let main_jsont =
   Jsont.Object.map ~kind:"Main"
     (fun _typ cid uri -> { cid; uri })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.strongRef" ~enc:(fun _ -> "com.atproto.repo.strongRef")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.strongRef") ~enc:(fun _ -> "com.atproto.repo.strongRef")
   |> Jsont.Object.mem "cid" Jsont.string ~enc:(fun r -> r.cid)
   |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun r -> r.uri)
   |> Jsont.Object.finish
@@ -41,7 +41,7 @@ type record = {
 let record_jsont =
   Jsont.Object.map ~kind:"Record"
     (fun _typ cid uri value -> { cid; uri; value })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.listRecords#record" ~enc:(fun _ -> "com.atproto.repo.listRecords#record")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.listRecords#record") ~enc:(fun _ -> "com.atproto.repo.listRecords#record")
   |> Jsont.Object.mem "cid" Jsont.string ~enc:(fun r -> r.cid)
   |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun r -> r.uri)
   |> Jsont.Object.mem "value" Jsont.json ~enc:(fun r -> r.value)
@@ -84,7 +84,7 @@ type output = {
 let output_jsont =
   Jsont.Object.map ~kind:"Output"
     (fun _typ cursor records -> { cursor; records })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.listRecords#output" ~enc:(fun _ -> "com.atproto.repo.listRecords#output")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.listRecords#output") ~enc:(fun _ -> "com.atproto.repo.listRecords#output")
   |> Jsont.Object.opt_mem "cursor" Jsont.string ~enc:(fun r -> r.cursor)
   |> Jsont.Object.mem "records" (Jsont.list record_jsont) ~enc:(fun r -> r.records)
   |> Jsont.Object.finish
@@ -125,7 +125,7 @@ type output = {
 let output_jsont =
   Jsont.Object.map ~kind:"Output"
     (fun _typ cid uri value -> { cid; uri; value })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.getRecord#output" ~enc:(fun _ -> "com.atproto.repo.getRecord#output")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.getRecord#output") ~enc:(fun _ -> "com.atproto.repo.getRecord#output")
   |> Jsont.Object.opt_mem "cid" Jsont.string ~enc:(fun r -> r.cid)
   |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun r -> r.uri)
   |> Jsont.Object.mem "value" Jsont.json ~enc:(fun r -> r.value)
@@ -141,7 +141,7 @@ type commit_meta = {
 let commit_meta_jsont =
   Jsont.Object.map ~kind:"Commit_meta"
     (fun _typ cid rev -> { cid; rev })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.defs#commitMeta" ~enc:(fun _ -> "com.atproto.repo.defs#commitMeta")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.defs#commitMeta") ~enc:(fun _ -> "com.atproto.repo.defs#commitMeta")
   |> Jsont.Object.mem "cid" Jsont.string ~enc:(fun r -> r.cid)
   |> Jsont.Object.mem "rev" Jsont.string ~enc:(fun r -> r.rev)
   |> Jsont.Object.finish
@@ -161,7 +161,7 @@ type input = {
 let input_jsont =
   Jsont.Object.map ~kind:"Input"
     (fun _typ collection record repo rkey swap_commit swap_record validate -> { collection; record; repo; rkey; swap_commit; swap_record; validate })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.putRecord#input" ~enc:(fun _ -> "com.atproto.repo.putRecord#input")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.putRecord#input") ~enc:(fun _ -> "com.atproto.repo.putRecord#input")
   |> Jsont.Object.mem "collection" Jsont.string ~enc:(fun r -> r.collection)
   |> Jsont.Object.mem "record" Jsont.json ~enc:(fun r -> r.record)
   |> Jsont.Object.mem "repo" Jsont.string ~enc:(fun r -> r.repo)
@@ -181,7 +181,7 @@ type output = {
 let output_jsont =
   Jsont.Object.map ~kind:"Output"
     (fun _typ cid commit uri validation_status -> { cid; commit; uri; validation_status })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.putRecord#output" ~enc:(fun _ -> "com.atproto.repo.putRecord#output")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.putRecord#output") ~enc:(fun _ -> "com.atproto.repo.putRecord#output")
   |> Jsont.Object.mem "cid" Jsont.string ~enc:(fun r -> r.cid)
   |> Jsont.Object.opt_mem "commit" Defs.commit_meta_jsont ~enc:(fun r -> r.commit)
   |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun r -> r.uri)
@@ -201,7 +201,7 @@ type input = {
 let input_jsont =
   Jsont.Object.map ~kind:"Input"
     (fun _typ collection repo rkey swap_commit swap_record -> { collection; repo; rkey; swap_commit; swap_record })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.deleteRecord#input" ~enc:(fun _ -> "com.atproto.repo.deleteRecord#input")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.deleteRecord#input") ~enc:(fun _ -> "com.atproto.repo.deleteRecord#input")
   |> Jsont.Object.mem "collection" Jsont.string ~enc:(fun r -> r.collection)
   |> Jsont.Object.mem "repo" Jsont.string ~enc:(fun r -> r.repo)
   |> Jsont.Object.mem "rkey" Jsont.string ~enc:(fun r -> r.rkey)
@@ -216,7 +216,7 @@ type output = {
 let output_jsont =
   Jsont.Object.map ~kind:"Output"
     (fun _typ commit -> { commit })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.deleteRecord#output" ~enc:(fun _ -> "com.atproto.repo.deleteRecord#output")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.deleteRecord#output") ~enc:(fun _ -> "com.atproto.repo.deleteRecord#output")
   |> Jsont.Object.opt_mem "commit" Defs.commit_meta_jsont ~enc:(fun r -> r.commit)
   |> Jsont.Object.finish
 
@@ -234,7 +234,7 @@ type input = {
 let input_jsont =
   Jsont.Object.map ~kind:"Input"
     (fun _typ collection record repo rkey swap_commit validate -> { collection; record; repo; rkey; swap_commit; validate })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.createRecord#input" ~enc:(fun _ -> "com.atproto.repo.createRecord#input")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.createRecord#input") ~enc:(fun _ -> "com.atproto.repo.createRecord#input")
   |> Jsont.Object.mem "collection" Jsont.string ~enc:(fun r -> r.collection)
   |> Jsont.Object.mem "record" Jsont.json ~enc:(fun r -> r.record)
   |> Jsont.Object.mem "repo" Jsont.string ~enc:(fun r -> r.repo)
@@ -253,7 +253,7 @@ type output = {
 let output_jsont =
   Jsont.Object.map ~kind:"Output"
     (fun _typ cid commit uri validation_status -> { cid; commit; uri; validation_status })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.createRecord#output" ~enc:(fun _ -> "com.atproto.repo.createRecord#output")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.createRecord#output") ~enc:(fun _ -> "com.atproto.repo.createRecord#output")
   |> Jsont.Object.mem "cid" Jsont.string ~enc:(fun r -> r.cid)
   |> Jsont.Object.opt_mem "commit" Defs.commit_meta_jsont ~enc:(fun r -> r.commit)
   |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun r -> r.uri)

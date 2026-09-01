@@ -101,6 +101,7 @@ let system_trust_anchors () =
         let* os = Bos.OS.Cmd.(run_out cmd |> out_string |> success) in
         match os with
         | "FreeBSD" -> detect_one freebsd_location
+        | "DragonFly" -> detect_one freebsd_location
         | "OpenBSD" -> detect_one openbsd_location
         | "Linux" -> detect_list linux_locations
         | "Darwin" ->
@@ -176,5 +177,25 @@ let authenticator ?crls ?allowed_hashes () =
   match decode_pem_multiple data with
   | [] -> Error (`Msg ("ca-certs: empty trust anchors.\n" ^ issue))
   | cas ->
-      let time () = Some (Ptime_clock.now ()) in
-      Ok (X509.Authenticator.chain_of_trust ?crls ?allowed_hashes ~time cas)
+      let time : (unit -> Ptime.t option) @ portable =
+        fun () -> Some (Ptime_clock.now ())
+      in
+      match (crls, allowed_hashes) with
+      | None, None ->
+          Ok (X509.Authenticator.chain_of_trust_no_crl ~time cas)
+      | _ ->
+          Ok (X509.Authenticator.chain_of_trust ?crls ?allowed_hashes ~time cas)
+
+let system_authenticator () :
+    (X509.Authenticator.t, [> `Msg of string ]) result @ portable =
+  match trust_anchors () with
+  | Error (`Msg message) ->
+      Error (`Msg (String.sub message 0 (String.length message)))
+  | Ok data ->
+      match decode_pem_multiple data with
+      | [] -> Error (`Msg "ca-certs: empty trust anchors")
+      | cas ->
+          let time : (unit -> Ptime.t option) @ portable =
+            fun () -> Some (Ptime_clock.now ())
+          in
+          Ok (X509.Authenticator.chain_of_trust_no_crl ~time cas)

@@ -3,7 +3,8 @@ open Core
 open Handshake_common
 open Config
 
-let answer_server_hello state ch (sh : server_hello) secrets raw log =
+let (answer_server_hello @ portable) state ch (sh : server_hello) secrets raw
+    log =
   (* assume SH valid, version 1.3, extensions are subset *)
   match Ciphersuite.ciphersuite_to_ciphersuite13 sh.ciphersuite with
   | None -> Error (`Fatal (`Handshake (`Message "not a TLS 1.3 ciphersuite")))
@@ -23,10 +24,7 @@ let answer_server_hello state ch (sh : server_hello) secrets raw log =
       | None -> Error (`Fatal (`Handshake (`Message "couldn't find our secret for the key share")))
       | Some (_, secret) ->
         let* shared = Handshake_crypto13.dh_shared secret share in
-        let hlen =
-          let module H = (val Digestif.module_of_hash' (Ciphersuite.hash13 cipher)) in
-          H.digest_size
-        in
+        let hlen = Digestif.digest_size (Ciphersuite.hash13 cipher) in
         let* psk, resumed =
           match
             Utils.map_find ~f:(function `PreSharedKey idx -> Some idx | _ -> None) sh.extensions,
@@ -46,7 +44,7 @@ let answer_server_hello state ch (sh : server_hello) secrets raw log =
           Handshake_crypto13.derive hs_secret (String.make hlen '\x00')
         in
         let session =
-          let base = empty_session13 cipher in
+          let base = fresh_empty_session13 cipher in
           let common_session_data13 =
             { base.common_session_data13 with
               server_random = sh.server_random ;
@@ -60,7 +58,8 @@ let answer_server_hello state ch (sh : server_hello) secrets raw log =
             [ `Change_enc client_ctx ; `Change_dec server_ctx ])
 
 (* called from handshake_client.ml *)
-let answer_hello_retry_request state (ch : client_hello) hrr _secrets raw log =
+let (answer_hello_retry_request_with @ portable) dh_gen_key state
+    (ch : client_hello) hrr _secrets raw log =
   (* when is a HRR invalid / what do we need to check?
      -> we advertised the group and cipher
      -> TODO we did advertise such a keyshare already (does it matter?)
@@ -79,7 +78,7 @@ let answer_hello_retry_request state (ch : client_hello) hrr _secrets raw log =
   (* generate a fresh keyshare *)
   let secret, keyshare =
     let g = hrr.selected_group in
-    let priv, share = Handshake_crypto13.dh_gen_key g in
+    let priv, share = dh_gen_key g in
     (g, priv), (group_to_named_group g, share)
   in
   (* append server extensions (i.e. cookie!) *)
@@ -90,16 +89,24 @@ let answer_hello_retry_request state (ch : client_hello) hrr _secrets raw log =
   (* use the same extensions as in original CH, apart from PSK!? and early_data *)
   let other_exts = List.filter (function `KeyShare _ -> false | _ -> true) ch.extensions in
   let new_ch = { ch with extensions = `KeyShare [keyshare] :: other_exts @ cookie} in
-  let new_ch_raw = Writer.assemble_handshake (ClientHello new_ch) in
+  let new_ch_raw = Writer.assemble_client_hello_handshake new_ch in
   let ch0_data =
-    let module H = (val Digestif.module_of_hash' (Ciphersuite.hash13 hrr.ciphersuite)) in
-    H.(to_raw_string (digest_string log))
+    Digestif.digest_string_raw (Ciphersuite.hash13 hrr.ciphersuite) log
   in
   let ch0_hdr = Writer.assemble_message_hash (String.length ch0_data) in
   let st = AwaitServerHello13 (new_ch, [secret], String.concat "" [ ch0_hdr ; ch0_data ; raw ; new_ch_raw ]) in
 
-  Tracing.hs ~tag:"handshake-out" (ClientHello new_ch);
+  Tracing.portable_hs ~tag:"handshake-out" (ClientHello new_ch);
   Ok ({ state with machina = Client13 st ; protocol_version = `TLS_1_3 }, [`Record (Packet.HANDSHAKE, new_ch_raw)])
+
+let answer_hello_retry_request state ch hrr secrets raw log =
+  answer_hello_retry_request_with Handshake_crypto13.dh_gen_key state ch hrr
+    secrets raw log
+
+let (answer_hello_retry_request_with_rng @ portable) ~g state ch hrr secrets
+    raw log =
+  let dh_gen_key group = Handshake_crypto13.dh_gen_key_with_rng ~g group in
+  answer_hello_retry_request_with dh_gen_key state ch hrr secrets raw log
 
 let answer_encrypted_extensions state (session : session_data13) server_hs_secret client_hs_secret ee raw log =
   (* TODO we now know: - hostname - early_data (preserve this in session!!) *)
@@ -117,12 +124,14 @@ let answer_encrypted_extensions state (session : session_data13) server_hs_secre
   in
   Ok ({ state with machina = Client13 st }, [])
 
-let answer_certificate state (session : session_data13) server_hs_secret client_hs_secret sigalgs certs raw log =
+let (answer_certificate @ portable) state (session : session_data13)
+    server_hs_secret client_hs_secret sigalgs certs raw log =
   (* certificates are (cs, ext) list - ext being statusrequest or signed_cert_timestamp *)
   let certs = List.map fst certs in
   let* peer_certificate, received_certificates, peer_certificate_chain, trust_anchor =
     validate_chain state.config.authenticator certs state.config.ip state.config.peer_name
   in
+  let* () = validate_server_keyusage peer_certificate `FFDHE in
   let session =
     let common_session_data13 = {
       session.common_session_data13 with
@@ -133,13 +142,14 @@ let answer_certificate state (session : session_data13) server_hs_secret client_
   let st = AwaitServerCertificateVerify13 (session, server_hs_secret, client_hs_secret, sigalgs, log ^ raw) in
   Ok ({ state with machina = Client13 st }, [])
 
-let answer_certificate_verify (state : handshake_state) (session : session_data13) server_hs_secret client_hs_secret sigalgs cv raw log =
+let (answer_certificate_verify @ portable) (state : handshake_state)
+    (session : session_data13) server_hs_secret client_hs_secret sigalgs cv
+    raw log =
   let tbs =
-    let module H = (val Digestif.module_of_hash' (Ciphersuite.hash13 session.ciphersuite13)) in
-    H.(to_raw_string (digest_string log))
+    Digestif.digest_string_raw (Ciphersuite.hash13 session.ciphersuite13) log
   in
   let* () =
-    verify_digitally_signed state.protocol_version
+    verify_digitally_signed_modern state.protocol_version
       ~context_string:"TLS 1.3, server CertificateVerify"
       state.config.signature_algorithms cv tbs
       session.common_session_data13.peer_certificate
@@ -180,7 +190,7 @@ let answer_finished state (session : session_data13) server_hs_secret client_hs_
         Certificate (Writer.assemble_certificates_1_3 "" cs)
       in
       let cert_raw = Writer.assemble_handshake certificate in
-      Tracing.hs ~tag:"handshake-out" certificate ;
+      Tracing.portable_hs ~tag:"handshake-out" certificate ;
       let log = log ^ cert_raw in
       match own_private_key with
       | None ->
@@ -195,7 +205,7 @@ let answer_finished state (session : session_data13) server_hs_secret client_hs_
             tbs sigalgs state.config.Config.signature_algorithms priv
         in
         let cv = CertificateVerify signed in
-        Tracing.hs ~tag:"handshake-out" cv ;
+        Tracing.portable_hs ~tag:"handshake-out" cv ;
         let cv_raw = Writer.assemble_handshake cv in
         Ok ([ cert_raw ; cv_raw ], log ^ cv_raw)
     else
@@ -209,12 +219,66 @@ let answer_finished state (session : session_data13) server_hs_secret client_hs_
   let session = { session with resumption_secret ; exporter_master_secret ; client_app_secret ; server_app_secret } in
   let machina = Client13 Established13 in
 
-  Tracing.hs ~tag:"handshake-out" (Finished myfin);
+  Tracing.portable_hs ~tag:"handshake-out" (Finished myfin);
 
   Ok ({ state with machina ; session = `TLS13 session :: state.session },
       List.map (fun data -> `Record (Packet.HANDSHAKE, data)) c_cv @
       [ `Record (Packet.HANDSHAKE, mfin) ;
         `Change_dec server_app_ctx ; `Change_enc client_app_ctx ])
+
+let (answer_finished_no_client_cert @ portable) state
+    (session : session_data13) server_hs_secret client_hs_secret _sigalgs fin
+    raw log =
+  let hash = Ciphersuite.hash13 session.ciphersuite13 in
+  let expected = Handshake_crypto13.finished hash server_hs_secret log in
+  let* () =
+    guard (String.equal fin expected)
+      (`Fatal (`Handshake (`Message "couldn't verify finished")))
+  in
+  let* () =
+    guard (String.length state.hs_fragment = 0)
+      (`Fatal (`Handshake `Fragments))
+  in
+  let log = log ^ raw in
+  let server_app_secret, server_app_ctx, client_app_secret, client_app_ctx =
+    Handshake_crypto13.app_ctx session.master_secret log
+  in
+  let exporter_master_secret =
+    Handshake_crypto13.exporter session.master_secret log
+  in
+  let certificate_flight, log =
+    if session.common_session_data13.client_auth then
+      let certificate =
+        Certificate (Writer.assemble_certificates_1_3 "" [])
+      in
+      let raw = Writer.assemble_handshake certificate in
+      [ raw ], log ^ raw
+    else
+      [], log
+  in
+  let myfin = Handshake_crypto13.finished hash client_hs_secret log in
+  let mfin = Writer.assemble_handshake (Finished myfin) in
+  let resumption_secret =
+    Handshake_crypto13.resumption session.master_secret (log ^ mfin)
+  in
+  let session =
+    { session with
+      resumption_secret;
+      exporter_master_secret;
+      client_app_secret;
+      server_app_secret
+    }
+  in
+  let records =
+    List.map (fun data -> `Record (Packet.HANDSHAKE, data))
+      (certificate_flight @ [ mfin ])
+  in
+  Ok
+    ({ state with
+       machina = Client13 Established13;
+       session = `TLS13 session :: state.session
+     },
+     records @ [ `Change_dec server_app_ctx; `Change_enc client_app_ctx ])
 
 let answer_session_ticket state st =
   (match state.config.ticket_cache with
@@ -253,20 +317,21 @@ let handle_key_update state req =
           Handshake_crypto13.app_secret_n_1 session.master_secret session.client_app_secret
         in
         let ku = KeyUpdate Packet.UPDATE_NOT_REQUESTED in
-        Tracing.hs ~tag:"handshake-out" ku ;
+        Tracing.portable_hs ~tag:"handshake-out" ku ;
         let ku_raw = Writer.assemble_handshake ku in
         { session' with client_app_secret },
         [ `Record (Packet.HANDSHAKE, ku_raw); `Change_enc client_ctx ]
     in
     let session = `TLS13 session' :: state.session in
-    let state' = { state with machina = Server13 Established13 ; session } in
+    let state' = { state with machina = Client13 Established13 ; session } in
     Ok (state', `Change_dec server_ctx :: out)
   | _ -> Error (`Fatal (`Handshake (`Message "couldn't find an earlier session")))
 
-let handle_handshake cs hs buf =
+let (handle_handshake_with @ portable) answer_finished answer_session_ticket
+    cs hs buf =
   let open Reader in
   let* handshake = map_reader_error (parse_handshake buf) in
-  Tracing.hs ~tag:"handshake-in" handshake;
+  Tracing.portable_hs ~tag:"handshake-in" handshake;
   match cs, handshake with
   | AwaitServerHello13 (ch, secrets, log), ServerHello sh ->
     answer_server_hello hs ch sh secrets buf log
@@ -305,3 +370,11 @@ let handle_handshake cs hs buf =
     Error (`Fatal (`Unexpected (`Handshake handshake))) (* TODO send out C, CV, F *)
   | Established13, KeyUpdate req -> handle_key_update hs req
   | _, hs -> Error (`Fatal (`Unexpected (`Handshake hs)))
+
+let handle_handshake cs hs buf =
+  handle_handshake_with answer_finished answer_session_ticket cs hs buf
+
+let (handle_handshake_no_client_cert @ portable) cs hs buf =
+  let ignore_session_ticket state _ = Ok (state, []) in
+  handle_handshake_with answer_finished_no_client_cert ignore_session_ticket cs
+    hs buf

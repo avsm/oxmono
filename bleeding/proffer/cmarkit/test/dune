@@ -1,0 +1,4 @@
+(test
+ (name test_proffer_cmarkit)
+ (package proffer)
+ (libraries proffer cmarkit alcotest))

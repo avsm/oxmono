@@ -142,13 +142,13 @@ let decode_json_exn jsont resp =
 
 module Http = struct
   let get (T t) uri =
-    let url = Uri.to_string uri in
+    let url = Uriz.to_string uri in
     Fetch.with_response t.fetch `GET url @@ fun resp ->
     check_response resp;
     decode_json_exn Jsont.json resp
 
   let get_typed (T t) jsont uri =
-    let url = Uri.to_string uri in
+    let url = Uriz.to_string uri in
     Fetch.with_response t.fetch `GET url @@ fun resp ->
     check_response resp;
     decode_json_exn jsont resp
@@ -170,7 +170,7 @@ module Http = struct
         (* Create request context for signing *)
         let ctx = Fetch_signature.Context.request
           ~method_:`POST
-          ~uri
+          ~uri:(Uri.of_string (Uriz.to_string uri))
           ~headers
         in
         (* Sign with digest (adds Content-Digest header and signs) *)
@@ -195,7 +195,7 @@ module Http = struct
 
   (* Internal: signed POST of an already encoded ActivityPub document *)
   let post_signed (T t as client) uri body_str =
-    let url = Uri.to_string uri in
+    let url = Uriz.to_string uri in
     let headers =
       Hdr.init_with "content-type" "application/activity+json"
     in
@@ -220,7 +220,7 @@ module Webfinger = struct
       Proto.Webfinger.Jrd_link.make
         ~rel:(Webfinger.Link.rel link)
         ?type_:(Webfinger.Link.type_ link)
-        ?href:(Option.map Uri.of_string (Webfinger.Link.href link))
+        ?href:(Option.map Uriz.of_string_exn (Webfinger.Link.href link))
         ?template:(
           (* Try to get template from properties if it exists *)
           Webfinger.Link.property ~uri:"template" link
@@ -292,15 +292,15 @@ module Webfinger = struct
         ) links
 
   (** Extract ActivityPub actor URI from a raw Webfinger.Jrd.t *)
-  let actor_uri_raw (jrd : Webfinger.Jrd.t) : Uri.t option =
+  let actor_uri_raw (jrd : Webfinger.Jrd.t) : Uriz.t option =
     (* Look for self link with ActivityPub media type *)
     match Webfinger.Jrd.find_link ~rel:Webfinger.Rel.activitypub jrd with
     | Some link ->
         (match Webfinger.Link.type_ link with
          | Some t when String.equal t "application/activity+json" ->
-             Option.map Uri.of_string (Webfinger.Link.href link)
+             Option.map Uriz.of_string_exn (Webfinger.Link.href link)
          | Some t when String.starts_with ~prefix:"application/ld+json" t ->
-             Option.map Uri.of_string (Webfinger.Link.href link)
+             Option.map Uriz.of_string_exn (Webfinger.Link.href link)
          | _ -> None)
     | None -> None
 
@@ -568,7 +568,7 @@ module Inbox = struct
         post t ~inbox:shared_inbox activity
     | None ->
         (* Fallback: construct a standard shared inbox URL *)
-        let shared_inbox = Uri.of_string (Printf.sprintf "https://%s/inbox" host) in
+        let shared_inbox = Uriz.of_string_exn (Printf.sprintf "https://%s/inbox" host) in
         post t ~inbox:shared_inbox activity
 end
 
@@ -576,12 +576,12 @@ module Outbox = struct
   (* Generate a unique URI for a new object/activity based on actor's base URI.
      Uses timestamp + random suffix for uniqueness. *)
   let generate_uri ~actor ~suffix =
-    let actor_uri = Uri.to_string (Proto.Actor.id actor) in
+    let actor_uri = Uriz.to_string (Proto.Actor.id actor) in
     let now = Ptime_clock.now () in
     let ts = Ptime.to_float_s now |> int_of_float in
     let rand = Random.bits () land 0xFFFFFF in
     let unique_id = Printf.sprintf "%d-%06x" ts rand in
-    Uri.of_string (actor_uri ^ "/" ^ suffix ^ "/" ^ unique_id)
+    Uriz.of_string_exn (actor_uri ^ "/" ^ suffix ^ "/" ^ unique_id)
 
   (* Get the current timestamp as an ISO 8601 string *)
   let now_datetime () =
@@ -592,9 +592,9 @@ module Outbox = struct
   let resolve_recipient_inboxes t recipients =
     List.filter_map (fun recipient ->
       let uri = Proto.Recipient.id recipient in
-      let uri_str = Uri.to_string uri in
+      let uri_str = Uriz.to_string uri in
       (* Skip the public collection - it doesn't have an inbox *)
-      if String.equal uri_str (Uri.to_string Proto.Public.id) then
+      if String.equal uri_str (Uriz.to_string Proto.Public.id) then
         None
       else begin
         (* Try to fetch the actor to get their inbox *)
@@ -616,7 +616,7 @@ module Outbox = struct
     (* Deduplicate inboxes *)
     let seen = Hashtbl.create 16 in
     let unique_inboxes = List.filter (fun inbox ->
-      let uri_str = Uri.to_string inbox in
+      let uri_str = Uriz.to_string inbox in
       if Hashtbl.mem seen uri_str then false
       else begin
         Hashtbl.add seen uri_str ();
@@ -671,7 +671,7 @@ module Outbox = struct
     let followers_uri =
       match Proto.Actor.followers actor with
       | Some uri -> uri
-      | None -> Uri.of_string ""
+      | None -> Uriz.of_string_exn ""
     in
     create_note t ~actor ?in_reply_to
       ~to_:[Proto.Recipient.make Proto.Public.id]

@@ -133,7 +133,7 @@ val search_page : handler @@ portable
 
 (** {1 Files} *)
 
-val image_file : string list -> handler @@ portable
+val image_file : string list @ local -> handler @ local @@ portable
 (** [image_file segs] is the file named by [segs] under the served image
     directory. The read is confined to that directory, so a [segs] that would
     leave it is a 404, as is a file that is missing. *)

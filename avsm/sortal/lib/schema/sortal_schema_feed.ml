@@ -59,7 +59,7 @@ let json_t =
   |> opt_mem "hint" string ~enc:(fun f -> f.hint)
   (* Omitted unless true, so the 34 feeds already in the live store encode
      unchanged. *)
-  |> mem "paused" bool ~dec_absent:false ~enc:(fun f -> f.paused)
+  |> mem "paused" bool ~dec_absent:(fun () -> false) ~enc:(fun f -> f.paused)
        ~enc_omit:(fun p -> not p)
   |> finish
 

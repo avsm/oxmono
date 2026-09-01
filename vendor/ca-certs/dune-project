@@ -1,6 +1,6 @@
 (lang dune 2.0)
 (name ca-certs)
-(version v1.0.1)
+(version v1.0.3)
 
 (generate_opam_files true)
 (source (github mirage/ca-certs))

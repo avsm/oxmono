@@ -1,0 +1,4 @@
+(test
+ (name test_cookie)
+ (libraries httpz.cookie httpz.cookie.jar alcotest eio eio_main eio.mock fmt ptime unix)
+ (deps cookies.txt (sandbox none)))

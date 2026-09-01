@@ -9,16 +9,17 @@ module Order = struct
     | Gt : ('a, 'b) t
 end
 
-module type KEY = sig
+module type KEY = sig @@ portable
   type _ t
   val compare : 'a t -> 'b t -> ('a, 'b) Order.t
 end
 
-module type S = sig
+module type S = sig @@ portable
   type 'a key
   type t
 
   val empty : t
+  val fresh_empty : unit -> t
   val singleton : 'a key -> 'a -> t
   val is_empty : t -> bool
   val cardinal : t -> int
@@ -59,7 +60,7 @@ module Make (Key : KEY) : S with type 'a key = 'a Key.t = struct
   type k = K : 'a key -> k
   type b = B : 'a key * 'a -> b
 
-  module M = Map.Make(struct
+  module M = Map.MakePortable(struct
       type t = k
       let compare (K a) (K b) = match Key.compare a b with
         | Order.Lt -> -1 | Order.Eq -> 0 | Order.Gt -> 1
@@ -68,6 +69,7 @@ module Make (Key : KEY) : S with type 'a key = 'a Key.t = struct
   type t = b M.t
 
   let empty = M.empty
+  let fresh_empty () = M.of_list []
   let singleton k v = M.singleton (K k) (B (k, v))
 
   let is_empty = M.is_empty

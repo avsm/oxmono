@@ -40,7 +40,7 @@ let json_t =
   |> opt_mem "last_sync" ptime_jsont ~enc:(fun m -> m.last_sync)
   |> opt_mem "etag" string ~enc:(fun m -> m.etag)
   |> opt_mem "last_modified" string ~enc:(fun m -> m.last_modified)
-  |> mem "entry_count" int ~dec_absent:0 ~enc:(fun m -> m.entry_count)
+  |> mem "entry_count" int ~dec_absent:(fun () -> 0) ~enc:(fun m -> m.entry_count)
   |> finish
 
 let save path meta =

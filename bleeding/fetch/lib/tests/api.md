@@ -14,11 +14,12 @@ token.
 ```
 
 ```ocaml
+let () = Printexc.record_backtrace false
 open Fetch
 
 ```
 
-The recipe — this is the whole pattern:
+This is the complete capability-building pattern:
 
 ```ocaml
 (* A capability for the GitHub REST API: any client in, a client that can
@@ -38,7 +39,7 @@ let github ?(ua = "my-app/1.0") ~token cap =
        Fetch.Credential.[ Bearer (fun () -> token) ]
 ```
 
-A mock "GitHub" that reports what it receives:
+The following mock "GitHub" service reports what it receives:
 
 ```ocaml
 let show_api (req : Middleware.request) =

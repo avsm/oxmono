@@ -3,17 +3,19 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
+@@ portable
+
 (** Low-level internal tools for {!Jsont}. *)
 
 val string_subrange : ?first:int -> ?last:int -> string -> string
 val binary_string_of_hex : string -> (string, string) result
 val binary_string_to_hex : string -> string
 
-(** Type identifiers. Can be removed once we require OCaml 5.1 *)
+(** Portable, process-unique type identifiers. *)
 module Type : sig
   type (_, _) eq = Equal : ('a, 'a) eq
   module Id : sig
-    type 'a t
+    type 'a t : value mod portable contended
     val make : unit -> 'a t
     val uid : 'a t -> int
     val provably_equal : 'a t -> 'b t -> ('a, 'b) eq option
@@ -89,7 +91,7 @@ module Textloc : sig
   val line_pos_first : line_pos
   val line_pos_none : line_pos
 
-  type t
+  type t : immutable_data
   val none : t
   val make :
     file:fpath -> first_byte:byte_pos -> last_byte:byte_pos ->
@@ -123,7 +125,7 @@ type 'a fmt = Stdlib.Format.formatter -> 'a -> unit
 
 (** See {!Jsont.Meta} *)
 module Meta : sig
-  type t
+  type t : immutable_data
   val make : ?ws_before:string -> ?ws_after:string -> Textloc.t -> t
   val none : t
   val is_none : t -> bool
@@ -141,31 +143,33 @@ type 'a node = 'a * Meta.t
 (** JSON number tools. *)
 module Number : sig
   val number_contains_int : bool
-  val int_is_uint8 : int -> bool
-  val int_is_uint16 : int -> bool
-  val int_is_int8 : int -> bool
-  val int_is_int16 : int -> bool
-  val can_store_exact_int : int -> bool
-  val can_store_exact_int64 : Int64.t -> bool
-  val in_exact_int_range : float -> bool
-  val in_exact_uint8_range : float -> bool
-  val in_exact_uint16_range : float -> bool
-  val in_exact_int8_range : float -> bool
-  val in_exact_int16_range : float -> bool
-  val in_exact_int32_range : float -> bool
-  val in_exact_int64_range : float -> bool
+  val int_is_uint8 : int -> bool [@@zero_alloc]
+  val int_is_uint16 : int -> bool [@@zero_alloc]
+  val int_is_int8 : int -> bool [@@zero_alloc]
+  val int_is_int16 : int -> bool [@@zero_alloc]
+  val can_store_exact_int : int -> bool [@@zero_alloc]
+  val can_store_exact_int64 : Int64.t -> bool [@@zero_alloc]
+  val in_exact_int_range : float -> bool [@@zero_alloc]
+  val legacy_in_exact_int_range : float -> bool [@@zero_alloc]
+  val in_exact_uint8_range : float -> bool [@@zero_alloc]
+  val in_exact_uint16_range : float -> bool [@@zero_alloc]
+  val in_exact_int8_range : float -> bool [@@zero_alloc]
+  val in_exact_int16_range : float -> bool [@@zero_alloc]
+  val in_exact_int32_range : float -> bool [@@zero_alloc]
+  val in_exact_int64_range : float -> bool [@@zero_alloc]
+  val legacy_in_exact_int64_range : float -> bool [@@zero_alloc]
 end
 
 (** See {!Jsont.Path} *)
 module Path : sig
-  type index =
+  type index : immutable_data =
   | Mem of string node
   | Nth of int node
 
   val pp_index : index fmt
   val pp_index_trace : index fmt
 
-  type t
+  type t : immutable_data
   val root : t
   val is_root : t -> bool
   val nth : ?meta:Meta.t -> int -> t -> t
@@ -178,7 +182,7 @@ end
 
 (** See {!Jsont.Sort} *)
 module Sort : sig
-  type t = Null | Bool | Number | String | Array | Object
+  type t : immediate = Null | Bool | Number | String | Array | Object
   val to_string : t -> string
 
   val kinded' : kind:string -> string -> string

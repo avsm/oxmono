@@ -69,7 +69,7 @@ let jsont =
   |> Jsont.Object.mem "title" Jsont.string ~enc:(fun r -> r.title)
   |> Jsont.Object.mem "authors" Jsont.(list string) ~enc:(fun r -> r.authors)
   |> Jsont.Object.mem "year" Jsont.int ~enc:(fun r -> r.year)
-  |> Jsont.Object.mem "publisher" Jsont.(option string) ~dec_absent:None ~enc:(fun r -> r.publisher)
+  |> Jsont.Object.mem "publisher" Jsont.(option string) ~dec_absent:(fun () -> None) ~enc:(fun r -> r.publisher)
   |> Jsont.Object.mem "source" source_jsont ~enc:(fun r -> r.source)
   |> Jsont.Object.mem "citation" Jsont.string ~enc:(fun r -> r.citation)
   |> Jsont.Object.finish

@@ -65,7 +65,9 @@ let crls_of_pem_dir path =
 
 (* Would be better to take an Eio.Time.clock here, but that API is likely to change soon. *)
 let authenticator ?allowed_hashes ?crls param =
-  let time () = Some (Ptime_clock.now ()) in
+  let time : (unit -> Ptime.t option) @ portable =
+    fun () -> Some (Ptime_clock.now ())
+  in
   let of_cas cas =
     let crls = Option.map crls_of_pem_dir crls in
     X509.Authenticator.chain_of_trust ?allowed_hashes ?crls ~time cas

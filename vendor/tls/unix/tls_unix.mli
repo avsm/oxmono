@@ -72,19 +72,24 @@ val client_of_fd :
   Tls.Config.client ->
   ?read_buffer_size:int ->
   ?host:[ `host ] Domain_name.t ->
+  ?ip:Ipaddr.t ->
   Unix.file_descr ->
   t
-(** [client_of_flow client ~host fd] is [t], after client-side TLS handshake of
+(** [client_of_flow client ~host ~ip fd] is [t], after client-side TLS handshake of
     [fd] using [client] configuration and [host].
 
-    @raise End_of_file if we are not able to complete the handshake. *)
+    Succeeds even if the peer has already closed one half of the connection.
+
+    @raise End_of_file if the peer closes before the handshake completes. *)
 
 val server_of_fd :
   Tls.Config.server -> ?read_buffer_size:int -> Unix.file_descr -> t
 (** [server_of_fd server fd] is [t], after server-side TLS handshake of [fd]
     using [server] configuration.
 
-    @raise End_of_file if we are not able to complete the handshake. *)
+    Succeeds even if the peer has already closed one half of the connection.
+
+    @raise End_of_file if the peer closes before the handshake completes. *)
 
 val connect : X509.Authenticator.t -> string * int -> t
 (** [connect authenticator (host, port)] is [t], a connected TLS connection

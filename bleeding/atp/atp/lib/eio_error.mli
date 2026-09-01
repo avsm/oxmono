@@ -30,5 +30,5 @@ val register_pp : 'e Fmt.t -> (Eio.Exn.err -> 'e option) -> unit
 (** [register_pp pp extract] registers [pp] as the pretty-printer for errors
     extracted by [extract]. *)
 
-val raise_ : Eio.Exn.err -> 'a
+val raise_ : Eio.Exn.err -> 'a @@ portable
 (** [raise_ err] raises [err] as an Eio exception. *)

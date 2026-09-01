@@ -1,18 +1,11 @@
-(* test_scan.ml - differential tests for the vectorised scanning primitives.
+(* Differential tests for scans used in HTTP framing decisions.
 
-   Each of these replaced a straightforward byte loop with SSE2 or with SWAR
-   bit tricks, in code that decides HTTP framing and request-smuggling
-   outcomes. Every one is checked here against a reference byte loop over a
-   dense random corpus, rather than against a handful of examples.
-
-   The corpus is biased towards the bytes that drive the branchy paths: CR, LF
-   and SP; 0x0C and 0x21, which are the neighbours that make the SWAR
-   "haszero" trick report false positives; ASCII case pairs; the token
-   characters either side of the tchar boundary; and high bytes, which must
-   force the byte-wise fallback in {!Httpz.Span.equal_caseless}. *)
+   The corpus is biased towards the bytes that drive the branchy paths: CR, LF and SP;
+   0x0C and 0x21, which are the neighbours that make the SWAR "haszero" trick report false
+   positives; ASCII case pairs; the token characters either side of the tchar boundary;
+   and high bytes, which must force the byte-wise fallback in [Httpz.Span.equal_caseless]. *)
 
 open Base
-
 module I16 = Stdlib_stable.Int16_u
 
 let[@inline always] i16 x = I16.of_int x
@@ -21,13 +14,10 @@ let failures = ref 0
 
 let check name cond detail =
   if not cond
-  then begin
+  then (
     Int.incr failures;
-    if !failures <= 10 then Stdio.printf "FAIL [%s] %s\n" name (detail ())
-  end
+    if !failures <= 10 then Stdio.printf "FAIL [%s] %s\n" name (detail ()))
 ;;
-
-(* ----- Reference implementations ----- *)
 
 let ref_find_cr buf ~pos ~limit =
   let mutable p = pos in
@@ -63,7 +53,6 @@ let ref_skip_token buf ~pos ~limit =
   p
 ;;
 
-(* Returns the first CRLF and whether a bare CR or LF was seen before it. *)
 let ref_find_crlf buf ~pos ~len : #(int * bool) =
   if len - pos < 2
   then #(-1, false)
@@ -72,18 +61,22 @@ let ref_find_crlf buf ~pos ~len : #(int * bool) =
     let mutable found_crlf = false in
     let mutable found_bare_cr = false in
     let mutable stop = false in
-    while not stop && p < len do
+    while (not stop) && p < len do
       if Char.( = ) (Bytes.unsafe_get buf p) '\r'
-      then if p + 1 >= len then (
-        found_bare_cr <- true;
-        stop <- true)
-      else if Char.( = ) (Bytes.unsafe_get buf (p + 1)) '\n' then (
-        found_crlf <- true;
-        stop <- true)
-      else (
-        found_bare_cr <- true;
-        p <- p + 1)
-      else if Char.( = ) (Bytes.unsafe_get buf p) '\n' then (
+      then
+        if p + 1 >= len
+        then (
+          found_bare_cr <- true;
+          stop <- true)
+        else if Char.( = ) (Bytes.unsafe_get buf (p + 1)) '\n'
+        then (
+          found_crlf <- true;
+          stop <- true)
+        else (
+          found_bare_cr <- true;
+          p <- p + 1)
+      else if Char.( = ) (Bytes.unsafe_get buf p) '\n'
+      then (
         found_bare_cr <- true;
         p <- p + 1)
       else p <- p + 1
@@ -93,34 +86,51 @@ let ref_find_crlf buf ~pos ~len : #(int * bool) =
 
 let ref_equal buf ~off ~len s =
   String.length s = len
-  && (let mutable i = 0 in
-      let mutable eq = true in
-      while eq && i < len do
-        if Char.( <> ) (Bytes.unsafe_get buf (off + i)) (String.unsafe_get s i)
-        then eq <- false
-        else i <- i + 1
-      done;
-      eq)
+  &&
+  let mutable i = 0 in
+  let mutable eq = true in
+  while eq && i < len do
+    if Char.( <> ) (Bytes.unsafe_get buf (off + i)) (String.unsafe_get s i)
+    then eq <- false
+    else i <- i + 1
+  done;
+  eq
 ;;
 
 let ref_equal_caseless buf ~off ~len s =
   String.length s = len
-  && (let mutable i = 0 in
-      let mutable eq = true in
-      while eq && i < len do
-        let b1 = Char.to_int (Bytes.unsafe_get buf (off + i)) in
-        let b2 = Char.to_int (String.unsafe_get s i) in
-        let lo = if b1 >= 65 && b1 <= 90 then b1 + 32 else b1 in
-        if lo <> b2 then eq <- false else i <- i + 1
-      done;
-      eq)
+  &&
+  let mutable i = 0 in
+  let mutable eq = true in
+  while eq && i < len do
+    let b1 = Char.to_int (Bytes.unsafe_get buf (off + i)) in
+    let b2 = Char.to_int (String.unsafe_get s i) in
+    let lo = if b1 >= 65 && b1 <= 90 then b1 + 32 else b1 in
+    if lo <> b2 then eq <- false else i <- i + 1
+  done;
+  eq
 ;;
 
-(* ----- Drivers ----- *)
-
 let scan_alphabet =
-  [| '\r'; '\n'; ' '; '\t'; '\012'; '!'; ':'; 'a'; 'Z'; '9'; '^'; '~'; '@'; '('; '-'
-   ; '\000'; '\128'; '\255' |]
+  [| '\r'
+   ; '\n'
+   ; ' '
+   ; '\t'
+   ; '\012'
+   ; '!'
+   ; ':'
+   ; 'a'
+   ; 'Z'
+   ; '9'
+   ; '^'
+   ; '~'
+   ; '@'
+   ; '('
+   ; '-'
+   ; '\000'
+   ; '\128'
+   ; '\255'
+  |]
 ;;
 
 let test_scans rng buf ~rounds =
@@ -131,8 +141,8 @@ let test_scans rng buf ~rounds =
     for i = 0 to len - 1 do
       Bytes.unsafe_set buf i scan_alphabet.(Random.State.int rng n)
     done;
-    (* Poison the bytes past [len]: a vector load that reads beyond the
-       declared length would then return a wrong index. *)
+    (* Poison the bytes past [len]: a word load that reads beyond the declared length
+       would then return a wrong index. *)
     for i = len to Int.min (len + 32) cap - 1 do
       Bytes.unsafe_set buf i (if Random.State.bool rng then '\r' else ' ')
     done;
@@ -164,8 +174,8 @@ let test_comparisons rng buf ~rounds =
     let slen = Random.State.int rng 34 in
     let s = String.init slen ~f:(fun _ -> cmp_alphabet.(Random.State.int rng n)) in
     let off = Random.State.int rng 64 in
-    (* Usually seed the buffer from [s] with random case flips so that matches
-       are common; otherwise use unrelated bytes. *)
+    (* Usually seed the buffer from [s] with random case flips so that matches are common;
+       otherwise use unrelated bytes. *)
     let seeded = Random.State.int rng 4 <> 0 in
     for i = 0 to slen - 1 do
       let c =
@@ -187,10 +197,12 @@ let test_comparisons rng buf ~rounds =
     let dump () =
       Printf.sprintf "lit=%S span=%S" s (Bytes.To_string.sub buf ~pos:off ~len)
     in
-    check "Span.equal"
+    check
+      "Span.equal"
       (Bool.( = ) (Httpz.Span.equal buf sp s) (ref_equal buf ~off ~len s))
       dump;
-    check "Span.equal_caseless"
+    check
+      "Span.equal_caseless"
       (Bool.( = )
          (Httpz.Span.equal_caseless buf sp s)
          (ref_equal_caseless buf ~off ~len s))
@@ -204,9 +216,8 @@ let () =
   test_scans rng buf ~rounds:100_000;
   test_comparisons rng buf ~rounds:100_000;
   if !failures > 0
-  then begin
+  then (
     Stdio.printf "%d differential failures\n" !failures;
-    Stdlib.exit 1
-  end;
+    Stdlib.exit 1);
   Stdio.printf "test_scan: all differential checks passed\n"
 ;;

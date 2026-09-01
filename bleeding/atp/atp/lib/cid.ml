@@ -78,25 +78,68 @@ let of_digest (codec : [< codec ]) digest =
   let raw_bytes = make_raw_bytes codec digest in
   { codec; digest; raw_bytes }
 
-let of_raw_bytes_prefix_internal s =
+let parse_raw_bytes_prefix s =
   let len = String.length s in
-  if len < 4 then raise_error (`Invalid_cid_length (4, len));
-  let version = Char.code s.[0] in
-  if version <> version_1 then raise_error (`Invalid_cid_version version);
-  let codec_byte = Char.code s.[1] in
-  let codec = codec_of_byte codec_byte in
-  let hash_codec = Char.code s.[2] in
-  if hash_codec <> hash_sha256 then
-    raise_error (`Invalid_cid_hash_codec hash_codec);
-  let digest_len = Char.code s.[3] in
-  if digest_len <> 32 && digest_len <> 0 then
-    raise_error (`Invalid_cid_length (32, digest_len));
-  let expected_len = 4 + digest_len in
-  if len < expected_len then
-    raise_error (`Invalid_cid_length (expected_len, len));
-  let digest = String.sub s 4 digest_len in
-  let raw_bytes = String.sub s 0 expected_len in
-  ({ codec; digest; raw_bytes }, expected_len)
+  if len < 4 then Error (`Invalid_cid_length (4, len))
+  else
+    let version = Char.code s.[0] in
+    if version <> version_1 then Error (`Invalid_cid_version version)
+    else
+      let codec_byte = Char.code s.[1] in
+      let codec =
+        if codec_byte = codec_raw then Ok `Raw
+        else if codec_byte = codec_dag_cbor then Ok `Dag_cbor
+        else Error (`Invalid_cid_codec codec_byte)
+      in
+      match codec with
+      | Error _ as error -> error
+      | Ok codec ->
+          let hash_codec = Char.code s.[2] in
+          if hash_codec <> hash_sha256 then
+            Error (`Invalid_cid_hash_codec hash_codec)
+          else
+            let digest_len = Char.code s.[3] in
+            if digest_len <> 32 && digest_len <> 0 then
+              Error (`Invalid_cid_length (32, digest_len))
+            else
+              let expected_len = 4 + digest_len in
+              if len < expected_len then
+                Error (`Invalid_cid_length (expected_len, len))
+              else
+                let digest = String.sub s 4 digest_len in
+                let raw_bytes = String.sub s 0 expected_len in
+                Ok ({ codec; digest; raw_bytes }, expected_len)
+
+let parse_raw_bytes s =
+  match parse_raw_bytes_prefix s with
+  | Error _ as error -> error
+  | Ok (cid, expected_len) ->
+      let len = String.length s in
+      if len > expected_len then Error (`Cid_trailing_bytes (len - expected_len))
+      else Ok cid
+
+let of_string_result s =
+  let len = String.length s in
+  if len <> 59 && len <> 8 then Error (`Invalid_cid_length (59, len))
+  else
+    try
+      match Multibase.decode s with
+      | Ok (_, decoded) -> parse_raw_bytes decoded
+      | Error (`Msg msg) -> Error (`Invalid_cid_multibase msg)
+      | Error (`Unsupported enc) ->
+          Error
+            (`Invalid_cid_multibase
+              ("unsupported encoding: " ^ Multibase.Encoding.to_string enc))
+    with
+    | Multibase.Base58.Invalid_alphabet ->
+        Error (`Invalid_cid_multibase "invalid base58 alphabet")
+    | Multibase.Base58.Invalid_base58_character ->
+        Error (`Invalid_cid_multibase "invalid base58 character")
+
+let of_raw_bytes_prefix_internal s =
+  match parse_raw_bytes_prefix s with
+  | Ok parsed -> parsed
+  | Error error -> raise_error error
 
 let of_raw_bytes_prefix s =
   try of_raw_bytes_prefix_internal s
@@ -134,17 +177,7 @@ let of_bytes s =
 
 let of_string s =
   try
-    let len = String.length s in
-    (* Expected: 59 chars (full) or 8 chars (empty) *)
-    if len <> 59 && len <> 8 then raise_error (`Invalid_cid_length (59, len));
-    match Multibase.decode s with
-    | Ok (_, decoded) -> of_raw_bytes decoded
-    | Error (`Msg msg) -> raise_error (`Invalid_cid_multibase msg)
-    | Error (`Unsupported enc) ->
-        raise_error
-          (`Invalid_cid_multibase
-             (Printf.sprintf "unsupported encoding: %s"
-                (Multibase.Encoding.to_string enc)))
+    match of_string_result s with Ok cid -> cid | Error error -> raise_error error
   with Eio.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Eio.Exn.reraise_with_context ex bt "parsing CID from string %S" s
@@ -178,7 +211,10 @@ let pp ppf t = Fmt.string ppf (to_string t)
 
 (* JSON encoding: {"$link": "<base32-cid>"} *)
 let jsont =
-  Jsont.Object.map ~kind:"CID Link" (fun link -> of_string link)
+  Jsont.Object.map ~kind:"CID Link" (fun link ->
+      match of_string_result link with
+      | Ok cid -> cid
+      | Error _ -> Jsont.Error.msg Jsont.Meta.none "invalid CID link")
   |> Jsont.Object.mem "$link" Jsont.string ~enc:(fun cid -> to_string cid)
   |> Jsont.Object.finish
 

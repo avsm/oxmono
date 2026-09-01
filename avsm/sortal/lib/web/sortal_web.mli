@@ -2,7 +2,8 @@
 
     The site is data. It holds no store, no clock and no filesystem: a route
     handler is portable, so everything it needs arrives in the {!env} record
-    the caller builds. {!compiled} is what a backend serves and what
+    the caller builds. {!compiled} is a compatibility alias for the site that
+    a backend serves and that
     [proffer.mock] drives in a test.
 
     Pages are plain HTML and one embedded stylesheet. There is no JavaScript
@@ -31,5 +32,5 @@ type env = {
 val site : env Proffer.Site.t
 (** [site] is the route table, with a styled 404 as its fallback. *)
 
-val compiled : env Proffer.Compiled.t
-(** [compiled] is {!site} ready to serve, compiled once. *)
+val compiled : env Proffer.Site.t
+(** [compiled] is a compatibility alias for {!site}. *)

@@ -12,8 +12,8 @@ type t = {
 let error_jsont =
   Jsont.Object.map ~kind:"KarakeepError"
     (fun code message -> (code, message))
-  |> Jsont.Object.mem "code" Jsont.string ~dec_absent:"unknown" ~enc:fst
-  |> Jsont.Object.mem "message" Jsont.string ~dec_absent:"Unknown error" ~enc:snd
+  |> Jsont.Object.mem "code" Jsont.string ~dec_absent:(fun () -> "unknown") ~enc:fst
+  |> Jsont.Object.mem "message" Jsont.string ~dec_absent:(fun () -> "Unknown error") ~enc:snd
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 

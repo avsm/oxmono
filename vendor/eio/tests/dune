@@ -4,3 +4,7 @@
   (deps
     (env_var "EIO_BACKEND")
     (package eio_main)))
+
+(test
+ (name test_local_flow)
+ (libraries eio))

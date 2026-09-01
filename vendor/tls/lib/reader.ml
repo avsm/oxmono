@@ -8,20 +8,22 @@ type error =
 
 exception Reader_error of error
 
-let raise_unknown msg        = raise (Reader_error (Unknown msg))
-and raise_wrong_length msg   = raise (Reader_error (WrongLength msg))
-and raise_trailing_bytes msg = raise (Reader_error (TrailingBytes msg))
+let (raise_unknown @ portable) msg = raise (Reader_error (Unknown msg))
+let (raise_wrong_length @ portable) msg = raise (Reader_error (WrongLength msg))
+let (raise_trailing_bytes @ portable) msg =
+  raise (Reader_error (TrailingBytes msg))
 
-let shift str amount = String.sub str amount (String.length str - amount)
+let (shift @ portable) str amount =
+  String.sub str amount (String.length str - amount)
 
-let catch f x =
+let (catch @ portable) f x =
   try Ok (f x) with
   | Reader_error TrailingBytes msg -> Error (`Decode ("trailing bytes: " ^ msg))
   | Reader_error WrongLength msg -> Error (`Decode ("wrong length: " ^ msg))
   | Reader_error Unknown msg -> Error (`Decode msg)
   | Invalid_argument msg -> Error (`Decode msg)
 
-let parse_version_int buf =
+let (parse_version_int @ portable) buf =
   let major = String.get_uint8 buf 0 in
   let minor = String.get_uint8 buf 1 in
   (major, minor)
@@ -45,7 +47,7 @@ let parse_version = catch parse_version_exn
 
 let parse_any_version = catch parse_any_version_exn
 
-let parse_record buf =
+let (parse_record @ portable) buf =
   if String.length buf < 5 then
     Ok (`Fragment buf)
   else
@@ -70,7 +72,7 @@ let parse_record buf =
         let payload, rest = split_str ~start:5 buf x in
         Ok (`Record (({ content_type ; version }, payload), rest))
 
-let validate_alert (lvl, typ) =
+let (validate_alert @ portable) (lvl, typ) =
   let open Packet in
   match lvl, typ with
   (* from RFC, find out which ones must be always FATAL
@@ -88,7 +90,7 @@ let validate_alert (lvl, typ) =
 
   | lvl, typ -> (lvl, typ)
 
-let parse_alert = catch @@ fun buf ->
+let (parse_alert @ portable) buf = catch (fun buf ->
   if String.length buf <> 2 then
     raise_trailing_bytes "after alert"
   else
@@ -96,21 +98,20 @@ let parse_alert = catch @@ fun buf ->
     let typ = String.get_uint8 buf 1 in
     match int_to_alert_level level, int_to_alert_type typ with
       | (Some lvl, msg) -> validate_alert (lvl, msg)
-      | _ -> raise_unknown @@ "alert level " ^ string_of_int level
+      | _ -> raise_unknown ("alert level " ^ string_of_int level)) buf
 
-let parse_change_cipher_spec buf =
-  match String.length buf, String.get_uint8 buf 0 with
-  | 1, 1 -> Ok ()
-  | _    -> Error (`Decode "bad change cipher spec message")
+let (parse_change_cipher_spec @ portable) buf =
+  if String.length buf = 1 && String.get_uint8 buf 0 = 1 then Ok ()
+  else Error (`Decode "bad change cipher spec message")
 
-let rec parse_count_list parsef buf acc = function
+let rec (parse_count_list @ portable) parsef buf acc = function
   | 0 -> (List.rev acc, buf)
   | n ->
      match parsef buf with
      | Some elem, buf' -> parse_count_list parsef buf' (elem :: acc) (pred n)
      | None     , buf' -> parse_count_list parsef buf'          acc  (pred n)
 
-let rec parse_list parsef buf acc =
+let rec (parse_list @ portable) parsef buf acc =
   match String.length buf with
   | 0 -> List.rev acc
   | _ ->
@@ -199,7 +200,7 @@ let parse_supported_groups buf =
     else
       cs
 
-let parse_signature_algorithm buf =
+let (parse_signature_algorithm @ portable) buf =
   match int_to_signature_alg (String.get_uint16_be buf 0) with
   | Some sig_alg -> of_signature_alg sig_alg
   | _            -> None
@@ -549,7 +550,7 @@ let parse_server_hello buf =
     ServerHello { server_version ; server_random ; sessionid ; ciphersuite ; extensions }
   end
 
-let parse_certificates_exn buf =
+let (parse_certificates_exn @ portable) buf =
   let parsef buf =
     let len = get_uint24_len ~off:0 buf in
     (Some (String.sub buf 3 len), shift buf (len + 3))
@@ -560,12 +561,12 @@ let parse_certificates_exn buf =
   else
     parse_list parsef (String.sub buf 3 len) []
 
-let parse_certificates = catch @@ parse_certificates_exn
+let (parse_certificates @ portable) buf = catch parse_certificates_exn buf
 
 (* TODO finish implementation of certificate extensions *)
 let parse_certificate_ext _ = None, ""
 
-let parse_certificate_ext_1_3_exn buf =
+let (parse_certificate_ext_1_3_exn @ portable) buf =
   let certlen = get_uint24_len ~off:0 buf in
   let cert, extbuf, rest =
     let cert, rt = split_str ~start:3 buf certlen in
@@ -576,22 +577,23 @@ let parse_certificate_ext_1_3_exn buf =
   let exts = parse_list parse_certificate_ext extbuf [] in
   (Some (cert, exts), rest)
 
-let parse_certificate_ext_list_1_3_exn buf =
+let (parse_certificate_ext_list_1_3_exn @ portable) buf =
   let len = get_uint24_len ~off:0 buf in
   if String.length buf <> len + 3 then
     raise_trailing_bytes "certificates"
   else
     parse_list parse_certificate_ext_1_3_exn (shift buf 3) []
 
-let parse_certificates_1_3_exn buf =
+let (parse_certificates_1_3_exn @ portable) buf =
   let clen = String.get_uint8 buf 0 in
   let context, rt = split_str ~start:1 buf clen in
   let certs = parse_certificate_ext_list_1_3_exn rt in
   (context, certs)
 
-let parse_certificates_1_3 = catch @@ parse_certificates_1_3_exn
+let (parse_certificates_1_3 @ portable) buf =
+  catch parse_certificates_1_3_exn buf
 
-let parse_certificate_types buf =
+let (parse_certificate_types @ portable) buf =
   let parsef buf =
     let byte = String.get_uint8 buf 0 in
     (int_to_client_certificate_type byte, shift buf 1)
@@ -599,7 +601,7 @@ let parse_certificate_types buf =
   let count = String.get_uint8 buf 0 in
   parse_count_list parsef (shift buf 1) [] count
 
-let parse_cas buf =
+let (parse_cas @ portable) buf =
   let parsef buf =
     let length = String.get_uint16_be buf 0 in
     let name = String.sub buf 2 length in
@@ -620,7 +622,7 @@ let parse_certificate_request_exn buf =
 let parse_certificate_request =
   catch parse_certificate_request_exn
 
-let parse_certificate_request_1_2_exn buf =
+let (parse_certificate_request_1_2_exn @ portable) buf =
   let certificate_types, buf' = parse_certificate_types buf in
   let sigs, buf' = parse_signature_algorithms buf' in
   let cas, buf' = parse_cas buf' in
@@ -629,10 +631,10 @@ let parse_certificate_request_1_2_exn buf =
   else
     (certificate_types, sigs, cas)
 
-let parse_certificate_request_1_2 =
-  catch parse_certificate_request_1_2_exn
+let (parse_certificate_request_1_2 @ portable) buf =
+  catch parse_certificate_request_1_2_exn buf
 
-let parse_certificate_request_extension raw =
+let (parse_certificate_request_extension @ portable) raw =
   let etype, len, buf = parse_ext raw in
   let data = match int_to_extension_type etype with
     | Some SIGNATURE_ALGORITHMS ->
@@ -657,7 +659,7 @@ let parse_certificate_request_extension raw =
   in
   (Some data, shift raw (4 + len))
 
-let parse_certificate_request_1_3_exn buf =
+let (parse_certificate_request_1_3_exn @ portable) buf =
   let contextlen = String.get_uint8 buf 0 in
   let context, rt =
     if contextlen = 0 then
@@ -669,10 +671,10 @@ let parse_certificate_request_1_3_exn buf =
   let exts = parse_extensions parse_certificate_request_extension rt in
   (context, exts)
 
-let parse_certificate_request_1_3 =
-  catch parse_certificate_request_1_3_exn
+let (parse_certificate_request_1_3 @ portable) buf =
+  catch parse_certificate_request_1_3_exn buf
 
-let parse_dh_parameters = catch @@ fun raw ->
+let (parse_dh_parameters @ portable) raw = catch (fun raw ->
   let plength = String.get_uint16_be raw 0 in
   let dh_p = String.sub raw 2 plength in
   let buf = shift raw (2 + plength) in
@@ -683,9 +685,9 @@ let parse_dh_parameters = catch @@ fun raw ->
   let dh_Ys = String.sub buf 2 yslength in
   let buf = shift buf (2 + yslength) in
   let rawparams = String.sub raw 0 (plength + glength + yslength + 6) in
-  ({ dh_p ; dh_g ; dh_Ys }, rawparams, buf)
+  ({ dh_p ; dh_g ; dh_Ys }, rawparams, buf)) raw
 
-let parse_ec_parameters = catch @@ fun raw ->
+let (parse_ec_parameters @ portable) raw = catch (fun raw ->
   if String.get_uint8 raw 0 <> ec_curve_type_to_int NAMED_CURVE then
     raise_unknown "EC curve type"
   else
@@ -698,24 +700,24 @@ let parse_ec_parameters = catch @@ fun raw ->
           g, d, String.sub raw 0 (data_len + 4), rest
         | _ -> raise_unknown "EC group"
       end
-    | None -> raise_unknown "EC named group"
+    | None -> raise_unknown "EC named group") raw
 
-let parse_digitally_signed_exn buf =
+let (parse_digitally_signed_exn @ portable) buf =
   let siglen = String.get_uint16_be buf 0 in
   if String.length buf <> siglen + 2 then
     raise_trailing_bytes "digitally signed"
   else
     String.sub buf 2 siglen
 
-let parse_digitally_signed =
-  catch parse_digitally_signed_exn
+let (parse_digitally_signed @ portable) buf =
+  catch parse_digitally_signed_exn buf
 
-let parse_digitally_signed_1_2 = catch @@ fun buf ->
+let (parse_digitally_signed_1_2 @ portable) buf = catch (fun buf ->
   match parse_signature_algorithm buf with
   | Some sig_alg ->
     let signature = parse_digitally_signed_exn (shift buf 2) in
     (sig_alg, signature)
-  | None -> raise_unknown "hash or signature algorithm"
+  | None -> raise_unknown "hash or signature algorithm") buf
 
 let parse_session_ticket_extension raw =
   let etype, len, buf = parse_ext raw in
@@ -767,7 +769,7 @@ let parse_keyupdate buf =
     | Some y -> y
     | None -> raise_unknown "key update content"
 
-let parse_handshake_frame buf =
+let (parse_handshake_frame @ portable) buf =
   if String.length buf < 4 then
     (None, buf)
   else
@@ -779,7 +781,7 @@ let parse_handshake_frame buf =
     else
       (None, buf)
 
-let parse_handshake = catch @@ fun buf ->
+let (parse_handshake @ portable) buf = catch (fun buf ->
   let typ = String.get_uint8 buf 0 in
   let handshake_type = int_to_handshake_type typ in
   let len = get_uint24_len ~off:1 buf in
@@ -812,4 +814,4 @@ let parse_handshake = catch @@ fun buf ->
     | Some END_OF_EARLY_DATA ->
       EndOfEarlyData
     | Some _
-    | None  -> raise_unknown @@ "handshake type" ^ string_of_int typ
+    | None  -> raise_unknown ("handshake type" ^ string_of_int typ)) buf

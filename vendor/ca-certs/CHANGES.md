@@ -1,3 +1,13 @@
+# v1.0.3 (2025-05-07)
+
+* Remove extended-validation.badssl.com test case (which used a digicert
+  signed certificate that got its website trust bit removed in NSS 3.123)
+  @mtelvers and others https://github.com/ocaml/opam-repository/pull/29852#issuecomment-4386895683
+
+# v1.0.2 (2026-05-05)
+
+* Support DragonFlyBSD (#39 @mneumann)
+
 # v1.0.1 (2025-04-15)
 
 * Add OCAML_EXTRA_CA_CERTS env variable (#30 @art-w)

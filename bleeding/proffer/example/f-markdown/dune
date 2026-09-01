@@ -1,0 +1,3 @@
+(executable
+ (name markdown)
+ (libraries proffer proffer-httpz cmarkit eio_main))

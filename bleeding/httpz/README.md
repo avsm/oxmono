@@ -18,11 +18,11 @@ Will soon have io_uring on Linux.
 
 ## Libraries
 
-The code is split into three libraries plus one executable:
+The core code is split into three libraries plus one executable:
 
 | Directory       | Library name         | Entry point           | Purpose |
 |-----------------|----------------------|-----------------------|---------|
-| `core/`         | `httpz`              | `Httpz`               | Protocol types, request parsing, response writing |
+| `lib/`          | `httpz`              | `Httpz`               | Protocol types, request parsing, response writing |
 | `route/`        | `httpz.route`        | `Httpz_route`         | Segment routing with span-keyed trie dispatch |
 | `eio_server/`   | `httpz.eio_server`   | `Httpz_eio_server`    | Eio connection lifecycle, chunked bodies, 100-continue, `Static` file serving |
 
@@ -32,7 +32,11 @@ The code is split into three libraries plus one executable:
 
 `httpz.route` is shared by `httpz.eio_server` for dispatch.
 
-`core` has no dependency on the server or I/O layers, so it can be embedded in
+The `httpz` opam package additionally owns the namespaced support libraries
+`httpz.punycode`, `httpz.punycode.idna`, `httpz.pubsuffix`, `httpz.cookie`,
+and `httpz.cookie.jar`.
+
+`lib` has no dependency on the server or I/O layers, so it can be embedded in
 any event loop. The modules it exposes are:
 
 - `Scan` - SIMD byte-class scans (CR, SP-or-CR, token characters) over the parse buffer
@@ -57,7 +61,8 @@ httpz achieves zero-allocation parsing through:
 4. **Span-based parsing**: Strings are referenced by offset+length into the input buffer
 5. **Caller-owned `bytes` buffers**: 32KB (`Httpz.buffer_size`) buffers, allocated once and reused across requests
 6. **Explicitly threaded position**: The parser carries no mutable state; the read position is passed and returned, so no parser record is ever allocated
-7. **Vectorised scans**: `Scan` compares sixteen bytes at a time with SSE2 where `ocaml_simd` is available, and eight at a time otherwise; `Span` comparison and case folding are word-at-a-time
+7. **Word-at-a-time scans**: `Scan` and `Span` compare eight bytes at a time
+   with portable SWAR operations
 
 `int16#` offsets are what fix the buffer size at 32KB: a whole request head must
 fit within a single `int16#`-addressable buffer.
@@ -227,7 +232,7 @@ twice as slow, and the penalty grows with header count. Confirm which you are
 getting with:
 
 ```bash
-dune rules --profile dev _build/default/core/.httpz.objs/native/httpz__Parser.cmx \
+dune rules --profile dev _build/default/lib/.httpz.objs/native/httpz__Parser.cmx \
   | grep -c opaque   # 1 in dev, 0 in release
 ```
 
@@ -314,8 +319,8 @@ The scans that dominate parsing are vectorised or word-at-a-time:
 
 | Primitive | Technique |
 |---|---|
-| `Scan.find_cr`, `Scan.find_sp_or_cr` | SSE2 `pcmpeqb`/`pmovmskb`, 16 bytes per step, with an 8-byte SWAR tail |
-| `Scan.skip_token` | two `pshufb` nibble-table lookups classify 16 bytes per step; bytes ≥ 0x80 fall out for free, since `pshufb` zeroes a lane whose index has bit 7 set |
+| `Scan.find_cr`, `Scan.find_sp_or_cr` | SWAR "haszero", 8 bytes per step |
+| `Scan.skip_token` | 256-byte table derived from the scalar predicate |
 | `Span.equal`, `Span.equal_caseless` | 8 bytes per step, then 4 and 2 for the tail — most header names are 4-17 bytes, so the tail is where the time was; case folding is a branchless `upper_mask` |
 | `Span.split_on_char` | 8 bytes per step via the SWAR "haszero" trick, resolving the lowest marked byte |
 | `Header_name.of_span` | switch on name length and folded first byte, leaving at most three candidates |
@@ -329,14 +334,18 @@ literal is caller-supplied, and without the test the range comparisons carry
 into the neighbouring byte and report a false match. `test_scan.ml` fails with
 several hundred mismatches if it is removed.
 
-SIMD is optional. `ocaml_simd` is a depopt: when it is present on amd64 dune
-selects `scan.simd.ml`, and otherwise `scan.portable.ml`, which is the same
-algorithm eight bytes at a time. Both are differentially tested against
-byte-loop reference implementations.
+The scanner uses unboxed integer operations but no architecture-specific SIMD,
+so native and bytecode builds select the same implementation. It is
+differentially tested against byte-loop reference implementations.
 
 ## Installation
 
-Requires OxCaml compiler from https://oxcaml.org/
+Requires the OxCaml compiler from https://oxcaml.org/
+
+```sh
+dune build
+dune runtest
+```
 
 ## Static File Server
 
@@ -388,4 +397,4 @@ the RFC texts themselves vendored under `spec/` for reference.
 
 ## License
 
-ISC
+ISC. See the [repository license](LICENSE.md).

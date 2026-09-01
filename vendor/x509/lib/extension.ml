@@ -1,5 +1,5 @@
 
-type key_usage = [
+type key_usage : immutable_data = [
   | `Digital_signature
   | `Content_commitment
   | `Key_encipherment
@@ -24,7 +24,7 @@ let pp_key_usage ppf ku =
      | `Encipher_only -> "encipher only"
      | `Decipher_only -> "decipher only")
 
-type extended_key_usage = [
+type extended_key_usage : immutable_data = [
   | `Any
   | `Server_auth
   | `Client_auth
@@ -90,7 +90,7 @@ let pp_policy ppf = function
   | `Any -> Fmt.string ppf "any"
   | `Something oid -> Fmt.pf ppf "some oid %a" Asn.OID.pp oid
 
-type reason = [
+type reason : immutable_data = [
   | `Unspecified
   | `Key_compromise
   | `CA_compromise
@@ -335,7 +335,7 @@ let pp' custom ppf m =
 
 let pp = pp' default_pp_custom_extension
 
-let hostnames exts =
+let hostnames : _ @ portable = fun exts ->
   match find Subject_alt_name exts with
   | None -> None
   | Some (_, names) ->
@@ -347,11 +347,11 @@ let hostnames exts =
             match Host.host s with
             | Some (typ, hostname) -> Host.Set.add (typ, hostname) acc
             | None -> acc)
-          Host.Set.empty xs
+          (Host.Set.of_list []) xs
       in
       if Host.Set.is_empty names then None else Some names
 
-let ips exts =
+let ips : _ @ portable = fun exts ->
   match find Subject_alt_name exts with
   | None -> None
   | Some (_, names) ->
@@ -368,7 +368,7 @@ let ips exts =
           with
           | Ok ip -> Ipaddr.Set.add ip acc
           | Error _ -> acc)
-        Ipaddr.Set.empty xs
+        (Ipaddr.Set.of_list []) xs
       in
       if Ipaddr.Set.is_empty ips then None else Some ips
 
@@ -384,7 +384,7 @@ module Asn = struct
 
   module ID = Registry.Cert_extn
 
-  let key_usage : key_usage list Asn.t = bit_string_flags [
+  let key_usage : key_usage list Asn.t = bit_string_flags ([
       0, `Digital_signature
     ; 1, `Content_commitment
     ; 2, `Key_encipherment
@@ -394,21 +394,21 @@ module Asn = struct
     ; 6, `CRL_sign
     ; 7, `Encipher_only
     ; 8, `Decipher_only
-    ]
+    ] : (int * key_usage) list)
 
   let ext_key_usage =
     let open ID.Extended_usage in
-    let f = case_of_oid [
-      (any              , `Any             ) ;
-      (server_auth      , `Server_auth     ) ;
-      (client_auth      , `Client_auth     ) ;
-      (code_signing     , `Code_signing    ) ;
-      (email_protection , `Email_protection) ;
-      (ipsec_end_system , `Ipsec_end       ) ;
-      (ipsec_tunnel     , `Ipsec_tunnel    ) ;
-      (ipsec_user       , `Ipsec_user      ) ;
-      (time_stamping    , `Time_stamping   ) ;
-      (ocsp_signing     , `Ocsp_signing    ) ]
+    let (f @ portable) : Asn.oid -> extended_key_usage = case_of_oid [
+      (any              , fun () -> `Any             ) ;
+      (server_auth      , fun () -> `Server_auth     ) ;
+      (client_auth      , fun () -> `Client_auth     ) ;
+      (code_signing     , fun () -> `Code_signing    ) ;
+      (email_protection , fun () -> `Email_protection) ;
+      (ipsec_end_system , fun () -> `Ipsec_end       ) ;
+      (ipsec_tunnel     , fun () -> `Ipsec_tunnel    ) ;
+      (ipsec_user       , fun () -> `Ipsec_user      ) ;
+      (time_stamping    , fun () -> `Time_stamping   ) ;
+      (ocsp_signing     , fun () -> `Ocsp_signing    ) ]
       ~default:(fun oid -> `Other oid)
     and g = function
       | `Any              -> any
@@ -423,7 +423,14 @@ module Asn = struct
       | `Ocsp_signing     -> ocsp_signing
       | `Other oid        -> oid
     in
-    map (List.map f) (List.map g) @@ sequence_of oid
+    let rec decode_all
+        (f : (Asn.oid -> extended_key_usage) @ portable) : _ @ portable =
+      function
+      | [] -> []
+      | value :: values -> f value :: decode_all f values
+    in
+    map (decode_all f)
+      (fun values -> List.map g values) @@ sequence_of oid
 
   let basic_constraints =
     map (fun (a, b) -> (Option.value ~default:false a, b))
@@ -435,7 +442,7 @@ module Asn = struct
 
   let authority_key_id =
     map (fun (a, b, c) ->
-        (a, Option.value ~default:General_name.empty b, c))
+        (a, Option.value ~default:(General_name.fresh_empty ()) b, c))
       (fun (a, b, c) ->
          (a, (if General_name.is_empty b then None else Some b), c))
     @@
@@ -515,7 +522,7 @@ module Asn = struct
       (required ~label:"policyIdentifier" oid)
       (optional ~label:"policyQualifiers" (sequence_of qualifier_info))
 
-  let reason : reason list Asn.t = bit_string_flags [
+  let reason : reason list Asn.t = bit_string_flags ([
       0, `Unspecified
     ; 1, `Key_compromise
     ; 2, `CA_compromise
@@ -525,7 +532,7 @@ module Asn = struct
     ; 6, `Certificate_hold
     ; 7, `Privilege_withdrawn
     ; 8, `AA_compromise
-    ]
+    ] : (int * reason) list)
 
   let reason_enumerated : reason Asn.t =
     enumerated reason_of_int reason_to_int
@@ -572,36 +579,37 @@ module Asn = struct
       (optional ~label:"onlyContainsAttributeCerts" @@ implicit 5 bool)
 
   let crl_reason : reason Asn.t =
-    let alist = [
-        0, `Unspecified
-      ; 1, `Key_compromise
-      ; 2, `CA_compromise
-      ; 3, `Affiliation_changed
-      ; 4, `Superseded
-      ; 5, `Cessation_of_operation
-      ; 6, `Certificate_hold
-      ; 8, `Remove_from_CRL
-      ; 9, `Privilege_withdrawn
-      ; 10, `AA_compromise
-      ]
-    in
-    let rev = List.map (fun (k, v) -> (v, k)) alist in
-    enumerated (fun i -> List.assoc i alist) (fun k -> List.assoc k rev)
+    enumerated reason_of_int reason_to_int
 
-  let gen_names_of_str, gen_names_to_str       = project_exn General_name.Asn.gen_names
-  and auth_key_id_of_str, auth_key_id_to_str   = project_exn authority_key_id
-  and subj_key_id_of_str, subj_key_id_to_str   = project_exn octet_string
-  and key_usage_of_str, key_usage_to_str       = project_exn key_usage
-  and e_key_usage_of_str, e_key_usage_to_str   = project_exn ext_key_usage
-  and basic_constr_of_str, basic_constr_to_str = project_exn basic_constraints
-  and pr_key_peri_of_str, pr_key_peri_to_str   = project_exn priv_key_usage_period
-  and name_con_of_str, name_con_to_str         = project_exn name_constraints
-  and crl_distrib_of_str, crl_distrib_to_str   = project_exn crl_distribution_points
-  and cert_pol_of_str, cert_pol_to_str         = project_exn cert_policies
-  and int_of_str, int_to_str                   = project_exn int
-  and issuing_dp_of_str, issuing_dp_to_str     = project_exn issuing_distribution_point
-  and crl_reason_of_str, crl_reason_to_str     = project_exn crl_reason
-  and time_of_str, time_to_str                 = project_exn generalized_time_no_frac_s
+  let gen_names_of_str : _ @ portable = project_exn_decoder General_name.Asn.gen_names
+  and auth_key_id_of_str : _ @ portable = project_exn_decoder authority_key_id
+  and subj_key_id_of_str : _ @ portable = project_exn_decoder octet_string
+  and key_usage_of_str : _ @ portable = project_exn_decoder key_usage
+  and e_key_usage_of_str : _ @ portable = project_exn_decoder ext_key_usage
+  and basic_constr_of_str : _ @ portable = project_exn_decoder basic_constraints
+  and pr_key_peri_of_str : _ @ portable = project_exn_decoder priv_key_usage_period
+  and name_con_of_str : _ @ portable = project_exn_decoder name_constraints
+  and crl_distrib_of_str : _ @ portable = project_exn_decoder crl_distribution_points
+  and cert_pol_of_str : _ @ portable = project_exn_decoder cert_policies
+  and int_of_str : _ @ portable = project_exn_decoder int
+  and issuing_dp_of_str : _ @ portable = project_exn_decoder issuing_distribution_point
+  and crl_reason_of_str : _ @ portable = project_exn_decoder crl_reason
+  and time_of_str : _ @ portable = project_exn_decoder generalized_time_no_frac_s
+
+  let _, gen_names_to_str       = project_exn General_name.Asn.gen_names
+  and _, auth_key_id_to_str     = project_exn authority_key_id
+  and _, subj_key_id_to_str     = project_exn octet_string
+  and _, key_usage_to_str       = project_exn key_usage
+  and _, e_key_usage_to_str     = project_exn ext_key_usage
+  and _, basic_constr_to_str    = project_exn basic_constraints
+  and _, pr_key_peri_to_str     = project_exn priv_key_usage_period
+  and _, name_con_to_str        = project_exn name_constraints
+  and _, crl_distrib_to_str     = project_exn crl_distribution_points
+  and _, cert_pol_to_str        = project_exn cert_policies
+  and _, int_to_str             = project_exn int
+  and _, issuing_dp_to_str      = project_exn issuing_distribution_point
+  and _, crl_reason_to_str      = project_exn crl_reason
+  and _, time_to_str            = project_exn generalized_time_no_frac_s
 
   (* XXX 4.2.1.4. - cert policies! ( and other x509 extensions ) *)
 
@@ -686,9 +694,9 @@ module Asn = struct
     let f exts =
       List.fold_left (fun map (B (k, v)) ->
           match add_unless_bound k v map with
-          | None -> parse_error "%a already bound" (pp_one k) v
+          | None -> parse_error "extension already bound"
           | Some b -> b)
-        empty exts
+        (fresh_empty ()) exts
     and g map = bindings map
     in
     map f g @@ sequence_of extension

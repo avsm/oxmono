@@ -8,8 +8,11 @@ let check name b =
     prerr_endline ("FAIL: " ^ name);
     exit 1)
 
+let invalid f =
+  match f () with _ -> false | exception Invalid_argument _ -> true
+
 let () =
-  let c = Cache.create ~ttl:10. in
+  let c = Cache.create ~ttl:10. () in
   let calls = ref 0 in
   let gen () = incr calls; "BODY" in
   let body1, etag1 = Cache.memoize c ~now:0. ~key:"/a" gen in
@@ -37,12 +40,9 @@ let () =
   let hits, misses = through_handler () in
   check "reachable from a portable handler" (hits = 2 && misses = 4)
 
-(* Pruning is observable by asking for an expired key again with a [now] before
-   its own expiry. The entry is gone, so the ask is a miss, where an entry left
-   in the list would have answered it. This is what keeps a cache under
-   request-derived keys from growing without bound. *)
+(* Rewinding [now] after a miss reveals whether that miss pruned an old key. *)
 let () =
-  let c = Cache.create ~ttl:10. in
+  let c = Cache.create ~ttl:10. () in
   let calls = ref 0 in
   let gen () = incr calls; "A" in
   let _b, _e = Cache.memoize c ~now:0. ~key:"/a" gen in
@@ -53,5 +53,68 @@ let () =
   check "the entry a prune made way for is kept" (!calls = 2);
   let hits, misses = Cache.stats c in
   check "pruning leaves the counts alone" (hits = 1 && misses = 3)
+
+(* The cache is a fixed budget, so distinct keys evict rather than accumulate,
+   and eviction takes the least recently used entry rather than the oldest
+   stored one. *)
+let () =
+  let c = Cache.create ~max_entries:2 ~ttl:1e9 () in
+  let gen v () = v in
+  let _b, _e = Cache.memoize c ~now:0. ~key:"a" (gen "A") in
+  let _b, _e = Cache.memoize c ~now:0. ~key:"b" (gen "B") in
+  let _b, _e = Cache.memoize c ~now:0. ~key:"a" (gen "A") in
+  check "the second lookup of a is a hit" (fst (Cache.stats c) = 1);
+  let _b, _e = Cache.memoize c ~now:0. ~key:"c" (gen "C") in
+  let _b, _e = Cache.memoize c ~now:0. ~key:"a" (gen "A") in
+  check "the recently used entry survived" (fst (Cache.stats c) = 2);
+  let _b, _e = Cache.memoize c ~now:0. ~key:"b" (gen "B") in
+  check "the least recently used entry was evicted"
+    (snd (Cache.stats c) = 4)
+
+(* Twenty thousand distinct keys against a cap of 1024: the cap is what
+   bounds both memory and the cost of an insert, so this finishes at once
+   rather than after seconds of list surgery. *)
+let () =
+  let c = Cache.create ~ttl:1e9 () in
+  for i = 0 to 19_999 do
+    let _b, _e =
+      Cache.memoize c ~now:0. ~key:(string_of_int i) (fun () -> "x")
+    in
+    ()
+  done;
+  let hits, misses = Cache.stats c in
+  check "every distinct key missed" (hits = 0 && misses = 20_000);
+  let _b, _e = Cache.memoize c ~now:0. ~key:"19999" (fun () -> "x") in
+  check "the last key is still cached" (fst (Cache.stats c) = 1);
+  let _b, _e = Cache.memoize c ~now:0. ~key:"0" (fun () -> "x") in
+  check "the first key was evicted" (fst (Cache.stats c) = 1)
+
+(* An expired entry is pruned rather than counted against the cap. *)
+let () =
+  let c = Cache.create ~max_entries:2 ~ttl:10. () in
+  let _b, _e = Cache.memoize c ~now:0. ~key:"a" (fun () -> "A") in
+  let _b, _e = Cache.memoize c ~now:0. ~key:"b" (fun () -> "B") in
+  let _b, _e = Cache.memoize c ~now:20. ~key:"c" (fun () -> "C") in
+  let _b, _e = Cache.memoize c ~now:20. ~key:"c" (fun () -> "C") in
+  check "a prune leaves room under the cap" (fst (Cache.stats c) = 1)
+
+let () =
+  check "a negative ttl is rejected"
+    (invalid (fun () -> Cache.create ~ttl:(-1.) ()));
+  check "a non-finite ttl is rejected"
+    (invalid (fun () -> Cache.create ~ttl:infinity ()));
+  let c = Cache.create ~ttl:1. () in
+  check "a non-finite clock reading is rejected"
+    (invalid (fun () -> Cache.memoize c ~now:nan ~key:"x" (fun () -> "x")));
+  let huge = Cache.create ~ttl:Float.max_float () in
+  check "an overflowing expiry is rejected before generation"
+    (let generated = ref false in
+     invalid (fun () ->
+       Cache.memoize huge ~now:Float.max_float ~key:"x" (fun () ->
+         generated := true;
+         "x"))
+     && not !generated);
+  check "a zero cap is rejected"
+    (invalid (fun () -> Cache.create ~max_entries:0 ~ttl:1. ()))
 
 let () = Printf.printf "test_cache: %d checks ok\n" !checks

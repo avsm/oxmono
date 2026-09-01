@@ -1,16 +1,16 @@
 open Core
 
-let cdiv (x : int) (y : int) =
+let (cdiv @ portable) (x : int) (y : int) =
   if x > 0 && y > 0 then (x + y - 1) / y
   else if x < 0 && y < 0 then (x + y + 1) / y
   else x / y
 
-let left_pad_dh group msg =
+let (left_pad_dh @ portable) group msg =
   let bytes = cdiv (Mirage_crypto_pk.Dh.modulus_size group) 8 in
   let padding = String.make (bytes - String.length msg) '\x00' in
   padding ^ msg
 
-let not_all_zero r =
+let (not_all_zero @ portable) r =
   let* str = r in
   try
     for i = 0 to String.length str - 1 do
@@ -19,7 +19,7 @@ let not_all_zero r =
     Error (`Fatal (`Handshake (`BadDH "all zero")))
   with Not_found -> Ok str
 
-let dh_shared secret share =
+let (dh_shared @ portable) secret share =
   (* RFC 8556, Section 7.4.1 - we need zero-padding on the left *)
   let map_ecdh_error =
     Result.map_error (fun e -> `Fatal (`Handshake (`BadECDH e)))
@@ -65,9 +65,27 @@ let dh_gen_key group =
     let secret, shared = Mirage_crypto_ec.X25519.gen_key () in
     `X25519 secret, shared
 
-let trace tag cs = Tracing.cs ~tag:("crypto " ^ tag) cs
+let (dh_gen_key_with_rng @ portable) ~g group =
+  match Core.group_to_impl group with
+  | `Finite_field mc_group ->
+    let sec, shared = Mirage_crypto_pk.Dh.gen_key_with ~g mc_group in
+    `Finite_field sec, left_pad_dh mc_group shared
+  | `P256 ->
+    let secret, shared = Mirage_crypto_ec.P256.Dh.gen_key_with ~g () in
+    `P256 secret, shared
+  | `P384 ->
+    let secret, shared = Mirage_crypto_ec.P384.Dh.gen_key_with ~g () in
+    `P384 secret, shared
+  | `P521 ->
+    let secret, shared = Mirage_crypto_ec.P521.Dh.gen_key_with ~g () in
+    `P521 secret, shared
+  | `X25519 ->
+    let secret, shared = Mirage_crypto_ec.X25519.gen_key_with ~g () in
+    `X25519 secret, shared
 
-let pp_hash_k_n ciphersuite =
+let (trace @ portable) _tag _data = ()
+
+let (pp_hash_k_n @ portable) ciphersuite =
   let open Ciphersuite in
   let pp = privprot13 ciphersuite
   and hash = hash13 ciphersuite
@@ -75,7 +93,7 @@ let pp_hash_k_n ciphersuite =
   let k, n = kn_13 pp in
   (pp, hash, k, n)
 
-let hkdflabel label context length =
+let (hkdflabel @ portable) label context length =
   let lbl = "tls13 " ^ label in
   let len_llen = Bytes.create 3 in
   Bytes.set_uint16_be len_llen 0 length;
@@ -90,11 +108,9 @@ let hkdflabel label context length =
   trace "hkdflabel" lbl ;
   lbl
 
-let derive_secret_no_hash hash prk ?length ?(ctx = "") label =
+let (derive_secret_no_hash @ portable) hash prk ?length ?(ctx = "") label =
   let length = match length with
-    | None ->
-      let module H = (val Digestif.module_of_hash' hash) in
-      H.digest_size
+    | None -> Digestif.digest_size hash
     | Some x -> x
   in
   let info = hkdflabel label ctx length in
@@ -103,19 +119,18 @@ let derive_secret_no_hash hash prk ?length ?(ctx = "") label =
   trace ("derive_secret: " ^ label) key ;
   key
 
-let derive_secret t label log =
-  let module H = (val Digestif.module_of_hash' t.State.hash) in
-  let ctx = H.(to_raw_string (digest_string log)) in
+let (derive_secret @ portable) t label log =
+  let ctx = Digestif.digest_string_raw t.State.hash log in
   trace "derive secret ctx" ctx ;
   derive_secret_no_hash t.State.hash t.State.secret ~ctx label
 
-let empty cipher = {
+let (empty @ portable) cipher = {
   State.secret = "" ;
   cipher ;
   hash = Ciphersuite.hash13 cipher
 }
 
-let derive t secret_ikm =
+let (derive @ portable) t secret_ikm =
   let salt =
     if String.equal t.State.secret "" then
       ""
@@ -128,7 +143,7 @@ let derive t secret_ikm =
   trace "derive (extracted secret)" secret ;
   { t with State.secret }
 
-let traffic_key cipher prk =
+let (traffic_key @ portable) cipher prk =
   let _, hash, key_len, iv_len = pp_hash_k_n cipher in
   let key_info = hkdflabel "key" "" key_len in
   let key = Hkdf.expand ~hash ~prk ~info:key_info key_len in
@@ -136,20 +151,20 @@ let traffic_key cipher prk =
   let iv = Hkdf.expand ~hash ~prk ~info:iv_info iv_len in
   (key, iv)
 
-let ctx t label secret =
+let (ctx @ portable) t label secret =
   let secret, nonce = traffic_key t.State.cipher secret in
   trace (label ^ " secret") secret ;
   trace (label ^ " nonce") nonce ;
   let pp = Ciphersuite.privprot13 t.State.cipher in
   { State.sequence = 0L ; cipher_st = Crypto.Ciphers.get_aead_cipher ~secret ~nonce pp }
 
-let early_traffic t log =
+let (early_traffic @ portable) t log =
   let secret = derive_secret t "c e traffic" log in
   (secret, ctx t "client early traffic" secret)
 
-let hs_ctx t log =
-  Tracing.cs ~tag:"hs ctx with sec" t.State.secret ;
-  Tracing.cs ~tag:"log is" log ;
+let (hs_ctx @ portable) t log =
+  Tracing.portable_cs ~tag:"hs ctx with sec" t.State.secret ;
+  Tracing.portable_cs ~tag:"log is" log ;
   let server_handshake_traffic_secret = derive_secret t "s hs traffic" log
   and client_handshake_traffic_secret = derive_secret t "c hs traffic" log
   in
@@ -158,7 +173,7 @@ let hs_ctx t log =
    client_handshake_traffic_secret,
    ctx t "client handshake traffic" client_handshake_traffic_secret)
 
-let app_ctx t log =
+let (app_ctx @ portable) t log =
   let server_application_traffic_secret = derive_secret t "s ap traffic" log
   and client_application_traffic_secret = derive_secret t "c ap traffic" log
   in
@@ -167,17 +182,17 @@ let app_ctx t log =
    client_application_traffic_secret,
    ctx t "client application traffic" client_application_traffic_secret)
 
-let app_secret_n_1 t app_secret =
+let (app_secret_n_1 @ portable) t app_secret =
   let secret = derive_secret_no_hash t.State.hash app_secret "traffic upd" in
   secret, ctx t "traffic update" secret
 
-let exporter t log = derive_secret t "exp master" log
-let resumption t log = derive_secret t "res master" log
+let (exporter @ portable) t log = derive_secret t "exp master" log
+let (resumption @ portable) t log = derive_secret t "res master" log
 
-let res_secret hash secret nonce =
+let (res_secret @ portable) hash secret nonce =
   derive_secret_no_hash hash secret ~ctx:nonce "resumption"
 
-let finished hash secret data =
-  let module H = (val Digestif.module_of_hash' hash) in
+let (finished @ portable) hash secret data =
   let key = derive_secret_no_hash hash secret "finished" in
-  H.(to_raw_string (hmac_string ~key (to_raw_string (digest_string data))))
+  let digest = Digestif.digest_string_raw hash data in
+  Digestif.hmacv_string_raw hash ~key [ digest ]

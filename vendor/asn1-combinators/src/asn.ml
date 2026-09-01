@@ -16,14 +16,15 @@ module S = struct
   type 'a element  = 'a Core.element
   type 'a sequence = 'a Core.sequence
   include Asn_combinators
-  let (error, parse_error) = Core.(error, parse_error)
+  let error : _ @ portable = Core.error
+  let parse_error : _ @ portable = Core.parse_error
 end
 
 type 'a t = 'a S.t
 type oid = OID.t
 
 type encoding = {
-  mk_decoder : 'a. 'a t -> string -> 'a * string;
+  mk_decoder : 'a. 'a t -> (string -> 'a * string) @ portable;
   mk_encoder : 'a. 'a t -> 'a -> Asn_writer.t
 }
 
@@ -52,5 +53,11 @@ let encode_into (Codec (_, enc)) a =
 
 let decode (Codec (dec, _)) b =
   try Ok (dec b) with Core.Parse_error err -> Error err
+
+let decoder { mk_decoder ; _ } asn =
+  let () = Core.validate asn in
+  let dec = mk_decoder asn in
+  (fun b ->
+     try Ok (dec b) with Core.Parse_error err -> Error err : _ @ portable)
 
 let random = Asn_random.r_asn

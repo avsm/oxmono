@@ -74,7 +74,7 @@ let serve_cmd =
     in
     let henv =
       Arod_handlers.Env.create ~ctx
-        ~cache:(Proffer.Cache.create ~ttl:300.0)
+        ~cache:(Proffer.Cache.create ~ttl:300.0 ())
         ~search:(fun ~limit ~link_limit ~order q ->
           match !search_ref with
           | None -> Arod_search.empty
@@ -93,7 +93,7 @@ let serve_cmd =
     in
     let site = Arod_server.Site.build cfg in
     let serve () =
-      Arod_server.run ~sw ~net ~clock ~config:cfg ~log ~env:henv site
+      Arod_server.run ~sw ~stdenv:env ~config:cfg ~log ~env:henv site
     in
     (match cfg.server.finger_port with
      | Some finger_port ->

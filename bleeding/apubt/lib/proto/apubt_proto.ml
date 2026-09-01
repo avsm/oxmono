@@ -22,9 +22,13 @@ end = struct
   let jsont = Jsont.string |> Jsont.with_doc ~kind:"datetime"
 end
 
-(** JSON codec for [Uri.t] values. *)
-let uri_jsont : Uri.t Jsont.t =
-  Jsont.string |> Jsont.map ~dec:Uri.of_string ~enc:Uri.to_string
+(** JSON codec for [Uriz.t] values. *)
+let uri_jsont : Uriz.t Jsont.t =
+  Jsont.of_of_string ~kind:"URI"
+    (fun s -> match Uriz.of_string s with
+      | This uri -> Ok uri
+      | Null -> Error "invalid URI reference")
+    ~enc:Uriz.to_string
 
 (** JSON-LD context. *)
 module Context : sig
@@ -55,7 +59,7 @@ let one_or_many (item_jsont : 'a Jsont.t) : 'a list Jsont.t =
 
 (** Helper: Nullable value - accepts null as None, value as Some value *)
 let nullable (jsont : 'a Jsont.t) : 'a option Jsont.t =
-  let dec_null = Jsont.null None in
+  let dec_null = Jsont.none in
   let dec_value = Jsont.map jsont
       ~dec:(fun v -> Some v)
       ~enc:(function Some v -> v | None -> assert false)
@@ -75,7 +79,7 @@ let nullable (jsont : 'a Jsont.t) : 'a option Jsont.t =
 (** Helper: URI that can also be an object with an id field.
     This handles ActivityPub fields like 'replies' that can be either
     a URI string or an inline Collection object. *)
-let uri_or_object_with_id : Uri.t Jsont.t =
+let uri_or_object_with_id : Uriz.t Jsont.t =
   let id_jsont =
     Jsont.Object.map ~kind:"Object with id" (fun id -> id)
     |> Jsont.Object.mem "id" uri_jsont ~enc:Fun.id
@@ -102,28 +106,28 @@ module Link : sig
     ?hreflang:string ->
     ?height:int ->
     ?width:int ->
-    ?preview:Uri.t ->
-    href:Uri.t ->
+    ?preview:Uriz.t ->
+    href:Uriz.t ->
     unit -> t
 
-  val href : t -> Uri.t
+  val href : t -> Uriz.t
   val media_type : t -> string option
   val name : t -> string option
   val hreflang : t -> string option
   val height : t -> int option
   val width : t -> int option
-  val preview : t -> Uri.t option
+  val preview : t -> Uriz.t option
 
   val jsont : t Jsont.t
 end = struct
   type t = {
-    href : Uri.t;
+    href : Uriz.t;
     media_type : string option;
     name : string option;
     hreflang : string option;
     height : int option;
     width : int option;
-    preview : Uri.t option;
+    preview : Uriz.t option;
   }
 
   let make ?media_type ?name ?hreflang ?height ?width ?preview ~href () =
@@ -154,15 +158,15 @@ end
 (** Reference that can be either a URI string or a Link object. *)
 module Link_or_uri : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Link of Link.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val link : Link.t -> t
   val jsont : t Jsont.t
 end = struct
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Link of Link.t
 
   let uri u = Uri u
@@ -189,7 +193,7 @@ module Image : sig
   type t
 
   val make :
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     ?name:string ->
     ?media_type:string ->
     ?width:int ->
@@ -197,7 +201,7 @@ module Image : sig
     url:Link_or_uri.t ->
     unit -> t
 
-  val id : t -> Uri.t option
+  val id : t -> Uriz.t option
   val url : t -> Link_or_uri.t
   val name : t -> string option
   val media_type : t -> string option
@@ -207,7 +211,7 @@ module Image : sig
   val jsont : t Jsont.t
 end = struct
   type t = {
-    id : Uri.t option;
+    id : Uriz.t option;
     url : Link_or_uri.t;
     name : string option;
     media_type : string option;
@@ -241,17 +245,17 @@ end
 (** Image reference - can be URI, Link, or full Image object. *)
 module Image_ref : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Link of Link.t
     | Image of Image.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val link : Link.t -> t
   val image : Image.t -> t
   val jsont : t Jsont.t
 end = struct
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Link of Link.t
     | Image of Image.t
 
@@ -282,9 +286,9 @@ end
 
 (** Special public addressing collection. *)
 module Public : sig
-  val id : Uri.t
+  val id : Uriz.t
 end = struct
-  let id = Uri.of_string "https://www.w3.org/ns/activitystreams#Public"
+  let id = Uriz.of_string_exn "https://www.w3.org/ns/activitystreams#Public"
 end
 
 (** {1 Recipient} *)
@@ -292,17 +296,17 @@ end
 (** Recipient reference - can be URI or inline object with id and type. *)
 module Recipient : sig
   type t = {
-    id : Uri.t;
+    id : Uriz.t;
     type_ : string option;
   }
 
-  val make : ?type_:string -> Uri.t -> t
-  val id : t -> Uri.t
+  val make : ?type_:string -> Uriz.t -> t
+  val id : t -> Uriz.t
   val type_ : t -> string option
   val jsont : t Jsont.t
 end = struct
   type t = {
-    id : Uri.t;
+    id : Uriz.t;
     type_ : string option;
   }
 
@@ -337,30 +341,30 @@ module Endpoints : sig
   type t
 
   val make :
-    ?proxy_url:Uri.t ->
-    ?oauth_authorization_endpoint:Uri.t ->
-    ?oauth_token_endpoint:Uri.t ->
-    ?provide_client_key:Uri.t ->
-    ?sign_client_key:Uri.t ->
-    ?shared_inbox:Uri.t ->
+    ?proxy_url:Uriz.t ->
+    ?oauth_authorization_endpoint:Uriz.t ->
+    ?oauth_token_endpoint:Uriz.t ->
+    ?provide_client_key:Uriz.t ->
+    ?sign_client_key:Uriz.t ->
+    ?shared_inbox:Uriz.t ->
     unit -> t
 
-  val proxy_url : t -> Uri.t option
-  val oauth_authorization_endpoint : t -> Uri.t option
-  val oauth_token_endpoint : t -> Uri.t option
-  val provide_client_key : t -> Uri.t option
-  val sign_client_key : t -> Uri.t option
-  val shared_inbox : t -> Uri.t option
+  val proxy_url : t -> Uriz.t option
+  val oauth_authorization_endpoint : t -> Uriz.t option
+  val oauth_token_endpoint : t -> Uriz.t option
+  val provide_client_key : t -> Uriz.t option
+  val sign_client_key : t -> Uriz.t option
+  val shared_inbox : t -> Uriz.t option
 
   val jsont : t Jsont.t
 end = struct
   type t = {
-    proxy_url : Uri.t option;
-    oauth_authorization_endpoint : Uri.t option;
-    oauth_token_endpoint : Uri.t option;
-    provide_client_key : Uri.t option;
-    sign_client_key : Uri.t option;
-    shared_inbox : Uri.t option;
+    proxy_url : Uriz.t option;
+    oauth_authorization_endpoint : Uriz.t option;
+    oauth_token_endpoint : Uriz.t option;
+    provide_client_key : Uriz.t option;
+    sign_client_key : Uriz.t option;
+    shared_inbox : Uriz.t option;
   }
 
   let make ?proxy_url ?oauth_authorization_endpoint ?oauth_token_endpoint
@@ -399,20 +403,20 @@ module Public_key : sig
   type t
 
   val make :
-    id:Uri.t ->
-    owner:Uri.t ->
+    id:Uriz.t ->
+    owner:Uriz.t ->
     public_key_pem:string ->
     unit -> t
 
-  val id : t -> Uri.t
-  val owner : t -> Uri.t
+  val id : t -> Uriz.t
+  val owner : t -> Uriz.t
   val public_key_pem : t -> string
 
   val jsont : t Jsont.t
 end = struct
   type t = {
-    id : Uri.t;
-    owner : Uri.t;
+    id : Uriz.t;
+    owner : Uriz.t;
     public_key_pem : string;
   }
 
@@ -488,83 +492,83 @@ module Actor : sig
 
   val make :
     ?context:Context.t ->
-    id:Uri.t ->
+    id:Uriz.t ->
     type_:Actor_type.t ->
     ?name:string ->
     ?preferred_username:string ->
     ?summary:string ->
-    ?url:Uri.t ->
-    inbox:Uri.t ->
-    outbox:Uri.t ->
-    ?followers:Uri.t ->
-    ?following:Uri.t ->
-    ?liked:Uri.t ->
-    ?streams:Uri.t list ->
+    ?url:Uriz.t ->
+    inbox:Uriz.t ->
+    outbox:Uriz.t ->
+    ?followers:Uriz.t ->
+    ?following:Uriz.t ->
+    ?liked:Uriz.t ->
+    ?streams:Uriz.t list ->
     ?endpoints:Endpoints.t ->
     ?public_key:Public_key.t ->
     ?icon:Image_ref.t list ->
     ?image:Image_ref.t list ->
     ?manually_approves_followers:bool ->
-    ?also_known_as:Uri.t list ->
+    ?also_known_as:Uriz.t list ->
     ?discoverable:bool ->
     ?suspended:bool ->
-    ?moved_to:Uri.t ->
-    ?featured:Uri.t ->
-    ?featured_tags:Uri.t ->
+    ?moved_to:Uriz.t ->
+    ?featured:Uriz.t ->
+    ?featured_tags:Uriz.t ->
     unit -> t
 
   val context : t -> Context.t option
-  val id : t -> Uri.t
+  val id : t -> Uriz.t
   val type_ : t -> Actor_type.t
   val name : t -> string option
   val preferred_username : t -> string option
   val summary : t -> string option
-  val url : t -> Uri.t option
-  val inbox : t -> Uri.t
-  val outbox : t -> Uri.t
-  val followers : t -> Uri.t option
-  val following : t -> Uri.t option
-  val liked : t -> Uri.t option
-  val streams : t -> Uri.t list option
+  val url : t -> Uriz.t option
+  val inbox : t -> Uriz.t
+  val outbox : t -> Uriz.t
+  val followers : t -> Uriz.t option
+  val following : t -> Uriz.t option
+  val liked : t -> Uriz.t option
+  val streams : t -> Uriz.t list option
   val endpoints : t -> Endpoints.t option
   val public_key : t -> Public_key.t option
   val icon : t -> Image_ref.t list option
   val image : t -> Image_ref.t list option
   val manually_approves_followers : t -> bool option
-  val also_known_as : t -> Uri.t list option
+  val also_known_as : t -> Uriz.t list option
   val discoverable : t -> bool option
   val suspended : t -> bool option
-  val moved_to : t -> Uri.t option
-  val featured : t -> Uri.t option
-  val featured_tags : t -> Uri.t option
+  val moved_to : t -> Uriz.t option
+  val featured : t -> Uriz.t option
+  val featured_tags : t -> Uriz.t option
 
   val jsont : t Jsont.t
 end = struct
   type t = {
     context : Context.t option;
-    id : Uri.t;
+    id : Uriz.t;
     type_ : Actor_type.t;
     name : string option;
     preferred_username : string option;
     summary : string option;
-    url : Uri.t option;
-    inbox : Uri.t;
-    outbox : Uri.t;
-    followers : Uri.t option;
-    following : Uri.t option;
-    liked : Uri.t option;
-    streams : Uri.t list option;
+    url : Uriz.t option;
+    inbox : Uriz.t;
+    outbox : Uriz.t;
+    followers : Uriz.t option;
+    following : Uriz.t option;
+    liked : Uriz.t option;
+    streams : Uriz.t list option;
     endpoints : Endpoints.t option;
     public_key : Public_key.t option;
     icon : Image_ref.t list option;
     image : Image_ref.t list option;
     manually_approves_followers : bool option;
-    also_known_as : Uri.t list option;
+    also_known_as : Uriz.t list option;
     discoverable : bool option;
     suspended : bool option;
-    moved_to : Uri.t option;
-    featured : Uri.t option;
-    featured_tags : Uri.t option;
+    moved_to : Uriz.t option;
+    featured : Uriz.t option;
+    featured_tags : Uriz.t option;
   }
 
   let make ?context ~id ~type_ ?name ?preferred_username ?summary ?url
@@ -647,15 +651,15 @@ end
 (** Actor reference - can be URI or full Actor object. *)
 module Actor_ref : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Actor of Actor.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val actor : Actor.t -> t
   val jsont : t Jsont.t
 end = struct
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Actor of Actor.t
 
   let uri u = Uri u
@@ -772,7 +776,7 @@ module Object : sig
 
   val make :
     ?context:Context.t ->
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     type_:Object_type.t ->
     ?name:string ->
     ?summary:string ->
@@ -780,7 +784,7 @@ module Object : sig
     ?media_type:string ->
     ?url:Link_or_uri.t list ->
     ?attributed_to:Actor_ref.t ->
-    ?in_reply_to:Uri.t ->
+    ?in_reply_to:Uriz.t ->
     ?published:Datetime.t ->
     ?updated:Datetime.t ->
     ?deleted:Datetime.t ->
@@ -788,17 +792,17 @@ module Object : sig
     ?cc:Recipient.t list ->
     ?bto:Recipient.t list ->
     ?bcc:Recipient.t list ->
-    ?replies:Uri.t ->
+    ?replies:Uriz.t ->
     ?attachment:Link_or_uri.t list ->
     ?tag:Link_or_uri.t list ->
-    ?generator:Uri.t ->
+    ?generator:Uriz.t ->
     ?icon:Image_ref.t list ->
     ?image:Image_ref.t list ->
     ?start_time:Datetime.t ->
     ?end_time:Datetime.t ->
     ?duration:string ->
     ?sensitive:bool ->
-    ?conversation:Uri.t ->
+    ?conversation:Uriz.t ->
     ?audience:Recipient.t list ->
     ?location:Link_or_uri.t ->
     ?preview:Link_or_uri.t ->
@@ -806,7 +810,7 @@ module Object : sig
   (** Create a new Object. *)
 
   val context : t -> Context.t option
-  val id : t -> Uri.t option
+  val id : t -> Uriz.t option
   val type_ : t -> Object_type.t
   val name : t -> string option
   val summary : t -> string option
@@ -814,7 +818,7 @@ module Object : sig
   val media_type : t -> string option
   val url : t -> Link_or_uri.t list option
   val attributed_to : t -> Actor_ref.t option
-  val in_reply_to : t -> Uri.t option
+  val in_reply_to : t -> Uriz.t option
   val published : t -> Datetime.t option
   val updated : t -> Datetime.t option
   val deleted : t -> Datetime.t option
@@ -822,17 +826,17 @@ module Object : sig
   val cc : t -> Recipient.t list option
   val bto : t -> Recipient.t list option
   val bcc : t -> Recipient.t list option
-  val replies : t -> Uri.t option
+  val replies : t -> Uriz.t option
   val attachment : t -> Link_or_uri.t list option
   val tag : t -> Link_or_uri.t list option
-  val generator : t -> Uri.t option
+  val generator : t -> Uriz.t option
   val icon : t -> Image_ref.t list option
   val image : t -> Image_ref.t list option
   val start_time : t -> Datetime.t option
   val end_time : t -> Datetime.t option
   val duration : t -> string option
   val sensitive : t -> bool option
-  val conversation : t -> Uri.t option
+  val conversation : t -> Uriz.t option
   val audience : t -> Recipient.t list option
 
   val location : t -> Link_or_uri.t option
@@ -846,7 +850,7 @@ module Object : sig
 end = struct
   type t = {
     context : Context.t option;
-    id : Uri.t option;
+    id : Uriz.t option;
     type_ : Object_type.t;
     name : string option;
     summary : string option;
@@ -854,7 +858,7 @@ end = struct
     media_type : string option;
     url : Link_or_uri.t list option;
     attributed_to : Actor_ref.t option;
-    in_reply_to : Uri.t option;
+    in_reply_to : Uriz.t option;
     published : Datetime.t option;
     updated : Datetime.t option;
     deleted : Datetime.t option;
@@ -862,17 +866,17 @@ end = struct
     cc : Recipient.t list option;
     bto : Recipient.t list option;
     bcc : Recipient.t list option;
-    replies : Uri.t option;
+    replies : Uriz.t option;
     attachment : Link_or_uri.t list option;
     tag : Link_or_uri.t list option;
-    generator : Uri.t option;
+    generator : Uriz.t option;
     icon : Image_ref.t list option;
     image : Image_ref.t list option;
     start_time : Datetime.t option;
     end_time : Datetime.t option;
     duration : string option;
     sensitive : bool option;
-    conversation : Uri.t option;
+    conversation : Uriz.t option;
     audience : Recipient.t list option;
     location : Link_or_uri.t option;
     preview : Link_or_uri.t option;
@@ -937,14 +941,14 @@ end = struct
     |> Jsont.Object.mem "type" Object_type.jsont ~enc:type_
     |> Jsont.Object.opt_mem "name" Jsont.string ~enc:name
     |> Jsont.Object.mem "summary" (nullable Jsont.string)
-        ~dec_absent:None ~enc_omit:Option.is_none ~enc:summary
+        ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:summary
     |> Jsont.Object.mem "content" (nullable Jsont.string)
-        ~dec_absent:None ~enc_omit:Option.is_none ~enc:content
+        ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:content
     |> Jsont.Object.opt_mem "mediaType" Jsont.string ~enc:media_type
     |> Jsont.Object.opt_mem "url" (one_or_many Link_or_uri.jsont) ~enc:url
     |> Jsont.Object.opt_mem "attributedTo" Actor_ref.jsont ~enc:attributed_to
     |> Jsont.Object.mem "inReplyTo" (nullable uri_jsont)
-        ~dec_absent:None ~enc_omit:Option.is_none ~enc:in_reply_to
+        ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:in_reply_to
     |> Jsont.Object.opt_mem "published" Datetime.jsont ~enc:published
     |> Jsont.Object.opt_mem "updated" Datetime.jsont ~enc:updated
     |> Jsont.Object.opt_mem "deleted" Datetime.jsont ~enc:deleted
@@ -973,15 +977,15 @@ end
 (** Object reference - can be URI or full Object. *)
 module Object_ref : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Object of Object.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val obj : Object.t -> t
   val jsont : t Jsont.t
 end = struct
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Object of Object.t
 
   let uri u = Uri u
@@ -1168,7 +1172,7 @@ module Activity : sig
 
   val make :
     ?context:Context.t ->
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     type_:Activity_type.t ->
     actor:Actor_ref.t ->
     ?object_:Object_ref.t ->
@@ -1194,7 +1198,7 @@ module Activity : sig
       for multiple-choice polls. *)
 
   val context : t -> Context.t option
-  val id : t -> Uri.t option
+  val id : t -> Uriz.t option
   val type_ : t -> Activity_type.t
   val actor : t -> Actor_ref.t
   val object_ : t -> Object_ref.t option
@@ -1224,7 +1228,7 @@ module Activity : sig
 end = struct
   type t = {
     context : Context.t option;
-    id : Uri.t option;
+    id : Uriz.t option;
     type_ : Activity_type.t;
     actor : Actor_ref.t;
     object_ : Object_ref.t option;
@@ -1303,15 +1307,15 @@ end
 (** Activity reference - can be URI or full Activity. *)
 module Activity_ref : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Activity of Activity.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val activity : Activity.t -> t
   val jsont : t Jsont.t
 end = struct
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Activity of Activity.t
 
   let uri u = Uri u
@@ -1341,21 +1345,21 @@ module Collection : sig
 
   val make :
     ?context:Context.t ->
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     ?total_items:int ->
-    ?current:Uri.t ->
-    ?first:Uri.t ->
-    ?last:Uri.t ->
+    ?current:Uriz.t ->
+    ?first:Uriz.t ->
+    ?last:Uriz.t ->
     ?items:'a list ->
     ordered:bool ->
     unit -> 'a t
 
   val context : 'a t -> Context.t option
-  val id : 'a t -> Uri.t option
+  val id : 'a t -> Uriz.t option
   val total_items : 'a t -> int option
-  val current : 'a t -> Uri.t option
-  val first : 'a t -> Uri.t option
-  val last : 'a t -> Uri.t option
+  val current : 'a t -> Uriz.t option
+  val first : 'a t -> Uriz.t option
+  val last : 'a t -> Uriz.t option
   val items : 'a t -> 'a list option
   val ordered : 'a t -> bool
 
@@ -1363,11 +1367,11 @@ module Collection : sig
 end = struct
   type 'a t = {
     context : Context.t option;
-    id : Uri.t option;
+    id : Uriz.t option;
     total_items : int option;
-    current : Uri.t option;
-    first : Uri.t option;
-    last : Uri.t option;
+    current : Uriz.t option;
+    first : Uriz.t option;
+    last : Uriz.t option;
     items : 'a list option;
     ordered : bool;
   }
@@ -1423,27 +1427,27 @@ module Collection_page : sig
 
   val make :
     ?context:Context.t ->
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     ?total_items:int ->
-    ?current:Uri.t ->
-    ?first:Uri.t ->
-    ?last:Uri.t ->
-    ?prev:Uri.t ->
-    ?next:Uri.t ->
-    ?part_of:Uri.t ->
+    ?current:Uriz.t ->
+    ?first:Uriz.t ->
+    ?last:Uriz.t ->
+    ?prev:Uriz.t ->
+    ?next:Uriz.t ->
+    ?part_of:Uriz.t ->
     ?items:'a list ->
     ordered:bool ->
     unit -> 'a t
 
   val context : 'a t -> Context.t option
-  val id : 'a t -> Uri.t option
+  val id : 'a t -> Uriz.t option
   val total_items : 'a t -> int option
-  val current : 'a t -> Uri.t option
-  val first : 'a t -> Uri.t option
-  val last : 'a t -> Uri.t option
-  val prev : 'a t -> Uri.t option
-  val next : 'a t -> Uri.t option
-  val part_of : 'a t -> Uri.t option
+  val current : 'a t -> Uriz.t option
+  val first : 'a t -> Uriz.t option
+  val last : 'a t -> Uriz.t option
+  val prev : 'a t -> Uriz.t option
+  val next : 'a t -> Uriz.t option
+  val part_of : 'a t -> Uriz.t option
   val items : 'a t -> 'a list option
   val ordered : 'a t -> bool
 
@@ -1451,14 +1455,14 @@ module Collection_page : sig
 end = struct
   type 'a t = {
     context : Context.t option;
-    id : Uri.t option;
+    id : Uriz.t option;
     total_items : int option;
-    current : Uri.t option;
-    first : Uri.t option;
-    last : Uri.t option;
-    prev : Uri.t option;
-    next : Uri.t option;
-    part_of : Uri.t option;
+    current : Uriz.t option;
+    first : Uriz.t option;
+    last : Uriz.t option;
+    prev : Uriz.t option;
+    next : Uriz.t option;
+    part_of : Uriz.t option;
     items : 'a list option;
     ordered : bool;
   }
@@ -1565,13 +1569,13 @@ module Webfinger : sig
     val make :
       rel:string ->
       ?type_:string ->
-      ?href:Uri.t ->
+      ?href:Uriz.t ->
       ?template:string ->
       unit -> t
 
     val rel : t -> string
     val type_ : t -> string option
-    val href : t -> Uri.t option
+    val href : t -> Uriz.t option
     val template : t -> string option
 
     val jsont : t Jsont.t
@@ -1598,7 +1602,7 @@ end = struct
     type t = {
       rel : string;
       type_ : string option;
-      href : Uri.t option;
+      href : Uriz.t option;
       template : string option;
     }
 
@@ -1635,14 +1639,14 @@ end = struct
   let properties t = t.properties
   let links t = t.links
 
-  module String_map = Map.Make(String)
+  module String_map = Jsont.String_map
 
   let properties_jsont =
     Jsont.Object.as_string_map Jsont.string
     |> Jsont.map
-        ~dec:(fun m -> String_map.bindings m)
+        ~dec:(fun m -> List.rev (String_map.fold (fun k v acc -> (k, v) :: acc) m []))
         ~enc:(fun l -> List.fold_left (fun m (k, v) ->
-            String_map.add k v m) String_map.empty l)
+            String_map.add k v m) (String_map.create ()) l)
 
   let jsont =
     Jsont.Object.map ~kind:"Webfinger"
@@ -1667,14 +1671,14 @@ module Nodeinfo : sig
     val make :
       name:string ->
       version:string ->
-      ?repository:Uri.t ->
-      ?homepage:Uri.t ->
+      ?repository:Uriz.t ->
+      ?homepage:Uriz.t ->
       unit -> t
 
     val name : t -> string
     val version : t -> string
-    val repository : t -> Uri.t option
-    val homepage : t -> Uri.t option
+    val repository : t -> Uriz.t option
+    val homepage : t -> Uriz.t option
 
     val jsont : t Jsont.t
   end
@@ -1724,8 +1728,8 @@ end = struct
     type t = {
       name : string;
       version : string;
-      repository : Uri.t option;
-      homepage : Uri.t option;
+      repository : Uriz.t option;
+      homepage : Uriz.t option;
     }
 
     let make ~name ~version ?repository ?homepage () =
@@ -1786,7 +1790,7 @@ end = struct
           { users_total; users_active_half_year; users_active_month;
             local_posts; local_comments })
       |> Jsont.Object.mem "users" users_jsont
-          ~dec_absent:(None, None, None)
+          ~dec_absent:(fun () -> (None, None, None))
           ~enc:(fun t -> (t.users_total, t.users_active_half_year,
                           t.users_active_month))
       |> Jsont.Object.opt_mem "localPosts" Jsont.int ~enc:local_posts

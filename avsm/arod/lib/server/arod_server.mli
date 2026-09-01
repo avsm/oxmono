@@ -10,12 +10,15 @@ module Site = Arod_site
 
 val run :
   sw:Eio.Switch.t ->
-  net:_ Eio.Net.t ->
-  clock:_ Eio.Time.clock ->
+  stdenv:<
+    net:_ Eio.Net.t;
+    clock:_ Eio.Time.clock;
+    mono_clock:_ Eio.Time.Mono.t;
+    .. > ->
   config:Arod.Config.t ->
   log:Arod_log.t ->
   env:'env ->
-  'env Proffer.Compiled.t ->
+  'env Proffer.Site.t ->
   unit
-(** [run ~sw ~net ~clock ~config ~log ~env compiled] serves [compiled] on the
+(** [run ~sw ~stdenv ~config ~log ~env site] serves [site] on the
     configured port until [sw] is cancelled. Requests are written to [log]. *)

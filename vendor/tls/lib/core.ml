@@ -5,13 +5,13 @@ open Ciphersuite
 
 let ( let* ) = Result.bind
 
-let guard p e = if p then Ok () else Error e
+let (guard @ portable) p e = if p then Ok () else Error e
 
 let split_str ?(start = 0) str off =
   String.sub str start off,
   String.sub str (start + off) (String.length str - off - start)
 
-let map_reader_error r =
+let (map_reader_error @ portable) r =
   Result.map_error (fun e -> `Fatal e) r
 
 type tls13 = [ `TLS_1_3 ]
@@ -447,6 +447,13 @@ module Tracing = struct
   include (val Logs.src_log src : Logs.LOG)
   let cs ~tag buf = debug (fun m -> m "%s@.%a" tag (Ohex.pp_hexdump ()) buf)
   let hs ~tag hs = debug (fun m -> m "%s %a" tag pp_handshake hs)
+
+  (* Logging backends are process-global.  Portable protocol paths therefore
+     use explicit no-op trace points and leave ordinary entry points free to
+     use the regular Logs-backed functions above. *)
+  let (portable_debug @ portable) () = ()
+  let (portable_cs @ portable) ~tag:_ _ = ()
+  let (portable_hs @ portable) ~tag:_ _ = ()
 end
 
 type tls_alert = alert_level * alert_type
@@ -490,12 +497,12 @@ type epoch_data = {
   tls_unique             : string option ;
 }
 
-let supports_key_usage ?(not_present = false) usage cert =
+let (supports_key_usage @ portable) ?(not_present = false) usage cert =
   match X509.Extension.(find Key_usage (X509.Certificate.extensions cert)) with
   | None -> not_present
   | Some (_, kus) -> List.mem usage kus
 
-let supports_extended_key_usage ?(not_present = false) usage cert =
+let (supports_extended_key_usage @ portable) ?(not_present = false) usage cert =
   match X509.Extension.(find Ext_key_usage (X509.Certificate.extensions cert)) with
   | None -> not_present
   | Some (_, kus) -> List.mem usage kus

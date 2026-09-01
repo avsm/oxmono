@@ -188,7 +188,7 @@ let canonicalize (s : string @ local) (v : Raw.spans) =
     if kind = Raw.host_ipv6 || kind = Raw.host_ipvfuture then begin
       Bytes.unsafe_set out k '[';
       k <- k + 1;
-      k <- write_run out k s host_off (Raw.host_len v) (kind = Raw.host_ipv6);
+      k <- write_run out k s host_off (Raw.host_len v) true;
       Bytes.unsafe_set out k ']';
       k <- k + 1
     end
@@ -247,15 +247,18 @@ let[@zero_alloc] of_string_canonical (s : string @ local) : t or_null @ local =
    producer finishes here, so they all inherit the mode polymorphism. *)
 let%template[@mode m = (global, local)] of_string_exn (s : string @ m) : t @ m =
   let v = Raw.parse s in
-  if Raw.err v <> 0 then
-    invalid_arg
-      ("Uriz.of_string_exn: not a URI reference: " ^ sub s 0 (String.length s))
+  if not (Raw.is_valid v) then
+    (* A local input cannot safely escape through the global exception. *)
+    invalid_arg "Uriz.of_string_exn: not a URI reference"
   else if not (Raw.needs_normalization v) then
     (t_of_spans [@mode m]) s v [@exclave_if_local m]
   else begin
     let raw = canonicalize s v in
     let v = Raw.parse raw in
-    (t_of_spans [@mode m]) raw v [@exclave_if_local m]
+    if Raw.is_valid v then
+      (t_of_spans [@mode m]) raw v [@exclave_if_local m]
+    else
+      invalid_arg "Uriz.of_string_exn: normalization produced an invalid URI"
   end
 
 (* {2 Output and identity} *)
@@ -287,9 +290,17 @@ let path (t : t @ local) = sub t.raw t.path_off t.path_len
 let query (t : t @ local) = opt_sub t t.query_off t.query_len
 let fragment (t : t @ local) = opt_sub t t.frag_off t.frag_len
 let port (t : t @ local) = if t.port_val < 0 then Null else This t.port_val
-let port_int (t : t @ local) = t.port_val
+let has_port (t : t @ local) = t.port_off >= 0
 let has_authority (t : t @ local) = t.host_off >= 0
 let is_absolute (t : t @ local) = t.scheme_len >= 0
+
+let encoded_path_and_query (t : t @ local) =
+  let finish =
+    if t.query_off < 0 then t.path_off + t.path_len else t.query_off + t.query_len
+  in
+  sub t.raw t.path_off (finish - t.path_off)
+
+let port_int (t : t @ local) = t.port_val
 
 let host_kind (t : t @ local) =
   if t.host_kind = Raw.host_reg_name then `Reg_name
@@ -338,7 +349,7 @@ let tbl_query =
 
 let tbl_query_value =
   table_of_pred (fun c ->
-      (base_safe c && c <> '&' && c <> '=' && c <> '+' && c <> ';')
+      (base_safe c && c <> '&' && c <> '=' && c <> '+')
       || c = ':' || c = '@' || c = '/' || c = '?')
 
 let table_of = function
@@ -524,6 +535,10 @@ let userinfo_decoded (t : t @ local) =
   if t.userinfo_off < 0 then Null
   else This (decode_span ~plus:false t.raw t.userinfo_off t.userinfo_len)
 
+let decoded_host (t : t @ local) =
+  if t.host_off < 0 then Null
+  else This (decode_span ~plus:false t.raw t.host_off t.host_len)
+
 (* {2 Query} *)
 
 let query_cursor (t : t @ local) = if t.query_off < 0 || t.query_len = 0 then -1 else t.query_off
@@ -558,6 +573,21 @@ let query_iter ?(plus_as_space = false) (t : t @ local) (f @ local) =
     f ~key ~value;
     if next < 0 then go <- false else pos <- next
   done
+
+let query_params ?(plus_as_space = false) (t : t @ local) =
+  let plus = plus_as_space in
+  let mutable pos = query_cursor t in
+  let mutable acc = [] in
+  while pos >= 0 do
+    let #(koff, klen, voff, vlen, next) = query_step t pos in
+    let key = decode_span ~plus t.raw koff klen in
+    let value =
+      if voff < 0 then None else Some (decode_span ~plus t.raw voff vlen)
+    in
+    acc <- (key, value) :: acc;
+    pos <- next
+  done;
+  List.rev acc
 
 (* Compare a percent-encoded span against a plain string without decoding it
    into a fresh buffer first.  Decodes exactly as [decode_span] does, so the
@@ -989,7 +1019,7 @@ let%template[@mode m = (global, local)] build ~scheme ~userinfo ~host ~port
   (match scheme with
   | Null -> ()
   | This s ->
-    if not (valid_scheme s) then invalid_arg ("Uriz: invalid scheme: " ^ s);
+    if not (valid_scheme s) then invalid_arg "Uriz: invalid scheme";
     Buffer.add_string buf s;
     Buffer.add_char buf ':');
   let has_auth =
@@ -1009,7 +1039,7 @@ let%template[@mode m = (global, local)] build ~scheme ~userinfo ~host ~port
     | This h ->
       let n = String.length h in
       if n >= 2 && h.[0] = '[' && h.[n - 1] = ']' then Buffer.add_string buf h
-      else if Raw.is_ipv6 h then begin
+      else if Raw.is_ipv6 h || Raw.ipvfuture_end h 0 n = n then begin
         Buffer.add_char buf '[';
         Buffer.add_string buf h;
         Buffer.add_char buf ']'
@@ -1018,9 +1048,8 @@ let%template[@mode m = (global, local)] build ~scheme ~userinfo ~host ~port
     match port with
     | Null -> ()
     | This p ->
-      if p < 0 then invalid_arg "Uriz: negative port";
       Buffer.add_char buf ':';
-      Buffer.add_string buf (string_of_int p)
+      Buffer.add_string buf p
   end;
   let path = encode_preserving tbl_path path in
   let plen = String.length path in
@@ -1048,12 +1077,18 @@ let%template[@mode m = (global, local)] build ~scheme ~userinfo ~host ~port
 
 let[@inline] of_opt = function None -> Null | Some x -> This x
 
+let encoded_port_of_int = function
+  | Null -> Null
+  | This p ->
+    if p < 0 then invalid_arg "Uriz: negative port";
+    This (string_of_int p)
+
 let%template[@mode m = (global, local)] make ?scheme ?userinfo ?host ?port
     ?path ?query ?fragment () : t @ m =
   let scheme = of_opt scheme in
   let userinfo = of_opt userinfo in
   let host = of_opt host in
-  let port = of_opt port in
+  let port = encoded_port_of_int (of_opt port) in
   let path = match path with None -> "" | Some p -> p in
   let query = of_opt query in
   let fragment = of_opt fragment in
@@ -1065,8 +1100,15 @@ let%template[@mode m = (global, local)] make ?scheme ?userinfo ?host ?port
    already legal. *)
 let cur_scheme t = scheme t
 let cur_userinfo t = userinfo t
-let cur_host t = host t
-let cur_port t = if t.port_val < 0 then Null else This t.port_val
+let cur_host t =
+  if t.host_off < 0 then Null
+  else begin
+    let host = sub t.raw t.host_off t.host_len in
+    if t.host_kind = Raw.host_ipv6 || t.host_kind = Raw.host_ipvfuture
+    then This ("[" ^ host ^ "]")
+    else This host
+  end
+let cur_port t = opt_sub t t.port_off t.port_len
 let cur_query t = query t
 let cur_fragment t = fragment t
 
@@ -1108,6 +1150,7 @@ let%template[@mode m = (global, local)] with_port (t : t @ local) port : t @ m =
   let scheme = cur_scheme t in
   let userinfo = cur_userinfo t in
   let host = cur_host t in
+  let port = encoded_port_of_int port in
   let path = path t in
   let query = cur_query t in
   let fragment = cur_fragment t in
@@ -1145,3 +1188,47 @@ let%template[@mode m = (global, local)] with_fragment (t : t @ local) fragment
   let query = cur_query t in
   (build [@mode m]) ~scheme ~userinfo ~host ~port ~path ~query ~fragment
   [@exclave_if_local m]
+
+(* Query updates preserve the encoded spelling and order of parameters that
+   remain. Keys are compared in decoded form, just as [find_query] compares
+   them. A newly added parameter is appended, preserving caller order. *)
+
+let remove_query_param ?(plus_as_space = false) (t : t) (key : string @ local) =
+  let mutable pos = query_cursor t in
+  let mutable found = false in
+  while pos >= 0 do
+    let #(koff, klen, _voff, _vlen, next) = query_step t pos in
+    if span_decodes_to ~plus:plus_as_space t.raw koff klen key then found <- true;
+    pos <- next
+  done;
+  if not found then t
+  else begin
+    let out = Buffer.create t.query_len in
+    let mutable first = true in
+    let mutable pos = query_cursor t in
+    while pos >= 0 do
+      let #(koff, klen, voff, vlen, next) = query_step t pos in
+      if not (span_decodes_to ~plus:plus_as_space t.raw koff klen key) then begin
+        if first then first <- false else Buffer.add_char out '&';
+        Buffer.add_substring out t.raw koff klen;
+        if voff >= 0 then begin
+          Buffer.add_char out '=';
+          Buffer.add_substring out t.raw voff vlen
+        end
+      end;
+      pos <- next
+    done;
+    let query = if first then Null else This (Buffer.contents out) in
+    with_query t query
+  end
+
+let add_query_param (t : t @ local) ~key ~value =
+  let key = pct_encode ~component:`Query_value key in
+  let value = pct_encode ~component:`Query_value value in
+  let binding = key ^ "=" ^ value in
+  let query =
+    match query t with
+    | Null | This "" -> binding
+    | This query -> query ^ "&" ^ binding
+  in
+  with_query t (This query)

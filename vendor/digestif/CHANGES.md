@@ -1,3 +1,11 @@
+### v1.3.1 2026-07-14 Paris (France)
+
+- Remove DKML CI (@jonahbeckford, @dinosaure, #159, #160, #161)
+- Fix documentation (@kit-ty-kate, @dinosaure, #162)
+- Reject bad digest size for BLAKE2 implementation (@samoht, @dinosaure, #166)
+- Delete old artifact for MirageOS 3.0 (@dinosaure, @vbgl, #165, #168)
+- Be safe aligned on ARM architecture (@dinosaure, @hannesm, #169)
+
 ### v1.3.0 2025-04-14 Paris (France)
 
 - Use `CAMLextern` rather than `extern` in `caml_*` forward declarations to

@@ -15,11 +15,31 @@ let chain_of_trust ~time ?crls ?(allowed_hashes = Validation.sha2) cas =
     Validation.verify_chain_of_trust ?ip ~host ~time ?revoked ~allowed_hashes
       ~anchors:cas certificates
 
+module Iarray = Stdlib_stable.Iarray
+
+let chain_of_trust_no_crl ~(time @ portable) cas : t @ portable =
+  let anchors_der =
+    Iarray.of_list (List.map Certificate.encode_der cas)
+  in
+  fun ?ip ~host certificates ->
+    let anchors =
+      Iarray.fold_right
+        (fun der anchors ->
+           match Certificate.decode_der der with
+           | Ok cert -> cert :: anchors
+           | Error (`Msg msg) ->
+             invalid_arg ("invalid encoded trust anchor: " ^ msg))
+        anchors_der []
+    in
+    let allowed_hashes = [ `SHA256; `SHA384; `SHA512 ] in
+    Validation.verify_chain_of_trust ?ip ~host ~time ~allowed_hashes
+      ~anchors certificates
+
 let key_fingerprint ~time ~hash ~fingerprint =
   fun ?ip ~host certificates ->
     Validation.trust_key_fingerprint ?ip ~host ~time ~hash ~fingerprint certificates
 
-let cert_fingerprint ~time ~hash ~fingerprint =
+let cert_fingerprint ~(time @ portable) ~hash ~fingerprint : t @ portable =
   fun ?ip ~host certificates ->
     Validation.trust_cert_fingerprint ?ip ~host ~time ~hash ~fingerprint certificates
 

@@ -115,7 +115,7 @@ let format_date ((year, month, day) : date) : string =
 let json_t =
   let open Jsont in
   let open Jsont.Object in
-  let mem_opt f v ~enc = mem f v ~dec_absent:None ~enc_omit:Option.is_none ~enc in
+  let mem_opt f v ~enc = mem f v ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc in
 
   (* Create a jsont type for date that converts between string and Ptime.date *)
   let date_jsont =

@@ -1497,134 +1497,213 @@ module Inline_struct = struct
         let toks = drop_until ~start:(last + 1) toks in
         Some (toks, line, `Inline ld, last)
 
-  let find_link_text_tokens p toks start_line ~start =
+  let link_text_tokens ~to_last ~stop acc =
+    (* [acc] is the reversed token accumulator of a link text scan and
+       [stop] its physical tail at the point the text starts. *)
+    let toks =
+      if stop == [] then acc else
+      let rec take acc = function
+      | toks when toks == stop -> List.rev acc
+      | t :: toks -> take (t :: acc) toks
+      | [] -> List.rev acc
+      in
+      take [] acc
+    in
+    rev_tokens_and_shorten_last_line ~to_last [] toks
+
+  let find_link_text_tokens ?record p toks start_line ~start =
     (* XXX The repetition with first_pass is annoying here.
        we should figure out something for that not to happen. *)
     (* https://spec.commonmark.org/current/#link-text *)
-    let rec loop toks line nest acc = match toks with
-    | Right_brack { start = last } :: toks when nest = 0 ->
-        let acc = rev_tokens_and_shorten_last_line ~to_last:(last - 1) [] acc in
-        Some (toks, line, acc, last)
+    (* The scan keeps the openers it traverses on a stack, this also
+       matches those nested in the text with their own closing bracket.
+       If [record] is given they are reported to it. Per the spec's
+       parsing strategy a [\]] matches a single opener; scanning again
+       for each of them is quadratic. *)
+    let report o m = match record with None -> () | Some r -> r o (m ()) in
+    let rec loop toks line stack acc = match toks with
+    | (Right_brack { start = last } as t) :: toks ->
+        let (o, stop) = List.hd stack and stack = List.tl stack in
+        let m () =
+          let text () = link_text_tokens ~to_last:(last - 1) ~stop acc in
+          Some (toks, line, text, last)
+        in
+        if stack == [] then m () else
+        (report o m; loop toks line stack (t :: acc))
     | Backticks { start; count; escaped } :: toks ->
         begin match try_code p toks line ~start ~count ~escaped with
-        | None -> loop toks line nest acc
-        | Some (toks, line, t) -> loop toks line nest (t :: acc)
+        | None -> loop toks line stack acc
+        | Some (toks, line, t) -> loop toks line stack (t :: acc)
         end
     | Math_span_marks { start; count; may_open; } :: toks ->
-        if not may_open then loop toks line nest acc else
+        if not may_open then loop toks line stack acc else
         begin match try_math_span p toks line ~start ~count with
-        | None -> loop toks line nest acc
-        | Some (toks, line, t) -> loop toks line nest (t :: acc)
+        | None -> loop toks line stack acc
+        | Some (toks, line, t) -> loop toks line stack (t :: acc)
         end
     | Autolink_or_html_start { start } :: toks ->
         begin match try_autolink_or_html p toks line ~start with
-        | None -> loop toks line nest acc
-        | Some (toks, line, t) -> loop toks line nest (t :: acc)
+        | None -> loop toks line stack acc
+        | Some (toks, line, t) -> loop toks line stack (t :: acc)
         end
-    | Right_brack _ as t :: toks -> loop toks line (nest - 1) (t :: acc)
-    | Link_start _  as t :: toks -> loop toks line (nest + 1) (t :: acc)
-    | Newline { newline; _ } as t :: toks -> loop toks newline nest (t :: acc)
-    | Inline { endline; _ } as t :: toks -> loop toks endline nest (t :: acc)
-    | t :: toks -> loop toks line nest (t :: acc)
-    | [] -> None
+    | (Link_start { start; _ } as t) :: toks ->
+        let acc = t :: acc in loop toks line ((start, acc) :: stack) acc
+    | Newline { newline; _ } as t :: toks -> loop toks newline stack (t :: acc)
+    | Inline { endline; _ } as t :: toks -> loop toks endline stack (t :: acc)
+    | t :: toks -> loop toks line stack (t :: acc)
+    | [] -> (* The openers left on the stack have no closer either *)
+        List.iter (fun (o, _) -> report o (Fun.const None)) stack; None
     in
-    loop toks start_line 0 []
+    loop toks start_line [start, []] []
 
-  let try_link_def
-      p ~start ~start_toks ~start_line ~toks ~line ~text_last ~image text
+  let find_link_ref
+      p ~start ~start_toks ~start_line ~toks ~line ~text_last ~image
     =
     let next = text_last + 1 in
-    let link =
-      if next > line.last
-      then try_shortcut_reflink p start_toks start_line ~image ~start else
-      match p.i.[next] with
-      | '(' ->
-          (match try_inline_link_remainder p toks line ~image ~start:next with
-          | None -> try_shortcut_reflink p start_toks start_line ~image ~start
-          | Some _ as v -> v)
-      | '[' ->
-          let next' = next + 1 in
-          if next' <= line.last && p.i.[next'] = ']'
-          then try_collapsed_reflink p start_toks start_line ~image ~start else
-          let r = try_full_reflink_remainder p toks line ~image ~start:next in
-          begin match r with
-          | None -> try_shortcut_reflink p start_toks start_line ~image ~start
-          | Some None -> None (* Example 570 *)
-          | Some (Some _ as v) -> v
-          end
-      | c ->
-          try_shortcut_reflink p start_toks start_line ~image ~start
-    in
-    match link with
-    | None -> None
-    | Some (toks, endline, reference, last) ->
-        let first = start in
-        let text =
-          let first_line = start_line and last_line = line in
-          inlines_inline p text ~first ~last:text_last ~first_line ~last_line
-        in
-        let link = { Inline.Link.text; reference } in
-        let first_line = start_line and last_line = endline in
-        let t = link_token p ~image ~first ~last ~first_line ~last_line link in
-        let had_link = not image && not p.nested_links in
-        Some (toks, endline, t, had_link)
+    if next > line.last
+    then try_shortcut_reflink p start_toks start_line ~image ~start else
+    match p.i.[next] with
+    | '(' ->
+        (match try_inline_link_remainder p toks line ~image ~start:next with
+        | None -> try_shortcut_reflink p start_toks start_line ~image ~start
+        | Some _ as v -> v)
+    | '[' ->
+        let next' = next + 1 in
+        if next' <= line.last && p.i.[next'] = ']'
+        then try_collapsed_reflink p start_toks start_line ~image ~start else
+        let r = try_full_reflink_remainder p toks line ~image ~start:next in
+        begin match r with
+        | None -> try_shortcut_reflink p start_toks start_line ~image ~start
+        | Some None -> None (* Example 570 *)
+        | Some (Some _ as v) -> v
+        end
+    | c ->
+        try_shortcut_reflink p start_toks start_line ~image ~start
+
+  (* Result of a link parse attempt. [Dead_link first] indicates the
+     link text has a link starting at [first]. Per the spec's parsing
+     strategy this makes all the openers that precede [first] inactive:
+     there's no point in trying them again on the same text. *)
+
+  type link_parse =
+  | No_link
+  | Dead_link of byte_pos
+  | Link of token list * line_span * token * bool (* had_link *)
 
   (* The following sequence of mutually recursive functions define
      inline parsing. We have three passes over a paragraph's token
      list see the [parse_tokens] function below. *)
 
-  let rec try_link p start_toks start_line ~image ~start =
-    if not (has_right_brack ~after:start p.cidx) then None else
-    match find_link_text_tokens p start_toks start_line ~start with
-    | None -> None
+  let rec try_link p bracks start_toks start_line ~image ~start =
+    if not (has_right_brack ~after:start p.cidx) then No_link else
+    let memoized, m = match Hashtbl.find_opt bracks start with
+    | Some m -> true, m (* Matched by an enclosing link text scan *)
+    | None -> false, find_link_text_tokens p start_toks start_line ~start
+    in
+    (* If the link fails [first_pass] tries the openers nested in its
+       text; remembering their matches keeps that linear. On success it
+       resumes after the link and needs none of them, hence this second
+       scan rather than a first one that always records. *)
+    let remember () =
+      if memoized then () else
+      let record = Hashtbl.replace bracks in
+      ignore (find_link_text_tokens ~record p start_toks start_line ~start)
+    in
+    match m with
+    | None -> remember (); No_link
     | Some (toks, line, text_toks, text_last (* with ] delim *)) ->
-        let text, had_link =
-          let text_start =
-            let first = start + (if image then 2 else 1) in
-            let last =
-              if start_line == line then text_last - 1 else start_line.last
+        match
+          find_link_ref
+            p ~start ~start_toks ~start_line ~toks ~line ~text_last ~image
+        with
+        | None -> remember (); No_link
+        | Some (toks, endline, reference, last) ->
+            (* The link text is only parsed now. Parsing it before the
+               reference lookup makes a failed lookup reparse it once
+               for each enclosing opener, which is exponential. *)
+            let text, had_link, first_link =
+              let text_start =
+                let first = start + (if image then 2 else 1) in
+                let last =
+                  if start_line == line then text_last - 1 else start_line.last
+                in
+                { start_line with first; last }
+              in
+              parse_tokens p (text_toks ()) text_start
             in
-            { start_line with first; last }
-          in
-          parse_tokens p text_toks text_start
-        in
-        if had_link && not image
-        then None (* Could try to keep render *) else
-        try_link_def
-          p ~start ~start_toks ~start_line ~toks ~line ~text_last ~image text
+            if had_link && not image
+            then (* Could try to keep render *)
+              (match first_link with
+              | None -> remember (); No_link
+              | Some first -> Dead_link first)
+            else
+            let first = start in
+            let text =
+              let first_line = start_line and last_line = line in
+              inlines_inline
+                p text ~first ~last:text_last ~first_line ~last_line
+            in
+            let link = { Inline.Link.text; reference } in
+            let first_line = start_line and last_line = endline in
+            let t =
+              link_token p ~image ~first ~last ~first_line ~last_line link
+            in
+            let had_link = not image && not p.nested_links in
+            Link (toks, endline, t, had_link)
 
   and first_pass p toks line =
     (* Parse inline atoms and links. Links are parsed here otherwise
-       link reference data gets parsed as atoms. *)
-    let rec loop p toks line ~had_link acc = match toks with
-    | [] -> List.rev acc, had_link
+       link reference data gets parsed as atoms.
+
+       [bracks] memoizes the opener to closing bracket matches found by
+       the link text scans, see [find_link_text_tokens].
+
+       [dead] is the position before which an opener can no longer make
+       a link, see [link_parse]. [first_link] is the position of the
+       first link we made, enclosing link texts need it to get their
+       own [dead]. *)
+    let bracks = Hashtbl.create 16 in
+    let rec loop p toks line ~had_link ~dead ~first_link acc = match toks with
+    | [] -> List.rev acc, had_link, first_link
     | Backticks { start; count; escaped } :: toks ->
         begin match try_code p toks line ~start ~count ~escaped with
-        | None -> loop p toks line ~had_link acc
-        | Some (toks, line, t) -> loop p toks line ~had_link (t :: acc)
+        | None -> loop p toks line ~had_link ~dead ~first_link acc
+        | Some (toks, line, t) ->
+            loop p toks line ~had_link ~dead ~first_link (t :: acc)
         end
     | Math_span_marks { start; count; may_open; } :: toks ->
-        if not may_open then loop p toks line ~had_link acc else
+        if not may_open
+        then loop p toks line ~had_link ~dead ~first_link acc else
         begin match try_math_span p toks line ~start ~count with
-        | None -> loop p toks line ~had_link acc
-        | Some (toks, line, t) -> loop p toks line ~had_link (t :: acc)
+        | None -> loop p toks line ~had_link ~dead ~first_link acc
+        | Some (toks, line, t) ->
+            loop p toks line ~had_link ~dead ~first_link (t :: acc)
         end
     | Autolink_or_html_start { start } :: toks ->
         begin match try_autolink_or_html p toks line ~start with
-        | None -> loop p toks line ~had_link acc
-        | Some (toks, line, t) -> loop p toks line ~had_link (t :: acc)
+        | None -> loop p toks line ~had_link ~dead ~first_link acc
+        | Some (toks, line, t) ->
+            loop p toks line ~had_link ~dead ~first_link (t :: acc)
         end
     | Link_start { start; image } :: toks ->
-        begin match try_link p toks line ~image ~start with
-        | None -> loop p toks line ~had_link acc
-        | Some (toks, line, t, had_link) ->
-            loop p toks line ~had_link (t :: acc)
+        if not image && start < dead
+        then loop p toks line ~had_link ~dead ~first_link acc else
+        begin match try_link p bracks toks line ~image ~start with
+        | No_link -> loop p toks line ~had_link ~dead ~first_link acc
+        | Dead_link dead -> loop p toks line ~had_link ~dead ~first_link acc
+        | Link (toks, line, t, had_link) ->
+            let first_link =
+              if had_link && first_link = None then Some start else first_link
+            in
+            loop p toks line ~had_link ~dead ~first_link (t :: acc)
         end
-    | Right_brack start :: toks -> loop p toks line ~had_link acc
-    | Newline { newline = l } as t :: toks -> loop p toks l ~had_link (t :: acc)
-    | t :: toks -> loop p toks line ~had_link (t :: acc)
+    | Right_brack start :: toks ->
+        loop p toks line ~had_link ~dead ~first_link acc
+    | Newline { newline = l } as t :: toks ->
+        loop p toks l ~had_link ~dead ~first_link (t :: acc)
+    | t :: toks -> loop p toks line ~had_link ~dead ~first_link (t :: acc)
     in
-    loop p toks line ~had_link:false []
+    loop p toks line ~had_link:false ~dead:0 ~first_link:None []
 
   (* Second pass *)
 
@@ -1799,9 +1878,9 @@ module Inline_struct = struct
     loop toks line [] line.first
 
   and parse_tokens p toks first_line =
-    let toks, had_link = first_pass p toks first_line in
+    let toks, had_link, first_link = first_pass p toks first_line in
     let toks = second_pass p toks first_line in
-    last_pass p toks first_line, had_link
+    last_pass p toks first_line, had_link, first_link
 
   let strip_paragraph p lines =
     (* Remove initial and final blanks. Initial blank removal on
@@ -1829,7 +1908,7 @@ module Inline_struct = struct
     let layout, meta, lines = strip_paragraph p lines in
     let cidx, toks, first_line = tokenize ~exts:p.exts p.i lines in
     p.cidx <- cidx;
-    let is, _had_link = parse_tokens p toks first_line in
+    let is, _had_link, _first_link = parse_tokens p toks first_line in
     let inline = match is with [i] -> i | is -> Inline.Inlines (is, meta) in
     layout, inline
 
@@ -1923,7 +2002,7 @@ module Inline_struct = struct
   let parse_table_row p line =
     let cidx, toks, first_line = tokenize ~exts:p.exts p.i [line] in
     p.cidx <- cidx;
-    let toks, _had_link = first_pass p toks first_line in
+    let toks, _had_link, _first_link = first_pass p toks first_line in
     let toks = second_pass p toks first_line in
     (* We now have modified last pass, inner inlines will have gone through
        the regular [last_pass] which is fine since we are only interested

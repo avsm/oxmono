@@ -236,7 +236,7 @@ let test_middleware_signs_string_body () =
         seen := Some req;
         Fetch.Middleware.Pi.response ~status:204 ~headers:(Http.Header.init ())
           ~version:`HTTP_1_1
-          ~body:(Eio.Flow.string_source "")
+          ~body:(Eio.Flow.string_source "") ~close:ignore
           ~url:req.url ())
   in
   let config = Signature.config ~key ~keyid:"mw-key" () in
@@ -259,7 +259,7 @@ let test_middleware_signs_string_body () =
         (Option.is_some (get "content-digest" req.headers));
       let context =
         Signature.Context.request ~method_:req.meth
-          ~uri:(Fetch.Middleware.Url.to_uri req.url)
+          ~uri:(Uri.of_string (Fetch.Middleware.Url.to_string req.url))
           ~headers:req.headers
       in
       (match
@@ -282,7 +282,7 @@ let test_middleware_rejects_stream_body () =
     Fetch.Middleware.of_handler (fun ~sw:_ (req : Fetch.Middleware.request) ->
         Fetch.Middleware.Pi.response ~status:204 ~headers:(Http.Header.init ())
           ~version:`HTTP_1_1
-          ~body:(Eio.Flow.string_source "")
+          ~body:(Eio.Flow.string_source "") ~close:ignore
           ~url:req.url ())
   in
   let t = Signature.Middleware.sign ~clock ~key backend in

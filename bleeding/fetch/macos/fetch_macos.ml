@@ -66,6 +66,7 @@ type response_body = {
   src : Eio.Flow.source_ty Eio.Resource.t;
   max_response : int;
   mutable seen : int;
+  close : unit -> unit;
 }
 
 module Response_body = struct
@@ -74,16 +75,17 @@ module Response_body = struct
   let read_methods = []
 
   let single_read t buf =
-    match Eio.Flow.single_read t.src buf with
-    | n ->
+    try
+      let n = Eio.Flow.single_read t.src buf in
       t.seen <- t.seen + n;
       if t.seen > t.max_response then
         raise (err (Protocol_error
                       (Fmt.str "response body exceeds %d bytes"
                          t.max_response)));
       n
-    | exception End_of_file -> raise End_of_file
-    | exception ex -> reraise ex
+    with
+    | End_of_file -> t.close (); raise End_of_file
+    | ex -> t.close (); reraise ex
 end
 
 let response_body_handler = Eio.Flow.Pi.source (module Response_body)
@@ -124,14 +126,15 @@ module Backend = struct
          | None -> (Some (Nssessionurl.Stream flow), headers))
     in
     match
-      Nssessionurl.fetch ~sw ~session:cfg.session
-        ~meth:(Http.Method.to_string req.meth)
-        ~headers:(Http.Header.to_list headers)
-        ?body ~follow_redirects:false
-        (Middleware.Url.to_string req.url)
+      Exchange.run ~sw (fun ~sw ->
+        Nssessionurl.fetch ~sw ~session:cfg.session
+          ~meth:(Http.Method.to_string req.meth)
+          ~headers:(Http.Header.to_list headers)
+          ?body ~follow_redirects:false
+          (Middleware.Url.to_string req.url))
     with
     | exception ex -> reraise ex
-    | info, flow ->
+    | (info, flow), close ->
       let headers = Http.Header.of_list info.Nssessionurl.headers in
       let headers =
         (* Present the decoded view, as a backend must. *)
@@ -143,14 +146,14 @@ module Backend = struct
       in
       let body =
         Eio.Resource.T
-          ({ src = flow; max_response = cfg.max_response; seen = 0 },
+          ({ src = flow; max_response = cfg.max_response; seen = 0; close },
            response_body_handler)
       in
       (* NSHTTPURLResponse does not say which HTTP version answered
          (the protocol is only in the task metrics, which arrive after
          the transfer), so no version claim is made. *)
       Fetch.Middleware.Pi.response ~status:info.Nssessionurl.status ~headers
-        ~version:(`Other "unknown") ~body ~url:req.url ()
+        ~version:(`Other "unknown") ~body ~close ~url:req.url ()
 end
 
 let handler = Fetch.Middleware.Pi.client (module Backend)

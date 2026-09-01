@@ -152,17 +152,17 @@ module List = struct
       Jsont.Object.map ~kind:"List"
         (fun description has_collaborators icon id name parent_id public query type_ user_role -> { description; has_collaborators; icon; id; name; parent_id; public; query; type_; user_role })
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.mem "hasCollaborators" Jsont.bool ~enc:(fun r -> r.has_collaborators)
       |> Jsont.Object.mem "icon" Jsont.string ~enc:(fun r -> r.icon)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "name" Jsont.string ~enc:(fun r -> r.name)
       |> Jsont.Object.mem "parentId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.parent_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.parent_id)
       |> Jsont.Object.mem "public" Jsont.bool ~enc:(fun r -> r.public)
       |> Jsont.Object.mem "query" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.query)
-      |> Jsont.Object.mem "type" Jsont.string ~dec_absent:"manual" ~enc:(fun r -> r.type_)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.query)
+      |> Jsont.Object.mem "type" Jsont.string ~dec_absent:(fun () -> "manual") ~enc:(fun r -> r.type_)
       |> Jsont.Object.mem "userRole" Jsont.string ~enc:(fun r -> r.user_role)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -318,15 +318,15 @@ module Highlight = struct
       Jsont.Object.map ~kind:"Highlight"
         (fun bookmark_id color created_at end_offset id note start_offset text user_id -> { bookmark_id; color; created_at; end_offset; id; note; start_offset; text; user_id })
       |> Jsont.Object.mem "bookmarkId" Jsont.string ~enc:(fun r -> r.bookmark_id)
-      |> Jsont.Object.mem "color" Jsont.string ~dec_absent:"yellow" ~enc:(fun r -> r.color)
+      |> Jsont.Object.mem "color" Jsont.string ~dec_absent:(fun () -> "yellow") ~enc:(fun r -> r.color)
       |> Jsont.Object.mem "createdAt" Jsont.string ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "endOffset" Jsont.number ~enc:(fun r -> r.end_offset)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "note" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.note)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.note)
       |> Jsont.Object.mem "startOffset" Jsont.number ~enc:(fun r -> r.start_offset)
       |> Jsont.Object.mem "text" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.text)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.text)
       |> Jsont.Object.mem "userId" Jsont.string ~enc:(fun r -> r.user_id)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -488,7 +488,7 @@ module PaginatedHighlights = struct
         (fun highlights next_cursor -> { highlights; next_cursor })
       |> Jsont.Object.mem "highlights" (Jsont.list Highlight.T.jsont) ~enc:(fun r -> r.highlights)
       |> Jsont.Object.mem "nextCursor" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.next_cursor)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.next_cursor)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -1516,20 +1516,20 @@ module Bookmark = struct
       |> Jsont.Object.mem "favourited" Jsont.bool ~enc:(fun r -> r.favourited)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "modifiedAt" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.modified_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.modified_at)
       |> Jsont.Object.mem "note" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.note)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.note)
       |> Jsont.Object.mem "source" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.source)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.source)
       |> Jsont.Object.mem "summarizationStatus" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.summarization_status)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.summarization_status)
       |> Jsont.Object.mem "summary" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.summary)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.summary)
       |> Jsont.Object.mem "taggingStatus" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.tagging_status)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.tagging_status)
       |> Jsont.Object.mem "tags" (Jsont.list Jsont.json) ~enc:(fun r -> r.tags)
       |> Jsont.Object.mem "title" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.title)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.title)
       |> Jsont.Object.mem "userId" Jsont.string ~enc:(fun r -> r.user_id)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -1627,7 +1627,7 @@ module PaginatedBookmarks = struct
         (fun bookmarks next_cursor -> { bookmarks; next_cursor })
       |> Jsont.Object.mem "bookmarks" (Jsont.list Bookmark.T.jsont) ~enc:(fun r -> r.bookmarks)
       |> Jsont.Object.mem "nextCursor" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.next_cursor)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.next_cursor)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end

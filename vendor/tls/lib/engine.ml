@@ -7,11 +7,11 @@ type error = State.error
 type fatal = State.fatal
 type failure = State.failure
 
-let alert_of_authentication_failure = function
+let (alert_of_authentication_failure @ portable) = function
   | `LeafCertificateExpired _ -> Packet.CERTIFICATE_EXPIRED
   | _ -> Packet.BAD_CERTIFICATE
 
-let alert_of_error = function
+let (alert_of_error @ portable) = function
   | `NoConfiguredVersions _ -> Packet.PROTOCOL_VERSION
   | `NoConfiguredCiphersuite _ -> Packet.HANDSHAKE_FAILURE
   | `NoConfiguredSignatureAlgorithm _ -> Packet.HANDSHAKE_FAILURE
@@ -19,7 +19,7 @@ let alert_of_error = function
   | `NoMatchingCertificateFound _ -> Packet.UNRECOGNIZED_NAME
   | `CouldntSelectCertificate -> Packet.HANDSHAKE_FAILURE
 
-let alert_of_fatal = function
+let (alert_of_fatal @ portable) = function
   | `Protocol_version _ -> Packet.PROTOCOL_VERSION
   | `Unexpected _ -> Packet.UNEXPECTED_MESSAGE
   | `Decode _ -> Packet.DECODE_ERROR
@@ -32,7 +32,7 @@ let alert_of_fatal = function
   | `Inappropriate_fallback -> Packet.INAPPROPRIATE_FALLBACK
   | `No_application_protocol -> Packet.NO_APPLICATION_PROTOCOL
 
-let alert_of_failure = function
+let (alert_of_failure @ portable) = function
   | `Error x -> Packet.FATAL, alert_of_error x
   | `Fatal x -> Packet.FATAL, alert_of_fatal x
   | `Alert _ -> Packet.WARNING, Packet.CLOSE_NOTIFY
@@ -80,8 +80,10 @@ let pp_frame ppf (ty, data) =
   Fmt.pf ppf "%a (%u bytes data)" Packet.pp_content_type ty
     (String.length data)
 
-(* well-behaved pure encryptor *)
-let encrypt (version : tls_version) (st : crypto_state) ty buf off len =
+(* [encrypt_with] keeps entropy explicit so portable clients never capture the
+   process-wide Mirage RNG. *)
+let (encrypt_with @ portable) generate (version : tls_version)
+    (st : crypto_state) ty buf off len =
   match st with
   | None -> (st, ty, String.sub buf off len)
   | Some ctx ->
@@ -119,7 +121,7 @@ let encrypt (version : tls_version) (st : crypto_state) ty buf off len =
              in
              ( match c.iv_mode with
                | Random_iv ->
-                  let iv = Mirage_crypto_rng.generate (Crypto.cbc_block c.cipher) in
+                  let iv = generate (Crypto.cbc_block c.cipher) in
                   let m, _ = enc iv in
                   (CBC c, iv ^ m)
                | Iv iv ->
@@ -145,12 +147,17 @@ let encrypt (version : tls_version) (st : crypto_state) ty buf off len =
         in
         (Some { sequence = Int64.succ ctx.sequence ; cipher_st = c_st }, ty, enc)
 
-(* well-behaved pure decryptor *)
-let verify_mac sequence mac mac_k ty ver decrypted =
-  let macstart =
-    let module H = (val Digestif.module_of_hash' mac) in
-    String.length decrypted - H.digest_size
+let encrypt = encrypt_with Mirage_crypto_rng.generate
+
+let (encrypt_client_no_random @ portable) version st ty buf off len =
+  let no_random_iv _ =
+    invalid_arg "portable TLS clients require AEAD cipher suites"
   in
+  encrypt_with no_random_iv version st ty buf off len
+
+(* well-behaved pure decryptor *)
+let (verify_mac @ portable) sequence mac mac_k ty ver decrypted =
+  let macstart = String.length decrypted - Digestif.digest_size mac in
   let* () = guard (macstart >= 0) (`Fatal (`Decode "MAC underflow")) in
   let (body, mmac) = split_str decrypted macstart in
   let cmac =
@@ -161,7 +168,8 @@ let verify_mac sequence mac mac_k ty ver decrypted =
   Ok body
 
 
-let decrypt ?(trial = false) (version : tls_version) (st : crypto_state) ty buf =
+let (decrypt @ portable) ?(trial = false) (version : tls_version)
+    (st : crypto_state) ty buf =
 
   let compute_mac seq mac mac_k buf = verify_mac seq mac mac_k ty version buf in
   (* hmac is computed in this failure branch from the encrypted data, in the
@@ -277,7 +285,8 @@ let decrypt ?(trial = false) (version : tls_version) (st : crypto_state) ty buf 
     Ok (Some ctx', msg, ty)
 
 (* party time *)
-let rec separate_records : string -> ((tls_hdr * string) list * string, failure) result
+let rec (separate_records @ portable) : string ->
+  ((tls_hdr * string) list * string, failure) result
 = fun buf ->
   match Reader.parse_record buf with
   | Ok (`Fragment b) -> Ok ([], b)
@@ -285,10 +294,10 @@ let rec separate_records : string -> ((tls_hdr * string) list * string, failure)
     let* tl, frag = separate_records fragment in
     Ok (packet :: tl, frag)
   | Error e ->
-    Tracing.cs ~tag:"buf-in" buf ;
+    Tracing.portable_cs ~tag:"buf-in" buf ;
     Error (`Fatal e)
 
-let encrypt_records encryptor version records =
+let (encrypt_records_with @ portable) encrypt encryptor version records =
   let rec crypt st acc = function
     | [] -> st, List.rev acc
     | (ty, buf) :: rest ->
@@ -307,6 +316,11 @@ let encrypt_records encryptor version records =
   in
   crypt encryptor [] records
 
+let encrypt_records = encrypt_records_with encrypt
+
+let (encrypt_records_client @ portable) encryptor version records =
+  encrypt_records_with encrypt_client_no_random encryptor version records
+
 module Alert = struct
   (* The alert protocol:
      - receiving a close_notify leads to eof (never read() any further data)
@@ -315,20 +329,21 @@ module Alert = struct
 
   open Packet
 
-  let make ?level typ = (ALERT, Writer.assemble_alert ?level typ)
+  let (make @ portable) ?level typ =
+    (ALERT, Writer.assemble_alert ?level typ)
 
   let close_notify = make ~level:WARNING CLOSE_NOTIFY
 
-  let handle buf =
+  let (handle @ portable) buf =
     let* alert = map_reader_error (Reader.parse_alert buf) in
     let _, a_type = alert in
-    Tracing.debug (fun m -> m "alert-in %a" pp_alert alert) ;
+    Tracing.portable_debug () ;
     match a_type with
     | CLOSE_NOTIFY | USER_CANCELED -> Ok true
     | _ -> Error (`Alert a_type)
 end
 
-let hs_can_handle_appdata s =
+let (hs_can_handle_appdata @ portable) s =
   (* When is a TLS session up for some application data?
      - initial handshake must be finished!
      - renegotiation must not be in progress
@@ -377,10 +392,29 @@ and handle_handshake = function
   | Client13 cs -> Handshake_client13.handle_handshake cs
   | Server13 ss -> Handshake_server13.handle_handshake ss
 
+let (handle_change_cipher_spec_client @ portable) = function
+  | Client cs -> Handshake_client.handle_change_cipher_spec cs
+  | Client13 (AwaitServerEncryptedExtensions13 _)
+  | Client13 (AwaitServerHello13 _) -> (fun state _ -> Ok (state, []))
+  | Client13 _ ->
+      (fun _ _ ->
+        Error (`Fatal (`Unexpected (`Message "change cipher spec"))))
+  | Server _ | Server13 _ ->
+      (fun _ _ ->
+        Error (`Fatal (`Unexpected (`Message "server state in TLS client"))))
+
+let (handle_handshake_client @ portable) ~g = function
+  | Client state -> Handshake_client.handle_handshake_with_rng ~g state
+  | Client13 state -> Handshake_client13.handle_handshake_no_client_cert state
+  | Server _ | Server13 _ ->
+      (fun _ _ ->
+        Error (`Fatal (`Unexpected (`Message "server state in TLS client"))))
+
 let non_empty cs =
   if String.length cs = 0 then None else Some cs
 
-let handle_packet hs buf = function
+let (handle_packet_with @ portable) alert_handle handle_change_cipher_spec
+    handle_handshake hs buf = function
 (* RFC 5246 -- 6.2.1.:
    Implementations MUST NOT send zero-length fragments of Handshake,
    Alert, or ChangeCipherSpec content types.  Zero-length fragments of
@@ -389,12 +423,12 @@ let handle_packet hs buf = function
  *)
 
   | Packet.ALERT ->
-    let* eof = Alert.handle buf in
+    let* eof = alert_handle buf in
     Ok (hs, [], None, eof)
 
   | Packet.APPLICATION_DATA ->
     if hs_can_handle_appdata hs || (early_data hs && String.length hs.hs_fragment = 0) then
-      (Tracing.cs ~tag:"application-data-in" buf;
+      (Tracing.portable_cs ~tag:"application-data-in" buf;
        Ok (hs, [], non_empty buf, false))
     else
       Error (`Fatal (`Unexpected (`Message "application data")))
@@ -414,6 +448,13 @@ let handle_packet hs buf = function
          (Ok (hs, [])) hss
      in
      Ok (hs, items, None, false)
+
+let handle_packet =
+  handle_packet_with Alert.handle handle_change_cipher_spec handle_handshake
+
+let (handle_packet_client @ portable) ~g hs buf content_type =
+  handle_packet_with Alert.handle handle_change_cipher_spec_client
+    (handle_handshake_client ~g) hs buf content_type
 
 let decrement_early_data hs ty buf =
   let bytes left cipher =
@@ -436,9 +477,10 @@ let decrement_early_data hs ty buf =
     Ok hs
 
 (* the main thingy *)
-let handle_raw_record state (hdr, buf as record : raw_record) =
+let (handle_raw_record_with @ portable) handle_packet encrypt_records state
+    (hdr, buf as record : raw_record) =
 
-  Tracing.debug (fun m -> m "record-in %a" pp_raw_record record) ;
+  Tracing.portable_debug () ;
   let hs = state.handshake in
   let version = hs.protocol_version in
   let* () =
@@ -460,23 +502,30 @@ let handle_raw_record state (hdr, buf as record : raw_record) =
   in
   let* dec_st, dec, ty = decrypt ~trial version state.decryptor hdr.content_type buf in
   let* handshake = decrement_early_data hs ty buf in
-  Tracing.debug (fun m -> m "frame-in %a" pp_frame (ty, dec)) ;
+  Tracing.portable_debug () ;
   let* handshake, items, data, read_closed = handle_packet handshake dec ty in
   let encryptor, decryptor, encs =
     List.fold_left (fun (enc, dec, es) -> function
       | `Change_enc enc' -> (Some enc', dec, es)
       | `Change_dec dec' -> (enc, Some dec', es)
       | `Record r       ->
-         Tracing.debug (fun m -> m "frame-out %a" pp_frame r) ;
+         Tracing.portable_debug () ;
          let (enc', encbuf) = encrypt_records enc handshake.protocol_version [r] in
          (enc', dec, es @ encbuf))
     (state.encryptor, dec_st, [])
     items
   in
-  List.iter (fun f -> Tracing.debug (fun m -> m "record-out %a" pp_frame f)) encs ;
+  List.iter (fun _ -> Tracing.portable_debug ()) encs ;
   let read_closed = read_closed || state.read_closed in
   let state' = { state with handshake ; encryptor ; decryptor ; read_closed } in
   Ok (state', encs, data)
+
+let handle_raw_record =
+  handle_raw_record_with handle_packet encrypt_records
+
+let (handle_raw_record_client @ portable) ~g state record =
+  handle_raw_record_with (handle_packet_client ~g) encrypt_records_client state
+    record
 
 let maybe_app a b = match a, b with
   | Some x, Some y -> Some (x ^ y)
@@ -484,13 +533,13 @@ let maybe_app a b = match a, b with
   | None  , Some y -> Some y
   | None  , None   -> None
 
-let assemble_records (version : tls_version) rs =
+let (assemble_records @ portable) (version : tls_version) rs =
   let version = match version with `TLS_1_3 -> `TLS_1_2 | x -> x in
   String.concat "" (List.map (Writer.assemble_hdr version) rs)
 
 (* main entry point *)
-let handle_tls state buf =
-  Tracing.cs ~tag:"wire-in" buf ;
+let (handle_tls_with @ portable) handle_raw_record encrypt_records state buf =
+  Tracing.portable_cs ~tag:"wire-in" buf ;
 
   let rec handle_records st = function
     | []    -> Ok (st, [], None)
@@ -507,7 +556,7 @@ let handle_tls state buf =
       | [] -> None
       | _  ->
         let out = assemble_records version out_records in
-        Tracing.cs ~tag:"wire-out" out ;
+        Tracing.portable_cs ~tag:"wire-out" out ;
         Some out
     in
     Ok ({ state' with fragment }, resp, data)
@@ -515,7 +564,7 @@ let handle_tls state buf =
   | Ok (state, resp, data) ->
       let res =
         if state.read_closed then begin
-          Tracing.debug (fun m -> m "eof-out") ;
+          Tracing.portable_debug () ;
           Some `Eof
         end else
           None
@@ -528,9 +577,15 @@ let handle_tls state buf =
       let record  = Alert.make ~level alert in
       let _, enc = encrypt_records state.encryptor version [record] in
       let resp = assemble_records version enc in
-      Tracing.debug (fun m -> m "fail-alert-out %a" Packet.pp_alert (Packet.FATAL, alert)) ;
-      Tracing.debug (fun m -> m "failure %a" pp_failure x) ;
+      Tracing.portable_debug () ;
+      Tracing.portable_debug () ;
       Error (x, `Response resp)
+
+let handle_tls state buf =
+  handle_tls_with handle_raw_record encrypt_records state buf
+
+let (handle_tls_client @ portable) ~g state buf =
+  handle_tls_with (handle_raw_record_client ~g) encrypt_records_client state buf
 
 let send_records (st : state) records =
   let version = st.handshake.protocol_version in
@@ -542,7 +597,7 @@ let send_records (st : state) records =
   Tracing.cs ~tag:"wire-out" data ;
   ({ st with encryptor }, data)
 
-let handshake_in_progress s = match s.handshake.machina with
+let (handshake_in_progress @ portable) s = match s.handshake.machina with
   | Client Established | Server Established -> false
   | Client13 Established13 | Server13 Established13 -> false
   | _ -> true
@@ -563,9 +618,28 @@ let send_application_data st css =
     Some (send_records st data)
   end
 
+let (send_records_client @ portable) (st : state) records =
+  let version = st.handshake.protocol_version in
+  let encryptor, encrypted =
+    encrypt_records_client st.encryptor version records
+  in
+  ({ st with encryptor }, assemble_records version encrypted)
+
+let (send_application_data_client @ portable) st payloads =
+  if st.write_closed || not (hs_can_handle_appdata st.handshake) then None
+  else
+    let records =
+      List.map (fun payload -> Packet.APPLICATION_DATA, payload) payloads
+    in
+    Some (send_records_client st records)
+
 let send_close_notify st =
   let st = { st with write_closed = true } in
   send_records st [Alert.close_notify]
+
+let (send_close_notify_client @ portable) st =
+  let st = { st with write_closed = true } in
+  send_records_client st [ Alert.close_notify ]
 
 let reneg ?authenticator ?acceptable_cas ?cert st =
   if st.write_closed || st.read_closed then
@@ -597,10 +671,10 @@ let key_update ?(request = true) state =
     let _, outbuf = send_records state [out] in
     Ok (state', outbuf)
 
-let client config =
+let client_with_hello make_client_hello config =
   let config = Config.of_client config in
   let state = new_state config `Client in
-  let dch, _version, secrets = Handshake_client.default_client_hello config in
+  let dch, _version, secrets = make_client_hello config in
   let ciphers, extensions = match config.Config.protocol_versions with
       (* from RFC 5746 section 3.3:
    Both the SSLv3 and TLS 1.0/TLS 1.1 specifications require
@@ -633,7 +707,7 @@ let client config =
     match config.Config.cached_ticket, config.Config.ticket_cache with
     | None, _ | _, None ->
       let ch = ClientHello client_hello in
-      client_hello, ch, Writer.assemble_handshake ch
+      client_hello, ch, Writer.assemble_client_hello_handshake client_hello
     | Some (psk, epoch), Some cache ->
       let kex = `PskKeyExchangeModes [ Packet.PSK_KE_DHE ] in
       (* what next!? *)
@@ -659,7 +733,7 @@ let client config =
       in
       let incomplete_psks = [ (psk.identifier, obf_age), hash ] in
       let ch' = { client_hello with extensions = client_hello.extensions @ [ kex ; `PreSharedKeys incomplete_psks ] } in
-      let ch'_raw = Writer.assemble_handshake (ClientHello ch') in
+      let ch'_raw = Writer.assemble_client_hello_handshake ch' in
 
       let binders_len = binders_len incomplete_psks in
       let ch_part = String.(sub ch'_raw 0 (length ch'_raw - binders_len)) in
@@ -695,6 +769,40 @@ let client config =
 
   Tracing.hs ~tag:"handshake-out" ch ;
   send_records state [(Packet.HANDSHAKE, raw)]
+
+let client config =
+  client_with_hello Handshake_client.default_client_hello config
+
+let (client_no_resumption_with_rng @ portable) ~g config =
+  let config = Config.of_client config in
+  let state = new_state config `Client in
+  let dch, _version, secrets =
+    Handshake_client.default_client_hello_with_rng ~g config
+  in
+  let ciphers, extensions =
+    match config.Config.protocol_versions with
+    | (_, `TLS_1_0) ->
+        ([ Packet.TLS_EMPTY_RENEGOTIATION_INFO_SCSV ], [])
+    | (`TLS_1_3, _) -> ([], [])
+    | _ -> ([], [ `SecureRenegotiation "" ])
+  in
+  let client_hello =
+    { dch with
+      ciphersuites = dch.ciphersuites @ ciphers;
+      extensions = dch.extensions @ extensions
+    }
+  in
+  let raw = Writer.assemble_client_hello_handshake client_hello in
+  let machina = AwaitServerHello (client_hello, secrets, [ raw ]) in
+  let version = min_protocol_version config.Config.protocol_versions in
+  let handshake =
+    { state.handshake with
+      machina = Client machina;
+      protocol_version = version
+    }
+  in
+  let state = { state with handshake } in
+  state, Writer.assemble_hdr version (Packet.HANDSHAKE, raw)
 
 let server config = new_state Config.(of_server config) `Server
 

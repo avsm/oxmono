@@ -158,43 +158,43 @@ let jsont : t Jsont.t =
   in
   map ~kind:"Paper" make
   |> mem "title" string ~enc:(fun p -> p.title)
-  |> mem "author" (list string) ~dec_absent:[] ~enc:(fun p -> p.authors)
+  |> mem "author" (list string) ~dec_absent:(fun () -> []) ~enc:(fun p -> p.authors)
   |> mem "year" (of_of_string ~kind:"year" (fun s -> Ok (int_of_string s)) ~enc:string_of_int)
        ~enc:(fun p -> p.year)
   |> mem "month" (of_of_string ~kind:"month" (fun s -> Ok (month_of_string s)) ~enc:(fun m ->
        match m with 1 -> "jan" | 2 -> "feb" | 3 -> "mar" | 4 -> "apr"
        | 5 -> "may" | 6 -> "jun" | 7 -> "jul" | 8 -> "aug"
        | 9 -> "sep" | 10 -> "oct" | 11 -> "nov" | 12 -> "dec" | _ -> "jan"))
-       ~dec_absent:1 ~enc:(fun p -> p.month)
+       ~dec_absent:(fun () -> 1) ~enc:(fun p -> p.month)
   |> mem "bibtype" string ~enc:(fun p -> p.bibtype)
-  |> mem "publisher" string ~dec_absent:"" ~enc:(fun p -> p.publisher)
-  |> mem "booktitle" string ~dec_absent:"" ~enc:(fun p -> p.booktitle)
-  |> mem "journal" string ~dec_absent:"" ~enc:(fun p -> p.journal)
-  |> mem "institution" string ~dec_absent:"" ~enc:(fun p -> p.institution)
-  |> mem "pages" string ~dec_absent:"" ~enc:(fun p -> p.pages)
-  |> mem "volume" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "publisher" string ~dec_absent:(fun () -> "") ~enc:(fun p -> p.publisher)
+  |> mem "booktitle" string ~dec_absent:(fun () -> "") ~enc:(fun p -> p.booktitle)
+  |> mem "journal" string ~dec_absent:(fun () -> "") ~enc:(fun p -> p.journal)
+  |> mem "institution" string ~dec_absent:(fun () -> "") ~enc:(fun p -> p.institution)
+  |> mem "pages" string ~dec_absent:(fun () -> "") ~enc:(fun p -> p.pages)
+  |> mem "volume" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun p -> p.volume)
-  |> mem "number" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "number" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun p -> p.number)
-  |> mem "doi" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "doi" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun p -> p.doi)
-  |> mem "url" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "url" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun p -> p.url)
-  |> mem "video" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "video" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun p -> p.video)
-  |> mem "isbn" string ~dec_absent:"" ~enc:(fun p -> p.isbn)
-  |> mem "editor" string ~dec_absent:"" ~enc:(fun p -> p.editor)
-  |> mem "bib" string ~dec_absent:"" ~enc:(fun p -> p.bib)
-  |> mem "tags" (list string) ~dec_absent:[] ~enc:(fun p -> p.tags)
-  |> mem "projects" (list string) ~dec_absent:[] ~enc:(fun p -> p.projects)
-  |> mem "slides" (list string) ~dec_absent:[] ~enc:(fun p -> p.slides)
-  |> mem "selected" bool ~dec_absent:false ~enc:(fun p -> p.selected)
+  |> mem "isbn" string ~dec_absent:(fun () -> "") ~enc:(fun p -> p.isbn)
+  |> mem "editor" string ~dec_absent:(fun () -> "") ~enc:(fun p -> p.editor)
+  |> mem "bib" string ~dec_absent:(fun () -> "") ~enc:(fun p -> p.bib)
+  |> mem "tags" (list string) ~dec_absent:(fun () -> []) ~enc:(fun p -> p.tags)
+  |> mem "projects" (list string) ~dec_absent:(fun () -> []) ~enc:(fun p -> p.projects)
+  |> mem "slides" (list string) ~dec_absent:(fun () -> []) ~enc:(fun p -> p.slides)
+  |> mem "selected" bool ~dec_absent:(fun () -> false) ~enc:(fun p -> p.selected)
   |> mem "classification" (option (of_of_string ~kind:"classification"
        (fun s -> Ok (classification_of_string s)) ~enc:string_of_classification))
-       ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun p -> p.classification)
-  |> mem "note" Bushel_types.string_option_jsont ~dec_absent:None
+       ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun p -> p.classification)
+  |> mem "note" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun p -> p.note)
-  |> mem "social" (option Bushel_types.social_jsont) ~dec_absent:None
+  |> mem "social" (option Bushel_types.social_jsont) ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun p -> p.social)
   |> finish
 

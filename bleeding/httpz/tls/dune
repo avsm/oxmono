@@ -1,0 +1,15 @@
+(library
+ (name httpz_tls)
+ (public_name httpz.tls)
+ (libraries
+  httpz
+  eio
+  fmt
+  tls
+  tls-eio
+  x509
+  ca-certs
+  domain-name
+  ipaddr
+  mirage-crypto-rng
+  mirage-crypto-rng.unix))

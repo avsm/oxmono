@@ -1,0 +1,14 @@
+(test
+ (name test_proffer_jsont)
+ (package proffer)
+ (libraries
+  proffer
+  jsont
+  fetch
+  fetch.mock
+  proffer.mock
+  eio
+  eio.mock
+  http
+  str
+  alcotest))

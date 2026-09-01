@@ -1,28 +1,10 @@
 open Std
 
-(* Cstruct is not annotated for modes. The operations rebound here touch
-   only their arguments, so asserting portability is sound. Remove once
-   cstruct itself carries the annotations. *)
-module Cstruct = struct
-  include Cstruct
-  let length : t -> int = Obj.magic_portable length
-  let lenv : t list -> int = Obj.magic_portable lenv
-  let is_empty : t -> bool = Obj.magic_portable is_empty
-  let create : int -> t = Obj.magic_portable create
-  let sub : t -> int -> int -> t = Obj.magic_portable sub
-  let shift : t -> int -> t = Obj.magic_portable shift
-  let shiftv : t list -> int -> t list = Obj.magic_portable shiftv
-  let fillv = Obj.magic_portable (fun ~src ~dst -> fillv ~src ~dst)
-  let to_bytes : ?off:int -> ?len:int -> t -> bytes =
-    Obj.magic_portable (fun ?off ?len t -> to_bytes ?off ?len t)
-  let blit_from_string : string -> int -> t -> int -> int -> unit =
-    Obj.magic_portable blit_from_string
-end
-
 type shutdown_command = [ `Receive | `Send | `All ]
 
 type 't read_method = ..
-type 't read_method += Read_source_buffer of ('t -> (Cstruct.t list -> int) -> unit)
+type 't read_method +=
+  Read_source_buffer of ('t -> (Cstruct.t list @ local -> int) -> unit)
 
 type source_ty = [`R | `Flow]
 type 'a source = ([> source_ty] as 'a) r
@@ -37,12 +19,12 @@ module Pi = struct
   module type SOURCE = sig
     type t
     val read_methods : t read_method list
-    val single_read : t -> Cstruct.t -> int
+    val single_read : t -> Cstruct.t @ local -> int
   end
 
   module type SINK = sig
     type t
-    val single_write : t -> Cstruct.t list -> int
+    val single_write : t -> Cstruct.t list @ local -> int
     val copy : t -> src:_ source -> unit
   end
 
@@ -78,11 +60,14 @@ module Pi = struct
       H (Sink, (module X));
     ]
 
-  let simple_copy ~single_write t ~src:(Resource.T (src, src_ops)) =
-    let rec write_all buf =
-      if not (Cstruct.is_empty buf) then (
-        let sent = single_write t [buf] in
-        write_all (Cstruct.shift buf sent)
+  let (simple_copy @ portable) ~single_write t
+      ~src:(Resource.T (src, src_ops)) =
+    let rec write_all (buf @ local) limit off =
+      let remaining = limit - off in
+      if remaining > 0 then (
+        let view = Cstruct.sub_local buf off remaining in
+        let sent = single_write t (stack_ [view]) in
+        write_all buf limit (off + sent)
       )
     in
     let module Src = (val (Resource.get src_ops Source)) in
@@ -90,7 +75,7 @@ module Pi = struct
       let buf = Cstruct.create 4096 in
       while true do
         let got = Src.single_read src buf in
-        write_all (Cstruct.sub buf 0 got)
+        write_all buf got 0
       done
     with End_of_file -> ()
 end
@@ -99,17 +84,22 @@ open Pi
 
 let close = Resource.close
 
-let single_read (Resource.T (t, ops)) buf =
+let (single_read @ portable) (Resource.T (t, ops)) (buf @ local) =
   let module X = (val (Resource.get ops Source)) in
   let got = X.single_read t buf in
   assert (got > 0 && got <= Cstruct.length buf);
   got
 
-let rec read_exact t buf =
-  if Cstruct.length buf > 0 then (
-    let got = single_read t buf in
-    read_exact t (Cstruct.shift buf got)
-  )
+let (read_exact @ portable) t (buf @ local) =
+  let len = Cstruct.length buf in
+  let rec loop t (buf @ local) off =
+    if off < len then (
+      let view = Cstruct.sub_local buf off (len - off) in
+      let got = single_read t view in
+      loop t buf (off + got)
+    )
+  in
+  loop t buf 0
 
 module Cstruct_source = struct
   type t = Cstruct.t list ref
@@ -164,32 +154,62 @@ let string_source =
   let ops = Pi.source (module String_source) in
   fun s -> Resource.T (String_source.create s, ops)
 
-let single_write (Resource.T (t, ops)) bufs =
+let (single_write @ portable) (Resource.T (t, ops)) (bufs @ local) =
   let module X = (val (Resource.get ops Sink)) in
   X.single_write t bufs
 
-let write (Resource.T (t, ops)) bufs =
+let (write @ portable) (Resource.T (t, ops)) (bufs @ local) =
   let module X = (val (Resource.get ops Sink)) in
-  let rec aux = function
+  let rec loop (remaining @ local) head_off =
+    match remaining with
     | [] -> ()
-    | bufs ->
-      let wrote = X.single_write t bufs in
-      aux (Cstruct.shiftv bufs wrote)
+    | head :: tail ->
+        let available = Cstruct.length head - head_off in
+        if available = 0 then loop tail 0
+        else begin
+          let wrote =
+            if head_off = 0 then X.single_write t remaining
+            else begin
+              let local_ head = Cstruct.sub_local head head_off available in
+              let local_ iovec = stack_ (head :: tail) in
+              let wrote = X.single_write t iovec in
+              wrote
+            end
+          in
+          if wrote <= 0 then
+            invalid_arg "Eio.Flow.write: single_write made no progress";
+          advance remaining head_off wrote
+        end
+  and advance (remaining @ local) head_off left =
+    match remaining with
+    | [] -> invalid_arg "Eio.Flow.write: single_write wrote too much"
+    | head :: tail ->
+        let available = Cstruct.length head - head_off in
+        if left < available then loop remaining (head_off + left)
+        else if left = available then loop tail 0
+        else advance tail 0 (left - available)
   in
-  aux bufs
+  loop bufs 0
 
 let copy src (Resource.T (t, ops)) =
   let module X = (val (Resource.get ops Sink)) in
   X.copy t ~src
 
-let copy_string s = copy (string_source s)
+let (copy_string @ portable) s dst = write dst [ Cstruct.of_string s ]
 
 module Buffer_sink = struct
   type t = Buffer.t
 
-  let single_write t bufs =
+  let single_write t (bufs @ local) =
     let old_length = Buffer.length t in
-    List.iter (fun buf -> Buffer.add_bytes t (Cstruct.to_bytes buf)) bufs;
+    let rec add (bufs @ local) =
+      match bufs with
+      | [] -> ()
+      | buf :: rest ->
+          Buffer.add_bytes t (Cstruct.to_bytes buf);
+          add rest
+    in
+    add bufs;
     Buffer.length t - old_length
 
   let copy t ~src = Pi.simple_copy ~single_write t ~src

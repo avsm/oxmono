@@ -28,7 +28,7 @@ let pp_of_jsont t ppf v =
 (* The schema states its lower bounds on decoded values only. Encoding
    a value built by hand does not recheck them. *)
 
-let min_int_jsont ~kind ~min =
+let min_int_jsont ~kind ~(min : int) =
   Jsont.map ~kind
     ~dec:(fun v ->
       if v >= min then v
@@ -228,7 +228,7 @@ module Quantization = struct
       Jsont.Object.map ~kind:"scalar scale" (fun scale offset unknown ->
           { scale; offset; unknown })
       |> Jsont.Object.mem "scale" Jsont.number ~enc:(fun s -> s.scale)
-      |> Jsont.Object.mem "offset" Jsont.number ~dec_absent:0.
+      |> Jsont.Object.mem "offset" Jsont.number ~dec_absent:(fun () -> 0.)
            ~enc:(fun s -> s.offset)
       |> Jsont.Object.keep_unknown mem_list_mems
            ~enc:(fun (s : scalar) -> s.unknown)

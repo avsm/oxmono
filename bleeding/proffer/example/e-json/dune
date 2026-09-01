@@ -1,0 +1,3 @@
+(executable
+ (name json)
+ (libraries proffer proffer-httpz jsont eio_main))

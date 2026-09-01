@@ -2,7 +2,7 @@ open Mirage_crypto.Uncommon
 
 let bit_bound z = Z.size z * 64
 
-let of_octets_be ?bits buf =
+let of_octets_be : _ @ portable = fun ?bits buf ->
   let rec loop acc i = function
     | b when b >= 64 ->
       let x = String.get_int64_be buf i in
@@ -24,14 +24,15 @@ let of_octets_be ?bits buf =
     | _              -> acc in
   loop Z.zero 0 @@ match bits with
   | None   -> String.length buf * 8
-  | Some b -> imin b (String.length buf * 8)
+  | Some b ->
+      let available = String.length buf * 8 in
+      if b < available then b else available
 
-let byte1 = Z.of_int64 0xffL
-and byte2 = Z.of_int64 0xffffL
-and byte3 = Z.of_int64 0xffffffL
-and byte7 = Z.of_int64 0xffffffffffffffL
-
-let into_octets_be n buf =
+let into_octets_be : _ @ portable = fun n buf ->
+  let byte1 = Z.of_int64 0xffL
+  and byte2 = Z.of_int64 0xffffL
+  and byte3 = Z.of_int64 0xffffffL
+  and byte7 = Z.of_int64 0xffffffffffffffL in
   let rec write n = function
     | i when i >= 7 ->
       Bytes.set_int64_be buf (i - 7) Z.(to_int64_unsigned (n land byte7)) ;
@@ -47,16 +48,19 @@ let into_octets_be n buf =
   in
   write n (Bytes.length buf - 1)
 
-let to_octets_be ?size n =
+let to_octets_be : _ @ portable = fun ?size n ->
   let buf = Bytes.create @@ match size with
-    | Some s -> imax 0 s
-    | None   -> Z.numbits n // 8 in
+    | Some s -> if s < 0 then 0 else s
+    | None   ->
+        let bits = Z.numbits n in
+        if bits <= 0 then 0 else 1 + ((bits - 1) / 8)
+  in
   into_octets_be n buf;
   Bytes.unsafe_to_string buf
 
 (* Handbook of Applied Cryptography, Table 4.4:
  * Miller-Rabin rounds for composite probability <= 1/2^80. *)
-let pseudoprime z =
+let pseudoprime : _ @ portable = fun z ->
   let i = match Z.numbits z with
     | i when i >= 1300 ->  2
     | i when i >=  850 ->  3
@@ -117,6 +121,13 @@ let gen_bits ?g ?(msb = 0) bits =
   let buf = Bytes.create bytelen in
   Mirage_crypto_rng.generate_into ?g buf ~off:0 bytelen;
   set_msb msb buf ;
+  of_octets_be ~bits (Bytes.unsafe_to_string buf)
+
+let (gen_bits_with @ portable) ~g ?(msb = 0) bits =
+  let bytelen = if bits <= 0 then 0 else 1 + ((bits - 1) / 8) in
+  let buf = Bytes.create bytelen in
+  Mirage_crypto_rng.generate_into_portable ~g buf ~off:0 bytelen;
+  set_msb msb buf;
   of_octets_be ~bits (Bytes.unsafe_to_string buf)
 
 (* Invalid combinations of ~bits and ~msb will loop forever, but there is no

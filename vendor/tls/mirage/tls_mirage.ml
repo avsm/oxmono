@@ -117,7 +117,7 @@ module Make (F : Mirage_flow.S) = struct
         let bufs = List.map Cstruct.to_string bufs in
         match Tls.Engine.send_application_data tls bufs with
         | Some (tls, answer) ->
-            flow.state <- `Active tls ;
+            flow.state <- inject_state tls flow.state ;
             write_flow flow answer
         | None ->
             (* "Impossible" due to handshake draining. *)
@@ -134,7 +134,8 @@ module Make (F : Mirage_flow.S) = struct
    * *)
   let rec drain_handshake flow =
     match flow.state with
-    | `Active tls when not (Tls.Engine.handshake_in_progress tls) ->
+    | `Active tls | `Read_closed tls | `Write_closed tls
+      when not (Tls.Engine.handshake_in_progress tls) ->
         Lwt.return @@ Ok flow
     | _ ->
       (* read_react re-throws *)
@@ -172,7 +173,7 @@ module Make (F : Mirage_flow.S) = struct
       match Tls.Engine.key_update ?request tls with
       | Error _ -> Lwt.return (Error (`Msg "Key update failed"))
       | Ok (tls', buf) ->
-        flow.state <- `Active tls' ;
+        flow.state <- inject_state tls' flow.state ;
         write_flow flow buf >|= function
         | Ok _ as o -> o
         | Error e   -> Error (e :> wr_or_msg)
@@ -213,10 +214,12 @@ module Make (F : Mirage_flow.S) = struct
     | `Error _ | `Closed ->
       F.close flow.flow
 
-  let client_of_flow conf ?host flow =
-    let conf' = match host with
-      | None      -> conf
-      | Some host -> Tls.Config.peer conf host
+  let client_of_flow conf ?host ?ip flow =
+    let conf =
+      Option.value ~default:conf (Option.map (Tls.Config.peer conf) host)
+    in
+    let conf' =
+      Option.value ~default:conf (Option.map (Tls.Config.ip conf) ip)
     in
     let (tls, init) = Tls.Engine.client conf' in
     let tls_flow = {

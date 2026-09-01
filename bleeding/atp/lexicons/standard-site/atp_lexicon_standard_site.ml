@@ -25,7 +25,7 @@ type main = {
 let main_jsont =
   Jsont.Object.map ~kind:"Main"
     (fun _typ cid uri -> { cid; uri })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"com.atproto.repo.strongRef" ~enc:(fun _ -> "com.atproto.repo.strongRef")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "com.atproto.repo.strongRef") ~enc:(fun _ -> "com.atproto.repo.strongRef")
   |> Jsont.Object.mem "cid" Jsont.string ~enc:(fun r -> r.cid)
   |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun r -> r.uri)
   |> Jsont.Object.finish
@@ -47,7 +47,7 @@ type rgb = {
 let rgb_jsont =
   Jsont.Object.map ~kind:"Rgb"
     (fun _typ b g r -> { b; g; r })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"site.standard.theme.color#rgb" ~enc:(fun _ -> "site.standard.theme.color#rgb")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "site.standard.theme.color#rgb") ~enc:(fun _ -> "site.standard.theme.color#rgb")
   |> Jsont.Object.mem "b" Jsont.int ~enc:(fun r -> r.b)
   |> Jsont.Object.mem "g" Jsont.int ~enc:(fun r -> r.g)
   |> Jsont.Object.mem "r" Jsont.int ~enc:(fun r -> r.r)
@@ -63,7 +63,7 @@ type rgba = {
 let rgba_jsont =
   Jsont.Object.map ~kind:"Rgba"
     (fun _typ a b g r -> { a; b; g; r })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"site.standard.theme.color#rgba" ~enc:(fun _ -> "site.standard.theme.color#rgba")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "site.standard.theme.color#rgba") ~enc:(fun _ -> "site.standard.theme.color#rgba")
   |> Jsont.Object.mem "a" Jsont.int ~enc:(fun r -> r.a)
   |> Jsont.Object.mem "b" Jsont.int ~enc:(fun r -> r.b)
   |> Jsont.Object.mem "g" Jsont.int ~enc:(fun r -> r.g)
@@ -82,7 +82,7 @@ type main = {
 let main_jsont =
   Jsont.Object.map ~kind:"Main"
     (fun _typ accent accent_foreground background foreground -> { accent; accent_foreground; background; foreground })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"site.standard.theme.basic" ~enc:(fun _ -> "site.standard.theme.basic")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "site.standard.theme.basic") ~enc:(fun _ -> "site.standard.theme.basic")
   |> Jsont.Object.mem "accent" Color.rgb_jsont ~enc:(fun r -> r.accent)
   |> Jsont.Object.mem "accentForeground" Color.rgb_jsont ~enc:(fun r -> r.accent_foreground)
   |> Jsont.Object.mem "background" Color.rgb_jsont ~enc:(fun r -> r.background)
@@ -100,7 +100,7 @@ type main = {
 let main_jsont =
   Jsont.Object.map ~kind:"Main"
     (fun _typ publication -> { publication })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"site.standard.graph.subscription" ~enc:(fun _ -> "site.standard.graph.subscription")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "site.standard.graph.subscription") ~enc:(fun _ -> "site.standard.graph.subscription")
   |> Jsont.Object.mem "publication" Jsont.string ~enc:(fun r -> r.publication)
   |> Jsont.Object.finish
 
@@ -124,7 +124,7 @@ type main = {
 let main_jsont =
   Jsont.Object.map ~kind:"Main"
     (fun _typ bsky_post_ref content cover_image description path published_at site tags text_content title updated_at -> { bsky_post_ref; content; cover_image; description; path; published_at; site; tags; text_content; title; updated_at })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"site.standard.document" ~enc:(fun _ -> "site.standard.document")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "site.standard.document") ~enc:(fun _ -> "site.standard.document")
   |> Jsont.Object.opt_mem "bskyPostRef" Com.Atproto.Repo.StrongRef.main_jsont ~enc:(fun r -> r.bsky_post_ref)
   |> Jsont.Object.opt_mem "content" Jsont.json ~enc:(fun r -> r.content)
   |> Jsont.Object.opt_mem "coverImage" Atp.Blob_ref.jsont ~enc:(fun r -> r.cover_image)
@@ -147,7 +147,7 @@ type preferences = {
 let preferences_jsont =
   Jsont.Object.map ~kind:"Preferences"
     (fun _typ show_in_discover -> { show_in_discover })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"site.standard.publication#preferences" ~enc:(fun _ -> "site.standard.publication#preferences")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "site.standard.publication#preferences") ~enc:(fun _ -> "site.standard.publication#preferences")
   |> Jsont.Object.opt_mem "showInDiscover" Jsont.bool ~enc:(fun r -> r.show_in_discover)
   |> Jsont.Object.finish
 
@@ -163,7 +163,7 @@ type main = {
 let main_jsont =
   Jsont.Object.map ~kind:"Main"
     (fun _typ basic_theme description icon name preferences url -> { basic_theme; description; icon; name; preferences; url })
-  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:"site.standard.publication" ~enc:(fun _ -> "site.standard.publication")
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "site.standard.publication") ~enc:(fun _ -> "site.standard.publication")
   |> Jsont.Object.opt_mem "basicTheme" Theme.Basic.main_jsont ~enc:(fun r -> r.basic_theme)
   |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun r -> r.description)
   |> Jsont.Object.opt_mem "icon" Atp.Blob_ref.jsont ~enc:(fun r -> r.icon)

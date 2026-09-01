@@ -35,3 +35,6 @@ Note that the main `encode` function will let you specify _all_ possible encodin
 val encoded_ : (string, [ `Msg of string ]) result =
   Ok "T9T1M2RBC41KN6837E9IM2T11"
 ```
+
+OxMono exposes portable codec interfaces. Base32 and Base58 alphabet tables
+are immutable strings, so codecs share no mutable lookup tables.

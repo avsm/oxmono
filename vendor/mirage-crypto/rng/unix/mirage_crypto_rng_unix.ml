@@ -14,10 +14,13 @@ let use_getentropy () =
 
 let use_default () = use_getentropy ()
 
+let (fresh_generator @ portable) () =
+  create_portable (module Getentropy)
+
 let src = Logs.Src.create "mirage-crypto-rng.unix" ~doc:"Mirage crypto RNG Unix"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-external getrandom_buf : bytes -> int -> int -> unit = "mc_getrandom" [@@noalloc]
+external getrandom_buf : bytes -> int -> int -> unit = "mc_getrandom"
 
 let getrandom_into buf ~off ~len =
   getrandom_buf buf off len

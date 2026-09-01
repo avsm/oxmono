@@ -1,0 +1,20 @@
+; Crowbar fuzz testing for punycode
+;
+; To run: dune exec httpz/punycode/fuzz/fuzz_punycode.exe
+; With AFL: afl-fuzz -i fuzz/corpus -o fuzz/findings -- ./_build/default/httpz/punycode/fuzz/fuzz_punycode.exe @@
+
+;
+; crowbar is a test-only dependency, so a plain `dune build` in a switch
+; without it skips this rather than failing.
+
+(executable
+ (name fuzz_punycode)
+ (modules fuzz_punycode)
+ (optional)
+ (libraries httpz.punycode crowbar))
+
+(rule
+ (alias fuzz)
+ (deps fuzz_punycode.exe)
+ (action
+  (run %{exe:fuzz_punycode.exe})))

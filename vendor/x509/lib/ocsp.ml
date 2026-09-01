@@ -200,8 +200,7 @@ module Request = struct
           | None -> None
           | Some certs ->
             let encode cert =
-              let raw = Certificate.Asn.certificate_to_octets cert in
-              Certificate.{raw; asn=cert}
+              Certificate.{raw = ""; asn=cert}
             in
             Some (List.map encode certs)
         in
@@ -241,6 +240,19 @@ module Request = struct
 
   let decode_der raw =
     let* asn = Asn.ocsp_request_of_octets raw in
+    let materialize Certificate.{ raw; asn } =
+      if String.equal raw "" then
+        Certificate.{ raw = Certificate.Asn.certificate_to_octets asn; asn }
+      else
+        Certificate.{ raw; asn }
+    in
+    let optionalSignature =
+      Option.map
+        (fun signature ->
+           { signature with certs = Option.map (List.map materialize) signature.certs })
+        asn.optionalSignature
+    in
+    let asn = { asn with optionalSignature } in
     Ok { asn ; raw }
 
   let encode_der { raw ; _ } = raw
@@ -565,8 +577,7 @@ module Response = struct
           | None -> None
           | Some certs ->
             let encode cert =
-              let raw = Certificate.Asn.certificate_to_octets cert in
-              Certificate.{raw; asn=cert}
+              Certificate.{raw = ""; asn=cert}
             in
             Some (List.map encode certs)
         in
@@ -588,7 +599,10 @@ module Response = struct
         (optional ~label:"certs" @@ explicit 0 @@
          sequence_of Certificate.Asn.certificate)
 
-    let basic_ocsp_response_of_str,basic_ocsp_response_to_str =
+    let basic_ocsp_response_of_str : _ @ portable =
+      decoder_of Asn.der basic_ocsp_response
+
+    let _, basic_ocsp_response_to_str =
       projections_of Asn.der basic_ocsp_response
 
     let ocsp_basic_oid = Cert_extn.Private_internet_extensions.ad_ocsp_basic
@@ -634,7 +648,22 @@ module Response = struct
 
   end
 
-  let decode_der = Asn.ocsp_response_of_str
+  let decode_der raw =
+    let* response = Asn.ocsp_response_of_str raw in
+    let materialize Certificate.{ raw; asn } =
+      if String.equal raw "" then
+        Certificate.{ raw = Certificate.Asn.certificate_to_octets asn; asn }
+      else
+        Certificate.{ raw; asn }
+    in
+    let responseBytes =
+      Option.map
+        (fun (oid, basic, raw_basic) ->
+           let certs = Option.map (List.map materialize) basic.certs in
+           (oid, { basic with certs }, raw_basic))
+        response.responseBytes
+    in
+    Ok { response with responseBytes }
   let encode_der = Asn.ocsp_response_to_str
 
   let create_basic_ocsp_response ?digest ?certs

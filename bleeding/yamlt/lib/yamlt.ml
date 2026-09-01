@@ -213,13 +213,13 @@ let rec decode_scalar_as : type a.
         (* Build a dict with all default values from absent members *)
         let add_default _ (Mem_dec mem_map) dict =
           match mem_map.dec_absent with
-          | Some v -> Dict.add mem_map.id v dict
+          | Some make -> Dict.add mem_map.id (make ()) dict
           | None ->
               (* Required field without default - error *)
               let exp = String_map.singleton mem_map.name (Mem_dec mem_map) in
               missing_mems_error meta map ~exp ~fnd:[]
         in
-        let dict = String_map.fold add_default map.mem_decs Dict.empty in
+        let dict = String_map.fold add_default map.mem_decs (Dict.empty ()) in
         let dict = Dict.add object_meta_arg meta dict in
         apply_dict map.dec dict
       else err_type_mismatch d ev.span t ~fnd:"scalar"
@@ -228,7 +228,7 @@ let rec decode_scalar_as : type a.
       m.dec (decode_scalar_as d ev value style m.dom)
   | Rec lazy_t ->
       (* Handle recursive types *)
-      decode_scalar_as d ev value style (Lazy.force lazy_t)
+      decode_scalar_as d ev value style (Jsont.Portable_lazy.force lazy_t)
   | _ -> err_type_mismatch d ev.span t ~fnd:"scalar"
 
 (* Forward declaration for mutual recursion *)
@@ -257,7 +257,7 @@ let rec decode : type a. decoder -> nest:int -> a t -> a =
       (* Map combinator - must come before specific event matches *)
       | _, Map m -> m.dec (decode d ~nest m.dom)
       (* Recursive types - must come before specific event matches *)
-      | _, Rec lazy_t -> decode d ~nest (Lazy.force lazy_t)
+      | _, Rec lazy_t -> decode d ~nest (Jsont.Portable_lazy.force lazy_t)
       (* Sequence -> Array *)
       | Event.Sequence_start _, Array map -> decode_array d ~nest ev map
       | Event.Sequence_start _, Any map -> decode_any_sequence d ~nest ev t map
@@ -288,7 +288,8 @@ and decode_scalar : type a.
   match t with
   | Any map -> decode_any_scalar d ev value style t map
   | Map m -> m.dec (decode_scalar d ~nest ev value style m.dom)
-  | Rec lazy_t -> decode_scalar d ~nest ev value style (Lazy.force lazy_t)
+  | Rec lazy_t ->
+      decode_scalar d ~nest ev value style (Jsont.Portable_lazy.force lazy_t)
   | _ -> decode_scalar_as d ev value style t
 
 and decode_any_scalar : type a.
@@ -415,7 +416,7 @@ and decode_object : type o.
   check_nodes d;
   let meta = meta_of_span d start_ev.span in
   let dict =
-    decode_object_members d ~nest meta map String_map.empty Dict.empty
+    decode_object_members d ~nest meta map (String_map.create ()) (Dict.empty ())
   in
   let dict = Dict.add object_meta_arg meta dict in
   apply_dict map.dec dict
@@ -522,7 +523,7 @@ and finish_object : type o mems builder.
   (* Check for missing required members *)
   let add_default _ (Mem_dec mem_map) dict =
     match mem_map.dec_absent with
-    | Some v -> Dict.add mem_map.id v dict
+    | Some make -> Dict.add mem_map.id (make ()) dict
     | None -> raise Exit
   in
   try String_map.fold add_default mem_miss dict
@@ -531,7 +532,7 @@ and finish_object : type o mems builder.
     let exp = String_map.filter no_default mem_miss in
     missing_mems_error meta map ~exp ~fnd:[]
 
-and decode_object_cases : type o cases tag.
+and decode_object_cases : type o cases (tag : value mod contended).
     decoder ->
     nest:int ->
     Jsont.Meta.t ->
@@ -545,11 +546,11 @@ and decode_object_cases : type o cases tag.
  fun d ~nest obj_meta object_map umems cases mem_miss delayed dict ->
   match peek_event d with
   | Some { Event.event = Event.Mapping_end; _ } -> (
-      skip_event d;
       (* No tag found - use dec_absent if available *)
       match cases.tag.dec_absent with
-      | Some tag ->
-          decode_with_case_tag d ~nest obj_meta object_map umems cases tag
+      | Some make_tag ->
+          decode_with_case_tag d ~nest obj_meta object_map umems cases
+            (make_tag ())
             mem_miss delayed dict
       | None ->
           (* Missing required case tag *)
@@ -586,7 +587,7 @@ and decode_object_cases : type o cases tag.
       end
   | None -> err_msg obj_meta "Unclosed mapping"
 
-and decode_with_case_tag : type o cases tag.
+and decode_with_case_tag : type o cases (tag : value mod contended).
     decoder ->
     nest:int ->
     Jsont.Meta.t ->
@@ -887,7 +888,7 @@ let rec encode : type a. encoder -> a t -> a -> unit =
       let t' = map.enc v in
       encode e t' v
   | Map m -> encode e m.dom (m.enc v)
-  | Rec lazy_t -> encode e (Lazy.force lazy_t) v
+  | Rec lazy_t -> encode e (Jsont.Portable_lazy.force lazy_t) v
 
 and encode_array : type a elt b. encoder -> (a, elt, b) array_map -> a -> unit =
  fun e map v ->

@@ -66,7 +66,7 @@ let trust =
 
 let cmd =
   let term = Term.(const jump $ setup_log $ port $ host $ trust)
-  and info = Cmd.info "echo_client" ~version:"2.0.3"
+  and info = Cmd.info "echo_client" ~version:"2.1.2"
   in
   Cmd.v info term
 

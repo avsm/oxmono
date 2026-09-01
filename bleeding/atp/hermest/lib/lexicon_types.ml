@@ -347,328 +347,429 @@ let error_def_jsont : error_def Jsont.t =
 
 (* Recursive types using Jsont.rec' with lazy values *)
 
-module StringMap = Map.Make(String)
+module StringMap = Jsont.String_map
 
-(* Forward declarations for mutually recursive types *)
-let rec type_def_jsont_lazy : type_def Jsont.t Lazy.t = lazy (
-  (* Create case maps for each variant *)
-  let string_case = Jsont.Object.Case.map "string" string_spec_jsont
-      ~dec:(fun s -> String s) in
-  let integer_case = Jsont.Object.Case.map "integer" integer_spec_jsont
-      ~dec:(fun s -> Integer s) in
-  let boolean_case = Jsont.Object.Case.map "boolean" boolean_spec_jsont
-      ~dec:(fun s -> Boolean s) in
-  let bytes_case = Jsont.Object.Case.map "bytes" bytes_spec_jsont
-      ~dec:(fun s -> Bytes s) in
-  let blob_case = Jsont.Object.Case.map "blob" blob_spec_jsont
-      ~dec:(fun s -> Blob s) in
-  let cid_link_case = Jsont.Object.Case.map "cid-link" cid_link_spec_jsont
-      ~dec:(fun s -> CidLink s) in
-  let array_case = Jsont.Object.Case.map "array" (Lazy.force array_spec_jsont_lazy)
-      ~dec:(fun s -> Array s) in
-  let object_case = Jsont.Object.Case.map "object" (Lazy.force object_spec_jsont_lazy)
-      ~dec:(fun s -> Object s) in
-  let ref_case = Jsont.Object.Case.map "ref" ref_spec_jsont
-      ~dec:(fun s -> Ref s) in
-  let union_case = Jsont.Object.Case.map "union" union_spec_jsont
-      ~dec:(fun s -> Union s) in
-  let token_case = Jsont.Object.Case.map "token" token_spec_jsont
-      ~dec:(fun s -> Token s) in
-  let unknown_case = Jsont.Object.Case.map "unknown" unknown_spec_jsont
-      ~dec:(fun s -> Unknown s) in
-  let query_case = Jsont.Object.Case.map "query" (Lazy.force query_spec_jsont_lazy)
-      ~dec:(fun s -> Query s) in
-  let procedure_case = Jsont.Object.Case.map "procedure" (Lazy.force procedure_spec_jsont_lazy)
-      ~dec:(fun s -> Procedure s) in
-  let subscription_case = Jsont.Object.Case.map "subscription" (Lazy.force subscription_spec_jsont_lazy)
-      ~dec:(fun s -> Subscription s) in
-  let record_case = Jsont.Object.Case.map "record" (Lazy.force record_spec_jsont_lazy)
-      ~dec:(fun s -> Record s) in
-  let permission_set_case = Jsont.Object.Case.map "permission-set" (Lazy.force permission_set_spec_jsont_lazy)
-      ~dec:(fun s -> PermissionSet s) in
-  (* Create enc_case function for encoding *)
-  let enc_case = function
-    | String s -> Jsont.Object.Case.value string_case s
-    | Integer s -> Jsont.Object.Case.value integer_case s
-    | Boolean s -> Jsont.Object.Case.value boolean_case s
-    | Bytes s -> Jsont.Object.Case.value bytes_case s
-    | Blob s -> Jsont.Object.Case.value blob_case s
-    | CidLink s -> Jsont.Object.Case.value cid_link_case s
-    | Array s -> Jsont.Object.Case.value array_case s
-    | Object s -> Jsont.Object.Case.value object_case s
-    | Ref s -> Jsont.Object.Case.value ref_case s
-    | Union s -> Jsont.Object.Case.value union_case s
-    | Token s -> Jsont.Object.Case.value token_case s
-    | Unknown s -> Jsont.Object.Case.value unknown_case s
-    | Query s -> Jsont.Object.Case.value query_case s
-    | Procedure s -> Jsont.Object.Case.value procedure_case s
-    | Subscription s -> Jsont.Object.Case.value subscription_case s
-    | Record s -> Jsont.Object.Case.value record_case s
-    | PermissionSet s -> Jsont.Object.Case.value permission_set_case s
-  in
-  (* List of all cases *)
-  let cases = Jsont.Object.Case.[
-    make string_case; make integer_case; make boolean_case; make bytes_case;
-    make blob_case; make cid_link_case; make array_case; make object_case;
-    make ref_case; make union_case; make token_case; make unknown_case;
-    make query_case; make procedure_case; make subscription_case;
-    make record_case; make permission_set_case
-  ] in
-  (* Build the type_def codec *)
-  Jsont.Object.map ~kind:"type_def" Fun.id
-  |> Jsont.Object.case_mem "type" Jsont.string ~enc:Fun.id ~enc_case cases
-  |> Jsont.Object.finish
-)
+(* Define all mutually recursive codecs through one portable fixed point. *)
+let ( type_def_jsont,
+      property_jsont,
+      properties_jsont,
+      object_spec_jsont,
+      array_spec_jsont,
+      params_spec_jsont,
+      body_def_jsont,
+      query_spec_jsont,
+      procedure_spec_jsont,
+      subscription_spec_jsont,
+      record_spec_jsont,
+      permission_spec_jsont,
+      permission_set_spec_jsont ) =
+  let make all =
+    let project f = Jsont.Portable_lazy.map all ~f in
+    let type_def_jsont_lazy =
+      project (fun (v, _, _, _, _, _, _, _, _, _, _, _, _) -> v)
+    in
+    let properties_jsont_lazy =
+      project (fun (_, _, v, _, _, _, _, _, _, _, _, _, _) -> v)
+    in
+    let object_spec_jsont_lazy =
+      project (fun (_, _, _, v, _, _, _, _, _, _, _, _, _) -> v)
+    in
+    let params_spec_jsont_lazy =
+      project (fun (_, _, _, _, _, v, _, _, _, _, _, _, _) -> v)
+    in
+    let body_def_jsont_lazy =
+      project (fun (_, _, _, _, _, _, v, _, _, _, _, _, _) -> v)
+    in
+    let permission_spec_jsont_lazy =
+      project (fun (_, _, _, _, _, _, _, _, _, _, _, v, _) -> v)
+    in
+    let property_jsont =
+      let make type_def description : property = { type_def; description } in
+      let map =
+        Jsont.Object.map ~kind:"property" make
+        |> Jsont.Object.mem "type_def" (Jsont.rec' type_def_jsont_lazy)
+             ~enc:(fun (p : property) -> p.type_def)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (p : property) -> p.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and property_jsont_lazy : property Jsont.t Lazy.t = lazy (
-  let make type_def description : property = { type_def; description } in
-  let map =
-    Jsont.Object.map ~kind:"property" make
-    |> Jsont.Object.mem "type_def" (Jsont.rec' type_def_jsont_lazy)
-         ~enc:(fun (p : property) -> p.type_def)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (p : property) -> p.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    (* Extract description from a type_def. Each variant's spec contains the description. *)
+    let get_type_def_description (td : type_def) : string option =
+      match td with
+      | String s -> s.description
+      | Integer s -> s.description
+      | Boolean s -> s.description
+      | Bytes s -> s.description
+      | Blob s -> s.description
+      | CidLink s -> s.description
+      | Array s -> s.description
+      | Object s -> s.description
+      | Ref s -> s.description
+      | Union s -> s.description
+      | Token s -> s.description
+      | Unknown s -> s.description
+      | Query s -> s.description
+      | Procedure s -> s.description
+      | Subscription s -> s.description
+      | Record s -> s.description
+      | PermissionSet s -> s.description
+    in
 
-(* Extract description from a type_def. Each variant's spec contains the description. *)
-and get_type_def_description (td : type_def) : string option =
-  match td with
-  | String s -> s.description
-  | Integer s -> s.description
-  | Boolean s -> s.description
-  | Bytes s -> s.description
-  | Blob s -> s.description
-  | CidLink s -> s.description
-  | Array s -> s.description
-  | Object s -> s.description
-  | Ref s -> s.description
-  | Union s -> s.description
-  | Token s -> s.description
-  | Unknown s -> s.description
-  | Query s -> s.description
-  | Procedure s -> s.description
-  | Subscription s -> s.description
-  | Record s -> s.description
-  | PermissionSet s -> s.description
-
-(* Helper to decode properties object as (string * property) list.
+    (* Helper to decode properties object as (string * property) list.
    Each property value contains type_def fields including description.
    We decode as type_def and extract the description from it.
    Note: Field order is alphabetical since JSON object keys have no defined order. *)
-and properties_jsont_lazy : (string * property) list Jsont.t Lazy.t = lazy (
-  let map_jsont = Jsont.Object.as_string_map (Jsont.rec' type_def_jsont_lazy) in
-  Jsont.map
-    ~kind:"properties"
-    ~dec:(fun m ->
-      StringMap.bindings m |> List.map (fun (name, type_def) ->
-        let description = get_type_def_description type_def in
-        (name, { type_def; description })))
-    ~enc:(fun (props : (string * property) list) ->
-      List.fold_left (fun m (name, (prop : property)) ->
-        StringMap.add name prop.type_def m) StringMap.empty props)
-    map_jsont
-)
+    let properties_jsont =
+      let map_jsont =
+        Jsont.Object.as_string_map (Jsont.rec' type_def_jsont_lazy)
+      in
+      Jsont.map ~kind:"properties"
+        ~dec:(fun m ->
+          StringMap.fold
+            (fun name type_def acc ->
+              let description = get_type_def_description type_def in
+              (name, { type_def; description }) :: acc)
+            m []
+          |> List.rev)
+        ~enc:(fun (props : (string * property) list) ->
+          List.fold_left
+            (fun m (name, (prop : property)) ->
+              StringMap.add name prop.type_def m)
+            (StringMap.create ()) props)
+        map_jsont
+    in
 
-and object_spec_jsont_lazy : object_spec Jsont.t Lazy.t = lazy (
-  let make properties required nullable description : object_spec =
-    { properties; required; nullable; description }
-  in
-  let map =
-    Jsont.Object.map ~kind:"object_spec" make
-    |> Jsont.Object.mem "properties" (Jsont.rec' properties_jsont_lazy)
-         ~dec_absent:[] ~enc:(fun (s : object_spec) -> s.properties)
-    |> Jsont.Object.opt_mem "required" Jsont.(list string)
-         ~enc:(fun (s : object_spec) -> s.required)
-    |> Jsont.Object.opt_mem "nullable" Jsont.(list string)
-         ~enc:(fun (s : object_spec) -> s.nullable)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (s : object_spec) -> s.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let object_spec_jsont =
+      let make properties required nullable description : object_spec =
+        { properties; required; nullable; description }
+      in
+      let map =
+        Jsont.Object.map ~kind:"object_spec" make
+        |> Jsont.Object.mem "properties"
+             (Jsont.rec' properties_jsont_lazy)
+             ~dec_absent:(fun () -> [])
+             ~enc:(fun (s : object_spec) -> s.properties)
+        |> Jsont.Object.opt_mem "required"
+             Jsont.(list string)
+             ~enc:(fun (s : object_spec) -> s.required)
+        |> Jsont.Object.opt_mem "nullable"
+             Jsont.(list string)
+             ~enc:(fun (s : object_spec) -> s.nullable)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : object_spec) -> s.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and array_spec_jsont_lazy : array_spec Jsont.t Lazy.t = lazy (
-  let make items min_length max_length description : array_spec =
-    { items; min_length; max_length; description }
-  in
-  let map =
-    Jsont.Object.map ~kind:"array_spec" make
-    |> Jsont.Object.mem "items" (Jsont.rec' type_def_jsont_lazy)
-         ~enc:(fun (s : array_spec) -> s.items)
-    |> Jsont.Object.opt_mem "minLength" Jsont.int
-         ~enc:(fun (s : array_spec) -> s.min_length)
-    |> Jsont.Object.opt_mem "maxLength" Jsont.int
-         ~enc:(fun (s : array_spec) -> s.max_length)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (s : array_spec) -> s.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let array_spec_jsont =
+      let make items min_length max_length description : array_spec =
+        { items; min_length; max_length; description }
+      in
+      let map =
+        Jsont.Object.map ~kind:"array_spec" make
+        |> Jsont.Object.mem "items" (Jsont.rec' type_def_jsont_lazy)
+             ~enc:(fun (s : array_spec) -> s.items)
+        |> Jsont.Object.opt_mem "minLength" Jsont.int
+             ~enc:(fun (s : array_spec) -> s.min_length)
+        |> Jsont.Object.opt_mem "maxLength" Jsont.int
+             ~enc:(fun (s : array_spec) -> s.max_length)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : array_spec) -> s.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and params_spec_jsont_lazy : params_spec Jsont.t Lazy.t = lazy (
-  let make properties required description : params_spec =
-    { properties; required; description }
-  in
-  let map =
-    Jsont.Object.map ~kind:"params_spec" make
-    |> Jsont.Object.mem "properties" (Jsont.rec' properties_jsont_lazy)
-         ~dec_absent:[] ~enc:(fun (s : params_spec) -> s.properties)
-    |> Jsont.Object.opt_mem "required" Jsont.(list string)
-         ~enc:(fun (s : params_spec) -> s.required)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (s : params_spec) -> s.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let params_spec_jsont =
+      let make properties required description : params_spec =
+        { properties; required; description }
+      in
+      let map =
+        Jsont.Object.map ~kind:"params_spec" make
+        |> Jsont.Object.mem "properties"
+             (Jsont.rec' properties_jsont_lazy)
+             ~dec_absent:(fun () -> [])
+             ~enc:(fun (s : params_spec) -> s.properties)
+        |> Jsont.Object.opt_mem "required"
+             Jsont.(list string)
+             ~enc:(fun (s : params_spec) -> s.required)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : params_spec) -> s.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and body_def_jsont_lazy : body_def Jsont.t Lazy.t = lazy (
-  let make encoding schema description : body_def =
-    { encoding; schema; description }
-  in
-  let map =
-    Jsont.Object.map ~kind:"body_def" make
-    |> Jsont.Object.mem "encoding" Jsont.string
-         ~enc:(fun (s : body_def) -> s.encoding)
-    |> Jsont.Object.opt_mem "schema" (Jsont.rec' type_def_jsont_lazy)
-         ~enc:(fun (s : body_def) -> s.schema)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (s : body_def) -> s.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let body_def_jsont =
+      let make encoding schema description : body_def =
+        { encoding; schema; description }
+      in
+      let map =
+        Jsont.Object.map ~kind:"body_def" make
+        |> Jsont.Object.mem "encoding" Jsont.string ~enc:(fun (s : body_def) ->
+            s.encoding)
+        |> Jsont.Object.opt_mem "schema" (Jsont.rec' type_def_jsont_lazy)
+             ~enc:(fun (s : body_def) -> s.schema)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : body_def) -> s.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and query_spec_jsont_lazy : query_spec Jsont.t Lazy.t = lazy (
-  let make parameters output errors description : query_spec =
-    { parameters; output; errors; description }
-  in
-  let map =
-    Jsont.Object.map ~kind:"query_spec" make
-    |> Jsont.Object.opt_mem "parameters" (Jsont.rec' params_spec_jsont_lazy)
-         ~enc:(fun (s : query_spec) -> s.parameters)
-    |> Jsont.Object.opt_mem "output" (Jsont.rec' body_def_jsont_lazy)
-         ~enc:(fun (s : query_spec) -> s.output)
-    |> Jsont.Object.opt_mem "errors" Jsont.(list error_def_jsont)
-         ~enc:(fun (s : query_spec) -> s.errors)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (s : query_spec) -> s.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let query_spec_jsont =
+      let make parameters output errors description : query_spec =
+        { parameters; output; errors; description }
+      in
+      let map =
+        Jsont.Object.map ~kind:"query_spec" make
+        |> Jsont.Object.opt_mem "parameters" (Jsont.rec' params_spec_jsont_lazy)
+             ~enc:(fun (s : query_spec) -> s.parameters)
+        |> Jsont.Object.opt_mem "output" (Jsont.rec' body_def_jsont_lazy)
+             ~enc:(fun (s : query_spec) -> s.output)
+        |> Jsont.Object.opt_mem "errors"
+             Jsont.(list error_def_jsont)
+             ~enc:(fun (s : query_spec) -> s.errors)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : query_spec) -> s.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and procedure_spec_jsont_lazy : procedure_spec Jsont.t Lazy.t = lazy (
-  let make parameters input output errors description : procedure_spec =
-    { parameters; input; output; errors; description }
-  in
-  let map =
-    Jsont.Object.map ~kind:"procedure_spec" make
-    |> Jsont.Object.opt_mem "parameters" (Jsont.rec' params_spec_jsont_lazy)
-         ~enc:(fun (s : procedure_spec) -> s.parameters)
-    |> Jsont.Object.opt_mem "input" (Jsont.rec' body_def_jsont_lazy)
-         ~enc:(fun (s : procedure_spec) -> s.input)
-    |> Jsont.Object.opt_mem "output" (Jsont.rec' body_def_jsont_lazy)
-         ~enc:(fun (s : procedure_spec) -> s.output)
-    |> Jsont.Object.opt_mem "errors" Jsont.(list error_def_jsont)
-         ~enc:(fun (s : procedure_spec) -> s.errors)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (s : procedure_spec) -> s.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let procedure_spec_jsont =
+      let make parameters input output errors description : procedure_spec =
+        { parameters; input; output; errors; description }
+      in
+      let map =
+        Jsont.Object.map ~kind:"procedure_spec" make
+        |> Jsont.Object.opt_mem "parameters" (Jsont.rec' params_spec_jsont_lazy)
+             ~enc:(fun (s : procedure_spec) -> s.parameters)
+        |> Jsont.Object.opt_mem "input" (Jsont.rec' body_def_jsont_lazy)
+             ~enc:(fun (s : procedure_spec) -> s.input)
+        |> Jsont.Object.opt_mem "output" (Jsont.rec' body_def_jsont_lazy)
+             ~enc:(fun (s : procedure_spec) -> s.output)
+        |> Jsont.Object.opt_mem "errors"
+             Jsont.(list error_def_jsont)
+             ~enc:(fun (s : procedure_spec) -> s.errors)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : procedure_spec) -> s.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and subscription_spec_jsont_lazy : subscription_spec Jsont.t Lazy.t = lazy (
-  let make parameters message errors description : subscription_spec =
-    { parameters; message; errors; description }
-  in
-  let map =
-    Jsont.Object.map ~kind:"subscription_spec" make
-    |> Jsont.Object.opt_mem "parameters" (Jsont.rec' params_spec_jsont_lazy)
-         ~enc:(fun (s : subscription_spec) -> s.parameters)
-    |> Jsont.Object.opt_mem "message" (Jsont.rec' body_def_jsont_lazy)
-         ~enc:(fun (s : subscription_spec) -> s.message)
-    |> Jsont.Object.opt_mem "errors" Jsont.(list error_def_jsont)
-         ~enc:(fun (s : subscription_spec) -> s.errors)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (s : subscription_spec) -> s.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let subscription_spec_jsont =
+      let make parameters message errors description : subscription_spec =
+        { parameters; message; errors; description }
+      in
+      let map =
+        Jsont.Object.map ~kind:"subscription_spec" make
+        |> Jsont.Object.opt_mem "parameters" (Jsont.rec' params_spec_jsont_lazy)
+             ~enc:(fun (s : subscription_spec) -> s.parameters)
+        |> Jsont.Object.opt_mem "message" (Jsont.rec' body_def_jsont_lazy)
+             ~enc:(fun (s : subscription_spec) -> s.message)
+        |> Jsont.Object.opt_mem "errors"
+             Jsont.(list error_def_jsont)
+             ~enc:(fun (s : subscription_spec) -> s.errors)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : subscription_spec) -> s.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and record_spec_jsont_lazy : record_spec Jsont.t Lazy.t = lazy (
-  let make key record description : record_spec = { key; record; description } in
-  let map =
-    Jsont.Object.map ~kind:"record_spec" make
-    |> Jsont.Object.mem "key" Jsont.string
-         ~enc:(fun (s : record_spec) -> s.key)
-    |> Jsont.Object.mem "record" (Jsont.rec' object_spec_jsont_lazy)
-         ~enc:(fun (s : record_spec) -> s.record)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (s : record_spec) -> s.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let record_spec_jsont =
+      let make key record description : record_spec =
+        { key; record; description }
+      in
+      let map =
+        Jsont.Object.map ~kind:"record_spec" make
+        |> Jsont.Object.mem "key" Jsont.string ~enc:(fun (s : record_spec) ->
+            s.key)
+        |> Jsont.Object.mem "record" (Jsont.rec' object_spec_jsont_lazy)
+             ~enc:(fun (s : record_spec) -> s.record)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : record_spec) -> s.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and permission_spec_jsont_lazy : permission_spec Jsont.t Lazy.t = lazy (
-  let make resource inherit_aud lxm action collection : permission_spec =
-    { resource; inherit_aud; lxm; action; collection }
-  in
-  let map =
-    Jsont.Object.map ~kind:"permission_spec" make
-    |> Jsont.Object.mem "resource" Jsont.string
-         ~enc:(fun (s : permission_spec) -> s.resource)
-    |> Jsont.Object.opt_mem "inherit_aud" Jsont.bool
-         ~enc:(fun (s : permission_spec) -> s.inherit_aud)
-    |> Jsont.Object.opt_mem "lxm" Jsont.(list string)
-         ~enc:(fun (s : permission_spec) -> s.lxm)
-    |> Jsont.Object.opt_mem "action" Jsont.(list string)
-         ~enc:(fun (s : permission_spec) -> s.action)
-    |> Jsont.Object.opt_mem "collection" Jsont.(list string)
-         ~enc:(fun (s : permission_spec) -> s.collection)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let permission_spec_jsont =
+      let make resource inherit_aud lxm action collection : permission_spec =
+        { resource; inherit_aud; lxm; action; collection }
+      in
+      let map =
+        Jsont.Object.map ~kind:"permission_spec" make
+        |> Jsont.Object.mem "resource" Jsont.string
+             ~enc:(fun (s : permission_spec) -> s.resource)
+        |> Jsont.Object.opt_mem "inherit_aud" Jsont.bool
+             ~enc:(fun (s : permission_spec) -> s.inherit_aud)
+        |> Jsont.Object.opt_mem "lxm"
+             Jsont.(list string)
+             ~enc:(fun (s : permission_spec) -> s.lxm)
+        |> Jsont.Object.opt_mem "action"
+             Jsont.(list string)
+             ~enc:(fun (s : permission_spec) -> s.action)
+        |> Jsont.Object.opt_mem "collection"
+             Jsont.(list string)
+             ~enc:(fun (s : permission_spec) -> s.collection)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
 
-and permission_set_spec_jsont_lazy : permission_set_spec Jsont.t Lazy.t = lazy (
-  let make title detail permissions description : permission_set_spec =
-    { title; detail; permissions; description }
-  in
-  let map =
-    Jsont.Object.map ~kind:"permission_set_spec" make
-    |> Jsont.Object.mem "title" Jsont.string
-         ~enc:(fun (s : permission_set_spec) -> s.title)
-    |> Jsont.Object.opt_mem "detail" Jsont.string
-         ~enc:(fun (s : permission_set_spec) -> s.detail)
-    |> Jsont.Object.mem "permissions" Jsont.(list (Jsont.rec' permission_spec_jsont_lazy))
-         ~enc:(fun (s : permission_set_spec) -> s.permissions)
-    |> Jsont.Object.opt_mem "description" Jsont.string
-         ~enc:(fun (s : permission_set_spec) -> s.description)
-    |> Jsont.Object.skip_unknown
-  in
-  Jsont.Object.finish map
-)
+    let permission_set_spec_jsont =
+      let make title detail permissions description : permission_set_spec =
+        { title; detail; permissions; description }
+      in
+      let map =
+        Jsont.Object.map ~kind:"permission_set_spec" make
+        |> Jsont.Object.mem "title" Jsont.string
+             ~enc:(fun (s : permission_set_spec) -> s.title)
+        |> Jsont.Object.opt_mem "detail" Jsont.string
+             ~enc:(fun (s : permission_set_spec) -> s.detail)
+        |> Jsont.Object.mem "permissions"
+             Jsont.(list (Jsont.rec' permission_spec_jsont_lazy))
+             ~enc:(fun (s : permission_set_spec) -> s.permissions)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : permission_set_spec) -> s.description)
+        |> Jsont.Object.skip_unknown
+      in
+      Jsont.Object.finish map
+    in
+    let type_def_jsont =
+      (* Create case maps for each variant *)
+      let string_case =
+        Jsont.Object.Case.map "string" string_spec_jsont ~dec:(fun s ->
+            String s)
+      in
+      let integer_case =
+        Jsont.Object.Case.map "integer" integer_spec_jsont ~dec:(fun s ->
+            Integer s)
+      in
+      let boolean_case =
+        Jsont.Object.Case.map "boolean" boolean_spec_jsont ~dec:(fun s ->
+            Boolean s)
+      in
+      let bytes_case =
+        Jsont.Object.Case.map "bytes" bytes_spec_jsont ~dec:(fun s -> Bytes s)
+      in
+      let blob_case =
+        Jsont.Object.Case.map "blob" blob_spec_jsont ~dec:(fun s -> Blob s)
+      in
+      let cid_link_case =
+        Jsont.Object.Case.map "cid-link" cid_link_spec_jsont ~dec:(fun s ->
+            CidLink s)
+      in
+      let array_case =
+        Jsont.Object.Case.map "array" array_spec_jsont ~dec:(fun s -> Array s)
+      in
+      let object_case =
+        Jsont.Object.Case.map "object" object_spec_jsont ~dec:(fun s ->
+            Object s)
+      in
+      let ref_case =
+        Jsont.Object.Case.map "ref" ref_spec_jsont ~dec:(fun s -> Ref s)
+      in
+      let union_case =
+        Jsont.Object.Case.map "union" union_spec_jsont ~dec:(fun s -> Union s)
+      in
+      let token_case =
+        Jsont.Object.Case.map "token" token_spec_jsont ~dec:(fun s -> Token s)
+      in
+      let unknown_case =
+        Jsont.Object.Case.map "unknown" unknown_spec_jsont ~dec:(fun s ->
+            Unknown s)
+      in
+      let query_case =
+        Jsont.Object.Case.map "query" query_spec_jsont ~dec:(fun s -> Query s)
+      in
+      let procedure_case =
+        Jsont.Object.Case.map "procedure" procedure_spec_jsont ~dec:(fun s ->
+            Procedure s)
+      in
+      let subscription_case =
+        Jsont.Object.Case.map "subscription" subscription_spec_jsont
+          ~dec:(fun s -> Subscription s)
+      in
+      let record_case =
+        Jsont.Object.Case.map "record" record_spec_jsont ~dec:(fun s ->
+            Record s)
+      in
+      let permission_set_case =
+        Jsont.Object.Case.map "permission-set" permission_set_spec_jsont
+          ~dec:(fun s -> PermissionSet s)
+      in
+      (* Create enc_case function for encoding *)
+      let enc_case = function
+        | String s -> Jsont.Object.Case.value string_case s
+        | Integer s -> Jsont.Object.Case.value integer_case s
+        | Boolean s -> Jsont.Object.Case.value boolean_case s
+        | Bytes s -> Jsont.Object.Case.value bytes_case s
+        | Blob s -> Jsont.Object.Case.value blob_case s
+        | CidLink s -> Jsont.Object.Case.value cid_link_case s
+        | Array s -> Jsont.Object.Case.value array_case s
+        | Object s -> Jsont.Object.Case.value object_case s
+        | Ref s -> Jsont.Object.Case.value ref_case s
+        | Union s -> Jsont.Object.Case.value union_case s
+        | Token s -> Jsont.Object.Case.value token_case s
+        | Unknown s -> Jsont.Object.Case.value unknown_case s
+        | Query s -> Jsont.Object.Case.value query_case s
+        | Procedure s -> Jsont.Object.Case.value procedure_case s
+        | Subscription s -> Jsont.Object.Case.value subscription_case s
+        | Record s -> Jsont.Object.Case.value record_case s
+        | PermissionSet s -> Jsont.Object.Case.value permission_set_case s
+      in
+      (* List of all cases *)
+      let cases =
+        Jsont.Object.Case.
+          [
+            make string_case;
+            make integer_case;
+            make boolean_case;
+            make bytes_case;
+            make blob_case;
+            make cid_link_case;
+            make array_case;
+            make object_case;
+            make ref_case;
+            make union_case;
+            make token_case;
+            make unknown_case;
+            make query_case;
+            make procedure_case;
+            make subscription_case;
+            make record_case;
+            make permission_set_case;
+          ]
+      in
+      (* Build the type_def codec *)
+      Jsont.Object.map ~kind:"type_def" Fun.id
+      |> Jsont.Object.case_mem "type" Jsont.string ~enc:Fun.id ~enc_case cases
+      |> Jsont.Object.finish
+    in
 
-(* Force lazy values to get the actual codecs *)
-let type_def_jsont = Lazy.force type_def_jsont_lazy
-let property_jsont = Lazy.force property_jsont_lazy
-let object_spec_jsont = Lazy.force object_spec_jsont_lazy
-let array_spec_jsont = Lazy.force array_spec_jsont_lazy
-let params_spec_jsont = Lazy.force params_spec_jsont_lazy
-let body_def_jsont = Lazy.force body_def_jsont_lazy
-let query_spec_jsont = Lazy.force query_spec_jsont_lazy
-let procedure_spec_jsont = Lazy.force procedure_spec_jsont_lazy
-let subscription_spec_jsont = Lazy.force subscription_spec_jsont_lazy
-let record_spec_jsont = Lazy.force record_spec_jsont_lazy
+    ( type_def_jsont,
+      property_jsont,
+      properties_jsont,
+      object_spec_jsont,
+      array_spec_jsont,
+      params_spec_jsont,
+      body_def_jsont,
+      query_spec_jsont,
+      procedure_spec_jsont,
+      subscription_spec_jsont,
+      record_spec_jsont,
+      permission_spec_jsont,
+      permission_set_spec_jsont )
+  in
+  Jsont.Portable_lazy.force (Jsont.Portable_lazy.from_fun_fixed make)
 
 (* defs_jsont decodes an object {"name": type_def, ...} as a def_entry list *)
 let defs_jsont : def_entry list Jsont.t =
@@ -677,8 +778,12 @@ let defs_jsont : def_entry list Jsont.t =
   (* Wrap with conversion functions *)
   Jsont.map
     ~kind:"defs"
-    ~dec:(fun m -> StringMap.fold (fun name type_def acc -> { name; type_def } :: acc) m [])
-    ~enc:(fun defs -> List.fold_left (fun m d -> StringMap.add d.name d.type_def m) StringMap.empty defs)
+    ~dec:(fun m ->
+      StringMap.fold (fun name type_def acc -> { name; type_def } :: acc) m []
+      |> List.rev)
+    ~enc:(fun defs ->
+      List.fold_left (fun m d -> StringMap.add d.name d.type_def m)
+        (StringMap.create ()) defs)
     map_jsont
 
 let def_entry_jsont : def_entry Jsont.t =

@@ -22,7 +22,17 @@ type 'k cbc_state = {
 
 type nonce = string
 
-type 'k aead_cipher = (module AEAD with type key = 'k)
+module type Aead = sig @@ portable
+  type key
+  val tag_size : int
+  val of_secret : string -> key
+  val authenticate_encrypt : key:key -> nonce:string -> ?adata:string ->
+    string -> string
+  val authenticate_decrypt : key:key -> nonce:string -> ?adata:string ->
+    string -> string option
+end
+
+type 'k aead_cipher = (module Aead with type key = 'k)
 type 'k aead_state = {
   cipher         : 'k aead_cipher ;
   cipher_secret  : 'k ;

@@ -9,7 +9,7 @@
 (`checkseum` is a virtual library, so a toplevel has to be told which
 implementation to link. Dune picks the default on its own.)
 
-A minimal HTTP/1.1 server: prints each request line it receives and
+The following minimal HTTP/1.1 server prints each request line it receives and
 serves a few canned paths.
 
 ```ocaml
@@ -33,7 +33,6 @@ let handle_client flow _addr =
         | _ -> None)
       req_headers
   in
-  (* Read a request body if one is declared, in either framing. *)
   let body =
     match header "content-length", header "transfer-encoding" with
     | Some n, _ -> Eio.Buf_read.take (int_of_string n) buf
@@ -72,20 +71,16 @@ let handle_client flow _addr =
   | [ _; "/whoami"; _ ] ->
     respond "200 OK" (Option.value (header "authorization") ~default:"anonymous")
   | [ _; "/echo-header"; _ ] ->
-    (* Reports whether X-Flag arrived at all, and with what value. *)
     respond "200 OK"
       (match header "x-flag" with
        | None -> "absent"
        | Some v -> Fmt.str "present:%S" v)
   | [ _; "/framing"; _ ] ->
-    (* Reports how the request framed its body. *)
     respond "200 OK"
       (Fmt.str "content-length=%s transfer-encoding=%s"
          (Option.value (header "content-length") ~default:"-")
          (Option.value (header "transfer-encoding") ~default:"-"))
   | [ _; "/dump"; _ ] ->
-    (* Every header the request arrived with, sorted so the order the
-       backend happens to write them in is not pinned here. *)
     respond "200 OK" (String.concat "\n" (List.sort compare req_headers))
   | [ _; "/agent"; _ ] ->
     respond "200 OK" (Option.value (header "user-agent") ~default:"none")
@@ -97,7 +92,6 @@ let handle_client flow _addr =
   | [ _; "/cookie-echo"; _ ] ->
     respond "200 OK" (Option.value (header "cookie") ~default:"no cookies")
   | [ _; "/chunked"; _ ] ->
-    (* A chunked body followed by a trailer field. *)
     Eio.Flow.copy_string
       "HTTP/1.1 200 OK\r\n\
        Transfer-Encoding: chunked\r\n\
@@ -106,17 +100,14 @@ let handle_client flow _addr =
        5\r\nhello\r\n6\r\n world\r\n0\r\nX-Checksum: abc123\r\n\r\n"
       flow
   | [ _; "/eof"; _ ] ->
-    (* No framing header at all: the body ends when the connection does. *)
     Eio.Flow.copy_string
       "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nno length here" flow
   | [ _; "/early"; _ ] ->
-    (* An interim response, then the real one. *)
     Eio.Flow.copy_string
       "HTTP/1.1 103 Early Hints\r\nLink: </s.css>; rel=preload\r\n\r\n\
        HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nhi"
       flow
   | [ _; "/manyheaders"; _ ] ->
-    (* A header block with no end in sight. *)
     Eio.Flow.copy_string "HTTP/1.1 200 OK\r\n" flow;
     let line = Fmt.str "X-Pad: %s\r\n" (String.make 1000 'p') in
     for _ = 1 to 1000 do Eio.Flow.copy_string line flow done
@@ -247,9 +238,9 @@ server intact:
 
 ## What a bare GET puts on the wire
 
-A request with no content carries no framing header, which is
-[RFC 9110 §8.6](https://www.rfc-editor.org/rfc/rfc9110#section-8.6)'s
-`SHOULD NOT` for a user agent:
+A request with no content carries no framing header. Under
+[RFC 9112 §6.3](https://www.rfc-editor.org/rfc/rfc9112#section-6.3),
+the request therefore has no message body:
 
 ```ocaml
 # with_server @@ fun t url ->
@@ -521,10 +512,11 @@ The backend reads past it to the answer:
 - : string = "hi"
 ```
 
-## https needs a TLS provider
+## Bare clients need a TLS provider
 
-The TLS wrapping comes from a caller-supplied function, so without one
-an https URL is refused before any connection is made:
+`Fetch_httpz.std` supplies system-trust TLS. The deliberately bare
+`Fetch_httpz.v` constructor accepts a caller-supplied wrapper and, without
+one, refuses an https URL before any connection is made:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
@@ -541,7 +533,13 @@ URL:
 
 ```ocaml
 # with_server_env @@ fun env url ->
-  let https uri conn = Fmt.pr "wrapping %s@." (Option.get (Uri.host uri)); conn in
+  let https uri conn =
+    let host =
+      match Httpz.Uriz.decoded_host uri with
+      | This host -> host
+      | Null -> assert false
+    in
+    Fmt.pr "wrapping %s@." host; conn in
   let t = Fetch_httpz.v ~https (Eio.Stdenv.net env) () in
   Fetch.read t (as_https (url "/hello"));;
 wrapping 127.0.0.1

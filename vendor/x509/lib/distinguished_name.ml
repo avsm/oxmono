@@ -113,7 +113,7 @@ module K = struct
       | _ -> 1
 end
 
-module Relative_distinguished_name = Set.Make(K)
+module Relative_distinguished_name = Set.MakePortable(K)
 
 (* TODO:
    - each RDN should be a non-empty set
@@ -151,7 +151,7 @@ let make_pp ~format ?spacing () =
 
 let pp = Fmt.hbox (make_pp ~format:`OSF ())
 
-let common_name t =
+let common_name : _ @ portable = fun t ->
   let is_cn = function CN _ -> true | _ -> false
   in
   List.fold_left (fun acc dn ->
@@ -182,7 +182,7 @@ module Asn = struct
 
   let name =
     let open Registry in
-    let of_c = function
+    let of_c : _ @ portable = function
       | `C1 x | `C2 x | `C3 x | `C4 x | `C5 x | `C6 x -> x in
 
     let a_f = case_of_oid_f [
@@ -236,20 +236,18 @@ module Asn = struct
         (required ~label:"attr value" directory_name)
     in
     let rd_name =
-      let f exts =
-        List.fold_left
-          (fun set attr -> Relative_distinguished_name.add attr set)
-          Relative_distinguished_name.empty exts
+      let f exts = Relative_distinguished_name.of_list exts
       and g map = Relative_distinguished_name.elements map
       in
       map f g @@ set_of attribute_tv
     in
     sequence_of rd_name (* A vacuous choice, in the standard. *)
 
-  let (name_of_octets, name_to_octets) =
-    projections_of Asn.der name
+  let name_of_octets : _ @ portable = decoder_of Asn.der name
+  let _, name_to_octets = projections_of Asn.der name
 end
 
-let decode_der cs = Asn_grammars.err_to_msg (Asn.name_of_octets cs)
+let (decode_der @ portable) cs =
+  Asn_grammars.err_to_msg (Asn.name_of_octets cs)
 
 let encode_der = Asn.name_to_octets

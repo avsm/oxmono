@@ -1,24 +1,24 @@
-(** Serving a directory of files, described as data. *)
+(** This module provides static-file serving descriptors for backend authors.
 
+    The shipped backends do not interpret these descriptors directly. *)
+
+(** [confine segs] is [segs] joined with ['/'] when every segment names something directly
+    under a root, and [None] otherwise. A segment that is empty, ["."] or [".."], or that
+    holds a slash, backslash, or NUL is refused. A backend must still resolve the result
+    beneath a directory capability because lexical checks cannot detect symlink traversal. *)
 val confine : string list -> string option @@ portable
-(** [confine segs] is [segs] joined with ['/'] when every segment names
-    something directly under a root, and [None] otherwise. A segment that is
-    empty, ["."] or [".."], or that holds a ['/'] or a NUL, is refused, so the
-    result can never leave the subtree. A backend that resolves the result
-    against a filesystem must still open it under a confining root, since
-    [confine] cannot see symlinks. *)
 
+(** A [t] is a directory label and optional cache policy. A backend resolves the label
+    against its filesystem capability. *)
 type t : immutable_data
-(** A served directory. It holds a label and a cache policy, not a filesystem
-    handle, so a backend resolves [root] against its own capability. *)
 
+(** [v ~root ()] is a static-file description rooted at [root], a name the backend
+    resolves. A backend can use {!Mime.of_path} for each file's Content-Type and apply
+    [cache] to its response. *)
 val v : root:string -> ?cache:Cache_control.t -> unit -> t @@ portable
-(** [v ~root ()] serves files under [root], a name the backend resolves. Each
-    file's Content-Type comes from {!Mime.of_path} and its response carries
-    [cache] when given. *)
 
-val root : t -> string @@ portable
 (** [root t] is the label [t] was built with. *)
+val root : t -> string @@ portable
 
-val cache : t -> Cache_control.t option @@ portable
 (** [cache t] is the policy [t] applies to each file, if any. *)
+val cache : t -> Cache_control.t option @@ portable

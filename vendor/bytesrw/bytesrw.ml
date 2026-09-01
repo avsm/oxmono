@@ -5,6 +5,7 @@
 
 (* Use Base.Bytes for local-aware operations *)
 module Local_bytes = Base.Bytes
+module Portable_buffer = Base.Buffer
 
 module Bytes = struct
   include Bytes
@@ -43,8 +44,14 @@ module Bytes = struct
       (* Note: some C bindings rely on this layout. *)
       { bytes : Bytes.t; first : int; length : int }
 
-    let eod = { bytes = Bytes.empty; first = 0; length = 0 }
-    let[@inline][@zero_alloc] is_eod (s @ local) = s == eod
+    (* The distinguished slice aliases the zero-length [Bytes.empty] buffer,
+       which cannot be mutated. The [bytes] type does not express that special
+       case, so promote this one immutable-in-practice value explicitly. *)
+    let eod : t @ portable =
+      Obj.magic_portable { bytes = Bytes.empty; first = 0; length = 0 }
+    let[@inline] eod_value () = Obj.magic_uncontended eod
+    let[@inline][@zero_alloc] (is_eod @ portable) (s @ local) =
+      s == eod_value ()
 
     let[@inline] make bytes ~first ~length =
       let len = Bytes.length bytes in
@@ -62,20 +69,21 @@ module Bytes = struct
       let len = Bytes.length bytes in
       if not (0 <= first && 0 <= length && first + length <= len)
       then err_invalid ~first ~length ~len;
-      if length = 0 then eod else { bytes; first; length }
+      if length = 0 then eod_value () else { bytes; first; length }
 
     let[@inline][@zero_alloc] bytes s = s.bytes
     let[@inline][@zero_alloc] first (s @ local) = s.first
-    let[@inline][@zero_alloc] last (s @ local) = s.first + s.length - 1
+    let[@inline][@zero_alloc] (last @ portable) (s @ local) =
+      s.first + s.length - 1
     let[@inline][@zero_alloc] length (s @ local) = s.length
 
     let copy ~tight (s @ local) =
-      if s.length = 0 then eod else
+      if s.length = 0 then eod_value () else
       if not tight then { bytes = Local_bytes.copy s.bytes; first = s.first; length = s.length } else
       let bytes = Local_bytes.sub s.bytes ~pos:s.first ~len:s.length in
       { bytes; first = 0; length = s.length}
 
-    let[@zero_alloc] compare (s0 @ local) (s1 @ local) =
+    let[@zero_alloc] (compare @ portable) (s0 @ local) (s1 @ local) =
       let len0 = s0.length and len1 = s1.length in
       let len_cmp = Int.compare len0 len1 in
       if len_cmp <> 0 then len_cmp else begin
@@ -93,19 +101,20 @@ module Bytes = struct
         cmp
       end
 
-    let[@inline][@zero_alloc] equal (s0 @ local) (s1 @ local) = compare s0 s1 = 0
+    let[@inline][@zero_alloc] (equal @ portable) (s0 @ local) (s1 @ local) =
+      compare s0 s1 = 0
 
     (* Breaking slices *)
 
     let take_first_or_eod n s =
-      if n <= 0 || is_eod s then eod else
+      if n <= 0 || is_eod s then eod_value () else
       if n >= s.length then s else { s with length = n }
 
     let take_first n s = match take_first_or_eod n s with
     | s when is_eod s -> None | s -> Some s
 
     let drop_first_or_eod n s =
-      if n >= s.length || is_eod s then eod else
+      if n >= s.length || is_eod s then eod_value () else
       if n <= 0 then s else { s with first = s.first + n; length = s.length - n}
 
     let drop_first n s = match drop_first_or_eod n s with
@@ -122,7 +131,7 @@ module Bytes = struct
       if not (0 <= first && (0 < length || (length = 0 && allow_eod)) &&
               first + length <= len)
       then err_invalid_sub ~first ~length ~len else
-      if length = 0 then eod else
+      if length = 0 then eod_value () else
       { bytes = s.bytes; first = s.first + first; length }
 
     let sub s ~first ~length = sub' ~allow_eod:false s ~first ~length
@@ -137,7 +146,7 @@ module Bytes = struct
       if first <= last then
         { bytes = s.bytes; first = s.first + first; length = last - first + 1 }
       else
-      if allow_eod then eod else
+      if allow_eod then eod_value () else
       err_empty_range ~first ~last ~len:(max + 1)
 
     let subrange ?first ?last s = subrange' ~allow_eod:false ?first ?last s
@@ -153,7 +162,7 @@ module Bytes = struct
       in
       let first = if first < 0 then 0 else first in
       if first <= last then { bytes; first; length = last - first + 1 } else
-      if allow_eod then eod else err_empty_range ~first ~last ~len:(max + 1)
+      if allow_eod then eod_value () else err_empty_range ~first ~last ~len:(max + 1)
 
     let of_bytes ?first ?last bytes =
       of_bytes' ~allow_eod:false ?first ?last bytes
@@ -171,7 +180,7 @@ module Bytes = struct
       let init i = Char.unsafe_chr (Bigarray.Array1.get bigbytes (first + i)) in
       let bytes = Bytes.init length init in
       if first <= last then { bytes; first = 0; length } else
-      if allow_eod then eod else err_empty_range ~first ~last ~len:(max + 1)
+      if allow_eod then eod_value () else err_empty_range ~first ~last ~len:(max + 1)
 
     let of_bigbytes ?first ?last bytes =
       of_bigbytes' ~allow_eod:false ?first ?last bytes
@@ -201,7 +210,7 @@ module Bytes = struct
     let add_to_buffer b (s @ local) =
       let bytes = s.bytes and first = s.first and len = s.length in
       for i = 0 to len - 1 do
-        Buffer.add_char b (Local_bytes.get bytes (first + i))
+        Portable_buffer.add_char b (Local_bytes.get bytes (first + i))
       done
     let output_to_out_channel oc (s @ local) =
       Out_channel.output_string oc (to_string s)
@@ -310,11 +319,12 @@ module Bytes = struct
     let make ?(pos = 0) ?(slice_length = Slice.default_length) read =
       { pos; read; slice_length = Slice.check_length slice_length }
 
-    let read_eod () = Slice.eod
+    let read_eod () = Slice.eod_value ()
     let empty ?pos ?slice_length () = make ?pos ?slice_length read_eod
-    let[@inline][@zero_alloc] pos (r @ local) = r.pos
-    let[@inline][@zero_alloc] read_length (r @ local) = r.pos
-    let[@inline][@zero_alloc] slice_length (r @ local) = r.slice_length
+    let[@inline][@zero_alloc] (pos @ portable) (r @ local) = r.pos
+    let[@inline][@zero_alloc] (read_length @ portable) (r @ local) = r.pos
+    let[@inline][@zero_alloc] (slice_length @ portable) (r @ local) =
+      r.slice_length
     let error fmt r ?pos e =
       let pos = match pos with
       | None -> r.pos | Some p when p < 0 -> r.pos + p | Some p -> p
@@ -395,7 +405,7 @@ module Bytes = struct
       let sr = make ~pos ~slice_length read_eod in
       let count = ref n in
       let read () =
-        if !count <= 0 then Slice.eod
+        if !count <= 0 then Slice.eod_value ()
         else match read r with
         | slice when Slice.is_eod slice -> sr.read <- read_eod; slice
         | slice ->
@@ -409,7 +419,7 @@ module Bytes = struct
               (match back with Some b -> push_back r b | None -> ());
               count := 0;
               sr.read <- read_eod;
-              match ret with Some s -> s | None -> Slice.eod
+              match ret with Some s -> s | None -> Slice.eod_value ()
             end
       in
       sr.read <- read; sr
@@ -425,12 +435,12 @@ module Bytes = struct
       let left = ref n in
       let triggered = ref false in
       let read () =
-        if !triggered then Slice.eod
+        if !triggered then Slice.eod_value ()
         else match read r with
         | slice when Slice.is_eod slice -> lr.read <- read_eod; slice
         | slice when !left <= 0 ->
             push_back r slice; lr.read <- read_eod;
-            triggered := true; action lr n; Slice.eod
+            triggered := true; action lr n; Slice.eod_value ()
         | slice ->
             let slen = Slice.length slice in
             if slen <= !left then begin
@@ -440,7 +450,7 @@ module Bytes = struct
               let ret, back = Slice.break !left slice in
               (match back with Some b -> push_back r b | None -> ());
               left := 0;
-              match ret with Some s -> s | None -> Slice.eod
+              match ret with Some s -> s | None -> Slice.eod_value ()
             end
       in
       lr.read <- read; lr
@@ -453,7 +463,7 @@ module Bytes = struct
       let buf = Bytes.make slice_length '\x00' in
       let buf_slice = Slice.make ~first:0 ~length:slice_length buf in
       let buf_len = ref 0 in
-      let last_slice = ref Slice.eod in
+      let last_slice = ref (Slice.eod_value ()) in
       let last_rem = ref 0 in
       let rec reslice () =
         (* Drain remainder from previous slice *)
@@ -469,7 +479,7 @@ module Bytes = struct
           buf_len := 0; buf_slice
         end else match read r with
         | slice when Slice.is_eod slice ->
-            if !buf_len = 0 then Slice.eod
+            if !buf_len = 0 then Slice.eod_value ()
             else begin
               let result = Slice.make ~first:0 ~length:!buf_len buf in
               buf_len := 0; result
@@ -540,14 +550,14 @@ module Bytes = struct
         let returned = ref false in
         let s = Slice.make b ~first:0 ~length:blen in
         let read () =
-          if !returned then Slice.eod
+          if !returned then Slice.eod_value ()
           else begin returned := true; s end
         in
         make ?pos ~slice_length read
       end else begin
         let offset = ref 0 in
         let read () =
-          if !offset >= blen then Slice.eod
+          if !offset >= blen then Slice.eod_value ()
           else begin
             let len = Int.min slice_length (blen - !offset) in
             let s = Slice.make b ~first:!offset ~length:len in
@@ -577,7 +587,7 @@ module Bytes = struct
       let b = Bytes.create slice_length in
       let read () =
         let count = In_channel.input ic b 0 (Bytes.length b) in
-        if count = 0 then Slice.eod else Slice.make b ~first:0 ~length:count
+        if count = 0 then Slice.eod_value () else Slice.make b ~first:0 ~length:count
       in
       make ~pos ~slice_length read
 
@@ -591,7 +601,7 @@ module Bytes = struct
       let len = Slice.length s in
       let offset = ref 0 in
       let read () =
-        if !offset >= len then Slice.eod
+        if !offset >= len then Slice.eod_value ()
         else begin
           let chunk = Int.min slice_length (len - !offset) in
           let result = Slice.make b ~first:(start + !offset) ~length:chunk in
@@ -604,7 +614,8 @@ module Bytes = struct
     let of_slice_seq ?pos ?slice_length seq =
       let seq = ref seq in
       let read () = match !seq () with
-      | Seq.Nil -> Slice.eod | Seq.Cons (slice, next) -> seq := next; slice
+      | Seq.Nil -> Slice.eod_value ()
+      | Seq.Cons (slice, next) -> seq := next; slice
       in
       make ?pos ?slice_length read
 
@@ -617,8 +628,8 @@ module Bytes = struct
       done
 
     let to_string r =
-      let b = Buffer.create r.slice_length in
-      add_to_buffer b r; Buffer.contents b
+      let b = Portable_buffer.create r.slice_length in
+      add_to_buffer b r; Portable_buffer.contents b
 
     let to_slice_seq r =
       let dispense () = match read r with
@@ -658,9 +669,9 @@ module Bytes = struct
     let make ?(pos = 0) ?(slice_length = Slice.default_length) write =
       { pos; slice_length = Slice.check_length slice_length; write }
 
-    let[@inline][@zero_alloc] pos (w @ local) = w.pos
+    let[@inline][@zero_alloc] (pos @ portable) (w @ local) = w.pos
     let[@inline][@zero_alloc] slice_length (w @ local) = w.slice_length
-    let[@inline][@zero_alloc] written_length (w @ local) = w.pos
+    let[@inline][@zero_alloc] (written_length @ portable) (w @ local) = w.pos
     let ignore ?pos ?slice_length () = make ?pos ?slice_length (fun _ -> ())
     let error fmt w ?pos e =
       let pos = match pos with
@@ -679,7 +690,7 @@ module Bytes = struct
       (if n = 0 then w.write <- write_only_eod);
       w.pos <- w.pos + n; write slice
 
-    let write_eod w = write w Slice.eod
+    let write_eod w = write w (Slice.eod_value ())
     let write_bytes w b =
       let blen = Bytes.length b in
       let slice_length = Int.min w.slice_length blen in
@@ -750,10 +761,10 @@ module Bytes = struct
       make ?pos ?slice_length write
 
     let writes_to_string ?buffer ?pos ?slice_length f =
-      let b = match buffer with None -> Buffer.create 1024 | Some b -> b in
+      let b = match buffer with None -> Portable_buffer.create 1024 | Some b -> b in
       let w = of_buffer ?pos ?slice_length b in
       f w;
-      Buffer.contents b
+      Portable_buffer.contents b
 
     (* Filters *)
 
@@ -793,10 +804,10 @@ module Bytes = struct
       lw.write <- do_write; lw
 
     let filter_string fs s =
-      let b = Buffer.create (String.length s) in
+      let b = Portable_buffer.create (String.length s) in
       let filter w f = f ?pos:None ?slice_length:None ~eod:true w in
       let w = List.fold_left filter (of_buffer b) fs in
-      write_string w s; write_eod w; Buffer.contents b
+      write_string w s; write_eod w; Portable_buffer.contents b
 
     (* Formatting *)
 

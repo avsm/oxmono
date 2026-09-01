@@ -1,0 +1,7 @@
+(rule
+ (alias psl-check)
+ (deps
+  check_psl_freshness.sh
+  (source_tree data))
+ (action
+  (run bash check_psl_freshness.sh)))

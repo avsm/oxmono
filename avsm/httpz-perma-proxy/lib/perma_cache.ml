@@ -74,16 +74,16 @@ let meta_jsont : meta Jsont.t =
        ~enc:(fun m -> m.content_type)
   |> Jsont.Object.mem "headers" (Jsont.list header_pair_jsont)
        ~enc:(fun m -> m.headers)
-       ~dec_absent:[]
+       ~dec_absent:(fun () -> [])
   |> Jsont.Object.mem "ranges" (Jsont.list range_jsont)
        ~enc:(fun m -> m.ranges)
-       ~dec_absent:[]
+       ~dec_absent:(fun () -> [])
   |> Jsont.Object.mem "complete" Jsont.bool
        ~enc:(fun m -> m.complete)
-       ~dec_absent:false
+       ~dec_absent:(fun () -> false)
   |> Jsont.Object.mem "status_code" Jsont.int
        ~enc:(fun m -> m.status_code)
-       ~dec_absent:200
+       ~dec_absent:(fun () -> 200)
   |> Jsont.Object.finish
 
 (* Filesystem helpers *)

@@ -150,18 +150,25 @@ module Asn = struct
     Asn_grammars.projections_of Asn.der rsa_private_key
 
   (* PKCS8 *)
-  let (rsa_priv_of_str, rsa_priv_to_str) =
+  let rsa_priv_of_str : _ @ portable =
+    Asn_grammars.project_exn_decoder rsa_private_key
+
+  let _, rsa_priv_to_str =
     Asn_grammars.project_exn rsa_private_key
 
   let ec_to_err = function
     | Ok x -> x
-    | Error e -> parse_error "%a" Mirage_crypto_ec.pp_error e
+    | Error _ -> parse_error "invalid EC private key"
 
-  let ed25519_of_str, ed25519_to_str =
+  let ed25519_of_str : _ @ portable =
+    Asn_grammars.project_exn_decoder octet_string
+
+  let _, ed25519_to_str =
     Asn_grammars.project_exn octet_string
 
   let ec_private_key =
-    let f (v, pk, nc, pub) =
+    let f (v, pk, nc, pub) :
+        string * Algorithm.ec_curve option * bool array option =
       if v <> 1 then
         parse_error "bad version for ec Private key"
       else
@@ -184,7 +191,10 @@ module Asn = struct
       (optional ~label:"namedCurve" (explicit 0 oid))
       (optional ~label:"publicKey" (explicit 1 bit_string))
 
-  let ec_of_str, ec_to_str =
+  let ec_private_of_str : _ @ portable =
+    Asn_grammars.project_exn_decoder ec_private_key
+
+  let _, ec_to_str =
     Asn_grammars.project_exn ec_private_key
 
   let reparse_ec_private curve priv =
@@ -207,7 +217,7 @@ module Asn = struct
           (reparse_ec_private c priv)
 
   let ec_of_str ?curve cs =
-    let (priv, named_curve, _pub) = ec_of_str cs in
+    let (priv, named_curve, _pub) = ec_private_of_str cs in
     let nc =
       match curve, named_curve with
       | Some c, None -> c

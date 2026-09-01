@@ -24,17 +24,17 @@ module Rsa : sig
       numerical interpretation of the (potentially padded) message is not
       smaller than the modulus. *)
 
-  type pub = private {
+  type pub : immutable_data = private {
     e : Z.t ; (** Public exponent *)
     n : Z.t ; (** Modulus *)
   }
   (** The public portion of the key. *)
 
-  val pub : e:Z.t -> n:Z.t -> (pub, [> `Msg of string ]) result
+  val pub : e:Z.t -> n:Z.t -> (pub, [> `Msg of string ]) result @@ portable
   (** [pub ~e ~n] validates the public key: [1 < e < n], [n > 0],
       [is_odd n], and [numbits n >= 89] (a requirement for PKCS1 operations). *)
 
-  type priv = private {
+  type priv : immutable_data = private {
     e  : Z.t ; (** Public exponent *)
     d  : Z.t ; (** Private exponent *)
     n  : Z.t ; (** Modulus ([p q])*)
@@ -54,7 +54,7 @@ module Rsa : sig
       {{!priv_of_primes}[priv_of_primes]}. *)
 
   val priv : e:Z.t -> d:Z.t -> n:Z.t -> p:Z.t -> q:Z.t -> dp:Z.t -> dq:Z.t ->
-    q':Z.t -> (priv, [> `Msg of string ]) result
+    q':Z.t -> (priv, [> `Msg of string ]) result @@ portable
   (** [priv ~e ~d ~n ~p ~q ~dp ~dq ~q'] validates the private key: [e, n] must
       be a valid {!type-pub}, [p] and [q] valid prime numbers [> 0], [odd],
       probabilistically prime, [p <> q], [n = p * q], [e] probabilistically
@@ -62,7 +62,7 @@ module Rsa : sig
       [dp = d mod (p - 1)], [dq = d mod (q - 1)],
       and [d = e ^ -1 mod (p - 1) (q - 1)]. *)
 
-  val pub_bits : pub -> int
+  val pub_bits : pub -> int @@ portable
   (** Bit-size of a public key. *)
 
   val priv_bits : priv -> int
@@ -110,9 +110,7 @@ module Rsa : sig
   val encrypt : key:pub -> string -> string
   (** [encrypt key message] is the encrypted [message].
 
-      @raise Insufficient_key (see {{!Insufficient_key}Insufficient_key})
-
-      @raise Invalid_argument if [message] is [0x00] or [0x01]. *)
+      @raise Insufficient_key (see {{!Insufficient_key}Insufficient_key}) *)
 
   val decrypt : ?crt_hardening:bool -> ?mask:mask -> key:priv ->
     string -> string
@@ -161,12 +159,19 @@ module Rsa : sig
 
         @raise Insufficient_key (see {{!Insufficient_key}Insufficient_key}) *)
 
+    val encrypt_with : g:Mirage_crypto_rng.portable_g -> key:pub -> string ->
+      string @@ portable
+    (** [encrypt_with ~g ~key message] is {!encrypt} using an explicit
+        portable random generator. *)
+
     val decrypt : ?crt_hardening:bool -> ?mask:mask -> key:priv ->
       string -> string option
     (** [decrypt ~crt_hardening ~mask ~key ciphertext] is [Some message] if
         the [ciphertext] was produced by the corresponding {{!encrypt}encrypt}
         operation, or [None] otherwise. [crt_hardening] defaults to
-        [false]. *)
+        [false].
+
+        @raise Insufficient_key (see {{!Insufficient_key}Insufficient_key}) *)
 
     val sig_encode : ?crt_hardening:bool -> ?mask:mask -> key:priv ->
       string -> string
@@ -183,7 +188,9 @@ module Rsa : sig
     val sig_decode : key:pub -> string -> string option
     (** [sig_decode key signature] is [Some message] when the [signature]
         was produced with the given [key] as per {{!sig_encode}sig_encode}, or
-        [None] *)
+        [None].
+
+        @raise Insufficient_key (see {{!Insufficient_key}Insufficient_key}) *)
 
     val min_key : [< Digestif.hash' > `MD5 `SHA1 `SHA224 `SHA256 `SHA384 `SHA512 ] -> int
     (** [min_key hash] is the minimum key size required by {{!sign}[sign]}. *)
@@ -213,6 +220,8 @@ module Rsa : sig
         [hashp] determines the allowed hash algorithms. Whenever [hashp] is
         [false], [verify] is also [false].
 
+        @raise Insufficient_key (see {{!Insufficient_key}Insufficient_key})
+
         @raise Invalid_argument if message is a [`Digest] of the wrong size.  *)
   end
 
@@ -239,7 +248,9 @@ module Rsa : sig
     (** [decrypt ~crt_hardening ~mask ~label ~key ciphertext] is
         [Some message] if the [ciphertext] was produced by the corresponding
         {{!encrypt}encrypt} operation, or [None] otherwise. [crt_hardening]
-        defaults to [false]. *)
+        defaults to [false].
+
+        @raise Insufficient_key (see {{!Insufficient_key}Insufficient_key}) *)
   end
 
   (** {1 PSS signing} *)
@@ -274,8 +285,22 @@ module Rsa : sig
 
         [message] is either the actual message, or its digest.
 
+        @raise Insufficient_key (see {{!Insufficient_key}Insufficient_key})
+
         @raise Invalid_argument if message is a [`Digest] of the wrong size. *)
   end
+
+  (** Verification-only RSA entry points suitable for portable certificate
+      authenticators. The input is already digested with [hash]. *)
+  val pkcs1_verify_digest :
+    hash:[ `MD5 | `SHA1 | `SHA224 | `SHA256 | `SHA384 | `SHA512 ] ->
+    key:pub -> signature:string -> string -> bool
+    @@ portable
+
+  val pss_verify_digest :
+    hash:[ `MD5 | `SHA1 | `SHA224 | `SHA256 | `SHA384 | `SHA512 ] ->
+    key:pub -> signature:string -> string -> bool
+    @@ portable
 end
 
 
@@ -400,14 +425,14 @@ module Dh : sig
   (** A DH group. *)
 
   val group : p:Z.t -> gg:Z.t -> ?q:Z.t -> unit ->
-    (group, [> `Msg of string ]) result
+    (group, [> `Msg of string ]) result @@ portable
   (** [group ~p ~gg ~q ()] constructs a group if [p] is odd, a prime number,
       and greater than [zero]. [gg] must be in the range [1 < gg < p]. *)
 
   type secret = private { group : group ; x : Z.t }
   (** A private key. *)
 
-  val modulus_size : group -> int
+  val modulus_size : group -> int @@ portable
   (** Bit size of the modulus. *)
 
   val key_of_secret : group -> s:string -> secret * string
@@ -423,7 +448,12 @@ module Dh : sig
 
       {b Note} The process might diverge when [bits] is extremely small. *)
 
-  val shared : secret -> string -> string option
+  val gen_key_with : g:Mirage_crypto_rng.portable_g -> ?bits:int -> group ->
+    secret * string @@ portable
+  (** [gen_key_with ~g group] is {!gen_key} using an explicit portable
+      generator rather than the process-global default. *)
+
+  val shared : secret -> string -> string option @@ portable
   (** [shared secret public] is [Some shared_key] given a
       a previously generated {!secret} (which specifies the [group])
       and the other party's public key.
@@ -479,7 +509,7 @@ end
 module Z_extra : sig
   (** {1 Conversion to and from string} *)
 
-  val of_octets_be : ?bits:int -> string -> Z.t
+  val of_octets_be : ?bits:int -> string -> Z.t @@ portable
   (** [of_octets_be ~bits buf] interprets the bit pattern of [buf] as a
       {{!Z.t}[t]} in big-endian.
 
@@ -494,7 +524,7 @@ module Z_extra : sig
       {- if [k] is smaller than [n], the result contains [k] last of the [n]
          first bits of [buf].}} *)
 
-  val to_octets_be : ?size:int -> Z.t -> string
+  val to_octets_be : ?size:int -> Z.t -> string @@ portable
   (** [to_octets_be ~size t] is the big-endian representation of [t].
 
       If [~size] is not given, it defaults to the minimal number of bytes
@@ -504,7 +534,7 @@ module Z_extra : sig
       If the size is larger than needed, the output is padded with zero bits.
       If it is smaller, the high bits in [t] are dropped. *)
 
-  val into_octets_be : Z.t -> bytes -> unit
+  val into_octets_be : Z.t -> bytes -> unit @@ portable
   (** [into_octets_be t buf] writes the big-endian representation of [t] into
       [buf]. It behaves like {{!to_octets_be}[to_octets_be]}, with [~size]
       spanning the entire [buf]. *)
@@ -517,4 +547,8 @@ module Z_extra : sig
   val gen_r : ?g:Mirage_crypto_rng.g -> Z.t -> Z.t -> Z.t
   (** [gen_r ~g low high] picks a value from the interval [\[low, high - 1\]]
       uniformly at random. *)
+
+  val pseudoprime : Z.t -> bool @@ portable
+  (** [pseudoprime z] does the Miller-Rabin test (number of rounds taken from
+      Handbook of Applied Cryptography, Table 4.4 *)
 end

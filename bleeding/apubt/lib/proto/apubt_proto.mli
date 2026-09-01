@@ -41,8 +41,8 @@ module Datetime : sig
   (** JSON type for datetimes. *)
 end
 
-val uri_jsont : Uri.t Jsont.t
-(** JSON codec for [Uri.t] values. *)
+val uri_jsont : Uriz.t Jsont.t
+(** JSON codec for [Uriz.t] values. *)
 
 (** JSON-LD context. *)
 module Context : sig
@@ -68,18 +68,18 @@ module Link : sig
     ?hreflang:string ->
     ?height:int ->
     ?width:int ->
-    ?preview:Uri.t ->
-    href:Uri.t ->
+    ?preview:Uriz.t ->
+    href:Uriz.t ->
     unit -> t
   (** Create a new Link. *)
 
-  val href : t -> Uri.t
+  val href : t -> Uriz.t
   val media_type : t -> string option
   val name : t -> string option
   val hreflang : t -> string option
   val height : t -> int option
   val width : t -> int option
-  val preview : t -> Uri.t option
+  val preview : t -> Uriz.t option
 
   val jsont : t Jsont.t
   (** JSON type for Links. *)
@@ -88,10 +88,10 @@ end
 (** Reference that can be either a URI string or a Link object. *)
 module Link_or_uri : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Link of Link.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val link : Link.t -> t
   val jsont : t Jsont.t
 end
@@ -104,7 +104,7 @@ module Image : sig
   type t
 
   val make :
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     ?name:string ->
     ?media_type:string ->
     ?width:int ->
@@ -112,7 +112,7 @@ module Image : sig
     url:Link_or_uri.t ->
     unit -> t
 
-  val id : t -> Uri.t option
+  val id : t -> Uriz.t option
   val url : t -> Link_or_uri.t
   val name : t -> string option
   val media_type : t -> string option
@@ -125,11 +125,11 @@ end
 (** Image reference - can be URI, Link, or full Image object. *)
 module Image_ref : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Link of Link.t
     | Image of Image.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val link : Link.t -> t
   val image : Image.t -> t
   val jsont : t Jsont.t
@@ -139,7 +139,7 @@ end
 
 (** Special public addressing collection. *)
 module Public : sig
-  val id : Uri.t
+  val id : Uriz.t
   (** The public collection URI for addressing public posts. *)
 end
 
@@ -149,8 +149,8 @@ end
 module Recipient : sig
   type t
 
-  val make : ?type_:string -> Uri.t -> t
-  val id : t -> Uri.t
+  val make : ?type_:string -> Uriz.t -> t
+  val id : t -> Uriz.t
   val type_ : t -> string option
   val jsont : t Jsont.t
 end
@@ -162,20 +162,20 @@ module Endpoints : sig
   type t
 
   val make :
-    ?proxy_url:Uri.t ->
-    ?oauth_authorization_endpoint:Uri.t ->
-    ?oauth_token_endpoint:Uri.t ->
-    ?provide_client_key:Uri.t ->
-    ?sign_client_key:Uri.t ->
-    ?shared_inbox:Uri.t ->
+    ?proxy_url:Uriz.t ->
+    ?oauth_authorization_endpoint:Uriz.t ->
+    ?oauth_token_endpoint:Uriz.t ->
+    ?provide_client_key:Uriz.t ->
+    ?sign_client_key:Uriz.t ->
+    ?shared_inbox:Uriz.t ->
     unit -> t
 
-  val proxy_url : t -> Uri.t option
-  val oauth_authorization_endpoint : t -> Uri.t option
-  val oauth_token_endpoint : t -> Uri.t option
-  val provide_client_key : t -> Uri.t option
-  val sign_client_key : t -> Uri.t option
-  val shared_inbox : t -> Uri.t option
+  val proxy_url : t -> Uriz.t option
+  val oauth_authorization_endpoint : t -> Uriz.t option
+  val oauth_token_endpoint : t -> Uriz.t option
+  val provide_client_key : t -> Uriz.t option
+  val sign_client_key : t -> Uriz.t option
+  val shared_inbox : t -> Uriz.t option
 
   val jsont : t Jsont.t
 end
@@ -187,13 +187,13 @@ module Public_key : sig
   type t
 
   val make :
-    id:Uri.t ->
-    owner:Uri.t ->
+    id:Uriz.t ->
+    owner:Uriz.t ->
     public_key_pem:string ->
     unit -> t
 
-  val id : t -> Uri.t
-  val owner : t -> Uri.t
+  val id : t -> Uriz.t
+  val owner : t -> Uriz.t
   val public_key_pem : t -> string
 
   val jsont : t Jsont.t
@@ -224,56 +224,56 @@ module Actor : sig
 
   val make :
     ?context:Context.t ->
-    id:Uri.t ->
+    id:Uriz.t ->
     type_:Actor_type.t ->
     ?name:string ->
     ?preferred_username:string ->
     ?summary:string ->
-    ?url:Uri.t ->
-    inbox:Uri.t ->
-    outbox:Uri.t ->
-    ?followers:Uri.t ->
-    ?following:Uri.t ->
-    ?liked:Uri.t ->
-    ?streams:Uri.t list ->
+    ?url:Uriz.t ->
+    inbox:Uriz.t ->
+    outbox:Uriz.t ->
+    ?followers:Uriz.t ->
+    ?following:Uriz.t ->
+    ?liked:Uriz.t ->
+    ?streams:Uriz.t list ->
     ?endpoints:Endpoints.t ->
     ?public_key:Public_key.t ->
     ?icon:Image_ref.t list ->
     ?image:Image_ref.t list ->
     ?manually_approves_followers:bool ->
-    ?also_known_as:Uri.t list ->
+    ?also_known_as:Uriz.t list ->
     ?discoverable:bool ->
     ?suspended:bool ->
-    ?moved_to:Uri.t ->
-    ?featured:Uri.t ->
-    ?featured_tags:Uri.t ->
+    ?moved_to:Uriz.t ->
+    ?featured:Uriz.t ->
+    ?featured_tags:Uriz.t ->
     unit -> t
   (** Create a new Actor. *)
 
   val context : t -> Context.t option
-  val id : t -> Uri.t
+  val id : t -> Uriz.t
   val type_ : t -> Actor_type.t
   val name : t -> string option
   val preferred_username : t -> string option
   val summary : t -> string option
-  val url : t -> Uri.t option
-  val inbox : t -> Uri.t
-  val outbox : t -> Uri.t
-  val followers : t -> Uri.t option
-  val following : t -> Uri.t option
-  val liked : t -> Uri.t option
-  val streams : t -> Uri.t list option
+  val url : t -> Uriz.t option
+  val inbox : t -> Uriz.t
+  val outbox : t -> Uriz.t
+  val followers : t -> Uriz.t option
+  val following : t -> Uriz.t option
+  val liked : t -> Uriz.t option
+  val streams : t -> Uriz.t list option
   val endpoints : t -> Endpoints.t option
   val public_key : t -> Public_key.t option
   val icon : t -> Image_ref.t list option
   val image : t -> Image_ref.t list option
   val manually_approves_followers : t -> bool option
-  val also_known_as : t -> Uri.t list option
+  val also_known_as : t -> Uriz.t list option
   val discoverable : t -> bool option
   val suspended : t -> bool option
-  val moved_to : t -> Uri.t option
-  val featured : t -> Uri.t option
-  val featured_tags : t -> Uri.t option
+  val moved_to : t -> Uriz.t option
+  val featured : t -> Uriz.t option
+  val featured_tags : t -> Uriz.t option
 
   val jsont : t Jsont.t
   (** JSON type for Actors. *)
@@ -282,10 +282,10 @@ end
 (** Actor reference - can be URI or full Actor object. *)
 module Actor_ref : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Actor of Actor.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val actor : Actor.t -> t
   val jsont : t Jsont.t
 end
@@ -323,7 +323,7 @@ module Object : sig
 
   val make :
     ?context:Context.t ->
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     type_:Object_type.t ->
     ?name:string ->
     ?summary:string ->
@@ -331,7 +331,7 @@ module Object : sig
     ?media_type:string ->
     ?url:Link_or_uri.t list ->
     ?attributed_to:Actor_ref.t ->
-    ?in_reply_to:Uri.t ->
+    ?in_reply_to:Uriz.t ->
     ?published:Datetime.t ->
     ?updated:Datetime.t ->
     ?deleted:Datetime.t ->
@@ -339,17 +339,17 @@ module Object : sig
     ?cc:Recipient.t list ->
     ?bto:Recipient.t list ->
     ?bcc:Recipient.t list ->
-    ?replies:Uri.t ->
+    ?replies:Uriz.t ->
     ?attachment:Link_or_uri.t list ->
     ?tag:Link_or_uri.t list ->
-    ?generator:Uri.t ->
+    ?generator:Uriz.t ->
     ?icon:Image_ref.t list ->
     ?image:Image_ref.t list ->
     ?start_time:Datetime.t ->
     ?end_time:Datetime.t ->
     ?duration:string ->
     ?sensitive:bool ->
-    ?conversation:Uri.t ->
+    ?conversation:Uriz.t ->
     ?audience:Recipient.t list ->
     ?location:Link_or_uri.t ->
     ?preview:Link_or_uri.t ->
@@ -357,7 +357,7 @@ module Object : sig
   (** Create a new Object. *)
 
   val context : t -> Context.t option
-  val id : t -> Uri.t option
+  val id : t -> Uriz.t option
   val type_ : t -> Object_type.t
   val name : t -> string option
   val summary : t -> string option
@@ -365,7 +365,7 @@ module Object : sig
   val media_type : t -> string option
   val url : t -> Link_or_uri.t list option
   val attributed_to : t -> Actor_ref.t option
-  val in_reply_to : t -> Uri.t option
+  val in_reply_to : t -> Uriz.t option
   val published : t -> Datetime.t option
   val updated : t -> Datetime.t option
   val deleted : t -> Datetime.t option
@@ -373,17 +373,17 @@ module Object : sig
   val cc : t -> Recipient.t list option
   val bto : t -> Recipient.t list option
   val bcc : t -> Recipient.t list option
-  val replies : t -> Uri.t option
+  val replies : t -> Uriz.t option
   val attachment : t -> Link_or_uri.t list option
   val tag : t -> Link_or_uri.t list option
-  val generator : t -> Uri.t option
+  val generator : t -> Uriz.t option
   val icon : t -> Image_ref.t list option
   val image : t -> Image_ref.t list option
   val start_time : t -> Datetime.t option
   val end_time : t -> Datetime.t option
   val duration : t -> string option
   val sensitive : t -> bool option
-  val conversation : t -> Uri.t option
+  val conversation : t -> Uriz.t option
   val audience : t -> Recipient.t list option
 
   val location : t -> Link_or_uri.t option
@@ -399,10 +399,10 @@ end
 (** Object reference - can be URI or full Object. *)
 module Object_ref : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Object of Object.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val obj : Object.t -> t
   val jsont : t Jsont.t
 end
@@ -454,7 +454,7 @@ module Activity : sig
 
   val make :
     ?context:Context.t ->
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     type_:Activity_type.t ->
     actor:Actor_ref.t ->
     ?object_:Object_ref.t ->
@@ -480,7 +480,7 @@ module Activity : sig
       for multiple-choice polls. *)
 
   val context : t -> Context.t option
-  val id : t -> Uri.t option
+  val id : t -> Uriz.t option
   val type_ : t -> Activity_type.t
   val actor : t -> Actor_ref.t
   val object_ : t -> Object_ref.t option
@@ -512,10 +512,10 @@ end
 (** Activity reference - can be URI or full Activity. *)
 module Activity_ref : sig
   type t =
-    | Uri of Uri.t
+    | Uri of Uriz.t
     | Activity of Activity.t
 
-  val uri : Uri.t -> t
+  val uri : Uriz.t -> t
   val activity : Activity.t -> t
   val jsont : t Jsont.t
 end
@@ -529,22 +529,22 @@ module Collection : sig
 
   val make :
     ?context:Context.t ->
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     ?total_items:int ->
-    ?current:Uri.t ->
-    ?first:Uri.t ->
-    ?last:Uri.t ->
+    ?current:Uriz.t ->
+    ?first:Uriz.t ->
+    ?last:Uriz.t ->
     ?items:'a list ->
     ordered:bool ->
     unit -> 'a t
   (** Create a new Collection. Use [~ordered:true] for OrderedCollection. *)
 
   val context : 'a t -> Context.t option
-  val id : 'a t -> Uri.t option
+  val id : 'a t -> Uriz.t option
   val total_items : 'a t -> int option
-  val current : 'a t -> Uri.t option
-  val first : 'a t -> Uri.t option
-  val last : 'a t -> Uri.t option
+  val current : 'a t -> Uriz.t option
+  val first : 'a t -> Uriz.t option
+  val last : 'a t -> Uriz.t option
   val items : 'a t -> 'a list option
   val ordered : 'a t -> bool
 
@@ -561,28 +561,28 @@ module Collection_page : sig
 
   val make :
     ?context:Context.t ->
-    ?id:Uri.t ->
+    ?id:Uriz.t ->
     ?total_items:int ->
-    ?current:Uri.t ->
-    ?first:Uri.t ->
-    ?last:Uri.t ->
-    ?prev:Uri.t ->
-    ?next:Uri.t ->
-    ?part_of:Uri.t ->
+    ?current:Uriz.t ->
+    ?first:Uriz.t ->
+    ?last:Uriz.t ->
+    ?prev:Uriz.t ->
+    ?next:Uriz.t ->
+    ?part_of:Uriz.t ->
     ?items:'a list ->
     ordered:bool ->
     unit -> 'a t
   (** Create a new CollectionPage. Use [~ordered:true] for OrderedCollectionPage. *)
 
   val context : 'a t -> Context.t option
-  val id : 'a t -> Uri.t option
+  val id : 'a t -> Uriz.t option
   val total_items : 'a t -> int option
-  val current : 'a t -> Uri.t option
-  val first : 'a t -> Uri.t option
-  val last : 'a t -> Uri.t option
-  val prev : 'a t -> Uri.t option
-  val next : 'a t -> Uri.t option
-  val part_of : 'a t -> Uri.t option
+  val current : 'a t -> Uriz.t option
+  val first : 'a t -> Uriz.t option
+  val last : 'a t -> Uriz.t option
+  val prev : 'a t -> Uriz.t option
+  val next : 'a t -> Uriz.t option
+  val part_of : 'a t -> Uriz.t option
   val items : 'a t -> 'a list option
   val ordered : 'a t -> bool
 
@@ -628,13 +628,13 @@ module Webfinger : sig
     val make :
       rel:string ->
       ?type_:string ->
-      ?href:Uri.t ->
+      ?href:Uriz.t ->
       ?template:string ->
       unit -> t
 
     val rel : t -> string
     val type_ : t -> string option
-    val href : t -> Uri.t option
+    val href : t -> Uriz.t option
     val template : t -> string option
 
     val jsont : t Jsont.t
@@ -669,14 +669,14 @@ module Nodeinfo : sig
     val make :
       name:string ->
       version:string ->
-      ?repository:Uri.t ->
-      ?homepage:Uri.t ->
+      ?repository:Uriz.t ->
+      ?homepage:Uriz.t ->
       unit -> t
 
     val name : t -> string
     val version : t -> string
-    val repository : t -> Uri.t option
-    val homepage : t -> Uri.t option
+    val repository : t -> Uriz.t option
+    val homepage : t -> Uriz.t option
 
     val jsont : t Jsont.t
   end

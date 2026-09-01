@@ -60,11 +60,14 @@ let of_buffer buf =
 let of_string s =
   let len = String.length s in
   let buf = Bigarray.(Array1.create char c_layout) len in
-  Cstruct.blit_from_string s 0 (Cstruct.of_bigarray buf) 0 len;
+  Cstruct.blit_from_string s 0 (Cstruct.of_bigarray_local buf) 0 len;
   of_buffer buf
 
 let peek t =
   Cstruct.of_bigarray ~off:t.pos ~len:t.len t.buf
+
+let peek_local t = exclave_
+  Cstruct.of_bigarray_local ~off:t.pos ~len:t.len t.buf
 
 let consume_err t n =
   Fmt.invalid_arg "Can't consume %d bytes of a %d byte buffer!" n t.len
@@ -101,23 +104,25 @@ let ensure_slow_path t n =
         let new_size = max n (min t.max_size (cap * 2)) in
         let new_buf = Bigarray.(Array1.create char c_layout new_size) in
         Cstruct.blit
-          (peek t) 0
-          (Cstruct.of_bigarray new_buf) 0
+          (peek_local t) 0
+          (Cstruct.of_bigarray_local new_buf) 0
           t.len;
         t.pos <- 0;
         t.buf <- new_buf
       ) else if t.pos + n > cap then (
         (* [n] bytes will fit in the existing buffer, but we need to compact it first. *)
         Cstruct.blit
-          (peek t) 0
-          (Cstruct.of_bigarray t.buf) 0
+          (peek_local t) 0
+          (Cstruct.of_bigarray_local t.buf) 0
           t.len;
         t.pos <- 0
       )
     in
     try
       while t.len < n do
-        let free_space = Cstruct.of_bigarray t.buf ~off:(t.pos + t.len) in
+        let free_space =
+          Cstruct.of_bigarray_local t.buf ~off:(t.pos + t.len)
+        in
         assert (t.len + Cstruct.length free_space >= n);
         let got = Flow.single_read flow free_space in
         t.len <- t.len + got
@@ -136,14 +141,14 @@ module F = struct
   let single_read t dst =
     ensure t 1;
     let len = min (buffered_bytes t) (Cstruct.length dst) in
-    Cstruct.blit (peek t) 0 dst 0 len;
+    Cstruct.blit (peek_local t) 0 dst 0 len;
     consume t len;
     len
 
   let rsb t fn =
     ensure t 1;
-    let data = peek t in
-    let sent = fn [data] in
+    let local_ data = peek_local t in
+    let sent = fn (stack_ [data]) in
     consume t sent
 
   let read_methods = [Flow.Read_source_buffer rsb]
@@ -264,7 +269,9 @@ let peek_char t =
 let take len t =
   if len < 0 then Fmt.invalid_arg "take: %d is negative!" len;
   ensure t len;
-  let data = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
+  let data =
+    Cstruct.to_string (Cstruct.of_bigarray_local t.buf ~off:t.pos ~len)
+  in
   consume t len;
   data
 
@@ -312,7 +319,9 @@ let count_while p t =
 
 let take_while p t =
   let len = count_while p t in
-  let data = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
+  let data =
+    Cstruct.to_string (Cstruct.of_bigarray_local t.buf ~off:t.pos ~len)
+  in
   consume t len;
   data
 
@@ -320,7 +329,9 @@ let take_while1 p t =
   let len = count_while p t in
   if len < 1 then Fmt.failwith "take_while1"
   else
-    let data = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
+    let data =
+      Cstruct.to_string (Cstruct.of_bigarray_local t.buf ~off:t.pos ~len)
+    in
     consume t len;
     data
 
@@ -380,7 +391,9 @@ let line t =
       if nl > 0 && get t (nl - 1) = '\r' then nl - 1
       else nl
     in
-    let line = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
+    let line =
+      Cstruct.to_string (Cstruct.of_bigarray_local t.buf ~off:t.pos ~len)
+    in
     consume t (nl + 1);
     line
 

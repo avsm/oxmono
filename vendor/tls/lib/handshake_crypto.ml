@@ -1,56 +1,66 @@
 open State
 
-let halve secret =
+let (halve @ portable) secret =
   let size = String.length secret in
   let half = size - size / 2 in
   String.(sub secret 0 half, sub secret (size - half) half)
 
-let p_hash (hmac, hmac_n) key seed len =
+let rec (p_hash @ portable) hash key seed len =
   let rec expand a to_go =
-    let res = hmac ~key (a ^ seed) in
-    if to_go > hmac_n then
-      res ^ expand (hmac ~key a) (to_go - hmac_n)
+    let res = Digestif.hmacv_string_raw hash ~key [ a; seed ] in
+    let digest_size = Digestif.digest_size hash in
+    if to_go > digest_size then
+      res ^ expand (Digestif.hmacv_string_raw hash ~key [ a ])
+        (to_go - digest_size)
     else String.sub res 0 to_go
   in
-  expand (hmac ~key seed) len
+  expand (Digestif.hmacv_string_raw hash ~key [ seed ]) len
 
-let prf_mac = function
+let (prf_hash @ portable) = function
   | `RSA_WITH_AES_256_GCM_SHA384
   | `DHE_RSA_WITH_AES_256_GCM_SHA384
   | `ECDHE_RSA_WITH_AES_256_GCM_SHA384
   | `ECDHE_RSA_WITH_AES_256_CBC_SHA384
   | `ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
-  | `ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 -> (module Digestif.SHA384 : Digestif.S)
-  | _ -> (module Digestif.SHA256 : Digestif.S)
+  | `ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 -> `SHA384
+  | _ -> `SHA256
 
-let pseudo_random_function version cipher len secret label seed =
+let (xor_strings @ portable) left right =
+  let length = min (String.length left) (String.length right) in
+  let result = Bytes.create length in
+  for index = 0 to length - 1 do
+    Bytes.set_uint8 result index
+      (String.get_uint8 left index lxor String.get_uint8 right index)
+  done;
+  Bytes.unsafe_to_string result
+
+let (pseudo_random_function @ portable) version cipher len secret label seed =
   let labelled = label ^ seed in
   match version with
   | `TLS_1_1 | `TLS_1_0 ->
      let (s1, s2) = halve secret in
-     let md5 = p_hash ((fun ~key s -> Digestif.MD5.(to_raw_string (hmac_string ~key s))), Digestif.MD5.digest_size) s1 labelled len
-     and sha = p_hash ((fun ~key s -> Digestif.SHA1.(to_raw_string (hmac_string ~key s))), Digestif.SHA1.digest_size) s2 labelled len in
-     Mirage_crypto.Uncommon.xor md5 sha
+     let md5 = p_hash `MD5 s1 labelled len
+     and sha = p_hash `SHA1 s2 labelled len in
+     xor_strings md5 sha
   | `TLS_1_2 ->
-     let module D = (val (prf_mac cipher)) in
-     p_hash ((fun ~key s -> D.(to_raw_string (hmac_string ~key s))), D.digest_size) secret labelled len
+     p_hash (prf_hash cipher) secret labelled len
 
-let key_block version cipher len master_secret seed =
+let (key_block @ portable) version cipher len master_secret seed =
   pseudo_random_function version cipher len master_secret "key expansion" seed
 
-let hash version cipher data =
+let (hash @ portable) version cipher data =
   match version with
-  | `TLS_1_0 | `TLS_1_1 -> Digestif.(MD5.(to_raw_string (digest_string data)) ^ SHA1.(to_raw_string (digest_string data)))
-  | `TLS_1_2 ->
-    let module H = (val prf_mac cipher) in
-    H.(to_raw_string (digest_string data))
+  | `TLS_1_0 | `TLS_1_1 ->
+      Digestif.digest_string_raw `MD5 data
+      ^ Digestif.digest_string_raw `SHA1 data
+  | `TLS_1_2 -> Digestif.digest_string_raw (prf_hash cipher) data
 
-let finished version cipher master_secret label ps =
+let (finished @ portable) version cipher master_secret label ps =
   let data = String.concat "" ps in
   let seed = hash version cipher data in
   pseudo_random_function version cipher 12 master_secret label seed
 
-let divide_keyblock key mac iv buf =
+let (divide_keyblock @ portable) key mac iv buf =
   let c_mac, rt0 = Core.split_str buf mac in
   let s_mac, rt1 = Core.split_str rt0 mac in
   let c_key, rt2 = Core.split_str rt1 key in
@@ -59,7 +69,8 @@ let divide_keyblock key mac iv buf =
   in
   (c_mac, s_mac, c_key, s_key, c_iv, s_iv)
 
-let derive_master_secret version (session : session_data) premaster log =
+let (derive_master_secret @ portable) version (session : session_data)
+    premaster log =
   let prf = pseudo_random_function version session.ciphersuite 48 premaster in
   if session.extended_ms then
     let session_hash =
@@ -109,3 +120,36 @@ let initialise_crypto_ctx version (session : session_data) =
   and s_context = context s_key s_iv s_mac in
 
   (c_context, s_context)
+
+let (initialise_crypto_ctx_client @ portable) version
+    (session : session_data) =
+  let open Ciphersuite in
+  let client_random = session.common_session_data.client_random in
+  let server_random = session.common_session_data.server_random in
+  let master = session.common_session_data.master_secret in
+  let cipher = session.ciphersuite in
+  let protection = ciphersuite_privprot cipher in
+  let aead =
+    match protection with
+    | `AEAD cipher -> cipher
+    | `Block _ -> invalid_arg "portable TLS clients require AEAD cipher suites"
+  in
+  let key_length, iv_length, mac_length =
+    Ciphersuite.key_length None protection
+  in
+  let keyblock_length =
+    (2 * key_length) + (2 * mac_length) + (2 * iv_length)
+  in
+  let keyblock =
+    key_block version cipher keyblock_length master
+      (server_random ^ client_random)
+  in
+  let client_mac, server_mac, client_key, server_key, client_iv, server_iv =
+    divide_keyblock key_length mac_length iv_length keyblock
+  in
+  let _ = client_mac, server_mac in
+  let context key nonce =
+    let cipher_st = Crypto.Ciphers.get_aead_cipher ~secret:key ~nonce aead in
+    { cipher_st; sequence = 0L }
+  in
+  context client_key client_iv, context server_key server_iv

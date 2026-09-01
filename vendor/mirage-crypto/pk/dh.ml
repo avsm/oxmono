@@ -10,7 +10,7 @@ type group = {
   q  : Z.t option ;  (* `gg`'s order, maybe *)
 }
 
-let group ~p ~gg ?q () =
+let (group @ portable) ~p ~gg ?q () =
   let* () =
     guard (Z.(p > zero && is_odd p) && Z_extra.pseudoprime p)
       (`Msg "invalid prime")
@@ -36,7 +36,7 @@ let exp_size bits =
   try snd @@ List.find (fun (g, _) -> g >= bits) exp_equivalent
   with Not_found -> exp_equivalent_max
 
-let modulus_size { p; _ } = Z.numbits p
+let (modulus_size @ portable) { p; _ } = Z.numbits p
 
 (*
  * Current thinking:
@@ -77,7 +77,18 @@ let rec gen_key ?g ?bits ({ p; q; _ } as group) =
   in
   try key_of_secret_z group s with Invalid_key -> gen_key ?g ?bits group
 
-let shared { group ; x } cs =
+let (gen_key_with @ portable) ~g ?bits ({ p; q; _ } as group) =
+  let rec generate () =
+    let pb = Z.numbits p in
+    let requested = match bits with None -> pb | Some bits -> exp_size bits in
+    let subgroup = match q with None -> pb | Some q -> Z.numbits q in
+    let size = if requested < subgroup then requested else subgroup in
+    let secret = Z_extra.gen_bits_with ~g ~msb:1 size in
+    try key_of_secret_z group secret with Invalid_key -> generate ()
+  in
+  generate ()
+
+let (shared @ portable) { group ; x } cs =
   match Z_extra.of_octets_be cs with
   | ggy when bad_public_key group ggy -> None
   | ggy -> Some (Z_extra.to_octets_be (Z.powm_sec ggy x group.p))
@@ -122,7 +133,7 @@ module Group = struct
        \x4F\xE1\x35\x6D\x6D\x51\xC2\x45\xE4\x85\xB5\x76\x62\x5E\x7E\xC6\
        \xF4\x4C\x42\xE9\xA6\x37\xED\x6B\x0B\xFF\x5C\xB6\xF4\x06\xB7\xED\
        \xEE\x38\x6B\xFB\x5A\x89\x9F\xA5\xAE\x9F\x24\x11\x7C\x4B\x1F\xE6\
-       x49\x28\x66\x51\xEC\xE6\x53\x81\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
+       \x49\x28\x66\x51\xEC\xE6\x53\x81\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
 
   (* RFC3526 *)
 
@@ -368,7 +379,7 @@ module Group = struct
        \xD7\xFB\xD7\xD3\xB9\xA9\x2E\xE1\x90\x9D\x0D\x22\x63\xF8\x0A\x76\
        \xA6\xA2\x4C\x08\x7A\x09\x1F\x53\x1D\xBF\x0A\x01\x69\xB6\xA2\x8A\
        \xD6\x62\xA4\xD1\x8E\x73\xAF\xA3\x2D\x77\x9D\x59\x18\xD0\x8B\xC8\
-       \x85\x8F\x4D\xCE\xF9\x7C\x2A\x24\\x85\x5E\x6E\xEB\x22\xB3\xB2\xE5"
+       \x85\x8F\x4D\xCE\xF9\x7C\x2A\x24\x85\x5E\x6E\xEB\x22\xB3\xB2\xE5"
     and q =
       "\xF5\x18\xAA\x87\x81\xA8\xDF\x27\x8A\xBA\x4E\x7D\x64\xB7\xCB\x9D\
        \x49\x46\x23\x53"

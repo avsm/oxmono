@@ -1,0 +1,3 @@
+(executable
+ (name curl)
+ (libraries fetch fetch-curl eio_main localhost))

@@ -26,20 +26,38 @@ module Unix : sig
   (** {2 Constructors} *)
 
   (** [server_of_fd server fd] is [t], after server-side TLS
-      handshake of [fd] using [server] configuration. *)
+      handshake of [fd] using [server] configuration.
+
+      Returns a TLS flow which may be fully active or half-closed.
+
+      @raise End_of_file if the peer closes before the handshake completes. *)
   val server_of_fd : Tls.Config.server -> Lwt_unix.file_descr -> t Lwt.t
 
   (** [server_of_channels server (ic, oc)] is [t], after server-side TLS
-      handshake on the input/output channels [ic, oc] using [server] configuration. *)
+      handshake on the input/output channels [ic, oc] using [server]
+      configuration.
+
+      Returns a TLS flow which may be fully active or half-closed.
+
+      @raise End_of_file if the peer closes before the handshake completes. *)
   val server_of_channels : Tls.Config.server -> Lwt_io.input_channel * Lwt_io.output_channel -> t Lwt.t
 
-  (** [client_of_fd client ~host fd] is [t], after client-side
-      TLS handshake of [fd] using [client] configuration and [host]. *)
-  val client_of_fd : Tls.Config.client -> ?host:[ `host ] Domain_name.t -> Lwt_unix.file_descr -> t Lwt.t
+  (** [client_of_fd client ~host ~ip fd] is [t], after client-side
+      TLS handshake of [fd] using [client] configuration and [host] or [ip].
 
-  (** [client_of_channels client ~host (ic, oc)] is [t], after client-side
-      TLS handshake over the input/output channels [ic, oc] using [client] configuration and [host]. *)
-  val client_of_channels : Tls.Config.client -> ?host:[ `host ] Domain_name.t -> Lwt_io.input_channel * Lwt_io.output_channel -> t Lwt.t
+      Returns a TLS flow which may be fully active or half-closed.
+
+      @raise End_of_file if the peer closes before the handshake completes. *)
+  val client_of_fd : Tls.Config.client -> ?host:[ `host ] Domain_name.t -> ?ip:Ipaddr.t -> Lwt_unix.file_descr -> t Lwt.t
+
+  (** [client_of_channels client ~host ~ip (ic, oc)] is [t], after client-side
+      TLS handshake over the input/output channels [ic, oc] using [client]
+      configuration and [host] or [ip].
+
+      Returns a TLS flow which may be fully active or half-closed.
+
+      @raise End_of_file if the peer closes before the handshake completes. *)
+  val client_of_channels : Tls.Config.client -> ?host:[ `host ] Domain_name.t -> ?ip:Ipaddr.t -> Lwt_io.input_channel * Lwt_io.output_channel -> t Lwt.t
 
   (** [accept server fd] is [t, sockaddr], after accepting a
       client on [fd] and upgrading to a TLS connection. *)

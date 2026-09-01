@@ -44,14 +44,16 @@ module Mock_flow = struct
     traceln "%s: wrote %a" t.label pp bufs;
     len
 
-  let single_write t bufs =
+  let single_write t (bufs @ local) =
+    let bufs = Cstruct.globalize_list bufs in
     let pp f = function
       | [buf] -> Fmt.pf f "@[<v>%a@]" t.pp (Cstruct.to_string buf)
       | bufs -> Fmt.pf f "@[<v>%a@]" (Fmt.Dump.list (Fmt.using Cstruct.to_string t.pp)) bufs
     in
     write ~pp t bufs
 
-  let copy_rsb_iovec t bufs =
+  let copy_rsb_iovec t (bufs @ local) =
+    let bufs = Cstruct.globalize_list bufs in
     let pp f bufs = Fmt.pf f "(rsb) @[<v>%a@]" (Fmt.Dump.list (Fmt.using Cstruct.to_string t.pp)) bufs in
     write ~pp t bufs
 
@@ -67,13 +69,14 @@ module Mock_flow = struct
         let size = Handler.run t.on_copy_bytes in
         let buf = Cstruct.create size in
         let n = Eio.Flow.single_read src buf in
-        traceln "%s: wrote @[<v>%a@]" t.label t.pp (Cstruct.to_string (Cstruct.sub buf 0 n))
+        traceln "%s: wrote @[<v>%a@]" t.label t.pp
+          (Cstruct.to_string (Cstruct.sub_local buf 0 n))
       done
     with End_of_file -> ()
 
   let read_methods = []
 
-  let single_read t buf =
+  let single_read t (buf @ local) =
     let data = Handler.run t.on_read in
     let len = String.length data in
     if Cstruct.length buf < len then

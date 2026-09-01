@@ -2,10 +2,21 @@ open Uncommon
 
 let block_size = 16
 
-let flags bit6 len1 len2 =
+let (valid_nonce @ portable) nonce =
+  let nsize = String.length nonce in
+  if nsize < 7 || nsize > 13 then
+    Stdlib.invalid_arg "CCM: nonce length not between 7 and 13"
+
+let (valid_message_length @ portable) nonce len =
+  let l = 15 - String.length nonce in
+  let bits = 8 * l in
+  if bits < Sys.int_size && len >= 1 lsl bits then
+    Stdlib.invalid_arg "CCM: message length does not fit nonce"
+
+let (flags @ portable) bit6 len1 len2 =
   bit6 lsl 6 + len1 lsl 3 + len2
 
-let encode_len buf ~off size value =
+let (encode_len @ portable) buf ~off size value =
   let rec ass num = function
     | 0 -> Bytes.set_uint8 buf off num
     | m ->
@@ -14,7 +25,7 @@ let encode_len buf ~off size value =
   in
   ass value (pred size)
 
-let set_format buf ?(off = 0) nonce flag_val value =
+let (set_format @ portable) buf ?(off = 0) nonce flag_val value =
   let n = String.length nonce in
   let small_q = 15 - n in
   (* first octet block:
@@ -25,7 +36,7 @@ let set_format buf ?(off = 0) nonce flag_val value =
   Bytes.unsafe_blit_string nonce 0 buf (off + 1) n;
   encode_len buf ~off:(off + n + 1) small_q value
 
-let gen_adata a =
+let (gen_adata @ portable) a =
   let llen, set_llen =
     match String.length a with
     | x when x < (1 lsl 16 - 1 lsl 8) ->
@@ -41,7 +52,7 @@ let gen_adata a =
   in
   let to_pad =
     let leftover = (llen + String.length a) mod block_size in
-    block_size - leftover
+    if leftover = 0 then 0 else block_size - leftover
   in
   llen + String.length a + to_pad,
   fun buf off ->
@@ -49,7 +60,7 @@ let gen_adata a =
     Bytes.unsafe_blit_string a 0 buf (off + llen) (String.length a);
     Bytes.unsafe_fill buf (off + llen + String.length a) to_pad '\000'
 
-let gen_ctr nonce i =
+let (gen_ctr @ portable) nonce i =
   let n = String.length nonce in
   let small_q = 15 - n in
   let flag_val = flags 0 0 (small_q - 1) in
@@ -57,7 +68,7 @@ let gen_ctr nonce i =
   set_format buf nonce flag_val i;
   buf
 
-let prepare_header nonce adata plen tlen =
+let (prepare_header @ portable) nonce adata plen tlen =
   let small_q = 15 - String.length nonce in
   let b6 = if String.length adata = 0 then 0 else 1 in
   let flag_val = flags b6 ((tlen - 2) / 2) (small_q - 1) in
@@ -74,7 +85,10 @@ let prepare_header nonce adata plen tlen =
 
 type mode = Encrypt | Decrypt
 
-let crypto_core_into ~cipher ~mode ~key ~nonce ~adata src ~src_off dst ~dst_off len =
+let (crypto_core_into @ portable) ~cipher ~mode ~key ~nonce ~adata src
+    ~src_off dst ~dst_off len =
+  valid_nonce nonce;
+  valid_message_length nonce len;
   let cbcheader = prepare_header nonce adata len block_size in
 
   let small_q = 15 - String.length nonce in
@@ -135,18 +149,22 @@ let crypto_core ~cipher ~mode ~key ~nonce ~adata data =
   let t = crypto_core_into ~cipher ~mode ~key ~nonce ~adata data ~src_off:0 dst ~dst_off:0 datalen in
   dst, t
 
-let crypto_t t nonce cipher key =
+let (crypto_t @ portable) t nonce cipher key =
   let ctr = gen_ctr nonce 0 in
   cipher ~key (Bytes.unsafe_to_string ctr) ~src_off:0 ctr ~dst_off:0 ;
   unsafe_xor_into (Bytes.unsafe_to_string ctr) ~src_off:0 t ~dst_off:0 (Bytes.length t)
 
-let unsafe_generation_encryption_into ~cipher ~key ~nonce ~adata src ~src_off dst ~dst_off ~tag_off len =
+let (unsafe_generation_encryption_into @ portable) ~cipher ~key ~nonce ~adata
+    src ~src_off dst ~dst_off ~tag_off len =
   let t = crypto_core_into ~cipher ~mode:Encrypt ~key ~nonce ~adata src ~src_off dst ~dst_off len in
   crypto_t t nonce cipher key ;
   Bytes.unsafe_blit t 0 dst tag_off block_size
 
-let unsafe_decryption_verification_into ~cipher ~key ~nonce ~adata src ~src_off ~tag_off dst ~dst_off len =
+let (unsafe_decryption_verification_into @ portable) ~cipher ~key ~nonce
+    ~adata src ~src_off ~tag_off dst ~dst_off len =
   let tag = String.sub src tag_off block_size in
   let t = crypto_core_into ~cipher ~mode:Decrypt ~key ~nonce ~adata src ~src_off dst ~dst_off len in
   crypto_t t nonce cipher key ;
-  Eqaf.equal tag (Bytes.unsafe_to_string t)
+  let r  = Eqaf.equal tag (Bytes.unsafe_to_string t) in
+  if not r then Bytes.unsafe_fill dst dst_off len '\000';
+  r

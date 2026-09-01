@@ -54,7 +54,7 @@ module type S = sig
   (** Create a new hmac state. *)
 
   val hmac_feed_bytes : hmac -> ?off:int -> ?len:int -> Bytes.t -> hmac
-  (** [hmac_feed_bytes msg t] adds informations in [msg] to [t]. [hmac_feed] is
+  (** [hmac_feed_bytes t msg] adds informations in [msg] to [t]. [hmac_feed] is
       analogous to appending:
       [hmac_feed (hmac_feed t msg1) msg2 = hmac_feed t
       (append msg1 msg2)] *)
@@ -83,7 +83,7 @@ module type S = sig
 
       [digest_bytes msg = get (feed_bytes empty msg)]. *)
 
-  val digest_string : ?off:int -> ?len:int -> String.t -> t
+  val digest_string : ?off:int -> ?len:int -> String.t -> t @@ portable
   (** Same as {!digest_bytes} but for a {!String.t}. *)
 
   val digest_bigstring : ?off:int -> ?len:int -> bigstring -> t
@@ -188,7 +188,7 @@ module type S = sig
   (** [of_raw_string_opt s] see [s] as a hash. Useful when reading serialized
       hashes. Returns [None] if [s] is not the {!digest_size} bytes long. *)
 
-  val to_raw_string : t -> string
+  val to_raw_string : t -> string @@ portable
   (** [to_raw_string s] is [(s :> string)]. *)
 
   val get_into_bytes : ctx -> ?off:int -> bytes -> unit
@@ -318,6 +318,14 @@ type hash' =
   | `BLAKE2S ]
 
 val module_of_hash' : hash' -> (module S)
+val digest_size : hash' -> int @@ portable
+(** [digest_size hash] is the output size of [hash] in bytes. *)
+val digest_string_raw : hash' -> String.t -> string @@ portable
+(** [digest_string_raw hash input] hashes [input] and returns its raw bytes.
+    Unlike {!module_of_hash'}, this one-shot operation is portable. *)
+val hmacv_string_raw : hash' -> key:string -> string list -> string @@ portable
+(** [hmacv_string_raw hash ~key inputs] computes HMAC over [inputs] and
+    returns its raw bytes. *)
 val hash_to_hash' : _ hash -> hash'
 val md5 : MD5.t hash
 val sha1 : SHA1.t hash

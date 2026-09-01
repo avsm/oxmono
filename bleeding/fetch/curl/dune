@@ -1,4 +1,8 @@
+(copy_files ../httpz/gzip_stream.ml)
+
 (library
  (name fetch_curl)
  (public_name fetch-curl)
- (libraries fetch fetch.cookies eio eio.unix curl fmt))
+ (private_modules gzip_stream)
+ (libraries fetch fetch.cookies eio eio.unix curl fmt cstruct httpz
+   checkseum.c decompress.de decompress.gz))

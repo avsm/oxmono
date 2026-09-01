@@ -32,7 +32,7 @@
     functional matter ({!Engine}, this module), and effectful parts:
     {!Tls_lwt} and {!Tls_mirage}.
 
-    {e v2.0.3} *)
+    {e v2.1.2} *)
 
 
 (** {1 Abstract state type} *)
@@ -45,6 +45,12 @@ type state
 (** [client client] is [tls * out] where [tls] is the initial state,
     and [out] the initial client hello *)
 val client : Config.client -> (state * string)
+
+val client_no_resumption_with_rng : g:Mirage_crypto_rng.portable_g -> Config.client ->
+  state * string @@ portable
+(** [client_no_resumption_with_rng ~g client] is {!client} using the explicit
+    portable generator [g] for ClientHello randomness and ephemeral key shares.
+    The configuration must not contain a cached session ticket. *)
 
 (** [server server] is [tls] where [tls] is the initial server
     state *)
@@ -123,10 +129,14 @@ type ret =
 (** [handle_tls state buffer] is [ret], depending on incoming [state]
     and [buffer], the result is the appropriate {!ret} *)
 val handle_tls           : state -> string -> ret
+val handle_tls_client    : g:Mirage_crypto_rng.portable_g -> state -> string ->
+  ret @@ portable
+(** [handle_tls_client] handles input for states created by
+    {!client_no_resumption_with_rng}. *)
 
 (** [handshake_in_progrss state] is a predicate which indicates whether there
     is a handshake in progress or scheduled. *)
-val handshake_in_progress : state -> bool
+val handshake_in_progress : state -> bool @@ portable
 
 (** [send_application_data tls outs] is [Some (tls', out)] where
     [tls'] is the new tls state, and [out] the cstruct to send over the
@@ -134,9 +144,18 @@ val handshake_in_progress : state -> bool
     session is not ready it is [None]. *)
 val send_application_data : state -> string list -> (state * string) option
 
+val send_application_data_client :
+  state -> string list -> (state * string) option @@ portable
+(** Portable application-data output for a state created by
+    {!client_no_resumption_with_rng}. *)
+
 (** [send_close_notify tls] is [tls' * out] where [tls'] is the new
     tls state, and out the (possible encrypted) close notify alert. *)
 val send_close_notify     : state -> state * string
+
+val send_close_notify_client : state -> state * string @@ portable
+(** Portable close-notify output for a state created by
+    {!client_no_resumption_with_rng}. *)
 
 (** [reneg ~authenticator ~acceptable_cas ~cert tls] initiates a renegotation on
     [tls], using the provided [authenticator]. It is [tls' * out] where [tls']

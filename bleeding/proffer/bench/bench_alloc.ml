@@ -11,10 +11,11 @@
 
 open Proffer
 
+external opaque_local : string @ local -> string @ local = "%opaque"
+
 let compiled =
-  Compiled.compile
-    (Site.of_routes
-       [ Route.(get (s "hello" /? nil)) (fun () _req respond ->
+  (Site.of_routes
+       [ Route.(get (s "hello")) (fun () _req respond ->
              Resp.text respond "hi")
        ])
 
@@ -22,9 +23,8 @@ let compiled =
    the pair that keeps it off the heap. Written any other way this row is not
    zero, which is the whole point of the row. *)
 let header_site =
-  Compiled.compile
-    (Site.of_routes
-       [ Route.(get (s "hello" /? nil)) (fun () _req respond ->
+  (Site.of_routes
+       [ Route.(get (s "hello")) (fun () _req respond ->
              let () =
                Resp.v respond ~content_type:(This "text/plain")
                  ~headers:
@@ -41,9 +41,8 @@ let header_site =
 let reused_etag = Etag.strong "v1"
 
 let etag_site =
-  Compiled.compile
-    (Site.of_routes
-       [ Route.(get (s "hello" /? nil)) (fun () _req respond ->
+  (Site.of_routes
+       [ Route.(get (s "hello")) (fun () _req respond ->
              Resp.html respond ~etag:reused_etag "hi")
        ])
 
@@ -51,9 +50,8 @@ let etag_site =
    request pays to build one. Rendering moved to construction, so this is
    where it is now paid. *)
 let fresh_etag_site =
-  Compiled.compile
-    (Site.of_routes
-       [ Route.(get (s "hello" /? nil)) (fun () _req respond ->
+  (Site.of_routes
+       [ Route.(get (s "hello")) (fun () _req respond ->
              Resp.html respond
                ~etag:(Etag.strong (Sys.opaque_identity "v1"))
                "hi")
@@ -64,9 +62,8 @@ let fresh_etag_site =
    producer: an encoder allocates its own buffer, and an earlier version of
    this row made a [Bytes.of_string] per request and charged it here. *)
 let stream_site =
-  Compiled.compile
-    (Site.of_routes
-       [ Route.(get (s "hello" /? nil)) (fun () _req respond ->
+  (Site.of_routes
+       [ Route.(get (s "hello")) (fun () _req respond ->
              Resp.stream respond "text/plain" (fun sink ->
                  Body.Sink.write sink "hi"))
        ])
@@ -129,7 +126,7 @@ let () =
     (words ~n (fun () ->
          let () =
            let local_ req = Req.v ~meth:Httpz.Method.Get ~target:"/hello" () in
-           ignore (Sys.opaque_identity (Req.path req))
+           let local_ _path = opaque_local (Req.path req) in ()
          in
          ()));
   (* The query rows subtract a [Req.v] over the same target, so what is left
@@ -140,7 +137,7 @@ let () =
           let local_ req =
             Req.v ~meth:Httpz.Method.Get ~target:"/hello?a=b" ()
           in
-          ignore (Sys.opaque_identity (Req.path req))
+          let local_ _path = opaque_local (Req.path req) in ()
         in
         ())
   in
@@ -219,8 +216,7 @@ let () =
     Resp.v r ~content_type:Null ~headers:Headers.empty Body.Empty
   in
   let site routes =
-    Compiled.compile
-      (Site.with_fallback cheap (Site.of_routes routes))
+    (Site.with_fallback cheap (Site.of_routes routes))
   in
   let serve_site c t =
     words ~n (fun () ->
@@ -234,17 +230,17 @@ let () =
     (serve_site
        (site
           (List.init 8 (fun i ->
-               Route.(get (s (Printf.sprintf "r%d" i) /? nil)) cheap)))
+               Route.(get (s (Printf.sprintf "r%d" i))) cheap)))
        "/nope");
   row "dispatch: 8 routes, the last matched"
     (serve_site
        (site
           (List.init 8 (fun i ->
-               Route.(get (s (Printf.sprintf "r%d" i) /? nil)) cheap)))
+               Route.(get (s (Printf.sprintf "r%d" i))) cheap)))
        "/r7");
   row "dispatch: one capture route, matched"
     (serve_site
-       (site [ Route.(get (s "e" / str /? nil)) (fun _s -> cheap) ])
+       (site [ Route.(get (s "e" / str)) (fun _s -> cheap) ])
        "/e/abc");
   row "Backend.sink without emit_sub"
     (words ~n (fun () ->

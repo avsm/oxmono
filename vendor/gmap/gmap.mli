@@ -68,7 +68,7 @@ module Order : sig
 end
 
 (** Key. *)
-module type KEY = sig
+module type KEY = sig @@ portable
 
   type _ t
   (** The type of a key *)
@@ -78,7 +78,7 @@ module type KEY = sig
 end
 
 (** Output signature of the functor {!Make} *)
-module type S = sig
+module type S = sig @@ portable
 
   type 'a key
   (** The type for map keys whose lookup value is ['a]. *)
@@ -90,6 +90,10 @@ module type S = sig
 
   val empty : t
   (** [empty] is the empty map. *)
+
+  val fresh_empty : unit -> t
+  (** [fresh_empty ()] constructs an empty map without capturing a shared
+      abstract map value. *)
 
   val singleton : 'a key -> 'a -> t
   (** [singleton key value] creates a one-element map that contains a binding

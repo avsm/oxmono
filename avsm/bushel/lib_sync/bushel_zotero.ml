@@ -58,8 +58,8 @@ let creator_jsont : creator Jsont.t =
   let open Jsont in
   let open Object in
   map ~kind:"creator" (fun first_name last_name -> { first_name; last_name })
-  |> mem "firstName" string ~dec_absent:"" ~enc:(fun c -> c.first_name)
-  |> mem "lastName" string ~dec_absent:"" ~enc:(fun c -> c.last_name)
+  |> mem "firstName" string ~dec_absent:(fun () -> "") ~enc:(fun c -> c.first_name)
+  |> mem "lastName" string ~dec_absent:(fun () -> "") ~enc:(fun c -> c.last_name)
   |> finish
 
 let rec find_in_json json path =

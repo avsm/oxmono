@@ -13,6 +13,7 @@ module type S = sig
   val maci : key:string -> string iter -> string
   val mac_into : key:string -> (string * int * int) list -> bytes -> dst_off:int -> unit
   val unsafe_mac_into : key:string -> (string * int * int) list -> bytes -> dst_off:int -> unit
+    @@ portable
 end
 
 module It : S = struct
@@ -25,9 +26,10 @@ module It : S = struct
 
   let dup = Bytes.copy
 
-  let empty ~key =
+  let (empty @ portable) ~key =
     let ctx = Bytes.create (P.ctx_size ()) in
-    if String.length key <> 32 then invalid_arg "Poly1305 key must be 32 bytes" ;
+    if String.length key <> 32 then
+      Stdlib.invalid_arg "Poly1305 key must be 32 bytes" ;
     P.init ctx key ;
     ctx
 
@@ -55,7 +57,7 @@ module It : S = struct
 
   let maci ~key iter = feedi (empty ~key) iter |> final
 
-  let unsafe_mac_into ~key datas dst ~dst_off =
+  let (unsafe_mac_into @ portable) ~key datas dst ~dst_off =
     let ctx = empty ~key in
     List.iter (fun (d, off, len) -> P.update ctx d off len) datas;
     P.finalize ctx dst dst_off
@@ -70,6 +72,8 @@ module It : S = struct
     List.iter (fun (d, off, len) ->
         if off < 0 then
           Uncommon.invalid_arg "Poly1305: d off %u < 0" off;
+        if len < 0 then
+          Uncommon.invalid_arg "Poly1305: d len %u < 0" len;
         if String.length d - off < len then
           Uncommon.invalid_arg "Poly1305: d length %u - off %u < len %u"
             (String.length d) off len;

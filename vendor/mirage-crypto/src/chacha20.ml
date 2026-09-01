@@ -6,12 +6,16 @@ let block = 64
 
 type key = string
 
-let of_secret a = a
+let (of_secret @ portable) a =
+  let len = String.length a in
+  if len <> 16 && len <> 32 then
+    Stdlib.invalid_arg "Chacha20.of_secret: invalid key length";
+  a
 
-let chacha20_block state idx key_stream =
+let (chacha20_block @ portable) state idx key_stream =
   Native.Chacha.round 10 state key_stream idx
 
-let init ctr ~key ~nonce =
+let (init @ portable) ctr ~key ~nonce ~blocks =
   let ctr_off = 48 in
   let set_ctr32 b v = Bytes.set_int32_le b ctr_off v
   and set_ctr64 b v = Bytes.set_int64_le b ctr_off v
@@ -19,21 +23,26 @@ let init ctr ~key ~nonce =
   let inc32 b = set_ctr32 b (Int32.add (Bytes.get_int32_le b ctr_off) 1l)
   and inc64 b = set_ctr64 b (Int64.add (Bytes.get_int64_le b ctr_off) 1L)
   in
+  let check_blocks max =
+    if Int64.unsigned_compare (Int64.of_int blocks) max > 0 then
+      Stdlib.invalid_arg "Chacha20: too many blocks"
+  in
   let s, key, init_ctr, nonce_off, inc =
     match String.length key, String.length nonce, Int64.shift_right ctr 32 = 0L with
     | 32, 12, true ->
+      check_blocks 0x100000000L;
       let ctr = Int64.to_int32 ctr in
       "expand 32-byte k", key, (fun b -> set_ctr32 b ctr), 52, inc32
     | 32, 12, false ->
-      invalid_arg "Counter too big for IETF mode (32 bit counter)"
+      Stdlib.invalid_arg "Chacha20: counter too large"
     | 32, 8, _ ->
+      check_blocks Int64.minus_one;
       "expand 32-byte k", key, (fun b -> set_ctr64 b ctr), 56, inc64
     | 16, 8, _ ->
       let k = key ^ key in
+      check_blocks Int64.minus_one;
       "expand 16-byte k", k, (fun b -> set_ctr64 b ctr), 56, inc64
-    | _ -> invalid_arg "Valid parameters are nonce 12 bytes and key 32 bytes \
-                        (counter 32 bit), or nonce 8 byte and key 16 or 32 \
-                        bytes (counter 64 bit)."
+    | _ -> Stdlib.invalid_arg "Chacha20: invalid key or nonce length"
   in
   let state = Bytes.create block in
   Bytes.unsafe_blit_string s 0 state 0 16 ;
@@ -42,9 +51,9 @@ let init ctr ~key ~nonce =
   Bytes.unsafe_blit_string nonce 0 state nonce_off (String.length nonce) ;
   state, inc
 
-let crypt_into ~key ~nonce ~ctr src ~src_off dst ~dst_off len =
-  let state, inc = init ctr ~key ~nonce in
+let (crypt_into @ portable) ~key ~nonce ~ctr src ~src_off dst ~dst_off len =
   let block_count = len // block in
+  let state, inc = init ctr ~key ~nonce ~blocks:block_count in
   let last_len =
     let last = len mod block in
     if last = 0 then block else last
@@ -69,7 +78,7 @@ let crypt_into ~key ~nonce ~ctr src ~src_off dst ~dst_off len =
   in
   loop 0 block_count
 
-let crypt ~key ~nonce ?(ctr = 0L) data =
+let (crypt @ portable) ~key ~nonce ?(ctr = 0L) data =
   let l = String.length data in
   let res = Bytes.create l in
   crypt_into ~key ~nonce ~ctr data ~src_off:0 res ~dst_off:0 l;
@@ -79,10 +88,10 @@ module P = Poly1305.It
 
 let tag_size = P.mac_size
 
-let generate_poly1305_key ~key ~nonce =
+let (generate_poly1305_key @ portable) ~key ~nonce =
   crypt ~key ~nonce (String.make 32 '\000')
 
-let mac_into ~key ~adata src ~src_off len dst ~dst_off =
+let (mac_into @ portable) ~key ~adata src ~src_off len dst ~dst_off =
   let pad16 l =
     let len = l mod 16 in
     if len = 0 then "" else String.make (16 - len) '\000'
@@ -100,12 +109,29 @@ let mac_into ~key ~adata src ~src_off len dst ~dst_off =
                            len_buf, 0, String.length len_buf ]
     dst ~dst_off
 
-let unsafe_authenticate_encrypt_into ~key ~nonce ?(adata = "") src ~src_off dst ~dst_off ~tag_off len =
+let (check_aead_blocks_and_key @ portable) key nonce len =
+  let blocks = len // block in
+  match String.length key, String.length nonce with
+  | 32, 12 ->
+    if Int64.of_int blocks > 0xffffffffL then
+      Stdlib.invalid_arg "Chacha20: too many blocks"
+  | 16, 8 | 32, 8 ->
+    if Int64.unsigned_compare (Int64.of_int blocks) Int64.minus_one > 0 then
+      Stdlib.invalid_arg "Chacha20: too many blocks"
+  | _, _ ->
+    Stdlib.invalid_arg "Chacha20: invalid key or nonce length"
+[@@inline always]
+
+let (unsafe_authenticate_encrypt_into @ portable) ~key ~nonce ?(adata = "")
+    src ~src_off dst ~dst_off ~tag_off len =
+  check_aead_blocks_and_key key nonce len;
   let poly1305_key = generate_poly1305_key ~key ~nonce in
   crypt_into ~key ~nonce ~ctr:1L src ~src_off dst ~dst_off len;
   mac_into ~key:poly1305_key ~adata (Bytes.unsafe_to_string dst) ~src_off:dst_off len dst ~dst_off:tag_off
 
 let authenticate_encrypt_into ~key ~nonce ?adata src ~src_off dst ~dst_off ~tag_off len =
+  if src_off < 0 || dst_off < 0 || tag_off < 0 || len < 0 then
+    invalid_arg "Chacha20: negative offset or length";
   if String.length src - src_off < len then
     invalid_arg "Chacha20: src length %u - src_off %u < len %u"
       (String.length src) src_off len;
@@ -117,7 +143,7 @@ let authenticate_encrypt_into ~key ~nonce ?adata src ~src_off dst ~dst_off ~tag_
       (Bytes.length dst) tag_off tag_size;
   unsafe_authenticate_encrypt_into ~key ~nonce ?adata src ~src_off dst ~dst_off ~tag_off len
 
-let authenticate_encrypt ~key ~nonce ?adata data =
+let (authenticate_encrypt @ portable) ~key ~nonce ?adata data =
   let l = String.length data in
   let dst = Bytes.create (l + tag_size) in
   unsafe_authenticate_encrypt_into ~key ~nonce ?adata data ~src_off:0 dst ~dst_off:0 ~tag_off:l l;
@@ -127,14 +153,19 @@ let authenticate_encrypt_tag ~key ~nonce ?adata data =
   let r = authenticate_encrypt ~key ~nonce ?adata data in
   String.sub r 0 (String.length data), String.sub r (String.length data) tag_size
 
-let unsafe_authenticate_decrypt_into ~key ~nonce ?(adata = "") src ~src_off ~tag_off dst ~dst_off len =
+let (unsafe_authenticate_decrypt_into @ portable) ~key ~nonce ?(adata = "")
+    src ~src_off ~tag_off dst ~dst_off len =
+  check_aead_blocks_and_key key nonce len;
   let poly1305_key = generate_poly1305_key ~key ~nonce in
   let ctag = Bytes.create tag_size in
   mac_into ~key:poly1305_key ~adata src ~src_off len ctag ~dst_off:0;
-  crypt_into ~key ~nonce ~ctr:1L src ~src_off dst ~dst_off len;
-  Eqaf.equal (String.sub src tag_off tag_size) (Bytes.unsafe_to_string ctag)
+  let r = Eqaf.equal (String.sub src tag_off tag_size) (Bytes.unsafe_to_string ctag) in
+  if r then crypt_into ~key ~nonce ~ctr:1L src ~src_off dst ~dst_off len;
+  r
 
 let authenticate_decrypt_into ~key ~nonce ?adata src ~src_off ~tag_off dst ~dst_off len =
+  if src_off < 0 || dst_off < 0 || tag_off < 0 || len < 0 then
+    invalid_arg "Chacha20: negative offset or length";
   if String.length src - src_off < len then
     invalid_arg "Chacha20: src length %u - src_off %u < len %u"
       (String.length src) src_off len;
@@ -146,7 +177,7 @@ let authenticate_decrypt_into ~key ~nonce ?adata src ~src_off ~tag_off dst ~dst_
       (String.length src) tag_off tag_size;
   unsafe_authenticate_decrypt_into ~key ~nonce ?adata src ~src_off ~tag_off dst ~dst_off len
 
-let authenticate_decrypt ~key ~nonce ?adata data =
+let (authenticate_decrypt @ portable) ~key ~nonce ?adata data =
   if String.length data < tag_size then
     None
   else

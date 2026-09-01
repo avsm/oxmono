@@ -43,14 +43,15 @@ module Impl = struct
     with Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
 
   (* todo: provide a way to do a single write *)
-  let single_write t bufs =
+  let single_write t (bufs @ local) =
+    let bufs = Cstruct.globalize_list bufs in
     write_all t bufs;
     Cstruct.lenv bufs
 
   let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
 
-  let single_read t buf =
-    match Low_level.read_cstruct t buf with
+  let single_read t (buf @ local) =
+    match Low_level.read_cstruct t (Cstruct.globalize buf) with
     | 0 -> raise End_of_file
     | got -> got
     | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.v code name arg)
@@ -100,8 +101,8 @@ let of_fd fd =
 module Secure_random = struct
   type t = unit
 
-  let single_read () buf =
-    Low_level.getrandom buf;
+  let single_read () (buf @ local) =
+    Low_level.getrandom (Cstruct.globalize buf);
     Cstruct.length buf
 
   let read_methods = []

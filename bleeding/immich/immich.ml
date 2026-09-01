@@ -75,7 +75,7 @@ module WorkflowFilter = struct
       Jsont.Object.map ~kind:"WorkflowFilterResponseDto"
         (fun filter_config id order plugin_filter_id workflow_id -> { filter_config; id; order; plugin_filter_id; workflow_id })
       |> Jsont.Object.mem "filterConfig" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.filter_config)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.filter_config)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "order" Jsont.number ~enc:(fun r -> r.order)
       |> Jsont.Object.mem "pluginFilterId" Jsont.string ~enc:(fun r -> r.plugin_filter_id)
@@ -141,7 +141,7 @@ module WorkflowAction = struct
       Jsont.Object.map ~kind:"WorkflowActionResponseDto"
         (fun action_config id order plugin_action_id workflow_id -> { action_config; id; order; plugin_action_id; workflow_id })
       |> Jsont.Object.mem "actionConfig" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.action_config)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.action_config)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "order" Jsont.number ~enc:(fun r -> r.order)
       |> Jsont.Object.mem "pluginActionId" Jsont.string ~enc:(fun r -> r.plugin_action_id)
@@ -235,9 +235,9 @@ module VersionCheckState = struct
       Jsont.Object.map ~kind:"VersionCheckStateResponseDto"
         (fun checked_at release_version -> { checked_at; release_version })
       |> Jsont.Object.mem "checkedAt" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.checked_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.checked_at)
       |> Jsont.Object.mem "releaseVersion" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.release_version)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.release_version)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -333,7 +333,7 @@ module ValidateLibraryImportPath = struct
       Jsont.Object.map ~kind:"ValidateLibraryImportPathResponseDto"
         (fun import_path is_valid message -> { import_path; is_valid; message })
       |> Jsont.Object.mem "importPath" Jsont.string ~enc:(fun r -> r.import_path)
-      |> Jsont.Object.mem "isValid" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.is_valid)
+      |> Jsont.Object.mem "isValid" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.is_valid)
       |> Jsont.Object.opt_mem "message" Jsont.string ~enc:(fun r -> r.message)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -844,7 +844,7 @@ module SyncUserV1 = struct
         (fun avatar_color deleted_at email has_profile_image id name profile_changed_at -> { avatar_color; deleted_at; email; has_profile_image; id; name; profile_changed_at })
       |> Jsont.Object.mem "avatarColor" UserAvatarColor.T.jsont ~enc:(fun r -> r.avatar_color)
       |> Jsont.Object.mem "deletedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
       |> Jsont.Object.mem "email" Jsont.string ~enc:(fun r -> r.email)
       |> Jsont.Object.mem "hasProfileImage" Jsont.bool ~enc:(fun r -> r.has_profile_image)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
@@ -900,7 +900,7 @@ module SyncAuthUserV1 = struct
         (fun avatar_color deleted_at email has_profile_image id is_admin name oauth_id pin_code profile_changed_at quota_size_in_bytes quota_usage_in_bytes storage_label -> { avatar_color; deleted_at; email; has_profile_image; id; is_admin; name; oauth_id; pin_code; profile_changed_at; quota_size_in_bytes; quota_usage_in_bytes; storage_label })
       |> Jsont.Object.mem "avatarColor" UserAvatarColor.T.jsont ~enc:(fun r -> r.avatar_color)
       |> Jsont.Object.mem "deletedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
       |> Jsont.Object.mem "email" Jsont.string ~enc:(fun r -> r.email)
       |> Jsont.Object.mem "hasProfileImage" Jsont.bool ~enc:(fun r -> r.has_profile_image)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
@@ -908,13 +908,13 @@ module SyncAuthUserV1 = struct
       |> Jsont.Object.mem "name" Jsont.string ~enc:(fun r -> r.name)
       |> Jsont.Object.mem "oauthId" Jsont.string ~enc:(fun r -> r.oauth_id)
       |> Jsont.Object.mem "pinCode" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.pin_code)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.pin_code)
       |> Jsont.Object.mem "profileChangedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.profile_changed_at)
       |> Jsont.Object.mem "quotaSizeInBytes" Openapi.Runtime.nullable_int
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
       |> Jsont.Object.mem "quotaUsageInBytes" Jsont.int ~enc:(fun r -> r.quota_usage_in_bytes)
       |> Jsont.Object.mem "storageLabel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.storage_label)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.storage_label)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -1222,7 +1222,7 @@ module UsageByUser = struct
         (fun photos quota_size_in_bytes usage usage_photos usage_videos user_id user_name videos -> { photos; quota_size_in_bytes; usage; usage_photos; usage_videos; user_id; user_name; videos })
       |> Jsont.Object.mem "photos" Jsont.int ~enc:(fun r -> r.photos)
       |> Jsont.Object.mem "quotaSizeInBytes" (Openapi.Runtime.nullable_any Jsont.int64)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
       |> Jsont.Object.mem "usage" Jsont.int64 ~enc:(fun r -> r.usage)
       |> Jsont.Object.mem "usagePhotos" Jsont.int64 ~enc:(fun r -> r.usage_photos)
       |> Jsont.Object.mem "usageVideos" Jsont.int64 ~enc:(fun r -> r.usage_videos)
@@ -1263,12 +1263,12 @@ module ServerStats = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"ServerStatsResponseDto"
         (fun photos usage usage_by_user usage_photos usage_videos videos -> { photos; usage; usage_by_user; usage_photos; usage_videos; videos })
-      |> Jsont.Object.mem "photos" Jsont.int ~dec_absent:0 ~enc:(fun r -> r.photos)
-      |> Jsont.Object.mem "usage" Jsont.int64 ~dec_absent:0L ~enc:(fun r -> r.usage)
-      |> Jsont.Object.mem "usageByUser" (Jsont.list UsageByUser.Dto.jsont) ~dec_absent:[] ~enc:(fun r -> r.usage_by_user)
-      |> Jsont.Object.mem "usagePhotos" Jsont.int64 ~dec_absent:0L ~enc:(fun r -> r.usage_photos)
-      |> Jsont.Object.mem "usageVideos" Jsont.int64 ~dec_absent:0L ~enc:(fun r -> r.usage_videos)
-      |> Jsont.Object.mem "videos" Jsont.int ~dec_absent:0 ~enc:(fun r -> r.videos)
+      |> Jsont.Object.mem "photos" Jsont.int ~dec_absent:(fun () -> 0) ~enc:(fun r -> r.photos)
+      |> Jsont.Object.mem "usage" Jsont.int64 ~dec_absent:(fun () -> 0L) ~enc:(fun r -> r.usage)
+      |> Jsont.Object.mem "usageByUser" (Jsont.list UsageByUser.Dto.jsont) ~dec_absent:(fun () -> []) ~enc:(fun r -> r.usage_by_user)
+      |> Jsont.Object.mem "usagePhotos" Jsont.int64 ~dec_absent:(fun () -> 0L) ~enc:(fun r -> r.usage_photos)
+      |> Jsont.Object.mem "usageVideos" Jsont.int64 ~dec_absent:(fun () -> 0L) ~enc:(fun r -> r.usage_videos)
+      |> Jsont.Object.mem "videos" Jsont.int ~dec_absent:(fun () -> 0) ~enc:(fun r -> r.videos)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -1637,8 +1637,8 @@ module Tags = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"TagsResponse"
         (fun enabled sidebar_web -> { enabled; sidebar_web })
-      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.enabled)
-      |> Jsont.Object.mem "sidebarWeb" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.sidebar_web)
+      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.enabled)
+      |> Jsont.Object.mem "sidebarWeb" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.sidebar_web)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -1709,7 +1709,7 @@ module Tag = struct
       Jsont.Object.map ~kind:"TagUpdateDto"
         (fun color -> { color })
       |> Jsont.Object.mem "color" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -1756,7 +1756,7 @@ module Tag = struct
       |> Jsont.Object.opt_mem "color" (Openapi.Runtime.validated_string ~pattern:"^#?([0-9A-F]{3}|[0-9A-F]{4}|[0-9A-F]{6}|[0-9A-F]{8})$" Jsont.string) ~enc:(fun r -> r.color)
       |> Jsont.Object.mem "name" Jsont.string ~enc:(fun r -> r.name)
       |> Jsont.Object.mem "parentId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.parent_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.parent_id)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -2964,12 +2964,12 @@ module SyncPersonV1 = struct
       Jsont.Object.map ~kind:"SyncPersonV1"
         (fun birth_date color created_at face_asset_id id is_favorite is_hidden name owner_id updated_at -> { birth_date; color; created_at; face_asset_id; id; is_favorite; is_hidden; name; owner_id; updated_at })
       |> Jsont.Object.mem "birthDate" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
       |> Jsont.Object.mem "color" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
       |> Jsont.Object.mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "faceAssetId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.face_asset_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.face_asset_id)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "isFavorite" Jsont.bool ~enc:(fun r -> r.is_favorite)
       |> Jsont.Object.mem "isHidden" Jsont.bool ~enc:(fun r -> r.is_hidden)
@@ -3511,7 +3511,7 @@ module SyncAssetFaceV1 = struct
       |> Jsont.Object.mem "imageHeight" Jsont.int ~enc:(fun r -> r.image_height)
       |> Jsont.Object.mem "imageWidth" Jsont.int ~enc:(fun r -> r.image_width)
       |> Jsont.Object.mem "personId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.person_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.person_id)
       |> Jsont.Object.mem "sourceType" Jsont.string ~enc:(fun r -> r.source_type)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -3612,53 +3612,53 @@ module SyncAssetExifV1 = struct
         (fun asset_id city country date_time_original description exif_image_height exif_image_width exposure_time f_number file_size_in_byte focal_length fps iso latitude lens_model longitude make model modify_date orientation profile_description projection_type rating state time_zone -> { asset_id; city; country; date_time_original; description; exif_image_height; exif_image_width; exposure_time; f_number; file_size_in_byte; focal_length; fps; iso; latitude; lens_model; longitude; make; model; modify_date; orientation; profile_description; projection_type; rating; state; time_zone })
       |> Jsont.Object.mem "assetId" Jsont.string ~enc:(fun r -> r.asset_id)
       |> Jsont.Object.mem "city" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
       |> Jsont.Object.mem "country" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
       |> Jsont.Object.mem "dateTimeOriginal" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.date_time_original)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.date_time_original)
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.mem "exifImageHeight" Openapi.Runtime.nullable_int
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.exif_image_height)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.exif_image_height)
       |> Jsont.Object.mem "exifImageWidth" Openapi.Runtime.nullable_int
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.exif_image_width)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.exif_image_width)
       |> Jsont.Object.mem "exposureTime" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.exposure_time)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.exposure_time)
       |> Jsont.Object.mem "fNumber" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.f_number)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.f_number)
       |> Jsont.Object.mem "fileSizeInByte" Openapi.Runtime.nullable_int
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.file_size_in_byte)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.file_size_in_byte)
       |> Jsont.Object.mem "focalLength" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.focal_length)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.focal_length)
       |> Jsont.Object.mem "fps" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.fps)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.fps)
       |> Jsont.Object.mem "iso" Openapi.Runtime.nullable_int
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.iso)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.iso)
       |> Jsont.Object.mem "latitude" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.latitude)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.latitude)
       |> Jsont.Object.mem "lensModel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
       |> Jsont.Object.mem "longitude" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.longitude)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.longitude)
       |> Jsont.Object.mem "make" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.make)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.make)
       |> Jsont.Object.mem "model" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
       |> Jsont.Object.mem "modifyDate" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.modify_date)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.modify_date)
       |> Jsont.Object.mem "orientation" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.orientation)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.orientation)
       |> Jsont.Object.mem "profileDescription" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.profile_description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.profile_description)
       |> Jsont.Object.mem "projectionType" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.projection_type)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.projection_type)
       |> Jsont.Object.mem "rating" Openapi.Runtime.nullable_int
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.rating)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.rating)
       |> Jsont.Object.mem "state" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
       |> Jsont.Object.mem "timeZone" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.time_zone)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.time_zone)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -4076,7 +4076,7 @@ module PersonWithFaces = struct
       Jsont.Object.map ~kind:"PersonWithFacesResponseDto"
         (fun birth_date color faces id is_favorite is_hidden name thumbnail_path updated_at -> { birth_date; color; faces; id; is_favorite; is_hidden; name; thumbnail_path; updated_at })
       |> Jsont.Object.mem "birthDate" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
       |> Jsont.Object.opt_mem "color" Jsont.string ~enc:(fun r -> r.color)
       |> Jsont.Object.mem "faces" (Jsont.list AssetFaceWithoutPerson.ResponseDto.jsont) ~enc:(fun r -> r.faces)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
@@ -4166,8 +4166,8 @@ module SharedLinks = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"SharedLinksResponse"
         (fun enabled sidebar_web -> { enabled; sidebar_web })
-      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.enabled)
-      |> Jsont.Object.mem "sidebarWeb" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.sidebar_web)
+      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.enabled)
+      |> Jsont.Object.mem "sidebarWeb" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.sidebar_web)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -4212,14 +4212,14 @@ module SharedLinkEdit = struct
       |> Jsont.Object.opt_mem "allowUpload" Jsont.bool ~enc:(fun r -> r.allow_upload)
       |> Jsont.Object.opt_mem "changeExpiryTime" Jsont.bool ~enc:(fun r -> r.change_expiry_time)
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.mem "expiresAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.expires_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.expires_at)
       |> Jsont.Object.mem "password" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.password)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.password)
       |> Jsont.Object.opt_mem "showMetadata" Jsont.bool ~enc:(fun r -> r.show_metadata)
       |> Jsont.Object.mem "slug" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.slug)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.slug)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -4318,7 +4318,7 @@ module Session = struct
       Jsont.Object.map ~kind:"SessionResponseDto"
         (fun app_version created_at current device_os device_type expires_at id is_pending_sync_reset updated_at -> { app_version; created_at; current; device_os; device_type; expires_at; id; is_pending_sync_reset; updated_at })
       |> Jsont.Object.mem "appVersion" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.app_version)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.app_version)
       |> Jsont.Object.mem "createdAt" Jsont.string ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "current" Jsont.bool ~enc:(fun r -> r.current)
       |> Jsont.Object.mem "deviceOS" Jsont.string ~enc:(fun r -> r.device_os)
@@ -4488,7 +4488,7 @@ module SessionCreate = struct
       Jsont.Object.map ~kind:"SessionCreateResponseDto"
         (fun app_version created_at current device_os device_type expires_at id is_pending_sync_reset token updated_at -> { app_version; created_at; current; device_os; device_type; expires_at; id; is_pending_sync_reset; token; updated_at })
       |> Jsont.Object.mem "appVersion" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.app_version)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.app_version)
       |> Jsont.Object.mem "createdAt" Jsont.string ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "current" Jsont.bool ~enc:(fun r -> r.current)
       |> Jsont.Object.mem "deviceOS" Jsont.string ~enc:(fun r -> r.device_os)
@@ -5433,9 +5433,9 @@ module ReverseGeocodingState = struct
       Jsont.Object.map ~kind:"ReverseGeocodingStateResponseDto"
         (fun last_import_file_name last_update -> { last_import_file_name; last_update })
       |> Jsont.Object.mem "lastImportFileName" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.last_import_file_name)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.last_import_file_name)
       |> Jsont.Object.mem "lastUpdate" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.last_update)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.last_update)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -5563,9 +5563,9 @@ module Activity = struct
       Jsont.Object.map ~kind:"ActivityResponseDto"
         (fun asset_id comment created_at id type_ user -> { asset_id; comment; created_at; id; type_; user })
       |> Jsont.Object.mem "assetId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.asset_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.asset_id)
       |> Jsont.Object.mem "comment" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.comment)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.comment)
       |> Jsont.Object.mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "type" Reaction.Type.jsont ~enc:(fun r -> r.type_)
@@ -5702,7 +5702,7 @@ module Ratings = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"RatingsResponse"
         (fun enabled -> { enabled })
-      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.enabled)
+      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.enabled)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -6504,7 +6504,7 @@ module Workflow = struct
       |> Jsont.Object.mem "filters" (Jsont.list WorkflowFilter.ResponseDto.jsont) ~enc:(fun r -> r.filters)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "name" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.name)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.name)
       |> Jsont.Object.mem "ownerId" Jsont.string ~enc:(fun r -> r.owner_id)
       |> Jsont.Object.mem "triggerType" PluginTrigger.Type.jsont ~enc:(fun r -> r.trigger_type)
       |> Jsont.Object.skip_unknown
@@ -6705,7 +6705,7 @@ module PluginFilter = struct
       |> Jsont.Object.mem "methodName" Jsont.string ~enc:(fun r -> r.method_name)
       |> Jsont.Object.mem "pluginId" Jsont.string ~enc:(fun r -> r.plugin_id)
       |> Jsont.Object.mem "schema" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.schema)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.schema)
       |> Jsont.Object.mem "supportedContexts" (Jsont.list PluginContext.Type.jsont) ~enc:(fun r -> r.supported_contexts)
       |> Jsont.Object.mem "title" Jsont.string ~enc:(fun r -> r.title)
       |> Jsont.Object.skip_unknown
@@ -6749,7 +6749,7 @@ module PluginAction = struct
       |> Jsont.Object.mem "methodName" Jsont.string ~enc:(fun r -> r.method_name)
       |> Jsont.Object.mem "pluginId" Jsont.string ~enc:(fun r -> r.plugin_id)
       |> Jsont.Object.mem "schema" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.schema)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.schema)
       |> Jsont.Object.mem "supportedContexts" (Jsont.list PluginContext.Type.jsont) ~enc:(fun r -> r.supported_contexts)
       |> Jsont.Object.mem "title" Jsont.string ~enc:(fun r -> r.title)
       |> Jsont.Object.skip_unknown
@@ -7885,9 +7885,9 @@ module PeopleUpdate = struct
       Jsont.Object.map ~kind:"PeopleUpdateItem"
         (fun birth_date color feature_face_asset_id id is_favorite is_hidden name -> { birth_date; color; feature_face_asset_id; id; is_favorite; is_hidden; name })
       |> Jsont.Object.mem "birthDate" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
       |> Jsont.Object.mem "color" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
       |> Jsont.Object.opt_mem "featureFaceAssetId" Jsont.string ~enc:(fun r -> r.feature_face_asset_id)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.opt_mem "isFavorite" Jsont.bool ~enc:(fun r -> r.is_favorite)
@@ -8181,7 +8181,7 @@ module SystemConfigOauth = struct
       |> Jsont.Object.mem "clientId" Jsont.string ~enc:(fun r -> r.client_id)
       |> Jsont.Object.mem "clientSecret" Jsont.string ~enc:(fun r -> r.client_secret)
       |> Jsont.Object.mem "defaultStorageQuota" (Openapi.Runtime.nullable_any Jsont.int64)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.default_storage_quota)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.default_storage_quota)
       |> Jsont.Object.mem "enabled" Jsont.bool ~enc:(fun r -> r.enabled)
       |> Jsont.Object.mem "issuerUrl" Jsont.string ~enc:(fun r -> r.issuer_url)
       |> Jsont.Object.mem "mobileOverrideEnabled" Jsont.bool ~enc:(fun r -> r.mobile_override_enabled)
@@ -8342,7 +8342,7 @@ module NotificationUpdateAll = struct
         (fun ids read_at -> { ids; read_at })
       |> Jsont.Object.mem "ids" (Jsont.list Jsont.string) ~enc:(fun r -> r.ids)
       |> Jsont.Object.mem "readAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.read_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.read_at)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -8435,7 +8435,7 @@ module Notification = struct
       Jsont.Object.map ~kind:"NotificationUpdateDto"
         (fun read_at -> { read_at })
       |> Jsont.Object.mem "readAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.read_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.read_at)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -8509,10 +8509,10 @@ module Notification = struct
         (fun data description level read_at title type_ user_id -> { data; description; level; read_at; title; type_; user_id })
       |> Jsont.Object.opt_mem "data" Jsont.json ~enc:(fun r -> r.data)
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.opt_mem "level" NotificationLevel.T.jsont ~enc:(fun r -> r.level)
       |> Jsont.Object.mem "readAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.read_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.read_at)
       |> Jsont.Object.mem "title" Jsont.string ~enc:(fun r -> r.title)
       |> Jsont.Object.opt_mem "type" Type.jsont ~enc:(fun r -> r.type_)
       |> Jsont.Object.mem "userId" Jsont.string ~enc:(fun r -> r.user_id)
@@ -8887,8 +8887,8 @@ module Memories = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"MemoriesResponse"
         (fun duration enabled -> { duration; enabled })
-      |> Jsont.Object.mem "duration" Jsont.int ~dec_absent:5 ~enc:(fun r -> r.duration)
-      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.enabled)
+      |> Jsont.Object.mem "duration" Jsont.int ~dec_absent:(fun () -> 5) ~enc:(fun r -> r.duration)
+      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.enabled)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -8918,11 +8918,11 @@ module MapReverseGeocode = struct
       Jsont.Object.map ~kind:"MapReverseGeocodeResponseDto"
         (fun city country state -> { city; country; state })
       |> Jsont.Object.mem "city" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
       |> Jsont.Object.mem "country" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
       |> Jsont.Object.mem "state" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -8991,14 +8991,14 @@ module MapMarker = struct
       Jsont.Object.map ~kind:"MapMarkerResponseDto"
         (fun city country id lat lon state -> { city; country; id; lat; lon; state })
       |> Jsont.Object.mem "city" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
       |> Jsont.Object.mem "country" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "lat" Jsont.number ~enc:(fun r -> r.lat)
       |> Jsont.Object.mem "lon" Jsont.number ~enc:(fun r -> r.lon)
       |> Jsont.Object.mem "state" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -9824,10 +9824,10 @@ module LibraryStats = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"LibraryStatsResponseDto"
         (fun photos total usage videos -> { photos; total; usage; videos })
-      |> Jsont.Object.mem "photos" Jsont.int ~dec_absent:0 ~enc:(fun r -> r.photos)
-      |> Jsont.Object.mem "total" Jsont.int ~dec_absent:0 ~enc:(fun r -> r.total)
-      |> Jsont.Object.mem "usage" Jsont.int64 ~dec_absent:0L ~enc:(fun r -> r.usage)
-      |> Jsont.Object.mem "videos" Jsont.int ~dec_absent:0 ~enc:(fun r -> r.videos)
+      |> Jsont.Object.mem "photos" Jsont.int ~dec_absent:(fun () -> 0) ~enc:(fun r -> r.photos)
+      |> Jsont.Object.mem "total" Jsont.int ~dec_absent:(fun () -> 0) ~enc:(fun r -> r.total)
+      |> Jsont.Object.mem "usage" Jsont.int64 ~dec_absent:(fun () -> 0L) ~enc:(fun r -> r.usage)
+      |> Jsont.Object.mem "videos" Jsont.int ~dec_absent:(fun () -> 0) ~enc:(fun r -> r.videos)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -10293,7 +10293,7 @@ module SystemConfigGeneratedImage = struct
       Jsont.Object.map ~kind:"SystemConfigGeneratedImageDto"
         (fun format progressive quality size -> { format; progressive; quality; size })
       |> Jsont.Object.mem "format" ImageFormat.T.jsont ~enc:(fun r -> r.format)
-      |> Jsont.Object.mem "progressive" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.progressive)
+      |> Jsont.Object.mem "progressive" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.progressive)
       |> Jsont.Object.mem "quality" (Openapi.Runtime.validated_int ~minimum:1. ~maximum:100. Jsont.int) ~enc:(fun r -> r.quality)
       |> Jsont.Object.mem "size" (Openapi.Runtime.validated_int ~minimum:1. Jsont.int) ~enc:(fun r -> r.size)
       |> Jsont.Object.skip_unknown
@@ -10328,7 +10328,7 @@ module SystemConfigGeneratedFullsizeImage = struct
         (fun enabled format progressive quality -> { enabled; format; progressive; quality })
       |> Jsont.Object.mem "enabled" Jsont.bool ~enc:(fun r -> r.enabled)
       |> Jsont.Object.mem "format" ImageFormat.T.jsont ~enc:(fun r -> r.format)
-      |> Jsont.Object.mem "progressive" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.progressive)
+      |> Jsont.Object.mem "progressive" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.progressive)
       |> Jsont.Object.mem "quality" (Openapi.Runtime.validated_int ~minimum:1. ~maximum:100. Jsont.int) ~enc:(fun r -> r.quality)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -10380,8 +10380,8 @@ module Folders = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"FoldersResponse"
         (fun enabled sidebar_web -> { enabled; sidebar_web })
-      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.enabled)
-      |> Jsont.Object.mem "sidebarWeb" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.sidebar_web)
+      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.enabled)
+      |> Jsont.Object.mem "sidebarWeb" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.sidebar_web)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -10511,49 +10511,49 @@ module Exif = struct
       Jsont.Object.map ~kind:"ExifResponseDto"
         (fun city country date_time_original description exif_image_height exif_image_width exposure_time f_number file_size_in_byte focal_length iso latitude lens_model longitude make model modify_date orientation projection_type rating state time_zone -> { city; country; date_time_original; description; exif_image_height; exif_image_width; exposure_time; f_number; file_size_in_byte; focal_length; iso; latitude; lens_model; longitude; make; model; modify_date; orientation; projection_type; rating; state; time_zone })
       |> Jsont.Object.mem "city" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
       |> Jsont.Object.mem "country" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
       |> Jsont.Object.mem "dateTimeOriginal" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.date_time_original)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.date_time_original)
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.mem "exifImageHeight" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.exif_image_height)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.exif_image_height)
       |> Jsont.Object.mem "exifImageWidth" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.exif_image_width)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.exif_image_width)
       |> Jsont.Object.mem "exposureTime" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.exposure_time)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.exposure_time)
       |> Jsont.Object.mem "fNumber" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.f_number)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.f_number)
       |> Jsont.Object.mem "fileSizeInByte" (Openapi.Runtime.nullable_any Jsont.int64)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.file_size_in_byte)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.file_size_in_byte)
       |> Jsont.Object.mem "focalLength" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.focal_length)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.focal_length)
       |> Jsont.Object.mem "iso" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.iso)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.iso)
       |> Jsont.Object.mem "latitude" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.latitude)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.latitude)
       |> Jsont.Object.mem "lensModel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
       |> Jsont.Object.mem "longitude" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.longitude)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.longitude)
       |> Jsont.Object.mem "make" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.make)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.make)
       |> Jsont.Object.mem "model" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
       |> Jsont.Object.mem "modifyDate" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.modify_date)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.modify_date)
       |> Jsont.Object.mem "orientation" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.orientation)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.orientation)
       |> Jsont.Object.mem "projectionType" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.projection_type)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.projection_type)
       |> Jsont.Object.mem "rating" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.rating)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.rating)
       |> Jsont.Object.mem "state" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
       |> Jsont.Object.mem "timeZone" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.time_zone)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.time_zone)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -10777,7 +10777,7 @@ module Download = struct
       Jsont.Object.map ~kind:"DownloadResponse"
         (fun archive_size include_embedded_videos -> { archive_size; include_embedded_videos })
       |> Jsont.Object.mem "archiveSize" Jsont.int ~enc:(fun r -> r.archive_size)
-      |> Jsont.Object.mem "includeEmbeddedVideos" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.include_embedded_videos)
+      |> Jsont.Object.mem "includeEmbeddedVideos" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.include_embedded_videos)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -11200,7 +11200,7 @@ module Library = struct
       |> Jsont.Object.mem "name" Jsont.string ~enc:(fun r -> r.name)
       |> Jsont.Object.mem "ownerId" Jsont.string ~enc:(fun r -> r.owner_id)
       |> Jsont.Object.mem "refreshedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.refreshed_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.refreshed_at)
       |> Jsont.Object.mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -11633,7 +11633,7 @@ module ChangePassword = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"ChangePasswordDto"
         (fun invalidate_sessions new_password password -> { invalidate_sessions; new_password; password })
-      |> Jsont.Object.mem "invalidateSessions" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.invalidate_sessions)
+      |> Jsont.Object.mem "invalidateSessions" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.invalidate_sessions)
       |> Jsont.Object.mem "newPassword" (Openapi.Runtime.validated_string ~min_length:8 Jsont.string) ~enc:(fun r -> r.new_password)
       |> Jsont.Object.mem "password" Jsont.string ~enc:(fun r -> r.password)
       |> Jsont.Object.skip_unknown
@@ -11718,12 +11718,12 @@ module UserAdmin = struct
       |> Jsont.Object.opt_mem "name" Jsont.string ~enc:(fun r -> r.name)
       |> Jsont.Object.opt_mem "password" Jsont.string ~enc:(fun r -> r.password)
       |> Jsont.Object.mem "pinCode" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.pin_code)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.pin_code)
       |> Jsont.Object.mem "quotaSizeInBytes" (Openapi.Runtime.nullable_any Jsont.int64)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
       |> Jsont.Object.opt_mem "shouldChangePassword" Jsont.bool ~enc:(fun r -> r.should_change_password)
       |> Jsont.Object.mem "storageLabel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.storage_label)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.storage_label)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -11757,7 +11757,7 @@ module UserAdmin = struct
       |> Jsont.Object.mem "avatarColor" UserAvatarColor.T.jsont ~enc:(fun r -> r.avatar_color)
       |> Jsont.Object.mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "deletedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
       |> Jsont.Object.mem "email" Jsont.string ~enc:(fun r -> r.email)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "isAdmin" Jsont.bool ~enc:(fun r -> r.is_admin)
@@ -11767,13 +11767,13 @@ module UserAdmin = struct
       |> Jsont.Object.mem "profileChangedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.profile_changed_at)
       |> Jsont.Object.mem "profileImagePath" Jsont.string ~enc:(fun r -> r.profile_image_path)
       |> Jsont.Object.mem "quotaSizeInBytes" (Openapi.Runtime.nullable_any Jsont.int64)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
       |> Jsont.Object.mem "quotaUsageInBytes" (Openapi.Runtime.nullable_any Jsont.int64)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_usage_in_bytes)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_usage_in_bytes)
       |> Jsont.Object.mem "shouldChangePassword" Jsont.bool ~enc:(fun r -> r.should_change_password)
       |> Jsont.Object.mem "status" User.Status.jsont ~enc:(fun r -> r.status)
       |> Jsont.Object.mem "storageLabel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.storage_label)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.storage_label)
       |> Jsont.Object.mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -11804,10 +11804,10 @@ module UserAdmin = struct
       |> Jsont.Object.opt_mem "notify" Jsont.bool ~enc:(fun r -> r.notify)
       |> Jsont.Object.mem "password" Jsont.string ~enc:(fun r -> r.password)
       |> Jsont.Object.mem "quotaSizeInBytes" (Openapi.Runtime.nullable_any Jsont.int64)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.quota_size_in_bytes)
       |> Jsont.Object.opt_mem "shouldChangePassword" Jsont.bool ~enc:(fun r -> r.should_change_password)
       |> Jsont.Object.mem "storageLabel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.storage_label)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.storage_label)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -12249,7 +12249,7 @@ module Cast = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"CastResponse"
         (fun g_cast_enabled -> { g_cast_enabled })
-      |> Jsont.Object.mem "gCastEnabled" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.g_cast_enabled)
+      |> Jsont.Object.mem "gCastEnabled" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.g_cast_enabled)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -12959,7 +12959,7 @@ module UpdateAsset = struct
       |> Jsont.Object.opt_mem "isFavorite" Jsont.bool ~enc:(fun r -> r.is_favorite)
       |> Jsont.Object.opt_mem "latitude" Jsont.number ~enc:(fun r -> r.latitude)
       |> Jsont.Object.mem "livePhotoVideoId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.live_photo_video_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.live_photo_video_id)
       |> Jsont.Object.opt_mem "longitude" Jsont.number ~enc:(fun r -> r.longitude)
       |> Jsont.Object.opt_mem "rating" (Openapi.Runtime.validated_float ~minimum:(-1.) ~maximum:5. Jsont.number) ~enc:(fun r -> r.rating)
       |> Jsont.Object.opt_mem "visibility" AssetVisibility.T.jsont ~enc:(fun r -> r.visibility)
@@ -13133,7 +13133,7 @@ module AssetBulk = struct
       |> Jsont.Object.opt_mem "dateTimeRelative" Jsont.number ~enc:(fun r -> r.date_time_relative)
       |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun r -> r.description)
       |> Jsont.Object.mem "duplicateId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.duplicate_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.duplicate_id)
       |> Jsont.Object.mem "ids" (Jsont.list Jsont.string) ~enc:(fun r -> r.ids)
       |> Jsont.Object.opt_mem "isFavorite" Jsont.bool ~enc:(fun r -> r.is_favorite)
       |> Jsont.Object.opt_mem "latitude" Jsont.number ~enc:(fun r -> r.latitude)
@@ -13234,34 +13234,34 @@ module SyncAssetV1 = struct
         (fun checksum deleted_at duration file_created_at file_modified_at height id is_edited is_favorite library_id live_photo_video_id local_date_time original_file_name owner_id stack_id thumbhash type_ visibility width -> { checksum; deleted_at; duration; file_created_at; file_modified_at; height; id; is_edited; is_favorite; library_id; live_photo_video_id; local_date_time; original_file_name; owner_id; stack_id; thumbhash; type_; visibility; width })
       |> Jsont.Object.mem "checksum" Jsont.string ~enc:(fun r -> r.checksum)
       |> Jsont.Object.mem "deletedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
       |> Jsont.Object.mem "duration" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.duration)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.duration)
       |> Jsont.Object.mem "fileCreatedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.file_created_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.file_created_at)
       |> Jsont.Object.mem "fileModifiedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.file_modified_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.file_modified_at)
       |> Jsont.Object.mem "height" Openapi.Runtime.nullable_int
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.height)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.height)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "isEdited" Jsont.bool ~enc:(fun r -> r.is_edited)
       |> Jsont.Object.mem "isFavorite" Jsont.bool ~enc:(fun r -> r.is_favorite)
       |> Jsont.Object.mem "libraryId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
       |> Jsont.Object.mem "livePhotoVideoId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.live_photo_video_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.live_photo_video_id)
       |> Jsont.Object.mem "localDateTime" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.local_date_time)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.local_date_time)
       |> Jsont.Object.mem "originalFileName" Jsont.string ~enc:(fun r -> r.original_file_name)
       |> Jsont.Object.mem "ownerId" Jsont.string ~enc:(fun r -> r.owner_id)
       |> Jsont.Object.mem "stackId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.stack_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.stack_id)
       |> Jsont.Object.mem "thumbhash" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.thumbhash)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.thumbhash)
       |> Jsont.Object.mem "type" AssetTypeEnum.T.jsont ~enc:(fun r -> r.type_)
       |> Jsont.Object.mem "visibility" AssetVisibility.T.jsont ~enc:(fun r -> r.visibility)
       |> Jsont.Object.mem "width" Openapi.Runtime.nullable_int
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.width)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.width)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -13344,9 +13344,9 @@ module StatisticsSearch = struct
         (fun album_ids city country created_after created_before description device_id is_encoded is_favorite is_motion is_not_in_album is_offline lens_model library_id make model ocr person_ids rating state tag_ids taken_after taken_before trashed_after trashed_before type_ updated_after updated_before visibility -> { album_ids; city; country; created_after; created_before; description; device_id; is_encoded; is_favorite; is_motion; is_not_in_album; is_offline; lens_model; library_id; make; model; ocr; person_ids; rating; state; tag_ids; taken_after; taken_before; trashed_after; trashed_before; type_; updated_after; updated_before; visibility })
       |> Jsont.Object.opt_mem "albumIds" (Jsont.list Jsont.string) ~enc:(fun r -> r.album_ids)
       |> Jsont.Object.mem "city" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
       |> Jsont.Object.mem "country" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
       |> Jsont.Object.opt_mem "createdAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_after)
       |> Jsont.Object.opt_mem "createdBefore" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_before)
       |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun r -> r.description)
@@ -13357,19 +13357,19 @@ module StatisticsSearch = struct
       |> Jsont.Object.opt_mem "isNotInAlbum" Jsont.bool ~enc:(fun r -> r.is_not_in_album)
       |> Jsont.Object.opt_mem "isOffline" Jsont.bool ~enc:(fun r -> r.is_offline)
       |> Jsont.Object.mem "lensModel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
       |> Jsont.Object.mem "libraryId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
       |> Jsont.Object.opt_mem "make" Jsont.string ~enc:(fun r -> r.make)
       |> Jsont.Object.mem "model" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
       |> Jsont.Object.opt_mem "ocr" Jsont.string ~enc:(fun r -> r.ocr)
       |> Jsont.Object.opt_mem "personIds" (Jsont.list Jsont.string) ~enc:(fun r -> r.person_ids)
       |> Jsont.Object.opt_mem "rating" (Openapi.Runtime.validated_float ~minimum:(-1.) ~maximum:5. Jsont.number) ~enc:(fun r -> r.rating)
       |> Jsont.Object.mem "state" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
       |> Jsont.Object.mem "tagIds" (Openapi.Runtime.nullable_any (Jsont.list Jsont.string))
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.tag_ids)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.tag_ids)
       |> Jsont.Object.opt_mem "takenAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.taken_after)
       |> Jsont.Object.opt_mem "takenBefore" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.taken_before)
       |> Jsont.Object.opt_mem "trashedAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.trashed_after)
@@ -13530,9 +13530,9 @@ module SmartSearch = struct
         (fun album_ids city country created_after created_before device_id is_encoded is_favorite is_motion is_not_in_album is_offline language lens_model library_id make model ocr page person_ids query query_asset_id rating size state tag_ids taken_after taken_before trashed_after trashed_before type_ updated_after updated_before visibility with_deleted with_exif -> { album_ids; city; country; created_after; created_before; device_id; is_encoded; is_favorite; is_motion; is_not_in_album; is_offline; language; lens_model; library_id; make; model; ocr; page; person_ids; query; query_asset_id; rating; size; state; tag_ids; taken_after; taken_before; trashed_after; trashed_before; type_; updated_after; updated_before; visibility; with_deleted; with_exif })
       |> Jsont.Object.opt_mem "albumIds" (Jsont.list Jsont.string) ~enc:(fun r -> r.album_ids)
       |> Jsont.Object.mem "city" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
       |> Jsont.Object.mem "country" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
       |> Jsont.Object.opt_mem "createdAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_after)
       |> Jsont.Object.opt_mem "createdBefore" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_before)
       |> Jsont.Object.opt_mem "deviceId" Jsont.string ~enc:(fun r -> r.device_id)
@@ -13543,12 +13543,12 @@ module SmartSearch = struct
       |> Jsont.Object.opt_mem "isOffline" Jsont.bool ~enc:(fun r -> r.is_offline)
       |> Jsont.Object.opt_mem "language" Jsont.string ~enc:(fun r -> r.language)
       |> Jsont.Object.mem "lensModel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
       |> Jsont.Object.mem "libraryId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
       |> Jsont.Object.opt_mem "make" Jsont.string ~enc:(fun r -> r.make)
       |> Jsont.Object.mem "model" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
       |> Jsont.Object.opt_mem "ocr" Jsont.string ~enc:(fun r -> r.ocr)
       |> Jsont.Object.opt_mem "page" (Openapi.Runtime.validated_float ~minimum:1. Jsont.number) ~enc:(fun r -> r.page)
       |> Jsont.Object.opt_mem "personIds" (Jsont.list Jsont.string) ~enc:(fun r -> r.person_ids)
@@ -13557,9 +13557,9 @@ module SmartSearch = struct
       |> Jsont.Object.opt_mem "rating" (Openapi.Runtime.validated_float ~minimum:(-1.) ~maximum:5. Jsont.number) ~enc:(fun r -> r.rating)
       |> Jsont.Object.opt_mem "size" (Openapi.Runtime.validated_float ~minimum:1. ~maximum:1000. Jsont.number) ~enc:(fun r -> r.size)
       |> Jsont.Object.mem "state" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
       |> Jsont.Object.mem "tagIds" (Openapi.Runtime.nullable_any (Jsont.list Jsont.string))
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.tag_ids)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.tag_ids)
       |> Jsont.Object.opt_mem "takenAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.taken_after)
       |> Jsont.Object.opt_mem "takenBefore" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.taken_before)
       |> Jsont.Object.opt_mem "trashedAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.trashed_after)
@@ -13660,9 +13660,9 @@ module RandomSearch = struct
         (fun album_ids city country created_after created_before device_id is_encoded is_favorite is_motion is_not_in_album is_offline lens_model library_id make model ocr person_ids rating size state tag_ids taken_after taken_before trashed_after trashed_before type_ updated_after updated_before visibility with_deleted with_exif with_people with_stacked -> { album_ids; city; country; created_after; created_before; device_id; is_encoded; is_favorite; is_motion; is_not_in_album; is_offline; lens_model; library_id; make; model; ocr; person_ids; rating; size; state; tag_ids; taken_after; taken_before; trashed_after; trashed_before; type_; updated_after; updated_before; visibility; with_deleted; with_exif; with_people; with_stacked })
       |> Jsont.Object.opt_mem "albumIds" (Jsont.list Jsont.string) ~enc:(fun r -> r.album_ids)
       |> Jsont.Object.mem "city" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
       |> Jsont.Object.mem "country" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
       |> Jsont.Object.opt_mem "createdAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_after)
       |> Jsont.Object.opt_mem "createdBefore" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_before)
       |> Jsont.Object.opt_mem "deviceId" Jsont.string ~enc:(fun r -> r.device_id)
@@ -13672,20 +13672,20 @@ module RandomSearch = struct
       |> Jsont.Object.opt_mem "isNotInAlbum" Jsont.bool ~enc:(fun r -> r.is_not_in_album)
       |> Jsont.Object.opt_mem "isOffline" Jsont.bool ~enc:(fun r -> r.is_offline)
       |> Jsont.Object.mem "lensModel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
       |> Jsont.Object.mem "libraryId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
       |> Jsont.Object.opt_mem "make" Jsont.string ~enc:(fun r -> r.make)
       |> Jsont.Object.mem "model" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
       |> Jsont.Object.opt_mem "ocr" Jsont.string ~enc:(fun r -> r.ocr)
       |> Jsont.Object.opt_mem "personIds" (Jsont.list Jsont.string) ~enc:(fun r -> r.person_ids)
       |> Jsont.Object.opt_mem "rating" (Openapi.Runtime.validated_float ~minimum:(-1.) ~maximum:5. Jsont.number) ~enc:(fun r -> r.rating)
       |> Jsont.Object.opt_mem "size" (Openapi.Runtime.validated_float ~minimum:1. ~maximum:1000. Jsont.number) ~enc:(fun r -> r.size)
       |> Jsont.Object.mem "state" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
       |> Jsont.Object.mem "tagIds" (Openapi.Runtime.nullable_any (Jsont.list Jsont.string))
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.tag_ids)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.tag_ids)
       |> Jsont.Object.opt_mem "takenAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.taken_after)
       |> Jsont.Object.opt_mem "takenBefore" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.taken_before)
       |> Jsont.Object.opt_mem "trashedAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.trashed_after)
@@ -13936,7 +13936,7 @@ module SyncAlbumV1 = struct
       |> Jsont.Object.mem "order" AssetOrder.T.jsont ~enc:(fun r -> r.order)
       |> Jsont.Object.mem "ownerId" Jsont.string ~enc:(fun r -> r.owner_id)
       |> Jsont.Object.mem "thumbnailAssetId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.thumbnail_asset_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.thumbnail_asset_id)
       |> Jsont.Object.mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -14051,9 +14051,9 @@ module MetadataSearch = struct
       |> Jsont.Object.opt_mem "albumIds" (Jsont.list Jsont.string) ~enc:(fun r -> r.album_ids)
       |> Jsont.Object.opt_mem "checksum" Jsont.string ~enc:(fun r -> r.checksum)
       |> Jsont.Object.mem "city" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.city)
       |> Jsont.Object.mem "country" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.country)
       |> Jsont.Object.opt_mem "createdAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_after)
       |> Jsont.Object.opt_mem "createdBefore" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_before)
       |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun r -> r.description)
@@ -14067,14 +14067,14 @@ module MetadataSearch = struct
       |> Jsont.Object.opt_mem "isNotInAlbum" Jsont.bool ~enc:(fun r -> r.is_not_in_album)
       |> Jsont.Object.opt_mem "isOffline" Jsont.bool ~enc:(fun r -> r.is_offline)
       |> Jsont.Object.mem "lensModel" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.lens_model)
       |> Jsont.Object.mem "libraryId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
       |> Jsont.Object.opt_mem "make" Jsont.string ~enc:(fun r -> r.make)
       |> Jsont.Object.mem "model" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.model)
       |> Jsont.Object.opt_mem "ocr" Jsont.string ~enc:(fun r -> r.ocr)
-      |> Jsont.Object.mem "order" AssetOrder.T.jsont ~dec_absent:`Desc ~enc:(fun r -> r.order)
+      |> Jsont.Object.mem "order" AssetOrder.T.jsont ~dec_absent:(fun () -> `Desc) ~enc:(fun r -> r.order)
       |> Jsont.Object.opt_mem "originalFileName" Jsont.string ~enc:(fun r -> r.original_file_name)
       |> Jsont.Object.opt_mem "originalPath" Jsont.string ~enc:(fun r -> r.original_path)
       |> Jsont.Object.opt_mem "page" (Openapi.Runtime.validated_float ~minimum:1. Jsont.number) ~enc:(fun r -> r.page)
@@ -14083,9 +14083,9 @@ module MetadataSearch = struct
       |> Jsont.Object.opt_mem "rating" (Openapi.Runtime.validated_float ~minimum:(-1.) ~maximum:5. Jsont.number) ~enc:(fun r -> r.rating)
       |> Jsont.Object.opt_mem "size" (Openapi.Runtime.validated_float ~minimum:1. ~maximum:1000. Jsont.number) ~enc:(fun r -> r.size)
       |> Jsont.Object.mem "state" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.state)
       |> Jsont.Object.mem "tagIds" (Openapi.Runtime.nullable_any (Jsont.list Jsont.string))
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.tag_ids)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.tag_ids)
       |> Jsont.Object.opt_mem "takenAfter" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.taken_after)
       |> Jsont.Object.opt_mem "takenBefore" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.taken_before)
       |> Jsont.Object.opt_mem "thumbnailPath" Jsont.string ~enc:(fun r -> r.thumbnail_path)
@@ -14144,7 +14144,7 @@ module Albums = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"AlbumsResponse"
         (fun default_asset_order -> { default_asset_order })
-      |> Jsont.Object.mem "defaultAssetOrder" AssetOrder.T.jsont ~dec_absent:`Desc ~enc:(fun r -> r.default_asset_order)
+      |> Jsont.Object.mem "defaultAssetOrder" AssetOrder.T.jsont ~dec_absent:(fun () -> `Desc) ~enc:(fun r -> r.default_asset_order)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -15152,14 +15152,14 @@ module Asset = struct
       |> Jsont.Object.mem "deviceAssetId" Jsont.string ~enc:(fun r -> r.device_asset_id)
       |> Jsont.Object.mem "deviceId" Jsont.string ~enc:(fun r -> r.device_id)
       |> Jsont.Object.mem "duplicateId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.duplicate_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.duplicate_id)
       |> Jsont.Object.mem "duration" Jsont.string ~enc:(fun r -> r.duration)
       |> Jsont.Object.opt_mem "exifInfo" Exif.ResponseDto.jsont ~enc:(fun r -> r.exif_info)
       |> Jsont.Object.mem "fileCreatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.file_created_at)
       |> Jsont.Object.mem "fileModifiedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.file_modified_at)
       |> Jsont.Object.mem "hasMetadata" Jsont.bool ~enc:(fun r -> r.has_metadata)
       |> Jsont.Object.mem "height" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.height)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.height)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "isArchived" Jsont.bool ~enc:(fun r -> r.is_archived)
       |> Jsont.Object.mem "isEdited" Jsont.bool ~enc:(fun r -> r.is_edited)
@@ -15167,9 +15167,9 @@ module Asset = struct
       |> Jsont.Object.mem "isOffline" Jsont.bool ~enc:(fun r -> r.is_offline)
       |> Jsont.Object.mem "isTrashed" Jsont.bool ~enc:(fun r -> r.is_trashed)
       |> Jsont.Object.mem "libraryId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.library_id)
       |> Jsont.Object.mem "livePhotoVideoId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.live_photo_video_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.live_photo_video_id)
       |> Jsont.Object.mem "localDateTime" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.local_date_time)
       |> Jsont.Object.mem "originalFileName" Jsont.string ~enc:(fun r -> r.original_file_name)
       |> Jsont.Object.opt_mem "originalMimeType" Jsont.string ~enc:(fun r -> r.original_mime_type)
@@ -15181,13 +15181,13 @@ module Asset = struct
       |> Jsont.Object.opt_mem "stack" AssetStack.ResponseDto.jsont ~enc:(fun r -> r.stack)
       |> Jsont.Object.opt_mem "tags" (Jsont.list Tag.ResponseDto.jsont) ~enc:(fun r -> r.tags)
       |> Jsont.Object.mem "thumbhash" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.thumbhash)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.thumbhash)
       |> Jsont.Object.mem "type" AssetTypeEnum.T.jsont ~enc:(fun r -> r.type_)
       |> Jsont.Object.opt_mem "unassignedFaces" (Jsont.list AssetFaceWithoutPerson.ResponseDto.jsont) ~enc:(fun r -> r.unassigned_faces)
       |> Jsont.Object.mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.mem "visibility" AssetVisibility.T.jsont ~enc:(fun r -> r.visibility)
       |> Jsont.Object.mem "width" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.width)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.width)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -15778,7 +15778,7 @@ module SearchAsset = struct
       |> Jsont.Object.mem "facets" (Jsont.list SearchFacet.ResponseDto.jsont) ~enc:(fun r -> r.facets)
       |> Jsont.Object.mem "items" (Jsont.list Asset.ResponseDto.jsont) ~enc:(fun r -> r.items)
       |> Jsont.Object.mem "nextPage" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.next_page)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.next_page)
       |> Jsont.Object.mem "total" Jsont.int ~enc:(fun r -> r.total)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -16105,17 +16105,17 @@ module SyncMemoryV1 = struct
       |> Jsont.Object.mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "data" Jsont.json ~enc:(fun r -> r.data)
       |> Jsont.Object.mem "deletedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
       |> Jsont.Object.mem "hideAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.hide_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.hide_at)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "isSaved" Jsont.bool ~enc:(fun r -> r.is_saved)
       |> Jsont.Object.mem "memoryAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.memory_at)
       |> Jsont.Object.mem "ownerId" Jsont.string ~enc:(fun r -> r.owner_id)
       |> Jsont.Object.mem "seenAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.seen_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.seen_at)
       |> Jsont.Object.mem "showAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.show_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.show_at)
       |> Jsont.Object.mem "type" Memory.Type.jsont ~enc:(fun r -> r.type_)
       |> Jsont.Object.mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.skip_unknown
@@ -16587,12 +16587,12 @@ module AssetCopy = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"AssetCopyDto"
         (fun albums favorite shared_links sidecar source_id stack target_id -> { albums; favorite; shared_links; sidecar; source_id; stack; target_id })
-      |> Jsont.Object.mem "albums" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.albums)
-      |> Jsont.Object.mem "favorite" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.favorite)
-      |> Jsont.Object.mem "sharedLinks" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.shared_links)
-      |> Jsont.Object.mem "sidecar" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.sidecar)
+      |> Jsont.Object.mem "albums" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.albums)
+      |> Jsont.Object.mem "favorite" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.favorite)
+      |> Jsont.Object.mem "sharedLinks" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.shared_links)
+      |> Jsont.Object.mem "sidecar" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.sidecar)
       |> Jsont.Object.mem "sourceId" Jsont.string ~enc:(fun r -> r.source_id)
-      |> Jsont.Object.mem "stack" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.stack)
+      |> Jsont.Object.mem "stack" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.stack)
       |> Jsont.Object.mem "targetId" Jsont.string ~enc:(fun r -> r.target_id)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -16865,7 +16865,7 @@ module AlbumUserAdd = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"AlbumUserAddDto"
         (fun role user_id -> { role; user_id })
-      |> Jsont.Object.mem "role" AlbumUserRole.T.jsont ~dec_absent:`Editor ~enc:(fun r -> r.role)
+      |> Jsont.Object.mem "role" AlbumUserRole.T.jsont ~dec_absent:(fun () -> `Editor) ~enc:(fun r -> r.role)
       |> Jsont.Object.mem "userId" Jsont.string ~enc:(fun r -> r.user_id)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -17040,7 +17040,7 @@ module Album = struct
         (fun album_name album_thumbnail_asset_id album_users asset_count assets contributor_counts created_at description end_date has_shared_link id is_activity_enabled last_modified_asset_timestamp order owner owner_id shared start_date updated_at -> { album_name; album_thumbnail_asset_id; album_users; asset_count; assets; contributor_counts; created_at; description; end_date; has_shared_link; id; is_activity_enabled; last_modified_asset_timestamp; order; owner; owner_id; shared; start_date; updated_at })
       |> Jsont.Object.mem "albumName" Jsont.string ~enc:(fun r -> r.album_name)
       |> Jsont.Object.mem "albumThumbnailAssetId" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.album_thumbnail_asset_id)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.album_thumbnail_asset_id)
       |> Jsont.Object.mem "albumUsers" (Jsont.list AlbumUser.ResponseDto.jsont) ~enc:(fun r -> r.album_users)
       |> Jsont.Object.mem "assetCount" Jsont.int ~enc:(fun r -> r.asset_count)
       |> Jsont.Object.mem "assets" (Jsont.list Asset.ResponseDto.jsont) ~enc:(fun r -> r.assets)
@@ -17321,18 +17321,18 @@ module SharedLink = struct
       |> Jsont.Object.mem "assets" (Jsont.list Asset.ResponseDto.jsont) ~enc:(fun r -> r.assets)
       |> Jsont.Object.mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.mem "expiresAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.expires_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.expires_at)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "key" Jsont.string ~enc:(fun r -> r.key)
       |> Jsont.Object.mem "password" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.password)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.password)
       |> Jsont.Object.mem "showMetadata" Jsont.bool ~enc:(fun r -> r.show_metadata)
       |> Jsont.Object.mem "slug" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.slug)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.slug)
       |> Jsont.Object.mem "token" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.token)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.token)
       |> Jsont.Object.mem "type" Type.jsont ~enc:(fun r -> r.type_)
       |> Jsont.Object.mem "userId" Jsont.string ~enc:(fun r -> r.user_id)
       |> Jsont.Object.skip_unknown
@@ -17359,18 +17359,18 @@ module SharedLink = struct
       Jsont.Object.map ~kind:"SharedLinkCreateDto"
         (fun album_id allow_download allow_upload asset_ids description expires_at password show_metadata slug type_ -> { album_id; allow_download; allow_upload; asset_ids; description; expires_at; password; show_metadata; slug; type_ })
       |> Jsont.Object.opt_mem "albumId" Jsont.string ~enc:(fun r -> r.album_id)
-      |> Jsont.Object.mem "allowDownload" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.allow_download)
+      |> Jsont.Object.mem "allowDownload" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.allow_download)
       |> Jsont.Object.opt_mem "allowUpload" Jsont.bool ~enc:(fun r -> r.allow_upload)
       |> Jsont.Object.opt_mem "assetIds" (Jsont.list Jsont.string) ~enc:(fun r -> r.asset_ids)
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.mem "expiresAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.expires_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.expires_at)
       |> Jsont.Object.mem "password" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.password)
-      |> Jsont.Object.mem "showMetadata" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.show_metadata)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.password)
+      |> Jsont.Object.mem "showMetadata" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.show_metadata)
       |> Jsont.Object.mem "slug" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.slug)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.slug)
       |> Jsont.Object.mem "type" Type.jsont ~enc:(fun r -> r.type_)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -18149,9 +18149,9 @@ module Person = struct
       Jsont.Object.map ~kind:"PersonUpdateDto"
         (fun birth_date color feature_face_asset_id is_favorite is_hidden name -> { birth_date; color; feature_face_asset_id; is_favorite; is_hidden; name })
       |> Jsont.Object.mem "birthDate" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
       |> Jsont.Object.mem "color" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
       |> Jsont.Object.opt_mem "featureFaceAssetId" Jsont.string ~enc:(fun r -> r.feature_face_asset_id)
       |> Jsont.Object.opt_mem "isFavorite" Jsont.bool ~enc:(fun r -> r.is_favorite)
       |> Jsont.Object.opt_mem "isHidden" Jsont.bool ~enc:(fun r -> r.is_hidden)
@@ -18178,7 +18178,7 @@ module Person = struct
       Jsont.Object.map ~kind:"PersonResponseDto"
         (fun birth_date color id is_favorite is_hidden name thumbnail_path updated_at -> { birth_date; color; id; is_favorite; is_hidden; name; thumbnail_path; updated_at })
       |> Jsont.Object.mem "birthDate" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
       |> Jsont.Object.opt_mem "color" Jsont.string ~enc:(fun r -> r.color)
       |> Jsont.Object.mem "id" Jsont.string ~enc:(fun r -> r.id)
       |> Jsont.Object.opt_mem "isFavorite" Jsont.bool ~enc:(fun r -> r.is_favorite)
@@ -18205,9 +18205,9 @@ module Person = struct
       Jsont.Object.map ~kind:"PersonCreateDto"
         (fun birth_date color is_favorite is_hidden name -> { birth_date; color; is_favorite; is_hidden; name })
       |> Jsont.Object.mem "birthDate" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.birth_date)
       |> Jsont.Object.mem "color" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.color)
       |> Jsont.Object.opt_mem "isFavorite" Jsont.bool ~enc:(fun r -> r.is_favorite)
       |> Jsont.Object.opt_mem "isHidden" Jsont.bool ~enc:(fun r -> r.is_hidden)
       |> Jsont.Object.opt_mem "name" Jsont.string ~enc:(fun r -> r.name)
@@ -18510,8 +18510,8 @@ module People = struct
     let jsont : t Jsont.t =
       Jsont.Object.map ~kind:"PeopleResponse"
         (fun enabled sidebar_web -> { enabled; sidebar_web })
-      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:true ~enc:(fun r -> r.enabled)
-      |> Jsont.Object.mem "sidebarWeb" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.sidebar_web)
+      |> Jsont.Object.mem "enabled" Jsont.bool ~dec_absent:(fun () -> true) ~enc:(fun r -> r.enabled)
+      |> Jsont.Object.mem "sidebarWeb" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.sidebar_web)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end

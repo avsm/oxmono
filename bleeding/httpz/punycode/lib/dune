@@ -1,0 +1,10 @@
+(library
+ (name punycode)
+ (public_name httpz.punycode)
+ (modules punycode))
+
+(library
+ (name punycode_idna)
+ (public_name httpz.punycode.idna)
+ (modules punycode_idna)
+ (libraries httpz.punycode uunf))

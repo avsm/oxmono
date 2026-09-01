@@ -5,7 +5,7 @@ module OID = Asn_oid
 
 let id x      = x
 let const x _ = x
-let (&.) f g x = f (g x)
+let (&.) (f @ portable) (g @ portable) : _ @ portable = fun x -> f (g x)
 
 let opt def = function Some x -> x | _ -> def
 
@@ -14,8 +14,7 @@ type 'a endo = 'a -> 'a
 type ('a, 'b) sum = L of 'a | R of 'b
 
 let (strf, pf) = Format.(asprintf, fprintf)
-let kstrf k fmt =
-  Format.(kfprintf (fun _ -> flush_str_formatter () |> k) str_formatter fmt)
+let kstrf k fmt = Format.kasprintf k fmt
 
 let invalid_arg fmt = Format.ksprintf invalid_arg fmt
 
@@ -100,8 +99,8 @@ type 'a rand = unit -> 'a
 
 type _ asn =
 
-  | Iso : ('a -> 'b) * ('b -> 'a) * 'b rand option * 'a asn -> 'b asn
-  | Fix : ('a asn -> 'a asn) * 'a Asn_cache.var -> 'a asn
+  | Iso : ('a, 'b) iso -> 'b asn
+  | Fix : 'a fix -> 'a asn
 
   | Sequence    : 'a sequence -> 'a asn
   | Sequence_of : 'a asn -> 'a list asn
@@ -113,6 +112,17 @@ type _ asn =
   | Explicit : tag * 'a asn -> 'a asn
 
   | Prim : 'a prim -> 'a asn
+
+and ('a, 'b) iso = {
+  project : 'a -> 'b @@ portable;
+  inject : 'b -> 'a;
+  random : 'b rand option;
+  syntax : 'a asn;
+}
+
+and 'a fix = {
+  unfold : 'a asn -> 'a asn @@ portable;
+}
 
 and _ element =
 
@@ -135,7 +145,7 @@ and _ prim =
   | CharString : string    prim
 
 
-let label = opt ""
+let label : _ @ portable = function Some value -> value | None -> ""
 
 let seq_tag = Tag.Universal 0x10
 and set_tag = Tag.Universal 0x11
@@ -153,8 +163,8 @@ let tag_of_p : type a. a prim -> tag =
 
 let rec tag_set : type a. a asn -> tags = function
 
-  | Iso (_, _, _, asn) -> tag_set asn
-  | Fix (f, _) as fix  -> tag_set (f fix)
+  | Iso { syntax = asn; _ } -> tag_set asn
+  | Fix ({ unfold = f } as body) -> tag_set (f (Fix body))
 
   | Sequence    _ -> [ seq_tag ]
   | Sequence_of _ -> [ seq_tag ]
@@ -169,7 +179,7 @@ let rec tag_set : type a. a asn -> tags = function
 
 let rec tag : type a. a -> a asn -> tag = fun a -> function
 
-  | Iso (_, g, _, asn) -> tag (g a) asn
+  | Iso { inject = g; syntax = asn; _ } -> tag (g a) asn
   | Fix _ as fix       -> tag a fix
   | Sequence _         -> seq_tag
   | Sequence_of _      -> seq_tag
@@ -188,8 +198,9 @@ let pp_error ppf (`Parse err) = pf ppf "Parse error: %s" err
 exception Ambiguous_syntax
 exception Parse_error of error
 
-let error err = raise (Parse_error err)
-let parse_error fmt = kstrf (fun s -> error (`Parse s)) fmt
+let error : _ @ portable = fun err -> raise (Parse_error err)
+let parse_error : _ @ portable = fun fmt ->
+  kstrf (fun s -> error (`Parse s)) fmt
 
 (* Check tag ambiguity.
  * XXX: Would be _epic_ to move this to the type-checker.
@@ -210,8 +221,9 @@ let validate asn =
 
   let rec check : type a. ?tag:tag -> FSet.t -> a asn -> unit =
     fun ?tag fs -> function
-    | Iso (_, _, _, a)  -> check ?tag fs a
-    | Fix (f, _) as fix ->
+    | Iso { syntax = a; _ }  -> check ?tag fs a
+    | Fix ({ unfold = f } as body) ->
+        let fix = Fix body in
         if not (FSet.mem f fs) then check ?tag FSet.(add f fs) (f fix)
 
     | Sequence s    -> disjoint_seq s ; check_s fs s

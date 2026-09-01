@@ -37,10 +37,10 @@ and r_seq_of : type a. a asn -> a list = fun asn ->
 
 and r_asn : type a. a asn -> a = function
 
-  | Iso (f, _, None, asn)   -> f @@ r_asn asn
-  | Iso (_, _, Some rnd, _) -> rnd ()
+  | Iso { project = f; random = None; syntax = asn; _ } -> f @@ r_asn asn
+  | Iso { random = Some rnd; _ } -> rnd ()
 
-  | Fix (f, _) as fix -> r_asn (f fix)
+  | Fix ({ unfold = f } as body) -> r_asn (f (Fix body))
 
   | Sequence asns   -> r_seq asns
   | Set      asns   -> r_seq asns

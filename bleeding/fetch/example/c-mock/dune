@@ -1,0 +1,3 @@
+(executable
+ (name mock)
+ (libraries fetch fetch.mock eio.mock http))

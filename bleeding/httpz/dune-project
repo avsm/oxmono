@@ -4,31 +4,45 @@
 (generate_opam_files true)
 
 (source (github avsm/httpz))
-(license ISC)
 (authors "Anil Madhavapeddy")
 (maintainers "anil@recoil.org")
 
 (package
  (name httpz)
- (synopsis "Zero-allocation HTTP/1.1 parser for OxCaml")
+ (license ISC MPL-2.0)
+ (synopsis "HTTP/1.1 protocol stack for OxCaml")
  (description
-  "A high-performance HTTP/1.1 parser and serializer that achieves near-zero
-heap allocations using OxCaml's unboxed types and local allocations. Includes
-a segment-based router and an Eio-based static file server.")
+  "A bounded-buffer HTTP/1.1 parser and serializer built on OxCaml's unboxed
+types and local allocations, with typed media codecs, a segment router, an Eio
+static file server, shared Eio TLS support, and namespaced support libraries
+for Punycode, the Public Suffix List, and HTTP cookies.")
  (depends
   (ocaml (>= 5.2))
-  base
+  (base (>= v0.16.0))
   base_bigstring
   ocaml_intrinsics_kernel
   unboxed
   uriz
   (core (>= v0.17))
-  eio
-  eio_main
-  eio_posix
-  cmdliner
   ppx_jane
+  (uunf (>= 15.0.0))
+  (fmt (>= 0.8.9))
+  (ptime (>= 1.0.0))
+  (bytesrw (>= 0.4.0))
+  (jsonm (>= 1.0.2))
+  (jsont (>= 0.4.0))
+  (tls (>= 2.1.2))
+  (tls-eio (>= 2.1.2))
+  (x509 (>= 1.1.1))
+  (ca-certs (>= 1.0.3))
+  (mirage-crypto-rng (>= 2.4.1))
+  (domain-name (>= 0.5.0))
+  (ipaddr (>= 5.6.2))
+  (eio (>= 1.3))
+  (eio_main (>= 1.3))
+  eio_posix
+  (cmdliner (>= 1.1.0))
   (core_bench :with-test)
-  (stdio :with-test))
- (depopts ocaml_simd)
- (conflicts (ocaml_simd (< v0.18))))
+  (stdio :with-test)
+  (crowbar :with-test)
+  (alcotest :with-test)))

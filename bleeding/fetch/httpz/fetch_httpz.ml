@@ -4,9 +4,14 @@ type tag = [ `Generic | `Httpz ]
 
 type t = tag Fetch.ty Eio.Resource.t
 
-type conn = [ Eio.Flow.two_way_ty | Eio.Resource.close_ty ] Eio.Resource.t
+type conn = Httpz_tls.flow
 
-type https = Uri.t -> conn -> conn
+type connect = sw:Eio.Switch.t -> host:string -> port:int -> conn
+
+type https = Httpz_tls.client
+
+let no_https _uri _connection =
+  raise (err (Tls_failure "HTTPS disabled by client configuration"))
 
 type Eio.Exn.Backend.t += Httpz_error of string
 
@@ -41,19 +46,20 @@ type config = {
   (* There is no [net] field, because an [Eio.Net.t]'s platform tag
      cannot be narrowed by coercion: closing over the network capability
      is what lets a client of one concrete type hold on to it. *)
-  connect : sw:Eio.Switch.t -> host:string -> port:int -> conn;
+  connect : connect;
   https : https option;
   max_response : int;
   user_agent : string;
   decode : bool;
+  (* [Eio.Time.Timeout.none] when no clock was supplied, which is also
+     what makes [idle] [None]: without a clock nothing is bounded. *)
+  connect_timeout : Eio.Time.Timeout.t;
+  idle : (Eio.Time.Timeout.t * float) option;
+  close_tls : (conn -> unit) option;
 }
 
-(* {2 Errors}
-
-   Eio reports transport failures as [Eio.Io]. They become
-   {!Fetch.error}, as backend conformance requires, and cancellation
-   passes through. Protocol violations are raised as [Fetch.error]
-   directly by the code below. *)
+(* Preserve cancellation while translating Eio transport failures to
+   [Fetch.error]. *)
 let map_exn ex =
   match ex with
   | Eio.Cancel.Cancelled _ | Eio.Io (E _, _) -> ex
@@ -69,140 +75,14 @@ let reraise ex =
   let bt = Printexc.get_raw_backtrace () in
   Printexc.raise_with_backtrace (map_exn ex) bt
 
-(* {2 Transparent content-coding}
+let close_flow flow =
+  Eio.Cancel.protect (fun () ->
+      try Eio.Resource.close flow with _ -> ())
 
-   [gzip] only: [deflate] is ambiguous on the wire (RFC 1950 zlib versus
+(* [deflate] is ambiguous on the wire (RFC 1950 zlib versus
    RFC 1951 raw) and enough servers get it wrong that asking for it buys
    a guessing game. Since we advertise only what we can decode, a
    conformant server sends us either gzip or identity. *)
-
-module type INF = sig
-  type decoder
-
-  val decode :
-    decoder ->
-    [ `Await of decoder | `Flush of decoder | `End of decoder
-    | `Malformed of string ]
-
-  val src : decoder -> De.bigstring -> int -> int -> decoder
-  val dst_rem : decoder -> int
-  val src_rem : decoder -> int
-  val reset : decoder -> decoder
-  val flush : decoder -> decoder
-end
-
-(* A pull-based inflating source over [decompress]'s non-blocking
-   decoders: each read drains what is already decoded, and only refills
-   from the transport when the decoder asks for more. Nothing buffers the
-   whole body. *)
-module Inflate (Inf : INF) = struct
-  type phase =
-    | Decoding
-    | Member_ended
-    | Ended
-
-  type t = {
-    src : Eio.Flow.source_ty Eio.Resource.t;
-    i : De.bigstring;  (* input, handed to the decoder *)
-    o : De.bigstring;  (* output, owned by the decoder *)
-    o_cs : Cstruct.t;
-    i_cs : Cstruct.t;
-    mutable d : Inf.decoder;
-    mutable ready : (int * int) option;  (* undrained window into [o] *)
-    mutable phase : phase;
-    mutable input_len : int;
-  }
-
-  let v ~src ~i ~o d =
-    { src; i; o; o_cs = Cstruct.of_bigarray o; i_cs = Cstruct.of_bigarray i;
-      d; ready = None; phase = Decoding; input_len = 0 }
-
-  let read_methods = []
-
-  (* How much of [o] the decoder has filled. *)
-  let window t = De.bigstring_length t.o - Inf.dst_rem t.d
-
-  let rec single_read t buf =
-    match t.ready with
-    | Some (pos, len) ->
-      let n = min len (Cstruct.length buf) in
-      Cstruct.blit t.o_cs pos buf 0 n;
-      if n = len then begin
-        t.ready <- None;
-        (* [o] is the decoder's own buffer, and may only be reused once
-           every byte of the window has been handed on. *)
-        if t.phase = Decoding then t.d <- Inf.flush t.d
-      end
-      else t.ready <- Some (pos + n, len - n);
-      n
-    | None ->
-      (match t.phase with
-      | Ended -> raise End_of_file
-      | Member_ended -> begin
-        (* A gzip representation is a sequence of members. [src_rem] belongs
-           to the input range most recently handed to the decoder, so retain
-           that suffix when resetting for the next member. If the member ended
-           exactly at a read boundary, probe the underlying framed body once:
-           EOF ends the representation; any byte starts another member and
-           malformed trailing data is rejected by its header parser. *)
-        let rem = Inf.src_rem t.d in
-        let d = Inf.reset t.d in
-        t.phase <- Decoding;
-        if rem > 0 then begin
-          t.d <- Inf.src d t.i (t.input_len - rem) rem;
-          single_read t buf
-        end
-        else
-          match Eio.Flow.single_read t.src t.i_cs with
-          | n ->
-            t.input_len <- n;
-            t.d <- Inf.src d t.i 0 n;
-            single_read t buf
-          | exception End_of_file ->
-            t.phase <- Ended;
-            raise End_of_file
-        end
-      | Decoding ->
-        match Inf.decode t.d with
-        | `Await d ->
-          t.d <- d;
-          let n =
-            match Eio.Flow.single_read t.src t.i_cs with
-            | n -> n
-            | exception End_of_file -> 0  (* [l = 0] signals end of input *)
-          in
-          t.input_len <- n;
-          t.d <- Inf.src t.d t.i 0 n;
-          single_read t buf
-        | `Flush d ->
-          t.d <- d;
-          (* An empty window would have us return a zero-length read,
-             which a source may not do. *)
-          (match window t with
-           | 0 -> t.d <- Inf.flush t.d
-           | len -> t.ready <- Some (0, len));
-          single_read t buf
-        | `End d ->
-          t.d <- d;
-          t.phase <- Member_ended;
-          (match window t with
-           | 0 -> single_read t buf
-           | len -> t.ready <- Some (0, len); single_read t buf)
-        | `Malformed msg ->
-          raise (err (Protocol_error
-                        (Fmt.str "malformed gzip response: %s" msg)))
-      )
-end
-
-module Gunzip = Inflate (Gz.Inf)
-
-let gunzip_handler = Eio.Flow.Pi.source (module Gunzip)
-
-let gunzip src =
-  let i = De.bigstring_create De.io_buffer_size in
-  let o = De.bigstring_create De.io_buffer_size in
-  let d = Gz.Inf.decoder `Manual ~o in
-  Eio.Resource.T (Gunzip.v ~src ~i ~o d, gunzip_handler)
 
 (* A single [Content-Encoding] of exactly [gzip] is what we asked for.
    Anything else, whether a coding we did not advertise such as [br], a
@@ -228,8 +108,6 @@ let host_header url =
   if port = Middleware.Url.default_port (Middleware.Url.scheme url) then host
   else Fmt.str "%s:%d" host port
 
-(* {2 Request bodies} *)
-
 (* A declared length is what goes out as [Content-Length], so the flow
    must be held to it: a longer one would leave trailing bytes for the
    server to read as the head of another request, and a shorter one
@@ -245,14 +123,14 @@ module Limited = struct
 
   let read_methods = []
 
-  let single_read t buf =
+  let single_read t (buf @ local) =
     if t.left <= 0L then raise End_of_file;
     let room =
       if Int64.compare t.left (Int64.of_int (Cstruct.length buf)) >= 0 then
         Cstruct.length buf
       else Int64.to_int t.left
     in
-    match Eio.Flow.single_read t.src (Cstruct.sub buf 0 room) with
+    match Eio.Flow.single_read t.src (Cstruct.sub_local buf 0 room) with
     | n -> t.left <- Int64.sub t.left (Int64.of_int n); n
     | exception End_of_file ->
       raise (err (Invalid_request
@@ -265,10 +143,67 @@ let limited_handler = Eio.Flow.Pi.source (module Limited)
 let limited ~length src =
   Eio.Resource.T ({ Limited.src; length; left = length }, limited_handler)
 
-(* {2 The transport} *)
+(* A peer that accepts the connection and then says nothing costs a fiber
+   and a socket for as long as the caller lets it. The bound belongs on
+   the connection rather than at each call site: wrapping it once covers
+   the head write, a streamed or chunked body, the head and body reads,
+   the trailers, and the reads the gunzip decoder makes underneath. *)
+module Timed = struct
+  type t = {
+    conn : conn;
+    timeout : Eio.Time.Timeout.t;
+    seconds : float;
+  }
+
+  let read_methods = []
+
+  let bounded t what fn =
+    match Eio.Time.Timeout.run_exn t.timeout fn with
+    | v -> v
+    | exception Eio.Time.Timeout ->
+      raise (err (Protocol_error
+                    (Fmt.str "idle timeout of %gs elapsed while %s"
+                       t.seconds what)))
+
+  let single_read t (buf @ local) =
+    (* [bounded] installs competing fiber closures, so the descriptor must
+       outlive this stack region until the winner is known. *)
+    let buf = Cstruct.globalize buf in
+    bounded t "reading from the connection" (fun () ->
+        Eio.Flow.single_read t.conn buf)
+
+  let single_write t (bufs @ local) =
+    (* The timeout fiber can retain the write closure while the syscall is
+       suspended. *)
+    let bufs = Cstruct.globalize_list bufs in
+    bounded t "writing to the connection" (fun () ->
+        Eio.Flow.single_write t.conn bufs)
+
+  let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
+  let shutdown t cmd = Eio.Flow.shutdown t.conn cmd
+
+  (* Closing is left unbounded: it runs from a switch release hook, where
+     a nested cancellation context is the wrong thing to introduce, and
+     [close_transport] already tolerates a failure there. *)
+  let close t = Eio.Resource.close t.conn
+end
+
+let timed_handler :
+    (Timed.t, [ Eio.Flow.two_way_ty | Eio.Resource.close_ty ])
+    Eio.Resource.handler =
+  Eio.Resource.handler
+    (Eio.Resource.H (Eio.Resource.Close, Timed.close)
+     :: Eio.Resource.bindings (Eio.Flow.Pi.two_way (module Timed)))
+
+let timed idle conn : conn =
+  match idle with
+  | None -> conn
+  | Some (timeout, seconds) ->
+    Eio.Resource.T ({ Timed.conn; timeout; seconds }, timed_handler)
 
 type transport = {
   raw : conn;
+  finish : unit -> unit;
   mutable closed : bool;
   (* Closes the connection if the request's switch finishes before the
      response body is done with. [Eio.Net.connect] already registers the
@@ -277,29 +212,28 @@ type transport = {
   mutable hook : Eio.Switch.hook;
 }
 
-let close_transport t =
+let close_transport_with t close =
   if not t.closed then begin
     t.closed <- true;
     Eio.Switch.remove_hook t.hook;
-    try Eio.Resource.close t.raw with
-    | Eio.Cancel.Cancelled _ as ex ->
-      (* A TLS wrapper's close writes, so it can be cancelled; that has
-         to propagate rather than be logged away. *)
-      raise ex
-    | ex ->
-      (* The peer is gone either way, and raising here would take out
-         the caller's switch instead of the request. *)
-      Eio.Private.Trace.log
-        (Fmt.str "fetch-httpz: closing connection: %s"
-           (Printexc.to_string ex))
+    Eio.Cancel.protect (fun () ->
+        try close () with ex ->
+          (* The peer is gone either way, and raising here would take out
+             the caller's switch instead of the request. *)
+          Eio.Private.Trace.log
+            (Fmt.str "fetch-httpz: closing connection: %s"
+               (Printexc.to_string ex)))
   end
+
+let close_transport t = close_transport_with t (fun () -> Eio.Resource.close t.raw)
+let finish_transport t = close_transport_with t t.finish
 
 let connect_tcp ~net ~sw ~host ~port : conn =
   let addrs =
     Eio.Net.getaddrinfo_stream ~service:(string_of_int port) net host
   in
-  (* Try each address in turn, as a happy-eyeballs client would, and
-     report the first failure if none of them answer. *)
+  (* Try every resolver result in order and preserve the first failure if
+     none connects. *)
   let rec try_addrs first = function
     | [] ->
       (match first with
@@ -316,13 +250,26 @@ let connect_tcp ~net ~sw ~host ~port : conn =
   in
   try_addrs None addrs
 
-(* {2 The request head}
-
-   Written with the httpz writers into one buffer and sent in one
+(* The request head is written into one buffer and sent in one
    write. The writers' offsets are unchecked [int16#], so the block is
    bounded before each header is written. *)
 
 let write_head buf ~meth ~target headers =
+  (* [write_request_line] deliberately uses unchecked writers.  Account for
+     both spaces, "HTTP/1.1", its CRLF, and the empty line that terminates the
+     head before handing it the caller-controlled method and target.  Write
+     the comparisons as subtractions so enormous strings cannot wrap an
+     [int] while their lengths are added. *)
+  let fixed = 1 + 1 + String.length "HTTP/1.1" + 2 + 2 in
+  let meth_len = String.length meth in
+  let target_len = String.length target in
+  if meth_len > max_head_bytes - fixed
+     || target_len > max_head_bytes - fixed - meth_len
+  then
+    raise
+      (err
+         (Invalid_request
+            (Fmt.str "request head exceeds %d bytes" max_head_bytes)));
   let off = ref 0 in
   off :=
     to_int
@@ -330,10 +277,14 @@ let write_head buf ~meth ~target headers =
          Httpz.Version.Http_1_1);
   List.iter
     (fun (name, value) ->
-       if !off + String.length name + String.length value + 4 > max_head_bytes
+       let fixed = 4 + 2 (* [": "] + CRLF, then the final empty line. *) in
+       let name_len = String.length name in
+       let value_len = String.length value in
+       if name_len > max_head_bytes - !off - fixed
+          || value_len > max_head_bytes - !off - fixed - name_len
        then
          raise (err (Invalid_request
-                       (Fmt.str "request headers exceed %d bytes"
+                       (Fmt.str "request head exceeds %d bytes"
                           max_head_bytes)));
        off := to_int (Httpz.Res.write_header buf ~off:(i16 !off) name value))
     headers;
@@ -345,29 +296,31 @@ let write_head buf ~meth ~target headers =
 let send_chunked conn flow =
   let data = Cstruct.create 16384 in
   let head = Bytes.create 32 in
+  let head_cs = Cstruct.create 32 in
+  let crlf = Cstruct.of_string "\r\n" in
   let rec loop () =
     match Eio.Flow.single_read flow data with
     | n ->
       let hlen =
         to_int (Httpz.Res.write_chunk_header head ~off:(i16 0) ~size:n)
       in
+      Cstruct.blit_from_bytes head 0 head_cs 0 hlen;
       Eio.Flow.write conn
-        [ Cstruct.of_bytes head ~off:0 ~len:hlen;
-          Cstruct.sub data 0 n;
-          Cstruct.of_string "\r\n" ];
+        (stack_
+          [ Cstruct.sub_local head_cs 0 hlen;
+            Cstruct.sub_local data 0 n;
+            crlf ]);
       loop ()
     | exception End_of_file ->
       Eio.Flow.copy_string "0\r\n\r\n" conn
   in
   loop ()
 
-(* {2 The response head} *)
-
 type head_info = {
   code : int;
   version : Fetch.version;
-  resp_headers : (string * string) list;  (* wire order *)
-  content_length : int64;  (* -1 when absent *)
+  resp_headers : (string * string) list;
+  content_length : int64;
   chunked : bool;
   bodyless : bool;
 }
@@ -387,21 +340,26 @@ let head_overflow () =
   raise (err (Protocol_error
                 (Fmt.str "response headers exceed %d bytes" max_head_bytes)))
 
-(* Read more into the window, shifting consumed bytes out first. [what]
-   names the phase for the two distinct failures: a window that is full
-   even after the shift, and a peer that stopped mid-phase. *)
-let refill w ~what =
+(* Discard what a previous phase consumed, so that the free space is
+   contiguous and a parse starts at offset zero. *)
+let shift w =
   if w.pos > 0 then begin
     Bytes.blit w.wbuf w.pos w.wbuf 0 (w.len - w.pos);
     w.len <- w.len - w.pos;
     w.pos <- 0
-  end;
+  end
+
+(* Read more into the window, shifting consumed bytes out first. [what]
+   names the phase for the two distinct failures: a window that is full
+   even after the shift, and a peer that stopped mid-phase. *)
+let refill w ~what =
+  shift w;
   if w.len >= window_size then
     raise (err (Protocol_error (Fmt.str "response %s exceeds the %d byte \
                                          window" what window_size)));
   match
     Eio.Flow.single_read w.tr.raw
-      (Cstruct.sub w.wcs w.len (window_size - w.len))
+      (Cstruct.sub_local w.wcs w.len (window_size - w.len))
   with
   | n -> Cstruct.blit_to_bytes w.wcs w.len w.wbuf w.len n; w.len <- w.len + n
   | exception End_of_file ->
@@ -413,11 +371,7 @@ let refill w ~what =
    at offset zero, so bytes an earlier head consumed are shifted out
    first. *)
 let read_head w request_method =
-  if w.pos > 0 then begin
-    Bytes.blit w.wbuf w.pos w.wbuf 0 (w.len - w.pos);
-    w.len <- w.len - w.pos;
-    w.pos <- 0
-  end;
+  shift w;
   let rec loop () =
     let #(status, res, headers) =
       Httpz.Res.parse ?request_method w.wbuf ~len:(i16 w.len) ~limits
@@ -441,15 +395,7 @@ let read_head w request_method =
         bodyless = res.#bodyless }
     | Httpz.Buf_read.Partial ->
       if w.len >= window_size then head_overflow ()
-      else begin
-        (match Eio.Flow.single_read w.tr.raw
-                 (Cstruct.sub w.wcs w.len (window_size - w.len)) with
-         | n -> Cstruct.blit_to_bytes w.wcs w.len w.wbuf w.len n;
-           w.len <- w.len + n
-         | exception End_of_file ->
-           raise (err (Protocol_error "connection closed by peer")));
-        loop ()
-      end
+      else begin refill w ~what:"head"; loop () end
     | Httpz.Buf_read.Headers_too_large -> head_overflow ()
     | status ->
       raise (err (Protocol_error
@@ -458,9 +404,7 @@ let read_head w request_method =
   in
   loop ()
 
-(* {2 Response bodies}
-
-   One source serves the three framings an HTTP/1.1 response may use.
+(* One source serves the three framings an HTTP/1.1 response may use.
    Leftover bytes that arrived with the head are served out of the
    window first; chunk framing keeps using the window, while chunk data
    beyond it is read straight into the caller's buffer, so a chunk may
@@ -468,16 +412,15 @@ let read_head w request_method =
 
 type framing =
   | To_eof
-  | Length of int64 ref  (* bytes still owed *)
-  | Chunk_header  (* at a chunk-size line *)
-  | Chunk_data of int ref  (* bytes of data left, then CRLF *)
+  | Length of int64 ref
+  | Chunk_header
+  | Chunk_data of int ref
 
 type body = {
   w : window;
   mutable framing : framing;
   mutable trailers : Http.Header.t option;
   mutable body_eof : bool;
-  release : unit -> unit;
 }
 
 module Body = struct
@@ -495,7 +438,8 @@ module Body = struct
 
   let direct_read b dst limit =
     let n = min (Cstruct.length dst) limit in
-    Eio.Flow.single_read b.w.tr.raw (Cstruct.sub dst 0 n)
+    let got = Eio.Flow.single_read b.w.tr.raw (Cstruct.sub_local dst 0 n) in
+    got
 
   (* The CRLF after a chunk's data, which may itself arrive in pieces. *)
   let eat_chunk_crlf b =
@@ -507,12 +451,13 @@ module Body = struct
 
   let read_trailers b =
     let rec loop () =
-      let #(status, _end_off, hdrs) =
+      let #(status, end_off, hdrs) =
         Httpz.Chunk.parse_trailers b.w.wbuf ~off:(i16 b.w.pos)
           ~len:(i16 b.w.len) ~max_header_count:(i16 100)
       in
       match status with
       | Httpz.Chunk.Trailer_complete ->
+        b.w.pos <- to_int end_off;
         (match List.rev (Httpz.Header.to_string_pairs_local b.w.wbuf hdrs) with
          | [] -> ()
          | l -> b.trailers <- Some (Http.Header.of_list l))
@@ -569,7 +514,6 @@ module Body = struct
          b.w.pos <- to_int data_off;
          read_trailers b;
          b.body_eof <- true;
-         b.release ();
          raise End_of_file
        | Httpz.Chunk.Partial ->
          refill b.w ~what:"chunk framing";
@@ -604,8 +548,10 @@ let body_handler = Eio.Flow.Pi.source (module Body)
 type response_body = {
   src : Eio.Flow.source_ty Eio.Resource.t;
   max_response : int;
+  description : string;
   mutable seen : int;
-  release : unit -> unit;
+  finish : unit -> unit;
+  abort : unit -> unit;
 }
 
 module Response_body = struct
@@ -613,35 +559,45 @@ module Response_body = struct
 
   let read_methods = []
 
-  let single_read t buf =
+  let single_read t (buf @ local) =
     match Eio.Flow.single_read t.src buf with
     | n ->
-      t.seen <- t.seen + n;
-      if t.seen > t.max_response then begin
-        t.release ();
+      if n > t.max_response - t.seen then begin
+        t.abort ();
         raise (err (Protocol_error
-                      (Fmt.str "response body exceeds %d bytes"
+                      (Fmt.str "%s exceeds %d bytes" t.description
                          t.max_response)))
       end;
+      t.seen <- t.seen + n;
       n
-    | exception End_of_file -> t.release (); raise End_of_file
-    | exception ex -> t.release (); reraise ex
+    | exception End_of_file -> t.finish (); raise End_of_file
+    | exception ex -> t.abort (); reraise ex
 end
 
 let response_body_handler = Eio.Flow.Pi.source (module Response_body)
 
-(* {2 One exchange} *)
+let capped_body ~description ~max_response ~finish ~abort src =
+  Eio.Resource.T
+    ({ src; max_response; description; seen = 0; finish; abort },
+     response_body_handler)
 
 module Backend = struct
   type t = config
   type tag = [ `Generic | `Httpz ]
 
-  (* The framing headers this backend derives. A request with no
-     content carries neither header, which RFC 9110 s8.6 asks of a user
-     agent; a declared length goes out as [Content-Length] and an
-     undeclared stream as [Transfer-Encoding: chunked]. *)
+  (* RFC 9110 §8.6 asks a user agent to send [Content-Length: 0] on a request
+     whose method gives enclosed content a defined meaning, even when there
+     is none, so a recipient need not guess whether content was omitted or
+     merely not yet framed; a method without defined content semantics gets
+     the plain no-framing treatment of RFC 9112 §6.3 instead. *)
+  let has_defined_content = function
+    | `POST | `PUT | `PATCH -> true
+    | _ -> false
+
   let framing (req : Middleware.request) headers =
     match req.body with
+    | Empty when has_defined_content req.meth ->
+      (`String "", Http.Header.replace headers "content-length" "0")
     | Empty -> (`None, headers)
     | String s ->
       ( `String s,
@@ -674,9 +630,8 @@ module Backend = struct
     let headers =
       Http.Header.add_unless_exists headers "user-agent" cfg.user_agent
     in
-    (* Every path into a backend refuses a caller's [Host] as reserved,
-       but [replace] rather than [add] means that even if one arrived
-       there is a single [Host] on the wire. *)
+    (* Use [replace] as defence in depth so exactly one [Host] reaches the
+       wire even if an invalid request bypassed normal validation. *)
     let headers = Http.Header.replace headers "host" (host_header url) in
     (* A statement of fact rather than a preference: this backend opens a
        connection per exchange and drops it afterwards, so saying so lets
@@ -685,31 +640,58 @@ module Backend = struct
     let body, headers = framing req headers in
     let transport = ref None in
     let release () = Option.iter close_transport !transport in
+    let finish () = Option.iter finish_transport !transport in
+    (* A missing TLS provider is settled before anything is dialled, so an
+       https URL never reaches [connect]. *)
+    let wrap_tls =
+      match scheme with
+      | `Http -> None
+      | `Https ->
+        (match cfg.https with
+         | None ->
+           raise (err (Tls_failure
+                         "no TLS provider: pass ~https to fetch https URLs"))
+         | Some wrap -> Some wrap)
+    in
     try
-      let raw = cfg.connect ~sw ~host ~port in
+      (* Name resolution, the handshake with the peer, and the TLS
+         handshake are one phase to the caller and share one bound. *)
       let raw =
-        match scheme with
-        | `Http -> raw
-        | `Https ->
-          (match cfg.https with
-           | None ->
-             Eio.Resource.close raw;
-             raise (err (Tls_failure
-                           "no TLS provider: pass ~https to fetch https URLs"))
-           | Some wrap ->
-             (* Whatever the wrapper raises for a rejected certificate is
-                its own affair, so name it for what it is: a handshake
-                failure is not worth retrying, and [Protocol_error] would
-                not say that. *)
-             (match wrap uri raw with
-              | conn -> conn
-              | exception (Eio.Cancel.Cancelled _ as ex) ->
-                Eio.Resource.close raw; raise ex
-              | exception ex ->
-                Eio.Resource.close raw;
-                raise (err (Tls_failure (Printexc.to_string ex)))))
+        match
+          Eio.Time.Timeout.run_exn cfg.connect_timeout (fun () ->
+              let raw = cfg.connect ~sw ~host ~port in
+              match wrap_tls with
+              | None -> raw
+              | Some wrap ->
+                (* Whatever the wrapper raises for a rejected certificate is
+                   its own affair, so name it for what it is: a handshake
+                   failure is not worth retrying, and [Protocol_error] would
+                   not say that. *)
+                (match wrap uri raw with
+                 | conn -> conn
+                 | exception (Eio.Cancel.Cancelled _ as ex) ->
+                   close_flow raw; raise ex
+                 | exception (Eio.Io (E (Tls_failure _), _) as ex) ->
+                   close_flow raw; raise ex
+                 | exception Httpz_tls.Error message ->
+                   close_flow raw;
+                   raise (err (Tls_failure message))
+                 | exception ex ->
+                   close_flow raw;
+                   raise (err (Tls_failure (Printexc.to_string ex)))))
+        with
+        | raw -> timed cfg.idle raw
+        | exception Eio.Time.Timeout ->
+          raise (err (Connection_failure Timeout))
       in
-      let tr = { raw; closed = false; hook = Eio.Switch.null_hook } in
+      let finish_raw =
+        match scheme, cfg.close_tls with
+        | `Https, Some close -> fun () -> close raw
+        | _ -> fun () -> Eio.Resource.close raw
+      in
+      let tr =
+        { raw; finish = finish_raw; closed = false; hook = Eio.Switch.null_hook }
+      in
       tr.hook <-
         Eio.Switch.on_release_cancellable sw (fun () -> close_transport tr);
       transport := Some tr;
@@ -719,17 +701,21 @@ module Backend = struct
           ~target:(Middleware.Url.path_and_query url)
           (Http.Header.to_list headers)
       in
-      let head_cs = Cstruct.of_bytes head ~off:0 ~len:head_len in
+      let wcs = Cstruct.create Httpz.buffer_size in
+      Cstruct.blit_from_bytes head 0 wcs 0 head_len;
+      let local_ head_cs = Cstruct.sub_local wcs 0 head_len in
       (match body with
-       | `None -> Eio.Flow.write raw [ head_cs ]
-       | `String s -> Eio.Flow.write raw [ head_cs; Cstruct.of_string s ]
-       | `Flow flow -> Eio.Flow.write raw [ head_cs ]; Eio.Flow.copy flow raw
+       | `None -> Eio.Flow.write raw (stack_ [ head_cs ])
+       | `String s ->
+         Eio.Flow.write raw (stack_ [ head_cs; Cstruct.of_string_local s ])
+       | `Flow flow ->
+         Eio.Flow.write raw (stack_ [ head_cs ]); Eio.Flow.copy flow raw
        | `Chunked flow ->
-         Eio.Flow.write raw [ head_cs ]; send_chunked raw flow);
+         Eio.Flow.write raw (stack_ [ head_cs ]); send_chunked raw flow);
       (* The head buffer's contents have been sent, so it becomes the
          response's parse window. *)
       let w =
-        { tr; wbuf = head; wcs = Cstruct.of_bytes head; pos = 0; len = 0 }
+        { tr; wbuf = head; wcs; pos = 0; len = 0 }
       in
       let request_method =
         match req.meth with
@@ -754,63 +740,106 @@ module Backend = struct
       in
       let info = final_head 8 in
       let headers = Http.Header.of_list info.resp_headers in
-      let bodyless = info.bodyless in
+      if
+        (not info.bodyless)
+        && (not info.chunked)
+        && Http.Header.mem headers "transfer-encoding"
+      then begin
+        release ();
+        raise
+          (err
+             (Protocol_error
+                "unsupported non-chunked Transfer-Encoding in response"))
+      end;
+      let headers =
+        if info.chunked then Http.Header.remove headers "transfer-encoding"
+        else headers
+      in
+      (* RFC 9112 still frames a 205, but RFC 9110 forbids it from carrying
+         content. This backend never pools transports, so close rather than
+         exposing a server's invalid representation through the Fetch API. *)
+      let contentless = info.bodyless || info.code = 205 in
       let framing =
         if info.chunked then Chunk_header
         else if Int64.compare info.content_length 0L >= 0 then
           Length (ref info.content_length)
         else To_eof
       in
-      let b = { w; framing; trailers = None; body_eof = bodyless; release } in
+      let b = { w; framing; trailers = None; body_eof = contentless } in
+      let close_response () =
+        b.body_eof <- true;
+        release ()
+      in
       let raw_body = Eio.Resource.T (b, body_handler) in
       let src, headers =
-        if bodyless then (Eio.Flow.string_source "", headers)
+        if contentless then (Eio.Flow.string_source "", headers)
         else if decode && is_gzip headers then
-          ( gunzip raw_body,
-            (* Present the decoded view, as a backend must. *)
+          (* Bound the coded representation as well as the decoded one.  A
+             stream of empty gzip members otherwise produces no decoded bytes
+             and can run forever without reaching the outer limit. *)
+          let encoded =
+            capped_body ~description:"encoded response body"
+              ~max_response:cfg.max_response ~finish ~abort:release raw_body
+          in
+          ( Gzip_stream.gunzip encoded,
             Http.Header.remove
               (Http.Header.remove headers "content-encoding")
               "content-length" )
         else (raw_body, headers)
       in
-      if bodyless then release ();
+      if contentless then finish ();
       let capped =
-        Eio.Resource.T
-          ({ src; max_response = cfg.max_response; seen = 0; release },
-           response_body_handler)
+        capped_body ~description:"response body"
+          ~max_response:cfg.max_response ~finish ~abort:release src
       in
       Fetch.Middleware.Pi.response ~status:info.code ~headers
         ~version:info.version ~body:capped
         ~trailers:(fun () -> b.trailers)
-        ~url ()
+        ~close:close_response ~url ()
     with ex -> release (); reraise ex
   end
 
 let handler = Fetch.Middleware.Pi.client (module Backend)
 
-let default_user_agent = "fetch-httpz"
-
-let v ?https ?(max_response = 256 * 1024 * 1024)
-    ?(user_agent = default_user_agent) ?(decode = true) net () : t =
-  let connect ~sw ~host ~port = connect_tcp ~net ~sw ~host ~port in
-  Eio.Resource.T ({ connect; https; max_response; user_agent; decode }, handler)
-
-(* The design.md s11.2 recommended stack over this backend, minted from
-   stdenv capabilities: retries re-consult the jar and are paced, and any
-   policy the caller stacks on top still gates every attempt. *)
-let std ?https ?(cookies = `Memory) ?retry ?(max_concurrent = 6)
-    ?min_interval env =
-  let clock = env#clock in
-  let mono_clock = env#mono_clock in
-  let backend = v ?https env#net () in
-  let with_cookies =
-    match cookies with
-    | `Off -> fun t -> Fetch.Middleware.of_handler (Fetch.Middleware.handler t)
-    | `Memory -> Fetch_cookies.with_jar (Fetch_cookies.Jar.in_memory ~clock ())
-    | `File path ->
-      Fetch_cookies.with_jar (Fetch_cookies.Jar.of_file ~clock path)
+let v ?clock ?connect ?https ?(max_response = 256 * 1024 * 1024)
+    ?(user_agent = "fetch-httpz") ?(decode = true) ?(connect_timeout = 30.)
+    ?(idle_timeout = 60.) net () : t =
+  if max_response < 0 then
+    invalid_arg "Fetch_httpz.v: max_response must be non-negative";
+  if not (Middleware.is_field_value user_agent) then
+    invalid_arg
+      "Fetch_httpz.v: user_agent contains a forbidden control byte";
+  let valid_timeout name seconds =
+    match Float.classify_float seconds with
+    | FP_nan | FP_infinite ->
+      invalid_arg (Fmt.str "Fetch_httpz.v: %s must be finite" name)
+    | FP_normal | FP_subnormal | FP_zero ->
+      if seconds < 0. then
+        invalid_arg
+          (Fmt.str "Fetch_httpz.v: %s must be non-negative" name)
   in
-  backend
-  |> with_cookies
-  |> Fetch.with_limits ~clock:mono_clock ?min_interval ~max_concurrent
-  |> Fetch.with_retry ~clock:mono_clock ~random:env#secure_random ?config:retry
+  valid_timeout "connect_timeout" connect_timeout;
+  valid_timeout "idle_timeout" idle_timeout;
+  let connect =
+    Option.value connect ~default:(fun ~sw ~host ~port ->
+        connect_tcp ~net ~sw ~host ~port)
+  in
+  let connect_timeout, idle, close_tls =
+    match clock with
+    | None -> (Eio.Time.Timeout.none, None, None)
+    | Some clock ->
+      ( Eio.Time.Timeout.seconds clock connect_timeout,
+        Some (Eio.Time.Timeout.seconds clock idle_timeout, idle_timeout),
+        Some (fun flow -> Httpz_tls.close ~clock flow) )
+  in
+  Eio.Resource.T
+    ({ connect; https; max_response; user_agent; decode; connect_timeout;
+       idle; close_tls },
+     handler)
+
+let std ?connect ?(https = Httpz_tls.system) ?cookies ?retry ?max_concurrent
+    ?min_interval
+    ?connect_timeout ?idle_timeout env =
+  Fetch_cookies.std ?cookies ?retry ?max_concurrent ?min_interval env
+    (v ~clock:env#mono_clock ?connect ~https ?connect_timeout ?idle_timeout
+       env#net ())

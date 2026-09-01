@@ -15,13 +15,13 @@
 
 (** {1 Object identifiers} *)
 
-type oid
+type oid : immutable_data
 (** ASN.1 [OBJECT IDENTIFIER]. *)
 
 (** Object identifiers.
 
     Magic numbers in a suit and tie. Their consulting fee is astronomical. *)
-module OID : sig
+module OID : sig @@ portable
 
   (** {1 Object identifiers} *)
 
@@ -31,8 +31,8 @@ module OID : sig
 
       Every OID has at least two nodes. *)
 
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
+  val equal : t -> t -> bool @@ portable
+  val compare : t -> t -> int @@ portable
   val hash : t -> int
   val seeded_hash : int -> t -> int
 
@@ -101,11 +101,12 @@ module S : sig
 
   (** {1 Basic combinators} *)
 
-  val fix : ('a t -> 'a t) -> 'a t
+  val fix : ('a t -> 'a t) @ portable -> 'a t @@ portable
   (** [fix fasn] is the fixpoint, allowing [fasn] to construct a syntax that
       refers to itself. *)
 
-  val map : ?random:(unit -> 'b) -> ('a -> 'b) -> ('b -> 'a) -> 'a t -> 'b t
+  val map : ?random:(unit -> 'b) -> ('a -> 'b) @ portable ->
+    ('b -> 'a) -> 'a t -> 'b t @@ portable
   (** [map ?random f g asn] creates a derived syntax that encodes and decodes
       like [asn], but uses [f] to project and [g] to inject.
 
@@ -117,7 +118,7 @@ module S : sig
   type cls = [ `Universal | `Application | `Private ]
   (** ASN.1 tag CLASS. *)
 
-  val implicit : ?cls:cls -> int -> 'a t -> 'a t
+  val implicit : ?cls:cls -> int -> 'a t -> 'a t @@ portable
   (** [implicit ?cls n asn] is the ASN.1 [IMPLICIT] construct, changing the tag
       of [asn] to [(cls, n)].
 
@@ -130,7 +131,7 @@ module S : sig
       X.608 (see [31.2.7]) in case of a bare tag, and with the common practice
       in case of a tag marked as [IMPLICIT]. *)
 
-  val explicit : ?cls:cls -> int -> 'a t -> 'a t
+  val explicit : ?cls:cls -> int -> 'a t -> 'a t @@ portable
   (** [explicit ?cls n asn] is the ASN.1 [EXPLICIT] construct, changing the tag
       of [asn] to [(cls, n)].
 
@@ -152,12 +153,12 @@ module S : sig
   type 'a element
   (** An [element] is a single slot in a {{!sequence}[sequence]}. *)
 
-  val required : ?label:string -> 'a t -> 'a element
+  val required : ?label:string -> 'a t -> 'a element @@ portable
   (** [required ?label asn] is a regular sequence element.
 
       [~label] is the name of the element. *)
 
-  val optional : ?label:string -> 'a t -> 'a option element
+  val optional : ?label:string -> 'a t -> 'a option element @@ portable
   (** [optional ?label asn] is a sequence element marked with the
       ASN.1 [OPTIONAL] keyword.
 
@@ -167,39 +168,39 @@ module S : sig
   (** A [sequence] is the body of a multi-field ASN.1 construct, like
      [SEQUENCE] and [SET]. *)
 
-  val single : 'a element -> 'a sequence
+  val single : 'a element -> 'a sequence @@ portable
   (** [single e] is the singleton sequence containing just [e]. *)
 
-  val ( @ ) : 'a element -> 'b sequence -> ('a * 'b) sequence
+  val ( @ ) : 'a element -> 'b sequence -> ('a * 'b) sequence @@ portable
   (** [e @ seq] extends [seq] by prepending [e]. *)
 
-  val ( -@ ) : 'a element -> 'b element  -> ('a * 'b) sequence
+  val ( -@ ) : 'a element -> 'b element  -> ('a * 'b) sequence @@ portable
   (** [e -@ e1] is [e @ single e1] *)
 
-  val sequence : 'a sequence -> 'a t
+  val sequence : 'a sequence -> 'a t @@ portable
   (** [sequence seq] is the ASN.1 [SEQUENCE] construct, with the body [seq]. *)
 
-  val sequence_of : 'a t -> 'a list t
+  val sequence_of : 'a t -> 'a list t @@ portable
   (** [sequence_of] is the ASN.1 [SEQUENCE OF] construct. *)
 
-  val sequence2 : 'a element -> 'b element -> ('a * 'b) t
+  val sequence2 : 'a element -> 'b element -> ('a * 'b) t @@ portable
   (** [sequence2 e1 e2] is [sequence (e1 -@ e2)]. Other [sequenceN] functions
       are analogous. *)
 
   val sequence3 :
     'a element ->
-    'b element -> 'c element -> ('a * 'b * 'c) t
+    'b element -> 'c element -> ('a * 'b * 'c) t @@ portable
 
   val sequence4 :
     'a element ->
     'b element ->
-    'c element -> 'd element -> ('a * 'b * 'c * 'd) t
+    'c element -> 'd element -> ('a * 'b * 'c * 'd) t @@ portable
 
   val sequence5 :
     'a element ->
     'b element ->
     'c element ->
-    'd element -> 'e element -> ('a * 'b * 'c * 'd * 'e) t
+    'd element -> 'e element -> ('a * 'b * 'c * 'd * 'e) t @@ portable
 
   val sequence6 :
     'a element ->
@@ -207,31 +208,31 @@ module S : sig
     'c element ->
     'd element ->
     'e element ->
-    'f element -> ('a * 'b * 'c * 'd * 'e * 'f) t
+    'f element -> ('a * 'b * 'c * 'd * 'e * 'f) t @@ portable
 
-  val set : 'a sequence -> 'a t
+  val set : 'a sequence -> 'a t @@ portable
   (** [seq seq] is the ASN.1 [SET] construct, with the body [seq]. *)
 
-  val set_of : 'a t -> 'a list t
+  val set_of : 'a t -> 'a list t @@ portable
   (** [set_of asn] is the ASN.1 [SET OF] construct. *)
 
-  val set2 : 'a element -> 'b element -> ('a * 'b) t
+  val set2 : 'a element -> 'b element -> ('a * 'b) t @@ portable
   (** [set2 e1 e2] is [set (e1 -@ e2)]. Other [setN] functions are analogous. *)
 
   val set3 :
     'a element ->
-    'b element -> 'c element -> ('a * 'b * 'c) t
+    'b element -> 'c element -> ('a * 'b * 'c) t @@ portable
 
   val set4 :
     'a element ->
     'b element ->
-    'c element -> 'd element -> ('a * 'b * 'c * 'd) t
+    'c element -> 'd element -> ('a * 'b * 'c * 'd) t @@ portable
 
   val set5 :
     'a element ->
     'b element ->
     'c element ->
-    'd element -> 'e element -> ('a * 'b * 'c * 'd * 'e) t
+    'd element -> 'e element -> ('a * 'b * 'c * 'd * 'e) t @@ portable
 
   val set6 :
     'a element ->
@@ -239,10 +240,10 @@ module S : sig
     'c element ->
     'd element ->
     'e element ->
-    'f element -> ('a * 'b * 'c * 'd * 'e * 'f) t
+    'f element -> ('a * 'b * 'c * 'd * 'e * 'f) t @@ portable
 
   val choice2 :
-    'a t -> 'b t -> [ `C1 of 'a | `C2 of 'b ] t
+    'a t -> 'b t -> [ `C1 of 'a | `C2 of 'b ] t @@ portable
   (** [choice2 asn1 asn2] is the ASN.1 [CHOICE] construct, choosing between
       [asn1] and [asn2]. Other [choiceN] functions are analogous.
 
@@ -253,26 +254,26 @@ module S : sig
 
   val choice3 :
     'a t -> 'b t -> 'c t
-    -> [ `C1 of 'a | `C2 of 'b | `C3 of 'c ] t
+    -> [ `C1 of 'a | `C2 of 'b | `C3 of 'c ] t @@ portable
 
   val choice4 :
     'a t -> 'b t -> 'c t -> 'd t
-    -> [ `C1 of 'a | `C2 of 'b | `C3 of 'c | `C4 of 'd ] t
+    -> [ `C1 of 'a | `C2 of 'b | `C3 of 'c | `C4 of 'd ] t @@ portable
 
   val choice5 :
     'a t -> 'b t -> 'c t -> 'd t -> 'e t
-    -> [ `C1 of 'a | `C2 of 'b | `C3 of 'c | `C4 of 'd | `C5 of 'e ] t
+    -> [ `C1 of 'a | `C2 of 'b | `C3 of 'c | `C4 of 'd | `C5 of 'e ] t @@ portable
 
   val choice6 :
     'a t -> 'b t -> 'c t -> 'd t -> 'e t -> 'f t
-    -> [ `C1 of 'a | `C2 of 'b | `C3 of 'c | `C4 of 'd | `C5 of 'e | `C6 of 'f ] t
+    -> [ `C1 of 'a | `C2 of 'b | `C3 of 'c | `C4 of 'd | `C5 of 'e | `C6 of 'f ] t @@ portable
 
   (** {1 Primitives} *)
 
-  val bool : bool t
+  val bool : bool t @@ portable
   (** [bool] is ASN.1 [BOOLEAN]. *)
 
-  val integer : string t
+  val integer : string t @@ portable
   (** [integer] is ASN.1 [INTEGER]. The representation is a [string]. Be aware
       these are two's complement signed integers, in order to encode a positive
       number where the first bit is set (i.e. 128 = [0x80]), you have to prepend
@@ -286,16 +287,16 @@ module S : sig
   (** [bit_string_octets] is ASN.1 [BIT STRING], represented as [string], and
       padded with 0-bits up to the next full octet. *)
 
-  val octet_string : string  t
+  val octet_string : string  t @@ portable
   (** [octet_string] is ASN.1 [OCTET STRING]. *)
 
-  val null : unit t
+  val null : unit t @@ portable
   (** [null] is ASN.1 [NULL]. *)
 
-  val oid : oid t
+  val oid : oid t @@ portable
   (** [oid] is ASN.1 [OBJECT IDENTIFIER]. *)
 
-  val enumerated : (int -> 'a) -> ('a -> int) -> 'a t
+  val enumerated : (int -> 'a) @ portable -> ('a -> int) -> 'a t
   (** [enumerated f g] is ASN.1 [ENUMERATED], with [f] projecting from, and [g]
       injecting into an [int].
 
@@ -339,22 +340,28 @@ module S : sig
       unsigned integers encoded as ASN.1 (signed) [INTEGER]s. Negative ASN.1
       [INTEGER]s are rejected with a parse error. *)
 
-  val bit_string_flags : (int * 'a) list -> 'a list t
+  val bit_string_flags : ('a : immutable_data). (int * 'a) list -> 'a list t
   (** [bit_string_flags xs] is ASN.1 [BIT STRING], represented as a collection
       of values.
 
       [xs] is a list of [(bit, x)], where bit [bit] denotes the presence of [x]. *)
 
+  (** Fresh primitive grammars for constructing recursive portable syntaxes. *)
+  val fresh_octet_string : unit -> string t @@ portable
+  val fresh_null : unit -> unit t @@ portable
+  val fresh_oid : unit -> oid t @@ portable
+  val fresh_int : unit -> int t @@ portable
+
   (** {1 Errors} *)
 
   (* XXX repeats *)
-  val error : [ `Parse of string ] -> 'a
+  val error : [ `Parse of string ] -> 'a @@ portable
   (** [error err] aborts parsing with the {{!error}[error]} [err].
 
       Aborting the parse is useful, for example, in the [f] argument to
       {{!map}[map]}. *)
 
-  val parse_error : ('a, Format.formatter, unit, 'b) format4 -> 'a
+  val parse_error : ('a, Format.formatter, unit, 'b) format4 -> 'a @@ portable
   (** [parse_error fmt ...] aborts parsing with the message produced by using
       [fmt] to format arguments [...]. *)
 end
@@ -403,6 +410,11 @@ val decode : 'a codec -> string -> ('a * string, error) result
 (** [decode codec cs] is the pair [(x, cs')], where [x] is the result of
     decoding the prefix of [cs] with [codec] and [cs'] are the trailing bytes,
     or an {!error}. *)
+
+val decoder : encoding -> 'a t ->
+  (string -> ('a * string, error) result) @ portable
+(** [decoder encoding syntax] compiles a decoder whose closure can safely be
+    moved between domains. *)
 
 (** {1 Misc} *)
 

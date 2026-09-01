@@ -32,7 +32,7 @@
 
     Suitable entropy feeding of generators are provided by other libraries
     {{!Mirage_crypto_rng_mirage}mirage-crypto-rng-mirage} (for MirageOS),
-    and {{!Mirage_crypto_rng_miou_unix}mirage-crypto-miou-unix} (for Miou_unix).
+    and {{!Mirage_crypto_rng_kernel}mirage-crypto-mkernel} (for mkernel).
 
     The intention is that "initialize" in the respective sub-library is called
     once, which sets the default generator and registers entropy
@@ -207,6 +207,19 @@ module type Generator = sig
   (** [pools] is the amount of pools if any. *)
 end
 
+(** A generator whose operations do not capture domain-local state. Its state
+    is still created and consumed on the calling domain. *)
+module type Portable_generator = sig @@ portable
+  type g
+  val block : int
+  val create : ?time:(unit -> int64) -> unit -> g
+  val generate_into : g:g -> bytes -> off:int -> int -> unit
+  val reseed : g:g -> string -> unit
+  val accumulate : g:g -> Entropy.source -> [`Acc of string -> unit]
+  val seeded : g:g -> bool
+  val pools : int
+end
+
 type 'a generator = (module Generator with type g = 'a)
 
 (** Ready-to-use RNG algorithms. *)
@@ -234,6 +247,21 @@ val create : ?g:'a -> ?seed:string -> ?strict:bool ->
 
     [time] is used to limit the amount of reseedings. Fortuna uses at most once
     every second. *)
+
+type 'a portable_generator =
+  (module Portable_generator with type g = 'a)
+
+type portable_g
+
+val create_portable : ?g:'a -> ?seed:string -> ?strict:bool ->
+  ?time:(unit -> int64) -> 'a portable_generator -> portable_g
+  @@ portable
+
+val generate_into_portable :
+  g:portable_g -> bytes -> ?off:int -> int -> unit
+  @@ portable
+
+val generate_portable : g:portable_g -> int -> string @@ portable
 
 val default_generator : unit -> g
 (** [default_generator ()] is the default generator. Functions in this module
@@ -283,6 +311,10 @@ val pools      : g option -> int
 val strict : g option -> bool
 (**/**)
 
+val entropy_test : unit -> unit
+(** [entropy_test ()] tests entropy harvesting. This raises [Failure] if either
+    whirlwind, cpu-rng, or timer produces the same result twice in a row. Best
+    to be used at startup to ensure your hardware is sane. *)
 
 (** {1:rng_examples Examples}
 

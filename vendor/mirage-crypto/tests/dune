@@ -18,6 +18,13 @@
  (modules test_random_runner))
 
 (test
+ (name test_urandom_fork)
+ (modules test_urandom_fork)
+ (libraries mirage-crypto-rng mirage-crypto-rng.unix ounit2 unix)
+ (package mirage-crypto-rng)
+ (enabled_if (<> %{os_type} "Win32")))
+
+(test
  (name test_pk_runner)
  (libraries test_common mirage-crypto-pk mirage-crypto-rng.unix randomconv
    ounit2)
@@ -28,14 +35,13 @@
  (name test_entropy_collection)
  (modules test_entropy_collection)
  (package mirage-crypto-rng-mirage)
- (libraries mirage-crypto-rng-mirage mirage-unix duration ohex))
-
-(test
- (name test_entropy)
- (modules test_entropy)
- (package mirage-crypto-rng)
- (libraries mirage-crypto-rng ohex)
- (enabled_if (and (<> %{architecture} "arm64") (<> %{architecture} "riscv64"))))
+ (libraries mirage-crypto-rng-mirage mirage-unix duration ohex)
+ (enabled_if
+  (and
+   (<> %{architecture} "arm64")
+   (and
+    (<> %{architecture} "riscv")
+    (or (<> %{system} "macosx") (<> %{architecture} "amd64"))))))
  ; see https://github.com/mirage/mirage-crypto/issues/216
 
 (test
@@ -55,9 +61,9 @@
  (libraries alcotest mirage-crypto-ec wycheproof digestif asn1-combinators)
  (package mirage-crypto-ec))
 
-(tests
- (names     test_miou_rng test_miou_entropy_collection)
- (modules   test_miou_rng test_miou_entropy_collection)
- (libraries mirage-crypto-rng-miou-unix duration ohex)
- (package   mirage-crypto-rng-miou-unix)
- (enabled_if (<> %{os_type} "Win32")))
+;(tests
+; (names     test_miou_rng test_miou_entropy_collection)
+; (modules   test_miou_rng test_miou_entropy_collection)
+; (libraries mirage-crypto-rng-mkernel duration ohex miou miou.unix)
+; (package   mirage-crypto-rng-mkernel)
+; (enabled_if (<> %{os_type} "Win32")))

@@ -6,9 +6,12 @@
   test_tchar
   test_writers
   test_date_format
-  test_route
+  test_content_range
   test_target
-  test_portable)
+  test_route
+  test_portable
+  test_uriz
+  test_uri_template)
  (libraries
   httpz
   httpz.route
@@ -18,3 +21,21 @@
   unix
   stdlib_stable
   stdlib_upstream_compatible))
+
+(tests
+ (names test_media test_urlencoded test_multipart test_json)
+ (libraries httpz alcotest jsont bytesrw))
+
+(test
+ (name test_namespaced_libraries)
+ (libraries
+  httpz.punycode
+  httpz.punycode.idna
+  httpz.pubsuffix
+  httpz.cookie
+  httpz.cookie.jar
+  ptime))
+
+(test
+ (name test_ip)
+ (libraries httpz base stdio))

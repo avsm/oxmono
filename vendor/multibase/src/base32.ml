@@ -8,7 +8,7 @@
    Distributed under the ISC license, see terms at the end of the file.
   ---------------------------------------------------------------------------*)
 
-type alphabet = { emap : int array; dmap : int array }
+type alphabet = { emap : string; dmap : string }
 type sub = string * int * int
 
 let ( // ) x y =
@@ -19,35 +19,32 @@ let ( // ) x y =
 let unsafe_get_uint8 t off = Char.code (String.unsafe_get t off)
 let unsafe_set_uint8 t off v = Bytes.unsafe_set t off (Char.chr v)
 
-external unsafe_set_uint16 : bytes -> int -> int -> unit = "%caml_bytes_set16u"
+external unsafe_set_uint16 : bytes -> int -> int -> unit @@ portable = "%caml_bytes_set16u"
   [@@noalloc]
 
-external unsafe_get_uint16 : string -> int -> int = "%caml_string_get16u"
+external unsafe_get_uint16 : string -> int -> int @@ portable = "%caml_string_get16u"
   [@@noalloc]
 
-external swap16 : int -> int = "%bswap16" [@@noalloc]
+external swap16 : int -> int @@ portable = "%bswap16" [@@noalloc]
 
-let none = -1
-
-(* We mostly want to have an optional array for [dmap] (e.g. [int option
-   array]). So we consider the [none] value as [-1]. *)
+(* The immutable decoding table uses byte 255 for characters outside the
+   alphabet; valid base32 digits occupy only 0 through 31. *)
 
 let make_alphabet alphabet =
   if String.length alphabet <> 32 then
     invalid_arg "Length of alphabet must be 32";
   if String.contains alphabet '=' then
     invalid_arg "Alphabet can not contain padding character";
-  let emap =
-    Array.init (String.length alphabet) (fun i -> Char.code alphabet.[i])
-  in
-  let dmap = Array.make 256 none in
-  String.iteri (fun idx chr -> dmap.(Char.code chr) <- idx) alphabet;
+  let emap = alphabet in
+  let dmap = Bytes.make 256 (Char.chr 255) in
+  String.iteri (fun idx chr -> Bytes.set dmap (Char.code chr) (Char.chr idx)) alphabet;
+  let dmap = Bytes.unsafe_to_string dmap in
   { emap; dmap }
 
-let length_alphabet { emap; _ } = Array.length emap
+let length_alphabet { emap; _ } = String.length emap
 
 let alphabet { emap; _ } =
-  String.init (Array.length emap) (fun i -> Char.chr emap.(i))
+  emap
 
 let default_alphabet = make_alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
@@ -74,7 +71,7 @@ let get_uint8 t off =
   unsafe_get_uint8 t off
 
 let padding = int_of_char '='
-let error_msgf fmt = Format.ksprintf (fun err -> Error (`Msg err)) fmt
+let error_msg msg = Error (`Msg msg)
 
 let encode_sub pad { emap; _ } ?(off = 0) ?len input =
   let len =
@@ -82,14 +79,14 @@ let encode_sub pad { emap; _ } ?(off = 0) ?len input =
   in
 
   if len < 0 || off < 0 || off > String.length input - len then
-    error_msgf "Invalid bounds"
+    error_msg "Invalid bounds"
   else
     (* Length of input string *)
     let n = len in
     (* Every 40-bits (5 bytes) because 8 *)
     let n' = n // 5 * 8 in
     let res = Bytes.create n' in
-    let emap i = Array.unsafe_get emap i in
+    let emap i = Char.code (String.unsafe_get emap i) in
     (* 5 bit mask *)
     let b5_mask = 0x1f in
     let emit b1 b2 b3 b4 b5 i =
@@ -195,7 +192,7 @@ let decode_sub ?(pad = true) { dmap; _ } ?(off = 0) ?len input =
   in
 
   if len < 0 || off < 0 || off > String.length input - len then
-    error_msgf "Invalid bounds"
+    error_msg "Invalid bounds"
   else
     let n = len // 8 * 8 in
     let n' = n // 8 * 5 in
@@ -237,8 +234,8 @@ let decode_sub ?(pad = true) { dmap; _ } ?(off = 0) ?len input =
     in
 
     let dmap i =
-      let x = Array.unsafe_get dmap i in
-      if x = none then raise Not_found;
+      let x = Char.code (String.unsafe_get dmap i) in
+      if x = 255 then raise Not_found;
       x
     in
 
@@ -347,12 +344,12 @@ let decode_sub ?(pad = true) { dmap; _ } ?(off = 0) ?len input =
     | 0 -> Ok (Bytes.unsafe_to_string res, 0, n')
     | pad -> Ok (Bytes.unsafe_to_string res, 0, n' - pad)
     | exception Out_of_bounds ->
-        error_msgf "Wrong padding"
+        error_msg "Wrong padding"
         (* appear only when [pad = true] and when length of input is not a multiple of 4. *)
     | exception Not_found ->
         (* appear when one character of [input] ∉ [alphabet] and this character <> '=' *)
-        error_msgf "Malformed input"
-    | exception Too_much_input -> error_msgf "Too much input"
+        error_msg "Malformed input"
+    | exception Too_much_input -> error_msg "Too much input"
 
 let decode ?pad ?(alphabet = default_alphabet) ?off ?len input =
   match decode_sub ?pad alphabet ?off ?len input with

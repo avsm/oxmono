@@ -1,0 +1,51 @@
+(library
+ (name httpz)
+ (public_name httpz)
+ (modules
+  uriz_scanner
+  httpz_uri
+  uri_template
+  scan_portable
+  scan
+  ip
+  buf_read
+  buf_write
+  span
+  version
+  method
+  header_name
+  header
+  upgrade
+  req
+  target
+  chunk
+  res
+  err
+  parser
+  etag
+  date
+  range
+  urlencoded
+  multipart
+  media
+  json
+  sse
+  httpz)
+ (private_modules uriz_scanner)
+ (libraries
+  base
+  base_bigstring
+  ocaml_intrinsics_kernel
+  stdlib_stable
+  stdlib_upstream_compatible
+  unboxed.int32_u
+  uriz
+  bytesrw
+  jsonm
+  jsont
+  jsont.bytesrw
+  (select
+   scan.ml
+   from
+   (-> scan.portable.ml)))
+ (preprocess (pps ppx_template)))

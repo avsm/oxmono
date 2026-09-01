@@ -12,40 +12,59 @@
  (name fetch)
  (synopsis "Portable HTTP client capability for Eio")
  (description
-  "An abstract HTTP client capability that can be narrowed (restricting the origins, methods or paths it may request), appended to (attaching scoped credentials and headers), and rate-limited before being handed to libraries. Any backend can provide it; a mock backend (fetch.mock) and cookie-jar middleware (fetch.cookies) are included.")
+  "An abstract HTTP client capability that can be narrowed, appended to, and
+rate-limited before being handed to libraries. A mock backend and cookie-jar
+middleware are included, along with Jsont and Cmarkit media codecs.")
  (depends
   (ocaml (>= 5.2.0))
+  httpz
   (eio (>= 1.3))
   (http (>= 6.0.0))
-  (uri (>= 4.2.0))
   (fmt (>= 0.8.9))
   (mtime (>= 2.0.0))
   (cstruct (>= 6.0.0))
+  (bytesrw (>= 0.4.0))
   (ptime (>= 1.0.0))
-  cookeio
+  (base64 (>= 3.5.0))
+  (ipaddr (>= 5.6.2))
+  (alcotest :with-test)
+  (cmarkit (>= 0.4.0))
   (mdx (and (>= 2.4.1) :with-test))
   (eio_main (and (>= 1.3) :with-test))))
 
 (package
  (name fetch-httpz)
- (synopsis "httpz backend for fetch")
+ (synopsis "Httpz backend for Fetch")
  (description
-  "A Fetch.Client backend using the httpz protocol library: a pure OCaml HTTP/1.1 client with no C dependency, streaming request and response bodies, transparent gzip decoding and TLS supplied by the caller. Each request is a single exchange over its own connection; the portable fetch layer provides redirects and policy.")
+  "A pure OCaml HTTP/1.1 Fetch backend using httpz, with streaming request and
+response bodies, transparent gzip decoding, and system-trust HTTPS by default.")
  (depends
   (fetch (= :version))
   httpz
-  (uri (>= 4.2.0))
+  (eio (>= 1.3))
+  (http (>= 6.0.0))
+  uriz
+  (fmt (>= 0.8.9))
+  (cstruct (>= 6.0.0))
+  (checkseum (>= 0.5.0))
   (decompress (>= 1.5.0))
   (eio_main (and (>= 1.3) :with-test))
+  (alcotest :with-test)
   (mdx (and (>= 2.4.1) :with-test))))
 
 (package
  (name fetch-curl)
- (synopsis "libcurl backend for fetch")
+ (synopsis "Libcurl backend for Fetch")
  (description
-  "A Fetch.Client backend using libcurl via the curl bindings: a shared multi handle integrated with the Eio event loop gives connection reuse, HTTP/2 multiplexing and per-host connection limits. Each request is a single exchange; the portable fetch layer provides redirects and policy.")
+  "A Fetch backend using libcurl's multi interface with Eio integration,
+connection reuse, HTTP/2 multiplexing, and per-host connection limits.")
  (depends
   (fetch (= :version))
+  httpz
+  (checkseum (>= 0.5.0))
+  (decompress (>= 1.5.0))
+  (eio (>= 1.3))
+  (fmt (>= 0.8.9))
   (curl (>= 0.10.0))
   (eio_main (and (>= 1.3) :with-test))
   (mdx (and (>= 2.4.1) :with-test))))

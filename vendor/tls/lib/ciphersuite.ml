@@ -73,11 +73,8 @@ let kn_13 = function
 
 (** [key_length iv payload_protection] is [(key size, IV size, mac size)] where key IV, and mac sizes are the required bytes for the given [payload_protection] *)
 (* NB only used for <= TLS 1.2, IV length for AEAD defined in RFC 5288 Section 3 (for GCM), salt[4] for CCM in RFC 6655 Section 3 *)
-let key_length iv pp =
-  let mac_size m =
-    let module H = (val Digestif.module_of_hash' m) in
-    H.digest_size
-  in
+let (key_length @ portable) iv pp =
+  let mac_size = Digestif.digest_size in
   match pp with
   | `AEAD AES_128_CCM                -> (16, 4 , 0)
   | `AEAD AES_256_CCM                -> (32, 4 , 0)
@@ -244,7 +241,7 @@ let ciphersuite_to_any_ciphersuite = function
   | `ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 -> Packet.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
 
 (** [get_kex_privprot ciphersuite] is [(kex, privacy_protection)] where it dissects the [ciphersuite] into a pair containing the key exchange method [kex], and its [privacy_protection] *)
-let get_keytype_kex_privprot = function
+let (get_keytype_kex_privprot @ portable) = function
   | `RSA_WITH_3DES_EDE_CBC_SHA       -> (`RSA, `RSA, `Block (TRIPLE_DES_EDE_CBC, `SHA1))
   | `DHE_RSA_WITH_3DES_EDE_CBC_SHA   -> (`RSA, `FFDHE, `Block (TRIPLE_DES_EDE_CBC, `SHA1))
   | `RSA_WITH_AES_128_CBC_SHA        -> (`RSA, `RSA, `Block (AES_128_CBC, `SHA1))
@@ -288,7 +285,7 @@ let ciphersuite_kex c =
   kex
 
 (** [ciphersuite_privprot ciphersuite] is [privprot], second projection of [get_kex_privprot] *)
-let ciphersuite_privprot c =
+let (ciphersuite_privprot @ portable) c =
   let _keytype, _kex, pp = get_keytype_kex_privprot c in
   pp
 

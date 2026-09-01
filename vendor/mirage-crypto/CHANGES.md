@@ -1,3 +1,88 @@
+## v2.4.1 (2026-08-26)
+
+- mirage-crypto: CCM avoid padding of already aligned associated data
+  (#299 @torinnd)
+- mirage-crypto-rng: avoid reusing registered entropy sources (#303 @torinnd)
+- mirage-crypto-pk: RSA reject encodings without a separator (#301 @torinnd)
+- mirage-crypto: poly1305 reject negative length in mac_into (#298 @torinnd)
+- mirage-crypto-rng-mkernel: seed Stdlib.Random once the RNG is seeded
+  (#300 @hannesm)
+- mirage-crypto: CCM reject oversized messages (#304 @torinnd)
+- mirage-crypto: CCM, ChaCha20, and GCM enforce block-count limits
+  (#304 #305 #306 @torinnd @hannesm)
+- mirage-crypto-rng: avoid duplicate output after fork (#302 @torinnd)
+- mirage-crypto-rng: detect RDSEED correctly (@avsm)
+- mirage-crypto-ec: return early in ed25519 double_scalar_mult on decode failure
+  (@avsm)
+- mirage-crypto-ec: X25519 compare the shared secret against zero in constant
+  time (@avsm)
+- mirage-crypto-ec: encode the compressed point at infinity as 0 (previously
+  it crashed) (@avsm)
+- mirage-crypto: ChaCha20 reject keys of not 16 or 32 byte size (@hannesm,
+  inspired by @avsm)
+
+## v2.4.0 (2026-08-17)
+
+- mirage-crypto-rng: don't display anything when running the entropy test
+  (#296 @dinosaure)
+- mirage-crypto-pk: fix hardcoded Dh groups (#297, reported by @torinnd)
+- mirage-crypto-ec: fix timing leak in lookup tables (OSEC-2026-17, reported
+  by @torinnd, acknowledged by @Firobe, fixed by @hannesm)
+
+## v2.3.0 (2026-08-07)
+
+- mirage-crypto-pk: RSA: avoid Invalid_argument when message is < 2, instead
+  raise Insufficient_key which is already documented and caught by clients
+  (OSEC-2026-14, report by @samoht,
+  fix a0f59a0c90eb067505b55a03d3bb104eacd6dd33 by @hannesm)
+- mirage-crypto-ec: NIST: add bounds check for compressed public keys (both for
+  Dsa.pub_of_octets and Dh.key_exchange) (OSEC-2026-15, reported by @samoht,
+  fix 1f0bf67044e67cf6e46911fcd77a0ff706b6c3e7 by @hannesm)
+- mirage-crypto: count_16_be_4: avoid unaligned access that causes bus error on
+  armhf (#292 @glondu)
+- mirage-crypto-rng: remove `[@@noalloc]` annotations on `getrandom` - it
+  eventually calls `uerror` (#287 @samoht)
+- mirage-crypto-rng: avoid zero-length `getentropy` call on BSD and macOS
+  (#288 @samoht)
+- mirage-crypto-pk: Dsa.sign: avoid division by 0 when k is 0 (#289 @samoht)
+- mirage-crypto: add checks that length is positive in AEAD cipher modes
+  (#290 @samoht)
+- mirage-crypto-pk: blind Dsa using (k * b) ^ -1 instead of k ^ -1 * b ^ -1
+  to avoid expensive inversion (#294 @hannesm)
+- install proper licenses for packages (#293 @hannesm)
+
+## v2.2.0 (2026-07-27)
+
+* mirage-crypto-ec: do not accept the point at infinity as ECDSA public key
+  (OSEC-2026-13, reported by @samoht (including patch), @hannesm)
+* mirage-crypto: decrypt only after AEAD tag has been validated (OSEC-2026-12,
+  reported by @samoht (including patch), fixed by @hannesm)
+* mirage-crypto-rng: expose entropy_test: unit -> unit (which raises if entropy
+  collection fails), called by Mirage_crypto_rng_mirage and
+  Mirage_crypto_rng_mkernel at initialization time (#282 @hannesm, review by
+  @dinosaure) -- moving this crucial test to startup (instead of test run)
+* mirage-crypto-ec: add blinding for ECDSA.sign (#285 @hannesm, review by
+  @edwintorok)
+* remove mirage-crypto-rng-miou-unix - use Mirage_crypto_rng_unix.use_default ()
+  (#286 @hannesm, review by @dinosaure)
+* mirage-crypto: Chacha20: reject negative offsets in
+  authenticate_{encrypt,decrypt}_into (#281 @samoht)
+* Skip entropy test on macOS x86_64 (#279 @iamanaws)
+
+## v2.1.0 (2026-03-15)
+
+* Add new module Mirage_crypto_ec.Dsa.Primitive exposing the generator, point
+  add, scalar multiplication for NIST curves. This is useful for implementing
+  some protocols (such as spake2) (#278 #277 @samoht @hannesm)
+* Cleanup gen_tables (#273 #275 @reynir)
+* Use 'architecture' 'riscv' to not execute the entropy test on riscv64 (#272
+  #273 #274 @reynir @hannesm)
+
+## v2.0.3 (2026-02-10)
+
+* Add mirage-crypto-rng-mkernel (#266 @dinosaure)
+* Add PPC macros (#269 @barracuda156)
+
 ## v2.0.2 (2025-08-22)
 
 * Fix ECDSA public key compression (#268 @ansiwen)
@@ -115,7 +200,7 @@ mirage-crypto-rng-{lwt,eio,async} and calling
   multiplications and 2 squarings, details
   https://mailarchive.ietf.org/arch/msg/cfrg/qlKpMBqxXZYmDpXXIx6LO3Oznv4/
   (#196 @hannesm)
-* mirage-crypto-ec: use sliding window method with pre-computed calues of
+* mirage-crypto-ec: use sliding window method with pre-computed values of
   multiples of the generator point for NIST curves, speedup around 4x for P-256
   sign (#191 @Firobe, review @palainp @hannesm)
 * mirage-crypto-ec: documentation: warn about power timing analysis on `k` in

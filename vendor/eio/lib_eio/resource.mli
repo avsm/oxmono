@@ -1,5 +1,3 @@
-@@ portable
-
 (** Resources are typically operating-system provided resources such as open files
     and network sockets. However, they can also be pure OCaml resources (such as mocks)
     or wrappers (such as an encrypted flow that wraps an unencrypted OS flow).
@@ -13,7 +11,7 @@
 
 (** {2 Types} *)
 
-type ('t, -'tags) handler : value mod portable contended
+type ('t, -'tags) handler
 (** A [('t, 'tags) handler] can be used to look up the implementation for a type ['t].
 
     ['tags] is a phantom type to record which interfaces are supported.
@@ -54,12 +52,11 @@ type ('t, 'iface, 'tag) pi = ..
 *)
 
 type _ binding = H : ('t, 'impl, 'tags) pi * 'impl -> 't binding (** *)
-[@@unsafe_allow_any_mode_crossing]
 (** A binding [H (pi, impl)] says to use [impl] to implement [pi].
 
     For example: [H (Close, M.close)]. *)
 
-val handler : 't binding list -> ('t, _) handler
+val handler : 't binding list -> ('t, _) handler @@ portable
 (** [handler ops] is a handler that looks up interfaces using the assoc list [ops].
 
     For example [shutdown (module Foo)] is a handler that handles the [Close] and [Shutdown]
@@ -93,7 +90,7 @@ val get : ('t, 'tags) handler -> ('t, 'impl, 'tags) pi -> 'impl @@ portable
     ]}
 *)
 
-val get_opt : ('t, _) handler -> ('t, 'impl, _) pi -> 'impl option @@ portable
+val get_opt : ('t, _) handler -> ('t, 'impl, _) pi -> 'impl option
 (** [get_opt] is like {!get}, but the handler need not have a compatible type.
     Instead, this performs a check at runtime and returns [None] if the interface
     is not supported. *)
@@ -106,7 +103,7 @@ val get_opt : ('t, _) handler -> ('t, 'impl, _) pi -> 'impl option @@ portable
 type close_ty = [`Close]
 type (_, _, _) pi += Close : ('t, 't -> unit, [> close_ty]) pi
 
-val close : [> close_ty] t -> unit
+val close : [> close_ty] t -> unit @@ portable
 (** [close t] marks the resource as closed. It can no longer be used after this.
 
     If [t] is already closed then this does nothing (it does not raise an exception).

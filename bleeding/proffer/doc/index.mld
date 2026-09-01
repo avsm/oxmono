@@ -1,23 +1,21 @@
 {0 Proffer}
 
-Declarative HTTP serving, independent of any HTTP implementation. A handler
-returns a description of a response rather than writing one. A backend consumes
-that description and owns the wire, so dispatch, conditional requests and HEAD
-are decided once and behave the same everywhere. The core depends on the stdlib
-alone, holding no sockets and no buffers.
+This library provides declarative HTTP serving. A handler describes a response
+and calls the responder it is given. A backend consumes the description and
+owns the wire. Dispatch, conditional requests and HEAD are consequently
+decided once and behave the same in the mock and socket backends.
 
-Route constructors take their handler at [portable], so proffer needs the OxCaml
-compiler. State a handler needs reaches it through the ['env] argument, which the
-mode system does not constrain.
+Route constructors take their handler at [portable], so state and codecs a
+handler needs reach it through the per-domain ['env] argument.
 
 {1 Entry points}
 
-- {!module:Proffer} is the core: requests, responses, typed routing, sites and
-  the compiled dispatcher.
-- {!module:Proffer_mock} runs a compiled site against synthetic requests, with
-  no sockets.
-- [Proffer_httpz], in the separate [proffer-httpz] package, serves a compiled
-  site over HTTP/1.1 on the httpz parser and Eio.
+- {!module:Proffer} contains requests, responses, typed routing, sites and the
+  shared dispatcher.
+- {!module:Proffer_mock} runs a site against synthetic requests with no
+  sockets.
+- [Proffer_httpz], in the [proffer-httpz] package, serves a site over HTTP/1.1
+  with httpz and Eio.
 
 {1 Quick start}
 
@@ -25,93 +23,36 @@ mode system does not constrain.
   open Proffer
   open Proffer.Route
 
-  type env = { greet : string -> string }
-
   let site =
     Site.of_routes
-      [ get nil (fun _env _req -> Resp.text "index")
-      ; get (s "hello" / str /? nil) (fun who env _req ->
-          Resp.html (env.greet who))
-      ; post (s "hello" /? nil) (fun _env req ->
-          match Req.form_param req "who" with
-          | Some who -> Resp.see_other ("/hello/" ^ who)
-          | None -> Resp.bad_request ())
+      [ get root (fun () _req respond -> Resp.text respond "index")
+      ; get (s "hello" / str) (fun who () _req respond ->
+          Resp.text respond ("hello " ^ who))
       ]
-
-  let compiled = Compiled.compile site
-  let env = { greet = (fun who -> "<h1>hello " ^ who ^ "</h1>") }
 
   let () =
     Eio_main.run @@ fun stdenv ->
-    Eio.Switch.run @@ fun sw ->
-    Proffer_httpz.run ~sw
-      ~net:(Eio.Stdenv.net stdenv)
-    ~clock:(Eio.Stdenv.clock stdenv)
-      ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8380))
-      ~on_error:(fun exn -> prerr_endline (Printexc.to_string exn))
-      ~env compiled
+    Proffer_httpz.run stdenv ~env:() site
 ]}
 
-{1 Combinators}
+{1 Forms}
 
-{!Proffer.Negotiate.v} picks a response variant from the request's Accept
-header, the client's order deciding and the first variant serving as the
-fallback, and marks the answer [Vary: Accept]. {!Proffer.Cache} memoizes a
-rendered body under a string key and returns a weak entity-tag over it, so a
-revalidation costs a tag compare and a 304 rather than a re-render. A cache
-crosses domains, so it is created once at startup.
+A body posted by an HTML form arrives in one of two encodings.
+[application/x-www-form-urlencoded] is read by {!Proffer.Req.form_result},
+which reports a body of another media type rather than passing it off as an
+empty form, by {!Proffer.Req.form} where that distinction does not matter, and
+by {!Proffer.Req.form_param} for a single field. The same encoding as a codec
+is {!Proffer.Media.form}, which {!Proffer.Route.with_body} accepts like any
+other.
 
-{[
-  let cache = Cache.create ~ttl:300.
+[multipart/form-data], the encoding of a form carrying a file, is read by
+{!Proffer.Multipart.of_req}. Its parts are named by
+{!Proffer.Multipart.field}, {!Proffer.Multipart.file} and
+{!Proffer.Multipart.fields}. A body is held whole in memory, so the backend's
+request cap is the upload limit.
 
-  let note =
-    get (s "notes" / str /? nil) (fun slug ->
-      Negotiate.v
-        [ `Html, (fun env _req ->
-            let body, etag =
-              Cache.memoize cache ~now:(env.now ()) ~key:("html:" ^ slug)
-                (fun () -> env.render_html slug)
-            in
-            Resp.html ~etag body)
-        ; `Markdown, (fun env _req ->
-            Resp.media "text/markdown" (env.render_md slug))
-        ])
-]}
+{1 Backend authors}
 
-A tail capture is client input. {!Proffer.Static.confine} joins its segments
-only when none of them can leave the subtree, so a refusal becomes a plain 404,
-and {!Proffer.Mime.of_path} names the Content-Type. [confine] cannot see
-symlinks, so the capability the handler opens the file through must itself be
-confined to the directory served.
-
-{[
-  get (s "assets" /* rest) (fun segs env _req ->
-    match Static.confine segs with
-    | None -> Resp.not_found ()
-    | Some path ->
-      match env.read_asset path with
-      | None -> Resp.not_found ()
-      | Some body -> Resp.media (Mime.of_path path) body)
-]}
-
-{!Proffer.Site.with_auth} gates every path under a prefix, and it is the gate
-that answers there, so a request that would have got a 404 or a 405 under the
-scope gets the 401 instead. {!Proffer.Site.with_headers} adds fields to every
-response. {!Proffer.Site.mount} takes the routes of another site, and only its
-routes, so it raises [Invalid_argument] on a sub-site that has been through
-either wrapper rather than serve it ungated.
-
-{[
-  Site.of_routes [ note; asset; moved (s "old" /? nil) "/new" ]
-  |> Site.mount ~at:[ "api" ] api_site
-  |> Site.with_auth ~scope:[ [ "stats" ] ] ~realm:"stats" ~check:authorized
-  |> Site.with_headers [ ("X-Content-Type-Options", "nosniff") ]
-  |> Site.with_fallback (fun env req -> Pages.not_found env req)
-]}
-
-{1 Writing a backend}
-
-{!module:Proffer.Backend} is the interface a backend implements against. It
-turns a parsed request into an outcome, applying the routing, conditional and
-HEAD rules that need no socket, and leaves the wire to the caller. Users of a
-shipped backend never name it.
+{!module:Proffer.Backend} applies routing, conditional requests, and HEAD to a
+parsed request and produces an outcome. Applications using a shipped backend
+do not need to call it directly.

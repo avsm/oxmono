@@ -39,6 +39,26 @@ let hex_of_string s =
 (* Create a test CID from known data *)
 let make_test_cid () = Atp.Cid.create `Dag_cbor "test data for CID"
 
+let test_cid_of_string_result_roundtrip () =
+  let name = "CID result parser roundtrip" in
+  let cid = make_test_cid () in
+  match Atp.Cid.of_string_result (Atp.Cid.to_string cid) with
+  | Ok parsed when Atp.Cid.equal cid parsed -> pass name
+  | Ok _ -> fail name "parsed CID differs from input"
+  | Error _ -> fail name "valid CID was rejected"
+
+let test_cid_of_string_result_errors () =
+  let name = "CID result parser errors" in
+  match
+    ( Atp.Cid.of_string_result "short",
+      Atp.Cid.of_string_result (String.make 59 '!'),
+      Atp.Cid.of_string_result ("z" ^ String.make 58 '!') )
+  with
+  | Error (`Invalid_cid_length (59, 5)), Error (`Invalid_cid_multibase _),
+    Error (`Invalid_cid_multibase _) ->
+      pass name
+  | _ -> fail name "invalid inputs did not return the expected errors"
+
 (* Test: Standard format CID encoding produces expected size *)
 let test_standard_cid_size () =
   let name = "standard CID size" in
@@ -219,6 +239,8 @@ let () =
   Printf.printf "Reference: draft-holmgren-at-repository.md Section 6.5\n\n%!";
 
   test_standard_cid_size ();
+  test_cid_of_string_result_roundtrip ();
+  test_cid_of_string_result_errors ();
   test_atproto_cid_size ();
   test_standard_roundtrip ();
   test_atproto_roundtrip ();

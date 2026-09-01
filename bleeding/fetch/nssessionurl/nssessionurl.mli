@@ -85,7 +85,7 @@ type body =
       supplied. Cannot be replayed, so if the server redirects or requires
       an auth retry the request fails. *)
 
-type error = {
+type error : immutable_data = {
   domain : string;
       (** The NSError domain, usually ["NSURLErrorDomain"]. A failure of
           the binding itself uses ["nssessionurl"]. *)

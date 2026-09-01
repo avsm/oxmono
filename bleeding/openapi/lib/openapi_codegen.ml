@@ -1477,7 +1477,7 @@ let gen_record_impl ~current_prefix ~current_suffix (schema : schema_info) : str
           | Some def -> Printf.sprintf "(Some %s)" def
           | None -> "None"
         in
-        Printf.sprintf "  |> Jsont.Object.mem %S %s\n       ~dec_absent:%s ~enc_omit:Option.is_none ~enc:(fun r -> r.%s)"
+        Printf.sprintf "  |> Jsont.Object.mem %S %s\n       ~dec_absent:(fun () -> %s) ~enc_omit:Option.is_none ~enc:(fun r -> r.%s)"
           f.json_name nullable_codec dec_absent f.ocaml_name
       else if f.is_optional then
         (* Optional non-nullable field without default - use opt_mem *)
@@ -1487,7 +1487,7 @@ let gen_record_impl ~current_prefix ~current_suffix (schema : schema_info) : str
         (* Required or has default - use mem, possibly with dec_absent *)
         (match f.default_value with
         | Some def ->
-            Printf.sprintf "  |> Jsont.Object.mem %S %s ~dec_absent:%s ~enc:(fun r -> r.%s)"
+            Printf.sprintf "  |> Jsont.Object.mem %S %s ~dec_absent:(fun () -> %s) ~enc:(fun r -> r.%s)"
               f.json_name base_codec def f.ocaml_name
         | None ->
             Printf.sprintf "  |> Jsont.Object.mem %S %s ~enc:(fun r -> r.%s)"
@@ -2031,7 +2031,7 @@ let gen_record_codec_only ~current_prefix ~current_suffix (schema : schema_info)
           | Some def -> Printf.sprintf "(Some %s)" def
           | None -> "None"
         in
-        Printf.sprintf "  |> Jsont.Object.mem %S %s\n       ~dec_absent:%s ~enc_omit:Option.is_none ~enc:(fun r -> r.%s)"
+        Printf.sprintf "  |> Jsont.Object.mem %S %s\n       ~dec_absent:(fun () -> %s) ~enc_omit:Option.is_none ~enc:(fun r -> r.%s)"
           f.json_name nullable_codec dec_absent f.ocaml_name
       else if f.is_optional then
         (* Optional non-nullable field without default - use opt_mem *)
@@ -2041,7 +2041,7 @@ let gen_record_codec_only ~current_prefix ~current_suffix (schema : schema_info)
         (* Required or has default - use mem, possibly with dec_absent *)
         (match f.default_value with
         | Some def ->
-            Printf.sprintf "  |> Jsont.Object.mem %S %s ~dec_absent:%s ~enc:(fun r -> r.%s)"
+            Printf.sprintf "  |> Jsont.Object.mem %S %s ~dec_absent:(fun () -> %s) ~enc:(fun r -> r.%s)"
               f.json_name base_codec def f.ocaml_name
         | None ->
             Printf.sprintf "  |> Jsont.Object.mem %S %s ~enc:(fun r -> r.%s)"

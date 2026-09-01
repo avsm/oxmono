@@ -1,3 +1,23 @@
+## v1.1.1 (2026-06-29)
+
+* Signing_request.decode_der: avoid exception, return an error when an unknown
+  OID is used in attributes (#183 @samoht)
+
+## v1.1.0 (2026-06-24)
+
+* Add Signing_request.sign_certificate which takes the issuer as certificate and
+  does some validity checks (#182 @hannesm)
+* Document the need for checking KeyUsage/ExtendedKeyUsage extensions in
+  Validation functions (#182 @hannesm)
+* If a CA certificate has a extendedKeyUsage, it must contain Any or Server_auth
+  (#182 @hannesm)
+* Restrict server certificates to not have a Name_constraints extension
+  (#182 @hannesm)
+* Add validation of name constraints when validating the chain of trust
+  (#182 @hannesm, fixes #65)
+
+The last 3 fixes were tested with bettertls from Netflix.
+
 ## v1.0.6 (2025-04-15)
 
 * Update tests to mirage-crypto-rng 1.2.0 API (@hannesm)

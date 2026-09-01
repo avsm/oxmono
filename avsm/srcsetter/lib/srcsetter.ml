@@ -68,9 +68,17 @@ let dims_json_t =
    bindings are handed on to {!MS}. Both sides walk in key order, so the bytes
    written are the bytes a stdlib map wrote. *)
 let variants_json_t =
-  let module M = Stdlib.Map.Make (String) in
-  let dec m = MS.of_list (M.bindings m) in
-  let enc l = M.of_list (MS.bindings l) in
+  let dec m =
+    let bindings =
+      Jsont.String_map.fold (fun k v acc -> (k, v) :: acc) m [] |> List.rev
+    in
+    MS.of_list bindings
+  in
+  let enc l =
+    List.fold_left
+      (fun m (k, v) -> Jsont.String_map.add k v m)
+      (Jsont.String_map.create ()) (MS.bindings l)
+  in
   Jsont.map ~dec ~enc (Jsont.Object.as_string_map dims_json_t)
 
 let json_t =

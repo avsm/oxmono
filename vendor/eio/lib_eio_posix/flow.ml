@@ -60,7 +60,8 @@ module Impl = struct
       eio_of_stat x
     with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
-  let single_write t bufs =
+  let single_write t (bufs @ local) =
+    let bufs = Cstruct.globalize_list bufs in
     try
       Low_level.writev t (truncate_to_iomax bufs)
     with Unix.Unix_error (code, name, arg) ->
@@ -83,8 +84,8 @@ module Impl = struct
     in
     aux Src.read_methods
 
-  let single_read t buf =
-    match Low_level.readv t [| buf |] with
+  let single_read t (buf @ local) =
+    match Low_level.readv t [| Cstruct.globalize buf |] with
     | 0 -> raise End_of_file
     | got -> got
     | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.v code name arg)
@@ -137,8 +138,8 @@ let of_fd fd =
 module Secure_random = struct
   type t = unit
 
-  let single_read () buf =
-    Low_level.getrandom buf;
+  let single_read () (buf @ local) =
+    Low_level.getrandom (Cstruct.globalize buf);
     Cstruct.length buf
 
   let read_methods = []

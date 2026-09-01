@@ -1,0 +1,4 @@
+(library
+ (name cookie)
+ (public_name httpz.cookie)
+ (libraries fmt ptime httpz httpz.punycode.idna httpz.pubsuffix))

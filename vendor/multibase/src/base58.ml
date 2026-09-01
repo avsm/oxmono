@@ -37,18 +37,18 @@ module Alphabet = struct
   exception Invalid
   exception Invalid_base58_character
 
-  type t = string * int array
+  type t = string * string
 
   let make s =
     if String.length s <> 58 then raise Invalid
     else
-      let a = Array.make 256 (-1) in
-      String.iteri (fun i c -> Array.unsafe_set a (Char.code c) i) s;
-      (s, a)
+      let a = Bytes.make 256 (Char.chr 255) in
+      String.iteri (fun i c -> Bytes.set a (Char.code c) (Char.chr i)) s;
+      (s, Bytes.unsafe_to_string a)
 
   let value c (_, alphabet_values) =
-    match Array.unsafe_get alphabet_values (Char.code c) with
-    | -1 -> raise Invalid_base58_character
+    match Char.code (String.unsafe_get alphabet_values (Char.code c)) with
+    | 255 -> raise Invalid_base58_character
     | i -> i
 
   let chr i (s, _) = String.unsafe_get s i

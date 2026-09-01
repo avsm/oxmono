@@ -32,7 +32,7 @@ Two new top-level projects, each its own dune-project per house convention
 (see `bleeding/cbort` for the template: ISC, `generate_opam_files`,
 `(source (tangled anil.recoil.org/ocaml-<name>))`, `.tangled` CI copied from
 cbort, `.ocamlformat` 0.28.1, CHANGES.md with `## Unreleased`, opam template
-carrying the AI disclosure fields as in `bleeding/cookeio`).
+carrying the AI disclosure fields as in `bleeding/httpz/cookie`).
 
 ### bleeding/zstdz
 

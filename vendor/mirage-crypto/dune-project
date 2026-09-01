@@ -1,4 +1,4 @@
 (lang dune 2.7)
 (name mirage-crypto)
-(version v2.0.2)
+(version v2.4.1)
 (formatting disabled)

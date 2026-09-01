@@ -1,0 +1,3 @@
+(executable
+ (name retry)
+ (libraries fetch fetch-httpz eio_main localhost))

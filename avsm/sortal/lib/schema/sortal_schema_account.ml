@@ -4,7 +4,7 @@
  ---------------------------------------------------------------------------*)
 
 module Platform = Sortal_schema_platform
-module Smap = Stdlib.Map.Make (String)
+module Smap = Jsont.String_map
 
 type app = Bluesky | Tangled | Standard_site
 
@@ -80,7 +80,7 @@ let atproto_json =
   map ~kind:"Atproto" (fun handle did apps -> { handle; did; apps })
   |> mem "handle" Jsont.string ~enc:(fun a -> a.handle)
   |> opt_mem "did" Jsont.string ~enc:(fun a -> a.did)
-  |> mem "apps" (Jsont.list app_json) ~dec_absent:[] ~enc:(fun a -> a.apps)
+  |> mem "apps" (Jsont.list app_json) ~dec_absent:(fun () -> []) ~enc:(fun a -> a.apps)
   |> error_unknown
   (* Unlike the top-level mapping, which also errors on an unrecognised
      member, this closed sub-object has no [version] field of its own to
@@ -159,18 +159,21 @@ let to_key_value accounts =
     let existing = Option.value ~default:[] (Smap.find_opt k m) in
     Smap.add k (existing @ [ a ]) m
   in
-  let grouped = List.fold_left add Smap.empty accounts in
-  Smap.map
-    (fun group ->
-      match group with
+  let grouped = List.fold_left add (Smap.create ()) accounts in
+  Smap.fold
+    (fun key group acc ->
+      let raw =
+        match group with
       (* An atproto identity with neither a resolved DID nor any app
          narrows back to the bare handle it would decode from, mirroring
          the rest of the schema's rule of omitting what is empty. *)
       | [ Atproto { handle = h; did = None; apps = [] } ] -> Scalar h
       | [ Atproto a ] -> Obj a
       | [ one ] -> Scalar (handle one)
-      | many -> Seq (List.map handle many))
-    grouped
+      | many -> Seq (List.map handle many)
+      in
+      Smap.add key raw acc)
+    grouped (Smap.create ())
 
 let json_t =
   Jsont.map ~kind:"Accounts"

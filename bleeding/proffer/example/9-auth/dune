@@ -1,0 +1,3 @@
+(executable
+ (name auth)
+ (libraries proffer proffer-httpz eio_main))

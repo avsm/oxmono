@@ -2,4 +2,20 @@
  (package fetch-macos)
  (enabled_if
   (= %{system} macosx))
- (deps (package fetch-macos) (package fetch)))
+ (deps
+  (package base64)
+  (package cmarkit)
+  (package fetch-macos)
+  (package fetch)
+  (package httpz)
+  (package uriz)
+  (package jsont)))
+
+(copy_files ../exchange.ml)
+
+(test
+ (name test_exchange)
+ (modules test_exchange exchange)
+ (package fetch-macos)
+ (libraries eio_main)
+ (action (run timeout 10s %{exe:test_exchange.exe})))

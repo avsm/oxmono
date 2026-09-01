@@ -87,7 +87,7 @@ let pp_config ppf cfg =
     Fmt.(list ~sep:(any ", ") pp_group) cfg.groups
     Fmt.(option ~none:(any "none provided") Ipaddr.pp) cfg.ip
 
-let ciphers13 cfg =
+let (ciphers13 @ portable) cfg =
   List.rev
     (List.fold_left (fun acc cs ->
          match Ciphersuite.ciphersuite_to_ciphersuite13 cs with
@@ -100,25 +100,29 @@ module Ciphers = struct
   (* A good place for various pre-baked cipher lists and helper functions to
    * slice and groom those lists. *)
 
-  let default13 = [
+  let default13 : _ @ portable = [
     `AES_128_GCM_SHA256 ;
     `AES_256_GCM_SHA384 ;
     `CHACHA20_POLY1305_SHA256 ;
     `AES_128_CCM_SHA256 ;
   ]
 
-  let default = default13 @ [
-    `DHE_RSA_WITH_AES_256_GCM_SHA384 ;
-    `DHE_RSA_WITH_AES_128_GCM_SHA256 ;
-    `DHE_RSA_WITH_AES_256_CCM ;
-    `DHE_RSA_WITH_AES_128_CCM ;
-    `DHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ;
-    `ECDHE_RSA_WITH_AES_128_GCM_SHA256 ;
-    `ECDHE_RSA_WITH_AES_256_GCM_SHA384 ;
-    `ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ;
-    `ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ;
-    `ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 ;
-    `ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 ;
+  let default : _ @ portable =
+    [ `AES_128_GCM_SHA256 ;
+      `AES_256_GCM_SHA384 ;
+      `CHACHA20_POLY1305_SHA256 ;
+      `AES_128_CCM_SHA256 ;
+      `DHE_RSA_WITH_AES_256_GCM_SHA384 ;
+      `DHE_RSA_WITH_AES_128_GCM_SHA256 ;
+      `DHE_RSA_WITH_AES_256_CCM ;
+      `DHE_RSA_WITH_AES_128_CCM ;
+      `DHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ;
+      `ECDHE_RSA_WITH_AES_128_GCM_SHA256 ;
+      `ECDHE_RSA_WITH_AES_256_GCM_SHA384 ;
+      `ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ;
+      `ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ;
+      `ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 ;
+      `ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 ;
     ]
 
   let supported = default @ [
@@ -167,7 +171,7 @@ module Ciphers = struct
   let fs = fs_of default
 end
 
-let default_signature_algorithms =
+let default_signature_algorithms : _ @ portable =
   [ `ECDSA_SECP256R1_SHA256 ;
     `ECDSA_SECP384R1_SHA384 ;
     `ECDSA_SECP521R1_SHA512 ;
@@ -180,23 +184,88 @@ let default_signature_algorithms =
     `RSA_PKCS1_SHA512 ;
   ]
 
-let supported_signature_algorithms =
-  default_signature_algorithms @ [
+let supported_signature_algorithms : _ @ portable =
+  [ `ECDSA_SECP256R1_SHA256 ;
+    `ECDSA_SECP384R1_SHA384 ;
+    `ECDSA_SECP521R1_SHA512 ;
+    `ED25519 ;
+    `RSA_PSS_RSAENC_SHA256 ;
+    `RSA_PSS_RSAENC_SHA384 ;
+    `RSA_PSS_RSAENC_SHA512 ;
+    `RSA_PKCS1_SHA256 ;
+    `RSA_PKCS1_SHA384 ;
+    `RSA_PKCS1_SHA512 ;
     `RSA_PKCS1_SHA224 ;
     `ECDSA_SECP256R1_SHA1 ;
     `RSA_PKCS1_SHA1 ;
-    `RSA_PKCS1_MD5
+    `RSA_PKCS1_MD5 ;
   ]
 
 let min_dh_size = 1024
 
 let min_rsa_key_size = 1024
 
-let supported_groups =
+let supported_groups : _ @ portable =
   [ `X25519 ; `P384 ; `P256 ; `P521 ;
     `FFDHE2048 ; `FFDHE3072 ; `FFDHE4096 ; `FFDHE6144 ; `FFDHE8192 ]
 
-let elliptic_curve = function
+(* Portable callers need owned defaults rather than contended views of the
+   module-level convenience values. *)
+let fresh_default_ciphers : (unit -> _ @ portable) @ portable = fun () ->
+  [ `AES_128_GCM_SHA256 ;
+    `AES_256_GCM_SHA384 ;
+    `CHACHA20_POLY1305_SHA256 ;
+    `AES_128_CCM_SHA256 ;
+    `DHE_RSA_WITH_AES_256_GCM_SHA384 ;
+    `DHE_RSA_WITH_AES_128_GCM_SHA256 ;
+    `DHE_RSA_WITH_AES_256_CCM ;
+    `DHE_RSA_WITH_AES_128_CCM ;
+    `DHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ;
+    `ECDHE_RSA_WITH_AES_128_GCM_SHA256 ;
+    `ECDHE_RSA_WITH_AES_256_GCM_SHA384 ;
+    `ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ;
+    `ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ;
+    `ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 ;
+    `ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 ;
+  ]
+
+let fresh_default_signature_algorithms : (unit -> _ @ portable) @ portable =
+ fun () ->
+  [ `ECDSA_SECP256R1_SHA256 ;
+    `ECDSA_SECP384R1_SHA384 ;
+    `ECDSA_SECP521R1_SHA512 ;
+    `ED25519 ;
+    `RSA_PSS_RSAENC_SHA256 ;
+    `RSA_PSS_RSAENC_SHA384 ;
+    `RSA_PSS_RSAENC_SHA512 ;
+    `RSA_PKCS1_SHA256 ;
+    `RSA_PKCS1_SHA384 ;
+    `RSA_PKCS1_SHA512 ;
+  ]
+
+let fresh_supported_signature_algorithms : (unit -> _ @ portable) @ portable =
+ fun () ->
+  [ `ECDSA_SECP256R1_SHA256 ;
+    `ECDSA_SECP384R1_SHA384 ;
+    `ECDSA_SECP521R1_SHA512 ;
+    `ED25519 ;
+    `RSA_PSS_RSAENC_SHA256 ;
+    `RSA_PSS_RSAENC_SHA384 ;
+    `RSA_PSS_RSAENC_SHA512 ;
+    `RSA_PKCS1_SHA256 ;
+    `RSA_PKCS1_SHA384 ;
+    `RSA_PKCS1_SHA512 ;
+    `RSA_PKCS1_SHA224 ;
+    `ECDSA_SECP256R1_SHA1 ;
+    `RSA_PKCS1_SHA1 ;
+    `RSA_PKCS1_MD5 ;
+  ]
+
+let fresh_supported_groups : (unit -> _ @ portable) @ portable = fun () ->
+  [ `X25519 ; `P384 ; `P256 ; `P521 ;
+    `FFDHE2048 ; `FFDHE3072 ; `FFDHE4096 ; `FFDHE6144 ; `FFDHE8192 ]
+
+let elliptic_curve : _ @ portable = function
   | `X25519 | `P256 | `P384 | `P521 -> true
   | `FFDHE2048 | `FFDHE3072 | `FFDHE4096 | `FFDHE6144 | `FFDHE8192 -> false
 
@@ -218,6 +287,25 @@ let default_config = {
   zero_rtt = 0l ;
   ip = None ;
 }
+
+let fresh_default_config : (unit -> config @ portable) @ portable = fun () ->
+  { ciphers = fresh_default_ciphers () ;
+    protocol_versions = (`TLS_1_2, `TLS_1_3) ;
+    signature_algorithms = fresh_default_signature_algorithms () ;
+    use_reneg = false ;
+    authenticator = None ;
+    peer_name = None ;
+    own_certificates = `None ;
+    acceptable_cas = [] ;
+    session_cache = (fun _ -> None) ;
+    cached_session = None ;
+    cached_ticket = None ;
+    alpn_protocols = [] ;
+    groups = fresh_supported_groups () ;
+    ticket_cache = None ;
+    zero_rtt = 0l ;
+    ip = None ;
+  }
 
 (* There are inter-configuration option constraints that are checked and
    adjusted here. The overall approach is if the client explicitly provided
@@ -247,7 +335,8 @@ let default_config = {
    and client request.
 *)
 
-let ciphers_and_groups ?ciphers ?groups default_ciphers =
+let ciphers_and_groups : _ @ portable = fun ?ciphers ?groups default_ciphers ->
+  let supported_groups = fresh_supported_groups () in
   let tls13 = function #Ciphersuite.ciphersuite13 -> true | _ -> false in
   match ciphers, groups with
   | None, None -> Ok (default_ciphers, supported_groups)
@@ -261,23 +350,18 @@ let ciphers_and_groups ?ciphers ?groups default_ciphers =
           match List.exists (has_kex `ECDHE) cs, List.exists (has_kex `FFDHE) cs with
           | true, true -> supported_groups
           | true, false ->
-            Log.warn (fun m -> m "removed FFDHE groups (no FFDHE ciphersuite) from configuation");
             List.filter elliptic_curve supported_groups
           | false, true ->
-            Log.warn (fun m -> m "removed ECDHE groups (no ECDHE ciphersuite) from configuration");
             List.filter (fun g -> not (elliptic_curve g)) supported_groups
           | false, false -> []
         end)
   | None, Some g ->
     Ok (begin match List.partition elliptic_curve g with
         | [], [] ->
-          Log.warn (fun m -> m "removed DHE and ECDHE ciphersuites (empty groups provided) from configuration");
           List.filter (fun c -> not (Ciphersuite.ciphersuite_fs c)) default_ciphers
         | _::_, [] ->
-          Log.warn (fun m -> m "removed DHE ciphersuites (no FFDHE groups provided) from configuration");
           List.filter (fun c -> not (Ciphersuite.dhe_only c)) default_ciphers
         | [], _ :: _ ->
-          Log.warn (fun m -> m "removed ECDHE ciphersuites (no EC groups provided) from configuration");
           List.filter (fun c -> not (Ciphersuite.ecdhe_only c)) default_ciphers
         | _ -> default_ciphers
       end, g)
@@ -297,17 +381,19 @@ let ciphers_and_groups ?ciphers ?groups default_ciphers =
     else
       Ok (cs, g)
 
-let ciphers_and_sig_alg ?ciphers ?signature_algorithms default_ciphers =
+let ciphers_and_sig_alg : _ @ portable =
+ fun ?ciphers ?signature_algorithms default_ciphers ->
+  let supported_signature_algorithms =
+    fresh_supported_signature_algorithms ()
+  in
   let tls13 = function #Ciphersuite.ciphersuite13 -> true | _ -> false in
   let default_sa_from_ciphers c =
     let has_key k c = tls13 c || k = Ciphersuite.ciphersuite_keytype c in
     match List.exists (has_key `RSA) c, List.exists (has_key `EC) c with
     | true, true -> Ok supported_signature_algorithms
     | true, false ->
-      Log.warn (fun m -> m "removed EC signature algorithms (no EC ciphersuite present)");
       Ok (List.filter rsa_sigalg supported_signature_algorithms)
     | false, true ->
-      Log.warn (fun m -> m "removed RSA signature algorithms (no RSA ciphersuite present)");
       Ok (List.filter (fun sa -> not (rsa_sigalg sa)) supported_signature_algorithms)
     | false, false ->
       Error (`Msg "ciphersuite list without RSA and EC keys")
@@ -324,13 +410,11 @@ let ciphers_and_sig_alg ?ciphers ?signature_algorithms default_ciphers =
     begin match List.partition rsa_sigalg sa with
       | [], [] -> Error (`Msg "empty signature algorithms provided")
       | _::_, [] ->
-        Log.warn (fun m -> m "removing EC ciphers (no EC signature algorithm provided)");
         Ok (List.filter
               (fun c -> tls13 c || not (Ciphersuite.ciphersuite_keytype c = `EC))
               default_ciphers,
             sa)
       | [], _::_ ->
-        Log.warn (fun m -> m "removing RSA ciphers (no RSA signature algorithm provided)");
         Ok (List.filter
               (fun c -> tls13 c || not (Ciphersuite.ciphersuite_keytype c = `RSA))
               default_ciphers,
@@ -349,7 +433,7 @@ let ciphers_and_sig_alg ?ciphers ?signature_algorithms default_ciphers =
     else
       Ok (c, sa)
 
-let validate_common config =
+let validate_common : _ @ portable = fun config ->
   let ( let* ) = Result.bind in
   let (v_min, v_max) = config.protocol_versions in
   if v_max < v_min then
@@ -358,7 +442,6 @@ let validate_common config =
     let* ciphers, signature_algorithms =
       match v_min, v_max with
       | _, `TLS_1_1 | _, `TLS_1_0 ->
-        Log.warn (fun m -> m "TLS 1.0 or TLS 1.1 as maximum version configured, removing 1.2 and 1.3 ciphersuites");
         Ok (List.filter (fun c ->
             not (Ciphersuite.ciphersuite_tls12_only c || Ciphersuite.ciphersuite_tls13 c))
             config.ciphers,
@@ -367,7 +450,6 @@ let validate_common config =
         if config.signature_algorithms = [] then
           Error (`Msg "TLS 1.2 configured but no signature algorithms provided")
         else begin
-          Log.warn (fun m -> m "TLS 1.2 as maximum version configured, removing 1.3 cipher suites");
           Ok (List.filter
                 (fun c -> not (Ciphersuite.ciphersuite_tls13 c)) config.ciphers,
               config.signature_algorithms)
@@ -377,7 +459,6 @@ let validate_common config =
       if sa = [] then
         Error (`Msg "TLS 1.3 configured but no 1.3 signature algorithms provided")
       else begin
-        Log.warn (fun m -> m "only TLS 1.3 configured, removing pre-1.3 cipher suites and signature algorithms");
         Ok (List.filter Ciphersuite.ciphersuite_tls13 config.ciphers, sa)
       end
     | _ -> Ok (config.ciphers, config.signature_algorithms)
@@ -576,10 +657,12 @@ let validate_keys_sig_algs config =
 type client = config
 type server = config
 
-let of_server conf = conf
-and of_client conf = conf
+let (of_server @ portable) conf = conf
+and (of_client @ portable) conf = conf
 
-let peer conf name = { conf with peer_name = Some name }
+let (peer @ portable) conf name = { conf with peer_name = Some name }
+
+let (ip @ portable) conf ip = { conf with ip = Some ip }
 
 let with_authenticator conf auth = { conf with authenticator = Some auth }
 
@@ -590,8 +673,11 @@ let with_acceptable_cas conf acceptable_cas = { conf with acceptable_cas }
 let (<?>) ma b = match ma with None -> b | Some a -> a
 
 let client
-    ~authenticator ?peer_name ?ciphers ?version ?signature_algorithms ?reneg ?certificates ?cached_session ?cached_ticket ?ticket_cache ?alpn_protocols ?groups ?ip () =
+    ~authenticator ?peer_name ?ciphers ?version ?signature_algorithms ?reneg
+    ?certificates ?cached_session ?cached_ticket ?ticket_cache ?alpn_protocols
+    ?groups ?ip () =
   let ( let* ) = Result.bind in
+  let default_config = fresh_default_config () in
   let* ciphers', groups = ciphers_and_groups ?ciphers ?groups default_config.ciphers in
   let* ciphers, signature_algorithms = ciphers_and_sig_alg ?ciphers ?signature_algorithms ciphers' in
   let config =
@@ -612,7 +698,21 @@ let client
     } in
   let* config = validate_common config in
   let* () = validate_client config in
-  Log.debug (fun m -> m "client with %a" pp_config config);
+  Ok config
+
+let client_no_cert : _ @ portable =
+ fun ~(authenticator @ portable) ?peer_name ?alpn_protocols ?ip () ->
+  let ( let* ) = Result.bind in
+  let config = fresh_default_config () in
+  let config =
+    { config with
+      authenticator = Some authenticator ;
+      peer_name ;
+      alpn_protocols = alpn_protocols <?> config.alpn_protocols ;
+      ip ;
+    }
+  in
+  let* config = validate_common config in
   Ok config
 
 let server

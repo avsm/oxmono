@@ -291,3 +291,23 @@ val%template with_fragment : t @ local -> string or_null -> t @ m @@ portable
     without any allocation. *)
 
 module Raw = Uriz_raw
+
+(** {2 HTTP client component operations} *)
+
+val has_port : t @ local -> bool @@ portable
+(** [has_port t] is true when [t] has a port delimiter, including an empty port. *)
+
+val encoded_path_and_query : t @ local -> string @@ portable
+(** [encoded_path_and_query t] is the encoded path and optional query of [t]. *)
+
+val decoded_host : t @ local -> string or_null @@ portable
+(** [decoded_host t] is the percent-decoded host of [t], if present. *)
+
+val query_params : ?plus_as_space:bool -> t @ local -> (string * string option) list @@ portable
+(** [query_params t] is the list of decoded query bindings in order. *)
+
+val remove_query_param : ?plus_as_space:bool -> t -> string @ local -> t @@ portable
+(** [remove_query_param t key] removes bindings whose decoded key is [key]. *)
+
+val add_query_param : t @ local -> key:string -> value:string -> t @@ portable
+(** [add_query_param t ~key ~value] appends a percent-encoded query binding. *)

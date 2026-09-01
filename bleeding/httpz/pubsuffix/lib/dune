@@ -1,0 +1,16 @@
+(rule
+ (deps
+  (:gen ../gen/gen_psl.exe)
+  (:dat ../data/public_suffix_list.dat))
+ (targets pubsuffix_data.ml)
+ (action
+  (with-stdout-to
+   %{targets}
+   (run %{gen} %{dat}))))
+
+(library
+ (name pubsuffix)
+ (public_name httpz.pubsuffix)
+ (modules pubsuffix pubsuffix_data)
+ (private_modules pubsuffix_data)
+ (libraries httpz.punycode.idna))

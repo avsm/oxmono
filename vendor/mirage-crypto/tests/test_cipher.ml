@@ -448,6 +448,32 @@ let ccm_regressions =
     assert_raises ~msg:"CCM with short nonce raises"
       (Invalid_argument "Mirage_crypto: CCM: nonce length not between 7 and 13: 14")
       (fun () -> authenticate_encrypt ~key ~nonce plaintext)
+  and long_message _ =
+    let key = of_secret (vx "000102030405060708090a0b0c0d0e0f")
+    and nonce = String.make 13 '\x00'
+    and plaintext = String.make (1 lsl 16) '\x00'
+    in
+    let exn =
+      Invalid_argument "Mirage_crypto: CCM: message length 65536 does not fit in 2 bytes"
+    in
+    assert_raises ~msg:"CCM encrypt of too long message raises" exn
+      (fun () -> authenticate_encrypt ~key ~nonce plaintext);
+    let dst = Bytes.create (String.length plaintext + tag_size) in
+    assert_raises ~msg:"CCM encrypt_into of too long message raises" exn
+      (fun () -> authenticate_encrypt_into ~key ~nonce plaintext ~src_off:0
+          dst ~dst_off:0 ~tag_off:(String.length plaintext) (String.length plaintext));
+    let ciphertext = plaintext ^ String.make tag_size '\x00' in
+    assert_raises ~msg:"CCM decrypt of too long message raises" exn
+      (fun () -> authenticate_decrypt ~key ~nonce ciphertext);
+    assert_raises ~msg:"CCM decrypt_into of too long message raises" exn
+      (fun () -> authenticate_decrypt_into ~key ~nonce ciphertext ~src_off:0
+          ~tag_off:(String.length plaintext) dst ~dst_off:0 (String.length plaintext));
+    assert_raises ~msg:"CCM unsafe_encrypt_into of too long message raises" exn
+      (fun () -> unsafe_authenticate_encrypt_into ~key ~nonce plaintext ~src_off:0
+          dst ~dst_off:0 ~tag_off:(String.length plaintext) (String.length plaintext));
+    assert_raises ~msg:"CCM unsafe_decrypt_into of too long message raises" exn
+      (fun () -> unsafe_authenticate_decrypt_into ~key ~nonce ciphertext ~src_off:0
+          ~tag_off:(String.length plaintext) dst ~dst_off:0 (String.length plaintext))
   and enc_dec_empty_message _ =
     (* as reported in https://github.com/mirleft/ocaml-nocrypto/issues/168 *)
     let key = of_secret (vx "000102030405060708090a0b0c0d0e0f")
@@ -459,6 +485,16 @@ let ccm_regressions =
     match authenticate_decrypt ~key ~nonce ~adata cipher with
     | Some x -> assert_oct_equal ~msg:"CCM decrypt of empty message" p x
     | None -> assert_failure "decryption broken"
+  and aligned_adata _ =
+    (* The two-byte length and 14-byte adata fill one block. *)
+    let key = of_secret (vx "000102030405060708090a0b0c0d0e0f")
+    and nonce = vx "000102030405060708090a0b0c"
+    and plaintext = ""
+    and adata = vx "000102030405060708090a0b0c0d"
+    and expected = vx "4c8deb839f1db3856356fe0c0956db30"
+    in
+    let cipher = authenticate_encrypt ~adata ~key ~nonce plaintext in
+    assert_oct_equal ~msg:"CCM encrypt with aligned adata" expected cipher
   and long_adata _ =
     let key = of_secret (vx "000102030405060708090a0b0c0d0e0f")
     and nonce = vx "0001020304050607"
@@ -628,7 +664,9 @@ b8fc 10f3 13c7 aa16  8165 a29c 67f1 46f4
     test_case short_nonce_enc2 ;
     test_case short_nonce_enc3 ;
     test_case long_nonce_enc ;
+    test_case long_message ;
     test_case enc_dec_empty_message ;
+    test_case aligned_adata ;
     test_case long_adata ;
   ] @ List.map test_case regr_tls
 
@@ -911,6 +949,15 @@ let poly1305_rfc8439_2_5_2 _ =
   assert_oct_equal ~msg:"poly 1305 RFC8439 Section 2.5.2"
     (Poly1305.mac ~key data) output
 
+let chacha20_counter_rollover _ =
+  let key = Chacha20.of_secret (String.make 32 '\x00')
+  and nonce = String.make 12 '\x00'
+  and data = String.make 65 '\x00' in
+  let first = Chacha20.crypt ~key ~nonce ~ctr:0xffffffffL (String.sub data 0 64) in
+  let last = Chacha20.crypt ~key ~nonce ~ctr:0L (String.sub data 64 1) in
+  assert_oct_equal ~msg:"Chacha20 counter rollover"
+    (Chacha20.crypt ~key ~nonce ~ctr:0xffffffffL data) (first ^ last)
+
 let empty_cases _ =
   let plain = ""
   and cipher = ""
@@ -990,6 +1037,46 @@ let empty_cases _ =
   assert_oct_equal ~msg:"ARC4 encrypt" cipher (ARC4.(encrypt ~key plain).message) ;
   assert_oct_equal ~msg:"ARC4 decrypt" plain (ARC4.(decrypt ~key cipher).message)
 
+let aead_forged_tag =
+  let nonce = String.make 12 '\x00'
+  and secret = "let password = 42" in
+  let len = String.length secret in
+  let sentinel = String.make len '\x2a' in
+  let forge blob =
+    let b = Bytes.of_string blob in
+    Bytes.set b len (Char.chr (Char.code (Bytes.get b len) lxor 1)) ;
+    Bytes.unsafe_to_string b
+  in
+  let gcm _ =
+    let key = AES.GCM.of_secret (String.make 32 '\x00') in
+    let forged = forge (AES.GCM.authenticate_encrypt ~key ~nonce secret) in
+    let dst = Bytes.of_string sentinel in
+    let ok = AES.GCM.authenticate_decrypt_into ~key ~nonce forged ~src_off:0
+        ~tag_off:len dst ~dst_off:0 len in
+    assert_bool "GCM forged tag rejected" (not ok) ;
+    assert_equal ~printer:(fun s -> s) ~msg:"GCM dst untouched on forgery"
+      sentinel (Bytes.to_string dst)
+  and chacha _ =
+    let key = Chacha20.of_secret (String.make 32 '\x00') in
+    let forged = forge (Chacha20.authenticate_encrypt ~key ~nonce secret) in
+    let dst = Bytes.of_string sentinel in
+    let ok = Chacha20.authenticate_decrypt_into ~key ~nonce forged ~src_off:0
+        ~tag_off:len dst ~dst_off:0 len in
+    assert_bool "Chacha20 forged tag rejected" (not ok) ;
+    assert_equal ~printer:(fun s -> s) ~msg:"Chacha20 dst untouched on forgery"
+      sentinel (Bytes.to_string dst)
+  and ccm _ =
+    let key = AES.CCM16.of_secret (vx "000102030405060708090a0b0c0d0e0f") in
+    let forged = forge (AES.CCM16.authenticate_encrypt ~key ~nonce secret) in
+    let dst = Bytes.of_string sentinel in
+    let ok = AES.CCM16.authenticate_decrypt_into ~key ~nonce forged ~src_off:0
+        ~tag_off:len dst ~dst_off:0 len in
+    assert_bool "AES CCM forged tag rejected" (not ok) ;
+    assert_equal ~printer:(fun s -> s) ~msg:"AES CCM dst zeroed on forgery"
+      (String.make len '\000') (Bytes.to_string dst)
+  in
+  [ test_case gcm ; test_case chacha ; test_case ccm ]
+
 let suite = [
   "3DES-ECB" >::: des_ecb_cases ;
   "3DES-CBC" >::: des_cbc_cases ;
@@ -1003,5 +1090,7 @@ let suite = [
   "AES-GCM-REGRESSION" >::: gcm_regressions ;
   "Chacha20" >::: chacha20_cases ;
   "poly1305" >:: poly1305_rfc8439_2_5_2 ;
+  "Chacha20 counter rollover" >:: chacha20_counter_rollover ;
   "empty" >:: empty_cases ;
+  "AEAD-forged-tag" >::: aead_forged_tag ;
 ]

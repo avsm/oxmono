@@ -194,7 +194,7 @@ module Webfinger : sig
 
       @raise E on lookup failure *)
 
-  val actor_uri : Proto.Webfinger.t -> Uri.t option
+  val actor_uri : Proto.Webfinger.t -> Uriz.t option
   (** [actor_uri jrd] extracts the ActivityPub actor URI from a Webfinger response.
 
       Looks for a link with [rel="self"] and [type="application/activity+json"]
@@ -203,12 +203,12 @@ module Webfinger : sig
       Per the ActivityPub WebFinger spec, publishers SHOULD include exactly one
       such link. *)
 
-  val actor_uri_raw : Webfinger.Jrd.t -> Uri.t option
+  val actor_uri_raw : Webfinger.Jrd.t -> Uriz.t option
   (** [actor_uri_raw jrd] extracts the ActivityPub actor URI from a raw JRD.
 
       More efficient variant that works directly with {!Webfinger.Jrd.t}. *)
 
-  val profile_page : Proto.Webfinger.t -> Uri.t option
+  val profile_page : Proto.Webfinger.t -> Uriz.t option
   (** [profile_page jrd] extracts the HTML profile page URI from a Webfinger response.
 
       Looks for [rel="http://webfinger.net/rel/profile-page"]. *)
@@ -248,7 +248,7 @@ end
 
 (** Operations on ActivityPub actors. *)
 module Actor : sig
-  val fetch : t -> Uri.t -> Proto.Actor.t
+  val fetch : t -> Uriz.t -> Proto.Actor.t
   (** [fetch client uri] fetches an actor by URI.
 
       @raise E on fetch failure *)
@@ -262,7 +262,7 @@ module Actor : sig
 
   (** {2 Collections} *)
 
-  val inbox : t -> Proto.Actor.t -> Uri.t
+  val inbox : t -> Proto.Actor.t -> Uriz.t
   (** [inbox client actor] returns the inbox URI for the actor. *)
 
   val outbox : t -> Proto.Actor.t -> Proto.Activity.t Proto.Collection.t
@@ -273,7 +273,7 @@ module Actor : sig
   val outbox_page :
     t ->
     Proto.Actor.t ->
-    ?page:Uri.t ->
+    ?page:Uriz.t ->
     unit ->
     Proto.Activity.t Proto.Collection_page.t
   (** [outbox_page client actor ?page ()] fetches a page of the outbox.
@@ -333,7 +333,7 @@ end
 
 (** Operations on ActivityStreams objects (notes, articles, etc). *)
 module Object : sig
-  val fetch : t -> Uri.t -> Proto.Object.t
+  val fetch : t -> Uriz.t -> Proto.Object.t
   (** [fetch client uri] fetches an object by URI.
 
       @raise E on fetch failure *)
@@ -348,7 +348,7 @@ end
 
 (** Operations for receiving activities in an inbox. *)
 module Inbox : sig
-  val post : t -> inbox:Uri.t -> Proto.Activity.t -> unit
+  val post : t -> inbox:Uriz.t -> Proto.Activity.t -> unit
   (** [post client ~inbox activity] delivers an activity to a remote inbox.
 
       The request is signed using the client's signing configuration.
@@ -384,7 +384,7 @@ module Outbox : sig
   val create_note :
     t ->
     actor:Proto.Actor.t ->
-    ?in_reply_to:Uri.t ->
+    ?in_reply_to:Uriz.t ->
     ?to_:Proto.Recipient.t list ->
     ?cc:Proto.Recipient.t list ->
     ?sensitive:bool ->
@@ -407,7 +407,7 @@ module Outbox : sig
   val public_note :
     t ->
     actor:Proto.Actor.t ->
-    ?in_reply_to:Uri.t ->
+    ?in_reply_to:Uriz.t ->
     content:string ->
     unit ->
     Proto.Activity.t
@@ -421,7 +421,7 @@ module Outbox : sig
   val followers_only_note :
     t ->
     actor:Proto.Actor.t ->
-    ?in_reply_to:Uri.t ->
+    ?in_reply_to:Uriz.t ->
     content:string ->
     unit ->
     Proto.Activity.t
@@ -434,7 +434,7 @@ module Outbox : sig
     t ->
     actor:Proto.Actor.t ->
     to_:Proto.Actor.t list ->
-    ?in_reply_to:Uri.t ->
+    ?in_reply_to:Uriz.t ->
     content:string ->
     unit ->
     Proto.Activity.t
@@ -445,29 +445,29 @@ module Outbox : sig
 
   (** {2 Interactions} *)
 
-  val like : t -> actor:Proto.Actor.t -> object_:Uri.t -> Proto.Activity.t
+  val like : t -> actor:Proto.Actor.t -> object_:Uriz.t -> Proto.Activity.t
   (** [like client ~actor ~object_] likes an object.
 
       @raise E on send failure *)
 
-  val unlike : t -> actor:Proto.Actor.t -> object_:Uri.t -> Proto.Activity.t
+  val unlike : t -> actor:Proto.Actor.t -> object_:Uriz.t -> Proto.Activity.t
   (** [unlike client ~actor ~object_] unlikes an object (Undo(Like)).
 
       @raise E on send failure *)
 
-  val announce : t -> actor:Proto.Actor.t -> object_:Uri.t -> Proto.Activity.t
+  val announce : t -> actor:Proto.Actor.t -> object_:Uriz.t -> Proto.Activity.t
   (** [announce client ~actor ~object_] boosts/reblogs an object.
 
       @raise E on send failure *)
 
-  val unannounce : t -> actor:Proto.Actor.t -> object_:Uri.t -> Proto.Activity.t
+  val unannounce : t -> actor:Proto.Actor.t -> object_:Uriz.t -> Proto.Activity.t
   (** [unannounce client ~actor ~object_] unboosts an object (Undo(Announce)).
 
       @raise E on send failure *)
 
   (** {2 Deletion} *)
 
-  val delete : t -> actor:Proto.Actor.t -> object_:Uri.t -> Proto.Activity.t
+  val delete : t -> actor:Proto.Actor.t -> object_:Uriz.t -> Proto.Activity.t
   (** [delete client ~actor ~object_] deletes an object.
 
       Creates a Delete activity with a Tombstone object.
@@ -479,7 +479,7 @@ module Outbox : sig
   val update_note :
     t ->
     actor:Proto.Actor.t ->
-    object_:Uri.t ->
+    object_:Uriz.t ->
     content:string ->
     unit ->
     Proto.Activity.t
@@ -549,22 +549,22 @@ end
 
 (** Low-level HTTP operations with ActivityPub content negotiation. *)
 module Http : sig
-  val get : t -> Uri.t -> Jsont.json
+  val get : t -> Uriz.t -> Jsont.json
   (** [get client uri] performs a GET request with ActivityPub Accept header.
 
       @raise E on request failure *)
 
-  val get_typed : t -> 'a Jsont.t -> Uri.t -> 'a
+  val get_typed : t -> 'a Jsont.t -> Uriz.t -> 'a
   (** [get_typed client jsont uri] performs a GET and decodes the response.
 
       @raise E on request failure *)
 
-  val post : t -> Uri.t -> Jsont.json -> unit
+  val post : t -> Uriz.t -> Jsont.json -> unit
   (** [post client uri body] performs a signed POST request.
 
       @raise E on request failure *)
 
-  val post_typed : t -> 'a Jsont.t -> Uri.t -> 'a -> unit
+  val post_typed : t -> 'a Jsont.t -> Uriz.t -> 'a -> unit
   (** [post_typed client jsont uri value] encodes and POSTs a typed value.
 
       @raise E on request failure *)

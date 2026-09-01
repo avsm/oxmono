@@ -26,7 +26,9 @@ let css_etag : Etag.t = Etag.strong (Digest.to_hex (Digest.string Html.css))
 (* The helpers below take the request at [local], since that is how a handler
    receives it. *)
 let raw (req : Req.t @ local) name =
-  match Req.form_param req name with Some v -> v | None -> ""
+  match Req.form_param req name with
+  | Some v -> Req.globalize v
+  | None -> ""
 let field (req : Req.t @ local) name = String.trim (raw req name)
 let opt s = if String.equal s "" then None else Some s
 
@@ -47,6 +49,9 @@ let failed (respond : Resp.respond @ local) msg =
 
 let has_thumb env handle =
   match env.thumbnail handle with Some _ -> true | None -> false
+
+(* Contact handles are retained by application callbacks. *)
+let handle_segment = conv ~name:"handle" (fun s -> Some s)
 
 (* A contact is rebuilt rather than mutated in place: {!Contact.t} is
    abstract, so every change to one of its collections goes through
@@ -115,10 +120,10 @@ let update (respond : Resp.respond @ local) env handle ~dest
 
 let routes =
   [
-    get nil (fun env req respond ->
+    get root (fun env req respond ->
         let q =
           match Req.query_param req "q" with
-          | Some q -> String.trim q
+          | Some q -> String.trim (Req.globalize q)
           | None -> ""
         in
         let found =
@@ -127,10 +132,10 @@ let routes =
         let sorted = List.sort Contact.compare found in
         Resp.html respond
           (Pages.index ~query:q ~has_thumb:(fun h -> has_thumb env h) sorted));
-    get (s "new" /? nil) (fun _env _req respond ->
+    get (s "new") (fun _env _req respond ->
         Resp.html respond
           (Pages.new_form ~handle:"" ~name:"" ~kind:"person" ~email:"" ()));
-    post (s "new" /? nil) (fun env req respond ->
+    post (s "new") (fun env req respond ->
         let handle = field req "handle" in
         let name = field req "name" in
         let kind = field req "kind" in
@@ -164,17 +169,17 @@ let routes =
               match env.save c with
               | Ok () -> Resp.see_other respond (contact_url handle)
               | Error msg -> failed respond msg));
-    get (s "contact" / str /? nil) (fun handle env _req respond ->
+    get (s "contact" / handle_segment) (fun handle env _req respond ->
         match env.lookup handle with
         | None -> not_found respond
         | Some c ->
             Resp.html respond
               (Pages.detail ~has_thumb:(has_thumb env handle) c));
-    get (s "contact" / str / s "edit" /? nil) (fun handle env _req respond ->
+    get (s "contact" / handle_segment / s "edit") (fun handle env _req respond ->
         match env.lookup handle with
         | None -> not_found respond
         | Some c -> Resp.html respond (Pages.edit c));
-    post (s "contact" / str / s "edit" /? nil) (fun handle env req respond ->
+    post (s "contact" / handle_segment / s "edit") (fun handle env req respond ->
         let local_ f c =
             let names = lines (raw req "names") in
             let names = match names with [] -> Contact.names c | ns -> ns in
@@ -197,14 +202,14 @@ let routes =
           in
         let () = update respond env handle ~dest:"" f in
         ());
-    post (s "contact" / str / s "delete" /? nil) (fun handle env _req respond ->
+    post (s "contact" / handle_segment / s "delete") (fun handle env _req respond ->
         match env.lookup handle with
         | None -> not_found respond
         | Some _ -> (
             match env.delete handle with
             | Ok () -> Resp.see_other respond "/"
             | Error msg -> failed respond msg));
-    post (s "contact" / str / s "email" / s "add" /? nil)
+    post (s "contact" / handle_segment / s "email" / s "add")
       (fun handle env req respond ->
         let local_ f c =
             match opt (field req "address") with
@@ -214,7 +219,7 @@ let routes =
           in
         let () = update respond env handle ~dest:"/edit" f in
         ());
-    post (s "contact" / str / s "email" / s "remove" /? nil)
+    post (s "contact" / handle_segment / s "email" / s "remove")
       (fun handle env req respond ->
         let local_ f c =
             match opt (field req "address") with
@@ -228,7 +233,7 @@ let routes =
           in
         let () = update respond env handle ~dest:"/edit" f in
         ());
-    post (s "contact" / str / s "url" / s "add" /? nil)
+    post (s "contact" / handle_segment / s "url" / s "add")
       (fun handle env req respond ->
         let local_ f c =
             match opt (field req "url") with
@@ -240,7 +245,7 @@ let routes =
           in
         let () = update respond env handle ~dest:"/edit" f in
         ());
-    post (s "contact" / str / s "url" / s "remove" /? nil)
+    post (s "contact" / handle_segment / s "url" / s "remove")
       (fun handle env req respond ->
         let local_ f c =
             match opt (field req "url") with
@@ -254,7 +259,7 @@ let routes =
           in
         let () = update respond env handle ~dest:"/edit" f in
         ());
-    post (s "contact" / str / s "service" / s "add" /? nil)
+    post (s "contact" / handle_segment / s "service" / s "add")
       (fun handle env req respond ->
         let local_ f c =
             match (opt (field req "platform"), opt (field req "handle")) with
@@ -275,7 +280,7 @@ let routes =
           in
         let () = update respond env handle ~dest:"/edit" f in
         ());
-    post (s "contact" / str / s "service" / s "remove" /? nil)
+    post (s "contact" / handle_segment / s "service" / s "remove")
       (fun handle env req respond ->
         let local_ f c =
             match opt (field req "platform") with
@@ -292,7 +297,7 @@ let routes =
           in
         let () = update respond env handle ~dest:"/edit" f in
         ());
-    post (s "contact" / str / s "org" / s "add" /? nil)
+    post (s "contact" / handle_segment / s "org" / s "add")
       (fun handle env req respond ->
         let local_ f c =
             match opt (field req "name") with
@@ -313,7 +318,7 @@ let routes =
           in
         let () = update respond env handle ~dest:"/edit" f in
         ());
-    post (s "contact" / str / s "org" / s "remove" /? nil)
+    post (s "contact" / handle_segment / s "org" / s "remove")
       (fun handle env req respond ->
         let local_ f c =
             match opt (field req "name") with
@@ -328,14 +333,14 @@ let routes =
           in
         let () = update respond env handle ~dest:"/edit" f in
         ());
-    get (s "thumbnail" / str /? nil) (fun handle env _req respond ->
+    get (s "thumbnail" / handle_segment) (fun handle env _req respond ->
         match env.thumbnail handle with
         | None -> not_found respond
         | Some png ->
             Resp.media respond
               ~etag:(Etag.strong (Digest.to_hex (Digest.string png)))
               ~cache:thumb_cache "image/png" png);
-    get (s "static" / s "style.css" /? nil) (fun _env _req respond ->
+    get (s "static" / s "style.css") (fun _env _req respond ->
         Resp.media respond ~etag:css_etag ~cache:css_cache
           "text/css; charset=utf-8" Html.css);
   ]
@@ -345,4 +350,4 @@ let site =
     (fun _env _req respond -> not_found respond)
     (Site.of_routes routes)
 
-let compiled = Compiled.compile site
+let compiled = site

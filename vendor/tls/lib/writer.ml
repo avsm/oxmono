@@ -1,12 +1,12 @@
 open Packet
 open Core
 
-let assemble_protocol_version_int buf off version =
+let (assemble_protocol_version_int @ portable) buf off version =
   let major, minor = pair_of_tls_version version in
   Bytes.set_uint8 buf off major;
   Bytes.set_uint8 buf (off + 1) minor
 
-let assemble_protocol_version ?(buf= Bytes.create 2) version =
+let (assemble_protocol_version @ portable) ?(buf= Bytes.create 2) version =
   assemble_protocol_version_int buf 0 version;
   Bytes.unsafe_to_string buf
 
@@ -20,7 +20,7 @@ let assemble_any_protocol_version version =
   assemble_any_protocol_version_into buf 0 version;
   Bytes.unsafe_to_string buf
 
-let assemble_hdr version (content_type, payload) =
+let (assemble_hdr @ portable) version (content_type, payload) =
   let buf = Bytes.create 5 in
   Bytes.set_uint8 buf 0 (content_type_to_int content_type);
   assemble_protocol_version_int buf 1 version;
@@ -29,7 +29,7 @@ let assemble_hdr version (content_type, payload) =
 
 type len = One | Two | Three
 
-let assemble_list ?none_if_empty lenb f elements =
+let (assemble_list @ portable) ?none_if_empty lenb f elements =
   let length body =
     match lenb with
     | One   ->
@@ -56,13 +56,13 @@ let assemble_list ?none_if_empty lenb f elements =
                | eles -> full eles)
   | None   -> full elements
 
-let assemble_certificate c =
+let (assemble_certificate @ portable) c =
   let length = String.length c in
   let buf = Bytes.create 3 in
   set_uint24_len ~off:0 buf length;
   Bytes.unsafe_to_string buf ^ c
 
-let assemble_certificates cs =
+let (assemble_certificates @ portable) cs =
   assemble_list Three assemble_certificate cs
 
 let assemble_compression_method m =
@@ -292,7 +292,7 @@ let assemble_cert_ext (certificate, extensions) =
 let assemble_certs_exts cs =
   assemble_list Three assemble_cert_ext cs
 
-let assemble_certificates_1_3 context certs =
+let (assemble_certificates_1_3 @ portable) context certs =
   let l = String.make 1 (Char.unsafe_chr (String.length context)) in
   String.concat "" [ l ; context ; assemble_certs_exts (List.map (fun c -> c, []) certs) ]
 
@@ -414,14 +414,14 @@ let assemble_session_ticket (se : session_ticket) =
   let exts = assemble_extensions assemble_session_ticket_extension se.extensions in
   String.concat "" [ Bytes.unsafe_to_string buf ; se.nonce ; Bytes.unsafe_to_string ticketlen ; se.ticket ; exts ]
 
-let assemble_client_dh_key_exchange kex =
+let (assemble_client_dh_key_exchange @ portable) kex =
   let len = String.length kex in
   let buf = Bytes.create (len + 2) in
   Bytes.set_uint16_be buf 0 len;
   Bytes.blit_string kex 0 buf 2 len;
   Bytes.unsafe_to_string buf
 
-let assemble_client_ec_key_exchange kex =
+let (assemble_client_ec_key_exchange @ portable) kex =
   let len = String.length kex in
   let buf = Bytes.create (len + 1) in
   Bytes.set_uint8 buf 0 len;
@@ -448,13 +448,17 @@ let assemble_hs typ len =
   set_uint24_len ~off:1 buf len;
   Bytes.unsafe_to_string buf
 
-let assemble_message_hash len =
+let (assemble_client_hello_handshake @ portable) hello =
+  let payload = assemble_client_hello hello in
+  assemble_hs CLIENT_HELLO (String.length payload) ^ payload
+
+let (assemble_message_hash @ portable) len =
   assemble_hs MESSAGE_HASH len
 
 let assemble_key_update req =
   String.make 1 (Char.unsafe_chr (key_update_request_type_to_int req))
 
-let assemble_handshake hs =
+let (assemble_handshake @ portable) hs =
   let (payload, payload_type) =
     match hs with
     | ClientHello ch -> (assemble_client_hello ch, CLIENT_HELLO)
@@ -481,7 +485,7 @@ let assemble_handshake hs =
   let buf = assemble_hs payload_type pay_len in
   buf ^ payload
 
-let assemble_alert ?(level = Packet.FATAL) typ =
+let (assemble_alert @ portable) ?(level = Packet.FATAL) typ =
   let buf = Bytes.create 2 in
   Bytes.set_uint8 buf 1 (alert_type_to_int typ);
   Bytes.set_uint8 buf 0 (alert_level_to_int level) ;

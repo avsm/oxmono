@@ -105,7 +105,7 @@ let err_malformed_utf_8 d =
   if d.i_next > d.i_max
   then err_here d "UTF-8 decoding error: unexpected end of bytes"
   else err_here d "UTF-8 decoding error: invalid byte %a"
-      pp_code (Printf.sprintf "%x02x" (Bytes.get_uint8 d.i d.i_next))
+      pp_code (Printf.sprintf "x%02x" (Bytes.get_uint8 d.i d.i_next))
 
 let err_exp d = err_here d "Expected %a but found %a"
 let err_exp_while d = err_here d "Expected %a while parsing %a but found %a"
@@ -298,10 +298,11 @@ let meta_make d ?ws_before ?ws_after textloc =
 
 (* Decoding *)
 
-let false_uchars = [| 0x0066; 0x0061; 0x006C; 0x0073; 0x0065 |]
-let true_uchars  = [| 0x0074; 0x0072; 0x0075; 0x0065 |]
-let null_uchars  = [| 0x006E; 0x0075; 0x006C; 0x006C |]
-let ascii_str us = String.init (Array.length us) (fun i -> Char.chr us.(i))
+(* Strings are immutable and portable; the upstream integer arrays were
+   mutable global values and therefore made the decoder domain-bound. *)
+let false_chars = "false"
+let true_chars = "true"
+let null_chars = "null"
 
 let[@inline] is_ws u =
   if u > 0x20 then false else match Char.unsafe_chr u with
@@ -317,19 +318,20 @@ let[@inline] read_ws d =
 let read_json_const d const = (* First character was checked. *)
   let ws_before = ws_pop d in
   let first_byte = get_last_byte d and first_line = get_line_pos d in
-  for i = 1 to Array.length const - 1 do
+  for i = 1 to String.length const - 1 do
     nextc d;
-    if not (Int.equal d.u const.(i))
-    then err_exp_in_const ~first_byte ~first_line d ~exp:const.(i) ~fnd:d.u
-        ~const:(ascii_str const)
+    let expected = Char.code (String.unsafe_get const i) in
+    if not (Int.equal d.u expected)
+    then err_exp_in_const ~first_byte ~first_line d ~exp:expected ~fnd:d.u
+        ~const
   done;
   let textloc = textloc_to_current d ~first_byte ~first_line in
   let ws_after = (nextc d; read_ws d; ws_pop d) in
   meta_make d ~ws_before ~ws_after textloc
 
-let[@inline] read_json_false d = read_json_const d false_uchars
-let[@inline] read_json_true d = read_json_const d true_uchars
-let[@inline] read_json_null d = read_json_const d null_uchars
+let[@inline] read_json_false d = read_json_const d false_chars
+let[@inline] read_json_true d = read_json_const d true_chars
+let[@inline] read_json_null d = read_json_const d null_chars
 let read_json_number d = (* [is_number_start d.u] = true *)
   let[@inline] read_digits d = while is_digit d.u do accept d done in
   let[@inline] read_int d = match d.u with
@@ -455,7 +457,7 @@ fun d t -> match (read_ws d; t) with
     | _ -> type_error d t)
 | Map map -> map.dec (decode d map.dom)
 | Any map -> decode_any d t map
-| Rec t -> decode d (Lazy.force t)
+| Rec t -> decode d (Jsont.Portable_lazy.force t)
 
 and decode_array : type a elt b. decoder -> (a, elt, b) array_map -> a =
 fun d map ->
@@ -464,30 +466,30 @@ fun d map ->
   let b, len = match (nextc d; read_ws d; d.u) with
   | 0x005D (* ] *) -> map.dec_empty (), 0
   | _ ->
-      let b = ref (map.dec_empty ()) in
-      let i = ref 0 in
-      let next = ref true in
+      let mutable builder = map.dec_empty () in
+      let mutable i = 0 in
+      let mutable next = true in
       try
-        while !next do
+        while next do
           begin
             let first_byte = get_last_byte d and first_line = get_line_pos d in
             try
-              if map.dec_skip !i !b
+              if map.dec_skip i builder
               then (decode d (of_t Jsont.ignore))
-              else (b := map.dec_add !i (decode d map.elt) !b)
+              else builder <- map.dec_add i (decode d map.elt) builder
             with
             | Jsont.Error e ->
                 let imeta = error_meta_to_current ~first_byte ~first_line d in
-                Jsont.Repr.error_push_array (error_meta d) map (!i, imeta) e
+                Jsont.Repr.error_push_array (error_meta d) map (i, imeta) e
           end;
-          incr i;
+          i <- i + 1;
           match (read_ws d; d.u) with
-          | 0x005D (* ] *) -> next := false
+          | 0x005D (* ] *) -> next <- false
           | 0x002C (* , *) -> nextc d; read_ws d
           | u when u = eot -> err_unclosed_array d
           | fnd -> err_exp_comma_or_eoa d ~fnd
         done;
-        !b, !i
+        builder, i
       with
       | Jsont.Error e -> Jsont.Error.adjust_context ~first_byte ~first_line e
   in
@@ -505,7 +507,7 @@ fun d map ->
       nextc d; read_ws d;
       decode_object_map
         d map (Unknown_mems None) String_map.empty String_map.empty []
-        Dict.empty
+        (Dict.empty ())
     with
     | Jsont.Error (ctx, meta, k) when Jsont.Error.Context.is_empty ctx ->
         let meta =
@@ -640,7 +642,7 @@ fun d map u umap mem_miss mem_decs dict -> match d.u with
 | u when u = eot -> err_unclosed_object d map
 | fnd -> err_exp_mem_or_eoo d
 
-and decode_object_case : type o cases tag.
+and decode_object_case : type o cases (tag : value mod contended).
   decoder -> (o, o) object_map -> unknown_mems_option ->
   (o, cases, tag) object_cases -> mem_dec String_map.t ->
   mem_dec String_map.t -> Jsont.object' -> Dict.t -> Dict.t
@@ -661,10 +663,23 @@ fun d map umems cases mem_miss mem_decs delay dict ->
         in
         Dict.add cases.id (case.dec (apply_dict case.object_map.dec dict)) dict
   in
+  (* First check if the tag is not in the delayed members *)
+  match Jsont.Json.find_mem cases.tag.name delay with
+  | Some ((_, meta as name), v) ->
+      let delay = Jsont.Json.remove_mem cases.tag.name delay in
+      let type' = Jsont.Repr.unsafe_to_t cases.tag.type' in
+      let tag = match Jsont.Json.decode' type' v with
+      | Ok v -> v
+      | Error e -> Jsont.Repr.error_push_object (error_meta d) map name e
+      in
+      decode_case_tag
+        ~sep:false map umems cases mem_miss mem_decs meta tag delay
+  | None ->
   match d.u with
   | 0x007D (* } *) ->
       (match cases.tag.dec_absent with
-      | Some tag ->
+      | Some default ->
+          let tag = default () in
           decode_case_tag ~sep:false map umems cases mem_miss mem_decs
            d.meta_none tag delay
       | None ->
@@ -793,7 +808,7 @@ let write_json_bool e b = write_bytes e (if b then "true" else "false")
 (* XXX we bypass the printf machinery as it costs quite quite a bit.
    Would be even better if we could format directly to a bytes values
    rather than allocating a string per number. *)
-external format_float : string -> float -> string = "caml_format_float"
+external format_float : string -> float -> string @@ portable = "caml_format_float"
 let write_json_number e f =
   if Float.is_finite f
   then write_bytes e (format_float e.number_format f)
@@ -883,7 +898,7 @@ fun ~nest t e v -> match t with
 | Object map -> encode_object ~nest map e v
 | Any map -> encode ~nest (map.enc v) e v
 | Map map -> encode ~nest map.dom e (map.enc v)
-| Rec t -> encode ~nest (Lazy.force t) e v
+| Rec t -> encode ~nest (Jsont.Portable_lazy.force t) e v
 
 and encode_array : type a elt b.
   nest:int -> (a, elt, b) Jsont.Repr.array_map -> encoder -> a -> unit

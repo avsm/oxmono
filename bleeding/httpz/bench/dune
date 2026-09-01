@@ -2,6 +2,10 @@
 
 (executable
  (name bench_httpz)
+ ; The switch's Core_bench/Async closure was compiled against the installed
+ ; Cstruct ABI.  The vendored TLS closure intentionally shadows Cstruct for
+ ; the whole workspace, so linking the two copies is invalid.
+ (enabled_if false)
  (libraries httpz base core core_bench)
  (preprocess
   (pps ppx_jane)))

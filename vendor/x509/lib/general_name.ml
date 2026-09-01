@@ -150,7 +150,7 @@ module Asn = struct
           match find k map with
           | None -> add k v map
           | Some b -> add k (merge_values k b v) map)
-        empty exts
+        (fresh_empty ()) exts
     and g map =
       List.flatten (List.map (fun (B (k, v)) ->
           match k, v with
@@ -167,4 +167,3 @@ module Asn = struct
     in
     map f g @@ sequence_of general_name
 end
-

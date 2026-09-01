@@ -1,0 +1,10 @@
+(library
+  (name domain_name)
+  (public_name domain-name)
+  (libraries stdlib_stable)
+  (modules domain_name))
+
+(test
+  (name tests)
+  (modules tests)
+  (libraries alcotest domain-name))

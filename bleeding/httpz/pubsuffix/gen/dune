@@ -1,0 +1,4 @@
+(executable
+ (name gen_psl)
+ (modules gen_psl)
+ (libraries httpz.punycode))

@@ -274,7 +274,7 @@ val recode :
     To accept null for primitive fields, explicitly use {!val:Jsont.option}:
     {[
       (* Accepts null, decodes as None *)
-      Jsont.Object.mem "count" (Jsont.option Jsont.int) ~dec_absent:None
+      Jsont.Object.mem "count" (Jsont.option Jsont.int) ~dec_absent:(fun () -> None)
         (* Rejects null, requires a number *)
-        Jsont.Object.mem "count" Jsont.int ~dec_absent:0
+        Jsont.Object.mem "count" Jsont.int ~dec_absent:(fun () -> 0)
     ]} *)

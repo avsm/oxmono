@@ -96,7 +96,7 @@ Sharp edges:
 | `~params` query args | typesense (1 site) | build query with `Uri` (Middleware.Url.set_query_params is not caller-reachable) |
 
 `fetch.cookies` vendors its own `publicsuffix`, duplicating
-`bleeding/publicsuffix` — reconcile before both end up linked in one binary.
+`bleeding/httpz/pubsuffix` — reconcile before both end up linked in one binary.
 
 ## Migration order (easiest → hardest)
 

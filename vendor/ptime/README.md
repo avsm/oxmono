@@ -108,7 +108,7 @@ jsonfeed v1.1.0 and present only to keep the link consistent.
    all of them: `dune build @avsm/sortal/all @avsm/sortal/runtest
    @avsm/bushel/all @avsm/tessabot/all @bleeding/proffer/all
    @bleeding/httpz/all @bleeding/atp/all @bleeding/apubt/all
-   @bleeding/tomlt/all @bleeding/jsonwt/all @bleeding/cookeio/all
+   @bleeding/tomlt/all @bleeding/jsonwt/all @bleeding/httpz/all
    @bleeding/openapi/all @bleeding/immich/all @bleeding/karakeep/all
    @bleeding/peertube/all @bleeding/frontmatter/all @vendor/x509/all
    @vendor/tls/all @vendor/ca-certs/all @vendor/syndic/all

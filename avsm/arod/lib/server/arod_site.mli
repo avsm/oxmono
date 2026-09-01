@@ -3,8 +3,8 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(** Compiled Arod routes. *)
+(** Arod route table. *)
 
-val build : Arod.Config.t -> Arod_handlers.Env.t Proffer.Compiled.t
+val build : Arod.Config.t -> Arod_handlers.Env.t Proffer.Site.t
 (** [build cfg] is the site configured by [cfg]. Statistics routes use Basic
     authentication when a password is configured. *)

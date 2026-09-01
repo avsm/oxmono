@@ -1,0 +1,3 @@
+(executable
+ (name json)
+ (libraries fetch fetch-httpz jsont eio_main localhost))

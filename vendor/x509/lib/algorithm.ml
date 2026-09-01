@@ -11,7 +11,7 @@ open Asn_grammars
  * that handles unsupported algos anyway.
  *)
 
-type ec_curve =
+type ec_curve : immutable_data =
   [ `SECP256R1 | `SECP384R1 | `SECP521R1 ]
 
 let ec_curve_to_string = function
@@ -19,7 +19,7 @@ let ec_curve_to_string = function
   | `SECP384R1 -> "SECP384R1"
   | `SECP521R1 -> "SECP521R1"
 
-type t =
+type t : immutable_data =
 
   (* pk algos *)
   (* any more? is the universe big enough? ramsey's theorem for pk cyphers? *)
@@ -71,6 +71,17 @@ type t =
 
   | PBKDF2 of string * int * int option * t
   | PBES2 of t * t
+
+type parameters : immutable_data = [
+  | `C1 of unit
+  | `C2 of Asn.oid
+  | `C3 of [
+      | `PBE of string * int
+      | `PBKDF2 of string * int * int option * t
+      | `PBES2 of t * t
+    ]
+  | `C4 of string
+] option
 
 let to_string = function
   | RSA -> "RSA"
@@ -198,48 +209,52 @@ and of_signature_algorithm public_key_algorithm digest =
    Section 2.3.1 specifies rsaEncryption (for RSA public keys) requires null.
 *)
 
-let curve_of_oid, curve_to_oid =
+let (curve_of_oid @ portable) : Asn.oid -> ec_curve =
   let open Registry.ANSI_X9_62 in
-  (let default oid = Asn.(S.parse_error "Unknown algorithm %a" OID.pp oid) in
-   case_of_oid ~default [
-     (secp256r1, `SECP256R1) ;
-     (secp384r1, `SECP384R1) ;
-     (secp521r1, `SECP521R1) ;
-   ]),
-  (function
-    | `SECP256R1 -> secp256r1
-    | `SECP384R1 -> secp384r1
-    | `SECP521R1 -> secp521r1)
+  let default oid = Asn.(S.parse_error "Unknown algorithm %a" OID.pp oid) in
+  case_of_oid ~default [
+    (secp256r1, fun () -> `SECP256R1) ;
+    (secp384r1, fun () -> `SECP384R1) ;
+    (secp521r1, fun () -> `SECP521R1) ;
+  ]
+
+let curve_to_oid : ec_curve -> Asn.oid =
+  let open Registry.ANSI_X9_62 in
+  function
+  | `SECP256R1 -> secp256r1
+  | `SECP384R1 -> secp384r1
+  | `SECP521R1 -> secp521r1
 
 let identifier =
   let open Registry in
 
   let f =
-    let none x = function
+    let none (x @ portable) : (parameters -> t) @ portable = function
       | None -> x
       | _    -> parse_error "Algorithm: expected no parameters"
-    and null x = function
+    and null (x @ portable) : (parameters -> t) @ portable = function
       | Some (`C1 ()) -> x
       | _             -> parse_error "Algorithm: expected null parameters"
-    and null_or_none x = function
+    and null_or_none (x @ portable) : (parameters -> t) @ portable = function
       | None | Some (`C1 ()) -> x
       | _                    -> parse_error "Algorithm: expected null or none parameter"
-    and oid f = function
+    and oid (f @ portable) : (parameters -> t) @ portable = function
       | Some (`C2 id) -> f id
       | _             -> parse_error "Algorithm: expected parameter OID"
-    and pbe f = function
+    and pbe (f @ portable) : (parameters -> t) @ portable = function
       | Some (`C3 `PBE pbe) -> f pbe
       | _                   -> parse_error "Algorithm: expected parameter PBE"
-    and pbkdf2 f = function
+    and pbkdf2 (f @ portable) : (parameters -> t) @ portable = function
       | Some (`C3 `PBKDF2 params) -> f params
       | _                         -> parse_error "Algorithm: expected parameter PBKDF2"
-    and pbes2 f = function
+    and pbes2 (f @ portable) : (parameters -> t) @ portable = function
       | Some (`C3 `PBES2 params) -> f params
       | _                        -> parse_error "Algorithm: expected parameter PBES2"
-    and octets f = function
+    and octets (f @ portable) : (parameters -> t) @ portable = function
       | Some (`C4 salt) -> f salt
       | _               -> parse_error "Algorithm: expected parameter octet_string"
-    and default oid = Asn.(S.parse_error "Unknown algorithm %a" OID.pp oid)
+    and default : _ @ portable = fun oid _ ->
+      Asn.(S.parse_error "Unknown algorithm %a" OID.pp oid)
     in
 
     case_of_oid_f ~default [
@@ -291,7 +306,7 @@ let identifier =
       (PKCS5.pbes2, pbes2 (fun (oid, oid') -> PBES2 (oid, oid')))
     ]
 
-  and g =
+  and g : (t -> Asn.oid * parameters) @ portable =
     let none    = None
     and null    = Some (`C1 ())
     and oid  id = Some (`C2 id)
@@ -363,16 +378,17 @@ let identifier =
         in
         map f g @@
         sequence3
-          (required ~label:"salt" (choice2 octet_string id))
-          (optional ~label:"iteration count" int) (* modified - required for pbkdf2/pbes *)
+          (required ~label:"salt" (choice2 (fresh_octet_string ()) id))
+          (optional ~label:"iteration count" (fresh_int ())) (* modified - required for pbkdf2/pbes *)
           (* (optional ~label:"key length" int) (* should be there and optional *) *)
           (optional ~label:"prf" id) (* only present in pbkdf2 / pbes2 *)
       in
-      map f g @@
+      map f (fun value -> g value) @@
       sequence2
-        (required ~label:"algorithm" oid)
+        (required ~label:"algorithm" (fresh_oid ()))
         (optional ~label:"params"
-           (choice4 null oid pbkdf2_or_pbe_or_pbes2_params octet_string)))
+           (choice4 (fresh_null ()) (fresh_oid ())
+              pbkdf2_or_pbe_or_pbes2_params (fresh_octet_string ()))))
 
 let ecdsa_sig =
   sequence2

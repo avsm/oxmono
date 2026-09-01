@@ -14,14 +14,15 @@ let date_of_string ~kind s =
 
 let ptime_date_jsont : Ptime.date Jsont.t =
   let enc (y, m, d) = Printf.sprintf "%04d-%02d-%02d" y m d in
-  Jsont.of_of_string ~kind:"Ptime.date" (date_of_string ~kind:"date") ~enc
+  Jsont.of_of_string ~kind:"Ptime.date"
+    (fun s -> (date_of_string ~kind:"date") s) ~enc
 
 let ptime_jsont : Ptime.t Jsont.t =
   let dec s =
     match Ptime.of_rfc3339 s with
     | Ok (t, _, _) -> Ok t
     | Error _ -> (
-      match date_of_string ~kind:"timestamp" s with
+      match (date_of_string ~kind:"timestamp") s with
       | Error _ as e -> e
       | Ok date -> (
         match Ptime.of_date date with
@@ -38,7 +39,7 @@ let ptime_jsont : Ptime.t Jsont.t =
   Jsont.of_of_string ~kind:"Ptime.t" dec ~enc
 
 let ptime_option_jsont : Ptime.t option Jsont.t =
-  let null = Jsont.null None in
+  let null = Jsont.none in
   let some = Jsont.map ~dec:(fun t -> Some t) ~enc:(function Some t -> t | None -> assert false) ptime_jsont in
   Jsont.any ~dec_null:null ~dec_string:some ~enc:(function None -> null | Some _ -> some) ()
 
@@ -79,26 +80,29 @@ let social_object_jsont : social Jsont.t =
   let open Jsont.Object in
   let is_empty = function [] -> true | _ -> false in
   map ~kind:"Social" (fun bluesky hn instagram linkedin lobsters mastodon twitter -> { bluesky; hn; instagram; linkedin; lobsters; mastodon; twitter })
-  |> mem "bluesky" string_or_list_jsont ~dec_absent:[]
+  |> mem "bluesky" string_or_list_jsont ~dec_absent:(fun () -> [])
        ~enc_omit:is_empty ~enc:(fun s -> s.bluesky)
-  |> mem "hn" string_or_list_jsont ~dec_absent:[]
+  |> mem "hn" string_or_list_jsont ~dec_absent:(fun () -> [])
        ~enc_omit:is_empty ~enc:(fun s -> s.hn)
-  |> mem "instagram" string_or_list_jsont ~dec_absent:[]
+  |> mem "instagram" string_or_list_jsont ~dec_absent:(fun () -> [])
        ~enc_omit:is_empty ~enc:(fun s -> s.instagram)
-  |> mem "linkedin" string_or_list_jsont ~dec_absent:[]
+  |> mem "linkedin" string_or_list_jsont ~dec_absent:(fun () -> [])
        ~enc_omit:is_empty ~enc:(fun s -> s.linkedin)
-  |> mem "lobsters" string_or_list_jsont ~dec_absent:[]
+  |> mem "lobsters" string_or_list_jsont ~dec_absent:(fun () -> [])
        ~enc_omit:is_empty ~enc:(fun s -> s.lobsters)
-  |> mem "mastodon" string_or_list_jsont ~dec_absent:[]
+  |> mem "mastodon" string_or_list_jsont ~dec_absent:(fun () -> [])
        ~enc_omit:is_empty ~enc:(fun s -> s.mastodon)
-  |> mem "twitter" string_or_list_jsont ~dec_absent:[]
+  |> mem "twitter" string_or_list_jsont ~dec_absent:(fun () -> [])
        ~enc_omit:is_empty ~enc:(fun s -> s.twitter)
   |> finish
 
 let social_jsont : social Jsont.t =
   let as_array =
     Jsont.map
-      ~dec:(List.fold_left merge_social empty_social)
+      ~dec:(fun socials ->
+        List.fold_left
+          (fun acc social -> merge_social acc social)
+          empty_social socials)
       ~enc:(fun s -> [s])
       (Jsont.list social_object_jsont)
   in

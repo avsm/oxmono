@@ -1,0 +1,4 @@
+(library
+ (name cookie_jar)
+ (public_name httpz.cookie.jar)
+ (libraries httpz httpz.cookie httpz.pubsuffix eio fmt ptime))

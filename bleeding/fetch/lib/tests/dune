@@ -1,3 +1,48 @@
 (mdx
  (package fetch)
- (deps (package fetch)))
+ (deps
+  (package bytesrw)
+  (package base64)
+  (package cmarkit)
+  (package cstruct)
+  (package domain-name)
+  (package eio)
+  (package eio_linux)
+  (package eio_main)
+  (package eio_posix)
+  (package fetch)
+  (package hmap)
+  (package httpz)
+  (package uriz)
+  (package ipaddr)
+  (package macaddr)
+  (package jsont)
+  (package lwt-dllist)
+  (package optint)
+  (package ptime)
+  (package uring)))
+
+(test
+ (name test_sse)
+ (package fetch)
+ (libraries fetch fetch.mock eio.mock))
+
+(test
+ (name test_redirect)
+ (package fetch)
+ (libraries fetch fetch.mock httpz eio.mock))
+
+(test
+ (name test_idle_timeout)
+ (package fetch)
+ (libraries fetch eio.mock alcotest cstruct))
+
+(test
+ (name test_release)
+ (package fetch)
+ (libraries fetch fetch.mock eio.mock))
+
+(test
+ (name test_url_policy)
+ (package fetch)
+ (libraries fetch fetch.mock eio.mock))

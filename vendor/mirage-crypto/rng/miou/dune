@@ -1,0 +1,5 @@
+(library
+ (name mirage_crypto_rng_mkernel)
+ (public_name mirage-crypto-rng-mkernel)
+ (libraries miou mkernel mirage-crypto mirage-crypto-rng digestif duration logs)
+ (modules mirage_crypto_rng_mkernel pfortuna))

@@ -1112,32 +1112,33 @@ module Middleware = struct
     let cfg =
       match cfg with None -> config ~key () | Some c -> { c with key }
     in
-    t
-    |> Fetch.Middleware.map_request (fun (req : Fetch.Middleware.request) ->
-           let headers = req.headers in
-           let headers =
-             if add_date && Option.is_none (Http.Header.get headers "date") then
-               Http.Header.add headers "date" (http_date (now_ptime clock))
-             else headers
-           in
-           let uri = Fetch.Middleware.Url.to_uri req.url in
-           let context = Context.request ~method_:req.meth ~uri ~headers in
-           let signed =
-             match req.body with
-             | Fetch.Middleware.Empty ->
-                 sign ~clock ~config:cfg ~context ~headers
-             | Fetch.Middleware.String body ->
-                 sign_with_digest ~clock ~config:cfg ~context ~headers ~body
-                   ~digest_algorithm
-             | Fetch.Middleware.Stream _ ->
-                 fail
-                   "fetch-signature: a streaming request body cannot be \
-                    signed, since RFC 9421 covers a body only through \
-                    Content-Digest, which needs the bytes in hand. Buffer it \
-                    into a Fetch.String body."
-           in
-           match signed with
-           | Ok headers -> { req with headers }
-           | Error e ->
-               fail ("fetch-signature: " ^ sign_error_to_string e))
+    let sign_request (req : Fetch.Middleware.request) =
+      let headers = req.headers in
+      let headers =
+        if add_date && Option.is_none (Http.Header.get headers "date") then
+          Http.Header.add headers "date" (http_date (now_ptime clock))
+        else headers
+      in
+      let uri = Uri.of_string (Fetch.Middleware.Url.to_string req.url) in
+      let context = Context.request ~method_:req.meth ~uri ~headers in
+      let signed =
+        match req.body with
+        | Fetch.Middleware.Empty -> sign ~clock ~config:cfg ~context ~headers
+        | Fetch.Middleware.String body ->
+            sign_with_digest ~clock ~config:cfg ~context ~headers ~body
+              ~digest_algorithm
+        | Fetch.Middleware.Stream _ ->
+            fail
+              "fetch-signature: a streaming request body cannot be signed, \
+               since RFC 9421 covers a body only through Content-Digest, \
+               which needs the bytes in hand. Buffer it into a Fetch.String \
+               body."
+      in
+      match signed with
+      | Ok headers -> { req with headers }
+      | Error e -> fail ("fetch-signature: " ^ sign_error_to_string e)
+    in
+    Fetch.Middleware.middleware
+      (fun next ~sw req -> next ~sw (sign_request req))
+      t
 end

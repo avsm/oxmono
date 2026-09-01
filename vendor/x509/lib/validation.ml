@@ -33,11 +33,11 @@ let pp_signature_error ppf = function
       Distinguished_name.pp subj alg
   | `Msg msg -> Fmt.string ppf msg
 
-let maybe_validate_hostname cert = function
+let maybe_validate_hostname : _ @ portable = fun cert -> function
   | None   -> true
   | Some x -> Certificate.supports_hostname cert x
 
-let maybe_validate_ip cert = function
+let maybe_validate_ip : _ @ portable = fun cert -> function
   | None -> true
   | Some ip -> Certificate.supports_ip cert ip
 
@@ -61,9 +61,6 @@ let validate_raw_signature subject allowed_hashes msg sig_alg signature pk =
         Result.map_error (function `Msg m -> `Bad_signature (subject, m))
           (Public_key.verify siga ~scheme ~signature pk (`Message msg))
       in
-      if not (List.mem siga sha2) then
-        Log.warn (fun m -> m "%a signature uses %a, a weak hash algorithm"
-                     Distinguished_name.pp subject Certificate.pp_hash siga);
       Ok ()
   | None ->
     Error (`Unsupported_algorithm (subject, Algorithm.to_string sig_alg))
@@ -104,7 +101,7 @@ let validate_signature allowed_hashes { Certificate.asn = trusted ; _ } { Certif
   validate_raw_signature asn.tbs_cert.subject allowed_hashes tbs_raw
     asn.signature_algo asn.signature_val trusted.tbs_cert.pk_info
 
-let validate_time time { Certificate.asn = cert ; _ } =
+let validate_time : _ @ portable = fun time { Certificate.asn = cert ; _ } ->
   match time with
   | None     -> true
   | Some now ->
@@ -153,26 +150,25 @@ let validate_ca_extensions { Certificate.asn = cert ; _ } =
     | Some (_, usage) -> List.mem `Key_cert_sign usage
     | _ -> false ) &&
 
-  (* if we require this, we cannot talk to github.com
-     (* 4.2.1.12.  Extended Key Usage
+  (* 4.2.1.12.  Extended Key Usage
      If a certificate contains both a key usage extension and an extended
      key usage extension, then both extensions MUST be processed
      independently and the certificate MUST only be used for a purpose
      consistent with both extensions.  If there is no purpose consistent
      with both extensions, then the certificate MUST NOT be used for any
      purpose. *)
-     ( match extn_ext_key_usage cert with
-     | Some (_, Ext_key_usage usages) -> List.mem Any usages
-     | _                              -> true ) &&
-  *)
+     ( match Extension.(find Ext_key_usage exts) with
+      | Some (_, usages) -> List.mem `Any usages || List.mem `Server_auth usages
+      | _ -> true ) &&
 
   (* Name Constraints - name constraints should match servername *)
 
   (* check criticality *)
   Extension.for_all (fun (Extension.B (k, v)) ->
       match k with
-      | Extension.Key_usage -> true
-      | Extension.Basic_constraints -> true
+      | Extension.Key_usage
+      | Extension.Basic_constraints
+      | Extension.Name_constraints -> true
       | _ -> not (Extension.critical k v) )
     exts
 
@@ -180,16 +176,13 @@ let validate_server_extensions cert =
   Extension.for_all (fun (Extension.B (k, v)) ->
       match k, v with
       | Extension.Basic_constraints, (_, (true, _)) ->
-        if is_self_signed cert then
-          (Log.warn (fun m -> m "allowing self-signed certificate with BasicConstraints CA true");
-           true)
-        else
-          false
+        is_self_signed cert
       | Extension.Basic_constraints, (_, (false, _)) -> true
       | Extension.Key_usage, _ -> true
       | Extension.Ext_key_usage, _ -> true
       | Extension.Subject_alt_name, _ -> true
       | Extension.Policies, (crit, ps) -> not crit || List.mem `Any ps
+      | Extension.Name_constraints, _ -> false (* 4.2.1.10 MUST be used only in a CA certificate *)
       (* we've to deal with _all_ extensions marked critical! *)
       | _, _ -> not (Extension.critical k v))
     cert.Certificate.asn.tbs_cert.extensions
@@ -415,19 +408,131 @@ let rec validate_anchors revoked hash pathlen cert = function
     | Ok _    -> if revoked ~issuer:x ~cert then Error (`Revoked cert) else Ok x
     | Error _ -> validate_anchors revoked hash pathlen cert xs
 
-let verify_single_chain now ?(revoked = fun ~issuer:_ ~cert:_ -> false) hash anchors chain =
-  let rec climb pathlen = function
+let mask_prefix_length : _ @ portable = fun mask ->
+  let rec byte_bits byte bit count seen_zero =
+    if bit < 0 then Ok (count, seen_zero)
+    else
+      let set = byte land (1 lsl bit) <> 0 in
+      if set && seen_zero then Error (`Msg "non-contiguous IP netmask")
+      else byte_bits byte (bit - 1) (if set then count + 1 else count)
+             (seen_zero || not set)
+  in
+  let rec loop offset count seen_zero =
+    if offset = String.length mask then Ok count
+    else
+      match byte_bits (String.get_uint8 mask offset) 7 count seen_zero with
+      | Error _ as error -> error
+      | Ok (count, seen_zero) -> loop (offset + 1) count seen_zero
+  in
+  loop 0 0 false
+
+let ip_prefix_of_string : _ @ portable = fun data ->
+  match String.length data with
+  | 8 ->
+    let* address = Ipaddr.V4.of_octets data in
+    let* bits = mask_prefix_length (String.sub data 4 4) in
+    Ok (Ipaddr.V4 (Ipaddr.V4.Prefix.make bits address))
+  | 32 ->
+    let* address = Ipaddr.V6.of_octets data in
+    let* bits = mask_prefix_length (String.sub data 16 16) in
+    Ok (Ipaddr.V6 (Ipaddr.V6.Prefix.make bits address))
+  | _ -> Error (`Msg "don't know how to decode the IP prefix")
+
+let ip_prefix_mem : _ @ portable = fun ip prefix ->
+  match (ip, prefix) with
+  | Ipaddr.V4 ip, Ipaddr.V4 prefix -> Ipaddr.V4.Prefix.mem ip prefix
+  | Ipaddr.V6 ip, Ipaddr.V6 prefix -> Ipaddr.V6.Prefix.mem ip prefix
+  | _ -> false
+
+let validate_name_constraints hosts ips { Certificate.asn = cert ; _ } =
+  let exts = cert.tbs_cert.extensions in
+  let guard p err = if p then Ok () else Error err in
+  match Extension.(find Name_constraints exts) with
+  | None -> Ok ()
+  | Some (_, (permitted, excluded)) ->
+    let* () =
+      List.fold_left (fun acc (nc, min, max) ->
+          let* () = acc in
+          let* () = guard (min = 0) (`Msg "name constraint min <> 0") in
+          let* () = guard (max = None) (`Msg "name constraint max <> None") in
+          match nc with
+          | General_name.B (General_name.DNS, xs) ->
+            (* we need to match that none of hosts is here, and the special match with .example.com *)
+            List.fold_left (fun acc name ->
+                let* dn = Domain_name.of_string name in
+                Host.Set.fold (fun n acc ->
+                    let* () = acc in
+                    guard (not (Domain_name.equal (snd n) dn) &&
+                           not (Domain_name.is_subdomain ~subdomain:(snd n) ~domain:dn))
+                      (`Msg "domain name is excluded"))
+                  hosts acc)
+              (Ok ()) xs
+          | B (General_name.IP, xs) ->
+            (* we need to match that none of ips is here *)
+            List.fold_left (fun acc data ->
+                let* () = acc in
+                let* ip_prefix = ip_prefix_of_string data in
+                Ipaddr.Set.fold (fun ip acc ->
+                    let* () = acc in
+                    guard (not (ip_prefix_mem ip ip_prefix))
+                      (`Msg "ip address is excluded"))
+                  ips acc)
+              (Ok ()) xs
+          | _ -> Ok ())
+        (Ok ()) excluded
+    in
+    List.fold_left (fun acc (nc, min, max) ->
+        let* () = acc in
+        let* () = guard (min = 0) (`Msg "name constraint min <> 0") in
+        let* () = guard (max = None) (`Msg "name constraint max <> None") in
+        match nc with
+        | General_name.B (General_name.DNS, xs) ->
+          (* we need to match that all hosts are here, and the special match with .example.com *)
+          List.fold_left (fun acc name ->
+              let* dn = Domain_name.of_string name in
+              Host.Set.fold (fun n acc ->
+                  let* () = acc in
+                  guard (Domain_name.equal (snd n) dn || Domain_name.is_subdomain ~subdomain:(snd n) ~domain:dn)
+                    (`Msg "domain name is not permitted"))
+                hosts acc)
+            (Ok ()) xs
+        | B (General_name.IP, xs) ->
+          (* we need to match that all ips are here *)
+          List.fold_left (fun acc data ->
+              let* () = acc in
+              let* ip_prefix = ip_prefix_of_string data in
+              Ipaddr.Set.fold (fun ip acc ->
+                  let* () = acc in
+                  guard (ip_prefix_mem ip ip_prefix)
+                    (`Msg "ip address is not permitted"))
+                ips acc)
+            (Ok ()) xs
+        | _ -> Ok ())
+      (Ok ()) permitted
+
+let dns_names { Certificate.asn = cert ; _ } =
+  match Extension.hostnames cert.tbs_cert.extensions with
+  | Some names -> names
+  | None -> Host.empty ()
+
+let verify_single_chain now ?(revoked = fun ~issuer:_ ~cert:_ -> false) hash hosts ips anchors chain =
+  let rec climb hosts ips pathlen = function
     | cert :: issuer :: certs ->
       let* () = is_cert_valid now issuer in
       let* () = if revoked ~issuer ~cert then Error (`Revoked cert) else Ok () in
       let* () = signs hash pathlen issuer cert in
-      climb (succ pathlen) (issuer :: certs)
+      let* () = validate_name_constraints hosts ips issuer in
+      let hosts = Host.Set.union hosts (dns_names issuer) in
+      let ips = Ipaddr.Set.union ips (Certificate.ips issuer) in
+      climb hosts ips (succ pathlen) (issuer :: certs)
     | [c] ->
       let anchors = issuer anchors c in
-      validate_anchors revoked hash pathlen c anchors
+      let* anchor = validate_anchors revoked hash pathlen c anchors in
+      let* () = validate_name_constraints hosts ips anchor in
+      Ok anchor
     | [] -> Error `EmptyCertificateChain
   in
-  climb 0 chain
+  climb hosts ips 0 chain
 
 let verify_chain ?ip ~host ~time ?revoked ?(allowed_hashes = sha2) ~anchors = function
   | [] -> Error `EmptyCertificateChain
@@ -435,7 +540,8 @@ let verify_chain ?ip ~host ~time ?revoked ?(allowed_hashes = sha2) ~anchors = fu
     let now = time () in
     let anchors = List.filter (validate_time now) anchors in
     let* () = is_server_cert_valid ip host now server in
-    verify_single_chain now ?revoked allowed_hashes anchors (server :: certs)
+    let hosts, ips = Certificate.hostnames server, Certificate.ips server in
+    verify_single_chain now ?revoked allowed_hashes hosts ips anchors (server :: certs)
 
 let rec any_m e f = function
   | [] -> Error e
@@ -443,25 +549,29 @@ let rec any_m e f = function
     | Ok ta -> Ok (Some (c, ta))
     | Error _ -> any_m e f cs
 
-let verify_chain_of_trust ?ip ~host ~time ?revoked ?(allowed_hashes = sha2) ~anchors = function
+let verify_chain_of_trust : _ @ portable =
+ fun ?ip ~host ~time ?revoked
+     ?(allowed_hashes = [ `SHA256; `SHA384; `SHA512 ]) ~anchors -> function
   | [] -> Error `EmptyCertificateChain
   | server :: certs ->
     let now = time () in
     (* verify server! *)
     let* () = is_server_cert_valid ip host now server in
+    let hosts, ips = Certificate.hostnames server, Certificate.ips server in
     (* build all paths *)
     let paths = build_paths server certs
     and anchors = List.filter (validate_time now) anchors
     in
     (* exists there one which is good? *)
-    any_m `InvalidChain (verify_single_chain now ?revoked allowed_hashes anchors) paths
+    any_m `InvalidChain (verify_single_chain now ?revoked allowed_hashes hosts ips anchors) paths
 
 let valid_cas ?(allowed_hashes = all_hashes) ?time cas =
   List.filter (fun cert ->
       Result.is_ok (is_ca_cert_valid allowed_hashes time cert))
     cas
 
-let fingerprint_verification ?ip host now fingerprint fp = function
+let fingerprint_verification : _ @ portable =
+ fun ?ip host now fingerprint fp -> function
   | [] -> Error `EmptyCertificateChain
   | server::_ ->
     let computed_fingerprint = fp server in
@@ -483,7 +593,7 @@ let trust_key_fingerprint ?ip ~host ~time ~hash ~fingerprint =
   let fp cert = Public_key.fingerprint ~hash (Certificate.public_key cert) in
   fingerprint_verification ?ip host now fingerprint fp
 
-let trust_cert_fingerprint ?ip ~host ~time ~hash ~fingerprint =
+let trust_cert_fingerprint : _ @ portable = fun ?ip ~host ~time ~hash ~fingerprint ->
   let now = time () in
   let fp = Certificate.fingerprint hash in
   fingerprint_verification ?ip host now fingerprint fp

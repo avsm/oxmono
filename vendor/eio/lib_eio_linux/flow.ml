@@ -49,7 +49,10 @@ let truncate_to_iomax xs =
 (* Copy using the [Read_source_buffer] optimisation.
    Avoids a copy if the source already has the data. *)
 let copy_with_rsb rsb dst =
-  let write xs = Low_level.writev_single dst (truncate_to_iomax xs) in
+  let write (xs @ local) =
+    Low_level.writev_single dst
+      (truncate_to_iomax (Cstruct.globalize_list xs))
+  in
   try
     while true do rsb write done
   with End_of_file -> ()
@@ -88,8 +91,10 @@ module Impl = struct
 
   let stat = Low_level.fstat
 
-  let single_read t buf =
-    Low_level.readv t [buf]
+  (* io_uring owns these descriptors across a scheduler suspension.  Their
+     backing Bigarrays are already global, so only the small views are copied. *)
+  let single_read t (buf @ local) =
+    Low_level.readv t [Cstruct.globalize buf]
 
   let pread t ~file_offset bufs =
     Low_level.readv ~file_offset t bufs
@@ -99,7 +104,9 @@ module Impl = struct
 
   let read_methods = []
 
-  let single_write t bufs = Low_level.writev_single t (truncate_to_iomax bufs)
+  let single_write t (bufs @ local) =
+    Low_level.writev_single t
+      (truncate_to_iomax (Cstruct.globalize_list bufs))
 
   let copy t ~src =
     match Eio_unix.Resource.fd_opt src with
@@ -151,7 +158,9 @@ let stderr = sink Eio_unix.Fd.stderr
 
 module Secure_random = struct
   type t = unit
-  let single_read () buf = Low_level.getrandom buf; Cstruct.length buf
+  let single_read () (buf @ local) =
+    Low_level.getrandom (Cstruct.globalize buf);
+    Cstruct.length buf
   let read_methods = []
 end
 

@@ -1,10 +1,12 @@
+@@ portable
+
 (* Copyright (c) 2014-2017 David Kaloper Meršinjak. All rights reserved.
    See LICENSE.md. *)
 
-type t = private Oid of int * int * int list
+type t : immutable_data = private Oid of int * int * int list
 
-val compare     : t -> t -> int
-val equal       : t -> t -> bool
+val compare     : t -> t -> int @@ portable
+val equal       : t -> t -> bool @@ portable
 val hash        : t -> int
 val seeded_hash : int -> t -> int
 

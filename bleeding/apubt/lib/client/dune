@@ -3,6 +3,7 @@
  (public_name apubt)
  (libraries
   apubt_proto
+  uri
   eio
   jsont
   jsont.bytesrw

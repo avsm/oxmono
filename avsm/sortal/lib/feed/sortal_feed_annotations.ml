@@ -3,7 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-module StringMap = Map.Make(String)
+module StringMap = Jsont.String_map
 
 type entry_annotation = { slugs : string list }
 
@@ -35,11 +35,12 @@ let json_t =
   let map_jsont = Jsont.Object.as_string_map entry_annotation_jsont in
   Jsont.map ~kind:"Annotations"
     ~dec:(fun m ->
-      let tbl = Hashtbl.create (StringMap.cardinal m) in
-      StringMap.iter (fun k v -> Hashtbl.replace tbl k v) m;
+      let tbl = Hashtbl.create 16 in
+      StringMap.fold (fun k v () -> Hashtbl.replace tbl k v) m ();
       tbl)
     ~enc:(fun tbl ->
-      Hashtbl.fold (fun k v acc -> StringMap.add k v acc) tbl StringMap.empty)
+      Hashtbl.fold
+        (fun k v acc -> StringMap.add k v acc) tbl (StringMap.create ()))
     map_jsont
 
 let load path =

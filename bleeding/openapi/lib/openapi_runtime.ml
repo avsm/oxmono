@@ -191,7 +191,7 @@ let nullable (codec : 'a Jsont.t) : 'a option Jsont.t =
     Use this for fields marked as "nullable: true" in OpenAPI specs.
     Unlike Jsont.option, this properly decodes explicit null as None. *)
 let nullable_any (base_codec : 'a Jsont.t) : 'a option Jsont.t =
-  let null_codec = Jsont.null None in
+  let null_codec = Jsont.none in
   let some_codec = Jsont.map base_codec
     ~kind:"nullable_some"
     ~dec:(fun v -> Some v)
@@ -303,7 +303,8 @@ let validated_string
 
 (** Validated int codec with optional min/max constraints *)
 let validated_int
-    ?minimum ?maximum ?exclusive_minimum ?exclusive_maximum
+    ?(minimum : float option) ?(maximum : float option)
+    ?(exclusive_minimum : float option) ?(exclusive_maximum : float option)
     (base : int Jsont.t) : int Jsont.t =
   Jsont.map base ~kind:"validated_int"
     ~dec:(fun n ->
@@ -333,7 +334,8 @@ let validated_int
 
 (** Validated float codec with optional min/max constraints *)
 let validated_float
-    ?minimum ?maximum ?exclusive_minimum ?exclusive_maximum
+    ?(minimum : float option) ?(maximum : float option)
+    ?(exclusive_minimum : float option) ?(exclusive_maximum : float option)
     (base : float Jsont.t) : float Jsont.t =
   Jsont.map base ~kind:"validated_float"
     ~dec:(fun f ->

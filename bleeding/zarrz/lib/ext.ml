@@ -61,10 +61,10 @@ let object_jsont =
   |> Jsont.Object.mem "name" Jsont.string ~enc:(fun t -> t.name)
   |> Jsont.Object.mem "configuration"
        (Jsont.option Jsont.json_object)
-       ~dec_absent:None
+       ~dec_absent:(fun () -> None)
        ~enc:(fun t -> t.config)
        ~enc_omit:Option.is_none
-  |> Jsont.Object.mem "must_understand" Jsont.bool ~dec_absent:true
+  |> Jsont.Object.mem "must_understand" Jsont.bool ~dec_absent:(fun () -> true)
        ~enc:(fun t -> t.must_understand)
        ~enc_omit:Fun.id
   |> Jsont.Object.error_unknown |> Jsont.Object.finish

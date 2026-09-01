@@ -25,13 +25,13 @@ end
 
 exception Insufficient_key
 
-type pub = { e : Z.t ; n : Z.t }
+type pub : immutable_data = { e : Z.t ; n : Z.t }
 
 (* due to PKCS1 *)
 let minimum_octets = 12
 let minimum_bits = 8 * minimum_octets - 7
 
-let pub ~e ~n =
+let pub : _ @ portable = fun ~e ~n ->
   (* We cannot verify a public key being good (this would require to verify "n"
      being the multiplication of two prime numbers - figuring out which primes
      were used is the security property of RSA).
@@ -48,25 +48,25 @@ let pub ~e ~n =
           these are not requirements, neither for RSA nor for powm_sec *)
   Ok { e ; n }
 
-type priv = {
+type priv : immutable_data = {
   e : Z.t ; d : Z.t ; n  : Z.t ;
   p : Z.t ; q : Z.t ; dp : Z.t ; dq : Z.t ; q' : Z.t
 }
 
-let valid_prime name p =
+let valid_prime : _ @ portable = fun name p ->
   guard Z.(p > zero && is_odd p && Z_extra.pseudoprime p)
     (`Msg ("invalid prime " ^ name))
 
-let rprime a b = Z.(gcd a b = one)
+let rprime : _ @ portable = fun a b -> Z.(gcd a b = one)
 
-let valid_e ~e ~p ~q =
+let valid_e : _ @ portable = fun ~e ~p ~q ->
   let* () =
     guard (rprime e (Z.pred p) && rprime e (Z.pred q))
       (`Msg "e is not coprime of p and q")
   in
   guard (Z_extra.pseudoprime e) (`Msg "exponent e is not a pseudoprime")
 
-let priv ~e ~d ~n ~p ~q ~dp ~dq ~q' =
+let priv : _ @ portable = fun ~e ~d ~n ~p ~q ~dp ~dq ~q' ->
   let* _ = pub ~e ~n in
   let* () = valid_prime "p" p in
   let* () = valid_prime "q" q in
@@ -147,12 +147,13 @@ let rec generate ?g ?(e = Z.(~$0x10001)) ~bits () =
 
 let pub_of_priv ({ e; n; _ } : priv) = { e ; n }
 
-let pub_bits  ({ n; _ } : pub)  = Z.numbits n
+let (pub_bits @ portable) ({ n; _ } : pub) = Z.numbits n
 and priv_bits ({ n; _ } : priv) = Z.numbits n
 
 type mask = [ `No | `Yes | `Yes_with of Mirage_crypto_rng.g ]
 
-let encrypt_unsafe ~key: ({ e; n } : pub) msg = Z.(powm msg e n)
+let (encrypt_unsafe @ portable) ~key: ({ e; n } : pub) msg =
+  Z.(powm msg e n)
 
 let decrypt_unsafe ~crt_hardening ~key:({ e; d; n; p; q; dp; dq; q'} : priv) c =
   let m1 = Z.(powm_sec c dp p)
@@ -177,22 +178,27 @@ let decrypt_blinded_unsafe ~crt_hardening ?g ~key:({ e; n; _} as key : priv) c =
   let x  = decrypt_unsafe ~crt_hardening ~key c' in
   Z.(r' * x mod n)
 
-let (encrypt_z, decrypt_z) =
-  let check_params n msg =
-    if msg < two then invalid_arg "Rsa: message: %a" Z.pp_print msg;
-    if n <= msg then raise Insufficient_key in
-  (fun ~(key : pub) msg -> check_params key.n msg ; encrypt_unsafe ~key msg),
-  (fun ~crt_hardening ~mask ~(key : priv) msg ->
-    check_params key.n msg ;
-    match mask with
-    | `No         -> decrypt_unsafe ~crt_hardening ~key msg
-    | `Yes        -> decrypt_blinded_unsafe ~crt_hardening ~key msg
-    | `Yes_with g -> decrypt_blinded_unsafe ~crt_hardening ~g ~key msg )
+let (check_params @ portable) n msg =
+  if msg < two then raise Insufficient_key;
+  if n <= msg then raise Insufficient_key
 
-let reformat out f msg =
-  Z_extra.(of_octets_be msg |> f |> to_octets_be ~size:(out // 8))
+let (encrypt_z @ portable) ~(key : pub) msg =
+  check_params key.n msg;
+  encrypt_unsafe ~key msg
 
-let encrypt ~key              = reformat (pub_bits key)  (encrypt_z ~key)
+let decrypt_z ~crt_hardening ~mask ~(key : priv) msg =
+  check_params key.n msg;
+  match mask with
+  | `No -> decrypt_unsafe ~crt_hardening ~key msg
+  | `Yes -> decrypt_blinded_unsafe ~crt_hardening ~key msg
+  | `Yes_with g -> decrypt_blinded_unsafe ~crt_hardening ~g ~key msg
+
+let (reformat @ portable) out f msg =
+  let size = if out <= 0 then 0 else 1 + ((out - 1) / 8) in
+  Z_extra.(of_octets_be msg |> f |> to_octets_be ~size)
+
+let (encrypt @ portable) ~key =
+  reformat (pub_bits key) (encrypt_z ~key)
 
 let decrypt ?(crt_hardening=false) ?(mask=`Yes) ~key =
   reformat (priv_bits key) (decrypt_z ~crt_hardening ~mask ~key)
@@ -215,6 +221,21 @@ module PKCS1 = struct
       | _          -> go nonce i (succ j) in
     go Mirage_crypto_rng.(generate ?g k) 0 0
 
+  let (generate_with_portable @ portable) ~g ~f n =
+    let buf = Bytes.create n in
+    let rec go nonce i j =
+      if i = n then Bytes.unsafe_to_string buf
+      else if j = String.length nonce then
+        go (Mirage_crypto_rng.generate_portable ~g (max 1 n)) i 0
+      else
+        match String.get_uint8 nonce j with
+        | byte when f byte ->
+            Bytes.set_uint8 buf i byte;
+            go nonce (succ i) (succ j)
+        | _ -> go nonce i (succ j)
+    in
+    go (Mirage_crypto_rng.generate_portable ~g (max 1 n)) 0 0
+
   let pad ~mark ~padding k msg =
     let pad = padding (k - String.length msg - 3 |> imax min_pad) in
     String.concat "" [ bx00 ; mark ; pad ; bx00 ; msg ]
@@ -234,6 +255,14 @@ module PKCS1 = struct
     let padding size = String.make size '\xff' in
     pad ~mark:"\x01" ~padding
   let pad_02 ?g = pad ~mark:"\x02" ~padding:(generate_with ?g ~f:((<>) 0x00))
+  let (pad_02_with @ portable) ~g =
+    fun key_octets message ->
+      let requested = key_octets - String.length message - 3 in
+      let padding_length = if requested < min_pad then min_pad else requested in
+      let padding =
+        generate_with_portable ~g ~f:((<>) 0x00) padding_length
+      in
+      String.concat "" [ bx00; "\x02"; padding; bx00; message ]
 
   let unpad_01 = unpad ~mark:0x01 ~is_pad:((=) 0xff)
   let unpad_02 = unpad ~mark:0x02 ~is_pad:((<>) 0x00)
@@ -256,6 +285,14 @@ module PKCS1 = struct
 
   let encrypt ?g ~key msg =
     padded (pad_02 ?g) (encrypt ~key) (pub_bits key) msg
+
+  let (encrypt_with @ portable) ~g ~key msg =
+    let key_octets = pub_bits key // 8 in
+    let padded_message = pad_02_with ~g key_octets msg in
+    if String.length padded_message = key_octets then
+      encrypt_z ~key (Z_extra.of_octets_be padded_message)
+      |> Z_extra.to_octets_be ~size:key_octets
+    else raise Insufficient_key
 
   let decrypt ?(crt_hardening = false) ?mask ~key msg =
     unpadded unpad_02 (decrypt ~crt_hardening ?mask ~key) (priv_bits key) msg
@@ -342,7 +379,7 @@ module OAEP (H : Digestif.S) = struct
     and mdb = String.sub msg (1 + hlen) (String.length msg - 1 - hlen)
     in
     let db = Bytes.unsafe_to_string (MGF.mask ~seed:(Bytes.unsafe_to_string (MGF.mask ~seed:mdb ms)) mdb) in
-    let i  = ct_find_uint8 ~default:0 ~off:hlen ~f:((<>) 0x00) db in
+    let i  = ct_find_uint8 ~default:hlen ~off:hlen ~f:((<>) 0x00) db in
     let c1 = Eqaf.equal (String.sub db 0 hlen) H.(digest_string label |> to_raw_string)
     and c2 = String.get_uint8 b0 0 = 0x00
     and c3 = String.get_uint8 db i = 0x01 in
@@ -428,3 +465,143 @@ module PSS (H: Digestif.S) = struct
     with Insufficient_key -> false
 
 end
+
+(* Verification-only entry points.  Unlike the signing APIs above these do not
+   capture an RNG or a first-class digest module, so they can be used by a
+   portable certificate authenticator. *)
+let verify_digest_size : _ @ portable = function
+  | `MD5 -> 16
+  | `SHA1 -> 20
+  | `SHA224 -> 28
+  | `SHA256 -> 32
+  | `SHA384 -> 48
+  | `SHA512 -> 64
+
+let public_transform : _ @ portable = fun ~key:({ e; n } : pub) message ->
+  let value = Z_extra.of_octets_be message in
+  if Z.compare value (Z.of_int 2) < 0 || Z.compare n value <= 0 then
+    raise Insufficient_key;
+  let result = Z.powm value e n in
+  Z_extra.to_octets_be ~size:((Z.numbits n + 7) / 8) result
+
+let pkcs1_digest_prefix : _ @ portable = function
+  | `MD5 ->
+      "\x30\x20\x30\x0c\x06\x08\x2a\x86\x48\x86\xf7\x0d\x02\x05\x05\x00\x04\x10"
+  | `SHA1 ->
+      "\x30\x21\x30\x09\x06\x05\x2b\x0e\x03\x02\x1a\x05\x00\x04\x14"
+  | `SHA224 ->
+      "\x30\x2d\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x04\x05\x00\x04\x1c"
+  | `SHA256 ->
+      "\x30\x31\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x01\x05\x00\x04\x20"
+  | `SHA384 ->
+      "\x30\x41\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x02\x05\x00\x04\x30"
+  | `SHA512 ->
+      "\x30\x51\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x03\x05\x00\x04\x40"
+
+let pkcs1_verify_digest : _ @ portable =
+ fun ~hash ~(key : pub) ~signature digest ->
+  if String.length digest <> verify_digest_size hash then false
+  else
+    let key_bytes = (Z.numbits key.n + 7) / 8 in
+    if String.length signature <> key_bytes then false
+    else
+      match public_transform ~key signature with
+      | exception Insufficient_key -> false
+      | encoded ->
+          let rec padding_end index =
+            if index >= String.length encoded then None
+            else
+              match String.get_uint8 encoded index with
+              | 0xff -> padding_end (index + 1)
+              | 0 when index >= 10 -> Some (index + 1)
+              | _ -> None
+          in
+          if String.length encoded < 11
+             || String.get_uint8 encoded 0 <> 0
+             || String.get_uint8 encoded 1 <> 1
+          then false
+          else
+            match padding_end 2 with
+            | None -> false
+            | Some payload ->
+                let expected = pkcs1_digest_prefix hash ^ digest in
+                let length = String.length encoded - payload in
+                length = String.length expected
+                && Eqaf.equal expected (String.sub encoded payload length)
+
+let mgf1 : _ @ portable = fun hash ~seed length ->
+  let hash_length = verify_digest_size hash in
+  let output = Bytes.create length in
+  let counter = Bytes.create 4 in
+  let rec fill block offset =
+    if offset < length then begin
+      Bytes.set_int32_be counter 0 (Int32.of_int block);
+      let digest =
+        Digestif.digest_string_raw (hash :> Digestif.hash')
+          (seed ^ Bytes.unsafe_to_string counter)
+      in
+      let remaining = length - offset in
+      let amount = if hash_length < remaining then hash_length else remaining in
+      Bytes.blit_string digest 0 output offset amount;
+      fill (block + 1) (offset + amount)
+    end
+  in
+  fill 0 0;
+  output
+
+let xor_with_mgf : _ @ portable = fun hash ~seed input ->
+  let output = mgf1 hash ~seed (String.length input) in
+  for index = 0 to String.length input - 1 do
+    Bytes.set_uint8 output index
+      (Bytes.get_uint8 output index lxor String.get_uint8 input index)
+  done;
+  output
+
+let pss_verify_digest : _ @ portable =
+ fun ~hash ~(key : pub) ~signature digest ->
+  let hash_length = verify_digest_size hash in
+  let salt_length = hash_length in
+  let key_bits = Z.numbits key.n in
+  let key_bytes = (key_bits + 7) / 8 in
+  if String.length digest <> hash_length
+     || String.length signature <> key_bytes
+     || hash_length + salt_length + 2 > key_bytes
+  then false
+  else
+    match public_transform ~key signature with
+    | exception Insufficient_key -> false
+    | encoded ->
+        let encoded_bits = key_bits - 1 in
+        let encoded_bytes = (encoded_bits + 7) / 8 in
+        let skip = String.length encoded - encoded_bytes in
+        if skip < 0 then false
+        else
+          let encoded = String.sub encoded skip encoded_bytes in
+          let db_length = encoded_bytes - hash_length - 1 in
+          if db_length < salt_length + 1
+             || String.get_uint8 encoded (encoded_bytes - 1) <> 0xbc
+          then false
+          else
+            let masked_db = String.sub encoded 0 db_length in
+            let expected_hash =
+              String.sub encoded db_length hash_length
+            in
+            let unused = (8 * encoded_bytes) - encoded_bits in
+            let first_mask = 0xff lsr unused in
+            if String.get_uint8 masked_db 0 land lnot first_mask <> 0 then false
+            else
+              let db = xor_with_mgf hash ~seed:expected_hash masked_db in
+              Bytes.set_uint8 db 0 (Bytes.get_uint8 db 0 land first_mask);
+              let marker = db_length - salt_length - 1 in
+              let rec all_zero index =
+                index = marker
+                || (Bytes.get_uint8 db index = 0 && all_zero (index + 1))
+              in
+              if not (all_zero 0) || Bytes.get_uint8 db marker <> 1 then false
+              else
+                let salt = Bytes.sub_string db (marker + 1) salt_length in
+                let actual_hash =
+                  Digestif.digest_string_raw (hash :> Digestif.hash')
+                    (String.make 8 '\x00' ^ digest ^ salt)
+                in
+                Eqaf.equal expected_hash actual_hash

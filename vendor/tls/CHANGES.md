@@ -1,3 +1,39 @@
+## v2.1.2 (2026-07-30)
+
+* expose Config.src : Logs.src, requested by @mneumann in #526
+* internal: use warning name instead of number (#527 @hannesm)
+* miou-unix: use mirage-crypto-rng instead of deprecated
+  mirage-crypto-rng-miou-unix (#528 @hannesm)
+
+## v2.1.1 (2026-06-29)
+
+* tls-async, tls-lwt, tls-mirage, tls-miou-unix, tls-eio, tls.unix: add ?ip in
+  client_of_fd (and similar functions) to check the IP address in the
+  server certificate. Also adds 'Config.ip : config -> Ipaddr.t -> config'
+  The motivation was testing with bettertls (#523 @hannesm)
+* tls, client 1.3: fix KeyUpdate (the out state is now Client13 Established, it
+  used to be Server13 Established - which was a typo) (#524 @samoht)
+
+## v2.1.0 (2026-05-20)
+
+* tls: server add keyUsage and extendedKeyUsage validation
+  reported by Ben Smyth CVE-2026-45389 OSEC-2026-07
+  (b1a598ef9be83a4f8b0f73a4e2d9730d50906049 @hannesm)
+* tls: client TLS version 1.3 add keyUsage and extendedKeyUsage validation
+  reported by Ben Smyth CVE-2026-45388 OSEC-2026-06
+  (6a12247b3fbd747972ad2d35b74d9a89f6404952 @hannesm)
+* tls-eio, tls-lwt, tls-mirage, tls-miou-unix, tls-unix: `drain_handshake`
+  returns once the handshake completes, even if the peer has already
+  closed one half of the connection (#520 @samoht)
+* tls-mirage: use inject_state in `writev` and `key_update` - previously
+  `` `Active `` was used, which is incorrect especially for half-closed flows
+  (#521 #522 @samoht)
+
+## v2.0.4 (2026-03-10)
+
+* Fix exception in parse_change_cipher_spec on empty input (#519 @samoht)
+  This has been present since the initial release 0.1.0.
+
 ## v2.0.3 (2025-09-26)
 
 * Provide an implementation which uses the Unix module (distributed with OCaml),

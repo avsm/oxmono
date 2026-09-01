@@ -127,6 +127,32 @@ let empty_session = {
   tls_unique          = "" ;
 }
 
+let (fresh_empty_session @ portable) () =
+  let common_session_data = {
+    server_random = "";
+    client_random = "";
+    peer_certificate_chain = [];
+    peer_certificate = None;
+    trust_anchor = None;
+    received_certificates = [];
+    own_certificate = [];
+    own_private_key = None;
+    own_name = None;
+    client_auth = false;
+    master_secret = "";
+    alpn_protocol = None;
+  } in
+  {
+    common_session_data;
+    client_version = `TLS_1_2;
+    ciphersuite = `DHE_RSA_WITH_AES_256_CBC_SHA;
+    group = Some `FFDHE2048;
+    renegotiation = "", "";
+    session_id = "";
+    extended_ms = false;
+    tls_unique = "";
+  }
+
 let empty_session13 cipher = {
   common_session_data13  = empty_common_session_data ;
   ciphersuite13          = cipher ;
@@ -138,6 +164,33 @@ let empty_session13 cipher = {
   client_app_secret      = "" ;
   server_app_secret      = "" ;
 }
+
+let (fresh_empty_session13 @ portable) cipher =
+  let common_session_data13 = {
+    server_random = "";
+    client_random = "";
+    peer_certificate_chain = [];
+    peer_certificate = None;
+    trust_anchor = None;
+    received_certificates = [];
+    own_certificate = [];
+    own_private_key = None;
+    own_name = None;
+    client_auth = false;
+    master_secret = "";
+    alpn_protocol = None;
+  } in
+  {
+    common_session_data13;
+    ciphersuite13 = cipher;
+    master_secret = Handshake_crypto13.empty cipher;
+    exporter_master_secret = "";
+    resumption_secret = "";
+    state = `Established;
+    resumed = false;
+    client_app_secret = "";
+    server_app_secret = "";
+  }
 
 let common_session_data_of_epoch (epoch : epoch_data) common_session_data =
   {
@@ -325,7 +378,7 @@ let server_hello_valid (sh : server_hello) =
       - EC stuff must be present if EC ciphersuite chosen
    *)
 
-let to_sign_1_3 context_string =
+let (to_sign_1_3 @ portable) context_string =
   (* input is prepended by 64 * 0x20 (to avoid cross-version attacks) *)
   (* input for signature now contains also a context string *)
   let len = match context_string with
@@ -409,11 +462,12 @@ let signature version ?context_string data client_sig_algs signature_algorithms 
     in
     Ok (Writer.assemble_digitally_signed_1_2 sig_alg signature)
 
-let peer_key = function
+let (peer_key @ portable) = function
   | None -> Error (`Fatal (`Bad_certificate "none received"))
   | Some cert -> Ok (X509.Certificate.public_key cert)
 
-let verify_digitally_signed version ?context_string sig_algs data signature_data certificate =
+let verify_digitally_signed version ?context_string sig_algs data
+    signature_data certificate =
   let* pubkey = peer_key certificate in
   match version with
   | `TLS_1_0 | `TLS_1_1 ->
@@ -468,7 +522,37 @@ let verify_digitally_signed version ?context_string sig_algs data signature_data
       (function `Msg m -> `Fatal (`Handshake (`Message ("signature verification failed: " ^ m))))
       (X509.Public_key.verify hash ~scheme ~signature pubkey (`Message data))
 
-let validate_chain authenticator certificates ip hostname =
+let (verify_digitally_signed_modern @ portable) version ?context_string
+    sig_algs data signature_data certificate =
+  let* pubkey = peer_key certificate in
+  let* sig_alg, signature =
+    map_reader_error (Reader.parse_digitally_signed_1_2 data)
+  in
+  let* () =
+    guard (List.mem sig_alg sig_algs)
+      (`Error (`NoConfiguredSignatureAlgorithm sig_algs))
+  in
+  let hash = hash_of_signature_algorithm sig_alg in
+  let scheme = signature_scheme_of_signature_algorithm sig_alg in
+  let message =
+    match version with
+    | `TLS_1_2 -> signature_data
+    | `TLS_1_3 ->
+        let context_string =
+          match context_string with
+          | Some context_string -> context_string
+          | None -> invalid_arg "TLS 1.3 CertificateVerify context is required"
+        in
+        to_sign_1_3 (Some context_string) ^ signature_data
+    | `TLS_1_0 | `TLS_1_1 ->
+        invalid_arg "modern signature verification requires TLS 1.2 or 1.3"
+  in
+  Result.map_error
+    (fun (`Msg message) ->
+      `Fatal (`Handshake (`Message ("signature verification failed: " ^ message))))
+    (X509.Public_key.verify hash ~scheme ~signature pubkey (`Message message))
+
+let (validate_chain @ portable) authenticator certificates ip hostname =
   let authenticate authenticator host certificates =
     Result.map_error
       (fun err -> `Error (`AuthenticationFailure err))
@@ -487,9 +571,7 @@ let validate_chain authenticator certificates ip hostname =
       let f cs =
         match X509.Certificate.decode_der cs with
         | Ok c -> Some c
-        | Error `Msg msg ->
-          Log.warn (fun m -> m "cannot decode certificate %s:@.%a" msg
-                       (Ohex.pp_hexdump ()) cs);
+        | Error `Msg _ ->
           None
       in
       List.filter_map f certs
@@ -516,6 +598,33 @@ let validate_chain authenticator certificates ip hostname =
     Ok (Option.fold ~none:(server, certs, [], None)
           ~some:(fun (chain, anchor) -> (server, certs, chain, Some anchor))
           anchor)
+
+let (validate_server_keyusage @ portable) certificate kex =
+  let usage = Ciphersuite.required_usage kex in
+  let* cert =
+    Option.to_result ~none:(`Fatal (`Bad_certificate "none received")) certificate
+  in
+  let* () =
+    guard (supports_key_usage ~not_present:true usage cert)
+      (`Fatal (`Bad_certificate "key usage"))
+  in
+  guard
+    (supports_extended_key_usage `Server_auth cert ||
+     supports_extended_key_usage ~not_present:true `Any cert)
+    (`Fatal (`Bad_certificate "extended key usage"))
+
+let validate_client_keyusage certificate =
+  let* cert =
+    Option.to_result ~none:(`Fatal (`Bad_certificate "none received")) certificate
+  in
+  let* () =
+    guard (supports_key_usage ~not_present:true `Digital_signature cert)
+      (`Fatal (`Bad_certificate "key usage"))
+  in
+  guard
+    (supports_extended_key_usage `Client_auth cert ||
+     supports_extended_key_usage ~not_present:true `Any cert)
+    (`Fatal (`Bad_certificate "extended key usage"))
 
 let output_key_update ~request state =
   let hs = state.handshake in

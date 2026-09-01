@@ -7,15 +7,15 @@ module Writer = Asn_writer
 
 module type Prim = sig
   type t
-  val of_octets  : string -> t
+  val of_octets  : string -> t @@ portable
   val to_writer  : t -> Writer.t
-  val random     : unit -> t
+  val random     : unit -> t @@ portable
 end
 
 module type Prim_s = sig
   include Prim
-  val random : ?size:int -> unit -> t
-  val concat : t list -> t
+  val random : ?size:int -> unit -> t @@ portable
+  val concat : t list -> t @@ portable
   val length : t -> int
 end
 
@@ -115,7 +115,7 @@ module Integer : Prim_s with type t = string = struct
     in
     one ()
 
-  let concat = String.concat ""
+  let concat : _ @ portable = fun xs -> String.concat "" xs
 
   let length = String.length
 
@@ -132,7 +132,8 @@ module Gen_string : Prim_s with type t = string = struct
   let random ?size () =
     random_string ?size ~chars:(32, 127) ()
 
-  let (concat, length) = String.(concat "", length)
+  let concat : _ @ portable = fun xs -> String.concat "" xs
+  let length = String.length
 end
 
 module Octets : Prim_s with type t = string = struct
@@ -146,7 +147,7 @@ module Octets : Prim_s with type t = string = struct
   let random ?size () =
     random_string ?size ~chars:(0, 256) ()
 
-  let concat = String.concat ""
+  let concat : _ @ portable = fun xs -> String.concat "" xs
 
   let length = String.length
 
@@ -156,7 +157,7 @@ module Bits : sig
 
   include Prim_s with type t = bits
 
-  val to_array : t -> bool array
+  val to_array : t -> bool array @@ portable
   val of_array : bool array -> t
 
 end =
@@ -178,7 +179,7 @@ struct
       Bytes.blit_string buf 0 buf' (off + 1) size in
     Writer.immediate (size + 1) write
 
-  let to_array (unused, cs) =
+  let to_array : _ @ portable = fun (unused, cs) ->
     Array.init (String.length cs * 8 - unused) @@ fun i ->
       let byte = (String.get_uint8 cs (i / 8)) lsl (i mod 8) in
       byte land 0x80 = 0x80
@@ -295,42 +296,91 @@ module Time = struct
   let of_utc_time = Format.asprintf "%a" pp_utc_time
   and of_gen_time = Format.asprintf "%a" pp_gen_time
 
-  let catch pname f s = try f s with
-  | End_of_file          -> parse_error "%s: unexpected end: %s" pname s
-  | Scanf.Scan_failure _ -> parse_error "%s: invalid format: %s" pname s
+  let digits : _ @ portable = fun pname s off count ->
+    if off < 0 || count < 0 || off + count > String.length s then
+      parse_error "%s: unexpected end: %s" pname s;
+    let rec loop value pos =
+      if pos = off + count then value
+      else
+        let digit = Char.code s.[pos] - Char.code '0' in
+        if digit < 0 || digit > 9 then
+          parse_error "%s: invalid format: %s" pname s;
+        loop (value * 10 + digit) (pos + 1)
+    in
+    loop 0 off
 
-  (* XXX get rid of Scanf.
-   * - width specifiers are max-width only
-   * - %u is too lexically relaxed *)
+  let timezone : _ @ portable = fun pname ~optional s off ->
+    let length = String.length s in
+    if off = length && optional then 0
+    else if off + 1 = length && s.[off] = 'Z' then 0
+    else if off + 5 = length && (s.[off] = '+' || s.[off] = '-') then
+      let hours = digits pname s (off + 1) 2
+      and minutes = digits pname s (off + 3) 2 in
+      if hours > 23 || minutes > 59 then
+        parse_error "%s: invalid timezone: %s" pname s;
+      (if s.[off] = '-' then -1 else 1) * (3600 * hours + 60 * minutes)
+    else
+      parse_error "%s: invalid timezone: %s" pname s
 
-  let tz ic =
-    try Scanf.bscanf ic "%1[+-]%2u%2u%!" @@ fun sgn h m ->
-      (match sgn with "-" -> -1 | _ -> 1) * (3600 * h + 60 * m)
-    with _ -> Scanf.bscanf ic "Z" 0
+  let utc_time_of_string : _ @ portable = fun s ->
+    let pname = "UTCTime" and length = String.length s in
+    let body =
+      if length = 11 || length = 15 then 10
+      else if length = 13 || length = 17 then 12
+      else parse_error "%s: invalid format: %s" pname s
+    in
+    let y = digits pname s 0 2
+    and m = digits pname s 2 2
+    and d = digits pname s 4 2
+    and hh = digits pname s 6 2
+    and mm = digits pname s 8 2
+    and ss = if body = 12 then digits pname s 10 2 else 0 in
+    let tz = timezone pname ~optional:false s body in
+    let y = (if y >= 50 then 1900 else 2000) + y in
+    match Ptime.of_date_time ((y, m, d), ((hh, mm, ss), tz)) with
+    | Some t -> t
+    | None -> parse_error "%s: out of range: %s" pname s
 
-  let utc_time_of_string = catch "UTCTime" @@ fun s ->
-    Scanf.sscanf s "%2u%2u%2u%2u%2u%r%r%!"
-      (fun ic -> try Scanf.bscanf ic "%2u" id with _ -> 0) tz @@
-    fun y m d hh mm ss tz ->
-      let y  = (if y >= 50 then 1900 else 2000) + y in
-      let dt = ((y, m, d), ((hh, mm, ss), tz)) in
-      match Ptime.of_date_time dt with
-        Some t -> t | _ -> parse_error "UTCTime: out of range: %s" s
-
-  let gen_time_of_string = catch "GeneralizedTime" @@ fun s ->
-    let m_s_f ic =
-      try Scanf.bscanf ic "%2u%r" (fun ic ->
-        try Scanf.bscanf ic "%2u%r" (fun ic ->
-          try Scanf.bscanf ic ".%3u" @@ fun ms -> Int64.(of_int ms * ps_per_ms)
-          with _ -> 0L) @@ fun ss ms -> ss, ms
-        with _ -> 0, 0L) @@ fun mm ssms -> mm, ssms
-      with _ -> 0, (0, 0L) in
-    Scanf.sscanf s "%4u%2u%2u%2u%r%r%!" m_s_f (fun ic -> try tz ic with _ -> 0) @@
-    fun y m d hh (mm, (ss, ps)) tz ->
-      let dt = ((y, m, d), ((hh, mm, ss), tz)) in match
-        match Ptime.of_date_time dt with
-          Some t -> Ptime.(Span.v (0, ps) |> add_span t) | _ -> None
-      with Some t -> t | _ -> parse_error "GeneralizedTime: out of range: %s" s
+  let gen_time_of_string : _ @ portable = fun s ->
+    let pname = "GeneralizedTime" and length = String.length s in
+    if length < 10 then parse_error "%s: unexpected end: %s" pname s;
+    let y = digits pname s 0 4
+    and m = digits pname s 4 2
+    and d = digits pname s 6 2
+    and hh = digits pname s 8 2 in
+    let is_digit_at pos =
+      pos < length && s.[pos] >= '0' && s.[pos] <= '9'
+    in
+    let mm, pos =
+      if is_digit_at 10 then digits pname s 10 2, 12 else 0, 10
+    in
+    let ss, pos =
+      if is_digit_at pos then digits pname s pos 2, pos + 2 else 0, pos
+    in
+    let ps, pos =
+      if pos < length && s.[pos] = '.' then
+        let start = pos + 1 in
+        let rec finish at =
+          if at < length && at - start < 3 && is_digit_at at then finish (at + 1)
+          else at
+        in
+        let finish = finish start in
+        let count = finish - start in
+        if count = 0 || (finish < length && is_digit_at finish) then
+          parse_error "%s: invalid fraction: %s" pname s;
+        let fraction = digits pname s start count in
+        let scale = if count = 1 then 100 else if count = 2 then 10 else 1 in
+        Int64.mul (Int64.of_int (fraction * scale)) ps_per_ms, finish
+      else 0L, pos
+    in
+    let tz = timezone pname ~optional:true s pos in
+    let base = Ptime.of_date_time ((y, m, d), ((hh, mm, ss), tz)) in
+    match base with
+    | None -> parse_error "%s: out of range: %s" pname s
+    | Some t ->
+      match Ptime.add_span t (Ptime.Span.v (0, ps)) with
+      | Some t -> t
+      | None -> parse_error "%s: out of range: %s" pname s
 
   let date y m d = Ptime.of_date (y, m, d) |> Option.get
 

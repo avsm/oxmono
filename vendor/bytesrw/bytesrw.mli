@@ -62,7 +62,7 @@ module Bytes : sig
     type t
     (** The type for byte slices. *)
 
-    val make : bytes -> first:int -> length:length -> t
+    val make : bytes -> first:int -> length:length -> t @@ portable
     (** [make b ~first ~length] is a slice referencing the bytes of [b] in
         the range \[[first]; [first+length-1]\].
 
@@ -78,21 +78,21 @@ module Bytes : sig
         instead of raising [Invalid_argument] if [length] is zero. [first]
         must be a valid position of [b], see {!Bytes.sub}. *)
 
-    val bytes : t -> bytes
+    val bytes : t -> bytes @@ portable
     [@@zero_alloc]
     (** [bytes s] are the underlying bytes of the slice [s]. *)
 
-    val first : t @ local -> int
+    val first : t @ local -> int @@ portable
     [@@zero_alloc]
     (** [first s] is the index, in [bytes s], of the first byte of the byte
         range of [s]. *)
 
-    val last : t @ local -> int
+    val last : t @ local -> int @@ portable
     [@@zero_alloc]
     (** [last s] is the index, in [bytes s], of the last byte of the byte
         range of [s]. *)
 
-    val length : t @ local -> int
+    val length : t @ local -> int @@ portable
     [@@zero_alloc]
     (** [length s] is the byte length of the byte range of [s]. This returns [0]
         only on {!eod}. *)
@@ -104,22 +104,22 @@ module Bytes : sig
 
     (** {1:end_of_data End of data} *)
 
-    val eod : t
+    val eod : t @@ portable
     (** [eod] is a slice to denote the end of data. It is the only slice
         with [length d = 0]. Its bytes are {!Bytes.empty}. *)
 
-    val is_eod : t @ local -> bool
+    val is_eod : t @ local -> bool @@ portable
     [@@zero_alloc]
     (** [is_eod s] is [true] iff [s == eod]. *)
 
     (** {1:predicates Predicates and comparisons} *)
 
-    val equal : t @ local -> t @ local -> bool
+    val equal : t @ local -> t @ local -> bool @@ portable
     [@@zero_alloc]
     (** [equal s0 s1] is [true] iff the bytes in the slice ranges of [s0]
         and [s1] are equal. *)
 
-    val compare : t @ local -> t @ local -> int
+    val compare : t @ local -> t @ local -> int @@ portable
     [@@zero_alloc]
     (** [compare s0 s1] sorts the bytes in the slice ranges of [s0] and
         [s1] in lexicographic order. *)
@@ -224,7 +224,7 @@ module Bytes : sig
     val to_string : t @ local -> string
     (** [to_string s] copies the range of [s] to a new [string] value. *)
 
-    val add_to_buffer : Buffer.t -> t @ local -> unit
+    val add_to_buffer : Buffer.t -> t @ local -> unit @@ portable
     (** [add_to_buffer b s] adds the byte range of [s] to [b]. *)
 
     val output_to_out_channel : Out_channel.t -> t @ local -> unit
@@ -362,6 +362,7 @@ module Bytes : sig
 
     val make :
       ?pos:Stream.pos -> ?slice_length:Slice.length -> (unit -> Slice.t) -> t
+      @@ portable
     (** [make read] is a reader from the function [read] which
         enumerates the slices of a byte stream. The contract
         between the reader and [read] is as follows:
@@ -373,9 +374,10 @@ module Bytes : sig
         [pos] defaults to [0] and [slice_length] to {!Slice.default_length}. *)
 
     val empty : ?pos:Stream.pos -> ?slice_length:Slice.length -> unit -> t
+      @@ portable
     (** [empty ()] is [make (Fun.const Slice.eod)], an empty byte stream. *)
 
-    val pos : t @ local -> Stream.pos
+    val pos : t @ local -> Stream.pos @@ portable
     [@@zero_alloc]
     (** [pos r] is the {{!Stream.pos}stream position} of the next byte to
         read. Alternatively it can be seen as the number of bytes
@@ -385,14 +387,14 @@ module Bytes : sig
         {b Warning.} Due to {{!push_back}push backs} negative values can be
         returned. *)
 
-    val read_length : t @ local -> int
+    val read_length : t @ local -> int @@ portable
     [@@zero_alloc]
     (** [read_length r] is an alternative name for {!pos}.
 
         {b Warning.} Due to {{!push_back}push backs} negative values can be
         returned. *)
 
-    val slice_length : t @ local -> Slice.length
+    val slice_length : t @ local -> Slice.length @@ portable
     [@@zero_alloc]
     (** [slice_length r] is a hint on the maximal length of slices
         that [r] returns. *)
@@ -407,7 +409,7 @@ module Bytes : sig
 
     (** {1:reads Reading} *)
 
-    val read : t -> Slice.t
+    val read : t -> Slice.t @@ portable
     (** [read r] reads the next slice from [r]. The slice is only
         {{!Slice.validity} valid for reading} until the next call to
         [read] on [r]. Once {!Slice.eod} is returned, {!Slice.eod} is
@@ -536,12 +538,14 @@ module Bytes : sig
 
     val of_bytes :
       ?pos:Stream.pos -> ?slice_length:Slice.length -> bytes -> t
+      @@ portable
     (** [of_bytes s] reads the bytes of [b] with slices of maximal
         length [slice_length] which defaults to [Bytes.length s].
         [pos] defaults to [0]. *)
 
     val of_string :
       ?pos:Stream.pos -> ?slice_length:Slice.length -> string -> t
+      @@ portable
     (** [of_string b] is like {!of_bytes} but reads the bytes of [s]. *)
 
     val of_in_channel :
@@ -564,7 +568,7 @@ module Bytes : sig
     (** [of_slice_seq seq] reads the slices produced by [seq]. [pos]
         defaults to [0] and [slice_length] defaults to [None]. *)
 
-    val to_string : t -> string
+    val to_string : t -> string @@ portable
     (** [to_string r] reads [r] until {!Slice.eod} into a string [s]. *)
 
     val to_slice_seq : t -> Slice.t Seq.t
@@ -575,7 +579,7 @@ module Bytes : sig
         {{!Slice.validity}valid for reading} until the next slice is
         requested from the sequence. *)
 
-    val add_to_buffer : Buffer.t -> t -> unit
+    val add_to_buffer : Buffer.t -> t -> unit @@ portable
     (** [add_to_buffer b r] reads [r] and adds its slices to [b] until
         {!Slice.eod}. *)
 
@@ -614,6 +618,7 @@ module Bytes : sig
 
     val make :
       ?pos:Stream.pos -> ?slice_length:Slice.length -> (Slice.t -> unit) -> t
+      @@ portable
     (** [make write] is a writer from the function [write] which
         iterates over the slices of a byte stream. The contract
         between the writer and [write] is as follows:
@@ -631,18 +636,18 @@ module Bytes : sig
     (** [ignore ()] is [make (fun _ -> ())], a writer that ignores the
         writes that are pushed on it. *)
 
-    val pos : t @ local -> Stream.pos
+    val pos : t @ local -> Stream.pos @@ portable
     [@@zero_alloc]
     (** [pos w] is the {{!Stream.pos}stream position} of the next byte
         to write. Alternatively it can be seen as the number of bytes
         written on [w], see {!written_length}. *)
 
-    val slice_length : t @ local -> Slice.length
+    val slice_length : t @ local -> Slice.length @@ portable
     [@@zero_alloc]
     (** [slice_length w] is a hint on the maximal length of slices that
         [w] would like to receive. *)
 
-    val written_length : t @ local -> int
+    val written_length : t @ local -> int @@ portable
     [@@zero_alloc]
     (** [written_length w] is an alternative name for {!pos}. *)
 
@@ -659,7 +664,7 @@ module Bytes : sig
         if a slice other than {!Slice.eod} is written after
         a {!Slice.eod} was written. *)
 
-    val write : t -> Slice.t -> unit
+    val write : t -> Slice.t -> unit @@ portable
     (** [write w s] writes the slice [s] on [w]. The slice [s] must remain
         {{!Slice.validity}valid for reading} until the function
         returns.
@@ -667,16 +672,16 @@ module Bytes : sig
         The function raises [Invalid_argument] is [s] is written
         after a {!Slice.eod} and [s] is not {!Slice.eod}. *)
 
-    val write_eod : t -> unit
+    val write_eod : t -> unit @@ portable
     (** [write_eod w] is [write w Slice.eod]. Only {!Slice.eod}
         can be written on [w] aftewards. *)
 
-    val write_bytes : t -> bytes -> unit
+    val write_bytes : t -> bytes -> unit @@ portable
     (** [write_bytes w b] writes the bytes [b] on [w] in
         {!slice_length} slices, except perhaps the last one. The bytes
         of [b] must not change until the function returns. *)
 
-    val write_string : t -> string -> unit
+    val write_string : t -> string -> unit @@ portable
     (** [write_string] is like {!write_bytes} but writes a string. *)
 
     val write_reader : eod:bool -> t -> Reader.t -> unit
@@ -767,6 +772,7 @@ module Bytes : sig
 
     val of_buffer :
       ?pos:Stream.pos -> ?slice_length:Slice.length -> Buffer.t -> t
+      @@ portable
     (** [of_buffer b] writes slices to [b].
 
         [slice_length] is not that important but we default it to

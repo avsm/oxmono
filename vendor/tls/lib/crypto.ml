@@ -7,7 +7,7 @@ let dh_params_pack { Mirage_crypto_pk.Dh.p; gg ; _ } message =
   let cs_of_z = Mirage_crypto_pk.Z_extra.to_octets_be ?size:None in
   { Core.dh_p = cs_of_z p ; dh_g = cs_of_z gg ; dh_Ys = message }
 
-and dh_params_unpack { Core.dh_p ; dh_g ; dh_Ys } =
+let (dh_params_unpack @ portable) { Core.dh_p ; dh_g ; dh_Ys } =
   let z_of_cs = Mirage_crypto_pk.Z_extra.of_octets_be ?bits:None in
   match Mirage_crypto_pk.Dh.group ~p:(z_of_cs dh_p) ~gg:(z_of_cs dh_g) () with
   | Ok dh -> Ok (dh, dh_Ys)
@@ -33,19 +33,19 @@ module Ciphers = struct
                 AES.CBC.of_secret )
 
   type aead_keyed = | K_AEAD : 'k State.aead_cipher * (string -> 'k) * bool -> aead_keyed
-  let get_aead =
+  let (get_aead @ portable) =
     function
     | AES_128_CCM | AES_256_CCM ->
-       K_AEAD ((module AES.CCM16 : AEAD with type key = AES.CCM16.key),
+       K_AEAD ((module AES.CCM16 : State.Aead with type key = AES.CCM16.key),
                AES.CCM16.of_secret, true)
     | AES_128_GCM | AES_256_GCM ->
-       K_AEAD ((module AES.GCM : AEAD with type key = AES.GCM.key),
+       K_AEAD ((module AES.GCM : State.Aead with type key = AES.GCM.key),
                AES.GCM.of_secret, true)
     | CHACHA20_POLY1305 ->
-       K_AEAD ((module Chacha20 : AEAD with type key = Chacha20.key),
+       K_AEAD ((module Chacha20 : State.Aead with type key = Chacha20.key),
                Chacha20.of_secret, false)
 
-  let get_aead_cipher ~secret ~nonce aead_cipher =
+  let (get_aead_cipher @ portable) ~secret ~nonce aead_cipher =
     match get_aead aead_cipher with
     | K_AEAD (cipher, sec, explicit_nonce) ->
       let cipher_secret = sec secret in
@@ -67,7 +67,7 @@ let sequence_buf seq =
   Bytes.set_int64_be buf 0 seq ;
   Bytes.unsafe_to_string buf
 
-let aead_nonce nonce seq =
+let (aead_nonce @ portable) nonce seq =
   let s =
     let l = String.length nonce in
     let buf = Bytes.make l '\x00' in
@@ -99,9 +99,8 @@ let pseudo_header seq ty (v_major, v_minor) v_length =
   Bytes.unsafe_to_string buf
 
 (* MAC used in TLS *)
-let mac hash key pseudo_hdr data =
-  let module H = (val Digestif.module_of_hash' hash) in
-  H.(to_raw_string (hmacv_string ~key [ pseudo_hdr ; data ]))
+let (mac @ portable) hash key pseudo_hdr data =
+  Digestif.hmacv_string_raw hash ~key [ pseudo_hdr; data ]
 
 let cbc_block (type a) cipher =
   let module C = (val cipher : Block.CBC with type key = a) in C.block_size
@@ -129,15 +128,15 @@ let cbc_unpad data =
   with Invalid_argument _ -> None
 
 let tag_len (type a) cipher =
-  let module C = (val cipher : AEAD with type key = a) in
+  let module C = (val cipher : State.Aead with type key = a) in
   C.tag_size
 
 let encrypt_aead (type a) ~cipher ~key ~nonce ?adata data =
-  let module C = (val cipher : AEAD with type key = a) in
+  let module C = (val cipher : State.Aead with type key = a) in
   C.authenticate_encrypt ~key ~nonce ?adata data
 
 let decrypt_aead (type a) ~cipher ~key ~nonce ?adata data =
-  let module C = (val cipher : AEAD with type key = a) in
+  let module C = (val cipher : State.Aead with type key = a) in
   C.authenticate_decrypt ~key ~nonce ?adata data
 
 let encrypt_cbc (type a) ~cipher ~key ~iv data =

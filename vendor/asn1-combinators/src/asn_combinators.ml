@@ -12,54 +12,69 @@ end
 
 type cls = [ `Universal | `Application | `Private ]
 
-let fix f = Fix (f, Asn_cache.variant ())
+let fix : _ @ portable = fun f -> Fix { unfold = f }
 
-let map ?random f g asn = Iso (f, g, random, asn)
+let map : _ @ portable = fun ?random f g asn ->
+  Iso { project = f; inject = g; random; syntax = asn }
 
-let to_tag id = function
+let map_portable (f @ portable) (g @ portable) (asn @ portable) : _ @ portable =
+  Iso { project = f; inject = g; random = None; syntax = asn }
+
+let to_tag : _ @ portable = fun id -> function
   | Some `Application -> Tag.Application id
   | Some `Private     -> Tag.Private id
   | Some `Universal   -> Tag.Universal id
   | None              -> Tag.Context_specific id
 
-let explicit ?cls id asn = Explicit (to_tag id cls, asn)
-let rec implicit : type a. ?cls:cls -> int -> a asn -> a asn =
-  fun ?cls id -> function
-    Fix (f, _) as asn -> implicit ?cls id (f asn)
-  | Iso (f, g, r, asn) -> Iso (f, g, r, implicit ?cls id asn)
-  | Choice (_, _) as asn -> explicit ?cls id asn
-  | asn -> Implicit (to_tag id cls, asn)
+let explicit : _ @ portable = fun ?cls id asn ->
+  Explicit (to_tag id cls, asn)
 
-let bool                = Prim Bool
-and integer             = Prim Int
-and octet_string        = Prim Octets
-and null                = Prim Null
-and oid                 = Prim OID
-and character_string    = Prim CharString
+let implicit : _ @ portable =
+  let rec go : type a. ?cls:cls -> int -> a asn -> a asn =
+    fun ?cls id -> function
+      | Fix { unfold = f } as asn -> go ?cls id (f asn)
+      | Iso ({ syntax = asn; _ } as iso) ->
+        Iso { iso with syntax = go ?cls id asn }
+      | Choice (_, _) as asn -> explicit ?cls id asn
+      | asn -> Implicit (to_tag id cls, asn)
+  in
+  go
 
-let string tag = implicit ~cls:`Universal tag character_string
+let bool : _ @ portable = Prim Bool
+let integer : _ @ portable = Prim Int
+let octet_string : _ @ portable = Prim Octets
+let null : _ @ portable = Prim Null
+let oid : _ @ portable = Prim OID
+let character_string : _ @ portable = Prim CharString
 
-let utf8_string      = string 0x0c
-let numeric_string   = string 0x12
-and printable_string = string 0x13
-and teletex_string   = string 0x14
-and videotex_string  = string 0x15
-and ia5_string       = string 0x16
-and graphic_string   = string 0x19
-and visible_string   = string 0x1a
-and general_string   = string 0x1b
-and universal_string = string 0x1c
-and bmp_string       = string 0x1e
+let fresh_octet_string : _ @ portable = fun () -> Prim Octets
+let fresh_null : _ @ portable = fun () -> Prim Null
+let fresh_oid : _ @ portable = fun () -> Prim OID
+
+let string : _ @ portable = fun tag ->
+  implicit ~cls:`Universal tag character_string
+
+let utf8_string = string 0x0c
+let numeric_string = string 0x12
+let printable_string = string 0x13
+let teletex_string = string 0x14
+let videotex_string = string 0x15
+let ia5_string = string 0x16
+let graphic_string = string 0x19
+let visible_string = string 0x1a
+let general_string = string 0x1b
+let universal_string = string 0x1c
+let bmp_string = string 0x1e
 
 let (utc_time, generalized_time) =
   let open Asn_prim.Time in
-  let time ~random tag (f, g) =
+  let time ~random tag (f @ portable) g =
     map ~random f g @@
       implicit ~cls:`Universal tag character_string in
-  time ~random:utc_random 0x17 (utc_time_of_string, of_utc_time),
-  time ~random:gen_random 0x18 (gen_time_of_string, of_gen_time)
+  time ~random:utc_random 0x17 utc_time_of_string of_utc_time,
+  time ~random:gen_random 0x18 gen_time_of_string of_gen_time
 
-let int =
+let fresh_int : _ @ portable = fun () ->
   let f str =
     match String.length str with
     | 0 -> 0
@@ -137,16 +152,9 @@ let int =
       Bytes.set_int64_be b 0 i64;
       Bytes.unsafe_to_string b
   in
-  let random () =
-    let rec go () =
-      let buf = Prim.Integer.random ~size:(Sys.word_size / 8) () in
-      (* OCaml integer are only 31 / 63 bit *)
-      try f buf with
-      | Parse_error _ -> go ()
-    in
-    go ()
-  in
-  map ~random f g integer
+  map f g (Prim Int)
+
+let int = fresh_int ()
 
 let unsigned_integer =
   let f str =
@@ -192,8 +200,10 @@ let unsigned_integer =
 
 let enumerated f g = map f g @@ implicit ~cls:`Universal 0x0a int
 
-let bit_string = Prim.Bits.(map to_array of_array (Prim Bits))
-and bit_string_octets =
+let bit_string =
+  Prim.Bits.(map to_array of_array (Prim Bits))
+
+let bit_string_octets =
   let f = function
   | 0, buf -> buf
   | clip, buf ->
@@ -206,98 +216,100 @@ and bit_string_octets =
   in
   map f (fun cs -> (0, cs)) (Prim Bits)
 
-let bit_string_flags (type a) (xs : (int * a) list) =
+let bit_string_flags (type (a : immutable_data)) (xs : (int * a) list) =
   let cmp = compare in (* XXX yes... *)
-  let module M1 = Map.Make (struct type t = a let compare = cmp end) in
-  let module M2 = Map.Make (Int) in
-  let aix, ixa =
-    List.fold_left (fun (m1, m2) (i, x) -> M1.add x i m1, M2.add i x m2)
-    (M1.empty, M2.empty) xs in
-  let n = match M2.max_binding_opt ixa with Some (x, _) -> x + 1 | _ -> 0 in
+  let n = List.fold_left (fun n (i, _) -> max n (i + 1)) 0 xs in
   let f bits =
     let r = ref [] in
     bits |> Array.iteri (fun i -> function
     | false -> ()
-    | true -> try r := M2.find i ixa :: !r with Not_found -> ());
+    | true ->
+      match List.find_opt (fun (j, _) -> i = j) xs with
+      | None -> ()
+      | Some (_, value) -> r := value :: !r);
     List.sort cmp !r
   and g es =
     let arr = Array.make n false in
-    let register e = try arr.(M1.find e aix) <- true with Not_found -> () in
+    let register e =
+      match List.find_opt (fun (_, value) -> cmp e value = 0) xs with
+      | None -> ()
+      | Some (i, _) -> arr.(i) <- true
+    in
     List.iter register es;
     arr
   in
   map f g bit_string
 
 
-let single a   = Last a
-and ( @) a b   = Pair (a, b)
-and (-@) a b   = Pair (a, Last b)
-and optional ?label a = Optional (label, a)
-and required ?label a = Required (label, a)
+let single : _ @ portable = fun a -> Last a
+let ( @) : _ @ portable = fun a b -> Pair (a, b)
+let (-@) : _ @ portable = fun a b -> Pair (a, Last b)
+let optional : _ @ portable = fun ?label a -> Optional (label, a)
+let required : _ @ portable = fun ?label a -> Required (label, a)
 
-let product2 fn a b = fn @@ a @ single b
+let product2 : _ @ portable = fun fn a b -> fn @@ a @ single b
 
-let product3 fn a b c =
+let product3 : _ @ portable = fun fn a b c ->
   map (fun (a, (b, c)) -> (a, b, c))
       (fun (a, b, c) -> (a, (b, c)))
       (fn @@ a @ b @ single c)
 
-let product4 fn a b c d =
+let product4 : _ @ portable = fun fn a b c d ->
   map (fun (a, (b, (c, d))) -> (a, b, c, d))
       (fun (a, b, c, d) -> (a, (b, (c, d))))
       (fn @@ a @ b @ c @ single d)
 
-let product5 fn a b c d e =
+let product5 : _ @ portable = fun fn a b c d e ->
   map (fun (a, (b, (c, (d, e)))) -> (a, b, c, d, e))
       (fun (a, b, c, d, e) -> (a, (b, (c, (d, e)))))
       (fn @@ a @ b @ c @ d @ single e)
 
-let product6 fn a b c d e f =
+let product6 : _ @ portable = fun fn a b c d e f ->
   map (fun (a, (b, (c, (d, (e, f))))) -> (a, b, c, d, e, f))
       (fun (a, b, c, d, e, f) -> (a, (b, (c, (d, (e, f))))))
       (fn @@ a @ b @ c @ d @ e @ single f)
 
 
-let sequence seq = Sequence seq
+let sequence : _ @ portable = fun seq -> Sequence seq
 
-let sequence2 a b         = product2 sequence a b
-and sequence3 a b c       = product3 sequence a b c
-and sequence4 a b c d     = product4 sequence a b c d
-and sequence5 a b c d e   = product5 sequence a b c d e
-and sequence6 a b c d e f = product6 sequence a b c d e f
+let sequence2 : _ @ portable = fun a b -> product2 sequence a b
+let sequence3 : _ @ portable = fun a b c -> product3 sequence a b c
+let sequence4 : _ @ portable = fun a b c d -> product4 sequence a b c d
+let sequence5 : _ @ portable = fun a b c d e -> product5 sequence a b c d e
+let sequence6 : _ @ portable = fun a b c d e f -> product6 sequence a b c d e f
 
-let sequence_of asn = Sequence_of asn
+let sequence_of : _ @ portable = fun asn -> Sequence_of asn
 
-let set seq = Set seq
+let set : _ @ portable = fun seq -> Set seq
 
-let set2 a b         = product2 set a b
-and set3 a b c       = product3 set a b c
-and set4 a b c d     = product4 set a b c d
-and set5 a b c d e   = product5 set a b c d e
-and set6 a b c d e f = product6 set a b c d e f
+let set2 : _ @ portable = fun a b -> product2 set a b
+let set3 : _ @ portable = fun a b c -> product3 set a b c
+let set4 : _ @ portable = fun a b c d -> product4 set a b c d
+let set5 : _ @ portable = fun a b c d e -> product5 set a b c d e
+let set6 : _ @ portable = fun a b c d e f -> product6 set a b c d e f
 
-let set_of asn = Set_of asn
+let set_of : _ @ portable = fun asn -> Set_of asn
 
-let choice a b = Choice (a, b)
+let choice : _ @ portable = fun a b -> Choice (a, b)
 
-let choice2 a b =
+let choice2 : _ @ portable = fun a b ->
   map (function L a -> `C1 a | R b -> `C2 b)
       (function `C1 a -> L a | `C2 b -> R b)
       (choice a b)
 
-let choice3 a b c =
+let choice3 : _ @ portable = fun a b c ->
   map (function L (L a) -> `C1 a | L (R b) -> `C2 b | R c -> `C3 c)
       (function `C1 a -> L (L a) | `C2 b -> L (R b) | `C3 c -> R c)
       (choice (choice a b) c)
 
-let choice4 a b c d =
+let choice4 : _ @ portable = fun a b c d ->
   map (function | L (L a) -> `C1 a | L (R b) -> `C2 b
                 | R (L c) -> `C3 c | R (R d) -> `C4 d)
       (function | `C1 a -> L (L a) | `C2 b -> L (R b)
                 | `C3 c -> R (L c) | `C4 d -> R (R d))
       (choice (choice a b) (choice c d))
 
-let choice5 a b c d e =
+let choice5 : _ @ portable = fun a b c d e ->
   map (function | L (L (L a)) -> `C1 a | L (L (R b)) -> `C2 b
                 | L (R c) -> `C3 c
                 | R (L d) -> `C4 d | R (R e) -> `C5 e)
@@ -306,7 +318,7 @@ let choice5 a b c d e =
                 | `C4 d -> R (L d) | `C5 e -> R (R e))
       (choice (choice (choice a b) c) (choice d e))
 
-let choice6 a b c d e f =
+let choice6 : _ @ portable = fun a b c d e f ->
   map (function | L (L (L a)) -> `C1 a | L (L (R b)) -> `C2 b
                 | L (R c) -> `C3 c
                 | R (L (L d)) -> `C4 d | R (L (R e)) -> `C5 e

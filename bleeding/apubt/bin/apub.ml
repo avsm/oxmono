@@ -63,13 +63,13 @@ module Webfinger_cmd = struct
                let type_ = Apubt.Proto.Webfinger.Jrd_link.type_ link in
                Fmt.pr "  - rel: %s@," rel;
                Option.iter (fun t -> Fmt.pr "    type: %s@," t) type_;
-               Option.iter (fun h -> Fmt.pr "    href: %s@," (Uri.to_string h)) href
+               Option.iter (fun h -> Fmt.pr "    href: %s@," (Uriz.to_string h)) href
              ) links
          | None -> ());
         (* Show extracted ActivityPub actor URI *)
         (match Apubt.Webfinger.actor_uri jrd with
          | Some uri ->
-             Fmt.pr "@,ActivityPub Actor: %s@," (Uri.to_string uri)
+             Fmt.pr "@,ActivityPub Actor: %s@," (Uriz.to_string uri)
          | None ->
              Fmt.pr "@,No ActivityPub actor link found.@,");
         Fmt.pr "@]"
@@ -116,7 +116,7 @@ module Actor_cmd = struct
         if String.contains uri_or_acct '@' && not (String.starts_with ~prefix:"http" uri_or_acct) then
           Apubt.Actor.lookup client uri_or_acct
         else
-          Apubt.Actor.fetch client (Uri.of_string uri_or_acct)
+          Apubt.Actor.fetch client (Uriz.of_string_exn uri_or_acct)
       in
       if json_output then begin
         match Jsont_bytesrw.encode_string Apubt.Proto.Actor.jsont actor with
@@ -124,16 +124,16 @@ module Actor_cmd = struct
         | Error e -> Fmt.epr "JSON encoding error: %s@." e
       end else begin
         Fmt.pr "@[<v>";
-        Fmt.pr "ID: %s@," (Uri.to_string (Apubt.Proto.Actor.id actor));
+        Fmt.pr "ID: %s@," (Uriz.to_string (Apubt.Proto.Actor.id actor));
         Fmt.pr "Type: %s@," (Apubt.Proto.Actor_type.to_string (Apubt.Proto.Actor.type_ actor));
         Option.iter (fun n -> Fmt.pr "Name: %s@," n) (Apubt.Proto.Actor.name actor);
         Option.iter (fun u -> Fmt.pr "Username: %s@," u) (Apubt.Proto.Actor.preferred_username actor);
         Option.iter (fun s -> Fmt.pr "Summary: %s@," s) (Apubt.Proto.Actor.summary actor);
-        Option.iter (fun u -> Fmt.pr "URL: %s@," (Uri.to_string u)) (Apubt.Proto.Actor.url actor);
-        Fmt.pr "Inbox: %s@," (Uri.to_string (Apubt.Proto.Actor.inbox actor));
-        Fmt.pr "Outbox: %s@," (Uri.to_string (Apubt.Proto.Actor.outbox actor));
-        Option.iter (fun u -> Fmt.pr "Followers: %s@," (Uri.to_string u)) (Apubt.Proto.Actor.followers actor);
-        Option.iter (fun u -> Fmt.pr "Following: %s@," (Uri.to_string u)) (Apubt.Proto.Actor.following actor);
+        Option.iter (fun u -> Fmt.pr "URL: %s@," (Uriz.to_string u)) (Apubt.Proto.Actor.url actor);
+        Fmt.pr "Inbox: %s@," (Uriz.to_string (Apubt.Proto.Actor.inbox actor));
+        Fmt.pr "Outbox: %s@," (Uriz.to_string (Apubt.Proto.Actor.outbox actor));
+        Option.iter (fun u -> Fmt.pr "Followers: %s@," (Uriz.to_string u)) (Apubt.Proto.Actor.followers actor);
+        Option.iter (fun u -> Fmt.pr "Following: %s@," (Uriz.to_string u)) (Apubt.Proto.Actor.following actor);
         Fmt.pr "@]"
       end;
       `Ok ()
@@ -182,7 +182,7 @@ module Outbox_cmd = struct
         if String.contains uri_or_acct '@' && not (String.starts_with ~prefix:"http" uri_or_acct) then
           Apubt.Actor.lookup client uri_or_acct
         else
-          Apubt.Actor.fetch client (Uri.of_string uri_or_acct)
+          Apubt.Actor.fetch client (Uriz.of_string_exn uri_or_acct)
       in
       let outbox = Apubt.Actor.outbox client actor in
       if json_output then begin
@@ -191,7 +191,7 @@ module Outbox_cmd = struct
         | Error e -> Fmt.epr "JSON encoding error: %s@." e
       end else begin
         Fmt.pr "@[<v>";
-        Fmt.pr "Outbox for: %s@," (Uri.to_string (Apubt.Proto.Actor.id actor));
+        Fmt.pr "Outbox for: %s@," (Uriz.to_string (Apubt.Proto.Actor.id actor));
         Option.iter (fun n -> Fmt.pr "Total items: %d@," n) (Apubt.Proto.Collection.total_items outbox);
         Fmt.pr "@,";
         (* Try to get items from collection or first page *)
@@ -212,14 +212,14 @@ module Outbox_cmd = struct
         in
         List.iteri (fun i activity ->
           Fmt.pr "--- Activity %d ---@," (i + 1);
-          Option.iter (fun id -> Fmt.pr "ID: %s@," (Uri.to_string id)) (Apubt.Proto.Activity.id activity);
+          Option.iter (fun id -> Fmt.pr "ID: %s@," (Uriz.to_string id)) (Apubt.Proto.Activity.id activity);
           Fmt.pr "Type: %s@," (Apubt.Proto.Activity_type.to_string (Apubt.Proto.Activity.type_ activity));
           Option.iter (fun p -> Fmt.pr "Published: %s@," (Apubt.Proto.Datetime.to_string p)) (Apubt.Proto.Activity.published activity);
           Option.iter (fun s -> Fmt.pr "Summary: %s@," s) (Apubt.Proto.Activity.summary activity);
           (* Show object info if present *)
           (match Apubt.Proto.Activity.object_ activity with
            | Some (Apubt.Proto.Object_ref.Uri uri) ->
-               Fmt.pr "Object: %s@," (Uri.to_string uri)
+               Fmt.pr "Object: %s@," (Uriz.to_string uri)
            | Some (Apubt.Proto.Object_ref.Object obj) ->
                Fmt.pr "Object type: %s@," (Apubt.Proto.Object_type.to_string (Apubt.Proto.Object.type_ obj));
                Option.iter (fun c ->
@@ -395,8 +395,8 @@ module Post_cmd = struct
             (* Use ActivityPub federation with HTTP signatures *)
             let client = create_client_with_credentials ~sw ~user_agent ~timeout env creds in
             try
-              let actor = Apubt.Actor.fetch client (Uri.of_string creds.actor_uri) in
-              let in_reply_to = Option.map Uri.of_string reply_to in
+              let actor = Apubt.Actor.fetch client (Uriz.of_string_exn creds.actor_uri) in
+              let in_reply_to = Option.map Uriz.of_string_exn reply_to in
               let _summary = if sensitive then cw_summary else None in
               let activity =
                 if followers_only then
@@ -405,7 +405,7 @@ module Post_cmd = struct
                   Apubt.Outbox.public_note client ~actor ?in_reply_to ~content ()
               in
               let activity_id = Option.get (Apubt.Proto.Activity.id activity) in
-              Fmt.pr "Posted: %s@." (Uri.to_string activity_id);
+              Fmt.pr "Posted: %s@." (Uriz.to_string activity_id);
               `Ok ()
             with
             | Apubt.E err ->
@@ -471,19 +471,19 @@ module Follow_cmd = struct
             (* Use ActivityPub federation with HTTP signatures *)
             let client = create_client_with_credentials ~sw ~user_agent ~timeout env creds in
             try
-              let actor = Apubt.Actor.fetch client (Uri.of_string creds.actor_uri) in
+              let actor = Apubt.Actor.fetch client (Uriz.of_string_exn creds.actor_uri) in
               let target_actor =
                 if String.contains target '@' && not (String.starts_with ~prefix:"http" target) then
                   Apubt.Actor.lookup client target
                 else
-                  Apubt.Actor.fetch client (Uri.of_string target)
+                  Apubt.Actor.fetch client (Uriz.of_string_exn target)
               in
               let activity = Apubt.Actor.follow client ~actor ~target:target_actor in
               let activity_id = Option.get (Apubt.Proto.Activity.id activity) in
-              Fmt.pr "Sent follow request: %s@." (Uri.to_string activity_id);
+              Fmt.pr "Sent follow request: %s@." (Uriz.to_string activity_id);
               Fmt.pr "Target: %s (%s)@."
                 (Option.value ~default:"" (Apubt.Proto.Actor.preferred_username target_actor))
-                (Uri.to_string (Apubt.Proto.Actor.id target_actor));
+                (Uriz.to_string (Apubt.Proto.Actor.id target_actor));
               `Ok ()
             with
             | Apubt.E err ->
@@ -545,11 +545,11 @@ module Like_cmd = struct
             (* Use ActivityPub federation with HTTP signatures *)
             let client = create_client_with_credentials ~sw ~user_agent ~timeout env creds in
             try
-              let actor = Apubt.Actor.fetch client (Uri.of_string creds.actor_uri) in
-              let activity = Apubt.Outbox.like client ~actor ~object_:(Uri.of_string object_uri) in
+              let actor = Apubt.Actor.fetch client (Uriz.of_string_exn creds.actor_uri) in
+              let activity = Apubt.Outbox.like client ~actor ~object_:(Uriz.of_string_exn object_uri) in
               let activity_id = Option.get (Apubt.Proto.Activity.id activity) in
               Fmt.pr "Liked: %s@." object_uri;
-              Fmt.pr "Activity: %s@." (Uri.to_string activity_id);
+              Fmt.pr "Activity: %s@." (Uriz.to_string activity_id);
               `Ok ()
             with
             | Apubt.E err ->
@@ -610,11 +610,11 @@ module Boost_cmd = struct
             (* Use ActivityPub federation with HTTP signatures *)
             let client = create_client_with_credentials ~sw ~user_agent ~timeout env creds in
             try
-              let actor = Apubt.Actor.fetch client (Uri.of_string creds.actor_uri) in
-              let activity = Apubt.Outbox.announce client ~actor ~object_:(Uri.of_string object_uri) in
+              let actor = Apubt.Actor.fetch client (Uriz.of_string_exn creds.actor_uri) in
+              let activity = Apubt.Outbox.announce client ~actor ~object_:(Uriz.of_string_exn object_uri) in
               let activity_id = Option.get (Apubt.Proto.Activity.id activity) in
               Fmt.pr "Boosted: %s@." object_uri;
-              Fmt.pr "Activity: %s@." (Uri.to_string activity_id);
+              Fmt.pr "Activity: %s@." (Uriz.to_string activity_id);
               `Ok ()
             with
             | Apubt.E err ->

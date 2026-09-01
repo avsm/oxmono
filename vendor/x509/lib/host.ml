@@ -8,7 +8,7 @@ let pp ppf (typ, nam) =
   Fmt.pf ppf "%a%a" pp_typ typ Domain_name.pp nam
 
 module Set = struct
-  include Set.Make(struct
+  include Set.MakePortable(struct
       type nonrec t = t
       let compare a b = match a, b with
         | (`Strict, a), (`Strict, b)
@@ -21,12 +21,14 @@ module Set = struct
     Fmt.(list ~sep:(any ", ") pp) ppf (elements s)
 end
 
+let empty : (unit -> Set.t) @ portable = fun () -> Set.of_list []
+
 let is_wildcard name =
   match Domain_name.get_label name 0 with
   | Ok "*" -> Some (Domain_name.drop_label_exn name)
   | _ -> None
 
-let host name =
+let host : _ @ portable = fun name ->
   match Domain_name.of_string name with
   | Error _ -> None
   | Ok dn ->
@@ -37,4 +39,3 @@ let host name =
     match Domain_name.host name with
     | Error _ -> None
     | Ok hostname -> Some (wild, hostname)
-

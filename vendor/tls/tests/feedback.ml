@@ -127,7 +127,7 @@ let size =
 
 let cmd =
   let term = Term.(const jump $ setup_log $ loops $ size)
-  and info = Cmd.info "feedback" ~version:"2.0.3"
+  and info = Cmd.info "feedback" ~version:"2.1.2"
   in
   Cmd.v info term
 

@@ -26,7 +26,7 @@ module Asn = struct
 
   let revokedCertificate =
     let f (serial, date, e) =
-      let extensions = match e with None -> Extension.empty | Some xs -> xs in
+      let extensions = match e with None -> Extension.fresh_empty () | Some xs -> xs in
       { serial ; date ; extensions }
     and g { serial ; date ; extensions } =
       let e = if Extension.is_empty extensions then None else Some extensions in
@@ -49,7 +49,7 @@ module Asn = struct
       { version = Option.value ~default:`V1 a ; signature = b ; issuer = c ;
         this_update = d ; next_update = e ;
         revoked_certs = (match f with None -> [] | Some xs -> xs) ;
-        extensions = (match g with None -> Extension.empty | Some xs -> xs) }
+        extensions = (match g with None -> Extension.fresh_empty () | Some xs -> xs) }
     and g { version = a ; signature = b ; issuer = c ;
             this_update = d ; next_update = e ; revoked_certs = f ;
             extensions = g } =
@@ -83,7 +83,10 @@ module Asn = struct
       (required ~label:"signatureAlgorithm" @@ Algorithm.identifier)
       (required ~label:"signatureValue" @@ bit_string_octets)
 
-  let (crl_of_octets, crl_to_octets) =
+  let crl_of_octets : _ @ portable =
+    decoder_of Asn.der certificateList
+
+  let _, crl_to_octets =
     projections_of Asn.der certificateList
 
   let (tbs_CRL_of_octets, tbs_CRL_to_octets) =
@@ -99,7 +102,7 @@ let guard p e = if p then Ok () else Error e
 
 let ( let* ) = Result.bind
 
-let decode_der raw =
+let decode_der : _ @ portable = fun raw ->
   let* asn = Asn_grammars.err_to_msg (Asn.crl_of_octets raw) in
   Ok { raw ; asn }
 

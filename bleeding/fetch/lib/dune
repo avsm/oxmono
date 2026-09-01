@@ -1,0 +1,18 @@
+(library
+ (name fetch)
+ (public_name fetch)
+ (libraries
+  eio
+  http
+  ipaddr
+  stdlib_stable
+  fmt
+  cstruct
+  mtime
+  bytesrw
+  httpz
+  httpz.punycode.idna
+  httpz.pubsuffix
+  cmarkit
+  base64)
+ (private_modules media_cmarkit))

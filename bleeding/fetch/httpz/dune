@@ -1,5 +1,6 @@
 (library
  (name fetch_httpz)
  (public_name fetch-httpz)
- (libraries fetch fetch.cookies eio http uri httpz decompress.de
+ (private_modules gzip_stream)
+ (libraries fetch fetch.cookies eio http httpz httpz.tls decompress.de
    decompress.gz fmt cstruct stdlib_upstream_compatible))

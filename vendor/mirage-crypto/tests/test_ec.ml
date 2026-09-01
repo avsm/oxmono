@@ -232,6 +232,31 @@ let pub_key_compression (module Dsa:Mirage_crypto_ec.Dsa) () =
       | Error e -> Alcotest.failf "%a" pp_error e
   done
 
+let infinity_public_key_is_error (module Dsa:Mirage_crypto_ec.Dsa) () =
+  Alcotest.check Testable.ok_or_error __LOC__ (Error `At_infinity)
+    (to_ok_or_error (Dsa.pub_of_octets "\x00"))
+
+let infinity_public_key_encoding (module S:Mirage_crypto_ec.Dh_dsa) ~n_minus_1 () =
+  let module Dsa = S.Dsa in
+  let infinity =
+    match Dsa.priv_of_octets (of_hex n_minus_1) with
+    | Ok priv ->
+      let g = Dsa.Primitive.generator in
+      Dsa.Primitive.add g (Dsa.Primitive.scalar_mult priv g)
+    | Error _ -> Alcotest.fail "couldn't decode private key"
+  in
+  Alcotest.(check string __LOC__ "\x00" (Dsa.pub_to_octets ~compress:false infinity));
+  Alcotest.(check string __LOC__ "\x00" (Dsa.pub_to_octets ~compress:true infinity))
+
+let infinity_encoding = [
+  "P256", `Quick, infinity_public_key_encoding (module P256)
+    ~n_minus_1:"FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632550" ;
+  "P384", `Quick, infinity_public_key_encoding (module P384)
+    ~n_minus_1:"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52972" ;
+  "P521", `Quick, infinity_public_key_encoding (module P521)
+    ~n_minus_1:"01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386408" ;
+]
+
 let ecdsa_rfc6979_p256 =
   (* A.2.5 - P 256 *)
   let priv, pub =
@@ -315,6 +340,7 @@ let ecdsa_rfc6979_p256 =
   ] in
   ("public key matches", `Quick, pub_rfc) ::
   ("public key compression and decompression", `Quick, (pub_key_compression (module P256.Dsa))) ::
+  ("infinity public key is an error", `Quick, infinity_public_key_is_error (module P256.Dsa)) ::
   List.mapi (fun i c -> "RFC 6979 A.2.5 " ^ string_of_int i, `Quick, c) cases
 
 let ecdsa_rfc6979_p384 =
@@ -439,6 +465,7 @@ let ecdsa_rfc6979_p384 =
   ] in
   ("public key matches", `Quick, pub_rfc) ::
   ("public key compression and decompression", `Quick, pub_key_compression (module P384.Dsa)) ::
+  ("infinity public key is an error", `Quick, infinity_public_key_is_error (module P384.Dsa)) ::
   List.mapi (fun i c -> "RFC 6979 A.2.6 " ^ string_of_int i, `Quick, c) cases
 
 let ecdsa_rfc6979_p521 =
@@ -604,6 +631,7 @@ let ecdsa_rfc6979_p521 =
   ] in
   ("public key matches", `Quick, pub_rfc) ::
   ("public key compression and decompression", `Quick, pub_key_compression (module P521.Dsa)) ::
+  ("infinity public key is an error", `Quick, infinity_public_key_is_error (module P521.Dsa)) ::
   List.mapi (fun i c -> "RFC 6979 A.2.7 " ^ string_of_int i, `Quick, c) cases
 
 let x25519 () =
@@ -846,6 +874,7 @@ let () =
       ("P256 Low level scalar mult", scalar_mult);
       ("P256 Point validation", point_validation);
       ("P256 Scalar validation when generating", scalar_validation);
+      ("Point at infinity encoding", infinity_encoding);
       ("ECDSA NIST", ecdsa);
       ("ECDSA RFC 6979 P256", ecdsa_rfc6979_p256);
       ("ECDSA RFC 6979 P384", ecdsa_rfc6979_p384);

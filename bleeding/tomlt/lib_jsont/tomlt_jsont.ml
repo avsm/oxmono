@@ -10,7 +10,7 @@
     toml-test}. *)
 
 module Toml = Tomlt.Toml
-module String_map = Map.Make(String)
+module String_map = Jsont.String_map
 
 (* The tagged JSON format wraps scalar values as {"type": "T", "value": "V"}
    while arrays and objects are passed through with their contents recursively
@@ -96,85 +96,76 @@ let tagged_jsont : tagged_value Jsont.t =
      [...], and tables become {"key": <tagged>, ...}
 *)
 
-let rec toml_jsont : Toml.t Jsont.t Lazy.t = lazy (
-  Jsont.any
-    ~dec_array:(Lazy.force toml_array)
-    ~dec_object:(Lazy.force toml_object)
-    ~enc:(fun v ->
-      match v with
-      | Toml.Array _ -> Lazy.force toml_array
-      | Toml.Table _ -> Lazy.force toml_table_enc
-      | _ -> Lazy.force toml_scalar_enc)
-    ()
-)
-
-and toml_array : Toml.t Jsont.t Lazy.t = lazy (
-  Jsont.map
-    ~dec:(fun items -> Toml.Array items)
-    ~enc:(function
-      | Toml.Array items -> items
-      | _ -> failwith "Expected array")
-    (Jsont.list (Jsont.rec' toml_jsont))
-)
-
-and toml_object : Toml.t Jsont.t Lazy.t = lazy (
-  (* Try to decode as tagged scalar first, fall back to table *)
-  Jsont.Object.(
-    map (fun typ_opt value_opt rest ->
-      match typ_opt, value_opt with
-      | Some typ, Some value when String_map.is_empty rest ->
-          (* Tagged scalar value *)
-          tagged_to_toml { typ; value }
-      | _ ->
-          (* Regular table - include type/value if present but not a valid tagged pair *)
-          let pairs = String_map.bindings rest in
-          let pairs =
-            match typ_opt with
-            | Some typ ->
-                let typ_toml = Toml.String typ in
-                ("type", typ_toml) :: pairs
-            | None -> pairs
-          in
-          let pairs =
-            match value_opt with
-            | Some value ->
-                let value_toml = Toml.String value in
-                ("value", value_toml) :: pairs
-            | None -> pairs
-          in
-          Toml.Table pairs)
-    |> opt_mem "type" Jsont.string ~enc:(fun _ -> None)
-    |> opt_mem "value" Jsont.string ~enc:(fun _ -> None)
-    |> keep_unknown
-        (Mems.string_map (Jsont.rec' toml_jsont))
-        ~enc:(fun _ -> String_map.empty)  (* Encoding handled by toml_table_enc *)
-    |> finish
-  )
-)
-
-and toml_scalar_enc : Toml.t Jsont.t Lazy.t = lazy (
-  Jsont.map
-    ~dec:(fun t -> tagged_to_toml t)
-    ~enc:toml_to_tagged
-    tagged_jsont
-)
-
-and toml_table_enc : Toml.t Jsont.t Lazy.t = lazy (
-  Jsont.Object.(
-    map (fun m -> Toml.Table (String_map.bindings m))
-    |> keep_unknown
-        (Mems.string_map (Jsont.rec' toml_jsont))
+let toml_jsont, toml_array, toml_object, toml_scalar_enc, toml_table_enc =
+  let make all =
+    let recursive =
+      Jsont.rec'
+        (Jsont.Portable_lazy.map all
+           ~f:(fun (toml, _array, _object, _scalar, _table) -> toml))
+    in
+    let bindings m =
+      String_map.fold (fun k v acc -> (k, v) :: acc) m [] |> List.rev
+    in
+    let toml_array =
+      Jsont.map
+        ~dec:(fun items -> Toml.Array items)
         ~enc:(function
-          | Toml.Table pairs ->
-              List.fold_left (fun m (k, v) -> String_map.add k v m)
-                String_map.empty pairs
-          | _ -> failwith "Expected table")
-    |> finish
-  )
-)
+          | Toml.Array items -> items
+          | _ -> failwith "Expected array")
+        (Jsont.list recursive)
+    in
+    let toml_object =
+      Jsont.Object.(
+        map (fun typ_opt value_opt rest ->
+          match typ_opt, value_opt with
+          | Some typ, Some value when String_map.is_empty rest ->
+              tagged_to_toml { typ; value }
+          | _ ->
+              let pairs = bindings rest in
+              let pairs = match typ_opt with
+              | Some typ -> ("type", Toml.String typ) :: pairs
+              | None -> pairs
+              in
+              let pairs = match value_opt with
+              | Some value -> ("value", Toml.String value) :: pairs
+              | None -> pairs
+              in
+              Toml.Table pairs)
+        |> opt_mem "type" Jsont.string ~enc:(fun _ -> None)
+        |> opt_mem "value" Jsont.string ~enc:(fun _ -> None)
+        |> keep_unknown (Mems.string_map recursive)
+             ~enc:(fun _ -> String_map.create ())
+        |> finish)
+    in
+    let toml_scalar_enc =
+      Jsont.map ~dec:tagged_to_toml ~enc:toml_to_tagged tagged_jsont
+    in
+    let toml_table_enc =
+      Jsont.Object.(
+        map (fun m -> Toml.Table (bindings m))
+        |> keep_unknown (Mems.string_map recursive)
+             ~enc:(function
+               | Toml.Table pairs ->
+                   List.fold_left
+                     (fun m (k, v) -> String_map.add k v m)
+                     (String_map.create ()) pairs
+               | _ -> failwith "Expected table")
+        |> finish)
+    in
+    let toml_jsont =
+      Jsont.any ~dec_array:toml_array ~dec_object:toml_object
+        ~enc:(function
+          | Toml.Array _ -> toml_array
+          | Toml.Table _ -> toml_table_enc
+          | _ -> toml_scalar_enc)
+        ()
+    in
+    toml_jsont, toml_array, toml_object, toml_scalar_enc, toml_table_enc
+  in
+  Jsont.Portable_lazy.force (Jsont.Portable_lazy.from_fun_fixed make)
 
 (* Main codec *)
-let toml : Toml.t Jsont.t = Jsont.rec' toml_jsont
+let toml : Toml.t Jsont.t = toml_jsont
 
 (* Convenience functions using jsont *)
 

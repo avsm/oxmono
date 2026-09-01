@@ -1,0 +1,57 @@
+; Crowbar fuzz testing for the httpz request parser, chunk decoder, cookie
+; parser, and date parser.
+;
+; To run: dune exec httpz/fuzz/fuzz_parse.exe (or fuzz_chunk / fuzz_cookie /
+; fuzz_date)
+; With AFL: afl-fuzz -i fuzz/corpus -o fuzz/findings -- ./_build/default/httpz/fuzz/fuzz_parse.exe @@
+;
+; crowbar is a test-only dependency, so a plain `dune build` in a switch
+; without it skips these rather than failing.
+
+(executable
+ (name fuzz_parse)
+ (modules fuzz_parse)
+ (optional)
+ (libraries httpz crowbar))
+
+(executable
+ (name fuzz_chunk)
+ (modules fuzz_chunk)
+ (optional)
+ (libraries httpz crowbar))
+
+(executable
+ (name fuzz_cookie)
+ (modules fuzz_cookie)
+ (optional)
+ (libraries httpz httpz.cookie ptime crowbar))
+
+(executable
+ (name fuzz_date)
+ (modules fuzz_date)
+ (optional)
+ (libraries httpz crowbar))
+
+(rule
+ (alias fuzz)
+ (deps fuzz_parse.exe)
+ (action
+  (run %{exe:fuzz_parse.exe})))
+
+(rule
+ (alias fuzz)
+ (deps fuzz_chunk.exe)
+ (action
+  (run %{exe:fuzz_chunk.exe})))
+
+(rule
+ (alias fuzz)
+ (deps fuzz_cookie.exe)
+ (action
+  (run %{exe:fuzz_cookie.exe})))
+
+(rule
+ (alias fuzz)
+ (deps fuzz_date.exe)
+ (action
+  (run %{exe:fuzz_date.exe})))

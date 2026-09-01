@@ -1,60 +1,26 @@
-version: "0.2.0"
+version: "0.4.0"
 opam-version: "2.0"
 name: "jsont"
-synopsis: "Declarative JSON data manipulation for OCaml"
+synopsis: "Portable declarative JSON data manipulation for OxCaml"
 description: """\
-Jsont is an OCaml library for declarative JSON data manipulation. It
-provides:
-
-- Combinators for describing JSON data using the OCaml values of your
-  choice. The descriptions can be used by generic functions to
-  decode, encode, query and update JSON data without having to
-  construct a generic JSON representation.
-- A JSON codec with optional text location tracking and layout
-  preservation. The codec is compatible with effect-based concurrency.
-
-The descriptions are independent from the codec and can be used by
-third-party processors or codecs.
-
-Jsont is distributed under the ISC license. It has no dependencies.
-The codec is optional and depends on the [`bytesrw`] library. The JavaScript
-support is optional and depends on the [`brr`] library.
-
-Homepage: <https://erratique.ch/software/jsont/>
-
-[`bytesrw`]: https://erratique.ch/software/bytesrw
-[`brr`]: https://erratique.ch/software/brr"""
-maintainer: "Daniel Bünzli <daniel.buenzl i@erratique.ch>"
+This vendored OxCaml port of Jsont provides portable JSON descriptions and a
+Bytesrw streaming codec. It contains the Jsont 0.4.0 core and jsont.bytesrw;
+the optional brr and typegist libraries are not included."""
+maintainer: "Daniel Bünzli <daniel.buenzli@erratique.ch>"
 authors: "The jsont programmers"
 license: "ISC"
-tags: ["json" "codec" "org:erratique"]
+tags: ["json" "codec" "oxcaml" "org:erratique"]
 homepage: "https://erratique.ch/software/jsont"
 doc: "https://erratique.ch/software/jsont/doc"
 bug-reports: "https://github.com/dbuenzli/jsont/issues"
+dev-repo: "git+https://github.com/dbuenzli/jsont.git"
 depends: [
-  "ocaml" {>= "4.14.0"}
-  "ocamlfind" {build}
-  "ocamlbuild" {build}
-  "topkg" {build & >= "1.1.0"}
-  "b0" {dev & with-test}
-]
-depopts: ["cmdliner" "brr" "bytesrw"]
-conflicts: [
-  "cmdliner" {< "1.3.0"}
-  "brr" {< "0.0.6"}
+  "oxcaml-compiler" {>= "5.2.0minus39"}
+  "dune" {>= "3.21"}
+  "base"
+  "bytesrw" {>= "0.4.0"}
 ]
 build: [
-  "ocaml"
-  "pkg/pkg.ml"
-  "build"
-  "--dev-pkg"
-  "%{dev}%"
-  "--with-cmdliner"
-  "%{cmdliner:installed}%"
-  "--with-bytesrw"
-  "%{bytesrw:installed}%"
-  "--with-brr"
-  "%{brr:installed}%"
+  ["dune" "build" "-p" name "-j" jobs]
 ]
-dev-repo: "git+https://erratique.ch/repos/jsont.git"
 x-maintenance-intent: ["(latest)"]

@@ -2468,16 +2468,16 @@ module RunnerJob = struct
         (fun created_at error failures finished_at parent payload priority progress runner started_at state type_ updated_at uuid -> { created_at; error; failures; finished_at; parent; payload; priority; progress; runner; started_at; state; type_; updated_at; uuid })
       |> Jsont.Object.opt_mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "error" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.error)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.error)
       |> Jsont.Object.opt_mem "failures" Jsont.int ~enc:(fun r -> r.failures)
       |> Jsont.Object.opt_mem "finishedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.finished_at)
       |> Jsont.Object.mem "parent" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.parent)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.parent)
       |> Jsont.Object.opt_mem "payload" RunnerJobPayload.T.jsont ~enc:(fun r -> r.payload)
       |> Jsont.Object.opt_mem "priority" Jsont.int ~enc:(fun r -> r.priority)
       |> Jsont.Object.opt_mem "progress" Jsont.int ~enc:(fun r -> r.progress)
       |> Jsont.Object.mem "runner" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.runner)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.runner)
       |> Jsont.Object.opt_mem "startedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.started_at)
       |> Jsont.Object.opt_mem "state" RunnerJobStateConstant.T.jsont ~enc:(fun r -> r.state)
       |> Jsont.Object.opt_mem "type" Type.jsont ~enc:(fun r -> r.type_)
@@ -2537,16 +2537,16 @@ module RunnerJobAdmin = struct
         (fun created_at error failures finished_at parent payload priority progress runner started_at state type_ updated_at uuid private_payload -> { created_at; error; failures; finished_at; parent; payload; priority; progress; runner; started_at; state; type_; updated_at; uuid; private_payload })
       |> Jsont.Object.opt_mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "error" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.error)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.error)
       |> Jsont.Object.opt_mem "failures" Jsont.int ~enc:(fun r -> r.failures)
       |> Jsont.Object.opt_mem "finishedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.finished_at)
       |> Jsont.Object.mem "parent" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.parent)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.parent)
       |> Jsont.Object.opt_mem "payload" RunnerJobPayload.T.jsont ~enc:(fun r -> r.payload)
       |> Jsont.Object.opt_mem "priority" Jsont.int ~enc:(fun r -> r.priority)
       |> Jsont.Object.opt_mem "progress" Jsont.int ~enc:(fun r -> r.progress)
       |> Jsont.Object.mem "runner" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.runner)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.runner)
       |> Jsont.Object.opt_mem "startedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.started_at)
       |> Jsont.Object.opt_mem "state" RunnerJobStateConstant.T.jsont ~enc:(fun r -> r.state)
       |> Jsont.Object.opt_mem "type" RunnerJob.Type.jsont ~enc:(fun r -> r.type_)
@@ -3307,7 +3307,7 @@ module UpdateUser = struct
       |> Jsont.Object.opt_mem "emailVerified" Jsont.bool ~enc:(fun r -> r.email_verified)
       |> Jsont.Object.opt_mem "password" Password.T.jsont ~enc:(fun r -> r.password)
       |> Jsont.Object.mem "pluginAuth" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.plugin_auth)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.plugin_auth)
       |> Jsont.Object.opt_mem "role" UserRole.T.jsont ~enc:(fun r -> r.role)
       |> Jsont.Object.opt_mem "videoQuota" Jsont.int ~enc:(fun r -> r.video_quota)
       |> Jsont.Object.opt_mem "videoQuotaDaily" Jsont.int ~enc:(fun r -> r.video_quota_daily)
@@ -3932,9 +3932,9 @@ module LiveVideoSession = struct
       Jsont.Object.map ~kind:"LiveVideoSessionResponse"
         (fun end_date error id replay_video start_date -> { end_date; error; id; replay_video; start_date })
       |> Jsont.Object.mem "endDate" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.end_date)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.end_date)
       |> Jsont.Object.mem "error" Openapi.Runtime.nullable_int
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.error)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.error)
       |> Jsont.Object.opt_mem "id" Jsont.int ~enc:(fun r -> r.id)
       |> Jsont.Object.opt_mem "replayVideo" Jsont.json ~enc:(fun r -> r.replay_video)
       |> Jsont.Object.opt_mem "startDate" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.start_date)
@@ -4485,12 +4485,12 @@ module UserRegistration = struct
       |> Jsont.Object.opt_mem "emailVerified" Jsont.bool ~enc:(fun r -> r.email_verified)
       |> Jsont.Object.opt_mem "id" Id.T.jsont ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "moderationResponse" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.moderation_response)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.moderation_response)
       |> Jsont.Object.opt_mem "registrationReason" Jsont.string ~enc:(fun r -> r.registration_reason)
       |> Jsont.Object.opt_mem "state" Jsont.json ~enc:(fun r -> r.state)
       |> Jsont.Object.opt_mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.mem "user" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.user)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.user)
       |> Jsont.Object.opt_mem "username" Jsont.string ~enc:(fun r -> r.username)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
@@ -5702,7 +5702,7 @@ module Actor = struct
       |> Jsont.Object.opt_mem "followingCount" (Openapi.Runtime.validated_int ~minimum:0. Jsont.int) ~enc:(fun r -> r.following_count)
       |> Jsont.Object.opt_mem "host" Jsont.string ~enc:(fun r -> r.host)
       |> Jsont.Object.mem "hostRedundancyAllowed" Openapi.Runtime.nullable_bool
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.host_redundancy_allowed)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.host_redundancy_allowed)
       |> Jsont.Object.opt_mem "id" Id.T.jsont ~enc:(fun r -> r.id)
       |> Jsont.Object.opt_mem "name" Username.T.jsont ~enc:(fun r -> r.name)
       |> Jsont.Object.opt_mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
@@ -6055,11 +6055,11 @@ module Video = struct
         (fun account aspect_ratio blacklisted blacklisted_reason category channel comments created_at dislikes duration embed_path id is_live is_local language licence likes live_schedules name nsfw nsfw_flags nsfw_summary originally_published_at preview_path privacy published_at scheduled_update short_uuid state thumbnail_path truncated_description updated_at user_history uuid views wait_transcoding -> { account; aspect_ratio; blacklisted; blacklisted_reason; category; channel; comments; created_at; dislikes; duration; embed_path; id; is_live; is_local; language; licence; likes; live_schedules; name; nsfw; nsfw_flags; nsfw_summary; originally_published_at; preview_path; privacy; published_at; scheduled_update; short_uuid; state; thumbnail_path; truncated_description; updated_at; user_history; uuid; views; wait_transcoding })
       |> Jsont.Object.opt_mem "account" AccountSummary.T.jsont ~enc:(fun r -> r.account)
       |> Jsont.Object.mem "aspectRatio" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.aspect_ratio)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.aspect_ratio)
       |> Jsont.Object.mem "blacklisted" Openapi.Runtime.nullable_bool
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.blacklisted)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.blacklisted)
       |> Jsont.Object.mem "blacklistedReason" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.blacklisted_reason)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.blacklisted_reason)
       |> Jsont.Object.opt_mem "category" VideoConstantNumberCategory.T.jsont ~enc:(fun r -> r.category)
       |> Jsont.Object.opt_mem "channel" VideoChannelSummary.T.jsont ~enc:(fun r -> r.channel)
       |> Jsont.Object.opt_mem "comments" Jsont.int ~enc:(fun r -> r.comments)
@@ -6078,9 +6078,9 @@ module Video = struct
       |> Jsont.Object.opt_mem "nsfw" Jsont.bool ~enc:(fun r -> r.nsfw)
       |> Jsont.Object.opt_mem "nsfwFlags" Nsfwflag.T.jsont ~enc:(fun r -> r.nsfw_flags)
       |> Jsont.Object.mem "nsfwSummary" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.nsfw_summary)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.nsfw_summary)
       |> Jsont.Object.mem "originallyPublishedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.originally_published_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.originally_published_at)
       |> Jsont.Object.opt_mem "previewPath" Jsont.string ~enc:(fun r -> r.preview_path)
       |> Jsont.Object.opt_mem "privacy" VideoPrivacyConstant.T.jsont ~enc:(fun r -> r.privacy)
       |> Jsont.Object.opt_mem "publishedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.published_at)
@@ -6089,14 +6089,14 @@ module Video = struct
       |> Jsont.Object.opt_mem "state" VideoStateConstant.T.jsont ~enc:(fun r -> r.state)
       |> Jsont.Object.opt_mem "thumbnailPath" Jsont.string ~enc:(fun r -> r.thumbnail_path)
       |> Jsont.Object.mem "truncatedDescription" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.truncated_description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.truncated_description)
       |> Jsont.Object.opt_mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.mem "userHistory" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.user_history)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.user_history)
       |> Jsont.Object.opt_mem "uuid" Uuidv4.T.jsont ~enc:(fun r -> r.uuid)
       |> Jsont.Object.opt_mem "views" Jsont.int ~enc:(fun r -> r.views)
       |> Jsont.Object.mem "waitTranscoding" Openapi.Runtime.nullable_bool
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.wait_transcoding)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.wait_transcoding)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -6931,22 +6931,22 @@ module Notification = struct
         (fun account actor_follow comment created_at id read type_ updated_at video video_abuse video_blacklist video_import -> { account; actor_follow; comment; created_at; id; read; type_; updated_at; video; video_abuse; video_blacklist; video_import })
       |> Jsont.Object.opt_mem "account" Actor.Info.jsont ~enc:(fun r -> r.account)
       |> Jsont.Object.mem "actorFollow" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.actor_follow)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.actor_follow)
       |> Jsont.Object.mem "comment" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.comment)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.comment)
       |> Jsont.Object.opt_mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
       |> Jsont.Object.opt_mem "id" Id.T.jsont ~enc:(fun r -> r.id)
       |> Jsont.Object.opt_mem "read" Jsont.bool ~enc:(fun r -> r.read)
       |> Jsont.Object.opt_mem "type" Type.jsont ~enc:(fun r -> r.type_)
       |> Jsont.Object.opt_mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.mem "video" (Openapi.Runtime.nullable_any Video.Info.jsont)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.video)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.video)
       |> Jsont.Object.mem "videoAbuse" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.video_abuse)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.video_abuse)
       |> Jsont.Object.mem "videoBlacklist" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.video_blacklist)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.video_blacklist)
       |> Jsont.Object.mem "videoImport" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.video_import)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.video_import)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -7103,7 +7103,7 @@ module Account = struct
       |> Jsont.Object.opt_mem "followingCount" (Openapi.Runtime.validated_int ~minimum:0. Jsont.int) ~enc:(fun r -> r.following_count)
       |> Jsont.Object.opt_mem "host" Jsont.string ~enc:(fun r -> r.host)
       |> Jsont.Object.mem "hostRedundancyAllowed" Openapi.Runtime.nullable_bool
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.host_redundancy_allowed)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.host_redundancy_allowed)
       |> Jsont.Object.opt_mem "id" Id.T.jsont ~enc:(fun r -> r.id)
       |> Jsont.Object.opt_mem "name" Username.T.jsont ~enc:(fun r -> r.name)
       |> Jsont.Object.opt_mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
@@ -7111,7 +7111,7 @@ module Account = struct
       |> Jsont.Object.opt_mem "userId" Jsont.json ~enc:(fun r -> r.user_id)
       |> Jsont.Object.opt_mem "displayName" (Openapi.Runtime.validated_string ~min_length:3 ~max_length:120 Jsont.string) ~enc:(fun r -> r.display_name)
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish
   end
@@ -7198,11 +7198,11 @@ module VideoComment = struct
       |> Jsont.Object.opt_mem "account" Account.T.jsont ~enc:(fun r -> r.account)
       |> Jsont.Object.opt_mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
       |> Jsont.Object.mem "deletedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.deleted_at)
       |> Jsont.Object.opt_mem "heldForReview" Jsont.bool ~enc:(fun r -> r.held_for_review)
       |> Jsont.Object.opt_mem "id" Id.T.jsont ~enc:(fun r -> r.id)
       |> Jsont.Object.opt_mem "inReplyToCommentId" Id.T.jsont ~enc:(fun r -> r.in_reply_to_comment_id)
-      |> Jsont.Object.mem "isDeleted" Jsont.bool ~dec_absent:false ~enc:(fun r -> r.is_deleted)
+      |> Jsont.Object.mem "isDeleted" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun r -> r.is_deleted)
       |> Jsont.Object.opt_mem "text" (Openapi.Runtime.validated_string ~min_length:1 Jsont.string) ~enc:(fun r -> r.text)
       |> Jsont.Object.opt_mem "threadId" Id.T.jsont ~enc:(fun r -> r.thread_id)
       |> Jsont.Object.opt_mem "totalReplies" (Openapi.Runtime.validated_int ~minimum:0. Jsont.int) ~enc:(fun r -> r.total_replies)
@@ -7551,15 +7551,15 @@ module VideoChannel = struct
       |> Jsont.Object.opt_mem "followingCount" (Openapi.Runtime.validated_int ~minimum:0. Jsont.int) ~enc:(fun r -> r.following_count)
       |> Jsont.Object.opt_mem "host" Jsont.string ~enc:(fun r -> r.host)
       |> Jsont.Object.mem "hostRedundancyAllowed" Openapi.Runtime.nullable_bool
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.host_redundancy_allowed)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.host_redundancy_allowed)
       |> Jsont.Object.opt_mem "id" Id.T.jsont ~enc:(fun r -> r.id)
       |> Jsont.Object.opt_mem "name" Username.T.jsont ~enc:(fun r -> r.name)
       |> Jsont.Object.opt_mem "url" Jsont.string ~enc:(fun r -> r.url)
       |> Jsont.Object.opt_mem "displayName" (Openapi.Runtime.validated_string ~min_length:1 ~max_length:120 Jsont.string) ~enc:(fun r -> r.display_name)
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.mem "support" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.support)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.support)
       |> Jsont.Object.opt_mem "isLocal" Jsont.bool ~enc:(fun r -> r.is_local)
       |> Jsont.Object.opt_mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.opt_mem "banners" (Jsont.list ActorImage.T.jsont) ~enc:(fun r -> r.banners)
@@ -7755,11 +7755,11 @@ module VideoDetails = struct
       Jsont.Object.map ~kind:"VideoDetails"
         (fun aspect_ratio blacklisted blacklisted_reason category comments created_at dislikes duration embed_path id is_live is_local language licence likes live_schedules name nsfw nsfw_flags nsfw_summary originally_published_at preview_path privacy published_at scheduled_update short_uuid state thumbnail_path truncated_description updated_at user_history uuid views wait_transcoding viewers description support channel account tags comments_policy download_enabled input_file_updated_at tracker_urls files streaming_playlists -> { aspect_ratio; blacklisted; blacklisted_reason; category; comments; created_at; dislikes; duration; embed_path; id; is_live; is_local; language; licence; likes; live_schedules; name; nsfw; nsfw_flags; nsfw_summary; originally_published_at; preview_path; privacy; published_at; scheduled_update; short_uuid; state; thumbnail_path; truncated_description; updated_at; user_history; uuid; views; wait_transcoding; viewers; description; support; channel; account; tags; comments_policy; download_enabled; input_file_updated_at; tracker_urls; files; streaming_playlists })
       |> Jsont.Object.mem "aspectRatio" Openapi.Runtime.nullable_float
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.aspect_ratio)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.aspect_ratio)
       |> Jsont.Object.mem "blacklisted" Openapi.Runtime.nullable_bool
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.blacklisted)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.blacklisted)
       |> Jsont.Object.mem "blacklistedReason" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.blacklisted_reason)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.blacklisted_reason)
       |> Jsont.Object.opt_mem "category" VideoConstantNumberCategory.T.jsont ~enc:(fun r -> r.category)
       |> Jsont.Object.opt_mem "comments" Jsont.int ~enc:(fun r -> r.comments)
       |> Jsont.Object.opt_mem "createdAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.created_at)
@@ -7777,9 +7777,9 @@ module VideoDetails = struct
       |> Jsont.Object.opt_mem "nsfw" Jsont.bool ~enc:(fun r -> r.nsfw)
       |> Jsont.Object.opt_mem "nsfwFlags" Nsfwflag.T.jsont ~enc:(fun r -> r.nsfw_flags)
       |> Jsont.Object.mem "nsfwSummary" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.nsfw_summary)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.nsfw_summary)
       |> Jsont.Object.mem "originallyPublishedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.originally_published_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.originally_published_at)
       |> Jsont.Object.opt_mem "previewPath" Jsont.string ~enc:(fun r -> r.preview_path)
       |> Jsont.Object.opt_mem "privacy" VideoPrivacyConstant.T.jsont ~enc:(fun r -> r.privacy)
       |> Jsont.Object.opt_mem "publishedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.published_at)
@@ -7788,26 +7788,26 @@ module VideoDetails = struct
       |> Jsont.Object.opt_mem "state" VideoStateConstant.T.jsont ~enc:(fun r -> r.state)
       |> Jsont.Object.opt_mem "thumbnailPath" Jsont.string ~enc:(fun r -> r.thumbnail_path)
       |> Jsont.Object.mem "truncatedDescription" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.truncated_description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.truncated_description)
       |> Jsont.Object.opt_mem "updatedAt" Openapi.Runtime.ptime_jsont ~enc:(fun r -> r.updated_at)
       |> Jsont.Object.mem "userHistory" (Openapi.Runtime.nullable_any Jsont.json)
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.user_history)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.user_history)
       |> Jsont.Object.opt_mem "uuid" Uuidv4.T.jsont ~enc:(fun r -> r.uuid)
       |> Jsont.Object.opt_mem "views" Jsont.int ~enc:(fun r -> r.views)
       |> Jsont.Object.mem "waitTranscoding" Openapi.Runtime.nullable_bool
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.wait_transcoding)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.wait_transcoding)
       |> Jsont.Object.opt_mem "viewers" Jsont.int ~enc:(fun r -> r.viewers)
       |> Jsont.Object.mem "description" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.description)
       |> Jsont.Object.mem "support" Openapi.Runtime.nullable_string
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.support)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.support)
       |> Jsont.Object.opt_mem "channel" VideoChannel.T.jsont ~enc:(fun r -> r.channel)
       |> Jsont.Object.opt_mem "account" Account.T.jsont ~enc:(fun r -> r.account)
       |> Jsont.Object.opt_mem "tags" (Openapi.Runtime.validated_list ~min_items:1 ~max_items:5 Jsont.string) ~enc:(fun r -> r.tags)
       |> Jsont.Object.opt_mem "commentsPolicy" VideoCommentsPolicyConstant.T.jsont ~enc:(fun r -> r.comments_policy)
       |> Jsont.Object.opt_mem "downloadEnabled" Jsont.bool ~enc:(fun r -> r.download_enabled)
       |> Jsont.Object.mem "inputFileUpdatedAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.input_file_updated_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.input_file_updated_at)
       |> Jsont.Object.opt_mem "trackerUrls" (Jsont.list Jsont.string) ~enc:(fun r -> r.tracker_urls)
       |> Jsont.Object.opt_mem "files" (Jsont.list VideoFile.T.jsont) ~enc:(fun r -> r.files)
       |> Jsont.Object.opt_mem "streamingPlaylists" (Jsont.list VideoStreamingPlaylists.T.jsont) ~enc:(fun r -> r.streaming_playlists)
@@ -7916,7 +7916,7 @@ module VideoChannelSync = struct
       |> Jsont.Object.opt_mem "externalChannelUrl" Jsont.string ~enc:(fun r -> r.external_channel_url)
       |> Jsont.Object.opt_mem "id" Id.T.jsont ~enc:(fun r -> r.id)
       |> Jsont.Object.mem "lastSyncAt" Openapi.Runtime.nullable_ptime
-           ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun r -> r.last_sync_at)
+           ~dec_absent:(fun () -> None) ~enc_omit:Option.is_none ~enc:(fun r -> r.last_sync_at)
       |> Jsont.Object.opt_mem "state" Jsont.json ~enc:(fun r -> r.state)
       |> Jsont.Object.skip_unknown
       |> Jsont.Object.finish

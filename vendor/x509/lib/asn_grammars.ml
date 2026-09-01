@@ -7,26 +7,42 @@ let decode codec cs =
   let* a, cs = Asn.decode codec cs in
   if String.length cs = 0 then Ok a else Error (`Parse "Leftover")
 
+let decoder_of encoding asn : _ @ portable =
+  let decoder = Asn.decoder encoding asn in
+  (fun cs ->
+     match decoder cs with
+     | Ok (value, "") -> Ok value
+     | Ok _ -> Error (`Parse "Leftover")
+     | Error _ as error -> error : _ @ portable)
+
 let projections_of encoding asn =
   let c = Asn.codec encoding asn in (decode c, Asn.encode c)
 
-module Hashtbl(T : Hashtbl.HashedType) = struct
-  include Hashtbl.Make (T)
-  let of_assoc xs =
-    let ht = create 16 in List.iter (fun (a, b) -> add ht a b) xs; ht
-end
+let case_of_oid ~(default @ portable) (cases @ portable) : _ @ portable =
+  let branch expected (make @ portable) (next @ portable) : _ @ portable =
+    fun actual ->
+      if Asn.OID.equal expected actual then make () else next actual
+  in
+  let rec compile = function
+    | [] -> default
+    | (expected, make) :: rest ->
+      let next = compile rest in
+      branch expected make next
+  in
+  compile cases
 
-module OID_H = Hashtbl (struct
-  type t = Asn.oid let (equal, hash) = Asn.OID.(equal, hash)
-end)
-
-let case_of_oid ~default xs =
-  let ht = OID_H.of_assoc xs in fun a ->
-    try OID_H.find ht a with Not_found -> default a
-
-let case_of_oid_f ~default xs =
-  let ht = OID_H.of_assoc xs in fun (a, b) ->
-    (try OID_H.find ht a with Not_found -> default a) b
+let case_of_oid_f ~(default @ portable) (cases @ portable) : _ @ portable =
+  let rec compile = function
+    | [] -> fun (oid, value) -> default oid value
+    | (expected, apply) :: rest ->
+      let next = compile rest in
+      (fun (actual, value) ->
+         if Asn.OID.equal expected actual
+         then apply value
+         else next (actual, value)
+       : _ @ portable)
+  in
+  compile cases
 
 (*
  * A way to parse by propagating (and contributing to) exceptions, so those can
@@ -41,7 +57,15 @@ let project_exn asn =
     | Error err -> Asn.S.error err in
   (dec, Asn.encode c)
 
-let err_to_msg f = Result.map_error (function `Parse msg -> `Msg msg) f
+let project_exn_decoder asn : _ @ portable =
+  let decode = decoder_of Asn.der asn in
+  (fun cs ->
+     match decode cs with
+     | Ok value -> value
+     | Error err -> Asn.S.error err : _ @ portable)
+
+let (err_to_msg @ portable) f =
+  Result.map_error (fun (`Parse msg) -> `Msg msg) f
 
 (* specified in RFC 5280 4.1.2.5.2 - "MUST NOT include fractional seconds" *)
 let generalized_time_no_frac_s =
@@ -62,8 +86,6 @@ let serial =
   Asn.S.(map
            (fun x ->
               if String.length x > 20 then parse_error "serial exceeds 20 octets";
-              if String.length x > 0 && String.get_uint8 x 0 > 0x7F then
-                Log.warn (fun m -> m "negative serial number %a" Ohex.pp x);
               x)
            (fun y ->
               if String.length y > 20 then failwith "serial exceeds 20 octets";

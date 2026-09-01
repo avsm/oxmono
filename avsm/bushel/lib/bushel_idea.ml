@@ -121,18 +121,18 @@ let jsont : t Jsont.t =
   in
   map ~kind:"Idea" make
   |> mem "title" string ~enc:(fun i -> i.title)
-  |> mem "date" Bushel_types.ptime_date_jsont ~dec_absent:(2000, 1, 1)
+  |> mem "date" Bushel_types.ptime_date_jsont ~dec_absent:(fun () -> (2000, 1, 1))
        ~enc:(fun i -> (i.year, i.month, 1))
   |> mem "level" level_jsont ~enc:(fun i -> i.level)
   |> mem "project" string ~enc:(fun i -> i.project)
   |> mem "status" status_jsont ~enc:(fun i -> i.status)
-  |> mem "supervisors" (list string) ~dec_absent:[] ~enc:(fun i -> i.supervisor_handles)
-  |> mem "students" (list string) ~dec_absent:[] ~enc:(fun i -> i.student_handles)
-  |> mem "tags" (list string) ~dec_absent:[] ~enc:(fun i -> i.tags)
-  |> mem "reading" string ~dec_absent:"" ~enc:(fun i -> i.reading)
-  |> mem "url" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "supervisors" (list string) ~dec_absent:(fun () -> []) ~enc:(fun i -> i.supervisor_handles)
+  |> mem "students" (list string) ~dec_absent:(fun () -> []) ~enc:(fun i -> i.student_handles)
+  |> mem "tags" (list string) ~dec_absent:(fun () -> []) ~enc:(fun i -> i.tags)
+  |> mem "reading" string ~dec_absent:(fun () -> "") ~enc:(fun i -> i.reading)
+  |> mem "url" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun i -> i.url)
-  |> mem "social" (option Bushel_types.social_jsont) ~dec_absent:None
+  |> mem "social" (option Bushel_types.social_jsont) ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun i -> i.social)
   |> finish
 

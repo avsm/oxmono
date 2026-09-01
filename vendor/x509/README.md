@@ -1,6 +1,6 @@
 ## X.509 - Public Key Infrastructure purely in OCaml
 
-v1.0.6
+v1.1.1
 X.509 is a public key infrastructure used mostly on the Internet.  It consists
 of certificates which include public keys and identifiers, signed by an
 authority.  Authorities must be exchanged over a second channel to establish the

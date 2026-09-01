@@ -59,7 +59,7 @@ module Asn = struct
 
   let tBSCertificate =
     let f = fun (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))) ->
-      let extn = match j with None -> Extension.empty | Some xs -> xs in
+      let extn = match j with None -> Extension.fresh_empty () | Some xs -> xs in
       { version    = Option.value ~default:`V1 a ; serial     = b ;
         signature  = c         ; issuer     = d ;
         validity   = e         ; subject    = f ;
@@ -107,8 +107,8 @@ module Asn = struct
       (required ~label:"signatureAlgorithm" Algorithm.identifier)
       (required ~label:"signatureValue"     bit_string_octets)
 
-  let (certificate_of_octets, certificate_to_octets) =
-    projections_of Asn.der certificate
+  let certificate_of_octets : _ @ portable = decoder_of Asn.der certificate
+  let _, certificate_to_octets = projections_of Asn.der certificate
 
   let pkcs1_digest_info =
     let open Algorithm in
@@ -134,7 +134,7 @@ let encode_pkcs1_digest_info = Asn.pkcs1_digest_info_to_octets
 
 let ( let* ) = Result.bind
 
-let decode_der cs =
+let decode_der : _ @ portable = fun cs ->
   let* asn = Asn_grammars.err_to_msg (Asn.certificate_of_octets cs) in
   Ok { asn ; raw = cs }
 
@@ -194,9 +194,8 @@ let pp' pp_custom_extensions ppf { asn ; _ } =
 
 let pp = pp' Extension.default_pp_custom_extension
 
-let fingerprint hash cert =
-  let module Hash = (val (Digestif.module_of_hash' hash)) in
-  Hash.(to_raw_string (digest_string cert.raw))
+let fingerprint : _ @ portable = fun hash cert ->
+  Digestif.digest_string_raw hash cert.raw
 
 let issuer { asn ; _ } = asn.tbs_cert.issuer
 
@@ -209,14 +208,14 @@ let validity { asn ; _ } = asn.tbs_cert.validity
 let signature_algorithm { asn ; _ } =
   Algorithm.to_signature_algorithm asn.signature_algo
 
-let public_key { asn = cert ; _ } = cert.tbs_cert.pk_info
+let public_key : _ @ portable = fun { asn = cert ; _ } -> cert.tbs_cert.pk_info
 
 let supports_keytype c t =
   match public_key c, t with
   | (`RSA _), `RSA -> true
   | _              -> false
 
-let extensions { asn = cert ; _ } = cert.tbs_cert.extensions
+let (extensions @ portable) { asn = cert ; _ } = cert.tbs_cert.extensions
 
 (* RFC 6125, 6.4.4:
    Therefore, if and only if the presented identifiers do not include a
@@ -229,20 +228,20 @@ let extensions { asn = cert ; _ } = cert.tbs_cert.extensions
    domain name portion of an identifier of type DNS-ID, SRV-ID, or
    URI-ID, as described under Section 6.4.1, Section 6.4.2, and
    Section 6.4.3. *)
-let hostnames { asn = cert ; _ } =
+let hostnames : _ @ portable = fun { asn = cert ; _ } ->
   let subj =
     match Distinguished_name.common_name cert.tbs_cert.subject with
-    | None -> Host.Set.empty
+    | None -> Host.Set.of_list []
     | Some x ->
       match Host.host x with
       | Some (wild, d) -> Host.Set.singleton (wild, d)
-      | None -> Host.Set.empty
+      | None -> Host.Set.of_list []
   in
   match Extension.hostnames cert.tbs_cert.extensions with
   | Some names -> names
   | None -> subj
 
-let supports_hostname cert name =
+let supports_hostname : _ @ portable = fun cert name ->
   let names = hostnames cert in
   let wc_name_opt =
     match Domain_name.drop_label name with
@@ -256,9 +255,9 @@ let supports_hostname cert name =
       | None -> false
       | Some wc_name -> Host.Set.mem (`Wildcard, wc_name) names)
 
-let ips { asn = cert ; _ } =
+let ips : _ @ portable = fun { asn = cert ; _ } ->
   match Extension.ips cert.tbs_cert.extensions with
-  | None -> Ipaddr.Set.empty
+  | None -> Ipaddr.Set.of_list []
   | Some ips -> ips
 
-let supports_ip cert ip = Ipaddr.Set.mem ip (ips cert)
+let supports_ip : _ @ portable = fun cert ip -> Ipaddr.Set.mem ip (ips cert)

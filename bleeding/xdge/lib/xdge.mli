@@ -49,7 +49,7 @@
 
     {ul
     {- [Requests] - HTTP client that uses Xdge for cookie persistence paths}
-    {- [Cookeio_jar] - Cookie jar with XDG-compliant storage}} *)
+    {- [Cookie_jar] - Cookie jar with XDG-compliant storage}} *)
 
 type t
 (** The main XDG context type containing all directory paths for an application.

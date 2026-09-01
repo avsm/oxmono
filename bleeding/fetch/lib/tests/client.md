@@ -7,10 +7,9 @@
 ```
 
 ```ocaml
+let () = Printexc.record_backtrace false
 open Fetch
 
-(* A mock server that reports each request it receives (method, URL, and
-   the Authorization header if present) and answers 200 "ok". *)
 let echo (req : Middleware.request) =
   Fmt.pr "> %s %s@." (Http.Method.to_string req.meth) (Middleware.Url.to_string req.url);
   (match Http.Header.get req.headers "authorization" with
@@ -18,10 +17,8 @@ let echo (req : Middleware.request) =
    | None -> ());
   Fetch_mock.respond "ok" req
 
-(* Where a request is going, read off the parsed URL. A URL that reaches
-   a client has been validated, so it has a host. *)
-let host (req : Middleware.request) = Option.get (Uri.host (Middleware.Url.to_uri req.url))
-let is_https (req : Middleware.request) = Uri.scheme (Middleware.Url.to_uri req.url) = Some "https"
+let host (req : Middleware.request) = Middleware.Url.host req.url
+let is_https (req : Middleware.request) = Middleware.Url.scheme req.url = `Https
 
 let run fn = Eio_mock.Backend.run @@ fun () -> Eio.Switch.run @@ fun sw -> fn sw
 ```
@@ -154,12 +151,23 @@ refused as well, wherever it is written:
 Exception:
 Invalid_argument
  "Fetch.with_credentials: scope \"https://api.example.com/v1?tenant=acme\" has a query, which names more than an origin and a path".
+# Fetch.restrict (Fetch_mock.client echo)
+    ~under:[ "https://api.example.com/v1?" ];;
+Exception:
+Invalid_argument
+ "Fetch.restrict: prefix \"https://api.example.com/v1?\" has a query, which names more than an origin and a path".
+# Fetch.restrict (Fetch_mock.client echo)
+    ~under:[ "https://api.example.com/v1#tenant" ];;
+Exception:
+Invalid_argument
+ "Fetch.restrict: prefix \"https://api.example.com/v1#tenant\" has a fragment, which names more than an origin and a path".
 ```
 
 ## Read-only clients
 
-`read_only` allows the safe methods of RFC 9110 §9.2.1, namely GET,
-HEAD and OPTIONS. Every other method is denied at runtime, whether it
+`read_only` allows the safe methods of
+[RFC 9110 §9.2.1](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.1),
+namely GET, HEAD and OPTIONS. Every other method is denied at runtime, whether it
 arrives through `post` and its siblings or through a dynamic entry
 point that only learns the method at run time. Each redirect hop is
 checked in turn:
@@ -182,9 +190,10 @@ Eio.Io Http Denied "method POST not permitted by a read-only client",
   POST https://example.com/hi
 ```
 
-`restrict ~methods` names any other set. The idempotent methods of RFC
-9110 §9.2.2 are one worth naming, since everything leaving such a
-client may be blindly retried:
+`restrict ~methods` names any other set. The idempotent methods of
+[RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2)
+are one worth naming, since everything leaving such a client may be blindly
+retried:
 
 ```ocaml
 # run @@ fun sw ->
@@ -338,8 +347,39 @@ let site (req : Middleware.request) =
 - : int * string = (200, "https://final.example/landing")
 ```
 
-With `~redirects:0` the 3xx comes back as data; a negative count means
-the same (it must not loop forever):
+A fragment stays client-side. When `Location` has none it inherits the
+initiating fragment; an explicit fragment replaces it. Neither appears in the
+request URLs seen by the backend:
+
+```ocaml
+let fragment_site location (req : Middleware.request) =
+  Fmt.pr "> GET %s@." (Middleware.Url.to_string req.url);
+  match Middleware.Url.path_segments req.url with
+  | [ "start" ] ->
+    Fetch_mock.respond ~status:302
+      ~headers:(Http.Header.of_list [ "Location", location ]) "" req
+  | _ -> Fetch_mock.respond "landed" req
+```
+
+```ocaml
+# run @@ fun sw ->
+  let t = Fetch_mock.client (fragment_site "/finish") in
+  let resp = Fetch.get ~sw t "https://example.com/start#original" in
+  url resp;;
+> GET https://example.com/start
+> GET https://example.com/finish
+- : string = "https://example.com/finish#original"
+# run @@ fun sw ->
+  let t = Fetch_mock.client (fragment_site "/finish#replacement") in
+  let resp = Fetch.get ~sw t "https://example.com/start#original" in
+  url resp;;
+> GET https://example.com/start
+> GET https://example.com/finish
+- : string = "https://example.com/finish#replacement"
+```
+
+With `~redirects:0` the 3xx comes back as data. A negative count is a caller
+error and is rejected before the request:
 
 ```ocaml
 # run @@ fun sw ->
@@ -347,9 +387,12 @@ the same (it must not loop forever):
 > GET https://start.example/
 - : int = 302
 # run @@ fun sw ->
-  status (Fetch.get ~sw ~redirects:(-1) (Fetch_mock.client site) "https://start.example/");;
-> GET https://start.example/
-- : int = 302
+  try
+    ignore (Fetch.get ~sw ~redirects:(-1) (Fetch_mock.client site)
+              "https://start.example/" : response);
+    "accepted"
+  with Invalid_argument message -> message;;
+- : string = "Fetch.fetch: redirects must be non-negative"
 ```
 
 Every hop re-enters the wrapper stack, so a narrowed client cannot be
@@ -499,8 +542,8 @@ A key the caller attaches per request is contained by naming it in
 - : int = 200
 ```
 
-and error context redacts it, while printing ordinary header values in
-full:
+Automatic error context omits header values, including caller credentials
+that a failing wrapper may have classified on a rewritten request:
 
 ```ocaml
 # run @@ fun sw ->
@@ -511,8 +554,7 @@ full:
             ~sensitive:[ "X-Api-Key" ]);;
 Exception:
 Eio.Io Http Denied "url https://evil.example/steal not permitted",
-  GET https://evil.example/steal (X-Api-Key: <redacted>,
-Accept: text/plain)
+  GET https://evil.example/steal
 ```
 
 Names other machinery owns are not claimable:
@@ -540,10 +582,69 @@ own binding of the name is replaced, not obeyed:
   let spoofed = status (Fetch.get ~sw t "https://api.example.com/jats?api_key=fake") in
   let out_of_scope = status (Fetch.get ~sw t "https://www.example.com/jats") in
   (plain, spoofed, out_of_scope);;
-> GET https://api.example.com/jats?api_key=SECRET&q=doi
+> GET https://api.example.com/jats?q=doi&api_key=SECRET
 > GET https://api.example.com/jats?api_key=SECRET
 > GET https://www.example.com/jats
 - : int * int * int = (200, 200, 200)
+```
+
+The replacement uses form/query key semantics, so a ['+']-spelled space
+cannot leave a stale first-wins credential in front of the attached value:
+
+```ocaml
+# run @@ fun sw ->
+  let t = Fetch.with_credentials ~scope:[ "https://api.example.com" ]
+      Credential.[ Query [ "api key", "SECRET" ] ] (Fetch_mock.client echo) in
+  status (Fetch.get ~sw t "https://api.example.com/jats?api+key=stale");;
+> GET https://api.example.com/jats?api%20key=SECRET
+- : int = 200
+```
+
+A trace or an error context prints the request, so the secret is hidden
+there too: the credential records the parameter names it bound, and only
+their values are replaced. A caller's own parameters, and a header
+credential, are unaffected:
+
+```ocaml
+# run @@ fun sw ->
+  let show (req : Middleware.request) =
+    Fmt.pr "%a@." Middleware.pp_request req;
+    Fetch_mock.respond "ok" req
+  in
+  let t = Fetch.with_credentials ~scope:[ "https://api.example.com" ]
+      Credential.[ Query [ "api_key", "SECRET" ];
+                   Header ("X-Sig", fun _ -> "SIGNED") ]
+      (Fetch_mock.client show) in
+  status (Fetch.get ~sw t "https://api.example.com/jats?q=doi");;
+GET https://api.example.com/jats?q=doi&api_key=<redacted> (X-Sig: <redacted>)
+- : int = 200
+```
+
+The context a failure carries out is built from the request as the caller
+wrote it, before any credential was attached, so it does not carry the
+parameter at all. A policy wrapper stacked underneath the credential sees
+the attached URL, and redacts it the same way:
+
+```ocaml
+# run @@ fun sw ->
+  let refuse (_ : Middleware.request) : response =
+    raise (Fetch.err (Protocol_error "peer hung up"))
+  in
+  let t = Fetch.with_credentials ~scope:[ "https://api.example.com" ]
+      Credential.[ Query [ "api_key", "SECRET" ] ] (Fetch_mock.client refuse) in
+  status (Fetch.get ~sw t "https://api.example.com/jats?q=doi");;
+Exception:
+Eio.Io Http Protocol_error "peer hung up",
+  GET https://api.example.com/jats?q=doi
+# run @@ fun sw ->
+  let t = Fetch_mock.client echo
+    |> Fetch.restrict ~under:[ "https://api.example.com/v1" ]
+    |> Fetch.with_credentials ~scope:[ "https://api.example.com" ]
+         Credential.[ Query [ "api_key", "SECRET" ] ] in
+  status (Fetch.get ~sw t "https://api.example.com/jats?q=doi");;
+Exception:
+Eio.Io Http Denied "url https://api.example.com/jats?q=doi&api_key=<redacted> not permitted",
+  GET https://api.example.com/jats?q=doi
 ```
 
 A parameter with no name is refused when the wrapper is built, before
@@ -574,7 +675,7 @@ Eio.Io Http Invalid_request "method \"GET /admin HTTP/1.1\\r\\nX: y\" is not a t
   status (Fetch.get ~sw ~headers (Fetch_mock.client echo) "https://example.com/");;
 Exception:
 Eio.Io Http Invalid_request "value of header \"X-Evil\" contains a control character",
-  GET https://example.com/ (X-Evil: "a\r\nX-Injected: yes")
+  GET https://example.com/
 ```
 
 The check sits at the capability boundary, not at the entry point, so
@@ -586,7 +687,7 @@ reaching for the raw handler does not evade it:
   let url = Result.get_ok (Middleware.Url.of_string "https://example.com/") in
   status (h ~sw { meth = `Other "GET /admin HTTP/1.1\r\nX: ";
                   url; headers = Http.Header.init (); body = Empty;
-                  sensitive = [] });;
+                  sensitive = []; sensitive_query = [] });;
 Exception:
 Eio.Io Http Invalid_request "method \"GET /admin HTTP/1.1\\r\\nX: \" is not a token"
 ```
@@ -604,13 +705,60 @@ are refused (the backend derives all three):
             ~headers:Header.[ raw "Host" "other-vhost.example" ]);;
 Exception:
 Eio.Io Http Invalid_request "header \"Host\" is the backend's to set, not a request's",
-  GET https://allowed.example/ (Host: other-vhost.example)
+  GET https://allowed.example/
 # run @@ fun sw ->
   status (Fetch.post ~sw (Fetch_mock.client echo) ~body:(String "a")
             "https://example.com/" ~headers:Header.[ content_length, 99L ]);;
 Exception:
 Eio.Io Http Invalid_request "header \"Content-Length\" is the backend's to set, not a request's",
-  POST https://example.com/ (Content-Length: 99)
+  POST https://example.com/
+```
+
+`Connection`, `Expect`, `TE` and `Upgrade` govern the connection rather
+than the message, and the backend owns it: it closes the connection after
+each exchange, never answers a `100-continue`, and rejects a `101`. A
+request that set one would be negotiating on a peer's behalf, so they are
+refused alongside the framing fields:
+
+```ocaml
+# run @@ fun sw ->
+  let refused field contents =
+    match
+      status (Fetch.get ~sw (Fetch_mock.client echo) "https://example.com/"
+                ~headers:Header.[ raw field contents ])
+    with
+    | code -> Fmt.str "%d" code
+    | exception Eio.Io (E (Invalid_request msg), _) -> msg
+  in
+  List.map (fun (n, v) -> refused n v)
+    [ "Connection", "keep-alive"; "Expect", "100-continue";
+      "TE", "trailers"; "Upgrade", "websocket" ];;
+- : string list =
+["header \"Connection\" is the backend's to set, not a request's";
+ "header \"Expect\" is the backend's to set, not a request's";
+ "header \"TE\" is the backend's to set, not a request's";
+ "header \"Upgrade\" is the backend's to set, not a request's"]
+```
+
+A `CONNECT` request asks for a tunnel: it names an authority rather than
+a resource, and the caller keeps the connection afterwards. A backend
+here would send it in origin-form to the origin itself, which is a
+different request than the one written, so it is refused rather than
+mis-sent:
+
+```ocaml
+# run @@ fun sw ->
+  status (Fetch.fetch ~sw (Fetch_mock.client echo) `CONNECT
+            "https://proxy.example:443/");;
+Exception:
+Eio.Io Http Invalid_request "CONNECT is not supported",
+  CONNECT https://proxy.example/
+# run @@ fun sw ->
+  status (Fetch.fetch ~sw (Fetch_mock.client echo) (`Other "CONNECT")
+            "https://proxy.example:443/");;
+Exception:
+Eio.Io Http Invalid_request "CONNECT is not supported",
+  CONNECT https://proxy.example/
 ```
 
 An https to http downgrade is refused unless opted in:
@@ -761,8 +909,10 @@ Eio.Io Http Too_many_redirects,
   fetching https://ping.example/ (10 redirects followed)
 ```
 
-A 301 or 302 answering a POST also converts to GET (historical practice,
-RFC 9110 §15.4.2), dropping the body and the headers that described it:
+A 301 or 302 answering a POST also converts to GET (the historical practice
+documented by
+[RFC 9110 §15.4.2](https://www.rfc-editor.org/rfc/rfc9110#section-15.4.2)),
+dropping the body and the headers that described it:
 
 ```ocaml
 # run @@ fun sw ->
@@ -784,8 +934,9 @@ RFC 9110 §15.4.2), dropping the body and the headers that described it:
 - : int = 200
 ```
 
-When a server sends several `Location` lines, the first is followed —
-browser behaviour, and not what a last-wins header lookup would pick:
+`Location` has no list syntax. Several lines are therefore left as an exposed
+redirect response instead of choosing either side of a first/last-wins
+differential:
 
 ```ocaml
 # run @@ fun sw ->
@@ -800,8 +951,7 @@ browser behaviour, and not what a last-wins header lookup would pick:
   in
   status (Fetch.get ~sw (Fetch_mock.client server) "https://dup.example/start");;
 > https://dup.example/start
-> https://dup.example/first
-- : int = 200
+- : int = 302
 ```
 
 `~mode:`Add` appends rather than replacing, so a caller's value survives
@@ -829,7 +979,7 @@ been read:
 # run @@ fun sw ->
   let server (req : Middleware.request) =
     let resp = Fetch_mock.respond "hello" req in
-    Fetch.Middleware.Pi.response ~status:(status resp) ~headers:(headers resp)
+    Fetch.Middleware.Pi.response ~close:(fun () -> ()) ~status:(status resp) ~headers:(headers resp)
       ~version:(version resp) ~body:(body resp)
       ~trailers:(fun () ->
           Some (Http.Header.of_list [ "X-Checksum", "abc123" ]))

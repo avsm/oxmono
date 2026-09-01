@@ -1,12 +1,5 @@
-(* test_target.ml - request-target parsing.
-
-   [Target.parse] scans the target where it lies in the connection buffer,
-   with unrelated request bytes on both sides. Two things can go wrong that a
-   handful of examples will not show: the scanner can read past the target's
-   end, and the absolute offsets it returns can drift. Both are caught here by
-   running every corpus target through {!Uriz.Raw.parse} on the extracted
-   string as a reference, at several offsets inside a buffer packed with junk
-   that is deliberately made of the bytes a URI scanner cares about.
+(* Differential request-target checks compare in-buffer scans with [Scanner.parse]
+   at several absolute offsets.
 
    The corpus is biased towards the characters that decide the grammar: the
    slashes that separate an authority from a path, '?' and '#', '%' with and
@@ -17,7 +10,7 @@ open Base
 
 module I16 = Stdlib_stable.Int16_u
 module T = Httpz.Target
-module Raw = Uriz.Raw
+module Scanner = Httpz.Uriz.Scanner
 
 let[@inline] i16 x = I16.of_int x
 let failures = ref 0
@@ -29,8 +22,6 @@ let check name cond detail =
     if !failures <= 20 then Stdio.printf "FAIL [%s] %s\n" name (detail ())
   end
 ;;
-
-(* ----- Buffer plumbing ----- *)
 
 (* Junk that a correct scanner never reads, made of bytes that would change
    the answer if it did: a trailing "%4" completed by a following hex digit,
@@ -49,8 +40,6 @@ let place target ~off ~size =
   buf
 ;;
 
-(* [Span.t] and [Target.t] are unboxed, so they cannot ride in an ordinary
-   tuple; every helper here pairs them with the buffer in an unboxed one. *)
 let parse_at target ~off : #(bytes * T.t) =
   let buf = place target ~off ~size:(off + String.length target + 64) in
   #(buf, T.parse buf (mk_span ~off ~len:(String.length target)))
@@ -69,12 +58,10 @@ let form_name (f : T.form) =
   | T.Invalid -> "Invalid"
 ;;
 
-(* ----- Reference ----- *)
-
-(* The reference works on the target on its own, through {!Uriz.Raw.parse}
-   rather than the in-buffer {!Uriz.Raw.parse_sub} the library uses. The
+(* The reference works on the target on its own, through [Scanner.parse] rather
+   than the in-buffer [Scanner.parse_sub] the library uses. The
    authority-form branch is written out here instead, since [host:port] is not
-   a URI-reference and uriz has no entry point for it. *)
+   a URI-reference and [Uriz] has no entry point for it. *)
 
 let is_unreserved c =
   match c with
@@ -84,13 +71,7 @@ let is_unreserved c =
 
 let is_sub_delim c =
   match c with
-  | '!' | '$' | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '=' -> true
-  | _ -> false
-;;
-
-let is_hex c =
-  match c with
-  | '0' .. '9' | 'a' .. 'f' | 'A' .. 'F' -> true
+  | '!' | '$' | '&' | '\'' | '(' | ')' | '*' | '+' | ';' | '=' -> true
   | _ -> false
 ;;
 
@@ -115,33 +96,25 @@ let ref_authority t =
   let host_end, host =
     if Char.equal (String.get t 0) '['
     then (
-      let e6 = Raw.ipv6_end t 1 n in
+      let e6 = Scanner.ipv6_end t 1 n in
       let e =
         if e6 >= 0 && e6 < n && Char.equal (String.get t e6) ']'
         then e6
         else (
-          let ef = Raw.ipvfuture_end t 1 n in
+          let ef = Scanner.ipvfuture_end t 1 n in
           if ef >= 0 && ef < n && Char.equal (String.get t ef) ']' then ef else -1)
       in
       if e < 0 then -1, "" else e + 1, String.sub t ~pos:1 ~len:(e - 1))
     else (
       let mutable i = 0 in
       let mutable go = true in
-      let mutable bad = false in
       while go && i < n do
         let c = String.get t i in
         if is_unreserved c || is_sub_delim c
         then i <- i + 1
-        else if Char.equal c '%'
-        then
-          if i + 2 < n && is_hex (String.get t (i + 1)) && is_hex (String.get t (i + 2))
-          then i <- i + 3
-          else (
-            bad <- true;
-            go <- false)
         else go <- false
       done;
-      if bad || i = 0 then -1, "" else i, String.sub t ~pos:0 ~len:i)
+      if i = 0 then -1, "" else i, String.sub t ~pos:0 ~len:i)
   in
   if host_end < 0 || host_end >= n || not (Char.equal (String.get t host_end) ':')
   then invalid_ref
@@ -172,7 +145,7 @@ let ref_parse t =
     done;
     let skip = k - 1 in
     let sub = String.sub t ~pos:skip ~len:(n - skip) in
-    let sp = Raw.parse sub in
+    let sp = Scanner.parse sub in
     if sp.#err <> 0 || sp.#frag_off >= 0
     then invalid_ref
     else
@@ -187,7 +160,7 @@ let ref_parse t =
   else if n = 1 && Char.equal (String.get t 0) '*'
   then { invalid_ref with rform = "Asterisk" }
   else (
-    let sp = Raw.parse t in
+    let sp = Scanner.parse t in
     if sp.#err = 0 && sp.#scheme_len >= 0 && sp.#host_off >= 0 && sp.#host_len > 0
     then
       if sp.#userinfo_off >= 0 || sp.#frag_off >= 0 || sp.#port_val > 65535
@@ -205,8 +178,6 @@ let ref_parse t =
         }
     else ref_authority t)
 ;;
-
-(* ----- Differential ----- *)
 
 let compare_one ~why t ~off =
   let #(buf, got) = parse_at t ~off in
@@ -342,8 +313,6 @@ let fixed_corpus =
   ]
 ;;
 
-(* ----- Hand-written expectations ----- *)
-
 let expect_form t want =
   let #(buf, got) = parse_at t ~off:9 in
   ignore (buf : bytes);
@@ -373,12 +342,10 @@ let test_forms () =
   expect_parts "http://host" ~form:"Absolute" ~path:"" ~query:"";
   expect_parts "host:8080" ~form:"Authority" ~path:"" ~query:"";
   expect_parts "*" ~form:"Asterisk" ~path:"" ~query:"";
-  (* Invalid in every form. *)
   List.iter
     [ ""; "?"; "#"; "**"; "*?x"; "/a#f"; "http://u@h/"; "host"; "host:"; "host:65536"
     ; "1.2.3.4:"; "[::zz]:1"; "/a b"; "/a\x01"; "/caf\xc3\xa9"; "http:"; "http://" ]
     ~f:(fun t -> expect_form t "Invalid");
-  (* Absolute-form components. *)
   let #(buf, got) = parse_at "http://[::1]:8080/x?y" ~off:5 in
   check "absolute-parts"
     (String.equal (str buf (T.scheme got)) "http"
@@ -390,7 +357,6 @@ let test_forms () =
       Printf.sprintf "scheme=%S host=%S port=%d path=%S query=%S"
         (str buf (T.scheme got)) (str buf (T.host got)) (T.port got)
         (str buf (T.path got)) (str buf (T.query got)));
-  (* Authority-form components. *)
   let #(buf, got) = parse_at "[::1]:443" ~off:5 in
   check "authority-ipv6"
     (String.equal (str buf (T.host got)) "::1" && T.port got = 443)
@@ -399,10 +365,8 @@ let test_forms () =
   check "authority-reg-name"
     (String.equal (str buf (T.host got)) "example.com" && T.port got = 443)
     (fun () -> Printf.sprintf "host=%S port=%d" (str buf (T.host got)) (T.port got));
-  (* An origin-form target names no port and no host. *)
   let #(_, got) = parse_at "/x" ~off:3 in
   check "origin-no-port" (T.port got = -1) (fun () -> Int.to_string (T.port got));
-  (* error_offset points at the offending byte, in buffer coordinates. *)
   let #(_, got) = parse_at "/a#f" ~off:11 in
   check "error-offset" (T.error_offset got = 13) (fun () ->
     Int.to_string (T.error_offset got));
@@ -440,8 +404,6 @@ let test_pct () =
       (fun () -> Printf.sprintf "/a%%4 at off %d -> %s" off (form_name (T.form got))))
 ;;
 
-(* ----- Query splitting ----- *)
-
 let pairs t =
   let #(buf, got) = parse_at t ~off:6 in
   T.query_to_string_pairs buf (T.query got)
@@ -472,7 +434,6 @@ let test_query_split () =
   expect_pairs "/x?a=1&" [ "a", "1"; "", "" ];
   expect_pairs "/x?&" [ "", ""; "", "" ];
   expect_pairs "/x?a=b=c" [ "a", "b=c" ];
-  (* find_query_param agrees with the fold, including the empty key. *)
   let find t name =
     let #(buf, got) = parse_at t ~off:6 in
     let #(found, v) = T.find_query_param buf (T.query got) name in
@@ -493,9 +454,9 @@ let test_query_split () =
   eq "find-first-wins" "/x?a=1&a=2" "a" (Some "1")
 ;;
 
-(* Splitting must agree with {!Uriz.query_step}, which is the same walk over a
-   [Uriz.t]. Corpus items whose canonical form differs from their text are
-   skipped: uriz's offsets index the canonical string, not the input. *)
+(* Splitting must agree with {!Httpz.Uriz.query_params}. Corpus items whose
+   canonical form differs from their text are skipped so both sides compare the
+   same percent-encoding. *)
 let test_query_vs_uriz () =
   let pool = "ab&=&&==+%20%41-_.~" in
   let st = Random.State.make [| 0x3986 |] in
@@ -507,35 +468,29 @@ let test_query_vs_uriz () =
   in
   List.iter ("" :: "a=1&" :: "&" :: "a" :: queries) ~f:(fun q ->
     let text = "/x?" ^ q in
-    match Uriz.of_string text with
+    match Httpz.Uriz.of_string text with
     | Null -> ()
     | This u ->
-      if String.equal (Uriz.to_string u) text
+      if String.equal (Httpz.Uriz.to_string u) text
       then begin
-        let raw = Uriz.to_string u in
         let want =
-          let mutable pos = Uriz.query_cursor u in
-          let mutable acc = [] in
-          while pos >= 0 do
-            let #(koff, klen, voff, vlen, next) = Uriz.query_step u pos in
-            let k = String.sub raw ~pos:koff ~len:klen in
-            let v = if voff < 0 then "" else String.sub raw ~pos:voff ~len:vlen in
-            acc <- (k, v) :: acc;
-            pos <- next
-          done;
-          List.rev acc
+          List.map (Httpz.Uriz.query_params u) ~f:(fun (key, value) ->
+            key, Option.value value ~default:"")
         in
-        let got = pairs text in
-        check "query-vs-uriz"
+        let decode s =
+          match Httpz.Uriz.percent_decode s with
+          | This s -> s
+          | Null -> assert false
+        in
+        let got = List.map (pairs text) ~f:(fun (key, value) -> decode key, decode value) in
+        check "query-vs-Uriz"
           (List.equal
              (fun (a, b) (c, d) -> String.equal a c && String.equal b d)
              got want)
           (fun () ->
-            Printf.sprintf "%S -> [%s], uriz [%s]" text (show_pairs got) (show_pairs want))
+            Printf.sprintf "%S -> [%s], Uriz [%s]" text (show_pairs got) (show_pairs want))
       end)
 ;;
-
-(* ----- Allocation ----- *)
 
 let test_alloc () =
   let cases =
@@ -573,13 +528,7 @@ let test_alloc () =
       (List.length cases))
 ;;
 
-(* ----- Acceptance, end to end ----- *)
-
-(* The parser turns an invalid target into [Invalid_target] rather than
-   handing it to a router. *)
-(* Parse a whole request line, so that everything below exercises the same path
-   a connection takes. [text] is written verbatim: a caller may leave it
-   unterminated to model a short read. *)
+(* [text] is written verbatim and may be unterminated to model a short read. *)
 let status_lim ~limits text =
   let buf = Bytes.make Httpz.buffer_size '\000' in
   Bytes.From_string.blit ~src:text ~src_pos:0 ~dst:buf ~dst_pos:0
@@ -590,12 +539,16 @@ let status_lim ~limits text =
 
 let status_of text = status_lim ~limits:Httpz.default_limits text
 
-let request_line ~limits ~meth target =
-  status_lim ~limits (Printf.sprintf "%s %s HTTP/1.1\r\nHost: x\r\n\r\n" meth target)
+(* An absolute-form target must agree with Host (RFC 9112 3.2.2), so a test
+   using one names the same authority here. *)
+let request_line ?(host = "x") ~limits ~meth target =
+  status_lim
+    ~limits
+    (Printf.sprintf "%s %s HTTP/1.1\r\nHost: %s\r\n\r\n" meth target host)
 ;;
 
-let request ?(meth = "GET") target =
-  request_line ~limits:Httpz.default_limits ~meth target
+let request ?host ?(meth = "GET") target =
+  request_line ?host ~limits:Httpz.default_limits ~meth target
 ;;
 
 let is_complete s =
@@ -611,8 +564,10 @@ let is_invalid_target s =
 ;;
 
 let test_parser_rejects () =
-  List.iter [ "/"; "/index.html"; "//a"; "/a?b=c"; "/a%41"; "http://h/x" ] ~f:(fun t ->
+  List.iter [ "/"; "/index.html"; "//a"; "/a?b=c"; "/a%41" ] ~f:(fun t ->
     check "accept" (is_complete (request t)) (fun () -> Printf.sprintf "%S rejected" t));
+  check "accept" (is_complete (request ~host:"h" "http://h/x")) (fun () ->
+    "\"http://h/x\" rejected");
   List.iter [ "/a%zz"; "/a%4"; "/a#f"; "/caf\xc3\xa9"; "/a\x01b"; "?" ] ~f:(fun t ->
     check "reject" (is_invalid_target (request t)) (fun () ->
       Printf.sprintf "%S accepted" t))
@@ -621,8 +576,8 @@ let test_parser_rejects () =
 (* RFC 9112 §3.2: authority-form is CONNECT's alone, asterisk-form is
    OPTIONS's, and CONNECT takes nothing else. *)
 let test_form_method () =
-  let ok meth target =
-    check "form-method-ok" (is_complete (request ~meth target)) (fun () ->
+  let ok ?host meth target =
+    check "form-method-ok" (is_complete (request ?host ~meth target)) (fun () ->
       Printf.sprintf "%s %S rejected" meth target)
   and no meth target =
     check "form-method-no" (is_invalid_target (request ~meth target)) (fun () ->
@@ -634,12 +589,64 @@ let test_form_method () =
   ok "CONNECT" "[::1]:443";
   ok "OPTIONS" "/a";
   ok "GET" "/a";
-  ok "GET" "http://h/x";
+  ok ~host:"h" "GET" "http://h/x";
   List.iter [ "GET"; "HEAD"; "POST"; "PUT"; "DELETE"; "CONNECT" ] ~f:(fun m -> no m "*");
   List.iter [ "GET"; "HEAD"; "POST"; "OPTIONS" ] ~f:(fun m -> no m "h.com:443");
   no "CONNECT" "/path";
   no "CONNECT" "http://h/x";
-  no "CONNECT" "*"
+  no "CONNECT" "*";
+  no "CONNECT" "a,b:443";
+  no "CONNECT" "exa%6dple.com:443"
+;;
+
+(* RFC 9110 4.2.1 gives no http(s) URI an empty host, and RFC 9112 3.2.2 makes
+   an absolute-form authority and the Host field one statement rather than two.
+*)
+let test_host_field () =
+  let buf = Bytes.create 256 in
+  let place_at s ~off =
+    let n = String.length s in
+    Bytes.From_string.blit ~src:s ~src_pos:0 ~dst:buf ~dst_pos:off ~len:n;
+    mk_span ~off ~len:n
+  in
+  List.iter
+    [ ""; ","; "a,b"; "exa%6dple.com"; "u@h"; "h:65536"; "h:"; "[::1" ]
+    ~f:(fun v ->
+      check "host-invalid" (not (T.valid_host buf (place_at v ~off:0))) (fun () ->
+        Printf.sprintf "%S accepted as a Host value" v));
+  List.iter [ "h"; "h.example"; "h:80"; "1.2.3.4"; "[::1]"; "[::1]:8080" ] ~f:(fun v ->
+    check "host-valid" (T.valid_host buf (place_at v ~off:0)) (fun () ->
+      Printf.sprintf "%S rejected as a Host value" v));
+  let matches target host =
+    let tsp = place_at target ~off:0 in
+    let hsp = place_at host ~off:(String.length target) in
+    let t = T.parse buf tsp in
+    check "absolute-form" (T.is_absolute t) (fun () ->
+      Printf.sprintf "%S is not absolute-form" target);
+    T.authority_matches buf t hsp
+  in
+  List.iter
+    [ "http://b/", "b"
+    ; "http://b/", "B"
+    ; "http://B/", "b"
+    ; "http://b:8080/", "b:8080"
+    ; "http://[::1]:443/x", "[::1]:443"
+    ]
+    ~f:(fun (target, host) ->
+      check "authority-match" (matches target host) (fun () ->
+        Printf.sprintf "%S and Host %S judged different" target host));
+  List.iter
+    [ "http://b/", "a"
+    ; "http://b/", "b:80"
+    ; "http://b:8080/", "b"
+    ; "http://b:8080/", "b:8081"
+    ; "http://[::1]/x", "[::2]"
+    ; "http://b/", ""
+    ; "http://b/", "b.example"
+    ]
+    ~f:(fun (target, host) ->
+      check "authority-mismatch" (not (matches target host)) (fun () ->
+        Printf.sprintf "%S and Host %S judged the same" target host))
 ;;
 
 (* [max_target_length] is a bound on the target alone, so it must bite before
@@ -709,7 +716,7 @@ let test_partial_target () =
     [ "GET /a%c3%a9/b?q=%41+x HTTP/1.1\r\nHost: x\r\n\r\n"
     ; "OPTIONS * HTTP/1.1\r\nHost: x\r\n\r\n"
     ; "CONNECT [::1]:443 HTTP/1.1\r\nHost: x\r\n\r\n"
-    ; "GET http://h.com:80/a?b HTTP/1.1\r\nHost: x\r\n\r\n"
+    ; "GET http://h.com:80/a?b HTTP/1.1\r\nHost: h.com:80\r\n\r\n"
     ; "PROPPATCH /d HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n"
     ; "POST /u HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
     ; "GET / HTTP/1.1\r\nHost: x\r\nAccept: */*\r\nConnection: keep-alive\r\n\r\n"
@@ -721,7 +728,6 @@ let test_partial_target () =
           Printf.sprintf "%S (prefix %d of %d) -> %s" (String.sub full ~pos:0 ~len:n) n
             (String.length full) (Httpz.Buf_read.status_to_string s))
       done;
-      (* and the whole thing still parses *)
       check "prefix-whole" (is_complete (status_of full)) (fun () ->
         Printf.sprintf "%S -> %s" full
           (Httpz.Buf_read.status_to_string (status_of full))))
@@ -738,6 +744,7 @@ let () =
   test_alloc ();
   test_parser_rejects ();
   test_form_method ();
+  test_host_field ();
   test_target_length ();
   test_partial_target ();
   if !failures = 0

@@ -20,7 +20,7 @@ module Urandom : Mirage_crypto_rng.Generator
 
 (** A generator using [getrandom(3)] on Linux, [getentropy(3)] on BSD and macOS,
     and [BCryptGenRandom()] on Windows. *)
-module Getentropy : Mirage_crypto_rng.Generator
+module Getentropy : Mirage_crypto_rng.Portable_generator
 
 (** [use_default ()] initializes the RNG [Mirage_crypto_rng.default_generator]
     with a sensible default, at the moment using [Getentropy]. *)
@@ -34,3 +34,8 @@ val use_dev_urandom : unit -> unit
 (** [use_getentropy ()] initializes the RNG [Mirage_crypto_rng.default_generator]
     with the [Getentropy] generator. *)
 val use_getentropy : unit -> unit
+
+val fresh_generator : unit -> Mirage_crypto_rng.portable_g @@ portable
+(** [fresh_generator ()] constructs a stateless getentropy-backed generator
+    for an individual portable protocol operation without consulting or
+    changing Mirage Crypto's process-global default. *)

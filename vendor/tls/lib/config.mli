@@ -1,5 +1,8 @@
 open Core
 
+(** The log source being used *)
+val src : Logs.src
+
 (** Configuration of the TLS stack *)
 
 (** {1 Config type} *)
@@ -45,7 +48,7 @@ type config = private {
 }
 
 (** [ciphers13 config] are the ciphersuites for TLS 1.3 in the configuration. *)
-val ciphers13 : config -> Ciphersuite.ciphersuite13 list
+val ciphers13 : config -> Ciphersuite.ciphersuite13 list @@ portable
 
 (** opaque type of a client configuration *)
 type client
@@ -73,6 +76,17 @@ val client :
   ?ip : Ipaddr.t ->
   unit -> (client, [> `Msg of string ]) result
 
+(** [client_no_cert] constructs the common HTTPS client configuration without
+    client certificates, session tickets, or custom cipher policy. Its result
+    is suitable for capture by portable client capabilities. *)
+val client_no_cert :
+  authenticator:X509.Authenticator.t @ portable ->
+  ?peer_name:[ `host ] Domain_name.t ->
+  ?alpn_protocols:string list ->
+  ?ip:Ipaddr.t ->
+  unit -> (client, [> `Msg of string ]) result
+  @@ portable
+
 (** [server ?ciphers ?version ?hashes ?reneg ?certificates ?acceptable_cas ?authenticator ?alpn_protocols]
     is [server] configuration with the given parameters. Returns an error if the configuration is invalid. *)
 val server :
@@ -92,7 +106,10 @@ val server :
   unit -> (server, [> `Msg of string ]) result
 
 (** [peer client name] is [client] with [name] as [peer_name] *)
-val peer : client -> [ `host ] Domain_name.t -> client
+val peer : client -> [ `host ] Domain_name.t -> client @@ portable
+
+(** [ip client ip] is [client] with [ip] as [ip] *)
+val ip : client -> Ipaddr.t -> client @@ portable
 
 (** {1 Note on ALPN protocol selection}
 
@@ -120,7 +137,7 @@ val supported_groups : group list
 
 (** [elliptic_curve group] is [true] if group is an elliptic curve, [false]
     otherwise. *)
-val elliptic_curve : group -> bool
+val elliptic_curve : group -> bool @@ portable
 
 (** [min_rsa_key_size] is minimal RSA modulus key size in bits (currently 1024) *)
 val min_rsa_key_size : int
@@ -159,10 +176,10 @@ end
 (** {1 Internal use only} *)
 
 (** [of_client client] is a client configuration for [client] *)
-val of_client : client -> config
+val of_client : client -> config @@ portable
 
 (** [of_server server] is a server configuration for [server] *)
-val of_server : server -> config
+val of_server : server -> config @@ portable
 
 (** [with_authenticator config auth] is [config] with [auth] as [authenticator] *)
 val with_authenticator : config -> X509.Authenticator.t -> config

@@ -2,11 +2,8 @@
 opam-version: "2.0"
 synopsis: "Proffer backend on the httpz parser and Eio"
 description: """
-Serves a compiled proffer site over HTTP/1.1 on one domain, a fibre per
-connection. Requests are parsed by httpz and answered through Proffer.Backend,
-so dispatch, conditional requests and HEAD behave as the mock backend does.
-Reads carry an idle and a request deadline, and the number of connections
-served at once is capped."""
+Serves a Proffer site over HTTP/1.1 using httpz and Eio, with bounded
+concurrency, first-byte and idle deadlines, and optional TLS."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"
@@ -19,10 +16,10 @@ depends: [
   "ocaml" {>= "5.2"}
   "proffer"
   "httpz"
-  "eio"
-  "cstruct"
+  "eio" {>= "1.3"}
+  "cstruct" {>= "6.0.0"}
   "base-unix"
-  "eio_main" {with-test & >= "1.0"}
+  "eio_main" {with-test & >= "1.3"}
   "odoc" {with-doc}
 ]
 build: [

@@ -5,7 +5,7 @@
  * OIDs being just ints means not being able to represent the full range.
  * Rarely used in practice, but maybe switch to bignums.
  *)
-type t = Oid of int * int * int list
+type t : immutable_data = Oid of int * int * int list
 
 let invalid_arg fmt = Format.ksprintf invalid_arg fmt
 
@@ -42,17 +42,17 @@ let of_string s =
   try Scanf.sscanf s "%d.%d%r" go of_nodes
   with End_of_file | Scanf.Scan_failure _ -> None
 
-let compare (Oid (v1, v2, vs)) (Oid (v1', v2', vs')) =
+let (compare @ portable) (Oid (v1, v2, vs)) (Oid (v1', v2', vs')) =
   let rec cmp (xs: int list) ys = match (xs, ys) with
     | ([], []) ->  0
     | ([], _ ) -> -1
     | (_ , []) ->  1
-    | (x::xs, y::ys) -> match compare x y with 0 -> cmp xs ys | r -> r in
-  match compare v1 v1' with
-  | 0 -> ( match compare v2 v2' with 0 -> cmp vs vs' | r -> r )
+    | (x::xs, y::ys) -> match Int.compare x y with 0 -> cmp xs ys | r -> r in
+  match Int.compare v1 v1' with
+  | 0 -> ( match Int.compare v2 v2' with 0 -> cmp vs vs' | r -> r )
   | r -> r
 
-let equal o1 o2 = compare o1 o2 = 0
+let (equal @ portable) o1 o2 = compare o1 o2 = 0
 
 let seeded_hash seed (Oid (v1, v2, vs)) =
   Hashtbl.(List.fold_left seeded_hash (seeded_hash (seeded_hash seed v1) v2) vs)

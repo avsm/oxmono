@@ -1,4 +1,4 @@
 (library
  (name proffer_mock)
  (public_name proffer.mock)
- (libraries proffer))
+ (libraries proffer httpz stdlib_upstream_compatible))

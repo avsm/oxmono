@@ -48,15 +48,15 @@ let jsont : t Jsont.t =
   |> mem "title" string ~enc:(fun v -> v.title)
   |> mem "published_date" Bushel_types.ptime_jsont ~enc:(fun v -> v.published_date)
   |> mem "uuid" string ~enc:(fun v -> v.uuid)
-  |> mem "url" string ~dec_absent:"" ~enc:(fun v -> v.url)
-  |> mem "talk" bool ~dec_absent:false ~enc:(fun v -> v.talk)
-  |> mem "vertical" bool ~dec_absent:false ~enc:(fun v -> v.vertical)
-  |> mem "tags" (list string) ~dec_absent:[] ~enc:(fun v -> v.tags)
-  |> mem "paper" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "url" string ~dec_absent:(fun () -> "") ~enc:(fun v -> v.url)
+  |> mem "talk" bool ~dec_absent:(fun () -> false) ~enc:(fun v -> v.talk)
+  |> mem "vertical" bool ~dec_absent:(fun () -> false) ~enc:(fun v -> v.vertical)
+  |> mem "tags" (list string) ~dec_absent:(fun () -> []) ~enc:(fun v -> v.tags)
+  |> mem "paper" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun v -> v.paper)
-  |> mem "project" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "project" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun v -> v.project)
-  |> mem "social" (option Bushel_types.social_jsont) ~dec_absent:None
+  |> mem "social" (option Bushel_types.social_jsont) ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun v -> v.social)
   |> finish
 

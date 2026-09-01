@@ -115,8 +115,6 @@ let pp_properties ppf props =
 
 (** {1 Internal JSON helpers} *)
 
-module String_map = Map.Make(String)
-
 let properties_jsont : (string * string option) list Jsont.t =
   let inner =
     Jsont.Object.map ~kind:"Properties" Fun.id
@@ -124,8 +122,12 @@ let properties_jsont : (string * string option) list Jsont.t =
     |> Jsont.Object.finish
   in
   Jsont.map
-    ~dec:(fun m -> List.of_seq (String_map.to_seq m))
-    ~enc:(fun l -> String_map.of_list l)
+    ~dec:(fun m ->
+      List.rev (Jsont.String_map.fold (fun k v acc -> (k, v) :: acc) m []))
+    ~enc:(fun l ->
+      List.fold_left
+        (fun m (k, v) -> Jsont.String_map.add k v m)
+        (Jsont.String_map.create ()) l)
     inner
 
 let titles_jsont : (string * string) list Jsont.t =
@@ -135,8 +137,12 @@ let titles_jsont : (string * string) list Jsont.t =
     |> Jsont.Object.finish
   in
   Jsont.map
-    ~dec:(fun m -> List.of_seq (String_map.to_seq m))
-    ~enc:(fun l -> String_map.of_list l)
+    ~dec:(fun m ->
+      List.rev (Jsont.String_map.fold (fun k v acc -> (k, v) :: acc) m []))
+    ~enc:(fun l ->
+      List.fold_left
+        (fun m (k, v) -> Jsont.String_map.add k v m)
+        (Jsont.String_map.create ()) l)
     inner
 
 (** {1 Link Module} *)
@@ -174,8 +180,8 @@ module Link = struct
     |> Jsont.Object.mem "rel" Jsont.string ~enc:(fun (l : t) -> l.rel)
     |> Jsont.Object.opt_mem "type" Jsont.string ~enc:(fun (l : t) -> l.type_)
     |> Jsont.Object.opt_mem "href" Jsont.string ~enc:(fun (l : t) -> l.href)
-    |> Jsont.Object.mem "titles" titles_jsont ~dec_absent:[] ~enc_omit:(fun x -> x = []) ~enc:(fun (l : t) -> l.titles)
-    |> Jsont.Object.mem "properties" properties_jsont ~dec_absent:[] ~enc_omit:(fun x -> x = []) ~enc:(fun (l : t) -> l.properties)
+    |> Jsont.Object.mem "titles" titles_jsont ~dec_absent:(fun () -> []) ~enc_omit:(fun x -> x = []) ~enc:(fun (l : t) -> l.titles)
+    |> Jsont.Object.mem "properties" properties_jsont ~dec_absent:(fun () -> []) ~enc_omit:(fun x -> x = []) ~enc:(fun (l : t) -> l.properties)
     |> Jsont.Object.skip_unknown
     |> Jsont.Object.finish
 
@@ -222,9 +228,9 @@ module Jrd = struct
     in
     Jsont.Object.map ~kind:"JRD" make
     |> Jsont.Object.opt_mem "subject" Jsont.string ~enc:(fun (j : t) -> j.subject)
-    |> Jsont.Object.mem "aliases" (Jsont.list Jsont.string) ~dec_absent:[] ~enc_omit:(fun x -> x = []) ~enc:(fun (j : t) -> j.aliases)
-    |> Jsont.Object.mem "properties" properties_jsont ~dec_absent:[] ~enc_omit:(fun x -> x = []) ~enc:(fun (j : t) -> j.properties)
-    |> Jsont.Object.mem "links" (Jsont.list Link.jsont) ~dec_absent:[] ~enc_omit:(fun x -> x = []) ~enc:(fun (j : t) -> j.links)
+    |> Jsont.Object.mem "aliases" (Jsont.list Jsont.string) ~dec_absent:(fun () -> []) ~enc_omit:(fun x -> x = []) ~enc:(fun (j : t) -> j.aliases)
+    |> Jsont.Object.mem "properties" properties_jsont ~dec_absent:(fun () -> []) ~enc_omit:(fun x -> x = []) ~enc:(fun (j : t) -> j.properties)
+    |> Jsont.Object.mem "links" (Jsont.list Link.jsont) ~dec_absent:(fun () -> []) ~enc_omit:(fun x -> x = []) ~enc:(fun (j : t) -> j.links)
     |> Jsont.Object.skip_unknown
     |> Jsont.Object.finish
 

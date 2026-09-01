@@ -91,23 +91,27 @@ let binary_string_of_hex h =
 
 (* Type identifiers. *)
 
-module Type = struct (* Can be removed once we require OCaml 5.1 *)
+module Type = struct
   type (_, _) eq = Equal : ('a, 'a) eq
   module Id = struct
-    type _ id = ..
-    module type ID = sig type t type _ id += Id : t id end
-    type 'a t = (module ID with type t = 'a)
+    type 'a t = int
 
-    let make (type a) () : a t =
-      (module struct type t = a type _ id += Id : t id end)
+    (* First-class generative modules, which upstream Jsont uses here, are
+       not portable values.  A process-wide atomic counter gives us the same
+       generativity while leaving the witness immediate and hence freely
+       shareable between domains. *)
+    let next = Atomic.make 0
 
-    let provably_equal
-        (type a b) ((module A) : a t) ((module B) : b t) : (a, b) eq option
-      =
-      match A.Id with B.Id -> Some Equal | _ -> None
+    let rec fresh () =
+      let id = Atomic.get next in
+      if id = max_int then invalid_arg "Jsont.Type.Id.make: identifiers exhausted";
+      if Atomic.compare_and_set next id (id + 1) then id else fresh ()
 
-    let uid (type a) ((module A) : a t) =
-      Obj.Extension_constructor.id (Obj.Extension_constructor.of_val A.Id)
+    let make () = fresh ()
+    let uid id = id
+
+    let provably_equal (type a b) (a : a t) (b : b t) : (a, b) eq option =
+      if a <> b then None else Some (Obj.magic Equal)
   end
 end
 
@@ -271,14 +275,18 @@ module Fmt = struct
   (* JSON formatting *)
 
   type json_number_format = (float -> unit, Format.formatter, unit) format
-  let json_default_number_format : json_number_format = format_of_string "%.17g"
+  (* Format literals are immutable compiler constants, but [format6]'s kind
+     does not currently expose that fact to the mode checker. *)
+  let json_default_number_format : json_number_format @ portable =
+    Obj.magic_portable (format_of_string "%.17g")
 
   let json_null ppf () = string ppf "null"
   let json_bool ppf b = string ppf (if b then "true" else "false")
   let json_number' fmt ppf f = (* cf. ECMAScript's JSON.stringify *)
     if Float.is_finite f then pf ppf fmt f else json_null ppf ()
 
-  let json_number ppf v = json_number' json_default_number_format ppf v
+  let json_number ppf f =
+    if Float.is_finite f then pf ppf "%.17g" f else json_null ppf ()
   let json_string ppf s =
     let is_control = function '\x00' .. '\x1F' | '\x7F' -> true | _ -> false in
     let len = String.length s in
@@ -340,7 +348,7 @@ module Textloc = struct
 
   (* Text locations *)
 
-  type t =
+  type t : immutable_data =
     { file : fpath;
       first_byte : byte_pos; last_byte : byte_pos;
       first_line : line_pos; last_line : line_pos }
@@ -458,7 +466,7 @@ type 'a fmt = Stdlib.Format.formatter -> 'a -> unit
 (* Node meta data *)
 
 module Meta = struct
-  type t =
+  type t : immutable_data =
     { textloc : Textloc.t;
       ws_before : string;
       ws_after : string; }
@@ -484,29 +492,40 @@ type 'a node = 'a * Meta.t
 
 module Number = struct
   let number_contains_int = Sys.int_size <= 53
-  let min_exact_int = if number_contains_int then Int.min_int else -(1 lsl 53)
-  let max_exact_int = if number_contains_int then Int.max_int else 1 lsl 53
+
+  let min_exact_int =
+    if number_contains_int then Int.min_int else -(1 lsl 53) + 1
+
+  let max_exact_int =
+    if number_contains_int then Int.max_int else (1 lsl 53) - 1
+
   let min_exact_uint8 = 0 let max_exact_uint8 = 255
   let min_exact_uint16 = 0 let max_exact_uint16 = 65535
   let min_exact_int8 = -128 let max_exact_int8 = 127
   let min_exact_int16 = -32768 let max_exact_int16 = 32767
   let min_exact_int32 = Int32.min_int let max_exact_int32 = Int32.max_int
-  let max_exact_int64 = Int64.shift_left 1L 53
-  let min_exact_int64 = Int64.neg max_exact_int64
+  let min_exact_int64 = Int64.(add (neg (shift_left 1L 53)) 1L)
+  let max_exact_int64 = Int64.(sub (shift_left 1L 53) 1L)
 
-  let[@inline] int_is_uint8 v = v land (lnot 0xFF) = 0
-  let[@inline] int_is_uint16 v = v land (lnot 0xFFFF) = 0
-  let[@inline] int_is_int8 v = min_exact_int8 <= v && v <= max_exact_int8
-  let[@inline] int_is_int16 v = min_exact_int16 <= v && v <= max_exact_int16
+  let[@inline][@zero_alloc] int_is_uint8 v = v land (lnot 0xFF) = 0
+  let[@inline][@zero_alloc] int_is_uint16 v = v land (lnot 0xFFFF) = 0
+  let[@inline][@zero_alloc] int_is_int8 v =
+    min_exact_int8 <= v && v <= max_exact_int8
 
-  let[@inline] can_store_exact_int v =
+  let[@inline][@zero_alloc] int_is_int16 v =
+    min_exact_int16 <= v && v <= max_exact_int16
+
+  let[@inline][@zero_alloc] can_store_exact_int v =
     min_exact_int <= v && v <= max_exact_int
 
-  let[@inline] can_store_exact_int64 v =
+  let[@inline][@zero_alloc] can_store_exact_int64 v =
     Int64.(compare min_exact_int64 v <= 0 && compare v max_exact_int64 <= 0)
 
   let max_exact_int_float = Int.to_float max_exact_int
   let min_exact_int_float = Int.to_float min_exact_int
+  let legacy_max_exact_int_float = Int.to_float (max_exact_int + 1)
+  let legacy_min_exact_int_float = Int.to_float (min_exact_int - 1)
+
   let max_exact_uint8_float = Int.to_float max_exact_uint8
   let min_exact_uint8_float = Int.to_float min_exact_uint8
   let max_exact_uint16_float = Int.to_float max_exact_uint16
@@ -519,27 +538,36 @@ module Number = struct
   let min_exact_int32_float = Int32.to_float min_exact_int32
   let max_exact_int64_float = Int64.to_float max_exact_int64
   let min_exact_int64_float = Int64.to_float min_exact_int64
+  let legacy_max_exact_int64_float = Int64.(to_float (add max_exact_int64 1L))
+  let legacy_min_exact_int64_float = Int64.(to_float (sub min_exact_int64 1L))
 
-  let[@inline] in_exact_int_range v =
+  let[@inline][@zero_alloc] in_exact_int_range v =
     min_exact_int_float <= v && v <= max_exact_int_float
 
-  let[@inline] in_exact_uint8_range v =
+  let[@inline][@zero_alloc] legacy_in_exact_int_range v =
+    legacy_min_exact_int_float <= v && v <= legacy_max_exact_int_float
+
+  let[@inline][@zero_alloc] in_exact_uint8_range v =
     min_exact_uint8_float <= v && v <= max_exact_uint8_float
 
-  let[@inline] in_exact_uint16_range v =
+  let[@inline][@zero_alloc] in_exact_uint16_range v =
     min_exact_uint16_float <= v && v <= max_exact_uint16_float
 
-  let[@inline] in_exact_int8_range v =
+  let[@inline][@zero_alloc] in_exact_int8_range v =
     min_exact_int8_float <= v && v <= max_exact_int8_float
 
-  let[@inline] in_exact_int16_range v =
+  let[@inline][@zero_alloc] in_exact_int16_range v =
     min_exact_int16_float <= v && v <= max_exact_int16_float
 
-  let[@inline] in_exact_int32_range v =
+  let[@inline][@zero_alloc] in_exact_int32_range v =
     min_exact_int32_float <= v && v <= max_exact_int32_float
 
-  let[@inline] in_exact_int64_range v =
+  let[@inline][@zero_alloc] in_exact_int64_range v =
     min_exact_int64_float <= v && v <= max_exact_int64_float
+
+  let[@inline][@zero_alloc] legacy_in_exact_int64_range v =
+    (* Wrong behaviour before 0.3.0, retained for migration. *)
+    legacy_min_exact_int64_float <= v && v <= legacy_max_exact_int64_float
 end
 
 (* JSON Paths *)
@@ -548,7 +576,7 @@ module Path = struct
 
   (* Indices *)
 
-  type index = Mem of string node | Nth of int node
+  type index : immutable_data = Mem of string node | Nth of int node
 
   let pp_name ppf n = Fmt.code ppf n
   let pp_index_num ppf n = Fmt.code ppf (Int.to_string n)
@@ -569,7 +597,7 @@ module Path = struct
 
   (* Paths *)
 
-  type t = index list
+  type t : immutable_data = index list
   let root = []
   let is_root = function [] -> true | _ -> false
   let nth ?(meta = Meta.none) n p = Nth (n, meta) :: p
@@ -630,7 +658,7 @@ end
 (* JSON sorts *)
 
 module Sort = struct
-  type t = Null | Bool | Number | String | Array | Object
+  type t : immediate = Null | Bool | Number | String | Array | Object
   let to_string = function
   | Null -> "null" | Bool -> "bool" | Number -> "number"
   | String  -> "string" | Array  -> "array" | Object -> "object"

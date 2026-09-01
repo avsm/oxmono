@@ -12,13 +12,15 @@ let src = Logs.Src.create "arod.server" ~doc:"Arod server adapter"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
-let run ~sw ~net ~clock ~(config : Arod.Config.t) ~log ~env compiled =
+let run ~sw ~stdenv ~(config : Arod.Config.t) ~log ~env site =
+  let clock = Eio.Stdenv.clock stdenv in
   let addr = `Tcp (Eio.Net.Ipaddr.V4.any, config.server.port) in
   let on_listening _ =
     Log.app (fun m ->
         m "Listening on http://%s:%d" config.server.host config.server.port)
   in
   let on_event (event : Proffer_httpz.event) =
+    let event = Proffer_httpz.globalize_event event in
     (* Serving is single-domain, so the insert happens on the domain that
        owns the log database. Serving from several domains would need this
        to hand the event to a fiber on that domain through a queue. *)
@@ -34,5 +36,5 @@ let run ~sw ~net ~clock ~(config : Arod.Config.t) ~log ~env compiled =
   let on_error exn =
     Log.err (fun m -> m "Server error: %s" (Exn.to_string exn))
   in
-  Proffer_httpz.run ~sw ~net ~clock ~addr ~on_listening ~on_event ~on_error
-    ~env compiled
+  Proffer_httpz.run ~sw ~addr ~on_listening ~on_event ~on_error stdenv
+    ~env site

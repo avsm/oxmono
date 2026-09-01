@@ -1,9 +1,4 @@
-(* test_writers.ml - checks for the table-driven response writers.
-
-   {!Httpz.Buf_write.int} emits two digits per division from a lookup table,
-   and {!Httpz.Res.write_status_line} copies a single static string per status.
-   Both replaced straightforward code with tables that are easy to get subtly
-   wrong, and both are checked here against an independent reference. *)
+(* Differential checks for integer and response writers. *)
 
 open Base
 
@@ -66,13 +61,39 @@ let test_int64 () =
       Printf.sprintf "n=%Ld got=%S" n got))
 ;;
 
-(* The status line is now one static string per status; it must still be
-   assembled exactly as "<version> <code> <reason>\r\n". *)
+(* A negative value has no spelling here, and quietly writing a wrong one into
+   a Content-Length or chunk-size field is worse than a raise. *)
+let test_negative () =
+  let raises f =
+    try
+      let _ : string = written f in
+      false
+    with
+    | Stdlib.Invalid_argument _ -> true
+  in
+  List.iter [ -1; -100; Int.min_value ] ~f:(fun n ->
+    check "int/negative" (raises (fun buf ~off -> Httpz.Buf_write.int buf ~off n))
+      (fun () -> Printf.sprintf "int %d did not raise" n);
+    check "hex/negative" (raises (fun buf ~off -> Httpz.Buf_write.hex buf ~off n))
+      (fun () -> Printf.sprintf "hex %d did not raise" n));
+  List.iter [ -1L; -9223372036854775807L ] ~f:(fun n ->
+    check "int64/negative"
+      (raises (fun buf ~off ->
+         Httpz.Buf_write.int64 buf ~off (I64.of_int64 n)))
+      (fun () -> Printf.sprintf "int64 %Ld did not raise" n));
+  List.iter [ 0; 1; 15; 16; 255; 4096; Int.max_value ] ~f:(fun n ->
+    let got = written (fun buf ~off -> Httpz.Buf_write.hex buf ~off n) in
+    check
+      "hex/value"
+      (String.equal got (Printf.sprintf "%x" n))
+      (fun () -> Printf.sprintf "n=%d got=%S" n got))
+;;
+
 let test_status_line () =
   let statuses =
     [ 100; 101; 200; 201; 202; 204; 205; 206; 207; 301; 302; 303; 304; 307; 308; 400
-    ; 401; 403; 404; 405; 406; 408; 409; 410; 411; 412; 413; 414; 415; 416; 417
-    ; 422; 423; 424; 426; 428; 429; 500; 501; 502; 503; 504; 505; 507
+    ; 401; 403; 404; 405; 406; 407; 408; 409; 410; 411; 412; 413; 414; 415; 416
+    ; 417; 422; 423; 424; 426; 428; 429; 431; 500; 501; 502; 503; 504; 505; 507
     ]
   in
   List.iter statuses ~f:(fun code ->
@@ -97,7 +118,6 @@ let test_status_line () =
             Printf.sprintf "code=%d got=%S expect=%S" code got expect)))
 ;;
 
-(* These two became static strings rather than name/value assembly. *)
 let test_fixed_headers () =
   let got = written (fun buf ~off -> Httpz.Res.write_connection buf ~off ~keep_alive:true) in
   check "connection/keep_alive" (String.equal got "Connection: keep-alive\r\n") (fun () ->
@@ -115,6 +135,7 @@ let test_fixed_headers () =
 let () =
   test_int ();
   test_int64 ();
+  test_negative ();
   test_status_line ();
   test_fixed_headers ();
   if !failures > 0

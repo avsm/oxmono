@@ -525,7 +525,7 @@ module Middleware : sig
     _ Fetch.t ->
     Fetch.plain
   (** [sign ~clock ~key t] is [t] with an RFC 9421 signature added to every
-      request, built with {!Fetch.Middleware.map_request}.
+      request, built with {!Fetch.Middleware.middleware}.
 
       [config] (default [config ~key ()]) supplies the label, keyid,
       components and tag; its own [key] field is always replaced by [key], so

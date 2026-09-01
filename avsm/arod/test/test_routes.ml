@@ -108,7 +108,7 @@ let env =
   {
     Arod_handlers.Env.ctx;
     config = cfg;
-    cache = Proffer.Cache.create ~ttl:60.0;
+    cache = Proffer.Cache.create ~ttl:60.0 ();
     now = (fun () -> 0.0);
     feed =
       (fun which ->

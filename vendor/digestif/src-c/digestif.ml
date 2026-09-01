@@ -39,7 +39,7 @@ module type S = sig
   val hmac_feedi_bigstring : hmac -> bigstring iter -> hmac
   val hmac_get : hmac -> t
   val digest_bytes : ?off:int -> ?len:int -> Bytes.t -> t
-  val digest_string : ?off:int -> ?len:int -> String.t -> t
+  val digest_string : ?off:int -> ?len:int -> String.t -> t @@ portable
   val digest_bigstring : ?off:int -> ?len:int -> bigstring -> t
   val digesti_bytes : Bytes.t iter -> t
   val digesti_string : String.t iter -> t
@@ -66,7 +66,7 @@ module type S = sig
   val to_hex : t -> string
   val of_raw_string : string -> t
   val of_raw_string_opt : string -> t option
-  val to_raw_string : t -> string
+  val to_raw_string : t -> string @@ portable
   val get_into_bytes : ctx -> ?off:int -> bytes -> unit
 end
 
@@ -94,17 +94,17 @@ module type Foreign = sig
   end
 
   module Bytes : sig
-    val init : ctx -> unit
-    val update : ctx -> st -> int -> int -> unit
-    val finalize : ctx -> st -> int -> unit
+    val init : ctx -> unit @@ portable
+    val update : ctx -> st -> int -> int -> unit @@ portable
+    val finalize : ctx -> st -> int -> unit @@ portable
   end
 
-  val ctx_size : unit -> int
+  val ctx_size : unit -> int @@ portable
 end
 
 module type Desc = sig
-  val block_size : int
-  val digest_size : int
+  val block_size : int @@ portable
+  val digest_size : int @@ portable
 end
 
 module Unsafe (F : Foreign) (D : Desc) = struct
@@ -207,7 +207,7 @@ module Core (F : Foreign) (D : Desc) = struct
     t
 
   let digest_bytes ?off ?len buf = feed_bytes empty ?off ?len buf |> get
-  let digest_string ?off ?len buf = feed_string empty ?off ?len buf |> get
+  let digest_string ?off ?len buf = feed_string (init ()) ?off ?len buf |> get
   let digest_bigstring ?off ?len buf = feed_bigstring empty ?off ?len buf |> get
   let digesti_bytes iter = feedi_bytes empty iter |> get
   let digesti_string iter = feedi_string empty iter |> get
@@ -312,19 +312,19 @@ module type Foreign_BLAKE2 = sig
   end
 
   module Bytes : sig
-    val update : ctx -> st -> int -> int -> unit
-    val finalize : ctx -> st -> int -> unit
-    val with_outlen_and_key : ctx -> int -> st -> int -> int -> unit
+    val update : ctx -> st -> int -> int -> unit @@ portable
+    val finalize : ctx -> st -> int -> unit @@ portable
+    val with_outlen_and_key : ctx -> int -> st -> int -> int -> unit @@ portable
   end
 
   val max_outlen : unit -> int
-  val ctx_size : unit -> int
+  val ctx_size : unit -> int @@ portable
   val key_size : unit -> int
 end
 
 module Make_BLAKE2 (F : Foreign_BLAKE2) (D : Desc) = struct
   let () =
-    if D.digest_size > F.max_outlen ()
+    if D.digest_size < 1 || D.digest_size > F.max_outlen ()
     then
       failwith "Invalid digest_size:%d to make a BLAKE2{S,B} implementation"
         D.digest_size
@@ -342,7 +342,7 @@ module Make_BLAKE2 (F : Foreign_BLAKE2) (D : Desc) = struct
 
         module Bytes = struct
           let init ctx =
-            F.Bytes.with_outlen_and_key ctx D.digest_size By.empty 0 0
+            F.Bytes.with_outlen_and_key ctx D.digest_size (By.create 0) 0 0
 
           let update = F.Bytes.update
           let finalize = F.Bytes.finalize
@@ -634,6 +634,59 @@ let module_of_hash' : hash' -> (module S) = function
   | `WHIRLPOOL -> (module WHIRLPOOL)
   | `BLAKE2B -> (module BLAKE2B)
   | `BLAKE2S -> (module BLAKE2S)
+
+let (digest_size @ portable) : hash' -> int = function
+  | `MD5 -> 16
+  | `SHA1 | `RMD160 -> 20
+  | `SHA224 | `SHA3_224 -> 28
+  | `SHA256 | `SHA3_256 | `KECCAK_256 | `BLAKE2S -> 32
+  | `SHA384 | `SHA3_384 -> 48
+  | `SHA512 | `SHA3_512 | `WHIRLPOOL | `BLAKE2B -> 64
+
+let digest_string_raw : _ @ portable = fun hash input ->
+  match hash with
+  | `MD5 -> MD5.(to_raw_string (digest_string input))
+  | `SHA1 -> SHA1.(to_raw_string (digest_string input))
+  | `RMD160 -> RMD160.(to_raw_string (digest_string input))
+  | `SHA224 -> SHA224.(to_raw_string (digest_string input))
+  | `SHA256 -> SHA256.(to_raw_string (digest_string input))
+  | `SHA384 -> SHA384.(to_raw_string (digest_string input))
+  | `SHA512 -> SHA512.(to_raw_string (digest_string input))
+  | `SHA3_224 -> SHA3_224.(to_raw_string (digest_string input))
+  | `SHA3_256 -> SHA3_256.(to_raw_string (digest_string input))
+  | `KECCAK_256 -> KECCAK_256.(to_raw_string (digest_string input))
+  | `SHA3_384 -> SHA3_384.(to_raw_string (digest_string input))
+  | `SHA3_512 -> SHA3_512.(to_raw_string (digest_string input))
+  | `WHIRLPOOL -> WHIRLPOOL.(to_raw_string (digest_string input))
+  | `BLAKE2B -> BLAKE2B.(to_raw_string (digest_string input))
+  | `BLAKE2S -> BLAKE2S.(to_raw_string (digest_string input))
+
+let (hmacv_string_raw @ portable) hash ~key inputs =
+  let block_size =
+    match hash with
+    | `MD5 | `SHA1 | `RMD160 | `SHA224 | `SHA256 | `WHIRLPOOL
+    | `BLAKE2S -> 64
+    | `SHA384 | `SHA512 | `BLAKE2B -> 128
+    | `SHA3_224 -> 144
+    | `SHA3_256 | `KECCAK_256 -> 136
+    | `SHA3_384 -> 104
+    | `SHA3_512 -> 72
+  in
+  let key =
+    if String.length key > block_size then digest_string_raw hash key else key
+  in
+  let inner = Bytes.make block_size (Char.unsafe_chr 0x36) in
+  let outer = Bytes.make block_size (Char.unsafe_chr 0x5c) in
+  for i = 0 to String.length key - 1 do
+    let byte = Char.code (String.unsafe_get key i) in
+    Bytes.unsafe_set inner i (Char.unsafe_chr (byte lxor 0x36));
+    Bytes.unsafe_set outer i (Char.unsafe_chr (byte lxor 0x5c))
+  done;
+  let inner =
+    digest_string_raw hash
+      (Bytes.unsafe_to_string inner ^ String.concat "" inputs)
+  in
+  digest_string_raw hash (Bytes.unsafe_to_string outer ^ inner)
 
 let module_of : type k. k hash -> (module S with type t = k) = function
   | MD5 -> (module MD5)

@@ -48,13 +48,15 @@ let or_ref_jsont (value_jsont : 'a Jsont.t) : 'a or_ref Jsont.t =
 
 (** {1 String Map} *)
 
-module StringMap = Map.Make(String)
-
 let string_map_jsont (value_jsont : 'a Jsont.t) : (string * 'a) list Jsont.t =
   let map_jsont = Jsont.Object.as_string_map value_jsont in
   Jsont.map ~kind:"string_map"
-    ~dec:(fun m -> StringMap.bindings m)
-    ~enc:(fun pairs -> List.fold_left (fun m (k, v) -> StringMap.add k v m) StringMap.empty pairs)
+    ~dec:(fun m ->
+      List.rev (Jsont.String_map.fold (fun k v acc -> (k, v) :: acc) m []))
+    ~enc:(fun pairs ->
+      List.fold_left
+        (fun m (k, v) -> Jsont.String_map.add k v m)
+        (Jsont.String_map.create ()) pairs)
     map_jsont
 
 (** {1 Contact} *)
@@ -142,7 +144,7 @@ let server_jsont : server Jsont.t =
   |> Jsont.Object.mem "url" Jsont.string ~enc:(fun s -> s.url)
   |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun s -> s.description)
   |> Jsont.Object.mem "variables" (string_map_jsont server_variable_jsont)
-       ~dec_absent:[] ~enc:(fun s -> s.variables)
+       ~dec_absent:(fun () -> []) ~enc:(fun s -> s.variables)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -190,7 +192,7 @@ let discriminator_jsont : discriminator Jsont.t =
     (fun property_name mapping -> { property_name; mapping })
   |> Jsont.Object.mem "propertyName" Jsont.string ~enc:(fun d -> d.property_name)
   |> Jsont.Object.mem "mapping" (string_map_jsont Jsont.string)
-       ~dec_absent:[] ~enc:(fun d -> d.mapping)
+       ~dec_absent:(fun () -> []) ~enc:(fun d -> d.mapping)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -272,10 +274,10 @@ let schema_jsont : schema Jsont.t =
   |> Jsont.Object.opt_mem "type" Jsont.string ~enc:(fun s -> s.type_)
   |> Jsont.Object.opt_mem "format" Jsont.string ~enc:(fun s -> s.format)
   |> Jsont.Object.opt_mem "default" Jsont.json ~enc:(fun s -> s.default)
-  |> Jsont.Object.mem "nullable" Jsont.bool ~dec_absent:false ~enc:(fun s -> s.nullable)
-  |> Jsont.Object.mem "readOnly" Jsont.bool ~dec_absent:false ~enc:(fun s -> s.read_only)
-  |> Jsont.Object.mem "writeOnly" Jsont.bool ~dec_absent:false ~enc:(fun s -> s.write_only)
-  |> Jsont.Object.mem "deprecated" Jsont.bool ~dec_absent:false ~enc:(fun s -> s.deprecated)
+  |> Jsont.Object.mem "nullable" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun s -> s.nullable)
+  |> Jsont.Object.mem "readOnly" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun s -> s.read_only)
+  |> Jsont.Object.mem "writeOnly" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun s -> s.write_only)
+  |> Jsont.Object.mem "deprecated" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun s -> s.deprecated)
   |> Jsont.Object.opt_mem "enum" Jsont.(list json) ~enc:(fun s -> s.enum)
   |> Jsont.Object.opt_mem "const" Jsont.json ~enc:(fun s -> s.const)
   |> Jsont.Object.opt_mem "minimum" Jsont.number ~enc:(fun s -> s.minimum)
@@ -288,7 +290,7 @@ let schema_jsont : schema Jsont.t =
   |> Jsont.Object.opt_mem "pattern" Jsont.string ~enc:(fun s -> s.pattern)
   |> Jsont.Object.opt_mem "minItems" Jsont.int ~enc:(fun s -> s.min_items)
   |> Jsont.Object.opt_mem "maxItems" Jsont.int ~enc:(fun s -> s.max_items)
-  |> Jsont.Object.mem "uniqueItems" Jsont.bool ~dec_absent:false ~enc:(fun s -> s.unique_items)
+  |> Jsont.Object.mem "uniqueItems" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun s -> s.unique_items)
   |> Jsont.Object.opt_mem "minProperties" Jsont.int ~enc:(fun s -> s.min_properties)
   |> Jsont.Object.opt_mem "maxProperties" Jsont.int ~enc:(fun s -> s.max_properties)
   |> Jsont.Object.opt_mem "allOf" Jsont.(list json) ~enc:(fun s -> s.all_of)
@@ -296,9 +298,9 @@ let schema_jsont : schema Jsont.t =
   |> Jsont.Object.opt_mem "anyOf" Jsont.(list json) ~enc:(fun s -> s.any_of)
   |> Jsont.Object.opt_mem "not" Jsont.json ~enc:(fun s -> s.not_)
   |> Jsont.Object.mem "properties" (string_map_jsont Jsont.json)
-       ~dec_absent:[] ~enc:(fun s -> s.properties)
+       ~dec_absent:(fun () -> []) ~enc:(fun s -> s.properties)
   |> Jsont.Object.mem "required" Jsont.(list string)
-       ~dec_absent:[] ~enc:(fun s -> s.required)
+       ~dec_absent:(fun () -> []) ~enc:(fun s -> s.required)
   |> Jsont.Object.opt_mem "additionalProperties" Jsont.json
        ~enc:(fun s -> s.additional_properties)
   |> Jsont.Object.opt_mem "items" Jsont.json ~enc:(fun s -> s.items)
@@ -387,8 +389,8 @@ let header_jsont : header Jsont.t =
     (fun description required deprecated schema ->
       { description; required; deprecated; schema })
   |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun h -> h.description)
-  |> Jsont.Object.mem "required" Jsont.bool ~dec_absent:false ~enc:(fun h -> h.required)
-  |> Jsont.Object.mem "deprecated" Jsont.bool ~dec_absent:false ~enc:(fun h -> h.deprecated)
+  |> Jsont.Object.mem "required" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun h -> h.required)
+  |> Jsont.Object.mem "deprecated" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun h -> h.deprecated)
   |> Jsont.Object.opt_mem "schema" schema_or_ref_jsont ~enc:(fun h -> h.schema)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
@@ -411,10 +413,10 @@ let encoding_jsont : encoding Jsont.t =
       { content_type; headers; style; explode; allow_reserved })
   |> Jsont.Object.opt_mem "contentType" Jsont.string ~enc:(fun e -> e.content_type)
   |> Jsont.Object.mem "headers" (string_map_jsont header_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun e -> e.headers)
+       ~dec_absent:(fun () -> []) ~enc:(fun e -> e.headers)
   |> Jsont.Object.opt_mem "style" parameter_style_jsont ~enc:(fun e -> e.style)
   |> Jsont.Object.opt_mem "explode" Jsont.bool ~enc:(fun e -> e.explode)
-  |> Jsont.Object.mem "allowReserved" Jsont.bool ~dec_absent:false ~enc:(fun e -> e.allow_reserved)
+  |> Jsont.Object.mem "allowReserved" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun e -> e.allow_reserved)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -434,9 +436,9 @@ let media_type_jsont : media_type Jsont.t =
   |> Jsont.Object.opt_mem "schema" schema_or_ref_jsont ~enc:(fun mt -> mt.schema)
   |> Jsont.Object.opt_mem "example" Jsont.json ~enc:(fun mt -> mt.example)
   |> Jsont.Object.mem "examples" (string_map_jsont example_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun mt -> mt.examples)
+       ~dec_absent:(fun () -> []) ~enc:(fun mt -> mt.examples)
   |> Jsont.Object.mem "encoding" (string_map_jsont encoding_jsont)
-       ~dec_absent:[] ~enc:(fun mt -> mt.encoding)
+       ~dec_absent:(fun () -> []) ~enc:(fun mt -> mt.encoding)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -466,16 +468,16 @@ let parameter_jsont : parameter Jsont.t =
   |> Jsont.Object.mem "name" Jsont.string ~enc:(fun p -> p.name)
   |> Jsont.Object.mem "in" parameter_location_jsont ~enc:(fun p -> p.in_)
   |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun p -> p.description)
-  |> Jsont.Object.mem "required" Jsont.bool ~dec_absent:false ~enc:(fun p -> p.required)
-  |> Jsont.Object.mem "deprecated" Jsont.bool ~dec_absent:false ~enc:(fun p -> p.deprecated)
-  |> Jsont.Object.mem "allowEmptyValue" Jsont.bool ~dec_absent:false ~enc:(fun p -> p.allow_empty_value)
+  |> Jsont.Object.mem "required" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun p -> p.required)
+  |> Jsont.Object.mem "deprecated" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun p -> p.deprecated)
+  |> Jsont.Object.mem "allowEmptyValue" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun p -> p.allow_empty_value)
   |> Jsont.Object.opt_mem "style" parameter_style_jsont ~enc:(fun p -> p.style)
   |> Jsont.Object.opt_mem "explode" Jsont.bool ~enc:(fun p -> p.explode)
-  |> Jsont.Object.mem "allowReserved" Jsont.bool ~dec_absent:false ~enc:(fun p -> p.allow_reserved)
+  |> Jsont.Object.mem "allowReserved" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun p -> p.allow_reserved)
   |> Jsont.Object.opt_mem "schema" schema_or_ref_jsont ~enc:(fun p -> p.schema)
   |> Jsont.Object.opt_mem "example" Jsont.json ~enc:(fun p -> p.example)
   |> Jsont.Object.mem "content" (string_map_jsont media_type_jsont)
-       ~dec_absent:[] ~enc:(fun p -> p.content)
+       ~dec_absent:(fun () -> []) ~enc:(fun p -> p.content)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -494,8 +496,8 @@ let request_body_jsont : request_body Jsont.t =
     (fun description content required -> { description; content; required })
   |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun rb -> rb.description)
   |> Jsont.Object.mem "content" (string_map_jsont media_type_jsont)
-       ~dec_absent:[] ~enc:(fun rb -> rb.content)
-  |> Jsont.Object.mem "required" Jsont.bool ~dec_absent:false ~enc:(fun rb -> rb.required)
+       ~dec_absent:(fun () -> []) ~enc:(fun rb -> rb.content)
+  |> Jsont.Object.mem "required" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun rb -> rb.required)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -519,7 +521,7 @@ let link_jsont : link Jsont.t =
   |> Jsont.Object.opt_mem "operationRef" Jsont.string ~enc:(fun l -> l.operation_ref)
   |> Jsont.Object.opt_mem "operationId" Jsont.string ~enc:(fun l -> l.operation_id)
   |> Jsont.Object.mem "parameters" (string_map_jsont Jsont.json)
-       ~dec_absent:[] ~enc:(fun l -> l.parameters)
+       ~dec_absent:(fun () -> []) ~enc:(fun l -> l.parameters)
   |> Jsont.Object.opt_mem "requestBody" Jsont.json ~enc:(fun l -> l.request_body)
   |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun l -> l.description)
   |> Jsont.Object.opt_mem "server" server_jsont ~enc:(fun l -> l.server)
@@ -541,13 +543,13 @@ let response_jsont : response Jsont.t =
   Jsont.Object.map ~kind:"Response"
     (fun description headers content links ->
       { description; headers; content; links })
-  |> Jsont.Object.mem "description" Jsont.string ~dec_absent:"" ~enc:(fun r -> r.description)
+  |> Jsont.Object.mem "description" Jsont.string ~dec_absent:(fun () -> "") ~enc:(fun r -> r.description)
   |> Jsont.Object.mem "headers" (string_map_jsont header_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun r -> r.headers)
+       ~dec_absent:(fun () -> []) ~enc:(fun r -> r.headers)
   |> Jsont.Object.mem "content" (string_map_jsont media_type_jsont)
-       ~dec_absent:[] ~enc:(fun r -> r.content)
+       ~dec_absent:(fun () -> []) ~enc:(fun r -> r.content)
   |> Jsont.Object.mem "links" (string_map_jsont link_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun r -> r.links)
+       ~dec_absent:(fun () -> []) ~enc:(fun r -> r.links)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -564,16 +566,21 @@ let responses_jsont : responses Jsont.t =
   (* Responses is an object where keys are status codes or "default" *)
   Jsont.map (Jsont.Object.as_string_map response_or_ref_jsont) ~kind:"Responses"
     ~dec:(fun m ->
-      let default = StringMap.find_opt "default" m in
+      let default = Jsont.String_map.find_opt "default" m in
       let responses =
-        StringMap.bindings m
+        Jsont.String_map.fold (fun k v acc -> (k, v) :: acc) m []
+        |> List.rev
         |> List.filter (fun (k, _) -> k <> "default")
       in
       { default; responses })
     ~enc:(fun r ->
-      let m = List.fold_left (fun m (k, v) -> StringMap.add k v m) StringMap.empty r.responses in
+      let m =
+        List.fold_left
+          (fun m (k, v) -> Jsont.String_map.add k v m)
+          (Jsont.String_map.create ()) r.responses
+      in
       match r.default with
-      | Some d -> StringMap.add "default" d m
+      | Some d -> Jsont.String_map.add "default" d m
       | None -> m)
 
 (** {1 Security Requirement} *)
@@ -613,23 +620,23 @@ let operation_jsont : operation Jsont.t =
          request_body responses callbacks deprecated security servers ->
       { tags; summary; description; external_docs; operation_id; parameters;
         request_body; responses; callbacks; deprecated; security; servers })
-  |> Jsont.Object.mem "tags" Jsont.(list string) ~dec_absent:[] ~enc:(fun o -> o.tags)
+  |> Jsont.Object.mem "tags" Jsont.(list string) ~dec_absent:(fun () -> []) ~enc:(fun o -> o.tags)
   |> Jsont.Object.opt_mem "summary" Jsont.string ~enc:(fun o -> o.summary)
   |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun o -> o.description)
   |> Jsont.Object.opt_mem "externalDocs" external_docs_jsont ~enc:(fun o -> o.external_docs)
   |> Jsont.Object.opt_mem "operationId" Jsont.string ~enc:(fun o -> o.operation_id)
   |> Jsont.Object.mem "parameters" Jsont.(list parameter_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun o -> o.parameters)
+       ~dec_absent:(fun () -> []) ~enc:(fun o -> o.parameters)
   |> Jsont.Object.opt_mem "requestBody" request_body_or_ref_jsont ~enc:(fun o -> o.request_body)
   |> Jsont.Object.mem "responses" responses_jsont
-       ~dec_absent:{ default = None; responses = [] } ~enc:(fun o -> o.responses)
+       ~dec_absent:(fun () -> { default = None; responses = [] }) ~enc:(fun o -> o.responses)
   |> Jsont.Object.mem "callbacks" (string_map_jsont callback_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun o -> o.callbacks)
-  |> Jsont.Object.mem "deprecated" Jsont.bool ~dec_absent:false ~enc:(fun o -> o.deprecated)
+       ~dec_absent:(fun () -> []) ~enc:(fun o -> o.callbacks)
+  |> Jsont.Object.mem "deprecated" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun o -> o.deprecated)
   |> Jsont.Object.opt_mem "security" Jsont.(list security_requirement_jsont)
        ~enc:(fun o -> o.security)
   |> Jsont.Object.mem "servers" Jsont.(list server_jsont)
-       ~dec_absent:[] ~enc:(fun o -> o.servers)
+       ~dec_absent:(fun () -> []) ~enc:(fun o -> o.servers)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -669,9 +676,9 @@ let path_item_jsont : path_item Jsont.t =
   |> Jsont.Object.opt_mem "patch" operation_jsont ~enc:(fun pi -> pi.patch)
   |> Jsont.Object.opt_mem "trace" operation_jsont ~enc:(fun pi -> pi.trace)
   |> Jsont.Object.mem "servers" Jsont.(list server_jsont)
-       ~dec_absent:[] ~enc:(fun pi -> pi.servers)
+       ~dec_absent:(fun () -> []) ~enc:(fun pi -> pi.servers)
   |> Jsont.Object.mem "parameters" Jsont.(list parameter_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun pi -> pi.parameters)
+       ~dec_absent:(fun () -> []) ~enc:(fun pi -> pi.parameters)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -714,7 +721,7 @@ let oauth_flow_jsont : oauth_flow Jsont.t =
   |> Jsont.Object.opt_mem "tokenUrl" Jsont.string ~enc:(fun f -> f.token_url)
   |> Jsont.Object.opt_mem "refreshUrl" Jsont.string ~enc:(fun f -> f.refresh_url)
   |> Jsont.Object.mem "scopes" (string_map_jsont Jsont.string)
-       ~dec_absent:[] ~enc:(fun f -> f.scopes)
+       ~dec_absent:(fun () -> []) ~enc:(fun f -> f.scopes)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -786,25 +793,25 @@ let components_jsont : components Jsont.t =
       { schemas; responses; parameters; examples; request_bodies;
         headers; security_schemes; links; callbacks; path_items })
   |> Jsont.Object.mem "schemas" (string_map_jsont schema_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.schemas)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.schemas)
   |> Jsont.Object.mem "responses" (string_map_jsont response_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.responses)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.responses)
   |> Jsont.Object.mem "parameters" (string_map_jsont parameter_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.parameters)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.parameters)
   |> Jsont.Object.mem "examples" (string_map_jsont example_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.examples)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.examples)
   |> Jsont.Object.mem "requestBodies" (string_map_jsont request_body_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.request_bodies)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.request_bodies)
   |> Jsont.Object.mem "headers" (string_map_jsont header_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.headers)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.headers)
   |> Jsont.Object.mem "securitySchemes" (string_map_jsont security_scheme_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.security_schemes)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.security_schemes)
   |> Jsont.Object.mem "links" (string_map_jsont link_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.links)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.links)
   |> Jsont.Object.mem "callbacks" (string_map_jsont callback_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.callbacks)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.callbacks)
   |> Jsont.Object.mem "pathItems" (string_map_jsont path_item_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun c -> c.path_items)
+       ~dec_absent:(fun () -> []) ~enc:(fun c -> c.path_items)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
@@ -829,16 +836,16 @@ let jsont : t Jsont.t =
   |> Jsont.Object.mem "openapi" Jsont.string ~enc:(fun t -> t.openapi)
   |> Jsont.Object.mem "info" info_jsont ~enc:(fun t -> t.info)
   |> Jsont.Object.mem "servers" Jsont.(list server_jsont)
-       ~dec_absent:[] ~enc:(fun t -> t.servers)
+       ~dec_absent:(fun () -> []) ~enc:(fun t -> t.servers)
   |> Jsont.Object.mem "paths" (string_map_jsont path_item_jsont)
-       ~dec_absent:[] ~enc:(fun t -> t.paths)
+       ~dec_absent:(fun () -> []) ~enc:(fun t -> t.paths)
   |> Jsont.Object.mem "webhooks" (string_map_jsont path_item_or_ref_jsont)
-       ~dec_absent:[] ~enc:(fun t -> t.webhooks)
+       ~dec_absent:(fun () -> []) ~enc:(fun t -> t.webhooks)
   |> Jsont.Object.opt_mem "components" components_jsont ~enc:(fun t -> t.components)
   |> Jsont.Object.mem "security" Jsont.(list security_requirement_jsont)
-       ~dec_absent:[] ~enc:(fun t -> t.security)
+       ~dec_absent:(fun () -> []) ~enc:(fun t -> t.security)
   |> Jsont.Object.mem "tags" Jsont.(list tag_jsont)
-       ~dec_absent:[] ~enc:(fun t -> t.tags)
+       ~dec_absent:(fun () -> []) ~enc:(fun t -> t.tags)
   |> Jsont.Object.opt_mem "externalDocs" external_docs_jsont ~enc:(fun t -> t.external_docs)
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish

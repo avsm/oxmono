@@ -1,0 +1,3 @@
+(executable
+ (name markdown)
+ (libraries fetch fetch-httpz cmarkit eio_main localhost))

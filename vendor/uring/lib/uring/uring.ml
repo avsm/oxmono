@@ -236,7 +236,8 @@ module Op = Config.Op
 module Check_cstruct : sig
   [@@@warning "-34"]
   type t = private {
-    buffer: (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t;
+    global_ buffer:
+      (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t;
     off   : int;
     len   : int;
   }

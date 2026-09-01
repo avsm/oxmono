@@ -163,7 +163,8 @@ let compare a b = Ptime.compare (datetime b) (datetime a)
 
 let lookup slug notes = List.find_opt (fun n -> n.slug = slug) notes
 
-let jsont ~default_date ~default_slug : t Jsont.t =
+let jsont ~(default_date : Ptime.date @ portable)
+    ~(default_slug : string @ portable) : t Jsont.t =
   let open Jsont in
   let open Jsont.Object in
   let make title date slug tags draft updated index_page perma weeknote featured doi synopsis titleimage
@@ -175,35 +176,35 @@ let jsont ~default_date ~default_slug : t Jsont.t =
   in
   map ~kind:"Note" make
   |> mem "title" string ~enc:(fun n -> n.title)
-  |> mem "date" Bushel_types.ptime_date_jsont ~dec_absent:default_date ~enc:(fun n -> n.date)
-  |> mem "slug" string ~dec_absent:default_slug ~enc:(fun n -> n.slug)
-  |> mem "tags" (list string) ~dec_absent:[] ~enc:(fun n -> n.tags)
-  |> mem "draft" bool ~dec_absent:false ~enc:(fun n -> n.draft)
-  |> mem "updated" (option Bushel_types.ptime_date_jsont) ~dec_absent:None
+  |> mem "date" Bushel_types.ptime_date_jsont ~dec_absent:(fun () -> default_date) ~enc:(fun n -> n.date)
+  |> mem "slug" string ~dec_absent:(fun () -> default_slug) ~enc:(fun n -> n.slug)
+  |> mem "tags" (list string) ~dec_absent:(fun () -> []) ~enc:(fun n -> n.tags)
+  |> mem "draft" bool ~dec_absent:(fun () -> false) ~enc:(fun n -> n.draft)
+  |> mem "updated" (option Bushel_types.ptime_date_jsont) ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.updated)
-  |> mem "index_page" bool ~dec_absent:false ~enc:(fun n -> n.index_page)
-  |> mem "perma" bool ~dec_absent:false ~enc:(fun n -> n.perma)
-  |> mem "weeknote" bool ~dec_absent:false ~enc:(fun n -> n.weeknote)
-  |> mem "featured" bool ~dec_absent:false ~enc:(fun n -> n.featured)
-  |> mem "doi" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "index_page" bool ~dec_absent:(fun () -> false) ~enc:(fun n -> n.index_page)
+  |> mem "perma" bool ~dec_absent:(fun () -> false) ~enc:(fun n -> n.perma)
+  |> mem "weeknote" bool ~dec_absent:(fun () -> false) ~enc:(fun n -> n.weeknote)
+  |> mem "featured" bool ~dec_absent:(fun () -> false) ~enc:(fun n -> n.featured)
+  |> mem "doi" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.doi)
-  |> mem "synopsis" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "synopsis" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.synopsis)
-  |> mem "titleimage" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "titleimage" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.titleimage)
-  |> mem "slug_ent" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "slug_ent" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.slug_ent)
-  |> mem "source" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "source" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.source)
-  |> mem "url" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "url" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.url)
-  |> mem "author" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "author" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.author)
-  |> mem "category" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "category" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.category)
-  |> mem "standardsite" Bushel_types.string_option_jsont ~dec_absent:None
+  |> mem "standardsite" Bushel_types.string_option_jsont ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.standardsite)
-  |> mem "social" (option Bushel_types.social_jsont) ~dec_absent:None
+  |> mem "social" (option Bushel_types.social_jsont) ~dec_absent:(fun () -> None)
        ~enc_omit:Option.is_none ~enc:(fun n -> n.social)
   |> finish
 

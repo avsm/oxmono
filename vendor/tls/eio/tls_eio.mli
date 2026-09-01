@@ -6,10 +6,10 @@
 open Eio.Std
 
 (** [Tls_alert] exception received from the other endpoint *)
-exception Tls_alert   of Tls.Packet.alert_type
+exception Tls_alert of Tls.Packet.alert_type @@ portable
 
 (** [Tls_failure] exception while processing incoming data *)
-exception Tls_failure of Tls.Engine.failure
+exception Tls_failure of string @@ portable
 
 type t = [ `Tls | Eio.Flow.two_way_ty | Eio.Resource.close_ty ] r
 
@@ -20,20 +20,34 @@ type t = [ `Tls | Eio.Flow.two_way_ty | Eio.Resource.close_ty ] r
 
     You must ensure a RNG is installed while using TLS, e.g. using [Mirage_crypto_rng_unix.use_default ()].
     Ideally, this would be part of the [server] config so you couldn't forget it,
-    but for now you'll get a runtime error if you forget. *)
+    but for now you'll get a runtime error if you forget.
+
+    Returns a TLS flow which may be fully active or half-closed.
+
+    @raise End_of_file if the peer closes before the handshake completes. *)
 val server_of_flow :
   Tls.Config.server ->
   [> Eio.Flow.two_way_ty | Eio.Resource.close_ty] r -> t
 
-(** [client_of_flow client ~host fd] is [t], after client-side
-    TLS handshake of [flow] using [client] configuration and [host].
+(** [client_of_flow client ~host ~ip fd] is [t], after client-side
+    TLS handshake of [flow] using [client] configuration and [host] or [ip].
 
     You must ensure a RNG is installed while using TLS, e.g. using [Mirage_crypto_rng_unix.use_default ()].
     Ideally, this would be part of the [client] config so you couldn't forget it,
-    but for now you'll get a runtime error if you forget. *)
+    but for now you'll get a runtime error if you forget.
+
+    Returns a TLS flow which may be fully active or half-closed.
+
+    @raise End_of_file if the peer closes before the handshake completes. *)
 val client_of_flow :
-  Tls.Config.client -> ?host:[ `host ] Domain_name.t ->
+  Tls.Config.client -> ?host:[ `host ] Domain_name.t -> ?ip:Ipaddr.t ->
   [> Eio.Flow.two_way_ty | Eio.Resource.close_ty] r -> t
+
+val client_of_flow_with_rng :
+  g:Mirage_crypto_rng.portable_g ->
+  Tls.Config.client -> ?host:[ `host ] Domain_name.t -> ?ip:Ipaddr.t ->
+  [> Eio.Flow.two_way_ty | Eio.Resource.close_ty] r -> t
+  @@ portable
 
 (** {2 Control of TLS features} *)
 

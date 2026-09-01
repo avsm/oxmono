@@ -1,0 +1,16 @@
+(test
+ (name test_tls)
+ (package httpz)
+ (libraries
+  httpz
+  httpz.tls
+  alcotest
+  eio
+  eio_main
+  eio.mock
+  fmt
+  ptime
+  ca-certs
+  tls
+  x509
+  mirage-crypto-rng.unix))

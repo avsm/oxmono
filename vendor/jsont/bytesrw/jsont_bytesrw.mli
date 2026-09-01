@@ -3,6 +3,8 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
+@@ portable
+
 (** JSON codec.
 
     According to {{:https://www.rfc-editor.org/rfc/rfc8259}RFC 8259}.

@@ -1,0 +1,3 @@
+(executable
+ (name router)
+ (libraries proffer proffer-httpz eio_main))

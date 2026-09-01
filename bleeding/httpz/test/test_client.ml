@@ -1,7 +1,4 @@
-(* test_client.ml - Tests for the client side: response parsing,
-   request-line writing, and chunk-header parsing *)
 open Base
-
 module I64 = Stdlib_upstream_compatible.Int64_u
 
 let limits = Httpz.default_limits
@@ -16,7 +13,6 @@ let copy_to_buffer buf s =
   len
 ;;
 
-(* Parse a response and assert success. *)
 let parse_ok ?request_method buf response = exclave_
   let len = copy_to_buffer buf response in
   let #(status, res, headers) =
@@ -25,7 +21,8 @@ let parse_ok ?request_method buf response = exclave_
   if Poly.( <> ) status Httpz.Buf_read.Complete
   then
     failwith
-      (Printf.sprintf "Expected Complete, got %s"
+      (Printf.sprintf
+         "Expected Complete, got %s"
          (Httpz.Buf_read.status_to_string status));
   #(len, res, headers)
 ;;
@@ -41,12 +38,9 @@ let parse_status ?request_method buf response =
 let test_simple_response () =
   let buf = Bytes.create Httpz.buffer_size in
   let #(_len, res, headers) =
-    parse_ok buf
-      "HTTP/1.1 200 OK\r\n\
-       Content-Type: text/plain\r\n\
-       Content-Length: 5\r\n\
-       \r\n\
-       hello"
+    parse_ok
+      buf
+      "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello"
   in
   assert (Poly.( = ) res.#version Httpz.Version.Http_1_1);
   assert (to_int res.#code = 200);
@@ -54,10 +48,8 @@ let test_simple_response () =
   assert (I64.equal res.#content_length #5L);
   assert (not res.#is_chunked);
   assert res.#keep_alive;
-  (* Every header stays in the list, framing ones included. *)
   assert (List.length headers = 2);
-  assert (Option.is_some
-            (Httpz.Header.find headers Httpz.Header_name.Content_length));
+  assert (Option.is_some (Httpz.Header.find headers Httpz.Header_name.Content_length));
   Stdio.printf "test_simple_response: PASSED\n"
 ;;
 
@@ -66,7 +58,6 @@ let test_reason_optional () =
   let #(_len, res, _headers) = parse_ok buf "HTTP/1.1 204 \r\n\r\n" in
   assert (to_int res.#code = 204);
   assert (Httpz.Span.is_empty res.#reason);
-  (* Some servers omit the SP after the code as well. *)
   let #(_len, res, _headers) = parse_ok buf "HTTP/1.1 204\r\n\r\n" in
   assert (to_int res.#code = 204);
   assert (Httpz.Span.is_empty res.#reason);
@@ -75,9 +66,7 @@ let test_reason_optional () =
 
 let test_unknown_code () =
   let buf = Bytes.create Httpz.buffer_size in
-  let #(_len, res, _headers) =
-    parse_ok buf "HTTP/1.1 418 I'm a teapot\r\n\r\n"
-  in
+  let #(_len, res, _headers) = parse_ok buf "HTTP/1.1 418 I'm a teapot\r\n\r\n" in
   assert (to_int res.#code = 418);
   assert (Httpz.Span.equal buf res.#reason "I'm a teapot");
   Stdio.printf "test_unknown_code: PASSED\n"
@@ -85,18 +74,16 @@ let test_unknown_code () =
 
 let test_status_line_errors () =
   let buf = Bytes.create Httpz.buffer_size in
-  assert (Poly.( = )
-            (parse_status buf "HTTP/1.1 2000 OK\r\n\r\n")
-            Httpz.Buf_read.Invalid_status);
-  assert (Poly.( = )
-            (parse_status buf "HTTP/1.1 20x OK\r\n\r\n")
-            Httpz.Buf_read.Invalid_status);
-  assert (Poly.( = )
-            (parse_status buf "HTTP/2.0 200 OK\r\n\r\n")
-            Httpz.Buf_read.Invalid_version);
-  assert (Poly.( = )
-            (parse_status buf "HTTP/1.1 200 O\rK\r\n\r\n")
-            Httpz.Buf_read.Bare_cr_detected);
+  assert (
+    Poly.( = ) (parse_status buf "HTTP/1.1 2000 OK\r\n\r\n") Httpz.Buf_read.Invalid_status);
+  assert (
+    Poly.( = ) (parse_status buf "HTTP/1.1 20x OK\r\n\r\n") Httpz.Buf_read.Invalid_status);
+  assert (
+    Poly.( = ) (parse_status buf "HTTP/2.0 200 OK\r\n\r\n") Httpz.Buf_read.Invalid_version);
+  assert (
+    Poly.( = )
+      (parse_status buf "HTTP/1.1 200 O\rK\r\n\r\n")
+      Httpz.Buf_read.Bare_cr_detected);
   Stdio.printf "test_status_line_errors: PASSED\n"
 ;;
 
@@ -112,10 +99,9 @@ let test_higher_minor_response_version () =
 
 let test_partial_response () =
   let buf = Bytes.create Httpz.buffer_size in
-  assert (Poly.( = ) (parse_status buf "HTTP/1.1 20")
-            Httpz.Buf_read.Partial);
-  assert (Poly.( = ) (parse_status buf "HTTP/1.1 200 OK\r\nContent-")
-            Httpz.Buf_read.Partial);
+  assert (Poly.( = ) (parse_status buf "HTTP/1.1 20") Httpz.Buf_read.Partial);
+  assert (
+    Poly.( = ) (parse_status buf "HTTP/1.1 200 OK\r\nContent-") Httpz.Buf_read.Partial);
   Stdio.printf "test_partial_response: PASSED\n"
 ;;
 
@@ -136,9 +122,7 @@ let test_response_obs_fold () =
   (* A retry after a read split at obs-fold sees the original CRLF. *)
   let partial = "HTTP/1.1 200 OK\r\nX-Fold: one\r\n " in
   let partial_len = copy_to_buffer buf partial in
-  let #(status, _res, _headers) =
-    Httpz.Res.parse buf ~len:(i16 partial_len) ~limits
-  in
+  let #(status, _res, _headers) = Httpz.Res.parse buf ~len:(i16 partial_len) ~limits in
   assert (Poly.( = ) status Httpz.Buf_read.Partial);
   assert (Char.equal (Bytes.get buf (partial_len - 3)) '\r');
   Stdio.printf "test_response_obs_fold: PASSED\n"
@@ -147,22 +131,15 @@ let test_response_obs_fold () =
 let test_keep_alive () =
   let buf = Bytes.create Httpz.buffer_size in
   let #(_len, res, _) = parse_ok buf "HTTP/1.1 200 OK\r\n\r\n" in
-  (* With no framing fields a response ends at connection close. *)
   assert (not res.#keep_alive);
-  let #(_len, res, _) =
-    parse_ok buf "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
-  in
+  let #(_len, res, _) = parse_ok buf "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" in
   assert res.#keep_alive;
-  let #(_len, res, _) =
-    parse_ok buf "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"
-  in
+  let #(_len, res, _) = parse_ok buf "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n" in
   assert (not res.#keep_alive);
   let #(_len, res, _) = parse_ok buf "HTTP/1.0 200 OK\r\n\r\n" in
   assert (not res.#keep_alive);
   let #(_len, res, _) =
-    parse_ok buf
-      "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\n\
-       Content-Length: 0\r\n\r\n"
+    parse_ok buf "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n"
   in
   assert res.#keep_alive;
   Stdio.printf "test_keep_alive: PASSED\n"
@@ -174,47 +151,40 @@ let test_response_framing () =
     parse_ok buf "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
   in
   assert res.#is_chunked;
-  (* No framing header at all: length -1, body ends with the
-     connection. *)
+  (* Without a framing field, the body ends when the connection closes. *)
   let #(_len, res, _) = parse_ok buf "HTTP/1.1 200 OK\r\n\r\n" in
   assert (I64.equal res.#content_length (I64.of_int64 (-1L)));
   assert (not res.#is_chunked);
-  assert (Poly.( = )
-            (parse_status buf
-               "HTTP/1.1 200 OK\r\n\
-                Content-Length: 5\r\n\
-                Transfer-Encoding: chunked\r\n\r\n")
-            Httpz.Buf_read.Ambiguous_framing);
+  assert (
+    Poly.( = )
+      (parse_status
+         buf
+         "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\n")
+      Httpz.Buf_read.Ambiguous_framing);
+  assert (
+    Poly.( = )
+      (parse_status buf "HTTP/1.0 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+      Httpz.Buf_read.Unsupported_transfer_encoding);
   Stdio.printf "test_response_framing: PASSED\n"
 ;;
 
 let test_strict_response_framing () =
   let buf = Bytes.create Httpz.buffer_size in
   List.iter [ "12x"; "+5"; "1_0"; "5 5"; "" ] ~f:(fun value ->
-    let response =
-      Printf.sprintf
-        "HTTP/1.1 200 OK\r\nContent-Length: %s\r\n\r\n"
-        value
-    in
-    assert
-      (Poly.( = )
-         (parse_status buf response)
-         Httpz.Buf_read.Invalid_header));
+    let response = Printf.sprintf "HTTP/1.1 200 OK\r\nContent-Length: %s\r\n\r\n" value in
+    assert (Poly.( = ) (parse_status buf response) Httpz.Buf_read.Invalid_header));
   let #(_len, res, _) =
-    parse_ok buf
-      "HTTP/1.1 200 OK\r\nContent-Length: 5, 5\r\n\
-       Content-Length: 5\r\n\r\n"
+    parse_ok buf "HTTP/1.1 200 OK\r\nContent-Length: 5, 5\r\nContent-Length: 5\r\n\r\n"
   in
   assert (I64.equal res.#content_length #5L);
-  assert
-    (Poly.( = )
-       (parse_status buf
-          "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\
-           Content-Length: 6\r\n\r\n")
-       Httpz.Buf_read.Ambiguous_framing);
+  assert (
+    Poly.( = )
+      (parse_status
+         buf
+         "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\n")
+      Httpz.Buf_read.Ambiguous_framing);
   let #(_len, res, _) =
-    parse_ok buf
-      "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n"
+    parse_ok buf "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n"
   in
   assert res.#is_chunked;
   let #(_len, res, _) =
@@ -254,14 +224,14 @@ let test_strict_response_framing () =
       let response =
         Printf.sprintf "HTTP/1.1 200 OK\r\nTransfer-Encoding: %s\r\n\r\n" value
       in
-      assert
-        (Poly.( = )
-           (parse_status buf response)
-           Httpz.Buf_read.Unsupported_transfer_encoding));
+      assert (
+        Poly.( = )
+          (parse_status buf response)
+          Httpz.Buf_read.Unsupported_transfer_encoding));
   let #(_len, res, _) =
-    parse_ok buf
-      "HTTP/1.1 200 OK\r\nConnection: upgrade, close\r\n\
-       Content-Length: 0\r\n\r\n"
+    parse_ok
+      buf
+      "HTTP/1.1 200 OK\r\nConnection: upgrade, close\r\nContent-Length: 0\r\n\r\n"
   in
   assert (not res.#keep_alive);
   Stdio.printf "test_strict_response_framing: PASSED\n"
@@ -270,20 +240,28 @@ let test_strict_response_framing () =
 let test_bodyless_response_framing () =
   let buf = Bytes.create Httpz.buffer_size in
   let #(_len, res, _) =
-    parse_ok ~request_method:Httpz.Method.Head buf
-      "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\
-       Transfer-Encoding: chunked\r\n\r\n"
+    parse_ok
+      ~request_method:Httpz.Method.Head
+      buf
+      "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\n"
   in
   assert res.#bodyless;
   assert (not res.#is_chunked);
   assert (I64.equal res.#content_length #5L);
-  List.iter [ 100; 204; 205; 304 ] ~f:(fun code ->
+  List.iter [ 100; 204; 304 ] ~f:(fun code ->
     let #(_len, res, _) =
       parse_ok buf (Printf.sprintf "HTTP/1.1 %d Status\r\n\r\n" code)
     in
     assert res.#bodyless);
+  let wire = "HTTP/1.1 205 Reset Content\r\nContent-Length: 5\r\n\r\nhello" in
+  let #(_len, res, _) = parse_ok buf wire in
+  assert (not res.#bodyless);
+  assert (I64.equal res.#content_length #5L);
+  assert (to_int res.#body_off + 5 = String.length wire);
   let #(_len, res, _) =
-    parse_ok ~request_method:Httpz.Method.Connect buf
+    parse_ok
+      ~request_method:Httpz.Method.Connect
+      buf
       "HTTP/1.1 200 Connection Established\r\n\r\n"
   in
   assert res.#bodyless;
@@ -291,13 +269,12 @@ let test_bodyless_response_framing () =
 ;;
 
 let test_body_bytes_in_buffer () =
-  (* Body bytes after the head do not count against the header-size
-     limit, however many of them arrived in the same read. *)
+  (* Body bytes after the head do not count against the header-size limit, however many of
+     them arrived in the same read. *)
   let buf = Bytes.create Httpz.buffer_size in
   let body = String.make 20000 'x' in
   let #(_len, res, _) =
-    parse_ok buf
-      ("HTTP/1.1 200 OK\r\nContent-Length: 20000\r\n\r\n" ^ body)
+    parse_ok buf ("HTTP/1.1 200 OK\r\nContent-Length: 20000\r\n\r\n" ^ body)
   in
   assert (I64.equal res.#content_length #20000L);
   Stdio.printf "test_body_bytes_in_buffer: PASSED\n"
@@ -305,16 +282,10 @@ let test_body_bytes_in_buffer () =
 
 let test_header_block_too_large () =
   let buf = Bytes.create Httpz.buffer_size in
-  let strict =
-    #{ limits with max_header_size = i16 64 }
-  in
-  let response =
-    "HTTP/1.1 200 OK\r\nX-Pad: " ^ String.make 100 'p' ^ "\r\n\r\n"
-  in
+  let strict = #{ limits with max_header_size = i16 64 } in
+  let response = "HTTP/1.1 200 OK\r\nX-Pad: " ^ String.make 100 'p' ^ "\r\n\r\n" in
   let len = copy_to_buffer buf response in
-  let #(status, _res, _headers) =
-    Httpz.Res.parse buf ~len:(i16 len) ~limits:strict
-  in
+  let #(status, _res, _headers) = Httpz.Res.parse buf ~len:(i16 len) ~limits:strict in
   assert (Poly.( = ) status Httpz.Buf_read.Headers_too_large);
   Stdio.printf "test_header_block_too_large: PASSED\n"
 ;;
@@ -322,14 +293,21 @@ let test_header_block_too_large () =
 let test_write_request_line () =
   let buf = Bytes.create 256 in
   let off =
-    Httpz.Req.write_request_line buf ~off:(i16 0) ~meth:"GET"
-      ~target:"/index.html" Httpz.Version.Http_1_1
+    Httpz.Req.write_request_line
+      buf
+      ~off:(i16 0)
+      ~meth:"GET"
+      ~target:"/index.html"
+      Httpz.Version.Http_1_1
   in
   let s = Bytes.To_string.sub buf ~pos:0 ~len:(to_int off) in
   assert (String.equal s "GET /index.html HTTP/1.1\r\n");
-  (* An extension method goes out as given. *)
   let off =
-    Httpz.Req.write_request_line buf ~off:(i16 0) ~meth:"PURGE" ~target:"/x"
+    Httpz.Req.write_request_line
+      buf
+      ~off:(i16 0)
+      ~meth:"PURGE"
+      ~target:"/x"
       Httpz.Version.Http_1_0
   in
   let s = Bytes.To_string.sub buf ~pos:0 ~len:(to_int off) in
@@ -338,11 +316,14 @@ let test_write_request_line () =
 ;;
 
 let test_request_round_trip () =
-  (* What the client writer emits, the server parser accepts. *)
   let buf = Bytes.create Httpz.buffer_size in
   let off =
-    Httpz.Req.write_request_line buf ~off:(i16 0) ~meth:"POST"
-      ~target:"/api/data" Httpz.Version.Http_1_1
+    Httpz.Req.write_request_line
+      buf
+      ~off:(i16 0)
+      ~meth:"POST"
+      ~target:"/api/data"
+      Httpz.Version.Http_1_1
   in
   let off = Httpz.Res.write_header buf ~off "Host" "example.com" in
   let off = Httpz.Res.write_content_length buf ~off 0 in
@@ -360,61 +341,50 @@ let test_chunk_parse_header () =
   (* A size line whose data has not arrived is still parsed. *)
   let len = copy_to_buffer buf "ffff\r\nab" in
   let #(status, size, data_off) =
-    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
-      ~max_chunk_size:max
+    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len) ~max_chunk_size:max
   in
   assert (Poly.( = ) status Httpz.Chunk.Complete);
   assert (size = 0xffff);
   assert (to_int data_off = 6);
-  (* Extensions are skipped. *)
   let len = copy_to_buffer buf "5;ext=1\r\nhello\r\n" in
   let #(status, size, data_off) =
-    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
-      ~max_chunk_size:max
+    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len) ~max_chunk_size:max
   in
   assert (Poly.( = ) status Httpz.Chunk.Complete);
   assert (size = 5);
   assert (to_int data_off = 9);
-  (* The final chunk points at the trailer area. *)
   let len = copy_to_buffer buf "0\r\nX-T: v\r\n\r\n" in
   let #(status, size, data_off) =
-    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
-      ~max_chunk_size:max
+    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len) ~max_chunk_size:max
   in
   assert (Poly.( = ) status Httpz.Chunk.Done);
   assert (size = 0);
   assert (to_int data_off = 3);
-  (* Partial and malformed size lines. *)
   let len = copy_to_buffer buf "ff" in
   let #(status, _size, _off) =
-    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
-      ~max_chunk_size:max
+    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len) ~max_chunk_size:max
   in
   assert (Poly.( = ) status Httpz.Chunk.Partial);
   let len = copy_to_buffer buf "xyz\r\n" in
   let #(status, _size, _off) =
-    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
-      ~max_chunk_size:max
+    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len) ~max_chunk_size:max
   in
   assert (Poly.( = ) status Httpz.Chunk.Malformed);
   List.iter [ "5 \r\nhello\r\n"; "5\t\r\nhello\r\n" ] ~f:(fun line ->
     let len = copy_to_buffer buf line in
     let #(status, _size, _off) =
-      Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
-        ~max_chunk_size:max
+      Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len) ~max_chunk_size:max
     in
     assert (Poly.( = ) status Httpz.Chunk.Malformed));
   let len = copy_to_buffer buf "5 \t; \tname \t= \tvalue\r\nhello\r\n" in
   let #(status, size, _off) =
-    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
-      ~max_chunk_size:max
+    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len) ~max_chunk_size:max
   in
   assert (Poly.( = ) status Httpz.Chunk.Complete);
   assert (size = 5);
   let len = copy_to_buffer buf "ffffffff\r\n" in
   let #(status, _size, _off) =
-    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
-      ~max_chunk_size:1024
+    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len) ~max_chunk_size:1024
   in
   assert (Poly.( = ) status Httpz.Chunk.Chunk_too_large);
   Stdio.printf "test_chunk_parse_header: PASSED\n"

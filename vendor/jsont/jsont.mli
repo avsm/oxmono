@@ -3,6 +3,8 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
+@@ portable
+
 (** Types for JSON values.
 
     This module provides a type for describing subsets of JSON values as
@@ -19,6 +21,40 @@
     {{!page-cookbook}cookbook}. *)
 
 (** {1:preliminaries Preliminaries} *)
+
+(** JSON type descriptions are portable, contention-safe values. They can be
+    defined at module scope and captured directly by portable closures, then
+    used concurrently by multiple domains. Functions retained by a
+    description are therefore required at [portable]. Values retained as
+    constants must additionally be safe to access at [contended].
+
+    Ordinary decoding defaults and fold initial values are portable factories
+    rather than shared values. This lets each decode allocate its own mutable
+    result without putting mutable state inside the description. An absent
+    case discriminator remains a contention-safe constant because it selects
+    a fixed branch rather than constructing decoded output. *)
+
+(** Thread-safe lazy values used by recursive JSON types. *)
+module Portable_lazy = Base.Portable_lazy
+
+(** Portable string maps used by map-shaped JSON combinators. *)
+module String_map : sig
+  type +'a t : value mod portable contended with 'a
+  val empty : 'a t
+  val create : unit -> 'a t
+  (** [create ()] is an empty map with fresh ownership. *)
+  val is_empty : 'a t -> bool
+  val mem : string -> 'a t -> bool
+  val find_opt : string -> 'a t -> 'a option
+  val add : string -> 'a -> 'a t -> 'a t
+  val singleton : string -> 'a -> 'a t
+  val remove : string -> 'a t -> 'a t
+  val update : string -> ('a option -> 'a option) -> 'a t -> 'a t
+  val fold : (string -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
+  val filter : (string -> 'a -> bool) -> 'a t -> 'a t
+  val union :
+    (string -> 'a -> 'a -> 'a option) -> 'a t -> 'a t -> 'a t
+end
 
 type 'a fmt = Format.formatter -> 'a -> unit
 (** The type for formatters of values of type ['a]. *)
@@ -83,7 +119,7 @@ module Textloc : sig
 
   (** {1:tloc Text locations} *)
 
-  type t
+  type t : immutable_data
   (** The type for text locations. A text location identifies a text
       span in an UTF-8 encoded file by an inclusive range of absolute
       {{!type-byte_pos}byte positions} and the {{!type-line_pos}line
@@ -205,7 +241,7 @@ end
     This type keeps information about source text locations
     and whitespace. *)
 module Meta : sig
-  type t
+  type t : immutable_data
   (** The type for node metadata. *)
 
   val make : ?ws_before:string -> ?ws_after:string -> Textloc.t -> t
@@ -257,7 +293,7 @@ module Path : sig
 
   (** {1:indices Indices} *)
 
-  type index =
+  type index : immutable_data =
   | Mem of string node (** Indexes the value of the member [n] of an object. *)
   | Nth of int node (** Indexes the value of the [n]th element of an array. *)
   (** The type for indexing operations on JSON values. *)
@@ -270,7 +306,7 @@ module Path : sig
 
   (** {1:path Paths} *)
 
-  type t
+  type t : immutable_data
   (** The type for paths, a sequence of indexing operations. *)
 
   val root : t
@@ -340,7 +376,7 @@ end
 
 (** Sorts of JSON values. *)
 module Sort : sig
-  type t =
+  type t : immediate =
   | Null (** Nulls *)
   | Bool (** Booleans *)
   | Number (** Numbers *)
@@ -374,10 +410,11 @@ end
 
 (** Encoding, decoding and query errors. *)
 module Error : sig
+  @@ portable
 
   (** {1:kinds Kinds of errors} *)
 
-  type kind
+  type kind : immutable_data
   (** The type for kind of errors. *)
 
   val kind_to_string : kind -> string
@@ -388,11 +425,11 @@ module Error : sig
   (** JSON error contexts. *)
   module Context : sig
 
-    type index = string node * Path.index
+    type index : immutable_data = string node * Path.index
     (** The type for context indices. The {{!Jsont.kinded_sort}kinded sort} of
         an array or object and its index. *)
 
-    type t = index list
+    type t : immutable_data = index list
     (** The type for erroring contexts. The first element indexes the
         root JSON value. *)
 
@@ -411,7 +448,7 @@ module Error : sig
         an object of {{!Jsont.kinded_sort}kinded sort} [kinded_sort]. *)
   end
 
-  type t = Context.t * Meta.t * kind
+  type t : immutable_data = Context.t * Meta.t * kind
   (** The type for errors. The context, the error localisation and the
       kind of error. *)
 
@@ -464,13 +501,13 @@ module Error : sig
   (**/**)
 end
 
-exception Error of Error.t
+exception Error of Error.t @@ portable
 (** The exception raised on map errors. In general codec and query
     functions turn that for you into a {!result} value. *)
 
 (** {1:types Types} *)
 
-type 'a t
+type 'a t : value mod portable contended
 (** The type for JSON types.
 
     A value of this type represents a subset of JSON values mapped to
@@ -512,8 +549,10 @@ module Base : sig
   (** The type for mapping JSON values of type ['a] to values of type ['b]. *)
 
   val map :
-    ?kind:string -> ?doc:string -> ?dec:(Meta.t -> 'a -> 'b) ->
-    ?enc:('b -> 'a) -> ?enc_meta:('b -> Meta.t) ->
+    ?kind:string -> ?doc:string ->
+    ?dec:(Meta.t -> 'a -> 'b) @ portable ->
+    ?enc:('b -> 'a) @ portable ->
+    ?enc_meta:('b -> Meta.t) @ portable ->
     unit -> ('a, 'b) map
   (** [map ~kind ~doc ~dec ~enc ~enc_meta ()] maps JSON base types
       represented by value of type ['a] to values of type ['b] with:
@@ -570,27 +609,33 @@ module Base : sig
       to give to {!val-map} from standard OCaml conversion interfaces.
       See also {!Jsont.of_of_string}. *)
 
-  val dec : ('a -> 'b) -> (Meta.t -> 'a -> 'b)
+  val dec : ('a -> 'b) @ portable -> (Meta.t -> 'a -> 'b) @ portable
   (** [dec f] is a decoding function from [f]. This assumes [f] never fails. *)
 
   val dec_result :
-    ?kind:string -> ('a -> ('b, string) result) -> (Meta.t -> 'a -> 'b)
+    ?kind:string -> ('a -> ('b, string) result) @ portable ->
+    (Meta.t -> 'a -> 'b) @ portable
   (** [dec f] is a decoding function from [f]. [Error _] values are given to
       {!Error.msg}, prefixed by [kind:] (if specified). *)
 
-  val dec_failure : ?kind:string -> ('a -> 'b) -> (Meta.t -> 'a -> 'b)
+  val dec_failure :
+    ?kind:string -> ('a -> 'b) @ portable ->
+    (Meta.t -> 'a -> 'b) @ portable
   (** [dec f] is a decoding function from [f]. [Failure _] exceptions
       are catched and given to {!Error.msg}, prefixed by [kind:] (if
       specified). *)
 
-  val enc : ('b -> 'a) -> ('b -> 'a)
+  val enc : ('b -> 'a) @ portable -> ('b -> 'a) @ portable
   (** [enc f] is an encoding function from [f]. This assumes [f] never fails. *)
 
-  val enc_result : ?kind:string -> ('b -> ('a, string) result) -> ('b -> 'a)
+  val enc_result :
+    ?kind:string -> ('b -> ('a, string) result) @ portable ->
+    ('b -> 'a) @ portable
   (** [enc_result f] is an encoding function from [f]. [Error _] values are
       given to {!Error.msg}, prefixed by [kind:] (if specified). *)
 
-  val enc_failure : ?kind:string -> ('b -> 'a) -> ('b -> 'a)
+  val enc_failure :
+    ?kind:string -> ('b -> 'a) @ portable -> ('b -> 'a) @ portable
   (** [enc_failure f] is an encoding function from [f]. [Failure _]
       exceptions are catched and given to {!Error.msg}, prefixed by [kind:]
       (if specified). *)
@@ -600,10 +645,13 @@ end
 
     Read the {{!page-cookbook.dealing_with_null}cookbook} on [null]s. *)
 
-val null : ?kind:string -> ?doc:string -> 'a -> 'a t
+val null :
+  ('a : value mod contended). ?kind:string -> ?doc:string ->
+  'a @ portable -> 'a t
 (** [null v] maps JSON nulls to [v]. On encodes any value of type ['a]
     is encoded by null. [doc] and [kind] are given to the underlying
-    {!Base.type-map}. See also {!Base.null}. *)
+    {!Base.type-map}. [v] is retained by the portable description and must be
+    safe to access at [contended]. See also {!Base.null}. *)
 
 val none : 'a option t
 (** [none] maps JSON nulls to [None]. *)
@@ -683,18 +731,25 @@ val int32 : int32 t
     on the [int32] range, otherwise the decoder errors. *)
 
 val int64 : int64 t
-(** [int] maps truncated JSON numbers or JSON strings to 64-bit
+(** [int64] maps truncated JSON numbers or JSON strings to 64-bit
     integers.
     {ul
     {- JSON numbers are sucessfully decoded if after truncation they can
-       be represented on the [int64] range, otherwise the decoder
-       errors. [int64] values are encoded as JSON numbers if the
-       integer is in the \[-2{^53};2{^53}\] range.}
-    {- JSON strings are decoded using {!int_of_string_opt}, this
+       be represented on the [int64] range unambiguously, otherwise the
+       decoder errors. [int64] values are encoded as JSON numbers if the
+       integer is in the \[-2{^53}+1;2{^53}-1\] range.}
+    {- JSON strings are decoded using {!Int64.of_string_opt}, this
        allows binary, octal, decimal and hex syntaxes and errors on
-       overflow and syntax errors. [int] values are encoded as JSON
-       strings with {!Int.to_string} when the integer is outside the
-       \[-2{^53};2{^53}\] range}} *)
+       overflow and syntax errors. [int64] values are encoded as JSON
+       strings with {!Int64.to_string} when the integer is outside the
+       \[-2{^53}+1;2{^53}-1\] range}}
+
+    {b Warning} Before version [0.2.0] the range used for codecing
+    as numbers was \[2{^53}+1;2{^53}\] which is
+    {{:https://github.com/dbuenzli/jsont/issues/18}wrong} for reliable
+    integer interchange. If you have encoded the numbers -2{^53} and
+    2{^53}, those will no longer parse back. You can use {!legacy_int64}
+    to decode them as numbers or string and encode them correctly as strings. *)
 
 val int64_as_string : int64 t
 (** [int64_as_string] maps JSON strings to 64-bit integers. On decodes
@@ -706,17 +761,24 @@ val int : int t
 (** [int] maps truncated JSON numbers or JSON strings to [int] values.
     {ul
     {- JSON numbers are sucessfully decoded if after truncation they can
-       be represented on the [int] range, otherwise the decoder
+       be represented on the [int] range unambiguously otherwise the decoder
        errors. [int] values are encoded as JSON numbers if the
-       integer is in the \[-2{^53};2{^53}\] range.}
+       integer is in the \[-2{^53}+1;2{^53}-1\] range.}
     {- JSON strings are decoded using {!int_of_string_opt}, this
        allows binary, octal, decimal and hex syntaxes and errors on
        overflow and syntax errors. [int] values are encoded as JSON
        strings with {!Int.to_string} when the integer is outside the
-       \[-2{^53};2{^53}\] range}}
+       \[-2{^53}+1;2{^53}-1\] range}}
 
     {b Warning.} The behaviour of this function is platform
-    dependent, it depends on the value of {!Sys.int_size}. *)
+    dependent, it depends on the value of {!Sys.int_size}.
+
+    {b Warning} Before version [0.2.0] the range used for codecing
+    as numbers was \[-2{^53};2{^53}\] which is
+    {{:https://github.com/dbuenzli/jsont/issues/18}wrong} for reliable
+    integer interchange. If you have encoded the numbers -2{^53} and
+    2{^53}, those will no longer parse back. You can use {!legacy_int}
+    to decode them as numbers or string and encode them correctly as strings. *)
 
 val int_as_string : int t
 (** [int_as_string] maps JSON strings to [int] values. On
@@ -726,6 +788,16 @@ val int_as_string : int t
 
     {b Warning.} The behaviour of this function is platform
     dependent, it depends on the value of {!Sys.int_size}. *)
+
+val legacy_int64 : int64 t
+(** [legacy_int64] should only be used for migrating data in which the values
+    -2{^53} and 2{^53} were encoded with {!int64} before version
+    0.2.0. See the warning in {!int64}. *)
+
+val legacy_int : int t
+(** [legacy_int] should only be used for migrating data in which the values
+    -2{^53} and 2{^53} values were encoded with {!int} before version
+    0.2.0. See the warning in {!int}. *)
 
 (** {2:enums Strings and enums}
 
@@ -740,16 +812,19 @@ val string : string t
     UTF-8 validity.  *)
 
 val of_of_string : ?kind:string -> ?doc:string ->
-  ?enc:('a -> string) -> (string -> ('a, string) result) -> 'a t
+  ?enc:('a -> string) @ portable ->
+  (string -> ('a, string) result) @ portable -> 'a t
 (** [of_of_string of_string] maps JSON string with a
     {{!Base.type-map}base map} using [of_string] for decoding and [enc] for
     encoding. See the {{!page-cookbook.transform_strings}cookbook}. *)
 
 val enum :
-  ?cmp:('a -> 'a -> int) -> ?kind:string -> ?doc:string ->
-  (string * 'a) list -> 'a t
+  ('a : value mod contended). ?cmp:('a -> 'a -> int) @ portable ->
+  ?kind:string -> ?doc:string -> (string * 'a) list @ portable -> 'a t
 (** [enum assoc] maps JSON strings member of the [assoc] list to the
-    corresponding OCaml value and vice versa in log(n).
+    corresponding OCaml value and vice versa in time linear in the length of
+    [assoc]. The direct immutable list representation keeps the description
+    portable without retaining an arbitrary-key comparator structure.
     [cmp] is used to compare the OCaml values, it defaults to {!Stdlib.compare}.
     Decoding and encoding errors on strings or values not part of
     [assoc] *)
@@ -770,23 +845,25 @@ module Array : sig
 
   (** {1:maps Maps} *)
 
-  type ('array, 'elt) enc =
-    { enc : 'acc. ('acc -> int -> 'elt -> 'acc) -> 'acc -> 'array -> 'acc }
+  type ('array, 'elt) enc : value mod portable contended =
+    { enc :
+        'acc. ('acc -> int -> 'elt -> 'acc) -> 'acc -> 'array -> 'acc
+        @@ portable contended }
   (** The type for specifying array encoding functions. A function to fold
       over the elements of type ['elt] of the array of type ['array]. *)
 
-  type ('array, 'elt, 'builder) map
+  type ('array, 'elt, 'builder) map : value mod portable contended
   (** The type for mapping JSON arrays with elements of type ['elt] to arrays
       of type ['array] using values of type ['builder] to build them. *)
 
   val map :
     ?kind:string -> ?doc:string ->
-    ?dec_empty:(unit -> 'builder) ->
-    ?dec_skip:(int -> 'builder -> bool) ->
-    ?dec_add:(int -> 'elt -> 'builder -> 'builder) ->
-    ?dec_finish:(Meta.t -> int -> 'builder -> 'array) ->
+    ?dec_empty:(unit -> 'builder) @ portable ->
+    ?dec_skip:(int -> 'builder -> bool) @ portable ->
+    ?dec_add:(int -> 'elt -> 'builder -> 'builder) @ portable ->
+    ?dec_finish:(Meta.t -> int -> 'builder -> 'array) @ portable ->
     ?enc:('array, 'elt) enc ->
-    ?enc_meta:('array -> Meta.t) -> 'elt t ->
+    ?enc_meta:('array -> Meta.t) @ portable -> 'elt t ->
     ('array, 'elt, 'builder) map
   (** [map elt] maps JSON arrays of type ['elt] to arrays of
       type ['array] built with type ['builder].
@@ -814,7 +891,7 @@ module Array : sig
 
   val list_map :
     ?kind:string -> ?doc:string ->
-    ?dec_skip:(int -> 'a list -> bool) -> 'a t ->
+    ?dec_skip:(int -> 'a list -> bool) @ portable -> 'a t ->
     ('a list, 'a, 'a list) map
   (** [list_map elt] maps JSON arrays with elements of type [elt]
       to [list] values. See also {!Jsont.list}. *)
@@ -824,7 +901,7 @@ module Array : sig
 
   val array_map :
     ?kind:string -> ?doc:string ->
-    ?dec_skip:(int -> 'a array_builder -> bool) -> 'a t ->
+    ?dec_skip:(int -> 'a array_builder -> bool) @ portable -> 'a t ->
     ('a array, 'a, 'a array_builder) map
   (** [array_map elt] maps JSON arrays with elements of type [elt]
       to [array] values. See also {!Jsont.array}. *)
@@ -834,7 +911,7 @@ module Array : sig
 
   val bigarray_map :
     ?kind:string -> ?doc:string ->
-    ?dec_skip:(int -> ('a, 'b, 'c) bigarray_builder -> bool) ->
+    ?dec_skip:(int -> ('a, 'b, 'c) bigarray_builder -> bool) @ portable ->
     ('a, 'b) Bigarray.kind -> 'c Bigarray.layout -> 'a t ->
     (('a, 'b, 'c) Bigarray.Array1.t, 'a, ('a, 'b, 'c) bigarray_builder) map
   (** [bigarray k l elt] maps JSON arrays with elements of
@@ -863,8 +940,8 @@ val array : ?kind:string -> ?doc:string -> 'a t -> 'a array t
     also {!Array.array_map}. *)
 
 val array_as_string_map :
-  ?kind:string -> ?doc:string -> key:('a -> string) -> 'a t ->
-  'a Map.Make(String).t t
+  ?kind:string -> ?doc:string -> key:('a -> string) @ portable -> 'a t ->
+  'a String_map.t t
 (** [array_as_string_map ~key t] maps JSON array elements of type [t] to
     string maps by indexing them with [key]. If two elements have
     the same [key] the element with the greatest index takes over.
@@ -877,20 +954,22 @@ val bigarray :
     See also {!Array.bigarray_map}. *)
 
 val t2 :
-  ?kind:string -> ?doc:string -> ?dec:('a -> 'a -> 't2) ->
-  ?enc:('t2 -> int -> 'a) -> 'a t -> 't2 t
+  ?kind:string -> ?doc:string -> ?dec:('a -> 'a -> 't2) @ portable ->
+  ?enc:('t2 -> int -> 'a) @ portable -> 'a t -> 't2 t
 (** [t2 ?dec ?enc t] maps JSON arrays with exactly 2 elements of type
     [t] to value of type ['t2]. Decodes error if there are more
     elements. [enc v i] must return the zero-based [i]th element. *)
 
 val t3 :
-  ?kind:string -> ?doc:string -> ?dec:('a -> 'a -> 'a -> 't3) ->
-  ?enc:('t3 -> int -> 'a) -> 'a t -> 't3 t
+  ?kind:string -> ?doc:string ->
+  ?dec:('a -> 'a -> 'a -> 't3) @ portable ->
+  ?enc:('t3 -> int -> 'a) @ portable -> 'a t -> 't3 t
 (** [t3] is like {!t2} but for 3 elements. *)
 
 val t4 :
-  ?kind:string -> ?doc:string -> ?dec:('a -> 'a -> 'a -> 'a -> 't4) ->
-  ?enc:('t4 -> int -> 'a) -> 'a t -> 't4 t
+  ?kind:string -> ?doc:string ->
+  ?dec:('a -> 'a -> 'a -> 'a -> 't4) @ portable ->
+  ?enc:('t4 -> int -> 'a) @ portable -> 'a t -> 't4 t
 (** [t4] is like {!t2} but for 4 elements. *)
 
 val tn : ?kind:string -> ?doc:string -> n:int -> 'a t -> 'a array t
@@ -909,11 +988,13 @@ module Object : sig
 
   (** {1:maps Maps} *)
 
-  type ('o, 'dec) map
+  type ('o, 'dec) map : value mod portable contended
   (** The type for mapping JSON objects to values of type ['o]. The
       ['dec] type is used to construct ['o] from members see {!val-mem}. *)
 
-  val map : ?kind:string -> ?doc:string -> 'dec -> ('o, 'dec) map
+  val map :
+    ('dec : value mod contended). ?kind:string -> ?doc:string ->
+    'dec @ portable -> ('o, 'dec) map
   (** [map dec] is an empty JSON object decoded by function [dec].
       {ul
       {- [kind] names the entities represented by the map and [doc]
@@ -921,17 +1002,22 @@ module Object : sig
       {- [dec] is a constructor eventually returning a value of
          type ['o] to be saturated with calls to {!val-mem}, {!val-case_mem}
          or {!val-keep_unknown}. This is needed for decoding. Use {!enc_only}
-         if the result is only used for encoding.}} *)
+         if the result is only used for encoding. It is retained in the
+         portable description and must be safe to access at [contended]. A
+         portable constructor function is the usual choice for records with
+         mutable fields. A contention-safe constant also works for an object
+         with no decoding members.}} *)
 
   val map' :
-    ?kind:string -> ?doc:string -> ?enc_meta:('o -> Meta.t) ->
-    (Meta.t -> 'dec) -> ('o, 'dec) map
+    ?kind:string -> ?doc:string -> ?enc_meta:('o -> Meta.t) @ portable ->
+    (Meta.t -> 'dec) @ portable -> ('o, 'dec) map
   (** [map' dec] is like {!val-map} except you get the object's
       decoding metdata in [dec] and [enc_meta] is used to recover it
       on encoding. *)
 
   val enc_only :
-    ?kind:string -> ?doc:string -> ?enc_meta:('o -> Meta.t) -> unit ->
+    ?kind:string -> ?doc:string -> ?enc_meta:('o -> Meta.t) @ portable ->
+    unit ->
     ('o, 'a) map
   (** [enc_only ()] is like {!val-map'} but can only be used for
       encoding. *)
@@ -951,13 +1037,14 @@ module Object : sig
 
     type ('o, 'dec) object_map := ('o, 'dec) map
 
-    type ('o, 'a) map
+    type ('o, 'a) map : value mod portable contended
     (** The type for mapping a member object to a value ['a] stored
         in an OCaml value of type ['o]. *)
 
     val map :
-      ?doc:string -> ?dec_absent:'a -> ?enc:('o -> 'a) ->
-      ?enc_omit:('a -> bool) -> string -> 'a t -> ('o, 'a) map
+      ?doc:string -> ?dec_absent:(unit -> 'a) @ portable ->
+      ?enc:('o -> 'a) @ portable ->
+      ?enc_omit:('a -> bool) @ portable -> string -> 'a t -> ('o, 'a) map
     (** See {!Jsont.Object.mem}. *)
 
     val app : ('o, 'a -> 'b) object_map -> ('o, 'a) map -> ('o, 'b) object_map
@@ -967,16 +1054,20 @@ module Object : sig
   end
 
   val mem :
-    ?doc:string -> ?dec_absent:'a -> ?enc:('o -> 'a) ->
-    ?enc_omit:('a -> bool) -> string -> 'a t -> ('o, 'a -> 'b) map ->
+    ?doc:string -> ?dec_absent:(unit -> 'a) @ portable ->
+    ?enc:('o -> 'a) @ portable ->
+    ?enc_omit:('a -> bool) @ portable -> string -> 'a t ->
+    ('o, 'a -> 'b) map ->
     ('o, 'b) map
   (** [mem name t map] is a member named [name] of type
       [t] for an object of type ['o] being constructed by [map].
       {ul
       {- [doc] is a documentation string for the member. Defaults to [""].}
-      {- [dec_absent], if specified, is the value used for the decoding
-         direction when the member named [name] is missing. If unspecified
-         decoding errors when the member is absent. See also {!opt_mem}
+      {- [dec_absent], if specified, produces the value used for the decoding
+         direction when the member named [name] is missing. It is a portable
+         function so mutable defaults can be freshly allocated on the domain
+         performing the decode. If unspecified, decoding errors when the
+         member is absent. See also {!opt_mem}
          and {{!page-cookbook.optional_members}this example}.}
       {- [enc] is used to project the member's value from the object
          representation ['o] for encoding to JSON with [t]. It can be omitted
@@ -988,11 +1079,11 @@ module Object : sig
          {{!page-cookbook.optional_members}this example}.}} *)
 
   val opt_mem :
-    ?doc:string -> ?enc:('o -> 'a option) -> string -> 'a t ->
+    ?doc:string -> ?enc:('o -> 'a option) @ portable -> string -> 'a t ->
     ('o, 'a option -> 'b) map -> ('o, 'b) map
   (** [opt_mem name t map] is:
   {[
-    let dec_absent = None and enc_omit = Option.is_none in
+    let dec_absent () = None and enc_omit = Option.is_none in
     Jsont.Object.mem name (Jsont.some t) map ~dec_absent ~enc_omit
   ]}
       A shortcut to represent optional members of type ['a] with ['a option]
@@ -1013,13 +1104,15 @@ module Object : sig
 
     type 'a jsont := 'a t
 
-    type ('cases, 'case, 'tag) map
+    type ('cases, 'case, 'tag : value mod contended) map
+      : value mod portable contended
     (** The type for mapping a case object represented by ['case] belonging to
         a common type represented by ['cases] depending on the value
         of a case member of type ['tag]. *)
 
     val map :
-      ?dec:('case -> 'cases) -> 'tag -> 'case jsont ->
+      ('tag : value mod contended). ?dec:('case -> 'cases) @ portable ->
+      'tag @ portable -> 'case jsont ->
       ('cases, 'case, 'tag) map
     (** [map ~dec v obj] defines the object map [obj] as being the
         case for the tag value [v] of the case member. [dec] indicates how to
@@ -1033,7 +1126,7 @@ module Object : sig
 
     (** {1:cases Cases} *)
 
-    type ('cases, 'tag) t
+    type ('cases, 'tag : value mod contended) t : value mod portable contended
     (** The type for a case of the type ['cases]. This is
         {!type-map} with its ['case] representation hidden. *)
 
@@ -1045,7 +1138,7 @@ module Object : sig
 
     (** {1:case Case values} *)
 
-    type ('cases, 'tag) value
+    type ('cases, 'tag : value mod contended) value
     (** The type for case values. This holds a case value and
         its case map {!type-map}. Use {!val-value} to construct them. *)
 
@@ -1054,10 +1147,13 @@ module Object : sig
   end
 
   val case_mem :
-    ?doc:string -> ?tag_compare:('tag -> 'tag -> int) ->
-    ?tag_to_string:('tag -> string) -> ?dec_absent:'tag ->
-    ?enc:('o -> 'cases) -> ?enc_omit:('tag -> bool) ->
-    ?enc_case:('cases -> ('cases, 'tag) Case.value) -> string -> 'tag t ->
+    ('tag : value mod contended). ?doc:string ->
+    ?tag_compare:('tag -> 'tag -> int) @ portable ->
+    ?tag_to_string:('tag -> string) @ portable ->
+    ?dec_absent:'tag @ portable ->
+    ?enc:('o -> 'cases) @ portable -> ?enc_omit:('tag -> bool) @ portable ->
+    ?enc_case:('cases -> ('cases, 'tag) Case.value) @ portable ->
+    string -> 'tag t ->
     ('cases, 'tag) Case.t list -> ('o, 'cases -> 'a) map -> ('o, 'a) map
   (** [case_mem name t cases map] is mostly like {!val-mem} except the member
       [name] selects an object representation according to the member value of
@@ -1068,8 +1164,9 @@ module Object : sig
       {- [tag_to_string] is used to stringify tags for improving
          error reporting.}
       {- [dec_absent], if specified, is the case value used for the decoding
-         direction when the case member named [name] is missing. If unspecified
-         decoding errors when the member is absent.}
+         direction when the case member named [name] is missing. It is retained
+         by the portable description and must be safe to access at [contended].
+         If unspecified, decoding errors when the member is absent.}
       {- [enc] is used to project the value in which cases are stored
          from the object representation ['o] for encoding to JSON. It
          can be omitted if the result is only used for decoding.}
@@ -1104,23 +1201,23 @@ module Object : sig
 
     type 'a jsont := 'a t
 
-    type ('mems, 'a) enc =
+    type ('mems, 'a) enc : value mod portable contended =
       { enc :
           'acc. (Meta.t -> string -> 'a -> 'acc -> 'acc) ->
-          'mems -> 'acc -> 'acc }
+          'mems -> 'acc -> 'acc @@ portable contended }
     (** The type for specifying unknown members encoding function.
         A function to fold over unknown members of uniform type ['a]
         stored in a value of type ['mems]. *)
 
-    type ('mems, 'a, 'builder) map
+    type ('mems, 'a, 'builder) map : value mod portable contended
     (** The type for mapping members of uniform type ['a] to values of
         type ['mems] using a builder of type ['builder]. *)
 
     val map :
       ?kind:string -> ?doc:string ->
-      ?dec_empty:(unit -> 'builder) ->
-      ?dec_add:(Meta.t -> string -> 'a -> 'builder -> 'builder) ->
-      ?dec_finish:(Meta.t -> 'builder -> 'mems) ->
+      ?dec_empty:(unit -> 'builder) @ portable ->
+      ?dec_add:(Meta.t -> string -> 'a -> 'builder -> 'builder) @ portable ->
+      ?dec_finish:(Meta.t -> 'builder -> 'mems) @ portable ->
       ?enc:('mems, 'a) enc -> 'a jsont -> ('mems, 'a, 'builder) map
     (** [map type'] maps unknown members of uniform type ['a]
         to values of type ['mems] built with type ['builder].
@@ -1146,7 +1243,7 @@ module Object : sig
 
     val string_map :
       ?kind:string -> ?doc:string -> 'a jsont ->
-      ('a Stdlib.Map.Make(String).t, 'a, 'a Stdlib.Map.Make(String).t) map
+      ('a String_map.t, 'a, 'a String_map.t) map
       (** [string_map t] collects unknown member by name and types their
           values with [t]. See {!keep_unknown} and {!as_string_map}. *)
   end
@@ -1162,7 +1259,7 @@ module Object : sig
       [map]. See {{!page-cookbook.erroring}this example}. *)
 
   val keep_unknown :
-    ?enc:('o -> 'mems) -> ('mems, _, _) Mems.map ->
+    ?enc:('o -> 'mems) @ portable -> ('mems, _, _) Mems.map ->
     ('o, 'mems -> 'a) map -> ('o, 'a) map
   (** [keep_unknown mems map] makes [map] keep unknown member with [mems].
       Raises [Invalid_argument] if {!keep_unknown} was already
@@ -1172,7 +1269,7 @@ module Object : sig
   (** {1:types JSON types } *)
 
   val as_string_map :
-    ?kind:string -> ?doc:string -> 'a t -> 'a Stdlib.Map.Make(String).t t
+    ?kind:string -> ?doc:string -> 'a t -> 'a String_map.t t
   (** [as_string_map t] maps object to key-value maps of type [t].
       See also {!Mems.string_map} and {!Jsont.json_mems}. *)
 
@@ -1185,7 +1282,7 @@ end
 val any :
   ?kind:string -> ?doc:string -> ?dec_null:'a t -> ?dec_bool:'a t ->
   ?dec_number:'a t -> ?dec_string:'a t -> ?dec_array:'a t ->
-  ?dec_object:'a t -> ?enc:('a -> 'a t) -> unit -> 'a t
+  ?dec_object:'a t -> ?enc:('a -> 'a t) @ portable -> unit -> 'a t
 (** [any ()] maps subsets of JSON value of different sorts to values
     of type ['a]. The unspecified cases are not part of the subset and
     error on decoding. [enc] selects the type to use on encoding and errors
@@ -1195,8 +1292,8 @@ val any :
 (** {1:maps Maps & recursion} *)
 
 val map :
-  ?kind:string -> ?doc:string -> ?dec:('a -> 'b) ->
-  ?enc:('b -> 'a) -> 'a t -> 'b t
+  ?kind:string -> ?doc:string -> ?dec:('a -> 'b) @ portable ->
+  ?enc:('b -> 'a) @ portable -> 'a t -> 'b t
 (** [map t] changes the type of [t] from ['a] to ['b].
     {ul
     {- [kind] names the entities represented by the type and [doc]
@@ -1211,7 +1308,8 @@ val map :
     For mapping base types use {!Jsont.Base.map}. *)
 
 val iter :
-  ?kind:string -> ?doc:string -> ?dec:('a -> unit) -> ?enc:('a -> unit) ->
+  ?kind:string -> ?doc:string -> ?dec:('a -> unit) @ portable ->
+  ?enc:('a -> unit) @ portable ->
   'a t -> 'a t
 (** [iter ?enc dec t] applies [dec] on decoding and [enc] on encoding
     but otherwise behaves like [t] does. Typically [dec] can be used
@@ -1219,9 +1317,10 @@ val iter :
     if it hasn't the right shape. [iter] can also be used as a tracing
     facility for debugging. *)
 
-val rec' : 'a t Lazy.t -> 'a t
+val rec' : 'a t Portable_lazy.t -> 'a t
 (** [rec'] maps recursive JSON values. See the {{!page-cookbook.recursion}
-    cookbook}. *)
+    cookbook}. The lazy value is a {!Portable_lazy.t}, so one recursive
+    description may be forced safely from several domains. *)
 
 (** {1:ignoring Ignoring} *)
 
@@ -1233,22 +1332,26 @@ val zero : unit t
 (** [zero] lossily maps all JSON values to [()] on decoding and
     encodes JSON nulls. *)
 
-val todo : ?kind:string -> ?doc:string -> ?dec_stub:'a -> unit -> 'a t
-(** [todo ?dec_stub ()]  maps all JSON values to [dec_stub] if
-    specified (errors otherwise) and errors on encoding. *)
+val todo :
+  ?kind:string -> ?doc:string -> ?dec_stub:(unit -> 'a) @ portable ->
+  unit -> 'a t
+(** [todo ?dec_stub ()] maps all JSON values to [dec_stub ()] if
+    specified. The portable function is called for each decode, so it can
+    allocate a fresh mutable result. If omitted, decoding errors. Encoding
+    always errors. *)
 
 (** {1:generic_json Generic JSON} *)
 
-type name = string node
+type name : immutable_data = string node
 (** The type for JSON member names. *)
 
-type mem = name * json
+type mem : immutable_data = name * json
 (** The type for generic JSON object members. *)
 
-and object' = mem list
+and object' : immutable_data = mem list
 (** The type for generic JSON objects. *)
 
-and json =
+and json : immutable_data =
 | Null of unit node
 | Bool of bool node
 | Number of float node
@@ -1375,6 +1478,13 @@ module Json : sig
   val find_mem' : name -> object' -> mem option
   (** [find_mem n ms] is [find_mem (fst n) ms]. *)
 
+  val remove_mem : string -> object' -> object'
+  (** [remove_mem n ms] removes the first member whose name matches [n] in
+      [ms]. The order is perserved. *)
+
+  val remove_mem' : name -> object' -> object'
+  (** [remove_mem' n ms] is [remove_mem (fst n) ms]. *)
+
   val object_names : object' -> string list
   (** [object_names ms] are the names of [ms]. *)
 
@@ -1455,11 +1565,13 @@ val json_mems : (json, json, mem list) Object.Mems.map
     process JSON data without having to fully model it
     (see the update example in the {{!page-index.quick_start}quick start}). *)
 
-val const : 'a t -> 'a -> 'a t
+val const :
+  ('a : value mod contended). 'a t -> 'a @ portable -> 'a t
 (** [const t v] maps any JSON value to [v] on decodes and
-    unconditionally encodes [v] with [t]. *)
+    unconditionally encodes [v] with [t]. [v] is retained by the portable
+    description and must be safe to access at [contended]. *)
 
-val recode : dec:'a t -> ('a -> 'b) -> enc:'b t -> 'b t
+val recode : dec:'a t -> ('a -> 'b) @ portable -> enc:'b t -> 'b t
 (** [recode ~dec f ~enc] maps on decodes like [dec] does followed by
     [f] and on encodes uses [enc]. This can be used to change the JSON
     sort of value. For example:
@@ -1475,13 +1587,16 @@ val update : 'a t -> json t
 
 (** {2:array_queries Arrays} *)
 
-val nth : ?absent:'a -> int -> 'a t -> 'a t
+val nth : ?absent:(unit -> 'a) @ portable -> int -> 'a t -> 'a t
 (** [nth n t] decodes the [n]th index of a JSON array with [t]. Other
     indices are skipped. The decode errors if there is no such index
-    unless [absent] is specified in which case this value is returned.
+    unless [absent] is specified, in which case the portable function is
+    called to produce the value.
     Encodes a singleton array. *)
 
-val set_nth : ?stub:json -> ?allow_absent:bool -> 'a t -> int -> 'a -> json t
+val set_nth :
+  ('a : value mod contended). ?stub:json -> ?allow_absent:bool ->
+  'a t -> int -> 'a @ portable -> json t
 (** [set_nth t n v] on decodes sets the [n]th value of a JSON array to
     [v] encoded by [t]. Other indices are left untouched. Errors if
     there is no such index unless [~allow_absent:true] is specified in
@@ -1490,10 +1605,11 @@ val set_nth : ?stub:json -> ?allow_absent:bool -> 'a t -> int -> 'a -> json t
     value [v] encoded by [t] (i.e. the "natural zero" of [v]'s encoding sort).
     Encodes like {!json_array} does. *)
 
-val update_nth : ?stub:json -> ?absent:'a -> int -> 'a t -> json t
+val update_nth :
+  ?stub:json -> ?absent:(unit -> 'a) @ portable -> int -> 'a t -> json t
 (** [update_nth n t] on decode recodes the [n]th value of a JSON array
     with [t]. Errors if there is no such index unless [absent] is
-    specified in which case the index is created with [absent],
+    specified in which case the index is created with a fresh [absent ()],
     encoded with [t] and preceeded by as many [stub] values as
     needed. [stub] defaults to {!Json.zero} applied to the recode.
     Encodes like {!json_array} does. *)
@@ -1504,35 +1620,41 @@ val delete_nth : ?allow_absent:bool -> int -> json t
     there is no such index unless [~allow_absent:true] is specified in
     which case the data is left untouched. *)
 
-val filter_map_array : 'a t -> 'b t -> (int -> 'a -> 'b option) -> json t
+val filter_map_array :
+  'a t -> 'b t -> (int -> 'a -> 'b option) @ portable -> json t
 (** [filter_map_array a b f] maps the [a] elements of a JSON array
     with [f] to [b] elements or deletes them on [None]. Encodes
     generic JSON arrays like {!json_array} does. *)
 
-val fold_array : 'a t -> (int -> 'a -> 'b -> 'b) -> 'b -> 'b t
-(** [fold_array t f acc] fold [f] over the [t] elements of a JSON
-    array starting with [acc]. Encodes an empty JSON array. *)
+val fold_array :
+  'a t -> (int -> 'a -> 'b -> 'b) @ portable ->
+  init:(unit -> 'b) @ portable -> 'b t
+(** [fold_array t f ~init] folds [f] over the [t] elements of a JSON
+    array starting with a fresh [init ()]. Encodes an empty JSON array. *)
 
 (** {2:object_queries Objects} *)
 
-val mem : ?absent:'a -> string -> 'a t -> 'a t
+val mem : ?absent:(unit -> 'a) @ portable -> string -> 'a t -> 'a t
 (** [mem name t] decodes the member named [name] of a JSON object with
     [t]. Other members are skipped. The decode errors if there is no
-    such member unless [absent] is specified in which case this value
+    such member unless [absent] is specified, in which case [absent ()]
     is returned. Encodes an object with a single [name] member. *)
 
-val set_mem : ?allow_absent:bool -> 'a t -> string -> 'a -> json t
+val set_mem :
+  ('a : value mod contended). ?allow_absent:bool ->
+  'a t -> string -> 'a @ portable -> json t
 (** [set_mem t name v] sets the member value of [name] of a [JSON]
     object to an encoding of [v] with [t]. This happens both on
     decodes and encodes. Errors if there is no such member unless
     [allow_absent:true] is specified in which case a member is added
     to the object. *)
 
-val update_mem : ?absent:'a -> string -> 'a t -> json t
+val update_mem :
+  ?absent:(unit -> 'a) @ portable -> string -> 'a t -> json t
 (** [update_mem name t] recodes the member value of [name] of a JSON
     object with [t]. This happens both on decodes and encodes.  Errors
     if there is no such member unless [absent] is specified in which
-    case a member with this value encoded with [t] is added to the
+    case a member with a fresh [absent ()] encoded with [t] is added to the
     object. *)
 
 val delete_mem : ?allow_absent:bool -> string -> json t
@@ -1543,25 +1665,33 @@ val delete_mem : ?allow_absent:bool -> string -> json t
     objects like {!json_object} does. *)
 
 val filter_map_object :
-  'a t -> 'b t -> (Meta.t -> string -> 'a -> (name * 'b) option) -> json t
+  'a t -> 'b t ->
+  (Meta.t -> string -> 'a -> (name * 'b) option) @ portable -> json t
 (** [filter_map_object a b f] maps the [a] members of a JSON object
     with [f] to [(n, b)] members or deletes them on [None]. The meta
     given to [f] is the meta of the member name. Encodes generic JSON
     arrays like {!json_object} does. *)
 
-val fold_object : 'a t -> (Meta.t -> string -> 'a -> 'b -> 'b) -> 'b -> 'b t
-(** [fold_object t f acc] folds [f] over the [t] members of a JSON object
-    starting with [acc]. Encodes an empty JSON object. *)
+val fold_object :
+  'a t -> (Meta.t -> string -> 'a -> 'b -> 'b) @ portable ->
+  init:(unit -> 'b) @ portable -> 'b t
+(** [fold_object t f ~init] folds [f] over the [t] members of a JSON object
+    starting with a fresh [init ()]. Encodes an empty JSON object. *)
 
 (** {2:index_queries Indices} *)
 
-val index : ?absent:'a -> Path.index -> 'a t -> 'a t
+val index :
+  ?absent:(unit -> 'a) @ portable -> Path.index -> 'a t -> 'a t
 (** [index] uses {!val-nth} or {!val-mem} on the given index. *)
 
-val set_index : ?allow_absent:bool -> 'a t -> Path.index -> 'a -> json t
+val set_index :
+  ('a : value mod contended). ?allow_absent:bool ->
+  'a t -> Path.index -> 'a @ portable -> json t
 (** [set_index] uses {!set_nth} or {!set_mem} on the given index. *)
 
-val update_index : ?stub:json -> ?absent:'a -> Path.index -> 'a t -> json t
+val update_index :
+  ?stub:json -> ?absent:(unit -> 'a) @ portable ->
+  Path.index -> 'a t -> json t
 (** [update_index] uses {!update_nth} or {!update_mem} on the given index. *)
 
 val delete_index : ?allow_absent:bool ->  Path.index -> json t
@@ -1569,16 +1699,19 @@ val delete_index : ?allow_absent:bool ->  Path.index -> json t
 
 (** {2:path_queries Paths} *)
 
-val path : ?absent:'a -> Path.t -> 'a t -> 'a t
+val path : ?absent:(unit -> 'a) @ portable -> Path.t -> 'a t -> 'a t
 (** [path p t] {{!index}decodes} with [t] on the last index of [p]. If
     [p] is {!Path.root} this is [t]. *)
 
 val set_path :
-  ?stub:json -> ?allow_absent:bool -> 'a t -> Path.t -> 'a -> json t
+  ('a : value mod contended). ?stub:json -> ?allow_absent:bool ->
+  'a t -> Path.t -> 'a @ portable -> json t
 (** [set_path t p v] {{!set_index}sets} the last index of [p]. If [p]
     is {!Path.root} this encodes [v] with [t]. *)
 
-val update_path : ?stub:json -> ?absent:'a -> Path.t -> 'a t -> json t
+val update_path :
+  ?stub:json -> ?absent:(unit -> 'a) @ portable ->
+  Path.t -> 'a t -> json t
 (** [update_path p t] {{!update_index}updates} the last index of [p] with
     [t]. On the root path this is [t]. *)
 
@@ -1588,7 +1721,7 @@ val delete_path : ?allow_absent:bool -> Path.t -> json t
 
 (** {1:fmt Formatting} *)
 
-type format =
+type format : immediate =
 | Minify (** Compact. No whitespace, no newlines. *)
 | Indent (** Indented output (not necessarily pretty). *)
 | Layout (** Follow {!Meta} layout information. *)
@@ -1665,22 +1798,24 @@ val pp_value : ?number_format:number_format -> 'a t -> unit -> 'a fmt
 module Repr : sig
   type 'a t' := 'a t
 
-  module String_map : Map.S with type key = string
-  (** A [Map.Make(String)] instance. *)
+  module String_map = String_map
+  (** A portable string map backed by [Base.Map.Poly]. *)
 
   (** Type identifiers. Can be removed once we require OCaml 5.1 *)
   module Type : sig
     type (_, _) eq = Equal : ('a, 'a) eq
     module Id : sig
-      type 'a t
+      type 'a t : value mod portable contended
       val make : unit -> 'a t
       val uid : 'a t -> int
       val provably_equal : 'a t -> 'b t -> ('a, 'b) eq option
     end
   end
 
-  type ('ret, 'f) dec_fun =
-  | Dec_fun : 'f -> ('ret, 'f) dec_fun
+  type ('ret, 'f) dec_fun : value mod portable contended =
+  | Dec_fun : ('ret : value) ('f : value mod contended).
+      'f @@ portable contended ->
+      ('ret, 'f) dec_fun
     (** The function and its return type. *)
   | Dec_app : ('ret, 'a -> 'b) dec_fun * 'a Type.Id.t -> ('ret, 'b) dec_fun
     (** Application of an argument to a function witnessed by a type
@@ -1690,18 +1825,18 @@ module Repr : sig
 
   (** {1:base Base value maps} *)
 
-  type ('a, 'b) base_map =
+  type ('a, 'b) base_map : value mod portable contended =
   { kind : string;
     (** The kind of JSON value that are mapped (documentation) *)
     doc : string;
     (** A doc string for the kind of JSON value. *)
-    dec : Meta.t -> 'a -> 'b;
+    dec : Meta.t -> 'a -> 'b @@ portable contended;
     (** [dec] decodes a base value represented by its metadata and ['a] to
         ['b]. *)
-    enc : 'b -> 'a;
+    enc : 'b -> 'a @@ portable contended;
     (** [enc] encodes a value of type ['b] to a base JSON value represented
         by ['a]. *)
-    enc_meta : 'b -> Meta.t;
+    enc_meta : 'b -> Meta.t @@ portable contended;
     (** [enc_meta] recovers the base JSON value metadata from ['b] (if any). *)
   }
   (** The type for mapping JSON base values represented in OCaml by
@@ -1710,7 +1845,7 @@ module Repr : sig
 
   (** {1:types JSON types} *)
 
-  type 'a t =
+  type 'a t : value mod portable contended =
   | Null : (unit, 'a) base_map -> 'a t (** Null maps. *)
   | Bool : (bool, 'a) base_map -> 'a t (** Boolean maps. *)
   | Number : (float, 'a) base_map -> 'a t (** Number maps. *)
@@ -1719,32 +1854,34 @@ module Repr : sig
   | Object : ('o, 'o) object_map -> 'o t (** Object maps. *)
   | Any : 'a any_map -> 'a t (** Map for different sorts of JSON values. *)
   | Map : ('b, 'a) map -> 'a t (** Map from JSON type ['b] to JSON type ['a]. *)
-  | Rec : 'a t Lazy.t -> 'a t (** Recursive definition. *)
+  | Rec : 'a t Portable_lazy.t -> 'a t (** Recursive definition. *)
   (** The type for JSON types. *)
 
   (** {1:array Array maps} *)
 
-  and ('array, 'elt, 'builder) array_map =
+  and ('array, 'elt, 'builder) array_map : value mod portable contended =
   { kind : string;
     (** The kind of JSON array mapped (documentation). *)
     doc : string;
     (** Documentation string for the JSON array. *)
     elt : 'elt t;
     (** The type for the array elements. *)
-    dec_empty : unit -> 'builder;
+    dec_empty : unit -> 'builder @@ portable contended;
     (** [dec_empty ()] creates a new empty array builder. *)
-    dec_skip : int -> 'builder -> bool;
+    dec_skip : int -> 'builder -> bool @@ portable contended;
     (** [dec_skip i b] determines if the [i]th index of the JSON array can be
         skipped. *)
-    dec_add : int -> 'elt -> 'builder -> 'builder;
+    dec_add : int -> 'elt -> 'builder -> 'builder @@ portable contended;
     (** [dec_add] adds the [i]th index value of the JSON array
         as decoded by [elt] to the builder. *)
-    dec_finish : Meta.t -> int -> 'builder -> 'array;
+    dec_finish : Meta.t -> int -> 'builder -> 'array @@ portable contended;
     (** [dec_finish] turns the builder into an array given its
         metadata and length. *)
-    enc : 'acc. ('acc -> int -> 'elt -> 'acc) -> 'acc -> 'array -> 'acc;
+    enc :
+      'acc. ('acc -> int -> 'elt -> 'acc) -> 'acc -> 'array -> 'acc
+      @@ portable contended;
     (** [enc] folds over the elements of the array for encoding. *)
-    enc_meta : 'array -> Meta.t;
+    enc_meta : 'array -> Meta.t @@ portable contended;
     (** [enc_meta] recovers the metadata of an array (if any). *) }
   (** The type for mapping JSON arrays to values of type ['array]
       with array elements mapped to type ['elt] and using a ['builder]
@@ -1752,7 +1889,7 @@ module Repr : sig
 
   (** {1:object_map Object maps} *)
 
-  and ('o, 'dec) object_map =
+  and ('o, 'dec) object_map : value mod portable contended =
   { kind : string;
     (** The kind of JSON object (documentation). *)
     doc : string;
@@ -1763,7 +1900,7 @@ module Repr : sig
     (** [mem_decs] are the member decoders sorted by member name. *)
     mem_encs : 'o mem_enc list;
     (** [mem_encs] is the list of member encoders. *)
-    enc_meta : 'o -> Meta.t;
+    enc_meta : 'o -> Meta.t @@ portable contended;
     (** [enc_meta] recovers the metadata of an object (if any). *)
     shape : 'o object_shape;
     (** [shape] is the {{!object_shape}shape} of the object. *) }
@@ -1772,13 +1909,15 @@ module Repr : sig
       have the same {!mem_map} values they are just sorted
       differently for decoding and encoding purposes. *)
 
-  and mem_dec = Mem_dec : ('o, 'a) mem_map -> mem_dec
+  and mem_dec : value mod portable contended =
+    Mem_dec : ('o, 'a) mem_map -> mem_dec
   (** The type for member maps in decoding position. *)
 
-  and 'o mem_enc = Mem_enc : ('o, 'a) mem_map -> 'o mem_enc
+  and 'o mem_enc : value mod portable contended =
+    Mem_enc : ('o, 'a) mem_map -> 'o mem_enc
   (** The type for member maps in encoding position. *)
 
-  and ('o, 'a) mem_map =
+  and ('o, 'a) mem_map : value mod portable contended =
   { name : string;
     (** The JSON member name. *)
     doc : string;
@@ -1789,9 +1928,9 @@ module Repr : sig
     (** A type identifier for the member. This allows to store
         the decode in a {!Dict.t} on decode and give it in time
         to the object decoding function of the object map. *)
-    dec_absent : 'a option;
-    (** The value to use if absent (if any). *)
-    enc : 'o -> 'a;
+    dec_absent : (unit -> 'a) option @@ portable contended;
+    (** A factory for the value to use if absent (if any). *)
+    enc : 'o -> 'a @@ portable contended;
     (** [enc] recovers the value to encode from ['o]. *)
     (*    enc_name_meta : 'a -> Meta.t;
           XXX This should have been the meta found for the name, but
@@ -1800,14 +1939,14 @@ module Repr : sig
           for decoding objects. The layout preserving updates occur
           via generic JSON which uses [mems_map] in which the meta
           is available in [dec_add]. Let's leave it that way for now. *)
-    enc_omit : 'a -> bool;
+    enc_omit : 'a -> bool @@ portable contended;
     (** [enc_omit] is [true] if the result of [enc] should
         not be encoded. *)
   }
   (** The type for mapping a JSON member to a value of type ['a] in
       an object represented by a value of type ['o]. *)
 
-  and 'o object_shape =
+  and 'o object_shape : value mod portable contended =
   | Object_basic : ('o, 'mems, 'builder) unknown_mems -> 'o object_shape
     (** A basic object, possibly indicating how to handle unknown members *)
   | Object_cases :
@@ -1819,35 +1958,38 @@ module Repr : sig
 
   (** {2:unknown_mems Unknown members} *)
 
-  and ('o, 'mems, 'builder) unknown_mems =
+  and ('o, 'mems, 'builder) unknown_mems : value mod portable contended =
   | Unknown_skip : ('o, unit, unit) unknown_mems
     (** Skip unknown members. *)
   | Unknown_error : ('o, unit, unit) unknown_mems
     (** Error on unknown members. *)
   | Unknown_keep :
-      ('mems, 'a, 'builder) mems_map * ('o -> 'mems) ->
+      ('mems, 'a, 'builder) mems_map *
+      ('o -> 'mems) @@ portable contended ->
       ('o, 'mems, 'builder) unknown_mems
     (** Gather unknown members in a member map. *)
   (** The type for specifying decoding behaviour on unknown JSON object
       members. *)
 
-  and ('mems, 'a, 'builder) mems_map =
+  and ('mems, 'a, 'builder) mems_map : value mod portable contended =
   { kind : string; (** The kind for unknown members (documentation). *)
     doc : string; (** Documentation string for the unknown members. *)
     mems_type : 'a t; (** The uniform type according which unknown members
                           are typed. *)
     id : 'mems Type.Id.t; (** A type identifier for the unknown member
                               map. *)
-    dec_empty : unit -> 'builder;
+    dec_empty : unit -> 'builder @@ portable contended;
     (** [dec_empty] create a new empty member map builder. *)
-    dec_add : Meta.t -> string -> 'a -> 'builder -> 'builder;
+    dec_add : Meta.t -> string -> 'a -> 'builder -> 'builder
+      @@ portable contended;
     (** [dec_add] adds a member named [n] with metadata [meta] and
         value parsed by [mems_type] to the builder. *)
-    dec_finish : Meta.t -> 'builder -> 'mems;
+    dec_finish : Meta.t -> 'builder -> 'mems @@ portable contended;
     (** [dec_finish] turns the builder into an unknown member map.
         The [meta] is the meta data of the object in which they were found. *)
     enc :
-      'acc. (Meta.t -> string -> 'a -> 'acc -> 'acc) -> 'mems -> 'acc -> 'acc;
+      'acc. (Meta.t -> string -> 'a -> 'acc -> 'acc) -> 'mems -> 'acc -> 'acc
+      @@ portable contended;
     (** [enc] folds over the member map for encoding. *)
   }
   (** The type for gathering unknown JSON members uniformly typed
@@ -1855,56 +1997,59 @@ module Repr : sig
 
   (** {2:case_objects Case objects} *)
 
-  and ('o, 'cases, 'tag) object_cases =
+  and ('o, 'cases, 'tag : value mod contended) object_cases
+      : value mod portable contended =
   { tag : ('tag, 'tag) mem_map;
     (** The JSON member used to decide cases. The [enc] field of
         this [mem_map] should be the identity, this allows
         encoders to reuse generic encoding code for members.  We
         don't have [('o, 'tag) mem_map] here because the tag is not
         stored we recover the case via [enc] and [enc_case] below. *)
-    tag_compare : 'tag -> 'tag -> int;
+    tag_compare : 'tag -> 'tag -> int @@ portable contended;
     (** The function to compare tags. *)
-    tag_to_string : ('tag -> string) option;
+    tag_to_string : ('tag -> string) option @@ portable contended;
     (** The function to stringify tags for error reporting. *)
     id : 'cases Type.Id.t;
     (** A type identifier for the tag. *)
     cases : ('cases, 'tag) case list;
     (** The list of possible cases. *)
-    enc : 'o -> 'cases;
+    enc : 'o -> 'cases @@ portable contended;
     (** [enc] is the function to recover case values from the value
         ['o] the object is mapped to. *)
-    enc_case : 'cases -> ('cases, 'tag) case_value;
+    enc_case : 'cases -> ('cases, 'tag) case_value @@ portable contended;
     (** [enc_case] retrieves the concrete case from the common
         [cases] values. You can see it as preforming a match. *)
   }
   (** The type for object cases mapped to a common type ['cases] stored
       in a vlue of type ['o] and identified by tag values of type ['tag]. *)
 
-  and ('cases, 'case, 'tag) case_map =
-  { tag : 'tag;
+  and ('cases, 'case, 'tag : value mod contended) case_map
+      : value mod portable contended =
+  { tag : 'tag @@ portable;
     (** The tag value for the case. *)
     object_map : ('case, 'case) object_map;
     (** The object map for the case. *)
-    dec : 'case -> 'cases;
+    dec : 'case -> 'cases @@ portable contended;
     (** [dec] is the function used on decoding to inject the case
         into the common ['cases] type. *)
   }
   (** The type for an object case with common type ['cases] specific
       type ['case] and tag type ['tag]. *)
 
-  and ('cases, 'tag) case_value =
+  and ('cases, 'tag : value mod contended) case_value =
   | Case_value :
       ('cases, 'case, 'tag) case_map * 'case -> ('cases, 'tag) case_value
   (** The type for case values. This packs a case value and its
       description. *)
 
-  and ('cases, 'tag) case =
+  and ('cases, 'tag : value mod contended) case
+      : value mod portable contended =
   | Case : ('cases, 'case, 'tag) case_map -> ('cases, 'tag) case
   (** The type for hiding the the concrete type of a case . *)
 
   (** {1:any Any maps} *)
 
-  and 'a any_map =
+  and 'a any_map : value mod portable contended =
   { kind : string;
     (** The kind of JSON values mapped (documentation). *)
     doc : string;
@@ -1921,7 +2066,7 @@ module Repr : sig
     (** [dec_array], if any, is used for decoding JSON arrays. *)
     dec_object : 'a t option;
     (** [dec_object], if any, is used for decoding JSON objects. *)
-    enc : 'a -> 'a t;
+    enc : 'a -> 'a t @@ portable contended;
     (** [enc] specifies the encoder to use on a given value. *)
   }
   (** The type for mapping JSON values with multiple sorts to a value
@@ -1930,16 +2075,16 @@ module Repr : sig
 
   (** {1:type_map Type maps} *)
 
-  and ('a, 'b) map =
+  and ('a, 'b) map : value mod portable contended =
   { kind : string;
     (** The kind of JSON values mapped (documentation). *)
     doc : string;
     (** Documentation string for the kind of values. *)
     dom : 'a t;
     (** The domain of the map. *)
-    dec : 'a -> 'b;
+    dec : 'a -> 'b @@ portable contended;
     (** [dec] decodes ['a] to ['b]. *)
-    enc : 'b -> 'a;
+    enc : 'b -> 'a @@ portable contended;
     (** [enc] encodes ['b] to ['a]. *) }
   (** The type for mapping JSON types of type ['a] to a JSON type of
       type ['b]. *)
@@ -2018,17 +2163,17 @@ module Repr : sig
   module Dict : sig
     type binding = B : 'a Type.Id.t * 'a -> binding
     type t
-    val empty : t
+    val empty : unit -> t
     val mem : 'a Type.Id.t -> t -> bool
     val add : 'a Type.Id.t -> 'a -> t -> t
     val remove : 'a Type.Id.t -> t -> t
     val find : 'a Type.Id.t -> t -> 'a option
   end
 
-  val apply_dict : ('ret, 'f) dec_fun -> Dict.t -> 'f
-  (** [apply_dict dec dict] applies [dict] to [f] in order to get the
-      value ['f]. Raises [Invalid_argument] if [dict] has not all the
-      type identifiers that [dec] needs. *)
+  val apply_dict : ('ret, 'ret) dec_fun -> Dict.t -> 'ret
+  (** [apply_dict dec dict] saturates [dec] with the values in [dict].
+      It raises [Invalid_argument] if an identifier is missing. A decoder that
+      consumes no arguments is returned directly. *)
 
   type unknown_mems_option =
   | Unknown_mems :
@@ -2049,7 +2194,8 @@ module Repr : sig
   (** [finish_object_decode map meta unknown_mems umap rem_mems dict] finishes
       an object map [map] decode. It adds the [umap] (if needed) to [dict],
       it adds [meta] to [dict] under {!object_meta_arg} and tries to find
-      andd default values to [dict] for [rem_mems] (and errors if it can't). *)
+      and add freshly produced default values to [dict] for [rem_mems] (and
+      errors if it cannot). *)
 
   val pp_code : string fmt
   (** [pp_code] formats strings like code (in bold). *)

@@ -23,6 +23,7 @@ depends: [
   "fmt" {>= "0.9.0"}
   "ptime"
   "uri"
+  "uriz"
   "x509"
   "odoc" {with-doc}
 ]

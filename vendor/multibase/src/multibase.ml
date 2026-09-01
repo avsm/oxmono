@@ -67,7 +67,8 @@ let convert : Encoding.t -> (t, [> `Unsupported of Encoding.t ]) result =
   | #t as t -> Ok t
   | t -> Error (`Unsupported t)
 
-let encode (t : Encoding.t) s =
+let encode (t : Encoding.t) s :
+    (string, [ `Msg of string | `Unsupported of Encoding.t ]) result =
   match convert t with Ok t -> encode_t t s | Error _ as e -> e
 
 let decode s =

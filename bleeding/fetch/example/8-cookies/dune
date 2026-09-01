@@ -1,0 +1,3 @@
+(executable
+ (name cookies)
+ (libraries fetch fetch-httpz eio_main localhost fetch.cookies))

@@ -4,8 +4,10 @@
  (libraries
   proffer
   httpz
+  httpz.tls
   eio
   cstruct
+  mtime
   unix
   stdlib_stable
   stdlib_upstream_compatible))

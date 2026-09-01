@@ -7,7 +7,7 @@ module Account = Sortal_schema_account
 module Platform = Sortal_schema_platform
 module Date = Sortal_schema_date
 module Feed = Sortal_schema_feed
-module Smap = Stdlib.Map.Make (String)
+module Smap = Jsont.String_map
 
 let version = 2
 
@@ -171,14 +171,16 @@ let affiliation_json =
 
 let vcard_json =
   Jsont.map ~kind:"VCard"
-    ~dec:(fun m -> Smap.bindings m)
-    ~enc:(fun l -> List.fold_left (fun m (k, v) -> Smap.add k v m) Smap.empty l)
+    ~dec:(fun m ->
+      List.rev (Smap.fold (fun k v acc -> (k, v) :: acc) m []))
+    ~enc:(fun l ->
+      List.fold_left (fun m (k, v) -> Smap.add k v m) (Smap.create ()) l)
     (Jsont.Object.as_string_map Jsont.string)
 
 (* Omit a collection that is empty rather than writing it as null, which is
    what V1 does in 173 of the 460 live files. *)
 let list_mem name codec get =
-  Jsont.Object.mem name codec ~dec_absent:[] ~enc:get
+  Jsont.Object.mem name codec ~dec_absent:(fun () -> []) ~enc:get
     ~enc_omit:(fun v -> v = [])
 
 (* [Jsont.int] accepts a numeric JSON string as well as a number, so a file

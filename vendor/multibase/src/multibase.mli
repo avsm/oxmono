@@ -1,3 +1,5 @@
+@@ portable
+
 module Encoding = Encoding
 module Base58 = Base58
 module Base32 = Base32

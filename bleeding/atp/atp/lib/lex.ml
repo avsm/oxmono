@@ -69,11 +69,18 @@ let to_block v =
 
 (* Jsont codec for lexicon values *)
 
-module String_map = Map.Make (String)
+module String_map = Jsont.String_map
 
 (* Post-process decoded map to handle special encodings *)
-let classify_map (m : value String_map.t) : value =
-  let entries = String_map.bindings m in
+let classify_map : (value String_map.t -> value) @ portable = fun m ->
+  let cid_of_string s =
+    match Cid.of_string_result s with
+    | Ok cid -> cid
+    | Error _ -> Jsont.Error.msg Jsont.Meta.none "invalid CID"
+  in
+  let entries =
+    String_map.fold (fun k v acc -> (k, v) :: acc) m [] |> List.rev
+  in
   match entries with
   | [ ("$bytes", `String b64) ] -> (
       (* Bytes encoding *)
@@ -82,7 +89,7 @@ let classify_map (m : value String_map.t) : value =
       | Error _ -> `Map entries)
   | [ ("$link", `String cid_str) ] ->
       (* Link encoding *)
-      `Link (Cid.of_string cid_str)
+      `Link (cid_of_string cid_str)
   | _ -> (
       (* Check for blob ref *)
       match String_map.find_opt "$type" m with
@@ -96,14 +103,14 @@ let classify_map (m : value String_map.t) : value =
               (* ref should be {"$link": "..."} *)
               match ref_entries with
               | [ ("$link", `String cid_str) ] ->
-                  let cid = Cid.of_string cid_str in
+                  let cid = cid_of_string cid_str in
                   `Blob { Blob_ref.cid; mime_type = mime; size }
               | _ -> `Map entries)
           | Some (`Map ref_entries), Some (`String mime), Some (`Float size)
             -> (
               match ref_entries with
               | [ ("$link", `String cid_str) ] ->
-                  let cid = Cid.of_string cid_str in
+                  let cid = cid_of_string cid_str in
                   `Blob
                     {
                       Blob_ref.cid;
@@ -115,25 +122,25 @@ let classify_map (m : value String_map.t) : value =
       | _ -> `Map entries)
 
 (* Encoder for special values that encode as objects *)
-let encode_object_value (v : value) : value String_map.t =
-  match v with
+let encode_object_value : (value -> value String_map.t) @ portable = function
   | `Bytes b -> String_map.singleton "$bytes" (`String (Base64.encode_string b))
   | `Link cid -> String_map.singleton "$link" (`String (Cid.to_string cid))
   | `Blob blob ->
-      String_map.of_list
+      List.fold_left (fun m (k, v) -> String_map.add k v m) (String_map.create ())
         [
           ("$type", `String "blob");
           ("ref", `Map [ ("$link", `String (Cid.to_string blob.cid)) ]);
           ("mimeType", `String blob.mime_type);
           ("size", `Int blob.size);
         ]
-  | `Map entries -> String_map.of_list entries
+  | `Map entries ->
+      List.fold_left (fun m (k, v) -> String_map.add k v m)
+        (String_map.create ()) entries
   | _ -> assert false
 
 let jsont : value Jsont.t =
-  let rec value_t =
-    lazy
-      (let null_t =
+  let make value_t =
+      let null_t =
          Jsont.map ~dec:(fun () -> `Null) ~enc:(fun _ -> ()) (Jsont.null ())
        in
        let bool_t =
@@ -181,9 +188,9 @@ let jsont : value Jsont.t =
            | `String _ -> string_t
            | `List _ -> array_t
            | `Bytes _ | `Link _ | `Blob _ | `Map _ -> object_t)
-         ())
+         ()
   in
-  Lazy.force value_t
+  Jsont.Portable_lazy.force (Jsont.Portable_lazy.from_fun_fixed make)
 
 (* Records *)
 

@@ -1,0 +1,3 @@
+(executable
+ (name form)
+ (libraries proffer proffer-httpz eio_main))

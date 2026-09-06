@@ -10,6 +10,32 @@ OxCaml.
 Proffer and Fetch use Eio for network I/O. Both include JSON, JSON Lines,
 CommonMark and HTML codecs, and provide mock backends for tests.
 
+## Design
+
+Proffer includes routing, typed body codecs, content negotiation and response
+caching. A handler can attach a `Cache_control` policy and an `Etag` to a
+response. Proffer handles conditional GET requests and HEAD responses
+consistently across its live and mock backends. `Cache.memoize` retains
+generated bodies for a specified lifetime. The
+[cache example](example/proffer/7-cache/README.md) shows both HTTP cache policy
+and caching within the server.
+
+Fetch treats a client as a capability that grants authority to make HTTP
+requests. A library accepts a client from its caller and can narrow it with
+`Fetch.restrict` to selected origins, path prefixes and methods.
+`Fetch.read_only` allows GET, HEAD and OPTIONS. Restrictions compose by
+intersection and apply to redirect hops as well as initial requests.
+
+For example, an API library can restrict its supplied client to
+`https://api.example.com/v1/`, attach credentials scoped to that API, then
+pass a read-only client to a component that only lists records. That component
+can add restrictions but cannot remove those already imposed through the
+client. Libraries can therefore share HTTP access without each receiving
+unrestricted network access or constructing its own transport. The same
+library can accept a mock client in tests. The
+[restriction](example/fetch/6-restrict/README.md) and
+[credential](example/fetch/7-credentials/README.md) examples show these policies.
+
 ## Repository layout
 
 - [`bleeding/proffer/`](bleeding/proffer/) contains the server library and its backends.

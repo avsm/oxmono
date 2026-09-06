@@ -1,91 +1,16 @@
-# proffer - Declarative HTTP serving for OxCaml
+# Proffer
 
-Proffer is a declarative HTTP server library. A handler describes a response
-and a backend owns the wire. Dispatch, conditional requests, and HEAD behavior
-are shared by the live `proffer-httpz` backend and `proffer.mock` tests.
+Proffer defines HTTP sites, routes and response handlers. `proffer-httpz`
+serves them through Eio. `proffer.mock` dispatches requests in memory.
 
-## Libraries
+Start with the [server and client examples](../../example/README.md).
+The [first Proffer lesson](../../example/proffer/1-hello/README.md)
+contains a complete program and its run command.
 
-| Library | Entry point | Purpose |
-| --- | --- | --- |
-| `proffer` | `Proffer` | Responses, routes, sites, and typed codecs |
-| `proffer.mock` | `Proffer_mock` | In-memory requests with no sockets |
-| `proffer-httpz` | `Proffer_httpz` | Eio HTTP/1.1 server using `httpz` |
+The main library includes JSON, JSON Lines, CommonMark and HTML codecs.
+Timeout and delay values use the external `Duration.t`, also available as
+`Proffer.Duration.t`.
 
-## Quick start
-
-```ocaml
-open Proffer
-open Proffer.Route
-
-let site =
-  Site.of_routes
-    [ get root (fun () _req respond -> Resp.text respond "index")
-    ; get (s "hello" / str) (fun who () _req respond ->
-        Resp.text respond ("hello " ^ who))
-    ]
-let () =
-  Eio_main.run @@ fun stdenv ->
-  Proffer_httpz.run stdenv ~env:() site
-```
-
-Build this program with `(libraries proffer proffer-httpz eio_main)`. It
-listens at `http://localhost:8765/`. See the [HTTP guide](../../HTTPZ.md) for
-complete build commands and the shared media libraries.
-
-Timeouts and cache lifetimes use the external `Duration.t`, re-exported as
-`Proffer.Duration.t`. For example, create a ten-second cache with
-`Proffer.Cache.create ~ttl:(Proffer.Duration.of_sec 10) ()`.
-
-A path is a chain of segments joined by `( / )`, starting from `root` or a
-literal `s "name"`, and ending in `rest` to capture whatever remains. Captures
-become curried handler arguments. A GET route also answers HEAD.
-
-Request and response bodies can be typed values. `Route.with_body` obtains a
-`Media.t` codec through a callback (which may simply return a captured
-module-level codec), decodes the body, and answers 415 or 400 when it cannot.
-`Resp.encode` responds with a value through one, and `Negotiate.encode`
-chooses among several by the Accept field. `Json` and `Markdown` provide
-codecs for Jsont descriptions and Cmarkit documents directly in the main
-library.
-
-The live backend serves plaintext by default. TLS is an optional listener
-policy: after constructing a `Tls.Config.server` from the site's certificate
-and private key, pass `~tls:(Httpz_tls.server config)` to
-`Proffer_httpz.run`. The handshake and subsequent HTTP first-byte wait are
-both bounded, independently, by `config.first_byte_timeout`.
-
-`proffer.mock` runs the same dispatcher without opening a socket:
-
-```ocaml
-let response =
-  Proffer_mock.request site () Httpz.Method.Get "/hello/world"
-in
-assert (Proffer_mock.body response = "hello world")
-```
-
-## Tutorial
-
-[`example/`](example#readme) is a step-by-step tutorial made of small complete
-programs, from a one-route server through routing, forms, caching, streaming,
-authentication and in-memory testing.
-
-## Requirements
-
-Route constructors take their handler at `portable`, so proffer needs the
-OxCaml compiler. A handler therefore cannot capture domain-bound state, and a
-site is portable by construction. `Media.t` codecs and Jsont descriptions are
-portable and may be captured directly. Mutable or otherwise domain-bound state
-reaches a handler through the `'env` argument, which the mode system does not
-constrain; build that state as a record of closures, one per domain.
-
-## Build
-
-```sh
-dune build
-dune runtest
-```
-
-## License
-
-ISC. See the [license](LICENSE.md).
+The [public interface](lib/proffer.mli) describes the API. The
+[repository guide](../../HTTPZ.md) describes library selection, setup
+and backend limits. All examples are under the top-level `example/` directory.

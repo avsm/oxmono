@@ -81,7 +81,7 @@ are recorded so future audits do not re-flag them.
 - `proffer/lib/cache.ml:18-38`: no size cap; expiry pruning runs only on the
   miss path. Distinct keys grow the assoc list forever and inserts are O(n)
   each (20k inserts ≈ 9 s, measured). No shipped component uses it (only
-  `proffer/example/7-cache` with a constant key), so it is a public-API
+  `example/proffer/7-cache` with a constant key), so it is a public-API
   misuse hazard rather than a live vulnerability.
 
 ### 7. `date.ml` reads past the allocation on short rfc850 values
@@ -322,7 +322,7 @@ Downstream-consumer risks (nothing in-repo makes decisions on these outputs):
 - `negotiate.ml:20-29` accepts `q=nan`/`q=inf`/`q=2`/hex floats; benign
   ordering effects only (`nan` sorts below everything, `inf`/`2` rank
   top — self-inflicted), but non-finite and >1 values should be rejected.
-- `proffer/example/9-auth/auth.ml:16` compares credentials with plain string
+- `example/proffer/9-auth/auth.ml:16` compares credentials with plain string
   equality — a timing oracle in code users will copy.
 - punycode decode has no label-length cap and is O(n²) (`punycode.ml:241-354`)
   — public-API hazard only, not reachable with remote input in-tree.

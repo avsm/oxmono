@@ -1,0 +1,3 @@
+(lang dune 3.21)
+(name httpz_examples)
+(implicit_transitive_deps false)

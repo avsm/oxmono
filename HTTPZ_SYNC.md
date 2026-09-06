@@ -1,7 +1,7 @@
 # Synchronizing HTTPz
 
 HTTPz, Fetch, Proffer and their portable dependencies were synchronized from
-`avsm/oxcaml-httpz` commit `afae5cecc4b29029dd5352a7b635f9742f66dcc6`
+`avsm/oxcaml-httpz` commit `00ef85b0910ac3adf20ad89436cc4abe19ac1b81`
 on 2026-09-06. [HTTPZ.md](HTTPZ.md) introduces the libraries, their
 dependencies and complete client/server examples.
 
@@ -12,12 +12,16 @@ dependencies and complete client/server examples.
 | `httpz/` | `bleeding/httpz/` |
 | `fetch/` | `bleeding/fetch/` |
 | `proffer/` | `bleeding/proffer/` |
+| `example/` | `example/` |
 | `test/release/` | `bleeding/fetch/test/release/` |
 | `test/dependencies/` | `bleeding/httpz/test/dependencies/` and `bleeding/fetch/test/dependencies/facades/` |
 | `vendor/NAME/` | `vendor/NAME/` |
 
-OxMono-only packages, examples and fuzz targets remain in these trees.
-Synchronize individual files rather than replacing destination directories.
+OxMono-only packages and fuzz targets remain in these trees. The shared HTTP
+examples live under the top-level `example/` directory. Server handlers receive
+clock operations through their environment so the examples also compile
+against the standalone portable Eio interfaces. Synchronize individual files
+rather than replacing destination directories.
 
 ## Monorepo adaptations
 
@@ -70,19 +74,22 @@ The other HTTPz benchmarks remain enabled.
 2. Compare the mapped files, retaining the adaptations above and OxMono-only
    packages. Check callers when shared dependency interfaces change.
 3. Use the `5.2.0+ox` switch and `--profile release-check` to build the HTTP
-   install targets and all three HTTP directory aliases, then run their tests
-   together with the external URI, Cstruct and Eio tests. Run all four HTTPz
-   fuzz targets and check the wider workspace for integration failures.
+   install targets, all three HTTP directory aliases and `@example/all`. Run
+   their tests together with the external URI, Cstruct and Eio tests. Run all
+   four HTTPz fuzz targets and check the wider workspace for integration failures.
 4. Review the diff and update this record before committing.
 
 The full workspace build, HTTP install targets, HTTP tests and four fuzz
 targets passed under `release-check`. External URI, Cstruct, Eio, ActivityPub
 and Arod tests passed for this sync. Twelve installed Findlib consumers
 compiled and ran in bytecode and native code, including shared URI type
-identity. Dependency
-exclusion checks passed, including no Checkseum or Decompress in Curl. All
-four exact HTTP guide programs compiled with their documented dependencies,
-and the media and URI examples ran. Local guide and README links resolve.
+identity. Dependency exclusion checks passed, including no Checkseum or
+Decompress in Curl.
+
+The unified example tree and HTTP install targets build under `release-check`.
+All 31 example programs ran, including the documented server/client pair.
+The HTTPS example was exercised with a local HTTP URL. Guide snippets match
+the compiled source files, and local README links and run paths resolve.
 
 Rendered API documentation requires an OxCaml-compatible odoc, which is not
 available in this switch. The unchanged ATP syntax suite requires the absent

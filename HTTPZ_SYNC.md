@@ -1,7 +1,7 @@
 # Synchronizing HTTPz
 
 HTTPz, Fetch, Proffer and their portable dependencies were synchronized from
-`avsm/oxcaml-httpz` commit `cae3c02c7023fc43a02fc914c71dc070648e96b7`
+`avsm/oxcaml-httpz` commit `cf0b6c6dbaa3ceae75bf9d6f85cad9ffdf43b938`
 on 2026-09-06. [HTTPZ.md](HTTPZ.md) introduces the libraries, their
 dependencies and complete client/server examples.
 

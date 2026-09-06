@@ -5,7 +5,8 @@
     {!Httpz.parse} or {!Res.parse}, which catch these exceptions and apply message-level
     rules and limits. *)
 
-(** [Parse_error status] is the exception reporting why a low-level parser stopped. *)
+(** [Parse_error status] is the exception reporting why a low-level parser stopped. It is
+    the same exception as {!Err.Parse_error}, so catching either name catches both. *)
 exception Parse_error of Buf_read.status
 
 (** A [pstate] is parser state over the first [len] bytes of [buf]. *)
@@ -57,6 +58,8 @@ val status_line
 (** [parse_header state ~pos] is
     [(name, name_span, value_span, next_pos)] for one field line. Obsolete folded lines are
     unfolded in place by replacing their line breaks and leading whitespace with spaces.
+    [value_span] excludes leading and trailing whitespace, including the spaces unfolding
+    introduced, so a folded field has the same value as the same field on one line.
 
     It raises [Parse_error] with {!Buf_read.Partial} for incomplete input,
     {!Buf_read.Bare_cr_detected} for a bare line ending,

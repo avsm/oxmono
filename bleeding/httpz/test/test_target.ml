@@ -10,7 +10,7 @@ open Base
 
 module I16 = Stdlib_stable.Int16_u
 module T = Httpz.Target
-module Scanner = Httpz.Uriz.Scanner
+module Scanner = Httpz_uri.Scanner
 
 let[@inline] i16 x = I16.of_int x
 let failures = ref 0
@@ -454,7 +454,7 @@ let test_query_split () =
   eq "find-first-wins" "/x?a=1&a=2" "a" (Some "1")
 ;;
 
-(* Splitting must agree with {!Httpz.Uriz.query_params}. Corpus items whose
+(* Splitting must agree with {!Httpz_uri.query_params}. Corpus items whose
    canonical form differs from their text are skipped so both sides compare the
    same percent-encoding. *)
 let test_query_vs_uriz () =
@@ -468,17 +468,17 @@ let test_query_vs_uriz () =
   in
   List.iter ("" :: "a=1&" :: "&" :: "a" :: queries) ~f:(fun q ->
     let text = "/x?" ^ q in
-    match Httpz.Uriz.of_string text with
+    match Httpz_uri.of_string text with
     | Null -> ()
     | This u ->
-      if String.equal (Httpz.Uriz.to_string u) text
+      if String.equal (Httpz_uri.to_string u) text
       then begin
         let want =
-          List.map (Httpz.Uriz.query_params u) ~f:(fun (key, value) ->
+          List.map (Httpz_uri.query_params u) ~f:(fun (key, value) ->
             key, Option.value value ~default:"")
         in
         let decode s =
-          match Httpz.Uriz.percent_decode s with
+          match Httpz_uri.percent_decode s with
           | This s -> s
           | Null -> assert false
         in
@@ -733,6 +733,60 @@ let test_partial_target () =
           (Httpz.Buf_read.status_to_string (status_of full))))
 ;;
 
+(* The reported offset names a byte of the request-target. One past it is the
+   SP that ends the target, which belongs to the request line, and a caller
+   that echoes the byte at [error_offset] would quote the wrong one. *)
+let test_error_offset_in_span () =
+  let at target ~off =
+    let #(_, got) = parse_at target ~off in
+    T.error_offset got
+  in
+  let expect name target ~off ~want =
+    let got = at target ~off in
+    check name (got = want) (fun () ->
+      Printf.sprintf "%S at %d -> %d, wanted %d" target off got want)
+  in
+  (* authority-form with no ':' and with no port: the fault is the last byte
+     of the target, not the byte after it. *)
+  expect "authority-no-colon" "host" ~off:5 ~want:8;
+  expect "authority-no-port" "host:" ~off:5 ~want:9;
+  expect "authority-ipv6-no-colon" "[::1]" ~off:5 ~want:9;
+  (* A space inside an absolute-form target is reported where it stands, not
+     at the first slash that authority-form trips over. *)
+  expect "absolute-embedded-space" "http://ho st/x" ~off:5 ~want:14;
+  expect "absolute-embedded-space-late" "http://host/a b" ~off:3 ~want:16;
+  List.iter
+    [ "host"
+    ; "host:"
+    ; "host:70000"
+    ; "host:x"
+    ; "[::1]"
+    ; "[::1"
+    ; "http://ho st/x"
+    ; "http://host/a b"
+    ; "http://u@h/"
+    ; ","
+    ; "a,b:80"
+    ]
+    ~f:(fun target ->
+      let off = 7 in
+      let len = String.length target in
+      let #(_, got) = parse_at target ~off in
+      check
+        "invalid-offset-in-span"
+        ((not (T.is_valid got))
+         && T.error_offset got >= off
+         && T.error_offset got < off + len)
+        (fun () ->
+           Printf.sprintf
+             "%S at %d (len %d) -> valid=%b offset=%d"
+             target
+             off
+             len
+             (T.is_valid got)
+             (T.error_offset got)))
+;;
+
 let () =
   differential fixed_corpus ~why:"fixed";
   differential (random_corpus 20_000) ~why:"random";
@@ -747,6 +801,7 @@ let () =
   test_host_field ();
   test_target_length ();
   test_partial_target ();
+  test_error_offset_in_span ();
   if !failures = 0
   then Stdio.printf "test_target: all checks passed\n"
   else begin

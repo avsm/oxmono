@@ -1,18 +1,22 @@
 (library
  (name fetch)
  (public_name fetch)
- (libraries
+ (private_modules client sse)
+ (libraries duration
   eio
   http
   ipaddr
   stdlib_stable
+  stdlib_upstream_compatible
   fmt
   cstruct
   mtime
   bytesrw
   httpz
+  httpz.uri
+  httpz.media
+  httpz.media.jsont
+  httpz.media.cmarkit
   httpz.punycode.idna
   httpz.pubsuffix
-  cmarkit
-  base64)
- (private_modules media_cmarkit))
+  base64))

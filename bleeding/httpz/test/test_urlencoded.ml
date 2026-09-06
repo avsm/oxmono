@@ -1,5 +1,5 @@
-module Media = Httpz.Media
-module U = Httpz.Urlencoded
+module Media = Httpz_media
+module U = Httpz_media.Urlencoded
 
 let check_str = Alcotest.(check string)
 let check_bool = Alcotest.(check bool)

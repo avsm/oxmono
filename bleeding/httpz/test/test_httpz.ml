@@ -220,7 +220,7 @@ let test_huge_body_window_math () =
   assert (Poly.( = ) status Httpz.Buf_read.Complete);
   assert (not (Httpz.Req.body_in_buffer ~len:(i16 len) req));
   assert (Httpz.Span.len (Httpz.Req.body_span ~len:(i16 len) req) = -1);
-  assert (to_int (Httpz.Req.body_bytes_needed ~len:(i16 len) req) > 0);
+  assert (to_int (Httpz.Req.body_bytes_needed ~len:(i16 len) req) = -1);
   Stdio.printf "test_huge_body_window_math: PASSED\n"
 ;;
 
@@ -1147,6 +1147,235 @@ let test_write_accept_ranges () =
   Stdio.printf "test_write_accept_ranges: PASSED\n"
 ;;
 
+let test_response_control_trailers () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let data =
+    "Age: 1\r\n\
+     Date: Mon, 01 Jan 2024 00:00:00 GMT\r\n\
+     Expires: Mon, 01 Jan 2024 00:00:00 GMT\r\n\
+     Location: /elsewhere\r\n\
+     Retry-After: 120\r\n\
+     Vary: Accept\r\n\
+     X-Custom: value\r\n\
+     \r\n"
+  in
+  let len = copy_to_buffer buf data in
+  let #(status, _end_off, trailers) =
+    Httpz.Chunk.parse_trailers buf ~off:(i16 0) ~len:(i16 len)
+      ~max_header_count:(i16 16)
+  in
+  assert (Poly.( = ) status Httpz.Chunk.Trailer_complete);
+  assert (List.length trailers = 1);
+  List.iter
+    ~f:(fun name -> assert (Httpz.Chunk.is_forbidden_trailer_name name))
+    [ "age"; "date"; "expires"; "location"; "retry-after"; "vary" ];
+  (* Consumed forbidden fields count against [max_header_count]. *)
+  let #(status, _end_off, trailers) =
+    Httpz.Chunk.parse_trailers buf ~off:(i16 0) ~len:(i16 len)
+      ~max_header_count:(i16 3)
+  in
+  assert (Poly.( = ) status Httpz.Chunk.Trailer_malformed);
+  assert (List.is_empty trailers);
+  Stdio.printf "test_response_control_trailers: PASSED\n"
+
+let test_chunk_window_validation () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let len = copy_to_buffer buf "5\r\nhello\r\n" in
+  let max = Httpz.Chunk.default_max_chunk_size in
+  let #(status, _size, _data_off) =
+    Httpz.Chunk.parse_header buf ~off:(i16 (-1)) ~len:(i16 len)
+      ~max_chunk_size:max
+  in
+  assert (Poly.( = ) status Httpz.Chunk.Malformed);
+  let #(status, _size, _data_off) =
+    Httpz.Chunk.parse_header buf ~off:(i16 0)
+      ~len:(i16 (Bytes.length buf + 1))
+      ~max_chunk_size:max
+  in
+  assert (Poly.( = ) status Httpz.Chunk.Malformed);
+  let #(status, _chunk) = Httpz.Chunk.parse buf ~off:(i16 (-1)) ~len:(i16 len) in
+  assert (Poly.( = ) status Httpz.Chunk.Malformed);
+  let #(trailer_status, _end_off, trailers) =
+    Httpz.Chunk.parse_trailers buf ~off:(i16 (-1)) ~len:(i16 len)
+      ~max_header_count:(i16 8)
+  in
+  assert (Poly.( = ) trailer_status Httpz.Chunk.Trailer_malformed);
+  assert (List.is_empty trailers);
+  let #(trailer_status, _end_off, _trailers) =
+    Httpz.Chunk.parse_trailers buf ~off:(i16 0)
+      ~len:(i16 (Bytes.length buf + 1))
+      ~max_header_count:(i16 8)
+  in
+  assert (Poly.( = ) trailer_status Httpz.Chunk.Trailer_malformed);
+  (* A window inside the buffer still parses. *)
+  let #(status, _size, _data_off) =
+    Httpz.Chunk.parse_header buf ~off:(i16 0) ~len:(i16 len)
+      ~max_chunk_size:max
+  in
+  assert (Poly.( = ) status Httpz.Chunk.Complete);
+  Stdio.printf "test_chunk_window_validation: PASSED\n"
+
+let test_trailer_bare_lf () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let parse text =
+    let len = copy_to_buffer buf text in
+    let #(status, _end_off, _trailers) =
+      Httpz.Chunk.parse_trailers buf ~off:(i16 0) ~len:(i16 len)
+        ~max_header_count:(i16 8)
+    in
+    status
+  in
+  (* A bare LF with no later CRLF is reported as such, not as more input. *)
+  assert (Poly.( = ) (parse "X-Late: a\nb") Httpz.Chunk.Trailer_bare_cr);
+  assert (Poly.( = ) (parse "X-Late: a\nb\r\n\r\n") Httpz.Chunk.Trailer_bare_cr);
+  (* A CR in the last byte of the window may still become a CRLF. *)
+  assert (Poly.( = ) (parse "X-Late: a\r") Httpz.Chunk.Trailer_partial);
+  assert (Poly.( = ) (parse "X-Late: a") Httpz.Chunk.Trailer_partial);
+  Stdio.printf "test_trailer_bare_lf: PASSED\n"
+
+let test_negative_max_chunk_size () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let len = copy_to_buffer buf "0\r\n\r\n" in
+  let #(status, chunk) =
+    Httpz.Chunk.parse_with_limit buf ~off:(i16 0) ~len:(i16 len)
+      ~max_chunk_size:(-1)
+  in
+  assert (Poly.( = ) status Httpz.Chunk.Done);
+  assert (to_int chunk.#data_len = 0);
+  let len = copy_to_buffer buf "1\r\na\r\n" in
+  let #(status, _chunk) =
+    Httpz.Chunk.parse_with_limit buf ~off:(i16 0) ~len:(i16 len)
+      ~max_chunk_size:(-1)
+  in
+  assert (Poly.( = ) status Httpz.Chunk.Chunk_too_large);
+  Stdio.printf "test_negative_max_chunk_size: PASSED\n"
+
+let test_obs_fold_leading_ows () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let #(_len, parse_buf, _req, headers) =
+    parse_ok buf
+      "GET / HTTP/1.1\r\nHost: example.com\r\nX-Fold:\r\n two\r\n\r\n"
+  in
+  (match Httpz.Header.find_string parse_buf headers "x-fold" with
+  | Some hdr -> assert (Httpz.Span.equal parse_buf hdr.Httpz.Header.value "two")
+  | None -> assert false);
+  (* The same field on one line has the same value. *)
+  let #(_len, parse_buf, _req, headers) =
+    parse_ok buf "GET / HTTP/1.1\r\nHost: example.com\r\nX-Fold: two\r\n\r\n"
+  in
+  (match Httpz.Header.find_string parse_buf headers "x-fold" with
+  | Some hdr -> assert (Httpz.Span.equal parse_buf hdr.Httpz.Header.value "two")
+  | None -> assert false);
+  (* A folded Host is a valid host once the introduced spaces are dropped. *)
+  let #(_len, parse_buf, _req, headers) =
+    parse_ok buf "GET / HTTP/1.1\r\nHost:\r\n example.com\r\n\r\n"
+  in
+  (match Httpz.Header.find_string parse_buf headers "host" with
+  | Some hdr ->
+      assert (Httpz.Span.equal parse_buf hdr.Httpz.Header.value "example.com")
+  | None -> assert false);
+  Stdio.printf "test_obs_fold_leading_ows: PASSED\n"
+
+(* [Res.is_chunked] says only that chunked is the final coding, so a client
+   that implements no other coding needs the count to reject "gzip, chunked". *)
+let test_response_transfer_coding_count () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let parse ?request_method wire =
+    let len = copy_to_buffer buf wire in
+    let #(status, res, _headers) =
+      Httpz.Res.parse ?request_method buf ~len:(i16 len) ~limits
+    in
+    assert (Poly.( = ) status Httpz.Buf_read.Complete);
+    res
+  in
+  let res = parse "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" in
+  assert res.#is_chunked;
+  assert (res.#transfer_coding_count = 1);
+  let res = parse "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n" in
+  assert res.#is_chunked;
+  assert (res.#transfer_coding_count = 2);
+  (* The same list split across two fields counts the same. *)
+  let res =
+    parse
+      "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\nTransfer-Encoding: chunked\r\n\r\n"
+  in
+  assert res.#is_chunked;
+  assert (res.#transfer_coding_count = 2);
+  (* Empty list members are not codings. *)
+  let res = parse "HTTP/1.1 200 OK\r\nTransfer-Encoding: ,chunked,\r\n\r\n" in
+  assert (res.#transfer_coding_count = 1);
+  (* A bodyless response is not chunked, but the metadata stays observable. *)
+  let res =
+    parse
+      ~request_method:Httpz.Method.Head
+      "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n"
+  in
+  assert res.#bodyless;
+  assert (not res.#is_chunked);
+  assert (res.#transfer_coding_count = 2);
+  let res = parse "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" in
+  assert (res.#transfer_coding_count = 0);
+  Stdio.printf "test_response_transfer_coding_count: PASSED\n"
+
+(* RFC 9110 5.6.1 permits an empty list, and 417 answers an expectation the
+   server does not support, not the absence of one. *)
+let test_expect_empty_list () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let check_none wire =
+    let #(_len, _parse_buf, req, _headers) = parse_ok buf wire in
+    assert (not req.#expect_continue);
+    assert (not req.#unsupported_expectation)
+  in
+  check_none "POST /u HTTP/1.1\r\nHost: h\r\nExpect: \r\nContent-Length: 0\r\n\r\n";
+  check_none "POST /u HTTP/1.1\r\nHost: h\r\nExpect:\r\nContent-Length: 0\r\n\r\n";
+  check_none "POST /u HTTP/1.1\r\nHost: h\r\nExpect: ,\r\nContent-Length: 0\r\n\r\n";
+  check_none "POST /u HTTP/1.1\r\nHost: h\r\nExpect: , ,\r\nContent-Length: 0\r\n\r\n";
+  (* A named expectation is still unsupported. *)
+  let #(_len, _parse_buf, req, _headers) =
+    parse_ok buf "POST /u HTTP/1.1\r\nHost: h\r\nExpect: fancy\r\nContent-Length: 0\r\n\r\n"
+  in
+  assert req.#unsupported_expectation;
+  Stdio.printf "test_expect_empty_list: PASSED\n"
+
+(* A Content-Length no [int] can hold has no honest count of bytes still
+   needed, so the advisory answer is the incomplete sentinel. *)
+let test_body_bytes_needed_saturation () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let permissive =
+    #{ limits with max_content_length = I64.of_int64 9223372036854775807L }
+  in
+  let parse wire =
+    let len = copy_to_buffer buf wire in
+    let #(status, req, _headers) = Httpz.parse buf ~len:(i16 len) ~limits:permissive in
+    assert (Poly.( = ) status Httpz.Buf_read.Complete);
+    #(len, req)
+  in
+  let #(len, req) =
+    parse "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 9223372036854775807\r\n\r\n"
+  in
+  assert (to_int (Httpz.Req.body_bytes_needed ~len:(i16 len) req) = -1);
+  assert (not (Httpz.Req.body_in_buffer ~len:(i16 len) req));
+  (* A body that merely has not arrived yet still reports its own shortfall. *)
+  let #(len, req) = parse "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc" in
+  assert (to_int (Httpz.Req.body_bytes_needed ~len:(i16 len) req) = 7);
+  let #(len, req) = parse "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc" in
+  assert (to_int (Httpz.Req.body_bytes_needed ~len:(i16 len) req) = 0);
+  Stdio.printf "test_body_bytes_needed_saturation: PASSED\n"
+
+(* RFC 9110 7.8 confines Upgrade to HTTP/1.1 and later, as the two Expect
+   flags beside it already are. *)
+let test_connection_upgrade_http10 () =
+  let buf = Bytes.create Httpz.buffer_size in
+  let #(_len, _parse_buf, req, _headers) =
+    parse_ok buf "GET / HTTP/1.0\r\nConnection: upgrade\r\nUpgrade: h2c\r\n\r\n"
+  in
+  assert (not req.#connection_upgrade);
+  let #(_len, _parse_buf, req, _headers) =
+    parse_ok buf "GET / HTTP/1.1\r\nHost: h\r\nConnection: upgrade\r\nUpgrade: h2c\r\n\r\n"
+  in
+  assert req.#connection_upgrade;
+  Stdio.printf "test_connection_upgrade_http10: PASSED\n"
+
 let () =
   test_simple_get ();
   test_post_with_body ();
@@ -1209,5 +1438,14 @@ let () =
   test_write_content_range_unsatisfiable ();
   test_write_accept_ranges ();
   test_generate_boundary ();
+  test_response_control_trailers ();
+  test_chunk_window_validation ();
+  test_trailer_bare_lf ();
+  test_negative_max_chunk_size ();
+  test_obs_fold_leading_ows ();
+  test_response_transfer_coding_count ();
+  test_expect_empty_list ();
+  test_body_bytes_needed_saturation ();
+  test_connection_upgrade_http10 ();
   Stdio.printf "\nAll tests passed!\n"
 ;;

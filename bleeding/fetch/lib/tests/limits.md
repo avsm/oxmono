@@ -34,7 +34,7 @@ Sequential requests to one origin are spaced `min_interval` apart:
 ```ocaml
 # run @@ fun clock ->
   let t = Fetch_mock.client (Fetch_mock.respond "ok")
-    |> Fetch.with_limits ~clock ~min_interval:5. in
+    |> Fetch.with_limits ~clock ~min_interval:(Duration.of_sec 5) in
   List.iter (fun i ->
       ignore (Fetch.read t "https://api.example/x");
       Fmt.pr "request %d done at t=%.0f@." i (now_s clock))
@@ -53,7 +53,7 @@ rate instead of stampeding:
 ```ocaml
 # run @@ fun clock ->
   let t = Fetch_mock.client (Fetch_mock.respond "ok")
-    |> Fetch.with_limits ~clock ~min_interval:2. in
+    |> Fetch.with_limits ~clock ~min_interval:(Duration.of_sec 2) in
   Eio.Fiber.all
     (List.map (fun i () ->
          ignore (Fetch.read t "https://api.example/x");
@@ -128,7 +128,7 @@ cannot park the client:
     else Fetch_mock.respond "ok" req
   in
   let t = Fetch_mock.client server
-    |> Fetch.with_retry ~clock ~random ~config:(Retry.v ~backoff_max:60. ()) in
+    |> Fetch.with_retry ~clock ~random ~config:(Retry.v ~backoff_max:(Duration.of_sec 60) ()) in
   Fetch.read t "https://api.example/data";;
 > attempt 1 at t=0
 +mock time is now 60
@@ -203,7 +203,7 @@ capped by `backoff_max` like any other server-requested delay:
   in
   let t = Fetch_mock.client server
     |> Fetch.with_retry ~clock ~random ~wall:env#clock
-         ~config:(Retry.v ~jitter:false ~backoff_max:60. ()) in
+         ~config:(Retry.v ~jitter:false ~backoff_max:(Duration.of_sec 60) ()) in
   Fetch.read t "https://api.example/data";;
 > attempt 1 at t=0
 > attempt 2 at t=0
@@ -381,7 +381,7 @@ connection retries. A false predicate still permits the first exchange:
   let server (req : Middleware.request) =
     incr attempts; Fetch_mock.respond ~status:503 "busy" req
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0.
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
     ~allowed_methods:[`POST]
     ~retry_request:(fun _ -> incr policy_calls; false) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -400,7 +400,7 @@ The same veto applies to the built-in connection-failure classifier:
   let server (_ : Middleware.request) : response =
     incr attempts; raise (Fetch.err (Connection_failure Timeout))
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0.
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
     ~allowed_methods:[`POST]
     ~retry_request:(fun _ -> incr policy_calls; false) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -422,7 +422,7 @@ An approved replayable POST retries either failure kind:
     if !attempts = 1 then Fetch_mock.respond ~status:503 "busy" req
     else Fetch_mock.respond "ok" req
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0.
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
     ~allowed_methods:[`POST]
     ~retry_request:(fun _ -> incr policy_calls; true) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -441,7 +441,7 @@ An approved replayable POST retries either failure kind:
     if !attempts = 1 then raise (Fetch.err (Connection_failure Timeout))
     else Fetch_mock.respond "ok" req
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0.
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
     ~allowed_methods:[`POST]
     ~retry_request:(fun _ -> incr policy_calls; true) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -462,7 +462,7 @@ budget does the same for an otherwise eligible GET:
   let server (req : Middleware.request) =
     incr attempts; Fetch_mock.respond ~status:503 "busy" req
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0.
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
     ~allowed_methods:[`POST]
     ~retry_request:(fun _ -> incr policy_calls; true) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -485,7 +485,7 @@ budget does the same for an otherwise eligible GET:
   let server (req : Middleware.request) =
     incr attempts; Fetch_mock.respond ~status:503 "busy" req
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0. ~max_retries:0
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0) ~max_retries:0
     ~retry_request:(fun _ -> incr policy_calls; true) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
   let r = Fetch.read t "https://api.example/get" in
@@ -502,7 +502,7 @@ gate. With a false gate, neither hook sees a non-built-in retry candidate:
   let server (req : Middleware.request) =
     incr attempts; Fetch_mock.respond ~status:418 "teapot" req
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0.
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
     ~retry_request:(fun _ -> incr policy_calls; false)
     ~retry_response:(fun _ _ -> incr response_hook; true) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -517,7 +517,7 @@ gate. With a false gate, neither hook sees a non-built-in retry candidate:
   let server (_ : Middleware.request) : response =
     incr attempts; failwith "middleware failure"
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0.
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
     ~retry_request:(fun _ -> incr policy_calls; false)
     ~retry_exception:(fun _ -> incr exception_hook; true) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -538,7 +538,7 @@ evaluated once for all attempts:
     if !attempts < 3 then Fetch_mock.respond ~status:418 "teapot" req
     else Fetch_mock.respond "ok" req
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0. ~max_retries:2
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0) ~max_retries:2
     ~retry_request:(fun _ -> incr policy_calls; true)
     ~retry_response:(fun _ _ -> incr response_hook; true) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -555,7 +555,7 @@ evaluated once for all attempts:
     if !attempts = 1 then failwith "middleware failure"
     else Fetch_mock.respond "ok" req
   in
-  let config = Retry.v ~jitter:false ~backoff_factor:0.
+  let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
     ~retry_request:(fun _ -> incr policy_calls; true)
     ~retry_exception:(fun _ -> incr exception_hook; true) () in
   let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -572,7 +572,7 @@ when it is itself a normally retryable connection failure:
   let probe failure =
     let backend_calls = ref 0 and policy_calls = ref 0 and hook_calls = ref 0 in
     let server req = incr backend_calls; Fetch_mock.respond "unexpected" req in
-    let config = Retry.v ~backoff_factor:0.
+    let config = Retry.v ~backoff_factor:(Duration.of_sec 0)
       ~retry_request:(fun _ -> incr policy_calls; raise failure)
       ~retry_exception:(fun _ -> incr hook_calls; true) () in
     let t = Fetch_mock.client server |> Fetch.with_retry ~clock ~random ~config in
@@ -614,7 +614,7 @@ val route_allows : Middleware.request -> bool = <fun>
         if !attempts = 1 then Fetch_mock.respond ~status:503 "busy" req
         else Fetch_mock.respond "ok" req
       in
-      let config = Retry.v ~jitter:false ~backoff_factor:0.
+      let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
         ~allowed_methods:[`POST]
         ~retry_request:(fun req ->
           incr policy_calls; route_allows req) () in
@@ -657,7 +657,7 @@ hops retry a 503, but the predicate sees each canonical request only once:
       | 4, ["finish"] -> Fetch_mock.respond "done" req
       | _ -> Fetch_mock.respond ~status:404 "missing" req
     in
-    let config = Retry.v ~jitter:false ~backoff_factor:0. ~max_retries:1
+    let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0) ~max_retries:1
       ~allowed_methods:[`GET; `POST]
       ~retry_request:(fun req ->
         seen := (req.meth, Middleware.Url.path_segments req.url, req.body) :: !seen;
@@ -690,7 +690,7 @@ decision. A vetoed destination is attempted once even after an approved hop:
           ~headers:(Http.Header.of_list ["Location", "claim"]) "redirect" req
       else Fetch_mock.respond ~status:503 "busy" req
     in
-    let config = Retry.v ~jitter:false ~backoff_factor:0.
+    let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0)
       ~allowed_methods:[`POST]
       ~retry_request:(fun req ->
         let approved = route_allows req in

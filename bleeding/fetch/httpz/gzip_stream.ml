@@ -11,23 +11,12 @@ let malformed message =
    length, so [src_rem] still maps onto the transport input window. *)
 
 let max_header_bytes = 256 * 1024
-
-let crc32_byte crc byte =
-  let crc = ref (Int32.logxor crc (Int32.of_int byte)) in
-  for _ = 1 to 8 do
-    crc :=
-      Int32.logxor
-        (Int32.shift_right_logical !crc 1)
-        (if Int32.logand !crc 1l = 0l then 0l else 0xedb88320l)
-  done;
-  !crc
-
-let crc32_finish = Int32.lognot
+let max_members = 1024
 
 type header_stage =
   | Fixed
   | Extra_length
-  | Extra_data of int
+  | Extra_data
   | Filename
   | Comment
   | Header_checksum
@@ -37,16 +26,16 @@ type header = {
   mutable stage : header_stage;
   mutable pos : int;
   mutable flags : int;
-  (* Header CRC work is unnecessary unless FHCRC is present. Optional names
-     and comments can be large, so keep their common path linear copying and
-     scanning without eight bitwise rounds per byte. *)
+  mutable extra_left : int;
+  (* Header CRC work is unnecessary unless FHCRC is present, and an optional
+     name or comment can be large. *)
   mutable checksum : bool;
   (* The RFC checksum covers every original header byte. *)
-  mutable crc : int32;
+  mutable crc : Optint.t;
   (* This is the subset decompress 1.6.0 reconstructs for its broken FHCRC
      comparison: the fixed header and the two zero-terminated strings, but no
      XLEN or FEXTRA payload. *)
-  mutable decompress_crc : int32;
+  mutable decompress_crc : Optint.t;
 }
 
 let header () =
@@ -54,37 +43,35 @@ let header () =
     stage = Fixed;
     pos = 0;
     flags = 0;
+    extra_left = 0;
     checksum = false;
-    crc = Int32.minus_one;
-    decompress_crc = Int32.minus_one;
+    crc = Checkseum.Crc32.default;
+    decompress_crc = Checkseum.Crc32.default;
   }
 
 let byte cs i = Cstruct.get_uint8 cs i
 
-let crc_range get h ~decompress first last =
-  if h.checksum then
-    for i = first to last - 1 do
-      let octet = get i in
-      h.crc <- crc32_byte h.crc octet;
-      if decompress then
-        h.decompress_crc <- crc32_byte h.decompress_crc octet
-    done
+(* [Checkseum.Crc32] is seedable, so the accumulators still compose over the
+   ranges the header arrives in. *)
+let crc_range cs h ~decompress first last =
+  if h.checksum && last > first then begin
+    let bs = cs.Cstruct.buffer in
+    let off = cs.Cstruct.off + first and len = last - first in
+    h.crc <- Checkseum.Crc32.digest_bigstring bs off len h.crc;
+    if decompress then
+      h.decompress_crc <-
+        Checkseum.Crc32.digest_bigstring bs off len h.decompress_crc
+  end
 
-let after_extra h =
+(* FEXTRA, FNAME, FCOMMENT and FHCRC appear in that fixed RFC 1952 order, so
+   one successor serves every optional field: enter the first one the flags
+   select beyond position [past]. *)
+let after h ~past =
   h.stage <-
-    if h.flags land 0x08 <> 0 then Filename
-    else if h.flags land 0x10 <> 0 then Comment
-    else if h.flags land 0x02 <> 0 then Header_checksum
-    else Ready
-
-let after_filename h =
-  h.stage <-
-    if h.flags land 0x10 <> 0 then Comment
-    else if h.flags land 0x02 <> 0 then Header_checksum
-    else Ready
-
-let after_comment h =
-  h.stage <- if h.flags land 0x02 <> 0 then Header_checksum else Ready
+    (if past < 1 && h.flags land 0x08 <> 0 then Filename
+     else if past < 2 && h.flags land 0x10 <> 0 then Comment
+     else if h.flags land 0x02 <> 0 then Header_checksum
+     else Ready)
 
 type header_result = [ `Ready | `Partial | `Malformed of string ]
 
@@ -93,51 +80,54 @@ let rec prepare_header h cs len : header_result =
   match h.stage with
   | Ready -> `Ready
   | Fixed ->
-      if len < 10 then `Partial
-      else if get 0 <> 0x1f || get 1 <> 0x8b then
-        `Malformed "invalid magic bytes"
-      else if get 2 <> 8 then
+      (* Judge each fixed-header byte as soon as it arrives.  Waiting for all
+         ten would report trailing non-gzip bytes as a header the peer stopped
+         short of finishing. *)
+      if len >= 1 && get 0 <> 0x1f then `Malformed "invalid magic bytes"
+      else if len >= 2 && get 1 <> 0x8b then `Malformed "invalid magic bytes"
+      else if len >= 3 && get 2 <> 8 then
         `Malformed
           (Printf.sprintf "unsupported compression method %d (expected 8)"
              (get 2))
-      else
+      else if len >= 4 && get 3 land 0xe0 <> 0 then
+        `Malformed
+          (Printf.sprintf "reserved flag bits are set (FLG=0x%02x)" (get 3))
+      else if len < 10 then `Partial
+      else begin
         let flags = get 3 in
-        if flags land 0xe0 <> 0 then
-          `Malformed
-            (Printf.sprintf "reserved flag bits are set (FLG=0x%02x)" flags)
-        else begin
-          h.flags <- flags;
-          h.checksum <- flags land 0x02 <> 0;
-          crc_range get h ~decompress:true 0 10;
-          h.pos <- 10;
-          h.stage <- if flags land 0x04 <> 0 then Extra_length else Extra_data 0;
-          prepare_header h cs len
-        end
+        h.flags <- flags;
+        h.checksum <- flags land 0x02 <> 0;
+        crc_range cs h ~decompress:true 0 10;
+        h.pos <- 10;
+        h.stage <- if flags land 0x04 <> 0 then Extra_length else Extra_data;
+        prepare_header h cs len
+      end
   | Extra_length ->
       if len - h.pos < 2 then `Partial
       else begin
         let at = h.pos in
         let lo = get at and hi = get (at + 1) in
-        crc_range get h ~decompress:false at (at + 2);
+        crc_range cs h ~decompress:false at (at + 2);
         h.pos <- at + 2;
-        h.stage <- Extra_data (lo lor (hi lsl 8));
+        h.extra_left <- lo lor (hi lsl 8);
+        h.stage <- Extra_data;
         (* The decoder below expects the opposite byte order.  The RFC
            checksum state above has already consumed the original bytes. *)
         Cstruct.set_uint8 cs at hi;
         Cstruct.set_uint8 cs (at + 1) lo;
         prepare_header h cs len
       end
-  | Extra_data 0 ->
-      after_extra h;
+  | Extra_data when h.extra_left = 0 ->
+      after h ~past:0;
       prepare_header h cs len
-  | Extra_data left ->
+  | Extra_data ->
       let available = len - h.pos in
       if available = 0 then `Partial
       else begin
-        let n = min available left in
-        crc_range get h ~decompress:false h.pos (h.pos + n);
+        let n = min available h.extra_left in
+        crc_range cs h ~decompress:false h.pos (h.pos + n);
         h.pos <- h.pos + n;
-        h.stage <- Extra_data (left - n);
+        h.extra_left <- h.extra_left - n;
         prepare_header h cs len
       end
   | Filename | Comment as stage ->
@@ -151,13 +141,13 @@ let rec prepare_header h cs len : header_result =
         in
         match find_zero start with
         | None ->
-            crc_range get h ~decompress:true start len;
+            crc_range cs h ~decompress:true start len;
             h.pos <- len;
             `Partial
         | Some zero ->
-            crc_range get h ~decompress:true start (zero + 1);
+            crc_range cs h ~decompress:true start (zero + 1);
             h.pos <- zero + 1;
-            (match stage with Filename -> after_filename h | Comment -> after_comment h | _ -> assert false);
+            after h ~past:(if stage = Filename then 1 else 2);
             prepare_header h cs len
       end
   | Header_checksum ->
@@ -165,7 +155,7 @@ let rec prepare_header h cs len : header_result =
       else
         let observed = get h.pos lor (get (h.pos + 1) lsl 8) in
         let expected =
-          Int32.to_int (Int32.logand (crc32_finish h.crc) 0xffffl)
+          Int32.to_int (Int32.logand (Checkseum.Crc32.to_int32 h.crc) 0xffffl)
         in
         if observed <> expected then
           `Malformed
@@ -176,14 +166,13 @@ let rec prepare_header h cs len : header_result =
           (* Satisfy decompress's broken comparison after validating the real
              FHCRC.  It compares the high half of a CRC over its reconstructed
              header as a big-endian integer. *)
-          let compat = crc32_finish h.decompress_crc in
+          let compat = Checkseum.Crc32.to_int32 h.decompress_crc in
           let compat =
             Int32.to_int
               (Int32.logand (Int32.shift_right_logical compat 16) 0xffffl)
           in
           Cstruct.set_uint8 cs h.pos (compat lsr 8);
           Cstruct.set_uint8 cs (h.pos + 1) (compat land 0xff);
-          h.pos <- h.pos + 2;
           h.stage <- Ready;
           `Ready
         end
@@ -217,15 +206,15 @@ module Inflate (Inf : INF) = struct
     o_cs : Cstruct.t;
     mutable i_cs : Cstruct.t;
     mutable d : Inf.decoder;
-    mutable ready : (int * int) option;
+    mutable ready_pos : int;
+    mutable ready_len : int;
     mutable phase : phase;
     mutable input_len : int;
     mutable input_eof : bool;
     mutable members : int;
-    max_members : int;
   }
 
-  let v ~src ~i ~o ~max_members d =
+  let v ~src ~i ~o d =
     {
       src;
       i;
@@ -233,12 +222,12 @@ module Inflate (Inf : INF) = struct
       o_cs = Cstruct.of_bigarray o;
       i_cs = Cstruct.of_bigarray i;
       d;
-      ready = None;
+      ready_pos = 0;
+      ready_len = 0;
       phase = Need_header (header ());
       input_len = 0;
       input_eof = false;
       members = 0;
-      max_members;
     }
 
   let read_methods = []
@@ -255,6 +244,21 @@ module Inflate (Inf : INF) = struct
     Cstruct.blit t.i_cs 0 next_cs 0 t.input_len;
     t.i <- next;
     t.i_cs <- next_cs
+
+  (* A large FNAME or FCOMMENT grows [t.i] for one member only.  Nothing
+     downstream sees that allocation, so drop it before the next member
+     rather than holding it for the rest of the representation. *)
+  let shrink_header_buffer t =
+    if
+      De.bigstring_length t.i > De.io_buffer_size
+      && t.input_len <= De.io_buffer_size
+    then begin
+      let next = De.bigstring_create De.io_buffer_size in
+      let next_cs = Cstruct.of_bigarray next in
+      Cstruct.blit t.i_cs 0 next_cs 0 t.input_len;
+      t.i <- next;
+      t.i_cs <- next_cs
+    end
 
   let read_header_input t =
     if t.input_eof then
@@ -305,80 +309,92 @@ module Inflate (Inf : INF) = struct
     if rem > 0 then
       Cstruct.blit t.i_cs (t.input_len - rem) t.i_cs 0 rem;
     t.input_len <- rem;
+    shrink_header_buffer t;
     t.d <- Inf.reset t.d;
     t.phase <- Need_header (header ())
 
-  let rec single_read t buf =
-    match t.ready with
-    | Some (pos, len) ->
-        let n = min len (Cstruct.length buf) in
-        Cstruct.blit t.o_cs pos buf 0 n;
-        if n = len then begin
-          t.ready <- None;
-          if t.phase = Decoding then t.d <- Inf.flush t.d
-        end
-        else t.ready <- Some (pos + n, len - n);
-        n
-    | None ->
+  let rec read t (buf @ local) =
+    if t.ready_len > 0 then begin
+      let n = min t.ready_len (Cstruct.length buf) in
+      Cstruct.blit t.o_cs t.ready_pos buf 0 n;
+      t.ready_pos <- t.ready_pos + n;
+      t.ready_len <- t.ready_len - n;
+      if t.ready_len = 0 && t.phase = Decoding then t.d <- Inf.flush t.d;
+      n
+    end
+    else
         match t.phase with
         | Ended -> raise End_of_file
         | Need_header h -> begin
             match prepare_header h t.i_cs t.input_len with
             | `Ready ->
-                if t.members >= t.max_members then
+                if t.members >= max_members then
                   malformed
                     (Printf.sprintf "representation has more than %d members"
-                       t.max_members);
+                       max_members);
                 t.members <- t.members + 1;
                 t.d <- Inf.src t.d t.i 0 t.input_len;
                 t.phase <- Decoding;
-                single_read t buf
+                read t buf
             | `Partial ->
                 read_header_input t;
-                single_read t buf
+                read t buf
             | `Malformed message -> malformed message
           end
         | Member_ended ->
             start_next_member t;
-            single_read t buf
+            read t buf
         | Decoding -> begin
             match Inf.decode t.d with
             | `Await d ->
                 t.d <- d;
                 refill_decoder t;
-                single_read t buf
+                read t buf
             | `Flush d ->
                 t.d <- d;
                 (match window t with
                 | 0 -> t.d <- Inf.flush t.d
-                | len -> t.ready <- Some (0, len));
-                single_read t buf
+                | len ->
+                    t.ready_pos <- 0;
+                    t.ready_len <- len);
+                read t buf
             | `End d ->
                 t.d <- d;
                 t.phase <- Member_ended;
+                (* [Gz] permits a non-empty [o] at [`End]; today it always
+                   emits a [`Flush] first, so this window is normally 0. *)
                 (match window t with
-                | 0 -> single_read t buf
+                | 0 -> ()
                 | len ->
-                    t.ready <- Some (0, len);
-                    single_read t buf)
+                    t.ready_pos <- 0;
+                    t.ready_len <- len);
+                read t buf
             | `Malformed "Unexpected end of input" when not t.input_eof ->
-                (* Decompress reports this when a transport window ends at a
-                   structure boundary.  Until the framed body itself ends,
-                   another read can complete the structure. *)
+                (* Decompress reports this when the buffered input ends exactly
+                   at the end of a gzip header: [Gz] then hands [De.Inf.src] a
+                   zero-length range and eoi's the inner decoder although this
+                   module has signalled no EOF.  Recovery is sound because
+                   [`Malformed] carries no decoder, so [t.d] still holds the
+                   header state and the whole header is presented again. *)
                 refill_decoder t;
-                single_read t buf
+                read t buf
             | `Malformed message -> malformed message
           end
+
+  (* [Eio.Flow.Pi.SOURCE] asserts a positive count, so an empty destination
+     has no answer this module could give. *)
+  let single_read t (buf @ local) =
+    if Cstruct.length buf = 0 then
+      invalid_arg "Gzip_stream: single_read into an empty buffer";
+    read t buf
 end
 
 module Gunzip = Inflate (Gz.Inf)
 
 let handler = Eio.Flow.Pi.source (module Gunzip)
 
-let gunzip ?(max_members = 1024) src =
-  if max_members <= 0 then
-    invalid_arg "Gzip_stream.gunzip: max_members must be positive";
+let gunzip src =
   let i = De.bigstring_create De.io_buffer_size in
   let o = De.bigstring_create De.io_buffer_size in
   let d = Gz.Inf.decoder `Manual ~o in
-  Eio.Resource.T (Gunzip.v ~src ~i ~o ~max_members d, handler)
+  Eio.Resource.T (Gunzip.v ~src ~i ~o d, handler)

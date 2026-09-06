@@ -1,0 +1,52 @@
+(* Generated from public_suffix_list.dat. Do not edit. *)
+
+type section = ICANN | Private
+
+type rule_type = Normal | Exception
+
+type trie_node = {
+  rule : (rule_type * section) option;
+  children : (string * trie_node) iarray;
+  wildcard : section option;
+}
+
+let n0 = {
+  rule = Some (Exception, ICANN);
+  children = [: :];
+  wildcard = None;
+}
+
+let n1 = {
+  rule = None;
+  children = [:
+    ("www", n0);
+  :];
+  wildcard = Some ICANN;
+}
+
+let n2 = {
+  rule = Some (Normal, ICANN);
+  children = [: :];
+  wildcard = None;
+}
+
+let n3 = {
+  rule = None;
+  children = [:
+    ("ck", n1);
+    ("com", n2);
+  :];
+  wildcard = None;
+}
+
+let root = n3
+
+let rule_count = 3
+
+let icann_rule_count = 3
+
+let private_rule_count = 0
+
+let version = "test-fixture"
+
+let commit = "0000000000000000000000000000000000000000"

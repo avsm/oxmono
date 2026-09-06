@@ -4,7 +4,8 @@ A high-performance HTTP/1.1 parser and serializer achieving zero heap
 allocations using OxCaml's unboxed types (`int16#`, `int64#`, `char#`, `float#`)
 and local allocations.
 
-Will soon have io_uring on Linux.
+For a client or an application server, start with the [HTTP guide](../../HTTPZ.md).
+It introduces Fetch and Proffer with complete programs and their dependencies.
 
 ## Features
 
@@ -18,23 +19,31 @@ Will soon have io_uring on Linux.
 
 ## Libraries
 
-The core code is split into three libraries plus one executable:
+One `httpz` opam package supplies the following Findlib libraries. Declare
+each library whose modules a program uses in its Dune `(libraries ...)` field.
 
-| Directory       | Library name         | Entry point           | Purpose |
-|-----------------|----------------------|-----------------------|---------|
-| `lib/`          | `httpz`              | `Httpz`               | Protocol types, request parsing, response writing |
-| `route/`        | `httpz.route`        | `Httpz_route`         | Segment routing with span-keyed trie dispatch |
-| `eio_server/`   | `httpz.eio_server`   | `Httpz_eio_server`    | Eio connection lifecycle, chunked bodies, 100-continue, `Static` file serving |
+| Findlib library | OCaml module | Purpose |
+| --- | --- | --- |
+| `httpz` | `Httpz` | HTTP/1.1 wire parsing and serialization |
+| `httpz.uri` | `Httpz_uri` | URI parsing, resolution, templates and IP classification |
+| `httpz.media` | `Httpz_media` | Typed codecs, URL-encoded forms, multipart forms and SSE writers |
+| `httpz.jsont` | `Httpz_jsont` | Jsont readers with a JSON nesting limit |
+| `httpz.media.jsont` | `Httpz_media_jsont` | JSON and JSON Lines media codecs |
+| `httpz.media.cmarkit` | `Httpz_media_cmarkit` | CommonMark and HTML media codecs |
+| `httpz.route` | `Httpz_route` | Routing directly over protocol spans |
+| `httpz.eio_server` | `Httpz_eio_server` | Eio connection handling and static files |
+| `httpz.tls` | `Httpz_tls` | Eio TLS client and server flows |
+| `httpz.punycode` | `Punycode` | Punycode encoding and decoding |
+| `httpz.punycode.idna` | `Punycode_idna` | NFC normalization and Punycode for domain names; a subset of IDNA |
+| `httpz.pubsuffix` | `Pubsuffix` | Public suffix and registrable-domain lookup |
+| `httpz.cookie` | `Cookie` | Cookie parsing and serialization |
+| `httpz.cookie.jar` | `Cookie_jar` | Concurrent client cookie storage and persistence |
 
 | Executable            | CLI style          | Built from                    |
 |-----------------------|--------------------|-------------------------------|
 | `httpz-eio-server`    | `cmdliner`         | `bin/httpz_eio_server.ml`     |
 
 `httpz.route` is shared by `httpz.eio_server` for dispatch.
-
-The `httpz` opam package additionally owns the namespaced support libraries
-`httpz.punycode`, `httpz.punycode.idna`, `httpz.pubsuffix`, `httpz.cookie`,
-and `httpz.cookie.jar`.
 
 `lib` has no dependency on the server or I/O layers, so it can be embedded in
 any event loop. The modules it exposes are:

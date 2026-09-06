@@ -55,10 +55,10 @@ type t : immutable_data
     The producers are mode-polymorphic and have [__local] variants that return
     the record in the caller's region: {!of_string}, {!of_string_exn},
     {!to_string}, {!make}, {!resolve}, {!normalize} and the [with_*] family.
-    Of these, [resolve__local] and [normalize__local] are wholly heap-free,
-    composing their text in the region too, with a checked [@zero_alloc] on
-    each.  The others still allocate the canonical string on the heap, since
-    they encode component text through intermediate strings.
+    Local producers allocate canonical text and its component index in the
+    caller's region. [resolve__local] and [normalize__local] carry checked
+    [@zero_alloc] contracts. Encoding new component values can allocate
+    intermediate strings on the heap.
 
     A URI in a region dies with it.  Use {!globalize} to keep one.  Every
     export is [portable], and {!t} has the [immutable_data] kind, so a URI
@@ -311,3 +311,40 @@ val remove_query_param : ?plus_as_space:bool -> t -> string @ local -> t @@ port
 
 val add_query_param : t @ local -> key:string -> value:string -> t @@ portable
 (** [add_query_param t ~key ~value] appends a percent-encoded query binding. *)
+
+val set_query_params :
+  ?plus_as_space:bool -> t -> (string * string) list -> t @@ portable
+(** Remove existing bindings for supplied decoded keys and append all supplied
+    bindings in order, rebuilding the URI once. Other encoded fields are preserved. *)
+
+
+val has_query : t @ local -> bool @@ portable
+
+val has_fragment : t @ local -> bool @@ portable
+
+val has_userinfo : t @ local -> bool @@ portable
+(** Component presence without creating a substring, including empty components. *)
+
+
+val encoded_path_span : t @ local -> #(int * int) @@ portable
+(** Offset and length of the encoded path in {!to_string}. No text is copied. *)
+
+
+val scheme__local : t @ local -> string or_null @ local @@ portable
+
+val userinfo__local : t @ local -> string or_null @ local @@ portable
+
+val host__local : t @ local -> string or_null @ local @@ portable
+
+val query__local : t @ local -> string or_null @ local @@ portable
+
+val fragment__local : t @ local -> string or_null @ local @@ portable
+
+val path__local : t @ local -> string @ local @@ portable
+(** Component copies allocated in the caller region. *)
+
+
+val add_query_params : t -> (string * string) list -> t @@ portable
+(** [add_query_params u bindings] appends every binding in order as
+    {!add_query_param} appends one, re-serializing [u] once rather than once per
+    binding. It is [u] itself when [bindings] is empty. *)

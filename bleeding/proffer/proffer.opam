@@ -4,9 +4,8 @@ synopsis: "Declarative HTTP serving with interchangeable backends"
 description: """
 Proffer describes sites as data: handlers describe responses through a
 callback, routes capture path segments as curried arguments, and caching policy
-and media codecs are typed. Jsont and Cmarkit adapters are included in the
-main library. Route constructors take their handler at portable, so the
-OxCaml compiler is required."""
+and media codecs are typed. JSON and CommonMark adapters are included through
+the httpz media libraries. Route constructors preserve OxCaml portability."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"
@@ -16,12 +15,14 @@ doc: "https://avsm.github.io/proffer/"
 bug-reports: "https://github.com/avsm/proffer/issues"
 depends: [
   "dune" {>= "3.21"}
+  "duration" {>= "0.3.1"}
   "ocaml" {>= "5.2"}
-  "httpz"
+  "httpz" {= version}
+  "base" {>= "v0.16.0"}
   "bytesrw" {>= "0.4.0"}
   "magic-mime" {>= "1.3.1"}
   "cmarkit" {>= "0.4.0"}
-  "fetch" {with-test}
+  "fetch" {= version & with-test}
   "eio" {>= "1.3" & with-test}
   "alcotest" {with-test}
   "odoc" {with-doc}

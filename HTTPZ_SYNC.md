@@ -1,9 +1,9 @@
 # Synchronizing HTTPz
 
 HTTPz, Fetch, Proffer and their portable dependencies were synchronized from
-`avsm/oxcaml-httpz` commit `c6fda0e7ebea6ec869ceb71cb051cd3eaed08e97`
-on 2026-09-05. [HTTPZ_RELEASE.md](HTTPZ_RELEASE.md) records the API changes
-and release scope.
+`avsm/oxcaml-httpz` commit `afae5cecc4b29029dd5352a7b635f9742f66dcc6`
+on 2026-09-06. [HTTPZ.md](HTTPZ.md) introduces the libraries, their
+dependencies and complete client/server examples.
 
 ## Directory mapping
 
@@ -13,6 +13,7 @@ and release scope.
 | `fetch/` | `bleeding/fetch/` |
 | `proffer/` | `bleeding/proffer/` |
 | `test/release/` | `bleeding/fetch/test/release/` |
+| `test/dependencies/` | `bleeding/httpz/test/dependencies/` and `bleeding/fetch/test/dependencies/facades/` |
 | `vendor/NAME/` | `vendor/NAME/` |
 
 OxMono-only packages, examples and fuzz targets remain in these trees.
@@ -20,14 +21,33 @@ Synchronize individual files rather than replacing destination directories.
 
 ## Monorepo adaptations
 
-- HTTPz's namespaced URI API adapts the external portable `Uriz.t`, preserving
-  type compatibility for existing OxMono consumers. The external implementation
-  receives the corresponding parser and query updates; its older names remain
-  available. Fetch/signature bridges to its existing `Uri.t` interface.
+- `httpz.uri` adapts the external portable `Uriz.t`, preserving type
+  compatibility for existing OxMono consumers. Its private adapter exposes
+  the standalone component names, templates and IP classifier. The shared
+  `vendor/ocaml-uri` implementation receives the parser, query and local
+  allocation improvements while retaining its span, canonical-parser and
+  `Raw` APIs. Fetch/signature retains its bridge to the existing `Uri.t` API.
+- Findlib dependencies are explicit in the HTTP projects, including the
+  monorepo-only router, server, platform backends, benchmarks and examples.
+  URI, media and bounded Jsont libraries remain independent of the HTTP
+  transport and wire parser where their interfaces permit it.
+- Timeout, retry, pacing and cache policies use the installed `duration`
+  package. Fetch/main and Fetch/macos expose typed durations. CLI and
+  ActivityPub float boundaries validate before creating a client and keep
+  positive subnanosecond values positive. Arod's cache and confinement tests
+  follow the current Proffer contract.
+- Curl uses libcurl's native headers, trailers, framing and content decoding,
+  with libcurl 7.83 or later. Fetch/httpz retains strict protocol checks.
+  The foreign-domain guard test deliberately crosses the static portability
+  boundary to exercise Curl's runtime rejection without weakening its API.
+- Proffer's portable cache constructor retains the standalone assertion
+  around `Duration.to_f`. Duration 0.3.1 implements it as pure arithmetic over
+  immutable values; re-audit that boundary when updating Duration.
 - OxMono retains its broader Eio and Ptime ports. Eio's local Cstruct changes
   are merged while keeping the portable `Flow.copy_string` implementation.
-  The TLS/X.509 closure and Eio Resource/Flow boundary contain no
-  `Obj.magic_portable`.
+  TLS/Eio retains decrypted records as strings with an offset for partial
+  reads, avoiding Cstruct copies. The TLS/X.509 closure and Eio Resource/Flow
+  boundary contain no `Obj.magic_portable`.
 - Bytesrw and Jsont use the standalone portable versions. Jsont additionally
   exposes `String_map.create ()` for freshly owned maps. Monorepo codecs and
   generators use factory defaults and portable callbacks. APub's URI fields
@@ -55,6 +75,15 @@ The other HTTPz benchmarks remain enabled.
    fuzz targets and check the wider workspace for integration failures.
 4. Review the diff and update this record before committing.
 
-The full workspace build and the HTTP, codec, generator and application checks
-passed for this sync. The unchanged ATP syntax suite requires the absent
+The full workspace build, HTTP install targets, HTTP tests and four fuzz
+targets passed under `release-check`. External URI, Cstruct, Eio, ActivityPub
+and Arod tests passed for this sync. Twelve installed Findlib consumers
+compiled and ran in bytecode and native code, including shared URI type
+identity. Dependency
+exclusion checks passed, including no Checkseum or Decompress in Curl. All
+four exact HTTP guide programs compiled with their documented dependencies,
+and the media and URI examples ran. Local guide and README links resolve.
+
+Rendered API documentation requires an OxCaml-compatible odoc, which is not
+available in this switch. The unchanged ATP syntax suite requires the absent
 `bleeding/atp/vendor/atproto/interop-test-files/syntax/` fixtures.

@@ -723,6 +723,27 @@ let test_idna_utf8_root_and_ulabel_length () =
   rejects_invalid "oversized U-label display" Punycode_idna.to_unicode
     excessive_ulabel
 
+(* [Punycode.encode] folds basic code points to lower case when no case flags
+   are supplied, so a U-label round trip compared with ASCII case rejects every
+   non-ASCII label carrying an upper-case ASCII letter. *)
+let test_idna_mixed_case_ulabel () =
+  check string "mixed-case U-label domain" "xn--mnchen-3ya.example.com"
+    (Punycode_idna.to_ascii "M\xc3\xbcnchen.example.com");
+  check string "mixed-case U-label" "xn--mnchen-3ya"
+    (Punycode_idna.label_to_ascii "M\xc3\xbcnchen");
+  check string "lower-case U-label agrees" "xn--mnchen-3ya"
+    (Punycode_idna.label_to_ascii "m\xc3\xbcnchen");
+  check string "mixed-case emoji U-label" "xn--hello-6x04d"
+    (Punycode_idna.label_to_ascii "Hello\xf0\x9f\x91\x8b")
+
+let test_decode_label_empty_payload () =
+  match Punycode.decode_label "xn--" with
+  | (_ : string) -> fail "decode_label accepted an empty ACE payload"
+  | exception Punycode.Error Punycode.Empty_label -> ()
+  | exception Punycode.Error e ->
+      fail (Format.asprintf "wrong decode_label error: %a"
+              Punycode.pp_error_reason e)
+
 let test_case_annotation_decode () =
   (* RFC example: uppercase letters indicate case flags *)
   try
@@ -887,6 +908,8 @@ let idna_tests =
     ( "UTF-8, root dot, and U-label length"
     , `Quick
     , test_idna_utf8_root_and_ulabel_length );
+    ("mixed-case U-labels", `Quick, test_idna_mixed_case_ulabel);
+    ("empty ACE payload", `Quick, test_decode_label_empty_payload);
   ]
 
 let case_tests =

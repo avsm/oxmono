@@ -1,0 +1,5 @@
+{0 Libcurl client}
+
+An Eio client with connection reuse and HTTP/2 multiplexing. {!Fetch_curl.std} supplies cookies, retries and request pacing. The client belongs to the domain and switch that create it.
+
+{!modules:Fetch_curl}

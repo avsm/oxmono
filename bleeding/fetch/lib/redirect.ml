@@ -23,9 +23,9 @@ let default = v ()
    anything but itself. Recognition must be the resolver's: a dotted-quad
    test would take "0x7f.1" for a name and hand it a public suffix. The
    [zero_alloc] claim the dotted-quad scan carried does not survive the call
-   into [Httpz.Ip]. *)
+   into [Httpz_uri.Ip]. *)
 let is_ip_literal host =
-  Httpz.Ip.is_literal host
+  Httpz_uri.Ip.is_literal host
 
 let same_site ~from ~to_ =
   if

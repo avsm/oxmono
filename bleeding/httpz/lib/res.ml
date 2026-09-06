@@ -1,3 +1,5 @@
+open Base
+
 type status =
   | Continue
   | Switching_protocols
@@ -289,11 +291,18 @@ let[@inline] write_header_int dst ~off (local_ name) value =
   Buf_write.crlf dst ~off
 ;;
 
+(* [Header_name.canonical] answers ["(unknown)"] for [Other], which is not a field name.
+   Refuse it here rather than put it on the wire. *)
 let[@inline] write_header_name dst ~off name (local_ value) =
+  if Header_name.equal name Header_name.Other
+  then invalid_arg "Httpz.Res.write_header_name: Header_name.Other has no wire spelling";
   write_header dst ~off (Header_name.canonical name) value
 ;;
 
 let[@inline] write_header_name_int dst ~off name value =
+  if Header_name.equal name Header_name.Other
+  then
+    invalid_arg "Httpz.Res.write_header_name_int: Header_name.Other has no wire spelling";
   write_header_int dst ~off (Header_name.canonical name) value
 ;;
 
@@ -319,15 +328,10 @@ let[@inline] write_chunk_header dst ~off ~size =
   Buf_write.crlf dst ~off
 ;;
 
-let[@inline] write_chunk_footer dst ~off = Buf_write.crlf dst ~off
+let write_chunk_footer = write_crlf
+let[@inline] write_final_chunk dst ~off = Buf_write.string dst ~off "0\r\n\r\n"
 
-let[@inline] write_final_chunk dst ~off =
-  let off = Buf_write.char dst ~off '0' in
-  let off = Buf_write.crlf dst ~off in
-  Buf_write.crlf dst ~off
-;;
 
-open Base
 module I16 = Stdlib_stable.Int16_u
 module I64 = Stdlib_upstream_compatible.Int64_u
 
@@ -346,6 +350,7 @@ type t =
    ; body_off : int16#
    ; content_length : int64#
    ; is_chunked : bool
+   ; transfer_coding_count : int
    ; bodyless : bool
    ; keep_alive : bool
    }
@@ -354,6 +359,7 @@ type header_state =
   #{ count : int16#
    ; content_len : int64#
    ; chunked : bool
+   ; te_count : int
    ; conn : Parser.conn_value
    ; has_cl : bool
    ; has_te : bool
@@ -363,13 +369,14 @@ let initial_header_state : header_state =
   #{ count = i16 0
    ; content_len = minus_one_i64
    ; chunked = false
+   ; te_count = 0
    ; conn = Parser.Conn_default
    ; has_cl = false
    ; has_te = false
    }
 ;;
 
-let[@inline] error_result status = exclave_
+let[@inline] error_result status =
   #( status
    , #{ version = Version.Http_1_1
       ; code = i16 0
@@ -377,6 +384,7 @@ let[@inline] error_result status = exclave_
       ; body_off = i16 0
       ; content_length = minus_one_i64
       ; is_chunked = false
+      ; transfer_coding_count = 0
       ; bodyless = false
       ; keep_alive = false
       }
@@ -426,14 +434,19 @@ let rec parse_headers_loop
          || count = 0
          || chunked_count > 1
          || (chunked_count > 0 && not is_chunked)
-         || (st.#chunked && count > 0))
+         || st.#chunked)
         Err.Unsupported_transfer_encoding;
       parse_headers_loop
         pst
         ~pos
         ~acc
         ~limits
-        #{ st with count = next_count; chunked = is_chunked; has_te = true }
+        #{ st with
+           count = next_count
+         ; chunked = is_chunked
+         ; te_count = st.#te_count + count
+         ; has_te = true
+         }
     | Header_name.Connection ->
       let new_conn =
         Parser.parse_connection_value pst.#buf value_span ~default:st.#conn
@@ -492,6 +505,7 @@ let parse ?request_method (buf : bytes) ~(len : int16#) ~(limits : Buf_read.limi
           ; body_off
           ; content_length = st.#content_len
           ; is_chunked
+          ; transfer_coding_count = st.#te_count
           ; bodyless
           ; keep_alive
           }
@@ -504,13 +518,14 @@ let pp fmt (r : t) =
   Stdlib.Format.fprintf
     fmt
     "#{ version = %a; code = %d; body_off = %d; content_length = %Ld; is_chunked = %b; \
-     bodyless = %b; keep_alive = %b }"
+     transfer_coding_count = %d; bodyless = %b; keep_alive = %b }"
     Version.pp
     r.#version
     (to_int r.#code)
     (to_int r.#body_off)
     (I64.to_int64 r.#content_length)
     r.#is_chunked
+    r.#transfer_coding_count
     r.#bodyless
     r.#keep_alive
 ;;

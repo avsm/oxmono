@@ -26,7 +26,8 @@ module Raw = struct
                      | `Write_closed of Tls.Engine.state
                      | `Closed
                      | `Error of exn ] ;
-    mutable linger : Cstruct.t option ;
+    mutable linger : string or_null ;
+    mutable linger_off : int;
     recv_buf       : Cstruct.t ;
   }
 
@@ -68,7 +69,7 @@ module Raw = struct
           let state' = Option.(value ~default:state' (map (fun `Eof -> half_close state' `read) eof)) in
           t.state <- state' ;
           Option.iter (try_write_t t) resp;
-          Option.map Cstruct.of_string data
+          data
 
       | Error (fail, `Response resp) ->
           t.state <-
@@ -108,21 +109,20 @@ module Raw = struct
     read_react_with (Tls.Engine.handle_tls_client ~g) t
 
   let rec (single_read_with @ portable) read_react t (buf @ local) =
-    let writeout t (buf @ local) res =
-      let open Cstruct in
-      let rlen = length res in
-      let n    = min (length buf) rlen in
-      blit res 0 buf 0 n ;
-      t.linger <-
-        (if n < rlen then Some (sub res n (rlen - n)) else None) ;
-      n in
-
+    let writeout t (buf @ local) res off =
+      let rlen = String.length res - off in
+      let n = min (Cstruct.length buf) rlen in
+      Cstruct.blit_from_string res off buf 0 n;
+      if n < rlen then begin t.linger <- This res; t.linger_off <- off + n end
+      else begin t.linger <- Null; t.linger_off <- 0 end;
+      n
+    in
     match t.linger with
-    | Some res -> writeout t buf res
-    | None     ->
+    | This res -> writeout t buf res t.linger_off
+    | Null ->
         match read_react t with
-          | None     -> single_read_with read_react t buf
-          | Some res -> writeout t buf res
+        | None -> single_read_with read_react t buf
+        | Some res -> writeout t buf res 0
 
   let single_read t buf = single_read_with read_react t buf
 
@@ -175,8 +175,14 @@ module Raw = struct
     let push_linger t mcs =
       match (mcs, t.linger) with
       | (None, _)         -> ()
-      | (scs, None)       -> t.linger <- scs
-      | (Some cs, Some l) -> t.linger <- Some (Cstruct.append l cs)
+      | (Some s, Null)    -> t.linger <- This s; t.linger_off <- 0
+      | (Some cs, This l) ->
+          let left = String.length l - t.linger_off in
+          let joined = Bytes.create (left + String.length cs) in
+          Bytes.blit_string l t.linger_off joined 0 left;
+          Bytes.blit_string cs 0 joined left (String.length cs);
+          t.linger <- This (Bytes.unsafe_to_string joined);
+          t.linger_off <- 0
     in
     match t.state with
     | `Active tls | `Read_closed tls | `Write_closed tls
@@ -199,7 +205,7 @@ module Raw = struct
         match Tls.Engine.reneg ?authenticator ?acceptable_cas ?cert tls with
         | None -> invalid_arg "tls: can't renegotiate"
         | Some (tls', buf) ->
-           if drop then t.linger <- None ;
+           if drop then t.linger <- Null ;
            t.state <- inject_state tls' t.state ;
            write_t t buf;
            ignore (drain_handshake t : t)
@@ -236,7 +242,8 @@ module Raw = struct
       state    = `Active (Tls.Engine.server config) ;
       flow     = (flow :> [Flow.two_way_ty | Eio.Resource.close_ty] r) ;
       client_rng = None;
-      linger   = None ;
+      linger   = Null ;
+      linger_off = 0;
       recv_buf = Cstruct.create 4096
     }
 
@@ -257,7 +264,8 @@ module Raw = struct
       state    = `Active tls ;
       flow     = (flow :> [Flow.two_way_ty | Eio.Resource.close_ty] r);
       client_rng;
-      linger   = None ;
+      linger   = Null ;
+      linger_off = 0;
       recv_buf = Cstruct.create 4096
     } in
     write_t t init;

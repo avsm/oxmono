@@ -21,20 +21,22 @@ type config = {
       (** [max_connections] is the maximum number of concurrently open
           connections. New connections wait in the accept queue while this limit
           is reached. *)
-  first_byte_timeout : float;
-      (** [first_byte_timeout] is the maximum time in seconds a newly accepted
+  first_byte_timeout : Duration.t;
+      (** [first_byte_timeout] is the maximum time a newly accepted
           connection may send no request bytes. *)
-  idle_timeout : float;
-      (** [idle_timeout] is the maximum idle time in seconds between requests
-          on a persistent connection. *)
-  request_timeout : float;
-      (** [request_timeout] is the maximum time in seconds from the first
+  idle_timeout : Duration.t;
+      (** [idle_timeout] is the maximum idle time between requests
+          on a persistent connection. It also bounds each socket read a
+          handed-off tunnel or upgraded session makes once the bytes buffered
+          with its request are spent; a read that waits longer raises
+          [Eio.Time.Timeout] out of {!Proffer.Body.Socket.read}. *)
+  request_timeout : Duration.t;
+      (** [request_timeout] is the maximum time from the first
           request byte until the complete head and body arrive. A timeout
           produces 408 Request Timeout and closes the connection. *)
-  write_timeout : float;
-      (** [write_timeout] is the maximum time in seconds one write to the
-          socket may take. A client that stops reading would otherwise pin its
-          connection fibre for as long as it cares to. A write that exceeds it
+  write_timeout : Duration.t;
+      (** [write_timeout] is the maximum time one write to the
+          socket may take. A write that exceeds it
           is reported to [on_error] and the connection closes. *)
 }
 (** A [config] sets server limits. Derive custom configurations from
@@ -157,16 +159,21 @@ val run :
 
     {2 Limits}
 
-    A complete request head and body must fit in about 32 KiB. A larger head
-    receives 431 Request Header Fields Too Large; a head that fits but names a
-    larger body receives 413 Payload Too Large; either closes the connection.
+    A request head must fit in 16 KiB, and the head and body together in about
+    32 KiB. A head over 16 KiB receives 431 Request Header Fields Too Large,
+    whether or not it fits the larger window; a head that fits but names a body
+    the window cannot hold receives 413 Payload Too Large; either closes the
+    connection.
     Use another backend for substantial uploads: a {!Proffer.Multipart} upload
     larger than that window needs one. A response head must fit in about
     30 KiB. An oversized response is reported to [on_error]. When possible the
     server replaces it with a plain 500 response, then closes the connection.
 
     The configured timeouts bound request reads, and [config.write_timeout]
-    bounds each response write. A request refused with 400, 408, 413, 417, or
+    bounds each response write. A string body reaches the socket in one write
+    together with its head, so that timeout covers the whole response; a
+    streamed body is written in slices of at most 64 KiB, each with a timeout
+    of its own. A request refused with 400, 408, 413, 417, or
     431 closes its connection, after reading and discarding up to 64 KiB for
     at most 250 ms of whatever the client is still sending, so that the error
     response is not lost to a reset. An oversized [Expect: 100-continue] request is refused
@@ -201,9 +208,8 @@ val run :
     closes. A stream that emits fewer bytes than it declared is reported the
     same way. Successful CONNECT and 101 responses omit HTTP content framing
     and pass the connection, including already-buffered bytes, to the handoff
-    callback. See
+    callback, whose later reads are bounded by [config.idle_timeout]. See
     {{:https://www.rfc-editor.org/rfc/rfc9112#section-6}RFC 9112 section 6}.
 
     It raises [Invalid_argument] if [config.backlog] or
-    [config.max_connections] is not positive, or if any timeout is not finite
-    and positive. *)
+    [config.max_connections] is not positive, or if any timeout is zero. *)

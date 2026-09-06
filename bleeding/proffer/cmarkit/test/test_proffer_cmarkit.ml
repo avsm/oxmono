@@ -1,6 +1,6 @@
 let source = "# Hello\n\nSome *markdown*.\n"
 
-module Media = Httpz.Media
+module Media = Httpz_media
 
 let test_markdown () =
   let md = Proffer.Markdown.markdown () in

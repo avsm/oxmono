@@ -1,0 +1,10 @@
+(library
+ (name httpz_media)
+ (public_name httpz.media)
+ (libraries
+  base
+  bytesrw
+  stdlib_stable
+  httpz.uri
+  httpz_syntax
+  httpz_diagnostic))

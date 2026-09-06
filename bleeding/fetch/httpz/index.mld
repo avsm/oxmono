@@ -1,0 +1,5 @@
+{0 HTTP/1.1 client}
+
+An Eio HTTP/1.1 transport with system-trust HTTPS. {!Fetch_httpz.std} supplies cookies, retries and request pacing. Each request owns one connection.
+
+{!modules:Fetch_httpz}

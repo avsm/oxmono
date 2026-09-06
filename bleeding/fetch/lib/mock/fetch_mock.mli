@@ -33,7 +33,11 @@ module Sse : sig
 
   type sink
   (** A [sink] accumulates event-stream wire fragments for one scripted
-      response. It is valid only during the callback passed to {!respond}. *)
+      response. By convention it is used only during the callback passed to
+      {!respond}; retaining it past that point is harmless, since the
+      accumulated fragments are read before {!respond} returns, but the
+      callback is where a script is expected to call {!send}, {!comment} and
+      {!retry}. *)
 
   val send : sink -> ?name:string -> ?id:string -> string -> unit
   (** [send sink data] appends one event. Newlines in [data] become separate

@@ -67,9 +67,6 @@ let digit_pairs =
     else Stdlib.Char.unsafe_chr (48 + (i / 2 % 10)))
 ;;
 
-(* A negative value has no decimal spelling here and would drive [count_digits]
-   to one digit and the loop below to none, silently writing garbage into a
-   header. Refuse it at the boundary instead. *)
 let[@inline] int dst ~(off : int16#) n =
   if n < 0 then Stdlib.invalid_arg "Buf_write.int: negative value";
   let off_int = to_int off in

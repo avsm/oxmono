@@ -16,7 +16,16 @@
     lower-case ASCII. That helper implements only part of the
     {{:https://www.rfc-editor.org/rfc/rfc5891.html} IDNA2008 protocol}, so callers must
     separately validate untrusted internationalized names for DNS use. A trailing dot
-    denoting an absolute DNS name is preserved. *)
+    denoting an absolute DNS name is preserved.
+
+    {b Names this module refuses.} Conversion is run with the STD3 rule and the IDNA
+    hyphen rules, so a lookup is not a bare suffix match: an ASCII label must be letters,
+    digits and hyphens, must not begin or end with a hyphen, and must not carry [--] in
+    positions 3 and 4 unless it is an A-label. A name with an empty label, including the
+    empty label a doubled trailing dot would otherwise produce, is rejected. A name that
+    is legal in DNS but outside that profile, such as [_dmarc.example.com], is therefore
+    an error and not a suffix; a caller classifying an untrusted name is expected to treat
+    the error as a refusal rather than as a match. *)
 
 type section =
   | ICANN
@@ -29,13 +38,13 @@ type section =
 type error =
   | Empty_domain (** [Empty_domain] means the input is empty or contains no labels. *)
   | Invalid_domain of string
-  (** [Invalid_domain reason] means the input is not a valid domain name for [reason]. *)
+  (** [Invalid_domain reason] means the input is not a valid domain name for [reason],
+      such as an empty label left by a doubled dot. *)
   | Leading_dot
   (** [Leading_dot] means the input starts with a dot. A trailing dot is permitted, but a
       leading dot does not denote a DNS name. *)
   | Punycode_error of string
   (** [Punycode_error reason] means IDNA conversion failed for [reason]. *)
-  | No_public_suffix (** [No_public_suffix] means no public suffix could be derived. *)
   | Domain_is_public_suffix
   (** [Domain_is_public_suffix] means the input is itself a public suffix, so it has no
       registrable domain. *)

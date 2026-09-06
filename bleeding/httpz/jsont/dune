@@ -1,0 +1,4 @@
+(library
+ (name httpz_jsont)
+ (public_name httpz.jsont)
+ (libraries bytesrw jsont jsont.bytesrw))

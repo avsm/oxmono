@@ -1,108 +1,131 @@
-type entry = { body : string; etag : Etag.t; expires : float; seq : int }
+module F64 = Stdlib_upstream_compatible.Float_u
+module Map = Base.Map
 
-(* An entry's [seq] orders it by last use, so the least recently used entry is
-   the one with the smallest [seq]. The stock tree keys this on [Map], but a
-   stdlib [Map]'s abstract type carries no kind, so an [Atomic.t] holding one
-   no longer crosses into a portable handler. An association list crosses, and
-   the cache is bounded, so every operation stays within [max_entries]. *)
+type entry = { body : string; etag : Etag.t; expires : float#; seq : int }
+
+(* [used] and [entries] contain the same keys under their current sequence. *)
 type state = {
-  entries : (string * entry) list;
-  count : int;
+  entries : (string, entry, Base.String.comparator_witness) Map.t;
+  used : (int, string, Base.Int.comparator_witness) Map.t;
+  earliest_expiry : float#;
   next : int;
-  hits : int;
-  misses : int;
 }
 
-type t = { ttl : float; max_entries : int; state : state Atomic.t }
+type t = {
+  ttl : float#;
+  max_entries : int;
+  state : state Atomic.t;
+  hits : int Atomic.t;
+  misses : int Atomic.t;
+}
 
-let empty = { entries = []; count = 0; next = 0; hits = 0; misses = 0 }
+let empty = {
+  entries = Map.empty (module Base.String);
+  used = Map.empty (module Base.Int);
+  earliest_expiry = F64.of_float infinity;
+  next = 0;
+}
+
+(* Duration 0.3.1's to_f is pure arithmetic over immutable values. Its
+   installed interface lacks portable annotations. *)
+let duration_to_f = Obj.magic_portable Duration.to_f
 
 let create ?(max_entries = 1024) ~ttl () =
-  if not (Float.is_finite ttl && ttl >= 0.) then
-    invalid_arg "Proffer.Cache.create: ttl must be finite and nonnegative";
   if max_entries < 1 then
     invalid_arg "Proffer.Cache.create: max_entries must be positive";
-  { ttl; max_entries; state = Atomic.make empty }
+  {
+    ttl = F64.of_float (duration_to_f ttl);
+    max_entries;
+    state = Atomic.make empty;
+    hits = Atomic.make 0;
+    misses = Atomic.make 0;
+  }
 
-let etag_of body = Digest.to_hex (Digest.string body)
+(* The length prefix separates arbitrary keys and bodies unambiguously. *)
+let etag_of ~key body =
+  Digest.to_hex (Digest.string (Printf.sprintf "%d:%s%s" (String.length key) key body))
 
-(* Every update replaces an immutable state, so the cache needs no lock. A
-   losing racer retries against the state that won. *)
 let rec bump t f =
   let cur = Atomic.get t.state in
   if not (Atomic.compare_and_set t.state cur (f cur)) then bump t f
 
-let without key entries =
-  List.filter (fun (k, _) -> not (String.equal k key)) entries
+(* Sequence wraparound is rare, but must not change LRU ordering. *)
+let prepare_seq s =
+  if s.next < max_int then s
+  else
+    Map.fold s.used ~init:{ s with entries = empty.entries; used = empty.used; next = 0 }
+      ~f:(fun ~key:_ ~data:key acc ->
+        let e = Map.find_exn s.entries key in
+        { acc with
+          entries = Map.set acc.entries ~key ~data:{ e with seq = acc.next };
+          used = Map.set acc.used ~key:acc.next ~data:key;
+          next = acc.next + 1 })
 
 let touch key (e : entry) s =
+  if e.seq = s.next - 1 then s else
+  let s = prepare_seq s in
+  let e = Map.find_exn s.entries key in
   {
     s with
-    entries = (key, { e with seq = s.next }) :: without key s.entries;
+    entries = Map.set s.entries ~key ~data:{ e with seq = s.next };
+    used = Map.set (Map.remove s.used e.seq) ~key:s.next ~data:key;
     next = s.next + 1;
   }
 
-let lru = function
-  | [] -> None
-  | (k0, (e0 : entry)) :: tl ->
-      let rec go best seq = function
-        | [] -> Some best
-        | (k, (e : entry)) :: tl ->
-            if e.seq < seq then go k e.seq tl else go best seq tl
-      in
-      go k0 e0.seq tl
-
-let rec evict max s =
-  if s.count <= max then s
+let evict max s =
+  if Map.length s.entries <= max then s
   else
-    match lru s.entries with
-    | None -> s
-    | Some key ->
-        evict max
-          { s with entries = without key s.entries; count = s.count - 1 }
+    let seq, key = Map.min_elt_exn s.used in
+    { s with entries = Map.remove s.entries key; used = Map.remove s.used seq }
 
 let prune now s =
-  let entries =
-    List.filter (fun (_, (e : entry)) -> now < e.expires) s.entries
-  in
-  let count = List.length entries in
-  if count = s.count then s else { s with entries; count }
+  if F64.compare now s.earliest_expiry < 0 then s
+  else
+    Map.fold s.entries ~init:{ s with earliest_expiry = F64.of_float infinity }
+      ~f:(fun ~key ~data:e acc ->
+        if F64.compare now e.expires >= 0 then
+          { acc with entries = Map.remove acc.entries key;
+                     used = Map.remove acc.used e.seq }
+        else if F64.compare e.expires acc.earliest_expiry < 0 then
+          { acc with earliest_expiry = e.expires }
+        else acc)
 
-let store max key (e : entry) s =
-  let present = List.mem_assoc key s.entries in
+let store max key ~body ~etag ~expires s =
+  let s = prepare_seq s in
+  let used = match Map.find s.entries key with
+    | None -> s.used
+    | Some old -> Map.remove s.used old.seq
+  in
   evict max
     {
-      s with
-      entries = (key, { e with seq = s.next }) :: without key s.entries;
-      count = (if present then s.count else s.count + 1);
+      entries =
+        Map.set s.entries ~key ~data:{ body; etag; expires; seq = s.next };
+      used = Map.set used ~key:s.next ~data:key;
+      earliest_expiry = F64.min s.earliest_expiry expires;
       next = s.next + 1;
-      misses = s.misses + 1;
     }
 
 let memoize t ~now ~key gen =
   if not (Float.is_finite now) then
     invalid_arg "Proffer.Cache.memoize: now must be finite";
-  let expires = now +. t.ttl in
-  if not (Float.is_finite expires) then
-    invalid_arg "Proffer.Cache.memoize: now + ttl must be finite";
+  let now = F64.of_float now in
+  let expires = F64.add now t.ttl in
   let cur = Atomic.get t.state in
-  match List.assoc_opt key cur.entries with
-  | Some e when now < e.expires ->
-      bump t (fun s ->
-          let s = { s with hits = s.hits + 1 } in
-          (* Retry against the state that won, which may have dropped or
-             replaced the entry this hit was served from. *)
-          match List.assoc_opt key s.entries with
-          | Some e' when now < e'.expires -> touch key e' s
-          | _ -> s);
+  match Map.find cur.entries key with
+  | Some e when F64.compare now e.expires < 0 ->
+      Atomic.incr t.hits;
+        bump t (fun s ->
+            (* Retry against the state that won, which may have dropped or
+               replaced the entry this hit was served from. *)
+            match Map.find s.entries key with
+            | Some e' when F64.compare now e'.expires < 0 -> touch key e' s
+            | _ -> s);
       (e.body, e.etag)
   | _ ->
       let body = gen () in
-      let etag = Etag.weak (etag_of body) in
-      let e = { body; etag; expires; seq = 0 } in
-      bump t (fun s -> store t.max_entries key e (prune now s));
+      let etag = Etag.weak (etag_of ~key body) in
+      Atomic.incr t.misses;
+      bump t (fun s -> store t.max_entries key ~body ~etag ~expires (prune now s));
       (body, etag)
 
-let stats t =
-  let s = Atomic.get t.state in
-  (s.hits, s.misses)
+let stats t = (Atomic.get t.hits, Atomic.get t.misses)

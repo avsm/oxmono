@@ -2,16 +2,13 @@
     entity-tags. *)
 
 type t : value mod portable contended
-(** A [t] is a cache that may be created once at startup and shared by handlers.
-    The kind is declared so it stays reachable from a portable handler. An
-    abstract type without one reads as contended there, and a cache that names
-    only [portable] is unusable from the handlers it exists to serve. *)
+(** A cache shared between fibers and domains. *)
 
-val create : ?max_entries:int -> ttl:float -> unit -> t @@ portable
-(** [create ~ttl ()] is an empty cache whose entries live [ttl] seconds and
-    which holds at most [max_entries] of them, 1024 by default. It raises
-    [Invalid_argument] unless [ttl] is finite and nonnegative and
-    [max_entries] is positive. *)
+val create : ?max_entries:int -> ttl:Duration.t -> unit -> t @@ portable
+(** [create ~ttl ()] is an empty cache holding at most [max_entries] entries,
+    1024 by default. [ttl] is each entry's lifetime.
+
+    @raise Invalid_argument if [max_entries] is not positive. *)
 
 val memoize :
   t -> now:float -> key:string -> (unit -> string) -> string * Etag.t

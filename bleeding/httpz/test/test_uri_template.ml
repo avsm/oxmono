@@ -1,6 +1,6 @@
 open Base
 
-module Template = Httpz.Uri_template
+module Template = Httpz_uri.Template
 
 let checks = ref 0
 
@@ -137,7 +137,7 @@ let test_uri () =
   | Ok uri ->
       check "direct Uriz expansion"
         (String.equal
-           (Httpz.Uriz.to_string uri)
+           (Httpz_uri.to_string uri)
            "https://example.test/jmap/download?accountId=a%2Fb")
 ;;
 
@@ -159,10 +159,10 @@ let test_levels () =
 ;;
 
 let test_expand_resolve () =
-  let base = Httpz.Uriz.of_string_exn "https://example.test/a/session?old=1#fragment" in
+  let base = Httpz_uri.of_string_exn "https://example.test/a/session?old=1#fragment" in
   let resolve source bindings =
     match Template.expand_resolve_assoc ~base (template source) bindings with
-    | Ok resolved -> Httpz.Uriz.to_string resolved
+    | Ok resolved -> Httpz_uri.to_string resolved
     | Error error ->
         failwith
           (Stdlib.Format.asprintf "could not resolve %S: %a" source
@@ -194,7 +194,7 @@ let test_expand_resolve () =
       | Ok uri -> uri
       | Error error -> failwith (Stdlib.Format.asprintf "%a" Template.pp_error error)
     in
-    let expected = Httpz.Uriz.resolve ~base expanded |> Httpz.Uriz.to_string in
+    let expected = Httpz_uri.resolve ~base expanded |> Httpz_uri.to_string in
     check ("expand then resolve: " ^ source)
       (String.equal expected (resolve source bindings)))
 ;;
@@ -225,6 +225,35 @@ let test_errors () =
      && match result with Ok value -> String.equal value "1/1" | Error _ -> false)
 ;;
 
+let test_prefix_on_empty_composite () =
+  (* A prefix modifier on a composite is a template error whatever the value
+     holds, so an empty list must not be skipped as merely undefined. *)
+  let composite_prefix = template "{x:2}" in
+  List.iter
+    [ `List []; `Assoc []; `List [ "a" ]; `Assoc [ "k", "v" ] ]
+    ~f:(fun value ->
+      check "prefix on a composite is an error"
+        (Result.is_error (Template.expand_assoc composite_prefix [ "x", value ])));
+  check "prefix on a string still expands"
+    (match Template.expand_assoc composite_prefix [ "x", `String "abcd" ] with
+     | Ok value -> String.equal value "ab"
+     | Error _ -> false)
+;;
+
+let test_expand_uri_error_offset () =
+  let t = template "{+x}" in
+  (* A reserved expansion passes ['\['] through, which no path may hold. *)
+  match Template.expand_uri t (fun _ -> Some (`String "[")) with
+  | Ok (_ : Httpz_uri.t) -> check "expansion should not parse as a URI" false
+  | Error e ->
+    check "a parse failure carries no template offset" (e.Template.offset = -1);
+    check "pp_error omits a meaningless offset"
+      (not
+         (String.is_substring
+            (Stdlib.Format.asprintf "%a" Template.pp_error e)
+            ~substring:"byte"))
+;;
+
 let () =
   test_examples ();
   test_unicode_and_percent ();
@@ -232,5 +261,7 @@ let () =
   test_levels ();
   test_expand_resolve ();
   test_errors ();
+  test_prefix_on_empty_composite ();
+  test_expand_uri_error_offset ();
   Stdio.printf "test_uri_template: %d checks passed\n" !checks
 ;;

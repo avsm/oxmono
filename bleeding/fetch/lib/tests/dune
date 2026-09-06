@@ -25,24 +25,34 @@
 (test
  (name test_sse)
  (package fetch)
- (libraries fetch fetch.mock eio.mock))
+ (libraries fetch fetch.mock eio.mock cstruct eio http))
 
 (test
  (name test_redirect)
  (package fetch)
- (libraries fetch fetch.mock httpz eio.mock))
+ (libraries fetch fetch.mock eio.mock eio http httpz.uri))
 
 (test
  (name test_idle_timeout)
  (package fetch)
- (libraries fetch eio.mock alcotest cstruct))
+ (libraries fetch eio.mock alcotest cstruct eio))
 
 (test
  (name test_release)
  (package fetch)
- (libraries fetch fetch.mock eio.mock))
+ (libraries fetch fetch.mock eio.mock http eio mtime))
 
 (test
  (name test_url_policy)
  (package fetch)
- (libraries fetch fetch.mock eio.mock))
+ (libraries fetch fetch.mock eio.mock httpz.uri eio))
+
+(test
+ (name test_cookies_store_error)
+ (package fetch)
+ (libraries fetch fetch.cookies fetch.mock alcotest eio_main eio http))
+
+(test
+ (name test_form_boundary)
+ (package fetch)
+ (libraries fetch alcotest httpz.media))

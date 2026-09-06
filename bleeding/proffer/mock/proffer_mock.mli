@@ -21,15 +21,32 @@
       not fit its buffer with 413, and framing fields such as Content-Length
       and Transfer-Encoding, which a backend consumes rather than passes on.
 
+    Routing an absolute-form target diverges the other way, so a mock test of
+    one proves less than it appears to: {!Proffer.Req.v} derives the routed
+    path by splitting the target at ['?'] alone, so
+    ["http://example.com/hello"] routes under that whole string and matches no
+    route, where [proffer.httpz] parses the target and routes it under
+    ["/hello"]. The mock answers 404 where the server answers 200.
+
     Response construction is shared, so {!Proffer.Resp.v}'s validation applies
-    here as it does anywhere. The collected body does not impose wire framing;
-    {!content_length} deliberately preserves the declared length, so a test can
-    expose a mismatch instead of silently replacing it with the measured size.
-    Request-side validation does not. A test that
+    here as it does anywhere; request-side validation does not. A test that
     green-lights security-sensitive behaviour against the mock has therefore
     said nothing about production: put it against [proffer.httpz] instead, as
     [proffer/test/test_httpz.ml] does. A handoff response is represented with an
-    empty body and no length; its socket callback cannot run without a wire. *)
+    empty body and no length; its socket callback cannot run without a wire.
+
+    The collected body imposes no wire framing, which leaves three more
+    differences from a served response:
+
+    - {!content_length} preserves the declared length, so a test can expose a
+      mismatch instead of silently replacing it with the measured size. A
+      stream that declares a length and then emits a different number of bytes
+      is fatal in [proffer.httpz], which reports it to [on_error] and drops the
+      connection; here it produces a response that looks well formed;
+    - no Date field is synthesised, although [proffer.httpz] writes one on
+      every response that does not carry its own;
+    - no Connection field is synthesised, although [proffer.httpz] writes one
+      on every response. *)
 
 type response
 (** A [response] is one served response as a test reads it. *)
@@ -91,7 +108,13 @@ val body : response -> string
 (** [body r] is the body, or [""] for a contentless response. *)
 
 val content_length : response -> int64 option
-(** [content_length r] is the response's declared length. It is [None] for an
-    unknown-length stream or HEAD and for a 304 produced by conditional request
-    processing. Compare it with [String.length (body r)] when testing a
-    known-length stream. *)
+(** [content_length r] is the response's declared length. A HEAD response keeps
+    the length its body declared, as a served one does. It is [None] for an
+    unknown-length stream, for a stream carrying trailers, for a handoff, and
+    for a 304 produced by conditional request processing. Compare it with
+    [String.length (body r)] when testing a known-length stream. *)
+
+val trailers : response -> Proffer.Headers.t
+(** [trailers r] is the trailer section a streamed body declared, and [[]] for
+    every other body. [proffer.httpz] sends these after the terminating chunk
+    of an HTTP/1.1 response and fails one an HTTP/1.0 client asked for. *)

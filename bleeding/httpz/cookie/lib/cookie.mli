@@ -5,7 +5,8 @@
     [Set-Cookie] response value with {!parse_set_cookie} and formats stored
     cookies with {!cookie_header}. A server parses a [Cookie] request value with
     {!parse_cookie_header} and formats a response value with
-    {!set_cookie_header}. {!Cookie_jar} provides client-side storage.
+    {!set_cookie_header}. The [Cookie_jar] module of the [httpz.cookie.jar]
+    library provides client-side storage.
 
     Operations that depend on the current time take a [Ptime.t], so this module
     performs no I/O. Domain arguments must be canonical lower-case ASCII names
@@ -19,6 +20,10 @@ module Same_site : sig
       {{:https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.6.7}RFC
        6265bis, Section 5.6.7}. *)
 
+  val to_string : t -> string
+  (** [to_string site] is the attribute value of [site], spelled as the
+      grammar spells it: ["Strict"], ["Lax"] or ["None"]. *)
+
   val pp : Format.formatter -> t -> unit
   (** [pp ppf site] is [()] after writing [site] on [ppf]. *)
 end
@@ -27,58 +32,62 @@ type expiry = [ `Session | `At of Ptime.t ]
 (** An [expiry] determines when a cookie expires. [`Session] lasts for the
     lifetime of the jar, and [`At t] expires at [t]. *)
 
-type t
+type t : immutable_data
 (** A [t] is a cookie. Cookies with the same name, domain, and path have the
     same identity and replace one another. *)
 
 (** {1 Accessors} *)
 
-val domain : t -> string
+val domain : t -> string @@ portable
 (** [domain cookie] is the canonical domain to which [cookie] applies. *)
 
-val path : t -> string
+val path : t -> string @@ portable
 (** [path cookie] is the path prefix to which [cookie] applies. *)
 
-val name : t -> string
+val name : t -> string @@ portable
 (** [name cookie] is the name of [cookie]. *)
 
-val value : t -> string
+val value : t -> string @@ portable
 (** [value cookie] is the value of [cookie], including a surrounding pair of
     double quotes when the value was received in that form. *)
 
-val value_trimmed : t -> string
+val value_trimmed : t -> string @@ portable
 (** [value_trimmed cookie] is {!value} with one surrounding pair of double
     quotes removed, if present. The quotes delimit a value in the
     {{:https://www.rfc-editor.org/rfc/rfc6265.html#section-4.1.1}RFC 6265
      grammar}; they are not part of its contents. *)
 
-val secure : t -> bool
+val secure : t -> bool @@ portable
 (** [secure cookie] is [true] if [cookie] has the [Secure] attribute. *)
 
-val http_only : t -> bool
-(** [http_only cookie] is [true] if [cookie] has the [HttpOnly] attribute. *)
+val http_only : t -> bool @@ portable
+(** [http_only cookie] is [true] if [cookie] has the [HttpOnly] attribute. The
+    attribute is parsed, stored and round-tripped through a cookie file, but no
+    operation in this library consults it. It separates a browser scripting
+    environment from the HTTP stack, and a general-purpose client has no such
+    environment to withhold the cookie from. *)
 
-val host_only : t -> bool
+val host_only : t -> bool @@ portable
 (** [host_only cookie] is [true] if [cookie] applies only to the host that set
     it. Such a cookie has no [Domain] attribute. *)
 
-val partitioned : t -> bool
+val partitioned : t -> bool @@ portable
 (** [partitioned cookie] is [true] if [cookie] has the [Partitioned] attribute.
-    The attribute is preserved, but {!Cookie_jar} does not partition storage by
+    The attribute is preserved, but the cookie jar does not partition storage by
     top-level site. See
     {{:https://datatracker.ietf.org/doc/html/draft-cutler-httpbis-partitioned-cookies}Cookies
      Having Independent Partitioned State}. *)
 
-val same_site : t -> Same_site.t option
+val same_site : t -> Same_site.t option @@ portable
 (** [same_site cookie] is the [SameSite] attribute of [cookie], if present. *)
 
-val expiry : t -> expiry
+val expiry : t -> expiry @@ portable
 (** [expiry cookie] is the expiry of [cookie]. *)
 
-val creation_time : t -> Ptime.t
+val creation_time : t -> Ptime.t @@ portable
 (** [creation_time cookie] is the time at which [cookie] was first stored. *)
 
-val last_access : t -> Ptime.t
+val last_access : t -> Ptime.t @@ portable
 (** [last_access cookie] is the time at which [cookie] was last selected for a
     request. *)
 
@@ -109,42 +118,42 @@ val v :
     outside the cookie grammar. See {!valid_domain}, {!valid_path},
     {!valid_name}, and {!valid_value}. *)
 
-val touch : now:Ptime.t -> t -> t
+val touch : now:Ptime.t -> t -> t @@ portable
 (** [touch ~now cookie] is [cookie] with its last-access time set to [now]. *)
 
-val with_creation_time : Ptime.t -> t -> t
+val with_creation_time : Ptime.t -> t -> t @@ portable
 (** [with_creation_time time cookie] is [cookie] with its creation time set to
     [time]. *)
 
 (** {1 Matching and validation} *)
 
-val is_expired : now:Ptime.t -> t -> bool
+val is_expired : now:Ptime.t -> t -> bool @@ portable
 (** [is_expired ~now cookie] is [true] if [cookie] expires at or before [now]. *)
 
-val same_identity : t -> t -> bool
+val same_identity : t -> t -> bool @@ portable
 (** [same_identity a b] is [true] if [a] and [b] have the same name, domain, and
     path. *)
 
-val domain_suffix_matches : sub:string -> string -> bool
+val domain_suffix_matches : sub:string -> string -> bool @@ portable
 (** [domain_suffix_matches ~sub domain] is [true] if [sub] domain-matches
     [domain]: the names are equal, or [domain] is a dot-aligned suffix of the
-    non-IP name [sub]. An IP literal in any spelling {!Httpz.Ip.is_literal}
+    non-IP name [sub]. An IP literal in any spelling {!Httpz_uri.Ip.is_literal}
     recognizes, not just the dotted quad, counts as an address rather than a
     name. Both arguments must be canonical. See
     {{:https://www.rfc-editor.org/rfc/rfc6265.html#section-5.1.3}RFC 6265,
      Section 5.1.3}. *)
 
-val domain_matches : host:string -> t -> bool
+val domain_matches : host:string -> t -> bool @@ portable
 (** [domain_matches ~host cookie] is [true] if [cookie] applies to [host]. A
     host-only cookie requires an exact match. *)
 
-val path_matches : request_path:string -> t -> bool
+val path_matches : request_path:string -> t -> bool @@ portable
 (** [path_matches ~request_path cookie] is [true] if [cookie] applies to
     [request_path] under the
     {{:https://www.rfc-editor.org/rfc/rfc6265.html#section-5.1.4}RFC 6265 path
      matching rules}. An empty request path is normalized to ["/"]. *)
 
-val compare_order : t -> t -> int
+val compare_order : t -> t -> int @@ portable
 (** [compare_order a b] is negative when [a] precedes [b], positive when [b]
     precedes [a], and zero when they have equal order in a [Cookie] request
     value. Longer paths precede shorter paths, then earlier creation times
@@ -154,8 +163,18 @@ val compare_order : t -> t -> int
 val has_secure_prefix : string -> bool
 (** [has_secure_prefix name] is [true] if [name] begins with [__Secure-] or
     [__Host-], compared without regard to case. {!parse_set_cookie} validates
-    the attributes promised by these prefixes, while {!Cookie_jar.set} also
-    validates the request scheme. *)
+    the attributes promised by these prefixes, while the jar also validates the
+    request scheme. *)
+
+val prefix_is_satisfied : t -> bool
+(** [prefix_is_satisfied cookie] is [true] if [cookie] holds the attributes its
+    own name prefix demands: [Secure] for a [__Secure-] name, and [Secure],
+    host-only scope and the path ["/"] for a [__Host-] name. A cookie without
+    either prefix satisfies it vacuously. {!parse_set_cookie} enforces the same
+    rules on a received value; this predicate re-checks a cookie built by {!v}
+    or restored from storage. See
+    {{:https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.6}RFC
+     6265bis, Section 5.6}. *)
 
 val valid_name : string -> bool
 (** [valid_name name] is [true] if [name] is a non-empty token accepted by the
@@ -182,8 +201,10 @@ val parse_set_cookie :
     [Set-Cookie] response value received for a request to [host] and [path]. It
     validates the name and value; domain and public-suffix scope; default path;
     [__Secure-], [__Host-], [SameSite], and [Partitioned] constraints; and
-    [Max-Age] precedence over [Expires]. [Error reason] explains why the value
-    must be ignored. [host] must be canonical.
+    [Max-Age] precedence over [Expires]. A [Max-Age] whose digits do not fit an
+    [int] saturates by its sign rather than yielding precedence, so a huge
+    negative value still deletes the cookie. [Error reason] explains why the
+    value must be ignored. [host] must be canonical.
 
     A [Domain] attribute equal to a public suffix, or to [host] when [host] is
     an IP literal, is ignored and the cookie is stored host-only as step 5 of
@@ -196,7 +217,7 @@ val parse_set_cookie :
 val cookie_header : t list -> string
 (** [cookie_header cookies] is a [Cookie] request value such as
     ["session=abc; theme=dark"]. [cookies] must already be filtered and sorted,
-    for example by {!Cookie_jar.header_for}. *)
+    for example by the [header_for] operation of a cookie jar. *)
 
 (** {1 Server operations} *)
 

@@ -1,4 +1,7 @@
-(** This module provides portable implementations of {!Scan} and token classification.
+(** This module provides portable byte-class scans and token classification.
+
+    {!Scan} is a narrowed alias of this module, selected when no faster
+    architecture-specific implementation is configured.
 
     Scans are unchecked. The caller must ensure [0 <= pos <= limit <= Bytes.length buf]. *)
 
@@ -12,10 +15,6 @@ val find_sp_or_cr : local_ bytes -> pos:int -> limit:int -> int @@ portable
 
 (** [is_token_char byte] is [true] when [byte] is an HTTP token character. *)
 val is_token_char : char# -> bool @@ portable
-
-(** [tchar_table] is a map from each byte value to nonzero exactly when {!is_token_char}
-    accepts it. *)
-val tchar_table : string @@ portable
 
 (** [skip_token buf ~pos ~limit] is the first offset not accepted by {!is_token_char}, or
     [limit]. *)

@@ -10,9 +10,11 @@ let sp_rep : int64# = I64.of_int64 0x2020202020202020L
 
 (* Sets 0x80 in every zero byte of [w] (Bit Twiddling Hacks' [haszero]).
 
-   A byte equal to 0x01 that is immediately preceded by a zero byte is also marked,
-   because of the borrow out of that byte. Every caller below resolves the *lowest* marked
-   byte, and such a false positive always has a genuine zero byte below it, so the
+   A byte equal to 0x01 is also marked as a false positive when a genuine zero byte sits
+   below it, because of the borrow out of that zero byte; that borrow propagates through a
+   run of 0x01 bytes, so a marked byte may itself be immediately preceded by another
+   marked byte rather than by the zero byte. Every caller below resolves the *lowest*
+   marked byte, which is always the genuine zero byte that started the borrow, so the
    resolved index is always a true match. *)
 let[@inline always] zero_bytes (w : int64#) : int64# =
   I64.logand (I64.logand (I64.sub w ones) (I64.lognot w)) highs
@@ -22,6 +24,8 @@ let[@inline always] lowest_marked (m : int64#) : int =
   I64.to_int (Bits.count_trailing_zeros m) lsr 3
 ;;
 
+(* This native-endian load assumes a little-endian target: [lowest_marked] resolves the
+   lowest-addressed byte only when the word's byte 0 is its least significant byte. *)
 let[@inline always] word (local_ (buf : bytes)) p : int64# =
   I64.of_int64 (Bytes.unsafe_get_int64 buf p)
 ;;
@@ -63,13 +67,7 @@ let find_sp_or_cr (local_ (buf : bytes)) ~pos ~limit =
     p)
 ;;
 
-let[@inline always] is_token_char (c : char#) =
-  match c with
-  | #'a' .. #'z' | #'A' .. #'Z' | #'0' .. #'9' -> true
-  | #'!' | #'#' | #'$' | #'%' | #'&' | #'\'' | #'*' | #'+' | #'-' | #'.' -> true
-  | #'^' | #'_' | #'`' | #'|' | #'~' -> true
-  | _ -> false
-;;
+let[@inline always] is_token_char c = Httpz_syntax.is_token_char c
 
 (* Derive the table from [is_token_char] so the two classifiers stay aligned. *)
 let tchar_table =

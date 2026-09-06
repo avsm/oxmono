@@ -1,6 +1,8 @@
-module Media = Httpz.Media
-module Json = Httpz.Json
-module Markdown = Media_cmarkit
+module Duration = Duration
+
+module Media = Httpz_media
+module Json = Httpz_media_jsont
+module Markdown = Httpz_media_cmarkit
 module Method = Method
 module Status = Status
 module Headers = Headers
@@ -15,9 +17,12 @@ module Sse = struct
   type sink = Body.Sink.t
 
   let emit sink value = Body.Sink.write sink value
-  let send sink ?name ?id data = Httpz.Sse.send (emit sink) ?name ?id data
-  let comment sink text = Httpz.Sse.comment (emit sink) text
-  let retry sink milliseconds = Httpz.Sse.retry (emit sink) milliseconds
+  let emit_sub sink #(value, off, len) =
+    if off = 0 && len = String.length value then Body.Sink.write sink value
+    else Body.Sink.write_sub sink (Bytes.unsafe_of_string value) ~off ~len
+  let send sink ?name ?id data = Httpz_media.Sse.send_sub (emit_sub sink) ?name ?id data
+  let comment sink text = Httpz_media.Sse.comment_sub (emit_sub sink) text
+  let retry sink milliseconds = Httpz_media.Sse.retry (emit sink) milliseconds
 
   let respond respond ?retry:retry_ms write =
     Option.iter
@@ -25,7 +30,7 @@ module Sse = struct
         if milliseconds < 0 then
           invalid_arg "Proffer.Sse.respond: retry is negative")
       retry_ms;
-    Resp.stream respond ~cache:Cache_control.no_store Httpz.Sse.media_type
+    Resp.stream respond ~cache:Cache_control.no_store Httpz_media.Sse.media_type
       (fun sink ->
         Option.iter (retry sink) retry_ms;
         write sink)

@@ -1,6 +1,9 @@
-(* Invalid percent escapes are preserved rather than rejected. Ranges without escapes take
-   the direct substring path. Sources are read at [local]. A decoded result is a heap
-   string, except from the [_local] forms, which build it in the caller's region. *)
+(* Invalid percent escapes are preserved rather than rejected, which is where this
+   differs from [Uriz.percent_decode]. Ranges without escapes take the direct substring
+   path. Sources are read at [local]. A decoded result is a heap string, except from the
+   [_local] forms, which build it in the caller's region. *)
+
+module Scanner = Httpz_uri.Scanner
 
 let copy (s : string @ local) off len =
   let b = Bytes.create len in
@@ -28,27 +31,16 @@ let[@zero_alloc] sub_local (s : string @ local) off len = exclave_
   Bytes.unsafe_to_string b
 ;;
 
-let[@zero_alloc] hex c =
-  match c with
-  | '0' .. '9' -> Char.code c - Char.code '0'
-  | 'a' .. 'f' -> Char.code c - Char.code 'a' + 10
-  | 'A' .. 'F' -> Char.code c - Char.code 'A' + 10
-  | _ -> -1
-;;
-
-let[@zero_alloc] rec escaped ~plus (s : string @ local) off stop =
-  off < stop
-  &&
-  let c = String.unsafe_get s off in
-  c = '%' || (plus && c = '+') || escaped ~plus s (off + 1) stop
+let[@zero_alloc] escaped ~plus (s : string @ local) off stop =
+  Scanner.needs_percent_decode s ~pos:off ~len:(stop - off) ~plus_as_space:plus
 ;;
 
 (* [-1] when the escape at [i] is malformed or cut off by [stop]. *)
 let[@zero_alloc] escape_at (s : string @ local) i stop =
   if i + 2 < stop
   then (
-    let hi = hex (String.unsafe_get s (i + 1)) in
-    let lo = hex (String.unsafe_get s (i + 2)) in
+    let hi = Scanner.hex_val (String.unsafe_get s (i + 1)) in
+    let lo = Scanner.hex_val (String.unsafe_get s (i + 2)) in
     if hi >= 0 && lo >= 0 then (hi * 16) + lo else -1)
   else -1
 ;;
@@ -84,24 +76,51 @@ let[@zero_alloc] rec decode_into ~plus (s : string @ local) i stop (b : bytes @ 
       decode_into ~plus s (i + 1) stop b (j + 1)))
 ;;
 
-let decode_sub ~plus (s : string @ local) off len =
+(* The scanner refuses a window holding a malformed triplet, so one it refuses is redone
+   byte by byte with the escape left as it stands. [decoded_len] sizes [b] for either
+   writer: it counts a well-formed triplet as the one byte the scanner writes, and a
+   malformed one as the byte the fallback leaves. *)
+let[@zero_alloc] decode_escaped_into ~plus (s : string @ local) off stop (b : bytes @ local)
+  =
+  let written =
+    Scanner.percent_decode_into
+      s
+      ~pos:off
+      ~len:(stop - off)
+      ~dst:b
+      ~dst_pos:0
+      ~plus_as_space:plus
+  in
+  if written < 0 then decode_into ~plus s off stop b 0
+;;
+
+(* [decode_escaped_sub] and [decode_escaped_local] are [decode_sub] and [decode_local] for
+   a window already known to hold an escape, so a caller that has just tested for one does
+   not scan it twice. *)
+let decode_escaped_sub ~plus (s : string @ local) off len =
   let stop = off + len in
-  if not (escaped ~plus s off stop)
+  let b = Bytes.create (decoded_len s off stop 0) in
+  decode_escaped_into ~plus s off stop b;
+  Bytes.unsafe_to_string b
+;;
+
+let[@zero_alloc] decode_escaped_local ~plus (s : string @ local) off len = exclave_
+  let stop = off + len in
+  let b = create_local (decoded_len s off stop 0) in
+  decode_escaped_into ~plus s off stop b;
+  Bytes.unsafe_to_string b
+;;
+
+let decode_sub ~plus (s : string @ local) off len =
+  if not (escaped ~plus s off (off + len))
   then copy s off len
-  else (
-    let b = Bytes.create (decoded_len s off stop 0) in
-    decode_into ~plus s off stop b 0;
-    Bytes.unsafe_to_string b)
+  else decode_escaped_sub ~plus s off len
 ;;
 
 let[@zero_alloc] decode_local ~plus (s : string @ local) off len = exclave_
-  let stop = off + len in
-  if not (escaped ~plus s off stop)
+  if not (escaped ~plus s off (off + len))
   then sub_local s off len
-  else (
-    let b = create_local (decoded_len s off stop 0) in
-    decode_into ~plus s off stop b 0;
-    Bytes.unsafe_to_string b)
+  else decode_escaped_local ~plus s off len
 ;;
 
 let decode ~plus (s : string @ local) = decode_sub ~plus s 0 (String.length s)
@@ -122,42 +141,7 @@ let segments (path : string @ local) =
   segments
 ;;
 
-let pairs (s : string @ local) =
-  let n = String.length s in
-  let piece start stop =
-    if stop <= start
-    then None
-    else (
-      let rec eq i =
-        if i >= stop
-        then None
-        else if String.unsafe_get s i = '='
-        then Some i
-        else eq (i + 1)
-      in
-      match eq start with
-      | None -> Some (decode_sub ~plus:true s start (stop - start), "")
-      | Some i ->
-        Some
-          ( decode_sub ~plus:true s start (i - start)
-          , decode_sub ~plus:true s (i + 1) (stop - i - 1) ))
-  in
-  let rec go start i =
-    if i >= n
-    then (
-      match piece start i with
-      | Some p -> [ p ]
-      | None -> [])
-    else if String.unsafe_get s i = '&'
-    then (
-      match piece start i with
-      | Some p -> p :: go (i + 1) (i + 1)
-      | None -> go (i + 1) (i + 1))
-    else go start (i + 1)
-  in
-  let pairs = go 0 0 in
-  pairs
-;;
+let pairs = Httpz_media.Urlencoded.decode
 
 let[@zero_alloc] rec same_bytes (s : string @ local) off stop (name : string @ local) =
   off = stop
@@ -172,7 +156,7 @@ let[@zero_alloc] rec same_bytes (s : string @ local) off stop (name : string @ l
 let[@zero_alloc] key_is ~plus (s : string @ local) off stop (name : string @ local) =
   if escaped ~plus s off stop
   then (
-    let local_ decoded = decode_local ~plus s off (stop - off) in
+    let local_ decoded = decode_escaped_local ~plus s off (stop - off) in
     String.equal decoded name)
   else stop - off = String.length name && same_bytes s off stop name
 ;;
@@ -237,7 +221,7 @@ let[@zero_alloc] rec seg_stop (path : string @ local) i n =
 let[@zero_alloc] seg_is (path : string @ local) off stop lit =
   if escaped ~plus:false path off stop
   then (
-    let local_ decoded = decode_local ~plus:false path off (stop - off) in
+    let local_ decoded = decode_escaped_local ~plus:false path off (stop - off) in
     String.equal decoded lit)
   else stop - off = String.length lit && same_bytes path off stop lit
 ;;
@@ -250,3 +234,40 @@ let[@zero_alloc] rec seg_list_local (path : string @ local) i n = exclave_
     let stop = seg_stop path off n in
     decode_local ~plus:false path off (stop - off) :: seg_list_local path stop n)
 ;;
+
+(* Each callback's decoded strings live in one iteration's region. *)
+let iter_pairs (s : string @ local)
+    (f : (string @ local -> string @ local -> unit) @ local) =
+  let len = String.length s in
+  let rec next start =
+    if start < len then begin
+      let rec stop i = if i = len || s.[i] = '&' then i else stop (i + 1) in
+      let last = stop start in
+      if last > start then begin
+        let rec equal i = if i = last || s.[i] = '=' then i else equal (i + 1) in
+        let eq = equal start in
+        let local_ key = decode_local ~plus:true s start (eq - start) in
+        let local_ value =
+          if eq = last then "" else decode_local ~plus:true s (eq + 1) (last - eq - 1)
+        in
+        f key value
+      end;
+      next (last + 1)
+    end
+  in
+  let () = next 0 in ()
+
+let iter_segments (s : string @ local) (f @ local) =
+  let len = String.length s in
+  let rec next start =
+    if start < len then begin
+      let rec stop i = if i = len || s.[i] = '/' then i else stop (i + 1) in
+      let last = stop start in
+      if last > start then begin
+        let local_ value = decode_local ~plus:false s start (last - start) in
+        f value
+      end;
+      next (last + 1)
+    end
+  in
+  let () = next 0 in ()

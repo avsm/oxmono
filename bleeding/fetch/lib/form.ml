@@ -1,4 +1,5 @@
 open Middleware
+module I64 = Stdlib_upstream_compatible.Int64_u
 
 (* A part's content is either a string held now or a source read while
    the request is sent. A source cannot be read twice, so the checks
@@ -149,18 +150,22 @@ let occurs b parts heads =
        parts
 
 (* Two requests carrying the same parts must not expose a stable digest of
-   their immediate values in the Content-Type field. The generator is seeded
-   from the system once per process and a fresh boundary seed is drawn per
-   body: unpredictable, not cryptographic. The occurrence scan below, rather
-   than a content digest, establishes the delimiter invariant. *)
-let generator = lazy (Random.State.make_self_init ())
+   their immediate values in the Content-Type field, so a fresh boundary
+   seed is drawn per body: unpredictable, not cryptographic. Each domain
+   keeps its own generator, drawn on first use, so two domains building a
+   boundary concurrently never race on a shared [Random.State.t] and cannot
+   draw the same seed. The occurrence scan below, rather than a content
+   digest, establishes the delimiter invariant. *)
+let boundary_state =
+  Stdlib.Domain.Safe.DLS.new_key (fun () -> Stdlib.Random.State.make_self_init ())
 
 let salt () =
-  let st = Lazy.force generator in
-  String.init 32 (fun _ -> "0123456789abcdef".[Random.State.int st 16])
+  (* A domain-local value is reachable from its own domain alone, so the
+     [contended] the safe accessor returns it at is weaker than what holds
+     here. Nothing else ever draws from this state. *)
+  let st = Obj.magic_uncontended (Stdlib.Domain.Safe.DLS.get boundary_state) in
+  String.init 32 (fun _ -> "0123456789abcdef".[Stdlib.Random.State.int st 16])
 
-(* A boundary must not occur in any part, so derive it from the parts
-   and step a counter until it does not. *)
 let rec fresh parts heads digest n =
   let b = Printf.sprintf "form%sx%d" digest n in
   if occurs b parts heads then fresh parts heads digest (n + 1) else b
@@ -196,19 +201,17 @@ type segment =
     }
 
 let segments b parts heads =
-  List.concat
-    (List.map2
-       (fun p h ->
-         [
-           Bytes ("--" ^ b ^ "\r\n" ^ h);
-           (match p.content with
-           | Immediate v -> Bytes v
-           | Streamed { src; declared } ->
-               Source { part = p.name; src; declared });
-           Bytes separator;
-         ])
-       parts heads)
-  @ [ Bytes (epilogue b) ]
+  let rec go parts heads = match parts, heads with
+    | [], [] -> [Bytes (epilogue b)]
+    | p :: ps, h :: hs ->
+        let content = match p.content with
+          | Immediate v -> Bytes v
+          | Streamed { src; declared } -> Source { part = p.name; src; declared }
+        in
+        Bytes ("--" ^ b ^ "\r\n" ^ h) :: content :: Bytes separator :: go ps hs
+    | _ -> invalid_arg "Fetch.Form: inconsistent part headers"
+  in
+  go parts heads
 
 (* Knuth-Morris-Pratt, so the boundary can be matched against a
    streamed part one read at a time without holding the bytes. *)
@@ -230,7 +233,8 @@ type composite = {
   failure : int array;
   mutable todo : segment list;
   mutable pos : int;
-  mutable seen : int64;
+  mutable seen : int64#;
+  probe : Cstruct.t;
   mutable matched : int;
 }
 
@@ -244,7 +248,7 @@ module Composite = struct
   let advance t =
     t.todo <- List.tl t.todo;
     t.pos <- 0;
-    t.seen <- 0L;
+    t.seen <- #0L;
     t.matched <- 0
 
   let scan t buf n =
@@ -269,6 +273,13 @@ module Composite = struct
                declared got)))
 
   let rec single_read t (buf @ local) =
+    (* Eio.Flow.single_read must return a positive count or raise
+       End_of_file; an empty [buf] would force 0 out of the [Bytes] and
+       [Source] arms below. Unreachable from Eio's own copy and read
+       paths, which never pass an empty buffer, but guard it rather than
+       silently violate the contract. *)
+    if Cstruct.length buf = 0 then
+      invalid_arg "Fetch.Form.multipart: single_read given an empty buffer";
     match t.todo with
     | [] -> raise End_of_file
     | Bytes s :: _ ->
@@ -284,12 +295,12 @@ module Composite = struct
         end
     | Source c :: _ ->
         begin match c.declared with
-        | Some l when Int64.equal t.seen l ->
+        | Some l when I64.equal t.seen (I64.of_int64 l) ->
             (* Reads stop at the declared count, so one more of them is
              what tells a source that is done from one with bytes to
              spare. Letting the surplus through would shift every part
              after this one and contradict the Content-Length. *)
-            (match Eio.Flow.single_read c.src (Cstruct.create 1) with
+            (match Eio.Flow.single_read c.src t.probe with
             | _ -> mismatch c.part l "more"
             | exception End_of_file -> ());
             advance t;
@@ -300,18 +311,18 @@ module Composite = struct
               match declared with
               | None -> room
               | Some l ->
-                  let left = Int64.sub l t.seen in
-                  if Int64.compare left (Int64.of_int room) >= 0 then room
-                  else Int64.to_int left
+                  let left = I64.sub (I64.of_int64 l) t.seen in
+                  if I64.compare left (I64.of_int room) >= 0 then room
+                  else I64.to_int left
             in
             match Eio.Flow.single_read c.src (Cstruct.sub_local buf 0 room) with
             | n ->
                 scan t buf n;
-                t.seen <- Int64.add t.seen (Int64.of_int n);
+                t.seen <- I64.add t.seen (I64.of_int n);
                 n
             | exception End_of_file ->
                 (match declared with
-                | Some l -> mismatch c.part l (Int64.to_string t.seen)
+                | Some l -> mismatch c.part l (I64.to_string t.seen)
                 | None -> ());
                 advance t;
                 single_read t buf)
@@ -336,12 +347,49 @@ let total segments =
   go 0L segments
 
 let buffered segments =
-  let rec go acc = function
-    | [] -> Some (String.concat "" (List.rev acc))
-    | Bytes s :: rest -> go (s :: acc) rest
+  let rec size total = function
+    | [] -> Some total
     | Source _ :: _ -> None
+    | Bytes s :: rest ->
+        if String.length s > Sys.max_string_length - total then
+          invalid_arg "Fetch.Form.multipart: buffered body is too large";
+        size (total + String.length s) rest
   in
-  go [] segments
+  match size 0 segments with
+  | None -> None
+  | Some size ->
+      let out = Bytes.create size in
+      let rec write off = function
+        | [] -> ()
+        | Source _ :: _ -> assert false
+        | Bytes s :: rest ->
+            Bytes.blit_string s 0 out off (String.length s);
+            write (off + String.length s) rest
+      in
+      write 0 segments;
+      Some (Bytes.unsafe_to_string out)
+
+(* RFC 2046 bcharsnospace, the alphabet a boundary delimiter itself may
+   use: alnum plus these twelve punctuation bytes. [is_token]'s tchar
+   admits several bytes this excludes (! # $ % & * ^ ` | ~) and excludes
+   several this admits (( ) , / : = ?), so a caller-supplied boundary that
+   passed [is_token] could still be one a strict multipart parser rejects.
+   bchars additionally allows space in every position but the last. *)
+let is_bchar = function
+  | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' -> true
+  | '\'' | '(' | ')' | '+' | '_' | ',' | '-' | '.' | '/' | ':' | '=' | '?' ->
+      true
+  | _ -> false
+
+let is_boundary b =
+  let n = String.length b in
+  n > 0
+  &&
+  let ok = ref true in
+  String.iteri
+    (fun i c -> if not (is_bchar c || (c = ' ' && i < n - 1)) then ok := false)
+    b;
+  !ok
 
 let multipart ?boundary parts =
   let heads = List.map part_headers parts in
@@ -350,8 +398,9 @@ let multipart ?boundary parts =
     | None ->
         fresh parts heads (salt ()) 0
     | Some b ->
-        if not (is_token b) then
-          invalid_arg "Fetch.Form.multipart: boundary is not a token";
+        if not (is_boundary b) then
+          invalid_arg
+            "Fetch.Form.multipart: boundary is not a valid RFC 2046 boundary";
         if String.length b > 70 then
           invalid_arg
             "Fetch.Form.multipart: boundary is longer than 70 characters";
@@ -370,7 +419,8 @@ let multipart ?boundary parts =
             failure = kmp_failure b;
             todo = segments;
             pos = 0;
-            seen = 0L;
+            seen = #0L;
+            probe = Cstruct.create 1;
             matched = 0;
           }
         in
@@ -388,4 +438,4 @@ let multipart ?boundary parts =
 
 let urlencoded ps =
   ( Header.[ (content_type, media "application/x-www-form-urlencoded") ],
-    String (Httpz.Urlencoded.encode ps) )
+    String (Httpz_media.Urlencoded.encode ps) )

@@ -30,13 +30,16 @@ val v :
     portable closure. *)
 
 val select :
-  'a Httpz.Media.t list -> Req.t @ local -> 'a Httpz.Media.t @@ portable
+  'a Httpz_media.t list -> Req.t @ local -> 'a Httpz_media.t @@ portable
 (** [select codecs req] is the client's preferred codec, or the first codec
     when no accepted range matches. It raises [Invalid_argument] for an empty
     list. *)
 
+val select_or_null :
+  'a Httpz_media.t list -> Req.t @ local -> 'a Httpz_media.t or_null @@ portable
+
 val select_opt :
-  'a Httpz.Media.t list -> Req.t @ local -> 'a Httpz.Media.t option @@ portable
+  'a Httpz_media.t list -> Req.t @ local -> 'a Httpz_media.t option @@ portable
 (** [select_opt codecs req] is {!select} but [None] when the client stated
     what it accepts and no codec falls within it. See
     {!Proffer.Negotiate.select_opt}. *)
@@ -48,7 +51,7 @@ val encode :
   ?headers:Headers.t @ local ->
   Resp.respond @ local ->
   Req.t @ local ->
-  'a Httpz.Media.t list ->
+  'a Httpz_media.t list ->
   'a ->
   unit
   @@ portable

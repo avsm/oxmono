@@ -13,62 +13,68 @@ type rule =
   ; section : section
   }
 
+(* A wildcard rule is recorded in [wildcard], so only these two kinds ever
+   reach [rule]. *)
+type node_rule =
+  | Rule_normal
+  | Rule_exception
+
 type trie_node =
-  { mutable rule : (rule_type * section) option
+  { mutable rule : (node_rule * section) option
   ; mutable children : (string * trie_node) list
   ; mutable wildcard : section option
   }
 
 let make_node () = { rule = None; children = []; wildcard = None }
 
+(* A comment runs from [//] to the end of the line and may be indented, so it
+   is recognised after the leading whitespace is gone. What follows a rule is
+   separated from it by whitespace and is dropped with the rest of the line. *)
 let parse_line section line =
-  let line =
-    match String.index_opt line '/' with
-    | Some i when i > 0 && line.[i - 1] = '/' -> String.sub line 0 (i - 1)
-    | Some 0 -> ""
-    | _ -> line
-  in
-  let line =
-    String.trim line
-    |> fun s ->
-    match String.index_from_opt s 0 ' ', String.index_from_opt s 0 '\t' with
-    | Some i, Some j -> String.sub s 0 (min i j)
-    | Some i, None | None, Some i -> String.sub s 0 i
-    | None, None -> s
-  in
   let line = String.trim line in
-  if line = ""
+  if String.starts_with ~prefix:"//" line
   then None
   else (
-    let rule_type, domain =
-      if String.length line > 0 && line.[0] = '!'
-      then Exception, String.sub line 1 (String.length line - 1)
-      else if String.length line > 2 && line.[0] = '*' && line.[1] = '.'
-      then Wildcard, String.sub line 2 (String.length line - 2)
-      else Normal, line
+    let line =
+      match String.index_opt line ' ', String.index_opt line '\t' with
+      | Some i, Some j -> String.sub line 0 (min i j)
+      | Some i, None | None, Some i -> String.sub line 0 i
+      | None, None -> line
     in
-    let labels =
-      String.split_on_char '.' domain
-      |> List.rev
-      |> List.filter (fun s -> s <> "")
-      |> List.map (fun label ->
-        try String.lowercase_ascii (Punycode.encode_label label) with
-        | Punycode.Error reason ->
-          failwith
-            (Format.asprintf
-               "public-suffix rule %S has an invalid label %S: %a"
-               domain label Punycode.pp_error_reason reason))
-    in
-    if labels = [] then None else Some { labels; rule_type; section })
+    if line = ""
+    then None
+    else (
+      let rule_type, domain =
+        if String.length line > 0 && line.[0] = '!'
+        then Exception, String.sub line 1 (String.length line - 1)
+        else if String.length line > 2 && line.[0] = '*' && line.[1] = '.'
+        then Wildcard, String.sub line 2 (String.length line - 2)
+        else Normal, line
+      in
+      let labels =
+        String.split_on_char '.' domain
+        |> List.rev
+        |> List.map (fun label ->
+          if label = ""
+          then failwith (Printf.sprintf "public-suffix rule %S has an empty label" domain);
+          try String.lowercase_ascii (Punycode.encode_label label) with
+          | Punycode.Error reason ->
+            failwith
+              (Format.asprintf
+                 "public-suffix rule %S has an invalid label %S: %a"
+                 domain label Punycode.pp_error_reason reason))
+      in
+      Some { labels; rule_type; section }))
 ;;
 
 let insert_rule trie rule =
   let rec insert node labels =
     match labels with
     | [] ->
-      if rule.rule_type = Wildcard
-      then node.wildcard <- Some rule.section
-      else node.rule <- Some (rule.rule_type, rule.section)
+      (match rule.rule_type with
+       | Wildcard -> node.wildcard <- Some rule.section
+       | Normal -> node.rule <- Some (Rule_normal, rule.section)
+       | Exception -> node.rule <- Some (Rule_exception, rule.section))
     | label :: rest ->
       let child =
         match List.assoc_opt label node.children with
@@ -84,7 +90,8 @@ let insert_rule trie rule =
 ;;
 
 let parse_file filename =
-  let ic = open_in filename in
+  In_channel.with_open_text filename
+  @@ fun ic ->
   let trie = make_node () in
   let current_section = ref ICANN in
   let rule_count = ref 0 in
@@ -98,9 +105,10 @@ let parse_file filename =
     then Some (String.trim (String.sub line prefix_len (String.length line - prefix_len)))
     else None
   in
-  try
-    while true do
-      let line = input_line ic in
+  let rec loop () =
+    match In_channel.input_line ic with
+    | None -> ()
+    | Some line ->
       if !version = None then version := extract_value line "// VERSION: ";
       if !commit = None then commit := extract_value line "// COMMIT: ";
       if String.starts_with ~prefix:"// ===BEGIN ICANN DOMAINS===" line
@@ -113,13 +121,11 @@ let parse_file filename =
             insert_rule trie rule;
             incr rule_count;
             if rule.section = ICANN then incr icann_count else incr private_count)
-          (parse_line !current_section line)
-    done;
-    trie, !rule_count, !icann_count, !private_count, !version, !commit
-  with
-  | End_of_file ->
-    close_in ic;
-    trie, !rule_count, !icann_count, !private_count, !version, !commit
+          (parse_line !current_section line);
+      loop ()
+  in
+  loop ();
+  trie, !rule_count, !icann_count, !private_count, !version, !commit
 ;;
 
 let generate_code trie rule_count icann_count private_count version commit =
@@ -128,11 +134,11 @@ let generate_code trie rule_count icann_count private_count version commit =
 
 type section = ICANN | Private
 
-type rule_type = Normal | Wildcard | Exception
+type rule_type = Normal | Exception
 
 type trie_node = {
   rule : (rule_type * section) option;
-  children : (string * trie_node) list;
+  children : (string * trie_node) iarray;
   wildcard : section option;
 }
 
@@ -140,10 +146,12 @@ type trie_node = {
   let counter = ref 0 in
   let output_buffer = Buffer.create (1024 * 1024) in
   (* Emit each node after its children so that every reference in the generated module
-     names an already-bound value. *)
+     names an already-bound value. Children are emitted in label order so that a lookup
+     can binary-search them; the root alone has about 1450. *)
   let rec generate_node node =
     let children =
-      List.map (fun (label, child) -> label, generate_node child) node.children
+      List.map (fun (label, child) -> label, generate_node child)
+        (List.sort (fun (a, _) (b, _) -> String.compare a b) node.children)
     in
     let name = Printf.sprintf "n%d" !counter in
     incr counter;
@@ -153,9 +161,8 @@ type trie_node = {
      | Some (rt, sec) ->
        let rt_str =
          match rt with
-         | Normal -> "Normal"
-         | Wildcard -> "Wildcard"
-         | Exception -> "Exception"
+         | Rule_normal -> "Normal"
+         | Rule_exception -> "Exception"
        in
        let sec_str =
          match sec with
@@ -166,16 +173,16 @@ type trie_node = {
          output_buffer
          (Printf.sprintf "  rule = Some (%s, %s);\n" rt_str sec_str));
     if children = []
-    then Buffer.add_string output_buffer "  children = [];\n"
+    then Buffer.add_string output_buffer "  children = [: :];\n"
     else (
-      Buffer.add_string output_buffer "  children = [\n";
+      Buffer.add_string output_buffer "  children = [:\n";
       List.iter
         (fun (label, child_name) ->
           Buffer.add_string
             output_buffer
             (Printf.sprintf "    (%S, %s);\n" label child_name))
         children;
-      Buffer.add_string output_buffer "  ];\n");
+      Buffer.add_string output_buffer "  :];\n");
     (match node.wildcard with
      | None -> Buffer.add_string output_buffer "  wildcard = None;\n"
      | Some sec ->

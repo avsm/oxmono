@@ -23,6 +23,11 @@
     {!type-error}. Bound a request with [Eio.Time.with_timeout]; cancellation
     propagates through the client and aborts the exchange. *)
 
+module Duration = Duration
+(** [Duration] is the duration package, used for timeouts and delays.
+    [Duration.of_sec 30] is thirty seconds and [Duration.of_ms 500] is half a
+    second. *)
+
 (** {1 Clients} *)
 
 type 'tag ty = [ `Fetch | `Platform of 'tag ]
@@ -206,7 +211,7 @@ exception Idle_timeout of float
 
 val with_idle_timeout :
   clock:_ Eio.Time.clock ->
-  seconds:float ->
+  seconds:Duration.t ->
   _ Eio.Flow.source ->
   Eio.Flow.source_ty Eio.Resource.t
 (** [with_idle_timeout ~clock ~seconds source] is [source] with an independent
@@ -215,8 +220,13 @@ val with_idle_timeout :
     The wrapper deliberately offers no optimized [copy], so a sink cannot
     bypass the per-read deadline.
 
-    [seconds] must be finite and non-negative. The wrapper does not close
-    [source], whose lifetime remains its owner's responsibility. *)
+    The wrapper does not close
+    [source], whose lifetime remains its owner's responsibility.
+
+    The deadline is [Eio.Fiber.first], which cancels the read that lost. A
+    buffered or TLS source may already have taken bytes off the transport by
+    then, so its state after {!Idle_timeout} is undefined and the only sound
+    response is to close it. *)
 
 module Form = Form
 (** [Form] is the module constructing request bodies for HTML form endpoints:
@@ -239,39 +249,19 @@ module Form = Form
     reads one without a line of parsing. {!Form.urlencoded} builds a request
     in the same encoding. *)
 
-module Media = Httpz.Media
-(** [Media] is the module of typed media codecs, from {!Httpz.Media}.
+module Media = Httpz_media
+(** [Media] is the module of typed media codecs, from {!Httpz_media}.
     Codec values are portable and can be defined once and captured by
     portable closures.
     {!Json} and {!Markdown} provide the batteries-included JSON, JSON Lines,
     CommonMark, and HTML codecs. *)
 
-module Json = Httpz.Json
-(** [Json] is the bounded Jsont codec module from {!Httpz.Json}. The response
+module Json = Httpz_media_jsont
+(** [Json] is the bounded Jsont codec module from {!Httpz_media_jsont}. The response
     byte limit of {!Fetch.decode} independently bounds the complete body. *)
 
-module Markdown : sig
-  (** This module provides CommonMark document codecs. *)
-
-  val markdown :
-    ?strict:bool -> ?max_bracket_depth:int -> unit -> Cmarkit.Doc.t Media.t
-  (** [markdown ()] decodes [text/markdown] and [text/x-markdown], and
-      encodes with [Cmarkit_commonmark].
-
-      [strict] defaults to [false]. [max_bracket_depth] defaults to 16 and
-      rejects excessive literal bracket nesting before parsing. Backslashes
-      escape the next character; code spans are not interpreted by this
-      lexical restriction. It is not a bound on parser work. Decoding untrusted
-      Markdown requires Cmarkit's upstream nested-link parser correction;
-      the development test wrapper selects the prepared local build.
-      @raise Stdlib.Invalid_argument if [max_bracket_depth] is not positive. *)
-
-  val html : ?safe:bool -> unit -> Cmarkit.Doc.t Media.t
-  (** [html ()] encodes [text/html]. [safe] defaults to [true], dropping raw
-      HTML and links whose schemes remain unsafe after percent-decoding and
-      removing ASCII whitespace/control obfuscation. This conservative guard
-      is not a substitute for a dedicated HTML sanitizer. *)
-end
+module Markdown = Httpz_media_cmarkit
+(** [Markdown] provides the shared CommonMark and HTML codecs. *)
 
 val encode : 'a Media.t -> 'a -> Header.headers * body
 (** [encode codec v] is the Content-Type header and body of a request carrying
@@ -332,8 +322,14 @@ module Sse : sig
     retry : int option;
   }
   (** An [event] is one dispatched event block. [name] defaults to
-      ["message"], [data] joins its data fields with newlines, and [id] and
-      [retry] are the last valid fields in the block when present. *)
+      ["message"], [data] joins its data fields with newlines, and [retry] is
+      the last valid [retry] field of the block when it carries one. [id] is
+      the stream's last event ID, which
+      {{:https://html.spec.whatwg.org/multipage/server-sent-events.html}WHATWG
+      "parsing an event stream"} carries across blocks: a block with no [id]
+      field of its own reports the one before it. A consumer deduplicating on
+      [id] therefore compares a position in the stream, not a name for this
+      event, and sees the same value on consecutive events. *)
 
   val media_type : string
   (** [media_type] is ["text/event-stream"]. *)
@@ -366,7 +362,9 @@ module Sse : sig
       value. An ID containing another control byte remains visible to the
       decoder but is omitted from a request rather than making reconnection
       fail. A 2xx response is decoded; any other status is returned with its
-      body unread. *)
+      body unread. A 2xx whose Content-Type is not one the event-stream codec
+      accepts raises [Decode_failure] as {!decode} does, after closing the
+      response. *)
 
   type subscription
   (** A [subscription] reconnects an event stream in a daemon fiber. *)
@@ -377,8 +375,8 @@ module Sse : sig
     ?headers:Header.headers ->
     ?last_event_id:string ->
     ?max_event:int ->
-    ?backoff_initial:float ->
-    ?backoff_max:float ->
+    ?backoff_initial:Duration.t ->
+    ?backoff_max:Duration.t ->
     ?capacity:int ->
     ?retryable:(exn -> bool) ->
     _ t ->
@@ -395,7 +393,8 @@ module Sse : sig
       into that range, so neither a zero nor an astronomical value from the
       server governs the reconnection. [capacity] defaults to 64; a full event
       stream blocks its producer. Backoff must satisfy
-      [0 < backoff_initial <= backoff_max], and capacity must be positive.
+      [0 < backoff_initial <= backoff_max], and capacity must be
+      positive.
 
       [retryable] defaults to connection and protocol failures, exhausted
       redirect walks, and rejected 429 or 5xx responses. Decode, TLS, and
@@ -505,7 +504,7 @@ val restrict :
     checked.
 
     It raises [Invalid_argument] if an entry is not an HTTP or HTTPS URL, or
-    carries a query. *)
+    carries a query or a fragment. *)
 
 val read_only : _ t -> plain
 (** [read_only client] is a client that allows only GET, HEAD, and OPTIONS, the
@@ -531,7 +530,7 @@ val with_headers :
 
     It raises [Invalid_argument] if [bs] binds [Authorization], [Cookie], or
     [Proxy-Authorization], or if a [scope] entry is not an HTTP or HTTPS URL, or
-    carries a query. *)
+    carries a query or a fragment. *)
 
 module Credential = Credential
 (** [Credential] is the module describing how scoped credentials travel. *)
@@ -568,14 +567,14 @@ val with_credentials :
     [Connection], [Expect], [TE], [Upgrade]), or is
     [Cookie], which a jar manages (see [Fetch_cookies]); if a [Query] parameter
     name is empty; or if a [scope] entry is not an HTTP or HTTPS URL, or carries
-    a query. *)
+    a query or a fragment. *)
 
 (** {1 Rate limits and retries} *)
 
 val with_limits :
   clock:_ Eio.Time.Mono.t ->
   ?scope:string list ->
-  ?min_interval:float ->
+  ?min_interval:Duration.t ->
   ?max_concurrent:int ->
   _ t ->
   plain
@@ -583,13 +582,15 @@ val with_limits :
     origin (scheme, host, port), for requests under [scope] (default all), whose
     entries are the URL prefixes {!restrict} describes. Two entries on one host
     share a budget, whatever their paths. [min_interval] is the minimum spacing
-    in seconds between request starts, with concurrent fibers queueing at that
-    rate. [max_concurrent] caps requests in flight, each slot held until the
+    between request starts, with concurrent fibers queueing at that rate.
+    It is unset by default. A deadline beyond the monotonic clock's range is
+    clamped to its latest timestamp. [max_concurrent] caps requests in flight, each slot held until the
     backend returns the response. It is a politeness bound on an origin, not a
     backend's connection pool size, which governs connection reuse and is set on
-    the backend. It raises [Invalid_argument] if [max_concurrent] is below 1,
-    [min_interval] is negative, infinite, or NaN, or a [scope] entry is not an
-    HTTP or HTTPS URL or carries a query. *)
+    the backend. [max_concurrent] is unset by default.
+
+    @raise Invalid_argument if [max_concurrent] is below 1, or a [scope]
+    entry is not an HTTP or HTTPS URL or carries a query or a fragment. *)
 
 module Retry = Retry
 (** [Retry] is the module configuring {!with_retry}. *)

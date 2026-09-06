@@ -75,6 +75,10 @@ val to_string_pairs : bytes -> t list -> (string * string) list @@ portable
     The pairs it returns are global. *)
 val to_string_pairs_local : bytes -> t list @ local -> (string * string) list @@ portable
 
+val to_rev_string_pairs_local : bytes -> t list @ local -> (string * string) list @@ portable
+(** Convert and reverse a local field list in one pass. Returned strings and
+    pairs are owned, so they survive reuse of the parse buffer. *)
+
 (** [pp formatter header] is the formatter operation that prints the parsed variants and
     span positions. *)
 val pp : Stdlib.Format.formatter -> t -> unit @@ portable

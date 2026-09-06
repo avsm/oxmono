@@ -52,10 +52,8 @@ let handle_client flow _addr =
   let quiet =
     match request with
     | [ _;
-        ( "/quiet" | "/quiet-big" | "/quiet-trickle" | "/bad-status"
-        | "/bad-header" | "/unterminated" | "/switch" | "/http10-te"
-        | "/reset-chunked" | "/reset-content" | "/wire-amplification"
-        | "/late-trailing" );
+        ( "/quiet" | "/quiet-big" | "/quiet-trickle"
+        | "/reset-chunked" | "/reset-content" );
         _ ] -> true
     | _ -> false
   in
@@ -77,11 +75,6 @@ let handle_client flow _addr =
     "\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff\xcb\x48\xcd\xc9\xc9\x57\x48\
      \xaf\xca\x2c\x50\x48\x2b\xca\xcf\x55\x48\xcd\xcc\x07\x00\x5d\x0e\xeb\
      \x88\x13\x00\x00\x00"
-  in
-  (* "hello brotli from eio", brotli-compressed. *)
-  let brotli_body =
-    "\x0b\x0a\x80\x68\x65\x6c\x6c\x6f\x20\x62\x72\x6f\x74\x6c\x69\
-     \x20\x66\x72\x6f\x6d\x20\x65\x69\x6f\x03"
   in
   match request with
   | [ _; "/hello"; _ ] -> respond "200 OK" "hello from eio"
@@ -108,26 +101,6 @@ let handle_client flow _addr =
     respond "200 OK" (Fmt.str "%s:%d" framing (String.length body))
   | [ _; "/gzip"; _ ] ->
     respond ~extra:"Content-Encoding: gzip\r\n" "200 OK" gzip_body
-  | [ _; "/brotli"; _ ] ->
-    respond ~extra:"Content-Encoding: br\r\n" "200 OK" brotli_body
-  | [ _; "/bad-status"; _ ] ->
-    Eio.Flow.copy_string
-      "HTTP/1.1 2000 OK\r\nContent-Length: 5\r\n\r\nhello" flow
-  | [ _; "/bad-header"; _ ] ->
-    Eio.Flow.copy_string
-      "HTTP/1.1 200 OK\r\nBad Name: value\r\nContent-Length: 5\r\n\r\nhello"
-      flow
-  | [ _; "/unterminated"; _ ] ->
-    Eio.Flow.copy_string "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nhello" flow
-  | [ _; "/switch"; _ ] ->
-    Eio.Flow.copy_string
-      "HTTP/1.1 101 Switching Protocols\r\n\
-       Connection: Upgrade\r\n\
-       Upgrade: example\r\n\r\nUPGRADED"
-      flow
-  | [ _; "/http10-te"; _ ] ->
-    Eio.Flow.copy_string
-      "HTTP/1.0 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n" flow
   | [ "HEAD"; "/head-framing"; _ ] ->
     Eio.Flow.copy_string
       "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\
@@ -165,17 +138,6 @@ let handle_client flow _addr =
     Eio.Flow.copy_string
       "HTTP/1.1 205 Reset Content\r\nContent-Length: 5\r\n\
        Connection: close\r\n\r\nhello" flow
-  | [ _; "/wire-amplification"; _ ] ->
-    Eio.Flow.copy_string
-      ("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\
-        Connection: close\r\n\r\n1;" ^ String.make 256 'x'
-       ^ "\r\na\r\n0\r\n\r\n") flow
-  | [ _; "/late-trailing"; _ ] ->
-    Eio.Flow.copy_string
-      "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\
-       Connection: close\r\n\r\n1\r\na\r\n0\r\n\r\n" flow;
-    Eio_unix.sleep 0.02;
-    Eio.Flow.copy_string "garbage" flow
   | _ -> respond "404 Not Found" "nope"
 
 let with_server_env fn =
@@ -196,52 +158,6 @@ let with_server_env fn =
   fn env sw (fun path -> Fmt.str "http://127.0.0.1:%d%s" port path)
 
 let with_server fn = with_server_env (fun _env sw url -> fn sw url)
-
-(* A server that can tell whether libcurl reused the first connection after a
-   close token hidden in a list. The first response has no body callback, so
-   this covers the narrow completion-ordering case. *)
-let with_reuse_probe fn =
-  Eio_main.run @@ fun env ->
-  Switch.run @@ fun sw ->
-  let net = Eio.Stdenv.net env in
-  let sock = Eio.Net.listen ~sw ~backlog:5 ~reuse_addr:true net
-      (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0)) in
-  let port =
-    match Eio.Net.listening_addr sock with
-    | `Tcp (_, port) -> port
-    | _ -> assert false
-  in
-  let accepted = ref 0 in
-  let read_request reader =
-    ignore (Eio.Buf_read.line reader : string);
-    let rec fields () =
-      if Eio.Buf_read.line reader <> "" then fields ()
-    in
-    fields ()
-  in
-  let reply flow body =
-    Eio.Flow.copy_string
-      (Fmt.str "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\
-                Connection: close\r\n\r\n%s" (String.length body) body)
-      flow
-  in
-  let handler flow _addr =
-    incr accepted;
-    let reader = Eio.Buf_read.of_flow flow ~max_size:4096 in
-    read_request reader;
-    if !accepted = 1 then begin
-      Eio.Flow.copy_string
-        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\
-         Connection: keep-alive, close\r\n\r\n" flow;
-      match read_request reader with
-      | () -> reply flow "reused"
-      | exception End_of_file -> ()
-    end
-    else reply flow "fresh"
-  in
-  Fiber.fork_daemon ~sw (fun () ->
-      Eio.Net.run_server sock handler ~on_error:(fun _ -> ()));
-  fn sw (fun path -> Fmt.str "http://127.0.0.1:%d%s" port path)
 
 (* A body flow that hands over one piece per call to [wait], so a client
    sending it runs out of body between pieces. *)
@@ -277,8 +193,8 @@ truncated or passed through to a platform-dependent C `long` conversion:
 val invalid : (unit -> 'a) -> string = <fun>
 # Eio_main.run @@ fun _env ->
   Switch.run @@ fun sw ->
-  [ invalid (fun () -> Fetch_curl.v ~sw ~timeout:nan ());
-    invalid (fun () -> Fetch_curl.v ~sw ~connect_timeout:(-1.) ());
+  [ invalid (fun () -> Fetch_curl.v ~sw ~timeout:(Duration.of_day 30) ());
+    invalid (fun () -> Fetch_curl.v ~sw ~connect_timeout:(Duration.of_day 30) ());
     invalid (fun () -> Fetch_curl.v ~sw ~max_response:(-1) ());
     invalid (fun () -> Fetch_curl.v ~sw ~max_request:(-1) ());
     invalid (fun () -> Fetch_curl.v ~sw ~max_total_connections:(-1) ());
@@ -292,8 +208,8 @@ val invalid : (unit -> 'a) -> string = <fun>
       Fetch_curl.v ~sw ~resolve:[ "example.com", 80, "127.0.0.1,evil" ] ())
   ];;
 - : string list =
-["Fetch_curl.v: timeout must be finite";
- "Fetch_curl.v: connect_timeout must be non-negative";
+["Fetch_curl.v: timeout is too large";
+ "Fetch_curl.v: connect_timeout is too large";
  "Fetch_curl.v: max_response must be non-negative";
  "Fetch_curl.v: max_request must be non-negative";
  "Fetch_curl.v: max_total_connections must be non-negative";
@@ -605,8 +521,8 @@ native handle allocation or network setup:
 
 `/big` serves 1 MiB. The body flows through a bounded queue — libcurl
 is paused whenever the reader falls behind and resumed as it drains —
-so a response costs the queue's high-water mark in memory, not its own
-size:
+so Fetch's queue stays bounded. Libcurl manages its own transport and
+decoding buffers:
 
 ```ocaml
 # with_server @@ fun sw url ->
@@ -668,17 +584,8 @@ with a `Protocol_error` rather than buffering on:
 - : string = "response body exceeds 1024 bytes"
 ```
 
-The same limit applies before transfer decoding, so chunk extensions and
-trailer framing cannot amplify a tiny representation into an unbounded wire
-stream:
-
-```ocaml
-# with_server @@ fun sw url ->
-  let t = Fetch_curl.v ~sw ~max_response:64 () in
-  try ignore (Fetch.read t (url "/wire-amplification") : string); "accepted"
-  with Eio.Io (E (Protocol_error msg), _) -> msg;;
-- : string = "response body exceeds 64 bytes"
-```
+The limit applies to the delivered body, including expansion from automatic
+content decoding. Chunk framing, headers and trailers are handled by libcurl.
 
 libcurl also has a per-header-line limit. Its newest error code must remain a
 normal protocol error even when the OCaml curl binding predates that code, and
@@ -715,29 +622,16 @@ bytes, with the headers describing the decoded view (no
 - : string * bool = ("hello gzip from eio", false)
 ```
 
-Content and transfer decoding are disabled in libcurl. The backend validates
-HTTP/1 framing itself and uses the same strict streaming gzip decoder as
-Fetch/httpz, including concatenated members and complete RFC 1952 header and
-trailer checks. The only known corpus differences left are libcurl's
-conservative rejection of status 099 and HTTP/1 minor versions above 1.1;
-those requirements are interoperability `SHOULD`s.
-
-Only gzip is negotiated and only gzip is decoded. An unsolicited `br`
-response therefore reaches the caller exactly as coded, with its metadata
-intact, independently of the optional decoders in the system libcurl:
+Libcurl negotiates and decodes the content codings supported by its build.
+The same response-size limit applies after decoding.
 
 ```ocaml
 # with_server @@ fun sw url ->
-  let t = Fetch_curl.v ~sw () in
-  Eio.Switch.run @@ fun sw ->
-  match Fetch.get ~sw t (url "/brotli") with
-  | resp ->
-    let s = Eio.Buf_read.(parse_exn ~max_size:1000 take_all) (body resp) in
-    (s = "hello brotli from eio",
-     Http.Header.mem (headers resp) "content-encoding")
-  | exception Eio.Io (E (Protocol_error _), _) -> (true, false);;
-> GET /brotli HTTP/1.1
-- : bool * bool = (false, true)
+  let t = Fetch_curl.v ~sw ~max_response:18 () in
+  try ignore (Fetch.read t (url "/gzip") : string); "accepted"
+  with Eio.Io (E (Protocol_error msg), _) -> msg;;
+> GET /gzip HTTP/1.1
+- : string = "response body exceeds 18 bytes"
 ```
 
 Setting `Accept-Encoding` explicitly opts out of automatic decoding and returns
@@ -757,23 +651,7 @@ the coded representation with its metadata intact:
 - : int * string option = (39, Some "gzip")
 ```
 
-## Malformed response heads and protocol switches are rejected
-
-The backend performs a small syntactic check before exposing status and header
-lines normalized by libcurl. It also rejects an unsolicited protocol switch,
-since the Fetch interface cannot expose the upgraded connection:
-
-```ocaml
-# with_server @@ fun sw url ->
-  let t = Fetch_curl.v ~sw () in
-  let rejected path =
-    try ignore (Fetch.read t (url path) : string); false with
-    | Eio.Io (E (Protocol_error _), _) -> true
-  in
-  List.map rejected
-    [ "/bad-status"; "/bad-header"; "/unterminated"; "/switch"; "/http10-te" ];;
-- : bool list = [true; true; true; true; true]
-```
+## Response metadata
 
 Framing fields describe the corresponding GET representation on HEAD. Since
 the response itself is bodyless, their coexistence is not ambiguous:
@@ -814,18 +692,6 @@ the backend closes that transfer rather than surfacing the bytes:
 - : string = ""
 ```
 
-A close token hidden in a list is applied before a zero-body transfer can
-enter libcurl's pool. The following request therefore uses a fresh connection:
-
-```ocaml
-# with_reuse_probe @@ fun sw url ->
-  let t = Fetch_curl.v ~sw () in
-  let first = Fetch.read t (url "/first") in
-  let second = Fetch.read t (url "/second") in
-  (first, second);;
-- : string * string = ("", "fresh")
-```
-
 ## Trailer fields stay out of the headers
 
 A trailer arrives after the body; folding it into the header block
@@ -851,22 +717,8 @@ It is exposed separately once the body has been drained:
 ("hello", false, false, Some "abc123")
 ```
 
-Garbage discovered in a later delivery after the terminal chunk is quarantined
-and resumed from fiber context; it cannot leave the reader paused forever:
-
-```ocaml
-# with_server_env @@ fun env sw url ->
-  let t = Fetch_curl.v ~sw () in
-  match Eio.Time.with_timeout (Eio.Stdenv.clock env) 1. (fun () ->
-      Ok (Fetch.read t (url "/late-trailing"))) with
-  | Ok body -> body
-  | Error `Timeout -> "timed out";;
-- : string = "a"
-```
-
-The boundary is the terminal chunk, not the first body callback. A recognized
-field that is forbidden in trailers is consumed and discarded, even when the
-body is empty:
+Trailer fields remain separate even when the response body is empty. A
+trailing `Set-Cookie` does not become a response header or update the cookie jar.
 
 ```ocaml
 # with_server @@ fun sw url ->
@@ -878,7 +730,7 @@ body is empty:
       (fun tr -> Http.Header.get tr "set-cookie") in
   (s, Http.Header.mem (headers resp) "set-cookie", trailer);;
 > GET /empty-trailers HTTP/1.1
-- : string * bool * string option = ("", false, None)
+- : string * bool * string option = ("", false, Some "late=yes")
 ```
 
 ## An empty header value is still sent
@@ -941,7 +793,7 @@ any exchange:
 ```ocaml
 # Eio_main.run @@ fun _env ->
   Eio.Switch.run @@ fun sw ->
-  let t = Fetch_curl.v ~sw ~connect_timeout:5. () in
+  let t = Fetch_curl.v ~sw ~connect_timeout:(Duration.of_sec 5) () in
   (try ignore (Fetch.read t "http://127.0.0.1:9/" : string); "connected!"
    with Eio.Io (E (Connection_failure (Refused _)), _) -> "refused");;
 - : string = "refused"

@@ -12,7 +12,7 @@ module Jar = struct
     match
       Cookie_jar.set t
         ~host:(Middleware.Url.host url)
-        ~path:(Httpz.Uriz.encoded_path (Middleware.Url.to_uri url))
+        ~path:(Httpz_uri.encoded_path (Middleware.Url.to_uri url))
         ~https:(Middleware.Url.scheme url = `Https)
         line
     with
@@ -23,7 +23,7 @@ module Jar = struct
   let header_for_url t url =
     Cookie_jar.header_for t
       ~host:(Middleware.Url.host url)
-      ~path:(Httpz.Uriz.encoded_path (Middleware.Url.to_uri url))
+      ~path:(Httpz_uri.encoded_path (Middleware.Url.to_uri url))
       ~https:(Middleware.Url.scheme url = `Https)
 
   let set t url line =
@@ -43,13 +43,7 @@ let with_jar ?scope jar client =
   in
   Fetch.Middleware.middleware
     (fun next ~sw (req : Middleware.request) ->
-      let in_scope =
-        match scope with
-        | None -> true
-        | Some ps ->
-            List.exists (fun s -> Middleware.Scope.matches s req.url) ps
-      in
-      if not in_scope then next ~sw req
+      if not (Middleware.Scope.matches_any scope req.url) then next ~sw req
       else
         let req =
           if Http.Header.mem req.headers "cookie" then req
@@ -65,11 +59,18 @@ let with_jar ?scope jar client =
         let resp = next ~sw req in
         (match Http.Header.get_multi (headers resp) "set-cookie" with
         | [] -> ()
-        | values ->
+        | values -> (
             Eio.Private.Trace.log
               (Fmt.str "fetch: storing %d cookie(s) from %s"
                  (List.length values) (Middleware.Url.host req.url));
-            List.iter (Jar.set_url jar req.url) values);
+            (* A store error (an on-change file jar's atomic replace, for
+               instance) must not leak [resp]: close it before re-raising. *)
+            match List.iter (Jar.set_url jar req.url) values with
+            | () -> ()
+            | exception exn ->
+                let bt = Printexc.get_raw_backtrace () in
+                close resp;
+                Printexc.raise_with_backtrace exn bt));
         resp)
     client
 
@@ -79,7 +80,7 @@ let std ?(cookies = `Memory) ?retry ?(max_concurrent = 6) ?min_interval env
   let mono_clock = env#mono_clock in
   let with_cookies =
     match cookies with
-    | `Off -> fun t -> Fetch.Middleware.of_handler (Fetch.Middleware.handler t)
+    | `Off -> Fetch.Middleware.middleware Fun.id
     | `Memory -> with_jar (Jar.in_memory ~clock ())
     | `File path -> with_jar (Jar.of_file ~clock path)
   in

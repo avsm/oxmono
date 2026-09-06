@@ -1,13 +1,11 @@
 open Base
 
 module I16 = Stdlib_stable.Int16_u
-module Char_u = Stdlib_stable.Char_u
 module Scanner = Httpz_uri.Scanner
 
 let[@inline] i16 x = I16.of_int x
 
 let[@inline always] peek buf pos = Buf_read.peek buf (i16 pos)
-let[@inline always] peek_str s i = Char_u.of_char (String.unsafe_get s i)
 let ( =. ) = Buf_read.( =. )
 let ( <>. ) = Buf_read.( <>. )
 
@@ -164,17 +162,20 @@ let[@inline] parse_authority (local_ s : string) ~toff ~tlen : t =
   (* [#(host_off, host_len, after)]: [after] is the offset of the byte that
      must be the ':', or [-1] when the host itself is malformed. An IP-literal
      reports the span inside the brackets, as [Httpz_uri.Scanner] does. *)
+  (* A missing ':' or a missing port is a fault at the end of the target, not at the byte
+     after it, which belongs to the request line. *)
+  let[@inline] in_span p = if p >= limit then limit - 1 else p in
   let #(host_off, host_len, after) = parse_host s ~pos:toff ~limit in
   if after < 0
   then invalid ~err:toff
   else if after >= limit || not (Char.equal (String.unsafe_get s after) ':')
-  then invalid ~err:after
+  then invalid ~err:(in_span after)
   else (
     (* port = 1*DIGIT. RFC 3986 allows it to be empty but RFC 9112 §3.2.3
        requires it here, and a port above 65535 addresses nothing. *)
     let #(port_end, port) = parse_port s ~pos:(after + 1) ~limit in
     if port < 0
-    then invalid ~err:port_end
+    then invalid ~err:(in_span port_end)
     else
       #{ form = Authority
        ; path = empty_span
@@ -229,8 +230,17 @@ let[@zero_alloc opt] parse (local_ buf : bytes) (target : Span.t) : t =
       if sp.#err = 0 && sp.#scheme_len >= 0 && sp.#host_off >= 0 && sp.#host_len > 0
       then parse_absolute ~toff sp
       else (
-        let r = parse_authority s ~toff ~tlen in
-        r)))
+        let t = parse_authority s ~toff ~tlen in
+        match t.#form with
+        | Invalid ->
+          (* Both grammars rejected the target, so report the offset of the one that read
+             further. The scanner stops at the first byte no URI-reference may hold, which
+             is the precise fault in "http://ho st/x"; authority-form stops as soon as the
+             bytes stop spelling "host:port", which an IP-literal does at its first
+             byte. *)
+          let scanned = sp.#err - 1 in
+          if scanned > t.#err && scanned < toff + tlen then invalid ~err:scanned else t
+        | Origin | Absolute | Authority | Asterisk -> t)))
 ;;
 
 let[@inline] form (t : t) = t.#form
@@ -347,19 +357,10 @@ let[@inline] match_segment
   if plen = 0 then #(false, empty_span)
   else
     let poff = Span.off path in
-    let elen = String.length expected in
     let seg_len = segment_end buf ~poff ~plen in
-    if seg_len <> elen then #(false, empty_span)
-    else (
-      let mutable j = 0 in
-      let mutable eq = true in
-      while eq && j < elen do
-        if not (peek buf (poff + j) =. peek_str expected j)
-        then eq <- false
-        else j <- j + 1
-      done;
-      if not eq then #(false, empty_span)
-      else #(true, segment_rest ~poff ~plen ~seg_len))
+    if Span.equal buf (span ~off:poff ~len:seg_len) expected
+    then #(true, segment_rest ~poff ~plen ~seg_len)
+    else #(false, empty_span)
 ;;
 
 let[@inline] match_param (local_ buf : bytes) (path : Span.t)
@@ -373,8 +374,6 @@ let[@inline] match_param (local_ buf : bytes) (path : Span.t)
     let seg = Span.make ~off:(i16 poff) ~len:(i16 seg_len) in
     #(true, seg, segment_rest ~poff ~plen ~seg_len)
 ;;
-
-let[@inline] is_empty (path : Span.t) : bool = Span.len path = 0
 
 (* A parameter ends at [&], and its first [=] separates key from value. A
    missing and an empty value both become zero-length spans. *)

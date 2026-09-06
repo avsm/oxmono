@@ -342,10 +342,7 @@ let test_config_validation () =
     (invalid (fun () -> Fetch_httpz.v ~max_response:(-1) net ()));
   check "invalid user agent"
     "Fetch_httpz.v: user_agent contains a forbidden control byte"
-    (invalid (fun () -> Fetch_httpz.v ~user_agent:"bad\ragent" net ()));
-  check "non-finite timeout"
-    "Fetch_httpz.v: connect_timeout must be finite"
-    (invalid (fun () -> Fetch_httpz.v ~connect_timeout:nan net ()))
+    (invalid (fun () -> Fetch_httpz.v ~user_agent:"bad\ragent" net ()))
 
 let test_oversized_request_head () =
   with_server @@ fun t url ->
@@ -595,7 +592,7 @@ let test_retry_releases_each_response () =
                     retry_connection_handler)
   in
   let config =
-    Fetch.Retry.v ~max_retries:3 ~backoff_factor:0. ~jitter:false ()
+    Fetch.Retry.v ~max_retries:3 ~backoff_factor:(Duration.of_sec 0) ~jitter:false ()
   in
   let client =
     Fetch_httpz.v ~connect (Eio_mock.Net.make "net") ()
@@ -832,7 +829,7 @@ let test_gzip_truncated () =
 let test_idle_timeout () =
   Eio_mock.Backend.run_full @@ fun env ->
   let t =
-    Fetch_httpz.v ~clock:env#mono_clock ~idle_timeout:5.
+    Fetch_httpz.v ~clock:env#mono_clock ~idle_timeout:(Duration.of_sec 5)
       ~connect:(fun ~sw:_ ~host:_ ~port:_ -> stalled ())
       (Eio_mock.Net.make "net") ()
   in
@@ -844,7 +841,7 @@ let test_idle_timeout () =
 let test_connect_timeout () =
   Eio_mock.Backend.run_full @@ fun env ->
   let t =
-    Fetch_httpz.v ~clock:env#mono_clock ~connect_timeout:3.
+    Fetch_httpz.v ~clock:env#mono_clock ~connect_timeout:(Duration.of_sec 3)
       ~connect:(fun ~sw:_ ~host:_ ~port:_ -> Eio.Fiber.await_cancel ())
       (Eio_mock.Net.make "net") ()
   in
@@ -859,7 +856,7 @@ let test_unbounded_without_a_clock () =
     (try
        Eio_mock.Backend.run_full @@ fun _env ->
        let t =
-         Fetch_httpz.v ~idle_timeout:5.
+         Fetch_httpz.v ~idle_timeout:(Duration.of_sec 5)
            ~connect:(fun ~sw:_ ~host:_ ~port:_ -> stalled ())
            (Eio_mock.Net.make "net") ()
        in
@@ -876,7 +873,7 @@ let test_timeout_releases_slot () =
     else canned "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi"
   in
   let t =
-    Fetch_httpz.v ~clock:env#mono_clock ~idle_timeout:5. ~connect
+    Fetch_httpz.v ~clock:env#mono_clock ~idle_timeout:(Duration.of_sec 5) ~connect
       (Eio_mock.Net.make "net") ()
     |> Fetch.with_limits ~clock:env#mono_clock ~max_concurrent:1
   in
@@ -930,6 +927,209 @@ let test_std_installs_https () =
   match Fetch.read t "https://example.com/" with
   | (_ : string) -> Alcotest.fail "unexpected HTTPS response"
   | exception Exit -> ()
+
+(* A response whose coding list is anything but a lone final [chunked] must be
+   refused: [is_chunked] alone is satisfied by "gzip, chunked", whose body is
+   still gzip-coded after de-chunking. *)
+let coded_response headers body =
+  Eio_mock.Backend.run_full @@ fun _env ->
+  let t =
+    Fetch_httpz.v
+      ~connect:(fun ~sw:_ ~host:_ ~port:_ ->
+        segmented
+          [ Fmt.str "HTTP/1.1 200 OK\r\n%sConnection: close\r\n\r\n%s" headers
+              body ])
+      (Eio_mock.Net.make "net") ()
+  in
+  try Fetch.read t "http://coded.example/"
+  with Eio.Io (E (Protocol_error msg), _) -> msg
+
+let test_layered_transfer_coding () =
+  let chunks = "5\r\nhello\r\n0\r\n\r\n" in
+  let refused = "unsupported non-chunked Transfer-Encoding in response" in
+  check "chunked alone is decoded" "hello"
+    (coded_response "Transfer-Encoding: chunked\r\n" chunks);
+  check "gzip then chunked in one field" refused
+    (coded_response "Transfer-Encoding: gzip, chunked\r\n" chunks);
+  check "gzip then chunked in two fields" refused
+    (coded_response "Transfer-Encoding: gzip\r\nTransfer-Encoding: chunked\r\n"
+       chunks);
+  check "a coding list ending in chunked with a blank member" refused
+    (coded_response "Transfer-Encoding: gzip, , chunked\r\n" chunks);
+  (* A bodyless response is framed by its head, so the metadata survives. *)
+  Eio_mock.Backend.run_full @@ fun _env ->
+  let t =
+    Fetch_httpz.v
+      ~connect:(fun ~sw:_ ~host:_ ~port:_ ->
+        segmented
+          [ "HTTP/1.1 304 Not Modified\r\n\
+             Transfer-Encoding: gzip, chunked\r\n\
+             Connection: close\r\n\r\n" ])
+      (Eio_mock.Net.make "net") ()
+  in
+  Eio.Switch.run @@ fun sw ->
+  let resp = Fetch.get ~sw t "http://coded.example/" in
+  Alcotest.(check int) "304 is delivered" 304 (status resp);
+  Alcotest.(check (option string)) "304 keeps its coding metadata"
+    (Some "gzip, chunked")
+    (Http.Header.get (headers resp) "transfer-encoding")
+
+(* A request-body source that answers zero must fail the exchange. Framing a
+   zero-sized chunk writes the terminal chunk, after which everything the
+   source goes on to produce is read by the origin as a pipelined request. *)
+module Stalling_source = struct
+  type t = { mutable left : int }
+
+  let read_methods = []
+
+  let single_read t (buf @ local) =
+    if t.left > 0 then begin
+      t.left <- t.left - 1;
+      Cstruct.blit_from_string "x" 0 buf 0 1;
+      1
+    end
+    else 0
+end
+
+let stalling_source_handler = Eio.Flow.Pi.source (module Stalling_source)
+
+let stalling_source () =
+  Eio.Resource.T ({ Stalling_source.left = 1 }, stalling_source_handler)
+
+module Recording = struct
+  type t = Buffer.t
+
+  let read_methods = []
+  let single_read _ _ = raise End_of_file
+
+  let single_write t (bufs @ local) =
+    Buffer.add_string t (Cstruct.copyv bufs);
+    Cstruct.lenv bufs
+
+  let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
+  let shutdown _ _ = ()
+  let close _ = ()
+end
+
+let recording_handler :
+    (Buffer.t, [ Eio.Flow.two_way_ty | Eio.Resource.close_ty ])
+    Eio.Resource.handler =
+  Eio.Resource.handler
+    (Eio.Resource.H (Eio.Resource.Close, Recording.close)
+     :: Eio.Resource.bindings (Eio.Flow.Pi.two_way (module Recording)))
+
+let recording sent : Fetch_httpz.conn =
+  Eio.Resource.T (sent, recording_handler)
+
+let test_chunked_zero_read () =
+  Eio_mock.Backend.run_full @@ fun _env ->
+  let sent = Buffer.create 256 in
+  let t =
+    Fetch_httpz.v
+      ~connect:(fun ~sw:_ ~host:_ ~port:_ -> recording sent)
+      (Eio_mock.Net.make "net") ()
+  in
+  let failed =
+    Eio.Switch.run @@ fun sw ->
+    match
+      Fetch.post ~sw t ~body:(Fetch.stream (stalling_source ()))
+        "http://chunked.example/"
+    with
+    | (_ : Fetch.response) -> false
+    (* [Eio.Flow.single_read] asserts a positive count of its own, so which of
+       the two fires depends only on whether assertions are compiled in. *)
+    | exception Eio.Io (E (Invalid_request _), _) -> true
+    | exception Assert_failure _ -> true
+  in
+  Alcotest.(check bool) "a zero-length body read fails the request" true failed;
+  let is_substring needle haystack =
+    let n = String.length needle and h = String.length haystack in
+    let rec at i = i + n <= h && (String.sub haystack i n = needle || at (i + 1)) in
+    at 0
+  in
+  Alcotest.(check bool) "no terminal chunk was framed mid-body" false
+    (is_substring "0\r\n\r\n" (Buffer.contents sent))
+
+let gzip_hello_all_flags =
+  "\031\139\008\030\000\000\000\000\002\255\006\000\066\000\002"
+  ^ "\000\120\121\097\045\110\097\109\101\045\108\111\110\103\045"
+  ^ "\101\110\111\117\103\104\045\116\111\045\115\112\097\110\045"
+  ^ "\115\101\118\101\114\097\108\045\114\101\097\100\115\000\097"
+  ^ "\110\100\032\097\032\099\111\109\109\101\110\116\032\116\104"
+  ^ "\097\116\032\116\104\101\032\104\101\097\100\101\114\032\067"
+  ^ "\082\067\032\104\097\115\032\116\111\032\099\111\118\101\114"
+  ^ "\032\097\115\032\119\101\108\108\000\157\252\203\072\205\201"
+  ^ "\201\087\072\175\202\044\080\072\043\202\207\085\072\205\204"
+  ^ "\007\000\093\014\235\136\019\000\000\000"
+
+let gzip_hello_bad_fhcrc =
+  "\031\139\008\030\000\000\000\000\002\255\006\000\066\000\002"
+  ^ "\000\120\121\097\045\110\097\109\101\045\108\111\110\103\045"
+  ^ "\101\110\111\117\103\104\045\116\111\045\115\112\097\110\045"
+  ^ "\115\101\118\101\114\097\108\045\114\101\097\100\115\000\097"
+  ^ "\110\100\032\097\032\099\111\109\109\101\110\116\032\116\104"
+  ^ "\097\116\032\116\104\101\032\104\101\097\100\101\114\032\067"
+  ^ "\082\067\032\104\097\115\032\116\111\032\099\111\118\101\114"
+  ^ "\032\097\115\032\119\101\108\108\000\156\252\203\072\205\201"
+  ^ "\201\087\072\175\202\044\080\072\043\202\207\085\072\205\204"
+  ^ "\007\000\093\014\235\136\019\000\000\000"
+
+(* Both CRC accumulators run over every optional field, and FHCRC covers the
+   whole of what precedes it, so a header carrying FEXTRA, FNAME and FCOMMENT
+   at once exercises them together. Delivered a byte at a time it splits each
+   accumulator's input into as many seeded ranges as the header has bytes. *)
+let test_gzip_header_checksum () =
+  check "FEXTRA, FNAME, FCOMMENT and FHCRC together" "hello gzip from eio"
+    (read_segmented_gzip gzip_hello_all_flags);
+  (Eio_mock.Backend.run_full @@ fun _env ->
+   let segments =
+     gzip_head ~length:(String.length gzip_hello_all_flags) ()
+     :: List.init (String.length gzip_hello_all_flags) (fun i ->
+            String.sub gzip_hello_all_flags i 1)
+   in
+   let t =
+     Fetch_httpz.v
+       ~connect:(fun ~sw:_ ~host:_ ~port:_ -> segmented segments)
+       (Eio_mock.Net.make "net") ()
+   in
+   check "the header CRC composes over one-byte ranges" "hello gzip from eio"
+     (Fetch.read t "http://byte-at-a-time.example/"));
+  Alcotest.(check bool) "a wrong FHCRC is rejected" true
+    (rejects_segmented_gzip gzip_hello_bad_fhcrc);
+  (* Trailing non-gzip bytes are shorter than the fixed header, so waiting for
+     all ten of it would report them as a truncated member instead. *)
+  check "trailing junk names its own cause"
+    "malformed gzip response: invalid magic bytes"
+    (Eio_mock.Backend.run_full @@ fun _env ->
+     let body = gzip_member ^ "junk" in
+     let t =
+       Fetch_httpz.v
+         ~connect:(fun ~sw:_ ~host:_ ~port:_ ->
+           segmented [ gzip_head ~length:(String.length body) (); body ])
+         (Eio_mock.Net.make "net") ()
+     in
+     try Fetch.read t "http://junk.example/"
+     with Eio.Io (E (Protocol_error msg), _) -> msg)
+
+(* [Eio.Flow.Pi.SOURCE] asserts a positive count, so a decoded body has to
+   refuse an empty destination rather than answer zero. *)
+let test_gzip_empty_destination () =
+  Eio_mock.Backend.run_full @@ fun _env ->
+  let t =
+    Fetch_httpz.v
+      ~connect:(fun ~sw:_ ~host:_ ~port:_ ->
+        segmented
+          [ gzip_head ~length:(String.length gzip_member) (); gzip_member ])
+      (Eio_mock.Net.make "net") ()
+  in
+  Eio.Switch.run @@ fun sw ->
+  let resp = Fetch.get ~sw t "http://empty-dst.example/" in
+  check "an empty destination is refused, not answered with zero"
+    "Gzip_stream: single_read into an empty buffer"
+    (try
+       ignore (Eio.Flow.single_read (body resp) (Cstruct.create 0) : int);
+       "returned a count"
+     with Invalid_argument msg -> msg)
 
 let () =
   Alcotest.run "fetch-httpz"
@@ -993,6 +1193,14 @@ let () =
             test_https_checked_before_connect;
           Alcotest.test_case "TLS failure closes raw connection" `Quick
             test_tls_failure_closes_raw_connection;
-          Alcotest.test_case "std installs HTTPS" `Quick test_std_installs_https
+          Alcotest.test_case "std installs HTTPS" `Quick test_std_installs_https;
+          Alcotest.test_case "layered transfer coding rejected" `Quick
+            test_layered_transfer_coding;
+          Alcotest.test_case "zero-length request body read" `Quick
+            test_chunked_zero_read;
+          Alcotest.test_case "gzip header checksum" `Quick
+            test_gzip_header_checksum;
+          Alcotest.test_case "gzip empty destination" `Quick
+            test_gzip_empty_destination
         ] )
     ]

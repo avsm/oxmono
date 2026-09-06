@@ -76,7 +76,9 @@ val buffer_size : int @@ portable
 
 (** [find_crlf_check_bare_cr buf ~pos ~len] is the first CRLF's CR offset from [pos] up to
     but not including [len], or [-1] if none is complete, together with whether a bare CR
-    or LF occurred before it. *)
+    or LF occurred before it. A window shorter than two bytes is always [(-1, false)],
+    even when its single byte is a bare LF; callers must test the offset before relying on
+    the bare-CR flag. *)
 val find_crlf_check_bare_cr
   :  local_ bytes
   -> pos:int16#

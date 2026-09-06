@@ -1,3 +1,8 @@
+let check_range what b off len =
+  if off < 0 || len < 0 || off > Bytes.length b - len then
+    invalid_arg ("Proffer.Body." ^ what ^ ": invalid byte range")
+;;
+
 module Sink = struct
   (* Two ways in, because a producer that already holds bytes should not have to make a
      string for them. A renderer writing through jsont hands over the encoder's own slice;
@@ -21,14 +26,10 @@ module Sink = struct
     { emit; emit_sub }
   ;;
 
-  let check_range b off len =
-    if off < 0 || len < 0 || off > Bytes.length b - len then
-      invalid_arg "Proffer.Body.Sink.write_sub: invalid byte range"
-
   let write t s = t.emit s
 
   let write_sub t b ~off ~len =
-    check_range b off len;
+    check_range "Sink.write_sub" b off len;
     match t.emit_sub with
     | This f -> if len > 0 then f b off len
     | Null -> if len > 0 then t.emit (Bytes.sub_string b off len)
@@ -42,20 +43,15 @@ module Socket = struct
     ; shutdown : (unit -> unit) @@ global
     }
 
-  let check_range name b off len =
-    if off < 0 || len < 0 || off > Bytes.length b - len then
-      invalid_arg ("Proffer.Body.Socket." ^ name ^ ": invalid byte range")
-  ;;
-
   let v ~read ~write ~shutdown = { read; write; shutdown }
 
   let read t b ~off ~len =
-    check_range "read" b off len;
+    check_range "Socket.read" b off len;
     if len = 0 then 0 else t.read b off len
   ;;
 
   let write_sub t b ~off ~len =
-    check_range "write_sub" b off len;
+    check_range "Socket.write_sub" b off len;
     if len > 0 then t.write b off len
   ;;
 

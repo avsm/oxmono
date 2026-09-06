@@ -2,5 +2,21 @@
  (name fetch_httpz)
  (public_name fetch-httpz)
  (private_modules gzip_stream)
- (libraries fetch fetch.cookies eio http httpz httpz.tls decompress.de
-   decompress.gz fmt cstruct stdlib_upstream_compatible))
+ (libraries duration
+  fetch
+  fetch.cookies
+  eio
+  http
+  httpz
+  httpz.tls
+  checkseum.c
+  decompress.de
+  decompress.gz
+  fmt
+  cstruct
+  stdlib_upstream_compatible
+  optint))
+
+(documentation
+ (package fetch-httpz)
+ (mld_files index))

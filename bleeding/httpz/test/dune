@@ -9,9 +9,7 @@
   test_content_range
   test_target
   test_route
-  test_portable
-  test_uriz
-  test_uri_template)
+  test_portable)
  (libraries
   httpz
   httpz.route
@@ -20,11 +18,20 @@
   stdio
   unix
   stdlib_stable
-  stdlib_upstream_compatible))
+  stdlib_upstream_compatible
+  httpz.uri))
 
 (tests
- (names test_media test_urlencoded test_multipart test_json)
- (libraries httpz alcotest jsont bytesrw))
+ (names test_uriz test_uri_template)
+ (libraries httpz.uri base stdio stdlib_stable))
+
+(tests
+ (names test_media test_urlencoded test_multipart)
+ (libraries httpz.media alcotest bytesrw fmt))
+
+(test
+ (name test_json)
+ (libraries httpz.media httpz.media.jsont alcotest jsont bytesrw))
 
 (test
  (name test_namespaced_libraries)
@@ -38,4 +45,4 @@
 
 (test
  (name test_ip)
- (libraries httpz base stdio))
+ (libraries httpz.uri base stdio))

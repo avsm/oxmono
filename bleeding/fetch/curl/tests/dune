@@ -2,11 +2,9 @@
  (package fetch-curl)
  (deps
   (package bytesrw)
-  (package checkseum)
   (package base64)
   (package cmarkit)
   (package cstruct)
-  (package decompress)
   (package domain-name)
   (package eio)
   (package eio_linux)
@@ -29,5 +27,20 @@
  (name test_transport)
  (package fetch-curl)
  (deps h2_fixture.py)
- (libraries fetch fetch-curl httpz httpz.tls alcotest cstruct eio eio_main fmt
-  ptime tls x509 mirage-crypto-rng.unix))
+ (libraries
+  fetch
+  fetch-curl
+  httpz
+  httpz.tls
+  alcotest
+  cstruct
+  eio
+  eio_main
+  fmt
+  ptime
+  tls
+  x509
+  mirage-crypto-rng.unix
+  eio.unix
+  unix
+  http))

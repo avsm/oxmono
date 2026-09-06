@@ -20,12 +20,14 @@ type t =
    ; unsupported_expectation : bool
    }
 
-(* A negative body length represents an absent or zero-length body. *)
-let[@inline] body_bounds ~(len : int16#) (req : t @ local) : #(int * int * bool) =
+(* A negative body length represents an absent or zero-length body. The last component is
+   set when the body is too large for the advisory arithmetic, in which case the first two
+   are saturated rather than truncated. *)
+let[@inline] body_bounds ~(len : int16#) (req : t @ local) : #(int * int * bool * bool) =
   let cl = req.#content_length in
   let buf_len = to_int len in
   if I64.compare cl #0L <= 0
-  then #(-1, 0, false)
+  then #(-1, 0, false, false)
   else (
     let body_off = to_int req.#body_off in
     (* A body larger than an OCaml [int], or one whose exclusive end would
@@ -33,18 +35,18 @@ let[@inline] body_bounds ~(len : int16#) (req : t @ local) : #(int * int * bool)
        Saturate the advisory arithmetic instead of truncating [int64] and
        accidentally reporting it complete. *)
     if I64.compare cl (I64.of_int (Stdlib.max_int - body_off)) > 0
-    then #(Stdlib.max_int, Stdlib.max_int, false)
+    then #(Stdlib.max_int, Stdlib.max_int, false, true)
     else (
       let body_len = I64.to_int cl in
       let body_end = body_off + body_len in
-      #(body_len, body_end, body_end <= buf_len)))
+      #(body_len, body_end, body_end <= buf_len, false)))
 ;;
 
 let[@zero_alloc] body_in_buffer ~(len : int16#) (req : t @ local) =
   if req.#is_chunked
   then false
   else (
-    let #(body_len, _, in_buffer) = body_bounds ~len req in
+    let #(body_len, _, in_buffer, _) = body_bounds ~len req in
     body_len < 0 || in_buffer)
 ;;
 
@@ -54,7 +56,7 @@ let[@zero_alloc opt] body_span ~(len : int16#) (req : t @ local) =
   if req.#is_chunked
   then Span.make ~off:(i16 0) ~len:(i16 (-1))
   else (
-    let #(body_len, _, in_buffer) = body_bounds ~len req in
+    let #(body_len, _, in_buffer, _) = body_bounds ~len req in
     if body_len < 0
     then Span.make ~off:req.#body_off ~len:(i16 0)
     else if in_buffer
@@ -66,9 +68,11 @@ let[@zero_alloc] body_bytes_needed ~(len : int16#) (req : t @ local) : int16# =
   if req.#is_chunked
   then i16 (-1)
   else (
-    let #(body_len, body_end, in_buffer) = body_bounds ~len req in
+    let #(body_len, body_end, in_buffer, saturated) = body_bounds ~len req in
     if body_len < 0 || in_buffer
     then i16 0
+    else if saturated
+    then i16 (-1)
     else i16 (Stdlib.min 32767 (body_end - to_int len)))
 ;;
 

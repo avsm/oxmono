@@ -127,7 +127,29 @@ let test_retry_config_some c =
   | Some r ->
       Alcotest.(check int) "max_retries" 4 r.Fetch.Retry.max_retries;
       Alcotest.(check (float 0.0001))
-        "backoff_factor" 1.25 r.Fetch.Retry.backoff_factor
+        "backoff_factor" 1.25 (Fetch.Duration.to_f r.Fetch.Retry.backoff_factor)
+
+let test_subnanosecond_delay c =
+  match C.retry_config c with
+  | None -> Alcotest.fail "expected retries"
+  | Some retry ->
+      Alcotest.(check int64) "positive delay remains positive" 1L retry.backoff_factor
+
+let test_invalid_durations c =
+  List.iter
+    (fun seconds ->
+      let expect_invalid f =
+        match f () with
+        | () -> Alcotest.fail "invalid seconds accepted"
+        | exception Invalid_argument _ -> ()
+      in
+      let backoff = { c with C.retry_backoff = { value = seconds; source = C.Cmdline } } in
+      expect_invalid (fun () -> ignore (C.retry_config backoff));
+      let timeout = { c with C.timeout = { value = Some seconds; source = C.Cmdline } } in
+      Eio_main.run @@ fun env ->
+      Eio.Switch.run @@ fun sw ->
+      expect_invalid (fun () -> ignore (C.create timeout env sw)))
+    [ Float.nan; Float.infinity; Float.neg_infinity; -1.0; 1e100 ]
 
 let test_pp_config c =
   let with_sources = Format.asprintf "%a" (C.pp_config ~show_sources:true) c in
@@ -186,6 +208,13 @@ let () =
             with_config
               [ "--max-retries"; "4"; "--retry-backoff"; "1.25" ]
               test_retry_config_some );
+          ( "subnanosecond delay",
+            `Quick,
+            with_config [ "--max-retries"; "1"; "--retry-backoff"; "1e-10" ]
+              test_subnanosecond_delay );
+          ( "invalid duration seconds",
+            `Quick,
+            with_config [ "--max-retries"; "1" ] test_invalid_durations );
           ( "pp_config",
             `Quick,
             with_config [ "--max-retries"; "4" ] test_pp_config );

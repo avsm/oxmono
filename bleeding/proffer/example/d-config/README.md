@@ -9,8 +9,8 @@ This example changes them, and lets the operating system choose the port:
 let config =
   { Proffer_httpz.default_config with
     max_connections = 100;
-    request_timeout = 5.0;
-    idle_timeout = 10.0 }
+    request_timeout = Duration.of_sec 5;
+    idle_timeout = Duration.of_sec 10 }
 
 let () =
   Eio_main.run @@ fun stdenv ->

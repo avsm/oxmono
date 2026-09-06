@@ -48,7 +48,8 @@ val parse : bytes -> off:int16# -> len:int16# -> #(status * t) @@ portable
 [@@zero_alloc opt]
 
 (** [parse_with_limit buf ~off ~len ~max_chunk_size] is {!parse} with the additional bound
-    [max_chunk_size]. *)
+    [max_chunk_size]. A negative [max_chunk_size] bounds the size at zero, so only the
+    final chunk is accepted. *)
 val parse_with_limit
   :  bytes
   -> off:int16#
@@ -61,7 +62,10 @@ val parse_with_limit
     parsing the chunk-size line and its extensions. On {!Complete}, [size] data bytes
     begin at [data_off], whether or not they have all arrived. On {!Done}, [data_off]
     begins the trailer section. The integer and offset are placeholders for other
-    statuses. *)
+    statuses.
+
+    A window that is not within [buf], such as a negative [off] or a [len] past the end of
+    [buf], is {!Malformed} rather than an exception. *)
 val parse_header
   :  bytes
   -> off:int16#
@@ -110,8 +114,13 @@ val[@zero_alloc] is_forbidden_trailer_name : local_ string -> bool @@ portable
     Recognized forbidden fields are consumed but omitted.
 
     [max_trailer_size] defaults to 16 KiB. Exceeding either configured limit produces
-    {!Trailer_malformed}. On an incomplete or invalid result, the returned offset and
-    fields describe only progress made before the failure. *)
+    {!Trailer_malformed}. [max_header_count] bounds the fields parsed, which includes each
+    forbidden field that was consumed and omitted, so it bounds the work a sender can
+    demand rather than the list returned. On an incomplete or invalid result, the returned
+    offset and fields describe only progress made before the failure.
+
+    A window that is not within [buf], such as a negative [off] or a [len] past the end of
+    [buf], is {!Trailer_malformed} rather than an exception. *)
 val parse_trailers
   :  ?max_trailer_size:int
   -> bytes

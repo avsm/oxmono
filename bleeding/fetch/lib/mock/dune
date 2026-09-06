@@ -1,4 +1,4 @@
 (library
  (name fetch_mock)
  (public_name fetch.mock)
- (libraries fetch eio http fmt))
+ (libraries fetch eio http fmt httpz.media))

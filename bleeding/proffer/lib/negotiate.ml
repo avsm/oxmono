@@ -20,22 +20,11 @@ let to_media (m : media) =
   | `Other other -> other
 
 (* Accept is read in place. A member is [range;params] between commas, its
-   range trimmed and compared without case, its quality the last [q]
-   parameter. *)
+   range trimmed and compared without case. *)
 
-let[@zero_alloc] is_ows c = Char.equal c ' ' || Char.equal c '\t'
-
-let[@zero_alloc] rec skip_ows (v : string @ local) i j =
-  if i < j && is_ows (String.unsafe_get v i) then skip_ows v (i + 1) j else i
-
-let[@zero_alloc] rec trim_ows (v : string @ local) i j =
-  if j > i && is_ows (String.unsafe_get v (j - 1)) then trim_ows v i (j - 1)
-  else j
-
-let[@zero_alloc] rec index_from (v : string @ local) i j c =
-  if i >= j then j
-  else if Char.equal (String.unsafe_get v i) c then i
-  else index_from v (i + 1) j c
+let[@zero_alloc] skip_ows (v : string @ local) i j = Headers.skip_ows v i j
+let[@zero_alloc] trim_ows (v : string @ local) i j = Headers.trim_ows v i j
+let[@zero_alloc] index_from (v : string @ local) i j c = Headers.index_from v i j c
 
 (* Separators inside a quoted parameter value are data. Quoted-pair escapes
    keep the next byte opaque as well. Keep the recursive worker top-level so
@@ -67,7 +56,7 @@ let[@zero_alloc] rec all_tchar (s : string @ local) i j =
    acceptable wildcard. Suffix ranges such as [*+json] are as specific as a
    full subtype. *)
 let[@zero_alloc] specificity (range : string @ local) a b (media : string) =
-  Httpz.Media.Syntax.specificity ~range ~pos:a ~len:(b - a) media
+  Httpz_media.Syntax.specificity ~range ~pos:a ~len:(b - a) media
 
 (* A qvalue is at most three decimals of a number between zero and one, with
    no sign, exponent, or other spelling, per RFC 9110 section 12.4.2. A member
@@ -92,7 +81,13 @@ let[@zero_alloc] rec quality (v : string @ local) i stop ~valid (q : float#) =
     let semi = index_unquoted_from v i stop ';' in
     let eq = index_from v i semi '=' in
     let #(valid, q) =
-      if eq = semi then #(false, q)
+      if eq = semi then (
+        (* RFC 9110 section 12.5.1: accept-ext allows a bare token with no
+           [=value], e.g. [;level]. It carries no quality, so only its own
+           syntax as a token is checked here. *)
+        let ka = skip_ows v i semi in
+        let kb = trim_ows v ka semi in
+        #(valid && kb > ka && all_tchar v ka kb, q))
       else
         let ka = skip_ows v i eq in
         let kb = trim_ows v ka eq in
@@ -171,7 +166,7 @@ let[@zero_alloc] rec choose_codec (headers : Headers.t @ local) codecs ~found
   | [] -> if found then This best else Null
   | codec :: rest ->
       let #(spec, q, range_order) =
-        preference headers (Httpz.Media.media_type codec) ~order:0
+        preference headers (Httpz_media.media_type codec) ~order:0
           #(-1, #0., max_int)
       in
       if spec >= 0 && better ~found q range_order best_q best_range then
@@ -190,7 +185,7 @@ let parse_one s =
   let semi = index_from s 0 n ';' in
   let a = skip_ows s 0 semi in
   let b = trim_ows s a semi in
-  if not (Httpz.Media.Syntax.valid_range s ~pos:a ~len:(b - a)) then None
+  if not (Httpz_media.Syntax.valid_range s ~pos:a ~len:(b - a)) then None
   else
     let #(valid, q) = quality s (semi + 1) n ~valid:true #1. in
     if not valid then None
@@ -202,19 +197,17 @@ let of_accept (accept : string option @ local) =
   | Some accept ->
       split_on (Pct.copy_all accept) ',' 0 []
       |> List.filter_map parse_one
-      (* The sort is stable, so two types the client gave the same q keep the
-         order it wrote them in, which is the order it prefers them in. *)
       |> List.stable_sort (fun (_, a) (_, b) -> Float.compare b a)
       |> List.filter_map (fun (m, q) -> if q <= 0. then None else Some (of_media m))
 
 (* RFC 9110 section 15.5.7: a client that stated what it accepts and cannot be
    served is told so, rather than handed a representation it did not ask for.
    The body lists what is on offer so the client can pick again. *)
-let[@cold] not_acceptable types (respond : Resp.respond @ local) =
-  let body =
-    String.concat "" (List.map (fun t -> t ^ "\n") ("Not Acceptable" :: types))
-  in
-  let local_ headers = Headers.vary Headers.empty "Accept" in
+let[@cold] not_acceptable ?(headers : Headers.t @ local = Headers.empty) types
+    (respond : Resp.respond @ local) =
+  let lines = "Not Acceptable" :: types in
+  let body = String.concat "\n" lines ^ "\n" in
+  let local_ headers = Headers.vary headers "Accept" in
   let () = Resp.text respond ~status:Httpz.Res.Not_acceptable ~headers body in
   ()
 
@@ -243,16 +236,18 @@ let v variants env (req : Req.t @ local) (respond : Resp.respond @ local) =
             let () = h env req varying in
             ())
 
-let select_opt codecs (req : Req.t @ local) =
+let[@zero_alloc] select_or_null codecs (req : Req.t @ local) =
   match codecs with
   | [] -> invalid_arg "Proffer.Negotiate.select_opt: no codecs"
   | first :: _ -> (
       let headers = Req.headers req in
-      if not (Headers.mem headers H.Accept) then Some first
+      if not (Headers.mem headers H.Accept) then This first
       else
-        match choose_codec headers codecs ~found:false #0. max_int first with
-        | This c -> Some c
-        | Null -> None)
+        let chosen = choose_codec headers codecs ~found:false #0. max_int first in
+        chosen)
+
+let select_opt codecs (req : Req.t @ local) =
+  match select_or_null codecs req with This c -> Some c | Null -> None
 
 let[@zero_alloc] select codecs (req : Req.t @ local) =
   match codecs with
@@ -284,5 +279,11 @@ let encode ?status ?(etag : Etag.t option @ local)
       let () = Resp.encode respond ?status ?etag ?cache ~headers codec x in
       ()
   | Null ->
-      let () = not_acceptable (List.map Httpz.Media.media_type codecs) respond in
+      (* No representation is returned on 406, so [etag] and [cache] have
+         nothing to describe; [status] stays fixed at 406, since that is what
+         RFC 9110 section 15.5.7 specifies. The caller's [headers] still
+         apply. *)
+      let () =
+        not_acceptable ~headers (List.map Httpz_media.media_type codecs) respond
+      in
       ()

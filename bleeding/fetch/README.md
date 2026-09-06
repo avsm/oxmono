@@ -1,7 +1,35 @@
 # Fetch
 
 HTTP clients, middleware and backends for Eio and OxCaml. See
-[HTTPZ_RELEASE.md](../../HTTPZ_RELEASE.md) for the shared stack contract.
+[the HTTP guide](../../HTTPZ.md) for the shared stack contract.
+
+## Make a request
+
+```ocaml
+let () =
+  Eio_main.run @@ fun env ->
+  let client = Fetch_httpz.std env in
+  print_string (Fetch.read client "https://example.com/")
+```
+
+Use `(libraries fetch fetch-httpz eio_main)`. The client supports HTTPS with
+system trust, cookies, redirects and retries. `Fetch.read` returns the body
+regardless of status; `Fetch.get` exposes status and headers, while
+`Fetch.read_as` decodes successful responses with a media codec.
+
+`fetch-curl` uses libcurl 7.83 or later for protocol handling, decompression,
+connection reuse and HTTP/2. `fetch-httpz` uses the pure OCaml HTTP/1.1 parser
+and opens a connection for each request. Both include JSON and CommonMark
+codecs through Fetch. `fetch-main` selects Curl on Linux or NSURLSession on
+macOS. `fetch.mock` supplies responses in memory for tests.
+
+Timeouts and pacing use the external `Duration.t`, also exposed as
+`Fetch.Duration.t`. For example, pass
+`~connect_timeout:(Fetch.Duration.of_sec 30)` to `Fetch_httpz.std`, or
+`~min_interval:(Fetch.Duration.of_ms 500)` to either backend's `std`.
+
+See the [examples](example/README.md) for complete programs and the
+[interface](lib/fetch.mli) for streaming, credentials and policy controls.
 
 ## Selective POST retries
 

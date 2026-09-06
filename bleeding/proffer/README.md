@@ -29,6 +29,14 @@ let () =
   Proffer_httpz.run stdenv ~env:() site
 ```
 
+Build this program with `(libraries proffer proffer-httpz eio_main)`. It
+listens at `http://localhost:8765/`. See the [HTTP guide](../../HTTPZ.md) for
+complete build commands and the shared media libraries.
+
+Timeouts and cache lifetimes use the external `Duration.t`, re-exported as
+`Proffer.Duration.t`. For example, create a ten-second cache with
+`Proffer.Cache.create ~ttl:(Proffer.Duration.of_sec 10) ()`.
+
 A path is a chain of segments joined by `( / )`, starting from `root` or a
 literal `s "name"`, and ending in `rest` to capture whatever remains. Captures
 become curried handler arguments. A GET route also answers HEAD.

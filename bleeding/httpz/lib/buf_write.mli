@@ -3,9 +3,9 @@
     Each writer stores bytes beginning at [off] and returns the first offset
     after the new data. The caller must provide sufficient buffer space and
     values within each function's documented range; no bounds check is
-    performed. The one range check is the sign of the integer given to {!int}
-    and {!hex}, where a negative value would otherwise write a wrong spelling
-    into a header rather than fail. Offsets are [int16#] to match {!Buf_read}
+    performed. The one range check is the sign of the value given to {!int},
+    {!int64} and {!hex}, where a negative value would otherwise write a wrong
+    spelling into a header rather than fail. Offsets are [int16#] to match {!Buf_read}
     and to keep the arithmetic unboxed. *)
 
 val char : bytes -> off:int16# -> char -> int16# @@ portable

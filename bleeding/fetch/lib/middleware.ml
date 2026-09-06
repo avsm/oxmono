@@ -9,7 +9,7 @@ type error =
   | Protocol_error of string
   | Too_many_redirects
   | Body_not_replayable
-  | Decode_failure of { media : string; error : Httpz.Media.error }
+  | Decode_failure of { media : string; error : Httpz_media.error }
 
 type Eio.Exn.err += E of error
 
@@ -33,7 +33,7 @@ let () =
           | Body_not_replayable -> Fmt.string f "Body_not_replayable"
           | Decode_failure { media; error } ->
             Fmt.pf f "Decode_failure expected %s, %a" media
-              Httpz.Media.pp_error error
+              Httpz_media.pp_error error
         end;
         true
       | _ -> false
@@ -112,8 +112,8 @@ let check_request (req : request) =
    | Stream { length = Some length; _ } when Int64.compare length 0L < 0 ->
      invalid_request (Fmt.str "request body length %Ld is negative" length)
    | _ -> ());
-  List.iter
-    (fun (name, value) ->
+  Http.Header.iter
+    (fun name value ->
        if not (is_token name) then
          invalid_request (Fmt.str "header name %S is not a token" name);
        if not (is_field_value value) then
@@ -122,7 +122,7 @@ let check_request (req : request) =
        if List.mem (String.lowercase_ascii name) reserved_headers then
          invalid_request
            (Fmt.str "header %S is the backend's to set, not a request's" name))
-    (Http.Header.to_list req.headers)
+    req.headers
 
 let pp_token f s = if is_token s then Fmt.string f s else Fmt.pf f "%S" s
 
@@ -130,6 +130,16 @@ let pp_token f s = if is_token s then Fmt.string f s else Fmt.pf f "%S" s
    on a cross-origin hop and pp_request redacts their values; a
    request's [sensitive] field extends the set. *)
 let sensitive_headers = [ "authorization"; "cookie"; "proxy-authorization" ]
+
+let add_absent ?(normalize = Fun.id) existing additions =
+  match additions with
+  | [] -> existing
+  | _ :: _ ->
+    List.fold_left
+      (fun acc entry ->
+         let entry = normalize entry in
+         if List.mem entry acc then acc else acc @ [ entry ])
+      existing additions
 
 let is_sensitive (req : request) name =
   let name = String.lowercase_ascii name in
@@ -174,6 +184,7 @@ let headers r = r.resp_headers
 let version r = r.resp_version
 let body r = r.resp_body
 let url r = Url.effective_string r.resp_url
+let effective_url r = r.resp_url
 let scope r = r.resp_scope
 let trailers r = r.resp_trailers ()
 let sensitive r = r.resp_sensitive
@@ -228,25 +239,35 @@ module Pi = struct
   let response ~status ~headers ~version ~body ~close ?(trailers = fun () -> None)
       ?(scope = []) ?(sensitive = []) ~url () =
     let closed = Atomic.make false in
+    (* A backend may refuse the call, as the libcurl one does for a foreign
+       domain. Releasing the flag again leaves the exchange closeable from a
+       caller that is allowed to close it, rather than marking it closed on a
+       release that never happened. *)
     let resp_close () =
       Eio.Cancel.protect (fun () ->
-        if Atomic.compare_and_set closed false true then close ())
+        if Atomic.compare_and_set closed false true then
+          match close () with
+          | () -> ()
+          | exception e ->
+              Atomic.set closed false;
+              raise e)
     in
     { status; resp_headers = headers; resp_version = version;
       resp_body = body; resp_url = url; resp_scope = scope;
-      resp_trailers = trailers; resp_sensitive = List.map String.lowercase_ascii sensitive;
+      resp_trailers = trailers;
+      resp_sensitive = add_absent ~normalize:String.lowercase_ascii [] sensitive;
       resp_close }
 
   let with_metadata ?url ?scope ?(sensitive = []) response =
     let resp_url = Option.value url ~default:response.resp_url in
     let resp_scope = Option.value scope ~default:response.resp_scope in
     let resp_sensitive =
-      List.fold_left (fun names name ->
-        let name = String.lowercase_ascii name in
-        if List.mem name names then names else name :: names)
-        response.resp_sensitive sensitive
+      add_absent ~normalize:String.lowercase_ascii response.resp_sensitive sensitive
     in
-    { response with resp_url; resp_scope; resp_sensitive }
+    if resp_url == response.resp_url && resp_scope == response.resp_scope
+       && resp_sensitive == response.resp_sensitive
+    then response
+    else { response with resp_url; resp_scope; resp_sensitive }
 end
 
 let dispatch ~sw (type tag) (Eio.Resource.T (v, ops) : [> tag ty] Eio.Resource.t) req =
@@ -293,6 +314,12 @@ module Scope = struct
     List.map (check_url ~caller ~what) entries
 
   let matches prefix url = Url.under ~prefix url
+
+  let matches_any scopes url =
+    match scopes with
+    | None -> true
+    | Some ss -> List.exists (fun s -> matches s url) ss
+
   let to_string = Url.to_string
 end
 

@@ -85,29 +85,18 @@ val std :
   ?cookies:[ `Memory | `File of Eio.Fs.dir_ty Eio.Path.t | `Off ] ->
   ?retry:Fetch.Retry.config ->
   ?max_concurrent:int ->
-  ?min_interval:float ->
+  ?min_interval:Duration.t ->
   < clock : _ Eio.Time.clock
   ; mono_clock : _ Eio.Time.Mono.t
   ; secure_random : _ Eio.Flow.source
   ; .. > ->
   _ Fetch.t ->
   Fetch.plain
-(** [std ~cookies ~retry ~max_concurrent ~min_interval env backend] is
-    [backend] wrapped in the stack a {!Fetch} backend's own [std] mints: a
-    cookie jar, then per-origin flow control, then retries, so that a
-    retried request is paced afresh and consults the jar again.
+(** [std env backend] is [backend] with cookies, per-origin flow control and
+    retries. Retried requests are paced and consult the jar again.
 
-    @param cookies
-      [cookies] selects [`Memory] for a jar kept for the client's lifetime,
-      which is the default; [`File path] for persistence in curl's cookies.txt
-      format; or [`Off] to store no cookies.
-    @param retry
-      [retry] is the retry policy and defaults to {!Fetch.Retry.default}. The
-      wall clock in [env] is passed on, so a [Retry-After] in HTTP-date form is
-      honoured as well as the delta-seconds form.
-    @param max_concurrent
-      [max_concurrent] is the maximum number of requests in flight per origin
-      and defaults to 6.
-    @param min_interval
-      [min_interval] is the minimum number of seconds between request starts per
-      origin and is unset by default. *)
+    [cookies] defaults to [`Memory]. [`File path] persists cookies in curl's
+    cookies.txt format, and [`Off] disables storage. [retry] defaults to
+    {!Fetch.Retry.default}. The wall clock in [env] permits HTTP-date values
+    in [Retry-After]. [max_concurrent] defaults to 6 requests per origin.
+    [min_interval] is optional spacing between request starts per origin. *)

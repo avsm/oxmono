@@ -1,4 +1,11 @@
 (library
  (name cookie)
  (public_name httpz.cookie)
- (libraries fmt ptime httpz httpz.punycode.idna httpz.pubsuffix))
+ (libraries
+  fmt
+  ptime
+  httpz
+  httpz.uri
+  httpz.punycode.idna
+  httpz.pubsuffix
+  stdlib_upstream_compatible))

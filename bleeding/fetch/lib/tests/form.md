@@ -464,19 +464,19 @@ Content-Disposition: form-data; name="last"
 Fields alone still give a `String` body, and without `~boundary` a fresh
 candidate is checked against every part. Two bodies built from the same parts
 therefore agree part for part but are framed differently, without exposing a
-digest of their values in `Content-Type`. `Httpz.Multipart` reads them back:
+digest of their values in `Content-Type`. `Httpz_media.Multipart` reads them back:
 
 ```ocaml
 let parts_of (headers, body) =
   let ct = snd (List.hd (Header.to_list headers)) in
-  let boundary = Option.get (Httpz.Multipart.boundary_of_content_type ct) in
+  let boundary = Option.get (Httpz_media.Multipart.boundary_of_content_type ct) in
   let s = drain body in
-  match Httpz.Multipart.parse ~boundary s with
+  match Httpz_media.Multipart.parse ~boundary s with
   | Ok ps ->
     (boundary,
      List.map
-       (fun (p : Httpz.Multipart.part) ->
-         (p.name, p.filename, p.content_type, Httpz.Multipart.content s p))
+       (fun (p : Httpz_media.Multipart.part) ->
+         (p.name, p.filename, p.content_type, Httpz_media.Multipart.content s p))
        ps)
   | Error e -> failwith e
 
@@ -498,7 +498,7 @@ allows, and it does not occur in the body it frames:
 ```ocaml
 # let headers, body = make () in
   let b = Option.get
-    (Httpz.Multipart.boundary_of_content_type
+    (Httpz_media.Multipart.boundary_of_content_type
        (snd (List.hd (Header.to_list headers)))) in
   (Middleware.is_token b, String.length b <= 70);;
 - : bool * bool = (true, true)

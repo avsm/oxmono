@@ -5,6 +5,7 @@ type response = {
   headers : Proffer.Headers.t;
   body : string;
   content_length : int64 option;
+  trailers : Proffer.Headers.t;
 }
 
 (* The outcome reaches the writer at [local], so what a test reads has to be
@@ -40,26 +41,38 @@ let snapshot out (o : Proffer.Backend.outcome @ local) =
       (globalize_list (Proffer.Headers.to_list o.Proffer.Backend.headers)
        @ last_modified o.Proffer.Backend.last_modified)
   in
-  let content_length = copy_length o.Proffer.Backend.content_length in
+  let declared = copy_length o.Proffer.Backend.content_length in
   let status = o.Proffer.Backend.status in
-  let response body content_length =
-    { status; headers; body; content_length }
+  let response ?(trailers = Proffer.Headers.empty) body content_length =
+    { status; headers; body; content_length; trailers }
   in
   match o.Proffer.Backend.body with
-  | Proffer.Backend.Stream { write = w; _ } ->
-    (* Selecting the response is the mock equivalent of sending its head.
-       Retain it, including partial bytes, if the stream later fails. *)
-    out := Some (response "" content_length);
-    let b = Buffer.create 256 in
-    let emit s =
-      Buffer.add_string b s;
-      out := Some (response (Buffer.contents b) content_length)
-    in
-    w (Proffer.Backend.sink emit);
-    out := Some (response (Buffer.contents b) content_length)
-  | Proffer.Backend.Empty -> out := Some (response "" content_length)
-  | Proffer.Backend.String s -> out := Some (response (globalize s) content_length)
+  | Proffer.Backend.Empty -> out := Some (response "" declared)
+  | Proffer.Backend.String s -> out := Some (response (globalize s) declared)
   | Proffer.Backend.Handoff _ -> out := Some (response "" None)
+  | Proffer.Backend.Stream { write = w; trailers; _ } ->
+    (* Selecting the response is the mock equivalent of sending its head.
+       Retain that outcome if its application-owned stream later fails. Only
+       the last snapshot is observable, so the buffer is read once at the end
+       and once on the way out of a failing writer. *)
+    let trailers =
+      Proffer.Headers.of_list (globalize_list (Proffer.Headers.to_list trailers))
+    in
+    let b = Buffer.create 256 in
+    let taken () = response ~trailers (Buffer.contents b) declared in
+    out := Some (response ~trailers "" declared);
+    (* Eta-expanded because a partial application would be a local closure, and
+       the sink holds both callbacks at global. *)
+    let sink =
+      Proffer.Backend.sink
+        ~emit_sub:(fun src pos len -> Buffer.add_subbytes b src pos len)
+        (fun s -> Buffer.add_string b s)
+    in
+    (match w sink with
+     | () -> out := Some (taken ())
+     | exception exn ->
+       out := Some (taken ());
+       raise exn)
 
 let taken out =
   match !out with
@@ -85,7 +98,6 @@ let describe ?version ?connection_upgrade ?headers ?body ?on_error ?now
   in
   let out = ref None in
   let local_ write : Proffer.Backend.writer = fun o -> snapshot out o in
-  let local_ f (r : Proffer.Resp.respond @ local) = f r in
   let () = Proffer.Backend.run ?on_error ?now req f write in
   taken out
 
@@ -102,3 +114,4 @@ let header_other t spelling =
   | Some v -> Some (globalize v)
 let body t = t.body
 let content_length t = t.content_length
+let trailers t = t.trailers

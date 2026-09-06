@@ -66,7 +66,7 @@ the wire:
 val u : Middleware.url = <abstr>
 # Middleware.Url.effective_string u;;
 - : string = "https://example.com/a#frag"
-# Httpz.Uriz.encoded_fragment (Middleware.Url.to_uri u);;
+# Httpz_uri.encoded_fragment (Middleware.Url.to_uri u);;
 - : string or_null = Null
 ```
 
@@ -167,13 +167,31 @@ root dot of an absolute DNS name is dropped:
 ```
 
 A trailing dot on an address is a spelling no resolver accepts rather
-than a name to canonicalize, and an empty label is not a host:
+than a name to canonicalize, and an empty label is not a host. The message
+names the host as it was written, not the form left after the root dot is
+stripped:
 
 ```ocaml
 # show "http://127.1./";;
-- : string = "error: host \"127.1\" is an IP address with a trailing dot"
+- : string = "error: host \"127.1.\" is an IP address with a trailing dot"
 # show "http://example..com/";;
 - : string = "error: host \"example..com\" has an empty label"
+```
+
+An empty label is rejected wherever it falls, not only between two named
+ones. A leading one would otherwise reach the cookie jar, where
+`.example.com` would suffix-match a cookie whose `Domain` is `example.com`,
+and the bare root dot would become a host of its own:
+
+```ocaml
+# show "http://.example.com/";;
+- : string = "error: host \".example.com\" has an empty label"
+# show "http://example.com../";;
+- : string = "error: host \"example.com..\" has an empty label"
+# show "http://./";;
+- : string = "error: empty host"
+# show "http://../";;
+- : string = "error: host \"..\" has an empty label"
 ```
 
 An IPv6 literal is checked against the RFC 3986 grammar, not merely its
@@ -238,7 +256,7 @@ Eio.Io Http Denied "loopback is out of bounds",
 ## Components
 
 A backend deciding where to connect, or a `restrict ~filter` deciding
-whether it may, reads the parts off `to_uri` with the `Httpz.Uriz` API. A
+whether it may, reads the parts off `to_uri` with the `Httpz_uri` API. A
 default port is elided by canonicalization, so a caller wanting the
 port on the wire supplies 80 or 443 itself, and an IPv6 host comes back
 without its brackets:
@@ -246,7 +264,7 @@ without its brackets:
 ```ocaml
 # let parts s =
     let u = Middleware.Url.to_uri (Result.get_ok (Middleware.Url.of_string s)) in
-    (Httpz.Uriz.scheme u, Httpz.Uriz.decoded_host u, Httpz.Uriz.port u);;
+    (Httpz_uri.scheme u, Httpz_uri.decoded_host u, Httpz_uri.port u);;
 val parts : string -> string or_null * string or_null * int or_null = <fun>
 # parts "https://api.example.com/x";;
 - : string or_null * string or_null * int or_null =

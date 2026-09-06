@@ -1,18 +1,19 @@
 (executable
  (name markdown_limits)
  (modules markdown_limits)
- (libraries fetch proffer))
+ (libraries fetch proffer httpz.media))
 
 (rule
  (alias runtest)
- (action (run timeout 20s %{exe:markdown_limits.exe})))
+ (action
+  (run timeout 20s %{exe:markdown_limits.exe})))
 
 (executable
  (name performance)
  (modules performance)
- (libraries httpz.cookie.jar eio_main unix))
+ (libraries httpz.cookie.jar eio_main unix eio))
 
 (test
  (name client_policy)
  (modules client_policy)
- (libraries fetch fetch.mock fetch-httpz fetch-curl eio_main))
+ (libraries fetch fetch.mock fetch-httpz fetch-curl eio_main eio http))

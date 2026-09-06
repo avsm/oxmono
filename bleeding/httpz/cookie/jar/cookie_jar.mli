@@ -14,9 +14,18 @@
     the full 4096-byte minimum with an ordinary path and domain is not
     refused for a shortfall this module introduced. It also holds at most 50
     cookies per domain and 3000 cookies overall, evicting least-recently-used
-    cookies when a limit is reached. It rejects every [Secure] cookie received
-    over plaintext HTTP, as well as plaintext cookies that would shadow a
-    stored [Secure] cookie. *)
+    cookies when a limit is reached. The per-domain cap counts the cookie
+    domain of
+    {{:https://www.rfc-editor.org/rfc/rfc6265.html#section-6.1}RFC 6265,
+     Section 6.1}, so [a.example.com] and [example.com] hold separate quotas,
+    rather than the registrable domain that RFC 6265bis suggests. It rejects
+    every [Secure] cookie received over plaintext HTTP, as well as plaintext
+    cookies that would shadow a stored [Secure] cookie.
+
+    [HttpOnly] is parsed, stored and round-tripped, but never consulted when
+    selecting cookies for a request. The attribute exists to withhold a cookie
+    from a browser scripting environment, which a general-purpose HTTP client
+    does not have. *)
 
 type t
 (** A [t] is a cookie store whose operations may be called concurrently from Eio
@@ -34,17 +43,30 @@ val of_file :
 (** [of_file ~clock path] is a jar backed by [path] in the Netscape
     [cookies.txt] format used by curl, including its [#HttpOnly_] marker. An
     existing file is loaded, skipping any line whose fields do not form a valid
-    cookie, violates public-suffix/domain scope, or exceeds the normal jar
-    limits. Files over 32 MiB are treated as empty rather than read without a
-    bound; a missing file is created on the first save. Saves use a unique,
-    exclusively-created private sibling and replace the target atomically after
-    the write closes. This promises atomic visibility, not power-loss
-    durability, and requires write authority over the containing directory.
-    [save] defaults to [`On_change], which saves after each mutation;
-    [`Manual] saves only when {!flush} is called. A missing file is treated as
-    empty by default; [~missing:`Error] raises that read failure instead. Other
-    read failures are always raised. Session cookies use expiry zero and
-    survive a file round-trip. *)
+    cookie, violates public-suffix/domain scope, violates the [__Secure-] or
+    [__Host-] name-prefix rules, or exceeds the normal jar limits. Files over
+    32 MiB are treated as empty rather than read without a bound; a missing
+    file is created on the first save. Saves use a unique, exclusively-created
+    private sibling and replace the target atomically after the write closes.
+    This promises atomic visibility, not power-loss durability, and requires
+    write authority over the containing directory. Filesystem errors propagate
+    as [Eio.Io], including exhausted temporary-file retries; a failed save
+    leaves the jar usable, with its in-memory contents ahead of the file.
+
+    [save] defaults to [`On_change], which serialises and rewrites the whole
+    file after each accepted cookie. A response carrying several [Set-Cookie]
+    fields therefore pays one full rewrite per field, up to the caps above;
+    [`Manual] saves only when {!flush} is called and suits a caller that would
+    rather batch that cost. A missing file is treated as empty by default;
+    [~missing:`Error] raises that read failure instead. Other read failures are
+    always raised. Session cookies use expiry zero and survive a file
+    round-trip, as do [SameSite], [Partitioned] and the creation and last-access
+    times that decide header order and eviction. The last three ride on comment
+    lines that a plain reader of the format skips, and a file written without
+    them still loads.
+
+    It raises [Invalid_argument] if [path] names no file within a directory,
+    such as a directory capability on its own. *)
 
 val flush : t -> unit
 (** [flush jar] is [()] after writing the current contents of [jar] to its
@@ -66,7 +88,12 @@ val set :
     [https] states whether that request used HTTPS. [Error reason] means the
     value was rejected and [jar] was not changed. A cookie whose name and
     value together exceed 4096 bytes, or whose name, value, path and domain
-    together exceed 8192 bytes, is refused. *)
+    together exceed 8192 bytes, is refused.
+
+    It raises [Eio.Io] when the [`On_change] save that follows an accepted
+    cookie fails. The result reports the cookie, not the file, so this is an
+    exception rather than an [Error]; [jar] keeps the accepted cookie and stays
+    usable. {!clear} and {!header_for} raise the same way. *)
 
 val header_for : t -> host:string -> path:string -> https:bool -> string option
 (** [header_for jar ~host ~path ~https] is the [Cookie] request value for [host]

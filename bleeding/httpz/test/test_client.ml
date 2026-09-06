@@ -84,6 +84,10 @@ let test_status_line_errors () =
     Poly.( = )
       (parse_status buf "HTTP/1.1 200 O\rK\r\n\r\n")
       Httpz.Buf_read.Bare_cr_detected);
+  List.iter [ "200OK"; "200\tOK"; "200: OK" ] ~f:(fun status ->
+    assert (Poly.( = )
+      (parse_status buf ("HTTP/1.1 " ^ status ^ "\r\n\r\n"))
+      Httpz.Buf_read.Invalid_status));
   Stdio.printf "test_status_line_errors: PASSED\n"
 ;;
 

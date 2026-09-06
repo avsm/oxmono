@@ -1,0 +1,9 @@
+// VERSION: test-fixture
+// COMMIT: 0000000000000000000000000000000000000000
+// ===BEGIN ICANN DOMAINS===
+com
+  // An indented comment is still a comment. Truncating it at its first slash
+  // produced the one-label rule "//" instead.
+*.ck
+!www.ck
+// ===END ICANN DOMAINS===

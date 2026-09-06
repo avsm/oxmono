@@ -107,9 +107,6 @@ val match_param :
     slash-delimited segment of a non-empty [path]. For an empty [path], both
     spans are placeholders. A leading slash produces an empty first segment. *)
 
-val is_empty : Span.t -> bool @@ portable
-(** [is_empty path] is [true] when [path] has length zero. *)
-
 val find_query_param :
   local_ bytes -> Span.t -> string -> #(bool * Span.t) @@ portable
 (** [find_query_param buf query name] is [(true, value)] for the first

@@ -32,6 +32,18 @@ type 'a t
 (** ['a t] is a header field paired with an encoder and decoder for values of
     type ['a]. *)
 
+type 'a portable_t : value mod portable contended
+(** A codec whose callbacks are checked for use from portable closures. *)
+
+val portable_v :
+  ?list_valued:bool -> string ->
+  encode:('a -> string) @ portable ->
+  decode:(string -> 'a option) @ portable -> 'a portable_t @@ portable
+
+val of_portable : 'a portable_t -> 'a t @@ portable
+(** Create the ordinary codec on the calling domain. Existing [v] callbacks
+    may still capture domain state; [portable_v] checks the stronger contract. *)
+
 val v :
   ?list_valued:bool ->
   string ->
@@ -43,13 +55,13 @@ val v :
     ones. [list_valued] declares a comma-separated-list grammar, which
     joins multiple field lines before decoding (default [false]). *)
 
-val name : _ t -> string
+val name : _ t -> string @@ portable
 (** [name h] is the header field name. *)
 
-val encode : 'a t -> 'a -> string
+val encode : 'a t -> 'a -> string @@ portable
 (** [encode h x] is [x] serialized as [h]'s field value. *)
 
-val decode : 'a t -> string -> 'a option
+val decode : 'a t -> string -> 'a option @@ portable
 (** [decode h s] is the value parsed from [s], or [None] if [s] is
     malformed. *)
 
@@ -204,12 +216,16 @@ type etags = [ `Any | `Etags of etag list ]
 
 val if_match : etags t
 (** [if_match] is the [If-Match] request-header codec. The server proceeds only if the
-    representation still matches, which guards against a lost update. *)
+    representation still matches, which guards against a lost update.
+    @raise Stdlib.Invalid_argument on encoding [`Etags []], which names no
+    representation, or an opaque value outside RFC 9110 [etagc]. *)
 
 val if_none_match : etags t
 (** [if_none_match] is the [If-None-Match] request-header codec. The
     precondition fails when the selected representation matches; for GET and
-    HEAD, the server answers 304. This is how a cache revalidates. *)
+    HEAD, the server answers 304. This is how a cache revalidates.
+    @raise Stdlib.Invalid_argument on encoding [`Etags []], which names no
+    representation, or an opaque value outside RFC 9110 [etagc]. *)
 
 val last_modified : string t
 (** [last_modified] is the [Last-Modified] response-header codec. *)
@@ -259,7 +275,11 @@ type if_range = [ `Etag of etag | `Date of string ]
 val if_range : if_range t
 (** [if_range] is the [If-Range] request-header codec
     ({{:https://www.rfc-editor.org/rfc/rfc9110#section-13.1.5}RFC 9110
-    §13.1.5}). *)
+    §13.1.5}). A weak entity tag is not a validator here, since the range and
+    the rest of the representation would come from different bytes, so
+    decoding rejects one.
+    @raise Stdlib.Invalid_argument on encoding a weak entity tag, or an opaque
+    value outside RFC 9110 [etagc]. *)
 
 type content_range = {
   unit : string;  (** [unit] is the range unit, normally ["bytes"]. *)
@@ -287,7 +307,11 @@ type accept_ranges = [ `Bytes | `None | `Other of string ]
     requests. *)
 
 val accept_ranges : accept_ranges t
-(** [accept_ranges] is the [Accept-Ranges] response-header codec. *)
+(** [accept_ranges] is the [Accept-Ranges] response-header codec. The field is
+    the comma-separated list [1#range-unit], so repeated field lines join, but
+    a value naming more than one unit is ambiguous for this scalar type and is
+    rejected rather than read as one of its members. A unit outside the token
+    grammar is rejected too. *)
 
 (** {1 Caching}
 
@@ -455,9 +479,13 @@ val www_authenticate : challenge list t
 (** [www_authenticate] is the [WWW-Authenticate] header codec for a 401
     response. A scheme carrying a token68 value rather than parameters
     (["Negotiate SGVsbG8="]) keeps it whole as its single unnamed parameter.
-    Anything that is neither a parameter nor a token68, and any parameter
-    preceding the first scheme, rejects the whole field: a challenge list
-    with a member dropped would read as weaker than the one sent. *)
+    Anything that is neither a parameter nor a token68, a parameter appended
+    to a scheme that already carries a token68, and any parameter preceding
+    the first scheme each reject the whole field, since a challenge list with
+    a member dropped, or one this codec cannot write back, would read as
+    weaker than the one sent.
+    @raise Stdlib.Invalid_argument on encoding an invalid scheme, a duplicate
+    parameter name, or an unnamed parameter that is not the only one. *)
 
 type authentication_info = {
   nextnonce : string option;  (** [nextnonce] is the nonce for a later request. *)
@@ -471,7 +499,9 @@ type authentication_info = {
 val authentication_info : authentication_info t
 (** [authentication_info] is the [Authentication-Info] header codec
     ({{:https://www.rfc-editor.org/rfc/rfc9110#section-11.6.3}RFC 9110
-    §11.6.3}). *)
+    §11.6.3}). The field is the auth-param list [#auth-param], so repeated
+    field lines join before decoding. A repeated parameter name rejects the
+    field. *)
 
 (** {1 Integrity digests}
 
@@ -482,7 +512,9 @@ val authentication_info : authentication_info t
 type digest = {
   algorithm : [ `Sha256 | `Sha512 | `Other of string ];
       (** [algorithm] is the digest algorithm. *)
-  digest : string;  (** [digest] is the Base64 value as received. *)
+  digest : string;
+      (** [digest] is the Base64 value as received. It is canonical, padded
+          Base64 and never empty. *)
 }
 (** [digest] is an integrity digest of a body. *)
 
@@ -514,7 +546,13 @@ type hsts = {
 
 val strict_transport_security : hsts t
 (** [strict_transport_security] is the [Strict-Transport-Security] header
-    codec. *)
+    codec. [max_age] is saturated at [2147483648L] for an excessive
+    delta-seconds, so an overlong lifetime still pins HTTPS. A repeated
+    directive name, a valueless [max-age] and an [includeSubDomains] carrying
+    a value each reject the whole field
+    ({{:https://www.rfc-editor.org/rfc/rfc6797#section-6.1}RFC 6797 §6.1}),
+    since reading the last as a bare directive, or dropping it, would leave
+    the subdomains unprotected. *)
 
 (** {1 Link}
 
@@ -550,9 +588,9 @@ val link :
 
 val links : link list t
 (** [links] is the [Link] header codec, used for API pagination ([rel="next"]), resource
-    discovery and relationship navigation. A relative target resolves
-    against the response's {!Fetch.val-url}. A comma inside the [<...>]
-    target separates nothing. *)
+    discovery and relationship navigation. A target is returned as received,
+    relative references included; resolving one against the response URL is
+    the caller's job. A comma inside the [<...>] target separates nothing. *)
 
 val link_rel : string -> link list -> link option
 (** [link_rel r ls] is the first link in [ls] whose relation is [r], as
@@ -573,7 +611,9 @@ val retry_after : retry_after t
 (** [retry_after] is the [Retry-After] header codec
     ({{:https://www.rfc-editor.org/rfc/rfc9110#section-10.2.3}RFC 9110
     §10.2.3}). {!Fetch.with_retry} honours the [`Seconds] form always, and the
-    [`Date] form when it was given a wall clock to read the date against. *)
+    [`Date] form when it was given a wall clock to read the date against. A
+    delay too large for an [int] decodes to [None] rather than saturating,
+    being neither a readable delay nor an HTTP-date. *)
 
 val location : string t
 (** [location] is the [Location] header codec for 3xx and 201 responses. A 3xx is visible to

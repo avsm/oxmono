@@ -1,6 +1,6 @@
 open Base
 
-module Uriz = Httpz.Uriz
+module Uriz = Httpz_uri
 
 let checks = ref 0
 
@@ -192,6 +192,86 @@ let test_exn_quotes_input () =
      && not (String.contains bad_scheme '\r'))
 ;;
 
+let test_host_bracketing () =
+  (* The IPvFuture production matches an ordinary registered name, which must
+     not be turned into an IP-literal. *)
+  let made = Uriz.make_encoded ~host:"v6.example.com" () in
+  check "IPvFuture-shaped reg-name is not bracketed"
+    (String.equal (Uriz.to_string made) "//v6.example.com");
+  check "IPvFuture-shaped reg-name is a reg-name"
+    (match Uriz.host_kind made with
+     | This `Reg_name -> true
+     | This (`Ipv4 | `Ipv6 | `Ipvfuture) | Null -> false);
+  let made = Uriz.make_encoded ~host:"vf.foo:bar" () in
+  check "a genuine IPvFuture literal is bracketed"
+    (String.equal (Uriz.to_string made) "//[vf.foo:bar]");
+  check "a genuine IPvFuture literal keeps its kind"
+    (match Uriz.host_kind made with
+     | This `Ipvfuture -> true
+     | This (`Reg_name | `Ipv4 | `Ipv6) | Null -> false);
+  let made = Uriz.make_encoded ~host:"::1" ~path:"/a" () in
+  check "an unbracketed IPv6 literal is bracketed"
+    (String.equal (Uriz.to_string made) "//[::1]/a")
+;;
+
+let test_update_preserves_untouched () =
+  let u = uri "http://v6.example.com/" in
+  check "with_port leaves an IPvFuture-shaped host alone"
+    (String.equal
+       (Uriz.to_string (Uriz.with_port u (This 8080)))
+       "http://v6.example.com:8080/");
+  check "with_encoded_query leaves an IPvFuture-shaped host alone"
+    (String.equal
+       (Uriz.to_string (Uriz.with_encoded_query u (This "a=1")))
+       "http://v6.example.com/?a=1");
+  let literal = uri "http://[vf.foo:bar]:99/a" in
+  check "with_encoded_path leaves an IP-literal alone"
+    (String.equal
+       (Uriz.to_string (Uriz.with_encoded_path literal "/b"))
+       "http://[vf.foo:bar]:99/b")
+;;
+
+let test_port_needs_authority () =
+  let raised f = match f () with (_ : Uriz.t) -> false | exception Invalid_argument _ -> true in
+  check "with_port on a relative reference raises"
+    (raised (fun () -> Uriz.with_port (uri "/p") (This 80)));
+  check "make_encoded with a port but no host raises"
+    (raised (fun () -> Uriz.make_encoded ~port:80 ~path:"/p" ()));
+  check "a port with userinfo but no host is still an authority"
+    (String.equal
+       (Uriz.to_string (Uriz.make_encoded ~userinfo:"u" ~port:80 ()))
+       "//u@:80")
+;;
+
+let test_relative_path_under_authority () =
+  check "make_encoded roots a relative path under an authority"
+    (String.equal
+       (Uriz.to_string (Uriz.make_encoded ~host:"h" ~path:"a/b" ()))
+       "//h/a/b");
+  check "with_encoded_path roots a relative path under an authority"
+    (String.equal
+       (Uriz.to_string (Uriz.with_encoded_path (uri "http://h/x") "a/b"))
+       "http://h/a/b");
+  check "a relative reference keeps its relative path"
+    (String.equal (Uriz.to_string (Uriz.make_encoded ~path:"a/b" ())) "a/b")
+;;
+
+let test_add_query_params () =
+  let u = uri "https://example.test/p" in
+  let batched = Uriz.add_query_params u [ "a", "1"; "b", "x&y" ] in
+  check "batch append matches repeated single appends"
+    (String.equal
+       (Uriz.to_string batched)
+       (Uriz.to_string
+          (Uriz.add_query_param
+             (Uriz.add_query_param u ~key:"a" ~value:"1")
+             ~key:"b"
+             ~value:"x&y")));
+  check "batch append encodes delimiters"
+    (String.equal (Uriz.to_string batched) "https://example.test/p?a=1&b=x%26y");
+  check "an empty batch is the identity" (phys_equal (Uriz.add_query_params u []) u)
+;;
+
 let () =
   test_components ();
   test_public_api ();
@@ -199,5 +279,10 @@ let () =
   test_query_updates ();
   test_scanner ();
   test_exn_quotes_input ();
+  test_host_bracketing ();
+  test_update_preserves_untouched ();
+  test_port_needs_authority ();
+  test_relative_path_under_authority ();
+  test_add_query_params ();
   Stdio.printf "test_uriz: %d checks ok\n" !checks
 ;;

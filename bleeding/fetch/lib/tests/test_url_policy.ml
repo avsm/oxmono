@@ -1,6 +1,6 @@
 module Url = Fetch.Middleware.Url
-module Template = Httpz.Uri_template
-module Uriz = Httpz.Uriz
+module Template = Httpz_uri.Template
+module Uriz = Httpz_uri
 
 let fail name detail = failwith (name ^ ": " ^ detail)
 

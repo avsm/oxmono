@@ -7,7 +7,7 @@ type flow =
   [ Eio.Flow.two_way_ty | Eio.Resource.close_ty ] Eio.Resource.t
 (** A closeable bidirectional flow before or after TLS is applied. *)
 
-type client = Httpz.Uriz.t -> flow -> flow
+type client = Httpz_uri.t -> flow -> flow
 (** A [client] upgrades a connected flow for the HTTPS origin named by the
     URI. *)
 
@@ -16,13 +16,16 @@ type server = flow -> flow
 
 exception Error of string
 (** [Error message] reports TLS setup, peer-name, trust-store, or handshake
-    failure. Cancellation is never converted to [Error]. *)
+    failure. Cancellation is never converted to [Error].
 
-val close : ?timeout:float -> clock:_ Eio.Time.Mono.t -> flow -> unit
+    [message] is a single line of printable ASCII. A peer controls part of what
+    a handshake failure describes, so that text is flattened and elided in the
+    middle to a bounded length. *)
+
+val close : ?timeout:Duration.t -> clock:_ Eio.Time.Mono.t -> flow -> unit
 (** [close ~clock flow] attempts a TLS close notification for at most
-    [timeout] seconds, then closes [flow] in a cancellation-protected cleanup.
-    Shutdown, timeout, peer, and close errors are contained. [timeout] defaults
-    to one second and must be finite and non-negative. *)
+    [timeout], then closes [flow] in a cancellation-protected cleanup.
+    Shutdown and close errors are contained. [timeout] defaults to one second. *)
 
 val client :
   authenticator:X509.Authenticator.t @ portable -> client @ portable
@@ -31,9 +34,10 @@ val client :
     are checked as DNS subjectAltNames and sent as SNI. IPv4 and IPv6 literals
     are checked as IP subjectAltNames and are not sent as DNS SNI.
 
-    A fresh TLS configuration and a fresh explicit Unix getentropy generator
-    are made for each peer; client handshakes do not consult or mutate Mirage
-    Crypto's process-global generator. *)
+    A fresh TLS configuration, offering [http/1.1] alone as its ALPN protocol,
+    and a fresh explicit Unix getentropy generator are made for each peer;
+    client handshakes do not consult or mutate Mirage Crypto's process-global
+    generator. *)
 
 val system : client @@ portable
 (** [system] is {!val-client} using the operating system's trust anchors. The

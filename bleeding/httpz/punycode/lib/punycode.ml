@@ -83,8 +83,6 @@ let has_ace_prefix s =
   && s.[3] = '-'
 ;;
 
-(* Punycode digits map 0--25 to ASCII letters and 26--35 to decimal digits. *)
-
 let encode_digit d case_flag =
   if d < 26
   then Char.chr (d + if case_flag = Uppercase then 0x41 else 0x61)
@@ -120,33 +118,41 @@ let adapt ~delta ~numpoints ~firsttime =
   loop delta 0
 ;;
 
-(* Accumulate a generalized variable-length integer without wrapping. *)
+(* RFC 3492, Section 6.4, requires an implementation to detect the overflow
+   that this addition and multiplication would otherwise wrap. Every caller
+   passes a positive [c]. *)
 let safe_mul_add a b c pos =
-  if c = 0 then a else if b > (max_int - a) / c then overflow pos else a + (b * c)
+  if b > (max_int - a) / c then overflow pos else a + (b * c)
 ;;
 
 let utf8_to_codepoints s =
   let len = String.length s in
-  let acc = ref [] in
-  let byte_offset = ref 0 in
-  let char_index = ref 0 in
-  while !byte_offset < len do
-    let pos = { byte_offset = !byte_offset; char_index = !char_index } in
-    let dec = String.get_utf_8_uchar s !byte_offset in
-    if Uchar.utf_decode_is_valid dec
-    then (
-      acc := Uchar.utf_decode_uchar dec :: !acc;
-      byte_offset := !byte_offset + Uchar.utf_decode_length dec;
-      incr char_index)
-    else invalid_utf8 pos
+  let rec count off chars =
+    if off = len then chars
+    else
+      let dec = String.get_utf_8_uchar s off in
+      if not (Uchar.utf_decode_is_valid dec) then
+        invalid_utf8 { byte_offset = off; char_index = chars };
+      count (off + Uchar.utf_decode_length dec) (chars + 1)
+  in
+  let output = Array.make (count 0 0) Uchar.min in
+  let mutable off = 0 in
+  for i = 0 to Array.length output - 1 do
+    let dec = String.get_utf_8_uchar s off in
+    output.(i) <- Uchar.utf_decode_uchar dec;
+    off <- off + Uchar.utf_decode_length dec
   done;
-  Array.of_list (List.rev !acc)
+  output
 ;;
 
 let codepoints_to_utf8 codepoints =
-  let buf = Buffer.create (Array.length codepoints * 2) in
-  Array.iter (Buffer.add_utf_8_uchar buf) codepoints;
-  Buffer.contents buf
+  let length = Array.fold_left (fun n cp -> n + Uchar.utf_8_byte_length cp) 0 codepoints in
+  let output = Bytes.create length in
+  let mutable off = 0 in
+  for i = 0 to Array.length codepoints - 1 do
+    off <- off + Bytes.set_utf_8_uchar output off codepoints.(i)
+  done;
+  Bytes.unsafe_to_string output
 ;;
 
 (* Emit basic code points first, then encode the others in ascending order as the deltas
@@ -198,10 +204,11 @@ let encode_impl codepoints case_flags =
       n := m;
       for j = 0 to input_length - 1 do
         let cp = Uchar.to_int codepoints.(j) in
-        let pos = { byte_offset = 0; char_index = j } in
         if cp < !n
         then (
-          if !delta = max_int then overflow pos else incr delta)
+          if !delta = max_int
+          then overflow { byte_offset = 0; char_index = j }
+          else incr delta)
         else if cp = !n
         then (
           let q = ref !delta in
@@ -252,26 +259,30 @@ let encode_with_case codepoints case_flags =
 
 (* Decode each generalized integer and insert its code point at the position carried by
    the delta. *)
-let decode_impl input =
+let decode_impl ~with_case input =
   let input_length = String.length input in
   if input_length = 0
   then [||], [||]
   else (
+    (* RFC 3492, Section 6.2, does not consume the delimiter when no basic
+       code point precedes it, so a payload without a delimiter and one whose
+       delimiter is its first byte both start at index 0, which is what this
+       default expresses. *)
     let b = Option.value ~default:0 (String.rindex_opt input delimiter) in
-    let output = ref [] in
-    let case_output = ref [] in
+    (* Every decoded code point comes from a basic byte or from at least one
+       digit, so the input length bounds the output length. Reserve that bound
+       once, shift in place, and compact only the returned arrays. *)
+    let output = Array.make input_length Uchar.min in
+    let case_output = if with_case then Array.make input_length Lowercase else [||] in
+    let output_length = ref b in
     for j = 0 to b - 1 do
       let c = input.[j] in
-      let pos = { byte_offset = j; char_index = j } in
       let code = Char.code c in
-      if code >= 0x80
-      then invalid_character pos (Uchar.of_int code)
-      else (
-        output := Uchar.of_int code :: !output;
-        case_output := (if is_flagged c then Uppercase else Lowercase) :: !case_output)
+      if code >= 0x80 then
+        invalid_character { byte_offset = j; char_index = j } (Uchar.of_int code);
+      output.(j) <- Uchar.of_int code;
+      if with_case then case_output.(j) <- if is_flagged c then Uppercase else Lowercase
     done;
-    let output = ref (Array.of_list (List.rev !output)) in
-    let case_output = ref (Array.of_list (List.rev !case_output)) in
     let n = ref initial_n in
     let i = ref 0 in
     let bias = ref initial_bias in
@@ -282,7 +293,7 @@ let decode_impl input =
       let k = ref base in
       let done_decoding = ref false in
       while not !done_decoding do
-        let pos = { byte_offset = !in_pos; char_index = Array.length !output } in
+        let pos = { byte_offset = !in_pos; char_index = !output_length } in
         if !in_pos >= input_length
         then unexpected_end pos
         else (
@@ -309,7 +320,7 @@ let decode_impl input =
                 w := !w * base_minus_t;
                 k := !k + base)))
       done;
-      let out_len = Array.length !output in
+      let out_len = !output_length in
       bias := adapt ~delta:(!i - oldi) ~numpoints:(out_len + 1) ~firsttime:(oldi = 0);
       let pos = { byte_offset = !in_pos - 1; char_index = out_len } in
       let increment = !i / (out_len + 1) in
@@ -321,30 +332,24 @@ let decode_impl input =
         if not (Uchar.is_valid !n)
         then invalid_character pos Uchar.rep
         else (
-          let new_output = Array.make (out_len + 1) (Uchar.of_int 0) in
-          let new_case = Array.make (out_len + 1) Lowercase in
-          for j = 0 to !i - 1 do
-            new_output.(j) <- !output.(j);
-            new_case.(j) <- !case_output.(j)
-          done;
-          new_output.(!i) <- Uchar.of_int !n;
-          new_case.(!i)
-          <- (if !in_pos > 0 && is_flagged input.[!in_pos - 1]
-              then Uppercase
-              else Lowercase);
-          for j = !i to out_len - 1 do
-            new_output.(j + 1) <- !output.(j);
-            new_case.(j + 1) <- !case_output.(j)
-          done;
-          output := new_output;
-          case_output := new_case;
+          Array.blit output !i output (!i + 1) (out_len - !i);
+          output.(!i) <- Uchar.of_int !n;
+          if with_case then begin
+            Array.blit case_output !i case_output (!i + 1) (out_len - !i);
+            case_output.(!i) <-
+              if !in_pos > 0 && is_flagged input.[!in_pos - 1] then Uppercase else Lowercase
+          end;
+          incr output_length;
           incr i))
     done;
-    !output, !case_output)
+    (if !output_length = input_length then output else Array.sub output 0 !output_length),
+    (if not with_case then [||]
+     else if !output_length = input_length then case_output
+     else Array.sub case_output 0 !output_length))
 ;;
 
-let decode input = fst (decode_impl input)
-let decode_with_case input = decode_impl input
+let decode input = fst (decode_impl ~with_case:false input)
+let decode_with_case input = decode_impl ~with_case:true input
 
 let encode_utf8 s =
   let codepoints = utf8_to_codepoints s in
@@ -356,14 +361,20 @@ let decode_utf8 punycode =
   codepoints_to_utf8 codepoints
 ;;
 
+(* An A-label leaves [max_label_length] less the prefix for its payload, and
+   the payload spends at least one byte per code point, so an input longer than
+   four bytes per payload byte cannot fit whatever it encodes to. Rejecting it
+   here keeps the quadratic encode off oversized input. *)
+let max_encodable_utf8_length = 4 * (max_label_length - String.length ace_prefix)
+
 let encode_label label =
-  if String.length label = 0
+  let len = String.length label in
+  if len = 0
   then empty_label ()
   else if is_ascii_string label
-  then (
-    let len = String.length label in
-    if len > max_label_length then label_too_long len else label)
+  then (if len > max_label_length then label_too_long len else label)
   else (
+    if len > max_encodable_utf8_length then label_too_long len;
     let encoded = encode_utf8 label in
     let result = ace_prefix ^ encoded in
     let len = String.length result in
@@ -378,7 +389,9 @@ let decode_label label =
   then label_too_long len
   else if has_ace_prefix label
   then (
-    let punycode = String.sub label 4 (len - 4) in
-    decode_utf8 punycode)
+    let prefix_length = String.length ace_prefix in
+    if len = prefix_length
+    then empty_label ()
+    else decode_utf8 (String.sub label prefix_length (len - prefix_length)))
   else label
 ;;

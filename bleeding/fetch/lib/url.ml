@@ -1,17 +1,18 @@
 type scheme = [ `Http | `Https ]
 
-module Uriz = Httpz.Uriz
+module Uriz = Httpz_uri
 
 type t = {
   scheme : scheme;
   host : string;
   port : int;
   uri : Uriz.t;
+  wire_uri : Uriz.t;
 }
 
-let scheme t = t.scheme
+let scheme (t @ local) = t.scheme
 let host t = t.host
-let port t = t.port
+let port (t @ local) = t.port
 
 let default_port = function
   | `Http -> 80
@@ -34,8 +35,15 @@ let valid_host_char = function
    checked. *)
 let has_colon host = String.contains host ':'
 
+(* One predicate for a whole host and for the authority slice of a URL that has
+   not been parsed yet, so the two callers cannot drift apart. *)
+let has_non_ascii ?(first = 0) ?last s =
+  let last = match last with Some last -> last | None -> String.length s in
+  let rec go index = index < last && (Char.code s.[index] > 127 || go (index + 1)) in
+  go first
+
 let ascii_host host =
-  if String.exists (fun c -> Char.code c > 127) host then
+  if has_non_ascii host then
     try Punycode_idna.to_ascii ~use_std3_rules:true host with
     | Punycode_idna.Error reason ->
       invalid_arg
@@ -44,10 +52,16 @@ let ascii_host host =
            (Punycode_idna.error_reason_to_string reason))
   else host
 
-let has_dot_dot host =
+(* A label is empty when a dot opens the name, closes it, or follows another
+   dot. The one root dot a name may carry is stripped before this runs, so
+   every dot left on a boundary or beside another names nothing. *)
+let has_empty_label host =
+  let length = String.length host in
   let rec go index =
-    index + 1 < String.length host
-    && ((host.[index] = '.' && host.[index + 1] = '.') || go (index + 1))
+    index < length
+    && ((Char.equal host.[index] '.'
+         && (index = 0 || index = length - 1 || Char.equal host.[index - 1] '.'))
+        || go (index + 1))
   in
   go 0
 
@@ -61,7 +75,12 @@ let check_host host =
   let host = ascii_host host in
   if has_colon host
   then (
-    if not (Httpz.Ip.is_ipv6_literal host)
+    (* Two validators, because they answer different questions. The first
+       separates an IPv6 literal from any other colon-bearing host, which is
+       what makes the two messages below distinguishable; the second rejects
+       what the first accepts and this module does not support, a zone
+       identifier, and yields the canonical spelling. *)
+    if not (Httpz_uri.Ip.is_ipv6_literal host)
     then invalid_arg (Printf.sprintf "host %S is not a valid IPv6 literal" host);
     if String.contains host '.'
     then invalid_arg (Printf.sprintf "host %S embeds an IPv4 address in IPv6" host);
@@ -77,20 +96,22 @@ let check_host host =
         if not (valid_host_char c) then
           invalid_arg (Printf.sprintf "invalid character %C in host" c))
       host;
-    if has_dot_dot host then
-      invalid_arg (Printf.sprintf "host %S has an empty label" host);
     let length = String.length host in
-    let rooted = length > 1 && host.[length - 1] = '.' in
-    let host = if rooted then String.sub host 0 (length - 1) else host in
-    if host = "" then invalid_arg "empty host";
-    match Httpz.Ip.ipv4_canonical host with
+    let rooted = length > 0 && Char.equal host.[length - 1] '.' in
+    let stripped = if rooted then String.sub host 0 (length - 1) else host in
+    if stripped = "" then invalid_arg "empty host";
+    if has_empty_label stripped then
+      invalid_arg (Printf.sprintf "host %S has an empty label" host);
+    match Httpz_uri.Ip.ipv4_canonical stripped with
     | Some _ when rooted ->
       (* An address has no root label, so a trailing dot on one is a
          spelling no resolver accepts, not a name to canonicalize. *)
       invalid_arg
         (Printf.sprintf "host %S is an IP address with a trailing dot" host)
     | Some dotted_quad -> dotted_quad
-    | None -> String.lowercase_ascii host)
+    | None ->
+        if String.exists (function 'A' .. 'Z' -> true | _ -> false) stripped
+        then String.lowercase_ascii stripped else stripped)
 
 let check_port = function
   | Some p when p < 1 || p > 65535 ->
@@ -106,10 +127,10 @@ let of_uri uri =
   match Uriz.scheme uri with
   | Null -> Error "not an absolute URL (missing scheme)"
   | This scheme ->
-    match String.lowercase_ascii scheme with
+    match scheme with
     | "http" | "https" as s ->
       let scheme = if s = "http" then `Http else `Https in
-      if Uriz.encoded_userinfo uri <> Null then
+      if Uriz.has_userinfo uri then
         Error "userinfo (user:password@) is not allowed in http URLs"
       else if Uriz.host_kind uri = This `Ipvfuture then
         Error "IPvFuture literals are not supported as HTTP connection hosts"
@@ -124,19 +145,25 @@ let of_uri uri =
           match check_authority scheme host explicit_port with
           | exception Invalid_argument msg -> Error msg
           | host, port ->
-            let uri = Uriz.with_encoded_host uri (This host) in
+            let uri =
+              if (match Uriz.encoded_host__local uri with This old -> String.equal old host | Null -> false) then uri
+              else Uriz.with_encoded_host uri (This host)
+            in
             let uri =
               if empty_port || explicit_port = Some (default_port scheme)
               then Uriz.with_port uri Null
               else uri
             in
             let uri =
-              if Uriz.encoded_path uri = ""
-              then Uriz.with_encoded_path uri "/"
+              let #(_, path_len) = Uriz.encoded_path_span uri in
+              if path_len = 0 then Uriz.with_encoded_path uri "/"
               else uri
             in
             let uri = Uriz.normalize uri in
-            Ok { scheme; host; port; uri }
+            let wire_uri =
+              if Uriz.has_fragment uri then Uriz.with_encoded_fragment uri Null else uri
+            in
+            Ok { scheme; host; port; uri; wire_uri }
       )
     | s -> Error (Printf.sprintf "unsupported scheme %S (must be http or https)" s)
 
@@ -149,7 +176,7 @@ let encode_non_ascii_authority s =
     if length >= 2 && String.starts_with ~prefix:"//" s then Some 2
     else
       match String.index_opt s ':' with
-      | Some colon when colon + 2 < length && String.sub s colon 3 = "://" ->
+      | Some colon when colon + 2 < length && s.[colon + 1] = '/' && s.[colon + 2] = '/' ->
         Some (colon + 3)
       | _ -> None
   in
@@ -164,11 +191,7 @@ let encode_non_ascii_authority s =
         | _ -> authority_end (index + 1)
     in
     let authority_end = authority_end authority_start in
-    let rec has_non_ascii index =
-      index < authority_end
-      && (Char.code s.[index] > 127 || has_non_ascii (index + 1))
-    in
-    if not (has_non_ascii authority_start) then s
+    if not (has_non_ascii ~first:authority_start ~last:authority_end s) then s
     else
       let buffer = Buffer.create (length + 16) in
       Buffer.add_substring buffer s 0 authority_start;
@@ -185,12 +208,9 @@ let of_string s =
   | Null -> Error "not a valid URI reference"
   | This uri -> of_uri uri
 
-let to_uri t =
-  match Uriz.encoded_fragment t.uri with
-  | Null -> t.uri
-  | This _ -> Uriz.with_encoded_fragment t.uri Null
+let to_uri t = t.wire_uri
 
-let same_origin a b =
+let[@zero_alloc] same_origin (a @ local) (b @ local) =
   a.scheme = b.scheme && String.equal a.host b.host && a.port = b.port
 
 (* An IPv6 literal is stored bracketless; re-add the brackets when
@@ -198,7 +218,7 @@ let same_origin a b =
    the address. Only such a literal can contain ':' — [check_host]
    rejects it anywhere else. *)
 let pp_host f host =
-  if String.contains host ':' then Fmt.pf f "[%s]" host
+  if has_colon host then Fmt.pf f "[%s]" host
   else Fmt.string f host
 
 let origin t =
@@ -221,31 +241,45 @@ let path_segments t =
       let parts = match parts with "" :: rest -> rest | parts -> parts in
       List.map (fun part -> match Uriz.percent_decode part with
         | This part -> part
-        | Null -> assert false) parts
+        | Null -> invalid_arg "Fetch.Url.path_segments: invalid percent escape") parts
 ;;
 
-let has_query t = match Uriz.encoded_query t.uri with Null -> false | This _ -> true
+let[@zero_alloc] has_query (t @ local) = Uriz.has_query t.uri
+let[@zero_alloc] has_fragment (t @ local) = Uriz.has_fragment t.uri
 
-let has_fragment t =
-  match Uriz.encoded_fragment t.uri with Null -> false | This _ -> true
+(* Segment-wise, so a prefix covers whole path components only: without that, a
+   scope for "/v3" would also admit "/v3x", a different endpoint that merely
+   shares an opening. A decoded separator is unsafe for policy matching because
+   an origin might split it after decoding. Only "%2F" and "%5C" decode to one,
+   in either case, so scanning the encoded path answers that question without
+   building decoded segments. Comparison then stays on the encoded spelling
+   throughout, so "/a:b" and "/a%3Ab" do not match each other: two spellings of
+   one path fail closed, which is the safe direction for a policy test. *)
+let[@zero_alloc] safe_path (raw : string @ local) off len =
+  let rec loop i =
+    if i >= off + len then true
+    else match raw.[i] with
+    | '\\' -> false
+    | '%' when i + 2 < off + len ->
+        let c = Uriz.Scanner.hex_val raw.[i + 1] * 16 + Uriz.Scanner.hex_val raw.[i + 2] in
+        c <> 0x2f && c <> 0x5c && loop (i + 3)
+    | _ -> loop (i + 1)
+  in
+  let result = loop off in
+  result
 
-(* Segment-wise, so a prefix covers whole path components only: without
-   that, a scope for "/v3" would also admit "/v3x", a different
-   endpoint that merely shares an opening. A decoded separator is unsafe for
-   policy matching because an origin might split it after decoding. *)
-let under ~prefix t =
-  let path = Uriz.encoded_path t.uri in
-  let scope = Uriz.encoded_path prefix.uri in
-  let safe_segment s = not (String.contains s '/' || String.contains s '\\') in
-  same_origin prefix t
-  && (scope = "/"
-      || (List.for_all safe_segment (path_segments prefix)
-          && List.for_all safe_segment (path_segments t)
-          && (String.equal scope path
-              || String.starts_with
-                   ~prefix:(if String.ends_with ~suffix:"/" scope then scope else scope ^ "/")
-                   path)))
-;;
+let[@zero_alloc] under ~(prefix : t @ local) (t : t @ local) =
+  if not (same_origin prefix t) then false else
+  let #(soff, slen) = Uriz.encoded_path_span prefix.uri in
+  let scope = Uriz.to_string__local prefix.uri in
+  if slen = 1 && scope.[soff] = '/' then true else
+  let #(poff, plen) = Uriz.encoded_path_span t.uri in
+  let path = Uriz.to_string__local t.uri in
+  let rec matches i = i = slen || (scope.[soff + i] = path.[poff + i] && matches (i + 1)) in
+  let result = slen <= plen && matches 0
+  && (slen = plen || (slen > 0 && scope.[soff + slen - 1] = '/') || path.[poff + slen] = '/')
+  && safe_path scope soff slen && safe_path path poff plen in
+  result
 
 let resolve ~base reference =
   match Uriz.of_string (encode_non_ascii_authority reference) with
@@ -261,21 +295,12 @@ let resolve ~base reference =
     of_uri resolved
 
 let set_query_params t params =
-  let uri =
-    List.fold_left
-      (fun u (key, _) ->
-        Uriz.remove_query_param ~plus_as_space:true u key)
-      t.uri params
-  in
-  (* [add_query_param] appends, so folding in caller order preserves it. *)
-  let uri =
-    List.fold_left
-      (fun u (key, value) -> Uriz.add_query_param u ~key ~value)
-      uri params
-  in
-  (* Scheme, host and userinfo are untouched, so re-validation cannot
-     fail; going through [of_uri] keeps the stored form canonical. *)
-  match of_uri uri with Ok t -> t | Error _ -> assert false
+  match params with
+  | [] -> t
+  | _ ->
+      let uri = Uriz.set_query_params ~plus_as_space:true t.uri params in
+      let wire_uri = if Uriz.has_fragment uri then Uriz.with_encoded_fragment uri Null else uri in
+      { t with uri; wire_uri }
 
 let to_string t = Uriz.to_string (to_uri t)
 

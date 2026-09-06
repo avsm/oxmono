@@ -18,8 +18,6 @@ let[@inline] make ~(off : int16#) ~(len : int16#) : t = #{ off; len }
 let[@inline] off (sp : t) = I16.to_int sp.#off
 let[@inline] len (sp : t) = I16.to_int sp.#len
 
-(* Comparisons process complete machine words before their byte-wise tail. *)
-
 external str_word
   :  (string[@local_opt])
   -> int
@@ -102,7 +100,6 @@ let[@inline] equal (local_ (buf : bytes)) (sp : t) s =
     eq)
 ;;
 
-(* Case-insensitive comparison. Assumes s is lowercase. *)
 let[@inline] equal_caseless (local_ (buf : bytes)) (sp : t) s =
   let slen = String.length s in
   let sp_len = len sp in
@@ -159,6 +156,7 @@ let[@inline always] zero_bytes (w : int64#) : int64# =
   I64.logand (I64.logand (I64.sub w ones) (I64.lognot w)) highs
 ;;
 
+(* This trailing-zero-to-byte conversion assumes a little-endian target. *)
 let[@inline always] lowest_marked (m : int64#) : int =
   I64.to_int (Bits.count_trailing_zeros m) lsr 3
 ;;
@@ -204,9 +202,6 @@ let minus_one_i64 : int64# = I64.of_int64 (-1L)
 let max_int64_div_10 : int64# = I64.of_int64 922337203685477580L
 let max_int64_last_digit = 7
 
-(* RFC 9110 section 8.6 permits a combined field containing repeated, identical decimal
-   values. Return the value, whether it overflowed [int64], and whether two valid members
-   disagreed. Any other malformed input returns [-1L] with both flags clear. *)
 let[@inline] parse_content_length (local_ (buf : bytes)) (sp : t)
   : #(int64# * bool * bool)
   =
@@ -284,8 +279,8 @@ let[@inline] equal_caseless_range (local_ buf) start stop literal =
     same)
 ;;
 
-(* Both list walks below need the same three steps for one member, and each step reports a
-   single offset so that no pair is built per member. *)
+(* The four list walks below need the same three steps for one member, and each step
+   reports a single offset so that no pair is built per member. *)
 let[@inline] member_end (local_ (buf : bytes)) ~pos ~stop =
   let mutable p = pos in
   while p < stop && Buf_read.( <>. ) (Buf_read.peek buf (I16.of_int p)) #',' do
@@ -307,8 +302,6 @@ let[@inline] trim_ows_end (local_ (buf : bytes)) ~start ~stop =
   p
 ;;
 
-(* Parse the HTTP comma-list shape without allocating its members. Empty list elements are
-   ignored as RFC 9110 section 5.6.1 permits. *)
 let[@inline] token_list_last_is (local_ (buf : bytes)) (sp : t) literal =
   let mutable pos = off sp in
   let stop = pos + len sp in
@@ -354,7 +347,7 @@ let[@inline] token_list_contains (local_ (buf : bytes)) (sp : t) literal =
     let item_end = member_end buf ~pos ~stop in
     let left = skip_ows buf ~pos ~stop:item_end in
     let right = trim_ows_end buf ~start:left ~stop:item_end in
-    found <- equal_caseless_range buf left right literal;
+    found <- right > left && equal_caseless_range buf left right literal;
     pos <- (if item_end < stop then item_end + 1 else item_end)
   done;
   found
@@ -375,10 +368,6 @@ let[@zero_alloc] token_list_valid (local_ (buf : bytes)) (sp : t) =
   valid
 ;;
 
-(* Parse the Transfer-Encoding list grammar and report its framing-relevant facts:
-   non-empty member count, chunked member count, whether chunked is the final member, and
-   whether every non-empty member is syntactically valid. Empty list members are ignored
-   as RFC 9110 section 5.6.1 requires. *)
 let parse_transfer_encoding (local_ (buf : bytes)) (sp : t) =
   let stop = off sp + len sp in
   let mutable pos = off sp in

@@ -312,8 +312,27 @@ let test_expires_formats () =
     "a=1; Expires=2015/Oct/21 07:28:00";
   check "one-digit time and component suffixes"
     "a=1; Expires=21st Oct-extra 2015year 7:28:0GMT:ignored";
-  Alcotest.(check expiry) "digit immediately after month rejects that token"
-    `Session (Cookie.expiry (parse_ok "a=1; Expires=21 Jan2 2015 7:28:0"))
+  (* s5.1.1 spells the month as three letters followed by any octets. *)
+  Alcotest.(check expiry) "a digit may follow the month"
+    (`At (date (2015, 1, 21) (7, 28, 0)))
+    (Cookie.expiry (parse_ok "a=1; Expires=21 Jan2 2015 7:28:0"));
+  Alcotest.(check expiry) "and the whole year may follow it"
+    (`At (date (2020, 1, 21) (7, 28, 0)))
+    (Cookie.expiry (parse_ok "a=1; Expires=21 jan2020 2020 7:28:0"));
+  List.iteri
+    (fun i month ->
+       let mixed_case =
+         String.mapi (fun i c -> if i mod 2 = 0 then Char.uppercase_ascii c else c) month
+       in
+       List.iter
+         (fun spelling ->
+            let line = "a=1; Expires=21 " ^ spelling ^ " 2015 7:28:0" in
+            Alcotest.(check expiry) ("month " ^ spelling)
+              (`At (date (2015, i + 1, 21) (7, 28, 0)))
+              (Cookie.expiry (parse_ok line)))
+         [month; mixed_case; month ^ "suffix9"; month ^ "2"])
+    ["jan"; "feb"; "mar"; "apr"; "may"; "jun";
+     "jul"; "aug"; "sep"; "oct"; "nov"; "dec"]
 ;;
 
 let test_expires_two_digit_years () =
@@ -349,7 +368,25 @@ let test_expires_invalid_ignored () =
     "a leap second leaves a session cookie"
     `Session
     (Cookie.expiry
-       (parse_ok "a=1; Expires=Sun, 06 Nov 1994 08:49:60 GMT"))
+       (parse_ok "a=1; Expires=Sun, 06 Nov 1994 08:49:60 GMT"));
+  List.iter
+    (fun date ->
+       Alcotest.(check expiry) ("invalid component: " ^ date) `Session
+         (Cookie.expiry (parse_ok ("a=1; Expires=" ^ date))))
+    [ "001 Jan 2015 1:2:3"
+    ; "21 Jan 02015 1:2:3"
+    ; "21 Jan 5 1:2:3"
+    ; "21 Jan 2015 001:2:3"
+    ; "21 Jan 2015 1:002:3"
+    ; "21 Jan 2015 1:2:003"
+    ; "21 Jan 2015 :2:3"
+    ; "21 Jan 2015 1::3"
+    ; "21 Jan 2015 1:2:"
+    ; "21 Jan 2015 1:2"
+    (* Token selection precedes calendar validation: a later valid time
+       does not replace the first syntactically valid time. *)
+    ; "21 Jan 2015 25:0:0 1:2:3"
+    ]
 ;;
 
 (* {1 Prefixes, SameSite, Partitioned (RFC 6265bis, CHIPS)} *)
@@ -927,15 +964,21 @@ type write_fault =
 
 let write_fault = ref None
 
-(* Wrap the real directory provider only far enough to fault the next file
-   write. Keeping the real open means the exclusive-create and cleanup paths
-   exercise the production filesystem implementation. *)
-let with_faulting_writes ((Eio.Resource.T (dir_state, dir_ops), path) : _ Eio.Path.t) =
+(* Fault real filesystem operations to exercise exclusive-create and cleanup. *)
+let with_faulting_writes ?collisions
+    ((Eio.Resource.T (dir_state, dir_ops), path) : _ Eio.Path.t) =
   let module Dir = (val Eio.Resource.get dir_ops Eio.Fs.Pi.Dir) in
   let module Faulting_dir = struct
     include Dir
 
     let open_out state ~sw ~append ~create path =
+      Option.iter
+        (fun attempts ->
+          incr attempts;
+          let file = Dir.open_out state ~sw ~append ~create path in
+          Eio.Flow.copy_string "collision" file;
+          Eio.Resource.close file)
+        collisions;
       let file = Dir.open_out state ~sw ~append ~create path in
       match !write_fault with
       | None -> file
@@ -1042,6 +1085,35 @@ let test_netscape_interrupted_save env =
         (Eio.Path.load sentinel))
 ;;
 
+let test_netscape_temp_exhaustion env =
+  let clock = Eio.Stdenv.clock env in
+  let native_dir = Filename.temp_dir ~perms:0o700 "httpz-cookie-collisions-" "" in
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_dir) in
+  Fun.protect
+    ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+    (fun () ->
+      let path = Eio.Path.(dir / "jar.txt") in
+      Eio.Path.save ~create:(`Exclusive 0o600) path "original";
+      let collisions = ref 0 in
+      let jar =
+        Cookie_jar.of_file ~clock ~save:`Manual
+          (with_faulting_writes ~collisions path)
+      in
+      set_ok jar "changed=1";
+      (match Cookie_jar.flush jar with
+       | () -> Alcotest.fail "colliding temporary files unexpectedly accepted"
+       | exception Eio.Io (Eio.Fs.E (Eio.Fs.Already_exists _), _) -> ());
+      Alcotest.(check int) "bounded retries" 100 !collisions;
+      Alcotest.(check string) "old jar preserved" "original" (Eio.Path.load path);
+      let temps = owned_temps dir "jar.txt" in
+      Alcotest.(check int) "unowned files retained" 100 (List.length temps);
+      List.iter
+        (fun name ->
+          Alcotest.(check string) "unowned file untouched" "collision"
+            Eio.Path.(load (dir / name)))
+        temps)
+;;
+
 let test_netscape_atomic_save env =
   let clock = Eio.Stdenv.clock env in
   let native_dir = Filename.temp_dir ~perms:0o700 "httpz-cookie-atomic-" "" in
@@ -1123,6 +1195,185 @@ let test_netscape_file_cap env =
         (List.length (Cookie_jar.cookies jar)))
 ;;
 
+(* {1 Regressions} *)
+
+(* R38: delta-seconds is unbounded, so a value too wide for an [int] must not
+   hand precedence back to Expires. *)
+let test_max_age_out_of_range () =
+  let far = "Expires=Wed, 21 Oct 2036 07:28:00 GMT" in
+  let huge_negative =
+    parse_ok (Fmt.str "a=1; Max-Age=-99999999999999999999; %s" far)
+  in
+  Alcotest.(check bool)
+    "an unrepresentable negative Max-Age still deletes"
+    true
+    (Cookie.is_expired ~now huge_negative);
+  Alcotest.(check expiry)
+    "an unrepresentable positive Max-Age saturates"
+    (`At Ptime.max)
+    (Cookie.expiry (parse_ok (Fmt.str "a=1; Max-Age=99999999999999999999; %s" far)));
+  Alcotest.(check expiry)
+    "a non-digit Max-Age is still a syntax error"
+    `Session
+    (Cookie.expiry (parse_ok "a=1; Max-Age=99999999999999999999x"))
+;;
+
+(* R38: the deletion sentinel has to survive this module's own date grammar. *)
+let test_deletion_sentinel_round_trip () =
+  let deleted = parse_ok "a=1; Max-Age=0" in
+  let line = Cookie.set_cookie_header deleted in
+  if not (contains ~sub:"1970" line)
+  then Alcotest.failf "the sentinel serialized as %S" line;
+  let reparsed = parse_ok line in
+  Alcotest.(check expiry)
+    "the sentinel survives its own serialization"
+    (Cookie.expiry deleted)
+    (Cookie.expiry reparsed);
+  Alcotest.(check bool)
+    "and still deletes after the round trip"
+    true
+    (Cookie.is_expired ~now reparsed)
+;;
+
+(* R31: a rejected value leaves the jar exactly as it was, expired entries
+   included, so an on-change file jar has nothing to write back. *)
+let test_jar_rejection_leaves_jar_unchanged () =
+  Eio_mock.Backend.run
+  @@ fun () ->
+  let jar, clock = mock_jar () in
+  set_ok jar "sid=real; Secure";
+  set_ok jar "stale=1; Max-Age=5";
+  Eio_mock.Clock.set_time clock 1010.0;
+  let before = Cookie_jar.cookies jar in
+  Alcotest.(check int) "an expired cookie is still stored" 2 (List.length before);
+  let reason = set_err jar ~https:false "sid=fake" in
+  check_reason "shadowing" reason "shadow";
+  let after = Cookie_jar.cookies jar in
+  Alcotest.(check (list string))
+    "the rejection swept nothing"
+    (List.map Cookie.name before)
+    (List.map Cookie.name after)
+;;
+
+(* R31: the cookies.txt loader is a trust boundary of its own, so the name
+   prefixes bind there as they do in a Set-Cookie value. *)
+let test_netscape_prefix_rules env =
+  let clock = Eio.Stdenv.clock env in
+  let path = Eio.Path.(Eio.Stdenv.cwd env / "prefix-rules.txt") in
+  Eio.Path.save
+    ~create:(`Or_truncate 0o600)
+    path
+    "example.com\tFALSE\t/\tFALSE\t0\t__Host-plain\tv\n\
+     example.com\tTRUE\t/\tTRUE\t0\t__Host-wide\tv\n\
+     example.com\tFALSE\t/app\tTRUE\t0\t__Host-deep\tv\n\
+     example.com\tFALSE\t/\tFALSE\t0\t__Secure-plain\tv\n\
+     example.com\tFALSE\t/\tTRUE\t0\t__Host-ok\tv\n\
+     example.com\tFALSE\t/\tTRUE\t0\t__Secure-ok\tv\n";
+  let jar = Cookie_jar.of_file ~clock ~save:`Manual path in
+  let names = List.map Cookie.name (Cookie_jar.cookies jar) in
+  Alcotest.(check (slist string String.compare))
+    "only prefixed cookies holding their own attributes load"
+    [ "__Host-ok"; "__Secure-ok" ]
+    names;
+  Alcotest.(check (option string))
+    "and nothing prefixed reaches a plaintext request"
+    None
+    (Cookie_jar.header_for jar ~host:"example.com" ~path:"/" ~https:false)
+;;
+
+(* R31: the seven Netscape columns cannot hold SameSite, Partitioned or the two
+   timestamps that decide header order and eviction. *)
+let test_netscape_preserves_attributes env =
+  let clock = Eio.Stdenv.clock env in
+  let path = Eio.Path.(Eio.Stdenv.cwd env / "preserved-attributes.txt") in
+  Eio.Path.save
+    ~create:(`Or_truncate 0o600)
+    path
+    "# Netscape HTTP Cookie File\n\
+     # Httpz-Meta\tLax\tTRUE\t500\t900\n\
+     example.com\tFALSE\t/\tTRUE\t0\ta\t1\n\
+     # Httpz-Meta\t\tFALSE\t100\t200\n\
+     example.com\tFALSE\t/\tFALSE\t0\tb\t2\n\
+     example.com\tFALSE\t/\tFALSE\t0\tc\t3\n";
+  let check_attributes label jar =
+    let find name = List.find (fun c -> Cookie.name c = name) (Cookie_jar.cookies jar) in
+    let a = find "a" and b = find "b" in
+    Alcotest.(check bool)
+      (label ^ ": SameSite")
+      true
+      (Cookie.same_site a = Some `Lax && Cookie.same_site b = None);
+    Alcotest.(check bool)
+      (label ^ ": Partitioned")
+      true
+      (Cookie.partitioned a && not (Cookie.partitioned b));
+    Alcotest.(check ptime) (label ^ ": creation") (time 500.0) (Cookie.creation_time a);
+    Alcotest.(check ptime) (label ^ ": last access") (time 900.0) (Cookie.last_access a);
+    Alcotest.(check ptime) (label ^ ": creation") (time 100.0) (Cookie.creation_time b);
+    Alcotest.(check ptime) (label ^ ": last access") (time 200.0) (Cookie.last_access b);
+    ignore (find "c")
+  in
+  let jar = Cookie_jar.of_file ~clock ~save:`Manual path in
+  check_attributes "on load" jar;
+  Cookie_jar.flush jar;
+  let reloaded = Cookie_jar.of_file ~clock ~save:`Manual path in
+  check_attributes "after a save" reloaded;
+  (* A foreign reader of the format skips the comment and still sees seven
+     columns in every record. *)
+  String.split_on_char '\n' (Eio.Path.load path)
+  |> List.iter (fun line ->
+    if line <> "" && line.[0] <> '#'
+    then
+      Alcotest.(check int)
+        (Fmt.str "seven columns in %S" line)
+        7
+        (List.length (String.split_on_char '\t' line)));
+  Alcotest.(check (option string))
+    "the earlier creation time still comes first"
+    (Some "b=2; a=1; c=3")
+    (Cookie_jar.header_for reloaded ~host:"example.com" ~path:"/" ~https:true)
+;;
+
+(* R31: [Eio.Mutex.use_rw] disables a mutex whose body raises, so the save must
+   fail outside the critical section. *)
+let test_netscape_failed_save_keeps_jar env =
+  let clock = Eio.Stdenv.clock env in
+  let native_dir = Filename.temp_dir ~perms:0o700 "httpz-cookie-failed-save-" "" in
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_dir) in
+  Fun.protect
+    ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+    (fun () ->
+      let path = Eio.Path.(dir / "jar.txt") in
+      let jar = Cookie_jar.of_file ~clock path in
+      (* A directory in place of the file makes the atomic rename fail. *)
+      Eio.Path.mkdir ~perm:0o700 path;
+      let failing_set line =
+        match Cookie_jar.set jar ~host:"example.com" ~path:"/" ~https:true line with
+        | Ok () -> Alcotest.failf "the failed save of %S went unreported" line
+        | Error e -> Alcotest.failf "the failed save of %S became a rejection: %s" line e
+        | exception Eio.Mutex.Poisoned _ ->
+          Alcotest.failf "the failed save of %S disabled the jar" line
+        | exception _ -> ()
+      in
+      failing_set "a=1";
+      (match Cookie_jar.cookies jar with
+       | cookies -> Alcotest.(check int) "the accepted cookie is in memory" 1
+                      (List.length cookies)
+       | exception Eio.Mutex.Poisoned _ ->
+         Alcotest.fail "reading the jar after a failed save found it disabled");
+      (match Cookie_jar.header_for jar ~host:"example.com" ~path:"/" ~https:true with
+       | header ->
+         Alcotest.(check (option string)) "and still reaches a request" (Some "a=1")
+           header
+       | exception Eio.Mutex.Poisoned _ ->
+         Alcotest.fail "a request after a failed save found the jar disabled");
+      failing_set "b=2";
+      Eio.Path.rmtree path;
+      Cookie_jar.flush jar;
+      let reloaded = Cookie_jar.of_file ~clock ~save:`Manual path in
+      Alcotest.(check int) "both cookies survive to the first working save" 2
+        (List.length (Cookie_jar.cookies reloaded)))
+;;
+
 (* {1 Suite} *)
 
 let () =
@@ -1152,6 +1403,9 @@ let () =
       , [ test_case "max-age" `Quick test_max_age
         ; test_case "max-age wins over expires" `Quick test_max_age_wins_over_expires
         ; test_case "max-age lexing" `Quick test_max_age_lexing
+        ; test_case "max-age out of range" `Quick test_max_age_out_of_range
+        ; test_case "deletion sentinel round trip" `Quick
+            test_deletion_sentinel_round_trip
         ; test_case "expires formats" `Quick test_expires_formats
         ; test_case "two-digit years" `Quick test_expires_two_digit_years
         ; test_case "invalid expires ignored" `Quick test_expires_invalid_ignored
@@ -1186,6 +1440,8 @@ let () =
         ; test_case "per-domain LRU cap" `Quick test_jar_per_domain_lru
         ; test_case "byte cap" `Quick test_jar_size_cap
         ; test_case "host-only scopes" `Quick test_jar_host_only_scopes
+        ; test_case "a rejection changes nothing" `Quick
+            test_jar_rejection_leaves_jar_unchanged
         ] )
     ; ( "netscape"
       , [ test_case "fixture" `Quick (fun () -> test_netscape_fixture env)
@@ -1196,12 +1452,20 @@ let () =
         ; test_case "atomic save" `Quick (fun () -> test_netscape_atomic_save env)
         ; test_case "interrupted save" `Quick (fun () ->
             test_netscape_interrupted_save env)
+        ; test_case "temporary-file exhaustion" `Quick (fun () ->
+            test_netscape_temp_exhaustion env)
         ; test_case "invalid lines skipped" `Quick (fun () ->
             test_netscape_skips_invalid env)
         ; test_case "expired records before live" `Quick (fun () ->
             test_netscape_expired_before_live env)
         ; test_case "identity and total indexes" `Quick (fun () ->
             test_netscape_identity_and_total_indexes env)
+        ; test_case "name prefixes bind on load" `Quick (fun () ->
+            test_netscape_prefix_rules env)
+        ; test_case "attributes and timestamps survive" `Quick (fun () ->
+            test_netscape_preserves_attributes env)
+        ; test_case "a failed save leaves the jar usable" `Quick (fun () ->
+            test_netscape_failed_save_keeps_jar env)
         ; test_case "file size cap" `Slow (fun () ->
             test_netscape_file_cap env)
         ] )

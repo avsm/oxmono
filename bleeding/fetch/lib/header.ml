@@ -8,12 +8,26 @@ type 'a t = {
 let v ?(list_valued = false) name ~encode ~decode =
   { name; list_valued; enc = encode; dec = decode }
 
+type 'a portable_t = {
+  portable_name : string;
+  portable_list_valued : bool;
+  portable_enc : ('a -> string) @@ portable;
+  portable_dec : (string -> 'a option) @@ portable;
+}
+
+let portable_v ?(list_valued = false) name ~(encode @ portable) ~(decode @ portable) =
+  { portable_name = name; portable_list_valued = list_valued;
+    portable_enc = encode; portable_dec = decode }
+
+let of_portable t =
+  { name = t.portable_name; list_valued = t.portable_list_valued;
+    enc = t.portable_enc; dec = t.portable_dec }
+
 let name t = t.name
 let encode t x = t.enc x
 let decode t s = t.dec s
 
-(* Singleton fields reject duplicates. HSTS explicitly specifies first-field
-   processing (RFC 6797 section 8.1). Lists combine occurrences in wire order. *)
+(* HSTS specifies first-field processing (RFC 6797 s8.1). *)
 let get t hs =
   match Http.Header.get_multi hs t.name with
   | [] -> None
@@ -40,50 +54,48 @@ let cut c s =
 let unquote s =
   let n = String.length s in
   if n >= 2 && s.[0] = '"' && s.[n - 1] = '"' then begin
-    let buf = Buffer.create (n - 2) in
-    let i = ref 1 in
-    while !i < n - 1 do
-      (match s.[!i] with
-       | '\\' when !i + 1 < n - 1 -> incr i; Buffer.add_char buf s.[!i]
-       | c -> Buffer.add_char buf c);
-      incr i
+    let rec size i count =
+      if i >= n - 1 then count
+      else size (i + if s.[i] = '\\' && i + 1 < n - 1 then 2 else 1) (count + 1)
+    in
+    let out = Bytes.create (size 1 0) in
+    let mutable i = 1 in
+    let mutable k = 0 in
+    while i < n - 1 do
+      if s.[i] = '\\' && i + 1 < n - 1 then i <- i + 1;
+      Bytes.unsafe_set out k s.[i];
+      i <- i + 1; k <- k + 1
     done;
-    Buffer.contents buf
-  end
-  else s
+    Bytes.unsafe_to_string out
+  end else s
 
-(* Split a field value on [sep], respecting quoted strings. With [angles],
-   a [<...>] group is opaque too: a Link target is a URI reference, which
-   may carry the separator ([</a?x=1,2>]) without quoting. *)
+(* Keep quote and angle syntax in the original string, copying only each
+   final trimmed member. Validation remains in [split_checked]. *)
 let split_on ?(angles = false) sep s =
-  let buf = Buffer.create (String.length s) in
   let acc = ref [] in
+  let first = ref 0 in
   let in_quotes = ref false in
   let in_angles = ref false in
   let escaped = ref false in
-  let flush () =
-    let part = String.trim (Buffer.contents buf) in
-    Buffer.clear buf;
-    if part <> "" then acc := part :: !acc
+  let whitespace = function ' ' | '\t' | '\r' | '\n' | '\012' -> true | _ -> false in
+  let flush stop =
+    let a = ref !first and b = ref stop in
+    while !a < !b && whitespace s.[!a] do incr a done;
+    while !b > !a && whitespace s.[!b - 1] do decr b done;
+    if !b > !a then acc := String.sub s !a (!b - !a) :: !acc;
+    first := stop + 1
   in
-  String.iter
-    (fun c ->
-       if !escaped then (Buffer.add_char buf c; escaped := false)
-       else if !in_quotes && c = '\\' then (Buffer.add_char buf c; escaped := true)
-       else if c = '"' && not !in_angles then
-         (in_quotes := not !in_quotes; Buffer.add_char buf c)
-       else if angles && not !in_quotes && c = '<' && not !in_angles then
-         (in_angles := true; Buffer.add_char buf c)
-       else if !in_angles && c = '>' then
-         (in_angles := false; Buffer.add_char buf c)
-       else if c = sep && not !in_quotes && not !in_angles then flush ()
-       else Buffer.add_char buf c)
-    s;
-  flush ();
+  String.iteri (fun i c ->
+    if !escaped then escaped := false
+    else if !in_quotes && c = '\\' then escaped := true
+    else if c = '"' && not !in_angles then in_quotes := not !in_quotes
+    else if angles && not !in_quotes && c = '<' && not !in_angles then in_angles := true
+    else if !in_angles && c = '>' then in_angles := false
+    else if c = sep && not !in_quotes && not !in_angles then flush i) s;
+  flush (String.length s);
   List.rev !acc
 
 let split_commas = split_on ','
-let split_semis = split_on ';'
 
 (* Check the list syntax before [split_on] discards empty members. This also
    rejects unterminated quoted strings instead of treating their remainder as
@@ -124,6 +136,19 @@ let rec map_all f = function
     let* ys = map_all f xs in
     Some (y :: ys)
 
+(* Structured Fields parameters and RFC 9530 digest lists both take the last
+   value for a repeated key, in the position of that last occurrence. One pass
+   over the reversed list costs what [List.remove_assoc] per member would cost
+   for each distinct key. *)
+let last_wins key_of items =
+  let seen = Hashtbl.create 8 in
+  List.fold_left
+    (fun acc item ->
+       let key = key_of item in
+       if Hashtbl.mem seen key then acc
+       else (Hashtbl.add seen key (); item :: acc))
+    [] (List.rev items)
+
 let unique_keys pairs =
   let rec loop seen = function
     | [] -> true
@@ -155,7 +180,6 @@ let is_sf_string s =
 let quote_string = Httpz.Header.Syntax.quote_string
 let quoted_string = Httpz.Header.Syntax.unquote_string
 
-(* [k=v] or [k="v"] as a lowercased key and unquoted value. *)
 let param_of p =
   Option.map
     (fun (k, v) ->
@@ -166,10 +190,10 @@ let strict_param_of p =
   let* key, value = cut '=' p in
   let key = String.lowercase_ascii (String.trim key) in
   let value = String.trim value in
-  if not (Middleware.is_token key) then None
+  if not (Httpz.Header.Syntax.is_token key) then None
   else
     let* value =
-      if Middleware.is_token value then Some value else quoted_string value
+      if Httpz.Header.Syntax.is_token value then Some value else quoted_string value
     in
     Some (key, value)
 
@@ -180,8 +204,8 @@ let media ?(params = []) media = { media; params }
 let media_name ?(wildcards = false) value =
   let value = String.trim value in
   let valid =
-    if wildcards then Httpz.Media.Syntax.valid_range
-    else Httpz.Media.Syntax.valid_type
+    if wildcards then Httpz_media.Syntax.valid_range
+    else Httpz_media.Syntax.valid_type
   in
   if valid value ~pos:0 ~len:(String.length value)
   then Some (String.lowercase_ascii value)
@@ -197,9 +221,7 @@ let parse_media ?(wildcards = false) s =
 
 let media_to_string mt =
   let param (key, value) =
-    let value =
-      if Middleware.is_token value then value else quote_string value
-    in
+    let value = if Httpz.Header.Syntax.is_token value then value else quote_string value in
     key ^ "=" ^ value
   in
   String.concat "; " (mt.media :: List.map param mt.params)
@@ -216,7 +238,7 @@ let content_encoding =
     ~encode:(String.concat ", ")
     ~decode:(fun s ->
         let* cs = split_checked ',' s in
-        if List.for_all Middleware.is_token cs
+        if List.for_all Httpz.Header.Syntax.is_token cs
         then Some (List.map String.lowercase_ascii cs)
         else None)
 
@@ -306,7 +328,7 @@ let pref_codec ?(allow_empty = false) ~allow_params ~valid_value name =
         map_all (parse_pref ~allow_params ~valid_value) parts)
 
 let valid_media_range s = Option.is_some (parse_media ~wildcards:true s)
-let valid_coding s = s = "*" || Middleware.is_token s
+let valid_coding s = s = "*" || Httpz.Header.Syntax.is_token s
 
 let valid_language_range s = s = "*" || valid_language_tag s
 
@@ -417,7 +439,7 @@ let range =
         let unit = String.trim unit in
         let* specs = split_checked ',' rest in
         let* parsed = map_all parse_range_spec specs in
-        if Middleware.is_token unit && parsed <> []
+        if Httpz.Header.Syntax.is_token unit && parsed <> []
         then Some { unit; ranges = parsed }
         else None)
 
@@ -425,7 +447,12 @@ type if_range = [ `Etag of etag | `Date of string ]
 
 let if_range =
   v "If-Range"
-    ~encode:(function `Etag e -> etag_to_string e | `Date d -> d)
+    ~encode:(function
+        | `Etag e ->
+          if e.weak then
+            invalid_arg "Header.if_range: a weak entity tag is not a validator";
+          etag_to_string e
+        | `Date d -> d)
     ~decode:(fun s ->
         let s = String.trim s in
         let looks_like_etag =
@@ -445,7 +472,7 @@ type content_range = {
 }
 
 let valid_content_range cr =
-  Middleware.is_token cr.unit
+  Httpz.Header.Syntax.is_token cr.unit
   && Httpz.Range.Content.valid_bounds ~range:cr.range ~complete_length:cr.complete_length
 
 let complete_range ~first ~last ~complete_length =
@@ -492,20 +519,21 @@ let content_range =
           if length_part = "*" then Some None
           else Option.map Option.some (dec_int64 length_part)
         in
-        let cr = { unit; range; complete_length } in
-        if valid_content_range cr then Some cr else None)
+        Some { unit; range; complete_length })
 
 type accept_ranges = [ `Bytes | `None | `Other of string ]
 
 let accept_ranges =
-  v "Accept-Ranges"
+  v ~list_valued:true "Accept-Ranges"
     ~encode:(function `Bytes -> "bytes" | `None -> "none" | `Other s -> s)
     ~decode:(fun s ->
-        match String.lowercase_ascii (String.trim s) with
-        | "" -> None
-        | "bytes" -> Some `Bytes
-        | "none" -> Some `None
-        | other -> Some (`Other other))
+        match split_checked ',' s with
+        | Some [ unit ] ->
+          (match String.lowercase_ascii unit with
+           | "bytes" -> Some `Bytes
+           | "none" -> Some `None
+           | other -> if Httpz.Header.Syntax.is_token other then Some (`Other other) else None)
+        | Some _ | None -> None)
 
 type cache_control = {
   max_age : int option;
@@ -568,7 +596,7 @@ let cache_control =
                       field list like [no-cache="Set-Cookie, Age"] — must
                       go back out quoted or the commas would read as
                       directive separators. *)
-                   if Middleware.is_token v then k ^ "=" ^ v
+                   if Httpz.Header.Syntax.is_token v then k ^ "=" ^ v
                    else k ^ "=" ^ quote_string v)
               cc.extension
         in
@@ -589,9 +617,11 @@ let cache_control =
                     Some (unquote (String.trim v)))
                in
                let num = Option.bind value dec_int in
-               (* A numeric directive whose value fails the digit
-                  grammar falls through to the extension list rather
-                  than silently reading as absent. *)
+               (* A numeric directive keeps its value only when the digits
+                  fit an [int]. One that fails the digit grammar and one
+                  whose digits overflow both fall through to the extension
+                  list, which keeps the value verbatim rather than reading
+                  as absent. *)
                match key, value, num with
                | "max-age", Some _, Some _ -> cc := { !cc with max_age = num }
                | "s-maxage", Some _, Some _ -> cc := { !cc with s_maxage = num }
@@ -653,7 +683,7 @@ let vary =
         (* RFC 9111 s4.1: a [*] member means the response is unreusable, so
            it outranks whatever else the list names. *)
         if List.mem "*" fs then Some `Any
-        else if fs <> [] && List.for_all Middleware.is_token fs then
+        else if fs <> [] && List.for_all Httpz.Header.Syntax.is_token fs then
           Some (`Fields (List.map String.lowercase_ascii fs))
         else None)
 
@@ -693,25 +723,35 @@ let forward_to_string = function
   | `Bypass -> "bypass"
   | `Other s -> s
 
+let base64_value = function
+  | 'A' .. 'Z' as c -> Char.code c - Char.code 'A'
+  | 'a' .. 'z' as c -> Char.code c - Char.code 'a' + 26
+  | '0' .. '9' as c -> Char.code c - Char.code '0' + 52
+  | '+' -> 62
+  | '/' -> 63
+  | _ -> -1
+
+(* RFC 4648 s4 canonical base64: the encoding is padded to a multiple of four
+   and the final character leaves its unused low bits clear, so one byte
+   string has exactly one spelling. [Base64.decode] accepts both an unpadded
+   blob and a dirty final character, which would let two fields name the same
+   credential or digest. The empty string encodes the empty byte sequence;
+   a field that requires a value rejects it separately. *)
 let valid_base64 s =
   let n = String.length s in
   let rec data_end i =
-    if i = n then i
-    else
-      match s.[i] with
-      | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '+' | '/' -> data_end (i + 1)
-      | _ -> i
+    if i < n && base64_value s.[i] >= 0 then data_end (i + 1) else i
   in
   let rec only_padding i = i = n || (s.[i] = '=' && only_padding (i + 1)) in
   let first_padding = data_end 0 in
-  let padding = n - first_padding in
-  padding <= 2
+  let unused_bits_clear mask = base64_value s.[first_padding - 1] land mask = 0 in
+  n mod 4 = 0
   && only_padding first_padding
-  && first_padding mod 4 <> 1
-  && (padding = 0
-      || n mod 4 = 0
-         && (padding = 1 && first_padding mod 4 = 3
-             || padding = 2 && first_padding mod 4 = 2))
+  && (match n - first_padding with
+      | 0 -> true
+      | 1 -> unused_bits_clear 0x3
+      | 2 -> unused_bits_clear 0xf
+      | _ -> false)
 
 
 (* RFC 8941 item lists. This syntax layer keeps bare-item types until a field
@@ -779,15 +819,14 @@ module Structured = struct
       | _ -> raise Exit
     in
     let rec parameters acc =
-      if peek () <> ';' then List.rev acc
+      if peek () <> ';' then last_wins fst (List.rev acc)
       else begin
         incr pos;
         skip ((=) ' ');
         if not (key_first (peek ())) then raise Exit;
         let key = scan key_char in
         let value = if peek () = '=' then (incr pos; bare ()) else Boolean true in
-        (* Structured Fields uses the last value for a repeated parameter. *)
-        parameters ((key, value) :: List.remove_assoc key acc)
+        parameters ((key, value) :: acc)
       end
     in
     let rec items acc =
@@ -933,17 +972,17 @@ let authorization_codec name =
                  (String.lowercase_ascii name));
           "Bearer " ^ token
         | `Other (scheme, rest) ->
-            if not (Middleware.is_token scheme && Middleware.is_field_value rest) then
+            if not (Httpz.Header.Syntax.is_token scheme && Httpz.Header.Syntax.is_field_value rest) then
               invalid_arg "Header.authorization: invalid scheme or credentials";
             if rest = "" then scheme else scheme ^ " " ^ rest)
     ~decode:(fun s ->
         let s = String.trim s in
         match cut ' ' s with
         | None ->
-          if Middleware.is_token s then Some (`Other (s, "")) else None
+          if Httpz.Header.Syntax.is_token s then Some (`Other (s, "")) else None
         | Some (scheme, rest) ->
           let rest = String.trim rest in
-          if not (Middleware.is_token scheme) || rest = "" then None
+          if not (Httpz.Header.Syntax.is_token scheme) || rest = "" then None
           else
             match String.lowercase_ascii scheme with
             | "bearer" -> if is_b64token rest then Some (`Bearer rest) else None
@@ -955,29 +994,25 @@ let proxy_authorization = authorization_codec "Proxy-Authorization"
 
 type challenge = { scheme : string; params : (string * string) list }
 
-let is_token_word = Middleware.is_token
-
 let challenge_to_string c =
-  if not (Middleware.is_token c.scheme) || not (unique_keys c.params) then
+  if not (Httpz.Header.Syntax.is_token c.scheme) || not (unique_keys c.params) then
     invalid_arg "Header.www_authenticate: invalid scheme or duplicate parameter";
-  List.iter (fun (key, _) -> if key <> "" && not (Middleware.is_token key) then
+  List.iter (fun (key, _) -> if key <> "" && not (Httpz.Header.Syntax.is_token key) then
     invalid_arg "Header.www_authenticate: invalid parameter name") c.params;
   match c.params with
   | [] -> c.scheme
+  (* A token68 blob is carried as the single unnamed parameter that
+     {!parse_challenges} produced it as. *)
+  | [ ("", blob) ] ->
+    if not (is_b64token blob) then
+      invalid_arg "Header.www_authenticate: invalid token68 credentials";
+    c.scheme ^ " " ^ blob
   | ps ->
-    (* A token68 blob is carried as the single unnamed parameter that
-       {!parse_challenges} produced it as. *)
-    match ps with
-    | [ ("", blob) ] ->
-        if not (is_b64token blob) then
-          invalid_arg "Header.www_authenticate: invalid token68 credentials";
-        c.scheme ^ " " ^ blob
-    | ps ->
-      if List.exists (fun (key, _) -> key = "") ps then
-        invalid_arg "Header.www_authenticate: unnamed parameter must be a single token68";
-      c.scheme ^ " "
-      ^ String.concat ", "
-          (List.map (fun (k, v) -> Fmt.str "%s=%s" k (quote_string v)) ps)
+    if List.exists (fun (key, _) -> key = "") ps then
+      invalid_arg "Header.www_authenticate: unnamed parameter must be a single token68";
+    c.scheme ^ " "
+    ^ String.concat ", "
+        (List.map (fun (k, v) -> Fmt.str "%s=%s" k (quote_string v)) ps)
 
 (* Challenges and their parameters share the comma separator, so a part
    opens a new challenge when it looks like [Scheme] or [Scheme key=v]
@@ -989,7 +1024,9 @@ let parse_challenges s =
   let valid = ref true in
   let start scheme params = current := Some { scheme; params } in
   let close () =
-    Option.iter (fun c -> challenges := c :: !challenges) !current;
+    Option.iter
+      (fun c -> challenges := { c with params = List.rev c.params } :: !challenges)
+      !current;
     current := None
   in
   (* A parameter that names no challenge — one before the first scheme, or
@@ -997,43 +1034,32 @@ let parse_challenges s =
      would read a challenge weaker than the one the server sent. *)
   let attach part =
     match !current, strict_param_of part with
-    | Some c, Some kv -> current := Some { c with params = c.params @ [ kv ] }
+    (* A token68 is a whole credential rather than a member of a parameter
+       list, and it is the only parameter a challenge carrying one has, so
+       the empty key can only be at the head. *)
+    | Some { params = ("", _) :: _; _ }, _ -> valid := false
+    | Some c, Some kv -> current := Some { c with params = kv :: c.params }
     | _ -> valid := false
   in
   (* [Scheme blob] where the blob is a token68 (base64-ish, no '=' other
      than trailing padding) is not a parameter list: splitting it at the
      padding would invent a garbage key. Keep it whole, under the empty
      key, which is the one name the [key=value] grammar cannot produce. *)
-  let is_token68 s =
-    s <> ""
-    && (match String.index_opt s '=' with
-        | None -> true
-        | Some i ->
-          (* Only trailing '=' padding is allowed. *)
-          i > 0
-          && String.for_all (fun c -> c = '=') (String.sub s i (String.length s - i)))
-    && String.for_all
-         (function
-           | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9'
-           | '-' | '.' | '_' | '~' | '+' | '/' | '=' -> true
-           | _ -> false)
-         s
-  in
   List.iter
     (fun part ->
        match cut ' ' part with
-       | None when is_token_word part -> close (); start part []
+       | None when Httpz.Header.Syntax.is_token part -> close (); start part []
        | None -> attach part
        | Some (word, rest) ->
-         if is_token_word word then begin
+         if Httpz.Header.Syntax.is_token word then begin
            close ();
            let rest = String.trim rest in
            if rest = "" then start word []
-           else if is_token68 rest then start word [ ("", rest) ]
+           else if is_b64token rest then start word [ ("", rest) ]
            else
              match strict_param_of rest with
              | Some kv -> start word [ kv ]
-             | None -> start word []; valid := false
+             | None -> valid := false
          end
          else attach part)
     parts;
@@ -1060,11 +1086,11 @@ type authentication_info = {
 }
 
 let authentication_info =
-  v "Authentication-Info"
+  v ~list_valued:true "Authentication-Info"
     ~encode:(fun i ->
         let quoted k v = k ^ "=" ^ quote_string v in
         let plain k v =
-          if not (Middleware.is_token v) then invalid_arg "Header.authentication_info: invalid token";
+          if not (Httpz.Header.Syntax.is_token v) then invalid_arg "Header.authentication_info: invalid token";
           Fmt.str "%s=%s" k v in
         List.filter_map Fun.id
           [ Option.map (quoted "nextnonce") i.nextnonce;
@@ -1115,24 +1141,20 @@ let digest_codec name =
           let algo = String.lowercase_ascii (String.trim algo) in
           let value = String.trim value in
           (* RFC 9530 wraps byte sequences as :base64:. *)
-          if not (Middleware.is_token algo)
+          if not (Httpz.Header.Syntax.is_token algo)
              || String.length value < 2
              || value.[0] <> ':'
              || value.[String.length value - 1] <> ':'
           then None
           else
             let digest = String.sub value 1 (String.length value - 2) in
-            if valid_base64 digest
+            if digest <> "" && valid_base64 digest
             then Some { algorithm = digest_algorithm_of_string algo; digest }
             else None
         in
         let* parts = split_checked ',' s in
         let* parsed = map_all parse parts in
-        let replace acc digest =
-          List.filter (fun d -> d.algorithm <> digest.algorithm) acc
-          @ [ digest ]
-        in
-        match List.fold_left replace [] parsed with
+        match last_wins (fun d -> d.algorithm) parsed with
         | [] -> None
         | ds -> Some ds)
 
@@ -1143,7 +1165,7 @@ let strongest_digest digests =
   let by a = List.find_opt (fun d -> d.algorithm = a) digests in
   match List.find_map by [ `Sha512; `Sha256 ] with
   | Some _ as d -> d
-  | None -> List.nth_opt digests 0
+  | None -> (match digests with [] -> None | d :: _ -> Some d)
 
 type hsts = {
   max_age : int64;
@@ -1159,7 +1181,7 @@ let strict_transport_security =
            :: ((if h.include_subdomains then [ "includeSubDomains" ] else [])
                @ (if h.preload then [ "preload" ] else []))))
     ~decode:(fun s ->
-        let max_age = ref None in
+        let seconds = ref None in
         let include_subdomains = ref false in
         let preload = ref false in
         let valid = ref true in
@@ -1179,9 +1201,19 @@ let strict_transport_security =
              else seen := name :: !seen;
              match parsed with
              | Some ("max-age", value) ->
-               (match dec_int64 value with
-                | Some value -> max_age := Some value
-                | None -> valid := false)
+               (* An oversized delta-seconds saturates, as [age] does; the
+                  policy is not discarded for naming a longer lifetime than
+                  the type can hold. *)
+               let value = String.trim value in
+               if not (is_digits value) then valid := false
+               else
+                 seconds :=
+                   Some (match Int64.of_string_opt value with
+                       | Some value -> Int64.min value max_age
+                       | None -> max_age)
+             (* RFC 6797 s6.1.2: [includeSubDomains] takes no value, and
+                dropping it would leave the subdomains unprotected. *)
+             | Some ("includesubdomains", _) -> valid := false
              | Some _ -> ()
              | None ->
                (match name with
@@ -1197,7 +1229,7 @@ let strict_transport_security =
                { max_age = age;
                  include_subdomains = !include_subdomains;
                  preload = !preload })
-            !max_age)
+            !seconds)
 
 type link = {
   target : string;
@@ -1213,8 +1245,8 @@ let check_link_target target =
     String.contains target '<'
     || String.contains target '>'
     || not
-         (Httpz.Uriz.Scanner.is_valid
-            (Httpz.Uriz.Scanner.parse target))
+         (Httpz_uri.Scanner.is_valid
+            (Httpz_uri.Scanner.parse target))
   then
     invalid_arg (Printf.sprintf "Header.link: target %S is not a URI reference" target)
 
@@ -1229,13 +1261,13 @@ let link_rel r links = List.find_opt (fun l -> l.rel = Some r) links
    written as a bare token whenever its value happens to be one. A real Link
    header favors the bare form; this is what a written-back header uses too.
 *)
-let token_or_quoted v = if Middleware.is_token v then v else quote_string v
+let token_or_quoted v = if Httpz.Header.Syntax.is_token v then v else quote_string v
 
 let link_to_string l =
   check_link_target l.target;
   List.iter
     (fun (name, _) ->
-      if not (Middleware.is_token name) then
+      if not (Httpz.Header.Syntax.is_token name) then
         invalid_arg
           (Printf.sprintf "Header.link: parameter name %S is not a token" name))
     l.params;
@@ -1267,7 +1299,7 @@ let decode_ext_value s =
   else
     let dst = Bytes.create (String.length encoded) in
     let written =
-      Httpz.Uriz.Scanner.percent_decode_into encoded ~pos:0 ~len:(String.length encoded)
+      Httpz_uri.Scanner.percent_decode_into encoded ~pos:0 ~len:(String.length encoded)
         ~dst ~dst_pos:0 ~plus_as_space:false
     in
     if written < 0 then None
@@ -1282,7 +1314,7 @@ let parse_link_value str =
     let* target, rest = cut '>' (String.sub str 1 (String.length str - 1)) in
     let target_ok =
       not (String.contains target '<')
-      && Httpz.Uriz.Scanner.is_valid (Httpz.Uriz.Scanner.parse target)
+      && Httpz_uri.Scanner.is_valid (Httpz_uri.Scanner.parse target)
     in
     if not target_ok then None else
     let rest = String.trim rest in
@@ -1327,7 +1359,7 @@ let allow =
         String.concat ", " (List.map Http.Method.to_string methods))
     ~decode:(fun s ->
         let* ms = split_checked ~empty:true ',' s in
-        if List.for_all Middleware.is_token ms
+        if List.for_all Httpz.Header.Syntax.is_token ms
         then Some (List.map Http.Method.of_string ms)
         else None)
 
@@ -1345,7 +1377,7 @@ let retry_after =
 let location =
   v "Location" ~encode:Fun.id
     ~decode:(fun value ->
-        if Httpz.Uriz.Scanner.is_valid (Httpz.Uriz.Scanner.parse value)
+        if Httpz_uri.Scanner.is_valid (Httpz_uri.Scanner.parse value)
         then Some value
         else None)
 let user_agent = text "User-Agent"

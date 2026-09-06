@@ -8,9 +8,9 @@ let inputs =
 
 let check adapter codec =
   List.iter (fun (name, source) ->
-    match Httpz.Media.decode codec source with
+    match Httpz_media.decode codec source with
     | Ok _ -> ()
-    | Error error -> failwith (adapter ^ " " ^ name ^ ": " ^ Httpz.Media.error_to_string error)) inputs
+    | Error error -> failwith (adapter ^ " " ^ name ^ ": " ^ Httpz_media.error_to_string error)) inputs
 
 let () =
   (* The external timeout bounds synchronous parser CPU work. Use a permissive

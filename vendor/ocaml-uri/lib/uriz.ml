@@ -68,8 +68,8 @@ type t = {
 
 (* The local instantiation builds the record in the caller's frame, so a URI
    that shares its canonical string with a local input never touches the heap
-   at all.  A local record may hold global fields, so the canonicalized path,
-   where [raw] is a fresh heap string, templates just as well.  Every field
+   at all.  Canonicalized text can also be allocated in the caller's region;
+   the same record constructor accepts either lifetime.  Every field
    is bound first because [exclave_if_local] only accepts a record built from
    identifiers. *)
 let%template[@mode m = (global, local)] some_of_spans (raw : string @ m)
@@ -130,7 +130,7 @@ let%template[@mode m = (global, local)] t_of_spans (raw : string @ m)
    scheme and the host, ASCII letters are folded to lowercase.  The input
    has already been validated, so every ['%'] here is a well-formed triplet.
    Returns the new write position. *)
-let write_run dst k (s : string @ local) off len low =
+let write_run (dst : bytes @ local) k (s : string @ local) off len low =
   let mutable k = k in
   let mutable i = off in
   let e = off + len in
@@ -164,8 +164,7 @@ let write_run dst k (s : string @ local) off len low =
 
 (* The canonical form is never longer than the input, and the scanner told us
    exactly how much shorter, so one exact-size [Bytes] suffices. *)
-let canonicalize (s : string @ local) (v : Raw.spans) =
-  let out = Bytes.create (String.length s - Raw.shrink v) in
+let[@zero_alloc] canonicalize_into (out : bytes @ local) (s : string @ local) (v : Raw.spans) =
   let mutable k = 0 in
   let scheme_len = Raw.scheme_len v in
   if scheme_len >= 0 then begin
@@ -215,6 +214,16 @@ let canonicalize (s : string @ local) (v : Raw.spans) =
     k <- k + 1;
     k <- write_run out k s frag_off (Raw.frag_len v) false
   end;
+  ()
+
+let canonicalize (s : string @ local) v =
+  let out = Bytes.create (String.length s - Raw.shrink v) in
+  canonicalize_into out s v;
+  Bytes.unsafe_to_string out
+
+let[@zero_alloc] canonicalize__local (s : string @ local) v = exclave_
+  let out = Base.Bytes.create_local (String.length s - Raw.shrink v) in
+  canonicalize_into out s v;
   Bytes.unsafe_to_string out
 
 let%template[@mode m = (global, local)] of_string (s : string @ m)
@@ -226,11 +235,11 @@ let%template[@mode m = (global, local)] of_string (s : string @ m)
        is the record itself.  At mode local, not even that. *)
     (some_of_spans [@mode m]) s v [@exclave_if_local m]
   else begin
-    let raw = canonicalize s v in
+    let raw = (canonicalize [@mode m]) s v in
     let v = Raw.parse raw in
-    if Raw.is_valid v then (some_of_spans [@mode m]) raw v [@exclave_if_local m]
+    if Raw.is_valid v then let result = (some_of_spans [@mode m]) raw v in result
     else Null
-  end
+  end [@exclave_if_local m ~reasons:[ May_return_local ]]
 
 (* Parse without ever normalizing: input that is not already canonical is
    rejected rather than rewritten.  Nothing can allocate, so the record goes
@@ -242,9 +251,6 @@ let[@zero_alloc] of_string_canonical (s : string @ local) : t or_null @ local =
   if (not (Raw.is_valid v)) || Raw.needs_normalization v then Null
   else exclave_ (some_of_spans [@mode local]) s v
 
-(* [of_string] phrased as tailcalls to the record builder instead of a match
-   on an [or_null], which is what lets the result be exclaved.  Every internal
-   producer finishes here, so they all inherit the mode polymorphism. *)
 let%template[@mode m = (global, local)] of_string_exn (s : string @ m) : t @ m =
   let v = Raw.parse s in
   if not (Raw.is_valid v) then
@@ -253,13 +259,13 @@ let%template[@mode m = (global, local)] of_string_exn (s : string @ m) : t @ m =
   else if not (Raw.needs_normalization v) then
     (t_of_spans [@mode m]) s v [@exclave_if_local m]
   else begin
-    let raw = canonicalize s v in
+    let raw = (canonicalize [@mode m]) s v in
     let v = Raw.parse raw in
     if Raw.is_valid v then
-      (t_of_spans [@mode m]) raw v [@exclave_if_local m]
+      let result = (t_of_spans [@mode m]) raw v in result
     else
       invalid_arg "Uriz.of_string_exn: normalization produced an invalid URI"
-  end
+  end [@exclave_if_local m ~reasons:[ May_return_local ]]
 
 (* {2 Output and identity} *)
 
@@ -293,6 +299,10 @@ let port (t : t @ local) = if t.port_val < 0 then Null else This t.port_val
 let has_port (t : t @ local) = t.port_off >= 0
 let has_authority (t : t @ local) = t.host_off >= 0
 let is_absolute (t : t @ local) = t.scheme_len >= 0
+let[@zero_alloc] has_query (t : t @ local) = t.query_off >= 0
+let[@zero_alloc] has_fragment (t : t @ local) = t.frag_off >= 0
+let[@zero_alloc] has_userinfo (t : t @ local) = t.userinfo_off >= 0
+let[@zero_alloc] encoded_path_span (t : t @ local) = #(t.path_off, t.path_len)
 
 let encoded_path_and_query (t : t @ local) =
   let finish =
@@ -301,6 +311,23 @@ let encoded_path_and_query (t : t @ local) =
   sub t.raw t.path_off (finish - t.path_off)
 
 let port_int (t : t @ local) = t.port_val
+let[@zero_alloc] sub__local (s : string @ local) off len = exclave_
+  let b = Base.Bytes.create_local len in
+  Bytes.blit_string s off b 0 len;
+  Bytes.unsafe_to_string b
+
+let opt_sub__local (t : t @ local) off len = exclave_
+  if off < 0 then Null else This (sub__local t.raw off len)
+
+let scheme__local (t : t @ local) = exclave_
+  if t.scheme_len < 0 then Null else This (sub__local t.raw 0 t.scheme_len)
+
+let userinfo__local (t : t @ local) = exclave_ opt_sub__local t t.userinfo_off t.userinfo_len
+let host__local (t : t @ local) = exclave_ opt_sub__local t t.host_off t.host_len
+let query__local (t : t @ local) = exclave_ opt_sub__local t t.query_off t.query_len
+let fragment__local (t : t @ local) = exclave_ opt_sub__local t t.frag_off t.frag_len
+let path__local (t : t @ local) = exclave_ sub__local t.raw t.path_off t.path_len
+
 
 let host_kind (t : t @ local) =
   if t.host_kind = Raw.host_reg_name then `Reg_name
@@ -397,57 +424,6 @@ let encode_with tbl s =
   end
 
 let pct_encode ?(component = `Path) s = encode_with (table_of component) s
-
-(* Like [encode_with], but a well-formed "%XX" triplet is passed through
-   rather than being re-encoded as "%25XX".  This is what lets [make] and the
-   [with_*] functions accept already-encoded component text. *)
-let encode_preserving tbl s =
-  let n = String.length s in
-  let[@inline] triplet_at i =
-    i + 2 < n
-    && String.unsafe_get s i = '%'
-    && Raw.is_hexdig (String.unsafe_get s (i + 1))
-    && Raw.is_hexdig (String.unsafe_get s (i + 2))
-  in
-  let mutable unsafe_count = 0 in
-  let mutable i = 0 in
-  while i < n do
-    if triplet_at i then i <- i + 3
-    else begin
-      if not (safe tbl (String.unsafe_get s i)) then
-        unsafe_count <- unsafe_count + 1;
-      i <- i + 1
-    end
-  done;
-  if unsafe_count = 0 then s
-  else begin
-    let out = Bytes.create (n + (2 * unsafe_count)) in
-    let mutable k = 0 in
-    let mutable i = 0 in
-    while i < n do
-      if triplet_at i then begin
-        Bytes.blit_string s i out k 3;
-        k <- k + 3;
-        i <- i + 3
-      end
-      else begin
-        let c = String.unsafe_get s i in
-        if safe tbl c then begin
-          Bytes.unsafe_set out k c;
-          k <- k + 1
-        end
-        else begin
-          let v = Char.code c in
-          Bytes.unsafe_set out k '%';
-          Bytes.unsafe_set out (k + 1) (String.unsafe_get hex_upper (v lsr 4));
-          Bytes.unsafe_set out (k + 2) (String.unsafe_get hex_upper (v land 15));
-          k <- k + 3
-        end;
-        i <- i + 1
-      end
-    done;
-    Bytes.unsafe_to_string out
-  end
 
 (* Decode [s\[off, off+len)], which the caller guarantees is well formed.
    [plus] folds ['+'] to a space, which does not change the length and so is
@@ -699,23 +675,6 @@ let[@zero_alloc] remove_dot_segments (src : string @ local) off len (dst : bytes
   done;
   k
 
-(* RFC 3986 §5.3 leaves two recomposition hazards to the caller: a path
-   starting with "//" would be re-read as an authority, and a first segment
-   containing ':' would be re-read as a scheme.  Both are fixed by a prefix. *)
-let add_path_guarded buf ~has_scheme ~has_auth d k =
-  if (not has_auth) && k >= 2 && Bytes.get d 0 = '/' && Bytes.get d 1 = '/' then
-    Buffer.add_string buf "/."
-  else if (not has_scheme) && (not has_auth) && k > 0 then begin
-    let mutable i = 0 in
-    let mutable colon = false in
-    while i < k && Bytes.unsafe_get d i <> '/' do
-      if Bytes.unsafe_get d i = ':' then colon <- true;
-      i <- i + 1
-    done;
-    if colon then Buffer.add_string buf "./"
-  end;
-  Buffer.add_subbytes buf d 0 k
-
 (* {2 Assembling a URI in one scratch buffer}
 
    [resolve] and [normalize] compose their result into a single over-allocated
@@ -801,11 +760,8 @@ let[@zero_alloc] path_has_dot_segment (s : string @ local) off len =
   done;
   found
 
-(* A composed result is canonical by construction: every byte is copied from a
-   canonical string, dot-segment removal only deletes whole segments, and the
-   guards are themselves canonical.  Checking rather than re-canonicalizing
-   keeps the local path free of the heap [Bytes] that {!canonicalize} would
-   allocate. *)
+(* Composition uses canonical spans, canonical encoded components and canonical
+   delimiters. Validate that invariant before constructing the URI index. *)
 let%template[@mode m = (global, local)] of_canonical_exn (raw : string @ m)
     : t @ m =
   let v = Raw.parse raw in
@@ -994,86 +950,159 @@ let globalize (t : t @ local) =
 
 (* {2 Construction from components} *)
 
-let valid_scheme s =
-  let n = String.length s in
-  n > 0
-  && Raw.is_alpha (String.unsafe_get s 0)
-  &&
-  let mutable i = 1 in
-  let mutable ok = true in
-  while i < n do
-    let c = String.unsafe_get s i in
-    if not (Raw.is_alpha c || Raw.is_digit c || c = '+' || c = '-' || c = '.')
-    then ok <- false;
-    i <- i + 1
-  done;
-  ok
+let valid_scheme s = Raw.scheme_end s 0 (String.length s) = String.length s
 
-(* [build] and its callers only move the record: the component text goes
-   through [encode_preserving] and [Buffer], which allocate heap strings
-   whatever the mode, so the [__local] variants save the record and nothing
-   else. *)
-let%template[@mode m = (global, local)] build ~scheme ~userinfo ~host ~port
-    ~path ~query ~fragment : t @ m =
-  let buf = Buffer.create 64 in
-  (match scheme with
-  | Null -> ()
-  | This s ->
-    if not (valid_scheme s) then invalid_arg "Uriz: invalid scheme";
-    Buffer.add_string buf s;
-    Buffer.add_char buf ':');
-  let has_auth =
-    match host with
-    | This _ -> true
-    | Null -> ( match userinfo, port with Null, Null -> false | _ -> true)
-  in
-  if has_auth then begin
-    Buffer.add_string buf "//";
-    (match userinfo with
-    | Null -> ()
-    | This u ->
-      Buffer.add_string buf (encode_preserving tbl_userinfo u);
-      Buffer.add_char buf '@');
-    (match host with
-    | Null -> ()
-    | This h ->
-      let n = String.length h in
-      if n >= 2 && h.[0] = '[' && h.[n - 1] = ']' then Buffer.add_string buf h
-      else if Raw.is_ipv6 h || Raw.ipvfuture_end h 0 n = n then begin
-        Buffer.add_char buf '[';
-        Buffer.add_string buf h;
-        Buffer.add_char buf ']'
-      end
-      else Buffer.add_string buf (encode_preserving tbl_host h));
-    match port with
-    | Null -> ()
-    | This p ->
-      Buffer.add_char buf ':';
-      Buffer.add_string buf p
-  end;
-  let path = encode_preserving tbl_path path in
-  let plen = String.length path in
-  if plen > 0 then
-    if has_auth then begin
-      if path.[0] <> '/' then Buffer.add_char buf '/';
-      Buffer.add_string buf path
+(* Component windows borrow the old URI text. Replacing one component needs
+   only the final string and index, without copying all the unchanged fields. *)
+type piece = #{ text : string; off : int; len : int; canonical : bool }
+let piece (text @ local) = #{ text; off = 0; len = String.length text; canonical = false }
+let absent = #{ text = ""; off = 0; len = -1; canonical = true }
+let optional_piece (s @ local) = exclave_ match s with Null -> absent | This s -> piece s
+let present (p : piece @ local) = p.#len >= 0
+let at (p : piece @ local) i = String.unsafe_get p.#text (p.#off + i)
+
+type parts = {
+  scheme : piece; userinfo : piece; host : piece; port : piece;
+  path : piece; query : piece; fragment : piece;
+  (* 0: registered name; 1: literal needing brackets; 2: supplied brackets. *)
+  host_form : int;
+}
+
+(* RFC 3986 section 3.2.2 brackets only an IP-literal.  The IPvFuture
+   production also matches ordinary registered names such as ["v6.example.com"],
+   so the discriminator is a [':'], which every IP-literal needs and no
+   registered name may carry. *)
+let has_colon (s : string @ local) =
+  let n = String.length s in
+  let mutable i = 0 in
+  let mutable found = false in
+  while (not found) && i < n do
+    if String.unsafe_get s i = ':' then found <- true else i <- i + 1
+  done;
+  found
+
+let host_form (host : string @ local) =
+  let n = String.length host in
+  if n >= 2 && host.[0] = '[' && host.[n - 1] = ']' then 2
+  else if has_colon host && (Raw.is_ipv6 host || Raw.ipvfuture_end host 0 n = n)
+  then 1
+  else 0
+
+(* Count and write the canonical encoded spelling in the same traversal.
+   A counting pass uses an empty destination and never writes to it. *)
+let[@zero_alloc] encode_piece (dst : bytes @ local) ~write k tbl low
+    (p : piece @ local) =
+  if p.#canonical then begin
+    if write then Bytes.blit_string p.#text p.#off dst k p.#len;
+    k + p.#len
+  end else
+  let mutable k = k in
+  let mutable i = 0 in
+  while i < p.#len do
+    let c = at p i in
+    let triplet = tbl <> "" && c = '%' && i + 2 < p.#len
+      && Raw.is_hexdig (at p (i + 1)) && Raw.is_hexdig (at p (i + 2)) in
+    if triplet then begin
+      let v = Raw.hex_val (at p (i + 1)) * 16 + Raw.hex_val (at p (i + 2)) in
+      let c = Char.unsafe_chr v in
+      if Raw.is_unreserved c then begin
+        if write then Bytes.unsafe_set dst k (if low then lower c else c);
+        k <- k + 1
+      end else begin
+        if write then begin
+          Bytes.unsafe_set dst k '%';
+          Bytes.unsafe_set dst (k + 1) hex_upper.[v lsr 4];
+          Bytes.unsafe_set dst (k + 2) hex_upper.[v land 15]
+        end;
+        k <- k + 3
+      end;
+      i <- i + 3
+    end else begin
+      if tbl = "" || safe tbl c then begin
+        if write then Bytes.unsafe_set dst k (if low then lower c else c);
+        k <- k + 1
+      end else begin
+        let v = Char.code c in
+        if write then begin
+          Bytes.unsafe_set dst k '%';
+          Bytes.unsafe_set dst (k + 1) hex_upper.[v lsr 4];
+          Bytes.unsafe_set dst (k + 2) hex_upper.[v land 15]
+        end;
+        k <- k + 3
+      end;
+      i <- i + 1
     end
-    else begin
-      let d = Bytes.unsafe_of_string path in
-      add_path_guarded buf ~has_scheme:(scheme <> Null) ~has_auth d plen
+  done;
+  k
+
+let[@zero_alloc] compose_parts (dst : bytes @ local) ~write (p : parts @ local) =
+  let local_ k = ref 0 in
+  let local_ add c = if write then Bytes.unsafe_set dst !k c; incr k in
+  let local_ emit tbl low text = k := encode_piece dst ~write !k tbl low text in
+  let has_scheme = present p.scheme in
+  (* RFC 3986 section 3.2: an authority is introduced by a host.  Userinfo alone
+     coerces one with an empty host, which {!with_userinfo} documents; a
+     port alone does not, since {!with_port} must not invent a host the caller
+     never supplied. *)
+  let has_auth = present p.host || present p.userinfo in
+  if has_scheme then begin emit "" true p.scheme; add ':' end;
+  if has_auth then begin
+    add '/'; add '/';
+    if present p.userinfo then begin emit tbl_userinfo false p.userinfo; add '@' end;
+    if present p.host then begin
+      if p.host_form = 1 then add '[';
+      emit (if p.host_form = 0 then tbl_host else "") true p.host;
+      if p.host_form = 1 then add ']'
     end;
-  (match query with
-  | Null -> ()
-  | This q ->
-    Buffer.add_char buf '?';
-    Buffer.add_string buf (encode_preserving tbl_query q));
-  (match fragment with
-  | Null -> ()
-  | This f ->
-    Buffer.add_char buf '#';
-    Buffer.add_string buf (encode_preserving tbl_query f));
-  let raw = Buffer.contents buf in
-  (of_string_exn [@mode m]) raw [@exclave_if_local m]
+    if present p.port then begin add ':'; emit "" false p.port end
+  end;
+  if p.path.#len > 0 then begin
+    if has_auth then begin if at p.path 0 <> '/' then add '/' end
+    else if p.path.#len >= 2 && at p.path 0 = '/' && at p.path 1 = '/' then begin
+      add '/'; add '.'
+    end else if not has_scheme then begin
+      let mutable i = 0 in
+      let mutable colon = false in
+      while i < p.path.#len && at p.path i <> '/' do
+        if at p.path i = ':' then colon <- true;
+        i <- i + 1
+      done;
+      if colon then begin add '.'; add '/' end
+    end;
+    emit tbl_path false p.path
+  end;
+  if present p.query then begin add '?'; emit tbl_query false p.query end;
+  if present p.fragment then begin add '#'; emit tbl_query false p.fragment end;
+  !k
+
+let[@inline] check_authority (p : parts @ local) =
+  if present p.port && not (present p.host || present p.userinfo)
+  then invalid_arg "Uriz: a port needs an authority with a host"
+
+let build_parts (p : parts @ local) =
+  check_authority p;
+  let size = compose_parts (Bytes.unsafe_of_string "") ~write:false p in
+  let dst = Bytes.create size in
+  let _ = compose_parts dst ~write:true p in
+  of_canonical_exn (Bytes.unsafe_to_string dst)
+
+let[@zero_alloc] build_parts__local (p : parts @ local) = exclave_
+  check_authority p;
+  let size = compose_parts (Bytes.unsafe_of_string "") ~write:false p in
+  let dst = Base.Bytes.create_local size in
+  let _ = compose_parts dst ~write:true p in
+  of_canonical_exn__local (Bytes.unsafe_to_string dst)
+
+let parts_of_uri (t : t @ local) = exclave_
+  let view off len = #{ text = t.raw; off; len = if off < 0 then -1 else len; canonical = true } in
+  { scheme = view 0 t.scheme_len;
+    userinfo = view t.userinfo_off t.userinfo_len;
+    host = view t.host_off t.host_len;
+    host_form = (if t.host_kind = Raw.host_ipv6 || t.host_kind = Raw.host_ipvfuture then 1 else 0);
+    port = view t.port_off t.port_len;
+    path = view t.path_off t.path_len;
+    query = view t.query_off t.query_len;
+    fragment = view t.frag_off t.frag_len }
 
 let[@inline] of_opt = function None -> Null | Some x -> This x
 
@@ -1085,110 +1114,90 @@ let encoded_port_of_int = function
 
 let%template[@mode m = (global, local)] make ?scheme ?userinfo ?host ?port
     ?path ?query ?fragment () : t @ m =
-  let scheme = of_opt scheme in
-  let userinfo = of_opt userinfo in
-  let host = of_opt host in
-  let port = encoded_port_of_int (of_opt port) in
-  let path = match path with None -> "" | Some p -> p in
-  let query = of_opt query in
-  let fragment = of_opt fragment in
-  (build [@mode m]) ~scheme ~userinfo ~host ~port ~path ~query ~fragment
-  [@exclave_if_local m]
-
-(* The [with_*] functions decompose into the encoded component views and
-   rebuild.  [encode_preserving] leaves the views untouched, since they are
-   already legal. *)
-let cur_scheme t = scheme t
-let cur_userinfo t = userinfo t
-let cur_host t =
-  if t.host_off < 0 then Null
-  else begin
-    let host = sub t.raw t.host_off t.host_len in
-    if t.host_kind = Raw.host_ipv6 || t.host_kind = Raw.host_ipvfuture
-    then This ("[" ^ host ^ "]")
-    else This host
+  begin
+  (match scheme with Some s when not (valid_scheme s) -> invalid_arg "Uriz: invalid scheme" | _ -> ());
+  let p = {
+    scheme = optional_piece (of_opt scheme);
+    userinfo = optional_piece (of_opt userinfo);
+    host = optional_piece (of_opt host);
+    host_form = (match host with None -> 0 | Some h -> host_form h);
+    port = optional_piece (encoded_port_of_int (of_opt port));
+    path = piece (Option.value path ~default:"");
+    query = optional_piece (of_opt query);
+    fragment = optional_piece (of_opt fragment);
+  } in
+  let result = (build_parts [@mode m]) p in
+  result
   end
-let cur_port t = opt_sub t t.port_off t.port_len
-let cur_query t = query t
-let cur_fragment t = fragment t
+  [@exclave_if_local m ~reasons:[ May_return_local ]]
 
-let%template[@mode m = (global, local)] with_scheme (t : t @ local) scheme
-    : t @ m =
-  let userinfo = cur_userinfo t in
-  let host = cur_host t in
-  let port = cur_port t in
-  let path = path t in
-  let query = cur_query t in
-  let fragment = cur_fragment t in
-  (build [@mode m]) ~scheme ~userinfo ~host ~port ~path ~query ~fragment
-  [@exclave_if_local m]
+let%template[@mode m = (global, local)] with_scheme (t : t @ local) scheme : t @ m =
+  begin
+  (match scheme with This s when not (valid_scheme s) -> invalid_arg "Uriz: invalid scheme" | _ -> ());
+  let p = parts_of_uri t in
+  let p = { p with scheme = optional_piece scheme } in
+  let result = (build_parts [@mode m]) p in
+  result
+  end
+  [@exclave_if_local m ~reasons:[ May_return_local ]]
 
-let%template[@mode m = (global, local)] with_userinfo (t : t @ local) userinfo
-    : t @ m =
-  let scheme = cur_scheme t in
-  let host = cur_host t in
-  let port = cur_port t in
-  let path = path t in
-  let query = cur_query t in
-  let fragment = cur_fragment t in
-  (build [@mode m]) ~scheme ~userinfo ~host ~port ~path ~query ~fragment
-  [@exclave_if_local m]
+let%template[@mode m = (global, local)] with_userinfo (t : t @ local) userinfo : t @ m =
+  begin
+  let p = parts_of_uri t in
+  let p = { p with userinfo = optional_piece userinfo } in
+  let result = (build_parts [@mode m]) p in
+  result
+  end
+  [@exclave_if_local m ~reasons:[ May_return_local ]]
 
-(* Dropping the host drops the whole authority, since RFC 3986 has no
-   authority without one. *)
+(* Dropping the host drops the whole authority. *)
 let%template[@mode m = (global, local)] with_host (t : t @ local) host : t @ m =
-  let scheme = cur_scheme t in
-  let userinfo = match host with Null -> Null | This _ -> cur_userinfo t in
-  let port = match host with Null -> Null | This _ -> cur_port t in
-  let path = path t in
-  let query = cur_query t in
-  let fragment = cur_fragment t in
-  (build [@mode m]) ~scheme ~userinfo ~host ~port ~path ~query ~fragment
-  [@exclave_if_local m]
+  begin
+  let p = parts_of_uri t in
+  let p = match host with
+    | Null -> { p with host = absent; userinfo = absent; port = absent; host_form = 0 }
+    | This h -> { p with host = piece h; host_form = host_form h }
+  in
+  let result = (build_parts [@mode m]) p in
+  result
+  end
+  [@exclave_if_local m ~reasons:[ May_return_local ]]
 
 let%template[@mode m = (global, local)] with_port (t : t @ local) port : t @ m =
-  let scheme = cur_scheme t in
-  let userinfo = cur_userinfo t in
-  let host = cur_host t in
-  let port = encoded_port_of_int port in
-  let path = path t in
-  let query = cur_query t in
-  let fragment = cur_fragment t in
-  (build [@mode m]) ~scheme ~userinfo ~host ~port ~path ~query ~fragment
-  [@exclave_if_local m]
+  begin
+  let p = parts_of_uri t in
+  let p = { p with port = optional_piece (encoded_port_of_int port) } in
+  let result = (build_parts [@mode m]) p in
+  result
+  end
+  [@exclave_if_local m ~reasons:[ May_return_local ]]
 
 let%template[@mode m = (global, local)] with_path (t : t @ local) path : t @ m =
-  let scheme = cur_scheme t in
-  let userinfo = cur_userinfo t in
-  let host = cur_host t in
-  let port = cur_port t in
-  let query = cur_query t in
-  let fragment = cur_fragment t in
-  (build [@mode m]) ~scheme ~userinfo ~host ~port ~path ~query ~fragment
-  [@exclave_if_local m]
+  begin
+  let p = parts_of_uri t in
+  let p = { p with path = piece path } in
+  let result = (build_parts [@mode m]) p in
+  result
+  end
+  [@exclave_if_local m ~reasons:[ May_return_local ]]
 
-let%template[@mode m = (global, local)] with_query (t : t @ local) query
-    : t @ m =
-  let scheme = cur_scheme t in
-  let userinfo = cur_userinfo t in
-  let host = cur_host t in
-  let port = cur_port t in
-  let path = path t in
-  let fragment = cur_fragment t in
-  (build [@mode m]) ~scheme ~userinfo ~host ~port ~path ~query ~fragment
-  [@exclave_if_local m]
+let%template[@mode m = (global, local)] with_query (t : t @ local) query : t @ m =
+  begin
+  let p = parts_of_uri t in
+  let p = { p with query = optional_piece query } in
+  let result = (build_parts [@mode m]) p in
+  result
+  end
+  [@exclave_if_local m ~reasons:[ May_return_local ]]
 
-let%template[@mode m = (global, local)] with_fragment (t : t @ local) fragment
-    : t @ m =
-  let scheme = cur_scheme t in
-  let userinfo = cur_userinfo t in
-  let host = cur_host t in
-  let port = cur_port t in
-  let path = path t in
-  let query = cur_query t in
-  (build [@mode m]) ~scheme ~userinfo ~host ~port ~path ~query ~fragment
-  [@exclave_if_local m]
-
+let%template[@mode m = (global, local)] with_fragment (t : t @ local) fragment : t @ m =
+  begin
+  let p = parts_of_uri t in
+  let p = { p with fragment = optional_piece fragment } in
+  let result = (build_parts [@mode m]) p in
+  result
+  end
+  [@exclave_if_local m ~reasons:[ May_return_local ]]
 (* Query updates preserve the encoded spelling and order of parameters that
    remain. Keys are compared in decoded form, just as [find_query] compares
    them. A newly added parameter is appended, preserving caller order. *)
@@ -1232,3 +1241,45 @@ let add_query_param (t : t @ local) ~key ~value =
     | This query -> query ^ "&" ^ binding
   in
   with_query t (This query)
+
+let add_query_params (t : t) bindings =
+  match bindings with
+  | [] -> t
+  | _ ->
+    let out = Buffer.create 64 in
+    (match query t with
+     | Null | This "" -> ()
+     | This query -> Buffer.add_string out query);
+    List.iter
+      (fun (key, value) ->
+        if Buffer.length out > 0 then Buffer.add_char out '&';
+        Buffer.add_string out (pct_encode ~component:`Query_value key);
+        Buffer.add_char out '=';
+        Buffer.add_string out (pct_encode ~component:`Query_value value))
+      bindings;
+    with_query t (This (Buffer.contents out))
+
+let set_query_params ?(plus_as_space = false) (t : t) params =
+  match params with
+  | [] -> t
+  | _ ->
+    let out = Buffer.create (max 32 t.query_len) in
+    let first = ref true in
+    let separator () = if !first then first := false else Buffer.add_char out '&' in
+    let mutable pos = query_cursor t in
+    while pos >= 0 do
+      let #(koff, klen, voff, vlen, next) = query_step t pos in
+      if not (List.exists (fun (key, _) ->
+        span_decodes_to ~plus:plus_as_space t.raw koff klen key) params) then begin
+        separator ();
+        let len = if voff < 0 then klen else voff + vlen - koff in
+        Buffer.add_substring out t.raw koff len
+      end;
+      pos <- next
+    done;
+    List.iter (fun (key, value) ->
+      separator ();
+      Buffer.add_string out (pct_encode ~component:`Query_value key);
+      Buffer.add_char out '=';
+      Buffer.add_string out (pct_encode ~component:`Query_value value)) params;
+    with_query t (This (Buffer.contents out))

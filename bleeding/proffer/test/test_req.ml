@@ -125,6 +125,21 @@ let () =
      | None -> false)
 
 let () =
+  check "absent cookies" (Req.cookies (req "/") = "");
+  check "single cookie field"
+    (Req.cookies (req ~headers:[ ("Cookie", "a=1; b=2") ] "/") = "a=1; b=2");
+  let r =
+    req ~headers:[ ("Cookie", "a=1"); ("X-Other", "ignored");
+                   ("cOOkie", "b=2; a=3"); ("COOKIE", "c=4") ] "/"
+  in
+  check "cookie fields joined in order" (Req.cookies r = "a=1; b=2; a=3; c=4");
+  check "cookie header still returns the first field"
+    (Req.header r H.Cookie = Some "a=1");
+  check "empty cookie values preserved"
+    (Req.cookies (req ~headers:[ ("Cookie", ""); ("Cookie", "a=") ] "/")
+     = "; a=")
+
+let () =
   let r = req "/s?" in
   check "an empty query has no parameters" (Req.query r = []);
   check "an empty query finds nothing" (Req.query_param r "q" = None);

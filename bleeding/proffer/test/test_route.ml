@@ -227,4 +227,12 @@ let () =
   check "HEAD does not reach a POST route" (code o = 405);
   check "the 405 for HEAD lists POST" (header o H.Allow = Some "POST")
 
+(* R39: no request segment is empty or decodes to the empty string, so an
+   empty literal builds a route nothing can reach. *)
+let () =
+  check "an empty literal segment is refused"
+    (match s "" with _ -> false | exception Invalid_argument _ -> true);
+  check "a nonempty literal segment is accepted"
+    (match s "a" with _ -> true | exception Invalid_argument _ -> false)
+
 let () = Printf.printf "test_route: %d checks ok\n" !checks

@@ -260,6 +260,56 @@ let test_truncation () =
         (fun () -> Printf.sprintf "%S at off %d read past its span" full off)))
 ;;
 
+(* Regression: a one-digit asctime day with no leading padding space shifts
+   every later field left by one byte; the parser must not silently accept a
+   trailing byte that fills the resulting gap. *)
+let test_asctime_trailing_byte () =
+  let s = "Sun Nov 6 08:49:37 1994X" in
+  let accepted, _ = parse_at ~filler:'A' ~off:0 s in
+  check "asctime/trailing byte rejected" (not accepted) (fun () ->
+    Printf.sprintf "%S accepted as a valid asctime date" s)
+;;
+
+(* Regression: [nan] must not compare as later or earlier than any date. *)
+let test_conditional_nan () =
+  let one = F64.of_float 1.0 in
+  let nan = F64.of_float Float.nan in
+  check
+    "is_modified_since/nan if_modified_since"
+    (not (Httpz.Date.is_modified_since ~last_modified:one ~if_modified_since:nan))
+    (fun () -> "is_modified_since ~last_modified:1.0 ~if_modified_since:nan was true");
+  check
+    "is_modified_since/nan last_modified"
+    (not (Httpz.Date.is_modified_since ~last_modified:nan ~if_modified_since:one))
+    (fun () -> "is_modified_since ~last_modified:nan ~if_modified_since:1.0 was true");
+  check
+    "is_unmodified_since/nan last_modified"
+    (not (Httpz.Date.is_unmodified_since ~last_modified:nan ~if_unmodified_since:one))
+    (fun () -> "is_unmodified_since ~last_modified:nan ~if_unmodified_since:1.0 was true");
+  check
+    "is_unmodified_since/nan if_unmodified_since"
+    (not (Httpz.Date.is_unmodified_since ~last_modified:one ~if_unmodified_since:nan))
+    (fun () -> "is_unmodified_since ~last_modified:1.0 ~if_unmodified_since:nan was true")
+;;
+
+(* Regression: RFC 850's moving 50-year window must not push the resolved
+   year above the calendar range [format] documents. *)
+let test_rfc850_year_upper_bound () =
+  let now = 253_402_300_799.0 (* 9999-12-31 23:59:59, the format ceiling *) in
+  let s = "Sunday, 01-Jan-00 00:00:00 GMT" in
+  let buf = Bytes.of_string s in
+  let sp =
+    Httpz.Span.make ~off:(Httpz.Buf_read.i16 0) ~len:(Httpz.Buf_read.i16 (String.length s))
+  in
+  let #(status, _) = Httpz.Date.parse ~now buf sp in
+  check
+    "rfc850/year upper bound"
+    (match status with
+     | Httpz.Date.Invalid -> true
+     | Httpz.Date.Valid -> false)
+    (fun () -> Printf.sprintf "%S with now=%.0f resolved above year 9999" s now)
+;;
+
 let () =
   test_landmarks ();
   test_sweeps (Random.State.make [| 20260805 |]);
@@ -267,6 +317,9 @@ let () =
   test_roundtrip ();
   test_roundtrip_pre_epoch ();
   test_truncation ();
+  test_asctime_trailing_byte ();
+  test_conditional_nan ();
+  test_rfc850_year_upper_bound ();
   if !failures > 0
   then begin
     Stdio.printf "%d date-format failures\n" !failures;

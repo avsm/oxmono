@@ -80,7 +80,8 @@ val write_etag : bytes -> off:int16# -> t -> local_ bytes -> int16# @@ portable
 
 (** [write_etag_string dst ~off ~weak value] is the next offset after writing [value] as
     an ETag field. [value] must be a valid opaque tag without quotes; it is not escaped.
-    A byte outside [etagc] raises [Invalid_argument]. *)
+    A byte outside [etagc] raises [Invalid_argument] before anything is written. The
+    destination capacity is not validated. *)
 val write_etag_string : bytes -> off:int16# -> weak:bool -> string -> int16# @@ portable
 
 (** [pp buf formatter tag] is the formatter operation that prints [tag], including its

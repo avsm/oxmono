@@ -39,7 +39,6 @@ let pp_status fmt t = Stdlib.Format.fprintf fmt "%s" (status_to_string t)
 
 open Base
 module I16 = Stdlib_stable.Int16_u
-module I64 = Stdlib_upstream_compatible.Int64_u
 
 let[@inline always] i16 x = I16.of_int x
 let[@inline always] to_int x = I16.to_int x
@@ -55,46 +54,23 @@ let[@inline always] peek (local_ (buf : bytes)) (pos : int16#) : char# =
 
 let[@inline always] ( =. ) (a : char#) (b : char#) = Char_u.equal a b
 let[@inline always] ( <>. ) (a : char#) (b : char#) = not (Char_u.equal a b)
-let[@inline always] is_token_char (c : char#) = Scan_portable.is_token_char c
+let[@inline always] is_token_char (c : char#) = Httpz_syntax.is_token_char c
 
 let[@inline always] skip_token (local_ (buf : bytes)) ~pos ~limit =
   Scan.skip_token buf ~pos ~limit
 ;;
 
-let[@inline always] is_space (c : char#) =
-  match c with
-  | #' ' | #'\t' -> true
-  | _ -> false
-;;
+let[@inline always] is_space (c : char#) = Httpz_syntax.is_space c
 
-let[@inline always] is_field_value_char (c : char#) =
-  let code = Char_u.code c in
-  code = 0x09 || (code >= 0x20 && code <> 0x7f)
-;;
+let[@inline always] is_field_value_char (c : char#) = Httpz_syntax.is_field_value_char c
 
-let[@inline always] is_qdtext_char (c : char#) =
-  let code = Char_u.code c in
-  code = 0x09
-  || code = 0x20
-  || code = 0x21
-  || (code >= 0x23 && code <= 0x5b)
-  || (code >= 0x5d && code <= 0x7e)
-  || code >= 0x80
-;;
+let[@inline always] is_qdtext_char (c : char#) = Httpz_syntax.is_qdtext_char c
 
-let[@inline always] is_quoted_pair_char (c : char#) = is_field_value_char c
+let[@inline always] is_quoted_pair_char (c : char#) = Httpz_syntax.is_quoted_pair_char c
 
-let[@inline always] is_digit (c : char#) =
-  match c with
-  | #'0' .. #'9' -> true
-  | _ -> false
-;;
+let[@inline always] is_digit (c : char#) = Httpz_syntax.is_digit c
 
-let[@inline always] digit_value (c : char#) : int =
-  match c with
-  | #'0' .. #'9' -> Char_u.code c - 48
-  | _ -> -1
-;;
+let[@inline always] digit_value (c : char#) : int = Httpz_syntax.digit_value c
 
 let[@inline always] skip_ows (local_ (buf : bytes)) ~(pos : int16#) ~(len : int16#)
   : int16#
@@ -107,14 +83,9 @@ let[@inline always] skip_ows (local_ (buf : bytes)) ~(pos : int16#) ~(len : int1
   i16 p
 ;;
 
-let[@inline always] to_lower (c : char#) : char# =
-  match c with
-  | #'A' .. #'Z' -> Char_u.chr (Char_u.code c + 32)
-  | _ -> c
-;;
+let[@inline always] to_lower (c : char#) : char# = Httpz_syntax.to_lower c
 
-(* Bytes between candidate CRs are checked for a bare LF. A final CR is bare because no LF
-   can follow it within the input window. *)
+(* A final CR is bare because no LF can follow it within the input window. *)
 let find_crlf_check_bare_cr (local_ (buf : bytes)) ~(pos : int16#) ~(len : int16#)
   : #(int16# * bool)
   =
@@ -130,9 +101,8 @@ let find_crlf_check_bare_cr (local_ (buf : bytes)) ~(pos : int16#) ~(len : int16
     let mutable stop = false in
     while not stop do
       let cr = Scan.find_cr buf ~pos:p ~limit:len in
-      let segment_stop = if cr < len then cr else len in
       let mutable i = p in
-      while i < segment_stop do
+      while i < cr do
         if peek buf (i16 i) =. #'\n' then found_bare_cr <- true;
         i <- i + 1
       done;

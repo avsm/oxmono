@@ -8,6 +8,7 @@ module Char_u = Stdlib_stable.Char_u
 let[@inline always] f64 x = F64.of_float x
 let[@inline always] to_float x = F64.to_float x
 let[@inline always] i16 x = I16.of_int x
+let[@inline always] to_int x = I16.to_int x
 
 let[@inline always] peek buf pos = Buf_read.peek buf (i16 pos)
 let[@inline always] digit_value c = Buf_read.digit_value c
@@ -119,7 +120,7 @@ let to_timestamp ~year ~month ~day ~hour ~minute ~second =
      rejecting 1970 and earlier meant [parse] could not read back what
      [format] wrote, and an If-Modified-Since naming any pre-epoch instant was
      silently dropped. *)
-  if year < 1 || month < 0 || month > 11 then #(f64 0.0, false)
+  if year < 1 || year > 9999 || month < 0 || month > 11 then #(f64 0.0, false)
   else
     let max_day =
       if month = 1 && is_leap_year year then 29
@@ -244,11 +245,11 @@ let parse_imf_fixdate buf off len =
   if len < 29 then invalid_result
   else if not (has_short_weekday buf off) then invalid_result
   else
-    let mutable comma_pos = off in
-    while comma_pos < off + 4 && not (peek buf comma_pos =. #',') do
-      comma_pos <- comma_pos + 1
-    done;
-    if comma_pos >= off + len || not (peek buf comma_pos =. #',') then invalid_result
+    (* [parse] dispatches here only when the byte at [off + 3] is a comma, and
+       [has_short_weekday] above forced [off .. off + 2] to be letters, so the comma is
+       always at this fixed offset. *)
+    let comma_pos = off + 3 in
+    if not (peek buf comma_pos =. #',') then invalid_result
     else if not (peek buf (comma_pos + 1) =. #' ') then invalid_result
     else
       let day_pos = comma_pos + 2 in
@@ -281,7 +282,7 @@ let parse_rfc850 ~has_now (now : float#) buf off len =
   while comma_pos < off + 10 && not (peek buf comma_pos =. #',') do
     comma_pos <- comma_pos + 1
   done;
-  if comma_pos >= off + len || not (peek buf comma_pos =. #',') then invalid_result
+  if not (peek buf comma_pos =. #',') then invalid_result
   else if not (has_long_weekday buf ~off ~len:(comma_pos - off)) then invalid_result
   else if off + len - comma_pos < rfc850_min_after_comma then invalid_result
   else if not (peek buf (comma_pos + 1) =. #' ') then invalid_result
@@ -331,6 +332,9 @@ let parse_asctime buf off len =
           else
             let #(year, year_valid) = parse_4digit buf (year_pos + 1) in
             if not year_valid then invalid_result
+              (* The one-digit-day path shifts every later offset left by one, so only
+                 this check catches a trailing byte after the year. *)
+            else if year_pos + 1 + 4 <> off + len then invalid_result
             else to_timestamp ~year ~month ~day ~hour ~minute ~second
 ;;
 
@@ -375,14 +379,13 @@ let[@inline always] put2 dst off n =
 
 let[@inline] write_http_date dst ~off (timestamp : float#) =
   let #(y, month, d, wday, sod) = civil_time timestamp in
-  let m = month + 1 in
-  let o = Buf_write.to_int off in
+  let o = to_int off in
   put3 dst o day_table (wday * 3);
   Bytes.unsafe_set dst (o + 3) ',';
   Bytes.unsafe_set dst (o + 4) ' ';
   put2 dst (o + 5) d;
   Bytes.unsafe_set dst (o + 7) ' ';
-  put3 dst (o + 8) month_table ((m - 1) * 3);
+  put3 dst (o + 8) month_table (month * 3);
   Bytes.unsafe_set dst (o + 11) ' ';
   put2 dst (o + 12) (y / 100);
   put2 dst (o + 14) (Stdlib.( mod ) y 100);
@@ -396,12 +399,12 @@ let[@inline] write_http_date dst ~off (timestamp : float#) =
   Bytes.unsafe_set dst (o + 26) 'G';
   Bytes.unsafe_set dst (o + 27) 'M';
   Bytes.unsafe_set dst (o + 28) 'T';
-  Buf_write.i16 (o + 29)
+  i16 (o + 29)
 ;;
 
 let format (timestamp : float#) : string =
   let dst = Bytes.create 29 in
-  let _ : int16# = write_http_date dst ~off:(Buf_write.i16 0) timestamp in
+  let _ : int16# = write_http_date dst ~off:(i16 0) timestamp in
   Bytes.unsafe_to_string ~no_mutation_while_string_reachable:dst
 ;;
 
@@ -424,9 +427,13 @@ let write_expires dst ~off (timestamp : float#) =
 ;;
 
 let is_modified_since ~(last_modified : float#) ~(if_modified_since : float#) =
-  F64.compare last_modified if_modified_since > 0
+  (not (F64.is_nan last_modified))
+  && (not (F64.is_nan if_modified_since))
+  && F64.compare last_modified if_modified_since > 0
 ;;
 
 let is_unmodified_since ~(last_modified : float#) ~(if_unmodified_since : float#) =
-  F64.compare last_modified if_unmodified_since <= 0
+  (not (F64.is_nan last_modified))
+  && (not (F64.is_nan if_unmodified_since))
+  && F64.compare last_modified if_unmodified_since <= 0
 ;;

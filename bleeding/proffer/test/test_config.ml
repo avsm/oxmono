@@ -17,11 +17,23 @@ let () =
   check_rejected stdenv "negative connection limit"
     { default with max_connections = -1 };
   check_rejected stdenv "zero first-byte timeout"
-    { default with first_byte_timeout = 0. };
-  check_rejected stdenv "NaN idle timeout"
-    { default with idle_timeout = Float.nan };
-  check_rejected stdenv "infinite request timeout"
-    { default with request_timeout = Float.infinity };
-  check_rejected stdenv "negative write timeout"
-    { default with write_timeout = -1. };
+    { default with first_byte_timeout = Duration.of_sec 0 };
+  check_rejected stdenv "zero idle timeout"
+    { default with idle_timeout = (Duration.of_sec 0) };
+  check_rejected stdenv "zero request timeout"
+    { default with request_timeout = (Duration.of_sec 0) };
+  check_rejected stdenv "zero write timeout"
+    { default with write_timeout = (Duration.of_sec 0) };
+  Eio.Switch.run (fun sw ->
+      let exception Listening_failed in
+      let bound = ref None in
+      (match Proffer_httpz.run ~sw ~port:0
+           ~on_listening:(fun addr -> bound := Some addr; raise Listening_failed)
+           stdenv ~env:() (Site.of_routes []) with
+      | () -> failwith "listening callback failure was ignored"
+      | exception Listening_failed -> ());
+      incr checks;
+      match Eio.Net.connect ~sw stdenv#net (Option.get !bound) with
+      | flow -> Eio.Net.close flow; failwith "failed listener retained its port"
+      | exception Eio.Io _ -> ());
   Printf.printf "test_config: %d checks ok\n" !checks

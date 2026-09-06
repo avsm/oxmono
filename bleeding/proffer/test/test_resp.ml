@@ -745,4 +745,60 @@ let () =
             Resp.h H.Content_range "bytes */12";
           ]))
 
+(* R39: a singleton response field must not reach the wire twice, whether the
+   repetition comes from a typed argument or from the header block alone. *)
+let () =
+  check "a repeated Content-Type in the header block is refused"
+    (refused (fun respond ->
+         Resp.v respond
+           ~headers:
+             [
+               Resp.h H.Content_type "text/html";
+               Resp.h H.Content_type "text/plain";
+             ]
+           ~content_type:Null Body.Empty));
+  check "a Content-Type header beside the typed argument is still refused"
+    (refused (fun respond ->
+         Resp.v respond
+           ~headers:[ Resp.h H.Content_type "text/html" ]
+           ~content_type:(This "text/plain") Body.Empty));
+  check "a lone Content-Type header is accepted"
+    (accepted (fun respond ->
+         Resp.v respond
+           ~headers:[ Resp.h H.Content_type "text/html" ]
+           ~content_type:Null Body.Empty));
+  check "a repeated Location is refused"
+    (refused (fun respond ->
+         Resp.v respond ~status:St.See_other
+           ~headers:[ Resp.h H.Location "/a"; Resp.h H.Location "/b" ]
+           ~content_type:Null Body.Empty));
+  check "a repeated list field is still accepted"
+    (accepted (fun respond ->
+         Resp.v respond
+           ~headers:[ Resp.h H.Vary "Accept"; Resp.h H.Vary "Accept-Language" ]
+           ~content_type:Null Body.Empty))
+
+(* R39: a HEAD must report the length its GET would frame. Trailers force
+   chunked framing, so a declared length is not sent on either. *)
+let () =
+  let trailered respond =
+    Resp.stream respond ~length:4L
+      ~trailers:[ Resp.other "X-Checksum" "0" ]
+      "text/plain"
+      (fun sink -> Body.Sink.write sink "abcd")
+  in
+  let get = Proffer_mock.describe ~meth:M.Get trailered in
+  let head = Proffer_mock.describe ~meth:M.Head trailered in
+  check "a trailered GET declares no length"
+    (Proffer_mock.content_length get = None);
+  check "a trailered HEAD agrees with its GET"
+    (Proffer_mock.content_length head = None);
+  let plain respond =
+    Resp.stream respond ~length:4L "text/plain" (fun sink ->
+        Body.Sink.write sink "abcd")
+  in
+  check "an untrailered HEAD still declares its length"
+    (Proffer_mock.content_length (Proffer_mock.describe ~meth:M.Head plain)
+    = Some 4L)
+
 let () = Printf.printf "test_resp: %d checks ok\n" !checks

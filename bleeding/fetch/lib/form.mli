@@ -6,7 +6,7 @@
     {{:https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#multipart/form-data-encoding-algorithm}WHATWG
      multipart/form-data encoding algorithm} does. {!urlencoded} constructs
     [application/x-www-form-urlencoded] bodies with the serializer of
-    {!Httpz.Urlencoded}, whose codec, {!Httpz.Media.form}, reads a response of
+    {!Httpz_media.Urlencoded}, whose codec, {!Httpz_media.form}, reads a response of
     that type back. *)
 
 type part
@@ -24,8 +24,8 @@ val field :
     part headers, sent after the ones the part derives.
 
     @raise Stdlib.Invalid_argument if [name] contains a backslash, DEL or a
-    control byte other than CR and LF; if [content_type] contains a forbidden
-    control byte; or if a [headers] name is not a token, is
+    control byte other than CR, LF or HTAB; if [content_type] contains a
+    forbidden control byte; or if a [headers] name is not a token, is
     [content-disposition] or [content-type] in any case, or has a value
     carrying a forbidden control byte. *)
 
@@ -74,8 +74,10 @@ val multipart :
     given is drawn freshly and checked against the parts, so that it occurs
     neither in a part's content nor in the headers a part serializes, and so
     that two requests carrying the same parts are not framed alike. No digest
-    of part contents appears in the boundary. Its generator is seeded from the
-    system once per process: it is unpredictable, not cryptographic.
+    of part contents appears in the boundary. Each domain draws from its own
+    generator, seeded from the system on first use, so calling [multipart]
+    from several domains at once is safe and never draws the same boundary;
+    the result is unpredictable, not cryptographic.
 
     A [name] or [filename] is written into the [Content-Disposition]
     quoted-string with a double quote as [%22], CR as [%0D] and LF as
@@ -85,14 +87,15 @@ val multipart :
     One {!val-stream} part makes it a one-shot [Stream], which carries a length
     only when every streamed part declared one.
 
-    @raise Stdlib.Invalid_argument if [boundary] is not a token, is longer than
-    70 characters, occurs in a part's content or serialized headers, or the
-    computed Content-Length overflows [int64]. *)
+    @raise Stdlib.Invalid_argument if [boundary] is not a non-empty string of
+    RFC 2046 [bchars] with no trailing space, is longer than 70 characters,
+    occurs in a part's content or serialized headers, or the computed
+    Content-Length overflows [int64]. *)
 
 val urlencoded : (string * string) list -> Header.headers * Middleware.body
 (** [urlencoded parameters] is the [Content-Type] header and body of an
     [application/x-www-form-urlencoded] request binding [parameters]. The body
-    is {!Httpz.Urlencoded.encode} of [parameters]. It preserves the supplied
+    is {!Httpz_media.Urlencoded.encode} of [parameters]. It preserves the supplied
     OCaml-string bytes; for valid UTF-8 they are the bytes a browser form sends.
     It is not an OAuth 1.0 signature-base-string encoder. Order and repeated
     names are preserved. *)

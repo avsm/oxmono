@@ -44,19 +44,18 @@ let validate_utf8 s =
 
 let max_ulabel_input_bytes = 1024
 
-(* STD3 labels contain only letters, digits, and interior hyphens. *)
+let check_label_length len =
+  if len > Punycode.max_label_length then
+    punycode_error (Punycode.Label_too_long len)
+
 let is_std3_valid label =
-  let len = String.length label in
   let is_ldh c =
     (c >= 'a' && c <= 'z')
     || (c >= 'A' && c <= 'Z')
     || (c >= '0' && c <= '9')
     || c = '-'
   in
-  len > 0
-  && label.[0] <> '-'
-  && label.[len - 1] <> '-'
-  && String.for_all is_ldh label
+  String.for_all is_ldh label
 
 let check_hyphen_rules label =
   let len = String.length label in
@@ -65,17 +64,15 @@ let check_hyphen_rules label =
     let char = ref 0 in
     let third = ref false in
     let fourth = ref false in
-    let valid = ref true in
-    while !valid && !byte < len && !char < 4 do
+    while !byte < len && !char < 4 do
       let decoded = String.get_utf_8_uchar label !byte in
-      if not (Uchar.utf_decode_is_valid decoded)
-      then valid := false
-      else (
-        let hyphen = Uchar.to_int (Uchar.utf_decode_uchar decoded) = Char.code '-' in
-        if !char = 2 then third := hyphen;
-        if !char = 3 then fourth := hyphen;
-        byte := !byte + Uchar.utf_decode_length decoded;
-        incr char)
+      let hyphen =
+        Uchar.to_int (Uchar.utf_decode_uchar decoded) = Char.code '-'
+      in
+      if !char = 2 then third := hyphen;
+      if !char = 3 then fourth := hyphen;
+      byte := !byte + Uchar.utf_decode_length decoded;
+      incr char
     done;
     !third && !fourth
   in
@@ -114,8 +111,7 @@ let label_to_ascii_impl ~check_hyphens ~use_std3_rules label =
   let len = String.length label in
   if len = 0 then invalid_label "empty label"
   else if Punycode.is_ascii_string label then begin
-    if len > Punycode.max_label_length then
-      punycode_error (Punycode.Label_too_long len);
+    check_label_length len;
     if check_hyphens && not (check_hyphen_rules label) then
       invalid_label "invalid hyphen placement"
     else if use_std3_rules && not (is_std3_valid label) then
@@ -135,15 +131,21 @@ let label_to_ascii_impl ~check_hyphens ~use_std3_rules label =
       with Punycode.Error e -> punycode_error e
     in
     let result = Punycode.ace_prefix ^ encoded in
-    let result_len = String.length result in
-    if result_len > Punycode.max_label_length then
-      punycode_error (Punycode.Label_too_long result_len)
-    else
-      let decoded =
-        try Punycode.decode_utf8 encoded
-        with Punycode.Error _ -> verification_failed ()
-      in
-      if decoded <> normalized then verification_failed () else result
+    check_label_length (String.length result);
+    let decoded =
+      try Punycode.decode_utf8 encoded
+      with Punycode.Error e -> punycode_error e
+    in
+    (* [Punycode.encode] folds basic code points to lower case when no case
+       flags are supplied, so the round trip is compared without ASCII case,
+       as an A-label is above. *)
+    if
+      not
+        (String.equal
+           (String.lowercase_ascii decoded)
+           (String.lowercase_ascii normalized))
+    then verification_failed ()
+    else result
   end
 
 let label_to_ascii ?(check_hyphens = true) ?(use_std3_rules = false) label =
@@ -155,12 +157,10 @@ let label_to_ascii ?(check_hyphens = true) ?(use_std3_rules = false) label =
 let label_to_unicode label =
   let len = String.length label in
   if Punycode.has_ace_prefix label then begin
-    if len > Punycode.max_label_length then
-      punycode_error (Punycode.Label_too_long len);
+    check_label_length len;
     decode_alabel label
   end else if Punycode.is_ascii_string label then begin
-    if len > Punycode.max_label_length then
-      punycode_error (Punycode.Label_too_long len);
+    check_label_length len;
     label
   end else begin
     validate_utf8 label;
@@ -168,27 +168,58 @@ let label_to_unicode label =
     label
   end
 
-let join_labels labels = String.concat "." labels
-
+(* Every label is either ASCII, and so valid UTF-8, or validated as a whole by
+   the label conversion below, and [.] never occurs inside a multi-byte UTF-8
+   sequence, so splitting first validates the domain exactly once. *)
 let domain_parts domain =
-  validate_utf8 domain;
   let len = String.length domain in
   let rooted = len > 0 && domain.[len - 1] = '.' in
   let body = if rooted then String.sub domain 0 (len - 1) else domain in
   (if rooted && body = "" then [] else String.split_on_char '.' body), rooted
 
+let ascii_identity ~check_hyphens ~use_std3_rules domain =
+  let len = String.length domain in
+  let stop = if len > 0 && domain.[len - 1] = '.' then len - 1 else len in
+  let rec labels first =
+    if first = stop then first > 0 || len = 1
+    else
+      let rec last i = if i = stop || domain.[i] = '.' then i else last (i + 1) in
+      let last = last first in
+      let n = last - first in
+      let ace = n >= 4 && (domain.[first] = 'x' || domain.[first] = 'X')
+        && (domain.[first + 1] = 'n' || domain.[first + 1] = 'N')
+        && domain.[first + 2] = '-' && domain.[first + 3] = '-' in
+      let rec chars i = i = last ||
+        (let c = domain.[i] in
+         Char.code c < 128
+         && (not use_std3_rules || ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+             || (c >= '0' && c <= '9') || c = '-')) && chars (i + 1)) in
+      n > 0 && n <= Punycode.max_label_length && not ace
+      && (not (check_hyphens || use_std3_rules) || (domain.[first] <> '-' && domain.[last - 1] <> '-'))
+      && (not check_hyphens || n < 4 || domain.[first + 2] <> '-' || domain.[first + 3] <> '-')
+      && chars first
+      && (last = stop || (last + 1 < stop && labels (last + 1)))
+  in
+  len > 0 && stop <= max_domain_length && labels 0
+
 let to_ascii ?(check_hyphens = true) ?(use_std3_rules = false) domain =
+  if ascii_identity ~check_hyphens ~use_std3_rules domain then domain else
   let labels, rooted = domain_parts domain in
+  (* Every label contributes at least one byte and every join a separator, so
+     the label count alone can exceed the domain cap. Checking it first keeps
+     conversion off a domain that cannot fit however its labels encode. *)
+  let minimum_length = (2 * List.length labels) - 1 in
+  if minimum_length > max_domain_length then domain_too_long minimum_length;
   let encoded_labels =
     List.map (label_to_ascii_impl ~check_hyphens ~use_std3_rules) labels
   in
-  let body = join_labels encoded_labels in
+  let body = String.concat "." encoded_labels in
   let len = String.length body in
   if len > max_domain_length then domain_too_long len
   else if rooted then body ^ "." else body
 
 let to_unicode domain =
+  if ascii_identity ~check_hyphens:false ~use_std3_rules:false domain then domain else
   let labels, rooted = domain_parts domain in
-  let decoded_labels = List.map label_to_unicode labels in
-  let body = join_labels decoded_labels in
+  let body = String.concat "." (List.map label_to_unicode labels) in
   if rooted then body ^ "." else body

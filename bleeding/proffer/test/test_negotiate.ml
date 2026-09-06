@@ -40,7 +40,7 @@ let () =
     (fun value ->
       check ("a malformed media range is dropped: " ^ value)
         (Negotiate.of_accept (Some value) = []))
-    [ "*/html"; "text/foo*bar"; "text/html;broken"; "text html";
+    [ "*/html"; "text/foo*bar"; "text html";
       "text/html;foo=\"unterminated"; "text/html;foo=";
       "text/html;foo=\"\\\r\""; "text/html;foo=\"\\\127\"" ];
   check "quoted-pair permits an escaped tab"
@@ -201,15 +201,15 @@ let () =
 (* [select] keeps a first-codec fallback for callers that must produce
    something; [select_opt] and [encode] report the refusal instead. *)
 let () =
-  let codecs = [ Httpz.Media.html; Httpz.Media.octets ] in
+  let codecs = [ Httpz_media.html; Httpz_media.octets ] in
   let req accept = exclave_
     Req.v ~meth:M.Get ~target:"/"
       ~headers:(Headers.of_list [ ("Accept", accept) ])
       ()
   in
   check "select falls back to the first codec"
-    (Httpz.Media.media_type (Negotiate.select codecs (req "image/png"))
-    = Httpz.Media.media_type Httpz.Media.html);
+    (Httpz_media.media_type (Negotiate.select codecs (req "image/png"))
+    = Httpz_media.media_type Httpz_media.html);
   check "select_opt reports no match"
     (Negotiate.select_opt codecs (req "image/png") = None);
   check "select_opt skips a zero-quality range"
@@ -217,27 +217,27 @@ let () =
   check "select_opt applies a specific refusal before a wildcard"
     (match Negotiate.select_opt codecs (req "text/html;q=0, */*") with
     | Some c ->
-        String.equal (Httpz.Media.media_type c)
-          (Httpz.Media.media_type Httpz.Media.octets)
+        String.equal (Httpz_media.media_type c)
+          (Httpz_media.media_type Httpz_media.octets)
     | None -> false);
   check "select_opt honours a wildcard"
     (match Negotiate.select_opt codecs (req "*/*") with
     | Some c ->
-        String.equal (Httpz.Media.media_type c)
-          (Httpz.Media.media_type Httpz.Media.html)
+        String.equal (Httpz_media.media_type c)
+          (Httpz_media.media_type Httpz_media.html)
     | None -> false);
   let no_accept = Req.v ~meth:M.Get ~target:"/" () in
   check "select_opt without accept is the first codec"
     (match Negotiate.select_opt codecs no_accept with
     | Some c ->
-        String.equal (Httpz.Media.media_type c)
-          (Httpz.Media.media_type Httpz.Media.html)
+        String.equal (Httpz_media.media_type c)
+          (Httpz_media.media_type Httpz_media.html)
     | None -> false)
 
 let () =
   let route =
     get (s "e") (fun () req respond ->
-        Negotiate.encode respond req [ Httpz.Media.html ] "<p>x</p>")
+        Negotiate.encode respond req [ Httpz_media.html ] "<p>x</p>")
   in
   let site = Site.of_routes [ route ] in
   let r =

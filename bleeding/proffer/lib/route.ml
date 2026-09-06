@@ -7,10 +7,10 @@ type 'env handler =
 
 (* A converter reads the decoded segment at [local]. [conv] wraps one an
    application supplies, which takes a heap copy and answers with an option. *)
-type 'a conv = { name : string; parse : string @ local -> 'a or_null @@ portable }
+type 'a conv = { parse : string @ local -> 'a or_null @@ portable }
 
 type 'a conv_local =
-  { lname : string; lparse : string @ local -> 'a or_null @ local @@ portable }
+  { lparse : string @ local -> 'a or_null @ local @@ portable }
 
 (* Paths use a final encoding, so a capture becomes a curried handler
    argument instead of a tuple element. ['f] is the handler type the path
@@ -38,18 +38,21 @@ type ('f, 'r, 'k) path =
 
 let root : 'r. ('r, 'r, open_) path = Root
 let rest : 'r. (string list @ local -> 'r @ local, 'r, closed) path = Rest
-let s name = Lit (name, Root)
+(* A raw request segment is never empty and never decodes to the empty string,
+   so an empty literal would build a route no request could reach. *)
+let s name =
+  if String.equal name "" then
+    invalid_arg "Proffer.Route.s: an empty segment matches no request path";
+  Lit (name, Root)
 
-let conv ~name (parse @ portable) =
+let conv ~name:_ (parse @ portable) =
   let parse (s : string @ local) =
     match parse (Pct.copy_all s) with Some v -> This v | None -> Null
   in
-  Cap ({ name; parse }, Root)
+  Cap ({ parse }, Root)
 
 let str : 'r. (string @ local -> 'r @ local, 'r, open_) path =
-  Cap_local
-    ({ lname = "str"; lparse = (fun (x : string @ local) -> exclave_ This x) },
-     Root)
+  Cap_local ({ lparse = (fun (x : string @ local) -> exclave_ This x) }, Root)
 
 (* [int_of_string] takes OCaml literal syntax, so it would accept [0x1f],
    [1_000] and [+3] as path segments and give two spellings of one resource.
@@ -81,7 +84,7 @@ let[@zero_alloc] parse_int (s : string @ local) =
         if first = 1 then (if v = min_int then Null else This (-v)) else This v
 
 let int : 'r. (int -> 'r @ local, 'r, open_) path =
-  Cap ({ name = "int"; parse = parse_int }, Root)
+  Cap ({ parse = parse_int }, Root)
 
 let rec ( / ) :
     type f g r k. (f, g, open_) path -> (g, r, k) path -> (f, r, k) path =
@@ -122,7 +125,7 @@ let rec apply :
       else
         let stop = Pct.seg_stop path off n in
         if Pct.seg_is path off stop l then apply tl h path stop n else Null
-  | Cap ({ parse; _ }, tl) -> (
+  | Cap ({ parse }, tl) -> (
       if off >= n then Null
       else
         let stop = Pct.seg_stop path off n in
@@ -130,7 +133,7 @@ let rec apply :
         match parse x with
         | This v -> apply tl (h v) path stop n
         | Null -> Null)
-  | Cap_local ({ lparse; _ }, tl) -> (
+  | Cap_local ({ lparse }, tl) -> (
       if off >= n then Null
       else
         let stop = Pct.seg_stop path off n in
@@ -193,19 +196,19 @@ let run t (path : string @ local) = exclave_ t.run path 0
    portable, it may also ignore [env] and return a captured module-level codec. *)
 let with_body :
     type env a.
-    (env -> a Httpz.Media.t) @ portable ->
+    (env -> a Httpz_media.t) @ portable ->
     (a -> env handler) @ portable ->
     env handler @ portable =
  fun codec_of_env f env (req : Req.t @ local)
      (respond : Resp.respond @ local) ->
   match Req.decode (codec_of_env env) req with
   | Ok x -> f x env req respond
-  | Error (Httpz.Media.Unsupported _) ->
+  | Error (Httpz_media.Unsupported _) ->
       Resp.text respond ~status:Httpz.Res.Unsupported_media_type
         "Unsupported Media Type\n"
-  | Error (Httpz.Media.Malformed { message; _ }) ->
+  | Error (Httpz_media.Malformed { message; _ }) ->
       Resp.text respond ~status:Httpz.Res.Bad_request
         ("Bad Request: " ^ message ^ "\n")
-  | Error (Httpz.Media.Too_large _) ->
+  | Error (Httpz_media.Too_large _) ->
       Resp.text respond ~status:Httpz.Res.Payload_too_large
         "Payload Too Large\n"

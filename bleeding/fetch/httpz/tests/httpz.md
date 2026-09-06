@@ -535,7 +535,7 @@ URL:
 # with_server_env @@ fun env url ->
   let https uri conn =
     let host =
-      match Httpz.Uriz.decoded_host uri with
+      match Httpz_uri.decoded_host uri with
       | This host -> host
       | Null -> assert false
     in

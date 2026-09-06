@@ -43,7 +43,7 @@ type error =
   | Body_not_replayable
       (** [Body_not_replayable] means a redirect or retry required a one-shot
           streaming body again. *)
-  | Decode_failure of { media : string; error : Httpz.Media.error }
+  | Decode_failure of { media : string; error : Httpz_media.error }
       (** [Decode_failure { media; error }] means a body could not be read as
           the media type [media] a codec expected, for [error]. *)
 
@@ -158,6 +158,11 @@ val url : response -> string
     redirects. Its fragment is retained even though fragments are not sent in
     HTTP requests. *)
 
+val effective_url : response -> url
+(** [effective_url response] is what {!val-url} serializes, in the parsed form
+    it was validated in. A wrapper that has to rebuild a response takes the URL
+    from here rather than re-parsing the string. *)
+
 val scope : response -> string list
 (** [scope response] is the credential scope reported by wrappers for this
     request, including origins added by its redirect walk. *)
@@ -214,6 +219,14 @@ val reserved_headers : string list
     straight through is rejected here rather than forwarded, since
     [Connection] is always in this list. *)
 
+val add_absent : ?normalize:(string -> string) -> string list -> string list -> string list
+(** [add_absent existing additions] is [existing] followed by every entry of
+    [additions] that it does not already hold, each entry keeping the position
+    it was first seen at. [normalize] (default {!Fun.id}) is applied to an
+    addition before the comparison and to what is stored, so a caller
+    accumulating header names passes {!String.lowercase_ascii}. It is the
+    accumulator behind a response's {!val-scope} and {!val-sensitive}. *)
+
 val sensitive_headers : string list
 (** [sensitive_headers] is the list of lowercase names that always carry a
     credential. A cross-origin redirect hop strips them and {!pp_request}
@@ -239,6 +252,12 @@ module Scope : sig
 
   val matches : t -> url -> bool
   (** [matches s u] is [true] if [u] is under [s]. *)
+
+  val matches_any : t list option -> url -> bool
+  (** [matches_any scopes u] is [true] if [scopes] is [None], which is how a
+      wrapper spells an unrestricted scope, or if [u] is under one entry of
+      [scopes]. Every wrapper that offers a [scope] argument admits a request
+      on these terms. *)
 
   val to_string : t -> string
   (** [to_string scope] is its canonical URL-prefix representation. *)

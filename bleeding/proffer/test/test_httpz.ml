@@ -48,6 +48,20 @@ let echo socket =
     failwith "handoff received something other than ping";
   Body.Socket.write socket "pong"
 
+(* Reads three bytes more than the request leaves buffered, so what it echoes
+   can only be right if the socket read delivered its bytes to the caller's
+   buffer rather than to a copy of it. *)
+let relay socket =
+  let b = Bytes.make 9 '.' in
+  let rec fill off =
+    if off < Bytes.length b then
+      match Body.Socket.read socket b ~off ~len:(Bytes.length b - off) with
+      | 0 -> failwith "relay ended before its ninth byte"
+      | n -> fill (off + n)
+  in
+  fill 0;
+  Body.Socket.write socket (Bytes.to_string b)
+
 let routes =
   [
     get root (fun _env _req respond -> Resp.html respond index);
@@ -88,6 +102,10 @@ let routes =
           "text/plain" (fun _sink -> Atomic.set huge_trailer_body_ran true));
     route M.Connect (s "example.test:443") (fun _env _req respond ->
         Resp.tunnel respond echo);
+    route M.Connect (s "relay.test:443") (fun _env _req respond ->
+        Resp.tunnel respond relay);
+    get (s "upgrade-relay") (fun _env _req respond ->
+        Resp.upgrade respond ~protocol:"proffer-echo" relay);
     get (s "upgrade") (fun _env _req respond ->
         Resp.upgrade respond ~protocol:"proffer-echo" echo);
     get (s "upgrade-required") (fun _env _req respond ->
@@ -763,9 +781,9 @@ let short_config =
   {
     Proffer_httpz.default_config with
     max_connections = 1;
-    first_byte_timeout = 0.2;
-    idle_timeout = 0.2;
-    request_timeout = 0.2;
+    first_byte_timeout = Duration.of_ms 200;
+    idle_timeout = Duration.of_ms 200;
+    request_timeout = Duration.of_ms 200;
   }
 
 let timeout_tests ~clock ~net addr =
@@ -965,6 +983,69 @@ let tls_wrapper_test ~clock ~mono_clock ~net =
   check "a wrapped connection receives graceful shutdown" (counts.shutdowns = 1);
   check "a wrapped connection is closed after serving" (counts.closes = 1)
 
+(* A handoff that outlives its buffered prefix. The relayed bytes are what
+   matters: reading into a copy of the caller's buffer returns a correct count
+   over stale content. *)
+let relay_tests ~clock ~mono_clock ~net =
+  with_server ~net ~clock ~mono_clock @@ fun addr ->
+  let relayed request =
+    with_conn ~net addr @@ fun flow ->
+    Eio.Flow.copy_string (request ^ "abc") flow;
+    let reader = Eio.Buf_read.of_flow flow ~max_size:65536 in
+    let _line, _headers = read_head reader in
+    Eio.Flow.copy_string "defghi" flow;
+    Eio.Buf_read.take 9 reader
+  in
+  check "a tunnel relays the bytes it read"
+    (relayed "CONNECT relay.test:443 HTTP/1.1\r\nHost: relay.test:443\r\n\r\n"
+    = "abcdefghi");
+  check "an upgrade relays the bytes it read"
+    (relayed
+       "GET /upgrade-relay HTTP/1.1\r\n\
+        Host: localhost\r\n\
+        Connection: Upgrade\r\n\
+        Upgrade: proffer-echo\r\n\
+        \r\n"
+    = "abcdefghi");
+  (* The contract [proffer.mock]'s [content_length] states: a HEAD keeps the
+     length its body declared, here one a stream declared. *)
+  session ~net addr (fun send recv ->
+      send "HEAD /known HTTP/1.1\r\nHost: localhost\r\n\r\n";
+      let resp = recv ~head:true in
+      check "HEAD keeps a declared stream length"
+        (resp.line = "HTTP/1.1 200 OK"
+        && field resp "content-length" = Some "4"))
+
+(* A server given a switch of its own listens on a socket that switch owns, so
+   returning from [run] has to be what gives the port back. *)
+let stop_releases_port_tests ~clock ~mono_clock ~net =
+  let stop, set_stop = Eio.Promise.create () in
+  let bound, set_bound = Eio.Promise.create () in
+  within ~clock "stop releases the port" (fun () ->
+      Eio.Switch.run @@ fun sw ->
+      let served = ref None in
+      Eio.Fiber.both
+        (fun () ->
+          Proffer_httpz.run ~sw ~port:0
+            ~on_listening:(Eio.Promise.resolve set_bound)
+            ~on_error ~stop
+            object
+              method net = net
+              method clock = clock
+              method mono_clock = mono_clock
+            end
+            ~env compiled)
+        (fun () ->
+          served := Some (Eio.Promise.await bound);
+          Eio.Promise.resolve set_stop ());
+      let addr = Option.get !served in
+      let refused =
+        match with_conn ~net addr (fun _flow -> ()) with
+        | () -> false
+        | exception Eio.Io _ -> true
+      in
+      check "a stopped server releases its port before returning" refused)
+
 let () =
   Eio_main.run @@ fun stdenv ->
   let net = Eio.Stdenv.net stdenv in
@@ -981,4 +1062,6 @@ let () =
   handoff_event_tests ~clock ~mono_clock ~net;
   continue_tests ~clock ~mono_clock ~net;
   stop_tests ~clock ~mono_clock ~net;
+  relay_tests ~clock ~mono_clock ~net;
+  stop_releases_port_tests ~clock ~mono_clock ~net;
   Printf.printf "test_httpz: %d checks ok\n" !checks

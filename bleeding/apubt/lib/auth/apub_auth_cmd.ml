@@ -122,7 +122,7 @@ let login_action ~app_name ~account ~profile env =
   Fmt.pr "Authenticating with %s...@." instance;
   (* Create HTTP client *)
   Eio.Switch.run @@ fun sw ->
-  let fetch = Fetch_curl.v ~sw ~timeout:30.0 ~connect_timeout:30.0 () in
+  let fetch = Fetch_curl.v ~sw ~timeout:(Fetch.Duration.of_sec 30) ~connect_timeout:(Fetch.Duration.of_sec 30) () in
   (* Step 1: Register OAuth app *)
   Fmt.pr "Registering OAuth app...@.";
   let app = match Apub_mastodon_oauth.register_app fetch ~instance with

@@ -403,4 +403,10 @@ let () =
     (since t (printed t) = 304);
   check "the second after it is later" (since (t +. 1.) (printed t) = 200)
 
+let () =
+  let o = run ~headers:[ ("If-Match", "\"other\"") ] M.Get "/page" in
+  check "412 retains the typed cache policy"
+    (code o = 412 && header o H.Cache_control = Some "public, max-age=3600");
+  check "412 drops representation validators" (header o H.Etag = None)
+
 let () = Printf.printf "test_conditional: %d checks ok\n" !checks

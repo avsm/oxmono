@@ -9,7 +9,7 @@ type todo =
 type nested_case = C of int | D of int
 type outer_case = A of nested_case | B of int
 
-module Media = Httpz.Media
+module Media = Httpz_media
 
 let todo_jsont =
   Jsont.Object.map ~kind:"Todo" (fun id title done_ -> { id; title; done_ })

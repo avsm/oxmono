@@ -30,38 +30,20 @@ type t =
 
 let empty = #{ data_off = i16 0; data_len = i16 0; next_off = i16 0 }
 
-let[@inline] hex_digit_value_match (c : char#) =
-  match c with
-  | #'0' .. #'9' -> Char_u.code c - 48
-  | #'a' .. #'f' -> Char_u.code c - 87
-  | #'A' .. #'F' -> Char_u.code c - 55
-  | _ -> -1
-;;
-
-(* Bias values by one so zero denotes a non-hex byte. The table is derived from
-   [hex_digit_value_match] to keep both classifiers consistent. *)
-let hex_table =
-  String.init 256 ~f:(fun i ->
-    Stdlib.Char.unsafe_chr (hex_digit_value_match (Char_u.of_char (Char.of_int_exn i)) + 1))
-;;
-
-let[@inline] hex_digit_value (c : char#) =
-  Char.to_int (String.unsafe_get hex_table (Char_u.code c)) - 1
-;;
-
 let default_max_chunk_size = 16777216
 
 let[@inline] parse_hex_size_limited (buf : bytes) ~off ~len ~max_size =
   let module P = Buf_read in
+  let max_size = if max_size < 0 then 0 else max_size in
   let mutable pos = off in
   let mutable size = 0 in
   let mutable valid = true in
   let mutable overflow = false in
   while valid && pos < len do
-    let digit = hex_digit_value (P.peek buf (i16 pos)) in
+    let digit = Httpz_uri.Scanner.hex_val (Bytes.unsafe_get buf pos) in
     if digit >= 0
     then
-      if max_size < 0 || digit > max_size || size > (max_size - digit) / 16
+      if digit > max_size || size > (max_size - digit) / 16
       then (
         overflow <- true;
         valid <- false)
@@ -111,9 +93,7 @@ let[@inline] parse_size_line_end (buf : bytes) ~pos ~len =
         p <- p + 1;
         p <- skip_ows buf ~pos:p ~len;
         let name_start = p in
-        while p < len && P.is_token_char (P.peek buf (i16 p)) do
-          p <- p + 1
-        done;
+        p <- P.skip_token buf ~pos:p ~limit:len;
         if p = name_start && p < len
         then malformed <- true
         else (
@@ -147,13 +127,10 @@ let[@inline] parse_size_line_end (buf : bytes) ~pos ~len =
                   else if P.is_qdtext_char c
                   then p <- p + 1
                   else malformed <- true
-                done;
-                if p < len && not closed then malformed <- true)
+                done)
               else (
                 let value_start = p in
-                while p < len && P.is_token_char (P.peek buf (i16 p)) do
-                  p <- p + 1
-                done;
+                p <- P.skip_token buf ~pos:p ~limit:len;
                 if p = value_start then malformed <- true))))
   done;
   if malformed
@@ -202,7 +179,11 @@ let[@inline] parse_data_chunk (buf : bytes) ~data_off ~size ~len =
 let[@inline] parse_header (buf : bytes) ~(off : int16#) ~(len : int16#) ~max_chunk_size =
   let off = to_int off in
   let len = to_int len in
-  if off >= len
+  (* Every read below is [Bytes.unsafe_get], so an out-of-range window has to be refused
+     here rather than caught by a bounds check. *)
+  if off < 0 || len < 0 || len > Bytes.length buf
+  then #(Malformed, 0, i16 0)
+  else if off >= len
   then #(Partial, 0, i16 0)
   else (
     let #(size, hex_end, overflow) =
@@ -259,8 +240,6 @@ let trailer_status_to_string = function
 
 let pp_trailer_status fmt t = Stdlib.Format.fprintf fmt "%s" (trailer_status_to_string t)
 
-(* Trailer fields must not alter framing, routing, authentication, response control, or
-   content interpretation (RFC 9110, Section 6.5.1). *)
 let is_forbidden_trailer = function
   | Header_name.Transfer_encoding -> true
   | Header_name.Trailer -> true
@@ -290,6 +269,12 @@ let is_forbidden_trailer = function
   | Header_name.Proxy_authorization -> true
   | Header_name.Cookie -> true
   | Header_name.Set_cookie -> true
+  | Header_name.Age -> true
+  | Header_name.Date -> true
+  | Header_name.Expires -> true
+  | Header_name.Location -> true
+  | Header_name.Retry_after -> true
+  | Header_name.Vary -> true
   | _ -> false
 ;;
 
@@ -300,7 +285,8 @@ let forbidden_trailer_names =
     "if-unmodified-since"; "content-encoding"; "content-type";
     "content-range"; "content-disposition"; "content-language";
     "content-location"; "www-authenticate"; "proxy-authenticate";
-    "authorization"; "proxy-authorization"; "cookie"; "set-cookie" ]
+    "authorization"; "proxy-authorization"; "cookie"; "set-cookie"; "age";
+    "date"; "expires"; "location"; "retry-after"; "vary" ]
 ;;
 
 let[@inline] equal_name (local_ name : string) literal =
@@ -333,12 +319,24 @@ let[@zero_alloc] is_forbidden_trailer_name (local_ name : string) =
   found
 ;;
 
+(* [Buf_read.find_crlf_check_bare_cr] also flags a CR in the last byte of the window,
+   which the next read may still complete into a CRLF. Once it has found no CRLF at all,
+   only a LF, or a CR before that last byte, is a line break that no further input can
+   repair. *)
+let[@inline] bare_line_break (buf : bytes) ~pos ~len =
+  let module P = Buf_read in
+  let mutable p = pos in
+  let mutable found = false in
+  while (not found) && p < len do
+    let c = P.peek buf (i16 p) in
+    if P.(c =. #'\n') || (P.(c =. #'\r') && p < len - 1) then found <- true else p <- p + 1
+  done;
+  found
+;;
+
 let[@inline] parse_trailer_header (buf : bytes) ~pos ~len =
   let module P = Buf_read in
-  let mutable colon_pos = pos in
-  while colon_pos < len && P.is_token_char (P.peek buf (i16 colon_pos)) do
-    colon_pos <- colon_pos + 1
-  done;
+  let colon_pos = P.skip_token buf ~pos ~limit:len in
   let name_len = colon_pos - pos in
   if name_len = 0
   then #(Trailer_malformed, Header_name.Host, i16 0, i16 0, i16 0, i16 0, i16 0)
@@ -358,10 +356,10 @@ let[@inline] parse_trailer_header (buf : bytes) ~pos ~len =
       P.find_crlf_check_bare_cr buf ~pos:(i16 p) ~len:(i16 len)
     in
     let crlf_pos_int = to_int crlf_pos in
-    if crlf_pos_int < 0
-    then #(Trailer_partial, Header_name.Host, i16 0, i16 0, i16 0, i16 0, i16 0)
-    else if has_bare_cr
+    if has_bare_cr && (crlf_pos_int >= 0 || bare_line_break buf ~pos:value_start ~len)
     then #(Trailer_bare_cr, Header_name.Host, i16 0, i16 0, i16 0, i16 0, i16 0)
+    else if crlf_pos_int < 0
+    then #(Trailer_partial, Header_name.Host, i16 0, i16 0, i16 0, i16 0, i16 0)
     else if not (P.valid_field_value buf ~pos:(i16 value_start) ~len:crlf_pos)
     then #(Trailer_malformed, Header_name.Host, i16 0, i16 0, i16 0, i16 0, i16 0)
     else (
@@ -452,13 +450,19 @@ let parse_trailers
   ~(max_header_count : int16#)
   = exclave_
   let start = to_int off in
-  parse_trailers_loop
-    buf
-    ~start
-    ~pos:start
-    ~len:(to_int len)
-    ~count:0
-    ~acc:[]
-    ~max_header_count:(to_int max_header_count)
-    ~max_trailer_size
+  let len = to_int len in
+  (* Every read below is [Bytes.unsafe_get], so an out-of-range window has to be refused
+     here rather than caught by a bounds check. *)
+  if start < 0 || len < 0 || len > Bytes.length buf
+  then #(Trailer_malformed, i16 start, [])
+  else
+    parse_trailers_loop
+      buf
+      ~start
+      ~pos:start
+      ~len
+      ~count:0
+      ~acc:[]
+      ~max_header_count:(to_int max_header_count)
+      ~max_trailer_size
 ;;

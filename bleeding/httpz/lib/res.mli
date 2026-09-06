@@ -77,8 +77,7 @@ val status_of_int : int -> status option @@ portable
 (** [status_reason status] is the conventional English reason phrase for [status]. *)
 val status_reason : status -> string @@ portable
 
-(** [status_to_string status] is ["CODE Reason"]. The returned string is shared and must
-    not be mutated. *)
+(** [status_to_string status] is ["CODE Reason"]. *)
 val status_to_string : status -> string @@ portable
 [@@zero_alloc]
 
@@ -105,8 +104,12 @@ val write_header
 val write_header_int : bytes -> off:int16# -> local_ string -> int -> int16# @@ portable
 
 (** [write_header_name buf ~off name value] is the next offset after writing a field using
-    {!Header_name.canonical}. {!Header_name.Other} writes ["(unknown)"] and is therefore
-    unsuitable here. *)
+    {!Header_name.canonical}.
+
+    @raise Stdlib.Invalid_argument
+      if [name] is {!Header_name.Other}, whose canonical spelling ["(unknown)"] is not a
+      field name. Recover the original spelling from {!Header.name_span} and use
+      {!write_header} instead. *)
 val write_header_name
   :  bytes
   -> off:int16#
@@ -116,7 +119,9 @@ val write_header_name
   @@ portable
 
 (** [write_header_name_int buf ~off name value] is the next offset after writing a typed
-    field with a non-negative decimal [value]. *)
+    field with a non-negative decimal [value].
+
+    @raise Stdlib.Invalid_argument if [name] is {!Header_name.Other}. *)
 val write_header_name_int
   :  bytes
   -> off:int16#
@@ -146,8 +151,8 @@ val write_transfer_encoding_chunked : bytes -> off:int16# -> int16# @@ portable
     [size] in hexadecimal followed by CRLF. *)
 val write_chunk_header : bytes -> off:int16# -> size:int -> int16# @@ portable
 
-(** [write_chunk_footer buf ~off] is [off + 2] after writing the CRLF that follows chunk
-    data. *)
+(** [write_chunk_footer buf ~off] is {!write_crlf}. It names the CRLF that follows chunk
+    data rather than the one that ends a message head. *)
 val write_chunk_footer : bytes -> off:int16# -> int16# @@ portable
 
 (** [write_final_chunk buf ~off] is the next offset after writing ["0\r\n\r\n"]. Use the
@@ -164,7 +169,15 @@ type t =
    ; content_length : int64#
    (** [content_length] is Content-Length, or [-1L] when absent. *)
    ; is_chunked : bool
-   (** [is_chunked] is [true] when chunked is the final transfer coding. *)
+   (** [is_chunked] is [true] when chunked is the final transfer coding of a body-bearing
+       response. *)
+   ; transfer_coding_count : int
+   (** [transfer_coding_count] is the number of transfer codings named across every
+       Transfer-Encoding field of the response, counting the final [chunked] and ignoring
+       empty list members. It is [0] when no Transfer-Encoding field was present, and it
+       is reported for a bodyless response too. A client that implements no coding but
+       chunked must accept a body only when it is [1], since [is_chunked] alone does not
+       separate [chunked] from [gzip, chunked]. *)
    ; bodyless : bool
    (** [bodyless] is [true] when HTTP/1 framing ends at the response head. A
        205 is false here: RFC 9110 forbids its content, but RFC 9112 still
@@ -177,7 +190,8 @@ type t =
 (** [parse ?request_method buf ~len ~limits] is the result of parsing one response head
     from the first [len] bytes of [buf]. It contains the status, response metadata, and
     all fields in reverse arrival order. Unlike {!Httpz.parse}, framing fields remain in
-    the returned list.
+    the returned list. It writes into [buf]: an obsolete folded field value is unfolded in
+    place, so bytes within the head may differ from those supplied.
 
     [request_method] is required to recognize responses to HEAD and successful CONNECT as
     framing-bodyless. Status-based framing rules are always applied. Body bytes already
@@ -195,8 +209,9 @@ val parse
   -> #(Buf_read.status * t * Header.t list) @ local
   @@ portable
 
-(** [pp formatter response] is the formatter operation that prints response metadata and
-    span positions. *)
+(** [pp formatter response] is the formatter operation that prints the response metadata.
+    The reason phrase is a span into the parse buffer and is omitted; {!pp_with_buf}
+    prints it. *)
 val pp : Stdlib.Format.formatter -> t -> unit @@ portable
 
 (** [pp_with_buf buf formatter response] is the formatter operation that prints the parsed

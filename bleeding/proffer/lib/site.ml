@@ -36,10 +36,6 @@ let of_routes routes =
 
 let with_fallback (fallback : _ Route.handler @ portable) t = { t with fallback }
 
-(* A wrapper runs outside the wrappers already applied, so the site's own decoration is
-   what it wraps. Stacking [with_headers] over [with_auth] puts the headers on the
-   challenge too. *)
-
 (* Validate field syntax once; response-specific overlap checks run when the
    decorated response is known. Handler fields come first when a name repeats. *)
 let with_headers extra t =
@@ -85,19 +81,9 @@ let with_auth ~scope ~realm ~(check : (string option @ local -> bool) @ portable
     invalid_arg
       "Proffer.Site.with_auth: an empty scope gates nothing, so pass [[]] to gate the \
        whole site";
-  let invalid_segment segment =
-    String.equal segment "" || String.equal segment "."
-    || String.equal segment ".."
-    || String.contains segment '/' || String.contains segment '\\'
-    || String.exists
-         (fun c ->
-           let code = Char.code c in
-           code < 0x20 || code = 0x7f)
-         segment
-  in
   List.iter
     (List.iter (fun segment ->
-       if invalid_segment segment then
+       if Static.invalid_segment segment then
          invalid_arg
            (Printf.sprintf
               "Proffer.Site.with_auth: scope segment %S is ambiguous or invalid"
@@ -117,7 +103,7 @@ let with_auth ~scope ~realm ~(check : (string option @ local -> bool) @ portable
         respond
         ~status:St.Unauthorized
         ~headers:(stack_ [ Headers.h_local Httpz.Header_name.Www_authenticate field ])
-        ~content_type:(This "text/plain; charset=utf-8")
+        ~content_type:(This Resp.text_type)
         (Body.String "Unauthorized\n")
     in
     ()
@@ -151,6 +137,14 @@ let mount ~at sub t =
   then
     invalid_arg
       "Proffer.Site.mount: the sub-site is wrapped, so wrap the result of mount instead";
+  List.iter
+    (fun segment ->
+      if Static.invalid_segment segment then
+        invalid_arg
+          (Printf.sprintf
+             "Proffer.Site.mount: prefix segment %S is ambiguous or invalid"
+             segment))
+    at;
   let prefixed = List.map (fun r -> Route.prefix at r) sub.routes in
   { t with routes = t.routes @ prefixed }
 ;;

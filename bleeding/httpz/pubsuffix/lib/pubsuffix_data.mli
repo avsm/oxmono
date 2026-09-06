@@ -6,18 +6,19 @@ type section =
 
 type rule_type =
   | Normal (** [Normal] matches its labels exactly. *)
-  | Wildcard (** [Wildcard] matches any leftmost label. *)
   | Exception (** [Exception] overrides a wildcard match. *)
 
-(** A [trie_node] is a node in the reverse-label suffix trie. *)
+(** A [trie_node] is a node in the reverse-label suffix trie. A wildcard rule is recorded
+    in [wildcard], so [rule] carries only the two kinds above. [children] is sorted by
+    label so that a lookup can binary-search it. *)
 type trie_node =
   { rule : (rule_type * section) option
-  ; children : (string * trie_node) list
+  ; children : (string * trie_node) iarray
   ; wildcard : section option
   }
 
 (** [root] is the root of the embedded suffix trie. *)
-val root : trie_node
+val root : trie_node @@ portable
 
 (** [rule_count] is the total number of embedded rules. *)
 val rule_count : int

@@ -48,8 +48,8 @@
 
 (** {1 Protocol vocabulary} *)
 
-module Media = Httpz.Media
-(** [Media] is the module of typed media codecs from {!Httpz.Media}. A codec
+module Media = Httpz_media
+(** [Media] is the module of typed media codecs from {!Httpz_media}. A codec
     pairs a media type with portable encoder and decoder closures for one
     OCaml type. Codec values are portable and may be captured directly by
     portable routes.
@@ -59,32 +59,17 @@ module Media = Httpz.Media
     one, {!Route.with_body} turns a decoding failure into a 415 or 400, and
     {!Negotiate.encode} chooses between several by the Accept field. *)
 
-module Json = Httpz.Json
-(** [Json] is the bounded Jsont codec module from {!Httpz.Json}. The request
+module Json = Httpz_media_jsont
+(** [Json] is the bounded Jsont codec module from {!Httpz_media_jsont}. The request
     body limit independently bounds the complete body. *)
 
-module Markdown : sig
-  (** This module provides CommonMark document codecs. *)
+module Markdown = Httpz_media_cmarkit
+(** [Markdown] provides the shared CommonMark and HTML codecs. *)
 
-  val markdown :
-    ?strict:bool -> ?max_bracket_depth:int -> unit -> Cmarkit.Doc.t Media.t
-  (** [markdown ()] decodes [text/markdown] and [text/x-markdown], and
-      encodes with [Cmarkit_commonmark].
-
-      [strict] defaults to [false]. [max_bracket_depth] defaults to 16 and
-      rejects excessive literal bracket nesting before parsing. Backslashes
-      escape the next character; code spans are not interpreted by this
-      lexical restriction. It is not a bound on parser work. Decoding untrusted
-      Markdown requires Cmarkit's upstream nested-link parser correction;
-      the development test wrapper selects the prepared local build.
-      It raises [Invalid_argument] if [max_bracket_depth] is not positive. *)
-
-  val html : ?safe:bool -> unit -> Cmarkit.Doc.t Media.t
-  (** [html ()] encodes [text/html]. [safe] defaults to [true], dropping raw
-      HTML and links whose schemes remain unsafe after percent-decoding and
-      removing ASCII whitespace/control obfuscation. This conservative guard
-      is not a substitute for a dedicated HTML sanitizer. *)
-end
+module Duration = Duration
+(** [Duration] is the duration package, used for timeouts and delays.
+    [Duration.of_sec 30] is thirty seconds and [Duration.of_ms 500] is half a
+    second. *)
 
 module Method : sig
   (** This module provides the HTTP request methods supported by {!Httpz}. *)
@@ -307,12 +292,26 @@ module Req : sig
 
   val header : t @ local -> Headers.name -> string option @ local @@ portable
   (** [header t name] is the first value under [name]. It is always [None] for
-      {!Httpz.Header_name.Other}; use {!header_other}. *)
+      {!Httpz.Header_name.Other}; use {!header_other}. Repeated fields are not
+      joined; use {!cookies} for Cookie fields. *)
 
   val header_other :
     t @ local -> string @ local -> string option @ local @@ portable
   (** [header_other t spelling] is the first value under a field httpz does not
       name, matched case-insensitively. *)
+
+  val cookies : t @ local -> string @@ portable
+  (** [cookies t] is the Cookie field values joined with ["; "] in wire order,
+      or [""] when absent. Values are preserved without parsing. *)
+
+  val cookies_local : t @ local -> string @ local @@ portable
+  (** Read cookie fields in the caller region; a single field is borrowed. *)
+
+  val iter_query :
+    t @ local -> (string @ local -> string @ local -> unit) @ local -> unit @@ portable
+  val iter_segments : t @ local -> (string @ local -> unit) @ local -> unit @@ portable
+  (** Decode query pairs or nonempty path segments for immediate processing.
+      The callbacks and decoded strings are not retained. *)
 
   val body : t @ local -> string @ local @@ portable
   (** [body t] is the request body, or [""] when there is none. *)
@@ -393,7 +392,7 @@ module Multipart : sig
       text file and nothing more. An upload of real size needs a backend that
       streams. *)
 
-  type part = Httpz.Multipart.part = {
+  type part = Httpz_media.Multipart.part = {
     name : string;  (** [name] is the [name] parameter of the part. *)
     filename : string option;
         (** [filename] is the [filename*] parameter when present and otherwise
@@ -428,6 +427,9 @@ module Multipart : sig
   val content : Req.t @ local -> part -> string @@ portable
   (** [content req p] is a copy of the content of [p], which must be a part
       {!of_req} returned for [req]. *)
+
+  val content_local : Req.t @ local -> part -> string @ local @@ portable
+  (** Copy the part into the caller region for immediate processing. *)
 
   val field : Req.t @ local -> part list -> string -> string option @@ portable
   (** [field req parts name] is the content of the first part named [name]
@@ -725,9 +727,14 @@ module Resp : sig
       opaque value is outside RFC 9110's [etagc] syntax, or a [last_modified]
       outside the finite times in years 1 through 9999. It also raises
       [Invalid_argument] if [headers] duplicates a field supplied by a typed
-      argument, if it names Content-Length, Transfer-Encoding, Connection, or
-      Trailer, which the backend owns; supplies Upgrade on a status other than
-      426; or if a declared body length is negative or greater than [max_int].
+      argument; repeats a field RFC 9110 gives singleton syntax, which is Age,
+      Content-Length, Content-Location, Content-Range, Content-Type, Date,
+      ETag, Expires, Last-Modified, Location, Retry-After or Server, since two
+      such field lines cannot be combined into one value; names Content-Length,
+      Transfer-Encoding, Connection, or Trailer, which the backend owns;
+      supplies Upgrade on a status other than 426, or an Upgrade that is not a
+      valid protocol list on a 426; or if a declared body length is negative or
+      greater than [max_int].
 
       A 206 Partial Content response must say which bytes it carries. It
       raises [Invalid_argument] unless [headers] holds a Content-Range in the
@@ -948,7 +955,11 @@ module Sse : sig
     Resp.respond @ local -> ?retry:int -> (sink -> unit) -> unit @@ portable
   (** [respond respond write] describes a 200 [text/event-stream] response
       with [Cache-Control: no-store] and an unknown-length streaming body.
-      [retry], when supplied, is written before [write] runs. *)
+      [retry], when supplied, is written before [write] runs.
+
+      It raises [Invalid_argument] when [retry] is negative. The check is made
+      here rather than in the streaming callback so that the request fails
+      before the 200 response head reaches the client. *)
 end
 
 (** {1 Routes and sites} *)
@@ -977,13 +988,17 @@ module Route : sig
       in {!rest}, which captures whatever remains and can only come last.
 
       Matching normalizes the request path: empty segments are skipped, so
-      [/a//b] and [/a/b/] both reach the route for [/a/b]. A front proxy
-      authorizing by path prefix sees the unnormalized target and must
-      normalize the same way, or a rule on [/admin/] will not cover
-      [//admin/]. Dot segments are not resolved: [.] and [..] remain ordinary
-      decoded segments and normally fail to match a literal route. A front
-      proxy that resolves them must do so before applying security policy and
-      forward that same normalized target.
+      [/a//b] and [/a/b/] both reach the route for [/a/b]. Segments are also
+      compared after percent-decoding, so [/%61dmin] reaches a route built as
+      [s "admin"] and [/a/%62] reaches one built as [s "a" / s "b"]. A front
+      proxy authorizing by path prefix sees the unnormalized target and must
+      normalize and decode the same way, or a rule on [/admin/] will not cover
+      [//admin/] or [/%61dmin/]. {!Site.with_auth} is not bypassable this way
+      because its gate compares segments exactly as a route does. Dot segments
+      are not resolved: [.] and [..] remain ordinary decoded segments and
+      normally fail to match a literal route. A front proxy that resolves them
+      must do so before applying security policy and forward that same
+      normalized target.
 
       A GET route also answers HEAD. {!Backend.handle} suppresses the body. *)
 
@@ -1023,7 +1038,11 @@ module Route : sig
       performs this lexical validation. *)
 
   val s : string -> ('r, 'r, open_) path @@ portable
-  (** [s name] matches a percent-decoded segment equal to [name]. *)
+  (** [s name] matches a percent-decoded segment equal to [name].
+
+      It raises [Invalid_argument] when [name] is empty. No request segment is
+      empty or decodes to the empty string, so such a literal would build a
+      route no request could reach. *)
 
   val str : (string @ local -> 'r @ local, 'r, open_) path @@ portable
   (** [str] captures one percent-decoded segment as a string built in the
@@ -1033,9 +1052,11 @@ module Route : sig
   val int : (int -> 'r @ local, 'r, open_) path @@ portable
   (** [int] captures one percent-decoded segment that is a decimal integer,
       optionally preceded by ['-']. Leading zeroes (except the value [0]) and
-      negative zero do not match. Other spellings OCaml would read, such as
-      [0x1f], [1_000] and [+3], do not match, so one resource has one path. A
-      value too large for an [int] does not match either. *)
+      negative zero do not match, and neither do other spellings OCaml would
+      read, such as [0x1f], [1_000] and [+3]. A value too large for an [int]
+      does not match either. The segment is compared after percent-decoding,
+      so [%2D42] and [-42] both capture [-42]: a canonical decimal spelling is
+      what [int] accepts, not the only path that reaches it. *)
 
   val conv :
     name:string ->
@@ -1122,8 +1143,9 @@ module Site : sig
       value contains a forbidden control byte, or if a name is Content-Length,
       Transfer-Encoding, Connection, or Trailer, which the backend owns. Once
       the wrapped response is known it also refuses a field that collides with
-      typed response metadata or a generated Upgrade field, or otherwise makes
-      the response invalid. *)
+      typed response metadata or a generated Upgrade field, a field that would
+      repeat one of the singleton response fields {!Resp.v} lists, or one that
+      otherwise makes the response invalid. *)
 
   val with_auth :
     scope:string list list ->
@@ -1171,7 +1193,12 @@ module Site : sig
       It raises [Invalid_argument] if [sub] has been wrapped with {!with_auth}
       or {!with_headers}. Apply wrappers after mounting so they cannot be
       silently discarded, and so that a {!with_auth} scope is not left naming
-      paths the mount has moved. *)
+      paths the mount has moved. It also raises [Invalid_argument] for a prefix
+      segment a request could never match, under the rule {!with_auth} applies
+      to a scope segment: a segment must be nonempty, must not be [.] or [..],
+      and must contain neither slash nor backslash nor an ASCII control byte.
+      Prefix segments are already-decoded values, so a literal [%2F] names a
+      request segment written [%252F]. *)
 end
 
 module Negotiate : sig
@@ -1231,6 +1258,10 @@ module Negotiate : sig
       falls within it. {!encode} uses it to answer 406. It raises
       [Invalid_argument] if [codecs] is empty. *)
 
+  val select_or_null :
+    'a Media.t list -> Req.t @ local -> 'a Media.t or_null @@ portable
+  (** The same selection without an allocated option wrapper. *)
+
   val encode :
     ?status:Status.t ->
     ?etag:Etag.t @ local ->
@@ -1261,11 +1292,16 @@ module Static : sig
       The shipped backends do not interpret these descriptors directly. *)
 
   val confine : string list -> string option @@ portable
-  (** [confine segs] is [segs] joined with ['/'] when every segment names
-      something directly under a root, and [None] otherwise. A segment that is
-      empty, ["."] or [".."], or that holds a slash, backslash, or NUL is
-      refused. A backend must still resolve the result beneath a directory
-      capability because lexical checks cannot detect symlink traversal. *)
+  (** [confine segs] is [segs] joined with ['/'] when [segs] is nonempty and
+      every segment names something directly under a root, and [None]
+      otherwise. An empty list is refused because it names the root directory
+      rather than anything under it, and {!Route.rest} produces one for a
+      request to a mount point. A segment that is empty, ["."] or [".."], or
+      that holds a slash, a backslash, or any ASCII control byte, DEL
+      included, is refused. This is the rule {!Site.with_auth} applies to a
+      scope segment and {!Site.mount} to a prefix segment. A backend must still
+      resolve the result beneath a directory capability because lexical checks
+      cannot detect symlink traversal. *)
 
   type t : immutable_data
   (** A [t] is a directory label and optional cache policy. A backend resolves
@@ -1291,18 +1327,18 @@ module Cache : sig
 
   type t : value mod portable contended
   (** A [t] is a cache that may be created once at startup and shared by
-      handlers. The kind is declared so it stays reachable from a portable
-      handler. An abstract type without one reads as contended there, and a
-      cache that names only [portable] is unusable from the handlers it exists
-      to serve. *)
+      handlers. It is lock-free, so concurrent use is safe across fibers and
+      across domains. The kind is declared so it stays reachable from a
+      portable handler. An abstract type without one reads as contended there,
+      and a cache that names only [portable] is unusable from the handlers it
+      exists to serve. *)
 
-  val create : ?max_entries:int -> ttl:float -> unit -> t @@ portable
-  (** [create ~ttl ()] is an empty cache whose entries live [ttl] seconds and
-      which holds at most [max_entries] of them, 1024 by default. A cache is a
-      fixed budget rather than a table that grows with whatever keys arrive,
-      so a request-derived key cannot exhaust memory. It raises
-      [Invalid_argument] unless [ttl] is finite and nonnegative and
-      [max_entries] is positive. *)
+  val create : ?max_entries:int -> ttl:Duration.t -> unit -> t @@ portable
+  (** [create ~ttl ()] is an empty cache whose entries live for [ttl].
+      [max_entries] defaults to 1024. It bounds the entry count, not the total
+      bytes retained. A zero [ttl] makes every lookup a miss.
+
+      @raise Invalid_argument if [max_entries] is not positive. *)
 
   val memoize :
     t -> now:float -> key:string -> (unit -> string) -> string * Etag.t
@@ -1312,10 +1348,12 @@ module Cache : sig
       measured in seconds from a clock used consistently for every call. [gen]
       runs on the calling domain and is not stored, so it may capture
       domain-bound state. Concurrent misses may call [gen] more than once, and
-      one generated value is retained. A miss removes every expired entry, and
-      when the cache is already at [max_entries] it evicts the least recently
-      used one to make room. It raises [Invalid_argument] unless [now] is
-      finite. *)
+      each caller receives the value its own [gen] produced, which need not be
+      the one left under the key. A caller that must see the retained value has
+      to read it back. An exception from [gen] propagates and leaves the cache
+      unchanged. A miss removes every expired entry, and when the cache is
+      already at [max_entries] it evicts the least recently used one to make
+      room. It raises [Invalid_argument] unless [now] is finite. *)
 
   val stats : t -> int * int @@ portable
   (** [stats t] is the hit and miss counts since [t] was created. *)
@@ -1401,10 +1439,16 @@ module Backend : sig
       protocol processing that does not require a socket, and calling [write]
       once.
 
+      - A request carrying more than one Content-Type field is answered with
+        400 Bad Request before a route is selected, since the content of such a
+        request cannot be interpreted.
       - The method and the decoded segments select a route. HEAD matches a GET
         route. A path that matches only under other methods gives 405 with an
         Allow field. No route at all gives the site's fallback. An exception
         from a handler goes to [on_error] and gives a plain 500.
+      - The site's wrappers decorate the 400 above and the 404 and 405 here, so
+        a caller cannot infer which paths name a route by comparing generated
+        responses.
       - GET and HEAD responses are checked against request preconditions in the
         order {{:https://www.rfc-editor.org/rfc/rfc9110#section-13.2.2}RFC 9110
          section 13.2.2} fixes:
@@ -1427,19 +1471,26 @@ module Backend : sig
         Content-Location, Expires, and Vary fields, an empty body, and no
         length, as specified by
         {{:https://www.rfc-editor.org/rfc/rfc9110#section-15.4.5}RFC 9110
-         section 15.4.5}. A 412 carries a plain-text body. If-Range is not
+         section 15.4.5}. A 412 carries a plain-text body together with the
+        described response's remaining fields, so a site wrapper's fields reach
+        it as they reach the 200 and the 304; the fields describing the
+        representation it is not sending are dropped. If-Range is not
         evaluated; this library does not serve ranges.
 
         For every other method, If-Match, If-None-Match, or a valid singleton
         If-Unmodified-Since is conservatively answered with 412 before the
-        handler runs. The generic handler interface does not expose a
+        handler runs. That 412 carries no site-wrapper fields, no response
+        having been described. The generic handler interface does not expose a
         representation's pre-mutation validators, so Proffer declines
         conditional mutation rather than compare post-state or run an effect
         before rejecting it. If-Modified-Since, malformed dates, and repeated
         date fields are ignored.
-      - HEAD empties the body and keeps [content_length]. Statuses that cannot
-        carry content also empty it without running a stream or generator; 205
-        declares zero length, while 1xx and 204 omit framing.
+      - HEAD empties the body and keeps the [content_length] the same response
+        would have declared to a GET, so a streamed body carrying trailers
+        reports none on either, trailers having forced chunked framing.
+        Statuses that cannot carry content also empty the body without running
+        a stream or generator; 205 declares zero length, while 204 omits
+        framing.
       - A {!Body.Delayed} generator runs once, here, so the outcome of a sent
         body is always [String]. It never runs for HEAD or a contentless status,
         and an exception it raises goes to [on_error] and gives a 500 like any

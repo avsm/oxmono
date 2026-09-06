@@ -58,7 +58,6 @@ let connection_upgrade (t : t @ local) = t.connection_upgrade
 let target (t : t @ local) = t.target
 let path (t : t @ local) = t.path
 
-(* Parsed views are produced only when the handler asks for them. *)
 let segments (t : t @ local) = Pct.segments t.path
 let query (t : t @ local) = Pct.pairs t.qs
 let headers (t : t @ local) = t.headers
@@ -66,6 +65,52 @@ let[@zero_alloc] header (t : t @ local) name = exclave_ Headers.find t.headers n
 
 let[@zero_alloc] header_other (t : t @ local) (spelling : string @ local) =
   exclave_ Headers.find_other t.headers spelling
+
+let[@zero_alloc] rec cookies_size (hs : Headers.t @ local) count size =
+  match hs with
+  | [] -> #(count, size)
+  | f :: rest ->
+    if Headers.same_name f.Headers.name H.Cookie
+    then cookies_size rest (count + 1) (size + String.length f.Headers.value)
+    else cookies_size rest count size
+
+let rec cookies_write (hs : Headers.t @ local) (b : bytes @ local) pos first =
+  match hs with
+  | [] -> pos
+  | f :: rest ->
+    if Headers.same_name f.Headers.name H.Cookie
+    then (
+      let pos =
+        if first
+        then pos
+        else (
+          Bytes.unsafe_set b pos ';';
+          Bytes.unsafe_set b (pos + 1) ' ';
+          pos + 2)
+      in
+      let n = String.length f.Headers.value in
+      Bytes.unsafe_blit_string f.Headers.value 0 b pos n;
+      cookies_write rest b (pos + n) false)
+    else cookies_write rest b pos first
+
+let cookies (t : t @ local) : string =
+  let #(count, size) = cookies_size t.headers 0 0 in
+  if count = 0
+  then ""
+  else (
+    let b = Bytes.create (size + ((count - 1) * 2)) in
+    let _ = cookies_write t.headers b 0 true in
+    Bytes.unsafe_to_string b)
+
+let[@zero_alloc] cookies_local (t : t @ local) = exclave_
+  let #(count, size) = cookies_size t.headers 0 0 in
+  if count = 0 then ""
+  else if count = 1 then
+    (match Headers.find_or_null t.headers H.Cookie with Null -> "" | This value -> value)
+  else
+    let b = Pct.create_local (size + ((count - 1) * 2)) in
+    let _ = cookies_write t.headers b 0 true in
+    Bytes.unsafe_to_string b
 
 let body (t : t @ local) = t.body
 let query_param (t : t @ local) (name : string @ local) = Pct.param ~plus:true t.qs name
@@ -78,8 +123,8 @@ let globalize_opt (o : string option @ local) =
 (* A codec decodes a heap string, so the body is copied once for it. *)
 let decode codec (t : t @ local) =
   let ct = header t H.Content_type in
-  if Httpz.Media.accepts codec ct then Httpz.Media.decode codec (Pct.copy_all t.body)
-  else Error (Httpz.Media.Unsupported (globalize_opt ct))
+  if Httpz_media.accepts codec ct then Httpz_media.decode codec (Pct.copy_all t.body)
+  else Error (Httpz_media.Unsupported (globalize_opt ct))
 
 let[@zero_alloc] is_ows c = Char.equal c ' ' || Char.equal c '\t'
 
@@ -110,33 +155,32 @@ let[@zero_alloc] media_is (ct : string @ local) lit =
   let m = String.length lit in
   b - a = m && same_lower ct a lit 0 m
 
-(* One rule answers all three form accessors, so a body {!Httpz.Media.form}
+(* One rule answers all three form accessors, so a body {!Httpz_media.form}
    refuses is exactly the one [is_form] denies. The media type and the decoder
    are spelled out rather than reached through that codec because a codec
    value carries closures and so cannot be read from a portable handler.
-   [Httpz.Media.form] is built from the same two pieces. *)
+   [Httpz_media.form] is built from the same two pieces. *)
 let[@zero_alloc] is_form (t : t @ local) =
-  match header t H.Content_type with
-  | None -> false
-  | Some ct ->
+  match Headers.find_or_null t.headers H.Content_type with
+  | Null -> false
+  | This ct ->
       let form = media_is ct "application/x-www-form-urlencoded" in
       form
 
 let form_result (t : t @ local) =
-  if is_form t then Ok (Httpz.Urlencoded.decode t.body)
-  else Error (Httpz.Media.Unsupported (globalize_opt (header t H.Content_type)))
+  if is_form t then Ok (Httpz_media.Urlencoded.decode t.body)
+  else Error (Httpz_media.Unsupported (globalize_opt (header t H.Content_type)))
 
 let form (t : t @ local) =
   match form_result t with Ok ps -> ps | Error _ -> []
 
-(* Scan the body for the one name rather than building the whole list. *)
 let form_param (t : t @ local) (name : string @ local) =
   if is_form t then Pct.param ~plus:true t.body name else None
 
 let forwarded_for (t : t @ local) =
-  match header t H.X_forwarded_for with
-  | None -> None
-  | Some v ->
+  match Headers.find_or_null t.headers H.X_forwarded_for with
+  | Null -> None
+  | This v ->
       let n = String.length v in
       let stop = index_from v 0 n ',' in
       let a = skip_ows v 0 stop in
@@ -144,9 +188,9 @@ let forwarded_for (t : t @ local) =
       Some (Pct.copy v a (b - a))
 
 let forwarded_proto (t : t @ local) =
-  match header t H.X_forwarded_proto with
-  | None -> None
-  | Some v ->
+  match Headers.find_or_null t.headers H.X_forwarded_proto with
+  | Null -> None
+  | This v ->
       let n = String.length v in
       let a = skip_ows v 0 n in
       let b = trim_ows v a n in
@@ -159,6 +203,10 @@ let forwarded_proto (t : t @ local) =
 
 let decode_seq sq (t : t @ local) =
   let ct = header t H.Content_type in
-  if Httpz.Media.seq_accepts sq ct then
-    Httpz.Media.decode_items sq (Pct.copy_all t.body)
-  else Error (Httpz.Media.Unsupported (globalize_opt ct))
+  if Httpz_media.seq_accepts sq ct then
+    Httpz_media.decode_items sq (Pct.copy_all t.body)
+  else Error (Httpz_media.Unsupported (globalize_opt ct))
+
+let iter_query (t : t @ local)
+    (f : (string @ local -> string @ local -> unit) @ local) = Pct.iter_pairs t.qs f
+let iter_segments (t : t @ local) (f @ local) = Pct.iter_segments t.path f

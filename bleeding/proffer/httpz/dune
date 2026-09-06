@@ -1,7 +1,7 @@
 (library
  (name proffer_httpz)
  (public_name proffer-httpz)
- (libraries
+ (libraries duration
   proffer
   httpz
   httpz.tls
@@ -11,3 +11,7 @@
   unix
   stdlib_stable
   stdlib_upstream_compatible))
+
+(documentation
+ (package proffer-httpz)
+ (mld_files index))

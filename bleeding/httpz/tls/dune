@@ -1,8 +1,8 @@
 (library
  (name httpz_tls)
  (public_name httpz.tls)
- (libraries
-  httpz
+ (libraries duration
+  httpz.uri
   eio
   fmt
   tls

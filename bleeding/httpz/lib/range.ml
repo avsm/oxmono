@@ -28,16 +28,6 @@ module Content = struct
     Char_u.of_char (String.unsafe_get s i)
   ;;
 
-  let rec left (local_ s : string) i stop =
-    if i < stop && Buf_read.is_space (char_at s i) then left s (i + 1) stop else i
-  ;;
-
-  let rec right (local_ s : string) start i =
-    if i > start && Buf_read.is_space (char_at s (i - 1))
-    then right s start (i - 1)
-    else i
-  ;;
-
   let rec digits (local_ s : string) i stop =
     if i < stop
        && let c = char_at s i in
@@ -72,23 +62,14 @@ module Content = struct
     if lengths <> 0 then lengths else compare_digits s a c (b - a)
   ;;
 
-  let rec unit_matches
-      (local_ s : string) first (local_ unit : string) i =
-    i = String.length unit
-    || (Char_u.equal
-          (Buf_read.to_lower (char_at s (first + i)))
-          (Buf_read.to_lower (char_at unit i))
-        && unit_matches s first unit (i + 1))
-  ;;
-
   let[@zero_alloc] kind ~(unit : string @ local) (local_ s : string) =
-    let first = left s 0 (String.length s) in
-    let stop = right s first (String.length s) in
+    let first = Httpz_syntax.skip_space s 0 (String.length s) in
+    let stop = Httpz_syntax.trim_space s first (String.length s) in
     let start = first + String.length unit in
     if not (Header.Syntax.is_token unit)
        || start >= stop
        || not (Char_u.equal (char_at s start) #' ')
-       || not (unit_matches s first unit 0)
+       || not (Httpz_syntax.equal_ci s first unit 0 (String.length unit))
     then Invalid
     else (
       let a = start + 1 in
@@ -133,21 +114,38 @@ let[@inline always] peek buf pos = Buf_read.peek buf (i16 pos)
 let[@inline always] digit_value c = Buf_read.digit_value c
 let ( =. ) = Buf_read.( =. )
 
+type range_kind =
+  | Explicit
+  | Suffix
+  | Open
+  | Placeholder
+
 type byte_range =
-  #{ kind : int
+  #{ kind : range_kind
    ; start : int64#
    ; end_ : int64#
    }
 
-let kind_range = 0
-let kind_suffix = 1
-let kind_open = 2
-
 let max_ranges : int16# = i16 16
-let empty = #{ kind = 0; start = i64 0L; end_ = i64 0L }
-let[@inline always] is_range (r : byte_range) = r.#kind = kind_range
-let[@inline always] is_suffix (r : byte_range) = r.#kind = kind_suffix
-let[@inline always] is_open (r : byte_range) = r.#kind = kind_open
+let empty = #{ kind = Placeholder; start = i64 0L; end_ = i64 0L }
+
+let[@inline always] is_range (r : byte_range) =
+  match r.#kind with
+  | Explicit -> true
+  | Suffix | Open | Placeholder -> false
+;;
+
+let[@inline always] is_suffix (r : byte_range) =
+  match r.#kind with
+  | Suffix -> true
+  | Explicit | Open | Placeholder -> false
+;;
+
+let[@inline always] is_open (r : byte_range) =
+  match r.#kind with
+  | Open -> true
+  | Explicit | Suffix | Placeholder -> false
+;;
 
 type parse_status =
   | Valid
@@ -215,7 +213,7 @@ let[@inline] parse_range_spec buf ~pos ~len =
       if not valid then
         #(false, empty, end_pos)
       else
-        #(true, #{ kind = kind_suffix; start = suffix; end_ = #0L }, end_pos)
+        #(true, #{ kind = Suffix; start = suffix; end_ = #0L }, end_pos)
     else
       let #(start, after_start, valid) = parse_int64 buf ~pos ~len in
       if not valid then #(false, empty, after_start)
@@ -228,13 +226,13 @@ let[@inline] parse_range_spec buf ~pos ~len =
           let c = peek buf after_dash in
           c =. #',' || c =. #' ' || c =. #'\t'
         ) then
-          #(true, #{ kind = kind_open; start; end_ = #0L }, after_dash)
+          #(true, #{ kind = Open; start; end_ = #0L }, after_dash)
         else
           let #(end_val, end_pos, end_valid) = parse_int64 buf ~pos:after_dash ~len in
           if (not end_valid) || I64.compare end_val start < 0 then
             #(false, empty, end_pos)
           else
-            #(true, #{ kind = kind_range; start; end_ = end_val }, end_pos)
+            #(true, #{ kind = Explicit; start; end_ = end_val }, end_pos)
 ;;
 
 let parse_region (local_ buf) ~off ~len (ranges : byte_range array)
@@ -313,17 +311,17 @@ let resolve_range (range : byte_range) ~(resource_length : int64#)
   let res_len = resource_length in
   if I64.compare res_len #0L <= 0 then #(false, empty_resolved)
   else
-    let kind = range.#kind in
     let start_val = range.#start in
     let end_val = range.#end_ in
     let last = I64.sub res_len #1L in
-    if kind = kind_range then
+    match range.#kind with
+    | Explicit ->
       if I64.compare start_val res_len >= 0 then #(false, empty_resolved)
       else
         let end_clamped = if I64.compare end_val last < 0 then end_val else last in
         let length = I64.add (I64.sub end_clamped start_val) #1L in
         #(true, #{ start = start_val; end_ = end_clamped; length })
-    else if kind = kind_suffix then
+    | Suffix ->
       let suffix = start_val in
       if I64.compare suffix #0L <= 0 then #(false, empty_resolved)
       else
@@ -331,10 +329,12 @@ let resolve_range (range : byte_range) ~(resource_length : int64#)
         let start = if I64.compare from_end #0L > 0 then from_end else #0L in
         let length = I64.add (I64.sub last start) #1L in
         #(true, #{ start; end_ = last; length })
-    else if I64.compare start_val res_len >= 0 then #(false, empty_resolved)
-    else
-      let length = I64.add (I64.sub last start_val) #1L in
-      #(true, #{ start = start_val; end_ = last; length })
+    | Open ->
+      if I64.compare start_val res_len >= 0 then #(false, empty_resolved)
+      else
+        let length = I64.add (I64.sub last start_val) #1L in
+        #(true, #{ start = start_val; end_ = last; length })
+    | Placeholder -> #(false, empty_resolved)
 ;;
 
 let evaluate
@@ -401,18 +401,20 @@ let write_multipart_final dst ~off ~boundary =
   Buf_write.crlf dst ~off
 ;;
 
-(* The default [Random] state is seeded identically in every process, which
-   would make every server's boundaries the same sequence from startup. A
-   self-initialised state costs one lazy force and keeps them per-process. *)
-let boundary_state = lazy (Random.State.make_self_init ())
+(* The default [Random] state is seeded identically in every process, which would make
+   every server's boundaries the same sequence from startup. A self-initialised state per
+   domain keeps them per-process and lets domains draw without racing. *)
+let boundary_state =
+  Stdlib.Domain.DLS.new_key (fun () -> Stdlib.Random.State.make_self_init ())
+;;
 
 let generate_boundary () =
   let chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" in
-  let state = Lazy.force boundary_state in
+  let state = Stdlib.Domain.DLS.get boundary_state in
   let len = 24 in
   let buf = Bytes.create len in
   for i = 0 to len - 1 do
-    let idx = Random.State.int state (String.length chars) in
+    let idx = Stdlib.Random.State.int state (String.length chars) in
     Bytes.set buf i (String.get chars idx)
   done;
   Bytes.to_string buf

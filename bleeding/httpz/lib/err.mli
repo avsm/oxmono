@@ -19,7 +19,8 @@ type status = Buf_read.status =
   | Missing_host_header
   | Unsupported_transfer_encoding
 
-(** [Parse_error status] is the exception that aborts parsing with [status]. *)
+(** [Parse_error status] is the exception that aborts parsing with [status].
+    {!Parser.Parse_error} rebinds this same exception, so one handler catches both. *)
 exception Parse_error of status
 
 (** [fail status] is the operation that raises [Parse_error status]. *)

@@ -13,7 +13,8 @@ let read_headers reader =
 
 let reply flow ?(status = "200 OK") ?(extra = "") body =
   Eio.Flow.copy_string
-    (Fmt.str "HTTP/1.1 %s\r\n%sContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+    (Fmt.str
+       "HTTP/1.1 %s\r\n%sContent-Length: %d\r\nConnection: close\r\n\r\n%s"
        status extra (String.length body) body)
     flow
 
@@ -22,7 +23,8 @@ let credential_redirect_target = ref None
 
 let trickle flow ~status ~extra =
   Eio.Flow.copy_string
-    (Fmt.str "HTTP/1.1 %s\r\n%sContent-Length: 1000000\r\nConnection: close\r\n\r\n"
+    (Fmt.str
+       "HTTP/1.1 %s\r\n%sContent-Length: 1000000\r\nConnection: close\r\n\r\n"
        status extra)
     flow;
   while true do
@@ -47,10 +49,12 @@ let serve_origin ~active flow _ =
         List.find_map
           (fun line ->
             match String.index_opt line ':' with
-            | Some i when String.equal name
-                (String.lowercase_ascii (String.sub line 0 i)) ->
-                Some (String.trim
-                  (String.sub line (i + 1) (String.length line - i - 1)))
+            | Some i
+              when String.equal name
+                     (String.lowercase_ascii (String.sub line 0 i)) ->
+                Some
+                  (String.trim
+                     (String.sub line (i + 1) (String.length line - i - 1)))
             | _ -> None)
           headers
       in
@@ -67,13 +71,22 @@ let serve_origin ~active flow _ =
       else reply flow "retried"
   | [ _; "/head-delay"; _ ] ->
       Eio.Flow.copy_string
-        "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\n"
-        flow;
+        "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\n" flow;
       Eio_unix.sleep 0.1;
       Eio.Flow.copy_string "x" flow
-  | [ _; "/interim-delay"; _ ] ->
+  | [ _; "/chunked-stream"; _ ] ->
       Eio.Flow.copy_string
-        "HTTP/1.1 103 Early Hints\r\nLink: </a>\r\n\r\n" flow;
+        "HTTP/1.1 200 OK\r\n\
+         Transfer-Encoding: chunked\r\n\
+         Connection: close\r\n\
+         \r\n"
+        flow;
+      Eio_unix.sleep 0.02;
+      Eio.Flow.copy_string "5\r\nhello\r\n" flow;
+      Eio_unix.sleep 0.05;
+      Eio.Flow.copy_string "0\r\n\r\n" flow
+  | [ _; "/interim-delay"; _ ] ->
+      Eio.Flow.copy_string "HTTP/1.1 103 Early Hints\r\nLink: </a>\r\n\r\n" flow;
       Eio_unix.sleep 0.02;
       reply flow "final"
   | _ -> reply flow "origin"
@@ -94,7 +107,9 @@ let listen env sw handler =
   port
 
 let certificate () =
-  let key = X509.Private_key.generate ~seed:"fetch curl transport test" ~bits:2048 `RSA in
+  let key =
+    X509.Private_key.generate ~seed:"fetch curl transport test" ~bits:2048 `RSA
+  in
   let open X509.Distinguished_name in
   let subject = [ Relative_distinguished_name.singleton (CN "localhost") ] in
   let csr = X509.Signing_request.create subject key |> get in
@@ -116,18 +131,21 @@ let certificate () =
       ~serial:"\x01" ~extensions key subject
     |> Result.get_ok
   in
-  cert, key
+  (cert, key)
 
 let tls_handler env active =
   let cert, key = certificate () in
   let config =
-    Tls.Config.server ~certificates:(`Single ([ cert ], key))
-      ~alpn_protocols:[ "http/1.1" ] () |> get
+    Tls.Config.server
+      ~certificates:(`Single ([ cert ], key))
+      ~alpn_protocols:[ "http/1.1" ] ()
+    |> get
   in
   fun raw addr ->
     let flow = Httpz_tls.server config (raw :> Httpz_tls.flow) in
     Fun.protect
-      ~finally:(fun () -> Httpz_tls.close ~clock:(Eio.Stdenv.mono_clock env) flow)
+      ~finally:(fun () ->
+        Httpz_tls.close ~clock:(Eio.Stdenv.mono_clock env) flow)
       (fun () -> serve_origin ~active flow addr)
 
 let proxy_handler env ~hits flow _ =
@@ -139,7 +157,9 @@ let proxy_handler env ~hits flow _ =
   | [ "CONNECT"; authority; _ ] ->
       let port =
         match String.rindex_opt authority ':' with
-        | Some i -> int_of_string (String.sub authority (i + 1) (String.length authority - i - 1))
+        | Some i ->
+            int_of_string
+              (String.sub authority (i + 1) (String.length authority - i - 1))
         | None -> failwith "CONNECT without port"
       in
       Switch.run @@ fun sw ->
@@ -175,10 +195,14 @@ let test_proxy_ignores_environment () =
       Unix.putenv name value;
       let before = !proxy_hits in
       let client = Fetch_curl.v ~sw ~proxy ~tls_verify:false () in
-      Alcotest.(check string) (name ^ " http") "proxy" (Fetch.read client (http ^ "/"));
-      Alcotest.(check string) (name ^ " https") "origin" (Fetch.read client (https ^ "/"));
+      Alcotest.(check string)
+        (name ^ " http") "proxy"
+        (Fetch.read client (http ^ "/"));
+      Alcotest.(check string)
+        (name ^ " https") "origin"
+        (Fetch.read client (https ^ "/"));
       Alcotest.(check int) (name ^ " used proxy twice") (before + 2) !proxy_hits)
-    [ "NO_PROXY", "*"; "no_proxy", "localhost" ];
+    [ ("NO_PROXY", "*"); ("no_proxy", "localhost") ];
   Unix.putenv "NO_PROXY" "";
   Unix.putenv "no_proxy" "";
   Unix.putenv "HTTP_PROXY" proxy;
@@ -189,8 +213,11 @@ let test_proxy_ignores_environment () =
   Unix.putenv "all_proxy" proxy;
   let before = !proxy_hits in
   let direct = Fetch_curl.v ~sw ~tls_verify:false () in
-  Alcotest.(check string) "default client is direct" "origin" (Fetch.read direct (http ^ "/"));
-  Alcotest.(check string) "default HTTPS client is direct" "origin"
+  Alcotest.(check string)
+    "default client is direct" "origin"
+    (Fetch.read direct (http ^ "/"));
+  Alcotest.(check string)
+    "default HTTPS client is direct" "origin"
     (Fetch.read direct (https ^ "/"));
   Alcotest.(check int) "ambient proxy unused" before !proxy_hits
 
@@ -205,21 +232,25 @@ let test_close_redirect_and_credentials () =
          Fetch.Credential.[ Header ("X-SECOND", fun _ -> "second-secret") ]
   in
   let caller =
-    Fetch.Header.[ raw "x-api-key" "CALLER"; raw "X-API-KEY" "COPY";
-                   raw "x-second" "CALLER2" ]
+    Fetch.Header.
+      [
+        raw "x-api-key" "CALLER";
+        raw "X-API-KEY" "COPY";
+        raw "x-second" "CALLER2";
+      ]
   in
   let read_with_caller url =
     Fetch.with_response ~headers:caller client `GET url (fun response ->
-      Eio.Buf_read.(parse_exn ~max_size:1024 take_all) (Fetch.body response))
+        Eio.Buf_read.(parse_exn ~max_size:1024 take_all) (Fetch.body response))
   in
-  Alcotest.(check string) "credential survives same-origin redirect"
-    "transport-secret|second-secret"
+  Alcotest.(check string)
+    "credential survives same-origin redirect" "transport-secret|second-secret"
     (read_with_caller (http ^ "/redirect"));
   let other_port = listen env sw (serve_origin ~active) in
   credential_redirect_target :=
     Some (Fmt.str "http://localhost:%d/who" other_port);
-  Alcotest.(check string) "caller credential is stripped cross-origin"
-    "none|none"
+  Alcotest.(check string)
+    "caller credential is stripped cross-origin" "none|none"
     (read_with_caller (http ^ "/credential-cross"));
   Eio.Switch.run @@ fun request_sw ->
   let response = Fetch.get ~sw:request_sw client (http ^ "/stalled") in
@@ -239,14 +270,18 @@ let test_retry_releases_each_exchange () =
   with_fixture @@ fun env sw ~active ~proxy_hits:_ ~http ~https:_ ~proxy:_ ->
   retry_attempts := 0;
   let config =
-    Fetch.Retry.v ~max_retries:3 ~backoff_factor:0. ~jitter:false ()
+    Fetch.Retry.v ~max_retries:3 ~backoff_factor:(Duration.of_sec 0)
+      ~jitter:false ()
   in
   let client =
     Fetch_curl.v ~sw ~max_total_connections:1 ()
-    |> Fetch.with_retry ~clock:(Eio.Stdenv.mono_clock env)
-         ~random:(Eio.Flow.string_source "") ~config
+    |> Fetch.with_retry
+         ~clock:(Eio.Stdenv.mono_clock env)
+         ~random:(Eio.Flow.string_source "")
+         ~config
   in
-  Alcotest.(check string) "eventual response" "retried"
+  Alcotest.(check string)
+    "eventual response" "retried"
     (Fetch.read client (http ^ "/retry"));
   Alcotest.(check int) "all attempts" 4 !retry_attempts;
   Eio.Time.sleep (Eio.Stdenv.clock env) 0.01;
@@ -259,7 +294,9 @@ let test_final_head_boundary () =
   let result =
     Fiber.first
       (fun () -> Some (Fetch.get ~sw:request_sw client (http ^ "/head-delay")))
-      (fun () -> Eio.Time.sleep (Eio.Stdenv.clock env) 0.03; None)
+      (fun () ->
+        Eio.Time.sleep (Eio.Stdenv.clock env) 0.03;
+        None)
   in
   let response =
     match result with
@@ -270,6 +307,80 @@ let test_final_head_boundary () =
   Fetch.close response;
   let interim = Fetch.read client (http ^ "/interim-delay") in
   Alcotest.(check string) "interim block skipped" "final" interim
+
+let port_of url =
+  match String.rindex_opt url ':' with
+  | Some i -> int_of_string (String.sub url (i + 1) (String.length url - i - 1))
+  | None -> Alcotest.fail "fixture URL has no port"
+
+(* The fixture listens on IPv4 loopback only, so the request reaches it only
+   if libcurl accepted the resolve entry for the bracketed IPv6 host. *)
+let test_ipv6_resolve_entry () =
+  with_fixture @@ fun _env sw ~active:_ ~proxy_hits:_ ~http ~https:_ ~proxy:_ ->
+  let port = port_of http in
+  let client = Fetch_curl.v ~sw ~resolve:[ ("::1", port, "127.0.0.1") ] () in
+  Alcotest.(check string)
+    "IPv6 resolve host maps the connection" "origin"
+    (Fetch.read client (Fmt.str "http://[::1]:%d/" port))
+
+let test_domain_guard () =
+  with_fixture @@ fun env sw ~active:_ ~proxy_hits:_ ~http ~https:_ ~proxy:_ ->
+  let domain_mgr = Eio.Stdenv.domain_mgr env in
+  let client = Fetch_curl.v ~sw () in
+  Eio.Switch.run @@ fun request_sw ->
+  (* [/head-delay] leaves the transfer in flight while the guards are tried,
+     so a guard that released the exchange would be observable below. *)
+  let response = Fetch.get ~sw:request_sw client (http ^ "/head-delay") in
+  let foreign f =
+    (* Deliberately cross the static boundary to test the runtime domain guard. *)
+    let f = Obj.magic_portable f in
+    Eio.Domain_manager.run domain_mgr (fun () ->
+        match f () with
+        | () -> None
+        | exception Invalid_argument message -> Some message
+        | exception ex -> Some (Printexc.to_string ex))
+  in
+  let mentions_domain message =
+    let affix = "domain" in
+    let n = String.length affix in
+    let rec at i =
+      i + n <= String.length message
+      && (String.equal (String.sub message i n) affix || at (i + 1))
+    in
+    at 0
+  in
+  let rejected what = function
+    | Some message ->
+        Alcotest.(check bool)
+          (what ^ " names the domain rule")
+          true (mentions_domain message)
+    | None -> Alcotest.fail (what ^ " was accepted from another domain")
+  in
+  rejected "foreign-domain read"
+    (foreign (fun () ->
+         let buf = Cstruct.create 8 in
+         ignore (Eio.Flow.single_read (Fetch.body response) buf : int)));
+  Alcotest.(check string)
+    "rejected read left the exchange intact" "x"
+    (Eio.Buf_read.(parse_exn ~max_size:16 take_all) (Fetch.body response));
+  rejected "foreign-domain close" (foreign (fun () -> Fetch.close response));
+  Fetch.close response
+
+let test_chunked_stream () =
+  with_fixture @@ fun env sw ~active:_ ~proxy_hits:_ ~http ~https:_ ~proxy:_ ->
+  let client = Fetch_curl.v ~sw () in
+  Eio.Switch.run @@ fun request_sw ->
+  let response = Fetch.get ~sw:request_sw client (http ^ "/chunked-stream") in
+  let body =
+    Fiber.first
+      (fun () ->
+        Some
+          (Eio.Buf_read.(parse_exn ~max_size:64 take_all) (Fetch.body response)))
+      (fun () ->
+        Eio.Time.sleep (Eio.Stdenv.clock env) 1.;
+        None)
+  in
+  Alcotest.(check (option string)) "chunked body drains" (Some "hello") body
 
 let unused_port () =
   let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
@@ -287,18 +398,22 @@ let with_h2 ?max_response mode fn =
   Switch.run @@ fun sw ->
   let port = unused_port () in
   let script =
-    let source = Filename.concat (Sys.getcwd ()) "fetch/curl/tests/h2_fixture.py" in
+    let source =
+      Filename.concat (Sys.getcwd ()) "fetch/curl/tests/h2_fixture.py"
+    in
     if Sys.file_exists source then source
     else Filename.concat (Filename.dirname Sys.executable_name) "h2_fixture.py"
   in
   ignore
-    (Eio.Process.spawn ~sw (Eio.Stdenv.process_mgr env)
-       [ "python3"; script; string_of_int port; mode ] : _ Eio.Process.t);
+    (Eio.Process.spawn ~sw
+       (Eio.Stdenv.process_mgr env)
+       [ "python3"; script; string_of_int port; mode ]
+      : _ Eio.Process.t);
   Eio.Time.sleep (Eio.Stdenv.clock env) 0.3;
   let client =
-    Fetch_curl.v ~sw ~tls_verify:false ~http_version:`Auto
-      ?max_response
-      ~resolve:[ "localhost", port, "127.0.0.1" ] ()
+    Fetch_curl.v ~sw ~tls_verify:false ~http_version:`Auto ?max_response
+      ~resolve:[ ("localhost", port, "127.0.0.1") ]
+      ()
   in
   fn client (Fmt.str "https://localhost:%d/" port)
 
@@ -307,73 +422,88 @@ let test_h2_trailers () =
     with_h2 mode @@ fun client url ->
     Eio.Switch.run @@ fun sw ->
     let response = Fetch.get ~sw client url in
-    Alcotest.(check bool) (mode ^ " negotiated HTTP/2") true
+    Alcotest.(check bool)
+      (mode ^ " negotiated HTTP/2")
+      true
       (Fetch.version response = `HTTP_2);
-    Alcotest.(check string) (mode ^ " body") expected_body
+    Alcotest.(check string)
+      (mode ^ " body") expected_body
       (Eio.Buf_read.(parse_exn ~max_size:8 take_all) (body response));
-    Alcotest.(check (option string)) (mode ^ " trailer") expected
+    Alcotest.(check (option string))
+      (mode ^ " trailer") expected
       (Option.bind (Fetch.trailers response) (fun h -> Http.Header.get h field))
   in
   check "allowed" "a" "x-checksum" (Some "ok");
-  check "forbidden" "a" "set-cookie" None;
+  check "forbidden" "a" "set-cookie" (Some "sid=trailer");
   check "empty" "" "x-checksum" (Some "ok")
 
-let test_h2_trailer_budget () =
-  with_h2 ~max_response:17 "allowed" @@ fun client url ->
-  Alcotest.(check string) "exact body plus trailer boundary accepted" "a"
-    (Fetch.read client url);
-  with_h2 ~max_response:16 "allowed" @@ fun client url ->
-  (* One byte less than the fixture's body-plus-trailer wire budget. *)
+let test_h2_body_budget () =
+  with_h2 ~max_response:1 "allowed" @@ fun client url ->
+  Alcotest.(check string)
+    "body at limit with trailers accepted" "a" (Fetch.read client url);
+  with_h2 ~max_response:0 "allowed" @@ fun client url ->
   let rejected =
     try
       ignore (Fetch.read client url : string);
       false
     with Eio.Io (E (Protocol_error _), _) -> true
   in
-  Alcotest.(check bool) "one byte over HTTP/2 trailer budget rejected" true
-    rejected
+  Alcotest.(check bool) "body over limit rejected" true rejected
 
 let test_h2_multiplex_cancellation () =
   with_h2 "multiplex" @@ fun client url ->
   let first_cancelled = ref None and second = ref None in
   Fiber.both
     (fun () ->
-       first_cancelled := Some (
-         Fetch.with_response client `GET url @@ fun response ->
-         Alcotest.(check bool) "first stream is HTTP/2" true
-           (Fetch.version response = `HTTP_2);
-         let result =
-           Fiber.first
-             (fun () ->
-                Eio.Buf_read.(parse_exn ~max_size:8 take_all)
-                  (Fetch.body response))
-             (fun () -> Eio_unix.sleep 0.05; "cancelled")
-         in
-         Alcotest.(check (option string)) "cancelled stream has no trailers"
-           None (Option.map (fun _ -> "present") (Fetch.trailers response));
-         result))
+      first_cancelled :=
+        Some
+          ( Fetch.with_response client `GET url @@ fun response ->
+            Alcotest.(check bool)
+              "first stream is HTTP/2" true
+              (Fetch.version response = `HTTP_2);
+            let result =
+              Fiber.first
+                (fun () ->
+                  Eio.Buf_read.(parse_exn ~max_size:8 take_all)
+                    (Fetch.body response))
+                (fun () ->
+                  Eio_unix.sleep 0.05;
+                  "cancelled")
+            in
+            Alcotest.(check (option string))
+              "cancelled stream has no trailers" None
+              (Option.map (fun _ -> "present") (Fetch.trailers response));
+            result ))
     (fun () ->
-       Eio_unix.sleep 0.01;
-       second := Some (Fetch.read client url));
-  Alcotest.(check (option string)) "first body read cancelled"
-    (Some "cancelled") !first_cancelled;
-  Alcotest.(check (option string)) "second multiplexed stream survives reset"
-    (Some "bc") !second
+      Eio_unix.sleep 0.01;
+      second := Some (Fetch.read client url));
+  Alcotest.(check (option string))
+    "first body read cancelled" (Some "cancelled") !first_cancelled;
+  Alcotest.(check (option string))
+    "second multiplexed stream survives reset" (Some "bc") !second
 
 let () =
   Mirage_crypto_rng_unix.use_default ();
   Alcotest.run "fetch-curl transport"
-    [ "transport",
-      [ Alcotest.test_case "explicit proxy ignores environment" `Quick
-          test_proxy_ignores_environment;
-        Alcotest.test_case "close, redirect and credentials" `Quick
-          test_close_redirect_and_credentials;
-        Alcotest.test_case "retry releases stalled exchanges" `Quick
-          test_retry_releases_each_exchange;
-        Alcotest.test_case "response completes at final head" `Quick
-          test_final_head_boundary;
-        Alcotest.test_case "HTTP/2 trailer policy" `Quick test_h2_trailers;
-        Alcotest.test_case "HTTP/2 trailer budget" `Quick
-          test_h2_trailer_budget;
-        Alcotest.test_case "HTTP/2 multiplex cancellation" `Quick
-          test_h2_multiplex_cancellation ] ]
+    [
+      ( "transport",
+        [
+          Alcotest.test_case "explicit proxy ignores environment" `Quick
+            test_proxy_ignores_environment;
+          Alcotest.test_case "close, redirect and credentials" `Quick
+            test_close_redirect_and_credentials;
+          Alcotest.test_case "retry releases stalled exchanges" `Quick
+            test_retry_releases_each_exchange;
+          Alcotest.test_case "response completes at final head" `Quick
+            test_final_head_boundary;
+          Alcotest.test_case "chunked response stream" `Quick
+            test_chunked_stream;
+          Alcotest.test_case "IPv6 resolve entry" `Quick test_ipv6_resolve_entry;
+          Alcotest.test_case "domain guard on body and close" `Quick
+            test_domain_guard;
+          Alcotest.test_case "HTTP/2 trailer policy" `Quick test_h2_trailers;
+          Alcotest.test_case "HTTP/2 body budget" `Quick test_h2_body_budget;
+          Alcotest.test_case "HTTP/2 multiplex cancellation" `Quick
+            test_h2_multiplex_cancellation;
+        ] );
+    ]

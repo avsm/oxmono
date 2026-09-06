@@ -507,3 +507,24 @@ Rule 6 (!pref.hokkaido.jp): pref.hokkaido.jp is registrable (exception)
 
   $ httpz-pubsuffix is_suffix "pref.hokkaido.jp"
   false
+
+Doubled Dot Tests
+-----------------
+
+A trailing dot is stripped once and restored by the IDNA conversion, so a
+doubled dot used to leave an empty final label that the lookup treated as a
+real one:
+
+  $ httpz-pubsuffix suffix "a.b.."
+  ERROR: Invalid domain: empty label
+  [2]
+
+  $ httpz-pubsuffix registrable "example.com.."
+  ERROR: Invalid domain: empty label
+  [2]
+
+An interior empty label is rejected during conversion:
+
+  $ httpz-pubsuffix registrable "a..b"
+  ERROR: Punycode conversion error: invalid label: empty label
+  [2]

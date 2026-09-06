@@ -46,7 +46,7 @@ val std :
   ?cookies:[ `Memory | `File of Eio.Fs.dir_ty Eio.Path.t | `Off ] ->
   ?retry:Fetch.Retry.config ->
   ?max_concurrent:int ->
-  ?min_interval:float ->
+  ?min_interval:Fetch.Duration.t ->
   < clock : _ Eio.Time.clock
   ; mono_clock : _ Eio.Time.Mono.t
   ; secure_random : _ Eio.Flow.source
@@ -80,7 +80,7 @@ val std :
     @param retry retry policy (default {!Fetch.Retry.default}).
     @param max_concurrent requests in flight per origin (default 6, as
       a browser does).
-    @param min_interval minimum seconds between request starts per
+    @param min_interval minimum duration between request starts per
       origin. Unset by default.
 
     @raise Invalid_argument as {!select}. *)
@@ -93,7 +93,7 @@ val std_ro :
   ?cookies:[ `Memory | `File of Eio.Fs.dir_ty Eio.Path.t | `Off ] ->
   ?retry:Fetch.Retry.config ->
   ?max_concurrent:int ->
-  ?min_interval:float ->
+  ?min_interval:Fetch.Duration.t ->
   < clock : _ Eio.Time.clock
   ; mono_clock : _ Eio.Time.Mono.t
   ; secure_random : _ Eio.Flow.source

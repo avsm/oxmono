@@ -165,6 +165,8 @@ let v ?request_timeout ?resource_timeout ?max_connections_per_host
     ?waits_for_connectivity ?min_tls
     ?(max_response = 256 * 1024 * 1024) ?(user_agent = default_user_agent)
     ?(decode = true) () : t =
+  let request_timeout = Option.map Duration.to_f request_timeout in
+  let resource_timeout = Option.map Duration.to_f resource_timeout in
   let session =
     Nssessionurl.Session.create ~ephemeral:true ?request_timeout
       ?resource_timeout ?max_connections_per_host ?allows_cellular

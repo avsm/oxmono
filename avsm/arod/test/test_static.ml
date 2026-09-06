@@ -19,8 +19,7 @@ let () =
     (Proffer.Static.confine [ "a"; "b.png" ] = Some "a/b.png");
   check "a single segment is allowed"
     (Proffer.Static.confine [ "paper.pdf" ] = Some "paper.pdf");
-  check "no segments is the directory itself"
-    (Proffer.Static.confine [] = Some "");
+  refused "an empty path has no file name" [];
   refused "a parent segment is refused" [ ".."; "etc"; "passwd" ];
   refused "a parent segment in the middle is refused" [ "a"; ".."; ".."; "b" ];
   refused "a trailing parent segment is refused" [ "a"; ".." ];

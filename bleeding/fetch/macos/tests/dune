@@ -17,5 +17,5 @@
  (name test_exchange)
  (modules test_exchange exchange)
  (package fetch-macos)
- (libraries eio_main)
+ (libraries eio eio_main)
  (action (run timeout 10s %{exe:test_exchange.exe})))

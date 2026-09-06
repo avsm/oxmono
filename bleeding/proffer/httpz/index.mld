@@ -1,0 +1,5 @@
+{0 HTTP/1.1 server}
+
+An Eio HTTP/1.1 server for Proffer routes. {!Proffer_httpz.run} serves a site, with configurable connection limits and timeouts. TLS is available through {!Proffer_httpz.type-tls}.
+
+{!modules:Proffer_httpz}

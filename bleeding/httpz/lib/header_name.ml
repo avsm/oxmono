@@ -127,6 +127,13 @@ let canonical = function
   | Other -> "(unknown)"
 ;;
 
+(* Every constructor is constant, so a value of [t] is an immediate and physical
+   equality is structural equality. *)
+let[@inline] equal (a : t) (b : t) = a == b
+
+(* The length window is the shortest and longest canonical spelling above. A name
+   outside it cannot match any constructor, so a new constructor shorter than 2 or
+   longer than 28 bytes must widen this guard or it will never be recognized. *)
 let of_span (local_ (buf : bytes)) (sp : Span.t) : t =
   let n = Span.len sp in
   if n < 2 || n > 28

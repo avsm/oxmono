@@ -1,4 +1,5 @@
 module H = Httpz.Header_name
+module Char_u = Stdlib_stable.Char_u
 
 type name = H.t
 
@@ -151,7 +152,12 @@ let[@zero_alloc] rec combined_write (t : t @ local) name
     else combined_write rest name b pos first
 ;;
 
-let[@zero_alloc] combined (t : t @ local) name = exclave_
+let[@zero_alloc] combined (t : t @ local) (name : name) = exclave_
+  match name with
+  (* [H.Other] is one constructor for every unrecognised name, so combining on it
+     would join fields that share nothing but being unrecognised. *)
+  | H.Other -> None
+  | _ ->
   let #(count, size) = combined_size t name 0 0 in
   if count = 0
   then None
@@ -184,7 +190,7 @@ let[@zero_alloc] rec without (t : t @ local) (name : name) = exclave_
 (* Vary is rewritten rather than appended to, so a response that already names a field
    keeps one Vary listing both rather than two fields. *)
 
-let[@zero_alloc] is_ows c = Char.equal c ' ' || Char.equal c '\t'
+let[@zero_alloc] is_ows c = Httpz.Buf_read.is_space (Char_u.of_char c)
 
 let[@zero_alloc] rec skip_ows (v : string @ local) i j =
   if i < j && is_ows (String.unsafe_get v i) then skip_ows v (i + 1) j else i
@@ -232,14 +238,19 @@ let[@zero_alloc] rec vary_has (t : t @ local) (name : string @ local) =
 let[@zero_alloc] rec vary_len (t : t @ local) acc =
   match t with
   | [] -> acc
-  | f :: tl -> vary_len tl (if same_name f.name H.Vary then acc + String.length f.value + 2 else acc)
+  | f :: tl ->
+    vary_len
+      tl
+      (if same_name f.name H.Vary && String.length f.value > 0
+       then acc + String.length f.value + 2
+       else acc)
 ;;
 
 let[@zero_alloc] rec vary_write (t : t @ local) (b : bytes @ local) pos =
   match t with
   | [] -> pos
   | f :: tl ->
-    if same_name f.name H.Vary
+    if same_name f.name H.Vary && String.length f.value > 0
     then (
       let n = String.length f.value in
       Bytes.unsafe_blit_string f.value 0 b pos n;

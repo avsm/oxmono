@@ -1,4 +1,4 @@
-module Media = Httpz.Media
+module Media = Httpz_media
 
 let csv =
   Media.of_strings
@@ -198,10 +198,56 @@ let test_lines () =
   (match Media.decode_items rows "a,b\r\n\nc\n" with
    | Ok v -> Alcotest.(check (list (list string))) "decode" [ [ "a"; "b" ]; [ "c" ] ] v
    | Error e -> Alcotest.fail (Media.error_to_string e));
-  match Media.decode_items rows "a\n \nb" with
-  | Ok v -> Alcotest.(check (list (list string))) "blank skipped" [ [ "a" ]; [ "b" ] ] v
+  (match Media.decode_items rows "a\n \nb" with
+   | Ok v ->
+     Alcotest.(check (list (list string)))
+       "a line of blanks is data"
+       [ [ "a" ]; [ " " ]; [ "b" ] ]
+       v
+   | Error e -> Alcotest.fail (Media.error_to_string e));
+  match Media.decode_items rows "\n\r\na\n\n" with
+  | Ok v -> Alcotest.(check (list (list string))) "empty lines skipped" [ [ "a" ] ] v
   | Error e -> Alcotest.fail (Media.error_to_string e)
 ;;
+
+let test_accept_header_validation () =
+  let bad what value =
+    match Media.accept_header [ value ] with
+    | exception Invalid_argument _ -> ()
+    | _ -> Alcotest.failf "%s accepted" what
+  in
+  bad "CRLF" "text/plain\r\nX-Injected: y";
+  bad "control byte" "text/plain\000";
+  bad "not a media type" "nonsense";
+  bad "parameters" "text/plain; charset=utf-8";
+  bad "surrounding space" " text/plain";
+  check_str "ranges are preferences" "text/*, */*;q=0.9"
+    (Media.accept_header [ "text/*"; "*/*" ]);
+  check_str "case is folded" "text/plain" (Media.accept_header [ "TEXT/Plain" ])
+
+let test_parameter_bytes () =
+  let j = Media.of_strings "application/json" ~encode:Fun.id ~decode:Result.ok in
+  check_bool "a control byte in a parameter is ignored" true
+    (Media.accepts j (Some "application/json; x=\"\000\""));
+  Alcotest.(check int) "specificity ignores parameters" 2
+    (Media.Syntax.specificity ~range:"application/json" ~pos:0 ~len:16
+       "application/json; x=\"\000\"");
+  Alcotest.(check int) "a control byte in the type is rejected" (-1)
+    (Media.Syntax.specificity ~range:"application/json" ~pos:0 ~len:16
+       "application/js\000on")
+
+let test_sse_fragments () =
+  let out = Buffer.create 64 in
+  let sink s =
+    if String.length s = 0 then Alcotest.fail "a zero-length fragment was written";
+    Buffer.add_string out s
+  in
+  Httpz_media.Sse.comment sink "keep\nalive";
+  check_str "comment framing" ": keep\n: alive\n\n" (Buffer.contents out);
+  Buffer.clear out;
+  Httpz_media.Sse.send sink "one\r\ntwo\n";
+  check_str "event framing" "data: one\ndata: two\ndata: \n\n"
+    (Buffer.contents out)
 
 let test_errors () =
   check_str
@@ -254,6 +300,10 @@ let () =
         ; Alcotest.test_case "invalid" `Quick test_invalid
         ; Alcotest.test_case "map" `Quick test_map
         ; Alcotest.test_case "lines" `Quick test_lines
+        ; Alcotest.test_case "accept header validation" `Quick
+            test_accept_header_validation
+        ; Alcotest.test_case "parameter bytes" `Quick test_parameter_bytes
+        ; Alcotest.test_case "sse fragments" `Quick test_sse_fragments
         ; Alcotest.test_case "errors" `Quick test_errors
         ] )
     ]

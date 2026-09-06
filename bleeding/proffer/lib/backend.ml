@@ -44,7 +44,7 @@ let[@zero_alloc] request ~meth ~version ~connection_upgrade
     ~body
 ;;
 
-let text_type = "text/plain; charset=utf-8"
+let text_type = Resp.text_type
 
 (* The writer and the handler run under [run]'s guard, where a raise counts as
    an ordinary path for the checker, so those two are assumed clean on every
@@ -79,22 +79,20 @@ let[@zero_alloc] meth_matches meth route_meth =
   Method.equal route_meth meth
   || (Method.equal meth M.Head && Method.equal route_meth M.Get)
 
+(* The method is tested first because [Route.run] decodes and allocates one
+   string per captured segment, which a method mismatch would then discard. *)
 let[@zero_alloc] rec find_handler routes meth (path : string @ local) = exclave_
   match routes with
   | [] -> Null
-  | r :: rest -> (
-      match match_route r path with
-      | This h when meth_matches meth (Route.meth r) -> This h
-      | _ -> find_handler rest meth path)
+  | r :: rest ->
+      if meth_matches meth (Route.meth r) then
+        match match_route r path with
+        | This h -> This h
+        | Null -> find_handler rest meth path
+      else find_handler rest meth path
 
-let[@zero_alloc] is_ows c = Char.equal c ' ' || Char.equal c '\t'
-
-let[@zero_alloc] rec skip_ows (v : string @ local) i j =
-  if i < j && is_ows (String.unsafe_get v i) then skip_ows v (i + 1) j else i
-
-let[@zero_alloc] rec trim_ows (v : string @ local) i j =
-  if j > i && is_ows (String.unsafe_get v (j - 1)) then trim_ows v i (j - 1)
-  else j
+let[@zero_alloc] skip_ows (v : string @ local) i j = Headers.skip_ows v i j
+let[@zero_alloc] trim_ows (v : string @ local) i j = Headers.trim_ows v i j
 
 let[@zero_alloc] rec same_bytes (a : string @ local) i (b : string @ local) j n =
   n = 0
@@ -122,6 +120,14 @@ let[@zero_alloc] imf_date ~has_now (now : float#) (t : Headers.t @ local) name
       let #(valid, parsed) = Date.parse_imf ~has_now now v in
       #(valid, parsed)
 
+(* [Httpz.Etag.parse_match_header] parses the same grammar, but over a [bytes]
+   window addressed by [Span.t], which is a 16-bit offset pair sized for the
+   parser's bounded head buffer rather than for a field value a backend author
+   may hand [Backend.request] at any length. It also caps a field at
+   [Etag.max_tags] and rejects the whole field beyond that, and refuses [*] in
+   a list where the condition below accepts it. Both are policy changes, not a
+   refactor, so the string matcher stays here. *)
+
 (* Strong comparison, as RFC 9110 section 8.8.3.2 defines it for If-Match. A
    weak tag on either side never matches. Weak comparison ignores strength. *)
 let[@zero_alloc] item_matches (v : string @ local) i j ~strong
@@ -141,27 +147,33 @@ let[@zero_alloc] item_matches (v : string @ local) i j ~strong
   let opaque = Etag.opaque etag in
   String.length opaque = n - 2 && same_bytes opaque 0 v (i + 1) (n - 2)
 
-(* An entity-tag may contain a comma inside its quotes, so items are split on
-   commas outside them. *)
-let[@zero_alloc] rec any_item (v : string @ local) ~strong (etag : Etag.t @ local)
+(* Wildcards and entity-tags share the quote-aware field scan. *)
+let[@zero_alloc] condition_item (v : string @ local) first limit ~strong
+    (etag : Etag.t option @ local) =
+  (limit - first = 1 && String.unsafe_get v first = '*')
+  || match etag with
+     | Some etag -> item_matches v first limit ~strong etag
+     | None -> false
+
+let[@zero_alloc] rec any_item (v : string @ local) ~strong (etag : Etag.t option @ local)
     ~start ~i ~quoted =
   let n = String.length v in
   if i = n then
     let a = skip_ows v start n in
-    item_matches v a (trim_ows v a n) ~strong etag
+    condition_item v a (trim_ows v a n) ~strong etag
   else
     let c = String.unsafe_get v i in
     if Char.equal c '"' then
       any_item v ~strong etag ~start ~i:(i + 1) ~quoted:(not quoted)
     else if Char.equal c ',' && not quoted then
       (let a = skip_ows v start i in
-       item_matches v a (trim_ows v a i) ~strong etag)
+       condition_item v a (trim_ows v a i) ~strong etag)
       || any_item v ~strong etag ~start:(i + 1) ~i:(i + 1) ~quoted:false
     else any_item v ~strong etag ~start ~i:(i + 1) ~quoted
 
 (* An entity-tag condition is a list, so repeated fields combine. *)
 let[@zero_alloc] rec any_field (t : Headers.t @ local) name ~strong
-    (etag : Etag.t @ local) =
+    (etag : Etag.t option @ local) =
   match t with
   | [] -> false
   | f :: tl ->
@@ -169,45 +181,9 @@ let[@zero_alloc] rec any_field (t : Headers.t @ local) name ~strong
       && any_item f.Headers.value ~strong etag ~start:0 ~i:0 ~quoted:false
       || any_field tl name ~strong etag
 
-let[@zero_alloc] is_star (v : string @ local) =
-  let n = String.length v in
-  let a = skip_ows v 0 n in
-  let b = trim_ows v a n in
-  b - a = 1 && Char.equal (String.unsafe_get v a) '*'
-
-let[@zero_alloc] is_star_range (v : string @ local) a b =
-  let a = skip_ows v a b in
-  let b = trim_ows v a b in
-  b - a = 1 && Char.equal (String.unsafe_get v a) '*'
-
-let[@zero_alloc] rec any_star_item (v : string @ local) ~start ~i ~quoted =
-  let n = String.length v in
-  if i = n then
-    is_star_range v start n
-  else
-    let c = String.unsafe_get v i in
-    if Char.equal c '"' then
-      any_star_item v ~start ~i:(i + 1) ~quoted:(not quoted)
-    else if Char.equal c ',' && not quoted then
-      is_star_range v start i
-      || any_star_item v ~start:(i + 1) ~i:(i + 1) ~quoted:false
-    else any_star_item v ~start ~i:(i + 1) ~quoted
-
-let[@zero_alloc] rec any_star_field (t : Headers.t @ local) name =
-  match t with
-  | [] -> false
-  | f :: rest ->
-      Headers.same_name f.Headers.name name
-      && any_star_item f.Headers.value ~start:0 ~i:0 ~quoted:false
-      || any_star_field rest name
-
-(* A 2xx response describes a current representation, so [*] matches whatever
-   the handler produced whether or not it carried an entity-tag. A tag list
-   against a response with no entity-tag matches nothing. *)
-let[@zero_alloc] condition_matches (t : Headers.t @ local) name ~strong
+let[@zero_alloc] condition_matches (headers : Headers.t @ local) name ~strong
     (etag : Etag.t option @ local) =
-  any_star_field t name
-  || match etag with Some e -> any_field t name ~strong e | None -> false
+  any_field headers name ~strong etag
 
 (* IMF-fixdate has whole-second resolution. *)
 let[@zero_alloc] not_after (a : float @ local) (b : float#) =
@@ -264,7 +240,7 @@ let[@zero_alloc] precondition ~has_now (now : float#) (req : Req.t @ local)
       if unmodified_since_failed then Failed
       else if Headers.mem headers H.If_none_match then
         if condition_matches headers H.If_none_match ~strong:false d.Resp.etag
-        then if safe then Revalidated else Failed
+        then Revalidated
         else Proceed
       else
         match d.Resp.last_modified with
@@ -344,9 +320,10 @@ let[@zero_alloc] block (d : Resp.description @ local) = exclave_
       Headers.cat headers declarations
   | _ -> headers
 
-(* A 304 carries only the metadata needed to update a stored response. The
-   name is httpz's constructor, so this is a comparison of an immediate
-   rather than a case-folding walk over a string. *)
+(* A 304 carries only the metadata needed to update a stored response, as
+   RFC 9110 section 15.4.5 requires. The name is httpz's constructor, so this
+   is a comparison of an immediate rather than a case-folding walk over a
+   string. *)
 let[@zero_alloc] is_revalidation_name (name : Headers.name @ local) =
   match name with
   | H.Etag | H.Last_modified | H.Cache_control | H.Content_location | H.Expires
@@ -364,6 +341,16 @@ let[@zero_alloc] rec revalidation (b : Headers.t @ local) = exclave_
 
 let[@zero_alloc] without_trailer (b : Headers.t @ local) = exclave_
   Headers.without b H.Trailer
+;;
+
+(* Trailers force chunked framing, so a stream that carries them declares no
+   length. HEAD reports what the GET would frame rather than what the body
+   declares, since a client acts on that length without seeing the body. *)
+let[@zero_alloc] framed_length (body : Body.t @ local) = exclave_
+  match body with
+  | Body.Stream { length; trailers; _ } ->
+      (match trailers with [] -> length | _ :: _ -> None)
+  | _ -> Body.declared_length body
 ;;
 
 let[@zero_alloc] method_not_allowed allow (respond : Resp.respond @ local) =
@@ -421,14 +408,31 @@ let[@zero_alloc] send (write : writer @ local) status
   let () = call_writer write o in
   ()
 
-(* Built once. [h_local] can raise, and a raise under [run]'s guard counts as
-   an ordinary path for the checker. *)
+(* Built once. [h] can raise, and a raise under [run]'s guard counts as an
+   ordinary path for the checker. *)
 let precondition_failed_headers = [ Headers.h H.Content_type text_type ]
 
-let[@zero_alloc] write_precondition_failed (req : Req.t @ local)
-    (write : writer @ local) =
+(* A 412 does not carry the representation, so the fields that describe it go.
+   What remains is the rest of the response's header block, which is where a
+   site decorator's fields are, so a 412 carries them as its 200 and 304 do. *)
+let[@zero_alloc] is_entity_name (name : Headers.name @ local) =
+  match name with
+  | H.Content_type | H.Content_range | H.Content_encoding | H.Content_language
+  | H.Content_location | H.Etag | H.Expires | H.Last_modified | H.Trailer ->
+      true
+  | _ -> false
+
+let[@zero_alloc] rec precondition_failed_block (b : Headers.t @ local) = exclave_
+  match b with
+  | [] -> precondition_failed_headers
+  | { Headers.name; spelling; value } :: tl ->
+      if is_entity_name name then precondition_failed_block tl
+      else { Headers.name; spelling; value } :: precondition_failed_block tl
+
+let[@zero_alloc] write_precondition_failed (block : Headers.t @ local)
+    (req : Req.t @ local) (write : writer @ local) =
   let message = "Precondition Failed\n" in
-  let headers = precondition_failed_headers in
+  let local_ headers = precondition_failed_block block in
   let local_ body =
     if Method.equal (Req.meth req) M.Head then Empty else String message
   in
@@ -444,7 +448,7 @@ let[@zero_alloc] decide ~has_now (now : float#) (req : Req.t @ local)
   let local_ b = block d in
   let last_modified = d.Resp.last_modified in
   match precondition ~has_now now req d with
-  | Failed -> write_precondition_failed req write
+  | Failed -> let () = write_precondition_failed b req write in ()
   | Revalidated ->
       let local_ headers = revalidation b in
       let () =
@@ -470,7 +474,7 @@ let[@zero_alloc] decide ~has_now (now : float#) (req : Req.t @ local)
           invalid_arg
             "Proffer.Resp: a tunnel needs a successful CONNECT response and an \
              upgrade needs status 101 and a matching HTTP/1.1 Upgrade offer"
-      | _ when (code >= 100 && code < 200) || code = 204 ->
+      | _ when code = 204 ->
         let local_ headers = without_trailer b in
         let () = send write status headers ~last_modified Empty None in
         ()
@@ -485,12 +489,10 @@ let[@zero_alloc] decide ~has_now (now : float#) (req : Req.t @ local)
         ()
       | _ when Method.equal (Req.meth req) M.Head ->
         let local_ headers = without_trailer b in
-        let local_ content_length = Body.declared_length d.Resp.body in
+        let local_ content_length = framed_length d.Resp.body in
         let () = send write status headers ~last_modified Empty content_length in
         ()
-      | _ ->
-        match d.Resp.body with
-        | Body.Empty ->
+      | Body.Empty ->
             let () = send write status b ~last_modified Empty (Some 0L) in
             ()
         | Body.String s ->
@@ -501,9 +503,7 @@ let[@zero_alloc] decide ~has_now (now : float#) (req : Req.t @ local)
             ()
         | Body.Stream { length; write = w; trailers } ->
             let local_ body = Stream { length; write = w; trailers } in
-            let local_ content_length =
-              match trailers with [] -> length | _ :: _ -> None
-            in
+            let local_ content_length = framed_length d.Resp.body in
             let () =
               send write status b ~last_modified body content_length
             in
@@ -528,8 +528,7 @@ let[@zero_alloc] decide ~has_now (now : float#) (req : Req.t @ local)
             let () =
               send write status b ~last_modified (String s) content_length
             in
-            ()
-        | Body.Handoff _ -> assert false)
+            ())
 
 (* Built once, since they are reported rather than raised. *)
 let responded_twice =
@@ -538,9 +537,8 @@ let responded_twice =
 let never_responded =
   Invalid_argument "Proffer.Backend: the handler returned without responding"
 
-(* [run ?on_error req describe write] gives [describe] a responder and writes
-   what it responds with. [handle] is this plus dispatch, and a test reaches it
-   through [proffer.mock] to exercise one response without a site. *)
+(* [handle] is [run] plus dispatch, and a test reaches [run] through
+   [proffer.mock] to exercise one response without a site. *)
 let[@zero_alloc] run_core ~on_error ~has_now (now : float#)
     (req : Req.t @ local)
     (describe : (Resp.respond @ local -> unit) @ local)
@@ -567,7 +565,7 @@ let[@zero_alloc] run_core ~on_error ~has_now (now : float#)
   (match
      if reject_conditional_write ~has_now now req then begin
        responded := true;
-       write_precondition_failed req w
+       write_precondition_failed Headers.empty req w
      end
      else call_describe describe respond
    with
@@ -604,6 +602,13 @@ let run ?on_error ?now (req : Req.t @ local)
   let () = run_core ~on_error ~has_now now req describe write in
   ()
 
+(* A repeated Content-Type is refused before routing, but through the site's
+   decorator, so the 400 carries a decorator's fields as any other response
+   does. *)
+let duplicate_content_type : 'e Route.handler =
+ fun _env (_req : Req.t @ local) (respond : Resp.respond @ local) ->
+  Resp.bad_request respond ()
+
 let[@zero_alloc] handle_core ~on_error ~has_now (now : float#) site env
     (req : Req.t @ local) (write : writer @ local) =
   let path = Req.path req in
@@ -619,16 +624,16 @@ let[@zero_alloc] handle_core ~on_error ~has_now (now : float#) site env
              then count + 1
              else count)
     in
-    if content_types (Req.headers req) 0 > 1
-    then Resp.bad_request r ()
-    else
-      let local_ h =
+    let local_ h =
+      if content_types (Req.headers req) 0 > 1
+      then duplicate_content_type
+      else (
         match find_handler (Site.routes site) (Req.meth req) path with
         | This h -> h
-        | Null -> unrouted site path
-      in
-      let () = call_decorate site path h env req r in
-      ()
+        | Null -> unrouted site path)
+    in
+    let () = call_decorate site path h env req r in
+    ()
   in
   let () = run_core ~on_error ~has_now now req describe write in
   ()

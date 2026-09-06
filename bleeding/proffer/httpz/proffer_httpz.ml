@@ -1,6 +1,3 @@
-(* HTTP/1.1 parsing, framing and writing. Shared response semantics live in
-   Proffer.Backend. *)
-
 module I16 = Stdlib_stable.Int16_u
 module I64 = Stdlib_upstream_compatible.Int64_u
 module F64 = Stdlib_upstream_compatible.Float_u
@@ -13,10 +10,10 @@ let[@inline] to_int x = I16.to_int x
 type config = {
   backlog : int;
   max_connections : int;
-  first_byte_timeout : float;
-  idle_timeout : float;
-  request_timeout : float;
-  write_timeout : float;
+  first_byte_timeout : Duration.t;
+  idle_timeout : Duration.t;
+  request_timeout : Duration.t;
+  write_timeout : Duration.t;
 }
 
 type tls = Httpz_tls.server
@@ -25,10 +22,10 @@ let default_config =
   {
     backlog = 64;
     max_connections = 512;
-    first_byte_timeout = 5.;
-    idle_timeout = 75.;
-    request_timeout = 15.;
-    write_timeout = 30.;
+    first_byte_timeout = Duration.of_sec 5;
+    idle_timeout = Duration.of_sec 75;
+    request_timeout = Duration.of_sec 15;
+    write_timeout = Duration.of_sec 30;
   }
 
 type event = {
@@ -230,12 +227,13 @@ let addr_string (addr : Eio.Net.Sockaddr.stream) =
 (* Closures erase the flow and clock type parameters from connection state. *)
 type conn = {
   now : unit -> float#;
-  read : float -> Cstruct.t -> int;
+  read : float# -> Cstruct.t -> int;
   write : Cstruct.t list -> unit;
   shutdown : unit -> unit;
   read_buf : bytes;
   read_cs : Cstruct.t;
   write_buf : bytes;
+  head_cs : Cstruct.t;
   body_cs : Cstruct.t;
   chunk_buf : bytes;
   chunk_cs : Cstruct.t;
@@ -263,27 +261,26 @@ let create_conn flow ~mono_clock ~config =
             (Mtime.span started (Eio.Time.Mono.now mono_clock))))
       #1e-9
   in
+  let write_timeout = Eio.Time.Timeout.seconds mono_clock (Duration.to_f config.write_timeout) in
   {
     now;
     read =
       (fun deadline cs ->
-        let remaining = Float.max 0. (deadline -. F64.to_float (now ())) in
+        let remaining = F64.to_float (F64.max #0. (F64.sub deadline (now ()))) in
         try
           Eio.Time.Timeout.run_exn
             (Eio.Time.Timeout.seconds mono_clock remaining) (fun () ->
               Eio.Flow.single_read flow cs)
         with Eio.Time.Timeout -> -1);
-    (* A client that stops reading would otherwise pin this fiber for as long
-       as it cares to. A timed-out write raises, which ends the connection. *)
     write =
       (fun bufs ->
-        Eio.Time.Timeout.run_exn
-          (Eio.Time.Timeout.seconds mono_clock config.write_timeout) (fun () ->
+        Eio.Time.Timeout.run_exn write_timeout (fun () ->
             Eio.Flow.write flow bufs));
     shutdown = (fun () -> Eio.Flow.shutdown flow `All);
     read_buf = Bytes.create Httpz.buffer_size;
     read_cs = Cstruct.create Httpz.buffer_size;
     write_buf = Bytes.create write_buffer_size;
+    head_cs = Cstruct.create write_buffer_size;
     body_cs = Cstruct.create body_chunk_size;
     chunk_buf = Bytes.create 32;
     chunk_cs = Cstruct.create 32;
@@ -311,15 +308,15 @@ let[@inline never][@zero_alloc assume] read_boundary conn ~deadline =
       n
   | exception End_of_file -> -2
 
-let[@zero_alloc] read_more conn ~deadline : #(read_status * int) =
-  if conn.read_len >= read_capacity then #(Read_buffer_full, 0)
+let[@zero_alloc] read_more conn ~deadline : read_status =
+  if conn.read_len >= read_capacity then Read_buffer_full
   else begin
     match read_boundary conn ~deadline with
-    | -1 -> #(Read_timeout, 0)
-    | -2 -> #(Read_eof, 0)
+    | -1 -> Read_timeout
+    | -2 -> Read_eof
     | n ->
         conn.read_len <- conn.read_len + n;
-        #(Read_ok, n)
+        Read_ok
   end
 
 let shift_buffer conn consumed =
@@ -341,9 +338,6 @@ type connection_mode =
 (* Cstruct values and the lists Eio consumes are the output-side
    representation boundary. Keeping them in these assumed functions leaves
    everything around them checked. *)
-let[@inline never][@zero_alloc assume] cstruct_of_bytes buf ~off ~len =
-  Cstruct.of_bytes buf ~off ~len
-
 let[@inline never][@zero_alloc assume] cstruct_of_string s = Cstruct.of_string s
 let[@inline never][@zero_alloc assume] cstruct_sub cs off len = Cstruct.sub cs off len
 let[@inline never][@zero_alloc assume] write_one conn a = conn.write [ a ]
@@ -369,8 +363,11 @@ let[@zero_alloc] rec write_headers buf off
       in
       write_headers buf off rest
 
-(* The final copy into a Cstruct makes the returned head independent of the
-   next response's use of [conn.write_buf]. *)
+(* The head, copied out of [conn.write_buf] into [conn.head_cs] and valid until
+   the next head or trailer section is built. That copy is what lets
+   [write_final_chunk_with_trailers] reuse [conn.write_buf] after the head has
+   reached the socket. Raises [Headers_too_large] before writing anything to
+   the socket. *)
 let[@zero_alloc] head_cstruct conn ~connection ~version ~status ~headers
     ~last_modified ~mode =
   let buf = conn.write_buf in
@@ -403,7 +400,8 @@ let[@zero_alloc] head_cstruct conn ~connection ~version ~status ~headers
           (if keep_alive then "Upgrade" else "Upgrade, close")
   in
   let off = St.write_crlf buf ~off in
-  cstruct_of_bytes buf ~off:0 ~len:(to_int off)
+  Cstruct.blit_from_bytes buf 0 conn.head_cs 0 (to_int off);
+  cstruct_sub conn.head_cs 0 (to_int off)
 
 let text_type = "text/plain; charset=utf-8"
 
@@ -423,7 +421,7 @@ let[@zero_alloc] send_error conn ~version ~status message =
    against the limit even though discarding them needs no socket read. *)
 let[@inline never][@zero_alloc assume] drain_rejected_boundary conn ~limit
     ~drained =
-  let deadline = F64.to_float (conn.now ()) +. 0.25 in
+  let deadline = F64.add (conn.now ()) #0.25 in
   let mutable drained = drained in
   let mutable reading = true in
   while reading && drained < limit do
@@ -578,7 +576,8 @@ let[@zero_alloc] write_final_chunk_with_trailers conn
       let off = St.write_chunk_header buf ~off:(i16 0) ~size:0 in
       let off = write_headers buf off trailers in
       let off = St.write_crlf buf ~off in
-      write_one conn (cstruct_of_bytes buf ~off:0 ~len:(to_int off))
+      Cstruct.blit_from_bytes buf 0 conn.head_cs 0 (to_int off);
+      write_one conn (cstruct_sub conn.head_cs 0 (to_int off))
 
 let[@zero_alloc] rec check_trailers_size
     (trailers : Proffer.Headers.t @ local) size =
@@ -602,16 +601,20 @@ let handoff_socket conn ~idle_timeout =
       n
     end
     else
-      match
-        conn.read
-          (F64.to_float (conn.now ()) +. idle_timeout)
-          (Cstruct.of_bytes b ~off ~len)
-      with
+      (* Into the connection's own cstruct and then out to [b].
+         [Cstruct.of_bytes] would allocate a fresh Bigarray and read into that,
+         leaving the caller a byte count over whatever [b] already held. *)
+      let cs = Cstruct.sub conn.read_cs 0 (min len (Cstruct.length conn.read_cs)) in
+      match conn.read (F64.add (conn.now ()) (F64.of_float idle_timeout)) cs with
       | -1 -> raise Eio.Time.Timeout
-      | n -> n
+      | n ->
+          Cstruct.blit_to_bytes cs 0 b off n;
+          n
       | exception End_of_file -> 0
   in
-  let write b off len = conn.write [ Cstruct.of_bytes b ~off ~len ] in
+  let write b off len =
+    write_bytes_range conn b ~off ~len ~before:Null ~after:Null
+  in
   Proffer.Backend.socket ~read ~write ~shutdown:conn.shutdown
 
 let[@inline never][@zero_alloc assume] call_handoff conn ~idle_timeout run =
@@ -650,8 +653,10 @@ let[@zero_alloc] write_outcome conn ~keep_alive ~chunked ~version
   | Proffer.Backend.String s ->
       let n = String.length s in
       let head = head response_connection (Known n) in
+      (* One write for the whole response rather than a slice at a time, so
+         [write_timeout] bounds the response instead of each 64 KiB window. *)
       if n = 0 then write_one conn head
-      else write_through conn s ~before:(This head) ~after:Null;
+      else write_two conn head (cstruct_of_string s);
       n
   | Proffer.Backend.Stream { length; write; trailers } ->
       let mode =
@@ -685,6 +690,28 @@ let[@zero_alloc] write_outcome conn ~keep_alive ~chunked ~version
       0
 
 let continue_line = "HTTP/1.1 100 Continue\r\n\r\n"
+
+(* [has_lf b ~from ~stop] and [head_complete b ~from ~stop] answer whether the
+   bytes that just arrived can have changed a parser's answer. Both are what
+   keep a head or a trailer section that trickles in one byte per packet from
+   costing one whole rescan per byte. *)
+let[@zero_alloc] rec has_lf_from b i stop =
+  i < stop && (Char.equal (Bytes.unsafe_get b i) '\n' || has_lf_from b (i + 1) stop)
+
+let[@zero_alloc] has_lf b ~from ~stop = has_lf_from b (max 0 from) stop
+
+(* [Httpz.parse] reports [Complete] only once the head's terminating CRLF
+   follows the CRLF of the line before it, so those four bytes are always
+   present together in the buffer. *)
+let[@zero_alloc] rec head_complete_from b i stop =
+  i + 3 < stop
+  && ((Char.equal (Bytes.unsafe_get b i) '\r'
+       && Char.equal (Bytes.unsafe_get b (i + 1)) '\n'
+       && Char.equal (Bytes.unsafe_get b (i + 2)) '\r'
+       && Char.equal (Bytes.unsafe_get b (i + 3)) '\n')
+     || head_complete_from b (i + 1) stop)
+
+let[@zero_alloc] head_complete b ~from ~stop = head_complete_from b (max 0 from) stop
 let continue_cs = Cstruct.of_string continue_line
 let[@inline never][@zero_alloc assume] write_continue conn = conn.write [ continue_cs ]
 
@@ -730,12 +757,14 @@ let[@zero_alloc] rec request_chunks conn ~deadline ~body_off decoded :
   | Httpz.Chunk.Done ->
       request_trailers conn ~deadline ~body_off ~decoded
         (to_int chunk.#data_off)
+  (* [parse_with_limit] reads the size line and then compares offsets, so
+     resuming it once per arriving byte rescans no chunk content. *)
   | Httpz.Chunk.Partial ->
       (match read_more conn ~deadline with
-      | #(Read_ok, _) -> request_chunks conn ~deadline ~body_off decoded
-      | #(Read_timeout, _) -> no_body Body_timed_out
-      | #(Read_eof, _) -> no_body Body_incomplete
-      | #(Read_buffer_full, _) -> no_body Body_too_large)
+      | Read_ok -> request_chunks conn ~deadline ~body_off decoded
+      | Read_timeout -> no_body Body_timed_out
+      | Read_eof -> no_body Body_incomplete
+      | Read_buffer_full -> no_body Body_too_large)
   | Httpz.Chunk.Malformed -> no_body Body_malformed
   | Httpz.Chunk.Chunk_too_large -> no_body Body_too_large
 
@@ -750,15 +779,25 @@ and[@zero_alloc] request_trailers conn ~deadline ~body_off ~decoded trailer_off 
   | Httpz.Chunk.Trailer_complete ->
       compact_suffix conn ~src:(to_int end_off) ~dst:decoded;
       #(Body_ready, body_off, decoded - body_off)
+  (* [parse_trailers] rescans the whole section from [trailer_off], and every
+     status it can still reach needs a line end, so bytes that close no line
+     cannot change its answer and must not pay for a rescan. *)
   | Httpz.Chunk.Trailer_partial ->
-      (match read_more conn ~deadline with
-      | #(Read_ok, _) ->
-          request_trailers conn ~deadline ~body_off ~decoded trailer_off
-      | #(Read_timeout, _) -> no_body Body_timed_out
-      | #(Read_eof, _) -> no_body Body_incomplete
-      | #(Read_buffer_full, _) -> no_body Body_too_large)
+      await_trailer_line conn ~deadline ~body_off ~decoded trailer_off
   | Httpz.Chunk.Trailer_malformed | Httpz.Chunk.Trailer_bare_cr ->
       no_body Body_malformed
+
+and[@zero_alloc] await_trailer_line conn ~deadline ~body_off ~decoded trailer_off
+    : #(body_status * int * int) =
+  let from = conn.read_len in
+  match read_more conn ~deadline with
+  | Read_ok ->
+      if has_lf conn.read_buf ~from ~stop:conn.read_len then
+        request_trailers conn ~deadline ~body_off ~decoded trailer_off
+      else await_trailer_line conn ~deadline ~body_off ~decoded trailer_off
+  | Read_timeout -> no_body Body_timed_out
+  | Read_eof -> no_body Body_incomplete
+  | Read_buffer_full -> no_body Body_too_large
 
 let[@zero_alloc] request_chunked conn ~deadline (req : Httpz.Req.t) =
   let body_off = to_int req.#body_off in
@@ -769,9 +808,9 @@ let[@zero_alloc] rec fill_body conn ~deadline ~body_off ~body_len ~body_end :
   if conn.read_len >= body_end then #(Body_ready, body_off, body_len)
   else
     match read_more conn ~deadline with
-    | #(Read_ok, _) -> fill_body conn ~deadline ~body_off ~body_len ~body_end
-    | #(Read_timeout, _) -> no_body Body_timed_out
-    | #(Read_eof, _) | #(Read_buffer_full, _) -> no_body Body_incomplete
+    | Read_ok -> fill_body conn ~deadline ~body_off ~body_len ~body_end
+    | Read_timeout -> no_body Body_timed_out
+    | Read_eof | Read_buffer_full -> no_body Body_incomplete
 
 (* An oversized body is refused from the head alone, so telling the client to
    send it first would only invite bytes that get 413 anyway. A chunked body
@@ -792,7 +831,85 @@ let[@zero_alloc] request_body conn ~deadline (req : Httpz.Req.t) =
     else (
       if req.#expect_continue then write_continue conn;
       let body_end = body_off + cl in
+      (* [body_end] is within [read_capacity], so [Read_buffer_full] cannot
+         arise here and the arm in [fill_body] is defence in depth. *)
       fill_body conn ~deadline ~body_off ~body_len:cl ~body_end)
+
+let[@zero_alloc] request_of_parsed buf (req : Httpz.Req.t)
+    ~(target : string @ local) (headers : Proffer.Headers.t @ local)
+    ~(body : string @ local) = exclave_
+  let #(path, query) =
+    if Httpz.Span.len req.#path = 0
+       && (match req.#meth with
+           | Httpz.Method.Connect -> true
+           | Httpz.Method.Options -> String.equal target "*"
+           | _ -> false)
+    then #(target, "")
+    else #((if Httpz.Span.len req.#path = 0 then "/" else own_span buf req.#path),
+           own_span buf req.#query)
+  in
+  Proffer.Backend.request ~meth:req.#meth ~version:req.#version
+    ~connection_upgrade:req.#connection_upgrade ~target ~path ~query headers ~body
+
+let write_response conn ~version ~idle_timeout
+    ~(routed_path : string @ local) ~on_event ~on_error t0 ~addr_str ~meth
+    ~(target : string @ local) (req_headers : Proffer.Headers.t @ local)
+    (outcome : Proffer.Backend.outcome @ local) =
+  let http_1_1 = version = Httpz.Version.Http_1_1 in
+  let #(needs_chunked, has_trailers) =
+    match outcome.Proffer.Backend.body with
+    | Proffer.Backend.Stream
+        { length = None; trailers = []; _ } ->
+        #(true, false)
+    | Proffer.Backend.Stream { trailers = _ :: _; _ } ->
+        #(true, true)
+    | _ -> #(false, false)
+  in
+  (* Without chunked encoding the only frame left for a body of
+     unknown length is the end of the connection. *)
+  let chunked = needs_chunked && http_1_1 in
+  let local_ emit_outcome body_size =
+    let content_type =
+      field_or_null outcome.Proffer.Backend.headers H.Content_type
+    in
+    let cache =
+      field_or_null outcome.Proffer.Backend.headers H.X_cache
+    in
+    let () =
+      emit_event conn.now on_event on_error t0 ~addr_str ~meth ~target
+        req_headers ~path:routed_path ~content_type ~cache
+        ~status:outcome.Proffer.Backend.status ~body_size
+    in
+    ()
+  in
+  if needs_chunked && not chunked then conn.keep_alive <- false;
+  match
+    if has_trailers && not http_1_1 then
+      raise Trailers_require_http_1_1
+    else
+      write_outcome conn ~keep_alive:conn.keep_alive ~chunked ~version
+        outcome
+  with
+  | body_size ->
+      emit_outcome body_size;
+      (match outcome.Proffer.Backend.body with
+       | Proffer.Backend.Handoff { run; _ } ->
+           call_handoff conn ~idle_timeout run
+       | _ -> ())
+  | exception ((Headers_too_large | Trailers_require_http_1_1) as exn) ->
+      call_error on_error exn;
+      let message = "Internal Server Error\n" in
+      reject conn ~version St.Internal_server_error message;
+      emit_event conn.now on_event on_error t0 ~addr_str ~meth ~target
+        req_headers ~path:routed_path ~content_type:Null ~cache:Null
+        ~status:St.Internal_server_error
+        ~body_size:(String.length message)
+  | exception exn ->
+      (* The response may be partially written and cannot be
+         reused. *)
+      conn.keep_alive <- false;
+      raise exn
+
 
 let[@zero_alloc] handle_request conn ~deadline ~idle_timeout ~addr_str ~site
     ~env ~on_event ~on_error =
@@ -808,11 +925,6 @@ let[@zero_alloc] handle_request conn ~deadline ~idle_timeout ~addr_str ~site
         | Some _ -> monotonic_now conn.now
       in
       let version = req.#version in
-      let http_1_1 =
-        match version with
-        | Httpz.Version.Http_1_1 -> true
-        | Httpz.Version.Http_1_0 -> false
-      in
       conn.keep_alive <- req.#keep_alive;
       let meth = req.#meth in
       let target = own_span buf req.#target in
@@ -850,105 +962,19 @@ let[@zero_alloc] handle_request conn ~deadline ~idle_timeout ~addr_str ~site
           in
           result
       | #(Body_incomplete, _, _) ->
-          (* The client stopped mid-body. Nothing it would read is left to
-             send, so drop the connection. *)
           conn.keep_alive <- false;
           `Close
       | #(Body_ready, body_off, body_len) ->
           let body =
             if body_len = 0 then "" else own_body buf body_off body_len
           in
-          let preq =
-            if
-              Httpz.Span.len req.#path = 0
-              &&
-              match meth with
-              | Httpz.Method.Connect -> true
-              | Httpz.Method.Options -> String.equal target "*"
-              | _ -> false
-            then
-              Proffer.Backend.request ~meth ~version
-                ~connection_upgrade:req.#connection_upgrade ~target ~path:target
-                ~query:"" req_headers ~body
-            else
-              let path =
-                if Httpz.Span.len req.#path = 0
-                then "/"
-                else own_span buf req.#path
-              in
-              let query = own_span buf req.#query in
-              Proffer.Backend.request ~meth ~version
-                ~connection_upgrade:req.#connection_upgrade ~target ~path ~query
-                req_headers ~body
-          in
+          let preq = request_of_parsed buf req ~target req_headers ~body in
           let routed_path = Proffer.Req.path preq in
           let consumed = body_off + body_len in
           conn.handoff_off <- consumed;
-          (* The outcome reaches the writer at [local], so nothing about the
-             response is a heap value here. *)
-          let local_ write : Proffer.Backend.writer =
-           fun outcome ->
-            let #(needs_chunked, has_trailers) =
-              match outcome.Proffer.Backend.body with
-              | Proffer.Backend.Stream
-                  { length = None; trailers = []; _ } ->
-                  #(true, false)
-              | Proffer.Backend.Stream { trailers = _ :: _; _ } ->
-                  #(true, true)
-              | _ -> #(false, false)
-            in
-            (* Without chunked encoding the only frame left for a body of
-               unknown length is the end of the connection. *)
-            let chunked = needs_chunked && http_1_1 in
-            let local_ emit_outcome body_size =
-              let content_type =
-                field_or_null outcome.Proffer.Backend.headers H.Content_type
-              in
-              let cache =
-                field_or_null outcome.Proffer.Backend.headers H.X_cache
-              in
-              let () =
-                emit_event conn.now on_event on_error t0 ~addr_str ~meth ~target
-                  req_headers ~path:routed_path ~content_type ~cache
-                  ~status:outcome.Proffer.Backend.status ~body_size
-              in
-              ()
-            in
-            if needs_chunked && not chunked then conn.keep_alive <- false;
-            match
-              if has_trailers && not http_1_1 then
-                raise Trailers_require_http_1_1
-              else
-                write_outcome conn ~keep_alive:conn.keep_alive ~chunked ~version
-                  outcome
-            with
-            | body_size ->
-                emit_outcome body_size;
-                (match outcome.Proffer.Backend.body with
-                 | Proffer.Backend.Handoff { run; _ } ->
-                     call_handoff conn ~idle_timeout run
-                 | _ -> ())
-            | exception Headers_too_large ->
-                call_error on_error Headers_too_large;
-                let message = "Internal Server Error\n" in
-                reject conn ~version St.Internal_server_error message;
-                emit_event conn.now on_event on_error t0 ~addr_str ~meth ~target
-                  req_headers ~path:routed_path ~content_type:Null ~cache:Null
-                  ~status:St.Internal_server_error
-                  ~body_size:(String.length message)
-            | exception Trailers_require_http_1_1 ->
-                call_error on_error Trailers_require_http_1_1;
-                let message = "Internal Server Error\n" in
-                reject conn ~version St.Internal_server_error message;
-                emit_event conn.now on_event on_error t0 ~addr_str ~meth ~target
-                  req_headers ~path:routed_path ~content_type:Null ~cache:Null
-                  ~status:St.Internal_server_error
-                  ~body_size:(String.length message)
-            | exception exn ->
-                (* The response may be partially written and cannot be
-                   reused. *)
-                conn.keep_alive <- false;
-                raise exn
+          let local_ write : Proffer.Backend.writer = fun outcome ->
+            write_response conn ~version ~idle_timeout ~routed_path ~on_event
+              ~on_error t0 ~addr_str ~meth ~target req_headers outcome
           in
           let () =
             Proffer.Backend.handle_unboxed ~on_error
@@ -957,30 +983,21 @@ let[@zero_alloc] handle_request conn ~deadline ~idle_timeout ~addr_str ~site
           shift_buffer conn consumed;
           if conn.keep_alive then `Continue else `Close)
   | Httpz.Buf_read.Partial -> `Need_more
-  | Httpz.Buf_read.Headers_too_large ->
-      reject conn ~version:Httpz.Version.Http_1_1
-        St.Request_header_fields_too_large "Request Header Fields Too Large\n";
-      `Close
-  | Httpz.Buf_read.Content_length_overflow ->
-      reject conn ~version:Httpz.Version.Http_1_1 St.Payload_too_large
-        "Payload Too Large\n";
-      `Close
-  | Httpz.Buf_read.Unsupported_method ->
-      reject conn ~version:Httpz.Version.Http_1_1 St.Not_implemented
-        "Not Implemented\n";
-      `Close
-  | Httpz.Buf_read.Uri_too_long ->
-      reject conn ~version:Httpz.Version.Http_1_1 St.Uri_too_long
-        "URI Too Long\n";
-      `Close
-  (* An unframable coding is a coding this server does not implement, which
-     RFC 9112 section 6.1 answers with 501 rather than 400. *)
-  | Httpz.Buf_read.Unsupported_transfer_encoding ->
-      reject conn ~version:Httpz.Version.Http_1_1 St.Not_implemented
-        "Not Implemented\n";
-      `Close
-  | _ ->
-      reject conn ~version:Httpz.Version.Http_1_1 St.Bad_request "Bad Request\n";
+  | failure ->
+      let status, message =
+        match failure with
+        | Httpz.Buf_read.Headers_too_large ->
+            St.Request_header_fields_too_large, "Request Header Fields Too Large\n"
+        | Httpz.Buf_read.Content_length_overflow ->
+            St.Payload_too_large, "Payload Too Large\n"
+        | Httpz.Buf_read.Uri_too_long -> St.Uri_too_long, "URI Too Long\n"
+        (* RFC 9112 section 6.1 requires 501 for unsupported transfer coding. *)
+        | Httpz.Buf_read.Unsupported_method
+        | Httpz.Buf_read.Unsupported_transfer_encoding ->
+            St.Not_implemented, "Not Implemented\n"
+        | _ -> St.Bad_request, "Bad Request\n"
+      in
+      reject conn ~version:Httpz.Version.Http_1_1 status message;
       `Close
 
 (* Three deadlines bound a connection. A newly accepted connection gets the
@@ -1000,31 +1017,43 @@ let handle_connection conn ~config ~addr_str ~site ~env ~on_event ~on_error =
     reject conn ~version:Httpz.Version.Http_1_1 St.Request_timeout
       "Request Timeout\n"
   in
+  (* Entered only with an empty buffer, so [Read_buffer_full] is unreachable
+     here and its arm is defence in depth. *)
   let rec await_request timeout =
-    match read_more conn ~deadline:(F64.to_float (conn.now ()) +. timeout) with
-    | #(Read_eof, _) | #(Read_timeout, _) -> ()
-    | #(Read_buffer_full, _) -> too_large ()
-    | #(Read_ok, _) ->
-        serve (F64.to_float (conn.now ()) +. config.request_timeout)
+    match read_more conn ~deadline:(F64.add (conn.now ()) (F64.of_float timeout)) with
+    | Read_eof | Read_timeout -> ()
+    | Read_buffer_full -> too_large ()
+    | Read_ok ->
+        serve (F64.add (conn.now ()) (F64.of_float (Duration.to_f config.request_timeout)))
   and serve deadline =
     match
-      handle_request conn ~deadline ~idle_timeout:config.idle_timeout ~addr_str
+      handle_request conn ~deadline ~idle_timeout:(Duration.to_f config.idle_timeout) ~addr_str
         ~site ~env ~on_event ~on_error
     with
     | `Close -> ()
     | `Continue ->
         (* Bytes left over are a pipelined request, whose own clock starts
            here rather than when the request before it began. *)
-        if conn.read_len = 0 then await_request config.idle_timeout
-        else serve (F64.to_float (conn.now ()) +. config.request_timeout)
-    | `Need_more -> (
-        match read_more conn ~deadline with
-        | #(Read_eof, _) -> ()
-        | #(Read_timeout, _) -> timed_out ()
-        | #(Read_buffer_full, _) -> too_large ()
-        | #(Read_ok, _) -> serve deadline)
+        if conn.read_len = 0 then await_request (Duration.to_f config.idle_timeout)
+        else serve (F64.add (conn.now ()) (F64.of_float (Duration.to_f config.request_timeout)))
+    (* [Httpz.parse] rescans the whole head, so a head arriving one byte per
+       packet would otherwise cost one rescan per byte. Only the bytes that
+       complete the head can turn [Partial] into [Complete]; a malformed head
+       is answered once they arrive, or by the request timeout if they never
+       do. *)
+    | `Need_more -> await_head deadline
+  and await_head deadline =
+    let from = conn.read_len - 3 in
+    match read_more conn ~deadline with
+    | Read_eof -> ()
+    | Read_timeout -> timed_out ()
+    | Read_buffer_full -> too_large ()
+    | Read_ok ->
+        if head_complete conn.read_buf ~from ~stop:conn.read_len then
+          serve deadline
+        else await_head deadline
   in
-  await_request config.first_byte_timeout
+  await_request (Duration.to_f config.first_byte_timeout)
 
 let default_on_listening ~secure : Eio.Net.Sockaddr.stream -> unit = function
   | `Tcp (ip, port) ->
@@ -1049,51 +1078,39 @@ let protect on_error exn =
     prerr_endline (Printexc.to_string exn);
     prerr_endline (Printexc.to_string secondary)
 
+let with_http_flow ~mono_clock ~config tls raw fn =
+  match tls with
+  | None -> fn raw
+  | Some wrap ->
+      let flow =
+        match Eio.Time.Timeout.run_exn
+            (Eio.Time.Timeout.seconds mono_clock (Duration.to_f config.first_byte_timeout))
+            (fun () -> wrap raw) with
+        | flow -> flow
+        | exception ex ->
+            Httpz_tls.close ~clock:mono_clock raw;
+            raise ex
+      in
+      Fun.protect ~finally:(fun () -> Httpz_tls.close ~clock:mono_clock flow)
+        (fun () -> fn flow)
+
 let serve ~sw ~net ~mono_clock ~addr ~config ~tls ~on_listening ~on_event
     ~on_error ~stop ~env site =
-  let sock =
-    Eio.Net.listen net ~sw ~backlog:config.backlog ~reuse_addr:true addr
-  in
+  let sock = Eio.Net.listen net ~sw ~backlog:config.backlog ~reuse_addr:true addr in
+  (* The caller's switch may outlive this invocation, so release the listener
+     on return and on callback failure. *)
+  Fun.protect ~finally:(fun () -> Eio.Net.close sock) @@ fun () ->
   on_listening (Eio.Net.listening_addr sock);
   let on_error = protect on_error in
   let handler flow client_addr =
-    let raw : Httpz_tls.flow = (flow :> Httpz_tls.flow) in
-    let flow =
-      match tls with
-      | None -> raw
-      | Some wrap -> (
-          match
-            Eio.Time.Timeout.run_exn
-              (Eio.Time.Timeout.seconds mono_clock config.first_byte_timeout)
-              (fun () -> wrap raw)
-          with
-          | flow -> flow
-          | exception ex ->
-              Httpz_tls.close ~timeout:1. ~clock:mono_clock raw;
-              raise ex)
-    in
+    with_http_flow ~mono_clock ~config tls (flow :> Httpz_tls.flow) @@ fun flow ->
     let conn = create_conn flow ~mono_clock ~config in
     prepare_sink conn;
-    match tls with
-    | None ->
-        handle_connection conn ~config ~addr_str:(addr_string client_addr) ~site
-          ~env ~on_event ~on_error
-    | Some _ ->
-        Fun.protect
-          ~finally:(fun () ->
-            Httpz_tls.close ~timeout:1. ~clock:mono_clock flow)
-          (fun () ->
-            handle_connection conn ~config ~addr_str:(addr_string client_addr)
-              ~site ~env ~on_event ~on_error)
+    handle_connection conn ~config ~addr_str:(addr_string client_addr) ~site
+      ~env ~on_event ~on_error
   in
-  match stop with
-  | None ->
-      Eio.Net.run_server sock ~max_connections:config.max_connections ~on_error
-        handler
-  | Some stop ->
-      Eio.Net.run_server sock ~max_connections:config.max_connections ~stop
-        ~on_error handler
-      |> ignore
+  Eio.Net.run_server sock ~max_connections:config.max_connections ~on_error
+    ?stop handler |> ignore
 
 let run ?sw ?port ?addr ?(config = default_config) ?tls ?on_listening ?on_event
     ?(on_error = default_on_error) ?stop stdenv ~env site =
@@ -1103,18 +1120,17 @@ let run ?sw ?port ?addr ?(config = default_config) ?tls ?on_listening ?on_event
         (Printf.sprintf "Proffer_httpz.run: config.%s must be positive" name)
   in
   let positive_timeout name seconds =
-    if (not (Float.is_finite seconds)) || seconds <= 0. then
+    if seconds <= 0. then
       invalid_arg
         (Printf.sprintf
-           "Proffer_httpz.run: config.%s must be finite and positive"
-           name)
+           "Proffer_httpz.run: config.%s must be positive" name)
   in
   positive "backlog" config.backlog;
   positive "max_connections" config.max_connections;
-  positive_timeout "first_byte_timeout" config.first_byte_timeout;
-  positive_timeout "idle_timeout" config.idle_timeout;
-  positive_timeout "request_timeout" config.request_timeout;
-  positive_timeout "write_timeout" config.write_timeout;
+  positive_timeout "first_byte_timeout" (Duration.to_f config.first_byte_timeout);
+  positive_timeout "idle_timeout" (Duration.to_f config.idle_timeout);
+  positive_timeout "request_timeout" (Duration.to_f config.request_timeout);
+  positive_timeout "write_timeout" (Duration.to_f config.write_timeout);
   let addr =
     match addr, port with
     | Some addr, None -> addr

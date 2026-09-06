@@ -29,9 +29,16 @@ module Content : sig
       and [last < complete_length] when known. Both arguments cannot be [None]. *)
 end
 
+(** A [range_kind] says how a byte range is expressed. *)
+type range_kind =
+  | Explicit (** [Explicit] is an inclusive [start]-[end_] range. *)
+  | Suffix
+  (** [Suffix] is a suffix range such as [-500], whose suffix length is [start]. *)
+  | Open (** [Open] is an open-ended range such as [9500-]. *)
+  | Placeholder (** [Placeholder] is {!empty}, which is no range at all. *)
+
 type byte_range = private
-  #{ kind : int
-       (** [kind] is an internal discriminator; use the [is_*] predicates. *)
+  #{ kind : range_kind (** [kind] says how the other members are read. *)
    ; start : int64#
        (** [start] is the first offset or suffix length, according to [kind]. *)
    ; end_ : int64#
@@ -45,7 +52,9 @@ val max_ranges : int16# @@ portable
 (** [max_ranges] is the maximum number of parsed ranges, 16. *)
 
 val empty : byte_range @@ portable
-(** [empty] is a placeholder byte range for array initialization. *)
+(** [empty] is a placeholder byte range for array initialization. Its kind is
+    {!Placeholder}, so no predicate accepts it and {!resolve_range} selects
+    nothing for it. *)
 
 val is_range : byte_range -> bool @@ portable
 (** [is_range range] is [true] for an explicit inclusive [start]-[end_] range.
@@ -157,9 +166,15 @@ val write_multipart_final :
 val generate_boundary : unit -> string
 (** [generate_boundary ()] is a 24-character alphanumeric boundary drawn from a
     self-initialised [Random] state, so the sequence differs from process to
-    process rather than repeating from every start. It is not cryptographically
-    random and must not be relied on as a secret. The caller must ensure that
-    it does not occur in the enclosed representation data.
+    process rather than repeating from every start.
+
+    Each domain has its own state, created in domain-local storage on that
+    domain's first call, so calls from several domains neither race on one
+    state nor repeat one sequence. Calls from several fibers of one domain
+    share that domain's state, which is sound because no call suspends. It is
+    not cryptographically random and must not be relied on as a secret. The
+    caller must ensure that it does not occur in the enclosed representation
+    data.
 
     This is the one value in this module that is not [portable]: the shared
     [Random] state it draws from is mutable, so a [portable] closure cannot

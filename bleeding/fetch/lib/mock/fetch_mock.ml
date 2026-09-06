@@ -20,9 +20,9 @@ module Sse = struct
   type sink = Buffer.t
 
   let emit sink value = Buffer.add_string sink value
-  let send sink ?name ?id data = Httpz.Sse.send (emit sink) ?name ?id data
-  let comment sink text = Httpz.Sse.comment (emit sink) text
-  let retry sink milliseconds = Httpz.Sse.retry (emit sink) milliseconds
+  let send sink ?name ?id data = Httpz_media.Sse.send (emit sink) ?name ?id data
+  let comment sink text = Httpz_media.Sse.comment (emit sink) text
+  let retry sink milliseconds = Httpz_media.Sse.retry (emit sink) milliseconds
 
   let respond ?status ?headers ?version ?retry:retry_ms write req =
     let body = Buffer.create 256 in
@@ -31,7 +31,7 @@ module Sse = struct
     let headers =
       Option.value headers ~default:(Http.Header.init ())
       |> fun headers ->
-      Http.Header.replace headers "Content-Type" Httpz.Sse.media_type
+      Http.Header.replace headers "Content-Type" Httpz_media.Sse.media_type
       |> fun headers -> Http.Header.replace headers "Cache-Control" "no-store"
     in
     respond ?status ~headers ?version (Buffer.contents body) req

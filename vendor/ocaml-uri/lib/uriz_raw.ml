@@ -86,10 +86,14 @@ let cls_reg_name = 1 (* unreserved / sub-delims                              *)
 let cls_pchar = 2 (* unreserved / sub-delims / ":" / "@"                     *)
 let cls_qf = 3 (* pchar / "/" / "?"                                          *)
 let cls_seg_nz_nc = 4 (* unreserved / sub-delims / "@"                       *)
-let cls_ipvfuture = 5 (* unreserved / sub-delims / ":"                       *)
 
-(* The two bits left over after the six classes.  They answer what the run
-   scanners go on to ask about a byte they have just accepted. *)
+(* The trailing set of IPvFuture is byte-for-byte [cls_userinfo]'s, so the two
+   grammars share one bit.  [class_table] stores one byte per character, so
+   [class_of] has room for eight bits in all; a ninth would be truncated by
+   [Char.unsafe_chr].
+
+   The three bits left over after the five classes answer what the run scanners
+   go on to ask about a byte they have just accepted. *)
 let bit_upper = 1 lsl 6
 let bit_unreserved = 1 lsl 7
 
@@ -101,7 +105,6 @@ let class_of c =
   lor bit (base || c = ':' || c = '@') cls_pchar
   lor bit (base || c = ':' || c = '@' || c = '/' || c = '?') cls_qf
   lor bit (base || c = '@') cls_seg_nz_nc
-  lor bit (base || c = ':') cls_ipvfuture
   lor (if is_upper c then bit_upper else 0)
   lor (if is_unreserved c then bit_unreserved else 0)
 
@@ -275,12 +278,12 @@ let[@inline always] [@zero_alloc] h16 s i limit =
 let[@zero_alloc] ipv6_end s i limit =
   let mutable p = i in
   let mutable groups = 0 in
-  let mutable comp = -1 in
+  let mutable compressed = false in
   let mutable bad = false in
   let mutable more = false in
   if p < limit && String.unsafe_get s p = ':' then
     if p + 1 < limit && String.unsafe_get s (p + 1) = ':' then begin
-      comp <- 0;
+      compressed <- true;
       p <- p + 2
     end
     else bad <- true;
@@ -300,9 +303,9 @@ let[@zero_alloc] ipv6_end s i limit =
         p <- q;
         if p < limit && String.unsafe_get s p = ':' then
           if p + 1 < limit && String.unsafe_get s (p + 1) = ':' then
-            if comp >= 0 then bad <- true
+            if compressed then bad <- true
             else begin
-              comp <- groups;
+              compressed <- true;
               p <- p + 2;
               more <- p < limit && is_hexdig (String.unsafe_get s p)
             end
@@ -316,7 +319,7 @@ let[@zero_alloc] ipv6_end s i limit =
     end
   done;
   if bad then -1
-  else if comp >= 0 then if groups < 8 then p else -1
+  else if compressed then if groups < 8 then p else -1
   else if groups = 8 then p
   else -1
 
@@ -327,7 +330,7 @@ let[@zero_alloc] ipv6_end s i limit =
    §2.3), hence the ['v'] / ['V'] choice. *)
 
 let[@inline always] ipvfuture_char s i limit =
-  if i < limit && in_class cls_ipvfuture (String.unsafe_get s i) then i + 1
+  if i < limit && in_class cls_userinfo (String.unsafe_get s i) then i + 1
   else -1
 
 let[@zero_alloc] ipvfuture_end s i limit =
@@ -387,10 +390,13 @@ let[@zero_alloc] scan_run s i limit cls low =
             go <- false
           end
           else begin
+            (* [bit_upper] implies [bit_unreserved], so [fold] adds nothing to this
+               test: a triplet that decodes to an uppercase letter is decoded anyway,
+               and the case fold then applies to the byte. *)
             let dec = class_bits (Char.unsafe_chr ((h * 16) + l)) in
-            if dec land (bit_unreserved lor fold) <> 0 then begin
+            if dec land bit_unreserved <> 0 then begin
               dirty <- 1;
-              if dec land bit_unreserved <> 0 then shrink <- shrink + 2
+              shrink <- shrink + 2
             end
             else if
               is_lower_hex (String.unsafe_get s (p + 1))
@@ -594,33 +600,19 @@ let[@zero_alloc] parse_sub s ~pos ~len =
         done;
         port_off <- p + 1;
         port_len <- q - p - 1;
-        if port_len = 0 then port_val <- -1
-        else if ov = 1 then err <- p + 2
-        else port_val <- v;
+        (* An empty port keeps the initial [port_val] of [-1]. *)
+        if port_len > 0 then if ov = 1 then err <- p + 2 else port_val <- v;
         p <- q
       end
     end
   end;
-  (* path *)
   if err = 0 then begin
     path_off <- p;
-    if host_off >= 0 then begin
-      (* path-abempty: empty, or every segment introduced by '/' *)
-      let c = if p < n then String.unsafe_get s p else '\000' in
-      if p < n && c <> '/' && c <> '?' && c <> '#' then err <- p + 1
-      else begin
-        let #(q, d, sh, bad) = scan_path s p n 0 in
-        if bad = 1 then err <- q + 1
-        else begin
-          dirty <- dirty lor d;
-          shrink <- shrink + sh;
-          path_len <- q - p;
-          p <- q
-        end
-      end
-    end
+    if host_off >= 0 && p < n
+       && (let c = String.unsafe_get s p in c <> '/' && c <> '?' && c <> '#')
+    then err <- p + 1
     else begin
-      let nc = if scheme_len < 0 then 1 else 0 in
+      let nc = if host_off < 0 && scheme_len < 0 then 1 else 0 in
       let #(q, d, sh, bad) = scan_path s p n nc in
       if bad = 1 then err <- q + 1
       else begin
@@ -681,7 +673,6 @@ let[@zero_alloc] parse s = parse_sub s ~pos:0 ~len:(String.length s)
 
 let[@inline] [@zero_alloc] err (v : spans) = v.#err
 let[@inline] [@zero_alloc] is_valid (v : spans) = v.#err = 0
-let[@inline] [@zero_alloc] error_offset (v : spans) = v.#err - 1
 let[@inline] [@zero_alloc] needs_normalization (v : spans) = v.#flags land flag_dirty <> 0
 let[@inline] [@zero_alloc] shrink (v : spans) = v.#shrink
 let[@inline] [@zero_alloc] scheme_len (v : spans) = v.#scheme_len
@@ -700,14 +691,7 @@ let[@inline] [@zero_alloc] query_len (v : spans) = v.#query_len
 let[@inline] [@zero_alloc] frag_off (v : spans) = v.#frag_off
 let[@inline] [@zero_alloc] frag_len (v : spans) = v.#frag_len
 
-let[@zero_alloc] is_ipv4 s = ipv4_end s 0 (String.length s) = String.length s
 let[@zero_alloc] is_ipv6 s = ipv6_end s 0 (String.length s) = String.length s
-
-(* {2 Percent decoding into a caller's buffer}
-
-   The decoded form is never longer than the input, so [len] bytes of room at
-   [dst_pos] always suffice.  Both window and destination are checked once at
-   entry; the loop then runs unchecked. *)
 
 let[@zero_alloc] needs_decode s ~pos ~len ~plus_as_space =
   let n = String.length s in
@@ -723,6 +707,8 @@ let[@zero_alloc] needs_decode s ~pos ~len ~plus_as_space =
     found
   end
 
+(* The decoded form is never longer than the input, so [len] bytes of room
+   at [dst_pos] suffice even when percent escapes or plus signs are decoded. *)
 let[@zero_alloc] pct_decode_into s ~pos ~len ~dst ~dst_pos ~plus_as_space =
   if
     pos < 0 || len < 0
@@ -757,3 +743,6 @@ let[@zero_alloc] pct_decode_into s ~pos ~len ~dst ~dst_pos ~plus_as_space =
     done;
     if bad then -1 else k - dst_pos
   end
+
+let[@zero_alloc] error_offset (v : spans) = v.#err - 1
+let[@zero_alloc] is_ipv4 s = ipv4_end s 0 (String.length s) = String.length s

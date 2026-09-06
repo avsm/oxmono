@@ -18,6 +18,12 @@ let setup_log style_renderer level =
 let setup_log_term =
   Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ())
 
+let curl_client ~sw ~timeout ~user_agent () =
+  if not (Float.is_finite timeout) then invalid_arg "timeout must be finite";
+  let duration = Fetch.Duration.of_f timeout in
+  let timeout = if timeout > 0.0 && duration = 0L then 1L else duration in
+  Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+
 let timeout =
   let doc = "Request timeout in seconds." in
   Arg.(value & opt float 30.0 & info ["timeout"; "t"] ~docv:"SECONDS" ~doc)
@@ -377,7 +383,7 @@ module Post_cmd = struct
         match creds.auth with
         | OAuth_auth { instance; token } ->
             let fetch =
-              Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+              curl_client ~sw ~timeout ~user_agent ()
             in
             let visibility = if followers_only then Apub_mastodon_api.Private else Apub_mastodon_api.Public in
             let spoiler_text = if sensitive then cw_summary else None in
@@ -450,7 +456,7 @@ module Follow_cmd = struct
         match creds.auth with
         | OAuth_auth { instance; token } ->
             let fetch =
-              Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+              curl_client ~sw ~timeout ~user_agent ()
             in
             (* Look up the account first to get its ID *)
             (match Apub_mastodon_api.lookup_account fetch ~instance ~token ~acct:target with
@@ -526,7 +532,7 @@ module Like_cmd = struct
         match creds.auth with
         | OAuth_auth { instance; token } ->
             let fetch =
-              Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+              curl_client ~sw ~timeout ~user_agent ()
             in
             (* Extract status ID from URL *)
             (match Apub_mastodon_api.status_id_of_url object_uri with
@@ -591,7 +597,7 @@ module Boost_cmd = struct
         match creds.auth with
         | OAuth_auth { instance; token } ->
             let fetch =
-              Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
+              curl_client ~sw ~timeout ~user_agent ()
             in
             (* Extract status ID from URL *)
             (match Apub_mastodon_api.status_id_of_url object_uri with

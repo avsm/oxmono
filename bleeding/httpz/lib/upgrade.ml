@@ -103,8 +103,15 @@ let[@zero_alloc] valid_protocol_list (local_ value : string) =
   valid && count > 0
 ;;
 
-let[@inline] equal_ascii_ci
-    (local_ value : string) a_first a_last (local_ selected : string) b_first b_last =
+let[@inline] equal_folded
+    ~(fold : char# -> char#)
+    (local_ value : string)
+    a_first
+    a_last
+    (local_ selected : string)
+    b_first
+    b_last
+  =
   let length = a_last - a_first in
   if length <> b_last - b_first
   then false
@@ -113,28 +120,30 @@ let[@inline] equal_ascii_ci
     while
       i < length
       && Char_u.equal
-           (Buf_read.to_lower (char_at value (a_first + i)))
-           (Buf_read.to_lower (char_at selected (b_first + i)))
+           (fold (char_at value (a_first + i)))
+           (fold (char_at selected (b_first + i)))
     do
       i <- i + 1
     done;
     i = length)
 ;;
 
+(* A protocol name is case-insensitive; a version is compared byte for byte. *)
+let[@inline] equal_ascii_ci
+    (local_ value : string) a_first a_last (local_ selected : string) b_first b_last =
+  equal_folded ~fold:Buf_read.to_lower value a_first a_last selected b_first b_last
+;;
+
 let[@inline] equal_bytes
     (local_ value : string) a_first a_last (local_ selected : string) b_first b_last =
-  let length = a_last - a_first in
-  if length <> b_last - b_first
-  then false
-  else (
-    let mutable i = 0 in
-    while
-      i < length
-      && Char_u.equal (char_at value (a_first + i)) (char_at selected (b_first + i))
-    do
-      i <- i + 1
-    done;
-    i = length)
+  equal_folded
+    ~fold:(fun (c : char#) -> c)
+    value
+    a_first
+    a_last
+    selected
+    b_first
+    b_last
 ;;
 
 let[@inline] same_protocol

@@ -15,7 +15,9 @@ let refused name segs = check name (Static.confine segs = None)
 let () =
   check "a plain path joins" (Static.confine [ "a"; "b.png" ] = Some "a/b.png");
   check "one segment" (Static.confine [ "x.pdf" ] = Some "x.pdf");
-  check "empty list is the root" (Static.confine [] = Some "");
+  (* An empty capture names the root directory rather than something under
+     it, and [Route.rest] produces one for a request to the mount point. *)
+  refused "empty list" [];
   refused "parent segment" [ ".."; "etc"; "passwd" ];
   refused "parent in the middle" [ "a"; ".."; "b" ];
   refused "current-dir segment" [ "."; "a" ];

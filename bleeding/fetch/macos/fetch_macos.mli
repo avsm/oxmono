@@ -19,8 +19,8 @@ type Eio.Exn.Backend.t += Nsurl_error of string * int * string
     [Connection_failure]. *)
 
 val v :
-  ?request_timeout:float ->
-  ?resource_timeout:float ->
+  ?request_timeout:Fetch.Duration.t ->
+  ?resource_timeout:Fetch.Duration.t ->
   ?max_connections_per_host:int ->
   ?allows_cellular:bool ->
   ?allows_expensive:bool ->
@@ -34,12 +34,12 @@ val v :
 (** [v ()] is a new client over a fresh ephemeral session. Omitted
     parameters keep NSURLSession's defaults.
 
-    @param request_timeout seconds a transfer may sit idle, counted
+    @param request_timeout duration a transfer may sit idle, counted
       afresh whenever data arrives (NSURLSession default 60). The
       portable and composable bound on a request is the Eio
       cancellation {!Fetch} documents. This one is defence in depth,
       releasing the connection promptly when a peer goes quiet.
-    @param resource_timeout seconds a whole transfer may take
+    @param resource_timeout duration a whole transfer may take
       (NSURLSession default 7 days). Defence in depth in the same way.
     @param max_connections_per_host cap on simultaneous connections to
       one origin.
@@ -69,7 +69,7 @@ val std :
   ?cookies:[ `Memory | `File of Eio.Fs.dir_ty Eio.Path.t | `Off ] ->
   ?retry:Fetch.Retry.config ->
   ?max_concurrent:int ->
-  ?min_interval:float ->
+  ?min_interval:Fetch.Duration.t ->
   < clock : _ Eio.Time.clock
   ; mono_clock : _ Eio.Time.Mono.t
   ; secure_random : _ Eio.Flow.source
@@ -84,7 +84,7 @@ val std :
     @param retry retry policy (default {!Fetch.Retry.default}).
     @param max_concurrent requests in flight per origin (default 6, as
       a browser does).
-    @param min_interval minimum seconds between request starts per
+    @param min_interval minimum duration between request starts per
       origin. Unset by default.
 
     Policy composes on top as with any client:

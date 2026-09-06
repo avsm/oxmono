@@ -1,0 +1,4 @@
+(library
+ (name httpz_diagnostic)
+ (package httpz)
+ (libraries base))

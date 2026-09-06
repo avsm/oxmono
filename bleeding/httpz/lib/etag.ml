@@ -25,7 +25,6 @@ let[@inline always] valid_tag_char c =
   c = 0x21 || (c >= 0x23 && c <> 0x7f)
 ;;
 
-(* Validate the tag delimiters while treating the enclosed bytes as opaque. *)
 let parse (local_ buf) (sp : Span.t) : #(status * t) =
   let off = Span.off sp in
   let len = Span.len sp in

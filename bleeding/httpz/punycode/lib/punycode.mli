@@ -12,16 +12,23 @@
     {!Punycode_idna}. *)
 
 type position : immutable_data
-(** A [position] is an input location reported as both a byte offset and a
-    zero-based Unicode character index. *)
+(** A [position] is the location an operation failed at, reported as a byte
+    offset and a zero-based Unicode character index.
+
+    Encoding works on a code-point array and has no byte offset to report, so
+    its byte offset is always [0] and its character index is the index of the
+    code point being encoded. Decoding reports the byte offset reached in the
+    Punycode payload, and reports as its character index the position the code
+    point would have taken in the output. *)
 
 val position_byte_offset : position -> int @@ portable
 (** [position_byte_offset position] is the zero-based byte offset recorded in
-    [position]. *)
+    [position], which is [0] for every position an encoder reports. *)
 
 val position_char_index : position -> int @@ portable
 (** [position_char_index position] is the zero-based Unicode character index
-    recorded in [position]. *)
+    recorded in [position], counted in the input when encoding and in the
+    output when decoding. *)
 
 val pp_position : Format.formatter -> position -> unit @@ portable
 (** [pp_position formatter position] is the formatter operation that prints
@@ -48,8 +55,9 @@ type error_reason : immutable_data =
       (** [Invalid_utf8 position] means a UTF-8 helper received a malformed byte
           sequence at [position]. *)
   | Label_too_long of int
-      (** [Label_too_long length] means a domain-label result exceeded
-          {!max_label_length}; [length] is its actual byte length. *)
+      (** [Label_too_long length] means a domain-label value exceeded
+          {!max_label_length}; [length] is its byte length, which is the
+          input's when a label is rejected before it is encoded. *)
   | Empty_label
       (** [Empty_label] means a domain-label helper received the empty string.
       *)
@@ -66,13 +74,13 @@ val error_reason_to_string : error_reason -> string @@ portable
 (** [error_reason_to_string reason] is a human-readable explanation of [reason].
 *)
 
-val ace_prefix : string
+val ace_prefix : string @@ portable
 (** [ace_prefix] is the case-insensitive ["xn--"] prefix used by IDNA A-labels.
     See
     {{:https://www.rfc-editor.org/rfc/rfc5890.html#section-2.3.2.5}RFC 5890,
      Section 2.3.2.5}. *)
 
-val max_label_length : int
+val max_label_length : int @@ portable
 (** [max_label_length] is the DNS label limit of 63 bytes. See
     {{:https://www.rfc-editor.org/rfc/rfc1035.html#section-2.3.4}RFC 1035,
      Section 2.3.4}. *)
@@ -86,14 +94,19 @@ type case_flag =
   | Lowercase
       (** [Lowercase] preserves lowercase for the corresponding letter. *)
 
-val encode : Uchar.t array -> string
+val encode : Uchar.t array -> string @@ portable
 (** [encode codepoints] is the raw Punycode payload for [codepoints]. ASCII
     letters in mixed input are emitted in lowercase. The empty array encodes as
     the empty string.
 
-    It raises [Error] if arithmetic overflows. *)
+    It raises [Error] if arithmetic overflows.
 
-val decode : string -> Uchar.t array
+    Encoding rescans the whole input once per code point it emits, so it costs
+    O(n^2) in the number of code points, as decoding does in the payload
+    length. {!encode_label} bounds its own input; a caller of {!encode} must
+    bound the array it passes. *)
+
+val decode : string -> Uchar.t array @@ portable
 (** [decode payload] is the array of code points represented by the raw Punycode
     [payload]. The encoded portion accepts either ASCII letter case. The empty
     string decodes as an empty array.
@@ -106,7 +119,7 @@ val decode : string -> Uchar.t array
     DNS labels the IDNA layer enforces; a caller feeding {!decode} a longer
     payload of its own must bound the length itself. *)
 
-val encode_with_case : Uchar.t array -> case_flag array -> string
+val encode_with_case : Uchar.t array -> case_flag array -> string @@ portable
 (** [encode_with_case codepoints flags] is the raw Punycode payload with the
     optional mixed-case annotation from RFC 3492, Appendix A. [flags] must have
     the same length as [codepoints].
@@ -115,48 +128,53 @@ val encode_with_case : Uchar.t array -> case_flag array -> string
 
     It raises [Error] if arithmetic overflows. *)
 
-val decode_with_case : string -> Uchar.t array * case_flag array
+val decode_with_case : string -> Uchar.t array * case_flag array @@ portable
 (** [decode_with_case payload] is the decoded code-point array and its
     mixed-case annotations.
 
     It raises [Error] under the same conditions as {!decode}. *)
 
-val encode_utf8 : string -> string
+val encode_utf8 : string -> string @@ portable
 (** [encode_utf8 value] is the raw Punycode payload, without [xn--], obtained by
     decoding the UTF-8 string [value] to code points.
 
     It raises [Error] if [value] is malformed UTF-8 or encoding overflows. *)
 
-val decode_utf8 : string -> string
+val decode_utf8 : string -> string @@ portable
 (** [decode_utf8 payload] is the UTF-8 string represented by the raw Punycode
     [payload], without interpreting an [xn--] prefix.
 
     It raises [Error] under the same conditions as {!decode}. *)
 
-val encode_label : string -> string
+val encode_label : string -> string @@ portable
 (** [encode_label label] is [label] unchanged when it contains only ASCII;
     otherwise it is the raw Punycode encoding prefixed by [xn--]. ASCII letters
     within a non-ASCII label are emitted in lowercase.
 
-    It raises [Error] with {!Empty_label} for an empty label, {!Label_too_long}
-    when the result exceeds 63 bytes, or another reason for malformed UTF-8 or
-    encoding failure. *)
+    A non-ASCII label longer than four bytes per available payload byte cannot
+    encode within the 63-byte limit whatever it contains, and is rejected
+    before encoding.
 
-val decode_label : string -> string
+    It raises [Error] with {!Empty_label} for an empty label, {!Label_too_long}
+    when the result exceeds 63 bytes or when the input is rejected on that
+    cheap bound, in which case the reported length is the input's, or another
+    reason for malformed UTF-8 or encoding failure. *)
+
+val decode_label : string -> string @@ portable
 (** [decode_label label] is [label] decoded when it starts with [xn--], ignoring
     the prefix's ASCII case, and is otherwise [label] unchanged.
 
-    It raises [Error] with {!Empty_label} for an empty label,
-    {!Label_too_long} when the input exceeds 63 bytes, or another reason when
-    an ACE-prefixed label cannot be decoded. *)
+    It raises [Error] with {!Empty_label} for an empty label and for a bare
+    [xn--] carrying no payload, {!Label_too_long} when the input exceeds 63
+    bytes, or another reason when an ACE-prefixed label cannot be decoded. *)
 
-val is_basic : Uchar.t -> bool
+val is_basic : Uchar.t -> bool @@ portable
 (** [is_basic codepoint] is [true] when [codepoint] is ASCII. *)
 
-val is_ascii_string : string -> bool
+val is_ascii_string : string -> bool @@ portable
 (** [is_ascii_string value] is [true] when every byte in [value] is below
     [0x80]. *)
 
-val has_ace_prefix : string -> bool
+val has_ace_prefix : string -> bool @@ portable
 (** [has_ace_prefix value] is [true] when [value] begins with [xn--], ignoring
     ASCII case for [x] and [n]. *)

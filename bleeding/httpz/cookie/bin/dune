@@ -2,4 +2,4 @@
  (name cookiecat)
  (public_name httpz-cookiecat)
  (package httpz)
- (libraries httpz.cookie httpz.cookie.jar eio_main ptime))
+ (libraries eio httpz.cookie httpz.cookie.jar eio_main ptime))

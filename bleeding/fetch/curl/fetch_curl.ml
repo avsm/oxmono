@@ -4,9 +4,6 @@ type tag = [ `Generic | `Curl ]
 type t = tag Fetch.ty Eio.Resource.t
 type Eio.Exn.Backend.t += Curl_error of Curl.curlCode * string
 
-let i16 = Httpz.Buf_read.i16
-module I64 = Stdlib_upstream_compatible.Int64_u
-
 let () =
   Eio.Exn.Backend.register_pp (fun f -> function
     | Curl_error (code, "") ->
@@ -52,20 +49,16 @@ let global_init () =
 let invalid_config name reason =
   invalid_arg (Fmt.str "Fetch_curl.v: %s %s" name reason)
 
-let milliseconds name seconds =
-  match Float.classify_float seconds with
-  | FP_nan | FP_infinite -> invalid_config name "must be finite"
-  | FP_normal | FP_subnormal | FP_zero ->
-      if seconds < 0. then invalid_config name "must be non-negative";
-      (* ocurl passes an OCaml [int] to a C [long]. Keep the value portable to
-       platforms where [long] is only 32 bits, and round a positive
-       sub-millisecond duration up instead of accidentally disabling it. *)
-      let max_ms =
-        if Sys.word_size = 32 then max_int else Int32.to_int Int32.max_int
-      in
-      let ms = seconds *. 1000. in
-      if ms > float_of_int max_ms then invalid_config name "is too large";
-      if seconds = 0. then 0 else max 1 (int_of_float (Float.ceil ms))
+let milliseconds name duration =
+  (* ocurl converts through C long. Round positive fractions up so they cannot
+     become libcurl's zero sentinel. *)
+  let max_ms =
+    if Sys.word_size = 32 then max_int else Int32.to_int Int32.max_int
+  in
+  if Int64.unsigned_compare duration (Duration.of_ms max_ms) > 0 then
+    invalid_config name "is too large";
+  let ms = Duration.to_ms duration in
+  if Int64.rem duration 1_000_000L = 0L then ms else ms + 1
 
 let non_negative name n =
   if n < 0 then invalid_config name "must be non-negative"
@@ -79,21 +72,24 @@ let field_value name value =
   if not (Middleware.is_field_value value) then
     invalid_config name "contains a forbidden control byte"
 
+(* libcurl's [host:port:address] resolve entry ends an unbracketed host at
+   the first colon, so both positions need an IPv6 literal in brackets or the
+   entry is silently dropped. The URL parser holds one without them. *)
+let bracket_ipv6 host =
+  if String.contains host ':' && not (String.starts_with ~prefix:"[" host) then
+    "[" ^ host ^ "]"
+  else host
+
 let canonical_resolve_host host =
-  let authority =
-    if String.contains host ':' && not (String.starts_with ~prefix:"[" host)
-    then "[" ^ host ^ "]"
-    else host
-  in
-  match Middleware.Url.of_string ("http://" ^ authority ^ "/") with
-  | Ok url -> Middleware.Url.host url
+  match Middleware.Url.of_string ("http://" ^ bracket_ipv6 host ^ "/") with
+  | Ok url -> bracket_ipv6 (Middleware.Url.host url)
   | Error reason -> invalid_config "resolve host" reason
 
 let canonical_resolve_address address =
   match Unix.inet_addr_of_string address with
-  | address -> Unix.string_of_inet_addr address
+  | address -> bracket_ipv6 (Unix.string_of_inet_addr address)
   | exception Failure _ ->
-    invalid_config "resolve address" "must be a numeric IPv4 or IPv6 address"
+      invalid_config "resolve address" "must be a numeric IPv4 or IPv6 address"
 
 let validate_resolve (host, port, address) =
   if port < 1 || port > 65535 then
@@ -163,462 +159,6 @@ let map_curl_error code msg =
   then err (Tls_failure (pretty ()))
   else err (Protocol_error (pretty ()))
 
-(* Response header collection. libcurl delivers one line per callback,
-   including the status line, interim (1xx) blocks and — after the body
-   has started — chunked/h2 *trailer* lines. Reset on each new status
-   line so we keep only the final response's headers, and divert
-   post-body lines to [trailer_lines]: RFC 9110 s6.5.1 forbids promoting
-   a trailer field to a header, and folding e.g. a trailing [Set-Cookie]
-   or [Location] into the header block would do exactly that. *)
-type collector = {
-  request_method : Http.Method.t;
-  mutable status_line : string;
-  mutable status : int;
-  mutable lines : (string * string) list;
-  mutable head_complete : bool;
-  mutable in_body : bool;
-  mutable trailer_lines : (string * string) list;
-  mutable chunked : bool;
-  mutable connection_close : bool;
-  mutable header_bytes : int;
-  mutable headers_capped : bool;
-  mutable abort_after_head : bool;
-  mutable http2 : bool;
-  on_error : string -> unit;
-  on_close : discard:bool -> unit;
-  on_final_head : unit -> unit;
-  on_http2_trailer : int -> bool;
-}
-
-(* libcurl's own per-line limit still allows a hostile server to stream
-   an unbounded *number* of header lines; cap the total ourselves. A
-   short return from the callback aborts the transfer — [headers_capped]
-   distinguishes that from a generic write failure. Not reset by the 1xx
-   reset below: resetting would let a server stream unbounded interim
-   blocks, each one under the cap. *)
-let max_header_bytes = 256 * 1024
-
-let trim_ows s =
-  let ows = function ' ' | '\t' -> true | _ -> false in
-  let first = ref 0 and last = ref (String.length s - 1) in
-  while !first <= !last && ows s.[!first] do
-    incr first
-  done;
-  while !last >= !first && ows s.[!last] do
-    decr last
-  done;
-  String.sub s !first (!last - !first + 1)
-
-let line_content line =
-  let n = String.length line in
-  if n >= 2 && line.[n - 2] = '\r' && line.[n - 1] = '\n' then
-    Some (String.sub line 0 (n - 2))
-  else None
-
-let status_code line =
-  let n = String.length line in
-  let code_at off =
-    if
-      n >= off + 3
-      && String.for_all
-           (function '0' .. '9' -> true | _ -> false)
-           (String.sub line off 3)
-      && (n = off + 3 || line.[off + 3] = ' ')
-      &&
-      let reason_off = min n (off + 4) in
-      Middleware.is_field_value (String.sub line reason_off (n - reason_off))
-    then
-      Some
-        (((Char.code line.[off] - Char.code '0') * 100)
-        + ((Char.code line.[off + 1] - Char.code '0') * 10)
-        + Char.code line.[off + 2] - Char.code '0')
-    else None
-  in
-  if
-    n >= 9
-    && String.starts_with ~prefix:"HTTP/1." line
-    && line.[7] >= '0'
-    && line.[7] <= '9'
-    && line.[8] = ' '
-  then code_at 9
-  else if n >= 7 && String.starts_with ~prefix:"HTTP/2 " line then code_at 7
-  else None
-
-(* RFC 9112 framing ends at the head for these responses. A 205 is different:
-   RFC 9110 forbids representation content, but RFC 9112 still requires its
-   declared zero-length framing to be consumed. *)
-let framing_bodyless meth status =
-  meth = `HEAD
-  || (meth = `CONNECT && status >= 200 && status < 300)
-  || (status >= 100 && status < 200)
-  || status = 204 || status = 304
-
-let contentless meth status = status = 205 || framing_bodyless meth status
-
-let add_field lines line =
-  if line <> "" && (line.[0] = ' ' || line.[0] = '\t') then
-    match lines with
-    | [] -> Error "response field continuation has no preceding field"
-    | (name, value) :: rest ->
-        let continuation = trim_ows line in
-        if Middleware.is_field_value continuation then
-          Ok ((name, value ^ " " ^ continuation) :: rest)
-        else Error "response field value contains a forbidden control byte"
-  else
-    match String.index_opt line ':' with
-    | None -> Error "response field has no colon"
-    | Some i ->
-        let name = String.sub line 0 i in
-        let value = String.sub line (i + 1) (String.length line - i - 1) in
-        if not (Middleware.is_token name) then
-          Error "response field name is not an HTTP token"
-        else if not (Middleware.is_field_value value) then
-          Error "response field value contains a forbidden control byte"
-        else Ok ((name, trim_ows value) :: lines)
-
-let field_values name lines =
-  let name = String.lowercase_ascii name in
-  List.filter_map
-    (fun (field, value) ->
-      if String.equal (String.lowercase_ascii field) name then Some value
-      else None)
-    (List.rev lines)
-
-let validate_content_length lines =
-  let values = field_values "content-length" lines in
-  let parse value =
-    let len = String.length value in
-    if len > Httpz.buffer_size then Error "Content-Length field is too large"
-    else
-      let buf = Bytes.unsafe_of_string value in
-      let span = Httpz.Span.make ~off:(i16 0) ~len:(i16 len) in
-      let #(parsed, overflow, conflicting) =
-        Httpz.Span.parse_content_length buf span
-      in
-      if overflow then Error "Content-Length exceeds int64"
-      else if conflicting then Error "conflicting Content-Length values"
-      else if I64.compare parsed #0L < 0 then Error "invalid Content-Length"
-      else Ok (I64.to_int64 parsed)
-  in
-  (* Httpz owns the field-value grammar and overflow checks. This fold only
-     combines the separate lines delivered by libcurl. *)
-  let rec fold expected = function
-    | [] -> Ok expected
-    | value :: rest -> begin
-        match parse value with
-        | Error _ as error -> error
-        | Ok parsed -> begin
-            match expected with
-            | None -> fold (Some parsed) rest
-            | Some expected when Int64.equal parsed expected ->
-                fold (Some expected) rest
-            | Some _ -> Error "conflicting Content-Length values"
-          end
-      end
-  in
-  fold None values
-
-let transfer_codings lines =
-  let values = field_values "transfer-encoding" lines in
-  if values = [] then Ok None
-  else
-    let rec fold count chunked_count last_chunked = function
-      | [] -> Ok (count, chunked_count, last_chunked)
-      | value :: rest ->
-          let len = String.length value in
-          if len > Httpz.buffer_size then
-            Error "Transfer-Encoding field is too large"
-          else
-            let buf = Bytes.unsafe_of_string value in
-            let span = Httpz.Span.make ~off:(i16 0) ~len:(i16 len) in
-            let #(n, chunks, last, valid) =
-              Httpz.Span.parse_transfer_encoding buf span
-            in
-            if not valid then Error "invalid Transfer-Encoding coding"
-            else
-              fold (count + n) (chunked_count + chunks)
-                (if n = 0 then last_chunked else last)
-                rest
-    in
-    match fold 0 0 false values with
-    | Error _ as error -> error
-    | Ok (0, _, _) -> Error "empty Transfer-Encoding"
-    | Ok (count, chunked_count, last_chunked) ->
-        if chunked_count <> 1 then
-          Error "Transfer-Encoding must contain exactly one chunked coding"
-        else if not last_chunked then
-          Error "chunked is not the final Transfer-Encoding"
-        else if count <> 1 then
-          Error "unsupported response Transfer-Encoding chain"
-        else Ok (Some `Chunked)
-
-let has_token name wanted lines =
-  field_values name lines
-  |> List.exists (fun value ->
-         let len = String.length value in
-         (* A Connection field larger than Httpz's bounded parse window is not
-            worth trusting for reuse. *)
-         len > Httpz.buffer_size
-         ||
-         let buf = Bytes.unsafe_of_string value in
-         let span = Httpz.Span.make ~off:(i16 0) ~len:(i16 len) in
-         Httpz.Span.token_list_contains buf span wanted)
-
-let validate_framing c =
-  match (validate_content_length c.lines, transfer_codings c.lines) with
-  | Error reason, _ | _, Error reason -> Error reason
-  | Ok (Some _), Ok (Some `Chunked)
-    when not (framing_bodyless c.request_method c.status) ->
-      Error "response contains both Transfer-Encoding and Content-Length"
-  | Ok content_length, Ok transfer ->
-      c.chunked <- transfer = Some `Chunked;
-      let connection = field_values "connection" c.lines in
-      let simple_close =
-        match connection with
-        | [ value ] ->
-            String.equal
-              (String.lowercase_ascii (trim_ows value))
-              "close"
-        | _ -> false
-      in
-      (* Libcurl already handles the ordinary single-token form.  Interpose
-         only for a close token hidden in a list or repeated field, which is
-         the form affected by its reuse bug. *)
-      c.connection_close <-
-        (not simple_close) && has_token "connection" "close" c.lines;
-      let no_body_delivery =
-        framing_bodyless c.request_method c.status
-        || (transfer = None && content_length = Some 0L)
-      in
-      if c.connection_close then c.on_close ~discard:false;
-      if c.connection_close && no_body_delivery then begin
-        (* A zero-body response has no write callback on which to pause. A
-           deliberate header-callback abort keeps libcurl from pooling this
-           connection; ordinary fiber context applies FORBID_REUSE before
-           the completion is collected. *)
-        c.abort_after_head <- true
-      end;
-      Ok ()
-
-let reject_line c reason =
-  c.on_error reason;
-  0
-
-let header_callback c raw_line =
-  let n = String.length raw_line in
-  if n > max_header_bytes - c.header_bytes then (
-    c.headers_capped <- true;
-    reject_line c (Fmt.str "response headers exceed %d bytes" max_header_bytes))
-  else begin
-    c.header_bytes <- c.header_bytes + n;
-    match line_content raw_line with
-    | None -> reject_line c "response head uses an invalid line ending"
-    | Some line when String.starts_with ~prefix:"HTTP/" line -> begin
-        match status_code line with
-        | Some status ->
-          c.status_line <- line;
-          c.status <- status;
-          c.lines <- [];
-          c.head_complete <- false;
-          c.in_body <- false;
-          c.trailer_lines <- [];
-          c.chunked <- false;
-          c.connection_close <- false;
-          c.abort_after_head <- false;
-          c.http2 <- String.starts_with ~prefix:"HTTP/2 " line;
-          n
-        | None -> reject_line c "malformed HTTP response status line"
-      end
-    | Some "" when c.in_body ->
-        if c.http2 && not (c.on_http2_trailer n) then
-          0
-        else n
-    | Some "" ->
-        (match validate_framing c with
-        | Error reason -> reject_line c reason
-        | Ok () ->
-            let final = c.status < 100 || c.status >= 200 || c.status = 101 in
-            c.head_complete <- final;
-            if final then begin
-              if not (framing_bodyless c.request_method c.status) then
-                c.in_body <- true;
-              c.on_final_head ()
-            end;
-            if c.abort_after_head then 0 else n)
-    | Some line ->
-        let fields = if c.in_body then c.trailer_lines else c.lines in
-        if c.in_body && c.http2 && not (c.on_http2_trailer n) then
-          0
-        else begin match add_field fields line with
-        | Error reason -> reject_line c reason
-        | Ok fields ->
-            if c.in_body then c.trailer_lines <- fields else c.lines <- fields;
-            n
-        end
-  end
-
-(* CURLOPT_HTTP_TRANSFER_DECODING is disabled below so the application sees
-   chunk framing before libcurl's permissive decoder can erase it.  Validate
-   the size line and trailers with Httpz, but stream chunk data directly into
-   the response queue rather than buffering a whole chunk. *)
-module Chunked = struct
-  type phase =
-    | Size
-    | Data of int
-    | Data_cr
-    | Data_lf
-    | Trailers
-    | Done
-
-  type t = {
-    line : Buffer.t;
-    trailers_buf : Buffer.t;
-    mutable phase : phase;
-    mutable trailers : Http.Header.t option;
-  }
-
-  let create () =
-    {
-      line = Buffer.create 80;
-      trailers_buf = Buffer.create 256;
-      phase = Size;
-      trailers = None;
-    }
-
-  let max_size_line = 64 * 1024
-  let max_trailers = 16 * 1024
-
-  let ends_in_cr buffer =
-    let n = Buffer.length buffer in
-    n > 0 && Buffer.nth buffer (n - 1) = '\r'
-
-  let add_line_byte ~limit buffer c =
-    if Buffer.length buffer >= limit then Error "chunk framing line is too large"
-    else if c = '\n' && not (ends_in_cr buffer) then
-      Error "chunk framing contains a bare LF"
-    else if c <> '\n' && ends_in_cr buffer then
-      Error "chunk framing contains a bare CR"
-    else begin
-      Buffer.add_char buffer c;
-      Ok ()
-    end
-
-  let parse_size t =
-    let line = Buffer.contents t.line in
-    let bytes = Bytes.of_string line in
-    Buffer.clear t.line;
-    match
-      Httpz.Chunk.parse_header bytes ~off:(i16 0)
-        ~len:(i16 (Bytes.length bytes))
-        ~max_chunk_size:max_int
-    with
-    | #(Httpz.Chunk.Complete, size, _) ->
-        t.phase <- Data size;
-        Ok ()
-    | #(Httpz.Chunk.Done, _, _) ->
-        t.phase <- Trailers;
-        Ok ()
-    | #(Httpz.Chunk.Chunk_too_large, _, _) -> Error "chunk size is too large"
-    | #(Httpz.Chunk.Partial, _, _) | #(Httpz.Chunk.Malformed, _, _) ->
-        Error "malformed chunk size or extension"
-
-  let trailers_complete buffer =
-    let n = Buffer.length buffer in
-    (n = 2 && Buffer.nth buffer 0 = '\r' && Buffer.nth buffer 1 = '\n')
-    ||
-    (n >= 4
-    && Buffer.nth buffer (n - 4) = '\r'
-    && Buffer.nth buffer (n - 3) = '\n'
-    && Buffer.nth buffer (n - 2) = '\r'
-    && Buffer.nth buffer (n - 1) = '\n')
-
-  let parse_trailers t =
-    let bytes = Bytes.of_string (Buffer.contents t.trailers_buf) in
-    match
-      Httpz.Chunk.parse_trailers bytes ~off:(i16 0)
-        ~len:(i16 (Bytes.length bytes)) ~max_header_count:(i16 100)
-    with
-    | #(Httpz.Chunk.Trailer_complete, _, fields) ->
-        let fields =
-          List.rev (Httpz.Header.to_string_pairs_local bytes fields)
-        in
-        t.trailers <-
-          (match fields with [] -> None | _ -> Some (Http.Header.of_list fields));
-        t.phase <- Done;
-        Ok ()
-    | #(Httpz.Chunk.Trailer_partial, _, _)
-    | #(Httpz.Chunk.Trailer_malformed, _, _)
-    | #(Httpz.Chunk.Trailer_bare_cr, _, _) ->
-        Error "malformed chunk trailers"
-
-  let rec feed t input at emit =
-    if at = String.length input then `Ok
-    else
-      match t.phase with
-      | Done -> `Trailing
-      | Size ->
-          let c = String.unsafe_get input at in
-          (match add_line_byte ~limit:max_size_line t.line c with
-          | Error reason -> `Error reason
-          | Ok () ->
-              if c <> '\n' then feed t input (at + 1) emit
-              else
-                match parse_size t with
-                | Error reason -> `Error reason
-                | Ok () -> feed t input (at + 1) emit)
-      | Data 0 ->
-          t.phase <- Data_cr;
-          feed t input at emit
-      | Data left ->
-          let n = min left (String.length input - at) in
-          emit (String.sub input at n);
-          t.phase <- Data (left - n);
-          feed t input (at + n) emit
-      | Data_cr ->
-          if String.unsafe_get input at <> '\r' then
-            `Error "chunk data is not followed by CRLF"
-          else begin
-            t.phase <- Data_lf;
-            feed t input (at + 1) emit
-          end
-      | Data_lf ->
-          if String.unsafe_get input at <> '\n' then
-            `Error "chunk data is not followed by CRLF"
-          else begin
-            t.phase <- Size;
-            feed t input (at + 1) emit
-          end
-      | Trailers ->
-          let c = String.unsafe_get input at in
-          (match add_line_byte ~limit:max_trailers t.trailers_buf c with
-          | Error reason -> `Error reason
-          | Ok () ->
-              if not (trailers_complete t.trailers_buf) then
-                feed t input (at + 1) emit
-              else
-                match parse_trailers t with
-                | Error reason -> `Error reason
-                | Ok () -> feed t input (at + 1) emit)
-
-  let feed t input emit = feed t input 0 emit
-
-  let finish t =
-    match t.phase with
-    | Done -> Ok ()
-    | Size -> Error "chunked body ended inside a size line"
-    | Data _ -> Error "chunked body ended inside chunk data"
-    | Data_cr | Data_lf -> Error "chunked body ended before a data CRLF"
-    | Trailers -> Error "chunked body ended before its final trailer line"
-end
-
-let version_of_status_line sl : version =
-  match String.split_on_char ' ' sl with
-  | "HTTP/1.0" :: _ -> `HTTP_1_0
-  | "HTTP/1.1" :: _ -> `HTTP_1_1
-  | ("HTTP/2" | "HTTP/2.0") :: _ -> `HTTP_2
-  | v :: _ when v <> "" -> `Other v
-  | _ -> `Other "unknown"
-
 type wire_body = No_body | Fixed of string | Streamed of int64 option
 
 (* RFC 9110 §8.6 asks a user agent to send [Content-Length: 0] on a request
@@ -626,9 +166,7 @@ type wire_body = No_body | Fixed of string | Streamed of int64 option
    none, so a recipient need not guess whether content was omitted or merely
    not yet framed. libcurl does not add it on its own for a body-less
    [CUSTOMREQUEST]. *)
-let has_defined_content = function
-  | `POST | `PUT | `PATCH -> true
-  | _ -> false
+let has_defined_content = function `POST | `PUT | `PATCH -> true | _ -> false
 
 (* CURLOPT_VERBOSE's default sink writes complete request fields, URLs and
    transfer data to stderr.  Those routinely contain credentials.  Preserve
@@ -649,8 +187,7 @@ let redacted_debug _handle kind data =
   in
   Fmt.epr "fetch-curl: %s (%d bytes redacted)@." event (String.length data)
 
-let setup_handle cfg h (req : Middleware.request) body ~on_error ~on_close
-    ~on_final_head ~on_http2_trailer =
+let setup_handle cfg h (req : Middleware.request) body =
   Curl.set_followlocation h false;
   Curl.set_protocols h [ Curl.CURLPROTO_HTTP; Curl.CURLPROTO_HTTPS ];
   Curl.set_netrc h Curl.CURL_NETRC_IGNORED;
@@ -676,11 +213,7 @@ let setup_handle cfg h (req : Middleware.request) body ~on_error ~on_close
   Curl.set_url h (Middleware.Url.to_string req.url);
   if cfg.resolve <> [] then Curl.set_resolve h cfg.resolve [];
   let auto_decode = not (Http.Header.mem req.headers "accept-encoding") in
-  (* Negotiate only gzip, then retain both transfer and content coding until
-     the strict streaming layers below have validated them. *)
-  if auto_decode then Curl.set_encoding h Curl.CURL_ENCODING_GZIP;
-  Curl.set_httptransferdecoding h false;
-  Curl.set_httpcontentdecoding h false;
+  if auto_decode then Curl.set_encoding h Curl.CURL_ENCODING_ANY;
   (match req.meth with
   | `HEAD -> Curl.set_nobody h true
   | m -> Curl.set_customrequest h (Http.Method.to_string m));
@@ -704,9 +237,9 @@ let setup_handle cfg h (req : Middleware.request) body ~on_error ~on_close
        [ "Content-Type:" ]
      else [])
     @
-    (if body = No_body && has_defined_content req.meth then
-       [ "Content-Length: 0" ]
-     else [])
+    if body = No_body && has_defined_content req.meth then
+      [ "Content-Length: 0" ]
+    else []
   in
   let request_headers =
     (* "Name;" is libcurl's syntax for sending a header with an empty
@@ -719,37 +252,12 @@ let setup_handle cfg h (req : Middleware.request) body ~on_error ~on_close
   (* libcurl built with the synchronous resolver would otherwise use
      SIGALRM for DNS timeouts — unsafe with multiple domains. *)
   Curl.set_nosignal h true;
-  let col =
-    {
-      request_method = req.meth;
-      status_line = "";
-      status = 0;
-      lines = [];
-      head_complete = false;
-      in_body = false;
-      trailer_lines = [];
-      chunked = false;
-      connection_close = false;
-      header_bytes = 0;
-      headers_capped = false;
-      abort_after_head = false;
-      http2 = false;
-      on_error;
-      on_close;
-      on_final_head;
-      on_http2_trailer;
-    }
-  in
-  Curl.set_headerfunction h (header_callback col);
-  (col, auto_decode)
+  auto_decode
 
 let too_large cfg =
   err
     (Invalid_request (Fmt.str "request body exceeds %d bytes" cfg.max_request))
 
-(* Classify a request body for the wire. A declared length over
-   [max_request] is rejected here, before the network is touched. An
-   undeclared one is counted as the pump reads it. *)
 let wire_body_of cfg (req : Middleware.request) =
   match req.body with
   | Empty -> No_body
@@ -815,25 +323,19 @@ type job = {
   wake : waiter;
   mutable head_off : int;
   mutable queued : int;
-  (* Raw bytes accepted by the write callback, including chunk framing and
-     trailers. [received] separately counts de-framed representation bytes. *)
-  mutable wire_received : int;
   mutable received : int;
   mutable paused : bool;
   mutable over_limit : bool;
-  mutable protocol_error : string option;
-  mutable chunked : Chunked.t option;
-  mutable close_enforced : bool;
-  mutable force_close : bool;
-  mutable discard_remainder : bool;
-  mutable skip_redelivery : bool;
+  mutable head_complete : bool;
+  mutable trailers : Http.Header.t option;
   mutable added : bool;
-  mutable body_started : bool;
   mutable body_abandoned : bool;
   mutable finished : Curl.curlCode option;
   mutable cleaned : bool;
   mutable handle_cleaned : bool;
   mutable pending_wake : bool;
+  (* On [pending_jobs], so an intent is recorded at most once. *)
+  mutable listed : bool;
   mutable hook : Eio.Switch.hook;
 }
 
@@ -861,7 +363,10 @@ type engine = {
   watchers : (Unix.file_descr, watcher) Hashtbl.t;
   (* Recorded newest first by the callbacks, replayed oldest first. *)
   mutable pending_sockets : (Unix.file_descr * Curl.Multi.poll) list;
-  mutable pending_timer : int option;
+  (* The jobs a callback left an intent on. Scanning these rather than every
+     job keeps a socket event O(1) in the number of concurrent transfers. *)
+  mutable pending_jobs : job list;
+  mutable pending_timer : int or_null;
   mutable timer_gen : int;
   mutable timer_stop : unit Eio.Promise.u option;
 }
@@ -906,23 +411,12 @@ let pause_flags job =
   | Some up when up.paused -> [ Curl.PAUSE_SEND ]
   | _ -> []
 
-(* Callback code can only record this intent. Apply it before harvesting
-   completions after every libcurl call: for a zero-byte response this is the
-   sole interval in which the handle is still attached and can be kept out of
-   the connection pool. Unpausing here also guarantees that trailing garbage
-   discovered after [request] returned cannot strand the transfer. *)
-let enforce_close_intents eng =
-  Hashtbl.iter
-    (fun _ job ->
-      if job.force_close && not job.close_enforced then begin
-        Curl.set_forbidreuse job.h true;
-        job.close_enforced <- true;
-        if job.paused && job_active eng job then begin
-          job.paused <- false;
-          Curl.pause job.h (pause_flags job)
-        end
-      end)
-    eng.jobs
+(* Callback code can only record an intent on [job]. *)
+let mark_pending eng job =
+  if not job.listed then begin
+    job.listed <- true;
+    eng.pending_jobs <- job :: eng.pending_jobs
+  end
 
 let cleanup_handle job =
   if not job.handle_cleaned then begin
@@ -949,7 +443,7 @@ let rec wait_for w cond =
 let socket_function eng fd (poll : Curl.Multi.poll) =
   eng.pending_sockets <- (fd, poll) :: eng.pending_sockets
 
-let timer_function eng ms = eng.pending_timer <- Some ms
+let[@zero_alloc] timer_function eng ms = eng.pending_timer <- This ms
 
 let find_job eng id h =
   match Hashtbl.find_opt eng.jobs id with
@@ -974,14 +468,14 @@ let check_completions eng =
         | Some job ->
             Hashtbl.remove eng.jobs job.id;
             job.added <- false;
-            (match (code, job.chunked) with
-            | Curl.CURLE_OK, Some decoder -> begin
-                match Chunked.finish decoder with
-                | Ok () -> ()
-                | Error reason -> job.protocol_error <- Some reason
-              end
-            | _ -> ());
             job.finished <- Some code;
+            if code = Curl.CURLE_OK then
+              job.trailers <-
+                (match
+                   Curl.get_headers h [ Curl.CURLH_TRAILER ] ~request:(-1)
+                 with
+                | [] -> None
+                | fields -> Some (Http.Header.of_list fields));
             if job.cleaned then cleanup_handle job;
             wake job
         | None ->
@@ -994,13 +488,16 @@ let check_completions eng =
   go ()
 
 let process_wakes eng =
-  Hashtbl.iter
-    (fun _ job ->
+  let pending = eng.pending_jobs in
+  eng.pending_jobs <- [];
+  List.iter (fun job -> job.listed <- false) pending;
+  List.iter
+    (fun job ->
       if job.pending_wake then begin
         job.pending_wake <- false;
         wake job
       end)
-    eng.jobs
+    pending
 
 let stop_watcher eng fd =
   match Hashtbl.find_opt eng.watchers fd with
@@ -1011,7 +508,7 @@ let stop_watcher eng fd =
 
 let discard_pending eng =
   eng.pending_sockets <- [];
-  eng.pending_timer <- None
+  eng.pending_timer <- Null
 
 (* Fail the engine with [ex] and re-raise it. The recorded intents are
    dropped rather than applied: a failed native multi operation may have
@@ -1023,8 +520,6 @@ let poison eng ex bt =
   (try process_wakes eng with _ -> ());
   Printexc.raise_with_backtrace ex bt
 
-(* Effects cannot cross libcurl callbacks, so dispatch their recorded work
-   only after the C call returns. *)
 let rec curl_call : 'a. engine -> (unit -> 'a) -> 'a =
  fun eng f ->
   match f () with
@@ -1036,7 +531,6 @@ let rec curl_call : 'a. engine -> (unit -> 'a) -> 'a =
           process_wakes eng
         end
         else begin
-          enforce_close_intents eng;
           check_completions eng;
           process_pending eng;
           process_wakes eng
@@ -1049,8 +543,8 @@ and process_pending eng =
   let timer = eng.pending_timer in
   discard_pending eng;
   List.iter (fun (fd, poll) -> apply_socket eng fd poll) sockets;
-  Option.iter (apply_timer eng) timer;
-  if eng.pending_sockets <> [] || eng.pending_timer <> None then
+  (match timer with Null -> () | This ms -> apply_timer eng ms);
+  if eng.pending_sockets <> [] || eng.pending_timer <> Null then
     process_pending eng
 
 and apply_socket eng fd (poll : Curl.Multi.poll) =
@@ -1230,10 +724,8 @@ let upload_short declared produced =
        (Fmt.str "request body ended %d bytes short of the declared length of %d"
           (declared - produced) declared))
 
-(* Read the request body flow into [up] until it ends, the limit is
-   passed or the transfer is over, resuming the send whenever data
-   lands. Stopping leaves [eof] or [error] set, which is what tells the
-   read callback to finish or abort. *)
+(* Stopping leaves [eof] or [error] set, which is what tells the read
+   callback to finish or abort. *)
 let pump eng job (up : upload) flow =
   let cfg = eng.cfg in
   let buf = Cstruct.create upload_chunk in
@@ -1251,6 +743,36 @@ let pump eng job (up : upload) flow =
         | _ -> up.error <- Some (too_large cfg)
         | exception End_of_file -> up.eof <- true)
   in
+  let fill () =
+    if up.read = limit then check_end ()
+    else
+      let room = min (Cstruct.length buf) (limit - up.read) in
+      match Eio.Flow.single_read flow (Cstruct.sub_local buf 0 room) with
+      | n ->
+          up.read <- up.read + n;
+          Queue.add (Cstruct.to_string ~len:n buf) up.chunks;
+          up.queued <- up.queued + n;
+          if up.read = limit then check_end ()
+      | exception End_of_file -> (
+          match up.expected with
+          | Some declared -> up.error <- Some (upload_short declared up.read)
+          | None -> up.eof <- true)
+      | exception (Eio.Cancel.Cancelled _ as ex) -> raise ex
+      | exception ex -> up.error <- Some ex
+  in
+  (* Nothing here may escape: the pump is a daemon fiber on the caller's
+     request switch, so an escaping exception would fail that switch instead
+     of being reported as this transfer's upload error. Both the probing read
+     in [check_end] and the unpause in [resume_send], which re-raises a
+     poisoned engine's failure, can raise. *)
+  let record ex = if up.error = None then up.error <- Some ex in
+  let step () =
+    (match fill () with
+    | () -> ()
+    | exception (Eio.Cancel.Cancelled _ as ex) -> raise ex
+    | exception ex -> record ex);
+    resume_send eng job up
+  in
   let rec loop () =
     if stopped () then ()
     else if up.queued >= high_water then begin
@@ -1258,22 +780,10 @@ let pump eng job (up : upload) flow =
       loop ()
     end
     else begin
-      (if up.read = limit then check_end ()
-       else
-         let room = min (Cstruct.length buf) (limit - up.read) in
-         match Eio.Flow.single_read flow (Cstruct.sub_local buf 0 room) with
-         | n ->
-             up.read <- up.read + n;
-             Queue.add (Cstruct.to_string ~len:n buf) up.chunks;
-             up.queued <- up.queued + n;
-             if up.read = limit then check_end ()
-         | exception End_of_file -> (
-             match up.expected with
-             | Some declared -> up.error <- Some (upload_short declared up.read)
-             | None -> up.eof <- true)
-         | exception (Eio.Cancel.Cancelled _ as ex) -> raise ex
-         | exception ex -> up.error <- Some ex);
-      resume_send eng job up;
+      (match step () with
+      | () -> ()
+      | exception (Eio.Cancel.Cancelled _ as ex) -> raise ex
+      | exception ex -> record ex);
       if not up.eof then loop ()
     end
   in
@@ -1288,23 +798,22 @@ let upload_error job =
    body path attaches: a pre-response failure is unambiguous without it,
    and the text embeds timings ("after 3 ms") that would make error
    output nondeterministic. *)
-let transfer_failure eng job ?(headers_capped = false) ~detail code =
+let transfer_failure eng job ~detail code =
   match upload_error job with
   | Some ex -> ex
-  | None -> (
-      match job.protocol_error with
-      | Some reason -> err (Protocol_error reason)
-      | None when job.over_limit ->
-          err
-            (Protocol_error
-               (Fmt.str "response body exceeds %d bytes" eng.cfg.max_response))
-      | None when headers_capped ->
-          err
-            (Protocol_error
-               (Fmt.str "response headers exceed %d bytes" max_header_bytes))
-      | None -> map_curl_error code detail)
+  | None when job.over_limit ->
+      err
+        (Protocol_error
+           (Fmt.str "response body exceeds %d bytes" eng.cfg.max_response))
+  | None -> map_curl_error code detail
 
-type stream_body = { eng : engine; job : job; mutable reading : bool }
+type stream_body = {
+  eng : engine;
+  job : job;
+  empty : bool;
+  mutable reading : bool;
+  mutable complete : bool;
+}
 
 module Body_stream = struct
   type t = stream_body
@@ -1314,6 +823,10 @@ module Body_stream = struct
   let rec read t (buf @ local) =
     let job = t.job in
     if job.body_abandoned then raise End_of_file;
+    if t.empty then begin
+      t.complete <- true;
+      raise End_of_file
+    end;
     if t.eng.failure <> None then begin
       cleanup_job t.eng job;
       raise_engine_failure t.eng
@@ -1333,7 +846,8 @@ module Body_stream = struct
     end
     else
       match job.finished with
-      | Some Curl.CURLE_OK when job.protocol_error = None ->
+      | Some Curl.CURLE_OK ->
+          t.complete <- true;
           cleanup_job t.eng job;
           raise End_of_file
       | Some code ->
@@ -1360,81 +874,20 @@ module Body_stream = struct
     if t.reading then
       invalid_arg "Fetch_curl: concurrent reads from one response body";
     t.reading <- true;
-    match read t buf with
-    | n -> t.reading <- false; n
-    | exception (Eio.Cancel.Cancelled _ as ex) ->
-        let bt = Printexc.get_raw_backtrace () in
-        t.reading <- false;
-        cleanup_job t.eng t.job;
-        Printexc.raise_with_backtrace ex bt
-    | exception ex ->
-        let bt = Printexc.get_raw_backtrace () in
-        t.reading <- false;
-        Printexc.raise_with_backtrace ex bt
+    let n = Fun.protect
+      ~finally:(fun () -> t.reading <- false)
+      (fun () ->
+        match read t buf with
+        | n -> n
+        | exception ex ->
+            let bt = Printexc.get_raw_backtrace () in
+            cleanup_job t.eng t.job;
+            Printexc.raise_with_backtrace ex bt)
+    in
+    n
 end
 
 let body_stream_handler = Eio.Flow.Pi.source (module Body_stream)
-
-(* Count the representation after content decoding as well as the encoded
-   bytes accepted by the native callback.  On a decoder failure, release the
-   easy handle immediately instead of retaining it until the request switch
-   happens to end. *)
-type checked_body = {
-  src : Eio.Flow.source_ty Eio.Resource.t;
-  eng : engine;
-  job : job;
-  mutable seen : int;
-  mutable complete : bool;
-  mutable reading : bool;
-}
-
-module Checked_body = struct
-  type t = checked_body
-
-  let read_methods = []
-
-  let read t (buf @ local) =
-    match Eio.Flow.single_read t.src buf with
-    | n ->
-        if n > t.eng.cfg.max_response - t.seen then begin
-          cleanup_job t.eng t.job;
-          raise
-            (err
-               (Protocol_error
-                  (Fmt.str "response body exceeds %d bytes"
-                     t.eng.cfg.max_response)))
-        end;
-        t.seen <- t.seen + n;
-        n
-    | exception End_of_file ->
-        t.complete <- true;
-        cleanup_job t.eng t.job;
-        raise End_of_file
-    | exception ex ->
-        let bt = Printexc.get_raw_backtrace () in
-        cleanup_job t.eng t.job;
-        Printexc.raise_with_backtrace ex bt
-
-  let single_read t (buf @ local) =
-    if t.reading then
-      invalid_arg "Fetch_curl: concurrent reads from one response body";
-    t.reading <- true;
-    match read t buf with
-    | n -> t.reading <- false; n
-    | exception ex ->
-        let bt = Printexc.get_raw_backtrace () in
-        t.reading <- false;
-        Printexc.raise_with_backtrace ex bt
-end
-
-let checked_body_handler = Eio.Flow.Pi.source (module Checked_body)
-
-let checked_body eng job src =
-  let state =
-    { src; eng; job; seen = 0; complete = false; reading = false }
-  in
-  ( Eio.Resource.T (state, checked_body_handler),
-    fun () -> state.complete )
 
 let create_job eng h body =
   let id = fresh_job_id eng in
@@ -1468,23 +921,18 @@ let create_job eng h body =
     wake = { u = None };
     head_off = 0;
     queued = 0;
-    wire_received = 0;
     received = 0;
     paused = false;
     over_limit = false;
-    protocol_error = None;
-    chunked = None;
-    close_enforced = false;
-    force_close = false;
-    discard_remainder = false;
-    skip_redelivery = false;
+    head_complete = false;
+    trailers = None;
     added = false;
-    body_started = false;
     body_abandoned = false;
     finished = None;
     cleaned = false;
     handle_cleaned = false;
     pending_wake = false;
+    listed = false;
     hook = Eio.Switch.null_hook;
   }
 
@@ -1515,124 +963,42 @@ module Backend = struct
           Printexc.raise_with_backtrace ex bt
     in
     try
-      let quarantine ~discard =
-        job.force_close <- true;
-        if discard then begin
-          job.discard_remainder <- true;
-          (* Returning [Pause] tells libcurl that this complete callback
-             buffer was not consumed. The first discard delivery is that same
-             buffer, not more wire bytes. *)
-          job.skip_redelivery <- true
-        end
-      in
-      let col, auto_decode =
-        setup_handle cfg h req body ~on_error:(fun reason ->
-            job.protocol_error <- Some reason)
-          ~on_close:quarantine
-          ~on_final_head:(fun () -> job.pending_wake <- true)
-          ~on_http2_trailer:(fun n ->
-            if n > cfg.max_response - job.wire_received then begin
-              job.over_limit <- true;
-              false
-            end
-            else begin
-              job.wire_received <- job.wire_received + n;
-              true
-            end)
-      in
+      let auto_decode = setup_handle cfg h req body in
       Curl.set_errorbuffer h job.errbuf;
-      let exception Body_limit in
-      let enqueue s =
-        let n = String.length s in
-        if col.status = 205 && n <> 0 then
-          (* RFC 9110 gives 205 response content no semantics, but RFC 9112
-             still requires us to frame bytes sent by a broken peer. Consume
-             and suppress them, and keep the connection out of the pool. *)
-          quarantine ~discard:false
-        else if n > cfg.max_response - job.received then begin
-          job.over_limit <- true;
-          raise_notrace Body_limit
-        end
-        else begin
-          Queue.add s job.chunks;
-          job.received <- job.received + n;
-          job.queued <- job.queued + n
-        end
-      in
-      let count_wire s =
-        let n = String.length s in
-        if n > cfg.max_response - job.wire_received then begin
-          job.over_limit <- true;
-          false
-        end
-        else begin
-          job.wire_received <- job.wire_received + n;
-          true
-        end
-      in
+      Curl.set_headerfunction h (fun line ->
+          if (not job.head_complete) && (line = "\r\n" || line = "\n") then begin
+            (* Proxy CONNECT and interim responses have no final origin code. *)
+            let status = Curl.get_responsecode h in
+            if status >= 200 || status = 101 then begin
+              job.head_complete <- true;
+              job.pending_wake <- true;
+              mark_pending eng job
+            end
+          end;
+          String.length line);
       Curl.set_writefunction2 h (fun s ->
-          (* C callback frame: record and signal only. Refusing the data
-             ([Pause]) makes libcurl keep it and deliver it again on
-             unpause, so a paused job queues nothing further. *)
-          if s = "" then Curl.proceed
+          let n = String.length s in
+          if n = 0 then Curl.proceed
+          else if job.cleaned || eng.failure <> None then Curl.Abort
+          else if job.queued >= high_water then begin
+            (* Pause consumes nothing; libcurl redelivers this buffer on resume. *)
+            job.paused <- true;
+            Curl.Pause
+          end
+          else if n > cfg.max_response - job.received then begin
+            job.over_limit <- true;
+            Curl.Abort
+          end
           else begin
-            job.body_started <- true;
-            col.in_body <- true;
+            job.received <- job.received + n;
+            Queue.add s job.chunks;
+            job.queued <- job.queued + n;
             job.pending_wake <- true;
-            if job.cleaned || eng.failure <> None || job.protocol_error <> None
-            then Curl.Abort
-            else if col.connection_close && not job.close_enforced then begin
-              (* Setting CURLOPT_FORBID_REUSE from inside a native callback is
-                 not safe. Pause before any body byte can complete the
-                 transfer; ordinary fiber context marks it below and resumes. *)
-              job.paused <- true;
-              Curl.Pause
-            end
-            else if (not job.discard_remainder) && job.queued >= high_water then (
-              job.paused <- true;
-              Curl.Pause)
-            else if
-              job.discard_remainder && job.skip_redelivery
-            then begin
-              job.skip_redelivery <- false;
-              Curl.proceed
-            end
-            else if not (count_wire s) then Curl.Abort
-            else if job.discard_remainder then Curl.proceed
-            else begin
-              (try
-                 if col.chunked then begin
-                   let decoder =
-                     match job.chunked with
-                     | Some decoder -> decoder
-                     | None ->
-                         let decoder = Chunked.create () in
-                         job.chunked <- Some decoder;
-                         decoder
-                   in
-                   match Chunked.feed decoder s enqueue with
-                   | `Ok -> Curl.proceed
-                   | `Trailing ->
-                       (* The response itself is complete. Quarantine the
-                          connection in fiber context, then accept the
-                          redelivered callback without treating its suffix as
-                          another response body. *)
-                       quarantine ~discard:true;
-                       job.paused <- true;
-                       Curl.Pause
-                   | `Error reason ->
-                       job.protocol_error <- Some reason;
-                       Curl.Abort
-                 end
-                 else begin
-                   enqueue s;
-                   Curl.proceed
-                 end
-               with Body_limit -> Curl.Abort)
-            end
+            mark_pending eng job;
+            Curl.proceed
           end);
       (match (req.body, job.upload) with
-      | Stream { flow; _ }, Some up ->
+      | Stream _, Some up ->
           Curl.set_readfunction2 h (fun n ->
               (* C callback frame: record and signal only. [Pause] leaves
                 the send stopped until the pump has more to give. *)
@@ -1643,13 +1009,15 @@ module Backend = struct
                 let chunk = Queue.peek up.chunks in
                 let avail = String.length chunk - up.head_off in
                 let n = min avail n in
-                let s = String.sub chunk up.head_off n in
+                let s = if up.head_off = 0 && n = String.length chunk then chunk
+                  else String.sub chunk up.head_off n in
                 if n = avail then (
                   ignore (Queue.pop up.chunks : string);
                   up.head_off <- 0)
                 else up.head_off <- up.head_off + n;
                 up.queued <- up.queued - n;
                 job.pending_wake <- true;
+                mark_pending eng job;
                 Curl.Proceed s
               end
               else if up.eof then Curl.Proceed ""
@@ -1669,10 +1037,9 @@ module Backend = struct
              cleanup resolves [stop], which also cancels a pump blocked in an
              arbitrary source flow. *)
           Eio.Fiber.fork_daemon ~sw (fun () ->
-              ignore
-                (Eio.Fiber.first
-                   (fun () -> pump eng job up flow)
-                   (fun () -> Eio.Promise.await up.stop));
+              Eio.Fiber.first
+                (fun () -> pump eng job up flow)
+                (fun () -> Eio.Promise.await up.stop);
               `Stop_daemon)
       | _ -> ());
       curl_call eng (fun () -> Curl.Multi.action_timeout eng.mt);
@@ -1681,7 +1048,7 @@ module Backend = struct
          [cleaned] also ends the wait — the switch may be released while
          we sit here, and its backstop wake must not be lost. *)
       wait_for job.wake (fun () ->
-          col.head_complete || job.finished <> None || job.cleaned
+          job.head_complete || job.finished <> None || job.cleaned
           || eng.failure <> None);
       raise_engine_failure eng;
       if job.cleaned then
@@ -1689,97 +1056,68 @@ module Backend = struct
            use-after-free in C. *)
         raise (err (Protocol_error "request abandoned: switch released"));
       (match job.finished with
-      | Some code
-        when col.abort_after_head
-             && job.protocol_error = None
-             && Curl.errno code = Curl.errno Curl.CURLE_WRITE_ERROR ->
-          (* [header_callback] deliberately aborted after the complete head to
-             prevent a zero-body close-marked connection entering the pool. *)
-          job.finished <- Some Curl.CURLE_OK
-      | _ -> ());
-      (match job.finished with
-      | Some code when code <> Curl.CURLE_OK || job.protocol_error <> None ->
-          raise
-            (transfer_failure eng job ~headers_capped:col.headers_capped
-               ~detail:"" code)
+      | Some code when code <> Curl.CURLE_OK ->
+          raise (transfer_failure eng job ~detail:"" code)
       | _ -> ());
       let status = Curl.get_responsecode h in
-      if not col.head_complete then
+      if not job.head_complete then
         raise (err (Protocol_error "response head is not terminated by CRLF"));
       if status = 101 then
         raise
           (err
              (Protocol_error
                 "server switched protocols, which this backend did not request"));
-      let headers = Http.Header.of_list (List.rev col.lines) in
-      let version = version_of_status_line col.status_line in
-      if version = `HTTP_1_0 && Http.Header.mem headers "transfer-encoding" then
-        raise
-          (err
-             (Protocol_error
-                "HTTP/1.0 response contains Transfer-Encoding"));
-      let framing_bodyless = framing_bodyless req.meth status in
-      let contentless = contentless req.meth status in
       let headers =
-        if framing_bodyless then headers
+        Http.Header.of_list
+          (Curl.get_headers h [ Curl.CURLH_HEADER ] ~request:(-1))
+      in
+      let version : Fetch.version =
+        (* ocurl 0.10 can return Long here, which get_http_version rejects. *)
+        match Curl.getinfo h Curl.CURLINFO_HTTP_VERSION with
+        | Curl.CURLINFO_Version Curl.HTTP_VERSION_1_0 | Curl.CURLINFO_Long 1 ->
+            `HTTP_1_0
+        | Curl.CURLINFO_Version Curl.HTTP_VERSION_1_1 | Curl.CURLINFO_Long 2 ->
+            `HTTP_1_1
+        | Curl.CURLINFO_Version Curl.HTTP_VERSION_2 | Curl.CURLINFO_Long 3 ->
+            `HTTP_2
+        | Curl.CURLINFO_Version Curl.HTTP_VERSION_3 | Curl.CURLINFO_Long 30 ->
+            `Other "HTTP/3"
+        | _ -> `Other "unknown"
+      in
+      let bodyless = req.meth = `HEAD || status = 204 || status = 304 in
+      let headers =
+        if bodyless then headers
         else Http.Header.remove headers "transfer-encoding"
       in
-      let gzip =
-        auto_decode && (not contentless)
-        &&
-        match Http.Header.get_multi headers "content-encoding" with
-        | [ value ] ->
-            let value = String.lowercase_ascii (String.trim value) in
-            String.equal value "gzip" || String.equal value "x-gzip"
-        | _ -> false
-      in
       let headers =
-        if gzip then
+        if
+          auto_decode && (not bodyless)
+          && Http.Header.mem headers "content-encoding"
+        then
           Http.Header.remove
             (Http.Header.remove headers "content-encoding")
             "content-length"
         else headers
       in
-      (* A semantic no-content response never exposes queued representation
-         bytes. Otherwise a completed transfer can release its handle now;
-         queued chunks outlive it. *)
-      if contentless || job.finished <> None then cleanup_job eng job;
-      let raw_body =
-        if contentless then Eio.Flow.string_source ""
-        else Eio.Resource.T ({ eng; job; reading = false }, body_stream_handler)
-      in
-      let decoded_body =
-        if gzip then Gzip_stream.gunzip raw_body else raw_body
-      in
-      let body, body_complete = checked_body eng job decoded_body in
+      let empty = bodyless || status = 205 in
+      if empty then begin
+        Queue.clear job.chunks;
+        job.queued <- 0
+      end;
+      if empty || job.finished <> None then cleanup_job eng job;
+      let stream = { eng; job; empty; reading = false; complete = false } in
+      let body = Eio.Resource.T (stream, body_stream_handler) in
       let trailers () =
         if Domain.self () <> eng.dom then
           invalid_arg
             "Fetch_curl: response trailers used from a domain other than the \
              client's";
-        (* Per the interface, [Some] only once the body has been fully
-           consumed: the transfer succeeded *and* the reader has drained
-           the queue. (For a small response the transfer can finish
-           before the caller reads a byte, so [finished] alone would
-           answer too early.) *)
-        if not (body_complete ()) then None
-        else
-          match (job.finished, job.chunked) with
-          | Some Curl.CURLE_OK, Some decoder -> decoder.Chunked.trailers
-          | Some Curl.CURLE_OK, None -> begin
-              let lines =
-                List.filter
-                  (fun (name, _) ->
-                    not (Httpz.Chunk.is_forbidden_trailer_name name))
-                  col.trailer_lines
-              in
-              match lines with
-              | [] -> None
-              | lines -> Some (Http.Header.of_list (List.rev lines))
-            end
-          | _ -> None
+        if stream.complete then job.trailers else None
       in
       let close () =
+        if Domain.self () <> eng.dom then
+          invalid_arg
+            "Fetch_curl: response closed from a domain other than the client's";
         if not job.body_abandoned then begin
           job.body_abandoned <- true;
           Queue.clear job.chunks;
@@ -1787,8 +1125,8 @@ module Backend = struct
           cleanup_job eng job
         end
       in
-      Fetch.Middleware.Pi.response ~status ~headers ~version ~trailers
-        ~close ~body ~url:req.url ()
+      Fetch.Middleware.Pi.response ~status ~headers ~version ~trailers ~close
+        ~body ~url:req.url ()
     with ex ->
       let bt = Printexc.get_raw_backtrace () in
       cleanup_job eng job;
@@ -1800,7 +1138,8 @@ let handler = Fetch.Middleware.Pi.client (module Backend)
 let shutdown eng =
   if Domain.self () <> eng.dom then
     invalid_arg
-      "Fetch_curl: client switch released from a domain other than its creator's";
+      "Fetch_curl: client switch released from a domain other than its \
+       creator's";
   if not eng.closed then begin
     eng.shutting_down <- true;
     let first_error = ref None in
@@ -1829,6 +1168,7 @@ let shutdown eng =
     let stranded = Hashtbl.fold (fun _ job acc -> job :: acc) eng.jobs [] in
     List.iter (fun job -> protect (fun () -> cleanup_handle job)) stranded;
     Hashtbl.clear eng.jobs;
+    eng.pending_jobs <- [];
     discard_pending eng;
     match !first_error with
     | None -> ()
@@ -1836,7 +1176,7 @@ let shutdown eng =
   end
 
 let v ~sw ?(tls_verify = true) ?(http_version = `Auto) ?proxy ?timeout
-    ?(connect_timeout = 30.) ?(max_response = 256 * 1024 * 1024)
+    ?(connect_timeout = Duration.of_sec 30) ?(max_response = 256 * 1024 * 1024)
     ?(max_request = 256 * 1024 * 1024) ?(user_agent = "fetch-curl")
     ?(verbose = false) ?(resolve = []) ?max_connections_per_host
     ?max_total_connections ?(multiplex = true) () : t =
@@ -1851,6 +1191,8 @@ let v ~sw ?(tls_verify = true) ?(http_version = `Auto) ?proxy ?timeout
       ~max_response ~max_request ~user_agent ~verbose ~resolve
   in
   global_init ();
+  if (Curl.version_info ()).number < (7, 83, 0) then
+    invalid_arg "Fetch_curl.v: libcurl 7.83.0 or later is required";
   let jobs = Hashtbl.create 8 in
   let watchers = Hashtbl.create 8 in
   let mt = Curl.Multi.create () in
@@ -1866,7 +1208,8 @@ let v ~sw ?(tls_verify = true) ?(http_version = `Auto) ?proxy ?timeout
       failure = None;
       watchers;
       pending_sockets = [];
-      pending_timer = None;
+      pending_jobs = [];
+      pending_timer = Null;
       timer_gen = 0;
       timer_stop = None;
       next_id = 0;

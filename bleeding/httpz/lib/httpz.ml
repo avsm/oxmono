@@ -18,15 +18,6 @@ module Err = Err
 module Etag = Etag
 module Date = Date
 module Range = Range
-module Urlencoded = Urlencoded
-module Multipart = Multipart
-module Media = Media
-module Json = Json
-module Sse = Sse
-module Raw = Uriz.Raw
-module Uriz = Httpz_uri
-module Uri_template = Uri_template
-module Ip = Ip
 
 type buffer = bytes
 type span = Span.t
@@ -84,7 +75,7 @@ let initial_header_state : header_state =
   ; host = Span.make ~off:(i16 0) ~len:(i16 0)
   }
 
-let[@inline] error_result status = exclave_
+let[@inline] error_result status =
   #( status
    , #{ Req.meth = Method.Get
       ; target = Span.make ~off:(i16 0) ~len:(i16 0)
@@ -119,7 +110,8 @@ let[@inline] build_request ~meth ~target ~target_parsed ~version ~(body_off : in
      ; content_length = st.#content_len
      ; is_chunked = st.#chunked
      ; keep_alive
-     ; connection_upgrade = st.#connection_upgrade
+     ; connection_upgrade =
+         phys_equal version Version.Http_1_1 && st.#connection_upgrade
      ; expect_continue =
          phys_equal version Version.Http_1_1 && st.#expect_continue
      ; unsupported_expectation =
@@ -159,7 +151,7 @@ let rec parse_headers_loop (pst : Parser.pstate) ~pos ~acc (st : header_state) ~
         Span.parse_transfer_encoding pst.#buf value_span
       in
       Err.when_
-        ((not valid) || count = 0 || chunked_count > 1 || not is_chunked)
+        ((not valid) || chunked_count > 1 || not is_chunked)
         Err.Ambiguous_framing;
       Err.when_ (count <> 1) Err.Unsupported_transfer_encoding;
       parse_headers_loop pst ~pos ~acc ~limits
@@ -183,15 +175,18 @@ let rec parse_headers_loop (pst : Parser.pstate) ~pos ~acc (st : header_state) ~
              || Span.token_list_contains pst.#buf value_span "upgrade"
          }
     | Header_name.Expect ->
+      (* RFC 9110 5.6.1 lets a field value be an empty list, and 417 answers an
+         expectation this server does not support, not the absence of one, so an empty
+         Expect states nothing either way. *)
       let #(count, all_continue) =
         Span.token_list_all_are pst.#buf value_span "100-continue"
       in
-      let is_continue = count > 0 && all_continue in
       parse_headers_loop pst ~pos ~acc ~limits
         #{ st with
            count = next_count
-         ; expect_continue = is_continue || st.#expect_continue
-         ; unsupported_expectation = (not is_continue) || st.#unsupported_expectation
+         ; expect_continue = (count > 0 && all_continue) || st.#expect_continue
+         ; unsupported_expectation =
+             (count > 0 && not all_continue) || st.#unsupported_expectation
          }
     | _ ->
       let hdr = { Header.name; name_span; value = value_span } in
@@ -211,8 +206,7 @@ let[@zero_alloc] parse (buf : buffer) ~(len : int16#) ~limits = exclave_
       let #(body_off, st, headers) =
         parse_headers_loop pst ~pos ~acc:[] initial_header_state ~limits
       in
-      (* The limit bounds the head, not the read: body bytes that arrived in
-         the same segment are not part of it. [Res.parse] checks the same way. *)
+      (* [Res.parse] checks the same way. *)
       Err.when_ (gt16 body_off limits.#max_header_size) Err.Headers_too_large;
       Err.when_
         (phys_equal version Version.Http_1_0 && st.#has_te)

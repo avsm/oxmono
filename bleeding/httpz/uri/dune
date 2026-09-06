@@ -1,0 +1,8 @@
+(library
+ (name httpz_uri)
+ (public_name httpz.uri)
+ (modules uriz_scanner uri uri_template ip httpz_uri)
+ (private_modules uriz_scanner uri uri_template ip)
+ (libraries base stdlib_stable uriz)
+ (preprocess
+  (pps ppx_template)))

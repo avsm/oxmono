@@ -1,0 +1,6 @@
+(copy_files ../httpz_media_cmarkit.ml)
+
+(test
+ (name test_media_cmarkit)
+ (package httpz)
+ (libraries cmarkit httpz.media alcotest))

@@ -25,10 +25,14 @@ type error_reason : immutable_data =
           rejected input. *)
   | Domain_too_long of int
       (** [Domain_too_long length] means an ASCII domain exceeded
-          {!max_domain_length}; [length] is its actual byte length. *)
+          {!max_domain_length}; [length] is its byte length, or the shortest
+          length its labels could have taken when a domain is rejected on its
+          label count before conversion. *)
   | Verification_failed
-      (** [Verification_failed] means encoding did not decode back to the NFC
-          input. *)
+      (** [Verification_failed] means a round trip disagreed: a U-label did not
+          decode back to its NFC form, or an A-label payload was not the
+          canonical encoding of the text it decodes to. Both comparisons ignore
+          ASCII case, which Punycode encoding folds. *)
 
 exception Error of error_reason
 (** [Error reason] is the exception reporting a failed conversion or validation
@@ -51,16 +55,20 @@ val to_ascii : ?check_hyphens:bool -> ?use_std3_rules:bool -> string -> string
     obtained by converting each dot-separated UTF-8 label and enforcing
     {!max_domain_length}.
 
+    A single trailing empty label is preserved as the DNS root dot; other empty
+    labels are rejected.
+
     [check_hyphens] defaults to [true] and rejects leading or trailing hyphens,
     and [--] in positions 3 and 4 unless the label begins with [xn--]. Apparent
     A-labels are always decoded and checked for a canonical non-ASCII
-    round-trip. [use_std3_rules] defaults to [false].
-    When enabled, an already-ASCII label must contain only letters, digits, and
-    hyphens and must not begin or end with a hyphen. A single trailing empty
-    label is preserved as the DNS root dot; other empty labels are rejected.
+    round-trip. [use_std3_rules] defaults to [false]. When enabled, an
+    already-ASCII label must contain only letters, digits, and hyphens; hyphen
+    placement is left to [check_hyphens].
 
     It raises [Error] when a label fails conversion or a configured check, or
-    when the ASCII domain excluding its root dot is longer than 253 bytes. *)
+    when the ASCII domain excluding its root dot is longer than 253 bytes. A
+    domain with more labels than that many bytes could hold is rejected before
+    any label is converted. *)
 
 val label_to_ascii :
   ?check_hyphens:bool -> ?use_std3_rules:bool -> string -> string
@@ -75,15 +83,17 @@ val label_to_ascii :
 
 val to_unicode : string -> string
 (** [to_unicode domain] is [domain] with every dot-separated [xn--] label
-    decoded and every other label unchanged. It is intended for display; it
-    validates the A-label round-trip but does not validate IDNA code-point,
-    bidi, or joiner rules.
+    decoded and every other label unchanged. A decoded label is NFC normalized,
+    which is the form its A-label is verified against. It is intended for
+    display; it validates the A-label round-trip but does not validate IDNA
+    code-point, bidi, or joiner rules.
 
     A-labels must be at most 63 octets, the DNS limit; the cap also bounds the
     quadratic cost of Punycode decoding. The total domain length is not checked.
 
     A trailing DNS root dot is preserved.
 
-    It raises [Error] when an A-label is longer than 63 octets, an ACE-prefixed
-    label is not valid Punycode, the input is malformed UTF-8, or a non-ASCII
-    label exceeds the defensive U-label input bound. *)
+    It raises [Error] when an A-label is longer than 63 octets, carries an empty
+    payload, decodes to ASCII alone, is not valid Punycode, or is not the
+    canonical encoding of what it decodes to, and when the input is malformed
+    UTF-8 or a non-ASCII label exceeds the defensive U-label input bound. *)

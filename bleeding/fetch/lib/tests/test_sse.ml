@@ -228,8 +228,8 @@ let test_control_id_reconnect () =
         Fetch_mock.respond ~status:401 "stop" req
   in
   let subscription =
-    Sse.subscribe ~sw ~clock:env#mono_clock ~backoff_initial:0.1
-      ~backoff_max:0.1 ~capacity:2 (Fetch_mock.client server)
+    Sse.subscribe ~sw ~clock:env#mono_clock ~backoff_initial:(Duration.of_ms 100)
+      ~backoff_max:(Duration.of_ms 100) ~capacity:2 (Fetch_mock.client server)
       "https://events.example/control-id"
   in
   check "a control-bearing event id is retained"
@@ -262,7 +262,7 @@ let test_subscription () =
   in
   let subscription =
     Sse.subscribe ~sw ~clock:env#mono_clock
-      ~last_event_id:"seed" ~backoff_initial:1. ~backoff_max:1.
+      ~last_event_id:"seed" ~backoff_initial:(Duration.of_sec 1) ~backoff_max:(Duration.of_sec 1)
       ~capacity:4 (Fetch_mock.client server)
       "https://events.example/subscription"
   in
@@ -298,8 +298,8 @@ let test_connection_retry () =
     | _ -> Fetch_mock.respond ~status:401 "stop" req
   in
   let subscription =
-    Sse.subscribe ~sw ~clock:env#mono_clock ~backoff_initial:1.
-      ~backoff_max:1. ~capacity:2 (Fetch_mock.client server)
+    Sse.subscribe ~sw ~clock:env#mono_clock ~backoff_initial:(Duration.of_sec 1)
+      ~backoff_max:(Duration.of_sec 1) ~capacity:2 (Fetch_mock.client server)
       "https://events.example/retry"
   in
   check "connection failure retried"
@@ -316,7 +316,7 @@ let test_close () =
   let server req = Fetch_mock.respond ~status:503 "retry" req in
   let subscription =
     Sse.subscribe ~sw ~clock:env#mono_clock
-      ~backoff_initial:100. ~backoff_max:100. ~capacity:1
+      ~backoff_initial:(Duration.of_sec 100) ~backoff_max:(Duration.of_sec 100) ~capacity:1
       (Fetch_mock.client server) "https://events.example/close"
   in
   Sse.close subscription;
@@ -450,7 +450,7 @@ let test_retry_clamp () =
   in
   (Eio.Switch.run @@ fun sw ->
    (* Backoff alone would wait 30 s; [retry: 0] must not make it immediate. *)
-   let sub, arrived = subscribe ~backoff_max:30. "retry: 0\ndata: x\n\n" in
+   let sub, arrived = subscribe ~backoff_max:(Duration.of_sec 30) "retry: 0\ndata: x\n\n" in
    let s = sub ~sw in
    check "zero retry is floored at 100 ms"
      (reconnect_after ~clock ~budget:0.099 arrived = `Slept);
@@ -460,7 +460,7 @@ let test_retry_clamp () =
   Eio.Switch.run @@ fun sw ->
   (* A retry of 999999999 ms is over eleven days; the cap wins. *)
   let sub, arrived =
-    subscribe ~backoff_max:2. "retry: 999999999\ndata: x\n\n"
+    subscribe ~backoff_max:(Duration.of_sec 2) "retry: 999999999\ndata: x\n\n"
   in
   let s = sub ~sw in
   check "an absurd retry is capped at backoff_max"
@@ -486,14 +486,26 @@ let test_arguments () =
     |> ignore
   in
   invalid "zero initial backoff" (fun () ->
-    subscribe ~backoff_initial:0. ());
-  invalid "NaN backoff" (fun () ->
-    subscribe ~backoff_initial:Float.nan ());
-  invalid "infinite backoff cap" (fun () ->
-    subscribe ~backoff_max:Float.infinity ());
+    subscribe ~backoff_initial:(Duration.of_sec 0) ());
   invalid "initial backoff exceeds cap" (fun () ->
-    subscribe ~backoff_initial:2. ~backoff_max:1. ());
+    subscribe ~backoff_initial:(Duration.of_sec 2) ~backoff_max:(Duration.of_sec 1) ());
+  invalid "backoff ordering keeps nanosecond precision" (fun () ->
+    let initial = Duration.of_sec 10_000_000 in
+    subscribe ~backoff_initial:initial ~backoff_max:(Int64.pred initial) ());
   invalid "zero capacity" (fun () -> subscribe ~capacity:0 ())
+
+(* WHATWG "parsing an event stream" ignores a field whose value it cannot use.
+   A [retry] too large for an int is one, so a value accepted earlier in the
+   same block stands. *)
+let test_retry_overflow () =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  check "an unusable retry keeps the value before it"
+    (decode_string ~sw "retry: 5\nretry: 99999999999999999999\ndata: x\n\n"
+     = [ event ~retry:5 "x" ]);
+  check "an unusable retry on its own leaves none"
+    (decode_string ~sw "retry: 99999999999999999999\ndata: x\n\n"
+     = [ event "x" ])
 
 let () =
   test_framing ();
@@ -508,5 +520,6 @@ let () =
   test_switch_cancellation ();
   test_close_on_a_full_stream ();
   test_retry_clamp ();
+  test_retry_overflow ();
   test_arguments ();
   Printf.printf "test_sse: %d checks ok\n" !checks

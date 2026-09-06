@@ -1,7 +1,7 @@
 (* Every spelling inet_aton(3) accepts, and the near misses it does not. *)
 
 open Base
-module Ip = Httpz.Ip
+module Ip = Httpz_uri.Ip
 
 let failures = ref 0
 

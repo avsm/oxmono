@@ -3,6 +3,7 @@
 (using mdx 0.4)
 (formatting disabled)
 (generate_opam_files true)
+(implicit_transitive_deps false)
 (source (tangled @anil.recoil.org/taposaur))
 (license ISC)
 (authors "Anil Madhavapeddy")
@@ -10,62 +11,74 @@
 
 (package
  (name fetch)
- (synopsis "Portable HTTP client capability for Eio")
+ (license ISC)
+ (synopsis "Portable HTTP client capability for Eio and OxCaml")
  (description
   "An abstract HTTP client capability that can be narrowed, appended to, and
 rate-limited before being handed to libraries. A mock backend and cookie-jar
 middleware are included, along with Jsont and Cmarkit media codecs.")
  (depends
-  (ocaml (>= 5.2.0))
-  httpz
+  (duration (>= 0.3.1))
+  (ocaml (>= 5.2))
+  (httpz (= :version))
   (eio (>= 1.3))
   (http (>= 6.0.0))
+  (ipaddr (>= 5.6.2))
   (fmt (>= 0.8.9))
   (mtime (>= 2.0.0))
   (cstruct (>= 6.0.0))
   (bytesrw (>= 0.4.0))
   (ptime (>= 1.0.0))
   (base64 (>= 3.5.0))
-  (ipaddr (>= 5.6.2))
-  (alcotest :with-test)
   (cmarkit (>= 0.4.0))
+  (alcotest :with-test)
   (mdx (and (>= 2.4.1) :with-test))
   (eio_main (and (>= 1.3) :with-test))))
 
 (package
  (name fetch-httpz)
+ (license ISC)
  (synopsis "Httpz backend for Fetch")
  (description
   "A pure OCaml HTTP/1.1 Fetch backend using httpz, with streaming request and
 response bodies, transparent gzip decoding, and system-trust HTTPS by default.")
  (depends
+  (duration (>= 0.3.1))
   (fetch (= :version))
-  httpz
+  (httpz (= :version))
   (eio (>= 1.3))
   (http (>= 6.0.0))
-  uriz
   (fmt (>= 0.8.9))
   (cstruct (>= 6.0.0))
   (checkseum (>= 0.5.0))
-  (decompress (>= 1.5.0))
+  optint
+  ; The gzip shim compensates in-place for the big-endian XLEN and the
+  ; high-half FHCRC comparison of decompress 1.6.0. A release that fixes
+  ; either would turn every valid FEXTRA or FHCRC member into a
+  ; Protocol_error, so the coupling is to that one version.
+  (decompress (and (>= 1.6.0) (< 1.6.1)))
   (eio_main (and (>= 1.3) :with-test))
   (alcotest :with-test)
   (mdx (and (>= 2.4.1) :with-test))))
 
 (package
  (name fetch-curl)
+ (license ISC)
  (synopsis "Libcurl backend for Fetch")
  (description
   "A Fetch backend using libcurl's multi interface with Eio integration,
 connection reuse, HTTP/2 multiplexing, and per-host connection limits.")
  (depends
+  (duration (>= 0.3.1))
   (fetch (= :version))
-  httpz
-  (checkseum (>= 0.5.0))
-  (decompress (>= 1.5.0))
+  (httpz (and (= :version) :with-test))
   (eio (>= 1.3))
   (fmt (>= 0.8.9))
+  (cstruct (>= 6.0.0))
+  (http (>= 6.0.0))
+  base-unix
   (curl (>= 0.10.0))
+  (alcotest :with-test)
   (eio_main (and (>= 1.3) :with-test))
   (mdx (and (>= 2.4.1) :with-test))))
 

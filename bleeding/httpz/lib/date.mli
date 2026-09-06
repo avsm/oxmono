@@ -39,20 +39,21 @@ val[@zero_alloc] parse_unboxed :
 val format : float# -> string @@ portable
 (** [format timestamp] is [timestamp] in IMF-fixdate form. Fractional seconds
     are discarded. Finite values outside calendar years 1 through 9999 are
-    clamped to that range. Conversion of a non-finite timestamp is unspecified.
-*)
+    clamped to that range. Conversion of a non-finite timestamp is total and
+    deterministic: [nan] and [neg_infinity] clamp to year 1, and [infinity]
+    clamps to year 9999. *)
 
 val write_date_header : bytes -> off:int16# -> float# -> int16# @@ portable
-(** [write_date_header buf ~off timestamp] is the next offset after writing a
-    Date field in IMF-fixdate form. *)
+(** [write_date_header buf ~off timestamp] is [off + 37] after writing a Date
+    field in IMF-fixdate form. *)
 
 val write_last_modified : bytes -> off:int16# -> float# -> int16# @@ portable
-(** [write_last_modified buf ~off timestamp] is the next offset after writing a
+(** [write_last_modified buf ~off timestamp] is [off + 46] after writing a
     Last-Modified field in IMF-fixdate form. *)
 
 val write_expires : bytes -> off:int16# -> float# -> int16# @@ portable
-(** [write_expires buf ~off timestamp] is the next offset after writing an
-    Expires field in IMF-fixdate form. *)
+(** [write_expires buf ~off timestamp] is [off + 40] after writing an Expires
+    field in IMF-fixdate form. *)
 
 val[@zero_alloc opt] write_http_date :
   bytes -> off:int16# -> float# -> int16# @@ portable
@@ -62,9 +63,11 @@ val[@zero_alloc opt] write_http_date :
 val is_modified_since :
   last_modified:float# -> if_modified_since:float# -> bool @@ portable
 (** [is_modified_since ~last_modified ~if_modified_since] is [true] when
-    [last_modified] is later than [if_modified_since]. *)
+    [last_modified] is later than [if_modified_since]. It is [false] when
+    either argument is [nan]. *)
 
 val is_unmodified_since :
   last_modified:float# -> if_unmodified_since:float# -> bool @@ portable
 (** [is_unmodified_since ~last_modified ~if_unmodified_since] is [true] when
-    [last_modified] is not later than [if_unmodified_since]. *)
+    [last_modified] is not later than [if_unmodified_since]. It is [false]
+    when either argument is [nan]. *)

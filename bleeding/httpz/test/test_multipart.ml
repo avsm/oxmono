@@ -1,4 +1,4 @@
-module M = Httpz.Multipart
+module M = Httpz_media.Multipart
 
 let crlf lines = String.concat "\r\n" lines
 
@@ -114,8 +114,52 @@ let test_ext_filename () =
         "--b--";
         "" ]
   in
-  let q = List.hd (parts_of ~boundary:"b" latin) in
-  check_opt_str "unknown charset falls back" (Some "plain.txt") q.M.filename
+  check_str "unknown charset is rejected" "malformed extended filename parameter"
+    (error_of ~boundary:"b" latin)
+
+let ext_filename_body ext =
+  crlf
+    [ "--b";
+      "Content-Disposition: form-data; name=\"f\"; filename=\"plain.txt\"; \
+       filename*=" ^ ext;
+      "";
+      "x";
+      "--b--";
+      "" ]
+
+let test_ext_filename_rejected () =
+  let rejected what ext =
+    check_str what "malformed extended filename parameter"
+      (error_of ~boundary:"b" (ext_filename_body ext))
+  in
+  rejected "truncated escape" "UTF-8''a%E";
+  rejected "escape that is not hexadecimal" "UTF-8''a%zz.txt";
+  rejected "no second quote" "UTF-8'a.txt";
+  rejected "byte outside attr-char" "\"UTF-8''a b.txt\"";
+  let decoded =
+    List.hd (parts_of ~boundary:"b" (ext_filename_body "UTF-8''a%20b.txt"))
+  in
+  check_opt_str "escapes decode" (Some "a b.txt") decoded.M.filename
+
+let test_media_type_case () =
+  check_opt_str "given media type is folded" (Some "range")
+    (M.boundary_of_content_type ~media_type:"Multipart/ByteRanges"
+       "multipart/byteranges; boundary=range");
+  check_opt_str "still exact" None
+    (M.boundary_of_content_type ~media_type:"Multipart/Mixed"
+       "multipart/byteranges; boundary=range")
+
+let test_close_at_end_of_body () =
+  let body =
+    "--b\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nx\r\n--b--"
+  in
+  let ps = parts_of ~boundary:"b" body in
+  Alcotest.(check int) "one part" 1 (List.length ps);
+  check_str "content" "x" (M.content body (List.hd ps));
+  Alcotest.(check int) "transport padding at the end of the body" 1
+    (List.length (parts_of ~boundary:"b" (body ^ " \t")));
+  Alcotest.(check int) "no part before the close" 0
+    (List.length (parts_of ~boundary:"b" "--b--"))
 
 let test_transport_padding () =
   let body =
@@ -174,7 +218,7 @@ let test_max_parts () =
   Alcotest.(check int) "zero accepts an empty multipart" 0
     (List.length (parts_of ~max_parts:0 ~boundary:"b" "--b--\r\n"));
   Alcotest.check_raises "negative bound"
-    (Invalid_argument "Httpz.Multipart.parse: max_parts is negative")
+    (Invalid_argument "Httpz_media.Multipart.parse: max_parts is negative")
     (fun () -> ignore (M.parse ~max_parts:(-1) ~boundary:"b" body))
 
 let test_bare_lf () =
@@ -309,8 +353,8 @@ let test_strict_closing_delimiter () =
   in
   check_str "junk after close" "missing closing delimiter"
     (error_of ~boundary:"b" (prefix ^ "junk\r\n"));
-  check_str "close needs CRLF" "missing closing delimiter"
-    (error_of ~boundary:"b" prefix);
+  check_bool "close at the end of the body is complete" true
+    (match M.parse ~boundary:"b" prefix with Ok [ _ ] -> true | _ -> false);
   check_str "bare LF after close" "bare LF in the multipart framing"
     (error_of ~boundary:"b" (prefix ^ "\n"))
 
@@ -331,6 +375,10 @@ let () =
             test_preamble_looks_like_boundary;
           Alcotest.test_case "quoted filename" `Quick test_quoted_filename;
           Alcotest.test_case "extended filename" `Quick test_ext_filename;
+          Alcotest.test_case "rejected extended filename" `Quick
+            test_ext_filename_rejected;
+          Alcotest.test_case "close at the end of the body" `Quick
+            test_close_at_end_of_body;
           Alcotest.test_case "transport padding" `Quick test_transport_padding;
           Alcotest.test_case "binary content" `Quick test_binary_content;
           Alcotest.test_case "boundary prefix" `Quick test_boundary_prefix;
@@ -347,6 +395,7 @@ let () =
           Alcotest.test_case "header caps" `Quick test_too_many_headers ] );
       ( "content type",
         [ Alcotest.test_case "boundary" `Quick test_boundary_of_content_type;
+          Alcotest.test_case "media type case" `Quick test_media_type_case;
           Alcotest.test_case "strict closing delimiter" `Quick
             test_strict_closing_delimiter ] )
     ]

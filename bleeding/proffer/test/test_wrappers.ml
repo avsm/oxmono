@@ -275,4 +275,74 @@ let () =
   check "site headers cannot add a top-level range to multipart 206"
     (Proffer_mock.status multipart_range = St.Internal_server_error)
 
+(* R39: a decorator's fields belong on every response the site sends, including
+   the 412 conditional processing generates and the 400 for a malformed
+   request, neither of which passes through the handler. *)
+let decorated =
+  Site.of_routes
+    [
+      get
+        (s "page")
+        (fun _env _req respond ->
+          Resp.html respond ~etag:(Etag.strong "v1") "<p>page</p>");
+    ]
+  |> Site.with_headers [ ("X-Frame-Options", "DENY") ]
+
+let () =
+  let r =
+    Proffer_mock.request decorated ()
+      ~headers:[ ("If-Match", "\"other\"") ]
+      M.Get "/page"
+  in
+  check "a failed precondition is 412"
+    (Proffer_mock.status r = St.Precondition_failed);
+  check "the 412 carries the site's headers"
+    (Proffer_mock.header_other r "X-Frame-Options" = Some "DENY");
+  check "the 412 is plain text"
+    (Proffer_mock.header r H.Content_type = Some "text/plain; charset=utf-8");
+  check "the 412 drops the entity's ETag" (Proffer_mock.header r H.Etag = None);
+  let r =
+    Proffer_mock.request decorated ()
+      ~headers:[ ("Content-Type", "text/plain"); ("Content-Type", "text/html") ]
+      M.Get "/page"
+  in
+  check "a repeated request Content-Type is 400"
+    (Proffer_mock.status r = St.Bad_request);
+  check "the 400 carries the site's headers"
+    (Proffer_mock.header_other r "X-Frame-Options" = Some "DENY")
+
+(* R39: a site decorator must not put a second singleton field on the wire. *)
+let () =
+  let r =
+    Site.of_routes
+      [
+        get root (fun _env _req respond ->
+            Resp.v respond
+              ~headers:[ Resp.h H.Content_type "text/html" ]
+              ~content_type:Null (Body.String "hi"));
+      ]
+    |> Site.with_headers [ ("Content-Type", "text/plain") ]
+    |> fun site -> Proffer_mock.request site () M.Get "/"
+  in
+  check "site headers cannot repeat a Content-Type from the header block"
+    (Proffer_mock.status r = St.Internal_server_error)
+
+(* R39: a mount prefix a request can never match is a typo, not a route. *)
+let () =
+  let sub = Site.of_routes [ get root (fun _ _ r -> Resp.text r "sub") ] in
+  let refuses name at =
+    check name
+      (match Site.mount ~at sub (Site.of_routes []) with
+      | _ -> false
+      | exception Invalid_argument _ -> true)
+  in
+  refuses "mount refuses an empty prefix segment" [ "" ];
+  refuses "mount refuses a slash in a prefix segment" [ "a/b" ];
+  refuses "mount refuses a dot-dot prefix segment" [ ".." ];
+  refuses "mount refuses a control byte in a prefix segment" [ "a\nb" ];
+  check "mount accepts an ordinary prefix"
+    (match Site.mount ~at:[ "api"; "v1" ] sub (Site.of_routes []) with
+    | _ -> true
+    | exception Invalid_argument _ -> false)
+
 let () = Printf.printf "test_wrappers: %d checks ok\n" !checks

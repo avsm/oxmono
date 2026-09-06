@@ -1,4 +1,5 @@
 module H = Httpz.Header_name
+module Char_u = Stdlib_stable.Char_u
 module I64 = Stdlib_upstream_compatible.Int64_u
 module F64 = Stdlib_upstream_compatible.Float_u
 module Bytes = Bytesrw.Bytes
@@ -58,9 +59,8 @@ let check_header (name : Headers.name @ local) (spelling : string @ local)
 
 let[@zero_alloc] rec all_etagc s i =
   i = String.length s
-  ||
-  let n = Char.code (String.unsafe_get s i) in
-  (n = 0x21 || (n >= 0x23 && n <= 0x7e) || n >= 0x80) && all_etagc s (i + 1)
+  || (Httpz.Etag.valid_tag_char (Char_u.of_char (String.unsafe_get s i))
+      && all_etagc s (i + 1))
 
 let check_etag (e : Etag.t @ local) =
   let opaque = Etag.opaque e in
@@ -95,6 +95,10 @@ let check_body_length (body : Body.t @ local) =
       else if I64.compare n (I64.of_int max_int) > 0 then
         invalid_arg "Proffer.Resp.v: body length does not fit in an OCaml int"
 
+let repeated (label : string @ local) =
+  invalid_arg
+    (Printf.sprintf "Proffer.Resp.v: %s must not be repeated" (Pct.copy_all label))
+
 let[@zero_alloc] rec singleton_header (headers : Headers.t @ local) name label
     (found : string or_null @ local) = exclave_
   match headers with
@@ -104,9 +108,29 @@ let[@zero_alloc] rec singleton_header (headers : Headers.t @ local) name label
     then
       match found with
       | Null -> singleton_header rest name label (This field.Headers.value)
-      | This _ ->
-        invalid_arg (Printf.sprintf "Proffer.Resp.v: %s must not be repeated" label)
+      | This _ -> repeated label
     else singleton_header rest name label found
+
+(* RFC 9110 section 5.3 gives these response fields singleton syntax, so two
+   field lines cannot combine into one value and a recipient must guess which
+   applies. A typed argument owns its field, and the header block must not
+   repeat one either, whether the repetition comes from a handler or from a
+   site decorator. *)
+let[@zero_alloc] is_singleton (name : Headers.name @ local) =
+  match name with
+  | H.Age | H.Content_length | H.Content_location | H.Content_range
+  | H.Content_type | H.Date | H.Etag | H.Expires | H.Last_modified | H.Location
+  | H.Retry_after | H.Server ->
+      true
+  | _ -> false
+
+let[@zero_alloc] rec check_no_repeat (t : Headers.t @ local) =
+  match t with
+  | [] -> ()
+  | f :: tl ->
+      if is_singleton f.Headers.name && Headers.mem tl f.Headers.name then
+        repeated f.Headers.spelling;
+      check_no_repeat tl
 
 (* Compared byte by byte rather than through [String.sub]: the value comes
    from a local description and a substring of it cannot escape. *)
@@ -126,7 +150,7 @@ let is_byteranges (local_ ct : string) =
 (* RFC 9110 s14.6: a [multipart/byteranges] body cannot be parsed without the
    boundary its own parts are delimited by. *)
 let has_boundary_param (local_ ct : string) =
-  Httpz.Multipart.has_boundary ~media_type:"multipart/byteranges" ct
+  Httpz_media.Multipart.has_boundary ~media_type:"multipart/byteranges" ct
 
 let[@zero_alloc] check_partial_content (status : Status.t)
     (headers : Headers.t @ local)
@@ -223,23 +247,9 @@ let[@zero_alloc] rec check_trailer_fields (trailers : Headers.t @ local) =
              (Pct.copy_all spelling));
       check_trailer_fields rest
 
-let[@zero_alloc] check_stream_trailers (headers : Headers.t @ local)
-    (body : Body.t @ local) =
+let[@zero_alloc] check_stream_trailers (body : Body.t @ local) =
   match body with
-  | Body.Stream { trailers; _ } ->
-      let has_other_trailer =
-        match Headers.find_other headers "trailer" with
-        | Some _ -> true
-        | None -> false
-      in
-      (match trailers with
-       | _ :: _ when
-           Headers.mem headers H.Trailer
-           || has_other_trailer ->
-           invalid_arg
-             "Proffer.Resp.v: Trailer is set by the streamed body's trailers"
-       | _ -> ());
-      check_trailer_fields trailers
+  | Body.Stream { trailers; _ } -> check_trailer_fields trailers
   | _ -> ()
 
 let[@zero_alloc] check_handoff (status : Status.t)
@@ -297,14 +307,14 @@ let[@zero_alloc] is_some (o : _ option @ local) =
    fields in isolation. *)
 let[@zero_alloc] with_headers (d : description @ local)
     (extra : Headers.t @ local) : description @ local = exclave_
-  check_headers extra;
   check_no_overlap extra H.Content_type
     (match d.content_type with Null -> false | This _ -> true);
   check_no_overlap extra H.Cache_control (is_some d.cache);
   check_no_overlap extra H.Etag (is_some d.etag);
   check_no_overlap extra H.Last_modified (is_some d.last_modified);
   let local_ headers = Headers.cat d.headers extra in
-  check_stream_trailers headers d.body;
+  check_no_repeat headers;
+  check_stream_trailers d.body;
   check_handoff d.status headers d.body;
   check_upgrade_header d.status headers;
   check_partial_content d.status headers d.content_type;
@@ -322,21 +332,21 @@ let[@zero_alloc] v (respond : respond @ local) ?(status = Httpz.Res.Success)
     ?(cache : Cache_control.t option @ local)
     ~(content_type : string or_null @ local) (body : Body.t @ local) =
   check_headers headers;
+  check_no_repeat headers;
   (match content_type with
   | Null -> ()
   | This ct -> check_value "content_type" ct);
   (match etag with None -> () | Some e -> check_etag e);
   (match last_modified with None -> () | Some t -> check_last_modified t);
   check_body_length body;
-  check_stream_trailers headers body;
+  check_stream_trailers body;
   check_handoff status headers body;
   check_upgrade_header status headers;
-  check_no_overlap headers Httpz.Header_name.Content_type
+  check_no_overlap headers H.Content_type
     (match content_type with Null -> false | This _ -> true);
-  check_no_overlap headers Httpz.Header_name.Cache_control (is_some cache);
-  check_no_overlap headers Httpz.Header_name.Etag (is_some etag);
-  check_no_overlap headers Httpz.Header_name.Last_modified
-    (is_some last_modified);
+  check_no_overlap headers H.Cache_control (is_some cache);
+  check_no_overlap headers H.Etag (is_some etag);
+  check_no_overlap headers H.Last_modified (is_some last_modified);
   check_partial_content status headers content_type;
   check_status_requires status headers;
   let local_ d =
@@ -410,7 +420,7 @@ let empty (respond : respond @ local) ?(status = Httpz.Res.Success)
 let see_other (respond : respond @ local) location =
   let () =
     v respond ~status:Httpz.Res.See_other ~content_type:Null
-      ~headers:(stack_ [ h_local Httpz.Header_name.Location location ])
+      ~headers:(stack_ [ h_local H.Location location ])
       Body.Empty
   in
   ()
@@ -421,7 +431,7 @@ let redirect (respond : respond @ local) ?(permanent = false) location =
       ~status:
         (if permanent then Httpz.Res.Moved_permanently else Httpz.Res.Found)
       ~content_type:Null
-      ~headers:(stack_ [ h_local Httpz.Header_name.Location location ])
+      ~headers:(stack_ [ h_local H.Location location ])
       Body.Empty
   in
   ()
@@ -438,8 +448,8 @@ let bad_request (respond : respond @ local)
 
 let encode (respond : respond @ local) ?status ?(etag : Etag.t option @ local) ?(cache : Cache_control.t option @ local)
     ?(headers : Headers.t @ local = Headers.empty) codec x =
-  let body = Httpz.Media.encode codec x in
-  let content_type = Httpz.Media.content_type codec in
+  let body = Httpz_media.encode codec x in
+  let content_type = Httpz_media.content_type codec in
   let () =
     v respond ?status ?etag ?cache ~headers ~content_type:(This content_type)
       (stack_ (Body.String body))
@@ -455,18 +465,18 @@ let encode_seq (respond : respond @ local) ?status ?(cache : Cache_control.t opt
           Body.Sink.write_sub sink (Bytes.Slice.bytes slice)
             ~off:(Bytes.Slice.first slice) ~len:(Bytes.Slice.length slice))
     in
-    let codec = Httpz.Media.item sq in
+    let codec = Httpz_media.item sq in
     let rec loop items =
       match items () with
       | Seq.Nil -> ()
       | Seq.Cons (x, rest) ->
-          Httpz.Media.encode_writer codec x writer;
+          Httpz_media.encode_writer codec x writer;
           Body.Sink.write sink "\n";
           loop rest
     in
     loop items
   in
-  let content_type = Httpz.Media.seq_content_type sq in
+  let content_type = Httpz_media.seq_content_type sq in
   let () =
     v respond ?status ?cache ~headers ~content_type:(This content_type)
       (stack_ (Body.Stream

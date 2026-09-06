@@ -101,14 +101,25 @@ let proxy_from_env () =
 let redirects config =
   if config.follow_redirects.value then config.max_redirects.value else 0
 
+let duration_seconds name seconds =
+  if not (Float.is_finite seconds) then
+    invalid_arg (name ^ " must be finite");
+  try
+    let duration = Fetch.Duration.of_f seconds in
+    if seconds > 0.0 && duration = 0L then 1L else duration
+  with Invalid_argument _ ->
+    invalid_arg (name ^ " is outside the duration range")
+
 let retry_config config =
   if config.max_retries.value > 0 then
     Some
       (Fetch.Retry.v ~max_retries:config.max_retries.value
-         ~backoff_factor:config.retry_backoff.value ())
+         ~backoff_factor:(duration_seconds "retry backoff" config.retry_backoff.value) ())
   else None
 
 let create config env sw =
+  let timeout = Option.map (duration_seconds "timeout") config.timeout.value in
+  let retry = retry_config config in
   let xdg, _xdg_cmd = config.xdg in
   let clock = env#clock in
   let mono_clock = env#mono_clock in
@@ -129,7 +140,7 @@ let create config env sw =
           (redirects config));
   let base =
     Fetch_curl.v ~sw ~tls_verify:config.verify_tls.value ?proxy
-      ?timeout:config.timeout.value ?user_agent:config.user_agent.value
+      ?timeout ?user_agent:config.user_agent.value
       ~verbose:config.verbose_http.value ()
   in
   let jar =
@@ -140,7 +151,7 @@ let create config env sw =
   in
   let t = Fetch_cookies.with_jar jar base in
   let t = Fetch.with_limits ~clock:mono_clock ~max_concurrent:6 t in
-  match retry_config config with
+  match retry with
   | None -> t
   | Some retry ->
       Fetch.with_retry ~clock:mono_clock ~random:env#secure_random ~config:retry

@@ -30,7 +30,8 @@
 
     {ul
      {- [--timeout SECONDS] is [Fetch_curl.v ?timeout], a bound on the whole
-        transfer. There is no flag for [?connect_timeout], which keeps
+        transfer. Positive values below one nanosecond round up to one
+        nanosecond. There is no flag for [?connect_timeout], which keeps
         libcurl's 30s default. A composable per-request bound is
         [Eio.Time.with_timeout].}
      {- [--max-retries N] and [--retry-backoff FACTOR] become a
@@ -110,14 +111,19 @@ val create :
   ; .. > ->
   Eio.Switch.t ->
   Fetch.plain
-(** [create config env sw] builds the client [config] describes: a
-    {!Fetch_curl.v} backend carrying the TLS, proxy, timeout, user-agent and
-    verbosity settings, wrapped in a cookie jar, per-origin flow control (6
-    concurrent requests, as {!Fetch_curl.std} uses) and, when [max_retries] is
-    above zero, {!Fetch.with_retry}.
+(** [create config env sw] is a client with [config]'s TLS, proxy, timeout,
+    user-agent and verbosity settings. It includes a cookie jar and allows
+    six concurrent requests per origin. A positive [max_retries] adds the
+    policy from {!retry_config}. Redirect policy is supplied per request
+    using {!redirects}.
 
-    The redirect flags do not appear here — see {!redirects} and the
-    {{!mapping}mapping} above. *)
+    Timeout and retry delays are seconds. Positive values below one
+    nanosecond round up to one nanosecond. Zero retains the backend's
+    zero-duration behavior.
+
+    @raise Invalid_argument if a timeout or enabled retry delay is non-finite,
+    negative or outside the [Duration.t] range, or if a backend setting is
+    invalid. Duration conversion occurs before client resources are created. *)
 
 val redirects : config -> int
 (** [redirects config] is the value to pass as [?redirects] to {!Fetch.fetch}
@@ -127,7 +133,11 @@ val redirects : config -> int
 
 val retry_config : config -> Fetch.Retry.config option
 (** [retry_config config] is the retry policy {!create} applies, or [None] when
-    [--max-retries] is zero. *)
+    [--max-retries] is zero. Positive delays below one nanosecond round up
+    to one nanosecond.
+
+    @raise Invalid_argument if an enabled retry delay is non-finite,
+    negative or outside the [Duration.t] range. *)
 
 (** {1 Individual Terms}
 

@@ -20,6 +20,9 @@ let[@zero_alloc] representable (t : float @ local) =
 let[@zero_alloc] parse_imf ~has_now (now : float#) (s : string @ local)
     : #(bool * float#) =
   let #(status, t) =
+    (* Httpz.Date.parse_unboxed only reads its input; every Bytes.unsafe_set in
+       httpz/lib/date.ml is confined to the write path, so aliasing this string
+       as bytes here is safe. *)
     let buf = Bytes.unsafe_of_string s in
     let span =
       Httpz.Span.make ~off:(I16.of_int 0) ~len:(I16.of_int (String.length s))

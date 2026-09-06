@@ -91,7 +91,7 @@ let connect ~clock ~net ~port ~uri authenticator =
     Eio.Net.connect ~sw net (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
   in
   let flow =
-    (Httpz_tls.client ~authenticator) (Httpz.Uriz.of_string_exn uri)
+    (Httpz_tls.client ~authenticator) (Httpz_uri.of_string_exn uri)
       (raw :> Httpz_tls.flow)
   in
   Fun.protect ~finally:(fun () -> Httpz_tls.close ~clock flow) @@ fun () ->
@@ -149,7 +149,7 @@ let invalid_peer uri expected =
   let raw =
     Eio.Net.connect ~sw net (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
   in
-  let uri = Httpz.Uriz.of_string_exn (Fmt.str uri port) in
+  let uri = Httpz_uri.of_string_exn (Fmt.str uri port) in
   match (Httpz_tls.client ~authenticator) uri (raw :> Httpz_tls.flow) with
   | _ -> Alcotest.fail "invalid TLS peer was accepted"
   | exception Httpz_tls.Error message ->
@@ -157,6 +157,9 @@ let invalid_peer uri expected =
 
 let test_invalid_peers () =
   invalid_peer "https:/missing/%d" (String.equal "an HTTPS URL must have a host");
+  (* An empty authority host is a registered name whose domain name is the DNS
+     root, so it used to reach the handshake as an empty SNI. *)
+  invalid_peer "https:///%d" (String.equal "an HTTPS URL must have a host");
   invalid_peer "https://[v1.fe80]:%d/" (fun message ->
       String.starts_with ~prefix:"TLS does not support the IPvFuture" message);
   invalid_peer "https://bad%%00.example:%d/" (fun message ->
@@ -234,6 +237,23 @@ let test_system_client_is_portable () =
   let domain = Domain.Safe.spawn worker in
   let (_ : Httpz_tls.client) = Domain.join domain in
   ()
+(* An authentication failure prints whole peer certificates across many lines,
+   which the error message must not carry into a log. *)
+let test_bounded_failure_message () =
+  let certificate, key = certificate ~dns:[ "localhost" ] ~ips:[] in
+  let authenticator = authenticator certificate `Dns in
+  with_server certificate key @@ fun ~clock ~net ~port ->
+  match
+    connect ~clock ~net ~port ~uri:(Fmt.str "https://127.0.0.1:%d/" port)
+      authenticator
+  with
+  | _ -> Alcotest.fail "certificate identity mismatch was accepted"
+  | exception Httpz_tls.Error message ->
+      Alcotest.(check bool) "names the failure" true
+        (String.starts_with ~prefix:"client TLS handshake failed: " message);
+      Alcotest.(check bool) "single line of printable ASCII" true
+        (String.for_all (fun c -> c >= ' ' && c <= '~') message);
+      Alcotest.(check bool) "bounded" true (String.length message <= 256)
 
 module Close_spy = struct
   type t = {
@@ -269,7 +289,7 @@ let test_bounded_close () =
   List.iter
     (fun mode ->
       let state, flow = close_spy mode in
-      Httpz_tls.close ~timeout:0.01 ~clock:env#mono_clock flow;
+      Httpz_tls.close ~timeout:(Duration.of_ms 10) ~clock:env#mono_clock flow;
       Alcotest.(check int) "shutdown attempted" 1 state.shutdowns;
       Alcotest.(check int) "resource closed" 1 state.closes)
     [ `Return; `Raise; `Stall ]
@@ -280,7 +300,7 @@ let test_cancelled_close () =
   ignore
     (Eio.Fiber.first
        (fun () ->
-          Httpz_tls.close ~timeout:10. ~clock:env#mono_clock flow;
+          Httpz_tls.close ~timeout:(Duration.of_sec 10) ~clock:env#mono_clock flow;
           `Closed)
        (fun () -> Eio.Time.Mono.sleep env#mono_clock 0.01; `Cancelled));
   Alcotest.(check int) "cancelled shutdown attempted" 1 state.shutdowns;
@@ -302,7 +322,9 @@ let () =
           Alcotest.test_case "system trust anchors load" `Quick
             test_system_anchors;
           Alcotest.test_case "system client crosses domains" `Quick
-            test_system_client_is_portable ] );
+            test_system_client_is_portable;
+          Alcotest.test_case "handshake failure message is bounded" `Quick
+            test_bounded_failure_message ] );
       ( "cleanup",
         [ Alcotest.test_case "bounded graceful close always releases" `Quick
             test_bounded_close;

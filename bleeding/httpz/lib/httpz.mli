@@ -5,6 +5,12 @@
     values borrow their bytes from the input buffer, so that buffer must remain
     unchanged while the parsed values are in use.
 
+    Parsing is not read-only: {!parse} and {!Res.parse} rewrite the head in
+    place, overwriting the CRLF and leading whitespace of an obsolete folded
+    line with spaces so that every field value is one contiguous span. A
+    caller that needs the bytes as they arrived must copy them before
+    parsing.
+
     The request parser validates request-targets, message framing, the Host
     field, and line endings. Its rules follow
     {{:https://www.rfc-editor.org/rfc/rfc9112.html}RFC 9112}. The caller remains
@@ -91,33 +97,6 @@ module Date = Date
 module Range = Range
 (** This module provides byte-range parsing, resolution, and writing. *)
 
-module Urlencoded = Urlencoded
-(** This module provides the [application/x-www-form-urlencoded] codec. *)
-
-module Multipart = Multipart
-(** This module parses [multipart/form-data] bodies. *)
-
-module Media = Media
-(** This module provides typed media codecs. *)
-
-module Json = Json
-(** This module provides bounded Jsont codecs integrated with {!Media}. *)
-
-module Sse = Sse
-(** This module writes Server-Sent Event wire framing. *)
-
-module Raw = Uriz.Raw
-module Uriz = Httpz_uri
-(** This module parses and normalizes RFC 3986 URI references. Its
-    {!Uriz.Scanner} submodule is the allocation-free span scanner used by
-    {!Target}. *)
-
-module Uri_template = Uri_template
-(** This module parses and expands RFC 6570 Level 4 URI Templates. *)
-
-module Ip = Ip
-(** This module recognizes IP address literals as a resolver does. *)
-
 val buffer_size : int @@ portable
 (** [buffer_size] is the maximum supported parse-buffer size, 32 KiB. *)
 
@@ -131,7 +110,7 @@ val default_limits : Buf_read.limits @@ portable
     [max_content_length] bounds only what a caller streams for itself. A caller
     that reads bodies out of the parse buffer is bounded first by
     {!buffer_size}; the Proffer backend is one such caller, and its effective
-    request-body cap is its roughly 32 KiB read window rather than the 100 MB
+    request-body cap is its roughly 32 KiB read window rather than the 100 MiB
     default here. *)
 
 type buffer = bytes
@@ -181,7 +160,9 @@ val[@zero_alloc] parse :
   @@ portable
 (** [parse buf ~len ~limits] is the result of parsing one HTTP request head from
     the first [len] bytes of [buf]. It contains the parse status, a request, and
-    the non-framing fields in reverse arrival order.
+    the non-framing fields in reverse arrival order. It writes into [buf]:
+    an obsolete folded field value is unfolded in place, so bytes within the
+    head may differ from those supplied.
 
     {!Buf_read.Partial} means that more bytes are required. When the status is
     neither {!Buf_read.Complete} nor {!Buf_read.Partial}, the returned request

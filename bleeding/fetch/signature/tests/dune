@@ -3,6 +3,7 @@
  (package fetch-signature)
  (modules test_signature)
  (libraries
+  ptime
   fetch
   fetch-signature
   http
@@ -18,6 +19,7 @@
  (package fetch-signature)
  (modules test_rfc9421_vectors)
  (libraries
+  ptime
   fetch-signature
   http
   uri

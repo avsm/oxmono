@@ -13,4 +13,4 @@
  (public_name httpz.pubsuffix)
  (modules pubsuffix pubsuffix_data)
  (private_modules pubsuffix_data)
- (libraries httpz.punycode.idna))
+ (libraries httpz.punycode.idna stdlib_stable))

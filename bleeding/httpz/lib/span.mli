@@ -49,7 +49,9 @@ val parse_content_length : local_ bytes -> t -> #(int64# * bool * bool) @@ porta
 
 (** [token_list_last_is buf span token] is the number of non-empty members in the
     comma-separated list and whether its final member equals [token], ignoring ASCII case
-    and optional whitespace. *)
+    and optional whitespace. Empty list members are ignored, as
+    {{:https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.1} RFC 9110, Section 5.6.1}
+    permits. *)
 val token_list_last_is : local_ bytes -> t -> string -> #(int * bool) @@ portable
 
 (** [token_list_all_are buf span token] is the number of non-empty members in the
@@ -69,7 +71,11 @@ val[@zero_alloc] token_list_valid : local_ bytes -> t -> bool @@ portable
 
 (** [parse_transfer_encoding buf span] is the number of codings, the number named
     [chunked], whether [chunked] is final, and whether the complete list is syntactically
-    valid. Empty list members are ignored. *)
+    valid. A parameter attached to a [chunked] coding is rejected as invalid even though
+    {{:https://www.rfc-editor.org/rfc/rfc9112.html} RFC 9112} permits it syntactically, as
+    a framing-safety measure. Empty list members are ignored, as
+    {{:https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.1} RFC 9110, Section 5.6.1}
+    requires. *)
 val parse_transfer_encoding : local_ bytes -> t -> #(int * int * bool * bool) @@ portable
 
 (** [to_string buf span] is a new string containing [span]. *)

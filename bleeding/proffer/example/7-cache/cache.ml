@@ -31,4 +31,4 @@ let site =
 let () =
   Eio_main.run @@ fun stdenv ->
   let clock = Eio.Stdenv.clock stdenv in
-  Proffer_httpz.run stdenv ~env:{ clock; cache = Cache.create ~ttl:10.0 () } site
+  Proffer_httpz.run stdenv ~env:{ clock; cache = Cache.create ~ttl:(Duration.of_sec 10) () } site

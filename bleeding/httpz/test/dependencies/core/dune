@@ -1,0 +1,4 @@
+(test
+ (name consumer)
+ (package httpz)
+ (libraries httpz stdlib_stable))

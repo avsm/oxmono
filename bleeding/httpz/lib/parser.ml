@@ -36,14 +36,6 @@ let[@inline] char (c : char#) st ~(pos : int16#) : int16# =
   add16 pos one16
 ;;
 
-let[@inline] skip_while (f : char# -> bool) st ~(pos : int16#) : int16# =
-  let mutable p = pos in
-  while (not (at_end st ~pos:p)) && f (Buf_read.peek st.#buf p) do
-    p <- add16 p one16
-  done;
-  p
-;;
-
 let[@inline] crlf st ~(pos : int16#) : int16# =
   let pos = char #'\r' st ~pos in
   char #'\n' st ~pos
@@ -63,8 +55,6 @@ let[@inline] token st ~(pos : int16#) : #(Span.t * int16#) =
   Err.malformed_when (Span.len sp = 0);
   #(sp, stop)
 ;;
-
-let[@inline] ows st ~(pos : int16#) : int16# = skip_while Buf_read.is_space st ~pos
 
 let[@inline] http_version st ~(pos : int16#) : #(Version.t * int16#) =
   let available = to_int (sub16 st.#len pos) in
@@ -88,11 +78,10 @@ let[@inline] http_version st ~(pos : int16#) : #(Version.t * int16#) =
     then Version.Http_1_1
     else if I64.equal v64 http10_int64
     then Version.Http_1_0
-    else if Span.equal st.#buf (Span.make ~off:pos ~len:(i16 7)) "HTTP/1."
-            &&
-            match Buf_read.peek st.#buf (add16 pos (i16 7)) with
-            | #'2' .. #'9' -> true
-            | _ -> false
+    else if
+      match Buf_read.peek st.#buf (add16 pos (i16 7)) with
+      | #'2' .. #'9' -> true
+      | _ -> false
     then Version.Http_1_1
     else Err.fail Err.Invalid_version
   in
@@ -162,13 +151,6 @@ let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
   #(meth, pos)
 ;;
 
-(* [Scan.find_sp_or_cr] only finds where the target ends; it says nothing about the bytes
-   in between, which is how a control character or a truncated percent-triplet would
-   otherwise reach the router. [Target.parse] checks them against the RFC 3986 grammar and
-   reports rather than raises, so the rejection is made here.
-
-   The split is returned along with the span. Every caller that dispatches on a path or a
-   query needs it, and it is already computed. *)
 (* RFC 9112 §3.2.3 confines authority-form to CONNECT, §3.2.4 confines asterisk-form to
    OPTIONS, and §3.2 gives CONNECT no other form. Accepting a form the method does not
    define lets a request mean one thing to httpz and another to a proxy in front of it. *)
@@ -180,6 +162,11 @@ let[@inline] form_allows (meth : Method.t) (form : Target.form) =
   | Target.Asterisk, Method.Options -> true
   | (Target.Authority | Target.Asterisk | Target.Invalid), _ -> false
 ;;
+
+(* [Scan.find_sp_or_cr] only finds where the target ends; it says nothing about the bytes
+   in between, which is how a control character or a truncated percent-triplet would
+   otherwise reach the router. [Target.parse] checks them against the RFC 3986 grammar and
+   reports rather than raises, so the rejection is made here. *)
 
 let[@inline] parse_target
   st
@@ -235,10 +222,8 @@ let[@inline] request_line st ~(pos : int16#) ~(limits : Buf_read.limits)
   #(meth, target, target_parsed, version, pos)
 ;;
 
-(* The status code is exactly three digits (RFC 9112 s4). The reason phrase is
-   informational bytes up to CRLF and may be empty; some servers also omit the SP that
-   precedes it, which every deployed client accepts, so it is accepted here. A bare CR
-   inside the phrase is refused as it is in a header value. *)
+(* RFC 9112 section 4 requires SP before a nonempty reason phrase. Accept
+   omission of that SP only when the status code is followed by CRLF. *)
 let[@inline] status_line st ~(pos : int16#) : #(Version.t * int16# * Span.t * int16#) =
   let #(version, pos) = http_version st ~pos in
   let pos = sp st ~pos in
@@ -250,11 +235,12 @@ let[@inline] status_line st ~(pos : int16#) : #(Version.t * int16# * Span.t * in
   let code = i16 ((d1 * 100) + (d2 * 10) + d3) in
   let pos = add16 pos (i16 3) in
   Err.partial_when (at_end st ~pos);
-  (* A fourth digit means the code was not three digits; refuse it rather than truncate
-     "2000" to 200. *)
-  Err.when_ (Buf_read.digit_value (Buf_read.peek st.#buf pos) >= 0) Err.Invalid_status;
   let pos =
-    if Buf_read.( =. ) (Buf_read.peek st.#buf pos) #' ' then add16 pos one16 else pos
+    if Buf_read.( =. ) (Buf_read.peek st.#buf pos) #' ' then add16 pos one16
+    else begin
+      Err.when_ (Buf_read.( <>. ) (Buf_read.peek st.#buf pos) #'\r') Err.Invalid_status;
+      pos
+    end
   in
   let #(crlf_pos, has_bare_cr) =
     Buf_read.find_crlf_check_bare_cr st.#buf ~pos ~len:st.#len
@@ -274,7 +260,7 @@ let[@inline] parse_header st ~(pos : int16#)
   =
   let #(name_span, pos) = token st ~pos in
   let pos = char #':' st ~pos in
-  let pos = ows st ~pos in
+  let pos = Buf_read.skip_ows st.#buf ~pos ~len:st.#len in
   let value_start = pos in
   let #(first_crlf, first_has_bare_cr) =
     Buf_read.find_crlf_check_bare_cr st.#buf ~pos ~len:st.#len
@@ -303,8 +289,7 @@ let[@inline] parse_header st ~(pos : int16#)
       crlf_pos <- next_crlf)
     else scanning <- false
   done;
-  (* Replace each CRLF plus the continuation's leading whitespace with SP. The resulting
-     value remains one span into the caller's buffer. *)
+  (* The unfolded value remains one span into the caller's buffer. *)
   let mutable fold = first_crlf in
   while I16.compare fold crlf_pos < 0 do
     Bytes.unsafe_set st.#buf (to_int fold) ' ';
@@ -328,6 +313,7 @@ let[@inline] parse_header st ~(pos : int16#)
   Err.when_
     (not (Buf_read.valid_field_value st.#buf ~pos:value_start ~len:crlf_pos))
     Err.Invalid_header;
+  let value_start = Buf_read.skip_ows st.#buf ~pos:value_start ~len:crlf_pos in
   let mutable value_end = crlf_pos in
   while
     I16.compare value_end value_start > 0
@@ -351,15 +337,11 @@ let[@inline] is_headers_end st ~(pos : int16#) : bool =
 
 let[@inline] end_headers st ~(pos : int16#) : int16# = crlf st ~pos
 
-(* Connection and Content-Length folding is identical for requests and responses, so both
-   message parsers share the state carried here. *)
 type conn_value =
   | Conn_default
   | Conn_close
   | Conn_keep_alive
 
-(* "close" wins over "keep-alive" whichever order the two arrive in, and once seen it
-   cannot be withdrawn by a later field line. *)
 let[@inline] parse_connection_value (local_ (buf : bytes)) value_span ~default =
   Err.when_ (not (Span.token_list_valid buf value_span)) Err.Invalid_header;
   if Span.token_list_contains buf value_span "close"

@@ -99,7 +99,7 @@ let test_release () =
       ~close:(fun () -> incr closed) source req in
   let client = Fetch_mock.client server |> with_retry ~clock:env#mono_clock
     ~random:(Eio.Flow.string_source "")
-    ~config:(Retry.v ~max_retries:4 ~jitter:false ~backoff_factor:0. ()) in
+    ~config:(Retry.v ~max_retries:4 ~jitter:false ~backoff_factor:(Duration.of_sec 0) ()) in
   let r = get ~sw client "https://example.com" in
   check "final response stays open" (!closed = 4 && !issued = 5);
   close r;
@@ -153,7 +153,7 @@ let test_request_retry_release () =
         Eio.Switch.on_release sw (fun () -> close r);
         r
       in
-      let config = Retry.v ~max_retries:1 ~jitter:false ~backoff_factor:1.
+      let config = Retry.v ~max_retries:1 ~jitter:false ~backoff_factor:(Duration.of_sec 1)
         ~allowed_methods:(`POST :: Retry.default.allowed_methods)
         ~retry_request:(fun _ -> approve) () in
       let client = Fetch_mock.client server
@@ -209,7 +209,7 @@ let test_pacing () =
   Eio_mock.Backend.run_full @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let clock = env#mono_clock in
-  let client = Fetch_mock.client (Fetch_mock.respond "ok") |> with_limits ~clock ~min_interval:10. in
+  let client = Fetch_mock.client (Fetch_mock.respond "ok") |> with_limits ~clock ~min_interval:(Duration.of_sec 10) in
   ignore (get ~sw client "https://example.com");
   let start = Eio.Time.Mono.now clock in
   Eio.Fiber.both
@@ -275,8 +275,120 @@ let test_headers () =
      "Cache; x=1.234; y=:YWJj:; z=?1; detail=one:two/three";
      "Cache; hit=?0; hit"]
 
+let test_typed_field_grammars () =
+  let module H = Header in
+  let field name values = Http.Header.of_list (List.map (fun v -> (name, v)) values) in
+  (* Base64 blobs are canonical: padded to a multiple of four, with the unused
+     bits of the final character clear, and a value where one is required. *)
+  List.iter (fun s -> check ("non-canonical basic blob " ^ s)
+    (H.decode H.authorization ("Basic " ^ s) = None))
+    ["dXNlcjpwdw"; "dXNlcjpwdw="; "dXNlcjpwdw==="; "dXNlcjpwd="];
+  check "canonical basic blob"
+    (H.decode H.authorization "Basic dXNlcjpwdw==" = Some (`Basic ("user", "pw")));
+  List.iter (fun s -> check ("non-canonical digest " ^ s)
+    (H.decode H.content_digest ("sha-256=:" ^ s ^ ":") = None))
+    [""; "QR=="; "c2h="; "c2hh="; "c2hhc"];
+  check "canonical digest"
+    (Option.map (List.map (fun d -> d.H.algorithm, d.H.digest))
+       (H.decode H.content_digest "sha-256=:c2g=:, sha-512=:QQ==:")
+     = Some [`Sha256, "c2g="; `Sha512, "QQ=="]);
+  check "repeated digest algorithm takes the last value"
+    (Option.map (List.map (fun d -> d.H.algorithm, d.H.digest))
+       (H.decode H.content_digest "sha-256=:c2g=:, sha-512=:QQ==:, sha-256=:QQ==:")
+     = Some [`Sha512, "QQ=="; `Sha256, "QQ=="]);
+  (* A token68 is a whole credential, so a challenge cannot also name
+     parameters: the encoder could not write the mixture back. *)
+  check "token68 challenge with parameters"
+    (H.decode H.www_authenticate {|Negotiate SGVsbG8=, realm="x"|} = None);
+  check "token68 challenge alone"
+    (Option.map (List.map (fun c -> c.H.scheme, c.H.params))
+       (H.decode H.www_authenticate "Negotiate SGVsbG8=")
+     = Some ["Negotiate", ["", "SGVsbG8="]]);
+  let challenges = H.decode H.www_authenticate
+      {|Bearer realm="api", error="x", Negotiate SGVsbG8=|} in
+  check "challenge parameters in wire order"
+    (Option.map (List.map (fun c -> c.H.scheme, c.H.params)) challenges
+     = Some ["Bearer", ["realm", "api"; "error", "x"];
+             "Negotiate", ["", "SGVsbG8="]]);
+  check "challenge roundtrip"
+    (H.decode H.www_authenticate
+       (H.encode H.www_authenticate (Option.get challenges)) = challenges);
+  (* RFC 9110 s13.1.5: a weak validator cannot bound a range. *)
+  invalid "weak if-range validator"
+    (fun () -> H.encode H.if_range (`Etag H.{weak = true; tag = "x"}));
+  check "strong if-range roundtrip"
+    (H.decode H.if_range (H.encode H.if_range (`Etag H.{weak = false; tag = "x"}))
+     = Some (`Etag H.{weak = false; tag = "x"}));
+  (* Accept-Ranges is [1#range-unit]: field lines join and a value naming two
+     units is ambiguous for one scalar. *)
+  check "single accept-ranges unit"
+    (H.get H.accept_ranges (field "Accept-Ranges" ["bytes"]) = Some `Bytes);
+  List.iter (fun vs -> check "ambiguous accept-ranges"
+    (H.get H.accept_ranges (field "Accept-Ranges" vs) = None))
+    [["bytes, none"]; ["bytes"; "none"]; [""]; ["not a token"]];
+  (* Authentication-Info is [#auth-param], so repeated lines join. *)
+  check "joined authentication-info"
+    (Option.map (fun i -> i.H.nextnonce, i.H.qop)
+       (H.get H.authentication_info
+          (field "Authentication-Info" [{|nextnonce="a"|}; "qop=auth"]))
+     = Some (Some "a", Some "auth"));
+  (* RFC 6797 s6.1.2: includeSubDomains takes no value, and an oversized
+     delta-seconds saturates rather than discarding the policy. *)
+  let hsts s = Option.map (fun h -> h.H.max_age, h.include_subdomains, h.preload)
+      (H.decode H.strict_transport_security s) in
+  check "valued includeSubDomains" (hsts "max-age=100; includeSubDomains=1" = None);
+  check "kept includeSubDomains"
+    (hsts "max-age=100; includeSubDomains" = Some (100L, true, false));
+  check "saturated hsts max-age"
+    (hsts "max-age=99999999999999999999999; includeSubDomains; preload"
+     = Some (2147483648L, true, true));
+  check "malformed hsts max-age" (hsts "max-age=1e9; includeSubDomains" = None)
+
+let test_pacing_overflow () =
+  Eio_mock.Backend.run_full @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  Eio.Time.Mono.sleep env#mono_clock 1.;
+  let client = Fetch_mock.client (Fetch_mock.respond "ok")
+      |> with_limits ~clock:env#mono_clock ~min_interval:Int64.minus_one in
+  ignore (get ~sw client "https://example.test/");
+  let outcome = Eio.Fiber.first
+      (fun () -> ignore (get ~sw client "https://example.test/"); `Requested)
+      (fun () -> Eio.Time.Mono.sleep env#mono_clock 1.; `Waiting) in
+  check "an overflowing pacing deadline does not disable the limit" (outcome = `Waiting)
+
+let test_failed_close_cleanup () =
+  Eio_mock.Backend.run_full @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  List.iter (fun redirect ->
+      let calls = ref 0 in
+      let close () = incr calls; if !calls = 1 then failwith "close failed" in
+      let client = Fetch_mock.client (fun req ->
+          response ~status:(if redirect then 302 else 503)
+            ~headers:["Location", "/next"] ~close (Eio.Flow.string_source "") req)
+      in
+      let client = if redirect then client else
+          with_retry ~clock:env#mono_clock ~random:(Eio.Flow.string_source "0123456789abcdef") client in
+      (match get ~sw client "https://example.test/start" with
+      | _ -> failwith "close failure was ignored"
+      | exception Failure message -> check "close failure retained" (message = "close failed"));
+      check "failed close gets a cleanup attempt before propagation" (!calls = 2))
+    [false; true]
+
+let test_header_encoding () =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  let encodings = ref 0 in
+  let custom = Header.v "X-Example"
+      ~encode:(fun value -> incr encodings; value) ~decode:Option.some in
+  let client = Fetch_mock.client (Fetch_mock.respond
+      ~headers:(Http.Header.of_list ["Content-Type", "text/plain"]) "hello") in
+  ignore (get_as ~sw ~headers:Header.[custom, "value"] client Media.text
+            "https://example.test/");
+  check "testing header presence does not evaluate encoders" (!encodings = 1)
+
 let () =
   test_credentials (); test_scopes (); test_release (); test_limits ();
   test_request_retry_release ();
   test_pacing (); test_live_id (); test_headers ();
+  test_typed_field_grammars (); test_header_encoding (); test_failed_close_cleanup (); test_pacing_overflow ();
   print_endline "release regressions passed"

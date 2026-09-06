@@ -6,16 +6,18 @@ type span =
 
 type t = string
 
-let checked_seconds factor n =
+let checked_seconds ~fn ~arg factor n =
   if n < 0 || n > max_int / factor
-  then invalid_arg "Proffer.Cache_control: duration is negative or too large";
+  then
+    invalid_arg
+      (Printf.sprintf "Proffer.Cache_control.%s: %s is negative or too large" fn arg);
   n * factor
 ;;
 
-let seconds = function
-  | `Secs n -> checked_seconds 1 n
-  | `Hours n -> checked_seconds 3600 n
-  | `Days n -> checked_seconds 86400 n
+let seconds ~fn ~arg = function
+  | `Secs n -> checked_seconds ~fn ~arg 1 n
+  | `Hours n -> checked_seconds ~fn ~arg 3600 n
+  | `Days n -> checked_seconds ~fn ~arg 86400 n
 ;;
 
 let nonnegative name = function
@@ -29,7 +31,8 @@ let no_store = "no-store"
 let private' ?max_age () =
   match max_age with
   | None -> "private"
-  | Some s -> Printf.sprintf "private, max-age=%d" (seconds s)
+  | Some s ->
+    Printf.sprintf "private, max-age=%d" (seconds ~fn:"private'" ~arg:"max_age" s)
 ;;
 
 let public
@@ -40,7 +43,7 @@ let public
   ?(immutable = false)
   ()
   =
-  let max_age = seconds max_age in
+  let max_age = seconds ~fn:"public" ~arg:"max_age" max_age in
   let s_maxage = nonnegative "s_maxage" s_maxage in
   let stale_while_revalidate =
     nonnegative "stale_while_revalidate" stale_while_revalidate

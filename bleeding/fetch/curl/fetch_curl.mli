@@ -6,46 +6,34 @@
     Fetch.read t "https://example.com/"
     ]}
 
-    {!std} mints the stack most applications want, and {!v} the bare backend.
-    Whoever creates a client holds full authority over it and can narrow it with
-    the {!Fetch} wrappers before passing it on.
+    {!std} includes cookies, retries and request pacing. {!v} is the bare
+    backend. Whoever creates a client holds full authority over it and can
+    narrow it with the {!Fetch} wrappers before passing it on.
 
     Requests through one client share a connection cache, so connections are
     reused, HTTP/2 streams multiplex, and libcurl enforces the connection caps.
     Concurrent fibers issue concurrent transfers, and cancelling a fiber aborts
     its transfer. Bodies stream in both directions, with the transfer paused
-    while a reader falls behind or a [Stream] request body lags, so a request
-    and its response each cost bounded memory.
+    while a reader falls behind or a [Stream] request body lags. Fetch bounds
+    its queues. Libcurl manages its own transport and decoding buffers.
 
-    Redirects are followed by the portable {!Fetch.fetch} loop, never by
-    libcurl, so policy applies to every hop. Proxy environment variables,
-    [.netrc] and non-http(s) protocols are ignored unless configured. When a
-    request does not set [Accept-Encoding], the backend negotiates gzip. It
-    disables libcurl's content decoder and validates and decodes gzip locally,
-    including concatenated members, the RFC 1952 header and trailer, and the
-    decoded-size limit. The decoded view omits [Content-Encoding] and
-    [Content-Length]. An unadvertised or unsupported coding such as [br] or
-    [zstd] remains byte-for-byte coded with its metadata intact, rather than
-    being interpreted according to how libcurl happened to be built. Callers
-    can set [Accept-Encoding] explicitly to request an encoded representation;
-    that disables automatic gzip decoding too.
+    Libcurl owns HTTP parsing, transfer framing, content decoding and connection
+    reuse. Response headers and trailers come from its parsed header API.
+    Trailers remain separate from response headers and are available after the
+    body has been fully read. This backend requires libcurl 7.83.0 or later.
 
-    Libcurl's transfer decoder is also disabled. Before a response is exposed,
-    the backend validates Content-Length and Transfer-Encoding with
-    {!Httpz.Span}'s shared field-value parsers, requires an unambiguous
-    singleton [chunked] coding, and parses chunk sizes, data CRLFs, extensions,
-    and trailers with {!Httpz.Chunk}. Forbidden trailer fields are discarded.
-    A malformed or incomplete frame raises [Protocol_error], and a [close]
-    token anywhere in Connection prevents reuse. Bytes after a terminal chunk
-    likewise quarantine the connection rather than becoming another response.
-    Libcurl still owns the status-line parser, whose conservative behavior
-    rejects status 099 and HTTP/1 minor versions above 1.1 instead of applying
-    RFC 9112's interoperability [SHOULD]s.
+    Redirects are followed by {!Fetch.fetch}, so policy applies to every hop.
+    Proxy environment variables, [.netrc] and non-http(s) protocols are ignored
+    unless configured. When a request does not set [Accept-Encoding], libcurl
+    negotiates its supported content codings and decodes the response. The
+    decoded view omits [Content-Encoding] and [Content-Length]. Setting
+    [Accept-Encoding] explicitly disables automatic content decoding and
+    preserves the coded representation and its metadata.
 
     Name resolution is libcurl's. A libcurl built with the synchronous resolver
     blocks the whole Eio domain for the duration of a lookup; one built against
-    c-ares or with threaded resolution does not. Check
-    [curl --version] for [AsynchDNS] if a stalled domain matters.
+    c-ares or with threaded resolution does not. Check [curl --version] for
+    [AsynchDNS] if a stalled domain matters.
 
     A client must be used from the domain that created it. Using one elsewhere
     raises [Invalid_argument]. *)
@@ -66,8 +54,8 @@ val v :
   ?tls_verify:bool ->
   ?http_version:[ `Auto | `Http1_1 ] ->
   ?proxy:string ->
-  ?timeout:float ->
-  ?connect_timeout:float ->
+  ?timeout:Duration.t ->
+  ?connect_timeout:Duration.t ->
   ?max_response:int ->
   ?max_request:int ->
   ?user_agent:string ->
@@ -78,75 +66,56 @@ val v :
   ?multiplex:bool ->
   unit ->
   t
-(** [v ~sw ()] is a new client whose event fibers and connection cache live
-    until [sw] finishes.
+(** [v ~sw ()] is a client whose connection cache and event fibers live until
+    [sw] finishes.
 
-    @param tls_verify
-      [tls_verify] verifies certificates against system trust and defaults to
-      [true].
-    @param http_version
-      [http_version] uses HTTP/2 over TLS when [`Auto] and the server offers it,
-      which is the default; [`Http1_1] pins HTTP/1.1.
-    @param proxy
-      [proxy] routes requests through this proxy URL. It has no default, and
-      proxy environment variables are ignored.
-    @param timeout
-      [timeout] limits a whole transfer in seconds and has no default. The
-      portable and composable request bound is the Eio cancellation documented
-      by {!Fetch}; this option adds defence in depth by promptly releasing a
-      connection when a peer goes quiet. Zero disables this libcurl timeout.
-    @param connect_timeout
-      [connect_timeout] limits the connection phase in seconds and defaults to
-      30, providing the same defence in depth. Zero does not disable it: it
-      selects libcurl's own default of 300 seconds.
-    @param max_response
-      [max_response] caps both the encoded on-wire response body (including
-      chunk framing and trailers) and the decoded representation in bytes, and
-      defaults to 256 MiB. Exceeding either bound fails the transfer with
-      [Protocol_error].
-    @param max_request
-      [max_request] caps a [Stream] request body in bytes and defaults to 256
-      MiB. A declared length over it is refused before the request is sent,
-      while an undeclared body fails as soon as it grows past the limit. A
-      stream that ends before its declared length also fails. These errors raise
-      [Invalid_request].
-    @param user_agent
-      [user_agent] is sent when the request does not set one and defaults to
-      ["fetch-curl"].
-    @param verbose
-      [verbose] writes transfer event directions and byte counts to stderr.
-      Header values, URLs, payload bytes, and libcurl's free-form diagnostic
-      text are redacted because they can contain credentials.
-    @param resolve
-      [resolve] supplies static [(host, port, address)] mappings to libcurl. It
-      preserves the URL authority and Host field while directing the TCP
-      connection to [address], which is useful for service discovery and
-      controlled test fixtures. Each host is canonicalized by the same URL
-      parser as request authorities, so alternate numeric-IP spellings map the
-      connection without changing the logical origin. Ports must be in
-      [1..65535], and addresses must be numeric IPv4 or IPv6 literals; all
-      entries are checked when the client is constructed.
-    @param max_connections_per_host
-      [max_connections_per_host] caps connections to one host and defaults to
-      libcurl's setting.
-    @param max_total_connections
-      [max_total_connections] caps connections in total and defaults to
-      libcurl's setting.
-    @param multiplex
-      [multiplex] shares a connection between HTTP/2 streams and defaults to
-      [true].
+    [tls_verify] defaults to [true] and checks certificates against system
+    trust. [http_version] defaults to [`Auto], which negotiates HTTP/2 over TLS
+    when offered. [`Http1_1] selects HTTP/1.1. [proxy] is an optional proxy URL.
+    Proxy environment variables are ignored.
 
-    The call raises [Invalid_argument] if a byte or connection limit is
-    negative; a timeout is negative, not finite, or outside libcurl's portable
-    range; [proxy] contains NUL; or [user_agent] contains a forbidden control
-    byte. *)
+    [timeout] bounds the whole transfer and is unset by default. Zero disables
+    it. [connect_timeout] defaults to 30 seconds. Zero selects libcurl's
+    connection timeout of 300 seconds. Positive fractions of a millisecond round
+    up for both options.
+
+    [max_response] defaults to 256 MiB and caps the body bytes delivered by
+    libcurl, after transfer decoding and any automatic content decoding. It
+    excludes response headers, trailers and transfer framing. [max_request]
+    defaults to 256 MiB and caps streamed request bytes. A declared length over
+    the cap is refused before sending. Exceeding the cap while streaming or
+    ending before a declared length fails the request.
+
+    [user_agent] defaults to ["fetch-curl"] and is sent only when the request
+    omits it. [verbose] defaults to [false]. When enabled, it writes transfer
+    directions and byte counts to stderr, omitting URLs, header values, payloads
+    and libcurl diagnostics that may contain credentials.
+
+    [resolve] defaults to [[]]. Its [(host, port, address)] entries select
+    numeric IPv4 or IPv6 addresses while preserving the URL authority and Host
+    field. Hosts use the request URL's canonicalization rules. Ports must be
+    between 1 and 65535.
+
+    [max_connections_per_host] and [max_total_connections] default to libcurl's
+    settings. [multiplex] defaults to [true], allowing HTTP/2 streams to share
+    connections.
+
+    @raise Invalid_argument
+      if a byte or connection limit is negative or a connection limit exceeds
+      the portable C-long range; a timeout exceeds [min max_int 2147483647]
+      milliseconds; a resolve entry is invalid; [proxy] contains NUL; or
+      [user_agent] contains a forbidden control byte; or libcurl is older than
+      7.83.0.
+    @raise Eio.Io
+      on transport failure. A response-limit violation carries [Protocol_error].
+      A request-body limit or length violation carries [Invalid_request]. *)
 
 val std :
   sw:Eio.Switch.t ->
   ?cookies:[ `Memory | `File of Eio.Fs.dir_ty Eio.Path.t | `Off ] ->
   ?retry:Fetch.Retry.config ->
   ?max_concurrent:int ->
-  ?min_interval:float ->
+  ?min_interval:Duration.t ->
   ?resolve:(string * int * string) list ->
   < clock : _ Eio.Time.clock
   ; mono_clock : _ Eio.Time.Mono.t

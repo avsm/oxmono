@@ -12,7 +12,7 @@ let invalid f =
   match f () with _ -> false | exception Invalid_argument _ -> true
 
 let () =
-  let c = Cache.create ~ttl:10. () in
+  let c = Cache.create ~ttl:(Duration.of_sec 10) () in
   let calls = ref 0 in
   let gen () = incr calls; "BODY" in
   let body1, etag1 = Cache.memoize c ~now:0. ~key:"/a" gen in
@@ -42,7 +42,7 @@ let () =
 
 (* Rewinding [now] after a miss reveals whether that miss pruned an old key. *)
 let () =
-  let c = Cache.create ~ttl:10. () in
+  let c = Cache.create ~ttl:(Duration.of_sec 10) () in
   let calls = ref 0 in
   let gen () = incr calls; "A" in
   let _b, _e = Cache.memoize c ~now:0. ~key:"/a" gen in
@@ -58,7 +58,7 @@ let () =
    and eviction takes the least recently used entry rather than the oldest
    stored one. *)
 let () =
-  let c = Cache.create ~max_entries:2 ~ttl:1e9 () in
+  let c = Cache.create ~max_entries:2 ~ttl:(Duration.of_f 1e9) () in
   let gen v () = v in
   let _b, _e = Cache.memoize c ~now:0. ~key:"a" (gen "A") in
   let _b, _e = Cache.memoize c ~now:0. ~key:"b" (gen "B") in
@@ -75,7 +75,7 @@ let () =
    bounds both memory and the cost of an insert, so this finishes at once
    rather than after seconds of list surgery. *)
 let () =
-  let c = Cache.create ~ttl:1e9 () in
+  let c = Cache.create ~ttl:(Duration.of_f 1e9) () in
   for i = 0 to 19_999 do
     let _b, _e =
       Cache.memoize c ~now:0. ~key:(string_of_int i) (fun () -> "x")
@@ -91,7 +91,7 @@ let () =
 
 (* An expired entry is pruned rather than counted against the cap. *)
 let () =
-  let c = Cache.create ~max_entries:2 ~ttl:10. () in
+  let c = Cache.create ~max_entries:2 ~ttl:(Duration.of_sec 10) () in
   let _b, _e = Cache.memoize c ~now:0. ~key:"a" (fun () -> "A") in
   let _b, _e = Cache.memoize c ~now:0. ~key:"b" (fun () -> "B") in
   let _b, _e = Cache.memoize c ~now:20. ~key:"c" (fun () -> "C") in
@@ -99,22 +99,27 @@ let () =
   check "a prune leaves room under the cap" (fst (Cache.stats c) = 1)
 
 let () =
-  check "a negative ttl is rejected"
-    (invalid (fun () -> Cache.create ~ttl:(-1.) ()));
-  check "a non-finite ttl is rejected"
-    (invalid (fun () -> Cache.create ~ttl:infinity ()));
-  let c = Cache.create ~ttl:1. () in
+  let c = Cache.create ~ttl:(Duration.of_sec 1) () in
   check "a non-finite clock reading is rejected"
     (invalid (fun () -> Cache.memoize c ~now:nan ~key:"x" (fun () -> "x")));
-  let huge = Cache.create ~ttl:Float.max_float () in
-  check "an overflowing expiry is rejected before generation"
-    (let generated = ref false in
-     invalid (fun () ->
-       Cache.memoize huge ~now:Float.max_float ~key:"x" (fun () ->
-         generated := true;
-         "x"))
-     && not !generated);
   check "a zero cap is rejected"
-    (invalid (fun () -> Cache.create ~max_entries:0 ~ttl:1. ()))
+    (invalid (fun () -> Cache.create ~max_entries:0 ~ttl:(Duration.of_sec 1) ()))
+
+let () =
+  let cache = Cache.create ~max_entries:3 ~ttl:(Duration.of_sec 10) () in
+  let access key =
+    fst (Cache.memoize cache ~now:0. ~key (fun () -> key))
+  in
+  List.iter (fun key -> ignore (access key)) ["a"; "b"; "a"; "c"; "d"];
+  let generated = ref [] in
+  List.iter (fun key ->
+      ignore (Cache.memoize cache ~now:0. ~key (fun () ->
+          generated := key :: !generated;
+          key))) ["a"; "c"; "d"; "b"];
+  check "hits before reaching capacity update LRU order" (!generated = ["b"]);
+  let cache = Cache.create ~ttl:(Duration.of_sec 10) () in
+  let _, first = Cache.memoize cache ~now:0. ~key:"a\000b" (fun () -> "c") in
+  let _, second = Cache.memoize cache ~now:0. ~key:"a" (fun () -> "b\000c") in
+  check "key/body boundaries are unambiguous" (first <> second)
 
 let () = Printf.printf "test_cache: %d checks ok\n" !checks

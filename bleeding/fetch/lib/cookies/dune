@@ -1,4 +1,4 @@
 (library
  (name fetch_cookies)
  (public_name fetch.cookies)
- (libraries fetch eio http fmt httpz httpz.cookie httpz.cookie.jar))
+ (libraries duration fetch eio http fmt httpz.uri httpz.cookie httpz.cookie.jar))

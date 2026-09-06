@@ -20,7 +20,7 @@ let test_response () =
   check
     "content type"
     (Proffer_mock.header response Httpz.Header_name.Content_type
-     = Some Httpz.Sse.media_type);
+     = Some Httpz_media.Sse.media_type);
   check
     "no store"
     (Proffer_mock.header response Httpz.Header_name.Cache_control = Some "no-store");
@@ -60,11 +60,11 @@ let invalid name f =
 ;;
 
 let test_validation () =
-  invalid "event name newline" (fun () -> Httpz.Sse.send ignore ~name:"bad\nname" "data");
-  invalid "id NUL" (fun () -> Httpz.Sse.send ignore ~id:"bad\000id" "data");
-  invalid "comment NUL" (fun () -> Httpz.Sse.comment ignore "bad\000comment");
-  invalid "comment DEL" (fun () -> Httpz.Sse.comment ignore "bad\127comment");
-  invalid "negative retry" (fun () -> Httpz.Sse.retry ignore (-1))
+  invalid "event name newline" (fun () -> Httpz_media.Sse.send ignore ~name:"bad\nname" "data");
+  invalid "id NUL" (fun () -> Httpz_media.Sse.send ignore ~id:"bad\000id" "data");
+  invalid "comment NUL" (fun () -> Httpz_media.Sse.comment ignore "bad\000comment");
+  invalid "comment DEL" (fun () -> Httpz_media.Sse.comment ignore "bad\127comment");
+  invalid "negative retry" (fun () -> Httpz_media.Sse.retry ignore (-1))
 ;;
 
 let () =

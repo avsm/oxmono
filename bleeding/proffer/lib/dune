@@ -1,13 +1,14 @@
 (library
  (name proffer)
  (public_name proffer)
- ; Proffer is a server layer over httpz, which owns the protocol vocabulary:
- ; methods, statuses, header names and dates are httpz's types, not copies of
- ; them. A backend therefore hands its parse straight over with no conversion.
- (libraries
+ (libraries duration
+  base
   bytesrw
   httpz
-  cmarkit
+  httpz.uri
+  httpz.media
+  httpz.media.jsont
+  httpz.media.cmarkit
   magic-mime
   stdlib_stable
   stdlib_upstream_compatible)
@@ -23,7 +24,6 @@
   etag
   headers
   method
-  media_cmarkit
   mime
   multipart
   status

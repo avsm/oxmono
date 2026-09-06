@@ -1,8 +1,7 @@
 (test
  (name test_tls)
  (package httpz)
- (libraries
-  httpz
+ (libraries duration
   httpz.tls
   alcotest
   eio
@@ -13,4 +12,6 @@
   ca-certs
   tls
   x509
-  mirage-crypto-rng.unix))
+  mirage-crypto-rng.unix
+  httpz.uri
+  cstruct))

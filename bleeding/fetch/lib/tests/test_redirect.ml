@@ -47,7 +47,6 @@ let test_validation () =
   raises "negative retry count" (fun () -> Retry.v ~max_retries:(-1) ());
   raises "unbounded retry count" (fun () ->
     Retry.v ~max_retries:(Retry.max_retries_limit + 1) ());
-  raises "NaN backoff" (fun () -> Retry.v ~backoff_factor:Float.nan ());
   raises "invalid retry status" (fun () -> Retry.v ~status_forcelist:[ 42 ] ());
   raises "negative stream length" (fun () ->
     Fetch.stream ~length:(-1L) (Eio.Flow.string_source ""))
@@ -228,7 +227,7 @@ let credential_server seen (req : Middleware.request) =
   let host = Middleware.Url.host req.url in
   let auth = Http.Header.get req.headers "authorization" in
   let query =
-    match Httpz.Uriz.find_query_param (Middleware.Url.to_uri req.url) "token" with
+    match Httpz_uri.find_query_param (Middleware.Url.to_uri req.url) "token" with
     | Null -> None
     | This value -> Some value
   in
@@ -373,6 +372,79 @@ let test_bearer_syntax_checked_before_backend () =
      | exception Eio.Io (Fetch.E (Fetch.Denied _), _) -> true);
   check "invalid Bearer token never reaches the backend" (not !called)
 
+(* A credential list holds closures, so admission must not compare one
+   structurally: [creds = []] is safe only while the immediate [] short
+   circuits the comparison. *)
+let test_credential_list_admission () =
+  Eio_mock.Backend.run @@ fun () ->
+  let request creds =
+    let seen = ref None in
+    let server (req : Middleware.request) =
+      seen := Http.Header.get req.headers "authorization";
+      Fetch_mock.respond "ok" req
+    in
+    let client =
+      Fetch_mock.client server
+      |> Fetch.with_credentials ~scope:[ "https://example.com" ] creds
+    in
+    let body = Fetch.read client "https://example.com/" in
+    (body, !seen)
+  in
+  check "an empty credential list attaches nothing"
+    (request [] = ("ok", None));
+  check "a closure credential is admitted without comparing closures"
+    (request Credential.[ Bearer (fun () -> "SECRET") ]
+     = ("ok", Some "Bearer SECRET"))
+
+(* The extension a [Follow_within_scope] hop grants belongs to the walk that
+   granted it. An exchange nested inside that walk, on the same fiber, is a
+   different request chain and must be given no credential. *)
+let test_extension_confined_to_its_chain ~nested_redirects () =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  let outer_auth = ref None in
+  let nested_auth = ref `Not_run in
+  let nested = ref false in
+  let client = ref None in
+  let server (req : Middleware.request) =
+    let auth = Http.Header.get req.headers "authorization" in
+    if String.equal (Middleware.Url.host req.url) "start.example" then
+      Fetch_mock.respond ~status:302
+        ~headers:
+          (Http.Header.of_list [ "Location", "https://unrelated.test/end" ])
+        "" req
+    else if !nested then begin
+      nested_auth := `Ran auth;
+      Fetch_mock.respond "nested" req
+    end
+    else begin
+      outer_auth := auth;
+      nested := true;
+      Fetch.with_response ~redirects:nested_redirects (Option.get !client)
+        `GET "https://unrelated.test/nested" (fun r -> ignore (status r));
+      nested := false;
+      Fetch_mock.respond "ok" req
+    end
+  in
+  let redirect =
+    Redirect.v ~on_hop:(fun ~from:_ ~to_:_ _ -> Redirect.Follow_within_scope) ()
+  in
+  client :=
+    Some
+      (Fetch_mock.client server
+      |> Fetch.with_credentials ~scope:[ "https://start.example" ] ~extend:true
+           Credential.[ Bearer (fun () -> "SECRET") ]);
+  let response =
+    Fetch.fetch ~sw ~redirect (Option.get !client) `GET
+      "https://start.example/"
+  in
+  check "the walk itself keeps its extension"
+    (!outer_auth = Some "Bearer SECRET");
+  check "a nested exchange does not inherit the extension"
+    (!nested_auth = `Ran None);
+  check "the extended origin is still reported"
+    (List.mem "https://unrelated.test" (Fetch.scope response))
+
 let () =
   test_same_site ();
   test_validation ();
@@ -388,4 +460,7 @@ let () =
   test_explicit_trust ();
   test_get_conversion_drops_representation_metadata ();
   test_bearer_syntax_checked_before_backend ();
+  test_credential_list_admission ();
+  test_extension_confined_to_its_chain ~nested_redirects:5 ();
+  test_extension_confined_to_its_chain ~nested_redirects:0 ();
   Printf.printf "test_redirect: %d checks ok\n" !checks

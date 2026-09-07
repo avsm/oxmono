@@ -128,3 +128,8 @@
 ; executable because it serves the site and drives it with curl. It needs a
 ; real data directory and a free port, so it also stays out of the runtest
 ; alias. Its header says how to run it, what it captures and what it proved.
+
+(test
+ (name test_markdown_export)
+ (modules test_markdown_export)
+ (libraries arod arod.component bushel))

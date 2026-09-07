@@ -9,6 +9,7 @@
     Uses Bushel's original markdown content with links resolved to absolute
     URLs via {!Bushel.Md.to_markdown}. *)
 
+module Paper_component = Paper
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
@@ -226,18 +227,70 @@ let entry_bullet ~ctx ent =
 
 (** {1 List Pages} *)
 
+(* [paper_md ~ctx paper] mirrors the compact HTML card: title, month,
+   classification, authors, publisher and the resource links. *)
+let paper_md ~ctx paper =
+  let ent = `Paper paper in
+  let title = Paper.title paper in
+  let url = entry_url ~ctx ent in
+  let (y, m, _) = Entry.date ent in
+  let cls = Paper.string_of_classification (Paper.classification paper) in
+  let rec join = function
+    | [] -> ""
+    | [ a ] -> a
+    | [ a; b ] -> a ^ " and " ^ b
+    | a :: rest -> a ^ ", " ^ join rest
+  in
+  let authors = match Paper.authors paper with
+    | [] -> ""
+    | l -> join l ^ ". "
+  in
+  let link l u = Printf.sprintf "[%s](%s)" l u in
+  let publisher = Paper_component.publisher_with ~link paper in
+  let base = Arod.Ctx.base_url ctx in
+  let slug = Paper.slug paper in
+  let doi = Option.map (fun d -> link "DOI" ("https://doi.org/" ^ d))
+      (Paper.doi paper) in
+  let bib = Some (link "BIB" (Printf.sprintf "%s/papers/%s.bib" base slug)) in
+  let pdf = Option.map (fun _ ->
+      link "PDF" (Printf.sprintf "%s/papers/%s.pdf" base slug))
+      (Paper_component.pdf_path ~ctx paper) in
+  let ext = Option.map (fun u ->
+      let host = Paper_component.host_without_www u in
+      Printf.sprintf "%s (%s)" (link "URL" u) host)
+      (Paper.url paper) in
+  let links = List.filter_map Fun.id [ doi; bib; pdf; ext ] in
+  Printf.sprintf "- [%s](%s) (%s %d, %s)\n  %s%s.\n  %s"
+    title url (Common.month_name m) y cls authors publisher
+    (String.concat ", " links)
+
 let papers_list_md ~ctx =
-  let papers = Arod.Ctx.papers ctx in
-  let header, footer = list_header ~ctx ~title:"Papers" ~description:"Academic papers." ~path:"/papers" in
-  let items = List.map (fun paper ->
-    let ent = `Paper paper in
-    let title = Paper.title paper in
-    let url = entry_url ~ctx ent in
-    let (y, _, _) = Entry.date ent in
-    let authors = String.concat ", " (Paper.authors paper) in
-    Printf.sprintf "- [%s](%s) (%d) — %s" title url y authors
-  ) papers in
-  header ^ String.concat "\n" items ^ "\n" ^ footer
+  let papers = List.sort Bushel.Paper.compare (Arod.Ctx.papers ctx) in
+  let count c =
+    List.length
+      (List.filter (fun p -> Bushel.Paper.classification p = c) papers)
+  in
+  let description =
+    Printf.sprintf
+      "Academic papers, most recent first. %d papers: %d full, %d short, \
+       %d preprint."
+      (List.length papers) (count Bushel.Paper.Full) (count Short)
+      (count Preprint)
+  in
+  let header, footer =
+    list_header ~ctx ~title:"Papers" ~description ~path:"/papers"
+  in
+  let by_year = List.fold_left (fun acc paper ->
+    let y = Bushel.Paper.year paper in
+    match acc with
+    | (y', ps) :: rest when y' = y -> (y, paper :: ps) :: rest
+    | _ -> (y, [ paper ]) :: acc
+  ) [] papers |> List.rev in
+  let sections = List.map (fun (y, ps) ->
+    let items = List.map (paper_md ~ctx) (List.rev ps) in
+    Printf.sprintf "## %d\n\n%s" y (String.concat "\n" items)
+  ) by_year in
+  header ^ String.concat "\n\n" sections ^ "\n" ^ footer
 
 let notes_list_md ~ctx =
   let notes = Arod.Ctx.notes ctx in

@@ -170,7 +170,7 @@ let[@zero_alloc] combined (t : t @ local) (name : name) = exclave_
 ;;
 
 (* [cat a b] is [a] then [b], built in the caller's region. [exclave_] is what puts the
-   new cells there rather than in this frame's, which is what lets a decorator extend a
+   new cells there rather than in this frame's, which is what lets a wrapper extend a
    block it was handed and pass the result on. *)
 let[@zero_alloc] rec cat (a : t @ local) (b : t @ local) = exclave_
   match a with

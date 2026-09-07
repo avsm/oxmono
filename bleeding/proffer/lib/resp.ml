@@ -115,7 +115,7 @@ let[@zero_alloc] rec singleton_header (headers : Headers.t @ local) name label
    field lines cannot combine into one value and a recipient must guess which
    applies. A typed argument owns its field, and the header block must not
    repeat one either, whether the repetition comes from a handler or from a
-   site decorator. *)
+   site wrapper. *)
 let[@zero_alloc] is_singleton (name : Headers.name @ local) =
   match name with
   | H.Age | H.Content_length | H.Content_location | H.Content_range
@@ -302,7 +302,7 @@ let[@zero_alloc] rec check_headers (headers : Headers.t @ local) =
 let[@zero_alloc] is_some (o : _ option @ local) =
   match o with None -> false | Some _ -> true
 
-(* A site decorator runs after [v], so it must reapply every invariant that
+(* A site wrapper runs after [v], so it must reapply every invariant that
    depends on the combined header block rather than merely validating the new
    fields in isolation. *)
 let[@zero_alloc] with_headers (d : description @ local)

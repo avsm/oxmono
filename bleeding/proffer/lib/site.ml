@@ -1,14 +1,11 @@
-(* Wrappers compose through [decorate] because routes hide handlers behind matchers. The
-   backend decorates matched handlers and generated responses. *)
-
 module St = Httpz.Res
 
 type 'env t =
   { routes : 'env Route.t list
   ; fallback : 'env Route.handler @@ portable
-  ; (* A decorator runs the handler rather than returning a wrapped one, which
-       would be a heap closure on every response of a decorated site. *)
-    decorate :
+  ; (* A wrapper runs the handler rather than returning a wrapped one, which
+       would be a heap closure on every response of a site with wrappers. *)
+    run_with_wrappers :
       string @ local
       -> 'env Route.handler @ local
       -> 'env
@@ -16,43 +13,47 @@ type 'env t =
       -> Resp.respond @ local
       -> unit
       @@ portable
-  ; (* Mounting a decorated sub-site is rejected to avoid dropping wrappers. *)
-    decorated : bool
+  ; (* Mounting would discard these wrappers, so reject such sub-sites. *)
+    has_wrappers : bool
   }
 
 let default_fallback _env (_req : Req.t @ local) (respond : Resp.respond @ local) =
   Resp.text respond ~status:St.Not_found "Not Found\n"
 ;;
 
-let no_decoration _path (h : _ Route.handler @ local) env (req : Req.t @ local)
+let run_without_wrappers _path (h : _ Route.handler @ local) env (req : Req.t @ local)
     (respond : Resp.respond @ local) =
   let () = (h env) req respond in
   ()
 ;;
 
 let of_routes routes =
-  { routes; fallback = default_fallback; decorate = no_decoration; decorated = false }
+  { routes
+  ; fallback = default_fallback
+  ; run_with_wrappers = run_without_wrappers
+  ; has_wrappers = false
+  }
 ;;
 
 let with_fallback (fallback : _ Route.handler @ portable) t = { t with fallback }
 
 (* Validate field syntax once; response-specific overlap checks run when the
-   decorated response is known. Handler fields come first when a name repeats. *)
+   combined response is known. Handler fields come first when a name repeats. *)
 let with_headers extra t =
   let extra = Headers.of_list extra in
   Resp.check_headers extra;
-  let decorate (segs : string @ local) (h : _ Route.handler @ local) env
+  let run_with_wrappers (segs : string @ local) (h : _ Route.handler @ local) env
     (req : Req.t @ local) (respond : Resp.respond @ local) =
-    let local_ decorated : Resp.respond =
+    let local_ wrapped_respond : Resp.respond =
       fun d ->
       let local_ d = Resp.with_headers d extra in
       let () = respond d in
       ()
     in
-    let () = t.decorate segs h env req decorated in
+    let () = t.run_with_wrappers segs h env req wrapped_respond in
     ()
   in
-  { t with decorate; decorated = true }
+  { t with run_with_wrappers; has_wrappers = true }
 ;;
 
 (* Plain recursion rather than closures over [path], so a scope test
@@ -108,7 +109,7 @@ let with_auth ~scope ~realm ~(check : (string option @ local -> bool) @ portable
     in
     ()
   in
-  let decorate (segs : string @ local) (h : _ Route.handler @ local) env
+  let run_with_wrappers (segs : string @ local) (h : _ Route.handler @ local) env
       (req : Req.t @ local) (respond : Resp.respond @ local) =
     let rec authorization_count count = function
       | [] -> count
@@ -124,16 +125,16 @@ let with_auth ~scope ~realm ~(check : (string option @ local -> bool) @ portable
       || (authorization_count 0 (Req.headers req) <= 1
           && check (Req.header req Httpz.Header_name.Authorization))
     then (
-      let () = t.decorate segs h env req respond in
+      let () = t.run_with_wrappers segs h env req respond in
       ())
     else challenge respond
   in
-  { t with decorate; decorated = true }
+  { t with run_with_wrappers; has_wrappers = true }
 ;;
 
 (* Mount only routes. Reject wrappers that would otherwise be silently lost. *)
 let mount ~at sub t =
-  if sub.decorated
+  if sub.has_wrappers
   then
     invalid_arg
       "Proffer.Site.mount: the sub-site is wrapped, so wrap the result of mount instead";
@@ -151,4 +152,4 @@ let mount ~at sub t =
 
 let routes t = t.routes
 let fallback t = t.fallback
-let decorate t = t.decorate
+let run_with_wrappers t = t.run_with_wrappers

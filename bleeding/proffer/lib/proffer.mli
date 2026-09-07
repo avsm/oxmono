@@ -1442,7 +1442,7 @@ module Backend : sig
         route. A path that matches only under other methods gives 405 with an
         Allow field. No route at all gives the site's fallback. An exception
         from a handler goes to [on_error] and gives a plain 500.
-      - The site's wrappers decorate the 400 above and the 404 and 405 here, so
+      - The site's wrappers also run for the 400 above and the 404 and 405 here, so
         a caller cannot infer which paths name a route by comparing generated
         responses.
       - GET and HEAD responses are checked against request preconditions in the

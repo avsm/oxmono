@@ -1,13 +1,13 @@
-(* Route selection and decoration. Captured strings and the cold 405 Allow
+(* Route selection and wrappers. Captured strings and the cold 405 Allow
    value retain their existing explicit allocation boundaries. *)
 module M = Httpz.Method
 module H = Httpz.Header_name
 let text_type = Resp.text_type
 
-let[@inline never][@zero_alloc assume] call_decorate site (path : string @ local)
+let[@inline never][@zero_alloc assume] call_run_with_wrappers site (path : string @ local)
     (h : 'e Route.handler @ local) env (req : Req.t @ local)
     (respond : Resp.respond @ local) =
-  (Site.decorate site) path h env req respond
+  (Site.run_with_wrappers site) path h env req respond
 
 (* A matcher allocates only for a captured segment, which the handler
    receives as an owned string like the request body. *)
@@ -78,7 +78,7 @@ let[@cold][@zero_alloc assume] unrouted site (path : string @ local) : 'e Route.
         method_not_allowed allow respond
 
 (* A repeated Content-Type is refused before routing, but through the site's
-   decorator, so the 400 carries a decorator's fields as any other response
+   wrapper, so the 400 carries a wrapper's fields as any other response
    does. *)
 let duplicate_content_type : 'e Route.handler =
  fun _env (_req : Req.t @ local) (respond : Resp.respond @ local) ->
@@ -100,5 +100,5 @@ let[@inline always][@zero_alloc] run site env (req : Req.t @ local) (respond : R
       | This h -> h
       | Null -> unrouted site path
   in
-  let () = call_decorate site path h env req respond in
+  let () = call_run_with_wrappers site path h env req respond in
   ()

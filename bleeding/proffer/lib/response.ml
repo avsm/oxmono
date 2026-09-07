@@ -146,7 +146,7 @@ let precondition_failed_headers = [ Headers.h H.Content_type text_type ]
 
 (* A 412 does not carry the representation, so the fields that describe it go.
    What remains is the rest of the response's header block, which is where a
-   site decorator's fields are, so a 412 carries them as its 200 and 304 do. *)
+   site wrapper's fields are, so a 412 carries them as its 200 and 304 do. *)
 let[@zero_alloc] is_entity_name (name : Headers.name @ local) =
   match name with
   | H.Content_type | H.Content_range | H.Content_encoding | H.Content_language

@@ -1,9 +1,21 @@
 # Synchronizing HTTPz
 
 HTTPz, Fetch and Proffer are synchronized from `avsm/oxcaml-httpz` commit
-`e07ce164aebe414fbd31ef7cff3c26202cfdc5b0` on 2026-09-07. This ports stock
-`avsm/ocaml-httpz` commit `3668722`, including the preceding audit fixes and
-Duration cleanup. [HTTPZ.md](HTTPZ.md) introduces the libraries and examples.
+`2eb1eb0b8ef2a6f300b44e514b8826ade53dc02b` on 2026-09-07. This ports stock
+`avsm/ocaml-httpz` through commit `72e4541`, including the preceding audit fixes,
+Duration cleanup, media consolidation and Proffer wrapper rename. [HTTPZ.md](HTTPZ.md) introduces the libraries and examples.
+
+## 2026-09-07 Proffer wrapper names
+
+Proffer's private Site fields and accessor now use `run_with_wrappers` and
+`has_wrappers`; the direct handler runner is `run_without_wrappers`. Dispatch,
+responder/test variables and related comments use the same wrapper terminology.
+The changed Proffer files match the standalone OxCaml port. Request behavior,
+public interfaces, locality, portability and allocation annotations are unchanged.
+
+Validation: `opam exec --switch=5.2.0+ox -- dune build --profile release-check
+@all @bleeding/proffer/runtest` passes, including all 55 wrapper checks.
+The standalone port also passes its allocation/mode/concurrency audit.
 
 ## 2026-09-07 consolidated media and tests
 

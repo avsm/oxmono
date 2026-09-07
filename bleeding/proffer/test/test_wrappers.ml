@@ -106,17 +106,17 @@ let () =
     | _ -> false
     | exception Invalid_argument _ -> true);
   (* The same refusal covers [with_headers], whose fields would be dropped. *)
-  let decorated =
+  let wrapped_site =
     Site.of_routes
       [ get (s "page") (fun _env _req respond -> Resp.text respond "sub") ]
     |> Site.with_headers [ ("X-Frame-Options", "DENY") ]
   in
   check "mounting a header-wrapped sub-site raises"
-    (match Site.mount ~at:[ "api" ] decorated (Site.of_routes []) with
+    (match Site.mount ~at:[ "api" ] wrapped_site (Site.of_routes []) with
     | _ -> false
     | exception Invalid_argument _ -> true)
 
-(* Gating after mounting is the supported order: the parent's decoration is
+(* Gating after mounting is the supported order: the parent's wrapper is
    applied to the request path, so a scope written in mounted terms gates the
    mounted routes and nothing else. *)
 let () =
@@ -232,7 +232,7 @@ let () =
     (Proffer_mock.header r H.Www_authenticate
     = Some "Basic realm=\"caf\195\169\"")
 
-(* A response decorator is applied after [Resp.v], so it has to re-check the
+(* A response wrapper is applied after [Resp.v], so it has to re-check the
    invariants that depend on the final combined header block. *)
 let () =
   let request site = Proffer_mock.request site () M.Get "/" in
@@ -275,10 +275,10 @@ let () =
   check "site headers cannot add a top-level range to multipart 206"
     (Proffer_mock.status multipart_range = St.Internal_server_error)
 
-(* R39: a decorator's fields belong on every response the site sends, including
+(* R39: a wrapper's fields belong on every response the site sends, including
    the 412 conditional processing generates and the 400 for a malformed
    request, neither of which passes through the handler. *)
-let decorated =
+let wrapped_site =
   Site.of_routes
     [
       get
@@ -290,7 +290,7 @@ let decorated =
 
 let () =
   let r =
-    Proffer_mock.request decorated ()
+    Proffer_mock.request wrapped_site ()
       ~headers:[ ("If-Match", "\"other\"") ]
       M.Get "/page"
   in
@@ -302,7 +302,7 @@ let () =
     (Proffer_mock.header r H.Content_type = Some "text/plain; charset=utf-8");
   check "the 412 drops the entity's ETag" (Proffer_mock.header r H.Etag = None);
   let r =
-    Proffer_mock.request decorated ()
+    Proffer_mock.request wrapped_site ()
       ~headers:[ ("Content-Type", "text/plain"); ("Content-Type", "text/html") ]
       M.Get "/page"
   in
@@ -311,7 +311,7 @@ let () =
   check "the 400 carries the site's headers"
     (Proffer_mock.header_other r "X-Frame-Options" = Some "DENY")
 
-(* R39: a site decorator must not put a second singleton field on the wire. *)
+(* R39: a site wrapper must not put a second singleton field on the wire. *)
 let () =
   let r =
     Site.of_routes

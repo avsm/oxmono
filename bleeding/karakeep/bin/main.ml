@@ -52,7 +52,7 @@ let get_bookmark_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let bookmark = Karakeep.Bookmark.get_bookmarks ~bookmark_id api () in
+        let bookmark = Karakeep.Bookmark.get_bookmarks_by_bookmark_id ~bookmark_id api () in
         Cmd.print_bookmark fmt bookmark
       ) env)
   in
@@ -92,7 +92,7 @@ let update_bookmark_cmd env =
           @ opt_fields (fun n -> ("note", json_string n)) note
           @ opt_fields (fun s -> ("summary", json_string s)) summary
         ) in
-        let result = Karakeep.Client.patch_bookmarks ~bookmark_id ~body api () in
+        let result = Karakeep.Client.patch_bookmarks_by_bookmark_id ~bookmark_id ~body api () in
         match fmt with
         | Cmd.Json -> print_endline (Jsont_bytesrw.encode_string Jsont.json result |> Result.get_ok)
         | _ ->
@@ -113,7 +113,7 @@ let delete_bookmark_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let _ = Karakeep.Client.delete_bookmarks ~bookmark_id api () in
+        let _ = Karakeep.Client.delete_bookmarks_by_bookmark_id ~bookmark_id api () in
         Logs.app (fun m -> m "Deleted bookmark %s" bookmark_id)
       ) env)
   in
@@ -128,7 +128,7 @@ let archive_bookmark_cmd env =
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
         let body = json_obj [("archived", json_bool true)] in
-        let result = Karakeep.Client.patch_bookmarks ~bookmark_id ~body api () in
+        let result = Karakeep.Client.patch_bookmarks_by_bookmark_id ~bookmark_id ~body api () in
         match Jsont_bytesrw.decode_string Karakeep.Bookmark.T.jsont
                 (Jsont_bytesrw.encode_string Jsont.json result |> Result.get_ok) with
         | Ok b -> Cmd.print_bookmark fmt b
@@ -147,7 +147,7 @@ let unarchive_bookmark_cmd env =
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
         let body = json_obj [("archived", json_bool false)] in
-        let result = Karakeep.Client.patch_bookmarks ~bookmark_id ~body api () in
+        let result = Karakeep.Client.patch_bookmarks_by_bookmark_id ~bookmark_id ~body api () in
         match Jsont_bytesrw.decode_string Karakeep.Bookmark.T.jsont
                 (Jsont_bytesrw.encode_string Jsont.json result |> Result.get_ok) with
         | Ok b -> Cmd.print_bookmark fmt b
@@ -166,7 +166,7 @@ let favourite_bookmark_cmd env =
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
         let body = json_obj [("favourited", json_bool true)] in
-        let result = Karakeep.Client.patch_bookmarks ~bookmark_id ~body api () in
+        let result = Karakeep.Client.patch_bookmarks_by_bookmark_id ~bookmark_id ~body api () in
         match Jsont_bytesrw.decode_string Karakeep.Bookmark.T.jsont
                 (Jsont_bytesrw.encode_string Jsont.json result |> Result.get_ok) with
         | Ok b -> Cmd.print_bookmark fmt b
@@ -185,7 +185,7 @@ let unfavourite_bookmark_cmd env =
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
         let body = json_obj [("favourited", json_bool false)] in
-        let result = Karakeep.Client.patch_bookmarks ~bookmark_id ~body api () in
+        let result = Karakeep.Client.patch_bookmarks_by_bookmark_id ~bookmark_id ~body api () in
         match Jsont_bytesrw.decode_string Karakeep.Bookmark.T.jsont
                 (Jsont_bytesrw.encode_string Jsont.json result |> Result.get_ok) with
         | Ok b -> Cmd.print_bookmark fmt b
@@ -203,7 +203,7 @@ let summarize_bookmark_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let result = Karakeep.Client.post_bookmarks_summarize ~bookmark_id api () in
+        let result = Karakeep.Client.post_bookmarks_by_bookmark_id_summarize ~bookmark_id api () in
         match fmt with
         | Cmd.Json -> print_endline (Jsont_bytesrw.encode_string Jsont.json result |> Result.get_ok)
         | _ ->
@@ -292,7 +292,7 @@ let get_tag_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let tag = Karakeep.Tag.get_tags ~tag_id api () in
+        let tag = Karakeep.Tag.get_tags_by_tag_id ~tag_id api () in
         Cmd.print_tag fmt tag
       ) env)
   in
@@ -308,7 +308,7 @@ let tag_bookmarks_cmd env =
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
         let result =
-          Karakeep.PaginatedBookmarks.get_tags_bookmarks ~tag_id ?limit ?cursor api ()
+          Karakeep.PaginatedBookmarks.get_tags_by_tag_id_bookmarks ~tag_id ?limit ?cursor api ()
         in
         Cmd.print_bookmarks fmt (Karakeep.PaginatedBookmarks.T.bookmarks result)
       ) env)
@@ -325,7 +325,7 @@ let rename_tag_cmd env =
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
         let body = json_obj [("name", json_string name)] in
-        let result = Karakeep.Client.patch_tags ~tag_id ~body api () in
+        let result = Karakeep.Client.patch_tags_by_tag_id ~tag_id ~body api () in
         match Jsont_bytesrw.decode_string Karakeep.Tag.T.jsont
                 (Jsont_bytesrw.encode_string Jsont.json result |> Result.get_ok) with
         | Ok tag -> Cmd.print_tag fmt tag
@@ -343,7 +343,7 @@ let delete_tag_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let _ = Karakeep.Client.delete_tags ~tag_id api () in
+        let _ = Karakeep.Client.delete_tags_by_tag_id ~tag_id api () in
         Logs.app (fun m -> m "Deleted tag %s" tag_id)
       ) env)
   in
@@ -361,7 +361,7 @@ let attach_tags_cmd env =
           json_obj [("tagName", json_string t)]
         ) tags in
         let body = json_obj [("tags", json_array tag_objects)] in
-        let _ = Karakeep.Client.post_bookmarks_tags ~bookmark_id ~body api () in
+        let _ = Karakeep.Client.post_bookmarks_by_bookmark_id_tags ~bookmark_id ~body api () in
         Logs.app (fun m -> m "Attached tags to bookmark %s" bookmark_id)
       ) env)
   in
@@ -376,7 +376,7 @@ let detach_tags_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let _ = Karakeep.Client.delete_bookmarks_tags ~bookmark_id api () in
+        let _ = Karakeep.Client.delete_bookmarks_by_bookmark_id_tags ~bookmark_id api () in
         Logs.app (fun m -> m "Detached tags from bookmark %s" bookmark_id)
       ) env)
   in
@@ -432,7 +432,7 @@ let get_list_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let lst = Karakeep.List.get_lists ~list_id api () in
+        let lst = Karakeep.List.get_lists_by_list_id ~list_id api () in
         Cmd.print_list fmt lst
       ) env)
   in
@@ -475,7 +475,7 @@ let update_list_cmd env =
           @ opt_fields (fun d -> ("description", json_string d)) description
           @ opt_fields (fun q -> ("query", json_string q)) query
         ) in
-        let lst = Karakeep.List.patch_lists ~list_id ~body api () in
+        let lst = Karakeep.List.patch_lists_by_list_id ~list_id ~body api () in
         Cmd.print_list fmt lst
       ) env)
   in
@@ -491,7 +491,7 @@ let delete_list_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let _ = Karakeep.Client.delete_lists ~list_id api () in
+        let _ = Karakeep.Client.delete_lists_by_list_id ~list_id api () in
         Logs.app (fun m -> m "Deleted list %s" list_id)
       ) env)
   in
@@ -506,7 +506,7 @@ let list_bookmarks_in_list_cmd env =
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
         let result =
-          Karakeep.PaginatedBookmarks.get_lists_bookmarks ~list_id ?limit ?cursor api ()
+          Karakeep.PaginatedBookmarks.get_lists_by_list_id_bookmarks ~list_id ?limit ?cursor api ()
         in
         Cmd.print_bookmarks fmt (Karakeep.PaginatedBookmarks.T.bookmarks result)
       ) env)
@@ -522,7 +522,7 @@ let add_to_list_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let _ = Karakeep.Client.put_lists_bookmarks ~list_id ~bookmark_id api () in
+        let _ = Karakeep.Client.put_lists_by_list_id_bookmarks_by_bookmark_id ~list_id ~bookmark_id api () in
         Logs.app (fun m -> m "Added bookmark %s to list %s" bookmark_id list_id)
       ) env)
   in
@@ -540,7 +540,7 @@ let remove_from_list_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let _ = Karakeep.Client.delete_lists_bookmarks ~list_id ~bookmark_id api () in
+        let _ = Karakeep.Client.delete_lists_by_list_id_bookmarks_by_bookmark_id ~list_id ~bookmark_id api () in
         Logs.app (fun m -> m "Removed bookmark %s from list %s" bookmark_id list_id)
       ) env)
   in
@@ -589,7 +589,7 @@ let get_highlight_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let highlight = Karakeep.Highlight.get_highlights ~highlight_id api () in
+        let highlight = Karakeep.Highlight.get_highlights_by_highlight_id ~highlight_id api () in
         Cmd.print_highlight fmt highlight
       ) env)
   in
@@ -604,7 +604,7 @@ let bookmark_highlights_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let result = Karakeep.Client.get_bookmarks_highlights ~bookmark_id api () in
+        let result = Karakeep.Client.get_bookmarks_by_bookmark_id_highlights ~bookmark_id api () in
         match result with
         | Jsont.Object (members, _) ->
             (match List.find_map (fun ((k, _), v) -> if k = "highlights" then Some v else None) members with
@@ -631,7 +631,7 @@ let delete_highlight_cmd env =
     Cmd.setup_logging_simple style_renderer level;
     Error.wrap (fun () ->
       run_with_client ~profile (fun api ->
-        let _ = Karakeep.Highlight.delete_highlights ~highlight_id api () in
+        let _ = Karakeep.Highlight.delete_highlights_by_highlight_id ~highlight_id api () in
         Logs.app (fun m -> m "Deleted highlight %s" highlight_id)
       ) env)
   in

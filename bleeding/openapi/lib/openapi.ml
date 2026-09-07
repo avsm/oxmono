@@ -8,6 +8,7 @@
 *)
 
 module Spec = Openapi_spec
+module Schema = Openapi_schema
 module Codegen = Openapi_codegen
 module Runtime = Openapi_runtime
 module Nestjs = Openapi_nestjs

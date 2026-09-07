@@ -21,43 +21,41 @@ let or_ref_jsont (value_jsont : 'a Jsont.t) : 'a or_ref Jsont.t =
   Jsont.map Jsont.json ~kind:"or_ref"
     ~dec:(fun json ->
       match json with
-      | Jsont.Object (mems, _meta) ->
+      | Jsont.Object (mems, _) when Option.is_some (find_member "$ref" mems) ->
           (match find_member "$ref" mems with
-           | Some (Jsont.String (ref_str, _)) -> Ref ref_str
-           | _ ->
-               (* Not a $ref, decode as value using bytesrw *)
-               match Jsont_bytesrw.decode_string value_jsont
-                       (Result.get_ok (Jsont_bytesrw.encode_string Jsont.json json)) with
-               | Ok v -> Value v
-               | Error e -> Jsont.Error.msg Jsont.Meta.none e)
-      | _ ->
-          (* Non-object, decode as value *)
-          match Jsont_bytesrw.decode_string value_jsont
-                  (Result.get_ok (Jsont_bytesrw.encode_string Jsont.json json)) with
-          | Ok v -> Value v
-          | Error e -> Jsont.Error.msg Jsont.Meta.none e)
+           | Some (Jsont.String (r, _)) -> Ref r
+           | _ -> Jsont.Error.msg Jsont.Meta.none "$ref must be a string")
+      | _ -> match Jsont.Json.decode value_jsont json with
+          | Ok value -> Value value
+          | Error error -> Jsont.Error.msg Jsont.Meta.none error)
     ~enc:(function
       | Ref r -> Jsont.Object ([(("$ref", Jsont.Meta.none), Jsont.String (r, Jsont.Meta.none))], Jsont.Meta.none)
-      | Value v ->
-          match Jsont_bytesrw.encode_string value_jsont v with
-          | Ok s ->
-              (match Jsont_bytesrw.decode_string Jsont.json s with
-               | Ok json -> json
-               | Error _ -> Jsont.Null ((), Jsont.Meta.none))
-          | Error _ -> Jsont.Null ((), Jsont.Meta.none))
+      | Value value -> match Jsont.Json.encode value_jsont value with
+          | Ok json -> json
+          | Error error -> Jsont.Error.msg Jsont.Meta.none error)
 
 (** {1 String Map} *)
 
 let string_map_jsont (value_jsont : 'a Jsont.t) : (string * 'a) list Jsont.t =
-  let map_jsont = Jsont.Object.as_string_map value_jsont in
-  Jsont.map ~kind:"string_map"
-    ~dec:(fun m ->
-      List.rev (Jsont.String_map.fold (fun k v acc -> (k, v) :: acc) m []))
+  let unique pairs =
+    let names = List.map fst pairs in
+    if List.length names <> List.length (List.sort_uniq String.compare names) then
+      Jsont.Error.msg Jsont.Meta.none "Duplicate map member";
+    List.sort (fun (a,_) (b,_) -> String.compare a b) pairs in
+  Jsont.map Jsont.json ~kind:"string map"
+    ~dec:(function
+      | Jsont.Object (members,_) ->
+          List.map (fun ((name,_),value) ->
+            let value = match Jsont.Json.decode value_jsont value with
+              | Ok value -> value | Error e -> Jsont.Error.msg (Jsont.Json.meta value) e in
+            name,value) members |> unique
+      | value -> Jsont.Error.msg (Jsont.Json.meta value) "Expected object")
     ~enc:(fun pairs ->
-      List.fold_left
-        (fun m (k, v) -> Jsont.String_map.add k v m)
-        (Jsont.String_map.create ()) pairs)
-    map_jsont
+      let members = unique pairs |> List.map (fun (name,value) ->
+        let value = match Jsont.Json.encode value_jsont value with
+          | Ok value -> value | Error e -> Jsont.Error.msg Jsont.Meta.none e in
+        (name,Jsont.Meta.none),value) in
+      Jsont.Object (members,Jsont.Meta.none))
 
 (** {1 Contact} *)
 
@@ -202,6 +200,12 @@ let discriminator_jsont : discriminator Jsont.t =
     where references are stored as schema or_ref. *)
 
 type schema = {
+  type_union : string list option;
+  boolean_schema : bool option;
+  reference : string option;
+  exclusive_minimum_flag : bool option;
+  exclusive_maximum_flag : bool option;
+  extra_fields : (string * Jsont.json) list;
   title : string option;
   description : string option;
   type_ : string option;
@@ -245,6 +249,8 @@ type schema = {
 }
 
 let empty_schema = {
+  type_union = None; boolean_schema = None; reference = None;
+  exclusive_minimum_flag = None; exclusive_maximum_flag = None; extra_fields = [];
   title = None; description = None; type_ = None; format = None; default = None;
   nullable = false; read_only = false; write_only = false; deprecated = false;
   enum = None; const = None; minimum = None; maximum = None;
@@ -257,14 +263,24 @@ let empty_schema = {
   items = None; discriminator = None; example = None;
 }
 
-let schema_jsont : schema Jsont.t =
+let schema_count_jsont =
+  Jsont.map Jsont.number ~kind:"nonnegative integer"
+    ~dec:(fun n ->
+      if not (Float.is_finite n) || not (Float.is_integer n) || n < 0. || n >= float_of_int max_int then
+        Jsont.Error.msg Jsont.Meta.none "Expected a nonnegative integer count";
+      int_of_float n)
+    ~enc:(fun n -> if n < 0 then Jsont.Error.msg Jsont.Meta.none "Negative count"; float_of_int n)
+
+let schema_object_jsont : schema Jsont.t =
   Jsont.Object.map ~kind:"Schema"
     (fun title description type_ format default nullable read_only write_only
          deprecated enum const minimum maximum exclusive_minimum exclusive_maximum
          multiple_of min_length max_length pattern min_items max_items unique_items
          min_properties max_properties all_of one_of any_of not_ properties required
          additional_properties items discriminator example ->
-      { title; description; type_; format; default; nullable; read_only; write_only;
+      { type_union = None; boolean_schema = None; reference = None;
+        exclusive_minimum_flag = None; exclusive_maximum_flag = None; extra_fields = [];
+        title; description; type_; format; default; nullable; read_only; write_only;
         deprecated; enum; const; minimum; maximum; exclusive_minimum; exclusive_maximum;
         multiple_of; min_length; max_length; pattern; min_items; max_items; unique_items;
         min_properties; max_properties; all_of; one_of; any_of; not_; properties; required;
@@ -285,14 +301,14 @@ let schema_jsont : schema Jsont.t =
   |> Jsont.Object.opt_mem "exclusiveMinimum" Jsont.number ~enc:(fun s -> s.exclusive_minimum)
   |> Jsont.Object.opt_mem "exclusiveMaximum" Jsont.number ~enc:(fun s -> s.exclusive_maximum)
   |> Jsont.Object.opt_mem "multipleOf" Jsont.number ~enc:(fun s -> s.multiple_of)
-  |> Jsont.Object.opt_mem "minLength" Jsont.int ~enc:(fun s -> s.min_length)
-  |> Jsont.Object.opt_mem "maxLength" Jsont.int ~enc:(fun s -> s.max_length)
+  |> Jsont.Object.opt_mem "minLength" schema_count_jsont ~enc:(fun s -> s.min_length)
+  |> Jsont.Object.opt_mem "maxLength" schema_count_jsont ~enc:(fun s -> s.max_length)
   |> Jsont.Object.opt_mem "pattern" Jsont.string ~enc:(fun s -> s.pattern)
-  |> Jsont.Object.opt_mem "minItems" Jsont.int ~enc:(fun s -> s.min_items)
-  |> Jsont.Object.opt_mem "maxItems" Jsont.int ~enc:(fun s -> s.max_items)
+  |> Jsont.Object.opt_mem "minItems" schema_count_jsont ~enc:(fun s -> s.min_items)
+  |> Jsont.Object.opt_mem "maxItems" schema_count_jsont ~enc:(fun s -> s.max_items)
   |> Jsont.Object.mem "uniqueItems" Jsont.bool ~dec_absent:(fun () -> false) ~enc:(fun s -> s.unique_items)
-  |> Jsont.Object.opt_mem "minProperties" Jsont.int ~enc:(fun s -> s.min_properties)
-  |> Jsont.Object.opt_mem "maxProperties" Jsont.int ~enc:(fun s -> s.max_properties)
+  |> Jsont.Object.opt_mem "minProperties" schema_count_jsont ~enc:(fun s -> s.min_properties)
+  |> Jsont.Object.opt_mem "maxProperties" schema_count_jsont ~enc:(fun s -> s.max_properties)
   |> Jsont.Object.opt_mem "allOf" Jsont.(list json) ~enc:(fun s -> s.all_of)
   |> Jsont.Object.opt_mem "oneOf" Jsont.(list json) ~enc:(fun s -> s.one_of)
   |> Jsont.Object.opt_mem "anyOf" Jsont.(list json) ~enc:(fun s -> s.any_of)
@@ -309,7 +325,84 @@ let schema_jsont : schema Jsont.t =
   |> Jsont.Object.skip_unknown
   |> Jsont.Object.finish
 
-let schema_or_ref_jsont = or_ref_jsont schema_jsont
+let schema_jsont : schema Jsont.t =
+  let get codec json = match Jsont.Json.decode codec json with
+    | Ok v -> v | Error e -> Jsont.Error.msg Jsont.Meta.none e in
+  let tree codec v = match Jsont.Json.encode codec v with
+    | Ok v -> v | Error e -> Jsont.Error.msg Jsont.Meta.none e in
+  let set name value mems =
+    ((name, Jsont.Meta.none), value) :: List.filter (fun ((n, _), _) -> n <> name) mems in
+  Jsont.map Jsont.json ~kind:"Schema"
+    ~dec:(function
+      | Jsont.Bool (b, _) -> { empty_schema with boolean_schema = Some b }
+      | Jsont.Object (mems, meta) ->
+          let type_union = match find_member "type" mems with
+            | Some (Jsont.Array _ as json) -> Some (get Jsont.(list string) json)
+            | _ -> None in
+          let normalized = match type_union with
+            | None -> mems
+            | Some types ->
+                let non_null = List.filter (fun t -> t <> "null") types in
+                let mems = List.filter (fun ((n, _), _) -> n <> "type") mems in
+                match non_null with
+                | [t] -> set "type" (tree Jsont.string t) mems
+                | _ -> mems in
+          let bound name minimum mems = match find_member name mems with
+            | Some (Jsont.Bool (flag, _)) ->
+                let mems = List.filter (fun ((n, _), _) -> n <> name) mems in
+                let mems = if flag then match find_member minimum mems with
+                  | Some (Jsont.Number _ as number) -> set name number mems
+                  | _ -> mems else mems in
+                Some flag, mems
+            | _ -> None, mems in
+          let exclusive_minimum_flag, normalized = bound "exclusiveMinimum" "minimum" normalized in
+          let exclusive_maximum_flag, normalized = bound "exclusiveMaximum" "maximum" normalized in
+          let schema = get schema_object_jsont (Jsont.Object (normalized, meta)) in
+          let known = match tree schema_object_jsont empty_schema with
+            | Jsont.Object (fields, _) -> List.map (fun ((n, _), _) -> n) fields
+            | _ -> assert false in
+          (* Optional absent members are omitted by the codec, so use its full
+             fixed field set when preserving extension/vocabulary keywords. *)
+          let known = known @ ["title";"description";"type";"format";"default";"enum";"const";
+            "minimum";"maximum";"exclusiveMinimum";"exclusiveMaximum";"multipleOf";
+            "minLength";"maxLength";"pattern";"minItems";"maxItems";"minProperties";"maxProperties";
+            "allOf";"oneOf";"anyOf";"not";"additionalProperties";"items";"discriminator";"example";"$ref"] in
+          let extra_fields = List.filter_map (fun ((n, _), v) ->
+            if List.mem n known then None else Some (n, v)) mems in
+          let reference = Option.map (get Jsont.string) (find_member "$ref" mems) in
+          { schema with type_union; reference; exclusive_minimum_flag; exclusive_maximum_flag; extra_fields }
+      | _ -> Jsont.Error.msg Jsont.Meta.none "Expected a schema object or boolean")
+    ~enc:(fun schema -> match schema.boolean_schema with
+      | Some b -> tree Jsont.bool b
+      | None ->
+          let mems = match tree schema_object_jsont schema with
+            | Jsont.Object (mems, _) -> mems | _ -> assert false in
+          let mems = match schema.type_union with
+            | None -> mems | Some ts -> set "type" (tree Jsont.(list string) ts) mems in
+          let mems = match schema.exclusive_minimum_flag with
+            | None -> mems | Some b -> set "exclusiveMinimum" (tree Jsont.bool b) mems in
+          let mems = match schema.exclusive_maximum_flag with
+            | None -> mems | Some b -> set "exclusiveMaximum" (tree Jsont.bool b) mems in
+          let mems = match schema.reference with
+            | None -> mems | Some r -> set "$ref" (tree Jsont.string r) mems in
+          let mems = List.fold_left (fun mems (n, v) -> set n v mems) mems schema.extra_fields in
+          Jsont.Object (mems, Jsont.Meta.none))
+
+(** Schema references can have validating siblings in 3.1. Keep those as a
+    schema value; the document dialect determines their interpretation. *)
+let schema_or_ref_jsont =
+  Jsont.map schema_jsont ~kind:"Schema or reference"
+    ~dec:(fun schema -> match schema.reference with
+      | Some r when schema = { empty_schema with reference = Some r } -> Ref r
+      | _ -> Value schema)
+    ~enc:(function Ref r -> { empty_schema with reference = Some r } | Value s -> s)
+
+let schema_types s = match s.type_union with
+  | Some types -> types | None -> Option.to_list s.type_
+
+let schema_nullable s = s.nullable || List.mem "null" (schema_types s)
+
+
 
 (** {1 Parameter} *)
 
@@ -564,24 +657,20 @@ type responses = {
 
 let responses_jsont : responses Jsont.t =
   (* Responses is an object where keys are status codes or "default" *)
-  Jsont.map (Jsont.Object.as_string_map response_or_ref_jsont) ~kind:"Responses"
-    ~dec:(fun m ->
-      let default = Jsont.String_map.find_opt "default" m in
-      let responses =
-        Jsont.String_map.fold (fun k v acc -> (k, v) :: acc) m []
-        |> List.rev
-        |> List.filter (fun (k, _) -> k <> "default")
-      in
-      { default; responses })
+  Jsont.map (string_map_jsont Jsont.json) ~kind:"Responses"
+    ~dec:(fun entries ->
+      let entries = List.filter_map (fun (key, raw) ->
+        if String.starts_with ~prefix:"x-" key then None else
+        match Jsont.Json.decode response_or_ref_jsont raw with
+        | Ok response -> Some (key,response)
+        | Error error -> Jsont.Error.msg (Jsont.Json.meta raw) error) entries in
+      { default = List.assoc_opt "default" entries;
+        responses = List.filter (fun (key, _) -> key <> "default") entries })
     ~enc:(fun r ->
-      let m =
-        List.fold_left
-          (fun m (k, v) -> Jsont.String_map.add k v m)
-          (Jsont.String_map.create ()) r.responses
-      in
-      match r.default with
-      | Some d -> Jsont.String_map.add "default" d m
-      | None -> m)
+      let entries = r.responses @ Option.fold ~none:[] ~some:(fun d -> ["default", d]) r.default in
+      List.map (fun (key,response) ->
+        match Jsont.Json.encode response_or_ref_jsont response with
+        | Ok json -> key,json | Error error -> Jsont.Error.msg Jsont.Meta.none error) entries)
 
 (** {1 Security Requirement} *)
 

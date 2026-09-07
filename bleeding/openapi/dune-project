@@ -21,6 +21,14 @@ Uses the fetch HTTP library and jsont for JSON codecs.")
   fmt
   logs
   ptime
+  re
+  zarith
+  yamlt
+  fetch
+  eio
+  uri
+  http
+  (fetch-curl :with-test)
   (cmdliner (>= 1.2.0))
   (odoc :with-doc)
   (alcotest :with-test)))

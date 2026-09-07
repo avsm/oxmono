@@ -7,10 +7,8 @@ let setup_logging style_renderer level =
 
 let read_file path =
   let ic = open_in path in
-  let n = in_channel_length ic in
-  let s = really_input_string ic n in
-  close_in ic;
-  s
+  Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
+    really_input_string ic (in_channel_length ic))
 
 (** Check if a file appears to be YAML based on extension or content *)
 let is_yaml_file path content =
@@ -23,6 +21,7 @@ let is_yaml_file path content =
 (** Parse spec file and run action, handling errors uniformly.
     Automatically handles both JSON and YAML formats using jsont codecs. *)
 let with_spec spec_path f =
+  try
   let spec_content = read_file spec_path in
   let result =
     if is_yaml_file spec_path spec_content then begin
@@ -36,6 +35,11 @@ let with_spec spec_path f =
       Logs.err (fun m -> m "Failed to parse OpenAPI spec: %s" e);
       1
   | Ok spec -> f spec
+  with
+  | Invalid_argument message | Sys_error message ->
+      Logs.err (fun m -> m "%s" message); 1
+  | Unix.Unix_error (error, operation, path) ->
+      Logs.err (fun m -> m "%s %s: %s" operation path (Unix.error_message error)); 1
 
 let generate_cmd spec_path output_dir package_name include_regen_rule
     code_only =
@@ -146,9 +150,9 @@ let generate_info =
     `I ("$(b,ptime)", "for date-time handling");
     `S Manpage.s_examples;
     `P "Generate client from local spec:";
-    `Pre "  openapi generate spec.json -o ./client -n my_api";
+    `Pre "  openapi-gen generate spec.json -o ./client -n my_api";
     `P "Generate with regeneration rule for dune:";
-    `Pre "  openapi generate spec.json -o ./client -n my_api --regen";
+    `Pre "  openapi-gen generate spec.json -o ./client -n my_api --regen";
   ] in
   Cmd.info "generate" ~doc ~man
 
@@ -166,7 +170,7 @@ let main_info =
     `P "Generate OCaml API clients from OpenAPI 3.x specifications.";
     `P "Use $(b,generate) to create client code, or $(b,inspect) to view spec details.";
   ] in
-  Cmd.info "openapi" ~version:"0.1.0" ~doc ~man
+  Cmd.info "openapi-gen" ~version:"0.1.0" ~doc ~man
 
 let main_cmd =
   Cmd.group main_info [

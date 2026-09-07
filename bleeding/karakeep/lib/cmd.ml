@@ -195,7 +195,7 @@ let title_from_content_json (content : Jsont.json) =
   | _ -> "(no title)"
 
 let bookmark_title (b : Karakeep.Bookmark.T.t) =
-  match Karakeep.Bookmark.T.title b with
+  match Option.join (Karakeep.Bookmark.T.title b) with
   | Some t -> t
   | None -> title_from_content_json (Karakeep.Bookmark.T.content b)
 

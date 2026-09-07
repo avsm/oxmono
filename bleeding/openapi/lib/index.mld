@@ -1,254 +1,137 @@
 {0 OCaml OpenAPI}
 
-{1 Overview}
+[openapi-gen] generates OCaml clients from a supported subset of OpenAPI 3.x.
+Generated clients use Fetch for HTTP, Jsont for JSON, and Ptime for timestamps.
+The generator includes JSON/YAML spec parsing, schema codecs, operation functions,
+and optional Dune regeneration rules.
 
-[openapi] generates type-safe OCaml API clients from OpenAPI 3.x
-specifications. The generated code uses:
-
-- {b jsont} for JSON encoding/decoding
-- {b requests} for HTTP client (Eio-based)
-- {b ptime} for date-time handling
-
-{1 Installation}
+{1 Generate a client}
 
 {[
-opam install openapi
-]}
-
-{1 Generating a Client}
-
-Use the [openapi-gen] CLI tool to generate OCaml code from an OpenAPI spec:
-
-{[
-# Basic generation
-openapi-gen generate spec.json -o ./my_api -n my_api
-
-# With dune regeneration rules
 openapi-gen generate spec.json -o ./my_api -n my_api --regen
 ]}
 
-{2 CLI Options}
+The output contains [my_api.ml], [my_api.mli], [dune], and [dune.inc].
+[--code-only] writes only the OCaml files. Regenerate with:
+
+{[
+opam exec --switch=5.2.0+ox -- dune build --profile release @gen
+]}
+
+Schemas are grouped into prefix modules. For example, [User] becomes
+[My_api.User.T], and [UserResponseDto] becomes [My_api.User.ResponseDto].
+Each schema exposes [t] and [jsont]; record schemas also expose [v] and accessors.
+Operations with a component response normally live in that component's prefix
+module. Other operations live in [My_api.Client]. The generated interface is the
+source of truth for names and types.
+
+{1 Configure Fetch}
+
+The convenience constructor creates a curl stack:
+
+{[
+let client = My_api.create ~sw env ~base_url:"https://api.example.com/v1"
+]}
+
+Use [of_fetch] with an existing stack, including another backend or a mock:
+
+{[
+let base_url = "https://api.example.com/v1" in
+let http =
+  Fetch_curl.std ~sw env
+  |> Fetch.with_credentials ~scope:[base_url]
+       Fetch.Credential.[Bearer (fun () -> token)]
+in
+let client = My_api.of_fetch ~base_url ~max_response_bytes:(8 * 1024 * 1024) http
+]}
+
+Authentication, retries and rate/concurrency limits belong in the supplied
+Fetch stack. Use [Fetch.with_credentials], [Fetch.with_retry] and
+[Fetch.with_limits] as needed. The generator does not infer credentials from
+[securitySchemes]. [create ?session] also accepts a supplied Fetch client.
+[base_url] must be an absolute HTTP(S) URL without userinfo, query or fragment.
+
+{1 Operation bodies and responses}
+
+Path/query/header parameters currently take strings. Path values and query
+names/values are percent-encoded; missing path parameters and dot segments fail.
+Operation-level parameters override matching path-level definitions.
+
+The selected request media type determines [body]:
 
 {ul
-{- [-o], [--output] — Output directory for generated code (required)}
-{- [-n], [--name] — Package name for generated library (defaults to API title)}
-{- [--regen] — Include dune.inc rules for [dune build @gen --auto-promote]}}
+{- JSON: a schema value encoded by [Fetch.encode (Fetch.Json.v codec)].}
+{- URL-encoded form: a [(string * string) list] passed to [Fetch.Form.urlencoded].}
+{- Multipart form: a [Fetch.Form.part list] passed to [Fetch.Form.multipart].
+   Parts can include [Fetch.Form.stream] for file uploads.}
+{- Other media: a [Fetch.body], with the selected Content-Type.}}
 
-{1 Generated Code Structure}
+Optional request bodies use [?body]; required ones use [~body]. Declared bodies
+are emitted for DELETE as well as POST/PUT/PATCH. Mutating methods and requests
+with bodies do not follow redirects. Bodyless GET/HEAD retain Fetch's policy.
 
-The generator produces a complete dune library:
+JSON responses use [Fetch.decode] with a declared Content-Type and bounded
+nesting. The default response limit is 16 MiB, configurable per client.
+Arrays retain their element/list types. Empty responses return [unit]; operations
+with both value and empty responses return an option. Non-JSON responses return
+bounded strings. All responses are closed before the operation returns or raises.
+Streaming response callbacks are not generated yet.
 
-{[
-my_api/
-├── dune           # Library configuration (wrapped)
-├── dune.inc       # Regeneration rules (if --regen used)
-├── types.ml       # Type definitions with jsont codecs
-├── types.mli      # Type interfaces
-├── client.ml      # API client functions
-├── client.mli     # Client interface
-├── my_api.ml      # Main wrapped module
-└── my_api.mli     # Main module interface
-]}
+{1 Errors and validation}
 
-{1 Using Generated Code}
-
-{2 Accessing Types}
-
-All schema types are generated as modules within [Types]:
-
-{[
-(* Access a type *)
-let user : My_api.Types.User.t = {
-  id = 123;
-  name = "Alice";
-  email = Some "alice@example.com";
-}
-
-(* Encode to JSON *)
-let json = Jsont.encode My_api.Types.User.t_jsont user
-
-(* Decode from JSON *)
-let user' = Jsont.decode My_api.Types.User.t_jsont json
-]}
-
-{2 Making API Requests}
-
-Create a client and call API operations:
+Non-2xx responses raise {!Openapi.Runtime.Api_error}. Error definitions are
+selected by exact status, status range, then default. The error contains a raw
+body and an optional typed/JSON/raw interpretation. Diagnostics are bounded to
+64 KiB; larger bodies use a marker while preserving status. Error URLs omit query
+values. Fetch decoding/transport errors remain [Eio.Io] exceptions with operation
+context; cancellation and caller exceptions propagate.
 
 {[
-let () =
-  Eio_main.run @@ fun env ->
-  Eio.Switch.run @@ fun sw ->
-
-  (* Create the client *)
-  let client = My_api.Client.create ~sw env
-    ~base_url:"https://api.example.com" in
-
-  (* Make a request - returns typed value *)
-  let user = My_api.Client.get_user ~id:"123" client () in
-  Printf.printf "User: %s\n" user.name
-
-  (* List endpoints return typed lists *)
-  let users = My_api.Client.list_users client () in
-  List.iter (fun u -> Printf.printf "- %s\n" u.name) users
+match My_api.User.get_user ~id:"123" client () with
+| user -> use_user user
+| exception Openapi.Runtime.Api_error error ->
+    Format.eprintf "Request failed: HTTP %d@." error.status
 ]}
 
-{2 Request Bodies}
+Schema guards run on encoding and decoding, including inline JSON bodies and
+status-specific responses. They validate enums/const, bounds, decimal multiples,
+string/array/object constraints and composition through an immutable reference
+graph. Recursive values retain validation even when represented by [Jsont.json].
+Primitive and array components expose scalar/list types and codecs.
 
-For POST/PUT/PATCH requests, pass the typed value directly:
+Required nullable fields require presence, with [None] encoded as JSON null.
+Optional nullable fields distinguish [None] (absent), [Some None] (null) and
+[Some (Some value)] (a value). Their constructor argument is [?field:'a option];
+[~field:None] explicitly emits null. Nullable defaults do not erase absence.
 
-{[
-(* Create typed request body *)
-let new_user : My_api.Types.CreateUserDto.t = {
-  name = "Bob";
-  email = "bob@example.com";
-} in
+The schema model preserves OpenAPI 3.1 type arrays/boolean schemas and OpenAPI
+3.0 boolean exclusive bounds. Guards apply dialect-specific nullability and
+reference sibling rules. Numeric codecs reject fractional integers and non-finite
+numbers; values that Jsont would encode as large-integer strings are rejected.
+Invalid schemas and generated-name collisions fail before output is written.
 
-(* Pass as the body parameter - encoding is automatic *)
-let created = My_api.Client.create_user ~body:new_user client ()
-]}
+{1 Current limits}
 
-{1 Keeping Generated Code Updated}
+These codecs implement a subset of OpenAPI and JSON Schema. Request/response
+readOnly/writeOnly directions, general format assertions, custom dialects and
+vocabularies need further work. Known unsupported validating keywords fail
+explicitly. Recursive and nullable object representations can be opaque JSON;
+record codecs do not preserve unmodeled additional members.
 
-If you used [--regen], the generated [dune.inc] includes rules to regenerate
-the client when the spec changes:
+Parameter serialization styles, cookie parameters, automatic multipart encoding
+metadata, server/security overrides, full-width JSON integers, streaming response
+APIs, and response header/status variants need further work. Multiple JSON success
+shapes return status-validated generic JSON; mixed JSON/non-JSON shapes return
+bytes. Output replacement is atomic for each file, not the entire directory.
 
-{[
-# Regenerate and promote changes
-dune build @gen --auto-promote
-]}
+The repository's [REVIEW.md] records the findings, applied fixes and regression
+coverage. [OPENAPI_ROADMAP.md] describes the next implementation steps.
 
-This is useful for CI pipelines to ensure generated code stays in sync with
-the OpenAPI specification.
-
-{1 Library Modules}
-
-{2 Core Modules}
+{1 Library modules}
 
 {ul
-{- {!module:Openapi.Spec} — OpenAPI 3.x specification types with jsont codecs}
-{- {!module:Openapi.Codegen} — Code generation from spec to OCaml}
-{- {!module:Openapi.Runtime} — Runtime utilities for generated clients}}
-
-{2 Runtime Utilities}
-
-The {!module:Openapi.Runtime} module provides helpers used by generated code:
-
-{[
-(* Path template rendering *)
-Openapi.Runtime.Path.render
-  ~params:[("userId", "123"); ("postId", "456")]
-  "/users/{userId}/posts/{postId}"
-(* => "/users/123/posts/456" *)
-
-(* Query string encoding *)
-Openapi.Runtime.Query.encode [("page", "1"); ("limit", "10")]
-(* => "?page=1&limit=10" *)
-]}
-
-{1 Example: Immich API}
-
-Here's a complete example generating a client for the Immich photo server:
-
-{[
-# Generate the client
-openapi-gen generate immich-openapi-specs.json -o ./immich -n immich
-
-# In your code:
-let () =
-  Eio_main.run @@ fun env ->
-  Eio.Switch.run @@ fun sw ->
-  let client = Immich.Client.create ~sw env
-    ~base_url:"http://localhost:2283/api" in
-
-  (* List albums *)
-  let albums_json = Immich.Client.get_all_albums client () in
-
-  (* Get server info *)
-  let info = Immich.Client.get_server_info client () in
-  ...
-]}
-
-{1 Limitations}
-
-{2 Schema Generation}
-
-{ul
-{- {b oneOf/anyOf} — Union types are mapped to [Jsont.json]. Proper
-   implementation would generate OCaml variant types with discriminator-based
-   decoding. See {{:#union-types}Union Types} below for details.}
-{- {b allOf} — Composition schemas are mapped to [Jsont.json]. Proper
-   implementation would merge all referenced schemas into a single record type.}
-{- {b additionalProperties} — Dynamic object properties are parsed but not
-   used in code generation. Objects with [additionalProperties: true] become
-   [Jsont.json].}
-{- {b Recursive schemas} — Schemas that reference themselves are not fully
-   supported and may cause infinite loops during generation.}
-{- {b Nested $ref} — References to references are not resolved; only direct
-   schema references work.}}
-
-{2 Client Generation}
-
-{ul
-{- {b Error responses} — Error schemas (4xx, 5xx) are not generated. Errors
-   are raised as exceptions with the HTTP status code and body text.}
-{- {b Authentication} — Security schemes (apiKey, http, oauth2) are parsed
-   but not applied to requests. Add headers manually via the requests session.}
-{- {b Header parameters} — Header parameters are parsed but not included in
-   generated function signatures.}
-{- {b Cookie parameters} — Cookie parameters are parsed but not included in
-   generated functions.}
-{- {b Parameter references} — [$ref] in parameters are skipped; only inline
-   parameters are used.}}
-
-{2 Content Types}
-
-{ul
-{- {b File uploads} — [multipart/form-data] is not supported. Binary file
-   uploads require special handling not yet implemented.}
-{- {b XML} — Only [application/json] content types are supported.}
-{- {b Form encoding} — [application/x-www-form-urlencoded] is not supported.}}
-
-{2 Advanced Features}
-
-{ul
-{- {b Callbacks} — Webhook callbacks are parsed but no server code is
-   generated.}
-{- {b Links} — Response links are parsed but not used in code generation.}
-{- {b External references} — Only internal [$ref] pointers starting with
-   [#/] are supported. External file references are not resolved.}}
-
-{1:union-types Implementing Union Types}
-
-To properly support [oneOf]/[anyOf], the generator would need to:
-
-{ol
-{- Analyze schemas in the union to determine variant names}
-{- Use the [discriminator] property if present to determine the tag field}
-{- Generate an OCaml variant type with one constructor per schema}
-{- Generate a decoder that:
-   {ul
-   {- Reads the discriminator field if present}
-   {- Pattern matches to select the appropriate decoder}
-   {- Falls back to trying each decoder in order for anyOf}}}
-{- Generate an encoder that pattern matches on the variant}}
-
-Example of what generated code might look like:
-
-{[
-(* For oneOf with discriminator *)
-type pet =
-  | Dog of Dog.t
-  | Cat of Cat.t
-
-let pet_jsont : pet Jsont.t =
-  (* Read discriminator field "petType" to determine variant *)
-  ...
-]}
-
-{1 See Also}
-
-{ul
-{- {{:https://spec.openapis.org/oas/v3.0.3} OpenAPI 3.0 Specification}}
-{- {{:https://erratique.ch/software/jsont} jsont documentation}}
-{- {{:https://github.com/tarides/requests} requests library}}}
+{- {!module:Openapi.Spec}: specification types and codecs.}
+{- {!module:Openapi.Codegen}: analysis and source generation.}
+{- {!module:Openapi.Runtime}: URI, JSON, validation and shared Fetch helpers.}
+{- {!module:Openapi.Schema}: dialect-aware schema guards and reference validation.}
+{- {!module:Openapi.Nestjs}: NestJS error decoding and helpers.}}

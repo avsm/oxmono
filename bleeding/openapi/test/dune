@@ -1,3 +1,29 @@
 (test
  (name test_openapi)
+ (modules test_openapi)
  (libraries openapi alcotest))
+
+(test
+ (name test_runtime)
+ (modules test_runtime)
+ (libraries openapi alcotest jsont.bytesrw))
+
+(rule
+ (targets regression_api.ml regression_api.mli)
+ (deps regression.json)
+ (action (run %{bin:openapi-gen} generate --code-only -o . -n regression_api %{deps})))
+
+(test
+ (name test_generated)
+ (modules test_generated regression_api)
+ (libraries openapi alcotest fetch fetch.mock fetch-curl eio.mock http uri jsont jsont.bytesrw))
+
+(rule
+ (targets schema_api.ml schema_api.mli)
+ (deps schema_regression.json)
+ (action (run %{bin:openapi-gen} generate --code-only -o . -n schema_api %{deps})))
+
+(test
+ (name test_schema)
+ (modules test_schema schema_api)
+ (libraries openapi alcotest fetch fetch.mock fetch-curl eio.mock http uri jsont jsont.bytesrw unix))

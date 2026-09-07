@@ -91,7 +91,7 @@ let jsont : t Jsont.t =
 (** Parse a JSON string into a NestJS error.
     Returns [None] if the string is not valid NestJS error JSON. *)
 let of_string (s : string) : t option =
-  match Jsont_bytesrw.decode_string jsont s with
+  match Fetch.Media.decode (Fetch.Json.v jsont) s with
   | Ok e -> Some e
   | Error _ -> None
 
@@ -141,7 +141,7 @@ exception Error of t
 
 (** Register a pretty printer for the exception. *)
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Error e -> Some (Format.asprintf "Nestjs.Error: %a" pp e)
     | _ -> None)
 

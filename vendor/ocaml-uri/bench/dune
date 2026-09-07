@@ -9,9 +9,3 @@
  (modules raw_bench)
  (libraries uriz unix)
  (ocamlopt_flags (:standard -O3)))
-
-(executable
- (name compare)
- (modules compare)
- (libraries uri uriz core_bench core_unix.command_unix)
- (ocamlopt_flags (:standard -O3)))

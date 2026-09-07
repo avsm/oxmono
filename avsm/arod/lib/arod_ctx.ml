@@ -36,19 +36,37 @@ let find_contact_by_handle entries handle =
     (Bushel.Entry.contacts entries)
 
 let normalise_url url =
-  let uri = Uri.of_string url in
-  match Uri.host uri with
-  | Some host ->
+  match Uriz.of_string url with
+  | Null -> url
+  | This uri -> match Uriz.host uri with
+  | This host ->
     let host' =
       if String.starts_with ~prefix:"www." host
       then String.sub host 4 (String.length host - 4) else host
     in
-    let u = Uri.with_host uri (Some host') in
-    let path = Uri.path u in
+    let u = Uriz.with_host uri (This host') in
+    (* Persisted feed keys used decoded reserved characters. Retain that
+       equivalence here while using Uriz's encoded representation elsewhere. *)
+    let path = Uriz.path u |> String.split_on_char '/' |> List.map (fun segment ->
+      let decoded = match Uriz.pct_decode segment with
+        | This decoded -> decoded | Null -> assert false in
+      Uriz.pct_encode ~component:`Segment decoded) |> String.concat "/" in
     let path = if String.length path > 1 && String.ends_with ~suffix:"/" path
       then String.sub path 0 (String.length path - 1) else path in
-    Uri.to_string (Uri.with_path u path)
-  | None -> url
+    let u = Uriz.with_path u path in
+    let query = match Uriz.query u with
+      | Null -> Null
+      | This _ ->
+        let encode = Uriz.pct_encode ~component:`Query_value in
+        This (String.concat "&" (List.map (fun (key, value) ->
+          encode key ^ match value with None -> "" | Some value -> "=" ^ encode value)
+          (Uriz.query_params ~plus_as_space:true u))) in
+    let u = Uriz.with_query u query in
+    let fragment = match Uriz.fragment_decoded u with
+      | Null -> Null
+      | This fragment -> This (Uriz.pct_encode ~component:`Fragment fragment) in
+    Uriz.to_string (Uriz.with_fragment u fragment)
+  | Null -> url
 
 type annotation_index = (string, string list) Hashtbl.t
 

@@ -3,11 +3,13 @@
  (package fetch-signature)
  (modules test_signature)
  (libraries
+  base64
+  digestif
   ptime
   fetch
   fetch-signature
   http
-  uri
+  uriz
   alcotest
   eio
   eio_main
@@ -22,7 +24,7 @@
   ptime
   fetch-signature
   http
-  uri
+  uriz
   alcotest
   base64
   digestif

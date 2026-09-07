@@ -223,7 +223,9 @@ type component =
   | `Path  (** path, keeping ['/'] separators *)
   | `Segment  (** one path segment, so ['/'] is encoded *)
   | `Query  (** query, keeping ['&'], ['='] and ['+'] *)
-  | `Query_value  (** one key or value, so ['&'], ['='], ['+'] are encoded *)
+  | `Query_value
+    (** one key or value: ['&'], ['='], ['+'], [';'] and [','] are encoded,
+        including separators used by form and multi-value query parsers *)
   | `Fragment
   | `Unreserved
     (** only the unreserved set of RFC 3986 section 2.3, so a sub-delimiter
@@ -262,6 +264,17 @@ val%template normalize : t -> t @ m @@ portable
     scheme or an authority, since they carry meaning in a bare relative
     reference.  [normalize__local] is checked [@zero_alloc].  The argument is
     global because a URI with no dot segments is returned unchanged. *)
+
+val canonicalize : t -> t @@ portable
+(** [canonicalize u] applies {!normalize} and HTTP(S) scheme-based
+    normalization: for a URI with an authority, remove an empty or default
+    port (80 for HTTP, 443 for HTTPS) and replace an empty path with ["/"].
+    Other schemes receive only {!normalize}'s dot-segment processing.
+
+    This provides the HTTP rules of [Uri.canonicalize] without decoding
+    reserved escapes. Query, fragment and userinfo presence and encoding are
+    preserved. Parsing and equality remain syntax-based; call this function
+    explicitly when HTTP scheme equivalence is wanted. *)
 
 val globalize : t @ local -> t @@ portable
 (** [globalize u] is [u] with its text copied to the heap.  Use it to keep a
@@ -314,6 +327,17 @@ val remove_query_param : ?plus_as_space:bool -> t -> string @ local -> t @@ port
 
 val add_query_param : t @ local -> key:string -> value:string -> t @@ portable
 (** [add_query_param t ~key ~value] appends a percent-encoded query binding. *)
+
+val with_query_params : t @ local -> (string * string) list -> t @@ portable
+(** [with_query_params t bindings] replaces the entire query with decoded
+    key/value pairs, encoding each key and value separately. Repeated keys,
+    empty keys, empty values and binding order are preserved. An empty list
+    removes the query, including an explicitly empty query. Other components
+    retain their encoded spelling. The URI is rebuilt once.
+
+    This is the replacement for [Uri.with_query']. Use {!with_query} for an
+    already encoded query or bindings without ['='], and {!set_query_params}
+    to replace selected keys while retaining other bindings. *)
 
 val set_query_params :
   ?plus_as_space:bool -> t -> (string * string) list -> t @@ portable

@@ -741,7 +741,8 @@ let note_references entries (default_author:Sortal_schema.Contact.t) note =
   List.iter (fun group ->
     try
       let encoded_doi = Re.Group.get group 1 in
-      let doi = Uri.pct_decode encoded_doi in
+      let doi = match Uriz.pct_decode encoded_doi with
+        | This doi -> doi | Null -> invalid_arg "Invalid DOI percent escape" in
       if not (List.exists (fun (d, _, _) -> d = doi) !refs) then
         match Bushel_doi_entry.find_by_doi doi_entries doi with
         | Some doi_entry when doi_entry.status = Resolved ->

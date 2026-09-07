@@ -429,7 +429,7 @@ end
 
 type request_ctx = {
   method_ : Http.Method.t;
-  uri : Uri.t;
+  uri : Uriz.t;
   headers : Http.Header.t;
 }
 
@@ -568,38 +568,39 @@ let resolve_component (ctx : Context.t) (component : Component.t) =
       | `Authority -> (
           match target_ctx with
           | `Request r ->
-              let host = Uri.host r.uri |> Option.value ~default:"" in
-              let port = Uri.port r.uri in
+              let host = match Uriz.host r.uri with This host -> host | Null -> "" in
+              let host = match Uriz.host_kind r.uri with
+                | `Ipv6 | `Ipvfuture -> "[" ^ host ^ "]" | _ -> host in
+              let port = Uriz.port r.uri in
               let authority =
-                match port with
-                | Some p when p <> 80 && p <> 443 -> host ^ ":" ^ string_of_int p
-                | _ -> host
+                match Uriz.scheme r.uri, port with
+                | This "http", This 80 | This "https", This 443 | _, Null -> host
+                | _, This p -> host ^ ":" ^ string_of_int p
               in
               Ok (String.lowercase_ascii authority)
           | `Response _ -> Error "Cannot resolve @authority on response")
       | `Path -> (
           match target_ctx with
           | `Request r ->
-              let path = Uri.path r.uri in
+              let path = Uriz.path r.uri in
               Ok (if path = "" then "/" else path)
           | `Response _ -> Error "Cannot resolve @path on response")
       | `Query -> (
           match target_ctx with
           | `Request r ->
-              let query = Uri.query r.uri in
-              let encoded = Uri.encoded_of_query query in
+              let encoded = match Uriz.query r.uri with This query -> query | Null -> "" in
               Ok ("?" ^ encoded)
           | `Response _ -> Error "Cannot resolve @query on response")
       | `Query_param name -> (
           match target_ctx with
           | `Request r -> (
-              match Uri.get_query_param r.uri name with
-              | Some v -> Ok v
-              | None -> Error ("Missing query parameter: " ^ name))
+              match Uriz.find_query ~plus_as_space:true r.uri name with
+              | This v -> Ok v
+              | Null -> Error ("Missing query parameter: " ^ name))
           | `Response _ -> Error "Cannot resolve @query-param on response")
       | `Target_uri -> (
           match target_ctx with
-          | `Request r -> Ok (Uri.to_string r.uri)
+          | `Request r -> Ok (Uriz.to_string r.uri)
           | `Response _ -> Error "Cannot resolve @target-uri on response")
       | `Status -> (
           match ctx with
@@ -608,11 +609,11 @@ let resolve_component (ctx : Context.t) (component : Component.t) =
       | `Request_target -> (
           match target_ctx with
           | `Request r ->
-              let path = Uri.path r.uri in
+              let path = Uriz.path r.uri in
               let path = if path = "" then "/" else path in
-              let query = Uri.query r.uri in
-              if query = [] then Ok path
-              else Ok (path ^ "?" ^ Uri.encoded_of_query query)
+              (match Uriz.query r.uri with
+              | Null -> Ok path
+              | This query -> Ok (path ^ "?" ^ query))
           | `Response _ -> Error "Cannot resolve @request-target on response"))
   | `Field (name, params) -> (
       let has_req = List.mem `Req params in
@@ -1124,7 +1125,7 @@ module Middleware = struct
           Http.Header.add headers "date" (http_date (now_ptime clock))
         else headers
       in
-      let uri = Uri.of_string (Fetch.Middleware.Url.to_string req.url) in
+      let uri = Fetch.Middleware.Url.to_uri req.url in
       let context = Context.request ~method_:req.meth ~uri ~headers in
       let signed = match format with
       | `Rfc9421 ->

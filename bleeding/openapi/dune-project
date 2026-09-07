@@ -26,7 +26,7 @@ Uses the fetch HTTP library and jsont for JSON codecs.")
   yamlt
   fetch
   eio
-  uri
+  uriz
   http
   (fetch-curl :with-test)
   (cmdliner (>= 1.2.0))

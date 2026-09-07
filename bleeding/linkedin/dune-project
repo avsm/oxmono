@@ -20,7 +20,6 @@
   eio
   fmt
   logs
-  uri
   jsont
   bytesrw
   (odoc :with-doc)))

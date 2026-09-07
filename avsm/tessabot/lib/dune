@@ -17,5 +17,4 @@
   fmt
   logs
   ptime
-  ptime.clock.os
-  uri))
+  ptime.clock.os))

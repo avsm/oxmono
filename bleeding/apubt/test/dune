@@ -6,13 +6,13 @@
 (test
  (name test_client)
  (modules test_client)
- (libraries apubt fetch.mock eio.mock http uri jsont.bytesrw
+ (libraries apubt fetch.mock eio.mock http uriz jsont.bytesrw
   mirage-crypto-pk mirage-crypto-rng.unix))
 
 (test
  (name test_auth)
  (modules test_auth)
- (libraries apubt.auth fetch.mock eio.mock http uri))
+ (libraries apubt.auth fetch.mock eio.mock http uriz))
 
 (test
  (name test_review)

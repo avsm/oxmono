@@ -1,7 +1,7 @@
 (executable
  (name test)
  (modules test)
- (libraries syndic jsonm fpath fmt ocplib-json-typed unix))
+ (libraries syndic uriz jsonm fpath fmt ocplib-json-typed unix))
 
 (include dune.inc)
 

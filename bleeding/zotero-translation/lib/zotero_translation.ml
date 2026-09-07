@@ -182,8 +182,8 @@ let search_id t doi =
 let export t format json =
   let url =
     let base = export_endp t.base_url in
-    let uri = Uri.of_string base in
-    Uri.add_query_param' uri ("format", format_to_string format) |> Uri.to_string
+    let uri = Uriz.of_string_exn base in
+    Uriz.add_query_param uri ~key:"format" ~value:(format_to_string format) |> Uriz.to_string
   in
   Log.info (fun m -> m "Exporting to format: %s" (format_to_string format));
   let result = post_json_get_text t ~url ~json in

@@ -376,7 +376,7 @@ let tbl_query =
 
 let tbl_query_value =
   table_of_pred (fun c ->
-      (base_safe c && c <> '&' && c <> '=' && c <> '+')
+      (base_safe c && c <> '&' && c <> '=' && c <> '+' && c <> ';' && c <> ',')
       || c = ':' || c = '@' || c = '/' || c = '?')
 
 let table_of = function
@@ -1233,6 +1233,16 @@ let remove_query_param ?(plus_as_space = false) (t : t) (key : string @ local) =
     with_query t query
   end
 
+let canonicalize (t : t) =
+  let t = normalize t in
+  match scheme t with
+  | This ("http" | "https" as scheme) when has_authority t ->
+    let default_port = if scheme = "http" then 80 else 443 in
+    let t = if t.port_off >= 0 && (t.port_len = 0 || t.port_val = default_port)
+      then with_port t Null else t in
+    if t.path_len = 0 then with_path t "/" else t
+  | _ -> t
+
 let add_query_param (t : t @ local) ~key ~value =
   let key = pct_encode ~component:`Query_value key in
   let value = pct_encode ~component:`Query_value value in
@@ -1244,6 +1254,23 @@ let add_query_param (t : t @ local) ~key ~value =
   in
   with_query t (This query)
 
+let add_query_bindings out bindings =
+  List.iter
+    (fun (key, value) ->
+      if Buffer.length out > 0 then Buffer.add_char out '&';
+      Buffer.add_string out (pct_encode ~component:`Query_value key);
+      Buffer.add_char out '=';
+      Buffer.add_string out (pct_encode ~component:`Query_value value))
+    bindings
+
+let with_query_params (t : t @ local) bindings =
+  match bindings with
+  | [] -> with_query t Null
+  | _ ->
+    let out = Buffer.create 64 in
+    add_query_bindings out bindings;
+    with_query t (This (Buffer.contents out))
+
 let add_query_params (t : t) bindings =
   match bindings with
   | [] -> t
@@ -1252,13 +1279,7 @@ let add_query_params (t : t) bindings =
     (match query t with
      | Null | This "" -> ()
      | This query -> Buffer.add_string out query);
-    List.iter
-      (fun (key, value) ->
-        if Buffer.length out > 0 then Buffer.add_char out '&';
-        Buffer.add_string out (pct_encode ~component:`Query_value key);
-        Buffer.add_char out '=';
-        Buffer.add_string out (pct_encode ~component:`Query_value value))
-      bindings;
+    add_query_bindings out bindings;
     with_query t (This (Buffer.contents out))
 
 let set_query_params ?(plus_as_space = false) (t : t) params =

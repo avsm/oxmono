@@ -24,16 +24,24 @@ let run f () = Eio_mock.Backend.run_full (fun _ -> f ())
 
 let test_url_and_headers () =
   let c = client (fun req ->
-    let uri = Uri.of_string (Fetch.Middleware.Url.to_string req.Fetch.Middleware.url) in
-    Alcotest.(check string) "escaped path" "/api/widgets/a%2Fb%3Fc%23%7Bid%7D" (Uri.path uri);
-    Alcotest.(check (option string)) "one overriding query" (Some "a+b&c") (Uri.get_query_param uri "q");
-    check "no duplicate query" (List.length (List.filter (fun (n, _) -> n = "q") (Uri.query uri)) = 1);
+    let uri = Fetch.Middleware.Url.to_uri req.Fetch.Middleware.url in
+    Alcotest.(check string) "escaped path" "/api/widgets/a%2Fb%3Fc%23%7Bid%7D" (Uriz.path uri);
+    check "one overriding query" (Uriz.find_query ~plus_as_space:true uri "q" = This "a+b&c");
+    check "no duplicate query" (List.length (List.filter (fun (n, _) -> n = "q") (Uriz.query_params uri)) = 1);
     Alcotest.(check (option string)) "header parameter" (Some "trace") (Http.Header.get req.headers "x-trace");
     Alcotest.(check (option string)) "Accept" (Some "application/json") (Http.Header.get req.headers "accept");
     json widget req) in
   let value = Api.Widget.get_widget ~id:"a/b?c#{id}" ~q:"a+b&c" ~client_:"extra" ~x_trace:"trace" c () in
   Alcotest.(check int64) "typed object" 1L (Api.Widget.T.id value);
   Alcotest.(check string) "normalized base" "https://example.com/api" (Api.base_url c)
+
+let test_base_url_validation () =
+  let fetch = Fetch_mock.client (json widget) in
+  List.iter (fun base_url -> expect_invalid (fun () -> Api.of_fetch ~base_url fetch))
+    ["https://example.com?"; "https://example.com#"; "https://user@example.com/";
+     "https://example.com/%zz"; "/relative"];
+  let c = Api.of_fetch ~base_url:"HTTPS://EXAMPLE.COM:443/a/../api/" fetch in
+  Alcotest.(check string) "HTTP normalization retained" "https://example.com/api" (Api.base_url c)
 
 let test_response_shapes () =
   let values = Api.Widget.list_widgets (client (json ~status:202 ("[" ^ widget ^ "]"))) () in
@@ -183,6 +191,7 @@ let test_failures () =
 
 let () = Alcotest.run "generated OpenAPI client" ["Fetch", List.map (fun (n, f) -> n, `Quick, run f) [
   "URLs and headers", test_url_and_headers;
+  "base URL validation", test_base_url_validation;
   "response shapes", test_response_shapes;
   "JSON requests", test_json_requests;
   "forms", test_forms;

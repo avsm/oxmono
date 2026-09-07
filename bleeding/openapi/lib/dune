@@ -1,7 +1,7 @@
 (library
  (name openapi)
  (public_name openapi)
- (libraries jsont jsont.bytesrw fmt logs ptime re fetch eio uri http zarith))
+ (libraries jsont jsont.bytesrw fmt logs ptime re fetch eio uriz http zarith))
 
 (documentation
  (package openapi))

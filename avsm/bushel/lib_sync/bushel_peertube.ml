@@ -68,25 +68,25 @@ let decode_channel_response json_str =
 (** [uuid_of_url url] is the UUID in a [/w/UUID] or [/videos/watch/UUID]
     PeerTube URL. *)
 let uuid_of_url url =
-  let uri = Uri.of_string url in
-  let path = Uri.path uri in
-  let segments = String.split_on_char '/' path |> List.filter (fun s -> s <> "") in
-  match segments with
-  | ["w"; uuid] -> Some uuid
-  | ["videos"; "watch"; uuid] -> Some uuid
-  | _ -> None
+  match Uriz.of_string url with
+  | Null -> None
+  | This uri ->
+    let path = Uriz.path uri in
+    let segments = String.split_on_char '/' path |> List.filter (fun s -> s <> "") in
+    match segments with
+    | ["w"; uuid] -> Some uuid
+    | ["videos"; "watch"; uuid] -> Some uuid
+    | _ -> None
 
 (** [origin_of_url url] is the scheme and authority of [url], if present. *)
 let origin_of_url url =
-  let uri = Uri.of_string url in
-  match Uri.scheme uri, Uri.host uri with
-  | Some scheme, Some host ->
-    let port = match Uri.port uri with
-      | Some p -> Printf.sprintf ":%d" p
-      | None -> ""
-    in
-    Some (Printf.sprintf "%s://%s%s" scheme host port)
-  | _ -> None
+  match Uriz.of_string url with
+  | Null -> None
+  | This uri -> match Uriz.scheme uri, Uriz.host uri with
+    | This scheme, This host ->
+      let port = match Uriz.port uri with This port -> Some port | Null -> None in
+      Some (Uriz.to_string (Uriz.make ~scheme ~host ?port ()))
+    | _ -> None
 
 let normalize_endpoint endpoint =
   let endpoint = String.lowercase_ascii endpoint in

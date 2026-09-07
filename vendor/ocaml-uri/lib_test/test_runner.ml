@@ -1452,15 +1452,52 @@ let test_roundtrip =
           @ List.map fst normalizations
           @ [ resolution_base; "http://a/%2F"; "//[2001:db8::1]:443/x" ])) ]
 
+let test_http_canonicalize =
+  [case "HTTP scheme canonicalization" (fun () ->
+    List.iter (fun (input, expected) ->
+      let canonical = Uriz.canonicalize (parse input) in
+      assert_equal ~msg:input ~printer:str expected (Uriz.to_string canonical);
+      assert_bool "canonicalize shares on its fixed point"
+        (canonical == Uriz.canonicalize canonical)) [
+      "HTTP://Example.COM:80", "http://example.com/";
+      "https://example.com:443", "https://example.com/";
+      "http://example.com:", "http://example.com/";
+      "https://example.com:80", "https://example.com:80/";
+      "http://example.com:443", "http://example.com:443/";
+      "https://example.com/a/../b/./", "https://example.com/b/";
+      "https://example.com:443?x=%2B#", "https://example.com/?x=%2B#";
+      "https://user%3Apass@example.com:443/a%2Fb?", "https://user%3Apass@example.com/a%2Fb?";
+      "//example.com:80", "//example.com:80";
+      "../a", "../a";
+      "urn:example:80", "urn:example:80";
+    ])]
+
 let suite =
   "uri"
-  >::: test_accept @ test_reject @ test_decompose @ test_empty_vs_absent
+  >::: [case "replace complete query with decoded bindings" (fun () ->
+    let uri = parse "https://example.com/a%2Fb?old=value&flag#part%2B" in
+    let bytes = String.init 256 Char.chr in
+    let bindings = ["q", "a+b&c=d#e"; "q", ""; "", "empty key"; "bytes", bytes] in
+    let replaced = Uriz.with_query_params uri bindings in
+    assert_equal (List.map (fun (key, value) -> key, Some value) bindings)
+      (Uriz.query_params ~plus_as_space:true replaced);
+    assert_equal ~printer:str "/a%2Fb" (Uriz.path replaced);
+    assert_equal ~printer:str "http://h/?q=a%2Cb%3Bc"
+      (Uriz.to_string (Uriz.with_query_params (parse "http://h/") ["q", "a,b;c"]));
+    assert_bool "fragment spelling retained" (Uriz.fragment replaced = This "part%2B");
+    assert_equal ~printer:str "https://example.com/a%2Fb#part%2B"
+      (Uriz.to_string (Uriz.with_query_params replaced []));
+    assert_bool "empty query removed" (Uriz.query (Uriz.with_query_params (parse "http://h/?") []) = Null);
+    let local_ local_uri = Uriz.of_string_exn__local "http://h/?old" in
+    assert_equal ~printer:str "http://h/?q=x%2By"
+      (Uriz.to_string (Uriz.with_query_params local_uri ["q", "x+y"]))) ]
+       @ test_accept @ test_reject @ test_decompose @ test_empty_vs_absent
        @ test_normalize_syntax @ test_normalize_idempotent @ test_dot_segments
        @ test_ipv4 @ test_ipv6 @ test_host_kinds @ test_pct @ test_query
        @ test_resolution @ test_resolution_misc @ test_identity @ test_make
        @ test_with @ test_decoded @ test_allocation @ test_sharing
        @ test_or_null @ test_locality @ test_region @ test_parse_sub
        @ test_pct_decode_into @ test_plus_as_space @ test_char_classes
-       @ test_roundtrip
+       @ test_roundtrip @ test_http_canonicalize
 
 let () = run_test_tt_main suite

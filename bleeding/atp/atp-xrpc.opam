@@ -17,7 +17,7 @@ depends: [
   "jsont" {>= "0.1"}
   "jsonwt" {>= "0.1"}
   "ptime" {>= "1.0"}
-  "uri" {>= "4.0"}
+  "uriz"
   "eio" {>= "1.0"}
   "fmt"
   "odoc" {with-doc}

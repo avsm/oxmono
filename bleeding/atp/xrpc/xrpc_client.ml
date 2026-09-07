@@ -12,13 +12,12 @@ type t = {
 }
 
 let normalize_service service =
-  (match Fetch.Middleware.Url.of_string service with
+  let url = match Fetch.Middleware.Url.of_string service with
    | Error _ -> invalid_arg "XRPC service must be an absolute HTTP(S) URL"
-   | Ok _ -> ());
-  let uri = Uri.of_string service in
-  if Uri.userinfo uri <> None || Uri.verbatim_query uri <> None || Uri.fragment uri <> None then
+   | Ok url -> url in
+  if Uriz.has_query (Fetch.Middleware.Url.to_uri url) || Fetch.Middleware.Url.has_fragment url then
     invalid_arg "XRPC service cannot contain credentials, query, or fragment";
-  let service = Uri.to_string (Uri.canonicalize uri) in
+  let service = Fetch.Middleware.Url.to_string url in
   let rec trim n = if n > 0 && service.[n - 1] = '/' then trim (n - 1) else n in
   String.sub service 0 (trim (String.length service))
 
@@ -40,8 +39,8 @@ let get_service t = t.service
 
 let build_url t nsid params =
   if not (Atp.Nsid.is_valid nsid) then invalid_arg "Invalid XRPC NSID";
-  Uri.of_string (t.service ^ "/xrpc/" ^ nsid)
-  |> fun uri -> Uri.with_query' uri params |> Uri.to_string
+  Uriz.of_string_exn (t.service ^ "/xrpc/" ^ nsid)
+  |> fun uri -> Uriz.with_query_params uri params |> Uriz.to_string
 
 let json_accept = Fetch.Header.[ accept, [ pref "application/json" ] ]
 let any_accept = Fetch.Header.[ accept, [ pref "*/*" ] ]

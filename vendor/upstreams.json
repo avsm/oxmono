@@ -46,14 +46,6 @@
       "scope": "Core modules directly under src/ are at the vendor root. Upstream CLI, generators and tests are omitted; Arod exercises the port."
     },
     {
-      "name": "cohttp-eio",
-      "url": "https://github.com/mirage/ocaml-cohttp.git",
-      "branch": "HEAD",
-      "revision": "7b77cc7f18778967cbe3f64742290f268782fb7d",
-      "base_version": "v6.3.0",
-      "scope": "Only cohttp-eio/src/, mapped to src/, plus package metadata and license. Cohttp core and other backends remain external dependencies."
-    },
-    {
       "name": "cstruct",
       "url": "https://github.com/mirage/ocaml-cstruct.git",
       "branch": "HEAD",

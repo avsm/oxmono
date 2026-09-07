@@ -1,5 +1,0 @@
-(lang dune 3.8)
-
-(name cohttp-eio)
-
-(version v6.3.0)

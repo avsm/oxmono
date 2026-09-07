@@ -478,9 +478,9 @@ val recode : dec:'a t -> ('a -> 'b) -> enc:'b t -> 'b t
 
     {4 Example}
     {[
-      (* Store URI as string, decode to Uri.t *)
+      (* Store URI as string, decode to Uriz.t *)
       let uri_codec =
-        recode ~dec:string Uri.of_string ~enc:string_of_uri
+        recode ~dec:string Uriz.of_string_exn ~enc:string_of_uri
 
       (* Convert between string list and comma-separated string *)
       let tags_codec =

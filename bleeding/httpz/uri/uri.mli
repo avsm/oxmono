@@ -286,7 +286,7 @@ type component =
   | `Path  (** path, keeping ['/'] separators *)
   | `Path_segment  (** one path segment, so ['/'] is encoded *)
   | `Query  (** query, keeping ['&'], ['='] and ['+'] *)
-  | `Query_value  (** one key or value, so ['&'], ['='], ['+'] are encoded *)
+  | `Query_value  (** one key or value, escaping ['&'], ['='], ['+'], [';'], [','] *)
   | `Fragment
   | `Unreserved
     (** only the unreserved set of RFC 3986 section 2.3, so a sub-delimiter

@@ -19,7 +19,7 @@
   fetch
   fetch-curl
   (jsont (>= 0.1))
-  uri
+  uriz
   astring
   fpath
   fmt

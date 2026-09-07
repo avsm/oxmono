@@ -33,7 +33,6 @@ depends: [
   "fetch"
   "fetch-curl"
   "xmlm"
-  "uri"
   "uriz"
   "proffer"
   "proffer-httpz"

@@ -85,7 +85,7 @@ let test_signing () =
     let target = Fetch.Middleware.Url.to_string req.url in
     check "sign canonical Fetch URL" (target = "https://example.com/inbox?part=1");
     let verify target =
-      let context = S.Context.request ~method_:req.meth ~uri:(Uri.of_string target) ~headers:req.headers in
+      let context = S.Context.request ~method_:req.meth ~uri:(Uriz.of_string_exn target) ~headers:req.headers in
       S.verify ~clock:env#clock ~key ~context ~headers:req.headers
         ~required_components:S.Component.[method_; target_uri; content_digest] () in
     check "signature verifies" (Result.is_ok (verify target));
@@ -97,7 +97,7 @@ let test_signing () =
     (fun () -> Apubt.Http.post_typed client Jsont.int
       (uri "https://EXAMPLE.com:443/a/../inbox?part=1#fragment") 42);
   check "no second delivery" (!seen = 1);
-  let context = S.Context.request ~method_:`POST ~uri:(Uri.of_string "https://example.com/")
+  let context = S.Context.request ~method_:`POST ~uri:(Uriz.of_string_exn "https://example.com/")
       ~headers:(Http.Header.init ()) in
   let sign config = S.sign ~clock:env#clock ~config ~context ~headers:(Http.Header.init ()) in
   let defaults = match sign (S.config ~key ()) with Ok h -> h | Error _ -> failwith "default signing failed" in

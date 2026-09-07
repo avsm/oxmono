@@ -5,7 +5,7 @@
   fetch
   eio
   http
-  uri
+  uriz
   logs
   ptime
   base64

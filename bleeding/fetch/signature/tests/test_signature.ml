@@ -104,7 +104,7 @@ let test_hmac_sign_verify clock =
       ()
   in
   let headers = empty in
-  let uri = Uri.of_string "https://example.com/api/test" in
+  let uri = Uriz.of_string_exn "https://example.com/api/test" in
   let context = Signature.Context.request ~method_:`GET ~uri ~headers in
   match Signature.sign ~clock ~config ~context ~headers with
   | Error e ->
@@ -141,7 +141,7 @@ let test_ed25519_sign_verify clock =
       ()
   in
   let headers = empty |> set "content-type" "application/json" in
-  let uri = Uri.of_string "https://api.example.com/v1/resource?id=123" in
+  let uri = Uriz.of_string_exn "https://api.example.com/v1/resource?id=123" in
   let context = Signature.Context.request ~method_:`POST ~uri ~headers in
   match Signature.sign ~clock ~config ~context ~headers with
   | Error e ->
@@ -171,7 +171,7 @@ let test_signature_base_format clock =
       ()
   in
   let headers = empty in
-  let uri = Uri.of_string "https://example.com/path" in
+  let uri = Uriz.of_string_exn "https://example.com/path" in
   let context = Signature.Context.request ~method_:`GET ~uri ~headers in
   match Signature.sign ~clock ~config ~context ~headers with
   | Error e ->
@@ -187,6 +187,39 @@ let test_signature_base_format clock =
 
 (** {1 Content-Digest signing keeps the context in step} *)
 
+let test_uri_components clock =
+  let secret = "uri-component-regression" in
+  let key = Signature.Key.symmetric secret in
+  let cases = [
+    "https://[2001:db8::1]:8443/a", Signature.Component.authority, "[2001:db8::1]:8443";
+    "https://example.com:443/", Signature.Component.authority, "example.com";
+    "https://example.com:80/", Signature.Component.authority, "example.com:80";
+    "http://example.com:443/", Signature.Component.authority, "example.com:443";
+    "https://example.com/a%2Fb%3Fc", Signature.Component.path, "/a%2Fb%3Fc";
+    "https://example.com/?q=a+b&q=a%2Bb&url=https%3A%2F%2Fa.org", Signature.Component.query,
+      "?q=a+b&q=a%2Bb&url=https%3A%2F%2Fa.org";
+    "https://example.com/", Signature.Component.query, "?";
+    "https://example.com/?", Signature.Component.request_target, "/?";
+    "https://example.com/", Signature.Component.request_target, "/";
+    "https://example.com/a%2Fb?q=a%2Bb", Signature.Component.request_target, "/a%2Fb?q=a%2Bb";
+    "https://example.com/?q=a+b%2Bc", Signature.Component.query_param "q", "a b+c";
+  ] in
+  List.iter (fun (url, component, expected) ->
+    let uri = Uriz.of_string_exn url in
+    let context = Signature.Context.request ~method_:`GET ~uri ~headers:empty in
+    let config = Signature.config ~key ~components:[component] ~include_created:false () in
+    let headers = match Signature.sign ~clock ~config ~context ~headers:empty with
+      | Ok headers -> headers
+      | Error e -> Alcotest.fail (Signature.sign_error_to_string e) in
+    let input = Option.get (get "signature-input" headers) in
+    let params = String.sub input 5 (String.length input - 5) in
+    let base = Signature.Component.to_identifier component ^ ": " ^ expected
+      ^ "\n\"@signature-params\": " ^ params in
+    let digest = Digestif.SHA256.(to_raw_string (hmac_string ~key:secret base)) in
+    Alcotest.(check (option string)) url
+      (Some ("sig1=:" ^ Base64.encode_string digest ^ ":")) (get "signature" headers)
+  ) cases
+
 let test_sign_with_digest_covers_digest clock =
   let key = Signature.Key.symmetric "digest-secret" in
   let config =
@@ -197,7 +230,7 @@ let test_sign_with_digest_covers_digest clock =
       ()
   in
   let headers = empty |> set "content-type" "application/json" in
-  let uri = Uri.of_string "https://example.com/inbox" in
+  let uri = Uriz.of_string_exn "https://example.com/inbox" in
   let context = Signature.Context.request ~method_:`POST ~uri ~headers in
   let body = "{\"hello\": \"world\"}" in
   match
@@ -259,7 +292,7 @@ let test_middleware_signs_string_body () =
         (Option.is_some (get "content-digest" req.headers));
       let context =
         Signature.Context.request ~method_:req.meth
-          ~uri:(Uri.of_string (Fetch.Middleware.Url.to_string req.url))
+          ~uri:(Fetch.Middleware.Url.to_uri req.url)
           ~headers:req.headers
       in
       (match
@@ -313,6 +346,7 @@ let signing_tests =
     ("HMAC sign and verify", `Quick, with_clock test_hmac_sign_verify);
     ("Ed25519 sign and verify", `Quick, with_clock test_ed25519_sign_verify);
     ("Signature base format", `Quick, with_clock test_signature_base_format);
+    ("URI components match the request", `Quick, with_clock test_uri_components);
     ( "sign_with_digest covers content-digest",
       `Quick,
       with_clock test_sign_with_digest_covers_digest );

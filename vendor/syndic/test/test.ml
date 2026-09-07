@@ -8,7 +8,7 @@ type result =
 
 exception Is_not_a_file
 
-type src = [`Data of string | `Filename of (Fpath.t * Uri.t) ]
+type src = [`Data of string | `Filename of (Fpath.t * Uriz.t) ]
 type fmt = [`Atom | `Rss1 | `Rss2 | `Opml1]
 
 let get : src -> Xmlm.source = function
@@ -23,7 +23,7 @@ let parse ?xmlbase = function
   | `Opml1 -> fun src -> `Opml1 (Syndic.Opml1.parse ?xmlbase src)
 
 let string_of_src = function
-  | `Filename (_, uri) -> Fmt.str "'%s'" (Uri.to_string uri)
+  | `Filename (_, uri) -> Fmt.str "'%s'" (Uriz.to_string uri)
   | `Data data ->
       let buffer = Buffer.create 16 in
       Buffer.add_string buffer (String.sub data 0 16) ;
@@ -38,13 +38,13 @@ let string_of_fmt = function
 
 type entry =
   { name : string
-  ; uri : Uri.t
+  ; uri : Uriz.t
   ; kind : fmt }
 
 let json =
   let open Json_encoding in
   let name = req "name" string in
-  let uri = req "uri" (conv Uri.to_string Uri.of_string string) in
+  let uri = req "uri" (conv Uriz.to_string Uriz.of_string_exn string) in
   let kind =
     let rss1 = case string (function `Rss1 -> Some "rss1" | _ -> None) (function "rss1" -> `Rss1 | _ -> assert false) in
     let rss2 = case string (function `Rss2 -> Some "rss2" | _ -> None) (function "rss2" -> `Rss2 | _ -> assert false) in

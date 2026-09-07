@@ -12,6 +12,7 @@ default branches. This is now tracked separately from the standalone HTTP stack
 revision: [vendor/upstreams.json](vendor/upstreams.json) records each exact base
 and import scope, and [vendor/README.md](vendor/README.md) describes the tip
 checker, merge procedure and validation results.
+The later Uriz migration removed the unused `cohttp-eio` vendor; 36 remain.
 
 ## 2026-09-07 Eio refresh
 
@@ -174,7 +175,8 @@ rather than replacing destination directories.
   the standalone component names, templates and IP classifier. The shared
   `vendor/ocaml-uri` implementation receives the parser, query and local
   allocation improvements while retaining its span, canonical-parser and
-  `Raw` APIs. Fetch/signature retains its bridge to the existing `Uri.t` API.
+  `Raw` APIs. Fetch/signature now takes `Uriz.t` directly from the request URL;
+  its public context no longer depends on opam `Uri.t`.
 - Findlib dependencies are explicit in the HTTP projects, including the
   monorepo-only platform backends, benchmarks and examples.
   URI remains separate; the combined media library depends on wire.

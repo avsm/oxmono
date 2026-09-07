@@ -687,8 +687,8 @@ Use {!Tomlt.map} to transform between representations:
 (* Store URI as string in TOML *)
 let uri_codec =
   Tomlt.(map string
-    ~dec:Uri.of_string
-    ~enc:Uri.to_string)
+    ~dec:Uriz.of_string_exn
+    ~enc:Uriz.to_string)
 
 (* Parse comma-separated tags *)
 let tags_codec =

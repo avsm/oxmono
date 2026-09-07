@@ -40,7 +40,7 @@
       in
       let ctx =
         Fetch_signature.Context.request ~method_:`GET
-          ~uri:(Uri.of_string "https://example.com/")
+          ~uri:(Uriz.of_string_exn "https://example.com/")
           ~headers
       in
       let signed =
@@ -311,7 +311,7 @@ end
 
 type request_ctx = {
   method_ : Http.Method.t;
-  uri : Uri.t;
+  uri : Uriz.t;
   headers : Http.Header.t;
 }
 (** Request context for signature computation. Contains the HTTP method,
@@ -331,7 +331,7 @@ module Context : sig
   (** Message context (request or response). *)
 
   val request :
-    method_:Http.Method.t -> uri:Uri.t -> headers:Http.Header.t -> t
+    method_:Http.Method.t -> uri:Uriz.t -> headers:Http.Header.t -> t
   (** [request ~method_ ~uri ~headers] creates a request context. *)
 
   val response :

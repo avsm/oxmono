@@ -292,10 +292,10 @@ larger change than the one above and is deliberately not taken yet.
   `Format.formatter`s, which can never be portable, and 20+ in-tree callers
   install reporters. The env-closure pattern is the answer. The compiler
   error is reproducible in minutes if doubted.
-- **opam uri in `arod_ctx.ml`**: permanent. `normalise_url`'s
-  decode-then-re-encode semantics are load-bearing for persisted feed
-  annotation keys (`test_feed_annotations` pins it). Startup-only, never on
-  a render path.
+- **Saved URI spelling in `arod_ctx.ml`**: the opam dependency is removed.
+  `normalise_url` retains the legacy feed-key equivalence using Uriz, with
+  segment-aware path decoding and query/fragment decoding at the storage boundary.
+  `test_feed_annotations` pins old/new key lookup and encoded separators.
 - **Re**: never vendor for portability. Compiled `Re.re` values carry
   internally mutable DFA caches mutated on execution. The references
   precompute at `Arod.Ctx` build made it startup-only.
@@ -410,7 +410,7 @@ release sources, and both are fixed in `vendor/bytesrw` and pinned by
 - Behaviour oracles: `avsm/arod/test/test_md_golden.ml` (golden renders,
   never regenerate to make a test pass), `render_capture.sh` (full-site
   byte differential, 1588 routes, noise floor documented in its header),
-  `link_predicate_diff.ml` (URL predicate corpus differential),
+  the URL predicate corpus differential (retired; source in `50fca1889`),
   `test_json.ml` (the search and pagination JSON byte for byte, including
   the escaping rule, on the routes `render_capture.sh` does not reach),
   `test_bytesrw.ml` (the two vendored bytesrw fixes, against oracles outside

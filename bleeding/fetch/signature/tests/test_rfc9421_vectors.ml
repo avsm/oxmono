@@ -69,7 +69,7 @@ let test_shared_secret =
     Content-Length: 18
 
     {"hello": "world"} *)
-let test_request_uri = Uri.of_string "https://example.com/foo?param=Value&Pet=dog"
+let test_request_uri = Uriz.of_string_exn "https://example.com/foo?param=Value&Pet=dog"
 
 let test_request_headers =
   empty
@@ -265,7 +265,7 @@ let test_b4_transform_verify clock =
   let key =
     Signature.Key.ed25519 ~priv:test_key_ed25519_priv ~pub:test_key_ed25519_pub
   in
-  let uri = Uri.of_string "https://example.org/demo?name1=Value1&Name2=value2" in
+  let uri = Uriz.of_string_exn "https://example.org/demo?name1=Value1&Name2=value2" in
   let headers = b4_headers |> set "accept" "application/json, */*" in
   let context = Signature.Context.request ~method_:`GET ~uri ~headers in
   match Signature.verify ~clock ~key ~label:"transform" ~context ~headers () with
@@ -286,7 +286,7 @@ let test_b4_transform_verify_split_accept clock =
   let key =
     Signature.Key.ed25519 ~priv:test_key_ed25519_priv ~pub:test_key_ed25519_pub
   in
-  let uri = Uri.of_string "https://example.org/demo?name1=Value1&Name2=value2" in
+  let uri = Uriz.of_string_exn "https://example.org/demo?name1=Value1&Name2=value2" in
   let headers =
     b4_headers |> fun h ->
     Http.Header.add (Http.Header.add h "accept" "application/json") "accept" "*/*"
@@ -305,7 +305,7 @@ let test_b4_transform_modified_fails clock =
   let key =
     Signature.Key.ed25519 ~priv:test_key_ed25519_priv ~pub:test_key_ed25519_pub
   in
-  let uri = Uri.of_string "https://example.org/demo?name1=Value1&Name2=value2" in
+  let uri = Uriz.of_string_exn "https://example.org/demo?name1=Value1&Name2=value2" in
   let headers = b4_headers |> set "accept" "application/json, */*" in
   (* Use POST instead of GET - should fail verification *)
   let context = Signature.Context.request ~method_:`POST ~uri ~headers in
@@ -319,7 +319,7 @@ let test_b4_transform_authority_modified_fails clock =
     Signature.Key.ed25519 ~priv:test_key_ed25519_priv ~pub:test_key_ed25519_pub
   in
   (* Changed authority from example.org to example.com *)
-  let uri = Uri.of_string "https://example.com/demo?name1=Value1&Name2=value2" in
+  let uri = Uriz.of_string_exn "https://example.com/demo?name1=Value1&Name2=value2" in
   let headers = b4_headers |> set "accept" "application/json, */*" in
   let context = Signature.Context.request ~method_:`GET ~uri ~headers in
   match Signature.verify ~clock ~key ~label:"transform" ~context ~headers () with

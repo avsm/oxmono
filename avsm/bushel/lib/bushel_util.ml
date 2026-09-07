@@ -68,9 +68,8 @@ let find_footnote_lines s =
   collect_footnotes [] false lines
 
 let extract_domain url =
-  try
-    let uri = Uri.of_string url in
-    match Uri.host uri with
-    | Some host -> host
-    | None -> "unknown"
-  with _ -> "unknown"
+  match Uriz.of_string url with
+  | Null -> "unknown"
+  | This uri -> match Uriz.host uri with
+    | This host when host <> "" -> host
+    | _ -> "unknown"

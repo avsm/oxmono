@@ -32,8 +32,8 @@ let resolve_bsky_post t url =
       | _ -> failwith ("Invalid AT URI format: " ^ url)
     else
       (* Web URL format: https://bsky.app/profile/handle/post/rkey *)
-      let uri = Uri.of_string url in
-      let path = Uri.path uri in
+      let uri = Uriz.of_string_exn url in
+      let path = Uriz.path uri in
       let parts = String.split_on_char '/' path in
       match parts with
       | [ ""; "profile"; handle; "post"; rkey ] -> (handle, rkey)

@@ -58,11 +58,10 @@ module Acct = struct
   (** Percent-encode a userpart per RFC 7565.
 
       Per RFC 7565/RFC 3986, unreserved and sub-delims are allowed unencoded.
-      We use Uri.pct_encode with a custom component that encodes @ (which is
-      not in sub-delims) but allows the standard unreserved and sub-delims. *)
+      Encode the userpart separately so an embedded @ cannot become the
+      separator between userpart and host. *)
   let pct_encode_userpart s =
-    (* Uri.pct_encode with `Userinfo encodes @ but we need it for our format *)
-    Uri.pct_encode ~component:`Userinfo s
+    Uriz.pct_encode ~component:`Unreserved s
 
   let of_string s =
     if not (String.starts_with ~prefix:"acct:" s) then
@@ -80,8 +79,9 @@ module Acct = struct
           else if host = "" then
             Error (Invalid_resource "host cannot be empty")
           else
-            let userpart = Uri.pct_decode userpart_encoded in
-            Ok { userpart; host = String.lowercase_ascii host }
+            match Uriz.pct_decode userpart_encoded with
+            | Null -> Error (Invalid_resource "Invalid percent escape in userpart")
+            | This userpart -> Ok { userpart; host = String.lowercase_ascii host }
 
   let of_string_exn s =
     match of_string s with
@@ -284,10 +284,9 @@ end
 
 let webfinger_url ~resource ?(rels = []) host =
   let base = Printf.sprintf "https://%s/.well-known/webfinger" host in
-  let uri = Uri.of_string base in
-  let uri = Uri.add_query_param' uri ("resource", resource) in
-  let uri = List.fold_left (fun u rel -> Uri.add_query_param' u ("rel", rel)) uri rels in
-  Uri.to_string uri
+  let uri = Uriz.of_string_exn base in
+  let uri = Uriz.with_query_params uri (("resource", resource) :: List.map (fun rel -> "rel", rel) rels) in
+  Uriz.to_string uri
 
 let webfinger_url_acct acct ?(rels = []) () =
   let resource = Acct.to_string acct in
@@ -298,10 +297,11 @@ let host_of_resource resource =
   if String.starts_with ~prefix:"acct:" resource then
     Acct.of_string resource |> Result.map Acct.host
   else
-    let uri = Uri.of_string resource in
-    match Uri.host uri with
-    | Some host -> Ok host
-    | None -> Error (Invalid_resource "Cannot determine host from resource URI")
+    match Uriz.of_string resource with
+    | Null -> Error (Invalid_resource "Invalid resource URI")
+    | This uri -> match Uriz.host uri with
+      | This host when host <> "" -> Ok host
+      | _ -> Error (Invalid_resource "Cannot determine host from resource URI")
 
 (** {1 HTTP Client} *)
 

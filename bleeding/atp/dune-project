@@ -37,7 +37,7 @@
   (jsont (>= 0.1))
   (jsonwt (>= 0.1))
   (ptime (>= 1.0))
-  (uri (>= 4.0))
+  uriz
   (eio (>= 1.0))
   fmt))
 
@@ -169,7 +169,7 @@
   (xrpc-auth (= :version))
   (atp-xrpc (= :version))
   fetch
-  uri
+  uriz
   (atp-lexicon-atproto (= :version))
   (atp-lexicon-standard-site (= :version))
   (jsont (>= 0.1))

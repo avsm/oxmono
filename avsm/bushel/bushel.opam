@@ -28,7 +28,7 @@ depends: [
   "bytesrw"
   "ptime" {>= "1.2"}
   "re" {>= "1.11"}
-  "uri" {>= "4.4"}
+  "uriz"
   "fmt" {>= "0.9"}
   "eio" {>= "1.2"}
   "tomlt" {>= "0.1"}

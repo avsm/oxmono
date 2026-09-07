@@ -91,6 +91,23 @@ let test_write_key_matches_lookup () =
   check "the key the writer stores is the key the reader finds"
     (Arod.Ctx.annotation_slugs idx url = [ "a-note" ])
 
+let test_encoded_boundaries () =
+  resolves ~name:"plus and escaped space query spellings resolve"
+    ~stored:"https://example.com/?q=a%20b" ~looked_up:"https://example.com/?q=a+b";
+  resolves ~name:"encoded query delimiters survive re-keying"
+    ~stored:"https://example.com/?q=a%26b%3Dc" ~looked_up:"https://example.com/?q=a%26b=c";
+  resolves ~name:"legacy decoded fragment spelling resolves"
+    ~stored:"https://example.com/#section:a/b" ~looked_up:"https://example.com/#section%3Aa%2Fb";
+  let norm = Arod.Ctx.normalise_url in
+  List.iter (fun (left, right) ->
+    check ("distinct encoded boundary: " ^ left) (norm left <> norm right)) [
+    "https://example.com/a%2Fb", "https://example.com/a/b";
+    "https://example.com/%252F", "https://example.com/%2F";
+    "https://example.com/?q=a%26b=c", "https://example.com/?q=a&b=c";
+    "https://example.com/?q=a%2Bb", "https://example.com/?q=a+b";
+  ];
+  check "malformed URL stays an opaque key" (norm "not a URI" = "not a URI")
+
 let () =
   test_plus_in_path ();
   test_encoded_url_in_query ();
@@ -98,4 +115,5 @@ let () =
   test_distinct_urls_stay_distinct ();
   test_two_spellings_union ();
   test_write_key_matches_lookup ();
+  test_encoded_boundaries ();
   Printf.printf "test_feed_annotations: %d checks ok\n" !checks

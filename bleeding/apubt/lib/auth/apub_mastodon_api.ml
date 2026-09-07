@@ -153,13 +153,13 @@ let unfollow fetch ~instance ~token ~account_id =
 (** Look up an account by webfinger address (user@domain) *)
 let lookup_account fetch ~instance ~token ~acct =
   Printf.sprintf "https://%s/api/v1/accounts/lookup?acct=%s" instance
-    (Uri.pct_encode acct)
+    (Uriz.pct_encode ~component:`Query_value acct)
   |> get_action fetch ~instance ~token Apub_mastodon_oauth.account_jsont
 
 (** Search for accounts *)
 let search_accounts fetch ~instance ~token ~query ?(limit = 10) () =
   Printf.sprintf "https://%s/api/v1/accounts/search?q=%s&limit=%d" instance
-    (Uri.pct_encode query) limit
+    (Uriz.pct_encode ~component:`Query_value query) limit
   |> get_action fetch ~instance ~token
        (Jsont.list Apub_mastodon_oauth.account_jsont)
 
@@ -179,9 +179,9 @@ let resolve fetch ~instance ~token ~kind codec query =
   let response_codec = Jsont.Object.map Fun.id
     |> Jsont.Object.mem kind (Jsont.list codec) ~enc:Fun.id
     |> Jsont.Object.finish in
-  let url = Uri.of_string (Printf.sprintf "https://%s/api/v2/search" instance)
-    |> fun u -> Uri.with_query' u ["q", query; "resolve", "true"; "type", kind; "limit", "2"]
-    |> Uri.to_string in
+  let url = Uriz.of_string_exn (Printf.sprintf "https://%s/api/v2/search" instance)
+    |> fun u -> Uriz.with_query_params u ["q", query; "resolve", "true"; "type", kind; "limit", "2"]
+    |> Uriz.to_string in
   match get_action fetch ~instance ~token response_codec url with
   | Error error -> Error error
   | Ok [value] -> Ok value

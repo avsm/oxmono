@@ -29,6 +29,6 @@
   fmt
   logs
   ptime
-  uri
+  uriz
   unix
   (odoc :with-doc)))

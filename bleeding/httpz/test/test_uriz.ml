@@ -72,7 +72,7 @@ let test_public_api () =
   check "query value keeps non-delimiter semicolon"
     (String.equal
        (Uriz.percent_encode ~component:`Query_value "a;b&c=d+e")
-       "a;b%26c%3Dd%2Be");
+       "a%3Bb%26c%3Dd%2Be");
   check "invalid percent encoding"
     (match Uriz.percent_decode "bad%2" with Null -> true | This _ -> false);
   let made =

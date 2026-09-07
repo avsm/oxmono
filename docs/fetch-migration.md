@@ -93,7 +93,7 @@ Sharp edges:
 |---|---|---|
 | RFC 9421 HTTP Message Signatures | apubt only | port `bleeding/requests/lib/features/signature.ml` (~1000 LOC, coupled only to `Headers.t`) as a `fetch.signature` middleware; only `String` bodies signable |
 | `Requests.Cmd` cmdliner layer | immich, typesense, peertube | write `fetch.cmdliner` mapping the 14 flags onto `Fetch_curl.v`/`std`, incl. source tracking and `setup_log_sources ~verbose_http` (fetch has no `Logs.Src`) |
-| `~params` query args | typesense (1 site) | build query with `Uri` (Middleware.Url.set_query_params is not caller-reachable) |
+| `~params` query args | typesense (1 site) | build queries with `Uriz.with_query_params` |
 
 `fetch.cookies` vendors its own `publicsuffix`, duplicating
 `bleeding/httpz/pubsuffix` — reconcile before both end up linked in one binary.

@@ -2,7 +2,7 @@
 
 #require "fmt" ;;
 #require "fpath" ;;
-#require "uri" ;;
+#require "uriz" ;;
 
 #require "curl" ;;
 
@@ -31,7 +31,7 @@ let download h =
 
 let get url =
   let h = Curl.init () in
-  Curl.set_url h (Uri.to_string url) ;
+  Curl.set_url h (Uriz.to_string url) ;
   curl_setup_simple h ;
   download h
 
@@ -42,7 +42,7 @@ let failure = 1
 let () =
   let uri, output = try
       match Sys.argv with
-      | [| _; "--uri"; uri; "--output"; output |] -> Uri.of_string uri, Fpath.v output
+      | [| _; "--uri"; uri; "--output"; output |] -> Uriz.of_string_exn uri, Fpath.v output
       | _ -> man () ; exit failure
     with _ -> man () ; exit failure in
   match get uri with

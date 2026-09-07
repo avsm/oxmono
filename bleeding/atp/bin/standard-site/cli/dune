@@ -6,6 +6,7 @@
   standard_site
   xrpc-auth
   atp-lexicon-standard-site
+  fetch
   cmdliner
   fmt
   fmt.tty
@@ -13,4 +14,4 @@
   eio_main
   ptime
   ptime.clock.os
-  uri))
+  uriz))

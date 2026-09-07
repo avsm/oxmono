@@ -106,7 +106,7 @@ let with_photo contact photo =
 let resolve_atproto_did http_session atp_handle =
   let url = Printf.sprintf
     "https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=%s"
-    (Uri.pct_encode atp_handle) in
+    (Uriz.pct_encode ~component:`Query_value atp_handle) in
   try
     Logs.info (fun m -> m "Resolving ATProto handle: %s" atp_handle);
     Fetch.with_response http_session `GET url @@ fun response ->
@@ -188,7 +188,7 @@ let sync_cmd ~force () xdg env =
               Logs.info (fun m -> m "@%s: no match in Immich" handle);
               incr not_found
             | name :: rest ->
-              let encoded_name = Uri.pct_encode name in
+              let encoded_name = Uriz.pct_encode ~component:`Query_value name in
               let url = Printf.sprintf "%s/search/person?name=%s"
                 base_url encoded_name in
               try

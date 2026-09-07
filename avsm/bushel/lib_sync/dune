@@ -11,7 +11,7 @@
   jsont.bytesrw
   astring
   re
-  uri
+  uriz
   ptime
   logs
   fmt

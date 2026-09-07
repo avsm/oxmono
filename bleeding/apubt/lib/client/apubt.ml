@@ -134,10 +134,9 @@ let of_fetch ~clock ?signing ?(user_agent = "Apubt/0.1")
     | None -> fun ~actor ~kind ->
         let bytes = Mirage_crypto_rng.generate 16 in
         let suffix = String.concat "" (List.init 16 (fun i -> Printf.sprintf "%02x" (Char.code bytes.[i]))) in
-        let base = Uri.of_string (Uriz.to_string actor) in
-        let path = Uri.path base ^ "/" ^ kind ^ "/" ^ suffix in
-        Uri.with_path base path |> fun u -> Uri.with_query u []
-        |> fun u -> Uri.with_fragment u None |> Uri.to_string |> Uriz.of_string_exn in
+        let path = Uriz.path actor ^ "/" ^ Uriz.pct_encode ~component:`Segment kind ^ "/" ^ suffix in
+        Uriz.with_path actor path |> fun u -> Uriz.with_query u Null
+        |> fun u -> Uriz.with_fragment u Null in
   { fetch; post_fetch; user_agent; max_response_bytes; now; new_id; persist }
 
 let create ~sw ?signing ?user_agent ?max_response_bytes ?id_generator ?persist ?(timeout = 30.0) env =

@@ -497,13 +497,12 @@ module Client = struct
 
   let of_fetch ?(max_response_bytes = 16 * 1024 * 1024) ~base_url session =
     if max_response_bytes < 0 then invalid_arg "OpenAPI: negative response limit";
-    (match Fetch.Middleware.Url.of_string base_url with
-     | Ok _ -> ()
-     | Error _ -> invalid_arg "OpenAPI: base URL must be an absolute HTTP(S) URL");
-    let uri = Uri.of_string base_url in
-    if Uri.userinfo uri <> None || Uri.verbatim_query uri <> None || Uri.fragment uri <> None then
+    let url = match Fetch.Middleware.Url.of_string base_url with
+     | Ok url -> url
+     | Error _ -> invalid_arg "OpenAPI: base URL must be an absolute HTTP(S) URL" in
+    if Uriz.has_query (Fetch.Middleware.Url.to_uri url) || Fetch.Middleware.Url.has_fragment url then
       invalid_arg "OpenAPI: base URL cannot contain credentials, a query, or a fragment";
-    let base_url = Uri.to_string (Uri.canonicalize uri) in
+    let base_url = Fetch.Middleware.Url.to_string url in
     let rec trim n = if n > 0 && base_url.[n - 1] = '/' then trim (n - 1) else n in
     let base_url = String.sub base_url 0 (trim (String.length base_url)) in
     { session = Fetch.restrict session; base_url; max_response_bytes }
@@ -512,7 +511,7 @@ module Client = struct
   let session t = t.session
 
   (* Error URLs omit query values, including caller-supplied secrets. *)
-  let diagnostic_url url = Uri.to_string (Uri.with_query (Uri.of_string url) [])
+  let diagnostic_url url = Uriz.to_string (Uriz.with_query (Uriz.of_string_exn url) Null)
 
   let error ~operation ~method_ ~url parsers response =
     let status = Fetch.status response in

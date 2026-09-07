@@ -51,7 +51,11 @@ let () = Eio_mock.Backend.run_full @@ fun _ ->
   expect_invalid (fun () -> Xrpc.Client.query client ~nsid:"../outside" ~params:[] ~decoder:Jsont.json);
   check "invalid inputs cause no I/O" (!requests = 0);
   List.iter (fun service -> expect_invalid (fun () -> Xrpc.Client.of_fetch ~service
-    (Fetch_mock.client (json "{}")))) ["https://example.com?query"; "https://user:secret@example.com"; "/relative"];
+    (Fetch_mock.client (json "{}")))) ["https://example.com?query"; "https://example.com?";
+      "https://example.com#"; "https://example.com/%zz"; "https://user:secret@example.com"; "/relative"];
+  let normalized = Xrpc.Client.of_fetch ~service:"HTTPS://EXAMPLE.COM:443/a/../api/"
+      (Fetch_mock.client (json "{}")) in
+  check "service HTTP normalization retained" (Xrpc.Client.get_service normalized = "https://example.com/api");
   let fetch = Fetch_mock.client (fun _ -> raise (Eio.Cancel.Cancelled Exit)) in
   let client = Xrpc.Client.of_fetch ~service:"https://example.com" fetch in
   (match query client with _ -> failwith "cancellation lost" | exception Eio.Cancel.Cancelled Exit -> ());
@@ -67,8 +71,8 @@ let () = Eio_mock.Backend.run_full @@ fun _ ->
   (match query client with _ -> failwith "status lost"
    | exception Eio.Io (Xrpc.Error.E (Xrpc_error {status = 503; _}), _) -> ());
   let client = Xrpc.Client.of_fetch ~service:"https://example.com/" (Fetch_mock.client (fun req ->
-    let uri = Uri.of_string (Fetch.Middleware.Url.to_string req.Fetch.Middleware.url) in
-    check "canonical XRPC path" (Uri.path uri = "/xrpc/com.example.get");
-    check "query value roundtrip" (Uri.get_query_param uri "q" = Some "a+b&c");
+    let uri = Fetch.Middleware.Url.to_uri req.Fetch.Middleware.url in
+    check "canonical XRPC path" (Uriz.path uri = "/xrpc/com.example.get");
+    check "query value roundtrip" (Uriz.find_query ~plus_as_space:true uri "q" = This "a+b&c");
     json "{}" req)) in
   ignore (Xrpc.Client.query client ~nsid:"com.example.get" ~params:["q", "a+b&c"] ~decoder:Jsont.json)

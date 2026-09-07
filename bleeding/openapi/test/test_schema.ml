@@ -59,6 +59,7 @@ let references () =
   accepts nested "1"; rejects nested "0";
   let encoded = Schema.guard_string c {|{"$ref":"#/components/schemas/a~1b%7E0c/properties/id"}|} Jsont.json in
   accepts encoded "2";
+  invalid (fun () -> Schema.guard_string c {|{"$ref":"#/components/schemas/a%zz"}|} Jsont.json);
   invalid (fun () -> Schema.guard_string c {|{"$ref":"#/components/schemas/Missing"}|} Jsont.json);
   invalid (fun () -> context "3.1.2" {|{"Bad":{"$ref":"#/components/schemas/Missing"}}|});
   let cyclic = context "3.1.2" {|{"Cycle":{"$ref":"#/components/schemas/Cycle"}}|} in

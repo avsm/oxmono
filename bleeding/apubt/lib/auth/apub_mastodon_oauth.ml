@@ -145,10 +145,7 @@ let authorization_url ~instance ~client_id ~code_challenge =
     ("code_challenge", code_challenge);
     ("code_challenge_method", "S256");
   ] in
-  let query = String.concat "&" (List.map (fun (k, v) ->
-    k ^ "=" ^ Uri.pct_encode v
-  ) params) in
-  base ^ "?" ^ query
+  Uriz.with_query_params (Uriz.of_string_exn base) params |> Uriz.to_string
 
 (** Exchange authorization code for access token *)
 let exchange_code fetch ~instance ~client_id ~client_secret ~code ~code_verifier =

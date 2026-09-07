@@ -371,13 +371,11 @@ let resolve_action ~url env =
   with_api env @@ fun api ->
   let did = Standard_site.Api.get_did api in
   (* Parse the URL to extract base and path *)
-  let uri = Uri.of_string url in
-  let base_url =
-    let scheme = Option.value ~default:"https" (Uri.scheme uri) in
-    let host = Option.value ~default:"" (Uri.host uri) in
-    Printf.sprintf "%s://%s" scheme host
-  in
-  let path = Uri.path uri in
+  let url = match Fetch.Middleware.Url.of_string url with
+    | Ok url -> url | Error reason -> invalid_arg ("Invalid publication URL: " ^ reason) in
+  let uri = Fetch.Middleware.Url.to_uri url in
+  let base_url = Fetch.Middleware.Url.origin url in
+  let path = Uriz.path uri in
   (* Find the publication matching this base URL *)
   let pubs = Standard_site.Api.list_publications api ~did () in
   let matching_pub =

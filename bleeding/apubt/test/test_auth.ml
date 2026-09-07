@@ -2,6 +2,15 @@ let check name condition = if not condition then failwith name
 let account = {|{"id":"local-id","username":"alice","acct":"alice","url":"https://example.com/@alice"}|}
 let json body req = Fetch_mock.respond ~headers:(Http.Header.of_list ["Content-Type", "application/json"]) body req
 
+let () =
+  let session = Apub_auth_session.create_oauth ~actor_uri:"https://example.com/alice"
+      ~instance:"example.com" ~access_token:"secret" ~client_id:"client" ~client_secret:"secret" in
+  check "actor HTTP canonicalization remains compatible"
+    (Result.is_ok (Apub_auth_credentials.resolve ~actor_uri:"HTTPS://EXAMPLE.COM:443/a/../alice" (Some session)));
+  let malformed = { session with actor_uri = "not a URI" } in
+  check "malformed saved actor does not match"
+    (Result.is_error (Apub_auth_credentials.resolve ~actor_uri:"https://example.com/alice" (Some malformed)))
+
 let () = Eio_mock.Backend.run_full @@ fun _env ->
   List.iter (fun status ->
     let calls = ref 0 in
@@ -45,12 +54,12 @@ let () = Eio_mock.Backend.run_full @@ fun _env ->
   let calls = ref 0 in
   let fetch = Fetch_mock.client (fun req ->
     incr calls;
-    let url = Uri.of_string (Fetch.Middleware.Url.to_string req.Fetch.Middleware.url) in
-    check "token remains on local instance" (Uri.host url = Some "local.example");
+    let url = Fetch.Middleware.Url.to_uri req.Fetch.Middleware.url in
+    check "token remains on local instance" (Uriz.host url = This "local.example");
     if req.meth = `GET then begin
-      check "search resolves remote URL" (Uri.path url = "/api/v2/search" &&
-        Uri.get_query_param url "q" = Some "https://remote.example/@alice/123" &&
-        Uri.get_query_param url "resolve" = Some "true");
+      check "search resolves remote URL" (Uriz.path url = "/api/v2/search" &&
+        Uriz.find_query ~plus_as_space:true url "q" = This "https://remote.example/@alice/123" &&
+        Uriz.find_query ~plus_as_space:true url "resolve" = This "true");
       json ("{\"statuses\":[" ^ status ^ "]}") req
     end else begin
       let body = match req.body with Fetch.String s -> s | _ -> failwith "form" in

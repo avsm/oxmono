@@ -9,7 +9,6 @@
   fetch-curl
   fetch-cmdliner
   jsont
-  uri
   eio
   eio_main
   fmt

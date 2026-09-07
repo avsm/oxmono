@@ -1,7 +1,7 @@
 (test
  (name test_client)
  (modules test_client)
- (libraries atp-xrpc fetch.mock eio.mock http jsont.bytesrw uri))
+ (libraries atp-xrpc fetch.mock eio.mock http jsont.bytesrw uriz))
 
 (test
  (name test_credential)

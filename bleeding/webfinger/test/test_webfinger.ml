@@ -167,6 +167,23 @@ let test_find_link () =
         None
         (Webfinger.Jrd.find_link ~rel:"nonexistent" jrd)
 
+let test_query_boundaries () =
+  let resource = "https://example.com/a?x=1&y=a+b#part" in
+  let url = Webfinger.webfinger_url ~resource ~rels:["a&b"; "c+d"] "example.com" in
+  let uri = Uriz.of_string_exn url in
+  Alcotest.(check bool) "resource remains one query value" true
+    (Uriz.find_query ~plus_as_space:true uri "resource" = This resource);
+  let rels = Uriz.query_params ~plus_as_space:true uri
+    |> List.filter_map (fun (key, value) -> if key = "rel" then value else None) in
+  Alcotest.(check (list string)) "repeated rel values" ["a&b"; "c+d"] rels;
+  Alcotest.(check bool) "malformed resource is an error" true
+    (Result.is_error (Webfinger.host_of_resource "https://example.com/%zz"));
+  Alcotest.(check bool) "malformed userpart is an error" true
+    (Result.is_error (Webfinger.Acct.of_string "acct:user%zz@example.com"));
+  let acct = Webfinger.Acct.make ~userpart:"a:b+c" ~host:"example.com" in
+  Alcotest.(check string) "account serialization remains compatible"
+    "acct:a%3Ab%2Bc@example.com" (Webfinger.Acct.to_string acct)
+
 let test_link_title () =
   let link = Webfinger.Link.make
     ~rel:"self"
@@ -282,6 +299,7 @@ let () =
     "url", [
       Alcotest.test_case "host extraction" `Quick test_host_extraction;
       Alcotest.test_case "webfinger URL" `Quick test_webfinger_url;
+      Alcotest.test_case "query boundaries" `Quick test_query_boundaries;
     ];
     "accessors", [
       Alcotest.test_case "find_link" `Quick test_find_link;

@@ -43,8 +43,10 @@ mode-polymorphic (`__local` variants via `ppx_template`), and every export is
 module level, or a `Uriz.t or_null` returned by `of_string`, can be read from
 a portable closure on any domain.
 
-Measured on the same machine against `uri` 4.4; the first four rows come from
-`bench/qbench.ml` and the `resolve` rows from `bench/compare.ml`:
+Historical measurements on the same machine against `uri` 4.4; the first four
+rows come from `bench/qbench.ml`. The comparison benchmark for the `resolve`
+rows is preserved in commit `50fca1889`; it was retired to remove its dependency
+on opam `uri`.
 
 | operation             | ocaml-uri 4.4 (angstrom) | uriz            |
 | --------------------- | ------------------------ | --------------- |
@@ -54,6 +56,47 @@ Measured on the same machine against `uri` 4.4; the first four rows come from
 | `Raw.parse`           | —                        | 98 ns, 0 B      |
 | `resolve`             | 365 ns, 193 w            | 145 ns, 30 w    |
 | `resolve__local`      | —                        | 156 ns, **0 w** |
+
+## Compatibility with Uri
+
+Compatibility is a goal where it preserves URI meaning. The monorepo no longer
+depends on opam `uri`; `Uriz` is the shared implementation. The main mappings are:
+
+| Former operation | Uriz operation |
+| --- | --- |
+| `Uri.of_string` | `of_string` returns `This uri` or `Null`; `of_string_exn` raises for invalid input. |
+| `Uri.with_query'` | `with_query_params`, replacing the entire query from decoded pairs. |
+| `Uri.get_query_param` | `find_query ~plus_as_space:true`, returning `string or_null`. |
+| `Uri.verbatim_query` | `query`, retaining encoded text and distinguishing absent from empty. |
+| `Uri.canonicalize` for HTTP(S) | `canonicalize`, removing dot segments/default ports and supplying an empty path's `/`. |
+| `Uri.resolve "" base reference` | `resolve ~base reference`. |
+
+`with_query_params` keeps repeated keys, empty values and ordering, and rebuilds
+once. `add_query_params` appends pairs; `set_query_params` replaces only named
+keys. They encode keys and values independently so `+`, `&`, `=`, `;`, `,` and
+percent escapes in supplied data cannot turn into query structure. Comma and
+semicolon escaping follows Uri's query-value convention. Decoding `+` as a
+space is explicit because it belongs to form-style queries, not generic URIs.
+
+Parsing and `to_string` preserve encoded reserved characters. RFC 3986
+[section 2.2](https://www.rfc-editor.org/rfc/rfc3986.html#section-2.2) distinguishes
+these from their literal spellings: `%2B` and `+`, for example, need not identify
+the same resource. `canonicalize` therefore keeps such escapes too. HTTP
+signatures read encoded path and query components directly rather than decoding
+and rebuilding the signed target. Malformed references are rejected instead of
+silently coerced.
+
+Arod's saved annotation keys deliberately retain their older comparison rules
+at the storage boundary. That application-specific equivalence is tested in
+`avsm/arod/test/test_feed_annotations.ml`; it is not the identity of `Uriz.t`.
+The Uri-dependent corpus differential was retired after its original 4,659-URL
+run found no link-classification changes; its source is in commit `50fca1889`.
+
+The migration passed the workspace `release-check` build with switch
+`5.2.0+ox`, all 315 Uriz tests, the affected HTTP/Fetch/APub/ATP/OpenAPI and
+application regression suites, and 19 saved-annotation checks. Dune's external
+dependency report contains no `uri` or Cohttp dependency. Syndic's optional
+live-feed suite still needs `ocplib-json-typed`; its local regression passes.
 
 ## Installation
 

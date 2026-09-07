@@ -1,6 +1,15 @@
 v5.0.0 (unreleased, `ox` branch)
 --------------------------------
 
+* Add portable `with_query_params` to replace a complete query from decoded
+  pairs in one rebuild, preserving repeated keys and empty values.
+* Add explicit HTTP(S) `canonicalize` compatibility for default ports, empty
+  paths and dot segments, while retaining reserved percent escapes.
+* Query-value encoders now escape comma and semicolon, matching Uri's
+  treatment of data consumed by multi-value and form-style query parsers.
+* Complete the monorepo consumer migration from opam `uri`; retire the
+  comparison benchmark that required it. Keep correctness differences
+  documented in the README and covered by regression tests.
 * **Renamed to `uriz`.** The package is `uriz`, the module is `Uriz` and the
   scanner is `Uriz.Raw`. The API has diverged far enough from `uri` that
   consumers should be ported deliberately rather than picking up a drop-in

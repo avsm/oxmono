@@ -16,7 +16,7 @@
 (test
  (name test_generated)
  (modules test_generated regression_api)
- (libraries openapi alcotest fetch fetch.mock fetch-curl eio.mock http uri jsont jsont.bytesrw))
+ (libraries openapi alcotest fetch fetch.mock fetch-curl eio.mock http uriz jsont jsont.bytesrw))
 
 (rule
  (targets schema_api.ml schema_api.mli)
@@ -26,4 +26,4 @@
 (test
  (name test_schema)
  (modules test_schema schema_api)
- (libraries openapi alcotest fetch fetch.mock fetch-curl eio.mock http uri jsont jsont.bytesrw unix))
+ (libraries openapi alcotest fetch fetch.mock fetch-curl eio.mock http jsont jsont.bytesrw unix))

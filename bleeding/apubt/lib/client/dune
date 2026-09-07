@@ -1,7 +1,7 @@
 (library
  (name apubt)
  (public_name apubt)
- (libraries uri httpz mirage-crypto-rng duration
+ (libraries uriz httpz mirage-crypto-rng duration
   apubt_proto
   eio
   jsont

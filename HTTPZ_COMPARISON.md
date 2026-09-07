@@ -72,7 +72,8 @@ The shared TLS/X.509 dependency closure matched standalone at the initial
 comparison. The subsequent [vendor refresh](vendor/README.md) updates all 37
 monorepo vendors against their own upstream branch tips, adding differences in
 that closure as well. [vendor/upstreams.json](vendor/upstreams.json) now records
-the exact bases and import scopes. Ptime retains its different directory layout;
+the exact bases and import scopes. The later Uriz migration removes the unused
+`cohttp-eio` vendor, leaving 36. Ptime retains its different directory layout;
 Duration, Mtime and Cmarkit remain monorepo vendors rather than embedded
 standalone vendors. Do not replace the entire vendor directory as a
 synchronization shortcut.

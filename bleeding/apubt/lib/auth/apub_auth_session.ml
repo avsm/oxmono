@@ -203,8 +203,11 @@ let has_oauth session =
 (* Extract a profile name from an actor URI *)
 let profile_name_of_actor_uri uri =
   (* Convert https://example.com/users/alice to alice@example.com *)
-  match Uri.of_string uri |> fun u -> (Uri.host u, Uri.path u) with
-  | Some host, path ->
+  match Uriz.of_string uri with
+  | Null -> "default"
+  | This uri -> match Uriz.host uri with
+  | This host ->
+      let path = Uriz.path uri in
       let name = Filename.basename path in
       if name = "" || name = "/" then host else name ^ "@" ^ host
-  | None, _ -> "default"
+  | Null -> "default"

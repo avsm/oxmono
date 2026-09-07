@@ -22,7 +22,7 @@ depends: [
   "yamlt"
   "fetch"
   "eio"
-  "uri"
+  "uriz"
   "http"
   "fetch-curl" {with-test}
   "cmdliner" {>= "1.2.0"}

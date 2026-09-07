@@ -24,7 +24,7 @@ let search_action ~http_config ~profile ~name ~with_hidden env =
       (* Person.search_person returns ResponseDto (single) but should be a list *)
       (* Use low-level API to get proper list response *)
       let query = Printf.sprintf "?name=%s%s"
-        (Uri.pct_encode name)
+        (Uriz.pct_encode ~component:`Query_value name)
         (if with_hidden then "&withHidden=true" else "") in
       let url = base_url ^ "/people/search" ^ query in
       let status, text =

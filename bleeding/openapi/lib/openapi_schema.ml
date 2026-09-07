@@ -37,7 +37,9 @@ let pointer_escape name =
   Buffer.contents b
 
 let reference_segments reference =
-  let reference = Uri.pct_decode reference in
+  let reference = match Uriz.pct_decode reference with
+    | This reference -> reference
+    | Null -> invalid_arg "OpenAPI: invalid percent escape in schema reference" in
   let prefix = "#/components/schemas/" in
   if not (String.starts_with ~prefix reference) then
     invalid_arg ("OpenAPI: unsupported schema reference " ^ reference);

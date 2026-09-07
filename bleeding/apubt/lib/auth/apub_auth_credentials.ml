@@ -20,8 +20,10 @@ let resolve ?actor_uri ?key_id ?pem ?(format = `Rfc9421) session =
         | Ok _ -> Ok actor | Error _ -> Error "Actor must be an absolute HTTP(S) URI") in
   let same_actor = match session with
     | None -> true
-    | Some s -> Uri.equal (Uri.canonicalize (Uri.of_string actor_uri))
-        (Uri.canonicalize (Uri.of_string s.actor_uri)) in
+    | Some s -> (match Uriz.of_string actor_uri, Uriz.of_string s.actor_uri with
+        | This actor, This saved ->
+            Uriz.equal (Uriz.canonicalize actor) (Uriz.canonicalize saved)
+        | _ -> false) in
   let* () = if not same_actor && (Option.is_none pem || Option.is_none key_id)
     then Error "Changing the saved actor requires both an explicit key file and key ID"
     else Ok () in

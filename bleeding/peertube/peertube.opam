@@ -24,7 +24,6 @@ depends: [
   "fmt" {>= "0.9"}
   "logs" {>= "0.7"}
   "cmdliner" {>= "1.3"}
-  "uri" {>= "4.4"}
   "odoc" {with-doc}
 ]
 build: [

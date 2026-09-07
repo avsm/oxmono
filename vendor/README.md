@@ -79,12 +79,19 @@ Libraries embedded inside HTTPz are tracked separately in
 
 ## 2026-09-07 refresh and validation
 
-All 37 recorded bases match their upstream default-branch tips. Refreshes
+The refresh verified 37 bases against their upstream default-branch tips. Refreshes
 include Eio after 1.5, Cstruct 6.3, Cmarkit after 0.4, Syndic after 1.8, and
 newer Bytesrw, Gmap, Htmlit, X.509, Xmlm and Zarith changes. Upstream changes
 outside a component's documented scope were reviewed without adding the
 omitted packages. The Uriz rewrite retains its package identity and exposes
 upstream's new `path_unencoded` name through its existing decoded-path API.
+
+The subsequent Uri migration removed the unused `cohttp-eio` vendor and its
+external Cohttp/Uri dependencies. The manifest now covers 36 directories.
+Consumers use the shared `Uriz.t`, including Fetch's signature context, and
+Uriz provides `with_query_params` and HTTP `canonicalize` operations for this
+port. Its [migration notes](ocaml-uri/README.md#compatibility-with-uri) describe
+the compatibility rules and deliberate correctness differences.
 
 Validation with `opam exec --switch=5.2.0+ox --` and `release-check` passed:
 
@@ -105,8 +112,8 @@ Some optional suites remain outside that passing set:
   requires the unavailable `kcas` package. The main tests stanza now declares
   its vendored closure, and `tests/test_upstream_refresh.ml` directly exercises
   the updated APIs on both Linux backends.
-- Syndic's legacy live-feed suite requires `ocplib-json-typed` and still uses
-  the former `Uri` API. The local `@@vendor/syndic/runtest` regression covers
+- Syndic's legacy live-feed suite requires `ocplib-json-typed`. Its sources
+  now use `Uriz`; the local `@@vendor/syndic/runtest` regression covers
   the new relaxed parser and retained author fallback without network fixtures.
 - Digestif's alternative OCaml backend is not yet compatible with the port's
   portable virtual interface and OxCaml's local-aware byte helpers. The default

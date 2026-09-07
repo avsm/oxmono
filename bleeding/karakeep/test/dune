@@ -1,3 +1,15 @@
 (executable
  (name test)
+ (modules test)
  (libraries karakeep eio_main))
+
+(test
+ (name test_spec)
+ (modules test_spec)
+ (deps
+  (glob_files ../*.json))
+ (action
+  (chdir
+   ..
+   (run %{test})))
+ (libraries openapi jsont))

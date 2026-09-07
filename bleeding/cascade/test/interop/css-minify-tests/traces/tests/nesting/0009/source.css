@@ -1,6 +1,0 @@
-.foo {
-  color: red;
-  .parent & {
-    margin: 0;
-  }
-}

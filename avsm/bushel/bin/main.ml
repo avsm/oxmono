@@ -925,51 +925,6 @@ let references_cmd =
   Cmd.v (Cmd.info "references" ~doc:"Extract references from a note")
     Term.(const run $ logging_t $ config_file $ data_dir $ slug_arg $ format_arg $ author_arg)
 
-let serve_cmd =
-  let port =
-    let doc = "Port to listen on." in
-    Arg.(value & opt int 8080 & info ["p"; "port"] ~docv:"PORT" ~doc)
-  in
-  let run () config_file data_dir port =
-    match load_config config_file with
-    | Error e -> Printf.eprintf "Config error: %s\n" e; 1
-    | Ok config ->
-      let data_dir = get_data_dir config data_dir in
-      let image_output_dir = config.Bushel_config.images_output_dir in
-      Eio_main.run @@ fun env ->
-      let fs = Eio.Stdenv.fs env in
-      let net = Eio.Stdenv.net env in
-      let entries = Bushel_eio.Bushel_loader.load ~image_output_dir fs data_dir in
-      let routes = Bushel_web.routes ~image_dir:image_output_dir entries in
-      Eio.Switch.run @@ fun sw ->
-      let addr = `Tcp (Eio.Net.Ipaddr.V4.any, port) in
-      let socket = Eio.Net.listen net ~sw ~backlog:128 ~reuse_addr:true addr in
-      Printf.printf "Bushel web UI at http://localhost:%d\n%!" port;
-      let on_request (local_ info : Httpz_eio_server.request_info) =
-        let meth_s = Httpz.Method.to_string info.meth in
-        let len = String.length info.path in
-        let dst = Bytes.create len in
-        for i = 0 to len - 1 do Bytes.unsafe_set dst i (String.unsafe_get info.path i) done;
-        let path_s = Bytes.unsafe_to_string dst in
-        let status_s = Httpz.Res.status_to_string info.status in
-        Logs.info (fun m -> m "%s %s -> %s" meth_s path_s status_s)
-      in
-      let on_error exn =
-        Logs.err (fun m -> m "Connection error: %s" (Printexc.to_string exn))
-      in
-      Eio.Net.run_server socket ~on_error (fun flow addr ->
-        Httpz_eio_server.handle_client ~routes ~on_request ~on_error flow addr)
-  in
-  let doc = "Browse the knowledge base in a web browser." in
-  let man = [
-    `S Manpage.s_description;
-    `P "Starts an HTTP server to browse the knowledge base.";
-    `P "Navigate to http://localhost:PORT to view notes, papers, projects, \
-        ideas, and videos with crosslinks.";
-  ] in
-  Cmd.v (Cmd.info "serve" ~doc ~man)
-    Term.(const run $ logging_t $ config_file $ data_dir $ port)
-
 let links_list_cmd =
   let run () config_file data_dir =
     match load_config config_file with
@@ -1215,7 +1170,6 @@ let main_cmd =
     show_cmd;
     render_cmd;
     references_cmd;
-    serve_cmd;
     pull_cmd;
     push_cmd;
     status_cmd;

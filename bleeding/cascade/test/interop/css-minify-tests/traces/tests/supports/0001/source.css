@@ -1,5 +1,0 @@
-@supports (hanging-punctuation: first) {
-  a {
-    hanging-punctuation: first;
-  }
-}

@@ -363,9 +363,9 @@ which is a correct binary search.
 Nothing in the switch requires cmarkit. A sweep of every `META` under
 `~/.opam/5.2.0+ox/lib` for a `cmarkit` requirement matched only cmarkit's own,
 so shadowing the installed package with this one pulls no other package into
-the workspace build. The four in-tree consumers, `avsm/arod/lib`,
-`avsm/arod/bin`, `avsm/bushel/lib` and `avsm/bushel/lib_web`, name the library
-`cmarkit` and link unchanged.
+the workspace build. The three in-tree consumers, `avsm/arod/lib`,
+`avsm/arod/bin` and `avsm/bushel/lib`, name the library `cmarkit` and link
+unchanged.
 
 ### Re-vendoring checklist
 

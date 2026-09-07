@@ -6,12 +6,8 @@
   bushel.eio
   bushel.config
   bushel.sync
-  bushel.web
   cmdliner
   eio_main
-  httpz
-  httpz.route
-  httpz.eio_server
   logs
   logs.cli
   logs.fmt

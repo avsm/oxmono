@@ -1,3 +1,0 @@
-(test
- (name test)
- (libraries alcotest tw tw_tools cascade cascade.diff astring))

@@ -44,12 +44,14 @@ let host_without_www u =
   | Null -> ""
   | This h -> Common.strip_www h
 
-(** [publisher paper] is the publication description for [paper]. *)
-let publisher paper =
+(** [publisher_with ~link paper] is the publication description for
+    [paper] as a string. [link label url] renders the venue when [paper]
+    has a URL, so one description serves HTML and markdown. *)
+let publisher_with ~link paper =
   let bibty = Paper.bibtype paper in
   let ourl l = function
     | None -> l
-    | Some u -> Printf.sprintf {|<a href="%s">%s</a>|} u l
+    | Some u -> link l u
   in
   let string_of_vol_issue paper =
     match Paper.volume paper, Paper.number paper with
@@ -58,44 +60,50 @@ let publisher paper =
     | None, Some n -> Printf.sprintf " (issue %s)" n
     | _ -> ""
   in
-  let result =
-    match String.lowercase_ascii bibty with
-    | "misc" ->
-      Printf.sprintf {|Working paper at %s|} (ourl (Paper.publisher paper) (Paper.url paper))
-    | "inproceedings" ->
-      Printf.sprintf {|Paper in the %s|} (ourl (Paper.booktitle paper) (Paper.url paper))
-    | "proceedings" ->
-      Printf.sprintf {|%s|} (ourl (Paper.title paper) (Paper.url paper))
-    | "abstract" ->
-      Printf.sprintf {|Abstract in the %s|} (ourl (Paper.booktitle paper) (Paper.url paper))
-    | "article" | "journal" ->
-      Printf.sprintf {|Journal paper in %s%s|}
-        (ourl (Paper.journal paper) (Paper.url paper)) (string_of_vol_issue paper)
-    | "book" ->
-      Printf.sprintf {|Book published by %s|} (ourl (Paper.publisher paper) (Paper.url paper))
-    | "techreport" ->
-      Printf.sprintf {|Technical report%s at %s|}
-        (match Paper.number paper with None -> "" | Some n -> " (" ^ n ^ ")")
-        (ourl (Paper.institution paper) (Paper.url paper))
-    | _ ->
-      Printf.sprintf {|Publication in %s|} (ourl (Paper.publisher paper) (Paper.url paper))
+  match String.lowercase_ascii bibty with
+  | "misc" ->
+    Printf.sprintf {|Working paper at %s|} (ourl (Paper.publisher paper) (Paper.url paper))
+  | "inproceedings" ->
+    Printf.sprintf {|Paper in the %s|} (ourl (Paper.booktitle paper) (Paper.url paper))
+  | "proceedings" ->
+    Printf.sprintf {|%s|} (ourl (Paper.title paper) (Paper.url paper))
+  | "abstract" ->
+    Printf.sprintf {|Abstract in the %s|} (ourl (Paper.booktitle paper) (Paper.url paper))
+  | "article" | "journal" ->
+    Printf.sprintf {|Journal paper in %s%s|}
+      (ourl (Paper.journal paper) (Paper.url paper)) (string_of_vol_issue paper)
+  | "book" ->
+    Printf.sprintf {|Book published by %s|} (ourl (Paper.publisher paper) (Paper.url paper))
+  | "techreport" ->
+    Printf.sprintf {|Technical report%s at %s|}
+      (match Paper.number paper with None -> "" | Some n -> " (" ^ n ^ ")")
+      (ourl (Paper.institution paper) (Paper.url paper))
+  | _ ->
+    Printf.sprintf {|Publication in %s|} (ourl (Paper.publisher paper) (Paper.url paper))
+
+(** [publisher paper] is the publication description for [paper]. *)
+let publisher paper =
+  let link l u = Printf.sprintf {|<a href="%s">%s</a>|} u l in
+  El.unsafe_raw (publisher_with ~link paper)
+
+(** [pdf_path ~ctx paper] is the on-disk PDF of [paper] when one exists. *)
+let pdf_path ~ctx paper =
+  let cfg = Arod.Ctx.config ctx in
+  let path =
+    Filename.concat cfg.paths.papers_dir
+      (Printf.sprintf "%s.pdf" (Paper.slug paper))
   in
-  El.unsafe_raw result
+  if Sys.file_exists path then Some path else None
 
 (** [bar ~ctx paper] is the resource link bar for [paper]. *)
 let bar ~ctx ?(nopdf = false) paper =
-  let cfg = Arod.Ctx.config ctx in
   let icon_link ~icon ~label ~href =
     El.a ~at:[At.href href;
               At.class' "inline-flex items-center gap-1 text-secondary hover:text-link transition-colors whitespace-nowrap"]
       [El.unsafe_raw (I.outline ~size:14 icon); El.txt label]
   in
   let pdf =
-    let pdf_path =
-      Filename.concat cfg.paths.papers_dir
-        (Printf.sprintf "%s.pdf" (Paper.slug paper))
-    in
-    if Sys.file_exists pdf_path && not nopdf then
+    if pdf_path ~ctx paper <> None && not nopdf then
       Some (icon_link ~icon:I.file_pdf_o ~label:"PDF"
               ~href:(Printf.sprintf "/papers/%s.pdf" (Paper.slug paper)))
     else None
@@ -154,17 +162,12 @@ let card ~ctx paper =
 
 (** [detail_bar ~ctx paper] is the detail-page link bar for [paper]. *)
 let detail_bar ~ctx paper =
-  let cfg = Arod.Ctx.config ctx in
   let pill ~icon ~label ~href ~cls =
     El.a ~at:[At.href href; At.class' ("paper-action-pill " ^ cls)]
       [El.unsafe_raw (I.outline ~size:16 icon); El.txt label]
   in
   let pdf =
-    let pdf_path =
-      Filename.concat cfg.paths.papers_dir
-        (Printf.sprintf "%s.pdf" (Paper.slug paper))
-    in
-    if Sys.file_exists pdf_path then
+    if pdf_path ~ctx paper <> None then
       Some (pill ~icon:I.file_pdf_o ~label:"PDF" ~cls:"paper-action-pdf"
               ~href:(Printf.sprintf "/papers/%s.pdf" (Paper.slug paper)))
     else None

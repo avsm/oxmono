@@ -17,25 +17,17 @@ handler needs reach it through the per-domain ['env] argument.
 - [Proffer_httpz], in the [proffer-httpz] package, serves a site over HTTP/1.1
   with httpz and Eio.
 
-{1 Libraries and codecs}
+{1 Media codecs}
 
-The [proffer] Findlib library includes typed media, bounded JSON and CommonMark
-codecs through {!Proffer.Media}, {!Proffer.Json} and {!Proffer.Markdown}.
-These are aliases of [Httpz_media], [Httpz_media_jsont] and
-[Httpz_media_cmarkit]. Codec values are portable and contention-safe and may
-be captured by portable handlers.
+{!module-Proffer.Media}, {!module-Proffer.Json} and
+{!module-Proffer.Markdown} expose the codecs in [httpz.media]: typed bodies,
+bounded JSON and JSON Lines, and Markdown/HTML. The main library includes them.
 
-The [httpz] opam package installs these components as [httpz.media],
-[httpz.media.jsont] and [httpz.media.cmarkit]. Direct users of their public
-roots declare the corresponding Findlib dependency. [httpz.jsont] provides
-bounded readers without media codecs. [httpz.uri] provides [Httpz_uri] and
-its [Scanner], [Template] and [Ip] submodules independently of HTTP parsing.
-The OxCaml URI library uses Base and [stdlib_stable].
+Applications using these codecs directly depend on [httpz.media] and use
+{!module-Httpz_media}, {!module-Httpz_media.Json} and
+{!module-Httpz_media.Markdown}. URI operations remain in [httpz.uri].
 
-The bounded JSON reader uses a structural depth scan and has no Jsonm
-dependency. Untrusted Markdown decoding requires Cmarkit's corrected
-nested-link parser. The installed Cmarkit artifacts must be built with the
-OxCaml compiler used by the application.
+Codec values remain portable and contention-safe for use in portable handlers.
 
 {1 Quick start}
 

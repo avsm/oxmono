@@ -205,6 +205,24 @@ let test_limits () =
     | exception Eio.Io (E (Invalid_request _), _) -> ())
     [String ""; stream (Eio.Flow.string_source "body")]
 
+let test_get_as_limit () =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  let issued = ref 0 and closed = ref 0 in
+  let client = Fetch_mock.client (fun req ->
+      incr issued;
+      response ~headers:["Content-Type", "text/plain"]
+        ~close:(fun () -> incr closed) (Eio.Flow.string_source "hello") req) in
+  check "get_as accepts its exact limit"
+    (get_as ~sw ~limit:5 client Media.text "https://example.test" = Ok "hello");
+  (match get_as ~sw ~limit:4 client Media.text "https://example.test" with
+  | _ -> failwith "get_as accepted an oversized body"
+  | exception Eio.Io (E (Decode_failure {error = Media.Too_large 4; _}), _) -> ());
+  check "get_as closes success and decode failure" (!closed = 2);
+  invalid "get_as negative limit" (fun () ->
+      get_as ~sw ~limit:(-1) client Media.text "https://example.test");
+  check "negative limit sends no request" (!issued = 2)
+
 let test_pacing () =
   Eio_mock.Backend.run_full @@ fun env ->
   Eio.Switch.run @@ fun sw ->
@@ -346,15 +364,9 @@ let test_typed_field_grammars () =
 
 let test_pacing_overflow () =
   Eio_mock.Backend.run_full @@ fun env ->
-  Eio.Switch.run @@ fun sw ->
-  Eio.Time.Mono.sleep env#mono_clock 1.;
-  let client = Fetch_mock.client (Fetch_mock.respond "ok")
-      |> with_limits ~clock:env#mono_clock ~min_interval:Int64.minus_one in
-  ignore (get ~sw client "https://example.test/");
-  let outcome = Eio.Fiber.first
-      (fun () -> ignore (get ~sw client "https://example.test/"); `Requested)
-      (fun () -> Eio.Time.Mono.sleep env#mono_clock 1.; `Waiting) in
-  check "an overflowing pacing deadline does not disable the limit" (outcome = `Waiting)
+  let client = Fetch_mock.client (Fetch_mock.respond "ok") in
+  invalid "a negative pacing duration is rejected before use" (fun () ->
+      with_limits ~clock:env#mono_clock ~min_interval:Int64.minus_one client)
 
 let test_failed_close_cleanup () =
   Eio_mock.Backend.run_full @@ fun env ->
@@ -387,7 +399,7 @@ let test_header_encoding () =
   check "testing header presence does not evaluate encoders" (!encodings = 1)
 
 let () =
-  test_credentials (); test_scopes (); test_release (); test_limits ();
+  test_credentials (); test_scopes (); test_release (); test_limits (); test_get_as_limit ();
   test_request_retry_release ();
   test_pacing (); test_live_id (); test_headers ();
   test_typed_field_grammars (); test_header_encoding (); test_failed_close_cleanup (); test_pacing_overflow ();

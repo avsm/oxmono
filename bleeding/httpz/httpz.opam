@@ -5,7 +5,7 @@ description: """
 A bounded-buffer HTTP/1.1 parser and serializer built on OxCaml's unboxed
 types and local allocations, with OxCaml-native RFC 3986 URI and RFC 6570 URI
 Template implementations. Separate Findlib libraries provide URI operations,
-typed media codecs, bounded Jsont readers, JSON and CommonMark adapters, shared
+typed media codecs with bounded JSON and Markdown support, shared
 Eio TLS, Punycode, the Public Suffix List, and HTTP cookies."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
@@ -44,7 +44,7 @@ depends: [
   "cstruct" {>= "6.2.0"}
   "zarith" {>= "1.14+ox"}
   "eio" {>= "1.3"}
-  "eio_main" {>= "1.3" & with-test}
+  "eio_main" {>= "1.3"}
   "cmdliner" {>= "1.1.0"}
   "eio_posix"
   "core_bench" {with-test}

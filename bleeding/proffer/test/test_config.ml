@@ -24,6 +24,10 @@ let () =
     { default with request_timeout = (Duration.of_sec 0) };
   check_rejected stdenv "zero write timeout"
     { default with write_timeout = (Duration.of_sec 0) };
+  (* [Duration.t] is a raw int64: a coerced negative maps to ~292 years under
+     [Duration.to_f], which a float-side check would accept. *)
+  check_rejected stdenv "negative idle timeout"
+    { default with idle_timeout = -1L };
   Eio.Switch.run (fun sw ->
       let exception Listening_failed in
       let bound = ref None in

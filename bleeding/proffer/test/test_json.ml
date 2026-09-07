@@ -149,7 +149,7 @@ let test_codec () =
         | Not_found -> false);
      Alcotest.(check bool) "has location" true (Option.is_some loc);
      (match detail with
-      | Proffer.Json.Jsont _ -> ()
+      | Proffer.Json.Error _ -> ()
       | _ -> Alcotest.fail "expected structured Jsont detail")
    | _ -> Alcotest.fail "expected malformed");
   check_str
@@ -401,7 +401,7 @@ let test_client () =
        Eio.Io
          ( Fetch.E
              (Fetch.Decode_failure
-               { error = Media.Malformed { loc = Some _; detail = Fetch.Json.Jsont _; _ }
+               { error = Media.Malformed { loc = Some _; detail = Fetch.Json.Error _; _ }
                ; _
                })
          , _ ) -> ()
@@ -445,7 +445,7 @@ let test_client () =
 
 let () =
   Alcotest.run
-    "proffer-jsont"
+    "proffer-json"
     [ ( "jsont"
       , [ Alcotest.test_case "codec" `Quick test_codec
         ; Alcotest.test_case "portable domains" `Quick test_portable_domains

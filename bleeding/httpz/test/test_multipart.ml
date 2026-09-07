@@ -136,6 +136,7 @@ let test_ext_filename_rejected () =
   rejected "escape that is not hexadecimal" "UTF-8''a%zz.txt";
   rejected "no second quote" "UTF-8'a.txt";
   rejected "byte outside attr-char" "\"UTF-8''a b.txt\"";
+  rejected "UTF-8 label but invalid UTF-8 bytes" "UTF-8''%E9.txt";
   let decoded =
     List.hd (parts_of ~boundary:"b" (ext_filename_body "UTF-8''a%20b.txt"))
   in

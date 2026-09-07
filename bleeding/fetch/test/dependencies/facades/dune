@@ -1,4 +1,4 @@
 (test
  (name consumer)
  (package fetch)
- (libraries fetch proffer jsont))
+ (libraries duration fetch proffer jsont))

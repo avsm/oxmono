@@ -1,6 +1,7 @@
 # The curl backend, against a local Eio server
 
 ```ocaml
+# #require "duration";;
 # #require "fetch-curl";;
 # #require "eio_main";;
 ```

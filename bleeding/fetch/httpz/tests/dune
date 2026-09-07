@@ -5,5 +5,5 @@
 (test
  (name test_backend)
  (package fetch-httpz)
- (libraries fetch fetch-httpz http httpz alcotest cstruct fmt eio eio_main
+ (libraries duration fetch fetch-httpz http httpz alcotest cstruct fmt eio eio_main
    eio.mock))

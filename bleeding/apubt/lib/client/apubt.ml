@@ -103,7 +103,7 @@ let create ~sw ?signing ?(user_agent = "Apubt/0.1") ?(timeout = 30.0) env =
   let fetch =
     if not (Float.is_finite timeout) then
       invalid_arg "Apubt.create: timeout must be finite";
-    let duration = Fetch.Duration.of_f timeout in
+    let duration = Duration.of_f timeout in
     let timeout = if timeout > 0.0 && duration = 0L then 1L else duration in
     Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
     (* [Accept] is a default a request may override, as NodeInfo discovery

@@ -1,4 +1,0 @@
-(library
- (name httpz_media_cmarkit)
- (public_name httpz.media.cmarkit)
- (libraries httpz.media cmarkit))

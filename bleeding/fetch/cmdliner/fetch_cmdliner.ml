@@ -105,7 +105,7 @@ let duration_seconds name seconds =
   if not (Float.is_finite seconds) then
     invalid_arg (name ^ " must be finite");
   try
-    let duration = Fetch.Duration.of_f seconds in
+    let duration = Duration.of_f seconds in
     if seconds > 0.0 && duration = 0L then 1L else duration
   with Invalid_argument _ ->
     invalid_arg (name ^ " is outside the duration range")

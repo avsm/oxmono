@@ -1,5 +1,8 @@
 open Base
 
+module Syntax = Syntax
+module Diagnostic = Diagnostic
+
 module Scan = Scan
 module Buf_read = Buf_read
 module Buf_write = Buf_write

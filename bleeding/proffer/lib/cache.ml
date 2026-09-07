@@ -31,6 +31,8 @@ let empty = {
 let duration_to_f = Obj.magic_portable Duration.to_f
 
 let create ?(max_entries = 1024) ~ttl () =
+  if ttl < 0L then
+    invalid_arg "Proffer.Cache.create: ttl must be non-negative";
   if max_entries < 1 then
     invalid_arg "Proffer.Cache.create: max_entries must be positive";
   {
@@ -41,9 +43,12 @@ let create ?(max_entries = 1024) ~ttl () =
     misses = Atomic.make 0;
   }
 
-(* The length prefix separates arbitrary keys and bodies unambiguously. *)
+(* Length-prefix the key so arbitrary key/body pairs remain distinct. The
+   standard-library BLAKE2b digest avoids MD5 collisions without a dependency. *)
 let etag_of ~key body =
-  Digest.to_hex (Digest.string (Printf.sprintf "%d:%s%s" (String.length key) key body))
+  Digest.BLAKE256.to_hex
+    (Digest.BLAKE256.string
+       (Printf.sprintf "%d:%s%s" (String.length key) key body))
 
 let rec bump t f =
   let cur = Atomic.get t.state in
@@ -110,6 +115,8 @@ let memoize t ~now ~key gen =
     invalid_arg "Proffer.Cache.memoize: now must be finite";
   let now = F64.of_float now in
   let expires = F64.add now t.ttl in
+  if not (Float.is_finite (F64.to_float expires)) then
+    invalid_arg "Proffer.Cache.memoize: now + ttl must be finite";
   let cur = Atomic.get t.state in
   match Map.find cur.entries key with
   | Some e when F64.compare now e.expires < 0 ->

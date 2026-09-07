@@ -127,7 +127,7 @@ let test_retry_config_some c =
   | Some r ->
       Alcotest.(check int) "max_retries" 4 r.Fetch.Retry.max_retries;
       Alcotest.(check (float 0.0001))
-        "backoff_factor" 1.25 (Fetch.Duration.to_f r.Fetch.Retry.backoff_factor)
+        "backoff_factor" 1.25 (Duration.to_f r.Fetch.Retry.backoff_factor)
 
 let test_subnanosecond_delay c =
   match C.retry_config c with

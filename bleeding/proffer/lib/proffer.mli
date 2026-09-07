@@ -59,17 +59,12 @@ module Media = Httpz_media
     one, {!Route.with_body} turns a decoding failure into a 415 or 400, and
     {!Negotiate.encode} chooses between several by the Accept field. *)
 
-module Json = Httpz_media_jsont
-(** [Json] is the bounded Jsont codec module from {!Httpz_media_jsont}. The request
+module Json = Httpz_media.Json
+(** [Json] is the bounded JSON codec module from {!Httpz_media.Json}. The request
     body limit independently bounds the complete body. *)
 
-module Markdown = Httpz_media_cmarkit
-(** [Markdown] provides the shared CommonMark and HTML codecs. *)
-
-module Duration = Duration
-(** [Duration] is the duration package, used for timeouts and delays.
-    [Duration.of_sec 30] is thirty seconds and [Duration.of_ms 500] is half a
-    second. *)
+module Markdown = Httpz_media.Markdown
+(** [Markdown] provides the shared Markdown and HTML codecs. *)
 
 module Method : sig
   (** This module provides the HTTP request methods supported by {!Httpz}. *)
@@ -1338,13 +1333,14 @@ module Cache : sig
       [max_entries] defaults to 1024. It bounds the entry count, not the total
       bytes retained. A zero [ttl] makes every lookup a miss.
 
-      @raise Invalid_argument if [max_entries] is not positive. *)
+      @raise Invalid_argument if [max_entries] is not positive or [ttl] is negative. *)
 
   val memoize :
     t -> now:float -> key:string -> (unit -> string) -> string * Etag.t
     @@ portable
   (** [memoize t ~now ~key gen] is the cached body under [key] and its
-      entity-tag. It calls [gen] when the key is absent or expired at [now],
+      entity-tag, a weak BLAKE2b-256 digest of the length-prefixed key and body.
+      The digest is a cache validator, not an authentication token. It calls [gen] when the key is absent or expired at [now],
       measured in seconds from a clock used consistently for every call. [gen]
       runs on the calling domain and is not stored, so it may capture
       domain-bound state. Concurrent misses may call [gen] more than once, and

@@ -54,23 +54,23 @@ let[@inline always] peek (local_ (buf : bytes)) (pos : int16#) : char# =
 
 let[@inline always] ( =. ) (a : char#) (b : char#) = Char_u.equal a b
 let[@inline always] ( <>. ) (a : char#) (b : char#) = not (Char_u.equal a b)
-let[@inline always] is_token_char (c : char#) = Httpz_syntax.is_token_char c
+let[@inline always] is_token_char (c : char#) = Syntax.is_token_char c
 
 let[@inline always] skip_token (local_ (buf : bytes)) ~pos ~limit =
   Scan.skip_token buf ~pos ~limit
 ;;
 
-let[@inline always] is_space (c : char#) = Httpz_syntax.is_space c
+let[@inline always] is_space (c : char#) = Syntax.is_space c
 
-let[@inline always] is_field_value_char (c : char#) = Httpz_syntax.is_field_value_char c
+let[@inline always] is_field_value_char (c : char#) = Syntax.is_field_value_char c
 
-let[@inline always] is_qdtext_char (c : char#) = Httpz_syntax.is_qdtext_char c
+let[@inline always] is_qdtext_char (c : char#) = Syntax.is_qdtext_char c
 
-let[@inline always] is_quoted_pair_char (c : char#) = Httpz_syntax.is_quoted_pair_char c
+let[@inline always] is_quoted_pair_char (c : char#) = Syntax.is_quoted_pair_char c
 
-let[@inline always] is_digit (c : char#) = Httpz_syntax.is_digit c
+let[@inline always] is_digit (c : char#) = Syntax.is_digit c
 
-let[@inline always] digit_value (c : char#) : int = Httpz_syntax.digit_value c
+let[@inline always] digit_value (c : char#) : int = Syntax.digit_value c
 
 let[@inline always] skip_ows (local_ (buf : bytes)) ~(pos : int16#) ~(len : int16#)
   : int16#
@@ -83,7 +83,7 @@ let[@inline always] skip_ows (local_ (buf : bytes)) ~(pos : int16#) ~(len : int1
   i16 p
 ;;
 
-let[@inline always] to_lower (c : char#) : char# = Httpz_syntax.to_lower c
+let[@inline always] to_lower (c : char#) : char# = Syntax.to_lower c
 
 (* A final CR is bare because no LF can follow it within the input window. *)
 let find_crlf_check_bare_cr (local_ (buf : bytes)) ~(pos : int16#) ~(len : int16#)

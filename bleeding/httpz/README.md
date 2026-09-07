@@ -27,9 +27,9 @@ each library whose modules a program uses in its Dune `(libraries ...)` field.
 | `httpz` | `Httpz` | HTTP/1.1 wire parsing and serialization |
 | `httpz.uri` | `Httpz_uri` | URI parsing, resolution, templates and IP classification |
 | `httpz.media` | `Httpz_media` | Typed codecs, URL-encoded forms, multipart forms and SSE writers |
-| `httpz.jsont` | `Httpz_jsont` | Jsont readers with a JSON nesting limit |
-| `httpz.media.jsont` | `Httpz_media_jsont` | JSON and JSON Lines media codecs |
-| `httpz.media.cmarkit` | `Httpz_media_cmarkit` | CommonMark and HTML media codecs |
+| `httpz.media` | `Httpz_media.Json` | Jsont readers with a JSON nesting limit |
+| `httpz.media` | `Httpz_media.Json` | JSON and JSON Lines media codecs |
+| `httpz.media` | `Httpz_media.Markdown` | CommonMark and HTML media codecs |
 | `httpz.route` | `Httpz_route` | Routing directly over protocol spans |
 | `httpz.eio_server` | `Httpz_eio_server` | Eio connection handling and static files |
 | `httpz.tls` | `Httpz_tls` | Eio TLS client and server flows |

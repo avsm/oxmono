@@ -67,7 +67,7 @@ let find_sp_or_cr (local_ (buf : bytes)) ~pos ~limit =
     p)
 ;;
 
-let[@inline always] is_token_char c = Httpz_syntax.is_token_char c
+let[@inline always] is_token_char c = Syntax.is_token_char c
 
 (* Derive the table from [is_token_char] so the two classifiers stay aligned. *)
 let tchar_table =

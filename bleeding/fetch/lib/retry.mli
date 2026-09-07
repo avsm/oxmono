@@ -64,10 +64,11 @@ val default : config
 val max_retries_limit : int
 
 val validate : config -> unit
-(** [validate config] checks the retry count and statuses.
+(** [validate config] checks the retry count, statuses and backoff durations.
 
     @raise Invalid_argument if the count is outside 0 through
-    {!max_retries_limit}, or a status is outside 100 through 599. *)
+    {!max_retries_limit}, a status is outside 100 through 599,
+    [backoff_factor] is negative, or [backoff_max] is not positive. *)
 
 val v :
   ?max_retries:int ->
@@ -84,4 +85,5 @@ val v :
 (** [v ()] is {!default} with the given fields overridden.
 
     @raise Invalid_argument if the retry count is outside 0 through
-    {!max_retries_limit}, or a status is outside 100 through 599. *)
+    {!max_retries_limit}, a status is outside 100 through 599,
+    [backoff_factor] is negative, or [backoff_max] is not positive. *)

@@ -1,6 +1,7 @@
 (mdx
  (package fetch-curl)
  (deps
+  (package duration)
   (package bytesrw)
   (package base64)
   (package cmarkit)
@@ -27,7 +28,7 @@
  (name test_transport)
  (package fetch-curl)
  (deps h2_fixture.py)
- (libraries
+ (libraries duration
   fetch
   fetch-curl
   httpz

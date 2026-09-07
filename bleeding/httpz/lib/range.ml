@@ -63,13 +63,13 @@ module Content = struct
   ;;
 
   let[@zero_alloc] kind ~(unit : string @ local) (local_ s : string) =
-    let first = Httpz_syntax.skip_space s 0 (String.length s) in
-    let stop = Httpz_syntax.trim_space s first (String.length s) in
+    let first = Syntax.skip_space s 0 (String.length s) in
+    let stop = Syntax.trim_space s first (String.length s) in
     let start = first + String.length unit in
     if not (Header.Syntax.is_token unit)
        || start >= stop
        || not (Char_u.equal (char_at s start) #' ')
-       || not (Httpz_syntax.equal_ci s first unit 0 (String.length unit))
+       || not (Syntax.equal_ci s first unit 0 (String.length unit))
     then Invalid
     else (
       let a = start + 1 in

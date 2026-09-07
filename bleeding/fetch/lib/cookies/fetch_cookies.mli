@@ -40,14 +40,17 @@ module Jar : sig
     clock:_ Eio.Time.clock ->
     ?save:[ `On_change | `Manual ] ->
     ?missing:[ `Empty | `Error ] ->
+    ?oversized:[ `Empty | `Error ] ->
     _ Eio.Path.t -> t
   (** [of_file ~clock path] is a jar backed by [path] in the Netscape
       cookies.txt format used by curl. The file is loaded if it exists,
       created on the first save, and replaced atomically when saved.
       [`On_change], the default, saves after every change, while
       [`Manual] saves only on {!flush}. [missing] defaults to [`Empty];
-      [`Error] also reports a missing file as a read error. Other read failures
-      always propagate. Atomic replacement requires create, rename and remove
+      [`Error] also reports a missing file as a read error. Files larger than
+      32 MiB are treated as empty unless [oversized] is [`Error], which raises
+      [Eio.Buf_read.Buffer_limit_exceeded]. Other read failures always propagate.
+      Atomic replacement requires create, rename and remove
       authority in the containing directory, retained through [path]. Each save
       owns an exclusive temporary sibling with private permissions. Saves promise
       atomic visibility, not power-loss durability (no fsync). *)

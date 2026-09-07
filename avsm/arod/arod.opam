@@ -13,6 +13,7 @@ homepage: "https://tangled.org/anil.recoil.org/arod"
 bug-reports: "https://tangled.org/anil.recoil.org/arod/issues"
 depends: [
   "dune" {>= "3.21"}
+  "duration" {>= "0.3.1"}
   "ocaml" {>= "5.2"}
   "bushel" {>= "0.1"}
   "proffer" {>= "0.1"}

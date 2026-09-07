@@ -15,8 +15,6 @@
   httpz
   httpz.uri
   httpz.media
-  httpz.media.jsont
-  httpz.media.cmarkit
   httpz.punycode.idna
   httpz.pubsuffix
   base64))

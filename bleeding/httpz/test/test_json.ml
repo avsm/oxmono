@@ -1,5 +1,5 @@
 module Media = Httpz_media
-module Json = Httpz_media_jsont
+module Json = Httpz_media.Json
 
 let check_depth_limit () =
   Alcotest.(check int) "default max depth" 128 Json.default_max_depth;
@@ -36,7 +36,7 @@ let check_depth_limit () =
   | Ok _ -> Alcotest.fail "expected container rejection"
   | Error error -> Alcotest.fail (Media.error_to_string error));
   Alcotest.check_raises "negative depth"
-    (Invalid_argument "Httpz_media_jsont.v: max_depth must be non-negative")
+    (Invalid_argument "Httpz_media.Json.v: max_depth must be non-negative")
     (fun () -> ignore (codec (-1)));
   let lines = Json.lines ~max_depth:1 Jsont.json in
   (match Media.decode_items lines "[0]\n" with
@@ -48,16 +48,16 @@ let check_depth_limit () =
 
 let check_entry_point_names () =
   Alcotest.check_raises "decode' names itself"
-    (Invalid_argument "Httpz_jsont.decode': max_depth must be non-negative")
+    (Invalid_argument "Httpz_media.Json.decode': max_depth must be non-negative")
     (fun () ->
       ignore
         (Json.decode' ~max_depth:(-1) Jsont.json
            (Bytesrw.Bytes.Reader.of_string "0")));
   Alcotest.check_raises "decode_string' names itself"
-    (Invalid_argument "Httpz_jsont.decode_string': max_depth must be non-negative")
+    (Invalid_argument "Httpz_media.Json.decode_string': max_depth must be non-negative")
     (fun () -> ignore (Json.decode_string' ~max_depth:(-1) Jsont.json "0"));
   Alcotest.check_raises "lines names itself"
-    (Invalid_argument "Httpz_media_jsont.lines: max_depth must be non-negative")
+    (Invalid_argument "Httpz_media.Json.lines: max_depth must be non-negative")
     (fun () -> ignore (Json.lines ~max_depth:(-1) Jsont.json))
 
 let check_ndjson_spellings () =

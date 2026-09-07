@@ -83,7 +83,7 @@ let test_html () =
 ;;
 
 let () =
-  Alcotest.run "proffer-cmarkit"
+  Alcotest.run "proffer-markdown"
     [ ( "codecs",
         [ Alcotest.test_case "markdown" `Quick test_markdown;
           Alcotest.test_case "bounded parser regressions" `Quick

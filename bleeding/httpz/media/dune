@@ -1,10 +1,6 @@
 (library
  (name httpz_media)
  (public_name httpz.media)
- (libraries
-  base
-  bytesrw
-  stdlib_stable
-  httpz.uri
-  httpz_syntax
-  httpz_diagnostic))
+ (modules httpz_media media json markdown urlencoded multipart sse)
+ (private_modules media json markdown)
+ (libraries base bytesrw httpz httpz.uri jsont jsont.bytesrw cmarkit stdlib_stable))

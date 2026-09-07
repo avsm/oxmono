@@ -2,7 +2,7 @@
  (name apub_auth)
  (public_name apubt.auth)
  (wrapped false)
- (libraries
+ (libraries duration
   base64
   cmdliner
   digestif

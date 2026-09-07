@@ -1,7 +1,5 @@
 (** Client policy and response consumption. *)
 
-module Duration = Duration
-
 type 'tag ty = [ `Fetch | `Platform of 'tag ]
 
 type 'a t = 'a Eio.Resource.t constraint 'a = [> [> `Generic ] ty ]
@@ -123,9 +121,9 @@ module Form = Form
 
 module Media = Httpz_media
 
-module Json = Httpz_media_jsont
+module Json = Httpz_media.Json
 
-module Markdown = Httpz_media_cmarkit
+module Markdown = Httpz_media.Markdown
 
 val encode : 'a Media.t -> 'a -> Header.headers * body
 
@@ -135,6 +133,7 @@ val get_as :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
   ?redirects:int ->
+  ?limit:int ->
   _ t ->
   'a Media.t ->
   string ->

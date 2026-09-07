@@ -19,8 +19,8 @@ type Eio.Exn.Backend.t += Nsurl_error of string * int * string
     [Connection_failure]. *)
 
 val v :
-  ?request_timeout:Fetch.Duration.t ->
-  ?resource_timeout:Fetch.Duration.t ->
+  ?request_timeout:Duration.t ->
+  ?resource_timeout:Duration.t ->
   ?max_connections_per_host:int ->
   ?allows_cellular:bool ->
   ?allows_expensive:bool ->
@@ -69,7 +69,7 @@ val std :
   ?cookies:[ `Memory | `File of Eio.Fs.dir_ty Eio.Path.t | `Off ] ->
   ?retry:Fetch.Retry.config ->
   ?max_concurrent:int ->
-  ?min_interval:Fetch.Duration.t ->
+  ?min_interval:Duration.t ->
   < clock : _ Eio.Time.clock
   ; mono_clock : _ Eio.Time.Mono.t
   ; secure_random : _ Eio.Flow.source

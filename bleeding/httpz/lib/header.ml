@@ -1,6 +1,6 @@
 open Base
 module Name = Header_name
-module Syntax = Httpz_syntax
+module Syntax = Syntax
 
 type t =
   { name : Name.t

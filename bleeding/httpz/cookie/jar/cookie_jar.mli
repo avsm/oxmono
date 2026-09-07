@@ -38,6 +38,7 @@ val of_file :
   clock:_ Eio.Time.clock ->
   ?save:[ `On_change | `Manual ] ->
   ?missing:[ `Empty | `Error ] ->
+  ?oversized:[ `Empty | `Error ] ->
   _ Eio.Path.t ->
   t
 (** [of_file ~clock path] is a jar backed by [path] in the Netscape
@@ -45,8 +46,9 @@ val of_file :
     existing file is loaded, skipping any line whose fields do not form a valid
     cookie, violates public-suffix/domain scope, violates the [__Secure-] or
     [__Host-] name-prefix rules, or exceeds the normal jar limits. Files over
-    32 MiB are treated as empty rather than read without a bound; a missing
-    file is created on the first save. Saves use a unique, exclusively-created
+    32 MiB are treated as empty by default; [~oversized:`Error] instead raises
+    [Eio.Buf_read.Buffer_limit_exceeded]. A missing file is created on the first
+    save. Saves use a unique, exclusively-created
     private sibling and replace the target atomically after the write closes.
     This promises atomic visibility, not power-loss durability, and requires
     write authority over the containing directory. Filesystem errors propagate

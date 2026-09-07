@@ -3,8 +3,11 @@
  (modules markdown_limits)
  (libraries fetch proffer httpz.media))
 
+; Temporarily deferred at the maintainer's request. Keep the executable for
+; an explicit parser-regression run when revisiting the upstream Cmarkit fix.
 (rule
  (alias runtest)
+ (enabled_if false)
  (action
   (run timeout 20s %{exe:markdown_limits.exe})))
 
@@ -12,6 +15,11 @@
  (name performance)
  (modules performance)
  (libraries httpz.cookie.jar eio_main unix eio))
+
+(executable
+ (name proffer_backend)
+ (modules proffer_backend)
+ (libraries proffer httpz unix))
 
 (test
  (name client_policy)

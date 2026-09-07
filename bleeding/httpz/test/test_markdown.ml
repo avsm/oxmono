@@ -15,7 +15,7 @@ let contains ~needle hay =
 
 let test_fails_closed_on_unterminated_attribute () =
   let input = "<p>ok</p><a href=\"javascript:alert(1)//no-closing-quote" in
-  let output = Httpz_media_cmarkit.sanitize_url_attributes input in
+  let output = Markdown.sanitize_url_attributes input in
   Alcotest.(check bool) "prefix retained" true (contains ~needle:"<p>ok</p>" output);
   Alcotest.(check bool) "attribute prefix retained" true
     (contains ~needle:" href=\"" output);
@@ -26,17 +26,17 @@ let test_fails_closed_on_unterminated_attribute () =
 
 let test_fails_closed_when_value_start_is_end_of_string () =
   let input = "<img src=\"" in
-  let output = Httpz_media_cmarkit.sanitize_url_attributes input in
+  let output = Markdown.sanitize_url_attributes input in
   Alcotest.(check string) "nothing spurious is appended" input output
 
 let test_passes_through_when_no_url_attribute () =
   let input = "<p>no links here</p>" in
   Alcotest.(check bool) "returned unchanged"
     true
-    (Httpz_media_cmarkit.sanitize_url_attributes input == input)
+    (Markdown.sanitize_url_attributes input == input)
 
 let () =
-  Alcotest.run "fetch-media-cmarkit"
+  Alcotest.run "httpz.media Markdown"
     [
       ( "sanitize_url_attributes",
         [

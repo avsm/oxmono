@@ -1,5 +1,3 @@
-module Media = Httpz_media
-
 let utf8 = [ ("charset", "utf-8") ]
 
 (* Optional lexical input restriction. This is not a parser-work bound:

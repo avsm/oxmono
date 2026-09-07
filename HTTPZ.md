@@ -8,7 +8,7 @@ OxCaml.
 - **Httpz** parses and writes HTTP/1.1 and supplies URI, media, JSON and TLS libraries.
 
 Proffer and Fetch use Eio for network I/O. Both include JSON, JSON Lines,
-CommonMark and HTML codecs, and provide mock backends for tests.
+Markdown and HTML codecs, and provide mock backends for tests.
 
 ## Design
 
@@ -68,7 +68,7 @@ dependencies and commands to run it.
 - [Mock dispatch](example/proffer/c-mock/README.md) exercises handlers without opening a network connection.
 - [Server configuration](example/proffer/d-config/README.md) sets connection limits and timeouts, and selects an unused port.
 - [JSON API](example/proffer/e-json/README.md) decodes submitted records, serves typed responses and exports JSON Lines.
-- [Markdown response](example/proffer/f-markdown/README.md) serves a Cmarkit document as HTML or Markdown.
+- [Markdown response](example/proffer/f-markdown/README.md) serves a document as HTML or Markdown.
 
 ### Fetch
 
@@ -191,17 +191,14 @@ field. A library name such as `httpz.uri` is an OCamlfind subpackage.
 | Test client code in memory. | `fetch fetch.mock` |
 
 The `httpz` opam package installs all the supporting libraries below.
-Their OCamlfind dependencies determine what a program links. URI operations,
-media codecs and bounded Jsont readers can be used independently.
+Applications select the Findlib libraries they use. Media codecs include JSON
+and Markdown support and depend on the HTTP wire library.
 
 | Library | Entry module | Purpose |
 | --- | --- | --- |
 | `httpz` | `Httpz` | HTTP/1.1 parsing and writing. |
 | `httpz.uri` | `Httpz_uri` | URI parsing, resolution and templates. |
-| `httpz.media` | `Httpz_media` | Typed codecs, forms, multipart bodies and SSE writers. |
-| `httpz.jsont` | `Httpz_jsont` | Jsont readers with a nesting limit. |
-| `httpz.media.jsont` | `Httpz_media_jsont` | JSON and JSON Lines codecs. |
-| `httpz.media.cmarkit` | `Httpz_media_cmarkit` | CommonMark and HTML codecs. |
+| `httpz.media` | `Httpz_media` | Typed codecs, forms, multipart, SSE, JSON and Markdown. |
 | `httpz.tls` | `Httpz_tls` | Eio TLS client and server flows. |
 | `httpz.cookie` | `Cookie` | Cookie parsing and writing. |
 | `httpz.cookie.jar` | `Cookie_jar` | Client cookie storage and persistence. |
@@ -211,15 +208,14 @@ media codecs and bounded Jsont readers can be used independently.
 | `httpz.route` | `Httpz_route` | Route matching for the lower-level server API. |
 | `httpz.eio_server` | `Httpz_eio_server` | Eio server API with static-file support. |
 
-`httpz.uri` uses Base and the OxCaml standard libraries. Its URI type is shared
-with the workspace's `Uriz.t`. The HTTP wire library does not link media, JSON,
-CommonMark, Eio or TLS. `httpz.media` and `httpz.jsont` do not require the
-wire parser. Fetch and Proffer include the media adapters for applications
-that need the complete client or server library.
+`httpz.uri` adapts the shared portable Uriz implementation. The HTTP wire library owns
+shared syntax and diagnostic helpers. `httpz.media` depends on it and includes
+`Json` for bounded JSON and JSON Lines, and `Markdown` for Markdown and HTML.
+Fetch and Proffer expose the same codecs as `Media`, `Json` and `Markdown`.
 
 Timeouts, retry delays, pacing and cache lifetimes use the external
-`Duration.t`. Fetch and Proffer re-export it as `Fetch.Duration` and
-`Proffer.Duration`. For example, `Fetch.Duration.of_ms 500` is half a second.
+`Duration.t`. Add `duration` to your Dune libraries when using it directly.
+For example, `Duration.of_ms 500` is half a second.
 
 ## Scope
 

@@ -81,7 +81,16 @@ val v :
 
     [max_response] defaults to 256 MiB and caps the body bytes delivered by
     libcurl, after transfer decoding and any automatic content decoding. It
-    excludes response headers, trailers and transfer framing. [max_request]
+    excludes response headers, trailers and transfer framing.
+
+    HTTP framing, trailer acceptance and connection reuse follow libcurl's
+    policy. In particular, libcurl can accept chunked HTTP/1.0 responses and
+    reuse a connection after [Connection: upgrade, close]. This backend does
+    not independently enforce close-token precedence or filter forbidden
+    trailers. Requests using one client share that connection pool; use
+    Fetch/httpz when the stricter parser policy is required.
+
+    [max_request]
     defaults to 256 MiB and caps streamed request bytes. A declared length over
     the cap is refused before sending. Exceeding the cap while streaming or
     ending before a declared length fails the request.

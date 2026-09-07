@@ -279,10 +279,12 @@ let test_errors () =
     "before\\x1B]52;c;secret\\x07after\\u{009B}red"
     (Media.sanitize_diagnostic
        "before\x1b]52;c;secret\x07after\xc2\x9bred");
-  check_str
-    "printable UTF-8 is preserved"
-    "snowman \xe2\x98\x83"
-    (Media.sanitize_diagnostic "snowman \xe2\x98\x83")
+  check_str "printable UTF-8 is preserved" "snowman \xe2\x98\x83"
+    (Media.sanitize_diagnostic "snowman \xe2\x98\x83");
+  check_str "line separators and bidi controls"
+    "a\\u{2028}b\\u{202E}c\\u{2066}d\\u{061C}\\u{200E}\\u{200F}"
+    (Media.sanitize_diagnostic
+       "a\xe2\x80\xa8b\xe2\x80\xaec\xe2\x81\xa6d\xd8\x9c\xe2\x80\x8e\xe2\x80\x8f")
 ;;
 
 let () =

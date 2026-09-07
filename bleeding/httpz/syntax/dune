@@ -1,4 +1,0 @@
-(library
- (name httpz_syntax)
- (package httpz)
- (libraries base stdlib_stable))

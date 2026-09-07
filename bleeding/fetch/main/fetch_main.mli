@@ -46,7 +46,7 @@ val std :
   ?cookies:[ `Memory | `File of Eio.Fs.dir_ty Eio.Path.t | `Off ] ->
   ?retry:Fetch.Retry.config ->
   ?max_concurrent:int ->
-  ?min_interval:Fetch.Duration.t ->
+  ?min_interval:Duration.t ->
   < clock : _ Eio.Time.clock
   ; mono_clock : _ Eio.Time.Mono.t
   ; secure_random : _ Eio.Flow.source
@@ -93,7 +93,7 @@ val std_ro :
   ?cookies:[ `Memory | `File of Eio.Fs.dir_ty Eio.Path.t | `Off ] ->
   ?retry:Fetch.Retry.config ->
   ?max_concurrent:int ->
-  ?min_interval:Fetch.Duration.t ->
+  ?min_interval:Duration.t ->
   < clock : _ Eio.Time.clock
   ; mono_clock : _ Eio.Time.Mono.t
   ; secure_random : _ Eio.Flow.source

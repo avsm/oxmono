@@ -103,7 +103,9 @@ let () =
   check "a non-finite clock reading is rejected"
     (invalid (fun () -> Cache.memoize c ~now:nan ~key:"x" (fun () -> "x")));
   check "a zero cap is rejected"
-    (invalid (fun () -> Cache.create ~max_entries:0 ~ttl:(Duration.of_sec 1) ()))
+    (invalid (fun () -> Cache.create ~max_entries:0 ~ttl:(Duration.of_sec 1) ()));
+  check "a negative ttl is rejected"
+    (invalid (fun () -> Cache.create ~ttl:(-1L) ()))
 
 let () =
   let cache = Cache.create ~max_entries:3 ~ttl:(Duration.of_sec 10) () in

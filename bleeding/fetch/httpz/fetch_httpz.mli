@@ -135,8 +135,8 @@ val v :
     when the request omits it. [decode] defaults to [true]. It negotiates gzip
     and presents decoded headers, unless the request sets [Accept-Encoding].
 
-    @raise Invalid_argument if [max_response] is negative or [user_agent]
-    contains a forbidden control byte.
+    @raise Invalid_argument if [max_response] is negative, a timeout is
+    negative, or [user_agent] contains a forbidden control byte.
     @raise Eio.Io on transport failure. A connection timeout carries
     [Connection_failure Timeout]. An idle timeout or body-limit violation
     carries [Protocol_error] and closes the connection. Missing TLS support

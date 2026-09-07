@@ -23,11 +23,6 @@
     {!type-error}. Bound a request with [Eio.Time.with_timeout]; cancellation
     propagates through the client and aborts the exchange. *)
 
-module Duration = Duration
-(** [Duration] is the duration package, used for timeouts and delays.
-    [Duration.of_sec 30] is thirty seconds and [Duration.of_ms 500] is half a
-    second. *)
-
 (** {1 Clients} *)
 
 type 'tag ty = [ `Fetch | `Platform of 'tag ]
@@ -217,6 +212,7 @@ val with_idle_timeout :
 (** [with_idle_timeout ~clock ~seconds source] is [source] with an independent
     deadline around every read. A transfer may take longer than [seconds] in
     total while reads keep completing; a stalled read raises {!Idle_timeout}.
+    A negative duration raises [Invalid_argument] before wrapping the source.
     The wrapper deliberately offers no optimized [copy], so a sink cannot
     bypass the per-read deadline.
 
@@ -256,12 +252,12 @@ module Media = Httpz_media
     {!Json} and {!Markdown} provide the batteries-included JSON, JSON Lines,
     CommonMark, and HTML codecs. *)
 
-module Json = Httpz_media_jsont
-(** [Json] is the bounded Jsont codec module from {!Httpz_media_jsont}. The response
+module Json = Httpz_media.Json
+(** [Json] is the bounded JSON codec module from {!Httpz_media.Json}. The response
     byte limit of {!Fetch.decode} independently bounds the complete body. *)
 
-module Markdown = Httpz_media_cmarkit
-(** [Markdown] provides the shared CommonMark and HTML codecs. *)
+module Markdown = Httpz_media.Markdown
+(** [Markdown] provides the shared Markdown and HTML codecs. *)
 
 val encode : 'a Media.t -> 'a -> Header.headers * body
 (** [encode codec v] is the Content-Type header and body of a request carrying
@@ -280,6 +276,7 @@ val get_as :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
   ?redirects:int ->
+  ?limit:int ->
   _ t ->
   'a Media.t ->
   string ->
@@ -288,7 +285,9 @@ val get_as :
     a 2xx status whose body decodes to [v], and [Error r] with the response
     [r] for any other status, its body unread so that it may be decoded with
     another codec. An [Accept] header naming the codec's media type is sent
-    unless [headers] carries one. Decoding failures raise as in {!decode}. *)
+    unless [headers] carries one. [limit] bounds the decoded body and defaults
+    to 16 MiB. A negative limit raises [Invalid_argument] before sending.
+    Decoding failures raise as in {!decode}. *)
 
 val read_as : ?limit:int -> _ t -> 'a Media.t -> string -> ('a, response) result
 (** [read_as client codec url] is {!get_as} without a switch, as {!read} is to
@@ -323,8 +322,10 @@ module Sse : sig
   }
   (** An [event] is one dispatched event block. [name] defaults to
       ["message"], [data] joins its data fields with newlines, and [retry] is
-      the last valid [retry] field of the block when it carries one. [id] is
-      the stream's last event ID, which
+      the last valid [retry] field of the block when it carries one, in
+      milliseconds. It is untrusted and unclamped: manual reconnect loops
+      should bound it; only {!subscribe} applies the reconnection floor and cap.
+      [id] is the stream's last event ID, which
       {{:https://html.spec.whatwg.org/multipage/server-sent-events.html}WHATWG
       "parsing an event stream"} carries across blocks: a block with no [id]
       field of its own reports the one before it. A consumer deduplicating on
@@ -362,8 +363,9 @@ module Sse : sig
       value. An ID containing another control byte remains visible to the
       decoder but is omitted from a request rather than making reconnection
       fail. A 2xx response is decoded; any other status is returned with its
-      body unread. A 2xx whose Content-Type is not one the event-stream codec
-      accepts raises [Decode_failure] as {!decode} does, after closing the
+      body unread and open; the caller must {!Fetch.close} that response.
+      A 2xx whose Content-Type is not one the event-stream codec accepts raises
+      [Decode_failure] as {!decode} does, after closing the
       response. *)
 
   type subscription
@@ -398,7 +400,9 @@ module Sse : sig
 
       [retryable] defaults to connection and protocol failures, exhausted
       redirect walks, and rejected 429 or 5xx responses. Decode, TLS, and
-      policy failures are fatal. *)
+      policy failures are fatal. A rejected response is closed before
+      [retryable] sees [Rejected r]; its metadata remains available, but its
+      body must not be read by the predicate. *)
 
   val events : subscription -> [ `Event of event | `End ] Eio.Stream.t
   (** [events subscription] is its bounded event stream. [`End] is its final
@@ -589,8 +593,9 @@ val with_limits :
     backend's connection pool size, which governs connection reuse and is set on
     the backend. [max_concurrent] is unset by default.
 
-    @raise Invalid_argument if [max_concurrent] is below 1, or a [scope]
-    entry is not an HTTP or HTTPS URL or carries a query or a fragment. *)
+    @raise Invalid_argument if [max_concurrent] is below 1, [min_interval] is
+    negative, or a [scope] entry is not an HTTP or HTTPS URL or carries a query
+    or a fragment. *)
 
 module Retry = Retry
 (** [Retry] is the module configuring {!with_retry}. *)
@@ -605,6 +610,9 @@ val with_retry :
 (** [with_retry ~clock ~random client] is a client that reissues requests that
     fail with a retryable status or a connection failure, per [config] (default
     {!Retry.default}), honouring [Retry-After] up to [config.backoff_max].
+    Server-requested delays have a 0.1-second floor, or [backoff_max] when
+    that ceiling is smaller. Explicit zero backoff without Retry-After remains
+    available through [backoff_factor].
     Retries require a remaining retry budget, a replayable body, an allowed
     method, and approval by [config.retry_request] when configured. Under
     {!fetch} each redirect hop is retried on its own. The request predicate
@@ -623,8 +631,8 @@ val with_retry :
     [Retry-After] has two forms. The delta-seconds form is honoured always. The
     HTTP-date form needs a wall clock to subtract from, so it is honoured only
     when [wall] is given (pass [env#clock]); without one the configured backoff
-    applies as if the field were absent. A date already past waits no time at
-    all, and a date far ahead is still capped by [config.backoff_max].
+    applies as if the field were absent. A date already past uses the floor,
+    and a date far ahead is still capped by [config.backoff_max].
 
     [random] feeds the jitter. Pass [env#secure_random], or a deterministic flow
     to make backoff reproducible in a test. *)

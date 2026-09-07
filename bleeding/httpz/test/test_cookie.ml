@@ -1192,7 +1192,21 @@ let test_netscape_file_cap env =
       let jar = Cookie_jar.of_file ~clock ~save:`Manual path in
       Alcotest.(check int)
         "a file over 32 MiB is treated as empty" 0
-        (List.length (Cookie_jar.cookies jar)))
+        (List.length (Cookie_jar.cookies jar));
+      let rejected () =
+        match Cookie_jar.of_file ~clock ~save:`Manual ~oversized:`Error path with
+        | _ -> Alcotest.fail "oversized cookie file accepted in strict mode"
+        | exception Eio.Buf_read.Buffer_limit_exceeded -> ()
+      in
+      rejected ();
+      (* Exact and one-byte-over boundaries, including the EOF lookahead. *)
+      Eio.Path.with_open_out ~create:(`Or_truncate 0o600) path (fun flow ->
+        let mib = "#" ^ String.make (1024 * 1024 - 2) 'x' ^ "\n" in
+        for _ = 1 to 32 do Eio.Flow.copy_string mib flow done);
+      ignore (Cookie_jar.of_file ~clock ~save:`Manual ~oversized:`Error path);
+      Eio.Path.with_open_out ~append:true ~create:`Never path (fun flow ->
+        Eio.Flow.copy_string "x" flow);
+      rejected ())
 ;;
 
 (* {1 Regressions} *)

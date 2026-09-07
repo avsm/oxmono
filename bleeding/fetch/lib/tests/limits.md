@@ -1,6 +1,7 @@
 # Rate limiting and retry
 
 ```ocaml
+# #require "duration";;
 # #require "fetch";;
 # #require "fetch.mock";;
 # #require "eio.mock";;
@@ -180,7 +181,7 @@ instead — here the first 0.5s step:
 - : string = "ok"
 ```
 
-A date already past asks for no wait at all, and one far in the future is
+A date already past uses the 0.1-second floor, and one far in the future is
 capped by `backoff_max` like any other server-requested delay:
 
 ```ocaml
@@ -206,8 +207,9 @@ capped by `backoff_max` like any other server-requested delay:
          ~config:(Retry.v ~jitter:false ~backoff_max:(Duration.of_sec 60) ()) in
   Fetch.read t "https://api.example/data";;
 > attempt 1 at t=0
++mock time is now 0.1
 > attempt 2 at t=0
-+mock time is now 60
++mock time is now 60.1
 > attempt 3 at t=60
 - : string = "ok"
 ```

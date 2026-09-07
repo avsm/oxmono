@@ -1,4 +1,3 @@
-module Duration = Duration
 include Middleware
 module Header = Header
 module Form = Form
@@ -49,6 +48,8 @@ module Idle_source = struct
 end
 
 let with_idle_timeout ~clock ~seconds source =
+  if seconds < 0L then
+    invalid_arg "Fetch.with_idle_timeout: seconds must be non-negative";
   let seconds = Duration.to_f seconds in
   Eio.Resource.T
     ( Idle_source.
@@ -278,6 +279,10 @@ let with_limits ~clock ?scope ?min_interval ?max_concurrent inner =
   | Some n when n < 1 ->
       invalid_arg "Fetch.with_limits: max_concurrent must be at least 1"
   | _ -> ());
+  (match min_interval with
+  | Some s when s < 0L ->
+      invalid_arg "Fetch.with_limits: min_interval must be non-negative"
+  | _ -> ());
   let min_interval = Option.map Mtime.Span.of_uint64_ns min_interval in
   let mutex = Eio.Mutex.create () in
   let entries : (string, limit_entry) Hashtbl.t = Hashtbl.create 8 in
@@ -389,7 +394,10 @@ let retry_after ?wall hs =
 
 let retry_delay (config : Retry.config) ~attempt ~retry_after ~rand =
   match retry_after with
-  | Some s -> Float.min s (Duration.to_f config.backoff_max)
+  | Some s ->
+      (* Retry-After is advice from an untrusted peer: floor it like the SSE
+         reconnection delay so a zero cannot spin the retry loop. *)
+      Float.min (Float.max 0.1 s) (Duration.to_f config.backoff_max)
   | None ->
       let d =
         Duration.to_f config.backoff_factor *. (2. ** float_of_int (attempt - 1))
@@ -733,8 +741,8 @@ let read ?(limit = 16 * 1024 * 1024) t url =
   with_response t `GET url (fun resp -> read_bounded ~limit (body resp))
 
 module Media = Httpz_media
-module Json = Httpz_media_jsont
-module Markdown = Httpz_media_cmarkit
+module Json = Httpz_media.Json
+module Markdown = Httpz_media.Markdown
 
 let rec has_header (hs : Header.headers) name =
   match hs with
@@ -792,13 +800,14 @@ let is_success r =
   let s = status r in
   s >= 200 && s < 300
 
-let get_as ~sw ?headers ?redirects t codec url =
+let get_as ~sw ?headers ?redirects ?(limit = default_limit) t codec url =
+  check_limit "get_as" limit;
   let headers =
     with_accept (Media.accept_header [ Media.media_type codec ]) headers
   in
   let r = fetch ~sw ~headers ?redirects t `GET url in
   if is_success r then
-    Fun.protect ~finally:(fun () -> close r) (fun () -> Ok (decode codec r))
+    Fun.protect ~finally:(fun () -> close r) (fun () -> Ok (decode ~limit codec r))
   else Error r
 
 let read_as ?(limit = default_limit) t codec url =

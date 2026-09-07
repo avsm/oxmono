@@ -202,14 +202,17 @@ val run :
     stream has a declared length. HTTP/1.0 instead closes the connection after
     an unknown-length body and cannot carry trailers; a handler response that
     requires them is replaced with 500 and reported to [on_error]. A stream
-    with a declared length and no trailers uses Content-Length, and no byte
-    beyond that length reaches the socket: the write that would exceed it
-    writes nothing, the mismatch is reported to [on_error], and the connection
-    closes. A stream that emits fewer bytes than it declared is reported the
-    same way. Successful CONNECT and 101 responses omit HTTP content framing
-    and pass the connection, including already-buffered bytes, to the handoff
-    callback, whose later reads are bounded by [config.idle_timeout]. See
+    with a declared length and no trailers uses Content-Length, and no byte beyond that length
+    reaches the socket: the write that would exceed it writes nothing, the
+    mismatch is reported to [on_error], and the connection closes. A stream
+    that emits fewer bytes than it declared is reported the same way. Successful
+    CONNECT and 101 responses omit HTTP content framing and pass the connection,
+    including already-buffered bytes, to the handoff callback, whose later
+    reads are bounded by [config.idle_timeout]. There is no total session-time
+    or byte cap: a peer that keeps sending within that interval can retain its
+    connection slot. Applications needing a total cap should wrap the handoff
+    callback in their own timeout. See
     {{:https://www.rfc-editor.org/rfc/rfc9112#section-6}RFC 9112 section 6}.
 
     It raises [Invalid_argument] if [config.backlog] or
-    [config.max_connections] is not positive, or if any timeout is zero. *)
+    [config.max_connections] is not positive, or if any timeout is non-positive. *)

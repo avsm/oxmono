@@ -304,7 +304,8 @@ let clock_now clock =
 let in_memory ~clock () = make ~now:(clock_now clock) ~auto_save:false []
 
 let of_file ~clock ?(save : [ `On_change | `Manual ] = `On_change)
-      ?(missing : [ `Empty | `Error ] = `Empty) path =
+      ?(missing : [ `Empty | `Error ] = `Empty)
+      ?(oversized : [ `Empty | `Error ] = `Empty) path =
   let path = (path :> Eio.Fs.dir_ty Eio.Path.t) in
   let dir, name =
     match Eio.Path.split path with
@@ -320,8 +321,12 @@ let of_file ~clock ?(save : [ `On_change | `Manual ] = `On_change)
         in
         Eio.Buf_read.take_all reader)
     with
-    | content -> of_netscape ~now:(now ()) content
-    | exception Eio.Buf_read.Buffer_limit_exceeded -> []
+    | content ->
+        if String.length content > max_cookie_file_bytes then
+          if oversized = `Empty then []
+          else raise Eio.Buf_read.Buffer_limit_exceeded
+        else of_netscape ~now:(now ()) content
+    | exception Eio.Buf_read.Buffer_limit_exceeded when oversized = `Empty -> []
     | exception Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) when missing = `Empty -> []
   in
   let persist content =

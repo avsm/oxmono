@@ -254,7 +254,24 @@ let test_expand_uri_error_offset () =
             ~substring:"byte"))
 ;;
 
+let test_indexed_bindings () =
+  let names = Stdlib.List.init 1000 (fun i -> "v" ^ Int.to_string i) in
+  let bindings = Stdlib.List.map (fun name -> name, `String name) names in
+  let source = "{" ^ Stdlib.String.concat "," names ^ "}/{v0,v999}" in
+  let t = template source in
+  let expected = Stdlib.String.concat "," names ^ "/v0,v999" in
+  let calls = ref [] in
+  let expanded = Template.expand t (fun name ->
+      calls := name :: !calls;
+      Some (`String name)) in
+  check "indexed lookup preserves first-use order and static values"
+    (Poly.equal (Stdlib.List.rev !calls) names && Poly.equal expanded (Ok expected));
+  check "indexed association lookup preserves the first duplicate"
+    (Poly.equal (Template.expand_assoc t (bindings @ ["v0", `String "wrong"])) (Ok expected))
+;;
+
 let () =
+  test_indexed_bindings ();
   test_examples ();
   test_unicode_and_percent ();
   test_uri ();

@@ -48,6 +48,9 @@ let test_validation () =
   raises "unbounded retry count" (fun () ->
     Retry.v ~max_retries:(Retry.max_retries_limit + 1) ());
   raises "invalid retry status" (fun () -> Retry.v ~status_forcelist:[ 42 ] ());
+  raises "negative backoff factor" (fun () -> Retry.v ~backoff_factor:(-1L) ());
+  raises "zero backoff ceiling" (fun () -> Retry.v ~backoff_max:0L ());
+  raises "negative backoff ceiling" (fun () -> Retry.v ~backoff_max:(-1L) ());
   raises "negative stream length" (fun () ->
     Fetch.stream ~length:(-1L) (Eio.Flow.string_source ""))
 

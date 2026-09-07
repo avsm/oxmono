@@ -74,7 +74,7 @@ let serve_cmd =
     in
     let henv =
       Arod_handlers.Env.create ~ctx
-        ~cache:(Proffer.Cache.create ~ttl:(Proffer.Duration.of_sec 300) ())
+        ~cache:(Proffer.Cache.create ~ttl:(Duration.of_sec 300) ())
         ~search:(fun ~limit ~link_limit ~order q ->
           match !search_ref with
           | None -> Arod_search.empty

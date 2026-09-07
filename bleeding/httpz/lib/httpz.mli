@@ -48,6 +48,12 @@
     ordinary allocated values. Portability and allocation guarantees are stated
     on each exported signature rather than implied for the whole library. *)
 
+module Syntax = Syntax
+(** HTTP byte classes and field grammar. *)
+
+module Diagnostic = Diagnostic
+(** Escape untrusted text for diagnostics. *)
+
 module Scan = Scan
 (** This module provides byte-class scanning primitives. *)
 

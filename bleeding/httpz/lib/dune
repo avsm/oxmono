@@ -2,6 +2,8 @@
  (name httpz)
  (public_name httpz)
  (modules
+  syntax
+  diagnostic
   scan_portable
   scan
   buf_read
@@ -25,7 +27,6 @@
  (libraries
   base
   httpz.uri
-  httpz_syntax
   base_bigstring
   ocaml_intrinsics_kernel
   stdlib_stable

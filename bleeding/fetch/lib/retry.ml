@@ -34,7 +34,14 @@ let validate config =
          "Fetch.Retry: max_retries must be between 0 and %d"
          max_retries_limit);
   if List.exists (fun status -> status < 100 || status > 599) config.status_forcelist
-  then invalid_arg "Fetch.Retry: status_forcelist contains an invalid status"
+  then invalid_arg "Fetch.Retry: status_forcelist contains an invalid status";
+  (* [Duration.t] is a raw int64, so a coerced or NaN-derived value can be
+     negative even though duration values are documented as non-negative.
+     Reject invalid signs before converting them to unsigned seconds. *)
+  if config.backoff_factor < 0L then
+    invalid_arg "Fetch.Retry: backoff_factor must be non-negative";
+  if config.backoff_max <= 0L then
+    invalid_arg "Fetch.Retry: backoff_max must be positive"
 ;;
 
 let v

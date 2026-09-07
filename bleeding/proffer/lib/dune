@@ -7,8 +7,6 @@
   httpz
   httpz.uri
   httpz.media
-  httpz.media.jsont
-  httpz.media.cmarkit
   magic-mime
   stdlib_stable
   stdlib_upstream_compatible)
@@ -20,6 +18,8 @@
   body
   cache
   cache_control
+  conditional
+  dispatch
   date
   etag
   headers
@@ -31,6 +31,7 @@
   pct
   req
   resp
+  response
   route
   site
   static))

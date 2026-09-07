@@ -85,7 +85,9 @@ val level : t -> level @@ portable
 val expand :
   t -> (string -> value option) -> (string, error) result @@ portable
 (** [expand t lookup] expands [t], consulting [lookup] once for each distinct
-    variable name. [None] is an undefined variable. A prefix modifier applied
+    variable name, in first-use order. Precompiled variable slots give constant
+    internal lookup work per variable use, in addition to encoding values.
+    [None] is an undefined variable. A prefix modifier applied
     to a composite value, or a value that is not valid UTF-8, is an error. The
     prefix error stands even when the composite is the empty list or empty
     association that would otherwise be skipped as undefined, since the

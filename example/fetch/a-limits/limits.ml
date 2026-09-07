@@ -2,7 +2,7 @@ let () =
   Eio_main.run @@ fun env ->
   Localhost.run env @@ fun base ->
   let clock = Eio.Stdenv.clock env in
-  let client = Fetch_httpz.std ~max_concurrent:2 ~min_interval:(Fetch.Duration.of_ms 500) env in
+  let client = Fetch_httpz.std ~max_concurrent:2 ~min_interval:(Duration.of_ms 500) env in
   let started = Eio.Time.now clock in
   Eio.Fiber.List.iter
     (fun i ->

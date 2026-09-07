@@ -1,8 +1,6 @@
-module Duration = Duration
-
 module Media = Httpz_media
-module Json = Httpz_media_jsont
-module Markdown = Httpz_media_cmarkit
+module Json = Httpz_media.Json
+module Markdown = Httpz_media.Markdown
 module Method = Method
 module Status = Status
 module Headers = Headers

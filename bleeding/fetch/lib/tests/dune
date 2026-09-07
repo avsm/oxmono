@@ -1,6 +1,7 @@
 (mdx
  (package fetch)
  (deps
+  (package duration)
   (package bytesrw)
   (package base64)
   (package cmarkit)
@@ -25,7 +26,7 @@
 (test
  (name test_sse)
  (package fetch)
- (libraries fetch fetch.mock eio.mock cstruct eio http))
+ (libraries duration fetch fetch.mock eio.mock cstruct eio http))
 
 (test
  (name test_redirect)
@@ -35,12 +36,12 @@
 (test
  (name test_idle_timeout)
  (package fetch)
- (libraries fetch eio.mock alcotest cstruct eio))
+ (libraries duration fetch eio.mock alcotest cstruct eio))
 
 (test
  (name test_release)
  (package fetch)
- (libraries fetch fetch.mock eio.mock http eio mtime))
+ (libraries duration fetch fetch.mock eio.mock http eio mtime))
 
 (test
  (name test_url_policy)

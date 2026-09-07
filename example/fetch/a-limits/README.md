@@ -15,7 +15,7 @@ dune exec --profile release-check ./example/fetch/a-limits/limits.exe
 ```
 
 `~max_concurrent:2` allows at most two requests in flight per origin.
-`~min_interval:(Fetch.Duration.of_ms 500)` separates request starts by at
+`~min_interval:(Duration.of_ms 500)` separates request starts by at
 least half a second. Printed completion times vary with scheduling.
 
 Continue with [stream bodies](../b-stream/README.md), or return to the

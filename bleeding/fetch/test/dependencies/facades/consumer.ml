@@ -7,10 +7,10 @@ let () =
   assert (Fetch.Media.decode from_proffer "42" = Ok 42);
   assert (Proffer.Media.can_decode markdown);
   match Proffer.Media.decode from_fetch "null" with
-  | Error (Fetch.Media.Malformed { detail = Proffer.Json.Jsont _; _ }) -> ()
+  | Error (Fetch.Media.Malformed { detail = Proffer.Json.Error _; _ }) -> ()
   | _ -> failwith "Fetch and Proffer must share the Jsont detail constructor"
 
-let shared_delay : Proffer.Duration.t = Fetch.Duration.of_ms 500
-let retry = Fetch.Retry.v ~backoff_factor:shared_delay ()
+let delay : Duration.t = Duration.of_ms 500
+let retry = Fetch.Retry.v ~backoff_factor:delay ()
 let close_subscription = Fetch.Sse.close
-let () = assert (Proffer.Duration.to_ms retry.backoff_factor = 500)
+let () = assert (Duration.to_ms retry.backoff_factor = 500)

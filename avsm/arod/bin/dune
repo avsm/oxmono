@@ -2,7 +2,7 @@
  (name main)
  (public_name arod)
  (package arod)
- (libraries
+ (libraries duration
   arod
   arod.handlers
   arod.log

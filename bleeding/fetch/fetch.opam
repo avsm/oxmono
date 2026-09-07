@@ -4,7 +4,7 @@ synopsis: "Portable HTTP client capability for Eio and OxCaml"
 description: """
 An abstract HTTP client capability that can be narrowed, appended to, and
 rate-limited before being handed to libraries. A mock backend and cookie-jar
-middleware are included, along with Jsont and Cmarkit media codecs."""
+middleware are included, along with JSON and Markdown media codecs."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

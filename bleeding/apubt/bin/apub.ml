@@ -20,7 +20,7 @@ let setup_log_term =
 
 let curl_client ~sw ~timeout ~user_agent () =
   if not (Float.is_finite timeout) then invalid_arg "timeout must be finite";
-  let duration = Fetch.Duration.of_f timeout in
+  let duration = Duration.of_f timeout in
   let timeout = if timeout > 0.0 && duration = 0L then 1L else duration in
   Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
 

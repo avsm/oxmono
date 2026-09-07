@@ -10,6 +10,10 @@ let () =
   let fs = Eio.Stdenv.fs env in
   let clock = Eio.Stdenv.clock env in
   let path = Eio.Path.(fs / file_path) in
-  let jar = Cookie_jar.of_file ~clock ~save:`Manual path in
-  Format.printf "%a@." Cookie_jar.pp jar
+  (match Cookie_jar.of_file ~clock ~save:`Manual ~missing:`Error ~oversized:`Error path with
+  | jar -> Format.printf "%a@." Cookie_jar.pp jar
+  | exception exn ->
+      Printf.eprintf "%s: cannot read %s: %s\n" args.(0) file_path
+        (Printexc.to_string exn);
+      exit 2)
 ;;

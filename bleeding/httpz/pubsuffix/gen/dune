@@ -5,12 +5,21 @@
 
 ; The parser fails loudly on a malformed rule, so a comment must be recognised
 ; wherever it begins on the line rather than ingested as a rule of its own.
+; The fixture is a partial list, so it opts out of the completeness floor.
 (rule
  (with-stdout-to
   test_comments.actual
-  (run ./gen_psl.exe %{dep:test_comments.dat})))
+  (run ./gen_psl.exe --allow-partial %{dep:test_comments.dat})))
 
 (rule
  (alias runtest)
  (action
   (diff test_comments.expected test_comments.actual)))
+
+; Metadata alone must not let a truncated production download through.
+(rule
+ (alias runtest)
+ (action
+  (with-accepted-exit-codes
+   1
+   (with-outputs-to %{null} (run ./gen_psl.exe %{dep:test_comments.dat})))))

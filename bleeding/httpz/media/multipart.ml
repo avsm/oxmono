@@ -31,10 +31,10 @@ let max_part_headers = 32
 let max_header_line = 8192
 let default_max_parts = 256
 
-let[@inline] is_ows (c : char) = Httpz_syntax.is_space (Char_u.of_char c)
+let[@inline] is_ows (c : char) = Httpz.Syntax.is_space (Char_u.of_char c)
 
 (* RFC 9110 token, which a field name and an unquoted parameter both are. *)
-let[@inline] is_tchar (c : char) = Httpz_syntax.is_token_char (Char_u.of_char c)
+let[@inline] is_tchar (c : char) = Httpz.Syntax.is_token_char (Char_u.of_char c)
 
 (* RFC 2046 bcharsnospace, plus SP everywhere but the last position. *)
 let[@inline] is_bchar_nospace (c : char) =
@@ -145,8 +145,8 @@ let valid_value_chars (s : string @ local) ~off ~len =
   !ok
 ;;
 
-let[@inline] valid_qdtext c = Httpz_syntax.is_qdtext_char (Char_u.of_char c)
-let[@inline] valid_quoted_pair c = Httpz_syntax.is_quoted_pair_char (Char_u.of_char c)
+let[@inline] valid_qdtext c = Httpz.Syntax.is_qdtext_char (Char_u.of_char c)
+let[@inline] valid_quoted_pair c = Httpz.Syntax.is_quoted_pair_char (Char_u.of_char c)
 
 let percent_decode (s : string @ local) ~off ~len =
   if len <= 0
@@ -182,7 +182,13 @@ let ext_value v =
        || not (equal_ci_window v ~off:0 ~len:!q1 "utf-8")
        || not (valid_value_chars v ~off ~len)
     then None
-    else percent_decode v ~off ~len)
+    else (
+      (* The charset label promises UTF-8, so the decoded bytes must be valid
+         UTF-8; passing them on unchecked would hand handlers a string that
+         violates the encoding they were told to expect. *)
+      match percent_decode v ~off ~len with
+      | Some decoded when Stdlib.String.is_valid_utf_8 decoded -> Some decoded
+      | _ -> None))
 ;;
 
 (* Parameters of a field value: ";" name "=" (token / quoted-string), with
@@ -190,6 +196,9 @@ let ext_value v =
    accepting a valid prefix would turn [boundary=a:b] into [boundary=a]. *)
 let parse_params (s : string @ local) ~pos ~stop =
   let acc = ref [] in
+  (* Names repeat-checked in expected O(1): a header line full of "a=b;" pairs is wire
+     input, and a linear rescan per pair makes the whole parse quadratic. *)
+  let seen = Stdlib.Hashtbl.create ~random:true 8 in
   let i = ref pos in
   let valid = ref true in
   let going = ref true in
@@ -235,7 +244,7 @@ let parse_params (s : string @ local) ~pos ~stop =
             else (
               let len = !i + 1 - q0 in
               Stdlib.incr i;
-              Httpz_syntax.unquote_string (sub s ~pos:q0 ~len)))
+              Httpz.Syntax.unquote_string (sub s ~pos:q0 ~len)))
           else (
             let v0 = !i in
             while !i < stop && is_tchar (String.get s !i) do
@@ -247,9 +256,11 @@ let parse_params (s : string @ local) ~pos ~stop =
         | None -> valid := false
         | Some v ->
           let name = String.lowercase (sub s ~pos:n0 ~len:(n1 - n0)) in
-          if List.exists !acc ~f:(fun (existing, _) -> String.equal existing name)
+          if Stdlib.Hashtbl.mem seen name
           then valid := false
-          else acc := (name, v) :: !acc))
+          else (
+            Stdlib.Hashtbl.add seen name ();
+            acc := (name, v) :: !acc)))
   done;
   if !valid then Some (List.rev !acc) else None
 ;;
@@ -450,7 +461,7 @@ let rec find_line_end (body : string @ local) ~start ~pos =
     then Error "bare LF in a part header"
     else if Char.equal c '\000'
     then Error "NUL in a part header"
-    else if not (Httpz_syntax.is_field_value_char (Char_u.of_char c))
+    else if not (Httpz.Syntax.is_field_value_char (Char_u.of_char c))
     then Error "control byte in a part header"
     else find_line_end body ~start ~pos:(pos + 1))
 ;;

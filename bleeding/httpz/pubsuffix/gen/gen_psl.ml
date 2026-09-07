@@ -206,11 +206,15 @@ type trie_node = {
 ;;
 
 let () =
-  if Array.length Sys.argv < 2
-  then (
-    Printf.eprintf "Usage: %s <public_suffix_list.dat>\n" Sys.argv.(0);
-    exit 1);
-  let filename = Sys.argv.(1) in
+  let allow_partial, filename =
+    match Array.to_list Sys.argv with
+    | [ _; filename ] -> (false, filename)
+    | [ _; "--allow-partial"; filename ] -> (true, filename)
+    | _ ->
+      Printf.eprintf "Usage: %s [--allow-partial] <public_suffix_list.dat>\n"
+        Sys.argv.(0);
+      exit 1
+  in
   let trie, rule_count, icann_count, private_count, version, commit =
     parse_file filename
   in
@@ -228,5 +232,17 @@ let () =
       Printf.eprintf "ERROR: COMMIT not found in %s\n" filename;
       exit 1
   in
+  (* VERSION and COMMIT sit at the top of the file, so a truncated download
+     still passes the checks above while missing rules. Missing Private rules
+     then fail open for cross-tenant cookies via the implicit wildcard. The
+     2026-09 list has ~6950 ICANN and ~3300 Private rules; refuse a file that
+     falls well short of both sections. *)
+  if (not allow_partial) && (icann_count < 5000 || private_count < 2000)
+  then (
+    Printf.eprintf
+      "ERROR: %s looks incomplete (%d ICANN, %d Private rules; expected at \
+       least 5000 and 2000). Pass --allow-partial only for test fixtures.\n"
+      filename icann_count private_count;
+    exit 1);
   generate_code trie rule_count icann_count private_count version commit
 ;;

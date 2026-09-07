@@ -580,13 +580,17 @@ let expand template lookup =
   in
   loop template.parts
 
+(* Keep tiny binding lists cheap; index larger ones without changing which
+   duplicate wins. Every association-based expansion uses this lookup. *)
 let assoc_lookup bindings =
-  let values = Hashtbl.create (List.length bindings) in
-  List.iter
-    (fun (name, value) ->
-       if not (Hashtbl.mem values name) then Hashtbl.add values name value)
-    bindings;
-  fun name -> Hashtbl.find_opt values name
+  if List.compare_length_with bindings 8 <= 0 then
+    fun name -> List.assoc_opt name bindings
+  else
+    let values = Hashtbl.create ~random:true (List.length bindings) in
+    List.iter (fun (name, value) ->
+        if not (Hashtbl.mem values name) then Hashtbl.add values name value)
+      bindings;
+    fun name -> Hashtbl.find_opt values name
 
 let expand_assoc template bindings = expand template (assoc_lookup bindings)
 

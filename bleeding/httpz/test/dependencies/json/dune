@@ -1,4 +1,4 @@
 (test
  (name consumer)
  (package httpz)
- (libraries httpz.jsont jsont))
+ (libraries httpz.media jsont))

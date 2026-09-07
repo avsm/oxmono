@@ -409,4 +409,15 @@ let () =
     (code o = 412 && header o H.Cache_control = Some "public, max-age=3600");
   check "412 drops representation validators" (header o H.Etag = None)
 
+(* Owned field values are not constrained by the transport's head buffer or
+   Httpz.Etag's sixteen-tag array. Keep that distinction through refactors. *)
+let () =
+  let many = String.concat ", " (List.init 40 (fun _ -> "\"other\"")) ^ ", W/\"v1\"" in
+  check "matching after sixteen tags" (code (run ~headers:["If-None-Match", many] M.Get "/page") = 304);
+  let long = "\"" ^ String.make 70_000 'x' ^ "\", \"v1\"" in
+  check "matching after a large opaque tag" (code (run ~headers:["If-None-Match", long] M.Get "/page") = 304);
+  let quoted = "\"a,b\", \"v1\"" in
+  check "commas inside opaque tags are not separators"
+    (code (run ~headers:["If-None-Match", quoted] M.Get "/page") = 304)
+
 let () = Printf.printf "test_conditional: %d checks ok\n" !checks

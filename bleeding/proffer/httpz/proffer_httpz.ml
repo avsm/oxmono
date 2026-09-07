@@ -1119,18 +1119,19 @@ let run ?sw ?port ?addr ?(config = default_config) ?tls ?on_listening ?on_event
       invalid_arg
         (Printf.sprintf "Proffer_httpz.run: config.%s must be positive" name)
   in
-  let positive_timeout name seconds =
-    if seconds <= 0. then
+  (* Compare the raw int64: a coerced or NaN-derived negative maps to ~292
+     years under [Duration.to_f], which would silently disable the bound. *)
+  let positive_timeout name (t : Duration.t) =
+    if t <= 0L then
       invalid_arg
-        (Printf.sprintf
-           "Proffer_httpz.run: config.%s must be positive" name)
+        (Printf.sprintf "Proffer_httpz.run: config.%s must be positive" name)
   in
   positive "backlog" config.backlog;
   positive "max_connections" config.max_connections;
-  positive_timeout "first_byte_timeout" (Duration.to_f config.first_byte_timeout);
-  positive_timeout "idle_timeout" (Duration.to_f config.idle_timeout);
-  positive_timeout "request_timeout" (Duration.to_f config.request_timeout);
-  positive_timeout "write_timeout" (Duration.to_f config.write_timeout);
+  positive_timeout "first_byte_timeout" config.first_byte_timeout;
+  positive_timeout "idle_timeout" config.idle_timeout;
+  positive_timeout "request_timeout" config.request_timeout;
+  positive_timeout "write_timeout" config.write_timeout;
   let addr =
     match addr, port with
     | Some addr, None -> addr

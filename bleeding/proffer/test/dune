@@ -26,16 +26,39 @@
   test_media
   test_sse)
  (package proffer)
- (libraries proffer proffer_mock httpz httpz.media))
+ (libraries duration proffer proffer_mock httpz httpz.media))
 
 (test
  (name test_httpz)
  (modules test_httpz)
  (package proffer-httpz)
- (libraries proffer proffer_httpz eio eio_main httpz httpz.tls))
+ (libraries duration proffer proffer_httpz eio eio_main httpz httpz.tls))
 
 (test
  (name test_config)
  (modules test_config)
  (package proffer-httpz)
- (libraries eio proffer proffer_httpz eio_main))
+ (libraries duration eio proffer proffer_httpz eio_main))
+
+(test
+ (name test_json)
+ (modules test_json)
+ (package proffer)
+ (libraries
+  proffer
+  jsont
+  fetch
+  fetch.mock
+  proffer.mock
+  eio
+  eio.mock
+  http
+  str
+  alcotest
+  httpz.media))
+
+(test
+ (name test_markdown)
+ (modules test_markdown)
+ (package proffer)
+ (libraries proffer cmarkit alcotest httpz.media))

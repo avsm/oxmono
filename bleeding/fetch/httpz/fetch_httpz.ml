@@ -818,6 +818,12 @@ let v ?clock ?connect ?https ?(max_response = 256 * 1024 * 1024)
   if not (Middleware.is_field_value user_agent) then
     invalid_arg
       "Fetch_httpz.v: user_agent contains a forbidden control byte";
+  (* Compare the raw int64: a coerced or NaN-derived negative maps to ~292
+     years under [Duration.to_f], which would silently disable the bound. *)
+  if connect_timeout < 0L then
+    invalid_arg "Fetch_httpz.v: connect_timeout must be non-negative";
+  if idle_timeout < 0L then
+    invalid_arg "Fetch_httpz.v: idle_timeout must be non-negative";
   let connect_timeout = Duration.to_f connect_timeout in
   let idle_timeout = Duration.to_f idle_timeout in
   let connect =

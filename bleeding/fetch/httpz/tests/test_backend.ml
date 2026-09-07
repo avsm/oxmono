@@ -342,7 +342,13 @@ let test_config_validation () =
     (invalid (fun () -> Fetch_httpz.v ~max_response:(-1) net ()));
   check "invalid user agent"
     "Fetch_httpz.v: user_agent contains a forbidden control byte"
-    (invalid (fun () -> Fetch_httpz.v ~user_agent:"bad\ragent" net ()))
+    (invalid (fun () -> Fetch_httpz.v ~user_agent:"bad\ragent" net ()));
+  check "negative connect timeout"
+    "Fetch_httpz.v: connect_timeout must be non-negative"
+    (invalid (fun () -> Fetch_httpz.v ~connect_timeout:(-1L) net ()));
+  check "negative idle timeout"
+    "Fetch_httpz.v: idle_timeout must be non-negative"
+    (invalid (fun () -> Fetch_httpz.v ~idle_timeout:(-1L) net ()))
 
 let test_oversized_request_head () =
   with_server @@ fun t url ->

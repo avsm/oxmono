@@ -8,6 +8,7 @@
   atp-lexicon-atproto
   atp-lexicon-standard-site
   jsont
+  uri
   fmt
   eio
   ptime

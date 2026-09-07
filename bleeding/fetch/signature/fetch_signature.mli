@@ -523,6 +523,8 @@ module Middleware : sig
   val sign :
     clock:_ Eio.Time.clock ->
     ?config:config ->
+    ?format:[ `Rfc9421 | `Cavage ] ->
+    ?digest_empty:bool ->
     ?digest_algorithm:Content_digest.algorithm ->
     ?add_date:bool ->
     key:Key.t ->
@@ -530,6 +532,12 @@ module Middleware : sig
     Fetch.plain
   (** [sign ~clock ~key t] is [t] with an RFC 9421 signature added to every
       request, built with {!Fetch.Middleware.middleware}.
+
+      [format] defaults to [`Rfc9421]. [`Cavage] emits draft-compatible
+      RSA-SHA256 signatures over the request target, derived Host, Date, and
+      Digest for string bodies; a key ID and RSA private key are required.
+      [digest_empty] (default [false]) adds and covers an empty-body digest for
+      RFC 9421 GET requests without changing their request body.
 
       [config] (default [config ~key ()]) supplies the label, keyid,
       components and tag; its own [key] field is always replaced by [key], so

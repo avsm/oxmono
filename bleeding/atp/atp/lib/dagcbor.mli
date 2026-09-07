@@ -46,7 +46,7 @@ type cid_format = [ `Standard | `Atproto ]
       multihash length byte. Tag 42 + ByteString(0x00 + CID raw bytes). Total 38
       bytes for SHA-256.
 
-    - [`Atproto]: AT Protocol simplified format without multibase prefix or
+    - [`Atproto]: Experimental draft format without multibase prefix or
       length byte. Tag 42 + ByteString(0x01 + codec + 0x12 + hash). Total 36
       bytes for SHA-256. Per draft-holmgren-at-repository.md Section 6.5 (line
       368). *)
@@ -76,21 +76,23 @@ type Eio.Exn.err +=
 (** {1 Decoding} *)
 
 val decode :
-  ?strict:bool -> ?cid_format:cid_format -> Bytesrw.Bytes.Reader.t -> value
+  ?strict:bool -> ?cid_format:cid_format -> ?max_bytes:int -> ?max_depth:int -> Bytesrw.Bytes.Reader.t -> value
 (** [decode ?strict ?cid_format reader] decodes a DAG-CBOR value from [reader].
 
+    @param max_bytes Maximum consumed bytes (default: 16 MiB).
+    @param max_depth Maximum nesting depth (default: 128).
     @param strict
       If [true] (default), enforces canonical encoding: sorted map keys,
       shortest integer encoding, 64-bit floats only. If [false], accepts
       non-canonical encodings.
 
     @param cid_format
-      CID encoding format, default [`Standard]. Use [`Atproto] for AT Protocol
-      repositories.
+      CID encoding format, default [`Standard]. Use [`Standard] for current AT Protocol repositories.
+      [`Atproto] is an experimental encoding from the bundled draft.
 
     @raise Eio.Io on decode errors. *)
 
-val decode_string : ?strict:bool -> ?cid_format:cid_format -> string -> value
+val decode_string : ?strict:bool -> ?cid_format:cid_format -> ?max_bytes:int -> ?max_depth:int -> string -> value
 (** [decode_string ?strict ?cid_format s] decodes a DAG-CBOR value from string
     [s].
 
@@ -109,8 +111,8 @@ val encode :
     - Floats are always 64-bit
 
     @param cid_format
-      CID encoding format, default [`Standard]. Use [`Atproto] for AT Protocol
-      repositories.
+      CID encoding format, default [`Standard]. Use [`Standard] for current AT Protocol repositories.
+      [`Atproto] is an experimental encoding from the bundled draft.
 
     @param eod If [true], writes end-of-data marker after encoding.
 

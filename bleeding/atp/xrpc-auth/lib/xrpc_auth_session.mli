@@ -127,3 +127,14 @@ val of_xrpc : pds:string -> Xrpc.Types.session -> t
 
 val to_xrpc : t -> Xrpc.Types.session
 (** [to_xrpc session] converts our session type to an XRPC session. *)
+
+exception Invalid_session of string
+(** A saved configuration/session exists but is malformed. Missing sessions
+    return [None]. Saves sync a mode-0600 temporary file before atomic rename;
+    XDG_CONFIG_HOME is honoured, defaulting to ~/.config. *)
+val validate_name : string -> unit
+(** Validate a profile/application name as a safe single path component. *)
+
+val save_private : Eio.Fs.dir_ty Eio.Path.t -> string -> unit
+(** Atomically replace a credential file using a synced mode-0600 temporary file.
+    The parent directory must already exist. *)

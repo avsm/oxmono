@@ -45,7 +45,7 @@ val decode_payload : string -> (payload, string) result
 
 (** {1 Expiration Checking} *)
 
-val is_expired : ?leeway:Ptime.Span.t -> string -> bool
+val is_expired : ?now:Ptime.t -> ?leeway:Ptime.Span.t -> string -> bool
 (** [is_expired ?leeway jwt] returns [true] if the token has expired or will
     expire within [leeway].
 
@@ -53,7 +53,8 @@ val is_expired : ?leeway:Ptime.Span.t -> string -> bool
       Safety margin before actual expiry (default: 60 seconds). This allows time
       for the refresh request to complete before the token becomes invalid.
 
-    Returns [true] if decoding fails (fail-safe behavior). *)
+    Returns [true] if decoding fails or [exp] is missing. [now] defaults to
+    the system clock; credential managers supply their Eio clock. *)
 
 val get_expiration : string -> Ptime.t option
 (** [get_expiration jwt] returns the expiration time if present. Returns [None]

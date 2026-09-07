@@ -49,29 +49,22 @@ let encode n =
   encode_to_buffer buf n;
   Buffer.contents buf
 
-let decode_string s off =
-  let len = String.length s in
+let decode ~length ~get off =
+  if off < 0 || off > length then invalid_arg "Varint.decode: offset outside input";
   let rec loop acc shift i =
-    if i >= len then raise_error `Varint_unterminated;
-    let byte = Char.code (String.unsafe_get s i) in
+    if i >= length then raise_error `Varint_unterminated;
+    let byte = get i in
     let value = byte land mask in
-    (* Check for overflow before shifting *)
-    if shift >= 63 && value > 1 then raise_error `Varint_overflow;
+    if shift >= Sys.int_size - 1 || value > (max_int lsr shift) then
+      raise_error `Varint_overflow;
     let acc = acc lor (value lsl shift) in
     if byte land msb = 0 then (acc, i - off + 1)
     else loop acc (shift + 7) (i + 1)
   in
   loop 0 0 off
 
+let decode_string s off =
+  decode ~length:(String.length s) ~get:(fun i -> Char.code s.[i]) off
+
 let decode_bytes b off =
-  let len = Bytes.length b in
-  let rec loop acc shift i =
-    if i >= len then raise_error `Varint_unterminated;
-    let byte = Bytes.get_uint8 b i in
-    let value = byte land mask in
-    if shift >= 63 && value > 1 then raise_error `Varint_overflow;
-    let acc = acc lor (value lsl shift) in
-    if byte land msb = 0 then (acc, i - off + 1)
-    else loop acc (shift + 7) (i + 1)
-  in
-  loop 0 0 off
+  decode ~length:(Bytes.length b) ~get:(fun i -> Bytes.get_uint8 b i) off

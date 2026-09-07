@@ -72,15 +72,16 @@ type t
 
 (** HTTP signature configuration for authenticated requests.
 
-    Uses RFC 9421 HTTP Message Signatures via the [fetch-signature] library.
-    ActivityPub typically uses RSA-SHA256 signatures.
+    Uses [fetch-signature] middleware for GET and POST. The default format is
+    RFC 9421 with RSA-SHA256 for RSA keys; [`Cavage] selects the legacy
+    [(request-target), host, date, digest] RSA-SHA256 profile.
 
     The following message components are signed:
     - [@method] - HTTP request method
     - [@target-uri] - Complete target URI, including its query
     - [date] - Date header
     - [content-digest] - SHA-256 digest of request body
-    - [content-type] - Content-Type header
+    - [content-type] - Content-Type header (POST only)
 
     Initialize a Mirage Crypto random generator before signing, for example
     with [Mirage_crypto_rng_unix.use_default ()]. RSA signing uses it for blinding. *)
@@ -89,6 +90,7 @@ module Signing : sig
   (** Signing configuration. *)
 
   val create :
+    ?format:[ `Rfc9421 | `Cavage ] ->
     key_id:string ->
     key:Fetch_signature.Key.t ->
     unit ->
@@ -99,6 +101,7 @@ module Signing : sig
       @param key The cryptographic key from {!Fetch_signature.Key} *)
 
   val from_pem :
+    ?format:[ `Rfc9421 | `Cavage ] ->
     key_id:string ->
     pem:string ->
     unit ->
@@ -111,6 +114,7 @@ module Signing : sig
       @return [Ok t] on success, [Error msg] if PEM parsing fails *)
 
   val from_pem_exn :
+    ?format:[ `Rfc9421 | `Cavage ] ->
     key_id:string ->
     pem:string ->
     unit ->
@@ -130,6 +134,8 @@ val create :
   ?signing:Signing.t ->
   ?user_agent:string ->
   ?max_response_bytes:int ->
+  ?id_generator:(actor:Uriz.t -> kind:string -> Uriz.t) ->
+  ?persist:(Proto.Activity.t -> unit) ->
   ?timeout:float ->
   < clock : _ Eio.Time.clock ; .. > ->
   t
@@ -141,13 +147,22 @@ val create :
     @param timeout Request timeout in seconds (default: 30.0); finite and
       non-negative, with zero disabling the timeout
     @param max_response_bytes Maximum decoded response size (default: 16 MiB).
-      JSON nesting is also bounded by Fetch's default depth limit. *)
+      JSON nesting is also bounded by Fetch's default depth limit.
+    @param id_generator Generates object/activity URIs. The default uses 128 bits
+      of cryptographic randomness under the actor URI; initialize Mirage Crypto's
+      random generator before using it.
+    @param persist Called before generated activities are delivered. It must store
+      the activity and its embedded objects durably and arrange for their IDs to
+      be dereferenceable. Required for Actor follow/respond/undo and Outbox helpers;
+      omitted callbacks cause those operations to fail. Reads need no callback. *)
 
 val of_fetch :
   clock:_ Eio.Time.clock ->
   ?signing:Signing.t ->
   ?user_agent:string ->
   ?max_response_bytes:int ->
+  ?id_generator:(actor:Uriz.t -> kind:string -> Uriz.t) ->
+  ?persist:(Proto.Activity.t -> unit) ->
   _ Fetch.t ->
   t
 (** [of_fetch ~clock fetch] uses an existing Fetch capability. The caller owns
@@ -156,10 +171,9 @@ val of_fetch :
     a JSON media type. ActivityPub reads accept [application/activity+json],
     [application/ld+json], and [application/json].
 
-    Signing applies to POSTs only, using RFC 9421 and RSA-SHA256 for RSA keys.
-    POST redirects are returned as HTTP errors; delivery bodies are never
-    forwarded to a redirect target. GET requests follow Fetch's default policy.
-    Older servers requiring draft HTTP Signatures are not supported. *)
+    Signing applies to GETs and POSTs, using the selected format. POST redirects
+    are returned as HTTP errors; GETs follow Fetch's policy and are re-signed for
+    each canonical target. ID generation and persistence are as in {!create}. *)
 
 val user_agent : t -> string
 (** [user_agent t] returns the User-Agent string used by the client. *)
@@ -305,14 +319,14 @@ module Actor : sig
       @param page URI of specific page to fetch (default: first page)
       @raise E on fetch failure *)
 
-  val followers : t -> Proto.Actor.t -> Proto.Actor.t Proto.Collection.t
+  val followers : t -> Proto.Actor.t -> Proto.Actor_ref.t Proto.Collection.t
   (** [followers client actor] fetches the actor's followers collection.
 
       Note: Many servers restrict follower list visibility.
 
       @raise E on fetch failure *)
 
-  val following : t -> Proto.Actor.t -> Proto.Actor.t Proto.Collection.t
+  val following : t -> Proto.Actor.t -> Proto.Actor_ref.t Proto.Collection.t
   (** [following client actor] fetches the actor's following collection.
 
       Note: Many servers restrict following list visibility.
@@ -329,8 +343,8 @@ module Actor : sig
 
       @raise E on send failure *)
 
-  val unfollow : t -> actor:Proto.Actor.t -> target:Proto.Actor.t -> Proto.Activity.t
-  (** [unfollow client ~actor ~target] creates and sends an Undo(Follow) activity.
+  val unfollow : t -> actor:Proto.Actor.t -> follow:Proto.Activity.t -> Proto.Activity.t
+  (** [unfollow client ~actor ~follow] creates and sends an Undo(Follow) activity.
 
       @raise E on send failure *)
 
@@ -393,21 +407,28 @@ module Inbox : sig
     unit
   (** [post_to_shared_inbox client ~host activity] delivers to a server's shared inbox.
 
-      Looks for [endpoints.sharedInbox] on the instance actor at [/actor],
-      then falls back to [/inbox] on the same host.
+      Uses [endpoints.sharedInbox] advertised by the instance actor at [/actor].
+      Missing discovery data and transport/authorization failures raise {!E}.
 
       @raise E on delivery failure *)
 end
 
 (** {1 Outbox Operations} *)
 
-(** Construct activities and deliver them directly to actor inboxes. These
-    helpers neither store activities nor submit them to the actor's outbox.
-    Recipient collections, including followers, are not expanded.
+(** Construct activities, persist them through the client callback, and deliver
+    directly to actor inboxes. Recipient collections are expanded with depth (4),
+    page (100), and item (10000) limits. Delivery excludes the sender and deduplicates
+    inboxes. Blind recipient fields are removed from the outgoing JSON.
 
     Resolution and delivery failures raise {!E}. Delivery is sequential:
-    earlier recipients may have accepted an activity when a later send fails. *)
+    earlier recipients may have accepted an activity when a later send fails.
+    Retain the persisted activity for retries and subsequent Undo operations. *)
 module Outbox : sig
+  val deliver : t -> actor:Proto.Actor.t -> Proto.Activity.t -> unit
+  (** Persist and deliver an existing activity, preserving its ID for retries.
+      An ID is required, and the actor must be its author. Delivery may already
+      have partially succeeded. *)
+
   (** {2 Creating Notes} *)
 
   val create_note :
@@ -429,7 +450,7 @@ module Outbox : sig
       @param to_ Primary recipients (default: none)
       @param cc Secondary recipients
       @param sensitive Content warning flag
-      @param summary Content warning text (if sensitive)
+      @param summary Content warning text
       @param content Note content (HTML)
       @raise E on send failure *)
 
@@ -437,6 +458,8 @@ module Outbox : sig
     t ->
     actor:Proto.Actor.t ->
     ?in_reply_to:Uriz.t ->
+    ?sensitive:bool ->
+    ?summary:string ->
     content:string ->
     unit ->
     Proto.Activity.t
@@ -451,6 +474,8 @@ module Outbox : sig
     t ->
     actor:Proto.Actor.t ->
     ?in_reply_to:Uriz.t ->
+    ?sensitive:bool ->
+    ?summary:string ->
     content:string ->
     unit ->
     Proto.Activity.t
@@ -479,8 +504,8 @@ module Outbox : sig
 
       @raise E on send failure *)
 
-  val unlike : t -> actor:Proto.Actor.t -> object_:Uriz.t -> Proto.Activity.t
-  (** [unlike client ~actor ~object_] unlikes an object (Undo(Like)).
+  val unlike : t -> actor:Proto.Actor.t -> like:Proto.Activity.t -> Proto.Activity.t
+  (** [unlike client ~actor ~like] unlikes an object (Undo(Like)).
 
       @raise E on send failure *)
 
@@ -489,8 +514,8 @@ module Outbox : sig
 
       @raise E on send failure *)
 
-  val unannounce : t -> actor:Proto.Actor.t -> object_:Uriz.t -> Proto.Activity.t
-  (** [unannounce client ~actor ~object_] unboosts an object (Undo(Announce)).
+  val unannounce : t -> actor:Proto.Actor.t -> announce:Proto.Activity.t -> Proto.Activity.t
+  (** [unannounce client ~actor ~announce] unboosts an object (Undo(Announce)).
 
       @raise E on send failure *)
 
@@ -519,10 +544,13 @@ end
 
 (** {1 Collection Iteration} *)
 
-(** Utilities for iterating over paginated collections. Repeated page URIs
-    raise {!E} with {!Error.Json_error}, rather than looping indefinitely. *)
+(** Utilities for iterating over URI or embedded collection pages. Repeated page
+    URIs and exceeded budgets raise {!E} with {!Error.Json_error}. Iteration defaults
+    to at most 100 pages and 10000 items; budgets must be non-negative. *)
 module Collection : sig
   val iter :
+    ?max_pages:int ->
+    ?max_items:int ->
     t ->
     ('a -> unit) ->
     'a Proto.Collection.t ->
@@ -534,6 +562,8 @@ module Collection : sig
       @raise E on fetch failure *)
 
   val fold :
+    ?max_pages:int ->
+    ?max_items:int ->
     t ->
     ('acc -> 'a -> 'acc) ->
     'acc ->
@@ -546,6 +576,8 @@ module Collection : sig
       @raise E on fetch failure *)
 
   val to_list :
+    ?max_pages:int ->
+    ?max_items:int ->
     t ->
     'a Proto.Collection.t ->
     'a Jsont.t ->

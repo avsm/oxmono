@@ -7,7 +7,7 @@
 
 (** OAuth scopes for ActivityPub operations *)
 let scopes =
-  "read:accounts read:statuses write:statuses read:follows write:follows \
+  "read:search read:accounts read:statuses write:statuses read:follows write:follows \
    read:favourites write:favourites"
 
 (** Client app name shown during authorization *)
@@ -94,7 +94,8 @@ end
 (** Extract instance domain from account handle (user@instance.social) *)
 let instance_of_account account =
   match String.split_on_char '@' account with
-  | [_user; instance] -> Some instance
+  | [user; instance] when user <> "" && instance <> "" &&
+      not (String.exists (fun c -> List.mem c ['/'; '\\'; '?'; '#'; ':'; ' ']) instance) -> Some instance
   | _ -> None
 
 (** JSON responses use Fetch's size and nesting limits. *)

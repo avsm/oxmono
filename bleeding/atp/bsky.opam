@@ -13,6 +13,7 @@ depends: [
   "ocaml" {>= "5.1"}
   "atp" {= version}
   "atp-xrpc" {= version}
+  "xrpc-auth" {= version}
   "atp-lexicon-atproto" {= version}
   "atp-lexicon-bsky" {= version}
   "cmdliner" {>= "1.2"}

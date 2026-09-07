@@ -45,6 +45,16 @@ val uri_jsont : Uriz.t Jsont.t
 (** JSON codec for [Uriz.t] values. *)
 
 (** JSON-LD context. *)
+module Reference : sig
+  type t = Uri of Uriz.t | Embedded of Jsont.json
+  val uri : Uriz.t -> t
+  val embedded : Jsont.json -> t
+  val of_value : 'a Jsont.t -> 'a -> t
+  val decode : 'a Jsont.t -> t -> ('a, string) result
+  val id : t -> Uriz.t option
+  val jsont : t Jsont.t
+end
+
 module Context : sig
   type t
 
@@ -340,8 +350,8 @@ module Object : sig
     ?bto:Recipient.t list ->
     ?bcc:Recipient.t list ->
     ?replies:Uriz.t ->
-    ?attachment:Link_or_uri.t list ->
-    ?tag:Link_or_uri.t list ->
+    ?attachment:Reference.t list ->
+    ?tag:Reference.t list ->
     ?generator:Uriz.t ->
     ?icon:Image_ref.t list ->
     ?image:Image_ref.t list ->
@@ -351,8 +361,8 @@ module Object : sig
     ?sensitive:bool ->
     ?conversation:Uriz.t ->
     ?audience:Recipient.t list ->
-    ?location:Link_or_uri.t ->
-    ?preview:Link_or_uri.t ->
+    ?location:Reference.t ->
+    ?preview:Reference.t ->
     unit -> t
   (** Create a new Object. *)
 
@@ -374,8 +384,8 @@ module Object : sig
   val bto : t -> Recipient.t list option
   val bcc : t -> Recipient.t list option
   val replies : t -> Uriz.t option
-  val attachment : t -> Link_or_uri.t list option
-  val tag : t -> Link_or_uri.t list option
+  val attachment : t -> Reference.t list option
+  val tag : t -> Reference.t list option
   val generator : t -> Uriz.t option
   val icon : t -> Image_ref.t list option
   val image : t -> Image_ref.t list option
@@ -386,25 +396,21 @@ module Object : sig
   val conversation : t -> Uriz.t option
   val audience : t -> Recipient.t list option
 
-  val location : t -> Link_or_uri.t option
+  val location : t -> Reference.t option
   (** [location t] returns the physical or logical location associated with the object. *)
 
-  val preview : t -> Link_or_uri.t option
+  val preview : t -> Reference.t option
   (** [preview t] returns a preview of the object, typically a smaller version. *)
 
+  val with_content : updated:Datetime.t -> string -> t -> t
   val jsont : t Jsont.t
   (** JSON type for Objects. *)
 end
 
-(** Object reference - can be URI or full Object. *)
+(** URI or lossless embedded object/activity reference. *)
 module Object_ref : sig
-  type t =
-    | Uri of Uriz.t
-    | Object of Object.t
-
-  val uri : Uriz.t -> t
+  include module type of Reference with type t = Reference.t
   val obj : Object.t -> t
-  val jsont : t Jsont.t
 end
 
 (** {1 Activity Types} *)
@@ -466,6 +472,7 @@ module Activity : sig
     ?cc:Recipient.t list ->
     ?bto:Recipient.t list ->
     ?bcc:Recipient.t list ->
+    ?audience:Recipient.t list ->
     ?published:Datetime.t ->
     ?updated:Datetime.t ->
     ?summary:string ->
@@ -492,6 +499,7 @@ module Activity : sig
   val cc : t -> Recipient.t list option
   val bto : t -> Recipient.t list option
   val bcc : t -> Recipient.t list option
+  val audience : t -> Recipient.t list option
   val published : t -> Datetime.t option
   val updated : t -> Datetime.t option
   val summary : t -> string option
@@ -531,9 +539,9 @@ module Collection : sig
     ?context:Context.t ->
     ?id:Uriz.t ->
     ?total_items:int ->
-    ?current:Uriz.t ->
-    ?first:Uriz.t ->
-    ?last:Uriz.t ->
+    ?current:Reference.t ->
+    ?first:Reference.t ->
+    ?last:Reference.t ->
     ?items:'a list ->
     ordered:bool ->
     unit -> 'a t
@@ -542,9 +550,9 @@ module Collection : sig
   val context : 'a t -> Context.t option
   val id : 'a t -> Uriz.t option
   val total_items : 'a t -> int option
-  val current : 'a t -> Uriz.t option
-  val first : 'a t -> Uriz.t option
-  val last : 'a t -> Uriz.t option
+  val current : 'a t -> Reference.t option
+  val first : 'a t -> Reference.t option
+  val last : 'a t -> Reference.t option
   val items : 'a t -> 'a list option
   val ordered : 'a t -> bool
 
@@ -563,11 +571,11 @@ module Collection_page : sig
     ?context:Context.t ->
     ?id:Uriz.t ->
     ?total_items:int ->
-    ?current:Uriz.t ->
-    ?first:Uriz.t ->
-    ?last:Uriz.t ->
-    ?prev:Uriz.t ->
-    ?next:Uriz.t ->
+    ?current:Reference.t ->
+    ?first:Reference.t ->
+    ?last:Reference.t ->
+    ?prev:Reference.t ->
+    ?next:Reference.t ->
     ?part_of:Uriz.t ->
     ?items:'a list ->
     ordered:bool ->
@@ -577,11 +585,11 @@ module Collection_page : sig
   val context : 'a t -> Context.t option
   val id : 'a t -> Uriz.t option
   val total_items : 'a t -> int option
-  val current : 'a t -> Uriz.t option
-  val first : 'a t -> Uriz.t option
-  val last : 'a t -> Uriz.t option
-  val prev : 'a t -> Uriz.t option
-  val next : 'a t -> Uriz.t option
+  val current : 'a t -> Reference.t option
+  val first : 'a t -> Reference.t option
+  val last : 'a t -> Reference.t option
+  val prev : 'a t -> Reference.t option
+  val next : 'a t -> Reference.t option
   val part_of : 'a t -> Uriz.t option
   val items : 'a t -> 'a list option
   val ordered : 'a t -> bool

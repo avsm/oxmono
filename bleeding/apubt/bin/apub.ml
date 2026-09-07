@@ -226,12 +226,15 @@ module Outbox_cmd = struct
           (match Apubt.Proto.Activity.object_ activity with
            | Some (Apubt.Proto.Object_ref.Uri uri) ->
                Fmt.pr "Object: %s@," (Uriz.to_string uri)
-           | Some (Apubt.Proto.Object_ref.Object obj) ->
+           | Some (Apubt.Proto.Object_ref.Embedded json) ->
+               (match Jsont.Json.decode Apubt.Proto.Object.jsont json with
+               | Error _ -> Fmt.pr "Embedded activity or object@,"
+               | Ok obj ->
                Fmt.pr "Object type: %s@," (Apubt.Proto.Object_type.to_string (Apubt.Proto.Object.type_ obj));
                Option.iter (fun c ->
                  let c = if String.length c > 100 then String.sub c 0 100 ^ "..." else c in
                  Fmt.pr "Content: %s@," c
-               ) (Apubt.Proto.Object.content obj)
+               ) (Apubt.Proto.Object.content obj))
            | None -> ());
           Fmt.pr "@,"
         ) items;
@@ -278,73 +281,44 @@ let profile_arg =
   let doc = "Profile to use for credentials (default: current profile)." in
   Arg.(value & opt (some string) None & info ["profile"; "P"] ~docv:"PROFILE" ~doc)
 
-(* Auth mode - signature-based or OAuth-based *)
-type auth_mode =
-  | Signature_auth of Apubt.Signing.t
-  | OAuth_auth of { instance : string; token : string }
-  | No_auth
+let signature_format =
+  let doc = "HTTP signature format for federation." in
+  Arg.(value & opt (enum ["rfc9421", `Rfc9421; "cavage", `Cavage]) `Rfc9421
+    & info ["signature-format"] ~docv:"FORMAT" ~doc)
 
-(* Result type for credential resolution *)
-type credentials = {
-  actor_uri : string;
-  auth : auth_mode;
-  session : Apub_auth_session.t option; [@warning "-69"]
-}
+open Apub_auth_credentials
 
-(* Resolve credentials from CLI args or saved session *)
-let resolve_credentials env ~key_file ~key_id ~actor_uri ~profile =
-  (* RSA signing uses randomness for blinding, including with imported keys. *)
+let resolve_credentials env ~key_file ~key_id ~actor_uri ~profile ~signature_format =
   Mirage_crypto_rng_unix.use_default ();
-  (* If explicit key_file and key_id provided, use those *)
-  match key_file, key_id, actor_uri with
-  | Some kf, Some kid, Some actor ->
-      let pem = In_channel.with_open_bin kf In_channel.input_all in
-      let signing = Apubt.Signing.from_pem_exn ~key_id:kid ~pem () in
-      Ok { actor_uri = actor; auth = Signature_auth signing; session = None }
-  | None, None, None ->
-      (* Try loading from session *)
-      let fs = env#fs in
-      (match Apub_auth_session.load fs ~app_name ?profile () with
-       | Some session ->
-           (* Prefer OAuth if available, otherwise use signature *)
-           let auth = match session.oauth_access_token, session.oauth_instance with
-             | Some token, Some instance ->
-                 OAuth_auth { instance; token }
-             | _ ->
-                 (* Fall back to signature auth if available *)
-                 (match session.key_id, session.private_key_pem with
-                  | Some key_id, Some pem ->
-                      let signing = Apubt.Signing.from_pem_exn ~key_id ~pem () in
-                      Signature_auth signing
-                  | _ -> No_auth)
-           in
-           Ok { actor_uri = session.actor_uri; auth; session = Some session }
-       | None ->
-           let profile_name = Option.value ~default:(Apub_auth_session.get_current_profile fs ~app_name) profile in
-           Error (Printf.sprintf "No credentials found (profile: %s). Use 'apub auth setup' or 'apub auth login' first." profile_name))
-  | _, _, Some actor ->
-      (* Actor provided but no keys - try loading keys from session *)
-      let fs = env#fs in
-      (match Apub_auth_session.load fs ~app_name ?profile () with
-       | Some session ->
-           let auth = match session.key_id, session.private_key_pem with
-             | Some key_id, Some pem ->
-                 let signing = Apubt.Signing.from_pem_exn ~key_id ~pem () in
-                 Signature_auth signing
-             | _ -> No_auth
-           in
-           Ok { actor_uri = actor; auth; session = Some session }
-       | None ->
-           (* Just use the actor without signing *)
-           Ok { actor_uri = actor; auth = No_auth; session = None })
-  | _ ->
-      Error "Incomplete credentials. Provide all of --actor, --key-file, --key-id, or use 'apub auth setup'."
+  try
+    let session = match key_file, key_id, actor_uri with
+      | Some _, Some _, Some _ -> None
+      | _ -> Apub_auth_session.load env#fs ~app_name ?profile () in
+    let pem = Option.map (fun file -> In_channel.with_open_bin file In_channel.input_all) key_file in
+    Apub_auth_credentials.resolve ~format:signature_format ?actor_uri ?key_id ?pem session
+  with
+  | Sys_error msg | Apub_auth_session.Invalid_session msg | Invalid_argument msg -> Error msg
 
-(* Helper to create client with resolved credentials *)
-let create_client_with_credentials ~sw ~user_agent ~timeout env creds =
+let create_client_with_credentials ~sw ~user_agent ~timeout ?profile env creds =
+  let persist activity =
+    let module P = Apubt.Proto in
+    let save id json = Apub_auth_session.save_document env#fs ~app_name ?profile
+      ~id:(Uriz.to_string id) json in
+    (match P.Activity.object_ activity with
+     | Some (P.Reference.Embedded json) ->
+         Option.iter (fun id -> save id json) (P.Reference.id (P.Reference.Embedded json))
+     | _ -> ());
+    match P.Activity.id activity, Jsont.Json.encode P.Activity.jsont activity with
+    | Some id, Ok json -> save id json
+    | _ -> raise (Apubt.E (Apubt.Error.Json_error "Generated activity has no storable ID")) in
   match creds.auth with
-  | Signature_auth signing -> Apubt.create ~sw ~signing ~user_agent ~timeout env
-  | OAuth_auth _ | No_auth -> Apubt.create ~sw ~user_agent ~timeout env
+  | Signature_auth signing -> Apubt.create ~sw ~signing ~persist ~user_agent ~timeout env
+  | OAuth_auth _ -> Apubt.create ~sw ~persist ~user_agent ~timeout env
+
+let fetch_local_actor client creds =
+  let actor = Apubt.Actor.fetch client (Uriz.of_string_exn creds.actor_uri) in
+  Apub_auth_credentials.validate_actor creds actor;
+  actor
 
 (* Post command - create a note *)
 module Post_cmd = struct
@@ -372,10 +346,11 @@ module Post_cmd = struct
     let doc = "Content warning / summary text." in
     Arg.(value & opt (some string) None & info ["summary"; "w"] ~docv:"TEXT" ~doc)
 
-  let run () timeout user_agent key_file key_id actor_uri profile content reply_to
-      _public followers_only sensitive cw_summary =
+  let run () timeout user_agent key_file key_id actor_uri profile signature_format content reply_to
+      public followers_only sensitive cw_summary =
     Eio_main.run @@ fun env ->
-    match resolve_credentials env ~key_file ~key_id ~actor_uri ~profile with
+    match (if public && followers_only then Error "Choose either --public or --followers-only"
+      else resolve_credentials env ~key_file ~key_id ~actor_uri ~profile ~signature_format) with
     | Error msg ->
         Fmt.epr "Error: %s@." msg;
         `Error (false, msg)
@@ -388,9 +363,9 @@ module Post_cmd = struct
               curl_client ~sw ~timeout ~user_agent ()
             in
             let visibility = if followers_only then Apub_mastodon_api.Private else Apub_mastodon_api.Public in
-            let spoiler_text = if sensitive then cw_summary else None in
-            (match Apub_mastodon_api.post_status fetch ~instance ~token ~content
-              ~visibility ?in_reply_to_id:reply_to ?sensitive:(if sensitive then Some true else None)
+            let spoiler_text = cw_summary in
+            (match Apub_mastodon_api.post_status_reply fetch ~instance ~token ~content
+              ~visibility ?reply_to ?sensitive:(if sensitive then Some true else None)
               ?spoiler_text () with
             | Ok status ->
                 Fmt.pr "Posted: %s@." status.uri;
@@ -399,18 +374,17 @@ module Post_cmd = struct
             | Error msg ->
                 Fmt.epr "Error: %s@." msg;
                 `Error (false, msg))
-        | Signature_auth _ | No_auth ->
+        | Signature_auth _ ->
             (* Use ActivityPub federation with HTTP signatures *)
-            let client = create_client_with_credentials ~sw ~user_agent ~timeout env creds in
+            let client = create_client_with_credentials ~sw ~user_agent ~timeout ?profile env creds in
             try
-              let actor = Apubt.Actor.fetch client (Uriz.of_string_exn creds.actor_uri) in
+              let actor = fetch_local_actor client creds in
               let in_reply_to = Option.map Uriz.of_string_exn reply_to in
-              let _summary = if sensitive then cw_summary else None in
               let activity =
                 if followers_only then
-                  Apubt.Outbox.followers_only_note client ~actor ?in_reply_to ~content ()
+                  Apubt.Outbox.followers_only_note client ~actor ?in_reply_to ~sensitive ?summary:cw_summary ~content ()
                 else
-                  Apubt.Outbox.public_note client ~actor ?in_reply_to ~content ()
+                  Apubt.Outbox.public_note client ~actor ?in_reply_to ~sensitive ?summary:cw_summary ~content ()
               in
               let activity_id = Option.get (Apubt.Proto.Activity.id activity) in
               Fmt.pr "Posted: %s@." (Uriz.to_string activity_id);
@@ -422,7 +396,7 @@ module Post_cmd = struct
 
   let term =
     Term.(ret (const run $ setup_log_term $ timeout $ user_agent $ key_file
-               $ key_id $ actor_uri $ profile_arg $ content $ reply_to $ public
+               $ key_id $ actor_uri $ profile_arg $ signature_format $ content $ reply_to $ public
                $ followers_only $ sensitive $ summary))
 
   let cmd =
@@ -446,9 +420,9 @@ module Follow_cmd = struct
     let doc = "Account to follow (user@domain or URI)." in
     Arg.(required & pos 0 (some string) None & info [] ~docv:"ACCOUNT" ~doc)
 
-  let run () timeout user_agent key_file key_id actor_uri profile target =
+  let run () timeout user_agent key_file key_id actor_uri profile signature_format target =
     Eio_main.run @@ fun env ->
-    match resolve_credentials env ~key_file ~key_id ~actor_uri ~profile with
+    match resolve_credentials env ~key_file ~key_id ~actor_uri ~profile ~signature_format with
     | Error msg ->
         Fmt.epr "Error: %s@." msg;
         `Error (false, msg)
@@ -461,7 +435,7 @@ module Follow_cmd = struct
               curl_client ~sw ~timeout ~user_agent ()
             in
             (* Look up the account first to get its ID *)
-            (match Apub_mastodon_api.lookup_account fetch ~instance ~token ~acct:target with
+            (match Apub_mastodon_api.resolve_account fetch ~instance ~token ~account:target with
             | Ok account ->
                 (match Apub_mastodon_api.follow fetch ~instance ~token ~account_id:account.id with
                 | Ok rel ->
@@ -475,11 +449,11 @@ module Follow_cmd = struct
             | Error msg ->
                 Fmt.epr "Error looking up account: %s@." msg;
                 `Error (false, msg))
-        | Signature_auth _ | No_auth ->
+        | Signature_auth _ ->
             (* Use ActivityPub federation with HTTP signatures *)
-            let client = create_client_with_credentials ~sw ~user_agent ~timeout env creds in
+            let client = create_client_with_credentials ~sw ~user_agent ~timeout ?profile env creds in
             try
-              let actor = Apubt.Actor.fetch client (Uriz.of_string_exn creds.actor_uri) in
+              let actor = fetch_local_actor client creds in
               let target_actor =
                 if String.contains target '@' && not (String.starts_with ~prefix:"http" target) then
                   Apubt.Actor.lookup client target
@@ -501,7 +475,7 @@ module Follow_cmd = struct
 
   let term =
     Term.(ret (const run $ setup_log_term $ timeout $ user_agent $ key_file
-               $ key_id $ actor_uri $ profile_arg $ target))
+               $ key_id $ actor_uri $ profile_arg $ signature_format $ target))
 
   let cmd =
     let doc = "Follow an actor." in
@@ -523,9 +497,9 @@ module Like_cmd = struct
     let doc = "URI of the object to like." in
     Arg.(required & pos 0 (some string) None & info [] ~docv:"URI" ~doc)
 
-  let run () timeout user_agent key_file key_id actor_uri profile object_uri =
+  let run () timeout user_agent key_file key_id actor_uri profile signature_format object_uri =
     Eio_main.run @@ fun env ->
-    match resolve_credentials env ~key_file ~key_id ~actor_uri ~profile with
+    match resolve_credentials env ~key_file ~key_id ~actor_uri ~profile ~signature_format with
     | Error msg ->
         Fmt.epr "Error: %s@." msg;
         `Error (false, msg)
@@ -538,23 +512,21 @@ module Like_cmd = struct
               curl_client ~sw ~timeout ~user_agent ()
             in
             (* Extract status ID from URL *)
-            (match Apub_mastodon_api.status_id_of_url object_uri with
-            | Some status_id ->
-                (match Apub_mastodon_api.favourite fetch ~instance ~token ~status_id with
+            (match Apub_mastodon_api.resolve_status fetch ~instance ~token ~url:object_uri with
+            | Ok resolved ->
+                (match Apub_mastodon_api.favourite fetch ~instance ~token ~status_id:resolved.id with
                 | Ok status ->
                     Fmt.pr "Liked: %s@." status.uri;
                     `Ok ()
                 | Error msg ->
                     Fmt.epr "Error: %s@." msg;
                     `Error (false, msg))
-            | None ->
-                Fmt.epr "Error: Could not extract status ID from URL: %s@." object_uri;
-                `Error (false, "Invalid status URL"))
-        | Signature_auth _ | No_auth ->
+            | Error msg -> `Error (false, msg))
+        | Signature_auth _ ->
             (* Use ActivityPub federation with HTTP signatures *)
-            let client = create_client_with_credentials ~sw ~user_agent ~timeout env creds in
+            let client = create_client_with_credentials ~sw ~user_agent ~timeout ?profile env creds in
             try
-              let actor = Apubt.Actor.fetch client (Uriz.of_string_exn creds.actor_uri) in
+              let actor = fetch_local_actor client creds in
               let activity = Apubt.Outbox.like client ~actor ~object_:(Uriz.of_string_exn object_uri) in
               let activity_id = Option.get (Apubt.Proto.Activity.id activity) in
               Fmt.pr "Liked: %s@." object_uri;
@@ -567,7 +539,7 @@ module Like_cmd = struct
 
   let term =
     Term.(ret (const run $ setup_log_term $ timeout $ user_agent $ key_file
-               $ key_id $ actor_uri $ profile_arg $ object_uri))
+               $ key_id $ actor_uri $ profile_arg $ signature_format $ object_uri))
 
   let cmd =
     let doc = "Like an object." in
@@ -588,9 +560,9 @@ module Boost_cmd = struct
     let doc = "URI of the object to boost." in
     Arg.(required & pos 0 (some string) None & info [] ~docv:"URI" ~doc)
 
-  let run () timeout user_agent key_file key_id actor_uri profile object_uri =
+  let run () timeout user_agent key_file key_id actor_uri profile signature_format object_uri =
     Eio_main.run @@ fun env ->
-    match resolve_credentials env ~key_file ~key_id ~actor_uri ~profile with
+    match resolve_credentials env ~key_file ~key_id ~actor_uri ~profile ~signature_format with
     | Error msg ->
         Fmt.epr "Error: %s@." msg;
         `Error (false, msg)
@@ -603,23 +575,21 @@ module Boost_cmd = struct
               curl_client ~sw ~timeout ~user_agent ()
             in
             (* Extract status ID from URL *)
-            (match Apub_mastodon_api.status_id_of_url object_uri with
-            | Some status_id ->
-                (match Apub_mastodon_api.reblog fetch ~instance ~token ~status_id with
+            (match Apub_mastodon_api.resolve_status fetch ~instance ~token ~url:object_uri with
+            | Ok resolved ->
+                (match Apub_mastodon_api.reblog fetch ~instance ~token ~status_id:resolved.id with
                 | Ok status ->
                     Fmt.pr "Boosted: %s@." status.uri;
                     `Ok ()
                 | Error msg ->
                     Fmt.epr "Error: %s@." msg;
                     `Error (false, msg))
-            | None ->
-                Fmt.epr "Error: Could not extract status ID from URL: %s@." object_uri;
-                `Error (false, "Invalid status URL"))
-        | Signature_auth _ | No_auth ->
+            | Error msg -> `Error (false, msg))
+        | Signature_auth _ ->
             (* Use ActivityPub federation with HTTP signatures *)
-            let client = create_client_with_credentials ~sw ~user_agent ~timeout env creds in
+            let client = create_client_with_credentials ~sw ~user_agent ~timeout ?profile env creds in
             try
-              let actor = Apubt.Actor.fetch client (Uriz.of_string_exn creds.actor_uri) in
+              let actor = fetch_local_actor client creds in
               let activity = Apubt.Outbox.announce client ~actor ~object_:(Uriz.of_string_exn object_uri) in
               let activity_id = Option.get (Apubt.Proto.Activity.id activity) in
               Fmt.pr "Boosted: %s@." object_uri;
@@ -632,7 +602,7 @@ module Boost_cmd = struct
 
   let term =
     Term.(ret (const run $ setup_log_term $ timeout $ user_agent $ key_file
-               $ key_id $ actor_uri $ profile_arg $ object_uri))
+               $ key_id $ actor_uri $ profile_arg $ signature_format $ object_uri))
 
   let cmd =
     let doc = "Boost (announce/reblog) an object." in

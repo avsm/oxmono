@@ -7,6 +7,9 @@
 
     CAR files bundle content-addressed blocks for transport and storage. They
     are used in AT Protocol for repository export and synchronization.
+    Readers reject frames exceeding 64 MiB before allocation. [import] verifies
+    each block hash before storing it; a later failure can leave earlier blocks
+    imported. [export] fails if a requested block is missing.
 
     {2 Format}
 
@@ -39,7 +42,7 @@ type cid_format = Dagcbor.cid_format
     - [`Standard]: Standard DAG-CBOR/CAR format with 0x00 multibase prefix and
       multihash length byte. CIDs are 36/37 bytes.
 
-    - [`Atproto]: AT Protocol simplified format without multibase prefix or
+    - [`Atproto]: Experimental draft format without multibase prefix or
       length byte. CIDs are 35 bytes. Per draft-holmgren-at-repository.md
       Section 7.2. *)
 
@@ -64,8 +67,8 @@ val write_header :
 (** [write_header ?cid_format h w] writes CAR header to [w].
 
     @param cid_format
-      CID encoding format, default [`Standard]. Use [`Atproto] for AT Protocol
-      repositories. *)
+      CID encoding format, default [`Standard]. Use [`Standard] for current AT Protocol repositories.
+      [`Atproto] is an experimental encoding from the bundled draft. *)
 
 val write_block :
   ?cid_format:cid_format -> block -> Bytesrw.Bytes.Writer.t -> unit

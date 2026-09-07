@@ -101,7 +101,7 @@ class filesystem_store dir =
       let parent = Eio.Path.split path |> Option.map fst in
       Option.iter
         (fun p ->
-          try Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 p with _ -> ())
+          Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 p)
         parent;
       Eio.Path.save ~create:(`Or_truncate 0o644) path data
 
@@ -247,6 +247,7 @@ class cached_store capacity (store : #writable) =
   end
 
 let cached ?(capacity = 1000) store =
+  if capacity <= 0 then invalid_arg "Blockstore.cached: capacity must be positive";
   (new cached_store capacity store :> writable)
 
 (* Read-only wrapper *)

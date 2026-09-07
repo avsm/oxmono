@@ -37,14 +37,14 @@ let save _fs xdg config =
 
 let load_password _fs xdg =
   let path = password_file xdg in
-  try Some (String.trim (Eio.Path.load path))
+  try Some (Eio.Path.load path)
   with Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> None
 
 let save_password _fs xdg password =
   let dir = Xdge.config_dir xdg in
   Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 dir;
   let path = password_file xdg in
-  Eio.Path.save ~create:(`Or_truncate 0o600) path password
+  Xrpc_auth.Session.save_private path password
 
 let clear_password _fs xdg =
   let path = password_file xdg in

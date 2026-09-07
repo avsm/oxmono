@@ -121,6 +121,7 @@ module Link : sig
     rel:string ->
     ?type_:string ->
     ?href:string ->
+    ?template:string ->
     ?titles:(string * string) list ->
     ?properties:(string * string option) list ->
     unit -> t
@@ -134,6 +135,9 @@ module Link : sig
 
   val href : t -> string option
   (** [href link] returns the target URI. *)
+
+  val template : t -> string option
+  (** Optional subscription URI template extension. *)
 
   val titles : t -> (string * string) list
   (** [titles link] returns all title/language pairs. *)

@@ -42,6 +42,8 @@ module Signing = struct
     key_id : string;
     key : Fetch_signature.Key.t;
     config : Fetch_signature.config;
+    get_config : Fetch_signature.config;
+    format : [ `Rfc9421 | `Cavage ];
   }
 
   (** Cover the complete request target and body for RFC 9421 federation. *)
@@ -54,7 +56,7 @@ module Signing = struct
       content_type;
     ]
 
-  let create ~key_id ~key () =
+  let create ?(format = `Rfc9421) ~key_id ~key () =
     let algorithm = match Fetch_signature.Key.algorithm key with
       | Some `Rsa_pss_sha512 -> Some `Rsa_v1_5_sha256
       | algorithm -> algorithm
@@ -65,21 +67,23 @@ module Signing = struct
       ~components:activitypub_components
       ()
     in
-    { key_id; key; config }
+    let get_config = Fetch_signature.config ~key ?algorithm ~keyid:key_id
+      ~components:Fetch_signature.Component.[method_; target_uri; date; content_digest] () in
+    { key_id; key; config; get_config; format }
 
-  let from_pem ~key_id ~pem () =
+  let from_pem ?format ~key_id ~pem () =
     (* Parse PEM-encoded RSA private key *)
     match X509.Private_key.decode_pem pem with
     | Ok (`RSA priv) ->
         let key = Fetch_signature.Key.rsa ~priv in
-        Ok (create ~key_id ~key ())
+        Ok (create ?format ~key_id ~key ())
     | Ok _ ->
         Error "Only RSA keys are supported for ActivityPub signatures"
     | Error (`Msg msg) ->
         Error ("Failed to parse PEM key: " ^ msg)
 
-  let from_pem_exn ~key_id ~pem () =
-    match from_pem ~key_id ~pem () with
+  let from_pem_exn ?format ~key_id ~pem () =
+    match from_pem ?format ~key_id ~pem () with
     | Ok t -> t
     | Error msg -> raise (E (Signature_error msg))
 
@@ -92,6 +96,9 @@ type t = {
   post_fetch : Fetch.plain;
   user_agent : string;
   max_response_bytes : int;
+  now : unit -> Ptime.t;
+  new_id : actor:Uriz.t -> kind:string -> Uriz.t;
+  persist : (Proto.Activity.t -> unit) option;
 }
 
 let activitypub_accept =
@@ -102,7 +109,7 @@ let activitypub_media jsont =
     ~accept:["application/ld+json"; "application/json"] jsont
 
 let of_fetch ~clock ?signing ?(user_agent = "Apubt/0.1")
-    ?(max_response_bytes = 16 * 1024 * 1024) fetch =
+    ?(max_response_bytes = 16 * 1024 * 1024) ?id_generator ?persist fetch =
   if max_response_bytes < 0 then
     invalid_arg "Apubt.of_fetch: max_response_bytes must be non-negative";
   let agent = user_agent in
@@ -113,17 +120,33 @@ let of_fetch ~clock ?signing ?(user_agent = "Apubt/0.1")
     | None -> fetch
     | Some (signing : Signing.t) ->
         Fetch_signature.Middleware.sign ~clock ~key:signing.key
-          ~config:signing.config fetch
+          ~format:signing.format ~config:signing.config fetch
   in
-  { fetch; post_fetch; user_agent; max_response_bytes }
+  let fetch = match signing with
+    | None -> fetch
+    | Some signing -> Fetch_signature.Middleware.sign ~clock ~key:signing.key
+        ~format:signing.format ~digest_empty:true ~config:signing.get_config fetch in
+  let now () = match Ptime.of_float_s (Eio.Time.now clock) with
+    | Some now -> now
+    | None -> invalid_arg "Apubt: clock outside Ptime range" in
+  let new_id = match id_generator with
+    | Some f -> f
+    | None -> fun ~actor ~kind ->
+        let bytes = Mirage_crypto_rng.generate 16 in
+        let suffix = String.concat "" (List.init 16 (fun i -> Printf.sprintf "%02x" (Char.code bytes.[i]))) in
+        let base = Uri.of_string (Uriz.to_string actor) in
+        let path = Uri.path base ^ "/" ^ kind ^ "/" ^ suffix in
+        Uri.with_path base path |> fun u -> Uri.with_query u []
+        |> fun u -> Uri.with_fragment u None |> Uri.to_string |> Uriz.of_string_exn in
+  { fetch; post_fetch; user_agent; max_response_bytes; now; new_id; persist }
 
-let create ~sw ?signing ?user_agent ?max_response_bytes ?(timeout = 30.0) env =
+let create ~sw ?signing ?user_agent ?max_response_bytes ?id_generator ?persist ?(timeout = 30.0) env =
   if not (Float.is_finite timeout) || timeout < 0.0 then
     invalid_arg "Apubt.create: timeout must be finite and non-negative";
   let duration = Duration.of_f timeout in
   let timeout = if timeout > 0.0 && duration = 0L then 1L else duration in
   let fetch = Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout () in
-  of_fetch ~clock:(Eio.Stdenv.clock env) ?signing ?user_agent ?max_response_bytes fetch
+  of_fetch ~clock:(Eio.Stdenv.clock env) ?signing ?user_agent ?max_response_bytes ?id_generator ?persist fetch
 
 let user_agent t = t.user_agent
 
@@ -148,7 +171,16 @@ let check_response t resp =
     let retry_after =
       match Fetch.header Fetch.Header.retry_after resp with
       | Some (`Seconds s) -> Some (float_of_int s)
-      | Some (`Date _) | None -> None
+      | Some (`Date date) ->
+          let buf = Bytes.of_string date in
+          let i16 = Httpz.Buf_read.i16 in
+          let span = Httpz.Span.make ~off:(i16 0) ~len:(i16 (Bytes.length buf)) in
+          let now = Ptime.to_float_s (t.now ()) in
+          let #(status, at) = Httpz.Date.parse ~now buf span in
+          (match status with Httpz.Date.Valid ->
+            Some (max 0. (Stdlib_upstream_compatible.Float_u.to_float at -. now))
+          | Httpz.Date.Invalid -> None)
+      | None -> None
     in
     raise (E (Rate_limited retry_after))
   end else begin
@@ -197,10 +229,7 @@ module Webfinger = struct
         ?type_:(Webfinger.Link.type_ link)
         ?href:(Option.bind (Webfinger.Link.href link) (fun value ->
           match Uriz.of_string value with This uri -> Some uri | Null -> None))
-        ?template:(
-          (* Try to get template from properties if it exists *)
-          Webfinger.Link.property ~uri:"template" link
-        )
+        ?template:(Webfinger.Link.template link)
         ()
     ) (Webfinger.Jrd.links jrd) in
     let aliases = match Webfinger.Jrd.aliases jrd with
@@ -317,9 +346,8 @@ module Nodeinfo = struct
     let nodeinfo_href =
       List.find_map (fun (link : Well_known_link.t) ->
         (* Check if rel contains nodeinfo and is schema 2.0 or 2.1 *)
-        if String.length link.rel > 0 &&
-           (String.ends_with ~suffix:"/schema/2.0" link.rel ||
-            String.ends_with ~suffix:"/schema/2.1" link.rel)
+        if List.mem link.rel ["http://nodeinfo.diaspora.software/ns/schema/2.0";
+                              "http://nodeinfo.diaspora.software/ns/schema/2.1"]
         then Some link.href
         else None
       ) well_known.links
@@ -340,6 +368,60 @@ module Nodeinfo = struct
     List.mem "activitypub" (Proto.Nodeinfo.protocols info)
 end
 
+let decode_value codec json = match Jsont.Json.decode codec json with
+  | Ok value -> value
+  | Error error -> raise (E (Json_error error))
+
+let dereference t codec = function
+  | Proto.Reference.Uri uri -> Http.get_typed t codec uri
+  | Proto.Reference.Embedded json -> decode_value codec json
+
+let actor_id = function Proto.Actor_ref.Uri uri -> uri | Actor a -> Proto.Actor.id a
+
+let activity_id t actor kind =
+  if Option.is_none t.persist then
+    raise (E (Invalid_actor "Generated activities require an Apubt persistence callback"));
+  t.new_id ~actor:(Proto.Actor.id actor) ~kind
+let now_datetime t = Proto.Datetime.v (Ptime.to_rfc3339 (t.now ()))
+let persist t activity =
+  if Option.is_none (Proto.Activity.id activity) then
+    raise (E (Invalid_actor "Delivery requires an activity ID"));
+  match t.persist with
+  | Some save -> save activity
+  | None -> raise (E (Invalid_actor "Generated activities require an Apubt persistence callback"))
+
+module Collection = struct
+  let fold ?(max_pages = 100) ?(max_items = 10000) t f init collection item_jsont =
+    if max_pages < 0 || max_items < 0 then invalid_arg "Collection.fold: negative budget";
+    let seen = Hashtbl.create 16 in
+    let page_count = ref 0 and item_count = ref 0 in
+    let items acc values = List.fold_left (fun acc value ->
+      incr item_count;
+      if !item_count > max_items then raise (E (Json_error "Collection item budget exceeded"));
+      f acc value) acc (Option.value ~default:[] values) in
+    let rec pages acc = function
+      | None -> acc
+      | Some reference ->
+          incr page_count;
+          if !page_count > max_pages then raise (E (Json_error "Collection page budget exceeded"));
+          Option.iter (fun uri ->
+            let key = Uriz.to_string uri in
+            if Hashtbl.mem seen key then raise (E (Json_error ("Cyclic collection pagination: " ^ key)));
+            Hashtbl.add seen key ()) (Proto.Reference.id reference);
+          let page = dereference t (Proto.Collection_page.jsont item_jsont) reference in
+          pages (items acc (Proto.Collection_page.items page)) (Proto.Collection_page.next page) in
+    pages (items init (Proto.Collection.items collection)) (Proto.Collection.first collection)
+
+  let iter ?max_pages ?max_items t f collection item_jsont =
+    fold ?max_pages ?max_items t (fun () value -> f value) () collection item_jsont
+  let to_list ?max_pages ?max_items t collection item_jsont =
+    List.rev (fold ?max_pages ?max_items t (fun acc v -> v :: acc) [] collection item_jsont)
+  let first_page t collection item_jsont =
+    Option.map (dereference t (Proto.Collection_page.jsont item_jsont)) (Proto.Collection.first collection)
+  let next_page t page item_jsont =
+    Option.map (dereference t (Proto.Collection_page.jsont item_jsont)) (Proto.Collection_page.next page)
+end
+
 module Actor = struct
   let fetch t uri =
     Http.get_typed t Proto.Actor.jsont uri
@@ -358,24 +440,20 @@ module Actor = struct
     Http.get_typed t Proto.Activity_collection.jsont uri
 
   let outbox_page t actor ?page () =
-    let uri = match page with
-      | Some p -> p
-      | None ->
-          let collection = outbox t actor in
-          match Proto.Collection.first collection with
-          | Some first -> first
-          | None -> raise (E (Invalid_actor "Outbox has no first page"))
-    in
-    Http.get_typed t Proto.Activity_collection_page.jsont uri
+    match page with
+    | Some uri -> Http.get_typed t Proto.Activity_collection_page.jsont uri
+    | None -> (match Collection.first_page t (outbox t actor) Proto.Activity.jsont with
+        | Some page -> page
+        | None -> raise (E (Invalid_actor "Outbox has no first page")))
 
   let followers t actor =
     match Proto.Actor.followers actor with
-    | Some uri -> Http.get_typed t (Proto.Collection.jsont Proto.Actor.jsont) uri
+    | Some uri -> Http.get_typed t (Proto.Collection.jsont Proto.Actor_ref.jsont) uri
     | None -> raise (E (Invalid_actor "Actor has no followers collection"))
 
   let following t actor =
     match Proto.Actor.following actor with
-    | Some uri -> Http.get_typed t (Proto.Collection.jsont Proto.Actor.jsont) uri
+    | Some uri -> Http.get_typed t (Proto.Collection.jsont Proto.Actor_ref.jsont) uri
     | None -> raise (E (Invalid_actor "Actor has no following collection"))
 
   (* Helper to post activity to an actor's inbox *)
@@ -384,95 +462,55 @@ module Actor = struct
     Http.post_typed t Proto.Activity.jsont inbox_uri activity
 
   let follow t ~actor ~target =
-    (* Create a Follow activity: actor follows target *)
-    let follow_activity = Proto.Activity.make
-      ~context:Proto.Context.default
-      ~type_:Proto.Activity_type.Follow
-      ~actor:(Proto.Actor_ref.actor actor)
+    let activity = Proto.Activity.make ~context:Proto.Context.default
+      ~id:(activity_id t actor "follows") ~published:(now_datetime t)
+      ~type_:Follow ~actor:(Proto.Actor_ref.uri (Proto.Actor.id actor))
       ~object_:(Proto.Object_ref.uri (Proto.Actor.id target))
-      ()
-    in
-    (* Deliver to target's inbox *)
-    post_to_inbox t target follow_activity;
-    follow_activity
+      ~to_:[Proto.Recipient.make (Proto.Actor.id target)] () in
+    persist t activity;
+    post_to_inbox t target activity;
+    activity
 
-  let unfollow t ~actor ~target =
-    (* Create a Follow activity representing the original follow *)
-    let follow_activity = Proto.Activity.make
-      ~type_:Proto.Activity_type.Follow
-      ~actor:(Proto.Actor_ref.actor actor)
-      ~object_:(Proto.Object_ref.uri (Proto.Actor.id target))
-      ()
-    in
-    (* Wrap in an Undo activity *)
-    let undo_activity = Proto.Activity.make
-      ~context:Proto.Context.default
-      ~type_:Proto.Activity_type.Undo
-      ~actor:(Proto.Actor_ref.actor actor)
-      ~object_:(Proto.Object_ref.uri (
-        match Proto.Activity.id follow_activity with
-        | Some id -> id
-        | None -> Proto.Actor.id actor (* fallback: use actor ID as base *)
-      ))
-      ()
-    in
-    (* Deliver to target's inbox *)
-    post_to_inbox t target undo_activity;
-    undo_activity
+  let validate_follow ~actor ~incoming follow =
+    if Proto.Activity.type_ follow <> Follow then
+      raise (E (Invalid_actor "Expected a Follow activity"));
+    let sender = actor_id (Proto.Activity.actor follow) in
+    let target = Option.bind (Proto.Activity.object_ follow) Proto.Reference.id in
+    let expected = Proto.Actor.id actor in
+    let matches = if incoming then Option.fold ~none:false ~some:(fun uri -> Uriz.equal expected uri) target
+      else Uriz.equal expected sender in
+    if not matches then raise (E (Invalid_actor "Follow actor/target does not match the local actor"))
 
-  let accept_follow t ~actor ~follow =
-    (* Create an Accept activity *)
-    (* The object is the Follow activity being accepted *)
-    let follow_ref = match Proto.Activity.id follow with
-      | Some id -> Proto.Object_ref.uri id
-      | None ->
-          (* If the follow has no ID, we need to reference it somehow.
-             In practice, Follow activities should always have IDs. *)
-          Proto.Object_ref.uri (Proto.Actor.id actor)
-    in
-    let accept_activity = Proto.Activity.make
-      ~context:Proto.Context.default
-      ~type_:Proto.Activity_type.Accept
-      ~actor:(Proto.Actor_ref.actor actor)
-      ~object_:follow_ref
-      ()
-    in
-    (* Get the follower's URI from the Follow activity's actor *)
-    let follower_uri = match Proto.Activity.actor follow with
-      | Proto.Actor_ref.Uri uri -> uri
-      | Proto.Actor_ref.Actor a -> Proto.Actor.id a
-    in
-    (* Deliver to the follower's inbox - we need to fetch their actor info *)
+  let unfollow t ~actor ~follow =
+    validate_follow ~actor ~incoming:false follow;
+    let target_uri = match Option.bind (Proto.Activity.object_ follow) Proto.Reference.id with
+      | Some uri -> uri | None -> raise (E (Invalid_actor "Follow has no target")) in
+    let target = fetch t target_uri in
+    let activity = Proto.Activity.make ~context:Proto.Context.default
+      ~id:(activity_id t actor "undo") ~published:(now_datetime t)
+      ~type_:Undo ~actor:(Proto.Actor_ref.uri (Proto.Actor.id actor))
+      ~object_:(Proto.Reference.of_value Proto.Activity.jsont follow)
+      ~to_:[Proto.Recipient.make target_uri] () in
+    persist t activity;
+    post_to_inbox t target activity;
+    activity
+
+  let respond_follow t ~actor ~follow type_ =
+    validate_follow ~actor ~incoming:true follow;
+    let follower_uri = actor_id (Proto.Activity.actor follow) in
     let follower = fetch t follower_uri in
-    post_to_inbox t follower accept_activity;
-    accept_activity
+    let activity = Proto.Activity.make ~context:Proto.Context.default
+      ~id:(activity_id t actor "activities") ~published:(now_datetime t)
+      ~type_ ~actor:(Proto.Actor_ref.uri (Proto.Actor.id actor))
+      ~object_:(Proto.Reference.of_value Proto.Activity.jsont follow)
+      ~to_:[Proto.Recipient.make follower_uri] () in
+    persist t activity;
+    post_to_inbox t follower activity;
+    activity
 
-  let reject_follow t ~actor ~follow =
-    (* Create a Reject activity *)
-    (* The object is the Follow activity being rejected *)
-    let follow_ref = match Proto.Activity.id follow with
-      | Some id -> Proto.Object_ref.uri id
-      | None ->
-          (* If the follow has no ID, we need to reference it somehow.
-             In practice, Follow activities should always have IDs. *)
-          Proto.Object_ref.uri (Proto.Actor.id actor)
-    in
-    let reject_activity = Proto.Activity.make
-      ~context:Proto.Context.default
-      ~type_:Proto.Activity_type.Reject
-      ~actor:(Proto.Actor_ref.actor actor)
-      ~object_:follow_ref
-      ()
-    in
-    (* Get the follower's URI from the Follow activity's actor *)
-    let follower_uri = match Proto.Activity.actor follow with
-      | Proto.Actor_ref.Uri uri -> uri
-      | Proto.Actor_ref.Actor a -> Proto.Actor.id a
-    in
-    (* Deliver to the follower's inbox - we need to fetch their actor info *)
-    let follower = fetch t follower_uri in
-    post_to_inbox t follower reject_activity;
-    reject_activity
+  let accept_follow t ~actor ~follow = respond_follow t ~actor ~follow Accept
+  let reject_follow t ~actor ~follow = respond_follow t ~actor ~follow Reject
+
 end
 
 module Object = struct
@@ -498,71 +536,71 @@ module Inbox = struct
     try
       let actor = get_json client (activitypub_media Proto.Actor.jsont) url in
       Option.bind (Proto.Actor.endpoints actor) Proto.Endpoints.shared_inbox
-    with E _ -> None
+    with E Not_found -> None
 
   let post_to_shared_inbox t ~host activity =
     match discover_shared_inbox t ~host with
     | Some shared_inbox ->
         post t ~inbox:shared_inbox activity
-    | None ->
-        (* Fallback: construct a standard shared inbox URL *)
-        let shared_inbox = Uriz.of_string_exn (Printf.sprintf "https://%s/inbox" host) in
-        post t ~inbox:shared_inbox activity
+    | None -> raise (E (Invalid_actor "Instance actor does not advertise a shared inbox"))
 end
 
 module Outbox = struct
-  (* Generate a unique URI for a new object/activity based on actor's base URI.
-     Uses timestamp + random suffix for uniqueness. *)
-  let generate_uri ~actor ~suffix =
-    let actor_uri = Uriz.to_string (Proto.Actor.id actor) in
-    let now = Ptime_clock.now () in
-    let ts = Ptime.to_float_s now |> int_of_float in
-    let rand = Random.bits () land 0xFFFFFF in
-    let unique_id = Printf.sprintf "%d-%06x" ts rand in
-    Uriz.of_string_exn (actor_uri ^ "/" ^ suffix ^ "/" ^ unique_id)
+  let generate_uri t ~actor ~suffix = activity_id t actor suffix
 
-  (* Get the current timestamp as an ISO 8601 string *)
-  let now_datetime () =
-    let now = Ptime_clock.now () in
-    Proto.Datetime.v (Ptime.to_rfc3339 now)
+  let resolve_recipient_inboxes ?(max_depth = 4) ?(max_recipients = 10000) t ~actor recipients =
+    let seen = Hashtbl.create 32 and inboxes = Hashtbl.create 32 in
+    let count = ref 0 in
+    let rec resolve depth reference =
+      if depth > max_depth then raise (E (Invalid_actor "Recipient collection depth exceeded"));
+      let id = Proto.Reference.id reference in
+      let skip = match id with
+        | Some id -> Uriz.equal id Proto.Public.id || Uriz.equal id (Proto.Actor.id actor)
+          || Hashtbl.mem seen (Uriz.to_string id)
+        | None -> false in
+      if not skip then begin
+        incr count;
+        if !count > max_recipients then raise (E (Invalid_actor "Recipient budget exceeded"));
+        Option.iter (fun id -> Hashtbl.add seen (Uriz.to_string id) ()) id;
+        let json = dereference t Jsont.json reference in
+        let type_ = decode_value (Jsont.mem "type" Jsont.string) json in
+        if type_ = "Collection" || type_ = "OrderedCollection" then
+          let collection = decode_value (Proto.Collection.jsont Proto.Reference.jsont) json in
+          Collection.iter ~max_items:max_recipients t (resolve (depth + 1)) collection Proto.Reference.jsont
+        else
+          let recipient = decode_value Proto.Actor.jsont json in
+          if not (Uriz.equal (Proto.Actor.id recipient) (Proto.Actor.id actor)) then
+            let inbox = Proto.Actor.inbox recipient in
+            Hashtbl.replace inboxes (Uriz.to_string inbox) inbox
+      end in
+    List.iter (fun recipient -> resolve 0 (Proto.Reference.uri (Proto.Recipient.id recipient))) recipients;
+    Hashtbl.to_seq_values inboxes |> List.of_seq |> List.sort (fun a b -> Uriz.compare a b)
 
-  (* Extract inbox URIs from a list of recipients, resolving actors as needed *)
-  let resolve_recipient_inboxes t recipients =
-    List.filter_map (fun recipient ->
-      let uri = Proto.Recipient.id recipient in
-      let uri_str = Uriz.to_string uri in
-      (* Skip the public collection - it doesn't have an inbox *)
-      if String.equal uri_str (Uriz.to_string Proto.Public.id) then
-        None
-      else
-        let actor = Actor.fetch t uri in
-        Some (Proto.Actor.inbox actor)
-    ) recipients
-
-  (* Deliver an activity to all recipients in to/cc *)
-  let deliver t activity =
-    let to_recipients = Option.value ~default:[] (Proto.Activity.to_ activity) in
-    let cc_recipients = Option.value ~default:[] (Proto.Activity.cc activity) in
-    let all_recipients = to_recipients @ cc_recipients in
-    let inboxes = resolve_recipient_inboxes t all_recipients in
-    (* Deduplicate inboxes *)
-    let seen = Hashtbl.create 16 in
-    let unique_inboxes = List.filter (fun inbox ->
-      let uri_str = Uriz.to_string inbox in
-      if Hashtbl.mem seen uri_str then false
-      else begin
-        Hashtbl.add seen uri_str ();
-        true
-      end
-    ) inboxes in
-    (* A failed resolution or delivery must be visible to the caller. Earlier
-       inboxes may already have accepted the activity when a later one fails. *)
-    List.iter (fun inbox -> Inbox.post t ~inbox activity) unique_inboxes
+  let deliver t ~actor activity =
+    if not (Uriz.equal (actor_id (Proto.Activity.actor activity)) (Proto.Actor.id actor)) then
+      raise (E (Invalid_actor "Delivery actor must match the activity author"));
+    (* Persist before any delivery; callers can retry this same activity ID. *)
+    persist t activity;
+    let recipients = List.concat_map (Option.value ~default:[])
+      [Proto.Activity.to_ activity; Proto.Activity.cc activity;
+       Proto.Activity.bto activity; Proto.Activity.bcc activity; Proto.Activity.audience activity] in
+    let inboxes = resolve_recipient_inboxes t ~actor recipients in
+    let json = match Jsont.Json.encode Proto.Activity.jsont activity with
+      | Ok json -> json | Error msg -> raise (E (Json_error msg)) in
+    let rec redact = function
+      | Jsont.Object (members, meta) -> Jsont.Object
+          (List.filter_map (fun ((name, _) as key, value) ->
+             if name = "bto" || name = "bcc" then None
+             else Some (key, redact value)) members, meta)
+      | Jsont.Array (values, meta) -> Jsont.Array (List.map redact values, meta)
+      | json -> json in
+    let json = redact json in
+    List.iter (fun inbox -> Http.post t inbox json) inboxes
 
   let create_note t ~actor ?in_reply_to ?to_ ?cc ?sensitive ?summary ~content () =
-    let note_id = generate_uri ~actor ~suffix:"notes" in
-    let activity_id = generate_uri ~actor ~suffix:"activities" in
-    let published = now_datetime () in
+    let note_id = generate_uri t ~actor ~suffix:"notes" in
+    let activity_id = generate_uri t ~actor ~suffix:"activities" in
+    let published = now_datetime t in
     (* Build the Note object *)
     let note = Proto.Object.make
       ~context:Proto.Context.default
@@ -591,18 +629,18 @@ module Outbox = struct
       ()
     in
     (* Deliver to all recipients *)
-    deliver t activity;
+    deliver t ~actor activity;
     activity
 
-  let public_note t ~actor ?in_reply_to ~content () =
+  let public_note t ~actor ?in_reply_to ?sensitive ?summary ~content () =
     let cc = match Proto.Actor.followers actor with
       | Some uri -> [Proto.Recipient.make uri]
       | None -> []
     in
     create_note t ~actor ?in_reply_to
-      ~to_:[Proto.Recipient.make Proto.Public.id] ~cc ~content ()
+      ~to_:[Proto.Recipient.make Proto.Public.id] ~cc ?sensitive ?summary ~content ()
 
-  let followers_only_note t ~actor ?in_reply_to ~content () =
+  let followers_only_note t ~actor ?in_reply_to ?sensitive ?summary ~content () =
     let followers_uri =
       match Proto.Actor.followers actor with
       | Some uri -> uri
@@ -610,15 +648,15 @@ module Outbox = struct
     in
     create_note t ~actor ?in_reply_to
       ~to_:[Proto.Recipient.make followers_uri]
-      ~content ()
+      ?sensitive ?summary ~content ()
 
   let direct_note t ~actor ~to_ ?in_reply_to ~content () =
     let recipients = List.map (fun a -> Proto.Recipient.make (Proto.Actor.id a)) to_ in
     create_note t ~actor ?in_reply_to ~to_:recipients ~content ()
 
   let like t ~actor ~object_ =
-    let activity_id = generate_uri ~actor ~suffix:"likes" in
-    let published = now_datetime () in
+    let activity_id = generate_uri t ~actor ~suffix:"likes" in
+    let published = now_datetime t in
     (* Fetch the object to find its author for delivery *)
     let obj = Object.fetch t object_ in
     let to_recipients =
@@ -639,39 +677,30 @@ module Outbox = struct
       ()
     in
     (* Deliver to the object's author *)
-    deliver t activity;
+    deliver t ~actor activity;
     activity
 
-  let unlike t ~actor ~object_ =
-    let activity_id = generate_uri ~actor ~suffix:"undo" in
-    let like_id = generate_uri ~actor ~suffix:"likes" in
-    let published = now_datetime () in
-    (* Fetch the object to find its author for delivery *)
-    let obj = Object.fetch t object_ in
-    let to_recipients =
-      match Proto.Object.attributed_to obj with
-      | Some (Proto.Actor_ref.Uri uri) -> [Proto.Recipient.make uri]
-      | Some (Proto.Actor_ref.Actor a) -> [Proto.Recipient.make (Proto.Actor.id a)]
-      | None -> []
-    in
-    (* Build the Undo(Like) activity - reference the Like by URI *)
-    let activity = Proto.Activity.make
-      ~context:Proto.Context.default
-      ~id:activity_id
-      ~type_:Proto.Activity_type.Undo
-      ~actor:(Proto.Actor_ref.uri (Proto.Actor.id actor))
-      ~object_:(Proto.Object_ref.uri like_id)
-      ~to_:to_recipients
-      ~published
-      ()
-    in
-    (* Deliver to the object's author *)
-    deliver t activity;
-    activity
+  let undo t ~actor ~activity expected =
+    if Proto.Activity.type_ activity <> expected ||
+       not (Uriz.equal (actor_id (Proto.Activity.actor activity)) (Proto.Actor.id actor)) then
+      raise (E (Invalid_actor "Undo requires the original activity by this actor"));
+    if Option.is_none (Proto.Activity.id activity) then
+      raise (E (Invalid_actor "Undo requires the original activity ID"));
+    let undo = Proto.Activity.make ~context:Proto.Context.default
+      ~id:(activity_id t actor "undo") ~published:(now_datetime t)
+      ~type_:Undo ~actor:(Proto.Actor_ref.uri (Proto.Actor.id actor))
+      ~object_:(Proto.Reference.of_value Proto.Activity.jsont activity)
+      ?to_:(Proto.Activity.to_ activity) ?cc:(Proto.Activity.cc activity)
+      ?bto:(Proto.Activity.bto activity) ?bcc:(Proto.Activity.bcc activity)
+      ?audience:(Proto.Activity.audience activity) () in
+    deliver t ~actor undo;
+    undo
+
+  let unlike t ~actor ~like = undo t ~actor ~activity:like Like
 
   let announce t ~actor ~object_ =
-    let activity_id = generate_uri ~actor ~suffix:"announces" in
-    let published = now_datetime () in
+    let activity_id = generate_uri t ~actor ~suffix:"announces" in
+    let published = now_datetime t in
     (* Get actor's followers for cc *)
     let followers_uri = Proto.Actor.followers actor in
     let cc_recipients = match followers_uri with
@@ -701,56 +730,30 @@ module Outbox = struct
       ()
     in
     (* Deliver to followers and the object's author *)
-    deliver t activity;
+    deliver t ~actor activity;
     activity
 
-  let unannounce t ~actor ~object_ =
-    let activity_id = generate_uri ~actor ~suffix:"undo" in
-    let announce_id = generate_uri ~actor ~suffix:"announces" in
-    let published = now_datetime () in
-    (* Get actor's followers for cc *)
-    let followers_uri = Proto.Actor.followers actor in
-    let cc_recipients = match followers_uri with
-      | Some uri -> [Proto.Recipient.make uri]
-      | None -> []
-    in
-    (* Fetch the object to find its author for delivery *)
-    let obj = Object.fetch t object_ in
-    let author_recipients =
-      match Proto.Object.attributed_to obj with
-      | Some (Proto.Actor_ref.Uri uri) -> [Proto.Recipient.make uri]
-      | Some (Proto.Actor_ref.Actor a) -> [Proto.Recipient.make (Proto.Actor.id a)]
-      | None -> []
-    in
-    let to_recipients = Proto.Recipient.make Proto.Public.id :: author_recipients in
-    (* Build the Undo(Announce) activity *)
-    let activity = Proto.Activity.make
-      ~context:Proto.Context.default
-      ~id:activity_id
-      ~type_:Proto.Activity_type.Undo
-      ~actor:(Proto.Actor_ref.uri (Proto.Actor.id actor))
-      ~object_:(Proto.Object_ref.uri announce_id)
-      ~to_:to_recipients
-      ~cc:cc_recipients
-      ~published
-      ()
-    in
-    (* Deliver to followers and the object's author *)
-    deliver t activity;
-    activity
+  let unannounce t ~actor ~announce = undo t ~actor ~activity:announce Announce
+
+  let require_author actor obj =
+    if not (Option.fold ~none:false
+      ~some:(fun author -> Uriz.equal (actor_id author) (Proto.Actor.id actor))
+      (Proto.Object.attributed_to obj)) then
+      raise (E (Invalid_actor "Only the author can update or delete an object"))
 
   let delete t ~actor ~object_ =
-    let activity_id = generate_uri ~actor ~suffix:"deletes" in
-    let published = now_datetime () in
+    let activity_id = generate_uri t ~actor ~suffix:"deletes" in
+    let published = now_datetime t in
     (* Fetch the original object to get its recipients *)
     let obj = Object.fetch t object_ in
+    require_author actor obj;
     let to_recipients = Option.value ~default:[] (Proto.Object.to_ obj) in
     let cc_recipients = Option.value ~default:[] (Proto.Object.cc obj) in
     (* Create a Tombstone object *)
     let tombstone = Proto.Object.make
       ~id:object_
       ~type_:Proto.Object_type.Tombstone
-      ~published
+      ~deleted:published
       ()
     in
     (* Build the Delete activity *)
@@ -762,36 +765,27 @@ module Outbox = struct
       ~object_:(Proto.Object_ref.obj tombstone)
       ~to_:to_recipients
       ~cc:cc_recipients
+      ?bto:(Proto.Object.bto obj) ?bcc:(Proto.Object.bcc obj)
+      ?audience:(Proto.Object.audience obj)
       ~published
       ()
     in
     (* Deliver to previous recipients *)
-    deliver t activity;
+    deliver t ~actor activity;
     activity
 
   let update_note t ~actor ~object_ ~content () =
-    let activity_id = generate_uri ~actor ~suffix:"updates" in
-    let published = now_datetime () in
+    let activity_id = generate_uri t ~actor ~suffix:"updates" in
+    let published = now_datetime t in
     (* Fetch the original note to preserve its metadata *)
     let original = Object.fetch t object_ in
     let to_recipients = Option.value ~default:[] (Proto.Object.to_ original) in
     let cc_recipients = Option.value ~default:[] (Proto.Object.cc original) in
     (* Create the updated Note object *)
-    let updated_note = Proto.Object.make
-      ~context:Proto.Context.default
-      ~id:object_
-      ~type_:Proto.Object_type.Note
-      ~content
-      ~attributed_to:(Proto.Actor_ref.uri (Proto.Actor.id actor))
-      ?in_reply_to:(Proto.Object.in_reply_to original)
-      ~to_:to_recipients
-      ~cc:cc_recipients
-      ?summary:(Proto.Object.summary original)
-      ?sensitive:(Proto.Object.sensitive original)
-      ~updated:published
-      ?published:(Proto.Object.published original)
-      ()
-    in
+    require_author actor original;
+    if Proto.Object.type_ original <> Note then
+      raise (E (Invalid_actor "update_note requires a Note"));
+    let updated_note = Proto.Object.with_content ~updated:published content original in
     (* Build the Update activity *)
     let activity = Proto.Activity.make
       ~context:Proto.Context.default
@@ -801,47 +795,12 @@ module Outbox = struct
       ~object_:(Proto.Object_ref.obj updated_note)
       ~to_:to_recipients
       ~cc:cc_recipients
+      ?bto:(Proto.Object.bto original) ?bcc:(Proto.Object.bcc original)
+      ?audience:(Proto.Object.audience original)
       ~published
       ()
     in
     (* Deliver to recipients *)
-    deliver t activity;
+    deliver t ~actor activity;
     activity
-end
-
-module Collection = struct
-  let fold t f init collection item_jsont =
-    let seen = Hashtbl.create 16 in
-    let rec pages acc = function
-      | None -> acc
-      | Some uri ->
-          let key = Uriz.to_string uri in
-          if Hashtbl.mem seen key then
-            raise (E (Json_error ("Cyclic collection pagination: " ^ key)));
-          Hashtbl.add seen key ();
-          let page = Http.get_typed t (Proto.Collection_page.jsont item_jsont) uri in
-          let items = Option.value ~default:[] (Proto.Collection_page.items page) in
-          pages (List.fold_left f acc items) (Proto.Collection_page.next page)
-    in
-    let items = Option.value ~default:[] (Proto.Collection.items collection) in
-    pages (List.fold_left f init items) (Proto.Collection.first collection)
-
-  let iter t f collection item_jsont =
-    fold t (fun () item -> f item) () collection item_jsont
-
-  let to_list t collection item_jsont =
-    fold t (fun acc item -> item :: acc) [] collection item_jsont
-    |> List.rev
-
-  let first_page t collection item_jsont =
-    match Proto.Collection.first collection with
-    | Some first_uri ->
-        Some (Http.get_typed t (Proto.Collection_page.jsont item_jsont) first_uri)
-    | None -> None
-
-  let next_page t page item_jsont =
-    match Proto.Collection_page.next page with
-    | Some next_uri ->
-        Some (Http.get_typed t (Proto.Collection_page.jsont item_jsont) next_uri)
-    | None -> None
 end

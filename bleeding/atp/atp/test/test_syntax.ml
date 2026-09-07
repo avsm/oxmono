@@ -37,7 +37,7 @@ let load_test_file path =
   in
   read_lines []
 
-let interop_dir = "../../vendor/atproto/interop-test-files/syntax"
+let interop_dir = "fixtures/syntax"
 
 (* ========== TID Tests ========== *)
 

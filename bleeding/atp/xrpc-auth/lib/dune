@@ -10,6 +10,7 @@
   fmt
   eio
   eio_main
+  unix
   ptime
   ptime.clock.os
   cmdliner))

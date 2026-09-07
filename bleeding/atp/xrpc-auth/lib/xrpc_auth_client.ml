@@ -9,11 +9,14 @@ type t = {
   fs : Eio.Fs.dir_ty Eio.Path.t;
   pds : string;
   app_name : string;
-  mutable profile : string option;
+  profile : string option ref;
   make_client : service:string -> Xrpc.Client.t;
 }
 
 let create ~sw ~env ~app_name ?profile ~pds ?http () =
+  Xrpc_auth_session.validate_name app_name;
+  Option.iter Xrpc_auth_session.validate_name profile;
+  let pds = Xrpc.Client.normalize_service pds in
   let fs = env#fs in
   let http =
     match http with
@@ -21,7 +24,6 @@ let create ~sw ~env ~app_name ?profile ~pds ?http () =
     | None -> Fetch_curl.std ~sw env
   in
   let cred = Xrpc.Credential.create ~sw ~env ~service:pds ~http () in
-  let client_ref = ref None in
   let profile_ref = ref profile in
   (* Set up callback to save session on updates *)
   Xrpc.Credential.on_session_update cred (fun xrpc_session ->
@@ -32,40 +34,39 @@ let create ~sw ~env ~app_name ?profile ~pds ?http () =
       in
       profile_ref := profile;
       Xrpc_auth_session.save fs ~app_name ?profile session);
+  Xrpc.Credential.on_session_expired cred (fun () ->
+    Xrpc_auth_session.clear fs ~app_name ?profile:!profile_ref ());
   let make_client ~service = Xrpc.Client.create ~sw ~env ~service ~http () in
-  let t = { cred; client = None; fs; pds; app_name; profile; make_client } in
-  client_ref := Some t;
-  t
+  { cred; client = None; fs; pds; app_name; profile = profile_ref; make_client }
 
 let login t ~identifier ~password =
+  let first_login = Xrpc_auth_session.list_profiles t.fs ~app_name:t.app_name = [] in
   let client = Xrpc.Credential.login t.cred ~identifier ~password () in
   t.client <- Some client;
-  (* Update profile to the handle if not already set *)
-  match t.profile with
-  | None -> (
-      match Xrpc.Credential.get_session t.cred with
-      | Some session -> t.profile <- Some session.handle
-      | None -> ())
-  | Some _ -> ()
+  if first_login then Option.iter
+    (Xrpc_auth_session.set_current_profile t.fs ~app_name:t.app_name) !(t.profile)
 
 let resume t ~session =
+  if Xrpc.Client.normalize_service session.Xrpc_auth_session.pds <> t.pds then
+    invalid_arg "Saved session PDS does not match configured PDS";
+  if !(t.profile) = None then
+    t.profile := Some (Xrpc_auth_session.get_current_profile t.fs ~app_name:t.app_name);
   let xrpc_session = Xrpc_auth_session.to_xrpc session in
   let client = Xrpc.Credential.resume t.cred ~session:xrpc_session () in
-  t.client <- Some client;
-  (* Use the session's handle as profile if not set *)
-  if t.profile = None then t.profile <- Some session.handle
+  t.client <- Some client
 
 let logout t =
-  Xrpc.Credential.logout t.cred;
-  Xrpc_auth_session.clear t.fs ~app_name:t.app_name ?profile:t.profile ();
-  t.client <- None
+  Fun.protect ~finally:(fun () ->
+    t.client <- None;
+    Xrpc_auth_session.clear t.fs ~app_name:t.app_name ?profile:!(t.profile) ())
+    (fun () -> Xrpc.Credential.logout t.cred)
 
 let get_session t =
   Option.map
     (fun xrpc_session -> Xrpc_auth_session.of_xrpc ~pds:t.pds xrpc_session)
     (Xrpc.Credential.get_session t.cred)
 
-let is_logged_in t = Option.is_some t.client
+let is_logged_in t = Option.is_some (Xrpc.Credential.get_session t.cred)
 
 let get_client t =
   match t.client with Some c -> c | None -> failwith "Not logged in"
@@ -77,6 +78,6 @@ let get_did t =
 
 let get_pds t = t.pds
 let get_app_name t = t.app_name
-let get_profile t = t.profile
+let get_profile t = !(t.profile)
 let get_fs t = t.fs
 let make_client t = t.make_client

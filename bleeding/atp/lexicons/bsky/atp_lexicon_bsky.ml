@@ -85,7 +85,7 @@ let label_jsont =
   |> Jsont.Object.mem "cts" Jsont.string ~enc:(fun r -> r.cts)
   |> Jsont.Object.opt_mem "exp" Jsont.string ~enc:(fun r -> r.exp)
   |> Jsont.Object.opt_mem "neg" Jsont.bool ~enc:(fun r -> r.neg)
-  |> Jsont.Object.opt_mem "sig" Jsont.binary_string ~enc:(fun r -> r.sig_)
+  |> Jsont.Object.opt_mem "sig" Atp.Lex.bytes_jsont ~enc:(fun r -> r.sig_)
   |> Jsont.Object.mem "src" Jsont.string ~enc:(fun r -> r.src)
   |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun r -> r.uri)
   |> Jsont.Object.mem "val" Jsont.string ~enc:(fun r -> r.val_)

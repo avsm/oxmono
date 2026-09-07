@@ -165,9 +165,9 @@ let create_repo t ~name ~knot ?description ?default_branch () =
   Xrpc.Client.set_session knot_client
     (make_service_auth_session ~did ~token:sa_token);
   let _ =
-    Xrpc.Client.procedure knot_client ~nsid:"sh.tangled.repo.create" ~params:[]
+    Xrpc.Client.procedure_unit knot_client ~nsid:"sh.tangled.repo.create" ~params:[]
       ~input:(Some Tangled.Repo.Create.input_jsont)
-      ~input_data:(Some knot_input) ~decoder:Xrpc.Types.empty_jsont
+      ~input_data:(Some knot_input)
   in
   rkey
 
@@ -194,9 +194,9 @@ let delete_repo t ~name ~knot =
     (make_service_auth_session ~did ~token:sa_token);
   let knot_input : Tangled.Repo.Delete.input = { did; name; rkey } in
   let _ =
-    Xrpc.Client.procedure knot_client ~nsid:"sh.tangled.repo.delete" ~params:[]
+    Xrpc.Client.procedure_unit knot_client ~nsid:"sh.tangled.repo.delete" ~params:[]
       ~input:(Some Tangled.Repo.Delete.input_jsont)
-      ~input_data:(Some knot_input) ~decoder:Xrpc.Types.empty_jsont
+      ~input_data:(Some knot_input)
   in
 
   (* 2. Delete record from PDS *)

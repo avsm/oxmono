@@ -19,3 +19,16 @@ let () =
   let encoded = get (Jsont_bytesrw.encode_string L.lexicon_doc_jsont doc) in
   let decoded = get (Jsont_bytesrw.decode_string L.lexicon_doc_jsont encoded) in
   if decoded <> doc then failwith "recursive lexicon codec round trip changed"
+
+let () =
+  let doc = get (Jsont_bytesrw.decode_string L.lexicon_doc_jsont
+    {|{"lexicon":1,"id":"com.example.bytes","defs":{"main":{"type":"object","required":["data"],"properties":{"data":{"type":"bytes"}}}}}|}) in
+  let contains needle text =
+    let rec loop i = i + String.length needle <= String.length text &&
+      (String.sub text i (String.length needle) = needle || loop (i + 1)) in
+    loop 0 in
+  List.iter (fun code ->
+    if not (contains "Atp.Lex.bytes_jsont" code) || contains "Jsont.binary_string" code then
+      failwith "generator emitted non-AT Protocol bytes codec")
+    [Hermest.Codegen_jsont.gen_lexicon_module doc;
+     Hermest.Codegen_jsont.gen_unified_module ~module_name:"Fixture" [doc]]

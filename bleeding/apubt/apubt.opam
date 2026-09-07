@@ -19,6 +19,7 @@ depends: [
   "fetch"
   "fetch-curl"
   "fetch-signature"
+  "httpz"
   "webfinger"
   "base64"
   "digestif"

@@ -124,6 +124,8 @@ let read_byte state =
   end
 
 let read_exact state len =
+  if len < 0 || len > 64 * 1024 * 1024 then
+    raise_error (`Car_invalid_block "frame exceeds 64 MiB limit");
   let buf = Stdlib.Bytes.create len in
   let rec fill offset remaining =
     if remaining <= 0 then ()
@@ -144,13 +146,14 @@ let read_exact state len =
 
 let read_varint state =
   let rec loop acc shift =
-    if shift > 63 then raise_error (`Car_invalid_block "varint overflow")
+    if shift >= Sys.int_size - 1 then raise_error (`Car_invalid_block "varint overflow")
     else
       match read_byte state with
       | None when shift = 0 -> None
       | None -> raise_error `Car_unexpected_eof
       | Some b ->
           let value = b land 0x7f in
+          if value > (max_int lsr shift) then raise_error (`Car_invalid_block "varint overflow");
           let acc = acc lor (value lsl shift) in
           if b land 0x80 = 0 then Some acc else loop acc (shift + 7)
   in
@@ -166,18 +169,25 @@ let parse_header_value header_value =
   | `Map entries ->
       let version =
         match List.assoc_opt "version" entries with
-        | Some (`Int v) -> Int64.to_int v
+        | Some (`Int v) when v >= 0L && v <= Int64.of_int max_int -> Int64.to_int v
         | _ -> raise_error (`Car_invalid_header "missing or invalid version")
       in
       if version <> 1 then raise_error (`Car_unsupported_version version);
       let roots =
         match List.assoc_opt "roots" entries with
         | Some (`List links) ->
-            List.filter_map (function `Link cid -> Some cid | _ -> None) links
+            List.map (function `Link cid -> cid | _ ->
+              raise_error (`Car_invalid_header "roots must contain only CID links")) links
         | _ -> raise_error (`Car_invalid_header "missing or invalid roots")
       in
       { version; roots }
   | _ -> raise_error (`Car_invalid_header "header must be a map")
+
+let restore_unread state =
+  let length = available state in
+  if length > 0 then
+    Bytes.Reader.push_back state.reader
+      (Bytes.Slice.make (Bytes.Slice.bytes state.slice) ~first:state.pos ~length)
 
 let read_header ?cid_format reader =
   try
@@ -186,7 +196,9 @@ let read_header ?cid_format reader =
     let header_len = read_varint_exn state in
     let header_bytes = read_exact state header_len in
     let header_value = Dagcbor.decode_string ?cid_format header_bytes in
-    parse_header_value header_value
+    let header = parse_header_value header_value in
+    restore_unread state;
+    header
   with Eio.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Eio.Exn.reraise_with_context ex bt "reading CAR header"
@@ -194,7 +206,7 @@ let read_header ?cid_format reader =
 let read_block_internal state =
   match read_varint state with
   | None -> None
-  | Some 0 -> None
+  | Some 0 -> raise_error (`Car_invalid_block "empty block frame")
   | Some block_len ->
       let block_bytes = read_exact state block_len in
       (* Parse CID from beginning of block based on format *)
@@ -204,6 +216,7 @@ let read_block_internal state =
         | `Atproto ->
             (* AT Protocol CIDs are 35 bytes: version + codec + hash-codec + 32-byte hash.
                Per draft-holmgren-at-repository.md Section 7.2 (lines 391-392). *)
+            if block_len < 35 then raise_error (`Car_invalid_block "truncated draft CID");
             let cid_bytes = String.sub block_bytes 0 35 in
             let cid = Cid.of_atproto_bytes cid_bytes in
             (cid, 35)
@@ -215,7 +228,9 @@ let read_block ?cid_format reader =
   try
     let state = make_reader_state ?cid_format reader in
     refill state;
-    read_block_internal state
+    let block = read_block_internal state in
+    restore_unread state;
+    block
   with Eio.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Eio.Exn.reraise_with_context ex bt "reading CAR block"
@@ -253,14 +268,16 @@ let of_string ?cid_format s =
 
 let import ?cid_format (store : Blockstore.writable) reader =
   let header, blocks = read ?cid_format reader in
-  Seq.iter (fun (cid, data) -> store#put cid data) blocks;
+  Seq.iter (fun (cid, data) ->
+    if not (Cid.equal cid (Cid.create (Cid.codec cid) data)) then
+      raise_error (`Car_invalid_block "block data does not match CID");
+    store#put cid data) blocks;
   header
 
 let export ?cid_format ~root (store : Blockstore.readable) cids =
   let header = { version = 1; roots = [ root ] } in
   let blocks =
-    Seq.filter_map
-      (fun cid -> Option.map (fun data -> (cid, data)) (store#get cid))
+    Seq.map (fun cid -> cid, store#get_exn cid)
       cids
   in
   to_string ?cid_format header blocks

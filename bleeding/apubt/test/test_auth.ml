@@ -39,3 +39,34 @@ let () = Eio_mock.Backend.run_full @@ fun _env ->
   let fetch = Fetch_mock.client (fun req -> Fetch_mock.respond "{}" req) in
   check "missing JSON Content-Type rejected" (Result.is_error
     (Apub_mastodon_oauth.register_app fetch ~instance:"example.com"))
+
+let () = Eio_mock.Backend.run_full @@ fun _env ->
+  let status = {|{"id":"local-99","uri":"https://remote.example/notes/123","url":null,"content":"text","created_at":"2026-01-01T00:00:00Z","visibility":"private"}|} in
+  let calls = ref 0 in
+  let fetch = Fetch_mock.client (fun req ->
+    incr calls;
+    let url = Uri.of_string (Fetch.Middleware.Url.to_string req.Fetch.Middleware.url) in
+    check "token remains on local instance" (Uri.host url = Some "local.example");
+    if req.meth = `GET then begin
+      check "search resolves remote URL" (Uri.path url = "/api/v2/search" &&
+        Uri.get_query_param url "q" = Some "https://remote.example/@alice/123" &&
+        Uri.get_query_param url "resolve" = Some "true");
+      json ("{\"statuses\":[" ^ status ^ "]}") req
+    end else begin
+      let body = match req.body with Fetch.String s -> s | _ -> failwith "form" in
+      let fields = match Fetch.Media.decode Fetch.Media.form body with Ok fields -> fields | _ -> failwith "form" in
+      check "reply uses local ID" (List.assoc "in_reply_to_id" fields = "local-99");
+      check "OAuth retains CW and visibility" (List.assoc "spoiler_text" fields = "CW" && List.assoc "visibility" fields = "private");
+      json status req
+    end) in
+  check "remote reply resolution succeeds" (Result.is_ok
+    (Apub_mastodon_api.post_status_reply fetch ~instance:"local.example" ~token:"secret"
+      ~content:"reply" ~visibility:Private ~reply_to:"https://remote.example/@alice/123"
+      ~spoiler_text:"CW" ()));
+  check "resolve before posting" (!calls = 2);
+  let calls = ref 0 in
+  let fetch = Fetch_mock.client (fun req -> incr calls; json {|{"statuses":[]}|} req) in
+  check "missing target prevents post" (Result.is_error
+    (Apub_mastodon_api.post_status_reply fetch ~instance:"local.example" ~token:"secret"
+      ~content:"reply" ~visibility:Private ~reply_to:"https://remote.example/@alice/123" ()));
+  check "no post after failed resolution" (!calls = 1)

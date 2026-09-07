@@ -1111,7 +1111,8 @@ let verify_all ~clock ~key_resolver ?max_age ~(context : Context.t)
 module Middleware = struct
   let fail msg = raise (Fetch.err (Fetch.Invalid_request msg))
 
-  let sign ~clock ?config:cfg ?(digest_algorithm = `Sha256) ?(add_date = true)
+  let sign ~clock ?config:cfg ?(format = `Rfc9421) ?(digest_empty = false)
+      ?(digest_algorithm = `Sha256) ?(add_date = true)
       ~key t =
     let cfg =
       match cfg with None -> config ~key () | Some c -> { c with key }
@@ -1125,18 +1126,46 @@ module Middleware = struct
       in
       let uri = Uri.of_string (Fetch.Middleware.Url.to_string req.url) in
       let context = Context.request ~method_:req.meth ~uri ~headers in
-      let signed =
-        match req.body with
-        | Fetch.Middleware.Empty -> sign ~clock ~config:cfg ~context ~headers
-        | Fetch.Middleware.String body ->
-            sign_with_digest ~clock ~config:cfg ~context ~headers ~body
-              ~digest_algorithm
-        | Fetch.Middleware.Stream _ ->
-            fail
-              "fetch-signature: a streaming request body cannot be signed, \
-               since RFC 9421 covers a body only through Content-Digest, \
-               which needs the bytes in hand. Buffer it into a Fetch.String \
-               body."
+      let signed = match format with
+      | `Rfc9421 ->
+          (match req.body with
+           | Fetch.Middleware.Empty when not digest_empty -> sign ~clock ~config:cfg ~context ~headers
+           | Fetch.Middleware.Empty -> sign_with_digest ~clock ~config:cfg ~context ~headers
+               ~body:"" ~digest_algorithm
+           | Fetch.Middleware.String body -> sign_with_digest ~clock ~config:cfg ~context ~headers
+               ~body ~digest_algorithm
+           | Fetch.Middleware.Stream _ -> fail "fetch-signature: streaming bodies cannot be signed")
+      | `Cavage ->
+          let body = match req.body with
+            | Fetch.Middleware.Empty -> None
+            | Fetch.Middleware.String body -> Some body
+            | Fetch.Middleware.Stream _ -> fail "fetch-signature: streaming bodies cannot be signed" in
+          let headers = match body with
+            | None -> headers
+            | Some body -> Http.Header.replace headers "digest"
+                ("SHA-256=" ^ Base64.encode_string Digestif.SHA256.(to_raw_string (digest_string body))) in
+          let* authority = Result.map_error (fun e -> `Component_resolution_error e)
+              (resolve_component context Component.authority) in
+          let* date = match Http.Header.get headers "date" with
+            | Some date -> Ok date | None -> Error (`Component_resolution_error "Missing date") in
+          let fields = ["(request-target)", String.lowercase_ascii (Http.Method.to_string req.meth)
+                ^ " " ^ Fetch.Middleware.Url.path_and_query req.url;
+              "host", authority; "date", date] in
+          let fields = match Http.Header.get headers "digest" with
+            | Some digest when Option.is_some body -> fields @ ["digest", digest]
+            | _ -> fields in
+          let base = String.concat "\n" (List.map (fun (k, v) -> k ^ ": " ^ v) fields) in
+          let* bytes = Result.map_error (fun e -> `Crypto_error e)
+              (sign_bytes ~alg:`Rsa_v1_5_sha256 ~key:cfg.key base) in
+          let quote value =
+            let b = Buffer.create (String.length value) in
+            String.iter (fun c -> if c = '"' || c = '\\' then Buffer.add_char b '\\'; Buffer.add_char b c) value;
+            "\"" ^ Buffer.contents b ^ "\"" in
+          let* keyid = match cfg.keyid with Some id -> Ok id
+            | None -> Error (`Component_resolution_error "Draft signatures require a key ID") in
+          let value = "keyId=" ^ quote keyid ^ ",algorithm=\"rsa-sha256\",headers="
+            ^ quote (String.concat " " (List.map fst fields)) ^ ",signature=" ^ quote (Base64.encode_string bytes) in
+          Ok (Http.Header.replace (Http.Header.remove headers "signature-input") "signature" value)
       in
       match signed with
       | Ok headers -> { req with headers }

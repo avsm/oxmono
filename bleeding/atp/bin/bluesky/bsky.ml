@@ -43,12 +43,9 @@ let upload_image client ~image_path =
 
 (* Helper to encode a typed value to Jsont.json *)
 let to_json jsont value =
-  match Jsont_bytesrw.encode_string jsont value with
-  | Ok s -> (
-      match Jsont_bytesrw.decode_string Jsont.json s with
-      | Ok json -> json
-      | Error e -> failwith ("Failed to decode JSON: " ^ e))
-  | Error e -> failwith ("Failed to encode JSON: " ^ e)
+  match Jsont.Json.encode jsont value with
+  | Ok json -> json
+  | Error error -> failwith ("Failed to encode JSON: " ^ error)
 
 (* Facet helpers using generated lexicon types *)
 

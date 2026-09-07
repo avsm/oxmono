@@ -15,6 +15,16 @@ type value =
   | `List of value list
   | `Map of (string * value) list ]
 
+(** AT Protocol JSON bytes use a base64 wrapper, not a hex JSON string. *)
+let bytes_jsont =
+  let base64 = Jsont.of_of_string ~kind:"base64 bytes"
+    (fun value -> match Base64.decode value with
+      | Ok bytes -> Ok bytes | Error (`Msg error) -> Error error)
+    ~enc:(fun bytes -> Base64.encode_string bytes) in
+  Jsont.Object.map Fun.id
+  |> Jsont.Object.mem "$bytes" base64 ~enc:Fun.id
+  |> Jsont.Object.finish
+
 (* Blob detection for IPLD values *)
 
 let is_blob_map entries =

@@ -15,6 +15,28 @@ from [futur.blue/pegasus](https://tangled.org/futur.blue/pegasus) which has a
 more complete PDS implementation. The appropriate MPL license has been
 preserved where that code is used.
 
+The [implementation review](REVIEW.md) documents tested fixes and open issues.
+MST mutation and generated-schema validation are incomplete; this is not yet a
+validated repository implementation.
+
+XRPC clients can reuse a caller-owned Fetch capability:
+
+```ocaml
+let client = Xrpc.Client.of_fetch ~service:"https://pds.example"
+  ~max_response_bytes:(16 * 1024 * 1024) fetch
+```
+
+Configure timeouts, network restrictions, and retries on `fetch`. JSON and binary
+responses are bounded; JSON also requires a JSON Content-Type. Writes reject
+redirects. Use `procedure_unit` for endpoints without an output schema.
+Credentials are scoped to the service, and a retained authenticated client cannot
+continue after logout or an account change. Session files use private atomic
+replacement under `$XDG_CONFIG_HOME` (default `~/.config`).
+
+Use the default `Standard` CID format for current AT Protocol CAR/CBOR data.
+The optional `Atproto` format implements the bundled experimental draft and is
+not the current interoperable encoding.
+
 ## Installation
 
 Add the aoah-opam-repo overlay and install:
@@ -75,33 +97,33 @@ opam pin add -y https://tangled.org/@anil.recoil.org/ocaml-atp.git
 
 ```sh
 # Login (credentials stored in XDG config directory)
-bsky login
+bsky auth login alice.example
 
 # Post to your timeline
 bsky post "Hello from OCaml!"
 
-# View your timeline
-bsky timeline
+# Inspect authentication and profiles
+bsky auth status
 ```
 
 ### Tangled CLI
 
 ```sh
 # Login
-tangled login
+tangled auth login --handle alice.example
 
 # List repositories
-tangled repos
+tangled repo list
 ```
 
 ### Standard Site CLI
 
 ```sh
 # Login
-standard-site login
+standard-site auth login alice.example
 
 # Manage your blog posts
-standard-site posts list
+standard-site document list
 ```
 
 ## Building from Source

@@ -11,7 +11,11 @@
     - OAuth (oauth_* fields) for Mastodon REST API access
 
     Sessions are stored in profile-specific directories under
-    [~/.config/<app_name>/profiles/<profile>/session.json].
+    [$XDG_CONFIG_HOME/<app_name>/profiles/<profile>/session.json], with
+    [~/.config] as the default. Application/profile names must be safe single
+    path components. Saves use a synced private temporary file and atomic rename;
+    session files are mode 0600, including after replacing an existing file.
+    Missing files return [None]; malformed files raise {!Invalid_session}.
 
     {2 Directory Structure}
 
@@ -167,3 +171,11 @@ val clear :
 
 val pp : t Fmt.t
 (** Pretty-print a session (does not print the private key). *)
+
+exception Invalid_session of string
+(** A saved file exists but is malformed. It is never treated as a missing session. *)
+val validate_name : string -> unit
+(** Reject unsafe profile/application path components. *)
+val save_document : Eio.Fs.dir_ty Eio.Path.t -> app_name:string ->
+  ?profile:string -> id:string -> Jsont.json -> unit
+(** Atomically persist a generated activity or object before federation delivery. *)

@@ -7,7 +7,7 @@ An ActivityPub/ActivityStreams protocol implementation for OCaml using Eio for c
 - **Typed ActivityPub subset**: OCaml types for actors, activities, objects, and collections
 - **JSON codecs**: Bidirectional encoding/decoding using jsont
 - **Eio-based HTTP**: Direct-style concurrent I/O with connection pooling
-- **HTTP Signatures**: RFC 9421 message signatures for authenticated federation
+- **HTTP Signatures**: RFC 9421 and legacy RSA signatures for authenticated GET/POST
 - **Webfinger**: Actor discovery via RFC 7033/7565 using the `webfinger` library
 - **NodeInfo**: Server metadata discovery
 - **CLI Tool**: Command-line interface for interacting with ActivityPub servers
@@ -45,7 +45,9 @@ let signing = Apubt.Signing.from_pem_exn
   ~key_id:"https://example.com/users/alice#main-key"
   ~pem:private_key_pem
   () in
-let client = Apubt.create ~sw ~signing env in
+(* Application callback: durably save the activity and embedded objects, and
+   serve them at their IDs. Called before any delivery. *)
+let client = Apubt.create ~sw ~signing ~persist:store_activity_and_objects env in
 
 (* Post a public note *)
 let _activity = Apubt.Outbox.public_note client
@@ -66,13 +68,23 @@ timeouts, restrictions, and retries. `Apubt.create` remains a curl convenience
 constructor. JSON responses are bounded to 16 MiB by default and require a JSON
 Content-Type. POST requests do not follow redirects.
 
-The federation helpers construct activities and deliver directly to actor
-inboxes; they do not persist objects or submit them to a local outbox. Follower
-collections are not expanded, so public/follower delivery is incomplete.
-Failures now propagate, including when some earlier recipients have accepted
-an activity. Signing supports RFC 9421 POSTs; draft signatures and authenticated
-GETs are not implemented. See [the implementation review](REVIEW.md) for the
-remaining correctness and compatibility issues.
+Federation helpers require a persistence callback before creating and delivering
+activities. The default ID generator uses cryptographic randomness; applications
+can inject their own URI allocator. Follower collections are expanded with bounded
+pagination and deduplicated inbox delivery. Delivery failures propagate; retry a
+persisted activity with `Outbox.deliver` to retain its ID. Undo helpers take the
+original Follow, Like, or Announce.
+
+Signed clients authenticate GETs and POSTs. Pass `~format:`Cavage` to
+`Signing.from_pem` (or CLI `--signature-format cavage`) for older peers.
+
+The CLI stores activities and embedded objects atomically under
+`$XDG_CONFIG_HOME/apub/profiles/<profile>/objects/` (default `~/.config`). An
+application or server must still serve these documents at their IDs; the CLI
+is not a federation server. Signature credentials are checked against the actor's
+advertised key. OAuth commands resolve remote URLs on the authenticated instance;
+existing logins need the `read:search` scope for these operations.
+See [the implementation review](REVIEW.md) for coverage and limitations.
 
 ## Command-Line Interface
 

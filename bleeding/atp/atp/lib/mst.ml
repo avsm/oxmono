@@ -235,35 +235,16 @@ let to_cid node ~store = save_node node ~store
 (* Queries *)
 
 let rec get key node ~(store : Blockstore.readable) =
-  (* Binary search through entries *)
-  let rec search entries =
-    match entries with
-    | [] -> (
-        (* Check left subtree *)
-        match Lazy.force node.left with
-        | None -> None
-        | Some child -> get key child ~store)
-    | entry :: rest -> (
+  let descend child = match Lazy.force child with
+    | None -> None | Some child -> get key child ~store in
+  let rec search left = function
+    | [] -> descend left
+    | entry :: rest ->
         let cmp = String.compare key entry.key in
         if cmp = 0 then Some entry.value
-        else if cmp < 0 then
-          (* Key is before this entry, check left or previous right *)
-          match Lazy.force node.left with
-          | None -> None
-          | Some child -> get key child ~store
-        else
-          (* Key is after this entry, check right subtree or continue *)
-          match rest with
-          | next :: _ when String.compare key next.key < 0 -> (
-              (* Key is between this entry and next, check right subtree *)
-              match Lazy.force entry.right with
-              | None -> None
-              | Some child -> get key child ~store)
-          | _ ->
-              (* Continue to next entry *)
-              search rest)
-  in
-  search node.entries
+        else if cmp < 0 then descend left
+        else search entry.right rest in
+  search node.left node.entries
 
 let mem key node ~store = Option.is_some (get key node ~store)
 

@@ -85,14 +85,14 @@ let login_action ~app_name ~identifier ~password ~pds ~profile env =
   in
   Eio.Switch.run @@ fun sw ->
   let fs = env#fs in
+  let first_login = Xrpc_auth_session.list_profiles fs ~app_name = [] in
   let client = Xrpc_auth_client.create ~sw ~env ~app_name ?profile ~pds () in
   Xrpc_auth_client.login client ~identifier ~password;
   match Xrpc_auth_client.get_session client with
   | Some session ->
       (* Set this as current profile if it's the first login or explicitly requested *)
       let profile_name = Option.value ~default:session.handle profile in
-      let profiles = Xrpc_auth_session.list_profiles fs ~app_name in
-      if profiles = [] || Option.is_some profile then
+      if first_login || Option.is_some profile then
         Xrpc_auth_session.set_current_profile fs ~app_name profile_name;
       Fmt.pr "Logged in as %s (profile: %s)@." session.handle profile_name
   | None -> Fmt.pr "Logged in as %s@." identifier
@@ -139,8 +139,8 @@ let logout_cmd ~app_name () =
 let status_action ~app_name ~profile env =
   Eio.Switch.run @@ fun _sw ->
   let fs = env#fs in
-  let home = Sys.getenv "HOME" in
-  Fmt.pr "Config directory: %s/.config/%s@." home app_name;
+  Fmt.pr "Config directory: %a@." Eio.Path.pp
+    (Xrpc_auth_session.base_config_dir fs ~app_name);
   let current = Xrpc_auth_session.get_current_profile fs ~app_name in
   Fmt.pr "Current profile: %s@." current;
   let profiles = Xrpc_auth_session.list_profiles fs ~app_name in

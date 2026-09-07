@@ -29,14 +29,14 @@ let test_http () = Eio_mock.Backend.run_full @@ fun env ->
       Some "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"");
     check "configured User-Agent" (Http.Header.get req.headers "user-agent" = Some "audit-test");
     json ~close:(fun () -> incr closed) "42" req) in
-  let client = Apubt.of_fetch ~clock:env#clock ~user_agent:"audit-test" fetch in
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock ~user_agent:"audit-test" fetch in
   check "typed JSON GET" (Apubt.Http.get_typed client Jsont.int (uri "https://example.com/value") = 42);
   check "success released" (!closed = 1);
   List.iter (fun (status, headers, body, predicate) ->
     let closed = ref false in
     let fetch = Fetch_mock.client (response ~status ~headers
       ~close:(fun () -> closed := true) body) in
-    let client = Apubt.of_fetch ~clock:env#clock ~max_response_bytes:32 fetch in
+    let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock ~max_response_bytes:32 fetch in
     apub_error "HTTP classification" predicate (fun () ->
       Apubt.Http.get client (uri "https://example.com/value"));
     check "failure released" !closed)
@@ -49,15 +49,15 @@ let test_http () = Eio_mock.Backend.run_full @@ fun env ->
      200, ["Content-Type", "application/json"], "[", (function Json_error _ -> true | _ -> false);
      200, ["Content-Type", "application/json"], String.make 33 ' ', (function Json_error _ -> true | _ -> false)];
   let fetch = Fetch_mock.client (json (String.make 129 '[' ^ "0" ^ String.make 129 ']')) in
-  let client = Apubt.of_fetch ~clock:env#clock fetch in
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock fetch in
   apub_error "bounded JSON depth" (function Json_error _ -> true | _ -> false)
     (fun () -> Apubt.Http.get client (uri "https://example.com/deep"));
   let fetch = Fetch_mock.client (fun _ -> raise (Fetch.err (Fetch.Tls_failure "test"))) in
-  let client = Apubt.of_fetch ~clock:env#clock fetch in
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock fetch in
   apub_error "transport errors use public API" (function Network_error _ -> true | _ -> false)
     (fun () -> Apubt.Http.get client (uri "https://example.com"));
   let cancelled = Eio.Cancel.Cancelled (Failure "test cancellation") in
-  let client = Apubt.of_fetch ~clock:env#clock
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock
     (Fetch_mock.client (fun _ -> raise cancelled)) in
   let activity = P.Activity.make ~type_:Follow
       ~actor:(P.Actor_ref.uri (uri "https://example.com/alice")) () in
@@ -91,7 +91,7 @@ let test_signing () =
     check "signature verifies" (Result.is_ok (verify target));
     check "query tampering rejected" (Result.is_error (verify "https://example.com/inbox?part=2"));
     response ~status:307 ~headers:["Location", "https://other.example/inbox"] "" req) in
-  let client = Apubt.of_fetch ~clock:env#clock ~signing fetch in
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock ~signing fetch in
   apub_error "signed writes do not follow redirects"
     (function Http_error (307, _) -> true | _ -> false)
     (fun () -> Apubt.Http.post_typed client Jsont.int
@@ -115,7 +115,7 @@ let test_discovery () = Eio_mock.Backend.run_full @@ fun env ->
       response ~headers:["Content-Type", "application/jrd+json"]
         {|{"subject":"acct:alice@example.com","links":[{"rel":"self","type":"text/html","href":"https://example.com/profile"},{"rel":"self","type":"application/activity+json","href":"https://example.com/alice"}]}|} req
     end) in
-  let client = Apubt.of_fetch ~clock:env#clock fetch in
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock fetch in
   check "search every self link" (P.Actor.id (Apubt.Actor.lookup client "alice@example.com") = uri "https://example.com/alice");
   let calls = ref 0 in
   let fetch = Fetch_mock.client (fun req ->
@@ -126,27 +126,30 @@ let test_discovery () = Eio_mock.Backend.run_full @@ fun env ->
         {|{"links":[{"rel":"http://nodeinfo.diaspora.software/ns/schema/2.1","href":"https://example.com/nodeinfo"}]}|} req
     else response ~headers:["Content-Type", "application/json"]
       {|{"version":"2.1","software":{"name":"test","version":"1"},"protocols":["activitypub"],"usage":{},"openRegistrations":false}|} req) in
-  let client = Apubt.of_fetch ~clock:env#clock fetch in
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock fetch in
   check "NodeInfo decode" (Apubt.Nodeinfo.software_name (Apubt.Nodeinfo.fetch client ~host:"example.com") = "test")
 
 let test_collections_and_delivery () = Eio_mock.Backend.run_full @@ fun env ->
   let requests = ref 0 in
-  let client = Apubt.of_fetch ~clock:env#clock (Fetch_mock.client (fun req ->
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock (Fetch_mock.client (fun req ->
     incr requests;
     json {|{"type":"OrderedCollectionPage","orderedItems":[1,2],"next":"https://example.com/page"}|} req)) in
-  let collection = P.Collection.make ~ordered:true ~first:(uri "https://example.com/page") () in
+  let collection = P.Collection.make ~ordered:true ~first:(P.Reference.uri (uri "https://example.com/page")) () in
   apub_error "pagination cycles fail" (function Json_error _ -> true | _ -> false)
     (fun () -> Apubt.Collection.to_list client collection Jsont.int);
   check "cyclic page fetched once" (!requests = 1);
   let actor = P.Actor.make ~id:(uri "https://example.com/alice") ~type_:Person
       ~inbox:(uri "https://example.com/inbox") ~outbox:(uri "https://example.com/outbox") () in
-  let client = Apubt.of_fetch ~clock:env#clock (Fetch_mock.client (fun req ->
+  let remote = P.Actor.make ~id:(uri "https://example.com/bob") ~type_:Person
+      ~inbox:(uri "https://example.com/inbox") ~outbox:(uri "https://example.com/outbox") () in
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock (Fetch_mock.client (fun req ->
     match req.meth with
-    | `GET -> json (get (Jsont_bytesrw.encode_string P.Actor.jsont actor)) req
+    | `GET -> json (get (Jsont_bytesrw.encode_string P.Actor.jsont remote)) req
     | _ -> response ~status:503 "unavailable" req)) in
   apub_error "delivery failure propagates" (function Http_error (503, _) -> true | _ -> false)
-    (fun () -> Apubt.Outbox.direct_note client ~actor ~to_:[actor] ~content:"test" ());
-  let client = Apubt.of_fetch ~clock:env#clock (Fetch_mock.client (fun _ -> failwith "unexpected recipient request")) in
+    (fun () -> Apubt.Outbox.direct_note client ~actor ~to_:[P.Actor.make ~id:(uri "https://example.com/bob") ~type_:Person
+      ~inbox:(uri "https://example.com/inbox") ~outbox:(uri "https://example.com/outbox") ()] ~content:"test" ());
+  let client = Apubt.of_fetch ~persist:(fun _ -> ()) ~clock:env#clock (Fetch_mock.client (fun _ -> failwith "unexpected recipient request")) in
   let activity = Apubt.Outbox.public_note client ~actor ~content:"test" () in
   check "no empty follower URI" (P.Activity.cc activity = Some [])
 

@@ -152,16 +152,18 @@ module Link = struct
     rel : string;
     type_ : string option;
     href : string option;
+    template : string option;
     titles : (string * string) list;
     properties : (string * string option) list;
   }
 
-  let make ~rel ?type_ ?href ?(titles = []) ?(properties = []) () =
-    { rel; type_; href; titles; properties }
+  let make ~rel ?type_ ?href ?template ?(titles = []) ?(properties = []) () =
+    { rel; type_; href; template; titles; properties }
 
   let rel t = t.rel
   let type_ t = t.type_
   let href t = t.href
+  let template t = t.template
   let titles t = t.titles
   let properties t = t.properties
 
@@ -173,13 +175,14 @@ module Link = struct
   let property ~uri t = List.assoc_opt uri t.properties |> Option.join
 
   let jsont =
-    let make rel type_ href titles properties =
-      { rel; type_; href; titles; properties }
+    let make rel type_ href template titles properties =
+      { rel; type_; href; template; titles; properties }
     in
     Jsont.Object.map ~kind:"Link" make
     |> Jsont.Object.mem "rel" Jsont.string ~enc:(fun (l : t) -> l.rel)
     |> Jsont.Object.opt_mem "type" Jsont.string ~enc:(fun (l : t) -> l.type_)
     |> Jsont.Object.opt_mem "href" Jsont.string ~enc:(fun (l : t) -> l.href)
+    |> Jsont.Object.opt_mem "template" Jsont.string ~enc:(fun (l : t) -> l.template)
     |> Jsont.Object.mem "titles" titles_jsont ~dec_absent:(fun () -> []) ~enc_omit:(fun x -> x = []) ~enc:(fun (l : t) -> l.titles)
     |> Jsont.Object.mem "properties" properties_jsont ~dec_absent:(fun () -> []) ~enc_omit:(fun x -> x = []) ~enc:(fun (l : t) -> l.properties)
     |> Jsont.Object.skip_unknown

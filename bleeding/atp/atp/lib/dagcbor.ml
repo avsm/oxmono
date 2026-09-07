@@ -183,7 +183,16 @@ let rec validate_value : value -> unit = function
       raise_error
         (`Dagcbor_invalid_float (if f > 0. then "Infinity" else "-Infinity"))
   | `List items -> List.iter validate_value items
-  | `Map entries -> List.iter (fun (_, v) -> validate_value v) entries
+  | `String s when not (String.is_valid_utf_8 s) ->
+      raise_error (`Dagcbor_decode_error "invalid UTF-8 string")
+  | `Map entries ->
+      let seen = Hashtbl.create (List.length entries) in
+      List.iter (fun (key, v) ->
+        if Hashtbl.mem seen key then raise_error `Dagcbor_unsorted_keys;
+        Hashtbl.add seen key ();
+        if not (String.is_valid_utf_8 key) then
+          raise_error (`Dagcbor_decode_error "invalid UTF-8 map key");
+        validate_value v) entries
   | _ -> ()
 
 (* Encode IPLD value *)
@@ -253,16 +262,21 @@ type decoder = {
   mutable slice : Bytes.Slice.t;
   mutable pos : int;
   mutable byte_count : int;
+  max_bytes : int;
+  max_depth : int;
   strict : bool;
   cid_format : cid_format;
 }
 
-let make_decoder ?(strict = true) ?(cid_format = `Standard) reader =
+let make_decoder ?(strict = true) ?(cid_format = `Standard)
+    ?(max_bytes = 16 * 1024 * 1024) ?(max_depth = 128) reader =
+  if max_bytes < 0 || max_depth < 0 then invalid_arg "Negative CBOR resource limit";
   {
     reader;
     slice = Bytes.Slice.eod;
     pos = 0;
     byte_count = 0;
+    max_bytes; max_depth;
     strict;
     cid_format;
   }
@@ -274,7 +288,12 @@ let decoder_refill d =
 let available d =
   Bytes.Slice.length d.slice - (d.pos - Bytes.Slice.first d.slice)
 
+let check_bytes d count =
+  if count < 0 || count > d.max_bytes - d.byte_count then
+    raise_error (`Dagcbor_decode_error "byte limit exceeded")
+
 let read_byte d =
+  check_bytes d 1;
   if available d = 0 then decoder_refill d;
   if available d = 0 then raise_error `Dagcbor_unexpected_eof;
   let b = Stdlib.Bytes.get_uint8 (Bytes.Slice.bytes d.slice) d.pos in
@@ -283,6 +302,7 @@ let read_byte d =
   b
 
 let read_u16_be d =
+  check_bytes d 2;
   if available d < 2 then begin
     let b1 = read_byte d in
     let b2 = read_byte d in
@@ -296,6 +316,7 @@ let read_u16_be d =
   end
 
 let read_u32_be d =
+  check_bytes d 4;
   if available d < 4 then begin
     let b1 = read_byte d in
     let b2 = read_byte d in
@@ -307,10 +328,11 @@ let read_u32_be d =
     let v = Stdlib.Bytes.get_int32_be (Bytes.Slice.bytes d.slice) d.pos in
     d.pos <- d.pos + 4;
     d.byte_count <- d.byte_count + 4;
-    Int32.to_int v
+    Int64.(to_int (logand (of_int32 v) 0xffffffffL))
   end
 
 let read_u64_be d =
+  check_bytes d 8;
   if available d < 8 then begin
     let hi = Int64.of_int (read_u32_be d) in
     let lo = Int64.of_int32 (Int32.of_int (read_u32_be d)) in
@@ -324,6 +346,7 @@ let read_u64_be d =
   end
 
 let read_bytes_to_string d len =
+  check_bytes d len;
   let buf = Stdlib.Bytes.create len in
   let rec fill offset remaining =
     if remaining <= 0 then ()
@@ -361,7 +384,10 @@ let read_arg d ai =
       check_canonical 0xffff v;
       v
   | _ when ai = ai_8byte ->
-      let v = Int64.to_int (read_u64_be d) in
+      let value = read_u64_be d in
+      if value < 0L || value > Int64.of_int max_int then
+        raise_error (`Dagcbor_decode_error "length exceeds OCaml integer range");
+      let v = Int64.to_int value in
       check_canonical 0xffffffff v;
       v
   | _ when ai = ai_indefinite -> raise_error `Dagcbor_indefinite_length
@@ -386,11 +412,12 @@ let read_arg64 d ai =
       Int64.of_int v
   | _ when ai = ai_4byte ->
       let v = read_u32_be d in
-      check_canonical64 0x10000L (Int64.of_int v);
+      check_canonical64 0xffffL (Int64.of_int v);
       Int64.of_int v
   | _ when ai = ai_8byte ->
       let v = read_u64_be d in
-      check_canonical64 0x100000000L v;
+      if v < 0L then raise_error (`Dagcbor_decode_error "integer exceeds signed 64-bit range");
+      check_canonical64 0xffffffffL v;
       v
   | _ when ai = ai_indefinite -> raise_error `Dagcbor_indefinite_length
   | _ ->
@@ -405,7 +432,8 @@ let check_key_order d prev_key new_key =
   end
 
 (* Decode IPLD value *)
-let rec decode_value d : value =
+let rec decode_value d depth : value =
+  if depth > d.max_depth then raise_error (`Dagcbor_decode_error "nesting limit exceeded");
   let b = read_byte d in
   let major = b lsr 5 in
   let ai = b land 0x1f in
@@ -423,10 +451,13 @@ let rec decode_value d : value =
       `Bytes (read_bytes_to_string d len)
   | 3 ->
       let len = read_arg d ai in
-      `String (read_bytes_to_string d len)
+      let value = read_bytes_to_string d len in
+      if not (String.is_valid_utf_8 value) then
+        raise_error (`Dagcbor_decode_error "invalid UTF-8 string");
+      `String value
   | 4 ->
       let len = read_arg d ai in
-      let items = List.init len (fun _ -> decode_value d) in
+      let items = List.init len (fun _ -> decode_value d (depth + 1)) in
       `List items
   | 5 ->
       let len = read_arg d ai in
@@ -439,10 +470,12 @@ let rec decode_value d : value =
           if kmajor <> major_text then raise_error `Dagcbor_invalid_map_key;
           let klen = read_arg d kai in
           let key = read_bytes_to_string d klen in
+          if not (String.is_valid_utf_8 key) then
+            raise_error (`Dagcbor_decode_error "invalid UTF-8 map key");
           (match prev_key with
           | Some pk -> check_key_order d pk key
           | None -> ());
-          let value = decode_value d in
+          let value = decode_value d (depth + 1) in
           read_entries (i + 1) (Some key) ((key, value) :: acc)
         end
       in
@@ -521,11 +554,11 @@ let rec decode_value d : value =
       raise_error
         (`Dagcbor_decode_error (Printf.sprintf "unknown major type: %d" major))
 
-let decode ?(strict = true) ?cid_format reader =
+let decode ?(strict = true) ?cid_format ?max_bytes ?max_depth reader =
   try
-    let d = make_decoder ~strict ?cid_format reader in
+    let d = make_decoder ~strict ?cid_format ?max_bytes ?max_depth reader in
     decoder_refill d;
-    let v = decode_value d in
+    let v = decode_value d 0 in
     if d.strict then begin
       if available d > 0 then raise_error `Dagcbor_trailing_data;
       decoder_refill d;
@@ -536,10 +569,10 @@ let decode ?(strict = true) ?cid_format reader =
     let bt = Printexc.get_raw_backtrace () in
     Eio.Exn.reraise_with_context ex bt "decoding DAG-CBOR"
 
-let decode_string ?(strict = true) ?cid_format s =
+let decode_string ?(strict = true) ?cid_format ?max_bytes ?max_depth s =
   try
     let r = Bytes.Reader.of_string s in
-    decode ~strict ?cid_format r
+    decode ~strict ?cid_format ?max_bytes ?max_depth r
   with Eio.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Eio.Exn.reraise_with_context ex bt

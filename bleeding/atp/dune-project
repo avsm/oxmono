@@ -128,6 +128,7 @@
   (xrpc-auth (= :version))
   (atp-xrpc (= :version))
   fetch
+  (atp-lexicon-atproto (= :version))
   (atp-lexicon-tangled (= :version))
   (jsont (>= 0.1))
   (eio (>= 1.0))
@@ -147,6 +148,7 @@
   (ocaml (>= 5.1))
   (atp (= :version))
   (atp-xrpc (= :version))
+  (xrpc-auth (= :version))
   (atp-lexicon-atproto (= :version))
   (atp-lexicon-bsky (= :version))
   (cmdliner (>= 1.2))
@@ -167,6 +169,7 @@
   (xrpc-auth (= :version))
   (atp-xrpc (= :version))
   fetch
+  uri
   (atp-lexicon-atproto (= :version))
   (atp-lexicon-standard-site (= :version))
   (jsont (>= 0.1))

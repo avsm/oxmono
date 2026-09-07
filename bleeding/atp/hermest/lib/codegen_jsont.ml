@@ -39,7 +39,7 @@ let rec gen_jsont_ref nsid out (type_def : type_def) : string =
       | Some m when m > 1073741823 -> "Jsont.int64"
       | _ -> "Jsont.int")
   | Boolean _ -> "Jsont.bool"
-  | Bytes _ -> "Jsont.binary_string"
+  | Bytes _ -> "Atp.Lex.bytes_jsont"
   | Blob _ -> "Atp.Blob_ref.jsont"
   | CidLink _ -> "Atp.Cid.jsont"
   | Array { items; _ } ->
@@ -1018,7 +1018,7 @@ let rec gen_unified_jsont_ref ctx out (type_def : type_def) : string =
       | Some m when m > 1073741823 -> "Jsont.int64"
       | _ -> "Jsont.int")
   | Boolean _ -> "Jsont.bool"
-  | Bytes _ -> "Jsont.binary_string"
+  | Bytes _ -> "Atp.Lex.bytes_jsont"
   | Blob _ -> "Atp.Blob_ref.jsont"
   | CidLink _ -> "Atp.Cid.jsont"
   | Array { items; _ } ->

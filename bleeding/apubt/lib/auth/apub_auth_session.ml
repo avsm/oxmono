@@ -49,121 +49,104 @@ let app_config_jsont =
 
 let default_profile = "default"
 
-(* Helper to create directory if it doesn't exist *)
+exception Invalid_session of string
+
+let validate_name name =
+  if name = "" || name = "." || name = ".." ||
+     String.exists (fun c -> c = '/' || c = '\\' || Char.code c < 32 || Char.code c = 127) name then
+    invalid_arg "Profile and application names must be non-empty path components"
+
 let mkdir_if_missing ~perm path =
-  try Eio.Path.mkdir ~perm path
-  with Eio.Io (Eio.Fs.E (Eio.Fs.Already_exists _), _) -> ()
+  match Eio.Path.kind ~follow:false path with
+  | `Not_found -> Eio.Path.mkdir ~perm path
+  | `Directory -> ()
+  | _ -> invalid_arg "Configuration path must be a directory, not a symlink or file"
 
-(* Base config directory for the app *)
 let base_config_dir fs ~app_name =
-  let home = Sys.getenv "HOME" in
-  (* Ensure ~/.config exists first *)
-  let dot_config = Eio.Path.(fs / home / ".config") in
-  mkdir_if_missing ~perm:0o755 dot_config;
-  (* Then create the app-specific directory *)
-  let config_path = Eio.Path.(dot_config / app_name) in
-  mkdir_if_missing ~perm:0o700 config_path;
-  config_path
+  validate_name app_name;
+  let root = match Sys.getenv_opt "XDG_CONFIG_HOME" with
+    | Some value when value <> "" && not (Filename.is_relative value) -> value
+    | _ -> Filename.concat (Sys.getenv "HOME") ".config" in
+  let path = Eio.Path.(fs / root) in
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 path;
+  let path = Eio.Path.(path / app_name) in
+  mkdir_if_missing ~perm:0o700 path;
+  path
 
-(* Profiles directory *)
 let profiles_dir fs ~app_name =
-  let base = base_config_dir fs ~app_name in
-  let profiles = Eio.Path.(base / "profiles") in
-  mkdir_if_missing ~perm:0o700 profiles;
-  profiles
+  let path = Eio.Path.(base_config_dir fs ~app_name / "profiles") in
+  mkdir_if_missing ~perm:0o700 path;
+  path
 
-(* Config directory for a specific profile *)
-let config_dir fs ~app_name ?profile () =
-  let profile_name = Option.value ~default:default_profile profile in
-  let profiles = profiles_dir fs ~app_name in
-  let profile_dir = Eio.Path.(profiles / profile_name) in
-  mkdir_if_missing ~perm:0o700 profile_dir;
-  profile_dir
-
-(* App config file (stores current profile) *)
-let app_config_file fs ~app_name =
-  Eio.Path.(base_config_dir fs ~app_name / "config.json")
-
-let load_app_config fs ~app_name =
-  let path = app_config_file fs ~app_name in
+let read_json codec path =
   try
-    Eio.Path.load path
-    |> Jsont_bytesrw.decode_string app_config_jsont
-    |> Result.to_option
+    match Jsont_bytesrw.decode_string codec (Eio.Path.load path) with
+    | Ok value -> Some value
+    | Error _ -> raise (Invalid_session "Malformed saved configuration or session")
   with Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> None
 
-let save_app_config fs ~app_name config =
-  let path = app_config_file fs ~app_name in
-  match
-    Jsont_bytesrw.encode_string ~format:Jsont.Indent app_config_jsont config
-  with
-  | Ok content -> Eio.Path.save ~create:(`Or_truncate 0o600) path content
-  | Error e -> failwith ("Failed to encode app config: " ^ e)
+let save_private path content =
+  let parent, name = match Eio.Path.split path with
+    | Some parts -> parts | None -> invalid_arg "Cannot save over a directory root" in
+  let rec write attempt =
+    if attempt = 100 then failwith "Unable to allocate temporary config file";
+    let temp = Eio.Path.(parent / Printf.sprintf ".%s.%d.%d.tmp" name (Unix.getpid ()) attempt) in
+    try
+      Eio.Switch.run (fun sw ->
+        let file = Eio.Path.open_out ~sw ~create:(`Exclusive 0o600) temp in
+        Fun.protect ~finally:(fun () ->
+          try Eio.Path.unlink temp with Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> ())
+          (fun () -> Eio.Flow.copy_string content file;
+            Eio.File.sync file;
+            Eio.Path.rename temp path))
+    with Eio.Io (Eio.Fs.E (Eio.Fs.Already_exists _), _) -> write (attempt + 1)
+  in
+  write 0
 
-(* Get the current profile name *)
+let encode_save codec path value =
+  match Jsont_bytesrw.encode_string ~format:Jsont.Indent codec value with
+  | Ok content -> save_private path content
+  | Error msg -> raise (Invalid_session msg)
+
+let app_config_file fs ~app_name = Eio.Path.(base_config_dir fs ~app_name / "config.json")
+
 let get_current_profile fs ~app_name =
-  match load_app_config fs ~app_name with
-  | Some config -> config.current_profile
-  | None -> default_profile
+  let profile = match read_json app_config_jsont (app_config_file fs ~app_name) with
+    | Some config -> config.current_profile | None -> default_profile in
+  validate_name profile;
+  profile
 
-(* Set the current profile *)
-let set_current_profile fs ~app_name profile =
-  save_app_config fs ~app_name { current_profile = profile }
+let set_current_profile fs ~app_name current_profile =
+  validate_name current_profile;
+  encode_save app_config_jsont (app_config_file fs ~app_name) { current_profile }
 
-(* List all available profiles *)
+let config_dir fs ~app_name ?profile () =
+  let profile = match profile with Some p -> p | None -> get_current_profile fs ~app_name in
+  validate_name profile;
+  let path = Eio.Path.(profiles_dir fs ~app_name / profile) in
+  mkdir_if_missing ~perm:0o700 path;
+  path
+
 let list_profiles fs ~app_name =
-  let profiles = profiles_dir fs ~app_name in
-  try
-    Eio.Path.read_dir profiles
-    |> List.filter (fun name ->
-           (* Check if it's a directory with a session.json *)
-           let dir = Eio.Path.(profiles / name) in
-           let session = Eio.Path.(dir / "session.json") in
-           try
-             ignore (Eio.Path.load session);
-             true
-           with _ -> false)
-    |> List.sort String.compare
-  with Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> []
+  let root = profiles_dir fs ~app_name in
+  Eio.Path.read_dir root |> List.filter (fun name ->
+    let path = Eio.Path.(root / name) in
+    Eio.Path.kind ~follow:false path = `Directory &&
+    Eio.Path.kind ~follow:false Eio.Path.(path / "session.json") = `Regular_file)
+  |> List.sort String.compare
 
-(* Session file within a profile directory *)
-let session_file fs ~app_name ?profile () =
-  Eio.Path.(config_dir fs ~app_name ?profile () / "session.json")
-
-let load fs ~app_name ?profile () =
-  let profile =
-    match profile with
-    | Some p -> Some p
-    | None ->
-        (* Use current profile if none specified *)
-        let current = get_current_profile fs ~app_name in
-        Some current
-  in
-  let path = session_file fs ~app_name ?profile () in
-  try
-    Eio.Path.load path |> Jsont_bytesrw.decode_string jsont |> Result.to_option
-  with Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> None
-
-let save fs ~app_name ?profile session =
-  let profile =
-    match profile with
-    | Some p -> Some p
-    | None -> Some (get_current_profile fs ~app_name)
-  in
-  let path = session_file fs ~app_name ?profile () in
-  match Jsont_bytesrw.encode_string ~format:Jsont.Indent jsont session with
-  | Ok content -> Eio.Path.save ~create:(`Or_truncate 0o600) path content
-  | Error e -> failwith ("Failed to encode session: " ^ e)
-
+let session_file fs ~app_name ?profile () = Eio.Path.(config_dir fs ~app_name ?profile () / "session.json")
+let load fs ~app_name ?profile () = read_json jsont (session_file fs ~app_name ?profile ())
+let save fs ~app_name ?profile session = encode_save jsont (session_file fs ~app_name ?profile ()) session
 let clear fs ~app_name ?profile () =
-  let profile =
-    match profile with
-    | Some p -> Some p
-    | None -> Some (get_current_profile fs ~app_name)
-  in
-  let path = session_file fs ~app_name ?profile () in
-  try Eio.Path.unlink path
+  try Eio.Path.unlink (session_file fs ~app_name ?profile ())
   with Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> ()
+
+let save_document fs ~app_name ?profile ~id json =
+  let root = Eio.Path.(config_dir fs ~app_name ?profile () / "objects") in
+  mkdir_if_missing ~perm:0o700 root;
+  let name = Digestif.SHA256.(to_hex (digest_string id)) ^ ".json" in
+  encode_save Jsont.json Eio.Path.(root / name) json
 
 let pp ppf session =
   Fmt.pf ppf "@[<v>Actor: %s@," session.actor_uri;

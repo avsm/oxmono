@@ -137,13 +137,15 @@ val login_client :
 val resume : t -> session:Xrpc_types.session -> unit -> Xrpc_client.t
 (** [resume cred ~session ()] resumes from a stored session.
 
-    Returns a client with automatic token refresh. If the access token is
-    expired but refresh token is valid, a refresh is attempted immediately.
+    Returns a client with automatic token refresh on its next request. A stored
+    PDS, when present, must match the configured service. Retained clients cannot
+    make requests after logout or an account change.
 
-    @raise Eio.Io with [Xrpc_error.E] if the refresh token is also expired *)
+    @raise Invalid_argument if the saved PDS differs *)
 
 val logout : t -> unit
 (** [logout cred] logs out and clears the session.
 
     Calls [com.atproto.server.deleteSession] to invalidate server-side session.
-    If the server call fails, the local session is still cleared. *)
+    Uses the refresh token. The local session is cleared even on server failure;
+    cancellation still propagates. *)

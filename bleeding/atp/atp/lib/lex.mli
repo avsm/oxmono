@@ -111,3 +111,6 @@ val find_blobs : value -> Blob_ref.t list
 
 val pp : value Fmt.t
 (** Pretty-print a Lexicon value. *)
+
+val bytes_jsont : string Jsont.t
+(** Raw bytes encoded as [{"$bytes":"<base64>"}] on the JSON wire. *)

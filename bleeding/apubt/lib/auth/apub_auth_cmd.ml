@@ -52,7 +52,8 @@ let setup_action ~app_name ~actor_uri ~key_file ~key_id ~profile env =
   in
   (* Validate it's a valid PEM key *)
   (match X509.Private_key.decode_pem private_key_pem with
-  | Ok _ -> ()
+  | Ok (`RSA _) -> ()
+  | Ok _ -> Fmt.epr "Error: Expected an RSA private key.@."; exit 1
   | Error (`Msg e) ->
       Fmt.epr "Error: Invalid PEM key: %s@." e;
       exit 1);

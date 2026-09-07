@@ -55,7 +55,7 @@ let of_string_exn s =
   | Error e -> invalid_arg (Format.asprintf "%a" pp_error e)
 
 let to_string t = t
-let equal = String.equal
+let equal a b = String.equal (String.lowercase_ascii a) (String.lowercase_ascii b)
 
 (* Case-insensitive comparison for handles *)
 let compare a b =

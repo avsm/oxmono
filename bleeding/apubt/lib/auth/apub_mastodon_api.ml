@@ -30,7 +30,7 @@ let status_jsont =
       { id; uri; url; content; created_at; visibility })
   |> Jsont.Object.mem "id" Jsont.string ~enc:(fun s -> s.id)
   |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun s -> s.uri)
-  |> Jsont.Object.opt_mem "url" Jsont.string ~enc:(fun s -> s.url)
+  |> Jsont.Object.mem "url" (Jsont.option Jsont.string) ~dec_absent:(fun () -> None) ~enc:(fun s -> s.url)
   |> Jsont.Object.mem "content" Jsont.string ~enc:(fun s -> s.content)
   |> Jsont.Object.mem "created_at" Jsont.string ~enc:(fun s -> s.created_at)
   |> Jsont.Object.mem "visibility" Jsont.string ~enc:(fun s -> s.visibility)
@@ -174,14 +174,33 @@ let delete_status fetch ~instance ~token ~status_id =
   let fetch = authed fetch ~instance ~token in
   Apub_mastodon_oauth.with_response fetch `DELETE url @@ fun resp -> check_response resp
 
-(** Extract status ID from a Mastodon URL like https://instance/users/name/statuses/123
-    or https://instance/@name/123 *)
-let status_id_of_url url =
-  let uri = Uri.of_string url in
-  let path = Uri.path uri in
-  (* Try different URL formats *)
-  let parts = String.split_on_char '/' path in
-  let parts = List.filter (fun s -> s <> "") parts in
-  match List.rev parts with
-  | id :: _ when String.for_all (fun c -> c >= '0' && c <= '9') id -> Some id
-  | _ -> None
+(** Resolve on the authenticated instance: remote URL IDs are never local IDs. *)
+let resolve fetch ~instance ~token ~kind codec query =
+  let response_codec = Jsont.Object.map Fun.id
+    |> Jsont.Object.mem kind (Jsont.list codec) ~enc:Fun.id
+    |> Jsont.Object.finish in
+  let url = Uri.of_string (Printf.sprintf "https://%s/api/v2/search" instance)
+    |> fun u -> Uri.with_query' u ["q", query; "resolve", "true"; "type", kind; "limit", "2"]
+    |> Uri.to_string in
+  match get_action fetch ~instance ~token response_codec url with
+  | Error error -> Error error
+  | Ok [value] -> Ok value
+  | Ok [] -> Error ("Could not resolve " ^ query ^ "; OAuth login must include read:search")
+  | Ok _ -> Error ("Ambiguous search result for " ^ query)
+
+let resolve_status fetch ~instance ~token ~url =
+  match Fetch.Middleware.Url.of_string url with
+  | Error _ -> Error "Expected an absolute HTTP(S) status URL"
+  | Ok _ -> resolve fetch ~instance ~token ~kind:"statuses" status_jsont url
+
+let resolve_account fetch ~instance ~token ~account =
+  resolve fetch ~instance ~token ~kind:"accounts" Apub_mastodon_oauth.account_jsont account
+
+let post_status_reply fetch ~instance ~token ~content ~visibility ?reply_to
+    ?sensitive ?spoiler_text () =
+  let reply = match reply_to with
+    | None -> Ok None
+    | Some url -> Result.map (fun (status : status) -> Some status.id)
+        (resolve_status fetch ~instance ~token ~url) in
+  Result.bind reply (fun in_reply_to_id -> post_status fetch ~instance ~token
+    ~content ~visibility ?in_reply_to_id ?sensitive ?spoiler_text ())

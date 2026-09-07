@@ -30,6 +30,44 @@ let uri_jsont : Uriz.t Jsont.t =
       | Null -> Error "invalid URI reference")
     ~enc:Uriz.to_string
 
+(** URI references and embedded objects or activities. *)
+module Reference : sig
+  type t = Uri of Uriz.t | Embedded of Jsont.json
+  val uri : Uriz.t -> t
+  val embedded : Jsont.json -> t
+  val of_value : 'a Jsont.t -> 'a -> t
+  val decode : 'a Jsont.t -> t -> ('a, string) result
+  val id : t -> Uriz.t option
+  val jsont : t Jsont.t
+end = struct
+  type t = Uri of Uriz.t | Embedded of Jsont.json
+  let uri u = Uri u
+  let embedded = function
+    | Jsont.Object _ as json -> Embedded json
+    | _ -> invalid_arg "Reference.embedded: expected a JSON object"
+  let of_value codec value = match Jsont.Json.encode codec value with
+    | Ok json -> embedded json
+    | Error error -> invalid_arg error
+  let decode codec = function
+    | Embedded json -> Jsont.Json.decode codec json
+    | Uri _ -> Error "Reference.decode: dereference the URI first"
+  let id = function
+    | Uri u -> Some u
+    | Embedded json ->
+        let codec = Jsont.Object.map (fun id href -> match id with Some _ -> id | None -> href)
+          |> Jsont.Object.opt_mem "id" uri_jsont
+          |> Jsont.Object.opt_mem "href" uri_jsont
+          |> Jsont.Object.finish in
+        (match Jsont.Json.decode codec json with Ok id -> id | Error _ -> None)
+  let jsont =
+    let dec_string = Jsont.map uri_jsont ~dec:uri
+      ~enc:(function Uri u -> u | _ -> assert false) in
+    let dec_object = Jsont.map Jsont.json_object ~dec:embedded
+      ~enc:(function Embedded j -> j | _ -> assert false) in
+    Jsont.any ~dec_string ~dec_object
+      ~enc:(function Uri _ -> dec_string | Embedded _ -> dec_object) ()
+end
+
 (** JSON-LD context. *)
 module Context : sig
   type t
@@ -802,8 +840,8 @@ module Object : sig
     ?bto:Recipient.t list ->
     ?bcc:Recipient.t list ->
     ?replies:Uriz.t ->
-    ?attachment:Link_or_uri.t list ->
-    ?tag:Link_or_uri.t list ->
+    ?attachment:Reference.t list ->
+    ?tag:Reference.t list ->
     ?generator:Uriz.t ->
     ?icon:Image_ref.t list ->
     ?image:Image_ref.t list ->
@@ -813,8 +851,8 @@ module Object : sig
     ?sensitive:bool ->
     ?conversation:Uriz.t ->
     ?audience:Recipient.t list ->
-    ?location:Link_or_uri.t ->
-    ?preview:Link_or_uri.t ->
+    ?location:Reference.t ->
+    ?preview:Reference.t ->
     unit -> t
   (** Create a new Object. *)
 
@@ -836,8 +874,8 @@ module Object : sig
   val bto : t -> Recipient.t list option
   val bcc : t -> Recipient.t list option
   val replies : t -> Uriz.t option
-  val attachment : t -> Link_or_uri.t list option
-  val tag : t -> Link_or_uri.t list option
+  val attachment : t -> Reference.t list option
+  val tag : t -> Reference.t list option
   val generator : t -> Uriz.t option
   val icon : t -> Image_ref.t list option
   val image : t -> Image_ref.t list option
@@ -848,12 +886,13 @@ module Object : sig
   val conversation : t -> Uriz.t option
   val audience : t -> Recipient.t list option
 
-  val location : t -> Link_or_uri.t option
+  val location : t -> Reference.t option
   (** [location t] returns the physical or logical location associated with the object. *)
 
-  val preview : t -> Link_or_uri.t option
+  val preview : t -> Reference.t option
   (** [preview t] returns a preview of the object, typically a smaller version. *)
 
+  val with_content : updated:Datetime.t -> string -> t -> t
   val jsont : t Jsont.t
   (** JSON type for Objects. *)
 end = struct
@@ -876,8 +915,8 @@ end = struct
     bto : Recipient.t list option;
     bcc : Recipient.t list option;
     replies : Uriz.t option;
-    attachment : Link_or_uri.t list option;
-    tag : Link_or_uri.t list option;
+    attachment : Reference.t list option;
+    tag : Reference.t list option;
     generator : Uriz.t option;
     icon : Image_ref.t list option;
     image : Image_ref.t list option;
@@ -887,8 +926,9 @@ end = struct
     sensitive : bool option;
     conversation : Uriz.t option;
     audience : Recipient.t list option;
-    location : Link_or_uri.t option;
-    preview : Link_or_uri.t option;
+    location : Reference.t option;
+    preview : Reference.t option;
+    extra : Jsont.json;
   }
 
   let make ?context ?id ~type_ ?name ?summary ?content ?media_type ?url
@@ -900,7 +940,7 @@ end = struct
       attributed_to; in_reply_to; published; updated; deleted;
       to_; cc; bto; bcc; replies; attachment; tag; generator;
       icon; image; start_time; end_time; duration; sensitive;
-      conversation; audience; location; preview }
+      conversation; audience; location; preview; extra = Jsont.Json.object' [] }
 
   let context t = t.context
   let id t = t.id
@@ -934,17 +974,20 @@ end = struct
   let location t = t.location
   let preview t = t.preview
 
+  let with_content ~updated content t =
+    { t with content = Some content; updated = Some updated }
+
   let jsont =
     Jsont.Object.map ~kind:"Object"
       (fun context id type_ name summary content media_type url attributed_to
         in_reply_to published updated deleted to_ cc bto bcc replies
         attachment tag generator icon image start_time end_time duration
-        sensitive conversation audience location preview ->
+        sensitive conversation audience location preview extra ->
         { context; id; type_; name; summary; content; media_type; url;
           attributed_to; in_reply_to; published; updated; deleted;
           to_; cc; bto; bcc; replies; attachment; tag; generator;
           icon; image; start_time; end_time; duration; sensitive;
-          conversation; audience; location; preview })
+          conversation; audience; location; preview; extra })
     |> Jsont.Object.opt_mem "@context" Context.jsont ~enc:context
     |> Jsont.Object.opt_mem "id" uri_jsont ~enc:id
     |> Jsont.Object.mem "type" Object_type.jsont ~enc:type_
@@ -966,9 +1009,9 @@ end = struct
     |> Jsont.Object.opt_mem "bto" (one_or_many Recipient.jsont) ~enc:bto
     |> Jsont.Object.opt_mem "bcc" (one_or_many Recipient.jsont) ~enc:bcc
     |> Jsont.Object.opt_mem "replies" uri_or_object_with_id ~enc:replies
-    |> Jsont.Object.opt_mem "attachment" (Jsont.list Link_or_uri.jsont)
+    |> Jsont.Object.opt_mem "attachment" (one_or_many Reference.jsont)
         ~enc:attachment
-    |> Jsont.Object.opt_mem "tag" (Jsont.list Link_or_uri.jsont) ~enc:tag
+    |> Jsont.Object.opt_mem "tag" (one_or_many Reference.jsont) ~enc:tag
     |> Jsont.Object.opt_mem "generator" uri_jsont ~enc:generator
     |> Jsont.Object.opt_mem "icon" (one_or_many Image_ref.jsont) ~enc:icon
     |> Jsont.Object.opt_mem "image" (one_or_many Image_ref.jsont) ~enc:image
@@ -978,41 +1021,19 @@ end = struct
     |> Jsont.Object.opt_mem "sensitive" Jsont.bool ~enc:sensitive
     |> Jsont.Object.opt_mem "conversation" uri_jsont ~enc:conversation
     |> Jsont.Object.opt_mem "audience" (one_or_many Recipient.jsont) ~enc:audience
-    |> Jsont.Object.opt_mem "location" Link_or_uri.jsont ~enc:location
-    |> Jsont.Object.opt_mem "preview" Link_or_uri.jsont ~enc:preview
+    |> Jsont.Object.opt_mem "location" Reference.jsont ~enc:location
+    |> Jsont.Object.opt_mem "preview" Reference.jsont ~enc:preview
+    |> Jsont.Object.keep_unknown Jsont.json_mems ~enc:(fun t -> t.extra)
     |> Jsont.Object.finish
 end
 
-(** Object reference - can be URI or full Object. *)
+(** URI or lossless embedded object/activity reference. *)
 module Object_ref : sig
-  type t =
-    | Uri of Uriz.t
-    | Object of Object.t
-
-  val uri : Uriz.t -> t
+  include module type of Reference with type t = Reference.t
   val obj : Object.t -> t
-  val jsont : t Jsont.t
 end = struct
-  type t =
-    | Uri of Uriz.t
-    | Object of Object.t
-
-  let uri u = Uri u
-  let obj o = Object o
-
-  let jsont =
-    let dec_string = Jsont.map uri_jsont
-        ~dec:(fun u -> Uri u)
-        ~enc:(function Uri u -> u | Object _ -> assert false) in
-    let dec_object = Jsont.map Object.jsont
-        ~dec:(fun o -> Object o)
-        ~enc:(function Object o -> o | Uri _ -> assert false) in
-    Jsont.any ~kind:"Object reference"
-      ~dec_string ~dec_object
-      ~enc:(function
-          | Uri _ -> dec_string
-          | Object _ -> dec_object)
-      ()
+  include Reference
+  let obj value = of_value Object.jsont value
 end
 
 (** {1 Activity Types} *)
@@ -1193,6 +1214,7 @@ module Activity : sig
     ?cc:Recipient.t list ->
     ?bto:Recipient.t list ->
     ?bcc:Recipient.t list ->
+    ?audience:Recipient.t list ->
     ?published:Datetime.t ->
     ?updated:Datetime.t ->
     ?summary:string ->
@@ -1219,6 +1241,7 @@ module Activity : sig
   val cc : t -> Recipient.t list option
   val bto : t -> Recipient.t list option
   val bcc : t -> Recipient.t list option
+  val audience : t -> Recipient.t list option
   val published : t -> Datetime.t option
   val updated : t -> Datetime.t option
   val summary : t -> string option
@@ -1249,6 +1272,7 @@ end = struct
     cc : Recipient.t list option;
     bto : Recipient.t list option;
     bcc : Recipient.t list option;
+    audience : Recipient.t list option;
     published : Datetime.t option;
     updated : Datetime.t option;
     summary : string option;
@@ -1258,10 +1282,10 @@ end = struct
   }
 
   let make ?context ?id ~type_ ~actor ?object_ ?target ?result ?origin
-      ?instrument ?to_ ?cc ?bto ?bcc ?published ?updated ?summary
+      ?instrument ?to_ ?cc ?bto ?bcc ?audience ?published ?updated ?summary
       ?one_of ?any_of ?closed () =
     { context; id; type_; actor; object_; target; result; origin;
-      instrument; to_; cc; bto; bcc; published; updated; summary;
+      instrument; to_; cc; bto; bcc; audience; published; updated; summary;
       one_of; any_of; closed }
 
   let context t = t.context
@@ -1277,6 +1301,7 @@ end = struct
   let cc t = t.cc
   let bto t = t.bto
   let bcc t = t.bcc
+  let audience t = t.audience
   let published t = t.published
   let updated t = t.updated
   let summary t = t.summary
@@ -1287,9 +1312,9 @@ end = struct
   let jsont =
     Jsont.Object.map ~kind:"Activity"
       (fun context id type_ actor object_ target result origin instrument
-        to_ cc bto bcc published updated summary one_of any_of closed ->
+        to_ cc bto bcc audience published updated summary one_of any_of closed ->
         { context; id; type_; actor; object_; target; result; origin;
-          instrument; to_; cc; bto; bcc; published; updated; summary;
+          instrument; to_; cc; bto; bcc; audience; published; updated; summary;
           one_of; any_of; closed })
     |> Jsont.Object.opt_mem "@context" Context.jsont ~enc:context
     |> Jsont.Object.opt_mem "id" uri_jsont ~enc:id
@@ -1304,6 +1329,7 @@ end = struct
     |> Jsont.Object.opt_mem "cc" (one_or_many Recipient.jsont) ~enc:cc
     |> Jsont.Object.opt_mem "bto" (one_or_many Recipient.jsont) ~enc:bto
     |> Jsont.Object.opt_mem "bcc" (one_or_many Recipient.jsont) ~enc:bcc
+    |> Jsont.Object.opt_mem "audience" (one_or_many Recipient.jsont) ~enc:audience
     |> Jsont.Object.opt_mem "published" Datetime.jsont ~enc:published
     |> Jsont.Object.opt_mem "updated" Datetime.jsont ~enc:updated
     |> Jsont.Object.opt_mem "summary" Jsont.string ~enc:summary
@@ -1356,9 +1382,9 @@ module Collection : sig
     ?context:Context.t ->
     ?id:Uriz.t ->
     ?total_items:int ->
-    ?current:Uriz.t ->
-    ?first:Uriz.t ->
-    ?last:Uriz.t ->
+    ?current:Reference.t ->
+    ?first:Reference.t ->
+    ?last:Reference.t ->
     ?items:'a list ->
     ordered:bool ->
     unit -> 'a t
@@ -1366,9 +1392,9 @@ module Collection : sig
   val context : 'a t -> Context.t option
   val id : 'a t -> Uriz.t option
   val total_items : 'a t -> int option
-  val current : 'a t -> Uriz.t option
-  val first : 'a t -> Uriz.t option
-  val last : 'a t -> Uriz.t option
+  val current : 'a t -> Reference.t option
+  val first : 'a t -> Reference.t option
+  val last : 'a t -> Reference.t option
   val items : 'a t -> 'a list option
   val ordered : 'a t -> bool
 
@@ -1378,9 +1404,9 @@ end = struct
     context : Context.t option;
     id : Uriz.t option;
     total_items : int option;
-    current : Uriz.t option;
-    first : Uriz.t option;
-    last : Uriz.t option;
+    current : Reference.t option;
+    first : Reference.t option;
+    last : Reference.t option;
     items : 'a list option;
     ordered : bool;
   }
@@ -1417,9 +1443,9 @@ end = struct
     |> Jsont.Object.opt_mem "id" uri_jsont ~enc:id
     |> Jsont.Object.mem "type" type_jsont ~enc:ordered
     |> Jsont.Object.opt_mem "totalItems" Jsont.int ~enc:total_items
-    |> Jsont.Object.opt_mem "current" uri_jsont ~enc:current
-    |> Jsont.Object.opt_mem "first" uri_jsont ~enc:first
-    |> Jsont.Object.opt_mem "last" uri_jsont ~enc:last
+    |> Jsont.Object.opt_mem "current" Reference.jsont ~enc:current
+    |> Jsont.Object.opt_mem "first" Reference.jsont ~enc:first
+    |> Jsont.Object.opt_mem "last" Reference.jsont ~enc:last
     |> Jsont.Object.opt_mem "items" list_jsont
         ~enc:(fun t -> if t.ordered then None else t.items)
     |> Jsont.Object.opt_mem "orderedItems" list_jsont
@@ -1438,11 +1464,11 @@ module Collection_page : sig
     ?context:Context.t ->
     ?id:Uriz.t ->
     ?total_items:int ->
-    ?current:Uriz.t ->
-    ?first:Uriz.t ->
-    ?last:Uriz.t ->
-    ?prev:Uriz.t ->
-    ?next:Uriz.t ->
+    ?current:Reference.t ->
+    ?first:Reference.t ->
+    ?last:Reference.t ->
+    ?prev:Reference.t ->
+    ?next:Reference.t ->
     ?part_of:Uriz.t ->
     ?items:'a list ->
     ordered:bool ->
@@ -1451,11 +1477,11 @@ module Collection_page : sig
   val context : 'a t -> Context.t option
   val id : 'a t -> Uriz.t option
   val total_items : 'a t -> int option
-  val current : 'a t -> Uriz.t option
-  val first : 'a t -> Uriz.t option
-  val last : 'a t -> Uriz.t option
-  val prev : 'a t -> Uriz.t option
-  val next : 'a t -> Uriz.t option
+  val current : 'a t -> Reference.t option
+  val first : 'a t -> Reference.t option
+  val last : 'a t -> Reference.t option
+  val prev : 'a t -> Reference.t option
+  val next : 'a t -> Reference.t option
   val part_of : 'a t -> Uriz.t option
   val items : 'a t -> 'a list option
   val ordered : 'a t -> bool
@@ -1466,11 +1492,11 @@ end = struct
     context : Context.t option;
     id : Uriz.t option;
     total_items : int option;
-    current : Uriz.t option;
-    first : Uriz.t option;
-    last : Uriz.t option;
-    prev : Uriz.t option;
-    next : Uriz.t option;
+    current : Reference.t option;
+    first : Reference.t option;
+    last : Reference.t option;
+    prev : Reference.t option;
+    next : Reference.t option;
     part_of : Uriz.t option;
     items : 'a list option;
     ordered : bool;
@@ -1515,11 +1541,11 @@ end = struct
     |> Jsont.Object.opt_mem "id" uri_jsont ~enc:id
     |> Jsont.Object.mem "type" type_jsont ~enc:ordered
     |> Jsont.Object.opt_mem "totalItems" Jsont.int ~enc:total_items
-    |> Jsont.Object.opt_mem "current" uri_jsont ~enc:current
-    |> Jsont.Object.opt_mem "first" uri_jsont ~enc:first
-    |> Jsont.Object.opt_mem "last" uri_jsont ~enc:last
-    |> Jsont.Object.opt_mem "prev" uri_jsont ~enc:prev
-    |> Jsont.Object.opt_mem "next" uri_jsont ~enc:next
+    |> Jsont.Object.opt_mem "current" Reference.jsont ~enc:current
+    |> Jsont.Object.opt_mem "first" Reference.jsont ~enc:first
+    |> Jsont.Object.opt_mem "last" Reference.jsont ~enc:last
+    |> Jsont.Object.opt_mem "prev" Reference.jsont ~enc:prev
+    |> Jsont.Object.opt_mem "next" Reference.jsont ~enc:next
     |> Jsont.Object.opt_mem "partOf" uri_jsont ~enc:part_of
     |> Jsont.Object.opt_mem "items" list_jsont
         ~enc:(fun t -> if t.ordered then None else t.items)

@@ -1075,7 +1075,7 @@ let main_jsont =
   |> Jsont.Object.mem "createdAt" Jsont.string ~enc:(fun r -> r.created_at)
   |> Jsont.Object.mem "name" Jsont.string ~enc:(fun r -> r.name)
   |> Jsont.Object.mem "repo" Jsont.string ~enc:(fun r -> r.repo)
-  |> Jsont.Object.mem "tag" Jsont.binary_string ~enc:(fun r -> r.tag)
+  |> Jsont.Object.mem "tag" Atp.Lex.bytes_jsont ~enc:(fun r -> r.tag)
   |> Jsont.Object.finish
 
       end

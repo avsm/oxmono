@@ -57,6 +57,7 @@ val create :
     ; .. > ->
   service:string ->
   ?http:_ Fetch.t ->
+  ?max_response_bytes:int ->
   ?on_request:(t -> unit) ->
   unit ->
   t
@@ -72,6 +73,21 @@ val create :
     @param on_request
       Optional callback invoked before each request, useful for token refresh in
       credential managers *)
+
+val normalize_service : string -> string
+(** Validate an absolute HTTP(S) service URL and remove trailing slashes.
+    Raises [Invalid_argument] for credentials, queries, or fragments. *)
+
+val of_fetch :
+  service:string -> ?max_response_bytes:int -> ?on_request:(t -> unit) ->
+  _ Fetch.t -> t
+(** Use a caller-owned Fetch capability without an environment or switch.
+    The response limit defaults to 16 MiB for JSON and binary bodies; diagnostics
+    are bounded to 64 KiB. JSON requires a JSON Content-Type and uses Fetch's depth
+    limit. All writes reject redirects. Credentials are scoped to the service;
+    cancellation and exceptions from caller code propagate unchanged.
+    Services cannot contain userinfo, query, or fragment. NSIDs are validated.
+    Configure timeouts, retries, and network restrictions on the Fetch client. *)
 
 (** {1 Session Management} *)
 
@@ -114,10 +130,17 @@ val procedure :
     @param nsid Namespace identifier
     @param params Query parameters
     @param input Optional jsont codec for encoding request body
-    @param input_data Optional request body data
+    @param input_data Optional request body data; codec and value must either
+      both be present or both be absent. Encoding failure prevents the request.
     @param decoder jsont codec for decoding the response
 
     @raise Eio.Io with [Xrpc_error.E] on failure *)
+
+val procedure_unit :
+  t -> nsid:string -> params:(string * string) list ->
+  input:'a Jsont.t option -> input_data:'a option -> unit
+(** Execute a procedure with no output schema. Any 2xx status succeeds,
+    including an empty 200/204 response; its response is closed without buffering. *)
 
 val procedure_blob :
   t ->

@@ -29,16 +29,13 @@ let decode_payload jwt =
   | Ok token -> Ok (payload_of_claims (Jsonwt.claims token))
   | Error e -> Error (Jsonwt.error_to_string e)
 
-let is_expired ?(leeway = Ptime.Span.of_int_s 60) jwt =
-  match Jsonwt.parse ~strict:false jwt with
-  | Ok token ->
-      let now = Ptime_clock.now () in
-      (* Negate leeway to check if token expires within that time *)
-      let neg_leeway = Ptime.Span.neg leeway in
-      Jsonwt.is_expired ~now ~leeway:neg_leeway token
-  | Error _ ->
-      (* Decode failed - fail safe by assuming expired *)
-      true
+let is_expired ?(now = Ptime_clock.now ()) ?(leeway = Ptime.Span.of_int_s 60) jwt =
+  match decode_payload jwt with
+  | Ok { exp = Some exp; _ } ->
+      (match Ptime.add_span now leeway with
+       | Some deadline -> Ptime.compare exp deadline <= 0
+       | None -> true)
+  | _ -> true
 
 let get_expiration jwt =
   match Jsonwt.parse ~strict:false jwt with

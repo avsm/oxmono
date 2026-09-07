@@ -373,6 +373,7 @@ type config
 
 val config :
   key:Key.t ->
+  ?algorithm:Algorithm.t ->
   ?keyid:string ->
   ?components:Component.t list ->
   ?tag:string ->
@@ -384,6 +385,9 @@ val config :
     signing configuration.
 
     @param key The signing key.
+    @param algorithm Override the key's default algorithm, for example
+      [`Rsa_v1_5_sha256] for an RSA key (whose default is [`Rsa_pss_sha512]).
+      An algorithm incompatible with the key fails when signing.
     @param keyid Key identifier (included in signature parameters).
     @param components Components to sign. Default: {!default_components}.
     @param tag Application-specific tag.

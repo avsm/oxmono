@@ -97,12 +97,23 @@ let instance_of_account account =
   | [_user; instance] -> Some instance
   | _ -> None
 
-(** Decode a fully drained response body, or report the failure *)
+(** JSON responses use Fetch's size and nesting limits. *)
 let decode_body jsont resp =
-  let body = Eio.Flow.read_all (Fetch.body resp) in
-  match Jsont_bytesrw.decode_string jsont body with
-  | Ok v -> Ok v
-  | Error msg -> Error (Printf.sprintf "Malformed response: %s" msg)
+  try Ok (Fetch.decode (Fetch.Json.v jsont) resp)
+  with Eio.Io (Fetch.E (Fetch.Decode_failure { error; _ }), _) ->
+    Error ("Malformed response: " ^ Fetch.Media.error_to_string error)
+
+let response_body resp =
+  try Fetch.decode ~limit:(64 * 1024) Fetch.Media.octets resp
+  with Eio.Io (Fetch.E (Fetch.Decode_failure { error = Too_large _; _ }), _) ->
+    "[response body exceeds diagnostic limit]"
+
+(** A token exchange carries secrets in the form body, which credential
+    header scoping cannot protect on a 307/308 redirect. Do not redirect writes. *)
+let with_response ?headers ?body fetch meth url f =
+  let redirects = if meth = `GET then 10 else 0 in
+  try Fetch.with_response ?headers ?body ~redirects fetch meth url f
+  with Eio.Io _ as ex -> Error ("HTTP request failed: " ^ Printexc.to_string ex)
 
 (** Register a new OAuth app with the instance *)
 let register_app fetch ~instance =
@@ -114,12 +125,12 @@ let register_app fetch ~instance =
     ("website", "https://github.com/avsm/apub");
   ] in
   let headers, body = Fetch.Form.urlencoded params in
-  Fetch.with_response ~headers ~body fetch `POST url @@ fun resp ->
+  with_response ~headers ~body fetch `POST url @@ fun resp ->
   let status = Fetch.status resp in
   if status >= 200 && status < 300 then
     decode_body app_jsont resp
   else
-    let body = Eio.Flow.read_all (Fetch.body resp) in
+    let body = response_body resp in
     Error (Printf.sprintf "Failed to register app (HTTP %d): %s" status body)
 
 (** Build the authorization URL for the user to visit *)
@@ -150,12 +161,12 @@ let exchange_code fetch ~instance ~client_id ~client_secret ~code ~code_verifier
     ("code_verifier", code_verifier);
   ] in
   let headers, body = Fetch.Form.urlencoded params in
-  Fetch.with_response ~headers ~body fetch `POST url @@ fun resp ->
+  with_response ~headers ~body fetch `POST url @@ fun resp ->
   let status = Fetch.status resp in
   if status >= 200 && status < 300 then
     decode_body token_jsont resp
   else
-    let body = Eio.Flow.read_all (Fetch.body resp) in
+    let body = response_body resp in
     Error (Printf.sprintf "Failed to exchange code (HTTP %d): %s" status body)
 
 (** Verify credentials and get account info *)
@@ -167,12 +178,12 @@ let verify_credentials fetch ~instance ~access_token =
       Fetch.Credential.[ Bearer (fun () -> access_token) ]
       fetch
   in
-  Fetch.with_response fetch `GET url @@ fun resp ->
+  with_response fetch `GET url @@ fun resp ->
   let status = Fetch.status resp in
   if status >= 200 && status < 300 then
     decode_body account_jsont resp
   else
-    let body = Eio.Flow.read_all (Fetch.body resp) in
+    let body = response_body resp in
     Error (Printf.sprintf "Failed to verify credentials (HTTP %d): %s" status body)
 
 (** Get the ActivityPub actor URI from a Mastodon account URL *)

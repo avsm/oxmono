@@ -756,6 +756,7 @@ let verify_bytes ~(alg : Algorithm.t) ~(key : Key.t) ~(signature : string)
 
 type config = {
   key : Key.t;
+  algorithm : Algorithm.t option;
   keyid : string option;
   components : Component.t list;
   tag : string option;
@@ -766,9 +767,9 @@ type config = {
 let default_components =
   [ Component.method_; Component.authority; Component.path ]
 
-let config ~key ?keyid ?(components = default_components) ?tag
+let config ~key ?algorithm ?keyid ?(components = default_components) ?tag
     ?(include_created = true) ?(label = "sig1") () =
-  { key; keyid; components; tag; include_created; label }
+  { key; algorithm; keyid; components; tag; include_created; label }
 
 (* ========================================================================= *)
 (* Signing                                                                   *)
@@ -790,7 +791,10 @@ let sign ~clock ~(config : config) ~(context : Context.t)
     ~(headers : Http.Header.t) =
   if not (Key.can_sign config.key) then Error `Missing_private_key
   else
-    let alg = Key.algorithm config.key |> Option.value ~default:`Ed25519 in
+    let alg = match config.algorithm with
+      | Some alg -> alg
+      | None -> Key.algorithm config.key |> Option.value ~default:`Ed25519
+    in
     let params =
       Params.empty
       |> (fun p ->

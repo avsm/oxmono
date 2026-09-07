@@ -269,10 +269,19 @@ end = struct
         ~enc:(function Uri u -> u | _ -> assert false) in
     (* For object case: either Link or Image *)
     let dec_object =
-      (* Default: decode as Image if we can't determine type *)
-      Jsont.map Image.jsont
-        ~dec:(fun i -> Image i)
-        ~enc:(function Image i -> i | _ -> assert false)
+      let link = Jsont.Object.Case.map "Link" Link.jsont
+          ~dec:(fun l -> Link l) in
+      let image = Jsont.Object.Case.map "Image" Image.jsont
+          ~dec:(fun i -> Image i) in
+      Jsont.Object.map Fun.id
+      |> Jsont.Object.case_mem "type" Jsont.string ~dec_absent:"Image"
+          [Jsont.Object.Case.make link; Jsont.Object.Case.make image]
+          ~enc:Fun.id
+          ~enc_case:(function
+            | Link l -> Jsont.Object.Case.value link l
+            | Image i -> Jsont.Object.Case.value image i
+            | Uri _ -> assert false)
+      |> Jsont.Object.finish
     in
     Jsont.any ~kind:"Image reference"
       ~dec_string ~dec_object
@@ -952,10 +961,10 @@ end = struct
     |> Jsont.Object.opt_mem "published" Datetime.jsont ~enc:published
     |> Jsont.Object.opt_mem "updated" Datetime.jsont ~enc:updated
     |> Jsont.Object.opt_mem "deleted" Datetime.jsont ~enc:deleted
-    |> Jsont.Object.opt_mem "to" (Jsont.list Recipient.jsont) ~enc:to_
-    |> Jsont.Object.opt_mem "cc" (Jsont.list Recipient.jsont) ~enc:cc
-    |> Jsont.Object.opt_mem "bto" (Jsont.list Recipient.jsont) ~enc:bto
-    |> Jsont.Object.opt_mem "bcc" (Jsont.list Recipient.jsont) ~enc:bcc
+    |> Jsont.Object.opt_mem "to" (one_or_many Recipient.jsont) ~enc:to_
+    |> Jsont.Object.opt_mem "cc" (one_or_many Recipient.jsont) ~enc:cc
+    |> Jsont.Object.opt_mem "bto" (one_or_many Recipient.jsont) ~enc:bto
+    |> Jsont.Object.opt_mem "bcc" (one_or_many Recipient.jsont) ~enc:bcc
     |> Jsont.Object.opt_mem "replies" uri_or_object_with_id ~enc:replies
     |> Jsont.Object.opt_mem "attachment" (Jsont.list Link_or_uri.jsont)
         ~enc:attachment
@@ -1291,10 +1300,10 @@ end = struct
     |> Jsont.Object.opt_mem "result" Object_ref.jsont ~enc:result
     |> Jsont.Object.opt_mem "origin" Object_ref.jsont ~enc:origin
     |> Jsont.Object.opt_mem "instrument" Object_ref.jsont ~enc:instrument
-    |> Jsont.Object.opt_mem "to" (Jsont.list Recipient.jsont) ~enc:to_
-    |> Jsont.Object.opt_mem "cc" (Jsont.list Recipient.jsont) ~enc:cc
-    |> Jsont.Object.opt_mem "bto" (Jsont.list Recipient.jsont) ~enc:bto
-    |> Jsont.Object.opt_mem "bcc" (Jsont.list Recipient.jsont) ~enc:bcc
+    |> Jsont.Object.opt_mem "to" (one_or_many Recipient.jsont) ~enc:to_
+    |> Jsont.Object.opt_mem "cc" (one_or_many Recipient.jsont) ~enc:cc
+    |> Jsont.Object.opt_mem "bto" (one_or_many Recipient.jsont) ~enc:bto
+    |> Jsont.Object.opt_mem "bcc" (one_or_many Recipient.jsont) ~enc:bcc
     |> Jsont.Object.opt_mem "published" Datetime.jsont ~enc:published
     |> Jsont.Object.opt_mem "updated" Datetime.jsont ~enc:updated
     |> Jsont.Object.opt_mem "summary" Jsont.string ~enc:summary

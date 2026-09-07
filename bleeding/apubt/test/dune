@@ -1,3 +1,15 @@
 (test
  (name test_proto_uri)
+ (modules test_proto_uri)
  (libraries apubt.proto jsont.bytesrw uriz))
+
+(test
+ (name test_client)
+ (modules test_client)
+ (libraries apubt fetch.mock eio.mock http uri jsont.bytesrw
+  mirage-crypto-pk mirage-crypto-rng.unix))
+
+(test
+ (name test_auth)
+ (modules test_auth)
+ (libraries apubt.auth fetch.mock eio.mock http))

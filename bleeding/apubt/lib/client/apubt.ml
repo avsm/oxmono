@@ -5,11 +5,6 @@
 
 module Proto = Apubt_proto
 
-(* Wire-form headers, the shape [Fetch] and [Fetch_signature] exchange them
-   in. Bound here because this module defines its own [Http] submodule below,
-   which shadows the [Http] of the http library from then on. *)
-module Hdr = Http.Header
-
 module Error = struct
   type t =
     | Http_error of int * string
@@ -49,20 +44,23 @@ module Signing = struct
     config : Fetch_signature.config;
   }
 
-  (** ActivityPub signing components: @method, @authority, @path, date, digest, content-type *)
+  (** Cover the complete request target and body for RFC 9421 federation. *)
   let activitypub_components =
     Fetch_signature.Component.[
       method_;
-      authority;
-      path;
+      target_uri;
       date;
       content_digest;
       content_type;
     ]
 
   let create ~key_id ~key () =
+    let algorithm = match Fetch_signature.Key.algorithm key with
+      | Some `Rsa_pss_sha512 -> Some `Rsa_v1_5_sha256
+      | algorithm -> algorithm
+    in
     let config = Fetch_signature.config
-      ~key
+      ~key ?algorithm
       ~keyid:key_id
       ~components:activitypub_components
       ()
@@ -89,37 +87,59 @@ module Signing = struct
   let key t = t.key
 end
 
-type t = T : {
+type t = {
   fetch : Fetch.plain;
-  clock : _ Eio.Time.clock;
-  signing : Signing.t option;
+  post_fetch : Fetch.plain;
   user_agent : string;
-} -> t
+  max_response_bytes : int;
+}
 
 let activitypub_accept =
   "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
 
-let create ~sw ?signing ?(user_agent = "Apubt/0.1") ?(timeout = 30.0) env =
-  let fetch =
-    if not (Float.is_finite timeout) then
-      invalid_arg "Apubt.create: timeout must be finite";
-    let duration = Duration.of_f timeout in
-    let timeout = if timeout > 0.0 && duration = 0L then 1L else duration in
-    Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout ~user_agent ()
-    (* [Accept] is a default a request may override, as NodeInfo discovery
-       does; the User-Agent is the backend's, set above. *)
-    |> Fetch.with_headers ~mode:`If_absent
-         Fetch.Header.[ raw "Accept" activitypub_accept ]
-  in
-  let clock = Eio.Stdenv.clock env in
-  T { fetch; clock; signing; user_agent }
+let activitypub_media jsont =
+  Fetch.Json.v ~media:"application/activity+json"
+    ~accept:["application/ld+json"; "application/json"] jsont
 
-let user_agent (T t) = t.user_agent
+let of_fetch ~clock ?signing ?(user_agent = "Apubt/0.1")
+    ?(max_response_bytes = 16 * 1024 * 1024) fetch =
+  if max_response_bytes < 0 then
+    invalid_arg "Apubt.of_fetch: max_response_bytes must be non-negative";
+  let agent = user_agent in
+  let fetch = Fetch.with_headers ~mode:`If_absent
+      Fetch.Header.[raw "Accept" activitypub_accept; user_agent, agent]
+      fetch in
+  let post_fetch = match signing with
+    | None -> fetch
+    | Some (signing : Signing.t) ->
+        Fetch_signature.Middleware.sign ~clock ~key:signing.key
+          ~config:signing.config fetch
+  in
+  { fetch; post_fetch; user_agent; max_response_bytes }
+
+let create ~sw ?signing ?user_agent ?max_response_bytes ?(timeout = 30.0) env =
+  if not (Float.is_finite timeout) || timeout < 0.0 then
+    invalid_arg "Apubt.create: timeout must be finite and non-negative";
+  let duration = Duration.of_f timeout in
+  let timeout = if timeout > 0.0 && duration = 0L then 1L else duration in
+  let fetch = Fetch_curl.v ~sw ~timeout ~connect_timeout:timeout () in
+  of_fetch ~clock:(Eio.Stdenv.clock env) ?signing ?user_agent ?max_response_bytes fetch
+
+let user_agent t = t.user_agent
 
 let is_success status = status >= 200 && status < 300
 
-(* Internal: check HTTP response for errors *)
-let check_response resp =
+(* Preserve the public error API while letting Eio cancellation propagate. *)
+let with_errors f =
+  try f () with
+  | Eio.Io (Fetch.E (Fetch.Decode_failure { error; _ }), _) ->
+      raise (E (Json_error (Fetch.Media.error_to_string error)))
+  | Eio.Io (Fetch.E (Fetch.Invalid_request msg), _)
+      when String.starts_with ~prefix:"fetch-signature:" msg ->
+      raise (E (Signature_error msg))
+  | Eio.Io _ as ex -> raise (E (Network_error (Printexc.to_string ex)))
+
+let check_response t resp =
   let status = Fetch.status resp in
   if is_success status then ()
   else if status = 404 then raise (E Not_found)
@@ -131,90 +151,41 @@ let check_response resp =
       | Some (`Date _) | None -> None
     in
     raise (E (Rate_limited retry_after))
-  end
-  else begin
-    let body = Eio.Flow.read_all (Fetch.body resp) in
+  end else begin
+    let body =
+      try Fetch.decode ~limit:(min t.max_response_bytes (64 * 1024))
+          Fetch.Media.octets resp
+      with Eio.Io (Fetch.E (Fetch.Decode_failure { error = Too_large _; _ }), _) ->
+        "[response body exceeds diagnostic limit]"
+    in
     raise (E (Http_error (status, body)))
   end
 
-(* Internal: decode a fully drained response body *)
-let decode_json_exn jsont resp =
-  let body = Eio.Flow.read_all (Fetch.body resp) in
-  match Jsont_bytesrw.decode_string jsont body with
-  | Ok v -> v
-  | Error msg -> raise (E (Json_error msg))
+let get_json client ?headers codec url =
+  with_errors @@ fun () ->
+  Fetch.with_response ?headers client.fetch `GET url @@ fun resp ->
+  check_response client resp;
+  Fetch.decode ~limit:client.max_response_bytes codec resp
 
 module Http = struct
-  let get (T t) uri =
-    let url = Uriz.to_string uri in
-    Fetch.with_response t.fetch `GET url @@ fun resp ->
-    check_response resp;
-    decode_json_exn Jsont.json resp
+  let get_typed client jsont uri =
+    get_json client (activitypub_media jsont) (Uriz.to_string uri)
 
-  let get_typed (T t) jsont uri =
-    let url = Uriz.to_string uri in
-    Fetch.with_response t.fetch `GET url @@ fun resp ->
-    check_response resp;
-    decode_json_exn jsont resp
-
-  (* Internal: sign a POST request if signing is configured.
-
-     Signing is per-request rather than a [Fetch_signature.Middleware.sign]
-     wrapper on the client: only POSTs are signed here, and the components
-     ActivityPub covers include [content-digest] and [content-type], which a
-     bodyless GET cannot resolve. *)
-  let sign_post_request (T t) ~uri ~body ~headers =
-    match t.signing with
-    | None -> headers
-    | Some signing ->
-        (* Add Date header using the session clock *)
-        let now_float = Eio.Time.now t.clock in
-        let now = Ptime.of_float_s now_float |> Option.get in
-        let headers = Hdr.replace headers "date" (Fetch_signature.http_date now) in
-        (* Create request context for signing *)
-        let ctx = Fetch_signature.Context.request
-          ~method_:`POST
-          ~uri:(Uri.of_string (Uriz.to_string uri))
-          ~headers
-        in
-        (* Sign with digest (adds Content-Digest header and signs) *)
-        match Fetch_signature.sign_with_digest
-          ~clock:t.clock
-          ~config:signing.config
-          ~context:ctx
-          ~headers
-          ~body
-          ~digest_algorithm:`Sha256
-        with
-        | Ok signed_headers -> signed_headers
-        | Error err ->
-            let msg = Fetch_signature.sign_error_to_string err in
-            raise (E (Signature_error msg))
-
-  (* Helper to encode JSON to string, raising on error *)
-  let encode_json_exn jsont value =
-    match Jsont_bytesrw.encode_string jsont value with
-    | Ok s -> s
-    | Error msg -> raise (E (Json_error msg))
-
-  (* Internal: signed POST of an already encoded ActivityPub document *)
-  let post_signed (T t as client) uri body_str =
-    let url = Uriz.to_string uri in
-    let headers =
-      Hdr.init_with "content-type" "application/activity+json"
-    in
-    let headers = sign_post_request client ~uri ~body:body_str ~headers in
-    Fetch.with_response
-      ~headers:(Fetch.Header.of_http headers)
-      ~body:(Fetch.String body_str)
-      t.fetch `POST url
-    @@ fun resp -> check_response resp
-
-  let post client uri body =
-    post_signed client uri (encode_json_exn Jsont.json body)
+  let get client uri = get_typed client Jsont.json uri
 
   let post_typed client jsont uri value =
-    post_signed client uri (encode_json_exn jsont value)
+    with_errors @@ fun () ->
+    let headers, body =
+      try Fetch.encode (activitypub_media jsont) value
+      with Invalid_argument msg -> raise (E (Json_error msg))
+    in
+    (* Inbox delivery is one POST. Redirecting may disclose a private body,
+       turn delivery into a GET, or invalidate a signature. *)
+    Fetch.with_response ~redirects:0 ~headers ~body client.post_fetch `POST
+      (Uriz.to_string uri) @@ fun resp ->
+    check_response client resp
+
+  let post client uri body = post_typed client Jsont.json uri body
 end
 
 module Webfinger = struct
@@ -224,7 +195,8 @@ module Webfinger = struct
       Proto.Webfinger.Jrd_link.make
         ~rel:(Webfinger.Link.rel link)
         ?type_:(Webfinger.Link.type_ link)
-        ?href:(Option.map Uriz.of_string_exn (Webfinger.Link.href link))
+        ?href:(Option.bind (Webfinger.Link.href link) (fun value ->
+          match Uriz.of_string value with This uri -> Some uri | Null -> None))
         ?template:(
           (* Try to get template from properties if it exists *)
           Webfinger.Link.property ~uri:"template" link
@@ -248,65 +220,41 @@ module Webfinger = struct
       ~links
       ()
 
-  let lookup (T t) acct =
-    (* Parse the account string into an Acct.t *)
-    let acct_uri =
-      (* Handle both "user@domain" and "acct:user@domain" formats *)
-      let acct_str =
-        if String.starts_with ~prefix:"acct:" acct then acct
-        else "acct:" ^ acct
-      in
-      match Webfinger.Acct.of_string acct_str with
-      | Ok a -> a
-      | Error e -> raise (E (Webfinger_error (Webfinger.error_to_string e)))
+  let lookup_raw client acct =
+    let acct = if String.starts_with ~prefix:"acct:" acct then acct
+      else "acct:" ^ acct in
+    let acct = match Webfinger.Acct.of_string acct with
+      | Ok acct -> acct
+      | Error err -> raise (E (Webfinger_error (Webfinger.error_to_string err)))
     in
-    (* Use the webfinger library's query function *)
-    match Webfinger.query_acct t.fetch acct_uri () with
-    | Ok jrd -> jrd_of_webfinger jrd
-    | Error e -> raise (E (Webfinger_error (Webfinger.error_to_string e)))
+    let headers = Fetch.Header.[accept, [pref "application/jrd+json"]] in
+    get_json client ~headers (Fetch.Json.v Webfinger.Jrd.jsont)
+      (Webfinger.webfinger_url_acct acct ())
 
-  (** Look up using webfinger library and return the raw Webfinger.Jrd.t *)
-  let lookup_raw (T t) acct =
-    let acct_uri =
-      let acct_str =
-        if String.starts_with ~prefix:"acct:" acct then acct
-        else "acct:" ^ acct
-      in
-      match Webfinger.Acct.of_string acct_str with
-      | Ok a -> a
-      | Error e -> raise (E (Webfinger_error (Webfinger.error_to_string e)))
-    in
-    match Webfinger.query_acct t.fetch acct_uri () with
-    | Ok jrd -> jrd
-    | Error e -> raise (E (Webfinger_error (Webfinger.error_to_string e)))
+  let lookup client acct = jrd_of_webfinger (lookup_raw client acct)
+
+  let activitypub_type = function
+    | None -> false
+    | Some media ->
+        Fetch.Media.matches ~range:"application/activity+json" media ||
+        Fetch.Media.matches ~range:"application/ld+json" media
+
+  let uri_of_string value = match Uriz.of_string value with
+    | This uri -> Some uri
+    | Null -> None
 
   let actor_uri jrd =
-    match Proto.Webfinger.links jrd with
-    | None -> None
-    | Some links ->
-        List.find_map (fun link ->
-          if Proto.Webfinger.Jrd_link.rel link = Webfinger.Rel.activitypub then
-            match Proto.Webfinger.Jrd_link.type_ link with
-            | Some t when String.equal t "application/activity+json" ->
-                Proto.Webfinger.Jrd_link.href link
-            | Some t when String.starts_with ~prefix:"application/ld+json" t ->
-                Proto.Webfinger.Jrd_link.href link
-            | _ -> None
-          else None
-        ) links
+    Option.value ~default:[] (Proto.Webfinger.links jrd)
+    |> List.find_map (fun link ->
+      if Proto.Webfinger.Jrd_link.rel link = Webfinger.Rel.activitypub &&
+         activitypub_type (Proto.Webfinger.Jrd_link.type_ link)
+      then Proto.Webfinger.Jrd_link.href link else None)
 
-  (** Extract ActivityPub actor URI from a raw Webfinger.Jrd.t *)
-  let actor_uri_raw (jrd : Webfinger.Jrd.t) : Uriz.t option =
-    (* Look for self link with ActivityPub media type *)
-    match Webfinger.Jrd.find_link ~rel:Webfinger.Rel.activitypub jrd with
-    | Some link ->
-        (match Webfinger.Link.type_ link with
-         | Some t when String.equal t "application/activity+json" ->
-             Option.map Uriz.of_string_exn (Webfinger.Link.href link)
-         | Some t when String.starts_with ~prefix:"application/ld+json" t ->
-             Option.map Uriz.of_string_exn (Webfinger.Link.href link)
-         | _ -> None)
-    | None -> None
+  let actor_uri_raw jrd =
+    Webfinger.Jrd.links jrd |> List.find_map (fun link ->
+      if Webfinger.Link.rel link = Webfinger.Rel.activitypub &&
+         activitypub_type (Webfinger.Link.type_ link)
+      then Option.bind (Webfinger.Link.href link) uri_of_string else None)
 
   let profile_page jrd =
     match Proto.Webfinger.links jrd with
@@ -358,14 +306,12 @@ module Nodeinfo = struct
       |> Jsont.Object.finish
   end
 
-  let fetch (T t) ~host =
+  let fetch client ~host =
     (* Step 1: Fetch the well-known nodeinfo discovery document *)
     let well_known_url = Printf.sprintf "https://%s/.well-known/nodeinfo" host in
     let headers = Fetch.Header.[ accept, [ pref "application/json" ] ] in
     let well_known =
-      Fetch.with_response ~headers t.fetch `GET well_known_url @@ fun resp ->
-      check_response resp;
-      decode_json_exn Well_known.jsont resp
+      get_json client ~headers (Fetch.Json.v Well_known.jsont) well_known_url
     in
     (* Step 2: Find a link with rel containing "nodeinfo" and schema 2.0 or 2.1 *)
     let nodeinfo_href =
@@ -382,9 +328,7 @@ module Nodeinfo = struct
     | None -> raise (E (Json_error "No NodeInfo 2.0 or 2.1 link found in well-known response"))
     | Some href ->
         (* Step 3: Fetch the actual NodeInfo document *)
-        Fetch.with_response ~headers t.fetch `GET href @@ fun resp ->
-        check_response resp;
-        decode_json_exn Proto.Nodeinfo.jsont resp
+        get_json client ~headers (Fetch.Json.v Proto.Nodeinfo.jsont) href
 
   let software_name info =
     Proto.Nodeinfo.Software.name (Proto.Nodeinfo.software info)
@@ -549,22 +493,12 @@ module Inbox = struct
     let inbox = Actor.inbox t actor in
     post t ~inbox activity
 
-  let discover_shared_inbox (T t) ~host =
-    (* Try to get shared inbox from instance actor endpoint *)
-    let instance_actor_url = Printf.sprintf "https://%s/actor" host in
+  let discover_shared_inbox client ~host =
+    let url = Printf.sprintf "https://%s/actor" host in
     try
-      Fetch.with_response t.fetch `GET instance_actor_url @@ fun resp ->
-      if is_success (Fetch.status resp) then begin
-        let actor = decode_json_exn Proto.Actor.jsont resp in
-        match Proto.Actor.endpoints actor with
-        | Some endpoints ->
-            Proto.Endpoints.shared_inbox endpoints
-        | None -> None
-      end else
-        None
-    with _ ->
-      (* If fetching instance actor fails, there's no shared inbox *)
-      None
+      let actor = get_json client (activitypub_media Proto.Actor.jsont) url in
+      Option.bind (Proto.Actor.endpoints actor) Proto.Endpoints.shared_inbox
+    with E _ -> None
 
   let post_to_shared_inbox t ~host activity =
     match discover_shared_inbox t ~host with
@@ -600,15 +534,9 @@ module Outbox = struct
       (* Skip the public collection - it doesn't have an inbox *)
       if String.equal uri_str (Uriz.to_string Proto.Public.id) then
         None
-      else begin
-        (* Try to fetch the actor to get their inbox *)
-        try
-          let actor = Actor.fetch t uri in
-          Some (Proto.Actor.inbox actor)
-        with E _ ->
-          (* If we can't fetch the actor, skip this recipient *)
-          None
-      end
+      else
+        let actor = Actor.fetch t uri in
+        Some (Proto.Actor.inbox actor)
     ) recipients
 
   (* Deliver an activity to all recipients in to/cc *)
@@ -627,14 +555,9 @@ module Outbox = struct
         true
       end
     ) inboxes in
-    (* Post to each inbox *)
-    List.iter (fun inbox ->
-      try
-        Inbox.post t ~inbox activity
-      with E _ ->
-        (* Log delivery failures but don't fail the whole operation *)
-        ()
-    ) unique_inboxes
+    (* A failed resolution or delivery must be visible to the caller. Earlier
+       inboxes may already have accepted the activity when a later one fails. *)
+    List.iter (fun inbox -> Inbox.post t ~inbox activity) unique_inboxes
 
   let create_note t ~actor ?in_reply_to ?to_ ?cc ?sensitive ?summary ~content () =
     let note_id = generate_uri ~actor ~suffix:"notes" in
@@ -672,15 +595,12 @@ module Outbox = struct
     activity
 
   let public_note t ~actor ?in_reply_to ~content () =
-    let followers_uri =
-      match Proto.Actor.followers actor with
-      | Some uri -> uri
-      | None -> Uriz.of_string_exn ""
+    let cc = match Proto.Actor.followers actor with
+      | Some uri -> [Proto.Recipient.make uri]
+      | None -> []
     in
     create_note t ~actor ?in_reply_to
-      ~to_:[Proto.Recipient.make Proto.Public.id]
-      ~cc:[Proto.Recipient.make followers_uri]
-      ~content ()
+      ~to_:[Proto.Recipient.make Proto.Public.id] ~cc ~content ()
 
   let followers_only_note t ~actor ?in_reply_to ~content () =
     let followers_uri =
@@ -890,55 +810,24 @@ module Outbox = struct
 end
 
 module Collection = struct
-  let rec iter t f collection item_jsont =
-    (* Process items in current collection if any *)
-    (match Proto.Collection.items collection with
-     | Some items -> List.iter f items
-     | None -> ());
-    (* Fetch first page if available *)
-    match Proto.Collection.first collection with
-    | Some first_uri ->
-        let page = Http.get_typed t (Proto.Collection_page.jsont item_jsont) first_uri in
-        iter_page t f page item_jsont
-    | None -> ()
-
-  and iter_page t f page item_jsont =
-    (* Process items in page *)
-    (match Proto.Collection_page.items page with
-     | Some items -> List.iter f items
-     | None -> ());
-    (* Fetch next page if available *)
-    match Proto.Collection_page.next page with
-    | Some next_uri ->
-        let next = Http.get_typed t (Proto.Collection_page.jsont item_jsont) next_uri in
-        iter_page t f next item_jsont
-    | None -> ()
-
-  let rec fold t f init collection item_jsont =
-    (* Fold over items in current collection *)
-    let acc = match Proto.Collection.items collection with
-      | Some items -> List.fold_left f init items
-      | None -> init
-    in
-    (* Fetch first page if available *)
-    match Proto.Collection.first collection with
-    | Some first_uri ->
-        let page = Http.get_typed t (Proto.Collection_page.jsont item_jsont) first_uri in
-        fold_page t f acc page item_jsont
-    | None -> acc
-
-  and fold_page t f acc page item_jsont =
-    (* Fold over items in page *)
-    let acc = match Proto.Collection_page.items page with
-      | Some items -> List.fold_left f acc items
+  let fold t f init collection item_jsont =
+    let seen = Hashtbl.create 16 in
+    let rec pages acc = function
       | None -> acc
+      | Some uri ->
+          let key = Uriz.to_string uri in
+          if Hashtbl.mem seen key then
+            raise (E (Json_error ("Cyclic collection pagination: " ^ key)));
+          Hashtbl.add seen key ();
+          let page = Http.get_typed t (Proto.Collection_page.jsont item_jsont) uri in
+          let items = Option.value ~default:[] (Proto.Collection_page.items page) in
+          pages (List.fold_left f acc items) (Proto.Collection_page.next page)
     in
-    (* Fetch next page if available *)
-    match Proto.Collection_page.next page with
-    | Some next_uri ->
-        let next = Http.get_typed t (Proto.Collection_page.jsont item_jsont) next_uri in
-        fold_page t f acc next item_jsont
-    | None -> acc
+    let items = Option.value ~default:[] (Proto.Collection.items collection) in
+    pages (List.fold_left f init items) (Proto.Collection.first collection)
+
+  let iter t f collection item_jsont =
+    fold t (fun () item -> f item) () collection item_jsont
 
   let to_list t collection item_jsont =
     fold t (fun acc item -> item :: acc) [] collection item_jsont

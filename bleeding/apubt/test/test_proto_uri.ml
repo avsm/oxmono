@@ -18,3 +18,18 @@ let () =
   (match Jsont_bytesrw.decode_string Apubt_proto.uri_jsont {|"https://bad host/a"|} with
    | Error _ -> ()
    | Ok _ -> failwith "invalid URI accepted")
+
+let () =
+  let module P = Apubt_proto in
+  let href = Uriz.of_string_exn "https://example.com/icon.png" in
+  let link = P.Image_ref.link (P.Link.make ~href ()) in
+  let encoded = get (Jsont_bytesrw.encode_string P.Image_ref.jsont link) in
+  (match get (Jsont_bytesrw.decode_string P.Image_ref.jsont encoded) with
+   | P.Image_ref.Link l -> check "image Link round trip" (Uriz.equal (P.Link.href l) href)
+   | _ -> failwith "image Link decoded as another variant");
+  let image = get (Jsont_bytesrw.decode_string P.Image_ref.jsont {|{"url":"https://example.com/icon.png"}|}) in
+  (match image with P.Image_ref.Image _ -> () | _ -> failwith "untyped image rejected");
+  let obj = get (Jsont_bytesrw.decode_string P.Object.jsont
+    {|{"type":"Note","to":"https://www.w3.org/ns/activitystreams#Public","cc":{"id":"https://example.com/alice"}}|}) in
+  check "singleton addressing" (Option.map List.length (P.Object.to_ obj) = Some 1 &&
+    Option.map List.length (P.Object.cc obj) = Some 1)

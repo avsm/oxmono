@@ -3,10 +3,8 @@
  (public_name apubt)
  (libraries duration
   apubt_proto
-  uri
   eio
   jsont
-  jsont.bytesrw
   ptime.clock.os
   fetch
   fetch-curl

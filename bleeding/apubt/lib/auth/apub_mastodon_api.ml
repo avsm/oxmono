@@ -58,9 +58,7 @@ let relationship_jsont =
   |> Jsont.Object.mem "requested" Jsont.bool ~enc:(fun r -> r.requested)
   |> Jsont.Object.finish
 
-(** Bearer token scoped to the instance it belongs to. A credential is
-    dropped on a cross-origin redirect, which a per-request [Authorization]
-    header would not be. *)
+(** Bearer tokens are supplied only to their instance, including after redirects. *)
 let authed fetch ~instance ~token =
   Fetch.with_credentials
     ~scope:[ Printf.sprintf "https://%s/" instance ]
@@ -73,10 +71,10 @@ let check_response resp =
   if status >= 200 && status < 300 then
     Ok ()
   else
-    let body = Eio.Flow.read_all (Fetch.body resp) in
+    let body = Apub_mastodon_oauth.response_body resp in
     Error (Printf.sprintf "HTTP %d: %s" status body)
 
-(** Decode a fully drained response body *)
+(** Decode through the shared bounded Fetch codec. *)
 let decode_body = Apub_mastodon_oauth.decode_body
 
 (** Post a new status *)
@@ -101,7 +99,7 @@ let post_status fetch ~instance ~token ~content
     | None -> params
   in
   let headers, body = Fetch.Form.urlencoded params in
-  Fetch.with_response ~headers ~body fetch `POST url @@ fun resp ->
+  Apub_mastodon_oauth.with_response ~headers ~body fetch `POST url @@ fun resp ->
   match check_response resp with
   | Error e -> Error e
   | Ok () -> decode_body status_jsont resp
@@ -109,7 +107,7 @@ let post_status fetch ~instance ~token ~content
 (** Internal: a bodyless POST decoding [jsont] from a successful response *)
 let post_action fetch ~instance ~token jsont url =
   let fetch = authed fetch ~instance ~token in
-  Fetch.with_response fetch `POST url @@ fun resp ->
+  Apub_mastodon_oauth.with_response fetch `POST url @@ fun resp ->
   match check_response resp with
   | Error e -> Error e
   | Ok () -> decode_body jsont resp
@@ -117,7 +115,7 @@ let post_action fetch ~instance ~token jsont url =
 (** Internal: a GET decoding [jsont] from a successful response *)
 let get_action fetch ~instance ~token jsont url =
   let fetch = authed fetch ~instance ~token in
-  Fetch.with_response fetch `GET url @@ fun resp ->
+  Apub_mastodon_oauth.with_response fetch `GET url @@ fun resp ->
   match check_response resp with
   | Error e -> Error e
   | Ok () -> decode_body jsont resp
@@ -174,7 +172,7 @@ let get_status fetch ~instance ~token ~status_id =
 let delete_status fetch ~instance ~token ~status_id =
   let url = Printf.sprintf "https://%s/api/v1/statuses/%s" instance status_id in
   let fetch = authed fetch ~instance ~token in
-  Fetch.with_response fetch `DELETE url @@ fun resp -> check_response resp
+  Apub_mastodon_oauth.with_response fetch `DELETE url @@ fun resp -> check_response resp
 
 (** Extract status ID from a Mastodon URL like https://instance/users/name/statuses/123
     or https://instance/@name/123 *)

@@ -293,6 +293,8 @@ type credentials = {
 
 (* Resolve credentials from CLI args or saved session *)
 let resolve_credentials env ~key_file ~key_id ~actor_uri ~profile =
+  (* RSA signing uses randomness for blinding, including with imported keys. *)
+  Mirage_crypto_rng_unix.use_default ();
   (* If explicit key_file and key_id provided, use those *)
   match key_file, key_id, actor_uri with
   | Some kf, Some kid, Some actor ->
@@ -485,8 +487,9 @@ module Follow_cmd = struct
                   Apubt.Actor.fetch client (Uriz.of_string_exn target)
               in
               let activity = Apubt.Actor.follow client ~actor ~target:target_actor in
-              let activity_id = Option.get (Apubt.Proto.Activity.id activity) in
-              Fmt.pr "Sent follow request: %s@." (Uriz.to_string activity_id);
+              Fmt.pr "Sent follow request.@.";
+              Option.iter (fun id -> Fmt.pr "Activity: %s@." (Uriz.to_string id))
+                (Apubt.Proto.Activity.id activity);
               Fmt.pr "Target: %s (%s)@."
                 (Option.value ~default:"" (Apubt.Proto.Actor.preferred_username target_actor))
                 (Uriz.to_string (Apubt.Proto.Actor.id target_actor));

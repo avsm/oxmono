@@ -15,8 +15,8 @@
 
     - {!type:t}: Main client type for making ActivityPub requests
     - {!module:Actor}: Operations on actors (fetch, follow, unfollow)
-    - {!module:Inbox}: Receiving and processing activities
-    - {!module:Outbox}: Posting activities to your outbox
+    - {!module:Inbox}: Delivering activities to remote inboxes
+    - {!module:Outbox}: Constructing and delivering activities
     - {!module:Webfinger}: Actor discovery via Webfinger protocol
     - {!module:Nodeinfo}: Server metadata discovery
 
@@ -49,9 +49,9 @@
     signing with {!Signing}:
 
     {[
-      let signing = Apubt.Signing.create
+      let signing = Apubt.Signing.from_pem_exn
         ~key_id:"https://example.com/users/alice#main-key"
-        ~private_key:private_key_pem
+        ~pem:private_key_pem
         () in
       let client = Apubt.create ~sw ~signing env
     ]}
@@ -77,11 +77,13 @@ type t
 
     The following message components are signed:
     - [@method] - HTTP request method
-    - [@authority] - Target host
-    - [@path] - Request target path
+    - [@target-uri] - Complete target URI, including its query
     - [date] - Date header
     - [content-digest] - SHA-256 digest of request body
-    - [content-type] - Content-Type header *)
+    - [content-type] - Content-Type header
+
+    Initialize a Mirage Crypto random generator before signing, for example
+    with [Mirage_crypto_rng_unix.use_default ()]. RSA signing uses it for blinding. *)
 module Signing : sig
   type t
   (** Signing configuration. *)
@@ -127,6 +129,7 @@ val create :
   sw:Eio.Switch.t ->
   ?signing:Signing.t ->
   ?user_agent:string ->
+  ?max_response_bytes:int ->
   ?timeout:float ->
   < clock : _ Eio.Time.clock ; .. > ->
   t
@@ -135,7 +138,28 @@ val create :
     @param sw Switch for resource management
     @param signing HTTP signature configuration for authenticated requests
     @param user_agent User-Agent header (default: "Apubt/0.1")
-    @param timeout Request timeout in seconds (default: 30.0) *)
+    @param timeout Request timeout in seconds (default: 30.0); finite and
+      non-negative, with zero disabling the timeout
+    @param max_response_bytes Maximum decoded response size (default: 16 MiB).
+      JSON nesting is also bounded by Fetch's default depth limit. *)
+
+val of_fetch :
+  clock:_ Eio.Time.clock ->
+  ?signing:Signing.t ->
+  ?user_agent:string ->
+  ?max_response_bytes:int ->
+  _ Fetch.t ->
+  t
+(** [of_fetch ~clock fetch] uses an existing Fetch capability. The caller owns
+    its lifetime and configures its backend, timeouts, restrictions, and retries.
+    Defaults and response limits are as in {!create}. JSON responses must have
+    a JSON media type. ActivityPub reads accept [application/activity+json],
+    [application/ld+json], and [application/json].
+
+    Signing applies to POSTs only, using RFC 9421 and RSA-SHA256 for RSA keys.
+    POST redirects are returned as HTTP errors; delivery bodies are never
+    forwarded to a redirect target. GET requests follow Fetch's default policy.
+    Older servers requiring draft HTTP Signatures are not supported. *)
 
 val user_agent : t -> string
 (** [user_agent t] returns the User-Agent string used by the client. *)
@@ -346,7 +370,7 @@ end
 
 (** {1 Inbox Operations} *)
 
-(** Operations for receiving activities in an inbox. *)
+(** Operations for delivering activities to remote inboxes. *)
 module Inbox : sig
   val post : t -> inbox:Uriz.t -> Proto.Activity.t -> unit
   (** [post client ~inbox activity] delivers an activity to a remote inbox.
@@ -369,15 +393,20 @@ module Inbox : sig
     unit
   (** [post_to_shared_inbox client ~host activity] delivers to a server's shared inbox.
 
-      Uses the shared inbox from the server's NodeInfo if available,
-      otherwise falls back to individual inboxes.
+      Looks for [endpoints.sharedInbox] on the instance actor at [/actor],
+      then falls back to [/inbox] on the same host.
 
       @raise E on delivery failure *)
 end
 
 (** {1 Outbox Operations} *)
 
-(** Operations for posting activities to an outbox. *)
+(** Construct activities and deliver them directly to actor inboxes. These
+    helpers neither store activities nor submit them to the actor's outbox.
+    Recipient collections, including followers, are not expanded.
+
+    Resolution and delivery failures raise {!E}. Delivery is sequential:
+    earlier recipients may have accepted an activity when a later send fails. *)
 module Outbox : sig
   (** {2 Creating Notes} *)
 
@@ -397,7 +426,7 @@ module Outbox : sig
 
       @param actor The local actor creating the note
       @param in_reply_to URI of note being replied to
-      @param to_ Primary recipients (default: public)
+      @param to_ Primary recipients (default: none)
       @param cc Secondary recipients
       @param sensitive Content warning flag
       @param summary Content warning text (if sensitive)
@@ -490,7 +519,8 @@ end
 
 (** {1 Collection Iteration} *)
 
-(** Utilities for iterating over paginated collections. *)
+(** Utilities for iterating over paginated collections. Repeated page URIs
+    raise {!E} with {!Error.Json_error}, rather than looping indefinitely. *)
 module Collection : sig
   val iter :
     t ->

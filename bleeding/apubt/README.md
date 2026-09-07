@@ -4,7 +4,7 @@ An ActivityPub/ActivityStreams protocol implementation for OCaml using Eio for c
 
 ## Key Features
 
-- **Type-safe ActivityPub**: Full OCaml types for actors, activities, objects, and collections
+- **Typed ActivityPub subset**: OCaml types for actors, activities, objects, and collections
 - **JSON codecs**: Bidirectional encoding/decoding using jsont
 - **Eio-based HTTP**: Direct-style concurrent I/O with connection pooling
 - **HTTP Signatures**: RFC 9421 message signatures for authenticated federation
@@ -39,7 +39,8 @@ let () = Eio_main.run @@ fun env ->
 ### With HTTP Signatures
 
 ```ocaml
-(* Configure signing for authenticated requests *)
+(* Initialize randomness for RSA blinding, then configure signing *)
+Mirage_crypto_rng_unix.use_default ();
 let signing = Apubt.Signing.from_pem_exn
   ~key_id:"https://example.com/users/alice#main-key"
   ~pem:private_key_pem
@@ -52,6 +53,26 @@ let _activity = Apubt.Outbox.public_note client
   ~content:"<p>Hello from OCaml!</p>"
   ()
 ```
+
+### Using an existing Fetch client
+
+```ocaml
+let client = Apubt.of_fetch ~clock:env#clock
+  ~max_response_bytes:(4 * 1024 * 1024) fetch
+```
+
+The caller owns the Fetch client's lifetime and configures its backend,
+timeouts, restrictions, and retries. `Apubt.create` remains a curl convenience
+constructor. JSON responses are bounded to 16 MiB by default and require a JSON
+Content-Type. POST requests do not follow redirects.
+
+The federation helpers construct activities and deliver directly to actor
+inboxes; they do not persist objects or submit them to a local outbox. Follower
+collections are not expanded, so public/follower delivery is incomplete.
+Failures now propagate, including when some earlier recipients have accepted
+an activity. Signing supports RFC 9421 POSTs; draft signatures and authenticated
+GETs are not implemented. See [the implementation review](REVIEW.md) for the
+remaining correctness and compatibility issues.
 
 ## Command-Line Interface
 

@@ -63,10 +63,6 @@ let pp_error ppf (error : error) =
 
 let error offset message = Error { offset; message }
 
-let is_alpha = function
-  | 'a' .. 'z' | 'A' .. 'Z' -> true
-  | _ -> false
-
 let is_digit = function '0' .. '9' -> true | _ -> false
 
 let is_hex = Uriz_scanner.is_hexdig

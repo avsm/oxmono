@@ -12,8 +12,8 @@ depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.1"}
   "srcsetter"
-  "fpath"
   "progress"
+  "mtime"
   "cmdliner"
   "eio"
   "eio_main"

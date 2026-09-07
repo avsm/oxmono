@@ -44,29 +44,26 @@ type ('a, 'b) config = {
   max_fibers : int;
 }
 
-(** [file_seq ~filter path] recursively enumerates files in [path].
-
-    Returns a sequence of file paths where [filter filename] is true.
-    Directories are traversed depth-first. *)
-let rec file_seq ~filter path =
-  let dirs, files =
-    Path.with_open_dir path Path.read_dir
-    |> List.fold_left
-         (fun (dirs, files) f ->
-           let fp = Path.(path / f) in
-           match Path.kind ~follow:false fp with
-           | `Regular_file when filter f -> (dirs, fp :: files)
-           | `Directory -> (f :: dirs, files)
-           | _ -> (dirs, files))
-         ([], [])
+(* Keep filenames relative to the supplied directory capability. Native paths
+   are only needed when handing an image to ImageMagick. *)
+let file_names ~filter root =
+  let rec walk relative () =
+    let path = if relative = "" then root else Path.(root / relative) in
+    Path.read_dir path
+    |> List.to_seq
+    |> Seq.flat_map (fun name ->
+        let relative = if relative = "" then name else relative ^ "/" ^ name in
+        match Path.kind ~follow:false Path.(root / relative) with
+        | `Regular_file when filter name -> Seq.return relative
+        | `Directory -> walk relative
+        | _ -> Seq.empty)
+    |> fun files -> files ()
   in
-  Seq.append (List.to_seq files)
-    (Seq.flat_map (fun f -> file_seq ~filter Path.(path / f)) (List.to_seq dirs))
+  walk ""
 
-(** [iter_seq_p ?max_fibers fn seq] iterates [fn] over [seq] in parallel.
+let file_seq ~filter path =
+  Seq.map (fun name -> Path.(path / name)) (file_names ~filter path)
 
-    @param max_fibers Optional limit on concurrent fibers. Must be positive.
-    @raise Invalid_argument if [max_fibers] is not positive. *)
 let iter_seq_p ?max_fibers fn seq =
   Eio.Switch.run ~name:"iter_seq_p" @@ fun sw ->
   match max_fibers with
@@ -82,16 +79,6 @@ let iter_seq_p ?max_fibers fn seq =
           fn v)
         seq
 
-(** [relativize_path dir path] returns [path] relative to [dir].
-
-    @raise Failure if [path] is not under [dir]. *)
-let relativize_path dir path =
-  let dir = Path.native_exn dir in
-  let path = Path.native_exn path in
-  match Fpath.(rem_prefix (v dir) (v path)) with
-  | None -> failwith "relativize_path: path is not under directory"
-  | Some rel -> Fpath.to_string rel
-
 (** [dims cfg path] returns the [(width, height)] dimensions of an image.
 
     Uses ImageMagick's [identify] command to read image metadata. *)
@@ -106,7 +93,9 @@ let dims { proc_mgr; _ } path =
 (** [try_dims cfg path] returns [Some (w, h)] if identify succeeds, [None] otherwise. *)
 let try_dims cfg path =
   try Some (dims cfg path)
-  with _ -> None
+  with
+  | Eio.Cancel.Cancelled _ as ex -> raise ex
+  | _ -> None
 
 (** [file_size path] returns the size of the file in bytes. *)
 let file_size path =
@@ -193,10 +182,9 @@ let needs_conversion ~preserve dst =
     Returns [(src_file, dst_file, width_opt, needs_work)] where [needs_work]
     indicates whether the conversion should be performed. *)
 let is_gif src =
-  String.lowercase_ascii (Filename.extension (Path.native_exn src)) = ".gif"
+  String.lowercase_ascii (Filename.extension src) = ".gif"
 
-let translate { src_dir; dst_dir; preserve; _ } ?w src =
-  let src_file = relativize_path src_dir src in
+let translate { dst_dir; preserve; _ } ?w src_file =
   let ext =
     if String.lowercase_ascii (Filename.extension src_file) = ".gif" then ".gif"
     else ".webp"
@@ -259,13 +247,14 @@ let copy_to_dst { src_dir; dst_dir; dummy; preserve; _ } src dst =
     let src_path = Path.(src_dir / src) in
     let dst_path = Path.(dst_dir / dst) in
     if needs_conversion ~preserve dst_path then begin
-      let content = Path.load src_path in
-      Path.save ~append:false ~create:(`Or_truncate 0o644) dst_path content
+      Path.with_open_in src_path @@ fun source ->
+      Path.with_open_out ~append:false ~create:(`Or_truncate 0o644) dst_path
+        (fun sink -> Flow.copy source sink)
     end
   end
 
 let process_file cfg (display, main_rep) src =
-  let w, h = dims cfg src in
+  let w, h = dims cfg Path.(cfg.src_dir / src) in
   if is_gif src then begin
     (* Copied whole, with no variants. Animated WebP is not rendered reliably
        enough to convert to, so what is served is the GIF itself. Nothing
@@ -302,7 +291,7 @@ let process_file cfg (display, main_rep) src =
       let report_progress sz =
         if sz > 0 then completed := sz :: !completed;
         let sizes_str = String.concat "," (List.map string_of_int !completed) in
-        let basename = Path.native_exn src |> Filename.basename |> Filename.chop_extension in
+        let basename = src |> Filename.basename |> Filename.chop_extension in
         let label = Printf.sprintf "%25s -> %s" (truncate_string basename 25) sizes_str in
         Progress.Reporter.report reporter (1, label)
       in
@@ -322,16 +311,26 @@ let process_file cfg (display, main_rep) src =
 
 let min_interval = Some (Mtime.Span.of_uint64_ns 1000L)
 
+let with_progress heading total fn =
+  let display =
+    Progress.Display.start
+      ~config:(Progress.Config.v ~persistent:false ~min_interval ())
+      (main_bar_heading heading total)
+  in
+  Fun.protect ~finally:(fun () -> Progress.Display.finalise display) @@ fun () ->
+  let [ _; report ] = Progress.Display.reporters display in
+  fn display report
+
 (** [stage1 cfg] scans for images in the source directory.
 
-    Returns a sequence of file paths matching the configured extensions. *)
+    Returns source-relative filenames matching the configured extensions. *)
 let stage1 { img_exts; src_dir; _ } =
   let filter f =
     let ext = String.lowercase_ascii (Filename.extension f) in
     List.exists (fun e -> ext = "." ^ e) img_exts
   in
-  let fs = file_seq ~filter src_dir in
-  let total = Seq.length fs in
+  let fs = List.of_seq (file_names ~filter src_dir) in
+  let total = List.length fs in
   Format.printf "[1/3] Scanned %d images from %a.\n%!" total Path.pp src_dir;
   fs
 
@@ -339,22 +338,16 @@ let stage1 { img_exts; src_dir; _ } =
 
     @return List of {!Srcsetter.t} entries with placeholder dimensions. *)
 let stage2 ({ max_fibers; dst_dir; _ } as cfg) fs =
-  let display =
-    Progress.Display.start
-      ~config:(Progress.Config.v ~persistent:false ~min_interval ())
-      (main_bar_heading (Format.asprintf "[2/3] Processing images to %a..." Path.pp dst_dir) (Seq.length fs))
+  let ents =
+    with_progress
+      (Format.asprintf "[2/3] Processing images to %a..." Path.pp dst_dir)
+      (List.length fs)
+      (fun display main_rep ->
+        Fiber.List.map ~max_fibers (process_file cfg (display, main_rep)) fs)
   in
-  let [ _; main_rep ] = Progress.Display.reporters display in
-  let ents = ref [] in
-  iter_seq_p ~max_fibers
-    (fun src ->
-      let ent = process_file cfg (display, main_rep) src in
-      ents := ent :: !ents)
-    fs;
-  Progress.Display.finalise display;
-  Format.printf "[2/3] Processed %d images to %a.\n%!" (List.length !ents)
+  Format.printf "[2/3] Processed %d images to %a.\n%!" (List.length ents)
     Path.pp dst_dir;
-  !ents
+  ents
 
 (** [stage3 cfg ents] verifies generated images and records their dimensions.
 
@@ -362,64 +355,58 @@ let stage2 ({ max_fibers; dst_dir; _ } as cfg) fs =
 
     @return List of {!Srcsetter.t} entries with actual dimensions. *)
 let stage3 ({ src_dir; dst_dir; max_fibers; _ } as cfg) ents =
-  let ents_seq = List.to_seq ents in
-  let oents = ref [] in
   let regenerated = ref 0 in
-  let display =
-    Progress.Display.start
-      ~config:(Progress.Config.v ~persistent:false ~min_interval ())
-      (main_bar_heading "[3/3] Verifying images..." (List.length ents))
+  let oents =
+    with_progress "[3/3] Verifying images..." (List.length ents) (fun _ rep ->
+      Fiber.List.map ~max_fibers
+        (fun ent ->
+          let src_path = Path.(src_dir / Srcsetter.origin ent) in
+          let is_gif_ent = String.lowercase_ascii (Filename.extension (Srcsetter.origin ent)) = ".gif" in
+          if is_gif_ent then begin
+            (* GIF: verify copy exists, re-copy if missing *)
+            let base_path = Path.(dst_dir / Srcsetter.name ent) in
+            if not (Path.is_file base_path) || file_size base_path = 0 then begin
+              incr regenerated;
+              copy_to_dst cfg (Srcsetter.origin ent) (Srcsetter.name ent)
+            end;
+            let w, h = dims cfg base_path in
+            rep 1;
+            { ent with Srcsetter.dims = (w, h); variants = Srcsetter.MS.empty }
+          end
+          else begin
+            let orig_w, _ = dims cfg src_path in
+            (* Verify and regenerate base image if needed *)
+            let base_path = Path.(dst_dir / Srcsetter.name ent) in
+            if not (is_valid_image cfg base_path) then begin
+              incr regenerated;
+              convert cfg (Srcsetter.origin ent, Srcsetter.name ent, orig_w)
+            end;
+            let w, h = dims cfg base_path in
+            (* Verify and regenerate variants if needed *)
+            let variants =
+              Srcsetter.MS.bindings ent.variants
+              |> List.map (fun (k, _) ->
+                  let variant_path = Path.(dst_dir / k) in
+                  if not (is_valid_image cfg variant_path) then begin
+                    incr regenerated;
+                    let target_w = Option.value (width_from_variant_name k) ~default:orig_w in
+                    convert cfg (Srcsetter.origin ent, k, target_w)
+                  end;
+                  (k, dims cfg variant_path))
+              |> Srcsetter.MS.of_list
+            in
+            rep 1;
+            { ent with Srcsetter.dims = (w, h); variants }
+          end)
+        ents)
   in
-  let [ _; rep ] = Progress.Display.reporters display in
-  iter_seq_p ~max_fibers
-    (fun ent ->
-      let src_path = Path.(src_dir / Srcsetter.origin ent) in
-      let is_gif_ent = String.lowercase_ascii (Filename.extension (Srcsetter.origin ent)) = ".gif" in
-      if is_gif_ent then begin
-        (* GIF: verify copy exists, re-copy if missing *)
-        let base_path = Path.(dst_dir / Srcsetter.name ent) in
-        if not (Path.is_file base_path) || file_size base_path = 0 then begin
-          incr regenerated;
-          copy_to_dst cfg (Srcsetter.origin ent) (Srcsetter.name ent)
-        end;
-        let w, h = dims cfg base_path in
-        rep 1;
-        oents := { ent with Srcsetter.dims = (w, h); variants = Srcsetter.MS.empty } :: !oents
-      end
-      else begin
-        let orig_w, _ = dims cfg src_path in
-        (* Verify and regenerate base image if needed *)
-        let base_path = Path.(dst_dir / Srcsetter.name ent) in
-        if not (is_valid_image cfg base_path) then begin
-          incr regenerated;
-          convert cfg (Srcsetter.origin ent, Srcsetter.name ent, orig_w)
-        end;
-        let w, h = dims cfg base_path in
-        (* Verify and regenerate variants if needed *)
-        let variants =
-          Srcsetter.MS.bindings ent.variants
-          |> List.map (fun (k, _) ->
-              let variant_path = Path.(dst_dir / k) in
-              if not (is_valid_image cfg variant_path) then begin
-                incr regenerated;
-                let target_w = Option.value (width_from_variant_name k) ~default:orig_w in
-                convert cfg (Srcsetter.origin ent, k, target_w)
-              end;
-              (k, dims cfg variant_path))
-          |> Srcsetter.MS.of_list
-        in
-        rep 1;
-        oents := { ent with Srcsetter.dims = (w, h); variants } :: !oents
-      end)
-    ents_seq;
-  Progress.Display.finalise display;
   if !regenerated > 0 then
     Printf.printf "[3/3] Verified %d images, regenerated %d invalid outputs.\n%!"
       (List.length ents) !regenerated
   else
     Printf.printf "[3/3] Verified %d generated image sizes.\n%!"
       (List.length ents);
-  !oents
+  oents
 
 (** [run ~proc_mgr ~src_dir ~dst_dir ()] runs the full srcsetter pipeline.
 
@@ -448,6 +435,7 @@ let run
     ?(preserve = true)
     ()
   =
+  if max_fibers <= 0 then invalid_arg "Srcsetter_cmd.run: max_fibers must be positive";
   let img_widths = List.sort (fun a b -> compare b a) img_widths in
   let cfg =
     {
@@ -463,6 +451,7 @@ let run
     }
   in
   let fs = stage1 cfg in
+  Path.mkdirs ~exists_ok:true ~perm:0o755 dst_dir;
   let ents = stage2 cfg fs in
   let oents = stage3 cfg ents in
   let j = Srcsetter.list_to_json oents |> Result.get_ok in

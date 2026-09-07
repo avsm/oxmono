@@ -55,11 +55,13 @@ val file_seq :
   'a Eio.Path.t Seq.t
 (** [file_seq ~filter path] recursively enumerates files in [path].
 
-    Returns a sequence of file paths where [filter filename] is true.
-    Directories are traversed depth-first. *)
+    Returns a lazy sequence of file paths where [filter filename] is true.
+    Directories are traversed depth-first in filename order; symbolic links
+    are not followed. Enumeration does not require native filesystem paths. *)
 
 val iter_seq_p : ?max_fibers:int -> ('a -> unit) -> 'a Seq.t -> unit
-(** [iter_seq_p ?max_fibers fn seq] iterates [fn] over [seq] in parallel.
+(** [iter_seq_p ?max_fibers fn seq] iterates [fn] over [seq] in parallel,
+    consuming the sequence incrementally.
 
     @param max_fibers Optional limit on concurrent fibers. Must be positive.
     @raise Invalid_argument if [max_fibers] is not positive. *)
@@ -108,7 +110,10 @@ val run :
 (** [run ~proc_mgr ~src_dir ~dst_dir ()] runs the full srcsetter pipeline.
 
     Scans [src_dir] for images, converts them to WebP format at multiple
-    responsive sizes, and writes an index file to [dst_dir].
+    responsive sizes, and writes an index file to [dst_dir], creating the
+    destination directory if needed. Entries retain source-relative filenames
+    and are returned in discovery order regardless of processing concurrency.
+    ImageMagick requires native paths; traversal and copying use Eio paths.
 
     @param proc_mgr Eio process manager for running ImageMagick
     @param src_dir Source directory containing original images
@@ -116,7 +121,7 @@ val run :
     @param idx_file Name of the index file (default ["index.json"])
     @param img_widths List of target widths (default common responsive breakpoints)
     @param img_exts List of extensions to process (default common image formats)
-    @param max_fibers Maximum concurrent operations (default 8)
+    @param max_fibers Maximum concurrent operations (default 8); must be positive
     @param dummy When true, skip actual conversions (default false)
     @param preserve When true, skip existing files (default true)
     @return List of {!Srcsetter.t} entries describing generated images *)

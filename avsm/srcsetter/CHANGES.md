@@ -1,5 +1,12 @@
 ## Unreleased
 
+- Remove Fpath from the processing library. Carry source-relative filenames
+  through Eio directory traversal and use native paths only for ImageMagick.
+- Scan inputs once, use Eio's bounded parallel list operations, and keep index
+  entries in discovery order. Stream GIF copies through Eio flows, preserve
+  cancellation and finalise progress displays on failure. Empty source
+  directories now produce an empty index in a newly created output directory.
+
 - The unused GIF to animated WebP conversion is gone. A GIF is copied to the
   destination whole and given no variants, which is what the pipeline has done
   for some time, because animated WebP is not rendered reliably enough to

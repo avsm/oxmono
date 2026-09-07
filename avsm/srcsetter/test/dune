@@ -1,0 +1,22 @@
+(executable
+ (name fake_image_tool)
+ (modules fake_image_tool)
+ (libraries eio eio_main))
+
+(rule
+ (targets identify magick)
+ (deps fake_image_tool.exe)
+ (action
+  (progn
+   (copy fake_image_tool.exe identify)
+   (copy fake_image_tool.exe magick))))
+
+(test
+ (name test_srcsetter)
+ (modules test_srcsetter)
+ (package srcsetter-cmd)
+ (libraries eio eio_main srcsetter srcsetter-cmd)
+ (deps identify magick)
+ (action
+  (setenv PATH .:%{env:PATH=}
+   (run %{test}))))

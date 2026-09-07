@@ -5,7 +5,6 @@
   test_multipart
   test_conditional
   test_resp
-  test_mime
   test_static
   test_cache
   test_negotiate
@@ -18,7 +17,6 @@
   test_multipart
   test_conditional
   test_resp
-  test_mime
   test_static
   test_cache
   test_negotiate
@@ -27,6 +25,16 @@
   test_sse)
  (package proffer)
  (libraries duration proffer proffer_mock httpz httpz.media))
+
+; Exercise every mapping and its sort invariant without exposing the registry
+; through Proffer's public API.
+(copy_files ../lib/mime_data.ml)
+
+(test
+ (name test_mime)
+ (modules test_mime mime_data)
+ (package proffer)
+ (libraries proffer stdlib_stable))
 
 (test
  (name test_httpz)

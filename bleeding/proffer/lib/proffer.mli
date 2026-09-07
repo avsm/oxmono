@@ -206,9 +206,10 @@ end
 module Mime : sig
   (** This module maps filename extensions to content types. *)
 
-  val of_path : string -> string @@ portable
+  val[@zero_alloc] of_path : string @ local -> string @@ portable
   (** [of_path name] is the Content-Type for [name], from its extension with
       case folded, or ["application/octet-stream"] when it is absent or unknown.
+      The lookup allocates no heap memory and returns a shared constant string.
       A file-serving response should also send [X-Content-Type-Options:
       nosniff]; active formats such as HTML, SVG, and Markdown need an
       application-appropriate Content-Security-Policy when their contents are

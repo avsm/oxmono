@@ -7,7 +7,6 @@
   httpz
   httpz.uri
   httpz.media
-  magic-mime
   stdlib_stable
   stdlib_upstream_compatible)
  ; Only [Proffer] is public API. Listing the rest as private keeps their .cmi
@@ -25,6 +24,7 @@
   headers
   method
   mime
+  mime_data
   multipart
   status
   negotiate

@@ -10,6 +10,9 @@ First release.
 - Validate response fields and entity-tags before they reach the wire.
 - Add helpers for static-file confinement, MIME types, redirects, and a
   concurrent expiring response cache.
+- Integrate the MIME extension registry into Proffer, removing the magic-mime
+  dependency while preserving its mappings and Proffer's overrides.
+  `Mime.of_path` accepts local strings and is checked to allocate no heap memory.
 - Write routes as paths joined by `( / )` from `root`, ending in `rest` to
   capture the remainder. Sites are served as they are, so `Compiled` is gone,
   and `Proffer_httpz.run` takes the Eio environment with defaults for the

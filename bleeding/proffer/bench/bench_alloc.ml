@@ -108,6 +108,12 @@ let row name v = Printf.printf "%-46s %6.1f words\n" name v
 
 let () =
   let n = 20_000 in
+  List.iter
+    (fun path ->
+      row ("Mime.of_path " ^ path)
+        (words ~n (fun () ->
+             ignore (Sys.opaque_identity (Mime.of_path (Sys.opaque_identity path))))))
+    [ "site.css"; "PHOTO.JPG"; "api.mli"; "x.unknown"; "README" ];
   row "full serve, literal route, content type only"
     (words ~n (fun () -> serve ~site:compiled ~writer:null_writer ()));
   row "the same with an entity-tag, built once and reused"

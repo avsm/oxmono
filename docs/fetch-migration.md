@@ -82,7 +82,7 @@ Sharp edges:
 - `with_headers` raises `Invalid_argument` on `Authorization`/`Cookie`/
   `Proxy-Authorization` — secrets must go through `Credential`.
 - `Fetch.with_response` opens its own switch — use it wherever the body is
-  fully drained (every consumer except perma-proxy) so signatures don't need
+  fully drained, which is every remaining consumer, so signatures don't need
   to grow a `~sw`.
 - Setting `Host`/`Content-Length`/`Transfer-Encoding` manually raises
   `Invalid_request`.
@@ -111,8 +111,7 @@ Sharp edges:
 10. **immich** (+Cmd, needs `dune.inc` gen rule restored),
 11. **peertube** (+Cmd, `Body.form` password grant, needs gen rule),
 12. **atp** — `Requests.t` in four public mlis; one atomic change across 5 packages.
-13. **httpz-perma-proxy** — internal streaming API; rewrite of `perma_cache.ml:455-520`, not a substitution.
-14. **apubt** — blocked on RFC 9421.
+13. **apubt** — blocked on RFC 9421.
 
 ## Hygiene (unrelated, fix while touching)
 

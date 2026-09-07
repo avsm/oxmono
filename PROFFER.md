@@ -17,8 +17,9 @@ the Portability groundwork section for what was proved and how.
 - `proffer`. The portable core. Depends on Eio for types only. Contains no
   wire code and no sockets. Every export is `portable`.
 - `proffer-httpz`. Backend over the `httpz` core parser and writer. The
-  performance target. `httpz.route` and `httpz.eio_server` retire into
-  this backend once its consumers (arod, httpz-perma-proxy) migrate.
+  performance target. `httpz.route` and `httpz.eio_server` have no
+  consumer left outside `httpz` itself, and retire into this backend
+  once the `httpz-eio-server` binary is rebuilt on it.
 - `proffer-cohttp`. Backend over cohttp-eio.
 - `proffer.mock`. Runs a compiled site against synthetic requests with no
   sockets, in the manner of `fetch_mock`. Route handlers become directly
@@ -326,8 +327,8 @@ Next, in order:
    the `Static.t` node.
 2. Take `proffer-httpz` multi-domain, and port arod.
 3. Implement `proffer-cohttp`.
-4. Migrate httpz-perma-proxy, then fold `httpz.route` and
-   `httpz.eio_server` into the backend.
+4. Rebuild the `httpz-eio-server` binary on the backend, then fold
+   `httpz.route` and `httpz.eio_server` into it.
 
 In parallel and without blocking: upstream the Eio annotation patch,
 and annotate `cstruct` and `fmt` so `Buf_read`, `Buf_write`, `Path` and

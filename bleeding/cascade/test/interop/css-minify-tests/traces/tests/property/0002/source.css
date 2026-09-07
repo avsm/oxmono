@@ -1,5 +1,0 @@
-@property --size {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 16px;
-}

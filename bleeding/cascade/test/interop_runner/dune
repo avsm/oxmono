@@ -1,3 +1,0 @@
-(executable
- (name test)
- (libraries cascade alcotest fmt eio eio_main))

@@ -1,4 +1,0 @@
-(library
- (name cascade_diff)
- (public_name cascade.diff)
- (libraries cascade))

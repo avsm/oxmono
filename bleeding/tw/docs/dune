@@ -1,5 +1,0 @@
-(mdx
- (files adding-a-new-utility.md parity.md)
- (preludes mdx/prelude.ml)
- (libraries tw cascade)
- (deps %{bin:tw}))

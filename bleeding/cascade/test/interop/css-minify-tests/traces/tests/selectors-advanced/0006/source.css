@@ -1,3 +1,0 @@
-a:not(:dir(ltr)) {
-  color: red;
-}

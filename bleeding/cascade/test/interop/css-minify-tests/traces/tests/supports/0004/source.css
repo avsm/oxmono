@@ -1,8 +1,0 @@
-@supports (display: flex) {
-  a {
-    display: flex;
-  }
-  b {
-    color: red;
-  }
-}

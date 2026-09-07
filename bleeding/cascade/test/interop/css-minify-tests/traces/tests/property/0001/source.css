@@ -1,5 +1,0 @@
-@property --brand-color {
-  syntax: "<color>";
-  inherits: false;
-  initial-value: #000;
-}

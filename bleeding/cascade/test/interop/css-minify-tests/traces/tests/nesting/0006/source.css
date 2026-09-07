@@ -1,6 +1,0 @@
-.foo {
-  display: grid;
-  @media (width >= 768px) {
-    grid-auto-flow: column;
-  }
-}

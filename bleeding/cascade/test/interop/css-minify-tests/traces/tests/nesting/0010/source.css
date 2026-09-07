@@ -1,9 +1,0 @@
-.nav {
-  display: flex;
-}
-.nav a {
-  color: red;
-}
-.nav a:hover {
-  margin: 0;
-}

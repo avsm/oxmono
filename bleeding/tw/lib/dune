@@ -1,9 +1,0 @@
-(library
- (public_name tw)
- (name tw)
- (libraries cascade))
-
-(mdx
- (files tw.mli prose.mli utility.mli var.mli)
- (preludes mdx/prelude.ml)
- (libraries tw cascade unix))

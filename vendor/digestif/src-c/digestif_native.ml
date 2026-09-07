@@ -34,7 +34,7 @@ module MD5 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_md5_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -42,11 +42,11 @@ module MD5 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_md5_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_md5_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_md5_ctx_size" [@@noalloc]
@@ -63,7 +63,7 @@ module SHA1 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_sha1_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -71,11 +71,11 @@ module SHA1 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha1_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_sha1_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha1_ctx_size" [@@noalloc]
@@ -92,7 +92,7 @@ module SHA224 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_sha224_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -100,11 +100,11 @@ module SHA224 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha224_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_sha224_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha224_ctx_size" [@@noalloc]
@@ -121,7 +121,7 @@ module SHA256 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_sha256_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -129,11 +129,11 @@ module SHA256 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha256_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_sha256_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha256_ctx_size" [@@noalloc]
@@ -150,7 +150,7 @@ module SHA384 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_sha384_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -158,11 +158,11 @@ module SHA384 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha384_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_sha384_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha384_ctx_size" [@@noalloc]
@@ -179,7 +179,7 @@ module SHA512 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_sha512_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -187,11 +187,11 @@ module SHA512 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha512_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_sha512_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha512_ctx_size" [@@noalloc]
@@ -208,7 +208,7 @@ module SHA3_224 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_sha3_224_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -216,15 +216,15 @@ module SHA3_224 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha3_224_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_sha3_224_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha3_224_ctx_size"
-    [@@noalloc]
+  [@@noalloc]
 end
 
 module SHA3_256 = struct
@@ -238,7 +238,7 @@ module SHA3_256 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_sha3_256_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -246,15 +246,15 @@ module SHA3_256 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha3_256_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_sha3_256_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha3_256_ctx_size"
-    [@@noalloc]
+  [@@noalloc]
 end
 
 module KECCAK_256 = struct
@@ -268,7 +268,7 @@ module KECCAK_256 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_keccak_256_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -276,15 +276,15 @@ module KECCAK_256 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha3_256_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_keccak_256_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha3_256_ctx_size"
-    [@@noalloc]
+  [@@noalloc]
 end
 
 module SHA3_384 = struct
@@ -298,7 +298,7 @@ module SHA3_384 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_sha3_384_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -306,15 +306,15 @@ module SHA3_384 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha3_384_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_sha3_384_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha3_384_ctx_size"
-    [@@noalloc]
+  [@@noalloc]
 end
 
 module SHA3_512 = struct
@@ -328,7 +328,7 @@ module SHA3_512 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_sha3_512_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -336,15 +336,15 @@ module SHA3_512 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_sha3_512_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_sha3_512_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_sha3_512_ctx_size"
-    [@@noalloc]
+  [@@noalloc]
 end
 
 module WHIRLPOOL = struct
@@ -358,7 +358,7 @@ module WHIRLPOOL = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_whirlpool_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -366,15 +366,15 @@ module WHIRLPOOL = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_whirlpool_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_whirlpool_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_whirlpool_ctx_size"
-    [@@noalloc]
+  [@@noalloc]
 end
 
 module BLAKE2B = struct
@@ -388,11 +388,11 @@ module BLAKE2B = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_blake2b_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
 
     external with_outlen_and_key : ctx -> size -> ba -> off -> size -> unit @@ portable
       = "caml_digestif_blake2b_ba_init_with_outlen_and_key"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -400,25 +400,25 @@ module BLAKE2B = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_blake2b_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_blake2b_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
 
     external with_outlen_and_key : ctx -> size -> st -> off -> size -> unit @@ portable
       = "caml_digestif_blake2b_st_init_with_outlen_and_key"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_blake2b_ctx_size" [@@noalloc]
   external key_size : unit -> int @@ portable = "caml_digestif_blake2b_key_size" [@@noalloc]
 
   external max_outlen : unit -> int @@ portable = "caml_digestif_blake2b_max_outlen"
-    [@@noalloc]
+  [@@noalloc]
 
   external digest_size : ctx -> int @@ portable = "caml_digestif_blake2b_digest_size"
-    [@@noalloc]
+  [@@noalloc]
 end
 
 module BLAKE2S = struct
@@ -432,11 +432,11 @@ module BLAKE2S = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_blake2s_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
 
     external with_outlen_and_key : ctx -> size -> ba -> off -> size -> unit @@ portable
       = "caml_digestif_blake2s_ba_init_with_outlen_and_key"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -444,25 +444,25 @@ module BLAKE2S = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_blake2s_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_blake2s_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
 
     external with_outlen_and_key : ctx -> size -> st -> off -> size -> unit @@ portable
       = "caml_digestif_blake2s_st_init_with_outlen_and_key"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_blake2s_ctx_size" [@@noalloc]
   external key_size : unit -> int @@ portable = "caml_digestif_blake2s_key_size" [@@noalloc]
 
   external max_outlen : unit -> int @@ portable = "caml_digestif_blake2s_max_outlen"
-    [@@noalloc]
+  [@@noalloc]
 
   external digest_size : ctx -> int @@ portable = "caml_digestif_blake2s_digest_size"
-    [@@noalloc]
+  [@@noalloc]
 end
 
 module RMD160 = struct
@@ -476,7 +476,7 @@ module RMD160 = struct
 
     external finalize : ctx -> ba -> off -> unit @@ portable
       = "caml_digestif_rmd160_ba_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Bytes = struct
@@ -484,11 +484,11 @@ module RMD160 = struct
 
     external update : ctx -> st -> off -> size -> unit @@ portable
       = "caml_digestif_rmd160_st_update"
-      [@@noalloc]
+    [@@noalloc]
 
     external finalize : ctx -> st -> off -> unit @@ portable
       = "caml_digestif_rmd160_st_finalize"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   external ctx_size : unit -> int @@ portable = "caml_digestif_rmd160_ctx_size" [@@noalloc]
@@ -500,7 +500,7 @@ module XOR = struct
   module Bigstring = struct
     external xor_into : ba -> off -> ba -> off -> size -> unit @@ portable
       = "caml_digestif_ba_xor_into"
-      [@@noalloc]
+    [@@noalloc]
 
     let xor_into a b n =
       if n > imin (Bi.length a) (Bi.length b)
@@ -518,7 +518,7 @@ module XOR = struct
   module Bytes = struct
     external xor_into : st -> off -> st -> off -> size -> unit @@ portable
       = "caml_digestif_st_xor_into"
-      [@@noalloc]
+    [@@noalloc]
 
     let xor_into a b n =
       if n > imin (By.length a) (By.length b)

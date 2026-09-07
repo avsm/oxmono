@@ -1,0 +1,276 @@
+{
+  "verified_on": "2026-09-07",
+  "vendors": [
+    {
+      "name": "asn1-combinators",
+      "url": "https://github.com/mirleft/ocaml-asn1-combinators.git",
+      "branch": "HEAD",
+      "revision": "32b538790938211e43e8ea3d0688595a5072111e",
+      "base_version": "v0.3.2-1-g32b5387"
+    },
+    {
+      "name": "base64",
+      "url": "https://github.com/mirage/ocaml-base64.git",
+      "branch": "HEAD",
+      "revision": "08f3445206c6758fd258919ef64eddd5b0b4f749",
+      "base_version": "v3.5.2-1-g08f3445"
+    },
+    {
+      "name": "bytesrw",
+      "url": "https://github.com/dbuenzli/bytesrw.git",
+      "branch": "HEAD",
+      "revision": "29555bc760b7292b48397e9dd0460c9733583c48",
+      "base_version": "v0.4.0-15-g29555bc",
+      "scope": "Core Bytesrw, formatter, hex and UTF modules from src/ at the vendor root; optional crypto, compression, random, TLS and backend libraries are omitted."
+    },
+    {
+      "name": "ca-certs",
+      "url": "https://github.com/mirage/ca-certs.git",
+      "branch": "HEAD",
+      "revision": "bcd28952328bbbe32bd68ee9d0e9fa19b6e2166b",
+      "base_version": "v1.0.3"
+    },
+    {
+      "name": "checkseum",
+      "url": "https://github.com/mirage/checkseum.git",
+      "branch": "HEAD",
+      "revision": "55946864653f5a1f2018e23faac2b1ca0ee0e919",
+      "base_version": "v0.5.3-1-g5594686"
+    },
+    {
+      "name": "cmarkit",
+      "url": "https://erratique.ch/repos/cmarkit.git",
+      "branch": "HEAD",
+      "revision": "fb09b1a234ffd4eca3fe8f2e742eddeb2d2ba92a",
+      "base_version": "v0.4.0-7-gfb09b1a",
+      "scope": "Core modules directly under src/ are at the vendor root. Upstream CLI, generators and tests are omitted; Arod exercises the port."
+    },
+    {
+      "name": "cohttp-eio",
+      "url": "https://github.com/mirage/ocaml-cohttp.git",
+      "branch": "HEAD",
+      "revision": "7b77cc7f18778967cbe3f64742290f268782fb7d",
+      "base_version": "v6.3.0",
+      "scope": "Only cohttp-eio/src/, mapped to src/, plus package metadata and license. Cohttp core and other backends remain external dependencies."
+    },
+    {
+      "name": "cstruct",
+      "url": "https://github.com/mirage/ocaml-cstruct.git",
+      "branch": "HEAD",
+      "revision": "b5615c144de1bd66d0c9aece1e3dc15f3ca64813",
+      "base_version": "v6.3.0",
+      "scope": "Core lib/ and cstruct-sexp with local allocation tests. Upstream Unix, Lwt, Async and PPX packages and their tests are omitted."
+    },
+    {
+      "name": "decompress",
+      "url": "https://github.com/mirage/decompress.git",
+      "branch": "HEAD",
+      "revision": "1b61f75864ff3fad88f6f4298df0cf2a6ed7b45f",
+      "base_version": "v1.6.0-1-g1b61f75"
+    },
+    {
+      "name": "digestif",
+      "url": "https://github.com/mirage/digestif.git",
+      "branch": "HEAD",
+      "revision": "ad75f68b2605a2a0c7e2cb6cbbbd555cbf73dac1",
+      "base_version": "v1.3.1-4-gad75f68"
+    },
+    {
+      "name": "domain-name",
+      "url": "https://github.com/hannesm/domain-name.git",
+      "branch": "HEAD",
+      "revision": "44c56e8fd947ea980730789a1cc729074abc7ef9",
+      "base_version": "v0.5.0"
+    },
+    {
+      "name": "duration",
+      "url": "https://github.com/hannesm/duration.git",
+      "branch": "HEAD",
+      "revision": "7bf34d3c03586b9a8680a617f2b3a30f16513710",
+      "base_version": "v0.3.1"
+    },
+    {
+      "name": "eio",
+      "url": "https://github.com/ocaml-multicore/eio.git",
+      "branch": "HEAD",
+      "revision": "0ee73e48b566e7cd09cd3c1fc08ef1da199558b0",
+      "base_version": "v1.5-5-g0ee73e4"
+    },
+    {
+      "name": "eqaf",
+      "url": "https://github.com/mirage/eqaf.git",
+      "branch": "HEAD",
+      "revision": "baee49185b92348a28615ebf83438dfb40aa810f",
+      "base_version": "v0.10-1-gbaee491"
+    },
+    {
+      "name": "gmap",
+      "url": "https://github.com/hannesm/gmap.git",
+      "branch": "HEAD",
+      "revision": "5410f14ff6b10aa4317d461a4db9b9c4b47e5dff",
+      "base_version": "0.3.0-10-g5410f14"
+    },
+    {
+      "name": "hmap",
+      "url": "https://erratique.ch/repos/hmap.git",
+      "branch": "HEAD",
+      "revision": "e54eb3f7d7dbada0724fd023c334d0b5a29c8479",
+      "base_version": "v0.8.0-7-ge54eb3f",
+      "scope": "Core sources match the Git tip before local portability and atomic key-ID patches. The 0.8.1 distribution added release watermarks and changelog metadata after the last upstream Git commit."
+    },
+    {
+      "name": "htmlit",
+      "url": "https://erratique.ch/repos/htmlit.git",
+      "branch": "HEAD",
+      "revision": "75f92401421c1d443343671fd778ccef3c128e4f",
+      "base_version": "v0.2.0-6-g75f9240",
+      "scope": "src/htmlit.ml and src/htmlit.mli are at the vendor root, with local Dune packaging and tests."
+    },
+    {
+      "name": "ipaddr",
+      "url": "https://github.com/mirage/ocaml-ipaddr.git",
+      "branch": "HEAD",
+      "revision": "8332fff3deda91b231c6f90c03b8aba5c355f0c9",
+      "base_version": "v5.6.2"
+    },
+    {
+      "name": "jsonfeed",
+      "url": "https://tangled.sh/@anil.recoil.org/ocaml-jsonfeed",
+      "branch": "HEAD",
+      "revision": "fbcfc64e82cd5a0aaced55894e548e415b6a6674",
+      "base_version": "v1.1.0"
+    },
+    {
+      "name": "jsont",
+      "url": "https://github.com/dbuenzli/jsont.git",
+      "branch": "HEAD",
+      "revision": "f99b5cf4b3ff37d16af897998bab115cf06cba43",
+      "base_version": "v0.4.0",
+      "scope": "Core and Bytesrw codec are included; optional Typegist and Brr libraries are omitted."
+    },
+    {
+      "name": "kdf",
+      "url": "https://github.com/robur-coop/kdf.git",
+      "branch": "HEAD",
+      "revision": "6200bb4d4a5ad47ffb98a7f1b7ce5a7749cc12fd",
+      "base_version": "v1.1.1"
+    },
+    {
+      "name": "lwt-dllist",
+      "url": "https://github.com/mirage/lwt-dllist.git",
+      "branch": "HEAD",
+      "revision": "6231707f2590a181b259febb8828258cf420cdb4",
+      "base_version": "v1.1.0-2-g6231707"
+    },
+    {
+      "name": "mirage-crypto",
+      "url": "https://github.com/mirage/mirage-crypto.git",
+      "branch": "HEAD",
+      "revision": "1712bcb7b0b42ec3b67b3948d0e34b20beaf349b",
+      "base_version": "v2.4.1"
+    },
+    {
+      "name": "mtime",
+      "url": "https://erratique.ch/repos/mtime.git",
+      "branch": "HEAD",
+      "revision": "3bea4ba1005b147153b3e7b1ce3639292b0d82a7",
+      "base_version": "v2.2.0-1-g3bea4ba",
+      "scope": "Core src/mtime files and src/clock/ native backend are mapped to the root and clock/. JavaScript and toplevel support are omitted."
+    },
+    {
+      "name": "multibase",
+      "url": "https://github.com/patricoferris/ocaml-multibase.git",
+      "branch": "HEAD",
+      "revision": "f235f74109b007609a599f1ce877c267c9f695d5",
+      "base_version": "v0.1.0"
+    },
+    {
+      "name": "ocaml-proj",
+      "url": "https://github.com/geocaml/ocaml-proj.git",
+      "branch": "HEAD",
+      "revision": "440c7e0084352f314f16d91e6b26a1699598596d",
+      "base_version": "440c7e0"
+    },
+    {
+      "name": "ocaml-uri",
+      "url": "https://github.com/mirage/ocaml-uri.git",
+      "branch": "HEAD",
+      "revision": "46979cf180be86b2a8bd0f55767bef9f436780ec",
+      "base_version": "v4.4.0-15-g46979cf",
+      "scope": "Uriz is an OxCaml rewrite derived from ocaml-uri, not a file-for-file snapshot. Upstream changes through this revision are incorporated or have equivalent behavior; path_unencoded aliases path_decoded. Package identity stays uriz."
+    },
+    {
+      "name": "optint",
+      "url": "https://github.com/mirage/optint.git",
+      "branch": "HEAD",
+      "revision": "e14bff4dd851cffcdd5e21373fb44bb2620274cb",
+      "base_version": "v0.3.0-7-ge14bff4"
+    },
+    {
+      "name": "progress",
+      "url": "https://github.com/CraigFe/progress.git",
+      "branch": "HEAD",
+      "revision": "4463ead8286d559d2d4a5d6e1797a7b645541716",
+      "base_version": "0.5.0-3-g4463ead"
+    },
+    {
+      "name": "ptime",
+      "url": "https://erratique.ch/repos/ptime.git",
+      "branch": "HEAD",
+      "revision": "53a51867e95b4b664dd4777dd1ef6eedd6cab873",
+      "base_version": "v1.2.0-6-g53a5186",
+      "scope": "Core src/ptime files and native src/clock/ backend are mapped to the root and clock/, with replacement tests and local Dune packaging."
+    },
+    {
+      "name": "sitemap",
+      "url": "https://github.com/avsm/ocaml-sitemap.git",
+      "branch": "HEAD",
+      "revision": "0a551e344e46a7ae4218fd4b540b8dfcc430f416",
+      "base_version": "v1.0-1-g0a551e3"
+    },
+    {
+      "name": "syndic",
+      "url": "https://github.com/Cumulus/Syndic.git",
+      "branch": "HEAD",
+      "revision": "d617c1ce7eb564d41e1ed9e515d0c738c76274a1",
+      "base_version": "v1.8.0-1-gd617c1c"
+    },
+    {
+      "name": "tls",
+      "url": "https://github.com/mirleft/ocaml-tls.git",
+      "branch": "HEAD",
+      "revision": "48a32204baed3d7664198097b8039a1ab4feeee6",
+      "base_version": "v2.1.2"
+    },
+    {
+      "name": "uring",
+      "url": "https://github.com/ocaml-multicore/ocaml-uring.git",
+      "branch": "HEAD",
+      "revision": "bc4c85c3fe07c9372cc181cbda546e3ee3cc557e",
+      "base_version": "v2.15.0"
+    },
+    {
+      "name": "x509",
+      "url": "https://github.com/mirleft/ocaml-x509.git",
+      "branch": "HEAD",
+      "revision": "308f80240005ac4cbc481255106ebb4a172d7f37",
+      "base_version": "v1.1.1-1-g308f802"
+    },
+    {
+      "name": "xmlm",
+      "url": "https://erratique.ch/repos/xmlm.git",
+      "branch": "HEAD",
+      "revision": "2f942d16c2874d52ac4d2923073728156182eff5",
+      "base_version": "v1.4.0-6-g2f942d1",
+      "scope": "src/xmlm.ml and src/xmlm.mli are at the vendor root, with local Dune packaging. Upstream CLI and build tools are omitted."
+    },
+    {
+      "name": "zarith",
+      "url": "https://github.com/ocaml/Zarith.git",
+      "branch": "HEAD",
+      "revision": "7bbc77f0080bc66acf49daff5a9a170266f0b616",
+      "base_version": "release-1.14-20-g7bbc77f",
+      "scope": "OCaml and C library sources with retained OxCaml patches and Dune build integration. The upstream Makefile is omitted; the imported configure script still supplies C flags."
+    }
+  ]
+}

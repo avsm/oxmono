@@ -1,15 +1,5 @@
 (vendored_dirs vendor)
 
-(executable
- (name bench_httpz)
- ; The switch's Core_bench/Async closure was compiled against the installed
- ; Cstruct ABI.  The vendored TLS closure intentionally shadows Cstruct for
- ; the whole workspace, so linking the two copies is invalid.
- (enabled_if false)
- (libraries stdio stdlib_upstream_compatible unix httpz base core core_bench)
- (preprocess
-  (pps ppx_jane)))
-
 ; Comparative benchmark: httpz (OxCaml) vs httpe (Eio)
 ; Uses simple timing + GC measurement (no core_bench to avoid Eio conflict)
 
@@ -17,9 +7,8 @@
  (name bench_compare)
  (libraries stdio stdlib_upstream_compatible unix httpz httpe eio eio_main base))
 
-; Per-operation allocation for the router, conditional-request modules and
-; chunked decoding, none of which core_bench covers.
+; Per-operation allocation for conditional-request fields and chunked decoding.
 
 (executable
  (name bench_alloc)
- (libraries stdio stdlib_upstream_compatible unix httpz httpz.route base))
+ (libraries stdio stdlib_upstream_compatible unix httpz base))

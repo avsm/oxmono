@@ -49,6 +49,8 @@ module type S = sig @@ portable
   val for_all : (b -> bool) -> t -> bool
   val exists : (b -> bool) -> t -> bool
   val filter : (b -> bool) -> t -> t
+  type 'a fold2 = { f : 'b. 'b key -> 'b option -> 'b option -> 'a -> 'a }
+  val fold2 : 'a fold2 -> t -> t -> 'a -> 'a
   type merger = { f : 'a. 'a key -> 'a option -> 'a option -> 'a option }
   val merge : merger -> t -> t -> t
   type unionee = { f : 'a. 'a key -> 'a -> 'a -> 'a option }
@@ -123,42 +125,35 @@ module Make (Key : KEY) : S with type 'a key = 'a Key.t = struct
   let map f m = M.map (fun (B (k, v)) -> B (k, f.f k v)) m
 
   type merger = { f : 'a. 'a key -> 'a option -> 'a option -> 'a option }
+
   let merge f m m' =
-    M.merge (fun (K k) b b' ->
+    let callf : type x y. x key -> x option -> y key -> y option -> b option =
+      fun k v k' v' ->
+        (* see above comment in get about this useless Key.compare *)
+        match Key.compare k k' with
+        | Order.Eq ->
+          (match f.f k v v' with
+           | None -> None
+           | Some v'' -> Some (B (k, v'')))
+        | _ -> assert false
+    in
+    M.merge (fun (K key) b b' ->
         match b, b' with
-        | None, None ->
-          begin match f.f k None None with
-            | None -> None
-            | Some v -> Some (B (k, v))
-          end
-        | None, Some (B (k', v)) ->
-          (* see above comment about compare *)
-          begin match Key.compare k k' with
-            | Order.Eq ->
-              (match f.f k None (Some v) with
-               | None -> None
-               | Some v -> Some (B (k, v)))
-            | _ -> assert false
-          end
-        | Some (B (k', v)), None ->
-          (* see above comment about compare *)
-          begin match Key.compare k k' with
-            | Order.Eq ->
-              (match f.f k (Some v) None with
-               | None -> None
-               | Some v -> Some (B (k, v)))
-            | _ -> assert false
-          end
-        | Some (B (k', v)), Some (B (k'', v')) ->
-          (* see above comment about compare *)
-          begin match Key.compare k k', Key.compare k k'' with
-           | Order.Eq, Order.Eq ->
-             (match f.f k (Some v) (Some v') with
-              | None -> None
-              | Some v -> Some (B (k, v)))
-           | _ -> assert false
-          end)
+        (* Map.merge never calls f None None, just for the types *)
+        | None, None -> None
+        | None, Some B (k', v') -> callf key None k' (Some v')
+        | Some B (k, v), None -> callf k (Some v) key None
+        | Some B (k, v), Some B (k', v') -> callf k (Some v) k' (Some v')
+      )
       m m'
+
+  type 'a fold2 = { f : 'b. 'b key -> 'b option -> 'b option -> 'a -> 'a }
+
+  let fold2 f m m' acc =
+    let local = ref acc in
+    let f k v1 v2 = local := f.f k v1 v2 !local; None in
+    ignore (merge { f } m m');
+    !local
 
   type unionee = { f : 'a. 'a key -> 'a -> 'a -> 'a option }
   let union f m m' =

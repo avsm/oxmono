@@ -26,8 +26,6 @@ Eio TLS, Punycode, the Public Suffix List, and HTTP cookies.")
   ocaml_intrinsics_kernel
   unboxed
   uriz
-  (core (>= v0.17))
-  ppx_jane
   ppx_template
   (uunf (>= 15.0.0))
   (fmt (>= 0.8.9))
@@ -51,8 +49,6 @@ Eio TLS, Punycode, the Public Suffix List, and HTTP cookies.")
   (eio (>= 1.3))
   (eio_main (>= 1.3))
   (cmdliner (>= 1.1.0))
-  eio_posix
-  (core_bench :with-test)
   (stdio :with-test)
   (crowbar :with-test)
   (alcotest :with-test)))

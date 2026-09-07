@@ -137,7 +137,7 @@ let () =
       "div"; "dl"; "dt"; "fieldset"; "figcaption"; "figure"; "footer"; "form";
       "frame"; "frameset"; "head"; "header"; "hr"; "html"; "iframe"; "legend";
       "li"; "link"; "main"; "menu"; "menuitem"; "nav"; "noframes"; "ol";
-      "optgroup"; "option"; "p"; "param"; "section"; "source"; "summary";
+      "optgroup"; "option"; "p"; "param"; "section"; "search"; "summary";
       "table"; "tbody"; "td"; "tfoot"; "th"; "thead"; "title"; "tr"; "track";
       "ul" ]
   in
@@ -149,7 +149,7 @@ let () =
   let heading_tags = [ "h1"; "h2"; "h3"; "h4"; "h5"; "h6" ] in
   let other_tags =
     [ "notatag"; "pr"; "prex"; "u"; "uli"; "h7"; "h0"; "span"; "em"; "b"; "a";
-      "img"; "video"; "tabl"; "tables"; "l"; "z" ]
+      "img"; "video"; "source"; "tabl"; "tables"; "l"; "z" ]
   in
   check "every condition 6 tag interrupts a paragraph and runs to the blank"
     (List.for_all interrupts cond_6_tags);

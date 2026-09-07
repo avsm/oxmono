@@ -744,8 +744,8 @@ module Unsafe : S = struct
       |];
     |]
 
-  let whirlpool_do_chunk :
-      type a. be64_to_cpu:(a -> int -> int64) -> ctx -> a -> int -> unit =
+  let whirlpool_do_chunk : type a.
+      be64_to_cpu:(a -> int -> int64) -> ctx -> a -> int -> unit =
    fun ~be64_to_cpu ctx buf off ->
     let key = Array.init 2 (fun _ -> Array.make 8 Int64.zero) in
     let state = Array.init 2 (fun _ -> Array.make 8 Int64.zero) in
@@ -790,8 +790,7 @@ module Unsafe : S = struct
     done ;
     ()
 
-  let feed :
-      type a.
+  let feed : type a.
       blit:(a -> int -> By.t -> int -> int -> unit) ->
       be64_to_cpu:(a -> int -> int64) ->
       ctx ->

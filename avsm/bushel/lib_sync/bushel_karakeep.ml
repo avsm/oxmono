@@ -145,7 +145,7 @@ let sync_links ~dry_run ~api ~data_dir =
 
          let new_metadata =
            (match title with Some t -> [("title", t)] | None -> [])
-           @ (match Karakeep.Bookmark.T.summary b with
+           @ (match Option.join (Karakeep.Bookmark.T.summary b) with
               | Some s when s <> "" -> [("summary", s)]
               | _ -> [])
            @ (match get_string "favicon" content with

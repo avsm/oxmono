@@ -175,6 +175,9 @@ val port_int : t @ local -> int @@ portable [@@zero_alloc]
 
 (** {2 Decoded access} *)
 
+val path_unencoded : t @ local -> string @@ portable
+(** Alias of {!path_decoded}, using the upstream ocaml-uri name. *)
+
 val path_decoded : t @ local -> string @@ portable
 (** [path_decoded u] is the path with percent-encodings resolved.  This
     conflates an encoded ["%2F"] with a literal ['/'].  Use {!path} when

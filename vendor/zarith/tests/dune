@@ -18,9 +18,12 @@
 
 (rule
   (alias runtest)
+  (deps ../dllzarith_stubs.so)
   (action
     (progn
-     (with-stdout-to zq.out.bc (run ./zq.bc))
+     (with-stdout-to zq.out.bc
+      (setenv CAML_LD_LIBRARY_PATH "..:%{env:CAML_LD_LIBRARY_PATH=}"
+       (run ./zq.bc)))
      (diff zq.output%{ocaml-config:word_size} zq.out.bc))))
 
 (executable
@@ -41,6 +44,24 @@
   (modules ofstring)
   (modes exe)
   (libraries zarith))
+
+(executable
+ (name tobytes)
+ (modules tobytes)
+ (modes byte exe)
+ (libraries zarith))
+
+(rule
+ (alias runtest)
+ (deps ../dllzarith_stubs.so)
+ (action
+  (progn
+   (with-stdout-to tobytes.out (run ./tobytes.exe))
+   (diff tobytes.output tobytes.out)
+   (with-stdout-to tobytes.out.bc
+    (setenv CAML_LD_LIBRARY_PATH "..:%{env:CAML_LD_LIBRARY_PATH=}"
+     (run ./tobytes.bc)))
+   (diff tobytes.output tobytes.out.bc))))
 
 (test
   (name timings)

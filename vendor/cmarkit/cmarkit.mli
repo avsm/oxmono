@@ -1,6 +1,6 @@
 (*---------------------------------------------------------------------------
    Copyright (c) 2021 The cmarkit programmers. All rights reserved.
-   Distributed under the ISC license, see terms at the end of the file.
+   SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
 (** CommonMark parser and abstract syntax tree.
@@ -10,8 +10,8 @@
     {b References.}
     {ul
     {- John MacFarlane.
-    {e {{:https://spec.commonmark.org/0.30/}
-    CommonMark Spec}}. Version 0.30, 2021}}  *)
+    {e {{:https://spec.commonmark.org/0.31.2/}
+    CommonMark Spec}}. Version 0.31.2, 2024}}  *)
 
 @@ portable
 
@@ -364,9 +364,9 @@ end
 (** Labels.
 
     Labels are used by
-    {{:https://spec.commonmark.org/0.30/#reference-link}reference links} to
+    {{:https://spec.commonmark.org/0.31.2/#reference-link}reference links} to
     refer to the {{!Label.definitions}definitions} of
-    {{:https://spec.commonmark.org/0.30/#link-reference-definitions}
+    {{:https://spec.commonmark.org/0.31.2/#link-reference-definitions}
     link reference definitions},
     {{!Cmarkit.ext_footnote_def}footnote definitions} and your own
     {{!Label.resolvers}interpretations}. *)
@@ -376,11 +376,11 @@ module Label : sig
 
   type key = string
   (** The type for label keys. These are
-      {{:https://spec.commonmark.org/0.30/#link-label}link labels}
-      normalized for {{:https://spec.commonmark.org/0.30/#matches}matching}. *)
+      {{:https://spec.commonmark.org/0.31.2/#link-label}link labels}
+      normalized for {{:https://spec.commonmark.org/0.31.2/#matches}matching}. *)
 
   type t
-  (** The type for {{:https://spec.commonmark.org/0.30/#link-label}link
+  (** The type for {{:https://spec.commonmark.org/0.31.2/#link-label}link
       labels}. *)
 
   val make : ?meta:Meta.t -> key:string -> Block_line.tight list -> t
@@ -402,7 +402,7 @@ module Label : sig
   val text_to_string : t -> string
   (** [text_to_string l] is the lines of {!text} separated
           by spaces. In contrast to {!val-key} this has not gone
-          throught {{:https://spec.commonmark.org/0.30/#matches}normalization}.
+          throught {{:https://spec.commonmark.org/0.31.2/#matches}normalization}.
   *)
 
   val compare : t -> t -> int
@@ -450,7 +450,7 @@ module Label : sig
       In particular 2. can be used to create synthetic label definitions
       on undefined label references. This provides the ability to treat
       the very liberal
-      {{:https://spec.commonmark.org/0.30/#link-label}link label}
+      {{:https://spec.commonmark.org/0.31.2/#link-label}link label}
       syntax as a domain specific language of yours (e.g. for data binding).
 
       Note that parsing is not finished when resolvers are invoked
@@ -468,7 +468,7 @@ module Label : sig
   (** The type for resolvers. [context] is:
       {ul
       {- [`Def (prev, current)] when we just hit a
-         {{:https://spec.commonmark.org/0.30/#link-reference-definitions}
+         {{:https://spec.commonmark.org/0.31.2/#link-reference-definitions}
          link reference definition} or
          {{!Cmarkit.ext_footnote_def}footnote definition} that defines
          the label [current]. If there is already a definition for
@@ -553,9 +553,9 @@ module Link_definition : sig
 
   type t
   (** The type for representing
-      {{:https://spec.commonmark.org/0.30/#link-reference-definitions}
+      {{:https://spec.commonmark.org/0.31.2/#link-reference-definitions}
       link references definitions} and
-      {{:https://spec.commonmark.org/0.30/#inline-link}inline links}. *)
+      {{:https://spec.commonmark.org/0.31.2/#inline-link}inline links}. *)
 
   val make :
     ?layout:layout -> ?defined_label:Label.t option -> ?label:Label.t ->
@@ -599,8 +599,8 @@ end
 (** Inlines.
 
     {b Note.} Document data in inline nodes is always stored
-    {{:https://spec.commonmark.org/0.30/#backslash-escapes}unescaped} and
-    with {{:https://spec.commonmark.org/0.30/#entity-and-numeric-character-references}entity and character references} resolved. *)
+    {{:https://spec.commonmark.org/0.31.2/#backslash-escapes}unescaped} and
+    with {{:https://spec.commonmark.org/0.31.2/#entity-and-numeric-character-references}entity and character references} resolved. *)
 module Inline : sig
 
   (** {1:inlines Inlines} *)
@@ -612,43 +612,43 @@ module Inline : sig
   module Autolink : sig
     type t
     (** The type for
-        {{:https://spec.commonmark.org/0.30/#autolink}autolinks}. *)
+        {{:https://spec.commonmark.org/0.31.2/#autolink}autolinks}. *)
 
     val make : string node -> t
     (** [autolink link] is an autolink for [link]
         which must be a CommonMark
-        {{:https://spec.commonmark.org/0.30/#absolute-uri}absolute URI}
+        {{:https://spec.commonmark.org/0.31.2/#absolute-uri}absolute URI}
         or a CommonMark
-        {{:https://spec.commonmark.org/0.30/#email-address}email
+        {{:https://spec.commonmark.org/0.31.2/#email-address}email
         address}. *)
 
     val is_email : t -> bool
     (** [is_email a] is [true] iff {!link}[ a] is
         a CommonMark
-        {{:https://spec.commonmark.org/0.30/#email-address}email
+        {{:https://spec.commonmark.org/0.31.2/#email-address}email
         address}. *)
 
     val link : t -> string node
     (** [link a] is the CommonMark
-        {{:https://spec.commonmark.org/0.30/#absolute-uri}absolute URI} or
-        {{:https://spec.commonmark.org/0.30/#email-address}email address}. *)
+        {{:https://spec.commonmark.org/0.31.2/#absolute-uri}absolute URI} or
+        {{:https://spec.commonmark.org/0.31.2/#email-address}email address}. *)
   end
 
   (** Hard and soft breaks *)
   module Break : sig
 
     type type' =
-      [ `Hard (** {{:https://spec.commonmark.org/0.30/#hard-line-breaks}
+      [ `Hard (** {{:https://spec.commonmark.org/0.31.2/#hard-line-breaks}
                   Hard line break.} *)
-      | `Soft (** {{:https://spec.commonmark.org/0.30/#soft-line-breaks}
+      | `Soft (** {{:https://spec.commonmark.org/0.31.2/#soft-line-breaks}
                   Soft line break.} *) ]
     (** The type for types of line breaks. *)
 
     type t
     (** The type for
-        {{:https://spec.commonmark.org/0.30/#hard-line-breaks}hard}
+        {{:https://spec.commonmark.org/0.31.2/#hard-line-breaks}hard}
         and
-        {{:https://spec.commonmark.org/0.30/#soft-line-breaks}soft}
+        {{:https://spec.commonmark.org/0.31.2/#soft-line-breaks}soft}
         line breaks. *)
 
     val make :
@@ -673,7 +673,7 @@ module Inline : sig
 
     type t
     (** The type for
-          {{:https://spec.commonmark.org/0.30/#code-spans}code spans}. *)
+          {{:https://spec.commonmark.org/0.31.2/#code-spans}code spans}. *)
 
     val make : backtick_count:Layout.count -> Block_line.tight list -> t
     (** [make ~backtick_count code_layout] is a code span with given
@@ -714,7 +714,7 @@ module Inline : sig
 
     type t
     (** The type for
-        {{:https://spec.commonmark.org/0.30/#emphasis-and-strong-emphasis}
+        {{:https://spec.commonmark.org/0.31.2/#emphasis-and-strong-emphasis}
         emphasis and strong emphasis}. *)
 
     val make : ?delim:Layout.char -> inline -> t
@@ -736,28 +736,28 @@ module Inline : sig
 
     type reference_layout =
     [ `Collapsed
-      (** {{:https://spec.commonmark.org/0.30/#collapsed-reference-link}
+      (** {{:https://spec.commonmark.org/0.31.2/#collapsed-reference-link}
           Collapsed reference link} *)
     | `Full
-      (** {{:https://spec.commonmark.org/0.30/#full-reference-link}
+      (** {{:https://spec.commonmark.org/0.31.2/#full-reference-link}
           Full reference link} *)
     | `Shortcut
-      (** {{:https://spec.commonmark.org/0.30/#shortcut-reference-link}
+      (** {{:https://spec.commonmark.org/0.31.2/#shortcut-reference-link}
           Shortcut reference link} *) ]
     (** The type for reference link layouts. *)
 
     type reference =
     [ `Inline of Link_definition.t node
-       (** {{:https://spec.commonmark.org/0.30/#inline-link}Inline link} *)
+       (** {{:https://spec.commonmark.org/0.31.2/#inline-link}Inline link} *)
     | `Ref of reference_layout * Label.t * Label.t
-       (** {{:https://spec.commonmark.org/0.30/#reference-link}Reference
+       (** {{:https://spec.commonmark.org/0.31.2/#reference-link}Reference
            links}. First label is the label of the reference, second
            label is the label of the referenced definition. *) ]
     (** The type for references. *)
 
     type t
-    (** The type for {{:https://spec.commonmark.org/0.30/#links}links}
-        and {{:https://spec.commonmark.org/0.30/#images}images}.  *)
+    (** The type for {{:https://spec.commonmark.org/0.31.2/#links}links}
+        and {{:https://spec.commonmark.org/0.31.2/#images}images}.  *)
 
     val make : inline -> reference -> t
     (** [make i ref] is a link for text [i] and link reference [ref].
@@ -801,7 +801,7 @@ module Inline : sig
   module Raw_html : sig
 
     type t = Block_line.tight list
-    (** The type for {{:https://spec.commonmark.org/0.30/#raw-html}inline raw
+    (** The type for {{:https://spec.commonmark.org/0.31.2/#raw-html}inline raw
         HTML} (can span multiple lines).
 
         {b Warning.} If you create HTML blocks using
@@ -814,11 +814,11 @@ module Inline : sig
   module Text : sig
     type t = string
     (** The type for
-        {{:https://spec.commonmark.org/0.30/#textual-content}textual content}.
+        {{:https://spec.commonmark.org/0.31.2/#textual-content}textual content}.
 
         Normally these strings should not contain newlines. This can
         however happen if the source had newlines as
-        {{:https://spec.commonmark.org/0.30/#entity-and-numeric-character-references}character references}. *)
+        {{:https://spec.commonmark.org/0.31.2/#entity-and-numeric-character-references}character references}. *)
   end
 
   type t +=
@@ -833,7 +833,7 @@ module Inline : sig
   | Strong_emphasis of Emphasis.t node
   | Text of Text.t node (** *)
   (** The
-      CommonMark {{:https://spec.commonmark.org/0.30/#inlines}inlines}. *)
+      CommonMark {{:https://spec.commonmark.org/0.31.2/#inlines}inlines}. *)
 
   val empty : unit -> t
   (** [empty ()] is [Inlines ([], Meta.none)]. This is a function rather than
@@ -934,9 +934,9 @@ module Inline : sig
 
       This converts [i] to plain text using {!Inline.to_plain_text},
       then applies the same
-      {{:https://spec.commonmark.org/0.30/#matches}normalization}
+      {{:https://spec.commonmark.org/0.31.2/#matches}normalization}
       performed on labels, maps spaces to character [-] (U+002D),
-      drops {{:https://spec.commonmark.org/0.30/#unicode-punctuation-character}
+      drops {{:https://spec.commonmark.org/0.31.2/#unicode-punctuation-character}
       Unicode punctuation characters} except [-] (U+002D) and [_] ([U+005F]).
 
       [ext] is given to {!Inline.to_plain_text}. *)
@@ -954,7 +954,7 @@ module Block : sig
   module Blank_line : sig
     type t = Layout.blanks
     (** The type for
-        {{:https://spec.commonmark.org/0.30/#blank-lines}blank lines}.
+        {{:https://spec.commonmark.org/0.31.2/#blank-lines}blank lines}.
         These can be ignored during rendering, they are kept for layout. *)
   end
 
@@ -964,7 +964,7 @@ module Block : sig
     type block := t
 
     type t
-    (** The type for {{:https://spec.commonmark.org/0.30/#block-quotes}
+    (** The type for {{:https://spec.commonmark.org/0.31.2/#block-quotes}
         block quotes}. *)
 
     val make : ?indent:Layout.indent -> block -> t
@@ -994,9 +994,9 @@ module Block : sig
 
     type t
     (** The type for
-        {{:https://spec.commonmark.org/0.30/#indented-code-block}
+        {{:https://spec.commonmark.org/0.31.2/#indented-code-block}
         indented} and
-        {{:https://spec.commonmark.org/0.30/#fenced-code-blocks}fenced}
+        {{:https://spec.commonmark.org/0.31.2/#fenced-code-blocks}fenced}
         code blocks. *)
 
     val make :
@@ -1011,7 +1011,7 @@ module Block : sig
 
     val info_string : t -> string node option
     (** [info_string cb] is the
-        {{:https://spec.commonmark.org/0.30/#info-string}info string}
+        {{:https://spec.commonmark.org/0.31.2/#info-string}info string}
         of [cb], if any. *)
 
     val code : t -> Block_line.t list
@@ -1053,8 +1053,8 @@ module Block : sig
         exist in CommonMark. *)
 
     type t
-    (** The type for {{:https://spec.commonmark.org/0.30/#atx-headings}
-        ATX} and {{:https://spec.commonmark.org/0.30/#setext-headings}Setext}
+    (** The type for {{:https://spec.commonmark.org/0.31.2/#atx-headings}
+        ATX} and {{:https://spec.commonmark.org/0.31.2/#setext-headings}Setext}
         headings. *)
 
     val make : ?id:id -> ?layout:layout -> level:int -> Inline.t -> t
@@ -1082,7 +1082,7 @@ module Block : sig
   (** HTML blocks. *)
   module Html_block : sig
     type t = Block_line.t list
-    (** The type for {{:https://spec.commonmark.org/0.30/#html-blocks}HTML
+    (** The type for {{:https://spec.commonmark.org/0.31.2/#html-blocks}HTML
         blocks}.
 
         {b Warning.} If you create HTML blocks using
@@ -1097,7 +1097,7 @@ module Block : sig
     type block := t
 
     type t
-    (** The type for {{:https://spec.commonmark.org/0.30/#list-items}list
+    (** The type for {{:https://spec.commonmark.org/0.31.2/#list-items}list
         items}. *)
 
     val make :
@@ -1143,7 +1143,7 @@ module Block : sig
     (** The type for list types. *)
 
     type t
-    (** The type for {{:https://spec.commonmark.org/0.30/#lists}lists}. *)
+    (** The type for {{:https://spec.commonmark.org/0.31.2/#lists}lists}. *)
 
     val make : ?tight:bool -> type' -> List_item.t node list -> t
     (** [make ?tight t items] is a list with given parameters.
@@ -1155,7 +1155,7 @@ module Block : sig
 
     val tight : t -> bool
     (** [tight l] is [true] iff the list is
-        {{:https://spec.commonmark.org/0.30/#tight}tight}. *)
+        {{:https://spec.commonmark.org/0.31.2/#tight}tight}. *)
 
     val items : t -> List_item.t node list
     (** [items l] are the items of [l]. *)
@@ -1166,7 +1166,7 @@ module Block : sig
 
     type t
     (** The type for
-          {{:https://spec.commonmark.org/0.30/#paragraphs}paragraphs}. *)
+          {{:https://spec.commonmark.org/0.31.2/#paragraphs}paragraphs}. *)
 
     val make :
       ?leading_indent:Layout.indent -> ?trailing_blanks:Layout.blanks ->
@@ -1187,7 +1187,7 @@ module Block : sig
   module Thematic_break : sig
 
     type t
-    (** The type for {{:https://spec.commonmark.org/0.30/#thematic-break}
+    (** The type for {{:https://spec.commonmark.org/0.31.2/#thematic-break}
         thematic breaks}. *)
 
     val make : ?indent:Layout.indent -> ?layout:Layout.string -> unit -> t
@@ -1209,14 +1209,14 @@ module Block : sig
   | Heading of Heading.t node
   | Html_block of Html_block.t node
   | Link_reference_definition of Link_definition.t node
-    (** {{:https://spec.commonmark.org/0.30/#link-reference-definitions}
+    (** {{:https://spec.commonmark.org/0.31.2/#link-reference-definitions}
         Link reference definitions}, kept for layout *)
   | List of List'.t node
   | Paragraph of Paragraph.t node
   | Thematic_break of Thematic_break.t node
-    (** {{:https://spec.commonmark.org/0.30/#paragraphs}Thematic break} *)
-  (** The CommonMark {{:https://spec.commonmark.org/0.30/#leaf-blocks}leaf}
-      and {{:https://spec.commonmark.org/0.30/#container-blocks}container}
+    (** {{:https://spec.commonmark.org/0.31.2/#paragraphs}Thematic break} *)
+  (** The CommonMark {{:https://spec.commonmark.org/0.31.2/#leaf-blocks}leaf}
+      and {{:https://spec.commonmark.org/0.31.2/#container-blocks}container}
       blocks. *)
 
   val empty : unit -> t
@@ -1553,7 +1553,7 @@ module Mapper : sig
 
       This example sets all code blocks of document [doc] without info string
       to [lang].
-      {[
+{[
 let set_unknown_code_block_lang ~lang doc =
   let open Cmarkit in
   let default = lang, Meta.none in
@@ -1718,7 +1718,7 @@ end
     {!Inline.extension-Ext_strikethrough} node.
 
     The text delimited by [~~] cannot start or end with
-    {{:https://spec.commonmark.org/0.30/#unicode-whitespace-character}
+    {{:https://spec.commonmark.org/0.31.2/#unicode-whitespace-character}
     Unicode whitespace}. When a closer can close multiple openers, the
     neareast opener is closed. Strikethrough inlines can be nested.
 
@@ -1737,15 +1737,15 @@ end
     {!Inline.extension-Ext_math_span} node.
 
     The text delimited by [$] cannot start and end with
-    {{:https://spec.commonmark.org/0.30/#unicode-whitespace-character}
+    {{:https://spec.commonmark.org/0.31.2/#unicode-whitespace-character}
     Unicode whitespace}. Inline math cannot be nested, after an opener
     the nearest (non-escaped) closing delimiter matches. Otherwise it
     is parsed in essence like a
-    {{:https://spec.commonmark.org/0.30/#code-spans}code span}.
+    {{:https://spec.commonmark.org/0.31.2/#code-spans}code span}.
 
     {3:ext_math_display Display math}
 
-    {v
+{v
 It's better to get that $$ \left( \sum_{k=1}^n a_k b_k \right)^2 $$
 on its own line. A math block may also be more convenient:
 
@@ -1765,12 +1765,12 @@ v}
     with whitespace, however it can't contain a blank line. Display
     math cannot be nested, after an opener the nearest (non-escaped)
     closing delimiter matches. Otherwise it's parsed in essence like
-    a {{:https://spec.commonmark.org/0.30/#code-spans}code span}.
+    a {{:https://spec.commonmark.org/0.31.2/#code-spans}code span}.
 
     {2:ext_list_task_items List task items}
 
     According to a mix of
-    {{:https://github.com/mity/md4c/blob/master/test/tasklists.txt}md4c},
+    {{:https://github.com/mity/md4c/blob/master/test/spec-tasklists.txt}md4c},
     {{:https://docs.gitlab.com/ee/user/markdown.html#task-lists}GLFM},
     {{:https://github.github.com/gfm/#task-list-item}GFM} and personal
     ad-hoc brewery.
@@ -1787,7 +1787,7 @@ v}
     considers there was one). The Unicode character gets stored in
     {!Block.List_item.ext_task_marker} and counts as one column
     regardless of the character's render width. The task marker
-    including the final space is considered part of the list marker as
+    including the final space is not considered part of the list marker as
     far as subsequent indentation is concerned.
 
     The Unicode character indicates the status of the task. That's up
@@ -1868,7 +1868,7 @@ v}
     {3:ext_footnote_def Definition}
 
     A footnote definition starts with a (single line)
-    {{:https://spec.commonmark.org/0.30/#link-label}link label}
+    {{:https://spec.commonmark.org/0.31.2/#link-label}link label}
     followed by [:]. The label must start with a [^]. Footnote labels
     go through the label {{!Label.resolvers}resolution} mechanism.
 
@@ -1887,19 +1887,3 @@ v}
     label. Linking text on footnotes is allowed. Shortcut and
     collapsed references to footnotes are rendered specially by
     {!Cmarkit_html}. *)
-
-(*---------------------------------------------------------------------------
-   Copyright (c) 2021 The cmarkit programmers
-
-   Permission to use, copy, modify, and/or distribute this software for any
-   purpose with or without fee is hereby granted, provided that the above
-   copyright notice and this permission notice appear in all copies.
-
-   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-  ---------------------------------------------------------------------------*)

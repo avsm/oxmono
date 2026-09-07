@@ -3,8 +3,26 @@
   (enabled_if (<> %{os_type} "Win32"))
   (deps
     (env_var "EIO_BACKEND")
+    (package cstruct)
+    (package hmap)
+    (package lwt-dllist)
+    (package mtime)
+    (package optint)
+    (package uring)
+    (package eio)
+    (package eio_linux)
+    (package eio_posix)
     (package eio_main)))
 
 (test
  (name test_local_flow)
+ (modules test_local_flow)
  (libraries eio))
+
+(test
+ (name test_upstream_refresh)
+ (modules test_upstream_refresh)
+ (enabled_if
+  (or (= %{system} linux) (= %{system} linux_eabihf)
+      (= %{system} linux_elf) (= %{system} elf)))
+ (libraries eio_linux eio_posix cstruct))

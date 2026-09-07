@@ -1,6 +1,6 @@
 (*---------------------------------------------------------------------------
    Copyright (c) 2021 The cmarkit programmers. All rights reserved.
-   Distributed under the ISC license, see terms at the end of the file.
+   SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
 module Ascii = Cmarkit_base.Ascii
@@ -242,7 +242,7 @@ module Inline = struct
     let backtick_count cs = cs.backtick_count
     let code_layout cs = cs.code_layout
     let code cs =
-      (* Extract code, see https://spec.commonmark.org/0.30/#code-spans *)
+      (* Extract code, see https://spec.commonmark.org/0.31.2/#code-spans *)
       let sp c = Char.equal c ' ' in
       let s = List.map Block_line.tight_to_string cs.code_layout in
       let s = String.concat " " s in
@@ -1234,7 +1234,13 @@ module Inline_struct = struct
       then loop ~exts s lines line ~prev_bslash:(not prev_bslash) acc (k+1) else
       let acc, next = match s.[k] with
       | '`' -> add_backtick_token acc s line ~prev_bslash ~start:k
-      | c when prev_bslash -> acc, k + 1
+      | c when prev_bslash ->
+          (* For backticks we need to treat backslash specially. Because
+             if we are in a code span backslashes are always treated literally.
+             But at the tokenization stage we don't know if we are
+             in a code span or not. This is the reason why this comes
+             after the case for '`'. *)
+          acc, k + 1
       | '*' | '_' -> try_add_emphasis_token acc s line ~start:k
       | ']' -> Right_brack { start = k } :: acc, k + 1
       | '[' -> Link_start { start = k; image = false } :: acc, k + 1
@@ -1333,7 +1339,10 @@ module Inline_struct = struct
 
   let try_code p toks start_line ~start:cstart ~count ~escaped =
     (* https://spec.commonmark.org/current/#code-span *)
-    if escaped || not (has_backticks ~count ~after:cstart p.cidx) then None else
+    let count = if escaped then count - 1 else count in
+    if count <= 0 then None else
+    let cstart = if escaped then cstart + 1 else cstart in
+    if not (has_backticks ~count ~after:cstart p.cidx) then None else
     let rec match_backticks toks line ~count spans k = match toks with
     | [] -> None
     | Backticks { start; count = c; _ } :: toks ->
@@ -2037,7 +2046,8 @@ module Block_struct = struct
 
   let accept_cols ~count p =
     let rec loop p count k col =
-      if count = 0 then (p.current_char <- k; p.current_char_col <- col) else
+      if count = 0 || k > p.current_line_last_char
+      then (p.current_char <- k; p.current_char_col <- col) else
       if p.i.[k] <> '\t' then loop p (count - 1) (k + 1) (col + 1) else
       let col' = next_tab_stop col in
       let tab_cols = col' - (col + p.tab_consumed_cols) in
@@ -2050,13 +2060,17 @@ module Block_struct = struct
 
   let match_and_accept_block_quote p =
     (* https://spec.commonmark.org/current/#block-quote-marker *)
-    if end_of_line p || p.i.[p.current_char] <> '>' then false else
+    if end_of_line p || p.i.[p.current_char] <> '>' then Match.Nomatch else
+    let marker_span =
+      current_line_span p ~first:p.current_char ~last:p.current_char
+    in
     let next_is_blank =
       let next = p.current_char + 1 in
       next <= p.current_line_last_char && Ascii.is_blank p.i.[next]
     in
     let count = if next_is_blank then (* we eat a space *) 2 else 1 in
-    accept_cols ~count p; true
+    accept_cols ~count p;
+    Match.Block_quote_line marker_span
 
   let accept_list_marker_and_indent p ~marker_size ~last =
     (* Returns min indent after marker for list item  *)
@@ -2126,7 +2140,7 @@ module Block_struct = struct
   type paragraph = { maybe_ref : bool; lines : line_span list }
 
   type t =
-  | Block_quote of Layout.indent * t list
+  | Block_quote of Layout.indent * line_span (* loc of initial marker *) * t list
   | Blank_line of space_pad * line_span
   | Code_block of code_block
   | Heading of heading
@@ -2392,7 +2406,8 @@ module Block_struct = struct
       Html_block { h with end_cond = None } :: bs
 
   let rec end_doc p = function
-  | Block_quote (indent, bq) :: bs -> Block_quote (indent, end_doc p bq) :: bs
+  | Block_quote (indent, marker, bq) :: bs ->
+      Block_quote (indent, marker, end_doc p bq) :: bs
   | List list :: bs -> close_list p list bs
   | Paragraph par :: bs -> close_paragraph p par bs
   | Code_block (`Indented ls) :: bs -> close_indented_code_block p ls bs
@@ -2415,7 +2430,8 @@ module Block_struct = struct
       (* Early dispatch shaves a few ms but may not be worth doing vs
          testing all the cases in sequences.  *)
       | '>' ->
-          if match_and_accept_block_quote p then Match.Block_quote_line else
+          let r = match_and_accept_block_quote p in
+          if r <> Nomatch then r else
           Paragraph_line
       | '=' when not no_setext ->
           let r = Match.setext_heading_underline p.i ~last ~start in
@@ -2482,7 +2498,8 @@ module Block_struct = struct
   let rec add_open_blocks_with_line_class p ~indent_start ~indent bs = function
   | Match.Blank_line -> blank_line p :: bs
   | Indented_code_block_line -> indented_code_block p :: bs
-  | Block_quote_line -> Block_quote (indent, add_open_blocks p []) :: bs
+  | Block_quote_line marker ->
+      Block_quote (indent, marker, add_open_blocks p []) :: bs
   | Thematic_break_line last -> thematic_break p ~indent ~last :: bs
   | List_marker_line m -> list p ~indent m bs
   | Atx_heading_line (level, after_open, first_content, last_content) ->
@@ -2518,7 +2535,7 @@ module Block_struct = struct
     let before_marker = indent and marker_size = last - p.current_char + 1 in
     let marker = current_line_span p ~first:p.current_char ~last in
     let after_marker = accept_list_marker_and_indent p ~marker_size ~last in
-    let ext_task_marker, ext_task_marker_size = match p.exts with
+    let ext_task_marker, _ext_task_marker_size = match p.exts with
     | false -> None, 0
     | true ->
         let start = p.current_char and last = p.current_line_last_char in
@@ -2532,7 +2549,7 @@ module Block_struct = struct
             in
             Some (u, current_line_span p ~first:start ~last), 4
     in
-    let min = indent + marker_size + after_marker + ext_task_marker_size in
+    let min = indent + marker_size + after_marker in
     min, { before_marker; marker; after_marker; ext_task_marker;
            blocks = add_open_blocks p [] }
 
@@ -2566,8 +2583,9 @@ module Block_struct = struct
         add_paragraph_line p ~indent_start par bs
     | Blank_line ->
         blank_line p :: close_paragraph p par bs
-    | Block_quote_line ->
-        Block_quote (indent, add_open_blocks p []) :: (close_paragraph p par bs)
+    | Block_quote_line marker ->
+        Block_quote (indent, marker, add_open_blocks p [])
+        :: (close_paragraph p par bs)
     | Setext_underline_line (level, last_underline) ->
         let bs = close_paragraph p par bs in
         begin match bs with
@@ -2638,10 +2656,10 @@ module Block_struct = struct
 
   let rec try_lazy_continuation p ~indent_start = function
   | Paragraph par :: bs -> Some (add_paragraph_line p ~indent_start par bs)
-  | Block_quote (indent, bq) :: bs ->
+  | Block_quote (indent, marker, bq) :: bs ->
       begin match try_lazy_continuation p ~indent_start bq with
       | None -> None
-      | Some bq -> Some (Block_quote (indent, bq) :: bs)
+      | Some bq -> Some (Block_quote (indent, marker, bq) :: bs)
       end
   | List l :: bs ->
       let i = List.hd l.items in
@@ -2663,19 +2681,24 @@ module Block_struct = struct
         let bs = Ext_table (ind, rows) :: bs in
         add_open_blocks_with_line_class p ~indent ~indent_start bs ltype
 
-  let rec try_add_to_block_quote p indent_layout bq bs =
+  let rec try_add_to_block_quote p indent_layout bq marker bs =
     let indent_start = p.current_char and indent = current_indent p in
     match match_line_type ~indent ~no_setext:true p with
-    | Block_quote_line -> Block_quote (indent_layout, add_line p bq) :: bs
+    | Block_quote_line _ ->
+        Block_quote (indent_layout, marker, add_line p bq) :: bs
     | (Indented_code_block_line (* Looks like a *) | Paragraph_line) as ltype ->
         begin match try_lazy_continuation p ~indent_start bq with
-        | Some bq -> Block_quote (indent_layout, bq) :: bs
+        | Some bq -> Block_quote (indent_layout, marker, bq) :: bs
         | None ->
-            let bs = Block_quote (indent_layout, close_last_block p bq) :: bs in
+            let bs =
+              Block_quote (indent_layout, marker, close_last_block p bq) :: bs
+            in
             add_open_blocks_with_line_class p ~indent ~indent_start bs ltype
         end
     | ltype ->
-        let bs = Block_quote (indent_layout, close_last_block p bq) :: bs in
+        let bs =
+          Block_quote (indent_layout, marker, close_last_block p bq) :: bs
+        in
         add_open_blocks_with_line_class p ~indent ~indent_start bs ltype
 
   and try_add_to_footnote p fn_indent label blocks bs =
@@ -2745,7 +2768,7 @@ module Block_struct = struct
   | List list :: bs -> try_add_to_list_item p list bs
   | Code_block (`Indented ls) :: bs -> try_add_to_indented_code_block p ls bs
   | Code_block (`Fenced f) :: bs -> try_add_to_fenced_code_block p f bs
-  | Block_quote (ind, bq) :: bs -> try_add_to_block_quote p ind bq bs
+  | Block_quote (ind, marker, bq) :: bs -> try_add_to_block_quote p ind bq marker bs
   | Html_block html :: bs -> try_add_to_html_block p html bs
   | Ext_table (ind, rows) :: bs -> try_add_to_table p ind rows bs
   | Ext_footnote (i, l, blocks) :: bs -> try_add_to_footnote p i l blocks bs
@@ -2922,7 +2945,7 @@ let block_struct_to_table p indent rows =
   let meta = meta_of_spans p ~first ~last in
   Block.Ext_table ({ indent; col_count; rows }, meta)
 
-let rec block_struct_to_block_quote p indent bs =
+let rec block_struct_to_block_quote p indent marker bs =
   let add_block p acc b = block_struct_to_block p b :: acc in
   let last = block_struct_to_block p (List.hd bs) in
   let block = List.fold_left (add_block p) [last] (List.tl bs) in
@@ -2932,7 +2955,12 @@ let rec block_struct_to_block_quote p indent bs =
       let first = Block.meta (List.hd quote) and last = Block.meta last in
       Block.Blocks (quote, meta_of_metas p ~first ~last)
   in
-  Block.Block_quote ({indent; block}, Block.meta block)
+  let meta =
+    let marker_loc = textloc_of_span p marker in
+    let first_meta = meta p marker_loc in
+    meta_of_metas p ~first:first_meta ~last:(Block.meta block)
+  in
+  Block.Block_quote ({indent; block}, meta)
 
 and block_struct_to_footnote_definition p indent (label, defined_label) bs =
   let add_block p acc b = block_struct_to_block p b :: acc in
@@ -3017,7 +3045,8 @@ and block_struct_to_list p list =
   Block.List ({ type' = list.Block_struct.list_type; tight; items }, meta)
 
 and block_struct_to_block p = function
-| Block_struct.Block_quote (ind, bs) -> block_struct_to_block_quote p ind bs
+| Block_struct.Block_quote (ind, marker, bs) ->
+    block_struct_to_block_quote p ind marker bs
 | Block_struct.List list -> block_struct_to_list p list
 | Block_struct.Paragraph par -> block_struct_to_paragraph p par
 | Block_struct.Thematic_break (i, br) -> block_struct_to_thematic_break p i br
@@ -3058,7 +3087,7 @@ module Doc = struct
     make ~nl block ~defs:p.defs
 
   let unicode_version = Cmarkit_data.unicode_version
-  let commonmark_version = "0.30"
+  let commonmark_version = "0.31.2"
 end
 
 (* Maps and folds *)
@@ -3158,14 +3187,12 @@ module Mapper = struct
           Some (Paragraph ({ p with inline }, meta))
       | Ext_table (t, meta) ->
           let map_col m (i, layout) = match map_inline m i with
-          | None -> None | Some i -> Some (i, layout)
+          | None -> (Inline.empty (), layout) | Some i -> (i, layout)
           in
           let map_row (((r, meta), blanks) as row) = match r with
-          | `Header is ->
-              (`Header (List.filter_map (map_col m) is), meta), blanks
+          | `Header is -> (`Header (List.map (map_col m) is), meta), blanks
           | `Sep _ -> row
-          | `Data is ->
-              (`Data (List.filter_map (map_col m) is), meta), blanks
+          | `Data is -> (`Data (List.map (map_col m) is), meta), blanks
           in
           let rows = List.map map_row t.rows in
           Some (Ext_table ({ t with Table.rows }, meta))
@@ -3262,19 +3289,3 @@ module Folder = struct
 
   let fold_doc f acc d = fold_block f acc (Doc.block d)
 end
-
-(*---------------------------------------------------------------------------
-   Copyright (c) 2021 The cmarkit programmers
-
-   Permission to use, copy, modify, and/or distribute this software for any
-   purpose with or without fee is hereby granted, provided that the above
-   copyright notice and this permission notice appear in all copies.
-
-   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-  ---------------------------------------------------------------------------*)

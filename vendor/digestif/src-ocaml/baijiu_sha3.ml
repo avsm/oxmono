@@ -114,8 +114,8 @@ struct
       0xff00ffffffffffffL; 0x00ffffffffffffffL;
     |]
 
-  let feed :
-      type a. get_uint8:(a -> int -> int) -> ctx -> a -> int -> int -> unit =
+  let feed : type a.
+      get_uint8:(a -> int -> int) -> ctx -> a -> int -> int -> unit =
    fun ~get_uint8 ctx buf off len ->
     let ( && ) = ( land ) in
 

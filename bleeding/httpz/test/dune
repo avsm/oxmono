@@ -8,13 +8,10 @@
   test_date_format
   test_content_range
   test_target
-  test_route
   test_portable)
- (modules test_httpz test_client test_scan test_tchar test_writers test_date_format test_content_range test_target test_route test_portable)
+ (modules test_httpz test_client test_scan test_tchar test_writers test_date_format test_content_range test_target test_portable)
  (libraries
   httpz
-  httpz.route
-  uriz
   base
   stdio
   unix

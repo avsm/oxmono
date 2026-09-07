@@ -2,6 +2,8 @@
 
 # Eio &mdash; Effects-Based Parallel IO for OCaml
 
+OxMono's upstream version and local patches are recorded in [VENDORED.md](VENDORED.md).
+
 Eio provides an effects-based direct-style IO stack for OCaml 5.
 For example, you can use Eio to read and write files, make network connections,
 or perform CPU-intensive calculations, running multiple operations at the same time.

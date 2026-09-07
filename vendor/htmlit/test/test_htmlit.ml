@@ -81,5 +81,5 @@ let () =
        (El.to_string ~doctype:true (page "T"))
        "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><meta \
         name=\"viewport\" content=\"width=device-width, \
-        initial-scale=1.0\"><title>T</title></head><body><p>T</p></body></html>");
+        initial-scale=1.0, viewport-fit=cover\"><title>T</title></head><body><p>T</p></body></html>");
   Printf.printf "test_htmlit: %d checks ok\n" !checks

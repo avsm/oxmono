@@ -1,4 +1,4 @@
-version: "6.2.0"
+version: "6.3.0"
 opam-version: "2.0"
 maintainer:   "anil@recoil.org"
 authors:      ["Anil Madhavapeddy" "Richard Mortier" "Thomas Gazagnaire"
@@ -18,7 +18,7 @@ build: [
 ]
 depends: [
   "ocaml" {>= "4.08.0"}
-  "dune" {>= "2.0.0"}
+  "dune" {>= "3.17"}
   "sexplib"
   "cstruct" {=version}
   "alcotest" {with-test}
@@ -30,3 +30,4 @@ structures directly from OCaml.  It supports both reading and writing to these
 structures, and they are accessed via the `Bigarray` module.
 
 This library provides Sexplib serialisers for the Cstruct.t values."""
+x-maintenance-intent: [ "(latest)" ]

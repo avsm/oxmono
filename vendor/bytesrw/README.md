@@ -1,3 +1,5 @@
+> Refreshed to the upstream branch tip recorded in [../upstreams.json](../upstreams.json) on 2026-09-07. The import and port notes below include historical release numbers; the manifest records the current base.
+
 # Bytesrw 0.4.0 for OxCaml
 
 This directory is based on upstream Bytesrw `v0.4.0`, commit

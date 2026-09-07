@@ -1,6 +1,6 @@
 (*---------------------------------------------------------------------------
    Copyright (c) 2021 The cmarkit programmers. All rights reserved.
-   Distributed under the ISC license, see terms at the end of the file.
+   SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
 (* N.B. The doc strings of the .mli can help understanding these internal
@@ -876,11 +876,15 @@ let html_comment ~next_line s lines ~line ~start = (* start is on <!- *)
       else loop ~next_line s lines line start acc (k + 1)
     else loop ~next_line s lines line start acc (k + 1)
   in
-  (* Check we have at least <!-- and not <!--> or <!---> *)
-  if (start + 3 > line.last) || not (s.[start + 3] = '-') ||
-     (start + 4 <= line.last && s.[start + 4] = '>') ||
-     (start + 5 <= line.last && s.[start + 4] = '-' && s.[start + 5] = '>')
-  then None else loop ~next_line s lines line start [] (start + 4)
+  (* Check we have at least <!-- *)
+  if (start + 3 > line.last) || not (s.[start + 3] = '-') then None else
+  (* Check if we have <!--> *)
+  if (start + 4 <= line.last && s.[start + 4] = '>')
+  then Some (lines, line, push_span ~line start (start + 4) [], start + 4) else
+  (* Check if we have <!---> *)
+  if (start + 5 <= line.last && s.[start + 4] = '-' && s.[start + 5] = '>')
+  then Some (lines, line, push_span ~line start (start + 5) [], start + 5) else
+  loop ~next_line s lines line start [] (start + 4)
 
 let cdata_section ~next_line s lines ~line ~start = (* start is on <![ *)
   (* https://spec.commonmark.org/current/#cdata-section *)
@@ -1043,7 +1047,7 @@ type html_block_end_cond =
 type line_type =
 | Atx_heading_line of heading_level * byte_pos * first * last
 | Blank_line
-| Block_quote_line
+| Block_quote_line of line_span (* loc of marker *)
 | Fenced_code_block_line of first * last * (first * last) option
 | Html_block_line of html_block_end_cond
 | Indented_code_block_line
@@ -1195,7 +1199,7 @@ let is_html_start_cond_6_tag = function
 | "h4" | "h5" | "h6" | "head" | "header" | "hr" | "html" | "iframe"
 | "legend" | "li" | "link" | "main" | "menu" | "menuitem" | "nav"
 | "noframes" | "ol" | "optgroup" | "option" | "p" | "param" | "section"
-| "source" | "summary" | "table" | "tbody" | "td" | "tfoot" | "th" | "thead"
+| "search" | "summary" | "table" | "tbody" | "td" | "tfoot" | "th" | "thead"
 | "title" | "tr" | "track" | "ul" -> true
 | _ -> false
 
@@ -1372,19 +1376,3 @@ let ext_task_marker s ~last ~start =
   then Some (Uchar.utf_decode_uchar u, last)
   else if s.[next] <> ' ' then None else
   Some (Uchar.utf_decode_uchar u, next)
-
-(*---------------------------------------------------------------------------
-   Copyright (c) 2021 The cmarkit programmers
-
-   Permission to use, copy, modify, and/or distribute this software for any
-   purpose with or without fee is hereby granted, provided that the above
-   copyright notice and this permission notice appear in all copies.
-
-   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-  ---------------------------------------------------------------------------*)

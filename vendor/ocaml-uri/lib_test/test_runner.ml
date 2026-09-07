@@ -605,9 +605,9 @@ let test_make =
         assert_equal ~printer:str "http://a/"
           (Uriz.to_string (Uriz.make ~scheme:"HTTP" ~host:"A" ~path:"/" ())));
     case "make rejects bad schemes" (fun () ->
-        assert_raises (Invalid_argument "Uriz: invalid scheme: 1a") (fun () ->
+        assert_raises (Invalid_argument "Uriz: invalid scheme") (fun () ->
             Uriz.make ~scheme:"1a" ~host:"a" ());
-        assert_raises (Invalid_argument "Uriz: invalid scheme: ") (fun () ->
+        assert_raises (Invalid_argument "Uriz: invalid scheme") (fun () ->
             Uriz.make ~scheme:"" ~host:"a" ()));
     case "make rejects negative ports" (fun () ->
         assert_raises (Invalid_argument "Uriz: negative port") (fun () ->
@@ -768,7 +768,7 @@ let test_or_null =
           garbage);
     case "of_string_exn raises" (fun () ->
         assert_raises
-          (Invalid_argument "Uriz.of_string_exn: not a URI reference: %")
+          (Invalid_argument "Uriz.of_string_exn: not a URI reference")
           (fun () -> Uriz.of_string_exn "%"));
     case "error offsets are reported" (fun () ->
         let v = Uriz.Raw.parse "http://a/b c" in
@@ -1016,7 +1016,7 @@ let test_region =
         in
         assert_equal ~printer:string_of_int 10 n;
         assert_raises
-          (Invalid_argument "Uriz.of_string_exn: not a URI reference: %")
+          (Invalid_argument "Uriz.of_string_exn: not a URI reference")
           (fun () -> Uriz.of_string_exn "%")) ]
 
 (* {2 Windowed parsing}
@@ -1392,7 +1392,7 @@ let test_char_classes =
       ~in_class:(fun c -> r_base c || c = '@');
     class_probe ~name:"class:ipvfuture"
       ~make:(fun c -> "//[v7." ^ one c ^ "]")
-      ~component:(fun c -> "v7." ^ one c)
+      ~component:(fun c -> "v7." ^ one (Char.lowercase_ascii c))
       ~get:Uriz.host
       ~in_class:(fun c -> r_base c || c = ':');
     (* The [segment-nz-nc] charset covers the first segment only, so a ':'

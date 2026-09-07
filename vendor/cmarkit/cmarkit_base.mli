@@ -1,6 +1,6 @@
 (*---------------------------------------------------------------------------
    Copyright (c) 2021 The cmarkit programmers. All rights reserved.
-   Distributed under the ISC license, see terms at the end of the file.
+   SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
 (** Low-level internal tools. *)
@@ -305,7 +305,7 @@ type html_block_end_cond =
 type line_type =
 | Atx_heading_line of heading_level * byte_pos (* after # *) * first * last
 | Blank_line
-| Block_quote_line
+| Block_quote_line of line_span (* loc of marker *)
 | Fenced_code_block_line of first * last * (first * last) option
 | Html_block_line of html_block_end_cond
 | Indented_code_block_line
@@ -387,19 +387,3 @@ val ext_task_marker :
   string -> last:byte_pos -> start:byte_pos -> (Uchar.t * last) option
 (** [ext_task_marker s ~last ~start] is a list task item marker in the
     range \[[start];[last]\]. *)
-
-(*---------------------------------------------------------------------------
-   Copyright (c) 2021 The cmarkit programmers
-
-   Permission to use, copy, modify, and/or distribute this software for any
-   purpose with or without fee is hereby granted, provided that the above
-   copyright notice and this permission notice appear in all copies.
-
-   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-  ---------------------------------------------------------------------------*)

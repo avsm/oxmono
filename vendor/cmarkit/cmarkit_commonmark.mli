@@ -1,6 +1,6 @@
 (*---------------------------------------------------------------------------
    Copyright (c) 2023 The cmarkit programmers. All rights reserved.
-   Distributed under the ISC license, see terms at the end of the file.
+   SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
 (** Rendering CommonMark to CommonMark.
@@ -82,7 +82,7 @@ val escaped_string :
 (** [escaped_string ?esc_ctrl c cs s] renders [s] on [c] with
     characters for which [cs] is [true] backslash escaped. If [esc_ctrl] is
     [true] (default)
-    {{:https://spec.commonmark.org/0.30/#ascii-control-character}
+    {{:https://spec.commonmark.org/0.31.2/#ascii-control-character}
     ASCII control characters} are escaped to decimal escapes. *)
 
 val buffer_add_escaped_string :
@@ -101,14 +101,19 @@ val escaped_text : Cmarkit_renderer.context -> string -> unit
 
     {ul
     {- These block markers: [-] [+] [_] [=] only if present at [s.[0]].}
-    {- Only the first of runs of them: [#] [`]}
+    {- Only if at the end of the string or if followed by a space or a tab: [#]}
     {- Only the first of a run longer than 1: [~]
-       ({{!Cmarkit.ext_strikethrough}strikethrough extension}).}
+       (avoid creating a {{!Cmarkit.ext_strikethrough}strikethrough extension}
+        or a code fence).}
     {- [&] if followed by an US-ASCII letter or [#].}
-    {- [!] if it is the last character of [s].}
-    {- [.] or [)] only if preceeded by at most 9 digits to the start of text.}
-    {- Everywhere, [*] [_] [\ ] [<] [>] [\[] [\]],
-      {{:https://spec.commonmark.org/0.30/#ascii-control-character}
+    {- [!] or [~] if it is the last character of [s] (could respectively
+       create an unwanted image link if followed by a link inline or
+       a code fence if followed by a {{!Cmarkit.ext_strikethrough}strikethrough}
+       inline).}
+    {- [.] or [)] only if preceeded by at most 9 digits to the start of text
+       and followed by a space, tab or the end of string.}
+    {- Everywhere, [`] [*] [_] [\ ] [<] [>] [\[] [\]],
+      {{:https://spec.commonmark.org/0.31.2/#ascii-control-character}
        ASCII control characters}, [$] ({{!Cmarkit.ext_math_inline}inline math
        extension}), [|] ({{!Cmarkit.ext_tables}table extension}) }} *)
 
@@ -254,19 +259,3 @@ val buffer_add_escaped_text : Buffer.t -> string -> unit
     {e Simple} and {e implemented} round trip improvements to the
     renderer are welcome.
  *)
-
-(*---------------------------------------------------------------------------
-   Copyright (c) 2023 The cmarkit programmers
-
-   Permission to use, copy, modify, and/or distribute this software for any
-   purpose with or without fee is hereby granted, provided that the above
-   copyright notice and this permission notice appear in all copies.
-
-   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-  ---------------------------------------------------------------------------*)

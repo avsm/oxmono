@@ -69,6 +69,7 @@ module At = struct
   let height i = int "height" i
   let hidden = true' "hidden"
   let href s = v "href" s
+  let hreflang s = v "hreflang" s
   let id s = v "id" s
   let lang s = v "lang" s
   let list s = v "list" s
@@ -89,6 +90,7 @@ module At = struct
   let src s = v "src" s
   let style s = v "style" s
   let tabindex i = int "tabindex" i
+  let target s = v "target" s
   let title s = v "title" s
   let type' s = v "type" s
   let value s = v "value" s
@@ -194,6 +196,7 @@ module El = struct
   let colgroup = cons "colgroup"
   let command = cons "command"
   let datalist = cons "datalist"
+  let dialog = cons "dialog"
   let dd = cons "dd"
   let del = cons "del"
   let details = cons "details"
@@ -287,7 +290,7 @@ module El = struct
       ?(lang = "") ?(generator = "") ?(styles = []) ?(scripts = [])
       ?(more_head = void) ~title:t body
     =
-    let viewport = "width=device-width, initial-scale=1.0" in
+    let viewport = "width=device-width, initial-scale=1.0, viewport-fit=cover" in
     let generator = match generator with
     | "" -> void | g -> meta ~at:At.[name "generator"; content g] ()
     in

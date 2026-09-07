@@ -3,6 +3,8 @@
  (enabled_if
   (= %{system} macosx))
  (deps
+  (package duration)
+  (package mtime)
   (package cmarkit)
   (package fetch-main)
   (package fetch)

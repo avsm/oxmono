@@ -16,7 +16,7 @@ jobs:
           - ubuntu-latest
           - macos-latest
         ocaml-compiler:
-          - '4.13.x'
+          - '5.1.x'
     runs-on: ${{ matrix.os }}
     name: test-ocaml / ${{ matrix.os }}-${{ matrix.ocaml-compiler }}
     steps:

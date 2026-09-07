@@ -39,7 +39,7 @@ module type S = sig
 
   val feedi_bytes : ctx -> Bytes.t iter -> ctx
   (** [feedi_bytes t iter = let r = ref t in iter (fun msg -> r := feed !r msg);
-      !r] *)
+       !r] *)
 
   val feedi_string : ctx -> String.t iter -> ctx
   (** Same as {!feed_bytes} but for {!String.t}. *)
@@ -56,8 +56,7 @@ module type S = sig
   val hmac_feed_bytes : hmac -> ?off:int -> ?len:int -> Bytes.t -> hmac
   (** [hmac_feed_bytes t msg] adds informations in [msg] to [t]. [hmac_feed] is
       analogous to appending:
-      [hmac_feed (hmac_feed t msg1) msg2 = hmac_feed t
-      (append msg1 msg2)] *)
+      [hmac_feed (hmac_feed t msg1) msg2 = hmac_feed t (append msg1 msg2)] *)
 
   val hmac_feed_string : hmac -> ?off:int -> ?len:int -> String.t -> hmac
   (** Same as {!hmac_feed_bytes} but for {!String.t}. *)
@@ -66,8 +65,8 @@ module type S = sig
   (** Same as {!hmac_feed_bytes} but for {!bigstring}. *)
 
   val hmac_feedi_bytes : hmac -> Bytes.t iter -> hmac
-  (** [hmac_feedi_bytes t iter = let r = ref t in iter (fun msg -> r := hmac_feed !r msg);
-      !r] *)
+  (** [hmac_feedi_bytes t iter = let r = ref t in iter (fun msg -> r :=
+       hmac_feed !r msg); !r] *)
 
   val hmac_feedi_string : hmac -> String.t iter -> hmac
   (** Same as {!hmac_feedi_bytes} but for {!String.t}. *)
@@ -130,7 +129,8 @@ module type S = sig
   (** Same as {!hmaci_bytes} but for {!bigstring}. *)
 
   val hmacv_bytes : key:string -> Bytes.t list -> t
-  (** Specialization of {!hmaci_bytes} with a list of {!Bytes.t} (see {!iter}). *)
+  (** Specialization of {!hmaci_bytes} with a list of {!Bytes.t} (see {!iter}).
+  *)
 
   val hmacv_string : key:string -> String.t list -> t
   (** Same as {!hmacv_bytes} but for {!String.t}. *)
@@ -161,7 +161,8 @@ module type S = sig
   (** [of_hex] tries to parse an hexadecimal representation of {!t}. [of_hex]
       returns [None] when input is malformed. We take only first {!digest_size}
       hexadecimal values and ignore rest of input. If it has not enough
-      hexadecimal values, trailing values of the output hash are zero ([\x00]). *)
+      hexadecimal values, trailing values of the output hash are zero ([\x00]).
+  *)
 
   val consistent_of_hex : string -> t
   (** [consistent_of_hex] tries to parse an hexadecimal representation of {!t}.
@@ -198,10 +199,10 @@ module type S = sig
       It's equivalent to:
 
       {[
-        let get_into_bytes ctx ?(off = 0) buf =
-          let t = get ctx in
-          let str = to_raw_string t in
-          Bytes.blit_string str 0 buf off digest_size
+      let get_into_bytes ctx ?(off = 0) buf =
+        let t = get ctx in
+        let str = to_raw_string t in
+        Bytes.blit_string str 0 buf off digest_size
       ]}
 
       except [get_into_bytes] does not allocate an intermediate string. *)

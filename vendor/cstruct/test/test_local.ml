@@ -13,16 +13,19 @@ let[@zero_alloc] (split_length @ portable) (cs @ local) =
 
 let[@zero_alloc] (copy_u32 @ portable) (src @ local) (dst @ local) =
   let local_ value = Cstruct.BE.get_uint32 src 0 in
-  Cstruct.LE.set_uint32 dst 0 value
+  Cstruct.LE.set_uint32 dst 0 value;
+  ()
 
 let[@zero_alloc] (copy_u64 @ portable) (src @ local) (dst @ local) =
   let local_ value = Cstruct.BE.get_uint64 src 0 in
-  Cstruct.LE.set_uint64 dst 0 value
+  Cstruct.LE.set_uint64 dst 0 value;
+  ()
 
 let[@zero_alloc] (cap_length @ portable) (cs @ local) =
   let local_ view = Cstruct_cap.sub_local cs ~off:1 ~len:3 in
   let local_ view = Cstruct_cap.ro view in
-  Cstruct_cap.length view
+  let length = Cstruct_cap.length view in
+  length
 
 let split_text cs =
   match Cstruct.split_local ~start:1 cs 2 with
@@ -76,7 +79,7 @@ let () =
   let local_ middle = Cstruct.sub_local cs 1 4 in
   Cstruct.BE.set_uint16 middle 1 0x5859;
   assert (Cstruct.BE.get_uint16 middle 1 = 0x5859);
-  expect "shared backing" "abcXYf" (Cstruct.to_string cs);
+  expect "shared backing" "abXYef" (Cstruct.to_string cs);
 
   let numbers = Cstruct.of_hex "0102030405060708" in
   let copied = Cstruct.create 8 in
@@ -92,4 +95,22 @@ let () =
   let view = bigarray_view () in
   Gc.full_major ();
   expect "of_bigarray_local" "123" (Cstruct.to_string view);
-  expect "local copying constructors" "bcd23" (local_copies ())
+  expect "local copying constructors" "bcd23" (local_copies ());
+
+  expect "reverse tail of singleton" ""
+    (Cstruct.to_string (Cstruct.tail ~rev:true (Cstruct.of_string "x")));
+  let slice = Cstruct.sub (Cstruct.of_string "xxab--cd--efyy") 2 10 in
+  let parts = Cstruct.cuts ~rev:true ~sep:(Cstruct.of_string "--") slice in
+  expect "reverse cuts preserve the backing offset" "ab/cd/ef"
+    (String.concat "/" (List.map Cstruct.to_string parts));
+  expect "forward find preserves the backing offset" "c"
+    (Cstruct.to_string (Option.get (Cstruct.find (Char.equal 'c') slice)));
+  expect "reverse find preserves the backing offset" "d"
+    (Cstruct.to_string (Option.get (Cstruct.find ~rev:true (Char.equal 'd') slice)));
+  expect "reverse substring search preserves the backing offset" "cd"
+    (Cstruct.to_string
+       (Option.get (Cstruct.find_sub ~rev:true ~sub:(Cstruct.of_string "cd") slice)));
+  expect "filter_map compacts retained bytes" "abc"
+    (Cstruct.to_string
+       (Cstruct.filter_map (function '1' | '2' -> None | c -> Some c)
+          (Cstruct.of_string "a1b2c")))

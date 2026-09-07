@@ -1,8 +1,8 @@
-(* test_portable.ml - the [portable] annotations on core/ and route/ are real.
+(* test_portable.ml - the wire parser's [portable] annotations are checked.
 
    Two checks.  [require_portable] takes its argument at mode [portable], so
    each application below is a typing obligation that only discharges if the
-   .mli really carries the annotation.  Then the parser and the router are
+   .mli really carries the annotation.  Then the parser is
    driven from two spawned domains, which is the property the annotations
    exist to support. *)
 
@@ -44,27 +44,11 @@ let () =
   require_portable Httpz.Err.fail;
   (* [Format] printers too; the formatter is an argument, not a capture. *)
   require_portable Httpz.Res.pp_status;
-  require_portable Httpz.parse;
-  require_portable Httpz_route.of_list;
-  require_portable Httpz_route.dispatch
+  require_portable Httpz.parse
 ;;
 
-(* Built per domain.  {!Httpz_route.of_list} returns at the legacy mode, so a
-   table built once on the main domain cannot be captured by a spawned
-   closure. *)
-let make_routes () =
-  Httpz_route.of_list
-    [ Httpz_route.get_ [ "api"; "status" ] (fun _ctx respond ->
-        Httpz_route.json respond {|{"ok":true}|})
-    ; Httpz_route.get
-        Httpz_route.("users" / seg root)
-        (fun (id, ()) _ctx respond -> Httpz_route.plain respond id)
-    ]
-;;
-
-(* Parse and dispatch on a freshly allocated buffer, as a connection would. *)
+(* Parse on a freshly allocated buffer, as a connection would. *)
 let round_trip target =
-  let routes = make_routes () in
   let text = "GET " ^ target ^ " HTTP/1.1\r\nHost: x\r\n\r\n" in
   let len = String.length text in
   let buf = Bytes.create Httpz.buffer_size in
@@ -74,24 +58,13 @@ let round_trip target =
   in
   match status with
   | Httpz.Buf_read.Complete ->
-    let out = ref "no match" in
-    let respond ~status:_ ~headers:_ (body : Httpz_route.body) =
-      match body with
-      | String s -> out := s
-      | _ -> out := "?"
-    in
-    let matched =
-      Httpz_route.dispatch buf ~meth:r.#meth ~path:r.#path ~query:r.#query
-        ~body:(Httpz.Req.body_span ~len:(Httpz.Buf_read.i16 len) r)
-        ~content_length:r.#content_length ~headers:[] routes ~respond
-    in
-    if matched then !out else "no match"
+    Httpz.Span.to_string buf r.#path
   | _ -> "parse failed"
 ;;
 
 let () =
   let d1 =
-    (Domain.Safe.spawn (fun () -> round_trip "/api/status")
+    (Domain.Safe.spawn (fun () -> round_trip "/api/status?ready=true")
      [@alert "-do_not_spawn_domains"])
   in
   let d2 =
@@ -100,8 +73,8 @@ let () =
   in
   let r1 = Domain.join d1 in
   let r2 = Domain.join d2 in
-  assert (String.equal r1 {|{"ok":true}|});
-  assert (String.equal r2 "42");
+  assert (String.equal r1 "/api/status");
+  assert (String.equal r2 "/users/42");
   print_endline
-    "test_portable: annotations check out; parse and dispatch ran on two domains"
+    "test_portable: annotations check out; parsing ran on two domains"
 ;;

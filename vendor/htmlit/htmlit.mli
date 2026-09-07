@@ -165,6 +165,9 @@ module At : sig
   val href : string cons
   (** {{:https://developer.mozilla.org/en-US/docs/Web/HTML/Attributes}href} *)
 
+  val hreflang : string cons
+  (** {{:https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/link#hreflang}hreflang} *)
+
   val id : string cons
   (** {{:https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/id}
       id} *)
@@ -233,6 +236,9 @@ module At : sig
 
   val tabindex : int cons
   (** {{:https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/tabindex}tabindex} *)
+
+  val target : string cons
+  (** {{:https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/a#target}target} *)
 
   val title : string cons
   (** {{:https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/title}title} *)
@@ -392,7 +398,8 @@ module El : sig
       {- An {!El.meta} generator with value [generator], if specified and
          non-empty.}
       {- An {!El.meta} viewport with value
-         [width=device-width, initial-scale=1], unconditional.}
+         [width=device-width, initial-scale=1, viewport-fit=cover],
+         unconditional.}
       {- For each non-empty element [href] of [styles] (defaults to [[]]), an
          {!El.link} with {!At.type'} [text/css] and {!At.href} value [href].
          In order.}
@@ -515,6 +522,10 @@ module El : sig
   val datalist : cons
   (** {{:https://developer.mozilla.org/en-US/docs/Web/HTML/Element/datalist}
       datalist} *)
+
+  val dialog : cons
+  (** {{:https://developer.mozilla.org/en-US/docs/Web/HTML/Element/dialog}
+      dialog} *)
 
   val dd : cons
   (** {{:https://developer.mozilla.org/en-US/docs/Web/HTML/Element/dd}dd} *)

@@ -700,12 +700,62 @@ val signed_extract: t -> int -> int -> t
     Raises an [Invalid_argument] if [off] is strictly negative, or if [len] is negative or null.
  *)
 
+val to_bytes:
+      ?len: int -> endian:[`Big|`Little] -> ?signed: bool -> t -> string
+(** [to_bytes ~endian x] returns a binary representation of the integer [x]
+    as a sequence of bytes.
+    @param len the desired length (number of bytes) for the result.
+       If [len] is not provided, the smallest number of bytes needed
+       to represent [x] is used.
+       If [len] is provided and [x] cannot represented in [len] bytes,
+       the exception [Overflow] is raised.
+    @param endian the desired endianness for the result:
+       [~endian:`Big] for big-endian (most significant byte first);
+       [~endian:`Little] for little-endian (least significant byte first).
+    @param signed if negative numbers are allowed and should be represented
+       in two's complement.  If [signed] is [false] and [x] is negative,
+       an [Invalid_argument] exception is raised.
+       If [signed] is not provided, it defaults to [false].
+    @raise Overflow if [x] cannot be represented in [len] bytes.
+    @raise Invalid_argument if [x] is negative and [signed] is not [true].
+    @since 1.15
+*)
+
+val of_bytes: endian:[`Big|`Little] -> ?signed: bool -> string -> t
+(** [of_bytes ~endian s] returns the integer represented by the string [s],
+    which is treated as a sequence of bytes.
+
+    The following round-trip properties hold:
+    - [of_bytes ~endian (to_bytes ~endian x) = x] if [x] is nonnegative.
+    - [of_bytes ~endian ~signed:true (to_bytes ~endian ~signed:true x) = x]
+      for all integers [x].
+
+    The properties still hold if [to_bytes] is used with an explicit [len]
+    parameter, provided [to_bytes] does not fail on an [Overflow] exception.
+
+    @param endian the endianness for the byte sequence [s]:
+       [~endian:`Big] for big-endian (most significant byte first);
+       [~endian:`Little] for little-endian (least significant byte first).
+    @param signed whether the byte sequence should be read in two's complement.
+       If [signed] is [true], the most significant bit of [s] is treated
+       as the sign bit: the result is a negative integer if the sign bit
+       is 1, and a nonnegative integer if the sign bit is 0.
+       If [signed] is [false], which is the default, the most significant bit
+       of [s] has no special meaning.  The result is always nonnegative.
+    @since 1.15
+
+*)
+
 external to_bits: t -> string = "ml_z_to_bits"
 (** Returns a binary representation of the argument.
     The string result should be interpreted as a sequence of bytes,
     corresponding to the binary representation of the absolute value of
     the argument in little endian ordering.
     The sign is not stored in the string.
+    The string can contain redundant trailing zero bytes.
+
+    {!Z.to_bytes} can be used instead of [to_bits]
+    to get better control on endianness, signedness and byte size.
  *)
 
 external of_bits: string -> t = "ml_z_of_bits"
@@ -715,6 +765,9 @@ external of_bits: string -> t = "ml_z_of_bits"
     We have the identity: [of_bits (to_bits x) = abs x].
     However, we can have [to_bits (of_bits s) <> s] due to the presence of
     trailing zeros in s.
+
+    {!Z.of_bytes} can be used instead of [of_bits]
+    to get better control on endianness and signedness.
  *)
 
 (** {1 Pseudo-random number generation} *)
@@ -761,14 +814,18 @@ val random_int_gen: fill: (bytes -> int -> int -> unit) -> t -> t
     the byte array [buf].
 
     Example of use where [/dev/random] provides the random bytes:
-<<
+
+    {[
     In_channel.with_open_bin "/dev/random"
       (fun ic -> Z.random_int_gen ~fill:(really_input ic) bound)
->>
+    ]}
+
     Example of use where the Cryptokit library provides the random bytes:
-<<
-    Z.random_int_gen ~fill:Cryptokit.Random.secure_rng#bytes bound
->>
+
+    {[
+      Z.random_int_gen ~fill:Cryptokit.Random.secure_rng#random_bytes bound
+    ]}
+
     @since 1.13
 *)
 

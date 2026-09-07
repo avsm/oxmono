@@ -1,6 +1,6 @@
 (*---------------------------------------------------------------------------
    Copyright (c) 2021 The cmarkit programmers. All rights reserved.
-   Distributed under the ISC license, see terms at the end of the file.
+   SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
 open Cmarkit
@@ -350,7 +350,7 @@ let list_item ~tight c (i, _) = match Block.List_item.ext_task_marker i with
     | `Cancelled ->
         C.string c
           "<div class=\"task\"><input type=\"checkbox\" disabled><del>";
-        "<del></div></li>\n"
+        "</del></div></li>\n"
     in
     item_block ~tight c (Block.List_item.block i);
     C.string c close
@@ -499,20 +499,4 @@ let xhtml_renderer ?backend_blocks ~safe () =
   Cmarkit_renderer.make ~init_context ~inline ~block ~doc ()
 
 let of_doc ?backend_blocks ~safe d =
-  Cmarkit_renderer.doc_to_string (renderer ~safe ()) d
-
-(*---------------------------------------------------------------------------
-   Copyright (c) 2021 The cmarkit programmers
-
-   Permission to use, copy, modify, and/or distribute this software for any
-   purpose with or without fee is hereby granted, provided that the above
-   copyright notice and this permission notice appear in all copies.
-
-   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-  ---------------------------------------------------------------------------*)
+  Cmarkit_renderer.doc_to_string (renderer ?backend_blocks ~safe ()) d

@@ -82,8 +82,8 @@ module Unsafe : S = struct
   let s0 x = Int64.(ror64 x 1 lxor ror64 x 8 lxor (x lsr 7))
   let s1 x = Int64.(ror64 x 19 lxor ror64 x 61 lxor (x lsr 6))
 
-  let sha512_do_chunk :
-      type a. be64_to_cpu:(a -> int -> int64) -> ctx -> a -> int -> unit =
+  let sha512_do_chunk : type a.
+      be64_to_cpu:(a -> int -> int64) -> ctx -> a -> int -> unit =
    fun ~be64_to_cpu ctx buf off ->
     let a, b, c, d, e, f, g, h, t1, t2 =
       ( ref ctx.h.(0),
@@ -131,8 +131,7 @@ module Unsafe : S = struct
     ctx.h.(7) <- ctx.h.(7) + !h ;
     ()
 
-  let feed :
-      type a.
+  let feed : type a.
       blit:(a -> int -> By.t -> int -> int -> unit) ->
       be64_to_cpu:(a -> int -> int64) ->
       ctx ->

@@ -1,9 +1,4 @@
-(* bench_alloc.ml - per-operation allocation for the paths core_bench misses.
-
-   [bench_httpz] covers parsing and response writing but nothing in the router,
-   the conditional-request modules, or chunked decoding. Those are exactly the
-   places where an allocation can appear unnoticed, since the library's headline
-   claim is that the hot paths are allocation-free.
+(* Per-operation allocation for HTTP conditional-request fields and chunking.
 
    Words are measured with [Gc.minor_words] around a loop, so the figure
    includes any garbage the operation produces, not just what it returns.
@@ -12,11 +7,8 @@
    or more go straight to the major heap and will read as zero here. *)
 
 open Base
-module R = Httpz_route
-module I64 = Stdlib_upstream_compatible.Int64_u
 
 let i16 = Httpz.Buf_read.i16
-let limits = Httpz.default_limits
 
 let words_per_op ~iterations f =
   (* Warm up so any first-call setup is not charged to the measurement. *)
@@ -47,91 +39,6 @@ let report name ~iterations f =
   let w = words_per_op ~iterations f in
   let t = time_per_op ~iterations f in
   Stdio.printf "  %-34s %8.2f ns %8.2f words\n" name t w
-;;
-
-(* ----- Router ----- *)
-
-let routes =
-  R.of_list
-    [ R.get_ [] (fun _ctx respond -> R.plain respond "root")
-    ; R.get_ [ "api"; "status" ] (fun _ctx respond -> R.plain respond "status")
-    ; R.get_ [ "api"; "v1"; "health" ] (fun _ctx respond -> R.plain respond "health")
-    ; R.get (R.( / ) "users" (R.seg R.root)) (fun (_id, ()) _ctx respond ->
-        R.plain respond "user")
-    ; R.get (R.( / ) "static" R.tail) (fun _segs _ctx respond -> R.plain respond "static")
-    ]
-;;
-
-let make_request target =
-  let text = Printf.sprintf "GET %s HTTP/1.1\r\nHost: x\r\n\r\n" target in
-  let buf = Bytes.make Httpz.buffer_size '\000' in
-  let len = String.length text in
-  Bytes.From_string.blit ~src:text ~src_pos:0 ~dst:buf ~dst_pos:0 ~len;
-  buf, len
-;;
-
-(* The parser's header list is [local_] and so cannot be captured here. None
-   of the routes above declares a header requirement, so dispatching with an
-   empty list measures the walk and capture cost on its own. *)
-let bench_dispatch target =
-  let buf, len = make_request target in
-  let #(_, req, _) = Httpz.parse buf ~len:(i16 len) ~limits in
-  let path = req.#path in
-  let query = req.#query in
-  let meth = req.#meth in
-  let empty = Httpz.Span.make ~off:(i16 0) ~len:(i16 0) in
-  fun () ->
-    let matched =
-      R.dispatch
-        buf
-        ~meth
-        ~path
-        ~query
-        ~body:empty
-        ~content_length:(I64.of_int64 (-1L))
-        ~headers:[]
-        routes
-        ~respond:(fun ~status:_ ~headers:_ _body -> ())
-    in
-    if matched then 1 else 0
-;;
-
-let router_bench () =
-  Stdio.printf "\nRouter dispatch\n";
-  List.iter
-    [ "/"; "/api/status"; "/api/v1/health"; "/users/12345"; "/static/a/b/c.css"; "/nope" ]
-    ~f:(fun target -> report target ~iterations:200_000 (bench_dispatch target))
-;;
-
-(* Parse and dispatch one request, as a server does per keep-alive round trip.
-   The target is split once, by the parser, and the split is carried on the
-   request rather than recomputed here. *)
-let bench_parse_dispatch target =
-  let buf, len = make_request target in
-  let len16 = i16 len in
-  fun () ->
-    let #(_status, req, headers) = Httpz.parse buf ~len:len16 ~limits in
-    let empty = Httpz.Span.make ~off:(i16 0) ~len:(i16 0) in
-    let matched =
-      R.dispatch
-        buf
-        ~meth:req.#meth
-        ~path:req.#path ~query:req.#query
-        ~body:empty
-        ~content_length:(I64.of_int64 (-1L))
-        ~headers
-        routes
-        ~respond:(fun ~status:_ ~headers:_ _body -> ())
-    in
-    if matched then 1 else 0
-;;
-
-let parse_dispatch_bench () =
-  Stdio.printf "\nParse + dispatch\n";
-  List.iter
-    [ "/api/status"; "/users/12345"; "/static/a/b/c.css?x=1" ]
-    ~f:(fun target ->
-      report target ~iterations:200_000 (bench_parse_dispatch target))
 ;;
 
 (* ----- Conditional requests ----- *)
@@ -210,9 +117,7 @@ let chunk_bench () =
 ;;
 
 let () =
-  Stdio.printf "Per-operation cost for the paths core_bench does not cover.\n";
-  router_bench ();
-  parse_dispatch_bench ();
+  Stdio.printf "Per-operation cost for HTTP fields and chunking.\n";
   date_bench ();
   etag_bench ();
   range_bench ();

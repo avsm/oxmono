@@ -28,34 +28,18 @@ type fetch_result =
 
 module PT = Peer_tube
 
-let int_of_json (json : Jsont.json) : int =
-  match json with
-  | Jsont.Number (f, _) -> int_of_float f
-  | _ -> 0
-
-let string_of_json (json : Jsont.json) : string =
-  match json with
-  | Jsont.String (s, _) -> s
-  | _ -> ""
-
 let video_of_peertube (pt : PT.Video.T.t) : video =
-  let id = match PT.Video.T.id pt with
-    | Some id_json -> int_of_json id_json
-    | None -> 0
-  in
-  let uuid = match PT.Video.T.uuid pt with
-    | Some uuid_json -> string_of_json uuid_json
-    | None -> ""
-  in
+  let id = Option.value ~default:0 (PT.Video.T.id pt) in
+  let uuid = Option.value ~default:"" (PT.Video.T.uuid pt) in
   {
     id;
     uuid;
     name = Option.value ~default:"" (PT.Video.T.name pt);
-    description = PT.Video.T.truncated_description pt;
+    description = Option.join (PT.Video.T.truncated_description pt);
     url = "";
     embed_path = Option.value ~default:"" (PT.Video.T.embed_path pt);
     published_at = Option.value ~default:Ptime.epoch (PT.Video.T.published_at pt);
-    originally_published_at = PT.Video.T.originally_published_at pt;
+    originally_published_at = Option.join (PT.Video.T.originally_published_at pt);
     thumbnail_path = PT.Video.T.thumbnail_path pt;
     tags = [];
   }

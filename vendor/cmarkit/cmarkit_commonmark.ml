@@ -1,6 +1,6 @@
 (*---------------------------------------------------------------------------
    Copyright (c) 2023 The cmarkit programmers. All rights reserved.
-   Distributed under the ISC license, see terms at the end of the file.
+   SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
 open Cmarkit
@@ -65,6 +65,16 @@ let buffer_add_escaped_string ?(esc_ctrl = true) b cs s =
 let escaped_string ?esc_ctrl c cs s =
   buffer_add_escaped_string ?esc_ctrl (C.buffer c) cs s
 
+(* Things to remember when tweaking [buffer_add_escaped_text]
+
+   The text to escape is an inline node text. It can be preceeded by
+   or succeded by another inline, or not. This means that the begining
+   of the string is not necessarily the beginning of a line and its
+   end not necessarily the end of a line, but can be. Both the
+   beginning and the end should avoid having structural elements that
+   interact with the syntax of other inlines (e.g. an ending '~' if followed
+   by a strike-through potentially creates a fenced code block ~~~). *)
+
 let buffer_add_escaped_text b s =
   let esc_first b s = match s.[0] with
   | '-' | '+' | '_' | '=' as c ->
@@ -75,13 +85,19 @@ let buffer_add_escaped_text b s =
     next <= max && (Cmarkit_base.Ascii.is_letter s.[next] || s.[next] = '#')
   in
   let esc_tilde s max prev next =
-    not (Char.equal prev '~') && next <= max && s.[next] = '~'
+    not (Char.equal prev '~') &&
+    (next <= max && s.[next] = '~' || next > max (* last is '~'*))
   in
-  let esc_item_marker s i =
+  let esc_item_marker s max i next =
+    (next > max || s.[next] = ' ' || s.[next] = '\t') &&
     if i = 0 || i > 9 (* marker has from 1-9 digits *) then false else
     let k = ref (i - 1) in
     while !k >= 0 && Cmarkit_base.Ascii.is_digit s.[!k] do decr k done;
     !k < 0
+  in
+  let esc_hash s max _prev next =
+    (* We need to be careful about not creating heading closing sequences. *)
+    next > max || s.[next] = ' ' || s.[next] = '\t'
   in
   let flush b max start i =
     if start <= max then Buffer.add_substring b s start (i - start)
@@ -93,7 +109,7 @@ let buffer_add_escaped_text b s =
     if Cmarkit_base.Ascii.is_control c then
       (flush b max start i; buffer_add_dec_esc b c; loop b s max next c next)
     else match c with
-    | '#' | '`' when not (Char.equal prev c) ->
+    | '#' when esc_hash s max prev next ->
         flush b max start i; buffer_add_bslash_esc b c; loop b s max next c next
     | '~' when esc_tilde s max prev next ->
         flush b max start i; buffer_add_bslash_esc b c; loop b s max next c next
@@ -101,9 +117,9 @@ let buffer_add_escaped_text b s =
         flush b max start i; buffer_add_bslash_esc b c; loop b s max next c next
     | '!' when i = max ->
         flush b max start i; buffer_add_bslash_esc b c; loop b s max next c next
-    | '.' | ')' when esc_item_marker s i ->
+    | '.' | ')' when esc_item_marker s max i next ->
         flush b max start i; buffer_add_bslash_esc b c; loop b s max next c next
-    | '\\' | '<' | '>' | '[' | ']' | '*' | '_' | '$' | '|' ->
+    | '`' | '\\' | '<' | '>' | '[' | ']' | '*' | '_' | '$' | '|' ->
         flush b max start i; buffer_add_bslash_esc b c; loop b s max next c next
     | _ ->
         loop b s max start c next
@@ -139,7 +155,7 @@ let rec indent c =
       nchars c before ' '; C.string c m; nchars c after ' ';
       let after = match task with
       | None -> after
-      | Some u -> C.byte c '['; C.utf_8_uchar c u; C.string c "] "; after + 4
+      | Some u -> C.byte c '['; C.utf_8_uchar c u; C.string c "] "; after
       in
       (* On the next call we'll just indent for the list item *)
       loop c (`I (before + String.length m + after) :: acc) is
@@ -434,19 +450,3 @@ let doc c d = C.block c (Doc.block d); true
 
 let renderer () = Cmarkit_renderer.make ~init_context ~inline ~block ~doc ()
 let of_doc d = Cmarkit_renderer.doc_to_string (renderer ()) d
-
-(*---------------------------------------------------------------------------
-   Copyright (c) 2023 The cmarkit programmers
-
-   Permission to use, copy, modify, and/or distribute this software for any
-   purpose with or without fee is hereby granted, provided that the above
-   copyright notice and this permission notice appear in all copies.
-
-   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-  ---------------------------------------------------------------------------*)

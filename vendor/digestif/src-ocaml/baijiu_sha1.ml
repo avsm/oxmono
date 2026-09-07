@@ -55,8 +55,8 @@ module Unsafe : S = struct
   let k3 = 0x8f1bbcdcl
   let k4 = 0xca62c1d6l
 
-  let sha1_do_chunk :
-      type a. be32_to_cpu:(a -> int -> int32) -> ctx -> a -> int -> unit =
+  let sha1_do_chunk : type a.
+      be32_to_cpu:(a -> int -> int32) -> ctx -> a -> int -> unit =
    fun ~be32_to_cpu ctx buf off ->
     let a = ref ctx.h.(0) in
     let b = ref ctx.h.(1) in
@@ -170,8 +170,7 @@ module Unsafe : S = struct
     ctx.h.(4) <- Int32.add ctx.h.(4) !e ;
     ()
 
-  let feed :
-      type a.
+  let feed : type a.
       blit:(a -> int -> By.t -> int -> int -> unit) ->
       be32_to_cpu:(a -> int -> int32) ->
       ctx ->

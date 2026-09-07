@@ -205,8 +205,6 @@ and Markdown support and depend on the HTTP wire library.
 | `httpz.punycode` | `Punycode` | Punycode encoding and decoding. |
 | `httpz.punycode.idna` | `Punycode_idna` | Domain-name normalization; a subset of IDNA. |
 | `httpz.pubsuffix` | `Pubsuffix` | Public suffix and registrable-domain lookup. |
-| `httpz.route` | `Httpz_route` | Route matching for the lower-level server API. |
-| `httpz.eio_server` | `Httpz_eio_server` | Eio server API with static-file support. |
 
 `httpz.uri` adapts the shared portable Uriz implementation. The HTTP wire library owns
 shared syntax and diagnostic helpers. `httpz.media` depends on it and includes
@@ -235,5 +233,5 @@ The native libraries target 64-bit little-endian systems. The
 
 OxMono also includes `fetch-main` for platform selection, `fetch-macos` for
 NSURLSession, `fetch-cmdliner` for command-line configuration and
-`fetch-signature` for HTTP Message Signatures. `httpz.eio_server` provides
-the separate server API that supports static files.
+`fetch-signature` for HTTP Message Signatures. Server applications use Proffer
+and the `proffer-httpz` backend.

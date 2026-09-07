@@ -4,6 +4,14 @@ module XML : sig
   type t = Syndic_xml.t
   type node = Syndic_xml.pos * Syndic_xml.tag * t list
 
+  val generate_catcher_relaxed :
+       ?namespaces:string list @ portable
+    -> ?attr_producer:(string * (xmlbase:Uriz.t option -> string -> 'a)) list @ portable
+    -> ?data_producer:(string * (xmlbase:Uriz.t option -> node -> 'a)) list @ portable
+    -> ?leaf_producer:(xmlbase:Uriz.t option -> Xmlm.pos -> string -> 'a) @ portable
+    -> (relaxed:'relaxed -> pos:Xmlm.pos -> 'a list -> 'b) @ portable
+    -> (relaxed:'relaxed -> xmlbase:Uriz.t option -> node -> 'b) @ portable
+
   val generate_catcher :
        ?namespaces:string list @ portable
     -> ?attr_producer:

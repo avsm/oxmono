@@ -1,4 +1,4 @@
-.PHONY: all build test bench bench-compare bench-detail clean fmt erase-jane-syntax
+.PHONY: all build test bench bench-compare bench-alloc clean fmt erase-jane-syntax
 
 all: build
 
@@ -14,13 +14,13 @@ test:
 # and Span then become indirect calls from Parser and Header_name, and parsing
 # runs roughly twice as slow. Release numbers are the representative ones,
 # and are also what `dune build -p` (and therefore opam) produces.
-bench: bench-compare bench-detail
+bench: bench-compare bench-alloc
 
 bench-compare:
 	dune exec --profile release bench/bench_compare.exe
 
-bench-detail:
-	dune exec --profile release bench/bench_httpz.exe -- -quota 2
+bench-alloc:
+	dune exec --profile release bench/bench_alloc.exe
 
 clean:
 	dune clean
@@ -37,7 +37,7 @@ fmt:
 # Requires ocamlformat from the OxCaml opam repository.
 erase-jane-syntax:
 	@echo "Erasing Jane Street syntax from OCaml files..."
-	@find core route eio_server test bench bin \
+	@find lib uri media tls cookie punycode pubsuffix test bench fuzz \
 		-path '*/vendor/*' -prune -o \
 		\( -name '*.ml' -o -name '*.mli' \) -print | \
 		xargs -I {} ocamlformat --erase-jane-syntax -i {}

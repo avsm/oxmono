@@ -116,8 +116,8 @@ module Unsafe : S = struct
     a := rol32 !a s + !e ;
     c := rol32 !c 10
 
-  let rmd160_do_chunk :
-      type a. le32_to_cpu:(a -> int -> int32) -> ctx -> a -> int -> unit =
+  let rmd160_do_chunk : type a.
+      le32_to_cpu:(a -> int -> int32) -> ctx -> a -> int -> unit =
    fun ~le32_to_cpu ctx buff off ->
     let aa, bb, cc, dd, ee, aaa, bbb, ccc, ddd, eee =
       ( ref ctx.h.(0),
@@ -306,8 +306,7 @@ module Unsafe : S = struct
 
   exception Leave
 
-  let feed :
-      type a.
+  let feed : type a.
       le32_to_cpu:(a -> int -> int32) ->
       blit:(a -> int -> By.t -> int -> int -> unit) ->
       ctx ->

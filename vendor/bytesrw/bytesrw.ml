@@ -170,16 +170,19 @@ module Bytes = struct
     let of_bytes_or_eod ?first ?last bytes =
       of_bytes' ~allow_eod:true ?first ?last bytes
 
-    let of_bigbytes' ~allow_eod ?(first = 0) ? last bigbytes =
+    let of_bigbytes' ~allow_eod ?(first = 0) ?last bigbytes =
       let max = Bigarray.Array1.dim bigbytes - 1 in
       let last = match last with
       | None -> max | Some last -> if last > max then max else last
       in
       let first = if first < 0 then 0 else first in
-      let length = last - first + 1 in
-      let init i = Char.unsafe_chr (Bigarray.Array1.get bigbytes (first + i)) in
-      let bytes = Bytes.init length init in
-      if first <= last then { bytes; first = 0; length } else
+      if first <= last then
+        let length = last - first + 1 in
+        let init i =
+          Char.unsafe_chr (Bigarray.Array1.get bigbytes (first + i))
+        in
+        { bytes = Bytes.init length init; first = 0; length }
+      else
       if allow_eod then eod_value () else err_empty_range ~first ~last ~len:(max + 1)
 
     let of_bigbytes ?first ?last bytes =
@@ -398,10 +401,10 @@ module Bytes = struct
     type filter = ?pos:Stream.pos -> ?slice_length:Slice.length -> t -> t
 
     let sub n ?pos ?slice_length r =
-      if n <= 0 then empty ?pos ?slice_length () else
       let slice_length = Option.value ~default:r.slice_length slice_length in
       let slice_length = Slice.check_length slice_length in
       let pos = Option.value ~default:r.pos pos in
+      if n <= 0 then empty ~pos ~slice_length () else
       let sr = make ~pos ~slice_length read_eod in
       let count = ref n in
       let read () =
@@ -787,13 +790,10 @@ module Bytes = struct
         else begin
           let slen = Slice.length slice in
           left := !left - slen;
-          if !left >= 0 then write w slice
-          else begin
-            let to_write = slen + !left in
-            if to_write > 0 then
-              (match Slice.take to_write slice with
-               | Some s -> write w s
-               | None -> ());
+          if !left >= 0 then write w slice else
+          begin
+            (match Slice.take_first (slen + !left) slice with
+            | None -> () | Some s -> write w s);
             if eod then write_eod w;
             lw.write <- write_only_eod;
             triggered := true;

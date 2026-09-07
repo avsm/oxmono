@@ -1,6 +1,7 @@
 (mdx
  (package fetch-curl)
  (deps
+  (package mtime)
   (package duration)
   (package bytesrw)
   (package base64)

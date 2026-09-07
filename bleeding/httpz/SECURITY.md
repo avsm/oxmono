@@ -1,5 +1,9 @@
 # Security audit record
 
+Historical snapshot from 2026-09-02, retained for provenance. Findings below
+describe that checkout, not the current status of each issue. Subsequent fixes
+and validation are recorded in [HTTPZ_SYNC.md](../../HTTPZ_SYNC.md).
+
 Date: 2026-09-02. Scope: full tree (`httpz/`, `fetch/`, `proffer/`), verified
 by code review plus running code/wire-level reproductions. Findings marked
 **confirmed** were reproduced against the built library (OCaml 5.5.0); findings

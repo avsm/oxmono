@@ -26,3 +26,4 @@ random testing.
 
 The only ASN.1 encodings currently supported are BER and DER.
 """
+x-maintenance-intent: [ "(latest)" ]

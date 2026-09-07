@@ -5,6 +5,43 @@ HTTPz, Fetch and Proffer are synchronized from `avsm/oxcaml-httpz` commit
 `avsm/ocaml-httpz` through commit `72e4541`, including the preceding audit fixes,
 Duration cleanup, media consolidation and Proffer wrapper rename. [HTTPZ.md](HTTPZ.md) introduces the libraries and examples.
 
+## 2026-09-07 vendor branch tips
+
+The 37 monorepo vendors were checked and refreshed against their own upstream
+default branches. This is now tracked separately from the standalone HTTP stack
+revision: [vendor/upstreams.json](vendor/upstreams.json) records each exact base
+and import scope, and [vendor/README.md](vendor/README.md) describes the tip
+checker, merge procedure and validation results.
+
+## 2026-09-07 Eio refresh
+
+Eio was refreshed directly from `ocaml-multicore/eio` main at
+`0ee73e48b566e7cd09cd3c1fc08ef1da199558b0` (`v1.5-5-g0ee73e4`). This brings in
+the complete 1.5 release and the subsequent `Process.Env` API. The OxCaml
+portability boundaries, shared Cstruct adaptations and direct portable Mtime
+calls are preserved. [vendor/eio/VENDORED.md](vendor/eio/VENDORED.md) records
+the current base and local patch history.
+
+## 2026-09-07 monorepo cleanup
+
+Compared the mapped source trees against standalone `2eb1eb0`; the shared wire,
+Fetch and Proffer implementations were synchronized. The remaining legacy
+router/server was an intentionally retained monorepo extension, with the
+permanent caching proxy as its last application consumer. Upstream OxMono
+`464375d58` removed that proxy, after which `httpz.route`, `httpz.eio_server`,
+the static-server executable and router-only tests/benchmarks were removed.
+Wire parser portability and allocation checks remain. The disabled Core_bench
+target and its otherwise unused package dependencies were removed as well.
+
+The preceding upstream commits vendored portable Duration and Mtime. Proffer's
+cache now calls `Duration.to_f` directly, and Eio's clock implementation uses
+Mtime without the former compatibility assertions. Public signatures and time
+conversion semantics are unchanged.
+
+The current tree comparison, preserved extensions and test evidence are in
+[HTTPZ_COMPARISON.md](HTTPZ_COMPARISON.md). Historical source-review records are
+retained and identified as snapshots.
+
 ## 2026-09-07 Proffer wrapper names
 
 Proffer's private Site fields and accessor now use `run_with_wrappers` and
@@ -139,10 +176,10 @@ rather than replacing destination directories.
   allocation improvements while retaining its span, canonical-parser and
   `Raw` APIs. Fetch/signature retains its bridge to the existing `Uri.t` API.
 - Findlib dependencies are explicit in the HTTP projects, including the
-  monorepo-only router, server, platform backends, benchmarks and examples.
+  monorepo-only platform backends, benchmarks and examples.
   URI remains separate; the combined media library depends on wire.
 - Timeout, retry, pacing and cache policies use the installed `duration`
-  package. Fetch/main and Fetch/macos expose typed durations. CLI and
+  package, now vendored with portable annotations. Fetch/main and Fetch/macos expose typed durations. CLI and
   ActivityPub float boundaries validate before creating a client and keep
   positive subnanosecond values positive. Arod's cache and confinement tests
   follow the current Proffer contract.
@@ -150,15 +187,17 @@ rather than replacing destination directories.
   with libcurl 7.83 or later. Fetch/httpz retains strict protocol checks.
   The foreign-domain guard test deliberately crosses the static portability
   boundary to exercise Curl's runtime rejection without weakening its API.
-- Proffer's portable cache constructor retains the standalone assertion
-  around `Duration.to_f`. Duration 0.3.1 implements it as pure arithmetic over
-  immutable values; re-audit that boundary when updating Duration.
-- OxMono retains its broader Eio and Ptime ports. Eio's local Cstruct changes
+- Proffer calls the vendored portable Duration interface directly. Eio likewise
+  uses the portable Mtime interface without compatibility assertions.
+- OxMono retains its broader Eio and Ptime ports. The exact Eio upstream base
+  and local patches are recorded in [vendor/eio/VENDORED.md](vendor/eio/VENDORED.md).
+  Eio's local Cstruct changes
   are merged while keeping the portable `Flow.copy_string` implementation.
   TLS/Eio retains decrypted records as strings with an offset for partial
   reads, avoiding Cstruct copies. The TLS/X.509 closure and Eio Resource/Flow
   boundary contain no `Obj.magic_portable`.
-- Bytesrw and Jsont use the standalone portable versions. Jsont additionally
+- Bytesrw and Jsont retain their portable ports, with upstream bases tracked
+  in the vendor manifest. Jsont additionally
   exposes `String_map.create ()` for freshly owned maps. Monorepo codecs and
   generators use factory defaults and portable callbacks. APub's URI fields
   now use `Uriz.t`; callers parse them with `Uriz.of_string_exn`. Multibase
@@ -170,9 +209,8 @@ rather than replacing destination directories.
   failure. Its lifecycle regression runs on Linux; NSURLSession network
   behaviour requires macOS.
 
-The legacy `bleeding/httpz/bench/bench_httpz.exe` target remains disabled:
-its installed Core_bench/Async closure uses a different Cstruct build.
-The other HTTPz benchmarks remain enabled.
+The enabled HTTPz benchmarks cover wire parsing and field/chunk operations;
+Proffer benchmarks cover routing and backend dispatch.
 
 ## Updating and checking
 

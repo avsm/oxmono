@@ -53,8 +53,8 @@ module Unsafe : S = struct
   let f3 x y z = Int32.(x lxor y lxor z)
   let f4 x y z = Int32.(y lxor (x lor lnot z))
 
-  let md5_do_chunk :
-      type a. le32_to_cpu:(a -> int -> int32) -> ctx -> a -> int -> unit =
+  let md5_do_chunk : type a.
+      le32_to_cpu:(a -> int -> int32) -> ctx -> a -> int -> unit =
    fun ~le32_to_cpu ctx buf off ->
     let a, b, c, d =
       (ref ctx.h.(0), ref ctx.h.(1), ref ctx.h.(2), ref ctx.h.(3)) in
@@ -138,8 +138,7 @@ module Unsafe : S = struct
     ctx.h.(3) <- ctx.h.(3) + !d ;
     ()
 
-  let feed :
-      type a.
+  let feed : type a.
       blit:(a -> int -> By.t -> int -> int -> unit) ->
       le32_to_cpu:(a -> int -> int32) ->
       ctx ->

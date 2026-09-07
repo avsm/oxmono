@@ -1,4 +1,0 @@
-(library
- (name httpz_eio_server)
- (public_name httpz.eio_server)
- (libraries optint stdlib_upstream_compatible stdlib_stable cstruct eio.unix magic-mime httpz httpz.route eio base unix uriz))

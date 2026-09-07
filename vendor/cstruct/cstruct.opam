@@ -1,4 +1,4 @@
-version: "6.2.0"
+version: "6.3.0"
 opam-version: "2.0"
 maintainer:   "anil@recoil.org"
 authors:      ["Anil Madhavapeddy" "Richard Mortier" "Thomas Gazagnaire"
@@ -18,10 +18,10 @@ build: [
 ]
 depends: [
   "ocaml" {>= "4.08.0"}
-  "dune" {>= "2.0.0"}
+  "dune" {>= "3.17"}
   "alcotest" {with-test}
   "fmt" {>= "0.8.9"}
-  "crowbar" {with-test}
+  "crowbar" {with-test & >= "0.2"}
 ]
 conflicts: [ "js_of_ocaml" {<"3.5.0"} ]
 synopsis: "Access C-like structures directly from OCaml"
@@ -29,3 +29,4 @@ description: """
 Cstruct is a library and syntax extension to make it easier to access C-like
 structures directly from OCaml.  It supports both reading and writing to these
 structures, and they are accessed via the `Bigarray` module."""
+x-maintenance-intent: [ "(latest)" ]

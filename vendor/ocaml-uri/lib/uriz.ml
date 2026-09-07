@@ -503,6 +503,8 @@ let pct_decode ?(plus_as_space = false) s =
 let path_decoded (t : t @ local) =
   decode_span ~plus:false t.raw t.path_off t.path_len
 
+let path_unencoded (t : t @ local) = path_decoded t
+
 let fragment_decoded (t : t @ local) =
   if t.frag_off < 0 then Null
   else This (decode_span ~plus:false t.raw t.frag_off t.frag_len)

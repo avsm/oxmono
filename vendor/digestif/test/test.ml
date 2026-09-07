@@ -3,8 +3,7 @@ type _ s = Bytes : Bytes.t s | String : String.t s | Bigstring : bigstring s
 and bigstring =
   (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
-let title :
-    type a k.
+let title : type a k.
     [ `HMAC | `HMAC_feed | `Digest ] -> k Digestif.hash -> a s -> string =
  fun computation hash input ->
   let pp_computation ppf = function
@@ -13,34 +12,34 @@ let title :
     | `Digest -> Fmt.string ppf "digest" in
   let pp_hash : type k. k Digestif.hash Fmt.t =
    fun ppf -> function
-    | Digestif.MD5 -> Fmt.string ppf "md5"
-    | Digestif.SHA1 -> Fmt.string ppf "sha1"
-    | Digestif.RMD160 -> Fmt.string ppf "rmd160"
-    | Digestif.SHA224 -> Fmt.string ppf "sha224"
-    | Digestif.SHA256 -> Fmt.string ppf "sha256"
-    | Digestif.SHA384 -> Fmt.string ppf "sha384"
-    | Digestif.SHA512 -> Fmt.string ppf "sha512"
-    | Digestif.SHA3_224 -> Fmt.string ppf "sha3_224"
-    | Digestif.SHA3_256 -> Fmt.string ppf "sha3_256"
-    | Digestif.KECCAK_256 -> Fmt.string ppf "keccak_256"
-    | Digestif.SHA3_384 -> Fmt.string ppf "sha3_384"
-    | Digestif.SHA3_512 -> Fmt.string ppf "sha3_512"
-    | Digestif.WHIRLPOOL -> Fmt.string ppf "whirlpool"
-    | Digestif.BLAKE2B -> Fmt.string ppf "blake2b"
-    | Digestif.BLAKE2S -> Fmt.string ppf "blake2s" in
+     | Digestif.MD5 -> Fmt.string ppf "md5"
+     | Digestif.SHA1 -> Fmt.string ppf "sha1"
+     | Digestif.RMD160 -> Fmt.string ppf "rmd160"
+     | Digestif.SHA224 -> Fmt.string ppf "sha224"
+     | Digestif.SHA256 -> Fmt.string ppf "sha256"
+     | Digestif.SHA384 -> Fmt.string ppf "sha384"
+     | Digestif.SHA512 -> Fmt.string ppf "sha512"
+     | Digestif.SHA3_224 -> Fmt.string ppf "sha3_224"
+     | Digestif.SHA3_256 -> Fmt.string ppf "sha3_256"
+     | Digestif.KECCAK_256 -> Fmt.string ppf "keccak_256"
+     | Digestif.SHA3_384 -> Fmt.string ppf "sha3_384"
+     | Digestif.SHA3_512 -> Fmt.string ppf "sha3_512"
+     | Digestif.WHIRLPOOL -> Fmt.string ppf "whirlpool"
+     | Digestif.BLAKE2B -> Fmt.string ppf "blake2b"
+     | Digestif.BLAKE2S -> Fmt.string ppf "blake2s" in
   let pp_input : type a. a s Fmt.t =
    fun ppf -> function
-    | Bytes -> Fmt.string ppf "bytes"
-    | String -> Fmt.string ppf "string"
-    | Bigstring -> Fmt.string ppf "bigstring" in
+     | Bytes -> Fmt.string ppf "bytes"
+     | String -> Fmt.string ppf "string"
+     | Bigstring -> Fmt.string ppf "bigstring" in
   Fmt.str "%a:%a:%a" pp_computation computation pp_hash hash pp_input input
 
 let bytes = Bytes
 let string = String
 let bigstring = Bigstring
 
-let test_hmac :
-    type k a. a s -> k Digestif.hash -> string -> a -> k Digestif.t -> unit =
+let test_hmac : type k a.
+    a s -> k Digestif.hash -> string -> a -> k Digestif.t -> unit =
  fun kind hash key input expect ->
   let title = title `HMAC hash kind in
   let test_hash = Alcotest.testable (Digestif.pp hash) (Digestif.equal hash) in
@@ -55,8 +54,8 @@ let test_hmac :
       let result = Digestif.hmaci_bigstring hash ~key (fun f -> f input) in
       Alcotest.(check test_hash) title expect result
 
-let test_hmac_feed :
-    type k a. a s -> k Digestif.hash -> string -> a -> k -> unit =
+let test_hmac_feed : type k a.
+    a s -> k Digestif.hash -> string -> a -> k -> unit =
  fun kind hash key input expect ->
   let title = title `HMAC_feed hash kind in
   let module H = (val Digestif.module_of hash) in
@@ -96,8 +95,7 @@ let test_digest : type k a. a s -> k Digestif.hash -> a -> k Digestif.t -> unit
       let result = Digestif.digesti_bigstring hash (fun f -> f input) in
       Alcotest.(check test_hash) title expect result
 
-let make_hmac :
-    type a k.
+let make_hmac : type a k.
     name:string ->
     a s ->
     k Digestif.hash ->
@@ -108,8 +106,7 @@ let make_hmac :
  fun ~name kind hash key input expect ->
   (name, `Quick, fun () -> test_hmac kind hash key input expect)
 
-let make_hmac_feed :
-    type a k.
+let make_hmac_feed : type a k.
     name:string ->
     a s ->
     k Digestif.hash ->
@@ -120,8 +117,7 @@ let make_hmac_feed :
  fun ~name kind hash key input expect ->
   (name, `Quick, fun () -> test_hmac_feed kind hash key input expect)
 
-let make_digest :
-    type a k.
+let make_digest : type a k.
     name:string ->
     a s ->
     k Digestif.hash ->
@@ -170,7 +166,7 @@ let keys_by, keys_st, keys_bi =
     "La c'est un peu chaud en vrai";
   ]
   |> List.map (fun s ->
-         (Bytes.unsafe_of_string s, s, to_bigstring (Bytes.unsafe_of_string s)))
+      (Bytes.unsafe_of_string s, s, to_bigstring (Bytes.unsafe_of_string s)))
   |> split3
 
 let inputs_by, inputs_st, inputs_bi =
@@ -188,7 +184,7 @@ let inputs_by, inputs_st, inputs_bi =
      rideaux.";
   ]
   |> List.map (fun s ->
-         (Bytes.unsafe_of_string s, s, to_bigstring (Bytes.unsafe_of_string s)))
+      (Bytes.unsafe_of_string s, s, to_bigstring (Bytes.unsafe_of_string s)))
   |> split3
 
 let results_md5 =
@@ -369,16 +365,16 @@ module BLAKE2 = struct
             (res, succ i, None))
       (Bytes.create len, 0, None)
       hex
-    |> (function
-         | _, _, Some _ -> invalid_arg "of_hex"
-         | res, i, _ ->
-             if i = len
-             then res
-             else (
-               for i = i to len - 1 do
-                 Bytes.set res i '\000'
-               done ;
-               res))
+    |> ( function
+    | _, _, Some _ -> invalid_arg "of_hex"
+    | res, i, _ ->
+        if i = len
+        then res
+        else (
+          for i = i to len - 1 do
+            Bytes.set res i '\000'
+          done ;
+          res) )
     |> Bytes.unsafe_to_string
 
   let parse kind ic =
@@ -412,8 +408,7 @@ module BLAKE2 = struct
       | exception End_of_file -> List.rev acc in
     loop `In []
 
-  let test_mac :
-      type k a.
+  let test_mac : type k a.
       a s ->
       k Digestif.hash ->
       (module Digestif.MAC) ->
@@ -430,7 +425,8 @@ module BLAKE2 = struct
         (Obj.magic result)
       (* XXX(dinosaure): ok, this is really bad but I'm lazy to keep type
          equality on [Mac] - extend interface and play with [with type t = t]
-         anywhere. *) in
+         anywhere. *)
+    in
     match kind with
     | Bytes -> check @@ Mac.maci_bytes ~key (fun f -> f input)
     | String -> check @@ Mac.maci_string ~key (fun f -> f input)

@@ -26,17 +26,13 @@ let empty = {
   next = 0;
 }
 
-(* Duration 0.3.1's to_f is pure arithmetic over immutable values. Its
-   installed interface lacks portable annotations. *)
-let duration_to_f = Obj.magic_portable Duration.to_f
-
 let create ?(max_entries = 1024) ~ttl () =
   if ttl < 0L then
     invalid_arg "Proffer.Cache.create: ttl must be non-negative";
   if max_entries < 1 then
     invalid_arg "Proffer.Cache.create: max_entries must be positive";
   {
-    ttl = F64.of_float (duration_to_f ttl);
+    ttl = F64.of_float (Duration.to_f ttl);
     max_entries;
     state = Atomic.make empty;
     hits = Atomic.make 0;

@@ -1,0 +1,4 @@
+(test
+ (name test_refresh)
+ (modules test_refresh)
+ (libraries syndic xmlm ptime))

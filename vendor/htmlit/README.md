@@ -1,3 +1,5 @@
+> Refreshed to the upstream branch tip recorded in [../upstreams.json](../upstreams.json) on 2026-09-07. The import and port notes below include historical release numbers; the manifest records the current base.
+
 ## htmlit - HTML generation combinators for OCaml
 
 This is htmlit 0.2.0, vendored from https://erratique.ch/software/htmlit and

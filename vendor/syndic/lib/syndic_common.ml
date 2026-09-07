@@ -20,7 +20,7 @@ module XML = struct
      With the modes here, [let entry_of_xml = generate_catcher ... make_entry]
      stays the module-level partial application upstream wrote and is
      portable. *)
-  let generate_catcher ?(namespaces : string list @ portable = [""])
+  let generate_catcher_relaxed ?(namespaces : string list @ portable = [""])
       ?(attr_producer :
          (string * (xmlbase:Uriz.t option -> string -> 'a)) list @ portable =
          [])
@@ -60,13 +60,30 @@ module XML = struct
       | [] -> acc
     in
     let generate : _ @ portable =
-     fun ~xmlbase ((pos, tag, datas) : node) ->
+     fun ~relaxed ~xmlbase ((pos, tag, datas) : node) ->
       (* The spec says that "The base URI for a URI reference appearing in any
          other attribute value, including default attribute values, is the base
          URI of the element bearing the attribute" so get xml:base first. *)
       let xmlbase = xmlbase_of_attr ~xmlbase (get_attrs tag) in
       let acc = catch_attr ~xmlbase [] pos (get_attrs tag) in
-      maker ~pos (catch_datas ~xmlbase acc datas)
+      maker ~relaxed ~pos (catch_datas ~xmlbase acc datas)
+    in
+    generate
+
+  let generate_catcher ?(namespaces : string list option @ portable)
+      ?(attr_producer :
+         (string * (xmlbase:Uriz.t option -> string -> 'a)) list option @ portable)
+      ?(data_producer :
+         (string * (xmlbase:Uriz.t option -> node -> 'a)) list option @ portable)
+      ?(leaf_producer :
+         (xmlbase:Uriz.t option -> Xmlm.pos -> string -> 'a) option @ portable)
+      (maker @ portable) =
+    let parser =
+      generate_catcher_relaxed ?namespaces ?attr_producer ?data_producer ?leaf_producer
+        (fun ~relaxed:() -> maker)
+    in
+    let generate : _ @ portable =
+      fun ~xmlbase node -> parser ~relaxed:() ~xmlbase node
     in
     generate
 

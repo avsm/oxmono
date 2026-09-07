@@ -1,4 +1,0 @@
-(library
- (name httpz_route)
- (public_name httpz.route)
- (libraries stdlib_stable httpz base base_bigstring uriz))

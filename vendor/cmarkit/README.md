@@ -1,3 +1,5 @@
+> Refreshed to the upstream branch tip recorded in [../upstreams.json](../upstreams.json) on 2026-09-07. The import and port notes below include historical release numbers; the manifest records the current base.
+
 ## cmarkit - CommonMark parser and renderer for OCaml
 
 This is cmarkit 0.3.0, vendored from https://erratique.ch/software/cmarkit and

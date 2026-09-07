@@ -40,6 +40,7 @@ type encoding = [
   | `UTF_16BE
   | `UTF_16LE
   | `ISO_8859_1
+  | `ISO_8859_15
   | `US_ASCII ]
 
 type dtd = string option
@@ -359,7 +360,14 @@ module type S = sig
   type string
 
   type encoding = [
-    | `UTF_8 | `UTF_16 | `UTF_16BE | `UTF_16LE | `ISO_8859_1| `US_ASCII ]
+    | `UTF_8
+    | `UTF_16
+    | `UTF_16BE
+    | `UTF_16LE
+    | `ISO_8859_1
+    | `ISO_8859_15
+    | `US_ASCII ]
+
   type dtd = string option
   type name = string * string
   type attribute = name * string

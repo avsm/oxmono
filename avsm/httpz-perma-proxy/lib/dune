@@ -1,3 +1,0 @@
-(library
- (name perma_cache)
- (libraries jsont jsont.bytesrw cstruct eio http httpz httpz.route fetch))

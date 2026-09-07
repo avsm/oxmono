@@ -24,6 +24,16 @@
  (libraries ptime ptime.clock))
 
 (test
+ (name test_duration)
+ (modules test_duration)
+ (libraries duration))
+
+(test
+ (name test_mtime)
+ (modules test_mtime)
+ (libraries mtime mtime.clock mtime.clock.os))
+
+(test
  (name test_uriz)
  (modules test_uriz)
  (libraries uriz))

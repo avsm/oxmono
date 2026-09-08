@@ -1,0 +1,3 @@
+(executable
+ (name pointers)
+ (libraries json-pointer))

@@ -1,0 +1,9 @@
+{0 json-pointer}
+
+{!modules: Json_pointer Json_pointer_top}
+
+{1 Tutorial}
+
+See the {!page-tutorial} for a comprehensive guide to using JSON Pointers
+with this library. The source distribution also contains six numbered,
+standalone projects under [example/] for a runnable step-by-step introduction.

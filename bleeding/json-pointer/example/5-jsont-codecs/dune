@@ -1,0 +1,3 @@
+(executable
+ (name jsont_codecs)
+ (libraries json-pointer jsont jsont.bytesrw))

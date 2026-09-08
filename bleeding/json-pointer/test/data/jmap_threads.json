@@ -1,0 +1,19 @@
+{
+  "accountId": "A1",
+  "state": "123456",
+  "list": [
+    {
+      "id": "trd194",
+      "emailIds": ["msg1020", "msg1021", "msg1023"]
+    },
+    {
+      "id": "trd114",
+      "emailIds": ["msg201", "msg223"]
+    },
+    {
+      "id": "trd99",
+      "emailIds": ["msg42"]
+    }
+  ],
+  "notFound": []
+}

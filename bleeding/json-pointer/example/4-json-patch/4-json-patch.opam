@@ -1,0 +1,15 @@
+opam-version: "2.0"
+synopsis: "Apply RFC 6902 JSON Patch operations"
+maintainer: "Anil Madhavapeddy <anil@recoil.org>"
+authors: "Anil Madhavapeddy"
+license: "ISC"
+homepage: "https://tangled.org/anil.recoil.org/ocaml-json-pointer"
+bug-reports: "https://tangled.org/anil.recoil.org/ocaml-json-pointer/issues"
+depends: [
+  "ocaml" {>= "4.14.0"}
+  "dune" {>= "3.21"}
+  "json-pointer"
+  "jsont" {>= "0.3.0"}
+  "bytesrw" {>= "0.2.0"}
+]
+build: ["dune" "build" "-p" name "-j" jobs]

@@ -1,0 +1,273 @@
+{0 JSON Pointer tutorial}
+
+This tutorial introduces {{:https://www.rfc-editor.org/rfc/rfc6901}RFC 6901}
+JSON Pointers and their integration with [Jsont]. A JSON Pointer identifies one
+location in a JSON document; it is not the query language commonly called
+JSONPath.
+
+{1 Setup}
+
+First load [json-pointer] for the library. The optional [json-pointer.top]
+package installs printers used in this tutorial. The examples use the optional
+[jsont.bytesrw] codec package to parse JSON text.
+
+{@ocaml[
+# Json_pointer_top.install ();;
+- : unit = ()
+# open Json_pointer;;
+# let parse_json s =
+    match Jsont_bytesrw.decode_string Jsont.json s with
+    | Ok json -> json
+    | Error error -> failwith error;;
+val parse_json : string -> Jsont.json = <fun>
+]}
+
+{1 Tokens and syntax}
+
+A pointer is a sequence of string tokens. The empty sequence identifies the
+whole document; every token in the string representation is prefixed by [/].
+
+{@ocaml[
+# of_string "";;
+- : t = ""
+# of_string "/users/0/name";;
+- : t = "/users/0/name"
+# tokens (of_string "/users/0/name");;
+- : string list = ["users"; "0"; "name"]
+]}
+
+The library intentionally does not classify ["0"] as an array index while
+parsing. JSON Pointer cannot encode that distinction: the same [/0] selects
+member ["0"] from an object and element zero from an array. Interpretation is
+therefore deferred until evaluation.
+
+Pointers can be built from unescaped tokens. The [/] operator and
+{!Json_pointer.append} are equivalent.
+
+{@ocaml[
+# let name = root / "users" / "0" / "name";;
+val name : t = "/users/0/name"
+# let escaped = of_tokens ["a/b"; "m~n"];;
+val escaped : t = "/a~1b/m~0n"
+# to_string escaped;;
+- : string = "/a~1b/m~0n"
+]}
+
+{2 Escaping}
+
+Only two characters have special meaning inside a token: [~] becomes [~0] and
+[/] becomes [~1]. Unescaping is performed in the order required by RFC 6901, so
+[~01] becomes the two-character string [~1], not [/].
+
+{@ocaml[
+# Token.escape "a/b~c";;
+- : string = "a~1b~0c"
+# Token.unescape "a~1b~0c";;
+- : string = "a/b~c"
+# Token.unescape "~01";;
+- : string = "~1"
+]}
+
+Use {!Json_pointer.of_string_result} when malformed input should not raise an
+exception.
+
+{@ocaml[
+# of_string_result "not/a/pointer";;
+- : (t, string) result =
+Error "Invalid JSON Pointer: must be empty or start with '/': not/a/pointer"
+]}
+
+{1 Evaluation}
+
+Consider the RFC 6901 example, with two additional object members that show the
+context-dependent tokens clearly.
+
+{x@ocaml[
+# let example = parse_json {|{
+    "foo": ["bar", "baz"],
+    "0": "zero",
+    "-": "hyphen",
+    "": 0,
+    "a/b": 1,
+    "m~n": 2
+  }|};;
+val example : Jsont.json =
+  {
+    "foo": ["bar", "baz"],
+    "0": "zero",
+    "-": "hyphen",
+    "": 0,
+    "a/b": 1,
+    "m~n": 2
+  }
+# get (of_string "/foo/0") example;;
+- : Jsont.json = "bar"
+# get (of_string "/0") example;;
+- : Jsont.json = "zero"
+# get (of_string "/-") example;;
+- : Jsont.json = "hyphen"
+# get (of_string "/a~1b") example;;
+- : Jsont.json = 1
+# get (of_string "/m~0n") example;;
+- : Jsont.json = 2
+]x}
+
+The token [-] identifies an ordinary member when the current value is an
+object. Against an array it denotes the nonexistent position after the final
+element, so retrieval fails. The JSON Patch [add] operation gives that array
+position useful append semantics, as shown below.
+
+Three retrieval forms are provided: {!Json_pointer.get} raises [Jsont.Error],
+{!Json_pointer.get_result} returns that error, and {!Json_pointer.find} returns
+[None].
+
+{@ocaml[
+# find (of_string "/foo/99") example;;
+- : Jsont.json option = None
+# find (of_string "/missing") example;;
+- : Jsont.json option = None
+]}
+
+Array indices must be [0] or a sequence beginning with [1] through [9]. A token
+such as [01] is still valid pointer syntax and can select an object member, but
+it is invalid when evaluated against an array.
+
+{1 URI fragment representation}
+
+{!Json_pointer.to_uri_fragment} and {!Json_pointer.of_uri_fragment} operate on
+fragment {e content}; the leading [#] used in a complete URI is not included.
+Percent encoding is applied after JSON Pointer token escaping.
+
+{@ocaml[
+# let p = of_string "/a b/c%d";;
+val p : t = "/a b/c%d"
+# to_uri_fragment p;;
+- : string = "/a%20b/c%25d"
+# of_uri_fragment "/a%20b/c%25d";;
+- : t = "/a b/c%d"
+]}
+
+The implementation delegates RFC 3986 percent encoding and decoding to the
+[uri] library while checking malformed percent triplets before decoding.
+
+{1 JSON Patch operations}
+
+The library exposes the six operations defined by
+{{:https://www.rfc-editor.org/rfc/rfc6902}RFC 6902}: {!Json_pointer.add},
+{!Json_pointer.remove}, {!Json_pointer.replace}, {!Json_pointer.move},
+{!Json_pointer.copy}, and {!Json_pointer.test}.
+
+{x@ocaml[
+# let tasks = parse_json {|{"tasks":["buy milk","write code"]}|};;
+val tasks : Jsont.json = {"tasks": ["buy milk", "write code"]}
+# add (of_string "/tasks/-") tasks ~value:(Jsont.Json.string "ship");;
+- : Jsont.json = {"tasks": ["buy milk", "write code", "ship"]}
+# add (of_string "/tasks/1") tasks ~value:(Jsont.Json.string "review");;
+- : Jsont.json = {"tasks": ["buy milk", "review", "write code"]}
+# replace (of_string "/tasks/0") tasks ~value:(Jsont.Json.string "test");;
+- : Jsont.json = {"tasks": ["test", "write code"]}
+# remove (of_string "/tasks/1") tasks;;
+- : Jsont.json = {"tasks": ["buy milk"]}
+# test (of_string "/tasks/0") tasks ~expected:(Jsont.Json.string "buy milk");;
+- : bool = true
+]x}
+
+For [add], the root pointer replaces the document, an object target is created
+or replaced, an array index inserts before that element, and final [-] appends.
+All intermediate values must already exist. [replace] and [remove] require the
+target itself to exist.
+
+For distinct pointers, [move] removes [from] and then adds at [path]. It rejects
+a move when [from] is a proper prefix of [path], since that would move a value
+into one of its own descendants. Identical pointers are an exact no-op.
+
+{1 Jsont integration}
+
+{!Json_pointer.jsont} encodes pointers as JSON strings. The
+{!Json_pointer.path} combinator locates a generic JSON value and then decodes it
+with another codec.
+
+{x@ocaml[
+# let config = parse_json {|{
+    "database": {"host": "localhost", "port": 5432},
+    "features": ["auth", "metrics"]
+  }|};;
+val config : Jsont.json =
+  {
+    "database": {"host": "localhost", "port": 5432},
+    "features": ["auth", "metrics"]
+  }
+# Jsont.Json.decode
+    (path (of_string "/database/host") Jsont.string) config
+  |> Result.get_ok;;
+- : string = "localhost"
+# Jsont.Json.decode
+    (path ~absent:30 (of_string "/database/timeout") Jsont.int) config
+  |> Result.get_ok;;
+- : int = 30
+]x}
+
+The update combinators return [Jsont.json Jsont.t] values suitable for
+[Jsont.Json.recode]. [set_path] replaces an existing location by default;
+[~allow_absent:true] permits creation of the final location, but does not invent
+missing intermediate containers.
+
+{1 Jsont.Path conversion}
+
+Conversion from [Jsont.Path.t] is available for nonnegative indices and UTF-8
+object member names:
+
+{@ocaml[
+# let jsont_path = Jsont.Path.(root |> mem "users" |> nth 0 |> mem "name");;
+val jsont_path : Jsont.Path.t = <abstr>
+# of_path jsont_path;;
+- : t = "/users/0/name"
+]}
+
+There is no context-free inverse. A pointer token ["0"] doesn't record whether
+it was meant as [Jsont.Path.Mem "0"] or [Jsont.Path.Nth 0]; only a JSON value can
+settle that question.
+
+{1 JMAP result references}
+
+{{:https://www.rfc-editor.org/rfc/rfc8620#section-3.7}RFC 8620 Section 3.7}
+extends evaluation when the current value is an array: a [*] token maps the
+remaining pointer over every element and flattens nested array results by one
+level. It uses the same pointer syntax and type, so parsing is not duplicated.
+
+{x@ocaml[
+# let response = parse_json
+    {|{"list":[{"id":"a","tags":["x","y"]},{"id":"b","tags":["z"]}]}|};;
+val response : Jsont.json =
+  {"list": [{"id": "a", "tags": ["x", "y"]}, {"id": "b", "tags": ["z"]}]}
+# Jmap.get (of_string "/list/*/id") response;;
+- : Jsont.json = ["a", "b"]
+# Jmap.get (of_string "/list/*/tags") response;;
+- : Jsont.json = ["x", "y", "z"]
+# Jsont.Json.decode
+    (Jmap.path_list (of_string "/list/*/id") Jsont.string) response
+  |> Result.get_ok;;
+- : string list = ["a"; "b"]
+]x}
+
+A [*] token is special only when the current value is an array. On an object it
+remains the ordinary member name ["*"], exactly as required by the underlying
+JSON Pointer evaluation rules.
+
+Expansion can emit more values than the document holds, since nested wildcards
+multiply and a subtree shared between several elements is expanded once for
+each element that reaches it. The optional [max_results] argument bounds the
+number of values a wildcard emits. Set it when the reference comes from an
+untrusted peer.
+
+{x@ocaml[
+# Jmap.get ~max_results:8 (of_string "/list/*/tags") response;;
+- : Jsont.json = ["x", "y", "z"]
+# Jmap.find ~max_results:2 (of_string "/list/*/tags") response;;
+- : Jsont.json option = None
+]x}
+
+A result reached without a wildcard is not counted against the bound, since it
+is already part of the input tree, and one bound is shared by nested wildcards.
+{!Json_pointer.Jmap.find} reports an exceeded bound as [None]; use
+{!Json_pointer.Jmap.get_result} to tell that apart from a missing value.

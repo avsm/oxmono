@@ -1,0 +1,3 @@
+(executable
+ (name uri_fragments)
+ (libraries json-pointer))

@@ -1,0 +1,4 @@
+(library
+ (name json_pointer_top)
+ (public_name json-pointer.top)
+ (libraries json-pointer jsont compiler-libs))

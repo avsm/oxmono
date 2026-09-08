@@ -1,0 +1,7 @@
+(mdx
+ (files tutorial.mld)
+ (libraries jsont jsont.bytesrw json_pointer json_pointer_top))
+
+(documentation
+ (package json-pointer)
+ (mld_files index tutorial))

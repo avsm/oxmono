@@ -1,0 +1,25 @@
+{
+  "accountId": "A1",
+  "state": "123456",
+  "list": [
+    {
+      "id": "msg1023",
+      "threadId": "trd194",
+      "from": [{"email": "alice@example.com"}],
+      "subject": "Hello"
+    },
+    {
+      "id": "msg223",
+      "threadId": "trd114",
+      "from": [{"email": "bob@example.com"}],
+      "subject": "Re: Project"
+    },
+    {
+      "id": "msg110",
+      "threadId": "trd99",
+      "from": [{"email": "carol@example.com"}],
+      "subject": "Meeting"
+    }
+  ],
+  "notFound": []
+}

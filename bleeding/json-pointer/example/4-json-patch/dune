@@ -1,0 +1,3 @@
+(executable
+ (name json_patch)
+ (libraries json-pointer jsont jsont.bytesrw))

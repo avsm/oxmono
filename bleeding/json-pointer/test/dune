@@ -1,0 +1,15 @@
+(executable
+ (name test_pointer)
+ (libraries jsont jsont.bytesrw json_pointer))
+
+(cram
+ (deps
+  test_pointer.exe
+  data/rfc6901_example.json
+  data/nested.json
+  data/nulls.json
+  data/booleans.json
+  data/unicode.json
+  data/numeric_keys.json
+  data/jmap_threads.json
+  data/jmap_emails.json))

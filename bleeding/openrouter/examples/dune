@@ -1,0 +1,4 @@
+(executable
+ (name chat)
+ (optional)
+ (libraries openrouter fetch-curl eio_main duration))

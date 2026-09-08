@@ -1,0 +1,4 @@
+(library
+ (name openrouter)
+ (public_name openrouter)
+ (libraries openrouter_api openapi fetch jsont eio base64))

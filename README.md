@@ -65,6 +65,9 @@ The unreleased [Matrix SDK](bleeding/matrix/OXMONO.md) and
 [Zulip bindings](bleeding/zulip/OXMONO.md) live under `bleeding/`. Their import
 notes record upstream revisions, local adaptations and scoped test commands.
 
+The [OpenRouter client](bleeding/openrouter/README.md) provides Eio-native
+chat, vision inputs, function tools and streaming over Fetch.
+
 ## Dependencies
 
 The workspace uses opam dependencies and the sources under `vendor/`.

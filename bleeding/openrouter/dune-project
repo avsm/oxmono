@@ -1,0 +1,24 @@
+(lang dune 3.21)
+(name openrouter)
+(generate_opam_files true)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(package
+ (name openrouter)
+ (synopsis "Native Eio chat and vision client for OpenRouter over Fetch")
+ (depends
+  (ocaml (>= 5.2))
+  openapi
+  fetch
+  eio
+  jsont
+  bytesrw
+  base64
+  ptime
+  conf-python-3
+  (fetch-curl :with-test)
+  (eio_main :with-test)
+  (duration :with-test)
+  (alcotest :with-test)))

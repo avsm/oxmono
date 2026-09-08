@@ -1,0 +1,11 @@
+(test
+ (name test_openrouter)
+ (libraries openrouter alcotest fetch.mock eio.mock jsont jsont.bytesrw http))
+
+(rule
+ (alias runtest)
+ (deps ../sanitize.py ../openapi.json test_schema.py)
+ (action
+  (progn
+   (run python3 %{dep:../sanitize.py} --check %{dep:../openapi.json})
+   (run python3 %{dep:test_schema.py}))))

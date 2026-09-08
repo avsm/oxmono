@@ -19,7 +19,7 @@ type error = [
 ]
 (** The type for errors. *)
 
-val pp_error : Format.formatter -> error -> unit
+val pp_error : Format.formatter -> error -> unit @@ portable
 (** Pretty printer for errors *)
 
 exception Message_too_long
@@ -32,13 +32,13 @@ module type Dh = sig
   (** Type for private keys. *)
 
   val secret_of_octets : ?compress:bool -> string ->
-    (secret * string, error) result
+    (secret * string, error) result @@ portable
   (** [secret_of_octets ~compress secret] decodes the provided buffer as
       {!secret}.  If [compress] is provided and [true] (defaults to [false]),
       the shared part will be compressed. May result in an error if the buffer
       had an invalid length or was not in bounds. *)
 
-  val secret_to_octets : secret -> string
+  val secret_to_octets : secret -> string @@ portable
   (** [secret_to_octets secret] encodes the provided secret into a freshly
       allocated buffer. *)
 
@@ -93,14 +93,14 @@ module type Dsa = sig
   (** [priv_of_octets buf] decodes a private key from the buffer [buf]. If the
       provided data is invalid, an error is returned. *)
 
-  val priv_to_octets : priv -> string
+  val priv_to_octets : priv -> string @@ portable
   (** [priv_to_octets p] encode the private key [p] to a buffer. *)
 
   val pub_of_octets : string -> (pub, error) result @@ portable
   (** [pub_of_octets buf] decodes a public key from the buffer [buf]. If the
       provided data is invalid, an error is returned. *)
 
-  val pub_to_octets : ?compress:bool -> pub -> string
+  val pub_to_octets : ?compress:bool -> pub -> string @@ portable
   (** [pub_to_octets ~compress p] encodes the public key [p] into a buffer.
       If [compress] is provided and [true] (default [false]), the compressed
       representation is returned. *)
@@ -212,14 +212,14 @@ module Ed25519 : sig
   (** [priv_of_octets buf] decodes a private key from the buffer [buf]. If the
       provided data is invalid, an error is returned. *)
 
-  val priv_to_octets : priv -> string
+  val priv_to_octets : priv -> string @@ portable
   (** [priv_to_octets p] encode the private key [p] to a buffer. *)
 
   val pub_of_octets : string -> (pub, error) result @@ portable
   (** [pub_of_octets buf] decodes a public key from the buffer [buf]. If the
       provided data is invalid, an error is returned. *)
 
-  val pub_to_octets : pub -> string
+  val pub_to_octets : pub -> string @@ portable
   (** [pub_to_octets p] encodes the public key [p] into a buffer. *)
 
   (** {2 Deriving the public key} *)

@@ -37,8 +37,8 @@ let bit_at buf i =
 module type Dh = sig
   type secret
   val secret_of_octets : ?compress:bool -> string ->
-    (secret * string, error) result
-  val secret_to_octets : secret -> string
+    (secret * string, error) result @@ portable
+  val secret_to_octets : secret -> string @@ portable
   val gen_key : ?compress:bool -> ?g:Mirage_crypto_rng.g -> unit ->
     secret * string
   val gen_key_with : g:Mirage_crypto_rng.portable_g -> ?compress:bool ->
@@ -52,9 +52,9 @@ module type Dsa = sig
   val byte_length : int
   val bit_length : int
   val priv_of_octets : string -> (priv, error) result @@ portable
-  val priv_to_octets : priv -> string
+  val priv_to_octets : priv -> string @@ portable
   val pub_of_octets : string -> (pub, error) result @@ portable
-  val pub_to_octets : ?compress:bool -> pub -> string
+  val pub_to_octets : ?compress:bool -> pub -> string @@ portable
   val pub_of_priv : priv -> pub
   val generate : ?g:Mirage_crypto_rng.g -> unit -> priv * pub
   val sign : ?mask:[ `No | `Yes | `Yes_with of Mirage_crypto_rng.g ] ->

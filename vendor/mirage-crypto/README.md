@@ -42,3 +42,10 @@ let () = Mirage_crypto_rng_unix.use_default ()
 ## LICENSE
 
 Mostly ISC, the `mirage-crypto-rng` and `mirage-crypto-rng-mirage` packages are 2 clause BSD licensed, the `mirage-crypto-ec` package is MIT licensed.
+
+## Matrix import portability annotations
+
+The EC error printer and key octet conversions are exposed as portable
+for Matrix JSON codecs. Matching functor signatures in the implementation
+carry the same annotations. Cryptographic algorithms and RNG interfaces
+are unchanged. The compiler checks the annotations.

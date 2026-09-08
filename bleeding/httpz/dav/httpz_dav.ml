@@ -3,6 +3,8 @@ let ns_xml = Xmlm.ns_xml
 let ns_xmlns = Xmlm.ns_xmlns
 type name = string * string
 let dav local = "DAV:", local
+let carddav local = "urn:ietf:params:xml:ns:carddav", local
+let caldav local = "urn:ietf:params:xml:ns:caldav", local
 type xml = Text of string | Element of element
 and element = { name : name; attrs : (name * string) list; children : xml list }
 type limits = { max_bytes : int; max_depth : int; max_nodes : int }
@@ -281,21 +283,21 @@ let property name response = match property_results name response with
 
 type propfind = Allprop of name list | Propname | Prop of name list
 type update = Set of element list | Remove of name list
-let el n xs = Element (element (dav n) xs)
+let dav_el n xs = Element (element (dav n) xs)
 let names xs = List.map (fun n -> Element (element n [])) xs
 let propfind query =
   let body = match query with
-    | Prop ps -> [el "prop" (names ps)]
-    | Propname -> [el "propname" []]
-    | Allprop [] -> [el "allprop" []]
-    | Allprop ps -> [el "allprop" []; el "include" (names ps)] in
+    | Prop ps -> [dav_el "prop" (names ps)]
+    | Propname -> [dav_el "propname" []]
+    | Allprop [] -> [dav_el "allprop" []]
+    | Allprop ps -> [dav_el "allprop" []; dav_el "include" (names ps)] in
   encode_xml (element (dav "propfind") body)
 let proppatch updates =
   if updates = [] then invalid_arg "Httpz_dav.proppatch: empty update";
   let body = List.map (function
     | Set [] | Remove [] -> invalid_arg "Httpz_dav.proppatch: empty operation"
-    | Set ps -> el "set" [el "prop" (List.map (fun e -> Element e) ps)]
-    | Remove ps -> el "remove" [el "prop" (names ps)]) updates in
+    | Set ps -> dav_el "set" [dav_el "prop" (List.map (fun e -> Element e) ps)]
+    | Remove ps -> dav_el "remove" [dav_el "prop" (names ps)]) updates in
   encode_xml (element (dav "propertyupdate") body)
 
 type depth = [ `Zero | `One | `Infinity ]
@@ -365,9 +367,9 @@ type lock = { scope : scope; depth : tree_depth; timeout : timeout option;
               token : Token.t option; root : string option; owner : element option }
 let lockinfo ?owner scope =
   encode_xml (element (dav "lockinfo")
-    ([el "lockscope" [el (match scope with Exclusive -> "exclusive" | Shared -> "shared") []];
-      el "locktype" [el "write" []]] @
-     match owner with None -> [] | Some xs -> [el "owner" xs]))
+    ([dav_el "lockscope" [dav_el (match scope with Exclusive -> "exclusive" | Shared -> "shared") []];
+      dav_el "locktype" [dav_el "write" []]] @
+     match owner with None -> [] | Some xs -> [dav_el "owner" xs]))
 let locks root = protect (fun () ->
   if root.name <> dav "prop" then invalid "expected DAV:prop";
   let discovery = required (dav "lockdiscovery") root in
@@ -390,6 +392,8 @@ let locks root = protect (fun () ->
 let attr name e = List.assoc_opt name e.attrs
 let elements e = List.filter_map (function Element e -> Some e | Text _ -> None) e.children
 let find name e = List.find_opt (fun e -> e.name = name) (elements e)
+let is name e = e.name = name
+let el ?attrs name children = element ?attrs name (List.map (fun e -> Element e) children)
 let rec content e = String.trim (String.concat "" (List.map (function
   | Text s -> s | Element e -> content e) e.children))
 let leaf name s = element name [Text s]
@@ -477,15 +481,15 @@ let failures m = List.concat_map (fun r -> match r.outcome with
       else Some (g.status, g.errors, List.map (fun e -> e.name) g.properties)) groups) m.responses
 
 let mkcol props =
-  encode_xml (element (dav "mkcol") [el "set" [el "prop" (List.map (fun e -> Element e) props)]])
+  encode_xml (element (dav "mkcol") [dav_el "set" [dav_el "prop" (List.map (fun e -> Element e) props)]])
 let mkcalendar props =
   encode_xml (element ("urn:ietf:params:xml:ns:caldav", "mkcalendar")
-    [el "set" [el "prop" (List.map (fun e -> Element e) props)]])
+    [dav_el "set" [dav_el "prop" (List.map (fun e -> Element e) props)]])
 let mkcol_response root = protect (fun () ->
   if root.name <> dav "mkcol-response" && root.name <> ("urn:ietf:params:xml:ns:caldav", "mkcalendar-response")
   then invalid "expected DAV:mkcol-response";
   let synthetic = element (dav "multistatus")
-    [el "response" (Element (leaf (dav "href") "/") :: List.map (fun e -> Element e) (elems root))] in
+    [dav_el "response" (Element (leaf (dav "href") "/") :: List.map (fun e -> Element e) (elems root))] in
   match multistatus synthetic with
   | Ok { responses = [{ outcome = Properties groups; _ }]; _ } -> groups
   | Ok _ -> invalid "mkcol-response has no propstat"
@@ -495,12 +499,12 @@ module Sync = struct
   type level = [ `One | `Infinite ]
   let request ?(token = "") ?(level = `One) ?limit props =
     encode_xml (element (dav "sync-collection")
-      ([el "sync-token" [Text token];
-        el "sync-level" [Text (match level with `One -> "1" | `Infinite -> "infinite")]] @
+      ([dav_el "sync-token" [Text token];
+        dav_el "sync-level" [Text (match level with `One -> "1" | `Infinite -> "infinite")]] @
        (match limit with None -> [] | Some n ->
          if n < 0 then invalid_arg "Httpz_dav.Sync.request: negative limit";
-         [el "limit" [el "nresults" [Text (string_of_int n)]]]) @
-       [el "prop" (names props)]))
+         [dav_el "limit" [dav_el "nresults" [Text (string_of_int n)]]]) @
+       [dav_el "prop" (names props)]))
   type change = Changed of response | Removed of string | Unsupported of string * element list
   type t = { token : string option; changes : change list; truncated : bool }
   let decode ?lenient ~base root = protect (fun () ->
@@ -672,15 +676,15 @@ module Server = struct
         end in
       loop [])
 
-  let text name value = el name [Text value]
+  let text name value = dav_el name [Text value]
   let status code =
     if code < 100 || code > 599 then invalid_arg "invalid DAV status";
     text "status" (Printf.sprintf "HTTP/1.1 %d Status" code)
-  let errors xs = if xs = [] then [] else [el "error" (List.map (fun x -> Element x) xs)]
+  let errors xs = if xs = [] then [] else [dav_el "error" (List.map (fun x -> Element x) xs)]
   let description = function
     | None -> [] | Some s -> [text "responsedescription" s]
   let propstat (p : propstat) =
-    el "propstat" ([el "prop" (List.map (fun p -> Element p) p.properties);
+    dav_el "propstat" ([dav_el "prop" (List.map (fun p -> Element p) p.properties);
       status p.status] @ errors p.errors @ description p.description)
   let multistatus ?max_bytes value =
     let response (r : response) =
@@ -689,22 +693,22 @@ module Server = struct
       let outcome = match r.outcome with
         | Status code -> [status code]
         | Properties ps -> List.map propstat ps in
-      el "response" (List.map (text "href") r.hrefs @ outcome @ errors r.errors
+      dav_el "response" (List.map (text "href") r.hrefs @ outcome @ errors r.errors
         @ description r.description @ match r.location with
-        | None -> [] | Some h -> [el "location" [text "href" h]]) in
+        | None -> [] | Some h -> [dav_el "location" [text "href" h]]) in
     encode_xml ?max_bytes (element (dav "multistatus")
       (List.map response value.responses @ description value.description))
   let error names = encode_xml (element (dav "error")
     (List.map (fun name -> Element (element name [])) names))
   let lockdiscovery locks =
     let active l =
-      el "activelock" ([el "lockscope" [el (match l.scope with
+      dav_el "activelock" ([dav_el "lockscope" [dav_el (match l.scope with
         | Exclusive -> "exclusive" | Shared -> "shared") []];
-        el "locktype" [el "write" []];
+        dav_el "locktype" [dav_el "write" []];
         text "depth" (encode_depth (l.depth :> depth))]
         @ (match l.owner with None -> [] | Some e -> [Element e])
         @ (match l.timeout with None -> [] | Some t -> [text "timeout" (encode_timeout t)])
-        @ (match l.token with None -> [] | Some t -> [el "locktoken" [text "href" (Token.to_string t)]])
-        @ (match l.root with None -> [] | Some h -> [el "lockroot" [text "href" h]])) in
+        @ (match l.token with None -> [] | Some t -> [dav_el "locktoken" [text "href" (Token.to_string t)]])
+        @ (match l.root with None -> [] | Some h -> [dav_el "lockroot" [text "href" h]])) in
     element (dav "lockdiscovery") (List.map active locks)
 end

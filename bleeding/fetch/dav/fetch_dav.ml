@@ -505,3 +505,153 @@ module Mirror = struct
               (* Earlier pages may have committed their progress. *)
               rebuild ~log ?limit ~level t ~collection ~dir (load t collection dir))
 end
+
+module Session = struct
+  type dav = t
+  let scoped = resolve
+  type t = { dav : dav; sw : Eio.Switch.t; principal : string; home_sets : string list }
+  type error =
+    | Http of int * string
+    | Dav of int * Httpz_dav.element list
+    | Precondition_failed of string
+    | Not_found of string
+    | Xml of string
+    | Data of string
+    | Discovery of string
+    | Transport of Fetch.error * string
+  let first_line s =
+    let s = match String.index_opt s '\n' with Some i -> String.sub s 0 i | None -> s in
+    let s = String.trim s in
+    if String.length s > 120 then String.sub s 0 120 ^ "..." else s
+  let pp_error ?(describe = snd) ppf = function
+    | Http (code, body) -> Format.fprintf ppf "HTTP %d: %s" code (first_line body)
+    | Dav (code, conditions) ->
+        Format.fprintf ppf "HTTP %d: %s" code
+          (String.concat ", " (List.map (fun (e : Httpz_dav.element) -> describe e.name) conditions))
+    | Precondition_failed target -> Format.fprintf ppf "precondition failed for %s" target
+    | Not_found target -> Format.fprintf ppf "%s does not exist" target
+    | Xml msg -> Format.fprintf ppf "XML: %s" msg
+    | Data msg -> Format.fprintf ppf "data: %s" msg
+    | Discovery msg -> Format.fprintf ppf "discovery: %s" msg
+    | Transport (_, msg) -> Format.fprintf ppf "transport: %s" (first_line msg)
+  let error_to_string ?describe e = Format.asprintf "%a" (pp_error ?describe) e
+  let guard ~target f =
+    try Ok (f ()) with
+    | Eio.Io (Fetch.E e, _) as exn -> Error (Transport (e, Format.asprintf "%a" Eio.Exn.pp exn))
+    | Protocol_error msg -> Error (Xml msg)
+    | Invalid_argument msg -> Error (Discovery msg)
+    | Http_error e -> (match e.status with
+        | 404 -> Error (Not_found target)
+        | 412 -> Error (Precondition_failed target)
+        | code when e.dav_errors <> [] -> Error (Dav (code, e.dav_errors))
+        | code -> Error (Http (code, e.body)))
+  let ( let* ) = Result.bind
+  let connect ~sw ?(credentials = []) ?(allow_insecure = false) ?limits ?lenient_hrefs
+      ~service ~home_set:home fetch url =
+    let* parsed = Result.map_error (fun m -> Discovery m) (Url.of_string url) in
+    let origin = Url.origin parsed in
+    let fetch = match credentials with
+      | [] -> Fetch.Middleware.(of_handler (handler fetch))
+      | credentials -> Fetch.with_credentials ~scope:[origin] ~allow_insecure credentials fetch in
+    let dav = v ?limits ?lenient_hrefs ~root:(origin ^ "/") fetch in
+    let url = Url.to_string parsed in
+    let well_known = Httpz_dav.Discovery.well_known service in
+    let path = Httpz_dav.href_path url in
+    let* context =
+      if String.ends_with ~suffix:well_known path || String.ends_with ~suffix:(well_known ^ "/") path
+      then guard ~target:url (fun () -> context_path dav service)
+      else Ok url in
+    let* principal = guard ~target:context (fun () -> principal dav context) in
+    let* home_sets = guard ~target:principal (fun () -> home_set dav home principal) in
+    if home_sets = [] then Error (Discovery (principal ^ " names no " ^ snd home))
+    else Ok { dav; sw; principal; home_sets }
+  let principal t = t.principal
+  let home_sets t = t.home_sets
+  let client t = t.dav
+  let switch t = t.sw
+  let resolve t href =
+    match Httpz_dav.resolve_href ~base:t.principal href with Ok r -> r | Error _ -> href
+  let propfind t ?(depth = `Zero) url query =
+    let url = resolve t url in
+    guard ~target:url (fun () -> propfind ~depth t.dav url query)
+  let report t ?(depth = `Zero) url body =
+    let url = resolve t url in
+    guard ~target:url (fun () -> report ~depth t.dav url (Httpz_dav.encode_xml body))
+  let report_body t ?(depth = `Zero) url body =
+    let url = resolve t url in
+    guard ~target:url (fun () -> report_body ~depth t.dav url (Httpz_dav.encode_xml body))
+  let mkcol t ?props url =
+    let url = resolve t url in
+    guard ~target:url (fun () -> mkcol ?props t.dav url)
+  let mkcalendar t ?props url =
+    let url = resolve t url in
+    guard ~target:url (fun () -> mkcalendar ?props t.dav url)
+  let proppatch t url updates =
+    let url = resolve t url in
+    let* m = guard ~target:url (fun () -> proppatch t.dav url updates) in
+    match Httpz_dav.failures m with
+    | [] -> Ok ()
+    | (code, conditions, names) :: _ -> Error (Dav (code, conditions @ List.map Httpz_dav.empty names))
+  let condition ?etag ?(create = false) () =
+    match etag with
+    | Some s -> (match Fetch.Header.decode Fetch.Header.etag s with
+        | Some v -> Ok (If_match v)
+        | None -> Error (Data (Printf.sprintf "%S is not an entity tag" s)))
+    | None -> Ok (if create then If_absent else Unconditional)
+  let delete t ?etag url =
+    let url = resolve t url in
+    let* condition = condition ?etag () in
+    let* outcome = guard ~target:url (fun () -> delete ~condition t.dav url) in
+    match outcome with
+    | Complete _ -> Ok ()
+    | Multi m -> (match Httpz_dav.failures m with
+        | [] -> Ok ()
+        | (code, conditions, _) :: _ -> Error (Dav (code, conditions)))
+  type member = { href : string; etag : string option; content_type : string option }
+  let members t url =
+    let url = resolve t url in
+    let query = Httpz_dav.Prop Httpz_dav.Prop.[resourcetype; getetag; getcontenttype] in
+    let* m = propfind t ~depth:`One url query in
+    Ok (List.filter_map (fun (r : Httpz_dav.response) ->
+      let href = Httpz_dav.href r and status = Httpz_dav.response_status r in
+      if Httpz_dav.same_href href url || Httpz_dav.is_collection r || status < 200 || status > 299
+      then None
+      else Some {
+        href = (match Httpz_dav.resolve_href ~base:url href with Ok h -> h | Error _ -> href);
+        etag = Httpz_dav.etag r;
+        content_type = Option.map Httpz_dav.content
+          (Httpz_dav.find_property Httpz_dav.Prop.getcontenttype r) }) m.responses)
+  let get t ?accept url =
+    let url = resolve t url in
+    let headers = match accept with Some a -> Fetch.Header.[raw "Accept" a] | None -> Fetch.Header.[] in
+    guard ~target:url (fun () -> get ~headers t.dav url)
+  let put t ?etag ?create ~content_type url body =
+    let url = resolve t url in
+    let* condition = condition ?etag ?create () in
+    let* written = guard ~target:url (fun () -> put ~condition ~content_type t.dav url (Fetch.String body)) in
+    Ok written.etag
+  let download t ?(headers = Fetch.Header.[]) url =
+    let url = resolve t url in
+    guard ~target:url (fun () ->
+      let url = scoped t.dav url in
+      let r = Fetch.fetch ~sw:t.sw ~headers ~body:Fetch.Empty ~redirects:0
+        ~sensitive:["if"; "lock-token"] t.dav.client `GET url in
+      if List.mem (Fetch.status r) [200; 206; 304] then r
+      else Fun.protect ~finally:(fun () -> Fetch.close r)
+        (fun () -> reject t.dav r))
+  let sync t ?token ?limit url =
+    let url = resolve t url in
+    guard ~target:url (fun () -> sync ?token ?limit t.dav url)
+  let sync_token t url =
+    let* m = propfind t ~depth:`Zero url (Httpz_dav.Prop [Httpz_dav.Prop.sync_token]) in
+    Ok (match m.responses with
+      | r :: _ -> Option.map Httpz_dav.content (Httpz_dav.find_property Httpz_dav.Prop.sync_token r)
+      | [] -> None)
+  let safe_segment s =
+    s <> "" && String.for_all (function
+      | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' | '.' | '@' -> true | _ -> false) s
+  let member_name uid ext =
+    match uid with
+    | Some u when safe_segment u -> u ^ ext
+    | _ -> String.concat "" (List.init 16 (fun _ -> Printf.sprintf "%x" (Random.int 16))) ^ ext
+end

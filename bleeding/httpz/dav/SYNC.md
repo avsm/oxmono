@@ -11,6 +11,17 @@ lives in `fetch.dav`. The server lives in `proffer.dav`, with confined storage
 in `proffer.dav.eio`. Proffer admission, input lifetime and connection provenance
 also require corresponding changes to each backend.
 
+The latest selective client import is stock revision
+`0710d4558662f6419bb90c204dca98eaea63a33a`. It adds `Fetch_dav.Session`, DAV
+namespace helpers, element construction and their documentation and tests.
+All three trees also close rejected session downloads immediately and retain
+DAV token redaction. Successful downloads remain owned by the session switch
+until explicitly closed or the switch ends.
+
+This import covers the DAV library changes. The stock commit's `FOR-MATRIX.md`,
+`dev/audit-repro/` and local `cmarkit` symlink are checkout-specific material.
+They are not part of the shared libraries or this port.
+
 From OxMono's root, check the default sibling locations with:
 
 ```sh

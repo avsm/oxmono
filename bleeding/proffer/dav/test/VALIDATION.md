@@ -23,8 +23,11 @@ Its image and Python dependencies are pinned. Token-redaction failures stop
 the fixture process, so the runner cannot silently accept a failing assertion.
 
 The scoped DAV suites include 40 server policy checks, 25 server codec checks,
-77 protocol checks, 101 extension checks, 658 namespace checks, 77 Fetch
+77 protocol checks, 101 extension checks, 658 namespace checks, 100 Fetch
 client checks and 30 mirror checks, plus the private XML codec regressions.
+The session checks include immediate cleanup of rejected downloads, body-read
+exceptions and cancellation, caller ownership of 200/206/304 responses, and
+redaction of DAV tokens in request diagnostics.
 The mirror regressions include malicious index paths, foreign deletions,
 filename collisions, interrupted downloads, incomplete rebuilds and stalled
 sync tokens. Unexpected sync response statuses cannot become an empty listing.

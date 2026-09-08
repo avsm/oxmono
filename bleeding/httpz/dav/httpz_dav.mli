@@ -10,6 +10,9 @@ val ns_xmlns : string
 
 type name = string * string
 val dav : string -> name
+val carddav : string -> name
+val caldav : string -> name
+(** Names in the [DAV:], CardDAV (RFC 6352) and CalDAV (RFC 4791) namespaces. *)
 
 type xml = Text of string | Element of element
 and element = { name : name; attrs : (name * string) list; children : xml list }
@@ -124,6 +127,12 @@ val elements : element -> element list
 
 val find : name -> element -> element option
 (** The first child named [name]. *)
+
+val is : name -> element -> bool
+(** Whether the element is named [name]. *)
+
+val el : ?attrs:(name * string) list -> name -> element list -> element
+(** An element whose children are all elements, for request bodies. *)
 
 val content : element -> string
 (** The concatenated text of the element and its descendants, trimmed. *)

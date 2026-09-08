@@ -12,11 +12,17 @@ let multi = "<d:multistatus xmlns:d='DAV:'><d:response><d:href>/dav/a</d:href><d
 let () = Eio_mock.Backend.run @@ fun () ->
   let seen = ref [] and closed = ref 0 in
   let status = ref 207 and body = ref multi and headers = ref xml_headers in
+  let body_failure = ref None in
   let backend = Fetch_mock.client (fun req ->
     seen := req :: !seen;
     Fetch.Middleware.Pi.response ~close:(fun () -> incr closed)
       ~status:!status ~headers:!headers ~version:`HTTP_1_1
-      ~body:(Eio.Flow.string_source !body) ~url:req.url ()) in
+      ~body:(match !body_failure with
+        | None -> Eio.Flow.string_source !body
+        | Some exn ->
+            let flow = Eio_mock.Flow.make "DAV response body failure" in
+            Eio_mock.Flow.on_read flow [`Raise exn];
+            (flow :> Eio.Flow.source_ty Eio.Resource.t)) ~url:req.url ()) in
   let client = D.v ~root:"https://example.test/dav/" backend in
   let response = D.propfind client "a" (Httpz_dav.Prop [Httpz_dav.dav "getetag"]) in
   check "207 failure preserved" ((List.hd response.responses).outcome = Httpz_dav.Status 423);
@@ -185,4 +191,73 @@ let () = Eio_mock.Backend.run @@ fun () ->
   status := 404;
   check "only explicit absence falls back to root"
     (D.context_path origin `Carddav = D.root origin);
+  Eio.Switch.run (fun sw ->
+    let home = Httpz_dav.carddav "addressbook-home-set" in
+    let connect url = D.Session.connect ~sw ~service:`Carddav ~home_set:home backend url in
+    status := 401; headers := Http.Header.init (); body := "";
+    check "session reports a refused principal"
+      (match connect "https://example.test/dav/p/" with Error (D.Session.Http (401, _)) -> true | _ -> false);
+    status := 207; headers := xml_headers;
+    body := "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:carddav'><d:response><d:href>/dav/p/</d:href><d:propstat><d:prop><d:current-user-principal><d:href>/dav/p/</d:href></d:current-user-principal><c:addressbook-home-set><d:href>/dav/books/</d:href></c:addressbook-home-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>";
+    let session = match connect "https://example.test/dav/p/" with
+      | Ok s -> s | Error e -> failwith (D.Session.error_to_string e) in
+    check "session principal" (D.Session.principal session = "https://example.test/dav/p/");
+    check "session home set" (D.Session.home_sets session = ["https://example.test/dav/books/"]);
+    check "session resolves against the principal"
+      (D.Session.resolve session "/dav/p/x.vcf" = "https://example.test/dav/p/x.vcf");
+    status := 404; headers := Http.Header.init (); body := "";
+    check "session names the missing resource"
+      (D.Session.get session "/dav/books/x.vcf" = Error (D.Session.Not_found "https://example.test/dav/books/x.vcf"));
+    check "session refuses a malformed entity tag"
+      (match D.Session.put session ~etag:"no quotes" ~content_type:"text/vcard" "/dav/books/x.vcf" "" with
+       | Error (D.Session.Data _) -> true | _ -> false);
+    let closures = !closed in
+    check "rejected session download reports the resource"
+      (D.Session.download session "/dav/books/x.vcf" =
+        Error (D.Session.Not_found "https://example.test/dav/books/x.vcf"));
+    check "rejected session download closes before switch exit"
+      (!closed = closures + 1);
+    let closures = !closed in
+    body_failure := Some Exit;
+    check "session error-body exception propagates"
+      (try ignore (D.Session.download session "/dav/books/x.vcf"); false
+       with Exit -> true);
+    body_failure := None;
+    check "failed session error body closes before switch exit"
+      (!closed = closures + 1);
+    let closures = !closed in
+    body_failure := Some (Eio.Cancel.Cancelled Exit);
+    check "session cancellation propagates"
+      (try ignore (D.Session.download session "/dav/books/x.vcf"); false
+       with Eio.Cancel.Cancelled Exit -> true);
+    body_failure := None;
+    check "cancelled session error body closes before switch exit"
+      (!closed = closures + 1);
+    let headers = Fetch.Header.[
+      raw "If" "(<urn:session-secret>)";
+      raw "Lock-Token" "<urn:session-secret>"] in
+    List.iter (fun code ->
+      status := code; body := "streamed";
+      let n = List.length !seen and closures = !closed in
+      match D.Session.download session ~headers "/dav/books/x.vcf" with
+      | Ok r ->
+          check "session download stays open"
+            (Fetch.status r = code && List.length !seen = n + 1 &&
+             !closed = closures);
+          let printed = Format.asprintf "%a" Fetch.Middleware.pp_request
+            (List.hd !seen) in
+          let contains needle =
+            let rec loop i =
+              i + String.length needle <= String.length printed &&
+              (String.sub printed i (String.length needle) = needle ||
+               loop (i + 1)) in
+            loop 0 in
+          check "session download redacts DAV tokens"
+            (not (contains "urn:session-secret") && contains "<redacted>");
+          Fetch.close r;
+          check "caller closes session download" (!closed = closures + 1)
+      | Error e -> failwith (D.Session.error_to_string e)) [200; 206; 304];
+    check "member names keep a safe uid" (D.Session.member_name (Some "a-b@c") ".vcf" = "a-b@c.vcf");
+    check "member names replace an unsafe uid"
+      (String.length (D.Session.member_name (Some "a/b") ".vcf") = 20));
   Printf.printf "fetch.dav: %d client checks passed\n" !count

@@ -182,3 +182,91 @@ module Mirror : sig
       bounded here. These are interruption guarantees, without file fsync or
       power-loss durability. Raises what the underlying operations raise. *)
 end
+
+(** {1 Sessions}
+
+    A session is a client connected to one server as one principal, the ground
+    a CardDAV or CalDAV client is built on. {!Session.connect} finds the
+    principal and its home set from any URL of the service by RFC 6764, and
+    HTTP, DAV, XML and Fetch transport failures are returned as results for
+    composition with [Result.bind]. Cancellation and unexpected provider
+    exceptions propagate. Invalid configuration may raise [Invalid_argument].
+    The switch a session is connected under scopes its streaming downloads. *)
+module Session : sig
+  type dav := t
+  type t
+  type error =
+    | Http of int * string  (** A status outside 2xx, with the start of the body. *)
+    | Dav of int * Httpz_dav.element list
+        (** A status with the precondition or postcondition names the server
+            gave, RFC 4918 Section 16. *)
+    | Precondition_failed of string  (** A 412 for the named resource. *)
+    | Not_found of string  (** A 404 for the named resource. *)
+    | Xml of string  (** A response that is not the XML expected. *)
+    | Data of string  (** A body or argument the client or the caller could not use. *)
+    | Discovery of string  (** No principal or home set could be found. *)
+    | Transport of Fetch.error * string  (** A network, TLS or policy failure. *)
+  val pp_error : ?describe:(Httpz_dav.name -> string) -> Format.formatter -> error -> unit
+  (** [describe] names a condition element; it defaults to its local name. *)
+
+  val error_to_string : ?describe:(Httpz_dav.name -> string) -> error -> string
+  val connect : sw:Eio.Switch.t -> ?credentials:Fetch.Credential.t list ->
+    ?allow_insecure:bool -> ?limits:Httpz_dav.limits -> ?lenient_hrefs:bool ->
+    service:Httpz_dav.Discovery.service -> home_set:Httpz_dav.name ->
+    _ Fetch.t -> string -> (t, error) result
+  (** [connect ~sw ~service ~home_set fetch url] is a session on the origin of
+      [url]. A well-known URL of [service] is followed to its context path,
+      whose current principal is read, and [home_set] is read from the
+      principal. [credentials] are attached to requests on that origin, over
+      TLS unless [allow_insecure]. [limits] and [lenient_hrefs] are those of
+      {!v}. *)
+
+  val principal : t -> string
+  val home_sets : t -> string list
+  val client : t -> dav
+  val switch : t -> Eio.Switch.t
+  val resolve : t -> string -> string
+  (** [resolve t href] is [href], an absolute path or URL, resolved against
+      the principal. Any other reference is returned as it is. *)
+
+  val propfind : t -> ?depth:Httpz_dav.depth -> string -> Httpz_dav.propfind ->
+    (Httpz_dav.multistatus, error) result
+  val report : t -> ?depth:Httpz_dav.depth -> string -> Httpz_dav.element ->
+    (Httpz_dav.multistatus, error) result
+  val report_body : t -> ?depth:Httpz_dav.depth -> string -> Httpz_dav.element ->
+    (string, error) result
+  (** A REPORT whose answer is a body rather than a multistatus, such as
+      CalDAV's free-busy-query. *)
+
+  val mkcol : t -> ?props:Httpz_dav.element list -> string -> (unit, error) result
+  val mkcalendar : t -> ?props:Httpz_dav.element list -> string -> (unit, error) result
+  val proppatch : t -> string -> Httpz_dav.update list -> (unit, error) result
+  (** A failed instruction is a [Dav] error with its status and the property
+      names, RFC 4918 Section 9.2.1. *)
+
+  val delete : t -> ?etag:string -> string -> (unit, error) result
+  (** With [etag] the delete is conditional on the entity tag. *)
+
+  type member = { href : string; etag : string option; content_type : string option }
+  val members : t -> string -> (member list, error) result
+  (** The non-collection members of a collection, with absolute hrefs. *)
+
+  val get : t -> ?accept:string -> string -> (string * string option, error) result
+  val put : t -> ?etag:string -> ?create:bool -> content_type:string -> string -> string ->
+    (string option, error) result
+  (** [put t ~content_type url body] is the entity tag the server gave, if any.
+      With [etag] the write is conditional on the entity tag and with [create]
+      on the resource being absent. *)
+
+  val download : t -> ?headers:Fetch.Header.headers -> string -> (Fetch.response, error) result
+  (** A GET whose response body streams until closed with [Fetch.close] or
+      until the switch of [t] ends. A 200, 206 or 304 is returned. Rejected
+      responses close immediately, including when reading their body fails.
+      DAV [If] and [Lock-Token] headers are redacted in request diagnostics. *)
+
+  val sync : t -> ?token:string -> ?limit:int -> string -> (Httpz_dav.Sync.t, error) result
+  val sync_token : t -> string -> (string option, error) result
+  val member_name : string option -> string -> string
+  (** [member_name uid ext] is a member name for a new resource, [uid] and
+      [ext] when [uid] is safe as a path segment and a random name otherwise. *)
+end

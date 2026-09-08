@@ -175,3 +175,27 @@ Infinite-depth mirroring uses a flat directory and rejects name collisions.
 `Fetch_dav.v ~lenient_hrefs:true` explicitly permits percent-encoding repair
 of malformed server hrefs. Strict parsing remains the default. This option
 does not relax Fetch's origin or path restrictions.
+
+## Sessions
+
+`Fetch_dav.Session` is the ground a CardDAV or CalDAV client stands on. It
+connects to one server as one principal, following the well-known path of
+RFC 6764 to the context path, reading the current user principal and then
+the home set named by the caller. HTTP, DAV, XML and Fetch transport errors
+are returned as results for composition with `Result.bind`. Cancellation and
+unexpected provider exceptions propagate. Invalid configuration can raise
+`Invalid_argument`. Credentials are attached to the origin of the URL given.
+The switch a session is connected under scopes `Session.download`, whose
+body streams until closed with `Fetch.close` or until that switch ends.
+Rejected downloads close immediately, including when reading their error
+body fails. Session downloads retain the DAV token-redaction policy.
+
+```ocaml
+Eio.Switch.run @@ fun sw ->
+match Fetch_dav.Session.connect ~sw
+        ~credentials:[Fetch.Credential.basic ~user ~password]
+        ~service:`Carddav ~home_set:(Httpz_dav.carddav "addressbook-home-set")
+        http "https://contacts.example.com/.well-known/carddav" with
+| Error e -> prerr_endline (Fetch_dav.Session.error_to_string e)
+| Ok session -> List.iter print_endline (Fetch_dav.Session.home_sets session)
+```

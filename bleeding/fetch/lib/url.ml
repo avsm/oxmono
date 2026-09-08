@@ -218,14 +218,14 @@ let[@zero_alloc] same_origin (a @ local) (b @ local) =
    the address. Only such a literal can contain ':' — [check_host]
    rejects it anywhere else. *)
 let pp_host f host =
-  if has_colon host then Fmt.pf f "[%s]" host
-  else Fmt.string f host
+  if has_colon host then Format.fprintf f "[%s]" host
+  else Format.pp_print_string f host
 
 let origin t =
   if t.port = default_port t.scheme then
-    Fmt.str "%s://%a" (scheme_string t.scheme) pp_host t.host
+    Format.asprintf "%s://%a" (scheme_string t.scheme) pp_host t.host
   else
-    Fmt.str "%s://%a:%d" (scheme_string t.scheme) pp_host t.host t.port
+    Format.asprintf "%s://%a:%d" (scheme_string t.scheme) pp_host t.host t.port
 
 let path_and_query t =
   let pq = Uriz.encoded_path_and_query t.uri in
@@ -348,5 +348,5 @@ let redacted_string t names =
     Buffer.contents out
 
 
-let pp f t = Fmt.string f (to_string t)
-let pp_redacted ~names f t = Fmt.string f (redacted_string t names)
+let pp f t = Format.pp_print_string f (to_string t)
+let pp_redacted ~names f t = Format.pp_print_string f (redacted_string t names)

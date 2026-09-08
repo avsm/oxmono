@@ -74,6 +74,11 @@
  (modules test_punycode))
 
 (test
+ (name test_unicode_normalization)
+ (libraries uunf httpz.punycode.idna alcotest)
+ (modules test_unicode_normalization))
+
+(test
  (name test_tls)
  (modules test_tls)
  (package httpz)

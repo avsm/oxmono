@@ -32,6 +32,8 @@
     a question about the address the socket will use, which only a check in a
     backend's [~connect] can answer. *)
 
+@@ portable
+
 type t : immutable_data
 (** [t] is a validated, canonical HTTP or HTTPS URL. *)
 

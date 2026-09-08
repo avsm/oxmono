@@ -51,6 +51,7 @@ val max_domain_length : int
     form without a trailing root dot. *)
 
 val to_ascii : ?check_hyphens:bool -> ?use_std3_rules:bool -> string -> string
+  @@ portable
 (** [to_ascii ?check_hyphens ?use_std3_rules domain] is the ASCII domain
     obtained by converting each dot-separated UTF-8 label and enforcing
     {!max_domain_length}.

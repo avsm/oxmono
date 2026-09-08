@@ -17,7 +17,7 @@
 types and local allocations, with OxCaml-native RFC 3986 URI and RFC 6570 URI
 Template implementations. Separate Findlib libraries provide URI operations,
 typed media codecs with bounded JSON and Markdown support, shared
-Eio TLS, Punycode, the Public Suffix List, and HTTP cookies.")
+Eio TLS, Punycode, the Public Suffix List, and HTTP cookies, and bounded WebDAV protocol codecs.")
  (depends
   (duration (>= 0.3.1))
   (ocaml (>= 5.2))

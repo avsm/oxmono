@@ -1,7 +1,7 @@
 WebDAV client over Fetch — investigation and implementation plan, 2026-09-07.
 
 Implementation follow-up: the [Docker fixture](test/webdav/README.md) now works
-locally over HTTP and verified HTTPS. The subsequent [davz specification](../davz/SPEC.md)
+locally over HTTP and verified HTTPS. The subsequent [httpz.dav specification](../httpz/dav/SPEC.md)
 supersedes the packaging and initial-deliverable choices in this investigation.
 
 The proposed first deliverable is a file-oriented client: inspect collections,
@@ -54,7 +54,7 @@ Existing foundations and concrete gaps:
 | [HTTPz methods](../httpz/lib/method.mli), [header names](../httpz/lib/header_name.mli) | Core DAV methods and several header names are already recognized. | These names are not DAV header-value parsers or client operations. |
 | [Header codecs](lib/header.mli) | Custom codecs, portable codec constructors, conditional request fields and range support. | Add DAV codecs in the companion library: Depth, Destination, Overwrite, DAV, If, Lock-Token and Timeout. Preserve unknown capability tokens. |
 | [Media codecs](../httpz/media/media.mli) | Streaming Bytesrw readers/writers, structured errors and configurable accepted media types. | Bounded XML adapters and structured DAV results. Media-type matching currently ignores parameters, so encoding selection needs explicit response-header handling. |
-| [Uriz](../../vendor/ocaml-uri/lib/uriz.mli), [Fetch URLs](lib/url.mli) | URI parsing, encoded paths, reference resolution, normalization and canonical HTTP origin comparison. | DAV href validation, collection-child construction and destination checks. Keep encoded resource identity separate from display names. |
+| [HTTPz URI](../httpz/uri/httpz_uri.mli), [Fetch URLs](lib/url.mli) | URI parsing, encoded paths, reference resolution, normalization and canonical HTTP origin comparison. | DAV href validation, collection-child construction and destination checks. Keep encoded resource identity separate from display names. |
 | [Credentials](lib/credential.mli) | Scoped Basic and Bearer credentials, dynamic credentials and custom headers. | Start with these over HTTPS. Challenge-based Digest/Negotiate is not exposed as a portable credential facility; scope that separately if required. Basic currently restricts credentials to printable ASCII. |
 | [Retry](lib/retry.mli), [redirect](lib/redirect.mli), [policy implementation](lib/client.ml) | Method allowlists, a request-level retry narrowing predicate, replay checks, redirect callbacks and request filters. | Supply explicit DAV policies; account for clients that already carry middleware. |
 | [Xmlm](../../vendor/xmlm/xmlm.mli) | Vendored streaming parser/writer, expanded namespace names and portable interfaces. | Verify property fidelity, bound parser buffers and adapt buffered byte input. |

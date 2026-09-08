@@ -16,6 +16,7 @@ standalone OxCaml checkout and intentional monorepo adaptations.
 | `httpz` | `Httpz` | Bounded HTTP/1.1 parsing, framing and serialization |
 | `httpz.uri` | `Httpz_uri` | Shared Uriz values, URI templates and IP classification |
 | `httpz.media` | `Httpz_media` | Typed media, JSON, Markdown, multipart and forms |
+| `httpz.dav` | `Httpz_dav` | Bounded WebDAV protocol values and XML codecs |
 | `httpz.tls` | `Httpz_tls` | Eio TLS client and server flows |
 | `httpz.cookie` | `Cookie` | Cookie parsing and serialization |
 | `httpz.cookie.jar` | `Cookie_jar` | Cookie persistence and request selection |

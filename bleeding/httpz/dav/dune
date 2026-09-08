@@ -1,0 +1,6 @@
+(library
+ (name httpz_dav)
+ (public_name httpz.dav)
+ (modules httpz_dav xmlm)
+ (private_modules xmlm)
+ (libraries httpz.uri))

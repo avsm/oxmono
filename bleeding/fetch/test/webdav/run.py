@@ -20,6 +20,8 @@ import xml.etree.ElementTree as ET
 
 
 HERE = Path(__file__).resolve().parent
+STACK_ROOT = HERE.parents[2]
+REPO_ROOT = STACK_ROOT.parent if STACK_ROOT.name == "bleeding" else STACK_ROOT
 DAV = "{DAV:}"
 TEST = "{urn:fetch-webdav:test}"
 PROPERTIES = b'''<d:propfind xmlns:d="DAV:" xmlns:t="urn:fetch-webdav:test">
@@ -215,7 +217,7 @@ def main():
     parser.add_argument("command", nargs=argparse.REMAINDER, help="-- client command to run")
     args = parser.parse_args()
     project = "fetch-dav-" + uuid.uuid4().hex[:12]
-    artifacts = (args.artifacts or HERE.parents[3] / "_build/webdav-docker" / project).resolve()
+    artifacts = (args.artifacts or REPO_ROOT / "_build/webdav-docker" / project).resolve()
     artifacts.mkdir(parents=True, exist_ok=False)
     print(f"Fixture: {project}\nArtifacts: {artifacts}", flush=True)
     compose = ["docker", "compose", "-f", str(HERE / "compose.yaml"), "-p", project]

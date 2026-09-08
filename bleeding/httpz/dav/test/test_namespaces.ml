@@ -1,10 +1,10 @@
-open Davz
+open Httpz_dav
 let count = ref 0
 let check name b = incr count; if not b then failwith name
 let ok = function Ok x -> x | Error e -> failwith e
 let parse s = ok (parse_xml s)
-let ns p uri = (Xmlm.ns_xmlns, p), uri
-let binding e p = List.assoc (Xmlm.ns_xmlns, p) e.attrs
+let ns p uri = (Httpz_dav.ns_xmlns, p), uri
+let binding e p = List.assoc (Httpz_dav.ns_xmlns, p) e.attrs
 let child e name = List.hd (children name e)
 
 let () =
@@ -43,7 +43,7 @@ let () =
   let root = parse source in
   check "parser inheritance overrides" (binding (child root ("", "y")) "p" = "urn:inner");
   check "parser inheritance restores" (binding (child root ("", "z")) "p" = "urn:outer");
-  check "inherited language" (List.assoc (Xmlm.ns_xml, "lang") (child root ("", "z")).attrs = "en");
+  check "inherited language" (List.assoc (Httpz_dav.ns_xml, "lang") (child root ("", "z")).attrs = "en");
   (* Exercise a wide scope and its synthesized attributes at the exact node
      bound. Timing is measured separately by bench_namespaces. *)
   let n = 32000 in
@@ -57,4 +57,4 @@ let () =
   check "wide inherited scope" (List.length (child root ("", "y")).attrs = n);
   check "wide inherited scope boundary" (Result.is_error
     (parse_xml ~limits:{default_limits with max_nodes=limit-1} source));
-  Printf.printf "davz namespaces: %d checks passed\n" !count
+  Printf.printf "httpz.dav namespaces: %d checks passed\n" !count

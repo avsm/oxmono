@@ -6,7 +6,7 @@ let () = List.iter (fun n ->
   let source = Buffer.contents b in
   let start = Sys.time () in
   for _ = 1 to 3 do
-    match Davz.parse_xml source with Ok _ -> () | Error e -> failwith e
+    match Httpz_dav.parse_xml source with Ok _ -> () | Error e -> failwith e
   done;
   Printf.printf "%6d namespaces %8d bytes %.6fs CPU/parse\n%!"
     n (String.length source) ((Sys.time () -. start) /. 3.)

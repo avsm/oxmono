@@ -29,6 +29,14 @@ annotation land here at all.
   The release this copy came from is named in `xmlm.opam` and here.
 * The portability patch below.
 
+### DAV packaging
+
+HTTPz also packages these two codec files privately in `httpz.dav`. Keep them
+identical to `bleeding/httpz/dav/xmlm.ml` and `xmlm.mli`; the DAV synchronization
+checker detects drift. Unused parser bindings and a signature-only functor
+parameter name have been cleaned up so this copy builds under ordinary project
+warnings as well as Dune's vendor policy.
+
 ### Local patches
 
 The DAV work also fixes XML CDATA attribute normalization: literal whitespace

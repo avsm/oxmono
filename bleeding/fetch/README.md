@@ -16,3 +16,6 @@ your Dune libraries when constructing these values.
 The [public interface](lib/fetch.mli) describes the API. The
 [repository guide](../../HTTPZ.md) describes library selection, setup
 and backend limits. All examples are under the top-level `example/` directory.
+
+The optional [`fetch.dav`](dav/README.md) library adds WebDAV client operations
+over an existing Fetch capability, using the `httpz.dav` protocol codecs.

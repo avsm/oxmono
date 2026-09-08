@@ -1,4 +1,4 @@
-open Davz
+open Httpz_dav
 let count = ref 0
 let check name b = incr count; if not b then failwith name
 let ok = function Ok v -> v | Error e -> failwith e
@@ -14,7 +14,7 @@ let () =
   check "unreported distinct" (property ("urn:test", "unreported") r = None);
   let p = match property ("urn:test", "colour") r with Some (Ok p) -> p | _ -> failwith "colour" in
   check "preserve property whitespace" (text p = Ok " bleu ");
-  check "namespace scope retained" (List.mem ((Xmlm.ns_xmlns, "p"), "urn:test") p.attrs);
+  check "namespace scope retained" (List.mem ((Httpz_dav.ns_xmlns, "p"), "urn:test") p.attrs);
   check "empty multistatus" ((multi (wrap "")).responses = []);
   check "empty property" (text (element (dav "x") []) = Ok "");
   check "reject text extraction of structured property" (Result.is_error (text (element (dav "x") [Element p])));
@@ -48,8 +48,8 @@ let () =
   let p = List.hd (children ("urn:p", "x") (parse source)) in
   let reread = parse (encode_xml p) in
   check "attribute whitespace round trip" (List.assoc ("", "a") reread.attrs = "  a  b \t\n\r ");
-  check "inherited language" (List.assoc (Xmlm.ns_xml, "lang") reread.attrs = "en");
-  check "QName context" (List.assoc (Xmlm.ns_xmlns, "p") reread.attrs = "urn:p");
+  check "inherited language" (List.assoc (Httpz_dav.ns_xml, "lang") reread.attrs = "en");
+  check "QName context" (List.assoc (Httpz_dav.ns_xmlns, "p") reread.attrs = "urn:p");
   check "unqualified nested name" (List.length (children ("", "inner") reread) = 1);
   let p = parse "<p:x xmlns:p='urn:p' xmlns='urn:p' p:a='b'/>" in
   check "qualified attribute with same default namespace"
@@ -85,4 +85,4 @@ let () =
   let ls = ok (locks (parse source)) in
   check "lock decoding" (List.length ls = 1 && (List.hd ls).timeout = Some (Seconds 60L));
   check "empty discovery" (locks (parse "<prop xmlns='DAV:'><lockdiscovery/></prop>") = Ok []);
-  Printf.printf "davz: %d protocol checks passed\n" !count
+  Printf.printf "httpz.dav: %d protocol checks passed\n" !count

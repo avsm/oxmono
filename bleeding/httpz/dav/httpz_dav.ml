@@ -1,3 +1,6 @@
+type encoding = Xmlm.encoding
+let ns_xml = Xmlm.ns_xml
+let ns_xmlns = Xmlm.ns_xmlns
 type name = string * string
 let dav local = "DAV:", local
 type xml = Text of string | Element of element
@@ -6,7 +9,7 @@ type limits = { max_bytes : int; max_depth : int; max_nodes : int }
 let default_limits = { max_bytes = 8 * 1024 * 1024; max_depth = 64; max_nodes = 100_000 }
 let validate_limits l =
   if l.max_bytes < 1 || l.max_depth < 1 || l.max_nodes < 1 then
-    invalid_arg "Davz: limits must be positive"
+    invalid_arg "Httpz_dav: limits must be positive"
 let element ?(attrs = []) name children = { name; attrs; children }
 let children name e = List.filter_map (function
   | Element e when e.name = name -> Some e | _ -> None) e.children
@@ -83,7 +86,7 @@ let encode_xml root =
   let rec reserve e =
     let seen = Hashtbl.create (List.length e.attrs) in
     List.iter (fun ((ns, local) as name, _) ->
-      if Hashtbl.mem seen name then invalid_arg "Davz.encode_xml: duplicate attribute";
+      if Hashtbl.mem seen name then invalid_arg "Httpz_dav.encode_xml: duplicate attribute";
       Hashtbl.add seen name ();
       if ns = Xmlm.ns_xmlns then Hashtbl.replace reserved local ()) e.attrs;
     List.iter (function Element e -> reserve e | Text _ -> ()) e.children
@@ -113,7 +116,7 @@ let encode_xml root =
         if not (Uchar.utf_decode_is_valid d) ||
           not (c = 9 || c = 10 || c = 13 || c >= 0x20 && c <= 0xd7ff ||
                c >= 0xe000 && c <= 0xfffd || c >= 0x10000 && c <= 0x10ffff) then
-          invalid_arg "Davz.encode_xml: invalid XML character";
+          invalid_arg "Httpz_dav.encode_xml: invalid XML character";
         loop (i + Uchar.utf_decode_length d)
       end
     in loop 0
@@ -170,8 +173,8 @@ let encode_xml root =
     List.length ac = List.length bc && List.for_all2 names_match ac bc in
   (match parse_xml ~limits:l source with
   | Ok e when names_match root e -> ()
-  | Ok _ -> invalid_arg "Davz.encode_xml: invalid expanded name or namespace binding"
-  | Error s -> invalid_arg ("Davz.encode_xml: " ^ s));
+  | Ok _ -> invalid_arg "Httpz_dav.encode_xml: invalid expanded name or namespace binding"
+  | Error s -> invalid_arg ("Httpz_dav.encode_xml: " ^ s));
   source
 
 type propstat = { properties : element list; status : int; errors : element list; description : string option }
@@ -191,28 +194,28 @@ let status e =
   code
 let error_elements e = match optional (dav "error") e with
   | None -> [] | Some e -> elems e
-let href_uri s = match Uriz.of_string s with
+let href_uri s = match Httpz_uri.of_string s with
   | Null -> invalid "invalid DAV href"
   | This u ->
-      if Uriz.fragment u <> Null || Uriz.userinfo u <> Null then invalid "DAV href has fragment or userinfo";
-      (match Uriz.scheme u with
-      | This ("http" | "https") when (match Uriz.host u with This h -> h <> "" | Null -> false) -> ()
-      | Null when not (Uriz.has_authority u) && String.starts_with ~prefix:"/" (Uriz.path u) -> ()
+      if Httpz_uri.encoded_fragment u <> Null || Httpz_uri.encoded_userinfo u <> Null then invalid "DAV href has fragment or userinfo";
+      (match Httpz_uri.scheme u with
+      | This ("http" | "https") when (match Httpz_uri.encoded_host u with This h -> h <> "" | Null -> false) -> ()
+      | Null when not (Httpz_uri.has_authority u) && String.starts_with ~prefix:"/" (Httpz_uri.encoded_path u) -> ()
       | _ -> invalid "DAV href must be an HTTP(S) URL or absolute path");
       u
 let href e = let s = String.trim (text_exn e) in ignore (href_uri s); s
 let resolve_href ~base s = protect (fun () ->
   let u = href_uri s in
   let b = href_uri base in
-  if Uriz.scheme b = Null then invalid "href base must be absolute";
-  Uriz.to_string (Uriz.resolve ~base:b u))
+  if Httpz_uri.scheme b = Null then invalid "href base must be absolute";
+  Httpz_uri.to_string (Httpz_uri.resolve ~base:b u))
 let multistatus root = protect (fun () ->
   if root.name <> dav "multistatus" then invalid "expected DAV:multistatus";
   ignore (elems root);
   let form = ref None in
   let check_href e =
     let s = href e in
-    let absolute = Uriz.scheme (href_uri s) <> Null in
+    let absolute = Httpz_uri.scheme (href_uri s) <> Null in
     (match !form with None -> form := Some absolute
       | Some previous when previous = absolute -> ()
       | _ -> invalid "mixed absolute and path hrefs");
@@ -247,7 +250,7 @@ let property_results name response = match response.outcome with
 let property name response = match property_results name response with
   | [] -> None
   | [result] -> Some result
-  | _ -> invalid_arg "Davz.property: multiple results; use property_results"
+  | _ -> invalid_arg "Httpz_dav.property: multiple results; use property_results"
 
 type propfind = Allprop of name list | Propname | Prop of name list
 type update = Set of element list | Remove of name list
@@ -261,9 +264,9 @@ let propfind query =
     | Allprop ps -> [el "allprop" []; el "include" (names ps)] in
   encode_xml (element (dav "propfind") body)
 let proppatch updates =
-  if updates = [] then invalid_arg "Davz.proppatch: empty update";
+  if updates = [] then invalid_arg "Httpz_dav.proppatch: empty update";
   let body = List.map (function
-    | Set [] | Remove [] -> invalid_arg "Davz.proppatch: empty operation"
+    | Set [] | Remove [] -> invalid_arg "Httpz_dav.proppatch: empty operation"
     | Set ps -> el "set" [el "prop" (List.map (fun e -> Element e) ps)]
     | Remove ps -> el "remove" [el "prop" (names ps)]) updates in
   encode_xml (element (dav "propertyupdate") body)
@@ -277,7 +280,7 @@ type timeout = Infinite | Seconds of int64
 let encode_timeout = function
   | Infinite -> "Infinite"
   | Seconds n ->
-      if n < 0L || n > 0xffff_ffffL then invalid_arg "Davz: timeout outside uint32";
+      if n < 0L || n > 0xffff_ffffL then invalid_arg "Httpz_dav: timeout outside uint32";
       "Second-" ^ Int64.to_string n
 let decode_timeout s =
   let s = String.trim s in
@@ -289,8 +292,8 @@ let decode_timeout s =
 
 module Token = struct
   type t = string
-  let of_string s = match Uriz.of_string s with
-    | This u when Uriz.scheme u <> Null && Uriz.fragment u = Null -> Ok s
+  let of_string s = match Httpz_uri.of_string s with
+    | This u when Httpz_uri.scheme u <> Null && Httpz_uri.encoded_fragment u = Null -> Ok s
     | _ -> Error "lock token must be an absolute URI"
   let to_string s = s
   let encode t = "<" ^ t ^ ">"
@@ -315,19 +318,19 @@ let encode_if condition =
   let term = function
     | Token t -> Token.encode t
     | Etag s -> if not (valid_etag s) then
-        invalid_arg "Davz.If: invalid entity tag" else "[" ^ s ^ "]" in
+        invalid_arg "Httpz_dav.If: invalid entity tag" else "[" ^ s ^ "]" in
   let group xs =
-    if xs = [] then invalid_arg "Davz.If: empty condition list";
+    if xs = [] then invalid_arg "Httpz_dav.If: empty condition list";
     "(" ^ String.concat " " (List.map (function Is t -> term t | Not t -> "Not " ^ term t) xs) ^ ")" in
   let groups xs =
-    if xs = [] then invalid_arg "Davz.If: empty lists";
+    if xs = [] then invalid_arg "Httpz_dav.If: empty lists";
     String.concat " " (List.map group xs) in
   match condition with
   | Untagged xs -> groups xs
-  | Tagged [] -> invalid_arg "Davz.If: empty tagged lists"
+  | Tagged [] -> invalid_arg "Httpz_dav.If: empty tagged lists"
   | Tagged xs -> String.concat " " (List.map (fun (uri, xs) ->
       (match protect (fun () -> href_uri uri) with
-      | Ok u when Uriz.scheme u <> Null -> () | _ -> invalid_arg "Davz.If: invalid resource tag");
+      | Ok u when Httpz_uri.scheme u <> Null -> () | _ -> invalid_arg "Httpz_dav.If: invalid resource tag");
       "<" ^ uri ^ "> " ^ groups xs) xs)
 
 type scope = Exclusive | Shared

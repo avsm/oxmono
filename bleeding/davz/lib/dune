@@ -1,4 +1,0 @@
-(library
- (name davz)
- (public_name davz)
- (libraries xmlm uriz))

@@ -1,0 +1,4 @@
+(library
+ (name fetch_dav)
+ (public_name fetch.dav)
+ (libraries httpz.dav fetch http httpz.uri eio cstruct))

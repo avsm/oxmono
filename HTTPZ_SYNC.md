@@ -5,6 +5,42 @@ HTTPz, Fetch and Proffer are synchronized from `avsm/oxcaml-httpz` commit
 `avsm/ocaml-httpz` through commit `72e4541`, including the preceding audit fixes,
 Duration cleanup, media consolidation and Proffer wrapper rename. [HTTPZ.md](HTTPZ.md) introduces the libraries and examples.
 
+## 2026-09-08 WebDAV package synchronization
+
+The reviewed monorepo implementation was committed first as
+`e2531cf8f01344cdc53ff51a80d19d198e8f8507`. Its final subpackage layout is now
+synchronized with standalone OxCaml `9d59fac5d8f877969824d030c26c44d2898df98d` and
+stock OCaml `9960477b34025a8ce257f5c921109f6310f83505`. These are selective DAV
+ports; the broader stack-history baseline above is unchanged.
+
+The former standalone `davz` package is replaced by `httpz.dav` / `Httpz_dav`.
+Its corrected XML codec is private and matches `vendor/xmlm`; its only public
+library dependency is `httpz.uri`. `fetch.dav` / `Fetch_dav` owns the client.
+`proffer.dav` / `Proffer_dav` re-exports that client with identical types and
+exceptions, preserving the dependency direction from Proffer to Fetch to HTTPz.
+All public XML encoding and namespace values belong to `Httpz_dav`.
+
+The [DAV synchronization guide](bleeding/httpz/dav/SYNC.md) documents the shared
+paths and stock adaptations. Check all 38 source, test, fixture and documentation
+files, plus private/vendor XML parity, with:
+
+```sh
+python3 bleeding/httpz/dav/check_sync.py
+```
+
+Both standalone trees pass full `@all @install @runtest` builds, using
+`5.2.0+ox --profile release-check` and stock `5.5.0` respectively. The monorepo
+passes HTTPz/Fetch/Proffer installation targets, HTTPz and Proffer suites,
+DAV protocol and client tests, the facade identity test and explicit vendor
+Xmlm regressions. The three trees pass Apache HTTP/HTTPS client workflows and
+the opt-in smoke test's success and injected-failure cleanup in one disposable
+fixture. No live-account access was needed for this port.
+
+Stock documentation builds with existing reference warnings. OxCaml `@doc`
+resolves to the stock 5.5.0 `odoc` binary in this environment and rejects OxCaml
+typed artifacts, including unchanged core/vendor modules. That optional check
+needs an OxCaml-compatible documentation tool.
+
 ## 2026-09-07 vendor branch tips
 
 The 37 monorepo vendors were checked and refreshed against their own upstream

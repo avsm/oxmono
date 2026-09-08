@@ -7,13 +7,14 @@ let expect_http status f = match f () with
       (Printf.sprintf "expected HTTP %d, received %d" status e.status) (e.status = status)
 let read r = Eio.Buf_read.(parse_exn take_all) (Fetch.body r) ~max_size:1_000_000
 let property name m =
-  let r = match m.Davz.responses with [r] -> r | _ -> failwith "expected one resource" in
-  match Davz.property name r with Some (Ok e) -> e | _ -> failwith ("missing property " ^ snd name)
+  let r = match m.Httpz_dav.responses with [r] -> r | _ -> failwith "expected one resource" in
+  match Httpz_dav.property name r with Some (Ok e) -> e | _ -> failwith ("missing property " ^ snd name)
 let () = Eio_main.run @@ fun env ->
   let ca = In_channel.with_open_bin (Sys.getenv "WEBDAV_CA_FILE") In_channel.input_all in
   let anchors = ok (X509.Certificate.decode_pem_multiple ca) in
+  let verification_time = Ptime.of_float_s (Eio.Time.now env#clock) in
   let authenticator = X509.Authenticator.chain_of_trust_no_crl
-    ~time:(fun () -> Some (Ptime_clock.now ())) anchors in
+    ~time:(fun () -> verification_time) anchors in
   let backend = Fetch_httpz.v ~clock:env#mono_clock ~https:(Httpz_tls.client ~authenticator) env#net () in
   List.iter (fun (label, root) ->
     let authenticated user password = Fetch.with_credentials ~scope:[root] ~allow_insecure:true
@@ -21,7 +22,7 @@ let () = Eio_main.run @@ fun env ->
     let client = D.v ~root (authenticated (Sys.getenv "WEBDAV_USER") (Sys.getenv "WEBDAV_PASSWORD")) in
     let bob = D.v ~root (authenticated (Sys.getenv "WEBDAV_OTHER_USER") (Sys.getenv "WEBDAV_OTHER_PASSWORD")) in
     let anonymous = D.v ~root backend in
-    expect_http 401 (fun () -> D.propfind anonymous "" Davz.Propname);
+    expect_http 401 (fun () -> D.propfind anonymous "" Httpz_dav.Propname);
     let caps = D.options client "" in
     check "DAV classes" (List.mem "1" caps.dav && List.mem "2" caps.dav);
     let collection = "ocaml-" ^ label ^ "/" in
@@ -47,41 +48,41 @@ let () = Eio_main.run @@ fun env ->
       ignore (D.put ~condition:(D.If_match validator) client file (Fetch.String "updated"));
       let colour = "urn:ocaml-dav:test", "colour" in
       let detail = "urn:ocaml-dav:test", "detail" in
-      let value = Davz.element colour [Davz.Text "blue & green"] in
-      let nested = Davz.element ~attrs:[("", "label"), "  two  spaces  "]
-        ("urn:ocaml-dav:test", "note") [Davz.Text "nested"] in
-      let result = D.proppatch client file [Davz.Set [value; Davz.element detail [Davz.Element nested]]] in
+      let value = Httpz_dav.element colour [Httpz_dav.Text "blue & green"] in
+      let nested = Httpz_dav.element ~attrs:[("", "label"), "  two  spaces  "]
+        ("urn:ocaml-dav:test", "note") [Httpz_dav.Text "nested"] in
+      let result = D.proppatch client file [Httpz_dav.Set [value; Httpz_dav.element detail [Httpz_dav.Element nested]]] in
       ignore (property colour result);
-      let query = Davz.Prop [Davz.dav "resourcetype"; Davz.dav "getetag"; colour; detail; ("urn:ocaml-dav:test", "absent")] in
+      let query = Httpz_dav.Prop [Httpz_dav.dav "resourcetype"; Httpz_dav.dav "getetag"; colour; detail; ("urn:ocaml-dav:test", "absent")] in
       let result = D.propfind client file query in
       let p = property colour result in
-      check "dead property text" (Davz.text p = Ok "blue & green");
-      let note = List.hd (Davz.children nested.name (property detail result)) in
+      check "dead property text" (Httpz_dav.text p = Ok "blue & green");
+      let note = List.hd (Httpz_dav.children nested.name (property detail result)) in
       check "dead property nested attribute" (List.assoc ("", "label") note.attrs = "  two  spaces  ");
-      check "missing property distinct" (Davz.property ("urn:ocaml-dav:test", "absent") (List.hd result.responses) = Some (Error 404));
+      check "missing property distinct" (Httpz_dav.property ("urn:ocaml-dav:test", "absent") (List.hd result.responses) = Some (Error 404));
       let repeated updates expected =
         let result = D.proppatch client file updates in
-        let reports = Davz.property_results colour (List.hd result.responses) in
+        let reports = Httpz_dav.property_results colour (List.hd result.responses) in
         check "all repeated instruction results" (List.length reports = 2 && List.for_all Result.is_ok reports);
         let result = D.propfind client file query in
-        let actual = match Davz.property colour (List.hd result.responses) with
-          | Some (Ok p) -> Davz.text p
+        let actual = match Httpz_dav.property colour (List.hd result.responses) with
+          | Some (Ok p) -> Httpz_dav.text p
           | Some (Error 404) -> Error "absent"
           | _ -> failwith "unexpected property result" in
         check "repeated instruction final state" (actual = expected)
       in
-      let set value = Davz.Set [Davz.element colour [Davz.Text value]] in
+      let set value = Httpz_dav.Set [Httpz_dav.element colour [Httpz_dav.Text value]] in
       repeated [set "first"; set "second"] (Ok "second");
-      repeated [set "temporary"; Davz.Remove [colour]] (Error "absent");
-      repeated [Davz.Remove [colour]; set "blue & green"] (Ok "blue & green");
-      let rollback = D.proppatch client file [Davz.Set [Davz.element colour [Davz.Text "rollback"]];
-        Davz.Set [Davz.element (Davz.dav "getetag") [Davz.Text "protected"]]] in
-      check "atomic failure" (Davz.property colour (List.hd rollback.responses) = Some (Error 424));
-      check "rollback retained" (Davz.text (property colour (D.propfind client file query)) = Ok "blue & green");
+      repeated [set "temporary"; Httpz_dav.Remove [colour]] (Error "absent");
+      repeated [Httpz_dav.Remove [colour]; set "blue & green"] (Ok "blue & green");
+      let rollback = D.proppatch client file [Httpz_dav.Set [Httpz_dav.element colour [Httpz_dav.Text "rollback"]];
+        Httpz_dav.Set [Httpz_dav.element (Httpz_dav.dav "getetag") [Httpz_dav.Text "protected"]]] in
+      check "atomic failure" (Httpz_dav.property colour (List.hd rollback.responses) = Some (Error 424));
+      check "rollback retained" (Httpz_dav.text (property colour (D.propfind client file query)) = Ok "blue & green");
       let listing = D.propfind ~depth:`One client collection query in
       check "listing includes root" (List.length listing.responses = 2);
-      check "returned encoded href" (List.exists (fun (r : Davz.response) ->
-        List.exists (fun href -> Davz.resolve_href ~base:root href = Ok file) r.hrefs) listing.responses);
+      check "returned encoded href" (List.exists (fun (r : Httpz_dav.response) ->
+        List.exists (fun href -> Httpz_dav.resolve_href ~base:root href = Ok file) r.hrefs) listing.responses);
       expect_http 403 (fun () -> D.propfind ~depth:`Infinity client collection query);
       let copied = collection ^ "copy" and moved = collection ^ "moved" in
       ignore (D.copy client ~src:file ~dst:copied ());
@@ -117,13 +118,13 @@ let () = Eio_main.run @@ fun env ->
         | _ -> failwith "missing parent lock token accepted"
         | exception D.Http_error e ->
             check "parent lock multistatus" (e.status = 207);
-            let m = match Result.bind (Davz.parse_xml e.body) Davz.multistatus with
+            let m = match Result.bind (Httpz_dav.parse_xml e.body) Httpz_dav.multistatus with
               | Ok m -> m | Error reason -> failwith reason in
-            check "parent is locked" (List.exists (fun (r : Davz.response) ->
-              r.outcome = Davz.Status 423) m.responses));
+            check "parent is locked" (List.exists (fun (r : Httpz_dav.response) ->
+              r.outcome = Httpz_dav.Status 423) m.responses));
         ignore (D.put ~if_ client (locked_collection ^ "child") (Fetch.String "new child"));
         D.mkcol ~if_ client (locked_collection ^ "sub/"));
-      let lease = D.lock ~timeout:(Davz.Seconds 60L) client file in
+      let lease = D.lock ~timeout:(Httpz_dav.Seconds 60L) client file in
       expect_http 423 (fun () -> D.put client file (Fetch.String "no token"));
       expect_http 423 (fun () -> D.put bob file (Fetch.String "other user"));
       ignore (D.put ~if_:(D.lock_condition lease) client file (Fetch.String "locked write"));
@@ -133,8 +134,8 @@ let () = Eio_main.run @@ fun env ->
       check "unknown-length upload" (D.with_download client file read = "chunked upload");
       ignore (D.put client file (Fetch.stream ~length:12L (Eio.Flow.string_source "known length")));
       check "known-length stream" (D.with_download client file read = "known length");
-      ignore (D.proppatch client file [Davz.Remove [colour]]);
-      check "removed property" (Davz.property colour (List.hd (D.propfind client file query).responses) = Some (Error 404));
+      ignore (D.proppatch client file [Httpz_dav.Remove [colour]]);
+      check "removed property" (Httpz_dav.property colour (List.hd (D.propfind client file query).responses) = Some (Error 404));
       ignore (D.delete client moved);
       expect_http 404 (fun () -> D.delete client moved));
     Printf.printf "proffer.dav Docker %s: file, property, condition and lock workflows passed\n%!" label

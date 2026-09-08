@@ -1,6 +1,13 @@
 @@ portable
 
-(** Bounded RFC 4918 protocol codecs. See [../SPEC.md] for scope and policy. *)
+(** Bounded RFC 4918 protocol codecs. See [SPEC.md] for scope and policy. *)
+
+type encoding = [ `UTF_8 | `UTF_16 | `UTF_16BE | `UTF_16LE
+                | `ISO_8859_1 | `ISO_8859_15 | `US_ASCII ]
+val ns_xml : string
+val ns_xmlns : string
+(** XML and XML namespace-declaration namespace names. *)
+
 type name = string * string
 val dav : string -> name
 
@@ -16,7 +23,7 @@ val validate_limits : limits -> unit
 val element : ?attrs:(name * string) list -> name -> xml list -> element
 val text : element -> (string, string) result
 val children : name -> element -> element list
-val parse_xml : ?limits:limits -> ?encoding:Xmlm.encoding -> string -> (element, string) result
+val parse_xml : ?limits:limits -> ?encoding:encoding -> string -> (element, string) result
 val encode_xml : element -> string
 (** [encode_xml] raises [Invalid_argument] for invalid XML data or names.
     Inputs are application data and must be bounded by the caller. *)
@@ -44,10 +51,12 @@ val property_results : name -> response -> (element, int) result list
     successful PROPPATCH results do not contain the final property value.
     A failed whole-resource status yields one [Error]; a successful
     whole-resource status or an unreported property yields an empty list. *)
+
 val property : name -> response -> (element, int) result option
 (** [None] means unreported; [Error status] means reported but failed.
     Raises [Invalid_argument] for multiple occurrences instead of choosing one
     and hiding another result. Use {!property_results} for repeated reports. *)
+
 val resolve_href : base:string -> string -> (string, string) result
 (** Hrefs must be absolute HTTP(S) URLs or absolute paths. No network access. *)
 
@@ -80,6 +89,7 @@ type if_condition =
   | Tagged of (string * condition list list) list
 val encode_if : if_condition -> string
 (** Raises [Invalid_argument] for empty lists, invalid resource tags or ETags. *)
+
 val valid_etag : string -> bool
 val strong_etag : string -> bool
 

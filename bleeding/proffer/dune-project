@@ -28,12 +28,9 @@ the httpz media libraries. Route constructors preserve OxCaml portability.")
   (bytesrw (>= 0.4.0))
   (cmarkit (>= 0.4.0))
   (fetch (= :version))
-  davz
-  http
-  xmlm
-  uriz
-  cstruct
-  (eio (>= 1.3))
+  (http :with-test)
+  (cstruct :with-test)
+  (eio (and (>= 1.3) :with-test))
   (fetch-httpz (and (= :version) :with-test))
   (eio_main (and (>= 1.3) :with-test))
   (x509 :with-test)

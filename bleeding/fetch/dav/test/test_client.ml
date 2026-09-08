@@ -1,4 +1,4 @@
-module D = Proffer_dav
+module D = Fetch_dav
 let count = ref 0
 let check name b = incr count; if not b then failwith name
 let invalid name f = check name (try ignore (f ()); false with Invalid_argument _ -> true)
@@ -18,13 +18,13 @@ let () = Eio_mock.Backend.run @@ fun () ->
       ~status:!status ~headers:!headers ~version:`HTTP_1_1
       ~body:(Eio.Flow.string_source !body) ~url:req.url ()) in
   let client = D.v ~root:"https://example.test/dav/" backend in
-  let response = D.propfind client "a" (Davz.Prop [Davz.dav "getetag"]) in
-  check "207 failure preserved" ((List.hd response.responses).outcome = Davz.Status 423);
+  let response = D.propfind client "a" (Httpz_dav.Prop [Httpz_dav.dav "getetag"]) in
+  check "207 failure preserved" ((List.hd response.responses).outcome = Httpz_dav.Status 423);
   check "response closed" (!closed = 1);
   let req = List.hd !seen in
   check "PROPFIND extension method" (Http.Method.to_string req.meth = "PROPFIND");
   check "explicit depth zero" (Http.Header.get req.headers "depth" = Some "0");
-  check "XML body" (match req.body with Fetch.String s -> Result.is_ok (Davz.parse_xml s) | _ -> false);
+  check "XML body" (match req.body with Fetch.String s -> Result.is_ok (Httpz_dav.parse_xml s) | _ -> false);
   let before = List.length !seen in
   List.iter (fun target -> invalid "scope check before network" (fun () -> D.mkcol client target))
     ["../outside"; "https://evil.test/dav/a"; "/davx/a"; "/dav/%2e%2e/outside"; "/dav/a%2fb"; "a#f"];
@@ -38,7 +38,7 @@ let () = Eio_mock.Backend.run @@ fun () ->
   invalid "root query" (fun () -> D.v ~root:"https://example.test/dav/?q" backend);
   status := 302; body := "redirect";
   headers := Http.Header.of_list ["Location", "/dav/elsewhere"];
-  ignore (expect_http 302 (fun () -> D.propfind client "a" Davz.Propname));
+  ignore (expect_http 302 (fun () -> D.propfind client "a" Httpz_dav.Propname));
   check "redirect stopped" (List.length !seen = before + 1);
   status := 201; body := ""; headers := Http.Header.init ();
   ignore (D.copy client ~src:"a" ~dst:"b" ());
@@ -50,25 +50,25 @@ let () = Eio_mock.Backend.run @@ fun () ->
   check "create precondition" (Http.Header.get (List.hd !seen).headers "if-none-match" = Some "*");
   status := 207; body := multi; headers := xml_headers;
   check "recursive failure preserved" (match D.delete client "a" with D.Multi m ->
-    (List.hd m.responses).outcome = Davz.Status 423 | _ -> false);
+    (List.hd m.responses).outcome = Httpz_dav.Status 423 | _ -> false);
   body := "<multistatus xmlns='DAV:' xmlns:p='urn:p'><response><href>/dav/a</href><propstat><prop><p:x/><p:x/></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>";
-  let result = D.proppatch client "a" [Davz.Set [Davz.element ("urn:p", "x") [Davz.Text "first"]];
-    Davz.Remove ["urn:p", "x"]] in
-  check "repeated PROPPATCH reports succeed" (match Davz.property_results ("urn:p", "x") (List.hd result.responses) with
+  let result = D.proppatch client "a" [Httpz_dav.Set [Httpz_dav.element ("urn:p", "x") [Httpz_dav.Text "first"]];
+    Httpz_dav.Remove ["urn:p", "x"]] in
+  check "repeated PROPPATCH reports succeed" (match Httpz_dav.property_results ("urn:p", "x") (List.hd result.responses) with
     | [Ok _; Ok _] -> true | _ -> false);
   body := "<d:multistatus xmlns:d='DAV:'>";
   let n = !closed in
-  protocol "truncated XML" (fun () -> D.propfind client "" Davz.Propname);
+  protocol "truncated XML" (fun () -> D.propfind client "" Httpz_dav.Propname);
   check "decode failure closes response" (!closed = n + 1);
   body := multi;
-  let small = D.v ~limits:{Davz.default_limits with max_bytes=16} ~root:(D.root client) backend in
-  protocol "XML size bound" (fun () -> D.propfind small "a" Davz.Propname);
+  let small = D.v ~limits:{Httpz_dav.default_limits with max_bytes=16} ~root:(D.root client) backend in
+  protocol "XML size bound" (fun () -> D.propfind small "a" Httpz_dav.Propname);
   status := 403; headers := Http.Header.of_list ["Content-Type", "text/html"]; body := String.make 50 'x';
   let e = expect_http 403 (fun () -> D.mkcol small "a") in
   check "bounded non-XML error" (e.truncated && String.length e.body = 16 && e.dav_errors = []);
   headers := xml_headers; body := "<error xmlns='DAV:'><lock-token-submitted/></error>";
   let e = expect_http 403 (fun () -> D.mkcol client "a") in
-  check "DAV error retained" ((List.hd e.dav_errors).name = Davz.dav "lock-token-submitted");
+  check "DAV error retained" ((List.hd e.dav_errors).name = Httpz_dav.dav "lock-token-submitted");
   status := 200; body := "file bytes"; headers := Http.Header.init ();
   let n = !closed in
   (try D.with_download client "a" (fun _ -> raise Exit) with Exit -> ());
@@ -81,12 +81,12 @@ let () = Eio_mock.Backend.run @@ fun () ->
   check "repeated Allow fields" (caps.allow = ["GET"; "PROPFIND"; "LOCK"]);
   check "repeated singleton refused" (Fetch.Header.get D.Header.lock_token
     (Http.Header.of_list ["Lock-Token", "<urn:a>"; "Lock-Token", "<urn:b>"]) = None);
-  let token = match Davz.Token.of_string "urn:lease" with Ok t -> t | Error e -> failwith e in
+  let token = match Httpz_dav.Token.of_string "urn:lease" with Ok t -> t | Error e -> failwith e in
   let lock_body = "<prop xmlns='DAV:'><lockdiscovery><activelock><lockscope><exclusive/></lockscope><locktype><write/></locktype><depth>0</depth><timeout>Second-5</timeout><locktoken><href>urn:lease</href></locktoken><lockroot><href>/dav/a</href></lockroot></activelock></lockdiscovery></prop>" in
   body := lock_body;
   headers := Http.Header.add xml_headers "Lock-Token" "<urn:lease>";
   let lease = D.lock client "a" in
-  check "granted timeout retained" (lease.granted.timeout = Some (Davz.Seconds 5L));
+  check "granted timeout retained" (lease.granted.timeout = Some (Httpz_dav.Seconds 5L));
   check "opaque token retained" (lease.token = token);
   status := 204; body := "";
   List.iter (fun meth ->
@@ -110,9 +110,9 @@ let () = Eio_mock.Backend.run @@ fun () ->
   let ascii = "<multistatus xmlns='DAV:'/>" in
   body := "\255\254" ^ String.init (String.length ascii * 2) (fun i -> if i mod 2 = 0 then ascii.[i/2] else '\000');
   headers := xml_headers;
-  check "BOM precedence over charset" ((D.propfind client "" Davz.Propname).responses = []);
+  check "BOM precedence over charset" ((D.propfind client "" Httpz_dav.Propname).responses = []);
   headers := Http.Header.of_list ["Content-Type", "application/xml; charset=unsupported"];
-  check "BOM overrides unsupported charset" ((D.propfind client "" Davz.Propname).responses = []);
+  check "BOM overrides unsupported charset" ((D.propfind client "" Httpz_dav.Propname).responses = []);
   body := ascii;
-  protocol "unsupported charset" (fun () -> D.propfind client "" Davz.Propname);
-  Printf.printf "proffer.dav: %d client checks passed\n" !count
+  protocol "unsupported charset" (fun () -> D.propfind client "" Httpz_dav.Propname);
+  Printf.printf "fetch.dav: %d client checks passed\n" !count

@@ -1,9 +1,11 @@
 # WebDAV interoperability fixture
 
-Run from the repository root, with Docker Engine, Compose v2 and Python 3:
+Run from the repository root, with Docker Engine, Compose v2 and Python 3.
+Set `DAV_PREFIX=bleeding/` in OxMono, or leave it empty in the standalone trees;
+set `DAV_SWITCH=5.2.0+ox` for OxCaml or `DAV_SWITCH=5.5.0` for stock OCaml:
 
 ```sh
-python3 bleeding/fetch/test/webdav/run.py
+python3 "${DAV_PREFIX}fetch/test/webdav/run.py"
 ```
 
 The runner builds an Apache 2.4.68 image pinned by digest, starts a unique
@@ -16,9 +18,9 @@ The first build needs registry access; subsequent builds can use Docker's cache.
 Pass a command after `--` to test a client against the verified server:
 
 ```sh
-python3 bleeding/fetch/test/webdav/run.py -- \
-  opam exec --switch=5.2.0+ox -- dune exec \
-  bleeding/proffer/dav/test/test_docker.exe
+python3 "${DAV_PREFIX}fetch/test/webdav/run.py" -- \
+  opam exec --switch="$DAV_SWITCH" -- dune exec \
+  "${DAV_PREFIX}proffer/dav/test/test_docker.exe"
 ```
 
 The command inherits these fixture settings:

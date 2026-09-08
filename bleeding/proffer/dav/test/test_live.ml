@@ -7,15 +7,15 @@ let check label condition = if not condition then failwith label
 let log fmt = Printf.printf (fmt ^^ "\n%!")
 let read r = Eio.Buf_read.(parse_exn take_all) (Fetch.body r) ~max_size:1_048_577
 let result = function Ok x -> x | Error _ -> failwith "invalid protocol value"
-let query = Davz.Prop (List.map Davz.dav ["resourcetype"; "getetag"; "getcontentlength"])
-let prop name response = match Davz.property (Davz.dav name) response with
+let query = Httpz_dav.Prop (List.map Httpz_dav.dav ["resourcetype"; "getetag"; "getcontentlength"])
+let prop name response = match Httpz_dav.property (Httpz_dav.dav name) response with
   | Some (Ok p) -> Some p | Some (Error 404) | None -> None
   | Some (Error _) -> failwith "property query failed"
-let text_prop name r = Option.map (fun p -> result (Davz.text p)) (prop name r)
+let text_prop name r = Option.map (fun p -> result (Httpz_dav.text p)) (prop name r)
 let is_collection r = match prop "resourcetype" r with
-  | Some p -> Davz.children (Davz.dav "collection") p <> []
+  | Some p -> Httpz_dav.children (Httpz_dav.dav "collection") p <> []
   | None -> failwith "resource type absent"
-let href client (r : Davz.response) = match r.hrefs with
+let href client (r : Httpz_dav.response) = match r.hrefs with
   | [href] -> D.resolve client href
   | _ -> failwith "expected a single resource href"
 let entries client = (D.propfind ~depth:`One client "" query).responses
@@ -111,14 +111,14 @@ let scratch_test ?(after_upload = fun () -> ()) ~issue ~step ~random ~http ~caps
           end);
     let patch label target = step label (fun () ->
       let name = "urn:proffer:dav:smoke-test", "value" in
-      let set s = Davz.Set [Davz.element name [Davz.Text s]] in
+      let set s = Httpz_dav.Set [Httpz_dav.element name [Httpz_dav.Text s]] in
       try
       let m = D.proppatch scratch target [set "first"; set "second"] in
-      let reports = List.concat_map (Davz.property_results name) m.responses in
+      let reports = List.concat_map (Httpz_dav.property_results name) m.responses in
       if reports <> [] && List.for_all Result.is_ok reports then begin
-        let m = D.propfind scratch target (Davz.Prop [name]) in
+        let m = D.propfind scratch target (Httpz_dav.Prop [name]) in
         check "last instruction did not win" (match m.responses with
-          | [r] -> (match Davz.property name r with Some (Ok p) -> Davz.text p = Ok "second" | _ -> false)
+          | [r] -> (match Httpz_dav.property name r with Some (Ok p) -> Httpz_dav.text p = Ok "second" | _ -> false)
           | _ -> false)
       end else if reports <> [] && List.for_all (function Error (403 | 409 | 424) -> true | _ -> false) reports then
         log "Dead properties rejected by server policy"
@@ -138,7 +138,7 @@ let scratch_test ?(after_upload = fun () -> ()) ~issue ~step ~random ~http ~caps
       check "COPY/MOVE content differs" (D.with_download scratch moved read = D.with_download scratch file read));
     patch "PROPPATCH on plain filename" moved;
     if List.mem "2" caps.D.dav then step "lock, destination condition, refresh and unlock" (fun () ->
-      let lease = try Some (D.lock ~timeout:(Davz.Seconds 60L) scratch moved)
+      let lease = try Some (D.lock ~timeout:(Httpz_dav.Seconds 60L) scratch moved)
         with D.Http_error e -> issue (Printf.sprintf "LOCK acquisition returned HTTP %d" e.status); None in
       match lease with
       | None -> ()
@@ -154,7 +154,7 @@ let scratch_test ?(after_upload = fun () -> ()) ~issue ~step ~random ~http ~caps
             with ex -> raise (Step_failed ("UNLOCK", ex))) (fun () ->
             action "locked PUT" (fun () ->
               ignore (D.put ~if_:(D.lock_condition lease) scratch moved (Fetch.String "locked update")));
-            action "lock refresh" (fun () -> ignore (D.refresh_lock ~timeout:(Davz.Seconds 60L) scratch lease));
+            action "lock refresh" (fun () -> ignore (D.refresh_lock ~timeout:(Httpz_dav.Seconds 60L) scratch lease));
             action "COPY to locked destination" (fun () ->
               complete (D.copy ~overwrite:true ~if_:(D.lock_condition lease) scratch ~src:file ~dst:moved ()))))
     else log "Lock checks skipped: DAV class 2 not advertised";
@@ -176,8 +176,9 @@ let () =
       let ca = In_channel.with_open_bin (Sys.getenv "WEBDAV_CA_FILE") In_channel.input_all in
       let anchors = match X509.Certificate.decode_pem_multiple ca with
         | Ok anchors -> anchors | Error _ -> failwith "invalid fixture CA" in
+      let verification_time = Ptime.of_float_s (Eio.Time.now env#clock) in
       let authenticator = X509.Authenticator.chain_of_trust_no_crl
-        ~time:(fun () -> Some (Ptime_clock.now ())) anchors in
+        ~time:(fun () -> verification_time) anchors in
       Sys.getenv "WEBDAV_PASSWORD", Httpz_tls.client ~authenticator
     end else begin
       check "root, user and password-file are required" (!root <> "" && !user <> "" && !password_path <> "");

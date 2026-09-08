@@ -1,16 +1,17 @@
-# davz and proffer.dav
+# httpz.dav, fetch.dav and proffer.dav
 
-`davz` implements the transport-independent portion of a file-oriented WebDAV
-client. `proffer.dav` exposes it as a Fetch client capability. The latter name
-is intentional: it is the requested client integration, not a Proffer server
-handler. Neither library selects a transport or constructs credentials.
+`httpz.dav` implements transport-independent WebDAV protocol values and codecs
+as `Httpz_dav`. `fetch.dav` exposes the client as `Fetch_dav`, over a supplied
+Fetch capability. `proffer.dav` re-exports the same client, types and exceptions
+as `Proffer_dav`. Neither client selects a transport or constructs credentials.
+The dependency direction is Proffer to Fetch to HTTPz, with no cycle.
 
 The first version implements RFC 4918 request XML, multistatus and lock discovery
 decoding, DAV header values and href validation. The integration supports
 OPTIONS, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, DELETE, PUT, scoped downloads,
 LOCK, refresh and UNLOCK. HTTP representation features use Fetch's existing
-headers and streaming bodies. The [standards investigation](../fetch/WEBDAV.md)
-records the extension roadmap and the [Docker fixture](../fetch/test/webdav/README.md)
+headers and streaming bodies. The [standards investigation](../../fetch/WEBDAV.md)
+records the extension roadmap and the [Docker fixture](../../fetch/test/webdav/README.md)
 provides a locally verified Apache interoperability target.
 
 ## Protocol model
@@ -65,7 +66,7 @@ and downloads already stream through Fetch. A download callback owns the
 response only for its dynamic extent, including error and cancellation paths.
 
 Protocol data is immutable and checked portable. Parser and transport state is
-exchange-local. XML errors are explicit results in davz; the integration raises
+exchange-local. XML errors are explicit results in httpz.dav; the integration raises
 a distinct protocol exception. HTTP rejection contains status, response headers
 and a bounded body, with a parsed DAV error when available. A 207 remains a
 structured outcome even when it contains failures.

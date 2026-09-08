@@ -1,0 +1,16 @@
+(tests
+ (names test_davz test_namespaces)
+ (modules test_davz test_namespaces)
+ (libraries httpz.dav))
+
+(executable
+ (name bench_namespaces)
+ (modules bench_namespaces)
+ (libraries httpz.dav))
+
+; Compile the exact private codec for its low-level regression tests.
+(copy_files ../xmlm.ml)
+(copy_files ../xmlm.mli)
+(test
+ (name test_xmlm)
+ (modules test_xmlm xmlm))

@@ -188,6 +188,7 @@ field. A library name such as `httpz.uri` is an OCamlfind subpackage.
 | Make HTTP/1.1 requests with an OCaml transport. | `fetch fetch-httpz` |
 | Make requests with libcurl and HTTP/2. | `fetch fetch-curl` |
 | Test server handlers in memory. | `proffer proffer.mock` |
+| Use WebDAV through an existing Fetch client. | `fetch.dav` (or `proffer.dav`) |
 | Test client code in memory. | `fetch fetch.mock` |
 
 The `httpz` opam package installs all the supporting libraries below.
@@ -199,6 +200,7 @@ and Markdown support and depend on the HTTP wire library.
 | `httpz` | `Httpz` | HTTP/1.1 parsing and writing. |
 | `httpz.uri` | `Httpz_uri` | URI parsing, resolution and templates. |
 | `httpz.media` | `Httpz_media` | Typed codecs, forms, multipart, SSE, JSON and Markdown. |
+| `httpz.dav` | `Httpz_dav` | Bounded WebDAV protocol values and XML codecs. |
 | `httpz.tls` | `Httpz_tls` | Eio TLS client and server flows. |
 | `httpz.cookie` | `Cookie` | Cookie parsing and writing. |
 | `httpz.cookie.jar` | `Cookie_jar` | Client cookie storage and persistence. |
@@ -235,3 +237,7 @@ OxMono also includes `fetch-main` for platform selection, `fetch-macos` for
 NSURLSession, `fetch-cmdliner` for command-line configuration and
 `fetch-signature` for HTTP Message Signatures. Server applications use Proffer
 and the `proffer-httpz` backend.
+
+WebDAV protocol values live in [`httpz.dav`](bleeding/httpz/dav/README.md).
+The [`fetch.dav` client](bleeding/fetch/dav/README.md) supplies scoped operations
+and explicit locks; `proffer.dav` re-exports it.

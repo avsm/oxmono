@@ -55,7 +55,8 @@ let[@zero_alloc] is_conditional_read (req : Req.t @ local) =
    date fields are ignored, as RFC 9110 requires. *)
 let[@zero_alloc] reject_conditional_write ~has_now (now : float#)
     (req : Req.t @ local) =
-  (not (is_conditional_read req))
+  (not (Req.preconditions_handled req))
+  && (not (is_conditional_read req))
   &&
   let headers = Req.headers req in
   Headers.mem headers H.If_match
@@ -70,7 +71,7 @@ let[@zero_alloc] reject_conditional_write ~has_now (now : float#)
 let[@inline always][@zero_alloc] evaluate ~has_now (now : float#) (req : Req.t @ local)
     (d : Resp.description @ local) =
   let code = Status.code d.Resp.status in
-  if code < 200 || code >= 300 then Proceed
+  if Req.preconditions_handled req || code < 200 || code >= 300 then Proceed
   else
     let headers = Req.headers req in
     let safe = is_conditional_read req in

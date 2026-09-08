@@ -9,7 +9,8 @@ The [specification](SPEC.md) describes the supported RFC 4918 subset and resourc
 limits. The [public interface](httpz_dav.mli) exposes encoding and namespace
 values without exposing the private XML codec. The Fetch client is
 [`fetch.dav`](../../fetch/dav/README.md); Proffer applications can use its
-[`proffer.dav`](../../proffer/dav/README.md) re-export.
+[`proffer.dav`](../../proffer/dav/README.md) server. The pure `Server` module
+decodes bounded requests and encodes multistatus, error and lock responses.
 
 The protocol tests generate prefix collisions, namespace shadowing and detached
 fragments, verify stable reserialization, and exercise a 32,000-declaration

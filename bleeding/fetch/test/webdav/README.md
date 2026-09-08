@@ -20,7 +20,7 @@ Pass a command after `--` to test a client against the verified server:
 ```sh
 python3 "${DAV_PREFIX}fetch/test/webdav/run.py" -- \
   opam exec --switch="$DAV_SWITCH" -- dune exec \
-  "${DAV_PREFIX}proffer/dav/test/test_docker.exe"
+  "${DAV_PREFIX}fetch/dav/integration/test_docker.exe"
 ```
 
 The command inherits these fixture settings:

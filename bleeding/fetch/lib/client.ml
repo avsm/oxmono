@@ -92,6 +92,19 @@ let restrict ?under ?methods ?filter inner =
   let check (req : request) =
     if not (in_scope under req.url) then
       deny (Fmt.str "url %a not permitted" (pp_url req) req.url);
+    (* COPY/MOVE affect a second resource. Every stacked URL restriction
+       checks it, including requests made through the generic Fetch API. *)
+    (match under, Http.Method.to_string req.meth with
+    | Some _, ("COPY" | "MOVE") ->
+        (match Http.Header.get_multi req.headers "destination" with
+        | [destination] ->
+            let target = match Url.resolve ~base:req.url destination with
+              | Ok target -> target
+              | Error _ -> deny "invalid Destination" in
+            if not (in_scope under target) then
+              deny "Destination not permitted"
+        | _ -> deny "COPY/MOVE requires exactly one Destination")
+    | _ -> ());
     (match methods with
     | Some ms when not (List.exists (meth_equal req.meth) ms) ->
         deny

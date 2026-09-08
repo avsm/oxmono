@@ -86,6 +86,15 @@ let[@zero_alloc] run_core ~on_error ~has_now (now : float#)
      else call_describe describe respond
    with
   | () -> if not !responded then call_error on_error never_responded
+  | exception Req.Input.Rejected status ->
+      if not !sent then begin
+        let local_ description = {
+          Resp.status; headers = Headers.empty; etag = None;
+          last_modified = None; cache = None; content_type = This Resp.text_type;
+          body = Body.String "Request body rejected\n";
+        } in
+        let () = respond description in ()
+      end
   | exception exn -> call_error on_error exn);
   if not !sent then begin
     (match Response.write_internal_error req w
@@ -108,13 +117,49 @@ let run ?on_error ?now (req : Req.t @ local)
   let () = run_core ~on_error ~has_now now req describe write in
   ()
 
+type admission = Site.admission = Ordinary | Responded | Accepted of Site.admitted
+
+let[@inline never][@zero_alloc assume] admit ~on_error site env
+    (req : Req.t @ local) (write : writer @ local) =
+  let local_ req = Req.handle_preconditions req in
+  let answered = ref false in
+  let local_ respond (d : Resp.description @ local) =
+    if !answered then invalid_arg "Proffer endpoint answered twice";
+    answered := true;
+    Response.decide ~has_now:false #0. req d write in
+  try
+    let result = Site.admit site env req respond in
+    match result, !answered with
+    | Ordinary, false | Accepted _, false | Responded, true -> result
+    | _ -> invalid_arg "Proffer endpoint admission response mismatch"
+  with exn ->
+    call_error on_error exn;
+    if not !answered then Response.write_internal_error req write;
+    Responded
+
+let[@inline never][@zero_alloc assume] handle_accepted ~on_error accepted
+    (req : Req.t @ local) (write : writer @ local) =
+  let local_ req = Req.handle_preconditions req in
+  let local_ describe respond = accepted.Site.run req respond in
+  let () = run_core ~on_error ~has_now:false #0. req describe write in
+  ()
+
+let input = Req.Input.v
+let close_input = Req.Input.close
+let with_input = Req.with_input
+let with_transport = Req.with_transport
+let body_limit accepted = accepted.Site.max_body
+
 let[@zero_alloc] handle_core ~on_error ~has_now (now : float#) site env
     (req : Req.t @ local) (write : writer @ local) =
   let local_ describe (respond : Resp.respond @ local) =
     let () = Dispatch.run site env req respond in
     ()
   in
-  let () = run_core ~on_error ~has_now now req describe write in
+  (match admit ~on_error site env req write with
+   | Ordinary -> run_core ~on_error ~has_now now req describe write
+   | Responded -> ()
+   | Accepted accepted -> handle_accepted ~on_error accepted req write);
   ()
 
 let[@zero_alloc] handle_unboxed ~on_error ~(now : float#) site env

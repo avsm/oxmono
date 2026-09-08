@@ -1,6 +1,6 @@
 (* Opt-in smoke test. Existing resources are read-only. Mutations are scoped
    to a new, unpredictable collection whose successful creation we witnessed. *)
-module D = Proffer_dav
+module D = Fetch_dav
 exception Step_failed of string * exn
 exception Injected_failure
 let check label condition = if not condition then failwith label
@@ -78,10 +78,10 @@ let scratch_test ?(after_upload = fun () -> ()) ~issue ~step ~random ~http ~caps
   in
   Fun.protect ~finally:cleanup (fun () ->
     step "create and read file" (fun () ->
-      check "PUT creation status" (D.put ~condition:D.If_absent scratch file (Fetch.String "dav client test\n") = 201);
+      check "PUT creation status" ((D.put ~condition:D.If_absent scratch file (Fetch.String "dav client test\n")).status = 201);
       check "uploaded content differs" (D.with_download scratch file read = "dav client test\n");
       let collision = match D.put ~condition:D.If_absent scratch file (Fetch.String "collision") with
-        | status -> Some status
+        | written -> Some written.D.status
         | exception D.Http_error e when e.status = 412 -> None in
       let content = D.with_download scratch file read in
       (match collision with
@@ -102,7 +102,7 @@ let scratch_test ?(after_upload = fun () -> ()) ~issue ~step ~random ~http ~caps
           else begin
             let stale = {tag with Fetch.Header.tag = tag.tag ^ "-deliberately-stale"} in
             (match D.put ~condition:(D.If_match stale) scratch file (Fetch.String "stale condition") with
-            | status -> issue (Printf.sprintf "stale If-Match PUT returned %d, expected 412" status)
+            | written -> issue (Printf.sprintf "stale If-Match PUT returned %d, expected 412" written.D.status)
             | exception D.Http_error e when e.status = 412 -> ());
             (* Obtain a fresh validator if the server ignored the stale one. *)
             let tag = D.with_download scratch file (Fetch.header Fetch.Header.etag) |> Option.get in

@@ -2,14 +2,18 @@
 
 `httpz.dav` implements transport-independent WebDAV protocol values and codecs
 as `Httpz_dav`. `fetch.dav` exposes the client as `Fetch_dav`, over a supplied
-Fetch capability. `proffer.dav` re-exports the same client, types and exceptions
-as `Proffer_dav`. Neither client selects a transport or constructs credentials.
-The dependency direction is Proffer to Fetch to HTTPz, with no cycle.
+Fetch capability. `proffer.dav` provides the explicitly mounted server.
+Its Eio adapter accepts a confined directory or private managed store. The
+client selects neither a transport nor credentials on behalf of its caller.
 
-The first version implements RFC 4918 request XML, multistatus and lock discovery
-decoding, DAV header values and href validation. The integration supports
-OPTIONS, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, DELETE, PUT, scoped downloads,
-LOCK, refresh and UNLOCK. HTTP representation features use Fetch's existing
+The library implements RFC 4918 request XML, multistatus and lock discovery
+decoding, DAV header values and href validation, together with readers for the
+live properties of RFC 4918, RFC 3253, RFC 3744, RFC 5397, RFC 5995 and RFC
+6578, the RFC 5689 extended MKCOL body, the RFC 6578 sync-collection report and
+the RFC 6764 discovery names. The integration supports OPTIONS, PROPFIND,
+PROPPATCH, MKCOL, COPY, MOVE, DELETE, PUT, GET, scoped downloads, REPORT,
+collection synchronization, principal and home-set discovery, LOCK, refresh and
+UNLOCK. HTTP representation features use Fetch's existing
 headers and streaming bodies. The [standards investigation](../../fetch/WEBDAV.md)
 records the extension roadmap and the [Docker fixture](../../fetch/test/webdav/README.md)
 provides a locally verified Apache interoperability target.
@@ -75,7 +79,8 @@ structured outcome even when it contains failures.
 
 Construction takes a Fetch capability and an absolute collection root ending
 in `/`. Requests and COPY/MOVE destinations must remain beneath that root and
-on its origin; source-only Fetch restrictions cannot protect Destination.
+on its origin. Every stacked Fetch URL restriction also validates Destination,
+including requests sent through the raw Fetch API.
 Redirects stop for every DAV operation in this initial API. The caller may
 explicitly construct another root after inspecting an HTTP redirect result.
 The integration does not add retries. Supplied Fetch middleware remains active:
@@ -100,9 +105,27 @@ root/destination restrictions and download lifetime. An explicit Docker client
 test repeats property, file and lock workflows against Apache over HTTP and
 HTTPS, trusting only the fixture's CA.
 
-RFC 6578 sync, RFC 5689 extended MKCOL, RFC 8144 Prefer, automatic lock leases,
-CalDAV/CardDAV, ACL editing, search and server-side Proffer handlers are later
-features. No general WebDAV conformance claim accompanies this initial client.
+RFC 8144 Prefer, automatic lock leases, ACL editing, search and server-side
+Proffer handlers are later features. CalDAV and CardDAV clients build on these
+libraries in the `idk` repository, which adds only their namespaces, reports
+and data formats. No general WebDAV conformance claim accompanies this client.
+
+## Reports, synchronization and discovery
+
+`report` sends a REPORT body and decodes a 207; `report_body` reads a 200 whose
+body is not XML, such as a CalDAV free-busy answer. `sync` runs the RFC 6578
+sync-collection report and decodes the token, the changed members with their
+properties, the removed members reported 404, the collections reported 403 as
+unsupported, and the 507 on the collection itself that marks a truncated
+result; the application repeats the report with the returned token. A stale
+token is an `Http_error` naming `DAV:valid-sync-token`. `mkcol ~props` sends
+the RFC 5689 body and `mkcalendar` the RFC 4791 one; a server that cannot set the properties answers with a
+`DAV:mkcol-response`, which `Httpz_dav.mkcol_response` decodes. `put` returns
+the status with the entity tag the server gave the representation, and `get`
+reads a bounded body with its entity tag. `context_path` resolves the RFC 6764
+well-known path, `principal` reads the current user's principal URL and
+`home_set` the hrefs of a home set property on it; every returned reference is
+resolved against its response URL and checked against the root before use.
 
 Normative references: [RFC 4918](https://www.rfc-editor.org/rfc/rfc4918.html),
 [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html),

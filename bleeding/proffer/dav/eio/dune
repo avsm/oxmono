@@ -1,0 +1,19 @@
+(library
+ (name proffer_dav_eio)
+ (public_name proffer.dav.eio)
+ (libraries
+  proffer.dav
+  proffer
+  httpz
+  httpz.dav
+  httpz.uri
+  eio
+  eio.unix
+  cstruct
+  digestif
+  unix
+  mtime
+  stdlib_upstream_compatible)
+ (foreign_stubs
+  (language c)
+  (names dav_stubs)))

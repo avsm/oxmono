@@ -86,3 +86,51 @@ let () =
   check "lock decoding" (List.length ls = 1 && (List.hd ls).timeout = Some (Seconds 60L));
   check "empty discovery" (locks (parse "<prop xmlns='DAV:'><lockdiscovery/></prop>") = Ok []);
   Printf.printf "httpz.dav: %d protocol checks passed\n" !count
+
+let () =
+  let sync = parse "<d:multistatus xmlns:d='DAV:'><d:response><d:href>/col/new.vcf</d:href><d:propstat><d:prop><d:getetag>\"a\"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response><d:response><d:href>/col/gone.vcf</d:href><d:status>HTTP/1.1 404 Not Found</d:status></d:response><d:response><d:href>/col/sub/</d:href><d:status>HTTP/1.1 403 Forbidden</d:status><d:error><d:sync-traversal-supported/></d:error></d:response><d:response><d:href>/col/</d:href><d:status>HTTP/1.1 507 Insufficient Storage</d:status><d:error><d:number-of-matches-within-limits/></d:error></d:response><d:sync-token>http://example.com/ns/sync/1234</d:sync-token></d:multistatus>" in
+  let s = ok (Sync.decode ~base:"http://h/col/" sync) in
+  check "sync token" (s.token = Some "http://example.com/ns/sync/1234");
+  check "sync truncated" s.truncated;
+  check "sync changes" (match s.changes with
+    | [Sync.Changed r; Sync.Removed "/col/gone.vcf"; Sync.Unsupported ("/col/sub/", [e])] ->
+        etag r = Some "\"a\"" && e.name = Condition.sync_traversal_supported
+    | _ -> false);
+  let req = parse (Sync.request ~token:"t" ~limit:10 [Prop.getetag]) in
+  check "sync request" (content (List.hd (children (dav "sync-token") req)) = "t" &&
+    content (List.hd (children (dav "sync-level") req)) = "1" &&
+    children (dav "limit") req <> [] &&
+    children Prop.getetag (List.hd (children (dav "prop") req)) <> []);
+  check "initial sync request" (content (List.hd (children (dav "sync-token") (parse (Sync.request [])))) = "");
+  invalid "negative limit" (fun () -> Sync.request ~limit:(-1) []);
+  let m = multi (wrap "<d:response><d:href>/col/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype><d:current-user-principal><d:href>/p/</d:href></d:current-user-principal><d:supported-report-set><d:supported-report><d:report><d:sync-collection/></d:report></d:supported-report></d:supported-report-set><d:current-user-privilege-set><d:privilege><d:read/></d:privilege></d:current-user-privilege-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat><d:propstat><d:prop><d:getetag/></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response>") in
+  let r = List.hd m.responses in
+  check "response href" (href r = "/col/");
+  check "find response ignores slash and encoding" (find_response m "/col" = Some r && find_response m "/other" = None);
+  check "response status" (response_status r = 200);
+  check "is collection" (is_collection r);
+  check "etag absent" (etag r = None && property_status Prop.getetag r = Some 404);
+  check "principal" (Option.bind (find_property Prop.current_user_principal r) Prop.principal = Some (`Href "/p/"));
+  check "reports" (Option.map Prop.reports (find_property Prop.supported_report_set r) = Some [dav "sync-collection"]);
+  check "privileges" (Option.map Prop.privileges (find_property Prop.current_user_privilege_set r) = Some [dav "read"]);
+  check "failures skip 424" (match failures (multi (wrap "<d:response><d:href>/a</d:href><d:propstat><d:prop><d:x/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status><d:error><d:cannot-modify-protected-property/></d:error></d:propstat><d:propstat><d:prop><d:y/></d:prop><d:status>HTTP/1.1 424 Failed Dependency</d:status></d:propstat></d:response>")) with
+    | [403, errors, [name]] -> Condition.has Condition.cannot_modify_protected_property errors && name = dav "x"
+    | _ -> false);
+  check "unauthenticated" (Prop.principal (element Prop.current_user_principal [Element (empty (dav "unauthenticated"))]) = Some `Unauthenticated);
+  check "href path" (href_path "https://h/a%20b/?q" = "/a b/" && basename "/x/y%2Fz/" = "y%2Fz" && same_href "/a/" "/a" && not (same_href "/a%2Fb" "/a/b"));
+  let groups = ok (mkcol_response (parse "<d:mkcol-response xmlns:d='DAV:'><d:propstat><d:prop><d:resourcetype/></d:prop><d:status>HTTP/1.1 403 Forbidden</d:status></d:propstat></d:mkcol-response>")) in
+  check "mkcol response" (match groups with [g] -> g.status = 403 | _ -> false);
+  let body = parse (mkcol [element Prop.resourcetype [Element (empty (dav "collection")); Element (empty ("urn:ietf:params:xml:ns:carddav", "addressbook"))]; leaf Prop.displayname "Book"]) in
+  check "extended mkcol" (body.name = dav "mkcol" && content (List.hd (children Prop.displayname (List.hd (children (dav "prop") (List.hd (children (dav "set") body)))))) = "Book");
+  check "condition hrefs" (Condition.hrefs Condition.lock_token_submitted [element Condition.lock_token_submitted [Element (leaf (dav "href") "/locked")]] = ["/locked"]);
+  check "discovery" (Discovery.well_known `Carddav = "/.well-known/carddav" &&
+    Discovery.srv_name ~secure:true `Caldav "example.com" = "_caldavs._tcp.example.com" &&
+    Discovery.txt_path "path=/dav/" = Some "/dav/" && Discovery.mailbox "a@b.c" = Some ("a", "b.c"));
+  check "sync failure cannot look like an empty collection"
+    (Result.is_error (Sync.decode ~base:"https://example.test/col/"
+      (parse (wrap "<d:response><d:href>/col/file</d:href><d:status>HTTP/1.1 500 Internal Server Error</d:status></d:response>"))));
+  let raw = wrap "<d:response><d:href>/dav/space caf\xc3\xa9.txt</d:href><d:status>HTTP/1.1 200 OK</d:status></d:response>" in
+  check "unencoded href rejected" (Result.is_error (multistatus (parse raw)));
+  check "unencoded href repaired" (match multistatus ~lenient:true (parse raw) with
+    | Ok m -> href (List.hd m.responses) = "/dav/space%20caf%C3%A9.txt" | Error _ -> false);
+  Printf.printf "httpz.dav: %d extension checks passed\n" !count

@@ -1,5 +1,5 @@
 module Url = Fetch.Middleware.Url
-type t = { client : Fetch.plain; root_url : Url.t; limits : Httpz_dav.limits }
+type t = { client : Fetch.plain; root_url : Url.t; limits : Httpz_dav.limits; lenient : bool }
 exception Protocol_error of string
 type http_error = { status : int; headers : Http.Header.t; body : string;
                     truncated : bool; dav_errors : Httpz_dav.element list }
@@ -7,14 +7,14 @@ exception Http_error of http_error
 let protocol = function Ok v -> v | Error s -> raise (Protocol_error s)
 let url_exn = function Ok v -> v | Error s -> invalid_arg ("Fetch_dav: " ^ s)
 let root t = Url.to_string t.root_url
-let v ?(limits = Httpz_dav.default_limits) ~root client =
+let v ?(limits = Httpz_dav.default_limits) ?(lenient_hrefs = false) ~root client =
   Httpz_dav.validate_limits limits;
   let root_url = url_exn (Url.of_string root) in
   let u = Httpz_uri.of_string_exn root in
   if Httpz_uri.encoded_query u <> Null || Httpz_uri.encoded_fragment u <> Null ||
     not (String.ends_with ~suffix:"/" (Httpz_uri.encoded_path u)) then
     invalid_arg "Fetch_dav: root must be a collection URL without query or fragment";
-  { client = Fetch.restrict ~under:[Url.to_string root_url] client; root_url; limits }
+  { client = Fetch.restrict ~under:[Url.to_string root_url] client; root_url; limits; lenient = lenient_hrefs }
 let resolve t reference =
   let u = Httpz_uri.of_string_exn reference in
   if Httpz_uri.encoded_fragment u <> Null then invalid_arg "Fetch_dav: fragments are not resource paths";
@@ -90,7 +90,7 @@ let xml t response =
   if truncated then raise (Protocol_error "XML byte limit exceeded");
   let encoding = encoding response body in
   protocol (Httpz_dav.parse_xml ~limits:t.limits ?encoding body)
-let multi t response = protocol (Httpz_dav.multistatus (xml t response))
+let multi t response = protocol (Httpz_dav.multistatus ~lenient:t.lenient (xml t response))
 let reject t response =
   let body, truncated = read_bounded t.limits.max_bytes response in
   let dav_errors =
@@ -140,15 +140,32 @@ let proppatch ?condition ?if_ t target updates =
   request ~headers ~body:(Fetch.String (Httpz_dav.proppatch updates)) t "PROPPATCH" target (fun r ->
     if Fetch.status r <> 207 then reject t r;
     multi t r)
-let mkcol ?if_ t target = request ~headers:(conditions ?if_ ()) t "MKCOL" target (fun r ->
-  if Fetch.status r <> 201 then reject t r)
+let mkcol ?if_ ?props t target =
+  let headers, body = match props with
+    | None -> conditions ?if_ (), Fetch.String ""
+    | Some props -> Fetch.Header.append (conditions ?if_ ()) xml_headers, Fetch.String (Httpz_dav.mkcol props) in
+  request ~headers ~body t "MKCOL" target (fun r -> if Fetch.status r <> 201 then reject t r)
+let mkcalendar ?if_ ?props t target =
+  let headers, body = match props with
+    | None -> conditions ?if_ (), Fetch.String ""
+    | Some props -> Fetch.Header.append (conditions ?if_ ()) xml_headers, Fetch.String (Httpz_dav.mkcalendar props) in
+  request ~headers ~body t "MKCALENDAR" target (fun r -> if Fetch.status r <> 201 then reject t r)
+type written = { status : int; etag : string option }
+let etag_of r = Http.Header.get (Fetch.headers r) "etag"
 let put ?condition ?if_ ?content_type t target body =
   let headers = conditions ?condition ?if_ () in
   let headers = match content_type with None -> headers | Some ty ->
     Fetch.Header.append headers Fetch.Header.[raw "Content-Type" ty] in
   request ~headers ~body t "PUT" target (fun r ->
-    let s = Fetch.status r in
-    if List.mem s [200; 201; 204] then s else reject t r)
+    let status = Fetch.status r in
+    if List.mem status [200; 201; 204] then { status; etag = etag_of r } else reject t r)
+let bounded t r =
+  let body, truncated = read_bounded t.limits.max_bytes r in
+  if truncated then raise (Protocol_error "body byte limit exceeded");
+  body
+let get ?headers t target = request ?headers ~body:Fetch.Empty t "GET" target (fun r ->
+  if Fetch.status r <> 200 then reject t r;
+  bounded t r, etag_of r)
 let delete ?condition ?if_ t target =
   request ~headers:(conditions ?condition ?if_ ()) t "DELETE" target (mutation t [200; 204])
 let transfer ?(overwrite = false) ?if_ ~depth t meth ~src ~dst () =
@@ -187,3 +204,304 @@ let refresh_lock ?(timeout = Httpz_dav.Seconds 600L) t lease =
 let unlock t lease =
   request ~headers:Fetch.Header.[Header.lock_token, lease.token] t "UNLOCK" lease.url (fun r ->
     if Fetch.status r <> 204 then reject t r)
+
+let report_request ?(depth = `Zero) t target body f =
+  let headers = Fetch.Header.append Fetch.Header.[Header.depth, depth] xml_headers in
+  request ~headers ~body:(Fetch.String body) t "REPORT" target f
+let report ?depth t target body = report_request ?depth t target body (fun r ->
+  if Fetch.status r <> 207 then reject t r;
+  multi t r)
+let report_body ?depth t target body = report_request ?depth t target body (fun r ->
+  if Fetch.status r <> 200 then reject t r;
+  bounded t r)
+let sync ?token ?level ?limit ?(props = [Httpz_dav.Prop.getetag]) t target =
+  let base = resolve t target in
+  report_request t target (Httpz_dav.Sync.request ?token ?level ?limit props) (fun r ->
+    if Fetch.status r <> 207 then reject t r;
+    protocol (Httpz_dav.Sync.decode ~lenient:t.lenient ~base (xml t r)))
+
+(* The well-known path answers with a redirect, RFC 6764 Section 5, which no
+   DAV operation follows, so its Location is read and resolved here. *)
+let context_path t service =
+  let target = Httpz_dav.Discovery.well_known service in
+  request ~body:Fetch.Empty t "GET" target (fun r ->
+    let redirect = List.mem (Fetch.status r) [301; 302; 303; 307; 308] in
+    match Http.Header.get (Fetch.headers r) "location" with
+    | Some location when redirect ->
+        if List.length (Http.Header.get_multi (Fetch.headers r) "location") <> 1 then
+          raise (Protocol_error "duplicate discovery Location");
+        let base = url_exn (Url.of_string (Fetch.url r)) in
+        resolve t (Url.to_string (url_exn (Url.resolve ~base location)))
+    | None when Fetch.status r = 404 -> root t
+    | _ when redirect -> raise (Protocol_error "missing discovery Location")
+    | _ -> reject t r)
+let response_for m url =
+  let base = protocol (Url.of_string url) in
+  let matches href =
+    let resolved = protocol (Httpz_dav.resolve_href ~base:url href) in
+    let candidate = protocol (Url.of_string resolved) in
+    Url.same_origin base candidate &&
+    Url.path_segments base = Url.path_segments candidate &&
+    Url.has_query base = Url.has_query candidate &&
+    (not (Url.has_query base) ||
+      Url.path_and_query base = Url.path_and_query candidate) in
+  match List.filter (fun r -> List.exists matches r.Httpz_dav.hrefs)
+    m.Httpz_dav.responses with
+  | [response] -> response
+  | [] -> raise (Protocol_error "requested resource absent from multistatus")
+  | _ -> raise (Protocol_error "duplicate resource in multistatus")
+
+let principal t target =
+  let url = resolve t target in
+  let r = response_for (propfind t url Httpz_dav.Discovery.principal_query) url in
+  let resolved h = protocol (Httpz_dav.resolve_href ~base:url h) in
+  match Option.bind (Httpz_dav.find_property Httpz_dav.Prop.current_user_principal r) Httpz_dav.Prop.principal with
+  | Some (`Href h) -> resolved h
+  | Some `Unauthenticated -> raise (Protocol_error "the server reports the user unauthenticated")
+  | None -> match Option.map Httpz_dav.Prop.hrefs (Httpz_dav.find_property Httpz_dav.Prop.principal_url r) with
+    | Some (h :: _) -> resolved h
+    | _ -> raise (Protocol_error "no current-user-principal")
+let home_set t name target =
+  let url = resolve t target in
+  let r = response_for (propfind t url (Httpz_dav.Prop [name])) url in
+  match Httpz_dav.find_property name r with
+  | Some p -> List.map (fun h -> protocol (Httpz_dav.resolve_href ~base:url h)) (Httpz_dav.Prop.hrefs p)
+  | None -> []
+
+let read_only t =
+  { t with client = Fetch.restrict
+      ~methods:[`GET; `HEAD; `OPTIONS; Http.Method.of_string "PROPFIND"] t.client }
+
+module Mirror = struct
+  type action = Initial | Restart of string | Polling | Fetched of string * string
+    | Skipped of string | Removed of string * string | Pruned of string | Truncated
+    | Token of string | Unchanged
+  let pp_action ppf = function
+    | Initial -> Format.fprintf ppf "initial synchronization, no token stored"
+    | Restart why -> Format.fprintf ppf "token refused (%s), rebuilding" why
+    | Polling -> Format.fprintf ppf "no sync-collection report, polling entity tags"
+    | Fetched (href, file) -> Format.fprintf ppf "fetched %s into %s" href file
+    | Skipped href -> Format.fprintf ppf "unchanged %s" href
+    | Removed (href, file) -> Format.fprintf ppf "removed %s for %s" file href
+    | Pruned file -> Format.fprintf ppf "pruned %s" file
+    | Truncated -> Format.fprintf ppf "page truncated, continuing"
+    | Token token -> Format.fprintf ppf "stored token %s" token
+    | Unchanged -> Format.fprintf ppf "no changes"
+  type summary = { fetched : int; removed : int; token : string option }
+  let index_file = ".davsync"
+  let bad message = raise (Protocol_error ("DAV mirror: " ^ message))
+  let field s =
+    not (String.exists (fun c -> Char.code c < 32 || c = '\127') s)
+  let valid_file s =
+    s <> "" && s <> "." && s <> ".." && s <> index_file &&
+    not (String.starts_with ~prefix:".davsync.tmp-" s) && field s &&
+    not (String.contains s '/') && not (String.contains s '\\')
+  let file_of_href href =
+    let name = Httpz_dav.basename href in
+    if not (valid_file name) then bad "unsafe member filename";
+    name
+  type index = {
+    token : string option;
+    members : (string * (string * string)) list;
+  }
+  let same = String.equal
+  let canonical t collection href =
+    let href = resolve t href in
+    let url = url_exn (Url.of_string href) in
+    let prefix = url_exn (Url.of_string collection) in
+    let uri = Httpz_uri.of_string_exn href in
+    if not (Url.under ~prefix url) || Url.path_segments prefix = Url.path_segments url
+       || Httpz_uri.encoded_query uri <> Null then
+      bad "member is outside the collection";
+    href
+  let collision members href file =
+    if List.exists (fun (h, (_, f)) -> f = file && h <> href) members then
+      bad "members have colliding filenames"
+  let load t collection dir =
+    let path = Eio.Path.(dir / index_file) in
+    match Eio.Path.kind ~follow:false path with
+    | `Not_found -> { token = None; members = [] }
+    | `Regular_file ->
+        let text = Eio.Path.with_open_in path (fun flow ->
+          Eio.Buf_read.take_all (Eio.Buf_read.of_flow flow ~max_size:16_777_216)) in
+        let lines = String.split_on_char '\n' text in
+        let token, lines = match lines with
+          | line :: rest when String.starts_with ~prefix:"token\t" line ->
+              let value = String.sub line 6 (String.length line - 6) in
+              if not (field value) then bad "invalid index token";
+              (if value = "" then None else Some value), rest
+          | _ -> bad "invalid index header" in
+        let members = List.fold_left (fun members line ->
+          if line = "" then members else
+          match String.split_on_char '\t' line with
+          | [href; etag; file] when field etag && valid_file file ->
+              let href = canonical t collection href in
+              if file <> file_of_href href || List.mem_assoc href members then
+                bad "invalid index member";
+              collision members href file;
+              (href, (etag, file)) :: members
+          | _ -> bad "invalid index record") [] lines in
+        { token; members }
+    | _ -> bad "index is not a regular file"
+  let temporary = Atomic.make 0
+  let atomic_write dir file write =
+    let rec open_temp attempts =
+      if attempts = 0 then bad "temporary filenames exhausted";
+      let name = ".davsync.tmp-" ^ string_of_int (Atomic.fetch_and_add temporary 1) in
+      let path = Eio.Path.(dir / name) in
+      let created = ref false in
+      try
+        Eio.Path.with_open_out ~create:(`Exclusive 0o600) path
+          (fun sink -> created := true; write sink);
+        path
+      with
+      | Eio.Io (Eio.Fs.E (Eio.Fs.Already_exists _), _) when not !created ->
+          open_temp (attempts - 1)
+      | exn ->
+          if !created then Eio.Cancel.protect (fun () ->
+            Eio.Path.unlink ~missing_ok:true path);
+          raise exn in
+    let path = open_temp 64 in
+    match Eio.Path.rename path Eio.Path.(dir / file) with
+    | () -> ()
+    | exception exn ->
+        Eio.Cancel.protect (fun () -> Eio.Path.unlink ~missing_ok:true path);
+        raise exn
+  let store dir index =
+    let b = Buffer.create 256 in
+    let token = Option.value ~default:"" index.token in
+    if not (field token) then bad "invalid sync token";
+    Buffer.add_string b ("token\t" ^ token ^ "\n");
+    List.iter (fun (href, (etag, file)) ->
+      if not (field href && field etag && valid_file file) then
+        bad "invalid index data";
+      Buffer.add_string b (String.concat "\t" [href; etag; file] ^ "\n"))
+      index.members;
+    if Buffer.length b > 16_777_216 then bad "index byte limit exceeded";
+    atomic_write dir index_file (fun sink ->
+      Eio.Flow.copy_string (Buffer.contents b) sink)
+  let remember index href etag file =
+    { index with members = (href, (etag, file)) ::
+      List.filter (fun (h, _) -> not (same h href)) index.members }
+  let forget index href =
+    { index with members = List.filter (fun (h, _) -> not (same h href)) index.members }
+  let fetch ~log t dir index href reported =
+    let file = file_of_href href in
+    collision index.members href file;
+    let held = List.find_opt (fun (h, _) -> same h href) index.members in
+    match held, reported with
+    | Some (_, (etag, file')), Some tag when etag = tag && file' = file &&
+        Eio.Path.kind ~follow:false Eio.Path.(dir / file) = `Regular_file ->
+        log (Skipped href); index, false
+    | _ ->
+        let etag = with_download t href (fun r ->
+          atomic_write dir file (fun sink -> Eio.Flow.copy (Fetch.body r) sink);
+          etag_of r) in
+        log (Fetched (href, file));
+        remember index href (Option.value ~default:"" etag) file, true
+  let remove ~log dir index href =
+    match List.find_opt (fun (h, _) -> same h href) index.members with
+    | Some (_, (_, file)) ->
+        Eio.Path.unlink ~missing_ok:true Eio.Path.(dir / file);
+        log (Removed (href, file));
+        forget index href, true
+    | None -> index, false
+  let check_response r =
+    match r.Httpz_dav.outcome with
+    | Httpz_dav.Status status when status >= 200 && status < 300 -> ()
+    | Httpz_dav.Properties groups when List.for_all (fun g ->
+        g.Httpz_dav.status >= 200 && g.status < 300 || g.status = 404) groups -> ()
+    | _ -> bad "incomplete member listing"
+  let rec pages ~log ?limit ~level ~rebuilding ~tokens t ~collection ~dir
+      index token seen fetched removed =
+    if List.length tokens >= 1024 then bad "page limit exceeded";
+    let page = sync ?token ~level ?limit t collection in
+    if page.truncated && (page.token = None || page.token = token ||
+        List.mem page.token tokens) then bad "sync token did not advance";
+    let index, seen, fetched, removed = List.fold_left
+      (fun (index, seen, fetched, removed) -> function
+      | Httpz_dav.Sync.Changed r ->
+          check_response r;
+          let href = canonical t collection (Httpz_dav.href r) in
+          if Httpz_dav.is_collection r then index, seen, fetched, removed else
+          let index, did = fetch ~log t dir index href (Httpz_dav.etag r) in
+          index, href :: seen, (if did then fetched + 1 else fetched), removed
+      | Httpz_dav.Sync.Unsupported _ -> bad "unsupported member in sync report"
+      | Httpz_dav.Sync.Removed href ->
+          let href = canonical t collection href in
+          let index, did = remove ~log dir index href in
+          index, seen, fetched, if did then removed + 1 else removed)
+      (index, seen, fetched, removed) page.changes in
+    let index = { index with token = page.token } in
+    store dir (if rebuilding then { index with token = None } else index);
+    if not rebuilding then Option.iter (fun t -> log (Token t)) page.token;
+    if page.truncated then (
+      log Truncated;
+      pages ~log ?limit ~level ~rebuilding ~tokens:(page.token :: tokens)
+        t ~collection ~dir index page.token seen fetched removed)
+    else index, seen, { fetched; removed; token = page.token }
+  let poll ~log t ~collection ~dir index =
+    log Polling;
+    let listing = propfind ~depth:`One t collection
+      (Httpz_dav.Prop [Httpz_dav.Prop.getetag; Httpz_dav.Prop.resourcetype]) in
+    let present = List.filter_map (fun r ->
+      check_response r;
+      let href = resolve t (Httpz_dav.href r) in
+      if same href collection then None else
+      let href = canonical t collection href in
+      if Httpz_dav.is_collection r then None else Some (href, Httpz_dav.etag r))
+      listing.responses in
+    let index = { index with token = None } in
+    store dir index;
+    let index, fetched = List.fold_left (fun (index, n) (href, etag) ->
+      let index, did = fetch ~log t dir index href etag in
+      index, if did then n + 1 else n) (index, 0) present in
+    let gone = List.filter (fun (h, _) ->
+      not (List.exists (fun (p, _) -> same p h) present)) index.members in
+    let index, removed = List.fold_left (fun (index, n) (href, _) ->
+      let index, did = remove ~log dir index href in
+      index, if did then n + 1 else n) (index, 0) gone in
+    store dir index;
+    { fetched; removed; token = None }
+  let supports_sync t collection =
+    let listing = propfind ~depth:`Zero t collection
+      (Httpz_dav.Prop [Httpz_dav.Prop.supported_report_set]) in
+    let r = response_for listing collection in
+    match Httpz_dav.find_property Httpz_dav.Prop.supported_report_set r with
+    | Some p -> List.mem (Httpz_dav.dav "sync-collection") (Httpz_dav.Prop.reports p)
+    | None -> false
+  let rebuild ~log ?limit ~level t ~collection ~dir index =
+    let index = { index with token = None } in
+    store dir index;
+    let index, seen, summary = pages ~log ?limit ~level ~rebuilding:true
+      ~tokens:[] t ~collection ~dir index None [] 0 0 in
+    let stale = List.filter (fun (h, _) -> not (List.exists (same h) seen)) index.members in
+    List.iter (fun (_, (_, file)) ->
+      Eio.Path.unlink ~missing_ok:true Eio.Path.(dir / file); log (Pruned file)) stale;
+    store dir { index with
+      members = List.filter (fun (h, _) -> List.exists (same h) seen) index.members };
+    Option.iter (fun token -> log (Token token)) index.token;
+    summary
+  let run ?(log = fun _ -> ()) ?limit ?(level = `One) t ~collection ~dir =
+    let collection = resolve t collection in
+    ignore (child t ~collection "validation");
+    Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 dir;
+    Eio.Path.with_subtree dir (fun dir ->
+      let index = load t collection dir in
+      if not (supports_sync t collection) then poll ~log t ~collection ~dir index else
+      match index.token with
+      | None -> log Initial; rebuild ~log ?limit ~level t ~collection ~dir index
+      | Some token ->
+          match pages ~log ?limit ~level ~rebuilding:false ~tokens:[] t
+            ~collection ~dir index (Some token) [] 0 0 with
+          | _, _, summary ->
+              if summary.fetched = 0 && summary.removed = 0 then log Unchanged;
+              summary
+          | exception Http_error e when List.mem e.status [400; 403; 409] ->
+              let why =
+                if Httpz_dav.Condition.has Httpz_dav.Condition.valid_sync_token e.dav_errors
+                then "valid-sync-token" else "HTTP " ^ string_of_int e.status in
+              log (Restart why);
+              (* Earlier pages may have committed their progress. *)
+              rebuild ~log ?limit ~level t ~collection ~dir (load t collection dir))
+end

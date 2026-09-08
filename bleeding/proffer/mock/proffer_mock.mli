@@ -52,6 +52,7 @@ type response
 (** A [response] is one served response as a test reads it. *)
 
 val request :
+  ?transport:Proffer.Req.transport ->
   ?version:Httpz.Version.t ->
   ?connection_upgrade:bool ->
   ?headers:(string * string) list ->
@@ -71,7 +72,10 @@ val request :
     response. [now] is the current time in seconds since the epoch, which
     {!Proffer.Backend.handle} needs to disregard an If-Modified-Since date the
     server has not reached yet. The synthetic request defaults to HTTP/1.1
-    with no Connection upgrade option, empty headers, and an empty body. *)
+    with no Connection upgrade option, empty headers, and an empty body.
+    [transport] defaults to [Insecure]. A test may explicitly provide trusted
+    connection provenance. This does not establish TLS or test wire admission,
+    body bounds or 100 Continue behavior. *)
 
 val describe :
   ?version:Httpz.Version.t ->

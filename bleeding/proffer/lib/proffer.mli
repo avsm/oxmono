@@ -226,12 +226,26 @@ module Req : sig
       in the request's region, and a handler that keeps one past the request
       copies it with {!globalize}. *)
 
+  module Input : sig
+    exception Rejected of Status.t
+    type t
+    val read : t -> bytes -> off:int -> len:int -> int @@ portable
+    (** [read input bytes ~off ~len] reads at most [len] bytes. Zero means
+        end of body. Use only during the admitted request callback. *)
+  end
+
   type t
   (** A [t] is an HTTP request. *)
+
+  type transport = Insecure | Secure | Loopback
+  val transport : t @ local -> transport @@ portable
+  (** The backend's connection provenance. Headers never set this value.
+      [Loopback] means a plaintext connection from a loopback peer. *)
 
   val v :
     meth:Method.t ->
     target:string ->
+    ?transport:transport ->
     ?version:Httpz.Version.t ->
     ?connection_upgrade:bool ->
     ?path:string ->
@@ -243,7 +257,8 @@ module Req : sig
     @@ portable
   (** [v ~meth ~target ()] is a request with the supplied method and raw target.
       [path] and [query] override the values normally derived from [target].
-      [version] defaults to HTTP/1.1. [connection_upgrade] defaults to [false]
+      [transport] defaults to [Insecure]. [version] defaults to HTTP/1.1.
+      [connection_upgrade] defaults to [false]
       and records whether a validated Connection field offered [upgrade].
       [headers] defaults to {!Headers.empty}, and [body] defaults to [""].
       [headers] is a block rather than an association list, so a backend that
@@ -308,6 +323,10 @@ module Req : sig
   val iter_segments : t @ local -> (string @ local -> unit) @ local -> unit @@ portable
   (** Decode query pairs or nonempty path segments for immediate processing.
       The callbacks and decoded strings are not retained. *)
+
+  val input : t @ local -> Input.t @@ portable
+  (** [input req] is its one-shot body source. Admitted handlers use this
+      instead of [body], which rejects a streaming request. *)
 
   val body : t @ local -> string @ local @@ portable
   (** [body t] is the request body, or [""] when there is none. *)
@@ -1116,6 +1135,24 @@ module Site : sig
   (** An ['env t] is a site ready to serve. It holds data and portable handlers
       only, so a site defined once remains usable by every domain. *)
 
+  type admitted
+  type 'env admission_handler =
+    'env -> (Req.t @ local -> Resp.respond @ local -> admitted option) @ local
+
+  val accept : max_body:int64 ->
+    (Req.t @ local -> Resp.respond @ local -> unit) -> admitted @@ portable
+  (** [accept ~max_body run] admits a bounded streaming request to [run].
+      The handler owns all precondition evaluation, including reads. *)
+
+  val with_endpoint : at:string list ->
+    admit:'env admission_handler @ portable -> 'env t -> 'env t @@ portable
+  (** [with_endpoint ~at ~admit site] reserves the entire prefix before
+      ordinary routes. [admit] authenticates the head before body intake.
+      Return [Some accepted] or send one rejection and return [None].
+      Outer authentication wrappers run before admission and execution, and
+      response wrappers apply in both phases. Overlapping endpoint prefixes
+      and mounting this site as a sub-site are rejected. *)
+
   val of_routes : 'env Route.t list -> 'env t @@ portable
   (** [of_routes routes] is a site matching [routes] in order. Its fallback is a
       plain 404 text response. *)
@@ -1422,6 +1459,21 @@ module Backend : sig
       component is required, including the version and validated Connection
       upgrade option needed for safe 101 negotiation. Strings and the field
       block arrive at [local]. *)
+
+  type admission = Ordinary | Responded | Accepted of Site.admitted
+  val admit : on_error:(exn -> unit) -> 'env Site.t -> 'env ->
+    Req.t @ local -> writer @ local -> admission
+  val handle_accepted : on_error:(exn -> unit) -> Site.admitted ->
+    Req.t @ local -> writer @ local -> unit
+  val body_limit : Site.admitted -> int64
+  val input : (bytes -> off:int -> len:int -> int) -> Req.Input.t
+  val close_input : Req.Input.t -> unit
+  val with_transport : Req.t @ local -> Req.transport -> Req.t @ local
+  (** Backends set connection provenance from the accepted flow, never from
+      request fields such as Forwarded or X-Forwarded-Proto. *)
+  val with_input : Req.t @ local -> Req.Input.t -> Req.t @ local
+  (** Streaming backends call [admit] once before intake, then
+      [handle_accepted]. They invalidate the input on every exit. *)
 
   val handle :
     ?on_error:(exn -> unit) ->

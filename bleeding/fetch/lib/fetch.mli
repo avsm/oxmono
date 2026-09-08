@@ -494,6 +494,10 @@ val restrict :
     ["https://h/v3/x"] but not ["https://h/v3x"], and ["https://h"] and
     ["https://h/"] both mean the whole origin.
 
+    COPY and MOVE also require exactly one Destination field. Each stacked
+    [under] restriction resolves it against the request URL and checks it
+    against the same prefixes before sending the request.
+
     An entry matches one origin. A rule over a set of them, any subdomain of a
     host say, goes in [filter], which sees the parsed URL through
     {!Middleware.Url}.

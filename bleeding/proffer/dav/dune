@@ -1,4 +1,10 @@
 (library
  (name proffer_dav)
  (public_name proffer.dav)
- (libraries fetch.dav))
+ (libraries
+  proffer
+  httpz
+  httpz.dav
+  httpz.uri
+  stdlib_stable
+  stdlib_upstream_compatible))

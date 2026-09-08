@@ -7,7 +7,9 @@ start directly at `httpz/`, `fetch/` and `proffer/`.
 The shared scope is `httpz/dav/`, `fetch/dav/`, `proffer/dav/`,
 `fetch/test/webdav/`, and `fetch/WEBDAV.md`. This includes tests, fixtures and
 these maintenance notes. The protocol library stays below Fetch; the client
-lives in `fetch.dav`; `proffer.dav` only re-exports its types and exceptions.
+lives in `fetch.dav`. The server lives in `proffer.dav`, with confined storage
+in `proffer.dav.eio`. Proffer admission, input lifetime and connection provenance
+also require corresponding changes to each backend.
 
 From OxMono's root, check the default sibling locations with:
 
@@ -22,9 +24,12 @@ on drift. It also checks the private XML codec against OxMono's `vendor/xmlm`.
 
 The standalone OxCaml DAV files are byte-identical to OxMono's. The stock port
 removes floating portability annotations and abstract kind constraints,
-converts `Null`/`This` to ordinary options in the two URI-consuming modules, and
+converts `Null`/`This` to ordinary options in URI-consuming modules, and
 uses `Hashtbl.Make`. Its fixture uses stock X509's `chain_of_trust` instead of
 the OxCaml-only portable `chain_of_trust_no_crl`, with the same no-CRL policy.
+The server additionally erases local modes, boxes its date conversion, and
+supplies predicates for stock URI optional fields. Stock transport events
+are already ordinary values and need no globalization.
 These narrow transformations are explicit in `stock_source` in the checker;
 it is not a general-purpose OxCaml-to-OCaml converter.
 
@@ -38,7 +43,7 @@ When changing DAV support:
 3. Update each project's package dependencies and generated opam files. The
    monorepo has separate Dune projects; standalone repositories share a project.
    These intentionally different root manifests are not copied by the checker.
-4. Run the protocol, mock and facade aliases, the package installation targets,
+4. Run the protocol, client and server aliases, the package installation targets,
    and the standalone full suites. Use `5.2.0+ox` with `--profile release-check`
    for OxCaml and `5.5.0` for stock OCaml. Run all three clients against the
    disposable Docker fixture as described in the client guide.

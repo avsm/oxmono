@@ -78,22 +78,33 @@ let parse_xml ?(limits = default_limits) ?encoding source =
     with Xmlm.Error ((line, col), err) ->
       invalid (Printf.sprintf "XML %d:%d: %s" line col (Xmlm.error_message err)))
 
-let encode_xml root =
+exception Output_too_large
+let encode_xml ?(max_bytes = max_int) root =
+  if max_bytes < 0 then invalid_arg "Httpz_dav.encode_xml: negative bound";
+  let minimum = ref 0 in
+  let count n =
+    if n > max_bytes - !minimum then raise Output_too_large;
+    minimum := !minimum + n in
   (* Reserve every caller-declared prefix, including bindings on ancestors of
      newly constructed children. Generated prefixes then cannot change the
      meaning of a QName in text or attributes anywhere in the document. *)
   let reserved = Hashtbl.create 16 in
   let rec reserve e =
+    count 1;
     let seen = Hashtbl.create (List.length e.attrs) in
-    List.iter (fun ((ns, local) as name, _) ->
+    List.iter (fun ((ns, local) as name, value) ->
+      count (String.length value);
       if Hashtbl.mem seen name then invalid_arg "Httpz_dav.encode_xml: duplicate attribute";
       Hashtbl.add seen name ();
       if ns = Xmlm.ns_xmlns then Hashtbl.replace reserved local ()) e.attrs;
-    List.iter (function Element e -> reserve e | Text _ -> ()) e.children
+    List.iter (function Element e -> reserve e
+      | Text value -> count (String.length value)) e.children
   in
   reserve root;
   let b = Buffer.create 256 in
-  let output = Xmlm.make_output (`Buffer b) in
+  let output = Xmlm.make_output (`Fun (fun byte ->
+    if Buffer.length b >= max_bytes then raise Output_too_large;
+    Buffer.add_char b (Char.chr byte))) in
   let counter = ref 0 in
   let generated = Hashtbl.create 16 in
   let generated_prefix ns = match Hashtbl.find_opt generated ns with
@@ -203,18 +214,34 @@ let href_uri s = match Httpz_uri.of_string s with
       | Null when not (Httpz_uri.has_authority u) && String.starts_with ~prefix:"/" (Httpz_uri.encoded_path u) -> ()
       | _ -> invalid "DAV href must be an HTTP(S) URL or absolute path");
       u
-let href e = let s = String.trim (text_exn e) in ignore (href_uri s); s
+(* A server that writes a member name into an href without encoding it,
+   such as Fastmail's file store, is read by encoding the characters an
+   absolute path may not hold. Only the shape is repaired: a slash or a
+   percent stays as it is. *)
+let repair_href s =
+  let b = Buffer.create (String.length s + 8) in
+  String.iter (fun c -> match c with
+    | 'A'..'Z' | 'a'..'z' | '0'..'9' | '-' | '.' | '_' | '~' | '/' | ':' | '@' | '!' | '$'
+    | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '=' | '%' | '?' | '#' -> Buffer.add_char b c
+    | c -> Buffer.add_string b (Printf.sprintf "%%%02X" (Char.code c))) s;
+  Buffer.contents b
+let href ?(lenient = false) e =
+  let s = String.trim (text_exn e) in
+  match protect (fun () -> href_uri s) with
+  | Ok _ -> s
+  | Error _ when lenient -> let r = repair_href s in ignore (href_uri r); r
+  | Error e -> invalid e
 let resolve_href ~base s = protect (fun () ->
   let u = href_uri s in
   let b = href_uri base in
   if Httpz_uri.scheme b = Null then invalid "href base must be absolute";
   Httpz_uri.to_string (Httpz_uri.resolve ~base:b u))
-let multistatus root = protect (fun () ->
+let multistatus ?lenient root = protect (fun () ->
   if root.name <> dav "multistatus" then invalid "expected DAV:multistatus";
   ignore (elems root);
   let form = ref None in
   let check_href e =
-    let s = href e in
+    let s = href ?lenient e in
     let absolute = Httpz_uri.scheme (href_uri s) <> Null in
     (match !form with None -> form := Some absolute
       | Some previous when previous = absolute -> ()
@@ -236,7 +263,7 @@ let multistatus root = protect (fun () ->
               errors = error_elements e; description = description e }) groups)
       | _ -> invalid "response must contain status or propstat, with one href for propstat"
     in
-    let location = Option.map (fun e -> href (required (dav "href") e)) (optional (dav "location") e) in
+    let location = Option.map (fun e -> href ?lenient (required (dav "href") e)) (optional (dav "location") e) in
     { hrefs; outcome; errors = error_elements e; description = description e; location }
   in
   { responses = List.map response (children (dav "response") root); description = description root })
@@ -359,3 +386,325 @@ let locks root = protect (fun () ->
     let root = Option.map (fun e -> href (required (dav "href") e)) (optional (dav "lockroot") e) in
     { scope; depth; timeout; token; root; owner = optional (dav "owner") e }
   ) (children (dav "activelock") discovery))
+
+let attr name e = List.assoc_opt name e.attrs
+let elements e = List.filter_map (function Element e -> Some e | Text _ -> None) e.children
+let find name e = List.find_opt (fun e -> e.name = name) (elements e)
+let rec content e = String.trim (String.concat "" (List.map (function
+  | Text s -> s | Element e -> content e) e.children))
+let leaf name s = element name [Text s]
+let empty name = element name []
+(* Escapes decode for display, except %2F, which must not become a separator. *)
+let href_path s =
+  let path = match Httpz_uri.of_string s with This u -> Httpz_uri.encoded_path u | Null -> s in
+  let path = match String.index_opt path '?' with Some i -> String.sub path 0 i | None -> path in
+  let b = Buffer.create (String.length path) in
+  let hex c = match c with '0'..'9' -> Some (Char.code c - 48)
+    | 'a'..'f' -> Some (Char.code c - 87) | 'A'..'F' -> Some (Char.code c - 55) | _ -> None in
+  let n = String.length path in
+  let rec loop i = if i < n then
+    match path.[i], (if i + 2 < n then hex path.[i+1] else None), (if i + 2 < n then hex path.[i+2] else None) with
+    | '%', Some h, Some l when h * 16 + l <> 0x2f -> Buffer.add_char b (Char.chr (h * 16 + l)); loop (i + 3)
+    | c, _, _ -> Buffer.add_char b c; loop (i + 1) in
+  loop 0;
+  Buffer.contents b
+let without_slash s =
+  let n = String.length s in
+  if n > 1 && s.[n-1] = '/' then String.sub s 0 (n-1) else s
+let same_href a b = without_slash (href_path a) = without_slash (href_path b)
+let basename s =
+  let p = without_slash (href_path s) in
+  match String.rindex_opt p '/' with
+  | Some i -> String.sub p (i+1) (String.length p - i - 1) | None -> p
+
+module Prop = struct
+  let creationdate = dav "creationdate"
+  let displayname = dav "displayname"
+  let getcontentlanguage = dav "getcontentlanguage"
+  let getcontentlength = dav "getcontentlength"
+  let getcontenttype = dav "getcontenttype"
+  let getetag = dav "getetag"
+  let getlastmodified = dav "getlastmodified"
+  let resourcetype = dav "resourcetype"
+  let lockdiscovery = dav "lockdiscovery"
+  let supportedlock = dav "supportedlock"
+  let supported_report_set = dav "supported-report-set"
+  let principal_url = dav "principal-URL"
+  let alternate_uri_set = dav "alternate-URI-set"
+  let group_membership = dav "group-membership"
+  let owner = dav "owner"
+  let current_user_privilege_set = dav "current-user-privilege-set"
+  let principal_collection_set = dav "principal-collection-set"
+  let current_user_principal = dav "current-user-principal"
+  let add_member = dav "add-member"
+  let sync_token = dav "sync-token"
+  let hrefs e = List.map content (children (dav "href") e)
+  let etag e = if e.name <> getetag then None else
+    match content e with "" -> None | s -> Some s
+  let resource_types e = List.map (fun e -> e.name) (elements e)
+  let is_collection e = e.name = resourcetype && List.mem (dav "collection") (resource_types e)
+  let reports e = if e.name <> supported_report_set then [] else
+    List.concat_map (fun sr -> List.concat_map (fun r -> resource_types r)
+      (children (dav "report") sr)) (children (dav "supported-report") e)
+  let privileges e = if e.name <> current_user_privilege_set then [] else
+    List.concat_map resource_types (children (dav "privilege") e)
+  let principal e = if e.name <> current_user_principal then None else
+    if find (dav "unauthenticated") e <> None then Some `Unauthenticated
+    else match hrefs e with h :: _ -> Some (`Href h) | [] -> None
+end
+
+let href r = match r.hrefs with h :: _ -> h | [] -> ""
+let find_response m s = List.find_opt (fun r -> same_href (href r) s) m.responses
+let success s = s >= 200 && s < 300
+let response_status r = match r.outcome with
+  | Status s -> s | Properties (g :: _) -> g.status | Properties [] -> 200
+let succeeded r = match r.outcome with
+  | Status _ -> []
+  | Properties groups -> List.concat_map (fun g -> if success g.status then g.properties else []) groups
+let find_property name r = List.find_opt (fun e -> e.name = name) (succeeded r)
+let property_status name r = match r.outcome with
+  | Status _ -> None
+  | Properties groups -> List.find_map (fun g ->
+      if List.exists (fun e -> e.name = name) g.properties then Some g.status else None) groups
+let is_collection r = match find_property Prop.resourcetype r with
+  | Some e -> Prop.is_collection e | None -> false
+let etag r = Option.bind (find_property Prop.getetag r) Prop.etag
+let failures m = List.concat_map (fun r -> match r.outcome with
+  | Status s when not (success s) -> [s, r.errors, []]
+  | Status _ -> []
+  | Properties groups -> List.filter_map (fun g ->
+      if success g.status || g.status = 424 then None
+      else Some (g.status, g.errors, List.map (fun e -> e.name) g.properties)) groups) m.responses
+
+let mkcol props =
+  encode_xml (element (dav "mkcol") [el "set" [el "prop" (List.map (fun e -> Element e) props)]])
+let mkcalendar props =
+  encode_xml (element ("urn:ietf:params:xml:ns:caldav", "mkcalendar")
+    [el "set" [el "prop" (List.map (fun e -> Element e) props)]])
+let mkcol_response root = protect (fun () ->
+  if root.name <> dav "mkcol-response" && root.name <> ("urn:ietf:params:xml:ns:caldav", "mkcalendar-response")
+  then invalid "expected DAV:mkcol-response";
+  let synthetic = element (dav "multistatus")
+    [el "response" (Element (leaf (dav "href") "/") :: List.map (fun e -> Element e) (elems root))] in
+  match multistatus synthetic with
+  | Ok { responses = [{ outcome = Properties groups; _ }]; _ } -> groups
+  | Ok _ -> invalid "mkcol-response has no propstat"
+  | Error s -> invalid s)
+
+module Sync = struct
+  type level = [ `One | `Infinite ]
+  let request ?(token = "") ?(level = `One) ?limit props =
+    encode_xml (element (dav "sync-collection")
+      ([el "sync-token" [Text token];
+        el "sync-level" [Text (match level with `One -> "1" | `Infinite -> "infinite")]] @
+       (match limit with None -> [] | Some n ->
+         if n < 0 then invalid_arg "Httpz_dav.Sync.request: negative limit";
+         [el "limit" [el "nresults" [Text (string_of_int n)]]]) @
+       [el "prop" (names props)]))
+  type change = Changed of response | Removed of string | Unsupported of string * element list
+  type t = { token : string option; changes : change list; truncated : bool }
+  let decode ?lenient ~base root = protect (fun () ->
+    let m = match multistatus ?lenient root with Ok m -> m | Error s -> invalid s in
+    let token = Option.map content (optional (dav "sync-token") root) in
+    let truncated = ref false in
+    let changes = List.filter_map (fun r -> match r.outcome with
+      | Properties _ -> Some (Changed r)
+      | Status 404 -> Some (Removed (href r))
+      | Status 507 when same_href (href r) base -> truncated := true; None
+      | Status 403 -> Some (Unsupported (href r, r.errors))
+      | Status _ -> invalid "unexpected sync response status") m.responses in
+    { token; changes; truncated = !truncated })
+end
+
+module Condition = struct
+  let propfind_finite_depth = dav "propfind-finite-depth"
+  let cannot_modify_protected_property = dav "cannot-modify-protected-property"
+  let preserved_live_properties = dav "preserved-live-properties"
+  let no_external_entities = dav "no-external-entities"
+  let lock_token_submitted = dav "lock-token-submitted"
+  let no_conflicting_lock = dav "no-conflicting-lock"
+  let allow_client_defined_uri = dav "allow-client-defined-uri"
+  let valid_sync_token = dav "valid-sync-token"
+  let number_of_matches_within_limits = dav "number-of-matches-within-limits"
+  let supported_report = dav "supported-report"
+  let sync_traversal_supported = dav "sync-traversal-supported"
+  let need_privileges = dav "need-privileges"
+  let has name errors = List.exists (fun e -> e.name = name) errors
+  let hrefs name errors = List.concat_map (fun e -> if e.name = name then Prop.hrefs e else []) errors
+end
+
+module Discovery = struct
+  type service = [ `Caldav | `Carddav ]
+  let label = function `Caldav -> "caldav" | `Carddav -> "carddav"
+  let well_known s = "/.well-known/" ^ label s
+  let srv_name ~secure s domain = Printf.sprintf "_%s%s._tcp.%s" (label s) (if secure then "s" else "") domain
+  let txt_path record = List.find_map (fun kv -> match String.index_opt kv '=' with
+    | Some i when String.lowercase_ascii (String.trim (String.sub kv 0 i)) = "path" ->
+        Some (String.trim (String.sub kv (i+1) (String.length kv - i - 1)))
+    | _ -> None) (String.split_on_char ' ' (String.trim record))
+  let mailbox address = match String.rindex_opt address '@' with
+    | Some i when i > 0 && i < String.length address - 1 ->
+        Some (String.sub address 0 i, String.sub address (i+1) (String.length address - i - 1))
+    | _ -> None
+  let principal_query = Prop [Prop.current_user_principal; Prop.principal_url]
+end
+
+module Server = struct
+  let propfind root = protect (fun () ->
+    if root.name <> dav "propfind" then invalid "expected DAV:propfind";
+    let selected = List.filter (fun e -> List.mem e.name
+      [dav "allprop"; dav "propname"; dav "prop"]) (elems root) in
+    match selected with
+    | [e] when e.name = dav "allprop" ->
+        if elems e <> [] then invalid "allprop must be empty";
+        let names = match optional (dav "include") root with
+          | None -> [] | Some e -> List.map (fun e -> e.name) (elems e) in
+        Allprop names
+    | [e] when e.name = dav "propname" ->
+        if elems e <> [] || optional (dav "include") root <> None then
+          invalid "invalid propname";
+        Propname
+    | [e] ->
+        if optional (dav "include") root <> None then invalid "unexpected include";
+        Prop (List.map (fun e -> e.name) (elems e))
+    | _ -> invalid "expected exactly one property selection")
+
+  let proppatch root = protect (fun () ->
+    if root.name <> dav "propertyupdate" then invalid "expected propertyupdate";
+    let updates = List.filter_map (fun e ->
+      if e.name = dav "set" || e.name = dav "remove" then
+        let props = elems (required (dav "prop") e) in
+        if props = [] then invalid "empty property update";
+        Some (if e.name = dav "set" then Set props
+          else Remove (List.map (fun p -> p.name) props))
+      else None) (elems root) in
+    if updates = [] then invalid "empty propertyupdate";
+    updates)
+
+  let lockinfo root = protect (fun () ->
+    if root.name <> dav "lockinfo" then invalid "expected lockinfo";
+    let scope = match elems (required (dav "lockscope") root) with
+      | [e] when e.name = dav "exclusive" -> Exclusive
+      | [e] when e.name = dav "shared" -> Shared
+      | _ -> invalid "invalid lockscope" in
+    (match elems (required (dav "locktype") root) with
+    | [e] when e.name = dav "write" -> ()
+    | _ -> invalid "unsupported locktype");
+    scope, optional (dav "owner") root)
+
+  let if_condition source = protect (fun () ->
+    let n = String.length source in
+    if n = 0 || n > 16384 then invalid "invalid If length";
+    let pos = ref 0 and terms = ref 0 and lists = ref 0 and tags = ref 0 in
+    let space () =
+      while !pos < n && (source.[!pos] = ' ' || source.[!pos] = '\t') do
+        incr pos
+      done in
+    let delimited left right =
+      if !pos >= n || source.[!pos] <> left then invalid "invalid If syntax";
+      incr pos;
+      let first = !pos in
+      while !pos < n && source.[!pos] <> right do incr pos done;
+      if !pos = n then invalid "unterminated If term";
+      let value = String.sub source first (!pos - first) in
+      incr pos;
+      value in
+    let group () =
+      incr lists;
+      if !lists > 128 then invalid "too many If lists";
+      incr pos;
+      let rec loop acc =
+        space ();
+        if !pos >= n then invalid "unterminated If list";
+        if source.[!pos] = ')' then begin
+          incr pos;
+          if acc = [] then invalid "empty If list";
+          List.rev acc
+        end else begin
+          incr terms;
+          if !terms > 512 then invalid "too many If terms";
+          let negated = !pos + 3 < n && String.sub source !pos 3 = "Not" in
+          if negated then begin
+            pos := !pos + 3;
+            if source.[!pos] <> ' ' && source.[!pos] <> '\t' then
+              invalid "Not requires whitespace";
+            space ()
+          end;
+          if !pos >= n then invalid "missing If term";
+          let term = match source.[!pos] with
+            | '<' ->
+                let token = delimited '<' '>' in
+                (match Token.of_string token with
+                | Ok t -> Token t | Error _ -> invalid "invalid state token")
+            | '[' ->
+                let tag = delimited '[' ']' in
+                if not (valid_etag tag) then invalid "invalid entity tag";
+                Etag tag
+            | _ -> invalid "invalid If term" in
+          loop ((if negated then Not term else Is term) :: acc)
+        end in
+      loop [] in
+    let groups () =
+      let rec loop acc =
+        space ();
+        if !pos < n && source.[!pos] = '(' then loop (group () :: acc)
+        else if acc = [] then invalid "missing If lists"
+        else List.rev acc in
+      loop [] in
+    space ();
+    if !pos < n && source.[!pos] = '(' then begin
+      let value = Untagged (groups ()) in
+      space ();
+      if !pos <> n then invalid "mixed If forms";
+      value
+    end else
+      let rec loop acc =
+        space ();
+        if !pos = n then
+          if acc = [] then invalid "empty If" else Tagged (List.rev acc)
+        else begin
+          incr tags;
+          if !tags > 64 then invalid "too many resource tags";
+          let uri = delimited '<' '>' in
+          ignore (href_uri uri);
+          let conditions = groups () in
+          loop ((uri, conditions) :: acc)
+        end in
+      loop [])
+
+  let text name value = el name [Text value]
+  let status code =
+    if code < 100 || code > 599 then invalid_arg "invalid DAV status";
+    text "status" (Printf.sprintf "HTTP/1.1 %d Status" code)
+  let errors xs = if xs = [] then [] else [el "error" (List.map (fun x -> Element x) xs)]
+  let description = function
+    | None -> [] | Some s -> [text "responsedescription" s]
+  let propstat (p : propstat) =
+    el "propstat" ([el "prop" (List.map (fun p -> Element p) p.properties);
+      status p.status] @ errors p.errors @ description p.description)
+  let multistatus ?max_bytes value =
+    let response (r : response) =
+      if r.hrefs = [] then invalid_arg "response needs href";
+      List.iter (fun h -> ignore (href_uri h)) r.hrefs;
+      let outcome = match r.outcome with
+        | Status code -> [status code]
+        | Properties ps -> List.map propstat ps in
+      el "response" (List.map (text "href") r.hrefs @ outcome @ errors r.errors
+        @ description r.description @ match r.location with
+        | None -> [] | Some h -> [el "location" [text "href" h]]) in
+    encode_xml ?max_bytes (element (dav "multistatus")
+      (List.map response value.responses @ description value.description))
+  let error names = encode_xml (element (dav "error")
+    (List.map (fun name -> Element (element name [])) names))
+  let lockdiscovery locks =
+    let active l =
+      el "activelock" ([el "lockscope" [el (match l.scope with
+        | Exclusive -> "exclusive" | Shared -> "shared") []];
+        el "locktype" [el "write" []];
+        text "depth" (encode_depth (l.depth :> depth))]
+        @ (match l.owner with None -> [] | Some e -> [Element e])
+        @ (match l.timeout with None -> [] | Some t -> [text "timeout" (encode_timeout t)])
+        @ (match l.token with None -> [] | Some t -> [el "locktoken" [text "href" (Token.to_string t)]])
+        @ (match l.root with None -> [] | Some h -> [el "lockroot" [text "href" h]])) in
+    element (dav "lockdiscovery") (List.map active locks)
+end

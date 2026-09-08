@@ -2,6 +2,9 @@
 
 First release.
 
+- Replace the DAV client alias with explicitly mounted read-only and writable
+  servers. Add confined Eio storage, bounded uploads and Docker client tests.
+
 - Add declarative response construction, typed path routing, site wrappers,
   content negotiation, cache policies, and conditional GET and HEAD handling.
 - Add `proffer.mock` for exercising sites without opening sockets.

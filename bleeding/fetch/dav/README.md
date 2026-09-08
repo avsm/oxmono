@@ -3,9 +3,11 @@
 `Fetch_dav` is a WebDAV client built over Fetch and `Httpz_dav`. Link
 `fetch.dav`; choose a Fetch backend when constructing the application.
 The library provides file transfers, collection and property operations,
-COPY/MOVE and explicit lock creation, refresh and release. Proffer applications
-can link [`proffer.dav`](../../proffer/dav/README.md), a re-export sharing all
-client types and exceptions.
+COPY/MOVE, REPORT, RFC 6578 collection synchronization, RFC 5689 extended MKCOL,
+RFC 6764 principal discovery and explicit lock creation, refresh and release.
+Proffer applications use `Fetch_dav` for outgoing DAV operations. The separate
+[`proffer.dav`](../../proffer/dav/README.md) library serves explicitly mounted
+DAV exports and has no outbound client authority.
 
 For example, with `fetch.dav`, `httpz.dav`, `fetch`, `fetch-httpz` and `eio_main`
 in the executable's Dune libraries:
@@ -74,7 +76,7 @@ DAV_PREFIX=          # use bleeding/ in OxMono
 Run local protocol, client-policy and Proffer integration tests:
 
 ```sh
-opam exec --switch="$DAV_SWITCH" -- dune build \
+opam exec --switch="$DAV_SWITCH" -- dune build --force \
   "@${DAV_PREFIX}httpz/dav/runtest" "@${DAV_PREFIX}fetch/dav/runtest" \
   "@${DAV_PREFIX}proffer/dav/runtest"
 ```
@@ -84,7 +86,7 @@ Run the real client against the isolated Apache Docker fixture:
 ```sh
 python3 "${DAV_PREFIX}fetch/test/webdav/run.py" -- \
   opam exec --switch="$DAV_SWITCH" -- dune exec \
-  "${DAV_PREFIX}proffer/dav/test/test_docker.exe"
+  "${DAV_PREFIX}fetch/dav/integration/test_docker.exe"
 ```
 
 The runner first checks the server independently, then tests the client over
@@ -92,8 +94,25 @@ HTTP and HTTPS with an explicitly trusted test CA. It removes the fixture on
 success or failure and retains logs. See the
 [Docker strategy](../../fetch/test/webdav/README.md),
 [specification](../../httpz/dav/SPEC.md) and [API](fetch_dav.mli).
-Collection sync, automatic lock leases, CalDAV/CardDAV and server handlers are
-outside this initial version.
+Fetch does not refresh leases automatically. Server handlers live in
+`proffer.dav`. CalDAV
+and CardDAV clients are built on this library in the `idk` repository.
+
+Synchronization keeps one token per collection:
+
+```ocaml
+let page = Fetch_dav.sync ?token client "" in
+List.iter (function
+  | Httpz_dav.Sync.Changed r -> print_endline (Httpz_dav.href r)
+  | Removed href -> print_endline ("gone " ^ href)
+  | Unsupported (href, _) -> print_endline ("cannot sync " ^ href)) page.changes;
+(* Store page.token with the applied changes; repeat while page.truncated. *)
+```
+
+Discovery from a service's well-known path follows RFC 6764: `context_path`
+resolves the redirect, `principal` reads `DAV:current-user-principal` from it
+and `home_set` the hrefs of a home set property on the principal. The root of
+the client bounds every URL these return.
 
 Coverage includes generated namespace-preservation cases and resource bounds in
 `httpz.dav`, malformed responses and request-policy assertions through Fetch mocks,
@@ -109,7 +128,7 @@ process, never passed as a command-line password or printed:
 
 ```sh
 opam exec --switch="$DAV_SWITCH" -- dune exec \
-  "${DAV_PREFIX}proffer/dav/test/test_live.exe" -- \
+  "${DAV_PREFIX}fetch/dav/integration/test_live.exe" -- \
   --root https://dav.example/files/ --user USER --password-file /path/to/password
 ```
 
@@ -128,7 +147,7 @@ Validate this same smoke test and its cleanup against the fixture first:
 ```sh
 python3 "${DAV_PREFIX}fetch/test/webdav/run.py" -- \
   opam exec --switch="$DAV_SWITCH" -- dune exec \
-  "${DAV_PREFIX}proffer/dav/test/test_live.exe" -- --fixture --scratch
+  "${DAV_PREFIX}fetch/dav/integration/test_live.exe" -- --fixture --scratch
 ```
 
 Fixture mode also injects a failure after upload to verify cleanup on that path.
@@ -136,5 +155,23 @@ The test records conditional-request and optional-feature deviations, continues
 independent checks inside the scratch collection, and exits unsuccessfully after
 cleanup if any were found. A completed phase can therefore contain a reported
 server deviation.
-See the [recorded Fastmail results](../../proffer/dav/test/INTEROP.md) for observed differences
+See the [recorded Fastmail results](integration/INTEROP.md) for observed differences
 from the Apache fixture, including ignored PUT preconditions.
+
+## Collection mirroring
+
+`Fetch_dav.Mirror.run` synchronizes a collection into a dedicated directory.
+It uses sync-collection when advertised and falls back to depth-one PROPFIND
+and ETag comparison. Refused tokens trigger a rebuild. Member filenames and
+the index are validated, hrefs stay within the collection, and basename
+collisions are rejected. Downloads and the index use atomic replacement.
+An interrupted rebuild retains an empty token until stale files are pruned.
+
+Keep other local writers and concurrent mirror runs out of this directory.
+The mirror can replace existing member files. It does not fsync publications
+or bound downloaded bytes. It caps the index at 16 MiB and runs at 1024 pages.
+Infinite-depth mirroring uses a flat directory and rejects name collisions.
+
+`Fetch_dav.v ~lenient_hrefs:true` explicitly permits percent-encoding repair
+of malformed server hrefs. Strict parsing remains the default. This option
+does not relax Fetch's origin or path restrictions.

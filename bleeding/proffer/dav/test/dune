@@ -1,11 +1,21 @@
 (test
- (name test_alias)
- (modules test_alias)
- (libraries proffer.dav fetch.dav fetch.mock fetch http eio.mock))
+ (name test_server)
+ (modules test_server)
+ (libraries proffer.dav proffer proffer.mock httpz httpz.dav))
 
-; Explicit integration executables: normal runtest never contacts a server.
-(executables
- (names test_docker test_live)
- (modules test_docker test_live)
- (libraries proffer.dav httpz.dav fetch fetch-httpz httpz.tls http eio eio_main
-  cstruct x509 ptime))
+(executable
+ (name fixture)
+ (modules fixture)
+ (libraries
+  proffer.dav
+  proffer.dav.eio
+  proffer
+  proffer-httpz
+  duration
+  eio
+  eio_main
+  digestif
+  base64
+  x509
+  tls
+  httpz.tls))

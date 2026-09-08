@@ -1,0 +1,15 @@
+(executables
+ (names test_docker test_live test_proffer)
+ (modules test_docker test_live test_proffer)
+ (libraries
+  fetch.dav
+  httpz.dav
+  fetch
+  fetch-httpz
+  httpz.tls
+  http
+  eio
+  eio_main
+  cstruct
+  x509
+  ptime))

@@ -115,4 +115,74 @@ let () = Eio_mock.Backend.run @@ fun () ->
   check "BOM overrides unsupported charset" ((D.propfind client "" Httpz_dav.Propname).responses = []);
   body := ascii;
   protocol "unsupported charset" (fun () -> D.propfind client "" Httpz_dav.Propname);
+  status := 207; headers := xml_headers;
+  body := "<d:multistatus xmlns:d='DAV:'><d:response><d:href>/dav/a</d:href><d:propstat><d:prop><d:getetag>\"1\"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response><d:sync-token>urn:sync:2</d:sync-token></d:multistatus>";
+  let page = D.sync ~token:"urn:sync:1" client "" in
+  let req = List.hd !seen in
+  check "sync is a REPORT at depth zero" (Http.Method.to_string req.meth = "REPORT" && Http.Header.get req.headers "depth" = Some "0");
+  check "sync token and change" (page.token = Some "urn:sync:2" &&
+    (match page.changes with [Httpz_dav.Sync.Changed r] -> Httpz_dav.etag r = Some "\"1\"" | _ -> false));
+  status := 201; body := ""; headers := Http.Header.init ();
+  D.mkcol ~props:[Httpz_dav.leaf Httpz_dav.Prop.displayname "Book"] client "book/";
+  let req = List.hd !seen in
+  check "extended MKCOL body" (match req.body with
+    | Fetch.String s -> (Result.get_ok (Httpz_dav.parse_xml s)).name = Httpz_dav.dav "mkcol" | _ -> false);
+  D.mkcalendar ~props:[Httpz_dav.leaf Httpz_dav.Prop.displayname "Cal"] client "cal/";
+  let req = List.hd !seen in
+  check "MKCALENDAR body" (Http.Method.to_string req.meth = "MKCALENDAR" && match req.body with
+    | Fetch.String s -> (Result.get_ok (Httpz_dav.parse_xml s)).name = ("urn:ietf:params:xml:ns:caldav", "mkcalendar") | _ -> false);
+  headers := Http.Header.of_list ["ETag", "\"put\""];
+  check "PUT returns the entity tag" ((D.put client "a" (Fetch.String "x")).etag = Some "\"put\"");
+  status := 200; body := "BEGIN:VCARD"; headers := Http.Header.of_list ["ETag", "\"get\""];
+  check "GET body and tag" (D.get client "a" = ("BEGIN:VCARD", Some "\"get\""));
+  body := "FREEBUSY";
+  check "report body" (D.report_body client "" "<x/>" = "FREEBUSY");
+  let origin = D.v ~root:"https://example.test/" backend in
+  invalid "well-known outside the root" (fun () -> D.context_path client `Carddav);
+  status := 301; body := ""; headers := Http.Header.of_list ["Location", "/dav/ctx/"];
+  check "context path follows the well-known redirect" (D.context_path origin `Carddav = "https://example.test/dav/ctx/");
+  status := 207; headers := xml_headers;
+  body := "<d:multistatus xmlns:d='DAV:'><d:response><d:href>/dav/ctx/</d:href><d:propstat><d:prop><d:current-user-principal><d:href>/dav/p/</d:href></d:current-user-principal></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>";
+  check "principal" (D.principal client "ctx/" = "https://example.test/dav/p/");
+  body := "<d:multistatus xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:carddav'><d:response><d:href>/dav/p/</d:href><d:propstat><d:prop><c:addressbook-home-set><d:href>/dav/books/</d:href></c:addressbook-home-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>";
+  check "home set" (D.home_set client ("urn:ietf:params:xml:ns:carddav", "addressbook-home-set") "p/" = ["https://example.test/dav/books/"]);
+  body := "<d:multistatus xmlns:d='DAV:'><d:response><d:href>/dav/ctx/</d:href><d:propstat><d:prop><d:current-user-principal><d:unauthenticated/></d:current-user-principal></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>";
+  protocol "unauthenticated principal" (fun () -> D.principal client "ctx/");
+  status := 204; body := ""; headers := Http.Header.init ();
+  let narrow = Fetch.restrict ~under:["https://example.test/dav/inner/"] backend in
+  let wide = D.v ~root:"https://example.test/dav/" narrow in
+  let denied name f = check name (try ignore (f ()); false with
+    | Eio.Io (Fetch.E (Fetch.Denied _), _) -> true) in
+  let before = List.length !seen in
+  List.iter (fun operation -> denied "inner scope constrains Destination"
+    (fun () -> operation wide ~src:"inner/a" ~dst:"outside" ()))
+    [(fun t ~src ~dst () -> D.copy t ~src ~dst ());
+     (fun t ~src ~dst () -> D.move t ~src ~dst ())];
+  List.iter (fun meth ->
+    List.iter (fun hs -> denied "raw Destination policy before transport"
+      (fun () -> Fetch.with_response narrow (Http.Method.of_string meth)
+        "https://example.test/dav/inner/a" ~headers:hs ignore))
+      [Fetch.Header.[];
+       Fetch.Header.[raw "Destination" "/dav/outside"];
+       Fetch.Header.[raw "Destination" "/dav/inner/a";
+                     raw "Destination" "/dav/inner/b"]]) ["COPY"; "MOVE"];
+  let readonly = D.read_only client in
+  denied "DAV-specific read-only rejects PUT"
+    (fun () -> D.put readonly "a" (Fetch.String "forbidden"));
+  check "narrowing failures have no transport effects" (List.length !seen = before);
+  ignore (D.copy wide ~src:"inner/a" ~dst:"inner/b" ());
+  status := 207; headers := xml_headers; body := "<multistatus xmlns='DAV:'/>";
+  ignore (D.propfind readonly "" Httpz_dav.Propname);
+  body := "<multistatus xmlns='DAV:'><response><href>/dav/unrelated</href><propstat><prop><current-user-principal><href>/dav/p/</href></current-user-principal></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>";
+  protocol "discovery never selects unrelated response"
+    (fun () -> D.principal client "ctx/");
+  status := 301; body := "";
+  headers := Http.Header.of_list ["Location", "relative/"];
+  check "discovery resolves against request URL"
+    (D.context_path origin `Carddav = "https://example.test/.well-known/relative/");
+  status := 401; headers := Http.Header.init ();
+  ignore (expect_http 401 (fun () -> D.context_path origin `Carddav));
+  status := 404;
+  check "only explicit absence falls back to root"
+    (D.context_path origin `Carddav = D.root origin);
   Printf.printf "fetch.dav: %d client checks passed\n" !count

@@ -79,11 +79,11 @@ let taken out =
   | Some r -> r
   | None -> failwith "Proffer_mock: the backend wrote no response"
 
-let request ?version ?connection_upgrade ?headers ?body ?on_error ?now site env
+let request ?transport ?version ?connection_upgrade ?headers ?body ?on_error ?now site env
     meth target =
   let headers = Option.map Proffer.Headers.of_list headers in
   let req =
-    Proffer.Req.v ~meth ~target ?version ?connection_upgrade ?headers ?body ()
+    Proffer.Req.v ~meth ~target ?transport ?version ?connection_upgrade ?headers ?body ()
   in
   let out = ref None in
   let local_ write : Proffer.Backend.writer = fun o -> snapshot out o in

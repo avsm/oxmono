@@ -136,8 +136,10 @@ let[@zero_alloc] same_ascii_caseless a b =
 let[@zero_alloc] is_secret_field name spelling =
   match name with
   | H.Authorization | H.Proxy_authorization | H.Cookie -> true
-  | H.Other -> same_ascii_caseless spelling "proxy-authorization"
-  | _ -> false
+  | _ ->
+      same_ascii_caseless spelling "proxy-authorization"
+      || same_ascii_caseless spelling "if"
+      || same_ascii_caseless spelling "lock-token"
 
 let[@zero_alloc] rec event_headers (block : Proffer.Headers.t @ local) = exclave_
   match block with
@@ -226,6 +228,7 @@ let addr_string (addr : Eio.Net.Sockaddr.stream) =
 
 (* Closures erase the flow and clock type parameters from connection state. *)
 type conn = {
+  transport : Proffer.Req.transport;
   now : unit -> float#;
   read : float# -> Cstruct.t -> int;
   write : Cstruct.t list -> unit;
@@ -252,7 +255,7 @@ type conn = {
 
 (* A negative read result denotes a deadline. The connection is discarded if
    a concurrent socket read wins that race and consumes bytes. *)
-let create_conn flow ~mono_clock ~config =
+let create_conn flow ~mono_clock ~config ~transport =
   let started = Eio.Time.Mono.now mono_clock in
   let now () =
     F64.mul
@@ -263,6 +266,7 @@ let create_conn flow ~mono_clock ~config =
   in
   let write_timeout = Eio.Time.Timeout.seconds mono_clock (Duration.to_f config.write_timeout) in
   {
+    transport;
     now;
     read =
       (fun deadline cs ->
@@ -835,7 +839,7 @@ let[@zero_alloc] request_body conn ~deadline (req : Httpz.Req.t) =
          arise here and the arm in [fill_body] is defence in depth. *)
       fill_body conn ~deadline ~body_off ~body_len:cl ~body_end)
 
-let[@zero_alloc] request_of_parsed buf (req : Httpz.Req.t)
+let[@zero_alloc] request_of_parsed ~transport buf (req : Httpz.Req.t)
     ~(target : string @ local) (headers : Proffer.Headers.t @ local)
     ~(body : string @ local) = exclave_
   let #(path, query) =
@@ -848,8 +852,9 @@ let[@zero_alloc] request_of_parsed buf (req : Httpz.Req.t)
     else #((if Httpz.Span.len req.#path = 0 then "/" else own_span buf req.#path),
            own_span buf req.#query)
   in
-  Proffer.Backend.request ~meth:req.#meth ~version:req.#version
-    ~connection_upgrade:req.#connection_upgrade ~target ~path ~query headers ~body
+  let local_ request = Proffer.Backend.request ~meth:req.#meth ~version:req.#version
+    ~connection_upgrade:req.#connection_upgrade ~target ~path ~query headers ~body in
+  Proffer.Backend.with_transport request transport
 
 let write_response conn ~version ~idle_timeout
     ~(routed_path : string @ local) ~on_event ~on_error t0 ~addr_str ~meth
@@ -911,6 +916,107 @@ let write_response conn ~version ~idle_timeout
       raise exn
 
 
+(* Streaming is selected only by an explicitly admitted endpoint. The
+   ordinary buffered path retains its existing limits and allocation budget. *)
+let[@inline never][@zero_alloc assume] admitted_request conn ~deadline
+    ~idle_timeout ~addr_str ~on_event ~on_error ~t0 ~version ~meth
+    ~(target : string @ local) (req_headers : Proffer.Headers.t @ local)
+    (preq : Proffer.Req.t @ local) (req : Httpz.Req.t) accepted =
+  let limit = Proffer.Backend.body_limit accepted in
+  let declared = I64.to_int64 req.#content_length in
+  let fail status = raise (Proffer.Req.Input.Rejected status) in
+  let more () =
+    match read_more conn ~deadline with
+    | Read_ok -> ()
+    | Read_timeout -> fail St.Request_timeout
+    | Read_eof -> fail St.Bad_request
+    | Read_buffer_full -> fail St.Payload_too_large in
+  let finished = ref (not req.#is_chunked && declared <= 0L) in
+  let remaining = ref (max 0L declared) in
+  let total = ref 0L in
+  let phase = ref (if req.#is_chunked then `Header else `Data) in
+  let rec trailers () =
+    let #(status, stop, _) =
+      Httpz.Chunk.parse_trailers conn.read_buf ~off:(i16 0)
+        ~len:(i16 conn.read_len)
+        ~max_header_count:Httpz.default_limits.#max_header_count in
+    match status with
+    | Httpz.Chunk.Trailer_complete ->
+        shift_buffer conn (to_int stop);
+        finished := true
+    | Httpz.Chunk.Trailer_partial -> more (); trailers ()
+    | _ -> fail St.Bad_request in
+  let rec read bytes ~off ~len =
+    if !finished then 0
+    else match !phase with
+    | `Header ->
+        let max_chunk_size =
+          Int64.to_int (min (Int64.of_int max_int) (Int64.sub limit !total)) in
+        let #(status, size, start) =
+          Httpz.Chunk.parse_header conn.read_buf ~off:(i16 0)
+            ~len:(i16 conn.read_len) ~max_chunk_size in
+        (match status with
+        | Httpz.Chunk.Complete ->
+            shift_buffer conn (to_int start);
+            remaining := Int64.of_int size;
+            phase := `Data
+        | Httpz.Chunk.Done ->
+            shift_buffer conn (to_int start);
+            trailers ()
+        | Httpz.Chunk.Partial -> more ()
+        | Httpz.Chunk.Chunk_too_large -> fail St.Payload_too_large
+        | Httpz.Chunk.Malformed -> fail St.Bad_request);
+        read bytes ~off ~len
+    | `Delimiter ->
+        if conn.read_len < 2 then (more (); read bytes ~off ~len)
+        else if Bytes.get conn.read_buf 0 <> '\r'
+             || Bytes.get conn.read_buf 1 <> '\n' then fail St.Bad_request
+        else begin
+          shift_buffer conn 2;
+          phase := `Header;
+          read bytes ~off ~len
+        end
+    | `Data ->
+        if !remaining = 0L then
+          if req.#is_chunked then begin
+            phase := `Delimiter;
+            read bytes ~off ~len
+          end else (finished := true; 0)
+        else if conn.read_len = 0 then (more (); read bytes ~off ~len)
+        else
+          let n = min len (min conn.read_len
+            (Int64.to_int (min !remaining (Int64.of_int max_int)))) in
+          Bytes.blit conn.read_buf 0 bytes off n;
+          shift_buffer conn n;
+          remaining := Int64.sub !remaining (Int64.of_int n);
+          total := Int64.add !total (Int64.of_int n);
+          if !total > limit then fail St.Payload_too_large;
+          if not req.#is_chunked && !remaining = 0L then finished := true;
+          n in
+  let input = Proffer.Backend.input read in
+  let local_ request = Proffer.Backend.with_input preq input in
+  let local_ write outcome =
+    let () = write_response conn ~version ~idle_timeout
+      ~routed_path:(Proffer.Req.path preq) ~on_event ~on_error t0
+      ~addr_str ~meth ~target req_headers outcome in () in
+  (try
+    if req.#unsupported_expectation then fail St.Expectation_failed;
+    if declared > limit then fail St.Payload_too_large;
+    shift_buffer conn (to_int req.#body_off);
+    if req.#expect_continue then write_continue conn;
+    Proffer.Backend.handle_accepted ~on_error accepted request write
+  with
+  | Proffer.Req.Input.Rejected status ->
+      ignore (refuse_request conn ~version ~on_event ~on_error t0
+        ~addr_str ~meth ~target req_headers status "Request body rejected\n")
+  | exn ->
+      Proffer.Backend.close_input input;
+      conn.keep_alive <- false;
+      raise exn);
+  Proffer.Backend.close_input input;
+  if not !finished then conn.keep_alive <- false;
+  if conn.keep_alive then `Continue else `Close
+
 let[@zero_alloc] handle_request conn ~deadline ~idle_timeout ~addr_str ~site
     ~env ~on_event ~on_error =
   let buf = conn.read_buf in
@@ -929,6 +1035,19 @@ let[@zero_alloc] handle_request conn ~deadline ~idle_timeout ~addr_str ~site
       let meth = req.#meth in
       let target = own_span buf req.#target in
       let req_headers = block_of_headers buf headers in
+      let preq = request_of_parsed ~transport:conn.transport buf req ~target req_headers ~body:"" in
+      let local_ write_admission outcome =
+        conn.keep_alive <- false;
+        let () = write_response conn ~version ~idle_timeout
+          ~routed_path:(Proffer.Req.path preq) ~on_event ~on_error t0
+          ~addr_str ~meth ~target req_headers outcome in () in
+      (match Proffer.Backend.admit ~on_error site env preq write_admission with
+      | Proffer.Backend.Responded -> `Close
+      | Proffer.Backend.Accepted accepted ->
+          let result = admitted_request conn ~deadline ~idle_timeout ~addr_str
+            ~on_event ~on_error ~t0 ~version ~meth ~target req_headers
+            preq req accepted in result
+      | Proffer.Backend.Ordinary ->
       (* Rejections before routing have no routed path or response metadata.
          Telemetry must not decide the fate of a response already written, so
          a failing callback is reported and dropped. *)
@@ -968,7 +1087,7 @@ let[@zero_alloc] handle_request conn ~deadline ~idle_timeout ~addr_str ~site
           let body =
             if body_len = 0 then "" else own_body buf body_off body_len
           in
-          let preq = request_of_parsed buf req ~target req_headers ~body in
+          let preq = request_of_parsed ~transport:conn.transport buf req ~target req_headers ~body in
           let routed_path = Proffer.Req.path preq in
           let consumed = body_off + body_len in
           conn.handoff_off <- consumed;
@@ -981,7 +1100,7 @@ let[@zero_alloc] handle_request conn ~deadline ~idle_timeout ~addr_str ~site
               ~now:(F64.of_float (Unix.gettimeofday ())) site env preq write
           in
           shift_buffer conn consumed;
-          if conn.keep_alive then `Continue else `Close)
+          if conn.keep_alive then `Continue else `Close))
   | Httpz.Buf_read.Partial -> `Need_more
   | failure ->
       let status, message =
@@ -1104,7 +1223,12 @@ let serve ~sw ~net ~mono_clock ~addr ~config ~tls ~on_listening ~on_event
   let on_error = protect on_error in
   let handler flow client_addr =
     with_http_flow ~mono_clock ~config tls (flow :> Httpz_tls.flow) @@ fun flow ->
-    let conn = create_conn flow ~mono_clock ~config in
+    let transport = if Option.is_some tls then Proffer.Req.Secure else
+      match client_addr with
+      | `Tcp (ip, _) when ip = Eio.Net.Ipaddr.V4.loopback ||
+          ip = Eio.Net.Ipaddr.V6.loopback -> Proffer.Req.Loopback
+      | _ -> Proffer.Req.Insecure in
+    let conn = create_conn flow ~mono_clock ~config ~transport in
     prepare_sink conn;
     handle_connection conn ~config ~addr_str:(addr_string client_addr) ~site
       ~env ~on_event ~on_error

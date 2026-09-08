@@ -3,8 +3,10 @@
 Proffer defines HTTP sites, routes and response handlers. `proffer-httpz`
 serves them through Eio. `proffer.mock` dispatches requests in memory.
 
-The optional [`proffer.dav`](dav/README.md) library provides a WebDAV client
-as a re-export of `fetch.dav`, over the `httpz.dav` protocol library.
+The optional [`proffer.dav`](dav/README.md) library serves explicitly mounted
+WebDAV exports. `proffer.dav.eio` supplies confined read-only directories and a
+private transactional writer. No DAV route is enabled by default. Outbound
+WebDAV operations belong to [`fetch.dav`](../fetch/dav/README.md).
 
 Start with the [server and client examples](../../example/README.md).
 The [first Proffer lesson](../../example/proffer/1-hello/README.md)

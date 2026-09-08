@@ -1,4 +1,4 @@
-module D = Proffer_dav
+module D = Fetch_dav
 let ok = function Ok x -> x | Error (`Msg e) -> failwith e
 let check name b = if not b then failwith name
 let expect_http status f = match f () with
@@ -30,7 +30,7 @@ let () = Eio_main.run @@ fun env ->
     Fun.protect ~finally:(fun () -> ignore (D.delete client collection)) (fun () ->
       expect_http 405 (fun () -> D.mkcol client collection);
       let file = D.child client ~collection "space % café.txt" in
-      check "create file" (D.put ~condition:D.If_absent client file (Fetch.String "first") = 201);
+      check "create file" ((D.put ~condition:D.If_absent client file (Fetch.String "first")).status = 201);
       expect_http 412 (fun () -> D.put ~condition:D.If_absent client file (Fetch.String "collision"));
       check "download" (D.with_download client file read = "first");
       check "range" (D.with_download ~headers:Fetch.Header.[raw "Range" "bytes=1-3"] client file
@@ -138,5 +138,5 @@ let () = Eio_main.run @@ fun env ->
       check "removed property" (Httpz_dav.property colour (List.hd (D.propfind client file query).responses) = Some (Error 404));
       ignore (D.delete client moved);
       expect_http 404 (fun () -> D.delete client moved));
-    Printf.printf "proffer.dav Docker %s: file, property, condition and lock workflows passed\n%!" label
+    Printf.printf "fetch.dav Docker %s: file, property, condition and lock workflows passed\n%!" label
   ) ["http", Sys.getenv "WEBDAV_HTTP_URL"; "https", Sys.getenv "WEBDAV_URL"]

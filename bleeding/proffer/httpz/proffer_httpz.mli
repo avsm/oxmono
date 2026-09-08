@@ -71,7 +71,8 @@ type event = {
       (** [request_headers] is the request fields not consumed for framing, in
           arrival order. Content-Length, Transfer-Encoding, Connection, and
           Expect are omitted. Field-name matching must be case-insensitive.
-          The values of Authorization, Proxy-Authorization, and Cookie are
+          The values of Authorization, Proxy-Authorization, Cookie, If and
+          Lock-Token are
           replaced by ["<redacted>"]; handlers still receive the real values.
       *)
   status : Proffer.Status.t;  (** [status] is the status sent to the client. *)

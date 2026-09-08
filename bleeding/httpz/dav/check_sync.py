@@ -10,20 +10,44 @@ FILES = ('fetch/WEBDAV.md',)
 
 def stock_source(relative, text):
     """Only the syntax differences used by these DAV modules, not a general port."""
+    if relative.name == 'dune':
+        text = text.replace(' stdlib_stable', '').replace(
+            ' stdlib_upstream_compatible', '')
+        return '\n'.join(line.rstrip() for line in text.split('\n'))
     if relative.suffix not in ('.ml', '.mli'):
         return text
-    text = re.sub(r'(?m)^[ \t]*@@ portable\n', '', text)
+    text = re.sub(r'@@\s*(portable|global)(?:\s+contended)?', '', text)
+    text = re.sub(r'@\s*(local|portable|global)(?:\s+contended)?', '', text)
+    text = re.sub(r'\b(local_|global_|exclave_|stack_)\s*', '', text)
     text = text.replace(' : value mod portable contended', '')
     text = text.replace(' : immutable_data', '')
     text = text.replace('Hashtbl.MakePortable', 'Hashtbl.Make')
-    # The OxCaml helper makes this no-CRL authenticator portable. Stock X509
-    # supplies the same default policy through its regular constructor.
+    text = re.sub(r'\[@(?:zero_alloc|inline)[^]]*\]', '', text)
     text = text.replace('X509.Authenticator.chain_of_trust_no_crl',
                         'X509.Authenticator.chain_of_trust')
-    if relative.name in ('httpz_dav.ml', 'fetch_dav.ml'):
+    if relative.name in ('httpz_dav.ml', 'fetch_dav.ml', 'proffer_dav.ml',
+                          'proffer_dav_eio.ml'):
         text = re.sub(r'\bNull\b', 'None', text)
         text = re.sub(r'\bThis\b', 'Some', text)
-    return text
+    if relative.name == 'proffer_dav.ml':
+        text = text.replace('let #(valid, time)', 'let (valid, time)')
+        text = text.replace('(Stdlib_stable.Int16_u.of_int 0)', '0')
+        text = text.replace('(Stdlib_stable.Int16_u.of_int (String.length s))',
+                            '(String.length s)')
+        text = text.replace('(Stdlib_upstream_compatible.Float_u.to_float time)',
+                            'time')
+        text = text.replace(
+            '(Stdlib_upstream_compatible.Float_u.of_float entry.modified)',
+            'entry.modified')
+        text = text.replace('module U = Httpz_uri', '''module U = struct
+  include Httpz_uri
+  let has_userinfo u = encoded_userinfo u <> None
+  let has_query u = encoded_query u <> None
+  let has_fragment u = encoded_fragment u <> None
+end''')
+    if relative.name == 'fixture.ml':
+        text = text.replace('Proffer_httpz.globalize_event event', 'event')
+    return '\n'.join(line.rstrip() for line in text.split('\n'))
 
 
 def files(stack):

@@ -1,7 +1,24 @@
 module St = Httpz.Res
 
+type admitted = {
+  max_body : int64;
+  run : (Req.t @ local -> Resp.respond @ local -> unit);
+}
+type 'env admission_handler =
+  'env -> (Req.t @ local -> Resp.respond @ local -> admitted option) @ local
+type 'env endpoint = {
+  at : string list;
+  admit : 'env admission_handler @@ portable;
+}
+type admission = Ordinary | Responded | Accepted of admitted
+
+let accept ~max_body (run : Req.t @ local -> Resp.respond @ local -> unit) =
+  if max_body < 0L then invalid_arg "Proffer.Site.accept: negative body limit";
+  { max_body; run }
+
 type 'env t =
   { routes : 'env Route.t list
+  ; endpoints : 'env endpoint list
   ; fallback : 'env Route.handler @@ portable
   ; (* A wrapper runs the handler rather than returning a wrapped one, which
        would be a heap closure on every response of a site with wrappers. *)
@@ -29,6 +46,7 @@ let run_without_wrappers _path (h : _ Route.handler @ local) env (req : Req.t @ 
 
 let of_routes routes =
   { routes
+  ; endpoints = []
   ; fallback = default_fallback
   ; run_with_wrappers = run_without_wrappers
   ; has_wrappers = false
@@ -134,7 +152,7 @@ let with_auth ~scope ~realm ~(check : (string option @ local -> bool) @ portable
 
 (* Mount only routes. Reject wrappers that would otherwise be silently lost. *)
 let mount ~at sub t =
-  if sub.has_wrappers
+  if sub.has_wrappers || sub.endpoints <> []
   then
     invalid_arg
       "Proffer.Site.mount: the sub-site is wrapped, so wrap the result of mount instead";
@@ -153,3 +171,35 @@ let mount ~at sub t =
 let routes t = t.routes
 let fallback t = t.fallback
 let run_with_wrappers t = t.run_with_wrappers
+
+let with_endpoint ~at ~(admit : _ admission_handler @ portable) t =
+  List.iter (fun s -> if Static.invalid_segment s then
+    invalid_arg "Proffer.Site.with_endpoint: invalid prefix") at;
+  let rec prefix a b = match a, b with
+    | [], _ -> true
+    | x :: xs, y :: ys when x = y -> prefix xs ys
+    | _ -> false in
+  if List.exists (fun e -> prefix at e.at || prefix e.at at) t.endpoints then
+    invalid_arg "Proffer.Site.with_endpoint: overlapping endpoints";
+  { t with endpoints = { at; admit } :: t.endpoints }
+
+let admit t env (req : Req.t @ local) (respond : Resp.respond @ local) =
+  let rec find = function
+    | [] -> Ordinary
+    | endpoint :: rest ->
+        if under [endpoint.at] (Req.path req) then begin
+          let accepted = ref None in
+          let () = t.run_with_wrappers (Req.path req)
+            (fun env req respond ->
+              accepted := endpoint.admit env req respond) env req respond in
+          match !accepted with
+          | None -> Responded
+          | Some accepted ->
+              Accepted { accepted with run = (fun req respond ->
+                let () = t.run_with_wrappers (Req.path req)
+                  (fun _env req respond ->
+                    let () = accepted.run req respond in ())
+                  env req respond in ()) }
+        end else find rest in
+  let result = find t.endpoints in
+  result

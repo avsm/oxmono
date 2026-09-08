@@ -1,9 +1,30 @@
+module Input = struct
+  exception Rejected of Status.t
+  type t = { read : bytes -> off:int -> len:int -> int; mutable active : bool }
+  let v read = { read; active = true }
+  let close t = t.active <- false
+  let read t bytes ~off ~len =
+    if not t.active then invalid_arg "Proffer.Req.Input: closed request";
+    if off < 0 || len < 0 || off > Bytes.length bytes - len then
+      invalid_arg "Proffer.Req.Input.read: bounds";
+    if len = 0 then 0 else t.read bytes ~off ~len
+  let of_string s =
+    let offset = ref 0 in
+    v (fun bytes ~off ~len ->
+      let n = min len (String.length s - !offset) in
+      Bytes.blit_string s !offset bytes off n;
+      offset := !offset + n;
+      n)
+end
+
 module H = Httpz.Header_name
 
 (* Every string is read at [local]. A backend builds them in the request's
    region straight out of its parse buffer, and a handler that keeps one copies
    it. *)
+type transport = Insecure | Secure | Loopback
 type t = {
+  transport : transport;
   meth : Method.t;
   version : Httpz.Version.t;
   connection_upgrade : bool;
@@ -12,6 +33,8 @@ type t = {
   qs : string;
   headers : Headers.t;
   body : string;
+  input : Input.t option @@ global;
+  preconditions_handled : bool;
 }
 
 let split_target target =
@@ -21,7 +44,7 @@ let split_target target =
       #( String.sub target 0 i,
          String.sub target (i + 1) (String.length target - i - 1) )
 
-let v ~meth ~target ?(version = Httpz.Version.Http_1_1)
+let v ~meth ~target ?(transport = Insecure) ?(version = Httpz.Version.Http_1_1)
     ?(connection_upgrade = false) ?path ?query ?(headers = Headers.empty)
     ?(body = "") () =
   exclave_
@@ -34,6 +57,7 @@ let v ~meth ~target ?(version = Httpz.Version.Http_1_1)
          Option.value query ~default:default_query )
   in
   {
+    transport;
     meth;
     version;
     connection_upgrade;
@@ -42,6 +66,8 @@ let v ~meth ~target ?(version = Httpz.Version.Http_1_1)
     qs;
     headers;
     body;
+    input = None;
+    preconditions_handled = false;
   }
 
 (* Concrete backends know every component, so this takes them all and keeps
@@ -50,7 +76,8 @@ let v ~meth ~target ?(version = Httpz.Version.Http_1_1)
 let[@zero_alloc] backend ~meth ~version ~connection_upgrade
     ~(target : string @ local) ~(path : string @ local) ~(query : string @ local)
     (headers : Headers.t @ local) ~(body : string @ local) =
-  exclave_ { meth; version; connection_upgrade; target; path; qs = query; headers; body }
+  exclave_ { transport = Insecure; meth; version; connection_upgrade; target; path; qs = query;
+    headers; body; input = None; preconditions_handled = false }
 
 let meth (t : t @ local) = t.meth
 let version (t : t @ local) = t.version
@@ -112,7 +139,18 @@ let[@zero_alloc] cookies_local (t : t @ local) = exclave_
     let _ = cookies_write t.headers b 0 true in
     Bytes.unsafe_to_string b
 
-let body (t : t @ local) = t.body
+let body (t : t @ local) =
+  match t.input with
+  | None -> t.body
+  | Some _ -> invalid_arg "Proffer.Req.body: streaming request"
+let input (t : t @ local) =
+  match t.input with
+  | Some input -> input
+  | None -> Input.of_string (Pct.copy_all t.body)
+let with_input (t : t @ local) input = exclave_ { t with input = Some input }
+let handle_preconditions (t : t @ local) =
+  exclave_ { t with preconditions_handled = true }
+let preconditions_handled (t : t @ local) = t.preconditions_handled
 let query_param (t : t @ local) (name : string @ local) = Pct.param ~plus:true t.qs name
 
 let globalize (s : string @ local) = Pct.copy_all s
@@ -210,3 +248,6 @@ let decode_seq sq (t : t @ local) =
 let iter_query (t : t @ local)
     (f : (string @ local -> string @ local -> unit) @ local) = Pct.iter_pairs t.qs f
 let iter_segments (t : t @ local) (f @ local) = Pct.iter_segments t.path f
+
+let transport (t : t @ local) = t.transport
+let with_transport (t : t @ local) transport = exclave_ { t with transport }

@@ -292,6 +292,39 @@ let test_generate_enum_schema () =
 
 (** {1 Test Suites} *)
 
+let test_fetch_only () =
+  let spec = Result.get_ok (Spec.of_string minimal_spec) in
+  let config = Codegen.{ output_dir = "."; package_name = "test_api";
+    spec_path = Some "api.json" } in
+  let files = Codegen.generate ~fetch_only:true ~config spec in
+  let includes file text = contains_substring (List.assoc file files) text in
+  Alcotest.(check bool) "injected client" true
+    (includes "test_api.mli" "val of_fetch");
+  Alcotest.(check bool) "no backend constructor" false
+    (includes "test_api.mli" "val create");
+  Alcotest.(check bool) "no backend reference" false
+    (includes "test_api.ml" "Fetch_curl");
+  Alcotest.(check bool) "no backend dependency" false
+    (includes "dune" "fetch-curl");
+  Alcotest.(check bool) "regeneration preserves policy" true
+    (includes "dune.inc" "--fetch-only")
+
+let test_stream_name_collision () =
+  let spec = Result.get_ok (Spec.of_string {|{
+    "openapi":"3.1.0","info":{"title":"Test","version":"1"},
+    "paths":{
+      "/events":{"get":{"operationId":"events","responses":{
+        "200":{"description":"stream","content":{
+          "text/event-stream":{"schema":{"type":"string"}}}}}}},
+      "/other":{"get":{"operationId":"eventsStream","responses":{
+        "204":{"description":"empty"}}}}
+    }}|}) in
+  match Codegen.validate_spec spec with
+  | () -> Alcotest.fail "stream companion collision accepted"
+  | exception Invalid_argument message ->
+      Alcotest.(check bool) "specific collision diagnostic" true
+        (contains_substring message "generated operation")
+
 let path_tests = [
   "render simple", `Quick, test_path_render_simple;
   "render one param", `Quick, test_path_render_one_param;
@@ -329,6 +362,8 @@ let codegen_tests = [
   "split schema name no suffix", `Quick, test_split_schema_name_no_suffix;
   "generate files", `Quick, test_generate_files;
   "generate enum schema", `Quick, test_generate_enum_schema;
+  "fetch-only generation", `Quick, test_fetch_only;
+  "stream companion collision", `Quick, test_stream_name_collision;
 ]
 
 let () =

@@ -443,6 +443,7 @@ type operation_info = {
   request_encoding : request_encoding option;
   body_required : bool;
   response_encoding : response_encoding;
+  has_event_stream : bool;
   response_validation : (string * string) list;
   empty_statuses : string list;
   nonempty_statuses : string list;
@@ -991,7 +992,8 @@ let analyze_operation ~(spec : Spec.t) ~(path_item_params : Spec.parameter Spec.
     let p = resolve_parameter p in
     List.filter (fun (old : Spec.parameter) -> old.name <> p.name || old.in_ <> p.in_) acc @ [p]
   ) [] (path_item_params @ op.parameters) in
-  let used = ref (StringSet.of_list ["client"; "body"; "__openapi_headers"; "__openapi_body";
+  let used = ref (StringSet.of_list ["client"; "body"; "max_event"; "on_event";
+    "__openapi_headers"; "__openapi_body";
     "__openapi_path"; "__openapi_query"; "__openapi_decode"]) in
   let named_params = List.map (fun (p : Spec.parameter) ->
     let rec fresh name = if StringSet.mem name !used then fresh (name ^ "_") else name in
@@ -1024,6 +1026,10 @@ let analyze_operation ~(spec : Spec.t) ~(path_item_params : Spec.parameter Spec.
   let successes = match successes, op.responses.default with
     | [], Some response -> ["default", resolve_response response]
     | _ -> successes in
+  let has_event_stream = List.exists (fun (_, (r : Spec.response)) ->
+    List.exists (fun (media, _) ->
+      String.lowercase_ascii (String.trim (List.hd (String.split_on_char ';' media)))
+        = "text/event-stream") r.content) successes in
   let empty_statuses = List.filter_map (fun (code, (r : Spec.response)) ->
     if r.content = [] || method_ = "HEAD" || code = "204" || code = "205" then Some code else None) successes in
   let nonempty_statuses = List.filter_map (fun (code, _) ->
@@ -1056,7 +1062,7 @@ let analyze_operation ~(spec : Spec.t) ~(path_item_params : Spec.parameter Spec.
   { func_name; operation_id = op.operation_id; summary = op.summary;
     description = op.description; tags = op.tags; path; method_;
     path_params; query_params; header_params; request_encoding; body_required;
-    response_encoding; response_validation; empty_statuses; nonempty_statuses; body_schema_ref;
+    response_encoding; has_event_stream; response_validation; empty_statuses; nonempty_statuses; body_schema_ref;
     has_request_body = Option.is_some request_encoding;
     response_schema_ref; error_responses }
 
@@ -1473,7 +1479,7 @@ let operation_doc (op : operation_info) =
   else if doc = "" then Printf.sprintf "(**\n%s*)\n" params
   else String.sub doc 0 (String.length doc - 3) ^ "\n" ^ params ^ "*)\n"
 
-let gen_operation_impl ~context ~current_prefix (op : operation_info) : string =
+let gen_operation_impl_one ~stream ~context ~current_prefix (op : operation_info) : string =
   let path_args = List.map (fun (n, _, _, _) -> "~" ^ n) op.path_params in
   let other_args = List.map (fun (n, _, _, req) -> (if req then "~" else "?") ^ n)
     (op.query_params @ op.header_params) in
@@ -1510,6 +1516,7 @@ let gen_operation_impl ~context ~current_prefix (op : operation_info) : string =
     | Raw_response medias ->
         medias, Printf.sprintf "Fetch.decode ~limit (Fetch.Media.of_strings ~accept:[%s] \"application/octet-stream\" ~encode:(fun s -> s) ~decode:(fun s -> Ok s)) response"
           (String.concat "; " (List.map (Printf.sprintf "%S") medias)) in
+  let accept = if stream then ["text/event-stream"] else accept in
   let accept_setup = if accept = [] then "" else
     Printf.sprintf "let __openapi_headers = Fetch.Header.((accept, [%s]) :: __openapi_headers) in"
       (String.concat "; " (List.map (fun s -> Printf.sprintf "pref %S" s) accept)) in
@@ -1523,6 +1530,11 @@ let gen_operation_impl ~context ~current_prefix (op : operation_info) : string =
             if concrete = [] then "true" else "(" ^ String.concat " && " (List.map (fun s -> "status <> " ^ s) concrete) ^ ")"
           else "status = " ^ s) statuses in
         Printf.sprintf "let __openapi_decode ~limit response =\n    let status = Fetch.status response in\n    if %s then None else Some (%s)\n  in" (String.concat " || " conditions) decode in
+  let decode = if stream then
+    "let __openapi_decode ~limit:_ response = Openapi.Runtime.Client.consume_sse ?max_event ~on_event response in"
+    else decode in
+  let name = op.func_name ^ (if stream then "_stream" else "") in
+  let stream_args = if stream then ["?max_event"; "~on_event"] else [] in
   let errors = List.map (fun (e : error_response) ->
     let parser = match e.schema_ref with
       | Some name when StringSet.mem name context.known_schemas -> Printf.sprintf "Openapi.Runtime.Client.typed_error %S %s" name (format_jsont_ref ~context ~current_prefix name)
@@ -1538,10 +1550,15 @@ let gen_operation_impl ~context ~current_prefix (op : operation_info) : string =
   %s
   Openapi.Runtime.Client.call ~headers:__openapi_headers ?body:__openapi_body ~errors:[%s]
     ~operation:%S ~path:__openapi_path ~query:__openapi_query ~decode:__openapi_decode client `%s|}
-    (operation_doc op) op.func_name (String.concat " " (path_args @ other_args @ body_args @ ["client"; "()"]))
-    path_render query request_setup header_setup accept_setup decode (String.concat "; " errors) op.func_name op.method_
+    (operation_doc op) name (String.concat " " (path_args @ other_args @ body_args @ stream_args @ ["client"; "()"]))
+    path_render query request_setup header_setup accept_setup decode (String.concat "; " errors) name op.method_
 
-let gen_operation_intf ~context ~current_prefix (op : operation_info) : string =
+let gen_operation_impl ~context ~current_prefix op =
+  let generate ~stream = gen_operation_impl_one ~stream ~context ~current_prefix op in
+  generate ~stream:false ^
+  if op.has_event_stream then "\n\n" ^ generate ~stream:true else ""
+
+let gen_operation_intf_one ~stream ~context ~current_prefix (op : operation_info) : string =
   let path_args = List.map (fun (n, _, _, _) -> n ^ ":string") op.path_params in
   let other_args = List.map (fun (n, _, _, req) -> (if req then "" else "?") ^ n ^ ":string")
     (op.query_params @ op.header_params) in
@@ -1560,8 +1577,21 @@ let gen_operation_intf ~context ~current_prefix (op : operation_info) : string =
     | Raw_response _ -> "string" in
   let response_type = if op.response_encoding <> Empty_response && op.empty_statuses <> []
     then response_type ^ " option" else response_type in
-  Printf.sprintf "%sval %s : %s" (operation_doc op) op.func_name
-    (String.concat " -> " (path_args @ other_args @ body_args @ ["t"; "unit"; response_type]))
+  let response_type = if stream then "[ `Eof | `Stopped ]" else response_type in
+  let stream_args = if stream then
+    ["?max_event:int";
+     "on_event:(Fetch.Sse.event -> [ `Continue | `Stop ])"] else [] in
+  let doc = if stream then
+    "(** Consume SSE events inside the response lifetime. Set any request-body\n    streaming flag explicitly. [max_event] defaults to 1 MiB per event.\n    The callback's [`Stop] returns [`Stopped] and closes the response.\n    [`Eof] means the transport ended. Protocol sentinels are caller-owned.\n    Exceptions and cancellation propagate. No reconnection is performed. *)\n"
+    else operation_doc op in
+  Printf.sprintf "%sval %s : %s" doc
+    (op.func_name ^ (if stream then "_stream" else ""))
+    (String.concat " -> " (path_args @ other_args @ body_args @ stream_args @ ["t"; "unit"; response_type]))
+
+let gen_operation_intf ~context ~current_prefix op =
+  let generate ~stream = gen_operation_intf_one ~stream ~context ~current_prefix op in
+  generate ~stream:false ^
+  if op.has_event_stream then "\n\n" ^ generate ~stream:true else ""
 
 (** {1 Two-Phase Module Generation}
 
@@ -1927,7 +1957,7 @@ let schema_context_source spec =
     | Ok raw -> raw | Error error -> invalid_arg error in
   Printf.sprintf "let __openapi_schemas = Openapi.Schema.of_string ~version:%S %S\n\n" spec.Spec.openapi raw
 
-let generate_ml (spec : Spec.t) (package_name : string) : string =
+let generate_ml ?(fetch_only = false) (spec : Spec.t) (package_name : string) : string =
   let api_desc = Option.value ~default:"Generated API client." spec.info.description in
 
   (* Collect schemas *)
@@ -1966,14 +1996,14 @@ let generate_ml (spec : Spec.t) (package_name : string) : string =
 
 let of_fetch ?max_response_bytes ~base_url session =
   Openapi.Runtime.Client.of_fetch ?max_response_bytes ~base_url session
-
+|} ^ (if fetch_only then "" else {|
 let create ?session ?max_response_bytes ~sw env ~base_url =
   let session = match session with
     | Some s -> Fetch.restrict s
     | None -> Fetch_curl.std ~sw env
   in
   of_fetch ?max_response_bytes ~base_url session
-
+|}) ^ {|
 let base_url = Openapi.Runtime.Client.base_url
 let session = Openapi.Runtime.Client.session|} in
 
@@ -2015,7 +2045,7 @@ let session = Openapi.Runtime.Client.session|} in
     (Name.to_module_name package_name) (escape_doc api_desc) (escape_doc spec.info.version)
     (schema_context_source spec ^ client_impl) (String.concat "\n\n" prefix_mods)
 
-let generate_mli (spec : Spec.t) (package_name : string) : string =
+let generate_mli ?(fetch_only = false) (spec : Spec.t) (package_name : string) : string =
   let api_desc = Option.value ~default:"Generated API client." spec.info.description in
 
   (* Collect schemas *)
@@ -2056,7 +2086,7 @@ val of_fetch : ?max_response_bytes:int -> base_url:string -> _ Fetch.t -> t
 (** Use an existing Fetch stack, including scoped credentials, retries and limits.
     [max_response_bytes] defaults to 16 MiB. JSON requires a declared Content-Type.
     Response bodies are closed before returning. Writes do not follow redirects. *)
-
+|} ^ (if fetch_only then "" else {|
 val create :
   ?session:_ Fetch.t ->
   ?max_response_bytes:int ->
@@ -2071,7 +2101,7 @@ val create :
     [session] is the HTTP client to issue requests through, already carrying
     whatever credentials and policy the caller wants; when it is omitted a
     default {!Fetch_curl.std} stack is created under [sw]. *)
-
+|}) ^ {|
 val base_url : t -> string
 val session : t -> Fetch.plain|} in
 
@@ -2112,17 +2142,17 @@ val session : t -> Fetch.plain|} in
     (Name.to_module_name package_name) (escape_doc api_desc) (escape_doc spec.info.version)
     client_intf (String.concat "\n\n" prefix_mods)
 
-let generate_dune (package_name : string) : string =
+let generate_dune ?(fetch_only = false) (package_name : string) : string =
   Printf.sprintf {|(library
  (name %s)
  (public_name %s)
- (libraries openapi jsont jsont.bytesrw fetch fetch-curl ptime eio)
+ (libraries openapi jsont jsont.bytesrw fetch%s ptime eio)
  (wrapped true))
 
 (include dune.inc)
-|} package_name package_name
+|} package_name package_name (if fetch_only then "" else " fetch-curl")
 
-let generate_dune_inc ~(spec_path : string option) (package_name : string) : string =
+let generate_dune_inc ?(fetch_only = false) ~(spec_path : string option) (package_name : string) : string =
   match spec_path with
   | None -> "; No spec path provided - regeneration rules not generated\n"
   | Some path ->
@@ -2136,8 +2166,9 @@ let generate_dune_inc ~(spec_path : string option) (package_name : string) : str
  (targets %s.ml %s.mli)
  (deps %S)
  (action
-  (run openapi-gen generate --code-only -o . -n %s %%{deps})))
-|} package_name package_name basename package_name
+  (run openapi-gen generate --code-only%s -o . -n %s %%{deps})))
+|} package_name package_name basename
+        (if fetch_only then " --fetch-only" else "") package_name
 
 let validate_spec spec =
   let context = schema_context spec in
@@ -2212,23 +2243,25 @@ let validate_spec spec =
       let info = analyze_operation ~spec ~path_item_params:pi.parameters ~path ~method_ op in
       let prefix = match info.response_schema_ref with
         | None -> "Client" | Some name -> Name.to_module_name (fst (Name.split_schema_name name)) in
-      generated_names := (prefix ^ "." ^ info.func_name) :: !generated_names
+      generated_names := (prefix ^ "." ^ info.func_name) :: !generated_names;
+      if info.has_event_stream then
+        generated_names := (prefix ^ "." ^ info.func_name ^ "_stream") :: !generated_names
     ) op) ["GET",pi.get;"POST",pi.post;"PUT",pi.put;"PATCH",pi.patch;"DELETE",pi.delete;"HEAD",pi.head;"OPTIONS",pi.options]
   ) spec.paths;
   unique "operationId" !operation_ids;
   unique "generated operation" !generated_names
 
-let generate ~(config : config) (spec : Spec.t) : (string * string) list =
+let generate ?(fetch_only = false) ~(config : config) (spec : Spec.t) : (string * string) list =
   validate_spec spec;
   let package_name = config.package_name in
   if package_name = "" || package_name.[0] < 'a' || package_name.[0] > 'z' ||
      not (String.for_all (function 'a'..'z' | '0'..'9' | '_' -> true | _ -> false) package_name)
   then invalid_arg "OpenAPI: package name must be a lowercase OCaml identifier";
   [
-    ("dune", generate_dune package_name);
-    ("dune.inc", generate_dune_inc ~spec_path:config.spec_path package_name);
-    (package_name ^ ".ml", generate_ml spec package_name);
-    (package_name ^ ".mli", generate_mli spec package_name);
+    ("dune", generate_dune ~fetch_only package_name);
+    ("dune.inc", generate_dune_inc ~fetch_only ~spec_path:config.spec_path package_name);
+    (package_name ^ ".ml", generate_ml ~fetch_only spec package_name);
+    (package_name ^ ".mli", generate_mli ~fetch_only spec package_name);
   ]
   |> List.map (fun (name, content) ->
     let lines = String.split_on_char '\n' content |> List.map (fun line ->

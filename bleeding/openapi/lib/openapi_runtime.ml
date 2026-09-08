@@ -533,6 +533,17 @@ module Client = struct
         | Error _ -> None)
     | Error _ -> None
 
+  let consume_sse ?max_event ~on_event response =
+    let rec loop events =
+      match events () with
+      | Seq.Nil -> `Eof
+      | Seq.Cons (event, rest) ->
+          match on_event event with
+          | `Stop -> `Stopped
+          | `Continue -> loop rest
+    in
+    loop (Fetch.Sse.decode ?max_event response)
+
   let call ?(headers = Fetch.Header.[]) ?body ?(errors = [])
       ~operation ~path ~query ~decode t method_ =
     let url = t.base_url ^ path ^ query in

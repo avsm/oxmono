@@ -88,12 +88,24 @@ response headers/status metadata, root/path/operation server overrides, security
 requirements and TRACE need further work. Callers supply the intended base URL
 and scoped Fetch credential stack.
 
-### 4. P2 — Streaming responses need a scoped API
+### 4. P2 — Additional streaming representations
 
-Binary responses are buffered. SSE/NDJSON, large downloads, pagination headers
-and response metadata need callback-based operations that consume responses
-inside `Fetch.with_response`. Fetch already provides the necessary flow,
-JSON-lines and SSE interfaces.
+As of 2026-09-08, declared SSE responses generate a companion
+`<operation>_stream` with bounded events and a callback inside
+`Fetch.with_response`. Stop, callback exceptions and cancellation close the
+response. Transport EOF and consumer stop are distinct results. The caller
+handles protocol sentinels and any streaming flag in the request body.
+Generated-name validation includes companion functions.
+
+Binary responses remain buffered. NDJSON, large downloads, pagination headers
+and response metadata still need scoped operations. Fetch provides the
+necessary flow and JSON-lines interfaces.
+
+`--fetch-only` now generates clients that require Fetch injection and have no
+curl constructor or dependency. Regeneration rules retain this option.
+The OpenRouter snapshot compiles in this mode, with private generated bindings
+under a native Eio interface. Regression tests cover the new SSE lifetimes,
+media/error handling, redirects, limits and generated-name collisions.
 
 ### 5. P2 — Full-width JSON numbers and complete spec validation
 

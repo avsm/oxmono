@@ -9,6 +9,8 @@ compatibility changes, remaining limits and validation evidence.
   responses/diagnostics, scoped response lifetime and write redirect policy.
 - Fetch forms, multipart parts and raw bodies, with caller-owned credentials,
   retries, limits and backend policy.
+- SSE companion operations with scoped callbacks, event limits and early stop.
+  `--fetch-only` generation omits backend construction and curl dependencies.
 - Dialect-aware schema guards for 3.0/3.1 bounds, nullability, type unions,
   boolean schemas and reference siblings.
 - Component scalars/arrays/aliases, optional nullable presence, encode/decode
@@ -44,11 +46,11 @@ including headers and concrete Content-Type for wildcard requests. Apply server
 overrides deliberately and expose security requirements while retaining Fetch
 credential injection.
 
-## 4. Add scoped streaming operations
+## 4. Extend scoped streaming operations
 
-Use Fetch flows, JSON Lines and SSE decoders through callback-based operations.
-Include download/status/header access and configurable stream limits while
-keeping response consumption inside Fetch.with_response.
+SSE responses now generate an additional `<operation>_stream` callback API.
+Extend this to Fetch flows and JSON Lines. Include download/status/header
+access while keeping response consumption inside Fetch.with_response.
 
 ## 5. Expand diagnostics and validation
 

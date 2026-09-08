@@ -189,6 +189,48 @@ let test_failures () =
   (match get (client (fun _ -> raise (Eio.Cancel.Cancelled Exit))) with
    | _ -> Alcotest.fail "cancellation lost" | exception Eio.Cancel.Cancelled Exit -> ())
 
+let test_streaming () =
+  let body = Runtime.Json.decode_exn Jsont.json {|{"stream":true}|} in
+  let closed = ref 0 in
+  let c = client (fun req ->
+    check "SSE accept" (Http.Header.get req.headers "accept" =
+      Some "text/event-stream");
+    check "stream request body" (body_string req = {|{"stream":true}|});
+    check "query label renamed" (Uriz.find_query
+      (Fetch.Middleware.Url.to_uri req.url) "max_event" = This "query");
+    Fetch.Middleware.Pi.response ~status:200 ~version:`HTTP_1_1
+      ~headers:(Http.Header.of_list ["Content-Type", "text/event-stream"])
+      ~body:(Eio.Flow.string_source ": keepalive\n\ndata: one\n\ndata: two\n\n")
+      ~close:(fun () -> incr closed) ~url:req.url ()) in
+  let seen = ref [] in
+  let run on_event =
+    Api.Client.post_events_stream ~max_event_:"query" ~body ~on_event c () in
+  check "EOF reported" (run (fun event -> seen := event.data :: !seen;
+    `Continue) = `Eof);
+  check "comments omitted and order kept" (List.rev !seen = ["one"; "two"]);
+  check "early stop" (run (fun _ -> `Stop) = `Stopped);
+  (match run (fun _ -> raise Exit) with
+   | _ -> Alcotest.fail "callback exception lost" | exception Exit -> ());
+  (match run (fun _ -> raise (Eio.Cancel.Cancelled Exit)) with
+   | _ -> Alcotest.fail "cancellation lost"
+   | exception Eio.Cancel.Cancelled Exit -> ());
+  Alcotest.(check int) "all response lifetimes closed" 4 !closed;
+  let stream c = Api.Client.post_events_stream ~body
+    ~on_event:(fun _ -> `Continue) c () in
+  expect_decode (fun () -> stream (client (json "{}")));
+  ignore (expect_error (fun () -> stream (client (json ~status:400 "{}"))));
+  expect_decode (fun () -> Api.Client.post_events_stream ~max_event:4 ~body
+    ~on_event:(fun _ -> `Continue)
+    (client (fun req -> Fetch_mock.Sse.respond
+      (fun sink -> Fetch_mock.Sse.send sink "too large") req)) ());
+  let calls = ref 0 in
+  let redirect = client (fun req -> incr calls;
+    Fetch_mock.respond ~status:307
+      ~headers:(Http.Header.of_list ["Location", "https://other.example/"])
+      "" req) in
+  ignore (expect_error (fun () -> stream redirect));
+  Alcotest.(check int) "streaming POST is not redirected" 1 !calls
+
 let () = Alcotest.run "generated OpenAPI client" ["Fetch", List.map (fun (n, f) -> n, `Quick, run f) [
   "URLs and headers", test_url_and_headers;
   "base URL validation", test_base_url_validation;
@@ -200,4 +242,5 @@ let () = Alcotest.run "generated OpenAPI client" ["Fetch", List.map (fun (n, f) 
   "generated codecs", test_codecs;
   "response lifetime", test_response_lifetime;
   "failure propagation", test_failures;
+  "streaming", test_streaming;
 ]]

@@ -42,7 +42,7 @@ let with_spec spec_path f =
       Logs.err (fun m -> m "%s %s: %s" operation path (Unix.error_message error)); 1
 
 let generate_cmd spec_path output_dir package_name include_regen_rule
-    code_only =
+    code_only fetch_only =
   setup_logging None (Some Logs.Info);
   Logs.info (fun m -> m "Reading OpenAPI spec from %s" spec_path);
   with_spec spec_path (fun spec ->
@@ -55,7 +55,7 @@ let generate_cmd spec_path output_dir package_name include_regen_rule
     (* Use spec_path for dune.inc regeneration rule if requested *)
     let spec_path_for_dune = if include_regen_rule then Some spec_path else None in
     let config = Openapi.Codegen.{ output_dir; package_name; spec_path = spec_path_for_dune } in
-    let files = Openapi.Codegen.generate ~config spec in
+    let files = Openapi.Codegen.generate ~fetch_only ~config spec in
     (* [--code-only] drops the [dune] and [dune.inc] scaffolding. The rule in
        a generated [dune.inc] declares only the two OCaml files as targets, so
        an action that also wrote the scaffolding would write outside its
@@ -135,9 +135,13 @@ let code_only =
   in
   Arg.(value & flag & info ["code-only"] ~doc)
 
+let fetch_only =
+  let doc = "Require an injected Fetch client and omit the default curl backend." in
+  Arg.(value & flag & info ["fetch-only"] ~doc)
+
 let generate_term =
   Term.(const generate_cmd $ spec_path $ output_dir $ package_name
-        $ include_regen_rule $ code_only)
+        $ include_regen_rule $ code_only $ fetch_only)
 
 let generate_info =
   let doc = "Generate OCaml code from an OpenAPI specification." in

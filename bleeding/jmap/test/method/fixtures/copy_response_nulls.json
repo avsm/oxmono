@@ -1,0 +1,8 @@
+{
+  "fromAccountId": "acc1",
+  "accountId": "acc2",
+  "oldState": null,
+  "newState": "state2",
+  "created": null,
+  "notCreated": null
+}

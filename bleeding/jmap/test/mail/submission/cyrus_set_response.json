@@ -1,0 +1,17 @@
+{
+  "oldState": "0",
+  "newState": "46",
+  "created": {
+    "s1": {
+      "id": "S1",
+      "undoStatus": "final",
+      "sendAt": "2026-09-02T08:12:14Z"
+    }
+  },
+  "updated": null,
+  "destroyed": null,
+  "notCreated": null,
+  "notUpdated": null,
+  "notDestroyed": null,
+  "accountId": "user1"
+}

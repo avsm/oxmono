@@ -1,0 +1,22 @@
+{
+  "id": "M1f0e0e0e0e0e0e0e",
+  "blobId": "G1f0e0e0e0e0e0e0e",
+  "threadId": "T1f0e0e0e0e0e0e0e",
+  "size": 3607,
+  "receivedAt": "2019-04-05T14:24:00Z",
+  "mailboxIds": { "MB23cfa8094c0f41e6": true },
+  "keywords": { "$seen": true },
+  "messageId": null,
+  "inReplyTo": null,
+  "references": null,
+  "sender": null,
+  "from": [{ "name": null, "email": "joe@example.com" }],
+  "to": null,
+  "cc": null,
+  "bcc": null,
+  "replyTo": null,
+  "subject": null,
+  "sentAt": null,
+  "hasAttachment": false,
+  "preview": "hello"
+}

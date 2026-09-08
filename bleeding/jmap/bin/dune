@@ -1,0 +1,24 @@
+(library
+ (name jmap_cli_util)
+ (package jmap)
+ (modules jmap_cli_util)
+ (libraries jmap.eio cmdliner jsont fmt))
+
+(library
+ (name jmapq_subject)
+ (package jmap)
+ (modules jmapq_subject))
+
+(executable
+ (name jmap)
+ (public_name jmap)
+ (package jmap)
+ (modules jmap)
+ (libraries jmap.eio jmap_cli_util jscontact eio_main fmt.tty))
+
+(executable
+ (name jmapq)
+ (public_name jmapq)
+ (package jmap)
+ (modules jmapq)
+ (libraries jmap.eio jmap_cli_util eio_main fmt.tty jmapq_subject jsont))

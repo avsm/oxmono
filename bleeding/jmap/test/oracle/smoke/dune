@@ -1,0 +1,5 @@
+(test
+ (name test_smoke)
+ (package jmap)
+ (locks ../oracle)
+ (libraries oracle_harness jmap jmap.eio eio alcotest fmt))

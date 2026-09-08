@@ -1,0 +1,5 @@
+(test
+ (name test_submission)
+ (package jmap)
+ (locks ../oracle)
+ (libraries oracle_harness jmap jmap.eio fetch fetch-httpz eio alcotest))

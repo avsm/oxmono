@@ -1,0 +1,4 @@
+(test
+ (name test_subject)
+ (package jmap)
+ (libraries jmapq_subject alcotest))

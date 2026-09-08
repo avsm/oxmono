@@ -1,0 +1,19 @@
+{
+  "accountId": "acc1",
+  "oldState": "state123",
+  "newState": "state124",
+  "created": {
+    "new1": {"id": "mb789", "name": "Success Folder"}
+  },
+  "updated": {},
+  "destroyed": [],
+  "notCreated": {
+    "new2": {"type": "invalidProperties", "properties": ["name"]}
+  },
+  "notUpdated": {
+    "existing1": {"type": "notFound"}
+  },
+  "notDestroyed": {
+    "old1": {"type": "forbidden", "description": "Cannot delete inbox"}
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "accountId": "acc1",
+  "oldState": "state123",
+  "newState": "state456",
+  "created": {
+    "new1": {"id": "mb123", "name": "Folder 1"},
+    "new2": {"id": "mb456", "name": "Folder 2"}
+  },
+  "updated": {
+    "existing1": null
+  },
+  "destroyed": ["old1", "old2"],
+  "notCreated": {},
+  "notUpdated": {},
+  "notDestroyed": {}
+}

@@ -1,0 +1,30 @@
+{
+  "id": "e2",
+  "blobId": "blob2",
+  "threadId": "t2",
+  "mailboxIds": {"inbox": true, "important": true},
+  "keywords": {"$seen": true, "$flagged": true, "$answered": true},
+  "size": 5000,
+  "receivedAt": "2024-01-15T14:30:00Z",
+  "messageId": ["msg123@example.com"],
+  "inReplyTo": ["msg100@example.com"],
+  "references": ["msg100@example.com", "msg99@example.com"],
+  "sender": [{"name": "Alice Smith", "email": "alice@example.com"}],
+  "from": [{"name": "Alice Smith", "email": "alice@example.com"}],
+  "to": [{"name": "Bob Jones", "email": "bob@example.com"}],
+  "cc": [{"name": "Carol White", "email": "carol@example.com"}],
+  "bcc": [],
+  "replyTo": [{"email": "alice-reply@example.com"}],
+  "subject": "Re: Important meeting",
+  "sentAt": "2024-01-15T14:29:00Z",
+  "hasAttachment": true,
+  "preview": "Thanks for the update. I'll review the documents and get back to you by...",
+  "bodyValues": {
+    "1": {"value": "Thanks for the update.\n\nI'll review the documents.", "isEncodingProblem": false, "isTruncated": false}
+  },
+  "textBody": [{"partId": "1", "type": "text/plain"}],
+  "htmlBody": [],
+  "attachments": [
+    {"partId": "2", "blobId": "attach1", "type": "application/pdf", "name": "document.pdf", "size": 12345}
+  ]
+}

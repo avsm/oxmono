@@ -1,0 +1,21 @@
+{
+  "id": "sub3",
+  "identityId": "ident1",
+  "emailId": "e2",
+  "threadId": "t2",
+  "envelope": {
+    "mailFrom": {"email": "sender@example.com"},
+    "rcptTo": [{"email": "recipient@example.com"}]
+  },
+  "sendAt": "2024-01-15T12:00:00Z",
+  "undoStatus": "final",
+  "deliveryStatus": {
+    "recipient@example.com": {
+      "smtpReply": "250 2.0.0 OK",
+      "delivered": "yes",
+      "displayed": "unknown"
+    }
+  },
+  "dsnBlobIds": [],
+  "mdnBlobIds": []
+}

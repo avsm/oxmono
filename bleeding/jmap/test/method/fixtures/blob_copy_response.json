@@ -1,0 +1,10 @@
+{
+  "fromAccountId": "acc1",
+  "accountId": "acc2",
+  "copied": {
+    "b1": "b1-copy"
+  },
+  "notCopied": {
+    "b2": {"type": "notFound"}
+  }
+}

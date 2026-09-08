@@ -1,0 +1,5 @@
+; See examples/1-session/dune for why there is no (package ...) field.
+
+(executable
+ (name resync)
+ (libraries jmap jmap.eio eio eio_main cmdliner fmt))

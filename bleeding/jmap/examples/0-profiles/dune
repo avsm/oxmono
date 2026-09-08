@@ -1,0 +1,3 @@
+(executable
+ (name profiles)
+ (libraries jmap jmap.eio eio eio_main cmdliner fmt))

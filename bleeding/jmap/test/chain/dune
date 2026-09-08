@@ -1,0 +1,4 @@
+(test
+ (name test_chain)
+ (package jmap)
+ (libraries jmap mail-flag alcotest jsont.bytesrw))

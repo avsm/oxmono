@@ -1,0 +1,9 @@
+{
+  "partId": "1",
+  "blobId": "b1",
+  "size": 1000,
+  "type": "text/plain",
+  "charset": "utf-8",
+  "language": ["en", "de"],
+  "location": "https://example.com/message.txt"
+}

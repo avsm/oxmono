@@ -1,0 +1,5 @@
+{
+  "type": "alreadyExists",
+  "description": "The record already exists",
+  "existingId": "M1234"
+}

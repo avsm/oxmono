@@ -1,0 +1,5 @@
+{
+  "methodCalls": [
+    ["Mailbox/get", {"accountId": "acc1"}, "c1"]
+  ]
+}

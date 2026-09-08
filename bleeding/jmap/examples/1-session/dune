@@ -1,0 +1,7 @@
+; Example executables are built by `dune build` but not installed: a
+; `(package jmap)` field would need a `(public_name ...)`, which would put
+; them on users' PATH.
+
+(executable
+ (name session)
+ (libraries jmap jmap.eio eio eio_main cmdliner fmt))

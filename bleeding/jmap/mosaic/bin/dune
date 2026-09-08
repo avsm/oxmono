@@ -1,0 +1,14 @@
+(executable
+ (name main)
+ (public_name jmap-mosaic)
+ (package jmap-mosaic)
+ (libraries
+  jmap
+  jmap.eio
+  jmap-mosaic
+  mosaic
+  matrix-eio
+  eio
+  eio_main
+  fmt
+  cmdliner))

@@ -1,0 +1,5 @@
+{
+  "accountId": "acc1",
+  "ids": ["id1", "id2", "id3"],
+  "properties": ["id", "name", "role"]
+}

@@ -1,0 +1,4 @@
+{
+  "type": "singleton",
+  "description": "Only one VacationResponse object exists per account"
+}

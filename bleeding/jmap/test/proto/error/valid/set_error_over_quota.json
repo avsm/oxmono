@@ -1,0 +1,4 @@
+{
+  "type": "overQuota",
+  "description": "Account storage quota exceeded"
+}

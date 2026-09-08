@@ -1,0 +1,3 @@
+(executable
+ (name contacts)
+ (libraries jmap.eio jscontact eio eio_main cmdliner fmt))

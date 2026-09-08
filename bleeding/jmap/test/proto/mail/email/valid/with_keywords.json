@@ -1,0 +1,15 @@
+{
+  "id": "e1",
+  "blobId": "blob1",
+  "threadId": "t1",
+  "size": 2048,
+  "receivedAt": "2024-01-15T10:30:00Z",
+  "mailboxIds": {"mb1": true},
+  "keywords": {
+    "$seen": true,
+    "$flagged": true,
+    "$answered": true
+  },
+  "hasAttachment": false,
+  "preview": "This is a flagged and answered email"
+}

@@ -1,0 +1,5 @@
+(library
+ (name jmap_mosaic)
+ (public_name jmap-mosaic)
+ (libraries duration jmap jmap.eio eio fetch mosaic ptime)
+ (modules jmap_mosaic model view io login))

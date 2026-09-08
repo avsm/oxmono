@@ -1,0 +1,896 @@
+
+
+
+
+MailMaint                                              N.M. Jenkins, Ed.
+Internet-Draft                                                  Fastmail
+Intended status: Informational                            D. Eggert, Ed.
+Expires: 21 August 2025                                        Apple Inc
+                                                        17 February 2025
+
+
+ Registration of further IMAP/JMAP keywords and mailbox attribute names
+          draft-ietf-mailmaint-messageflag-mailboxattribute-02
+
+Abstract
+
+   This document defines a number of keywords that have been in use by
+   Fastmail and Apple respectively for some time.  It defines their
+   intended use.  Additionally some mailbox names with special meaning
+   have been in use by Fastmail, and this document defines their
+   intended use.  This document registers all of these names with IANA
+   to avoid name collisions.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 21 August 2025.
+
+Copyright Notice
+
+   Copyright (c) 2025 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+
+
+
+
+
+
+
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                 [Page 1]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+   2.  Requirements Language . . . . . . . . . . . . . . . . . . . .   4
+   3.  Flag Colors . . . . . . . . . . . . . . . . . . . . . . . . .   4
+     3.1.  Definition of the MailFlagBit Message Keyword . . . . . .   4
+     3.2.  Implementation Notes  . . . . . . . . . . . . . . . . . .   5
+   4.  IANA Considerations . . . . . . . . . . . . . . . . . . . . .   5
+     4.1.  IMAP/JMAP Keyword Registrations . . . . . . . . . . . . .   5
+       4.1.1.  $notify keyword registration  . . . . . . . . . . . .   5
+       4.1.2.  $muted keyword registration . . . . . . . . . . . . .   6
+       4.1.3.  $followed keyword registration  . . . . . . . . . . .   7
+       4.1.4.  $memo keyword registration  . . . . . . . . . . . . .   7
+       4.1.5.  $hasmemo keyword registration . . . . . . . . . . . .   8
+       4.1.6.  Attachment Detection  . . . . . . . . . . . . . . . .   8
+       4.1.7.  $autosent keyword registration  . . . . . . . . . . .   9
+       4.1.8.  $unsubscribed keyword registration  . . . . . . . . .  10
+       4.1.9.  $canunsubscribe keyword registration  . . . . . . . .  10
+       4.1.10. $imported keyword registration  . . . . . . . . . . .  11
+       4.1.11. $istrusted keyword registration . . . . . . . . . . .  11
+       4.1.12. $maskedemail keyword registration . . . . . . . . . .  12
+       4.1.13. $new keyword registration . . . . . . . . . . . . . .  12
+       4.1.14. $MailFlagBit0 keyword registration  . . . . . . . . .  13
+       4.1.15. $MailFlagBit1 keyword registration  . . . . . . . . .  13
+       4.1.16. $MailFlagBit2 keyword registration  . . . . . . . . .  13
+     4.2.  IMAP Mailbox Name Attributes Registrations  . . . . . . .  14
+       4.2.1.  Snoozed mailbox name attribute registration . . . . .  14
+       4.2.2.  Scheduled mailbox name attribute registration . . . .  14
+       4.2.3.  Memos mailbox name attribute registration . . . . . .  14
+   5.  Security Considerations . . . . . . . . . . . . . . . . . . .  15
+   6.  References  . . . . . . . . . . . . . . . . . . . . . . . . .  15
+     6.1.  Normative References  . . . . . . . . . . . . . . . . . .  15
+   Authors' Addresses  . . . . . . . . . . . . . . . . . . . . . . .  15
+
+
+
+
+
+
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                 [Page 2]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+1.  Introduction
+
+   The Internet Message Access Protocol (IMAP) specification [RFC9051]
+   defines the use of message keywords, and an "IMAP Keywords" registry
+   is created in [RFC5788].  Similarly [RFC8457] creates an "IMAP
+   Mailbox Name Attributes Registry".
+
+   This document does the following:
+
+   *  Defines 16 message keywords
+
+      -  $notify
+
+      -  $muted
+
+      -  $followed
+
+      -  $memo
+
+      -  $hasmemo
+
+      -  $hasattachment
+
+      -  $hasnoattachment
+
+      -  $autosent
+
+      -  $unsubscribed
+
+      -  $canunsubscribe
+
+      -  $imported
+
+      -  $istrusted
+
+      -  $maskedemail
+
+      -  $new
+
+      -  $MailFlagBit0
+
+      -  $MailFlagBit1
+
+      -  $MailFlagBit2
+
+   *  Defines 3 mailbox name attributes
+
+      -  Snoozed
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                 [Page 3]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+      -  Scheduled
+
+      -  Memos
+
+   *  Registers these in the "IMAP Keywords" registry and "IMAP Mailbox
+      Name Attributes" registry respectively.
+
+2.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+3.  Flag Colors
+
+   The Internet Message Access Protocol (IMAP) specification [RFC9051]
+   defines a \Flagged system flag to mark a message for urgent/special
+   attention.  The new keywords defined in Sections 4.1.14, 4.1.15, and
+   4.1.16 allow such a flagged message to have that flag be of one of 7
+   colors.
+
+3.1.  Definition of the MailFlagBit Message Keyword
+
+   The 3 flag color keywords $MailFlagBit0, $MailFlagBit1, and
+   $MailFlagBit2 make up a bit pattern that define the color of the flag
+   as such:
+
+                    +=======+=======+=======+========+
+                    | Bit 0 | Bit 1 | Bit 2 | Color  |
+                    +=======+=======+=======+========+
+                    | 0     | 0     | 0     | red    |
+                    +-------+-------+-------+--------+
+                    | 1     | 0     | 0     | orange |
+                    +-------+-------+-------+--------+
+                    | 0     | 1     | 0     | yellow |
+                    +-------+-------+-------+--------+
+                    | 1     | 1     | 1     | green  |
+                    +-------+-------+-------+--------+
+                    | 0     | 0     | 1     | blue   |
+                    +-------+-------+-------+--------+
+                    | 1     | 0     | 1     | purple |
+                    +-------+-------+-------+--------+
+                    | 0     | 1     | 1     | gray   |
+                    +-------+-------+-------+--------+
+
+                           Table 1: Flag Colors
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                 [Page 4]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+   These flags SHOULD be ignored if the \Flagged system flag is not set.
+   If the \Flagged system flag is set, the flagged status MAY be
+   displayed to the user in the color corresponding to the combination
+   of the 3 flag color keywords.
+
+3.2.  Implementation Notes
+
+   A mail client that is aware of these flag color keywords SHOULD clear
+   all 3 flag color keywords when the user unflags the message, i.e.
+   when unsetting the \Flagged system flag, all 3 flag color keywords
+   SHOULD also be unset.
+
+   A mail client SHOULD NOT set any of these flags unless the \Flagged
+   system flag is already set or is being set.
+
+   Servers MAY unset these flag color keywords when a client unsets the
+   \Flagged system flag.
+
+4.  IANA Considerations
+
+   3 IMAP/JMAP keywords are registered in the IMAP/JMAP keywords
+   registry, as established in RFC5788.
+
+4.1.  IMAP/JMAP Keyword Registrations
+
+4.1.1.  $notify keyword registration
+
+   IMAP/JMAP keyword name:  $notify
+   Purpose:  Indicate to the client that a notification should be shown
+      for this message.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword can cause automatic action.  On supporting clients, when a
+      new message is added to the mailstore with this keyword, the
+      client should show the user a notification.
+      Mail clients commonly show notifications for new mail, but often
+      the only option is to show a notification for every message that
+      arrives in the inbox.  This keyword allows the user to create
+      rules (or the server to automatically determine) specific messages
+      that should show a notification.
+      Notifications for these messages may be in addition to
+      notifications for messages matching other criteria, according to
+      user preference set on the client.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+
+
+
+
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                 [Page 5]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+      server on delivery when a message meets criteria such that the
+      user should be shown a notification.  It may be cleared by a
+      client when the user opens, archives, or otherwise interacts with
+      the message.  Other clients connected to the same account may
+      choose to automatically close the notification if the flag is
+      cleared.
+   Related keywords:  None
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.2.  $muted keyword registration
+
+   IMAP/JMAP keyword name:  $muted
+   Purpose:  Indicate to the server that the user is not interested in
+      future replies to a particular thread.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword can cause automatic action.  On supporting servers, when a
+      new message arrives that is in the same thread as a message with
+      this keyword the server may automatically process it in some way
+      to deprioritise it for the user, for example by moving it to the
+      archive or trash, or marking it read.  The exact action, whether
+      this is customisable by the user, and interaction with user rules
+      is vendor specific.
+      A message is defined to be in the same thread as another if the
+      server assigns them both the same thread id, as defined in
+      [RFC8474] Section 5.2 for IMAP or [RFC8621], Section 3 for JMAP.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      client when the user indicates they wish to mute or unmute a
+      thread.  When unmuting a thread, the client must remove the
+      keyword from every message in the thread that has it.
+   Related keywords:  Mutually exclusive with $followed.  If both are
+      specified on a thread, servers MUST behave as though only
+      $followed were set.
+   Related IMAP capabilities:  None
+   Security considerations:  Muting a thread can mean a user won't see a
+      reply.  If someone compromises a user's account, they may mute
+      threads where they don't want the user to see the reply, for
+      example when sending phishing to the user's contacts.  There are
+      many other ways an attacker with access to the user's mailbox can
+      also achieve this however, so this is not greatly increasing the
+      attack surface.
+   Published specification:  This document
+   Intended usage:  COMMON
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                 [Page 6]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.3.  $followed keyword registration
+
+   IMAP/JMAP keyword name:  $followed
+   Purpose:  Indicate to the server that the user is particularly
+      interested in future replies to a particular thread.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword can cause automatic action.  On supporting servers, when a
+      new message arrives that is in the same thread as a message with
+      this keyword the server may automatically process it in some way
+      to prioritise it for the user, for example by ignoring rules that
+      would make it skip the inbox, or automatically adding the $notify
+      keyword.  The exact action, whether this is customisable by the
+      user, and interaction with user rules is vendor specific.
+      A message is defined to be in the same thread as another if the
+      server assigns them both the same thread id, as defined in
+      [RFC8474] Section 5.2 for IMAP or [RFC8621], Section 3 for JMAP.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      client when the user indicates they wish to follow or unfollow a
+      thread.  When unfollowing a thread, the client must remove the
+      keyword from every message in the thread that has it.
+   Related keywords:  Mutually exclusive with $muted.  If both are
+      specified on a thread, servers MUST behave as though only
+      $followed were set.
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.4.  $memo keyword registration
+
+   IMAP/JMAP keyword name:  $memo
+   Purpose:  Indicate to the client that a message is a note-to-self
+      from the user regarding another message in the same thread.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      client when creating such a message.  The message should otherwise
+      be contructed like a reply to the message to which this memo is
+      attached (i.e. appropriate Subject and Reply-To headers set).  In
+      supporting clients, messages with this flag may be presented
+      differently to the user, attached to the message the memo is
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                 [Page 7]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+      commenting on, and may offer the user the ability to edit or
+      delete the memo.  (As messages are immutable, editing requires
+      replacing the message.)
+   Related keywords:  The $hasmemo keyword should be set/cleared at the
+      same time.
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.5.  $hasmemo keyword registration
+
+   IMAP/JMAP keyword name:  $hasmemo
+   Purpose:  Indicate to the client that a message has an associated
+      memo with the $memo keyword.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      client when creating a memo.  The memo gets the $memo keyword, the
+      message it is a note for gets the $hasmemo keyword.  This keyword
+      can help in searching for messages with memos, or deciding whether
+      to fetch the whole thread to look for memos when loading a
+      mailbox.
+   Related keywords:  A message with the $memo keyword should be
+      created/destroyed at the same time.
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.6.  Attachment Detection
+
+   The $hasattachment and $hasnoattachment are mutually exclusive.  A
+   message SHOULD NOT contain both keywords.
+
+4.1.6.1.  $hasattachment keyword registration
+
+   IMAP/JMAP keyword name:  $hasattachment
+   Purpose:  Indicate to the client that a message has an attachment.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                 [Page 8]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+      server on messages it determines have an attachment.  This can
+      help mailbox clients indicate this to the user without having to
+      fetch the full message body structure.  Over JMAP, the
+      "hasAttachment" Email property should indicate the same value.
+   Related keywords:  $hasnoattachment
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.6.2.  $hasnoattachment keyword registration
+
+   IMAP/JMAP keyword name:  $hasnoattachment
+   Purpose:  Indicate to the client that a message does not have an
+      attachment.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      server on messages it determines does NOT have an attachment.
+      Over JMAP, the "hasNoAttachment" Email property should indicate
+      the same value.  This keyword is needed in addition to the
+      $hasattachment keyword, as a client cannot otherwise determine
+      whether the server has processed the message for the presence of
+      an attachment.  In other words, the absence of the $hasattachment
+      keyword for a message does not tell a client whether the message
+      actually contains an attachment, as the client has no information
+      on whether the server has processed the message.
+   Related keywords:  None
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.7.  $autosent keyword registration
+
+   IMAP/JMAP keyword name:  $autosent
+   Purpose:  Indicate to the client that a message was sent
+      automatically as a response due to a user rule or setting.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                 [Page 9]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+      server on the user's copy of their vacation response and other
+      automated messages sent on behalf of the user.  Clients may use
+      this to indicate to the user that this message was sent
+      automatically, as if they have forgotten the rule or vacation
+      response is set up they may be surprised to see it among their
+      sent items.
+   Related keywords:  None
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.8.  $unsubscribed keyword registration
+
+   IMAP/JMAP keyword name:  $unsubscribed
+   Purpose:  Indicate to the client that it has unsubscribed from the
+      thread this message is on.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      client on a message after attempting to unsubscribe from the
+      mailing list this message came from (e.g., after attempting
+      RFC8058 one-click List-Unsubscribe).  It allows clients to remind
+      the user that they have unsubscribed if they open the message
+      again.
+   Related keywords:  None
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.9.  $canunsubscribe keyword registration
+
+   IMAP/JMAP keyword name:  $canunsubscribe
+   Purpose:  Indicate to the client that this message has an
+      RFC8058-compliant List-Unsubscribe header.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+
+
+
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                [Page 10]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+      server on messages with an RFC8058-compliant List-Unsubscribe
+      header.  It may only do so if the message passes vendor-specific
+      reputation checks.  It is intended to indicate to clients that
+      they may be able to do a one-click unsubscribe, without them
+      having to fetch the List-Unsubscribe header to determine themself.
+   Related keywords:  None
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.10.  $imported keyword registration
+
+   IMAP/JMAP keyword name:  $imported
+   Purpose:  Indicate to the client that this message was imported from
+      another mailbox.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      server on messages in imports from another mailbox.
+   Related keywords:  None
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.11.  $istrusted keyword registration
+
+   IMAP/JMAP keyword name:  $istrusted
+   Purpose:  Indicate to the client that the authenticity of the from
+      name and email address have been verified with complete confidence
+      by the server.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.  Clients may show a verification mark (often
+      a tick icon) on messages with this keyword to indicate their
+      trusted status to the user.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      server on messages it delivers where it wishes to confirm to the
+      user that this is a legitimate email they can trust.  It is
+      usually only used for the mailbox provider's own messages to the
+      customer, where they can know with absolute certainty that the
+      friendly from name and email address are legitimate.
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                [Page 11]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+   Related keywords:  None
+   Related IMAP capabilities:  None
+   Security considerations:  Servers should make sure this keyword is
+      only set for messages that really are trusted!
+   Published specification:  This document
+   Intended usage:  COMMON
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.12.  $maskedemail keyword registration
+
+   IMAP/JMAP keyword name:  $maskedemail
+   Purpose:  Indicate to the client that the message was received via an
+      alias created for an individual sender.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.  Clients may show an icon to indicate to the
+      user this was received via a masked email address - an alias
+      created for a specific sender to hide the user's real email
+      address.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      server on messages it delivers that arrived via such an alias.
+   Related keywords:  None
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  LIMITED
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+4.1.13.  $new keyword registration
+
+   IMAP/JMAP keyword name:  $new
+   Purpose:  Indicate to the client that a message should be made more
+      prominent to the user due to a recent action.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  This 
+      keyword is advisory.  Clients may show the status of the message.
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      server on messages after awakening them from snooze.  Clients
+      should clear the keyword when the message is opened.
+   Related keywords:  None
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  LIMITED
+   Scope:  BOTH
+   Owner/Change controller:  IESG
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                [Page 12]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+4.1.14.  $MailFlagBit0 keyword registration
+
+   IMAP/JMAP keyword name:  $MailFlagBit0
+   Purpose:  0 bit part of a 3-bit bitmask that defines the color of the
+      flag when the has the system flag \Flagged set.  See Section 3 for
+      details.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  No
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      client as the result of a user action to "flag" a message for
+      urgent/special attention.
+   Related keywords:  $MailFlagBit1, $MailFlagBit2
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Owner/Change controller:  IESG
+
+4.1.15.  $MailFlagBit1 keyword registration
+
+   IMAP/JMAP keyword name:  $MailFlagBit1
+   Purpose:  0 bit part of a 3-bit bitmask that defines the color of the
+      flag when the has the system flag \Flagged set.  See Section 3 for
+      details.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  No
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      client as the result of a user action to "flag" a message for
+      urgent/special attention.
+   Related keywords:  $MailFlagBit0, $MailFlagBit2
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Owner/Change controller:  IESG
+
+4.1.16.  $MailFlagBit2 keyword registration
+
+   IMAP/JMAP keyword name:  $MailFlagBit2
+   Purpose:  0 bit part of a 3-bit bitmask that defines the color of the
+      flag when the has the system flag \Flagged set.  See Section 3 for
+      details.
+   Private or Shared on a server:  SHARED
+   Is it an advisory keyword or may it cause an automatic action:  No
+   When/by whom the keyword is set/cleared:  This keyword is set by a
+      client as the result of a user action to "flag" a message for
+      urgent/special attention.
+   Related keywords:  $MailFlagBit0, $MailFlagBit1
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                [Page 13]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+   Related IMAP capabilities:  None
+   Security considerations:  None
+   Published specification:  This document
+   Intended usage:  COMMON
+   Owner/Change controller:  IESG
+
+4.2.  IMAP Mailbox Name Attributes Registrations
+
+   This section lists mailbox name attributes to be registered with the
+   "IMAP Mailbox Name Attributes" created with [RFC8457].
+
+   Note that none of the attribute names in this seciton have an implied
+   backslash.  This sets them apart from those specified in Section 2 of
+   [RFC6154].
+
+4.2.1.  Snoozed mailbox name attribute registration
+
+   Attribute Name:  Snoozed
+   Description:  Messages that have been snoozed are moved to this
+      mailbox until the "awaken" time, when they are moved out of it
+      again automatically by the server.
+   Reference:  This document.
+   Usage Notes:  Snooze functionality is common among services but not
+      yet standardised.  This attribute marks the mailbox where snoozed
+      messages may be found, but does not on its own provide a way for
+      clients to snooze messages.
+
+4.2.2.  Scheduled mailbox name attribute registration
+
+   Attribute Name:  Scheduled
+   Description:  Messages that have been scheduled to send at a later
+      time.  Once the server has sent them at the scheduled time, they
+      will automatically be deleted or moved from this mailbox by the
+      server (probably to the \Sent mailbox).
+   Reference:  This document.
+   Usage Notes:  Scheduled sending functionality is common among
+      services but not yet standardised.  This attribute marks the
+      mailbox where scheduled messages may be found, but does not on its
+      own provide a way for clients to schedule messages for sending.
+
+4.2.3.  Memos mailbox name attribute registration
+
+   Attribute Name:  Memos
+   Description:  Messages that have the $memo keyword.  Clients creating
+      memos are recommended to store them in this mailbox.  This allows
+      them to more easily be hidden from the user as "messages", and
+      presented only as memos instead.
+   Reference:  This document.
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                [Page 14]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+   Usage Notes:  None.
+
+5.  Security Considerations
+
+   This document should not affect the security of the Internet.
+
+6.  References
+
+6.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC6154]  Leiba, B. and J. Nicolson, "IMAP LIST Extension for
+              Special-Use Mailboxes", RFC 6154, DOI 10.17487/RFC6154,
+              March 2011, <https://www.rfc-editor.org/info/rfc6154>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8457]  Leiba, B., Ed., "IMAP "$Important" Keyword and
+              "\Important" Special-Use Attribute", RFC 8457,
+              DOI 10.17487/RFC8457, September 2018,
+              <https://www.rfc-editor.org/info/rfc8457>.
+
+   [RFC8474]  Gondwana, B., Ed., "IMAP Extension for Object
+              Identifiers", RFC 8474, DOI 10.17487/RFC8474, September
+              2018, <https://www.rfc-editor.org/info/rfc8474>.
+
+   [RFC8621]  Jenkins, N. and C. Newman, "The JSON Meta Application
+              Protocol (JMAP) for Mail", RFC 8621, DOI 10.17487/RFC8621,
+              August 2019, <https://www.rfc-editor.org/info/rfc8621>.
+
+   [RFC9051]  Melnikov, A., Ed. and B. Leiba, Ed., "Internet Message
+              Access Protocol (IMAP) - Version 4rev2", RFC 9051,
+              DOI 10.17487/RFC9051, August 2021,
+              <https://www.rfc-editor.org/info/rfc9051>.
+
+   [RFC5788]  Melnikov, A. and D. Cridland, "IMAP4 Keyword Registry",
+              RFC 5788, DOI 10.17487/RFC5788, March 2010,
+              <https://www.rfc-editor.org/info/rfc5788>.
+
+Authors' Addresses
+
+
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                [Page 15]
+
+Internet-Draft   Further IMAP/JMAP keywords & attributes   February 2025
+
+
+   Neil Jenkins (editor)
+   Fastmail
+   PO Box 234, Collins St West
+   Melbourne  VIC 8007
+   Australia
+   Email: neilj@fastmailteam.com
+   URI:   https://www.fastmail.com
+
+
+   Daniel Eggert (editor)
+   Apple Inc
+   One Apple Park Way
+   Cupertino,  CA 95014
+   United States of America
+   Email: deggert@apple.com
+   URI:   https://www.apple.com
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Jenkins & Eggert         Expires 21 August 2025                [Page 16]

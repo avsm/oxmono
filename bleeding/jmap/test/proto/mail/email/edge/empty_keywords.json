@@ -1,0 +1,11 @@
+{
+  "id": "e5",
+  "blobId": "blob5",
+  "threadId": "t5",
+  "size": 256,
+  "receivedAt": "2024-01-19T12:00:00Z",
+  "mailboxIds": {"mb1": true},
+  "keywords": {},
+  "hasAttachment": false,
+  "preview": "New unread email"
+}

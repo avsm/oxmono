@@ -1,0 +1,7 @@
+{
+  "operator": "AND",
+  "conditions": [
+    {"hasKeyword": "$seen"},
+    {"hasKeyword": "$flagged"}
+  ]
+}

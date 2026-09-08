@@ -1,0 +1,281 @@
+{0 Coverage matrix}
+
+What of {{:https://www.rfc-editor.org/rfc/rfc8620}RFC 8620} (core) and
+{{:https://www.rfc-editor.org/rfc/rfc8621}RFC 8621} (mail) this library
+implements, and where each piece is exercised.
+
+The columns are the five places a feature has to appear before it can be
+trusted:
+
+- {b Codec}. The type and its [Jsont] codec in [lib/].
+- {b Chain}. A typed builder in {!Jmap.Chain}, so a request can be written
+  without hand-rolling JSON.
+- {b Unit test}. A hermetic test in [test/], usually against a JSON fixture.
+- {b Oracle test}. A test in [test/oracle/] that runs against a real Cyrus
+  server; see [test/oracle/README.md].
+- {b Example}. A runnable program in [examples/]; see [examples/README.md].
+
+A dash means "not covered". One table, {i Client behaviour}, is about the
+[eio/] client rather than a protocol type, so its second column names where
+the feature lives instead of a codec and a builder.
+
+{1 RFC 8620 core}
+
+{2 Protocol plumbing}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | Session object, [§2] | [proto_session.ml] | n/a | [test/proto/test_proto.ml] (session fixtures) | [test/oracle/smoke/test_smoke.ml] | every example, via [Cli.connect]/[Cli.create_client], [examples/1-session/] |
+  | Session autodiscovery and relative URLs, [§2.2] | [eio/client.ml] | n/a | [test/eio/test_eio.ml] | [test/oracle/smoke/test_smoke.ml] | every example |
+  | Capability URIs and objects, [§2] and RFC 8621 [§1.3] | [proto_capability.ml] | n/a | [test/proto/test_proto.ml], [test/mail/test_mail.ml] | [test/oracle/smoke/test_smoke.ml] | — |
+  | [Id], [Int53], [UTCDate], [PatchObject] | [proto_id.ml], [proto_int53.ml], [proto_date.ml], [proto_patch.ml] | n/a | [test/proto/test_proto.ml], [test/core/test_core.ml] | exercised by every suite | — |
+  | Request/Response envelope, [§3.2]–[§3.4] | [proto_request.ml], [proto_response.ml], [proto_invocation.ml] | {!Jmap.Chain.build}, with {!Jmap.Chain.build_request} and {!Jmap.Chain.build_handles} for one half of its pair ([Jmap_eio.Client.chain] builds and sends in one call) | [test/proto/test_proto.ml] (request/response fixtures), [test/eio/test_eio.ml] | [test/oracle/smoke/test_smoke.ml] | every example |
+  | [createdIds] round trip, [§5.3] | [proto_request.ml], [proto_response.ml] | n/a ({!Jmap.Proto.Request.create} [?created_ids]) | [test/chain/test_chain.ml] | [test/oracle/email/test_email.ml] | — |
+  | Creation ids and creation references, [§5.3] | [proto_id.ml] | {!Jmap.Proto.Id.val-creation} keys a [create] map and {!Jmap.Proto.Id.creation_ref} names the record from a later call, read back with {!Jmap.Proto.Method.val-created}; {!Jmap.Proto.Email.val-creation}, {!Jmap.Proto.Mailbox.val-creation}, {!Jmap.Proto.Identity.val-creation} and {!Jmap.Proto.Submission.val-creation} type the token at the binding | [test/chain/test_chain.ml] ("created_id is #-prefixed", "create then reference", "a create map key carries no #"), [test/mail/test_mail.ml] ("typed creation ids") | [test/oracle/email/test_email.ml] | [examples/8-mailboxes-set/], [examples/a-send/], [examples/k-compose/] |
+  | Result references, [§3.7] | [proto_invocation.ml] | {!Jmap.Chain.from_query}, {!Jmap.Chain.from_get_ids}, {!Jmap.Chain.from_changes_created} and friends | [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/3-inbox/], [examples/j-conversation/], [examples/n-resync/] |
+  | A reference through an Id property, [§3.7] | [proto_invocation.ml] | {!Jmap.Chain.from_get_field} over a {!Jmap.Chain.type-id_property}, {!Jmap.Chain.from_get_field_raw} for a property with no constructor; a property the [/get] did not ask for raises when the request is built | [test/chain/test_chain.ml] ("the id properties", "an unrequested property", "a raw property name") | [test/oracle/sync/test_sync.ml] | [examples/6-threads/], [examples/j-conversation/] |
+  | Reading the responses of a chain, [§3.2] | [proto_response.ml] | a chain ends in {!Jmap.Chain.Handles} and is read into {!Jmap.Chain.Results} by {!Jmap.Chain.parse_all}, one call at a time by {!Jmap.Chain.val-parse} | [test/chain/test_chain.ml] ("parse_all", "a method error among them") | all suites | [examples/3-inbox/], [examples/2-mailboxes/] |
+  | [#foo] / [foo] argument collision, [§3.7] | — | {!Jmap.Chain.check_arguments} | [test/chain/test_chain.ml] | — | — |
+  | Request-level errors (problem+json), [§3.6.1] | [proto_error.ml], [eio/client.ml] | n/a | [test/proto/test_proto.ml], [test/eio/test_eio.ml] | — | [examples/9-errors/] |
+  | Method-level errors, [§3.6.2] | [proto_error.ml] | {!Jmap.Chain.method_error} on a response, {!Jmap.Chain.parse_error} from a read | [test/proto/test_proto.ml], [test/chain/test_chain.ml], [test/eio/test_eio.ml] | [test/oracle/sync/test_sync.ml] | [examples/9-errors/], [examples/n-resync/] (cannotCalculateChanges), [examples/h-search/] (unsupportedSort) |
+  | A failed call among successful ones, [§3.6.2] | [proto_error.ml] | {!Jmap.Chain.attempt} makes the response of one call a [result], so the rest of the read survives it, and {!Jmap.Chain.attempt_call} does the same to a chain of one call | [test/chain/test_chain.ml] ("attempt", "attempt_call"), [test/eio/test_eio.ml] ("run survives an attempted call") | [test/oracle/sync/test_sync.ml] | [examples/9-errors/], [examples/n-resync/] |
+  | [SetError], [§5.3] | [proto_error.ml] | {!Jmap.Proto.Method.set_failures} gathers the [notCreated], [notUpdated] and [notDestroyed] entries of a response, {!Jmap.Proto.Method.pp_set_failure} prints one of them and {!Jmap.Proto.Error.Set_error.pp} prints the error alone | [test/method/test_method.ml] ("pp_set_failure") | [test/oracle/email/test_email.ml] | [examples/7-keywords/], [examples/k-compose/], [examples/9-errors/] |
+}
+
+{2 Standard methods}
+
+These are the generic shapes in [proto_method.ml]; each data type below
+instantiates them.
+
+{t
+  | Method | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | [Core/echo], [§4] | raw invocation | {!Jmap.Chain.echo} | [test/core/test_core.ml], [test/eio/test_eio.ml] | — | [examples/g-raw/] |
+  | A method this library has no builder for | — | {!Jmap.Chain.invocation} with a codec of the caller's, {!Jmap.Chain.raw_invocation} for the JSON | [test/chain/test_chain.ml] ("a codec of the caller's", "foo and #foo") | — | [examples/g-raw/] |
+  | [Foo/get], [§5.1] | [proto_method.ml] | per type, below | [test/method/test_method.ml] | all suites | most examples |
+  | The [state] string of a [/get], [§5.1] | [proto_method.ml] | {!Jmap.Chain.email_state}, {!Jmap.Chain.mailbox_state}, {!Jmap.Chain.thread_state} | [test/chain/test_chain.ml] ("Email, Mailbox and Thread") | [test/oracle/sync/test_sync.ml] | [examples/e-changes/], [examples/n-resync/] |
+  | [Foo/changes], [§5.2] | [proto_method.ml] | per type, below | [test/method/test_method.ml] | [test/oracle/sync/test_sync.ml] | [examples/n-resync/] |
+  | [Foo/set], [§5.3] | [proto_method.ml] | per type, below | [test/method/test_method.ml] | [test/oracle/email/test_email.ml] | [examples/k-compose/], [examples/7-keywords/] |
+  | [Foo/copy], [§5.4] | [proto_method.ml] | {!Jmap.Chain.email_copy} | [test/method/test_method.ml] | — | — |
+  | [Foo/query], [§5.5] | [proto_method.ml], [proto_filter.ml] | per type, below | [test/method/test_method.ml], [test/proto/test_proto.ml] | [test/oracle/sync/test_sync.ml] | [examples/h-search/] |
+  | [Foo/queryChanges], [§5.6] | [proto_method.ml] | per type, below | [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/n-resync/] |
+  | Filter operators and conditions, [§5.5] | [proto_filter.ml] | {!Jmap.Proto.Email.val-filter}, {!Jmap.Proto.Mailbox.val-filter} and {!Jmap.Proto.Submission.val-filter} build a condition; {!Jmap.Proto.Filter.and_}, {!Jmap.Proto.Filter.or_} and {!Jmap.Proto.Filter.not_} compose them into an operator | [test/proto/test_proto.ml] (filter fixtures), [test/mail/test_mail.ml] ("filter combinators") | [test/oracle/sync/test_sync.ml] | [examples/4-filter/], [examples/h-search/] |
+  | Comparators (incl. the [keyword] extra), [§5.5] | [proto_filter.ml] | {!Jmap.Proto.Email.val-sort}, {!Jmap.Proto.Mailbox.val-sort}, {!Jmap.Proto.Submission.val-sort} | [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/4-filter/], [examples/h-search/] |
+  | [AddedItem] of [/queryChanges], [§5.6] | [proto_filter.ml] | n/a | [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/n-resync/] |
+}
+
+{2 Binary data and push}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | Blob upload, [§6.1] | [proto_blob.ml], [eio/client.ml] | n/a ({!Jmap_eio.Client.upload}) | [test/eio/test_eio.ml] | [test/oracle/email/test_email.ml] | [examples/l-parse/], [examples/p-stream/], [examples/b-blobs/] |
+  | Streaming upload from an [Eio.Flow.source], [§6.1] | [eio/client.ml] | n/a ({!Jmap_eio.Client.upload_flow}) | [test/eio/test_client2.ml] ("streaming blobs": declared length, chunked, one-shot body) | [test/oracle/email/test_email.ml] ("a megabyte streams up and back", "a chunked upload with no declared length") | [examples/p-stream/], [examples/k-compose/] ([--attach]), [examples/l-parse/] ([--file]) |
+  | Blob download and URL template, [§6.2] | [proto_blob.ml], [eio/client.ml] | n/a ({!Jmap_eio.Client.download}) | [test/eio/test_eio.ml] | — | [examples/i-reading/], [examples/p-stream/], [examples/b-blobs/] |
+  | Streaming download to an [Eio.Flow.sink], [§6.2] | [eio/client.ml] | n/a ({!Jmap_eio.Client.download_to}) | [test/eio/test_client2.ml] ("streaming blobs": copy, served media type, bounded buffer) | [test/oracle/email/test_email.ml] | [examples/p-stream/] |
+  | [Blob/copy], [§6.3] | [proto_blob.ml] | {!Jmap.Chain.blob_copy} | [test/method/test_method.ml], [test/chain/test_chain.ml] | — | — |
+  | [Blob/get] and [Blob/lookup] (RFC 9404) | — | — | — | — | — |
+  | [StateChange] and [TypeState], [§7.1] | [proto_push.ml] | n/a | [test/proto/test_proto.ml], [test/eio/test_eio.ml] | [test/oracle/push/test_push.ml] | [examples/o-watch/] |
+  | [PushSubscription/get] and [/set], [§7.2] | [proto_push.ml] | {!Jmap.Chain.push_subscription_get}, {!Jmap.Chain.push_subscription_set} | [test/method/test_method.ml], [test/chain/test_chain.ml] | not supported by the oracle | — |
+  | EventSource, [§7.3] | [eio/push.ml] | {!Jmap_eio.Push.listen} | [test/eio/test_eio.ml] | [test/oracle/push/test_push.ml] ("ping", "state change after delivery", "types filter") | [examples/o-watch/], [examples/f-push/] |
+  | Reconnecting subscription with [Last-Event-ID], bounded polling and backoff, [§7.3] | [eio/push.ml] | n/a ({!Jmap_eio.Push.subscribe}, {!Jmap_eio.Push.next}, {!Jmap_eio.Push.wait_for_state}) | [test/eio/test_eio.ml] (frame parsing, completion with full queues, poll deadlines, argument bounds) | [test/oracle/push/test_push.ml] ("delivery between polls", "close") | [examples/q-events/] (consume and check completion), [examples/o-watch/], [examples/f-push/] |
+}
+
+{2 Client behaviour}
+
+The client layer of [eio/] is not a method table, but the RFC has as much to
+say about it. It fixes what a client may send, how often, and what it must do
+when the session changes underneath.
+
+{t
+  | Feature | Where | Unit test | Oracle test | Example |
+  |---|---|---|---|---|
+  | Sending a chain, [§3.2] | {!Jmap_eio.Client.val-call} for a chain ending in one handle, {!Jmap_eio.Client.run} for one ending in several, {!Jmap_eio.Client.run_with_response} for the responses and the raw response together, {!Jmap_eio.Client.chain} for the response itself | [test/eio/test_eio.ml] ("call decodes the one handle", "call reports a method error", "run reads a two handle chain", "run_with_response keeps the response") | all suites | [examples/2-mailboxes/] ([call_exn] and [chain_exn]), [examples/3-inbox/] ([run_exn]), [examples/k-compose/] ([run_with_response_exn]), every later example |
+  | Credential schemes: bearer (RFC 6750 [§2.1]), basic (RFC 7617), from a file, from a thunk, from the environment | {!Jmap_eio.Auth} | [test/eio/test_auth.ml] ("auth": each scheme on the wire, [of_env], redaction by [pp]) | [test/oracle/smoke/test_smoke.ml] ("connect with basic auth", "connect with a key file") | every example, via [Cli.auth_value] |
+  | Shared named connection profiles | {!Jmap_eio.Profile} ({!Jmap_eio.Profile.load}, {!Jmap_eio.Profile.list}, {!Jmap_eio.Profile.save}, {!Jmap_eio.Profile.connect_name}); {!Jmap_eio.Cli.profile_term} | [test/eio/test_profile.ml] (validation including controls, XDG location, permissions, bounded atomic replacement, selected-profile connection); [mosaic/test/test_login.ml] (legacy migration); {!page-profiles} (mdx) | — | [examples/0-profiles/] (save, list, connect); every connected example via [--profile]; [jmap-mosaic] profile picker |
+  | Credential scoping to the session's origins, [§2] | [eio/client.ml] | [test/eio/test_eio.ml] (in-scope and out-of-scope hosts), [test/eio/test_auth.ml] | [test/oracle/smoke/test_smoke.ml] | every example |
+  | HTTP stack: TLS trust anchors, retries, cookies, per-origin pacing | {!Jmap_eio.Transport} | [test/eio/test_auth.ml] ("transport": [of_fetch], missing clock); [test/eio/test_eio.ml] (cookie origin matching and persistent file mode) | used by every oracle suite | every example |
+  | Per-exchange timeout | {!Jmap_eio.Client.connect} [?timeout] → [Client.Timeout] | [test/eio/test_auth.ml] (a slow server times out; [?timeout] without a clock is [Invalid_argument]); [mosaic/test/test_login.ml] (Mosaic timeout) | [test/oracle/smoke/test_smoke.ml] ("connect times out") | [jmap-mosaic] |
+  | Transport failures as values ([Client.Transport of Fetch.error * string]) | [eio/client.ml] | [test/eio/test_eio.ml] | — | every example, via [Client.error_to_string] |
+  | Session lifecycle: [sessionState] mismatch refetches the session, [§2] and [§3.4] | [eio/client.ml] ({!Jmap_eio.Client.refresh_session}, {!Jmap_eio.Client.on_session_change}, {!Jmap_eio.Client.session_changed}) | [test/eio/test_client2.ml] ("session state": one refetch under concurrency, a lagging session resource, broadcast, a raising observer) | [test/oracle/smoke/test_smoke.ml] | — |
+  | [maxConcurrentRequests] / [maxConcurrentUpload], [§2] | [eio/client.ml] ({!Jmap_eio.Client.concurrency_limits}) | [test/eio/test_client2.ml] ("concurrency limits": limits from the capability, absent and zero default, requests and uploads bounded separately) | [test/oracle/email/test_email.ml] ("eight chains at once") | — |
+  | [maxSizeRequest] / [maxSizeUpload], [§2] | {!Jmap_eio.Client.request}, {!Jmap_eio.Client.upload}, {!Jmap_eio.Client.upload_flow} | [test/eio/test_eio.ml] ("session request and upload limits") | — | [examples/p-stream/] reads the upload limit before opening the file |
+  | [position]/[limit] paging, [§5.5] | {!Jmap_eio.Sync.pages}, {!Jmap_eio.Sync.all_ids} | [test/eio/test_eio.ml] (server limit, short and empty pages, changed query state, non-advancing page, request fuel, collection cap) | [test/oracle/sync/test_sync.ml] ("Sync.pages walks the inbox") | [examples/h-search/], [examples/d-paging/] |
+  | Draining [hasMoreChanges], [§5.2], and [cannotCalculateChanges] as a value | {!Jmap_eio.Sync.val-changes}, [email_changes], [mailbox_changes], [thread_changes] | [test/eio/test_eio.ml] (multi-round folding, finite fuel, repeated states, method errors, [cannotCalculateChanges]) | [test/oracle/sync/test_sync.ml] ("Sync.email_changes since a state") | [examples/n-resync/], [examples/e-changes/] |
+  | Batching a [/get] over [maxObjectsInGet], [§5.1] | {!Jmap_eio.Sync.get_all} | [test/eio/test_eio.ml] (ordering, concurrency, failure stop, empty ids and a zero server limit) | [test/oracle/sync/test_sync.ml] ("Sync.get_all batches by two") | [examples/h-search/], [examples/d-paging/] |
+  | [maxCallsInRequest] as a bound on a chain, [§2] | {!Jmap_eio.Client.request}, {!Jmap_eio.Sync.calls_in_chain}, {!Jmap_eio.Sync.chain_fits} | [test/eio/test_eio.ml] (local rejection, chain counting, one-call mailbox fallback) | — | — |
+}
+
+{1 RFC 8621 mail}
+
+{2 Mailbox, [§2]}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | Mailbox properties: [name], [parentId], [sortOrder], [isSubscribed] | [mail_mailbox.ml] | typed {!Jmap.Proto.Mailbox.property} lists | [test/mail/test_mail.ml] (mailbox fixtures), [test/chain/test_chain.ml] | [test/oracle/smoke/test_smoke.ml] | [examples/n-resync/] |
+  | Mailbox counts: [totalEmails], [unreadEmails], [totalThreads], [unreadThreads] | [mail_mailbox.ml] | typed {!Jmap.Proto.Mailbox.property} lists | [test/mail/test_mail.ml] | [test/oracle/sync/test_sync.ml] | [examples/n-resync/] |
+  | [role], incl. the draft-ietf-mailmaint additions | [mail_mailbox.ml] | {!Jmap.Chain.mailbox_by_role} queries and fetches in one request; {!Jmap.Proto.Mailbox.val-filter} for a filter of one's own | [test/chain/test_chain.ml] ("query then get"), [test/mail/test_mail.ml] | [test/oracle/smoke/test_smoke.ml] | [examples/3-inbox/] (through {!Jmap_eio.Sync.mailbox_id_exn}) |
+  | [myRights] ([MailboxRights]) | [mail_mailbox.ml] | property list | [test/mail/test_mail.ml] | — | — |
+  | [Mailbox/get], [§2.1] | [proto_method.ml] | {!Jmap.Chain.mailbox_get}, typed {!Jmap.Proto.Mailbox.property} list | [test/chain/test_chain.ml] | [test/oracle/smoke/test_smoke.ml] | [examples/n-resync/], [examples/2-mailboxes/] |
+  | [Mailbox/changes] with [updatedProperties], [§2.2] | [mail_mailbox.ml] ([changes_response], reused as {!Jmap.Chain.mailbox_changes_response}) | {!Jmap.Chain.mailbox_changes} | [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/n-resync/], [examples/e-changes/] |
+  | [updatedProperties] as a [#properties] back-reference, [§2.2] | — | {!Jmap.Chain.from_changes_updated_properties} | [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/n-resync/] |
+  | [Mailbox/query] with [sortAsTree] and [filterAsTree], [§2.3] | [mail_mailbox.ml] | {!Jmap.Chain.mailbox_query} | [test/chain/test_chain.ml] | — | — |
+  | [Mailbox/queryChanges], [§2.4] | [proto_method.ml] | {!Jmap.Chain.mailbox_query_changes} | [test/method/test_method.ml] | [test/oracle/release/test_release.ml] (current state; capability-aware) | [examples/n-resync/] (fallback path) |
+  | [Mailbox/set] with [onDestroyRemoveEmails], [§2.5] | [proto_method.ml] | {!Jmap.Chain.mailbox_set}; {!Jmap.Proto.Mailbox.create} checks a [create] entry against [§2] and {!Jmap.Proto.Mailbox.create_exn} raises instead | [test/proto/test_proto.ml], [test/mail/test_mail.ml] ("create validates name and sortOrder") | [test/oracle/email/test_email.ml] | [examples/m-organise/], [examples/8-mailboxes-set/] |
+}
+
+{2 Thread, [§3]}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | Thread object ([id], [emailIds]) | [mail_thread.ml] | typed {!Jmap.Proto.Thread.property} list | [test/core/test_core.ml], [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/j-conversation/] |
+  | [Thread/get], [§3.1] | [proto_method.ml] | {!Jmap.Chain.thread_get} | [test/core/test_core.ml], [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/j-conversation/], [examples/6-threads/] |
+  | [Thread/changes], [§3.2] | [proto_method.ml] | {!Jmap.Chain.thread_changes} | [test/method/test_method.ml] | [test/oracle/release/test_release.ml] (current state) | — |
+}
+
+{2 Email, [§4]}
+
+{t
+  | Property group | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | Metadata: [id], [blobId], [threadId], [mailboxIds], [keywords], [size], [receivedAt], [§4.1.1] | [mail_email.ml] | property lists; {!Jmap.Proto.Email.mailbox_list} and {!Jmap.Proto.Email.in_mailbox} read [mailboxIds], {!Jmap.Proto.Email.keyword_list} and {!Jmap.Proto.Email.has_keyword} read [keywords] | [test/mail/test_mail.ml] (email fixtures, "mailbox_list and in_mailbox") | [test/oracle/smoke/test_smoke.ml] | [examples/i-reading/], [examples/m-organise/], [examples/k-compose/] |
+  | Keyword constants and [mail-flag] conversion, [§4.1.1] | [mail_keyword.ml] | n/a | [test/mail/test_mail.ml] | [test/oracle/sync/test_sync.ml] | [examples/h-search/], [examples/m-organise/] |
+  | Header parsed forms: Raw, Text, Addresses, GroupedAddresses, MessageIds, Date, URLs, [§4.1.2] | [mail_header.ml] ([pp_value]), [mail_address.ml] | n/a; read back with {!Jmap.Proto.Email.find_header_date} and friends | [test/mail/test_mail.ml] | [test/oracle/email/test_email.ml] | [examples/i-reading/] |
+  | [header:Name:form] and [:all] properties, [§4.1.3] | [mail_email.ml], [mail_header.ml] | [`Header] of a typed {!Jmap.Proto.Email_header.header_property} in [properties] | [test/mail/test_mail.ml], [test/chain/test_chain.ml] | [test/oracle/email/test_email.ml] | [examples/i-reading/] |
+  | Convenience header properties ([from], [to], [subject], [sentAt], …), [§4.1.3] | [mail_email.ml] | typed {!Jmap.Proto.Email.property} lists | [test/mail/test_mail.ml], [test/chain/test_chain.ml] | [test/oracle/smoke/test_smoke.ml] | all read examples |
+  | Body parts: [bodyStructure], [textBody], [htmlBody], [attachments], [§4.1.4] | [mail_body.ml] | typed {!Jmap.Proto.Email.body_part_property} list in [bodyProperties] | [test/mail/test_mail.ml] (email_body fixtures), [test/chain/test_chain.ml] | [test/oracle/email/test_email.ml] | [examples/i-reading/] |
+  | [bodyValues] with [isTruncated] and [isEncodingProblem], [§4.1.4] | [mail_body.ml] | [fetchTextBodyValues], [maxBodyValueBytes] | [test/mail/test_mail.ml] | [test/oracle/email/test_email.ml] | [examples/i-reading/] |
+  | [Email/get] extra arguments, [§4.2] | [mail_email.ml] | {!Jmap.Chain.email_get} | [test/mail/test_mail.ml], [test/chain/test_chain.ml] | [test/oracle/smoke/test_smoke.ml] | [examples/i-reading/], [examples/5-message/] |
+  | [Email/changes], [§4.3] | [proto_method.ml] | {!Jmap.Chain.email_changes} | [test/method/test_method.ml] | [test/oracle/sync/test_sync.ml] | [examples/n-resync/], [examples/e-changes/] |
+  | [Email/query] filtering, [§4.4.1] | [mail_email.ml] ([Filter_condition], with [empty]) | {!Jmap.Proto.Email.val-filter} | [test/proto/test_proto.ml] (mail filter fixtures) | [test/oracle/sync/test_sync.ml] | [examples/4-filter/], [examples/h-search/] |
+  | [Email/query] sorting, incl. keyword comparators, [§4.4.2] | [proto_filter.ml] | {!Jmap.Proto.Email.val-sort} | [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/4-filter/], [examples/h-search/] |
+  | [collapseThreads], [§4.4.3] | [proto_method.ml] | {!Jmap.Chain.email_query} | [test/chain/test_chain.ml] | — | [examples/h-search/], [examples/j-conversation/] |
+  | [Email/queryChanges] incl. its [collapseThreads], [§4.5] | [proto_method.ml] | {!Jmap.Chain.email_query_changes} | [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/n-resync/] |
+  | [Email/set] create and PatchObject update, [§4.6] | [proto_method.ml], [proto_patch.ml] | {!Jmap.Chain.email_set} | [test/method/test_method.ml] | [test/oracle/email/test_email.ml] | [examples/m-organise/], [examples/k-compose/], [examples/7-keywords/] |
+  | [Email/copy], [§4.7] | [proto_method.ml] | {!Jmap.Chain.email_copy} | [test/method/test_method.ml] | — | — |
+  | [Email/import], [§4.8] | [mail_email.ml] | {!Jmap.Chain.email_import} | [test/mail/test_mail.ml] | [test/oracle/email/test_email.ml] | [examples/l-parse/], [examples/c-import/] |
+  | [Email/parse], [§4.9] | [mail_email.ml] | {!Jmap.Chain.email_parse} | [test/mail/test_mail.ml] | [test/oracle/email/test_email.ml] | [examples/l-parse/], [examples/c-import/] |
+}
+
+{2 SearchSnippet, [§5]}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | SearchSnippet object (no [id]) | [mail_snippet.ml] | n/a | [test/mail/test_mail.ml] (snippet fixtures) | [test/oracle/sync/test_sync.ml] | [examples/h-search/] |
+  | [SearchSnippet/get] (no [state], [notFound] is [Id[]] or null), [§5.1] | [mail_snippet.ml] | {!Jmap.Chain.search_snippet_get} | [test/chain/test_chain.ml] | [test/oracle/sync/test_sync.ml] | [examples/h-search/] |
+}
+
+{2 Identity, [§6]}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | Identity object | [mail_identity.ml] | property lists; {!Jmap.Proto.Identity.sending_address} resolves a [*@domain] address to a local part | [test/mail/test_mail.ml] (identity fixtures, "Identity sending address") | [test/oracle/submission/test_submission.ml] | [examples/a-send/], [examples/k-compose/] |
+  | [Identity/get], [§6.1] | [proto_method.ml] | {!Jmap.Chain.identity_get} | [test/mail/test_mail.ml] | [test/oracle/submission/test_submission.ml] | [examples/k-compose/] |
+  | [Identity/changes], [§6.2] | [proto_method.ml] | {!Jmap.Chain.identity_changes} | [test/method/test_method.ml] | [test/oracle/submission/test_submission.ml] | — |
+  | [Identity/set], [§6.3] | [proto_method.ml] | {!Jmap.Chain.identity_set} | [test/mail/test_mail.ml] | [test/oracle/submission/test_submission.ml] checks for [unknownMethod]; current Cyrus identities are fixed | — |
+}
+
+{2 EmailSubmission, [§7]}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | EmailSubmission object, [Envelope], [Address] parameters | [mail_submission.ml] | n/a | [test/mail/test_mail.ml] (submission fixtures) | [test/oracle/submission/test_submission.ml] | [examples/k-compose/] |
+  | [undoStatus] and [deliveryStatus] | [mail_submission.ml] | typed {!Jmap.Proto.Submission.property} lists | [test/mail/test_mail.ml], [test/chain/test_chain.ml] | [test/oracle/submission/test_submission.ml] | [examples/k-compose/] |
+  | [EmailSubmission/get], [§7.1] | [proto_method.ml] | {!Jmap.Chain.email_submission_get} | [test/mail/test_mail.ml], [test/chain/test_chain.ml] | [test/oracle/submission/test_submission.ml] | [examples/k-compose/] |
+  | [EmailSubmission/changes], [§7.2] | [proto_method.ml] | {!Jmap.Chain.email_submission_changes} | [test/method/test_method.ml] | [test/oracle/submission/test_submission.ml] | — |
+  | [EmailSubmission/query], [§7.3] | [mail_submission.ml] ([Filter_condition], with [empty]) | {!Jmap.Chain.email_submission_query} | [test/method/test_method.ml], [test/chain/test_chain.ml] | [test/oracle/release/test_release.ml] | — |
+  | [EmailSubmission/queryChanges], [§7.4] | [proto_method.ml] | {!Jmap.Chain.email_submission_query_changes} | [test/method/test_method.ml] | [test/oracle/release/test_release.ml] checks capability; current Cyrus cannot calculate changes | — |
+  | [EmailSubmission/set] with [onSuccessUpdateEmail] / [onSuccessDestroyEmail], [§7.5] | [proto_method.ml] | {!Jmap.Chain.email_submission_set} | [test/mail/test_mail.ml] | [test/oracle/submission/test_submission.ml] | [examples/k-compose/], [examples/a-send/] |
+}
+
+{2 VacationResponse, [§8]}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | VacationResponse singleton | [mail_vacation.ml] | n/a | [test/mail/test_mail.ml] (vacation fixtures) | not supported by the oracle | — |
+  | [VacationResponse/get], [§8.1] | [proto_method.ml] | {!Jmap.Chain.vacation_response_get} | [test/mail/test_mail.ml] | not supported by the oracle | — |
+  | [VacationResponse/set], [§8.2] | [proto_method.ml] | {!Jmap.Chain.vacation_response_set} | [test/mail/test_mail.ml] | not supported by the oracle | — |
+}
+
+{1 RFC 9610 contacts}
+
+A ContactCard is a JSContact Card (RFC 9553) with two properties added, so
+its body is decoded by the [jscontact] library and this one adds the JMAP
+layer around it.
+
+{2 AddressBook, [§2]}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | The contacts capability, [§1.4.1] | [proto_capability.ml] ({!Jmap.Proto.Capability.Contacts}), read with {!Jmap.Proto.Session.contacts_capability} | n/a | [test/proto/test_proto.ml] | [test/oracle/contacts/test_contacts.ml] ("the contacts capability") | — |
+  | AddressBook properties: [name], [description], [sortOrder], [isDefault], [isSubscribed], [§2] | [contacts_addressbook.ml] | typed {!Jmap.Proto.Address_book.property} lists | [test/addressbook/test_addressbook.ml] | [test/oracle/contacts/test_contacts.ml] | — |
+  | [shareWith] and [myRights] ([AddressBookRights]), [§2] | [contacts_addressbook.ml] | property list | [test/addressbook/test_addressbook.ml] | [test/oracle/contacts/test_contacts.ml] ("AddressBook/get" reads [myRights]) | — |
+  | [AddressBook/get], [§2.1] | [proto_method.ml] | {!Jmap.Chain.address_book_get}, {!Jmap.Chain.address_book_state} | [test/addressbook/test_addressbook.ml] | [test/oracle/contacts/test_contacts.ml] ("AddressBook/get", "a properties argument") | [examples/r-contacts/], [bin/jmap.ml] ([jmap addressbooks]) |
+  | [AddressBook/changes], [§2.2] | [proto_method.ml] | {!Jmap.Chain.address_book_changes} | — | [test/oracle/contacts/test_contacts.ml] ("state and changes") | — |
+  | [AddressBook/set] with [onDestroyRemoveContents] and [onSuccessSetIsDefault], [§2.3] | [proto_method.ml] | {!Jmap.Chain.address_book_set}; {!Jmap.Proto.Address_book.create} checks a [create] entry against [§2] | [test/addressbook/test_addressbook.ml] ("create checks the name", "create checks the sortOrder") | — | — |
+  | [addressBookHasContents] SetError, [§2.3] and [§7.4.1] | [proto_error.ml] | n/a | [test/proto/test_proto.ml] | — | — |
+}
+
+{2 ContactCard, [§3]}
+
+{t
+  | Feature | Codec | Chain | Unit test | Oracle test | Example |
+  |---|---|---|---|---|---|
+  | The JSContact Card body, [§3] | [jscontact] library ({!Jscontact.Card}) | n/a | the [jscontact] suites | [test/oracle/contacts/test_contacts.ml] | — |
+  | [id] and [addressBookIds], [§3] | [contacts_card.ml], lifted out of the members the Card kept for them | {!Jmap.Chain.contact_card_set} | [test/contactcard/test_contactcard.ml] | [test/oracle/contacts/test_contacts.ml] | — |
+  | A truncated card from a [properties] argument, RFC 8620 [§5.1] | [Jscontact.Card.partial_jsont] | {!Jmap.Chain.contact_card_get} [?properties] | [test/contactcard/test_contactcard.ml] ("partial card round trip") | [test/oracle/contacts/test_contacts.ml] ("a truncated card has no uid") | [examples/r-contacts/] |
+  | Media [blobId], [§3] | kept in the Media's unknown members; RFC 9610 [§7.5] reserves the name, so such a Media does not validate as JSContact | — | [test/contactcard/test_contactcard.ml] ("Media blobId") | — | — |
+  | [ContactCard/get], [§3.1] | [proto_method.ml] | {!Jmap.Chain.contact_card_get}, {!Jmap.Chain.contact_card_state} | [test/contactcard/test_contactcard.ml] | [test/oracle/contacts/test_contacts.ml] | [examples/r-contacts/], [bin/jmap.ml] ([jmap contacts]) |
+  | [ContactCard/changes], [§3.2] | [proto_method.ml] | {!Jmap.Chain.contact_card_changes} | — | — | — |
+  | [ContactCard/query] and its eighteen filter conditions, [§3.3.1] | [contacts_card.ml] ({!Jmap.Proto.Contact_card.Filter_condition}) | {!Jmap.Chain.contact_card_query}, {!Jmap.Proto.Contact_card.val-filter} | [test/contactcard/test_contactcard.ml] ("full condition round trip") | [test/oracle/contacts/test_contacts.ml] ("query") | [examples/r-contacts/], [bin/jmap.ml] ([jmap contacts --search]) |
+  | Sorting on [created], [updated] and the name components, [§3.3.2] | [contacts_card.ml] ({!Jmap.Proto.Contact_card.Sort}) | comparator property strings | [test/contactcard/test_contactcard.ml] | [test/oracle/contacts/test_contacts.ml] | — |
+  | [ContactCard/queryChanges], [§3.4] | [proto_method.ml] | {!Jmap.Chain.contact_card_query_changes} | — | — | — |
+  | [ContactCard/set], [§3.5] | [proto_method.ml] | {!Jmap.Chain.contact_card_set} | [test/contactcard/test_contactcard.ml] | [test/oracle/contacts/test_contacts.ml] ("create, read, destroy") | [examples/r-contacts/] |
+  | [ContactCard/copy] across accounts, [§3.6] | [proto_method.ml] | {!Jmap.Chain.contact_card_copy}, whose only overridable property is [addressBookIds] | — | [test/oracle/contacts/test_contacts.ml] ("copy between accounts"), which shares a book with a second user through [shareWith] to put both accounts in one session | — |
+  | Sharing an AddressBook, [§2] [shareWith] | [contacts_addressbook.ml] | {!Jmap.Chain.address_book_set} with a patch | [test/addressbook/test_addressbook.ml] | [test/oracle/contacts/test_contacts.ml] ("copy between accounts" shares and unshares) | — |
+}
+
+{1 Gaps}
+
+The RFC 8620/8621 methods have codecs and builders. These remaining gaps
+distinguish optional extensions from missing live-server coverage:
+
+- {b No [Blob/get] or [Blob/lookup]} (RFC 9404). The oracle supports
+  [Blob/get]; there is no codec or builder for it yet. RFC 9404 is outside
+  the initial RFC 8620/8621 release scope.
+- {b [Email/copy] and [Blob/copy] have no oracle test.} Both need a second
+  account visible to one session. The contacts suite gets that by sharing an
+  AddressBook with [user2] through [shareWith], which makes Cyrus show
+  [user1] in [user2]'s session, and [ContactCard/copy] is tested that way. The
+  same route does not work for mail: this Cyrus build rejects every right of a
+  [Mailbox] [shareWith] but [mayAdmin], and setting that alone grants no
+  visibility, so [user2] never sees [user1]'s mail account. Mail sharing here
+  would have to be set up outside JMAP, through IMAP ACLs.
+- {b [EmailSubmission/queryChanges] needs a supporting server.} The release
+  suite checks [EmailSubmission/query]'s [canCalculateChanges] flag; the
+  current Cyrus image reports [false].
+- {b [Identity/set], [PushSubscription/*] and [VacationResponse/*] cannot be tested against
+  the oracle} — Cyrus answers [unknownMethod], and putting
+  [urn:ietf:params:jmap:vacationresponse] in [using] fails the whole request
+  with an [unknownCapability] problem document.
+- {b [Thread/changes] has a live state round trip but no mutation test.}
+  [Identity/changes] is exercised by the submission suite. The new mailbox
+  query-change test also covers only a current-state round trip.
+- {b Media [blobId] is not resolved.} RFC 9610 [§3] has a server send a
+  [blobId] in place of a [data:] URI. The member survives a round trip, but
+  nothing downloads the blob or turns it back into a [uri].
+- {b Cyrus sets a ContactCard [id] to the card's [uid],} which is a URN and so
+  outside the RFC 8620 [§1.2] Id alphabet. {!Jmap.Proto.Id.jsont} decodes what
+  a server sent rather than refusing a record it can otherwise read;
+  {!Jmap.Proto.Id.of_string} still enforces the alphabet when the client
+  chooses an id.
+- {b No fuzzing of the [Email] codec.} It is by far the largest decoder here
+  and it accepts arbitrary [header:*] properties.

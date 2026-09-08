@@ -1,0 +1,5 @@
+(test
+ (name test_contacts)
+ (package jmap)
+ (locks ../oracle)
+ (libraries oracle_harness jmap jmap.eio jscontact eio alcotest))

@@ -1,0 +1,71 @@
+(lang dune 3.21)
+(using mdx 0.4)
+
+(name jmap)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-jmap))
+
+(package
+ (name mail-flag)
+ (synopsis "Message flags and mailbox attributes for IMAP/JMAP")
+ (description
+  "Message keywords, system flags, and mailbox attributes for email protocols. Supports RFC 9051 (IMAP4rev2), RFC 8621 (JMAP Mail), RFC 6154 (Special-Use), and draft-ietf-mailmaint extensions.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (fmt (>= 0.9))
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))))
+
+(package
+ (name jmap)
+ (synopsis "JMAP protocol implementation for OCaml")
+ (description
+  "An implementation of the JSON Meta Application Protocol (JMAP) as specified in RFC 8620 (core), RFC 8621 (mail) and RFC 9610 (contacts), with typed request builders and an Eio (jmap.eio) client.")
+ (depends
+  (duration (>= 0.3.1))
+  (ocaml (>= 5.2))
+  base64
+  bytesrw
+  (jsont (>= 0.3.0))
+  jsonm
+  json-pointer
+  jscontact
+  mail-flag
+  (ptime (>= 1.0.0))
+  eio
+  eio_main
+  fetch
+  fetch-httpz
+  httpz
+  mtime
+  optint
+  cmdliner
+  fmt
+  (alcotest :with-test)
+  (mdx :with-test)
+  (http :with-test)))
+
+(package
+ (name jmap-mosaic)
+ (allow_empty)
+ (synopsis "A terminal mail client on JMAP")
+ (description
+  "A mail client for the terminal, written on the jmap library and the Mosaic terminal UI library. It reads, labels, files and replies to mail over JMAP, and serves as a worked example of the library at the size of a program rather than of a tutorial step.")
+ (depends
+  (duration (>= 0.3.1))
+  (ocaml (>= 5.2))
+  (jmap (= :version))
+  fetch
+  mosaic
+  matrix-eio
+  eio
+  eio_main
+  ptime
+  cmdliner
+  fmt
+  (alcotest :with-test)))

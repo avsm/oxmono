@@ -1,0 +1,16 @@
+{
+  "accountId": "acc1",
+  "filter": {
+    "operator": "AND",
+    "conditions": [
+      {"inMailbox": "inbox"},
+      {"hasKeyword": "$seen"}
+    ]
+  },
+  "sort": [
+    {"property": "receivedAt", "isAscending": false}
+  ],
+  "position": 0,
+  "limit": 100,
+  "calculateTotal": true
+}

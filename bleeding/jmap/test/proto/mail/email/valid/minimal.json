@@ -1,0 +1,9 @@
+{
+  "id": "e1",
+  "blobId": "blob1",
+  "threadId": "t1",
+  "mailboxIds": {"inbox": true},
+  "keywords": {},
+  "size": 1024,
+  "receivedAt": "2024-01-15T10:30:00Z"
+}

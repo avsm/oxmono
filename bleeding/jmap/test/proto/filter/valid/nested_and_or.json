@@ -1,0 +1,13 @@
+{
+  "operator": "AND",
+  "conditions": [
+    {
+      "operator": "OR",
+      "conditions": [
+        {"inMailbox": "mb1"},
+        {"inMailbox": "mb2"}
+      ]
+    },
+    {"hasAttachment": true}
+  ]
+}

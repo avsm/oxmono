@@ -1,0 +1,51 @@
+(include_subdirs unqualified)
+
+(library
+ (name jmap)
+ (public_name jmap)
+ (libraries
+  base64
+  jsont
+  jsont.bytesrw
+  jsonm
+  json-pointer
+  ptime
+  mail-flag
+  jscontact
+  bytesrw
+  httpz.uri
+  httpz.media)
+ (modules
+  jmap
+  chain
+  proto_id
+  proto_int53
+  proto_json
+  proto_date
+  proto_json_map
+  proto_template
+  proto_unknown
+  proto_error
+  proto_capability
+  proto_filter
+  proto_method
+  proto_patch
+  proto_invocation
+  proto_request
+  proto_response
+  proto_session
+  proto_push
+  proto_blob
+  mail_keyword
+  mail_address
+  mail_header
+  mail_body
+  mail_mailbox
+  mail_thread
+  mail_email
+  mail_snippet
+  mail_identity
+  mail_submission
+  mail_vacation
+  contacts_addressbook
+  contacts_card))

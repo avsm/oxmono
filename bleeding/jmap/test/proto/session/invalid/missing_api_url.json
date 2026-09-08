@@ -1,0 +1,10 @@
+{
+  "capabilities": {},
+  "accounts": {},
+  "primaryAccounts": {},
+  "username": "test@example.com",
+  "downloadUrl": "https://api.example.com/download/",
+  "uploadUrl": "https://api.example.com/upload/",
+  "eventSourceUrl": "https://api.example.com/events/",
+  "state": "abc"
+}

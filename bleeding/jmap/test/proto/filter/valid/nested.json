@@ -1,0 +1,19 @@
+{
+  "operator": "AND",
+  "conditions": [
+    {"inMailbox": "inbox"},
+    {
+      "operator": "OR",
+      "conditions": [
+        {"from": "boss@company.com"},
+        {"hasKeyword": "$important"}
+      ]
+    },
+    {
+      "operator": "NOT",
+      "conditions": [
+        {"hasKeyword": "$seen"}
+      ]
+    }
+  ]
+}

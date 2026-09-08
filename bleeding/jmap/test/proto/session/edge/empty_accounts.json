@@ -1,0 +1,22 @@
+{
+  "capabilities": {
+    "urn:ietf:params:jmap:core": {
+      "maxSizeUpload": 50000000,
+      "maxConcurrentUpload": 4,
+      "maxSizeRequest": 10000000,
+      "maxConcurrentRequests": 4,
+      "maxCallsInRequest": 16,
+      "maxObjectsInGet": 500,
+      "maxObjectsInSet": 500,
+      "collationAlgorithms": []
+    }
+  },
+  "accounts": {},
+  "primaryAccounts": {},
+  "username": "anonymous",
+  "apiUrl": "https://api.example.com/jmap/",
+  "downloadUrl": "https://api.example.com/download/{accountId}/{blobId}/{name}",
+  "uploadUrl": "https://api.example.com/upload/{accountId}/",
+  "eventSourceUrl": "https://api.example.com/events/",
+  "state": "empty"
+}

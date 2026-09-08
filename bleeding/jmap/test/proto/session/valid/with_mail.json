@@ -1,0 +1,64 @@
+{
+  "capabilities": {
+    "urn:ietf:params:jmap:core": {
+      "maxSizeUpload": 50000000,
+      "maxConcurrentUpload": 4,
+      "maxSizeRequest": 10000000,
+      "maxConcurrentRequests": 4,
+      "maxCallsInRequest": 16,
+      "maxObjectsInGet": 500,
+      "maxObjectsInSet": 500,
+      "collationAlgorithms": ["i;ascii-casemap", "i;octet"]
+    },
+    "urn:ietf:params:jmap:mail": {},
+    "urn:ietf:params:jmap:submission": {}
+  },
+  "accounts": {
+    "A001": {
+      "name": "Personal",
+      "isPersonal": true,
+      "isReadOnly": false,
+      "accountCapabilities": {
+        "urn:ietf:params:jmap:core": {},
+        "urn:ietf:params:jmap:mail": {
+          "maxMailboxesPerEmail": 1000,
+          "maxMailboxDepth": 10,
+          "maxSizeMailboxName": 490,
+          "maxSizeAttachmentsPerEmail": 50000000,
+          "emailQuerySortOptions": ["receivedAt", "from", "to", "subject", "size"],
+          "mayCreateTopLevelMailbox": true
+        },
+        "urn:ietf:params:jmap:submission": {
+          "maxDelayedSend": 86400,
+          "submissionExtensions": {}
+        }
+      }
+    },
+    "A002": {
+      "name": "Shared Archive",
+      "isPersonal": false,
+      "isReadOnly": true,
+      "accountCapabilities": {
+        "urn:ietf:params:jmap:mail": {
+          "maxMailboxesPerEmail": null,
+          "maxMailboxDepth": null,
+          "maxSizeMailboxName": 490,
+          "maxSizeAttachmentsPerEmail": 50000000,
+          "emailQuerySortOptions": ["receivedAt"],
+          "mayCreateTopLevelMailbox": false
+        }
+      }
+    }
+  },
+  "primaryAccounts": {
+    "urn:ietf:params:jmap:core": "A001",
+    "urn:ietf:params:jmap:mail": "A001",
+    "urn:ietf:params:jmap:submission": "A001"
+  },
+  "username": "john.doe@example.com",
+  "apiUrl": "https://jmap.example.com/api/",
+  "downloadUrl": "https://jmap.example.com/download/{accountId}/{blobId}/{name}?type={type}",
+  "uploadUrl": "https://jmap.example.com/upload/{accountId}/",
+  "eventSourceUrl": "https://jmap.example.com/events/?types={types}&closeafter={closeafter}&ping={ping}",
+  "state": "xyz789-session-state"
+}

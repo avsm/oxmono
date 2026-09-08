@@ -1,0 +1,114 @@
+{0 Shared authentication profiles}
+
+{!Jmap_eio.Profile} gives a name to a session URL and its credential. The
+command-line tools, tutorial programs and Mosaic share the same store, so a
+login saved by one can be selected by the others.
+
+{1 Construct a profile}
+
+A bearer profile holds a service-issued API token. Construction validates the
+fields without accessing the filesystem or network.
+
+{x@ocaml[
+# module Profile = Jmap_eio.Profile;;
+module Profile = Jmap_eio.Profile
+# let personal =
+    Profile.v ~name:"personal"
+      ~session_url:"https://api.example.com/.well-known/jmap"
+      (Profile.Bearer "example-token") |> Result.get_ok;;
+val personal : Profile.t = <abstr>
+# Profile.name personal;;
+- : string = "personal"
+# Profile.session_url personal;;
+- : string = "https://api.example.com/.well-known/jmap"
+]x}
+
+For Basic authentication, use [Profile.Basic { user; password }]. Its username
+and password are stored separately. A profile name is a filename in the store;
+paths and traversal components are rejected.
+
+{x@ocaml[
+# Profile.valid_name "../personal";;
+- : bool = false
+# Result.is_ok
+    (Profile.v ~name:"oracle"
+       ~session_url:"http://localhost:18080/.well-known/jmap"
+       (Profile.Basic { user = "user1"; password = "x" }));;
+- : bool = true
+]x}
+
+{1 Save and load}
+
+Define a save operation, then call [save env personal] within an Eio environment:
+
+{[
+let save env personal =
+  let ( let* ) = Result.bind in
+  let* store = Profile.xdg_store env in
+  Profile.save store personal
+]}
+
+{!Jmap_eio.Profile.xdg_store} selects
+[$XDG_CONFIG_HOME/jmap/profiles], falling back to
+[$HOME/.config/jmap/profiles] when the XDG path is unset or relative.
+{!Jmap_eio.Profile.save} atomically creates or replaces the named profile.
+New directories have mode [0700] and files have mode [0600]. An existing store
+directory with group or other permissions is rejected without changing its
+mode. Credentials are stored in plaintext; {!Jmap_eio.Profile.load} rejects
+nonregular, oversized or overly permissive files. {!Jmap_eio.Profile.pp} redacts
+the secret.
+
+{!Jmap_eio.Profile.load} reads one name and {!Jmap_eio.Profile.list} reads the
+valid profiles in name order. A test or confined application can use
+{!Jmap_eio.Profile.of_directory} to select another directory through its Eio
+filesystem capability.
+
+[examples/0-profiles/profiles.ml] is a runnable example of these operations.
+Its [save] command uses {!Jmap_eio.Auth.read_secret_file} to import a private
+key file. This copies the secret into the profile; it does not store a path to
+the original key file or pick up its later changes.
+
+{1 Connect by name}
+
+{!Jmap_eio.Profile.connect_name} loads a profile and fetches the session using
+its credential. The client lives within the switch passed to it.
+
+{[
+let connect name =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  match Jmap_eio.Profile.connect_name ~sw ~timeout:30. env name with
+  | Error error -> Fmt.epr "%a@." Jmap_eio.Profile.pp_error error
+  | Ok client ->
+      let session = Jmap_eio.Client.session client in
+      Fmt.pr "Connected as %s@."
+        (Jmap_eio.Cli.terminal_text session.username)
+]}
+
+[connect "personal"] uses the saved login. A profile chooses the login, not
+an account. Choose an account from the session,
+for example with {!Jmap.Proto.Session.primary_account_for}, after connecting.
+Cleartext credentials require [~allow_insecure:true] on each connection; this
+choice is not stored in the profile. Use it for the local HTTP oracle.
+
+{1 Use the tutorial commands}
+
+The commands built with {!Jmap_eio.Cli.val-main} already accept [--profile] and
+[JMAP_PROFILE]. After saving [personal], run:
+
+{v
+dune exec -- examples/1-session/session.exe --profile personal
+dune exec -- examples/3-inbox/inbox.exe --profile personal
+v}
+
+A command-line connection setting wins over its environment value, which wins
+over the profile field. Unset [JMAP_SESSION_URL], [JMAP_API_KEY],
+[JMAP_API_KEY_FILE] and [JMAP_AUTH] when the profile should supply the whole
+login. [--account] or [JMAP_ACCOUNT_ID] selects a different account reached by
+the same credential. The direct [Profile.connect_name] API uses the stored
+profile without merging these command-line overrides.
+
+{!Jmap_eio.Cli.profile_term} supplies only the profile selector for programs
+with a command structure of their own. The [connect] subcommand in
+[examples/0-profiles/] demonstrates it; the other examples use [Cli.main] to
+connect and select the account together.

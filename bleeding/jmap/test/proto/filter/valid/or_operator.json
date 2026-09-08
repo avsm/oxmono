@@ -1,0 +1,7 @@
+{
+  "operator": "OR",
+  "conditions": [
+    {"from": "alice@example.com"},
+    {"from": "bob@example.com"}
+  ]
+}

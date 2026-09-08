@@ -1,0 +1,58 @@
+{
+  "capabilities": {
+    "urn:ietf:params:jmap:core": {
+      "maxSizeUpload": 50000000,
+      "maxConcurrentUpload": 4,
+      "maxSizeRequest": 10000000,
+      "maxConcurrentRequests": 4,
+      "maxCallsInRequest": 16,
+      "maxObjectsInGet": 500,
+      "maxObjectsInSet": 500,
+      "collationAlgorithms": ["i;ascii-casemap", "i;unicode-casemap"]
+    }
+  },
+  "accounts": {
+    "acc1": {
+      "name": "Personal Account",
+      "isPersonal": true,
+      "isReadOnly": false,
+      "accountCapabilities": {
+        "urn:ietf:params:jmap:core": {},
+        "urn:ietf:params:jmap:mail": {
+          "maxMailboxesPerEmail": null,
+          "maxMailboxDepth": 10,
+          "maxSizeMailboxName": 490,
+          "maxSizeAttachmentsPerEmail": 50000000,
+          "emailQuerySortOptions": ["receivedAt"],
+          "mayCreateTopLevelMailbox": true
+        }
+      }
+    },
+    "acc2": {
+      "name": "Shared Account",
+      "isPersonal": false,
+      "isReadOnly": true,
+      "accountCapabilities": {
+        "urn:ietf:params:jmap:core": {},
+        "urn:ietf:params:jmap:mail": {
+          "maxMailboxesPerEmail": 1,
+          "maxMailboxDepth": null,
+          "maxSizeMailboxName": 100,
+          "maxSizeAttachmentsPerEmail": 0,
+          "emailQuerySortOptions": [],
+          "mayCreateTopLevelMailbox": false
+        }
+      }
+    }
+  },
+  "primaryAccounts": {
+    "urn:ietf:params:jmap:core": "acc1",
+    "urn:ietf:params:jmap:mail": "acc1"
+  },
+  "username": "user@example.com",
+  "apiUrl": "https://api.example.com/jmap/",
+  "downloadUrl": "https://api.example.com/download/{accountId}/{blobId}/{name}?accept={type}",
+  "uploadUrl": "https://api.example.com/upload/{accountId}/",
+  "eventSourceUrl": "https://api.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
+  "state": "session123"
+}

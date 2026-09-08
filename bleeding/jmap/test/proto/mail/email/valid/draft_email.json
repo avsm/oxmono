@@ -1,0 +1,14 @@
+{
+  "id": "e3",
+  "blobId": "blob3",
+  "threadId": "t3",
+  "size": 512,
+  "receivedAt": "2024-01-17T14:00:00Z",
+  "mailboxIds": {"drafts": true},
+  "keywords": {"$draft": true},
+  "from": [{"name": "Me", "email": "me@example.com"}],
+  "to": [{"name": "You", "email": "you@example.com"}],
+  "subject": "Draft: Meeting notes",
+  "hasAttachment": false,
+  "preview": "This is a draft email"
+}

@@ -1,0 +1,15 @@
+{
+  "accountId": "u1",
+  "parsed": {
+    "G1": {
+      "id": null,
+      "mailboxIds": null,
+      "keywords": null,
+      "receivedAt": null,
+      "subject": "Attached message",
+      "from": [ { "name": null, "email": "a@example.com" } ]
+    }
+  },
+  "notParsable": [ "G2" ],
+  "notFound": [ "G3" ]
+}

@@ -1,0 +1,11 @@
+(test
+ (name test_keyword)
+ (libraries mail-flag alcotest))
+
+(test
+ (name test_mailbox_attr)
+ (libraries mail-flag alcotest))
+
+(test
+ (name test_flag_color)
+ (libraries mail-flag alcotest))

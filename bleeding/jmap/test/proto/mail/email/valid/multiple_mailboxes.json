@@ -1,0 +1,15 @@
+{
+  "id": "e2",
+  "blobId": "blob2",
+  "threadId": "t2",
+  "size": 4096,
+  "receivedAt": "2024-01-16T08:00:00Z",
+  "mailboxIds": {
+    "inbox": true,
+    "important": true,
+    "work": true
+  },
+  "keywords": {"$seen": true},
+  "hasAttachment": false,
+  "preview": "Email in multiple mailboxes"
+}

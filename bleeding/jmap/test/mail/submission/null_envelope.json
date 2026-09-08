@@ -1,0 +1,12 @@
+{
+  "id": "S1",
+  "identityId": "I64588216",
+  "emailId": "M7f6ed5bcfd7e2604d1753f6c",
+  "threadId": "T1",
+  "envelope": null,
+  "sendAt": "2019-04-05T14:24:00Z",
+  "undoStatus": "final",
+  "deliveryStatus": null,
+  "dsnBlobIds": [],
+  "mdnBlobIds": []
+}

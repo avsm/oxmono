@@ -1,0 +1,5 @@
+{
+  "type": "invalidProperties",
+  "description": "Invalid property values",
+  "properties": ["name", "parentId"]
+}

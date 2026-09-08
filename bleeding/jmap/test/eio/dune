@@ -1,0 +1,29 @@
+(tests
+ (names test_eio test_auth test_client2 test_profile test_context)
+ (package jmap)
+ (libraries
+  httpz.uri
+  jmap
+  jmap.eio
+  fetch
+  fetch.cookies
+  fetch.mock
+  eio
+  eio.mock
+  eio_main
+  http
+  alcotest
+  jsont
+  fmt
+  unix
+  cmdliner))
+
+(test
+ (name test_sync_release)
+ (package jmap)
+ (libraries jmap jmap.eio fetch fetch.mock eio eio.mock http alcotest fmt))
+
+(test
+ (name test_client_release)
+ (package jmap)
+ (libraries jmap jmap.eio fetch fetch.mock eio eio.mock http alcotest fmt))

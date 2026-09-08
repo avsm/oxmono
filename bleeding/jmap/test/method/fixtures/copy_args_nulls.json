@@ -1,0 +1,10 @@
+{
+  "fromAccountId": "acc1",
+  "ifFromInState": null,
+  "accountId": "acc2",
+  "ifInState": null,
+  "create": {
+    "c1": {"name": "copy me"}
+  },
+  "destroyFromIfInState": null
+}

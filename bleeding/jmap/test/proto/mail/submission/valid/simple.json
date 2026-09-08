@@ -1,0 +1,14 @@
+{
+  "id": "sub1",
+  "identityId": "ident1",
+  "emailId": "e1",
+  "threadId": "t1",
+  "envelope": {
+    "mailFrom": {"email": "sender@example.com"},
+    "rcptTo": [{"email": "recipient@example.com"}]
+  },
+  "sendAt": "2024-01-15T15:00:00Z",
+  "undoStatus": "pending",
+  "dsnBlobIds": [],
+  "mdnBlobIds": []
+}

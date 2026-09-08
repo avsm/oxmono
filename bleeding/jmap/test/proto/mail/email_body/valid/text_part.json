@@ -1,0 +1,9 @@
+{
+  "partId": "1",
+  "blobId": "blobpart1",
+  "size": 500,
+  "headers": [{"name": "Content-Type", "value": "text/plain; charset=utf-8"}],
+  "type": "text/plain",
+  "charset": "utf-8",
+  "language": ["en"]
+}

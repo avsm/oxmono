@@ -1,0 +1,17 @@
+{
+  "accounts": {
+    "acc1": {
+      "name": "Test Account",
+      "isPersonal": true,
+      "isReadOnly": false,
+      "accountCapabilities": {}
+    }
+  },
+  "primaryAccounts": {},
+  "username": "test@example.com",
+  "apiUrl": "https://api.example.com/jmap/",
+  "downloadUrl": "https://api.example.com/download/",
+  "uploadUrl": "https://api.example.com/upload/",
+  "eventSourceUrl": "https://api.example.com/events/",
+  "state": "abc"
+}

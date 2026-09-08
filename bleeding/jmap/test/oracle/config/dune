@@ -1,0 +1,4 @@
+(test
+ (name test_config)
+ (package jmap)
+ (libraries oracle_harness alcotest unix))

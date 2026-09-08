@@ -1,0 +1,9 @@
+(test
+ (name test_method)
+ (package jmap)
+ (libraries jmap alcotest jsont.bytesrw base64)
+ (deps
+  (source_tree fixtures)
+  (source_tree ../proto/method)
+  (source_tree ../proto/filter)
+  (source_tree ../proto/error)))

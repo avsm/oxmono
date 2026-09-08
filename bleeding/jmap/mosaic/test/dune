@@ -1,0 +1,21 @@
+(test
+ (name test_model)
+ (package jmap-mosaic)
+ (modules test_model)
+ (libraries jmap jmap-mosaic alcotest))
+
+(test
+ (name test_login)
+ (package jmap-mosaic)
+ (modules test_login)
+ (libraries jmap.eio jmap-mosaic fetch.mock alcotest eio_main unix))
+
+(executable
+ (name headless)
+ (modules headless)
+ (libraries jmap jmap.eio jmap-mosaic eio eio_main cmdliner fmt))
+
+(test
+ (name test_io_release)
+ (package jmap-mosaic)
+ (libraries jmap jmap.eio jmap-mosaic fetch.mock eio_main http alcotest))

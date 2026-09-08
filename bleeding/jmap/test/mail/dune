@@ -1,0 +1,13 @@
+(test
+ (name test_mail)
+ (package jmap)
+ (libraries jmap alcotest jsont.bytesrw)
+ (deps
+  (source_tree mailbox)
+  (source_tree email)
+  (source_tree email_body)
+  (source_tree identity)
+  (source_tree submission)
+  (source_tree vacation)
+  (source_tree capability)
+  (source_tree snippet)))

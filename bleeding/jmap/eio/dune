@@ -1,0 +1,29 @@
+(library
+ (name jmap_eio)
+ (public_name jmap.eio)
+ (libraries
+  duration
+  jmap
+  jsont
+  eio
+  eio.unix
+  fetch
+  fetch-httpz
+  httpz.uri
+  httpz.media
+  mtime
+  cmdliner
+  eio_main)
+ (private_modules error_context secret_file)
+ (modules
+  jmap_eio
+  codec
+  client
+  cli
+  push
+  auth
+  transport
+  sync
+  profile
+  error_context
+  secret_file))

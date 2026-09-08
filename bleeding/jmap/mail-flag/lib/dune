@@ -1,0 +1,4 @@
+(library
+ (name mail_flag)
+ (public_name mail-flag)
+ (libraries fmt))

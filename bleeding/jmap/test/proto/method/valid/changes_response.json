@@ -1,0 +1,9 @@
+{
+  "accountId": "acc1",
+  "oldState": "old123",
+  "newState": "new456",
+  "hasMoreChanges": false,
+  "created": ["id1", "id2"],
+  "updated": ["id3"],
+  "destroyed": ["id4", "id5"]
+}

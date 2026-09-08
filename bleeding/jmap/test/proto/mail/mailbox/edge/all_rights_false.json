@@ -1,0 +1,21 @@
+{
+  "id": "mbReadOnly",
+  "name": "Read Only Folder",
+  "sortOrder": 99,
+  "totalEmails": 50,
+  "unreadEmails": 10,
+  "totalThreads": 40,
+  "unreadThreads": 8,
+  "myRights": {
+    "mayReadItems": true,
+    "mayAddItems": false,
+    "mayRemoveItems": false,
+    "maySetSeen": false,
+    "maySetKeywords": false,
+    "mayCreateChild": false,
+    "mayRename": false,
+    "mayDelete": false,
+    "maySubmit": false
+  },
+  "isSubscribed": false
+}

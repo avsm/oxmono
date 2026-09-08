@@ -1,0 +1,5 @@
+{
+  "type": "urn:ietf:params:jmap:error:limit",
+  "status": 400,
+  "detail": "The request is larger than the server is willing to process."
+}

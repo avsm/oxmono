@@ -1,0 +1,18 @@
+{
+  "operator": "AND",
+  "conditions": [
+    {
+      "operator": "NOT",
+      "conditions": [
+        {
+          "operator": "OR",
+          "conditions": [
+            {"hasKeyword": "$junk"},
+            {"hasKeyword": "$spam"}
+          ]
+        }
+      ]
+    },
+    {"inMailbox": "inbox"}
+  ]
+}

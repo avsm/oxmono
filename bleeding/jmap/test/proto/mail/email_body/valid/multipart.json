@@ -1,0 +1,21 @@
+{
+  "partId": "0",
+  "size": 5000,
+  "type": "multipart/alternative",
+  "subParts": [
+    {
+      "partId": "1",
+      "blobId": "b1",
+      "size": 200,
+      "type": "text/plain",
+      "charset": "utf-8"
+    },
+    {
+      "partId": "2",
+      "blobId": "b2",
+      "size": 4800,
+      "type": "text/html",
+      "charset": "utf-8"
+    }
+  ]
+}

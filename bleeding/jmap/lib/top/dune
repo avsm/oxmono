@@ -1,0 +1,7 @@
+(include_subdirs no)
+
+(library
+ (name jmap_top)
+ (public_name jmap.top)
+ (modes byte)
+ (libraries jmap jsont compiler-libs.toplevel))

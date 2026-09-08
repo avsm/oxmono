@@ -1,0 +1,9 @@
+{
+  "id": "ident1",
+  "name": "Work Identity",
+  "email": "john.doe@company.com",
+  "replyTo": [{"email": "john.doe@company.com"}],
+  "textSignature": "-- \nJohn Doe\nSenior Engineer",
+  "htmlSignature": "<p>-- </p><p><b>John Doe</b><br/>Senior Engineer</p>",
+  "mayDelete": true
+}

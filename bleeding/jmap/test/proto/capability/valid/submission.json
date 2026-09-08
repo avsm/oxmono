@@ -1,0 +1,7 @@
+{
+  "maxDelayedSend": 86400,
+  "submissionExtensions": {
+    "DELIVERBY": [],
+    "MT-PRIORITY": ["MIXER", "STANAG4406"]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "operator": "NOT",
+  "conditions": [
+    {"hasKeyword": "$draft"}
+  ]
+}

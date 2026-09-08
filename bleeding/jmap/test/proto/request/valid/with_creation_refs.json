@@ -1,0 +1,20 @@
+{
+  "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+  "methodCalls": [
+    ["Mailbox/set", {
+      "accountId": "acc1",
+      "create": {
+        "newBox": {"name": "New Folder", "parentId": null}
+      }
+    }, "c1"],
+    ["Email/set", {
+      "accountId": "acc1",
+      "create": {
+        "draft1": {
+          "mailboxIds": {"#newBox": true},
+          "subject": "Draft in new folder"
+        }
+      }
+    }, "c2"]
+  ]
+}

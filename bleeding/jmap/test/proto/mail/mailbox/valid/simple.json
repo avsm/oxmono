@@ -1,0 +1,22 @@
+{
+  "id": "mb1",
+  "name": "Inbox",
+  "role": "inbox",
+  "sortOrder": 1,
+  "totalEmails": 150,
+  "unreadEmails": 5,
+  "totalThreads": 100,
+  "unreadThreads": 3,
+  "myRights": {
+    "mayReadItems": true,
+    "mayAddItems": true,
+    "mayRemoveItems": true,
+    "maySetSeen": true,
+    "maySetKeywords": true,
+    "mayCreateChild": true,
+    "mayRename": false,
+    "mayDelete": false,
+    "maySubmit": true
+  },
+  "isSubscribed": true
+}

@@ -1,0 +1,7 @@
+{
+  "methodResponses": [
+    ["Email/query", {"accountId": "acc1", "queryState": "q1", "canCalculateChanges": true, "position": 0, "ids": ["e1", "e2", "e3"], "total": 100}, "c1"],
+    ["Email/get", {"accountId": "acc1", "state": "s1", "list": [{"id": "e1", "blobId": "b1", "threadId": "t1", "mailboxIds": {"inbox": true}, "keywords": {"$seen": true}, "size": 1234, "receivedAt": "2024-01-15T10:30:00Z"}], "notFound": []}, "c2"]
+  ],
+  "sessionState": "sessionABC"
+}

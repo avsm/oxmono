@@ -1,0 +1,9 @@
+{
+  "id": "singleton",
+  "isEnabled": true,
+  "fromDate": "2024-01-20T00:00:00Z",
+  "toDate": "2024-01-27T23:59:59Z",
+  "subject": "Out of Office",
+  "textBody": "I am currently out of the office and will return on January 27th.",
+  "htmlBody": "<p>I am currently out of the office and will return on January 27th.</p>"
+}

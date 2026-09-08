@@ -1,0 +1,23 @@
+{
+  "partId": "0",
+  "size": 50000,
+  "type": "multipart/related",
+  "subParts": [
+    {
+      "partId": "1",
+      "blobId": "b1",
+      "size": 2000,
+      "type": "text/html",
+      "charset": "utf-8"
+    },
+    {
+      "partId": "2",
+      "blobId": "b2",
+      "size": 48000,
+      "type": "image/png",
+      "name": "logo.png",
+      "disposition": "inline",
+      "cid": "logo@example.com"
+    }
+  ]
+}

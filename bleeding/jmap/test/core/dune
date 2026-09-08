@@ -1,0 +1,6 @@
+(test
+ (name test_core)
+ (package jmap)
+ (libraries jmap alcotest jsont.bytesrw)
+ (deps
+  (source_tree fixtures)))

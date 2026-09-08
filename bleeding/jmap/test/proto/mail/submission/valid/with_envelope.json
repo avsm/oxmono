@@ -1,0 +1,20 @@
+{
+  "id": "sub2",
+  "identityId": "ident1",
+  "emailId": "e1",
+  "threadId": "t1",
+  "envelope": {
+    "mailFrom": {
+      "email": "sender@example.com",
+      "parameters": {"SIZE": "1024", "BODY": "8BITMIME"}
+    },
+    "rcptTo": [
+      {"email": "recipient1@example.com"},
+      {"email": "recipient2@example.com", "parameters": {"NOTIFY": "SUCCESS,FAILURE"}}
+    ]
+  },
+  "sendAt": "2024-01-15T15:00:00Z",
+  "undoStatus": "pending",
+  "dsnBlobIds": [],
+  "mdnBlobIds": []
+}

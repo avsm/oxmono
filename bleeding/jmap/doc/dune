@@ -1,0 +1,18 @@
+(mdx
+ (files tutorial.mld profiles.mld)
+ (libraries
+  jmap
+  jmap.eio
+  jmap_top
+  eio
+  eio.core
+  eio.unix
+  eio_main
+  fmt
+  jsont
+  jsont.bytesrw
+  mail-flag))
+
+(documentation
+ (package jmap)
+ (mld_files index tutorial profiles coverage))

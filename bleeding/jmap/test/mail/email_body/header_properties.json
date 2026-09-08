@@ -1,0 +1,12 @@
+{
+  "partId": "2",
+  "blobId": "Gd2f81e",
+  "size": 4096,
+  "type": "image/png",
+  "name": "logo.png",
+  "disposition": "inline",
+  "cid": "logo@example.com",
+  "header:Content-Type": "image/png; name=logo.png",
+  "header:Content-Id:asText": "logo@example.com",
+  "header:Content-Language:all": ["en", "fr"]
+}

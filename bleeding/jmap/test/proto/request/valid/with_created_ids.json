@@ -1,0 +1,9 @@
+{
+  "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+  "methodCalls": [
+    ["Mailbox/set", {"accountId": "acc1", "create": {"temp1": {"name": "New Folder", "parentId": null}}}, "c1"]
+  ],
+  "createdIds": {
+    "temp1": "server-assigned-id-1"
+  }
+}

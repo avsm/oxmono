@@ -1,0 +1,715 @@
+{0 JMAP tutorial}
+
+An introduction to JMAP (the JSON Meta Application Protocol) and to the
+[jmap] library, worked through in the OCaml toplevel. JMAP is defined by
+{{:https://www.rfc-editor.org/rfc/rfc8620}RFC 8620} (core) and
+{{:https://www.rfc-editor.org/rfc/rfc8621}RFC 8621} (mail).
+
+{1 What JMAP is}
+
+JMAP synchronises mail and other data over HTTP. A request is a JSON object
+POSTed to a session-discovered URL and a response is JSON back, rather than
+the persistent connection and line protocol of IMAP.
+
+{ul
+{- {b Stateless over HTTP}. Every request carries the capabilities and
+   method calls it needs; the server holds no per-connection state.}
+{- {b Batching}. A request carries any number of method calls, executed in
+   order in one round trip.}
+{- {b Result references}. A method call may take its arguments from the
+   result of an earlier call in the same request.}
+{- {b Push}. A server-sent event stream reports state changes.}
+{- {b Binary data}. Blobs are uploaded and downloaded outside the JSON
+   request, by separate endpoints.}}
+
+RFC 8620 defines the envelope, the session resource and the generic
+[/get], [/changes], [/set], [/copy], [/query] and [/queryChanges] method
+shapes. RFC 8621 instantiates them for Mailbox, Thread, Email, Identity,
+EmailSubmission and VacationResponse.
+
+{1 Setup}
+
+The runnable examples accept a shared login through [--profile] or
+[JMAP_PROFILE]. See {!page-profiles} for saving one and selecting an account
+after connecting. The toplevel examples below use local values and need no
+server or credential.
+
+A toplevel that has loaded [jmap.top] prints the library's types readably
+once {!Jmap_top.install} has been called.
+
+{x@ocaml[
+# Jmap_top.install ();;
+- : unit = ()
+# open Jmap.Proto;;
+]x}
+
+{1 Identifiers}
+
+From {{:https://www.rfc-editor.org/rfc/rfc8620#section-1.2}RFC 8620
+Section 1.2}, an Id is a string of 1 to 255 octets drawn from
+[A-Za-z0-9_-]. {!Jmap.Proto.Id} gives it a type of its own.
+
+{x@ocaml[
+# let id = Id.of_string_exn "abc123";;
+val id : Id.t = abc123
+# Id.to_string id;;
+- : string = "abc123"
+]x}
+
+An identifier that breaks the alphabet or the length is rejected rather than
+raising, through {!Jmap.Proto.Id.of_string}.
+
+{x@ocaml[
+# Id.of_string "";;
+- : (Id.t, string) result = Error "Id cannot be empty"
+# Id.of_string (String.make 256 'x');;
+- : (Id.t, string) result = Error "Id cannot exceed 255 octets"
+]x}
+
+{1 Keywords}
+
+Email keywords are the string flags of an Email's [keywords] property.
+{{:https://www.rfc-editor.org/rfc/rfc8621#section-4.1.1}RFC 8621
+Section 4.1.1} registers a set of them; {!Jmap.Proto.Keyword} gives each a
+polymorphic variant constructor.
+
+{x@ocaml[
+# Keyword.of_string "$seen";;
+- : Keyword.t = $seen
+# Keyword.of_string "$flagged";;
+- : Keyword.t = $flagged
+# Keyword.of_string "$draft";;
+- : Keyword.t = $draft
+# Keyword.of_string "$answered";;
+- : Keyword.t = $answered
+]x}
+
+A keyword this library does not register comes back as [`Custom], holding
+its wire spelling verbatim, [$] sigil included, since [$important] and
+[important] are two distinct JMAP keywords.
+
+{x@ocaml[
+# Keyword.of_string "$important";;
+- : Keyword.t = $important
+# Keyword.to_string (Keyword.of_string "$important");;
+- : string = "$important"
+# Keyword.to_string `Seen;;
+- : string = "$seen"
+]x}
+
+Three registered keywords carry an Apple Mail flag colour as a three bit
+pattern; {!Jmap.Proto.Keyword.flag_color_of_keywords} and
+{!Jmap.Proto.Keyword.flag_color_to_keywords} convert between the keyword list
+and the colour.
+
+{x@ocaml[
+# Keyword.flag_color_to_keywords `Green;;
+- : Keyword.t list = [$MailFlagBit0; $MailFlagBit1]
+# Keyword.flag_color_of_keywords [ `MailFlagBit1 ];;
+- : Keyword.flag_color option = Some `Yellow
+]x}
+
+{1 Mailbox roles}
+
+{{:https://www.rfc-editor.org/rfc/rfc8621#section-2}RFC 8621 Section 2}
+gives a Mailbox an optional [role] naming its purpose, drawn from the IANA
+IMAP mailbox name attributes.
+
+{x@ocaml[
+# Mailbox.role_of_string "inbox";;
+- : Mailbox.role = `Inbox
+# Mailbox.role_of_string "sent";;
+- : Mailbox.role = `Sent
+# Mailbox.role_of_string "drafts";;
+- : Mailbox.role = `Drafts
+# Mailbox.role_of_string "trash";;
+- : Mailbox.role = `Trash
+# Mailbox.role_of_string "junk";;
+- : Mailbox.role = `Junk
+# Mailbox.role_of_string "archive";;
+- : Mailbox.role = `Archive
+]x}
+
+A name this library does not register is kept as [`Other].
+
+{x@ocaml[
+# Mailbox.role_of_string "receipts";;
+- : Mailbox.role = `Other "receipts"
+]x}
+
+{1 Capabilities}
+
+A capability is named by a URI. From
+{{:https://www.rfc-editor.org/rfc/rfc8620#section-2}RFC 8620 Section 2}, a
+server lists the capabilities it supports and a client lists the ones it
+needs in [using].
+
+{x@ocaml[
+# Capability.core;;
+- : string = "urn:ietf:params:jmap:core"
+# Capability.mail;;
+- : string = "urn:ietf:params:jmap:mail"
+# Capability.submission;;
+- : string = "urn:ietf:params:jmap:submission"
+]x}
+
+{1 The request and response JSON}
+
+A {!Jmap.Proto.Request.t} carries the capabilities [using] and the method
+calls to run. Each call is an {!Jmap.Proto.Invocation.t}: a method name, a
+JSON arguments object and a method call id the client chooses to tie the
+response back to the call.
+
+{x@ocaml[
+# let req =
+    Request.create ~using:[ Capability.core ]
+      ~method_calls:
+        [ Invocation.create ~name:"Core/echo"
+            ~arguments:
+              (Jsont.Json.object'
+                 [ Jsont.Json.mem (Jsont.Json.name "hello")
+                     (Jsont.Json.string "world")
+                 ])
+            ~method_call_id:"c0"
+        ]
+      ()
+  in
+  Jmap_top.encode Request.jsont req;;
+- : Jsont.json =
+{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["Core/echo",{"hello":"world"},"c0"]]}
+]x}
+
+A [methodCalls] array element is the JSON triple [\[methodName, arguments,
+methodCallId\]], not a JSON object; {!Jmap.Proto.Invocation.jsont} is what
+turns the OCaml record above into that shape.
+
+{1 An Email filter}
+
+{{:https://www.rfc-editor.org/rfc/rfc8621#section-4.4.1}RFC 8621
+Section 4.4.1} defines the FilterCondition of an [Email/query].
+{!Jmap.Proto.Email.val-filter} builds one from the arguments it is given.
+{!Jmap.Proto.Mailbox.val-filter} and {!Jmap.Proto.Submission.val-filter} do
+the same for the other two filterable types.
+
+{x@ocaml[
+# let inbox = Id.of_string_exn "MBX1";;
+val inbox : Id.t = MBX1
+# Jmap_top.encode Email.filter_jsont
+    (Email.filter ~in_mailbox:inbox ~has_keyword:`Flagged ());;
+- : Jsont.json = {"inMailbox":"MBX1","hasKeyword":"$flagged"}
+]x}
+
+A FilterCondition encodes only the fields it was given; an omitted one is
+left out rather than sent as [null], and filters nothing.
+{!Jmap.Proto.Email.Filter_condition.empty} is the same condition as a record,
+for a filter assembled field by field.
+
+{2 Filter operators}
+
+A [/query] filter is either a condition or a
+{!Jmap.Proto.Filter.filter_operator} combining several filters with [`And],
+[`Or] or [`Not].
+
+{x@ocaml[
+# Jmap_top.encode Email.filter_jsont
+    (Filter.Operator
+       { operator = `And;
+         conditions =
+           [ Email.filter ~in_mailbox:inbox ~has_keyword:`Flagged ();
+             Email.filter ~not_keyword:`Seen ()
+           ]
+       });;
+- : Jsont.json =
+{"operator":"AND","conditions":[{"inMailbox":"MBX1","hasKeyword":"$flagged"},{"notKeyword":"$seen"}]}
+]x}
+
+{2 Sorting}
+
+The [sort] argument of a [/query] is a list of comparators, tried in order.
+{!Jmap.Proto.Email.val-sort} names the sortable properties of
+{{:https://www.rfc-editor.org/rfc/rfc8621#section-4.4.2}RFC 8621
+Section 4.4.2} as variants; it sorts ascending unless told otherwise, and
+carries the [keyword] member a keyword sort requires.
+
+{x@ocaml[
+# Jmap_top.encode (Jsont.list Filter.comparator_jsont)
+    [ Email.sort ~ascending:false `Received_at;
+      Email.sort (`Has_keyword `Flagged)
+    ];;
+- : Jsont.json =
+[{"property":"receivedAt","isAscending":false},{"property":"hasKeyword","keyword":"$flagged"}]
+]x}
+
+{1 Method chaining}
+
+Result references let one method call use the output of an earlier call in
+the same request, per
+{{:https://www.rfc-editor.org/rfc/rfc8620#section-3.7}RFC 8620
+Section 3.7}: "a method argument may use the result of a previous method
+invocation in the same request". {!Jmap.Chain} is a monadic builder for such
+requests. A chain adds calls to a request and hands back a handle for each
+one, and a later call takes its ids from an earlier handle with
+{!Jmap.Chain.from_query} and its siblings rather than by naming a method
+call id.
+
+{x@ocaml[
+# module Chain = Jmap.Chain;;
+module Chain = Jmap.Chain
+# module Results = Jmap.Chain.Results;;
+module Results = Jmap.Chain.Results
+]x}
+
+{2 A query and a fetch in one request}
+
+A chain ends in the handles whose responses are wanted, gathered in a
+[Handles.\[ ... \]] list. {!Jmap.Chain.build_request} is the request the calls
+add up to.
+
+{x@ocaml[
+# let account_id = Id.of_string_exn "u1";;
+val account_id : Id.t = u1
+# let unread ~account_id ~inbox =
+    Chain.(
+      let* q =
+        email_query ~account_id
+          ~filter:(Email.filter ~in_mailbox:inbox ~not_keyword:`Seen ())
+          ~limit:50L ()
+      in
+      let+ g =
+        email_get ~account_id ~ids:(from_query q)
+          ~properties:[ `Id; `Subject; `From; `Received_at ]
+          ()
+      in
+      Handles.[ q; g ]);;
+val unread :
+  account_id:Id.t ->
+  inbox:Id.t ->
+  (Method.query_response * (Email.t Method.get_response * unit))
+  Chain.Handles.t Chain.t = <fun>
+# Jmap_top.encode Request.jsont
+    (Chain.build_request ~capabilities:[ Capability.core; Capability.mail ]
+       (unread ~account_id ~inbox));;
+- : Jsont.json =
+{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/query",{"limit":50,"filter":{"inMailbox":"MBX1","notKeyword":"$seen"},"accountId":"u1"},"c0"],["Email/get",{"properties":["id","subject","from","receivedAt"],"#ids":{"resultOf":"c0","name":"Email/query","path":"/ids"},"accountId":"u1"},"c1"]]}
+]x}
+
+The second call sends [#ids] rather than [ids]: RFC 8620 Section 3.7 has the
+server resolve it against the [ids] of the [Email/query] response before
+running [Email/get].
+
+{2 Reading the responses}
+
+{!Jmap.Chain.build} is {!Jmap.Chain.build_request} keeping the value of the
+chain, which is the list of handles it ends in.
+
+{x@ocaml[
+# let handles =
+    snd
+      (Chain.build ~capabilities:[ Capability.core; Capability.mail ]
+         (unread ~account_id ~inbox));;
+val handles :
+  (Method.query_response * (Email.t Method.get_response * unit))
+  Chain.Handles.t = [Email/query c0; Email/get c1]
+]x}
+
+The type of that list records how many calls are to be read and what each
+one decodes to. {!Jmap.Chain.parse_all} reads a response into a
+{!Jmap.Chain.Results.t} of the same length, taken apart by a
+[Results.\[ ... \]] pattern that the compiler knows is exhaustive.
+
+{x@ocaml[
+# let response =
+    {|{ "methodResponses": [
+          [ "Email/query",
+            { "accountId": "u1", "queryState": "q1",
+              "canCalculateChanges": false, "position": 0,
+              "ids": [ "E1", "E2" ] },
+            "c0" ],
+          [ "Email/get",
+            { "accountId": "u1", "state": "s1", "notFound": [],
+              "list": [ { "id": "E1", "subject": "Lunch?" },
+                        { "id": "E2", "subject": "Re: Lunch?" } ] },
+            "c1" ] ],
+        "sessionState": "s1" }|}
+    |> Jmap_top.decode_string Response.jsont
+  in
+  match Chain.parse_all handles response with
+  | Error e -> [ Chain.parse_error_to_string e ]
+  | Ok Results.[ query; got ] ->
+      List.filter_map
+        (fun (e : Email.t) -> e.subject)
+        (Method.in_ids_order ~id:Email.id query.ids got.list);;
+- : string list = ["Lunch?"; "Re: Lunch?"]
+]x}
+
+A [/get] may return its records in any order, so the ids of the [/query] are
+what puts them back in the order asked for, through
+{!Jmap.Proto.Method.in_ids_order} and the {!Jmap.Proto.Email.val-id} of each
+record.
+
+{2 Creating a draft and submitting it}
+
+{{:https://www.rfc-editor.org/rfc/rfc8620#section-5.3}RFC 8620 Section 5.3}
+and {{:https://www.rfc-editor.org/rfc/rfc8621#section-7.5}RFC 8621
+Section 7.5}: a record created by one call of a request is named by a later
+call through its creation id prefixed with [#].
+{!Jmap.Proto.Id.val-creation} is the token for a creation id, keying the
+[create] map, and {!Jmap.Proto.Id.creation_ref} is that token as an argument
+value. A
+token carries the type of the record it names, so one made for an Email
+cannot key a [Mailbox/set].
+
+{x@ocaml[
+# let drafts = Id.of_string_exn "MBX2";;
+val drafts : Id.t = MBX2
+# let identity_id = Id.of_string_exn "ID1";;
+val identity_id : Id.t = ID1
+# let me = Email_address.create "me@example.com";;
+val me : Email_address.t = me@example.com
+# let you = Email_address.create "you@example.com";;
+val you : Email_address.t = you@example.com
+# let send ~account_id ~drafts ~identity_id ~me ~you =
+    Chain.(
+      let draft = Id.creation "draft" in
+      let submission = Id.creation "send" in
+      let* _ =
+        email_set ~account_id
+          ~create:
+            [ ( draft,
+                Email.create ~mailbox_ids:[ drafts ] ~keywords:[ `Draft ]
+                  ~from:[ me ] ~to_:[ you ] ~subject:"Hello"
+                  ~text_body:"Hello, world." () )
+            ]
+          ()
+      in
+      let+ s =
+        email_submission_set ~account_id
+          ~create:
+            [ ( submission,
+                Submission.create ~identity_id
+                  ~email_id:(Id.creation_ref draft) () )
+            ]
+          ~on_success_update_email:
+            [ ( Id.creation_ref submission,
+                Patch.v [ Email.Patch.remove_keyword `Draft ] )
+            ]
+          ()
+      in
+      Handles.[ s ]);;
+val send :
+  account_id:Id.t ->
+  drafts:Id.t ->
+  identity_id:Id.t ->
+  me:Email_address.t ->
+  you:Email_address.t ->
+  (Submission.t Method.set_response * unit) Chain.Handles.t Chain.t = <fun>
+# Jmap_top.encode Request.jsont
+    (Chain.build_request
+       ~capabilities:
+         [ Capability.core; Capability.mail; Capability.submission ]
+       (send ~account_id ~drafts ~identity_id ~me ~you));;
+- : Jsont.json =
+{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:submission"],"methodCalls":[["Email/set",{"create":{"draft":{"mailboxIds":{"MBX2":true},"keywords":{"$draft":true},"from":[{"email":"me@example.com"}],"to":[{"email":"you@example.com"}],"subject":"Hello","bodyValues":{"text":{"value":"Hello, world."}},"textBody":[{"partId":"text","type":"text/plain"}]}},"accountId":"u1"},"c0"],["EmailSubmission/set",{"onSuccessUpdateEmail":{"#send":{"keywords/$draft":null}},"create":{"send":{"identityId":"ID1","emailId":"#draft"}},"accountId":"u1"},"c1"]]}
+]x}
+
+{2 The RFC 8620 example}
+
+{{:https://www.rfc-editor.org/rfc/rfc8620#section-3.7}RFC 8620 Section 3.7}
+works a four-call example. It fetches the sender, date and subject of every
+Email in the ten most recently received Threads of a Mailbox.
+{!Jmap.Chain.from_get_field} takes the ids from a property of the records an
+earlier [/get] returned, named by a constructor of
+{!Jmap.Chain.id_property} rather than by its wire spelling.
+
+{x@ocaml[
+# let recent ~account_id ~inbox =
+    Chain.(
+      let* q =
+        email_query ~account_id
+          ~filter:(Email.filter ~in_mailbox:inbox ())
+          ~sort:[ Email.sort ~ascending:false `Received_at ]
+          ~collapse_threads:true ~limit:10L ()
+      in
+      let* heads =
+        email_get ~account_id ~ids:(from_query q) ~properties:[ `Thread_id ]
+          ()
+      in
+      let* threads =
+        thread_get ~account_id ~ids:(from_get_field heads Thread_id) ()
+      in
+      let+ messages =
+        email_get ~account_id
+          ~ids:(from_get_field threads Email_ids)
+          ~properties:[ `From; `Received_at; `Subject ]
+          ()
+      in
+      Handles.[ q; messages ]);;
+val recent :
+  account_id:Id.t ->
+  inbox:Id.t ->
+  (Method.query_response * (Email.t Method.get_response * unit))
+  Chain.Handles.t Chain.t = <fun>
+# List.length
+    (Chain.build_request ~capabilities:[ Capability.core; Capability.mail ]
+       (recent ~account_id ~inbox))
+      .method_calls;;
+- : int = 4
+]x}
+
+Four calls make one HTTP round trip, the query, an [Email/get] for
+[threadId], a [Thread/get] for [emailIds] and the final [Email/get]. RFC 8620
+Section 5.1 has a [/get] return only the properties it was asked for, so a
+reference to a property the call left out would be answered with an
+[invalidResultReference] error. The chain refuses to build such a request.
+
+{x@ocaml[
+# Chain.build_request ~capabilities:[ Capability.mail ]
+    Chain.(
+      let* heads = email_get ~account_id ~properties:[ `Subject ] () in
+      let+ threads =
+        thread_get ~account_id ~ids:(from_get_field heads Thread_id) ()
+      in
+      Handles.[ threads ]);;
+Exception:
+Invalid_argument
+ "Jmap.Chain: the Email/get did not ask for the property \"threadId\", so the server would answer the result reference with invalidResultReference".
+]x}
+
+{2 State strings}
+
+A [/get] response carries the [state] of its data type in the account, and a
+[/changes] call takes one to report what has happened since.
+{!Jmap.Chain.email_state}, {!Jmap.Chain.mailbox_state} and
+{!Jmap.Chain.thread_state} ask for that string alone, with a [/get] of no ids
+that RFC 8620 Section 5.1 answers with the state whatever the ids given.
+
+{x@ocaml[
+# Jmap_top.encode Request.jsont
+    (Chain.build_request ~capabilities:[ Capability.core; Capability.mail ]
+       Chain.(
+         let* s = email_state ~account_id in
+         let+ c = email_changes ~account_id ~since_state:"41" () in
+         Handles.[ s; c ]));;
+- : Jsont.json =
+{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":"u1","ids":[]},"c0"],["Email/changes",{"accountId":"u1","sinceState":"41"},"c1"]]}
+]x}
+
+{2 A method with no builder}
+
+{!Jmap.Chain.invocation} adds a call by name, with the arguments built as
+JSON and a codec of the caller's to decode the response with.
+{!Jmap.Chain.raw_invocation} is the same with the response left as JSON. A
+handle of either kind is the source of no result reference, the shape of the
+response being unknown to the library.
+
+{x@ocaml[
+# let quota ~account_id =
+    Chain.(
+      let+ q =
+        invocation ~name:"Quota/get"
+          ~arguments:
+            (Jsont.Json.object'
+               [ Jsont.Json.mem (Jsont.Json.name "accountId")
+                   (Jsont.Json.string (Id.to_string account_id))
+               ])
+          (Method.get_response_jsont Jsont.json)
+      in
+      Handles.[ q ]);;
+val quota :
+  account_id:Id.t ->
+  (Jsont.json Method.get_response * unit) Chain.Handles.t Chain.t = <fun>
+# Jmap_top.encode Request.jsont
+    (Chain.build_request ~capabilities:[ Capability.core ]
+       (quota ~account_id));;
+- : Jsont.json =
+{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["Quota/get",{"accountId":"u1"},"c0"]]}
+]x}
+
+{1 Errors}
+
+RFC 8620 reports a failure at one of three levels, each with its own
+{!Jmap.Proto.Error} submodule and its own [v], [to_string] and [pp].
+
+{2 Request-level errors}
+
+An HTTP error status with an RFC 7807 problem details body, from
+{{:https://www.rfc-editor.org/rfc/rfc8620#section-3.6.1}RFC 8620
+Section 3.6.1}. It fails the whole request, before any method call runs.
+
+{x@ocaml[
+# Error.Request_error.v `Unknown_capability
+    ~status:400 ~title:"Unknown capability"
+    ~detail:"The server does not support 'urn:example:unsupported'"
+  |> Result.map Error.Request_error.to_string;;
+- : (string, string) result =
+Ok
+ "urn:ietf:params:jmap:error:unknownCapability (The server does not support 'urn:example:unsupported')"
+]x}
+
+{2 Method-level errors}
+
+One method call fails while the others in the request still run, from
+{{:https://www.rfc-editor.org/rfc/rfc8620#section-3.6.2}RFC 8620
+Section 3.6.2}.
+
+{x@ocaml[
+# Error.Method_error.v `Invalid_arguments
+    ~description:"The 'filter' argument is malformed"
+  |> Result.map Error.Method_error.to_string;;
+- : (string, string) result =
+Ok "invalidArguments (The 'filter' argument is malformed)"
+]x}
+
+{2 SetErrors}
+
+One record within a [/set], [/copy] or [/import] response fails while the
+others succeed, from
+{{:https://www.rfc-editor.org/rfc/rfc8620#section-5.3}RFC 8620 Section 5.3}.
+
+{x@ocaml[
+# Error.Set_error.v `Invalid_properties
+    ~properties:[ "subject" ]
+  |> Result.map Error.Set_error.to_string;;
+- : (string, string) result = Ok "invalidProperties"
+]x}
+
+{2 A failed call among successful ones}
+
+A method error arrives in place of the response the call would have
+returned, so it fails the read of that call. {!Jmap.Chain.parse_all} reports
+it as {!Jmap.Chain.Method_error}, told apart from the {!Jmap.Chain.Json_error}
+of a response the codec rejected.
+
+{x@ocaml[
+# let error_response () =
+    {|{ "methodResponses":
+          [ [ "error", { "type": "cannotCalculateChanges" }, "c0" ] ],
+        "sessionState": "s1" }|}
+    |> Jmap_top.decode_string Response.jsont;;
+val error_response : unit -> Response.t = <fun>
+# let changes =
+    snd
+      (Chain.build ~capabilities:[ Capability.core; Capability.mail ]
+         Chain.(
+           let+ c = email_changes ~account_id ~since_state:"41" () in
+           Handles.[ c ]));;
+val changes : (Method.changes_response * unit) Chain.Handles.t =
+  [Email/changes c0]
+# (match Chain.parse_all changes (error_response ()) with
+   | Ok Results.[ c ] -> c.new_state
+   | Error e -> Chain.parse_error_to_string e);;
+- : string = "cannotCalculateChanges"
+]x}
+
+A [/changes] answering [cannotCalculateChanges] is a case a client acts on
+rather than reports, and one call of a request failing is no reason to lose
+the responses to the others. {!Jmap.Chain.attempt} turns a handle into one
+whose response is a [result], so the error becomes a value and the rest of
+the read survives it.
+
+{x@ocaml[
+# let attempted =
+    snd
+      (Chain.build ~capabilities:[ Capability.core; Capability.mail ]
+         Chain.(
+           let+ c = email_changes ~account_id ~since_state:"41" () in
+           Handles.[ attempt c ]));;
+val attempted :
+  ((Method.changes_response, Error.Method_error.t) result * unit)
+  Chain.Handles.t = [Email/changes c0]
+# (match Chain.parse_all attempted (error_response ()) with
+   | Ok Results.[ Ok c ] -> "changes to " ^ c.new_state
+   | Ok Results.[ Error e ] -> "resync: " ^ Error.Method_error.to_string e
+   | Error e -> Chain.parse_error_to_string e);;
+- : string = "resync: cannotCalculateChanges"
+]x}
+
+{1 Connecting to a server}
+
+The [jmap.eio] library turns the protocol types above into requests. Three
+values make a client, an {!Jmap_eio.Auth.t} (the credential, named by
+scheme), a {!Jmap_eio.Transport.t} (the HTTP stack) and the URL of the
+session resource. {!Jmap_eio.Client.connect_env} is the three in one call
+over the default stack.
+
+A small program that shares a login with other JMAP tools can instead pass a
+name to {!Jmap_eio.Profile.connect_name}. It reads the private profile under
+[$XDG_CONFIG_HOME/jmap/profiles], constructs the authentication value and
+fetches the session in one call; {!Jmap_eio.Cli.profile_term} supplies the
+common [--profile] and [JMAP_PROFILE] selector. The lower-level
+{!Jmap_eio.Profile.load}, {!Jmap_eio.Profile.list} and
+{!Jmap_eio.Profile.save} functions are available to login commands and profile
+pickers.
+
+{!Jmap_eio.Client.run_exn} sends a chain and reads every handle it ends in,
+so a request and its responses are one expression. A chain ending in a
+single handle goes to {!Jmap_eio.Client.call_exn}, which is the response
+itself, and {!Jmap_eio.Client.chain_exn} hands back the undecoded
+{!Jmap.Proto.Response.t} for a caller that wants to print it.
+
+{x@ocaml skip[
+let () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let open Jmap_eio in
+  (* A token from https://app.fastmail.com/settings/tokens *)
+  let client =
+    Client.connect_env ~sw ~timeout:30. ~auth:(Auth.bearer "your-api-token")
+      env "https://api.fastmail.com/.well-known/jmap"
+    |> Result.get_ok
+  in
+  let account_id =
+    Option.get
+      (Jmap.Proto.Session.primary_account_for Jmap.Proto.Capability.mail
+         (Client.session client))
+  in
+  let (Jmap.Chain.Results.[ query; got ]) =
+    Client.run_exn client
+      Jmap.Chain.(
+        let* q = email_query ~account_id ~limit:10L () in
+        let+ g =
+          email_get ~account_id ~ids:(from_query q)
+            ~properties:[ `Id; `Subject ] ()
+        in
+        Handles.[ q; g ])
+  in
+  Printf.printf "%d of %d\n" (List.length got.list) (List.length query.ids);
+  List.iter
+    (fun (e : Jmap.Proto.Email.t) ->
+      print_endline (Option.value e.subject ~default:"(none)"))
+    got.list
+]x}
+
+The credential is attached only to the origins the session resource names,
+so a token never reaches a third-party blob host. Beyond one request there
+are {!Jmap_eio.Sync} for paging and change draining, {!Jmap_eio.Push} for
+the event source of RFC 8620 Section 7.3, and [Client.upload_flow] /
+[Client.download_to] for blobs that should not be held in memory. The
+programs under [examples/] are the worked version of each.
+
+{1 Summary}
+
+{ul
+{- {b Sessions}. A client discovers a server's capabilities and accounts
+   with a GET of the session resource, {!Jmap.Proto.Session.t}.}
+{- {b Batching}. A {!Jmap.Proto.Request.t} carries any number of method
+   calls, run in order in one HTTP round trip.}
+{- {b Result references}. {!Jmap.Chain} lets a later call take its
+   arguments from an earlier call's result, without hand building the JSON
+   pointer.}
+{- {b Typed reads}. A chain ends in a {!Jmap.Chain.Handles.t} and its
+   response is read into a {!Jmap.Chain.Results.t} of the same shape.}
+{- {b Typed keywords and roles}. {!Jmap.Proto.Keyword} and
+   {!Jmap.Proto.Mailbox.type-role} give the registered values a constructor each
+   and keep an unregistered one on its exact wire spelling.}
+{- {b Three error levels}. {!Jmap.Proto.Error} models the request, method
+   and record levels RFC 8620 defines.}
+{- {b Connecting}. [jmap.eio] carries these types over HTTP with Eio.}}
+
+{2 Key RFC references}
+
+{ul
+{- {{:https://www.rfc-editor.org/rfc/rfc8620}RFC 8620}: JMAP core.}
+{- {{:https://www.rfc-editor.org/rfc/rfc8621}RFC 8621}: JMAP for mail.}
+{- {{:https://www.rfc-editor.org/rfc/rfc7807}RFC 7807}: Problem Details for
+   HTTP APIs.}}

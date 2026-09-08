@@ -1,0 +1,19 @@
+{
+  "accountId": "u1",
+  "oldState": "41",
+  "newState": "42",
+  "created": {
+    "k1": {
+      "id": "M1",
+      "blobId": "G1",
+      "threadId": "T1",
+      "size": 1234
+    }
+  },
+  "notCreated": {
+    "k2": {
+      "type": "alreadyExists",
+      "existingId": "M9"
+    }
+  }
+}

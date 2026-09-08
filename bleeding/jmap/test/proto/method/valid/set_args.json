@@ -1,0 +1,12 @@
+{
+  "accountId": "acc1",
+  "ifInState": "state123",
+  "create": {
+    "new1": {"name": "Folder 1"},
+    "new2": {"name": "Folder 2"}
+  },
+  "update": {
+    "existing1": {"name": "Renamed Folder"}
+  },
+  "destroy": ["old1", "old2"]
+}

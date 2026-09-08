@@ -1,0 +1,30 @@
+{0 jmap}
+
+{!modules: Jmap Jmap_eio Jmap_top}
+
+{1 Tutorial}
+
+See the {!page-tutorial} for a comprehensive guide to using JMAP with OCaml,
+including how types map to JSON and practical examples.
+
+The {!page-coverage} page is a matrix of every RFC 8620 and RFC 8621 method
+against the codecs, builders, unit tests, oracle tests and runnable examples
+that exercise it. The directories under [examples/] are a second tutorial,
+a profile setup step, protocol steps and larger programs, each with runnable
+code and a README. [scripts/run-examples.sh] runs them against a configured
+server. The profile setup also lists and saves logins offline.
+
+See {!page-profiles} for saving a shared login and using [--profile] or
+[JMAP_PROFILE] throughout the examples. [examples/q-events/] demonstrates
+{!Jmap_eio.Push.next} and subscription completion.
+
+{1 The Eio client}
+
+{!Jmap_eio} is the client. {!Jmap_eio.Auth} holds the credential,
+{!Jmap_eio.Transport} the HTTP stack, {!Jmap_eio.Client} the session and the
+requests, {!Jmap_eio.Profile} the shared named-login store, {!Jmap_eio.Sync}
+paging and change draining, and {!Jmap_eio.Push} the event source. A chain of
+method calls is sent and read by
+{!Jmap_eio.Client.val-call} when it ends in one handle and by
+{!Jmap_eio.Client.run} when it ends in several. Its module page opens with a
+quick start.

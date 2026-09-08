@@ -1,0 +1,36 @@
+{
+  "partId": "0",
+  "size": 10000,
+  "type": "multipart/mixed",
+  "subParts": [
+    {
+      "partId": "1",
+      "size": 5000,
+      "type": "multipart/alternative",
+      "subParts": [
+        {
+          "partId": "1.1",
+          "blobId": "b1",
+          "size": 500,
+          "type": "text/plain",
+          "charset": "utf-8"
+        },
+        {
+          "partId": "1.2",
+          "blobId": "b2",
+          "size": 4500,
+          "type": "text/html",
+          "charset": "utf-8"
+        }
+      ]
+    },
+    {
+      "partId": "2",
+      "blobId": "b3",
+      "size": 5000,
+      "type": "application/pdf",
+      "name": "document.pdf",
+      "disposition": "attachment"
+    }
+  ]
+}

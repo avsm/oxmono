@@ -1,0 +1,15 @@
+(test
+ (name test_proto)
+ (package jmap)
+ (libraries httpz.uri jmap alcotest jsont.bytesrw)
+ (deps
+  (source_tree int53)
+  (source_tree session)
+  (source_tree request)
+  (source_tree response)
+  (source_tree invocation)
+  (source_tree capability)
+  (source_tree filter)
+  (source_tree method)
+  (source_tree error)
+  (source_tree mail)))

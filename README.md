@@ -68,6 +68,11 @@ notes record upstream revisions, local adaptations and scoped test commands.
 The [OpenRouter client](bleeding/openrouter/README.md) provides Eio-native
 chat, vision inputs, function tools and streaming over Fetch.
 
+The unreleased [JMAP client](bleeding/jmap/OXMONO.md),
+[IDKit contact and calendar libraries](bleeding/idk/OXMONO.md), and
+[JSON Pointer library](bleeding/json-pointer/OXMONO.md) retain their upstream
+source layouts and record local adaptations beside them.
+
 ## Dependencies
 
 The workspace uses opam dependencies and the sources under `vendor/`.

@@ -1,0 +1,1 @@
+["Email/query", {"accountId": "acc1", "filter": {"inMailbox": "inbox"}, "sort": [{"property": "receivedAt", "isAscending": false}], "limit": 50}, "call-003"]

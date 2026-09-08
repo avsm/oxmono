@@ -1,0 +1,22 @@
+{
+  "id": "mbArchive",
+  "name": "Archive",
+  "role": "archive",
+  "sortOrder": 5,
+  "totalEmails": 1000,
+  "unreadEmails": 0,
+  "totalThreads": 800,
+  "unreadThreads": 0,
+  "myRights": {
+    "mayReadItems": true,
+    "mayAddItems": true,
+    "mayRemoveItems": true,
+    "maySetSeen": true,
+    "maySetKeywords": true,
+    "mayCreateChild": true,
+    "mayRename": true,
+    "mayDelete": true,
+    "maySubmit": false
+  },
+  "isSubscribed": true
+}

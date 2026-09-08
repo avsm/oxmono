@@ -1,0 +1,15 @@
+{
+  "id": "e6",
+  "blobId": "blob6",
+  "threadId": "t6",
+  "size": 4096,
+  "receivedAt": "2024-01-20T16:00:00Z",
+  "mailboxIds": {"inbox": true},
+  "keywords": {"$seen": true},
+  "messageId": ["unique-123@example.com"],
+  "inReplyTo": ["parent-456@example.com"],
+  "references": ["root-001@example.com", "parent-456@example.com"],
+  "subject": "Re: Original thread",
+  "hasAttachment": false,
+  "preview": "Reply in thread"
+}

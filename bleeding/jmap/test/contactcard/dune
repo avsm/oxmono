@@ -1,0 +1,4 @@
+(test
+ (name test_contactcard)
+ (package jmap)
+ (libraries jmap alcotest jsont.bytesrw))

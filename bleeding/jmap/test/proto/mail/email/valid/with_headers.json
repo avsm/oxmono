@@ -1,0 +1,16 @@
+{
+  "id": "e3",
+  "blobId": "blob3",
+  "threadId": "t3",
+  "mailboxIds": {"inbox": true},
+  "keywords": {},
+  "size": 2048,
+  "receivedAt": "2024-01-16T09:00:00Z",
+  "headers": [
+    {"name": "X-Priority", "value": "1"},
+    {"name": "X-Mailer", "value": "Test Client 1.0"},
+    {"name": "List-Unsubscribe", "value": "<mailto:unsubscribe@example.com>"}
+  ],
+  "header:X-Priority:asText": "1",
+  "header:X-Mailer:asText": "Test Client 1.0"
+}

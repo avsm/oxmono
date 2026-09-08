@@ -1,0 +1,11 @@
+{
+  "accountId": "acc1",
+  "oldState": null,
+  "newState": "state456",
+  "created": null,
+  "updated": null,
+  "destroyed": null,
+  "notCreated": null,
+  "notUpdated": null,
+  "notDestroyed": null
+}

@@ -1,0 +1,4 @@
+{
+  "type": "accountNotFound",
+  "description": "Account with id 'acc123' does not exist"
+}

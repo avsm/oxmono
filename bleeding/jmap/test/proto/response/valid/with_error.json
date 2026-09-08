@@ -1,0 +1,6 @@
+{
+  "methodResponses": [
+    ["error", {"type": "unknownMethod"}, "c1"]
+  ],
+  "sessionState": "session789"
+}

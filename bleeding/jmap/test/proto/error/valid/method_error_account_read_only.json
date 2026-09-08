@@ -1,0 +1,4 @@
+{
+  "type": "accountReadOnly",
+  "description": "This account does not allow modifications"
+}

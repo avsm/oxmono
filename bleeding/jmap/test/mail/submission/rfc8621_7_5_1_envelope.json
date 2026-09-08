@@ -1,0 +1,17 @@
+{
+  "identityId": "I64588216",
+  "emailId": "M7f6ed5bcfd7e2604d1753f6c",
+  "envelope": {
+    "mailFrom": {
+      "email": "john@example.com",
+      "parameters": null
+    },
+    "rcptTo": [{
+      "email": "jane@example.com",
+      "parameters": null
+    }]
+  },
+  "deliveryStatus": null,
+  "dsnBlobIds": [],
+  "mdnBlobIds": []
+}

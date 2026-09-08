@@ -1,0 +1,14 @@
+(library
+ (name oracle_harness)
+ (package jmap)
+ (libraries
+  jmap
+  jmap.eio
+  eio
+  eio.unix
+  eio_main
+  fetch
+  fetch-httpz
+  alcotest
+  fmt
+  uri))

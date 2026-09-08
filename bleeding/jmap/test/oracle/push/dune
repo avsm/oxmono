@@ -1,0 +1,5 @@
+(test
+ (name test_push)
+ (package jmap)
+ (locks ../oracle)
+ (libraries oracle_harness jmap jmap.eio eio fetch alcotest))

@@ -1,0 +1,12 @@
+[
+  {"id": "r1", "name": "Inbox", "role": "inbox", "sortOrder": 1},
+  {"id": "r2", "name": "Drafts", "role": "drafts", "sortOrder": 2},
+  {"id": "r3", "name": "Sent", "role": "sent", "sortOrder": 3},
+  {"id": "r4", "name": "Junk", "role": "junk", "sortOrder": 4},
+  {"id": "r5", "name": "Trash", "role": "trash", "sortOrder": 5},
+  {"id": "r6", "name": "Archive", "role": "archive", "sortOrder": 6},
+  {"id": "r7", "name": "All", "role": "all", "sortOrder": 7},
+  {"id": "r8", "name": "Important", "role": "important", "sortOrder": 8},
+  {"id": "r9", "name": "Scheduled", "role": "scheduled", "sortOrder": 9},
+  {"id": "r10", "name": "Subscribed", "role": "subscribed", "sortOrder": 10}
+]

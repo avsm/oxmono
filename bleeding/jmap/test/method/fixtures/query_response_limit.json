@@ -1,0 +1,9 @@
+{
+  "accountId": "acc1",
+  "queryState": "qs1",
+  "canCalculateChanges": true,
+  "position": 42,
+  "ids": ["e1", "e2"],
+  "total": 250,
+  "limit": 50
+}

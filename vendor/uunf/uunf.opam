@@ -1,0 +1,13 @@
+opam-version: "2.0"
+version: "17.0.0"
+synopsis: "Portable Unicode normalization for OxCaml"
+maintainer: "Daniel Bünzli <daniel.buenzli@erratique.ch>"
+authors: "The uunf programmers"
+license: "ISC"
+homepage: "https://erratique.ch/software/uunf"
+dev-repo: "git+https://github.com/dbuenzli/uunf.git"
+depends: [
+  "oxcaml-compiler" {>= "5.2.0minus39"}
+  "dune" {>= "3.21"}
+]
+build: [["dune" "build" "-p" name "-j" jobs]]

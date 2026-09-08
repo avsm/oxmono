@@ -9,4 +9,5 @@
   (package fetch-main)
   (package fetch)
   (package httpz)
+  (package uunf)
   (package jsont)))

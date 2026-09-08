@@ -10,6 +10,7 @@
   (package fetch-macos)
   (package fetch)
   (package httpz)
+  (package uunf)
   (package uriz)
   (package jsont)))
 

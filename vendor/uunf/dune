@@ -1,0 +1,6 @@
+(library
+ (name uunf)
+ (public_name uunf)
+ (wrapped false)
+ (private_modules uunf_data uunf_tmap uunf_tmapbool uunf_tmapbyte)
+ (libraries stdlib_stable))

@@ -16,6 +16,7 @@
   (package fetch)
   (package hmap)
   (package httpz)
+  (package uunf)
   (package uriz)
   (package ipaddr)
   (package jsont)

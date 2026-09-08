@@ -242,6 +242,14 @@
       "base_version": "v2.15.0"
     },
     {
+      "name": "uunf",
+      "url": "https://github.com/dbuenzli/uunf.git",
+      "branch": "HEAD",
+      "revision": "90d53ea98504631e01cc76685cad1dffd3a42e5c",
+      "base_version": "v17.0.0",
+      "scope": "Released 17.0.0 core and string normalization from src/, with immutable lookup tables. Generator-only trie builders and unftrip are omitted."
+    },
+    {
       "name": "x509",
       "url": "https://github.com/mirleft/ocaml-x509.git",
       "branch": "HEAD",

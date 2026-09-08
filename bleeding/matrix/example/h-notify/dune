@@ -1,0 +1,3 @@
+(executable
+ (name notify)
+ (libraries matrix-chat.bot matrix-chat.client matrix-chat.cli cmdliner))

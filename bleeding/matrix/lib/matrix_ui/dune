@@ -1,0 +1,17 @@
+(library
+ (name matrix_ui)
+ (public_name matrix-chat.ui)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  eio
+  jsont
+  markup
+  ptime
+  ptime.clock.os
+  uriz
+  uucp
+  uunf
+  uuseg
+  uutf))

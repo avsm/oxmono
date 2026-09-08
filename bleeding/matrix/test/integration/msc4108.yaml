@@ -1,0 +1,36 @@
+# MSC4108-only configuration delta for the pinned Synapse fixture.
+#
+# This is deliberately not a complete homeserver configuration.  msc4108.sh
+# passes it after the ordinary integration homeserver with two -c arguments,
+# so the base file continues to provide the listener, database, and secrets.
+#
+# No Matrix Authentication Service is started by this fixture.  The endpoint
+# below is deliberately unreachable: this fixture validates only the
+# unauthenticated MSC4108 rendezvous endpoint, not OAuth/MAS authentication.
+
+matrix_authentication_service:
+  enabled: true
+  endpoint: "http://127.0.0.1:9"
+  secret: "ocaml-matrix-msc4108-test-secret"
+
+# This fixture is intentionally fixed to host port 8009 (see msc4108.sh).
+# Synapse uses this base URL when constructing the MSC4108 rendezvous URL.
+public_baseurl: "http://127.0.0.1:8009/"
+
+experimental_features:
+  msc4108_enabled: true
+
+# MAS owns authentication and account provisioning in this configuration.
+# Keep Synapse's legacy password, registration, and 3PID paths disabled so
+# those unrelated flows cannot mask an MSC4108 rendezvous result.
+password_config:
+  enabled: false
+  localdb_enabled: false
+enable_registration: false
+enable_registration_without_verification: false
+registration_requires_token: false
+registrations_require_3pid: []
+enable_3pid_changes: false
+registration_shared_secret: null
+enable_3pid_lookup: false
+account_threepid_delegates: {}

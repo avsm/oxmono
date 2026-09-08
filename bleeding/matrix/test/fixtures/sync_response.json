@@ -1,0 +1,185 @@
+{
+  "device_one_time_keys_count": {},
+  "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+  "device_lists": {
+    "changed": [
+      "@example:example.org"
+    ],
+    "left": []
+  },
+  "account_data": {
+    "events": [
+      {
+        "content": {
+          "ignored_users": {
+            "@someone:example.org": {}
+          }
+        },
+        "type": "m.ignored_user_list"
+      }
+    ]
+  },
+  "rooms": {
+    "invite": {},
+    "join": {
+      "!SVkFJHzfwvuaIEawgC:localhost": {
+        "summary": {},
+        "account_data": {
+          "events": [
+            {
+              "content": {
+                "event_id": "$someplace:example.org"
+              },
+              "room_id": "!roomid:room.com",
+              "type": "m.fully_read"
+            }
+          ]
+        },
+        "ephemeral": {
+          "events": [
+            {
+              "content": {
+                "$151680659217152dPKjd:localhost": {
+                  "m.read": {
+                    "@example:localhost": {
+                      "ts": 151680989
+                    }
+                  }
+                }
+              },
+              "room_id": "!SVkFJHzfwvuaIEawgC:localhost",
+              "type": "m.receipt"
+            }
+          ]
+        },
+        "state": {
+          "events": [
+            {
+              "content": {
+                "join_rule": "public"
+              },
+              "event_id": "$15139375514WsgmR:localhost",
+              "origin_server_ts": 151393755000000,
+              "sender": "@example:localhost",
+              "state_key": "",
+              "type": "m.room.join_rules",
+              "unsigned": {
+                "age": 7034220
+              }
+            },
+            {
+              "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+              },
+              "event_id": "$151800140517rfvjc:localhost",
+              "origin_server_ts": 151800140000000,
+              "sender": "@example:localhost",
+              "state_key": "@example:localhost",
+              "type": "m.room.member",
+              "unsigned": {
+                "age": 2970366
+              }
+            },
+            {
+              "content": {
+                "history_visibility": "shared"
+              },
+              "event_id": "$15139375515VaJEY:localhost",
+              "origin_server_ts": 151393755000000,
+              "sender": "@example:localhost",
+              "state_key": "",
+              "type": "m.room.history_visibility",
+              "unsigned": {
+                "age": 7034220
+              }
+            },
+            {
+              "content": {
+                "creator": "@example:localhost"
+              },
+              "event_id": "$15139375510KUZHi:localhost",
+              "origin_server_ts": 151393755000000,
+              "sender": "@example:localhost",
+              "state_key": "",
+              "type": "m.room.create",
+              "unsigned": {
+                "age": 703422
+              }
+            },
+            {
+              "content": {
+                "topic": "room topic"
+              },
+              "event_id": "$151957878228ssqrJ:localhost",
+              "origin_server_ts": 151957878000000,
+              "sender": "@example:localhost",
+              "state_key": "",
+              "type": "m.room.topic",
+              "unsigned": {
+                "age": 1392989709
+              }
+            },
+            {
+              "content": {
+                "name": "Test Room"
+              },
+              "event_id": "$15139375513VdeRF:localhost",
+              "origin_server_ts": 151393755000000,
+              "sender": "@example:localhost",
+              "state_key": "",
+              "type": "m.room.name",
+              "unsigned": {
+                "age": 703422
+              }
+            }
+          ]
+        },
+        "timeline": {
+          "events": [
+            {
+              "content": {
+                "body": "Hello, world!",
+                "msgtype": "m.text"
+              },
+              "event_id": "$152037280074GZeOm:localhost",
+              "origin_server_ts": 152037280000000,
+              "sender": "@example:localhost",
+              "type": "m.room.message",
+              "unsigned": {
+                "age": 598971425
+              }
+            }
+          ],
+          "limited": true,
+          "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+        },
+        "unread_notifications": {
+          "highlight_count": 0,
+          "notification_count": 1
+        }
+      }
+    },
+    "leave": {},
+    "knock": {}
+  },
+  "presence": {
+    "events": [
+      {
+        "content": {
+          "avatar_url": "mxc://localhost/wefuiwegh8742w",
+          "currently_active": false,
+          "last_active_ago": 2478593,
+          "presence": "online",
+          "status_msg": "Making cupcakes"
+        },
+        "sender": "@example:localhost",
+        "type": "m.presence"
+      }
+    ]
+  },
+  "to_device": {
+    "events": []
+  }
+}

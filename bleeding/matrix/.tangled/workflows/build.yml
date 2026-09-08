@@ -1,0 +1,87 @@
+when:
+  - event: ["push", "pull_request"]
+    branch: ["main"]
+
+engine: nixery
+
+dependencies:
+  nixpkgs:
+    - shell
+    - stdenv
+    - findutils
+    - binutils
+    - libunwind
+    - ncurses
+    - opam
+    - git
+    - gawk
+    - gnupatch
+    - gnum4
+    - gnumake
+    - gnutar
+    - gnused
+    - gnugrep
+    - diffutils
+    - gzip
+    - bzip2
+    - gcc
+    - ocaml
+    - pkg-config
+
+steps:
+  - name: opam
+    command: |
+       opam init --disable-sandboxing -a -y
+  # Keep the compiler independent of whichever `ocaml` package happens to be
+  # current in Nixery's nixpkgs snapshot.  This is also the minimum compiler
+  # supported by dune-project and by the current httpz packages.
+  - name: compiler
+    command: |
+       opam switch create . ocaml-base-compiler.5.5.0 --no-install -y
+  # Publication gate: the public avsm/httpz HEAD checked on 2026-09-08 is
+  # still the old OxCaml project and lacks four required package manifests.
+  # Configure MATRIX_HTTPZ_SOURCE to a published HTTPS Git URL with a full
+  # immutable commit once the restructured packages are available. Validate
+  # the same revision with test/release-install.sh before release.
+  - name: pin
+    command: |
+       set -eu
+       : "${MATRIX_HTTPZ_SOURCE:?publish the restructured HTTPz packages and set URL#COMMIT}"
+       case "$MATRIX_HTTPZ_SOURCE" in
+         https://*'#'*) ;;
+         *) echo 'Expected HTTPS Git URL#COMMIT' >&2; exit 1 ;;
+       esac
+       revision="${MATRIX_HTTPZ_SOURCE##*#}"
+       printf '%s\n' "$revision" | grep -Eq '^[0-9a-fA-F]{40}$'
+       pin_dir="$(mktemp -d)"
+       trap 'rm -rf -- "$pin_dir"' EXIT
+       git clone --quiet "${MATRIX_HTTPZ_SOURCE%#*}" "$pin_dir/httpz"
+       git -C "$pin_dir/httpz" checkout --quiet "$revision"
+       for package in httpz fetch fetch-httpz proffer proffer-httpz; do
+         test -f "$pin_dir/httpz/$package.opam" || { echo "Missing $package.opam" >&2; exit 1; }
+         opam pin add -n -y "$package" "$MATRIX_HTTPZ_SOURCE"
+       done
+  - name: switch
+    command: |
+       opam install . --confirm-level=unsafe-yes --deps-only
+  - name: build
+    command: |
+       opam exec -- dune build
+  - name: switch-test
+    command: |
+       opam install . --confirm-level=unsafe-yes --deps-only --with-test
+  # test/vodozemac-oracle is a cargo project and is deliberately NOT built
+  # here: it would drag a Rust toolchain into CI for seven test cases. It is
+  # excluded from the dune build (see the `dirs` stanza in test/dune), and
+  # test/test_olm.ml prints `SKIP` and passes when the binary is absent. The
+  # recorded interop vectors under test/fixtures/olm/ still run, so the
+  # Olm/Megolm wire formats stay covered. Build it locally with
+  # `cd test/vodozemac-oracle && cargo build --release` to exercise the live
+  # both-directions interop against vodozemac.
+  - name: test
+    command: |
+       opam exec -- dune runtest --verbose
+  - name: doc
+    command: |
+       opam install -y odoc
+       opam exec -- dune build @doc

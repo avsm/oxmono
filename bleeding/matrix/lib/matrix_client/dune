@@ -1,0 +1,31 @@
+(library
+ (name matrix_client)
+ (public_name matrix-chat.client)
+ (private_modules io_context)
+ (libraries
+  stdlib_stable
+  stdlib_upstream_compatible
+  matrix-chat.proto
+  fetch
+  httpz
+  httpz.uri
+  uriz
+  jsont
+  jsont.bytesrw
+  xdge
+  eio
+  eio.unix
+  ptime
+  ptime.clock.os
+  mtime.clock.os
+  base64
+  cstruct
+  mirage-crypto
+  mirage-crypto-ec
+  eqaf
+  digestif
+  kdf.hkdf
+  kdf.pbkdf
+  logs
+  fmt
+  unix))

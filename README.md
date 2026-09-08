@@ -61,6 +61,10 @@ dune runtest --profile release-check bleeding/httpz bleeding/proffer bleeding/fe
 The HTTP examples compile as part of `@all`. Their READMEs give commands to
 run each program. Server examples continue running until stopped with Ctrl-C.
 
+The unreleased [Matrix SDK](bleeding/matrix/OXMONO.md) lives under
+`bleeding/`. Its import notes record the upstream revision, local adaptations
+and scoped test commands.
+
 ## Dependencies
 
 The workspace uses opam dependencies and the sources under `vendor/`.

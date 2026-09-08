@@ -1,0 +1,9 @@
+[package]
+name = "rust-export-verifier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+matrix-sdk-crypto = { path = "../../../../matrix-rust-sdk/crates/matrix-sdk-crypto" }
+serde_json = "1"

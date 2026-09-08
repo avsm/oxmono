@@ -1,0 +1,65 @@
+{
+  "next_batch": "s27831_8449_0_72_431_1_1132_4937_0_1_1_1_1_1",
+  "device_one_time_keys_count": {
+    "signed_curve25519": 0
+  },
+  "rooms": {
+    "join": {
+      "!OaZVTorgdovXfpDRiH:localhost": {
+        "timeline": {
+          "events": [
+            {
+              "content": {
+                "body": "Hello from the p-sync example",
+                "msgtype": "m.text"
+              },
+              "event_id": "$6bh2qaJQQBdnJDm-wpr5QLsf4iJWtyjaF042LwwwbGs",
+              "origin_server_ts": 1788391156439,
+              "sender": "@pexample-173172483:localhost",
+              "type": "m.room.message",
+              "unsigned": {
+                "age": 33875,
+                "membership": "join",
+                "transaction_id": "txn1"
+              }
+            },
+            {
+              "content": {
+                "body": "A second message",
+                "msgtype": "m.text"
+              },
+              "event_id": "$ob2qbtyJIXoXfDsVOryIaS9RuM93A1oqnCmM1CUmU2A",
+              "origin_server_ts": 1788391156459,
+              "sender": "@pexample-173172483:localhost",
+              "type": "m.room.message",
+              "unsigned": {
+                "age": 33855,
+                "membership": "join",
+                "transaction_id": "txn2"
+              }
+            }
+          ],
+          "prev_batch": "s27821_8449_0_72_431_1_1132_4937_0_1_1_1_1_1",
+          "limited": true
+        },
+        "state": {
+          "events": [
+            {
+              "content": {
+                "name": "Example room"
+              },
+              "event_id": "$zpB5nH26Vy3MrNh3p8TetHpVrU-ibqTzcmDyXS8qhmE",
+              "origin_server_ts": 1788391151172,
+              "sender": "@pexample-173172483:localhost",
+              "state_key": "",
+              "type": "m.room.name",
+              "unsigned": {
+                "age": 39142
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

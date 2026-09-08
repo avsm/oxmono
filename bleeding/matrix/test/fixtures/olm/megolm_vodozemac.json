@@ -1,0 +1,14 @@
+{
+  "comment": "Recorded from vodozemac 0.9 via test/vodozemac-oracle.",
+  "sender_key": "recorded-sender-key",
+  "room_id": "!recorded:example.org",
+  "session_id": "Cm9oQmhUVbroVdacj6v7R+MbDUaofrSVXrjAdZSOHo0",
+  "session_key": "AgAAAABXeArYz+8tSbsK9uMAIGJ7PIe621mOTgGWw+9s0iEWFUDUFFXuiNpGQDx2UwiA7G+yICS+I9RuZqP3wpt6PLVt/dLlYTmGwYL8eyIslfgF3Th3vgGEqYVklbNC68lsYN2E1WCialbkkykxPs6xwIPnWDrjpjazdhjSF2vsOs+dwQpvaEJoVFW66FXWnI+r+0fjGw1GqH60lV64wHWUjh6NG9BVw44cRvdoPm5S/3VUqEnUwhFPVmygnswHjaTnb7Lg9lH8ky2fbg8j3eyYJ7nucakPSQr/Vr551XoOzl/TCA",
+  "exported_at_2": "AQAAAAJXeArYz+8tSbsK9uMAIGJ7PIe621mOTgGWw+9s0iEWFUDUFFXuiNpGQDx2UwiA7G+yICS+I9RuZqP3wpt6PLVt/dLlYTmGwYL8eyIslfgF3Th3vgGEqYVklbNC68lsYN2Gow+M75HCD0PrcOoUPPHYLQytQwaGTw+ZscygATn2uQpvaEJoVFW66FXWnI+r+0fjGw1GqH60lV64wHWUjh6N",
+  "messages": [
+    { "message_index": 0, "ciphertext": "AwgAEhCzkHq6GAK9hzBN5i6F9Zh1wKcsJ/rH78ldrLN2Zw3nLGn6M4BkOMOqTI4DzgQvEPHEoEogD+VuMFL3yUo1Ae6vqyGqkoAv01IrfaylQJXr49KFUlJYHVAC", "plaintext": "vector 0" },
+    { "message_index": 1, "ciphertext": "AwgBEhDXMdjwtyMiHGj+rTCF7eA711+GZ0FL2o3XdY841kL15H+uCwO2ZsuN7xsW6HjWQK5410YaDtLJ/wViPvx28r+D2V2aU6ovxCMv81yiQGRTFf+S4OzYmuYE", "plaintext": "vector 1" },
+    { "message_index": 2, "ciphertext": "AwgCEhCyKojexJVIfl7bPSuw8g7aNDC/BfUuXxUKa33uP9MBG9ZaDxQaI350Zgm//lsKnAnNjz+mBZbewosxrr0YBFdBn3MJ3RdnNYEp6OfCU/cFwmcHIX5tsrUA", "plaintext": "vector 2" },
+    { "message_index": 3, "ciphertext": "AwgDEhDDAkTa+MepeHXMn0T2IJTOJjaaFNQ2KMa3mfiAbX9PwIAH8RlGco6wyRj+88gkJLXEu+LUqWPIlPow1W1d3xhiJrhvxfFV/AOaJj4ldH6ObKFZfgsRtgEG", "plaintext": "vector 3" }
+  ]
+}

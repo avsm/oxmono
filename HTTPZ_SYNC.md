@@ -277,3 +277,14 @@ the compiled source files, and local README links and run paths resolve.
 Rendered API documentation requires an OxCaml-compatible odoc, which is not
 available in this switch. The unchanged ATP syntax suite requires the absent
 `bleeding/atp/vendor/atproto/interop-test-files/syntax/` fixtures.
+
+## Local Matrix import requirements
+
+The Matrix import adds portable Fetch URL operations and exposes portable IDNA
+conversion. Fetch MDX environments explicitly include the vendored Uunf.
+Fetch URL rendering uses the portable standard Format functions.
+The monorepo also adds Uunf 17.0.0 with immutable lookup tables and portable IP
+address and EC key conversions. These changes are local to oxmono and have not
+been synchronized to the standalone HTTPz repositories. Preserve them in the
+next HTTPz merge. See [the import notes](bleeding/matrix/OXMONO.md) and
+[the Uunf port](vendor/uunf/README.md) for validation and provenance.

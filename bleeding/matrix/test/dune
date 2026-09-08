@@ -1,0 +1,1292 @@
+; The vodozemac oracle is a cargo project; keep dune out of its build tree.
+
+(dirs
+ (:standard \ vodozemac-oracle))
+
+(rule
+ (alias runtest)
+ (deps
+  check_no_partial_failures.sh
+  (source_tree ../lib))
+ (action
+  (run sh %{dep:check_no_partial_failures.sh} ..)))
+
+; Shared transport/JSON client for the optional vodozemac oracle.
+
+(library
+ (name test_support)
+ (wrapped false)
+ (modules vodozemac_oracle_client)
+ (libraries matrix-chat.proto jsont jsont.bytesrw unix))
+
+(rule
+ (alias runtest)
+ (deps
+  check_matrix_json_codecs.sh
+  (source_tree ../bin)
+  (source_tree ../lib))
+ (action
+  (run sh %{dep:check_matrix_json_codecs.sh} ..)))
+
+(rule
+ (alias runtest)
+ (deps
+  check_matrix_route_usage.sh
+  (source_tree ../lib))
+ (action
+  (run sh %{dep:check_matrix_route_usage.sh} ..)))
+
+(executable
+ (name test_matrix_proto)
+ (modules test_matrix_proto)
+ (libraries matrix-chat.proto jsont jsont.bytesrw))
+
+(executable
+ (name test_peeking)
+ (modules test_peeking)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_peeking.exe)
+ (action
+  (run ./test_peeking.exe --color=never)))
+
+(rule
+ (alias runtest)
+ (deps
+  (glob_files fixtures/*.json)
+  test_matrix_proto.exe)
+ (action
+  (run ./test_matrix_proto.exe)))
+
+(executable
+ (name test_media_store)
+ (modules test_media_store)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  matrix-chat.ui.sqlite
+  alcotest
+  eio_main
+  ptime
+  unix))
+
+(rule
+ (alias runtest)
+ (deps test_media_store.exe)
+ (action
+  (run ./test_media_store.exe --color=never)))
+
+(executable
+ (name test_event_store_external)
+ (modules test_event_store_external)
+ (libraries matrix-chat.ui.sqlite alcotest eio eio_main jsont jsont.bytesrw unix))
+
+(rule
+ (alias runtest)
+ (deps test_event_store_external.exe)
+ (action
+  (run ./test_event_store_external.exe --color=never)))
+
+(executable
+ (name test_lazy_event_store)
+ (modules test_lazy_event_store)
+ (libraries
+  matrix-chat.client
+  matrix-chat.ui
+  matrix-chat.ui.sqlite
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  sqlite3
+  unix
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_lazy_event_store.exe)
+ (action
+  (run ./test_lazy_event_store.exe --color=never)))
+
+(executable
+ (name test_media_fetcher)
+ (modules test_media_fetcher)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.ui.sqlite
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  ptime
+  unix
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_media_fetcher.exe)
+ (action
+  (run ./test_media_fetcher.exe --color=never)))
+
+(executable
+ (name test_qr_ecies)
+ (modules test_qr_ecies)
+ (libraries matrix-chat.client matrix-chat.proto alcotest eio eio_main))
+
+(rule
+ (alias runtest)
+ (deps test_qr_ecies.exe)
+ (action
+  (run ./test_qr_ecies.exe --color=never)))
+
+(executable
+ (name test_qr_secure_channel)
+ (modules test_qr_secure_channel)
+ (libraries matrix-chat.client matrix-chat.proto alcotest eio eio_main ptime))
+
+(rule
+ (alias runtest)
+ (deps test_qr_secure_channel.exe)
+ (action
+  (run ./test_qr_secure_channel.exe --color=never)))
+
+(executable
+ (name test_qr_application)
+ (modules test_qr_application)
+ (libraries matrix-chat.client matrix-chat.proto alcotest))
+
+(rule
+ (alias runtest)
+ (deps test_qr_application.exe)
+ (action
+  (run ./test_qr_application.exe --color=never)))
+
+(executable
+ (name test_qr_eio_application)
+ (modules test_qr_eio_application)
+ (libraries
+  matrix-chat.eio
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  fetch.mock
+  fetch))
+
+(rule
+ (alias runtest)
+ (deps test_qr_eio_application.exe)
+ (action
+  (run ./test_qr_eio_application.exe --color=never)))
+
+(executable
+ (name test_qr_secrets)
+ (modules test_qr_secrets)
+ (libraries matrix-chat.client matrix-chat.proto alcotest eio))
+
+(rule
+ (alias runtest)
+ (deps test_qr_secrets.exe)
+ (action
+  (run ./test_qr_secrets.exe --color=never)))
+
+(executable
+ (name test_session)
+ (modules test_session)
+ (libraries matrix-chat.client matrix-chat.proto eio jsont jsont.bytesrw ptime uriz))
+
+(rule
+ (alias runtest)
+ (deps test_session.exe)
+ (action
+  (run ./test_session.exe)))
+
+(executable
+ (name test_matrix_client)
+ (modules test_matrix_client)
+ (libraries duration
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  ptime
+  unix
+  uriz
+  xdge))
+
+(rule
+ (alias runtest)
+ (deps test_matrix_client.exe)
+ (action
+  (run ./test_matrix_client.exe --color=never)))
+
+(executable
+ (name test_paginator)
+ (modules test_paginator)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_paginator.exe)
+ (action
+  (run ./test_paginator.exe --color=never)))
+
+(executable
+ (name test_live_locations)
+ (modules test_live_locations)
+ (libraries
+  matrix-chat.client
+  matrix-chat.ui
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  unix
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_live_locations.exe)
+ (action
+  (run ./test_live_locations.exe --color=never)))
+
+(executable
+ (name test_composer_draft)
+ (modules test_composer_draft)
+ (libraries matrix-chat.client matrix-chat.proto alcotest eio eio_main jsont unix))
+
+(rule
+ (alias runtest)
+ (deps test_composer_draft.exe)
+ (action
+  (run ./test_composer_draft.exe --color=never)))
+
+(executable
+ (name test_room_preview_knock)
+ (modules test_room_preview_knock)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz
+  unix))
+
+(rule
+ (alias runtest)
+ (deps test_room_preview_knock.exe)
+ (action
+  (run ./test_room_preview_knock.exe --color=never)))
+
+(executable
+ (name test_retention)
+ (modules test_retention)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_retention.exe)
+ (action
+  (run ./test_retention.exe --color=never)))
+
+(executable
+ (name test_sliding_sync)
+ (modules test_sliding_sync)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_sliding_sync.exe)
+ (action
+  (run ./test_sliding_sync.exe --color=never)))
+
+(executable
+ (name test_adaptive_sync)
+ (modules test_adaptive_sync)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_adaptive_sync.exe)
+ (action
+  (run ./test_adaptive_sync.exe --color=never)))
+
+(executable
+ (name test_matrix_ui)
+ (modules test_matrix_ui)
+ (libraries
+  matrix-chat.ui
+  matrix-chat.ui.sqlite
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  fetch
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  qcheck-core
+  qcheck-alcotest
+  sqlite3
+  uriz))
+
+(executable
+ (name test_pinned_events)
+ (modules test_pinned_events)
+ (libraries
+  matrix-chat.ui
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  fetch
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_pinned_events.exe)
+ (action
+  (run ./test_pinned_events.exe --color=never)))
+
+(rule
+ (alias runtest)
+ (deps test_matrix_ui.exe)
+ (action
+  (run ./test_matrix_ui.exe --color=never)))
+
+(executable
+ (name test_room_identity)
+ (modules test_room_identity)
+ (libraries
+  matrix-chat.ui
+  matrix-chat.eio
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_room_identity.exe)
+ (action
+  (run ./test_room_identity.exe --color=never)))
+
+(executable
+ (name test_base64)
+ (modules test_base64)
+ (libraries matrix-chat.proto alcotest))
+
+(rule
+ (alias runtest)
+ (deps test_base64.exe)
+ (action
+  (run ./test_base64.exe --color=never)))
+
+(executable
+ (name test_attachment)
+ (modules test_attachment)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_attachment.exe)
+ (action
+  (run ./test_attachment.exe --color=never)))
+
+(executable
+ (name test_matching)
+ (modules test_matching)
+ (libraries matrix-chat.ui alcotest))
+
+(rule
+ (alias runtest)
+ (deps test_matching.exe)
+ (action
+  (run ./test_matching.exe --color=never)))
+
+(executable
+ (name test_room_list)
+ (modules test_room_list)
+ (libraries
+  matrix-chat.ui
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  jsont
+  jsont.bytesrw))
+
+(rule
+ (alias runtest)
+ (deps test_room_list.exe)
+ (action
+  (run ./test_room_list.exe --color=never)))
+
+(executable
+ (name test_cs_api)
+ (modules test_cs_api)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_cs_api.exe)
+ (action
+  (run ./test_cs_api.exe --color=never)))
+
+(executable
+ (name test_nullable_responses)
+ (modules test_nullable_responses)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_nullable_responses.exe)
+ (action
+  (run ./test_nullable_responses.exe --color=never)))
+
+(executable
+ (name test_olm)
+ (modules test_olm)
+ (libraries
+  test_support
+  matrix-chat.client
+  alcotest
+  base64
+  eio
+  jsont
+  jsont.bytesrw
+  mirage-crypto-ec
+  unix))
+
+(rule
+ (alias runtest)
+ (deps
+  (glob_files fixtures/olm/*.json)
+  (env_var VODOZEMAC_ORACLE)
+  (env_var MATRIX_REQUIRE_ORACLE)
+  test_olm.exe)
+ (action
+  (run ./test_olm.exe --color=never)))
+
+(executable
+ (name test_e2ee_api)
+ (modules test_e2ee_api)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  base64
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz
+  unix
+  xdge))
+
+(rule
+ (alias runtest)
+ (deps (env_var VODOZEMAC_ORACLE) (env_var MATRIX_REQUIRE_ORACLE) test_e2ee_api.exe)
+ (action
+  (run ./test_e2ee_api.exe --color=never)))
+
+(executable
+ (name test_dehydrated_manager)
+ (modules test_dehydrated_manager)
+ (libraries
+  matrix-chat.eio
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  fetch
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  http
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_dehydrated_manager.exe)
+ (action
+  (run ./test_dehydrated_manager.exe --color=never)))
+
+(executable
+ (name test_encoders)
+ (modules test_encoders)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_encoders.exe)
+ (action
+  (run ./test_encoders.exe --color=never)))
+
+(executable
+ (name test_oauth)
+ (modules test_oauth)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_oauth.exe)
+ (action
+  (run ./test_oauth.exe --color=never)))
+
+(executable
+ (name test_verification)
+ (modules test_verification)
+ (libraries
+  test_support
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  base64
+  eio
+  jsont
+  jsont.bytesrw))
+
+(rule
+ (alias runtest)
+ (deps (env_var VODOZEMAC_ORACLE) (env_var MATRIX_REQUIRE_ORACLE) test_verification.exe)
+ (action
+  (run ./test_verification.exe --color=never)))
+
+; The encryption service.
+
+(executable
+ (name test_encryption)
+ (modules test_encryption)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  digestif
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  unix
+  uriz
+  xdge))
+
+(rule
+ (alias runtest)
+ (deps
+  test_encryption.exe
+  fixtures/portable-room-keys.ocaml.megolm
+  fixtures/portable-room-keys.expected.json)
+ (action
+  (run ./test_encryption.exe --color=never)))
+
+(executable
+ (name test_encryption_account)
+ (modules test_encryption_account)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  unix
+  xdge))
+
+(rule
+ (alias runtest)
+ (deps test_encryption_account.exe)
+ (action
+  (run ./test_encryption_account.exe --color=never)))
+
+(executable
+ (name test_base_client)
+ (modules test_base_client)
+ (libraries
+  matrix-chat.client
+  matrix-chat.ui.sqlite
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  unix
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_base_client.exe)
+ (action
+  (run ./test_base_client.exe --color=never)))
+
+(executable
+ (name test_base_sliding)
+ (modules test_base_sliding)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  jsont
+  jsont.bytesrw
+  unix))
+
+(rule
+ (alias runtest)
+ (deps test_base_sliding.exe)
+ (action
+  (run ./test_base_sliding.exe --color=never)))
+
+(executable
+ (name test_sliding_service)
+ (modules test_sliding_service)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  unix
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_sliding_service.exe)
+ (action
+  (run ./test_sliding_service.exe --color=never)))
+
+(executable
+ (name test_sliding_service_loop)
+ (modules test_sliding_service_loop)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  eio
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  unix
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_sliding_service_loop.exe)
+ (action
+  (run ./test_sliding_service_loop.exe --color=never)))
+
+(executable
+ (name test_push_bootstrap)
+ (modules test_push_bootstrap)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_push_bootstrap.exe)
+ (action
+  (run ./test_push_bootstrap.exe --color=never)))
+
+(executable
+ (name test_json_safety)
+ (modules test_json_safety)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_json_safety.exe)
+ (action
+  (run ./test_json_safety.exe --color=never)))
+
+; Encryption wired into the sync loop and the send queue.
+
+(executable
+ (name test_e2ee_integration)
+ (modules test_e2ee_integration)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  alcotest
+  digestif
+  eio
+  eio_main
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_e2ee_integration.exe)
+ (action
+  (run ./test_e2ee_integration.exe --color=never)))
+
+; The bot library.
+
+(executable
+ (name test_matrix_bot)
+ (modules test_matrix_bot)
+ (libraries
+  matrix-chat.bot
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  matrix-chat.ui
+  alcotest
+  eio
+  eio_main
+  fetch
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  unix
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_matrix_bot.exe)
+ (action
+  (run ./test_matrix_bot.exe --color=never)))
+
+(executable
+ (name test_http_policy)
+ (modules test_http_policy)
+ (libraries duration
+  matrix-chat.eio
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch-httpz
+  fetch.mock
+  http
+  httpz.tls))
+
+(rule
+ (alias runtest)
+ (deps test_http_policy.exe)
+ (action
+  (run ./test_http_policy.exe --color=never)))
+
+(executable
+ (name test_cli_http_policy)
+ (modules test_cli_http_policy)
+ (libraries duration matrix-chat.cli matrix-chat.eio alcotest eio eio_main fetch fetch-httpz))
+
+(rule
+ (alias runtest)
+ (deps test_cli_http_policy.exe)
+ (action
+  (run ./test_cli_http_policy.exe --color=never)))
+
+(executable
+ (name test_cli_backup)
+ (modules test_cli_backup)
+ (libraries matrix-chat.client matrix-chat.proto alcotest eio eio.unix eio_main jsont jsont.bytesrw uriz xdge))
+
+(rule
+ (alias runtest)
+ (deps test_cli_backup.exe)
+ (action
+  (setenv OMATRIX_EXE %{exe:../bin/omatrix/omatrix.exe}
+   (run ./test_cli_backup.exe --color=never))))
+
+(executable
+ (name test_signed_json)
+ (modules test_signed_json)
+ (libraries matrix-chat.proto alcotest))
+
+(rule
+ (alias runtest)
+ (deps test_signed_json.exe)
+ (action
+  (run ./test_signed_json.exe --color=never)))
+
+(executable
+ (name test_room_conveniences)
+ (modules test_room_conveniences)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_room_conveniences.exe)
+ (action
+  (run ./test_room_conveniences.exe --color=never)))
+
+(executable
+ (name test_relations_revisions)
+ (modules test_relations_revisions)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_relations_revisions.exe)
+ (action
+  (run ./test_relations_revisions.exe --color=never)))
+
+(executable
+ (name test_well_known_policy)
+ (modules test_well_known_policy)
+ (libraries matrix-chat.client alcotest eio eio.mock fetch fetch.mock http uriz))
+
+(rule
+ (alias runtest)
+ (deps test_well_known_policy.exe)
+ (action
+  (run ./test_well_known_policy.exe --color=never)))
+
+(executable
+ (name test_admin)
+ (modules test_admin)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_admin.exe)
+ (action
+  (run ./test_admin.exe --color=never)))
+
+(executable
+ (name test_notification_settings)
+ (modules test_notification_settings)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_notification_settings.exe)
+ (action
+  (run ./test_notification_settings.exe --color=never)))
+
+(executable
+ (name test_room_directory_search)
+ (modules test_room_directory_search)
+ (libraries
+  matrix-chat.ui
+  matrix-chat.eio
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  eio_main
+  fetch
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_room_directory_search.exe)
+ (action
+  (run ./test_room_directory_search.exe --color=never)))
+
+(executable
+ (name test_search_service)
+ (modules test_search_service)
+ (libraries
+  matrix-chat.ui
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_search_service.exe)
+ (action
+  (run ./test_search_service.exe --color=never)))
+
+(executable
+ (name test_space_graph)
+ (modules test_space_graph)
+ (libraries matrix-chat.client matrix-chat.proto alcotest jsont))
+
+(rule
+ (alias runtest)
+ (deps test_space_graph.exe)
+ (action
+  (run ./test_space_graph.exe --color=never)))
+
+(executable
+ (name test_room_details)
+ (modules test_room_details)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_room_details.exe)
+ (action
+  (run ./test_room_details.exe --color=never)))
+
+(executable
+ (name test_thread_paginator)
+ (modules test_thread_paginator)
+ (libraries
+  matrix-chat.client
+  matrix-chat.ui
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_thread_paginator.exe)
+ (action
+  (run ./test_thread_paginator.exe --color=never)))
+
+(executable
+ (name test_notification_client)
+ (modules test_notification_client)
+ (libraries
+  matrix-chat.ui
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_notification_client.exe)
+ (action
+  (run ./test_notification_client.exe --color=never)))
+
+(executable
+ (name test_recovery)
+ (modules test_recovery)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_recovery.exe)
+ (action
+  (run ./test_recovery.exe --color=never)))
+
+(executable
+ (name test_back_pagination)
+ (modules test_back_pagination)
+ (libraries
+  matrix-chat.client
+  matrix-chat.ui
+  matrix-chat.proto
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  jsont.bytesrw
+  uriz))
+
+(rule
+ (alias runtest)
+ (deps test_back_pagination.exe)
+ (action
+  (run ./test_back_pagination.exe --color=never)))
+
+(executable
+ (name test_dehydrated_pickle)
+ (modules test_dehydrated_pickle)
+ (libraries matrix-chat.client matrix-chat.proto alcotest eio))
+
+(rule
+ (alias runtest)
+ (deps test_dehydrated_pickle.exe)
+ (action
+  (run ./test_dehydrated_pickle.exe --color=never)))
+
+(executable
+ (name test_profile_recovery)
+ (modules test_profile_recovery)
+ (libraries matrix-chat.client matrix-chat.proto alcotest eio eio.unix eio_main jsont jsont.bytesrw uriz xdge))
+
+(rule
+ (alias runtest)
+ (deps test_profile_recovery.exe)
+ (action (run ./test_profile_recovery.exe --color=never)))

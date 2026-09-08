@@ -1,0 +1,15 @@
+(library
+ (name matrix_ui_sqlite)
+ (public_name matrix-chat.ui.sqlite)
+ (libraries
+  matrix-chat.proto
+  matrix-chat.ui
+  matrix-chat.client
+  eio
+  eio.unix
+  jsont
+  jsont.bytesrw
+  logs
+  sqlite3
+  ptime
+  ptime.clock.os))

@@ -1,0 +1,3 @@
+(executable
+ (name events)
+ (libraries matrix-chat.proto jsont jsont.bytesrw))

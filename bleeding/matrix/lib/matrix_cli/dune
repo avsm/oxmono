@@ -1,0 +1,15 @@
+(library
+ (name matrix_cli)
+ (public_name matrix-chat.cli)
+ (libraries duration
+  matrix-chat.proto
+  matrix-chat.client
+  cmdliner
+  fmt
+  fmt.cli
+  fmt.tty
+  logs
+  logs.cli
+  logs.fmt
+  uriz
+  fetch))

@@ -1,0 +1,2 @@
+(env
+ (_ (flags (:standard -open Matrix_compat))))

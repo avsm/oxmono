@@ -1,0 +1,10 @@
+(executable
+ (name profile)
+ (libraries
+  matrix-chat.eio
+  matrix-chat.client
+  matrix-chat.proto
+  eio_main
+  uriz
+  xdge
+  ptime.clock.os))

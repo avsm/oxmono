@@ -1,0 +1,143 @@
+# Synapse configuration for the ocaml-matrix integration harness.
+#
+# THIS IS A THROWAWAY TEST SERVER. Every secret below is committed to a
+# public repository on purpose, so that `test/integration/synapse.sh up`
+# produces the same server on every machine and a test can predict what it
+# will accept. Do not reuse this file, or any value in it, for anything that
+# holds real accounts.
+#
+# `synapse.sh up` runs the image's `generate` mode once to mint
+# /data/localhost.signing.key and /data/localhost.log.config, then copies
+# this file over the generated /data/homeserver.yaml. Only the signing key
+# and the log config come from the image; everything else is here.
+
+server_name: "localhost"
+public_baseurl: "http://127.0.0.1:8008/"
+pid_file: /data/homeserver.pid
+
+# One listener, client API only. Federation is off: the harness talks to a
+# single server and nothing should be able to reach out of the container.
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: false
+    bind_addresses: ['0.0.0.0']
+    resources:
+      - names: [client]
+        compress: false
+
+database:
+  name: sqlite3
+  args:
+    database: /data/homeserver.db
+
+log_config: "/data/localhost.log.config"
+media_store_path: /data/media_store
+signing_key_path: "/data/localhost.signing.key"
+
+# No federation, so no key server to fetch other servers' keys from, and no
+# reason for Synapse to warn about trusting matrix.org for them.
+trusted_key_servers: []
+suppress_key_server_warning: true
+
+report_stats: false
+
+# Test values, see the header. `generate` would have written random ones.
+macaroon_secret_key: "ocaml-matrix-test-macaroon-secret"
+form_secret: "ocaml-matrix-test-form-secret"
+registration_shared_secret: "ocaml-matrix-test-registration-shared-secret"
+
+# The harness registers a fresh user per run over the open registration
+# endpoint; there is no email or captcha step to satisfy.
+enable_registration: true
+enable_registration_without_verification: true
+
+# Synapse 1.126 changed the default to deny room-directory publication by
+# non-admin users. The throwaway harness explicitly permits it so the public
+# directory client and its stateful pagination facade can be exercised.
+room_list_publication_rules:
+  - action: allow
+
+# Simplified sliding sync, MSC4186, served at
+# /_matrix/client/unstable/org.matrix.simplified_msc3575/sync.
+#
+# The flag is `msc3575_enabled`, not `msc4186_enabled`: Synapse named it
+# after the original MSC3575 endpoint and kept the name when the endpoint
+# became MSC4186's. Verified against the image with
+#
+#   docker run --rm --entrypoint python ghcr.io/element-hq/synapse:v1.159.0 \
+#     -c 'import synapse.config.experimental as e, inspect; \
+#         print(inspect.getsource(e))' | grep msc3575
+#
+# which shows `experimental.get("msc3575_enabled", True)`. It already
+# defaults to true in this image; it is set explicitly so that the harness
+# keeps working if a later Synapse flips the default back.
+experimental_features:
+  msc3575_enabled: true
+  # Legacy MSC3814 V1 remains the interoperable format implemented by the
+  # pinned matrix-rust-sdk dehydration path and by this test harness.
+  msc3814_enabled: true
+
+# Rate limits, all raised far past anything a test run can reach. Synapse's
+# defaults are tuned for a public server and a test that registers two users
+# and sends a handful of messages walks straight into a 429; this file exists
+# largely so that it does not. See TODO.md, "HTTP client".
+rc_login:
+  address:
+    per_second: 1000
+    burst_count: 1000
+  account:
+    per_second: 1000
+    burst_count: 1000
+  failed_attempts:
+    per_second: 1000
+    burst_count: 1000
+
+rc_registration:
+  per_second: 1000
+  burst_count: 1000
+
+rc_message:
+  per_second: 1000
+  burst_count: 1000
+
+rc_joins:
+  local:
+    per_second: 1000
+    burst_count: 1000
+  remote:
+    per_second: 1000
+    burst_count: 1000
+
+rc_invites:
+  per_room:
+    per_second: 1000
+    burst_count: 1000
+  per_user:
+    per_second: 1000
+    burst_count: 1000
+  per_issuer:
+    per_second: 1000
+    burst_count: 1000
+
+rc_admin_redaction:
+  per_second: 1000
+  burst_count: 1000
+
+rc_3pid_validation:
+  per_second: 1000
+  burst_count: 1000
+
+rc_media_create:
+  per_second: 1000
+  burst_count: 1000
+
+# Media: small uploads only, and thumbnails on, because the media scenario
+# asks for one.
+max_upload_size: 10M
+dynamic_thumbnails: true
+
+# Nothing here should reach the network.
+url_preview_enabled: false
+enable_metrics: false

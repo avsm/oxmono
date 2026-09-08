@@ -1,0 +1,15 @@
+(executable
+ (name omatrix)
+ (public_name omatrix)
+ (package matrix-chat)
+ (libraries
+  matrix-chat.eio
+  matrix-chat.cli
+  matrix-chat.client
+  matrix-chat.proto
+  eio_main
+  jsont
+  uriz
+  xdge
+  ptime.clock.os
+  cmdliner))

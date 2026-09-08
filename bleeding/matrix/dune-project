@@ -1,0 +1,70 @@
+(lang dune 3.21)
+(name matrix-chat)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-matrix))
+
+(package
+ (name matrix-chat)
+ (synopsis "Pure OCaml Matrix SDK")
+ (description
+  "A pure OCaml implementation of the Matrix client SDK, covering the \
+   Client-Server API and end-to-end encryption. Olm and Megolm are \
+   interoperable with libolm and vodozemac, and encryption is wired into the \
+   sync loop and the send path. Provides matrix-chat.proto for protocol types and \
+   JSON codecs, matrix-chat.client for the result-returning SDK over a Fetch.t \
+   capability, matrix-chat.eio for Eio-idiomatic usage and the driver loops, \
+   matrix-chat.cli for cmdliner terms, matrix-chat.ui for reactive room lists and \
+   timelines with matrix-chat.ui.sqlite behind their event cache, matrix-chat.bot for \
+   writing bots, and the omatrix and matrix-bot executables.")
+ (depends
+  (duration (>= 0.3.1))
+  ; OxCaml 5.2 with the local compatibility module in compat/.
+  (ocaml (>= 5.2))
+  ; JSON: matrix-chat.proto codecs, matrix-chat.client bodies, session files.
+  (jsont (>= 0.4.0))
+  (jsonm (>= 1.0.2))
+  ; HTTP capability (matrix-chat.client) and its Eio backend (matrix-chat.eio).
+  fetch
+  fetch-httpz
+  httpz
+  proffer
+  proffer-httpz
+  (mtime (>= 2.0.0))
+  ; Crypto primitives for E2EE (matrix-chat.client).
+  (eqaf (>= 0.10))
+  (mirage-crypto (>= 2.0.0))
+  (mirage-crypto-ec (>= 2.0.0))
+  (kdf (>= 1.1.0))
+  (digestif (>= 1.0.0))
+  (base64 (>= 3.5.0))
+  ; Matrix server-name grammar (matrix-chat.proto).
+  (domain-name (>= 0.5.0))
+  (ipaddr (>= 5.6.0))
+  (cstruct (>= 6.0.0))
+  ; Runtime and utilities.
+  (eio (>= 1.3))
+  uriz
+  (ptime (>= 1.0.0))
+  ; UI presentation: safe Matrix HTML parsing and Unicode-aware room search.
+  (markup (>= 1.0.3))
+  (uutf (>= 1.0.4))
+  (uunf (>= 17.0.0))
+  (uucp (>= 17.0.0))
+  (uuseg (>= 17.0.0))
+  ; Persistent event-cache backend.
+  (sqlite3 (>= 5.4.2))
+  (xdge (>= 1.1.0))
+  (logs (>= 0.7.0))
+  (fmt (>= 0.8.9))
+  (cmdliner (>= 1.1.0))
+  ; eio_main is not test-only: the installed "omatrix" executable links it.
+  (eio_main (>= 1.3))
+  (alcotest (and (>= 1.7.0) :with-test))
+  (qcheck-core (and (>= 0.91) :with-test))
+  (qcheck-alcotest (and (>= 0.91) :with-test))
+  (http (and (>= 6.0.0) :with-test))))

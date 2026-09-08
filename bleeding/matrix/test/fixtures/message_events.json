@@ -1,0 +1,135 @@
+{
+  "text_message": {
+    "content": {
+      "body": "Hello, world!",
+      "msgtype": "m.text"
+    },
+    "event_id": "$152037280074GZeOm:localhost",
+    "origin_server_ts": 152037280000000,
+    "sender": "@example:localhost",
+    "type": "m.room.message"
+  },
+  "text_message_formatted": {
+    "content": {
+      "body": "Hello, **world**!",
+      "msgtype": "m.text",
+      "format": "org.matrix.custom.html",
+      "formatted_body": "Hello, <strong>world</strong>!"
+    },
+    "event_id": "$152037280075AbCdE:localhost",
+    "origin_server_ts": 152037280100000,
+    "sender": "@example:localhost",
+    "type": "m.room.message"
+  },
+  "emote_message": {
+    "content": {
+      "body": "waves hello",
+      "msgtype": "m.emote"
+    },
+    "event_id": "$152037280076FgHiJ:localhost",
+    "origin_server_ts": 152037280200000,
+    "sender": "@example:localhost",
+    "type": "m.room.message"
+  },
+  "notice_message": {
+    "content": {
+      "body": "This is a notice",
+      "msgtype": "m.notice"
+    },
+    "event_id": "$152037280077KlMnO:localhost",
+    "origin_server_ts": 152037280300000,
+    "sender": "@bot:localhost",
+    "type": "m.room.message"
+  },
+  "image_message": {
+    "content": {
+      "body": "image.png",
+      "msgtype": "m.image",
+      "url": "mxc://localhost/abcdef123456",
+      "info": {
+        "mimetype": "image/png",
+        "size": 12345,
+        "h": 480,
+        "w": 640,
+        "thumbnail_url": "mxc://localhost/thumb123",
+        "thumbnail_info": {
+          "mimetype": "image/png",
+          "size": 1234,
+          "h": 48,
+          "w": 64
+        }
+      }
+    },
+    "event_id": "$152037280078PqRsT:localhost",
+    "origin_server_ts": 152037280400000,
+    "sender": "@example:localhost",
+    "type": "m.room.message"
+  },
+  "file_message": {
+    "content": {
+      "body": "document.pdf",
+      "msgtype": "m.file",
+      "url": "mxc://localhost/file789",
+      "info": {
+        "mimetype": "application/pdf",
+        "size": 54321
+      }
+    },
+    "event_id": "$152037280079UvWxY:localhost",
+    "origin_server_ts": 152037280500000,
+    "sender": "@example:localhost",
+    "type": "m.room.message"
+  },
+  "audio_message": {
+    "content": {
+      "body": "audio.mp3",
+      "msgtype": "m.audio",
+      "url": "mxc://localhost/audio456",
+      "info": {
+        "mimetype": "audio/mpeg",
+        "size": 98765,
+        "duration": 180000
+      }
+    },
+    "event_id": "$152037280080ZaBcD:localhost",
+    "origin_server_ts": 152037280600000,
+    "sender": "@example:localhost",
+    "type": "m.room.message"
+  },
+  "video_message": {
+    "content": {
+      "body": "video.mp4",
+      "msgtype": "m.video",
+      "url": "mxc://localhost/video789",
+      "info": {
+        "mimetype": "video/mp4",
+        "size": 1234567,
+        "duration": 60000,
+        "h": 720,
+        "w": 1280,
+        "thumbnail_url": "mxc://localhost/vthumb123",
+        "thumbnail_info": {
+          "mimetype": "image/jpeg",
+          "size": 5678,
+          "h": 72,
+          "w": 128
+        }
+      }
+    },
+    "event_id": "$152037280081EfGhI:localhost",
+    "origin_server_ts": 152037280700000,
+    "sender": "@example:localhost",
+    "type": "m.room.message"
+  },
+  "location_message": {
+    "content": {
+      "body": "My Location",
+      "msgtype": "m.location",
+      "geo_uri": "geo:51.5074,-0.1278"
+    },
+    "event_id": "$152037280082JkLmN:localhost",
+    "origin_server_ts": 152037280800000,
+    "sender": "@example:localhost",
+    "type": "m.room.message"
+  }
+}

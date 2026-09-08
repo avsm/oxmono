@@ -1,0 +1,60 @@
+{
+  "user_ids": {
+    "valid": [
+      "@alice:example.org",
+      "@bob:matrix.org",
+      "@user123:localhost",
+      "@test.user:server.com",
+      "@admin:192.168.1.1:8448"
+    ],
+    "invalid": [
+      "alice:example.org",
+      "@",
+      "@alice",
+      "@@alice:example.org",
+      "@alice:",
+      "@:example.org"
+    ]
+  },
+  "room_ids": {
+    "valid": [
+      "!SVkFJHzfwvuaIEawgC:localhost",
+      "!opaqueid:matrix.org",
+      "!abc123:server.example.com"
+    ],
+    "invalid": [
+      "SVkFJHzfwvuaIEawgC:localhost",
+      "!",
+      "!SVkFJHzfwvuaIEawgC",
+      "!:localhost"
+    ]
+  },
+  "event_ids": {
+    "valid_v1": [
+      "$152037280074GZeOm:localhost",
+      "$event123:matrix.org"
+    ],
+    "valid_v4": [
+      "$Rqnc-F-dvnEYJTyHq_iKxU2bZ1CI92-kuZq3a5lr5Zg",
+      "$base64opaqueid"
+    ],
+    "invalid": [
+      "152037280074GZeOm:localhost",
+      "$",
+      ""
+    ]
+  },
+  "room_aliases": {
+    "valid": [
+      "#test:localhost",
+      "#general:matrix.org",
+      "#room-name:server.com"
+    ],
+    "invalid": [
+      "test:localhost",
+      "#",
+      "#test",
+      "#:localhost"
+    ]
+  }
+}

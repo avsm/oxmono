@@ -1,0 +1,14 @@
+(executable
+ (name timeline)
+ (libraries
+  matrix-chat.eio
+  matrix-chat.client
+  matrix-chat.ui
+  matrix-chat.ui.sqlite
+  matrix-chat.cli
+  matrix-chat.proto
+  eio_main
+  uriz
+  xdge
+  ptime.clock.os
+  cmdliner))

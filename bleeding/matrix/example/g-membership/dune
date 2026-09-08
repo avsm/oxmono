@@ -1,0 +1,3 @@
+(executable
+ (name membership)
+ (libraries matrix-chat.bot cmdliner))

@@ -1,0 +1,124 @@
+{
+  "room_create": {
+    "content": {
+      "creator": "@example:localhost",
+      "room_version": "10"
+    },
+    "event_id": "$15139375510KUZHi:localhost",
+    "origin_server_ts": 151393755000000,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.create"
+  },
+  "room_name": {
+    "content": {
+      "name": "Test Room"
+    },
+    "event_id": "$15139375513VdeRF:localhost",
+    "origin_server_ts": 151393755000000,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.name"
+  },
+  "room_topic": {
+    "content": {
+      "topic": "This is a test room"
+    },
+    "event_id": "$151957878228ssqrJ:localhost",
+    "origin_server_ts": 151957878000000,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.topic"
+  },
+  "room_member_join": {
+    "content": {
+      "avatar_url": "mxc://localhost/wefuiwegh8742w",
+      "displayname": "Example User",
+      "membership": "join"
+    },
+    "event_id": "$151800140517rfvjc:localhost",
+    "origin_server_ts": 151800140000000,
+    "sender": "@example:localhost",
+    "state_key": "@example:localhost",
+    "type": "m.room.member"
+  },
+  "room_member_invite": {
+    "content": {
+      "displayname": "Another User",
+      "membership": "invite"
+    },
+    "event_id": "$151800140517xyza:localhost",
+    "origin_server_ts": 151800141000000,
+    "sender": "@example:localhost",
+    "state_key": "@another:localhost",
+    "type": "m.room.member"
+  },
+  "room_join_rules": {
+    "content": {
+      "join_rule": "public"
+    },
+    "event_id": "$15139375514WsgmR:localhost",
+    "origin_server_ts": 151393755000000,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.join_rules"
+  },
+  "room_history_visibility": {
+    "content": {
+      "history_visibility": "shared"
+    },
+    "event_id": "$15139375515VaJEY:localhost",
+    "origin_server_ts": 151393755000000,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.history_visibility"
+  },
+  "room_power_levels": {
+    "content": {
+      "ban": 50,
+      "events": {
+        "m.room.name": 50,
+        "m.room.power_levels": 100
+      },
+      "events_default": 0,
+      "invite": 0,
+      "kick": 50,
+      "redact": 50,
+      "state_default": 50,
+      "users": {
+        "@example:localhost": 100
+      },
+      "users_default": 0
+    },
+    "event_id": "$15139375517ZvWRR:localhost",
+    "origin_server_ts": 151393755000000,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.power_levels"
+  },
+  "room_canonical_alias": {
+    "content": {
+      "alias": "#test:localhost",
+      "alt_aliases": [
+        "#other:localhost"
+      ]
+    },
+    "event_id": "$15139375518AbCdE:localhost",
+    "origin_server_ts": 151393755000000,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.canonical_alias"
+  },
+  "room_encryption": {
+    "content": {
+      "algorithm": "m.megolm.v1.aes-sha2",
+      "rotation_period_ms": 604800000,
+      "rotation_period_msgs": 100
+    },
+    "event_id": "$15139375519FgHiJ:localhost",
+    "origin_server_ts": 151393755000000,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.encryption"
+  }
+}

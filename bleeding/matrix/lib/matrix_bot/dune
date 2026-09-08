@@ -1,0 +1,25 @@
+(library
+ (name matrix_bot)
+ (public_name matrix-chat.bot)
+ (libraries
+  matrix-chat.cli
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  matrix-chat.ui
+  matrix-chat.ui.sqlite
+  cmdliner
+  eio
+  eio.unix
+  eio_main
+  fmt.cli
+  fmt.tty
+  jsont
+  jsont.bytesrw
+  logs
+  logs.cli
+  logs.fmt
+  ptime.clock.os
+  unix
+  uriz
+  xdge))

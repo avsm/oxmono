@@ -1,0 +1,4 @@
+(executable
+ (name generate_portable_export)
+ (modules generate_portable_export)
+ (libraries matrix-chat.client matrix-chat.proto eio jsont jsont.bytesrw))

@@ -1,0 +1,7 @@
+{
+  "repository": "git@git.recoil.org:anil.recoil.org/ocaml-matrix",
+  "revision": "f150bc14804d8b9263c9cdecdf42967d6ec3f0b4",
+  "imported_on": "2026-09-08",
+  "package": "matrix-chat",
+  "layout": "All tracked files from git archive. compat/ contains local compiler helpers. oxmono/ and OXMONO.md record import metadata."
+}

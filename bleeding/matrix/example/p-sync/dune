@@ -1,0 +1,3 @@
+(executable
+ (name sync)
+ (libraries matrix-chat.proto jsont jsont.bytesrw))

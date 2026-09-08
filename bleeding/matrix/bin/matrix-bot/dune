@@ -1,0 +1,22 @@
+; The plugins are a library so that test/integration/scenario_bots.ml can
+; compose exactly the plugins matrix_bot.ml does.
+
+(library
+ (name matrix_bots)
+ (modules echo commands welcome moderator logger notify)
+ (libraries
+  matrix-chat.bot
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  matrix-chat.ui
+  eio
+  jsont
+  logs))
+
+(executable
+ (name matrix_bot)
+ (public_name matrix-bot)
+ (package matrix-chat)
+ (modules matrix_bot)
+ (libraries matrix_bots matrix-chat.bot matrix-chat.proto cmdliner))

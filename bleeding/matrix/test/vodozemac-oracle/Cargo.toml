@@ -1,0 +1,13 @@
+[package]
+name = "vodozemac-oracle"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+description = "A line-oriented JSON oracle around vodozemac, used by the ocaml-matrix Olm/Megolm interop tests."
+
+[dependencies]
+vodozemac = "0.9"
+serde_json = "1"
+hkdf = "0.12"
+sha2 = "0.10"

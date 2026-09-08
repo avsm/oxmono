@@ -1,0 +1,3 @@
+(executable
+ (name store)
+ (libraries matrix-chat.bot matrix-chat.proto cmdliner jsont))

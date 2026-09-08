@@ -1,0 +1,12 @@
+(executable
+ (name cli)
+ (libraries
+  matrix-chat.eio
+  matrix-chat.client
+  matrix-chat.cli
+  matrix-chat.proto
+  eio_main
+  uriz
+  xdge
+  ptime.clock.os
+  cmdliner))

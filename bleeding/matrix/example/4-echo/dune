@@ -1,0 +1,3 @@
+(executable
+ (name echo)
+ (libraries matrix-chat.eio matrix-chat.proto eio_main uriz jsont))

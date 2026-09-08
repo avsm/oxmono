@@ -1,0 +1,7 @@
+(env
+ (_ (flags (:standard \ -open Matrix_compat))))
+
+(library
+ (name matrix_compat)
+ (modules matrix_compat)
+ (package matrix-chat))

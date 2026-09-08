@@ -1,0 +1,4 @@
+(library
+ (name matrix_proto)
+ (public_name matrix-chat.proto)
+ (libraries matrix_compat base64 domain-name ipaddr jsont jsonm ptime))

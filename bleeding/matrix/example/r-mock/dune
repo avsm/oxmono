@@ -1,0 +1,11 @@
+(executable
+ (name mock)
+ (libraries
+  matrix-chat.client
+  matrix-chat.proto
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  uriz))

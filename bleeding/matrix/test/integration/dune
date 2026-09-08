@@ -1,0 +1,74 @@
+; The integration suite. Nothing here runs without a homeserver: the
+; executable prints SKIP and exits 0 when MATRIX_TEST_HOMESERVER is unset,
+; which is what keeps `dune runtest` hermetic.
+;
+;   test/integration/synapse.sh up
+;   eval "$(test/integration/synapse.sh url --export)"
+;   dune build @integration
+
+(executable
+ (name test_homeserver)
+ (modules
+  harness
+  scenario_rooms
+  scenario_e2ee
+  scenario_room_list
+  scenario_ui
+  scenario_bots
+  scenario_bot_lib
+  test_homeserver)
+ (libraries
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  matrix-chat.ui
+  matrix-chat.ui.sqlite
+  matrix-chat.bot
+  matrix_bots
+  alcotest
+  base64
+  eio
+  eio.unix
+  eio_main
+  jsont
+  jsont.bytesrw
+  uriz))
+
+; `dune build @integration` is the deliberate run, against a server that is
+; already up. `runtest` gets it too, where it skips unless the variable is
+; set. Both depend on the variable so that dune reruns them when it changes
+; rather than replaying a cached SKIP.
+
+(rule
+ (alias integration)
+ (deps
+  (env_var MATRIX_TEST_HOMESERVER)
+  (env_var MATRIX_REQUIRE_HOMESERVER)
+  test_homeserver.exe)
+ (action
+  (run ./test_homeserver.exe --color=never)))
+
+(rule
+ (alias runtest)
+ (deps
+  (env_var MATRIX_TEST_HOMESERVER)
+  (env_var MATRIX_REQUIRE_HOMESERVER)
+  test_homeserver.exe)
+ (action
+  (run ./test_homeserver.exe --color=never)))
+
+; A standalone live MSC4108 check. It deliberately has its own environment
+; variable and alias so the ordinary 58-scenario suite remains independent.
+
+(executable
+ (name rendezvous_integration)
+ (modules rendezvous_integration)
+ (libraries matrix-chat.client matrix-chat.eio eio eio.unix eio_main uriz))
+
+(rule
+ (alias integration-rendezvous)
+ (deps
+  (env_var MATRIX_TEST_RENDEZVOUS_HOMESERVER)
+  rendezvous_integration.exe)
+ (action
+  (run ./rendezvous_integration.exe)))

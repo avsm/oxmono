@@ -1,0 +1,3 @@
+(executable
+ (name oauth)
+ (libraries matrix-chat.eio matrix-chat.cli matrix-chat.proto eio_main uriz cmdliner))

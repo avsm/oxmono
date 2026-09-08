@@ -62,3 +62,9 @@ request.
 - E-mail: <mirageos-devel@lists.xenproject.org>
 - API Documentation: <http://docs.mirage.io/ipaddr/>
 - Discussion: <https://discuss.ocaml.org> with the `mirageos` tag.
+
+## Matrix import portability annotations
+
+IPv4, IPv6 and generic address rendering, plus `Ipaddr.to_v4`,
+are exposed as portable for Fetch URL validation. Their implementations are
+unchanged and the compiler checks the annotations.

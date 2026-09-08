@@ -73,7 +73,7 @@ module V4 : sig
       human-readble IPv4 address [s] with a possibly port [:<port>] (otherwise,
       we take the [default] value). *)
 
-  val to_string : t -> string
+  val to_string : t -> string @@ portable
   (** [to_string ipv4] is the dotted decimal string representation of [ipv4],
       i.e. [XXX.XX.X.XXX]. *)
 
@@ -364,7 +364,7 @@ module V6 : sig
       the function call. Raises {!Parse_error} if it is an invalid or truncated
       IP address. *)
 
-  val to_string : t -> string
+  val to_string : t -> string @@ portable
   (** [to_string ipv6] is the string representation of [ipv6], i.e.
       [XXX:XX:X::XXX:XX]. *)
 
@@ -628,7 +628,7 @@ type ('v4, 'v6) v4v6 = V4 of 'v4 | V6 of 'v6
 type t : immutable_data = (V4.t, V6.t) v4v6
 (** Type of any IP address *)
 
-val to_string : t -> string
+val to_string : t -> string @@ portable
 (** [to_string addr] is the text string representation of [addr]. *)
 
 val to_buffer : Buffer.t -> t -> unit
@@ -679,7 +679,7 @@ val v4_of_v6 : V6.t -> V4.t option
 (** [v4_of_v6 ipv6] is the IPv4 representation of the IPv6 address [ipv6]. If
     [ipv6] is not an IPv4-mapped address, None is returned. *)
 
-val to_v4 : t -> V4.t option
+val to_v4 : t -> V4.t option @@ portable
 (** [to_v4 addr] is the IPv4 representation of [addr]. *)
 
 val v6_of_v4 : V4.t -> V6.t

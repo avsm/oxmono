@@ -150,6 +150,15 @@ val same_href : string -> string -> bool
 val basename : string -> string
 (** The last path segment of an href, decoded, ignoring a trailing slash. *)
 
+val href_child : string -> string -> string
+(** [href_child collection name] is the href of the member [name] of
+    [collection], with one slash between them. [name] is used as it is, so a
+    caller that builds it from user data escapes it first. *)
+
+val href_parent : string -> string
+(** [href_parent href] is the collection [href] is a member of, ending in a
+    slash, and [href] itself if it holds no slash. *)
+
 (** {1 Live properties}
 
     The names of RFC 4918 Section 15, RFC 3253 Section 3.1.5, RFC 3744

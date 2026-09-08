@@ -655,3 +655,85 @@ module Session = struct
     | Some u when safe_segment u -> u ^ ext
     | _ -> String.concat "" (List.init 16 (fun _ -> Printf.sprintf "%x" (Random.int 16))) ^ ext
 end
+
+module Objects = struct
+  type 'a codec = {
+    content_type : string;
+    decode : string -> ('a, string) result;
+    encode : 'a -> (string, string) result;
+  }
+  type 'a entry = { href : string; etag : string option; value : 'a }
+  type 'a page = { entries : 'a entry list; truncated : bool }
+  type 'a change = Changed of 'a entry | Removed of string
+  type 'a sync = { token : string option; changes : 'a change list; truncated : bool }
+  let ( let* ) = Result.bind
+  let data_error r = Result.map_error (fun m -> Session.Data m) r
+  let media codec =
+    match String.index_opt codec.content_type ';' with
+    | Some i -> String.trim (String.sub codec.content_type 0 i)
+    | None -> codec.content_type
+  let get t codec ?accept url =
+    let accept = match accept with Some a -> a | None -> media codec in
+    let* body, etag = Session.get t ~accept url in
+    let* value = data_error (codec.decode body) in
+    Ok { href = url; etag; value }
+  let put t codec ?etag ?create url v =
+    let* body = data_error (codec.encode v) in
+    Session.put t ?etag ?create ~content_type:codec.content_type url body
+  (* A caller may name the new member, and the name is one path segment. *)
+  let segment name =
+    if name = "" || name = "." || name = ".." || String.contains name '/'
+       || String.contains name '\\'
+    then Error (Session.Data (Printf.sprintf "%S is not a usable member name" name))
+    else Ok name
+  let add t codec ?name ~uid ~ext collection v =
+    let* name = match name with
+      | Some n -> segment n
+      | None -> Ok (Session.member_name (uid v) ext) in
+    let href = Httpz_dav.href_child collection name in
+    let* etag = put t codec ~create:true href v in
+    Ok { href; etag; value = v }
+  let resolve ~base href =
+    match Httpz_dav.resolve_href ~base href with Ok r -> r | Error _ -> href
+  let page_of_multistatus codec ~data ~base (m : Httpz_dav.multistatus) =
+    let truncated = ref false in
+    let rec go acc = function
+      | [] -> Ok (List.rev acc)
+      | (r : Httpz_dav.response) :: rest ->
+        let href = Httpz_dav.href r in
+        if Httpz_dav.same_href href base then begin
+          (match r.outcome with Httpz_dav.Status 507 -> truncated := true | _ -> ());
+          go acc rest
+        end else
+          let status = Httpz_dav.response_status r in
+          if status < 200 || status > 299 then go acc rest
+          else match data r with
+            | None -> go acc rest
+            | Some body ->
+              let* value = data_error (codec.decode body) in
+              go ({ href = resolve ~base href; etag = Httpz_dav.etag r; value } :: acc) rest
+    in
+    let* entries = go [] m.responses in
+    Ok { entries; truncated = !truncated }
+  let sync t ~multiget ?token ?limit url =
+    let* s = Session.sync t ?token ?limit url in
+    let changed = List.filter_map (function
+      | Httpz_dav.Sync.Changed r when not (Httpz_dav.is_collection r) -> Some (Httpz_dav.href r)
+      | _ -> None) s.changes in
+    let* fetched = multiget url changed in
+    let by_path = Hashtbl.create (List.length fetched) in
+    List.iter (fun e -> Hashtbl.replace by_path (Httpz_dav.href_path e.href) e) fetched;
+    let changes = List.filter_map (function
+      | Httpz_dav.Sync.Changed r when Httpz_dav.is_collection r -> None
+      | Httpz_dav.Sync.Changed r ->
+        let href = resolve ~base:url (Httpz_dav.href r) in
+        (match Hashtbl.find_opt by_path (Httpz_dav.href_path href) with
+         | Some e -> Some (Changed e)
+         (* The report named the member changed but the multiget did not return
+            it, so it went between the two requests. Reporting it removed keeps
+            a mirror from serving a copy that is gone. *)
+         | None -> Some (Removed href))
+      | Httpz_dav.Sync.Removed h -> Some (Removed (resolve ~base:url h))
+      | Httpz_dav.Sync.Unsupported _ -> None) s.changes in
+    Ok { token = s.token; changes; truncated = s.truncated }
+end

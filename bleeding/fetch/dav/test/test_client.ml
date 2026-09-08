@@ -259,5 +259,47 @@ let () = Eio_mock.Backend.run @@ fun () ->
       | Error e -> failwith (D.Session.error_to_string e)) [200; 206; 304];
     check "member names keep a safe uid" (D.Session.member_name (Some "a-b@c") ".vcf" = "a-b@c.vcf");
     check "member names replace an unsafe uid"
-      (String.length (D.Session.member_name (Some "a/b") ".vcf") = 20));
+      (String.length (D.Session.member_name (Some "a/b") ".vcf") = 20);
+    let codec = {
+      D.Objects.content_type = "text/plain; charset=utf-8";
+      decode = (fun s -> if s = "bad" then Error "undecodable" else Ok (String.uppercase_ascii s));
+      encode = (fun v -> if v = "BAD" then Error "unencodable" else Ok (String.lowercase_ascii v)) } in
+    let data (r : Httpz_dav.response) =
+      Option.map Httpz_dav.content (Httpz_dav.find_property (Httpz_dav.dav "x") r) in
+    let page body =
+      match Httpz_dav.parse_xml body with
+      | Error m -> failwith m
+      | Ok x -> (match Httpz_dav.multistatus x with
+        | Error m -> failwith m
+        | Ok m -> D.Objects.page_of_multistatus codec ~data ~base:"https://example.test/dav/books/" m) in
+    let entry href value =
+      Printf.sprintf "<d:response><d:href>%s</d:href><d:propstat><d:prop><d:getetag>\"e\"</d:getetag><d:x>%s</d:x></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>" href value in
+    let wrap inner = "<d:multistatus xmlns:d='DAV:'>" ^ inner ^ "</d:multistatus>" in
+    (match page (wrap (entry "/dav/books/a.txt" "hello")) with
+     | Ok p ->
+       check "objects decode a member" (List.map (fun (e : _ D.Objects.entry) -> e.value) p.entries = ["HELLO"]);
+       check "objects resolve the href"
+         (List.map (fun (e : _ D.Objects.entry) -> e.href) p.entries = ["https://example.test/dav/books/a.txt"]);
+       check "objects keep the entity tag"
+         (List.map (fun (e : _ D.Objects.entry) -> e.etag) p.entries = [Some "\"e\""]);
+       check "objects report an untruncated page" (not p.truncated)
+     | Error e -> failwith (D.Session.error_to_string e));
+    check "objects skip the collection itself and a member with no body"
+      (match page (wrap (entry "/dav/books/" "self" ^ "<d:response><d:href>/dav/books/b.txt</d:href><d:propstat><d:prop><d:getetag>\"f\"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>")) with
+       | Ok p -> p.entries = [] | Error _ -> false);
+    check "objects skip a failed member"
+      (match page (wrap "<d:response><d:href>/dav/books/c.txt</d:href><d:status>HTTP/1.1 404 Not Found</d:status></d:response>") with
+       | Ok p -> p.entries = [] | Error _ -> false);
+    check "objects report the collection's 507 as truncation"
+      (match page (wrap ("<d:response><d:href>/dav/books/</d:href><d:status>HTTP/1.1 507 Insufficient Storage</d:status></d:response>" ^ entry "/dav/books/a.txt" "hi")) with
+       | Ok p -> p.truncated && List.length p.entries = 1 | Error _ -> false);
+    check "objects report an undecodable body as data"
+      (match page (wrap (entry "/dav/books/a.txt" "bad")) with
+       | Error (D.Session.Data m) -> m = "undecodable" | _ -> false);
+    check "objects refuse a name that is not one segment"
+      (match D.Objects.add session codec ~name:"a/b" ~uid:(fun _ -> None) ~ext:".txt" "/dav/books/" "x" with
+       | Error (D.Session.Data _) -> true | _ -> false);
+    check "objects report an unencodable value as data"
+      (match D.Objects.put session codec "/dav/books/a.txt" "BAD" with
+       | Error (D.Session.Data m) -> m = "unencodable" | _ -> false));
   Printf.printf "fetch.dav: %d client checks passed\n" !count

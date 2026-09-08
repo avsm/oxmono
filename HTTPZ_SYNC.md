@@ -5,6 +5,16 @@ HTTPz, Fetch and Proffer are synchronized from `avsm/oxcaml-httpz` commit
 `avsm/ocaml-httpz` through commit `72e4541`, including the preceding audit fixes,
 Duration cleanup, media consolidation and Proffer wrapper rename. [HTTPZ.md](HTTPZ.md) introduces the libraries and examples.
 
+## 2026-09-08 IDKit dependency import
+
+Selectively imported stock `avsm/ocaml-httpz` through
+`0e56f3fd7462159dac82c537ca55f765bdc3b1c5`. This adds typed collection objects
+in `Fetch_dav.Objects`, href parent/child helpers and client tests. Existing
+OxCaml adaptations remain. HTTPz JSON decoding now exposes compiler-checked
+portable operations through Bytesrw's reader tap, removing the media decoder's
+unsafe assertion. These latest additions have not been copied to the standalone
+OxCaml checkout. The three-tree checker reports that drift.
+
 ## 2026-09-08 WebDAV package synchronization
 
 The reviewed monorepo implementation was committed first as

@@ -270,3 +270,81 @@ module Session : sig
   (** [member_name uid ext] is a member name for a new resource, [uid] and
       [ext] when [uid] is safe as a path segment and a random name otherwise. *)
 end
+
+(** {1 Typed objects}
+
+    A collection whose members are documents of one media type, such as a
+    CardDAV address book or a CalDAV calendar, is read and written here as
+    values of the caller's own type. A {!Objects.codec} says how a member is
+    carried in a body, and the operations below keep the entity tags a
+    conditional write needs. What a collection holds, and the reports that
+    search it, belong to the protocol above this one. *)
+module Objects : sig
+  type 'a codec = {
+    content_type : string;
+        (** The media type written, with any charset, such as
+            ["text/vcard; charset=utf-8"]. *)
+    decode : string -> ('a, string) result;  (** Reads a body as ['a]. *)
+    encode : 'a -> (string, string) result;  (** Writes ['a] as a body. *)
+  }
+  (** The type for the representation of a member. A failure on either side is
+      a {!Session.Data} error. *)
+
+  type 'a entry = { href : string; etag : string option; value : 'a }
+  (** The type for a member read from the server, with its entity tag. *)
+
+  type 'a page = {
+    entries : 'a entry list;  (** The members returned, in order. *)
+    truncated : bool;
+        (** [true] if the collection itself answered [507], so the server
+            returned fewer members than matched, RFC 6578 Section 3.6. *)
+  }
+  (** The type for what a report returns. *)
+
+  type 'a change =
+    | Changed of 'a entry  (** The member as it now stands. *)
+    | Removed of string  (** The href of a member that is gone. *)
+
+  type 'a sync = {
+    token : string option;  (** The token to present next time. *)
+    changes : 'a change list;
+    truncated : bool;  (** [true] if the report is to be repeated with [token]. *)
+  }
+  (** The type for what a synchronisation reports. *)
+
+  val get : Session.t -> 'a codec -> ?accept:string -> string -> ('a entry, Session.error) result
+  (** [get t codec url] is the member at [url]. [accept] is sent as the Accept
+      header and defaults to the [content_type] of [codec] without its
+      parameters. *)
+
+  val put : Session.t -> 'a codec -> ?etag:string -> ?create:bool -> string -> 'a ->
+    (string option, Session.error) result
+  (** [put t codec url v] stores [v] at [url] and is the entity tag the server
+      gave. [etag] makes the write conditional on the member being unchanged
+      and [create] on it being absent. *)
+
+  val add : Session.t -> 'a codec -> ?name:string -> uid:('a -> string option) -> ext:string ->
+    string -> 'a -> ('a entry, Session.error) result
+  (** [add t codec ~uid ~ext collection v] stores [v] as a new member of
+      [collection] and is [v] with the href it was stored at and its entity
+      tag. [name] is the member name and defaults to {!Session.member_name} of
+      [uid v] and [ext]. A [name] that is not one path segment is a
+      {!Session.Data} error. *)
+
+  val page_of_multistatus : 'a codec -> data:(Httpz_dav.response -> string option) ->
+    base:string -> Httpz_dav.multistatus -> ('a page, Session.error) result
+  (** [page_of_multistatus codec ~data ~base m] are the members [m] carries, [m]
+      being the answer to a report on [base]. [data] is the body a response
+      holds, which each protocol names its own element for. A response for
+      [base] itself, one with a failure status, and one carrying no body are
+      not entries. Hrefs are resolved against [base]. *)
+
+  val sync : Session.t -> multiget:(string -> string list -> ('a entry list, Session.error) result) ->
+    ?token:string -> ?limit:int -> string -> ('a sync, Session.error) result
+  (** [sync t ~multiget ~token url] are the changes to the collection [url]
+      since [token], or every member without one, RFC 6578. The members the
+      report names changed are fetched with [multiget], which takes [url] and
+      their hrefs. A member the report names but [multiget] does not return
+      went away between the two requests and is reported [Removed]. A member
+      collection is not reported. *)
+end

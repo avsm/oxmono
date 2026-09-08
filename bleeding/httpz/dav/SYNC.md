@@ -11,7 +11,12 @@ lives in `fetch.dav`. The server lives in `proffer.dav`, with confined storage
 in `proffer.dav.eio`. Proffer admission, input lifetime and connection provenance
 also require corresponding changes to each backend.
 
-The latest selective client import is stock revision
+The latest OxMono-only import is stock revision
+`0e56f3fd7462159dac82c537ca55f765bdc3b1c5`, adding typed collection objects
+and href parent/child helpers. The standalone OxCaml tree still needs this
+addition. The checker intentionally reports that drift.
+
+The preceding selective client import is stock revision
 `0710d4558662f6419bb90c204dca98eaea63a33a`. It adds `Fetch_dav.Session`, DAV
 namespace helpers, element construction and their documentation and tests.
 All three trees also close rejected session downloads immediately and retain

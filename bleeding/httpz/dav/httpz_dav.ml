@@ -416,6 +416,13 @@ let without_slash s =
   let n = String.length s in
   if n > 1 && s.[n-1] = '/' then String.sub s 0 (n-1) else s
 let same_href a b = without_slash (href_path a) = without_slash (href_path b)
+let href_child collection name =
+  if String.ends_with ~suffix:"/" collection then collection ^ name
+  else collection ^ "/" ^ name
+let href_parent href =
+  match String.rindex_opt href '/' with
+  | Some i -> String.sub href 0 (i + 1)
+  | None -> href
 let basename s =
   let p = without_slash (href_path s) in
   match String.rindex_opt p '/' with

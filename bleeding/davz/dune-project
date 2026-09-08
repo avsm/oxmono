@@ -1,0 +1,11 @@
+(lang dune 3.21)
+(name davz)
+(generate_opam_files true)
+(implicit_transitive_deps false)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "anil@recoil.org")
+(package
+ (name davz)
+ (synopsis "Transport-independent WebDAV protocol values and XML codecs")
+ (depends (ocaml (>= 5.2)) xmlm uriz))

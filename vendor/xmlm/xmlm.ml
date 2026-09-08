@@ -601,13 +601,11 @@ struct
       err_expected_chars i [ u_quot; u_apos]
     in
     nextc i;
-    skip_white i;
     clear_data i;
-    i.last_white <- true;
     while (i.c <> delim) do
       if i.c = u_lt then err_illegal_char i u_lt else
-      if i.c = u_amp then String.iter (addc_data_strip i) (p_reference i)
-      else (addc_data_strip i i.c; nextc i)
+      if i.c = u_amp then String.iter (addc_data i) (p_reference i)
+      else (addc_data i (if is_white i.c then u_space else i.c); nextc i)
     done;
     nextc i;
     Buffer.contents i.data
@@ -624,11 +622,16 @@ struct
           let att = n, v in
           if str_empty prefix && str_eq local n_xmlns then
             begin  (* xmlns *)
+              if str_eq v ns_xml || str_eq v ns_xmlns then
+                err i (`Illegal_char_seq v);
               Ht.add i.ns String.empty v;
               aux i (String.empty :: pre_acc) (att :: acc)
             end
           else if str_eq prefix n_xmlns then
             begin  (* xmlns:local *)
+              if str_eq local n_xmlns || str_eq v ns_xmlns ||
+                 (str_eq local n_xml <> str_eq v ns_xml) then
+                err i (`Illegal_char_seq v);
               Ht.add i.ns local v;
               aux i (local :: pre_acc) (att :: acc)
             end
@@ -1053,7 +1056,7 @@ struct
     in
     List.fold_left add [] atts
 
-  let out_data o s =
+  let out_data ?(attribute = false) o s =
     let out () s =
       let len = Std_string.length s in
       let start = ref 0 in
@@ -1070,7 +1073,10 @@ struct
       | '&' -> escape "&amp;"
    (* | '\'' -> escape "&apos;" *) (* Not needed we use \x22 for attributes. *)
       | '\x22' -> escape "&quot;"
-      | '\n' | '\t' | '\r' -> incr last
+      | '\r' -> escape "&#xD;"
+      | '\n' when attribute -> escape "&#xA;"
+      | '\t' when attribute -> escape "&#x9;"
+      | '\n' | '\t' -> incr last
       | c when c < ' ' -> escape "\xEF\xBF\xBD" (* illegal, subst. by U+FFFD *)
       | _ -> incr last
       done;
@@ -1084,7 +1090,7 @@ struct
 
   let out_attribute o (n, v) =
     o.outc ' '; out_qname o (prefix_name o n); outs o "=\x22";
-    out_data o v;
+    out_data ~attribute:true o v;
     o.outc '\x22'
 
   let output o s =

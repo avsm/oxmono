@@ -1,0 +1,8 @@
+(tests
+ (names test_davz test_namespaces)
+ (libraries davz xmlm))
+
+(executable
+ (name bench_namespaces)
+ (modules bench_namespaces)
+ (libraries davz))

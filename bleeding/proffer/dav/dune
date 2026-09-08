@@ -1,0 +1,4 @@
+(library
+ (name proffer_dav)
+ (public_name proffer.dav)
+ (libraries davz fetch http uriz xmlm eio cstruct))

@@ -31,6 +31,17 @@ annotation land here at all.
 
 ### Local patches
 
+The DAV work also fixes XML CDATA attribute normalization: literal whitespace
+becomes spaces without trimming or collapsing, while character references
+retain their character. Output escapes attribute tabs/newlines and every
+carriage return to preserve a parse/write/parse round trip. This is a semantic
+correction to upstream's unconditional attribute whitespace stripping; preserve
+it during refreshes. Namespace declarations also reject illegal bindings of
+the reserved `xml` and `xmlns` prefixes and namespace names, before expansion
+can discard the original prefix. `test/test_refresh.ml` covers these corrections
+alongside encoding tests. Run `dune build @@vendor/xmlm/test/runtest` explicitly
+because recursive workspace aliases skip vendor tests.
+
 Twelve hunks, all from the commit "Annotate xmlm for OxCaml portability".
 Seven are annotations, four replace a module-level mutable table with code,
 and one swaps a stdlib functor for its portable twin.

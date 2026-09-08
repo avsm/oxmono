@@ -1,0 +1,4 @@
+*
+!Dockerfile
+!httpd.conf
+!start.sh

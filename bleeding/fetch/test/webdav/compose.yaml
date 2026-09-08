@@ -1,0 +1,13 @@
+services:
+  dav:
+    build:
+      context: .
+      network: none
+    ports:
+      - "127.0.0.1::8080"
+      - "127.0.0.1::8443"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/dav:mode=1777,size=128m
+    stop_grace_period: 5s

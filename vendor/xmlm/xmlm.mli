@@ -465,14 +465,13 @@ module Make (String : String) (Buffer : Buffer with type string = String.t) : S
 
     The parser performs
     {{:http://www.w3.org/TR/REC-xml/#AVNormalize}attribute data
-    normalization} on {e every} attribute data.  This means that
-    attribute data does not have leading and trailling white space and that
-    any white space is collapsed and transformed to a single space
-    character ([U+0020]).
+    normalization} treating attributes as CDATA (DTDs are not interpreted).
+    Literal tabs and line ends become spaces; leading, trailing and repeated
+    spaces are retained. Character references preserve their referenced
+    character, including tabs, newlines and carriage returns.
 
     White space handling of character data depends on the [strip]
-    argument. If [strip] is [true], character data is treated like
-    attribute data, white space before and after elements is removed
+    argument. If [strip] is [true], white space before and after elements is removed
     and any white space is collapsed and transformed to a single
     space character ([U+0020]), except if the data is under the scope of a {e
     xml:space} attribute whose value is {e preserve}.  If [strip] is
@@ -497,9 +496,8 @@ module Make (String : String) (Buffer : Buffer with type string = String.t) : S
     the local name, for example {i xmlns:ex} results in the attribute name
     [(Xmlm.ns_xmlns, "ex")].
 
-    Regarding constraints on the usage of the {i xml} and {i xmlns}
-    prefixes by documents, the parser does not report errors on violations
-    of the {i must} constraints listed in
+    The parser rejects illegal bindings of the reserved {i xml} and {i xmlns}
+    prefixes and namespace names, as required by the constraints in
     {{:http://www.w3.org/TR/xml-names11/#xmlReserved}this paragraph}.
 
     {3:inentity Character and entity references}

@@ -2,6 +2,8 @@
   (name eio_main)
   (public_name eio_main)
   (libraries
+    eio.unix
+    fmt
     (select linux_backend.ml from
             (eio_linux -> linux_backend.enabled.ml)
             (          -> linux_backend.disabled.ml))

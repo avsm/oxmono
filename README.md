@@ -36,6 +36,13 @@ eval "$(opam env --switch=5.2.0+ox)"
 dune build --profile release-check @example/all
 ```
 
+The vendored Eio POSIX backend requires `iomux >= 0.2`, including on macOS.
+An older Eio installation may not have installed it. Add it to the build switch:
+
+```sh
+opam install --switch=5.2.0+ox 'iomux>=0.2'
+```
+
 Zarr and Tessera also require the system PROJ, Blosc and Zstd libraries.
 On Debian or Ubuntu, install their development packages.
 

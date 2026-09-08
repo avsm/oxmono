@@ -48,6 +48,12 @@ source version.
   closure for MDX, avoiding incompatible installed interfaces.
 - [Refresh regression](tests/test_upstream_refresh.ml): check connection
   options, source binding and `Process.Env` through Linux and POSIX backends.
+- [Mainloop dependencies](lib_main/dune): declare `eio.unix` and `fmt`
+  directly, with matching package dependencies in `dune-project`. Upstream
+  obtains them only through optional backends. When none is available,
+  `eio_main.mli` otherwise fails with `Unbound module Eio_unix`. Verified with
+  all backend selections disabled in an isolated build, unchanged POSIX
+  smoke-test output before and after the patch, and Crowthebot's tests.
 
 These patches do not advance the upstream base. The complete local history is
 available with `git log -- vendor/eio`; include working-tree changes when
@@ -63,3 +69,12 @@ the complete upstream snapshot has been incorporated. Update the corresponding
 entry in [../upstreams.json](../upstreams.json) too. Keep this file when replacing
 the upstream tree. The shared checking workflow and validation limitations are
 in [../README.md](../README.md).
+
+On macOS and other POSIX systems, the current backend requires `iomux >= 0.2`.
+The vendored sources do not install their external dependencies. An older
+installed `eio_posix` may not have brought in `iomux`. Install it in the build
+switch before compiling applications:
+
+```sh
+opam install --switch=5.2.0+ox 'iomux>=0.2'
+```

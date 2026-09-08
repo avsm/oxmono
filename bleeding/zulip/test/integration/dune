@@ -1,0 +1,20 @@
+(executable
+ (name test_server)
+ (modules test_server messages_scenarios channels_scenarios accounts_scenarios restart_scenarios snippets_scenarios)
+ (libraries zulip zulip.eio zulip.bot alcotest eio eio_main jsont jsont.bytesrw unix))
+
+; Keep live tests out of @runtest: this target deliberately requires a local
+; server provisioned by zulip.sh and is invoked as `dune build @integration`.
+(rule
+ (alias integration)
+ (deps (universe)
+       (env_var ZULIP_TEST_SERVER)
+       (env_var ZULIP_TEST_FIXTURES)
+       (env_var ZULIP_TEST_RESTART_HELPER)
+       test_server.exe
+       cli_probe.py run_suite.py
+       ../../example/2-echo/echo.exe
+       ../../example/r-preflight/preflight.exe)
+ (action
+  (run python3 run_suite.py ./test_server.exe
+       ../../example/2-echo/echo.exe ../../example/r-preflight/preflight.exe)))

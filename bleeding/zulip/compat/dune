@@ -1,0 +1,6 @@
+(env
+ (_ (flags (:standard \ -open Zulip_compat))))
+
+(library
+ (name zulip_compat)
+ (package zulip))

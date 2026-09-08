@@ -1,0 +1,4 @@
+(executable
+ (name plugins)
+ (modules plugins greeting)
+ (libraries zulip.bot zulip.bot.cli))

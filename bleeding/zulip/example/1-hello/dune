@@ -1,0 +1,3 @@
+(executable
+ (name hello)
+ (libraries zulip.bot zulip.bot.cli))

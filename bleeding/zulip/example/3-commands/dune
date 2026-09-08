@@ -1,0 +1,3 @@
+(executable
+ (name commands)
+ (libraries zulip.bot zulip.bot.cli))

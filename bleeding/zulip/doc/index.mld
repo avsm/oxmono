@@ -1,0 +1,121 @@
+{0 Zulip bindings}
+
+These libraries provide Zulip Server 12.2 bindings using Fetch/httpz for HTTP,
+Eio for concurrency, Jsont for JSON, and Xdge for named profiles.
+
+The
+{{:https://tangled.org/anil.recoil.org/ocaml-zulip/blob/main/example/README.md}
+example tutorial} builds a bot from message handling through commands, rooms,
+plugins, and persistent state. Standalone examples cover one-shot requests and
+an injected Fetch mock.
+
+{1 Libraries}
+
+{!Zulip} contains protocol types and codecs. {!Zulip.Id} provides nominally
+distinct identifiers for users, channels, messages, groups, folders,
+attachments, and scheduled work. Extensible flags and event operations retain
+future wire values. {!Zulip.Message.type-destination} preserves a channel topic or
+the participants in a direct message.
+
+{!Zulip_eio} provides {!Zulip_eio.Transport}, {!Zulip_eio.Client},
+{!Zulip_eio.Profile}, endpoint modules, and {!Zulip_eio.Event_queue}.
+Operations live in resource modules such as {!Zulip_eio.Messages},
+{!Zulip_eio.Attachments}, {!Zulip_eio.Channels}, and
+{!Zulip_eio.Scheduled_messages}. Results preserve structured
+{!Zulip_eio.Error.t} failures. {!Zulip_eio.Error.or_raise} converts them to
+exceptions when required.
+
+{!Zulip_bot} provides bot specifications, commands, events, rooms, send
+handles, and plugin state. {!Zulip_bot_cli.Main} supplies Cmdliner entry points.
+
+{1 Transport and event queues}
+
+Construct one transport from the application's Eio environment and reuse it.
+Ordinary requests default to a 30-second deadline when a clock is available.
+Polling uses the server's advertised timeout with an additional margin.
+Decoded JSON responses have body and nesting limits. Downloads stream into a
+caller-owned sink and may follow HTTPS redirects while keeping credentials
+scoped to the Zulip origin.
+
+GET and HEAD requests may be retried by the transport. Mutations are not
+automatically replayed after connection failures or HTTP 5xx responses. The
+bot sender may retry an explicit rate-limit rejection.
+
+{!Zulip_eio.Event_queue.get_events} returns a batch without advancing its
+queue's acknowledgement cursor. Accept events in order, then call
+{!Zulip_eio.Event_queue.ack} with the cumulative prefix accepted from that
+batch. Repeated acknowledgement never moves the cursor backwards. A queue
+permits one outstanding poll, and event identifiers apply only to their queue
+generation.
+
+The bot collector admits each event to its bounded dispatcher before
+acknowledging that event's prefix. Handlers run in order within a channel or
+direct-message room. Independent rooms may proceed concurrently. A blocked
+handler eventually backpressures collection.
+
+{1 Bot lifecycle and sends}
+
+Build an immutable {!Zulip_bot.Bot.type-spec} by applying plugins of type
+[spec -> spec]. Registration order determines handler order. Exceptions reach
+the error hook and do not imply replay. Eio cancellation propagates.
+
+{!Zulip_bot.Context.v} accepts an existing client and identity.
+{!Zulip_bot.Context.connect} resolves a profile, looks up the identity, and
+opens the profile's plugin store. The caller-supplied context switch owns the
+sender. {!Zulip_bot.Bot.run} scopes the collector and room workers.
+{!Zulip_bot.Bot.stop} requests collector termination and cancels queued room
+work, but leaves the context sender alive.
+
+Releasing the context switch wakes admissions blocked by a full sender queue.
+It settles queued handles as {!Zulip_bot.Sent.outcome.constructor-Cancelled}
+and in-flight handles as
+{!Zulip_bot.Sent.outcome.constructor-Indeterminate} with no error. Handles that
+already reached a terminal outcome retain it.
+
+{!Zulip_bot.Sent.await} returns [`Done outcome] when the handle reaches a
+terminal {!Zulip_bot.Sent.outcome}. It returns [`Timed_out] when only the
+observation deadline expires, leaving the send running. A lost response may
+follow a successful server write and yields an indeterminate outcome.
+
+Default activation accepts one-to-one direct messages and explicit mentions.
+It ignores messages from the bot itself and known bots. Additional event types
+can be observed through custom handlers. {!Zulip.Event_payload} provides typed
+views of supported events while preserving unknown families and future fields.
+
+Rooms use channel or direct-recipient identifiers as keys. Reply destinations
+retain the current topic or complete participant set. Edits and reactions use
+a bounded message-location cache with API lookup on misses. Malformed supported
+events reach the malformed-event hook.
+
+{1 Message retrieval}
+
+{!Zulip_eio.Messages.get_messages} separates history ranges from selected-ID
+queries. A range requires nonnegative counts before and after its anchor.
+Omitting the anchor selects {!Zulip_eio.Messages.anchor.constructor-Newest}.
+{!Zulip_eio.Messages.anchor.constructor-Date} selects the first message at or
+after its ISO 8601 date or datetime. A selected-ID query omits every range
+argument. Zulip returns only requested messages that exist, are accessible,
+and match the optional narrow.
+
+{1 Persistence and webhooks}
+
+{!Zulip_bot.Plugin_store} provides typed, namespaced values using Jsont codecs.
+Updates serialize within one process, and file replacement is atomic. Delivery
+state is not persistent. Restarting registers a fresh queue and can miss events
+received while the bot was offline.
+
+{!Zulip_bot.Webhook.handle} validates a bounded outgoing-webhook envelope and
+admits it to the bot dispatcher. Its HTTP acknowledgement confirms dispatch
+acceptance. It does not confirm handler completion or reply delivery.
+
+{1 Deployment and verification}
+
+The
+{{:https://tangled.org/anil.recoil.org/ocaml-zulip/blob/main/HOSTED_BOTS.md}
+hosted bot guide} covers profiles, preflight checks, Zulip Cloud, and service
+supervision. The
+{{:https://tangled.org/anil.recoil.org/ocaml-zulip/blob/main/API_COVERAGE.md}
+coverage inventory} maps Python SDK helpers and additional Zulip 12.2
+operations to the OCaml API. The
+{{:https://tangled.org/anil.recoil.org/ocaml-zulip/blob/main/test/integration/README.md}
+Docker guide} describes the isolated real-server test workflow.

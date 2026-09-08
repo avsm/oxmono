@@ -1,0 +1,227 @@
+{
+  "source": "../python-zulip-api/zulip/zulip/__init__.py",
+  "reference_revision": "b1723475",
+  "scope": "users, presence, server metadata, typing, attachments, and bot storage",
+  "methods": [
+    {
+      "python": "get_attachments",
+      "ocaml": "Zulip_eio.Attachments.list",
+      "parameters": [],
+      "result": "typed attachments, upload_space_used, and response/item extensions"
+    },
+    {
+      "python": "get_realm_emoji",
+      "ocaml": "Zulip_eio.Server.get_emoji",
+      "parameters": [],
+      "result": "typed custom emoji values with extension access"
+    },
+    {
+      "python": "upload_custom_emoji",
+      "ocaml": "Zulip_eio.Server.upload_emoji / upload_emoji_stream",
+      "parameters": ["emoji_name", "file_obj"],
+      "result": "unit success; filename and content type are explicit OCaml upload metadata"
+    },
+    {
+      "python": "delete_custom_emoji",
+      "ocaml": "Zulip_eio.Server.deactivate_emoji",
+      "parameters": ["emoji_name"],
+      "result": "unit success"
+    },
+    {
+      "python": "get_realm_linkifiers",
+      "ocaml": "Zulip_eio.Server.get_linkifiers",
+      "parameters": [],
+      "result": "typed ordered linkifiers including reverse-linkifier fields and extensions"
+    },
+    {
+      "python": "add_realm_filter",
+      "ocaml": "Zulip_eio.Server.add_linkifier",
+      "parameters": ["pattern", "url_template"],
+      "additional_ocaml_parameters": ["example_input", "reverse_template", "alternative_url_templates"],
+      "result": "linkifier ID",
+      "difference": "Current-server API only: always sends url_template and does not reproduce Python's pre-feature-176 url_format_string branch."
+    },
+    {
+      "python": "remove_realm_filter",
+      "ocaml": "Zulip_eio.Server.delete_linkifier",
+      "parameters": ["filter_id"],
+      "result": "unit success"
+    },
+    {
+      "python": "get_realm_profile_fields",
+      "ocaml": "Zulip_eio.Server.get_profile_fields",
+      "parameters": [],
+      "result": "typed profile fields including field_data text and extensions"
+    },
+    {
+      "python": "create_realm_profile_field",
+      "ocaml": "Zulip_eio.Server.create_profile_field",
+      "parameters": ["field_type", "name", "hint", "field_data", "display_in_profile_summary", "required", "editable_by_user", "use_for_user_matching"],
+      "result": "profile field ID"
+    },
+    {
+      "python": "remove_realm_profile_field",
+      "ocaml": "Zulip_eio.Server.delete_profile_field",
+      "parameters": ["field_id"],
+      "result": "unit success"
+    },
+    {
+      "python": "reorder_realm_profile_fields",
+      "ocaml": "Zulip_eio.Server.reorder_profile_fields",
+      "parameters": ["order"],
+      "result": "unit success"
+    },
+    {
+      "python": "update_realm_profile_field",
+      "ocaml": "Zulip_eio.Server.update_profile_field",
+      "parameters": ["field_id", "name", "hint", "field_data", "display_in_profile_summary", "required", "editable_by_user", "use_for_user_matching"],
+      "result": "unit success"
+    },
+    {
+      "python": "get_server_settings",
+      "ocaml": "Zulip_eio.Server.get_settings / get_settings_json",
+      "parameters": [],
+      "result": "typed core server settings or complete raw response"
+    },
+    {
+      "python": "get_profile",
+      "ocaml": "Zulip_eio.Users.me",
+      "parameters": [],
+      "result": "typed user with complete raw response",
+      "difference": "Python accepts an arbitrary request dictionary, but Zulip 12.2 documents no parameters for GET /users/me."
+    },
+    {
+      "python": "get_user_presence",
+      "ocaml": "Zulip_eio.Presence.get_user_by_email / get_user_by_email_detailed",
+      "parameters": ["email"],
+      "result": "typed modern and legacy presence; detailed form includes server_timestamp and extensions"
+    },
+    {
+      "python": "get_realm_presence",
+      "ocaml": "Zulip_eio.Presence.get_all / get_all_detailed",
+      "parameters": [],
+      "result": "typed keyed presence map; detailed form includes server_timestamp and extensions"
+    },
+    {
+      "python": "update_presence",
+      "ocaml": "Zulip_eio.Presence.update",
+      "parameters": ["status", "last_update_id", "history_limit_days", "new_user_input", "ping_only", "slim_presence"],
+      "result": "typed presence_last_update_id, optional server_timestamp, optional delta map, and extensions"
+    },
+    {
+      "python": "get_user_by_id",
+      "ocaml": "Zulip_eio.Users.get_by_id",
+      "parameters": ["user_id", "client_gravatar", "include_custom_profile_fields"],
+      "result": "typed user with profile_data and complete raw response"
+    },
+    {
+      "python": "deactivate_user_by_id",
+      "ocaml": "Zulip_eio.Users.deactivate",
+      "parameters": ["user_id"],
+      "additional_ocaml_parameters": ["actions", "notification_comment"],
+      "result": "unit success"
+    },
+    {
+      "python": "reactivate_user_by_id",
+      "ocaml": "Zulip_eio.Users.reactivate",
+      "parameters": ["user_id"],
+      "result": "unit success"
+    },
+    {
+      "python": "update_user_by_id",
+      "ocaml": "Zulip_eio.Users.update",
+      "parameters": ["user_id", "full_name", "role", "profile_data", "new_email"],
+      "result": "unit success",
+      "difference": "Current-server API only: full_name is sent once and does not reproduce Python's pre-feature-106 double-JSON encoding."
+    },
+    {
+      "python": "get_users",
+      "ocaml": "Zulip_eio.Users.list_all",
+      "parameters": ["client_gravatar", "include_custom_profile_fields", "user_ids"],
+      "result": "typed user list with complete raw values"
+    },
+    {
+      "python": "get_members",
+      "ocaml": "Zulip_eio.Users.list_all",
+      "parameters": ["client_gravatar", "include_custom_profile_fields", "user_ids"],
+      "result": "typed user list",
+      "difference": "Python compatibility alias maps to the canonical OCaml function; no alias is exported."
+    },
+    {
+      "python": "get_alert_words",
+      "ocaml": "Zulip_eio.Users.get_alert_words",
+      "parameters": [],
+      "result": "string list"
+    },
+    {
+      "python": "add_alert_words",
+      "ocaml": "Zulip_eio.Users.add_alert_words",
+      "parameters": ["alert_words"],
+      "result": "updated string list"
+    },
+    {
+      "python": "remove_alert_words",
+      "ocaml": "Zulip_eio.Users.remove_alert_words",
+      "parameters": ["alert_words"],
+      "result": "updated string list"
+    },
+    {
+      "python": "update_notification_settings",
+      "ocaml": "Zulip_eio.Settings.update",
+      "parameters": ["notification_settings"],
+      "result": "complete raw response",
+      "difference": "Uses canonical PATCH /settings rather than Python's legacy /settings/notifications alias; values are passed as explicit wire strings/JSON."
+    },
+    {
+      "python": "create_user",
+      "ocaml": "Zulip_eio.Users.create / create_detailed",
+      "parameters": ["email", "password", "full_name"],
+      "result": "new user ID; detailed form also preserves response extensions"
+    },
+    {
+      "python": "update_storage",
+      "ocaml": "Zulip_eio.Bot_storage.set",
+      "parameters": ["storage"],
+      "result": "unit success"
+    },
+    {
+      "python": "get_storage",
+      "ocaml": "Zulip_eio.Bot_storage.get",
+      "parameters": ["keys"],
+      "result": "string key/value list",
+      "difference": "None omits keys and returns all storage; Some [] sends an explicit empty filter."
+    },
+    {
+      "python": "remove_storage",
+      "ocaml": "Zulip_eio.Bot_storage.remove",
+      "parameters": ["keys"],
+      "result": "unit success",
+      "difference": "None omits keys and removes all storage; Some [] explicitly requests removal of no keys."
+    },
+    {
+      "python": "set_typing_status",
+      "ocaml": "Zulip_eio.Typing.set / set_dm / set_channel",
+      "parameters": ["op", "type", "to", "stream_id", "topic"],
+      "result": "unit success",
+      "difference": "OCaml uses typed direct/channel destinations; legacy free-form combinations are intentionally unavailable."
+    }
+  ],
+  "additional_current_endpoints": [
+    "Users.get (user by email with gravatar/profile options)",
+    "Users.update_status_for_user and Users.get_status",
+    "Users.update_profile_data and Users.remove_profile_data",
+    "Users.upload_avatar, Users.upload_avatar_stream, and Users.delete_avatar",
+    "Attachments.delete",
+    "Users.mute_user and Users.unmute_user",
+    "Users.deactivate_me",
+    "Presence.get_user (user ID form)",
+    "Server.update_linkifier and Server.reorder_linkifiers",
+    "Typing.set_edit"
+  ],
+  "removed_obsolete_endpoints": [
+    "Users.me_pointer",
+    "Users.update_me_pointer",
+    "Users.get_settings",
+    "Users.get_muted_users"
+  ]
+}

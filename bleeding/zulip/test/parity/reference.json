@@ -1,0 +1,1793 @@
+{
+  "python_revision": "b1723475",
+  "zulip_version": "12.2",
+  "sources": [
+    "https://github.com/zulip/python-zulip-api/blob/b1723475/zulip/zulip/__init__.py",
+    "https://github.com/zulip/zulip/blob/12.2/zerver/openapi/zulip.yaml",
+    "https://github.com/zulip/zulip/blob/12.2/zproject/urls.py"
+  ],
+  "helpers": {
+    "ensure_session": {
+      "python_parameters": [],
+      "operation": null
+    },
+    "get_user_agent": {
+      "python_parameters": [],
+      "operation": null
+    },
+    "do_api_query": {
+      "python_parameters": [
+        "orig_request",
+        "url",
+        "method",
+        "longpolling",
+        "files",
+        "timeout"
+      ],
+      "operation": null
+    },
+    "call_endpoint": {
+      "python_parameters": [
+        "url",
+        "method",
+        "request",
+        "longpolling",
+        "files",
+        "timeout"
+      ],
+      "operation": null
+    },
+    "call_on_each_event": {
+      "python_parameters": [
+        "callback",
+        "event_types",
+        "narrow"
+      ],
+      "operation": null
+    },
+    "call_on_each_message": {
+      "python_parameters": [
+        "callback"
+      ],
+      "operation": null
+    },
+    "get_messages": {
+      "python_parameters": [
+        "message_filters"
+      ],
+      "operation": "GET /messages"
+    },
+    "check_messages_match_narrow": {
+      "python_parameters": [],
+      "operation": "GET /messages/matches_narrow"
+    },
+    "get_raw_message": {
+      "python_parameters": [
+        "message_id",
+        "apply_markdown"
+      ],
+      "operation": "GET /messages/{message_id}"
+    },
+    "send_message": {
+      "python_parameters": [
+        "message_data"
+      ],
+      "operation": "POST /messages"
+    },
+    "upload_file": {
+      "python_parameters": [
+        "file"
+      ],
+      "operation": "POST /user_uploads"
+    },
+    "get_attachments": {
+      "python_parameters": [],
+      "operation": "GET /attachments"
+    },
+    "update_message": {
+      "python_parameters": [
+        "message_data"
+      ],
+      "operation": "PATCH /messages/{message_id}"
+    },
+    "delete_message": {
+      "python_parameters": [
+        "message_id"
+      ],
+      "operation": "DELETE /messages/{message_id}"
+    },
+    "update_message_flags": {
+      "python_parameters": [
+        "update_data"
+      ],
+      "operation": "POST /messages/flags"
+    },
+    "mark_all_as_read": {
+      "python_parameters": [],
+      "operation": "POST /mark_all_as_read"
+    },
+    "mark_stream_as_read": {
+      "python_parameters": [
+        "stream_id"
+      ],
+      "operation": "POST /mark_stream_as_read"
+    },
+    "mark_topic_as_read": {
+      "python_parameters": [
+        "stream_id",
+        "topic_name"
+      ],
+      "operation": "POST /mark_topic_as_read"
+    },
+    "get_message_history": {
+      "python_parameters": [
+        "message_id"
+      ],
+      "operation": "GET /messages/{message_id}/history"
+    },
+    "add_reaction": {
+      "python_parameters": [
+        "reaction_data"
+      ],
+      "operation": "POST /messages/{message_id}/reactions"
+    },
+    "remove_reaction": {
+      "python_parameters": [
+        "reaction_data"
+      ],
+      "operation": "DELETE /messages/{message_id}/reactions"
+    },
+    "get_realm_emoji": {
+      "python_parameters": [],
+      "operation": "GET /realm/emoji"
+    },
+    "upload_custom_emoji": {
+      "python_parameters": [
+        "emoji_name",
+        "file_obj"
+      ],
+      "operation": "POST /realm/emoji/{emoji_name}"
+    },
+    "delete_custom_emoji": {
+      "python_parameters": [
+        "emoji_name"
+      ],
+      "operation": "DELETE /realm/emoji/{emoji_name}"
+    },
+    "get_realm_linkifiers": {
+      "python_parameters": [],
+      "operation": "GET /realm/linkifiers"
+    },
+    "add_realm_filter": {
+      "python_parameters": [
+        "pattern",
+        "url_template"
+      ],
+      "operation": "POST /realm/filters"
+    },
+    "remove_realm_filter": {
+      "python_parameters": [
+        "filter_id"
+      ],
+      "operation": "DELETE /realm/filters/{filter_id}"
+    },
+    "get_realm_profile_fields": {
+      "python_parameters": [],
+      "operation": "GET /realm/profile_fields"
+    },
+    "create_realm_profile_field": {
+      "python_parameters": [],
+      "operation": "POST /realm/profile_fields"
+    },
+    "remove_realm_profile_field": {
+      "python_parameters": [
+        "field_id"
+      ],
+      "operation": "DELETE /realm/profile_fields/{field_id}"
+    },
+    "reorder_realm_profile_fields": {
+      "python_parameters": [],
+      "operation": "PATCH /realm/profile_fields"
+    },
+    "update_realm_profile_field": {
+      "python_parameters": [
+        "field_id"
+      ],
+      "operation": "PATCH /realm/profile_fields/{field_id}"
+    },
+    "get_server_settings": {
+      "python_parameters": [],
+      "operation": "GET /server_settings"
+    },
+    "get_events": {
+      "python_parameters": [],
+      "operation": "GET /events"
+    },
+    "register": {
+      "python_parameters": [
+        "event_types",
+        "narrow"
+      ],
+      "operation": "POST /register"
+    },
+    "deregister": {
+      "python_parameters": [
+        "queue_id",
+        "timeout"
+      ],
+      "operation": "DELETE /events"
+    },
+    "get_profile": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "GET /users/me"
+    },
+    "get_user_presence": {
+      "python_parameters": [
+        "email"
+      ],
+      "operation": "GET /users/{user_id_or_email}/presence"
+    },
+    "get_realm_presence": {
+      "python_parameters": [],
+      "operation": "GET /realm/presence"
+    },
+    "update_presence": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "POST /users/me/presence"
+    },
+    "get_streams": {
+      "python_parameters": [],
+      "operation": "GET /streams"
+    },
+    "update_stream": {
+      "python_parameters": [
+        "stream_data"
+      ],
+      "operation": "PATCH /streams/{stream_id}"
+    },
+    "delete_stream": {
+      "python_parameters": [
+        "stream_id"
+      ],
+      "operation": "DELETE /streams/{stream_id}"
+    },
+    "add_default_stream": {
+      "python_parameters": [
+        "stream_id"
+      ],
+      "operation": "POST /default_streams"
+    },
+    "get_user_by_id": {
+      "python_parameters": [
+        "user_id"
+      ],
+      "operation": "GET /users/{user_id}"
+    },
+    "deactivate_user_by_id": {
+      "python_parameters": [
+        "user_id"
+      ],
+      "operation": "DELETE /users/{user_id}"
+    },
+    "reactivate_user_by_id": {
+      "python_parameters": [
+        "user_id"
+      ],
+      "operation": "POST /users/{user_id}/reactivate"
+    },
+    "update_user_by_id": {
+      "python_parameters": [
+        "user_id"
+      ],
+      "operation": "PATCH /users/{user_id}"
+    },
+    "get_users": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "GET /users"
+    },
+    "get_members": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "GET /users"
+    },
+    "get_alert_words": {
+      "python_parameters": [],
+      "operation": "GET /users/me/alert_words"
+    },
+    "add_alert_words": {
+      "python_parameters": [
+        "alert_words"
+      ],
+      "operation": "POST /users/me/alert_words"
+    },
+    "remove_alert_words": {
+      "python_parameters": [
+        "alert_words"
+      ],
+      "operation": "DELETE /users/me/alert_words"
+    },
+    "get_subscriptions": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "GET /users/me/subscriptions"
+    },
+    "list_subscriptions": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "GET /users/me/subscriptions"
+    },
+    "add_subscriptions": {
+      "python_parameters": [
+        "streams"
+      ],
+      "operation": "POST /users/me/subscriptions"
+    },
+    "remove_subscriptions": {
+      "python_parameters": [
+        "streams",
+        "principals"
+      ],
+      "operation": "DELETE /users/me/subscriptions"
+    },
+    "get_subscription_status": {
+      "python_parameters": [
+        "user_id",
+        "stream_id"
+      ],
+      "operation": "GET /users/{user_id}/subscriptions/{stream_id}"
+    },
+    "mute_topic": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "POST /user_topics"
+    },
+    "update_subscription_settings": {
+      "python_parameters": [
+        "subscription_data"
+      ],
+      "operation": "POST /users/me/subscriptions/properties"
+    },
+    "update_notification_settings": {
+      "python_parameters": [
+        "notification_settings"
+      ],
+      "operation": "PATCH /settings"
+    },
+    "get_stream_id": {
+      "python_parameters": [
+        "stream"
+      ],
+      "operation": "GET /get_stream_id"
+    },
+    "get_stream_topics": {
+      "python_parameters": [
+        "stream_id"
+      ],
+      "operation": "GET /users/me/{stream_id}/topics"
+    },
+    "get_stream_email_address": {
+      "python_parameters": [
+        "stream_id"
+      ],
+      "operation": "GET /streams/{stream_id}/email_address"
+    },
+    "get_user_groups": {
+      "python_parameters": [],
+      "operation": "GET /user_groups"
+    },
+    "create_user_group": {
+      "python_parameters": [
+        "group_data"
+      ],
+      "operation": "POST /user_groups/create"
+    },
+    "update_user_group": {
+      "python_parameters": [
+        "group_data"
+      ],
+      "operation": "PATCH /user_groups/{user_group_id}"
+    },
+    "remove_user_group": {
+      "python_parameters": [
+        "group_id"
+      ],
+      "operation": "POST /user_groups/{user_group_id}/deactivate"
+    },
+    "update_user_group_members": {
+      "python_parameters": [
+        "user_group_id",
+        "group_data"
+      ],
+      "operation": "POST /user_groups/{user_group_id}/members"
+    },
+    "get_subscribers": {
+      "python_parameters": [],
+      "operation": "GET /streams/{stream_id}/members"
+    },
+    "render_message": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "POST /messages/render"
+    },
+    "create_user": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "POST /users"
+    },
+    "update_storage": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "PUT /bot_storage"
+    },
+    "get_storage": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "GET /bot_storage"
+    },
+    "remove_storage": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "DELETE /bot_storage"
+    },
+    "set_typing_status": {
+      "python_parameters": [
+        "request"
+      ],
+      "operation": "POST /typing"
+    },
+    "move_topic": {
+      "python_parameters": [
+        "stream",
+        "new_stream",
+        "topic",
+        "new_topic",
+        "message_id",
+        "propagate_mode",
+        "notify_old_topic",
+        "notify_new_topic"
+      ],
+      "operation": "PATCH /messages/{message_id}"
+    }
+  },
+  "operations": {
+    "POST /fetch_api_key": {
+      "operation_id": "fetch-api-key",
+      "parameters": [
+        "password",
+        "username"
+      ]
+    },
+    "POST /jwt/fetch_api_key": {
+      "operation_id": "jwt-fetch-api-key",
+      "parameters": [
+        "include_profile",
+        "token"
+      ]
+    },
+    "POST /dev_fetch_api_key": {
+      "operation_id": "dev-fetch-api-key",
+      "parameters": [
+        "username"
+      ]
+    },
+    "GET /dev_list_users": {
+      "operation_id": "dev-list-users",
+      "parameters": []
+    },
+    "GET /events": {
+      "operation_id": "get-events",
+      "parameters": [
+        "dont_block",
+        "last_event_id",
+        "queue_id"
+      ]
+    },
+    "DELETE /events": {
+      "operation_id": "delete-queue",
+      "parameters": [
+        "queue_id"
+      ]
+    },
+    "GET /get_stream_id": {
+      "operation_id": "get-stream-id",
+      "parameters": [
+        "stream"
+      ]
+    },
+    "POST /mark_all_as_read": {
+      "operation_id": "mark-all-as-read",
+      "parameters": []
+    },
+    "POST /mark_stream_as_read": {
+      "operation_id": "mark-stream-as-read",
+      "parameters": [
+        "stream_id"
+      ]
+    },
+    "POST /mark_topic_as_read": {
+      "operation_id": "mark-topic-as-read",
+      "parameters": [
+        "stream_id",
+        "topic_name"
+      ]
+    },
+    "GET /attachments": {
+      "operation_id": "get-attachments",
+      "parameters": []
+    },
+    "DELETE /attachments/{attachment_id}": {
+      "operation_id": "remove-attachment",
+      "parameters": [
+        "attachment_id"
+      ]
+    },
+    "GET /bot_storage": {
+      "operation_id": "get-bot-storage",
+      "parameters": [
+        "keys"
+      ]
+    },
+    "PUT /bot_storage": {
+      "operation_id": "update-bot-storage",
+      "parameters": [
+        "storage"
+      ]
+    },
+    "DELETE /bot_storage": {
+      "operation_id": "remove-bot-storage",
+      "parameters": [
+        "keys"
+      ]
+    },
+    "GET /drafts": {
+      "operation_id": "get-drafts",
+      "parameters": []
+    },
+    "POST /drafts": {
+      "operation_id": "create-drafts",
+      "parameters": [
+        "drafts"
+      ]
+    },
+    "PATCH /drafts/{draft_id}": {
+      "operation_id": "edit-draft",
+      "parameters": [
+        "draft",
+        "draft_id"
+      ]
+    },
+    "DELETE /drafts/{draft_id}": {
+      "operation_id": "delete-draft",
+      "parameters": [
+        "draft_id"
+      ]
+    },
+    "GET /navigation_views": {
+      "operation_id": "get-navigation-views",
+      "parameters": []
+    },
+    "POST /navigation_views": {
+      "operation_id": "add-navigation-view",
+      "parameters": [
+        "fragment",
+        "is_pinned",
+        "name"
+      ]
+    },
+    "PATCH /navigation_views/{fragment}": {
+      "operation_id": "edit-navigation-view",
+      "parameters": [
+        "fragment",
+        "is_pinned",
+        "name"
+      ]
+    },
+    "DELETE /navigation_views/{fragment}": {
+      "operation_id": "remove-navigation-view",
+      "parameters": [
+        "fragment"
+      ]
+    },
+    "GET /saved_snippets": {
+      "operation_id": "get-saved-snippets",
+      "parameters": []
+    },
+    "POST /saved_snippets": {
+      "operation_id": "create-saved-snippet",
+      "parameters": [
+        "content",
+        "title"
+      ]
+    },
+    "PATCH /saved_snippets/{saved_snippet_id}": {
+      "operation_id": "edit-saved-snippet",
+      "parameters": [
+        "content",
+        "saved_snippet_id",
+        "title"
+      ]
+    },
+    "DELETE /saved_snippets/{saved_snippet_id}": {
+      "operation_id": "delete-saved-snippet",
+      "parameters": [
+        "saved_snippet_id"
+      ]
+    },
+    "GET /reminders": {
+      "operation_id": "get-reminders",
+      "parameters": []
+    },
+    "POST /reminders": {
+      "operation_id": "create-message-reminder",
+      "parameters": [
+        "message_id",
+        "note",
+        "scheduled_delivery_timestamp"
+      ]
+    },
+    "DELETE /reminders/{reminder_id}": {
+      "operation_id": "delete-reminder",
+      "parameters": [
+        "reminder_id"
+      ]
+    },
+    "GET /scheduled_messages": {
+      "operation_id": "get-scheduled-messages",
+      "parameters": []
+    },
+    "POST /scheduled_messages": {
+      "operation_id": "create-scheduled-message",
+      "parameters": [
+        "content",
+        "read_by_sender",
+        "scheduled_delivery_timestamp",
+        "to",
+        "topic",
+        "type"
+      ]
+    },
+    "PATCH /scheduled_messages/{scheduled_message_id}": {
+      "operation_id": "update-scheduled-message",
+      "parameters": [
+        "content",
+        "scheduled_delivery_timestamp",
+        "scheduled_message_id",
+        "to",
+        "topic",
+        "type"
+      ]
+    },
+    "DELETE /scheduled_messages/{scheduled_message_id}": {
+      "operation_id": "delete-scheduled-message",
+      "parameters": [
+        "scheduled_message_id"
+      ]
+    },
+    "POST /default_streams": {
+      "operation_id": "add-default-stream",
+      "parameters": [
+        "stream_id"
+      ]
+    },
+    "DELETE /default_streams": {
+      "operation_id": "remove-default-stream",
+      "parameters": [
+        "stream_id"
+      ]
+    },
+    "GET /messages": {
+      "operation_id": "get-messages",
+      "parameters": [
+        "allow_empty_topic_name",
+        "anchor",
+        "anchor_date",
+        "apply_markdown",
+        "client_gravatar",
+        "include_anchor",
+        "message_ids",
+        "narrow",
+        "num_after",
+        "num_before",
+        "use_first_unread_anchor"
+      ]
+    },
+    "POST /messages": {
+      "operation_id": "send-message",
+      "parameters": [
+        "content",
+        "local_id",
+        "queue_id",
+        "read_by_sender",
+        "to",
+        "topic",
+        "type"
+      ]
+    },
+    "GET /messages/{message_id}/history": {
+      "operation_id": "get-message-history",
+      "parameters": [
+        "allow_empty_topic_name",
+        "message_id"
+      ]
+    },
+    "POST /messages/flags": {
+      "operation_id": "update-message-flags",
+      "parameters": [
+        "flag",
+        "messages",
+        "op"
+      ]
+    },
+    "POST /messages/flags/narrow": {
+      "operation_id": "update-message-flags-for-narrow",
+      "parameters": [
+        "anchor",
+        "flag",
+        "include_anchor",
+        "narrow",
+        "num_after",
+        "num_before",
+        "op"
+      ]
+    },
+    "POST /messages/render": {
+      "operation_id": "render-message",
+      "parameters": [
+        "content"
+      ]
+    },
+    "POST /messages/{message_id}/reactions": {
+      "operation_id": "add-reaction",
+      "parameters": [
+        "emoji_code",
+        "emoji_name",
+        "message_id",
+        "reaction_type"
+      ]
+    },
+    "DELETE /messages/{message_id}/reactions": {
+      "operation_id": "remove-reaction",
+      "parameters": [
+        "emoji_code",
+        "emoji_name",
+        "message_id",
+        "reaction_type"
+      ]
+    },
+    "GET /messages/{message_id}/read_receipts": {
+      "operation_id": "get-read-receipts",
+      "parameters": [
+        "message_id"
+      ]
+    },
+    "GET /messages/matches_narrow": {
+      "operation_id": "check-messages-match-narrow",
+      "parameters": [
+        "msg_ids",
+        "narrow"
+      ]
+    },
+    "GET /messages/{message_id}": {
+      "operation_id": "get-message",
+      "parameters": [
+        "allow_empty_topic_name",
+        "apply_markdown",
+        "message_id"
+      ]
+    },
+    "PATCH /messages/{message_id}": {
+      "operation_id": "update-message",
+      "parameters": [
+        "content",
+        "message_id",
+        "prev_content_sha256",
+        "propagate_mode",
+        "send_notification_to_new_thread",
+        "send_notification_to_old_thread",
+        "stream_id",
+        "topic"
+      ]
+    },
+    "DELETE /messages/{message_id}": {
+      "operation_id": "delete-message",
+      "parameters": [
+        "message_id"
+      ]
+    },
+    "POST /messages/{message_id}/report": {
+      "operation_id": "report-message",
+      "parameters": [
+        "description",
+        "message_id",
+        "report_type"
+      ]
+    },
+    "POST /user_uploads": {
+      "operation_id": "upload-file",
+      "parameters": [
+        "filename"
+      ]
+    },
+    "GET /thumbnail/status/{realm_id_str}/{filename}": {
+      "operation_id": "check-thumbnail-status",
+      "parameters": [
+        "filename",
+        "realm_id_str"
+      ]
+    },
+    "GET /user_uploads/{realm_id_str}/{filename}": {
+      "operation_id": "get-file-temporary-url",
+      "parameters": [
+        "filename",
+        "realm_id_str"
+      ]
+    },
+    "GET /users": {
+      "operation_id": "get-users",
+      "parameters": [
+        "client_gravatar",
+        "include_custom_profile_fields",
+        "user_ids"
+      ]
+    },
+    "POST /users": {
+      "operation_id": "create-user",
+      "parameters": [
+        "email",
+        "full_name",
+        "password"
+      ]
+    },
+    "POST /users/{user_id}/reactivate": {
+      "operation_id": "reactivate-user",
+      "parameters": [
+        "user_id"
+      ]
+    },
+    "POST /users/{user_id}/status": {
+      "operation_id": "update-status-for-user",
+      "parameters": [
+        "emoji_code",
+        "emoji_name",
+        "reaction_type",
+        "status_text",
+        "user_id"
+      ]
+    },
+    "GET /users/{user_id}/status": {
+      "operation_id": "get-user-status",
+      "parameters": [
+        "user_id"
+      ]
+    },
+    "GET /users/{user_id_or_email}/presence": {
+      "operation_id": "get-user-presence",
+      "parameters": [
+        "user_id_or_email"
+      ]
+    },
+    "GET /users/me": {
+      "operation_id": "get-own-user",
+      "parameters": []
+    },
+    "DELETE /users/me": {
+      "operation_id": "deactivate-own-user",
+      "parameters": []
+    },
+    "POST /users/me/api_key/regenerate": {
+      "operation_id": "regenerate-api-key",
+      "parameters": []
+    },
+    "GET /users/me/alert_words": {
+      "operation_id": "get-alert-words",
+      "parameters": []
+    },
+    "POST /users/me/alert_words": {
+      "operation_id": "add-alert-words",
+      "parameters": [
+        "alert_words"
+      ]
+    },
+    "DELETE /users/me/alert_words": {
+      "operation_id": "remove-alert-words",
+      "parameters": [
+        "alert_words"
+      ]
+    },
+    "POST /users/me/presence": {
+      "operation_id": "update-presence",
+      "parameters": [
+        "history_limit_days",
+        "last_update_id",
+        "new_user_input",
+        "ping_only",
+        "slim_presence",
+        "status"
+      ]
+    },
+    "PATCH /users/me/profile_data": {
+      "operation_id": "update-profile-data",
+      "parameters": [
+        "data"
+      ]
+    },
+    "DELETE /users/me/profile_data": {
+      "operation_id": "remove-profile-data",
+      "parameters": [
+        "data"
+      ]
+    },
+    "POST /users/me/status": {
+      "operation_id": "update-status",
+      "parameters": [
+        "away",
+        "emoji_code",
+        "emoji_name",
+        "reaction_type",
+        "status_text"
+      ]
+    },
+    "GET /users/me/{stream_id}/topics": {
+      "operation_id": "get-stream-topics",
+      "parameters": [
+        "allow_empty_topic_name",
+        "stream_id"
+      ]
+    },
+    "GET /users/me/subscriptions": {
+      "operation_id": "get-subscriptions",
+      "parameters": [
+        "include_subscribers"
+      ]
+    },
+    "POST /users/me/subscriptions": {
+      "operation_id": "subscribe",
+      "parameters": [
+        "announce",
+        "authorization_errors_fatal",
+        "can_add_subscribers_group",
+        "can_administer_channel_group",
+        "can_create_topic_group",
+        "can_delete_any_message_group",
+        "can_delete_own_message_group",
+        "can_move_messages_out_of_channel_group",
+        "can_move_messages_within_channel_group",
+        "can_remove_subscribers_group",
+        "can_resolve_topics_group",
+        "can_send_message_group",
+        "can_subscribe_group",
+        "folder_id",
+        "history_public_to_subscribers",
+        "invite_only",
+        "is_default_stream",
+        "is_web_public",
+        "message_retention_days",
+        "principals",
+        "send_new_subscription_messages",
+        "subscriptions",
+        "topics_policy"
+      ]
+    },
+    "PATCH /users/me/subscriptions": {
+      "operation_id": "update-subscriptions",
+      "parameters": [
+        "add",
+        "delete"
+      ]
+    },
+    "DELETE /users/me/subscriptions": {
+      "operation_id": "unsubscribe",
+      "parameters": [
+        "principals",
+        "subscriptions"
+      ]
+    },
+    "PATCH /users/me/subscriptions/muted_topics": {
+      "operation_id": "mute-topic",
+      "parameters": [
+        "op",
+        "stream",
+        "stream_id",
+        "topic"
+      ]
+    },
+    "POST /mobile_push/test_notification": {
+      "operation_id": "test-notify",
+      "parameters": [
+        "token"
+      ]
+    },
+    "POST /mobile_push/e2ee/test_notification": {
+      "operation_id": "e2ee-test-notify",
+      "parameters": [
+        "device_id"
+      ]
+    },
+    "POST /mobile_push/register": {
+      "operation_id": "register-push-device",
+      "parameters": [
+        "bouncer_public_key",
+        "device_id",
+        "encrypted_push_registration",
+        "push_key",
+        "push_key_id",
+        "token_id",
+        "token_kind"
+      ]
+    },
+    "POST /remotes/push/e2ee/register": {
+      "operation_id": "register-remote-push-device",
+      "parameters": [
+        "bouncer_public_key",
+        "encrypted_push_registration",
+        "realm_uuid",
+        "token_id"
+      ]
+    },
+    "POST /register_client_device": {
+      "operation_id": "register-client-device",
+      "parameters": []
+    },
+    "POST /remove_client_device": {
+      "operation_id": "remove-client-device",
+      "parameters": [
+        "device_id"
+      ]
+    },
+    "POST /user_topics": {
+      "operation_id": "update-user-topic",
+      "parameters": [
+        "stream_id",
+        "topic",
+        "visibility_policy"
+      ]
+    },
+    "POST /users/me/muted_users/{muted_user_id}": {
+      "operation_id": "mute-user",
+      "parameters": [
+        "muted_user_id"
+      ]
+    },
+    "DELETE /users/me/muted_users/{muted_user_id}": {
+      "operation_id": "unmute-user",
+      "parameters": [
+        "muted_user_id"
+      ]
+    },
+    "POST /users/me/apns_device_token": {
+      "operation_id": "add-apns-token",
+      "parameters": [
+        "appid",
+        "token"
+      ]
+    },
+    "DELETE /users/me/apns_device_token": {
+      "operation_id": "remove-apns-token",
+      "parameters": [
+        "token"
+      ]
+    },
+    "POST /users/me/android_gcm_reg_id": {
+      "operation_id": "add-fcm-token",
+      "parameters": [
+        "token"
+      ]
+    },
+    "DELETE /users/me/android_gcm_reg_id": {
+      "operation_id": "remove-fcm-token",
+      "parameters": [
+        "token"
+      ]
+    },
+    "GET /users/{user_id}/subscriptions/{stream_id}": {
+      "operation_id": "get-subscription-status",
+      "parameters": [
+        "stream_id",
+        "user_id"
+      ]
+    },
+    "GET /users/{user_id}/channels": {
+      "operation_id": "get-user-channels",
+      "parameters": [
+        "user_id"
+      ]
+    },
+    "POST /realm/emoji/{emoji_name}": {
+      "operation_id": "upload-custom-emoji",
+      "parameters": [
+        "emoji_name",
+        "filename"
+      ]
+    },
+    "DELETE /realm/emoji/{emoji_name}": {
+      "operation_id": "deactivate-custom-emoji",
+      "parameters": [
+        "emoji_name"
+      ]
+    },
+    "GET /realm/emoji": {
+      "operation_id": "get-custom-emoji",
+      "parameters": []
+    },
+    "GET /realm/presence": {
+      "operation_id": "get-presence",
+      "parameters": []
+    },
+    "GET /realm/domains": {
+      "operation_id": "get-realm-domains",
+      "parameters": []
+    },
+    "POST /realm/domains": {
+      "operation_id": "add-realm-domain",
+      "parameters": [
+        "allow_subdomains",
+        "domain"
+      ]
+    },
+    "PATCH /realm/domains/{domain}": {
+      "operation_id": "patch-realm-domain",
+      "parameters": [
+        "allow_subdomains",
+        "domain"
+      ]
+    },
+    "DELETE /realm/domains/{domain}": {
+      "operation_id": "delete-realm-domain",
+      "parameters": [
+        "domain"
+      ]
+    },
+    "GET /realm/profile_fields": {
+      "operation_id": "get-custom-profile-fields",
+      "parameters": []
+    },
+    "PATCH /realm/profile_fields": {
+      "operation_id": "reorder-custom-profile-fields",
+      "parameters": [
+        "order"
+      ]
+    },
+    "POST /realm/profile_fields": {
+      "operation_id": "create-custom-profile-field",
+      "parameters": [
+        "display_in_profile_summary",
+        "editable_by_user",
+        "field_data",
+        "field_type",
+        "hint",
+        "name",
+        "required",
+        "use_for_user_matching"
+      ]
+    },
+    "PATCH /realm/user_settings_defaults": {
+      "operation_id": "update-realm-user-settings-defaults",
+      "parameters": [
+        "automatically_follow_topics_policy",
+        "automatically_follow_topics_where_mentioned",
+        "automatically_unmute_topics_in_muted_streams_policy",
+        "color_scheme",
+        "demote_inactive_streams",
+        "desktop_icon_count_display",
+        "display_emoji_reaction_users",
+        "email_address_visibility",
+        "email_notifications_batching_period_seconds",
+        "emojiset",
+        "enable_desktop_notifications",
+        "enable_digest_emails",
+        "enable_drafts_synchronization",
+        "enable_followed_topic_audible_notifications",
+        "enable_followed_topic_desktop_notifications",
+        "enable_followed_topic_email_notifications",
+        "enable_followed_topic_push_notifications",
+        "enable_followed_topic_wildcard_mentions_notify",
+        "enable_offline_email_notifications",
+        "enable_offline_push_notifications",
+        "enable_online_push_notifications",
+        "enable_sounds",
+        "enable_stream_audible_notifications",
+        "enable_stream_desktop_notifications",
+        "enable_stream_email_notifications",
+        "enable_stream_push_notifications",
+        "enter_sends",
+        "fluid_layout_width",
+        "hide_ai_features",
+        "high_contrast_mode",
+        "left_side_userlist",
+        "message_content_in_email_notifications",
+        "notification_sound",
+        "pm_content_in_desktop_notifications",
+        "presence_enabled",
+        "realm_name_in_email_notifications_policy",
+        "receives_typing_notifications",
+        "resolved_topic_notice_auto_read_policy",
+        "send_private_typing_notifications",
+        "send_read_receipts",
+        "send_stream_typing_notifications",
+        "starred_message_counts",
+        "translate_emoticons",
+        "twenty_four_hour_time",
+        "user_list_style",
+        "web_animate_image_previews",
+        "web_channel_default_view",
+        "web_escape_navigates_to_home_view",
+        "web_font_size_px",
+        "web_home_view",
+        "web_inbox_show_channel_folders",
+        "web_left_sidebar_show_channel_folders",
+        "web_left_sidebar_unreads_count_summary",
+        "web_line_height_percent",
+        "web_mark_read_on_scroll_policy",
+        "web_navigate_to_sent_message",
+        "web_stream_unreads_count_display_policy",
+        "web_suggest_update_timezone",
+        "wildcard_mentions_notify"
+      ]
+    },
+    "POST /users/me/subscriptions/properties": {
+      "operation_id": "update-subscription-settings",
+      "parameters": [
+        "subscription_data"
+      ]
+    },
+    "PATCH /users/me/subscriptions/{stream_id}": {
+      "operation_id": "update-subscription-property",
+      "parameters": [
+        "property",
+        "stream_id",
+        "value"
+      ]
+    },
+    "GET /users/{email}": {
+      "operation_id": "get-user-by-email",
+      "parameters": [
+        "client_gravatar",
+        "email",
+        "include_custom_profile_fields"
+      ]
+    },
+    "PATCH /users/{email}": {
+      "operation_id": "update-user-by-email",
+      "parameters": [
+        "email",
+        "full_name",
+        "new_email",
+        "profile_data",
+        "role"
+      ]
+    },
+    "GET /users/{user_id}": {
+      "operation_id": "get-user",
+      "parameters": [
+        "client_gravatar",
+        "include_custom_profile_fields",
+        "user_id"
+      ]
+    },
+    "PATCH /users/{user_id}": {
+      "operation_id": "update-user",
+      "parameters": [
+        "full_name",
+        "new_email",
+        "profile_data",
+        "role",
+        "user_id"
+      ]
+    },
+    "DELETE /users/{user_id}": {
+      "operation_id": "deactivate-user",
+      "parameters": [
+        "actions",
+        "deactivation_notification_comment",
+        "user_id"
+      ]
+    },
+    "GET /realm/linkifiers": {
+      "operation_id": "get-linkifiers",
+      "parameters": []
+    },
+    "PATCH /realm/linkifiers": {
+      "operation_id": "reorder-linkifiers",
+      "parameters": [
+        "ordered_linkifier_ids"
+      ]
+    },
+    "POST /realm/filters": {
+      "operation_id": "add-linkifier",
+      "parameters": [
+        "alternative_url_templates",
+        "example_input",
+        "pattern",
+        "reverse_template",
+        "url_template"
+      ]
+    },
+    "DELETE /realm/filters/{filter_id}": {
+      "operation_id": "remove-linkifier",
+      "parameters": [
+        "filter_id"
+      ]
+    },
+    "PATCH /realm/filters/{filter_id}": {
+      "operation_id": "update-linkifier",
+      "parameters": [
+        "alternative_url_templates",
+        "example_input",
+        "filter_id",
+        "pattern",
+        "reverse_template",
+        "url_template"
+      ]
+    },
+    "POST /realm/playgrounds": {
+      "operation_id": "add-code-playground",
+      "parameters": [
+        "name",
+        "pygments_language",
+        "url_template"
+      ]
+    },
+    "DELETE /realm/playgrounds/{playground_id}": {
+      "operation_id": "remove-code-playground",
+      "parameters": [
+        "playground_id"
+      ]
+    },
+    "GET /export/realm": {
+      "operation_id": "get-realm-exports",
+      "parameters": []
+    },
+    "POST /export/realm": {
+      "operation_id": "export-realm",
+      "parameters": [
+        "export_type"
+      ]
+    },
+    "GET /export/realm/consents": {
+      "operation_id": "get-realm-export-consents",
+      "parameters": []
+    },
+    "GET /invites": {
+      "operation_id": "get-invites",
+      "parameters": []
+    },
+    "POST /invites": {
+      "operation_id": "send-invites",
+      "parameters": [
+        "group_ids",
+        "include_realm_default_subscriptions",
+        "invite_as",
+        "invite_expires_in_minutes",
+        "invitee_emails",
+        "notify_referrer_on_join",
+        "stream_ids",
+        "welcome_message_custom_text"
+      ]
+    },
+    "POST /invites/multiuse": {
+      "operation_id": "create-invite-link",
+      "parameters": [
+        "group_ids",
+        "include_realm_default_subscriptions",
+        "invite_as",
+        "invite_expires_in_minutes",
+        "stream_ids",
+        "welcome_message_custom_text"
+      ]
+    },
+    "DELETE /invites/{invite_id}": {
+      "operation_id": "revoke-email-invite",
+      "parameters": [
+        "invite_id"
+      ]
+    },
+    "DELETE /invites/multiuse/{invite_id}": {
+      "operation_id": "revoke-invite-link",
+      "parameters": [
+        "invite_id"
+      ]
+    },
+    "POST /invites/{invite_id}/resend": {
+      "operation_id": "resend-email-invite",
+      "parameters": [
+        "invite_id"
+      ]
+    },
+    "POST /realm/test_welcome_bot_custom_message": {
+      "operation_id": "test-welcome-bot-custom-message",
+      "parameters": [
+        "welcome_message_custom_text"
+      ]
+    },
+    "POST /register": {
+      "operation_id": "register-queue",
+      "parameters": [
+        "all_public_streams",
+        "apply_markdown",
+        "client_capabilities",
+        "client_gravatar",
+        "event_types",
+        "fetch_event_types",
+        "idle_queue_timeout",
+        "include_subscribers",
+        "narrow",
+        "presence_history_limit_days",
+        "slim_presence"
+      ]
+    },
+    "GET /server_settings": {
+      "operation_id": "get-server-settings",
+      "parameters": []
+    },
+    "PATCH /settings": {
+      "operation_id": "update-settings",
+      "parameters": [
+        "allow_private_data_export",
+        "automatically_follow_topics_policy",
+        "automatically_follow_topics_where_mentioned",
+        "automatically_unmute_topics_in_muted_streams_policy",
+        "color_scheme",
+        "default_language",
+        "demote_inactive_streams",
+        "desktop_icon_count_display",
+        "display_emoji_reaction_users",
+        "email",
+        "email_address_visibility",
+        "email_notifications_batching_period_seconds",
+        "emojiset",
+        "enable_desktop_notifications",
+        "enable_digest_emails",
+        "enable_drafts_synchronization",
+        "enable_followed_topic_audible_notifications",
+        "enable_followed_topic_desktop_notifications",
+        "enable_followed_topic_email_notifications",
+        "enable_followed_topic_push_notifications",
+        "enable_followed_topic_wildcard_mentions_notify",
+        "enable_login_emails",
+        "enable_marketing_emails",
+        "enable_offline_email_notifications",
+        "enable_offline_push_notifications",
+        "enable_online_push_notifications",
+        "enable_sounds",
+        "enable_stream_audible_notifications",
+        "enable_stream_desktop_notifications",
+        "enable_stream_email_notifications",
+        "enable_stream_push_notifications",
+        "enter_sends",
+        "fluid_layout_width",
+        "full_name",
+        "hide_ai_features",
+        "high_contrast_mode",
+        "left_side_userlist",
+        "message_content_in_email_notifications",
+        "new_password",
+        "notification_sound",
+        "old_password",
+        "pm_content_in_desktop_notifications",
+        "presence_enabled",
+        "realm_name_in_email_notifications_policy",
+        "receives_typing_notifications",
+        "resolved_topic_notice_auto_read_policy",
+        "send_private_typing_notifications",
+        "send_read_receipts",
+        "send_stream_typing_notifications",
+        "starred_message_counts",
+        "target_users",
+        "timezone",
+        "translate_emoticons",
+        "twenty_four_hour_time",
+        "user_list_style",
+        "web_animate_image_previews",
+        "web_channel_default_view",
+        "web_escape_navigates_to_home_view",
+        "web_font_size_px",
+        "web_home_view",
+        "web_inbox_show_channel_folders",
+        "web_left_sidebar_show_channel_folders",
+        "web_left_sidebar_unreads_count_summary",
+        "web_line_height_percent",
+        "web_mark_read_on_scroll_policy",
+        "web_navigate_to_sent_message",
+        "web_stream_unreads_count_display_policy",
+        "web_suggest_update_timezone",
+        "wildcard_mentions_notify"
+      ]
+    },
+    "GET /streams/{stream_id}/members": {
+      "operation_id": "get-subscribers",
+      "parameters": [
+        "stream_id"
+      ]
+    },
+    "GET /streams": {
+      "operation_id": "get-streams",
+      "parameters": [
+        "exclude_archived",
+        "include_all",
+        "include_all_active",
+        "include_can_access_content",
+        "include_default",
+        "include_owner_subscribed",
+        "include_public",
+        "include_subscribed",
+        "include_web_public"
+      ]
+    },
+    "GET /streams/{stream_id}": {
+      "operation_id": "get-stream-by-id",
+      "parameters": [
+        "stream_id"
+      ]
+    },
+    "DELETE /streams/{stream_id}": {
+      "operation_id": "archive-stream",
+      "parameters": [
+        "stream_id"
+      ]
+    },
+    "PATCH /streams/{stream_id}": {
+      "operation_id": "update-stream",
+      "parameters": [
+        "can_add_subscribers_group",
+        "can_administer_channel_group",
+        "can_create_topic_group",
+        "can_delete_any_message_group",
+        "can_delete_own_message_group",
+        "can_move_messages_out_of_channel_group",
+        "can_move_messages_within_channel_group",
+        "can_remove_subscribers_group",
+        "can_resolve_topics_group",
+        "can_send_message_group",
+        "can_subscribe_group",
+        "description",
+        "folder_id",
+        "history_public_to_subscribers",
+        "is_archived",
+        "is_default_stream",
+        "is_private",
+        "is_web_public",
+        "message_retention_days",
+        "new_name",
+        "stream_id",
+        "topics_policy"
+      ]
+    },
+    "GET /streams/{stream_id}/email_address": {
+      "operation_id": "get-stream-email-address",
+      "parameters": [
+        "sender_id",
+        "stream_id"
+      ]
+    },
+    "POST /streams/{stream_id}/delete_topic": {
+      "operation_id": "delete-topic",
+      "parameters": [
+        "stream_id",
+        "topic_name"
+      ]
+    },
+    "POST /typing": {
+      "operation_id": "set-typing-status",
+      "parameters": [
+        "op",
+        "stream_id",
+        "to",
+        "topic",
+        "type"
+      ]
+    },
+    "POST /messages/{message_id}/typing": {
+      "operation_id": "set-typing-status-for-message-edit",
+      "parameters": [
+        "message_id",
+        "op"
+      ]
+    },
+    "POST /channels/create": {
+      "operation_id": "create-channel",
+      "parameters": [
+        "announce",
+        "can_add_subscribers_group",
+        "can_administer_channel_group",
+        "can_create_topic_group",
+        "can_delete_any_message_group",
+        "can_delete_own_message_group",
+        "can_move_messages_out_of_channel_group",
+        "can_move_messages_within_channel_group",
+        "can_remove_subscribers_group",
+        "can_resolve_topics_group",
+        "can_send_message_group",
+        "can_subscribe_group",
+        "description",
+        "folder_id",
+        "history_public_to_subscribers",
+        "invite_only",
+        "is_default_stream",
+        "is_web_public",
+        "message_retention_days",
+        "name",
+        "subscribers",
+        "topics_policy"
+      ]
+    },
+    "POST /user_groups/create": {
+      "operation_id": "create-user-group",
+      "parameters": [
+        "can_add_members_group",
+        "can_join_group",
+        "can_leave_group",
+        "can_manage_group",
+        "can_mention_group",
+        "can_remove_members_group",
+        "description",
+        "members",
+        "name",
+        "subgroups"
+      ]
+    },
+    "POST /user_groups/{user_group_id}/members": {
+      "operation_id": "update-user-group-members",
+      "parameters": [
+        "add",
+        "add_subgroups",
+        "delete",
+        "delete_subgroups",
+        "user_group_id"
+      ]
+    },
+    "GET /user_groups/{user_group_id}/members": {
+      "operation_id": "get-user-group-members",
+      "parameters": [
+        "direct_member_only",
+        "user_group_id"
+      ]
+    },
+    "PATCH /user_groups/{user_group_id}": {
+      "operation_id": "update-user-group",
+      "parameters": [
+        "can_add_members_group",
+        "can_join_group",
+        "can_leave_group",
+        "can_manage_group",
+        "can_mention_group",
+        "can_remove_members_group",
+        "deactivated",
+        "description",
+        "name",
+        "user_group_id"
+      ]
+    },
+    "GET /user_groups": {
+      "operation_id": "get-user-groups",
+      "parameters": [
+        "include_deactivated_groups"
+      ]
+    },
+    "POST /user_groups/{user_group_id}/subgroups": {
+      "operation_id": "update-user-group-subgroups",
+      "parameters": [
+        "add",
+        "delete",
+        "user_group_id"
+      ]
+    },
+    "GET /user_groups/{user_group_id}/subgroups": {
+      "operation_id": "get-user-group-subgroups",
+      "parameters": [
+        "direct_subgroup_only",
+        "user_group_id"
+      ]
+    },
+    "GET /user_groups/{user_group_id}/members/{user_id}": {
+      "operation_id": "get-is-user-group-member",
+      "parameters": [
+        "direct_member_only",
+        "user_group_id",
+        "user_id"
+      ]
+    },
+    "POST /user_groups/{user_group_id}/deactivate": {
+      "operation_id": "deactivate-user-group",
+      "parameters": [
+        "user_group_id"
+      ]
+    },
+    "POST /channel_folders/create": {
+      "operation_id": "create-channel-folder",
+      "parameters": [
+        "description",
+        "name"
+      ]
+    },
+    "GET /channel_folders": {
+      "operation_id": "get-channel-folders",
+      "parameters": [
+        "include_archived"
+      ]
+    },
+    "PATCH /channel_folders": {
+      "operation_id": "patch-channel-folders",
+      "parameters": [
+        "order"
+      ]
+    },
+    "PATCH /channel_folders/{channel_folder_id}": {
+      "operation_id": "update-channel-folder",
+      "parameters": [
+        "channel_folder_id",
+        "description",
+        "is_archived",
+        "name"
+      ]
+    },
+    "GET /bots/{bot_id}/api_key": {
+      "operation_id": "get-bot-api-key",
+      "parameters": [
+        "bot_id"
+      ]
+    },
+    "POST /bots/{bot_id}/api_key/regenerate": {
+      "operation_id": "regenerate-bot-api-key",
+      "parameters": [
+        "bot_id"
+      ]
+    },
+    "GET /calls/bigbluebutton/create": {
+      "operation_id": "create-big-blue-button-video-call",
+      "parameters": [
+        "meeting_name",
+        "voice_only"
+      ]
+    },
+    "POST /calls/nextcloud_talk/create": {
+      "operation_id": "create-nextcloud-talk-video-call",
+      "parameters": [
+        "room_name"
+      ]
+    },
+    "POST /calls/webex/create": {
+      "operation_id": "create-webex-video-call",
+      "parameters": []
+    },
+    "POST /calls/constructorgroups/create": {
+      "operation_id": "create-constructor-groups-video-call",
+      "parameters": []
+    },
+    "PATCH /realm/profile_fields/{field_id}": {
+      "operation_id": "update-custom-profile-field",
+      "parameters": [
+        "field_id",
+        "name",
+        "hint",
+        "field_data",
+        "display_in_profile_summary",
+        "required",
+        "editable_by_user",
+        "use_for_user_matching"
+      ],
+      "route_evidence": "zproject/urls.py 12.2; current OpenAPI"
+    },
+    "DELETE /realm/profile_fields/{field_id}": {
+      "operation_id": "remove-custom-profile-field",
+      "parameters": [
+        "field_id"
+      ],
+      "route_evidence": "zproject/urls.py 12.2; current OpenAPI"
+    }
+  }
+}

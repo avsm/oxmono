@@ -1,0 +1,3 @@
+(executable
+ (name rooms)
+ (libraries zulip.bot zulip.bot.cli))

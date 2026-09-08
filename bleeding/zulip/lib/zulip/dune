@@ -1,0 +1,5 @@
+(library
+ (public_name zulip)
+ (name zulip)
+ (private_modules json_integer)
+ (libraries zulip_compat jsont))

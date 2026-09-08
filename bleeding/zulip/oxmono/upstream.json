@@ -1,0 +1,7 @@
+{
+  "repository": "git@git.recoil.org:anil.recoil.org/ocaml-zulip",
+  "revision": "bd31810f35740a4c595ba33e9900e3524d7d142a",
+  "imported_on": "2026-09-08",
+  "package": "zulip",
+  "layout": "All tracked files from git archive. compat/ contains local compiler helpers. oxmono/ and OXMONO.md record import metadata."
+}

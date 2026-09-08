@@ -1,0 +1,4 @@
+(data_only_dirs third_party)
+
+(env
+ (_ (flags (:standard -open Zulip_compat))))

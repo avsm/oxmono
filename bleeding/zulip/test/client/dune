@@ -1,0 +1,9 @@
+(test
+ (name test_client)
+ (modules test_client)
+ (libraries zulip zulip.eio alcotest eio.mock fetch.mock http httpz.media jsont jsont.bytesrw))
+
+(test
+ (name test_profile)
+ (modules test_profile)
+ (libraries zulip.eio alcotest eio_main unix))

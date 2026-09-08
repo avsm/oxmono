@@ -1,0 +1,3 @@
+(executable
+ (name mock)
+ (libraries zulip zulip.eio fetch fetch.mock http eio_main))

@@ -1,0 +1,15 @@
+(library
+ (public_name zulip.bot)
+ (name zulip_bot)
+ (wrapped true)
+ (modules zulip_bot plugin_store sent_runtime sent context_runtime context room event bot webhook)
+ (private_modules sent_runtime context_runtime)
+ (libraries
+  zulip
+  zulip.eio
+  fetch
+  eio
+  jsont
+  jsont.bytesrw
+  logs
+  unix))

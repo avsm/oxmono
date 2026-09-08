@@ -1,0 +1,8 @@
+(library
+ (name zulip_eio)
+ (public_name zulip.eio)
+ (libraries
+  stdlib_stable
+  stdlib_upstream_compatible zulip eio eio.unix fetch fetch-httpz httpz httpz.uri httpz.media duration
+  jsont jsont.bytesrw xdge http unix)
+ (private_modules codec))

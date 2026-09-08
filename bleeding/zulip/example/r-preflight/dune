@@ -1,0 +1,3 @@
+(executable
+ (name preflight)
+ (libraries zulip zulip.eio zulip.bot zulip.bot.cli))

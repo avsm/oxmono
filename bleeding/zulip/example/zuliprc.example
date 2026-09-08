@@ -1,0 +1,5 @@
+# Download the real file from your Zulip organization; these are placeholders.
+[api]
+site=https://your-organization.zulipchat.com
+email=your-bot-email
+key=your-api-key

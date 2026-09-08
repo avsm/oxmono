@@ -1,0 +1,174 @@
+{
+  "reference": {
+    "repository": "../python-zulip-api",
+    "commit": "b172347594a4634517f925f9e30522fe987dbb9c",
+    "class": "zulip.Client"
+  },
+  "scope": "messages and uploaded files",
+  "helpers": [
+    {
+      "python_helper": "get_messages",
+      "ocaml_binding": "Zulip_eio.Messages.get_messages",
+      "python_params": ["anchor", "include_anchor", "anchor_date", "num_before", "num_after", "narrow", "client_gravatar", "apply_markdown", "use_first_unread_anchor", "message_ids", "allow_empty_topic_name"],
+      "ocaml_params": ["anchor", "include_anchor", "num_before", "num_after", "narrow", "client_gravatar", "apply_markdown", "use_first_unread_anchor", "message_ids", "allow_empty_topic_name"],
+      "response": "typed Messages.page, typed Message values, and complete raw response/message objects",
+      "intentional_differences": ["Python accepts an arbitrary dictionary; OCaml uses typed narrows and message IDs, couples anchor_date to Date of string, and rejects invalid range/selected-ID combinations before I/O."]
+    },
+    {
+      "python_helper": "check_messages_match_narrow",
+      "ocaml_binding": "Zulip_eio.Messages.check_messages_match_narrow_detailed",
+      "convenience_binding": "Zulip_eio.Messages.check_messages_match_narrow",
+      "python_params": ["msg_ids", "narrow"],
+      "ocaml_params": ["message_ids", "narrow"],
+      "response": "typed per-message matches; detailed binding retains response extensions",
+      "intentional_differences": ["msg_ids is named message_ids and uses typed IDs."]
+    },
+    {
+      "python_helper": "get_raw_message",
+      "ocaml_binding": "Zulip_eio.Messages.get_raw",
+      "python_params": ["message_id", "apply_markdown"],
+      "ocaml_params": ["message_id", "apply_markdown", "allow_empty_topic_name"],
+      "response": "raw_content string",
+      "intentional_differences": ["OCaml also exposes the current allow_empty_topic_name parameter."]
+    },
+    {
+      "python_helper": "send_message",
+      "ocaml_binding": "Zulip_eio.Messages.send_detailed",
+      "convenience_bindings": ["Zulip_eio.Messages.send", "Zulip_eio.Messages.send_channel", "Zulip_eio.Messages.send_channel_id", "Zulip_eio.Messages.send_direct"],
+      "python_params": ["type", "to", "content", "topic", "queue_id", "local_id", "read_by_sender"],
+      "ocaml_params": ["type_", "to_", "content", "topic", "queue_id", "local_id", "read_by_sender"],
+      "response": "typed Message_response with message ID, automatic visibility policy, and raw extensions",
+      "intentional_differences": ["Typed helpers validate channel topics and local-echo queue/local ID pairing before I/O.", "Convenience helpers return the sent message ID."]
+    },
+    {
+      "python_helper": "upload_file",
+      "ocaml_binding": "Zulip_eio.Attachments.upload_file_detailed",
+      "convenience_bindings": ["Zulip_eio.Attachments.upload_file", "Zulip_eio.Attachments.upload_stream"],
+      "python_params": ["file"],
+      "ocaml_params": ["filename", "content_type", "content_or_source", "length"],
+      "response": "typed URI with raw response extensions in the detailed binding",
+      "intentional_differences": ["OCaml makes filename/content type explicit and supports bounded streaming with optional length."]
+    },
+    {
+      "python_helper": "get_attachments",
+      "ocaml_binding": "Zulip_eio.Attachments.list",
+      "python_params": [],
+      "ocaml_params": [],
+      "response": "typed attachments, upload space usage, message references, and raw extensions",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "update_message",
+      "ocaml_binding": "Zulip_eio.Messages.edit_detailed",
+      "convenience_binding": "Zulip_eio.Messages.edit",
+      "python_params": ["message_id", "topic", "propagate_mode", "send_notification_to_old_thread", "send_notification_to_new_thread", "content", "prev_content_sha256", "stream_id"],
+      "ocaml_params": ["message_id", "topic", "propagate_mode", "send_notification_to_old_thread", "send_notification_to_new_thread", "content", "prev_content_sha256", "channel_id"],
+      "response": "typed detached uploads and complete raw response in detailed binding",
+      "intentional_differences": ["stream_id is named channel_id and is typed.", "An update with no changes is rejected locally."]
+    },
+    {
+      "python_helper": "delete_message",
+      "ocaml_binding": "Zulip_eio.Messages.delete",
+      "python_params": ["message_id"],
+      "ocaml_params": ["message_id"],
+      "response": "unit after successful simple response",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "update_message_flags",
+      "ocaml_binding": "Zulip_eio.Messages.update_flags_detailed",
+      "convenience_binding": "Zulip_eio.Messages.update_flags",
+      "python_params": ["messages", "op", "flag"],
+      "ocaml_params": ["messages", "op", "flag"],
+      "response": "typed changed message IDs, ignored channel IDs, and raw extensions",
+      "intentional_differences": ["IDs, operation, and modifiable flags are typed."]
+    },
+    {
+      "python_helper": "mark_all_as_read",
+      "ocaml_binding": "Zulip_eio.Messages.mark_all_as_read",
+      "python_params": [],
+      "ocaml_params": [],
+      "response": "unit after successful simple response",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "mark_stream_as_read",
+      "ocaml_binding": "Zulip_eio.Messages.mark_channel_as_read",
+      "python_params": ["stream_id"],
+      "ocaml_params": ["channel_id"],
+      "response": "unit after successful simple response",
+      "intentional_differences": ["Uses current channel terminology and a typed channel ID."]
+    },
+    {
+      "python_helper": "mark_topic_as_read",
+      "ocaml_binding": "Zulip_eio.Messages.mark_topic_as_read",
+      "python_params": ["stream_id", "topic_name"],
+      "ocaml_params": ["channel_id", "topic"],
+      "response": "unit after successful simple response",
+      "intentional_differences": ["Uses current channel/topic argument names and a typed channel ID."]
+    },
+    {
+      "python_helper": "get_message_history",
+      "ocaml_binding": "Zulip_eio.Messages.get_history",
+      "python_params": ["message_id"],
+      "ocaml_params": ["message_id", "allow_empty_topic_name"],
+      "response": "typed edit history including nullable editor IDs and complete raw response/edit objects",
+      "intentional_differences": ["OCaml also exposes the current allow_empty_topic_name parameter."]
+    },
+    {
+      "python_helper": "add_reaction",
+      "ocaml_binding": "Zulip_eio.Messages.add_reaction",
+      "python_params": ["message_id", "emoji_name", "emoji_code", "reaction_type"],
+      "ocaml_params": ["message_id", "emoji_name", "emoji_code", "reaction_type"],
+      "response": "unit after successful simple response",
+      "intentional_differences": ["Message ID and reaction type are typed."]
+    },
+    {
+      "python_helper": "remove_reaction",
+      "ocaml_binding": "Zulip_eio.Messages.remove_reaction",
+      "python_params": ["message_id", "emoji_name", "emoji_code", "reaction_type"],
+      "ocaml_params": ["message_id", "emoji_name", "emoji_code", "reaction_type"],
+      "response": "unit after successful simple response",
+      "intentional_differences": ["Message ID and reaction type are typed."]
+    },
+    {
+      "python_helper": "render_message",
+      "ocaml_binding": "Zulip_eio.Messages.render",
+      "python_params": ["content"],
+      "ocaml_params": ["content"],
+      "response": "rendered HTML string",
+      "intentional_differences": ["OCaml requires content; the server rejects a request without it."]
+    },
+    {
+      "python_helper": "move_topic",
+      "ocaml_binding": "Zulip_eio.Messages.move_topic",
+      "python_params": ["stream", "new_stream", "topic", "new_topic", "message_id", "propagate_mode", "notify_old_topic", "notify_new_topic"],
+      "ocaml_params": ["channel", "new_channel", "topic", "new_topic", "message_id", "propagate_mode", "notify_old_topic", "notify_new_topic"],
+      "response": "unit after successful move",
+      "intentional_differences": ["Uses current channel terminology.", "Missing message_id for change_one/change_later is a typed Invalid_request rather than a Python AttributeError."]
+    }
+  ],
+  "current_api_additions": [
+    "Messages.update_flags_for_narrow",
+    "Messages.get_read_receipts",
+    "Messages.report",
+    "Attachments.delete",
+    "Attachments.temporary_url_detailed",
+    "Attachments.thumbnail_status",
+    "Scheduled_messages.list/create/create_detailed/update/delete",
+    "Drafts.list/create/create_detailed/edit/delete",
+    "Reminders.list/create/create_detailed/delete"
+  ],
+  "scope_boundaries": [
+    {
+      "python_helper": "call_on_each_message",
+      "owner": "event/runtime parity",
+      "reason": "This is a live event collector rather than a message REST endpoint and is covered by the coordinator's queue collector audit."
+    },
+    {
+      "python_class": "ZulipStream",
+      "replacement": ["Messages.send_channel", "Messages.send_direct"],
+      "reason": "The plan intentionally represents file-like message sending through ordinary typed send functions rather than a Python-compatible writable stream object."
+    }
+  ]
+}

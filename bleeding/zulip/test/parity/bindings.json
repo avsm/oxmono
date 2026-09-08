@@ -1,0 +1,2432 @@
+{
+  "get_attachments": {
+    "binding": "Attachments.list",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "typed attachments, upload space usage, message references, and raw extensions",
+    "entrypoint": {
+      "module": "Attachments",
+      "function": "list"
+    },
+    "operation": "GET /attachments",
+    "parameters": {}
+  },
+  "get_realm_emoji": {
+    "binding": "Zulip_eio.Server.get_emoji",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed custom emoji values with extension access",
+    "entrypoint": {
+      "module": "Server",
+      "function": "get_emoji"
+    },
+    "operation": "GET /realm/emoji",
+    "parameters": {}
+  },
+  "upload_custom_emoji": {
+    "binding": "Zulip_eio.Server.upload_emoji / upload_emoji_stream",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success; filename and content type are explicit OCaml upload metadata",
+    "entrypoint": {
+      "module": "Server",
+      "function": "upload_emoji"
+    },
+    "operation": "POST /realm/emoji/{emoji_name}",
+    "parameters": {
+      "emoji_name": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "/realm/emoji"
+      },
+      "filename": {
+        "kind": "multipart",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "~filename"
+      }
+    }
+  },
+  "delete_custom_emoji": {
+    "binding": "Zulip_eio.Server.deactivate_emoji",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Server",
+      "function": "deactivate_emoji"
+    },
+    "operation": "DELETE /realm/emoji/{emoji_name}",
+    "parameters": {
+      "emoji_name": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "/realm/emoji"
+      }
+    }
+  },
+  "get_realm_linkifiers": {
+    "binding": "Zulip_eio.Server.get_linkifiers",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed ordered linkifiers including reverse-linkifier fields and extensions",
+    "entrypoint": {
+      "module": "Server",
+      "function": "get_linkifiers"
+    },
+    "operation": "GET /realm/linkifiers",
+    "parameters": {}
+  },
+  "add_realm_filter": {
+    "binding": "Zulip_eio.Server.add_linkifier",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "linkifier ID",
+    "entrypoint": {
+      "module": "Server",
+      "function": "add_linkifier"
+    },
+    "operation": "POST /realm/filters",
+    "parameters": {
+      "alternative_url_templates": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"alternative_url_templates\""
+      },
+      "example_input": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"example_input\""
+      },
+      "pattern": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"pattern\""
+      },
+      "reverse_template": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"reverse_template\""
+      },
+      "url_template": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"url_template\""
+      }
+    }
+  },
+  "remove_realm_filter": {
+    "binding": "Zulip_eio.Server.delete_linkifier",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Server",
+      "function": "delete_linkifier"
+    },
+    "operation": "DELETE /realm/filters/{filter_id}",
+    "parameters": {
+      "filter_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "/realm/filters"
+      }
+    }
+  },
+  "get_realm_profile_fields": {
+    "binding": "Zulip_eio.Server.get_profile_fields",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed profile fields including field_data text and extensions",
+    "entrypoint": {
+      "module": "Server",
+      "function": "get_profile_fields"
+    },
+    "operation": "GET /realm/profile_fields",
+    "parameters": {}
+  },
+  "create_realm_profile_field": {
+    "binding": "Zulip_eio.Server.create_profile_field",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "profile field ID",
+    "entrypoint": {
+      "module": "Server",
+      "function": "create_profile_field"
+    },
+    "operation": "POST /realm/profile_fields",
+    "parameters": {
+      "display_in_profile_summary": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"display_in_profile_summary\""
+      },
+      "editable_by_user": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"editable_by_user\""
+      },
+      "field_data": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"field_data\""
+      },
+      "field_type": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"field_type\""
+      },
+      "hint": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"hint\""
+      },
+      "name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"name\""
+      },
+      "required": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"required\""
+      },
+      "use_for_user_matching": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"use_for_user_matching\""
+      }
+    }
+  },
+  "remove_realm_profile_field": {
+    "binding": "Zulip_eio.Server.delete_profile_field",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Server",
+      "function": "delete_profile_field"
+    },
+    "operation": "DELETE /realm/profile_fields/{field_id}",
+    "parameters": {
+      "field_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "/realm/profile_fields"
+      }
+    }
+  },
+  "reorder_realm_profile_fields": {
+    "binding": "Zulip_eio.Server.reorder_profile_fields",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Server",
+      "function": "reorder_profile_fields"
+    },
+    "operation": "PATCH /realm/profile_fields",
+    "parameters": {
+      "order": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"order\""
+      }
+    }
+  },
+  "update_realm_profile_field": {
+    "binding": "Zulip_eio.Server.update_profile_field",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Server",
+      "function": "update_profile_field"
+    },
+    "operation": "PATCH /realm/profile_fields/{field_id}",
+    "parameters": {
+      "field_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "/realm/profile_fields"
+      },
+      "name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"name\""
+      },
+      "hint": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"hint\""
+      },
+      "field_data": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"field_data\""
+      },
+      "display_in_profile_summary": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"display_in_profile_summary\""
+      },
+      "required": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"required\""
+      },
+      "editable_by_user": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"editable_by_user\""
+      },
+      "use_for_user_matching": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/server.ml",
+        "token": "\"use_for_user_matching\""
+      }
+    }
+  },
+  "get_server_settings": {
+    "binding": "Zulip_eio.Server.get_settings / get_settings_json",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed core server settings or complete raw response",
+    "entrypoint": {
+      "module": "Server",
+      "function": "get_settings"
+    },
+    "operation": "GET /server_settings",
+    "parameters": {}
+  },
+  "get_profile": {
+    "binding": "Zulip_eio.Users.me",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed user with complete raw response",
+    "entrypoint": {
+      "module": "Users",
+      "function": "me"
+    },
+    "operation": "GET /users/me",
+    "parameters": {}
+  },
+  "get_user_presence": {
+    "binding": "Zulip_eio.Presence.get_user_by_email / get_user_by_email_detailed",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed modern and legacy presence; detailed form includes server_timestamp and extensions",
+    "entrypoint": {
+      "module": "Presence",
+      "function": "get_user_by_email"
+    },
+    "operation": "GET /users/{user_id_or_email}/presence",
+    "parameters": {
+      "user_id_or_email": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/presence.ml",
+        "token": "/users"
+      }
+    }
+  },
+  "get_realm_presence": {
+    "binding": "Zulip_eio.Presence.get_all / get_all_detailed",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed keyed presence map; detailed form includes server_timestamp and extensions",
+    "entrypoint": {
+      "module": "Presence",
+      "function": "get_all"
+    },
+    "operation": "GET /realm/presence",
+    "parameters": {}
+  },
+  "update_presence": {
+    "binding": "Zulip_eio.Presence.update",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed presence_last_update_id, optional server_timestamp, optional delta map, and extensions",
+    "entrypoint": {
+      "module": "Presence",
+      "function": "update"
+    },
+    "operation": "POST /users/me/presence",
+    "parameters": {
+      "history_limit_days": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/presence.ml",
+        "token": "\"history_limit_days\""
+      },
+      "last_update_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/presence.ml",
+        "token": "\"last_update_id\""
+      },
+      "new_user_input": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/presence.ml",
+        "token": "\"new_user_input\""
+      },
+      "ping_only": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/presence.ml",
+        "token": "\"ping_only\""
+      },
+      "slim_presence": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/presence.ml",
+        "token": "\"slim_presence\""
+      },
+      "status": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/presence.ml",
+        "token": "\"status\""
+      }
+    }
+  },
+  "get_user_by_id": {
+    "binding": "Zulip_eio.Users.get_by_id",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed user with profile_data and complete raw response",
+    "entrypoint": {
+      "module": "Users",
+      "function": "get_by_id"
+    },
+    "operation": "GET /users/{user_id}",
+    "parameters": {
+      "client_gravatar": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"client_gravatar\""
+      },
+      "include_custom_profile_fields": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"include_custom_profile_fields\""
+      },
+      "user_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "/users"
+      }
+    }
+  },
+  "deactivate_user_by_id": {
+    "binding": "Zulip_eio.Users.deactivate",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Users",
+      "function": "deactivate"
+    },
+    "operation": "DELETE /users/{user_id}",
+    "parameters": {
+      "actions": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"actions\""
+      },
+      "deactivation_notification_comment": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"deactivation_notification_comment\""
+      },
+      "user_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "/users"
+      }
+    }
+  },
+  "reactivate_user_by_id": {
+    "binding": "Zulip_eio.Users.reactivate",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Users",
+      "function": "reactivate"
+    },
+    "operation": "POST /users/{user_id}/reactivate",
+    "parameters": {
+      "user_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "/users"
+      }
+    }
+  },
+  "update_user_by_id": {
+    "binding": "Zulip_eio.Users.update",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Users",
+      "function": "update"
+    },
+    "operation": "PATCH /users/{user_id}",
+    "parameters": {
+      "full_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"full_name\""
+      },
+      "new_email": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"new_email\""
+      },
+      "profile_data": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"profile_data\""
+      },
+      "role": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"role\""
+      },
+      "user_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "/users"
+      }
+    }
+  },
+  "get_users": {
+    "binding": "Zulip_eio.Users.list_all",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed user list with complete raw values",
+    "entrypoint": {
+      "module": "Users",
+      "function": "list_all"
+    },
+    "operation": "GET /users",
+    "parameters": {
+      "client_gravatar": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"client_gravatar\""
+      },
+      "include_custom_profile_fields": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"include_custom_profile_fields\""
+      },
+      "user_ids": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"user_ids\""
+      }
+    }
+  },
+  "get_members": {
+    "binding": "Zulip_eio.Users.list_all",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "typed user list",
+    "entrypoint": {
+      "module": "Users",
+      "function": "list_all"
+    },
+    "operation": "GET /users",
+    "parameters": {
+      "client_gravatar": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"client_gravatar\""
+      },
+      "include_custom_profile_fields": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"include_custom_profile_fields\""
+      },
+      "user_ids": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"user_ids\""
+      }
+    }
+  },
+  "get_alert_words": {
+    "binding": "Zulip_eio.Users.get_alert_words",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "string list",
+    "entrypoint": {
+      "module": "Users",
+      "function": "get_alert_words"
+    },
+    "operation": "GET /users/me/alert_words",
+    "parameters": {}
+  },
+  "add_alert_words": {
+    "binding": "Zulip_eio.Users.add_alert_words",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "updated string list",
+    "entrypoint": {
+      "module": "Users",
+      "function": "add_alert_words"
+    },
+    "operation": "POST /users/me/alert_words",
+    "parameters": {
+      "alert_words": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"alert_words\""
+      }
+    }
+  },
+  "remove_alert_words": {
+    "binding": "Zulip_eio.Users.remove_alert_words",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "updated string list",
+    "entrypoint": {
+      "module": "Users",
+      "function": "remove_alert_words"
+    },
+    "operation": "DELETE /users/me/alert_words",
+    "parameters": {
+      "alert_words": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"alert_words\""
+      }
+    }
+  },
+  "update_notification_settings": {
+    "binding": "Settings.update",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed ignored-parameter list plus raw JSON",
+    "entrypoint": {
+      "module": "Settings",
+      "function": "update"
+    },
+    "operation": "PATCH /settings",
+    "parameters": {
+      "allow_private_data_export": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"allow_private_data_export\""
+      },
+      "automatically_follow_topics_policy": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"automatically_follow_topics_policy\""
+      },
+      "automatically_follow_topics_where_mentioned": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"automatically_follow_topics_where_mentioned\""
+      },
+      "automatically_unmute_topics_in_muted_streams_policy": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"automatically_unmute_topics_in_muted_streams_policy\""
+      },
+      "color_scheme": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"color_scheme\""
+      },
+      "default_language": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"default_language\""
+      },
+      "demote_inactive_streams": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"demote_inactive_streams\""
+      },
+      "desktop_icon_count_display": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"desktop_icon_count_display\""
+      },
+      "display_emoji_reaction_users": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"display_emoji_reaction_users\""
+      },
+      "email": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"email\""
+      },
+      "email_address_visibility": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"email_address_visibility\""
+      },
+      "email_notifications_batching_period_seconds": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"email_notifications_batching_period_seconds\""
+      },
+      "emojiset": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"emojiset\""
+      },
+      "enable_desktop_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_desktop_notifications\""
+      },
+      "enable_digest_emails": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_digest_emails\""
+      },
+      "enable_drafts_synchronization": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_drafts_synchronization\""
+      },
+      "enable_followed_topic_audible_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_followed_topic_audible_notifications\""
+      },
+      "enable_followed_topic_desktop_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_followed_topic_desktop_notifications\""
+      },
+      "enable_followed_topic_email_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_followed_topic_email_notifications\""
+      },
+      "enable_followed_topic_push_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_followed_topic_push_notifications\""
+      },
+      "enable_followed_topic_wildcard_mentions_notify": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_followed_topic_wildcard_mentions_notify\""
+      },
+      "enable_login_emails": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_login_emails\""
+      },
+      "enable_marketing_emails": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_marketing_emails\""
+      },
+      "enable_offline_email_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_offline_email_notifications\""
+      },
+      "enable_offline_push_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_offline_push_notifications\""
+      },
+      "enable_online_push_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_online_push_notifications\""
+      },
+      "enable_sounds": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_sounds\""
+      },
+      "enable_stream_audible_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_stream_audible_notifications\""
+      },
+      "enable_stream_desktop_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_stream_desktop_notifications\""
+      },
+      "enable_stream_email_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_stream_email_notifications\""
+      },
+      "enable_stream_push_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enable_stream_push_notifications\""
+      },
+      "enter_sends": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"enter_sends\""
+      },
+      "fluid_layout_width": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"fluid_layout_width\""
+      },
+      "full_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"full_name\""
+      },
+      "hide_ai_features": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"hide_ai_features\""
+      },
+      "high_contrast_mode": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"high_contrast_mode\""
+      },
+      "left_side_userlist": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"left_side_userlist\""
+      },
+      "message_content_in_email_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"message_content_in_email_notifications\""
+      },
+      "new_password": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"new_password\""
+      },
+      "notification_sound": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"notification_sound\""
+      },
+      "old_password": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"old_password\""
+      },
+      "pm_content_in_desktop_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"pm_content_in_desktop_notifications\""
+      },
+      "presence_enabled": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"presence_enabled\""
+      },
+      "realm_name_in_email_notifications_policy": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"realm_name_in_email_notifications_policy\""
+      },
+      "receives_typing_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"receives_typing_notifications\""
+      },
+      "resolved_topic_notice_auto_read_policy": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"resolved_topic_notice_auto_read_policy\""
+      },
+      "send_private_typing_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"send_private_typing_notifications\""
+      },
+      "send_read_receipts": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"send_read_receipts\""
+      },
+      "send_stream_typing_notifications": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"send_stream_typing_notifications\""
+      },
+      "starred_message_counts": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"starred_message_counts\""
+      },
+      "target_users": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"target_users\""
+      },
+      "timezone": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"timezone\""
+      },
+      "translate_emoticons": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"translate_emoticons\""
+      },
+      "twenty_four_hour_time": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"twenty_four_hour_time\""
+      },
+      "user_list_style": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"user_list_style\""
+      },
+      "web_animate_image_previews": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_animate_image_previews\""
+      },
+      "web_channel_default_view": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_channel_default_view\""
+      },
+      "web_escape_navigates_to_home_view": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_escape_navigates_to_home_view\""
+      },
+      "web_font_size_px": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_font_size_px\""
+      },
+      "web_home_view": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_home_view\""
+      },
+      "web_inbox_show_channel_folders": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_inbox_show_channel_folders\""
+      },
+      "web_left_sidebar_show_channel_folders": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_left_sidebar_show_channel_folders\""
+      },
+      "web_left_sidebar_unreads_count_summary": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_left_sidebar_unreads_count_summary\""
+      },
+      "web_line_height_percent": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_line_height_percent\""
+      },
+      "web_mark_read_on_scroll_policy": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_mark_read_on_scroll_policy\""
+      },
+      "web_navigate_to_sent_message": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_navigate_to_sent_message\""
+      },
+      "web_stream_unreads_count_display_policy": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_stream_unreads_count_display_policy\""
+      },
+      "web_suggest_update_timezone": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"web_suggest_update_timezone\""
+      },
+      "wildcard_mentions_notify": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/settings.ml",
+        "token": "\"wildcard_mentions_notify\""
+      }
+    }
+  },
+  "create_user": {
+    "binding": "Zulip_eio.Users.create / create_detailed",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "new user ID; detailed form also preserves response extensions",
+    "entrypoint": {
+      "module": "Users",
+      "function": "create"
+    },
+    "operation": "POST /users",
+    "parameters": {
+      "email": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"email\""
+      },
+      "full_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"full_name\""
+      },
+      "password": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/users.ml",
+        "token": "\"password\""
+      }
+    }
+  },
+  "update_storage": {
+    "binding": "Zulip_eio.Bot_storage.set",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Bot_storage",
+      "function": "set"
+    },
+    "operation": "PUT /bot_storage",
+    "parameters": {
+      "storage": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/bot_storage.ml",
+        "token": "\"storage\""
+      }
+    }
+  },
+  "get_storage": {
+    "binding": "Zulip_eio.Bot_storage.get",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "string key/value list",
+    "entrypoint": {
+      "module": "Bot_storage",
+      "function": "get"
+    },
+    "operation": "GET /bot_storage",
+    "parameters": {
+      "keys": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/bot_storage.ml",
+        "token": "\"keys\""
+      }
+    }
+  },
+  "remove_storage": {
+    "binding": "Zulip_eio.Bot_storage.remove",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Bot_storage",
+      "function": "remove"
+    },
+    "operation": "DELETE /bot_storage",
+    "parameters": {
+      "keys": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/bot_storage.ml",
+        "token": "\"keys\""
+      }
+    }
+  },
+  "set_typing_status": {
+    "binding": "Zulip_eio.Typing.set / set_dm / set_channel",
+    "family_notes": "test/accounts_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Typing",
+      "function": "set"
+    },
+    "operation": "POST /typing",
+    "parameters": {
+      "op": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/typing.ml",
+        "token": "\"op\""
+      },
+      "stream_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/typing.ml",
+        "token": "\"stream_id\""
+      },
+      "to": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/typing.ml",
+        "token": "\"to\""
+      },
+      "topic": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/typing.ml",
+        "token": "\"topic\""
+      },
+      "type": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/typing.ml",
+        "token": "\"type\""
+      }
+    }
+  },
+  "get_streams": {
+    "binding": "Channels.list_all",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed complete channel records with extension JSON",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "list_all"
+    },
+    "operation": "GET /streams",
+    "parameters": {
+      "exclude_archived": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"exclude_archived\""
+      },
+      "include_all": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_all\""
+      },
+      "include_all_active": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_all_active\""
+      },
+      "include_can_access_content": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_can_access_content\""
+      },
+      "include_default": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_default\""
+      },
+      "include_owner_subscribed": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_owner_subscribed\""
+      },
+      "include_public": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_public\""
+      },
+      "include_subscribed": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_subscribed\""
+      },
+      "include_web_public": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_web_public\""
+      }
+    }
+  },
+  "update_stream": {
+    "binding": "Channels.update",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "unit success with structured transport/API errors",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "update"
+    },
+    "operation": "PATCH /streams/{stream_id}",
+    "parameters": {
+      "can_add_subscribers_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_add_subscribers_group\""
+      },
+      "can_administer_channel_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_administer_channel_group\""
+      },
+      "can_create_topic_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_create_topic_group\""
+      },
+      "can_delete_any_message_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_delete_any_message_group\""
+      },
+      "can_delete_own_message_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_delete_own_message_group\""
+      },
+      "can_move_messages_out_of_channel_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_move_messages_out_of_channel_group\""
+      },
+      "can_move_messages_within_channel_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_move_messages_within_channel_group\""
+      },
+      "can_remove_subscribers_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_remove_subscribers_group\""
+      },
+      "can_resolve_topics_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_resolve_topics_group\""
+      },
+      "can_send_message_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_send_message_group\""
+      },
+      "can_subscribe_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_subscribe_group\""
+      },
+      "description": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"description\""
+      },
+      "folder_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"folder_id\""
+      },
+      "history_public_to_subscribers": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"history_public_to_subscribers\""
+      },
+      "is_archived": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"is_archived\""
+      },
+      "is_default_stream": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"is_default_stream\""
+      },
+      "is_private": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"is_private\""
+      },
+      "is_web_public": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"is_web_public\""
+      },
+      "message_retention_days": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"message_retention_days\""
+      },
+      "new_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"new_name\""
+      },
+      "stream_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "/streams"
+      },
+      "topics_policy": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"topics_policy\""
+      }
+    }
+  },
+  "delete_stream": {
+    "binding": "Channels.delete (alias Channels.archive)",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "delete"
+    },
+    "operation": "DELETE /streams/{stream_id}",
+    "parameters": {
+      "stream_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "/streams"
+      }
+    }
+  },
+  "add_default_stream": {
+    "binding": "Channels.add_default",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "add_default"
+    },
+    "operation": "POST /default_streams",
+    "parameters": {
+      "stream_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"stream_id\""
+      }
+    }
+  },
+  "get_subscriptions": {
+    "binding": "Channels.get_subscriptions_with",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed complete subscription records with extension JSON",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "get_subscriptions_with"
+    },
+    "operation": "GET /users/me/subscriptions",
+    "parameters": {
+      "include_subscribers": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_subscribers\""
+      }
+    }
+  },
+  "list_subscriptions": {
+    "binding": "Channels.get_subscriptions_with",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed complete subscription records with extension JSON",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "get_subscriptions_with"
+    },
+    "operation": "GET /users/me/subscriptions",
+    "parameters": {
+      "include_subscribers": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"include_subscribers\""
+      }
+    }
+  },
+  "add_subscriptions": {
+    "binding": "Channels.subscribe",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed subscribed/already-subscribed/unauthorized result plus raw JSON",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "subscribe"
+    },
+    "operation": "POST /users/me/subscriptions",
+    "parameters": {
+      "announce": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"announce\""
+      },
+      "authorization_errors_fatal": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"authorization_errors_fatal\""
+      },
+      "can_add_subscribers_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_add_subscribers_group\""
+      },
+      "can_administer_channel_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_administer_channel_group\""
+      },
+      "can_create_topic_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_create_topic_group\""
+      },
+      "can_delete_any_message_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_delete_any_message_group\""
+      },
+      "can_delete_own_message_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_delete_own_message_group\""
+      },
+      "can_move_messages_out_of_channel_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_move_messages_out_of_channel_group\""
+      },
+      "can_move_messages_within_channel_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_move_messages_within_channel_group\""
+      },
+      "can_remove_subscribers_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_remove_subscribers_group\""
+      },
+      "can_resolve_topics_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_resolve_topics_group\""
+      },
+      "can_send_message_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_send_message_group\""
+      },
+      "can_subscribe_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"can_subscribe_group\""
+      },
+      "folder_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"folder_id\""
+      },
+      "history_public_to_subscribers": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"history_public_to_subscribers\""
+      },
+      "invite_only": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"invite_only\""
+      },
+      "is_default_stream": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"is_default_stream\""
+      },
+      "is_web_public": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"is_web_public\""
+      },
+      "message_retention_days": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"message_retention_days\""
+      },
+      "principals": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"principals\""
+      },
+      "send_new_subscription_messages": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"send_new_subscription_messages\""
+      },
+      "subscriptions": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"subscriptions\""
+      },
+      "topics_policy": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"topics_policy\""
+      }
+    }
+  },
+  "remove_subscriptions": {
+    "binding": "Channels.unsubscribe",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed removed/not-removed result plus raw JSON",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "unsubscribe"
+    },
+    "operation": "DELETE /users/me/subscriptions",
+    "parameters": {
+      "principals": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"principals\""
+      },
+      "subscriptions": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"subscriptions\""
+      }
+    }
+  },
+  "get_subscription_status": {
+    "binding": "Channels.get_subscription_status",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "boolean",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "get_subscription_status"
+    },
+    "operation": "GET /users/{user_id}/subscriptions/{stream_id}",
+    "parameters": {
+      "stream_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "/users"
+      },
+      "user_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "/users"
+      }
+    }
+  },
+  "mute_topic": {
+    "binding": "Channels.set_topic_mute / Channels.set_topic_visibility",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "set_topic_mute"
+    },
+    "operation": "POST /user_topics",
+    "parameters": {
+      "stream_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"stream_id\""
+      },
+      "topic": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"topic\""
+      },
+      "visibility_policy": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"visibility_policy\""
+      }
+    }
+  },
+  "update_subscription_settings": {
+    "binding": "Channels.update_subscription_properties",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "update_subscription_properties"
+    },
+    "operation": "POST /users/me/subscriptions/properties",
+    "parameters": {
+      "subscription_data": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"subscription_data\""
+      }
+    }
+  },
+  "get_stream_id": {
+    "binding": "Channels.get_id",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed channel ID",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "get_id"
+    },
+    "operation": "GET /get_stream_id",
+    "parameters": {
+      "stream": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"stream\""
+      }
+    }
+  },
+  "get_stream_topics": {
+    "binding": "Channels.get_topics",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed topic name/max-message-ID records",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "get_topics"
+    },
+    "operation": "GET /users/me/{stream_id}/topics",
+    "parameters": {
+      "allow_empty_topic_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "\"allow_empty_topic_name\""
+      },
+      "stream_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "/users/me"
+      }
+    }
+  },
+  "get_stream_email_address": {
+    "binding": "Channels.get_email_address",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "string",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "get_email_address"
+    },
+    "operation": "GET /streams/{stream_id}/email_address",
+    "parameters": {
+      "sender_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip/message.ml",
+        "token": "\"sender_id\""
+      },
+      "stream_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "/streams"
+      }
+    }
+  },
+  "get_user_groups": {
+    "binding": "User_group.list_all",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed complete user-group records with extension JSON",
+    "entrypoint": {
+      "module": "User_group",
+      "function": "list_all"
+    },
+    "operation": "GET /user_groups",
+    "parameters": {
+      "include_deactivated_groups": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"include_deactivated_groups\""
+      }
+    }
+  },
+  "create_user_group": {
+    "binding": "User_group.create",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "group ID",
+    "entrypoint": {
+      "module": "User_group",
+      "function": "create"
+    },
+    "operation": "POST /user_groups/create",
+    "parameters": {
+      "can_add_members_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_add_members_group\""
+      },
+      "can_join_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_join_group\""
+      },
+      "can_leave_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_leave_group\""
+      },
+      "can_manage_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_manage_group\""
+      },
+      "can_mention_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_mention_group\""
+      },
+      "can_remove_members_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_remove_members_group\""
+      },
+      "description": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"description\""
+      },
+      "members": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"members\""
+      },
+      "name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"name\""
+      },
+      "subgroups": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"subgroups\""
+      }
+    }
+  },
+  "update_user_group": {
+    "binding": "User_group.update",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "User_group",
+      "function": "update"
+    },
+    "operation": "PATCH /user_groups/{user_group_id}",
+    "parameters": {
+      "can_add_members_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_add_members_group\""
+      },
+      "can_join_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_join_group\""
+      },
+      "can_leave_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_leave_group\""
+      },
+      "can_manage_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_manage_group\""
+      },
+      "can_mention_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_mention_group\""
+      },
+      "can_remove_members_group": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"can_remove_members_group\""
+      },
+      "deactivated": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"deactivated\""
+      },
+      "description": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"description\""
+      },
+      "name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"name\""
+      },
+      "user_group_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "/user_groups"
+      }
+    }
+  },
+  "remove_user_group": {
+    "binding": "User_group.delete",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "User_group",
+      "function": "delete"
+    },
+    "operation": "POST /user_groups/{user_group_id}/deactivate",
+    "parameters": {
+      "user_group_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "/user_groups"
+      }
+    }
+  },
+  "update_user_group_members": {
+    "binding": "User_group.update_members",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "unit success",
+    "entrypoint": {
+      "module": "User_group",
+      "function": "update_members"
+    },
+    "operation": "POST /user_groups/{user_group_id}/members",
+    "parameters": {
+      "add": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"add\""
+      },
+      "add_subgroups": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"add_subgroups\""
+      },
+      "delete": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"delete\""
+      },
+      "delete_subgroups": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "\"delete_subgroups\""
+      },
+      "user_group_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/user_group.ml",
+        "token": "/user_groups"
+      }
+    }
+  },
+  "get_subscribers": {
+    "binding": "Channels.get_subscribers_by_name",
+    "family_notes": "test/channels_parity/coverage.json",
+    "result": "typed user ID list",
+    "entrypoint": {
+      "module": "Channels",
+      "function": "get_subscribers_by_name"
+    },
+    "operation": "GET /streams/{stream_id}/members",
+    "parameters": {
+      "stream_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/channels.ml",
+        "token": "/streams"
+      }
+    }
+  },
+  "get_messages": {
+    "binding": "Zulip_eio.Messages.get_messages",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "typed Messages.page, typed Message values, and complete raw response/message objects",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "get_messages"
+    },
+    "operation": "GET /messages",
+    "parameters": {
+      "allow_empty_topic_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"allow_empty_topic_name\""
+      },
+      "anchor": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"anchor\""
+      },
+      "anchor_date": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"anchor_date\""
+      },
+      "apply_markdown": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"apply_markdown\""
+      },
+      "client_gravatar": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"client_gravatar\""
+      },
+      "include_anchor": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"include_anchor\""
+      },
+      "message_ids": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"message_ids\""
+      },
+      "narrow": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"narrow\""
+      },
+      "num_after": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"num_after\""
+      },
+      "num_before": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"num_before\""
+      },
+      "use_first_unread_anchor": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"use_first_unread_anchor\""
+      }
+    }
+  },
+  "check_messages_match_narrow": {
+    "binding": "Zulip_eio.Messages.check_messages_match_narrow_detailed",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "typed per-message matches; detailed binding retains response extensions",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "check_messages_match_narrow_detailed"
+    },
+    "operation": "GET /messages/matches_narrow",
+    "parameters": {
+      "msg_ids": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"msg_ids\""
+      },
+      "narrow": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"narrow\""
+      }
+    }
+  },
+  "get_raw_message": {
+    "binding": "Zulip_eio.Messages.get_raw",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "raw_content string",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "get_raw"
+    },
+    "operation": "GET /messages/{message_id}",
+    "parameters": {
+      "allow_empty_topic_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"allow_empty_topic_name\""
+      },
+      "apply_markdown": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"apply_markdown\""
+      },
+      "message_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "/messages"
+      }
+    }
+  },
+  "send_message": {
+    "binding": "Zulip_eio.Messages.send_detailed",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "typed Message_response with message ID, automatic visibility policy, and raw extensions",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "send_detailed"
+    },
+    "operation": "POST /messages",
+    "parameters": {
+      "content": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"content\""
+      },
+      "local_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"local_id\""
+      },
+      "queue_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"queue_id\""
+      },
+      "read_by_sender": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"read_by_sender\""
+      },
+      "to": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"to\""
+      },
+      "topic": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"topic\""
+      },
+      "type": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"type\""
+      }
+    }
+  },
+  "upload_file": {
+    "binding": "Zulip_eio.Attachments.upload_file_detailed",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "typed URI with raw response extensions in the detailed binding",
+    "entrypoint": {
+      "module": "Attachments",
+      "function": "upload_file_detailed"
+    },
+    "operation": "POST /user_uploads",
+    "parameters": {
+      "filename": {
+        "kind": "multipart",
+        "evidence": "lib/zulip_eio/attachments.ml",
+        "token": "~filename"
+      }
+    }
+  },
+  "update_message": {
+    "binding": "Zulip_eio.Messages.edit_detailed",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "typed detached uploads and complete raw response in detailed binding",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "edit_detailed"
+    },
+    "operation": "PATCH /messages/{message_id}",
+    "parameters": {
+      "content": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"content\""
+      },
+      "message_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "/messages"
+      },
+      "prev_content_sha256": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"prev_content_sha256\""
+      },
+      "propagate_mode": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"propagate_mode\""
+      },
+      "send_notification_to_new_thread": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"send_notification_to_new_thread\""
+      },
+      "send_notification_to_old_thread": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"send_notification_to_old_thread\""
+      },
+      "stream_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"stream_id\""
+      },
+      "topic": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"topic\""
+      }
+    }
+  },
+  "delete_message": {
+    "binding": "Zulip_eio.Messages.delete",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "unit after successful simple response",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "delete"
+    },
+    "operation": "DELETE /messages/{message_id}",
+    "parameters": {
+      "message_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "/messages"
+      }
+    }
+  },
+  "update_message_flags": {
+    "binding": "Zulip_eio.Messages.update_flags_detailed",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "typed changed message IDs, ignored channel IDs, and raw extensions",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "update_flags_detailed"
+    },
+    "operation": "POST /messages/flags",
+    "parameters": {
+      "flag": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"flag\""
+      },
+      "messages": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"messages\""
+      },
+      "op": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"op\""
+      }
+    }
+  },
+  "mark_all_as_read": {
+    "binding": "Zulip_eio.Messages.mark_all_as_read",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "unit after successful simple response",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "mark_all_as_read"
+    },
+    "operation": "POST /mark_all_as_read",
+    "parameters": {}
+  },
+  "mark_stream_as_read": {
+    "binding": "Zulip_eio.Messages.mark_channel_as_read",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "unit after successful simple response",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "mark_channel_as_read"
+    },
+    "operation": "POST /mark_stream_as_read",
+    "parameters": {
+      "stream_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"stream_id\""
+      }
+    }
+  },
+  "mark_topic_as_read": {
+    "binding": "Zulip_eio.Messages.mark_topic_as_read",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "unit after successful simple response",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "mark_topic_as_read"
+    },
+    "operation": "POST /mark_topic_as_read",
+    "parameters": {
+      "stream_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"stream_id\""
+      },
+      "topic_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"topic_name\""
+      }
+    }
+  },
+  "get_message_history": {
+    "binding": "Zulip_eio.Messages.get_history",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "typed edit history including nullable editor IDs and complete raw response/edit objects",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "get_history"
+    },
+    "operation": "GET /messages/{message_id}/history",
+    "parameters": {
+      "allow_empty_topic_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"allow_empty_topic_name\""
+      },
+      "message_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "/messages"
+      }
+    }
+  },
+  "add_reaction": {
+    "binding": "Zulip_eio.Messages.add_reaction",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "unit after successful simple response",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "add_reaction"
+    },
+    "operation": "POST /messages/{message_id}/reactions",
+    "parameters": {
+      "emoji_code": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"emoji_code\""
+      },
+      "emoji_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"emoji_name\""
+      },
+      "message_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "/messages"
+      },
+      "reaction_type": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"reaction_type\""
+      }
+    }
+  },
+  "remove_reaction": {
+    "binding": "Zulip_eio.Messages.remove_reaction",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "unit after successful simple response",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "remove_reaction"
+    },
+    "operation": "DELETE /messages/{message_id}/reactions",
+    "parameters": {
+      "emoji_code": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"emoji_code\""
+      },
+      "emoji_name": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"emoji_name\""
+      },
+      "message_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "/messages"
+      },
+      "reaction_type": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"reaction_type\""
+      }
+    }
+  },
+  "render_message": {
+    "binding": "Zulip_eio.Messages.render",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "rendered HTML string",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "render"
+    },
+    "operation": "POST /messages/render",
+    "parameters": {
+      "content": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"content\""
+      }
+    }
+  },
+  "move_topic": {
+    "binding": "Zulip_eio.Messages.move_topic",
+    "family_notes": "test/messages_parity/coverage.json",
+    "result": "unit after successful move",
+    "entrypoint": {
+      "module": "Messages",
+      "function": "move_topic"
+    },
+    "operation": "PATCH /messages/{message_id}",
+    "parameters": {
+      "content": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"content\""
+      },
+      "message_id": {
+        "kind": "path",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "/messages"
+      },
+      "prev_content_sha256": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"prev_content_sha256\""
+      },
+      "propagate_mode": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"propagate_mode\""
+      },
+      "send_notification_to_new_thread": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"send_notification_to_new_thread\""
+      },
+      "send_notification_to_old_thread": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"send_notification_to_old_thread\""
+      },
+      "stream_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"stream_id\""
+      },
+      "topic": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/messages.ml",
+        "token": "\"topic\""
+      }
+    }
+  },
+  "ensure_session": {
+    "binding": "Transport.v",
+    "result": "See OCaml interface; transport utilities are expressed through Fetch capabilities.",
+    "entrypoint": {
+      "module": "Transport",
+      "function": "v"
+    },
+    "operation": null,
+    "parameters": {}
+  },
+  "get_user_agent": {
+    "binding": "Client.user_agent",
+    "result": "See OCaml interface; transport utilities are expressed through Fetch capabilities.",
+    "entrypoint": {
+      "module": "Client",
+      "function": "user_agent"
+    },
+    "operation": null,
+    "parameters": {}
+  },
+  "do_api_query": {
+    "binding": "Client.request_json",
+    "result": "See OCaml interface; transport utilities are expressed through Fetch capabilities.",
+    "entrypoint": {
+      "module": "Client",
+      "function": "request_json"
+    },
+    "operation": null,
+    "parameters": {}
+  },
+  "call_endpoint": {
+    "binding": "Client.request_json",
+    "result": "See OCaml interface; transport utilities are expressed through Fetch capabilities.",
+    "entrypoint": {
+      "module": "Client",
+      "function": "request_json"
+    },
+    "operation": null,
+    "parameters": {}
+  },
+  "call_on_each_event": {
+    "binding": "Event_queue.iter",
+    "result": "See OCaml interface; transport utilities are expressed through Fetch capabilities.",
+    "entrypoint": {
+      "module": "Event_queue",
+      "function": "iter"
+    },
+    "operation": null,
+    "parameters": {}
+  },
+  "call_on_each_message": {
+    "binding": "Event_queue.iter_messages",
+    "result": "See OCaml interface; transport utilities are expressed through Fetch capabilities.",
+    "entrypoint": {
+      "module": "Event_queue",
+      "function": "iter_messages"
+    },
+    "operation": null,
+    "parameters": {}
+  },
+  "get_events": {
+    "binding": "Event_queue.get_events",
+    "result": "See OCaml interface; transport utilities are expressed through Fetch capabilities.",
+    "entrypoint": {
+      "module": "Event_queue",
+      "function": "get_events"
+    },
+    "operation": "GET /events",
+    "parameters": {
+      "dont_block": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"dont_block\""
+      },
+      "last_event_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"last_event_id\""
+      },
+      "queue_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"queue_id\""
+      }
+    }
+  },
+  "register": {
+    "binding": "Event_queue.register",
+    "result": "See OCaml interface; transport utilities are expressed through Fetch capabilities.",
+    "entrypoint": {
+      "module": "Event_queue",
+      "function": "register"
+    },
+    "operation": "POST /register",
+    "parameters": {
+      "all_public_streams": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"all_public_streams\""
+      },
+      "apply_markdown": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"apply_markdown\""
+      },
+      "client_capabilities": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"client_capabilities\""
+      },
+      "client_gravatar": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"client_gravatar\""
+      },
+      "event_types": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"event_types\""
+      },
+      "fetch_event_types": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"fetch_event_types\""
+      },
+      "idle_queue_timeout": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"idle_queue_timeout\""
+      },
+      "include_subscribers": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"include_subscribers\""
+      },
+      "narrow": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"narrow\""
+      },
+      "presence_history_limit_days": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"presence_history_limit_days\""
+      },
+      "slim_presence": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"slim_presence\""
+      }
+    }
+  },
+  "deregister": {
+    "binding": "Event_queue.delete",
+    "result": "See OCaml interface; transport utilities are expressed through Fetch capabilities.",
+    "entrypoint": {
+      "module": "Event_queue",
+      "function": "delete"
+    },
+    "operation": "DELETE /events",
+    "parameters": {
+      "queue_id": {
+        "kind": "typed",
+        "evidence": "lib/zulip_eio/event_queue.ml",
+        "token": "\"queue_id\""
+      }
+    }
+  }
+}

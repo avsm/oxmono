@@ -1,0 +1,189 @@
+{
+  "family": "channels_groups",
+  "python_reference": "../python-zulip-api/zulip/zulip/__init__.py",
+  "server_reference": "Zulip 12.2 OpenAPI and route table",
+  "helpers": [
+    {
+      "python_helper": "get_streams",
+      "ocaml_binding": "Channels.list_all",
+      "python_parameters": ["include_public", "include_web_public", "include_subscribed", "exclude_archived", "include_all_active", "include_all", "include_default", "include_owner_subscribed", "include_can_access_content"],
+      "supported_parameters": ["include_public", "include_web_public", "include_subscribed", "exclude_archived", "include_all_active", "include_all", "include_default", "include_owner_subscribed", "include_can_access_content"],
+      "result": "typed complete channel records with extension JSON",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "update_stream",
+      "ocaml_binding": "Channels.update",
+      "python_parameters": ["stream_id", "description", "new_name", "is_private", "is_web_public", "history_public_to_subscribers", "is_default_stream", "message_retention_days", "is_archived", "folder_id", "topics_policy", "can_add_subscribers_group", "can_create_topic_group", "can_delete_any_message_group", "can_delete_own_message_group", "can_remove_subscribers_group", "can_administer_channel_group", "can_move_messages_out_of_channel_group", "can_move_messages_within_channel_group", "can_send_message_group", "can_subscribe_group", "can_resolve_topics_group", "stream_post_policy"],
+      "supported_parameters": ["channel_id", "description", "new_name", "is_private", "is_web_public", "history_public_to_subscribers", "is_default_stream", "message_retention_days", "is_archived", "folder_id", "topics_policy", "can_add_subscribers_group", "can_create_topic_group", "can_delete_any_message_group", "can_delete_own_message_group", "can_remove_subscribers_group", "can_administer_channel_group", "can_move_messages_out_of_channel_group", "can_move_messages_within_channel_group", "can_send_message_group", "can_subscribe_group", "can_resolve_topics_group", "stream_post_policy"],
+      "result": "unit success with structured transport/API errors",
+      "intentional_differences": ["OCaml uses the current channel terminology, typed group-setting updates, and a Realm_default/Forever/Days retention variant"]
+    },
+    {
+      "python_helper": "delete_stream",
+      "ocaml_binding": "Channels.delete (alias Channels.archive)",
+      "python_parameters": ["stream_id", "allow_empty_topic_name"],
+      "supported_parameters": ["channel_id", "allow_empty_topic_name"],
+      "result": "unit success",
+      "intentional_differences": ["The operation archives the channel; Channels.set_archived false provides current-server unarchive behavior"]
+    },
+    {
+      "python_helper": "add_default_stream",
+      "ocaml_binding": "Channels.add_default",
+      "python_parameters": ["stream_id"],
+      "supported_parameters": ["channel_id"],
+      "result": "unit success",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "get_subscriptions",
+      "ocaml_binding": "Channels.get_subscriptions_with",
+      "python_parameters": ["include_subscribers"],
+      "supported_parameters": ["include_subscribers=false", "include_subscribers=true", "include_subscribers=partial"],
+      "result": "typed complete subscription records with extension JSON",
+      "intentional_differences": ["Channels.get_subscriptions is the no-options convenience"]
+    },
+    {
+      "python_helper": "list_subscriptions",
+      "ocaml_binding": "Channels.get_subscriptions_with",
+      "python_parameters": ["include_subscribers"],
+      "supported_parameters": ["include_subscribers=false", "include_subscribers=true", "include_subscribers=partial"],
+      "result": "typed complete subscription records with extension JSON",
+      "intentional_differences": ["Deprecated Python alias maps to the canonical OCaml operation"]
+    },
+    {
+      "python_helper": "add_subscriptions",
+      "ocaml_binding": "Channels.subscribe",
+      "python_parameters": ["streams.name", "streams.description", "principals", "authorization_errors_fatal", "announce", "invite_only", "is_web_public", "is_default_stream", "history_public_to_subscribers", "message_retention_days", "topics_policy", "can_add_subscribers_group", "can_create_topic_group", "can_delete_any_message_group", "can_delete_own_message_group", "can_remove_subscribers_group", "can_administer_channel_group", "can_move_messages_out_of_channel_group", "can_move_messages_within_channel_group", "can_send_message_group", "can_subscribe_group", "can_resolve_topics_group", "folder_id", "send_new_subscription_messages"],
+      "supported_parameters": ["subscriptions.name", "subscriptions.description", "subscriptions.color", "principals by user ID or email", "authorization_errors_fatal", "announce", "invite_only", "is_web_public", "is_default_stream", "history_public_to_subscribers", "message_retention_days", "topics_policy", "can_add_subscribers_group", "can_create_topic_group", "can_delete_any_message_group", "can_delete_own_message_group", "can_remove_subscribers_group", "can_administer_channel_group", "can_move_messages_out_of_channel_group", "can_move_messages_within_channel_group", "can_send_message_group", "can_subscribe_group", "can_resolve_topics_group", "folder_id", "send_new_subscription_messages"],
+      "result": "typed subscribed/already-subscribed/unauthorized result plus raw JSON",
+      "intentional_differences": ["Message retention uses a Realm_default/Forever/Days variant instead of wire sentinel values"]
+    },
+    {
+      "python_helper": "remove_subscriptions",
+      "ocaml_binding": "Channels.unsubscribe",
+      "python_parameters": ["streams", "principals"],
+      "supported_parameters": ["subscriptions", "principals by user ID or email"],
+      "result": "typed removed/not-removed result plus raw JSON",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "get_subscription_status",
+      "ocaml_binding": "Channels.get_subscription_status",
+      "python_parameters": ["user_id", "stream_id"],
+      "supported_parameters": ["user_id", "channel_id"],
+      "result": "boolean",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "mute_topic",
+      "ocaml_binding": "Channels.set_topic_mute / Channels.set_topic_visibility",
+      "python_parameters": ["stream_id or stream", "topic", "op=mute or unmute"],
+      "supported_parameters": ["channel_id", "topic", "visibility_policy=default/muted/unmuted/followed"],
+      "result": "unit success",
+      "intentional_differences": ["Uses the supported POST /user_topics route and exposes all four current visibility policies instead of the deprecated muted-topics route"]
+    },
+    {
+      "python_helper": "update_subscription_settings",
+      "ocaml_binding": "Channels.update_subscription_properties",
+      "python_parameters": ["subscription_data[].stream_id", "subscription_data[].property", "subscription_data[].value"],
+      "supported_parameters": ["updates[].channel_id", "color", "is_muted", "in_home_view", "pin_to_top", "desktop_notifications", "audible_notifications", "push_notifications", "email_notifications", "wildcard_mentions_notify"],
+      "result": "unit success",
+      "intentional_differences": ["Properties and their value types are represented by a closed OCaml variant; Channels.update_subscription_property exposes the current single-channel endpoint"]
+    },
+    {
+      "python_helper": "get_stream_id",
+      "ocaml_binding": "Channels.get_id",
+      "python_parameters": ["stream"],
+      "supported_parameters": ["name"],
+      "result": "typed channel ID",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "get_stream_topics",
+      "ocaml_binding": "Channels.get_topics",
+      "python_parameters": ["stream_id"],
+      "supported_parameters": ["channel_id"],
+      "result": "typed topic name/max-message-ID records",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "get_stream_email_address",
+      "ocaml_binding": "Channels.get_email_address",
+      "python_parameters": ["stream_id"],
+      "supported_parameters": ["channel_id"],
+      "result": "string",
+      "intentional_differences": []
+    },
+    {
+      "python_helper": "get_user_groups",
+      "ocaml_binding": "User_group.list_all",
+      "python_parameters": [],
+      "supported_parameters": ["include_deactivated_groups"],
+      "result": "typed complete user-group records with extension JSON",
+      "intentional_differences": ["OCaml additionally exposes the documented deactivated-group query"]
+    },
+    {
+      "python_helper": "create_user_group",
+      "ocaml_binding": "User_group.create",
+      "python_parameters": ["name", "description", "members", "subgroups", "can_add_members_group", "can_join_group", "can_leave_group", "can_manage_group", "can_mention_group", "can_remove_members_group"],
+      "supported_parameters": ["name", "description", "members", "subgroups", "can_add_members_group", "can_join_group", "can_leave_group", "can_manage_group", "can_mention_group", "can_remove_members_group"],
+      "result": "group ID",
+      "intentional_differences": ["Group settings are typed as a named group ID or direct members/subgroups"]
+    },
+    {
+      "python_helper": "update_user_group",
+      "ocaml_binding": "User_group.update",
+      "python_parameters": ["group_id", "name", "description", "can_add_members_group", "can_join_group", "can_leave_group", "can_manage_group", "can_mention_group", "can_remove_members_group", "deactivated"],
+      "supported_parameters": ["group_id", "name", "description", "can_add_members_group", "can_join_group", "can_leave_group", "can_manage_group", "can_mention_group", "can_remove_members_group", "deactivated"],
+      "result": "unit success",
+      "intentional_differences": ["Permission changes use typed optimistic updates with new and optional old values"]
+    },
+    {
+      "python_helper": "remove_user_group",
+      "ocaml_binding": "User_group.delete",
+      "python_parameters": ["group_id"],
+      "supported_parameters": ["group_id"],
+      "result": "unit success",
+      "intentional_differences": ["Uses the current supported POST /user_groups/{id}/deactivate route; the Python helper's DELETE route is not present in Zulip 12.2"]
+    },
+    {
+      "python_helper": "update_user_group_members",
+      "ocaml_binding": "User_group.update_members",
+      "python_parameters": ["user_group_id", "delete", "add", "delete_subgroups", "add_subgroups"],
+      "supported_parameters": ["group_id", "remove", "add", "remove_subgroups", "add_subgroups"],
+      "result": "unit success",
+      "intentional_differences": ["OCaml uses remove labels while preserving the wire parameter named delete"]
+    },
+    {
+      "python_helper": "get_subscribers",
+      "ocaml_binding": "Channels.get_subscribers_by_name",
+      "python_parameters": ["stream"],
+      "supported_parameters": ["name"],
+      "result": "typed user ID list",
+      "intentional_differences": ["Channels.get_subscribers also skips the name lookup when a typed channel ID is already available"]
+    },
+    {
+      "python_helper": "update_notification_settings",
+      "ocaml_binding": "Settings.update",
+      "python_parameters": ["enable_stream_desktop_notifications", "enable_stream_email_notifications", "enable_stream_push_notifications", "enable_stream_audible_notifications", "notification_sound", "enable_desktop_notifications", "enable_sounds", "email_notifications_batching_period_seconds", "enable_offline_email_notifications", "enable_offline_push_notifications", "enable_online_push_notifications", "enable_followed_topic_desktop_notifications", "enable_followed_topic_email_notifications", "enable_followed_topic_push_notifications", "enable_followed_topic_audible_notifications", "enable_digest_emails", "enable_marketing_emails", "enable_login_emails", "message_content_in_email_notifications", "pm_content_in_desktop_notifications", "wildcard_mentions_notify", "enable_followed_topic_wildcard_mentions_notify", "desktop_icon_count_display", "realm_name_in_email_notifications_policy", "automatically_follow_topics_policy", "automatically_unmute_topics_in_muted_streams_policy", "automatically_follow_topics_where_mentioned", "resolved_topic_notice_auto_read_policy", "presence_enabled", "enter_sends", "send_private_typing_notifications", "send_stream_typing_notifications", "send_read_receipts", "allow_private_data_export", "email_address_visibility", "web_navigate_to_sent_message"],
+      "supported_parameters": ["all Python notification keys listed above", "all other documented PATCH /settings keys", "target_users.user_ids", "target_users.group_ids", "target_users.skip_if_already_edited"],
+      "result": "typed ignored-parameter list plus raw JSON",
+      "intentional_differences": ["Uses canonical PATCH /settings instead of the deprecated /settings/notifications alias", "Each key fixes its OCaml value type; closed policies use variants", "The same typed keys decode optional values from Initial_state.user_settings"]
+    }
+  ],
+  "additional_current_operations": [
+    "Channels.get_by_id",
+    "Channels.create and create_simple via POST /channels/create",
+    "Channels.remove_default",
+    "Channels.update_subscriptions via PATCH /users/me/subscriptions",
+    "Channels.get_user_channels",
+    "Channels.update_subscription_property",
+    "Channels.delete_topic",
+    "User_group.get_members and is_member with direct_member_only",
+    "User_group.get_subgroups and is_subgroup with direct_subgroup_only",
+    "User_group.update_subgroups",
+    "Channel_folders.create/list/reorder/update/set_archived"
+    ,"Settings.update and Settings.get cover every documented PATCH /settings parameter"
+  ]
+}

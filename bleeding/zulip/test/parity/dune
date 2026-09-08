@@ -1,0 +1,7 @@
+(rule
+ (alias runtest)
+ (deps audit.py reference.json bindings.json
+       (glob_files ../../lib/zulip/*.ml)
+       (glob_files ../../lib/zulip_eio/*.ml)
+       (glob_files ../../lib/zulip_eio/*.mli))
+ (action (run python3 audit.py)))

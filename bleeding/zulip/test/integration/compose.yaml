@@ -1,0 +1,147 @@
+# This is a deliberately small, local-only derivative of the official
+# docker-zulip Compose deployment.  Every image is pinned by digest; bump the
+# complete set together after testing a new Zulip release.
+#
+# Values in ZULIP_TEST_* are supplied by zulip.sh.  Do not invoke this file
+# directly: the wrapper creates its random local secrets and checks ownership
+# before removing a project.
+services:
+  database:
+    image: docker.io/zulip/zulip-postgresql@sha256:e71ba8616fa42cdc1b248f51263d9290c29681cb8c1992eb9b498af0bb656b29
+    restart: "no"
+    environment:
+      POSTGRES_DB: zulip
+      POSTGRES_USER: zulip
+      POSTGRES_PASSWORD_FILE: /run/secrets/zulip__postgres_password
+    secrets:
+      - zulip__postgres_password
+    volumes:
+      - postgresql:/var/lib/postgresql/data:rw
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zulip -d zulip"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  memcached:
+    image: docker.io/library/memcached@sha256:c29847751abb41f4c268c84fb3087fee05d4edcbda44409ccb5086e26148e8a7
+    restart: "no"
+    # Docker Compose implements file-backed secrets as root-readable bind
+    # mounts.  Read it before dropping to memcache; this mirrors the official
+    # stack while remaining portable outside Swarm.
+    user: "0"
+    command:
+      - sh
+      - -euc
+      - |
+        echo 'mech_list: plain' > "$$SASL_CONF_PATH"
+        echo "zulip@$$HOSTNAME:$$(cat $$MEMCACHED_PASSWORD_FILE)" > "$$MEMCACHED_SASL_PWDB"
+        echo "zulip@localhost:$$(cat $$MEMCACHED_PASSWORD_FILE)" >> "$$MEMCACHED_SASL_PWDB"
+        exec memcached -S -u memcache
+    environment:
+      SASL_CONF_PATH: /home/memcache/memcached.conf
+      MEMCACHED_SASL_PWDB: /home/memcache/memcached-sasl-db
+      MEMCACHED_PASSWORD_FILE: /run/secrets/zulip__memcached_password
+    secrets:
+      - zulip__memcached_password
+
+  rabbitmq:
+    image: docker.io/library/rabbitmq@sha256:15e7b5e60af2d2147f8d74eef5b93c29501cd644361ca93bc854e409c2dde624
+    restart: "no"
+    command:
+      - sh
+      - -euc
+      - |
+        export RABBITMQ_DEFAULT_PASS="$$(cat $$RABBITMQ_PASSWORD_FILE)"
+        echo 'default_user = $$(RABBITMQ_DEFAULT_USER)' >> /etc/rabbitmq/rabbitmq.conf
+        echo 'default_pass = $$(RABBITMQ_DEFAULT_PASS)' >> /etc/rabbitmq/rabbitmq.conf
+        exec docker-entrypoint.sh rabbitmq-server
+    environment:
+      RABBITMQ_DEFAULT_USER: zulip
+      RABBITMQ_PASSWORD_FILE: /run/secrets/zulip__rabbitmq_password
+    secrets:
+      - zulip__rabbitmq_password
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq:rw
+
+  redis:
+    image: docker.io/library/redis@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
+    restart: "no"
+    command:
+      - sh
+      - -euc
+      - '/usr/local/bin/docker-entrypoint.sh --requirepass "$$(cat $$REDIS_PASSWORD_FILE)"'
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/zulip__redis_password
+    secrets:
+      - zulip__redis_password
+    volumes:
+      - redis:/data:rw
+
+  zulip:
+    # Zulip Server 12.2.  The tag at this digest is 12.2-0.
+    image: ghcr.io/zulip/zulip-server@sha256:765f0ab3caa49041989132ee1879d98dbab1df7695c27e713eac1f114d167755
+    restart: "no"
+    ports:
+      - "127.0.0.1:${ZULIP_TEST_PORT}:80"
+    environment:
+      # Zulip validates that the canonical host has a domain suffix.  API
+      # clients still use the loopback URL emitted by the fixture.
+      SETTING_EXTERNAL_HOST: localhost.localdomain
+      SETTING_ZULIP_ADMINISTRATOR: admin@zulip.test
+      SETTING_REMOTE_POSTGRES_HOST: database
+      SETTING_MEMCACHED_LOCATION: memcached:11211
+      SETTING_RABBITMQ_HOST: rabbitmq
+      SETTING_REDIS_HOST: redis
+      SETTING_EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+      # The only proxy is Docker's loopback gateway.  Zulip's 12.x image
+      # otherwise rejects HTTP before API authentication; this setting has no
+      # effect outside this private Compose network.
+      TRUST_GATEWAY_IP: "True"
+      ZULIP_RUN_POST_SETUP_SCRIPTS: "False"
+      AUTO_BACKUP_ENABLED: "False"
+    secrets:
+      - zulip__postgres_password
+      - zulip__memcached_password
+      - zulip__rabbitmq_password
+      - zulip__redis_password
+      - zulip__secret_key
+      - zulip__email_password
+    volumes:
+      - zulip:/data:rw
+      - ${ZULIP_TEST_OUTPUT_DIR}:/ocaml-zulip-output:rw
+      - ${ZULIP_TEST_SOURCE_DIR}:/ocaml-zulip-test:ro
+    depends_on:
+      database:
+        condition: service_healthy
+      memcached:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/api/v1/server_settings >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 80
+
+secrets:
+  zulip__postgres_password:
+    file: ${ZULIP_TEST_SECRETS_DIR}/postgres_password
+  zulip__memcached_password:
+    file: ${ZULIP_TEST_SECRETS_DIR}/memcached_password
+  zulip__rabbitmq_password:
+    file: ${ZULIP_TEST_SECRETS_DIR}/rabbitmq_password
+  zulip__redis_password:
+    file: ${ZULIP_TEST_SECRETS_DIR}/redis_password
+  zulip__secret_key:
+    file: ${ZULIP_TEST_SECRETS_DIR}/secret_key
+  zulip__email_password:
+    file: ${ZULIP_TEST_SECRETS_DIR}/email_password
+
+volumes:
+  zulip:
+  postgresql:
+  rabbitmq:
+  redis:

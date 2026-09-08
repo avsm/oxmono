@@ -22,3 +22,7 @@
  (name test_migrate_golden)
  (deps (universe))
  (libraries sortal.schema yamlt jsont jsont.bytesrw bytesrw))
+
+(test
+ (name test_opml)
+ (libraries sortal.feed))

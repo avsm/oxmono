@@ -183,3 +183,8 @@ Still very much just used by Anil Madhavapeddy. You're welcome to try it, but le
 ## License
 
 ISC License - see [LICENSE.md](LICENSE.md) for details.
+
+`Sortal_feed.Opml.decode` reads OPML 1.0, 1.1 and 2.0 subscription lists,
+including nested groups. It bounds input size, nesting and feed count, rejects
+DTDs and returns HTTP(S) feed URLs without fetching them. Its interface is in
+[sortal_feed_opml.mli](lib/feed/sortal_feed_opml.mli).

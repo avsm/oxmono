@@ -1,0 +1,11 @@
+(library
+ (name idk)
+ (public_name idk)
+ (libraries
+  jscontact
+  jscontact.vcard
+  vcard
+  ical
+  carddav
+  carddav.jscontact
+  caldav))

@@ -1,0 +1,123 @@
+{0 jscontact}
+
+JSContact for OCaml. A typed representation of contact data as defined by
+{{:https://www.rfc-editor.org/rfc/rfc9553.html}RFC 9553}, with
+{{:https://erratique.ch/software/jsont}jsont} codecs for every object type the
+specification defines.
+
+JSContact is the JSON contact data model that succeeds vCard. It is the payload
+of the [ContactCard] object of
+{{:https://www.rfc-editor.org/rfc/rfc9610.html}JMAP for Contacts (RFC 9610)},
+and this library implements that payload.
+
+{1 The entry point}
+
+{!Jscontact} is the single module of the library. Everything below is reached
+through it, as {!Jscontact.Card}, {!Jscontact.Name} and so on.
+
+{2 The Card}
+
+{!Jscontact.Card} is the topmost object of JSContact data and the one an
+application starts from. Its properties are the sections of
+{{:https://www.rfc-editor.org/rfc/rfc9553.html#section-2} RFC 9553 Section 2}.
+
+- {!Jscontact.Name} for the name, its components and the nicknames, Section
+  2.2.1 and Section 2.2.2.
+- {!Jscontact.Org} for the organizations, job titles and how to address the
+  contact, Section 2.2.3 to Section 2.2.5.
+- {!Jscontact.Contact} for the email addresses, online services, phone numbers
+  and preferred languages, Section 2.3.
+- {!Jscontact.Calendar} for the calendaring resources and scheduling addresses,
+  Section 2.4.
+- {!Jscontact.Address} for the postal addresses and geographic locations,
+  Section 2.5.
+- {!Jscontact.Resource} for the cryptographic keys, directories, links and
+  media, Section 2.6.
+- {!Jscontact.Info} for the relations, anniversaries, notes and personal
+  information, Section 2.1.8 and Section 2.8.
+
+{2 The data types}
+
+- {!Jscontact.Id}, the identifier that keys the repeated properties of a Card,
+  Section 1.4.1.
+- {!Jscontact.Date}, the UTCDateTime and the partial dates of an anniversary,
+  Section 1.4.5 and Section 2.8.1.
+- {!Jscontact.Patch}, the PatchObject that localizes a Card, Section 1.4.3.
+- {!Jscontact.Unknown}, the members an object codec does not define, Section
+  1.7.4.
+- {!Jscontact.Vendor}, the grammar of a vendor-specific name or value, Section
+  1.8.
+- {!Jscontact.Registry}, the registered and reserved property names, Section
+  1.7.
+
+{2 The common properties and syntaxes}
+
+- {!Jscontact.Context}, the [contexts] property, Section 1.5.1.
+- {!Jscontact.Pref}, the [pref] property, Section 1.5.3.
+- {!Jscontact.Phonetic}, the phonetic system and script properties, Section
+  1.5.4.
+- {!Jscontact.Language}, the language tags of
+  {{:https://www.rfc-editor.org/rfc/rfc5646.html} RFC 5646}.
+- {!Jscontact.Uri}, the URIs of
+  {{:https://www.rfc-editor.org/rfc/rfc3986.html} RFC 3986}.
+
+{2 Building codecs and validators}
+
+- {!Jscontact.Valid}, the combinators each [validate] function is written with.
+- {!Jscontact.Enum}, the functor every enumerated value type is built with.
+- {!Jscontact.Json}, the codecs for the [@type] member, the UnsignedInt type and
+  the JSON objects {{:https://www.rfc-editor.org/rfc/rfc9553.html} RFC 9553}
+  uses as maps and sets.
+
+{1 Unknown properties survive}
+
+Section 1.7.4 requires an implementation to preserve a property it does not
+understand rather than drop it, and Section 1.8.1 requires the same of a
+vendor-specific property such as [example.com:foo]. Every object keeps them in
+an [unknown] field of type {!Jscontact.Unknown.t} and writes them back out, so a
+Card passes through this library without losing data an extension put there.
+
+{1 Enumerated values are open}
+
+Section 1.7.5 lets any enumerated property carry a vendor-specific value, so
+each enumeration is a polymorphic variant with a [`Vendor of string] case. A
+value from a later JSContact version decodes rather than failing, and [validate]
+is where it is held to the vendor grammar.
+
+{1 Shape versus meaning}
+
+A codec enforces the {e shape} of an object. That is the type of each property
+and the presence of the mandatory ones. It does not enforce the rules
+{{:https://www.rfc-editor.org/rfc/rfc9553.html} RFC 9553} states in prose, such
+as "at least one of the name and units properties MUST be set", "the value MUST
+be in the range of 1 to 100", or "MUST NOT be set if the isOrdered property
+value is false". Those live in the [validate] function of each type.
+
+A Card a server sends therefore decodes into a usable value even if it breaks a
+rule. An application that creates or edits a Card calls [validate] to hold
+itself to Section 1.7.
+
+{1 Localizing a Card}
+
+Section 2.7.1 stores the property values of other languages in the
+[localizations] property, as one {!Jscontact.Patch.t} per language tag.
+{!Jscontact.Card.localize} applies one. It copies the Card without its
+localizations, applies every patch of the PatchObject, and sets the language of
+the copy.
+
+{1 Reading and writing}
+
+The codecs are {{:https://erratique.ch/software/jsont}jsont} values. With the
+[jsont.bytesrw] library a Card is read from and written to a string as follows.
+
+{[
+  let card = Jsont_bytesrw.decode_string Jscontact.Card.jsont s in
+  let s = Jsont_bytesrw.encode_string Jscontact.Card.jsont card in
+  ...
+]}
+
+{1 vCard}
+
+The [jscontact.vcard] library converts between a Card and a {!Vcard.t} by the
+rules of {{:https://www.rfc-editor.org/rfc/rfc9555.html}RFC 9555}. See
+{!Jscontact_vcard}.

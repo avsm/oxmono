@@ -1,0 +1,14 @@
+(test
+ (name test_client)
+ (package carddav)
+ (libraries
+  carddav
+  carddav.eio
+  httpz.dav
+  vcard
+  fetch
+  fetch.mock
+  eio
+  eio.mock
+  http
+  alcotest))

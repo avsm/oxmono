@@ -1,0 +1,4 @@
+(test
+ (name test_carddav)
+ (package carddav)
+ (libraries carddav httpz.dav vcard alcotest))

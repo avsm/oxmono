@@ -1,0 +1,177 @@
+> test RFC9555 FN
+FN:John Q. Public, Esq.
+> convert
+"name": {
+  "full": "John Q. Public, Esq."
+}
+
+> test RFC9555 N
+N;SORT-AS="Stevenson,John Philip":
+ Stevenson;John;Philip,Paul;Dr.;Jr.,M.D.,A.C.P.;;Jr.
+> convert
+"name": {
+  "components":[
+    { "kind": "surname", "value": "Stevenson" },
+    { "kind": "given", "value": "John" },
+    { "kind": "given2", "value": "Philip" },
+    { "kind": "given2", "value": "Paul" },
+    { "kind": "title", "value": "Dr." },
+    { "kind": "credential", "value": "M.D." },
+    { "kind": "credential", "value": "A.C.P." },
+    { "kind": "generation", "value": "Jr." }
+  ],
+  "sortAs": {
+    "surname": "Stevenson",
+    "given": "John Philip"
+  }
+}
+> convert
+FN;DERIVED=TRUE:Stevenson John Philip Paul Dr. M.D. A.C.P. Jr.
+N;SORT-AS="Stevenson,John Philip";JSCOMPS=";0;1;2;2,1;3;4;4,1;6":
+ Stevenson;John;Philip,Paul;Dr.;M.D.,A.C.P.,Jr.;;Jr.
+
+> test RFC9555 NICKNAME
+NICKNAME:Johnny
+> convert
+"nicknames": {
+   "k1": {
+    "name": "Johnny"
+   }
+}
+> convert
+FN;DERIVED=TRUE:
+NICKNAME;PROP-ID=k1:Johnny
+
+> test RFC9555 JSCOMPS #1
+"name": {
+  "components": [
+    { "kind": "given", "value": "Jane" },
+    { "kind": "surname", "value": "Doe" }
+  ],
+  "isOrdered": true
+}
+> convert
+FN;DERIVED=TRUE:Jane Doe
+N;JSCOMPS=";1;0":Doe;Jane;;;;;
+> convert
+"name": {
+  "components": [
+    { "kind": "given", "value": "Jane" },
+    { "kind": "surname", "value": "Doe" }
+  ],
+  "isOrdered": true,
+  "full": "Jane Doe"
+},
+"vCard": {
+  "convertedProperties": {
+    "name/full": {
+      "parameters": { "derived": "true" }
+    }
+  }
+}
+
+> test RFC9555 JSCOMPS #2
+"name": {
+  "components": [
+    { "kind": "given", "value": "John" },
+    { "kind": "given2", "value": "Philip" },
+    { "kind": "given2", "value": "Paul" },
+    { "kind": "surname", "value": "Stevenson" },
+    { "kind": "generation", "value": "Jr." },
+    { "kind": "credential", "value": "M.D." }
+  ],
+  "isOrdered": true
+}
+> convert
+FN;DERIVED=TRUE:John Philip Paul Stevenson Jr. M.D.
+N;JSCOMPS=";1;2;2,1;0;6;4":
+ Stevenson;John;Philip,Paul;;M.D.,Jr.;;Jr.
+> convert
+"name": {
+  "components": [
+    { "kind": "given", "value": "John" },
+    { "kind": "given2", "value": "Philip" },
+    { "kind": "given2", "value": "Paul" },
+    { "kind": "surname", "value": "Stevenson" },
+    { "kind": "generation", "value": "Jr." },
+    { "kind": "credential", "value": "M.D." }
+  ],
+  "isOrdered": true,
+  "full": "John Philip Paul Stevenson Jr. M.D."
+},
+"vCard": {
+  "convertedProperties": {
+    "name/full": {
+      "parameters": { "derived": "true" }
+    }
+  }
+}
+
+> test Multiple FN
+FN;X-PROP=1:John Q. Public, Esq.
+FN:Giovanni Publico
+> convert
+"name": {
+    "full": "John Q. Public, Esq."
+  },
+  "vCard": {
+    "convertedProperties": {
+      "name/full": {
+        "parameters": {
+          "x-prop": "1"
+        }
+      }
+    },
+    "properties": [
+      [
+        "fn",
+        {},
+        "unknown",
+        "Giovanni Publico"
+      ]
+    ]
+  }
+> convert
+FN:Giovanni Publico
+FN;X-PROP=1:John Q. Public\, Esq.
+
+
+> test Multiple N
+N:Doe;Jane;;;;;
+N:Perez;Juana;;;;;
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "Doe"
+      },
+      {
+        "kind": "given",
+        "value": "Jane"
+      }
+    ]
+  },
+  "vCard": {
+    "properties": [
+      [
+        "n",
+        {},
+        "unknown",
+        [
+          "Perez",
+          "Juana",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      ]
+    ]
+  }
+> convert
+FN;DERIVED=TRUE:Doe Jane
+N:Perez;Juana;;;;;
+N;JSCOMPS=";0;1":Doe;Jane;;;;;
+

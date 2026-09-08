@@ -1,0 +1,4 @@
+(library
+ (name caldav)
+ (public_name caldav)
+ (libraries httpz.dav ical))

@@ -1,0 +1,57 @@
+> test RFC9555 CALADRURI
+CALADRURI;PREF=1:mailto:janedoe@example.com
+CALADRURI:https://example.com/calendar/jdoe
+> convert
+"schedulingAddresses": {
+  "k1": {
+    "uri": "mailto:janedoe@example.com",
+    "pref": 1
+  },
+  "k2": {
+    "uri": "https://example.com/calendar/jdoe"
+  }
+}
+> convert
+CALADRURI;PREF=1;PROP-ID=k1:mailto:janedoe@example.com
+CALADRURI;PROP-ID=k2:https://example.com/calendar/jdoe
+
+> test RFC9555 CALURI
+CALURI;PREF=1:https://cal.example.com/calA
+CALURI;MEDIATYPE=text/calendar:https://ftp.example.com/calA.ics
+> convert
+"calendars": {
+  "k1": {
+    "kind": "calendar",
+    "uri": "https://cal.example.com/calA",
+    "pref": 1
+  },
+  "k2": {
+    "kind": "calendar",
+    "uri": "https://ftp.example.com/calA.ics",
+    "mediaType": "text/calendar"
+  }
+}
+> convert
+CALURI;PREF=1;PROP-ID=k1:https://cal.example.com/calA
+CALURI;MEDIATYPE=text/calendar;PROP-ID=k2:https://ftp.example.com/calA.ics
+
+> test RFC9555 FBURL
+FBURL;PREF=1:https://www.example.com/busy/janedoe
+FBURL;MEDIATYPE=text/calendar:https://example.com/busy/project-a.ifb
+> convert
+"calendars": {
+  "k1": {
+    "kind": "freeBusy",
+    "uri": "https://www.example.com/busy/janedoe",
+    "pref": 1
+  },
+  "k2": {
+    "kind": "freeBusy",
+    "uri": "https://example.com/busy/project-a.ifb",
+    "mediaType": "text/calendar"
+  }
+}
+> convert
+FBURL;PREF=1;PROP-ID=k1:https://www.example.com/busy/janedoe
+FBURL;MEDIATYPE=text/calendar;PROP-ID=k2:https://example.com/busy/project-a.ifb
+

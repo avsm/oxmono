@@ -1,0 +1,117 @@
+> test RFC6715 EXPERTISE
+EXPERTISE;LEVEL=beginner;INDEX=2:chinese literature
+EXPERTISE;INDEX=1;LEVEL=expert:chemistry
+> convert
+"personalInfo": {
+    "k1": {
+      "kind": "expertise",
+      "level": "low",
+      "listAs": 2,
+      "value": "chinese literature"
+    },
+    "k2": {
+      "kind": "expertise",
+      "level": "high",
+      "listAs": 1,
+      "value": "chemistry"
+    }
+}
+> convert
+EXPERTISE;LEVEL=BEGINNER;INDEX=2;PROP-ID=k1:chinese literature
+EXPERTISE;LEVEL=EXPERT;INDEX=1;PROP-ID=k2:chemistry
+
+> test RFC6715 HOBBY
+HOBBY;INDEX=1;LEVEL=high:reading
+HOBBY;INDEX=2;LEVEL=high:sewing
+> convert
+"personalInfo": {
+    "k1": {
+      "kind": "hobby",
+      "level": "high",
+      "listAs": 1,
+      "value": "reading"
+    },
+    "k2": {
+      "kind": "hobby",
+      "level": "high",
+      "listAs": 2,
+      "value": "sewing"
+    }
+}
+> convert
+HOBBY;LEVEL=HIGH;INDEX=1;PROP-ID=k1:reading
+HOBBY;LEVEL=HIGH;INDEX=2;PROP-ID=k2:sewing
+
+> test RFC6715 INTEREST
+INTEREST;INDEX=1;LEVEL=medium:r&b music
+INTEREST;INDEX=2;LEVEL=high:rock 'n' roll music
+> convert
+"personalInfo": {
+    "k1": {
+      "kind": "interest",
+      "level": "medium",
+      "listAs": 1,
+      "value": "r&b music"
+    },
+    "k2": {
+      "kind": "interest",
+      "level": "high",
+      "listAs": 2,
+      "value": "rock 'n' roll music"
+    }
+}
+> convert
+INTEREST;LEVEL=MEDIUM;INDEX=1;PROP-ID=k1:r&b music
+INTEREST;LEVEL=HIGH;INDEX=2;PROP-ID=k2:rock 'n' roll music
+
+
+> test RFC6715 ORG-DIRECTORY
+ORG-DIRECTORY;INDEX=1:http://directory.mycompany.example.com
+ORG-DIRECTORY;PREF=1:ldap://ldap.tech.example/o=Example%20Tech,ou=Engineering
+> convert
+"directories": {
+    "k1": {
+      "kind": "directory",
+      "listAs": 1,
+      "uri": "http://directory.mycompany.example.com"
+    },
+    "k2": {
+      "kind": "directory",
+      "pref": 1,
+      "uri": "ldap://ldap.tech.example/o=Example%20Tech,ou=Engineering"
+    }
+}
+> convert
+ORG-DIRECTORY;INDEX=1;PROP-ID=k1:http://directory.mycompany.example.com
+ORG-DIRECTORY;PREF=1;PROP-ID=k2:ldap://ldap.tech.example/o=Example%20Tech,o
+ u=Engineering
+
+
+> test RFC6715 EXPERTISE HOBBY INTEREST
+EXPERTISE;LEVEL=beginner:chinese literature
+HOBBY;LEVEL=high:reading
+INTEREST;LEVEL=medium:r&b music
+> convert
+"personalInfo": {
+    "k1": {
+      "kind": "expertise",
+      "level": "low",
+      "value": "chinese literature"
+    },
+    "k2": {
+      "kind": "hobby",
+      "level": "high",
+      "value": "reading"
+    },
+    "k3": {
+      "kind": "interest",
+      "level": "medium",
+      "value": "r&b music"
+    }
+}
+> convert
+EXPERTISE;LEVEL=BEGINNER;PROP-ID=k1:chinese literature
+HOBBY;LEVEL=HIGH;PROP-ID=k2:reading
+INTEREST;LEVEL=MEDIUM;PROP-ID=k3:r&b music
+
+

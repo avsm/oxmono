@@ -1,0 +1,169 @@
+> test RFC9555 CONTACT-URI
+CONTACT-URI;PREF=1:mailto:contact@example.com
+> convert
+"links": {
+  "k1": {
+    "kind": "contact",
+    "uri": "mailto:contact@example.com",
+    "pref": 1
+  }
+}
+> convert
+CONTACT-URI;PREF=1;PROP-ID=k1:mailto:contact@example.com
+
+> test RFC9555 LOGO
+LOGO:https://www.example.com/pub/logos/abccorp.jpg
+> convert
+"media": {
+  "k1": {
+    "kind": "logo",
+    "uri": "https://www.example.com/pub/logos/abccorp.jpg"
+  }
+}
+> convert
+LOGO;PROP-ID=k1:https://www.example.com/pub/logos/abccorp.jpg
+
+> test RFC9555 MEMBER
+KIND:group
+FN:The Doe family
+MEMBER:urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af
+MEMBER:urn:uuid:b8767877-b4a1-4c70-9acc-505d3819e519
+> convert
+"kind": "group",
+"name": {
+  "full": "The Doe family"
+},
+"members": {
+  "urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af": true,
+  "urn:uuid:b8767877-b4a1-4c70-9acc-505d3819e519": true
+}
+
+> test RFC9553 abstract group
+"kind": "group",
+"members": {}
+> convert
+KIND:group
+JSPROP;JSPTR="members":{}
+
+> test RFC9555 ORG
+ORG;SORT-AS="ABC":ABC\, Inc.;North American Division;Marketing
+> convert
+"organizations": {
+  "k1": {
+    "name": "ABC, Inc.",
+    "units":[
+      { "name": "North American Division" },
+      { "name": "Marketing" }
+    ],
+    "sortAs": "ABC"
+  }
+}
+> convert
+ORG;SORT-AS="ABC";PROP-ID=k1:ABC\, Inc.;North American Division;Marketing
+
+> test RFC9555 RELATED
+RELATED;VALUE=text:Please contact my deputy John for any inquiries.
+RELATED;TYPE=contact:https://example.com/directory/john.vcf
+RELATED;TYPE=friend:urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+> convert
+"relatedTo" : {
+  "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6" : {
+    "relation" : {
+      "friend" : true
+    }
+  },
+  "https://example.com/directory/john.vcf" : {
+    "relation" : {
+      "contact" : true
+    }
+  },
+  "Please contact my deputy John for any inquiries." : {
+    "relation" : { }
+  }
+},
+"vCard": {
+    "convertedProperties": {
+      "relatedTo/Please contact my deputy John for any inquiries.": {
+        "parameters": {
+          "value": "TEXT"
+        }
+      }
+    }
+}
+
+> test RFC9555 TITLE and ROLE
+TITLE:Research Scientist
+group1.ROLE:Project Leader
+group1.ORG:ABC, Inc.
+> convert
+"titles": {
+  "k1": {
+    "kind": "title",
+    "name": "Research Scientist"
+  },
+  "k2": {
+    "kind": "role",
+    "name": "Project Leader",
+    "organizationId": "k1"
+  }
+},
+"organizations": {
+  "k1": {
+    "name": "ABC, Inc."
+  }
+},
+"vCard": {
+    "convertedProperties": {
+      "organizations/k1/name": {
+        "parameters": {
+          "group": "group1"
+        }
+      },
+      "titles/k2/name": {
+        "parameters": {
+          "group": "group1"
+        }
+      }
+    }
+}
+> convert
+TITLE;PROP-ID=k1:Research Scientist
+group1.ROLE;PROP-ID=k2:Project Leader
+group1.ORG;PROP-ID=k1:ABC\, Inc.
+
+> test JSContact reverse ORG/ROLE mapping
+TITLE;PROP-ID=k1:Research Scientist
+group1.ROLE;PROP-ID=k2:Project Leader
+group1.ORG;PROP-ID=k1:ABC\, Inc.
+> convert
+"organizations": {
+    "k1": {
+      "name": "ABC, Inc."
+    }
+  },
+  "titles": {
+    "k1": {
+      "kind": "title",
+      "name": "Research Scientist"
+    },
+    "k2": {
+      "kind": "role",
+      "name": "Project Leader",
+      "organizationId": "k1"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "organizations/k1/name": {
+        "parameters": {
+          "group": "group1"
+        }
+      },
+      "titles/k2/name": {
+        "parameters": {
+          "group": "group1"
+        }
+      }
+    }
+}
+

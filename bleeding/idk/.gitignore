@@ -1,0 +1,6 @@
+_build/
+*.install
+
+# Local checkout of the httpz repository, symlinked in to build
+# httpz and fetch from source. See the vendored_dirs stanza in ./dune.
+/ocaml-httpz

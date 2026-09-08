@@ -1,0 +1,61 @@
+> test RFC9555 JSPROP #1
+"someUnknownProperty": true
+> convert
+JSPROP;JSPTR="someUnknownProperty":true
+
+> test RFC9555 JSPROP #2
+"example.com:foo": {
+  "bar": 1234
+}
+> convert
+JSPROP;JSPTR="example.com:foo":{"bar":1234}
+
+> test RFC9555 JSPROP #3
+"phones": {
+  "phone1": {
+    "number": "tel:+33-01-23-45-67",
+    "example.com:foo/bar": "tux hux"
+  }
+}
+> convert
+TEL;PROP-ID=phone1:tel:+33-01-23-45-67
+JSPROP;JSPTR="phones/phone1/example.com:foo~1bar":
+ "tux hux"
+
+> test RFC9555 Unknown property
+item1.X-FOO;X-BAR=Hello:World!
+> convert
+"vCard": {
+    "properties": [
+      [
+        "x-foo",
+        {
+          "group": "item1",
+          "x-bar": "Hello"
+        },
+        "unknown",
+        "World!"
+      ]
+    ]
+}
+
+> test RFC9555 Unknown parameters
+EMAIL;X-FOO=Bar:jane_doe@example.com
+> convert
+"emails": {
+  "k1": {
+    "address": "jane_doe@example.com"
+  }
+},
+"vCard": {
+    "convertedProperties": {
+      "emails/k1/address": {
+        "parameters": {
+          "x-foo": "Bar"
+        }
+      }
+    }
+}
+> convert
+EMAIL;PROP-ID=k1;X-FOO=Bar:jane_doe@example.com
+

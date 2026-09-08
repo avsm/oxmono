@@ -1,0 +1,4 @@
+(library
+ (name carddav_jscontact)
+ (public_name carddav.jscontact)
+ (libraries carddav jscontact jscontact.vcard vcard jsont jsont.bytesrw))

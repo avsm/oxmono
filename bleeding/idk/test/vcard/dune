@@ -1,0 +1,7 @@
+(test
+ (name test_vcard)
+ (package vcard)
+ (libraries vcard alcotest)
+ (deps
+  (source_tree data)
+  (source_tree ../corpus/data)))

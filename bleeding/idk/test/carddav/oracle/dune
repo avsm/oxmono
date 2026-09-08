@@ -1,0 +1,50 @@
+(library
+ (name oracle_harness)
+ (package carddav)
+ (modules oracle_harness)
+ (libraries
+  carddav
+  carddav.eio
+  httpz.dav
+  vcard
+  eio
+  fetch
+  fetch-httpz
+  eio.unix
+  eio_main
+  alcotest
+  unix
+  str))
+
+(test
+ (name test_oracle)
+ (package carddav)
+ (modules test_oracle)
+ (libraries
+  oracle_harness
+  carddav
+  carddav.eio
+  carddav.jscontact
+  jscontact
+  httpz.dav
+  vcard
+  eio
+  eio_main
+  alcotest
+  str))
+
+(test
+ (name test_mirror)
+ (package carddav)
+ (modules test_mirror)
+ (libraries
+  oracle_harness
+  carddav
+  carddav.eio
+  fetch.dav
+  httpz.dav
+  vcard
+  eio
+  eio_main
+  alcotest
+  str))

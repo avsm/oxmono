@@ -1,0 +1,5 @@
+(library
+ (name jscontact)
+ (public_name jscontact)
+ (private_modules jscontact_ascii jscontact_components)
+ (libraries jsont json-pointer ptime))

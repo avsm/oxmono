@@ -1,0 +1,86 @@
+> test RFC9555 EXPERTISE
+EXPERTISE;LEVEL=beginner;INDEX=2:Chinese literature
+EXPERTISE;INDEX=1;LEVEL=expert:chemistry
+> convert
+"personalInfo": {
+  "k1" : {
+    "kind": "expertise",
+    "value": "Chinese literature",
+    "level": "low",
+    "listAs": 2
+  },
+  "k2" : {
+    "kind": "expertise",
+    "value": "chemistry",
+    "level": "high",
+    "listAs": 1
+  }
+}
+> convert
+EXPERTISE;LEVEL=beginner;INDEX=2;PROP-ID=k1:Chinese literature
+EXPERTISE;LEVEL=expert;INDEX=1;PROP-ID=k2:chemistry
+
+> test RFC9555 HOBBY
+HOBBY;INDEX=1;LEVEL=high:reading
+HOBBY;INDEX=2;LEVEL=high:sewing
+> convert
+"personalInfo": {
+  "k1" : {
+    "kind": "hobby",
+    "value": "reading",
+    "level": "high",
+    "listAs": 1
+  },
+  "k2" : {
+    "kind": "hobby",
+    "value": "sewing",
+    "level": "high",
+    "listAs": 2
+  }
+}
+> convert
+HOBBY;LEVEL=HIGH;INDEX=1;PROP-ID=k1:reading
+HOBBY;LEVEL=HIGH;INDEX=2;PROP-ID=k2:sewing
+
+> test RFC9555 INTEREST
+INTEREST;INDEX=1;LEVEL=medium:r&b music
+INTEREST;INDEX=2;LEVEL=high:rock&roll music
+> convert
+"personalInfo": {
+  "k1" : {
+    "kind": "interest",
+    "value": "r&b music",
+    "level": "medium",
+    "listAs": 1
+  },
+  "k2" : {
+    "kind": "interest",
+    "value": "rock&roll music",
+    "level": "high",
+    "listAs": 2
+  }
+}
+> convert
+INTEREST;LEVEL=MEDIUM;INDEX=1;PROP-ID=k1:r&b music
+INTEREST;LEVEL=HIGH;INDEX=2;PROP-ID=k2:rock&roll music
+
+> test RFC9555 ORG-DIRECTORY
+ORG-DIRECTORY;INDEX=1:https://directory.mycompany.example.com
+ORG-DIRECTORY;PREF=1:ldap://ldap.tech.example/o=Tech,ou=Engineering
+> convert
+"directories": {
+  "k1": {
+    "kind": "directory",
+    "uri": "https://directory.mycompany.example.com",
+    "listAs": 1
+  },
+  "k2": {
+    "kind": "directory",
+    "uri": "ldap://ldap.tech.example/o=Tech,ou=Engineering",
+    "pref": 1
+  }
+}
+> convert
+ORG-DIRECTORY;INDEX=1;PROP-ID=k1:https://directory.mycompany.example.com
+ORG-DIRECTORY;PREF=1;PROP-ID=k2:ldap://ldap.tech.example/o=Tech,ou=Engineering
+

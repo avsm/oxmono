@@ -1,0 +1,6 @@
+(test
+ (name test_corpus)
+ (package jscontact)
+ (libraries jscontact alcotest jsont.bytesrw)
+ (deps
+  (source_tree data)))

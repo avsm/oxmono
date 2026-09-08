@@ -1,0 +1,4 @@
+(test
+ (name test_address)
+ (package jscontact)
+ (libraries jscontact alcotest jsont.bytesrw))

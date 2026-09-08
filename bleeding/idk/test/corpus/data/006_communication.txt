@@ -1,0 +1,147 @@
+> test RFC9555 EMAIL
+EMAIL;TYPE=work:jqpublic@xyz.example.com
+EMAIL;PREF=1:jane_doe@example.com
+> convert
+"emails": {
+  "k1": {
+    "contexts": { "work": true },
+    "address": "jqpublic@xyz.example.com"
+  },
+  "k2": {
+    "address": "jane_doe@example.com",
+    "pref": 1
+  }
+}
+> convert
+EMAIL;TYPE=WORK;PROP-ID=k1:jqpublic@xyz.example.com
+EMAIL;PREF=1;PROP-ID=k2:jane_doe@example.com
+
+> test RFC9555 IMPP
+IMPP;PREF=1:xmpp:alice@example.com
+> convert
+"onlineServices": {
+  "k1": {
+    "uri": "xmpp:alice@example.com",
+    "pref": 1
+  }
+},
+"vCard": {
+  "convertedProperties": {
+    "onlineServices/k1/uri": {
+      "name": "impp"
+    }
+  }
+}
+> convert
+IMPP;PREF=1;PROP-ID=k1:xmpp:alice@example.com
+
+> test RFC9555 LANG
+LANG;TYPE=work;PREF=1:en
+LANG;TYPE=work;PREF=2:fr
+LANG;TYPE=home:fr
+> convert
+"preferredLanguages": {
+  "k1": {
+    "language": "en",
+    "contexts": { "work": true },
+    "pref": 1
+  },
+  "k2": {
+    "language": "fr",
+    "contexts": { "work": true },
+    "pref": 2
+  },
+  "k3": {
+    "language": "fr",
+    "contexts": { "private": true }
+  }
+}
+> convert
+LANG;TYPE=work;PREF=1;PROP-ID=k1:en
+LANG;TYPE=work;PREF=2;PROP-ID=k2:fr
+LANG;TYPE=home;PROP-ID=k3:fr
+
+> test RFC9555 LANGUAGE
+LANGUAGE:de-AT
+> convert
+"language": "de-AT"
+
+> test RFC9555 SOCIALPROFILE
+SOCIALPROFILE;SERVICE-TYPE=Mastodon:https://example.com/@foo
+> convert
+"onlineServices": {
+  "k1": {
+    "service": "Mastodon",
+    "uri": "https://example.com/@foo"
+  }
+}
+> convert
+SOCIALPROFILE;SERVICE-TYPE=Mastodon;PROP-ID=k1:https://example.com/@foo
+
+> test RFC9555 TEL
+TEL;VALUE=uri;PREF=1;TYPE="voice,home":tel:+1-555-555-5555;ext=5555
+TEL;VALUE=uri;TYPE=home:tel:+33-01-23-45-67
+> convert
+"phones": {
+  "k1": {
+    "contexts": { "private": true },
+    "features": { "voice": true },
+    "number": "tel:+1-555-555-5555;ext=5555",
+    "pref": 1
+  },
+  "k2": {
+    "contexts": { "private": true },
+    "number": "tel:+33-01-23-45-67"
+  }
+},
+"vCard": {
+    "convertedProperties": {
+      "phones/k1/number": {
+        "parameters": {
+          "value": "URI"
+        }
+      },
+      "phones/k2/number": {
+        "parameters": {
+          "value": "URI"
+        }
+      }
+    }
+}
+> convert
+TEL;PREF=1;TYPE=HOME,VOICE;PROP-ID=k1;VALUE=URI:tel:+1-555-555-5555;ext=5555
+TEL;TYPE=HOME;PROP-ID=k2;VALUE=URI:tel:+33-01-23-45-67
+
+> test RFC9555 TEL with PROP-ID
+TEL;PROP-ID=PHONE-A;VALUE=uri;PREF=1;TYPE="voice,home":tel:+1-555-555-5555;ext=5555
+TEL;PROP-ID=PHONE-B;VALUE=uri;TYPE=home:tel:+33-01-23-45-67
+> convert
+"phones": {
+  "PHONE-A": {
+    "contexts": { "private": true },
+    "features": { "voice": true },
+    "number": "tel:+1-555-555-5555;ext=5555",
+    "pref": 1
+  },
+  "PHONE-B": {
+    "contexts": { "private": true },
+    "number": "tel:+33-01-23-45-67"
+  }
+},
+"vCard": {
+    "convertedProperties": {
+      "phones/PHONE-A/number": {
+        "parameters": {
+          "value": "URI"
+        }
+      },
+      "phones/PHONE-B/number": {
+        "parameters": {
+          "value": "URI"
+        }
+      }
+    }
+}
+> convert
+TEL;PREF=1;TYPE=HOME,VOICE;PROP-ID=PHONE-A;VALUE=URI:tel:+1-555-555-5555;ext=5555
+TEL;TYPE=HOME;PROP-ID=PHONE-B;VALUE=URI:tel:+33-01-23-45-67

@@ -1,0 +1,47 @@
+(library
+ (name caldav_oracle)
+ (package caldav)
+ (modules caldav_oracle)
+ (libraries
+  caldav
+  caldav.eio
+  httpz.dav
+  ical
+  eio
+  fetch
+  fetch-httpz
+  eio.unix
+  eio_main
+  alcotest
+  unix))
+
+(test
+ (name test_oracle)
+ (package caldav)
+ (modules test_oracle)
+ (libraries
+  caldav_oracle
+  caldav
+  caldav.eio
+  httpz.dav
+  ical
+  vcard
+  eio
+  eio_main
+  alcotest
+  str))
+
+(test
+ (name test_mirror)
+ (package caldav)
+ (modules test_mirror)
+ (libraries
+  caldav_oracle
+  caldav
+  caldav.eio
+  fetch.dav
+  httpz.dav
+  ical
+  eio
+  eio_main
+  alcotest))

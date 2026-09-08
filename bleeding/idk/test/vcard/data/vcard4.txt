@@ -1,0 +1,717 @@
+> calendar.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+FBURL;PREF=1:http://www.example.com/busy/janedoe
+FBURL;MEDIATYPE=text/calendar:ftp://example.com/busy/project-a.ifb
+END:VCARD
+
+> calendar.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+CALADRURI;PREF=1:mailto:janedoe@example.com
+CALADRURI:http://example.com/calendar/jdoe
+END:VCARD
+
+> calendar.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+CALURI;PREF=1:http://cal.example.com/calA
+CALURI;MEDIATYPE=text/calendar:ftp://ftp.example.com/calA.ics
+END:VCARD
+
+> communications.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+TEL;VALUE=uri;PREF=1;TYPE="voice,home":tel:+1-555-555-5555;ext=5555
+TEL;VALUE=uri;TYPE=home:tel:+33-01-23-45-67
+END:VCARD
+
+> communications.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+TEL;VALUE=uri;TYPE=home;TYPE="voice,cell":tel:+1-555-555-5555;ext=5555
+END:VCARD
+
+> communications.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+EMAIL;TYPE=work:jqpublic@xyz.example.com
+END:VCARD
+
+> communications.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+IMPP;PREF=1:xmpp:alice@example.com
+END:VCARD
+
+> communications.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+LANG;TYPE=work;PREF=1:en
+LANG;TYPE=work;PREF=2:fr
+LANG;TYPE=home:fr
+END:VCARD
+
+> delivery.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+ADR;GEO="geo:12.3457,78.910";LABEL="Mr. John Q. Public, Esq.\n
+ Mail Drop: TNE QB\n123 Main Street\nAny Town, CA  91921-1234\n
+ U.S.A.":;;123 Main Street;Any Town;CA;91921-1234;U.S.A.
+END:VCARD
+
+> escaping.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\; Esq.
+END:VCARD
+
+> escaping.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+END:VCARD
+
+> escaping.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\ Esq.
+END:VCARD
+
+> escaping.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+NOTE:Mythical Manager\NHyjinx Software Division\n
+ BabsCo\, Inc.\N
+END:VCARD
+
+> explanatory.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+CATEGORIES:TRAVEL AGENT
+CATEGORIES:INTERNET,IETF,INDUSTRY,INFORMATION TECHNOLOGY
+END:VCARD
+
+> explanatory.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+PRODID:-//ONLINE DIRECTORY//NONSGML Version 1//EN
+END:VCARD
+
+> explanatory.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+REV:19951031T222710Z
+END:VCARD
+
+> explanatory.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+SOUND:CID:JOHNQPUBLIC.part8.19960229T080000.xyzMail@example.com
+END:VCARD
+
+> explanatory.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+UID:urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+END:VCARD
+
+> explanatory.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+NOTE:This fax number is operational 0800 to 1715 
+ EST\, Mon-Fri.
+END:VCARD
+
+> explanatory.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+CLIENTPIDMAP:1;urn:uuid:3df403f4-5924-4bb7-b077-3c711d9eb34b
+END:VCARD
+
+> explanatory.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+URL:https://example.com/page/#section?foo=bar
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=text:This is some text.
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO:This is some text.
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=uri:http://example.com/foo
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=date:20221107
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=time:2200,1800Z,140000-0800
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=date-time:20221107T2200
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=date-and-or-time:19961022T140000
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=timestamp:19961022T140000-05
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=boolean:True
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=integer:42
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=float:3.14,1.67
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=utc-offset:-0500
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;VALUE=language-tag:fr
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;X-QUX=baz,zub;x-foo=bar;VALUE=text:BAR
+END:VCARD
+
+> extensions.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+X-FOO;TYPE=baz:BAR
+END:VCARD
+
+> fold.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. 
+ John Qö 
+ Public\, 
+ Esqö
+END:VCARD
+
+> fold.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. 
+ John Q. 
+ Public\, 
+ Esq.
+END:VCARD
+
+> general.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+SOURCE:ldap://ldap.example.com/cn=Babs%20Jensen\,%20o=Babsco\,%20c=US
+END:VCARD
+
+> general.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+SOURCE;LANGUAGE=en:http://directory.example.com/addressbooks/jdoe/
+ Jean%20Dupont.vcf
+END:VCARD
+
+> general.rs
+BEGIN:VCARD
+VERSION:4.0
+KIND:individual
+FN:Jane Doe
+ORG:ABC\, Inc.;North American Division;Marketing
+END:VCARD
+
+> general.rs
+BEGIN:VCARD
+VERSION:4.0
+KIND:org
+FN:ABC Marketing
+ORG:ABC\, Inc.;North American Division;Marketing
+END:VCARD
+
+> general.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+XML:<root></root>
+END:VCARD
+
+> geographic.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+TZ:Raleigh/North America
+END:VCARD
+
+> geographic.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+TZ;VALUE=utc-offset:-0500
+END:VCARD
+
+> geographic.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+TZ;VALUE=uri:https://example.com/tz-database/acdt
+END:VCARD
+
+> geographic.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+GEO:geo:37.386013,-122.082932
+END:VCARD
+
+> group.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+HOME.TITLE:Boss
+WORK.TITLE:Researcher
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+N:Public;John;Quinlan;Mr.;Esq.
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+N:Public;John;Quinlan;Mr.;Esq.
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+PHOTO:http://www.example.com/pub/photos/jqpublic.gif
+PHOTO:data:image/jpeg;base64,MIICajCCAdOgAwIBAgICBEUwDQYJKoZIhv
+ AQEEBQAwdzELMAkGA1UEBhMCVVMxLDAqBgNVBAoTI05ldHNjYXBlIENvbW11bm
+ ljYXRpb25zIENvcnBvcmF0aW9uMRwwGgYDVQQLExNJbmZvcm1hdGlvbiBTeXN0
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+BDAY:19531015
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+BDAY;VALUE=date-and-or-time:19531015
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+BDAY;VALUE=text:Circa 1800
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+ANNIVERSARY:19960415
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+ANNIVERSARY:20090808T1430-0500
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+GENDER:M
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+GENDER:F
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+GENDER:M;Fellow
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+GENDER:F;grrrl
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+GENDER:O;intersex
+END:VCARD
+
+> identification.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+GENDER:;it's complicated
+END:VCARD
+
+> iter.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+END:VCARD
+
+> iter.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+FN:John Doe
+END:VCARD
+
+> loose.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+KIND:org
+KIND:individual
+END:VCARD
+
+> organizational.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+TITLE:Research Scientist
+END:VCARD
+
+> organizational.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+ROLE:Project Leader
+END:VCARD
+
+> organizational.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+LOGO:http://www.example.com/pub/logos/abccorp.jpg
+LOGO:data:image/jpeg;base64,MIICajCCAdOgAwIBAgICBEUwDQYJKoZIhvc
+ AQEEBQAwdzELMAkGA1UEBhMCVVMxLDAqBgNVBAoTI05ldHNjYXBlIENvbW11bm
+ ljYXRpb25zIENvcnBvcmF0aW9uMRwwGgYDVQQLExNJbmZvcm1hdGlvbiBTeXN0
+END:VCARD
+
+> organizational.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+ORG:ABC\, Inc.;North American Division;Marketing
+END:VCARD
+
+> organizational.rs
+BEGIN:VCARD
+VERSION:4.0
+KIND:group
+FN:The Doe family
+MEMBER:urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af
+MEMBER:urn:uuid:b8767877-b4a1-4c70-9acc-505d3819e519
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+FN:John Doe
+UID:urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+UID:urn:uuid:b8767877-b4a1-4c70-9acc-505d3819e519
+END:VCARD
+
+BEGIN:VCARD
+VERSION:4.0
+KIND:group
+FN:Funky distribution list
+MEMBER:mailto:subscriber1@example.com
+MEMBER:xmpp:subscriber2@example.com
+MEMBER:sip:subscriber3@example.com
+MEMBER:tel:+1-418-555-5555
+END:VCARD
+
+> organizational.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+RELATED;TYPE=friend:urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+END:VCARD
+
+> organizational.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+RELATED;TYPE=contact:http://example.com/directory/jdoe.vcf
+END:VCARD
+
+> organizational.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+RELATED;TYPE=co-worker;VALUE=text:Please contact my assistant Jane 
+ Doe for any inquiries.
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Mr. John Q. Public\, Esq.
+NICKNAME;LANGUAGE=en;TYPE=work:Boss
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+ROLE;LANGUAGE=tr:hoca
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;VALUE=text:Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;PREF=1:Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;ALTID=1:Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;PID=1:Jane Doe
+FN;PID=1.1:Jane Doe Smith
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;TYPE={}:Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;MEDIATYPE=text/plain;VALUE=text:Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;CALSCALE=gregorian:Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;SORT-AS="Doe,Jane":Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;GEO="geo:37.386013\,-122.082932":Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;TZ=-0500:Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;TZ=Raleigh/North America:Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;TZ="https://example.com/tz-database/acdt":Jane Doe
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;CHARSET=UTF-8:Jane Doe
+ORG:Some Organization
+TITLE;CHARSET=UTF-8:External employee
+KIND:individual
+N;CHARSET=UTF-8:Doe;Jane;;;
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+KIND:individual
+FN:Jane Doe
+N:Doe;Jane;;;
+TITLE:External employee
+ORG:Some Organization
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:4.0
+FN;CHARSET=ISO-8859-1:Jane Doe
+N;CHARSET=UTF-8:Doe;Jane;;;
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:3.0
+FN:Example Card2
+TEL;TYPE=CELL;VALUE=UNKNOWN:+01555123456
+END:VCARD
+
+> parameters.rs
+BEGIN:VCARD
+VERSION:3.0
+FN:CustomTel
+TEL;type=CELL;type=VOICE;type=pref:555-555-5555
+item1.TEL:(123) 456-7890
+item1.X-ABLabel:my-custom-phone
+END:VCARD
+
+> security.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+KEY:http://www.example.com/keys/jdoe.cer
+END:VCARD
+
+> security.rs
+BEGIN:VCARD
+VERSION:4.0
+FN:Jane Doe
+KEY;MEDIATYPE=application/pgp-keys:ftp://example.com/keys/jdoe
+END:VCARD
+
+> version_3.rs
+BEGIN:VCARD
+VERSION:3.0
+PRODID:-//Apple Inc.//macOS 12.6.3//EN
+N:;Mock;;;
+FN:Mock
+TEL;type=CELL;type=VOICE;type=pref:01234567890
+END:VCARD

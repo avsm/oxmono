@@ -1,0 +1,15 @@
+(test
+ (name test_client)
+ (package caldav)
+ (libraries
+  caldav
+  caldav.eio
+  httpz.dav
+  ical
+  fetch
+  fetch.mock
+  eio
+  eio.mock
+  http
+  alcotest
+  str))

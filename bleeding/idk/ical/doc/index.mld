@@ -1,0 +1,33 @@
+{0 ical}
+
+iCalendar for OCaml. An implementation of
+{{:https://www.rfc-editor.org/rfc/rfc5545.html}RFC 5545} with the properties of
+{{:https://www.rfc-editor.org/rfc/rfc7986.html}RFC 7986}.
+
+{1 The entry point}
+
+{!Ical} is the single module of the library. An {!Ical.t} is a [VCALENDAR]
+component, and a {!Ical.Component.t} is a name, a list of
+{!Ical.Property.t} and the components nested in it.
+
+- {!Ical.Property} reads a value as the data type the caller asks for, and
+  {!Ical.Value_type} names those types.
+- {!Ical.Date}, {!Ical.Duration} and {!Ical.Recur} hold the date, time,
+  duration, period and recurrence rule value types.
+- {!Ical.Registry} lists the registered properties with their default value
+  types and the properties each component requires and allows.
+
+{1 Lossless by design}
+
+The reader keeps every property and component, known or unknown, with its
+parameters and wire value, and the writer puts them back. The content line
+syntax of {{:https://www.rfc-editor.org/rfc/rfc5545.html#section-3.1} RFC 5545
+Section 3.1} is that of {{:https://www.rfc-editor.org/rfc/rfc6350.html} RFC
+6350}, so the reader comes from the [vcard] library.
+
+{1 What is not here}
+
+Recurrence rules are read and written but not expanded. A CalDAV server expands
+them on request, and a client that needs instances asks it to,
+{{:https://www.rfc-editor.org/rfc/rfc4791.html#section-9.6.5} RFC 4791 Section
+9.6.5}.

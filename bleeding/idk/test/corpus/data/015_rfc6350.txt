@@ -1,0 +1,1565 @@
+
+
+> test RFC6350 ROLE
+ROLE;LANGUAGE=tr:hoca
+> convert
+"titles": {
+    "k1": {
+      "kind": "role",
+      "name": "hoca"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "titles/k1/name": {
+        "parameters": {
+          "language": "tr"
+        }
+      }
+    }
+}
+> convert
+ROLE;PROP-ID=k1;LANGUAGE=tr:hoca
+
+> test RFC6350 N ALTID #1
+N;ALTID=1;LANGUAGE=jp:<U+5C71><U+7530>;<U+592A><U+90CE>;;;
+N;ALTID=1;LANGUAGE=en:Yamada;Taro;;;
+> convert
+"language": "jp",
+  "localizations": {
+    "en": {
+      "name/components": [
+        {
+          "kind": "surname",
+          "value": "Yamada"
+        },
+        {
+          "kind": "given",
+          "value": "Taro"
+        }
+      ]
+    }
+  },
+  "name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "<U+5C71><U+7530>"
+      },
+      {
+        "kind": "given",
+        "value": "<U+592A><U+90CE>"
+      }
+    ]
+  },
+  "vCard": {
+    "convertedProperties": {
+      "localizations/en/name~1components": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "name/components": {
+        "parameters": {
+          "altid": "1",
+          "language": "jp"
+        }
+      }
+    }
+}
+> convert
+N;JSCOMPS=";0;1";ALTID=1;LANGUAGE=jp:<U+5C71><U+7530>;<U+592A><U+90CE>;;;;;
+N;JSCOMPS=";0;1";ALTID=1;LANGUAGE=en:Yamada;Taro;;;;;
+LANGUAGE:jp
+
+> test RFC6350 N ALTID #2
+N;ALTID=1;LANGUAGE=jp:<U+5C71><U+7530>;<U+592A><U+90CE>;;;
+N;ALTID=1;LANGUAGE=en:Yamada;Taro;;;
+N;ALTID=1;LANGUAGE=en:Smith;John;;;
+> convert
+"language": "en",
+  "localizations": {
+    "jp": {
+      "name/components": [
+        {
+          "kind": "surname",
+          "value": "<U+5C71><U+7530>"
+        },
+        {
+          "kind": "given",
+          "value": "<U+592A><U+90CE>"
+        }
+      ]
+    }
+  },
+  "name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "Yamada"
+      },
+      {
+        "kind": "given",
+        "value": "Taro"
+      }
+    ]
+  },
+  "vCard": {
+    "convertedProperties": {
+      "localizations/jp/name~1components": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "name/components": {
+        "parameters": {
+          "altid": "1",
+          "language": "en"
+        }
+      }
+    },
+    "properties": [
+      [
+        "n",
+        {
+          "altid": "1",
+          "language": "en"
+        },
+        "unknown",
+        [
+          "Smith",
+          "John",
+          "",
+          "",
+          ""
+        ]
+      ]
+    ]
+}
+> convert
+N;ALTID=1;LANGUAGE=en:Smith;John;;;
+N;JSCOMPS=";0;1";ALTID=1;LANGUAGE=en:Yamada;Taro;;;;;
+N;JSCOMPS=";0;1";ALTID=1;LANGUAGE=jp:<U+5C71><U+7530>;<U+592A><U+90CE>;;;;;
+LANGUAGE:en
+
+> test RFC6350 TITLE ALTID #2
+TITLE;ALTID=1;LANGUAGE=fr:Patron
+TITLE;ALTID=1;LANGUAGE=en:Boss
+> convert
+"language": "fr",
+  "localizations": {
+    "en": {
+      "titles/k1/name": "Boss"
+    }
+  },
+  "titles": {
+    "k1": {
+      "kind": "title",
+      "name": "Patron"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "localizations/en/titles~1k1~1name": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "titles/k1/name": {
+        "parameters": {
+          "altid": "1",
+          "language": "fr"
+        }
+      }
+    }
+}
+> convert
+TITLE;PROP-ID=k1;ALTID=1;LANGUAGE=fr:Patron
+TITLE;PROP-ID=k1;ALTID=1;LANGUAGE=en:Boss
+LANGUAGE:fr
+
+> test RFC6350 TITLE ALTID #3
+TITLE;ALTID=1;LANGUAGE=fr:Patron
+TITLE;ALTID=1;LANGUAGE=en:Boss
+TITLE;ALTID=2;LANGUAGE=en:Chief vCard Evangelist
+> convert
+"language": "en",
+  "localizations": {
+    "fr": {
+      "titles/k1/name": "Patron"
+    }
+  },
+  "titles": {
+    "k1": {
+      "kind": "title",
+      "name": "Boss"
+    },
+    "k2": {
+      "kind": "title",
+      "name": "Chief vCard Evangelist"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "localizations/fr/titles~1k1~1name": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "titles/k1/name": {
+        "parameters": {
+          "altid": "1",
+          "language": "en"
+        }
+      },
+      "titles/k2/name": {
+        "parameters": {
+          "altid": "2",
+          "language": "en"
+        }
+      }
+    }
+}
+> convert
+TITLE;PROP-ID=k1;ALTID=1;LANGUAGE=en:Boss
+TITLE;PROP-ID=k2;ALTID=2;LANGUAGE=en:Chief vCard Evangelist
+TITLE;PROP-ID=k1;ALTID=1;LANGUAGE=fr:Patron
+LANGUAGE:en
+
+> test RFC6350 TITLE ALTID #4
+TITLE;ALTID=1;LANGUAGE=fr:Patron
+TITLE;ALTID=2;LANGUAGE=en:Boss
+> convert
+"language": "fr",
+  "titles": {
+    "k1": {
+      "kind": "title",
+      "name": "Patron"
+    },
+    "k2": {
+      "kind": "title",
+      "name": "Boss"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "titles/k1/name": {
+        "parameters": {
+          "altid": "1",
+          "language": "fr"
+        }
+      },
+      "titles/k2/name": {
+        "parameters": {
+          "altid": "2",
+          "language": "en"
+        }
+      }
+    }
+}
+> convert
+TITLE;PROP-ID=k1;ALTID=1;LANGUAGE=fr:Patron
+TITLE;PROP-ID=k2;ALTID=2;LANGUAGE=en:Boss
+LANGUAGE:fr
+
+> test RFC6350 TITLE ALTID #5
+TITLE;ALTID=1;LANGUAGE=fr:Patron
+TITLE;LANGUAGE=en:Boss
+> convert
+"language": "fr",
+  "titles": {
+    "k1": {
+      "kind": "title",
+      "name": "Patron"
+    },
+    "k2": {
+      "kind": "title",
+      "name": "Boss"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "titles/k1/name": {
+        "parameters": {
+          "altid": "1",
+          "language": "fr"
+        }
+      },
+      "titles/k2/name": {
+        "parameters": {
+          "language": "en"
+        }
+      }
+    }
+  }
+> convert
+TITLE;PROP-ID=k1;ALTID=1;LANGUAGE=fr:Patron
+TITLE;PROP-ID=k2;LANGUAGE=en:Boss
+LANGUAGE:fr
+
+> test RFC6350 PHOTO
+PHOTO;ALTID=1:data:image/jpeg;base64,...
+PHOTO;ALTID=1:data:image/jp2;base64,...
+> convert
+"media": {
+    "k1": {
+      "kind": "photo",
+      "uri": "data:image/jpeg;base64,..."
+    },
+    "k2": {
+      "kind": "photo",
+      "uri": "data:image/jp2;base64,..."
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "media/k1/uri": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "media/k2/uri": {
+        "parameters": {
+          "altid": "1"
+        }
+      }
+    }
+}
+> convert
+PHOTO;PROP-ID=k1;ALTID=1:data:image/jpeg;base64,...
+PHOTO;PROP-ID=k2;ALTID=1:data:image/jp2;base64,...
+
+> test RFC6350 N FN #1
+FN:Rene van der Harten
+N;SORT-AS="Harten,Rene":van der Harten;Rene,J.;Sir;R.D.O.N.
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "van der Harten"
+      },
+      {
+        "kind": "given",
+        "value": "Rene"
+      },
+      {
+        "kind": "given",
+        "value": "J."
+      },
+      {
+        "kind": "given2",
+        "value": "Sir"
+      },
+      {
+        "kind": "title",
+        "value": "R.D.O.N."
+      }
+    ],
+    "full": "Rene van der Harten",
+    "sortAs": {
+      "given": "Rene",
+      "surname": "Harten"
+    }
+}
+> convert
+FN:Rene van der Harten
+N;SORT-AS="Harten,Rene";JSCOMPS=";0;1;1,1;2;3":van der Harten;Rene,J.;Sir;R.D.O.N.;;;
+
+> test RFC6350 N FN #2
+FN:Robert Pau Shou Chang
+N;SORT-AS="Pau Shou Chang,Robert":Shou Chang;Robert,Pau;;
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "Shou Chang"
+      },
+      {
+        "kind": "given",
+        "value": "Robert"
+      },
+      {
+        "kind": "given",
+        "value": "Pau"
+      }
+    ],
+    "full": "Robert Pau Shou Chang",
+    "sortAs": {
+      "given": "Robert",
+      "surname": "Pau Shou Chang"
+    }
+  }
+> convert
+FN:Robert Pau Shou Chang
+N;SORT-AS="Pau Shou Chang,Robert";JSCOMPS=";0;1;1,1":Shou Chang;Robert,Pau;;;;;
+
+> test RFC6350 N FN #3
+FN:Osamu Koura
+N;SORT-AS="Koura,Osamu":Koura;Osamu;;
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "Koura"
+      },
+      {
+        "kind": "given",
+        "value": "Osamu"
+      }
+    ],
+    "full": "Osamu Koura",
+    "sortAs": {
+      "given": "Osamu",
+      "surname": "Koura"
+    }
+}
+> convert
+FN:Osamu Koura
+N;SORT-AS="Koura,Osamu";JSCOMPS=";0;1":Koura;Osamu;;;;;
+
+> test RFC6350 N FN #4
+FN:Oscar del Pozo
+N;SORT-AS="Pozo,Oscar":del Pozo Triscon;Oscar;;
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "del Pozo Triscon"
+      },
+      {
+        "kind": "given",
+        "value": "Oscar"
+      }
+    ],
+    "full": "Oscar del Pozo",
+    "sortAs": {
+      "given": "Oscar",
+      "surname": "Pozo"
+    }
+  }
+> convert
+FN:Oscar del Pozo
+N;SORT-AS="Pozo,Oscar";JSCOMPS=";0;1":del Pozo Triscon;Oscar;;;;;
+
+> test RFC6350 N FN #5
+FN:Chistine d'Aboville
+N;SORT-AS="Aboville,Christine":d'Aboville;Christine;;
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "d'Aboville"
+      },
+      {
+        "kind": "given",
+        "value": "Christine"
+      }
+    ],
+    "full": "Chistine d'Aboville",
+    "sortAs": {
+      "given": "Christine",
+      "surname": "Aboville"
+    }
+  }
+> convert
+FN:Chistine d'Aboville
+N;SORT-AS="Aboville,Christine";JSCOMPS=";0;1":d'Aboville;Christine;;;;;
+
+> test RFC6350 N FN #6
+FN:H. James de Mann
+N;SORT-AS="Mann,James":de Mann;Henry,James;;
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "de Mann"
+      },
+      {
+        "kind": "given",
+        "value": "Henry"
+      },
+      {
+        "kind": "given",
+        "value": "James"
+      }
+    ],
+    "full": "H. James de Mann",
+    "sortAs": {
+      "given": "James",
+      "surname": "Mann"
+    }
+  }
+> convert
+FN:H. James de Mann
+N;SORT-AS="Mann,James";JSCOMPS=";0;1;1,1":de Mann;Henry,James;;;;;
+
+> test RFC6350 SOURCE
+SOURCE:http://directory.example.com/addressbooks/jdoe/Jean%20Dupont.vcf
+> convert
+"directories": {
+    "k1": {
+      "kind": "entry",
+      "uri": "http://directory.example.com/addressbooks/jdoe/Jean%20Dupont.vcf"
+    }
+  }
+> convert
+SOURCE;PROP-ID=k1:http://directory.example.com/addressbooks/jdoe/Jean%20Dupo
+ nt.vcf
+
+> test RFC6350 FN ORG
+BEGIN:VCARD
+VERSION:4.0
+KIND:individual
+FN:Jane Doe
+ORG:ABC\, Inc.;North American Division;Marketing
+END:VCARD
+> convert
+"kind": "individual",
+  "name": {
+    "full": "Jane Doe"
+  },
+  "organizations": {
+    "k1": {
+      "name": "ABC, Inc.",
+      "units": [
+        {
+          "name": "North American Division"
+        },
+        {
+          "name": "Marketing"
+        }
+      ]
+    }
+  }
+> convert
+KIND:INDIVIDUAL
+FN:Jane Doe
+ORG;PROP-ID=k1:ABC\, Inc.;North American Division;Marketing
+
+> test RFC6350 NICKNAME #1
+NICKNAME;TYPE=work:Boss
+> convert
+"nicknames": {
+    "k1": {
+      "contexts": {
+        "work": true
+      },
+      "name": "Boss"
+    }
+  }
+> convert
+NICKNAME;TYPE=WORK;PROP-ID=k1:Boss
+
+> test RFC6350 NICKNAME #2
+NICKNAME:Jim,Jimmie
+> convert
+"nicknames": {
+    "k1": {
+      "name": "Jim"
+    },
+    "k2": {
+      "name": "Jimmie"
+    }
+}
+> convert
+NICKNAME;PROP-ID=k1:Jim
+NICKNAME;PROP-ID=k2:Jimmie
+
+
+> test RFC6350 BDAY #1
+BDAY:19960415
+> convert
+"anniversaries": {
+    "k1": {
+      "date": {
+        "day": 15,
+        "month": 4,
+        "year": 1996
+      },
+      "kind": "birth"
+    }
+  }
+> convert
+BDAY;PROP-ID=k1:19960415
+
+> test RFC6350 BDAY #2
+BDAY:--0415
+> convert
+"anniversaries": {
+    "k1": {
+      "date": {
+        "day": 15,
+        "month": 4
+      },
+      "kind": "birth"
+    }
+  }
+> convert
+BDAY;PROP-ID=k1:--0415
+
+> test RFC6350 BDAY #3
+BDAY:19531015T231000Z
+> convert
+"anniversaries": {
+    "k1": {
+      "date": {
+        "utc": "1953-10-15T23:10:00Z"
+      },
+      "kind": "birth"
+    }
+  }
+> convert
+BDAY;PROP-ID=k1:19531015T231000Z
+
+> test RFC6350 BDAY #4
+BDAY;VALUE=text:circa 1800
+> convert
+"vCard": {
+    "properties": [
+      [
+        "bday",
+        {},
+        "TEXT",
+        "circa 1800"
+      ]
+    ]
+  }
+
+
+
+> test RFC6350 ANNIVERSARY
+ANNIVERSARY:19960415
+> convert
+"anniversaries": {
+    "k1": {
+      "date": {
+        "day": 15,
+        "month": 4,
+        "year": 1996
+      },
+      "kind": "wedding"
+    }
+  }
+> convert
+ANNIVERSARY;PROP-ID=k1:19960415
+
+> test RFC6350 GENDER #1
+GENDER:M
+> convert
+"vCard": {
+    "properties": [
+      [
+        "gender",
+        {},
+        "unknown",
+        "M"
+      ]
+    ]
+}
+
+
+> test RFC6350 GENDER #2
+GENDER:;it's complicated
+> convert
+"vCard": {
+    "properties": [
+      [
+        "gender",
+        {},
+        "unknown",
+        [
+          "",
+          "it's complicated"
+        ]
+      ]
+    ]
+  }
+
+> test RFC6350 ADR GEO
+ADR;GEO="geo:12.3457,78.910";LABEL="Mr. John Q. Public, Esq.\n
+ Mail Drop: TNE QB\n123 Main Street\nAny Town, CA  91921-1234\n
+ U.S.A.":;;123 Main Street;Any Town;CA;91921-1234;U.S.A.
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "name",
+          "value": "123 Main Street"
+        },
+        {
+          "kind": "locality",
+          "value": "Any Town"
+        },
+        {
+          "kind": "region",
+          "value": "CA"
+        },
+        {
+          "kind": "postcode",
+          "value": "91921-1234"
+        },
+        {
+          "kind": "country",
+          "value": "U.S.A."
+        }
+      ],
+      "coordinates": "geo:12.3457,78.910",
+      "full": "Mr. John Q. Public, Esq.\nMail Drop: TNE QB\n123 Main Street\nAny Town, CA  91921-1234\nU.S.A."
+    }
+  }
+> convert
+ADR;LABEL="Mr. John Q. Public, Esq.\nMail Drop: TNE QB\n123 Main Street\nAny Town, CA  91921-1234\n
+ U.S.A.";GEO="geo:12.3457,78.910";PROP-ID=k1;JSCOMPS=";11;3;4;5;6":;;123 Main Street;Any Town;CA;91921-1234;U.S.A.;;;;;123 Main Street;;;;;;
+
+> test RFC6350 TEL
+TEL;VALUE=uri;PREF=1;TYPE="voice,home":tel:+1-555-555-5555;ext=5555
+TEL;VALUE=uri;TYPE=home:tel:+33-01-23-45-67
+> convert
+"phones": {
+    "k1": {
+      "contexts": {
+        "private": true
+      },
+      "features": {
+        "voice": true
+      },
+      "number": "tel:+1-555-555-5555;ext=5555",
+      "pref": 1
+    },
+    "k2": {
+      "contexts": {
+        "private": true
+      },
+      "number": "tel:+33-01-23-45-67"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "phones/k1/number": {
+        "parameters": {
+          "value": "URI"
+        }
+      },
+      "phones/k2/number": {
+        "parameters": {
+          "value": "URI"
+        }
+      }
+    }
+  }
+> convert
+TEL;PREF=1;TYPE=HOME,VOICE;PROP-ID=k1;VALUE=URI:tel:+1-555-555-5555;ext=5555
+TEL;TYPE=HOME;PROP-ID=k2;VALUE=URI:tel:+33-01-23-45-67
+
+> test RFC6350 EMAIL
+EMAIL;TYPE=work:jqpublic@xyz.example.com
+EMAIL;PREF=1:jane_doe@example.com
+> convert
+"emails": {
+    "k1": {
+      "address": "jqpublic@xyz.example.com",
+      "contexts": {
+        "work": true
+      }
+    },
+    "k2": {
+      "address": "jane_doe@example.com",
+      "pref": 1
+    }
+  }
+> convert
+EMAIL;TYPE=WORK;PROP-ID=k1:jqpublic@xyz.example.com
+EMAIL;PREF=1;PROP-ID=k2:jane_doe@example.com
+
+> test RFC6350 IMPP
+IMPP;PREF=1:xmpp:alice@example.com
+> convert
+"onlineServices": {
+    "k1": {
+      "pref": 1,
+      "uri": "xmpp:alice@example.com"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "onlineServices/k1/uri": {
+        "name": "impp"
+      }
+    }
+  }
+> convert
+IMPP;PREF=1;PROP-ID=k1:xmpp:alice@example.com
+
+> test RFC6350 LANG
+LANG;TYPE=work;PREF=1:en
+LANG;TYPE=work;PREF=2:fr
+LANG;TYPE=home:fr
+> convert
+"preferredLanguages": {
+    "k1": {
+      "contexts": {
+        "work": true
+      },
+      "language": "en",
+      "pref": 1
+    },
+    "k2": {
+      "contexts": {
+        "work": true
+      },
+      "language": "fr",
+      "pref": 2
+    },
+    "k3": {
+      "contexts": {
+        "private": true
+      },
+      "language": "fr"
+    }
+  }
+> convert
+LANG;TYPE=WORK;PREF=1;PROP-ID=k1:en
+LANG;TYPE=WORK;PREF=2;PROP-ID=k2:fr
+LANG;TYPE=HOME;PROP-ID=k3:fr
+
+> test RFC6350 TZ #1
+TZ:Raleigh/North America
+> convert
+"addresses": {
+    "k1": {
+      "timeZone": "Raleigh/North America"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "addresses/k1/timeZone": {
+        "name": "tz"
+      }
+    }
+  }
+
+> test RFC6350 TZ #2
+TZ:-0500
+> convert
+"addresses": {
+    "k1": {
+      "timeZone": "Etc/GMT+5"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "addresses/k1/timeZone": {
+        "name": "tz"
+      }
+    }
+  }
+
+
+> test RFC6350 GEO
+GEO:geo:37.386013,-122.082932
+> convert
+"addresses": {
+    "k1": {
+      "coordinates": "geo:37.386013,-122.082932"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "addresses/k1/coordinates": {
+        "name": "geo"
+      }
+    }
+  }
+
+
+> test RFC6350 TITLE ROLE
+TITLE:Research Scientist
+ROLE:Project Leader
+> convert
+"titles": {
+    "k1": {
+      "kind": "title",
+      "name": "Research Scientist"
+    },
+    "k2": {
+      "kind": "role",
+      "name": "Project Leader"
+    }
+  }
+> convert
+TITLE;PROP-ID=k1:Research Scientist
+ROLE;PROP-ID=k2:Project Leader
+
+> test RFC6350 LOGO
+LOGO:http://www.example.com/pub/logos/abccorp.jpg
+> convert
+"media": {
+    "k1": {
+      "kind": "logo",
+      "uri": "http://www.example.com/pub/logos/abccorp.jpg"
+    }
+  }
+> convert
+LOGO;PROP-ID=k1:http://www.example.com/pub/logos/abccorp.jpg
+
+> test RFC6350 ORG
+ORG:ABC\, Inc.;North American Division;Marketing
+> convert
+"organizations": {
+    "k1": {
+      "name": "ABC, Inc.",
+      "units": [
+        {
+          "name": "North American Division"
+        },
+        {
+          "name": "Marketing"
+        }
+      ]
+    }
+  }
+> convert
+ORG;PROP-ID=k1:ABC\, Inc.;North American Division;Marketing
+
+> test RFC6350 MEMBER
+BEGIN:VCARD
+VERSION:4.0
+KIND:group
+FN:Funky distribution list
+MEMBER:mailto:subscriber1@example.com
+MEMBER:sip:subscriber3@example.com
+MEMBER:tel:+1-418-555-5555
+MEMBER:xmpp:subscriber2@example.com
+END:VCARD
+> convert
+"kind": "group",
+  "members": {
+    "mailto:subscriber1@example.com": true,
+    "sip:subscriber3@example.com": true,
+    "tel:+1-418-555-5555": true,
+    "xmpp:subscriber2@example.com": true
+  },
+  "name": {
+    "full": "Funky distribution list"
+  }
+
+
+> test RFC6350 RELATED
+RELATED;TYPE=co-worker;VALUE=text:Please contact my assistant Jane
+ Doe for any inquiries.
+RELATED;TYPE=contact:http://example.com/directory/jdoe.vcf
+RELATED;TYPE=friend:urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+> convert
+"relatedTo": {
+    "Please contact my assistant JaneDoe for any inquiries.": {
+      "relation": {
+        "co-worker": true
+      }
+    },
+    "http://example.com/directory/jdoe.vcf": {
+      "relation": {
+        "contact": true
+      }
+    },
+    "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6": {
+      "relation": {
+        "friend": true
+      }
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "relatedTo/Please contact my assistant JaneDoe for any inquiries.": {
+        "parameters": {
+          "value": "TEXT"
+        }
+      }
+    }
+  }
+
+
+> test RFC6350 CATEGORIES
+CATEGORIES:INTERNET,IETF,INDUSTRY,INFORMATION TECHNOLOGY
+CATEGORIES:ABC
+> convert
+"keywords": {
+    "ABC": true,
+    "IETF": true,
+    "INDUSTRY": true,
+    "INFORMATION TECHNOLOGY": true,
+    "INTERNET": true
+  }
+> convert
+CATEGORIES:ABC,IETF,INDUSTRY,INFORMATION TECHNOLOGY,INTERNET
+
+> test RFC6350 NOTE
+NOTE:This fax number is operational 0800 to 1715
+ EST\, Mon-Fri.
+> convert
+"notes": {
+    "k1": {
+      "note": "This fax number is operational 0800 to 1715EST, Mon-Fri."
+    }
+  }
+> convert
+NOTE;PROP-ID=k1:This fax number is operational 0800 to 1715EST\, Mon-Fri.
+
+> test RFC6350 PRODID
+PRODID:-//ONLINE DIRECTORY//NONSGML Version 1//EN
+> convert
+"prodId": "-//ONLINE DIRECTORY//NONSGML Version 1//EN"
+
+
+> test RFC6350 REV
+REV:19951031T222710Z
+> convert
+"updated": "1995-10-31T22:27:10Z"
+
+
+> test RFC6350 SOUND
+SOUND:CID:JOHNQPUBLIC.part8.19960229T080000.xyzMail@example.com
+> convert
+"media": {
+    "k1": {
+      "kind": "sound",
+      "uri": "CID:JOHNQPUBLIC.part8.19960229T080000.xyzMail@example.com"
+    }
+  }
+> convert
+SOUND;PROP-ID=k1:CID:JOHNQPUBLIC.part8.19960229T080000.xyzMail@example.com
+
+> test RFC6350 UID
+UID:urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+> convert
+"uid": "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6"
+
+
+
+> test RFC6350 CLIENTPIDMAP
+TEL;PID=3.1,4.2;VALUE=uri:tel:+1-555-555-5555
+EMAIL;PID=4.1,5.2:jdoe@example.com
+CLIENTPIDMAP:1;urn:uuid:3df403f4-5924-4bb7-b077-3c711d9eb34b
+CLIENTPIDMAP:2;urn:uuid:d89c9c7a-2e1b-4832-82de-7e992d95faa5
+> convert
+"emails": {
+    "k1": {
+      "address": "jdoe@example.com"
+    }
+  },
+  "phones": {
+    "k1": {
+      "number": "tel:+1-555-555-5555"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "emails/k1/address": {
+        "parameters": {
+          "pid": [
+            "4.1",
+            "5.2"
+          ]
+        }
+      },
+      "phones/k1/number": {
+        "parameters": {
+          "pid": [
+            "3.1",
+            "4.2"
+          ],
+          "value": "URI"
+        }
+      }
+    },
+    "properties": [
+      [
+        "clientpidmap",
+        {},
+        "unknown",
+        [
+          "1",
+          "urn:uuid:3df403f4-5924-4bb7-b077-3c711d9eb34b"
+        ]
+      ],
+      [
+        "clientpidmap",
+        {},
+        "unknown",
+        [
+          "2",
+          "urn:uuid:d89c9c7a-2e1b-4832-82de-7e992d95faa5"
+        ]
+      ]
+    ]
+  }
+> convert
+TEL;PROP-ID=k1;PID=3.1,4.2;VALUE=uri:tel:+1-555-555-5555
+EMAIL;PROP-ID=k1;PID=4.1,5.2:jdoe@example.com
+CLIENTPIDMAP:1;urn:uuid:3df403f4-5924-4bb7-b077-3c711d9eb34b
+CLIENTPIDMAP:2;urn:uuid:d89c9c7a-2e1b-4832-82de-7e992d95faa5
+
+> test RFC6350 URL
+URL:http://example.org/restaurant.french/~chezchic.html
+> convert
+"links": {
+    "k1": {
+      "uri": "http://example.org/restaurant.french/~chezchic.html"
+    }
+  }
+> convert
+URL;PROP-ID=k1:http://example.org/restaurant.french/~chezchic.html
+
+> test RFC6350 KEY
+KEY:http://www.example.com/keys/jdoe.cer
+KEY;MEDIATYPE=application/pgp-keys:ftp://example.com/keys/jdoe
+> convert
+"cryptoKeys": {
+    "k1": {
+      "uri": "http://www.example.com/keys/jdoe.cer"
+    },
+    "k2": {
+      "mediaType": "application/pgp-keys",
+      "uri": "ftp://example.com/keys/jdoe"
+    }
+  }
+> convert
+KEY;PROP-ID=k1:http://www.example.com/keys/jdoe.cer
+KEY;MEDIATYPE=application/pgp-keys;PROP-ID=k2:ftp://example.com/keys/jdoe
+
+> test RFC6350 FBURL
+FBURL;PREF=1:http://www.example.com/busy/janedoe
+FBURL;MEDIATYPE=text/calendar:ftp://example.com/busy/project-a.ifb
+> convert
+"calendars": {
+    "k1": {
+      "kind": "freeBusy",
+      "pref": 1,
+      "uri": "http://www.example.com/busy/janedoe"
+    },
+    "k2": {
+      "kind": "freeBusy",
+      "mediaType": "text/calendar",
+      "uri": "ftp://example.com/busy/project-a.ifb"
+    }
+  }
+> convert
+FBURL;PREF=1;PROP-ID=k1:http://www.example.com/busy/janedoe
+FBURL;MEDIATYPE=text/calendar;PROP-ID=k2:ftp://example.com/busy/project-a.ifb
+
+> test RFC6350 CALADRURI
+CALADRURI;PREF=1:mailto:janedoe@example.com
+CALADRURI:http://example.com/calendar/jdoe
+> convert
+"schedulingAddresses": {
+    "k1": {
+      "pref": 1,
+      "uri": "mailto:janedoe@example.com"
+    },
+    "k2": {
+      "uri": "http://example.com/calendar/jdoe"
+    }
+  }
+> convert
+CALADRURI;PREF=1;PROP-ID=k1:mailto:janedoe@example.com
+CALADRURI;PROP-ID=k2:http://example.com/calendar/jdoe
+
+> test RFC6350 CALURI
+CALURI;PREF=1:http://cal.example.com/calA
+CALURI;MEDIATYPE=text/calendar:ftp://ftp.example.com/calA.ics
+> convert
+"calendars": {
+    "k1": {
+      "kind": "calendar",
+      "pref": 1,
+      "uri": "http://cal.example.com/calA"
+    },
+    "k2": {
+      "kind": "calendar",
+      "mediaType": "text/calendar",
+      "uri": "ftp://ftp.example.com/calA.ics"
+    }
+  }
+> convert
+CALURI;PREF=1;PROP-ID=k1:http://cal.example.com/calA
+CALURI;MEDIATYPE=text/calendar;PROP-ID=k2:ftp://ftp.example.com/calA.ics
+
+> test RFC6350 Full card #1
+BEGIN:VCARD
+VERSION:4.0
+EMAIL;PID=4.2,5.1:jdoe@example.com
+CLIENTPIDMAP:1;urn:uuid:3eef374e-7179-4196-a914-27358c3e6527
+CLIENTPIDMAP:2;urn:uuid:42bcd5a7-1699-4514-87b4-056edf68e9cc
+END:VCARD
+> convert
+"emails": {
+    "k1": {
+      "address": "jdoe@example.com"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "emails/k1/address": {
+        "parameters": {
+          "pid": [
+            "4.2",
+            "5.1"
+          ]
+        }
+      }
+    },
+    "properties": [
+      [
+        "clientpidmap",
+        {},
+        "unknown",
+        [
+          "1",
+          "urn:uuid:3eef374e-7179-4196-a914-27358c3e6527"
+        ]
+      ],
+      [
+        "clientpidmap",
+        {},
+        "unknown",
+        [
+          "2",
+          "urn:uuid:42bcd5a7-1699-4514-87b4-056edf68e9cc"
+        ]
+      ]
+    ]
+  }
+> convert
+BEGIN:VCARD
+VERSION:4.0
+EMAIL;PROP-ID=k1;PID=4.2,5.1:jdoe@example.com
+CLIENTPIDMAP:1;urn:uuid:3eef374e-7179-4196-a914-27358c3e6527
+CLIENTPIDMAP:2;urn:uuid:42bcd5a7-1699-4514-87b4-056edf68e9cc
+END:VCARD
+
+
+> test RFC6350 Full card #2
+BEGIN:VCARD
+VERSION:4.0
+UID:urn:uuid:4fbe8971-0bc3-424c-9c26-36c3e1eff6b1
+FN;PID=1.1:J. Doe
+N:Doe;J.;;;
+EMAIL;PID=1.1:jdoe@example.com
+EMAIL;PID=2.2:ceo@example.com
+TEL;PID=1.1;VALUE=uri:tel:+1-555-555-5555
+TEL;PID=2.2;VALUE=uri:tel:+1-666-666-6666
+CLIENTPIDMAP:1;urn:uuid:53e374d9-337e-4727-8803-a1e9c14e0556
+CLIENTPIDMAP:2;urn:uuid:1f762d2b-03c4-4a83-9a03-75ff658a6eee
+END:VCARD
+> convert
+"emails": {
+    "k1": {
+      "address": "jdoe@example.com"
+    },
+    "k2": {
+      "address": "ceo@example.com"
+    }
+  },
+  "name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "Doe"
+      },
+      {
+        "kind": "given",
+        "value": "J."
+      }
+    ],
+    "full": "J. Doe"
+  },
+  "phones": {
+    "k1": {
+      "number": "tel:+1-555-555-5555"
+    },
+    "k2": {
+      "number": "tel:+1-666-666-6666"
+    }
+  },
+  "uid": "urn:uuid:4fbe8971-0bc3-424c-9c26-36c3e1eff6b1",
+  "vCard": {
+    "convertedProperties": {
+      "emails/k1/address": {
+        "parameters": {
+          "pid": "1.1"
+        }
+      },
+      "emails/k2/address": {
+        "parameters": {
+          "pid": "2.2"
+        }
+      },
+      "name/full": {
+        "parameters": {
+          "pid": "1.1"
+        }
+      },
+      "phones/k1/number": {
+        "parameters": {
+          "pid": "1.1",
+          "value": "URI"
+        }
+      },
+      "phones/k2/number": {
+        "parameters": {
+          "pid": "2.2",
+          "value": "URI"
+        }
+      }
+    },
+    "properties": [
+      [
+        "clientpidmap",
+        {},
+        "unknown",
+        [
+          "1",
+          "urn:uuid:53e374d9-337e-4727-8803-a1e9c14e0556"
+        ]
+      ],
+      [
+        "clientpidmap",
+        {},
+        "unknown",
+        [
+          "2",
+          "urn:uuid:1f762d2b-03c4-4a83-9a03-75ff658a6eee"
+        ]
+      ]
+    ]
+  }
+> convert
+BEGIN:VCARD
+VERSION:4.0
+UID:urn:uuid:4fbe8971-0bc3-424c-9c26-36c3e1eff6b1
+FN;PID=1.1:J. Doe
+N;JSCOMPS=";0;1":Doe;J.;;;;;
+EMAIL;PROP-ID=k1;PID=1.1:jdoe@example.com
+EMAIL;PROP-ID=k2;PID=2.2:ceo@example.com
+TEL;PROP-ID=k1;PID=1.1;VALUE=uri:tel:+1-555-555-5555
+TEL;PROP-ID=k2;PID=2.2;VALUE=uri:tel:+1-666-666-6666
+CLIENTPIDMAP:1;urn:uuid:53e374d9-337e-4727-8803-a1e9c14e0556
+CLIENTPIDMAP:2;urn:uuid:1f762d2b-03c4-4a83-9a03-75ff658a6eee
+END:VCARD
+
+
+> test RFC6350 Full card #3
+BEGIN:VCARD
+VERSION:4.0
+FN:Simon Perreault
+N:Perreault;Simon;;;ing. jr,M.Sc.
+BDAY:--0203
+ANNIVERSARY:20090808T1430-0500
+GENDER:M
+LANG;PREF=1:fr
+LANG;PREF=2:en
+ORG;TYPE=work:Viagenie
+ADR;TYPE=work:;Suite D2-630;2875 Laurier;Quebec;QC;G1V 2M2;Canada
+TEL;VALUE=uri;TYPE="work,voice";PREF=1:tel:+1-418-656-9254;ext=102
+TEL;VALUE=uri;TYPE="work,cell,voice,video,text":tel:+1-418-262-6501
+EMAIL;TYPE=work:simon.perreault@viagenie.ca
+GEO;TYPE=work:geo:46.772673,-71.282945
+KEY;TYPE=work;VALUE=uri:http://www.viagenie.ca/simon.perreault/simon.asc
+TZ:-0500
+URL;TYPE=home:http://nomis80.org
+END:VCARD
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "apartment",
+          "value": "Suite D2-630"
+        },
+        {
+          "kind": "name",
+          "value": "2875 Laurier"
+        },
+        {
+          "kind": "locality",
+          "value": "Quebec"
+        },
+        {
+          "kind": "region",
+          "value": "QC"
+        },
+        {
+          "kind": "postcode",
+          "value": "G1V 2M2"
+        },
+        {
+          "kind": "country",
+          "value": "Canada"
+        }
+      ],
+      "contexts": {
+        "work": true
+      },
+      "coordinates": "geo:46.772673,-71.282945",
+      "timeZone": "Etc/GMT+5"
+    }
+  },
+  "anniversaries": {
+    "k1": {
+      "date": {
+        "day": 3,
+        "month": 2
+      },
+      "kind": "birth"
+    },
+    "k2": {
+      "date": {
+        "utc": "2009-08-08T19:30:00Z"
+      },
+      "kind": "wedding"
+    }
+  },
+  "cryptoKeys": {
+    "k1": {
+      "contexts": {
+        "work": true
+      },
+      "uri": "http://www.viagenie.ca/simon.perreault/simon.asc"
+    }
+  },
+  "emails": {
+    "k1": {
+      "address": "simon.perreault@viagenie.ca",
+      "contexts": {
+        "work": true
+      }
+    }
+  },
+  "links": {
+    "k1": {
+      "contexts": {
+        "private": true
+      },
+      "uri": "http://nomis80.org"
+    }
+  },
+  "name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "Perreault"
+      },
+      {
+        "kind": "given",
+        "value": "Simon"
+      },
+      {
+        "kind": "credential",
+        "value": "ing. jr"
+      },
+      {
+        "kind": "credential",
+        "value": "M.Sc."
+      }
+    ],
+    "full": "Simon Perreault"
+  },
+  "organizations": {
+    "k1": {
+      "contexts": {
+        "work": true
+      },
+      "name": "Viagenie"
+    }
+  },
+  "phones": {
+    "k1": {
+      "contexts": {
+        "work": true
+      },
+      "features": {
+        "voice": true
+      },
+      "number": "tel:+1-418-656-9254;ext=102",
+      "pref": 1
+    },
+    "k2": {
+      "contexts": {
+        "work": true
+      },
+      "features": {
+        "mobile": true,
+        "text": true,
+        "video": true,
+        "voice": true
+      },
+      "number": "tel:+1-418-262-6501"
+    }
+  },
+  "preferredLanguages": {
+    "k1": {
+      "language": "fr",
+      "pref": 1
+    },
+    "k2": {
+      "language": "en",
+      "pref": 2
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "addresses/k1/coordinates": {
+        "name": "geo",
+        "parameters": {
+          "type": "WORK"
+        }
+      },
+      "addresses/k1/timeZone": {
+        "name": "tz"
+      },
+      "phones/k1/number": {
+        "parameters": {
+          "value": "URI"
+        }
+      },
+      "phones/k2/number": {
+        "parameters": {
+          "value": "URI"
+        }
+      }
+    },
+    "properties": [
+      [
+        "gender",
+        {},
+        "unknown",
+        "M"
+      ]
+    ]
+  }
+> convert
+BEGIN:VCARD
+VERSION:4.0
+FN:Simon Perreault
+N;JSCOMPS=";0;1;4;4,1":Perreault;Simon;;;ing. jr,M.Sc.;;
+BDAY;PROP-ID=k1:--0203
+ANNIVERSARY;PROP-ID=k2:20090808T193000Z
+GENDER:M
+LANG;PREF=1;PROP-ID=k1:fr
+LANG;PREF=2;PROP-ID=k2:en
+ORG;TYPE=WORK;PROP-ID=k1:Viagenie
+ADR;TYPE=work;PROP-ID=k1;JSCOMPS=";8;11;3;4;5;6":;Suite D2-630;2875 Laurier;Quebec;QC;G1V 2M2;Canada;;Suite D2-630;;;2875 Laurier;;;;;;
+TEL;PREF=1;TYPE=WORK,VOICE;PROP-ID=k1;VALUE=URI:tel:+1-418-656-9254;ext=102
+TEL;TYPE=WORK,CELL,TEXT,VIDEO,VOICE;PROP-ID=k2;VALUE=URI:tel:+1-418-262-6501
+EMAIL;TYPE=work;PROP-ID=k1:simon.perreault@viagenie.ca
+GEO;TYPE=work:geo:46.772673,-71.282945
+KEY;TYPE=work;PROP-ID=k1:http://www.viagenie.ca/simon.perreault/simon.asc
+TZ:-0500
+URL;TYPE=home;PROP-ID=k1:http://nomis80.org
+END:VCARD

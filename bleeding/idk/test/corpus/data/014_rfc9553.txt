@@ -1,0 +1,703 @@
+> test RFC9553 created
+"created": "2022-09-30T14:35:10Z"
+> convert
+CREATED:20220930T143510Z
+
+> test RFC9553 kind
+"kind": "individual"
+> convert
+KIND:INDIVIDUAL
+
+> test RFC9553 language
+"language": "de-AT"
+> convert
+LANGUAGE:de-AT
+
+> test RFC9553 members
+"kind": "group",
+"name": {
+  "full": "The Doe family"
+},
+"uid": "urn:uuid:ab4310aa-fa43-11e9-8f0b-362b9e155667",
+"members": {
+  "urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af": true,
+  "urn:uuid:b8767877-b4a1-4c70-9acc-505d3819e519": true
+}
+> convert
+KIND:GROUP
+FN:The Doe family
+MEMBER:urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af
+MEMBER:urn:uuid:b8767877-b4a1-4c70-9acc-505d3819e519
+UID:urn:uuid:ab4310aa-fa43-11e9-8f0b-362b9e155667
+
+> test RFC9553 prodId
+"prodId": "ACME Contacts App version 1.23.5"
+> convert
+PRODID:ACME Contacts App version 1.23.5
+
+> test RFC9553 relatedTo
+"relatedTo": {
+  "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6": {
+    "relation": {
+      "friend": true
+    }
+  },
+  "8cacdfb7d1ffdb59@example.com": {
+    "relation": {}
+  }
+}
+> convert
+RELATED:8cacdfb7d1ffdb59@example.com
+RELATED;TYPE=FRIEND:urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+
+> test RFC9553 uid
+"uid": "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6"
+> convert
+UID:urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+
+> test RFC9553 updated
+"updated": "2021-10-31T22:27:10Z"
+> convert
+REV:20211031T222710Z
+
+> test RFC9553 name #1
+"name": {
+  "components": [
+    { "kind": "given", "value": "Vincent" },
+    { "kind": "surname", "value": "van Gogh" }
+  ],
+  "isOrdered": true
+}
+> convert
+N;JSCOMPS=";1;0":van Gogh;Vincent;;;;;
+
+> test RFC9553 name #2
+"name": {
+  "components": [
+    { "kind": "given", "value": "Diego" },
+    { "kind": "surname", "value": "Rivera" },
+    { "kind": "surname2", "value": "Barrientos" }
+  ],
+  "isOrdered": true
+}
+> convert
+N;JSCOMPS=";1;0;5":Rivera,Barrientos;Diego;;;;Barrientos;
+
+> test RFC9553 full
+"name": {
+  "full": "Mr. John Q. Public, Esq."
+}
+> convert
+FN:Mr. John Q. Public\, Esq.
+
+> test RFC9553 name with phonetic
+"name": {
+  "components": [{
+    "kind": "given",
+    "value": "John",
+    "phonetic": "/ˈdʒɑːn/"
+  }, {
+    "kind": "surname",
+    "value": "Smith",
+    "phonetic": "/smɪθ/"
+  }],
+  "isOrdered": true,
+  "phoneticSystem": "ipa"
+}
+> convert
+N;PHONETIC=IPA;JSCOMPS=";1;0":Smith;John;;;;;
+JSPROP;JSPTR=name/components/0/phonetic:"/ˈdʒɑːn/"
+JSPROP;JSPTR=name/components/1/phonetic:"/smɪθ/"
+
+> test RFC9553 sortAs
+"name": {
+  "components": [
+    { "kind": "given", "value": "Robert" },
+    { "kind": "given2", "value": "Pau" },
+    { "kind": "surname", "value": "Shou Chang" }
+  ],
+  "sortAs": {
+    "surname": "Pau Shou Chang",
+    "given": "Robert"
+  },
+  "isOrdered": true
+}
+> convert
+N;SORT-AS="Pau Shou Chang,Robert";JSCOMPS=";1;2;0":Shou Chang;Robert;Pau;;;;
+
+> test RFC9553 nicknames
+"nicknames": {
+  "k391": {
+    "name": "Johnny"
+  }
+}
+> convert
+NICKNAME;PROP-ID=k391:Johnny
+
+> test RFC9553 organizations
+"organizations": {
+  "o1": {
+    "name": "ABC, Inc.",
+    "units": [
+      { "name": "North American Division" },
+      { "name": "Marketing" }
+    ],
+    "sortAs": "ABC"
+  }
+}
+> convert
+ORG;SORT-AS=ABC;PROP-ID=o1:ABC\, Inc.;North American Division;Marketing
+
+> test RFC9553 speakToAs
+"speakToAs": {
+  "grammaticalGender": "neuter",
+  "pronouns": {
+    "k19": {
+      "pronouns": "they/them",
+      "pref": 2
+    },
+    "k32": {
+      "pronouns": "xe/xir",
+      "pref": 1
+    }
+  }
+}
+> convert
+GRAMGENDER:NEUTER
+PRONOUNS;PREF=2;PROP-ID=k19:they/them
+PRONOUNS;PREF=1;PROP-ID=k32:xe/xir
+
+> test RFC9553 titles and organizations
+"titles": {
+  "le9": {
+    "kind": "title",
+    "name": "Research Scientist"
+  },
+  "k2": {
+    "kind": "role",
+    "name": "Project Leader",
+    "organizationId": "o2"
+  }
+},
+"organizations": {
+  "o2": {
+    "name": "ABC, Inc."
+  }
+}
+> convert
+TITLE;PROP-ID=le9:Research Scientist
+ROLE;PROP-ID=k2:Project Leader
+ORG;PROP-ID=o2:ABC\, Inc.
+JSPROP;JSPTR=titles/k2/organizationId:"o2"
+
+> test RFC9553 emails
+"emails": {
+  "e1": {
+    "contexts": {
+      "work": true
+    },
+    "address": "jqpublic@xyz.example.com"
+  },
+  "e2": {
+    "address": "jane_doe@example.com",
+    "pref": 1
+  }
+}
+> convert
+EMAIL;TYPE=WORK;PROP-ID=e1:jqpublic@xyz.example.com
+EMAIL;PREF=1;PROP-ID=e2:jane_doe@example.com
+
+> test RFC9553 onlineServices
+"onlineServices": {
+  "x1": {
+    "uri": "xmpp:alice@example.com"
+  },
+  "x2": {
+    "service": "Mastodon",
+    "user": "@alice@example2.com",
+    "uri": "https://example2.com/@alice"
+  }
+}
+> convert
+SOCIALPROFILE;PROP-ID=x1:xmpp:alice@example.com
+SOCIALPROFILE;SERVICE-TYPE=Mastodon;USERNAME=@alice@example2.com;PROP-ID=x2:
+ https://example2.com/@alice
+
+> test RFC9553 phones
+"phones": {
+  "tel0": {
+    "contexts": {
+      "private": true
+    },
+    "features": {
+      "voice": true
+    },
+    "number": "tel:+1-555-555-5555;ext=5555",
+    "pref": 1
+  },
+  "tel3": {
+    "contexts": {
+      "work": true
+    },
+    "number": "tel:+1-201-555-0123"
+  }
+}
+> convert
+TEL;PREF=1;TYPE=HOME,VOICE;PROP-ID=tel0:tel:+1-555-555-5555\;ext=5555
+TEL;TYPE=WORK;PROP-ID=tel3:tel:+1-201-555-0123
+
+> test RFC9553 preferredLanguages
+"preferredLanguages": {
+  "l1": {
+    "language": "en",
+    "contexts": {
+      "work": true
+    },
+    "pref": 1
+  },
+  "l2": {
+    "language": "fr",
+    "contexts": {
+      "work": true
+    },
+    "pref": 2
+  },
+  "l3": {
+    "language": "fr",
+    "contexts": {
+      "private": true
+    }
+  }
+}
+> convert
+LANG;TYPE=WORK;PREF=1;PROP-ID=l1:en
+LANG;TYPE=WORK;PREF=2;PROP-ID=l2:fr
+LANG;TYPE=HOME;PROP-ID=l3:fr
+
+> test RFC9553 calendars
+"calendars": {
+  "calA": {
+    "kind": "calendar",
+    "uri": "webcal://calendar.example.com/calA.ics"
+  },
+  "project-a": {
+    "kind": "freeBusy",
+    "uri": "https://calendar.example.com/busy/project-a"
+  }
+}
+> convert
+FBURL;PROP-ID=project-a:https://calendar.example.com/busy/project-a
+CALURI;PROP-ID=calA:webcal://calendar.example.com/calA.ics
+
+> test RFC9553 schedulingAddresses
+"schedulingAddresses": {
+  "sched1": {
+    "uri": "mailto:janedoe@example.com"
+  }
+}
+> convert
+CALADRURI;PROP-ID=sched1:mailto:janedoe@example.com
+
+> test RFC9553 addresses #1
+"addresses": {
+  "k23": {
+    "contexts": {
+      "work": true
+    },
+    "components": [
+      { "kind": "number", "value": "54321" },
+      { "kind": "separator", "value": " " },
+      { "kind": "name", "value": "Oak St" },
+      { "kind": "locality", "value": "Reston" },
+      { "kind": "region", "value": "VA" },
+      { "kind": "separator", "value": " " },
+      { "kind": "postcode", "value": "20190" },
+      { "kind": "country", "value": "USA" }
+    ],
+    "countryCode": "US",
+    "defaultSeparator": ", ",
+    "isOrdered": true
+  }
+}
+> convert
+ADR;TYPE=WORK;CC=US;PROP-ID=k23;JSCOMPS="s,\, ;10;s, ;11;3;4;s, ;5;6":;;5432
+ 1,Oak St;Reston;VA;20190;USA;;;;54321;Oak St;;;;;;
+
+> test RFC9553 addresses #2
+"addresses": {
+  "k25": {
+    "components": [
+      { "kind": "number", "value": "46" },
+      { "kind": "name", "value": "1 Sukhumvit 51 Alley" },
+      { "kind": "subdistrict", "value": "Khlong Tan Nuea" },
+      { "kind": "district", "value": " Watthana" },
+      { "kind": "locality", "value": "Bangkok" },
+      { "kind": "country", "value": "Thailand" },
+      { "kind": "postcode", "value": "10110" }
+    ],
+    "defaultSeparator": ", ",
+    "isOrdered": true
+  }
+}
+> convert
+ADR;PROP-ID=k25;JSCOMPS="s,\, ;10;11;14;15;3;6;5":;;46,1 Sukhumvit 51 Alley,
+ Khlong Tan Nuea, Watthana;Bangkok;;10110;Thailand;;;;46;1 Sukhumvit 51 All
+ ey;;;Khlong Tan Nuea; Watthana;;
+
+> test RFC9553 addresses #3
+"addresses": {
+   "k26": {
+     "components": [
+       { "kind": "block", "value": "2-7" },
+       { "kind": "separator", "value": "-" },
+       { "kind": "number", "value": "2" },
+       { "kind": "separator", "value": " " },
+       { "kind": "district", "value": "Marunouchi" },
+       { "kind": "locality", "value": "Chiyoda-ku" },
+       { "kind": "region", "value": "Tokyo" },
+       { "kind": "separator", "value": " " },
+       { "kind": "postcode", "value": "100-8994" }
+     ],
+     "defaultSeparator": ", ",
+     "full": "2-7-2 Marunouchi, Chiyoda-ku, Tokyo 100-8994",
+     "isOrdered": true
+   }
+},
+"localizations": {
+  "jp": {
+    "addresses/k26": {
+      "components": [
+        { "kind": "region", "value": "東京都" },
+        { "kind": "locality", "value": "千代田区" },
+        { "kind": "district", "value": "丸ノ内" },
+        { "kind": "block", "value": "2-7" },
+        { "kind": "separator", "value": "-" },
+        { "kind": "number", "value": "2" },
+        { "kind": "postcode", "value": "〒100-8994" }
+      ],
+      "defaultSeparator": "",
+      "full": "〒100-8994東京都千代田区丸ノ内2-7-2",
+      "isOrdered": true
+    }
+  }
+}
+> convert
+ADR;LABEL="2-7-2 Marunouchi, Chiyoda-ku, Tokyo 100-8994";PROP-ID=k26;JSCOMPS="s,\, ;13;s,-;10;s, ;15;3;4;s, ;5":
+ ;;2,2-7,Marunouchi;Chiyoda-ku;Tokyo;100-8994;;;;;2;;;2-7;;Marunouchi;;
+ADR;LABEL=〒100-8994東京都千代田区丸ノ内2-7-2;PROP-ID=k26;JSCOMPS=";4;3;15;13;s,-;10;5";
+ LANGUAGE=jp:;;2,2-7,丸ノ内;千代田区;東京都;〒100-8994;;;;;2;;;2-
+ 7;;丸ノ内;;
+> convert
+"addresses": {
+   "k26": {
+     "components": [
+       { "kind": "block", "value": "2-7" },
+       { "kind": "separator", "value": "-" },
+       { "kind": "number", "value": "2" },
+       { "kind": "separator", "value": " " },
+       { "kind": "district", "value": "Marunouchi" },
+       { "kind": "locality", "value": "Chiyoda-ku" },
+       { "kind": "region", "value": "Tokyo" },
+       { "kind": "separator", "value": " " },
+       { "kind": "postcode", "value": "100-8994" }
+     ],
+     "defaultSeparator": ", ",
+     "full": "2-7-2 Marunouchi, Chiyoda-ku, Tokyo 100-8994",
+     "isOrdered": true
+   }
+},
+"localizations": {
+  "jp": {
+      "addresses/k26/components": [
+        { "kind": "region", "value": "東京都" },
+        { "kind": "locality", "value": "千代田区" },
+        { "kind": "district", "value": "丸ノ内" },
+        { "kind": "block", "value": "2-7" },
+        { "kind": "separator", "value": "-" },
+        { "kind": "number", "value": "2" },
+        { "kind": "postcode", "value": "〒100-8994" }
+      ],
+      "addresses/k26/full": "〒100-8994東京都千代田区丸ノ内2-7-2"
+  }
+}
+
+> test RFC9553 cryptoKeys #1
+"cryptoKeys": {
+  "mykey1": {
+    "uri": "https://www.example.com/keys/jdoe.cer"
+  }
+}
+> convert
+KEY;PROP-ID=mykey1:https://www.example.com/keys/jdoe.cer
+
+> test RFC9553 cryptoKeys #2
+"cryptoKeys": {
+  "mykey2": {
+    "uri": "data:application/pgp-keys;base64,LS0t"
+  }
+}
+> convert
+KEY;PROP-ID=mykey2:data:application/pgp-keys;base64,LS0t
+
+> test RFC9553 directories
+"directories": {
+  "dir1": {
+    "kind": "entry",
+    "uri": "https://dir.example.com/addrbook/jdoe/Jean%20Dupont.vcf"
+  },
+  "dir2": {
+    "kind": "directory",
+    "uri": "ldap://ldap.example/o=Example%20Tech,ou=Engineering",
+    "pref": 1
+  }
+}
+> convert
+SOURCE;PROP-ID=dir1:https://dir.example.com/addrbook/jdoe/Jean%20Dupont.vcf
+ORG-DIRECTORY;PREF=1;PROP-ID=dir2:ldap://ldap.example/o=Example%20Tech,ou=E
+ ngineering
+
+
+> test RFC9553 links
+"links": {
+  "link3": {
+    "kind": "contact",
+    "uri": "mailto:contact@example.com",
+    "pref": 1
+  }
+}
+> convert
+CONTACT-URI;PREF=1;PROP-ID=link3:mailto:contact@example.com
+
+> test RFC9553 media
+"media": {
+  "res45": {
+    "kind": "sound",
+    "uri": "CID:JOHNQ.part8.19960229T080000.xyzMail@example.com"
+  },
+  "res47": {
+    "kind": "logo",
+    "uri": "https://www.example.com/pub/logos/abccorp.jpg"
+  },
+  "res1": {
+    "kind": "photo",
+    "uri": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAASABIAAD/4..."
+  }
+}
+> convert
+PHOTO;PROP-ID=res1:data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAASABIAAD/4...
+LOGO;PROP-ID=res47:https://www.example.com/pub/logos/abccorp.jpg
+SOUND;PROP-ID=res45:CID:JOHNQ.part8.19960229T080000.xyzMail@example.com
+
+> test RFC9553 name and localizations #1
+{
+  "@type": "Card",
+  "language": "zh-Hant",
+  "name": {
+    "components": [
+      { "kind": "surname", "value": "孫" },
+      { "kind": "given", "value": "中山" },
+      { "kind": "given2", "value": "文" },
+      { "kind": "given2", "value": "逸仙" }
+    ]
+  },
+  "localizations": {
+    "yue": {
+      "name/phoneticSystem": "jyut",
+      "name/phoneticScript": "Latn",
+      "name/components/0/phonetic": "syun1",
+      "name/components/1/phonetic": "zung1saan1",
+      "name/components/2/phonetic": "man4",
+      "name/components/3/phonetic": "jat6sin1"
+    }
+  }
+}
+> convert
+N;JSCOMPS=";0;1;2;2,1":孫;中山;文,逸仙;;;;
+N;SCRIPT=Latn;PHONETIC=jyut;JSCOMPS=";0;1;2;2,1";LANGUAGE=yue:syun1;zung1saa
+ n1;man4,jat6sin1;;;;
+LANGUAGE:zh-Hant
+> convert
+"language": "zh-Hant",
+"localizations": {
+    "yue": {
+      "name/components": [
+        {
+          "kind": "surname",
+          "value": "syun1"
+        },
+        {
+          "kind": "given",
+          "value": "zung1saan1"
+        },
+        {
+          "kind": "given2",
+          "value": "man4"
+        },
+        {
+          "kind": "given2",
+          "value": "jat6sin1"
+        }
+      ],
+      "name/phoneticScript": "Latn",
+      "name/phoneticSystem": "jyut"
+    }
+},
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "孫"
+      },
+      {
+        "kind": "given",
+        "value": "中山"
+      },
+      {
+        "kind": "given2",
+        "value": "文"
+      },
+      {
+        "kind": "given2",
+        "value": "逸仙"
+      }
+    ],
+    "isOrdered": true
+}
+
+> test RFC9553 name and localizations #2
+"name": {
+    "components": [
+      { "kind": "title", "value": "Mr." },
+      { "kind": "given", "value": "Ivan" },
+      { "kind": "given2", "value": "Petrovich" },
+      { "kind": "surname", "value": "Vasiliev" }
+    ]
+},
+"localizations": {
+    "uk-Cyrl": {
+      "name": {
+        "components": [
+          { "kind": "title", "value": "г-н" },
+          { "kind": "given", "value": "Иван" },
+          { "kind": "given2", "value": "Петрович" },
+          { "kind": "surname", "value": "Васильев" }
+        ]
+      }
+    }
+}
+> convert
+N;JSCOMPS=";3;1;2;0":Vasiliev;Ivan;Petrovich;Mr.;;;
+N;JSCOMPS=";3;1;2;0";LANGUAGE=uk-Cyrl:Васильев;Иван;Петров
+ ич;г-н;;;
+> convert
+"name": {
+    "components": [
+      { "kind": "title", "value": "Mr." },
+      { "kind": "given", "value": "Ivan" },
+      { "kind": "given2", "value": "Petrovich" },
+      { "kind": "surname", "value": "Vasiliev" }
+    ],
+    "isOrdered": true
+},
+"localizations": {
+    "uk-cyrl": {
+        "name/components": [
+          { "kind": "title", "value": "г-н" },
+          { "kind": "given", "value": "Иван" },
+          { "kind": "given2", "value": "Петрович" },
+          { "kind": "surname", "value": "Васильев" }
+        ]
+   }
+}
+
+> test RFC9553 name and localizations #3
+"name": {
+  "full": "Gabriel García Márquez"
+},
+"titles": {
+  "t1": {
+    "kind": "title",
+    "name": "novelist"
+  }
+},
+"localizations": {
+  "es": {
+    "titles/t1/name": "escritor"
+  }
+}
+> convert
+FN:Gabriel García Márquez
+TITLE;PROP-ID=t1:novelist
+TITLE;PROP-ID=t1;LANGUAGE=es:escritor
+
+> test RFC9553 anniversaries
+"anniversaries": {
+  "k8": {
+    "kind": "birth",
+    "date": {
+      "year": 1953,
+      "month": 4,
+      "day": 15
+    }
+  },
+  "k9": {
+    "kind": "death",
+    "date": {
+      "@type": "Timestamp",
+      "utc": "2019-10-15T23:10:00Z"
+    },
+    "place": {
+      "full": "4445 Tree Street\nNew England, ND 58647\nUSA"
+    }
+  }
+}
+> convert
+BDAY;PROP-ID=k8:19530415
+DEATHPLACE;PROP-ID=k9:4445 Tree Street\nNew England\, ND 58647\nUSA
+DEATHDATE;PROP-ID=k9:20191015T231000Z
+
+> test RFC9553 keywords
+"keywords": {
+  "internet": true,
+  "IETF": true
+}
+> convert
+CATEGORIES:IETF,internet
+
+> test RFC9553 notes
+"notes": {
+  "n1": {
+    "note": "Open office hours are 1600 to 1715 EST, Mon-Fri",
+    "created": "2022-11-23T15:01:32Z",
+    "author": {
+      "name": "John"
+    }
+  }
+}
+> convert
+NOTE;AUTHOR-NAME=John;CREATED=20221123T150132Z;PROP-ID=n1:Open office hours are 160
+ 0 to 1715 EST\, Mon-Fri
+
+> test RFC9553 personalInfo
+"personalInfo": {
+  "pi2": {
+    "kind": "expertise",
+    "value": "chemistry",
+    "level": "high"
+  },
+  "pi1": {
+    "kind": "hobby",
+    "value": "reading",
+    "level": "high"
+  },
+  "pi6": {
+    "kind": "interest",
+    "value": "r&b music",
+    "level": "medium"
+  }
+}
+> convert
+EXPERTISE;LEVEL=EXPERT;PROP-ID=pi2:chemistry
+HOBBY;LEVEL=HIGH;PROP-ID=pi1:reading
+INTEREST;LEVEL=MEDIUM;PROP-ID=pi6:r&b music
+

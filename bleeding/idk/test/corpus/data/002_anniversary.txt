@@ -1,0 +1,119 @@
+> test RFC9555 anniversary
+BDAY:19531015T231000Z
+BIRTHPLACE:
+ 123 Main Street\nAny Town, CA 91921-1234\nU.S.A.
+DEATHDATE:19960415
+DEATHPLACE:
+ 5 Court Street\nNew England, ND 58647\nU.S.A.
+ANNIVERSARY:19860201
+> convert
+"anniversaries": {
+    "k1": {
+        "kind": "birth",
+        "date": {
+            "@type": "Timestamp",
+            "utc": "1953-10-15T23:10:00Z"
+        },
+        "place": {
+            "full": "123 Main Street\nAny Town, CA 91921-1234\nU.S.A."
+        }
+    },
+    "k3": {
+        "kind": "death",
+        "date": {
+            "year": 1996,
+            "month": 4,
+            "day": 15
+        },
+        "place": {
+            "full": "5 Court Street\nNew England, ND 58647\nU.S.A."
+        }
+    },
+    "k2": {
+        "kind": "wedding",
+        "date": {
+            "year": 1986,
+            "month": 2,
+            "day": 1
+        }
+    }
+}
+> convert
+BDAY;PROP-ID=k1:19531015T231000Z
+ANNIVERSARY;PROP-ID=k2:19860201
+BIRTHPLACE;PROP-ID=k1:123 Main Street\nAny Town\, CA 91921-1234\nU.S.A.
+DEATHPLACE;PROP-ID=k3:5 Court Street\nNew England\, ND 58647\nU.S.A.
+DEATHDATE;PROP-ID=k3:19960415
+
+> test PLACES with dates and localizations
+BDAY:19531015T231000Z
+DEATHDATE:19960415
+DEATHPLACE;ALT-ID=1;LANGUAGE=en:5 Court Street\nNew England, ND 58647\nU.S.A.
+DEATHPLACE;ALT-ID=1;LANGUAGE=es:Calle Court 5\nNueva Inglaterra, ND 58647\nEE.UU.
+BIRTHPLACE;ALT-ID=1;LANGUAGE=en:123 Main Street\nAny Town\, CA 91921-1234\nU.S.A.
+BIRTHPLACE;ALT-ID=1;LANGUAGE=es:Calle Principal 123\nCualquier Ciudad\, CA 91921-1234\nEE.UU.
+> convert
+"anniversaries": {
+    "k1": {
+      "date": {
+        "utc": "1953-10-15T23:10:00Z"
+      },
+      "kind": "birth",
+      "place": {
+        "full": "123 Main Street\nAny Town, CA 91921-1234\nU.S.A."
+      }
+    },
+    "k2": {
+      "date": {
+        "day": 15,
+        "month": 4,
+        "year": 1996
+      },
+      "kind": "death",
+      "place": {
+        "full": "5 Court Street\nNew England, ND 58647\nU.S.A."
+      }
+    }
+  },
+  "language": "en",
+  "localizations": {
+    "es": {
+      "anniversaries/k1/place/full": "Calle Principal 123\nCualquier Ciudad, CA 91921-1234\nEE.UU.",
+      "anniversaries/k2/place/full": "Calle Court 5\nNueva Inglaterra, ND 58647\nEE.UU."
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "anniversaries/k1/place/full": {
+        "parameters": {
+         "alt-id": "1",
+          "language": "en"
+        }
+      },
+      "anniversaries/k2/place/full": {
+        "parameters": {
+         "alt-id": "1",
+          "language": "en"
+        }
+      },
+      "localizations/es/anniversaries~1k1~1place~1full": {
+        "parameters": {
+         "alt-id": "1"
+        }
+      },
+      "localizations/es/anniversaries~1k2~1place~1full": {
+        "parameters": {
+         "alt-id": "1"
+        }
+      }
+    }
+  }
+> convert
+BDAY;PROP-ID=k1:19531015T231000Z
+DEATHDATE;PROP-ID=k2:19960415
+DEATHPLACE;PROP-ID=k2;ALT-ID=1;LANGUAGE=en:5 Court Street\nNew England, ND 58647\nU.S.A.
+DEATHPLACE;PROP-ID=k2;ALT-ID=1;LANGUAGE=es:Calle Court 5\nNueva Inglaterra, ND 58647\nEE.UU.
+BIRTHPLACE;PROP-ID=k1;ALT-ID=1;LANGUAGE=en:123 Main Street\nAny Town\, CA 91921-1234\nU.S.A.
+BIRTHPLACE;PROP-ID=k1;ALT-ID=1;LANGUAGE=es:Calle Principal 123\nCualquier Ciudad\, CA 91921-1234\nEE.UU.
+LANGUAGE:en
+

@@ -1,0 +1,4 @@
+(library
+ (name carddav)
+ (public_name carddav)
+ (libraries httpz.dav vcard))

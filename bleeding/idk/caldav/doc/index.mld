@@ -1,0 +1,49 @@
+{0 caldav}
+
+CalDAV for OCaml. An implementation of
+{{:https://www.rfc-editor.org/rfc/rfc4791.html}RFC 4791} on {!Httpz_dav} and
+{!Fetch_dav}, with the sync-collection report of
+{{:https://www.rfc-editor.org/rfc/rfc6578.html}RFC 6578} and the discovery of
+{{:https://www.rfc-editor.org/rfc/rfc6764.html}RFC 6764}.
+
+{1 Two libraries}
+
+- [caldav] is the protocol. {!Caldav.Property} names the calendar properties,
+  {!Caldav.Filter} and {!Caldav.Report} build the calendar-query,
+  calendar-multiget and free-busy-query reports and read their answers,
+  {!Caldav.Calendar_data} narrows or expands what a report returns,
+  {!Caldav.Calendar} reads a calendar from a PROPFIND and names the properties
+  MKCALENDAR sets, {!Caldav.Error} names the conditions, and {!Caldav.Data} is
+  the representation of a calendar object a client reads and writes.
+- [caldav.eio] is the client. {!Caldav_eio.Client.connect} finds the principal
+  and its calendar home from a URL, and every other function is one request over
+  [fetch].
+
+{1 Ranges and recurrences}
+
+{!Caldav_eio.Client.events} asks the server for the events overlapping a UTC
+range. A recurring event matches when any of its instances does, and with
+[~expand:true] it comes back as those instances, each with a [RECURRENCE-ID], so
+the client never expands a rule itself.
+
+{[
+let start = Ical.Date.date_time_of_string "20260901T000000Z" |> Result.get_ok in
+let finish = Ical.Date.date_time_of_string "20261001T000000Z" |> Result.get_ok in
+Caldav_eio.Client.events Caldav.Data.ical client ~start ~finish ~expand:true calendar
+]}
+
+{1 Servers that differ}
+
+A profile in {!Caldav_eio.Quirks} names what one service does differently, and
+the client consults it only where the difference matters.
+{!Caldav_eio.Quirks.fastmail} is applied to any Fastmail host by default, and
+{!Caldav_eio.Quirks.standard} expects the RFC.
+
+{1 Testing against a server}
+
+The unit tests check the library against the examples of
+{{:https://www.rfc-editor.org/rfc/rfc4791.html} RFC 4791}. The tests in
+[test/caldav/oracle] run against the Radicale server [scripts/carddav-up.sh]
+starts in docker, which serves CalDAV and CardDAV on one port, and are skipped
+unless [CARDDAV_ORACLE_URL] is set. They are the evidence for the profiles of
+{!Caldav_eio.Quirks}.

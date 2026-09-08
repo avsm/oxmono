@@ -1,0 +1,49 @@
+{0 vcard}
+
+vCard 4.0 for OCaml. An implementation of
+{{:https://www.rfc-editor.org/rfc/rfc6350.html}RFC 6350} with the parameter
+escapes of {{:https://www.rfc-editor.org/rfc/rfc6868.html}RFC 6868} and the
+extensions of
+{{:https://www.rfc-editor.org/rfc/rfc9554.html}RFC 9554} and
+{{:https://www.rfc-editor.org/rfc/rfc9555.html}RFC 9555} that JSContact
+conversion needs.
+
+{1 The entry point}
+
+{!Vcard} is the single module of the library. A {!Vcard.t} is a list of
+{!Vcard.Property.t}, each an unfolded content line with its group, name,
+parameters and wire value.
+
+- {!Vcard.Property} reads a value as the data type the caller asks for and
+  exposes the common parameters.
+- {!Vcard.N} and {!Vcard.Adr} view the structured values of the [N] and [ADR]
+  properties, with the components
+  {{:https://www.rfc-editor.org/rfc/rfc9554.html} RFC 9554} adds.
+- {!Vcard.Date} holds the date and time value types, including the reduced and
+  truncated forms such as [--0412].
+- {!Vcard.Jscomps} reads the [JSCOMPS] parameter of
+  {{:https://www.rfc-editor.org/rfc/rfc9555.html} RFC 9555}.
+- {!Vcard.Registry} lists the registered properties with their default value
+  types and cardinalities.
+
+{1 Lossless by design}
+
+The reader keeps every property, known or unknown, with its parameters and its
+wire value, and the writer puts them back. A card read and written again holds
+the same properties. Property and parameter names are uppercased and parameter
+values are re-quoted, so the text may differ where the input was lenient.
+
+{1 Shape versus meaning}
+
+{!Vcard.of_string} enforces the shape of a card, which is the [BEGIN], [VERSION]
+and [END] framing and the content line syntax. {!Vcard.validate} holds a card to
+the rules {{:https://www.rfc-editor.org/rfc/rfc6350.html} RFC 6350} states in
+prose, such as the cardinality of [N] or the range of [PREF].
+
+{1 Reading and writing}
+
+{[
+  match Vcard.of_string s with
+  | Ok cards -> List.iter (fun c -> print_string (Vcard.to_string c)) cards
+  | Error msg -> prerr_endline msg
+]}

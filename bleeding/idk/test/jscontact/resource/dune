@@ -1,0 +1,4 @@
+(test
+ (name test_resource)
+ (package jscontact)
+ (libraries jscontact alcotest jsont.bytesrw))

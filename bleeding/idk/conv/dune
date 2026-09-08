@@ -1,0 +1,5 @@
+(library
+ (name jscontact_vcard)
+ (public_name jscontact.vcard)
+ (private_modules jscontact_vcard_import jscontact_vcard_export)
+ (libraries jscontact vcard jsont jsont.bytesrw))

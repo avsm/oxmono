@@ -1,0 +1,4 @@
+(library
+ (name idk_eio)
+ (public_name idk.eio)
+ (libraries idk carddav.eio caldav.eio fetch fetch.dav httpz.dav eio))

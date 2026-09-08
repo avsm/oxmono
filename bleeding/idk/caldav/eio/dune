@@ -1,0 +1,4 @@
+(library
+ (name caldav_eio)
+ (public_name caldav.eio)
+ (libraries caldav ical httpz.dav fetch.dav fetch eio))

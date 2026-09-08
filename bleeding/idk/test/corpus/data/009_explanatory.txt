@@ -1,0 +1,159 @@
+> test RFC9555 CATEGORIES
+CATEGORIES:IETF,Industry,Information Technology,internet
+> convert
+"keywords": {
+  "internet": true,
+  "IETF": true,
+  "Industry": true,
+  "Information Technology": true
+}
+
+> test RFC9555 CLIENTPIDMAP
+CLIENTPIDMAP:1;urn:uuid:3df403f4-5924-4bb7-b077-3c711d9eb34b
+CLIENTPIDMAP:2;urn:uuid:d89c9c7a-2e1b-4832-82de-7e992d95faa5
+> convert
+"vCard": {
+    "properties": [
+      [
+        "clientpidmap",
+        {},
+        "unknown",
+        [
+          "1",
+          "urn:uuid:3df403f4-5924-4bb7-b077-3c711d9eb34b"
+        ]
+      ],
+      [
+        "clientpidmap",
+        {},
+        "unknown",
+        [
+          "2",
+          "urn:uuid:d89c9c7a-2e1b-4832-82de-7e992d95faa5"
+        ]
+      ]
+    ]
+}
+
+> test RFC9555 CREATED
+CREATED:19940930T143510Z
+> convert
+"created": "1994-09-30T14:35:10Z"
+
+> test RFC9555 NOTE
+NOTE;CREATED=20221123T150132Z;AUTHOR-NAME="John":
+ Office hours are from 0800 to 1715 EST\, Mon-Fri.
+> convert
+"notes": {
+  "k1" : {
+     "note": "Office hours are from 0800 to 1715 EST, Mon-Fri.",
+     "created": "2022-11-23T15:01:32Z",
+     "author": {
+       "name": "John"
+     }
+  }
+}
+> convert
+NOTE;AUTHOR-NAME="John";CREATED=20221123T150132Z;PROP-ID=k1:
+ Office hours are from 0800 to 1715 EST\, Mon-Fri.
+
+> test RFC9555 PRODID
+PRODID:ACME Contacts App version 1.23.5
+> convert
+"prodId": "ACME Contacts App version 1.23.5"
+
+> test RFC9555 REV
+REV:19951031T222710Z
+> convert
+"updated": "1995-10-31T22:27:10Z"
+
+> test RFC9555 SOUND
+SOUND:CID:JOHNQPUBLIC.19960229T080000.xyzMail@example.com
+> convert
+"media": {
+  "k1": {
+    "kind": "sound",
+    "uri": "CID:JOHNQPUBLIC.19960229T080000.xyzMail@example.com"
+  }
+}
+> convert
+SOUND;PROP-ID=k1:CID:JOHNQPUBLIC.19960229T080000.xyzMail@example.com
+
+> test RFC9555 UID
+UID:urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+> convert
+"uid": "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6"
+
+> test RFC9555 URL
+URL:https://example.org/restaurant.french/~chezchic.html
+> convert
+"links": {
+  "k1": {
+    "uri": "https://example.org/restaurant.french/~chezchic.html"
+  }
+}
+> convert
+URL;PROP-ID=k1:https://example.org/restaurant.french/~chezchic.html
+
+> test RFC9555 X-ABLabel
+item1.TEL;VALUE=uri:tel:+1-555-555-5555
+item1.X-ABLabel:foo
+> convert
+"phones": {
+  "k1": {
+    "number": "tel:+1-555-555-5555",
+    "label": "foo"
+  }
+},
+"vCard": {
+    "convertedProperties": {
+      "phones/k1/label": {
+        "name": "x-ablabel",
+        "parameters": {
+          "group": "item1"
+        }
+      },
+      "phones/k1/number": {
+        "parameters": {
+          "group": "item1",
+          "value": "URI"
+        }
+      }
+    }
+}
+> convert
+item1.TEL;PROP-ID=k1;VALUE=uri:tel:+1-555-555-5555
+item1.X-ABLABEL:foo
+
+> test CATEGORIES with parameters
+CATEGORIES;X-PROP=1:IETF,Industry,Information Technology,internet
+CATEGORIES;X-PROP=2:Friends,Family
+> convert
+"keywords": {
+    "Family": true,
+    "Friends": true,
+    "IETF": true,
+    "Industry": true,
+    "Information Technology": true,
+    "internet": true
+  },
+  "vCard": {
+    "convertedProperties": {
+      "keywords": {
+        "parameters": {
+          "x-prop": [
+            "1",
+            "2"
+          ]
+        }
+      }
+    }
+  }
+> convert
+CATEGORIES;X-PROP=1,2:Family,Friends,IETF,Industry,Information Technology,i
+ nternet
+
+
+
+
+

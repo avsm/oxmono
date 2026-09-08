@@ -1,0 +1,4 @@
+(test
+ (name test_caldav)
+ (package caldav)
+ (libraries caldav httpz.dav ical alcotest))

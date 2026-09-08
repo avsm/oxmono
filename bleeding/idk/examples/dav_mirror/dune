@@ -1,0 +1,5 @@
+(executable
+ (name dav_mirror)
+ (public_name idk-dav-mirror)
+ (package idk)
+ (libraries idk.eio fetch fetch-httpz eio eio_main))

@@ -1,0 +1,6 @@
+(test
+ (name test_conv)
+ (package jscontact)
+ (libraries jscontact jscontact.vcard vcard alcotest jsont jsont.bytesrw)
+ (deps
+  (source_tree ../corpus/data)))

@@ -1,0 +1,4 @@
+(library
+ (name ical)
+ (public_name ical)
+ (libraries vcard ptime))

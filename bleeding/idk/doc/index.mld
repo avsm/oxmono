@@ -1,0 +1,37 @@
+{0 idk}
+
+IDKit, contact data for OCaml. One package per specification, and the JSContact
+Card of {{:https://www.rfc-editor.org/rfc/rfc9553.html}RFC 9553} as the
+representation they meet at.
+
+{!Idk} is the entry point. It explains how the layers stack, and every package
+below is reached through it. {!Idk_eio} holds the CardDAV and CalDAV clients.
+
+- [jscontact] is the Card and every object type of
+  {{:https://www.rfc-editor.org/rfc/rfc9553.html} RFC 9553}, with the conversion
+  to and from vCard of {{:https://www.rfc-editor.org/rfc/rfc9555.html} RFC 9555}
+  in [jscontact.vcard].
+- [vcard] is vCard 4.0,
+  {{:https://www.rfc-editor.org/rfc/rfc6350.html} RFC 6350}, with
+  {{:https://www.rfc-editor.org/rfc/rfc6868.html} RFC 6868} and
+  {{:https://www.rfc-editor.org/rfc/rfc9554.html} RFC 9554}.
+- [ical] is iCalendar,
+  {{:https://www.rfc-editor.org/rfc/rfc5545.html} RFC 5545}, with
+  {{:https://www.rfc-editor.org/rfc/rfc7986.html} RFC 7986}.
+- [carddav] is CardDAV,
+  {{:https://www.rfc-editor.org/rfc/rfc6352.html} RFC 6352}, on [httpz.dav] and
+  [fetch.dav], with a client on Eio and a view of address objects as JSContact
+  cards.
+- [caldav] is CalDAV, {{:https://www.rfc-editor.org/rfc/rfc4791.html} RFC 4791},
+  with a client on Eio.
+
+A vCard read from a file, an address object fetched over CardDAV and a
+[ContactCard] received over JMAP all become the same {!Idk.Jscontact.Card.t},
+and a Card written back to any of them loses nothing it arrived with.
+
+{1 Mirroring a collection}
+
+The [idk-dav-mirror] executable copies an address book or a calendar to a
+directory and keeps it up to date with the sync-collection report of
+{{:https://www.rfc-editor.org/rfc/rfc6578.html}RFC 6578}. Its source is the
+shortest complete example of the clients.

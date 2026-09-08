@@ -1,0 +1,12 @@
+
+> test RFC9555 KEY
+KEY:https://www.example.com/keys/jdoe.cer
+> convert
+"cryptoKeys": {
+  "k1": {
+    "uri": "https://www.example.com/keys/jdoe.cer"
+  }
+}
+> convert
+KEY;PROP-ID=k1:https://www.example.com/keys/jdoe.cer
+

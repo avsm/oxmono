@@ -1,0 +1,39 @@
+> test RFC9555 GENDER
+GENDER:O;intersex
+> convert
+"vCard": {
+    "properties": [
+      [
+        "gender",
+        {},
+        "unknown",
+        [
+          "O",
+          "intersex"
+        ]
+      ]
+    ]
+}
+
+> test RFC9555 GRAMGENDER and PRONOUNS
+GRAMGENDER:NEUTER
+PRONOUNS;PREF=2:they/them
+PRONOUNS;PREF=1:xe/xir
+> convert
+"speakToAs": {
+  "grammaticalGender": "neuter",
+  "pronouns": {
+    "k1": {
+      "pronouns": "they/them",
+      "pref": 2
+    },
+    "k2": {
+      "pronouns": "xe/xir",
+      "pref": 1
+    }
+  }
+}
+> convert
+GRAMGENDER:NEUTER
+PRONOUNS;PREF=2;PROP-ID=k1:they/them
+PRONOUNS;PREF=1;PROP-ID=k2:xe/xir

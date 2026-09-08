@@ -1,0 +1,471 @@
+> test RFC9555 LANGUAGE - One Dominant Language
+FN;LANGUAGE=EN:John Doe
+TITLE;ALTID=1;LANGUAGE=EN:Boss
+TITLE;ALTID=1;LANGUAGE=fr:Patron
+> convert
+"language": "en",
+"name": {
+  "full": "John Doe"
+},
+"titles": {
+  "k1": {
+    "kind": "title",
+    "name": "Boss"
+  }
+},
+"localizations": {
+  "fr": {
+    "titles/k1/name": "Patron"
+  }
+},
+"vCard": {
+    "convertedProperties": {
+      "localizations/fr/titles~1k1~1name": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "name/full": {
+        "parameters": {
+          "language": "en"
+        }
+      },
+      "titles/k1/name": {
+        "parameters": {
+          "altid": "1",
+          "language": "en"
+        }
+      }
+    }
+}
+> convert
+FN;LANGUAGE=en:John Doe
+TITLE;PROP-ID=k1;ALTID=1;LANGUAGE=en:Boss
+TITLE;PROP-ID=k1;ALTID=1;LANGUAGE=fr:Patron
+LANGUAGE:en
+
+> test RFC9555 LANGUAGE - Property without Language
+FN:John Doe
+TITLE;ALTID=1:Boss
+TITLE;ALTID=1;LANGUAGE=fr:Patron
+> convert
+"name": {
+  "full": "John Doe"
+},
+"titles": {
+  "k1": {
+    "kind": "title",
+    "name": "Boss"
+  }
+},
+"localizations": {
+  "fr": {
+    "titles/k1/name": "Patron"
+  }
+},
+"vCard": {
+    "convertedProperties": {
+      "localizations/fr/titles~1k1~1name": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "titles/k1/name": {
+        "parameters": {
+          "altid": "1"
+        }
+      }
+    }
+}
+> convert
+FN:John Doe
+TITLE;PROP-ID=k1;ALTID=1:Boss
+TITLE;PROP-ID=k1;ALTID=1;LANGUAGE=fr:Patron
+
+> test RFC9555 PHONETIC
+LANGUAGE:zh-Hant
+N;ALTID=1;LANGUAGE=zh-Hant:孫;中山;文,逸仙;;
+N;ALTID=1;PHONETIC=jyut;SCRIPT=Latn;LANGUAGE=yue:syun1;zung1saan1;man4,jat6sin1;;
+> convert
+"language": "zh-Hant",
+"name": {
+  "components": [
+    { "kind": "surname", "value": "孫" },
+    { "kind": "given", "value": "中山" },
+    { "kind": "given2", "value": "文" },
+    { "kind": "given2", "value": "逸仙" }
+  ]
+},
+"localizations": {
+  "yue": {
+    "name/phoneticSystem": "jyut",
+    "name/phoneticScript": "Latn",
+    "name/components": [
+        { "kind": "surname", "value": "syun1" },
+        { "kind": "given", "value": "zung1saan1" },
+        { "kind": "given2", "value": "man4" },
+        { "kind": "given2", "value": "jat6sin1" }
+      ]
+  }
+},
+"vCard": {
+    "convertedProperties": {
+      "localizations/yue/name~1components": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "name/components": {
+        "parameters": {
+          "altid": "1",
+          "language": "zh-hant"
+        }
+      }
+    }
+}
+> convert
+LANGUAGE:zh-Hant
+N;JSCOMPS=";0;1;2;2,1";ALTID=1;LANGUAGE=zh-hant:孫;中山;文,逸仙;;;;
+N;SCRIPT=Latn;PHONETIC=JYUT;JSCOMPS=";0;1;2;2,1";ALTID=1;LANGUAGE=yue:syun1;zung1saan1;man4,jat6sin1;;;;
+
+> test RFC9555 PHONETIC with PROP-ID
+LANGUAGE:zh-Hant
+N;JSCOMPS=";0;1;2;2,1";ALTID=1;LANGUAGE=zh-hant:孫;中山;文,逸仙;;;;
+N;SCRIPT=Latn;PHONETIC=JYUT;JSCOMPS=";0;1;2;2,1";ALTID=1;LANGUAGE=yue:syun1;zung1saan1;man4,jat6sin1;;;;
+> convert
+"language": "zh-Hant",
+"localizations": {
+    "yue": {
+      "name/components": [
+        {
+          "kind": "surname",
+          "value": "syun1"
+        },
+        {
+          "kind": "given",
+          "value": "zung1saan1"
+        },
+        {
+          "kind": "given2",
+          "value": "man4"
+        },
+        {
+          "kind": "given2",
+          "value": "jat6sin1"
+        }
+      ],
+      "name/phoneticScript": "Latn",
+      "name/phoneticSystem": "jyut"
+    }
+},
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "孫"
+      },
+      {
+        "kind": "given",
+        "value": "中山"
+      },
+      {
+        "kind": "given2",
+        "value": "文"
+      },
+      {
+        "kind": "given2",
+        "value": "逸仙"
+      }
+    ],
+    "isOrdered": true
+  },
+  "vCard": {
+    "convertedProperties": {
+      "localizations/yue/name~1components": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "name/components": {
+        "parameters": {
+          "altid": "1",
+          "language": "zh-hant"
+        }
+      }
+    }
+}
+
+> test PRONOUNS with localizations
+PRONOUNS;ALTID=1;PREF=2;LANGUAGE=en:they/them
+PRONOUNS;ALTID=1;PREF=2;LANGUAGE=es:ellos/ellas
+PRONOUNS;ALTID=2;PREF=1;LANGUAGE=en:xe/xir
+PRONOUNS;ALTID=2;PREF=1;LANGUAGE=es:je/jit
+> convert
+"language": "en",
+  "localizations": {
+    "es": {
+      "speakToAs/pronouns/k1/pref": 2,
+      "speakToAs/pronouns/k1/pronouns": "ellos/ellas",
+      "speakToAs/pronouns/k2/pref": 1,
+      "speakToAs/pronouns/k2/pronouns": "je/jit"
+    }
+  },
+  "speakToAs": {
+    "pronouns": {
+      "k1": {
+        "pref": 2,
+        "pronouns": "they/them"
+      },
+      "k2": {
+        "pref": 1,
+        "pronouns": "xe/xir"
+      }
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "localizations/es/speakToAs~1pronouns~1k1~1pronouns": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "localizations/es/speakToAs~1pronouns~1k2~1pronouns": {
+        "parameters": {
+          "altid": "2"
+        }
+      },
+      "speakToAs/pronouns/k1/pronouns": {
+        "parameters": {
+          "altid": "1",
+          "language": "en"
+        }
+      },
+      "speakToAs/pronouns/k2/pronouns": {
+        "parameters": {
+          "altid": "2",
+          "language": "en"
+        }
+      }
+    }
+  }
+> convert
+LANGUAGE:en
+PRONOUNS;PREF=2;PROP-ID=k1;ALTID=1;LANGUAGE=en:they/them
+PRONOUNS;PREF=1;PROP-ID=k2;ALTID=2;LANGUAGE=en:xe/xir
+PRONOUNS;PREF=2;PROP-ID=k1;ALTID=1;LANGUAGE=es:ellos/ellas
+PRONOUNS;PREF=1;PROP-ID=k2;ALTID=2;LANGUAGE=es:je/jit
+
+> test ADR with localizations
+ADR;ALTID=1;TYPE=work;LANGUAGE=en;LABEL="Main Office":
+ ;;54321 Oak St;Reston;VA;20190;USA;;;;54321;Oak St;;;;;;
+ADR;ALTID=1;TYPE=work;LANGUAGE=es;LABEL="Oficina Principal":
+ ;;Calle Roble 54321;Restón;Virginia;20190;EE UU;;;;54321;Calle Roble;;;;;;
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "locality",
+          "value": "Reston"
+        },
+        {
+          "kind": "region",
+          "value": "VA"
+        },
+        {
+          "kind": "postcode",
+          "value": "20190"
+        },
+        {
+          "kind": "country",
+          "value": "USA"
+        },
+        {
+          "kind": "number",
+          "value": "54321"
+        },
+        {
+          "kind": "name",
+          "value": "Oak St"
+        }
+      ],
+      "contexts": {
+        "work": true
+      },
+      "full": "Main Office"
+    }
+  },
+  "language": "en",
+  "localizations": {
+    "es": {
+      "addresses/k1/components": [
+        {
+          "kind": "locality",
+          "value": "Restón"
+        },
+        {
+          "kind": "region",
+          "value": "Virginia"
+        },
+        {
+          "kind": "postcode",
+          "value": "20190"
+        },
+        {
+          "kind": "country",
+          "value": "EE UU"
+        },
+        {
+          "kind": "number",
+          "value": "54321"
+        },
+        {
+          "kind": "name",
+          "value": "Calle Roble"
+        }
+      ],
+      "addresses/k1/contexts": {
+        "work": true
+      },
+      "addresses/k1/full": "Oficina Principal"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "addresses/k1/components": {
+        "parameters": {
+          "altid": "1",
+          "language": "en"
+        }
+      },
+      "localizations/es/addresses~1k1~1components": {
+        "parameters": {
+          "altid": "1"
+        }
+      }
+    }
+}
+> convert
+ADR;TYPE=WORK;LABEL="Main Office";PROP-ID=k1;JSCOMPS=";3;4;5;6;10;11";ALTID=
+ 1;LANGUAGE=en:;;54321,Oak St;Reston;VA;20190;USA;;;;54321;Oak St;;;;;;
+ADR;TYPE=WORK;LABEL="Oficina Principal";PROP-ID=k1;JSCOMPS=";3;4;5;6;10;11";
+ ALTID=1;LANGUAGE=es:;;54321,Calle Roble;Restón;Virginia;20190;EE UU;;;;543
+ 21;Calle Roble;;;;;;
+LANGUAGE:en
+
+> test ADR with partial patch localizations
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "locality",
+          "value": "Reston"
+        },
+        {
+          "kind": "region",
+          "value": "VA"
+        },
+        {
+          "kind": "postcode",
+          "value": "20190"
+        },
+        {
+          "kind": "country",
+          "value": "USA"
+        },
+        {
+          "kind": "number",
+          "value": "54321"
+        },
+        {
+          "kind": "name",
+          "value": "Oak St"
+        }
+      ],
+      "full": "Main Office"
+    }
+  },
+  "language": "en",
+  "localizations": {
+    "es": {
+      "addresses/k1/components/0/phonetic": "Restón",
+      "addresses/k1/components/1/phonetic": "Virginia",
+      "addresses/k1/components/2/phonetic": "20190",
+      "addresses/k1/components/3/phonetic": "EE UU",
+      "addresses/k1/components/4/phonetic": "54321",
+      "addresses/k1/components/5/phonetic": "Calle Roble",
+      "addresses/k1/full": "Oficina Principal"
+    }
+}
+> convert
+ADR;LABEL="Main Office";PROP-ID=k1;JSCOMPS=";3;4;5;6;10;11":;;54321,Oak St;R
+ eston;VA;20190;USA;;;;54321;Oak St;;;;;;
+ADR;LABEL="Oficina Principal";PROP-ID=k1;JSCOMPS=";3;4;5;6;10;11";LANGUAGE=
+ es:;;54321,Calle Roble;Restón;Virginia;20190;EE UU;;;;54321;Calle Roble;;;
+ ;;;
+LANGUAGE:en
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "locality",
+          "value": "Reston"
+        },
+        {
+          "kind": "region",
+          "value": "VA"
+        },
+        {
+          "kind": "postcode",
+          "value": "20190"
+        },
+        {
+          "kind": "country",
+          "value": "USA"
+        },
+        {
+          "kind": "number",
+          "value": "54321"
+        },
+        {
+          "kind": "name",
+          "value": "Oak St"
+        }
+      ],
+      "full": "Main Office",
+      "isOrdered": true
+    }
+  },
+  "language": "en",
+  "localizations": {
+    "es": {
+      "addresses/k1/components": [
+        {
+          "kind": "locality",
+          "value": "Restón"
+        },
+        {
+          "kind": "region",
+          "value": "Virginia"
+        },
+        {
+          "kind": "postcode",
+          "value": "20190"
+        },
+        {
+          "kind": "country",
+          "value": "EE UU"
+        },
+        {
+          "kind": "number",
+          "value": "54321"
+        },
+        {
+          "kind": "name",
+          "value": "Calle Roble"
+        }
+      ],
+      "addresses/k1/full": "Oficina Principal"
+    }
+  }

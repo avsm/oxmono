@@ -1,0 +1,5 @@
+(library
+ (name vcard)
+ (public_name vcard)
+ (private_modules vcard_result)
+ (libraries ptime))

@@ -1,0 +1,162 @@
+> test RFC9555 ADR
+ADR;TYPE=work;CC=US:
+ ;;54321 Oak St;Reston;VA;20190;USA;;;;54321;Oak St;;;;;;
+> convert
+"addresses": {
+  "k1" : {
+    "contexts": { "work": true },
+    "components": [
+      { "kind": "locality", "value": "Reston" },
+      { "kind": "region", "value": "VA" },
+      { "kind": "postcode", "value": "20190" },
+      { "kind": "country", "value": "USA" },
+      { "kind": "number", "value": "54321" },
+      { "kind": "name", "value": "Oak St" }
+    ],
+    "countryCode": "US"
+  }
+}
+> convert
+ADR;TYPE=WORK;CC=US;PROP-ID=k1;JSCOMPS=";3;4;5;6;10;11":
+ ;;54321,Oak St;Reston;VA;20190;USA;;;;54321;Oak St;;;;;;
+
+> test RFC9555 GEO TZ
+GEO:37.618889;-122.375
+TZ:+0100
+> convert
+"addresses": {
+    "k1": {
+      "timeZone": "Etc/GMT-1"
+    },
+    "k2": {
+      "coordinates": "37.618889;-122.375"
+    }
+},
+"vCard": {
+    "convertedProperties": {
+      "addresses/k1/timeZone": {
+        "name": "tz"
+      },
+      "addresses/k2/coordinates": {
+        "name": "geo"
+      }
+    }
+}
+
+> test RFC9555 JSCOMPS
+"addresses": {
+  "a1": {
+    "components": [
+      { "kind": "number", "value": "54321" },
+      { "kind": "separator", "value": " " },
+      { "kind": "name", "value": "Oak St" },
+      { "kind": "locality", "value": "Reston" }
+    ],
+    "defaultSeparator": ", ",
+    "isOrdered": true
+  }
+}
+> convert
+ADR;PROP-ID=a1;JSCOMPS="s,\, ;10;s, ;11;3":;;54321,Oak St;Reston;;;;;;;54321;Oak St;;;;;;
+
+> test ADR with GEO and TZ parameters
+ADR;GEO="37.618889;-122.375";TZ="+0100";CC=US:
+ ;;54321 Oak St;Reston;VA;20190;USA;;;;54321;Oak St;;;;;;
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "locality",
+          "value": "Reston"
+        },
+        {
+          "kind": "region",
+          "value": "VA"
+        },
+        {
+          "kind": "postcode",
+          "value": "20190"
+        },
+        {
+          "kind": "country",
+          "value": "USA"
+        },
+        {
+          "kind": "number",
+          "value": "54321"
+        },
+        {
+          "kind": "name",
+          "value": "Oak St"
+        }
+      ],
+      "coordinates": "37.618889;-122.375",
+      "countryCode": "US",
+      "timeZone": "+0100"
+    }
+  }
+> convert
+ADR;CC=US;TZ=+0100;GEO="37.618889;-122.375";PROP-ID=k1;JSCOMPS=";3;4;5;6;10;11":
+ ;;54321,Oak St;Reston;VA;20190;USA;;;;54321;Oak St;;;;;;
+
+> test ADR with GEO and TZ parameters and properties
+ADR;GEO="37.618889;-122.375";TZ="+0100";CC=US:
+ ;;54321 Oak St;Reston;VA;20190;USA;;;;54321;Oak St;;;;;;
+GEO:11;-9
+TZ:-0300
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "locality",
+          "value": "Reston"
+        },
+        {
+          "kind": "region",
+          "value": "VA"
+        },
+        {
+          "kind": "postcode",
+          "value": "20190"
+        },
+        {
+          "kind": "country",
+          "value": "USA"
+        },
+        {
+          "kind": "number",
+          "value": "54321"
+        },
+        {
+          "kind": "name",
+          "value": "Oak St"
+        }
+      ],
+      "coordinates": "37.618889;-122.375",
+      "countryCode": "US",
+      "timeZone": "+0100"
+    },
+    "k2": {
+      "timeZone": "Etc/GMT+3"
+    },
+    "k3": {
+      "coordinates": "11;-9"
+    }
+  },
+  "vCard": {
+    "convertedProperties": {
+      "addresses/k2/timeZone": {
+        "name": "tz"
+      },
+      "addresses/k3/coordinates": {
+        "name": "geo"
+      }
+    }
+  }
+> convert
+ADR;CC=US;TZ=+0100;GEO="37.618889;-122.375";PROP-ID=k1;JSCOMPS=";3;4;5;6;10;11":
+ ;;54321,Oak St;Reston;VA;20190;USA;;;;54321;Oak St;;;;;;
+TZ:-0300
+GEO:11;-9

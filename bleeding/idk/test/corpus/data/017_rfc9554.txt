@@ -1,0 +1,508 @@
+> test RFC9554 ADR
+ADR;GEO="geo:12.3457,78.910":
+ ;;123 Main Street;Any Town;CA;91921-1234;U.S.A
+ ;;;;123;Main Street;;;;;;
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "locality",
+          "value": "Any Town"
+        },
+        {
+          "kind": "region",
+          "value": "CA"
+        },
+        {
+          "kind": "postcode",
+          "value": "91921-1234"
+        },
+        {
+          "kind": "country",
+          "value": "U.S.A"
+        },
+        {
+          "kind": "number",
+          "value": "123"
+        },
+        {
+          "kind": "name",
+          "value": "Main Street"
+        }
+      ],
+      "coordinates": "geo:12.3457,78.910"
+    }
+}
+> convert
+ADR;GEO="geo:12.3457,78.910";PROP-ID=k1;JSCOMPS=";3;4;5;6;10;11":
+ ;;123,Main Street;Any Town;CA;91921-1234;U.S.A
+ ;;;;123;Main Street;;;;;;
+
+> test RFC9554 N #1
+N:Public;John;Quinlan;Mr.;Esq.
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "Public"
+      },
+      {
+        "kind": "given",
+        "value": "John"
+      },
+      {
+        "kind": "given2",
+        "value": "Quinlan"
+      },
+      {
+        "kind": "title",
+        "value": "Mr."
+      },
+      {
+        "kind": "credential",
+        "value": "Esq."
+      }
+    ]
+}
+> convert
+N;JSCOMPS=";0;1;2;3;4":Public;John;Quinlan;Mr.;Esq.;;
+
+> test RFC9554 N #2
+N:Stevenson;John;Philip,Paul;Dr.;Jr.,M.D.,A.C.P.;;Jr.
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "Stevenson"
+      },
+      {
+        "kind": "given",
+        "value": "John"
+      },
+      {
+        "kind": "given2",
+        "value": "Philip"
+      },
+      {
+        "kind": "given2",
+        "value": "Paul"
+      },
+      {
+        "kind": "title",
+        "value": "Dr."
+      },
+      {
+        "kind": "credential",
+        "value": "M.D."
+      },
+      {
+        "kind": "credential",
+        "value": "A.C.P."
+      },
+      {
+        "kind": "generation",
+        "value": "Jr."
+      }
+    ]
+}
+> convert
+N;JSCOMPS=";0;1;2;2,1;3;4;4,1;6":Stevenson;John;Philip,Paul;Dr.;M.D.,A.C.P.,Jr.;;Jr.
+
+> test RFC9554 CREATED
+CREATED:20220705T093412Z
+> convert
+"created": "2022-07-05T09:34:12Z"
+
+> test RFC9554 CREATED VALUE=TIMESTAMP
+CREATED;VALUE=TIMESTAMP:20211022T140000-05
+> convert
+"created": "2021-10-22T19:00:00Z"
+> convert
+CREATED:20211022T190000Z
+
+> test RFC9554 GRAMGENDER
+GRAMGENDER;LANGUAGE=de:feminine
+> convert
+"speakToAs": {
+    "grammaticalGender": "feminine"
+},
+"vCard": {
+    "convertedProperties": {
+      "speakToAs/grammaticalGender": {
+        "parameters": {
+          "language": "de"
+        }
+      }
+    }
+}
+
+
+> test RFC9554 LANGUAGE
+LANGUAGE:de-AT
+> convert
+"language": "de-AT"
+
+
+> test RFC9554 PRONOUNS
+PRONOUNS;LANGUAGE=en;PREF=1:xe/xir
+PRONOUNS;LANGUAGE=en;PREF=2:they/them
+> convert
+"language": "en",
+"speakToAs": {
+    "pronouns": {
+      "k1": {
+        "pref": 1,
+        "pronouns": "xe/xir"
+      },
+      "k2": {
+        "pref": 2,
+        "pronouns": "they/them"
+      }
+    }
+},
+"vCard": {
+    "convertedProperties": {
+      "speakToAs/pronouns/k1/pronouns": {
+        "parameters": {
+          "language": "en"
+        }
+      },
+      "speakToAs/pronouns/k2/pronouns": {
+        "parameters": {
+          "language": "en"
+        }
+      }
+    }
+}
+> convert
+LANGUAGE:en
+PRONOUNS;PREF=1;PROP-ID=k1;LANGUAGE=en:xe/xir
+PRONOUNS;PREF=2;PROP-ID=k2;LANGUAGE=en:they/them
+
+> test RFC9554 SOCIALPROFILE
+SOCIALPROFILE;SERVICE-TYPE=Mastodon:https://example.com/@foo
+SOCIALPROFILE:https://example.com/ietf
+SOCIALPROFILE;SERVICE-TYPE=SomeSite;VALUE=text:peter94
+> convert
+"onlineServices": {
+    "k1": {
+      "service": "Mastodon",
+      "uri": "https://example.com/@foo"
+    },
+    "k2": {
+      "uri": "https://example.com/ietf"
+    },
+    "k3": {
+      "service": "SomeSite",
+      "uri": "peter94"
+    }
+},
+"vCard": {
+    "convertedProperties": {
+      "onlineServices/k3/uri": {
+        "parameters": {
+          "value": "TEXT"
+        }
+      }
+    }
+}
+> convert
+SOCIALPROFILE;SERVICE-TYPE=Mastodon;PROP-ID=k1:https://example.com/@foo
+SOCIALPROFILE;PROP-ID=k2:https://example.com/ietf
+SOCIALPROFILE;SERVICE-TYPE=SomeSite;PROP-ID=k3;VALUE=TEXT:peter94
+
+> test RFC9554 NOTE AUTHOR
+NOTE;AUTHOR="mailto:john@example.com":This is some note.
+> convert
+"notes": {
+    "k1": {
+      "author": {
+        "uri": "mailto:john@example.com"
+      },
+      "note": "This is some note."
+    }
+}
+> convert
+NOTE;AUTHOR="mailto:john@example.com";PROP-ID=k1:This is some note.
+
+> test RFC9554 NOTE AUTHOR-NAME
+NOTE;AUTHOR-NAME=John Doe:This is some note.
+NOTE;AUTHOR-NAME="_:l33tHckr:_":A note by an unusual author name.
+> convert
+"notes": {
+    "k1": {
+      "author": {
+        "name": "John Doe"
+      },
+      "note": "This is some note."
+    },
+    "k2": {
+      "author": {
+        "name": "_:l33tHckr:_"
+      },
+      "note": "A note by an unusual author name."
+    }
+}
+> convert
+NOTE;AUTHOR-NAME="John Doe";PROP-ID=k1:This is some note.
+NOTE;AUTHOR-NAME="_:l33tHckr:_";PROP-ID=k2:A note by an unusual author name.
+
+> test RFC9554 NOTE CREATED
+NOTE;CREATED=20221122T151823Z:This is some note.
+> convert
+"notes": {
+    "k1": {
+      "created": "2022-11-22T15:18:23Z",
+      "note": "This is some note."
+    }
+}
+> convert
+NOTE;CREATED=20221122T151823Z;PROP-ID=k1:This is some note.
+
+> test RFC9554 N FN
+N:;John;Quinlan;Mr.;
+FN;DERIVED=TRUE:Mr. John Quinlan
+> convert
+"name": {
+    "components": [
+      {
+        "kind": "given",
+        "value": "John"
+      },
+      {
+        "kind": "given2",
+        "value": "Quinlan"
+      },
+      {
+        "kind": "title",
+        "value": "Mr."
+      }
+    ],
+    "full": "Mr. John Quinlan"
+  },
+  "vCard": {
+    "convertedProperties": {
+      "name/full": {
+        "parameters": {
+          "derived": "true"
+        }
+      }
+    }
+}
+> convert
+N;JSCOMPS=";1;2;3":;John;Quinlan;Mr.;;;
+FN;DERIVED=TRUE:Mr. John Quinlan
+
+> test RFC9554 ADR LABEL
+ADR;LABEL="Mr. John Q. Public, Esq.\nMail Drop: TNE QB\n123
+ Main Street\nAny Town, CA  91921-1234\nU.S.A.":
+ ;;123 Main Street;Any Town;CA;91921-1234;U.S.A.
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "name",
+          "value": "123 Main Street"
+        },
+        {
+          "kind": "locality",
+          "value": "Any Town"
+        },
+        {
+          "kind": "region",
+          "value": "CA"
+        },
+        {
+          "kind": "postcode",
+          "value": "91921-1234"
+        },
+        {
+          "kind": "country",
+          "value": "U.S.A."
+        }
+      ],
+      "full": "Mr. John Q. Public, Esq.\nMail Drop: TNE QB\n123Main Street\nAny Town, CA  91921-1234\nU.S.A."
+    }
+}
+> convert
+ADR;LABEL="Mr. John Q. Public, Esq.\nMail Drop: TNE QB\n123
+ Main Street\nAny Town, CA  91921-1234\nU.S.A.";PROP-ID=k1;JSCOMPS=";11;3;4;5;6":
+ ;;123 Main Street;Any Town;CA;91921-1234;U.S.A.;;;;;123 Main Street;;;;;;
+
+> test RFC9554 N ALTID
+N;ALTID=1;LANGUAGE=zh-Hant:孫;中山;文,逸仙;;;;
+N;ALTID=1;PHONETIC=jyut;
+ SCRIPT=Latn;LANGUAGE=yue:syun1;zung1saan1;man4,jat6sin1;;;;
+> convert
+"language": "zh-hant",
+"localizations": {
+    "yue": {
+      "name/components": [
+        {
+          "kind": "surname",
+          "value": "syun1"
+        },
+        {
+          "kind": "given",
+          "value": "zung1saan1"
+        },
+        {
+          "kind": "given2",
+          "value": "man4"
+        },
+        {
+          "kind": "given2",
+          "value": "jat6sin1"
+        }
+      ],
+      "name/phoneticScript": "Latn",
+      "name/phoneticSystem": "jyut"
+    }
+  },
+  "name": {
+    "components": [
+      {
+        "kind": "surname",
+        "value": "孫"
+      },
+      {
+        "kind": "given",
+        "value": "中山"
+      },
+      {
+        "kind": "given2",
+        "value": "文"
+      },
+      {
+        "kind": "given2",
+        "value": "逸仙"
+      }
+    ]
+  },
+  "vCard": {
+    "convertedProperties": {
+      "localizations/yue/name~1components": {
+        "parameters": {
+          "altid": "1"
+        }
+      },
+      "name/components": {
+        "parameters": {
+          "altid": "1",
+          "language": "zh-hant"
+        }
+      }
+    }
+}
+> convert
+N;JSCOMPS=";0;1;2;2,1";ALTID=1;LANGUAGE=zh-hant:孫;中山;文,逸仙;;;;
+N;SCRIPT=Latn;PHONETIC=JYUT;JSCOMPS=";0;1;2;2,1";ALTID=1;LANGUAGE=yue:
+ syun1;zung1saan1;man4,jat6sin1;;;;
+LANGUAGE:zh-hant
+
+> test RFC9554 PHOTO
+PHOTO;PROP-ID=p827:data:image/jpeg;base64,MIICajCCAdOgAwIB
+> convert
+"media": {
+    "p827": {
+      "kind": "photo",
+      "uri": "data:image/jpeg;base64,MIICajCCAdOgAwIB"
+    }
+}
+> convert
+PHOTO;PROP-ID=p827:data:image/jpeg;base64\,MIICajCCAdOgAwIB
+
+> test RFC9554 SOCIALPROFILE
+SOCIALPROFILE;SERVICE-TYPE=Mastodon:https://example.com/@foo
+SOCIALPROFILE;USERNAME="The Foo":https://example.com/@foo
+> convert
+"onlineServices": {
+    "k1": {
+      "service": "Mastodon",
+      "uri": "https://example.com/@foo"
+    },
+    "k2": {
+      "uri": "https://example.com/@foo",
+      "user": "The Foo"
+    }
+}
+> convert
+SOCIALPROFILE;SERVICE-TYPE=Mastodon;PROP-ID=k1:https://example.com/@foo
+SOCIALPROFILE;USERNAME="The Foo";PROP-ID=k2:https://example.com/@foo
+
+> test RFC9554 ADR billing
+ADR;TYPE=billing:;;123 Main Street;Any Town;CA;91921-1234;U.S.A.
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "name",
+          "value": "123 Main Street"
+        },
+        {
+          "kind": "locality",
+          "value": "Any Town"
+        },
+        {
+          "kind": "region",
+          "value": "CA"
+        },
+        {
+          "kind": "postcode",
+          "value": "91921-1234"
+        },
+        {
+          "kind": "country",
+          "value": "U.S.A."
+        }
+      ],
+      "contexts": {
+        "billing": true
+      }
+    }
+}
+> convert
+ADR;TYPE=BILLING;PROP-ID=k1;JSCOMPS=";11;3;4;5;6":;;123 Main Street;Any Town;
+ CA;91921-1234;U.S.A.;;;;;123 Main Street;;;;;;
+
+> test RFC9554 ADR delivery
+ADR;TYPE=delivery:;;123 Main Street;Any Town;CA;91921-1234;U.S.A.
+> convert
+"addresses": {
+    "k1": {
+      "components": [
+        {
+          "kind": "name",
+          "value": "123 Main Street"
+        },
+        {
+          "kind": "locality",
+          "value": "Any Town"
+        },
+        {
+          "kind": "region",
+          "value": "CA"
+        },
+        {
+          "kind": "postcode",
+          "value": "91921-1234"
+        },
+        {
+          "kind": "country",
+          "value": "U.S.A."
+        }
+      ],
+      "contexts": {
+        "delivery": true
+      }
+    }
+}
+> convert
+ADR;TYPE=DELIVERY;PROP-ID=k1;JSCOMPS=";11;3;4;5;6":;;123 Main Street;Any Tow
+ n;CA;91921-1234;U.S.A.;;;;;123 Main Street;;;;;;
+

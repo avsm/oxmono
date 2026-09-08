@@ -1,0 +1,4 @@
+(test
+ (name test_ical)
+ (package ical)
+ (libraries ical vcard alcotest ptime))

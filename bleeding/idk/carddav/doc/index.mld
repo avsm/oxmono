@@ -1,0 +1,74 @@
+{0 carddav}
+
+CardDAV for OCaml. An implementation of
+{{:https://www.rfc-editor.org/rfc/rfc6352.html}RFC 6352} on {!Httpz_dav} and
+{!Fetch_dav}, with the sync-collection report of
+{{:https://www.rfc-editor.org/rfc/rfc6578.html}RFC 6578} and the discovery of
+{{:https://www.rfc-editor.org/rfc/rfc6764.html}RFC 6764}.
+
+{1 Three libraries}
+
+- [carddav] is the protocol. {!Carddav.Property} names the address book
+  properties, {!Carddav.Filter} and {!Carddav.Report} build the
+  addressbook-query and addressbook-multiget reports and read their answers,
+  {!Carddav.Addressbook} reads an address book collection from a PROPFIND,
+  {!Carddav.Error} names the conditions, and {!Carddav.Data} is the
+  representation of an address object a client reads and writes.
+- [carddav.eio] is the client. {!Carddav_eio.Client.connect} finds the principal
+  and its address book home from a URL, and every other function is one request
+  over {!Fetch_dav}.
+- [carddav.jscontact] is {!Carddav_jscontact.card}, the representation that
+  reads and writes address objects as JSContact cards through the conversion of
+  {{:https://www.rfc-editor.org/rfc/rfc9555.html}RFC 9555}.
+
+{1 One address book, three views}
+
+A CardDAV server stores vCards. Every client function that reads or writes an
+address object takes a {!Carddav.Data.t}, and the same call yields the vCard
+text with {!Carddav.Data.raw}, a {!Vcard.t} with {!Carddav.Data.vcard} or a
+{!Jscontact.Card.t} with {!Carddav_jscontact.card}:
+
+{[
+Eio_main.run @@ fun env ->
+Eio.Switch.run @@ fun sw ->
+let credentials = [ Fetch.Credential.basic ~user:"alice" ~password:"secret" ] in
+let client =
+  Carddav_eio.Client.connect ~sw ~credentials (Fetch_httpz.std env)
+    "https://contacts.example.com/.well-known/carddav"
+  |> Result.get_ok
+in
+let books = Carddav_eio.Client.addressbooks client |> Result.get_ok in
+let book = (List.hd books).href in
+let cards, _ =
+  Carddav_eio.Client.query Carddav_jscontact.card client book
+    Carddav.Filter.(v [ prop "EMAIL" [ text_match "example.com" ] ])
+  |> Result.get_ok
+in
+List.iter (fun (e : _ Carddav_eio.Client.entry) -> print_endline e.value.uid) cards
+]}
+
+A card read this way carries the vCard properties, parameters and names that
+have no JSContact counterpart, so writing it back with
+{!Carddav_eio.Client.put} loses nothing.
+
+{1 Synchronisation}
+
+{!Carddav_eio.Client.val-sync} runs the sync-collection report and fetches the
+changed members by multiget, so a client keeps one token per address book and
+receives the members that were added, changed or removed since. A server that
+forgets a token answers with the [DAV:valid-sync-token] condition, and the
+client starts again without one.
+
+{1 Servers that differ}
+
+A profile in {!Carddav_eio.Quirks} names what one service does differently, and
+the client consults it only where the difference matters.
+{!Carddav_eio.Quirks.fastmail} is applied to any Fastmail host by default, and
+{!Carddav_eio.Quirks.standard} expects the RFC.
+
+{1 Testing against a server}
+
+The unit tests check the library against the examples of the RFCs. The tests in
+[test/carddav/oracle] run against a Radicale server in docker, started by
+[scripts/carddav-up.sh], and are skipped unless [CARDDAV_ORACLE_URL] is set.
+They are the evidence for the profiles of {!Carddav_eio.Quirks}.

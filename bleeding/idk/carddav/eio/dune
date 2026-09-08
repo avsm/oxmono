@@ -1,0 +1,4 @@
+(library
+ (name carddav_eio)
+ (public_name carddav.eio)
+ (libraries carddav vcard httpz.dav fetch.dav fetch eio))

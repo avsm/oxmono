@@ -1,0 +1,102 @@
+(lang dune 3.21)
+
+(name idk)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/idk))
+
+(package
+ (name idk)
+ (synopsis "IDKit, contact data for OCaml")
+ (description
+  "The umbrella package of IDKit. It installs jscontact (RFC 9553 and its vCard conversion), vcard (RFC 6350), ical (RFC 5545), carddav (RFC 6352) and caldav (RFC 4791), each with an Eio client on fetch.dav, the packages contact data moves between.")
+ (depends
+  (ocaml (>= 5.2.0))
+  jscontact
+  vcard
+  ical
+  carddav
+  caldav
+  httpz
+  fetch
+  fetch-httpz
+  eio
+  eio_main
+  (odoc :with-doc)))
+
+(package
+ (name jscontact)
+ (synopsis "JSContact contact data for OCaml")
+ (description
+  "An implementation of JSContact (RFC 9553), the JSON representation of contact data, with jsont codecs for every object type, semantic validation, and the localization algorithm.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (jsont (>= 0.3.0))
+  (json-pointer (>= 0.1.0))
+  (ptime (>= 1.0.0))
+  vcard
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))))
+
+(package
+ (name carddav)
+ (synopsis "CardDAV client for OCaml")
+ (description
+  "An implementation of CardDAV (RFC 6352) on httpz.dav and fetch.dav, with the address book properties, the addressbook-query and addressbook-multiget reports, the sync-collection report of RFC 6578 and the discovery of RFC 6764. The carddav.eio library is a client on Eio and fetch, and carddav.jscontact reads and writes address objects as JSContact cards through RFC 9555.")
+ (depends
+  (ocaml (>= 5.2.0))
+  httpz
+  fetch
+  fetch-httpz
+  vcard
+  jscontact
+  eio
+  eio_main
+  (odoc :with-doc)
+  (http :with-test)
+  (alcotest (and :with-test (>= 1.7.0)))))
+
+(package
+ (name ical)
+ (synopsis "iCalendar for OCaml")
+ (description
+  "An implementation of the iCalendar format (RFC 5545) with the properties of RFC 7986. Calendar objects are read and written losslessly, and typed readers read the dates, durations, periods and recurrence rules.")
+ (depends
+  (ocaml (>= 5.2.0))
+  vcard
+  (ptime (>= 1.0.0))
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))))
+
+(package
+ (name caldav)
+ (synopsis "CalDAV client for OCaml")
+ (description
+  "An implementation of CalDAV (RFC 4791) on httpz.dav and fetch.dav, with the calendar properties, MKCALENDAR, the calendar-query, calendar-multiget and free-busy-query reports, and the sync-collection report of RFC 6578. The caldav.eio library is a client on Eio and fetch.")
+ (depends
+  (ocaml (>= 5.2.0))
+  httpz
+  fetch
+  fetch-httpz
+  ical
+  eio
+  eio_main
+  (odoc :with-doc)
+  (http :with-test)
+  (vcard :with-test)
+  (alcotest (and :with-test (>= 1.7.0)))))
+
+(package
+ (name vcard)
+ (synopsis "vCard 4.0 contact data for OCaml")
+ (description
+  "An implementation of the vCard 4.0 format (RFC 6350) with the parameter escapes of RFC 6868 and the JSContact extensions of RFC 9554 and RFC 9555. Cards are read and written losslessly, and typed accessors read the value data types, the N and ADR components and the JSCOMPS parameter.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (ptime (>= 1.0.0))
+  (odoc :with-doc)
+  (alcotest (and :with-test (>= 1.7.0)))))

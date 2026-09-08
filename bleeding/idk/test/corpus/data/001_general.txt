@@ -1,0 +1,43 @@
+> test RFC9555 KIND
+KIND:individual
+> convert
+"kind": "individual"
+
+> test RFC9555 SOURCE
+SOURCE:https://dir.example.com/addrbook/jdoe/Jean%20Dupont.vcf
+> convert
+"directories": {
+   "k1": {
+     "kind": "entry",
+     "uri": "https://dir.example.com/addrbook/jdoe/Jean%20Dupont.vcf"
+   }
+}
+> convert
+SOURCE;PROP-ID=k1:https://dir.example.com/addrbook/jdoe/Jean%20Dupont.vcf
+
+> test RFC9555 XML
+XML:<?xml version="1.0" encoding="UTF-8"?>
+> convert
+"vCard": {
+    "properties": [
+      [
+        "xml",
+        {},
+        "unknown",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+      ]
+    ]
+  }
+
+> test RFC9555 PHOTO
+PHOTO:https://www.example.com/pub/photos/jqpublic.gif
+> convert
+"media": {
+   "k1": {
+     "kind": "photo",
+     "uri": "https://www.example.com/pub/photos/jqpublic.gif"
+   }
+}
+> convert
+PHOTO;PROP-ID=k1:https://www.example.com/pub/photos/jqpublic.gif
+

@@ -83,9 +83,7 @@ let v ?(media = "application/json") ?(accept = [ "application/*+json" ])
       match Jsont_bytesrw.encode ?format t value ~eod:false writer with
       | Ok () -> ()
       | Result.Error error -> invalid_arg ("Httpz_media.Json: " ^ sanitize error))
-    (* Jsont's reader decoder predates portable-mode annotations. Each
-       decoding invocation owns its parser and structural guard state. *)
-    ~decode:(Obj.magic_portable decode_reader)
+    ~decode:decode_reader
 
 let json = v Jsont.json
 

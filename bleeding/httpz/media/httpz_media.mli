@@ -23,6 +23,7 @@ module Json : sig
     'a Jsont.t ->
     Bytesrw.Bytes.Reader.t ->
     ('a, Jsont.Error.t) result
+    @@ portable
   (** [decode' t reader] is [Jsont_bytesrw.decode'] with JSON arrays and
       objects bounded by [max_depth], which defaults to {!default_max_depth}.
       The outermost container has depth one and zero accepts scalars only.
@@ -40,6 +41,7 @@ module Json : sig
     'a Jsont.t ->
     string ->
     ('a, Jsont.Error.t) result
+    @@ portable
   (** [decode_string'] is {!decode'} over a string. *)
 
   type detail += Error of Jsont.Error.t

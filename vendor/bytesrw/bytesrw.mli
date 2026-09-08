@@ -518,7 +518,7 @@ module Bytes : sig
 
     (** {1:taps Taps} *)
 
-    val tap : (Slice.t -> unit) -> t -> t
+    val tap : (Slice.t -> unit) -> t -> t @@ portable
     (** [tap f r] invokes [f] with the slice read by [r] before returning
         them with {!read}. Note that {!push_back}s are not tapped, so
         this can be used reliably for checksumming the reads of [r].

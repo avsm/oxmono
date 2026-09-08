@@ -23,7 +23,9 @@ slices whose first offset is not zero.
 The portable surface is intentionally selective. The operations needed to
 construct and run Jsont and Httpz media streams are portable, including slice
 construction and buffering, reader construction/read/string conversion, and
-writer construction/write/string conversion. A concrete reader or writer is
+writer construction/write/string conversion. `Reader.tap` also exposes a
+compiler-checked portable operation for HTTPz and JMAP decoding. Its implementation
+is unchanged. A concrete reader or writer is
 still mutable, domain-bound stream state; portability applies to the operation
 closures that a codec captures, not to moving an active stream between
 domains. Error-formatting and tracing APIs retain their upstream modes.

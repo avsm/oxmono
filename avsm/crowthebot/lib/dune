@@ -1,0 +1,18 @@
+(library
+ (name crowthebot)
+ (public_name crowthebot)
+ (private_modules profile)
+ (libraries
+  matrix-chat.bot
+  matrix-chat.eio
+  openrouter
+  fetch
+  fetch-httpz
+  sortal.feed
+  sqlite3-eio
+  eio
+  eio.unix
+  xdge
+  jsont
+  jsont.bytesrw
+  unix))

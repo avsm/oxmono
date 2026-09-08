@@ -1,0 +1,6 @@
+(test
+ (name test_crow)
+ (libraries crowthebot sqlite3-eio eio_main fetch.mock jsont jsont.bytesrw))
+
+(cram
+ (deps ../bin/main.exe))

@@ -1,0 +1,3 @@
+(executable
+ (name probe)
+ (libraries crowthebot eio_main sqlite3-eio fetch-httpz))

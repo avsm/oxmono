@@ -73,6 +73,9 @@ The unreleased [JMAP client](bleeding/jmap/OXMONO.md),
 [JSON Pointer library](bleeding/json-pointer/OXMONO.md) retain their upstream
 source layouts and record local adaptations beside them.
 
+The [Crowthebot Matrix assistant](avsm/crowthebot/README.md) uses OpenRouter,
+profile-local SQLite authority and context, and Sortal OPML blogroll tools.
+
 ## Dependencies
 
 The workspace uses opam dependencies and the sources under `vendor/`.

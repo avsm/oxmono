@@ -1,0 +1,11 @@
+(lang dune 3.21)
+(name crowthebot)
+(generate_opam_files true)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(package
+ (name crowthebot)
+ (synopsis "A profile-based Matrix assistant using Fetch and OpenRouter")
+ (depends (ocaml (>= 5.2.0)) dune matrix-chat openrouter fetch fetch-httpz
+  sortal sqlite3-eio eio eio_main xdge jsont cmdliner logs fmt))

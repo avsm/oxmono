@@ -1,0 +1,5 @@
+(library
+ (name jsonm)
+ (public_name jsonm)
+ (wrapped false)
+ (libraries uutf))

@@ -87,7 +87,7 @@ omitted packages. The Uriz rewrite retains its package identity and exposes
 upstream's new `path_unencoded` name through its existing decoded-path API.
 
 The subsequent Uri migration removed the unused `cohttp-eio` vendor and its
-external Cohttp/Uri dependencies. The manifest now covers 36 directories.
+external Cohttp/Uri dependencies. The manifest then covered 36 directories.
 Consumers use the shared `Uriz.t`, including Fetch's signature context, and
 Uriz provides `with_query_params` and HTTP `canonicalize` operations for this
 port. Its [migration notes](ocaml-uri/README.md#compatibility-with-uri) describe
@@ -118,3 +118,8 @@ Some optional suites remain outside that passing set:
 - Digestif's alternative OCaml backend is not yet compatible with the port's
   portable virtual interface and OxCaml's local-aware byte helpers. The default
   C backend passes its 685 digest tests.
+
+Jsonm 1.0.2 was added on 2026-09-08 for JMAP's I-JSON validation. Its
+[port notes](jsonm/README.md) record the release base, compiler-checked
+annotations and differential test against pristine sources. With the earlier
+Uunf import, the manifest now records 38 vendors.

@@ -133,6 +133,14 @@
       "base_version": "v1.1.0"
     },
     {
+      "name": "jsonm",
+      "url": "https://github.com/dbuenzli/jsonm.git",
+      "branch": "HEAD",
+      "revision": "6e32959c508bba67e6e4e773ca8160b4723f3ee0",
+      "base_version": "v1.0.2",
+      "scope": "Core codec from src/, minimal Dune build. Imported release for JMAP on 2026-09-08."
+    },
+    {
       "name": "jsont",
       "url": "https://github.com/dbuenzli/jsont.git",
       "branch": "HEAD",

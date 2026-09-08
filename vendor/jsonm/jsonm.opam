@@ -1,0 +1,6 @@
+opam-version: "2.0"
+version: "1.0.2"
+synopsis: "Non-blocking JSON codec"
+license: "ISC"
+depends: ["ocaml" "dune" {>= "3.21"} "uutf"]
+build: [["dune" "build" "-p" name "-j" jobs]]

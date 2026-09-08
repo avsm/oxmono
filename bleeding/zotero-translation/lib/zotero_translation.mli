@@ -9,34 +9,32 @@
     Translation Server}, which provides DOI/URL resolution and bibliographic
     format export. *)
 
+module Bibtex = Bibtex
+(** BibTeX parsing and formatting without filesystem access. *)
+
 (** {1 Session} *)
 
 type t
 (** A Zotero Translation Server client. *)
 
-val create :
-  ?session:Fetch.plain ->
-  sw:Eio.Switch.t ->
-  < clock : _ Eio.Time.clock
-  ; mono_clock : _ Eio.Time.Mono.t
-  ; secure_random : _ Eio.Flow.source
-  ; .. > ->
-  base_url:string ->
-  t
-(** [create ?session ~sw env ~base_url] creates a client for the Zotero
-    Translation Server at [base_url].
+val of_fetch : base_url:string -> ?max_response_bytes:int -> _ Fetch.t -> t
+(** [of_fetch ~base_url fetch] uses [fetch] to access the translation server
+    at [base_url]. The caller owns the backend and its lifetime. The client
+    narrows this capability to POST requests beneath [base_url]. Redirects
+    are disabled. No network or filesystem access occurs during construction.
 
-    @param session Optional existing HTTP session to reuse
-    @param sw Eio switch for resource management
-    @param env Eio environment with the clocks and randomness [Fetch_curl.std]
-      needs
-    @param base_url Base URL of the translation server (e.g., "http://localhost:1969") *)
+    [max_response_bytes] defaults to 16 MiB. Error bodies are bounded by the
+    smaller of this limit and 64 KiB. Oversized error bodies are replaced by
+    a diagnostic while preserving the HTTP status in {!Api_error}.
+
+    @raise Invalid_argument if [base_url] is not an absolute HTTP(S) URL,
+    contains credentials, a query or a fragment, or the limit is negative. *)
 
 val base_url : t -> string
-(** [base_url t] returns the base URL of the translation server. *)
+(** [base_url t] is the canonical base URL, including a trailing slash. *)
 
 val http_session : t -> Fetch.plain
-(** [http_session t] returns the underlying HTTP session. *)
+(** [http_session t] is the narrowed Fetch capability used by [t]. *)
 
 (** {1 Export Formats} *)
 
@@ -72,7 +70,11 @@ val log_src : Logs.src
 (** Log source for the Zotero Translation client. *)
 
 exception Api_error of int * string
-(** API error with HTTP status code and message. *)
+(** [Api_error (status, body)] reports a response outside the 2xx range.
+    [body] is bounded as described in {!of_fetch}. Transport, redirect,
+    policy and decoding failures propagate as [Eio.Io] with [Fetch.E].
+    Cancellation propagates unchanged. Bound a whole operation with
+    [Eio.Time.Mono.with_timeout] and the caller's monotonic clock. *)
 
 (** {1 API Operations} *)
 

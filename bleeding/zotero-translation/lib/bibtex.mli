@@ -63,11 +63,11 @@ type error = error_kind * Tloc.t
 
 val pp_error : error Fmt.t
 
-val of_string : ?file:Fpath.t -> string -> (t list, error) result
-(** [of_string ~file s] parses entries from [s] assuming it
-    was read from [file] (defaults to [-]). *)
+val of_string : ?file:string -> string -> (t list, error) result
+(** [of_string ~file s] parses entries from [s]. [file] labels source
+    locations in errors and defaults to ["-"]. It is not opened. *)
 
-val of_string' : ?file:Fpath.t -> string -> (t list, string) result
+val of_string' : ?file:string -> string -> (t list, string) result
 (** [of_string'] is like {!of_string} but converts the error to an
     error message. *)
 

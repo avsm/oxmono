@@ -7,14 +7,13 @@
 module SM = Map.Make(String)
 
 module Tloc = struct
-  type fpath = string
   let pp_path = Format.pp_print_string
 
   type pos = int
   type line = int
 
   type t =
-    { file : fpath;
+    { file : string;
       sbyte : pos; ebyte : pos;
       sline : pos * line; eline : pos * line }
 
@@ -87,7 +86,7 @@ end
 
 module Tdec = struct
   type t =
-    { file : Tloc.fpath; i : string; tok : Buffer.t;
+    { file : string; i : string; tok : Buffer.t;
       mutable pos : int; mutable line : int; mutable line_pos : int; }
 
   let create ?(file = Tloc.no_file) i =
@@ -430,9 +429,8 @@ let dec_entries d =
   in
   loop d []
 
-let of_string ?(file = Fpath.v "-") s =
+let of_string ?(file = Tloc.no_file) s =
   try
-    let file = Fpath.to_string file in
     let d = Tdec.create ~file s in
     Ok (dec_entries d)
   with Tdec.Err (loc, msg) -> Error (msg, loc)

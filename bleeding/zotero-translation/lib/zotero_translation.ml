@@ -5,6 +5,7 @@
 
 (** Zotero Translation Server Client - Eio/Fetch implementation *)
 
+module Bibtex = Bibtex
 module J = Jsont.Json
 
 (* From the ZTS source code:  https://github.com/zotero/translation-server/blob/master/src/formats.js
@@ -85,12 +86,29 @@ let format_of_string = function
   | "wikipedia" -> Some Wikipedia
   | _ -> None
 
-(* Session type *)
-type t = { session : Fetch.plain; base_url : string }
+type t = {
+  session : Fetch.plain;
+  base_url : string;
+  max_response_bytes : int;
+}
 
-let create ?session ~sw env ~base_url =
-  let session = Option.value session ~default:(Fetch_curl.std ~sw env) in
-  { session; base_url }
+let of_fetch ~base_url ?(max_response_bytes = 16 * 1024 * 1024) session =
+  if max_response_bytes < 0 then
+    invalid_arg "Zotero response limit must be non-negative";
+  let module Url = Fetch.Middleware.Url in
+  let url =
+    match Url.of_string base_url with
+    | Ok url -> url
+    | Error _ -> invalid_arg "Zotero base URL must be an absolute HTTP(S) URL"
+  in
+  if Uriz.has_query (Url.to_uri url) || Url.has_fragment url then
+    invalid_arg "Zotero base URL cannot contain a query or fragment";
+  let base_url = Url.to_string url in
+  let base_url =
+    if String.ends_with ~suffix:"/" base_url then base_url else base_url ^ "/"
+  in
+  let session = Fetch.restrict ~under:[ base_url ] ~methods:[ `POST ] session in
+  { session; base_url; max_response_bytes }
 
 let base_url t = t.base_url
 let http_session t = t.session
@@ -101,92 +119,58 @@ module Log = (val Logs.src_log log_src : Logs.LOG)
 
 exception Api_error of int * string
 
-(* URL construction *)
-let endpoint base_uri path =
-  if String.ends_with ~suffix:"/" base_uri then base_uri ^ path
-  else base_uri ^ "/" ^ path
+let json = Fetch.Json.v Jsont.json
 
-let web_endp base_uri = endpoint base_uri "web"
-let export_endp base_uri = endpoint base_uri "export"
-let search_endp base_uri = endpoint base_uri "search"
-
-(* HTTP helpers *)
-
-(* [Fetch] has no [Response.ok]; 2xx is success. *)
-let ok response =
-  let status = Fetch.status response in
-  status >= 200 && status < 300
-
-let text response = Fetch.body response |> Eio.Flow.read_all
-
-let post_text_get_json t ~url ~body =
-  Log.debug (fun m -> m "POST %s (text body)" url);
-  let headers = Fetch.Header.[ content_type, media "text/plain" ] in
-  Fetch.with_response ~headers ~body:(Fetch.String body) t.session `POST url
-  @@ fun response ->
-  let status = Fetch.status response in
-  if ok response then begin
-    Log.debug (fun m -> m "Response: %d OK" status);
-    let body = text response in
-    match Jsont_bytesrw.decode_string Jsont.json body with
-    | Ok result -> result
-    | Error e ->
-        Log.err (fun m -> m "JSON parse error: %s" e);
-        failwith (Fmt.str "JSON parse error: %s" e)
-  end
-  else begin
-    let body = text response in
-    Log.err (fun m -> m "API error %d: %s" status body);
-    raise (Api_error (status, body))
-  end
-
-let post_json_get_text t ~url ~json =
-  Log.debug (fun m -> m "POST %s (JSON body)" url);
-  let headers = Fetch.Header.[ content_type, media "application/json" ] in
-  let body_str =
-    match Jsont_bytesrw.encode_string ~format:Jsont.Minify Jsont.json json with
-    | Ok s -> s
-    | Error e -> failwith (Fmt.str "JSON encode error: %s" e)
+let post t ~path ~input ~output ~accept:accept_type value =
+  let url = t.base_url ^ path in
+  Log.debug (fun m -> m "POST %s" url);
+  let headers, body = Fetch.encode input value in
+  let headers =
+    Fetch.Header.append headers Fetch.Header.[ accept, [ pref accept_type ] ]
   in
-  Fetch.with_response ~headers ~body:(Fetch.String body_str) t.session `POST url
+  Fetch.with_response ~headers ~body ~redirects:0 t.session `POST url
   @@ fun response ->
   let status = Fetch.status response in
-  if ok response then begin
-    Log.debug (fun m -> m "Response: %d OK" status);
-    text response
-  end
+  if status >= 200 && status < 300 then
+    Fetch.decode ~limit:t.max_response_bytes output response
   else begin
-    let body = text response in
-    Log.err (fun m -> m "API error %d: %s" status body);
+    let body =
+      try
+        Fetch.decode ~limit:(min t.max_response_bytes (64 * 1024))
+          Fetch.Media.octets response
+      with
+      | Eio.Io (Fetch.E (Fetch.Decode_failure { error = Too_large _; _ }), _) ->
+          "[response exceeds diagnostic limit]"
+    in
+    Log.err (fun m -> m "API error %d" status);
     raise (Api_error (status, body))
   end
+
+let post_text_get_json t ~path body =
+  post t ~path ~input:Fetch.Media.text ~output:json
+    ~accept:"application/json" body
 
 (* API operations *)
 let resolve_doi t doi =
   let body = "https://doi.org/" ^ doi in
-  let url = web_endp t.base_url in
   Log.info (fun m -> m "Resolving DOI: %s" doi);
-  post_text_get_json t ~url ~body
+  post_text_get_json t ~path:"web" body
 
 let resolve_url t target_url =
-  let url = web_endp t.base_url in
   Log.info (fun m -> m "Resolving URL: %s" target_url);
-  post_text_get_json t ~url ~body:target_url
+  post_text_get_json t ~path:"web" target_url
 
 let search_id t doi =
   let body = "https://doi.org/" ^ doi in
-  let url = search_endp t.base_url in
   Log.info (fun m -> m "Searching DOI: %s" doi);
-  post_text_get_json t ~url ~body
+  post_text_get_json t ~path:"search" body
 
-let export t format json =
-  let url =
-    let base = export_endp t.base_url in
-    let uri = Uriz.of_string_exn base in
-    Uriz.add_query_param uri ~key:"format" ~value:(format_to_string format) |> Uriz.to_string
-  in
+let export t format metadata =
+  let path = "export?format=" ^ format_to_string format in
   Log.info (fun m -> m "Exporting to format: %s" (format_to_string format));
-  let result = post_json_get_text t ~url ~json in
+  let result =
+    post t ~path ~input:json ~output:Fetch.Media.octets ~accept:"*/*" metadata
+  in
   match format with
   | Bibtex -> Astring.String.trim result
   | _ -> result

@@ -1,0 +1,12 @@
+(test
+ (name test_zotero_translation)
+ (libraries
+  zotero-translation
+  alcotest
+  fetch
+  fetch.mock
+  eio
+  eio.mock
+  http
+  jsont
+  astring))

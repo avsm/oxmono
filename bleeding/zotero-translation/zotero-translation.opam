@@ -14,13 +14,12 @@ depends: [
   "ocaml" {>= "5.1.0"}
   "eio" {>= "1.0"}
   "fetch"
-  "fetch-curl"
   "jsont" {>= "0.1"}
   "uriz"
   "astring"
-  "fpath"
   "fmt"
   "logs"
+  "alcotest" {with-test}
   "odoc" {with-doc}
 ]
 build: [

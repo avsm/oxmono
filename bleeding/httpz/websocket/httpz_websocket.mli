@@ -1,12 +1,12 @@
 (* SPDX-License-Identifier: ISC *)
 
+@@ portable
+
 (** RFC 6455 handshakes and bounded WebSocket connections over borrowed bytes.
 
     This library performs no network discovery. Callers supply an HTTP upgrade
     and byte transport, with TLS, timeouts and access policy where appropriate.
     It supports version 13 without extensions or compression. *)
-
-@@ portable
 
 type role = Client | Server
 type kind = Text | Binary

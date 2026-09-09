@@ -19,6 +19,7 @@ standalone OxCaml checkout and intentional monorepo adaptations.
 | `httpz.dav` | `Httpz_dav` | Bounded WebDAV protocol values and XML codecs |
 | `httpz.tls` | `Httpz_tls` | Eio TLS client and server flows |
 | `httpz.websocket` | `Httpz_websocket` | WebSocket handshakes, byte framing and bounded connections |
+| `httpz.websocket-eio` | `Httpz_websocket_eio` | Bounded WS/WSS client connections, TLS, ping and cancellation |
 | `httpz.cookie` | `Cookie` | Cookie parsing and serialization |
 | `httpz.cookie.jar` | `Cookie_jar` | Cookie persistence and request selection |
 | `httpz.punycode` | `Punycode` | Punycode conversion |

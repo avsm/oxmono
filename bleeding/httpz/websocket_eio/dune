@@ -1,0 +1,4 @@
+(library
+ (name httpz_websocket_eio)
+ (public_name httpz.websocket-eio)
+ (libraries httpz httpz.uri httpz.tls httpz.websocket eio))

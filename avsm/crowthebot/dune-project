@@ -8,4 +8,4 @@
  (name crowthebot)
  (synopsis "A profile-based Matrix assistant using Fetch and OpenRouter")
  (depends (ocaml (>= 5.2.0)) dune matrix-chat openrouter fetch fetch-httpz
-  sortal sqlite3-eio eio eio_main xdge jsont cmdliner logs fmt))
+  sortal sqlite3-eio eio eio_main xdge jsont ptime cmdliner logs fmt syndic xmlm digestif ipaddr owntracks uri))

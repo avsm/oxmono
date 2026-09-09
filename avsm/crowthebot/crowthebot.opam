@@ -17,9 +17,16 @@ depends: [
   "eio_main"
   "xdge"
   "jsont"
+  "ptime"
   "cmdliner"
   "logs"
   "fmt"
+  "syndic"
+  "xmlm"
+  "digestif"
+  "ipaddr"
+  "owntracks"
+  "uri"
   "odoc" {with-doc}
 ]
 build: [

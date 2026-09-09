@@ -51,7 +51,7 @@ let () =
     check "bounded context" (List.length messages <= 10);
     if !tool_mode && !tool_step = 0 then begin
       incr tool_step;
-      check "tool advertised" (List.length tools = 1);
+      check "plugin, memory and cron tools advertised" (List.length tools = 8);
       ( None,
         [
           Openrouter.Tool.
@@ -162,49 +162,6 @@ let () =
          ignore
            (Engine.create ~config:{ config with plugins = [ "missing" ] }
               ~store ~self ~plugins:[ plugin ] ~complete ~now:(fun () -> 0.))));
-  let reads = ref 0 and feed_clock = ref 0. in
-  let feed_source =
-    "<opml version='1.0'><body><outline text='A' \
-     xmlUrl='https://a.example/feed'/></body></opml>"
-  in
-  let fetch =
-    Fetch_mock.client (fun req ->
-        incr reads;
-        check "blogroll GET" (req.meth = `GET);
-        check "fixed blogroll URL"
-          (Fetch.Middleware.Url.path_and_query req.url
-          = "/network/blogroll.opml");
-        Fetch_mock.respond feed_source req)
-  in
-  let blogroll = Plugin.blogroll ~fetch ~now:(fun () -> !feed_clock) in
-  ignore (blogroll.run ~query:"");
-  ignore (blogroll.run ~query:"A");
-  check "blogroll cache" (!reads = 1);
-  feed_clock := 3601.;
-  ignore (blogroll.run ~query:"");
-  check "blogroll cache refresh" (!reads = 2);
-  let refused status =
-    let fetch = Fetch_mock.client (Fetch_mock.respond ~status feed_source) in
-    let plugin = Plugin.blogroll ~fetch ~now:(fun () -> 0.) in
-    try
-      ignore (plugin.run ~query:"");
-      false
-    with Failure _ -> true
-  in
-  check "blogroll non-success rejected" (refused 503);
-  check "blogroll redirect rejected" (refused 302);
-  let flood =
-    Plugin.blogroll
-      ~now:(fun () -> 0.)
-      ~fetch:
-        (Fetch_mock.client
-           (Fetch_mock.respond (String.make ((2 * 1024 * 1024) + 2) 'x')))
-  in
-  check "blogroll body bound"
-    (try
-       ignore (flood.run ~query:"");
-       false
-     with Eio.Buf_read.Buffer_limit_exceeded | Failure _ -> true);
   let native =
     Openrouter.of_fetch ~base_url:"https://model.example/v1"
       (Fetch_mock.client (fun req ->

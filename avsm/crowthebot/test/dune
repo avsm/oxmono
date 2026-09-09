@@ -1,6 +1,65 @@
 (test
  (name test_crow)
+ (modules test_crow)
  (libraries crowthebot sqlite3-eio eio_main fetch.mock jsont jsont.bytesrw))
+
+(test
+ (name test_address)
+ (modules test_address)
+ (libraries crowthebot sqlite3-eio eio_main jsont jsont.bytesrw))
+
+(test
+ (name test_verification)
+ (modules test_verification)
+ (libraries crowthebot eio_main fetch.mock http jsont jsont.bytesrw))
+
+(test
+ (name test_memory)
+ (modules test_memory)
+ (libraries crowthebot sqlite3-eio eio_main))
+
+(test
+ (name test_daily)
+ (modules test_daily)
+ (libraries crowthebot sqlite3-eio eio_main fetch.mock http))
+
+(test
+ (name test_cron)
+ (modules test_cron)
+ (libraries crowthebot sqlite3-eio eio_main fetch.mock http))
+
+(test
+ (name test_capabilities)
+ (modules test_capabilities)
+ (libraries crowthebot eio_main))
 
 (cram
  (deps ../bin/main.exe))
+
+(test
+ (name test_feeds)
+ (modules test_feeds)
+ (libraries crowthebot sqlite3-eio eio_main eio.mock fetch.mock http ipaddr))
+
+(test
+ (name test_feed_migration)
+ (modules test_feed_migration)
+ (libraries crowthebot sqlite3-eio eio_main))
+
+(test
+ (name test_secrets)
+ (modules test_secrets)
+ (libraries crowthebot eio_main fetch.mock http jsont jsont.bytesrw))
+
+(test
+ (name test_locations)
+ (modules test_locations)
+ (libraries
+  crowthebot
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  uri
+  jsont
+  jsont.bytesrw))

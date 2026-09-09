@@ -61,6 +61,7 @@ let load dir =
   match Jsont_bytesrw.decode_string Config.jsont (Eio.Path.load path) with
   | Error _ -> failwith "invalid crowthebot.json configuration"
   | Ok config ->
+      let config = Config.upgrade config in
       Config.validate config;
       config
 

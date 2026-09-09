@@ -14,20 +14,23 @@ let () =
   Store.add_room store "!probe:example.org";
   let fetch = Fetch_httpz.std ~cookies:`Off env in
   let client = Openrouter.of_fetch ~base_url:config.base_url fetch in
-  let plugin = Plugin.blogroll ~fetch ~now:(fun () -> 0.) in
-  let calls = ref 0 in
-  let plugin =
-    {
-      plugin with
-      run =
-        (fun ~query ->
-          incr calls;
-          plugin.run ~query);
-    }
+  let feeds =
+    Feeds.create ~state:(Store.feeds store)
+      ~download:(fun ~url:_ ~etag:_ ~last_modified:_ ->
+        failwith "probe must not fetch feeds")
   in
+  let calls = ref 0 in
   let engine =
-    Engine.create ~config ~store ~self:"@crow:example.org" ~plugins:[ plugin ]
-      ~complete:(App.complete env config client) ~now:(fun () -> 0.)
+    Engine.create ~config ~store ~self:"@crow:example.org" ~plugins:[]
+      ~complete:(fun messages tools ->
+        let text, tool_calls = App.complete env config client messages tools in
+        List.iter
+          (fun (call : Openrouter.Tool.call) ->
+            if call.name = "feeds_list" then incr calls)
+          tool_calls;
+        (text, tool_calls))
+      ~now:(fun () -> 0.)
+    |> fun engine -> Engine.with_feeds engine feeds
   in
   Eio.Time.with_timeout_exn (Eio.Stdenv.clock env) 180. (fun () ->
       Engine.handle engine ~send:print_endline
@@ -36,9 +39,9 @@ let () =
           sender = config.admin;
           id = "$probe";
           body =
-            "!crow ask Use the blogroll tool to find Anil Madhavapeddy's feed. \
-             Report its URL.";
+            "!crow ask Use feeds_list to check my subscriptions. Report what \
+             you find.";
         });
-  if !calls = 0 then failwith "model did not call the blogroll tool";
+  if !calls = 0 then failwith "model did not call the feed tool";
   Printf.printf
     "Live Crow model/tool/delivery workflow passed (%d tool calls).\n" !calls

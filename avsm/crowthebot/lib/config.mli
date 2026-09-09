@@ -16,3 +16,8 @@ val jsont : t Jsont.t
 
 val validate : t -> unit
 (** [validate t] checks identity, server URLs and resource bounds. *)
+
+val upgrade : t -> t
+(** [upgrade t] removes the retired fixed blogroll plugin and its old default
+    prompt suffix when loading an existing profile. It preserves other settings.
+*)

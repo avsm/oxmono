@@ -70,11 +70,33 @@ let join =
       $ Arg.(required & pos 0 (some string) None & info [] ~docv:"ROOM"))
 
 let serve =
-  command "run" "Run Crow in this profile's explicitly enabled rooms."
+  command "run" "Run Crow in enabled rooms and approved direct messages."
     Term.(
       const (fun profile api_key_file ->
           run (fun env sw -> Crowthebot.App.run ~env ~sw ~profile ~api_key_file))
       $ profile $ api_key_file)
+
+let verify =
+  command "verify" "Verify Crow's saved Matrix device by comparing emoji."
+    Term.(
+      const (fun profile user listen room recovery_key_file ->
+          run (fun env sw ->
+              Crowthebot.App.verify ~env ~sw ~profile ~user ~listen ~room
+                ~recovery_key_file))
+      $ profile
+      $ Arg.(
+          value
+          & pos 0 (some string) None
+          & info [] ~docv:"USER"
+              ~doc:"Matrix user to verify with. Defaults to the primary admin.")
+      $ Arg.(
+          value & flag
+          & info [ "listen" ]
+              ~doc:
+                "Wait for USER to request verification in their Matrix client.")
+      $ optional [ "room" ] "Use this joined room ID for verification."
+      $ optional [ "recovery-key-file" ]
+          "0600 file containing Crow's account recovery key for cross-signing.")
 
 let people =
   command "people" "List the whitelist and people awaiting admin approval."
@@ -83,12 +105,56 @@ let people =
           run (fun env sw -> Crowthebot.App.people ~env ~sw ~profile))
       $ profile)
 
-let blogroll =
-  command "blogroll" "Read the public blogroll without a Matrix login."
+let memory =
+  command "memory" "Store, search, retrieve or erase shared profile facts."
     Term.(
-      const (fun query ->
-          run (fun env _ -> Crowthebot.App.blogroll ~env ~query))
-      $ Arg.(value & pos 0 string "" & info [] ~docv:"QUERY"))
+      const (fun profile args ->
+          run (fun env sw ->
+              Crowthebot.App.memory ~env ~sw ~profile
+                ~command:(String.concat " " args)))
+      $ profile
+      $ Arg.(
+          non_empty & pos_all string []
+          & info [] ~docv:"COMMAND"
+              ~doc:"store FACT, search QUERY, list, get ID, or erase ID."))
+
+let day = optional [ "day" ] "UTC day in YYYY-MM-DD format."
+
+let tools =
+  command "tools" "Read the persisted tool-use log (100 records per page)."
+    Term.(
+      const (fun profile day after ->
+          run (fun env sw -> Crowthebot.App.tools ~env ~sw ~profile ~day ~after))
+      $ profile $ day
+      $ Arg.(
+          value & opt int 0
+          & info [ "after" ] ~doc:"Read records after this log ID."))
+
+let note =
+  command "note"
+    "Read or generate a daily tool-use note. Defaults to yesterday."
+    Term.(
+      const (fun profile day generate api_key_file ->
+          run (fun env sw ->
+              Crowthebot.App.note ~env ~sw ~profile ~day ~generate ~api_key_file))
+      $ profile $ day
+      $ Arg.(
+          value & flag
+          & info [ "generate" ]
+              ~doc:
+                "Generate a missing or outdated note with the configured model.")
+      $ api_key_file)
+
+let feeds =
+  command "feeds"
+    "Inspect, poll or remove feed subscriptions. Add feeds from Matrix."
+    Term.(
+      const (fun profile args ->
+          run (fun env sw ->
+              Crowthebot.App.feeds ~env ~sw ~profile
+                ~command:(String.concat " " args)))
+      $ profile
+      $ Arg.(non_empty & pos_all string [] & info [] ~docv:"COMMAND"))
 
 let probe =
   command "probe" "Test the configured model without sending Matrix messages."
@@ -98,10 +164,36 @@ let probe =
               Crowthebot.App.probe ~env ~sw ~profile ~api_key_file))
       $ profile $ api_key_file)
 
+let config =
+  Cmd.group
+    (Cmd.info "config"
+       ~doc:"Maintain private named tool configurations outside chat.")
+    (List.map
+       (Crowthebot.Tool_config.command ~profile ~run:(fun ~profile action ->
+            run (fun env sw ->
+                Crowthebot.App.configure ~env ~sw ~profile action)))
+       [
+         Crowthebot.Locations.configuration;
+         Crowthebot.Model_config.configuration;
+       ])
+
 let () =
   exit
     (Cmd.eval'
        (Cmd.group
           (Cmd.info "crowthebot" ~version:"dev"
              ~doc:"A Matrix assistant with per-profile authority and context.")
-          [ init; login; join; serve; people; blogroll; probe ]))
+          [
+            init;
+            login;
+            join;
+            serve;
+            verify;
+            people;
+            memory;
+            tools;
+            note;
+            feeds;
+            probe;
+            config;
+          ]))
